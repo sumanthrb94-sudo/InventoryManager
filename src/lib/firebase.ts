@@ -32,4 +32,4 @@ async function testConnection() {
     }
   }
 }
-testConnection();
+void testConnection();

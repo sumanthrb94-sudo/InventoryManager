@@ -4,13 +4,12 @@ import App from './App.tsx';
 import './index.css';
 import { seedDefaultInventoryData } from './lib/seedData';
 
-async function bootstrap() {
-  await seedDefaultInventoryData();
-  createRoot(document.getElementById('root')!).render(
-    <StrictMode>
-      <App />
-    </StrictMode>,
-  );
-}
+createRoot(document.getElementById('root')!).render(
+  <StrictMode>
+    <App />
+  </StrictMode>,
+);
 
-void bootstrap();
+void seedDefaultInventoryData().catch(err => {
+  console.error('Inventory seed failed:', err);
+});

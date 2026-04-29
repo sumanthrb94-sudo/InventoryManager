@@ -142,38 +142,42 @@ async function writeInitialData(suppliers: Record<string, any>[], units: StoredU
 export async function seedDefaultInventoryData() {
   if (typeof window === 'undefined') return;
 
-  await ensureAnonymousAuth();
+  try {
+    await ensureAnonymousAuth();
 
-  const [supplierCount, unitCount] = await Promise.all([
-    readFirestoreCount('suppliers'),
-    readFirestoreCount('inventoryUnits'),
-  ]);
+    const [supplierCount, unitCount] = await Promise.all([
+      readFirestoreCount('suppliers'),
+      readFirestoreCount('inventoryUnits'),
+    ]);
 
-  if (supplierCount > 0 && unitCount > 0) {
+    if (supplierCount > 0 && unitCount > 0) {
+      await clearLocalCache();
+      return;
+    }
+
+    const { existingSuppliers, existingUnits } = getLocalFallback();
+    const hasExistingData = existingSuppliers.length > 0 && existingUnits.length > 0;
+
+    let suppliers: Record<string, any>[];
+    let units: StoredUnit[];
+
+    if (hasExistingData && !hasDuplicateIds(existingUnits)) {
+      suppliers = existingSuppliers.map(supplier => ({ ...supplier }));
+      units = normaliseUnits(existingUnits);
+    } else {
+      const seedModule = (await import('../../imported_inventory.json')) as { default: SeedInventory };
+      const seed = seedModule.default;
+      if (!seed?.suppliers?.length || !seed?.units?.length) return;
+
+      suppliers = seed.suppliers.map(supplier => ({ ...supplier }));
+      units = normaliseUnits(seed.units);
+    }
+
+    if (!suppliers.length || !units.length) return;
+
+    await writeInitialData(suppliers, units);
     await clearLocalCache();
-    return;
+  } catch (error) {
+    console.warn('Seed skipped because Firestore was unavailable.', error);
   }
-
-  const { existingSuppliers, existingUnits } = getLocalFallback();
-  const hasExistingData = existingSuppliers.length > 0 && existingUnits.length > 0;
-
-  let suppliers: Record<string, any>[];
-  let units: StoredUnit[];
-
-  if (hasExistingData && !hasDuplicateIds(existingUnits)) {
-    suppliers = existingSuppliers.map(supplier => ({ ...supplier }));
-    units = normaliseUnits(existingUnits);
-  } else {
-    const seedModule = (await import('../../imported_inventory.json')) as { default: SeedInventory };
-    const seed = seedModule.default;
-    if (!seed?.suppliers?.length || !seed?.units?.length) return;
-
-    suppliers = seed.suppliers.map(supplier => ({ ...supplier }));
-    units = normaliseUnits(seed.units);
-  }
-
-  if (!suppliers.length || !units.length) return;
-
-  await writeInitialData(suppliers, units);
-  await clearLocalCache();
 }
