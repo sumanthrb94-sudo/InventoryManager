@@ -102,24 +102,48 @@ export default function Inventory({ initialFilters = {} }: { initialFilters?: In
 
   // Build + filter + sort
   const allSummaries = useMemo(() => buildSummaries(units), [units]);
+  const searchDigits = search.replace(/\D/g, '');
+  const isImeiSearch = /^\d{6,}$/.test(searchDigits);
+
+  useEffect(() => {
+    if (!isImeiSearch) return;
+
+    const matchingKeys = allSummaries
+      .filter(summary =>
+        summary.variants.some(variant =>
+          variant.units.some(unit => unit.imei.includes(searchDigits))
+        )
+      )
+      .map(summary => `${summary.brand}||${summary.model}`);
+
+    if (matchingKeys.length === 0) return;
+
+    setExpanded(prev => {
+      const next = new Set(prev);
+      let changed = false;
+      for (const key of matchingKeys) {
+        if (!next.has(key)) {
+          next.add(key);
+          changed = true;
+        }
+      }
+      return changed ? next : prev;
+    });
+  }, [allSummaries, isImeiSearch, searchDigits]);
 
   const filtered = useMemo(() => {
-    const isImei = /^\d{6,}$/.test(search.replace(/\D/g,''));
     const results = allSummaries.filter(s => {
       if (catFilter !== 'All' && s.category !== catFilter) return false;
       if (flagFilter !== 'All' && !s.flags.includes(flagFilter as OperationalFlag)) return false;
       if (supplierFilter !== 'All') {
-        const sup = suppliers.find(x => x.id === supplierFilter);
         if (!s.variants.some(v => v.units.some(u => u.supplierId === supplierFilter))) return false;
       }
       if (statusFilter !== 'All') {
         if (!s.variants.some(v => v.units.some(u => u.status === statusFilter))) return false;
       }
       if (!search) return true;
-      if (isImei) {
-        const match = s.variants.some(v => v.units.some(u => u.imei.includes(search.replace(/\D/g,''))));
-        if (match) setExpanded(prev => new Set([...prev, `${s.brand}||${s.model}`]));
-        return match;
+      if (isImeiSearch) {
+        return s.variants.some(v => v.units.some(u => u.imei.includes(searchDigits)));
       }
       return s.model.toLowerCase().includes(search.toLowerCase()) ||
              s.brand.toLowerCase().includes(search.toLowerCase()) ||
