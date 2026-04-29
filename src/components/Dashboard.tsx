@@ -6,6 +6,7 @@ import {
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts';
 import { dbService } from '../lib/dbService';
 import { InventoryUnit, Supplier } from '../types';
+import { getOnHandValue } from '../lib/inventorySummary';
 
 export interface NavAction {
   tab: 'inventory' | 'suppliers' | 'scan' | 'calendar';
@@ -34,7 +35,7 @@ export default function Dashboard({ onNavigate }: Props) {
   const available    = units.filter(u => u.status === 'available');
   const sold         = units.filter(u => u.status === 'sold');
   const returned     = units.filter(u => u.status === 'returned');
-  const totalValue   = available.reduce((s, u) => s + u.buyPrice, 0);
+  const totalValue   = getOnHandValue(units);
   const top10Units   = available.filter(u => u.flags.includes('top10'));
   const today        = new Date().toISOString().split('T')[0];
   const todayArrivals = units.filter(u => u.dateIn === today);

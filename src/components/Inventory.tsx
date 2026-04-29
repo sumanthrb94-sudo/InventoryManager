@@ -10,6 +10,7 @@ import { InventoryUnit, Supplier, OperationalFlag, DeviceCategory, ModelSummary 
 import UnitDetailDrawer from './UnitDetailDrawer';
 import QuickSaleModal from './QuickSaleModal';
 import { validateIMEI } from '../lib/imeiUtils';
+import { getOnHandValue } from '../lib/inventorySummary';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 const CATEGORY_COLOURS: Record<string, string> = {
@@ -157,7 +158,7 @@ export default function Inventory({ initialFilters = {} }: { initialFilters?: In
   const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
   const paginated  = filtered.slice((page-1)*pageSize, page*pageSize);
   const totalAvail = units.filter(u => u.status === 'available').length;
-  const totalValue = units.filter(u => u.status !== 'sold').reduce((s,u) => s + u.buyPrice, 0);
+  const totalValue = getOnHandValue(units);
 
   const toggleExpand = (key: string) =>
     setExpanded(prev => { const n = new Set(prev); n.has(key) ? n.delete(key) : n.add(key); return n; });
