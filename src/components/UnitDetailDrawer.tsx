@@ -28,10 +28,14 @@ interface Props {
 export default function UnitDetailDrawer({ unit, supplierName, onClose }: Props) {
   const [tab, setTab]           = useState<'detail' | 'actions'>('detail');
   const [notes, setNotes]       = useState(unit.notes || '');
+  const [listingSites, setListingSites] = useState<string[]>(unit.listingSites || []);
   const [salePrice, setSalePrice] = useState<string>(unit.salePrice?.toString() || '');
   const [platform, setPlatform] = useState(unit.salePlatform || 'eBay');
   const [saving, setSaving]     = useState(false);
   const [saved, setSaved]       = useState(false);
+
+  const hasListingSites = listingSites.length > 0;
+  const isListed = hasListingSites || unit.platformListed;
 
   const imeiDigits = unit.imei.replace(/\D/g, '');
   const imeiValid  = imeiDigits.length === 15 ? validateIMEI(unit.imei) : null;
@@ -52,13 +56,13 @@ export default function UnitDetailDrawer({ unit, supplierName, onClose }: Props)
       date: unit.dateIn,
       done: true,
     },
-    {
-      icon: <ShoppingBag size={14} />,
-      label: 'Listed on Platform',
-      value: unit.platformListed ? (unit.salePlatform || 'Active listing') : 'Not yet listed',
-      date: null,
-      done: unit.platformListed,
-    },
+      {
+        icon: <ShoppingBag size={14} />,
+        label: 'Listed on Platform',
+        value: hasListingSites ? listingSites.join(' / ') : (unit.platformListed ? 'Listed' : 'Not yet listed'),
+        date: null,
+        done: isListed,
+      },
     {
       icon: <CheckCircle2 size={14} />,
       label: 'Sold',
@@ -75,9 +79,11 @@ export default function UnitDetailDrawer({ unit, supplierName, onClose }: Props)
     await dbService.update('inventoryUnits', unit.id, { flags });
   };
 
-  const toggleListed = async () => {
+  const updateListingSites = async (nextSites: string[]) => {
+    setListingSites(nextSites);
     await dbService.update('inventoryUnits', unit.id, {
-      platformListed: !unit.platformListed,
+      listingSites: nextSites,
+      platformListed: nextSites.length > 0,
     });
   };
 
@@ -215,7 +221,10 @@ export default function UnitDetailDrawer({ unit, supplierName, onClose }: Props)
                   { label: 'Buy Price',    value: `£${unit.buyPrice}` },
                   { label: 'Supplier',     value: supplierName || '—' },
                   { label: 'Date In',      value: new Date(unit.dateIn).toLocaleDateString('en-GB') },
-                  { label: 'Platform Qty', value: unit.platformListed ? 'Listed (1)' : 'Unlisted (0)' },
+                  {
+                    label: 'Listing Sites',
+                    value: hasListingSites ? listingSites.join(' / ') : (unit.platformListed ? 'Listed' : 'Unlisted'),
+                  },
                   ...(unit.salePrice ? [{ label: 'Sale Price', value: `£${unit.salePrice}` }] : []),
                   ...(unit.salePlatform ? [{ label: 'Sold Via', value: unit.salePlatform }] : []),
                 ].map(d => (
@@ -246,21 +255,34 @@ export default function UnitDetailDrawer({ unit, supplierName, onClose }: Props)
               {unit.status !== 'sold' && (
                 <div className="bg-gray-50 rounded-2xl p-4">
                   <p className="text-[10px] font-bold uppercase tracking-widest text-gray-500 mb-3">Platform Listing</p>
-                  <div className="flex items-center justify-between">
+                  <div className="flex items-center justify-between gap-3 mb-3">
                     <div>
-                      <p className="text-sm font-bold">{unit.platformListed ? 'Listed — Qty 1' : 'Not Listed — Qty 0'}</p>
-                      <p className="text-[10px] text-gray-400 font-mono mt-0.5">eBay / Amazon / OnBuy / Backmarket</p>
+                      <p className="text-sm font-bold">
+                        {hasListingSites ? `${listingSites.length} site${listingSites.length === 1 ? '' : 's'} selected` : (unit.platformListed ? 'Listed' : 'Not listed')}
+                      </p>
+                      <p className="text-[10px] text-gray-400 font-mono mt-0.5">Select every marketplace this IMEI is listed on</p>
                     </div>
-                    <button
-                      onClick={toggleListed}
-                      className={`px-4 py-2 rounded-xl text-[10px] font-bold uppercase tracking-widest transition-all ${
-                        unit.platformListed
-                          ? 'bg-gray-200 text-gray-700 hover:bg-gray-300'
-                          : 'bg-black text-white hover:bg-gray-800'
-                      }`}
-                    >
-                      {unit.platformListed ? 'Set Qty 0' : 'Set Qty 1'}
-                    </button>
+                    <span className={`text-[9px] font-bold px-2.5 py-1 rounded-full font-mono uppercase ${
+                      isListed ? 'bg-black text-white' : 'bg-gray-100 text-gray-500'
+                    }`}>
+                      {isListed ? 'Listed' : 'Unlisted'}
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    {PLATFORMS.map(site => {
+                      const active = listingSites.includes(site);
+                      return (
+                        <button
+                          key={site}
+                          onClick={() => updateListingSites(active ? listingSites.filter(value => value !== site) : [...listingSites, site])}
+                          className={`px-3 py-2.5 rounded-xl text-[10px] font-bold uppercase tracking-widest transition-all border ${
+                            active ? 'bg-black text-white border-black' : 'bg-white text-gray-600 border-gray-200 hover:border-gray-400'
+                          }`}
+                        >
+                          {site}
+                        </button>
+                      );
+                    })}
                   </div>
                 </div>
               )}

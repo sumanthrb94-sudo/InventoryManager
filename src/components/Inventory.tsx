@@ -11,6 +11,8 @@ import UnitDetailDrawer from './UnitDetailDrawer';
 import QuickSaleModal from './QuickSaleModal';
 import { validateIMEI } from '../lib/imeiUtils';
 import { getOnHandValue } from '../lib/inventorySummary';
+import { buildModelSummaries } from '../lib/modelSummaries';
+import BulkListingModal from './BulkListingModal';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 const CATEGORY_COLOURS: Record<string, string> = {
@@ -37,28 +39,6 @@ const SORT_OPTS   = [
   { value:'value_asc',   label:'Lowest Value' },
 ];
 const PAGE_SIZE_OPTS = [10, 25, 50, 100];
-
-// ─── Model summary builder ────────────────────────────────────────────────────
-function buildSummaries(units: InventoryUnit[]): ModelSummary[] {
-  const map = new Map<string, ModelSummary>();
-  for (const unit of units) {
-    const key = `${unit.brand}||${unit.model}`;
-    if (!map.has(key)) map.set(key, {
-      model:unit.model, brand:unit.brand, category:unit.category,
-      variants:[], totalAvailable:0, totalValue:0, flags:[], latestDateIn:unit.dateIn,
-    });
-    const s = map.get(key)!;
-    let v = s.variants.find(x => x.colour === unit.colour);
-    if (!v) { v = { colour:unit.colour, availableCount:0, units:[], lowestBuyPrice:unit.buyPrice }; s.variants.push(v); }
-    v.units.push(unit);
-    if (unit.status === 'available') { v.availableCount++; s.totalAvailable++; }
-    if (unit.buyPrice < v.lowestBuyPrice) v.lowestBuyPrice = unit.buyPrice;
-    if (unit.status !== 'sold') s.totalValue += unit.buyPrice;
-    for (const f of unit.flags) if (!s.flags.includes(f)) s.flags.push(f);
-    if (unit.dateIn > s.latestDateIn) s.latestDateIn = unit.dateIn;
-  }
-  return Array.from(map.values());
-}
 
 function applySort(list: ModelSummary[], sort: string): ModelSummary[] {
   const [field, dir] = sort.split('_');
@@ -89,6 +69,7 @@ export default function Inventory({ initialFilters = {} }: { initialFilters?: In
   const [expandedModels, setExpanded] = useState<Set<string>>(new Set());
   const [selectedUnit, setSelectedUnit] = useState<InventoryUnit | null>(null);
   const [quickUnit, setQuickUnit] = useState<InventoryUnit | null>(null);
+  const [bulkListingOpen, setBulkListingOpen] = useState(false);
   const [pageSize, setPageSize]   = useState(25);
   const [page, setPage]           = useState(1);
   const [showFilters, setShowFilters] = useState(
@@ -102,7 +83,7 @@ export default function Inventory({ initialFilters = {} }: { initialFilters?: In
   }, []);
 
   // Build + filter + sort
-  const allSummaries = useMemo(() => buildSummaries(units), [units]);
+  const allSummaries = useMemo(() => buildModelSummaries(units), [units]);
   const searchDigits = search.replace(/\D/g, '');
   const isImeiSearch = /^\d{6,}$/.test(searchDigits);
 
@@ -168,11 +149,19 @@ export default function Inventory({ initialFilters = {} }: { initialFilters?: In
   return (
     <div className="space-y-4 pb-24 md:pb-8 max-w-full overflow-x-hidden">
       {/* Header */}
-      <div className="flex flex-col gap-1">
-        <h2 className="text-2xl font-bold tracking-tighter uppercase font-display">Inventory</h2>
-        <p className="text-[10px] text-gray-500 font-mono uppercase tracking-widest">
-          {totalAvail} available · £{totalValue.toLocaleString()} · {units.length} total units
-        </p>
+      <div className="flex items-start justify-between gap-3">
+        <div className="flex flex-col gap-1">
+          <h2 className="text-2xl font-bold tracking-tighter uppercase font-display">Inventory</h2>
+          <p className="text-[10px] text-gray-500 font-mono uppercase tracking-widest">
+            {totalAvail} available · £{totalValue.toLocaleString()} · {units.length} total units
+          </p>
+        </div>
+        <button
+          onClick={() => setBulkListingOpen(true)}
+          className="px-3 py-2 rounded-xl bg-black text-white text-[10px] font-bold uppercase tracking-widest hover:bg-gray-800 transition-all flex-shrink-0"
+        >
+          Bulk List
+        </button>
       </div>
 
       {/* Search + controls */}
@@ -340,8 +329,13 @@ export default function Inventory({ initialFilters = {} }: { initialFilters?: In
                                   <div className="flex flex-col items-end gap-1.5 flex-shrink-0">
                                     <span className="text-xs font-bold font-mono">£{unit.buyPrice}</span>
                                     <div className="flex items-center gap-1.5">
-                                      <span className={`text-[8px] font-bold px-2 py-0.5 rounded-full font-mono ${unit.platformListed?'bg-black text-white':'bg-gray-100 text-gray-500'}`}>
-                                        {unit.platformListed?'Listed':'Unlisted'}
+                                      <span
+                                        className={`text-[8px] font-bold px-2 py-0.5 rounded-full font-mono ${
+                                          unit.platformListed ? 'bg-black text-white' : 'bg-gray-100 text-gray-500'
+                                        }`}
+                                        title={unit.listingSites?.length ? unit.listingSites.join(' / ') : unit.platformListed ? 'Listed' : 'Unlisted'}
+                                      >
+                                        {unit.listingSites?.length ? `Listed (${unit.listingSites.length})` : unit.platformListed ? 'Listed' : 'Unlisted'}
                                       </span>
                                       {/* ← KEY FEATURE: inline Update button */}
                                       {unit.status !== 'sold' && (
@@ -400,6 +394,7 @@ export default function Inventory({ initialFilters = {} }: { initialFilters?: In
       <AnimatePresence>
         {selectedUnit && <UnitDetailDrawer unit={selectedUnit} supplierName={suppliers.find(s=>s.id===selectedUnit.supplierId)?.name||'—'} onClose={()=>setSelectedUnit(null)}/>}
         {quickUnit    && <QuickSaleModal   unit={quickUnit}   onClose={()=>setQuickUnit(null)}/>}
+        {bulkListingOpen && <BulkListingModal onClose={() => setBulkListingOpen(false)} />}
       </AnimatePresence>
     </div>
   );

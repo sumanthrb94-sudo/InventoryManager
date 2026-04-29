@@ -33,8 +33,10 @@ export interface InventoryUnit {
   flags: OperationalFlag[];
   // Free-text note for this unit (e.g. "Screen crack", "Box missing")
   notes: string;
-  // Sales platform listing status — 0 = unlisted, 1 = listed
+  // Sales platform listing status — derived from listingSites, kept for compatibility.
   platformListed: boolean;
+  // Active marketplace listing sites for this unit.
+  listingSites?: string[];
   // Sale info
   salePrice?: number;
   saleDate?: string;
