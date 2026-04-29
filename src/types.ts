@@ -1,15 +1,37 @@
 export type DeviceCategory = 'iPhone' | 'iPad' | 'Apple Watch' | 'Tablet' | 'Samsung S Series' | 'Samsung A Series' | 'Other';
 
 export type DeviceStatus = 'available' | 'sold' | 'reserved' | 'returned' | 'lost';
+export type ListingSite = 'eBay' | 'Amazon' | 'OnBuy' | 'Backmarket' | 'Other';
+export type StockLocation = 'office' | 'supplier' | 'warehouse' | 'offsite';
+export type ConditionGrade = 'A' | 'B' | 'C' | 'D' | 'Unknown';
 
 export type OperationalFlag = 'top10' | 'officeOnly' | 'supplierHasStock' | 'stockSold';
 
 export interface Supplier {
   id: string;
   name: string;
-  portal: 'eBay' | 'Website' | 'Direct' | 'Other';
+  portal: 'eBay' | 'Website' | 'Direct' | 'Other' | 'Wholesale' | 'Auction' | 'Online';
+  contactName?: string;
   contactEmail?: string;
+  phone?: string;
+  address?: string;
+  paymentTerms?: string;
+  returnTerms?: string;
+  notes?: string;
   websiteUrl?: string;
+  ownerId: string;
+  createdAt: any;
+}
+
+export interface SourceDocument {
+  id: string;
+  fileName: string;
+  mimeType: string;
+  size: number;
+  storagePath: string;
+  downloadURL: string;
+  linkedType: 'supplier' | 'batch' | 'unit' | 'import';
+  linkedId: string;
   ownerId: string;
   createdAt: any;
 }
@@ -25,9 +47,17 @@ export interface InventoryUnit {
   brand: string;          // e.g. "Apple", "Samsung"
   category: DeviceCategory;
   colour: string;         // e.g. "Natural Titanium", "Phantom Black"
+  storage?: string;
+  conditionGrade?: ConditionGrade;
+  boxIncluded?: boolean;
+  batteryHealth?: number;
+  networkLock?: string;
+  activationLock?: string;
   buyPrice: number;       // Buying price (BP)
   dateIn: string;         // ISO date string — when unit arrived in office
   supplierId: string;
+  batchId?: string;
+  stockLocation?: StockLocation;
   status: DeviceStatus;
   // Operational flags for daily updates
   flags: OperationalFlag[];
@@ -36,12 +66,16 @@ export interface InventoryUnit {
   // Sales platform listing status — derived from listingSites, kept for compatibility.
   platformListed: boolean;
   // Active marketplace listing sites for this unit.
-  listingSites?: string[];
+  listingSites?: ListingSite[];
   // Sale info
   salePrice?: number;
   saleDate?: string;
-  salePlatform?: 'eBay' | 'Amazon' | 'OnBuy' | 'Backmarket' | 'Other' | string;
+  salePlatform?: ListingSite | string;
+  saleFees?: number;
+  shippingCost?: number;
+  netProfit?: number;
   saleOrderId?: string;
+  attachments?: string[];
   ownerId: string;
   createdAt: any;
   updatedAt?: any;
@@ -55,11 +89,37 @@ export interface Batch {
   supplierId: string;
   date: string;           // ISO date string
   supplierRef?: string;   // Supplier invoice/ref number
+  invoiceNumber?: string;
+  deliveryNote?: string;
+  receivedBy?: string;
+  warehouseLocation?: StockLocation;
+  currency?: string;
+  shippingCost?: number;
+  taxAmount?: number;
+  discountAmount?: number;
   notes?: string;
   unitCount: number;
   totalBuyValue: number;  // Sum of buy prices for all units
+  attachments?: string[];
   ownerId: string;
   createdAt: any;
+}
+
+export interface InventoryEvent {
+  id: string;
+  type: 'batch_created' | 'file_attached' | 'listed' | 'delisted' | 'sold' | 'returned' | 'available' | 'price_update' | 'stock_adjusted' | 'notes_updated';
+  message: string;
+  unitId?: string;
+  batchId?: string;
+  supplierId?: string;
+  platform?: ListingSite | string;
+  salePrice?: number;
+  buyPrice?: number;
+  saleFees?: number;
+  shippingCost?: number;
+  profit?: number;
+  createdAt: any;
+  ownerId: string;
 }
 
 /**

@@ -225,7 +225,13 @@ export default function Inventory({ initialFilters = {} }: { initialFilters?: In
               </select>
             </div>
             {activeFilters > 0 && (
-              <button onClick={() => { setCatFilter('All'); setStatusFilter('All'); setFlagFilter('All'); setSupplierFilter('All'); }}
+              <button onClick={() => {
+                setSearch('');
+                setCatFilter('All');
+                setStatusFilter('All');
+                setFlagFilter('All');
+                setSupplierFilter('All');
+              }}
                 className="text-[10px] text-red-600 font-mono font-bold underline">Clear all filters</button>
             )}
           </motion.div>
@@ -328,6 +334,11 @@ export default function Inventory({ initialFilters = {} }: { initialFilters?: In
                                   {/* Right: price + Update button */}
                                   <div className="flex flex-col items-end gap-1.5 flex-shrink-0">
                                     <span className="text-xs font-bold font-mono">£{unit.buyPrice}</span>
+                                    {unit.status === 'sold' && (
+                                      <span className="text-[8px] font-bold px-2 py-0.5 rounded-full font-mono bg-emerald-100 text-emerald-700">
+                                        Profit {unit.netProfit !== undefined ? `£${unit.netProfit}` : '—'}
+                                      </span>
+                                    )}
                                     <div className="flex items-center gap-1.5">
                                       <span
                                         className={`text-[8px] font-bold px-2 py-0.5 rounded-full font-mono ${

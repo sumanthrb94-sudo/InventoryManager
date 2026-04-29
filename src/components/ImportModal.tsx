@@ -5,6 +5,8 @@ import { motion } from 'motion/react';
 import { dbService } from '../lib/dbService';
 import { DeviceCategory, InventoryUnit, Supplier } from '../types';
 import { buildStableUnitId } from '../lib/inventoryMaintenance';
+import { uploadSourceAttachment } from '../lib/fileAttachments';
+import { logInventoryEvent } from '../lib/inventoryEvents';
 
 interface ImportModalProps {
   onClose: () => void;
@@ -159,9 +161,11 @@ export default function ImportModal({ onClose }: ImportModalProps) {
   const [progress, setProgress] = useState({ done: 0, total: 0 });
   const [error, setError] = useState('');
   const [existingMatches, setExistingMatches] = useState(0);
+  const [sourceFile, setSourceFile] = useState<File | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
   const processFile = useCallback((file: File) => {
+    setSourceFile(file);
     setFileName(file.name);
     setError('');
     const reader = new FileReader();
@@ -248,6 +252,24 @@ export default function ImportModal({ onClose }: ImportModalProps) {
       await dbService.bulkCreate(allDocs, (done, total) => {
         setProgress({ done, total });
       });
+      if (sourceFile) {
+        try {
+          const importId = `import_${Date.now()}`;
+          const source = await uploadSourceAttachment(sourceFile, 'import', importId);
+          await dbService.create('sourceDocuments', `doc_${importId}`, {
+            ...source,
+            linkedId: importId,
+            ownerId: 'local',
+          });
+          await logInventoryEvent({
+            type: 'file_attached',
+            message: `Excel import attached: ${sourceFile.name}`,
+            batchId: importId,
+          });
+        } catch (attachmentError) {
+          console.warn('Excel source attachment upload failed.', attachmentError);
+        }
+      }
       setStage('done');
     } catch (err: any) {
       setError('Import failed: ' + err.message);

@@ -1,13 +1,15 @@
-import React, { useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import {
   X, Cpu, Package, Truck, ShoppingBag, Tag,
   Star, MapPin, CheckCircle2, AlertCircle,
   Edit3, Save, ShieldCheck, ExternalLink
 } from 'lucide-react';
-import { InventoryUnit, OperationalFlag } from '../types';
+import { InventoryUnit, OperationalFlag, SourceDocument } from '../types';
 import { dbService } from '../lib/dbService';
 import { validateIMEI, formatIMEI } from '../lib/imeiUtils';
+import { calculateUnitNetProfit } from '../lib/profit';
+import { logInventoryEvent } from '../lib/inventoryEvents';
 
 const PLATFORMS = ['eBay', 'Amazon', 'OnBuy', 'Backmarket', 'Other'] as const;
 
@@ -30,9 +32,22 @@ export default function UnitDetailDrawer({ unit, supplierName, onClose }: Props)
   const [notes, setNotes]       = useState(unit.notes || '');
   const [listingSites, setListingSites] = useState<string[]>(unit.listingSites || []);
   const [salePrice, setSalePrice] = useState<string>(unit.salePrice?.toString() || '');
+  const [saleFees, setSaleFees] = useState<string>(unit.saleFees?.toString() || '');
+  const [shippingCost, setShippingCost] = useState<string>(unit.shippingCost?.toString() || '');
   const [platform, setPlatform] = useState(unit.salePlatform || 'eBay');
   const [saving, setSaving]     = useState(false);
   const [saved, setSaved]       = useState(false);
+  const [sourceDocs, setSourceDocs] = useState<SourceDocument[]>([]);
+
+  useEffect(() => {
+    const unsub = dbService.subscribeToCollection('sourceDocuments', setSourceDocs);
+    return unsub;
+  }, []);
+
+  const linkedDocs = useMemo(
+    () => sourceDocs.filter(doc => doc.linkedId === unit.batchId || doc.linkedId === unit.id),
+    [sourceDocs, unit.batchId, unit.id]
+  );
 
   const hasListingSites = listingSites.length > 0;
   const isListed = hasListingSites || unit.platformListed;
@@ -85,18 +100,48 @@ export default function UnitDetailDrawer({ unit, supplierName, onClose }: Props)
       listingSites: nextSites,
       platformListed: nextSites.length > 0,
     });
+    try {
+      await logInventoryEvent({
+        type: nextSites.length > 0 ? 'listed' : 'delisted',
+        message: nextSites.length > 0 ? `Listed on ${nextSites.join(' / ')}` : 'Delisted',
+        unitId: unit.id,
+        platform: nextSites.join(' / '),
+      });
+    } catch (eventError) {
+      console.warn('Inventory event logging failed for listing update.', eventError);
+    }
   };
 
   const markSold = async () => {
     if (!salePrice) return;
     setSaving(true);
+    const salePriceNumber = parseFloat(salePrice) || 0;
+    const saleFeesNumber = parseFloat(saleFees) || 0;
+    const shippingCostNumber = parseFloat(shippingCost) || 0;
     await dbService.update('inventoryUnits', unit.id, {
       status: 'sold',
-      salePrice: parseFloat(salePrice),
+      salePrice: salePriceNumber,
       salePlatform: platform,
       saleDate: new Date().toISOString().split('T')[0],
       platformListed: false,
+      saleFees: saleFeesNumber,
+      shippingCost: shippingCostNumber,
+      netProfit: salePriceNumber - unit.buyPrice - saleFeesNumber - shippingCostNumber,
     });
+    try {
+      await logInventoryEvent({
+        type: 'sold',
+        message: `Sold via ${platform}`,
+        unitId: unit.id,
+        salePrice: salePriceNumber,
+        saleFees: saleFeesNumber,
+        shippingCost: shippingCostNumber,
+        profit: salePriceNumber - unit.buyPrice - saleFeesNumber - shippingCostNumber,
+        platform,
+      });
+    } catch (eventError) {
+      console.warn('Inventory event logging failed for sold update.', eventError);
+    }
     setSaving(false);
     setSaved(true);
   };
@@ -104,6 +149,15 @@ export default function UnitDetailDrawer({ unit, supplierName, onClose }: Props)
   const saveNotes = async () => {
     setSaving(true);
     await dbService.update('inventoryUnits', unit.id, { notes });
+    try {
+      await logInventoryEvent({
+        type: 'notes_updated',
+        message: 'Notes updated',
+        unitId: unit.id,
+      });
+    } catch (eventError) {
+      console.warn('Inventory event logging failed for notes update.', eventError);
+    }
     setSaving(false);
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
@@ -221,11 +275,13 @@ export default function UnitDetailDrawer({ unit, supplierName, onClose }: Props)
                   { label: 'Buy Price',    value: `£${unit.buyPrice}` },
                   { label: 'Supplier',     value: supplierName || '—' },
                   { label: 'Date In',      value: new Date(unit.dateIn).toLocaleDateString('en-GB') },
+                  { label: 'Stock Location', value: unit.stockLocation || 'office' },
                   {
                     label: 'Listing Sites',
                     value: hasListingSites ? listingSites.join(' / ') : (unit.platformListed ? 'Listed' : 'Unlisted'),
                   },
                   ...(unit.salePrice ? [{ label: 'Sale Price', value: `£${unit.salePrice}` }] : []),
+                  ...(unit.netProfit !== undefined ? [{ label: 'Net Profit', value: `£${unit.netProfit}` }] : []),
                   ...(unit.salePlatform ? [{ label: 'Sold Via', value: unit.salePlatform }] : []),
                 ].map(d => (
                   <div key={d.label} className="bg-gray-50 rounded-xl p-3">
@@ -312,7 +368,41 @@ export default function UnitDetailDrawer({ unit, supplierName, onClose }: Props)
                         {PLATFORMS.map(p => <option key={p}>{p}</option>)}
                       </select>
                     </div>
+                    <div>
+                      <label className="text-[9px] text-gray-400 font-mono uppercase">Sale Fees (£)</label>
+                      <input
+                        type="number"
+                        value={saleFees}
+                        onChange={e => setSaleFees(e.target.value)}
+                        placeholder="0.00"
+                        className="w-full mt-1 bg-white border border-gray-200 rounded-xl px-3 py-2 text-sm font-mono focus:outline-none focus:border-black"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[9px] text-gray-400 font-mono uppercase">Shipping (£)</label>
+                      <input
+                        type="number"
+                        value={shippingCost}
+                        onChange={e => setShippingCost(e.target.value)}
+                        placeholder="0.00"
+                        className="w-full mt-1 bg-white border border-gray-200 rounded-xl px-3 py-2 text-sm font-mono focus:outline-none focus:border-black"
+                      />
+                    </div>
                   </div>
+                  {salePrice && (
+                    <div className="bg-white border border-gray-200 rounded-xl p-3">
+                      <p className="text-[9px] text-gray-400 font-mono uppercase">Estimated Net Profit</p>
+                      <p className="text-sm font-bold mt-0.5">
+                        £{calculateUnitNetProfit({
+                          ...unit,
+                          salePrice: parseFloat(salePrice) || 0,
+                          saleFees: parseFloat(saleFees) || 0,
+                          shippingCost: parseFloat(shippingCost) || 0,
+                          status: 'sold',
+                        }).toLocaleString()}
+                      </p>
+                    </div>
+                  )}
                   <button
                     onClick={markSold}
                     disabled={saving || !salePrice || saved}
@@ -367,6 +457,29 @@ export default function UnitDetailDrawer({ unit, supplierName, onClose }: Props)
                   {saved ? 'Saved!' : 'Save Notes'}
                 </button>
               </div>
+
+              {/* Source files */}
+              {linkedDocs.length > 0 && (
+                <div className="bg-gray-50 rounded-2xl p-4 space-y-3">
+                  <p className="text-[10px] font-bold uppercase tracking-widest text-gray-500">Source Files</p>
+                  <div className="space-y-2">
+                    {linkedDocs.map(doc => (
+                      <a
+                        key={doc.id}
+                        href={doc.downloadURL}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="block bg-white border border-gray-200 rounded-xl px-3 py-2.5 hover:border-black transition-all"
+                      >
+                        <p className="text-sm font-bold truncate">{doc.fileName}</p>
+                        <p className="text-[9px] text-gray-400 font-mono uppercase tracking-widest mt-0.5">
+                          {doc.linkedType} · {(doc.size / 1024).toFixed(1)} KB
+                        </p>
+                      </a>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
           )}
         </div>

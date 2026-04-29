@@ -4,7 +4,9 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { dbService } from '../lib/dbService';
-import { Supplier, DeviceCategory, OperationalFlag } from '../types';
+import { Supplier, DeviceCategory, OperationalFlag, ConditionGrade, StockLocation } from '../types';
+import { uploadSourceAttachments } from '../lib/fileAttachments';
+import { logInventoryEvent } from '../lib/inventoryEvents';
 
 interface NewBatchModalProps {
   onClose: () => void;
@@ -26,6 +28,8 @@ type DeviceRow = {
   brand: string;
   category: DeviceCategory;
   colour: string;
+  storage: string;
+  conditionGrade: ConditionGrade;
   buyPrice: number;
   notes: string;
   flags: OperationalFlag[];
@@ -33,18 +37,27 @@ type DeviceRow = {
 
 const emptyDevice = (): DeviceRow => ({
   imei: '', model: '', brand: 'Apple', category: 'iPhone',
-  colour: 'Black', buyPrice: 0, notes: '', flags: []
+  colour: 'Black', storage: '', conditionGrade: 'Unknown', buyPrice: 0, notes: '', flags: []
 });
 
 export default function NewBatchModal({ onClose }: NewBatchModalProps) {
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [loading, setLoading] = useState(false);
   const [step, setStep] = useState<1 | 2>(1);
+  const [sourceFiles, setSourceFiles] = useState<File[]>([]);
 
   const [batchInfo, setBatchInfo] = useState({
     supplierId: '',
     date: new Date().toISOString().split('T')[0],
     supplierRef: '',
+    invoiceNumber: '',
+    deliveryNote: '',
+    receivedBy: '',
+    warehouseLocation: 'office' as StockLocation,
+    currency: 'GBP',
+    shippingCost: 0,
+    taxAmount: 0,
+    discountAmount: 0,
     notes: '',
   });
 
@@ -74,6 +87,7 @@ export default function NewBatchModal({ onClose }: NewBatchModalProps) {
   };
 
   const totalValue = devices.reduce((sum, d) => sum + (d.buyPrice || 0), 0);
+  const totalBatchCost = totalValue + (batchInfo.shippingCost || 0) + (batchInfo.taxAmount || 0) - (batchInfo.discountAmount || 0);
 
   const handleSubmit = async () => {
     setLoading(true);
@@ -94,7 +108,61 @@ export default function NewBatchModal({ onClose }: NewBatchModalProps) {
           dateIn: batchInfo.date,
           status: 'available',
           platformListed: false,
+          stockLocation: batchInfo.warehouseLocation,
         });
+        try {
+          await logInventoryEvent({
+            type: 'available',
+            message: `Unit received from batch ${batchId}`,
+            unitId,
+            batchId,
+            supplierId: batchInfo.supplierId,
+            buyPrice: d.buyPrice,
+          });
+        } catch (eventError) {
+          console.warn('Inventory event logging failed for new unit.', eventError);
+        }
+      }
+
+      if (sourceFiles.length > 0) {
+        try {
+          const uploaded = await uploadSourceAttachments(sourceFiles, 'batch', batchId);
+          await dbService.bulkCreate(uploaded.map((file, index) => ({
+            collection: 'sourceDocuments',
+            id: `doc_${batchId}_${index}`,
+            data: {
+              ...file,
+              linkedType: 'batch',
+              linkedId: batchId,
+              ownerId: 'anonymous',
+            },
+          })));
+          await logInventoryEvent({
+            type: 'batch_created',
+            message: `Batch ${batchId} created with ${uploaded.length} source file(s)`,
+            batchId,
+            supplierId: batchInfo.supplierId,
+          });
+        } catch (attachmentError) {
+          console.warn('Batch source attachment upload failed.', attachmentError);
+          await logInventoryEvent({
+            type: 'batch_created',
+            message: `Batch ${batchId} created with ${devices.length} unit(s)`,
+            batchId,
+            supplierId: batchInfo.supplierId,
+          });
+        }
+      } else {
+        try {
+          await logInventoryEvent({
+            type: 'batch_created',
+            message: `Batch ${batchId} created with ${devices.length} unit(s)`,
+            batchId,
+            supplierId: batchInfo.supplierId,
+          });
+        } catch (eventError) {
+          console.warn('Batch event logging failed.', eventError);
+        }
       }
 
       onClose();
@@ -180,6 +248,28 @@ export default function NewBatchModal({ onClose }: NewBatchModalProps) {
                   />
                 </div>
 
+                {/* Invoice No */}
+                <div className="space-y-2">
+                  <label className="text-[9px] text-gray-500 font-mono uppercase font-bold tracking-widest">Invoice #</label>
+                  <input
+                    value={batchInfo.invoiceNumber}
+                    onChange={e => setBatchInfo({ ...batchInfo, invoiceNumber: e.target.value })}
+                    placeholder="e.g. INV-001"
+                    className="w-full bg-gray-50 border border-gray-200 py-3 px-4 focus:outline-none focus:border-black transition-all font-mono text-sm text-black"
+                  />
+                </div>
+
+                {/* Delivery Note */}
+                <div className="space-y-2">
+                  <label className="text-[9px] text-gray-500 font-mono uppercase font-bold tracking-widest">Delivery Note</label>
+                  <input
+                    value={batchInfo.deliveryNote}
+                    onChange={e => setBatchInfo({ ...batchInfo, deliveryNote: e.target.value })}
+                    placeholder="e.g. DN-2211"
+                    className="w-full bg-gray-50 border border-gray-200 py-3 px-4 focus:outline-none focus:border-black transition-all font-mono text-sm text-black"
+                  />
+                </div>
+
                 {/* Date */}
                 <div className="space-y-2">
                   <label className="text-[9px] text-gray-500 font-mono uppercase font-bold tracking-widest flex items-center gap-2">
@@ -189,6 +279,75 @@ export default function NewBatchModal({ onClose }: NewBatchModalProps) {
                     type="date"
                     value={batchInfo.date}
                     onChange={e => setBatchInfo({ ...batchInfo, date: e.target.value })}
+                    className="w-full bg-gray-50 border border-gray-200 py-3 px-4 focus:outline-none focus:border-black transition-all font-mono text-sm text-black"
+                  />
+                </div>
+
+                {/* Received By */}
+                <div className="space-y-2">
+                  <label className="text-[9px] text-gray-500 font-mono uppercase font-bold tracking-widest">Received By</label>
+                  <input
+                    value={batchInfo.receivedBy}
+                    onChange={e => setBatchInfo({ ...batchInfo, receivedBy: e.target.value })}
+                    placeholder="Staff name"
+                    className="w-full bg-gray-50 border border-gray-200 py-3 px-4 focus:outline-none focus:border-black transition-all font-mono text-sm text-black"
+                  />
+                </div>
+
+                {/* Warehouse / Location */}
+                <div className="space-y-2">
+                  <label className="text-[9px] text-gray-500 font-mono uppercase font-bold tracking-widest">Stock Location</label>
+                  <select
+                    value={batchInfo.warehouseLocation}
+                    onChange={e => setBatchInfo({ ...batchInfo, warehouseLocation: e.target.value as StockLocation })}
+                    className="w-full bg-gray-50 border border-gray-200 py-3 px-4 focus:outline-none focus:border-black transition-all font-mono text-sm text-black"
+                  >
+                    <option value="office">Office</option>
+                    <option value="warehouse">Warehouse</option>
+                    <option value="supplier">Supplier</option>
+                    <option value="offsite">Offsite</option>
+                  </select>
+                </div>
+
+                {/* Currency */}
+                <div className="space-y-2">
+                  <label className="text-[9px] text-gray-500 font-mono uppercase font-bold tracking-widest">Currency</label>
+                  <select
+                    value={batchInfo.currency}
+                    onChange={e => setBatchInfo({ ...batchInfo, currency: e.target.value })}
+                    className="w-full bg-gray-50 border border-gray-200 py-3 px-4 focus:outline-none focus:border-black transition-all font-mono text-sm text-black"
+                  >
+                    {['GBP', 'USD', 'EUR'].map(c => <option key={c} value={c}>{c}</option>)}
+                  </select>
+                </div>
+
+                {/* Costs */}
+                <div className="space-y-2">
+                  <label className="text-[9px] text-gray-500 font-mono uppercase font-bold tracking-widest">Shipping Cost</label>
+                  <input
+                    type="number"
+                    value={batchInfo.shippingCost}
+                    onChange={e => setBatchInfo({ ...batchInfo, shippingCost: Number(e.target.value) })}
+                    className="w-full bg-gray-50 border border-gray-200 py-3 px-4 focus:outline-none focus:border-black transition-all font-mono text-sm text-black"
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <label className="text-[9px] text-gray-500 font-mono uppercase font-bold tracking-widest">Tax Amount</label>
+                  <input
+                    type="number"
+                    value={batchInfo.taxAmount}
+                    onChange={e => setBatchInfo({ ...batchInfo, taxAmount: Number(e.target.value) })}
+                    className="w-full bg-gray-50 border border-gray-200 py-3 px-4 focus:outline-none focus:border-black transition-all font-mono text-sm text-black"
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <label className="text-[9px] text-gray-500 font-mono uppercase font-bold tracking-widest">Discount</label>
+                  <input
+                    type="number"
+                    value={batchInfo.discountAmount}
+                    onChange={e => setBatchInfo({ ...batchInfo, discountAmount: Number(e.target.value) })}
                     className="w-full bg-gray-50 border border-gray-200 py-3 px-4 focus:outline-none focus:border-black transition-all font-mono text-sm text-black"
                   />
                 </div>
@@ -203,6 +362,30 @@ export default function NewBatchModal({ onClose }: NewBatchModalProps) {
                     className="w-full bg-gray-50 border border-gray-200 py-3 px-4 focus:outline-none focus:border-black transition-all font-light text-sm text-black"
                   />
                 </div>
+
+                {/* Source files */}
+                <div className="space-y-2 col-span-2">
+                  <label className="text-[9px] text-gray-500 font-mono uppercase font-bold tracking-widest">Source Files</label>
+                  <input
+                    type="file"
+                    multiple
+                    accept="image/*,application/pdf,.xls,.xlsx,.csv"
+                    onChange={e => setSourceFiles(Array.from(e.target.files || []))}
+                    className="w-full bg-gray-50 border border-gray-200 py-3 px-4 focus:outline-none focus:border-black transition-all font-mono text-sm text-black"
+                  />
+                  <p className="text-[10px] text-gray-400 font-mono">
+                    Attach invoices, packing slips, images, spreadsheets, or any supplier source file.
+                  </p>
+                  {sourceFiles.length > 0 && (
+                    <div className="flex flex-wrap gap-2 mt-2">
+                      {sourceFiles.map(file => (
+                        <span key={file.name} className="text-[9px] font-mono bg-gray-100 px-2.5 py-1.5 rounded-full text-gray-600">
+                          {file.name}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </div>
               </div>
 
               <div className="p-6 bg-gray-50 border border-gray-200 border-l-4 border-l-black flex items-start gap-4">
@@ -215,11 +398,12 @@ export default function NewBatchModal({ onClose }: NewBatchModalProps) {
           ) : (
             <div className="p-10 space-y-4">
               {/* Column headers */}
-              <div className="grid grid-cols-12 gap-3 px-4 py-2 border-b border-gray-200">
-                {['Category', 'Model', 'IMEI / Serial', 'Colour', 'Buy Price (£)', 'Flags', 'Notes', ''].map((h, i) => (
+              <div className="grid grid-cols-14 gap-3 px-4 py-2 border-b border-gray-200">
+                {['Category', 'Model', 'IMEI / Serial', 'Storage', 'Condition', 'Colour', 'Buy Price (£)', 'Flags', 'Notes', ''].map((h, i) => (
                   <div key={i} className={`text-[8px] font-bold uppercase tracking-widest font-mono text-gray-400 ${
                     i === 0 ? 'col-span-2' : i === 1 ? 'col-span-2' : i === 2 ? 'col-span-2' : i === 3 ? 'col-span-1' :
-                    i === 4 ? 'col-span-1' : i === 5 ? 'col-span-2' : i === 6 ? 'col-span-1' : 'col-span-1'
+                    i === 4 ? 'col-span-1' : i === 5 ? 'col-span-1' : i === 6 ? 'col-span-1' : i === 7 ? 'col-span-2' :
+                    i === 8 ? 'col-span-1' : 'col-span-1'
                   }`}>{h}</div>
                 ))}
               </div>
@@ -229,7 +413,7 @@ export default function NewBatchModal({ onClose }: NewBatchModalProps) {
                   key={idx}
                   initial={{ x: -10, opacity: 0 }}
                   animate={{ x: 0, opacity: 1 }}
-                  className="grid grid-cols-12 gap-3 p-4 bg-white border border-gray-200 hover:border-gray-400 transition-all items-start"
+                  className="grid grid-cols-14 gap-3 p-4 bg-white border border-gray-200 hover:border-gray-400 transition-all items-start"
                 >
                   {/* Category */}
                   <div className="col-span-2">
@@ -258,6 +442,25 @@ export default function NewBatchModal({ onClose }: NewBatchModalProps) {
                       onChange={e => updateDevice(idx, 'imei', e.target.value)}
                       className="w-full bg-gray-50 border border-gray-200 py-2 px-2 text-[11px] font-mono focus:outline-none focus:border-black text-black placeholder:text-gray-300"
                     />
+                  </div>
+                  {/* Storage */}
+                  <div className="col-span-1">
+                    <input
+                      placeholder="128GB"
+                      value={device.storage}
+                      onChange={e => updateDevice(idx, 'storage', e.target.value)}
+                      className="w-full bg-gray-50 border border-gray-200 py-2 px-2 text-[11px] font-mono focus:outline-none focus:border-black text-black placeholder:text-gray-300"
+                    />
+                  </div>
+                  {/* Condition */}
+                  <div className="col-span-1">
+                    <select
+                      value={device.conditionGrade}
+                      onChange={e => updateDevice(idx, 'conditionGrade', e.target.value as ConditionGrade)}
+                      className="w-full bg-gray-50 border border-gray-200 py-2 px-1 text-[10px] font-mono focus:outline-none focus:border-black text-black"
+                    >
+                      {(['A', 'B', 'C', 'D', 'Unknown'] as ConditionGrade[]).map(c => <option key={c} value={c}>{c}</option>)}
+                    </select>
                   </div>
                   {/* Colour */}
                   <div className="col-span-1">
@@ -325,7 +528,7 @@ export default function NewBatchModal({ onClose }: NewBatchModalProps) {
               {/* Summary bar */}
               <div className="flex items-center justify-between p-4 bg-gray-50 border border-gray-200 text-xs font-mono">
                 <span className="text-gray-500">{devices.length} unit{devices.length !== 1 ? 's' : ''}</span>
-                <span className="font-bold text-black">Total Buy Value: £{totalValue.toLocaleString()}</span>
+                <span className="font-bold text-black">Batch Cost: £{totalBatchCost.toLocaleString()}</span>
               </div>
             </div>
           )}

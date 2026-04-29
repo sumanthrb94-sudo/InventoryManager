@@ -7,6 +7,7 @@ import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContaine
 import { dbService } from '../lib/dbService';
 import { InventoryUnit, Supplier } from '../types';
 import { getOnHandValue } from '../lib/inventorySummary';
+import { calculateInventoryNetProfit } from '../lib/profit';
 
 export interface NavAction {
   tab: 'inventory' | 'suppliers' | 'scan' | 'calendar';
@@ -36,6 +37,7 @@ export default function Dashboard({ onNavigate }: Props) {
   const sold         = units.filter(u => u.status === 'sold');
   const returned     = units.filter(u => u.status === 'returned');
   const totalValue   = getOnHandValue(units);
+  const totalNetProfit = calculateInventoryNetProfit(units);
   const top10Units   = available.filter(u => u.flags.includes('top10'));
   const today        = new Date().toISOString().split('T')[0];
   const todayArrivals = units.filter(u => u.dateIn === today);
@@ -105,6 +107,11 @@ export default function Dashboard({ onNavigate }: Props) {
           label="Returned" value={returned.length}
           sub="Back in pipeline" icon={<TrendingUp size={16}/>}
           onClick={() => onNavigate({ tab:'inventory', filters:{ status:'returned' } })}
+        />
+        <KPICard
+          label="Net Profit" value={`£${totalNetProfit.toLocaleString()}`}
+          sub="Sold units after fees" icon={<ArrowUpRight size={16}/>}
+          onClick={() => onNavigate({ tab:'inventory', filters:{ status:'sold' } })}
         />
       </div>
 
