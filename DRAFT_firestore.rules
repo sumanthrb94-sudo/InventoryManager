@@ -1,119 +1,24 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    // 0. Global Safety Net
-    match /{document=**} {
-      allow read, write: if false;
-    }
-
-    // --- Helpers ---
     function isSignedIn() {
       return request.auth != null;
     }
 
-    function isOwner(data) {
-      return isSignedIn() && data.ownerId == request.auth.uid;
-    }
-
-    function isValidId(id) {
-      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
-    }
-
-    function incoming() {
-      return request.resource.data;
-    }
-
-    function existing() {
-      return resource.data;
-    }
-
-    // --- Entity Validations ---
-
-    function isValidSupplier(data) {
-      return data.keys().hasAll(['name', 'portal', 'ownerId', 'createdAt']) 
-        && data.keys().size() <= 6
-        && data.name is string && data.name.size() >= 1 && data.name.size() <= 100
-        && data.portal in ['eBay', 'Website', 'Direct', 'Other']
-        && data.ownerId == request.auth.uid
-        && data.createdAt == request.time;
-    }
-
-    function isValidBatch(data) {
-      return data.keys().hasAll(['supplierId', 'date', 'status', 'ownerId', 'createdAt'])
-        && data.keys().size() <= 8
-        && isValidId(data.supplierId)
-        && data.status in ['received', 'processing', 'completed']
-        && data.ownerId == request.auth.uid
-        && data.createdAt == request.time
-        && exists(/databases/$(database)/documents/suppliers/$(data.supplierId));
-    }
-
-    function isValidDevice(data) {
-      return data.keys().hasAll(['imei', 'model', 'brand', 'batchId', 'supplierId', 'status', 'purchasePrice', 'ownerId', 'createdAt'])
-        && data.keys().size() <= 15
-        && data.imei is string && data.imei.size() >= 8 && data.imei.size() <= 32
-        && data.model is string && data.model.size() <= 100
-        && data.brand is string && data.brand.size() <= 50
-        && isValidId(data.batchId)
-        && isValidId(data.supplierId)
-        && data.status in ['available', 'sold', 'returned', 'lost']
-        && data.purchasePrice is number && data.purchasePrice >= 0
-        && data.ownerId == request.auth.uid
-        && data.createdAt == request.time
-        && exists(/databases/$(database)/documents/batches/$(data.batchId));
-    }
-
-    function isValidOrder(data) {
-      return data.keys().hasAll(['platform', 'platformOrderId', 'totalAmount', 'date', 'deviceIds', 'ownerId', 'createdAt'])
-        && data.keys().size() <= 10
-        && data.platform is string
-        && data.totalAmount is number
-        && data.deviceIds is list && data.deviceIds.size() > 0 && data.deviceIds.size() <= 50
-        && data.ownerId == request.auth.uid
-        && data.createdAt == request.time;
-    }
-
-    // --- Collection Rules ---
-
     match /suppliers/{supplierId} {
-      allow get: if isOwner(existing());
-      allow list: if isSignedIn() && resource.data.ownerId == request.auth.uid;
-      allow create: if isSignedIn() && isValidId(supplierId) && isValidSupplier(incoming());
-      allow update: if isOwner(existing()) && isValidSupplier(incoming())
-        && incoming().diff(existing()).affectedKeys().hasOnly(['name', 'portal', 'contactEmail', 'websiteUrl']);
-      allow delete: if isOwner(existing());
+      allow read, write: if isSignedIn();
+    }
+
+    match /inventoryUnits/{unitId} {
+      allow read, write: if isSignedIn();
     }
 
     match /batches/{batchId} {
-      allow get: if isOwner(existing());
-      allow list: if isSignedIn() && resource.data.ownerId == request.auth.uid;
-      allow create: if isSignedIn() && isValidId(batchId) && isValidBatch(incoming());
-      allow update: if isOwner(existing()) && isValidBatch(incoming())
-        && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'supplierRef', 'itemCount', 'costTotal']);
-      allow delete: if isOwner(existing());
+      allow read, write: if isSignedIn();
     }
 
-    match /devices/{deviceId} {
-      allow get: if isOwner(existing());
-      allow list: if isSignedIn() && resource.data.ownerId == request.auth.uid;
-      allow create: if isSignedIn() && isValidId(deviceId) && isValidDevice(incoming());
-      allow update: if isOwner(existing()) && isValidDevice(incoming())
-        && (
-          // Action: Mark Sold
-          (incoming().status == 'sold' && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'salePrice', 'saleDate', 'salePlatform', 'orderId'])) ||
-          // Action: Update Info
-          (incoming().diff(existing()).affectedKeys().hasOnly(['model', 'brand', 'condition', 'status']))
-        );
-      allow delete: if isOwner(existing());
-    }
-
-    match /orders/{orderId} {
-      allow get: if isOwner(existing());
-      allow list: if isSignedIn() && resource.data.ownerId == request.auth.uid;
-      allow create: if isSignedIn() && isValidId(orderId) && isValidOrder(incoming());
-      allow update: if isOwner(existing()) && isValidOrder(incoming())
-        && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'customerName']);
-      allow delete: if isOwner(existing());
+    match /{document=**} {
+      allow read, write: if false;
     }
   }
 }

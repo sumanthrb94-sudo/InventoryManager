@@ -1,3 +1,6 @@
+import { collection, doc, getDocs, writeBatch } from 'firebase/firestore';
+import { db, ensureAnonymousAuth } from './firebase';
+
 type SeedInventory = {
   suppliers: Array<Record<string, any>>;
   units: Array<Record<string, any>>;
@@ -99,25 +102,78 @@ function normaliseUnits(units: StoredUnit[]) {
   return Array.from(deduped.values());
 }
 
+function getLocalFallback() {
+  const existingSuppliers = parseStoredCollection<Record<string, any>>('nexus_db_suppliers');
+  const existingUnits = parseStoredCollection<StoredUnit>('nexus_db_inventoryUnits');
+  return { existingSuppliers, existingUnits };
+}
+
+async function readFirestoreCount(collectionName: string) {
+  const snap = await getDocs(collection(db, collectionName));
+  return snap.size;
+}
+
+async function clearLocalCache() {
+  localStorage.removeItem('nexus_db_suppliers');
+  localStorage.removeItem('nexus_db_inventoryUnits');
+}
+
+async function writeInitialData(suppliers: Record<string, any>[], units: StoredUnit[]) {
+  const batch = writeBatch(db);
+
+  for (const supplier of suppliers) {
+    batch.set(doc(db, 'suppliers', supplier.id), {
+      ...supplier,
+      createdAt: supplier.createdAt ?? new Date().toISOString(),
+    });
+  }
+
+  for (const unit of units) {
+    batch.set(doc(db, 'inventoryUnits', unit.id), {
+      ...unit,
+      createdAt: unit.createdAt ?? new Date().toISOString(),
+      updatedAt: unit.updatedAt ?? new Date().toISOString(),
+    });
+  }
+
+  await batch.commit();
+}
+
 export async function seedDefaultInventoryData() {
   if (typeof window === 'undefined') return;
 
-  const existingSuppliers = parseStoredCollection<Record<string, any>>('nexus_db_suppliers');
-  const existingUnits = parseStoredCollection<StoredUnit>('nexus_db_inventoryUnits');
-  const hasExistingData = existingSuppliers.length > 0 && existingUnits.length > 0;
+  await ensureAnonymousAuth();
 
-  if (hasExistingData && !hasDuplicateIds(existingUnits)) {
+  const [supplierCount, unitCount] = await Promise.all([
+    readFirestoreCount('suppliers'),
+    readFirestoreCount('inventoryUnits'),
+  ]);
+
+  if (supplierCount > 0 && unitCount > 0) {
+    await clearLocalCache();
     return;
   }
 
-  const seedModule = (await import('../../imported_inventory.json')) as { default: SeedInventory };
-  const seed = seedModule.default;
+  const { existingSuppliers, existingUnits } = getLocalFallback();
+  const hasExistingData = existingSuppliers.length > 0 && existingUnits.length > 0;
 
-  if (!seed?.suppliers?.length || !seed?.units?.length) return;
+  let suppliers: Record<string, any>[];
+  let units: StoredUnit[];
 
-  const suppliers = seed.suppliers.map(supplier => ({ ...supplier }));
-  const units = normaliseUnits(seed.units);
+  if (hasExistingData && !hasDuplicateIds(existingUnits)) {
+    suppliers = existingSuppliers.map(supplier => ({ ...supplier }));
+    units = normaliseUnits(existingUnits);
+  } else {
+    const seedModule = (await import('../../imported_inventory.json')) as { default: SeedInventory };
+    const seed = seedModule.default;
+    if (!seed?.suppliers?.length || !seed?.units?.length) return;
 
-  localStorage.setItem('nexus_db_suppliers', JSON.stringify(suppliers));
-  localStorage.setItem('nexus_db_inventoryUnits', JSON.stringify(units));
+    suppliers = seed.suppliers.map(supplier => ({ ...supplier }));
+    units = normaliseUnits(seed.units);
+  }
+
+  if (!suppliers.length || !units.length) return;
+
+  await writeInitialData(suppliers, units);
+  await clearLocalCache();
 }
