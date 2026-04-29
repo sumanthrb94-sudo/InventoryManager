@@ -68,14 +68,16 @@ function normalizeImei(imei: string) {
 interface ParsedData {
   suppliers: Omit<Supplier, 'createdAt'>[];
   units: Omit<InventoryUnit, 'createdAt'>[];
-  stats: { total: number; available: number; sold: number; skipped: number };
+  stats: { total: number; available: number; sold: number; skipped: number; duplicateRows: number };
 }
 
 function parseOGStockSheet(ws: XLSX.WorkSheet): ParsedData {
   const rows: any[][] = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' }) as any[][];
   const supplierMap = new Map<string, Omit<Supplier, 'createdAt'>>();
   const unitMap = new Map<string, Omit<InventoryUnit, 'createdAt'>>();
+  const seenImeis = new Set<string>();
   let skipped = 0;
+  let duplicateRows = 0;
 
   for (let i = 1; i < rows.length; i++) {
     const r = rows[i];
@@ -107,6 +109,11 @@ function parseOGStockSheet(ws: XLSX.WorkSheet): ParsedData {
     const unitId = buildStableUnitId({ imei, model, dateIn, supplierId, buyPrice, status });
     const dedupeKey = normalizeImei(imei) || unitId;
 
+    if (seenImeis.has(dedupeKey)) {
+      duplicateRows++;
+    }
+    seenImeis.add(dedupeKey);
+
     unitMap.set(dedupeKey, {
       id: unitId,
       imei,
@@ -136,7 +143,7 @@ function parseOGStockSheet(ws: XLSX.WorkSheet): ParsedData {
   return {
     suppliers: Array.from(supplierMap.values()),
     units,
-    stats: { total: units.length, available, sold, skipped },
+    stats: { total: units.length, available, sold, skipped, duplicateRows },
   };
 }
 
@@ -151,6 +158,7 @@ export default function ImportModal({ onClose }: ImportModalProps) {
   const [fileName, setFileName] = useState('');
   const [progress, setProgress] = useState({ done: 0, total: 0 });
   const [error, setError] = useState('');
+  const [existingMatches, setExistingMatches] = useState(0);
   const fileRef = useRef<HTMLInputElement>(null);
 
   const processFile = useCallback((file: File) => {
@@ -185,6 +193,33 @@ export default function ImportModal({ onClose }: ImportModalProps) {
     const file = e.target.files?.[0];
     if (file) processFile(file);
   };
+
+  React.useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      if (stage !== 'preview' || !parsed) {
+        setExistingMatches(0);
+        return;
+      }
+
+      const inventory = await dbService.readAll('inventoryUnits');
+      const existingImeis = new Set(
+        inventory
+          .map((unit: InventoryUnit) => normalizeImei(unit.imei))
+          .filter(Boolean)
+      );
+      const matches = parsed.units.filter(unit => existingImeis.has(normalizeImei(unit.imei))).length;
+      if (!cancelled) {
+        setExistingMatches(matches);
+      }
+    })().catch(() => {
+      if (!cancelled) setExistingMatches(0);
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [parsed, stage]);
 
   const handleImport = async () => {
     if (!parsed) return;
@@ -304,6 +339,27 @@ export default function ImportModal({ onClose }: ImportModalProps) {
                 ))}
               </div>
 
+              {(parsed.stats.duplicateRows > 0 || existingMatches > 0) && (
+                <div className="p-4 border border-amber-200 bg-amber-50 text-amber-900">
+                  <div className="flex items-start gap-3">
+                    <AlertTriangle size={16} className="mt-0.5 flex-shrink-0" />
+                    <div className="space-y-1">
+                      <p className="text-sm font-bold">Duplicate records detected</p>
+                      <p className="text-[10px] font-mono uppercase tracking-widest leading-relaxed">
+                        {parsed.stats.duplicateRows > 0
+                          ? `${parsed.stats.duplicateRows} duplicate row${parsed.stats.duplicateRows === 1 ? '' : 's'} were collapsed inside this file.`
+                          : 'No duplicates were found inside the file.'}
+                      </p>
+                      {existingMatches > 0 && (
+                        <p className="text-[10px] font-mono uppercase tracking-widest leading-relaxed">
+                          {existingMatches} imported unit{existingMatches === 1 ? '' : 's'} already exist in inventory and will be updated instead of duplicated.
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )}
+
               {/* Supplier list */}
               <div>
                 <p className="text-[9px] font-bold text-gray-400 uppercase tracking-widest font-mono mb-2">Suppliers detected</p>
@@ -399,7 +455,7 @@ export default function ImportModal({ onClose }: ImportModalProps) {
               onClick={handleImport}
               className="px-10 py-2.5 bg-black text-white text-[10px] font-bold uppercase tracking-widest hover:bg-gray-800 transition-all flex items-center gap-3"
             >
-              Import {parsed!.units.length} Units to Firestore
+              Import {parsed!.units.length} Units
               <ArrowRight size={14} />
             </button>
           )}
