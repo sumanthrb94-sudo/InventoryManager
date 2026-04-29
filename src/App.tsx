@@ -148,9 +148,9 @@ export default function App() {
 
   // ── Main app shell ───────────────────────────────────────────────────────
   return (
-    <div className="min-h-screen bg-[#FAFAFA] text-black flex">
-      {/* Sidebar */}
-      <aside className="w-72 border-r border-gray-200 flex flex-col pt-10 pb-6 bg-gray-50">
+    <div className="min-h-[100dvh] bg-[#FAFAFA] text-black flex flex-col md:flex-row">
+      {/* Desktop Sidebar (hidden on mobile) */}
+      <aside className="hidden md:flex w-72 border-r border-gray-200 flex-col pt-10 pb-6 bg-gray-50 z-30">
         <div className="px-8 mb-16">
           <h1 className="text-3xl font-bold tracking-tighter uppercase font-display leading-none text-black">Nexus</h1>
           <p className="text-[9px] text-gray-500 font-mono uppercase tracking-[0.4em] mt-2">Inventory OS</p>
@@ -193,10 +193,16 @@ export default function App() {
       </aside>
 
       {/* Main Content */}
-      <main className="flex-1 flex flex-col h-screen overflow-hidden bg-transparent">
-        <header className="h-20 border-b border-gray-200 flex items-center justify-between px-10 bg-white/80 backdrop-blur-xl sticky top-0 z-20">
-          <div className="flex items-center gap-6 flex-1">
-            <div className="relative max-w-lg w-full">
+      <main className="flex-1 flex flex-col h-[100dvh] overflow-hidden bg-transparent pb-16 md:pb-0">
+        <header className="h-16 md:h-20 border-b border-gray-200 flex flex-col justify-center px-4 md:px-10 bg-white/80 backdrop-blur-xl sticky top-0 z-20">
+          <div className="flex items-center justify-between gap-4">
+            {/* Mobile Title (hidden on desktop) */}
+            <div className="md:hidden flex items-center">
+               <h1 className="text-2xl font-bold tracking-tighter uppercase font-display leading-none text-black">Nexus</h1>
+            </div>
+            
+            {/* Search */}
+            <div className="relative flex-1 max-w-lg hidden md:block">
               <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" size={16} />
               <input
                 type="text"
@@ -204,26 +210,28 @@ export default function App() {
                 className="w-full bg-gray-50 border border-gray-200 rounded-xl py-2.5 pl-11 pr-4 text-sm font-light text-black focus:outline-none focus:border-black focus:bg-white transition-all"
               />
             </div>
-          </div>
-          <div className="flex items-center gap-3">
-            <button
-              onClick={() => setIsImportModalOpen(true)}
-              className="border border-gray-200 text-black px-5 py-2.5 rounded-xl text-xs font-bold uppercase tracking-widest flex items-center gap-2 hover:bg-gray-50 transition-all"
-            >
-              <FileSpreadsheet size={14} />
-              Import Excel
-            </button>
-            <button
-              onClick={() => setIsBatchModalOpen(true)}
-              className="bg-black text-white px-8 py-2.5 rounded-xl text-xs font-bold uppercase tracking-widest flex items-center gap-3 hover:bg-gray-800 transition-all active:scale-95"
-            >
-              <Plus size={16} strokeWidth={3} />
-              Ingest Batch
-            </button>
+
+            {/* Actions */}
+            <div className="flex items-center gap-2 md:gap-3">
+              <button
+                onClick={() => setIsImportModalOpen(true)}
+                className="border border-gray-200 text-black px-3 md:px-5 py-2 md:py-2.5 rounded-xl text-[10px] md:text-xs font-bold uppercase tracking-widest flex items-center gap-2 hover:bg-gray-50 transition-all"
+              >
+                <FileSpreadsheet size={14} />
+                <span className="hidden md:inline">Import Excel</span>
+              </button>
+              <button
+                onClick={() => setIsBatchModalOpen(true)}
+                className="bg-black text-white px-3 md:px-8 py-2 md:py-2.5 rounded-xl text-[10px] md:text-xs font-bold uppercase tracking-widest flex items-center gap-2 md:gap-3 hover:bg-gray-800 transition-all active:scale-95"
+              >
+                <Plus size={16} strokeWidth={3} />
+                <span className="hidden md:inline">Ingest Batch</span>
+              </button>
+            </div>
           </div>
         </header>
 
-        <div className="flex-1 overflow-y-auto p-8 custom-scrollbar">
+        <div className="flex-1 overflow-y-auto p-4 md:p-8 custom-scrollbar">
           <AnimatePresence mode="wait">
             <motion.div
               key={activeTab}
@@ -240,6 +248,14 @@ export default function App() {
           </AnimatePresence>
         </div>
       </main>
+
+      {/* Mobile Bottom Navigation */}
+      <nav className="md:hidden fixed bottom-0 w-full bg-white border-t border-gray-200 pb-safe z-30 flex items-center justify-around px-2 py-2">
+        <MobileNavItem id="dashboard" icon={<LayoutDashboard size={20} />} label="Dash" active={activeTab === 'dashboard'} onClick={() => setActiveTab('dashboard')} />
+        <MobileNavItem id="inventory" icon={<Smartphone size={20} />} label="Stock" active={activeTab === 'inventory'} onClick={() => setActiveTab('inventory')} />
+        <MobileNavItem id="suppliers" icon={<Truck size={20} />} label="Supply" active={activeTab === 'suppliers'} onClick={() => setActiveTab('suppliers')} />
+        <MobileNavItem id="sales" icon={<Bell size={20} />} label="Update" active={activeTab === 'sales'} onClick={() => setActiveTab('sales')} />
+      </nav>
 
       <AnimatePresence>
         {isBatchModalOpen && <NewBatchModal onClose={() => setIsBatchModalOpen(false)} />}
@@ -272,6 +288,24 @@ function NavItem({ id, label, icon, active, onClick }: {
           className="absolute left-0 w-1 h-full bg-black z-10"
         />
       )}
+    </button>
+  );
+}
+
+function MobileNavItem({ icon, label, active, onClick }: {
+  id: string; icon: React.ReactNode; label: string; active: boolean; onClick: () => void;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      className={`flex flex-col items-center justify-center w-16 py-1 gap-1 rounded-xl transition-all ${
+        active ? 'text-black font-bold' : 'text-gray-400'
+      }`}
+    >
+      <div className={`p-1.5 rounded-full transition-all ${active ? 'bg-gray-100' : 'bg-transparent'}`}>
+        {icon}
+      </div>
+      <span className="text-[9px] uppercase tracking-wider font-mono">{label}</span>
     </button>
   );
 }

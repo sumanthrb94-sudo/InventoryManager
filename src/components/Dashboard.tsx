@@ -108,7 +108,7 @@ export default function Dashboard() {
       </div>
 
       {/* Main grid */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
 
         {/* Category chart */}
         <div className="bg-white border border-gray-200 shadow-md border-0 ring-1 ring-gray-100 p-6 lg:col-span-2">

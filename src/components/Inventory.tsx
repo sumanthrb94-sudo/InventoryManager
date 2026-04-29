@@ -131,7 +131,7 @@ export default function Inventory() {
               value={searchTerm}
               onChange={e => setSearchTerm(e.target.value)}
               placeholder="Search model, IMEI, colour..."
-              className="bg-gray-50 border border-gray-200 rounded-xl py-2 pl-9 pr-4 text-xs font-mono focus:outline-none focus:border-black transition-all w-64 text-black"
+              className="bg-gray-50 border border-gray-200 rounded-xl py-2 pl-9 pr-4 text-xs font-mono focus:outline-none focus:border-black transition-all w-full md:w-64 text-black"
             />
           </div>
 
