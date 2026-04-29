@@ -1,3 +1,9 @@
+export type DeviceCategory = 'iPhone' | 'iPad' | 'Apple Watch' | 'Tablet' | 'Samsung S Series' | 'Samsung A Series' | 'Other';
+
+export type DeviceStatus = 'available' | 'sold' | 'reserved' | 'returned' | 'lost';
+
+export type OperationalFlag = 'top10' | 'officeOnly' | 'supplierHasStock' | 'stockSold';
+
 export interface Supplier {
   id: string;
   name: string;
@@ -8,48 +14,83 @@ export interface Supplier {
   createdAt: any;
 }
 
+/**
+ * InventoryUnit — one physical unit tracked by IMEI/Serial.
+ * This is the core entity of the new inventory model.
+ */
+export interface InventoryUnit {
+  id: string;
+  imei: string;           // IMEI or serial number
+  model: string;          // e.g. "iPhone 15 Pro Max 256GB"
+  brand: string;          // e.g. "Apple", "Samsung"
+  category: DeviceCategory;
+  colour: string;         // e.g. "Natural Titanium", "Phantom Black"
+  buyPrice: number;       // Buying price (BP)
+  dateIn: string;         // ISO date string — when unit arrived in office
+  supplierId: string;
+  status: DeviceStatus;
+  // Operational flags for daily updates
+  flags: OperationalFlag[];
+  // Free-text note for this unit (e.g. "Screen crack", "Box missing")
+  notes: string;
+  // Sales platform listing status — 0 = unlisted, 1 = listed
+  platformListed: boolean;
+  // Sale info
+  salePrice?: number;
+  saleDate?: string;
+  salePlatform?: string;
+  saleOrderId?: string;
+  ownerId: string;
+  createdAt: any;
+  updatedAt?: any;
+}
+
+/**
+ * Batch — a supplier packing slip / purchase batch.
+ */
 export interface Batch {
   id: string;
   supplierId: string;
-  date: any;
-  supplierRef?: string;
-  itemCount: number;
-  costTotal: number;
-  status: 'received' | 'processing' | 'completed';
+  date: string;           // ISO date string
+  supplierRef?: string;   // Supplier invoice/ref number
+  notes?: string;
+  unitCount: number;
+  totalBuyValue: number;  // Sum of buy prices for all units
   ownerId: string;
   createdAt: any;
 }
 
-export interface Device {
+/**
+ * DailyUpdate — a date-stamped operational update from the ops team.
+ */
+export interface DailyUpdate {
   id: string;
-  imei: string;
+  date: string;           // ISO date string
+  message: string;        // The update text
+  affectedUnitIds: string[];
+  affectedModels: string[];
+  type: 'stock_in' | 'stock_sold' | 'price_change' | 'platform_update' | 'general';
+  ownerId: string;
+  createdAt: any;
+}
+
+/**
+ * ModelSummary — a computed view grouping units by model+colour for platform sync.
+ */
+export interface ModelSummary {
   model: string;
   brand: string;
-  batchId: string;
-  supplierId: string;
-  condition: 'New' | 'Used - Mint' | 'Used - Good' | 'Used - Fair' | 'Damaged';
-  purchasePrice: number;
-  status: 'available' | 'sold' | 'returned' | 'lost';
-  salePrice?: number;
-  saleDate?: any;
-  salePlatform?: string;
-  orderId?: string;
-  updatedAt?: any;
-  ownerId: string;
-  createdAt: any;
-}
-
-export interface Order {
-  id: string;
-  platform: string;
-  platformOrderId: string;
-  totalAmount: number;
-  date: any;
-  status: string;
-  deviceIds: string[];
-  customerName?: string;
-  ownerId: string;
-  createdAt: any;
+  category: DeviceCategory;
+  variants: {
+    colour: string;
+    availableCount: number;
+    units: InventoryUnit[];
+    lowestBuyPrice: number;
+  }[];
+  totalAvailable: number;
+  totalValue: number;
+  flags: OperationalFlag[];
+  latestDateIn: string;
 }
 
 export enum OperationType {

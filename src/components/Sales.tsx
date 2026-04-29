@@ -1,140 +1,221 @@
-import { useState, useEffect } from 'react';
-import { 
-  ShoppingBag, 
-  ExternalLink, 
-  Calendar, 
-  User,
-  Plus,
-  ArrowUpRight,
-  Monitor
+import { useState, useEffect, useMemo } from 'react';
+import {
+  Bell, CheckCircle2, XCircle, Star, MapPin, Truck,
+  RefreshCw, Package, ChevronRight, Clock, ArrowUpRight
 } from 'lucide-react';
 import { motion } from 'motion/react';
 import { dbService } from '../lib/dbService';
-import { Order, Device } from '../types';
+import { InventoryUnit, Supplier, OperationalFlag } from '../types';
+
+const FLAG_CONFIG: Record<OperationalFlag, { label: string; icon: any; style: string; action: string }> = {
+  top10: {
+    label: 'Top 10 Focus',
+    icon: Star,
+    style: 'bg-yellow-50 text-yellow-800 border-yellow-200',
+    action: 'Prioritise on all platforms — keep qty at 1',
+  },
+  officeOnly: {
+    label: 'Office Only',
+    icon: MapPin,
+    style: 'bg-blue-50 text-blue-800 border-blue-200',
+    action: 'Stock is physically in office — can ship today',
+  },
+  supplierHasStock: {
+    label: 'Supplier Has Stock',
+    icon: Truck,
+    style: 'bg-green-50 text-green-800 border-green-200',
+    action: 'Supplier holding — list as 1 once confirmed in-hand',
+  },
+  stockSold: {
+    label: 'Stock Sold',
+    icon: CheckCircle2,
+    style: 'bg-gray-50 text-gray-500 border-gray-200',
+    action: 'Set platform qty to 0 immediately',
+  },
+};
 
 export default function Sales() {
-  const [orders, setOrders] = useState<Order[]>([]);
-  const [devices, setDevices] = useState<Device[]>([]);
+  const [units, setUnits] = useState<InventoryUnit[]>([]);
+  const [suppliers, setSuppliers] = useState<Supplier[]>([]);
 
   useEffect(() => {
-    const unsubOrders = dbService.subscribeToCollection('orders', setOrders);
-    const unsubDevices = dbService.subscribeToCollection('devices', setDevices);
-    return () => {
-      unsubOrders();
-      unsubDevices();
-    };
+    const unsub1 = dbService.subscribeToCollection('inventoryUnits', setUnits);
+    const unsub2 = dbService.subscribeToCollection('suppliers', setSuppliers);
+    return () => { unsub1(); unsub2(); };
   }, []);
 
+  const today = new Date().toISOString().split('T')[0];
+
+  // Units updated today (dateIn = today)
+  const todayUnits = useMemo(() =>
+    units.filter(u => u.dateIn === today),
+    [units, today]
+  );
+
+  // Platform update list — available units grouped by model for qty decisions
+  const platformList = useMemo(() => {
+    const map = new Map<string, { model: string; brand: string; category: string; count: number; flags: OperationalFlag[]; units: InventoryUnit[] }>();
+    for (const u of units.filter(u => u.status === 'available')) {
+      if (!map.has(u.model)) {
+        map.set(u.model, { model: u.model, brand: u.brand, category: u.category, count: 0, flags: [], units: [] });
+      }
+      const entry = map.get(u.model)!;
+      entry.count++;
+      entry.units.push(u);
+      for (const f of u.flags) {
+        if (!entry.flags.includes(f)) entry.flags.push(f);
+      }
+    }
+    return Array.from(map.values()).sort((a, b) => {
+      // Top 10 first
+      const aTop = a.flags.includes('top10') ? 1 : 0;
+      const bTop = b.flags.includes('top10') ? 1 : 0;
+      return bTop - aTop || b.count - a.count;
+    });
+  }, [units]);
+
+  // Sold today
+  const soldToday = useMemo(() => units.filter(u => u.saleDate === today), [units, today]);
+
   return (
-    <div className="space-y-8">
+    <div className="space-y-8 pb-12">
+      {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-4xl font-bold tracking-tighter uppercase font-display">Revenue</h2>
-          <div className="h-px w-24 bg-white mt-2" />
+          <h2 className="text-3xl font-bold tracking-tighter uppercase font-display">Daily Update</h2>
+          <div className="h-px w-16 bg-black mt-2" />
+          <p className="text-xs text-gray-400 font-mono mt-2 uppercase tracking-widest">
+            Sales team daily stock briefing ·{' '}
+            {new Date().toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' })}
+          </p>
         </div>
-        <div className="flex items-center gap-6">
-          <div className="flex -space-x-3">
-            {['E', 'A', 'D', 'S'].map(i => (
-              <div key={i} className="w-10 h-10 rounded-none border border-white/20 bg-black flex items-center justify-center text-[11px] font-bold font-mono group hover:bg-white hover:text-black transition-all cursor-crosshair">
-                {i}
-              </div>
-            ))}
-          </div>
-          <p className="text-[10px] text-gray-500 font-mono uppercase tracking-[0.2em] font-bold">Portals Connected</p>
-        </div>
-      </div>
-
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-        <MetricCard label="eBay Total" value="$12,450" change="+14%" icon="E" />
-        <MetricCard label="Direct Sales" value="$4,200" change="+2.4%" icon="D" />
-        <MetricCard label="Amazon" value="$8,900" change="+22%" icon="A" />
-        <MetricCard label="Swappa" value="$1,100" change="-5%" icon="S" />
-      </div>
-
-      <div className="bg-black border border-white/5 rounded-none overflow-hidden">
-        <div className="p-8 border-b border-white/5 flex items-center justify-between bg-white/[0.01]">
-          <h3 className="font-bold uppercase tracking-widest text-[11px] text-gray-500">Transaction Stream</h3>
-          <button className="text-[10px] font-bold uppercase tracking-widest text-gray-600 hover:text-white flex items-center gap-2 transition-colors">
-            Export Ledger
-            <ExternalLink size={14} />
-          </button>
-        </div>
-        
-        <div className="divide-y divide-white/5">
-          {orders.map((order) => (
-            <div key={order.id} className="p-8 hover:bg-white/[0.03] transition-all flex flex-col md:flex-row gap-8 md:items-center group">
-              <div className="flex items-center gap-6 min-w-[240px]">
-                <div className="w-12 h-12 rounded-none bg-white/[0.03] border border-white/10 flex items-center justify-center font-bold text-xs group-hover:bg-white group-hover:text-black transition-all">
-                  {order.platform[0]}
-                </div>
-                <div>
-                  <p className="text-sm font-bold font-display tracking-tight uppercase">{order.platformOrderId}</p>
-                  <p className="text-[9px] text-gray-600 font-mono uppercase tracking-[0.2em] font-bold mt-1 text-nowrap">{order.platform} SYSTEM ID</p>
-                </div>
-              </div>
-
-              <div className="flex-1 grid grid-cols-2 md:grid-cols-3 gap-10">
-                <div className="space-y-2">
-                  <div className="flex items-center gap-3 text-[9px] text-gray-600 uppercase font-mono font-bold tracking-widest">
-                    <User size={12} className="text-gray-800" />
-                    Counterparty
-                  </div>
-                  <p className="text-xs font-bold uppercase tracking-wide truncate">{order.customerName || 'ANONYMOUS'}</p>
-                </div>
-                <div className="space-y-2">
-                  <div className="flex items-center gap-3 text-[9px] text-gray-600 uppercase font-mono font-bold tracking-widest">
-                    <ShoppingBag size={12} className="text-gray-800" />
-                    Unit Allocation
-                  </div>
-                  <p className="text-xs font-bold uppercase tracking-wide">{order.deviceIds.length} SHIPPED</p>
-                </div>
-                <div className="space-y-2 hidden md:block">
-                  <div className="flex items-center gap-3 text-[9px] text-gray-600 uppercase font-mono font-bold tracking-widest">
-                    <Calendar size={12} className="text-gray-800" />
-                    Timestamp
-                  </div>
-                  <p className="text-xs font-bold uppercase tracking-wide">{(order.date as any)?.toDate?.().toLocaleDateString() || 'UNTRACKED'}</p>
-                </div>
-              </div>
-
-              <div className="flex items-center justify-between md:justify-end gap-16 w-full md:w-auto mt-6 md:mt-0">
-                <div className="text-right">
-                  <p className="text-2xl font-bold tracking-tighter tabular-nums">${order.totalAmount}</p>
-                  <p className="text-[9px] text-white font-mono uppercase tracking-[0.3em] font-bold mt-1">Confirmed</p>
-                </div>
-                <button className="p-3 bg-white/5 hover:bg-white text-gray-500 hover:text-black transition-all border border-transparent hover:border-white">
-                  <ArrowUpRight size={20} strokeWidth={3} />
-                </button>
-              </div>
-            </div>
-          ))}
-
-          {orders.length === 0 && (
-            <div className="px-6 py-20 text-center text-gray-500 font-mono text-xs italic">
-              NO ORDERS TRANSACTION DETECTED ON RECORDED CHANNELS
-            </div>
+        <div className="flex items-center gap-3">
+          {todayUnits.length > 0 && (
+            <span className="bg-black text-white text-[9px] font-bold font-mono px-3 py-1.5 uppercase tracking-widest flex items-center gap-2">
+              <Bell size={10} />
+              {todayUnits.length} new unit{todayUnits.length > 1 ? 's' : ''} in today
+            </span>
           )}
         </div>
       </div>
-    </div>
-  );
-}
 
-function MetricCard({ label, value, change, icon }: any) {
-  const isUp = change.startsWith('+');
-  return (
-    <div className="bg-black border border-white/5 rounded-none p-6 flex flex-col justify-between hover:border-white/20 transition-all cursor-pointer group">
-      <div className="flex items-center justify-between mb-6">
-        <div className="w-10 h-10 rounded-none bg-white/[0.03] border border-white/10 flex items-center justify-center font-bold text-xs text-gray-500 group-hover:bg-white group-hover:text-black transition-all">
-          {icon}
+      {/* Quick KPIs for sales team */}
+      <div className="grid grid-cols-3 gap-4">
+        <div className="bg-white border border-gray-200 shadow-sm p-5">
+          <p className="text-[8px] font-bold text-gray-400 uppercase tracking-widest font-mono mb-2">Available to Sell</p>
+          <p className="text-4xl font-bold font-display tracking-tighter">{units.filter(u => u.status === 'available').length}</p>
         </div>
-        <div className={`text-[10px] font-mono font-bold tracking-widest ${isUp ? 'text-white' : 'text-gray-500'}`}>
-          {change}
+        <div className="bg-white border border-gray-200 shadow-sm p-5">
+          <p className="text-[8px] font-bold text-gray-400 uppercase tracking-widest font-mono mb-2">In Office Now</p>
+          <p className="text-4xl font-bold font-display tracking-tighter">
+            {units.filter(u => u.status === 'available' && u.flags.includes('officeOnly')).length}
+          </p>
+        </div>
+        <div className="bg-white border border-gray-200 shadow-sm p-5">
+          <p className="text-[8px] font-bold text-gray-400 uppercase tracking-widest font-mono mb-2">Top 10 Units</p>
+          <p className="text-4xl font-bold font-display tracking-tighter">
+            {units.filter(u => u.status === 'available' && u.flags.includes('top10')).length}
+          </p>
         </div>
       </div>
-      <div>
-        <p className="text-[9px] text-gray-600 uppercase tracking-[0.3em] font-mono mb-2 font-bold">{label}</p>
-        <p className="text-3xl font-bold tracking-tighter font-display">{value}</p>
+
+      {/* Today's new stock */}
+      {todayUnits.length > 0 && (
+        <div className="bg-white border border-gray-200 shadow-sm border-l-4 border-l-black">
+          <div className="px-6 py-4 border-b border-gray-200 bg-gray-50">
+            <h3 className="text-[10px] font-bold uppercase tracking-widest text-gray-600 flex items-center gap-2">
+              <Clock size={12} /> New Stock In Today — List These Now
+            </h3>
+          </div>
+          <div className="divide-y divide-gray-50">
+            {todayUnits.map(u => (
+              <div key={u.id} className="px-6 py-4 flex items-center gap-6">
+                <div className="flex-1">
+                  <p className="text-sm font-bold">{u.model}</p>
+                  <p className="text-[10px] text-gray-500 font-mono uppercase">{u.colour} · IMEI: {u.imei || '—'} · £{u.buyPrice}</p>
+                </div>
+                <span className="text-[9px] font-bold bg-black text-white px-3 py-1.5 font-mono uppercase tracking-widest">
+                  Set Qty: 1 ↑
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Platform Quantity Reference */}
+      <div className="bg-white border border-gray-200 shadow-sm">
+        <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between bg-gray-50">
+          <h3 className="text-[10px] font-bold uppercase tracking-widest text-gray-400">Platform Quantity Reference</h3>
+          <span className="text-[9px] text-gray-400 font-mono">Update daily on eBay / Swappa / Back Market</span>
+        </div>
+
+        <table className="w-full text-left">
+          <thead>
+            <tr className="border-b border-gray-100 text-[8px] text-gray-400 uppercase tracking-[0.25em] font-mono bg-gray-50">
+              <th className="px-6 py-3 font-bold">Model</th>
+              <th className="px-6 py-3 font-bold">Category</th>
+              <th className="px-6 py-3 font-bold">Flags</th>
+              <th className="px-6 py-3 font-bold">Units Available</th>
+              <th className="px-6 py-3 font-bold">Platform Action</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-gray-50">
+            {platformList.length === 0 ? (
+              <tr>
+                <td colSpan={5} className="px-6 py-12 text-center text-gray-400 font-mono text-xs">
+                  No available stock. Ingest a batch first.
+                </td>
+              </tr>
+            ) : platformList.map(item => (
+              <tr key={item.model} className="hover:bg-gray-50 transition-all">
+                <td className="px-6 py-4">
+                  <p className="text-xs font-bold">{item.model}</p>
+                  <p className="text-[9px] text-gray-400 font-mono uppercase mt-0.5">{item.brand}</p>
+                </td>
+                <td className="px-6 py-4">
+                  <span className="text-[9px] font-mono bg-black text-white px-2 py-1 uppercase">{item.category}</span>
+                </td>
+                <td className="px-6 py-4">
+                  <div className="flex flex-wrap gap-1">
+                    {item.flags.map(flag => {
+                      const cfg = FLAG_CONFIG[flag];
+                      const Icon = cfg.icon;
+                      return (
+                        <span key={flag} className={`text-[8px] font-bold uppercase px-1.5 py-0.5 border font-mono flex items-center gap-1 ${cfg.style}`}>
+                          <Icon size={8} />{cfg.label}
+                        </span>
+                      );
+                    })}
+                    {item.flags.length === 0 && <span className="text-[9px] text-gray-300 font-mono">—</span>}
+                  </div>
+                </td>
+                <td className="px-6 py-4">
+                  <span className="text-2xl font-bold font-display tracking-tighter">{item.count}</span>
+                </td>
+                <td className="px-6 py-4">
+                  {item.count > 0 ? (
+                    <div>
+                      <span className="text-[10px] font-bold bg-black text-white px-3 py-1.5 font-mono uppercase tracking-widest">
+                        Set Qty: 1 ✓
+                      </span>
+                      <p className="text-[8px] text-gray-400 font-mono mt-1 uppercase">
+                        {item.flags.includes('top10') ? FLAG_CONFIG.top10.action : 'In stock — list now'}
+                      </p>
+                    </div>
+                  ) : (
+                    <div>
+                      <span className="text-[10px] font-bold bg-gray-100 text-gray-500 px-3 py-1.5 font-mono uppercase tracking-widest">
+                        Set Qty: 0 ✗
+                      </span>
+                      <p className="text-[8px] text-gray-400 font-mono mt-1 uppercase">Out of stock — delist</p>
+                    </div>
+                  )}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
       </div>
     </div>
   );

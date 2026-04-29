@@ -35,11 +35,11 @@ export default function Suppliers() {
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-4xl font-bold tracking-tighter uppercase font-display">Origins</h2>
-          <div className="h-px w-24 bg-white mt-2" />
+          <div className="h-px w-24 bg-black mt-2" />
         </div>
         <button 
           onClick={() => setIsAdding(true)}
-          className="flex items-center gap-3 px-8 py-3 bg-white text-black rounded-none text-xs font-bold uppercase tracking-[0.2em] hover:bg-gray-200 transition-all active:scale-95"
+          className="flex items-center gap-3 px-8 py-3 bg-black text-white rounded-none text-xs font-bold uppercase tracking-[0.2em] hover:bg-gray-800 transition-all active:scale-95"
         >
           <Plus size={18} strokeWidth={3} />
           Register Partner
@@ -51,13 +51,13 @@ export default function Suppliers() {
           <motion.div 
             layout
             key={supplier.id}
-            className="bg-black border border-white/5 rounded-none p-8 hover:border-white/20 transition-all group relative cursor-pointer"
+            className="bg-white border border-gray-200 rounded-none p-8 hover:border-gray-400 transition-all group relative cursor-pointer shadow-sm text-black"
           >
             <div className="flex justify-between items-start mb-8">
-              <div className="w-14 h-14 bg-white/[0.03] border border-white/10 rounded-none flex items-center justify-center group-hover:bg-white transition-all">
+              <div className="w-14 h-14 bg-gray-50 border border-gray-200 rounded-none flex items-center justify-center group-hover:bg-gray-100 transition-all">
                 <Briefcase className="text-gray-500 group-hover:text-black" size={24} />
               </div>
-              <button className="text-gray-800 hover:text-white transition-colors">
+              <button className="text-gray-800 hover:text-black transition-colors">
                 <MoreVertical size={20} />
               </button>
             </div>
@@ -68,7 +68,7 @@ export default function Suppliers() {
                 <span className="text-[9px] text-gray-600 font-mono uppercase tracking-[0.3em] font-bold mt-1 inline-block">{supplier.portal} SOURCE CHANNEL</span>
               </div>
 
-              <div className="space-y-3 border-t border-white/5 pt-6">
+              <div className="space-y-3 border-t border-gray-200 pt-6">
                 <div className="flex items-center gap-4 text-[11px] text-gray-500 font-mono uppercase tracking-wider">
                   <Mail size={14} className="text-gray-800" />
                   <span className="truncate">{supplier.contactEmail || 'SECURE_COMMS_ONLY'}</span>
@@ -80,7 +80,7 @@ export default function Suppliers() {
               </div>
 
               <div className="pt-6 flex gap-3">
-                <button className="flex-1 bg-white/[0.03] hover:bg-white text-white hover:text-black text-[10px] font-bold uppercase tracking-widest py-3 rounded-none border border-white/5 transition-all flex items-center justify-center gap-2">
+                <button className="flex-1 bg-gray-50 hover:bg-black text-black hover:text-white text-[10px] font-bold uppercase tracking-widest py-3 rounded-none border border-gray-200 transition-all flex items-center justify-center gap-2">
                   Query Logs
                   <ChevronRight size={14} />
                 </button>
@@ -90,7 +90,7 @@ export default function Suppliers() {
         ))}
 
         {suppliers.length === 0 && !isAdding && (
-          <div className="col-span-full py-20 text-center border-2 border-dashed border-white/5 rounded-2xl">
+          <div className="col-span-full py-20 text-center border-2 border-dashed border-gray-200 rounded-2xl">
             <p className="text-gray-500 font-mono text-sm italic">NO SUPPLIERS CONFIGURED IN REGISTRY</p>
           </div>
         )}
@@ -102,13 +102,13 @@ export default function Suppliers() {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm"
+            className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-white/80 backdrop-blur-sm"
           >
             <motion.div 
               initial={{ scale: 0.95, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.95, opacity: 0 }}
-              className="bg-black border border-white/10 rounded-none p-12 max-w-xl w-full shadow-[0_0_100px_rgba(0,0,0,0.5)] border-t-8 border-t-white"
+              className="bg-white border border-gray-200 rounded-none p-12 max-w-xl w-full shadow-2xl border-t-8 border-t-black text-black"
             >
               <h3 className="text-4xl font-bold tracking-tighter uppercase font-display mb-10">Network Onboarding</h3>
               <form onSubmit={handleAdd} className="space-y-8">
@@ -119,7 +119,7 @@ export default function Suppliers() {
                     value={newSupplier.name}
                     onChange={e => setNewSupplier({...newSupplier, name: e.target.value})}
                     type="text" 
-                    className="w-full bg-white/[0.03] border border-white/10 rounded-none py-4 px-5 focus:outline-none focus:border-white/40 focus:bg-white/[0.05] transition-all font-light"
+                    className="w-full bg-gray-50 border border-gray-200 rounded-none py-4 px-5 focus:outline-none focus:border-black focus:bg-white transition-all font-light text-black"
                     placeholder="ENTER REGISTERED NAME"
                   />
                 </div>
@@ -130,12 +130,12 @@ export default function Suppliers() {
                     <select 
                       value={newSupplier.portal}
                       onChange={e => setNewSupplier({...newSupplier, portal: e.target.value as any})}
-                      className="w-full bg-white/[0.03] border border-white/10 rounded-none py-4 px-5 focus:outline-none focus:border-white/40 focus:bg-white/[0.05] transition-all appearance-none font-light uppercase text-xs tracking-widest"
+                      className="w-full bg-gray-50 border border-gray-200 rounded-none py-4 px-5 focus:outline-none focus:border-black focus:bg-white transition-all appearance-none font-light uppercase text-xs tracking-widest text-black"
                     >
-                      <option className="bg-[#0B0B0B]">Website</option>
-                      <option className="bg-[#0B0B0B]">eBay</option>
-                      <option className="bg-[#0B0B0B]">Direct</option>
-                      <option className="bg-[#0B0B0B]">Other</option>
+                      <option className="bg-white">Website</option>
+                      <option className="bg-white">eBay</option>
+                      <option className="bg-white">Direct</option>
+                      <option className="bg-white">Other</option>
                     </select>
                   </div>
                   <div className="space-y-2">
@@ -144,7 +144,7 @@ export default function Suppliers() {
                       value={newSupplier.contactEmail}
                       onChange={e => setNewSupplier({...newSupplier, contactEmail: e.target.value})}
                       type="email" 
-                      className="w-full bg-white/[0.03] border border-white/10 rounded-none py-4 px-5 focus:outline-none focus:border-white/40 focus:bg-white/[0.05] transition-all font-light"
+                      className="w-full bg-gray-50 border border-gray-200 rounded-none py-4 px-5 focus:outline-none focus:border-black focus:bg-white transition-all font-light text-black"
                       placeholder="EMAIL@ENDPOINT"
                     />
                   </div>
@@ -156,7 +156,7 @@ export default function Suppliers() {
                     value={newSupplier.websiteUrl}
                     onChange={e => setNewSupplier({...newSupplier, websiteUrl: e.target.value})}
                     type="url" 
-                    className="w-full bg-white/[0.03] border border-white/10 rounded-none py-4 px-5 focus:outline-none focus:border-white/40 focus:bg-white/[0.05] transition-all font-light"
+                    className="w-full bg-gray-50 border border-gray-200 rounded-none py-4 px-5 focus:outline-none focus:border-black focus:bg-white transition-all font-light text-black"
                     placeholder="HTTPS://REPOSITORY.ENDPOINT"
                   />
                 </div>
@@ -165,13 +165,13 @@ export default function Suppliers() {
                   <button 
                     type="button"
                     onClick={() => setIsAdding(false)}
-                    className="flex-1 py-4 px-6 rounded-none border border-white/10 font-bold uppercase tracking-widest text-[11px] hover:bg-white/5 transition-all"
+                    className="flex-1 py-4 px-6 rounded-none border border-gray-200 font-bold uppercase tracking-widest text-[11px] hover:bg-gray-50 transition-all text-black"
                   >
                     Abort
                   </button>
                   <button 
                     type="submit"
-                    className="flex-1 py-4 px-6 rounded-none bg-white text-black font-bold uppercase tracking-widest text-[11px] hover:bg-gray-200 transition-all active:scale-[0.98]"
+                    className="flex-1 py-4 px-6 rounded-none bg-black text-white font-bold uppercase tracking-widest text-[11px] hover:bg-gray-800 transition-all active:scale-[0.98]"
                   >
                     Establish Link
                   </button>
