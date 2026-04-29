@@ -25,6 +25,9 @@ type Tab = 'dashboard' | 'inventory' | 'suppliers' | 'sales' | 'scan' | 'calenda
 
 interface InventoryFilters { status?: string; search?: string; supplierId?: string; }
 
+const APP_NAME = 'MOBILEPHONEMARKET';
+const APP_TAGLINE = 'Inventory Manager';
+
 export default function App() {
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [loading, setLoading]       = useState(true);
@@ -78,8 +81,8 @@ export default function App() {
       {/* Desktop Sidebar — hidden on mobile */}
       <aside className="hidden md:flex w-72 border-r border-gray-200 flex-col pt-10 pb-6 bg-gray-50 z-30">
         <div className="px-8 mb-16">
-          <h1 className="text-3xl font-bold tracking-tighter uppercase font-display leading-none text-black">Nexus</h1>
-          <p className="text-[9px] text-gray-500 font-mono uppercase tracking-[0.4em] mt-2">Inventory OS</p>
+          <h1 className="text-3xl font-bold tracking-tighter uppercase font-display leading-none text-black">{APP_NAME}</h1>
+          <p className="text-[9px] text-gray-500 font-mono uppercase tracking-[0.4em] mt-2">{APP_TAGLINE}</p>
         </div>
 
         <nav className="flex-1 px-4 space-y-2">
@@ -119,7 +122,7 @@ export default function App() {
           <div className="flex items-center justify-between gap-4">
             {/* Mobile logo */}
             <div className="md:hidden">
-              <h1 className="text-2xl font-bold tracking-tighter uppercase font-display text-black">Nexus</h1>
+              <h1 className="text-2xl font-bold tracking-tighter uppercase font-display text-black">{APP_NAME}</h1>
             </div>
 
             {/* Actions */}
@@ -208,8 +211,8 @@ function LoginPage({ onLogin }: { onLogin: () => void }) {
       {/* Left brand panel — desktop only */}
       <div className="hidden lg:flex w-1/2 bg-black flex-col justify-between p-16">
         <div>
-          <h1 className="text-5xl font-bold tracking-tighter uppercase text-white font-display">Nexus</h1>
-          <p className="text-[10px] text-gray-500 font-mono uppercase tracking-[0.4em] mt-2">Inventory OS · Admin Portal</p>
+          <h1 className="text-5xl font-bold tracking-tighter uppercase text-white font-display">{APP_NAME}</h1>
+          <p className="text-[10px] text-gray-500 font-mono uppercase tracking-[0.4em] mt-2">{APP_TAGLINE} · Admin Portal</p>
         </div>
         <div className="space-y-8">
           {[
@@ -226,7 +229,7 @@ function LoginPage({ onLogin }: { onLogin: () => void }) {
             </div>
           ))}
         </div>
-        <p className="text-[9px] text-gray-600 font-mono uppercase tracking-widest">Admin access only · Nexus Inventory OS</p>
+        <p className="text-[9px] text-gray-600 font-mono uppercase tracking-widest">Admin access only · MOBILEPHONEMARKET Inventory Manager</p>
       </div>
 
       {/* Right login form */}
@@ -238,8 +241,8 @@ function LoginPage({ onLogin }: { onLogin: () => void }) {
         >
           {/* Mobile logo */}
           <div className="lg:hidden text-center">
-            <h1 className="text-4xl font-bold tracking-tighter uppercase font-display">Nexus</h1>
-            <p className="text-[10px] text-gray-400 font-mono uppercase tracking-[0.4em] mt-1">Inventory OS</p>
+            <h1 className="text-4xl font-bold tracking-tighter uppercase font-display">{APP_NAME}</h1>
+            <p className="text-[10px] text-gray-400 font-mono uppercase tracking-[0.4em] mt-1">{APP_TAGLINE}</p>
           </div>
 
           <div>
@@ -319,7 +322,7 @@ function LoginPage({ onLogin }: { onLogin: () => void }) {
               ) : (
                 <>
                   <ShieldCheck size={16} />
-                  Sign In to Nexus
+                  Sign In to {APP_NAME}
                 </>
               )}
             </button>

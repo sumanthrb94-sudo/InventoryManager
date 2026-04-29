@@ -1,7 +1,7 @@
 /**
  * Admin Auth Config
  * ─────────────────────────────────────────────────────────────────────────────
- * Simple credential-based auth for the Nexus Inventory admin.
+ * Simple credential-based auth for the MOBILEPHONEMARKET inventory admin.
  * Change these to your preferred email/password before deploying.
  *
  * For production: move these to Vercel Environment Variables as
