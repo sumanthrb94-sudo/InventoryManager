@@ -58,10 +58,9 @@ export default function Suppliers() {
         s.revenue += u.salePrice ?? 0;
         if (u.salePlatform) s.platforms[u.salePlatform] = (s.platforms[u.salePlatform] || 0) + 1;
       }
-      // Group by stock-in date
       const d = u.dateIn;
-      if (!s.byDate[d]) s.byDate[d] = [];
-      s.byDate[d].push(u);
+      if (!s.byDate[d]) s.byDate[d] = [] as InventoryUnit[];
+      (s.byDate[d] as InventoryUnit[]).push(u);
     }
     return map;
   }, [units]);
@@ -71,10 +70,10 @@ export default function Suppliers() {
 
   // History: flat list sorted by date desc
   const historyItems = useMemo(() => {
-    if (!selectedStats) return [];
+    if (!selectedStats) return [] as { date: string; unit: InventoryUnit }[];
     return Object.entries(selectedStats.byDate)
       .sort(([a], [b]) => b.localeCompare(a))
-      .flatMap(([date, us]) => us.map(u => ({ date, unit: u })));
+      .flatMap(([date, us]) => (us as InventoryUnit[]).map(u => ({ date, unit: u })));
   }, [selectedStats]);
 
   const histPages = Math.max(1, Math.ceil(historyItems.length / HIST_PAGE_SIZE));
@@ -202,7 +201,7 @@ export default function Suppliers() {
                     {Object.keys(selectedStats.platforms).length > 0 && (
                       <div className="px-4 pb-3 flex flex-wrap gap-1.5">
                         {Object.entries(selectedStats.platforms)
-                          .sort((a,b) => b[1]-a[1])
+                          .sort((a, b) => (b[1] as number) - (a[1] as number))
                           .map(([p, c]) => (
                             <span key={p} className={`text-[9px] font-bold px-2.5 py-1 rounded-full font-mono ${PLATFORM_COLORS[p] || PLATFORM_COLORS.Other}`}>
                               {p} · {c}
