@@ -44,7 +44,7 @@ export default function ScanPage() {
 
   // Today's stats
   const today = new Date().toISOString().split('T')[0];
-  const todaySold      = useMemo(() => units.filter(u => u.saleDate === today), [units, today]);
+  const todaySold      = useMemo(() => units.filter(u => (u.saleDate || u.dateIn) === today), [units, today]);
   const todayReturned  = useMemo(() => units.filter(u => u.status === 'returned' && u.updatedAt?.startsWith?.(today)), [units, today]);
   const totalAvailable = useMemo(() => units.filter(u => u.status === 'available').length, [units]);
 
@@ -253,11 +253,24 @@ export default function ScanPage() {
                   <span className={`text-[9px] font-bold px-2 py-0.5 rounded-full font-mono uppercase ${STATUS_BADGE[foundUnit.status]}`}>
                     {foundUnit.status}
                   </span>
-                  {foundUnit.imei && (
-                    <span className={`text-[9px] px-2 py-0.5 rounded-full font-mono ${validateIMEI(foundUnit.imei) ? 'bg-emerald-900/60 text-emerald-400' : 'bg-red-900/60 text-red-400'}`}>
-                      {validateIMEI(foundUnit.imei) ? '✓ Valid IMEI' : '! Invalid IMEI'}
-                    </span>
-                  )}
+                  {foundUnit.imei ? (
+                    (() => {
+                      const digits = foundUnit.imei.replace(/\D/g, '');
+                      if (digits.length !== 15) {
+                        return (
+                          <span className="text-[9px] px-2 py-0.5 rounded-full font-mono bg-gray-800 text-gray-300">
+                            Serial
+                          </span>
+                        );
+                      }
+                      const valid = validateIMEI(foundUnit.imei);
+                      return (
+                        <span className={`text-[9px] px-2 py-0.5 rounded-full font-mono ${valid ? 'bg-emerald-900/60 text-emerald-400' : 'bg-red-900/60 text-red-400'}`}>
+                          {valid ? '✓ Valid IMEI' : '! Invalid IMEI'}
+                        </span>
+                      );
+                    })()
+                  ) : null}
                 </div>
                 <p className="text-white font-bold text-sm">{foundUnit.model}</p>
                 <p className="text-gray-400 text-xs font-mono mt-0.5">{foundUnit.colour} · BP: £{foundUnit.buyPrice}</p>

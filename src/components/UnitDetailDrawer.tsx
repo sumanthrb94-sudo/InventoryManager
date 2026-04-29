@@ -33,7 +33,8 @@ export default function UnitDetailDrawer({ unit, supplierName, onClose }: Props)
   const [saving, setSaving]     = useState(false);
   const [saved, setSaved]       = useState(false);
 
-  const imeiValid  = unit.imei ? validateIMEI(unit.imei) : null;
+  const imeiDigits = unit.imei.replace(/\D/g, '');
+  const imeiValid  = imeiDigits.length === 15 ? validateIMEI(unit.imei) : null;
   const statusCfg  = STATUS_CONFIG[unit.status] || STATUS_CONFIG.available;
 
   const timeline = [
@@ -62,7 +63,7 @@ export default function UnitDetailDrawer({ unit, supplierName, onClose }: Props)
       icon: <CheckCircle2 size={14} />,
       label: 'Sold',
       value: unit.salePrice ? `£${unit.salePrice} via ${unit.salePlatform}` : 'Pending',
-      date: unit.saleDate || null,
+      date: unit.saleDate || (unit.status === 'sold' ? unit.dateIn : null),
       done: unit.status === 'sold',
     },
   ];
@@ -145,14 +146,19 @@ export default function UnitDetailDrawer({ unit, supplierName, onClose }: Props)
               </p>
             </div>
             <div className="flex flex-col items-end gap-1">
-              {unit.imei && imeiValid !== null && (
+              {unit.imei && imeiValid !== null ? (
                 <span className={`text-[9px] font-bold px-2 py-0.5 rounded-full font-mono flex items-center gap-1 ${
                   imeiValid ? 'bg-emerald-500/20 text-emerald-400' : 'bg-red-500/20 text-red-400'
                 }`}>
                   {imeiValid ? <ShieldCheck size={10} /> : <AlertCircle size={10} />}
                   {imeiValid ? 'Valid' : 'Invalid'}
                 </span>
-              )}
+              ) : unit.imei ? (
+                <span className="text-[9px] font-bold px-2 py-0.5 rounded-full font-mono flex items-center gap-1 bg-gray-100 text-gray-500">
+                  <ShieldCheck size={10} />
+                  Serial
+                </span>
+              ) : null}
               <Cpu size={20} className="text-gray-600" />
             </div>
           </div>

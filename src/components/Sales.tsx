@@ -75,7 +75,7 @@ export default function Sales() {
   }, [units]);
 
   // Sold today
-  const soldToday = useMemo(() => units.filter(u => u.saleDate === today), [units, today]);
+  const soldToday = useMemo(() => units.filter(u => (u.saleDate || u.dateIn) === today), [units, today]);
 
   return (
     <div className="space-y-8 pb-12">

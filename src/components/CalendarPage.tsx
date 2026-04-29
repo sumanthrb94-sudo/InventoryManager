@@ -72,8 +72,9 @@ export default function CalendarPage() {
         ensure(unit.dateIn).stock_in.push({ type: 'stock_in', unit });
       }
       // Sold
-      if (unit.saleDate) {
-        const day = ensure(unit.saleDate);
+      const effectiveSaleDate = unit.saleDate || (unit.status === 'sold' ? unit.dateIn : undefined);
+      if (effectiveSaleDate) {
+        const day = ensure(effectiveSaleDate);
         day.sold.push({ type: 'sold', unit, platform: unit.salePlatform });
         day.revenue += unit.salePrice ?? 0;
       }

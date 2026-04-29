@@ -33,7 +33,10 @@ function parseColour(model: string): string {
     'BLACK', 'WHITE', 'BLUE', 'PINK', 'TEAL', 'ORANGE', 'RED',
   ];
   for (const c of colours) {
-    if (m.includes(c)) return c.charAt(0) + c.slice(1).toLowerCase();
+    if (m.includes(c)) {
+      if (c === 'SPACE GREY' || c === 'SPACE GRAY') return 'Space Grey';
+      return c.charAt(0) + c.slice(1).toLowerCase();
+    }
   }
   return 'Unknown';
 }
@@ -41,12 +44,13 @@ function parseColour(model: string): string {
 function parseCategory(model: string): DeviceCategory {
   const m = model.toUpperCase();
   if (m.includes('IPAD')) return 'iPad';
-  if (m.includes('APPLE WATCH') || m.includes('WATCH ULTRA') || m.includes('WATCH SE')) return 'Apple Watch';
+  if (m.includes('APPLE WATCH') || m.includes('IWATCH') || m.includes('WATCH ULTRA') || m.includes('WATCH SE') || m.includes('WATCH')) return 'Apple Watch';
   if (m.includes('IPHONE')) return 'iPhone';
-  if (m.includes('GALAXY TAB') || m.includes('TAB A') || m.includes('TAB S')) return 'Tablet';
-  if (m.includes('S20') || m.includes('S21') || m.includes('S22') || m.includes('S23') || m.includes('S24') || m.includes('S25')) return 'Samsung S Series';
-  if (m.includes('A12') || m.includes('A13') || m.includes('A14') || m.includes('A15') || m.includes('A32') || m.includes('A52') || m.includes('A54') || m.includes('A72')) return 'Samsung A Series';
-  if (m.includes('SAMSUNG') || m.includes('GALAXY')) return 'Samsung A Series';
+  if (m.includes('GALAXY TAB') || m.includes('TAB A') || m.includes('TAB S') || m.includes('TAB')) return 'Tablet';
+  if (m.includes('SAMSUNG') || m.includes('GALAXY')) {
+    if (m.includes(' A') || /\bA\d{2}\b/.test(m) || /\bA\d{3}\b/.test(m)) return 'Samsung A Series';
+    return 'Samsung S Series';
+  }
   return 'Other';
 }
 
@@ -111,6 +115,7 @@ function parseOGStockSheet(ws: XLSX.WorkSheet): ParsedData {
       notes: '',
       platformListed: status === 'available',
       ownerId: 'anonymous',
+      ...(status === 'sold' ? { saleDate: dateIn } : {}),
       ...(status === 'sold' && salePlatform ? { salePlatform } : {}),
       ...(status === 'sold' && salePrice ? { salePrice } : {}),
     });

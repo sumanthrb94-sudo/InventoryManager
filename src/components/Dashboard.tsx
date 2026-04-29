@@ -38,7 +38,7 @@ export default function Dashboard({ onNavigate }: Props) {
   const top10Units   = available.filter(u => u.flags.includes('top10'));
   const today        = new Date().toISOString().split('T')[0];
   const todayArrivals = units.filter(u => u.dateIn === today);
-  const todaySold    = sold.filter(u => u.saleDate === today);
+  const todaySold    = sold.filter(u => (u.saleDate || u.dateIn) === today);
 
   const categoryData = useMemo(() => {
     const map: Record<string, number> = {};

@@ -9,7 +9,7 @@ import { dbService } from '../lib/dbService';
 import { InventoryUnit, Supplier, OperationalFlag, DeviceCategory, ModelSummary } from '../types';
 import UnitDetailDrawer from './UnitDetailDrawer';
 import QuickSaleModal from './QuickSaleModal';
-import { validateIMEI, formatIMEI } from '../lib/imeiUtils';
+import { validateIMEI } from '../lib/imeiUtils';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 const CATEGORY_COLOURS: Record<string, string> = {
@@ -307,7 +307,8 @@ export default function Inventory({ initialFilters = {} }: { initialFilters?: In
                         <div className="divide-y divide-gray-50">
                           {variant.units.map(unit => {
                             const supplier = suppliers.find(s => s.id === unit.supplierId);
-                            const imeiOk   = unit.imei ? validateIMEI(unit.imei) : null;
+                            const imeiDigits = unit.imei.replace(/\D/g, '');
+                            const imeiOk = imeiDigits.length === 15 ? validateIMEI(unit.imei) : null;
                             return (
                               <div key={unit.id} className={`px-4 py-3 ${unit.status === 'sold' ? 'opacity-50' : ''}`}>
                                 <div className="flex items-start justify-between gap-3">
@@ -318,7 +319,15 @@ export default function Inventory({ initialFilters = {} }: { initialFilters?: In
                                       <div className="flex items-center gap-1.5 flex-wrap">
                                         <Cpu size={10} className="text-gray-400 flex-shrink-0"/>
                                         <span className="font-mono font-bold text-[10px] tracking-wider">{unit.imei ? unit.imei.slice(0,10)+'…':'—'}</span>
-                                        {imeiOk !== null && <span className={`text-[7px] px-1 rounded font-mono font-bold ${imeiOk?'bg-emerald-100 text-emerald-700':'bg-red-100 text-red-600'}`}>{imeiOk?'✓':'!'}</span>}
+                                        {imeiOk !== null ? (
+                                          <span className={`text-[7px] px-1 rounded font-mono font-bold ${imeiOk ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-600'}`}>
+                                            {imeiOk ? '✓' : '!'}
+                                          </span>
+                                        ) : imeiDigits ? (
+                                          <span className="text-[7px] px-1 rounded font-mono font-bold bg-gray-100 text-gray-500">
+                                            Serial
+                                          </span>
+                                        ) : null}
                                       </div>
                                       <p className="text-[9px] text-gray-400 font-mono mt-0.5 truncate">
                                         {supplier?.name||'—'} · {new Date(unit.dateIn+'T12:00:00').toLocaleDateString('en-GB',{day:'2-digit',month:'short'})}
