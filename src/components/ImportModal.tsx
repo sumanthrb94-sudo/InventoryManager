@@ -4,6 +4,7 @@ import { X, Upload, FileSpreadsheet, CheckCircle2, AlertTriangle, Loader2, Arrow
 import { motion } from 'motion/react';
 import { dbService } from '../lib/dbService';
 import { DeviceCategory, InventoryUnit, Supplier } from '../types';
+import { buildStableUnitId } from '../lib/inventoryMaintenance';
 
 interface ImportModalProps {
   onClose: () => void;
@@ -60,6 +61,10 @@ function parseBrand(category: DeviceCategory): string {
   return 'Other';
 }
 
+function normalizeImei(imei: string) {
+  return imei.replace(/\D/g, '');
+}
+
 interface ParsedData {
   suppliers: Omit<Supplier, 'createdAt'>[];
   units: Omit<InventoryUnit, 'createdAt'>[];
@@ -69,7 +74,7 @@ interface ParsedData {
 function parseOGStockSheet(ws: XLSX.WorkSheet): ParsedData {
   const rows: any[][] = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' }) as any[][];
   const supplierMap = new Map<string, Omit<Supplier, 'createdAt'>>();
-  const units: Omit<InventoryUnit, 'createdAt'>[] = [];
+  const unitMap = new Map<string, Omit<InventoryUnit, 'createdAt'>>();
   let skipped = 0;
 
   for (let i = 1; i < rows.length; i++) {
@@ -99,9 +104,11 @@ function parseOGStockSheet(ws: XLSX.WorkSheet): ParsedData {
     const category = parseCategory(model);
     const brand = parseBrand(category);
     const colour = parseColour(model);
+    const unitId = buildStableUnitId({ imei, model, dateIn, supplierId, buyPrice, status });
+    const dedupeKey = normalizeImei(imei) || unitId;
 
-    units.push({
-      id: `unit_import_${Date.now()}_${i}`,
+    unitMap.set(dedupeKey, {
+      id: unitId,
       imei,
       model: model.trim(),
       brand,
@@ -120,6 +127,8 @@ function parseOGStockSheet(ws: XLSX.WorkSheet): ParsedData {
       ...(status === 'sold' && salePrice ? { salePrice } : {}),
     });
   }
+
+  const units = Array.from(unitMap.values());
 
   const available = units.filter(u => u.status === 'available').length;
   const sold = units.filter(u => u.status === 'sold').length;
