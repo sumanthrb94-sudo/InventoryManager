@@ -332,17 +332,13 @@ function LoginPage({ onLogin }: { onLogin: () => void }) {
             </p>
           </div>
           {/* Credentials hint */}
-          <div className="p-4 bg-gray-950 rounded-xl space-y-2">
-            <p className="text-[9px] text-gray-500 font-mono uppercase tracking-widest">Default Credentials</p>
-            <div className="flex items-center justify-between">
-              <span className="text-[10px] text-gray-400 font-mono">Email</span>
-              <span className="text-[10px] text-white font-mono font-bold select-all">admin@nexusinventory.com</span>
-            </div>
-            <div className="flex items-center justify-between">
-              <span className="text-[10px] text-gray-400 font-mono">Password</span>
-              <span className="text-[10px] text-white font-mono font-bold select-all">Nexus@2026</span>
-            </div>
-            <p className="text-[8px] text-gray-600 font-mono mt-1">Each device logs in independently. Session saved per browser.</p>
+          <div className="p-4 bg-gray-950 rounded-xl space-y-1.5">
+            <p className="text-[9px] text-gray-500 font-mono uppercase tracking-widest">Access Info</p>
+            <p className="text-[10px] text-gray-300 font-mono leading-relaxed">
+              Use the email &amp; password set in your Vercel environment variables
+              (<span className="text-white">VITE_ADMIN_EMAIL</span> / <span className="text-white">VITE_ADMIN_PASSWORD</span>).
+            </p>
+            <p className="text-[9px] text-gray-600 font-mono">Each device logs in independently · session saved per browser.</p>
           </div>
         </motion.div>
       </div>
