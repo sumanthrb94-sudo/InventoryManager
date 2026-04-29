@@ -131,7 +131,7 @@ export default function Inventory() {
               value={searchTerm}
               onChange={e => setSearchTerm(e.target.value)}
               placeholder="Search model, IMEI, colour..."
-              className="bg-gray-50 border border-gray-200 rounded-none py-2 pl-9 pr-4 text-xs font-mono focus:outline-none focus:border-black transition-all w-64 text-black"
+              className="bg-gray-50 border border-gray-200 rounded-xl py-2 pl-9 pr-4 text-xs font-mono focus:outline-none focus:border-black transition-all w-64 text-black"
             />
           </div>
 
@@ -139,7 +139,7 @@ export default function Inventory() {
           <select
             value={selectedCategory}
             onChange={e => setSelectedCategory(e.target.value)}
-            className="bg-gray-50 border border-gray-200 rounded-none py-2 px-3 text-xs font-mono focus:outline-none focus:border-black text-black appearance-none"
+            className="bg-gray-50 border border-gray-200 rounded-xl py-2 px-3 text-xs font-mono focus:outline-none focus:border-black text-black appearance-none"
           >
             <option value="All">All Categories</option>
             {(['iPhone','iPad','Apple Watch','Tablet','Samsung S Series','Samsung A Series','Other'] as DeviceCategory[]).map(c => (
@@ -151,7 +151,7 @@ export default function Inventory() {
           <select
             value={selectedFlag}
             onChange={e => setSelectedFlag(e.target.value)}
-            className="bg-gray-50 border border-gray-200 rounded-none py-2 px-3 text-xs font-mono focus:outline-none focus:border-black text-black appearance-none"
+            className="bg-gray-50 border border-gray-200 rounded-xl py-2 px-3 text-xs font-mono focus:outline-none focus:border-black text-black appearance-none"
           >
             <option value="All">All Flags</option>
             <option value="top10">Top 10</option>
@@ -175,7 +175,7 @@ export default function Inventory() {
           const isExpanded = expandedModels.has(key);
 
           return (
-            <div key={key} className="border border-gray-200 bg-white shadow-sm">
+            <div key={key} className="border border-gray-200 bg-white shadow-md border-0 ring-1 ring-gray-100 hover-card">
               {/* Model Row — summary level */}
               <button
                 onClick={() => toggleExpand(key)}

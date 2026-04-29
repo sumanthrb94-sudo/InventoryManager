@@ -111,7 +111,7 @@ export default function Dashboard() {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
 
         {/* Category chart */}
-        <div className="bg-white border border-gray-200 shadow-sm p-6 lg:col-span-2">
+        <div className="bg-white border border-gray-200 shadow-md border-0 ring-1 ring-gray-100 p-6 lg:col-span-2">
           <h3 className="text-[10px] font-bold uppercase tracking-widest text-gray-400 mb-6">Stock by Category</h3>
           {categoryData.length === 0 ? (
             <EmptyState label="No inventory yet" />
@@ -139,7 +139,7 @@ export default function Dashboard() {
         </div>
 
         {/* Today's arrivals / recent activity */}
-        <div className="bg-white border border-gray-200 shadow-sm p-6">
+        <div className="bg-white border border-gray-200 shadow-md border-0 ring-1 ring-gray-100 p-6">
           <h3 className="text-[10px] font-bold uppercase tracking-widest text-gray-400 mb-6">
             Recent Arrivals
             {todayArrivals.length > 0 && (
@@ -168,7 +168,7 @@ export default function Dashboard() {
       </div>
 
       {/* Top 10 Models table */}
-      <div className="bg-white border border-gray-200 shadow-sm">
+      <div className="bg-white border border-gray-200 shadow-md border-0 ring-1 ring-gray-100">
         <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
           <h3 className="text-[10px] font-bold uppercase tracking-widest text-gray-400">Top Models by Stock</h3>
           <span className="text-[9px] text-gray-400 font-mono uppercase">Platform Qty Guide</span>
@@ -219,7 +219,7 @@ function KPICard({ label, value, sub, icon, trend, trendUp }: {
   trend?: string; trendUp?: boolean;
 }) {
   return (
-    <div className="bg-white border border-gray-200 shadow-sm p-6 flex flex-col justify-between hover:border-gray-400 transition-all cursor-default">
+    <div className="bg-white border border-gray-200 shadow-md border-0 ring-1 ring-gray-100 p-6 flex flex-col justify-between hover:border-gray-400 transition-all cursor-default">
       <div className="flex items-center justify-between mb-4">
         <div className="p-2 bg-gray-50 text-gray-500">{icon}</div>
         {trend && (

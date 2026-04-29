@@ -257,7 +257,7 @@ export default function ImportModal({ onClose }: ImportModalProps) {
                 onDragOver={e => { e.preventDefault(); setIsDragging(true); }}
                 onDragLeave={() => setIsDragging(false)}
                 onClick={() => fileRef.current?.click()}
-                className={`border-2 border-dashed rounded-none p-16 text-center cursor-pointer transition-all ${
+                className={`border-2 border-dashed rounded-xl p-16 text-center cursor-pointer transition-all ${
                   isDragging ? 'border-black bg-gray-50' : 'border-gray-200 hover:border-gray-400 hover:bg-gray-50'
                 }`}
               >
@@ -347,7 +347,7 @@ export default function ImportModal({ onClose }: ImportModalProps) {
                 <p className="text-xs text-gray-400 mt-1 font-mono">{progress.done} / {progress.total} records</p>
               </div>
               {/* Progress bar */}
-              <div className="w-full h-1 bg-gray-100 rounded-none">
+              <div className="w-full h-1 bg-gray-100 rounded-xl">
                 <motion.div
                   className="h-full bg-black"
                   initial={{ width: 0 }}

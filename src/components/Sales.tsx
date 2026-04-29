@@ -101,17 +101,17 @@ export default function Sales() {
 
       {/* Quick KPIs for sales team */}
       <div className="grid grid-cols-3 gap-4">
-        <div className="bg-white border border-gray-200 shadow-sm p-5">
+        <div className="bg-white border border-gray-200 shadow-md border-0 ring-1 ring-gray-100 p-5">
           <p className="text-[8px] font-bold text-gray-400 uppercase tracking-widest font-mono mb-2">Available to Sell</p>
           <p className="text-4xl font-bold font-display tracking-tighter">{units.filter(u => u.status === 'available').length}</p>
         </div>
-        <div className="bg-white border border-gray-200 shadow-sm p-5">
+        <div className="bg-white border border-gray-200 shadow-md border-0 ring-1 ring-gray-100 p-5">
           <p className="text-[8px] font-bold text-gray-400 uppercase tracking-widest font-mono mb-2">In Office Now</p>
           <p className="text-4xl font-bold font-display tracking-tighter">
             {units.filter(u => u.status === 'available' && u.flags.includes('officeOnly')).length}
           </p>
         </div>
-        <div className="bg-white border border-gray-200 shadow-sm p-5">
+        <div className="bg-white border border-gray-200 shadow-md border-0 ring-1 ring-gray-100 p-5">
           <p className="text-[8px] font-bold text-gray-400 uppercase tracking-widest font-mono mb-2">Top 10 Units</p>
           <p className="text-4xl font-bold font-display tracking-tighter">
             {units.filter(u => u.status === 'available' && u.flags.includes('top10')).length}
@@ -121,7 +121,7 @@ export default function Sales() {
 
       {/* Today's new stock */}
       {todayUnits.length > 0 && (
-        <div className="bg-white border border-gray-200 shadow-sm border-l-4 border-l-black">
+        <div className="bg-white border border-gray-200 shadow-md border-0 ring-1 ring-gray-100 border-l-4 border-l-black">
           <div className="px-6 py-4 border-b border-gray-200 bg-gray-50">
             <h3 className="text-[10px] font-bold uppercase tracking-widest text-gray-600 flex items-center gap-2">
               <Clock size={12} /> New Stock In Today — List These Now
@@ -144,7 +144,7 @@ export default function Sales() {
       )}
 
       {/* Platform Quantity Reference */}
-      <div className="bg-white border border-gray-200 shadow-sm">
+      <div className="bg-white border border-gray-200 shadow-md border-0 ring-1 ring-gray-100">
         <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between bg-gray-50">
           <h3 className="text-[10px] font-bold uppercase tracking-widest text-gray-400">Platform Quantity Reference</h3>
           <span className="text-[9px] text-gray-400 font-mono">Update daily on eBay / Swappa / Back Market</span>

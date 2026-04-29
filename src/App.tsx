@@ -148,7 +148,7 @@ export default function App() {
 
   // ── Main app shell ───────────────────────────────────────────────────────
   return (
-    <div className="min-h-screen bg-white text-black flex">
+    <div className="min-h-screen bg-[#FAFAFA] text-black flex">
       {/* Sidebar */}
       <aside className="w-72 border-r border-gray-200 flex flex-col pt-10 pb-6 bg-gray-50">
         <div className="px-8 mb-16">
@@ -169,8 +169,8 @@ export default function App() {
 
         {/* User card + logout */}
         <div className="px-4 pt-6 border-t border-gray-200 space-y-3">
-          <div className="px-4 py-4 flex items-center gap-3 bg-white border border-gray-200 shadow-sm">
-            <div className="w-9 h-9 rounded-none border border-gray-200 flex items-center justify-center overflow-hidden bg-gray-50 flex-shrink-0">
+          <div className="px-4 py-4 flex items-center gap-3 bg-white border border-gray-200 shadow-md border-0 ring-1 ring-gray-100">
+            <div className="w-9 h-9 rounded-xl border border-gray-200 flex items-center justify-center overflow-hidden bg-gray-50 flex-shrink-0">
               {user.photoURL
                 ? <img src={user.photoURL} alt="" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
                 : <Package size={16} className="text-gray-400" />}
@@ -193,7 +193,7 @@ export default function App() {
       </aside>
 
       {/* Main Content */}
-      <main className="flex-1 flex flex-col h-screen overflow-hidden bg-white">
+      <main className="flex-1 flex flex-col h-screen overflow-hidden bg-transparent">
         <header className="h-20 border-b border-gray-200 flex items-center justify-between px-10 bg-white/80 backdrop-blur-xl sticky top-0 z-20">
           <div className="flex items-center gap-6 flex-1">
             <div className="relative max-w-lg w-full">
@@ -201,21 +201,21 @@ export default function App() {
               <input
                 type="text"
                 placeholder="Search inventory..."
-                className="w-full bg-gray-50 border border-gray-200 rounded-none py-2.5 pl-11 pr-4 text-sm font-light text-black focus:outline-none focus:border-black focus:bg-white transition-all"
+                className="w-full bg-gray-50 border border-gray-200 rounded-xl py-2.5 pl-11 pr-4 text-sm font-light text-black focus:outline-none focus:border-black focus:bg-white transition-all"
               />
             </div>
           </div>
           <div className="flex items-center gap-3">
             <button
               onClick={() => setIsImportModalOpen(true)}
-              className="border border-gray-200 text-black px-5 py-2.5 rounded-none text-xs font-bold uppercase tracking-widest flex items-center gap-2 hover:bg-gray-50 transition-all"
+              className="border border-gray-200 text-black px-5 py-2.5 rounded-xl text-xs font-bold uppercase tracking-widest flex items-center gap-2 hover:bg-gray-50 transition-all"
             >
               <FileSpreadsheet size={14} />
               Import Excel
             </button>
             <button
               onClick={() => setIsBatchModalOpen(true)}
-              className="bg-black text-white px-8 py-2.5 rounded-none text-xs font-bold uppercase tracking-widest flex items-center gap-3 hover:bg-gray-800 transition-all active:scale-95"
+              className="bg-black text-white px-8 py-2.5 rounded-xl text-xs font-bold uppercase tracking-widest flex items-center gap-3 hover:bg-gray-800 transition-all active:scale-95"
             >
               <Plus size={16} strokeWidth={3} />
               Ingest Batch
@@ -256,9 +256,9 @@ function NavItem({ id, label, icon, active, onClick }: {
     <button
       onClick={onClick}
       className={`
-        w-full flex items-center gap-4 px-4 py-3.5 rounded-none text-sm transition-all relative group overflow-hidden
+        w-full flex items-center gap-4 px-4 py-3.5 rounded-xl text-sm transition-all relative group overflow-hidden
         ${active
-          ? 'text-black bg-white shadow-sm border border-gray-200'
+          ? 'text-black bg-white shadow-md border-0 ring-1 ring-gray-100 border border-gray-200'
           : 'text-gray-500 hover:text-black hover:bg-gray-100 border border-transparent'}
       `}
     >

@@ -116,7 +116,7 @@ export default function NewBatchModal({ onClose }: NewBatchModalProps) {
         initial={{ y: 20, opacity: 0 }}
         animate={{ y: 0, opacity: 1 }}
         exit={{ y: 20, opacity: 0 }}
-        className="bg-white border border-gray-200 rounded-none w-full max-w-5xl max-h-[92vh] flex flex-col shadow-2xl overflow-hidden text-black"
+        className="bg-white border border-gray-200 rounded-xl w-full max-w-5xl max-h-[92vh] flex flex-col shadow-2xl overflow-hidden text-black"
       >
         {/* Header */}
         <div className="h-auto bg-gray-50 border-b border-gray-200 flex items-center justify-between px-10 py-6">
