@@ -1,186 +1,295 @@
-import React, { useState, useEffect } from 'react';
-import { 
-  Plus, 
-  MapPin, 
-  Globe, 
-  Mail, 
-  ExternalLink,
-  ChevronRight,
-  MoreVertical,
-  Briefcase
-} from 'lucide-react';
+import React, { useState, useEffect, useMemo } from 'react';
+import { Plus, Package, TrendingUp, RotateCcw, ChevronDown, ChevronRight, X, ShoppingBag, Cpu } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { dbService } from '../lib/dbService';
-import { Supplier } from '../types';
+import { Supplier, InventoryUnit } from '../types';
+import { formatIMEI } from '../lib/imeiUtils';
+
+const PLATFORM_COLORS: Record<string, string> = {
+  eBay: 'bg-yellow-100 text-yellow-800',
+  Amazon: 'bg-orange-100 text-orange-800',
+  OnBuy: 'bg-blue-100 text-blue-800',
+  Backmarket: 'bg-green-100 text-green-800',
+  Other: 'bg-gray-100 text-gray-700',
+};
 
 export default function Suppliers() {
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
-  const [isAdding, setIsAdding] = useState(false);
-  const [newSupplier, setNewSupplier] = useState({ name: '', portal: 'Website' as any, contactEmail: '', websiteUrl: '' });
+  const [units, setUnits]         = useState<InventoryUnit[]>([]);
+  const [selected, setSelected]   = useState<string | null>(null);
+  const [isAdding, setIsAdding]   = useState(false);
+  const [newSupplier, setNewSupplier] = useState({ name: '', portal: 'Direct' });
+  const [historyPage, setHistoryPage] = useState(1);
+  const HIST_PAGE_SIZE = 20;
 
   useEffect(() => {
-    return dbService.subscribeToCollection('suppliers', setSuppliers);
+    const u = dbService.subscribeToCollection('inventoryUnits', setUnits);
+    const s = dbService.subscribeToCollection('suppliers', setSuppliers);
+    return () => { u(); s(); };
   }, []);
 
   const handleAdd = async (e: React.FormEvent) => {
     e.preventDefault();
     const id = `sup_${Date.now()}`;
-    await dbService.create('suppliers', id, newSupplier);
+    await dbService.create('suppliers', id, { ...newSupplier, ownerId: 'local' });
     setIsAdding(false);
-    setNewSupplier({ name: '', portal: 'Website', contactEmail: '', websiteUrl: '' });
+    setNewSupplier({ name: '', portal: 'Direct' });
   };
 
+  // Per-supplier stats
+  const supplierStats = useMemo(() => {
+    const map: Record<string, {
+      total: number; available: number; sold: number;
+      totalCost: number; revenue: number;
+      byDate: Record<string, InventoryUnit[]>;
+      platforms: Record<string, number>;
+    }> = {};
+
+    for (const u of units) {
+      if (!map[u.supplierId]) {
+        map[u.supplierId] = { total: 0, available: 0, sold: 0, totalCost: 0, revenue: 0, byDate: {}, platforms: {} };
+      }
+      const s = map[u.supplierId];
+      s.total++;
+      s.totalCost += u.buyPrice;
+      if (u.status === 'available') s.available++;
+      if (u.status === 'sold') {
+        s.sold++;
+        s.revenue += u.salePrice ?? 0;
+        if (u.salePlatform) s.platforms[u.salePlatform] = (s.platforms[u.salePlatform] || 0) + 1;
+      }
+      // Group by stock-in date
+      const d = u.dateIn;
+      if (!s.byDate[d]) s.byDate[d] = [];
+      s.byDate[d].push(u);
+    }
+    return map;
+  }, [units]);
+
+  const selectedSupplier = suppliers.find(s => s.id === selected);
+  const selectedStats    = selected ? supplierStats[selected] : null;
+
+  // History: flat list sorted by date desc
+  const historyItems = useMemo(() => {
+    if (!selectedStats) return [];
+    return Object.entries(selectedStats.byDate)
+      .sort(([a], [b]) => b.localeCompare(a))
+      .flatMap(([date, us]) => us.map(u => ({ date, unit: u })));
+  }, [selectedStats]);
+
+  const histPages = Math.max(1, Math.ceil(historyItems.length / HIST_PAGE_SIZE));
+  const histSlice = historyItems.slice((historyPage - 1) * HIST_PAGE_SIZE, historyPage * HIST_PAGE_SIZE);
+
   return (
-    <div className="space-y-8">
-      <div className="flex items-center justify-between">
+    <div className="space-y-4 pb-24 md:pb-8 max-w-full overflow-x-hidden">
+      {/* Header */}
+      <div className="flex items-center justify-between gap-3">
         <div>
-          <h2 className="text-4xl font-bold tracking-tighter uppercase font-display">Origins</h2>
-          <div className="h-px w-24 bg-black mt-2" />
+          <h2 className="text-2xl font-bold tracking-tighter uppercase font-display">Suppliers</h2>
+          <p className="text-[10px] text-gray-400 font-mono uppercase tracking-widest mt-0.5">{suppliers.length} partners</p>
         </div>
-        <button 
+        <button
           onClick={() => setIsAdding(true)}
-          className="flex items-center gap-3 px-8 py-3 bg-black text-white rounded-xl text-xs font-bold uppercase tracking-[0.2em] hover:bg-gray-800 transition-all active:scale-95"
+          className="flex items-center gap-2 px-4 py-2.5 bg-black text-white rounded-xl text-[10px] font-bold uppercase tracking-widest hover:bg-gray-800 transition-all"
         >
-          <Plus size={18} strokeWidth={3} />
-          Register Partner
+          <Plus size={14} strokeWidth={3} />Add
         </button>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        {suppliers.map((supplier) => (
-          <motion.div 
-            layout
-            key={supplier.id}
-            className="bg-white border border-gray-200 rounded-xl p-8 hover:border-gray-400 transition-all group relative cursor-pointer shadow-md border-0 ring-1 ring-gray-100 text-black"
-          >
-            <div className="flex justify-between items-start mb-8">
-              <div className="w-14 h-14 bg-gray-50 border border-gray-200 rounded-xl flex items-center justify-center group-hover:bg-gray-100 transition-all">
-                <Briefcase className="text-gray-500 group-hover:text-black" size={24} />
-              </div>
-              <button className="text-gray-800 hover:text-black transition-colors">
-                <MoreVertical size={20} />
-              </button>
-            </div>
-            
-            <div className="space-y-6">
-              <div>
-                <h3 className="text-xl font-bold tracking-tight uppercase font-display">{supplier.name}</h3>
-                <span className="text-[9px] text-gray-600 font-mono uppercase tracking-[0.3em] font-bold mt-1 inline-block">{supplier.portal} SOURCE CHANNEL</span>
-              </div>
-
-              <div className="space-y-3 border-t border-gray-200 pt-6">
-                <div className="flex items-center gap-4 text-[11px] text-gray-500 font-mono uppercase tracking-wider">
-                  <Mail size={14} className="text-gray-800" />
-                  <span className="truncate">{supplier.contactEmail || 'SECURE_COMMS_ONLY'}</span>
-                </div>
-                <div className="flex items-center gap-4 text-[11px] text-gray-500 font-mono uppercase tracking-wider">
-                  <Globe size={14} className="text-gray-800" />
-                  <span className="truncate">{supplier.websiteUrl ? new URL(supplier.websiteUrl).hostname : 'DIRECT_ACCESS'}</span>
-                </div>
-              </div>
-
-              <div className="pt-6 flex gap-3">
-                <button className="flex-1 bg-gray-50 hover:bg-black text-black hover:text-white text-[10px] font-bold uppercase tracking-widest py-3 rounded-xl border border-gray-200 transition-all flex items-center justify-center gap-2">
-                  Query Logs
-                  <ChevronRight size={14} />
-                </button>
-              </div>
-            </div>
-          </motion.div>
-        ))}
-
-        {suppliers.length === 0 && !isAdding && (
-          <div className="col-span-full py-20 text-center border-2 border-dashed border-gray-200 rounded-2xl">
-            <p className="text-gray-500 font-mono text-sm italic">NO SUPPLIERS CONFIGURED IN REGISTRY</p>
-          </div>
-        )}
-      </div>
-
+      {/* Add supplier form */}
       <AnimatePresence>
         {isAdding && (
-          <motion.div 
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-white/80 backdrop-blur-sm"
+          <motion.form
+            initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }}
+            onSubmit={handleAdd}
+            className="overflow-hidden bg-white border border-gray-200 rounded-2xl p-4 space-y-3"
           >
-            <motion.div 
-              initial={{ scale: 0.95, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              exit={{ scale: 0.95, opacity: 0 }}
-              className="bg-white border border-gray-200 rounded-xl p-12 max-w-xl w-full shadow-2xl border-t-8 border-t-black text-black"
-            >
-              <h3 className="text-4xl font-bold tracking-tighter uppercase font-display mb-10">Network Onboarding</h3>
-              <form onSubmit={handleAdd} className="space-y-8">
-                <div className="space-y-2">
-                  <label className="text-[10px] text-gray-600 font-mono uppercase tracking-[0.2em] font-bold">Partner Identity</label>
-                  <input 
-                    required
-                    value={newSupplier.name}
-                    onChange={e => setNewSupplier({...newSupplier, name: e.target.value})}
-                    type="text" 
-                    className="w-full bg-gray-50 border border-gray-200 rounded-xl py-4 px-5 focus:outline-none focus:border-black focus:bg-white transition-all font-light text-black"
-                    placeholder="ENTER REGISTERED NAME"
-                  />
-                </div>
-                
-                <div className="grid grid-cols-2 gap-8">
-                  <div className="space-y-2">
-                    <label className="text-[10px] text-gray-600 font-mono uppercase tracking-[0.2em] font-bold">Protocol</label>
-                    <select 
-                      value={newSupplier.portal}
-                      onChange={e => setNewSupplier({...newSupplier, portal: e.target.value as any})}
-                      className="w-full bg-gray-50 border border-gray-200 rounded-xl py-4 px-5 focus:outline-none focus:border-black focus:bg-white transition-all appearance-none font-light uppercase text-xs tracking-widest text-black"
-                    >
-                      <option className="bg-white">Website</option>
-                      <option className="bg-white">eBay</option>
-                      <option className="bg-white">Direct</option>
-                      <option className="bg-white">Other</option>
-                    </select>
-                  </div>
-                  <div className="space-y-2">
-                    <label className="text-[10px] text-gray-600 font-mono uppercase tracking-[0.2em] font-bold">Secure Contact</label>
-                    <input 
-                      value={newSupplier.contactEmail}
-                      onChange={e => setNewSupplier({...newSupplier, contactEmail: e.target.value})}
-                      type="email" 
-                      className="w-full bg-gray-50 border border-gray-200 rounded-xl py-4 px-5 focus:outline-none focus:border-black focus:bg-white transition-all font-light text-black"
-                      placeholder="EMAIL@ENDPOINT"
-                    />
-                  </div>
-                </div>
-
-                <div className="space-y-2">
-                  <label className="text-[10px] text-gray-600 font-mono uppercase tracking-[0.2em] font-bold">Reference Link</label>
-                  <input 
-                    value={newSupplier.websiteUrl}
-                    onChange={e => setNewSupplier({...newSupplier, websiteUrl: e.target.value})}
-                    type="url" 
-                    className="w-full bg-gray-50 border border-gray-200 rounded-xl py-4 px-5 focus:outline-none focus:border-black focus:bg-white transition-all font-light text-black"
-                    placeholder="HTTPS://REPOSITORY.ENDPOINT"
-                  />
-                </div>
-
-                <div className="pt-10 flex gap-6">
-                  <button 
-                    type="button"
-                    onClick={() => setIsAdding(false)}
-                    className="flex-1 py-4 px-6 rounded-xl border border-gray-200 font-bold uppercase tracking-widest text-[11px] hover:bg-gray-50 transition-all text-black"
-                  >
-                    Abort
-                  </button>
-                  <button 
-                    type="submit"
-                    className="flex-1 py-4 px-6 rounded-xl bg-black text-white font-bold uppercase tracking-widest text-[11px] hover:bg-gray-800 transition-all active:scale-[0.98]"
-                  >
-                    Establish Link
-                  </button>
-                </div>
-              </form>
-            </motion.div>
-          </motion.div>
+            <p className="text-[11px] font-bold uppercase tracking-widest text-gray-500">New Supplier</p>
+            <input
+              required value={newSupplier.name}
+              onChange={e => setNewSupplier(p => ({ ...p, name: e.target.value }))}
+              placeholder="Supplier name"
+              className="w-full bg-gray-50 border border-gray-200 rounded-xl px-3 py-2.5 text-sm font-mono focus:outline-none focus:border-black"
+            />
+            <div className="flex gap-2">
+              <select
+                value={newSupplier.portal}
+                onChange={e => setNewSupplier(p => ({ ...p, portal: e.target.value }))}
+                className="flex-1 bg-gray-50 border border-gray-200 rounded-xl px-3 py-2.5 text-sm font-mono focus:outline-none focus:border-black"
+              >
+                {['Direct','Wholesale','Auction','Online'].map(p => <option key={p}>{p}</option>)}
+              </select>
+              <button type="submit" className="px-5 py-2.5 bg-black text-white rounded-xl text-[11px] font-bold uppercase tracking-widest">Save</button>
+              <button type="button" onClick={() => setIsAdding(false)} className="px-4 py-2.5 border border-gray-200 rounded-xl text-gray-500 hover:bg-gray-50">
+                <X size={14} />
+              </button>
+            </div>
+          </motion.form>
         )}
       </AnimatePresence>
+
+      {/* Supplier cards */}
+      <div className="space-y-2">
+        {suppliers.map(sup => {
+          const stats = supplierStats[sup.id];
+          const isOpen = selected === sup.id;
+          return (
+            <div key={sup.id} className="bg-white border border-gray-200 rounded-2xl overflow-hidden shadow-sm">
+              {/* Card header */}
+              <button
+                onClick={() => { setSelected(isOpen ? null : sup.id); setHistoryPage(1); }}
+                className="w-full text-left px-4 py-3.5 flex items-center gap-3 hover:bg-gray-50 transition-all"
+              >
+                {/* Avatar */}
+                <div className="w-10 h-10 rounded-xl bg-gray-950 flex items-center justify-center flex-shrink-0">
+                  <span className="text-white font-bold text-sm font-display">{sup.name.charAt(0).toUpperCase()}</span>
+                </div>
+
+                <div className="flex-1 min-w-0">
+                  <p className="font-bold text-sm">{sup.name}</p>
+                  <p className="text-[10px] text-gray-400 font-mono mt-0.5">{sup.portal}</p>
+                </div>
+
+                {/* Stats */}
+                <div className="flex items-center gap-3 flex-shrink-0 text-right">
+                  {stats && (
+                    <>
+                      <div className="hidden sm:block">
+                        <p className="text-[8px] text-gray-400 font-mono uppercase">Units</p>
+                        <p className="text-lg font-bold font-display leading-tight">{stats.total}</p>
+                      </div>
+                      <div>
+                        <p className="text-[8px] text-gray-400 font-mono uppercase">Avail</p>
+                        <p className="text-lg font-bold font-display leading-tight text-emerald-600">{stats.available}</p>
+                      </div>
+                      <div className="hidden sm:block">
+                        <p className="text-[8px] text-gray-400 font-mono uppercase">Sold</p>
+                        <p className="text-sm font-bold text-gray-500">{stats.sold}</p>
+                      </div>
+                    </>
+                  )}
+                  <div className="text-gray-300">{isOpen ? <ChevronDown size={16} /> : <ChevronRight size={16} />}</div>
+                </div>
+              </button>
+
+              {/* Expanded detail */}
+              <AnimatePresence>
+                {isOpen && selectedStats && (
+                  <motion.div
+                    initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }}
+                    exit={{ height: 0, opacity: 0 }} transition={{ duration: 0.18 }}
+                    className="overflow-hidden border-t border-gray-100"
+                  >
+                    {/* Stats row */}
+                    <div className="grid grid-cols-2 gap-2 p-4">
+                      {[
+                        { label: 'Total Units',  value: selectedStats.total,                             icon: <Package size={13} />,    color: 'text-black' },
+                        { label: 'Stock Cost',   value: `£${selectedStats.totalCost.toLocaleString()}`, icon: <TrendingUp size={13} />,  color: 'text-black' },
+                        { label: 'Sold',         value: selectedStats.sold,                             icon: <ShoppingBag size={13} />, color: 'text-emerald-600' },
+                        { label: 'Revenue',      value: `£${selectedStats.revenue.toLocaleString()}`,   icon: <TrendingUp size={13} />,  color: 'text-emerald-600' },
+                      ].map(k => (
+                        <div key={k.label} className="bg-gray-50 rounded-xl p-3 flex items-center gap-2">
+                          <span className={k.color}>{k.icon}</span>
+                          <div>
+                            <p className="text-base font-bold font-display">{k.value}</p>
+                            <p className="text-[9px] text-gray-400 font-mono uppercase tracking-wider">{k.label}</p>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+
+                    {/* Platform breakdown */}
+                    {Object.keys(selectedStats.platforms).length > 0 && (
+                      <div className="px-4 pb-3 flex flex-wrap gap-1.5">
+                        {Object.entries(selectedStats.platforms)
+                          .sort((a,b) => b[1]-a[1])
+                          .map(([p, c]) => (
+                            <span key={p} className={`text-[9px] font-bold px-2.5 py-1 rounded-full font-mono ${PLATFORM_COLORS[p] || PLATFORM_COLORS.Other}`}>
+                              {p} · {c}
+                            </span>
+                          ))}
+                      </div>
+                    )}
+
+                    {/* Order history */}
+                    <div className="border-t border-gray-100">
+                      <div className="px-4 py-3 flex items-center justify-between">
+                        <p className="text-[10px] font-bold uppercase tracking-widest text-gray-500">Order History</p>
+                        <p className="text-[9px] text-gray-400 font-mono">{historyItems.length} units · {histPages} pages</p>
+                      </div>
+
+                      <div className="divide-y divide-gray-50 max-h-96 overflow-y-auto custom-scrollbar">
+                        {histSlice.map(({ date, unit }, idx) => (
+                          <div key={idx} className="px-4 py-3 flex items-center gap-3">
+                            {/* Date badge */}
+                            <div className="w-16 flex-shrink-0 text-center">
+                              <p className="text-[9px] font-bold font-mono bg-gray-100 px-2 py-1 rounded-lg text-gray-600">
+                                {new Date(date + 'T12:00:00').toLocaleDateString('en-GB', { day: '2-digit', month: 'short' })}
+                              </p>
+                            </div>
+
+                            <Cpu size={10} className="text-gray-300 flex-shrink-0" />
+
+                            <div className="flex-1 min-w-0">
+                              <p className="text-xs font-bold truncate">{unit.model}</p>
+                              <div className="flex items-center gap-2 mt-0.5 flex-wrap">
+                                <span className="text-[9px] text-gray-400 font-mono">{unit.colour}</span>
+                                <span className="text-[9px] text-gray-400 font-mono">
+                                  {unit.imei ? unit.imei.slice(0,8) + '…' : '—'}
+                                </span>
+                              </div>
+                            </div>
+
+                            <div className="flex flex-col items-end gap-1 flex-shrink-0">
+                              <span className="text-xs font-bold font-mono">£{unit.buyPrice}</span>
+                              <span className={`text-[8px] font-bold px-2 py-0.5 rounded-full font-mono ${
+                                unit.status === 'sold'      ? 'bg-gray-200 text-gray-600' :
+                                unit.status === 'available' ? 'bg-emerald-100 text-emerald-700' :
+                                'bg-orange-100 text-orange-700'
+                              }`}>
+                                {unit.status}
+                              </span>
+                              {unit.salePlatform && (
+                                <span className={`text-[7px] font-bold px-1.5 py-0.5 rounded-full font-mono ${PLATFORM_COLORS[unit.salePlatform] || PLATFORM_COLORS.Other}`}>
+                                  {unit.salePlatform}
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+
+                      {/* History pagination */}
+                      {histPages > 1 && (
+                        <div className="flex items-center justify-center gap-2 p-3 border-t border-gray-100">
+                          <button onClick={() => setHistoryPage(p => Math.max(1, p-1))} disabled={historyPage===1}
+                            className="p-1.5 rounded-lg border border-gray-200 hover:bg-gray-100 disabled:opacity-30">
+                            <ChevronRight size={14} className="rotate-180" />
+                          </button>
+                          <span className="text-[10px] font-mono text-gray-500">
+                            Page {historyPage} / {histPages}
+                          </span>
+                          <button onClick={() => setHistoryPage(p => Math.min(histPages, p+1))} disabled={historyPage===histPages}
+                            className="p-1.5 rounded-lg border border-gray-200 hover:bg-gray-100 disabled:opacity-30">
+                            <ChevronRight size={14} />
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </div>
+          );
+        })}
+      </div>
+
+      {suppliers.length === 0 && (
+        <div className="py-16 flex flex-col items-center gap-3 border-2 border-dashed border-gray-200 rounded-2xl">
+          <Package size={40} className="text-gray-300" />
+          <p className="text-gray-400 font-mono text-sm">No suppliers yet. Import your Excel data first.</p>
+        </div>
+      )}
     </div>
   );
 }
