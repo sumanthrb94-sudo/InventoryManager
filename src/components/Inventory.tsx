@@ -74,21 +74,25 @@ function applySort(list: ModelSummary[], sort: string): ModelSummary[] {
 }
 
 // ─── Component ────────────────────────────────────────────────────────────────
-export default function Inventory() {
+interface InventoryFilters { status?: string; search?: string; supplierId?: string; }
+
+export default function Inventory({ initialFilters = {} }: { initialFilters?: InventoryFilters }) {
   const [units, setUnits]         = useState<InventoryUnit[]>([]);
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
-  const [search, setSearch]       = useState('');
+  const [search, setSearch]       = useState(initialFilters.search || '');
   const [catFilter, setCatFilter] = useState('All');
-  const [statusFilter, setStatusFilter] = useState('All');
+  const [statusFilter, setStatusFilter] = useState(initialFilters.status || 'All');
   const [flagFilter, setFlagFilter]     = useState('All');
-  const [supplierFilter, setSupplierFilter] = useState('All');
+  const [supplierFilter, setSupplierFilter] = useState(initialFilters.supplierId || 'All');
   const [sort, setSort]           = useState('dateIn_desc');
   const [expandedModels, setExpanded] = useState<Set<string>>(new Set());
   const [selectedUnit, setSelectedUnit] = useState<InventoryUnit | null>(null);
   const [quickUnit, setQuickUnit] = useState<InventoryUnit | null>(null);
   const [pageSize, setPageSize]   = useState(25);
   const [page, setPage]           = useState(1);
-  const [showFilters, setShowFilters] = useState(false);
+  const [showFilters, setShowFilters] = useState(
+    !!(initialFilters.status || initialFilters.supplierId)
+  );
 
   useEffect(() => {
     const u = dbService.subscribeToCollection('inventoryUnits', setUnits);

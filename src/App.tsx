@@ -12,7 +12,7 @@ import {
   ScanLine, CalendarDays,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import Dashboard from './components/Dashboard';
+import Dashboard, { NavAction } from './components/Dashboard';
 import Inventory from './components/Inventory';
 import Suppliers from './components/Suppliers';
 import Sales from './components/Sales';
@@ -23,12 +23,26 @@ import ImportModal from './components/ImportModal';
 
 type Tab = 'dashboard' | 'inventory' | 'suppliers' | 'sales' | 'scan' | 'calendar';
 
+interface InventoryFilters { status?: string; search?: string; supplierId?: string; }
+
 export default function App() {
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [loading, setLoading]       = useState(true);
   const [activeTab, setActiveTab]   = useState<Tab>('dashboard');
+  const [inventoryFilters, setInventoryFilters] = useState<InventoryFilters>({});
   const [isBatchModalOpen,  setIsBatchModalOpen]  = useState(false);
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
+
+  const handleNavigate = (action: NavAction) => {
+    setActiveTab(action.tab);
+    if (action.tab === 'inventory' && action.filters) {
+      setInventoryFilters({
+        status:     action.filters.status,
+        search:     action.filters.search || action.filters.model,
+        supplierId: action.filters.supplierId,
+      });
+    }
+  };
 
   // ── Restore session on boot ────────────────────────────────────────────────
   useEffect(() => {
@@ -138,8 +152,8 @@ export default function App() {
               exit={{ opacity: 0, y: -10 }}
               transition={{ duration: 0.2 }}
             >
-              {activeTab === 'dashboard' && <Dashboard />}
-              {activeTab === 'inventory' && <Inventory />}
+              {activeTab === 'dashboard' && <Dashboard onNavigate={handleNavigate} />}
+              {activeTab === 'inventory' && <Inventory initialFilters={inventoryFilters} />}
               {activeTab === 'scan'      && <ScanPage />}
               {activeTab === 'calendar' && <CalendarPage />}
               {activeTab === 'suppliers' && <Suppliers />}
