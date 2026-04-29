@@ -8,40 +8,69 @@
 }
 
 @layer base {
+  *, *::before, *::after {
+    box-sizing: border-box;
+  }
+
+  html {
+    overflow-x: hidden;
+    -webkit-text-size-adjust: 100%;
+  }
+
   body {
     @apply bg-[#FAFAFA] text-black font-sans antialiased;
+    overflow-x: hidden;
+    max-width: 100vw;
   }
-  
+
   ::selection {
     @apply bg-black/10 text-black;
   }
 }
 
-/* Friendly smooth transitions for all buttons and interactive elements */
-button, a, input, select {
+/* Safe area for bottom nav on iOS */
+.safe-area-bottom {
+  padding-bottom: env(safe-area-inset-bottom, 8px);
+}
+
+/* Prevent ALL children from overflowing on mobile */
+.mobile-safe {
+  max-width: 100%;
+  overflow-x: hidden;
+}
+
+/* Smooth global transitions */
+button, a, select {
   @apply transition-all duration-200 ease-out;
 }
 
-/* Premium smooth scrollbar */
-.custom-scrollbar::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+/* Compact input focus */
+input:focus, select:focus, textarea:focus {
+  outline: none;
 }
 
-.custom-scrollbar::-webkit-scrollbar-track {
-  background: transparent;
-}
+/* Scrollbar */
+.custom-scrollbar::-webkit-scrollbar { width: 4px; height: 4px; }
+.custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
+.custom-scrollbar::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.15); border-radius: 20px; }
+.custom-scrollbar::-webkit-scrollbar-thumb:hover { background: rgba(0,0,0,0.3); }
 
-.custom-scrollbar::-webkit-scrollbar-thumb {
-  background: rgba(0, 0, 0, 0.15);
-  border-radius: 20px;
-}
-
-.custom-scrollbar::-webkit-scrollbar-thumb:hover {
-  background: rgba(0, 0, 0, 0.3);
-}
-
-/* Soft card hover effects */
+/* Card hover lift */
 .hover-card {
   @apply hover:shadow-lg hover:-translate-y-0.5 transition-all duration-300;
+}
+
+/* Horizontal scroll container — only for tables that must scroll */
+.table-scroll {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  width: 100%;
+}
+
+/* Truncate text safely */
+.truncate-safe {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
 }
