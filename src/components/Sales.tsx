@@ -12,7 +12,7 @@ const FLAG_CONFIG: Record<OperationalFlag, { label: string; icon: any; style: st
     label: 'Top 10 Focus',
     icon: Star,
     style: 'bg-yellow-50 text-yellow-800 border-yellow-200',
-    action: 'Prioritise on all platforms — keep qty at 1',
+    action: 'Prioritise on eBay, Amazon, OnBuy, Backmarket — keep qty at 1',
   },
   officeOnly: {
     label: 'Office Only',
@@ -30,7 +30,7 @@ const FLAG_CONFIG: Record<OperationalFlag, { label: string; icon: any; style: st
     label: 'Stock Sold',
     icon: CheckCircle2,
     style: 'bg-gray-50 text-gray-500 border-gray-200',
-    action: 'Set platform qty to 0 immediately',
+    action: 'Set qty to 0 on eBay, Amazon, OnBuy, Backmarket immediately',
   },
 };
 
@@ -145,9 +145,9 @@ export default function Sales() {
 
       {/* Platform Quantity Reference */}
       <div className="bg-white border border-gray-200 shadow-md border-0 ring-1 ring-gray-100">
-        <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between bg-gray-50">
+        <div className="px-6 py-4 border-b border-gray-200 flex flex-col md:flex-row md:items-center justify-between bg-gray-50 gap-2">
           <h3 className="text-[10px] font-bold uppercase tracking-widest text-gray-400">Platform Quantity Reference</h3>
-          <span className="text-[9px] text-gray-400 font-mono">Update daily on eBay / Swappa / Back Market</span>
+          <span className="text-[9px] text-gray-400 font-mono text-left md:text-right">Update daily on eBay / Amazon / OnBuy / Backmarket</span>
         </div>
 
         <table className="w-full text-left">

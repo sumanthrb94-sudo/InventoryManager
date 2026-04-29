@@ -171,7 +171,7 @@ export default function Dashboard() {
       <div className="bg-white border border-gray-200 shadow-md border-0 ring-1 ring-gray-100">
         <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
           <h3 className="text-[10px] font-bold uppercase tracking-widest text-gray-400">Top Models by Stock</h3>
-          <span className="text-[9px] text-gray-400 font-mono uppercase">Platform Qty Guide</span>
+          <span className="text-[9px] text-gray-400 font-mono text-right">eBay / Amazon / OnBuy / Backmarket Qty</span>
         </div>
         {topModels.length === 0 ? (
           <div className="p-12 text-center">
@@ -185,7 +185,7 @@ export default function Dashboard() {
                 <th className="px-6 py-3 font-bold">Model</th>
                 <th className="px-6 py-3 font-bold">Units Available</th>
                 <th className="px-6 py-3 font-bold">Stock Value</th>
-                <th className="px-6 py-3 font-bold">Platform Action</th>
+                <th className="px-6 py-3 font-bold">Listing Qty</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-50">

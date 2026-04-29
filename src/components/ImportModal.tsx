@@ -178,39 +178,27 @@ export default function ImportModal({ onClose }: ImportModalProps) {
 
     const allDocs: { collection: string; id: string; data: any }[] = [];
 
-    // Queue suppliers
     for (const s of parsed.suppliers) {
       allDocs.push({
         collection: 'suppliers',
         id: s.id,
-        data: { ...s, ownerId: 'local', createdAt: new Date() },
+        data: { ...s, ownerId: 'local' },
       });
     }
-
-    // Queue units
     for (const u of parsed.units) {
       allDocs.push({
         collection: 'inventoryUnits',
         id: u.id,
-        data: { ...u, ownerId: 'local', createdAt: new Date() },
+        data: { ...u, ownerId: 'local' },
       });
     }
 
-    const total = allDocs.length;
-    setProgress({ done: 0, total });
+    setProgress({ done: 0, total: allDocs.length });
 
     try {
-      // Chunk processing for smoother UI updates
-      const CHUNK = 50;
-      for (let i = 0; i < allDocs.length; i += CHUNK) {
-        const chunk = allDocs.slice(i, i + CHUNK);
-        for (const entry of chunk) {
-          await dbService.create(entry.collection, entry.id, entry.data);
-        }
-        // Small delay to allow UI to render progress
-        await new Promise(resolve => setTimeout(resolve, 10));
-        setProgress({ done: Math.min(i + CHUNK, total), total });
-      }
+      await dbService.bulkCreate(allDocs, (done, total) => {
+        setProgress({ done, total });
+      });
       setStage('done');
     } catch (err: any) {
       setError('Import failed: ' + err.message);

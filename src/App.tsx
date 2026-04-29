@@ -4,6 +4,7 @@
  */
 
 import React, { useState, useEffect } from 'react';
+import { adminAuth, ADMIN_EMAIL } from './lib/adminAuth';
 import {
   LayoutDashboard,
   Smartphone,
@@ -11,11 +12,13 @@ import {
   Bell,
   LogOut,
   Plus,
-  Search,
   Package,
   FileSpreadsheet,
-  ChevronRight,
-  Lock
+  Eye,
+  EyeOff,
+  Lock,
+  Mail,
+  ShieldCheck,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import Dashboard from './components/Dashboard';
@@ -28,128 +31,44 @@ import ImportModal from './components/ImportModal';
 type Tab = 'dashboard' | 'inventory' | 'suppliers' | 'sales';
 
 export default function App() {
-  const [user, setUser] = useState<any>({ displayName: 'Admin User', email: 'admin@nexus.local', photoURL: '' });
-  const [loading, setLoading] = useState(false);
-  const [loginError, setLoginError] = useState('');
-  const [activeTab, setActiveTab] = useState<Tab>('dashboard');
-  const [isBatchModalOpen, setIsBatchModalOpen] = useState(false);
+  const [isLoggedIn, setIsLoggedIn] = useState(false);
+  const [loading, setLoading]       = useState(true);
+  const [activeTab, setActiveTab]   = useState<Tab>('dashboard');
+  const [isBatchModalOpen,  setIsBatchModalOpen]  = useState(false);
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
 
+  // ── Restore session on boot ────────────────────────────────────────────────
   useEffect(() => {
-    // Auth fully bypassed. Using local storage DB.
+    setIsLoggedIn(adminAuth.hasSession());
     setLoading(false);
   }, []);
 
-  const login = async () => {
-    // Bypassed
+  const handleLogout = () => {
+    adminAuth.clearSession();
+    setIsLoggedIn(false);
   };
 
-  const logout = () => {
-    // Bypassed
-    alert("Running in local mode. Logout disabled.");
-  };
-
-  // ── Loading spinner ──────────────────────────────────────────────────────
   if (loading) {
     return (
       <div className="min-h-screen bg-white flex items-center justify-center">
-        <div className="text-center space-y-6">
-          <motion.div
-            animate={{ rotate: 360 }}
-            transition={{ duration: 1, repeat: Infinity, ease: 'linear' }}
-            className="w-8 h-8 border-2 border-black border-t-transparent rounded-full mx-auto"
-          />
-          <p className="text-[10px] text-gray-400 font-mono uppercase tracking-[0.3em]">Initialising...</p>
-        </div>
+        <motion.div
+          animate={{ rotate: 360 }}
+          transition={{ duration: 1, repeat: Infinity, ease: 'linear' }}
+          className="w-8 h-8 border-2 border-black border-t-transparent rounded-full"
+        />
       </div>
     );
   }
 
-  // ── Login screen ─────────────────────────────────────────────────────────
-  if (!user) {
-    return (
-      <div className="min-h-screen bg-white flex">
-        {/* Left panel — branding */}
-        <div className="hidden lg:flex w-1/2 bg-black flex-col justify-between p-16">
-          <div>
-            <h1 className="text-5xl font-bold tracking-tighter uppercase text-white font-display">Nexus</h1>
-            <p className="text-[10px] text-gray-500 font-mono uppercase tracking-[0.4em] mt-2">Inventory OS</p>
-          </div>
-          <div className="space-y-8">
-            {[
-              { label: 'Real-time Stock Tracking', desc: 'IMEI-level visibility across all units' },
-              { label: 'Daily Sales Briefing', desc: 'Platform qty updates pushed to the team' },
-              { label: 'Excel Import', desc: 'One-click migration from your existing sheets' },
-            ].map(f => (
-              <div key={f.label} className="flex items-start gap-4">
-                <div className="w-1 h-1 mt-2 bg-white rounded-full flex-shrink-0" />
-                <div>
-                  <p className="text-sm font-bold text-white tracking-tight">{f.label}</p>
-                  <p className="text-[10px] text-gray-500 font-mono mt-0.5">{f.desc}</p>
-                </div>
-              </div>
-            ))}
-          </div>
-          <p className="text-[9px] text-gray-700 font-mono uppercase tracking-widest">
-            Secure · Firebase · Real-time
-          </p>
-        </div>
-
-        {/* Right panel — login form */}
-        <div className="flex-1 flex items-center justify-center p-8">
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            className="w-full max-w-sm space-y-10"
-          >
-            {/* Mobile logo */}
-            <div className="lg:hidden">
-              <h1 className="text-4xl font-bold tracking-tighter uppercase font-display">Nexus</h1>
-              <p className="text-[10px] text-gray-400 font-mono uppercase tracking-[0.4em] mt-1">Inventory OS</p>
-            </div>
-
-            <div className="space-y-2">
-              <h2 className="text-2xl font-bold tracking-tight">Sign in</h2>
-              <p className="text-sm text-gray-500">Access your inventory dashboard</p>
-            </div>
-
-            <div className="space-y-4">
-              <button
-                onClick={login}
-                className="w-full flex items-center justify-center gap-4 bg-black text-white py-4 px-6 font-bold text-sm uppercase tracking-widest hover:bg-gray-800 transition-all active:scale-[0.98] group"
-              >
-                {/* Google icon */}
-                <svg className="w-5 h-5" viewBox="0 0 24 24">
-                  <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
-                  <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
-                  <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/>
-                  <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/>
-                </svg>
-                Continue as Admin
-                <ChevronRight size={16} className="group-hover:translate-x-1 transition-transform" />
-              </button>
-
-              {loginError && (
-                <p className="text-xs text-red-600 font-mono text-center">{loginError}</p>
-              )}
-            </div>
-
-            <div className="flex items-center gap-3 p-4 bg-gray-50 border border-gray-200">
-              <Lock size={12} className="text-gray-400 flex-shrink-0" />
-              <p className="text-[9px] text-gray-400 font-mono uppercase tracking-wider leading-relaxed">
-                Access is restricted to authorised Google accounts only. Your data is stored securely in Firebase.
-              </p>
-            </div>
-          </motion.div>
-        </div>
-      </div>
-    );
+  if (!isLoggedIn) {
+    return <LoginPage onLogin={() => setIsLoggedIn(true)} />;
   }
 
-  // ── Main app shell ───────────────────────────────────────────────────────
+  // ── Main app shell ─────────────────────────────────────────────────────────
   return (
     <div className="min-h-[100dvh] bg-[#FAFAFA] text-black flex flex-col md:flex-row">
-      {/* Desktop Sidebar (hidden on mobile) */}
+
+      {/* Desktop Sidebar — hidden on mobile */}
       <aside className="hidden md:flex w-72 border-r border-gray-200 flex-col pt-10 pb-6 bg-gray-50 z-30">
         <div className="px-8 mb-16">
           <h1 className="text-3xl font-bold tracking-tighter uppercase font-display leading-none text-black">Nexus</h1>
@@ -157,34 +76,26 @@ export default function App() {
         </div>
 
         <nav className="flex-1 px-4 space-y-2">
-          <NavItem id="dashboard" label="Dashboard" icon={<LayoutDashboard size={18} />}
-            active={activeTab === 'dashboard'} onClick={() => setActiveTab('dashboard')} />
-          <NavItem id="inventory" label="Inventory" icon={<Smartphone size={18} />}
-            active={activeTab === 'inventory'} onClick={() => setActiveTab('inventory')} />
-          <NavItem id="suppliers" label="Suppliers" icon={<Truck size={18} />}
-            active={activeTab === 'suppliers'} onClick={() => setActiveTab('suppliers')} />
-          <NavItem id="sales" label="Daily Update" icon={<Bell size={18} />}
-            active={activeTab === 'sales'} onClick={() => setActiveTab('sales')} />
+          <NavItem id="dashboard" label="Dashboard"   icon={<LayoutDashboard size={18} />} active={activeTab === 'dashboard'}  onClick={() => setActiveTab('dashboard')} />
+          <NavItem id="inventory" label="Inventory"   icon={<Smartphone size={18} />}      active={activeTab === 'inventory'}  onClick={() => setActiveTab('inventory')} />
+          <NavItem id="suppliers" label="Suppliers"   icon={<Truck size={18} />}           active={activeTab === 'suppliers'}  onClick={() => setActiveTab('suppliers')} />
+          <NavItem id="sales"     label="Daily Update" icon={<Bell size={18} />}           active={activeTab === 'sales'}      onClick={() => setActiveTab('sales')} />
         </nav>
 
-        {/* User card + logout */}
+        {/* Admin badge + logout */}
         <div className="px-4 pt-6 border-t border-gray-200 space-y-3">
-          <div className="px-4 py-4 flex items-center gap-3 bg-white border border-gray-200 shadow-md border-0 ring-1 ring-gray-100">
-            <div className="w-9 h-9 rounded-xl border border-gray-200 flex items-center justify-center overflow-hidden bg-gray-50 flex-shrink-0">
-              {user.photoURL
-                ? <img src={user.photoURL} alt="" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
-                : <Package size={16} className="text-gray-400" />}
+          <div className="px-4 py-4 flex items-center gap-3 bg-white border border-gray-200 shadow-sm rounded-xl">
+            <div className="w-9 h-9 rounded-xl bg-black flex items-center justify-center flex-shrink-0">
+              <ShieldCheck size={16} className="text-white" />
             </div>
             <div className="flex-1 min-w-0">
-              <p className="text-[10px] font-bold uppercase tracking-widest truncate text-black">
-                {user.displayName || 'Admin'}
-              </p>
-              <p className="text-[9px] text-gray-400 font-mono truncate mt-0.5">{user.email}</p>
+              <p className="text-[10px] font-bold uppercase tracking-widest text-black">Admin</p>
+              <p className="text-[9px] text-gray-400 font-mono truncate mt-0.5">{ADMIN_EMAIL}</p>
             </div>
           </div>
           <button
-            onClick={logout}
-            className="w-full flex items-center gap-3 px-4 py-2.5 text-[10px] font-bold uppercase tracking-widest text-gray-400 hover:text-black hover:bg-gray-200 transition-all"
+            onClick={handleLogout}
+            className="w-full flex items-center gap-3 px-4 py-2.5 text-[10px] font-bold uppercase tracking-widest text-gray-400 hover:text-black hover:bg-gray-200 transition-all rounded-xl"
           >
             <LogOut size={13} strokeWidth={2.5} />
             Sign Out
@@ -192,30 +103,21 @@ export default function App() {
         </div>
       </aside>
 
-      {/* Main Content */}
+      {/* Main content */}
       <main className="flex-1 flex flex-col h-[100dvh] overflow-hidden bg-transparent pb-16 md:pb-0">
+        {/* Header */}
         <header className="h-16 md:h-20 border-b border-gray-200 flex flex-col justify-center px-4 md:px-10 bg-white/80 backdrop-blur-xl sticky top-0 z-20">
           <div className="flex items-center justify-between gap-4">
-            {/* Mobile Title (hidden on desktop) */}
-            <div className="md:hidden flex items-center">
-               <h1 className="text-2xl font-bold tracking-tighter uppercase font-display leading-none text-black">Nexus</h1>
-            </div>
-            
-            {/* Search */}
-            <div className="relative flex-1 max-w-lg hidden md:block">
-              <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" size={16} />
-              <input
-                type="text"
-                placeholder="Search inventory..."
-                className="w-full bg-gray-50 border border-gray-200 rounded-xl py-2.5 pl-11 pr-4 text-sm font-light text-black focus:outline-none focus:border-black focus:bg-white transition-all"
-              />
+            {/* Mobile logo */}
+            <div className="md:hidden">
+              <h1 className="text-2xl font-bold tracking-tighter uppercase font-display text-black">Nexus</h1>
             </div>
 
             {/* Actions */}
-            <div className="flex items-center gap-2 md:gap-3">
+            <div className="flex items-center gap-2 md:gap-3 ml-auto">
               <button
                 onClick={() => setIsImportModalOpen(true)}
-                className="border border-gray-200 text-black px-3 md:px-5 py-2 md:py-2.5 rounded-xl text-[10px] md:text-xs font-bold uppercase tracking-widest flex items-center gap-2 hover:bg-gray-50 transition-all"
+                className="border border-gray-200 bg-white text-black px-3 md:px-5 py-2 md:py-2.5 rounded-xl text-[10px] md:text-xs font-bold uppercase tracking-widest flex items-center gap-2 hover:bg-gray-50 transition-all"
               >
                 <FileSpreadsheet size={14} />
                 <span className="hidden md:inline">Import Excel</span>
@@ -231,6 +133,7 @@ export default function App() {
           </div>
         </header>
 
+        {/* Content */}
         <div className="flex-1 overflow-y-auto p-4 md:p-8 custom-scrollbar">
           <AnimatePresence mode="wait">
             <motion.div
@@ -243,28 +146,183 @@ export default function App() {
               {activeTab === 'dashboard' && <Dashboard />}
               {activeTab === 'inventory' && <Inventory />}
               {activeTab === 'suppliers' && <Suppliers />}
-              {activeTab === 'sales' && <Sales />}
+              {activeTab === 'sales'     && <Sales />}
             </motion.div>
           </AnimatePresence>
         </div>
       </main>
 
-      {/* Mobile Bottom Navigation */}
-      <nav className="md:hidden fixed bottom-0 w-full bg-white border-t border-gray-200 pb-safe z-30 flex items-center justify-around px-2 py-2">
-        <MobileNavItem id="dashboard" icon={<LayoutDashboard size={20} />} label="Dash" active={activeTab === 'dashboard'} onClick={() => setActiveTab('dashboard')} />
-        <MobileNavItem id="inventory" icon={<Smartphone size={20} />} label="Stock" active={activeTab === 'inventory'} onClick={() => setActiveTab('inventory')} />
-        <MobileNavItem id="suppliers" icon={<Truck size={20} />} label="Supply" active={activeTab === 'suppliers'} onClick={() => setActiveTab('suppliers')} />
-        <MobileNavItem id="sales" icon={<Bell size={20} />} label="Update" active={activeTab === 'sales'} onClick={() => setActiveTab('sales')} />
+      {/* Mobile bottom nav */}
+      <nav className="md:hidden fixed bottom-0 w-full bg-white border-t border-gray-200 z-30 flex items-center justify-around px-2 py-2 safe-area-bottom">
+        <MobileNavItem id="dashboard" icon={<LayoutDashboard size={20} />} label="Dash"   active={activeTab === 'dashboard'} onClick={() => setActiveTab('dashboard')} />
+        <MobileNavItem id="inventory" icon={<Smartphone size={20} />}      label="Stock"  active={activeTab === 'inventory'} onClick={() => setActiveTab('inventory')} />
+        <MobileNavItem id="suppliers" icon={<Truck size={20} />}           label="Supply" active={activeTab === 'suppliers'} onClick={() => setActiveTab('suppliers')} />
+        <MobileNavItem id="sales"     icon={<Bell size={20} />}            label="Update" active={activeTab === 'sales'}     onClick={() => setActiveTab('sales')} />
       </nav>
 
       <AnimatePresence>
-        {isBatchModalOpen && <NewBatchModal onClose={() => setIsBatchModalOpen(false)} />}
-        {isImportModalOpen && <ImportModal onClose={() => setIsImportModalOpen(false)} />}
+        {isBatchModalOpen  && <NewBatchModal onClose={() => setIsBatchModalOpen(false)} />}
+        {isImportModalOpen && <ImportModal   onClose={() => setIsImportModalOpen(false)} />}
       </AnimatePresence>
     </div>
   );
 }
 
+// ── Login Page ─────────────────────────────────────────────────────────────────
+function LoginPage({ onLogin }: { onLogin: () => void }) {
+  const [email,     setEmail]     = useState('');
+  const [password,  setPassword]  = useState('');
+  const [showPass,  setShowPass]  = useState(false);
+  const [error,     setError]     = useState('');
+  const [isLoading, setIsLoading] = useState(false);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError('');
+    setIsLoading(true);
+    // Small artificial delay so it feels like a real auth call
+    await new Promise(r => setTimeout(r, 600));
+    if (adminAuth.check(email, password)) {
+      adminAuth.saveSession();
+      onLogin();
+    } else {
+      setError('Invalid email or password. Please try again.');
+    }
+    setIsLoading(false);
+  };
+
+  return (
+    <div className="min-h-[100dvh] bg-white flex">
+      {/* Left brand panel — desktop only */}
+      <div className="hidden lg:flex w-1/2 bg-black flex-col justify-between p-16">
+        <div>
+          <h1 className="text-5xl font-bold tracking-tighter uppercase text-white font-display">Nexus</h1>
+          <p className="text-[10px] text-gray-500 font-mono uppercase tracking-[0.4em] mt-2">Inventory OS · Admin Portal</p>
+        </div>
+        <div className="space-y-8">
+          {[
+            { label: 'Real-time Stock Tracking',  desc: 'IMEI-level visibility for every unit' },
+            { label: 'Daily Sales Briefing',       desc: 'eBay / Amazon / OnBuy / Backmarket qty sync' },
+            { label: 'Excel Import',               desc: 'One-click migration from OG STOCK DATA sheet' },
+          ].map(f => (
+            <div key={f.label} className="flex items-start gap-4">
+              <div className="w-1 h-1 mt-2 bg-white rounded-full flex-shrink-0" />
+              <div>
+                <p className="text-sm font-bold text-white tracking-tight">{f.label}</p>
+                <p className="text-[10px] text-gray-500 font-mono mt-0.5">{f.desc}</p>
+              </div>
+            </div>
+          ))}
+        </div>
+        <p className="text-[9px] text-gray-600 font-mono uppercase tracking-widest">Admin access only · Nexus Inventory OS</p>
+      </div>
+
+      {/* Right login form */}
+      <div className="flex-1 flex items-center justify-center p-6">
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="w-full max-w-sm space-y-8"
+        >
+          {/* Mobile logo */}
+          <div className="lg:hidden text-center">
+            <h1 className="text-4xl font-bold tracking-tighter uppercase font-display">Nexus</h1>
+            <p className="text-[10px] text-gray-400 font-mono uppercase tracking-[0.4em] mt-1">Inventory OS</p>
+          </div>
+
+          <div>
+            <h2 className="text-2xl font-bold tracking-tight">Admin Sign In</h2>
+            <p className="text-sm text-gray-500 mt-1">Enter your credentials to access the dashboard</p>
+          </div>
+
+          <form onSubmit={handleSubmit} className="space-y-4">
+            {/* Email */}
+            <div className="space-y-1.5">
+              <label className="text-[10px] font-bold uppercase tracking-widest text-gray-500 font-mono">Email</label>
+              <div className="relative">
+                <Mail className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400" size={15} />
+                <input
+                  type="email"
+                  required
+                  value={email}
+                  onChange={e => setEmail(e.target.value)}
+                  placeholder="admin@nexusinventory.com"
+                  className="w-full bg-gray-50 border border-gray-200 rounded-xl py-3 pl-10 pr-4 text-sm text-black placeholder-gray-300 focus:outline-none focus:border-black focus:bg-white transition-all"
+                />
+              </div>
+            </div>
+
+            {/* Password */}
+            <div className="space-y-1.5">
+              <label className="text-[10px] font-bold uppercase tracking-widest text-gray-500 font-mono">Password</label>
+              <div className="relative">
+                <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400" size={15} />
+                <input
+                  type={showPass ? 'text' : 'password'}
+                  required
+                  value={password}
+                  onChange={e => setPassword(e.target.value)}
+                  placeholder="••••••••"
+                  className="w-full bg-gray-50 border border-gray-200 rounded-xl py-3 pl-10 pr-12 text-sm text-black placeholder-gray-300 focus:outline-none focus:border-black focus:bg-white transition-all"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPass(p => !p)}
+                  className="absolute right-3.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-black"
+                >
+                  {showPass ? <EyeOff size={15} /> : <Eye size={15} />}
+                </button>
+              </div>
+            </div>
+
+            {/* Error */}
+            <AnimatePresence>
+              {error && (
+                <motion.p
+                  initial={{ opacity: 0, y: -4 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0 }}
+                  className="text-xs text-red-600 font-mono bg-red-50 border border-red-100 px-4 py-2.5 rounded-xl"
+                >
+                  {error}
+                </motion.p>
+              )}
+            </AnimatePresence>
+
+            {/* Submit */}
+            <button
+              type="submit"
+              disabled={isLoading}
+              className="w-full bg-black text-white py-3.5 rounded-xl text-sm font-bold uppercase tracking-widest hover:bg-gray-800 transition-all active:scale-[0.98] disabled:opacity-50 flex items-center justify-center gap-3"
+            >
+              {isLoading ? (
+                <motion.div
+                  animate={{ rotate: 360 }}
+                  transition={{ duration: 0.8, repeat: Infinity, ease: 'linear' }}
+                  className="w-4 h-4 border-2 border-white border-t-transparent rounded-full"
+                />
+              ) : (
+                <>
+                  <ShieldCheck size={16} />
+                  Sign In to Nexus
+                </>
+              )}
+            </button>
+          </form>
+
+          <div className="flex items-center gap-3 p-4 bg-gray-50 border border-gray-100 rounded-xl">
+            <Lock size={12} className="text-gray-400 flex-shrink-0" />
+            <p className="text-[9px] text-gray-400 font-mono leading-relaxed uppercase tracking-wide">
+              Admin-only access. Contact your system admin if you need credentials.
+            </p>
+          </div>
+        </motion.div>
+      </div>
+    </div>
+  );
+}
+
+// ── NavItem ────────────────────────────────────────────────────────────────────
 function NavItem({ id, label, icon, active, onClick }: {
   id: string; label: string; icon: React.ReactNode; active: boolean; onClick: () => void;
 }) {
@@ -272,37 +330,38 @@ function NavItem({ id, label, icon, active, onClick }: {
     <button
       onClick={onClick}
       className={`
-        w-full flex items-center gap-4 px-4 py-3.5 rounded-xl text-sm transition-all relative group overflow-hidden
+        w-full flex items-center gap-4 px-4 py-3.5 rounded-xl text-sm transition-all relative
         ${active
-          ? 'text-black bg-white shadow-md border-0 ring-1 ring-gray-100 border border-gray-200'
+          ? 'text-black bg-white shadow-sm border border-gray-200'
           : 'text-gray-500 hover:text-black hover:bg-gray-100 border border-transparent'}
       `}
     >
-      <span className="relative z-10">{icon}</span>
-      <span className={`relative z-10 font-bold uppercase tracking-widest text-[11px] ${active ? 'opacity-100' : 'opacity-60'}`}>
+      <span>{icon}</span>
+      <span className={`font-bold uppercase tracking-widest text-[11px] ${active ? 'opacity-100' : 'opacity-60'}`}>
         {label}
       </span>
       {active && (
         <motion.div
           layoutId="active-nav-indicator"
-          className="absolute left-0 w-1 h-full bg-black z-10"
+          className="absolute left-0 w-1 h-6 bg-black rounded-r-full"
         />
       )}
     </button>
   );
 }
 
+// ── MobileNavItem ──────────────────────────────────────────────────────────────
 function MobileNavItem({ icon, label, active, onClick }: {
   id: string; icon: React.ReactNode; label: string; active: boolean; onClick: () => void;
 }) {
   return (
     <button
       onClick={onClick}
-      className={`flex flex-col items-center justify-center w-16 py-1 gap-1 rounded-xl transition-all ${
-        active ? 'text-black font-bold' : 'text-gray-400'
+      className={`flex flex-col items-center justify-center w-16 py-1.5 gap-1 rounded-xl transition-all ${
+        active ? 'text-black' : 'text-gray-400'
       }`}
     >
-      <div className={`p-1.5 rounded-full transition-all ${active ? 'bg-gray-100' : 'bg-transparent'}`}>
+      <div className={`p-1.5 rounded-full transition-all ${active ? 'bg-black text-white' : 'bg-transparent'}`}>
         {icon}
       </div>
       <span className="text-[9px] uppercase tracking-wider font-mono">{label}</span>

@@ -38,7 +38,7 @@ export interface InventoryUnit {
   // Sale info
   salePrice?: number;
   saleDate?: string;
-  salePlatform?: string;
+  salePlatform?: 'eBay' | 'Amazon' | 'OnBuy' | 'Backmarket' | 'Other' | string;
   saleOrderId?: string;
   ownerId: string;
   createdAt: any;
