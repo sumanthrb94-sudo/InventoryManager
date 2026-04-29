@@ -1,12 +1,13 @@
 import { useState, useEffect, useMemo } from 'react';
 import {
-  Search, Filter, ChevronDown, ChevronRight, Tag, MapPin,
-  Star, Package, Truck, CheckCircle2, XCircle, Edit2,
-  Clock, ArrowUpRight, RefreshCw, AlertTriangle
+  Search, ChevronDown, ChevronRight, MapPin,
+  Star, Package, Truck, CheckCircle2, Cpu
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { dbService } from '../lib/dbService';
 import { InventoryUnit, Supplier, OperationalFlag, DeviceCategory, ModelSummary } from '../types';
+import UnitDetailDrawer from './UnitDetailDrawer';
+import { validateIMEI, formatIMEI } from '../lib/imeiUtils';
 
 const CATEGORY_COLOURS: Record<string, string> = {
   'iPhone': 'bg-black text-white',
@@ -71,15 +72,16 @@ function buildModelSummaries(units: InventoryUnit[]): ModelSummary[] {
 }
 
 export default function Inventory() {
-  const [units, setUnits] = useState<InventoryUnit[]>([]);
+  const [units, setUnits]         = useState<InventoryUnit[]>([]);
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
-  const [searchTerm, setSearchTerm] = useState('');
+  const [searchTerm, setSearchTerm]             = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string>('All');
-  const [selectedFlag, setSelectedFlag] = useState<string>('All');
-  const [expandedModels, setExpandedModels] = useState<Set<string>>(new Set());
+  const [selectedFlag, setSelectedFlag]         = useState<string>('All');
+  const [expandedModels, setExpandedModels]     = useState<Set<string>>(new Set());
+  const [selectedUnit, setSelectedUnit]         = useState<InventoryUnit | null>(null);
 
   useEffect(() => {
-    const unsubUnits = dbService.subscribeToCollection('inventoryUnits', setUnits);
+    const unsubUnits     = dbService.subscribeToCollection('inventoryUnits', setUnits);
     const unsubSuppliers = dbService.subscribeToCollection('suppliers', setSuppliers);
     return () => { unsubUnits(); unsubSuppliers(); };
   }, []);
@@ -87,13 +89,19 @@ export default function Inventory() {
   const allSummaries = useMemo(() => buildModelSummaries(units), [units]);
 
   const filtered = useMemo(() => {
+    // If search looks like an IMEI, auto-expand all matching models
+    const isImeiSearch = /^\d{6,}$/.test(searchTerm.replace(/\D/g,''));
     return allSummaries.filter(s => {
       const matchSearch = !searchTerm ||
         s.model.toLowerCase().includes(searchTerm.toLowerCase()) ||
         s.brand.toLowerCase().includes(searchTerm.toLowerCase()) ||
         s.variants.some(v => v.colour.toLowerCase().includes(searchTerm.toLowerCase())) ||
-        s.variants.some(v => v.units.some(u => u.imei.includes(searchTerm)));
-      const matchCat = selectedCategory === 'All' || s.category === selectedCategory;
+        s.variants.some(v => v.units.some(u => u.imei.includes(searchTerm.replace(/\D/g,''))));
+      if (matchSearch && isImeiSearch) {
+        // auto-expand the model group containing this IMEI
+        setExpandedModels(prev => new Set([...prev, `${s.brand}||${s.model}`]));
+      }
+      const matchCat  = selectedCategory === 'All' || s.category === selectedCategory;
       const matchFlag = selectedFlag === 'All' || s.flags.includes(selectedFlag as OperationalFlag);
       return matchSearch && matchCat && matchFlag;
     });
@@ -262,10 +270,26 @@ export default function Inventory() {
                                 {/* Status indicator */}
                                 <StatusDot status={unit.status} />
 
-                                {/* IMEI */}
+                                {/* IMEI — clickable chip */}
                                 <div className="w-44 flex-shrink-0">
                                   <p className="text-[9px] text-gray-400 font-mono uppercase">IMEI/Serial</p>
-                                  <p className="font-mono font-bold text-[11px] tracking-wider">{unit.imei || '—'}</p>
+                                  <button
+                                    onClick={(e) => { e.stopPropagation(); setSelectedUnit(unit); }}
+                                    className="flex items-center gap-1.5 group/imei mt-0.5"
+                                    title="Click to view unit details"
+                                  >
+                                    <Cpu size={10} className="text-gray-400 group-hover/imei:text-black transition-colors flex-shrink-0" />
+                                    <span className="font-mono font-bold text-[10px] tracking-wider group-hover/imei:text-black group-hover/imei:underline transition-all">
+                                      {unit.imei ? formatIMEI(unit.imei).slice(0,12) + '…' : '—'}
+                                    </span>
+                                    {unit.imei && (
+                                      <span className={`text-[7px] px-1 py-0.5 rounded font-mono font-bold ${
+                                        validateIMEI(unit.imei) ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-600'
+                                      }`}>
+                                        {validateIMEI(unit.imei) ? '✓' : '!'}
+                                      </span>
+                                    )}
+                                  </button>
                                 </div>
 
                                 {/* Buy Price */}
@@ -326,6 +350,17 @@ export default function Inventory() {
           );
         })}
       </div>
+
+      {/* Unit Detail Drawer */}
+      <AnimatePresence>
+        {selectedUnit && (
+          <UnitDetailDrawer
+            unit={selectedUnit}
+            supplierName={suppliers.find(s => s.id === selectedUnit.supplierId)?.name || '—'}
+            onClose={() => setSelectedUnit(null)}
+          />
+        )}
+      </AnimatePresence>
     </div>
   );
 }

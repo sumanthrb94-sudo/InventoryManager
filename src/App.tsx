@@ -19,16 +19,18 @@ import {
   Lock,
   Mail,
   ShieldCheck,
+  ScanLine,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import Dashboard from './components/Dashboard';
 import Inventory from './components/Inventory';
 import Suppliers from './components/Suppliers';
 import Sales from './components/Sales';
+import ScanPage from './components/ScanPage';
 import NewBatchModal from './components/NewBatchModal';
 import ImportModal from './components/ImportModal';
 
-type Tab = 'dashboard' | 'inventory' | 'suppliers' | 'sales';
+type Tab = 'dashboard' | 'inventory' | 'suppliers' | 'sales' | 'scan';
 
 export default function App() {
   const [isLoggedIn, setIsLoggedIn] = useState(false);
@@ -76,10 +78,11 @@ export default function App() {
         </div>
 
         <nav className="flex-1 px-4 space-y-2">
-          <NavItem id="dashboard" label="Dashboard"   icon={<LayoutDashboard size={18} />} active={activeTab === 'dashboard'}  onClick={() => setActiveTab('dashboard')} />
-          <NavItem id="inventory" label="Inventory"   icon={<Smartphone size={18} />}      active={activeTab === 'inventory'}  onClick={() => setActiveTab('inventory')} />
-          <NavItem id="suppliers" label="Suppliers"   icon={<Truck size={18} />}           active={activeTab === 'suppliers'}  onClick={() => setActiveTab('suppliers')} />
-          <NavItem id="sales"     label="Daily Update" icon={<Bell size={18} />}           active={activeTab === 'sales'}      onClick={() => setActiveTab('sales')} />
+          <NavItem id="dashboard" label="Dashboard"    icon={<LayoutDashboard size={18} />} active={activeTab === 'dashboard'}  onClick={() => setActiveTab('dashboard')} />
+          <NavItem id="inventory" label="Inventory"    icon={<Smartphone size={18} />}      active={activeTab === 'inventory'}  onClick={() => setActiveTab('inventory')} />
+          <NavItem id="scan"      label="Scan & Update" icon={<ScanLine size={18} />}        active={activeTab === 'scan'}       onClick={() => setActiveTab('scan')} />
+          <NavItem id="suppliers" label="Suppliers"    icon={<Truck size={18} />}           active={activeTab === 'suppliers'}  onClick={() => setActiveTab('suppliers')} />
+          <NavItem id="sales"     label="Daily Update" icon={<Bell size={18} />}            active={activeTab === 'sales'}      onClick={() => setActiveTab('sales')} />
         </nav>
 
         {/* Admin badge + logout */}
@@ -145,6 +148,7 @@ export default function App() {
             >
               {activeTab === 'dashboard' && <Dashboard />}
               {activeTab === 'inventory' && <Inventory />}
+              {activeTab === 'scan'      && <ScanPage />}
               {activeTab === 'suppliers' && <Suppliers />}
               {activeTab === 'sales'     && <Sales />}
             </motion.div>
@@ -156,6 +160,7 @@ export default function App() {
       <nav className="md:hidden fixed bottom-0 w-full bg-white border-t border-gray-200 z-30 flex items-center justify-around px-2 py-2 safe-area-bottom">
         <MobileNavItem id="dashboard" icon={<LayoutDashboard size={20} />} label="Dash"   active={activeTab === 'dashboard'} onClick={() => setActiveTab('dashboard')} />
         <MobileNavItem id="inventory" icon={<Smartphone size={20} />}      label="Stock"  active={activeTab === 'inventory'} onClick={() => setActiveTab('inventory')} />
+        <MobileNavItem id="scan"      icon={<ScanLine size={22} />}         label="Scan"   active={activeTab === 'scan'}      onClick={() => setActiveTab('scan')} />
         <MobileNavItem id="suppliers" icon={<Truck size={20} />}           label="Supply" active={activeTab === 'suppliers'} onClick={() => setActiveTab('suppliers')} />
         <MobileNavItem id="sales"     icon={<Bell size={20} />}            label="Update" active={activeTab === 'sales'}     onClick={() => setActiveTab('sales')} />
       </nav>
