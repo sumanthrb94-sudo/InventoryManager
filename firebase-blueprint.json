@@ -1,0 +1,88 @@
+{
+  "entities": {
+    "Supplier": {
+      "title": "Supplier",
+      "description": "Companies or platforms providing device batches",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "portal": { "type": "string", "enum": ["eBay", "Website", "Direct", "Other"] },
+        "contactEmail": { "type": "string", "format": "email" },
+        "websiteUrl": { "type": "string", "format": "uri" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["name", "portal"]
+    },
+    "Batch": {
+      "title": "Batch",
+      "description": "A group of devices purchased from a supplier",
+      "type": "object",
+      "properties": {
+        "supplierId": { "type": "string" },
+        "date": { "type": "string", "format": "date-time" },
+        "supplierRef": { "type": "string" },
+        "itemCount": { "type": "number" },
+        "costTotal": { "type": "number" },
+        "status": { "type": "string", "enum": ["received", "processing", "completed"] },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["supplierId", "date", "status"]
+    },
+    "Device": {
+      "title": "Device",
+      "description": "An individual mobile phone or device",
+      "type": "object",
+      "properties": {
+        "imei": { "type": "string" },
+        "model": { "type": "string" },
+        "brand": { "type": "string" },
+        "batchId": { "type": "string" },
+        "supplierId": { "type": "string" },
+        "condition": { "type": "string", "enum": ["New", "Used - Mint", "Used - Good", "Used - Fair", "Damaged"] },
+        "purchasePrice": { "type": "number" },
+        "status": { "type": "string", "enum": ["available", "sold", "returned", "lost"] },
+        "salePrice": { "type": "number" },
+        "saleDate": { "type": "string", "format": "date-time" },
+        "salePlatform": { "type": "string" },
+        "orderId": { "type": "string" },
+        "updatedAt": { "type": "string", "format": "date-time" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["imei", "model", "brand", "batchId", "supplierId", "status", "purchasePrice"]
+    },
+    "Order": {
+      "title": "Order",
+      "description": "Sales record from external platforms",
+      "type": "object",
+      "properties": {
+        "platform": { "type": "string" },
+        "platformOrderId": { "type": "string" },
+        "totalAmount": { "type": "number" },
+        "date": { "type": "string", "format": "date-time" },
+        "status": { "type": "string" },
+        "deviceIds": { "type": "array", "items": { "type": "string" } },
+        "customerName": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["platform", "platformOrderId", "totalAmount", "date", "deviceIds"]
+    }
+  },
+  "firestore": {
+    "suppliers": {
+      "schema": "Supplier",
+      "description": "List of device suppliers"
+    },
+    "batches": {
+      "schema": "Batch",
+      "description": "Batches of inventory"
+    },
+    "devices": {
+      "schema": "Device",
+      "description": "Individual devices tracked globally"
+    },
+    "orders": {
+      "schema": "Order",
+      "description": "Sales and order records"
+    }
+  }
+}
