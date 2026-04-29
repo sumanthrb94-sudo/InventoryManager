@@ -18,8 +18,8 @@ export const adminAuth = {
   /** Returns true if the provided credentials match admin config */
   check(email: string, password: string): boolean {
     return (
-      email.trim().toLowerCase() === ADMIN_EMAIL.toLowerCase() &&
-      password === ADMIN_PASSWORD
+      email.trim().toLowerCase() === ADMIN_EMAIL.trim().toLowerCase() &&
+      password.trim() === ADMIN_PASSWORD.trim()
     );
   },
 

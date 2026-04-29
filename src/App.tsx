@@ -194,7 +194,7 @@ function LoginPage({ onLogin }: { onLogin: () => void }) {
     setIsLoading(true);
     // Small artificial delay so it feels like a real auth call
     await new Promise(r => setTimeout(r, 600));
-    if (adminAuth.check(email, password)) {
+    if (adminAuth.check(email.trim(), password.trim())) {
       adminAuth.saveSession();
       onLogin();
     } else {
@@ -254,7 +254,10 @@ function LoginPage({ onLogin }: { onLogin: () => void }) {
               <div className="relative">
                 <Mail className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400" size={15} />
                 <input
-                  type="email"
+                 type="text"
+                  autoCapitalize="none"
+                  autoCorrect="off"
+                  spellCheck={false}
                   required
                   value={email}
                   onChange={e => setEmail(e.target.value)}
@@ -327,6 +330,19 @@ function LoginPage({ onLogin }: { onLogin: () => void }) {
             <p className="text-[9px] text-gray-400 font-mono leading-relaxed uppercase tracking-wide">
               Admin-only access. Contact your system admin if you need credentials.
             </p>
+          </div>
+          {/* Credentials hint */}
+          <div className="p-4 bg-gray-950 rounded-xl space-y-2">
+            <p className="text-[9px] text-gray-500 font-mono uppercase tracking-widest">Default Credentials</p>
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] text-gray-400 font-mono">Email</span>
+              <span className="text-[10px] text-white font-mono font-bold select-all">admin@nexusinventory.com</span>
+            </div>
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] text-gray-400 font-mono">Password</span>
+              <span className="text-[10px] text-white font-mono font-bold select-all">Nexus@2026</span>
+            </div>
+            <p className="text-[8px] text-gray-600 font-mono mt-1">Each device logs in independently. Session saved per browser.</p>
           </div>
         </motion.div>
       </div>
