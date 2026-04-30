@@ -6,7 +6,6 @@ import {
 import { motion } from 'motion/react';
 import { dbService } from '../lib/dbService';
 import { InventoryUnit, Supplier, OperationalFlag } from '../types';
-import { calculateInventoryNetProfit } from '../lib/profit';
 
 const FLAG_CONFIG: Record<OperationalFlag, { label: string; icon: any; style: string; action: string }> = {
   top10: {
@@ -77,7 +76,7 @@ export default function Sales() {
 
   // Sold today
   const soldToday = useMemo(() => units.filter(u => (u.saleDate || u.dateIn) === today), [units, today]);
-  const totalNetProfit = useMemo(() => calculateInventoryNetProfit(units), [units]);
+
 
   return (
     <div className="space-y-8 pb-12">
@@ -121,15 +120,7 @@ export default function Sales() {
         </div>
       </div>
 
-      <div className="bg-white border border-gray-200 shadow-md border-0 ring-1 ring-gray-100 p-5 flex items-center justify-between">
-        <div>
-          <p className="text-[8px] font-bold text-gray-400 uppercase tracking-widest font-mono mb-2">Net Profit All Time</p>
-          <p className="text-4xl font-bold font-display tracking-tighter">£{totalNetProfit.toLocaleString()}</p>
-        </div>
-        <p className="text-[9px] text-gray-400 font-mono uppercase tracking-widest text-right">
-          Sale price - buy price - fees - shipping
-        </p>
-      </div>
+
 
       {/* Today's new stock */}
       {todayUnits.length > 0 && (

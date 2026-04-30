@@ -290,7 +290,7 @@ export default function ImportModal({ onClose }: ImportModalProps) {
         initial={{ y: 20, opacity: 0 }}
         animate={{ y: 0, opacity: 1 }}
         exit={{ y: 20, opacity: 0 }}
-        className="bg-white border border-gray-200 shadow-2xl w-full max-w-2xl overflow-hidden text-black"
+        className="bg-white border border-gray-200 shadow-2xl w-full max-w-2xl overflow-hidden text-black flex flex-col max-h-[90vh]"
       >
         {/* Header */}
         <div className="flex items-center justify-between px-8 py-5 border-b border-gray-200 bg-gray-50">
@@ -307,7 +307,7 @@ export default function ImportModal({ onClose }: ImportModalProps) {
         </div>
 
         {/* Body */}
-        <div className="p-8">
+        <div className="p-8 overflow-y-auto flex-1">
           {/* Stage: Upload */}
           {stage === 'upload' && (
             <div className="space-y-4">

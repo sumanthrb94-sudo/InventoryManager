@@ -8,7 +8,7 @@ import {
 import { InventoryUnit, OperationalFlag, SourceDocument } from '../types';
 import { dbService } from '../lib/dbService';
 import { validateIMEI, formatIMEI } from '../lib/imeiUtils';
-import { calculateUnitNetProfit } from '../lib/profit';
+
 import { logInventoryEvent } from '../lib/inventoryEvents';
 
 const PLATFORMS = ['eBay', 'Amazon', 'OnBuy', 'Backmarket', 'Other'] as const;
@@ -32,8 +32,8 @@ export default function UnitDetailDrawer({ unit, supplierName, onClose }: Props)
   const [notes, setNotes]       = useState(unit.notes || '');
   const [listingSites, setListingSites] = useState<string[]>(unit.listingSites || []);
   const [salePrice, setSalePrice] = useState<string>(unit.salePrice?.toString() || '');
-  const [saleFees, setSaleFees] = useState<string>(unit.saleFees?.toString() || '');
-  const [shippingCost, setShippingCost] = useState<string>(unit.shippingCost?.toString() || '');
+  const [saleOrderId, setSaleOrderId] = useState<string>(unit.saleOrderId || '');
+  const [customerName, setCustomerName] = useState<string>(unit.customerName || '');
   const [platform, setPlatform] = useState(unit.salePlatform || 'eBay');
   const [saving, setSaving]     = useState(false);
   const [saved, setSaved]       = useState(false);
@@ -116,17 +116,14 @@ export default function UnitDetailDrawer({ unit, supplierName, onClose }: Props)
     if (!salePrice) return;
     setSaving(true);
     const salePriceNumber = parseFloat(salePrice) || 0;
-    const saleFeesNumber = parseFloat(saleFees) || 0;
-    const shippingCostNumber = parseFloat(shippingCost) || 0;
     await dbService.update('inventoryUnits', unit.id, {
       status: 'sold',
       salePrice: salePriceNumber,
       salePlatform: platform,
       saleDate: new Date().toISOString().split('T')[0],
       platformListed: false,
-      saleFees: saleFeesNumber,
-      shippingCost: shippingCostNumber,
-      netProfit: salePriceNumber - unit.buyPrice - saleFeesNumber - shippingCostNumber,
+      saleOrderId: saleOrderId || undefined,
+      customerName: customerName || undefined,
     });
     try {
       await logInventoryEvent({
@@ -134,9 +131,6 @@ export default function UnitDetailDrawer({ unit, supplierName, onClose }: Props)
         message: `Sold via ${platform}`,
         unitId: unit.id,
         salePrice: salePriceNumber,
-        saleFees: saleFeesNumber,
-        shippingCost: shippingCostNumber,
-        profit: salePriceNumber - unit.buyPrice - saleFeesNumber - shippingCostNumber,
         platform,
       });
     } catch (eventError) {
@@ -281,7 +275,6 @@ export default function UnitDetailDrawer({ unit, supplierName, onClose }: Props)
                     value: hasListingSites ? listingSites.join(' / ') : (unit.platformListed ? 'Listed' : 'Unlisted'),
                   },
                   ...(unit.salePrice ? [{ label: 'Sale Price', value: `£${unit.salePrice}` }] : []),
-                  ...(unit.netProfit !== undefined ? [{ label: 'Net Profit', value: `£${unit.netProfit}` }] : []),
                   ...(unit.salePlatform ? [{ label: 'Sold Via', value: unit.salePlatform }] : []),
                 ].map(d => (
                   <div key={d.label} className="bg-gray-50 rounded-xl p-3">
@@ -369,40 +362,26 @@ export default function UnitDetailDrawer({ unit, supplierName, onClose }: Props)
                       </select>
                     </div>
                     <div>
-                      <label className="text-[9px] text-gray-400 font-mono uppercase">Sale Fees (£)</label>
+                      <label className="text-[9px] text-gray-400 font-mono uppercase">Sale Order ID (opt)</label>
                       <input
-                        type="number"
-                        value={saleFees}
-                        onChange={e => setSaleFees(e.target.value)}
-                        placeholder="0.00"
+                        type="text"
+                        value={saleOrderId}
+                        onChange={e => setSaleOrderId(e.target.value)}
+                        placeholder="e.g. 12-09873-12345"
                         className="w-full mt-1 bg-white border border-gray-200 rounded-xl px-3 py-2 text-sm font-mono focus:outline-none focus:border-black"
                       />
                     </div>
                     <div>
-                      <label className="text-[9px] text-gray-400 font-mono uppercase">Shipping (£)</label>
+                      <label className="text-[9px] text-gray-400 font-mono uppercase">Customer Name (opt)</label>
                       <input
-                        type="number"
-                        value={shippingCost}
-                        onChange={e => setShippingCost(e.target.value)}
-                        placeholder="0.00"
+                        type="text"
+                        value={customerName}
+                        onChange={e => setCustomerName(e.target.value)}
+                        placeholder="e.g. John Doe"
                         className="w-full mt-1 bg-white border border-gray-200 rounded-xl px-3 py-2 text-sm font-mono focus:outline-none focus:border-black"
                       />
                     </div>
                   </div>
-                  {salePrice && (
-                    <div className="bg-white border border-gray-200 rounded-xl p-3">
-                      <p className="text-[9px] text-gray-400 font-mono uppercase">Estimated Net Profit</p>
-                      <p className="text-sm font-bold mt-0.5">
-                        £{calculateUnitNetProfit({
-                          ...unit,
-                          salePrice: parseFloat(salePrice) || 0,
-                          saleFees: parseFloat(saleFees) || 0,
-                          shippingCost: parseFloat(shippingCost) || 0,
-                          status: 'sold',
-                        }).toLocaleString()}
-                      </p>
-                    </div>
-                  )}
                   <button
                     onClick={markSold}
                     disabled={saving || !salePrice || saved}

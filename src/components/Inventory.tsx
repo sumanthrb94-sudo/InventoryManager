@@ -84,16 +84,14 @@ export default function Inventory({ initialFilters = {} }: { initialFilters?: In
 
   // Build + filter + sort
   const allSummaries = useMemo(() => buildModelSummaries(units), [units]);
-  const searchDigits = search.replace(/\D/g, '');
-  const isImeiSearch = /^\d{6,}$/.test(searchDigits);
-
   useEffect(() => {
-    if (!isImeiSearch) return;
+    if (!search || search.length < 4) return;
+    const searchLower = search.toLowerCase();
 
     const matchingKeys = allSummaries
       .filter(summary =>
         summary.variants.some(variant =>
-          variant.units.some(unit => unit.imei.includes(searchDigits))
+          variant.units.some(unit => unit.imei.toLowerCase().includes(searchLower))
         )
       )
       .map(summary => `${summary.brand}||${summary.model}`);
@@ -111,7 +109,7 @@ export default function Inventory({ initialFilters = {} }: { initialFilters?: In
       }
       return changed ? next : prev;
     });
-  }, [allSummaries, isImeiSearch, searchDigits]);
+  }, [allSummaries, search]);
 
   const filtered = useMemo(() => {
     const results = allSummaries.filter(s => {
@@ -124,12 +122,11 @@ export default function Inventory({ initialFilters = {} }: { initialFilters?: In
         if (!s.variants.some(v => v.units.some(u => u.status === statusFilter))) return false;
       }
       if (!search) return true;
-      if (isImeiSearch) {
-        return s.variants.some(v => v.units.some(u => u.imei.includes(searchDigits)));
-      }
-      return s.model.toLowerCase().includes(search.toLowerCase()) ||
-             s.brand.toLowerCase().includes(search.toLowerCase()) ||
-             s.variants.some(v => v.colour.toLowerCase().includes(search.toLowerCase()));
+      const searchLower = search.toLowerCase();
+      return s.model.toLowerCase().includes(searchLower) ||
+             s.brand.toLowerCase().includes(searchLower) ||
+             s.variants.some(v => v.colour.toLowerCase().includes(searchLower) ||
+                                  v.units.some(u => u.imei.toLowerCase().includes(searchLower)));
     });
     return applySort(results, sort);
   }, [allSummaries, search, catFilter, statusFilter, flagFilter, supplierFilter, sort, suppliers]);
@@ -334,9 +331,9 @@ export default function Inventory({ initialFilters = {} }: { initialFilters?: In
                                   {/* Right: price + Update button */}
                                   <div className="flex flex-col items-end gap-1.5 flex-shrink-0">
                                     <span className="text-xs font-bold font-mono">£{unit.buyPrice}</span>
-                                    {unit.status === 'sold' && (
+                                    {unit.status === 'sold' && unit.saleOrderId && (
                                       <span className="text-[8px] font-bold px-2 py-0.5 rounded-full font-mono bg-emerald-100 text-emerald-700">
-                                        Profit {unit.netProfit !== undefined ? `£${unit.netProfit}` : '—'}
+                                        {unit.saleOrderId}
                                       </span>
                                     )}
                                     <div className="flex items-center gap-1.5">

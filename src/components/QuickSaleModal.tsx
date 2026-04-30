@@ -3,7 +3,6 @@ import { motion, AnimatePresence } from 'motion/react';
 import { X, ShoppingBag, RotateCcw, PackagePlus, CheckCircle2 } from 'lucide-react';
 import { dbService } from '../lib/dbService';
 import { InventoryUnit } from '../types';
-import { calculateUnitNetProfit } from '../lib/profit';
 import { logInventoryEvent } from '../lib/inventoryEvents';
 
 const PLATFORMS = ['eBay', 'Amazon', 'OnBuy', 'Backmarket', 'Other'] as const;
@@ -14,8 +13,8 @@ export default function QuickSaleModal({ unit, onClose }: Props) {
   const [action,    setAction]    = useState<'sold' | 'returned' | 'available'>('sold');
   const [platform,  setPlatform]  = useState(unit.salePlatform || 'eBay');
   const [salePrice, setSalePrice] = useState(unit.salePrice?.toString() || '');
-  const [saleFees, setSaleFees] = useState(unit.saleFees?.toString() || '');
-  const [shippingCost, setShippingCost] = useState(unit.shippingCost?.toString() || '');
+  const [saleOrderId, setSaleOrderId] = useState(unit.saleOrderId || '');
+  const [customerName, setCustomerName] = useState(unit.customerName || '');
   const [notes,     setNotes]     = useState(unit.notes || '');
   const [saving,    setSaving]    = useState(false);
   const [done,      setDone]      = useState(false);
@@ -29,18 +28,17 @@ export default function QuickSaleModal({ unit, onClose }: Props) {
       updates.saleDate      = today;
       updates.salePlatform  = platform;
       updates.salePrice     = parseFloat(salePrice) || 0;
-      updates.saleFees      = parseFloat(saleFees) || 0;
-      updates.shippingCost  = parseFloat(shippingCost) || 0;
-      updates.netProfit     = (parseFloat(salePrice) || 0) - unit.buyPrice - (parseFloat(saleFees) || 0) - (parseFloat(shippingCost) || 0);
-      updates.platformListed = false;
+      updates.saleFees      = undefined;
+      updates.shippingCost  = undefined;
+      updates.saleOrderId   = saleOrderId || undefined;
+      updates.customerName  = customerName || undefined;
     } else if (action === 'returned') {
       updates.platformListed = false;
       updates.saleDate      = undefined;
       updates.salePrice     = undefined;
       updates.salePlatform  = undefined;
-      updates.saleFees      = undefined;
-      updates.shippingCost  = undefined;
-      updates.netProfit     = undefined;
+      updates.saleOrderId   = undefined;
+      updates.customerName  = undefined;
     } else {
       updates.platformListed = true;
     }
@@ -54,9 +52,7 @@ export default function QuickSaleModal({ unit, onClose }: Props) {
           unitId: unit.id,
           platform,
           salePrice: updates.salePrice,
-          saleFees: updates.saleFees,
-          shippingCost: updates.shippingCost,
-          profit: calculateUnitNetProfit({ ...unit, ...updates }),
+
         });
       } catch (eventError) {
         console.warn('Inventory event logging failed for quick sale.', eventError);
@@ -123,33 +119,19 @@ export default function QuickSaleModal({ unit, onClose }: Props) {
                 </select>
               </div>
               <div>
-                <label className="text-[9px] text-gray-400 font-mono uppercase">Sale Fees (£)</label>
-                <input type="number" inputMode="decimal" value={saleFees}
-                  onChange={e => setSaleFees(e.target.value)} placeholder="0.00"
+                <label className="text-[9px] text-gray-400 font-mono uppercase">Sale Order ID (opt)</label>
+                <input type="text" value={saleOrderId}
+                  onChange={e => setSaleOrderId(e.target.value)} placeholder="e.g. 12-09873-12345"
                   className="w-full mt-1 bg-gray-50 border border-gray-200 rounded-xl px-3 py-2.5 text-sm font-mono focus:outline-none focus:border-black"
                 />
               </div>
               <div>
-                <label className="text-[9px] text-gray-400 font-mono uppercase">Shipping (£)</label>
-                <input type="number" inputMode="decimal" value={shippingCost}
-                  onChange={e => setShippingCost(e.target.value)} placeholder="0.00"
+                <label className="text-[9px] text-gray-400 font-mono uppercase">Customer Name (opt)</label>
+                <input type="text" value={customerName}
+                  onChange={e => setCustomerName(e.target.value)} placeholder="e.g. John Doe"
                   className="w-full mt-1 bg-gray-50 border border-gray-200 rounded-xl px-3 py-2.5 text-sm font-mono focus:outline-none focus:border-black"
                 />
               </div>
-              {salePrice && (
-                <div className="col-span-2 bg-gray-50 rounded-xl p-3">
-                  <p className="text-[9px] text-gray-400 font-mono uppercase">Estimated Net Profit</p>
-                  <p className="text-sm font-bold mt-0.5">
-                    £{calculateUnitNetProfit({
-                      ...unit,
-                      salePrice: parseFloat(salePrice) || 0,
-                      saleFees: parseFloat(saleFees) || 0,
-                      shippingCost: parseFloat(shippingCost) || 0,
-                      status: 'sold',
-                    }).toLocaleString()}
-                  </p>
-                </div>
-              )}
             </div>
           )}
 

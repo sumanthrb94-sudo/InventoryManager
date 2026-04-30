@@ -28,6 +28,7 @@ export default function Suppliers() {
     paymentTerms: '',
     returnTerms: '',
     notes: '',
+    websiteUrl: '',
   });
   const [historyPage, setHistoryPage] = useState(1);
   const HIST_PAGE_SIZE = 20;
@@ -53,6 +54,7 @@ export default function Suppliers() {
       paymentTerms: '',
       returnTerms: '',
       notes: '',
+      websiteUrl: '',
     });
   };
 
@@ -61,14 +63,13 @@ export default function Suppliers() {
     const map: Record<string, {
       total: number; available: number; sold: number;
       totalCost: number; revenue: number;
-      netProfit: number;
       byDate: Record<string, InventoryUnit[]>;
       platforms: Record<string, number>;
     }> = {};
 
     for (const u of units) {
       if (!map[u.supplierId]) {
-        map[u.supplierId] = { total: 0, available: 0, sold: 0, totalCost: 0, revenue: 0, netProfit: 0, byDate: {}, platforms: {} };
+        map[u.supplierId] = { total: 0, available: 0, sold: 0, totalCost: 0, revenue: 0, byDate: {}, platforms: {} };
       }
       const s = map[u.supplierId];
       s.total++;
@@ -77,7 +78,7 @@ export default function Suppliers() {
       if (u.status === 'sold') {
         s.sold++;
         s.revenue += u.salePrice ?? 0;
-        s.netProfit += u.netProfit ?? ((u.salePrice ?? 0) - u.buyPrice - (u.saleFees || 0) - (u.shippingCost || 0));
+
         if (u.salePlatform) s.platforms[u.salePlatform] = (s.platforms[u.salePlatform] || 0) + 1;
       }
       const d = u.dateIn;
@@ -170,6 +171,12 @@ export default function Suppliers() {
                 className="w-full bg-gray-50 border border-gray-200 rounded-xl px-3 py-2.5 text-sm font-mono focus:outline-none focus:border-black"
               />
               <input
+                value={newSupplier.websiteUrl}
+                onChange={e => setNewSupplier(p => ({ ...p, websiteUrl: e.target.value }))}
+                placeholder="Website URL"
+                className="col-span-2 w-full bg-gray-50 border border-gray-200 rounded-xl px-3 py-2.5 text-sm font-mono focus:outline-none focus:border-black"
+              />
+              <input
                 value={newSupplier.notes}
                 onChange={e => setNewSupplier(p => ({ ...p, notes: e.target.value }))}
                 placeholder="Notes"
@@ -252,7 +259,6 @@ export default function Suppliers() {
                         { label: 'Stock Cost',   value: `£${selectedStats.totalCost.toLocaleString()}`, icon: <TrendingUp size={13} />,  color: 'text-black' },
                         { label: 'Sold',         value: selectedStats.sold,                             icon: <ShoppingBag size={13} />, color: 'text-emerald-600' },
                         { label: 'Revenue',      value: `£${selectedStats.revenue.toLocaleString()}`,   icon: <TrendingUp size={13} />,  color: 'text-emerald-600' },
-                        { label: 'Net Profit',   value: `£${selectedStats.netProfit.toLocaleString()}`, icon: <ArrowUpRight size={13} />, color: 'text-black' },
                       ].map(k => (
                         <div key={k.label} className="bg-gray-50 rounded-xl p-3 flex items-center gap-2">
                           <span className={k.color}>{k.icon}</span>

@@ -8,7 +8,6 @@ import {
 import { dbService } from '../lib/dbService';
 import { InventoryUnit } from '../types';
 import { formatIMEI, validateIMEI } from '../lib/imeiUtils';
-import { calculateUnitNetProfit } from '../lib/profit';
 import { logInventoryEvent } from '../lib/inventoryEvents';
 
 const PLATFORMS = ['eBay', 'Amazon', 'OnBuy', 'Backmarket', 'Other'] as const;
@@ -21,8 +20,8 @@ interface QuickAction {
   action: ActionType;
   platform?: Platform;
   salePrice?: number;
-  saleFees?: number;
-  shippingCost?: number;
+  saleOrderId?: string;
+  customerName?: string;
   notes?: string;
 }
 
@@ -86,25 +85,23 @@ export default function ScanPage() {
   const commitAction = async () => {
     if (!pendingAction) return;
     setSaving(true);
-    const { unit, action, platform, salePrice, saleFees, shippingCost, notes } = pendingAction;
+    const { unit, action, platform, salePrice, saleOrderId, customerName, notes } = pendingAction;
 
     const updates: any = { status: action, updatedAt: new Date().toISOString() };
     if (action === 'sold') {
       updates.saleDate     = today;
       updates.salePlatform = platform;
       updates.salePrice    = salePrice ?? 0;
-      updates.saleFees     = saleFees ?? 0;
-      updates.shippingCost = shippingCost ?? 0;
-      updates.netProfit    = (salePrice ?? 0) - unit.buyPrice - (saleFees ?? 0) - (shippingCost ?? 0);
+      updates.saleOrderId  = saleOrderId;
+      updates.customerName = customerName;
       updates.platformListed = false;
     }
     if (action === 'returned') {
       updates.platformListed = false;
       updates.saleDate       = undefined;
       updates.salePrice      = undefined;
-      updates.saleFees       = undefined;
-      updates.shippingCost   = undefined;
-      updates.netProfit      = undefined;
+      updates.saleOrderId    = undefined;
+      updates.customerName   = undefined;
     }
     if (action === 'available') {
       updates.platformListed = true;
@@ -119,9 +116,6 @@ export default function ScanPage() {
         unitId: unit.id,
         platform,
         salePrice: updates.salePrice,
-        saleFees: updates.saleFees,
-        shippingCost: updates.shippingCost,
-        profit: action === 'sold' ? calculateUnitNetProfit({ ...unit, ...updates, status: 'sold' }) : undefined,
       });
     } catch (eventError) {
       console.warn('Inventory event logging failed for scan action.', eventError);
@@ -356,41 +350,25 @@ export default function ScanPage() {
                     </select>
                   </div>
                   <div>
-                    <label className="text-[9px] text-gray-400 font-mono uppercase tracking-widest">Sale Fees (£)</label>
+                    <label className="text-[9px] text-gray-400 font-mono uppercase tracking-widest">Sale Order ID (opt)</label>
                     <input
-                      type="number"
-                      inputMode="decimal"
-                      value={pendingAction.saleFees ?? ''}
-                      onChange={e => setPendingAction(p => p ? { ...p, saleFees: parseFloat(e.target.value) } : p)}
-                      placeholder="0.00"
+                      type="text"
+                      value={pendingAction.saleOrderId ?? ''}
+                      onChange={e => setPendingAction(p => p ? { ...p, saleOrderId: e.target.value } : p)}
+                      placeholder="e.g. 12-09873-12345"
                       className="w-full mt-1 bg-gray-50 border border-gray-200 rounded-xl px-3 py-2.5 text-sm font-mono focus:outline-none focus:border-black"
                     />
                   </div>
                   <div>
-                    <label className="text-[9px] text-gray-400 font-mono uppercase tracking-widest">Shipping (£)</label>
+                    <label className="text-[9px] text-gray-400 font-mono uppercase tracking-widest">Customer Name (opt)</label>
                     <input
-                      type="number"
-                      inputMode="decimal"
-                      value={pendingAction.shippingCost ?? ''}
-                      onChange={e => setPendingAction(p => p ? { ...p, shippingCost: parseFloat(e.target.value) } : p)}
-                      placeholder="0.00"
+                      type="text"
+                      value={pendingAction.customerName ?? ''}
+                      onChange={e => setPendingAction(p => p ? { ...p, customerName: e.target.value } : p)}
+                      placeholder="e.g. John Doe"
                       className="w-full mt-1 bg-gray-50 border border-gray-200 rounded-xl px-3 py-2.5 text-sm font-mono focus:outline-none focus:border-black"
                     />
                   </div>
-                  {pendingAction.salePrice !== undefined && !Number.isNaN(pendingAction.salePrice) && (
-                    <div className="col-span-2 bg-gray-50 rounded-xl p-3">
-                      <p className="text-[9px] text-gray-400 font-mono uppercase tracking-widest">Estimated Net Profit</p>
-                      <p className="text-sm font-bold mt-0.5">
-                        £{calculateUnitNetProfit({
-                          ...unit,
-                          salePrice: pendingAction.salePrice || 0,
-                          saleFees: pendingAction.saleFees || 0,
-                          shippingCost: pendingAction.shippingCost || 0,
-                          status: 'sold',
-                        }).toLocaleString()}
-                      </p>
-                    </div>
-                  )}
                 </div>
               )}
 

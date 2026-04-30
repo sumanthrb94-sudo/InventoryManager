@@ -1,5 +1,5 @@
 import { getDownloadURL, ref, uploadBytes } from 'firebase/storage';
-import { storage } from './firebase';
+import { storage, auth } from './firebase';
 
 export type SourceAttachmentKind = 'supplier' | 'batch' | 'unit' | 'import';
 
@@ -18,6 +18,10 @@ function sanitizeFileName(fileName: string) {
 }
 
 export async function uploadSourceAttachment(file: File, linkedType: SourceAttachmentKind, linkedId: string) {
+  if (!auth.currentUser) {
+    throw new Error('Storage upload requires an active authenticated session.');
+  }
+
   const id = `doc_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
   const safeName = sanitizeFileName(file.name);
   const storagePath = `source-documents/${linkedType}/${linkedId}/${id}_${safeName}`;

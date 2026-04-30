@@ -7,7 +7,6 @@ import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContaine
 import { dbService } from '../lib/dbService';
 import { InventoryUnit, Supplier } from '../types';
 import { getOnHandValue } from '../lib/inventorySummary';
-import { calculateInventoryNetProfit } from '../lib/profit';
 
 export interface NavAction {
   tab: 'inventory' | 'suppliers' | 'scan' | 'calendar';
@@ -37,7 +36,6 @@ export default function Dashboard({ onNavigate }: Props) {
   const sold         = units.filter(u => u.status === 'sold');
   const returned     = units.filter(u => u.status === 'returned');
   const totalValue   = getOnHandValue(units);
-  const totalNetProfit = calculateInventoryNetProfit(units);
   const top10Units   = available.filter(u => u.flags.includes('top10'));
   const today        = new Date().toISOString().split('T')[0];
   const todayArrivals = units.filter(u => u.dateIn === today);
@@ -58,6 +56,18 @@ export default function Dashboard({ onNavigate }: Props) {
     }
     return Object.entries(map).map(([model, d]) => ({ model, ...d }))
       .sort((a, b) => b.count - a.count).slice(0, 10);
+  }, [available]);
+
+  // Aged Inventory (Longest unsold)
+  const oldestUnits = useMemo(() => {
+    return [...available]
+      .filter(u => u.dateIn)
+      .sort((a, b) => new Date(a.dateIn).getTime() - new Date(b.dateIn).getTime())
+      .slice(0, 10)
+      .map(u => {
+        const daysOld = Math.floor((new Date().getTime() - new Date(u.dateIn).getTime()) / (1000 * 3600 * 24));
+        return { ...u, daysOld };
+      });
   }, [available]);
 
   // Platform breakdown of sales
@@ -108,11 +118,7 @@ export default function Dashboard({ onNavigate }: Props) {
           sub="Back in pipeline" icon={<TrendingUp size={16}/>}
           onClick={() => onNavigate({ tab:'inventory', filters:{ status:'returned' } })}
         />
-        <KPICard
-          label="Net Profit" value={`£${totalNetProfit.toLocaleString()}`}
-          sub="Sold units after fees" icon={<ArrowUpRight size={16}/>}
-          onClick={() => onNavigate({ tab:'inventory', filters:{ status:'sold' } })}
-        />
+
       </div>
 
       {/* Platform sales pills */}
@@ -205,6 +211,38 @@ export default function Dashboard({ onNavigate }: Props) {
                 <ChevronRight size={14} className="text-gray-300 group-hover:text-black transition-all flex-shrink-0"/>
               </button>
             ))}
+          </div>
+        </div>
+      )}
+
+      {/* Aged Inventory — Longest Unsold */}
+      {oldestUnits.length > 0 && (
+        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+          <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between">
+            <p className="text-[10px] font-bold uppercase tracking-widest text-gray-400">Oldest Unsold Stock</p>
+            <span className="text-[9px] text-gray-400 font-mono">Duration since received</span>
+          </div>
+          <div className="divide-y divide-gray-50">
+            {oldestUnits.map((u, i) => {
+              const supplier = suppliers.find(s => s.id === u.supplierId);
+              return (
+                <button
+                  key={u.id}
+                  onClick={() => onNavigate({ tab:'inventory', filters:{ search: u.imei } })}
+                  className="w-full flex items-center gap-3 px-4 py-3 hover:bg-gray-50 transition-all text-left group"
+                >
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs font-bold truncate">{u.model}</p>
+                    <p className="text-[9px] text-gray-400 font-mono truncate">{u.colour} · IMEI {u.imei ? u.imei.slice(0, 8) + '…' : 'N/A'} · {supplier?.name || 'Unknown supplier'}</p>
+                  </div>
+                  <div className="text-right flex-shrink-0">
+                    <p className="text-xl font-bold font-display leading-tight text-orange-600">{u.daysOld}</p>
+                    <p className="text-[8px] text-gray-400 font-mono">days</p>
+                  </div>
+                  <ChevronRight size={14} className="text-gray-300 group-hover:text-black transition-all flex-shrink-0"/>
+                </button>
+              );
+            })}
           </div>
         </div>
       )}

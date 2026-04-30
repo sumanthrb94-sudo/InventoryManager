@@ -63,18 +63,18 @@ export interface InventoryUnit {
   flags: OperationalFlag[];
   // Free-text note for this unit (e.g. "Screen crack", "Box missing")
   notes: string;
-  // Sales platform listing status — derived from listingSites, kept for compatibility.
+  // Sales platform listing status
   platformListed: boolean;
-  // Active marketplace listing sites for this unit.
   listingSites?: ListingSite[];
+  listingUrl?: string;
+  listingId?: string;
+  listingDate?: string;
   // Sale info
   salePrice?: number;
   saleDate?: string;
   salePlatform?: ListingSite | string;
-  saleFees?: number;
-  shippingCost?: number;
-  netProfit?: number;
   saleOrderId?: string;
+  customerName?: string;
   attachments?: string[];
   ownerId: string;
   createdAt: any;
@@ -115,9 +115,6 @@ export interface InventoryEvent {
   platform?: ListingSite | string;
   salePrice?: number;
   buyPrice?: number;
-  saleFees?: number;
-  shippingCost?: number;
-  profit?: number;
   createdAt: any;
   ownerId: string;
 }
