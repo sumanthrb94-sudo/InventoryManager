@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import {
-  ChevronLeft, ChevronRight, X, ShoppingBag,
+  ChevronLeft, ChevronRight, ChevronDown, X, ShoppingBag,
   PackagePlus, RotateCcw, Cpu, TrendingUp, Package
 } from 'lucide-react';
 import { dbService } from '../lib/dbService';
@@ -313,7 +313,7 @@ export default function CalendarPage() {
                 <p className="text-xs font-mono text-gray-400 uppercase tracking-widest">No activity on this date</p>
               </div>
             ) : (
-              <div className="divide-y divide-gray-50">
+              <div>
 
                 {/* Sales */}
                 {selectedSummary.sold.length > 0 && (
@@ -322,6 +322,7 @@ export default function CalendarPage() {
                     count={selectedSummary.sold.length}
                     icon={<ShoppingBag size={13} />}
                     color="text-green-600"
+                    defaultOpen={true}
                   >
                     {/* Platform pills */}
                     <div className="flex flex-wrap gap-2 mb-3">
@@ -379,18 +380,43 @@ export default function CalendarPage() {
   );
 }
 
-// ─── Section wrapper ──────────────────────────────────────────────────────────
-function Section({ title, count, icon, color, children }: {
-  key?: string; title: string; count: number; icon: React.ReactNode; color: string; children: React.ReactNode;
+// ─── Section wrapper (collapsible accordion) ─────────────────────────────────
+function Section({ title, count, icon, color, defaultOpen = false, children }: {
+  key?: string; title: string; count: number; icon: React.ReactNode;
+  color: string; defaultOpen?: boolean; children: React.ReactNode;
 }) {
+  const [open, setOpen] = useState(defaultOpen);
   return (
-    <div className="px-5 py-4">
-      <div className={`flex items-center gap-2 mb-3 ${color}`}>
-        {icon}
-        <p className="text-[11px] font-bold uppercase tracking-widest">{title}</p>
-        <span className="text-[9px] font-mono bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full ml-auto">{count}</span>
-      </div>
-      {children}
+    <div className="border-b border-gray-50 last:border-0">
+      {/* Header / toggle */}
+      <button
+        onClick={() => setOpen(o => !o)}
+        className="w-full flex items-center gap-2 px-5 py-3.5 hover:bg-gray-50 transition-all text-left"
+      >
+        <span className={`${color} flex-shrink-0`}>{icon}</span>
+        <p className={`text-[11px] font-bold uppercase tracking-widest ${color} flex-1`}>{title}</p>
+        <span className="text-[9px] font-mono bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full mr-2">{count}</span>
+        <ChevronDown
+          size={14}
+          className={`text-gray-400 transition-transform duration-200 flex-shrink-0 ${open ? 'rotate-180' : ''}`}
+        />
+      </button>
+      {/* Body */}
+      <AnimatePresence initial={false}>
+        {open && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: 'auto', opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.18 }}
+            className="overflow-hidden"
+          >
+            <div className="px-5 pb-4">
+              {children}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
