@@ -23,7 +23,7 @@ import { auth, db, ensureAnonymousAuth } from './firebase';
 const LOCAL_CACHE_PREFIX = 'nexus_db_';
 const listeners: Record<string, Array<(data: any[]) => void>> = {};
 const cacheLoaded: Record<string, boolean> = {};
-let bundledInventoryPromise: Promise<{ suppliers?: any[]; units?: any[] }> | null = null;
+
 
 function collectionRef(collectionName: string) {
   return collection(db, collectionName);
@@ -59,27 +59,6 @@ function normalizeDoc<T extends Record<string, any>>(snapshotData: T, id: string
   };
 }
 
-async function loadBundledInventory() {
-  if (!bundledInventoryPromise) {
-    bundledInventoryPromise = import('../../imported_inventory.json').then(mod => mod.default as {
-      suppliers?: any[];
-      units?: any[];
-    });
-  }
-
-  return bundledInventoryPromise;
-}
-
-async function getBundledSeed(collectionName: string) {
-  const bundled = await loadBundledInventory();
-  if (collectionName === 'suppliers') {
-    return bundled.suppliers ?? [];
-  }
-  if (collectionName === 'inventoryUnits') {
-    return bundled.units ?? [];
-  }
-  return [];
-}
 
 function ensureLocalCache(collectionName: string) {
   if (cacheLoaded[collectionName]) {
@@ -97,19 +76,7 @@ function ensureLocalCache(collectionName: string) {
 }
 
 async function ensureLocalCacheAsync(collectionName: string) {
-  const existing = ensureLocalCache(collectionName);
-  if (existing.length > 0) {
-    return existing;
-  }
-
-  const seeded = await getBundledSeed(collectionName);
-  if (seeded.length > 0) {
-    writeLocalTable(collectionName, seeded);
-    cacheLoaded[collectionName] = true;
-    return seeded;
-  }
-
-  return existing;
+  return ensureLocalCache(collectionName);
 }
 
 function saveLocalCollection(collectionName: string, data: any[]) {
