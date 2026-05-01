@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo } from 'react';
 import {
   Search, ChevronDown, ChevronRight, ChevronLeft,
   Star, Package, Truck, CheckCircle2, Cpu,
-  Filter, ArrowUpDown, Edit2
+  Filter, ArrowUpDown, Edit2, ShoppingBag
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { dbService } from '../lib/dbService';
@@ -68,6 +68,7 @@ export default function Inventory({ initialFilters = {} }: { initialFilters?: In
   const [expandedModels, setExpanded] = useState<Set<string>>(new Set());
   const [selectedUnit, setSelectedUnit] = useState<InventoryUnit | null>(null);
   const [quickUnit, setQuickUnit] = useState<InventoryUnit | null>(null);
+  const [quickSaleUnits, setQuickSaleUnits] = useState<InventoryUnit[] | null>(null);
   const [bulkListingOpen, setBulkListingOpen] = useState(false);
   const [pageSize, setPageSize]   = useState(25);
   const [page, setPage]           = useState(1);
@@ -279,16 +280,32 @@ export default function Inventory({ initialFilters = {} }: { initialFilters?: In
                     ))}
                   </div>
                 </div>
-                <div className="flex items-center gap-3 flex-shrink-0 text-right">
-                  <div>
-                    <p className="text-[8px] text-gray-400 font-mono uppercase">Qty</p>
-                    <p className="text-lg font-bold font-display leading-tight">{summary.totalAvailable}</p>
+                
+                <div className="flex items-center gap-4">
+                  {summary.totalAvailable > 0 && (
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        const allAvail = summary.variants.flatMap(v => v.units).filter(u => u.status === 'available');
+                        setQuickSaleUnits(allAvail);
+                      }}
+                      className="hidden md:flex items-center gap-1.5 bg-emerald-50 text-emerald-700 border border-emerald-100 px-3 py-1.5 rounded-xl text-[10px] font-bold uppercase tracking-widest hover:bg-emerald-100 transition-all"
+                    >
+                      <ShoppingBag size={12} /> Sell One
+                    </button>
+                  )}
+                  
+                  <div className="flex items-center gap-3 flex-shrink-0 text-right">
+                    <div className="text-right">
+                      <p className="text-[8px] text-gray-400 font-mono uppercase">Qty</p>
+                      <p className="text-lg font-bold font-display leading-tight">{summary.totalAvailable}</p>
+                    </div>
+                    <div className="hidden sm:block">
+                      <p className="text-[8px] text-gray-400 font-mono uppercase">Value</p>
+                      <p className="text-xs font-bold font-mono">£{summary.totalValue.toLocaleString()}</p>
+                    </div>
+                    <div className="text-gray-300">{isExpanded ? <ChevronDown size={16}/> : <ChevronRight size={16}/>}</div>
                   </div>
-                  <div className="hidden sm:block">
-                    <p className="text-[8px] text-gray-400 font-mono uppercase">Value</p>
-                    <p className="text-xs font-bold font-mono">£{summary.totalValue.toLocaleString()}</p>
-                  </div>
-                  <div className="text-gray-300">{isExpanded ? <ChevronDown size={16}/> : <ChevronRight size={16}/>}</div>
                 </div>
               </button>
 
@@ -415,6 +432,12 @@ export default function Inventory({ initialFilters = {} }: { initialFilters?: In
       <AnimatePresence>
         {selectedUnit && <UnitDetailDrawer unit={selectedUnit} supplierName={suppliers.find(s=>s.id===selectedUnit.supplierId)?.name||'—'} onClose={()=>setSelectedUnit(null)}/>}
         {quickUnit    && <QuickSaleModal   unit={quickUnit}   onClose={()=>setQuickUnit(null)}/>}
+        {quickSaleUnits && (
+          <QuickSaleModal 
+            availableUnits={quickSaleUnits} 
+            onClose={() => setQuickSaleUnits(null)} 
+          />
+        )}
         {bulkListingOpen && <BulkListingModal onClose={() => setBulkListingOpen(false)} />}
       </AnimatePresence>
     </div>

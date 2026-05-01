@@ -69,14 +69,22 @@ export default function Sales() {
 
   // Platform update list — available units grouped by model for qty decisions
   const platformList = useMemo(() => {
-    const map = new Map<string, { model: string; brand: string; category: string; count: number; flags: OperationalFlag[]; units: InventoryUnit[] }>();
+    const map = new Map<string, { model: string; brand: string; category: string; count: number; flags: OperationalFlag[]; units: InventoryUnit[]; listingSites: string[] }>();
     for (const u of units.filter(u => u.status === 'available')) {
       if (!map.has(u.model)) {
-        map.set(u.model, { model: u.model, brand: u.brand, category: u.category, count: 0, flags: [], units: [] });
+        map.set(u.model, { model: u.model, brand: u.brand, category: u.category, count: 0, flags: [], units: [], listingSites: [] });
       }
       const entry = map.get(u.model)!;
       entry.count++;
       entry.units.push(u);
+      
+      // Aggregated listing sites
+      if (u.listingSites) {
+        for (const site of u.listingSites) {
+          if (!entry.listingSites.includes(site)) entry.listingSites.push(site);
+        }
+      }
+
       for (const f of u.flags) {
         if (!entry.flags.includes(f)) entry.flags.push(f);
       }
@@ -87,6 +95,27 @@ export default function Sales() {
       return bTop - aTop || b.count - a.count;
     });
   }, [units]);
+
+  // Alert: Stock that is NOT listed on any platform
+  const unlistedStock = useMemo(() => 
+    platformList.filter(item => item.count > 0 && item.listingSites.length === 0),
+    [platformList]
+  );
+
+  const handleToggleListing = async (modelUnits: InventoryUnit[], site: string, isAdding: boolean) => {
+    const promises = modelUnits.map(u => {
+      const sites = u.listingSites || [];
+      const newSites = isAdding 
+        ? [...new Set([...sites, site])]
+        : sites.filter(s => s !== site);
+      
+      return dbService.update('inventoryUnits', u.id, {
+        listingSites: newSites,
+        platformListed: newSites.length > 0
+      });
+    });
+    await Promise.all(promises);
+  };
 
   return (
     <div className="space-y-8 pb-12">
@@ -110,8 +139,45 @@ export default function Sales() {
         </div>
       </div>
 
+      {/* Attention Required — Unlisted Stock */}
+      {unlistedStock.length > 0 && (
+        <div className="bg-amber-50 border border-amber-200 rounded-2xl p-6 shadow-sm">
+          <div className="flex items-center gap-3 mb-4">
+            <div className="w-8 h-8 rounded-full bg-amber-500 flex items-center justify-center text-white">
+              <Bell size={16} />
+            </div>
+            <div>
+              <h3 className="text-sm font-bold text-amber-900 uppercase tracking-tight">Attention Required: Unlisted Stock</h3>
+              <p className="text-[10px] text-amber-700 font-mono uppercase tracking-widest mt-0.5">{unlistedStock.length} models have available units but no active listings</p>
+            </div>
+          </div>
+          
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+            {unlistedStock.slice(0, 6).map(item => (
+              <div key={item.model} className="bg-white/50 border border-amber-100 rounded-xl p-3 flex items-center justify-between">
+                <div className="min-w-0">
+                  <p className="text-xs font-bold truncate">{item.model}</p>
+                  <p className="text-[9px] text-amber-600 font-mono font-bold uppercase">{item.count} Units Waiting</p>
+                </div>
+                <div className="flex gap-1">
+                  {['eBay', 'Amazon'].map(site => (
+                    <button 
+                      key={site}
+                      onClick={() => handleToggleListing(item.units, site, true)}
+                      className="text-[8px] font-bold bg-amber-200 text-amber-800 px-2 py-1 rounded hover:bg-amber-300 transition-all uppercase"
+                    >
+                      + {site}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* Quick KPIs for sales team */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
         <div className="bg-white border border-gray-200 shadow-md border-0 ring-1 ring-gray-100 p-5">
           <p className="text-[8px] font-bold text-gray-400 uppercase tracking-widest font-mono mb-2">Available to Sell</p>
           <p className="text-4xl font-bold font-display tracking-tighter">{units.filter(u => u.status === 'available').length}</p>
@@ -126,6 +192,12 @@ export default function Sales() {
           <p className="text-[8px] font-bold text-gray-400 uppercase tracking-widest font-mono mb-2">Sold Today</p>
           <p className="text-4xl font-bold font-display tracking-tighter text-emerald-600">
             {soldToday.length}
+          </p>
+        </div>
+        <div className="bg-white border border-gray-200 shadow-md border-0 ring-1 ring-gray-100 p-5 border-l-4 border-l-amber-400">
+          <p className="text-[8px] font-bold text-amber-500 uppercase tracking-widest font-mono mb-2">Unlisted Models</p>
+          <p className="text-4xl font-bold font-display tracking-tighter text-amber-600">
+            {unlistedStock.length}
           </p>
         </div>
       </div>
@@ -361,16 +433,37 @@ export default function Sales() {
   );
 }function FulfillmentForm({ units }: { units: InventoryUnit[] }) {
   const [orderId, setOrderId] = useState('');
+  const [selectedModel, setSelectedModel] = useState('');
   const [imei, setImei] = useState('');
   const [salePrice, setSalePrice] = useState('');
   const [platform, setPlatform] = useState('eBay');
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  // Get unique available models for dropdown
+  const availableModels = useMemo(() => {
+    const set = new Set<string>();
+    units.forEach(u => set.add(u.model));
+    return Array.from(set).sort();
+  }, [units]);
+
+  // Filter available IMEIs based on selected model
+  const availableImeis = useMemo(() => {
+    if (!selectedModel) return units.slice(0, 100); // Show some if no model selected
+    return units.filter(u => u.model === selectedModel);
+  }, [units, selectedModel]);
 
   // Auto-detect unit from IMEI
   const matchedUnit = useMemo(() => 
     units.find(u => u.imei === imei.trim() || u.id === imei.trim()),
     [units, imei]
   );
+
+  // When model is selected, reset IMEI if it doesn't match
+  useEffect(() => {
+    if (matchedUnit && matchedUnit.model !== selectedModel && selectedModel !== '') {
+      // Keep it if it matches, but if user picks a new model, they probably want a new IMEI
+    }
+  }, [selectedModel]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -387,6 +480,7 @@ export default function Sales() {
       });
       setOrderId('');
       setImei('');
+      setSelectedModel('');
       setSalePrice('');
       alert('Order Serialized Successfully — Ready for Dispatch');
     } catch (err) {
@@ -397,75 +491,108 @@ export default function Sales() {
   };
 
   return (
-    <form onSubmit={handleSubmit} className="grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
-      <div className="space-y-1.5">
-        <label className="text-[9px] font-bold uppercase tracking-widest text-gray-500 font-mono">1. Marketplace Order ID</label>
-        <input 
-          type="text"
-          required
-          value={orderId}
-          onChange={e => setOrderId(e.target.value)}
-          placeholder="e.g. 23-10948-1203"
-          className="w-full bg-white/5 border border-white/10 rounded-xl py-3 px-4 text-sm focus:outline-none focus:border-emerald-500 transition-all text-white placeholder:text-gray-700"
-        />
-      </div>
-
-      <div className="space-y-1.5">
-        <label className="text-[9px] font-bold uppercase tracking-widest text-gray-500 font-mono">2. Scan Physical IMEI</label>
-        <div className="relative">
+    <div className="space-y-6">
+      <form onSubmit={handleSubmit} className="grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
+        <div className="space-y-1.5">
+          <label className="text-[9px] font-bold uppercase tracking-widest text-gray-400 font-mono">1. Marketplace Order ID</label>
           <input 
             type="text"
             required
-            value={imei}
-            onChange={e => setImei(e.target.value)}
-            placeholder="Scan or type IMEI..."
-            className={`w-full bg-white/5 border rounded-xl py-3 px-4 text-sm focus:outline-none transition-all text-white placeholder:text-gray-700 ${matchedUnit ? 'border-emerald-500 bg-emerald-500/5' : 'border-white/10'}`}
-          />
-          {matchedUnit && (
-            <div className="absolute top-full left-0 mt-1 flex items-center gap-1.5 animate-in fade-in slide-in-from-top-1">
-              <div className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
-              <p className="text-[9px] font-bold text-emerald-500 uppercase tracking-tighter truncate max-w-[200px]">
-                Matched: {matchedUnit.model}
-              </p>
-            </div>
-          )}
-        </div>
-      </div>
-
-      <div className="grid grid-cols-2 gap-2">
-        <div className="space-y-1.5">
-          <label className="text-[9px] font-bold uppercase tracking-widest text-gray-500 font-mono">Sale Platform</label>
-          <select 
-            value={platform}
-            onChange={e => setPlatform(e.target.value)}
-            className="w-full bg-white/5 border border-white/10 rounded-xl py-3 px-3 text-sm focus:outline-none focus:border-emerald-500 transition-all text-white"
-          >
-            <option className="bg-black text-white" value="eBay">eBay</option>
-            <option className="bg-black text-white" value="Amazon">Amazon</option>
-            <option className="bg-black text-white" value="OnBuy">OnBuy</option>
-            <option className="bg-black text-white" value="Backmarket">Backmarket</option>
-            <option className="bg-black text-white" value="Direct">Direct Sale</option>
-          </select>
-        </div>
-        <div className="space-y-1.5">
-          <label className="text-[9px] font-bold uppercase tracking-widest text-gray-500 font-mono">Sale Price (£)</label>
-          <input 
-            type="number"
-            value={salePrice}
-            onChange={e => setSalePrice(e.target.value)}
-            placeholder="Price"
+            value={orderId}
+            onChange={e => setOrderId(e.target.value)}
+            placeholder="e.g. 23-10948-1203"
             className="w-full bg-white/5 border border-white/10 rounded-xl py-3 px-4 text-sm focus:outline-none focus:border-emerald-500 transition-all text-white placeholder:text-gray-700"
           />
         </div>
-      </div>
 
-      <button 
-        type="submit"
-        disabled={isSubmitting || !matchedUnit || !orderId}
-        className="h-[46px] bg-emerald-600 text-white rounded-xl font-bold uppercase tracking-widest text-[11px] hover:bg-emerald-500 transition-all disabled:opacity-20 disabled:grayscale flex items-center justify-center gap-2"
-      >
-        {isSubmitting ? 'Processing...' : 'Complete Fulfillment'}
-      </button>
-    </form>
+        <div className="space-y-1.5">
+          <label className="text-[9px] font-bold uppercase tracking-widest text-gray-400 font-mono">2. Select Product (SKU)</label>
+          <select 
+            value={selectedModel}
+            onChange={e => setSelectedModel(e.target.value)}
+            className="w-full bg-white/5 border border-white/10 rounded-xl py-3 px-3 text-sm focus:outline-none focus:border-emerald-500 transition-all text-white"
+          >
+            <option className="bg-black text-gray-500" value="">— Select Model —</option>
+            {availableModels.map(m => (
+              <option key={m} className="bg-black text-white" value={m}>{m}</option>
+            ))}
+          </select>
+        </div>
+
+        <div className="space-y-1.5">
+          <label className="text-[9px] font-bold uppercase tracking-widest text-gray-400 font-mono">3. Select or Scan IMEI</label>
+          <div className="relative">
+            <input 
+              list="available-imeis"
+              type="text"
+              required
+              value={imei}
+              onChange={e => setImei(e.target.value)}
+              placeholder="Scan or select IMEI..."
+              className={`w-full bg-white/5 border rounded-xl py-3 px-4 text-sm focus:outline-none transition-all text-white placeholder:text-gray-700 ${matchedUnit ? 'border-emerald-500 bg-emerald-500/5' : 'border-white/10'}`}
+            />
+            <datalist id="available-imeis">
+              {availableImeis.map(u => (
+                <option key={u.id} value={u.imei}>{u.model} ({u.colour})</option>
+              ))}
+            </datalist>
+            {matchedUnit && (
+              <div className="absolute top-full left-0 mt-1 flex items-center gap-1.5">
+                <div className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                <p className="text-[9px] font-bold text-emerald-500 uppercase tracking-tighter truncate max-w-[200px]">
+                  Ready: {matchedUnit.model}
+                </p>
+              </div>
+            )}
+          </div>
+        </div>
+
+        <button 
+          type="submit"
+          disabled={isSubmitting || !matchedUnit || !orderId}
+          className="h-[46px] bg-emerald-600 text-white rounded-xl font-bold uppercase tracking-widest text-[11px] hover:bg-emerald-500 transition-all disabled:opacity-20 disabled:grayscale flex items-center justify-center gap-2"
+        >
+          {isSubmitting ? 'Processing...' : 'Complete Fulfillment'}
+        </button>
+      </form>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div className="flex items-center gap-4">
+          <div className="flex-1 space-y-1.5">
+            <label className="text-[9px] font-bold uppercase tracking-widest text-gray-500 font-mono">Sale Platform</label>
+            <select 
+              value={platform}
+              onChange={e => setPlatform(e.target.value)}
+              className="w-full bg-white/5 border border-white/10 rounded-xl py-2 px-3 text-xs focus:outline-none focus:border-emerald-500 transition-all text-white"
+            >
+              <option className="bg-black text-white" value="eBay">eBay</option>
+              <option className="bg-black text-white" value="Amazon">Amazon</option>
+              <option className="bg-black text-white" value="OnBuy">OnBuy</option>
+              <option className="bg-black text-white" value="Backmarket">Backmarket</option>
+              <option className="bg-black text-white" value="Direct">Direct Sale</option>
+            </select>
+          </div>
+          <div className="flex-1 space-y-1.5">
+            <label className="text-[9px] font-bold uppercase tracking-widest text-gray-500 font-mono">Sale Price (£)</label>
+            <input 
+              type="number"
+              value={salePrice}
+              onChange={e => setSalePrice(e.target.value)}
+              placeholder="Leave blank for auto"
+              className="w-full bg-white/5 border border-white/10 rounded-xl py-2 px-4 text-xs focus:outline-none focus:border-emerald-500 transition-all text-white placeholder:text-gray-700"
+            />
+          </div>
+        </div>
+        <div className="flex items-center bg-white/5 border border-white/5 rounded-xl px-4 py-2 gap-3">
+          <div className="w-8 h-8 rounded-lg bg-emerald-500/20 flex items-center justify-center text-emerald-500">
+            <Smartphone size={16} />
+          </div>
+          <p className="text-[9px] text-gray-400 font-mono leading-tight uppercase">
+            Ops tip: Select a model first to filter the IMEI list. 
+            Scanning an IMEI will override the selection.
+          </p>
+        </div>
+      </div>
+    </div>
   );
 }
