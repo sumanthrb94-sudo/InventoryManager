@@ -357,73 +357,121 @@ export default function Sales() {
               transition={{ duration: 0.18 }}
               className="overflow-hidden"
             >
-              <div className="overflow-x-auto">
-                <table className="w-full text-left">
-                  <thead>
-                    <tr className="border-b border-gray-100 text-[8px] text-gray-400 uppercase tracking-[0.25em] font-mono bg-gray-50">
-                      <th className="px-6 py-3 font-bold">Model</th>
-                      <th className="px-6 py-3 font-bold">Category</th>
-                      <th className="px-6 py-3 font-bold">Flags</th>
-                      <th className="px-6 py-3 font-bold">Units Available</th>
-                      <th className="px-6 py-3 font-bold">Platform Action</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-gray-50">
-                    {platformList.length === 0 ? (
-                      <tr>
-                        <td colSpan={5} className="px-6 py-12 text-center text-gray-400 font-mono text-xs">
-                          No available stock. Ingest a batch first.
-                        </td>
+              <div className="max-w-full overflow-hidden">
+                {/* Desktop Table View */}
+                <div className="hidden md:block overflow-x-auto">
+                  <table className="w-full text-left">
+                    <thead>
+                      <tr className="border-b border-gray-100 text-[8px] text-gray-400 uppercase tracking-[0.25em] font-mono bg-gray-50">
+                        <th className="px-6 py-3 font-bold">Model</th>
+                        <th className="px-6 py-3 font-bold">Category</th>
+                        <th className="px-6 py-3 font-bold">Flags</th>
+                        <th className="px-6 py-3 font-bold">Units Available</th>
+                        <th className="px-6 py-3 font-bold">Platform Action</th>
                       </tr>
-                    ) : platformList.map(item => (
-                      <tr key={item.model} className="hover:bg-gray-50 transition-all">
-                        <td className="px-6 py-4">
-                          <p className="text-xs font-bold">{item.model}</p>
-                          <p className="text-[9px] text-gray-400 font-mono uppercase mt-0.5">{item.brand}</p>
-                        </td>
-                        <td className="px-6 py-4">
-                          <span className="text-[9px] font-mono bg-black text-white px-2 py-1 uppercase">{item.category}</span>
-                        </td>
-                        <td className="px-6 py-4">
-                          <div className="flex flex-wrap gap-1">
-                            {item.flags.map(flag => {
-                              const cfg = FLAG_CONFIG[flag];
-                              const Icon = cfg.icon;
-                              return (
-                                <span key={flag} className={`text-[8px] font-bold uppercase px-1.5 py-0.5 border font-mono flex items-center gap-1 ${cfg.style}`}>
-                                  <Icon size={8} />{cfg.label}
+                    </thead>
+                    <tbody className="divide-y divide-gray-50">
+                      {platformList.length === 0 ? (
+                        <tr>
+                          <td colSpan={5} className="px-6 py-12 text-center text-gray-400 font-mono text-xs">
+                            No available stock. Ingest a batch first.
+                          </td>
+                        </tr>
+                      ) : platformList.map(item => (
+                        <tr key={item.model} className="hover:bg-gray-50 transition-all">
+                          <td className="px-6 py-4">
+                            <p className="text-xs font-bold">{item.model}</p>
+                            <p className="text-[9px] text-gray-400 font-mono uppercase mt-0.5">{item.brand}</p>
+                          </td>
+                          <td className="px-6 py-4">
+                            <span className="text-[9px] font-mono bg-black text-white px-2 py-1 uppercase">{item.category}</span>
+                          </td>
+                          <td className="px-6 py-4">
+                            <div className="flex flex-wrap gap-1">
+                              {item.flags.map(flag => {
+                                const cfg = FLAG_CONFIG[flag];
+                                const Icon = cfg.icon;
+                                return (
+                                  <span key={flag} className={`text-[8px] font-bold uppercase px-1.5 py-0.5 border font-mono flex items-center gap-1 ${cfg.style}`}>
+                                    <Icon size={8} />{cfg.label}
+                                  </span>
+                                );
+                              })}
+                              {item.flags.length === 0 && <span className="text-[9px] text-gray-300 font-mono">—</span>}
+                            </div>
+                          </td>
+                          <td className="px-6 py-4">
+                            <span className="text-2xl font-bold font-display tracking-tighter">{item.count}</span>
+                          </td>
+                          <td className="px-6 py-4">
+                            {item.count > 0 ? (
+                              <div>
+                                <span className="text-[10px] font-bold bg-black text-white px-3 py-1.5 font-mono uppercase tracking-widest">
+                                  Set Qty: 1 ✓
                                 </span>
-                              );
-                            })}
-                            {item.flags.length === 0 && <span className="text-[9px] text-gray-300 font-mono">—</span>}
-                          </div>
-                        </td>
-                        <td className="px-6 py-4">
-                          <span className="text-2xl font-bold font-display tracking-tighter">{item.count}</span>
-                        </td>
-                        <td className="px-6 py-4">
-                          {item.count > 0 ? (
-                            <div>
-                              <span className="text-[10px] font-bold bg-black text-white px-3 py-1.5 font-mono uppercase tracking-widest">
-                                Set Qty: 1 ✓
-                              </span>
-                              <p className="text-[8px] text-gray-400 font-mono mt-1 uppercase">
-                                {item.flags.includes('top10') ? FLAG_CONFIG.top10.action : 'In stock — list now'}
-                              </p>
-                            </div>
-                          ) : (
-                            <div>
-                              <span className="text-[10px] font-bold bg-gray-100 text-gray-500 px-3 py-1.5 font-mono uppercase tracking-widest">
-                                Set Qty: 0 ✗
-                              </span>
-                              <p className="text-[8px] text-gray-400 font-mono mt-1 uppercase">Out of stock — delist</p>
-                            </div>
-                          )}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+                                <p className="text-[8px] text-gray-400 font-mono mt-1 uppercase">
+                                  {item.flags.includes('top10') ? FLAG_CONFIG.top10.action : 'In stock — list now'}
+                                </p>
+                              </div>
+                            ) : (
+                              <div>
+                                <span className="text-[10px] font-bold bg-gray-100 text-gray-500 px-3 py-1.5 font-mono uppercase tracking-widest">
+                                  Set Qty: 0 ✗
+                                </span>
+                                <p className="text-[8px] text-gray-400 font-mono mt-1 uppercase">Out of stock — delist</p>
+                              </div>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+
+                {/* Mobile Card List View */}
+                <div className="md:hidden divide-y divide-gray-50">
+                  {platformList.length === 0 ? (
+                    <div className="px-6 py-12 text-center text-gray-400 font-mono text-xs">
+                      No available stock.
+                    </div>
+                  ) : platformList.map(item => (
+                    <div key={item.model} className="px-6 py-5 space-y-4">
+                      <div className="flex justify-between items-start">
+                        <div>
+                          <p className="text-sm font-bold">{item.model}</p>
+                          <p className="text-[10px] text-gray-400 font-mono uppercase mt-0.5">{item.brand} · {item.category}</p>
+                        </div>
+                        <div className="text-right">
+                          <p className="text-2xl font-bold font-display tracking-tighter leading-none">{item.count}</p>
+                          <p className="text-[8px] text-gray-400 font-mono uppercase mt-1">Available</p>
+                        </div>
+                      </div>
+
+                      <div className="flex flex-wrap gap-1">
+                        {item.flags.map(flag => {
+                          const cfg = FLAG_CONFIG[flag];
+                          const Icon = cfg.icon;
+                          return (
+                            <span key={flag} className={`text-[8px] font-bold uppercase px-2 py-1 border font-mono flex items-center gap-1 ${cfg.style}`}>
+                              <Icon size={8} />{cfg.label}
+                            </span>
+                          );
+                        })}
+                      </div>
+
+                      <div className="flex items-center justify-between pt-2 border-t border-gray-50">
+                         <span className={`text-[10px] font-bold px-3 py-2 font-mono uppercase tracking-widest rounded-lg ${item.count > 0 ? 'bg-black text-white' : 'bg-gray-100 text-gray-500'}`}>
+                            Set Qty: {item.count > 0 ? '1 ✓' : '0 ✗'}
+                         </span>
+                         <p className="text-[8px] text-gray-400 font-mono uppercase text-right leading-tight max-w-[120px]">
+                            {item.count > 0 
+                              ? (item.flags.includes('top10') ? FLAG_CONFIG.top10.action : 'List on platforms now')
+                              : 'Out of stock — delist everywhere'}
+                         </p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
               </div>
             </motion.div>
           )}
