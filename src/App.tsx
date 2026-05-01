@@ -87,10 +87,13 @@ export default function App() {
 
       {/* Desktop Sidebar — hidden on mobile */}
       <aside className="hidden md:flex w-72 border-r border-gray-200 flex-col pt-10 pb-6 bg-gray-50 z-30">
-        <div className="px-8 mb-16">
-          <h1 className="text-3xl font-bold tracking-tighter uppercase font-display leading-none text-black">{APP_NAME}</h1>
+        <button 
+          onClick={() => setActiveTab('dashboard')}
+          className="px-8 mb-16 text-left group hover:opacity-80 transition-all active:scale-95 origin-left"
+        >
+          <h1 className="text-3xl font-bold tracking-tighter uppercase font-display leading-none text-black group-hover:text-emerald-600 transition-colors">{APP_NAME}</h1>
           <p className="text-[9px] text-gray-500 font-mono uppercase tracking-[0.4em] mt-2">{APP_TAGLINE}</p>
-        </div>
+        </button>
 
         <nav className="flex-1 px-4 space-y-2">
           <NavItem id="dashboard" label="Dashboard"    icon={<LayoutDashboard size={18} />} active={activeTab === 'dashboard'}  onClick={() => setActiveTab('dashboard')} />
@@ -128,9 +131,12 @@ export default function App() {
         <header className="h-16 md:h-20 border-b border-gray-200 flex flex-col justify-center px-4 md:px-10 bg-white/80 backdrop-blur-xl sticky top-0 z-20">
           <div className="flex items-center justify-between gap-4">
             {/* Mobile logo */}
-            <div className="md:hidden">
+            <button 
+              onClick={() => setActiveTab('dashboard')}
+              className="md:hidden text-left active:scale-95 transition-transform"
+            >
               <h1 className="text-2xl font-bold tracking-tighter uppercase font-display text-black">{APP_NAME}</h1>
-            </div>
+            </button>
 
             {/* Actions */}
             <div className="flex items-center gap-2 md:gap-3 ml-auto">
