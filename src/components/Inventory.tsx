@@ -289,9 +289,9 @@ export default function Inventory({ initialFilters = {} }: { initialFilters?: In
                         const allAvail = summary.variants.flatMap(v => v.units).filter(u => u.status === 'available');
                         setQuickSaleUnits(allAvail);
                       }}
-                      className="hidden md:flex items-center gap-1.5 bg-emerald-50 text-emerald-700 border border-emerald-100 px-3 py-1.5 rounded-xl text-[10px] font-bold uppercase tracking-widest hover:bg-emerald-100 transition-all"
+                      className="flex items-center gap-1.5 bg-emerald-600 text-white px-2.5 md:px-3 py-1.5 rounded-xl text-[9px] md:text-[10px] font-bold uppercase tracking-widest hover:bg-emerald-500 transition-all shadow-sm active:scale-95"
                     >
-                      <ShoppingBag size={12} /> Sell One
+                      <ShoppingBag size={12} /> <span className="hidden sm:inline">Sell One</span>
                     </button>
                   )}
                   
