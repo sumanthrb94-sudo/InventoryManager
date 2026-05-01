@@ -453,7 +453,10 @@ export default function ImportModal({ onClose }: ImportModalProps) {
                       </span>
                       <div className="flex-1 min-w-0">
                         <p className="font-bold truncate">{u.model}</p>
-                        <p className="text-[9px] text-gray-400 font-mono mt-0.5">Date In: {u.dateIn}</p>
+                        <p className="text-[9px] text-gray-400 font-mono mt-0.5">
+                          Date In: {u.dateIn}
+                          {u.status === 'sold' && u.saleDate && ` · Sold: ${u.saleDate}`}
+                        </p>
                       </div>
                       <span className="text-gray-400 font-mono">{u.colour}</span>
                       <span className="font-mono font-bold">£{u.buyPrice}</span>
