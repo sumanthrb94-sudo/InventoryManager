@@ -60,28 +60,28 @@ export default function UnitDetailDrawer({ unit, supplierName, onClose }: Props)
     {
       icon: <Truck size={14} />,
       label: 'Received from Supplier',
-      value: supplierName,
+      value: `${supplierName} → Office Stock`,
       date: unit.dateIn,
       done: true,
     },
     {
       icon: <Package size={14} />,
       label: 'In Office Stock',
-      value: `Buy price: £${unit.buyPrice}`,
+      value: `Buy Price: £${unit.buyPrice}`,
       date: unit.dateIn,
       done: true,
     },
-      {
-        icon: <ShoppingBag size={14} />,
-        label: 'Listed on Platform',
-        value: hasListingSites ? listingSites.join(' / ') : (unit.platformListed ? 'Listed' : 'Not yet listed'),
-        date: null,
-        done: isListed,
-      },
+    {
+      icon: <ShoppingBag size={14} />,
+      label: 'Listed on Platform',
+      value: hasListingSites ? listingSites.join(' / ') : (unit.platformListed ? 'Listed' : 'Not yet listed'),
+      date: unit.listingDate || null,
+      done: isListed,
+    },
     {
       icon: <CheckCircle2 size={14} />,
-      label: 'Sold',
-      value: unit.salePrice ? `£${unit.salePrice} via ${unit.salePlatform}` : 'Pending',
+      label: 'Sold → Dispatched via Courier',
+      value: unit.salePrice ? `£${unit.salePrice} via ${unit.salePlatform}${unit.saleOrderId ? ' · ' + unit.saleOrderId : ''}` : 'Pending',
       date: unit.saleDate || (unit.status === 'sold' ? unit.dateIn : null),
       done: unit.status === 'sold',
     },
@@ -269,7 +269,7 @@ export default function UnitDetailDrawer({ unit, supplierName, onClose }: Props)
                   { label: 'Buy Price',    value: `£${unit.buyPrice}` },
                   { label: 'Supplier',     value: supplierName || '—' },
                   { label: 'Date In',      value: new Date(unit.dateIn).toLocaleDateString('en-GB') },
-                  { label: 'Stock Location', value: unit.stockLocation || 'office' },
+                  { label: 'Location',     value: 'Office Stock' },
                   {
                     label: 'Listing Sites',
                     value: hasListingSites ? listingSites.join(' / ') : (unit.platformListed ? 'Listed' : 'Unlisted'),
@@ -290,7 +290,7 @@ export default function UnitDetailDrawer({ unit, supplierName, onClose }: Props)
                   {unit.flags.map(f => (
                     <span key={f} className="text-[10px] font-mono bg-gray-100 px-3 py-1.5 rounded-full text-gray-700 flex items-center gap-1.5">
                       <Tag size={10} />
-                      {f === 'top10' ? 'Top 10' : f === 'officeOnly' ? 'Office Only' : f === 'supplierHasStock' ? 'Supplier Stock' : 'Sold'}
+                      {f === 'top10' ? 'Top 10' : f === 'supplierHasStock' ? 'Supplier Stock' : 'Sold'}
                     </span>
                   ))}
                 </div>
@@ -398,7 +398,6 @@ export default function UnitDetailDrawer({ unit, supplierName, onClose }: Props)
                 <div className="grid grid-cols-2 gap-2">
                   {([
                     { flag: 'top10' as OperationalFlag,          icon: <Star size={12} />,         label: 'Top 10' },
-                    { flag: 'officeOnly' as OperationalFlag,     icon: <MapPin size={12} />,       label: 'Office Only' },
                     { flag: 'supplierHasStock' as OperationalFlag, icon: <Truck size={12} />,      label: 'Supplier Stock' },
                   ]).map(({ flag, icon, label }) => {
                     const active = unit.flags.includes(flag);

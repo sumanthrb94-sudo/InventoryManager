@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from 'react';
 import {
-  Bell, CheckCircle2, XCircle, Star, MapPin, Truck,
+  Bell, CheckCircle2, XCircle, Star, Truck,
   RefreshCw, Package, ChevronRight, Clock, ArrowUpRight
 } from 'lucide-react';
 import { motion } from 'motion/react';
@@ -13,12 +13,6 @@ const FLAG_CONFIG: Record<OperationalFlag, { label: string; icon: any; style: st
     icon: Star,
     style: 'bg-yellow-50 text-yellow-800 border-yellow-200',
     action: 'Prioritise on eBay, Amazon, OnBuy, Backmarket — keep qty at 1',
-  },
-  officeOnly: {
-    label: 'Office Only',
-    icon: MapPin,
-    style: 'bg-blue-50 text-blue-800 border-blue-200',
-    action: 'Stock is physically in office — can ship today',
   },
   supplierHasStock: {
     label: 'Supplier Has Stock',

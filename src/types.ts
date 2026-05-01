@@ -2,10 +2,10 @@ export type DeviceCategory = 'iPhone' | 'iPad' | 'Apple Watch' | 'Tablet' | 'Sam
 
 export type DeviceStatus = 'available' | 'sold' | 'reserved' | 'returned' | 'lost';
 export type ListingSite = 'eBay' | 'Amazon' | 'OnBuy' | 'Backmarket' | 'Other';
-export type StockLocation = 'office' | 'supplier' | 'warehouse' | 'offsite';
+export type StockLocation = 'office';  // Single location — all stock is held at the office
 export type ConditionGrade = 'A' | 'B' | 'C' | 'D' | 'Unknown';
 
-export type OperationalFlag = 'top10' | 'officeOnly' | 'supplierHasStock' | 'stockSold';
+export type OperationalFlag = 'top10' | 'supplierHasStock' | 'stockSold';
 
 export interface Supplier {
   id: string;

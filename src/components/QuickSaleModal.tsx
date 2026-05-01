@@ -4,6 +4,7 @@ import { X, ShoppingBag, RotateCcw, PackagePlus, CheckCircle2 } from 'lucide-rea
 import { dbService } from '../lib/dbService';
 import { InventoryUnit } from '../types';
 import { logInventoryEvent } from '../lib/inventoryEvents';
+import { Truck } from 'lucide-react';
 
 const PLATFORMS = ['eBay', 'Amazon', 'OnBuy', 'Backmarket', 'Other'] as const;
 
@@ -48,14 +49,31 @@ export default function QuickSaleModal({ unit, onClose }: Props) {
       try {
         await logInventoryEvent({
           type: action,
-          message: action === 'sold' ? `Sold via ${platform}` : 'Marked returned',
+          message: action === 'sold'
+            ? `Sold via ${platform}${saleOrderId ? ' · Order: ' + saleOrderId : ''}${customerName ? ' · Customer: ' + customerName : ''}`
+            : 'Marked returned — back in Office Stock',
           unitId: unit.id,
           platform,
           salePrice: updates.salePrice,
-
         });
       } catch (eventError) {
         console.warn('Inventory event logging failed for quick sale.', eventError);
+      }
+      // Auto-create a Daily Update entry for today's sale
+      if (action === 'sold') {
+        try {
+          const updateId = `du_${Date.now()}`;
+          await dbService.create('dailyUpdates', updateId, {
+            date: today,
+            message: `${unit.model} (${unit.colour}) sold via ${platform} for £${updates.salePrice}${saleOrderId ? ' · Order: ' + saleOrderId : ''}`,
+            affectedUnitIds: [unit.id],
+            affectedModels: [unit.model],
+            type: 'stock_sold',
+            ownerId: 'local',
+          });
+        } catch (duError) {
+          console.warn('Daily update creation failed.', duError);
+        }
       }
     }
     setSaving(false);

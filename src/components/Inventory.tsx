@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import {
   Search, ChevronDown, ChevronRight, ChevronLeft,
-  MapPin, Star, Package, Truck, CheckCircle2, Cpu,
+  Star, Package, Truck, CheckCircle2, Cpu,
   Filter, ArrowUpDown, Edit2
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
@@ -23,7 +23,6 @@ const CATEGORY_COLOURS: Record<string, string> = {
 };
 const FLAG_CONFIG: Record<OperationalFlag, { label: string; icon: any; style: string }> = {
   top10:           { label:'Top 10',       icon:Star,        style:'bg-yellow-50 text-yellow-800 border-yellow-200' },
-  officeOnly:      { label:'Office Only',  icon:MapPin,      style:'bg-blue-50 text-blue-800 border-blue-200' },
   supplierHasStock:{ label:'Supplier Stock',icon:Truck,      style:'bg-green-50 text-green-800 border-green-200' },
   stockSold:       { label:'Sold',          icon:CheckCircle2,style:'bg-gray-50 text-gray-600 border-gray-200' },
 };

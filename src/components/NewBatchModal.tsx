@@ -53,7 +53,6 @@ export default function NewBatchModal({ onClose }: NewBatchModalProps) {
     invoiceNumber: '',
     deliveryNote: '',
     receivedBy: '',
-    warehouseLocation: 'office' as StockLocation,
     currency: 'GBP',
     shippingCost: 0,
     taxAmount: 0,
@@ -108,7 +107,7 @@ export default function NewBatchModal({ onClose }: NewBatchModalProps) {
           dateIn: batchInfo.date,
           status: 'available',
           platformListed: false,
-          stockLocation: batchInfo.warehouseLocation,
+          stockLocation: 'office' as const,
         });
         try {
           await logInventoryEvent({
@@ -484,7 +483,7 @@ export default function NewBatchModal({ onClose }: NewBatchModalProps) {
                   </div>
                   {/* Flags */}
                   <div className="col-span-2 flex flex-wrap gap-1">
-                    {(Object.keys({ top10: 1, officeOnly: 1, supplierHasStock: 1 }) as OperationalFlag[]).map(flag => (
+                    {(Object.keys({ top10: 1, supplierHasStock: 1 }) as OperationalFlag[]).map(flag => (
                       <button
                         key={flag}
                         type="button"
@@ -493,7 +492,7 @@ export default function NewBatchModal({ onClose }: NewBatchModalProps) {
                           device.flags.includes(flag) ? 'bg-black text-white border-black' : 'bg-white text-gray-400 border-gray-200'
                         }`}
                       >
-                        {flag === 'top10' ? 'Top 10' : flag === 'officeOnly' ? 'Office' : 'Supplier'}
+                        {flag === 'top10' ? 'Top 10' : 'Supplier Stock'}
                       </button>
                     ))}
                   </div>
