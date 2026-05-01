@@ -1,7 +1,7 @@
-import { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   Bell, CheckCircle2, Star, Truck,
-  ChevronDown, Clock, Search, ShoppingBag
+  ChevronDown, Clock, Search, ShoppingBag, Smartphone
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { dbService } from '../lib/dbService';
@@ -127,6 +127,27 @@ export default function Sales() {
           <p className="text-4xl font-bold font-display tracking-tighter text-emerald-600">
             {soldToday.length}
           </p>
+        </div>
+      </div>
+
+      {/* Fulfillment Tool — Serializing Orders */}
+      <div className="bg-black text-white rounded-2xl p-8 shadow-2xl relative overflow-hidden group">
+        <div className="absolute top-0 right-0 p-8 opacity-10 group-hover:opacity-20 transition-opacity">
+          <Smartphone size={120} strokeWidth={1} />
+        </div>
+        
+        <div className="relative z-10">
+          <div className="flex items-center gap-3 mb-6">
+            <div className="w-10 h-10 rounded-full bg-white/10 flex items-center justify-center">
+              <ShoppingBag size={20} className="text-emerald-400" />
+            </div>
+            <div>
+              <h3 className="text-lg font-bold tracking-tight">Serialize Order (Fulfillment)</h3>
+              <p className="text-[10px] text-gray-400 font-mono uppercase tracking-widest">Assign physical IMEI to a sold SKU</p>
+            </div>
+          </div>
+
+          <FulfillmentForm units={units.filter(u => u.status === 'available')} />
         </div>
       </div>
 
@@ -337,5 +358,114 @@ export default function Sales() {
         </AnimatePresence>
       </div>
     </div>
+  );
+}function FulfillmentForm({ units }: { units: InventoryUnit[] }) {
+  const [orderId, setOrderId] = useState('');
+  const [imei, setImei] = useState('');
+  const [salePrice, setSalePrice] = useState('');
+  const [platform, setPlatform] = useState('eBay');
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  // Auto-detect unit from IMEI
+  const matchedUnit = useMemo(() => 
+    units.find(u => u.imei === imei.trim() || u.id === imei.trim()),
+    [units, imei]
+  );
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!matchedUnit || !orderId) return;
+
+    setIsSubmitting(true);
+    try {
+      await dbService.update('inventoryUnits', matchedUnit.id, {
+        status: 'sold',
+        saleOrderId: orderId.trim(),
+        salePrice: parseFloat(salePrice) || matchedUnit.buyPrice + 50,
+        salePlatform: platform,
+        saleDate: new Date().toISOString().split('T')[0],
+      });
+      setOrderId('');
+      setImei('');
+      setSalePrice('');
+      alert('Order Serialized Successfully — Ready for Dispatch');
+    } catch (err) {
+      alert('Fulfillment failed. Please check connection.');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  return (
+    <form onSubmit={handleSubmit} className="grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
+      <div className="space-y-1.5">
+        <label className="text-[9px] font-bold uppercase tracking-widest text-gray-500 font-mono">1. Marketplace Order ID</label>
+        <input 
+          type="text"
+          required
+          value={orderId}
+          onChange={e => setOrderId(e.target.value)}
+          placeholder="e.g. 23-10948-1203"
+          className="w-full bg-white/5 border border-white/10 rounded-xl py-3 px-4 text-sm focus:outline-none focus:border-emerald-500 transition-all text-white placeholder:text-gray-700"
+        />
+      </div>
+
+      <div className="space-y-1.5">
+        <label className="text-[9px] font-bold uppercase tracking-widest text-gray-500 font-mono">2. Scan Physical IMEI</label>
+        <div className="relative">
+          <input 
+            type="text"
+            required
+            value={imei}
+            onChange={e => setImei(e.target.value)}
+            placeholder="Scan or type IMEI..."
+            className={`w-full bg-white/5 border rounded-xl py-3 px-4 text-sm focus:outline-none transition-all text-white placeholder:text-gray-700 ${matchedUnit ? 'border-emerald-500 bg-emerald-500/5' : 'border-white/10'}`}
+          />
+          {matchedUnit && (
+            <div className="absolute top-full left-0 mt-1 flex items-center gap-1.5 animate-in fade-in slide-in-from-top-1">
+              <div className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+              <p className="text-[9px] font-bold text-emerald-500 uppercase tracking-tighter truncate max-w-[200px]">
+                Matched: {matchedUnit.model}
+              </p>
+            </div>
+          )}
+        </div>
+      </div>
+
+      <div className="grid grid-cols-2 gap-2">
+        <div className="space-y-1.5">
+          <label className="text-[9px] font-bold uppercase tracking-widest text-gray-500 font-mono">Sale Platform</label>
+          <select 
+            value={platform}
+            onChange={e => setPlatform(e.target.value)}
+            className="w-full bg-white/5 border border-white/10 rounded-xl py-3 px-3 text-sm focus:outline-none focus:border-emerald-500 transition-all text-white"
+          >
+            <option className="bg-black text-white" value="eBay">eBay</option>
+            <option className="bg-black text-white" value="Amazon">Amazon</option>
+            <option className="bg-black text-white" value="OnBuy">OnBuy</option>
+            <option className="bg-black text-white" value="Backmarket">Backmarket</option>
+            <option className="bg-black text-white" value="Direct">Direct Sale</option>
+          </select>
+        </div>
+        <div className="space-y-1.5">
+          <label className="text-[9px] font-bold uppercase tracking-widest text-gray-500 font-mono">Sale Price (£)</label>
+          <input 
+            type="number"
+            value={salePrice}
+            onChange={e => setSalePrice(e.target.value)}
+            placeholder="Price"
+            className="w-full bg-white/5 border border-white/10 rounded-xl py-3 px-4 text-sm focus:outline-none focus:border-emerald-500 transition-all text-white placeholder:text-gray-700"
+          />
+        </div>
+      </div>
+
+      <button 
+        type="submit"
+        disabled={isSubmitting || !matchedUnit || !orderId}
+        className="h-[46px] bg-emerald-600 text-white rounded-xl font-bold uppercase tracking-widest text-[11px] hover:bg-emerald-500 transition-all disabled:opacity-20 disabled:grayscale flex items-center justify-center gap-2"
+      >
+        {isSubmitting ? 'Processing...' : 'Complete Fulfillment'}
+      </button>
+    </form>
   );
 }
