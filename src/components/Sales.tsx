@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import {
-  Bell, CheckCircle2, XCircle, Star, Truck,
-  RefreshCw, Package, ChevronRight, ChevronDown, Clock, ArrowUpRight
+  Bell, CheckCircle2, Star, Truck,
+  ChevronDown, Clock, Search, ShoppingBag
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { dbService } from '../lib/dbService';
@@ -40,6 +40,9 @@ export default function Sales() {
 
   const [isTodayStockOpen, setIsTodayStockOpen] = useState(true);
   const [isPlatformListOpen, setIsPlatformListOpen] = useState(true);
+  const [isSoldTodayOpen, setIsSoldTodayOpen] = useState(true);
+  const [soldSearch, setSoldSearch] = useState('');
+  
   const today = new Date().toISOString().split('T')[0];
 
   // Units updated today (dateIn = today)
@@ -47,6 +50,22 @@ export default function Sales() {
     units.filter(u => u.dateIn === today),
     [units, today]
   );
+
+  // Sold today
+  const soldToday = useMemo(() => 
+    units.filter(u => u.status === 'sold' && (u.saleDate === today || (!u.saleDate && u.updatedAt?.split('T')[0] === today))), 
+    [units, today]
+  );
+
+  const filteredSold = useMemo(() => {
+    if (!soldSearch) return soldToday;
+    const s = soldSearch.toLowerCase();
+    return soldToday.filter(u => 
+      u.imei.toLowerCase().includes(s) || 
+      u.model.toLowerCase().includes(s) || 
+      u.saleOrderId?.toLowerCase().includes(s)
+    );
+  }, [soldToday, soldSearch]);
 
   // Platform update list — available units grouped by model for qty decisions
   const platformList = useMemo(() => {
@@ -63,16 +82,11 @@ export default function Sales() {
       }
     }
     return Array.from(map.values()).sort((a, b) => {
-      // Top 10 first
       const aTop = a.flags.includes('top10') ? 1 : 0;
       const bTop = b.flags.includes('top10') ? 1 : 0;
       return bTop - aTop || b.count - a.count;
     });
   }, [units]);
-
-  // Sold today
-  const soldToday = useMemo(() => units.filter(u => (u.saleDate || u.dateIn) === today), [units, today]);
-
 
   return (
     <div className="space-y-8 pb-12">
@@ -97,33 +111,101 @@ export default function Sales() {
       </div>
 
       {/* Quick KPIs for sales team */}
-      <div className="grid grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <div className="bg-white border border-gray-200 shadow-md border-0 ring-1 ring-gray-100 p-5">
           <p className="text-[8px] font-bold text-gray-400 uppercase tracking-widest font-mono mb-2">Available to Sell</p>
           <p className="text-4xl font-bold font-display tracking-tighter">{units.filter(u => u.status === 'available').length}</p>
         </div>
         <div className="bg-white border border-gray-200 shadow-md border-0 ring-1 ring-gray-100 p-5">
-          <p className="text-[8px] font-bold text-gray-400 uppercase tracking-widest font-mono mb-2">In Office Now</p>
-          <p className="text-4xl font-bold font-display tracking-tighter">
-            {units.filter(u => u.status === 'available' && u.flags.includes('officeOnly')).length}
+          <p className="text-[8px] font-bold text-gray-400 uppercase tracking-widest font-mono mb-2">Top 10 Focus</p>
+          <p className="text-4xl font-bold font-display tracking-tighter text-black">
+            {units.filter(u => u.status === 'available' && u.flags.includes('top10')).length}
           </p>
         </div>
         <div className="bg-white border border-gray-200 shadow-md border-0 ring-1 ring-gray-100 p-5">
-          <p className="text-[8px] font-bold text-gray-400 uppercase tracking-widest font-mono mb-2">Top 10 Units</p>
-          <p className="text-4xl font-bold font-display tracking-tighter">
-            {units.filter(u => u.status === 'available' && u.flags.includes('top10')).length}
+          <p className="text-[8px] font-bold text-gray-400 uppercase tracking-widest font-mono mb-2">Sold Today</p>
+          <p className="text-4xl font-bold font-display tracking-tighter text-emerald-600">
+            {soldToday.length}
           </p>
         </div>
       </div>
 
+      {/* Sold Today — Tracking by IMEI */}
+      {soldToday.length > 0 && (
+        <div className="bg-white border border-gray-200 shadow-md border-0 ring-1 ring-gray-100 border-l-4 border-l-emerald-500 overflow-hidden">
+          <button 
+            onClick={() => setIsSoldTodayOpen(!isSoldTodayOpen)}
+            className="w-full px-6 py-4 border-b border-gray-200 bg-emerald-50 flex items-center justify-between hover:bg-emerald-100 transition-all text-left"
+          >
+            <h3 className="text-[10px] font-bold uppercase tracking-widest text-emerald-800 flex items-center gap-2">
+              <ShoppingBag size={12} /> Devices Sold Today — Dispatch List
+              <span className="ml-2 bg-emerald-600 text-white text-[8px] px-1.5 py-0.5 rounded-full">{soldToday.length}</span>
+            </h3>
+            <ChevronDown size={14} className={`text-emerald-400 transition-transform duration-200 ${isSoldTodayOpen ? 'rotate-180' : ''}`} />
+          </button>
+          
+          <AnimatePresence initial={false}>
+            {isSoldTodayOpen && (
+              <motion.div
+                initial={{ height: 0, opacity: 0 }}
+                animate={{ height: 'auto', opacity: 1 }}
+                exit={{ height: 0, opacity: 0 }}
+                transition={{ duration: 0.18 }}
+                className="overflow-hidden"
+              >
+                {/* IMEI Tracking Search */}
+                <div className="px-6 py-3 bg-white border-b border-gray-100">
+                  <div className="relative">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={14} />
+                    <input 
+                      type="text"
+                      placeholder="Track via IMEI, Model or Order ID..."
+                      value={soldSearch}
+                      onChange={e => setSoldSearch(e.target.value)}
+                      className="w-full bg-gray-50 border border-gray-200 rounded-lg py-2 pl-9 pr-4 text-xs font-mono focus:outline-none focus:border-emerald-500 transition-all"
+                    />
+                  </div>
+                </div>
 
+                <div className="divide-y divide-gray-50 max-h-[400px] overflow-y-auto custom-scrollbar">
+                  {filteredSold.length === 0 ? (
+                    <div className="px-6 py-12 text-center text-gray-400 font-mono text-[10px]">
+                      {soldSearch ? `No matching sales found for "${soldSearch}"` : "No devices sold today yet."}
+                    </div>
+                  ) : filteredSold.map(u => (
+                    <div key={u.id} className="px-6 py-4 flex items-center gap-6 group hover:bg-gray-50 transition-all">
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2">
+                          <p className="text-sm font-bold truncate">{u.model}</p>
+                          {u.saleOrderId && (
+                            <span className="text-[8px] font-bold bg-emerald-100 text-emerald-700 px-1.5 py-0.5 rounded border border-emerald-200 font-mono">
+                              #{u.saleOrderId}
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-[10px] text-gray-500 font-mono uppercase mt-0.5">
+                          {u.colour} · <span className="text-black font-bold">IMEI: {u.imei || '—'}</span> · {u.salePlatform || 'Direct'}
+                        </p>
+                      </div>
+                      <div className="text-right flex-shrink-0">
+                        <p className="text-xs font-bold font-mono text-emerald-600">£{u.salePrice || u.buyPrice}</p>
+                        <p className="text-[8px] text-gray-400 font-mono uppercase mt-1">Ready for Courier</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </div>
+      )}
 
       {/* Today's new stock */}
       {todayUnits.length > 0 && (
         <div className="bg-white border border-gray-200 shadow-md border-0 ring-1 ring-gray-100 border-l-4 border-l-black overflow-hidden">
           <button 
             onClick={() => setIsTodayStockOpen(!isTodayStockOpen)}
-            className="w-full px-6 py-4 border-b border-gray-200 bg-gray-50 flex items-center justify-between hover:bg-gray-100 transition-all"
+            className="w-full px-6 py-4 border-b border-gray-200 bg-gray-50 flex items-center justify-between hover:bg-gray-100 transition-all text-left"
           >
             <h3 className="text-[10px] font-bold uppercase tracking-widest text-gray-600 flex items-center gap-2">
               <Clock size={12} /> New Stock In Today — List These Now
@@ -146,7 +228,7 @@ export default function Sales() {
                     <div key={u.id} className="px-6 py-4 flex items-center gap-6">
                       <div className="flex-1">
                         <p className="text-sm font-bold">{u.model}</p>
-                        <p className="text-[10px] text-gray-500 font-mono uppercase">{u.colour} · IMEI: {u.imei || '—'} · £{u.buyPrice}</p>
+                        <p className="text-[10px] text-gray-500 font-mono uppercase">{u.colour} · <span className="text-black font-bold">IMEI: {u.imei || '—'}</span> · £{u.buyPrice}</p>
                       </div>
                       <span className="text-[10px] font-bold bg-black text-white px-3 py-1.5 font-mono uppercase tracking-widest flex-shrink-0">
                         Set Qty: 1 ↑
@@ -164,7 +246,7 @@ export default function Sales() {
       <div className="bg-white border border-gray-200 shadow-md border-0 ring-1 ring-gray-100 overflow-hidden">
         <button 
           onClick={() => setIsPlatformListOpen(!isPlatformListOpen)}
-          className="w-full px-6 py-4 border-b border-gray-200 flex flex-col md:flex-row md:items-center justify-between bg-gray-50 gap-2 hover:bg-gray-100 transition-all"
+          className="w-full px-6 py-4 border-b border-gray-200 flex flex-col md:flex-row md:items-center justify-between bg-gray-50 gap-2 hover:bg-gray-100 transition-all text-left"
         >
           <div className="flex items-center gap-2">
             <h3 className="text-[10px] font-bold uppercase tracking-widest text-gray-400">Platform Quantity Reference</h3>
