@@ -272,6 +272,11 @@ export default function Inventory({ initialFilters = {} }: { initialFilters?: In
                       const cfg = FLAG_CONFIG[f]; const Icon = cfg.icon;
                       return <span key={f} className={`text-[7px] font-bold px-1.5 py-0.5 border rounded-md font-mono flex items-center gap-0.5 ${cfg.style}`}><Icon size={7}/>{cfg.label}</span>;
                     })}
+                    {summary.listingSites.map(site => (
+                      <span key={site} className="text-[7px] font-bold px-1.5 py-0.5 bg-gray-900 text-white rounded-md font-mono uppercase tracking-tighter">
+                        {site}
+                      </span>
+                    ))}
                   </div>
                 </div>
                 <div className="flex items-center gap-3 flex-shrink-0 text-right">
@@ -292,9 +297,18 @@ export default function Inventory({ initialFilters = {} }: { initialFilters?: In
                   <motion.div initial={{ height:0,opacity:0 }} animate={{ height:'auto',opacity:1 }} exit={{ height:0,opacity:0 }} transition={{ duration:0.18 }} className="overflow-hidden">
                     {summary.variants.map(variant => (
                       <div key={variant.colour} className="border-t border-gray-100">
-                        <div className="px-4 py-2 bg-gray-50 flex items-center gap-2">
-                          <span className="text-[9px] font-bold uppercase font-mono text-gray-500 tracking-widest">{variant.colour}</span>
-                          <span className="text-[9px] font-mono text-gray-400">{variant.availableCount} avail · {variant.units.length} total</span>
+                        <div className="px-4 py-2 bg-gray-50 flex items-center justify-between gap-2">
+                          <div className="flex items-center gap-2">
+                            <span className="text-[9px] font-bold uppercase font-mono text-gray-500 tracking-widest">{variant.colour}</span>
+                            <span className="text-[9px] font-mono text-gray-400">{variant.availableCount} avail · {variant.units.length} total</span>
+                          </div>
+                          <div className="flex items-center gap-1">
+                            {variant.listingSites.map(site => (
+                              <span key={site} className="text-[7px] font-bold px-1.5 py-0.5 bg-gray-200 text-gray-700 rounded font-mono uppercase tracking-tighter">
+                                {site}
+                              </span>
+                            ))}
+                          </div>
                         </div>
                         <div className="divide-y divide-gray-50">
                           {variant.units.map(unit => {

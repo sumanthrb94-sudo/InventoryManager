@@ -16,6 +16,7 @@ export function buildModelSummaries(units: InventoryUnit[]): ModelSummary[] {
         totalValue: 0,
         flags: [],
         latestDateIn: unit.dateIn,
+        listingSites: [],
       });
     }
 
@@ -28,11 +29,23 @@ export function buildModelSummaries(units: InventoryUnit[]): ModelSummary[] {
         availableCount: 0,
         units: [],
         lowestBuyPrice: unit.buyPrice,
+        listingSites: [],
       };
       summary.variants.push(variant);
     }
 
     variant.units.push(unit);
+
+    // Collect listing sites
+    const unitSites = getUnitListingSites(unit);
+    for (const site of unitSites) {
+      if (site !== 'Listed' && !variant.listingSites.includes(site as any)) {
+        variant.listingSites.push(site as any);
+      }
+      if (site !== 'Listed' && !summary.listingSites.includes(site as any)) {
+        summary.listingSites.push(site as any);
+      }
+    }
 
     if (unit.status === 'available') {
       variant.availableCount += 1;

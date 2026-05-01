@@ -145,11 +145,13 @@ export interface ModelSummary {
     availableCount: number;
     units: InventoryUnit[];
     lowestBuyPrice: number;
+    listingSites: ListingSite[];
   }[];
   totalAvailable: number;
   totalValue: number;
   flags: OperationalFlag[];
   latestDateIn: string;
+  listingSites: ListingSite[];
 }
 
 export enum OperationType {

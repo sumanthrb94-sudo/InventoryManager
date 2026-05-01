@@ -14,15 +14,34 @@ interface ImportModalProps {
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
-function excelSerialToISO(serial: number | string): string {
-  if (!serial || typeof serial !== 'number') return new Date().toISOString().split('T')[0];
-  try {
-    const date = XLSX.SSF.parse_date_code(serial as number);
-    const d = new Date(Date.UTC(date.y, date.m - 1, date.d));
-    return d.toISOString().split('T')[0];
-  } catch {
-    return new Date().toISOString().split('T')[0];
+function excelSerialToISO(serial: any): string {
+  if (!serial) return new Date().toISOString().split('T')[0];
+  
+  // If it's already a JS Date object (XLSX sometimes does this if cellDates is true or inferred)
+  if (serial instanceof Date) {
+    return serial.toISOString().split('T')[0];
   }
+
+  // If it's a number, it's likely an Excel serial
+  if (typeof serial === 'number') {
+    try {
+      const date = XLSX.SSF.parse_date_code(serial);
+      const d = new Date(Date.UTC(date.y, date.m - 1, date.d));
+      return d.toISOString().split('T')[0];
+    } catch {
+      // Fall through
+    }
+  }
+
+  // If it's a string, try standard JS parsing
+  if (typeof serial === 'string') {
+    const d = new Date(serial);
+    if (!isNaN(d.getTime())) {
+      return d.toISOString().split('T')[0];
+    }
+  }
+
+  return new Date().toISOString().split('T')[0];
 }
 
 function parseColour(model: string): string {
@@ -75,6 +94,33 @@ interface ParsedData {
 
 function parseOGStockSheet(ws: XLSX.WorkSheet): ParsedData {
   const rows: any[][] = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' }) as any[][];
+  const header = rows[0] || [];
+  
+  // Try to find columns by name
+  const findCol = (names: string[]) => {
+    return header.findIndex(h => names.some(n => h?.toString().toUpperCase().includes(n.toUpperCase())));
+  };
+
+  const dateInCol    = findCol(['Date In', 'Stock In', 'Received', 'Date']);
+  const modelCol     = findCol(['Model', 'Device', 'Description']);
+  const imeiCol      = findCol(['IMEI', 'Serial', 'S/N']);
+  const supplierCol  = findCol(['Supplier', 'Source', 'From']);
+  const buyPriceCol  = findCol(['Buy Price', 'BP', 'Cost']);
+  const statusCol    = findCol(['Status', 'Available', 'State']);
+  const platformCol  = findCol(['Platform', 'Sale Platform', 'Listed']);
+  const salePriceCol = findCol(['Sale Price', 'Price Sold', 'SP']);
+  const saleDateCol  = findCol(['Sale Date', 'Date Sold', 'Sold Date']);
+
+  const dateInIdx    = dateInCol >= 0 ? dateInCol : 0;
+  const modelIdx     = modelCol >= 0 ? modelCol : 1;
+  const imeiIdx      = imeiCol >= 0 ? imeiCol : 2;
+  const supplierIdx  = supplierCol >= 0 ? supplierCol : 3;
+  const buyPriceIdx  = buyPriceCol >= 0 ? buyPriceCol : 4;
+  const statusIdx    = statusCol >= 0 ? statusCol : 5;
+  const platformIdx  = platformCol >= 0 ? platformCol : 6;
+  const salePriceIdx = salePriceCol >= 0 ? salePriceCol : 7;
+  const saleDateIdx  = saleDateCol >= 0 ? saleDateCol : -1;
+
   const supplierMap = new Map<string, Omit<Supplier, 'createdAt'>>();
   const unitMap = new Map<string, Omit<InventoryUnit, 'createdAt'>>();
   const seenImeis = new Set<string>();
@@ -83,17 +129,17 @@ function parseOGStockSheet(ws: XLSX.WorkSheet): ParsedData {
 
   for (let i = 1; i < rows.length; i++) {
     const r = rows[i];
-    const model = r[1]?.toString().trim();
+    const model = r[modelIdx]?.toString().trim();
     if (!model) { skipped++; continue; }
 
-    const imei = r[2]?.toString().trim() || '';
-    const supplierName = r[3]?.toString().trim() || 'UNKNOWN';
-    const buyPrice = parseFloat(r[4]) || 0;
-    const statusRaw = r[5]?.toString().trim().toUpperCase();
+    const imei = r[imeiIdx]?.toString().trim() || '';
+    const supplierName = r[supplierIdx]?.toString().trim() || 'UNKNOWN';
+    const buyPrice = parseFloat(r[buyPriceIdx]) || 0;
+    const statusRaw = r[statusIdx]?.toString().trim().toUpperCase();
     const status: InventoryUnit['status'] = statusRaw === 'SOLD' ? 'sold' : 'available';
-    const salePlatform = r[6]?.toString().trim() || '';
-    const salePrice = parseFloat(r[7]) || 0;
-    const dateIn = excelSerialToISO(r[0]);
+    const salePlatform = r[platformIdx]?.toString().trim() || '';
+    const salePrice = parseFloat(r[salePriceIdx]) || 0;
+    const dateIn = excelSerialToISO(r[dateInIdx]);
 
     const supplierId = `sup_${supplierName.replace(/\s+/g, '_').toLowerCase()}`;
     if (!supplierMap.has(supplierId)) {
@@ -116,6 +162,10 @@ function parseOGStockSheet(ws: XLSX.WorkSheet): ParsedData {
     }
     seenImeis.add(dedupeKey);
 
+    const saleDate = (status === 'sold' && saleDateIdx >= 0 && r[saleDateIdx]) 
+      ? excelSerialToISO(r[saleDateIdx]) 
+      : dateIn;
+
     unitMap.set(dedupeKey, {
       id: unitId,
       imei,
@@ -131,7 +181,7 @@ function parseOGStockSheet(ws: XLSX.WorkSheet): ParsedData {
       notes: '',
       platformListed: status === 'available',
       ownerId: 'anonymous',
-      ...(status === 'sold' ? { saleDate: dateIn } : {}),
+      ...(status === 'sold' ? { saleDate } : {}),
       ...(status === 'sold' && salePlatform ? { salePlatform } : {}),
       ...(status === 'sold' && salePrice ? { salePrice } : {}),
     });
@@ -401,7 +451,10 @@ export default function ImportModal({ onClose }: ImportModalProps) {
                       <span className={`text-[8px] font-bold font-mono px-1.5 py-0.5 ${u.status === 'available' ? 'bg-black text-white' : 'bg-gray-100 text-gray-500'}`}>
                         {u.status}
                       </span>
-                      <span className="font-bold truncate flex-1">{u.model}</span>
+                      <div className="flex-1 min-w-0">
+                        <p className="font-bold truncate">{u.model}</p>
+                        <p className="text-[9px] text-gray-400 font-mono mt-0.5">Date In: {u.dateIn}</p>
+                      </div>
                       <span className="text-gray-400 font-mono">{u.colour}</span>
                       <span className="font-mono font-bold">£{u.buyPrice}</span>
                     </div>
