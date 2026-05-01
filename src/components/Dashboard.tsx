@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import {
   TrendingUp, Package, CircleDollarSign, Star,
-  ArrowUpRight, ChevronRight, Truck, ShoppingBag
+  ArrowUpRight, ChevronRight, Truck, ShoppingBag, Trash2
 } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts';
 import { dbService } from '../lib/dbService';
@@ -9,7 +9,7 @@ import { InventoryUnit, Supplier } from '../types';
 import { getOnHandValue } from '../lib/inventorySummary';
 
 export interface NavAction {
-  tab: 'inventory' | 'suppliers' | 'scan' | 'calendar';
+  tab: 'inventory' | 'suppliers' | 'scan' | 'calendar' | 'sales';
   filters?: {
     status?: string;
     model?: string;
@@ -25,12 +25,27 @@ interface Props {
 export default function Dashboard({ onNavigate }: Props) {
   const [units, setUnits]       = useState<InventoryUnit[]>([]);
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
+  const [isResetting, setIsResetting] = useState(false);
 
   useEffect(() => {
     const u = dbService.subscribeToCollection('inventoryUnits', setUnits);
     const s = dbService.subscribeToCollection('suppliers', setSuppliers);
     return () => { u(); s(); };
   }, []);
+
+  const handleReset = async () => {
+    if (!window.confirm('CRITICAL: This will permanently delete ALL inventory and supplier data for testing. Proceed?')) return;
+    
+    setIsResetting(true);
+    try {
+      await dbService.resetDatabase();
+      alert('Database reset successful. Ready for fresh import.');
+    } catch (err) {
+      alert('Reset failed. Check console for details.');
+    } finally {
+      setIsResetting(false);
+    }
+  };
 
   const available    = units.filter(u => u.status === 'available');
   const sold         = units.filter(u => u.status === 'sold');
@@ -88,11 +103,21 @@ export default function Dashboard({ onNavigate }: Props) {
   return (
     <div className="space-y-5 pb-24 md:pb-8">
       {/* Header */}
-      <div>
-        <h2 className="text-2xl font-bold tracking-tighter uppercase font-display">Operations Hub</h2>
-        <p className="text-[10px] text-gray-400 font-mono uppercase tracking-widest mt-1">
-          {new Date().toLocaleDateString('en-GB', { weekday:'long', day:'numeric', month:'long', year:'numeric' })}
-        </p>
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-2xl font-bold tracking-tighter uppercase font-display">Operations Hub</h2>
+          <p className="text-[10px] text-gray-400 font-mono uppercase tracking-widest mt-1">
+            {new Date().toLocaleDateString('en-GB', { weekday:'long', day:'numeric', month:'long', year:'numeric' })}
+          </p>
+        </div>
+        <button 
+          onClick={handleReset}
+          disabled={isResetting}
+          className="flex items-center gap-2 px-4 py-2 border border-red-100 bg-red-50 text-red-600 rounded-xl text-[10px] font-bold uppercase tracking-widest hover:bg-red-100 transition-all disabled:opacity-50"
+        >
+          <Trash2 size={13} />
+          {isResetting ? 'Resetting...' : 'Reset Database'}
+        </button>
       </div>
 
       {/* KPI Cards — ALL CLICKABLE */}

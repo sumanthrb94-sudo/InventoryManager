@@ -324,4 +324,22 @@ export const dbService = {
   async readAll(collectionName: string) {
     return readCollectionOnce(collectionName);
   },
+
+  async resetDatabase() {
+    const collections = ['inventoryUnits', 'suppliers'];
+    for (const coll of collections) {
+      saveLocalCollection(coll, []);
+      try {
+        await ensureAuthReady();
+        const snap = await getDocs(query(collectionRef(coll)));
+        if (snap.size > 0) {
+          const batch = writeBatch(db);
+          snap.docs.forEach(d => batch.delete(d.ref));
+          await batch.commit();
+        }
+      } catch (error) {
+        console.warn(`Firestore reset failed for ${coll}; cleared local cache only.`, error);
+      }
+    }
+  },
 };
