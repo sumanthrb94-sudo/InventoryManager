@@ -7,6 +7,8 @@ export type ConditionGrade = 'A' | 'B' | 'C' | 'D' | 'Unknown';
 
 export type OperationalFlag = 'top10' | 'supplierHasStock' | 'stockSold';
 
+export type ReturnCategory = 'returned_to_inventory' | 'returned_to_supplier' | 'repair';
+
 export interface Supplier {
   id: string;
   name: string;
@@ -75,6 +77,11 @@ export interface InventoryUnit {
   salePlatform?: ListingSite | string;
   saleOrderId?: string;
   customerName?: string;
+  postageCost?: number;      // Outbound postage paid by seller (default £8)
+  // Returns
+  returnType?: ReturnCategory;
+  returnDate?: string;
+  returnReason?: string;
   attachments?: string[];
   ownerId: string;
   createdAt: any;

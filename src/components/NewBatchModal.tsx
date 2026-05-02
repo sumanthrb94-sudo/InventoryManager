@@ -120,6 +120,7 @@ export default function NewBatchModal({ onClose }: Props) {
     setLoading(true);
     try {
       const batchId = `bat_${Date.now()}`;
+      const totalBuyValue = units.reduce((s, u) => s + u.buyPrice, 0);
       await dbService.create('batches', batchId, {
         supplierId: info.supplierId,
         invoiceNumber: info.invoiceNumber,
@@ -127,8 +128,10 @@ export default function NewBatchModal({ onClose }: Props) {
         deliveryNote: info.deliveryNote,
         receivedBy: info.receivedBy,
         notes: info.notes,
-        totalLines: lines.length,
-        totalUnits: units.length,
+        unitCount: units.length,
+        totalBuyValue,
+        ownerId: 'admin',
+        createdAt: new Date().toISOString(),
       });
 
       for (const u of units) {

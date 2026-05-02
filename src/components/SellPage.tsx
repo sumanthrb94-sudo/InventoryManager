@@ -7,7 +7,7 @@ import { AnimatePresence, motion } from 'motion/react';
 import { dbService } from '../lib/dbService';
 import { InventoryUnit } from '../types';
 import CopyImei from './CopyImei';
-import { PLATFORM_LIST, PLATFORMS } from '../lib/platforms';
+import { PLATFORM_LIST, PLATFORMS, DEFAULT_POSTAGE_COST, platformTotalFee, calcNetProfit } from '../lib/platforms';
 import CollapsibleSection from './CollapsibleSection';
 
 // ── helpers ────────────────────────────────────────────────────────────────
@@ -34,13 +34,14 @@ function SellOrderModal({
   const [platform, setPlatform] = useState<string>(PLATFORM_LIST[0]);
   const [orderId, setOrderId] = useState('');
   const [saleDate, setSaleDate] = useState(today());
+  const [postage, setPostage] = useState(String(DEFAULT_POSTAGE_COST));
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
 
-  const margin = sp ? Number(sp) - unit.buyPrice : null;
-  const commPct = PLATFORMS[platform as keyof typeof PLATFORMS]?.commission ?? 0;
-  const commAmt = sp ? +((Number(sp) * commPct) / 100).toFixed(2) : 0;
-  const netProfit = sp ? +(margin! - commAmt).toFixed(2) : null;
+  const spNum = sp ? Number(sp) : 0;
+  const postageNum = postage ? Number(postage) : DEFAULT_POSTAGE_COST;
+  const platformFee = spNum > 0 ? platformTotalFee(platform, spNum) : 0;
+  const netProfit = spNum > 0 ? calcNetProfit(spNum, unit.buyPrice, platform, postageNum) : null;
 
   const handleSave = async () => {
     if (!sp || Number(sp) <= 0) { setError('Please enter a valid selling price.'); return; }
@@ -53,6 +54,7 @@ function SellOrderModal({
         salePlatform: platform,
         saleOrderId: orderId.trim(),
         saleDate,
+        postageCost: postageNum,
       });
       onSaved();
       onClose();
@@ -167,25 +169,49 @@ function SellOrderModal({
             />
           </div>
 
+          {/* Postage Cost */}
+          <div>
+            <label className="text-[9px] font-bold uppercase tracking-widest text-gray-400 block mb-1.5">
+              Postage Cost (£) <span className="normal-case font-normal text-gray-400">— default £{DEFAULT_POSTAGE_COST}</span>
+            </label>
+            <input
+              type="number"
+              value={postage}
+              onChange={e => setPostage(e.target.value)}
+              placeholder={String(DEFAULT_POSTAGE_COST)}
+              min="0"
+              step="0.01"
+              className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm font-mono focus:outline-none focus:border-black transition-all"
+            />
+          </div>
+
           {/* Live P&L preview */}
           {sp && Number(sp) > 0 && (
             <div className={`rounded-xl p-4 border ${netProfit! >= 0 ? 'bg-emerald-50 border-emerald-200' : 'bg-red-50 border-red-200'}`}>
-              <p className="text-[9px] font-mono uppercase tracking-widest text-gray-500 mb-2">Profit Preview</p>
-              <div className="grid grid-cols-3 gap-2 text-center">
+              <p className="text-[9px] font-mono uppercase tracking-widest text-gray-500 mb-2">Profit Breakdown</p>
+              <div className="grid grid-cols-2 gap-2 text-center mb-2">
                 <div>
                   <p className="text-[8px] text-gray-400 font-mono">Sold For</p>
-                  <p className="text-sm font-bold">£{Number(sp).toLocaleString()}</p>
+                  <p className="text-sm font-bold">£{spNum.toLocaleString()}</p>
                 </div>
                 <div>
-                  <p className="text-[8px] text-gray-400 font-mono">{platform} Fee ({commPct}%)</p>
-                  <p className="text-sm font-bold text-red-600">-£{commAmt}</p>
+                  <p className="text-[8px] text-gray-400 font-mono">Bought For (BP)</p>
+                  <p className="text-sm font-bold text-gray-600">£{unit.buyPrice}</p>
                 </div>
                 <div>
-                  <p className="text-[8px] text-gray-400 font-mono">Net Profit</p>
-                  <p className={`text-sm font-bold ${netProfit! >= 0 ? 'text-emerald-700' : 'text-red-600'}`}>
-                    {netProfit! >= 0 ? '+' : ''}£{netProfit}
-                  </p>
+                  <p className="text-[8px] text-gray-400 font-mono">{platform} Fee (incl. fixed)</p>
+                  <p className="text-sm font-bold text-red-600">-£{platformFee}</p>
                 </div>
+                <div>
+                  <p className="text-[8px] text-gray-400 font-mono">Postage</p>
+                  <p className="text-sm font-bold text-red-600">-£{postageNum}</p>
+                </div>
+              </div>
+              <div className={`rounded-lg px-3 py-2 text-center border-t ${netProfit! >= 0 ? 'border-emerald-200' : 'border-red-200'}`}>
+                <p className="text-[8px] text-gray-400 font-mono mb-0.5">Net Profit</p>
+                <p className={`text-lg font-bold ${netProfit! >= 0 ? 'text-emerald-700' : 'text-red-600'}`}>
+                  {netProfit! >= 0 ? '+' : ''}£{netProfit}
+                </p>
               </div>
             </div>
           )}
