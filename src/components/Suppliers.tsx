@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Plus, Package, TrendingUp, RotateCcw, ChevronDown, ChevronRight, X, ShoppingBag, Cpu } from 'lucide-react';
+import { Plus, Package, TrendingUp, RotateCcw, ChevronDown, ChevronRight, X, ShoppingBag, Cpu, ArrowUpRight } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { dbService } from '../lib/dbService';
 import { Supplier, InventoryUnit } from '../types';
@@ -18,7 +18,18 @@ export default function Suppliers() {
   const [units, setUnits]         = useState<InventoryUnit[]>([]);
   const [selected, setSelected]   = useState<string | null>(null);
   const [isAdding, setIsAdding]   = useState(false);
-  const [newSupplier, setNewSupplier] = useState({ name: '', portal: 'Direct' });
+  const [newSupplier, setNewSupplier] = useState({
+    name: '',
+    portal: 'Direct',
+    contactName: '',
+    contactEmail: '',
+    phone: '',
+    address: '',
+    paymentTerms: '',
+    returnTerms: '',
+    notes: '',
+    websiteUrl: '',
+  });
   const [historyPage, setHistoryPage] = useState(1);
   const HIST_PAGE_SIZE = 20;
 
@@ -33,7 +44,18 @@ export default function Suppliers() {
     const id = `sup_${Date.now()}`;
     await dbService.create('suppliers', id, { ...newSupplier, ownerId: 'local' });
     setIsAdding(false);
-    setNewSupplier({ name: '', portal: 'Direct' });
+    setNewSupplier({
+      name: '',
+      portal: 'Direct',
+      contactName: '',
+      contactEmail: '',
+      phone: '',
+      address: '',
+      paymentTerms: '',
+      returnTerms: '',
+      notes: '',
+      websiteUrl: '',
+    });
   };
 
   // Per-supplier stats
@@ -56,6 +78,7 @@ export default function Suppliers() {
       if (u.status === 'sold') {
         s.sold++;
         s.revenue += u.salePrice ?? 0;
+
         if (u.salePlatform) s.platforms[u.salePlatform] = (s.platforms[u.salePlatform] || 0) + 1;
       }
       const d = u.dateIn;
@@ -104,12 +127,62 @@ export default function Suppliers() {
             className="overflow-hidden bg-white border border-gray-200 rounded-2xl p-4 space-y-3"
           >
             <p className="text-[11px] font-bold uppercase tracking-widest text-gray-500">New Supplier</p>
-            <input
-              required value={newSupplier.name}
-              onChange={e => setNewSupplier(p => ({ ...p, name: e.target.value }))}
-              placeholder="Supplier name"
-              className="w-full bg-gray-50 border border-gray-200 rounded-xl px-3 py-2.5 text-sm font-mono focus:outline-none focus:border-black"
-            />
+            <div className="grid grid-cols-2 gap-2">
+              <input
+                required value={newSupplier.name}
+                onChange={e => setNewSupplier(p => ({ ...p, name: e.target.value }))}
+                placeholder="Supplier name"
+                className="col-span-2 w-full bg-gray-50 border border-gray-200 rounded-xl px-3 py-2.5 text-sm font-mono focus:outline-none focus:border-black"
+              />
+              <input
+                value={newSupplier.contactName}
+                onChange={e => setNewSupplier(p => ({ ...p, contactName: e.target.value }))}
+                placeholder="Contact name"
+                className="w-full bg-gray-50 border border-gray-200 rounded-xl px-3 py-2.5 text-sm font-mono focus:outline-none focus:border-black"
+              />
+              <input
+                value={newSupplier.contactEmail}
+                onChange={e => setNewSupplier(p => ({ ...p, contactEmail: e.target.value }))}
+                placeholder="Contact email"
+                className="w-full bg-gray-50 border border-gray-200 rounded-xl px-3 py-2.5 text-sm font-mono focus:outline-none focus:border-black"
+              />
+              <input
+                value={newSupplier.phone}
+                onChange={e => setNewSupplier(p => ({ ...p, phone: e.target.value }))}
+                placeholder="Phone"
+                className="w-full bg-gray-50 border border-gray-200 rounded-xl px-3 py-2.5 text-sm font-mono focus:outline-none focus:border-black"
+              />
+              <input
+                value={newSupplier.address}
+                onChange={e => setNewSupplier(p => ({ ...p, address: e.target.value }))}
+                placeholder="Address"
+                className="w-full bg-gray-50 border border-gray-200 rounded-xl px-3 py-2.5 text-sm font-mono focus:outline-none focus:border-black"
+              />
+              <input
+                value={newSupplier.paymentTerms}
+                onChange={e => setNewSupplier(p => ({ ...p, paymentTerms: e.target.value }))}
+                placeholder="Payment terms"
+                className="w-full bg-gray-50 border border-gray-200 rounded-xl px-3 py-2.5 text-sm font-mono focus:outline-none focus:border-black"
+              />
+              <input
+                value={newSupplier.returnTerms}
+                onChange={e => setNewSupplier(p => ({ ...p, returnTerms: e.target.value }))}
+                placeholder="Return terms"
+                className="w-full bg-gray-50 border border-gray-200 rounded-xl px-3 py-2.5 text-sm font-mono focus:outline-none focus:border-black"
+              />
+              <input
+                value={newSupplier.websiteUrl}
+                onChange={e => setNewSupplier(p => ({ ...p, websiteUrl: e.target.value }))}
+                placeholder="Website URL"
+                className="col-span-2 w-full bg-gray-50 border border-gray-200 rounded-xl px-3 py-2.5 text-sm font-mono focus:outline-none focus:border-black"
+              />
+              <input
+                value={newSupplier.notes}
+                onChange={e => setNewSupplier(p => ({ ...p, notes: e.target.value }))}
+                placeholder="Notes"
+                className="col-span-2 w-full bg-gray-50 border border-gray-200 rounded-xl px-3 py-2.5 text-sm font-mono focus:outline-none focus:border-black"
+              />
+            </div>
             <div className="flex gap-2">
               <select
                 value={newSupplier.portal}

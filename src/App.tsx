@@ -6,22 +6,25 @@
 import React, { useState, useEffect } from 'react';
 import { adminAuth, ADMIN_EMAIL } from './lib/adminAuth';
 import {
-  LayoutDashboard, Smartphone, Truck, Bell,
+  LayoutDashboard, PackagePlus, ShoppingCart,
+  RefreshCw, BarChart2,
   LogOut, Plus, FileSpreadsheet,
   Eye, EyeOff, Lock, Mail, ShieldCheck,
-  ScanLine, CalendarDays,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import Dashboard, { NavAction } from './components/Dashboard';
-import Inventory from './components/Inventory';
-import Suppliers from './components/Suppliers';
-import Sales from './components/Sales';
-import ScanPage from './components/ScanPage';
-import CalendarPage from './components/CalendarPage';
 import NewBatchModal from './components/NewBatchModal';
 import ImportModal from './components/ImportModal';
+import StockInPage from './components/StockInPage';
+import SellPage from './components/SellPage';
+import ReturnsPage from './components/ReturnsPage';
+import ReportingPage from './components/ReportingPage';
+import { useRealTimeNotifications } from './hooks/useRealTimeNotifications';
+import NotificationToast from './components/NotificationToast';
+import { notificationService } from './lib/notificationService';
 
-type Tab = 'dashboard' | 'inventory' | 'suppliers' | 'sales' | 'scan' | 'calendar';
+type Tab = 'overview' | 'buystk' | 'sell' | 'returns' | 'reports';
+
 
 interface InventoryFilters { status?: string; search?: string; supplierId?: string; }
 
@@ -31,27 +34,25 @@ const APP_TAGLINE = 'Inventory Manager';
 export default function App() {
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [loading, setLoading]       = useState(true);
-  const [activeTab, setActiveTab]   = useState<Tab>('dashboard');
-  const [inventoryFilters, setInventoryFilters] = useState<InventoryFilters>({});
+  const [activeTab, setActiveTab]   = useState<Tab>('overview');
   const [isBatchModalOpen,  setIsBatchModalOpen]  = useState(false);
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
+  const [unreadCount, setUnreadCount] = useState(0);
+
+  // ── Listen for inventory changes ──
+  useRealTimeNotifications();
+
+  // ── Listen for notification count updates ──
+  useEffect(() => {
+    const unsub = notificationService.subscribe(() => {
+      setUnreadCount(notificationService.getUnreadCount());
+    });
+    return unsub;
+  }, []);
 
   const handleNavigate = (action: NavAction) => {
-    setActiveTab(action.tab);
-    if (action.tab === 'inventory' && action.filters) {
-      setInventoryFilters({
-        status:     action.filters.status,
-        search:     action.filters.search || action.filters.model,
-        supplierId: action.filters.supplierId,
-      });
-    } else if (action.tab === 'inventory') {
-      setInventoryFilters({});
-    }
-  };
-
-  const openInventory = () => {
-    setInventoryFilters({});
-    setActiveTab('inventory');
+    if (action.tab === 'inventory') setActiveTab('overview');
+    else setActiveTab(action.tab as Tab);
   };
 
   // ── Restore session on boot ────────────────────────────────────────────────
@@ -87,18 +88,20 @@ export default function App() {
 
       {/* Desktop Sidebar — hidden on mobile */}
       <aside className="hidden md:flex w-72 border-r border-gray-200 flex-col pt-10 pb-6 bg-gray-50 z-30">
-        <div className="px-8 mb-16">
-          <h1 className="text-3xl font-bold tracking-tighter uppercase font-display leading-none text-black">{APP_NAME}</h1>
+        <button 
+          onClick={() => setActiveTab('dashboard')}
+          className="px-8 mb-16 text-left group hover:opacity-80 transition-all active:scale-95 origin-left"
+        >
+          <h1 className="text-3xl font-bold tracking-tighter uppercase font-display leading-none text-black group-hover:text-emerald-600 transition-colors">{APP_NAME}</h1>
           <p className="text-[9px] text-gray-500 font-mono uppercase tracking-[0.4em] mt-2">{APP_TAGLINE}</p>
-        </div>
+        </button>
 
-        <nav className="flex-1 px-4 space-y-2">
-          <NavItem id="dashboard" label="Dashboard"    icon={<LayoutDashboard size={18} />} active={activeTab === 'dashboard'}  onClick={() => setActiveTab('dashboard')} />
-          <NavItem id="inventory" label="Inventory"    icon={<Smartphone size={18} />}      active={activeTab === 'inventory'}  onClick={openInventory} />
-          <NavItem id="scan"      label="Scan & Update" icon={<ScanLine size={18} />}       active={activeTab === 'scan'}       onClick={() => setActiveTab('scan')} />
-          <NavItem id="calendar" label="Calendar"     icon={<CalendarDays size={18} />}    active={activeTab === 'calendar'}   onClick={() => setActiveTab('calendar')} />
-          <NavItem id="suppliers" label="Suppliers"    icon={<Truck size={18} />}           active={activeTab === 'suppliers'}  onClick={() => setActiveTab('suppliers')} />
-          <NavItem id="sales"     label="Daily Update" icon={<Bell size={18} />}            active={activeTab === 'sales'}      onClick={() => setActiveTab('sales')} />
+        <nav className="flex-1 px-4 space-y-1">
+          <NavItem id="overview" label="Overview"     icon={<LayoutDashboard size={18}/>} active={activeTab==='overview'} onClick={()=>setActiveTab('overview')} />
+          <NavItem id="buystk"  label="Buy Stock"    icon={<PackagePlus size={18}/>}     active={activeTab==='buystk'}  onClick={()=>setActiveTab('buystk')} />
+          <NavItem id="sell"    label="Sell"          icon={<ShoppingCart size={18}/>}    active={activeTab==='sell'}    onClick={()=>setActiveTab('sell')} />
+          <NavItem id="returns" label="Returns"       icon={<RefreshCw size={18}/>}       active={activeTab==='returns'} onClick={()=>setActiveTab('returns')} />
+          <NavItem id="reports" label="Reports"       icon={<BarChart2 size={18}/>}       active={activeTab==='reports'} onClick={()=>setActiveTab('reports')} />
         </nav>
 
         {/* Admin badge + logout */}
@@ -128,9 +131,12 @@ export default function App() {
         <header className="h-16 md:h-20 border-b border-gray-200 flex flex-col justify-center px-4 md:px-10 bg-white/80 backdrop-blur-xl sticky top-0 z-20">
           <div className="flex items-center justify-between gap-4">
             {/* Mobile logo */}
-            <div className="md:hidden">
+            <button 
+              onClick={() => setActiveTab('dashboard')}
+              className="md:hidden text-left active:scale-95 transition-transform"
+            >
               <h1 className="text-2xl font-bold tracking-tighter uppercase font-display text-black">{APP_NAME}</h1>
-            </div>
+            </button>
 
             {/* Actions */}
             <div className="flex items-center gap-2 md:gap-3 ml-auto">
@@ -146,7 +152,7 @@ export default function App() {
                 className="bg-black text-white px-3 md:px-8 py-2 md:py-2.5 rounded-xl text-[10px] md:text-xs font-bold uppercase tracking-widest flex items-center gap-2 md:gap-3 hover:bg-gray-800 transition-all active:scale-95"
               >
                 <Plus size={16} strokeWidth={3} />
-                <span className="hidden md:inline">Ingest Batch</span>
+                <span className="hidden md:inline">Add Supplier Delivery</span>
               </button>
             </div>
           </div>
@@ -162,30 +168,31 @@ export default function App() {
               exit={{ opacity: 0, y: -10 }}
               transition={{ duration: 0.2 }}
             >
-              {activeTab === 'dashboard' && <Dashboard onNavigate={handleNavigate} />}
-              {activeTab === 'inventory' && <Inventory initialFilters={inventoryFilters} />}
-              {activeTab === 'scan'      && <ScanPage />}
-              {activeTab === 'calendar' && <CalendarPage />}
-              {activeTab === 'suppliers' && <Suppliers />}
-              {activeTab === 'sales'     && <Sales />}
+              {activeTab === 'overview' && <Dashboard onNavigate={handleNavigate} />}
+              {activeTab === 'buystk'  && <StockInPage onOpenBatch={()=>setIsBatchModalOpen(true)} onOpenImport={()=>setIsImportModalOpen(true)} />}
+              {activeTab === 'sell'    && <SellPage />}
+              {activeTab === 'returns' && <ReturnsPage />}
+              {activeTab === 'reports' && <ReportingPage />}
             </motion.div>
           </AnimatePresence>
         </div>
       </main>
 
-      {/* Mobile bottom nav */}
-      <nav className="md:hidden fixed bottom-0 w-full bg-white border-t border-gray-200 z-30 flex items-center justify-around px-2 py-2 safe-area-bottom">
-        <MobileNavItem id="dashboard" icon={<LayoutDashboard size={20} />} label="Dash"     active={activeTab === 'dashboard'} onClick={() => setActiveTab('dashboard')} />
-        <MobileNavItem id="inventory" icon={<Smartphone size={20} />}      label="Stock"    active={activeTab === 'inventory'} onClick={openInventory} />
-        <MobileNavItem id="scan"      icon={<ScanLine size={22} />}         label="Scan"     active={activeTab === 'scan'}      onClick={() => setActiveTab('scan')} />
-        <MobileNavItem id="calendar" icon={<CalendarDays size={20} />}    label="Calendar" active={activeTab === 'calendar'}  onClick={() => setActiveTab('calendar')} />
-        <MobileNavItem id="sales"     icon={<Bell size={20} />}            label="Update"   active={activeTab === 'sales'}     onClick={() => setActiveTab('sales')} />
+      {/* Mobile bottom nav — 4 core modules */}
+      <nav className="md:hidden fixed bottom-0 w-full bg-white border-t border-gray-200 z-30 flex items-center justify-around px-1 py-2 safe-area-bottom">
+        <MobileNavItem id="overview" icon={<LayoutDashboard size={20}/>} label="Overview" active={activeTab==='overview'} onClick={()=>setActiveTab('overview')} />
+        <MobileNavItem id="buystk"   icon={<PackagePlus size={20}/>}     label="Buy"      active={activeTab==='buystk'}  onClick={()=>setActiveTab('buystk')} />
+        <MobileNavItem id="sell"     icon={<ShoppingCart size={20}/>}    label="Sell"     active={activeTab==='sell'}    onClick={()=>setActiveTab('sell')} />
+        <MobileNavItem id="returns"  icon={<RefreshCw size={20}/>}       label="Returns"  active={activeTab==='returns'} onClick={()=>setActiveTab('returns')} />
+        <MobileNavItem id="reports"  icon={<BarChart2 size={20}/>}       label="Reports"  active={activeTab==='reports'} onClick={()=>setActiveTab('reports')} />
       </nav>
 
       <AnimatePresence>
         {isBatchModalOpen  && <NewBatchModal onClose={() => setIsBatchModalOpen(false)} />}
         {isImportModalOpen && <ImportModal   onClose={() => setIsImportModalOpen(false)} />}
       </AnimatePresence>
+
+      <NotificationToast />
     </div>
   );
 }

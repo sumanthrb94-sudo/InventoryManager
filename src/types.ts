@@ -1,15 +1,39 @@
 export type DeviceCategory = 'iPhone' | 'iPad' | 'Apple Watch' | 'Tablet' | 'Samsung S Series' | 'Samsung A Series' | 'Other';
 
 export type DeviceStatus = 'available' | 'sold' | 'reserved' | 'returned' | 'lost';
+export type ListingSite = 'eBay' | 'Amazon' | 'OnBuy' | 'Backmarket' | 'Other';
+export type StockLocation = 'office';  // Single location — all stock is held at the office
+export type ConditionGrade = 'A' | 'B' | 'C' | 'D' | 'Unknown';
 
-export type OperationalFlag = 'top10' | 'officeOnly' | 'supplierHasStock' | 'stockSold';
+export type OperationalFlag = 'top10' | 'supplierHasStock' | 'stockSold';
+
+export type ReturnCategory = 'returned_to_inventory' | 'returned_to_supplier' | 'repair';
 
 export interface Supplier {
   id: string;
   name: string;
-  portal: 'eBay' | 'Website' | 'Direct' | 'Other';
+  portal: 'eBay' | 'Website' | 'Direct' | 'Other' | 'Wholesale' | 'Auction' | 'Online';
+  contactName?: string;
   contactEmail?: string;
+  phone?: string;
+  address?: string;
+  paymentTerms?: string;
+  returnTerms?: string;
+  notes?: string;
   websiteUrl?: string;
+  ownerId: string;
+  createdAt: any;
+}
+
+export interface SourceDocument {
+  id: string;
+  fileName: string;
+  mimeType: string;
+  size: number;
+  storagePath: string;
+  downloadURL: string;
+  linkedType: 'supplier' | 'batch' | 'unit' | 'import';
+  linkedId: string;
   ownerId: string;
   createdAt: any;
 }
@@ -25,23 +49,40 @@ export interface InventoryUnit {
   brand: string;          // e.g. "Apple", "Samsung"
   category: DeviceCategory;
   colour: string;         // e.g. "Natural Titanium", "Phantom Black"
+  storage?: string;
+  conditionGrade?: ConditionGrade;
+  boxIncluded?: boolean;
+  batteryHealth?: number;
+  networkLock?: string;
+  activationLock?: string;
   buyPrice: number;       // Buying price (BP)
   dateIn: string;         // ISO date string — when unit arrived in office
   supplierId: string;
+  batchId?: string;
+  stockLocation?: StockLocation;
   status: DeviceStatus;
   // Operational flags for daily updates
   flags: OperationalFlag[];
   // Free-text note for this unit (e.g. "Screen crack", "Box missing")
   notes: string;
-  // Sales platform listing status — derived from listingSites, kept for compatibility.
+  // Sales platform listing status
   platformListed: boolean;
-  // Active marketplace listing sites for this unit.
-  listingSites?: string[];
+  listingSites?: ListingSite[];
+  listingUrl?: string;
+  listingId?: string;
+  listingDate?: string;
   // Sale info
   salePrice?: number;
   saleDate?: string;
-  salePlatform?: 'eBay' | 'Amazon' | 'OnBuy' | 'Backmarket' | 'Other' | string;
+  salePlatform?: ListingSite | string;
   saleOrderId?: string;
+  customerName?: string;
+  postageCost?: number;      // Outbound postage paid by seller (default £8)
+  // Returns
+  returnType?: ReturnCategory;
+  returnDate?: string;
+  returnReason?: string;
+  attachments?: string[];
   ownerId: string;
   createdAt: any;
   updatedAt?: any;
@@ -55,11 +96,34 @@ export interface Batch {
   supplierId: string;
   date: string;           // ISO date string
   supplierRef?: string;   // Supplier invoice/ref number
+  invoiceNumber?: string;
+  deliveryNote?: string;
+  receivedBy?: string;
+  warehouseLocation?: StockLocation;
+  currency?: string;
+  shippingCost?: number;
+  taxAmount?: number;
+  discountAmount?: number;
   notes?: string;
   unitCount: number;
   totalBuyValue: number;  // Sum of buy prices for all units
+  attachments?: string[];
   ownerId: string;
   createdAt: any;
+}
+
+export interface InventoryEvent {
+  id: string;
+  type: 'batch_created' | 'file_attached' | 'listed' | 'delisted' | 'sold' | 'returned' | 'available' | 'price_update' | 'stock_adjusted' | 'notes_updated';
+  message: string;
+  unitId?: string;
+  batchId?: string;
+  supplierId?: string;
+  platform?: ListingSite | string;
+  salePrice?: number;
+  buyPrice?: number;
+  createdAt: any;
+  ownerId: string;
 }
 
 /**
@@ -88,11 +152,13 @@ export interface ModelSummary {
     availableCount: number;
     units: InventoryUnit[];
     lowestBuyPrice: number;
+    listingSites: ListingSite[];
   }[];
   totalAvailable: number;
   totalValue: number;
   flags: OperationalFlag[];
   latestDateIn: string;
+  listingSites: ListingSite[];
 }
 
 export enum OperationType {
@@ -114,4 +180,20 @@ export interface FirestoreErrorInfo {
     emailVerified?: boolean | null;
     isAnonymous?: boolean | null;
   }
+}
+
+/**
+ * ActiveListing — Represents a model listed on a platform.
+ * Used to reconcile physical inventory with online presence.
+ */
+export interface ActiveListing {
+  id: string;
+  model: string;
+  platform: ListingSite | string;
+  quantity: number;
+  listingUrl?: string;
+  listingId?: string;
+  notes?: string;
+  updatedAt: any;
+  ownerId: string;
 }

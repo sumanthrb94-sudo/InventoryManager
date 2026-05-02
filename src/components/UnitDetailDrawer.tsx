@@ -1,13 +1,17 @@
-import React, { useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import {
   X, Cpu, Package, Truck, ShoppingBag, Tag,
   Star, MapPin, CheckCircle2, AlertCircle,
   Edit3, Save, ShieldCheck, ExternalLink
 } from 'lucide-react';
-import { InventoryUnit, OperationalFlag } from '../types';
+import { InventoryUnit, OperationalFlag, SourceDocument } from '../types';
 import { dbService } from '../lib/dbService';
 import { validateIMEI, formatIMEI } from '../lib/imeiUtils';
+import CopyImei from './CopyImei';
+
+
+import { logInventoryEvent } from '../lib/inventoryEvents';
 
 const PLATFORMS = ['eBay', 'Amazon', 'OnBuy', 'Backmarket', 'Other'] as const;
 
@@ -30,9 +34,22 @@ export default function UnitDetailDrawer({ unit, supplierName, onClose }: Props)
   const [notes, setNotes]       = useState(unit.notes || '');
   const [listingSites, setListingSites] = useState<string[]>(unit.listingSites || []);
   const [salePrice, setSalePrice] = useState<string>(unit.salePrice?.toString() || '');
+  const [saleOrderId, setSaleOrderId] = useState<string>(unit.saleOrderId || '');
+  const [customerName, setCustomerName] = useState<string>(unit.customerName || '');
   const [platform, setPlatform] = useState(unit.salePlatform || 'eBay');
   const [saving, setSaving]     = useState(false);
   const [saved, setSaved]       = useState(false);
+  const [sourceDocs, setSourceDocs] = useState<SourceDocument[]>([]);
+
+  useEffect(() => {
+    const unsub = dbService.subscribeToCollection('sourceDocuments', setSourceDocs);
+    return unsub;
+  }, []);
+
+  const linkedDocs = useMemo(
+    () => sourceDocs.filter(doc => doc.linkedId === unit.batchId || doc.linkedId === unit.id),
+    [sourceDocs, unit.batchId, unit.id]
+  );
 
   const hasListingSites = listingSites.length > 0;
   const isListed = hasListingSites || unit.platformListed;
@@ -45,28 +62,28 @@ export default function UnitDetailDrawer({ unit, supplierName, onClose }: Props)
     {
       icon: <Truck size={14} />,
       label: 'Received from Supplier',
-      value: supplierName,
+      value: `${supplierName} → Office Stock`,
       date: unit.dateIn,
       done: true,
     },
     {
       icon: <Package size={14} />,
       label: 'In Office Stock',
-      value: `Buy price: £${unit.buyPrice}`,
+      value: `Buy Price: £${unit.buyPrice}`,
       date: unit.dateIn,
       done: true,
     },
-      {
-        icon: <ShoppingBag size={14} />,
-        label: 'Listed on Platform',
-        value: hasListingSites ? listingSites.join(' / ') : (unit.platformListed ? 'Listed' : 'Not yet listed'),
-        date: null,
-        done: isListed,
-      },
+    {
+      icon: <ShoppingBag size={14} />,
+      label: 'Listed on Platform',
+      value: hasListingSites ? listingSites.join(' / ') : (unit.platformListed ? 'Listed' : 'Not yet listed'),
+      date: unit.listingDate || null,
+      done: isListed,
+    },
     {
       icon: <CheckCircle2 size={14} />,
-      label: 'Sold',
-      value: unit.salePrice ? `£${unit.salePrice} via ${unit.salePlatform}` : 'Pending',
+      label: 'Sold → Dispatched via Courier',
+      value: unit.salePrice ? `£${unit.salePrice} via ${unit.salePlatform}${unit.saleOrderId ? ' · ' + unit.saleOrderId : ''}` : 'Pending',
       date: unit.saleDate || (unit.status === 'sold' ? unit.dateIn : null),
       done: unit.status === 'sold',
     },
@@ -85,18 +102,42 @@ export default function UnitDetailDrawer({ unit, supplierName, onClose }: Props)
       listingSites: nextSites,
       platformListed: nextSites.length > 0,
     });
+    try {
+      await logInventoryEvent({
+        type: nextSites.length > 0 ? 'listed' : 'delisted',
+        message: nextSites.length > 0 ? `Listed on ${nextSites.join(' / ')}` : 'Delisted',
+        unitId: unit.id,
+        platform: nextSites.join(' / '),
+      });
+    } catch (eventError) {
+      console.warn('Inventory event logging failed for listing update.', eventError);
+    }
   };
 
   const markSold = async () => {
     if (!salePrice) return;
     setSaving(true);
+    const salePriceNumber = parseFloat(salePrice) || 0;
     await dbService.update('inventoryUnits', unit.id, {
       status: 'sold',
-      salePrice: parseFloat(salePrice),
+      salePrice: salePriceNumber,
       salePlatform: platform,
       saleDate: new Date().toISOString().split('T')[0],
       platformListed: false,
+      saleOrderId: saleOrderId || undefined,
+      customerName: customerName || undefined,
     });
+    try {
+      await logInventoryEvent({
+        type: 'sold',
+        message: `Sold via ${platform}`,
+        unitId: unit.id,
+        salePrice: salePriceNumber,
+        platform,
+      });
+    } catch (eventError) {
+      console.warn('Inventory event logging failed for sold update.', eventError);
+    }
     setSaving(false);
     setSaved(true);
   };
@@ -104,6 +145,15 @@ export default function UnitDetailDrawer({ unit, supplierName, onClose }: Props)
   const saveNotes = async () => {
     setSaving(true);
     await dbService.update('inventoryUnits', unit.id, { notes });
+    try {
+      await logInventoryEvent({
+        type: 'notes_updated',
+        message: 'Notes updated',
+        unitId: unit.id,
+      });
+    } catch (eventError) {
+      console.warn('Inventory event logging failed for notes update.', eventError);
+    }
     setSaving(false);
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
@@ -150,6 +200,9 @@ export default function UnitDetailDrawer({ unit, supplierName, onClose }: Props)
               <p className="text-white font-mono text-sm font-bold tracking-wider">
                 {unit.imei ? formatIMEI(unit.imei) : '— Not recorded —'}
               </p>
+              {unit.imei && (
+                <CopyImei imei={unit.imei} showText={false} className="mt-1.5" />
+              )}
             </div>
             <div className="flex flex-col items-end gap-1">
               {unit.imei && imeiValid !== null ? (
@@ -221,6 +274,7 @@ export default function UnitDetailDrawer({ unit, supplierName, onClose }: Props)
                   { label: 'Buy Price',    value: `£${unit.buyPrice}` },
                   { label: 'Supplier',     value: supplierName || '—' },
                   { label: 'Date In',      value: new Date(unit.dateIn).toLocaleDateString('en-GB') },
+                  { label: 'Location',     value: 'Office Stock' },
                   {
                     label: 'Listing Sites',
                     value: hasListingSites ? listingSites.join(' / ') : (unit.platformListed ? 'Listed' : 'Unlisted'),
@@ -241,7 +295,7 @@ export default function UnitDetailDrawer({ unit, supplierName, onClose }: Props)
                   {unit.flags.map(f => (
                     <span key={f} className="text-[10px] font-mono bg-gray-100 px-3 py-1.5 rounded-full text-gray-700 flex items-center gap-1.5">
                       <Tag size={10} />
-                      {f === 'top10' ? 'Top 10' : f === 'officeOnly' ? 'Office Only' : f === 'supplierHasStock' ? 'Supplier Stock' : 'Sold'}
+                      {f === 'top10' ? 'Top 10' : f === 'supplierHasStock' ? 'Supplier Stock' : 'Sold'}
                     </span>
                   ))}
                 </div>
@@ -312,6 +366,26 @@ export default function UnitDetailDrawer({ unit, supplierName, onClose }: Props)
                         {PLATFORMS.map(p => <option key={p}>{p}</option>)}
                       </select>
                     </div>
+                    <div>
+                      <label className="text-[9px] text-gray-400 font-mono uppercase">Sale Order ID (opt)</label>
+                      <input
+                        type="text"
+                        value={saleOrderId}
+                        onChange={e => setSaleOrderId(e.target.value)}
+                        placeholder="e.g. 12-09873-12345"
+                        className="w-full mt-1 bg-white border border-gray-200 rounded-xl px-3 py-2 text-sm font-mono focus:outline-none focus:border-black"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[9px] text-gray-400 font-mono uppercase">Customer Name (opt)</label>
+                      <input
+                        type="text"
+                        value={customerName}
+                        onChange={e => setCustomerName(e.target.value)}
+                        placeholder="e.g. John Doe"
+                        className="w-full mt-1 bg-white border border-gray-200 rounded-xl px-3 py-2 text-sm font-mono focus:outline-none focus:border-black"
+                      />
+                    </div>
                   </div>
                   <button
                     onClick={markSold}
@@ -329,7 +403,6 @@ export default function UnitDetailDrawer({ unit, supplierName, onClose }: Props)
                 <div className="grid grid-cols-2 gap-2">
                   {([
                     { flag: 'top10' as OperationalFlag,          icon: <Star size={12} />,         label: 'Top 10' },
-                    { flag: 'officeOnly' as OperationalFlag,     icon: <MapPin size={12} />,       label: 'Office Only' },
                     { flag: 'supplierHasStock' as OperationalFlag, icon: <Truck size={12} />,      label: 'Supplier Stock' },
                   ]).map(({ flag, icon, label }) => {
                     const active = unit.flags.includes(flag);
@@ -367,6 +440,29 @@ export default function UnitDetailDrawer({ unit, supplierName, onClose }: Props)
                   {saved ? 'Saved!' : 'Save Notes'}
                 </button>
               </div>
+
+              {/* Source files */}
+              {linkedDocs.length > 0 && (
+                <div className="bg-gray-50 rounded-2xl p-4 space-y-3">
+                  <p className="text-[10px] font-bold uppercase tracking-widest text-gray-500">Source Files</p>
+                  <div className="space-y-2">
+                    {linkedDocs.map(doc => (
+                      <a
+                        key={doc.id}
+                        href={doc.downloadURL}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="block bg-white border border-gray-200 rounded-xl px-3 py-2.5 hover:border-black transition-all"
+                      >
+                        <p className="text-sm font-bold truncate">{doc.fileName}</p>
+                        <p className="text-[9px] text-gray-400 font-mono uppercase tracking-widest mt-0.5">
+                          {doc.linkedType} · {(doc.size / 1024).toFixed(1)} KB
+                        </p>
+                      </a>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
           )}
         </div>

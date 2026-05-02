@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import {
-  ChevronLeft, ChevronRight, X, ShoppingBag,
+  ChevronLeft, ChevronRight, ChevronDown, X, ShoppingBag,
   PackagePlus, RotateCcw, Cpu, TrendingUp, Package
 } from 'lucide-react';
 import { dbService } from '../lib/dbService';
@@ -51,8 +51,31 @@ export default function CalendarPage() {
   const [cursor, setCursor]     = useState({ year: today.getFullYear(), month: today.getMonth() });
   const [selectedDate, setSelectedDate] = useState<string | null>(toDateKey(today));
 
+  const hasAutoNavigated = React.useRef(false);
+
   useEffect(() => {
-    const u = dbService.subscribeToCollection('inventoryUnits', setUnits);
+    const u = dbService.subscribeToCollection('inventoryUnits', (data: InventoryUnit[]) => {
+      setUnits(data);
+      // Auto-navigate once to the month with the most recent data
+      if (!hasAutoNavigated.current && data.length > 0) {
+        hasAutoNavigated.current = true;
+        const dates: string[] = data
+          .flatMap((unit: InventoryUnit) => [
+            unit.saleDate,
+            unit.dateIn,
+          ])
+          .filter((d): d is string => !!d)
+          .sort()
+          .reverse();
+        if (dates.length > 0) {
+          const mostRecent = new Date(dates[0] + 'T12:00:00');
+          if (!isNaN(mostRecent.getTime())) {
+            setCursor({ year: mostRecent.getFullYear(), month: mostRecent.getMonth() });
+            setSelectedDate(dates[0]);
+          }
+        }
+      }
+    });
     const s = dbService.subscribeToCollection('suppliers', setSuppliers);
     return () => { u(); s(); };
   }, []);
@@ -66,22 +89,36 @@ export default function CalendarPage() {
       return map.get(d)!;
     };
 
+    const toKey = (raw: string | undefined): string | null => {
+      if (!raw) return null;
+      // Strip time portion if present, normalise slashes to dashes
+      const clean = raw.split('T')[0].replace(/\//g, '-');
+      // Validate YYYY-MM-DD
+      if (/^\d{4}-\d{2}-\d{2}$/.test(clean)) return clean;
+      // Try JS Date parse as fallback
+      const d = new Date(raw);
+      if (!isNaN(d.getTime())) return d.toISOString().split('T')[0];
+      return null;
+    };
+
     for (const unit of units) {
       // Stock in
-      if (unit.dateIn) {
-        ensure(unit.dateIn).stock_in.push({ type: 'stock_in', unit });
+      const stockKey = toKey(unit.dateIn);
+      if (stockKey) {
+        ensure(stockKey).stock_in.push({ type: 'stock_in', unit });
       }
       // Sold
-      const effectiveSaleDate = unit.saleDate || (unit.status === 'sold' ? unit.dateIn : undefined);
-      if (effectiveSaleDate) {
-        const day = ensure(effectiveSaleDate);
+      const rawSaleDate = unit.saleDate || (unit.status === 'sold' ? unit.dateIn : undefined);
+      const soldKey = toKey(rawSaleDate);
+      if (soldKey) {
+        const day = ensure(soldKey);
         day.sold.push({ type: 'sold', unit, platform: unit.salePlatform });
         day.revenue += unit.salePrice ?? 0;
       }
       // Returned — use updatedAt date if available
-      if (unit.status === 'returned' && unit.updatedAt) {
-        const d = unit.updatedAt.split('T')[0];
-        ensure(d).returned.push({ type: 'returned', unit });
+      const returnKey = unit.status === 'returned' ? toKey(typeof unit.updatedAt === 'string' ? unit.updatedAt : (unit.updatedAt ? new Date(unit.updatedAt).toISOString() : '')) : null;
+      if (returnKey) {
+        ensure(returnKey).returned.push({ type: 'returned', unit });
       }
     }
     return map;
@@ -313,7 +350,7 @@ export default function CalendarPage() {
                 <p className="text-xs font-mono text-gray-400 uppercase tracking-widest">No activity on this date</p>
               </div>
             ) : (
-              <div className="divide-y divide-gray-50">
+              <div>
 
                 {/* Sales */}
                 {selectedSummary.sold.length > 0 && (
@@ -322,6 +359,7 @@ export default function CalendarPage() {
                     count={selectedSummary.sold.length}
                     icon={<ShoppingBag size={13} />}
                     color="text-green-600"
+                    defaultOpen={true}
                   >
                     {/* Platform pills */}
                     <div className="flex flex-wrap gap-2 mb-3">
@@ -379,18 +417,43 @@ export default function CalendarPage() {
   );
 }
 
-// ─── Section wrapper ──────────────────────────────────────────────────────────
-function Section({ title, count, icon, color, children }: {
-  key?: string; title: string; count: number; icon: React.ReactNode; color: string; children: React.ReactNode;
+// ─── Section wrapper (collapsible accordion) ─────────────────────────────────
+function Section({ title, count, icon, color, defaultOpen = false, children }: {
+  key?: string; title: string; count: number; icon: React.ReactNode;
+  color: string; defaultOpen?: boolean; children: React.ReactNode;
 }) {
+  const [open, setOpen] = useState(defaultOpen);
   return (
-    <div className="px-5 py-4">
-      <div className={`flex items-center gap-2 mb-3 ${color}`}>
-        {icon}
-        <p className="text-[11px] font-bold uppercase tracking-widest">{title}</p>
-        <span className="text-[9px] font-mono bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full ml-auto">{count}</span>
-      </div>
-      {children}
+    <div className="border-b border-gray-50 last:border-0">
+      {/* Header / toggle */}
+      <button
+        onClick={() => setOpen(o => !o)}
+        className="w-full flex items-center gap-2 px-5 py-3.5 hover:bg-gray-50 transition-all text-left"
+      >
+        <span className={`${color} flex-shrink-0`}>{icon}</span>
+        <p className={`text-[11px] font-bold uppercase tracking-widest ${color} flex-1`}>{title}</p>
+        <span className="text-[9px] font-mono bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full mr-2">{count}</span>
+        <ChevronDown
+          size={14}
+          className={`text-gray-400 transition-transform duration-200 flex-shrink-0 ${open ? 'rotate-180' : ''}`}
+        />
+      </button>
+      {/* Body */}
+      <AnimatePresence initial={false}>
+        {open && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: 'auto', opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.18 }}
+            className="overflow-hidden"
+          >
+            <div className="px-5 pb-4">
+              {children}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

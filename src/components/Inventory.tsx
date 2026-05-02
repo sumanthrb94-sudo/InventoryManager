@@ -1,8 +1,8 @@
 import { useState, useEffect, useMemo } from 'react';
 import {
   Search, ChevronDown, ChevronRight, ChevronLeft,
-  MapPin, Star, Package, Truck, CheckCircle2, Cpu,
-  Filter, ArrowUpDown, Edit2
+  Star, Package, Truck, CheckCircle2, Cpu,
+  Filter, ArrowUpDown, Edit2, ShoppingBag
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { dbService } from '../lib/dbService';
@@ -23,7 +23,6 @@ const CATEGORY_COLOURS: Record<string, string> = {
 };
 const FLAG_CONFIG: Record<OperationalFlag, { label: string; icon: any; style: string }> = {
   top10:           { label:'Top 10',       icon:Star,        style:'bg-yellow-50 text-yellow-800 border-yellow-200' },
-  officeOnly:      { label:'Office Only',  icon:MapPin,      style:'bg-blue-50 text-blue-800 border-blue-200' },
   supplierHasStock:{ label:'Supplier Stock',icon:Truck,      style:'bg-green-50 text-green-800 border-green-200' },
   stockSold:       { label:'Sold',          icon:CheckCircle2,style:'bg-gray-50 text-gray-600 border-gray-200' },
 };
@@ -69,6 +68,7 @@ export default function Inventory({ initialFilters = {} }: { initialFilters?: In
   const [expandedModels, setExpanded] = useState<Set<string>>(new Set());
   const [selectedUnit, setSelectedUnit] = useState<InventoryUnit | null>(null);
   const [quickUnit, setQuickUnit] = useState<InventoryUnit | null>(null);
+  const [quickSaleUnits, setQuickSaleUnits] = useState<InventoryUnit[] | null>(null);
   const [bulkListingOpen, setBulkListingOpen] = useState(false);
   const [pageSize, setPageSize]   = useState(25);
   const [page, setPage]           = useState(1);
@@ -84,16 +84,14 @@ export default function Inventory({ initialFilters = {} }: { initialFilters?: In
 
   // Build + filter + sort
   const allSummaries = useMemo(() => buildModelSummaries(units), [units]);
-  const searchDigits = search.replace(/\D/g, '');
-  const isImeiSearch = /^\d{6,}$/.test(searchDigits);
-
   useEffect(() => {
-    if (!isImeiSearch) return;
+    if (!search || search.length < 4) return;
+    const searchLower = search.toLowerCase();
 
     const matchingKeys = allSummaries
       .filter(summary =>
         summary.variants.some(variant =>
-          variant.units.some(unit => unit.imei.includes(searchDigits))
+          variant.units.some(unit => unit.imei.toLowerCase().includes(searchLower))
         )
       )
       .map(summary => `${summary.brand}||${summary.model}`);
@@ -111,7 +109,7 @@ export default function Inventory({ initialFilters = {} }: { initialFilters?: In
       }
       return changed ? next : prev;
     });
-  }, [allSummaries, isImeiSearch, searchDigits]);
+  }, [allSummaries, search]);
 
   const filtered = useMemo(() => {
     const results = allSummaries.filter(s => {
@@ -124,12 +122,11 @@ export default function Inventory({ initialFilters = {} }: { initialFilters?: In
         if (!s.variants.some(v => v.units.some(u => u.status === statusFilter))) return false;
       }
       if (!search) return true;
-      if (isImeiSearch) {
-        return s.variants.some(v => v.units.some(u => u.imei.includes(searchDigits)));
-      }
-      return s.model.toLowerCase().includes(search.toLowerCase()) ||
-             s.brand.toLowerCase().includes(search.toLowerCase()) ||
-             s.variants.some(v => v.colour.toLowerCase().includes(search.toLowerCase()));
+      const searchLower = search.toLowerCase();
+      return s.model.toLowerCase().includes(searchLower) ||
+             s.brand.toLowerCase().includes(searchLower) ||
+             s.variants.some(v => v.colour.toLowerCase().includes(searchLower) ||
+                                  v.units.some(u => u.imei.toLowerCase().includes(searchLower)));
     });
     return applySort(results, sort);
   }, [allSummaries, search, catFilter, statusFilter, flagFilter, supplierFilter, sort, suppliers]);
@@ -225,7 +222,13 @@ export default function Inventory({ initialFilters = {} }: { initialFilters?: In
               </select>
             </div>
             {activeFilters > 0 && (
-              <button onClick={() => { setCatFilter('All'); setStatusFilter('All'); setFlagFilter('All'); setSupplierFilter('All'); }}
+              <button onClick={() => {
+                setSearch('');
+                setCatFilter('All');
+                setStatusFilter('All');
+                setFlagFilter('All');
+                setSupplierFilter('All');
+              }}
                 className="text-[10px] text-red-600 font-mono font-bold underline">Clear all filters</button>
             )}
           </motion.div>
@@ -270,18 +273,39 @@ export default function Inventory({ initialFilters = {} }: { initialFilters?: In
                       const cfg = FLAG_CONFIG[f]; const Icon = cfg.icon;
                       return <span key={f} className={`text-[7px] font-bold px-1.5 py-0.5 border rounded-md font-mono flex items-center gap-0.5 ${cfg.style}`}><Icon size={7}/>{cfg.label}</span>;
                     })}
+                    {summary.listingSites.map(site => (
+                      <span key={site} className="text-[7px] font-bold px-1.5 py-0.5 bg-gray-900 text-white rounded-md font-mono uppercase tracking-tighter">
+                        {site}
+                      </span>
+                    ))}
                   </div>
                 </div>
-                <div className="flex items-center gap-3 flex-shrink-0 text-right">
-                  <div>
-                    <p className="text-[8px] text-gray-400 font-mono uppercase">Qty</p>
-                    <p className="text-lg font-bold font-display leading-tight">{summary.totalAvailable}</p>
+                
+                <div className="flex items-center gap-4">
+                  {summary.totalAvailable > 0 && (
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        const allAvail = summary.variants.flatMap(v => v.units).filter(u => u.status === 'available');
+                        setQuickSaleUnits(allAvail);
+                      }}
+                      className="flex items-center gap-1.5 bg-emerald-600 text-white px-2.5 md:px-3 py-1.5 rounded-xl text-[9px] md:text-[10px] font-bold uppercase tracking-widest hover:bg-emerald-500 transition-all shadow-sm active:scale-95"
+                    >
+                      <ShoppingBag size={12} /> <span className="hidden sm:inline">Sell One</span>
+                    </button>
+                  )}
+                  
+                  <div className="flex items-center gap-3 flex-shrink-0 text-right">
+                    <div className="text-right">
+                      <p className="text-[8px] text-gray-400 font-mono uppercase">Qty</p>
+                      <p className="text-lg font-bold font-display leading-tight">{summary.totalAvailable}</p>
+                    </div>
+                    <div className="hidden sm:block">
+                      <p className="text-[8px] text-gray-400 font-mono uppercase">Value</p>
+                      <p className="text-xs font-bold font-mono">£{summary.totalValue.toLocaleString()}</p>
+                    </div>
+                    <div className="text-gray-300">{isExpanded ? <ChevronDown size={16}/> : <ChevronRight size={16}/>}</div>
                   </div>
-                  <div className="hidden sm:block">
-                    <p className="text-[8px] text-gray-400 font-mono uppercase">Value</p>
-                    <p className="text-xs font-bold font-mono">£{summary.totalValue.toLocaleString()}</p>
-                  </div>
-                  <div className="text-gray-300">{isExpanded ? <ChevronDown size={16}/> : <ChevronRight size={16}/>}</div>
                 </div>
               </button>
 
@@ -290,9 +314,18 @@ export default function Inventory({ initialFilters = {} }: { initialFilters?: In
                   <motion.div initial={{ height:0,opacity:0 }} animate={{ height:'auto',opacity:1 }} exit={{ height:0,opacity:0 }} transition={{ duration:0.18 }} className="overflow-hidden">
                     {summary.variants.map(variant => (
                       <div key={variant.colour} className="border-t border-gray-100">
-                        <div className="px-4 py-2 bg-gray-50 flex items-center gap-2">
-                          <span className="text-[9px] font-bold uppercase font-mono text-gray-500 tracking-widest">{variant.colour}</span>
-                          <span className="text-[9px] font-mono text-gray-400">{variant.availableCount} avail · {variant.units.length} total</span>
+                        <div className="px-4 py-2 bg-gray-50 flex items-center justify-between gap-2">
+                          <div className="flex items-center gap-2">
+                            <span className="text-[9px] font-bold uppercase font-mono text-gray-500 tracking-widest">{variant.colour}</span>
+                            <span className="text-[9px] font-mono text-gray-400">{variant.availableCount} avail · {variant.units.length} total</span>
+                          </div>
+                          <div className="flex items-center gap-1">
+                            {variant.listingSites.map(site => (
+                              <span key={site} className="text-[7px] font-bold px-1.5 py-0.5 bg-gray-200 text-gray-700 rounded font-mono uppercase tracking-tighter">
+                                {site}
+                              </span>
+                            ))}
+                          </div>
                         </div>
                         <div className="divide-y divide-gray-50">
                           {variant.units.map(unit => {
@@ -328,6 +361,11 @@ export default function Inventory({ initialFilters = {} }: { initialFilters?: In
                                   {/* Right: price + Update button */}
                                   <div className="flex flex-col items-end gap-1.5 flex-shrink-0">
                                     <span className="text-xs font-bold font-mono">£{unit.buyPrice}</span>
+                                    {unit.status === 'sold' && unit.saleOrderId && (
+                                      <span className="text-[8px] font-bold px-2 py-0.5 rounded-full font-mono bg-emerald-100 text-emerald-700">
+                                        {unit.saleOrderId}
+                                      </span>
+                                    )}
                                     <div className="flex items-center gap-1.5">
                                       <span
                                         className={`text-[8px] font-bold px-2 py-0.5 rounded-full font-mono ${
@@ -394,6 +432,12 @@ export default function Inventory({ initialFilters = {} }: { initialFilters?: In
       <AnimatePresence>
         {selectedUnit && <UnitDetailDrawer unit={selectedUnit} supplierName={suppliers.find(s=>s.id===selectedUnit.supplierId)?.name||'—'} onClose={()=>setSelectedUnit(null)}/>}
         {quickUnit    && <QuickSaleModal   unit={quickUnit}   onClose={()=>setQuickUnit(null)}/>}
+        {quickSaleUnits && (
+          <QuickSaleModal 
+            availableUnits={quickSaleUnits} 
+            onClose={() => setQuickSaleUnits(null)} 
+          />
+        )}
         {bulkListingOpen && <BulkListingModal onClose={() => setBulkListingOpen(false)} />}
       </AnimatePresence>
     </div>

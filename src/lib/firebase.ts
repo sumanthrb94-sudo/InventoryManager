@@ -1,10 +1,12 @@
 import { initializeApp } from 'firebase/app';
 import { getAuth, signInAnonymously } from 'firebase/auth';
 import { getFirestore, doc, getDocFromServer } from 'firebase/firestore';
+import { getStorage } from 'firebase/storage';
 import firebaseConfig from '../../firebase-applet-config.json';
 
 const app = initializeApp(firebaseConfig);
 export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
+export const storage = getStorage(app, firebaseConfig.storageBucket);
 export const auth = getAuth(app);
 
 let authReadyPromise: Promise<void> | null = null;
@@ -12,8 +14,13 @@ let authReadyPromise: Promise<void> | null = null;
 export function ensureAnonymousAuth() {
   if (!authReadyPromise) {
     authReadyPromise = (async () => {
+      await auth.authStateReady();
       if (!auth.currentUser) {
-        await signInAnonymously(auth);
+        try {
+          await signInAnonymously(auth);
+        } catch (e) {
+          console.warn('Anonymous auth failed or restricted:', e);
+        }
       }
     })();
   }

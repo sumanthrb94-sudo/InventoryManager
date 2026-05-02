@@ -8,6 +8,7 @@ import {
 import { dbService } from '../lib/dbService';
 import { InventoryUnit } from '../types';
 import { formatIMEI, validateIMEI } from '../lib/imeiUtils';
+import { logInventoryEvent } from '../lib/inventoryEvents';
 
 const PLATFORMS = ['eBay', 'Amazon', 'OnBuy', 'Backmarket', 'Other'] as const;
 type Platform = typeof PLATFORMS[number];
@@ -19,6 +20,8 @@ interface QuickAction {
   action: ActionType;
   platform?: Platform;
   salePrice?: number;
+  saleOrderId?: string;
+  customerName?: string;
   notes?: string;
 }
 
@@ -82,19 +85,23 @@ export default function ScanPage() {
   const commitAction = async () => {
     if (!pendingAction) return;
     setSaving(true);
-    const { unit, action, platform, salePrice, notes } = pendingAction;
+    const { unit, action, platform, salePrice, saleOrderId, customerName, notes } = pendingAction;
 
     const updates: any = { status: action, updatedAt: new Date().toISOString() };
     if (action === 'sold') {
       updates.saleDate     = today;
       updates.salePlatform = platform;
       updates.salePrice    = salePrice ?? 0;
+      updates.saleOrderId  = saleOrderId;
+      updates.customerName = customerName;
       updates.platformListed = false;
     }
     if (action === 'returned') {
       updates.platformListed = false;
       updates.saleDate       = undefined;
       updates.salePrice      = undefined;
+      updates.saleOrderId    = undefined;
+      updates.customerName   = undefined;
     }
     if (action === 'available') {
       updates.platformListed = true;
@@ -102,6 +109,17 @@ export default function ScanPage() {
     if (notes) updates.notes = notes;
 
     await dbService.update('inventoryUnits', unit.id, updates);
+    try {
+      await logInventoryEvent({
+        type: action,
+        message: action === 'sold' ? `Sold on ${platform}` : action === 'returned' ? 'Returned' : 'Back in stock',
+        unitId: unit.id,
+        platform,
+        salePrice: updates.salePrice,
+      });
+    } catch (eventError) {
+      console.warn('Inventory event logging failed for scan action.', eventError);
+    }
 
     setHistory(h => [{
       imei: unit.imei,
@@ -330,6 +348,26 @@ export default function ScanPage() {
                     >
                       {PLATFORMS.map(p => <option key={p}>{p}</option>)}
                     </select>
+                  </div>
+                  <div>
+                    <label className="text-[9px] text-gray-400 font-mono uppercase tracking-widest">Sale Order ID (opt)</label>
+                    <input
+                      type="text"
+                      value={pendingAction.saleOrderId ?? ''}
+                      onChange={e => setPendingAction(p => p ? { ...p, saleOrderId: e.target.value } : p)}
+                      placeholder="e.g. 12-09873-12345"
+                      className="w-full mt-1 bg-gray-50 border border-gray-200 rounded-xl px-3 py-2.5 text-sm font-mono focus:outline-none focus:border-black"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[9px] text-gray-400 font-mono uppercase tracking-widest">Customer Name (opt)</label>
+                    <input
+                      type="text"
+                      value={pendingAction.customerName ?? ''}
+                      onChange={e => setPendingAction(p => p ? { ...p, customerName: e.target.value } : p)}
+                      placeholder="e.g. John Doe"
+                      className="w-full mt-1 bg-gray-50 border border-gray-200 rounded-xl px-3 py-2.5 text-sm font-mono focus:outline-none focus:border-black"
+                    />
                   </div>
                 </div>
               )}
