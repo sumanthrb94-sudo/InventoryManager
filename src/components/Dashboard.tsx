@@ -9,6 +9,7 @@ import { InventoryUnit, Supplier } from '../types';
 import { getOnHandValue } from '../lib/inventorySummary';
 import CopyImei from './CopyImei';
 import PeriodicInventory from './PeriodicInventory';
+import CollapsibleSection from './CollapsibleSection';
 
 
 
@@ -245,46 +246,48 @@ export default function Dashboard({ onNavigate }: Props) {
         />
       </div>
 
-      {/* ── SALES TEAM INSIGHTS ─────────────────────────── */}
       {/* Yesterday's Sales */}
-      <div className="bg-gradient-to-br from-gray-900 to-gray-800 rounded-2xl p-4 text-white">
-        <div className="flex items-center justify-between mb-3">
-          <div>
-            <p className="text-[10px] font-bold uppercase tracking-widest text-gray-400">Yesterday's Sales</p>
-            <p className="text-[9px] text-gray-500 font-mono">{new Date(Date.now()-86400000).toLocaleDateString('en-GB',{weekday:'long',day:'numeric',month:'short'})}</p>
-          </div>
-          <span className="text-3xl font-bold font-display">{yesterdaySold.length}</span>
+      <CollapsibleSection
+        title="Yesterday's Sales"
+        count={yesterdaySold.length}
+        meta={yesterdaySold.length > 0 ? `£${yesterdaySold.reduce((s,u)=>s+(u.salePrice||0),0).toLocaleString()}` : undefined}
+        accent="border-l-gray-700"
+        defaultOpen={true}
+      >
+        <div className="bg-gradient-to-br from-gray-900 to-gray-800 p-4 text-white">
+          <p className="text-[9px] text-gray-500 font-mono mb-3">{new Date(Date.now()-86400000).toLocaleDateString('en-GB',{weekday:'long',day:'numeric',month:'short'})}</p>
+          {yesterdaySold.length === 0 ? (
+            <p className="text-[10px] text-gray-500 font-mono">No sales recorded for yesterday.</p>
+          ) : (
+            <div className="space-y-1.5">
+              {yesterdaySold.slice(0, 5).map(u => (
+                <button key={u.id}
+                  onClick={() => onNavigate({ tab:'inventory', filters:{ search: u.imei } })}
+                  className="w-full flex items-center justify-between bg-white/5 hover:bg-white/10 rounded-lg px-3 py-2 transition-all text-left"
+                >
+                  <div className="min-w-0">
+                    <p className="text-xs font-bold truncate">{u.model}</p>
+                    <p className="text-[9px] text-gray-400 font-mono">{u.colour} · {u.salePlatform || 'Unknown platform'}</p>
+                  </div>
+                  <span className="text-sm font-bold text-green-400 ml-2 flex-shrink-0">£{(u.salePrice || 0).toLocaleString()}</span>
+                </button>
+              ))}
+              {yesterdaySold.length > 5 && (
+                <p className="text-[9px] text-gray-500 font-mono text-center pt-1">+{yesterdaySold.length - 5} more sold yesterday</p>
+              )}
+            </div>
+          )}
         </div>
-        {yesterdaySold.length === 0 ? (
-          <p className="text-[10px] text-gray-500 font-mono">No sales recorded for yesterday.</p>
-        ) : (
-          <div className="space-y-1.5 mt-2">
-            {yesterdaySold.slice(0, 5).map(u => (
-              <button key={u.id}
-                onClick={() => onNavigate({ tab:'inventory', filters:{ search: u.imei } })}
-                className="w-full flex items-center justify-between bg-white/5 hover:bg-white/10 rounded-lg px-3 py-2 transition-all text-left"
-              >
-                <div className="min-w-0">
-                  <p className="text-xs font-bold truncate">{u.model}</p>
-                  <p className="text-[9px] text-gray-400 font-mono">{u.colour} · {u.salePlatform || 'Unknown platform'}</p>
-                </div>
-                <span className="text-sm font-bold text-green-400 ml-2 flex-shrink-0">£{(u.salePrice || 0).toLocaleString()}</span>
-              </button>
-            ))}
-            {yesterdaySold.length > 5 && (
-              <p className="text-[9px] text-gray-500 font-mono text-center pt-1">+{yesterdaySold.length - 5} more sold yesterday</p>
-            )}
-          </div>
-        )}
-      </div>
+      </CollapsibleSection>
 
-      {/* Top 10 Sold Products (All Time) */}
+      {/* Top 10 Sold Products */}
       {top10Sold.length > 0 && (
-        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
-          <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between">
-            <p className="text-[10px] font-bold uppercase tracking-widest text-gray-400">Top 10 Sold Products</p>
-            <span className="text-[9px] text-gray-400 font-mono">All time · by volume</span>
-          </div>
+        <CollapsibleSection
+          title="Top 10 Sold Products"
+          meta="All time · by volume"
+          accent="border-l-emerald-500"
+          defaultOpen={false}
+        >
           <div className="divide-y divide-gray-50">
             {top10Sold.map((m, i) => (
               <button key={m.model}
@@ -304,21 +307,20 @@ export default function Dashboard({ onNavigate }: Props) {
               </button>
             ))}
           </div>
-        </div>
+        </CollapsibleSection>
       )}
 
-      {/* Platform sales pills */}
+      {/* Sales by Platform */}
       {platformSales.length > 0 && (
-        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4">
-          <p className="text-[10px] font-bold uppercase tracking-widest text-gray-400 mb-3">Sales by Platform</p>
-          <div className="flex flex-wrap gap-2">
+        <CollapsibleSection title="Sales by Platform" count={sold.length} accent="border-l-blue-400" defaultOpen={false}>
+          <div className="p-4 flex flex-wrap gap-2">
             {platformSales.map(([p, c]) => (
               <span key={p} className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[10px] font-bold font-mono ${PLATFORM_COLORS[p] || 'bg-gray-100 text-gray-700'}`}>
                 {p} · {c} sold
               </span>
             ))}
           </div>
-        </div>
+        </CollapsibleSection>
       )}
 
       {/* Suppliers clickable */}
@@ -338,50 +340,42 @@ export default function Dashboard({ onNavigate }: Props) {
         <ChevronRight size={16} className="text-gray-400"/>
       </button>
 
-      {/* Category chart */}
+      {/* Stock by Category chart */}
       {categoryData.length > 0 && (
-        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4">
-          <div className="flex items-center justify-between mb-4">
-            <p className="text-[10px] font-bold uppercase tracking-widest text-gray-400">Stock by Category</p>
-            <button onClick={() => onNavigate({ tab:'inventory' })} className="text-[9px] text-gray-400 font-mono underline">See all →</button>
+        <CollapsibleSection title="Stock by Category" count={available.length} accent="border-l-purple-400" defaultOpen={false}>
+          <div className="p-4">
+            <div className="h-44">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={categoryData} barSize={22}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#00000010" vertical={false}/>
+                  <XAxis dataKey="name" fontSize={8} tickLine={false} axisLine={false} stroke="#00000050"
+                    tickFormatter={n => n.replace('Samsung ','S.').replace('Apple Watch','Watch')}/>
+                  <YAxis fontSize={8} tickLine={false} axisLine={false} stroke="#00000050"/>
+                  <Tooltip contentStyle={{ borderRadius:8, fontSize:11, border:'1px solid #e5e7eb' }} cursor={{ fill:'#f9fafb' }}/>
+                  <Bar dataKey="count" name="Units" radius={[4,4,0,0]}>
+                    {categoryData.map((_, i) => <Cell key={i} fill={i===0?'#000':i===1?'#374151':i===2?'#6b7280':'#9ca3af'}/>)}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+            <div className="flex flex-wrap gap-2 mt-3">
+              {categoryData.map(c => (
+                <button key={c.name} onClick={() => onNavigate({ tab:'inventory', filters:{ search: c.name } })}
+                  className="text-[9px] font-bold font-mono bg-gray-100 hover:bg-black hover:text-white px-2.5 py-1 rounded-full transition-all">
+                  {c.name.replace('Samsung ','')} · {c.count}
+                </button>
+              ))}
+            </div>
           </div>
-          <div className="h-44">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={categoryData} barSize={22}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#00000010" vertical={false}/>
-                <XAxis dataKey="name" fontSize={8} tickLine={false} axisLine={false} stroke="#00000050"
-                  tickFormatter={n => n.replace('Samsung ','S.').replace('Apple Watch','Watch')}/>
-                <YAxis fontSize={8} tickLine={false} axisLine={false} stroke="#00000050"/>
-                <Tooltip contentStyle={{ borderRadius:8, fontSize:11, border:'1px solid #e5e7eb' }} cursor={{ fill:'#f9fafb' }}/>
-                <Bar dataKey="count" name="Units" radius={[4,4,0,0]}>
-                  {categoryData.map((_, i) => <Cell key={i} fill={i===0?'#000':i===1?'#374151':i===2?'#6b7280':'#9ca3af'}/>)}
-                </Bar>
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
-          {/* Clickable category chips */}
-          <div className="flex flex-wrap gap-2 mt-3">
-            {categoryData.map(c => (
-              <button key={c.name} onClick={() => onNavigate({ tab:'inventory', filters:{ search: c.name } })}
-                className="text-[9px] font-bold font-mono bg-gray-100 hover:bg-black hover:text-white px-2.5 py-1 rounded-full transition-all">
-                {c.name.replace('Samsung ','')} · {c.count}
-              </button>
-            ))}
-          </div>
-        </div>
+        </CollapsibleSection>
       )}
 
-      {/* Top 10 models — clickable rows */}
+      {/* Top Models — Office Stock */}
       {topModels.length > 0 && (
-        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
-          <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between">
-            <p className="text-[10px] font-bold uppercase tracking-widest text-gray-400">Top Models · Office Stock</p>
-            <span className="text-[9px] text-gray-400 font-mono">eBay / Amazon / OnBuy / Backmarket</span>
-          </div>
+        <CollapsibleSection title="Top Models · Office Stock" count={topModels.length} accent="border-l-gray-500" defaultOpen={false}>
           <div className="divide-y divide-gray-50">
             {topModels.map((m, i) => (
-              <button
-                key={m.model}
+              <button key={m.model}
                 onClick={() => onNavigate({ tab:'inventory', filters:{ search: m.model, status:'available' } })}
                 className="w-full flex items-center gap-3 px-4 py-3 hover:bg-gray-50 transition-all text-left group"
               >
@@ -398,22 +392,23 @@ export default function Dashboard({ onNavigate }: Props) {
               </button>
             ))}
           </div>
-        </div>
+        </CollapsibleSection>
       )}
 
-      {/* Aged Inventory — Longest Unsold */}
+      {/* Oldest Unsold Stock */}
       {oldestUnits.length > 0 && (
-        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
-          <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between">
-            <p className="text-[10px] font-bold uppercase tracking-widest text-gray-400">Oldest Unsold Stock</p>
-            <span className="text-[9px] text-gray-400 font-mono">Duration since received</span>
-          </div>
+        <CollapsibleSection
+          title="Oldest Unsold Stock"
+          count={oldestUnits.length}
+          meta={oldestUnits[0] ? `${oldestUnits[0].daysOld}d oldest` : undefined}
+          accent="border-l-orange-400"
+          defaultOpen={false}
+        >
           <div className="divide-y divide-gray-50">
-            {oldestUnits.map((u, i) => {
+            {oldestUnits.map(u => {
               const supplier = suppliers.find(s => s.id === u.supplierId);
               return (
-                <button
-                  key={u.id}
+                <button key={u.id}
                   onClick={() => onNavigate({ tab:'inventory', filters:{ search: u.imei } })}
                   className="w-full flex items-center gap-3 px-4 py-3 hover:bg-gray-50 transition-all text-left group"
                 >
@@ -424,7 +419,7 @@ export default function Dashboard({ onNavigate }: Props) {
                       <span className="text-[9px] text-gray-300">·</span>
                       <CopyImei imei={u.imei} truncate={10} />
                       <span className="text-[9px] text-gray-300">·</span>
-                      <span className="text-[9px] text-gray-400 font-mono">{supplier?.name || 'Unknown supplier'}</span>
+                      <span className="text-[9px] text-gray-400 font-mono">{supplier?.name || 'Unknown'}</span>
                     </div>
                   </div>
                   <div className="text-right flex-shrink-0">
@@ -436,7 +431,7 @@ export default function Dashboard({ onNavigate }: Props) {
               );
             })}
           </div>
-        </div>
+        </CollapsibleSection>
       )}
 
       {/* placeholder removed — periodic table now at top */}

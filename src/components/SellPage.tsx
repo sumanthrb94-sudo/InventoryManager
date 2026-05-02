@@ -8,15 +8,16 @@ import { dbService } from '../lib/dbService';
 import { InventoryUnit } from '../types';
 import CopyImei from './CopyImei';
 import { PLATFORM_LIST, PLATFORMS } from '../lib/platforms';
+import CollapsibleSection from './CollapsibleSection';
 
 // ── helpers ────────────────────────────────────────────────────────────────
 const today = () => new Date().toISOString().split('T')[0];
 
 const PLATFORM_STYLE: Record<string, string> = {
-  eBay:        'bg-yellow-50 text-yellow-800 border-yellow-200',
-  Amazon:      'bg-orange-50 text-orange-800 border-orange-200',
-  OnBuy:       'bg-blue-50   text-blue-800   border-blue-200',
-  Backmarket:  'bg-green-50  text-green-800  border-green-200',
+  eBay: 'bg-yellow-50 text-yellow-800 border-yellow-200',
+  Amazon: 'bg-orange-50 text-orange-800 border-orange-200',
+  OnBuy: 'bg-blue-50   text-blue-800   border-blue-200',
+  Backmarket: 'bg-green-50  text-green-800  border-green-200',
 };
 
 // ── SellOrderModal ──────────────────────────────────────────────────────────
@@ -29,16 +30,16 @@ function SellOrderModal({
   onClose: () => void;
   onSaved: () => void;
 }) {
-  const [sp, setSp]               = useState('');
-  const [platform, setPlatform]   = useState<string>(PLATFORM_LIST[0]);
-  const [orderId, setOrderId]     = useState('');
-  const [saleDate, setSaleDate]   = useState(today());
-  const [saving, setSaving]       = useState(false);
-  const [error, setError]         = useState('');
+  const [sp, setSp] = useState('');
+  const [platform, setPlatform] = useState<string>(PLATFORM_LIST[0]);
+  const [orderId, setOrderId] = useState('');
+  const [saleDate, setSaleDate] = useState(today());
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
 
   const margin = sp ? Number(sp) - unit.buyPrice : null;
   const commPct = PLATFORMS[platform as keyof typeof PLATFORMS]?.commission ?? 0;
-  const commAmt  = sp ? +((Number(sp) * commPct) / 100).toFixed(2) : 0;
+  const commAmt = sp ? +((Number(sp) * commPct) / 100).toFixed(2) : 0;
   const netProfit = sp ? +(margin! - commAmt).toFixed(2) : null;
 
   const handleSave = async () => {
@@ -47,10 +48,10 @@ function SellOrderModal({
     setSaving(true);
     try {
       await dbService.update('inventoryUnits', unit.id, {
-        status:       'sold',
-        salePrice:    Number(sp),
+        status: 'sold',
+        salePrice: Number(sp),
         salePlatform: platform,
-        saleOrderId:  orderId.trim(),
+        saleOrderId: orderId.trim(),
         saleDate,
       });
       onSaved();
@@ -65,7 +66,7 @@ function SellOrderModal({
   return (
     <div className="fixed inset-0 z-[70] flex items-center justify-center p-3 md:p-4 bg-black/40 backdrop-blur-sm">
       {/* max-h keeps modal within viewport; flex-col lets body scroll while footer stays fixed */}
-      <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl flex flex-col" style={{maxHeight:'calc(100dvh - 24px)'}}>
+      <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl flex flex-col" style={{ maxHeight: 'calc(100dvh - 24px)' }}>
 
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-5 border-b border-gray-100">
@@ -109,11 +110,10 @@ function SellOrderModal({
                 <button
                   key={p}
                   onClick={() => setPlatform(p)}
-                  className={`py-2.5 px-3 rounded-xl border text-[10px] font-bold transition-all flex items-center justify-between ${
-                    platform === p
+                  className={`py-2.5 px-3 rounded-xl border text-[10px] font-bold transition-all flex items-center justify-between ${platform === p
                       ? 'bg-black text-white border-black'
                       : `${PLATFORM_STYLE[p]} hover:opacity-80`
-                  }`}
+                    }`}
                 >
                   {p}
                   {platform === p && <CheckCircle2 size={12} />}
@@ -219,9 +219,9 @@ function SellOrderModal({
 
 // ── Main Sell Page ──────────────────────────────────────────────────────────
 export default function SellPage() {
-  const [units, setUnits]         = useState<InventoryUnit[]>([]);
-  const [search, setSearch]       = useState('');
-  const [selected, setSelected]   = useState<InventoryUnit | null>(null);
+  const [units, setUnits] = useState<InventoryUnit[]>([]);
+  const [search, setSearch] = useState('');
+  const [selected, setSelected] = useState<InventoryUnit | null>(null);
   const [savedFlag, setSavedFlag] = useState(false);
   const [expandedId, setExpandedId] = useState<string | null>(null);
 
@@ -237,11 +237,11 @@ export default function SellPage() {
   const inStock = useMemo(() => units.filter(u => u.status === 'available'), [units]);
 
   // Sold units for today's summary
-  const sold     = useMemo(() => units.filter(u => u.status === 'sold'), [units]);
+  const sold = useMemo(() => units.filter(u => u.status === 'sold'), [units]);
   const todaySold = sold.filter(u => u.saleDate === todayStr);
-  const ystdSold  = sold.filter(u => u.saleDate === yesterday);
+  const ystdSold = sold.filter(u => u.saleDate === yesterday);
   const todayRevenue = todaySold.reduce((s, u) => s + (u.salePrice || 0), 0);
-  const todayProfit  = todaySold.reduce((s, u) => s + ((u.salePrice || 0) - u.buyPrice), 0);
+  const todayProfit = todaySold.reduce((s, u) => s + ((u.salePrice || 0) - u.buyPrice), 0);
 
   // Filtered in-stock for search
   const filtered = useMemo(() => {
@@ -341,15 +341,12 @@ export default function SellPage() {
       </div>
 
       {/* In-stock list */}
-      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
-        <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between">
-          <p className="text-[10px] font-bold uppercase tracking-widest text-gray-400">
-            Available Stock {search && `· "${search}"`}
-          </p>
-          <span className="text-[9px] font-mono text-gray-400">
-            {filtered.length}{inStock.length > 80 && !search ? ` of ${inStock.length}` : ''} units
-          </span>
-        </div>
+      <CollapsibleSection
+        title="Available Stock"
+        count={`${filtered.length}${inStock.length > 80 && !search ? ` of ${inStock.length}` : ''}`}
+        accent="border-l-emerald-500"
+        defaultOpen={true}
+      >
 
         {inStock.length === 0 ? (
           <div className="py-16 flex flex-col items-center gap-3 text-gray-300">
@@ -382,12 +379,12 @@ export default function SellPage() {
                       {/* Expand/collapse */}
                       <button onClick={() => setExpandedId(isOpen ? null : u.id)}
                         className="p-1.5 hover:bg-gray-100 rounded-lg transition-all text-gray-400">
-                        {isOpen ? <ChevronUp size={14}/> : <ChevronDown size={14}/>}
+                        {isOpen ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
                       </button>
                       {/* Sell button */}
                       <button onClick={() => setSelected(u)}
                         className="px-3 py-1.5 bg-emerald-600 text-white rounded-lg text-[9px] font-bold uppercase tracking-widest hover:bg-emerald-700 transition-all flex items-center gap-1">
-                        Sell <ChevronRight size={11}/>
+                        Sell <ChevronRight size={11} />
                       </button>
                     </div>
                   </div>
@@ -395,14 +392,14 @@ export default function SellPage() {
                   <AnimatePresence>
                     {isOpen && (
                       <motion.div
-                        initial={{height:0,opacity:0}} animate={{height:'auto',opacity:1}} exit={{height:0,opacity:0}}
+                        initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }}
                         className="overflow-hidden bg-gray-50 border-t border-gray-100">
                         <div className="px-6 py-3 grid grid-cols-2 md:grid-cols-4 gap-3 text-center">
                           {[
-                            {label:'Condition', value: u.conditionGrade ? `Grade ${u.conditionGrade}` : '—'},
-                            {label:'Storage',   value: u.storage || '—'},
-                            {label:'Date In',   value: u.dateIn || '—'},
-                            {label:'Status',    value: 'In Stock'},
+                            { label: 'Condition', value: u.conditionGrade ? `Grade ${u.conditionGrade}` : '—' },
+                            { label: 'Storage', value: u.storage || '—' },
+                            { label: 'Date In', value: u.dateIn || '—' },
+                            { label: 'Status', value: 'In Stock' },
                           ].map(f => (
                             <div key={f.label}>
                               <p className="text-[8px] text-gray-400 font-mono uppercase tracking-widest">{f.label}</p>
@@ -418,16 +415,17 @@ export default function SellPage() {
             })}
           </div>
         )}
-      </div>
+      </CollapsibleSection>
 
       {/* Sell order modal */}
       {selected && (
-        <SellOrderModal
-          unit={selected}
-          onClose={() => setSelected(null)}
-          onSaved={handleSaved}
-        />
-      )}
-    </div>
+      <SellOrderModal
+        unit={selected}
+        onClose={() => setSelected(null)}
+        onSaved={handleSaved}
+      />
+    )
+  }
+    </div >
   );
 }

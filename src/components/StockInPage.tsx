@@ -1,8 +1,10 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { PackagePlus, Search, ChevronRight, Plus, FileSpreadsheet, CheckCircle2, Clock } from 'lucide-react';
+import { PackagePlus, Search, ChevronRight, Plus, FileSpreadsheet, CheckCircle2, Clock, ChevronDown, ChevronUp } from 'lucide-react';
+import { AnimatePresence, motion } from 'motion/react';
 import { dbService } from '../lib/dbService';
 import { InventoryUnit, Supplier } from '../types';
 import CopyImei from './CopyImei';
+import CollapsibleSection from './CollapsibleSection';
 
 interface Props {
   onOpenBatch: () => void;
@@ -10,9 +12,10 @@ interface Props {
 }
 
 export default function StockInPage({ onOpenBatch, onOpenImport }: Props) {
-  const [units, setUnits] = useState<InventoryUnit[]>([]);
+  const [units, setUnits]       = useState<InventoryUnit[]>([]);
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
-  const [search, setSearch] = useState('');
+  const [search, setSearch]     = useState('');
+  const [expandedId, setExpandedId] = useState<string|null>(null);
 
   useEffect(() => {
     const u = dbService.subscribeToCollection('inventoryUnits', setUnits);
@@ -109,12 +112,12 @@ export default function StockInPage({ onOpenBatch, onOpenImport }: Props) {
         />
       </div>
 
-      {/* Recent stock in list */}
-      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
-        <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between">
-          <p className="text-[10px] font-bold uppercase tracking-widest text-gray-400">Recent Stock In</p>
-          <span className="text-[9px] font-mono text-gray-400">{filtered.length} records</span>
-        </div>
+      <CollapsibleSection
+        title="Recent Stock In"
+        count={filtered.length}
+        accent="border-l-emerald-500"
+        defaultOpen={true}
+      >
         {filtered.length === 0 ? (
           <div className="py-12 flex flex-col items-center gap-2 text-gray-300">
             <PackagePlus size={32} />
@@ -122,32 +125,56 @@ export default function StockInPage({ onOpenBatch, onOpenImport }: Props) {
           </div>
         ) : (
           <div className="divide-y divide-gray-50">
-            {filtered.map(u => (
-              <div key={u.id} className="flex items-center gap-3 px-4 py-3">
-                <div className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${u.dateIn === today ? 'bg-emerald-100' : 'bg-gray-100'}`}>
-                  {u.dateIn === today
-                    ? <CheckCircle2 size={14} className="text-emerald-600" />
-                    : <Clock size={14} className="text-gray-400" />
-                  }
-                </div>
-                <div className="flex-1 min-w-0">
-                  <p className="text-xs font-bold truncate">{u.model}</p>
-                  <div className="flex items-center gap-1.5 mt-0.5">
-                    <CopyImei imei={u.imei} truncate={10} />
-                    <span className="text-[9px] text-gray-300">·</span>
-                    <span className="text-[9px] text-gray-400 font-mono">{supplierMap[u.supplierId] || 'Unknown supplier'}</span>
+            {filtered.map(u => {
+              const isOpen = expandedId === u.id;
+              return (
+                <div key={u.id}>
+                  <div className="flex items-center gap-3 px-4 py-3 hover:bg-gray-50 transition-all">
+                    <div className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${u.dateIn === today ? 'bg-emerald-100' : 'bg-gray-100'}`}>
+                      {u.dateIn === today
+                        ? <CheckCircle2 size={14} className="text-emerald-600" />
+                        : <Clock size={14} className="text-gray-400" />
+                      }
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs font-bold truncate">{u.model}</p>
+                      <p className="text-[9px] text-gray-400 font-mono mt-0.5">
+                        <CopyImei imei={u.imei} truncate={10} /> · {u.dateIn}
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-2 flex-shrink-0">
+                      <span className="text-sm font-bold">£{u.buyPrice}</span>
+                      <button onClick={() => setExpandedId(isOpen ? null : u.id)}
+                        className="p-1.5 hover:bg-gray-100 rounded-lg transition-all text-gray-400">
+                        {isOpen ? <ChevronUp size={13}/> : <ChevronDown size={13}/>}
+                      </button>
+                    </div>
                   </div>
+                  <AnimatePresence>
+                    {isOpen && (
+                      <motion.div initial={{height:0,opacity:0}} animate={{height:'auto',opacity:1}} exit={{height:0,opacity:0}}
+                        className="overflow-hidden bg-gray-50 border-t border-gray-100">
+                        <div className="px-5 py-3 grid grid-cols-2 md:grid-cols-3 gap-3">
+                          {[
+                            {label:'Supplier', value: supplierMap[u.supplierId] || 'Unknown'},
+                            {label:'Condition', value: u.conditionGrade ? `Grade ${u.conditionGrade}` : '—'},
+                            {label:'Colour', value: u.colour || '—'},
+                          ].map(f=>(
+                            <div key={f.label}>
+                              <p className="text-[8px] text-gray-400 font-mono uppercase tracking-widest">{f.label}</p>
+                              <p className="text-xs font-bold mt-0.5">{f.value}</p>
+                            </div>
+                          ))}
+                        </div>
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
                 </div>
-
-                <div className="text-right flex-shrink-0">
-                  <p className="text-sm font-bold">£{u.buyPrice.toLocaleString()}</p>
-                  <p className="text-[8px] text-gray-400 font-mono">{u.dateIn}</p>
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
-      </div>
+      </CollapsibleSection>
     </div>
   );
 }
