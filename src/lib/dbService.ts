@@ -13,11 +13,17 @@ import {
   getCountFromServer,
   getDocs,
   onSnapshot,
+  orderBy,
   query,
   setDoc,
   updateDoc,
+  where,
+  limit,
+  startAfter,
+  QueryDocumentSnapshot,
   writeBatch,
 } from 'firebase/firestore';
+
 import { auth, db, ensureAnonymousAuth } from './firebase';
 
 const LOCAL_CACHE_PREFIX = 'nexus_db_';
@@ -246,7 +252,14 @@ export const dbService = {
     void (async () => {
       try {
         await ensureAuthReady();
-        unsub = onSnapshot(collectionRef(collectionName), snap => {
+        // ⚠️  SCALE GUARD — limit to 5,000 most-recent docs so the client never
+        // loads the entire collection. Use subscribeToDateRange for reports/VAT.
+        const q = query(
+          collectionRef(collectionName),
+          orderBy('dateIn', 'desc'),
+          limit(5000)
+        );
+        unsub = onSnapshot(q, snap => {
           const data = snap.docs.map(d => normalizeDoc(d.data() as Record<string, any>, d.id));
           saveLocalCollection(collectionName, data);
         }, error => {
@@ -323,6 +336,87 @@ export const dbService = {
 
   async readAll(collectionName: string) {
     return readCollectionOnce(collectionName);
+  },
+
+  /**
+   * Subscribe to inventoryUnits within a date range.
+   * Use this for Reports, VAT, and StockIn/Out pages so only the
+   * relevant period is loaded — not the entire 10-year history.
+   */
+  subscribeToDateRange(
+    collectionName: string,
+    fromDate: string,   // ISO date string e.g. '2025-01-01'
+    toDate: string,     // ISO date string e.g. '2026-05-02'
+    callback: (data: any[]) => void
+  ) {
+    let unsub: (() => void) | null = null;
+    void (async () => {
+      try {
+        await ensureAuthReady();
+        const q = query(
+          collectionRef(collectionName),
+          where('dateIn', '>=', fromDate),
+          where('dateIn', '<=', toDate),
+          orderBy('dateIn', 'desc'),
+          limit(2000)
+        );
+        unsub = onSnapshot(q, snap => {
+          const data = snap.docs.map(d => normalizeDoc(d.data() as Record<string, any>, d.id));
+          callback(data);
+        }, err => {
+          console.warn('subscribeToDateRange failed', err);
+          callback([]);
+        });
+      } catch (err) {
+        console.warn('subscribeToDateRange init failed', err);
+        callback([]);
+      }
+    })();
+    return () => { if (unsub) unsub(); };
+  },
+
+  /**
+   * Paginated query — loads PAGE_SIZE docs at a time.
+   * Pass lastDoc from previous page to get next page.
+   */
+  async getPage(
+    collectionName: string,
+    pageSize = 100,
+    lastDoc?: QueryDocumentSnapshot
+  ): Promise<{ data: any[]; lastDoc: QueryDocumentSnapshot | null }> {
+    try {
+      await ensureAuthReady();
+      const constraints: any[] = [orderBy('dateIn', 'desc'), limit(pageSize)];
+      if (lastDoc) constraints.push(startAfter(lastDoc));
+      const q = query(collectionRef(collectionName), ...constraints);
+      const snap = await getDocs(q);
+      const data = snap.docs.map(d => normalizeDoc(d.data() as Record<string, any>, d.id));
+      const last = snap.docs[snap.docs.length - 1] ?? null;
+      return { data, lastDoc: last };
+    } catch (err) {
+      console.warn('getPage failed', err);
+      return { data: [], lastDoc: null };
+    }
+  },
+
+  /**
+   * Fast server-side count — no data transfer.
+   * Use for dashboard KPI totals (e.g. total units, total sold).
+   */
+  async countWhere(
+    collectionName: string,
+    field: string,
+    value: string
+  ): Promise<number> {
+    try {
+      await ensureAuthReady();
+      const q = query(collectionRef(collectionName), where(field, '==', value));
+      const snap = await getCountFromServer(q);
+      return snap.data().count;
+    } catch {
+      // Fall back to local cache count
+      return ensureLocalCache(collectionName).filter((d: any) => d[field] === value).length;
+    }
   },
 
   async resetDatabase() {
