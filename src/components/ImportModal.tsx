@@ -166,6 +166,10 @@ function parseOGStockSheet(ws: XLSX.WorkSheet): ParsedData {
       ? excelSerialToISO(r[saleDateIdx]) 
       : dateIn;
 
+    const listingSites = (status === 'available' && salePlatform) 
+      ? [salePlatform] 
+      : [];
+
     unitMap.set(dedupeKey, {
       id: unitId,
       imei,
@@ -179,7 +183,8 @@ function parseOGStockSheet(ws: XLSX.WorkSheet): ParsedData {
       status,
       flags: [],
       notes: '',
-      platformListed: status === 'available',
+      platformListed: status === 'available' && listingSites.length > 0,
+      listingSites,
       ownerId: 'anonymous',
       ...(status === 'sold' ? { saleDate } : {}),
       ...(status === 'sold' && salePlatform ? { salePlatform } : {}),
@@ -294,12 +299,38 @@ export default function ImportModal({ onClose }: ImportModalProps) {
         id: u.id,
         data: { ...u, ownerId: 'local' },
       });
+
+      // Also create an active listing if it's available and has a platform
+      if (u.status === 'available' && u.listingSites && u.listingSites.length > 0) {
+        for (const platform of u.listingSites) {
+          const listingId = `list_${u.model.replace(/\s+/g, '_').toLowerCase()}_${platform.toLowerCase()}`;
+          allDocs.push({
+            collection: 'activeListings',
+            id: listingId,
+            data: {
+              model: u.model,
+              platform,
+              quantity: 1, // Default to 1 if we're just seeing it in the sheet
+              updatedAt: new Date().toISOString(),
+              ownerId: 'local'
+            }
+          });
+        }
+      }
     }
 
-    setProgress({ done: 0, total: allDocs.length });
+    // Deduplicate listings (multiple units of same model shouldn't create duplicate listing docs)
+    const uniqueDocsMap = new Map<string, { collection: string; id: string; data: any }>();
+    for (const doc of allDocs) {
+      const key = `${doc.collection}_${doc.id}`;
+      uniqueDocsMap.set(key, doc);
+    }
+    const finalDocs = Array.from(uniqueDocsMap.values());
+
+    setProgress({ done: 0, total: finalDocs.length });
 
     try {
-      await dbService.bulkCreate(allDocs, (done, total) => {
+      await dbService.bulkCreate(finalDocs, (done, total) => {
         setProgress({ done, total });
       });
       if (sourceFile) {

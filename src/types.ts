@@ -174,3 +174,19 @@ export interface FirestoreErrorInfo {
     isAnonymous?: boolean | null;
   }
 }
+
+/**
+ * ActiveListing — Represents a model listed on a platform.
+ * Used to reconcile physical inventory with online presence.
+ */
+export interface ActiveListing {
+  id: string;
+  model: string;
+  platform: ListingSite | string;
+  quantity: number;
+  listingUrl?: string;
+  listingId?: string;
+  notes?: string;
+  updatedAt: any;
+  ownerId: string;
+}

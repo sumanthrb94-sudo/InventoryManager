@@ -20,6 +20,9 @@ import ScanPage from './components/ScanPage';
 import CalendarPage from './components/CalendarPage';
 import NewBatchModal from './components/NewBatchModal';
 import ImportModal from './components/ImportModal';
+import { useRealTimeNotifications } from './hooks/useRealTimeNotifications';
+import NotificationToast from './components/NotificationToast';
+import { notificationService } from './lib/notificationService';
 
 type Tab = 'dashboard' | 'inventory' | 'suppliers' | 'sales' | 'scan' | 'calendar';
 
@@ -35,9 +38,24 @@ export default function App() {
   const [inventoryFilters, setInventoryFilters] = useState<InventoryFilters>({});
   const [isBatchModalOpen,  setIsBatchModalOpen]  = useState(false);
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
+  const [unreadCount, setUnreadCount] = useState(0);
+
+  // ── Listen for inventory changes ──
+  useRealTimeNotifications();
+
+  // ── Listen for notification count updates ──
+  useEffect(() => {
+    const unsub = notificationService.subscribe(() => {
+      setUnreadCount(notificationService.getUnreadCount());
+    });
+    return unsub;
+  }, []);
 
   const handleNavigate = (action: NavAction) => {
     setActiveTab(action.tab);
+    if (action.tab === 'sales') {
+      notificationService.markAllAsRead();
+    }
     if (action.tab === 'inventory' && action.filters) {
       setInventoryFilters({
         status:     action.filters.status,
@@ -101,7 +119,29 @@ export default function App() {
           <NavItem id="scan"      label="Scan & Update" icon={<ScanLine size={18} />}       active={activeTab === 'scan'}       onClick={() => setActiveTab('scan')} />
           <NavItem id="calendar" label="Calendar"     icon={<CalendarDays size={18} />}    active={activeTab === 'calendar'}   onClick={() => setActiveTab('calendar')} />
           <NavItem id="suppliers" label="Suppliers"    icon={<Truck size={18} />}           active={activeTab === 'suppliers'}  onClick={() => setActiveTab('suppliers')} />
-          <NavItem id="sales"     label="Daily Update" icon={<Bell size={18} />}            active={activeTab === 'sales'}      onClick={() => setActiveTab('sales')} />
+          <NavItem 
+            id="sales"     
+            label="Daily Update" 
+            icon={
+              <div className="relative">
+                <Bell size={18} />
+                {unreadCount > 0 && (
+                  <motion.span 
+                    initial={{ scale: 0 }}
+                    animate={{ scale: 1 }}
+                    className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 text-white text-[8px] font-bold flex items-center justify-center rounded-full border border-white"
+                  >
+                    {unreadCount}
+                  </motion.span>
+                )}
+              </div>
+            }            
+            active={activeTab === 'sales'}      
+            onClick={() => {
+              setActiveTab('sales');
+              notificationService.markAllAsRead();
+            }} 
+          />
         </nav>
 
         {/* Admin badge + logout */}
@@ -185,13 +225,37 @@ export default function App() {
         <MobileNavItem id="inventory" icon={<Smartphone size={20} />}      label="Stock"    active={activeTab === 'inventory'} onClick={openInventory} />
         <MobileNavItem id="scan"      icon={<ScanLine size={22} />}         label="Scan"     active={activeTab === 'scan'}      onClick={() => setActiveTab('scan')} />
         <MobileNavItem id="calendar" icon={<CalendarDays size={20} />}    label="Calendar" active={activeTab === 'calendar'}  onClick={() => setActiveTab('calendar')} />
-        <MobileNavItem id="sales"     icon={<Bell size={20} />}            label="Update"   active={activeTab === 'sales'}     onClick={() => setActiveTab('sales')} />
+        <MobileNavItem 
+          id="sales"     
+          icon={
+            <div className="relative">
+              <Bell size={20} />
+              {unreadCount > 0 && (
+                <motion.span 
+                  initial={{ scale: 0 }}
+                  animate={{ scale: 1 }}
+                  className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 text-white text-[8px] font-bold flex items-center justify-center rounded-full border border-white"
+                >
+                  {unreadCount}
+                </motion.span>
+              )}
+            </div>
+          }            
+          label="Update"   
+          active={activeTab === 'sales'}     
+          onClick={() => {
+            setActiveTab('sales');
+            notificationService.markAllAsRead();
+          }} 
+        />
       </nav>
 
       <AnimatePresence>
         {isBatchModalOpen  && <NewBatchModal onClose={() => setIsBatchModalOpen(false)} />}
         {isImportModalOpen && <ImportModal   onClose={() => setIsImportModalOpen(false)} />}
       </AnimatePresence>
+
+      <NotificationToast />
     </div>
   );
 }

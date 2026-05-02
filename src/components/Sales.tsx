@@ -5,7 +5,8 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { dbService } from '../lib/dbService';
-import { InventoryUnit, Supplier, OperationalFlag } from '../types';
+import { InventoryUnit, Supplier, OperationalFlag, ActiveListing } from '../types';
+import { notificationService, Notification } from '../lib/notificationService';
 
 const FLAG_CONFIG: Record<OperationalFlag, { label: string; icon: any; style: string; action: string }> = {
   top10: {
@@ -31,11 +32,15 @@ const FLAG_CONFIG: Record<OperationalFlag, { label: string; icon: any; style: st
 export default function Sales() {
   const [units, setUnits] = useState<InventoryUnit[]>([]);
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
+  const [activeListings, setActiveListings] = useState<ActiveListing[]>([]);
+  const [recentNotifications, setRecentNotifications] = useState<Notification[]>([]);
 
   useEffect(() => {
     const unsub1 = dbService.subscribeToCollection('inventoryUnits', setUnits);
     const unsub2 = dbService.subscribeToCollection('suppliers', setSuppliers);
-    return () => { unsub1(); unsub2(); };
+    const unsub3 = dbService.subscribeToCollection('activeListings', setActiveListings);
+    const unsub4 = notificationService.subscribe(setRecentNotifications);
+    return () => { unsub1(); unsub2(); unsub3(); unsub4(); };
   }, []);
 
   const [isTodayStockOpen, setIsTodayStockOpen] = useState(true);
@@ -96,25 +101,84 @@ export default function Sales() {
     });
   }, [units]);
 
-  // Alert: Stock that is NOT listed on any platform
-  const unlistedStock = useMemo(() => 
-    platformList.filter(item => item.count > 0 && item.listingSites.length === 0),
-    [platformList]
-  );
+  // RECONCILIATION LOGIC: Physical vs Platform
+  const reconciliation = useMemo(() => {
+    // 1. Group physical available stock by model
+    const physicalStock = new Map<string, number>();
+    for (const u of units.filter(u => u.status === 'available')) {
+      physicalStock.set(u.model, (physicalStock.get(u.model) || 0) + 1);
+    }
 
-  const handleToggleListing = async (modelUnits: InventoryUnit[], site: string, isAdding: boolean) => {
-    const promises = modelUnits.map(u => {
-      const sites = u.listingSites || [];
-      const newSites = isAdding 
-        ? [...new Set([...sites, site])]
-        : sites.filter(s => s !== site);
-      
-      return dbService.update('inventoryUnits', u.id, {
-        listingSites: newSites,
-        platformListed: newSites.length > 0
+    // 2. Group active listings by model
+    const listedStock = new Map<string, { total: number; platforms: string[] }>();
+    for (const l of activeListings) {
+      const entry = listedStock.get(l.model) || { total: 0, platforms: [] };
+      entry.total += l.quantity;
+      entry.platforms.push(l.platform);
+      listedStock.set(l.model, entry);
+    }
+
+    const results: {
+      model: string;
+      physical: number;
+      listed: number;
+      platforms: string[];
+      status: 'ok' | 'under' | 'over' | 'none';
+      message: string;
+    }[] = [];
+
+    // All models that either have stock or have a listing
+    const allModels = new Set([...physicalStock.keys(), ...listedStock.keys()]);
+
+    for (const model of allModels) {
+      const physical = physicalStock.get(model) || 0;
+      const listedObj = listedStock.get(model) || { total: 0, platforms: [] };
+      const listed = listedObj.total;
+
+      let status: 'ok' | 'under' | 'over' | 'none' = 'ok';
+      let message = 'Listing synced';
+
+      if (listed === 0 && physical > 0) {
+        status = 'none';
+        message = 'Not listed anywhere';
+      } else if (listed < physical) {
+        status = 'under';
+        message = `${physical - listed} units waiting to be listed`;
+      } else if (listed > physical) {
+        status = 'over';
+        message = 'OVERSELL RISK: Listing qty > Stock';
+      }
+
+      results.push({
+        model,
+        physical,
+        listed,
+        platforms: listedObj.platforms,
+        status,
+        message
       });
+    }
+
+    return results.sort((a, b) => {
+      // Sort priority: Oversell > None > Under > OK
+      const priority = { over: 0, none: 1, under: 2, ok: 3 };
+      return priority[a.status] - priority[b.status] || b.physical - a.physical;
     });
-    await Promise.all(promises);
+  }, [units, activeListings]);
+
+  const handleUpdateListing = async (model: string, platform: string, quantity: number) => {
+    const listingId = `list_${model.replace(/\s+/g, '_').toLowerCase()}_${platform.toLowerCase()}`;
+    if (quantity <= 0) {
+      await dbService.delete('activeListings', listingId);
+    } else {
+      await dbService.create('activeListings', listingId, {
+        model,
+        platform,
+        quantity,
+        updatedAt: new Date().toISOString(),
+        ownerId: 'anonymous'
+      });
+    }
   };
 
   return (
@@ -139,42 +203,102 @@ export default function Sales() {
         </div>
       </div>
 
-      {/* Attention Required — Unlisted Stock */}
-      {unlistedStock.length > 0 && (
-        <div className="bg-amber-50 border border-amber-200 rounded-2xl p-6 shadow-sm">
-          <div className="flex items-center gap-3 mb-4">
-            <div className="w-8 h-8 rounded-full bg-amber-500 flex items-center justify-center text-white">
-              <Bell size={16} />
-            </div>
-            <div>
-              <h3 className="text-sm font-bold text-amber-900 uppercase tracking-tight">Attention Required: Unlisted Stock</h3>
-              <p className="text-[10px] text-amber-700 font-mono uppercase tracking-widest mt-0.5">{unlistedStock.length} models have available units but no active listings</p>
-            </div>
+      {/* Recent Activity Feed */}
+      {recentNotifications.length > 0 && (
+        <div className="bg-white border border-gray-200 rounded-2xl overflow-hidden shadow-sm">
+          <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between bg-gray-50/50">
+            <h3 className="text-[10px] font-bold uppercase tracking-widest text-gray-500">Recent Activity Feed</h3>
+            <button 
+              onClick={() => notificationService.markAllAsRead()}
+              className="text-[9px] font-bold text-gray-400 hover:text-black uppercase tracking-widest transition-colors"
+            >
+              Clear All
+            </button>
           </div>
-          
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-            {unlistedStock.slice(0, 6).map(item => (
-              <div key={item.model} className="bg-white/50 border border-amber-100 rounded-xl p-3 flex items-center justify-between">
-                <div className="min-w-0">
-                  <p className="text-xs font-bold truncate">{item.model}</p>
-                  <p className="text-[9px] text-amber-600 font-mono font-bold uppercase">{item.count} Units Waiting</p>
+          <div className="divide-y divide-gray-50 max-h-[240px] overflow-y-auto custom-scrollbar">
+            {recentNotifications.map(n => (
+              <div key={n.id} className={`px-6 py-3 flex items-center gap-4 hover:bg-gray-50 transition-all ${!n.read ? 'bg-blue-50/30' : ''}`}>
+                <div className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${
+                  n.type === 'sold' ? 'bg-emerald-100 text-emerald-600' : 'bg-blue-100 text-blue-600'
+                }`}>
+                  {n.type === 'sold' ? <ShoppingBag size={14} /> : <CheckCircle2 size={14} />}
                 </div>
-                <div className="flex gap-1">
-                  {['eBay', 'Amazon'].map(site => (
-                    <button 
-                      key={site}
-                      onClick={() => handleToggleListing(item.units, site, true)}
-                      className="text-[8px] font-bold bg-amber-200 text-amber-800 px-2 py-1 rounded hover:bg-amber-300 transition-all uppercase"
-                    >
-                      + {site}
-                    </button>
-                  ))}
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center justify-between">
+                    <p className="text-xs font-bold text-black truncate">{n.model}</p>
+                    <span className="text-[8px] font-mono text-gray-400 uppercase">
+                      {new Date(n.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                    </span>
+                  </div>
+                  <p className="text-[10px] text-gray-500 truncate mt-0.5">{n.message}</p>
                 </div>
               </div>
             ))}
           </div>
         </div>
       )}
+
+      {/* Listing Reconciliation — Critical Insights */}
+      <div className="bg-white border border-gray-200 rounded-2xl overflow-hidden shadow-sm">
+        <div className="px-6 py-4 border-b border-gray-100 bg-gray-50/50 flex items-center justify-between">
+          <div>
+            <h3 className="text-[10px] font-bold uppercase tracking-widest text-gray-500">Inventory Reconciliation</h3>
+            <p className="text-[8px] text-gray-400 font-mono uppercase mt-0.5">Physical Stock vs Online Listings</p>
+          </div>
+          <span className="text-[8px] bg-black text-white px-2 py-1 font-mono uppercase tracking-widest">Live Sync</span>
+        </div>
+
+        <div className="divide-y divide-gray-50 max-h-[500px] overflow-y-auto custom-scrollbar">
+          {reconciliation.filter(r => r.status !== 'ok').length === 0 ? (
+            <div className="px-6 py-12 text-center">
+              <CheckCircle2 className="mx-auto text-emerald-500 mb-2" size={24} />
+              <p className="text-xs font-bold text-gray-500 uppercase tracking-widest">All listings are perfectly synced</p>
+            </div>
+          ) : (
+            reconciliation.filter(r => r.status !== 'ok').map(item => (
+              <div key={item.model} className={`px-6 py-4 flex items-center gap-6 group hover:bg-gray-50 transition-all ${
+                item.status === 'over' ? 'bg-red-50/50' : item.status === 'none' ? 'bg-amber-50/30' : ''
+              }`}>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2">
+                    <p className="text-sm font-bold truncate">{item.model}</p>
+                    <span className={`text-[8px] font-bold px-1.5 py-0.5 rounded uppercase font-mono border ${
+                      item.status === 'over' ? 'bg-red-100 text-red-700 border-red-200' :
+                      item.status === 'none' ? 'bg-amber-100 text-amber-700 border-amber-200' :
+                      'bg-blue-100 text-blue-700 border-blue-200'
+                    }`}>
+                      {item.message}
+                    </span>
+                  </div>
+                  <p className="text-[10px] text-gray-500 font-mono mt-1">
+                    Physical: <span className="text-black font-bold">{item.physical}</span> · 
+                    Listed: <span className={item.listed > item.physical ? 'text-red-600 font-bold' : 'text-black font-bold'}>{item.listed}</span>
+                  </p>
+                </div>
+
+                <div className="flex gap-1.5">
+                  {['eBay', 'Amazon'].map(site => {
+                    const isListedOnSite = item.platforms.includes(site);
+                    return (
+                      <button 
+                        key={site}
+                        onClick={() => handleUpdateListing(item.model, site, isListedOnSite ? 0 : 1)}
+                        className={`text-[9px] font-bold px-3 py-1.5 rounded-lg transition-all uppercase tracking-wider ${
+                          isListedOnSite 
+                            ? 'bg-black text-white hover:bg-gray-800' 
+                            : 'bg-white border border-gray-200 text-gray-400 hover:border-black hover:text-black'
+                        }`}
+                      >
+                        {isListedOnSite ? `✓ ${site}` : `+ ${site}`}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+      </div>
 
       {/* Quick KPIs for sales team */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
@@ -197,7 +321,7 @@ export default function Sales() {
         <div className="bg-white border border-gray-200 shadow-md border-0 ring-1 ring-gray-100 p-5 border-l-4 border-l-amber-400">
           <p className="text-[8px] font-bold text-amber-500 uppercase tracking-widest font-mono mb-2">Unlisted Models</p>
           <p className="text-4xl font-bold font-display tracking-tighter text-amber-600">
-            {unlistedStock.length}
+            {reconciliation.filter(r => r.status === 'none').length}
           </p>
         </div>
       </div>

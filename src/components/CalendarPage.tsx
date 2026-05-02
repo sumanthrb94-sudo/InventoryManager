@@ -51,8 +51,31 @@ export default function CalendarPage() {
   const [cursor, setCursor]     = useState({ year: today.getFullYear(), month: today.getMonth() });
   const [selectedDate, setSelectedDate] = useState<string | null>(toDateKey(today));
 
+  const hasAutoNavigated = React.useRef(false);
+
   useEffect(() => {
-    const u = dbService.subscribeToCollection('inventoryUnits', setUnits);
+    const u = dbService.subscribeToCollection('inventoryUnits', (data: InventoryUnit[]) => {
+      setUnits(data);
+      // Auto-navigate once to the month with the most recent data
+      if (!hasAutoNavigated.current && data.length > 0) {
+        hasAutoNavigated.current = true;
+        const dates: string[] = data
+          .flatMap((unit: InventoryUnit) => [
+            unit.saleDate,
+            unit.dateIn,
+          ])
+          .filter((d): d is string => !!d)
+          .sort()
+          .reverse();
+        if (dates.length > 0) {
+          const mostRecent = new Date(dates[0] + 'T12:00:00');
+          if (!isNaN(mostRecent.getTime())) {
+            setCursor({ year: mostRecent.getFullYear(), month: mostRecent.getMonth() });
+            setSelectedDate(dates[0]);
+          }
+        }
+      }
+    });
     const s = dbService.subscribeToCollection('suppliers', setSuppliers);
     return () => { u(); s(); };
   }, []);
@@ -66,22 +89,36 @@ export default function CalendarPage() {
       return map.get(d)!;
     };
 
+    const toKey = (raw: string | undefined): string | null => {
+      if (!raw) return null;
+      // Strip time portion if present, normalise slashes to dashes
+      const clean = raw.split('T')[0].replace(/\//g, '-');
+      // Validate YYYY-MM-DD
+      if (/^\d{4}-\d{2}-\d{2}$/.test(clean)) return clean;
+      // Try JS Date parse as fallback
+      const d = new Date(raw);
+      if (!isNaN(d.getTime())) return d.toISOString().split('T')[0];
+      return null;
+    };
+
     for (const unit of units) {
       // Stock in
-      if (unit.dateIn) {
-        ensure(unit.dateIn).stock_in.push({ type: 'stock_in', unit });
+      const stockKey = toKey(unit.dateIn);
+      if (stockKey) {
+        ensure(stockKey).stock_in.push({ type: 'stock_in', unit });
       }
       // Sold
-      const effectiveSaleDate = unit.saleDate || (unit.status === 'sold' ? unit.dateIn : undefined);
-      if (effectiveSaleDate) {
-        const day = ensure(effectiveSaleDate);
+      const rawSaleDate = unit.saleDate || (unit.status === 'sold' ? unit.dateIn : undefined);
+      const soldKey = toKey(rawSaleDate);
+      if (soldKey) {
+        const day = ensure(soldKey);
         day.sold.push({ type: 'sold', unit, platform: unit.salePlatform });
         day.revenue += unit.salePrice ?? 0;
       }
       // Returned — use updatedAt date if available
-      if (unit.status === 'returned' && unit.updatedAt) {
-        const d = unit.updatedAt.split('T')[0];
-        ensure(d).returned.push({ type: 'returned', unit });
+      const returnKey = unit.status === 'returned' ? toKey(typeof unit.updatedAt === 'string' ? unit.updatedAt : (unit.updatedAt ? new Date(unit.updatedAt).toISOString() : '')) : null;
+      if (returnKey) {
+        ensure(returnKey).returned.push({ type: 'returned', unit });
       }
     }
     return map;
