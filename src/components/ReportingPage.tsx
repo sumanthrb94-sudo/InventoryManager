@@ -129,7 +129,7 @@ export default function ReportingPage() {
         </div>
         <div className="bg-purple-50 border border-purple-100 rounded-2xl p-3">
           <p className="text-[8px] font-mono uppercase tracking-widest text-purple-600">VAT Due</p>
-          <p className="text-xl font-bold font-display mt-1 text-purple-700">£{vatOutput.toLocaleString()}</p>
+          <p className="text-xl font-bold font-display mt-1 text-purple-700">£{vatData.netVATPayable.toLocaleString()}</p>
           <p className="text-[8px] text-purple-400 font-mono">last 90 days</p>
         </div>
       </div>
@@ -199,7 +199,7 @@ export default function ReportingPage() {
                   <tbody className="divide-y divide-gray-50">
                     {dailySales.map(u => {
                       const m = (u.salePrice||0) - u.buyPrice;
-                      const comm = COMMISSION[u.salePlatform||''] || 0;
+                      const comm = platformCommission(u.salePlatform||'');
                       return (
                         <tr key={u.id} className="hover:bg-gray-50">
                           <td className="px-4 py-2.5 font-semibold max-w-[120px] truncate">{u.model}</td>
@@ -303,8 +303,8 @@ export default function ReportingPage() {
               <tbody className="divide-y divide-gray-50">
                 {[...sold].sort((a,b)=>new Date(b.saleDate||b.dateIn).getTime()-new Date(a.saleDate||a.dateIn).getTime()).map(u => {
                   const m = (u.salePrice||0) - u.buyPrice;
-                  const comm = COMMISSION[u.salePlatform||''] || 0;
-                  const commAmt = +((u.salePrice||0)*comm/100).toFixed(2);
+                  const comm = platformCommission(u.salePlatform||'');
+                  const commAmt = platformCommissionAmt(u.salePlatform||'', u.salePrice||0);
                   return (
                     <tr key={u.id} className="hover:bg-gray-50">
                       <td className="px-4 py-2 font-mono text-gray-500">{u.saleDate||u.dateIn}</td>
