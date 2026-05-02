@@ -174,7 +174,7 @@ export default function NewBatchModal({ onClose }: Props) {
     <motion.div initial={{ opacity:0 }} animate={{ opacity:1 }} exit={{ opacity:0 }}
       className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-white/90 backdrop-blur-md">
       <motion.div initial={{ y:20,opacity:0 }} animate={{ y:0,opacity:1 }} exit={{ y:20,opacity:0 }}
-        className="bg-white border border-gray-200 rounded-2xl w-full max-w-3xl max-h-[92vh] flex flex-col shadow-2xl overflow-hidden">
+        className="bg-white border border-gray-200 rounded-2xl w-full max-w-3xl flex flex-col shadow-2xl overflow-hidden" style={{maxHeight:'calc(100dvh - 24px)'}}>
 
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-5 border-b border-gray-200 bg-gray-50 flex-shrink-0">

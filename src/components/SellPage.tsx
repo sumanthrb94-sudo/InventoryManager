@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import {
   ShoppingCart, Search, CheckCircle2, Clock, ChevronRight,
-  X, Package, AlertCircle,
+  X, Package, AlertCircle, ChevronDown, ChevronUp,
 } from 'lucide-react';
+import { AnimatePresence, motion } from 'motion/react';
 import { dbService } from '../lib/dbService';
 import { InventoryUnit } from '../types';
 import CopyImei from './CopyImei';
@@ -62,8 +63,9 @@ function SellOrderModal({
   };
 
   return (
-    <div className="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm">
-      <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl overflow-hidden">
+    <div className="fixed inset-0 z-[70] flex items-center justify-center p-3 md:p-4 bg-black/40 backdrop-blur-sm">
+      {/* max-h keeps modal within viewport; flex-col lets body scroll while footer stays fixed */}
+      <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl flex flex-col" style={{maxHeight:'calc(100dvh - 24px)'}}>
 
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-5 border-b border-gray-100">
@@ -94,8 +96,8 @@ function SellOrderModal({
           </div>
         </div>
 
-        {/* Form */}
-        <div className="px-6 py-5 space-y-4">
+        {/* Form — scrollable body */}
+        <div className="flex-1 overflow-y-auto px-6 py-5 space-y-4">
 
           {/* Platform */}
           <div>
@@ -197,8 +199,8 @@ function SellOrderModal({
           )}
         </div>
 
-        {/* Footer */}
-        <div className="px-6 pb-6 flex gap-3">
+        {/* Footer — always pinned, never pushed off screen */}
+        <div className="flex-shrink-0 px-6 py-4 border-t border-gray-100 flex gap-3 bg-white">
           <button onClick={onClose}
             className="flex-1 py-3 border border-gray-200 rounded-xl text-[10px] font-bold uppercase tracking-widest text-gray-500 hover:bg-gray-50 transition-all">
             Cancel
@@ -217,10 +219,11 @@ function SellOrderModal({
 
 // ── Main Sell Page ──────────────────────────────────────────────────────────
 export default function SellPage() {
-  const [units, setUnits]       = useState<InventoryUnit[]>([]);
-  const [search, setSearch]     = useState('');
-  const [selected, setSelected] = useState<InventoryUnit | null>(null);
+  const [units, setUnits]         = useState<InventoryUnit[]>([]);
+  const [search, setSearch]       = useState('');
+  const [selected, setSelected]   = useState<InventoryUnit | null>(null);
   const [savedFlag, setSavedFlag] = useState(false);
+  const [expandedId, setExpandedId] = useState<string | null>(null);
 
   useEffect(() => {
     const u = dbService.subscribeToCollection('inventoryUnits', setUnits);
@@ -360,43 +363,59 @@ export default function SellPage() {
           </div>
         ) : (
           <div className="divide-y divide-gray-50">
-            {filtered.map(u => (
-              <button
-                key={u.id}
-                onClick={() => setSelected(u)}
-                className="w-full flex items-center gap-3 px-4 py-3.5 hover:bg-emerald-50 transition-all text-left group"
-              >
-                {/* Status dot */}
-                <div className="w-2.5 h-2.5 rounded-full bg-emerald-400 flex-shrink-0 group-hover:bg-emerald-600 transition-colors" />
-
-                {/* Info */}
-                <div className="flex-1 min-w-0">
-                  <p className="text-xs font-bold truncate">{u.model}</p>
-                  <div className="flex items-center gap-2 mt-0.5 flex-wrap">
-                    <CopyImei imei={u.imei} truncate={12} />
-                    {u.colour && <span className="text-[8px] text-gray-400 font-mono">{u.colour}</span>}
-                    {u.conditionGrade && (
-                      <span className={`text-[8px] font-bold px-1.5 py-0.5 rounded-full ${
-                        u.conditionGrade === 'A' ? 'bg-emerald-100 text-emerald-700' :
-                        u.conditionGrade === 'B' ? 'bg-amber-100 text-amber-700' :
-                        'bg-red-100 text-red-600'
-                      }`}>Grade {u.conditionGrade}</span>
+            {filtered.map(u => {
+              const isOpen = expandedId === u.id;
+              return (
+                <div key={u.id}>
+                  {/* Collapsed row */}
+                  <div className="flex items-center gap-3 px-4 py-3 hover:bg-gray-50 transition-all">
+                    <div className="w-2 h-2 rounded-full bg-emerald-400 flex-shrink-0" />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs font-bold truncate">{u.model}</p>
+                      <p className="text-[9px] text-gray-400 font-mono mt-0.5 truncate">
+                        <CopyImei imei={u.imei} truncate={10} />
+                        {u.colour && <> · {u.colour}</>}
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-2 flex-shrink-0">
+                      <span className="text-sm font-bold">£{u.buyPrice}</span>
+                      {/* Expand/collapse */}
+                      <button onClick={() => setExpandedId(isOpen ? null : u.id)}
+                        className="p-1.5 hover:bg-gray-100 rounded-lg transition-all text-gray-400">
+                        {isOpen ? <ChevronUp size={14}/> : <ChevronDown size={14}/>}
+                      </button>
+                      {/* Sell button */}
+                      <button onClick={() => setSelected(u)}
+                        className="px-3 py-1.5 bg-emerald-600 text-white rounded-lg text-[9px] font-bold uppercase tracking-widest hover:bg-emerald-700 transition-all flex items-center gap-1">
+                        Sell <ChevronRight size={11}/>
+                      </button>
+                    </div>
+                  </div>
+                  {/* Expanded details */}
+                  <AnimatePresence>
+                    {isOpen && (
+                      <motion.div
+                        initial={{height:0,opacity:0}} animate={{height:'auto',opacity:1}} exit={{height:0,opacity:0}}
+                        className="overflow-hidden bg-gray-50 border-t border-gray-100">
+                        <div className="px-6 py-3 grid grid-cols-2 md:grid-cols-4 gap-3 text-center">
+                          {[
+                            {label:'Condition', value: u.conditionGrade ? `Grade ${u.conditionGrade}` : '—'},
+                            {label:'Storage',   value: u.storage || '—'},
+                            {label:'Date In',   value: u.dateIn || '—'},
+                            {label:'Status',    value: 'In Stock'},
+                          ].map(f => (
+                            <div key={f.label}>
+                              <p className="text-[8px] text-gray-400 font-mono uppercase tracking-widest">{f.label}</p>
+                              <p className="text-xs font-bold mt-0.5">{f.value}</p>
+                            </div>
+                          ))}
+                        </div>
+                      </motion.div>
                     )}
-                  </div>
+                  </AnimatePresence>
                 </div>
-
-                {/* Price + action */}
-                <div className="text-right flex-shrink-0 flex items-center gap-2">
-                  <div>
-                    <p className="text-[9px] text-gray-400 font-mono">Paid</p>
-                    <p className="text-sm font-bold">£{u.buyPrice}</p>
-                  </div>
-                  <div className="w-7 h-7 rounded-lg bg-emerald-100 group-hover:bg-emerald-600 flex items-center justify-center transition-colors">
-                    <ChevronRight size={14} className="text-emerald-600 group-hover:text-white transition-colors" />
-                  </div>
-                </div>
-              </button>
-            ))}
+              );
+            })}
           </div>
         )}
       </div>

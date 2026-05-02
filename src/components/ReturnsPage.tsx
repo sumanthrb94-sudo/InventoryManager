@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { RefreshCw, Search, ArrowDownLeft, ArrowUpRight, Wrench, PackageCheck } from 'lucide-react';
+import { RefreshCw, Search, ArrowDownLeft, ArrowUpRight, Wrench, PackageCheck, ChevronDown, ChevronUp } from 'lucide-react';
+import { AnimatePresence, motion } from 'motion/react';
 import { dbService } from '../lib/dbService';
 import { InventoryUnit } from '../types';
 import CopyImei from './CopyImei';
@@ -21,9 +22,10 @@ function getReturnCategory(u: InventoryUnit): ReturnType {
 }
 
 export default function ReturnsPage() {
-  const [units, setUnits] = useState<InventoryUnit[]>([]);
-  const [search, setSearch] = useState('');
-  const [filter, setFilter] = useState<ReturnType>('all');
+  const [units, setUnits]       = useState<InventoryUnit[]>([]);
+  const [search, setSearch]     = useState('');
+  const [filter, setFilter]     = useState<ReturnType>('all');
+  const [expandedId, setExpandedId] = useState<string|null>(null);
 
   useEffect(() => {
     const u = dbService.subscribeToCollection('inventoryUnits', setUnits);
@@ -141,24 +143,60 @@ export default function ReturnsPage() {
           </div>
         ) : (
           <div className="divide-y divide-gray-50">
-            {filtered.map(u => (
-              <div key={u.id} className="flex items-center gap-3 px-4 py-3">
-                <div className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${BG_MAP[u.returnCategory]}`}>
-                  {ICON_MAP[u.returnCategory]}
-                </div>
-                <div className="flex-1 min-w-0">
-                  <p className="text-xs font-bold truncate">{u.model}</p>
-                  <div className="flex items-center gap-1.5 mt-0.5">
-                    <CopyImei imei={u.imei} truncate={10} />
-                    {u.notes && <span className="text-[9px] text-gray-400 font-mono truncate">{u.notes.slice(0, 30)}</span>}
+            {filtered.map(u => {
+              const isOpen = expandedId === u.id;
+              return (
+                <div key={u.id}>
+                  {/* Collapsed summary row */}
+                  <div className="flex items-center gap-3 px-4 py-3 hover:bg-gray-50 transition-all">
+                    <div className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${BG_MAP[u.returnCategory]}`}>
+                      {ICON_MAP[u.returnCategory]}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs font-bold truncate">{u.model}</p>
+                      <div className="flex items-center gap-2 mt-0.5">
+                        <CopyImei imei={u.imei} truncate={10} />
+                        <span className="text-[8px] text-gray-400 font-mono">{u.dateIn}</span>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2 flex-shrink-0">
+                      <span className="text-sm font-bold">£{u.buyPrice}</span>
+                      <button onClick={() => setExpandedId(isOpen ? null : u.id)}
+                        className="p-1.5 hover:bg-gray-100 rounded-lg transition-all text-gray-400">
+                        {isOpen ? <ChevronUp size={13}/> : <ChevronDown size={13}/>}
+                      </button>
+                    </div>
                   </div>
+                  {/* Expanded detail row */}
+                  <AnimatePresence>
+                    {isOpen && (
+                      <motion.div initial={{height:0,opacity:0}} animate={{height:'auto',opacity:1}} exit={{height:0,opacity:0}}
+                        className="overflow-hidden bg-gray-50 border-t border-gray-100">
+                        <div className="px-5 py-3 grid grid-cols-2 md:grid-cols-4 gap-3">
+                          {[
+                            {label:'Buy Price',    value:`£${u.buyPrice}`},
+                            {label:'Sale Price',   value: u.salePrice ? `£${u.salePrice}` : '—'},
+                            {label:'Platform',     value: u.salePlatform || '—'},
+                            {label:'Category',     value: u.returnCategory.replace(/_/g,' ')},
+                          ].map(f=>(
+                            <div key={f.label}>
+                              <p className="text-[8px] text-gray-400 font-mono uppercase tracking-widest">{f.label}</p>
+                              <p className="text-xs font-bold mt-0.5 capitalize">{f.value}</p>
+                            </div>
+                          ))}
+                          {u.notes && (
+                            <div className="col-span-2 md:col-span-4">
+                              <p className="text-[8px] text-gray-400 font-mono uppercase tracking-widest">Notes</p>
+                              <p className="text-xs mt-0.5 text-gray-700">{u.notes}</p>
+                            </div>
+                          )}
+                        </div>
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
                 </div>
-                <div className="text-right flex-shrink-0">
-                  <p className="text-sm font-bold">£{u.buyPrice.toLocaleString()}</p>
-                  <p className="text-[8px] text-gray-400 font-mono">{u.dateIn}</p>
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </div>
