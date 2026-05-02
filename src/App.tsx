@@ -19,11 +19,12 @@ import StockInPage from './components/StockInPage';
 import SellPage from './components/SellPage';
 import ReturnsPage from './components/ReturnsPage';
 import ReportingPage from './components/ReportingPage';
+import Suppliers from './components/Suppliers';
 import { useRealTimeNotifications } from './hooks/useRealTimeNotifications';
 import NotificationToast from './components/NotificationToast';
 import { notificationService } from './lib/notificationService';
 
-type Tab = 'overview' | 'buystk' | 'sell' | 'returns' | 'reports';
+type Tab = 'overview' | 'buystk' | 'sell' | 'returns' | 'reports' | 'suppliers';
 
 
 interface InventoryFilters { status?: string; search?: string; supplierId?: string; }
@@ -52,6 +53,7 @@ export default function App() {
 
   const handleNavigate = (action: NavAction) => {
     if (action.tab === 'inventory') setActiveTab('overview');
+    else if (action.tab === 'suppliers') setActiveTab('suppliers');
     else setActiveTab(action.tab as Tab);
   };
 
@@ -168,11 +170,22 @@ export default function App() {
               exit={{ opacity: 0, y: -10 }}
               transition={{ duration: 0.2 }}
             >
-              {activeTab === 'overview' && <Dashboard onNavigate={handleNavigate} />}
-              {activeTab === 'buystk'  && <StockInPage onOpenBatch={()=>setIsBatchModalOpen(true)} onOpenImport={()=>setIsImportModalOpen(true)} />}
-              {activeTab === 'sell'    && <SellPage />}
-              {activeTab === 'returns' && <ReturnsPage />}
-              {activeTab === 'reports' && <ReportingPage />}
+              {activeTab === 'overview'   && <Dashboard onNavigate={handleNavigate} />}
+              {activeTab === 'buystk'    && <StockInPage onOpenBatch={()=>setIsBatchModalOpen(true)} onOpenImport={()=>setIsImportModalOpen(true)} />}
+              {activeTab === 'sell'      && <SellPage />}
+              {activeTab === 'returns'   && <ReturnsPage />}
+              {activeTab === 'reports'   && <ReportingPage />}
+              {activeTab === 'suppliers' && (
+                <div>
+                  <button
+                    onClick={() => setActiveTab('overview')}
+                    className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest text-gray-400 hover:text-black transition-colors mb-5"
+                  >
+                    ← Back to Overview
+                  </button>
+                  <Suppliers />
+                </div>
+              )}
             </motion.div>
           </AnimatePresence>
         </div>
