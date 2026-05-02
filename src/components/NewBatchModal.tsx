@@ -2,15 +2,34 @@ import React, { useState, useEffect, useRef } from 'react';
 import { X, Plus, Trash2, Truck, Calendar, CheckCircle2, Camera, ChevronDown, ChevronUp, AlertCircle, FileText } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { dbService } from '../lib/dbService';
-import { Supplier, DeviceCategory, ConditionGrade, StockLocation } from '../types';
+import { Supplier, DeviceCategory, ConditionGrade } from '../types';
 import { logInventoryEvent } from '../lib/inventoryEvents';
 
 interface Props { onClose: () => void; }
 
+// ── Brand/category helpers (mirrors ImportModal logic) ─────────────────────
+function detectCategory(model: string): DeviceCategory {
+  const m = model.toUpperCase();
+  if (m.includes('IPAD')) return 'iPad';
+  if (m.includes('APPLE WATCH') || m.includes('WATCH ULTRA') || m.includes('WATCH SE')) return 'Apple Watch';
+  if (m.includes('IPHONE')) return 'iPhone';
+  if (m.includes('GALAXY TAB') || m.includes('TAB S') || m.includes('TAB A')) return 'Tablet';
+  if (m.includes('SAMSUNG') || m.includes('GALAXY')) {
+    if (/\bA\d{2,3}\b/.test(m) || m.includes(' A ')) return 'Samsung A Series';
+    return 'Samsung S Series';
+  }
+  return 'Other';
+}
+function detectBrand(category: DeviceCategory): string {
+  if (['iPhone', 'iPad', 'Apple Watch'].includes(category)) return 'Apple';
+  if (['Samsung S Series', 'Samsung A Series', 'Tablet'].includes(category)) return 'Samsung';
+  return 'Other';
+}
+
 // ── Invoice line (from supplier bill) ─────────────────────────────────────
 interface InvoiceLine {
   id: string;
-  description: string;   // raw e.g. "Apple iPhone 14 128 gb"
+  description: string;
   qty: number;
   unitPrice: number;
 }
@@ -22,6 +41,7 @@ interface UnitRow {
   buyPrice: number;
   imei: string;
   colour: string;
+  storage: string;
   conditionGrade: ConditionGrade;
   notes: string;
   expanded: boolean;
@@ -94,6 +114,7 @@ export default function NewBatchModal({ onClose }: Props) {
           buyPrice: ln.unitPrice,
           imei: '',
           colour: 'Black',
+          storage: '',
           conditionGrade: 'A',
           notes: '',
           expanded: false,
@@ -134,15 +155,19 @@ export default function NewBatchModal({ onClose }: Props) {
         createdAt: new Date().toISOString(),
       });
 
-      for (const u of units) {
-        const unitId = `unit_${Date.now()}_${uid()}`;
+      const batchTs = Date.now();
+      for (let idx = 0; idx < units.length; idx++) {
+        const u = units[idx];
+        const unitId = `unit_${batchTs}_${idx}_${uid()}`;
+        const category = detectCategory(u.model);
+        const brand = detectBrand(category);
         await dbService.create('inventoryUnits', unitId, {
           imei: u.imei || `PENDING_${uid()}`,
           model: u.model,
-          brand: u.model.toLowerCase().includes('samsung') ? 'Samsung' : 'Apple',
-          category: u.model.toLowerCase().includes('ipad') ? 'iPad'
-            : u.model.toLowerCase().includes('samsung') ? 'Samsung S Series' : 'iPhone',
+          brand,
+          category,
           colour: u.colour,
+          storage: u.storage || undefined,
           conditionGrade: u.conditionGrade,
           buyPrice: u.buyPrice,
           dateIn: info.date,
@@ -405,9 +430,9 @@ export default function NewBatchModal({ onClose }: Props) {
                           {/* IMEI input */}
                           <input
                             value={u.imei}
-                            onChange={e => updateUnit(i, { imei: e.target.value.replace(/\D/g,'') })}
+                            onChange={e => updateUnit(i, { imei: e.target.value.replace(/[^a-zA-Z0-9]/g, '') })}
                             placeholder="IMEI / Serial number"
-                            inputMode="numeric"
+                            inputMode="text"
                             className={`flex-1 border rounded-lg px-3 py-2 text-xs font-mono focus:outline-none transition-all ${
                               u.imei.length>=8 ? 'border-emerald-200 bg-emerald-50' : 'border-gray-200 bg-white focus:border-black'
                             }`}/>
@@ -431,21 +456,31 @@ export default function NewBatchModal({ onClose }: Props) {
                               animate={{ height:'auto', opacity:1 }}
                               exit={{ height:0, opacity:0 }}
                               className="overflow-hidden bg-gray-50 border-t border-gray-100">
-                              <div className="px-4 py-3 grid grid-cols-3 gap-3">
+                              <div className="px-4 py-3 grid grid-cols-2 md:grid-cols-4 gap-3">
                                 {/* Colour */}
                                 <div>
                                   <label className="text-[8px] font-bold uppercase tracking-widest text-gray-400">Colour</label>
                                   <select value={u.colour}
-                                    onChange={e => updateUnit(i,{colour:e.target.value})}
+                                    onChange={e => updateUnit(i, { colour: e.target.value })}
                                     className="w-full mt-1 border border-gray-200 rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:border-black bg-white">
                                     {COLOURS.map(c => <option key={c}>{c}</option>)}
+                                  </select>
+                                </div>
+                                {/* Storage */}
+                                <div>
+                                  <label className="text-[8px] font-bold uppercase tracking-widest text-gray-400">Storage</label>
+                                  <select value={u.storage}
+                                    onChange={e => updateUnit(i, { storage: e.target.value })}
+                                    className="w-full mt-1 border border-gray-200 rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:border-black bg-white">
+                                    <option value="">—</option>
+                                    {['16GB','32GB','64GB','128GB','256GB','512GB','1TB'].map(s => <option key={s}>{s}</option>)}
                                   </select>
                                 </div>
                                 {/* Grade */}
                                 <div>
                                   <label className="text-[8px] font-bold uppercase tracking-widest text-gray-400">Condition</label>
                                   <select value={u.conditionGrade}
-                                    onChange={e => updateUnit(i,{conditionGrade:e.target.value as ConditionGrade})}
+                                    onChange={e => updateUnit(i, { conditionGrade: e.target.value as ConditionGrade })}
                                     className="w-full mt-1 border border-gray-200 rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:border-black bg-white">
                                     {['A','B','C','D','Unknown'].map(g => <option key={g}>{g}</option>)}
                                   </select>
@@ -454,9 +489,9 @@ export default function NewBatchModal({ onClose }: Props) {
                                 <div>
                                   <label className="text-[8px] font-bold uppercase tracking-widest text-gray-400">Notes</label>
                                   <input value={u.notes}
-                                    onChange={e => updateUnit(i,{notes:e.target.value})}
+                                    onChange={e => updateUnit(i, { notes: e.target.value })}
                                     placeholder="Box, accessories…"
-                                    className="w-full mt-1 border border-gray-200 rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:border-black bg-white"/>
+                                    className="w-full mt-1 border border-gray-200 rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:border-black bg-white" />
                                 </div>
                               </div>
                             </motion.div>

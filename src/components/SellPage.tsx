@@ -7,7 +7,7 @@ import { AnimatePresence, motion } from 'motion/react';
 import { dbService } from '../lib/dbService';
 import { InventoryUnit } from '../types';
 import CopyImei from './CopyImei';
-import { PLATFORM_LIST, PLATFORMS, DEFAULT_POSTAGE_COST, platformTotalFee, calcNetProfit } from '../lib/platforms';
+import { PLATFORM_LIST, PLATFORMS, DEFAULT_POSTAGE_COST, platformTotalFee, calcNetProfit, platformFixedFee } from '../lib/platforms';
 import CollapsibleSection from './CollapsibleSection';
 
 // ── helpers ────────────────────────────────────────────────────────────────
@@ -120,7 +120,10 @@ function SellOrderModal({
                   {p}
                   {platform === p && <CheckCircle2 size={12} />}
                   {platform !== p && (
-                    <span className="text-[8px] font-mono opacity-60">{PLATFORMS[p as keyof typeof PLATFORMS].commission}%</span>
+                    <span className="text-[8px] font-mono opacity-60">
+                      {PLATFORMS[p as keyof typeof PLATFORMS].commission}%
+                      {platformFixedFee(p) > 0 ? ` +£${platformFixedFee(p)}` : ''}
+                    </span>
                   )}
                 </button>
               ))}
@@ -245,42 +248,47 @@ function SellOrderModal({
 
 // ── Main Sell Page ──────────────────────────────────────────────────────────
 export default function SellPage() {
-  const [units, setUnits] = useState<InventoryUnit[]>([]);
-  const [search, setSearch] = useState('');
+  const [units, setUnits]       = useState<InventoryUnit[]>([]);
+  const [suppliers, setSuppliers] = useState<any[]>([]);
+  const [search, setSearch]     = useState('');
   const [selected, setSelected] = useState<InventoryUnit | null>(null);
   const [savedFlag, setSavedFlag] = useState(false);
   const [expandedId, setExpandedId] = useState<string | null>(null);
 
   useEffect(() => {
     const u = dbService.subscribeToCollection('inventoryUnits', setUnits);
-    return u;
+    const s = dbService.subscribeToCollection('suppliers', setSuppliers);
+    return () => { u(); s(); };
   }, []);
+
+  const supplierMap = useMemo(() => {
+    const m: Record<string, string> = {};
+    for (const s of suppliers) m[s.id] = s.name;
+    return m;
+  }, [suppliers]);
 
   const todayStr = today();
   const yesterday = new Date(Date.now() - 86400000).toISOString().split('T')[0];
 
-  // ONLY in-stock units for selling
   const inStock = useMemo(() => units.filter(u => u.status === 'available'), [units]);
-
-  // Sold units for today's summary
-  const sold = useMemo(() => units.filter(u => u.status === 'sold'), [units]);
-  const todaySold = sold.filter(u => u.saleDate === todayStr);
-  const ystdSold = sold.filter(u => u.saleDate === yesterday);
+  const sold    = useMemo(() => units.filter(u => u.status === 'sold'), [units]);
+  const todaySold    = sold.filter(u => u.saleDate === todayStr);
+  const ystdSold     = sold.filter(u => u.saleDate === yesterday);
   const todayRevenue = todaySold.reduce((s, u) => s + (u.salePrice || 0), 0);
-  const todayProfit = todaySold.reduce((s, u) => s + ((u.salePrice || 0) - u.buyPrice), 0);
+  const todayProfit  = todaySold.reduce((s, u) => s + ((u.salePrice || 0) - u.buyPrice), 0);
 
-  // Filtered in-stock for search
+  // Show first 80 by default; search scans entire in-stock list
   const filtered = useMemo(() => {
     if (!search.trim()) return inStock.slice(0, 80);
     const q = search.toLowerCase();
     return inStock.filter(u =>
       u.model.toLowerCase().includes(q) ||
-      u.imei.includes(q) ||
+      u.imei.toLowerCase().includes(q) ||
       u.colour?.toLowerCase().includes(q) ||
       u.storage?.toLowerCase().includes(q) ||
-      u.supplierId?.toLowerCase().includes(q)
-    ).slice(0, 80);
-  }, [inStock, search]);
+      (supplierMap[u.supplierId] || '').toLowerCase().includes(q)
+    );
+  }, [inStock, search, supplierMap]);
 
   const handleSaved = () => {
     setSavedFlag(true);

@@ -25,22 +25,22 @@ export default function StockInPage({ onOpenBatch, onOpenImport }: Props) {
 
   const today = new Date().toISOString().split('T')[0];
 
-  const recentIn = useMemo(() => {
+  const allSorted = useMemo(() => {
     return [...units]
       .filter(u => u.dateIn)
-      .sort((a, b) => new Date(b.dateIn).getTime() - new Date(a.dateIn).getTime())
-      .slice(0, 50);
+      .sort((a, b) => new Date(b.dateIn).getTime() - new Date(a.dateIn).getTime());
   }, [units]);
 
   const filtered = useMemo(() => {
-    if (!search.trim()) return recentIn;
+    if (!search.trim()) return allSorted.slice(0, 50);
     const q = search.toLowerCase();
-    return recentIn.filter(u =>
+    return allSorted.filter(u =>
       u.model.toLowerCase().includes(q) ||
-      u.imei.includes(q) ||
-      (u.buyPrice + '').includes(q)
+      u.imei.toLowerCase().includes(q) ||
+      (u.buyPrice + '').includes(q) ||
+      (supplierMap[u.supplierId] || '').toLowerCase().includes(q)
     );
-  }, [recentIn, search]);
+  }, [allSorted, search, supplierMap]);
 
   const todayIn = units.filter(u => u.dateIn === today);
   const totalBP = todayIn.reduce((s, u) => s + u.buyPrice, 0);

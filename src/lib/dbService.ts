@@ -185,16 +185,21 @@ export const dbService = {
 
       try {
         await ensureAuthReady();
-        const batch = writeBatch(db);
-        for (const item of items) {
-          batch.set(doc(collectionRef(collectionName), item.id), {
-            ...item.data,
-            id: item.id,
-            createdAt: item.data.createdAt ?? timestamp,
-            updatedAt: timestamp,
-          });
+        // Firestore batches are capped at 500 writes — chunk accordingly
+        const BATCH_LIMIT = 499;
+        for (let offset = 0; offset < items.length; offset += BATCH_LIMIT) {
+          const chunk = items.slice(offset, offset + BATCH_LIMIT);
+          const batch = writeBatch(db);
+          for (const item of chunk) {
+            batch.set(doc(collectionRef(collectionName), item.id), {
+              ...item.data,
+              id: item.id,
+              createdAt: item.data.createdAt ?? timestamp,
+              updatedAt: timestamp,
+            });
+          }
+          await batch.commit();
         }
-        await batch.commit();
       } catch (error) {
         console.warn(`Firestore bulk create failed for ${collectionName}; kept local cache only.`, error);
       }
@@ -252,11 +257,11 @@ export const dbService = {
     void (async () => {
       try {
         await ensureAuthReady();
-        // ⚠️  SCALE GUARD — limit to 5,000 most-recent docs so the client never
-        // loads the entire collection. Use subscribeToDateRange for reports/VAT.
+        // inventoryUnits orders by dateIn; other collections (suppliers, batches) use createdAt
+        const orderField = collectionName === 'inventoryUnits' ? 'dateIn' : 'createdAt';
         const q = query(
           collectionRef(collectionName),
-          orderBy('dateIn', 'desc'),
+          orderBy(orderField, 'desc'),
           limit(5000)
         );
         unsub = onSnapshot(q, snap => {
@@ -420,7 +425,7 @@ export const dbService = {
   },
 
   async resetDatabase() {
-    const collections = ['inventoryUnits', 'suppliers'];
+    const collections = ['inventoryUnits', 'suppliers', 'batches', 'inventoryEvents', 'dailyUpdates', 'activeListings', 'sourceDocuments'];
     for (const coll of collections) {
       saveLocalCollection(coll, []);
       try {

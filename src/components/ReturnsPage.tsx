@@ -57,13 +57,16 @@ function ProcessReturnModal({
         returnType,
         returnDate,
         returnReason: reason.trim(),
-        // Clear sale data if going back to inventory
+        // Always clear sale data on any return — prevents ghost sale records
+        salePrice: null,
+        saleDate: null,
+        salePlatform: null,
+        saleOrderId: null,
+        postageCost: null,
+        // Restore listing state if going back to available stock
         ...(returnType === 'returned_to_inventory' ? {
-          salePrice: null,
-          saleDate: null,
-          salePlatform: null,
-          saleOrderId: null,
-          postageCost: null,
+          platformListed: false,
+          listingSites: [],
         } : {}),
       });
       onSaved();
