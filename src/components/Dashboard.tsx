@@ -7,6 +7,10 @@ import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContaine
 import { dbService } from '../lib/dbService';
 import { InventoryUnit, Supplier } from '../types';
 import { getOnHandValue } from '../lib/inventorySummary';
+import CopyImei from './CopyImei';
+import PeriodicInventory from './PeriodicInventory';
+
+
 
 export interface NavAction {
   tab: 'inventory' | 'suppliers' | 'scan' | 'calendar' | 'sales';
@@ -53,8 +57,10 @@ export default function Dashboard({ onNavigate }: Props) {
   const totalValue   = getOnHandValue(units);
   const top10Units   = available.filter(u => u.flags.includes('top10'));
   const today        = new Date().toISOString().split('T')[0];
+  const yesterday    = new Date(Date.now() - 86400000).toISOString().split('T')[0];
   const todayArrivals = units.filter(u => u.dateIn === today);
   const todaySold    = sold.filter(u => (u.saleDate || u.dateIn) === today);
+  const yesterdaySold = sold.filter(u => (u.saleDate || '') === yesterday || (u.dateIn === yesterday && !u.saleDate));
 
   const categoryData = useMemo(() => {
     const map: Record<string, number> = {};
@@ -72,6 +78,95 @@ export default function Dashboard({ onNavigate }: Props) {
     return Object.entries(map).map(([model, d]) => ({ model, ...d }))
       .sort((a, b) => b.count - a.count).slice(0, 10);
   }, [available]);
+
+  const top10Sold = useMemo(() => {
+    const map: Record<string, { count: number; revenue: number }> = {};
+    for (const u of sold) {
+      if (!map[u.model]) map[u.model] = { count: 0, revenue: 0 };
+      map[u.model].count++;
+      map[u.model].revenue += (u.salePrice || 0);
+    }
+    return Object.entries(map).map(([model, d]) => ({ model, ...d }))
+      .sort((a, b) => b.count - a.count).slice(0, 10);
+  }, [sold]);
+
+  const seriesModels = useMemo(() => {
+    const map: Record<string, { count: number; value: number; category: string; seriesName: string; shortSymbol: string; searchTerm: string }> = {};
+    for (const u of available) {
+      const mLower = u.model.toLowerCase();
+      let seriesName = u.model;
+      let shortSymbol = u.model.substring(0, 3).toUpperCase();
+      let searchTerm = u.model;
+
+      if (mLower.includes('iphone')) {
+        const numMatch = u.model.match(/\d+/);
+        const num = numMatch ? numMatch[0] : '';
+        seriesName = `Apple ${num} Series`;
+        shortSymbol = `a${num}`;
+        searchTerm = `iPhone ${num}`;
+      } else if (mLower.includes('galaxy s')) {
+        const numMatch = u.model.match(/s\d+/i);
+        const num = numMatch ? numMatch[0].toUpperCase() : 'S';
+        seriesName = `Samsung ${num} Series`;
+        shortSymbol = `S${num.replace('S', '')}`;
+        searchTerm = `Galaxy ${num}`;
+      } else if (mLower.includes('galaxy a')) {
+        const numMatch = u.model.match(/a\d+/i);
+        const num = numMatch ? numMatch[0].toUpperCase() : 'A';
+        seriesName = `Samsung ${num} Series`;
+        shortSymbol = `S${num.replace('A', '')}`;
+        searchTerm = `Galaxy ${num}`;
+      } else if (mLower.includes('galaxy z')) {
+        const isFold = mLower.includes('fold');
+        const isFlip = mLower.includes('flip');
+        const numMatch = u.model.match(/\d+/);
+        const num = numMatch ? numMatch[0] : '';
+        const type = isFold ? 'Fold' : isFlip ? 'Flip' : 'Z';
+        seriesName = `Samsung Z ${type} ${num} Series`;
+        shortSymbol = `S${isFold ? 'Fd' : isFlip ? 'Fp' : 'Z'}${num}`;
+        searchTerm = `Galaxy Z ${type} ${num}`;
+      } else if (mLower.includes('pixel')) {
+        const numMatch = u.model.match(/\d+/);
+        const num = numMatch ? numMatch[0] : '';
+        seriesName = `Google ${num} Series`;
+        shortSymbol = `G${num}`;
+        searchTerm = `Pixel ${num}`;
+      } else if (mLower.includes('ipad')) {
+        if (mLower.includes('pro')) { seriesName = 'Apple iPad Pro Series'; shortSymbol = 'aPP'; searchTerm = 'iPad Pro'; }
+        else if (mLower.includes('air')) { seriesName = 'Apple iPad Air Series'; shortSymbol = 'aPA'; searchTerm = 'iPad Air'; }
+        else if (mLower.includes('mini')) { seriesName = 'Apple iPad Mini Series'; shortSymbol = 'aPM'; searchTerm = 'iPad Mini'; }
+        else { seriesName = 'Apple iPad Series'; shortSymbol = 'aPd'; searchTerm = 'iPad'; }
+      } else if (mLower.includes('watch')) {
+        if (mLower.includes('apple')) {
+          const numMatch = u.model.match(/\d+/);
+          if (mLower.includes('ultra')) { seriesName = 'Apple Watch Ultra'; shortSymbol = 'aWU'; searchTerm = 'Watch Ultra'; }
+          else if (mLower.includes('se')) { seriesName = 'Apple Watch SE'; shortSymbol = 'aWS'; searchTerm = 'Watch SE'; }
+          else { seriesName = `Apple Watch ${numMatch ? numMatch[0] : ''} Series`; shortSymbol = `aW${numMatch ? numMatch[0] : ''}`; searchTerm = `Watch Series ${numMatch ? numMatch[0] : ''}`; }
+        } else if (mLower.includes('galaxy')) {
+          const numMatch = u.model.match(/\d+/);
+          seriesName = `Samsung Watch ${numMatch ? numMatch[0] : ''} Series`; shortSymbol = `sW${numMatch ? numMatch[0] : ''}`; searchTerm = `Galaxy Watch ${numMatch ? numMatch[0] : ''}`;
+        }
+      } else if (mLower.includes('macbook')) {
+        if (mLower.includes('pro')) { seriesName = 'Apple MacBook Pro Series'; shortSymbol = 'aBP'; searchTerm = 'MacBook Pro'; }
+        else if (mLower.includes('air')) { seriesName = 'Apple MacBook Air Series'; shortSymbol = 'aBA'; searchTerm = 'MacBook Air'; }
+        else { seriesName = 'Apple MacBook Series'; shortSymbol = 'aMB'; searchTerm = 'MacBook'; }
+      } else if (mLower.includes('airpods')) {
+        if (mLower.includes('pro')) { seriesName = 'Apple AirPods Pro'; shortSymbol = 'aPP'; searchTerm = 'AirPods Pro'; }
+        else if (mLower.includes('max')) { seriesName = 'Apple AirPods Max'; shortSymbol = 'aPM'; searchTerm = 'AirPods Max'; }
+        else { seriesName = 'Apple AirPods Series'; shortSymbol = 'aAP'; searchTerm = 'AirPods'; }
+      } else {
+        const parts = u.model.split(' ');
+        seriesName = `${parts[0] || ''} ${parts[1] || ''} Series`.trim();
+        searchTerm = parts.slice(0, 2).join(' ');
+      }
+
+      if (!map[seriesName]) map[seriesName] = { count: 0, value: 0, category: u.category || 'Other', seriesName, shortSymbol, searchTerm };
+      map[seriesName].count++;
+      map[seriesName].value += u.buyPrice;
+    }
+    return Object.values(map).sort((a, b) => b.count - a.count);
+  }, [available]);
+
 
   // Aged Inventory (Longest unsold)
   const oldestUnits = useMemo(() => {
@@ -120,6 +215,11 @@ export default function Dashboard({ onNavigate }: Props) {
         </button>
       </div>
 
+      <PeriodicInventory
+        units={units}
+        onNavigate={(search) => onNavigate({ tab: 'inventory', filters: { search, status: 'available' } })}
+      />
+
       {/* KPI Cards — ALL CLICKABLE */}
       <div className="grid grid-cols-2 gap-3">
         <KPICard
@@ -143,8 +243,69 @@ export default function Dashboard({ onNavigate }: Props) {
           sub="Back in pipeline" icon={<TrendingUp size={16}/>}
           onClick={() => onNavigate({ tab:'inventory', filters:{ status:'returned' } })}
         />
-
       </div>
+
+      {/* ── SALES TEAM INSIGHTS ─────────────────────────── */}
+      {/* Yesterday's Sales */}
+      <div className="bg-gradient-to-br from-gray-900 to-gray-800 rounded-2xl p-4 text-white">
+        <div className="flex items-center justify-between mb-3">
+          <div>
+            <p className="text-[10px] font-bold uppercase tracking-widest text-gray-400">Yesterday's Sales</p>
+            <p className="text-[9px] text-gray-500 font-mono">{new Date(Date.now()-86400000).toLocaleDateString('en-GB',{weekday:'long',day:'numeric',month:'short'})}</p>
+          </div>
+          <span className="text-3xl font-bold font-display">{yesterdaySold.length}</span>
+        </div>
+        {yesterdaySold.length === 0 ? (
+          <p className="text-[10px] text-gray-500 font-mono">No sales recorded for yesterday.</p>
+        ) : (
+          <div className="space-y-1.5 mt-2">
+            {yesterdaySold.slice(0, 5).map(u => (
+              <button key={u.id}
+                onClick={() => onNavigate({ tab:'inventory', filters:{ search: u.imei } })}
+                className="w-full flex items-center justify-between bg-white/5 hover:bg-white/10 rounded-lg px-3 py-2 transition-all text-left"
+              >
+                <div className="min-w-0">
+                  <p className="text-xs font-bold truncate">{u.model}</p>
+                  <p className="text-[9px] text-gray-400 font-mono">{u.colour} · {u.salePlatform || 'Unknown platform'}</p>
+                </div>
+                <span className="text-sm font-bold text-green-400 ml-2 flex-shrink-0">£{(u.salePrice || 0).toLocaleString()}</span>
+              </button>
+            ))}
+            {yesterdaySold.length > 5 && (
+              <p className="text-[9px] text-gray-500 font-mono text-center pt-1">+{yesterdaySold.length - 5} more sold yesterday</p>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* Top 10 Sold Products (All Time) */}
+      {top10Sold.length > 0 && (
+        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+          <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between">
+            <p className="text-[10px] font-bold uppercase tracking-widest text-gray-400">Top 10 Sold Products</p>
+            <span className="text-[9px] text-gray-400 font-mono">All time · by volume</span>
+          </div>
+          <div className="divide-y divide-gray-50">
+            {top10Sold.map((m, i) => (
+              <button key={m.model}
+                onClick={() => onNavigate({ tab:'inventory', filters:{ search: m.model, status:'sold' } })}
+                className="w-full flex items-center gap-3 px-4 py-3 hover:bg-gray-50 transition-all text-left group"
+              >
+                <span className={`text-[10px] font-mono w-5 flex-shrink-0 font-bold ${i < 3 ? 'text-amber-500' : 'text-gray-400'}`}>{String(i+1).padStart(2,'0')}</span>
+                <div className="flex-1 min-w-0">
+                  <p className="text-xs font-bold truncate">{m.model}</p>
+                  <p className="text-[9px] text-gray-400 font-mono">£{m.revenue.toLocaleString()} revenue</p>
+                </div>
+                <div className="text-right flex-shrink-0">
+                  <p className="text-xl font-bold font-display leading-tight text-green-600">{m.count}</p>
+                  <p className="text-[8px] text-gray-400 font-mono">sold</p>
+                </div>
+                <ChevronRight size={14} className="text-gray-300 group-hover:text-black transition-all flex-shrink-0"/>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Platform sales pills */}
       {platformSales.length > 0 && (
@@ -258,7 +419,13 @@ export default function Dashboard({ onNavigate }: Props) {
                 >
                   <div className="flex-1 min-w-0">
                     <p className="text-xs font-bold truncate">{u.model}</p>
-                    <p className="text-[9px] text-gray-400 font-mono truncate">{u.colour} · IMEI {u.imei ? u.imei.slice(0, 8) + '…' : 'N/A'} · {supplier?.name || 'Unknown supplier'}</p>
+                    <div className="flex items-center gap-1.5 mt-0.5">
+                      <span className="text-[9px] text-gray-400 font-mono">{u.colour}</span>
+                      <span className="text-[9px] text-gray-300">·</span>
+                      <CopyImei imei={u.imei} truncate={10} />
+                      <span className="text-[9px] text-gray-300">·</span>
+                      <span className="text-[9px] text-gray-400 font-mono">{supplier?.name || 'Unknown supplier'}</span>
+                    </div>
                   </div>
                   <div className="text-right flex-shrink-0">
                     <p className="text-xl font-bold font-display leading-tight text-orange-600">{u.daysOld}</p>
@@ -271,6 +438,8 @@ export default function Dashboard({ onNavigate }: Props) {
           </div>
         </div>
       )}
+
+      {/* placeholder removed — periodic table now at top */}
 
       {/* Empty state */}
       {units.length === 0 && (

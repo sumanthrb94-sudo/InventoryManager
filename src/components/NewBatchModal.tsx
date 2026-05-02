@@ -192,8 +192,8 @@ export default function NewBatchModal({ onClose }: NewBatchModalProps) {
               <Zap size={24} strokeWidth={2.5} />
             </div>
             <div>
-              <h2 className="text-2xl font-bold tracking-tighter uppercase font-display">Ingest Batch</h2>
-              <p className="text-[10px] text-gray-500 font-mono uppercase tracking-[0.3em] mt-0.5">Supplier Packing Slip Entry</p>
+              <h2 className="text-2xl font-bold tracking-tighter uppercase font-display">Add Stock from Supplier</h2>
+              <p className="text-[10px] text-gray-500 font-mono uppercase tracking-[0.3em] mt-0.5">New Supplier Delivery</p>
             </div>
           </div>
           <button onClick={onClose} className="p-2 hover:bg-black hover:text-white transition-all text-gray-400">
@@ -203,7 +203,7 @@ export default function NewBatchModal({ onClose }: NewBatchModalProps) {
 
         {/* Step Indicator */}
         <div className="flex border-b border-gray-200">
-          {[{ n: 1, label: 'Batch Details' }, { n: 2, label: 'Add Units' }].map(s => (
+          {[{ n: 1, label: 'Delivery Details' }, { n: 2, label: 'Add Phones' }].map(s => (
             <button
               key={s.n}
               onClick={() => s.n < step || s.n === 1 ? setStep(s.n as 1 | 2) : null}
@@ -353,7 +353,7 @@ export default function NewBatchModal({ onClose }: NewBatchModalProps) {
 
                 {/* Notes */}
                 <div className="space-y-2">
-                  <label className="text-[9px] text-gray-500 font-mono uppercase font-bold tracking-widest">Batch Notes</label>
+                  <label className="text-[9px] text-gray-500 font-mono uppercase font-bold tracking-widest">Delivery Notes</label>
                   <input
                     value={batchInfo.notes}
                     onChange={e => setBatchInfo({ ...batchInfo, notes: e.target.value })}
@@ -390,7 +390,7 @@ export default function NewBatchModal({ onClose }: NewBatchModalProps) {
               <div className="p-6 bg-gray-50 border border-gray-200 border-l-4 border-l-black flex items-start gap-4">
                 <Info size={18} className="text-black flex-shrink-0 mt-0.5" />
                 <p className="text-xs text-gray-500 leading-relaxed font-mono uppercase tracking-wider">
-                  Enter the packing slip details above. In the next step, add each unit individually with its IMEI, colour, and buy price.
+                  Enter the delivery details above. In the next step, add each phone with its IMEI, colour, and what you paid for it (Buy Price).
                 </p>
               </div>
             </div>
@@ -527,7 +527,7 @@ export default function NewBatchModal({ onClose }: NewBatchModalProps) {
               {/* Summary bar */}
               <div className="flex items-center justify-between p-4 bg-gray-50 border border-gray-200 text-xs font-mono">
                 <span className="text-gray-500">{devices.length} unit{devices.length !== 1 ? 's' : ''}</span>
-                <span className="font-bold text-black">Batch Cost: £{totalBatchCost.toLocaleString()}</span>
+                <span className="font-bold text-black">Total Buying Cost: £{totalBatchCost.toLocaleString()}</span>
               </div>
             </div>
           )}
@@ -561,7 +561,7 @@ export default function NewBatchModal({ onClose }: NewBatchModalProps) {
               disabled={loading}
               className="px-12 py-3 bg-black text-white font-bold uppercase tracking-widest text-[10px] hover:bg-gray-800 transition-all disabled:opacity-50 flex items-center gap-3"
             >
-              {loading ? 'Saving...' : step === 1 ? 'Next: Add Units →' : 'Commit Batch'}
+              {loading ? 'Saving...' : step === 1 ? 'Next: Add Phones →' : 'Save Delivery'}
               {!loading && step === 2 && <CheckCircle2 size={16} strokeWidth={3} />}
             </button>
           </div>

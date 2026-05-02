@@ -479,7 +479,7 @@ export default function Sales() {
                       {platformList.length === 0 ? (
                         <tr>
                           <td colSpan={5} className="px-6 py-12 text-center text-gray-400 font-mono text-xs">
-                            No available stock. Ingest a batch first.
+                            No phones in stock. Add a supplier delivery first.
                           </td>
                         </tr>
                       ) : platformList.map(item => (

@@ -8,6 +8,8 @@ import {
 import { InventoryUnit, OperationalFlag, SourceDocument } from '../types';
 import { dbService } from '../lib/dbService';
 import { validateIMEI, formatIMEI } from '../lib/imeiUtils';
+import CopyImei from './CopyImei';
+
 
 import { logInventoryEvent } from '../lib/inventoryEvents';
 
@@ -198,6 +200,9 @@ export default function UnitDetailDrawer({ unit, supplierName, onClose }: Props)
               <p className="text-white font-mono text-sm font-bold tracking-wider">
                 {unit.imei ? formatIMEI(unit.imei) : '— Not recorded —'}
               </p>
+              {unit.imei && (
+                <CopyImei imei={unit.imei} showText={false} className="mt-1.5" />
+              )}
             </div>
             <div className="flex flex-col items-end gap-1">
               {unit.imei && imeiValid !== null ? (

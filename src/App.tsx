@@ -6,25 +6,29 @@
 import React, { useState, useEffect } from 'react';
 import { adminAuth, ADMIN_EMAIL } from './lib/adminAuth';
 import {
-  LayoutDashboard, Smartphone, Truck, Bell,
+  LayoutDashboard, PackagePlus, PackageMinus,
+  RefreshCw, BarChart2,
   LogOut, Plus, FileSpreadsheet,
   Eye, EyeOff, Lock, Mail, ShieldCheck,
-  ScanLine, CalendarDays,
+  ScanLine, CalendarDays, Bell, Truck,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import Dashboard, { NavAction } from './components/Dashboard';
 import Inventory from './components/Inventory';
 import Suppliers from './components/Suppliers';
-import Sales from './components/Sales';
 import ScanPage from './components/ScanPage';
 import CalendarPage from './components/CalendarPage';
 import NewBatchModal from './components/NewBatchModal';
 import ImportModal from './components/ImportModal';
+import StockInPage from './components/StockInPage';
+import StockOutPage from './components/StockOutPage';
+import ReturnsPage from './components/ReturnsPage';
+import ReportingPage from './components/ReportingPage';
 import { useRealTimeNotifications } from './hooks/useRealTimeNotifications';
 import NotificationToast from './components/NotificationToast';
 import { notificationService } from './lib/notificationService';
 
-type Tab = 'dashboard' | 'inventory' | 'suppliers' | 'sales' | 'scan' | 'calendar';
+type Tab = 'dashboard' | 'stockin' | 'stockout' | 'returns' | 'reporting' | 'inventory' | 'suppliers' | 'scan' | 'calendar';
 
 interface InventoryFilters { status?: string; search?: string; supplierId?: string; }
 
@@ -113,35 +117,20 @@ export default function App() {
           <p className="text-[9px] text-gray-500 font-mono uppercase tracking-[0.4em] mt-2">{APP_TAGLINE}</p>
         </button>
 
-        <nav className="flex-1 px-4 space-y-2">
-          <NavItem id="dashboard" label="Dashboard"    icon={<LayoutDashboard size={18} />} active={activeTab === 'dashboard'}  onClick={() => setActiveTab('dashboard')} />
-          <NavItem id="inventory" label="Inventory"    icon={<Smartphone size={18} />}      active={activeTab === 'inventory'}  onClick={openInventory} />
-          <NavItem id="scan"      label="Scan & Update" icon={<ScanLine size={18} />}       active={activeTab === 'scan'}       onClick={() => setActiveTab('scan')} />
-          <NavItem id="calendar" label="Calendar"     icon={<CalendarDays size={18} />}    active={activeTab === 'calendar'}   onClick={() => setActiveTab('calendar')} />
-          <NavItem id="suppliers" label="Suppliers"    icon={<Truck size={18} />}           active={activeTab === 'suppliers'}  onClick={() => setActiveTab('suppliers')} />
-          <NavItem 
-            id="sales"     
-            label="Daily Update" 
-            icon={
-              <div className="relative">
-                <Bell size={18} />
-                {unreadCount > 0 && (
-                  <motion.span 
-                    initial={{ scale: 0 }}
-                    animate={{ scale: 1 }}
-                    className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 text-white text-[8px] font-bold flex items-center justify-center rounded-full border border-white"
-                  >
-                    {unreadCount}
-                  </motion.span>
-                )}
-              </div>
-            }            
-            active={activeTab === 'sales'}      
-            onClick={() => {
-              setActiveTab('sales');
-              notificationService.markAllAsRead();
-            }} 
-          />
+        <nav className="flex-1 px-4 space-y-1">
+          {/* Core 4 modules */}
+          <p className="text-[8px] font-mono uppercase tracking-[0.3em] text-gray-400 px-4 pt-2 pb-1">Daily Work</p>
+          <NavItem id="stockin"   label="Buy Stock"    icon={<PackagePlus size={18}/>}  active={activeTab==='stockin'}   onClick={()=>setActiveTab('stockin')} />
+          <NavItem id="stockout"  label="Record Sale"  icon={<PackageMinus size={18}/>} active={activeTab==='stockout'}  onClick={()=>setActiveTab('stockout')} />
+          <NavItem id="returns"   label="Returns"      icon={<RefreshCw size={18}/>}    active={activeTab==='returns'}   onClick={()=>setActiveTab('returns')} />
+          <NavItem id="reporting" label="Reports"      icon={<BarChart2 size={18}/>}    active={activeTab==='reporting'} onClick={()=>setActiveTab('reporting')} />
+
+          {/* Secondary */}
+          <p className="text-[8px] font-mono uppercase tracking-[0.3em] text-gray-400 px-4 pt-4 pb-1">Tools</p>
+          <NavItem id="dashboard" label="Overview"     icon={<LayoutDashboard size={18}/>} active={activeTab==='dashboard'}  onClick={()=>setActiveTab('dashboard')} />
+          <NavItem id="inventory" label="All Units"    icon={<ScanLine size={18}/>}        active={activeTab==='inventory'}  onClick={openInventory} />
+          <NavItem id="suppliers" label="Suppliers"    icon={<Truck size={18}/>}            active={activeTab==='suppliers'}  onClick={()=>setActiveTab('suppliers')} />
+          <NavItem id="calendar"  label="Calendar"     icon={<CalendarDays size={18}/>}    active={activeTab==='calendar'}   onClick={()=>setActiveTab('calendar')} />
         </nav>
 
         {/* Admin badge + logout */}
@@ -208,46 +197,27 @@ export default function App() {
               exit={{ opacity: 0, y: -10 }}
               transition={{ duration: 0.2 }}
             >
-              {activeTab === 'dashboard' && <Dashboard onNavigate={handleNavigate} />}
-              {activeTab === 'inventory' && <Inventory initialFilters={inventoryFilters} />}
-              {activeTab === 'scan'      && <ScanPage />}
-              {activeTab === 'calendar' && <CalendarPage />}
-              {activeTab === 'suppliers' && <Suppliers />}
-              {activeTab === 'sales'     && <Sales />}
+              {activeTab === 'dashboard'  && <Dashboard onNavigate={handleNavigate} />}
+              {activeTab === 'stockin'    && <StockInPage onOpenBatch={()=>setIsBatchModalOpen(true)} onOpenImport={()=>setIsImportModalOpen(true)} />}
+              {activeTab === 'stockout'   && <StockOutPage />}
+              {activeTab === 'returns'    && <ReturnsPage />}
+              {activeTab === 'reporting'  && <ReportingPage />}
+              {activeTab === 'inventory'  && <Inventory initialFilters={inventoryFilters} />}
+              {activeTab === 'scan'       && <ScanPage />}
+              {activeTab === 'calendar'   && <CalendarPage />}
+              {activeTab === 'suppliers'  && <Suppliers />}
             </motion.div>
           </AnimatePresence>
         </div>
       </main>
 
-      {/* Mobile bottom nav */}
-      <nav className="md:hidden fixed bottom-0 w-full bg-white border-t border-gray-200 z-30 flex items-center justify-around px-2 py-2 safe-area-bottom">
-        <MobileNavItem id="dashboard" icon={<LayoutDashboard size={20} />} label="Dash"     active={activeTab === 'dashboard'} onClick={() => setActiveTab('dashboard')} />
-        <MobileNavItem id="inventory" icon={<Smartphone size={20} />}      label="Stock"    active={activeTab === 'inventory'} onClick={openInventory} />
-        <MobileNavItem id="scan"      icon={<ScanLine size={22} />}         label="Scan"     active={activeTab === 'scan'}      onClick={() => setActiveTab('scan')} />
-        <MobileNavItem id="calendar" icon={<CalendarDays size={20} />}    label="Calendar" active={activeTab === 'calendar'}  onClick={() => setActiveTab('calendar')} />
-        <MobileNavItem 
-          id="sales"     
-          icon={
-            <div className="relative">
-              <Bell size={20} />
-              {unreadCount > 0 && (
-                <motion.span 
-                  initial={{ scale: 0 }}
-                  animate={{ scale: 1 }}
-                  className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 text-white text-[8px] font-bold flex items-center justify-center rounded-full border border-white"
-                >
-                  {unreadCount}
-                </motion.span>
-              )}
-            </div>
-          }            
-          label="Update"   
-          active={activeTab === 'sales'}     
-          onClick={() => {
-            setActiveTab('sales');
-            notificationService.markAllAsRead();
-          }} 
-        />
+      {/* Mobile bottom nav — 4 core modules */}
+      <nav className="md:hidden fixed bottom-0 w-full bg-white border-t border-gray-200 z-30 flex items-center justify-around px-1 py-2 safe-area-bottom">
+        <MobileNavItem id="stockin"   icon={<PackagePlus size={20}/>}    label="Buy"      active={activeTab==='stockin'}   onClick={()=>setActiveTab('stockin')} />
+        <MobileNavItem id="stockout"  icon={<PackageMinus size={20}/>}   label="Sold"     active={activeTab==='stockout'}  onClick={()=>setActiveTab('stockout')} />
+        <MobileNavItem id="returns"   icon={<RefreshCw size={20}/>}      label="Returns"  active={activeTab==='returns'}   onClick={()=>setActiveTab('returns')} />
+        <MobileNavItem id="reporting" icon={<BarChart2 size={20}/>}      label="Reports"  active={activeTab==='reporting'} onClick={()=>setActiveTab('reporting')} />
+        <MobileNavItem id="dashboard" icon={<LayoutDashboard size={20}/>} label="Overview" active={activeTab==='dashboard'} onClick={()=>setActiveTab('dashboard')} />
       </nav>
 
       <AnimatePresence>
