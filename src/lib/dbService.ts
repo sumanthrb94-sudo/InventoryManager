@@ -24,7 +24,7 @@ import {
   writeBatch,
 } from 'firebase/firestore';
 
-import { auth, db, ensureAnonymousAuth } from './firebase';
+import { auth, db } from './firebase';
 
 const LOCAL_CACHE_PREFIX = 'nexus_db_';
 const listeners: Record<string, Array<(data: any[]) => void>> = {};
@@ -92,9 +92,9 @@ function saveLocalCollection(collectionName: string, data: any[]) {
 }
 
 async function ensureAuthReady() {
-  await ensureAnonymousAuth();
+  await auth.authStateReady();
   if (!auth.currentUser) {
-    throw new Error('Firebase authentication is not available.');
+    throw new Error('Not authenticated.');
   }
 }
 
@@ -262,7 +262,7 @@ export const dbService = {
         const q = query(
           collectionRef(collectionName),
           orderBy(orderField, 'desc'),
-          limit(5000)
+          limit(12000)
         );
         unsub = onSnapshot(q, snap => {
           const data = snap.docs.map(d => normalizeDoc(d.data() as Record<string, any>, d.id));
@@ -422,6 +422,14 @@ export const dbService = {
       // Fall back to local cache count
       return ensureLocalCache(collectionName).filter((d: any) => d[field] === value).length;
     }
+  },
+
+  /** Re-emit localStorage contents to all active subscribers for a collection.
+   *  Call after writing directly to localStorage (e.g. during seeding). */
+  refreshFromLocalCache(collectionName: string) {
+    const data = readLocalTable(collectionName);
+    cacheLoaded[collectionName] = true;
+    emit(collectionName, data);
   },
 
   async resetDatabase() {
