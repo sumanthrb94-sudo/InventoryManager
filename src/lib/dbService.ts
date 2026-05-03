@@ -24,7 +24,7 @@ import {
   writeBatch,
 } from 'firebase/firestore';
 
-import { auth, db, ensureAnonymousAuth } from './firebase';
+import { auth, db } from './firebase';
 
 const LOCAL_CACHE_PREFIX = 'nexus_db_';
 const listeners: Record<string, Array<(data: any[]) => void>> = {};
@@ -92,9 +92,9 @@ function saveLocalCollection(collectionName: string, data: any[]) {
 }
 
 async function ensureAuthReady() {
-  await ensureAnonymousAuth();
+  await auth.authStateReady();
   if (!auth.currentUser) {
-    throw new Error('Firebase authentication is not available.');
+    throw new Error('Not authenticated.');
   }
 }
 

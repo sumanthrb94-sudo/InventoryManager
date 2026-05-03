@@ -1,42 +1,39 @@
 import { initializeApp } from 'firebase/app';
-import { getAuth, signInAnonymously } from 'firebase/auth';
-import { getFirestore, doc, getDocFromServer } from 'firebase/firestore';
+import {
+  getAuth,
+  GoogleAuthProvider,
+  signInWithPopup,
+  signOut as fbSignOut,
+} from 'firebase/auth';
+import { getFirestore } from 'firebase/firestore';
 import { getStorage } from 'firebase/storage';
 import firebaseConfig from '../../firebase-applet-config.json';
 
 const app = initializeApp(firebaseConfig);
-export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
+export const db      = getFirestore(app, firebaseConfig.firestoreDatabaseId);
 export const storage = getStorage(app, firebaseConfig.storageBucket);
-export const auth = getAuth(app);
+export const auth    = getAuth(app);
 
-let authReadyPromise: Promise<void> | null = null;
+export const googleProvider = new GoogleAuthProvider();
 
-export function ensureAnonymousAuth() {
-  if (!authReadyPromise) {
-    authReadyPromise = (async () => {
-      await auth.authStateReady();
-      if (!auth.currentUser) {
-        try {
-          await signInAnonymously(auth);
-        } catch (e) {
-          console.warn('Anonymous auth failed or restricted:', e);
-        }
-      }
-    })();
-  }
-
-  return authReadyPromise;
+/** Opens the Google Sign-In popup. */
+export function signInWithGoogle() {
+  return signInWithPopup(auth, googleProvider);
 }
 
-// Critical connection test
-async function testConnection() {
-  try {
-    await ensureAnonymousAuth();
-    await getDocFromServer(doc(db, 'test', 'connection'));
-  } catch (error) {
-    if (error instanceof Error && error.message.includes('the client is offline')) {
-      console.error("Please check your Firebase configuration.");
-    }
-  }
+/** Signs the current user out. */
+export function signOut() {
+  return fbSignOut(auth);
 }
-void testConnection();
+
+/**
+ * Waits for Firebase Auth to resolve its persisted session.
+ * Replaces ensureAnonymousAuth — no anonymous fallback needed now
+ * that all users sign in with Google.
+ */
+export function ensureAuthReady(): Promise<void> {
+  return auth.authStateReady();
+}
+
+// Backward-compat alias used by seedData.ts
+export const ensureAnonymousAuth = ensureAuthReady;
