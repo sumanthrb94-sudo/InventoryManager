@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import {
-  TrendingUp, Package, CircleDollarSign, Star,
-  ArrowUpRight, ChevronRight, Truck, ShoppingBag, Trash2
+  TrendingUp, Package, CircleDollarSign,
+  ChevronRight, Truck, ShoppingBag, Trash2, AlertTriangle, CheckCircle2, X,
 } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts';
 import { dbService } from '../lib/dbService';
@@ -27,10 +27,12 @@ interface Props {
   onNavigate: (action: NavAction) => void;
 }
 
+type ResetState = 'idle' | 'confirming' | 'resetting' | 'done' | 'error';
+
 export default function Dashboard({ onNavigate }: Props) {
-  const [units, setUnits]       = useState<InventoryUnit[]>([]);
+  const [units, setUnits]         = useState<InventoryUnit[]>([]);
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
-  const [isResetting, setIsResetting] = useState(false);
+  const [resetState, setResetState] = useState<ResetState>('idle');
 
   useEffect(() => {
     const u = dbService.subscribeToCollection('inventoryUnits', setUnits);
@@ -38,17 +40,15 @@ export default function Dashboard({ onNavigate }: Props) {
     return () => { u(); s(); };
   }, []);
 
-  const handleReset = async () => {
-    if (!window.confirm('CRITICAL: This will permanently delete ALL inventory and supplier data for testing. Proceed?')) return;
-    
-    setIsResetting(true);
+  const handleResetConfirm = async () => {
+    setResetState('resetting');
     try {
       await dbService.resetDatabase();
-      alert('Database reset successful. Ready for fresh import.');
-    } catch (err) {
-      alert('Reset failed. Check console for details.');
-    } finally {
-      setIsResetting(false);
+      setResetState('done');
+      setTimeout(() => setResetState('idle'), 4000);
+    } catch {
+      setResetState('error');
+      setTimeout(() => setResetState('idle'), 4000);
     }
   };
 
@@ -199,21 +199,66 @@ export default function Dashboard({ onNavigate }: Props) {
   return (
     <div className="space-y-5 pb-24 md:pb-8">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex items-start justify-between gap-3 flex-wrap">
         <div>
           <h2 className="text-2xl font-bold tracking-tighter uppercase font-display">Operations Hub</h2>
           <p className="text-[10px] text-gray-400 font-mono uppercase tracking-widest mt-1">
             {new Date().toLocaleDateString('en-GB', { weekday:'long', day:'numeric', month:'long', year:'numeric' })}
           </p>
         </div>
-        <button 
-          onClick={handleReset}
-          disabled={isResetting}
-          className="flex items-center gap-2 px-4 py-2 border border-red-100 bg-red-50 text-red-600 rounded-xl text-[10px] font-bold uppercase tracking-widest hover:bg-red-100 transition-all disabled:opacity-50"
-        >
-          <Trash2 size={13} />
-          {isResetting ? 'Resetting...' : 'Reset Database'}
-        </button>
+
+        {/* Inline reset flow — no native confirm/alert dialogs */}
+        <div className="flex-shrink-0">
+          {resetState === 'idle' && (
+            <button
+              onClick={() => setResetState('confirming')}
+              className="flex items-center gap-2 px-3 py-2 border border-red-100 bg-red-50 text-red-500 rounded-xl text-[10px] font-bold uppercase tracking-widest hover:bg-red-100 transition-all"
+            >
+              <Trash2 size={12} />
+              Reset DB
+            </button>
+          )}
+
+          {resetState === 'confirming' && (
+            <div className="flex items-center gap-2 bg-red-50 border border-red-200 rounded-xl px-3 py-2">
+              <AlertTriangle size={12} className="text-red-600 flex-shrink-0" />
+              <span className="text-[9px] font-bold text-red-700 uppercase tracking-widest">Delete all data?</span>
+              <button
+                onClick={handleResetConfirm}
+                className="px-2 py-1 bg-red-600 text-white rounded-lg text-[9px] font-bold uppercase tracking-widest hover:bg-red-700 transition-all"
+              >
+                Yes
+              </button>
+              <button
+                onClick={() => setResetState('idle')}
+                className="p-1 text-red-400 hover:text-red-700 transition-all"
+              >
+                <X size={12} />
+              </button>
+            </div>
+          )}
+
+          {resetState === 'resetting' && (
+            <div className="flex items-center gap-2 px-3 py-2 bg-gray-100 rounded-xl">
+              <div className="w-3 h-3 border-2 border-gray-400 border-t-transparent rounded-full animate-spin" />
+              <span className="text-[9px] font-bold text-gray-500 uppercase tracking-widest">Resetting…</span>
+            </div>
+          )}
+
+          {resetState === 'done' && (
+            <div className="flex items-center gap-2 px-3 py-2 bg-emerald-50 border border-emerald-200 rounded-xl">
+              <CheckCircle2 size={12} className="text-emerald-600" />
+              <span className="text-[9px] font-bold text-emerald-700 uppercase tracking-widest">Reset complete</span>
+            </div>
+          )}
+
+          {resetState === 'error' && (
+            <div className="flex items-center gap-2 px-3 py-2 bg-red-50 border border-red-200 rounded-xl">
+              <X size={12} className="text-red-600" />
+              <span className="text-[9px] font-bold text-red-700 uppercase tracking-widest">Reset failed</span>
+            </div>
+          )}
+        </div>
       </div>
 
       <PeriodicInventory
