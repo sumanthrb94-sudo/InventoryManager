@@ -1,5 +1,5 @@
 import { collection, doc, getDocs, writeBatch } from 'firebase/firestore';
-import { db, ensureAnonymousAuth } from './firebase';
+import { db, ensureAuthReady } from './firebase';
 
 type SeedInventory = {
   suppliers: Array<Record<string, any>>;
@@ -141,7 +141,7 @@ export async function seedDefaultInventoryData() {
   if (typeof window === 'undefined') return;
 
   try {
-    await ensureAnonymousAuth();
+    await ensureAuthReady();
 
     const [supplierCount, unitCount] = await Promise.all([
       readFirestoreCount('suppliers'),
@@ -163,8 +163,9 @@ export async function seedDefaultInventoryData() {
       suppliers = existingSuppliers.map(supplier => ({ ...supplier }));
       units = normaliseUnits(existingUnits);
     } else {
-      const seedModule = (await import('../../imported_inventory.json')) as { default: SeedInventory };
-      const seed = seedModule.default;
+      const res = await fetch('/imported_inventory.json');
+      if (!res.ok) return;
+      const seed: SeedInventory = await res.json();
       if (!seed?.suppliers?.length || !seed?.units?.length) return;
 
       suppliers = seed.suppliers.map(supplier => ({ ...supplier }));
