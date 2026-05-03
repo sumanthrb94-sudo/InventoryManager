@@ -5,6 +5,6 @@ export async function logInventoryEvent(event: Omit<InventoryEvent, 'id' | 'crea
   const id = `evt_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
   await dbService.create('inventoryEvents', id, {
     ...event,
-    ownerId: event.ownerId || 'anonymous',
+    ownerId: event.ownerId || 'shared',
   });
 }

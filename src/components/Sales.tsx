@@ -176,7 +176,7 @@ export default function Sales() {
         platform,
         quantity,
         updatedAt: new Date().toISOString(),
-        ownerId: 'anonymous'
+        ownerId: 'shared'
       });
     }
   };

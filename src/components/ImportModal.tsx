@@ -147,7 +147,7 @@ function parseOGStockSheet(ws: XLSX.WorkSheet): ParsedData {
         id: supplierId,
         name: supplierName,
         portal: 'Direct',
-        ownerId: 'anonymous',
+        ownerId: 'shared',
       });
     }
 
@@ -185,7 +185,7 @@ function parseOGStockSheet(ws: XLSX.WorkSheet): ParsedData {
       notes: '',
       platformListed: status === 'available' && listingSites.length > 0,
       listingSites,
-      ownerId: 'anonymous',
+      ownerId: 'shared',
       ...(status === 'sold' ? { saleDate } : {}),
       ...(status === 'sold' && salePlatform ? { salePlatform } : {}),
       ...(status === 'sold' && salePrice ? { salePrice } : {}),
@@ -290,14 +290,14 @@ export default function ImportModal({ onClose }: ImportModalProps) {
       allDocs.push({
         collection: 'suppliers',
         id: s.id,
-        data: { ...s, ownerId: 'local' },
+        data: { ...s, ownerId: 'shared' },
       });
     }
     for (const u of parsed.units) {
       allDocs.push({
         collection: 'inventoryUnits',
         id: u.id,
-        data: { ...u, ownerId: 'local' },
+        data: { ...u, ownerId: 'shared' },
       });
 
       // Also create an active listing if it's available and has a platform
@@ -312,7 +312,7 @@ export default function ImportModal({ onClose }: ImportModalProps) {
               platform,
               quantity: 1, // Default to 1 if we're just seeing it in the sheet
               updatedAt: new Date().toISOString(),
-              ownerId: 'local'
+              ownerId: 'shared'
             }
           });
         }
@@ -340,7 +340,7 @@ export default function ImportModal({ onClose }: ImportModalProps) {
           await dbService.create('sourceDocuments', `doc_${importId}`, {
             ...source,
             linkedId: importId,
-            ownerId: 'local',
+            ownerId: 'shared',
           });
           await logInventoryEvent({
             type: 'file_attached',

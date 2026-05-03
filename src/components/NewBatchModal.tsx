@@ -151,7 +151,7 @@ export default function NewBatchModal({ onClose }: Props) {
         notes: info.notes,
         unitCount: units.length,
         totalBuyValue,
-        ownerId: 'admin',
+        ownerId: 'shared',
         createdAt: new Date().toISOString(),
       });
 
@@ -178,7 +178,7 @@ export default function NewBatchModal({ onClose }: Props) {
           notes: u.imei ? u.notes : `IMEI PENDING — ${u.notes}`,
           platformListed: false,
           listingSites: [],
-          ownerId: 'admin',
+          ownerId: 'shared',
           createdAt: new Date().toISOString(),
         });
       }
