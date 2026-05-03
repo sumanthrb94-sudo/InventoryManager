@@ -12,17 +12,13 @@ import {
   collection,
   deleteDoc,
   doc,
-  getCountFromServer,
   getDocs,
   onSnapshot,
   orderBy,
   query,
   setDoc,
   updateDoc,
-  where,
   limit,
-  startAfter,
-  QueryDocumentSnapshot,
   writeBatch,
 } from 'firebase/firestore';
 
@@ -99,10 +95,6 @@ async function ensureAuthReady() {
 
 /* ── Cache invalidation helpers ────────────────────────────────────────── */
 
-function clearLocalCache(collectionName: string) {
-  localStorage.removeItem(`${LOCAL_CACHE_PREFIX}${collectionName}`);
-}
-
 export function clearAllLocalCaches() {
   const keys = Object.keys(localStorage).filter(k => k.startsWith(LOCAL_CACHE_PREFIX));
   for (const key of keys) localStorage.removeItem(key);
@@ -113,7 +105,6 @@ export function clearAllLocalCaches() {
 export const dbService = {
   /**
    * Create a document in Firestore. Throws on failure.
-   * onSnapshot will automatically update localStorage and all listeners.
    */
   async create(collectionName: string, id: string, data: any) {
     await ensureAuthReady();
@@ -131,7 +122,6 @@ export const dbService = {
       showErrorToast(msg);
       throw err;
     }
-    // onSnapshot will propagate to listeners + localStorage
   },
 
   /**
@@ -216,14 +206,13 @@ export const dbService = {
 
   /**
    * Subscribe to a collection via real-time onSnapshot.
-   * Does an immediate getDocs for fast initial load, then onSnapshot for live updates.
+   * Prioritizes Firestore data and updates local cache.
    */
   subscribeToCollection(collectionName: string, callback: (data: any[]) => void) {
     if (!listeners[collectionName]) listeners[collectionName] = [];
     listeners[collectionName].push(callback);
 
     let unsub: (() => void) | null = null;
-    let hasEmitted = false;
 
     void (async () => {
       try {
@@ -235,15 +224,10 @@ export const dbService = {
           limit(12000)
         );
 
-        // Immediate load: get current data right now
-        try {
-          const snap = await getDocs(q);
-          const data = snap.docs.map(d => normalizeDoc(d.data() as Record<string, any>, d.id));
-          writeLocalTable(collectionName, data);
-          emit(collectionName, data);
-          hasEmitted = true;
-        } catch (e) {
-          console.warn(`Initial getDocs failed for ${collectionName}, waiting for snapshot`, e);
+        // Initial load from cache for speed
+        const cached = readLocalTable(collectionName);
+        if (cached.length > 0) {
+          callback(cached);
         }
 
         // Live updates: keep listening for changes
@@ -251,13 +235,8 @@ export const dbService = {
           const data = snap.docs.map(d => normalizeDoc(d.data() as Record<string, any>, d.id));
           writeLocalTable(collectionName, data);
           emit(collectionName, data);
-          hasEmitted = true;
         }, error => {
           console.error(`Firestore subscription error for ${collectionName}:`, error);
-          if (!hasEmitted) {
-            const cached = readLocalTable(collectionName);
-            callback(cached);
-          }
         });
       } catch (error) {
         console.error(`Firestore subscribe init failed for ${collectionName}:`, error);
@@ -272,149 +251,11 @@ export const dbService = {
     };
   },
 
-  subscribeToCollectionOrdered(
-    collectionName: string,
-    orderField: string,
-    direction: 'asc' | 'desc' = 'desc',
-    callback: (data: any[]) => void
-  ) {
-    const sortData = (data: any[]) => {
-      return [...data].sort((a, b) => {
-        const valA = a[orderField];
-        const valB = b[orderField];
-        if (valA < valB) return direction === 'asc' ? -1 : 1;
-        if (valA > valB) return direction === 'asc' ? 1 : -1;
-        return 0;
-      });
-    };
-
-    const wrappedCallback = (data: any[]) => callback(sortData(data));
-
-    if (!listeners[collectionName]) listeners[collectionName] = [];
-    listeners[collectionName].push(wrappedCallback);
-
-    let unsub: (() => void) | null = null;
-    let hasEmitted = false;
-
-    void (async () => {
-      try {
-        await ensureAuthReady();
-        const q = query(collectionRef(collectionName));
-
-        // Immediate load
-        try {
-          const snap = await getDocs(q);
-          const data = snap.docs.map(d => normalizeDoc(d.data() as Record<string, any>, d.id));
-          writeLocalTable(collectionName, data);
-          emit(collectionName, data);
-          hasEmitted = true;
-        } catch (e) {
-          console.warn(`Initial getDocs failed for ${collectionName}, waiting for snapshot`, e);
-        }
-
-        // Live updates
-        unsub = onSnapshot(q, snap => {
-          const data = snap.docs.map(d => normalizeDoc(d.data() as Record<string, any>, d.id));
-          writeLocalTable(collectionName, data);
-          emit(collectionName, data);
-          hasEmitted = true;
-        }, error => {
-          console.error(`Firestore ordered subscription error for ${collectionName}:`, error);
-          if (!hasEmitted) {
-            const cached = readLocalTable(collectionName);
-            wrappedCallback(cached);
-          }
-        });
-      } catch (error) {
-        console.error(`Firestore ordered subscribe init failed for ${collectionName}:`, error);
-        const cached = readLocalTable(collectionName);
-        wrappedCallback(cached);
-      }
-    })();
-
-    return () => {
-      listeners[collectionName] = listeners[collectionName].filter(cb => cb !== wrappedCallback);
-      if (unsub) unsub();
-    };
-  },
-
-  async count(collectionName: string) {
-    await ensureAuthReady();
-    const snap = await getCountFromServer(collectionRef(collectionName));
-    return snap.data().count;
-  },
-
-  async readAll(collectionName: string) {
-    await ensureAuthReady();
-    const snap = await getDocs(query(collectionRef(collectionName)));
-    return snap.docs.map(d => normalizeDoc(d.data() as Record<string, any>, d.id));
-  },
-
-  subscribeToDateRange(
-    collectionName: string,
-    fromDate: string,
-    toDate: string,
-    callback: (data: any[]) => void
-  ) {
-    let unsub: (() => void) | null = null;
-    void (async () => {
-      try {
-        await ensureAuthReady();
-        const q = query(
-          collectionRef(collectionName),
-          where('dateIn', '>=', fromDate),
-          where('dateIn', '<=', toDate),
-          orderBy('dateIn', 'desc'),
-          limit(2000)
-        );
-        unsub = onSnapshot(q, snap => {
-          const data = snap.docs.map(d => normalizeDoc(d.data() as Record<string, any>, d.id));
-          callback(data);
-        }, err => {
-          console.error('subscribeToDateRange error:', err);
-          callback([]);
-        });
-      } catch (err) {
-        console.error('subscribeToDateRange init failed:', err);
-        callback([]);
-      }
-    })();
-    return () => { if (unsub) unsub(); };
-  },
-
-  async getPage(
-    collectionName: string,
-    pageSize = 100,
-    lastDoc?: QueryDocumentSnapshot
-  ): Promise<{ data: any[]; lastDoc: QueryDocumentSnapshot | null }> {
-    await ensureAuthReady();
-    const constraints: any[] = [orderBy('dateIn', 'desc'), limit(pageSize)];
-    if (lastDoc) constraints.push(startAfter(lastDoc));
-    const q = query(collectionRef(collectionName), ...constraints);
-    const snap = await getDocs(q);
-    const data = snap.docs.map(d => normalizeDoc(d.data() as Record<string, any>, d.id));
-    const last = snap.docs[snap.docs.length - 1] ?? null;
-    return { data, lastDoc: last };
-  },
-
-  async countWhere(collectionName: string, field: string, value: string): Promise<number> {
-    await ensureAuthReady();
-    const q = query(collectionRef(collectionName), where(field, '==', value));
-    const snap = await getCountFromServer(q);
-    return snap.data().count;
-  },
-
-  async resetDatabase() {
-    await ensureAuthReady();
-    const collections = ['inventoryUnits', 'suppliers', 'batches', 'inventoryEvents', 'dailyUpdates', 'activeListings', 'sourceDocuments'];
-    for (const coll of collections) {
-      clearLocalCache(coll);
-      const snap = await getDocs(query(collectionRef(coll)));
-      if (snap.size > 0) {
-        const batch = writeBatch(db);
-        snap.docs.forEach(d => batch.delete(d.ref));
-        await batch.commit();
-      }
-    }
-  },
+  /**
+   * Manual refresh from local cache (used during seeding)
+   */
+  refreshFromLocalCache(collectionName: string) {
+    const data = readLocalTable(collectionName);
+    emit(collectionName, data);
+  }
 };
