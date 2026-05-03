@@ -8,8 +8,6 @@ type SeedInventory = {
 };
 type StoredUnit = Record<string, any>;
 
-// ── Inference helpers ────────────────────────────────────────────────────────
-
 function inferBrand(model: string, fallback?: string) {
   const m = model.toUpperCase();
   if (m.includes('IPHONE') || m.includes('IPAD') || m.includes('APPLE WATCH') || m.includes('IWATCH')) return 'Apple';
@@ -69,8 +67,6 @@ function normaliseUnits(units: StoredUnit[]): StoredUnit[] {
   return Array.from(deduped.values());
 }
 
-// ── Firestore helpers ────────────────────────────────────────────────────────
-
 async function firestoreHasData() {
   try {
     const q = query(collection(db, 'inventoryUnits'), limit(1));
@@ -98,14 +94,11 @@ async function writeToFirestoreBackground(suppliers: Record<string, any>[], unit
         batch.set(doc(db, col, id), data);
       }
       await batch.commit();
-      console.log(`Seeded chunk ${i / CHUNK + 1} to Firestore`);
     }
   } catch (e) {
     console.error('Failed to seed to Firestore:', e);
   }
 }
-
-// ── Main export ──────────────────────────────────────────────────────────────
 
 export async function seedDefaultInventoryData(
   onProgress?: (loaded: number, total: number) => void,
@@ -114,15 +107,17 @@ export async function seedDefaultInventoryData(
 
   await ensureAuthReady();
 
-  // ── Check Firestore first ────────────────────────────────────────────────
-  // If Firestore already has data, we don't need to seed.
-  const hasData = await firestoreHasData();
-  if (hasData) {
-    console.log('Firestore already has data, skipping seed.');
-    return;
+  // Check if we are in a reset state via URL param
+  const isReset = window.location.search.includes('reset=');
+
+  if (!isReset) {
+    const hasData = await firestoreHasData();
+    if (hasData) {
+      console.log('Firestore already has data, skipping seed.');
+      return;
+    }
   }
 
-  // ── Fetch seed file ───────────────────────────────────────────────────────
   let suppliers: Record<string, any>[];
   let units: StoredUnit[];
   try {
@@ -136,7 +131,6 @@ export async function seedDefaultInventoryData(
 
   const total = suppliers.length + units.length;
 
-  // ── Write to localStorage for immediate UI feedback ──────────────────────
   localStorage.setItem('nexus_db_suppliers', JSON.stringify(suppliers));
   dbService.refreshFromLocalCache('suppliers');
   
@@ -154,6 +148,10 @@ export async function seedDefaultInventoryData(
   dbService.refreshFromLocalCache('inventoryUnits');
   onProgress?.(total, total);
 
-  // ── Write to Firestore ───────────────────────────────────────────────────
   await writeToFirestoreBackground(suppliers, units);
+  
+  // If we were in reset mode, clean the URL after successful seed
+  if (isReset) {
+    window.history.replaceState({}, document.title, window.location.pathname);
+  }
 }
