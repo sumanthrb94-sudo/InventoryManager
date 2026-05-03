@@ -204,6 +204,13 @@ export default function App() {
             <div className="flex items-center gap-2 md:gap-3 ml-auto">
               <NotificationBell unreadCount={unreadCount} />
               <button
+                onClick={handleLogout}
+                className="md:hidden border border-gray-200 text-red-500 hover:bg-red-50 px-3 py-2 md:py-2.5 rounded-xl transition-all"
+                title="Sign Out"
+              >
+                <LogOut size={14} strokeWidth={2.5} />
+              </button>
+              <button
                 onClick={() => setIsImportModalOpen(true)}
                 className="border border-gray-200 bg-white text-black px-3 md:px-5 py-2 md:py-2.5 rounded-xl text-[10px] md:text-xs font-bold uppercase tracking-widest flex items-center gap-2 hover:bg-gray-50 transition-all"
               >
