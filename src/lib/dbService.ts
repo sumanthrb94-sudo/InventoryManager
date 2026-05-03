@@ -90,19 +90,22 @@ export function clearAllLocalCaches() {
 
 export const dbService = {
   async create(collectionName: string, id: string, data: any) {
-    await ensureAuthReady();
     const timestamp = nowIso();
-    const newItem = {
-      ...data,
-      id,
-      createdAt: data.createdAt ?? timestamp,
-      updatedAt: timestamp,
-    };
+    const newItem = { ...data, id, createdAt: data.createdAt ?? timestamp, updatedAt: timestamp };
+
+    // Write locally first — instant, always succeeds
+    const localTable = readLocalTable(collectionName);
+    const idx = localTable.findIndex(item => item.id === id);
+    if (idx >= 0) localTable[idx] = newItem; else localTable.push(newItem);
+    writeLocalTable(collectionName, localTable);
+    emit(collectionName, localTable);
+
+    // Sync to Firestore in background
     try {
+      await ensureAuthReady();
       await setDoc(doc(collectionRef(collectionName), id), newItem);
     } catch (err: any) {
-      showErrorToast(err?.message || 'Failed to save to database');
-      throw err;
+      console.warn(`Firestore create failed for ${collectionName}/${id}; saved locally.`, err);
     }
   },
 
@@ -151,25 +154,38 @@ export const dbService = {
   },
 
   async update(collectionName: string, id: string, data: any) {
-    await ensureAuthReady();
+    const update = { ...data, updatedAt: nowIso() };
+
+    // Write locally first — instant, always succeeds
+    const localTable = readLocalTable(collectionName);
+    const idx = localTable.findIndex(item => item.id === id);
+    if (idx >= 0) {
+      localTable[idx] = { ...localTable[idx], ...update };
+      writeLocalTable(collectionName, localTable);
+      emit(collectionName, localTable);
+    }
+
+    // Sync to Firestore in background
     try {
-      await updateDoc(doc(collectionRef(collectionName), id), {
-        ...data,
-        updatedAt: nowIso(),
-      });
+      await ensureAuthReady();
+      await updateDoc(doc(collectionRef(collectionName), id), update);
     } catch (err: any) {
-      showErrorToast(err?.message || 'Failed to update database');
-      throw err;
+      console.warn(`Firestore update failed for ${collectionName}/${id}; saved locally.`, err);
     }
   },
 
   async delete(collectionName: string, id: string) {
-    await ensureAuthReady();
+    // Delete locally first — instant, always succeeds
+    const localTable = readLocalTable(collectionName).filter(item => item.id !== id);
+    writeLocalTable(collectionName, localTable);
+    emit(collectionName, localTable);
+
+    // Sync to Firestore in background
     try {
+      await ensureAuthReady();
       await deleteDoc(doc(collectionRef(collectionName), id));
     } catch (err: any) {
-      showErrorToast(err?.message || 'Failed to delete from database');
-      throw err;
+      console.warn(`Firestore delete failed for ${collectionName}/${id}; deleted locally.`, err);
     }
   },
 

@@ -95,12 +95,40 @@ function writeToFirestoreBackground(suppliers: Record<string, any>[], units: Sto
   })();
 }
 
+// ── One-time migration ────────────────────────────────────────────────────────
+// Earlier seed script incorrectly stamped all historical returned units with
+// today's returnDate, causing "Returned Today" to show 394 instead of 0.
+// Fix: clear returnDate from any returned unit where createdAt === updatedAt
+// (i.e. it was seeded as returned — never touched by a real user action).
+function migrateReturnDates() {
+  const KEY = 'nexus_db_inventoryUnits';
+  try {
+    const units: StoredUnit[] = JSON.parse(localStorage.getItem(KEY) || '[]');
+    let dirty = false;
+    const fixed = units.map(u => {
+      if (u.status === 'returned' && u.returnDate && u.createdAt === u.updatedAt) {
+        dirty = true;
+        const { returnDate: _r, ...rest } = u;
+        return rest;
+      }
+      return u;
+    });
+    if (dirty) {
+      localStorage.setItem(KEY, JSON.stringify(fixed));
+      dbService.refreshFromLocalCache('inventoryUnits');
+    }
+  } catch { /* ignore parse errors */ }
+}
+
 // ── Main export ──────────────────────────────────────────────────────────────
 
 export async function seedDefaultInventoryData(
   onProgress?: (loaded: number, total: number) => void,
 ) {
   if (typeof window === 'undefined') return;
+
+  // Fix any bad returnDates from the previous seed before doing anything else
+  migrateReturnDates();
 
   // Already seeded locally? Done — onSnapshot delivers live updates on top.
   const cachedUnits = (() => {
