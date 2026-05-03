@@ -12,7 +12,7 @@ type StoredUnit = Record<string, any>;
 
 function inferBrand(model: string, fallback?: string) {
   const m = model.toUpperCase();
-  if (m.includes('IPHONE') || m.includes('IPAD') || m.includes('APPLE WATCH') || m.includes('IWATCH')) return 'Apple';
+  if (m.includes('IPHONE') || m.includes('IPAD') || m.includes('APPLE WATCH') || m.includes('IWATCH') || m.includes('MACBOOK') || m.includes('AIRPODS')) return 'Apple';
   if (m.includes('SAMSUNG') || m.includes('GALAXY')) return 'Samsung';
   return fallback || 'Other';
 }
@@ -22,10 +22,10 @@ function inferCategory(model: string, fallback?: string) {
   if (m.includes('IPAD')) return 'iPad';
   if (m.includes('IPHONE')) return 'iPhone';
   if (m.includes('APPLE WATCH') || m.includes('IWATCH') || m.includes('WATCH ULTRA') || m.includes('WATCH SE')) return 'Apple Watch';
-  if (m.includes('GALAXY TAB') || m.includes('TAB A') || m.includes('TAB S') || m.includes('TAB')) return 'Tablet';
+  if (m.includes('GALAXY TAB') || m.includes('TAB A') || m.includes('TAB S')) return 'Galaxy Tab';
   if (m.includes('SAMSUNG') || m.includes('GALAXY')) {
-    if (m.includes(' A') || /\bA\d{2}\b/.test(m) || /\bA\d{3}\b/.test(m)) return 'Samsung A Series';
-    return 'Samsung S Series';
+    if (m.includes(' A') || /\bA\d{2}\b/.test(m) || /\bA\d{3}\b/.test(m)) return 'Galaxy A Series';
+    return 'Galaxy S Series';
   }
   return fallback || 'Other';
 }
@@ -71,11 +71,6 @@ function normaliseUnits(units: StoredUnit[]): StoredUnit[] {
 
 // ── Firestore helpers ────────────────────────────────────────────────────────
 
-async function firestoreCount(col: string) {
-  const snap = await getDocs(collection(db, col));
-  return snap.size;
-}
-
 function writeToFirestoreBackground(suppliers: Record<string, any>[], units: StoredUnit[]) {
   const CHUNK = 499;
   const now   = new Date().toISOString();
@@ -84,7 +79,6 @@ function writeToFirestoreBackground(suppliers: Record<string, any>[], units: Sto
     ...units.map(u    => ({ col: 'inventoryUnits', id: u.id, data: { ...u, createdAt: u.createdAt ?? now, updatedAt: u.updatedAt ?? now } })),
   ];
 
-  // Fire-and-forget — don't await, don't block UI
   (async () => {
     try {
       await ensureAuthReady();
@@ -108,36 +102,62 @@ export async function seedDefaultInventoryData(
 ) {
   if (typeof window === 'undefined') return;
 
-  // ── Already seeded locally? Done. ────────────────────────────────────────
-  // onSnapshot will override this with live Firestore data once connected.
+  // Already seeded locally? Done — onSnapshot delivers live updates on top.
   const cachedUnits = (() => {
     try { return JSON.parse(localStorage.getItem('nexus_db_inventoryUnits') || '[]'); }
     catch { return []; }
   })();
-  if (cachedUnits.length > 0) return;
+  if (cachedUnits.length > 0) {
+    onProgress?.(1, 1); // dismiss any loading screen immediately
+    return;
+  }
 
-  // ── Fetch seed file ───────────────────────────────────────────────────────
-  // Don't check Firestore first — seed localStorage immediately so every
-  // new device shows data right away. onSnapshot corrects it with live data.
+  // ── Try Firestore first — gets current live data, not stale seed ──────────
+  // New devices where Firestore already has up-to-date sold/added records
+  // get the correct numbers immediately instead of a stale snapshot from JSON.
+  try {
+    await ensureAuthReady();
+    const [sSnap, uSnap] = await Promise.all([
+      getDocs(collection(db, 'suppliers')),
+      getDocs(collection(db, 'inventoryUnits')),
+    ]);
+
+    if (uSnap.size > 0) {
+      const suppliers = sSnap.docs.map(d => ({ ...d.data() as Record<string, any>, id: d.id }));
+      const units     = uSnap.docs.map(d => ({ ...d.data() as Record<string, any>, id: d.id }));
+      const total     = suppliers.length + units.length;
+
+      localStorage.setItem('nexus_db_suppliers', JSON.stringify(suppliers));
+      dbService.refreshFromLocalCache('suppliers');
+      onProgress?.(suppliers.length, total);
+
+      localStorage.setItem('nexus_db_inventoryUnits', JSON.stringify(units));
+      dbService.refreshFromLocalCache('inventoryUnits');
+      onProgress?.(total, total);
+      return; // onSnapshot keeps it live from here
+    }
+  } catch {
+    // Not authenticated yet or Firestore unavailable — fall through to JSON seed
+  }
+
+  // ── Firestore empty / unreachable — seed from bundled master JSON ─────────
   let suppliers: Record<string, any>[];
   let units: StoredUnit[];
   try {
     const res = await fetch('/imported_inventory.json');
-    if (!res.ok) return;
+    if (!res.ok) { onProgress?.(1, 1); return; }
     const seed: SeedInventory = await res.json();
-    if (!seed?.suppliers?.length || !seed?.units?.length) return;
+    if (!seed?.suppliers?.length || !seed?.units?.length) { onProgress?.(1, 1); return; }
     suppliers = seed.suppliers;
     units     = normaliseUnits(seed.units);
-  } catch { return; }
+  } catch { onProgress?.(1, 1); return; }
 
   const total = suppliers.length + units.length;
 
-  // ── Write suppliers to localStorage (tiny, instant) ──────────────────────
   localStorage.setItem('nexus_db_suppliers', JSON.stringify(suppliers));
   dbService.refreshFromLocalCache('suppliers');
   onProgress?.(suppliers.length, total);
 
-  // ── Write units in chunks — yield every 1000 so the browser stays live ───
   const unitCache: StoredUnit[] = [];
   const YIELD_EVERY = 1000;
   for (let i = 0; i < units.length; i++) {
@@ -149,10 +169,9 @@ export async function seedDefaultInventoryData(
   }
 
   localStorage.setItem('nexus_db_inventoryUnits', JSON.stringify(unitCache));
-  dbService.refreshFromLocalCache('inventoryUnits'); // triggers all dashboard listeners
-  onProgress?.(total, total); // dismiss loading screen
+  dbService.refreshFromLocalCache('inventoryUnits');
+  onProgress?.(total, total);
 
-  // ── Firestore write in background (non-blocking) ─────────────────────────
-  // Lets other devices pick up data via onSnapshot once rules are deployed.
+  // Push to Firestore in background so other devices pick it up via onSnapshot
   writeToFirestoreBackground(suppliers, units);
 }

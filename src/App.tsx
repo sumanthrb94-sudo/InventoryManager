@@ -56,6 +56,17 @@ export default function App() {
     const unsub = onAuthStateChanged(auth, (firebaseUser) => {
       setUser(firebaseUser);
       setLoading(false);
+
+      // If a user just logged in and localStorage is empty, show the loading
+      // overlay *immediately* — before the seed useEffect even fires — so the
+      // dashboard never flashes zeros on a fresh device.
+      if (firebaseUser) {
+        const hasLocalData = (() => {
+          try { return JSON.parse(localStorage.getItem('nexus_db_inventoryUnits') || '[]').length > 0; }
+          catch { return false; }
+        })();
+        if (!hasLocalData) setSeedProgress({ loaded: 0, total: 1 });
+      }
     });
     return unsub;
   }, []);
@@ -64,11 +75,8 @@ export default function App() {
   useEffect(() => {
     if (!user) return;
     import('./lib/seedData').then(({ seedDefaultInventoryData }) => {
-      let seedStarted = false;
       seedDefaultInventoryData((loaded, total) => {
-        if (!seedStarted) { seedStarted = true; setSeedProgress({ loaded, total }); }
         if (loaded >= total) {
-          // Brief pause so final progress bar hits 100% visibly, then dismiss
           setTimeout(() => setSeedProgress(null), 600);
         } else {
           setSeedProgress({ loaded, total });
