@@ -3,6 +3,7 @@ import { BarChart2, Star, FileText, Receipt, Download } from 'lucide-react';
 import { dbService } from '../lib/dbService';
 import { InventoryUnit, Supplier } from '../types';
 import CopyImei from './CopyImei';
+import PDFReportButton from './PDFReportButton';
 import {
   PLATFORMS, PLATFORM_LIST,
   platformCommission, platformTotalFee, calcNetProfit,
@@ -243,16 +244,19 @@ export default function ReportingPage() {
 
   return (
     <div className="space-y-5 pb-24 md:pb-8">
-      <div>
-        <h2 className="text-2xl font-bold tracking-tighter uppercase font-display flex items-center gap-3">
-          <span className="w-8 h-8 bg-purple-100 rounded-lg flex items-center justify-center">
-            <BarChart2 size={16} className="text-purple-700" />
-          </span>
-          Reporting
-        </h2>
-        <p className="text-[10px] text-gray-400 font-mono uppercase tracking-widest mt-1">
-          Daily Sales · Stock Value · VAT Returns · Margin Insights
-        </p>
+      <div className="flex items-start justify-between gap-3 flex-wrap">
+        <div>
+          <h2 className="text-2xl font-bold tracking-tighter uppercase font-display flex items-center gap-3">
+            <span className="w-8 h-8 bg-purple-100 rounded-lg flex items-center justify-center">
+              <BarChart2 size={16} className="text-purple-700" />
+            </span>
+            Reporting
+          </h2>
+          <p className="text-[10px] text-gray-400 font-mono uppercase tracking-widest mt-1">
+            Daily Sales · Stock Value · VAT Returns · Margin Insights
+          </p>
+        </div>
+        <PDFReportButton units={units} suppliers={suppliers} variant="outline" />
       </div>
 
       {/* KPIs */}

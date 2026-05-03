@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import {
   Zap, TrendingUp, TrendingDown, AlertTriangle,
-  Clock, Package, ChevronRight,
+  Clock, Package,
 } from 'lucide-react';
+import PDFReportButton from './PDFReportButton';
 import {
   AreaChart, Area, BarChart, Bar,
   XAxis, YAxis, CartesianGrid, Tooltip,
@@ -276,16 +277,18 @@ export default function AnalyticsPage() {
             Velocity · Demand · Aging · Platform Intelligence
           </p>
         </div>
-        {/* Period toggle */}
-        <div className="flex gap-1 bg-gray-100 p-1 rounded-xl">
-          {([7, 30, 90] as Period[]).map(d => (
-            <button key={d} onClick={() => setPeriod(d)}
-              className={`px-3 py-1.5 rounded-lg text-[9px] font-bold uppercase tracking-widest transition-all ${
-                period === d ? 'bg-white shadow-sm text-black' : 'text-gray-400 hover:text-gray-600'
-              }`}>
-              {d}d
-            </button>
-          ))}
+        <div className="flex items-center gap-2 flex-wrap">
+          <PDFReportButton units={units} suppliers={suppliers} variant="outline" />
+          <div className="flex gap-1 bg-gray-100 p-1 rounded-xl">
+            {([7, 30, 90] as Period[]).map(d => (
+              <button key={d} onClick={() => setPeriod(d)}
+                className={`px-3 py-1.5 rounded-lg text-[9px] font-bold uppercase tracking-widest transition-all ${
+                  period === d ? 'bg-white shadow-sm text-black' : 'text-gray-400 hover:text-gray-600'
+                }`}>
+                {d}d
+              </button>
+            ))}
+          </div>
         </div>
       </div>
 
