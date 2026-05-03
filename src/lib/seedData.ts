@@ -6,15 +6,9 @@ type SeedInventory = {
   suppliers: Array<Record<string, any>>;
   units: Array<Record<string, any>>;
 };
-
 type StoredUnit = Record<string, any>;
 
-function parseLocalCollection(key: string): any[] {
-  try {
-    const raw = localStorage.getItem(`nexus_db_${key}`);
-    return raw ? JSON.parse(raw) : [];
-  } catch { return []; }
-}
+// ── Inference helpers ────────────────────────────────────────────────────────
 
 function inferBrand(model: string, fallback?: string) {
   const m = model.toUpperCase();
@@ -40,11 +34,11 @@ function inferColour(model: string, fallback?: string) {
   if (fallback && fallback !== 'Unknown') return fallback;
   const upper = model.toUpperCase();
   const colours = [
-    'NATURAL TITANIUM', 'BLACK TITANIUM', 'WHITE TITANIUM', 'BLUE TITANIUM', 'DESERT TITANIUM',
-    'PACIFIC BLUE', 'SIERRA BLUE', 'ALPINE GREEN', 'SPACE GREY', 'SPACE GRAY', 'GRAPHITE',
-    'STARLIGHT', 'MIDNIGHT', 'BLACK', 'WHITE', 'BLUE', 'GOLD', 'SILVER', 'ROSE GOLD', 'ROSE',
-    'RED', 'GREEN', 'YELLOW', 'PURPLE', 'CORAL', 'MINT', 'PINK', 'TEAL', 'ORANGE', 'CREAM',
-    'LAVENDER', 'PHANTOM BLACK', 'PHANTOM WHITE', 'PHANTOM SILVER',
+    'NATURAL TITANIUM','BLACK TITANIUM','WHITE TITANIUM','BLUE TITANIUM','DESERT TITANIUM',
+    'PACIFIC BLUE','SIERRA BLUE','ALPINE GREEN','SPACE GREY','SPACE GRAY','GRAPHITE',
+    'STARLIGHT','MIDNIGHT','BLACK','WHITE','BLUE','GOLD','SILVER','ROSE GOLD','ROSE',
+    'RED','GREEN','YELLOW','PURPLE','CORAL','MINT','PINK','TEAL','ORANGE','CREAM',
+    'LAVENDER','PHANTOM BLACK','PHANTOM WHITE','PHANTOM SILVER',
   ];
   for (const c of colours) {
     if (upper.includes(c)) {
@@ -64,10 +58,10 @@ function normaliseUnits(units: StoredUnit[]): StoredUnit[] {
     deduped.set(raw.id, {
       ...raw,
       model,
-      brand: inferBrand(model, raw.brand),
+      brand:    inferBrand(model, raw.brand),
       category: inferCategory(model, raw.category),
-      colour: inferColour(model, raw.colour),
-      status: isSold ? 'sold' : raw.status || 'available',
+      colour:   inferColour(model, raw.colour),
+      status:   isSold ? 'sold' : raw.status || 'available',
       platformListed: isSold ? false : Boolean(raw.platformListed),
       ...(isSold && (raw.saleDate || raw.dateIn) ? { saleDate: raw.saleDate || raw.dateIn } : {}),
     });
@@ -75,50 +69,62 @@ function normaliseUnits(units: StoredUnit[]): StoredUnit[] {
   return Array.from(deduped.values());
 }
 
-async function firestoreCount(collectionName: string): Promise<number> {
-  const snap = await getDocs(collection(db, collectionName));
+// ── Firestore helpers ────────────────────────────────────────────────────────
+
+async function firestoreCount(col: string) {
+  const snap = await getDocs(collection(db, col));
   return snap.size;
 }
 
-async function writeToFirestore(suppliers: Record<string, any>[], units: StoredUnit[]) {
+function writeToFirestoreBackground(suppliers: Record<string, any>[], units: StoredUnit[]) {
   const CHUNK = 499;
-  const now = new Date().toISOString();
-  const all = [
+  const now   = new Date().toISOString();
+  const all   = [
     ...suppliers.map(s => ({ col: 'suppliers',     id: s.id, data: { ...s, createdAt: s.createdAt ?? now } })),
     ...units.map(u    => ({ col: 'inventoryUnits', id: u.id, data: { ...u, createdAt: u.createdAt ?? now, updatedAt: u.updatedAt ?? now } })),
   ];
-  for (let i = 0; i < all.length; i += CHUNK) {
-    const batch = writeBatch(db);
-    for (const { col, id, data } of all.slice(i, i + CHUNK)) batch.set(doc(db, col, id), data);
-    await batch.commit();
-  }
+
+  // Fire-and-forget — don't await, don't block UI
+  (async () => {
+    try {
+      await ensureAuthReady();
+      for (let i = 0; i < all.length; i += CHUNK) {
+        const batch = writeBatch(db);
+        for (const { col, id, data } of all.slice(i, i + CHUNK)) {
+          batch.set(doc(db, col, id), data);
+        }
+        await batch.commit();
+      }
+    } catch {
+      // Firestore rules may not be deployed — localStorage covers local device
+    }
+  })();
 }
 
-export async function seedDefaultInventoryData() {
+// ── Main export ──────────────────────────────────────────────────────────────
+
+export async function seedDefaultInventoryData(
+  onProgress?: (loaded: number, total: number) => void,
+) {
   if (typeof window === 'undefined') return;
 
-  // ── 1. Already seeded into localStorage? Done. ────────────────────────────
-  // dbService serves localStorage to all components instantly on subscribe,
-  // so if data is here the UI is already populated.
-  if (parseLocalCollection('inventoryUnits').length > 0) return;
+  // ── Already seeded locally? ───────────────────────────────────────────────
+  const cachedUnits = (() => {
+    try { return JSON.parse(localStorage.getItem('nexus_db_inventoryUnits') || '[]'); }
+    catch { return []; }
+  })();
+  if (cachedUnits.length > 0) return;
 
-  // ── 2. Try to read Firestore count (may fail if rules not deployed yet) ───
+  // ── Firestore already populated? (optional check) ─────────────────────────
   try {
     await ensureAuthReady();
-    const [sc, uc] = await Promise.all([
-      firestoreCount('suppliers'),
-      firestoreCount('inventoryUnits'),
-    ]);
-    if (sc > 0 && uc > 0) {
-      // Firestore has data — onSnapshot will pull it; nothing to do.
-      return;
-    }
+    const [sc, uc] = await Promise.all([firestoreCount('suppliers'), firestoreCount('inventoryUnits')]);
+    if (sc > 0 && uc > 0) return; // onSnapshot will deliver data via subscriptions
   } catch {
-    // Firestore not readable (rules not yet deployed or network offline).
-    // Continue — we'll seed localStorage so the UI shows data immediately.
+    // Permission denied or offline — proceed with local seed
   }
 
-  // ── 3. Load seed file ─────────────────────────────────────────────────────
+  // ── Fetch seed file ───────────────────────────────────────────────────────
   let suppliers: Record<string, any>[];
   let units: StoredUnit[];
   try {
@@ -127,26 +133,33 @@ export async function seedDefaultInventoryData() {
     const seed: SeedInventory = await res.json();
     if (!seed?.suppliers?.length || !seed?.units?.length) return;
     suppliers = seed.suppliers;
-    units = normaliseUnits(seed.units);
-  } catch {
-    return;
+    units     = normaliseUnits(seed.units);
+  } catch { return; }
+
+  const total = suppliers.length + units.length;
+
+  // ── Write suppliers to localStorage (tiny, instant) ──────────────────────
+  localStorage.setItem('nexus_db_suppliers', JSON.stringify(suppliers));
+  dbService.refreshFromLocalCache('suppliers');
+  onProgress?.(suppliers.length, total);
+
+  // ── Write units in chunks — yield every 1000 so the browser stays live ───
+  const unitCache: StoredUnit[] = [];
+  const YIELD_EVERY = 1000;
+
+  for (let i = 0; i < units.length; i++) {
+    unitCache.push(units[i]);
+    if ((i + 1) % YIELD_EVERY === 0 || i === units.length - 1) {
+      onProgress?.(suppliers.length + i + 1, total);
+      await new Promise(r => setTimeout(r, 0)); // yield to browser
+    }
   }
 
-  // ── 4. Write via dbService.bulkCreate ────────────────────────────────────
-  // This writes to localStorage FIRST (triggering all active subscribeToCollection
-  // listeners immediately so the UI updates), then tries Firestore best-effort.
-  // If Firestore rules aren't deployed yet the localStorage write still succeeds.
-  await dbService.bulkCreate([
-    ...suppliers.map(s => ({ collection: 'suppliers',     id: s.id, data: s })),
-    ...units.map(u    => ({ collection: 'inventoryUnits', id: u.id, data: u })),
-  ]);
+  // Single JSON.stringify at the end (fastest)
+  localStorage.setItem('nexus_db_inventoryUnits', JSON.stringify(unitCache));
+  dbService.refreshFromLocalCache('inventoryUnits'); // ← triggers all dashboard listeners
+  onProgress?.(total, total); // ← dismiss loading screen immediately
 
-  // ── 5. Also try a direct Firestore write so other devices pick it up ──────
-  // Best-effort — ignore failures (rules may not be deployed yet).
-  try {
-    await ensureAuthReady();
-    await writeToFirestore(suppliers, units);
-  } catch {
-    // Silent — localStorage is serving as the data source for now.
-  }
+  // ── Firestore write in background (non-blocking) ─────────────────────────
+  writeToFirestoreBackground(suppliers, units);
 }
