@@ -212,6 +212,13 @@ export default function App() {
             <div className="flex items-center gap-2 md:gap-3 ml-auto">
               <NotificationBell unreadCount={unreadCount} />
               <button
+                onClick={handleLogout}
+                className="md:hidden border border-gray-200 text-red-500 hover:bg-red-50 px-3 py-2 md:py-2.5 rounded-xl transition-all"
+                title="Sign Out"
+              >
+                <LogOut size={14} strokeWidth={2.5} />
+              </button>
+              <button
                 onClick={() => setIsImportModalOpen(true)}
                 className="border border-gray-200 bg-white text-black px-3 md:px-5 py-2 md:py-2.5 rounded-xl text-[10px] md:text-xs font-bold uppercase tracking-widest flex items-center gap-2 hover:bg-gray-50 transition-all"
               >
@@ -267,6 +274,15 @@ export default function App() {
         <MobileNavItem id="sell"       icon={<ShoppingCart size={20}/>}    label="Sell"     active={activeTab==='sell'}      onClick={()=>setActiveTab('sell')} />
         <MobileNavItem id="returns"    icon={<RefreshCw size={20}/>}       label="Returns"  active={activeTab==='returns'}   onClick={()=>setActiveTab('returns')} />
         <MobileNavItem id="analytics"  icon={<Zap size={20}/>}             label="Insights" active={activeTab==='analytics'} onClick={()=>setActiveTab('analytics')} />
+        <button
+          onClick={handleLogout}
+          className="flex flex-col items-center justify-center w-16 py-1.5 gap-1 rounded-xl transition-all text-gray-400 hover:text-red-600"
+        >
+          <div className="p-1.5 rounded-full transition-all">
+            <LogOut size={20} />
+          </div>
+          <span className="text-[9px] uppercase tracking-wider font-mono">Logout</span>
+        </button>
       </nav>
 
       <AnimatePresence>
@@ -291,8 +307,12 @@ function LoginPage() {
       await signInWithGoogle();
       // onAuthStateChanged in App will set the user — no manual state needed here
     } catch (err: any) {
-      if (err?.code !== 'auth/popup-closed-by-user' && err?.code !== 'auth/cancelled-popup-request') {
-        setError('Sign-in failed. Please try again.');
+      if (err?.code === 'auth/popup-closed-by-user' || err?.code === 'auth/cancelled-popup-request') {
+        // User closed popup — no error
+      } else if (err?.code === 'auth/unauthorized-domain') {
+        setError('This domain is not authorized. Add it to Firebase Auth → Settings → Authorized domains.');
+      } else {
+        setError(err?.message || 'Sign-in failed. Please try again.');
       }
     } finally {
       setLoading(false);

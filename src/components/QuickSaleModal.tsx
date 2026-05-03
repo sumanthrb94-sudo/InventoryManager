@@ -63,7 +63,7 @@ export default function QuickSaleModal({ unit: initialUnit, availableUnits = [],
           affectedUnitIds: [selectedUnit.id],
           affectedModels: [selectedUnit.model],
           type: 'stock_sold',
-          ownerId: 'local',
+          ownerId: 'shared',
           createdAt: new Date().toISOString()
         });
       } catch (duError) {

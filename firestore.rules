@@ -6,38 +6,225 @@ service cloud.firestore {
       return request.auth != null;
     }
 
-    // Shared workspace — any authenticated user (Google Sign-In) can read and write.
-    // Authorization (role-based access) will be layered on top later.
+    function isString(val, min, max) {
+      return val is string && val.size() >= min && val.size() <= max;
+    }
 
-    match /inventoryUnits/{unitId} {
-      allow read, write: if isSignedIn();
+    function isOptionalString(val, max) {
+      return val == null || (val is string && val.size() <= max);
+    }
+
+    function isPositiveNumber(val) {
+      return val is number && val >= 0;
+    }
+
+    function isOptionalNumber(val) {
+      return val == null || val is number;
+    }
+
+    function isOptionalBoolean(val) {
+      return val == null || val is bool;
+    }
+
+    function isTimestampString(val) {
+      return val is string && val.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}') && val.size() <= 30;
+    }
+
+    function isOptionalTimestamp(val) {
+      return val == null || isTimestampString(val);
+    }
+
+    function isValidDeviceStatus(status) {
+      return status in ['available', 'sold', 'reserved', 'returned', 'lost'];
+    }
+
+    function isValidConditionGrade(grade) {
+      return grade in ['A', 'B', 'C', 'D', 'Unknown'];
+    }
+
+    function isValidPortal(portal) {
+      return portal in ['eBay', 'Website', 'Direct', 'Other', 'Wholesale', 'Auction', 'Online'];
+    }
+
+    function isValidEventType(type) {
+      return type in ['batch_created', 'file_attached', 'listed', 'delisted', 'sold', 'returned', 'available', 'price_update', 'stock_adjusted', 'notes_updated'];
+    }
+
+    function isValidReturnCategory(cat) {
+      return cat in ['returned_to_inventory', 'returned_to_supplier', 'repair'];
+    }
+
+    function isValidUpdateType(type) {
+      return type in ['stock_in', 'stock_sold', 'price_change', 'platform_update', 'general'];
+    }
+
+    function isValidSourceType(type) {
+      return type in ['supplier', 'batch', 'unit', 'import'];
+    }
+
+    function isValidSupplier(data) {
+      return isString(data.name, 1, 200) &&
+        isValidPortal(data.portal) &&
+        isOptionalString(data.contactName, 200) &&
+        isOptionalString(data.contactEmail, 254) &&
+        isOptionalString(data.phone, 50) &&
+        isOptionalString(data.address, 500) &&
+        isOptionalString(data.paymentTerms, 200) &&
+        isOptionalString(data.returnTerms, 500) &&
+        isOptionalString(data.notes, 5000) &&
+        isOptionalString(data.websiteUrl, 500) &&
+        isString(data.ownerId, 1, 128);
+    }
+
+    function isValidBatch(data) {
+      return isString(data.supplierId, 1, 128) &&
+        isTimestampString(data.date) &&
+        isOptionalString(data.supplierRef, 100) &&
+        isOptionalString(data.invoiceNumber, 100) &&
+        isOptionalString(data.deliveryNote, 500) &&
+        isOptionalString(data.receivedBy, 200) &&
+        isOptionalString(data.warehouseLocation, 50) &&
+        isOptionalString(data.currency, 10) &&
+        isOptionalNumber(data.shippingCost) &&
+        isOptionalNumber(data.taxAmount) &&
+        isOptionalNumber(data.discountAmount) &&
+        isOptionalString(data.notes, 5000) &&
+        isPositiveNumber(data.unitCount) &&
+        isPositiveNumber(data.totalBuyValue) &&
+        isString(data.ownerId, 1, 128);
+    }
+
+    function isValidInventoryUnit(data) {
+      return isString(data.imei, 8, 20) &&
+        isString(data.model, 1, 200) &&
+        isString(data.brand, 1, 100) &&
+        isString(data.category, 1, 100) &&
+        isString(data.colour, 1, 100) &&
+        isOptionalString(data.storage, 50) &&
+        (data.conditionGrade == null || isValidConditionGrade(data.conditionGrade)) &&
+        isOptionalBoolean(data.boxIncluded) &&
+        (data.batteryHealth == null || (data.batteryHealth is number && data.batteryHealth >= 0 && data.batteryHealth <= 100)) &&
+        isOptionalString(data.networkLock, 100) &&
+        isOptionalString(data.activationLock, 100) &&
+        isPositiveNumber(data.buyPrice) &&
+        isTimestampString(data.dateIn) &&
+        isString(data.supplierId, 1, 128) &&
+        isOptionalString(data.batchId, 128) &&
+        isOptionalString(data.stockLocation, 50) &&
+        isValidDeviceStatus(data.status) &&
+        data.flags is list &&
+        isOptionalBoolean(data.platformListed) &&
+        (data.listingSites == null || data.listingSites is list) &&
+        isOptionalString(data.listingUrl, 500) &&
+        isOptionalString(data.listingId, 200) &&
+        isOptionalTimestamp(data.listingDate) &&
+        isOptionalNumber(data.salePrice) &&
+        isOptionalTimestamp(data.saleDate) &&
+        isOptionalString(data.salePlatform, 100) &&
+        isOptionalString(data.saleOrderId, 200) &&
+        isOptionalString(data.customerName, 200) &&
+        isOptionalNumber(data.postageCost) &&
+        (data.returnType == null || isValidReturnCategory(data.returnType)) &&
+        isOptionalTimestamp(data.returnDate) &&
+        isOptionalString(data.returnReason, 1000) &&
+        (data.attachments == null || data.attachments is list) &&
+        isString(data.ownerId, 1, 128) &&
+        isOptionalString(data.notes, 5000);
+    }
+
+    function isValidInventoryEvent(data) {
+      return isValidEventType(data.type) &&
+        isString(data.message, 1, 5000) &&
+        isOptionalString(data.unitId, 128) &&
+        isOptionalString(data.batchId, 128) &&
+        isOptionalString(data.supplierId, 128) &&
+        isOptionalString(data.platform, 100) &&
+        isOptionalNumber(data.salePrice) &&
+        isOptionalNumber(data.buyPrice) &&
+        isTimestampString(data.createdAt) &&
+        isString(data.ownerId, 1, 128);
+    }
+
+    function isValidDailyUpdate(data) {
+      return isTimestampString(data.date) &&
+        isString(data.message, 1, 10000) &&
+        data.affectedUnitIds is list &&
+        data.affectedModels is list &&
+        isValidUpdateType(data.type) &&
+        isString(data.ownerId, 1, 128);
+    }
+
+    function isValidActiveListing(data) {
+      return isString(data.model, 1, 200) &&
+        isString(data.platform, 1, 100) &&
+        isPositiveNumber(data.quantity) &&
+        isOptionalString(data.listingUrl, 500) &&
+        isOptionalString(data.listingId, 200) &&
+        isOptionalString(data.notes, 5000) &&
+        isTimestampString(data.updatedAt) &&
+        isString(data.ownerId, 1, 128);
+    }
+
+    function isValidSourceDocument(data) {
+      return isString(data.fileName, 1, 500) &&
+        isString(data.mimeType, 1, 100) &&
+        isPositiveNumber(data.size) &&
+        isString(data.storagePath, 1, 500) &&
+        isString(data.downloadURL, 1, 1000) &&
+        isValidSourceType(data.linkedType) &&
+        isString(data.linkedId, 1, 128) &&
+        isString(data.ownerId, 1, 128);
     }
 
     match /suppliers/{supplierId} {
-      allow read, write: if isSignedIn();
+      allow read: if isSignedIn();
+      allow create: if isSignedIn() && isValidSupplier(request.resource.data);
+      allow update: if isSignedIn() && isValidSupplier(request.resource.data);
+      allow delete: if isSignedIn();
     }
 
     match /batches/{batchId} {
-      allow read, write: if isSignedIn();
+      allow read: if isSignedIn();
+      allow create: if isSignedIn() && isValidBatch(request.resource.data);
+      allow update: if isSignedIn() && isValidBatch(request.resource.data);
+      allow delete: if isSignedIn();
+    }
+
+    match /inventoryUnits/{unitId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn() && isValidInventoryUnit(request.resource.data);
+      allow update: if isSignedIn() && isValidInventoryUnit(request.resource.data);
+      allow delete: if isSignedIn();
     }
 
     match /inventoryEvents/{eventId} {
-      allow read, write: if isSignedIn();
+      allow read: if isSignedIn();
+      allow create: if isSignedIn() && isValidInventoryEvent(request.resource.data);
+      allow update: if isSignedIn() && isValidInventoryEvent(request.resource.data);
+      allow delete: if isSignedIn();
     }
 
     match /dailyUpdates/{updateId} {
-      allow read, write: if isSignedIn();
+      allow read: if isSignedIn();
+      allow create: if isSignedIn() && isValidDailyUpdate(request.resource.data);
+      allow update: if isSignedIn() && isValidDailyUpdate(request.resource.data);
+      allow delete: if isSignedIn();
     }
 
     match /activeListings/{listingId} {
-      allow read, write: if isSignedIn();
+      allow read: if isSignedIn();
+      allow create: if isSignedIn() && isValidActiveListing(request.resource.data);
+      allow update: if isSignedIn() && isValidActiveListing(request.resource.data);
+      allow delete: if isSignedIn();
     }
 
     match /sourceDocuments/{docId} {
-      allow read, write: if isSignedIn();
+      allow read: if isSignedIn();
+      allow create: if isSignedIn() && isValidSourceDocument(request.resource.data);
+      allow update: if isSignedIn() && isValidSourceDocument(request.resource.data);
+      allow delete: if isSignedIn();
     }
 
-    // Deny everything else
     match /{document=**} {
       allow read, write: if false;
     }
