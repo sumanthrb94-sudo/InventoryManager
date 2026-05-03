@@ -294,11 +294,16 @@ export default function ReturnsPage() {
       )}
 
       {/* Summary cards */}
-      <div className="grid grid-cols-3 gap-2">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
         <div className="bg-gray-50 border border-gray-200 rounded-2xl p-4">
           <p className="text-[9px] font-mono uppercase tracking-widest text-gray-500">Total Returns</p>
           <p className="text-3xl font-bold font-display mt-1">{returned.length}</p>
           <p className="text-[9px] text-gray-400 font-mono">all time</p>
+        </div>
+        <div className="bg-emerald-50 border border-emerald-100 rounded-2xl p-4">
+          <p className="text-[9px] font-mono uppercase tracking-widest text-emerald-600">To Inventory</p>
+          <p className="text-3xl font-bold font-display mt-1 text-emerald-700">{counts.returned_to_inventory}</p>
+          <p className="text-[9px] text-emerald-400 font-mono">units</p>
         </div>
         <div className="bg-blue-50 border border-blue-100 rounded-2xl p-4">
           <p className="text-[9px] font-mono uppercase tracking-widest text-blue-600">Repair</p>
