@@ -2,17 +2,14 @@ import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import App from './App.tsx';
 import './index.css';
+import { clearAllLocalCaches } from './lib/dbService';
 
-// ── Clear any previously seeded local cache ──────────────────────────────────
-// This ensures the app always starts fresh after the seed was disabled.
-// Safe to run every time — has no effect once the cache is already empty.
-const SEED_CLEARED_KEY = 'nexus_seed_cleared_v2';
-if (!localStorage.getItem(SEED_CLEARED_KEY)) {
-  const keysToRemove = Object.keys(localStorage).filter(k => k.startsWith('nexus_db_'));
-  keysToRemove.forEach(k => localStorage.removeItem(k));
-  localStorage.setItem(SEED_CLEARED_KEY, '1');
-  console.log(`[Startup] Cleared ${keysToRemove.length} cached collection(s) from localStorage.`);
-}
+// ── PRODUCTION: Always clear localStorage cache on startup ─────────────────
+// Firestore is the single source of truth. localStorage is only used as
+// a read-only offline cache that gets populated by onSnapshot.
+// Clearing on startup prevents stale/diverged data across devices.
+clearAllLocalCaches();
+console.log('[Startup] Cleared all localStorage caches. Waiting for Firestore sync...');
 // ─────────────────────────────────────────────────────────────────────────────
 
 createRoot(document.getElementById('root')!).render(
