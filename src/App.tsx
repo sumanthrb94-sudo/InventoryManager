@@ -7,7 +7,7 @@ import React, { useState, useEffect } from 'react';
 import { adminAuth, ADMIN_EMAIL } from './lib/adminAuth';
 import {
   LayoutDashboard, PackagePlus, ShoppingCart,
-  RefreshCw, BarChart2,
+  RefreshCw, BarChart2, Zap,
   LogOut, Plus, FileSpreadsheet,
   Eye, EyeOff, Lock, Mail, ShieldCheck,
 } from 'lucide-react';
@@ -20,11 +20,12 @@ import SellPage from './components/SellPage';
 import ReturnsPage from './components/ReturnsPage';
 import ReportingPage from './components/ReportingPage';
 import Suppliers from './components/Suppliers';
+import AnalyticsPage from './components/AnalyticsPage';
 import { useRealTimeNotifications } from './hooks/useRealTimeNotifications';
 import NotificationToast from './components/NotificationToast';
 import { notificationService } from './lib/notificationService';
 
-type Tab = 'overview' | 'buystk' | 'sell' | 'returns' | 'reports' | 'suppliers';
+type Tab = 'overview' | 'buystk' | 'sell' | 'returns' | 'reports' | 'suppliers' | 'analytics';
 
 
 interface InventoryFilters { status?: string; search?: string; supplierId?: string; }
@@ -99,11 +100,12 @@ export default function App() {
         </button>
 
         <nav className="flex-1 px-4 space-y-1">
-          <NavItem id="overview" label="Overview"     icon={<LayoutDashboard size={18}/>} active={activeTab==='overview'} onClick={()=>setActiveTab('overview')} />
-          <NavItem id="buystk"  label="Buy Stock"    icon={<PackagePlus size={18}/>}     active={activeTab==='buystk'}  onClick={()=>setActiveTab('buystk')} />
-          <NavItem id="sell"    label="Sell"          icon={<ShoppingCart size={18}/>}    active={activeTab==='sell'}    onClick={()=>setActiveTab('sell')} />
-          <NavItem id="returns" label="Returns"       icon={<RefreshCw size={18}/>}       active={activeTab==='returns'} onClick={()=>setActiveTab('returns')} />
-          <NavItem id="reports" label="Reports"       icon={<BarChart2 size={18}/>}       active={activeTab==='reports'} onClick={()=>setActiveTab('reports')} />
+          <NavItem id="overview"  label="Overview"   icon={<LayoutDashboard size={18}/>} active={activeTab==='overview'}   onClick={()=>setActiveTab('overview')} />
+          <NavItem id="buystk"   label="Buy Stock"  icon={<PackagePlus size={18}/>}     active={activeTab==='buystk'}    onClick={()=>setActiveTab('buystk')} />
+          <NavItem id="sell"     label="Sell"        icon={<ShoppingCart size={18}/>}    active={activeTab==='sell'}      onClick={()=>setActiveTab('sell')} />
+          <NavItem id="returns"  label="Returns"     icon={<RefreshCw size={18}/>}       active={activeTab==='returns'}   onClick={()=>setActiveTab('returns')} />
+          <NavItem id="analytics" label="Insights"  icon={<Zap size={18}/>}             active={activeTab==='analytics'} onClick={()=>setActiveTab('analytics')} />
+          <NavItem id="reports"  label="Reports"     icon={<BarChart2 size={18}/>}       active={activeTab==='reports'}   onClick={()=>setActiveTab('reports')} />
         </nav>
 
         {/* Admin badge + logout */}
@@ -174,6 +176,7 @@ export default function App() {
               {activeTab === 'buystk'    && <StockInPage onOpenBatch={()=>setIsBatchModalOpen(true)} onOpenImport={()=>setIsImportModalOpen(true)} />}
               {activeTab === 'sell'      && <SellPage />}
               {activeTab === 'returns'   && <ReturnsPage />}
+              {activeTab === 'analytics' && <AnalyticsPage />}
               {activeTab === 'reports'   && <ReportingPage />}
               {activeTab === 'suppliers' && (
                 <div>
@@ -193,11 +196,11 @@ export default function App() {
 
       {/* Mobile bottom nav — 4 core modules */}
       <nav className="md:hidden fixed bottom-0 w-full bg-white border-t border-gray-200 z-30 flex items-center justify-around px-1 py-2 safe-area-bottom">
-        <MobileNavItem id="overview" icon={<LayoutDashboard size={20}/>} label="Overview" active={activeTab==='overview'} onClick={()=>setActiveTab('overview')} />
-        <MobileNavItem id="buystk"   icon={<PackagePlus size={20}/>}     label="Buy"      active={activeTab==='buystk'}  onClick={()=>setActiveTab('buystk')} />
-        <MobileNavItem id="sell"     icon={<ShoppingCart size={20}/>}    label="Sell"     active={activeTab==='sell'}    onClick={()=>setActiveTab('sell')} />
-        <MobileNavItem id="returns"  icon={<RefreshCw size={20}/>}       label="Returns"  active={activeTab==='returns'} onClick={()=>setActiveTab('returns')} />
-        <MobileNavItem id="reports"  icon={<BarChart2 size={20}/>}       label="Reports"  active={activeTab==='reports'} onClick={()=>setActiveTab('reports')} />
+        <MobileNavItem id="overview"   icon={<LayoutDashboard size={20}/>} label="Overview" active={activeTab==='overview'}   onClick={()=>setActiveTab('overview')} />
+        <MobileNavItem id="buystk"     icon={<PackagePlus size={20}/>}     label="Buy"      active={activeTab==='buystk'}    onClick={()=>setActiveTab('buystk')} />
+        <MobileNavItem id="sell"       icon={<ShoppingCart size={20}/>}    label="Sell"     active={activeTab==='sell'}      onClick={()=>setActiveTab('sell')} />
+        <MobileNavItem id="returns"    icon={<RefreshCw size={20}/>}       label="Returns"  active={activeTab==='returns'}   onClick={()=>setActiveTab('returns')} />
+        <MobileNavItem id="analytics"  icon={<Zap size={20}/>}             label="Insights" active={activeTab==='analytics'} onClick={()=>setActiveTab('analytics')} />
       </nav>
 
       <AnimatePresence>
