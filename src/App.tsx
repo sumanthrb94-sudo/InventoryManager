@@ -24,6 +24,7 @@ import AnalyticsPage from './components/AnalyticsPage';
 import { useRealTimeNotifications } from './hooks/useRealTimeNotifications';
 import NotificationToast from './components/NotificationToast';
 import { notificationService } from './lib/notificationService';
+import { dbService } from './lib/dbService';
 
 type Tab = 'overview' | 'buystk' | 'sell' | 'returns' | 'reports' | 'suppliers' | 'analytics';
 
@@ -62,6 +63,28 @@ export default function App() {
   useEffect(() => {
     setIsLoggedIn(adminAuth.hasSession());
     setLoading(false);
+
+    // Auto-seed logic for 10k QA Data
+    if (window.location.search.includes('seed=10k')) {
+      console.log('🌱 Seed flag detected. Loading 10k QA data...');
+      fetch('/imported_inventory.json')
+        .then(res => res.json())
+        .then(async (data) => {
+          try {
+            await dbService.resetDatabase();
+            const entries = [
+              ...data.suppliers.map((s: any) => ({ collection: 'suppliers', id: s.id, data: s })),
+              ...data.units.map((u: any) => ({ collection: 'inventoryUnits', id: u.id, data: u }))
+            ];
+            await dbService.bulkCreate(entries);
+            alert('✅ 10,000 unit Master Data loaded successfully!');
+            window.location.search = '';
+          } catch (err) {
+            console.error('Seed failed:', err);
+            alert('❌ Seed failed. See console.');
+          }
+        });
+    }
   }, []);
 
   const handleLogout = () => {

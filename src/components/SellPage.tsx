@@ -451,6 +451,67 @@ export default function SellPage() {
         )}
       </CollapsibleSection>
 
+      {/* Sold Items History (Calendar View) */}
+      <CollapsibleSection
+        title="Sold Items History"
+        count={sold.length.toString()}
+        accent="border-l-blue-500"
+        defaultOpen={false}
+      >
+        {sold.length === 0 ? (
+          <div className="py-12 flex flex-col items-center gap-2 text-gray-300">
+            <ShoppingCart size={32} />
+            <p className="text-xs font-mono">No sold items recorded.</p>
+          </div>
+        ) : (
+          <div className="divide-y divide-gray-50">
+            {Object.entries(
+              sold.reduce((acc, u) => {
+                const d = u.saleDate || 'Unknown';
+                if (!acc[d]) acc[d] = [];
+                acc[d].push(u);
+                return acc;
+              }, {} as Record<string, InventoryUnit[]>)
+            )
+              .sort((a, b) => b[0].localeCompare(a[0]))
+              .map(([date, dayUnits]) => (
+                <div key={date} className="p-4">
+                  <div className="flex items-center gap-2 mb-3">
+                    <span className="text-[10px] font-bold uppercase tracking-widest text-gray-400 bg-gray-100 px-2 py-1 rounded-md">
+                      {date === todayStr ? 'Today' : date === yesterday ? 'Yesterday' : date !== 'Unknown' ? new Date(date).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' }) : 'Unknown Date'}
+                    </span>
+                    <span className="text-[10px] text-gray-400 font-mono">{dayUnits.length} unit{dayUnits.length !== 1 ? 's' : ''}</span>
+                  </div>
+                  <div className="grid gap-2">
+                    {dayUnits.map(u => (
+                      <div key={u.id} className="flex items-center justify-between p-3 bg-white border border-gray-100 rounded-xl hover:border-blue-200 transition-all">
+                        <div className="flex items-center gap-3">
+                          <div className="w-8 h-8 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center flex-shrink-0">
+                            <ShoppingCart size={14} />
+                          </div>
+                          <div>
+                            <p className="text-xs font-bold">{u.model}</p>
+                            <div className="flex items-center gap-2 mt-0.5">
+                              <span className="text-[9px] font-mono text-gray-600 uppercase tracking-widest bg-gray-100 border border-gray-200 px-1.5 py-0.5 rounded shadow-sm">
+                                IMEI: <span className="text-black font-bold">{u.imei}</span>
+                              </span>
+                              {u.salePlatform && <span className="text-[9px] font-mono text-gray-500 uppercase tracking-widest bg-gray-50 px-1.5 py-0.5 rounded">{u.salePlatform}</span>}
+                            </div>
+                          </div>
+                        </div>
+                        <div className="text-right">
+                          <p className="text-sm font-bold text-emerald-600">£{u.salePrice}</p>
+                          {u.saleOrderId && <p className="text-[9px] font-mono text-gray-400 mt-0.5">Order: {u.saleOrderId}</p>}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ))}
+          </div>
+        )}
+      </CollapsibleSection>
+
       {/* Sell order modal */}
       {selected && (
       <SellOrderModal

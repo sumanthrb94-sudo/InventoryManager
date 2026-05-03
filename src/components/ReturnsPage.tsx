@@ -1,12 +1,13 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import {
   RefreshCw, Search, ArrowUpRight, Wrench, PackageCheck,
-  ChevronDown, ChevronUp, X, CheckCircle2, AlertCircle,
+  ChevronDown, ChevronUp, X, CheckCircle2, AlertCircle, ShieldAlert, ShieldCheck
 } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
 import { dbService } from '../lib/dbService';
 import { InventoryUnit, ReturnCategory } from '../types';
 import CopyImei from './CopyImei';
+import { getWarrantyStatus } from '../lib/warrantyUtils';
 
 type FilterTab = 'all' | ReturnCategory;
 
@@ -46,6 +47,8 @@ function ProcessReturnModal({
   const [returnDate, setReturnDate] = useState(new Date().toISOString().split('T')[0]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+
+  const warranty = useMemo(() => getWarrantyStatus(unit.saleDate), [unit.saleDate]);
 
   const handleSave = async () => {
     if (!reason.trim()) { setError('Please enter a return reason.'); return; }
@@ -97,21 +100,58 @@ function ProcessReturnModal({
         </div>
 
         {/* Unit summary */}
-        <div className="px-6 py-3 bg-gray-50 border-b border-gray-100 flex-shrink-0">
+        <div className="px-6 py-4 bg-gray-50 border-b border-gray-100 flex-shrink-0 space-y-3">
           <div className="flex items-center gap-3">
             <CopyImei imei={unit.imei} truncate={12} />
             <span className="text-[9px] text-gray-400 font-mono">·</span>
             <span className="text-[9px] text-gray-500 font-mono">{unit.colour}</span>
-            {unit.saleOrderId && (
+            {unit.conditionGrade && (
               <>
                 <span className="text-[9px] text-gray-400 font-mono">·</span>
-                <span className="text-[9px] font-mono text-gray-500">Order: {unit.saleOrderId}</span>
+                <span className="text-[9px] font-mono font-bold text-gray-700">Grade {unit.conditionGrade}</span>
               </>
+            )}
+          </div>
+          
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <p className="text-[8px] font-mono uppercase tracking-widest text-gray-400">Buy Data</p>
+              <p className="text-xs font-bold mt-0.5">£{unit.buyPrice} <span className="text-[9px] text-gray-400 font-normal ml-1">on {unit.dateIn}</span></p>
+            </div>
+            <div>
+              <p className="text-[8px] font-mono uppercase tracking-widest text-gray-400">Sale Data</p>
+              <p className="text-xs font-bold mt-0.5 text-emerald-600">
+                {unit.salePrice ? `£${unit.salePrice}` : '—'} 
+                {unit.saleDate && <span className="text-[9px] text-gray-400 font-normal ml-1">on {unit.saleDate}</span>}
+              </p>
+            </div>
+            {(unit.salePlatform || unit.saleOrderId) && (
+              <div className="col-span-2">
+                <p className="text-[8px] font-mono uppercase tracking-widest text-gray-400">Platform & Order</p>
+                <p className="text-xs mt-0.5 text-gray-600">
+                  {unit.salePlatform || 'Unknown Platform'} {unit.saleOrderId && `· Order: ${unit.saleOrderId}`}
+                </p>
+              </div>
             )}
           </div>
         </div>
 
         <div className="flex-1 overflow-y-auto px-6 py-5 space-y-4">
+          {/* Warranty Alert */}
+          {unit.saleDate && (
+            <div className={`flex items-start gap-3 p-3 rounded-xl border ${warranty.isExpired ? 'bg-red-50 border-red-200 text-red-800' : 'bg-emerald-50 border-emerald-200 text-emerald-800'}`}>
+              {warranty.isExpired ? <ShieldAlert size={16} className="mt-0.5 text-red-600" /> : <ShieldCheck size={16} className="mt-0.5 text-emerald-600" />}
+              <div>
+                <p className="text-xs font-bold">{warranty.isExpired ? 'Warranty Expired' : 'Warranty Active'}</p>
+                <p className="text-[10px] mt-0.5 opacity-80">
+                  {warranty.isExpired 
+                    ? `Expired on ${warranty.endDate} (${Math.abs(warranty.daysLeft)} days ago)` 
+                    : `${warranty.daysLeft} days remaining (Expires ${warranty.endDate})`}
+                </p>
+              </div>
+            </div>
+          )}
+
           {/* Return Type */}
           <div>
             <label className="text-[9px] font-bold uppercase tracking-widest text-gray-400 block mb-2">Return Destination *</label>
@@ -273,17 +313,22 @@ export default function ReturnsPage() {
       </div>
 
       {/* Process a return from sold stock */}
-      {sold.length > 0 && (
-        <div className="bg-white border border-gray-200 rounded-2xl overflow-hidden">
-          <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between">
-            <p className="text-[10px] font-bold uppercase tracking-widest text-gray-400">Process New Return</p>
-            <span className="text-[9px] font-mono text-gray-400">{sold.length} sold units</span>
-          </div>
-          <div className="px-4 py-3">
-            <SoldUnitPicker units={sold} onSelect={u => setProcessing(u)} />
-          </div>
+      <div className="bg-white border border-gray-200 rounded-2xl overflow-hidden">
+        <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between">
+          <p className="text-[10px] font-bold uppercase tracking-widest text-gray-400">Process New Return</p>
+          <span className="text-[9px] font-mono text-gray-400">{sold.length} sold units</span>
         </div>
-      )}
+        <div className="px-4 py-3">
+          {sold.length > 0 ? (
+            <SoldUnitPicker units={sold} onSelect={u => setProcessing(u)} />
+          ) : (
+            <div className="py-4 text-center">
+              <p className="text-xs text-gray-400 font-mono">No items are currently marked as "Sold".</p>
+              <p className="text-[10px] text-gray-400 font-mono mt-1">You must sell an item before you can process a return.</p>
+            </div>
+          )}
+        </div>
+      </div>
 
       {/* Filter tabs */}
       <div className="flex gap-2 flex-wrap">
@@ -401,9 +446,18 @@ function SoldUnitPicker({ units, onSelect }: { units: InventoryUnit[]; onSelect:
   const [q, setQ] = useState('');
 
   const filtered = useMemo(() => {
-    if (!q.trim()) return [];
+    let sorted = [...units].sort((a, b) => {
+      const da = a.saleDate || a.dateIn;
+      const db = b.saleDate || b.dateIn;
+      return new Date(db).getTime() - new Date(da).getTime();
+    });
+
+    if (!q.trim()) {
+      return sorted.slice(0, 8); // Show up to 8 recent sold items by default
+    }
+
     const s = q.toLowerCase();
-    return units.filter(u =>
+    return sorted.filter(u =>
       u.model.toLowerCase().includes(s) ||
       u.imei.includes(s) ||
       (u.saleOrderId || '').toLowerCase().includes(s)
@@ -436,6 +490,9 @@ function SoldUnitPicker({ units, onSelect }: { units: InventoryUnit[]; onSelect:
       )}
       {q.trim() && filtered.length === 0 && (
         <p className="text-[10px] text-gray-400 font-mono text-center py-2">No sold units match "{q}"</p>
+      )}
+      {!q.trim() && units.length > 8 && (
+        <p className="text-[9px] text-gray-400 font-mono text-center py-1 mt-1">Showing 8 most recent. Search to find older items.</p>
       )}
     </div>
   );
