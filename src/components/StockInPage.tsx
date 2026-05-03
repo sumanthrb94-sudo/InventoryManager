@@ -31,6 +31,12 @@ export default function StockInPage({ onOpenBatch, onOpenImport }: Props) {
       .sort((a, b) => new Date(b.dateIn).getTime() - new Date(a.dateIn).getTime());
   }, [units]);
 
+  const supplierMap = useMemo(() => {
+    const m: Record<string, string> = {};
+    for (const s of suppliers) m[s.id] = s.name;
+    return m;
+  }, [suppliers]);
+
   const filtered = useMemo(() => {
     if (!search.trim()) return allSorted.slice(0, 50);
     const q = search.toLowerCase();
@@ -44,12 +50,6 @@ export default function StockInPage({ onOpenBatch, onOpenImport }: Props) {
 
   const todayIn = units.filter(u => u.dateIn === today);
   const totalBP = todayIn.reduce((s, u) => s + u.buyPrice, 0);
-
-  const supplierMap = useMemo(() => {
-    const m: Record<string, string> = {};
-    for (const s of suppliers) m[s.id] = s.name;
-    return m;
-  }, [suppliers]);
 
   return (
     <div className="space-y-5 pb-24 md:pb-8">
