@@ -92,7 +92,7 @@ export default function App() {
       {/* Desktop Sidebar — hidden on mobile */}
       <aside className="hidden md:flex w-72 border-r border-gray-200 flex-col pt-10 pb-6 bg-gray-50 z-30">
         <button 
-          onClick={() => setActiveTab('dashboard')}
+          onClick={() => setActiveTab('overview')}
           className="px-8 mb-16 text-left group hover:opacity-80 transition-all active:scale-95 origin-left"
         >
           <h1 className="text-3xl font-bold tracking-tighter uppercase font-display leading-none text-black group-hover:text-emerald-600 transition-colors">{APP_NAME}</h1>
@@ -136,7 +136,7 @@ export default function App() {
           <div className="flex items-center justify-between gap-4">
             {/* Mobile logo */}
             <button 
-              onClick={() => setActiveTab('dashboard')}
+              onClick={() => setActiveTab('overview')}
               className="md:hidden text-left active:scale-95 transition-transform"
             >
               <h1 className="text-2xl font-bold tracking-tighter uppercase font-display text-black">{APP_NAME}</h1>
