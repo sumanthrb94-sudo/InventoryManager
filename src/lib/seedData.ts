@@ -1,5 +1,6 @@
 import { collection, doc, getDocs, writeBatch } from 'firebase/firestore';
 import { db, ensureAuthReady } from './firebase';
+import { dbService } from './dbService';
 
 type SeedInventory = {
   suppliers: Array<Record<string, any>>;
@@ -8,131 +9,87 @@ type SeedInventory = {
 
 type StoredUnit = Record<string, any>;
 
-function parseStoredCollection<T>(key: string): T[] {
+function parseLocalCollection(key: string): any[] {
   try {
-    const raw = localStorage.getItem(key);
-    if (!raw) return [];
-    const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed : [];
-  } catch {
-    return [];
-  }
+    const raw = localStorage.getItem(`nexus_db_${key}`);
+    return raw ? JSON.parse(raw) : [];
+  } catch { return []; }
 }
 
-function hasDuplicateIds(units: StoredUnit[]): boolean {
-  const seen = new Set<string>();
-  for (const unit of units) {
-    if (!unit?.id) continue;
-    if (seen.has(unit.id)) return true;
-    seen.add(unit.id);
-  }
-  return false;
-}
-
-function inferBrand(model: string, fallbackBrand?: string) {
+function inferBrand(model: string, fallback?: string) {
   const m = model.toUpperCase();
-  if (m.includes('IPHONE') || m.includes('IPAD') || m.includes('APPLE WATCH') || m.includes('IWATCH') || m.includes('WATCH')) {
-    return 'Apple';
-  }
-  if (m.includes('SAMSUNG') || m.includes('GALAXY')) {
-    return 'Samsung';
-  }
-  return fallbackBrand || 'Other';
+  if (m.includes('IPHONE') || m.includes('IPAD') || m.includes('APPLE WATCH') || m.includes('IWATCH')) return 'Apple';
+  if (m.includes('SAMSUNG') || m.includes('GALAXY')) return 'Samsung';
+  return fallback || 'Other';
 }
 
-function inferCategory(model: string, fallbackCategory?: string) {
+function inferCategory(model: string, fallback?: string) {
   const m = model.toUpperCase();
   if (m.includes('IPAD')) return 'iPad';
   if (m.includes('IPHONE')) return 'iPhone';
-  if (m.includes('APPLE WATCH') || m.includes('IWATCH') || m.includes('WATCH ULTRA') || m.includes('WATCH SE') || m.includes('WATCH')) return 'Apple Watch';
+  if (m.includes('APPLE WATCH') || m.includes('IWATCH') || m.includes('WATCH ULTRA') || m.includes('WATCH SE')) return 'Apple Watch';
   if (m.includes('GALAXY TAB') || m.includes('TAB A') || m.includes('TAB S') || m.includes('TAB')) return 'Tablet';
   if (m.includes('SAMSUNG') || m.includes('GALAXY')) {
     if (m.includes(' A') || /\bA\d{2}\b/.test(m) || /\bA\d{3}\b/.test(m)) return 'Samsung A Series';
     return 'Samsung S Series';
   }
-  return fallbackCategory || 'Other';
+  return fallback || 'Other';
 }
 
-function inferColour(model: string, fallbackColour?: string) {
-  if (fallbackColour && fallbackColour !== 'Unknown') return fallbackColour;
-
+function inferColour(model: string, fallback?: string) {
+  if (fallback && fallback !== 'Unknown') return fallback;
   const upper = model.toUpperCase();
   const colours = [
     'NATURAL TITANIUM', 'BLACK TITANIUM', 'WHITE TITANIUM', 'BLUE TITANIUM', 'DESERT TITANIUM',
     'PACIFIC BLUE', 'SIERRA BLUE', 'ALPINE GREEN', 'SPACE GREY', 'SPACE GRAY', 'GRAPHITE',
-    'STARLIGHT', 'MIDNIGHT', 'BLACKNBLUE', 'BLACK', 'WHITE', 'BLUE', 'GOLD', 'SILVER',
-    'ROSE GOLD', 'ROSE', 'RED', 'GREEN', 'YELLOW', 'PURPLE', 'CORAL', 'MINT', 'PINK', 'TEAL',
-    'ORANGE', 'CREAM', 'LAVENDER', 'PHANTOM BLACK', 'PHANTOM WHITE', 'PHANTOM SILVER',
+    'STARLIGHT', 'MIDNIGHT', 'BLACK', 'WHITE', 'BLUE', 'GOLD', 'SILVER', 'ROSE GOLD', 'ROSE',
+    'RED', 'GREEN', 'YELLOW', 'PURPLE', 'CORAL', 'MINT', 'PINK', 'TEAL', 'ORANGE', 'CREAM',
+    'LAVENDER', 'PHANTOM BLACK', 'PHANTOM WHITE', 'PHANTOM SILVER',
   ];
-
-  for (const colour of colours) {
-    if (upper.includes(colour)) {
-      if (colour === 'SPACE GREY' || colour === 'SPACE GRAY') return 'Space Grey';
-      if (colour === 'BLACKNBLUE') return 'Black';
-      return colour.charAt(0) + colour.slice(1).toLowerCase();
+  for (const c of colours) {
+    if (upper.includes(c)) {
+      if (c === 'SPACE GREY' || c === 'SPACE GRAY') return 'Space Grey';
+      return c.charAt(0) + c.slice(1).toLowerCase();
     }
   }
-
-  return fallbackColour || 'Unknown';
+  return fallback || 'Unknown';
 }
 
-function normaliseUnits(units: StoredUnit[]) {
+function normaliseUnits(units: StoredUnit[]): StoredUnit[] {
   const deduped = new Map<string, StoredUnit>();
-
   for (const raw of units) {
-    if (!raw || !raw.id) continue;
+    if (!raw?.id) continue;
     const model = String(raw.model || '').trim();
-    const category = inferCategory(model, raw.category);
-    const brand = inferBrand(model, raw.brand);
     const isSold = raw.status === 'sold';
-    const saleDate = raw.saleDate || (isSold ? raw.dateIn : undefined);
-
     deduped.set(raw.id, {
       ...raw,
       model,
-      brand,
-      category,
+      brand: inferBrand(model, raw.brand),
+      category: inferCategory(model, raw.category),
       colour: inferColour(model, raw.colour),
       status: isSold ? 'sold' : raw.status || 'available',
       platformListed: isSold ? false : Boolean(raw.platformListed),
-      ...(isSold && saleDate ? { saleDate } : {}),
+      ...(isSold && (raw.saleDate || raw.dateIn) ? { saleDate: raw.saleDate || raw.dateIn } : {}),
     });
   }
-
   return Array.from(deduped.values());
 }
 
-function getLocalFallback() {
-  const existingSuppliers = parseStoredCollection<Record<string, any>>('nexus_db_suppliers');
-  const existingUnits = parseStoredCollection<StoredUnit>('nexus_db_inventoryUnits');
-  return { existingSuppliers, existingUnits };
-}
-
-async function readFirestoreCount(collectionName: string) {
+async function firestoreCount(collectionName: string): Promise<number> {
   const snap = await getDocs(collection(db, collectionName));
   return snap.size;
 }
 
-async function clearLocalCache() {
-  localStorage.removeItem('nexus_db_suppliers');
-  localStorage.removeItem('nexus_db_inventoryUnits');
-}
-
-async function writeInitialData(suppliers: Record<string, any>[], units: StoredUnit[]) {
-  const CHUNK = 499; // Firestore batch limit is 500 operations
+async function writeToFirestore(suppliers: Record<string, any>[], units: StoredUnit[]) {
+  const CHUNK = 499;
   const now = new Date().toISOString();
-
-  const allDocs: Array<{ col: string; id: string; data: Record<string, any> }> = [
-    ...suppliers.map(s => ({ col: 'suppliers', id: s.id, data: { ...s, createdAt: s.createdAt ?? now } })),
-    ...units.map(u => ({ col: 'inventoryUnits', id: u.id, data: { ...u, createdAt: u.createdAt ?? now, updatedAt: u.updatedAt ?? now } })),
+  const all = [
+    ...suppliers.map(s => ({ col: 'suppliers',     id: s.id, data: { ...s, createdAt: s.createdAt ?? now } })),
+    ...units.map(u    => ({ col: 'inventoryUnits', id: u.id, data: { ...u, createdAt: u.createdAt ?? now, updatedAt: u.updatedAt ?? now } })),
   ];
-
-  for (let i = 0; i < allDocs.length; i += CHUNK) {
-    const chunk = allDocs.slice(i, i + CHUNK);
+  for (let i = 0; i < all.length; i += CHUNK) {
     const batch = writeBatch(db);
-    for (const { col, id, data } of chunk) {
-      batch.set(doc(db, col, id), data);
-    }
+    for (const { col, id, data } of all.slice(i, i + CHUNK)) batch.set(doc(db, col, id), data);
     await batch.commit();
   }
 }
@@ -140,43 +97,56 @@ async function writeInitialData(suppliers: Record<string, any>[], units: StoredU
 export async function seedDefaultInventoryData() {
   if (typeof window === 'undefined') return;
 
+  // ── 1. Already seeded into localStorage? Done. ────────────────────────────
+  // dbService serves localStorage to all components instantly on subscribe,
+  // so if data is here the UI is already populated.
+  if (parseLocalCollection('inventoryUnits').length > 0) return;
+
+  // ── 2. Try to read Firestore count (may fail if rules not deployed yet) ───
   try {
     await ensureAuthReady();
-
-    const [supplierCount, unitCount] = await Promise.all([
-      readFirestoreCount('suppliers'),
-      readFirestoreCount('inventoryUnits'),
+    const [sc, uc] = await Promise.all([
+      firestoreCount('suppliers'),
+      firestoreCount('inventoryUnits'),
     ]);
-
-    if (supplierCount > 0 && unitCount > 0) {
-      await clearLocalCache();
+    if (sc > 0 && uc > 0) {
+      // Firestore has data — onSnapshot will pull it; nothing to do.
       return;
     }
+  } catch {
+    // Firestore not readable (rules not yet deployed or network offline).
+    // Continue — we'll seed localStorage so the UI shows data immediately.
+  }
 
-    const { existingSuppliers, existingUnits } = getLocalFallback();
-    const hasExistingData = existingSuppliers.length > 0 && existingUnits.length > 0;
+  // ── 3. Load seed file ─────────────────────────────────────────────────────
+  let suppliers: Record<string, any>[];
+  let units: StoredUnit[];
+  try {
+    const res = await fetch('/imported_inventory.json');
+    if (!res.ok) return;
+    const seed: SeedInventory = await res.json();
+    if (!seed?.suppliers?.length || !seed?.units?.length) return;
+    suppliers = seed.suppliers;
+    units = normaliseUnits(seed.units);
+  } catch {
+    return;
+  }
 
-    let suppliers: Record<string, any>[];
-    let units: StoredUnit[];
+  // ── 4. Write via dbService.bulkCreate ────────────────────────────────────
+  // This writes to localStorage FIRST (triggering all active subscribeToCollection
+  // listeners immediately so the UI updates), then tries Firestore best-effort.
+  // If Firestore rules aren't deployed yet the localStorage write still succeeds.
+  await dbService.bulkCreate([
+    ...suppliers.map(s => ({ collection: 'suppliers',     id: s.id, data: s })),
+    ...units.map(u    => ({ collection: 'inventoryUnits', id: u.id, data: u })),
+  ]);
 
-    if (hasExistingData && !hasDuplicateIds(existingUnits)) {
-      suppliers = existingSuppliers.map(supplier => ({ ...supplier }));
-      units = normaliseUnits(existingUnits);
-    } else {
-      const res = await fetch('/imported_inventory.json');
-      if (!res.ok) return;
-      const seed: SeedInventory = await res.json();
-      if (!seed?.suppliers?.length || !seed?.units?.length) return;
-
-      suppliers = seed.suppliers.map(supplier => ({ ...supplier }));
-      units = normaliseUnits(seed.units);
-    }
-
-    if (!suppliers.length || !units.length) return;
-
-    await writeInitialData(suppliers, units);
-    await clearLocalCache();
-  } catch (error) {
-    console.warn('Seed skipped because Firestore was unavailable.', error);
+  // ── 5. Also try a direct Firestore write so other devices pick it up ──────
+  // Best-effort — ignore failures (rules may not be deployed yet).
+  try {
+    await ensureAuthReady();
+    await writeToFirestore(suppliers, units);
+  } catch {
+    // Silent — localStorage is serving as the data source for now.
   }
 }
