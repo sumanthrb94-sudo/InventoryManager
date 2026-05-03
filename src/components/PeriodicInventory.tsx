@@ -113,6 +113,10 @@ function makeSymbol(seriesKey: string, groupId: string): string {
 export default function PeriodicInventory({ units, onNavigate }: Props) {
   const available = units.filter(u => u.status === 'available');
 
+  const today = new Date().toISOString().split('T')[0];
+  const todaySold = units.filter(u => u.status === 'sold' && (u.saleDate || u.dateIn) === today);
+  const todayReturned = units.filter(u => u.status === 'returned' && u.returnDate === today);
+
   const groups = useMemo(() => {
     return BRAND_GROUPS.map(group => {
       const groupUnits = available.filter(u => group.match(u.model));
@@ -153,18 +157,30 @@ export default function PeriodicInventory({ units, onNavigate }: Props) {
   return (
     <div style={{ background: '#0f172a', borderRadius: 20, padding: '20px 16px', overflowX: 'auto' }}>
       {/* Header */}
-      <div style={{ marginBottom: 16, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        <div>
-          <p style={{ fontSize: 10, fontFamily: 'monospace', textTransform: 'uppercase', letterSpacing: '0.15em', color: '#64748b', marginBottom: 2 }}>
-            Inventory Periodic Table
-          </p>
-          <p style={{ fontSize: 18, fontWeight: 800, color: '#f1f5f9', letterSpacing: '-0.03em', textTransform: 'uppercase' }}>
-            Stock Visibility
-          </p>
+      <div style={{ marginBottom: 16 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+          <div>
+            <p style={{ fontSize: 10, fontFamily: 'monospace', textTransform: 'uppercase', letterSpacing: '0.15em', color: '#64748b', marginBottom: 2 }}>
+              Inventory Periodic Table
+            </p>
+            <p style={{ fontSize: 18, fontWeight: 800, color: '#f1f5f9', letterSpacing: '-0.03em', textTransform: 'uppercase' }}>
+              Stock Visibility
+            </p>
+          </div>
+          <div style={{ textAlign: 'right' }}>
+            <p style={{ fontSize: 11, fontFamily: 'monospace', color: '#94a3b8' }}>{available.length} units</p>
+            <p style={{ fontSize: 10, fontFamily: 'monospace', color: '#475569' }}>available</p>
+          </div>
         </div>
-        <div style={{ textAlign: 'right' }}>
-          <p style={{ fontSize: 11, fontFamily: 'monospace', color: '#94a3b8' }}>{available.length} units</p>
-          <p style={{ fontSize: 10, fontFamily: 'monospace', color: '#475569' }}>available</p>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <div style={{ flex: 1, background: '#1e293b', borderRadius: 8, padding: '8px 10px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <span style={{ fontSize: 9, fontFamily: 'monospace', textTransform: 'uppercase', letterSpacing: '0.1em', color: '#94a3b8' }}>Sold Today</span>
+            <span style={{ fontSize: 13, fontWeight: 800, fontFamily: 'monospace', color: '#34d399' }}>{todaySold.length}</span>
+          </div>
+          <div style={{ flex: 1, background: '#1e293b', borderRadius: 8, padding: '8px 10px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <span style={{ fontSize: 9, fontFamily: 'monospace', textTransform: 'uppercase', letterSpacing: '0.1em', color: '#94a3b8' }}>Returned Today</span>
+            <span style={{ fontSize: 13, fontWeight: 800, fontFamily: 'monospace', color: '#fbbf24' }}>{todayReturned.length}</span>
+          </div>
         </div>
       </div>
 
