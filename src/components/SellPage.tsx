@@ -474,7 +474,7 @@ export default function SellPage() {
               }, {} as Record<string, InventoryUnit[]>)
             )
               .sort((a, b) => b[0].localeCompare(a[0]))
-              .map(([date, dayUnits]) => (
+              .map(([date, dayUnits]: [string, InventoryUnit[]]) => (
                 <div key={date} className="p-4">
                   <div className="flex items-center gap-2 mb-3">
                     <span className="text-[10px] font-bold uppercase tracking-widest text-gray-400 bg-gray-100 px-2 py-1 rounded-md">
