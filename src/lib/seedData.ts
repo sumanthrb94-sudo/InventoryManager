@@ -1,4 +1,4 @@
-import { collection, doc, getDocs, writeBatch } from 'firebase/firestore';
+import { collection, doc, getDocs, writeBatch, query, limit } from 'firebase/firestore';
 import { db, ensureAuthReady } from './firebase';
 import { dbService } from './dbService';
 
@@ -7,8 +7,6 @@ type SeedInventory = {
   units: Array<Record<string, any>>;
 };
 type StoredUnit = Record<string, any>;
-
-// ── Inference helpers ────────────────────────────────────────────────────────
 
 function inferBrand(model: string, fallback?: string) {
   const m = model.toUpperCase();
@@ -69,14 +67,18 @@ function normaliseUnits(units: StoredUnit[]): StoredUnit[] {
   return Array.from(deduped.values());
 }
 
-// ── Firestore helpers ────────────────────────────────────────────────────────
-
-async function firestoreCount(col: string) {
-  const snap = await getDocs(collection(db, col));
-  return snap.size;
+async function firestoreHasData() {
+  try {
+    const q = query(collection(db, 'inventoryUnits'), limit(1));
+    const snap = await getDocs(q);
+    return !snap.empty;
+  } catch (e) {
+    console.error('Error checking Firestore data:', e);
+    return false;
+  }
 }
 
-function writeToFirestoreBackground(suppliers: Record<string, any>[], units: StoredUnit[]) {
+async function writeToFirestoreBackground(suppliers: Record<string, any>[], units: StoredUnit[]) {
   const CHUNK = 499;
   const now   = new Date().toISOString();
   const all   = [
@@ -84,41 +86,38 @@ function writeToFirestoreBackground(suppliers: Record<string, any>[], units: Sto
     ...units.map(u    => ({ col: 'inventoryUnits', id: u.id, data: { ...u, createdAt: u.createdAt ?? now, updatedAt: u.updatedAt ?? now } })),
   ];
 
-  // Fire-and-forget — don't await, don't block UI
-  (async () => {
-    try {
-      await ensureAuthReady();
-      for (let i = 0; i < all.length; i += CHUNK) {
-        const batch = writeBatch(db);
-        for (const { col, id, data } of all.slice(i, i + CHUNK)) {
-          batch.set(doc(db, col, id), data);
-        }
-        await batch.commit();
+  try {
+    await ensureAuthReady();
+    for (let i = 0; i < all.length; i += CHUNK) {
+      const batch = writeBatch(db);
+      for (const { col, id, data } of all.slice(i, i + CHUNK)) {
+        batch.set(doc(db, col, id), data);
       }
-    } catch {
-      // Firestore rules may not be deployed — localStorage covers local device
+      await batch.commit();
     }
-  })();
+  } catch (e) {
+    console.error('Failed to seed to Firestore:', e);
+  }
 }
-
-// ── Main export ──────────────────────────────────────────────────────────────
 
 export async function seedDefaultInventoryData(
   onProgress?: (loaded: number, total: number) => void,
 ) {
   if (typeof window === 'undefined') return;
 
-  // ── Already seeded locally? Done. ────────────────────────────────────────
-  // onSnapshot will override this with live Firestore data once connected.
-  const cachedUnits = (() => {
-    try { return JSON.parse(localStorage.getItem('nexus_db_inventoryUnits') || '[]'); }
-    catch { return []; }
-  })();
-  if (cachedUnits.length > 0) return;
+  await ensureAuthReady();
 
-  // ── Fetch seed file ───────────────────────────────────────────────────────
-  // Don't check Firestore first — seed localStorage immediately so every
-  // new device shows data right away. onSnapshot corrects it with live data.
+  // Check if we are in a reset state via URL param
+  const isReset = window.location.search.includes('reset=');
+
+  if (!isReset) {
+    const hasData = await firestoreHasData();
+    if (hasData) {
+      console.log('Firestore already has data, skipping seed.');
+      return;
+    }
+  }
+
   let suppliers: Record<string, any>[];
   let units: StoredUnit[];
   try {
@@ -132,12 +131,9 @@ export async function seedDefaultInventoryData(
 
   const total = suppliers.length + units.length;
 
-  // ── Write suppliers to localStorage (tiny, instant) ──────────────────────
   localStorage.setItem('nexus_db_suppliers', JSON.stringify(suppliers));
   dbService.refreshFromLocalCache('suppliers');
-  onProgress?.(suppliers.length, total);
-
-  // ── Write units in chunks — yield every 1000 so the browser stays live ───
+  
   const unitCache: StoredUnit[] = [];
   const YIELD_EVERY = 1000;
   for (let i = 0; i < units.length; i++) {
@@ -149,10 +145,13 @@ export async function seedDefaultInventoryData(
   }
 
   localStorage.setItem('nexus_db_inventoryUnits', JSON.stringify(unitCache));
-  dbService.refreshFromLocalCache('inventoryUnits'); // triggers all dashboard listeners
-  onProgress?.(total, total); // dismiss loading screen
+  dbService.refreshFromLocalCache('inventoryUnits');
+  onProgress?.(total, total);
 
-  // ── Firestore write in background (non-blocking) ─────────────────────────
-  // Lets other devices pick up data via onSnapshot once rules are deployed.
-  writeToFirestoreBackground(suppliers, units);
+  await writeToFirestoreBackground(suppliers, units);
+  
+  // If we were in reset mode, clean the URL after successful seed
+  if (isReset) {
+    window.history.replaceState({}, document.title, window.location.pathname);
+  }
 }
