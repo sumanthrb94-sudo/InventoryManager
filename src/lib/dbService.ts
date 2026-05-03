@@ -76,22 +76,39 @@ function normalizeDoc<T extends Record<string, any>>(snapshotData: T, id: string
 }
 
 async function ensureAuthReady() {
-  await auth.authStateReady();
-  if (!auth.currentUser) {
-    throw new Error('Not authenticated. Please sign in.');
-  }
+  // 5-second ceiling — prevents auth from hanging the UI indefinitely
+  const timeout = new Promise<never>((_, reject) =>
+    setTimeout(() => reject(new Error('Auth timeout')), 5000)
+  );
+  await Promise.race([auth.authStateReady(), timeout]);
+  if (!auth.currentUser) throw new Error('Not authenticated.');
+}
+
+// Push docs that are in localStorage but missing from Firestore.
+// Called whenever onSnapshot detects Firestore is less complete than local cache.
+function pushMissingToFirestore(collectionName: string, docs: any[]) {
+  if (!docs.length) return;
+  void (async () => {
+    try {
+      await ensureAuthReady();
+      const CHUNK = 499;
+      for (let i = 0; i < docs.length; i += CHUNK) {
+        const batch = writeBatch(db);
+        for (const d of docs.slice(i, i + CHUNK)) {
+          batch.set(doc(collectionRef(collectionName), d.id), d);
+        }
+        await batch.commit();
+      }
+    } catch (err) {
+      console.warn(`Firestore backfill failed for ${collectionName}`, err);
+    }
+  })();
 }
 
 export function clearAllLocalCaches() {
   const keys = Object.keys(localStorage).filter(k => k.startsWith(LOCAL_CACHE_PREFIX));
   for (const key of keys) localStorage.removeItem(key);
 }
-
-  // ── Firestore background sync ──────────────────────────────────────────────
-  // Writes localStorage immediately (caller returns) then upserts to Firestore
-  // in a detached async IIFE. Never blocks the UI, never throws to callers.
-  // Uses setDoc so the write succeeds even if the document never existed in
-  // Firestore (e.g. seeding only reached localStorage on a previous visit).
 
 export const dbService = {
   async create(collectionName: string, id: string, data: any) {
@@ -220,9 +237,29 @@ export const dbService = {
         if (cached.length > 0) callback(cached);
 
         unsub = onSnapshot(q, snap => {
-          const data = snap.docs.map(d => normalizeDoc(d.data() as Record<string, any>, d.id));
-          writeLocalTable(collectionName, data);
-          emit(collectionName, data);
+          const fsData = snap.docs.map(d => normalizeDoc(d.data() as Record<string, any>, d.id));
+          const local  = readLocalTable(collectionName);
+
+          if (fsData.length >= local.length) {
+            // Firestore is at least as complete — accept it as source of truth
+            writeLocalTable(collectionName, fsData);
+            emit(collectionName, fsData);
+          } else {
+            // Firestore has FEWER docs than local cache.
+            // This happens when the seed wrote to localStorage but not Firestore
+            // (e.g. first setDoc of a sale is the first doc Firestore ever gets).
+            // Merge: use Firestore's version for any doc it knows about (keeps
+            // latest edits from other devices), keep local version for the rest.
+            const fsMap    = new Map(fsData.map(d => [d.id, d]));
+            const localIds = new Set(local.map(d => d.id));
+            const merged   = local.map(d => fsMap.get(d.id) ?? d);
+            // Add any Firestore docs not already in local (edge case)
+            fsData.forEach(d => { if (!localIds.has(d.id)) merged.push(d); });
+            writeLocalTable(collectionName, merged);
+            emit(collectionName, merged);
+            // Backfill Firestore with what it's missing so future snapshots are complete
+            pushMissingToFirestore(collectionName, local.filter(d => !fsMap.has(d.id)));
+          }
         }, error => {
           console.error(`Firestore subscription error for ${collectionName}:`, error);
         });
