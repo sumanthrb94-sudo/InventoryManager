@@ -11,7 +11,6 @@ import {
   orderBy,
   query,
   setDoc,
-  updateDoc,
   limit,
   writeBatch,
 } from 'firebase/firestore';
@@ -88,25 +87,33 @@ export function clearAllLocalCaches() {
   for (const key of keys) localStorage.removeItem(key);
 }
 
+  // ── Firestore background sync ──────────────────────────────────────────────
+  // Writes localStorage immediately (caller returns) then upserts to Firestore
+  // in a detached async IIFE. Never blocks the UI, never throws to callers.
+  // Uses setDoc so the write succeeds even if the document never existed in
+  // Firestore (e.g. seeding only reached localStorage on a previous visit).
+
 export const dbService = {
   async create(collectionName: string, id: string, data: any) {
     const timestamp = nowIso();
     const newItem = { ...data, id, createdAt: data.createdAt ?? timestamp, updatedAt: timestamp };
 
-    // Write locally first — instant, always succeeds
+    // 1. Instant local write — UI responds immediately
     const localTable = readLocalTable(collectionName);
     const idx = localTable.findIndex(item => item.id === id);
     if (idx >= 0) localTable[idx] = newItem; else localTable.push(newItem);
     writeLocalTable(collectionName, localTable);
     emit(collectionName, localTable);
 
-    // Sync to Firestore in background
-    try {
-      await ensureAuthReady();
-      await setDoc(doc(collectionRef(collectionName), id), newItem);
-    } catch (err: any) {
-      console.warn(`Firestore create failed for ${collectionName}/${id}; saved locally.`, err);
-    }
+    // 2. Fire-and-forget Firestore upsert — never blocks caller
+    void (async () => {
+      try {
+        await ensureAuthReady();
+        await setDoc(doc(collectionRef(collectionName), id), newItem);
+      } catch (err) {
+        console.warn(`Firestore create failed for ${collectionName}/${id}`, err);
+      }
+    })();
   },
 
   async bulkCreate(
@@ -154,39 +161,43 @@ export const dbService = {
   },
 
   async update(collectionName: string, id: string, data: any) {
-    const update = { ...data, updatedAt: nowIso() };
-
-    // Write locally first — instant, always succeeds
+    // 1. Instant local write
     const localTable = readLocalTable(collectionName);
     const idx = localTable.findIndex(item => item.id === id);
     if (idx >= 0) {
-      localTable[idx] = { ...localTable[idx], ...update };
+      localTable[idx] = { ...localTable[idx], ...data, updatedAt: nowIso() };
       writeLocalTable(collectionName, localTable);
       emit(collectionName, localTable);
     }
 
-    // Sync to Firestore in background
-    try {
-      await ensureAuthReady();
-      await updateDoc(doc(collectionRef(collectionName), id), update);
-    } catch (err: any) {
-      console.warn(`Firestore update failed for ${collectionName}/${id}; saved locally.`, err);
-    }
+    // 2. Fire-and-forget — push full document to Firestore so it exists even
+    //    if the original seed never made it (setDoc = upsert, not updateDoc)
+    const snapshot = localTable.find(item => item.id === id);
+    void (async () => {
+      try {
+        await ensureAuthReady();
+        if (snapshot) await setDoc(doc(collectionRef(collectionName), id), snapshot);
+      } catch (err) {
+        console.warn(`Firestore update failed for ${collectionName}/${id}`, err);
+      }
+    })();
   },
 
   async delete(collectionName: string, id: string) {
-    // Delete locally first — instant, always succeeds
+    // 1. Instant local delete
     const localTable = readLocalTable(collectionName).filter(item => item.id !== id);
     writeLocalTable(collectionName, localTable);
     emit(collectionName, localTable);
 
-    // Sync to Firestore in background
-    try {
-      await ensureAuthReady();
-      await deleteDoc(doc(collectionRef(collectionName), id));
-    } catch (err: any) {
-      console.warn(`Firestore delete failed for ${collectionName}/${id}; deleted locally.`, err);
-    }
+    // 2. Fire-and-forget Firestore delete
+    void (async () => {
+      try {
+        await ensureAuthReady();
+        await deleteDoc(doc(collectionRef(collectionName), id));
+      } catch (err) {
+        console.warn(`Firestore delete failed for ${collectionName}/${id}`, err);
+      }
+    })();
   },
 
   subscribeToCollection(collectionName: string, callback: (data: any[]) => void) {
