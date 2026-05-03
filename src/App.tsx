@@ -64,6 +64,13 @@ export default function App() {
     setLoading(false);
   }, []);
 
+  // ── Seed default data whenever user is authenticated ─────────────────────
+  useEffect(() => {
+    if (isLoggedIn) {
+      import('./lib/seedData').then(({ seedDefaultInventoryData }) => seedDefaultInventoryData());
+    }
+  }, [isLoggedIn]);
+
   const handleLogout = () => {
     adminAuth.clearSession();
     setIsLoggedIn(false);

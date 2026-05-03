@@ -119,24 +119,22 @@ async function clearLocalCache() {
 }
 
 async function writeInitialData(suppliers: Record<string, any>[], units: StoredUnit[]) {
-  const batch = writeBatch(db);
+  const CHUNK = 499; // Firestore batch limit is 500 operations
+  const now = new Date().toISOString();
 
-  for (const supplier of suppliers) {
-    batch.set(doc(db, 'suppliers', supplier.id), {
-      ...supplier,
-      createdAt: supplier.createdAt ?? new Date().toISOString(),
-    });
+  const allDocs: Array<{ col: string; id: string; data: Record<string, any> }> = [
+    ...suppliers.map(s => ({ col: 'suppliers', id: s.id, data: { ...s, createdAt: s.createdAt ?? now } })),
+    ...units.map(u => ({ col: 'inventoryUnits', id: u.id, data: { ...u, createdAt: u.createdAt ?? now, updatedAt: u.updatedAt ?? now } })),
+  ];
+
+  for (let i = 0; i < allDocs.length; i += CHUNK) {
+    const chunk = allDocs.slice(i, i + CHUNK);
+    const batch = writeBatch(db);
+    for (const { col, id, data } of chunk) {
+      batch.set(doc(db, col, id), data);
+    }
+    await batch.commit();
   }
-
-  for (const unit of units) {
-    batch.set(doc(db, 'inventoryUnits', unit.id), {
-      ...unit,
-      createdAt: unit.createdAt ?? new Date().toISOString(),
-      updatedAt: unit.updatedAt ?? new Date().toISOString(),
-    });
-  }
-
-  await batch.commit();
 }
 
 export async function seedDefaultInventoryData() {
