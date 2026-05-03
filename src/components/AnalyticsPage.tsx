@@ -13,7 +13,7 @@ import { dbService } from '../lib/dbService';
 import { InventoryUnit, Supplier } from '../types';
 import CollapsibleSection from './CollapsibleSection';
 
-type Period = 7 | 30 | 90;
+type Period = 7 | 30 | 90 | 0; // 0 = all time
 
 const PLATFORM_HEX: Record<string, string> = {
   eBay: '#f59e0b',
@@ -25,7 +25,7 @@ const PLATFORM_HEX: Record<string, string> = {
 export default function AnalyticsPage() {
   const [units, setUnits]         = useState<InventoryUnit[]>([]);
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
-  const [period, setPeriod]       = useState<Period>(30);
+  const [period, setPeriod]       = useState<Period>(0);
 
   useEffect(() => {
     const u = dbService.subscribeToCollection('inventoryUnits', setUnits);
@@ -53,6 +53,24 @@ export default function AnalyticsPage() {
 
   // ── Sales Velocity Trend ─────────────────────────────────────────────────
   const trendData = useMemo(() => {
+    if (period === 0) {
+      // All-time: group by calendar month
+      const byMonth: Record<string, number> = {};
+      for (const u of sold) {
+        const d = u.saleDate || u.dateIn;
+        if (!d) continue;
+        const key = d.slice(0, 7); // YYYY-MM
+        byMonth[key] = (byMonth[key] || 0) + 1;
+      }
+      return Object.entries(byMonth)
+        .sort(([a], [b]) => a.localeCompare(b))
+        .map(([key, count]) => {
+          const [y, m] = key.split('-');
+          const label = new Date(Number(y), Number(m) - 1, 1)
+            .toLocaleDateString('en-GB', { month: 'short', year: '2-digit' });
+          return { dateStr: key, label, units: count };
+        });
+    }
     return Array.from({ length: period }, (_, i) => {
       const dateStr = daysAgo(period - 1 - i);
       const d = new Date(dateStr);
@@ -63,11 +81,12 @@ export default function AnalyticsPage() {
   }, [sold, period, todayStr]);
 
   const totalSoldInPeriod = useMemo(
-    () => trendData.reduce((s, d) => s + d.units, 0),
-    [trendData],
+    () => period === 0 ? sold.length : trendData.reduce((s, d) => s + d.units, 0),
+    [trendData, sold, period],
   );
 
   const prevPeriodTotal = useMemo(() => {
+    if (period === 0) return 0;
     let n = 0;
     for (let i = period * 2; i > period; i--) {
       const dateStr = daysAgo(i);
@@ -76,7 +95,7 @@ export default function AnalyticsPage() {
     return n;
   }, [sold, period, todayStr]);
 
-  const periodDelta = prevPeriodTotal > 0
+  const periodDelta = period !== 0 && prevPeriodTotal > 0
     ? Math.round((totalSoldInPeriod - prevPeriodTotal) / prevPeriodTotal * 100)
     : null;
 
@@ -280,12 +299,12 @@ export default function AnalyticsPage() {
         <div className="flex items-center gap-2 flex-wrap">
           <PDFReportButton units={units} suppliers={suppliers} variant="outline" />
           <div className="flex gap-1 bg-gray-100 p-1 rounded-xl">
-            {([7, 30, 90] as Period[]).map(d => (
+            {([7, 30, 90, 0] as Period[]).map(d => (
               <button key={d} onClick={() => setPeriod(d)}
                 className={`px-3 py-1.5 rounded-lg text-[9px] font-bold uppercase tracking-widest transition-all ${
                   period === d ? 'bg-white shadow-sm text-black' : 'text-gray-400 hover:text-gray-600'
                 }`}>
-                {d}d
+                {d === 0 ? 'All' : `${d}d`}
               </button>
             ))}
           </div>
@@ -296,7 +315,9 @@ export default function AnalyticsPage() {
       <div className="bg-white border border-gray-100 rounded-2xl shadow-sm overflow-hidden">
         <div className="px-5 pt-5 pb-2 flex items-start justify-between">
           <div>
-            <p className="text-[9px] font-mono uppercase tracking-widest text-gray-400">Units Sold · Last {period} Days</p>
+            <p className="text-[9px] font-mono uppercase tracking-widest text-gray-400">
+              {period === 0 ? 'Units Sold · All Time' : `Units Sold · Last ${period} Days`}
+            </p>
             <div className="flex items-baseline gap-3 mt-1">
               <p className="text-4xl font-bold font-display tracking-tighter">{totalSoldInPeriod}</p>
               <p className="text-xs text-gray-400 font-mono">units</p>
@@ -322,7 +343,7 @@ export default function AnalyticsPage() {
               </defs>
               <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" vertical={false}/>
               <XAxis dataKey="label" fontSize={7} tickLine={false} axisLine={false} stroke="#aaa"
-                interval={period === 7 ? 0 : period === 30 ? 5 : 13}
+                interval={period === 0 ? 'preserveStartEnd' : period === 7 ? 0 : period === 30 ? 5 : 13}
               />
               <YAxis fontSize={7} tickLine={false} axisLine={false} stroke="#aaa" allowDecimals={false}/>
               <Tooltip

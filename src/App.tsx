@@ -4,12 +4,12 @@
  */
 
 import React, { useState, useEffect } from 'react';
-import { adminAuth, ADMIN_EMAIL } from './lib/adminAuth';
+import { onAuthStateChanged, User } from 'firebase/auth';
+import { auth, signInWithGoogle, signOut } from './lib/firebase';
 import {
   LayoutDashboard, PackagePlus, ShoppingCart,
   RefreshCw, BarChart2, Zap,
   LogOut, Plus, FileSpreadsheet,
-  Eye, EyeOff, Lock, Mail, ShieldCheck,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import Dashboard, { NavAction } from './components/Dashboard';
@@ -23,28 +23,29 @@ import Suppliers from './components/Suppliers';
 import AnalyticsPage from './components/AnalyticsPage';
 import { useRealTimeNotifications } from './hooks/useRealTimeNotifications';
 import NotificationToast from './components/NotificationToast';
+import NotificationBell from './components/NotificationBell';
 import { notificationService } from './lib/notificationService';
+import { subscribeToSyncStatus } from './lib/dbService';
 
 type Tab = 'overview' | 'buystk' | 'sell' | 'returns' | 'reports' | 'suppliers' | 'analytics';
 
+interface SeedProgress { loaded: number; total: number; }
 
-interface InventoryFilters { status?: string; search?: string; supplierId?: string; }
-
-const APP_NAME = 'MOBILEPHONEMARKET';
+const APP_NAME    = 'MOBILEPHONEMARKET';
 const APP_TAGLINE = 'Inventory Manager';
 
 export default function App() {
-  const [isLoggedIn, setIsLoggedIn] = useState(false);
-  const [loading, setLoading]       = useState(true);
-  const [activeTab, setActiveTab]   = useState<Tab>('overview');
+  const [user, setUser]           = useState<User | null>(null);
+  const [loading, setLoading]     = useState(true);
+  const [activeTab, setActiveTab] = useState<Tab>('overview');
   const [isBatchModalOpen,  setIsBatchModalOpen]  = useState(false);
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
-  const [unreadCount, setUnreadCount] = useState(0);
+  const [unreadCount, setUnreadCount]       = useState(0);
+  const [seedProgress, setSeedProgress]     = useState<SeedProgress | null>(null);
+  const [syncConnected, setSyncConnected]   = useState(false);
 
-  // ── Listen for inventory changes ──
   useRealTimeNotifications();
 
-  // ── Listen for notification count updates ──
   useEffect(() => {
     const unsub = notificationService.subscribe(() => {
       setUnreadCount(notificationService.getUnreadCount());
@@ -52,22 +53,49 @@ export default function App() {
     return unsub;
   }, []);
 
+  useEffect(() => subscribeToSyncStatus(setSyncConnected), []);
+
+  // ── Firebase Auth state listener ──────────────────────────────────────────
+  useEffect(() => {
+    const unsub = onAuthStateChanged(auth, (firebaseUser) => {
+      setUser(firebaseUser);
+      setLoading(false);
+
+      // If a user just logged in and localStorage is empty, show the loading
+      // overlay *immediately* — before the seed useEffect even fires — so the
+      // dashboard never flashes zeros on a fresh device.
+      if (firebaseUser) {
+        const hasLocalData = (() => {
+          try { return JSON.parse(localStorage.getItem('nexus_db_inventoryUnits') || '[]').length > 0; }
+          catch { return false; }
+        })();
+        if (!hasLocalData) setSeedProgress({ loaded: 0, total: 1 });
+      }
+    });
+    return unsub;
+  }, []);
+
+  // ── Seed default data once user is authenticated ──────────────────────────
+  useEffect(() => {
+    if (!user) return;
+    import('./lib/seedData').then(({ seedDefaultInventoryData }) => {
+      seedDefaultInventoryData((loaded, total) => {
+        if (loaded >= total) {
+          setTimeout(() => setSeedProgress(null), 600);
+        } else {
+          setSeedProgress({ loaded, total });
+        }
+      });
+    });
+  }, [user]);
+
   const handleNavigate = (action: NavAction) => {
     if (action.tab === 'inventory') setActiveTab('overview');
     else if (action.tab === 'suppliers') setActiveTab('suppliers');
     else setActiveTab(action.tab as Tab);
   };
 
-  // ── Restore session on boot ────────────────────────────────────────────────
-  useEffect(() => {
-    setIsLoggedIn(adminAuth.hasSession());
-    setLoading(false);
-  }, []);
-
-  const handleLogout = () => {
-    adminAuth.clearSession();
-    setIsLoggedIn(false);
-  };
+  const handleLogout = () => signOut();
 
   if (loading) {
     return (
@@ -81,17 +109,57 @@ export default function App() {
     );
   }
 
-  if (!isLoggedIn) {
-    return <LoginPage onLogin={() => setIsLoggedIn(true)} />;
+  if (!user) {
+    return <LoginPage />;
   }
 
   // ── Main app shell ─────────────────────────────────────────────────────────
   return (
     <div className="min-h-[100dvh] bg-[#FAFAFA] text-black flex flex-col md:flex-row">
 
-      {/* Desktop Sidebar — hidden on mobile */}
+      {/* ── Seed loading overlay ──────────────────────────────────────────── */}
+      <AnimatePresence>
+        {seedProgress && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[300] bg-white flex flex-col items-center justify-center gap-8"
+          >
+            <div className="text-center">
+              <h1 className="text-3xl font-bold tracking-tighter uppercase font-display">{APP_NAME}</h1>
+              <p className="text-[9px] text-gray-400 font-mono uppercase tracking-[0.4em] mt-1">{APP_TAGLINE}</p>
+            </div>
+            <div className="w-72 space-y-3">
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] font-bold uppercase tracking-widest text-gray-500 font-mono">Loading inventory…</span>
+                <span className="text-[10px] font-mono text-gray-400">
+                  {Math.round(seedProgress.loaded / seedProgress.total * 100)}%
+                </span>
+              </div>
+              <div className="h-1 bg-gray-100 rounded-full overflow-hidden">
+                <motion.div
+                  className="h-full bg-black rounded-full"
+                  animate={{ width: `${Math.round(seedProgress.loaded / seedProgress.total * 100)}%` }}
+                  transition={{ duration: 0.3 }}
+                />
+              </div>
+              <p className="text-[9px] font-mono text-gray-300 text-center">
+                {seedProgress.loaded.toLocaleString()} / {seedProgress.total.toLocaleString()} units
+              </p>
+            </div>
+            <motion.div
+              animate={{ rotate: 360 }}
+              transition={{ duration: 1.2, repeat: Infinity, ease: 'linear' }}
+              className="w-5 h-5 border-2 border-gray-200 border-t-black rounded-full"
+            />
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Desktop Sidebar */}
       <aside className="hidden md:flex w-72 border-r border-gray-200 flex-col pt-10 pb-6 bg-gray-50 z-30">
-        <button 
+        <button
           onClick={() => setActiveTab('overview')}
           className="px-8 mb-16 text-left group hover:opacity-80 transition-all active:scale-95 origin-left"
         >
@@ -100,23 +168,29 @@ export default function App() {
         </button>
 
         <nav className="flex-1 px-4 space-y-1">
-          <NavItem id="overview"  label="Overview"   icon={<LayoutDashboard size={18}/>} active={activeTab==='overview'}   onClick={()=>setActiveTab('overview')} />
-          <NavItem id="buystk"   label="Buy Stock"  icon={<PackagePlus size={18}/>}     active={activeTab==='buystk'}    onClick={()=>setActiveTab('buystk')} />
-          <NavItem id="sell"     label="Sell"        icon={<ShoppingCart size={18}/>}    active={activeTab==='sell'}      onClick={()=>setActiveTab('sell')} />
-          <NavItem id="returns"  label="Returns"     icon={<RefreshCw size={18}/>}       active={activeTab==='returns'}   onClick={()=>setActiveTab('returns')} />
-          <NavItem id="analytics" label="Insights"  icon={<Zap size={18}/>}             active={activeTab==='analytics'} onClick={()=>setActiveTab('analytics')} />
-          <NavItem id="reports"  label="Reports"     icon={<BarChart2 size={18}/>}       active={activeTab==='reports'}   onClick={()=>setActiveTab('reports')} />
+          <NavItem id="overview"   label="Overview"  icon={<LayoutDashboard size={18}/>} active={activeTab==='overview'}   onClick={()=>setActiveTab('overview')} />
+          <NavItem id="buystk"    label="Buy Stock"  icon={<PackagePlus size={18}/>}     active={activeTab==='buystk'}    onClick={()=>setActiveTab('buystk')} />
+          <NavItem id="sell"      label="Sell"        icon={<ShoppingCart size={18}/>}    active={activeTab==='sell'}      onClick={()=>setActiveTab('sell')} />
+          <NavItem id="returns"   label="Returns"     icon={<RefreshCw size={18}/>}       active={activeTab==='returns'}   onClick={()=>setActiveTab('returns')} />
+          <NavItem id="analytics" label="Insights"   icon={<Zap size={18}/>}             active={activeTab==='analytics'} onClick={()=>setActiveTab('analytics')} />
+          <NavItem id="reports"   label="Reports"     icon={<BarChart2 size={18}/>}       active={activeTab==='reports'}   onClick={()=>setActiveTab('reports')} />
         </nav>
 
-        {/* Admin badge + logout */}
+        {/* User identity + logout */}
         <div className="px-4 pt-6 border-t border-gray-200 space-y-3">
           <div className="px-4 py-4 flex items-center gap-3 bg-white border border-gray-200 shadow-sm rounded-xl">
-            <div className="w-9 h-9 rounded-xl bg-black flex items-center justify-center flex-shrink-0">
-              <ShieldCheck size={16} className="text-white" />
-            </div>
+            {user.photoURL ? (
+              <img src={user.photoURL} alt="" className="w-9 h-9 rounded-xl object-cover flex-shrink-0" referrerPolicy="no-referrer" />
+            ) : (
+              <div className="w-9 h-9 rounded-xl bg-black flex items-center justify-center flex-shrink-0 text-white text-sm font-bold">
+                {(user.displayName || user.email || 'U')[0].toUpperCase()}
+              </div>
+            )}
             <div className="flex-1 min-w-0">
-              <p className="text-[10px] font-bold uppercase tracking-widest text-black">Admin</p>
-              <p className="text-[9px] text-gray-400 font-mono truncate mt-0.5">{ADMIN_EMAIL}</p>
+              <p className="text-[10px] font-bold uppercase tracking-widest text-black truncate">
+                {user.displayName || 'User'}
+              </p>
+              <p className="text-[9px] text-gray-400 font-mono truncate mt-0.5">{user.email}</p>
             </div>
           </div>
           <button
@@ -131,19 +205,32 @@ export default function App() {
 
       {/* Main content */}
       <main className="flex-1 flex flex-col h-[100dvh] overflow-hidden bg-transparent pb-16 md:pb-0">
-        {/* Header */}
         <header className="h-16 md:h-20 border-b border-gray-200 flex flex-col justify-center px-4 md:px-10 bg-white/80 backdrop-blur-xl sticky top-0 z-20">
           <div className="flex items-center justify-between gap-4">
-            {/* Mobile logo */}
-            <button 
+            <button
               onClick={() => setActiveTab('overview')}
               className="md:hidden text-left active:scale-95 transition-transform"
             >
               <h1 className="text-2xl font-bold tracking-tighter uppercase font-display text-black">{APP_NAME}</h1>
             </button>
-
-            {/* Actions */}
             <div className="flex items-center gap-2 md:gap-3 ml-auto">
+              <div
+                title={syncConnected ? 'Live sync active' : 'Offline — local only'}
+                className="flex items-center gap-1.5"
+              >
+                <span className={`w-2 h-2 rounded-full flex-shrink-0 ${syncConnected ? 'bg-emerald-500 shadow-[0_0_6px_rgba(16,185,129,0.8)]' : 'bg-amber-400'}`} />
+                <span className="hidden md:inline text-[9px] font-mono uppercase tracking-widest text-gray-400">
+                  {syncConnected ? 'Live' : 'Offline'}
+                </span>
+              </div>
+              <NotificationBell unreadCount={unreadCount} />
+              <button
+                onClick={handleLogout}
+                className="md:hidden border border-gray-200 text-red-500 hover:bg-red-50 px-3 py-2 md:py-2.5 rounded-xl transition-all"
+                title="Sign Out"
+              >
+                <LogOut size={14} strokeWidth={2.5} />
+              </button>
               <button
                 onClick={() => setIsImportModalOpen(true)}
                 className="border border-gray-200 bg-white text-black px-3 md:px-5 py-2 md:py-2.5 rounded-xl text-[10px] md:text-xs font-bold uppercase tracking-widest flex items-center gap-2 hover:bg-gray-50 transition-all"
@@ -162,7 +249,6 @@ export default function App() {
           </div>
         </header>
 
-        {/* Content */}
         <div className="flex-1 overflow-y-auto p-4 md:p-8 custom-scrollbar">
           <AnimatePresence mode="wait">
             <motion.div
@@ -194,13 +280,22 @@ export default function App() {
         </div>
       </main>
 
-      {/* Mobile bottom nav — 4 core modules */}
+      {/* Mobile bottom nav */}
       <nav className="md:hidden fixed bottom-0 w-full bg-white border-t border-gray-200 z-30 flex items-center justify-around px-1 py-2 safe-area-bottom">
         <MobileNavItem id="overview"   icon={<LayoutDashboard size={20}/>} label="Overview" active={activeTab==='overview'}   onClick={()=>setActiveTab('overview')} />
         <MobileNavItem id="buystk"     icon={<PackagePlus size={20}/>}     label="Buy"      active={activeTab==='buystk'}    onClick={()=>setActiveTab('buystk')} />
         <MobileNavItem id="sell"       icon={<ShoppingCart size={20}/>}    label="Sell"     active={activeTab==='sell'}      onClick={()=>setActiveTab('sell')} />
         <MobileNavItem id="returns"    icon={<RefreshCw size={20}/>}       label="Returns"  active={activeTab==='returns'}   onClick={()=>setActiveTab('returns')} />
         <MobileNavItem id="analytics"  icon={<Zap size={20}/>}             label="Insights" active={activeTab==='analytics'} onClick={()=>setActiveTab('analytics')} />
+        <button
+          onClick={handleLogout}
+          className="flex flex-col items-center justify-center w-16 py-1.5 gap-1 rounded-xl transition-all text-gray-400 hover:text-red-600"
+        >
+          <div className="p-1.5 rounded-full transition-all">
+            <LogOut size={20} />
+          </div>
+          <span className="text-[9px] uppercase tracking-wider font-mono">Logout</span>
+        </button>
       </nav>
 
       <AnimatePresence>
@@ -214,31 +309,32 @@ export default function App() {
 }
 
 // ── Login Page ─────────────────────────────────────────────────────────────────
-function LoginPage({ onLogin }: { onLogin: () => void }) {
-  const [email,     setEmail]     = useState('');
-  const [password,  setPassword]  = useState('');
-  const [showPass,  setShowPass]  = useState(false);
-  const [error,     setError]     = useState('');
-  const [isLoading, setIsLoading] = useState(false);
+function LoginPage() {
+  const [loading, setLoading] = useState(false);
+  const [error, setError]     = useState('');
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleGoogleSignIn = async () => {
     setError('');
-    setIsLoading(true);
-    // Small artificial delay so it feels like a real auth call
-    await new Promise(r => setTimeout(r, 600));
-    if (adminAuth.check(email.trim(), password.trim())) {
-      adminAuth.saveSession();
-      onLogin();
-    } else {
-      setError('Invalid email or password. Please try again.');
+    setLoading(true);
+    try {
+      await signInWithGoogle();
+      // onAuthStateChanged in App will set the user — no manual state needed here
+    } catch (err: any) {
+      if (err?.code === 'auth/popup-closed-by-user' || err?.code === 'auth/cancelled-popup-request') {
+        // User closed popup — no error
+      } else if (err?.code === 'auth/unauthorized-domain') {
+        setError('This domain is not authorized. Add it to Firebase Auth → Settings → Authorized domains.');
+      } else {
+        setError(err?.message || 'Sign-in failed. Please try again.');
+      }
+    } finally {
+      setLoading(false);
     }
-    setIsLoading(false);
   };
 
   return (
     <div className="min-h-[100dvh] bg-white flex">
-      {/* Left brand panel — desktop only */}
+      {/* Left brand panel */}
       <div className="hidden lg:flex w-1/2 bg-black flex-col justify-between p-16">
         <div>
           <h1 className="text-5xl font-bold tracking-tighter uppercase text-white font-display">{APP_NAME}</h1>
@@ -246,9 +342,9 @@ function LoginPage({ onLogin }: { onLogin: () => void }) {
         </div>
         <div className="space-y-8">
           {[
-            { label: 'Real-time Stock Tracking',  desc: 'IMEI-level visibility for every unit' },
-            { label: 'Daily Sales Briefing',       desc: 'eBay / Amazon / OnBuy / Backmarket qty sync' },
-            { label: 'Excel Import',               desc: 'One-click migration from OG STOCK DATA sheet' },
+            { label: 'Real-time Stock Tracking',   desc: 'IMEI-level visibility for every unit' },
+            { label: 'Live Multi-device Sync',      desc: 'Any change by anyone is instant everywhere' },
+            { label: 'Excel Import',                desc: 'One-click migration from your stock sheet' },
           ].map(f => (
             <div key={f.label} className="flex items-start gap-4">
               <div className="w-1 h-1 mt-2 bg-white rounded-full flex-shrink-0" />
@@ -262,120 +358,70 @@ function LoginPage({ onLogin }: { onLogin: () => void }) {
         <p className="text-[9px] text-gray-600 font-mono uppercase tracking-widest">Admin access only · MOBILEPHONEMARKET Inventory Manager</p>
       </div>
 
-      {/* Right login form */}
+      {/* Right sign-in panel */}
       <div className="flex-1 flex items-center justify-center p-6">
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           className="w-full max-w-sm space-y-8"
         >
-          {/* Mobile logo */}
           <div className="lg:hidden text-center">
             <h1 className="text-4xl font-bold tracking-tighter uppercase font-display">{APP_NAME}</h1>
             <p className="text-[10px] text-gray-400 font-mono uppercase tracking-[0.4em] mt-1">{APP_TAGLINE}</p>
           </div>
 
           <div>
-            <h2 className="text-2xl font-bold tracking-tight">Admin Sign In</h2>
-            <p className="text-sm text-gray-500 mt-1">Enter your credentials to access the dashboard</p>
+            <h2 className="text-2xl font-bold tracking-tight">Sign In</h2>
+            <p className="text-sm text-gray-500 mt-1">Use your Google account to access the dashboard</p>
           </div>
 
-          <form onSubmit={handleSubmit} className="space-y-4">
-            {/* Email */}
-            <div className="space-y-1.5">
-              <label className="text-[10px] font-bold uppercase tracking-widest text-gray-500 font-mono">Email</label>
-              <div className="relative">
-                <Mail className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400" size={15} />
-                <input
-                 type="text"
-                  autoCapitalize="none"
-                  autoCorrect="off"
-                  spellCheck={false}
-                  required
-                  value={email}
-                  onChange={e => setEmail(e.target.value)}
-                  placeholder="admin@nexusinventory.com"
-                  className="w-full bg-gray-50 border border-gray-200 rounded-xl py-3 pl-10 pr-4 text-sm text-black placeholder-gray-300 focus:outline-none focus:border-black focus:bg-white transition-all"
-                />
-              </div>
-            </div>
+          <AnimatePresence>
+            {error && (
+              <motion.p
+                initial={{ opacity: 0, y: -4 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0 }}
+                className="text-xs text-red-600 font-mono bg-red-50 border border-red-100 px-4 py-2.5 rounded-xl"
+              >
+                {error}
+              </motion.p>
+            )}
+          </AnimatePresence>
 
-            {/* Password */}
-            <div className="space-y-1.5">
-              <label className="text-[10px] font-bold uppercase tracking-widest text-gray-500 font-mono">Password</label>
-              <div className="relative">
-                <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400" size={15} />
-                <input
-                  type={showPass ? 'text' : 'password'}
-                  required
-                  value={password}
-                  onChange={e => setPassword(e.target.value)}
-                  placeholder="••••••••"
-                  className="w-full bg-gray-50 border border-gray-200 rounded-xl py-3 pl-10 pr-12 text-sm text-black placeholder-gray-300 focus:outline-none focus:border-black focus:bg-white transition-all"
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowPass(p => !p)}
-                  className="absolute right-3.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-black"
-                >
-                  {showPass ? <EyeOff size={15} /> : <Eye size={15} />}
-                </button>
-              </div>
-            </div>
+          <button
+            onClick={handleGoogleSignIn}
+            disabled={loading}
+            className="w-full flex items-center justify-center gap-3 bg-white border border-gray-300 rounded-xl py-3.5 px-6 text-sm font-semibold text-gray-700 hover:bg-gray-50 hover:border-gray-400 transition-all active:scale-[0.98] disabled:opacity-50 shadow-sm"
+          >
+            {loading ? (
+              <motion.div
+                animate={{ rotate: 360 }}
+                transition={{ duration: 0.8, repeat: Infinity, ease: 'linear' }}
+                className="w-5 h-5 border-2 border-gray-400 border-t-transparent rounded-full"
+              />
+            ) : (
+              <GoogleIcon />
+            )}
+            {loading ? 'Signing in…' : 'Continue with Google'}
+          </button>
 
-            {/* Error */}
-            <AnimatePresence>
-              {error && (
-                <motion.p
-                  initial={{ opacity: 0, y: -4 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0 }}
-                  className="text-xs text-red-600 font-mono bg-red-50 border border-red-100 px-4 py-2.5 rounded-xl"
-                >
-                  {error}
-                </motion.p>
-              )}
-            </AnimatePresence>
-
-            {/* Submit */}
-            <button
-              type="submit"
-              disabled={isLoading}
-              className="w-full bg-black text-white py-3.5 rounded-xl text-sm font-bold uppercase tracking-widest hover:bg-gray-800 transition-all active:scale-[0.98] disabled:opacity-50 flex items-center justify-center gap-3"
-            >
-              {isLoading ? (
-                <motion.div
-                  animate={{ rotate: 360 }}
-                  transition={{ duration: 0.8, repeat: Infinity, ease: 'linear' }}
-                  className="w-4 h-4 border-2 border-white border-t-transparent rounded-full"
-                />
-              ) : (
-                <>
-                  <ShieldCheck size={16} />
-                  Sign In to {APP_NAME}
-                </>
-              )}
-            </button>
-          </form>
-
-          <div className="flex items-center gap-3 p-4 bg-gray-50 border border-gray-100 rounded-xl">
-            <Lock size={12} className="text-gray-400 flex-shrink-0" />
-            <p className="text-[9px] text-gray-400 font-mono leading-relaxed uppercase tracking-wide">
-              Admin-only access. Contact your system admin if you need credentials.
-            </p>
-          </div>
-          {/* Credentials hint */}
-          <div className="p-4 bg-gray-950 rounded-xl space-y-1.5">
-            <p className="text-[9px] text-gray-500 font-mono uppercase tracking-widest">Access Info</p>
-            <p className="text-[10px] text-gray-300 font-mono leading-relaxed">
-              Use the email &amp; password set in your Vercel environment variables
-              (<span className="text-white">VITE_ADMIN_EMAIL</span> / <span className="text-white">VITE_ADMIN_PASSWORD</span>).
-            </p>
-            <p className="text-[9px] text-gray-600 font-mono">Each device logs in independently · session saved per browser.</p>
-          </div>
+          <p className="text-[9px] text-gray-400 font-mono text-center uppercase tracking-wide leading-relaxed">
+            Internal tool · MOBILEPHONEMARKET staff only
+          </p>
         </motion.div>
       </div>
     </div>
+  );
+}
+
+function GoogleIcon() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 18 18" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <path d="M17.64 9.20455C17.64 8.56636 17.5827 7.95273 17.4764 7.36364H9V10.845H13.8436C13.635 11.97 13.0009 12.9232 12.0477 13.5614V15.8195H14.9564C16.6582 14.2527 17.64 11.9455 17.64 9.20455Z" fill="#4285F4"/>
+      <path d="M9 18C11.43 18 13.4673 17.1941 14.9564 15.8195L12.0477 13.5614C11.2418 14.1014 10.2109 14.4205 9 14.4205C6.65591 14.4205 4.67182 12.8373 3.96409 10.71H0.957275V13.0418C2.43818 15.9832 5.48182 18 9 18Z" fill="#34A853"/>
+      <path d="M3.96409 10.71C3.78409 10.17 3.68182 9.59318 3.68182 9C3.68182 8.40682 3.78409 7.83 3.96409 7.29V4.95818H0.957275C0.347727 6.17318 0 7.54773 0 9C0 10.4523 0.347727 11.8268 0.957275 13.0418L3.96409 10.71Z" fill="#FBBC05"/>
+      <path d="M9 3.57955C10.3214 3.57955 11.5077 4.03364 12.4405 4.92545L15.0218 2.34409C13.4632 0.891818 11.4259 0 9 0C5.48182 0 2.43818 2.01682 0.957275 4.95818L3.96409 7.29C4.67182 5.16273 6.65591 3.57955 9 3.57955Z" fill="#EA4335"/>
+    </svg>
   );
 }
 

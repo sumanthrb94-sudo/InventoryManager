@@ -3,12 +3,13 @@ import { motion, AnimatePresence } from 'motion/react';
 import {
   X, Cpu, Package, Truck, ShoppingBag, Tag,
   Star, MapPin, CheckCircle2, AlertCircle,
-  Edit3, Save, ShieldCheck, ExternalLink
+  Edit3, Save, ShieldCheck, ExternalLink, ShieldAlert
 } from 'lucide-react';
 import { InventoryUnit, OperationalFlag, SourceDocument } from '../types';
 import { dbService } from '../lib/dbService';
 import { validateIMEI, formatIMEI } from '../lib/imeiUtils';
 import CopyImei from './CopyImei';
+import { getWarrantyStatus } from '../lib/warrantyUtils';
 
 
 import { logInventoryEvent } from '../lib/inventoryEvents';
@@ -40,6 +41,8 @@ export default function UnitDetailDrawer({ unit, supplierName, onClose }: Props)
   const [saving, setSaving]     = useState(false);
   const [saved, setSaved]       = useState(false);
   const [sourceDocs, setSourceDocs] = useState<SourceDocument[]>([]);
+
+  const warranty = useMemo(() => getWarrantyStatus(unit.saleDate), [unit.saleDate]);
 
   useEffect(() => {
     const unsub = dbService.subscribeToCollection('sourceDocuments', setSourceDocs);
@@ -269,25 +272,45 @@ export default function UnitDetailDrawer({ unit, supplierName, onClose }: Props)
               </div>
 
               {/* Key details grid */}
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
                 {[
                   { label: 'Buy Price',    value: `£${unit.buyPrice}` },
                   { label: 'Supplier',     value: supplierName || '—' },
                   { label: 'Date In',      value: new Date(unit.dateIn).toLocaleDateString('en-GB') },
                   { label: 'Location',     value: 'Office Stock' },
+                  { label: 'Grade',        value: unit.conditionGrade || '—' },
+                  { label: 'Network',      value: unit.networkLock || 'Unlocked' },
                   {
                     label: 'Listing Sites',
                     value: hasListingSites ? listingSites.join(' / ') : (unit.platformListed ? 'Listed' : 'Unlisted'),
                   },
                   ...(unit.salePrice ? [{ label: 'Sale Price', value: `£${unit.salePrice}` }] : []),
+                  ...(unit.saleDate ? [{ label: 'Sale Date', value: new Date(unit.saleDate).toLocaleDateString('en-GB') }] : []),
                   ...(unit.salePlatform ? [{ label: 'Sold Via', value: unit.salePlatform }] : []),
+                  ...(unit.saleOrderId ? [{ label: 'Order ID', value: unit.saleOrderId }] : []),
+                  ...(unit.customerName ? [{ label: 'Customer', value: unit.customerName }] : []),
                 ].map(d => (
-                  <div key={d.label} className="bg-gray-50 rounded-xl p-3">
+                  <div key={d.label} className="bg-gray-50 rounded-xl p-3 overflow-hidden">
                     <p className="text-[9px] text-gray-400 font-mono uppercase tracking-widest">{d.label}</p>
-                    <p className="text-sm font-bold mt-0.5">{d.value}</p>
+                    <p className="text-sm font-bold mt-0.5 truncate">{d.value}</p>
                   </div>
                 ))}
               </div>
+
+              {/* Warranty Banner */}
+              {unit.saleDate && (
+                <div className={`flex items-start gap-3 p-4 rounded-2xl border ${warranty.isExpired ? 'bg-red-50 border-red-200 text-red-800' : 'bg-emerald-50 border-emerald-200 text-emerald-800'}`}>
+                  {warranty.isExpired ? <ShieldAlert size={18} className="mt-0.5 text-red-600" /> : <ShieldCheck size={18} className="mt-0.5 text-emerald-600" />}
+                  <div>
+                    <p className="text-sm font-bold">{warranty.isExpired ? 'Warranty Expired' : 'Warranty Active'}</p>
+                    <p className="text-[11px] mt-0.5 font-mono opacity-80">
+                      {warranty.isExpired 
+                        ? `Expired on ${warranty.endDate} (${Math.abs(warranty.daysLeft)} days ago)` 
+                        : `${warranty.daysLeft} days remaining — expires on ${warranty.endDate}`}
+                    </p>
+                  </div>
+                </div>
+              )}
 
               {/* Flags */}
               {unit.flags.length > 0 && (

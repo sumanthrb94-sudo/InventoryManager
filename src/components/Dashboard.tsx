@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import {
   TrendingUp, Package, CircleDollarSign,
-  ChevronRight, Truck, ShoppingBag, Trash2, AlertTriangle, CheckCircle2, X,
+  ChevronRight, Truck, ShoppingBag,
 } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts';
 import { dbService } from '../lib/dbService';
@@ -27,30 +27,15 @@ interface Props {
   onNavigate: (action: NavAction) => void;
 }
 
-type ResetState = 'idle' | 'confirming' | 'resetting' | 'done' | 'error';
-
 export default function Dashboard({ onNavigate }: Props) {
   const [units, setUnits]         = useState<InventoryUnit[]>([]);
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
-  const [resetState, setResetState] = useState<ResetState>('idle');
 
   useEffect(() => {
     const u = dbService.subscribeToCollection('inventoryUnits', setUnits);
     const s = dbService.subscribeToCollection('suppliers', setSuppliers);
     return () => { u(); s(); };
   }, []);
-
-  const handleResetConfirm = async () => {
-    setResetState('resetting');
-    try {
-      await dbService.resetDatabase();
-      setResetState('done');
-      setTimeout(() => setResetState('idle'), 4000);
-    } catch {
-      setResetState('error');
-      setTimeout(() => setResetState('idle'), 4000);
-    }
-  };
 
   const available    = units.filter(u => u.status === 'available');
   const sold         = units.filter(u => u.status === 'sold');
@@ -207,58 +192,6 @@ export default function Dashboard({ onNavigate }: Props) {
           </p>
         </div>
 
-        {/* Inline reset flow — no native confirm/alert dialogs */}
-        <div className="flex-shrink-0">
-          {resetState === 'idle' && (
-            <button
-              onClick={() => setResetState('confirming')}
-              className="flex items-center gap-2 px-3 py-2 border border-red-100 bg-red-50 text-red-500 rounded-xl text-[10px] font-bold uppercase tracking-widest hover:bg-red-100 transition-all"
-            >
-              <Trash2 size={12} />
-              Reset DB
-            </button>
-          )}
-
-          {resetState === 'confirming' && (
-            <div className="flex items-center gap-2 bg-red-50 border border-red-200 rounded-xl px-3 py-2">
-              <AlertTriangle size={12} className="text-red-600 flex-shrink-0" />
-              <span className="text-[9px] font-bold text-red-700 uppercase tracking-widest">Delete all data?</span>
-              <button
-                onClick={handleResetConfirm}
-                className="px-2 py-1 bg-red-600 text-white rounded-lg text-[9px] font-bold uppercase tracking-widest hover:bg-red-700 transition-all"
-              >
-                Yes
-              </button>
-              <button
-                onClick={() => setResetState('idle')}
-                className="p-1 text-red-400 hover:text-red-700 transition-all"
-              >
-                <X size={12} />
-              </button>
-            </div>
-          )}
-
-          {resetState === 'resetting' && (
-            <div className="flex items-center gap-2 px-3 py-2 bg-gray-100 rounded-xl">
-              <div className="w-3 h-3 border-2 border-gray-400 border-t-transparent rounded-full animate-spin" />
-              <span className="text-[9px] font-bold text-gray-500 uppercase tracking-widest">Resetting…</span>
-            </div>
-          )}
-
-          {resetState === 'done' && (
-            <div className="flex items-center gap-2 px-3 py-2 bg-emerald-50 border border-emerald-200 rounded-xl">
-              <CheckCircle2 size={12} className="text-emerald-600" />
-              <span className="text-[9px] font-bold text-emerald-700 uppercase tracking-widest">Reset complete</span>
-            </div>
-          )}
-
-          {resetState === 'error' && (
-            <div className="flex items-center gap-2 px-3 py-2 bg-red-50 border border-red-200 rounded-xl">
-              <X size={12} className="text-red-600" />
-              <span className="text-[9px] font-bold text-red-700 uppercase tracking-widest">Reset failed</span>
-            </div>
-          )}
-        </div>
       </div>
 
       <PeriodicInventory

@@ -1,35 +1,62 @@
 /**
- * Firestore-backed database service with local fallback cache.
- *
- * Firestore is the shared source of truth when available, but the app also
- * keeps a browser cache so the UI can still show master data if Firestore auth,
- * rules, or network access fail.
+ * PRODUCTION Firestore database service — Single Source of Truth
  */
 
 import {
   collection,
   deleteDoc,
   doc,
-  getCountFromServer,
   getDocs,
   onSnapshot,
   orderBy,
   query,
   setDoc,
-  updateDoc,
-  where,
   limit,
-  startAfter,
-  QueryDocumentSnapshot,
   writeBatch,
 } from 'firebase/firestore';
 
-import { auth, db, ensureAnonymousAuth } from './firebase';
+import { auth, db } from './firebase';
 
 const LOCAL_CACHE_PREFIX = 'nexus_db_';
 const listeners: Record<string, Array<(data: any[]) => void>> = {};
-const cacheLoaded: Record<string, boolean> = {};
 
+// ── Sync status ───────────────────────────────────────────────────────────────
+let _syncConnected = false;
+const _syncListeners: Array<(connected: boolean) => void> = [];
+function setSyncStatus(connected: boolean) {
+  if (_syncConnected === connected) return;
+  _syncConnected = connected;
+  _syncListeners.forEach(cb => cb(connected));
+}
+export function subscribeToSyncStatus(cb: (connected: boolean) => void) {
+  _syncListeners.push(cb);
+  cb(_syncConnected);
+  return () => { const i = _syncListeners.indexOf(cb); if (i >= 0) _syncListeners.splice(i, 1); };
+}
+
+// ── Backfill guard ────────────────────────────────────────────────────────────
+// One backfill per collection per session. Throttled to not spam onSnapshot.
+const _backfillRunning = new Set<string>();
+
+function showErrorToast(message: string) {
+  const existing = document.getElementById('db-error-toast');
+  if (existing) existing.remove();
+
+  const toast = document.createElement('div');
+  toast.id = 'db-error-toast';
+  toast.className = 'fixed top-4 left-1/2 -translate-x-1/2 z-[9999] bg-red-600 text-white px-6 py-3 rounded-xl shadow-2xl text-sm font-bold flex items-center gap-3 animate-bounce';
+  toast.innerHTML = `
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+    <span>${message}</span>
+  `;
+  document.body.appendChild(toast);
+
+  setTimeout(() => {
+    toast.style.transition = 'opacity 0.5s';
+    toast.style.opacity = '0';
+    setTimeout(() => toast.remove(), 500);
+  }, 5000);
+}
 
 function collectionRef(collectionName: string) {
   return collection(db, collectionName);
@@ -49,7 +76,11 @@ function readLocalTable(collectionName: string): any[] {
 }
 
 function writeLocalTable(collectionName: string, data: any[]) {
-  localStorage.setItem(`${LOCAL_CACHE_PREFIX}${collectionName}`, JSON.stringify(data));
+  try {
+    localStorage.setItem(`${LOCAL_CACHE_PREFIX}${collectionName}`, JSON.stringify(data));
+  } catch {
+    // Quota exceeded
+  }
 }
 
 function emit(collectionName: string, data: any[]) {
@@ -59,95 +90,79 @@ function emit(collectionName: string, data: any[]) {
 }
 
 function normalizeDoc<T extends Record<string, any>>(snapshotData: T, id: string): T {
-  return {
-    ...snapshotData,
-    id,
-  };
-}
-
-
-function ensureLocalCache(collectionName: string) {
-  if (cacheLoaded[collectionName]) {
-    return readLocalTable(collectionName);
-  }
-
-  const existing = readLocalTable(collectionName);
-  if (existing.length > 0) {
-    cacheLoaded[collectionName] = true;
-    return existing;
-  }
-
-  cacheLoaded[collectionName] = true;
-  return existing;
-}
-
-async function ensureLocalCacheAsync(collectionName: string) {
-  return ensureLocalCache(collectionName);
-}
-
-function saveLocalCollection(collectionName: string, data: any[]) {
-  writeLocalTable(collectionName, data);
-  cacheLoaded[collectionName] = true;
-  emit(collectionName, data);
+  return { ...snapshotData, id };
 }
 
 async function ensureAuthReady() {
-  await ensureAnonymousAuth();
-  if (!auth.currentUser) {
-    throw new Error('Firebase authentication is not available.');
-  }
+  // 5-second ceiling — prevents auth from hanging the UI indefinitely
+  const timeout = new Promise<never>((_, reject) =>
+    setTimeout(() => reject(new Error('Auth timeout')), 5000)
+  );
+  await Promise.race([auth.authStateReady(), timeout]);
+  if (!auth.currentUser) throw new Error('Not authenticated.');
 }
 
-async function readCollectionOnce(collectionName: string) {
-  try {
-    await ensureAuthReady();
-    const snap = await getDocs(query(collectionRef(collectionName)));
-    const data = snap.docs.map(d => normalizeDoc(d.data() as Record<string, any>, d.id));
-    if (data.length > 0) {
-      saveLocalCollection(collectionName, data);
-      return data;
+// Push docs that are in localStorage but missing from Firestore.
+// Guarded: only one backfill per collection per session.
+// Throttled: 1.5s between batches so we don't spam onSnapshot on other devices.
+function pushMissingToFirestore(collectionName: string, docs: any[]) {
+  if (!docs.length || _backfillRunning.has(collectionName)) return;
+  _backfillRunning.add(collectionName);
+  void (async () => {
+    try {
+      await ensureAuthReady();
+      const CHUNK = 499;
+      for (let i = 0; i < docs.length; i += CHUNK) {
+        const batch = writeBatch(db);
+        for (const d of docs.slice(i, i + CHUNK)) {
+          batch.set(doc(collectionRef(collectionName), d.id), d);
+        }
+        await batch.commit();
+        // Pause between batches — prevents flooding other devices with rapid
+        // onSnapshot events while 10k docs are being backfilled
+        if (i + CHUNK < docs.length) await new Promise(r => setTimeout(r, 1500));
+      }
+    } catch (err) {
+      console.warn(`Firestore backfill failed for ${collectionName}`, err);
+    } finally {
+      _backfillRunning.delete(collectionName);
     }
-  } catch {
-    // fall through to local cache
-  }
+  })();
+}
 
-  return ensureLocalCache(collectionName);
+export function clearAllLocalCaches() {
+  const keys = Object.keys(localStorage).filter(k => k.startsWith(LOCAL_CACHE_PREFIX));
+  for (const key of keys) localStorage.removeItem(key);
 }
 
 export const dbService = {
   async create(collectionName: string, id: string, data: any) {
     const timestamp = nowIso();
-    const localTable = ensureLocalCache(collectionName);
-    const newItem = {
-      ...data,
-      id,
-      createdAt: data.createdAt ?? timestamp,
-      updatedAt: timestamp,
-    };
-    const existingIdx = localTable.findIndex(item => item.id === id);
-    if (existingIdx >= 0) {
-      localTable[existingIdx] = newItem;
-    } else {
-      localTable.push(newItem);
-    }
-    saveLocalCollection(collectionName, localTable);
+    const newItem = { ...data, id, createdAt: data.createdAt ?? timestamp, updatedAt: timestamp };
 
-    try {
-      await ensureAuthReady();
-      await setDoc(doc(collectionRef(collectionName), id), newItem);
-    } catch (error) {
-      console.warn(`Firestore create failed for ${collectionName}/${id}; kept local cache only.`, error);
-    }
+    // 1. Instant local write — UI responds immediately
+    const localTable = readLocalTable(collectionName);
+    const idx = localTable.findIndex(item => item.id === id);
+    if (idx >= 0) localTable[idx] = newItem; else localTable.push(newItem);
+    writeLocalTable(collectionName, localTable);
+    emit(collectionName, localTable);
+
+    // 2. Fire-and-forget Firestore upsert — never blocks caller
+    void (async () => {
+      try {
+        await ensureAuthReady();
+        await setDoc(doc(collectionRef(collectionName), id), newItem);
+      } catch (err) {
+        console.warn(`Firestore create failed for ${collectionName}/${id}`, err);
+      }
+    })();
   },
 
-  /**
-   * Bulk create/update documents. Local cache is updated first so the UI never
-   * goes blank if Firestore is slow or unavailable.
-   */
   async bulkCreate(
     entries: Array<{ collection: string; id: string; data: any }>,
     onProgress?: (done: number, total: number) => void
   ) {
+    await ensureAuthReady();
     const byCollection: Record<string, { id: string; data: any }[]> = {};
     for (const entry of entries) {
       if (!byCollection[entry.collection]) byCollection[entry.collection] = [];
@@ -156,36 +171,10 @@ export const dbService = {
 
     let done = 0;
     const total = entries.length;
+    const timestamp = nowIso();
 
-    for (const [collectionName, items] of Object.entries(byCollection)) {
-      const localTable = ensureLocalCache(collectionName);
-      const timestamp = nowIso();
-
-      for (const item of items) {
-        const newItem = {
-          ...item.data,
-          id: item.id,
-          createdAt: item.data.createdAt ?? timestamp,
-          updatedAt: timestamp,
-        };
-        const existingIdx = localTable.findIndex(r => r.id === item.id);
-        if (existingIdx >= 0) {
-          localTable[existingIdx] = newItem;
-        } else {
-          localTable.push(newItem);
-        }
-        done++;
-        if (onProgress && done % 50 === 0) {
-          onProgress(done, total);
-          await new Promise(r => setTimeout(r, 0));
-        }
-      }
-
-      saveLocalCollection(collectionName, localTable);
-
-      try {
-        await ensureAuthReady();
-        // Firestore batches are capped at 500 writes — chunk accordingly
+    try {
+      for (const [collectionName, items] of Object.entries(byCollection)) {
         const BATCH_LIMIT = 499;
         for (let offset = 0; offset < items.length; offset += BATCH_LIMIT) {
           const chunk = items.slice(offset, offset + BATCH_LIMIT);
@@ -197,81 +186,115 @@ export const dbService = {
               createdAt: item.data.createdAt ?? timestamp,
               updatedAt: timestamp,
             });
+            done++;
+            if (onProgress && done % 50 === 0) {
+              onProgress(done, total);
+              await new Promise(r => setTimeout(r, 0));
+            }
           }
           await batch.commit();
         }
-      } catch (error) {
-        console.warn(`Firestore bulk create failed for ${collectionName}; kept local cache only.`, error);
       }
+    } catch (err: any) {
+      showErrorToast(err?.message || 'Failed to bulk save to database');
+      throw err;
     }
-
     if (onProgress) onProgress(total, total);
   },
 
   async update(collectionName: string, id: string, data: any) {
-    const localTable = ensureLocalCache(collectionName);
-    const existingIdx = localTable.findIndex(item => item.id === id);
-    if (existingIdx >= 0) {
-      localTable[existingIdx] = {
-        ...localTable[existingIdx],
-        ...data,
-        updatedAt: nowIso(),
-      };
-      saveLocalCollection(collectionName, localTable);
+    // 1. Instant local write
+    const localTable = readLocalTable(collectionName);
+    const idx = localTable.findIndex(item => item.id === id);
+    if (idx >= 0) {
+      localTable[idx] = { ...localTable[idx], ...data, updatedAt: nowIso() };
+      writeLocalTable(collectionName, localTable);
+      emit(collectionName, localTable);
     }
 
-    try {
-      await ensureAuthReady();
-      await updateDoc(doc(collectionRef(collectionName), id), {
-        ...data,
-        updatedAt: nowIso(),
-      });
-    } catch (error) {
-      console.warn(`Firestore update failed for ${collectionName}/${id}; kept local cache only.`, error);
-    }
+    // 2. Fire-and-forget — push full document to Firestore so it exists even
+    //    if the original seed never made it (setDoc = upsert, not updateDoc)
+    const snapshot = localTable.find(item => item.id === id);
+    void (async () => {
+      try {
+        await ensureAuthReady();
+        if (snapshot) await setDoc(doc(collectionRef(collectionName), id), snapshot);
+      } catch (err) {
+        console.warn(`Firestore update failed for ${collectionName}/${id}`, err);
+      }
+    })();
   },
 
   async delete(collectionName: string, id: string) {
-    const localTable = ensureLocalCache(collectionName).filter(item => item.id !== id);
-    saveLocalCollection(collectionName, localTable);
+    // 1. Instant local delete
+    const localTable = readLocalTable(collectionName).filter(item => item.id !== id);
+    writeLocalTable(collectionName, localTable);
+    emit(collectionName, localTable);
 
-    try {
-      await ensureAuthReady();
-      await deleteDoc(doc(collectionRef(collectionName), id));
-    } catch (error) {
-      console.warn(`Firestore delete failed for ${collectionName}/${id}; kept local cache only.`, error);
-    }
+    // 2. Fire-and-forget Firestore delete
+    void (async () => {
+      try {
+        await ensureAuthReady();
+        await deleteDoc(doc(collectionRef(collectionName), id));
+      } catch (err) {
+        console.warn(`Firestore delete failed for ${collectionName}/${id}`, err);
+      }
+    })();
   },
 
   subscribeToCollection(collectionName: string, callback: (data: any[]) => void) {
-    if (!listeners[collectionName]) {
-      listeners[collectionName] = [];
-    }
+    if (!listeners[collectionName]) listeners[collectionName] = [];
     listeners[collectionName].push(callback);
-
-    // Immediate render from cache so the dashboard is never blank.
-    void ensureLocalCacheAsync(collectionName).then(data => callback(data));
 
     let unsub: (() => void) | null = null;
 
     void (async () => {
       try {
         await ensureAuthReady();
-        // inventoryUnits orders by dateIn; other collections (suppliers, batches) use createdAt
         const orderField = collectionName === 'inventoryUnits' ? 'dateIn' : 'createdAt';
         const q = query(
           collectionRef(collectionName),
           orderBy(orderField, 'desc'),
-          limit(5000)
+          limit(12000)
         );
+
+        const cached = readLocalTable(collectionName);
+        if (cached.length > 0) callback(cached);
+
         unsub = onSnapshot(q, snap => {
-          const data = snap.docs.map(d => normalizeDoc(d.data() as Record<string, any>, d.id));
-          saveLocalCollection(collectionName, data);
+          setSyncStatus(true);
+          const fsData = snap.docs.map(d => normalizeDoc(d.data() as Record<string, any>, d.id));
+          const local  = readLocalTable(collectionName);
+
+          if (fsData.length >= local.length) {
+            // Firestore is at least as complete — accept it as source of truth
+            writeLocalTable(collectionName, fsData);
+            emit(collectionName, fsData);
+          } else {
+            // Firestore has FEWER docs than local cache.
+            // This happens when the seed wrote to localStorage but not Firestore
+            // (e.g. first setDoc of a sale is the first doc Firestore ever gets).
+            // Merge: use Firestore's version for any doc it knows about (keeps
+            // latest edits from other devices), keep local version for the rest.
+            const fsMap    = new Map(fsData.map(d => [d.id, d]));
+            const localIds = new Set(local.map(d => d.id));
+            const merged   = local.map(d => fsMap.get(d.id) ?? d);
+            // Add any Firestore docs not already in local (edge case)
+            fsData.forEach(d => { if (!localIds.has(d.id)) merged.push(d); });
+            writeLocalTable(collectionName, merged);
+            emit(collectionName, merged);
+            // Backfill Firestore with what it's missing so future snapshots are complete
+            pushMissingToFirestore(collectionName, local.filter(d => !fsMap.has(d.id)));
+          }
         }, error => {
-          console.warn(`Firestore subscription failed for ${collectionName}; using local cache.`, error);
+          setSyncStatus(false);
+          console.error(`Firestore subscription error for ${collectionName}:`, error);
         });
       } catch (error) {
-        console.warn(`Firestore subscribe init failed for ${collectionName}; using local cache.`, error);
+        setSyncStatus(false);
+        console.error(`Firestore subscribe init failed for ${collectionName}:`, error);
+        const cached = readLocalTable(collectionName);
+        callback(cached);
       }
     })();
 
@@ -281,164 +304,46 @@ export const dbService = {
     };
   },
 
-  subscribeToCollectionOrdered(
-    collectionName: string,
-    orderField: string,
-    direction: 'asc' | 'desc' = 'desc',
-    callback: (data: any[]) => void
-  ) {
-    const sortData = (data: any[]) => {
-      return [...data].sort((a, b) => {
-        const valA = a[orderField];
-        const valB = b[orderField];
-        if (valA < valB) return direction === 'asc' ? -1 : 1;
-        if (valA > valB) return direction === 'asc' ? 1 : -1;
-        return 0;
-      });
-    };
-
-    const wrappedCallback = (data: any[]) => callback(sortData(data));
-
-    if (!listeners[collectionName]) {
-      listeners[collectionName] = [];
-    }
-    listeners[collectionName].push(wrappedCallback);
-
-    void ensureLocalCacheAsync(collectionName).then(data => wrappedCallback(data));
-
-    let unsub: (() => void) | null = null;
-
-    void (async () => {
-      try {
-        await ensureAuthReady();
-        const q = query(collectionRef(collectionName));
-        unsub = onSnapshot(q, snap => {
-          const data = snap.docs.map(d => normalizeDoc(d.data() as Record<string, any>, d.id));
-          saveLocalCollection(collectionName, data);
-        }, error => {
-          console.warn(`Firestore ordered subscription failed for ${collectionName}; using local cache.`, error);
-        });
-      } catch (error) {
-        console.warn(`Firestore ordered subscription init failed for ${collectionName}; using local cache.`, error);
-      }
-    })();
-
-    return () => {
-      listeners[collectionName] = listeners[collectionName].filter(cb => cb !== wrappedCallback);
-      if (unsub) unsub();
-    };
-  },
-
-  async count(collectionName: string) {
-    try {
-      await ensureAuthReady();
-      const snap = await getCountFromServer(collectionRef(collectionName));
-      return snap.data().count;
-    } catch {
-      return ensureLocalCache(collectionName).length;
-    }
-  },
-
   async readAll(collectionName: string) {
-    return readCollectionOnce(collectionName);
+    return readLocalTable(collectionName);
   },
 
-  /**
-   * Subscribe to inventoryUnits within a date range.
-   * Use this for Reports, VAT, and StockIn/Out pages so only the
-   * relevant period is loaded — not the entire 10-year history.
-   */
-  subscribeToDateRange(
-    collectionName: string,
-    fromDate: string,   // ISO date string e.g. '2025-01-01'
-    toDate: string,     // ISO date string e.g. '2026-05-02'
-    callback: (data: any[]) => void
-  ) {
-    let unsub: (() => void) | null = null;
-    void (async () => {
-      try {
-        await ensureAuthReady();
-        const q = query(
-          collectionRef(collectionName),
-          where('dateIn', '>=', fromDate),
-          where('dateIn', '<=', toDate),
-          orderBy('dateIn', 'desc'),
-          limit(2000)
-        );
-        unsub = onSnapshot(q, snap => {
-          const data = snap.docs.map(d => normalizeDoc(d.data() as Record<string, any>, d.id));
-          callback(data);
-        }, err => {
-          console.warn('subscribeToDateRange failed', err);
-          callback([]);
-        });
-      } catch (err) {
-        console.warn('subscribeToDateRange init failed', err);
-        callback([]);
-      }
-    })();
-    return () => { if (unsub) unsub(); };
-  },
-
-  /**
-   * Paginated query — loads PAGE_SIZE docs at a time.
-   * Pass lastDoc from previous page to get next page.
-   */
-  async getPage(
-    collectionName: string,
-    pageSize = 100,
-    lastDoc?: QueryDocumentSnapshot
-  ): Promise<{ data: any[]; lastDoc: QueryDocumentSnapshot | null }> {
-    try {
-      await ensureAuthReady();
-      const constraints: any[] = [orderBy('dateIn', 'desc'), limit(pageSize)];
-      if (lastDoc) constraints.push(startAfter(lastDoc));
-      const q = query(collectionRef(collectionName), ...constraints);
-      const snap = await getDocs(q);
-      const data = snap.docs.map(d => normalizeDoc(d.data() as Record<string, any>, d.id));
-      const last = snap.docs[snap.docs.length - 1] ?? null;
-      return { data, lastDoc: last };
-    } catch (err) {
-      console.warn('getPage failed', err);
-      return { data: [], lastDoc: null };
-    }
-  },
-
-  /**
-   * Fast server-side count — no data transfer.
-   * Use for dashboard KPI totals (e.g. total units, total sold).
-   */
-  async countWhere(
-    collectionName: string,
-    field: string,
-    value: string
-  ): Promise<number> {
-    try {
-      await ensureAuthReady();
-      const q = query(collectionRef(collectionName), where(field, '==', value));
-      const snap = await getCountFromServer(q);
-      return snap.data().count;
-    } catch {
-      // Fall back to local cache count
-      return ensureLocalCache(collectionName).filter((d: any) => d[field] === value).length;
-    }
+  refreshFromLocalCache(collectionName: string) {
+    const data = readLocalTable(collectionName);
+    emit(collectionName, data);
   },
 
   async resetDatabase() {
-    const collections = ['inventoryUnits', 'suppliers', 'batches', 'inventoryEvents', 'dailyUpdates', 'activeListings', 'sourceDocuments'];
-    for (const coll of collections) {
-      saveLocalCollection(coll, []);
-      try {
-        await ensureAuthReady();
-        const snap = await getDocs(query(collectionRef(coll)));
-        if (snap.size > 0) {
-          const batch = writeBatch(db);
-          snap.docs.forEach(d => batch.delete(d.ref));
-          await batch.commit();
+    try {
+      // 1. Clear ALL local storage first
+      const keys = Object.keys(localStorage);
+      for (const key of keys) {
+        if (key.startsWith(LOCAL_CACHE_PREFIX)) {
+          localStorage.removeItem(key);
         }
-      } catch (error) {
-        console.warn(`Firestore reset failed for ${coll}; cleared local cache only.`, error);
       }
+      
+      // 2. Try to clear Firestore if authenticated
+      if (auth.currentUser) {
+        const collections = ['inventoryUnits', 'suppliers'];
+        for (const colName of collections) {
+          const q = query(collectionRef(colName), limit(500));
+          const snap = await getDocs(q);
+          if (!snap.empty) {
+            const batch = writeBatch(db);
+            snap.docs.forEach(d => batch.delete(d.ref));
+            await batch.commit();
+          }
+        }
+      }
+      
+      // 3. Force a hard reload to trigger re-seeding
+      window.location.href = window.location.origin + '?reset=' + Date.now();
+    } catch (err: any) {
+      console.error('Reset failed:', err);
+      // Even if Firestore delete fails, clear local and reload
+      clearAllLocalCaches();
+      window.location.href = window.location.origin + '?reset=' + Date.now();
     }
-  },
+  }
 };

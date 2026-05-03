@@ -42,7 +42,7 @@ export default function Suppliers() {
   const handleAdd = async (e: React.FormEvent) => {
     e.preventDefault();
     const id = `sup_${Date.now()}`;
-    await dbService.create('suppliers', id, { ...newSupplier, ownerId: 'local' });
+    await dbService.create('suppliers', id, { ...newSupplier, ownerId: 'shared' });
     setIsAdding(false);
     setNewSupplier({
       name: '',
