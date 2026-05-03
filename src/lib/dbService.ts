@@ -257,5 +257,28 @@ export const dbService = {
   refreshFromLocalCache(collectionName: string) {
     const data = readLocalTable(collectionName);
     emit(collectionName, data);
+  },
+
+  /**
+   * Reset the database by deleting all units and suppliers.
+   * This will trigger a re-seed on the next login.
+   */
+  async resetDatabase() {
+    await ensureAuthReady();
+    try {
+      const collections = ['inventoryUnits', 'suppliers'];
+      for (const colName of collections) {
+        const q = query(collectionRef(colName));
+        const snap = await getDocs(q);
+        const batch = writeBatch(db);
+        snap.docs.forEach(d => batch.delete(d.ref));
+        await batch.commit();
+        localStorage.removeItem(`${LOCAL_CACHE_PREFIX}${colName}`);
+      }
+      window.location.reload();
+    } catch (err: any) {
+      showErrorToast(err?.message || 'Failed to reset database');
+      throw err;
+    }
   }
 };
