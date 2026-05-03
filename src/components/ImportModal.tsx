@@ -352,6 +352,10 @@ export default function ImportModal({ onClose }: ImportModalProps) {
         }
       }
       setStage('done');
+      // Auto-close after 2 seconds so user can see the success message
+      setTimeout(() => {
+        onClose();
+      }, 2000);
     } catch (err: any) {
       setError('Import failed: ' + err.message);
       setStage('preview');

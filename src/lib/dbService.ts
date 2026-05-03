@@ -216,15 +216,14 @@ export const dbService = {
 
   /**
    * Subscribe to a collection via real-time onSnapshot.
-   * Data flows: Firestore → localStorage cache → UI listeners
-   * All devices see the same data instantly.
+   * Does an immediate getDocs for fast initial load, then onSnapshot for live updates.
    */
   subscribeToCollection(collectionName: string, callback: (data: any[]) => void) {
     if (!listeners[collectionName]) listeners[collectionName] = [];
     listeners[collectionName].push(callback);
 
     let unsub: (() => void) | null = null;
-    let hasReceivedFirstSnapshot = false;
+    let hasEmitted = false;
 
     void (async () => {
       try {
@@ -235,22 +234,33 @@ export const dbService = {
           orderBy(orderField, 'desc'),
           limit(12000)
         );
+
+        // Immediate load: get current data right now
+        try {
+          const snap = await getDocs(q);
+          const data = snap.docs.map(d => normalizeDoc(d.data() as Record<string, any>, d.id));
+          writeLocalTable(collectionName, data);
+          emit(collectionName, data);
+          hasEmitted = true;
+        } catch (e) {
+          console.warn(`Initial getDocs failed for ${collectionName}, waiting for snapshot`, e);
+        }
+
+        // Live updates: keep listening for changes
         unsub = onSnapshot(q, snap => {
           const data = snap.docs.map(d => normalizeDoc(d.data() as Record<string, any>, d.id));
           writeLocalTable(collectionName, data);
           emit(collectionName, data);
-          hasReceivedFirstSnapshot = true;
+          hasEmitted = true;
         }, error => {
           console.error(`Firestore subscription error for ${collectionName}:`, error);
-          if (!hasReceivedFirstSnapshot) {
-            // First snapshot failed — serve from cache as fallback
+          if (!hasEmitted) {
             const cached = readLocalTable(collectionName);
             callback(cached);
           }
         });
       } catch (error) {
         console.error(`Firestore subscribe init failed for ${collectionName}:`, error);
-        // Not authenticated or network issue — serve from cache
         const cached = readLocalTable(collectionName);
         callback(cached);
       }
@@ -284,20 +294,33 @@ export const dbService = {
     listeners[collectionName].push(wrappedCallback);
 
     let unsub: (() => void) | null = null;
-    let hasReceivedFirstSnapshot = false;
+    let hasEmitted = false;
 
     void (async () => {
       try {
         await ensureAuthReady();
         const q = query(collectionRef(collectionName));
+
+        // Immediate load
+        try {
+          const snap = await getDocs(q);
+          const data = snap.docs.map(d => normalizeDoc(d.data() as Record<string, any>, d.id));
+          writeLocalTable(collectionName, data);
+          emit(collectionName, data);
+          hasEmitted = true;
+        } catch (e) {
+          console.warn(`Initial getDocs failed for ${collectionName}, waiting for snapshot`, e);
+        }
+
+        // Live updates
         unsub = onSnapshot(q, snap => {
           const data = snap.docs.map(d => normalizeDoc(d.data() as Record<string, any>, d.id));
           writeLocalTable(collectionName, data);
           emit(collectionName, data);
-          hasReceivedFirstSnapshot = true;
+          hasEmitted = true;
         }, error => {
           console.error(`Firestore ordered subscription error for ${collectionName}:`, error);
-          if (!hasReceivedFirstSnapshot) {
+          if (!hasEmitted) {
             const cached = readLocalTable(collectionName);
             wrappedCallback(cached);
           }
