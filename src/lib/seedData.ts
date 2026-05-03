@@ -108,23 +108,17 @@ export async function seedDefaultInventoryData(
 ) {
   if (typeof window === 'undefined') return;
 
-  // ── Already seeded locally? ───────────────────────────────────────────────
+  // ── Already seeded locally? Done. ────────────────────────────────────────
+  // onSnapshot will override this with live Firestore data once connected.
   const cachedUnits = (() => {
     try { return JSON.parse(localStorage.getItem('nexus_db_inventoryUnits') || '[]'); }
     catch { return []; }
   })();
   if (cachedUnits.length > 0) return;
 
-  // ── Firestore already populated? (optional check) ─────────────────────────
-  try {
-    await ensureAuthReady();
-    const [sc, uc] = await Promise.all([firestoreCount('suppliers'), firestoreCount('inventoryUnits')]);
-    if (sc > 0 && uc > 0) return; // onSnapshot will deliver data via subscriptions
-  } catch {
-    // Permission denied or offline — proceed with local seed
-  }
-
   // ── Fetch seed file ───────────────────────────────────────────────────────
+  // Don't check Firestore first — seed localStorage immediately so every
+  // new device shows data right away. onSnapshot corrects it with live data.
   let suppliers: Record<string, any>[];
   let units: StoredUnit[];
   try {
@@ -146,20 +140,19 @@ export async function seedDefaultInventoryData(
   // ── Write units in chunks — yield every 1000 so the browser stays live ───
   const unitCache: StoredUnit[] = [];
   const YIELD_EVERY = 1000;
-
   for (let i = 0; i < units.length; i++) {
     unitCache.push(units[i]);
     if ((i + 1) % YIELD_EVERY === 0 || i === units.length - 1) {
       onProgress?.(suppliers.length + i + 1, total);
-      await new Promise(r => setTimeout(r, 0)); // yield to browser
+      await new Promise(r => setTimeout(r, 0));
     }
   }
 
-  // Single JSON.stringify at the end (fastest)
   localStorage.setItem('nexus_db_inventoryUnits', JSON.stringify(unitCache));
-  dbService.refreshFromLocalCache('inventoryUnits'); // ← triggers all dashboard listeners
-  onProgress?.(total, total); // ← dismiss loading screen immediately
+  dbService.refreshFromLocalCache('inventoryUnits'); // triggers all dashboard listeners
+  onProgress?.(total, total); // dismiss loading screen
 
   // ── Firestore write in background (non-blocking) ─────────────────────────
+  // Lets other devices pick up data via onSnapshot once rules are deployed.
   writeToFirestoreBackground(suppliers, units);
 }
