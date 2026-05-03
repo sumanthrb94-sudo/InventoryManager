@@ -25,6 +25,7 @@ import { useRealTimeNotifications } from './hooks/useRealTimeNotifications';
 import NotificationToast from './components/NotificationToast';
 import NotificationBell from './components/NotificationBell';
 import { notificationService } from './lib/notificationService';
+import { subscribeToSyncStatus } from './lib/dbService';
 
 type Tab = 'overview' | 'buystk' | 'sell' | 'returns' | 'reports' | 'suppliers' | 'analytics';
 
@@ -39,8 +40,9 @@ export default function App() {
   const [activeTab, setActiveTab] = useState<Tab>('overview');
   const [isBatchModalOpen,  setIsBatchModalOpen]  = useState(false);
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
-  const [unreadCount, setUnreadCount] = useState(0);
-  const [seedProgress, setSeedProgress] = useState<SeedProgress | null>(null);
+  const [unreadCount, setUnreadCount]       = useState(0);
+  const [seedProgress, setSeedProgress]     = useState<SeedProgress | null>(null);
+  const [syncConnected, setSyncConnected]   = useState(false);
 
   useRealTimeNotifications();
 
@@ -50,6 +52,8 @@ export default function App() {
     });
     return unsub;
   }, []);
+
+  useEffect(() => subscribeToSyncStatus(setSyncConnected), []);
 
   // ── Firebase Auth state listener ──────────────────────────────────────────
   useEffect(() => {
@@ -210,6 +214,15 @@ export default function App() {
               <h1 className="text-2xl font-bold tracking-tighter uppercase font-display text-black">{APP_NAME}</h1>
             </button>
             <div className="flex items-center gap-2 md:gap-3 ml-auto">
+              <div
+                title={syncConnected ? 'Live sync active' : 'Offline — local only'}
+                className="flex items-center gap-1.5"
+              >
+                <span className={`w-2 h-2 rounded-full flex-shrink-0 ${syncConnected ? 'bg-emerald-500 shadow-[0_0_6px_rgba(16,185,129,0.8)]' : 'bg-amber-400'}`} />
+                <span className="hidden md:inline text-[9px] font-mono uppercase tracking-widest text-gray-400">
+                  {syncConnected ? 'Live' : 'Offline'}
+                </span>
+              </div>
               <NotificationBell unreadCount={unreadCount} />
               <button
                 onClick={handleLogout}

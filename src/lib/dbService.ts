@@ -20,6 +20,24 @@ import { auth, db } from './firebase';
 const LOCAL_CACHE_PREFIX = 'nexus_db_';
 const listeners: Record<string, Array<(data: any[]) => void>> = {};
 
+// ── Sync status ───────────────────────────────────────────────────────────────
+let _syncConnected = false;
+const _syncListeners: Array<(connected: boolean) => void> = [];
+function setSyncStatus(connected: boolean) {
+  if (_syncConnected === connected) return;
+  _syncConnected = connected;
+  _syncListeners.forEach(cb => cb(connected));
+}
+export function subscribeToSyncStatus(cb: (connected: boolean) => void) {
+  _syncListeners.push(cb);
+  cb(_syncConnected);
+  return () => { const i = _syncListeners.indexOf(cb); if (i >= 0) _syncListeners.splice(i, 1); };
+}
+
+// ── Backfill guard ────────────────────────────────────────────────────────────
+// One backfill per collection per session. Throttled to not spam onSnapshot.
+const _backfillRunning = new Set<string>();
+
 function showErrorToast(message: string) {
   const existing = document.getElementById('db-error-toast');
   if (existing) existing.remove();
@@ -85,9 +103,11 @@ async function ensureAuthReady() {
 }
 
 // Push docs that are in localStorage but missing from Firestore.
-// Called whenever onSnapshot detects Firestore is less complete than local cache.
+// Guarded: only one backfill per collection per session.
+// Throttled: 1.5s between batches so we don't spam onSnapshot on other devices.
 function pushMissingToFirestore(collectionName: string, docs: any[]) {
-  if (!docs.length) return;
+  if (!docs.length || _backfillRunning.has(collectionName)) return;
+  _backfillRunning.add(collectionName);
   void (async () => {
     try {
       await ensureAuthReady();
@@ -98,9 +118,14 @@ function pushMissingToFirestore(collectionName: string, docs: any[]) {
           batch.set(doc(collectionRef(collectionName), d.id), d);
         }
         await batch.commit();
+        // Pause between batches — prevents flooding other devices with rapid
+        // onSnapshot events while 10k docs are being backfilled
+        if (i + CHUNK < docs.length) await new Promise(r => setTimeout(r, 1500));
       }
     } catch (err) {
       console.warn(`Firestore backfill failed for ${collectionName}`, err);
+    } finally {
+      _backfillRunning.delete(collectionName);
     }
   })();
 }
@@ -237,6 +262,7 @@ export const dbService = {
         if (cached.length > 0) callback(cached);
 
         unsub = onSnapshot(q, snap => {
+          setSyncStatus(true);
           const fsData = snap.docs.map(d => normalizeDoc(d.data() as Record<string, any>, d.id));
           const local  = readLocalTable(collectionName);
 
@@ -261,9 +287,11 @@ export const dbService = {
             pushMissingToFirestore(collectionName, local.filter(d => !fsMap.has(d.id)));
           }
         }, error => {
+          setSyncStatus(false);
           console.error(`Firestore subscription error for ${collectionName}:`, error);
         });
       } catch (error) {
+        setSyncStatus(false);
         console.error(`Firestore subscribe init failed for ${collectionName}:`, error);
         const cached = readLocalTable(collectionName);
         callback(cached);
