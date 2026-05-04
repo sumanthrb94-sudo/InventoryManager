@@ -41,6 +41,7 @@ export default function App() {
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
   const [seedProgress, setSeedProgress] = useState<SeedProgress | null>(null);
+  const [seedComplete, setSeedComplete] = useState(false);
 
   useRealTimeNotifications();
 
@@ -63,18 +64,30 @@ export default function App() {
   // ── Seed default data once user is authenticated ──────────────────────────
   useEffect(() => {
     if (!user) return;
+    let cancelled = false;
     import('./lib/seedData').then(({ seedDefaultInventoryData }) => {
       let seedStarted = false;
       seedDefaultInventoryData((loaded, total) => {
+        if (cancelled) return;
         if (!seedStarted) { seedStarted = true; setSeedProgress({ loaded, total }); }
         if (loaded >= total) {
           // Brief pause so final progress bar hits 100% visibly, then dismiss
-          setTimeout(() => setSeedProgress(null), 600);
+          setTimeout(() => {
+            if (!cancelled) {
+              setSeedProgress(null);
+              setSeedComplete(true);
+            }
+          }, 600);
         } else {
           setSeedProgress({ loaded, total });
         }
+      }).then(() => {
+        if (!cancelled) setSeedComplete(true);
+      }).catch(() => {
+        if (!cancelled) setSeedComplete(true); // Don't block UI on seed error
       });
     });
+    return () => { cancelled = true; };
   }, [user]);
 
   const handleNavigate = (action: NavAction) => {
@@ -101,49 +114,44 @@ export default function App() {
     return <LoginPage />;
   }
 
+  // ── Block main UI until seeding is complete (prevents stale data flash) ───
+  if (seedProgress || !seedComplete) {
+    return (
+      <div className="min-h-[100dvh] bg-white flex flex-col items-center justify-center gap-8">
+        <div className="text-center">
+          <h1 className="text-3xl font-bold tracking-tighter uppercase font-display">{APP_NAME}</h1>
+          <p className="text-[9px] text-gray-400 font-mono uppercase tracking-[0.4em] mt-1">{APP_TAGLINE}</p>
+        </div>
+        <div className="w-72 space-y-3">
+          <div className="flex items-center justify-between">
+            <span className="text-[10px] font-bold uppercase tracking-widest text-gray-500 font-mono">Loading inventory…</span>
+            <span className="text-[10px] font-mono text-gray-400">
+              {seedProgress ? Math.round(seedProgress.loaded / seedProgress.total * 100) : 0}%
+            </span>
+          </div>
+          <div className="h-1 bg-gray-100 rounded-full overflow-hidden">
+            <motion.div
+              className="h-full bg-black rounded-full"
+              animate={{ width: `${seedProgress ? Math.round(seedProgress.loaded / seedProgress.total * 100) : 0}%` }}
+              transition={{ duration: 0.3 }}
+            />
+          </div>
+          <p className="text-[9px] font-mono text-gray-300 text-center">
+            {seedProgress ? `${seedProgress.loaded.toLocaleString()} / ${seedProgress.total.toLocaleString()} units` : 'Initializing…'}
+          </p>
+        </div>
+        <motion.div
+          animate={{ rotate: 360 }}
+          transition={{ duration: 1.2, repeat: Infinity, ease: 'linear' }}
+          className="w-5 h-5 border-2 border-gray-200 border-t-black rounded-full"
+        />
+      </div>
+    );
+  }
+
   // ── Main app shell ─────────────────────────────────────────────────────────
   return (
     <div className="min-h-[100dvh] bg-[#FAFAFA] text-black flex flex-col md:flex-row">
-
-      {/* ── Seed loading overlay ──────────────────────────────────────────── */}
-      <AnimatePresence>
-        {seedProgress && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="fixed inset-0 z-[300] bg-white flex flex-col items-center justify-center gap-8"
-          >
-            <div className="text-center">
-              <h1 className="text-3xl font-bold tracking-tighter uppercase font-display">{APP_NAME}</h1>
-              <p className="text-[9px] text-gray-400 font-mono uppercase tracking-[0.4em] mt-1">{APP_TAGLINE}</p>
-            </div>
-            <div className="w-72 space-y-3">
-              <div className="flex items-center justify-between">
-                <span className="text-[10px] font-bold uppercase tracking-widest text-gray-500 font-mono">Loading inventory…</span>
-                <span className="text-[10px] font-mono text-gray-400">
-                  {Math.round(seedProgress.loaded / seedProgress.total * 100)}%
-                </span>
-              </div>
-              <div className="h-1 bg-gray-100 rounded-full overflow-hidden">
-                <motion.div
-                  className="h-full bg-black rounded-full"
-                  animate={{ width: `${Math.round(seedProgress.loaded / seedProgress.total * 100)}%` }}
-                  transition={{ duration: 0.3 }}
-                />
-              </div>
-              <p className="text-[9px] font-mono text-gray-300 text-center">
-                {seedProgress.loaded.toLocaleString()} / {seedProgress.total.toLocaleString()} units
-              </p>
-            </div>
-            <motion.div
-              animate={{ rotate: 360 }}
-              transition={{ duration: 1.2, repeat: Infinity, ease: 'linear' }}
-              className="w-5 h-5 border-2 border-gray-200 border-t-black rounded-full"
-            />
-          </motion.div>
-        )}
-      </AnimatePresence>
 
       {/* Desktop Sidebar */}
       <aside className="hidden md:flex w-72 border-r border-gray-200 flex-col pt-10 pb-6 bg-gray-50 z-30">

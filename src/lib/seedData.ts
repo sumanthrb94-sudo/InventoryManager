@@ -1,6 +1,6 @@
 import { collection, doc, getDocs, writeBatch, query, limit } from 'firebase/firestore';
 import { db, ensureAuthReady } from './firebase';
-import { dbService } from './dbService';
+import { dbService, beginSeeding, endSeeding } from './dbService';
 
 type SeedInventory = {
   suppliers: Array<Record<string, any>>;
@@ -105,6 +105,14 @@ export async function seedDefaultInventoryData(
 ) {
   if (typeof window === 'undefined') return;
 
+  // ── CRITICAL: Lock the gate FIRST so no subscriber can read stale cache ──
+  beginSeeding();
+
+  // ── CRITICAL: Clear ALL localStorage cache BEFORE any component can read it ──
+  const LOCAL_CACHE_PREFIX = 'nexus_db_';
+  const keys = Object.keys(localStorage).filter(k => k.startsWith(LOCAL_CACHE_PREFIX));
+  for (const key of keys) localStorage.removeItem(key);
+
   await ensureAuthReady();
 
   // Check if we are in a reset state via URL param
@@ -114,6 +122,7 @@ export async function seedDefaultInventoryData(
     const hasData = await firestoreHasData();
     if (hasData) {
       console.log('Firestore already has data, skipping seed.');
+      endSeeding(); // Release the gate so subscribers can proceed
       return;
     }
   }
@@ -122,12 +131,21 @@ export async function seedDefaultInventoryData(
   let units: StoredUnit[];
   try {
     const res = await fetch('/imported_inventory.json');
-    if (!res.ok) return;
+    if (!res.ok) {
+      endSeeding();
+      return;
+    }
     const seed: SeedInventory = await res.json();
-    if (!seed?.suppliers?.length || !seed?.units?.length) return;
+    if (!seed?.suppliers?.length || !seed?.units?.length) {
+      endSeeding();
+      return;
+    }
     suppliers = seed.suppliers;
     units     = normaliseUnits(seed.units);
-  } catch { return; }
+  } catch {
+    endSeeding();
+    return;
+  }
 
   const total = suppliers.length + units.length;
 
@@ -149,7 +167,10 @@ export async function seedDefaultInventoryData(
   onProgress?.(total, total);
 
   await writeToFirestoreBackground(suppliers, units);
-  
+
+  // ── Release the gate so subscribers can now read the fresh cache ──
+  endSeeding();
+
   // If we were in reset mode, clean the URL after successful seed
   if (isReset) {
     window.history.replaceState({}, document.title, window.location.pathname);

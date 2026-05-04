@@ -21,6 +21,31 @@ import { auth, db } from './firebase';
 const LOCAL_CACHE_PREFIX = 'nexus_db_';
 const listeners: Record<string, Array<(data: any[]) => void>> = {};
 
+// Seeding gate — prevents stale localStorage reads while seed/reset is in progress
+let _seedingPromise: Promise<void> | null = null;
+let _seedingResolve: (() => void) | null = null;
+
+export function beginSeeding(): Promise<void> {
+  if (!_seedingPromise) {
+    _seedingPromise = new Promise((resolve) => {
+      _seedingResolve = resolve;
+    });
+  }
+  return _seedingPromise;
+}
+
+export function endSeeding() {
+  if (_seedingResolve) {
+    _seedingResolve();
+    _seedingResolve = null;
+  }
+  _seedingPromise = null;
+}
+
+export function isSeeding(): boolean {
+  return _seedingPromise !== null;
+}
+
 function showErrorToast(message: string) {
   const existing = document.getElementById('db-error-toast');
   if (existing) existing.remove();
@@ -181,6 +206,11 @@ export const dbService = {
 
     void (async () => {
       try {
+        // Wait for any in-progress seed/reset before reading localStorage
+        if (_seedingPromise) {
+          await _seedingPromise;
+        }
+
         await ensureAuthReady();
         const orderField = collectionName === 'inventoryUnits' ? 'dateIn' : 'createdAt';
         const q = query(
