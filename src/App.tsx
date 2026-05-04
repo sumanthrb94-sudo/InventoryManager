@@ -52,6 +52,48 @@ export default function App() {
   );
 }
 
+// ── Loading screen with animated progress bar ──────────────────────────────────
+function LoadingScreen() {
+  const [progress, setProgress] = useState(0);
+
+  useEffect(() => {
+    // Animate quickly to 85%, then hold until data arrives and component unmounts
+    const t1 = setTimeout(() => setProgress(40),  100);
+    const t2 = setTimeout(() => setProgress(70),  600);
+    const t3 = setTimeout(() => setProgress(85), 1200);
+    // Jump to 100% right before AnimatePresence fades it out
+    const t4 = setTimeout(() => setProgress(100), 1800);
+    return () => { clearTimeout(t1); clearTimeout(t2); clearTimeout(t3); clearTimeout(t4); };
+  }, []);
+
+  return (
+    <motion.div
+      initial={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      transition={{ duration: 0.35 }}
+      className="fixed inset-0 z-[300] bg-white flex flex-col items-center justify-center gap-6"
+    >
+      <div className="text-center">
+        <h1 className="text-3xl font-bold tracking-tighter uppercase font-display">{APP_NAME}</h1>
+        <p className="text-[9px] text-gray-400 font-mono uppercase tracking-[0.4em] mt-1">{APP_TAGLINE}</p>
+      </div>
+      <div className="w-64 space-y-2">
+        <div className="flex justify-between items-center">
+          <span className="text-[10px] font-mono uppercase tracking-widest text-gray-400">Loading inventory</span>
+          <span className="text-[10px] font-mono text-gray-400">{progress}%</span>
+        </div>
+        <div className="h-1 bg-gray-100 rounded-full overflow-hidden">
+          <motion.div
+            className="h-full bg-black rounded-full"
+            animate={{ width: `${progress}%` }}
+            transition={{ duration: 0.5, ease: 'easeOut' }}
+          />
+        </div>
+      </div>
+    </motion.div>
+  );
+}
+
 // ── Authenticated shell — lives inside InventoryStoreProvider ──────────────────
 function AppShell({ user }: { user: User }) {
   const { loaded }                                = useInventoryStore();
@@ -81,22 +123,7 @@ function AppShell({ user }: { user: User }) {
 
       {/* ── Loading overlay — shown until Firestore delivers first snapshot ── */}
       <AnimatePresence>
-        {!loaded && (
-          <motion.div
-            initial={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            transition={{ duration: 0.4 }}
-            className="fixed inset-0 z-[300] bg-white flex flex-col items-center justify-center gap-8"
-          >
-            <div className="text-center">
-              <h1 className="text-3xl font-bold tracking-tighter uppercase font-display">{APP_NAME}</h1>
-              <p className="text-[9px] text-gray-400 font-mono uppercase tracking-[0.4em] mt-1">{APP_TAGLINE}</p>
-            </div>
-            <motion.div animate={{ rotate: 360 }} transition={{ duration: 1.2, repeat: Infinity, ease: 'linear' }}
-              className="w-6 h-6 border-2 border-gray-200 border-t-black rounded-full" />
-            <p className="text-[10px] font-mono text-gray-400 uppercase tracking-widest">Loading inventory…</p>
-          </motion.div>
-        )}
+        {!loaded && <LoadingScreen />}
       </AnimatePresence>
 
       {/* Desktop Sidebar */}
