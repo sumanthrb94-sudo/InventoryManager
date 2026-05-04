@@ -23,6 +23,7 @@ export default function QuickSaleModal({ unit: initialUnit, availableUnits = [],
   const [notes,     setNotes]     = useState(initialUnit?.notes || '');
   const [saving,    setSaving]    = useState(false);
   const [done,      setDone]      = useState(false);
+  const [saveError, setSaveError] = useState('');
 
   const today = new Date().toISOString().split('T')[0];
 
@@ -38,42 +39,49 @@ export default function QuickSaleModal({ unit: initialUnit, availableUnits = [],
   const save = async () => {
     if (!selectedUnit) return;
     setSaving(true);
-    const updates: any = { status: action, updatedAt: new Date().toISOString() };
-    if (action === 'sold') {
-      updates.saleDate      = today;
-      updates.salePlatform  = platform;
-      updates.salePrice     = parseFloat(salePrice) || 0;
-      updates.saleOrderId   = saleOrderId || undefined;
-      updates.customerName  = customerName || undefined;
-    } else if (action === 'returned') {
-      updates.platformListed = false;
-    } else {
-      updates.platformListed = true;
-    }
-    if (notes) updates.notes = notes;
-    
-    await dbService.update('inventoryUnits', selectedUnit.id, updates);
-    
-    if (action === 'sold') {
-      try {
-        const updateId = `du_${Date.now()}`;
-        await dbService.create('dailyUpdates', updateId, {
-          date: today,
-          message: `${selectedUnit.model} (${selectedUnit.colour}) sold via ${platform} for £${updates.salePrice}${saleOrderId ? ' · Order: ' + saleOrderId : ''}`,
-          affectedUnitIds: [selectedUnit.id],
-          affectedModels: [selectedUnit.model],
-          type: 'stock_sold',
-          ownerId: 'shared',
-          createdAt: new Date().toISOString()
-        });
-      } catch (duError) {
-        console.warn('Daily update creation failed.', duError);
+    setSaveError('');
+    try {
+      const updates: any = { status: action, updatedAt: new Date().toISOString() };
+      if (action === 'sold') {
+        updates.saleDate      = today;
+        updates.salePlatform  = platform;
+        updates.salePrice     = parseFloat(salePrice) || 0;
+        updates.saleOrderId   = saleOrderId || undefined;
+        updates.customerName  = customerName || undefined;
+      } else if (action === 'returned') {
+        updates.platformListed = false;
+      } else {
+        updates.platformListed = true;
       }
+      if (notes) updates.notes = notes;
+
+      await dbService.update('inventoryUnits', selectedUnit.id, updates);
+
+      if (action === 'sold') {
+        try {
+          await dbService.create('dailyUpdates', `du_${Date.now()}`, {
+            date: today,
+            message: `${selectedUnit.model} (${selectedUnit.colour}) sold via ${platform} for £${updates.salePrice}${saleOrderId ? ' · Order: ' + saleOrderId : ''}`,
+            affectedUnitIds: [selectedUnit.id],
+            affectedModels: [selectedUnit.model],
+            type: 'stock_sold',
+            ownerId: 'shared',
+            createdAt: new Date().toISOString(),
+          });
+        } catch { /* non-critical */ }
+      }
+
+      setDone(true);
+      setTimeout(onClose, 800);
+    } catch (err: any) {
+      const msg = err?.code === 'permission-denied'
+        ? 'Permission denied — check Firestore rules for your named database.'
+        : (err?.message || 'Failed to save. Check your connection.');
+      setSaveError(msg);
+      console.error('[QuickSaleModal] Firestore write failed:', err);
+    } finally {
+      setSaving(false);
     }
-    
-    setSaving(false);
-    setDone(true);
-    setTimeout(onClose, 800);
   };
 
   return (
@@ -208,6 +216,9 @@ export default function QuickSaleModal({ unit: initialUnit, availableUnits = [],
                  saving ? <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" /> :
                  'Confirm Update'}
               </button>
+              {saveError && (
+                <p className="text-[10px] text-red-500 font-mono text-center mt-2 leading-snug">{saveError}</p>
+              )}
             </>
           )}
         </div>

@@ -1,4 +1,4 @@
-import { collection, doc, getDocs, writeBatch, query, limit } from 'firebase/firestore';
+import { collection, doc, getDocs, writeBatch } from 'firebase/firestore';
 import { db, ensureAuthReady } from './firebase';
 import { dbService, beginSeeding, endSeeding } from './dbService';
 
@@ -8,9 +8,11 @@ type SeedInventory = {
 };
 type StoredUnit = Record<string, any>;
 
+// ── Inference helpers ────────────────────────────────────────────────────────
+
 function inferBrand(model: string, fallback?: string) {
   const m = model.toUpperCase();
-  if (m.includes('IPHONE') || m.includes('IPAD') || m.includes('APPLE WATCH') || m.includes('IWATCH')) return 'Apple';
+  if (m.includes('IPHONE') || m.includes('IPAD') || m.includes('APPLE WATCH') || m.includes('IWATCH') || m.includes('MACBOOK') || m.includes('AIRPODS')) return 'Apple';
   if (m.includes('SAMSUNG') || m.includes('GALAXY')) return 'Samsung';
   return fallback || 'Other';
 }
@@ -20,10 +22,10 @@ function inferCategory(model: string, fallback?: string) {
   if (m.includes('IPAD')) return 'iPad';
   if (m.includes('IPHONE')) return 'iPhone';
   if (m.includes('APPLE WATCH') || m.includes('IWATCH') || m.includes('WATCH ULTRA') || m.includes('WATCH SE')) return 'Apple Watch';
-  if (m.includes('GALAXY TAB') || m.includes('TAB A') || m.includes('TAB S') || m.includes('TAB')) return 'Tablet';
+  if (m.includes('GALAXY TAB') || m.includes('TAB A') || m.includes('TAB S')) return 'Galaxy Tab';
   if (m.includes('SAMSUNG') || m.includes('GALAXY')) {
-    if (m.includes(' A') || /\bA\d{2}\b/.test(m) || /\bA\d{3}\b/.test(m)) return 'Samsung A Series';
-    return 'Samsung S Series';
+    if (m.includes(' A') || /\bA\d{2}\b/.test(m) || /\bA\d{3}\b/.test(m)) return 'Galaxy A Series';
+    return 'Galaxy S Series';
   }
   return fallback || 'Other';
 }
@@ -67,18 +69,9 @@ function normaliseUnits(units: StoredUnit[]): StoredUnit[] {
   return Array.from(deduped.values());
 }
 
-async function firestoreHasData() {
-  try {
-    const q = query(collection(db, 'inventoryUnits'), limit(1));
-    const snap = await getDocs(q);
-    return !snap.empty;
-  } catch (e) {
-    console.error('Error checking Firestore data:', e);
-    return false;
-  }
-}
+// ── Firestore helpers ────────────────────────────────────────────────────────
 
-async function writeToFirestoreBackground(suppliers: Record<string, any>[], units: StoredUnit[]) {
+function writeToFirestoreBackground(suppliers: Record<string, any>[], units: StoredUnit[]) {
   const CHUNK = 499;
   const now   = new Date().toISOString();
   const all   = [
@@ -86,19 +79,48 @@ async function writeToFirestoreBackground(suppliers: Record<string, any>[], unit
     ...units.map(u    => ({ col: 'inventoryUnits', id: u.id, data: { ...u, createdAt: u.createdAt ?? now, updatedAt: u.updatedAt ?? now } })),
   ];
 
-  try {
-    await ensureAuthReady();
-    for (let i = 0; i < all.length; i += CHUNK) {
-      const batch = writeBatch(db);
-      for (const { col, id, data } of all.slice(i, i + CHUNK)) {
-        batch.set(doc(db, col, id), data);
+  (async () => {
+    try {
+      await ensureAuthReady();
+      for (let i = 0; i < all.length; i += CHUNK) {
+        const batch = writeBatch(db);
+        for (const { col, id, data } of all.slice(i, i + CHUNK)) {
+          batch.set(doc(db, col, id), data);
+        }
+        await batch.commit();
       }
-      await batch.commit();
+    } catch {
+      // Firestore rules may not be deployed — localStorage covers local device
     }
-  } catch (e) {
-    console.error('Failed to seed to Firestore:', e);
-  }
+  })();
 }
+
+// ── One-time migration ────────────────────────────────────────────────────────
+// Earlier seed script incorrectly stamped all historical returned units with
+// today's returnDate, causing "Returned Today" to show 394 instead of 0.
+// Fix: clear returnDate from any returned unit where createdAt === updatedAt
+// (i.e. it was seeded as returned — never touched by a real user action).
+function migrateReturnDates() {
+  const KEY = 'nexus_db_inventoryUnits';
+  try {
+    const units: StoredUnit[] = JSON.parse(localStorage.getItem(KEY) || '[]');
+    let dirty = false;
+    const fixed = units.map(u => {
+      if (u.status === 'returned' && u.returnDate && u.createdAt === u.updatedAt) {
+        dirty = true;
+        const { returnDate: _r, ...rest } = u;
+        return rest;
+      }
+      return u;
+    });
+    if (dirty) {
+      localStorage.setItem(KEY, JSON.stringify(fixed));
+      dbService.refreshFromLocalCache('inventoryUnits');
+    }
+  } catch { /* ignore parse errors */ }
+}
+
+// ── Main export ──────────────────────────────────────────────────────────────
 
 export async function seedDefaultInventoryData(
   onProgress?: (loaded: number, total: number) => void,
@@ -110,40 +132,52 @@ export async function seedDefaultInventoryData(
 
   // ── CRITICAL: Clear ALL localStorage cache BEFORE any component can read it ──
   const LOCAL_CACHE_PREFIX = 'nexus_db_';
-  const keys = Object.keys(localStorage).filter(k => k.startsWith(LOCAL_CACHE_PREFIX));
-  for (const key of keys) localStorage.removeItem(key);
+  const cacheKeys = Object.keys(localStorage).filter(k => k.startsWith(LOCAL_CACHE_PREFIX));
+  for (const key of cacheKeys) localStorage.removeItem(key);
 
-  await ensureAuthReady();
+  // Fix any bad returnDates from the previous seed before doing anything else
+  migrateReturnDates();
 
-  // Check if we are in a reset state via URL param
-  const isReset = window.location.search.includes('reset=');
+  // ── Always try Firestore first — guarantees all devices see identical data ──
+  try {
+    await ensureAuthReady();
+    const [sSnap, uSnap] = await Promise.all([
+      getDocs(collection(db, 'suppliers')),
+      getDocs(collection(db, 'inventoryUnits')),
+    ]);
 
-  if (!isReset) {
-    const hasData = await firestoreHasData();
-    if (hasData) {
-      console.log('Firestore already has data, skipping seed.');
-      endSeeding(); // Release the gate so subscribers can proceed
-      return;
+    if (uSnap.size > 0) {
+      const suppliers = sSnap.docs.map(d => ({ ...d.data() as Record<string, any>, id: d.id }));
+      const units     = uSnap.docs.map(d => ({ ...d.data() as Record<string, any>, id: d.id }));
+      const total     = suppliers.length + units.length;
+
+      localStorage.setItem('nexus_db_suppliers', JSON.stringify(suppliers));
+      dbService.refreshFromLocalCache('suppliers');
+      onProgress?.(suppliers.length, total);
+
+      localStorage.setItem('nexus_db_inventoryUnits', JSON.stringify(units));
+      dbService.refreshFromLocalCache('inventoryUnits');
+      onProgress?.(total, total);
+      endSeeding(); // Release gate — fresh data is now in cache
+      return; // onSnapshot keeps it live from here
     }
+  } catch {
+    // Not authenticated yet or Firestore unavailable — fall through to JSON seed
   }
 
+  // ── Firestore empty / unreachable — seed from bundled master JSON ─────────
   let suppliers: Record<string, any>[];
   let units: StoredUnit[];
   try {
     const res = await fetch('/imported_inventory.json');
-    if (!res.ok) {
-      endSeeding();
-      return;
-    }
+    if (!res.ok) { onProgress?.(1, 1); return; }
     const seed: SeedInventory = await res.json();
-    if (!seed?.suppliers?.length || !seed?.units?.length) {
-      endSeeding();
-      return;
-    }
+    if (!seed?.suppliers?.length || !seed?.units?.length) { onProgress?.(1, 1); return; }
     suppliers = seed.suppliers;
     units     = normaliseUnits(seed.units);
   } catch {
     endSeeding();
+    onProgress?.(1, 1);
     return;
   }
 
@@ -151,7 +185,8 @@ export async function seedDefaultInventoryData(
 
   localStorage.setItem('nexus_db_suppliers', JSON.stringify(suppliers));
   dbService.refreshFromLocalCache('suppliers');
-  
+  onProgress?.(suppliers.length, total);
+
   const unitCache: StoredUnit[] = [];
   const YIELD_EVERY = 1000;
   for (let i = 0; i < units.length; i++) {
@@ -166,13 +201,9 @@ export async function seedDefaultInventoryData(
   dbService.refreshFromLocalCache('inventoryUnits');
   onProgress?.(total, total);
 
-  await writeToFirestoreBackground(suppliers, units);
+  // Push to Firestore in background so other devices pick it up via onSnapshot
+  writeToFirestoreBackground(suppliers, units);
 
   // ── Release the gate so subscribers can now read the fresh cache ──
   endSeeding();
-
-  // If we were in reset mode, clean the URL after successful seed
-  if (isReset) {
-    window.history.replaceState({}, document.title, window.location.pathname);
-  }
 }

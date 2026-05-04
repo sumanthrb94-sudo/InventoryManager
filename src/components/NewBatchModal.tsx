@@ -3,6 +3,7 @@ import { X, Plus, Trash2, Truck, Calendar, CheckCircle2, Camera, ChevronDown, Ch
 import { motion, AnimatePresence } from 'motion/react';
 import { dbService } from '../lib/dbService';
 import { Supplier, DeviceCategory, ConditionGrade } from '../types';
+import { useInventoryStore } from '../lib/inventoryStore';
 import { logInventoryEvent } from '../lib/inventoryEvents';
 
 interface Props { onClose: () => void; }
@@ -78,7 +79,7 @@ function CameraScanModal({ onScan, onClose }: { onScan:(v:string)=>void; onClose
 }
 
 export default function NewBatchModal({ onClose }: Props) {
-  const [suppliers, setSuppliers] = useState<Supplier[]>([]);
+  const { suppliers }    = useInventoryStore();
   const [step, setStep] = useState<1|2|3>(1);
   const [loading, setLoading] = useState(false);
   const [scanTarget, setScanTarget] = useState<string|null>(null); // unitRow id being scanned
@@ -97,10 +98,6 @@ export default function NewBatchModal({ onClose }: Props) {
   // Step 3 — per-unit IMEI rows (generated from lines)
   const [units, setUnits] = useState<UnitRow[]>([]);
 
-  useEffect(() => {
-    const u = dbService.subscribeToCollection('suppliers', setSuppliers);
-    return u;
-  }, []);
 
   // ── Generate unit rows from invoice lines ──────────────────────────────
   const buildUnits = () => {

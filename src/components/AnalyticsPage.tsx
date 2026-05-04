@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useMemo } from 'react';
 import {
   Zap, TrendingUp, TrendingDown, AlertTriangle,
   Clock, Package,
@@ -9,7 +9,7 @@ import {
   XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, Cell,
 } from 'recharts';
-import { dbService } from '../lib/dbService';
+import { useInventoryStore } from '../lib/inventoryStore';
 import { InventoryUnit, Supplier } from '../types';
 import CollapsibleSection from './CollapsibleSection';
 
@@ -23,15 +23,8 @@ const PLATFORM_HEX: Record<string, string> = {
 };
 
 export default function AnalyticsPage() {
-  const [units, setUnits]         = useState<InventoryUnit[]>([]);
-  const [suppliers, setSuppliers] = useState<Supplier[]>([]);
-  const [period, setPeriod]       = useState<Period>(0);
-
-  useEffect(() => {
-    const u = dbService.subscribeToCollection('inventoryUnits', setUnits);
-    const s = dbService.subscribeToCollection('suppliers', setSuppliers);
-    return () => { u(); s(); };
-  }, []);
+  const { units, suppliers } = useInventoryStore();
+  const [period, setPeriod]  = useState<Period>(0);
 
   const todayStr = useMemo(() => new Date().toISOString().split('T')[0], []);
 

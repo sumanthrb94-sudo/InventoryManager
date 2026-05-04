@@ -11,7 +11,6 @@ import {
   orderBy,
   query,
   setDoc,
-  updateDoc,
   limit,
   writeBatch,
 } from 'firebase/firestore';
@@ -20,25 +19,21 @@ import { auth, db } from './firebase';
 
 const LOCAL_CACHE_PREFIX = 'nexus_db_';
 const listeners: Record<string, Array<(data: any[]) => void>> = {};
+const cachedData: Record<string, any[]> = {};
 
-// Seeding gate — prevents stale localStorage reads while seed/reset is in progress
+// ── Seeding gate — prevents stale localStorage reads while seed/reset is in progress ──
 let _seedingPromise: Promise<void> | null = null;
 let _seedingResolve: (() => void) | null = null;
 
 export function beginSeeding(): Promise<void> {
   if (!_seedingPromise) {
-    _seedingPromise = new Promise((resolve) => {
-      _seedingResolve = resolve;
-    });
+    _seedingPromise = new Promise((resolve) => { _seedingResolve = resolve; });
   }
   return _seedingPromise;
 }
 
 export function endSeeding() {
-  if (_seedingResolve) {
-    _seedingResolve();
-    _seedingResolve = null;
-  }
+  if (_seedingResolve) { _seedingResolve(); _seedingResolve = null; }
   _seedingPromise = null;
 }
 
@@ -46,24 +41,19 @@ export function isSeeding(): boolean {
   return _seedingPromise !== null;
 }
 
-function showErrorToast(message: string) {
-  const existing = document.getElementById('db-error-toast');
-  if (existing) existing.remove();
+// ── Sync status ───────────────────────────────────────────────────────────────
+let _syncConnected = false;
+const _syncListeners: Array<(connected: boolean) => void> = [];
+function setSyncStatus(connected: boolean) {
+  if (_syncConnected === connected) return;
+  _syncConnected = connected;
+  _syncListeners.forEach(cb => cb(connected));
+}
 
-  const toast = document.createElement('div');
-  toast.id = 'db-error-toast';
-  toast.className = 'fixed top-4 left-1/2 -translate-x-1/2 z-[9999] bg-red-600 text-white px-6 py-3 rounded-xl shadow-2xl text-sm font-bold flex items-center gap-3 animate-bounce';
-  toast.innerHTML = `
-    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
-    <span>${message}</span>
-  `;
-  document.body.appendChild(toast);
-
-  setTimeout(() => {
-    toast.style.transition = 'opacity 0.5s';
-    toast.style.opacity = '0';
-    setTimeout(() => toast.remove(), 500);
-  }, 5000);
+export function subscribeToSyncStatus(cb: (connected: boolean) => void) {
+  _syncListeners.push(cb);
+  cb(_syncConnected);
+  return () => { const i = _syncListeners.indexOf(cb); if (i >= 0) _syncListeners.splice(i, 1); };
 }
 
 function collectionRef(collectionName: string) {
@@ -97,15 +87,13 @@ function emit(collectionName: string, data: any[]) {
   }
 }
 
-function normalizeDoc<T extends Record<string, any>>(snapshotData: T, id: string): T {
-  return { ...snapshotData, id };
-}
-
 async function ensureAuthReady() {
-  await auth.authStateReady();
-  if (!auth.currentUser) {
-    throw new Error('Not authenticated. Please sign in.');
-  }
+  // 15-second ceiling — slow mobile devices need more time
+  const timeout = new Promise<never>((_, reject) =>
+    setTimeout(() => reject(new Error('Auth timeout')), 15000)
+  );
+  await Promise.race([auth.authStateReady(), timeout]);
+  if (!auth.currentUser) throw new Error('Not authenticated.');
 }
 
 export function clearAllLocalCaches() {
@@ -115,20 +103,21 @@ export function clearAllLocalCaches() {
 
 export const dbService = {
   async create(collectionName: string, id: string, data: any) {
-    await ensureAuthReady();
     const timestamp = nowIso();
-    const newItem = {
-      ...data,
-      id,
-      createdAt: data.createdAt ?? timestamp,
-      updatedAt: timestamp,
-    };
-    try {
-      await setDoc(doc(collectionRef(collectionName), id), newItem);
-    } catch (err: any) {
-      showErrorToast(err?.message || 'Failed to save to database');
-      throw err;
-    }
+    const newItem = { ...data, id, createdAt: data.createdAt ?? timestamp, updatedAt: timestamp };
+
+    // Instant local write — UI never waits for Firestore
+    const localTable = readLocalTable(collectionName);
+    const idx = localTable.findIndex(item => item.id === id);
+    if (idx >= 0) localTable[idx] = newItem; else localTable.push(newItem);
+    writeLocalTable(collectionName, localTable);
+    cachedData[collectionName] = localTable;
+    emit(collectionName, localTable);
+
+    // Fire-and-forget Firestore sync
+    void ensureAuthReady().then(() =>
+      setDoc(doc(collectionRef(collectionName), id), newItem)
+    ).catch(err => console.warn(`Firestore create failed [${collectionName}/${id}]:`, err));
   },
 
   async bulkCreate(
@@ -136,6 +125,9 @@ export const dbService = {
     onProgress?: (done: number, total: number) => void
   ) {
     await ensureAuthReady();
+    const ownerId = auth.currentUser?.uid || 'system';
+    const timestamp = nowIso();
+
     const byCollection: Record<string, { id: string; data: any }[]> = {};
     for (const entry of entries) {
       if (!byCollection[entry.collection]) byCollection[entry.collection] = [];
@@ -144,7 +136,6 @@ export const dbService = {
 
     let done = 0;
     const total = entries.length;
-    const timestamp = nowIso();
 
     try {
       for (const [collectionName, items] of Object.entries(byCollection)) {
@@ -156,6 +147,7 @@ export const dbService = {
             batch.set(doc(collectionRef(collectionName), item.id), {
               ...item.data,
               id: item.id,
+              ownerId: item.data.ownerId || ownerId,
               createdAt: item.data.createdAt ?? timestamp,
               updatedAt: timestamp,
             });
@@ -169,33 +161,40 @@ export const dbService = {
         }
       }
     } catch (err: any) {
-      showErrorToast(err?.message || 'Failed to bulk save to database');
+      console.error('Failed to bulk save to database', err);
       throw err;
     }
     if (onProgress) onProgress(total, total);
   },
 
   async update(collectionName: string, id: string, data: any) {
-    await ensureAuthReady();
-    try {
-      await updateDoc(doc(collectionRef(collectionName), id), {
-        ...data,
-        updatedAt: nowIso(),
-      });
-    } catch (err: any) {
-      showErrorToast(err?.message || 'Failed to update database');
-      throw err;
-    }
+    const timestamp = nowIso();
+    const localTable = readLocalTable(collectionName);
+    const idx = localTable.findIndex(item => item.id === id);
+    const updatedItem = idx >= 0
+      ? { ...localTable[idx], ...data, id, updatedAt: timestamp }
+      : { ...data, id, updatedAt: timestamp };
+
+    if (idx >= 0) { localTable[idx] = updatedItem; } else { localTable.push(updatedItem); }
+    writeLocalTable(collectionName, localTable);
+    cachedData[collectionName] = localTable;
+    emit(collectionName, localTable);
+
+    // Fire-and-forget Firestore sync
+    void ensureAuthReady().then(() =>
+      setDoc(doc(collectionRef(collectionName), id), updatedItem)
+    ).catch(err => console.warn(`Firestore update failed [${collectionName}/${id}]:`, err));
   },
 
   async delete(collectionName: string, id: string) {
-    await ensureAuthReady();
-    try {
-      await deleteDoc(doc(collectionRef(collectionName), id));
-    } catch (err: any) {
-      showErrorToast(err?.message || 'Failed to delete from database');
-      throw err;
-    }
+    const localTable = readLocalTable(collectionName).filter(item => item.id !== id);
+    writeLocalTable(collectionName, localTable);
+    cachedData[collectionName] = localTable;
+    emit(collectionName, localTable);
+
+    void ensureAuthReady().then(() =>
+      deleteDoc(doc(collectionRef(collectionName), id))
+    ).catch(err => console.warn(`Firestore delete failed [${collectionName}/${id}]:`, err));
   },
 
   subscribeToCollection(collectionName: string, callback: (data: any[]) => void) {
@@ -203,43 +202,76 @@ export const dbService = {
     listeners[collectionName].push(callback);
 
     let unsub: (() => void) | null = null;
+    let retryTimer: ReturnType<typeof setTimeout> | null = null;
+    let destroyed = false;
 
-    void (async () => {
-      try {
-        // Wait for any in-progress seed/reset before reading localStorage
-        if (_seedingPromise) {
-          await _seedingPromise;
-        }
+    const connect = async (retryDelay = 0) => {
+      if (destroyed) return;
+      if (retryDelay) await new Promise(r => setTimeout(r, retryDelay));
+      if (destroyed) return;
 
-        await ensureAuthReady();
-        const orderField = collectionName === 'inventoryUnits' ? 'dateIn' : 'createdAt';
-        const q = query(
-          collectionRef(collectionName),
-          orderBy(orderField, 'desc'),
-          limit(12000)
-        );
+      // ── CRITICAL: Wait for any in-progress seed/reset before reading localStorage ──
+      if (_seedingPromise) {
+        await _seedingPromise;
+      }
+      if (destroyed) return;
 
-        const cached = readLocalTable(collectionName);
-        if (cached.length > 0) callback(cached);
-
-        unsub = onSnapshot(q, snap => {
-          const data = snap.docs.map(d => normalizeDoc(d.data() as Record<string, any>, d.id));
-          writeLocalTable(collectionName, data);
-          emit(collectionName, data);
-        }, error => {
-          console.error(`Firestore subscription error for ${collectionName}:`, error);
-        });
-      } catch (error) {
-        console.error(`Firestore subscribe init failed for ${collectionName}:`, error);
-        const cached = readLocalTable(collectionName);
+      // Serve local cache only AFTER seeding is done — prevents stale data flash
+      const cached = readLocalTable(collectionName);
+      if (cached.length > 0) {
+        cachedData[collectionName] = cached;
         callback(cached);
       }
-    })();
+
+      try {
+        await ensureAuthReady();
+        if (destroyed) return;
+
+        const orderField = collectionName === 'inventoryUnits' ? 'dateIn' : 'createdAt';
+        const q = query(collectionRef(collectionName), orderBy(orderField, 'desc'), limit(15000));
+
+        unsub = onSnapshot(q, snap => {
+          setSyncStatus(true);
+          const fsData = snap.docs.map(d => ({ ...d.data() as Record<string, any>, id: d.id }));
+          cachedData[collectionName] = fsData;
+          writeLocalTable(collectionName, fsData);
+          emit(collectionName, fsData);
+        }, error => {
+          setSyncStatus(false);
+          console.error(`Firestore [${collectionName}] error:`, error);
+          // Auto-reconnect after 5 seconds on subscription error
+          if (!destroyed) retryTimer = setTimeout(() => connect(0), 5000);
+        });
+      } catch (error) {
+        setSyncStatus(false);
+        console.error(`Firestore [${collectionName}] init failed:`, error);
+        // Retry after 8 seconds (covers slow auth on first load)
+        if (!destroyed) retryTimer = setTimeout(() => connect(0), 8000);
+      }
+    };
+
+    void connect();
 
     return () => {
+      destroyed = true;
+      if (retryTimer) clearTimeout(retryTimer);
       listeners[collectionName] = listeners[collectionName].filter(cb => cb !== callback);
       if (unsub) unsub();
     };
+  },
+
+  async readAll(collectionName: string) {
+    if (cachedData[collectionName]) return cachedData[collectionName];
+    const cached = readLocalTable(collectionName);
+    if (cached.length > 0) {
+      cachedData[collectionName] = cached;
+      return cached;
+    }
+    const snap = await getDocs(collectionRef(collectionName));
+    const data = snap.docs.map(d => ({ ...d.data(), id: d.id }));
+    cachedData[collectionName] = data;
+    writeLocalTable(collectionName, data);
+    return data;
   },
 
   refreshFromLocalCache(collectionName: string) {
@@ -249,33 +281,25 @@ export const dbService = {
 
   async resetDatabase() {
     try {
-      // 1. Clear ALL local storage first
-      const keys = Object.keys(localStorage);
-      for (const key of keys) {
-        if (key.startsWith(LOCAL_CACHE_PREFIX)) {
-          localStorage.removeItem(key);
+      // 1. Clear ALL local caches first
+      clearAllLocalCaches();
+      
+      // 2. Clear Firestore
+      const collections = ['inventoryUnits', 'suppliers', 'inventoryEvents', 'dailyUpdates', 'activeListings', 'sourceDocuments'];
+      for (const colName of collections) {
+        const q = query(collectionRef(colName), limit(500));
+        const snap = await getDocs(q);
+        if (!snap.empty) {
+          const batch = writeBatch(db);
+          snap.docs.forEach(d => batch.delete(d.ref));
+          await batch.commit();
         }
       }
       
-      // 2. Try to clear Firestore if authenticated
-      if (auth.currentUser) {
-        const collections = ['inventoryUnits', 'suppliers'];
-        for (const colName of collections) {
-          const q = query(collectionRef(colName), limit(500));
-          const snap = await getDocs(q);
-          if (!snap.empty) {
-            const batch = writeBatch(db);
-            snap.docs.forEach(d => batch.delete(d.ref));
-            await batch.commit();
-          }
-        }
-      }
-      
-      // 3. Force a hard reload to trigger re-seeding
+      // 3. Reload to trigger complete re-seeding
       window.location.href = window.location.origin + '?reset=' + Date.now();
     } catch (err: any) {
       console.error('Reset failed:', err);
-      // Even if Firestore delete fails, clear local and reload
       clearAllLocalCaches();
       window.location.href = window.location.origin + '?reset=' + Date.now();
     }

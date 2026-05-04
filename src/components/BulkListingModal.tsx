@@ -4,6 +4,7 @@ import { CheckCircle2, ChevronRight, Layers3, Package, X } from 'lucide-react';
 import { dbService } from '../lib/dbService';
 import { buildModelSummaries } from '../lib/modelSummaries';
 import { InventoryUnit } from '../types';
+import { useInventoryStore } from '../lib/inventoryStore';
 
 const LISTING_SITES = ['eBay', 'Amazon', 'OnBuy', 'Backmarket', 'Other'] as const;
 
@@ -12,16 +13,11 @@ interface Props {
 }
 
 export default function BulkListingModal({ onClose }: Props) {
-  const [units, setUnits] = useState<InventoryUnit[]>([]);
+  const { units }                 = useInventoryStore();
   const [selectedModelKey, setSelectedModelKey] = useState('');
   const [selectedImeis, setSelectedImeis] = useState<Set<string>>(new Set());
   const [selectedSites, setSelectedSites] = useState<string[]>(['eBay']);
   const [saving, setSaving] = useState(false);
-
-  useEffect(() => {
-    const unsub = dbService.subscribeToCollection('inventoryUnits', setUnits);
-    return unsub;
-  }, []);
 
   const summaries = useMemo(
     () => buildModelSummaries(units).sort((a, b) => {

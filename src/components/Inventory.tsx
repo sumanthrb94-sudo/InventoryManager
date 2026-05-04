@@ -6,6 +6,7 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { dbService } from '../lib/dbService';
+import { useInventoryStore } from '../lib/inventoryStore';
 import { InventoryUnit, Supplier, OperationalFlag, DeviceCategory, ModelSummary } from '../types';
 import UnitDetailDrawer from './UnitDetailDrawer';
 import QuickSaleModal from './QuickSaleModal';
@@ -57,8 +58,7 @@ function applySort(list: ModelSummary[], sort: string): ModelSummary[] {
 interface InventoryFilters { status?: string; search?: string; supplierId?: string; }
 
 export default function Inventory({ initialFilters = {} }: { initialFilters?: InventoryFilters }) {
-  const [units, setUnits]         = useState<InventoryUnit[]>([]);
-  const [suppliers, setSuppliers] = useState<Supplier[]>([]);
+  const { units, suppliers }      = useInventoryStore();
   const [search, setSearch]       = useState(initialFilters.search || '');
   const [catFilter, setCatFilter] = useState('All');
   const [statusFilter, setStatusFilter] = useState(initialFilters.status || 'All');
@@ -75,12 +75,6 @@ export default function Inventory({ initialFilters = {} }: { initialFilters?: In
   const [showFilters, setShowFilters] = useState(
     !!(initialFilters.status || initialFilters.supplierId)
   );
-
-  useEffect(() => {
-    const u = dbService.subscribeToCollection('inventoryUnits', setUnits);
-    const s = dbService.subscribeToCollection('suppliers', setSuppliers);
-    return () => { u(); s(); };
-  }, []);
 
   // Build + filter + sort
   const allSummaries = useMemo(() => buildModelSummaries(units), [units]);

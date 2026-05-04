@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useRef } from 'react';
+import { useState, useMemo, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import {
   Camera, Search, CheckCircle2, XCircle, ShoppingBag,
@@ -7,6 +7,7 @@ import {
 } from 'lucide-react';
 import { dbService } from '../lib/dbService';
 import { InventoryUnit } from '../types';
+import { useInventoryStore } from '../lib/inventoryStore';
 import { formatIMEI, validateIMEI } from '../lib/imeiUtils';
 import { logInventoryEvent } from '../lib/inventoryEvents';
 
@@ -27,7 +28,7 @@ interface QuickAction {
 
 // ─────────────────────────────────────────────────────────────────────────────
 export default function ScanPage() {
-  const [units, setUnits] = useState<InventoryUnit[]>([]);
+  const { units }                 = useInventoryStore();
   const [scanMode, setScanMode]   = useState(false);
   const [manualImei, setManualImei] = useState('');
   const [foundUnit, setFoundUnit] = useState<InventoryUnit | null>(null);
@@ -39,11 +40,6 @@ export default function ScanPage() {
   // Lazy-load scanner
   const [ScannerComponent, setScannerComponent] = useState<any>(null);
   const manualRef = useRef<HTMLInputElement>(null);
-
-  useEffect(() => {
-    const unsub = dbService.subscribeToCollection('inventoryUnits', setUnits);
-    return unsub;
-  }, []);
 
   // Today's stats
   const today = new Date().toISOString().split('T')[0];

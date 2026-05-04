@@ -1,8 +1,9 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useMemo } from 'react';
 import { Plus, Package, TrendingUp, RotateCcw, ChevronDown, ChevronRight, X, ShoppingBag, Cpu, ArrowUpRight } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { dbService } from '../lib/dbService';
 import { Supplier, InventoryUnit } from '../types';
+import { useInventoryStore } from '../lib/inventoryStore';
 import { formatIMEI } from '../lib/imeiUtils';
 
 const PLATFORM_COLORS: Record<string, string> = {
@@ -14,8 +15,7 @@ const PLATFORM_COLORS: Record<string, string> = {
 };
 
 export default function Suppliers() {
-  const [suppliers, setSuppliers] = useState<Supplier[]>([]);
-  const [units, setUnits]         = useState<InventoryUnit[]>([]);
+  const { units, suppliers }      = useInventoryStore();
   const [selected, setSelected]   = useState<string | null>(null);
   const [isAdding, setIsAdding]   = useState(false);
   const [newSupplier, setNewSupplier] = useState({
@@ -32,12 +32,6 @@ export default function Suppliers() {
   });
   const [historyPage, setHistoryPage] = useState(1);
   const HIST_PAGE_SIZE = 20;
-
-  useEffect(() => {
-    const u = dbService.subscribeToCollection('inventoryUnits', setUnits);
-    const s = dbService.subscribeToCollection('suppliers', setSuppliers);
-    return () => { u(); s(); };
-  }, []);
 
   const handleAdd = async (e: React.FormEvent) => {
     e.preventDefault();

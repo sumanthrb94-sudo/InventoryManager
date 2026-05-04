@@ -1,8 +1,9 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useMemo } from 'react';
 import { PackagePlus, Search, ChevronRight, Plus, FileSpreadsheet, CheckCircle2, Clock, ChevronDown, ChevronUp } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
 import { dbService } from '../lib/dbService';
 import { InventoryUnit, Supplier } from '../types';
+import { useInventoryStore } from '../lib/inventoryStore';
 import CopyImei from './CopyImei';
 import CollapsibleSection from './CollapsibleSection';
 
@@ -12,16 +13,9 @@ interface Props {
 }
 
 export default function StockInPage({ onOpenBatch, onOpenImport }: Props) {
-  const [units, setUnits]       = useState<InventoryUnit[]>([]);
-  const [suppliers, setSuppliers] = useState<Supplier[]>([]);
+  const { units, suppliers }    = useInventoryStore();
   const [search, setSearch]     = useState('');
   const [expandedId, setExpandedId] = useState<string|null>(null);
-
-  useEffect(() => {
-    const u = dbService.subscribeToCollection('inventoryUnits', setUnits);
-    const s = dbService.subscribeToCollection('suppliers', setSuppliers);
-    return () => { u(); s(); };
-  }, []);
 
   const today = new Date().toISOString().split('T')[0];
 

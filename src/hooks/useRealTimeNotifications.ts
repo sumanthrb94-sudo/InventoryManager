@@ -1,46 +1,38 @@
-
 import { useEffect, useRef } from 'react';
-import { dbService } from '../lib/dbService';
 import { InventoryUnit } from '../types';
 import { notificationService } from '../lib/notificationService';
+import { useInventoryStore } from '../lib/inventoryStore';
 
 export function useRealTimeNotifications() {
-  const prevUnitsRef = useRef<InventoryUnit[]>([]);
-  const isInitialLoad = useRef(true);
+  const { units }   = useInventoryStore();
+  // Store previous state as a Map for O(n) lookup instead of O(n²) forEach+find
+  const prevMap     = useRef<Map<string, InventoryUnit>>(new Map());
+  const initialLoad = useRef(true);
 
   useEffect(() => {
-    const unsub = dbService.subscribeToCollection('inventoryUnits', (units) => {
-      if (isInitialLoad.current) {
-        prevUnitsRef.current = units;
-        isInitialLoad.current = false;
-        return;
-      }
+    // Skip the first delivery — it's the full initial dataset, not a change
+    if (initialLoad.current) {
+      prevMap.current = new Map(units.map(u => [u.id, u]));
+      initialLoad.current = false;
+      return;
+    }
 
-      const prevUnits = prevUnitsRef.current;
-      const today = new Date().toISOString().split('T')[0];
+    const today = new Date().toISOString().split('T')[0];
+    const prev  = prevMap.current;
 
-      // Detect New Stock
-      units.forEach(unit => {
-        const isNew = !prevUnits.some(p => p.id === unit.id);
-        // Only notify for units added today to avoid old data noise
-        const wasAddedToday = unit.dateIn === today || unit.createdAt?.startsWith(today);
-        
-        if (isNew && wasAddedToday) {
+    for (const unit of units) {
+      const p = prev.get(unit.id);
+      if (!p) {
+        // Brand-new unit — only notify if added today (ignore historical seed)
+        if (unit.dateIn === today || unit.createdAt?.startsWith(today)) {
           notificationService.addNotification('new_stock', unit);
         }
-      });
+      } else if (p.status !== 'sold' && unit.status === 'sold') {
+        notificationService.addNotification('sold', unit);
+      }
+    }
 
-      // Detect Sold
-      units.forEach(unit => {
-        const prevUnit = prevUnits.find(p => p.id === unit.id);
-        if (prevUnit && prevUnit.status !== 'sold' && unit.status === 'sold') {
-          notificationService.addNotification('sold', unit);
-        }
-      });
-
-      prevUnitsRef.current = units;
-    });
-
-    return unsub;
-  }, []);
+    // Rebuild map for next diff
+    prevMap.current = new Map(units.map(u => [u.id, u]));
+  }, [units]);
 }

@@ -1,8 +1,3 @@
-/**
- * @license
- * SPDX-License-Identifier: Apache-2.0
- */
-
 import React, { useState, useEffect } from 'react';
 import { onAuthStateChanged, User } from 'firebase/auth';
 import { auth, signInWithGoogle, signOut } from './lib/firebase';
@@ -25,133 +20,119 @@ import { useRealTimeNotifications } from './hooks/useRealTimeNotifications';
 import NotificationToast from './components/NotificationToast';
 import NotificationBell from './components/NotificationBell';
 import { notificationService } from './lib/notificationService';
+import { subscribeToSyncStatus } from './lib/dbService';
+import { InventoryStoreProvider, useInventoryStore } from './lib/inventoryStore';
 
 type Tab = 'overview' | 'buystk' | 'sell' | 'returns' | 'reports' | 'suppliers' | 'analytics';
-
-interface SeedProgress { loaded: number; total: number; }
 
 const APP_NAME    = 'MOBILEPHONEMARKET';
 const APP_TAGLINE = 'Inventory Manager';
 
 export default function App() {
-  const [user, setUser]           = useState<User | null>(null);
-  const [loading, setLoading]     = useState(true);
-  const [activeTab, setActiveTab] = useState<Tab>('overview');
-  const [isBatchModalOpen,  setIsBatchModalOpen]  = useState(false);
+  const [user, setUser]     = useState<User | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    return onAuthStateChanged(auth, u => { setUser(u); setLoading(false); });
+  }, []);
+
+  if (loading) return (
+    <div className="min-h-screen bg-white flex items-center justify-center">
+      <motion.div animate={{ rotate: 360 }} transition={{ duration: 1, repeat: Infinity, ease: 'linear' }}
+        className="w-8 h-8 border-2 border-black border-t-transparent rounded-full" />
+    </div>
+  );
+
+  if (!user) return <LoginPage />;
+
+  return (
+    <InventoryStoreProvider>
+      <AppShell user={user} />
+    </InventoryStoreProvider>
+  );
+}
+
+// ── Loading screen with animated progress bar ──────────────────────────────────
+function LoadingScreen() {
+  const [progress, setProgress] = useState(0);
+
+  useEffect(() => {
+    // Animate quickly to 85%, then hold until data arrives and component unmounts
+    const t1 = setTimeout(() => setProgress(40),  100);
+    const t2 = setTimeout(() => setProgress(70),  600);
+    const t3 = setTimeout(() => setProgress(85), 1200);
+    // Jump to 100% right before AnimatePresence fades it out
+    const t4 = setTimeout(() => setProgress(100), 1800);
+    return () => { clearTimeout(t1); clearTimeout(t2); clearTimeout(t3); clearTimeout(t4); };
+  }, []);
+
+  return (
+    <motion.div
+      initial={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      transition={{ duration: 0.35 }}
+      className="fixed inset-0 z-[300] bg-white flex flex-col items-center justify-center gap-6"
+    >
+      <div className="text-center">
+        <h1 className="text-3xl font-bold tracking-tighter uppercase font-display">{APP_NAME}</h1>
+        <p className="text-[9px] text-gray-400 font-mono uppercase tracking-[0.4em] mt-1">{APP_TAGLINE}</p>
+      </div>
+      <div className="w-64 space-y-2">
+        <div className="flex justify-between items-center">
+          <span className="text-[10px] font-mono uppercase tracking-widest text-gray-400">Loading inventory</span>
+          <span className="text-[10px] font-mono text-gray-400">{progress}%</span>
+        </div>
+        <div className="h-1 bg-gray-100 rounded-full overflow-hidden">
+          <motion.div
+            className="h-full bg-black rounded-full"
+            animate={{ width: `${progress}%` }}
+            transition={{ duration: 0.5, ease: 'easeOut' }}
+          />
+        </div>
+      </div>
+    </motion.div>
+  );
+}
+
+// ── Authenticated shell — lives inside InventoryStoreProvider ──────────────────
+function AppShell({ user }: { user: User }) {
+  const { loaded }                                = useInventoryStore();
+  const [activeTab, setActiveTab]                 = useState<Tab>('overview');
+  const [isBatchModalOpen, setIsBatchModalOpen]   = useState(false);
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
-  const [unreadCount, setUnreadCount] = useState(0);
-  const [seedProgress, setSeedProgress] = useState<SeedProgress | null>(null);
-  const [seedComplete, setSeedComplete] = useState(false);
+  const [unreadCount, setUnreadCount]             = useState(0);
+  const [syncConnected, setSyncConnected]         = useState(false);
 
   useRealTimeNotifications();
 
   useEffect(() => {
-    const unsub = notificationService.subscribe(() => {
-      setUnreadCount(notificationService.getUnreadCount());
-    });
-    return unsub;
+    return notificationService.subscribe(() => setUnreadCount(notificationService.getUnreadCount()));
   }, []);
 
-  // ── Firebase Auth state listener ──────────────────────────────────────────
-  useEffect(() => {
-    const unsub = onAuthStateChanged(auth, (firebaseUser) => {
-      setUser(firebaseUser);
-      setLoading(false);
-    });
-    return unsub;
-  }, []);
+  useEffect(() => subscribeToSyncStatus(setSyncConnected), []);
 
-  // ── Seed default data once user is authenticated ──────────────────────────
+  // Seed data: tries Firestore getDocs first, falls back to bundled JSON.
+  // Runs on every login to ensure localStorage is populated even if it was wiped.
   useEffect(() => {
-    if (!user) return;
-    let cancelled = false;
     import('./lib/seedData').then(({ seedDefaultInventoryData }) => {
-      let seedStarted = false;
-      seedDefaultInventoryData((loaded, total) => {
-        if (cancelled) return;
-        if (!seedStarted) { seedStarted = true; setSeedProgress({ loaded, total }); }
-        if (loaded >= total) {
-          // Brief pause so final progress bar hits 100% visibly, then dismiss
-          setTimeout(() => {
-            if (!cancelled) {
-              setSeedProgress(null);
-              setSeedComplete(true);
-            }
-          }, 600);
-        } else {
-          setSeedProgress({ loaded, total });
-        }
-      }).then(() => {
-        if (!cancelled) setSeedComplete(true);
-      }).catch(() => {
-        if (!cancelled) setSeedComplete(true); // Don't block UI on seed error
-      });
+      seedDefaultInventoryData();
     });
-    return () => { cancelled = true; };
-  }, [user]);
+  }, []);
 
   const handleNavigate = (action: NavAction) => {
     if (action.tab === 'inventory') setActiveTab('overview');
     else if (action.tab === 'suppliers') setActiveTab('suppliers');
     else setActiveTab(action.tab as Tab);
   };
-
   const handleLogout = () => signOut();
 
-  if (loading) {
-    return (
-      <div className="min-h-screen bg-white flex items-center justify-center">
-        <motion.div
-          animate={{ rotate: 360 }}
-          transition={{ duration: 1, repeat: Infinity, ease: 'linear' }}
-          className="w-8 h-8 border-2 border-black border-t-transparent rounded-full"
-        />
-      </div>
-    );
-  }
-
-  if (!user) {
-    return <LoginPage />;
-  }
-
-  // ── Block main UI until seeding is complete (prevents stale data flash) ───
-  if (seedProgress || !seedComplete) {
-    return (
-      <div className="min-h-[100dvh] bg-white flex flex-col items-center justify-center gap-8">
-        <div className="text-center">
-          <h1 className="text-3xl font-bold tracking-tighter uppercase font-display">{APP_NAME}</h1>
-          <p className="text-[9px] text-gray-400 font-mono uppercase tracking-[0.4em] mt-1">{APP_TAGLINE}</p>
-        </div>
-        <div className="w-72 space-y-3">
-          <div className="flex items-center justify-between">
-            <span className="text-[10px] font-bold uppercase tracking-widest text-gray-500 font-mono">Loading inventory…</span>
-            <span className="text-[10px] font-mono text-gray-400">
-              {seedProgress ? Math.round(seedProgress.loaded / seedProgress.total * 100) : 0}%
-            </span>
-          </div>
-          <div className="h-1 bg-gray-100 rounded-full overflow-hidden">
-            <motion.div
-              className="h-full bg-black rounded-full"
-              animate={{ width: `${seedProgress ? Math.round(seedProgress.loaded / seedProgress.total * 100) : 0}%` }}
-              transition={{ duration: 0.3 }}
-            />
-          </div>
-          <p className="text-[9px] font-mono text-gray-300 text-center">
-            {seedProgress ? `${seedProgress.loaded.toLocaleString()} / ${seedProgress.total.toLocaleString()} units` : 'Initializing…'}
-          </p>
-        </div>
-        <motion.div
-          animate={{ rotate: 360 }}
-          transition={{ duration: 1.2, repeat: Infinity, ease: 'linear' }}
-          className="w-5 h-5 border-2 border-gray-200 border-t-black rounded-full"
-        />
-      </div>
-    );
-  }
-
-  // ── Main app shell ─────────────────────────────────────────────────────────
   return (
     <div className="min-h-[100dvh] bg-[#FAFAFA] text-black flex flex-col md:flex-row">
+
+      {/* ── Loading overlay — shown until Firestore delivers first snapshot ── */}
+      <AnimatePresence>
+        {!loaded && <LoadingScreen />}
+      </AnimatePresence>
 
       {/* Desktop Sidebar */}
       <aside className="hidden md:flex w-72 border-r border-gray-200 flex-col pt-10 pb-6 bg-gray-50 z-30">
@@ -210,6 +191,15 @@ export default function App() {
               <h1 className="text-2xl font-bold tracking-tighter uppercase font-display text-black">{APP_NAME}</h1>
             </button>
             <div className="flex items-center gap-2 md:gap-3 ml-auto">
+              <div
+                title={syncConnected ? 'Live sync active' : 'Offline — local only'}
+                className="flex items-center gap-1.5"
+              >
+                <span className={`w-2 h-2 rounded-full flex-shrink-0 ${syncConnected ? 'bg-emerald-500 shadow-[0_0_6px_rgba(16,185,129,0.8)]' : 'bg-amber-400'}`} />
+                <span className="hidden md:inline text-[9px] font-mono uppercase tracking-widest text-gray-400">
+                  {syncConnected ? 'Live' : 'Offline'}
+                </span>
+              </div>
               <NotificationBell unreadCount={unreadCount} />
               <button
                 onClick={handleLogout}

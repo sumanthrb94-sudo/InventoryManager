@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useMemo } from 'react';
 import {
   RefreshCw, Search, ArrowUpRight, Wrench, PackageCheck,
   ChevronDown, ChevronUp, X, CheckCircle2, AlertCircle, ShieldAlert, ShieldCheck
@@ -6,6 +6,7 @@ import {
 import { AnimatePresence, motion } from 'motion/react';
 import { dbService } from '../lib/dbService';
 import { InventoryUnit, ReturnCategory } from '../types';
+import { useInventoryStore } from '../lib/inventoryStore';
 import CopyImei from './CopyImei';
 import { getWarrantyStatus } from '../lib/warrantyUtils';
 
@@ -220,17 +221,12 @@ function ProcessReturnModal({
 
 // ── Main ReturnsPage ─────────────────────────────────────────────────────────
 export default function ReturnsPage() {
-  const [units, setUnits]           = useState<InventoryUnit[]>([]);
+  const { units }                   = useInventoryStore();
   const [search, setSearch]         = useState('');
   const [filter, setFilter]         = useState<FilterTab>('all');
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [processing, setProcessing] = useState<InventoryUnit | null>(null);
   const [savedFlag, setSavedFlag]   = useState(false);
-
-  useEffect(() => {
-    const u = dbService.subscribeToCollection('inventoryUnits', setUnits);
-    return u;
-  }, []);
 
   // Returned = status 'returned' OR units that came back to available via returnType
   const returned = useMemo(() =>
