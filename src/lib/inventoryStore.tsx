@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
-import { dbService, clearAllLocalCaches } from './dbService';
+import { dbService } from './dbService';
 import { InventoryUnit, Supplier } from '../types';
 
 interface Store {
@@ -16,21 +16,26 @@ export function InventoryStoreProvider({ children }: { children: React.ReactNode
   const [loaded, setLoaded]       = useState(false);
 
   useEffect(() => {
-    clearAllLocalCaches();
-
     let unitsReady = false;
     let suppliersReady = false;
-    const checkLoaded = () => { if (unitsReady && suppliersReady) setLoaded(true); };
+
+    const markLoaded = () => {
+      if (unitsReady && suppliersReady) setLoaded(true);
+    };
+
+    // Hard timeout — never leave users on the loading screen beyond 5s
+    const timeout = setTimeout(() => setLoaded(true), 5000);
 
     const u = dbService.subscribeToCollection('inventoryUnits', data => {
       setUnits(data);
-      if (!unitsReady) { unitsReady = true; checkLoaded(); }
+      if (!unitsReady) { unitsReady = true; markLoaded(); }
     });
     const s = dbService.subscribeToCollection('suppliers', data => {
       setSuppliers(data);
-      if (!suppliersReady) { suppliersReady = true; checkLoaded(); }
+      if (!suppliersReady) { suppliersReady = true; markLoaded(); }
     });
-    return () => { u(); s(); };
+
+    return () => { clearTimeout(timeout); u(); s(); };
   }, []);
 
   return <Ctx.Provider value={{ units, suppliers, loaded }}>{children}</Ctx.Provider>;
