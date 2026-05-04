@@ -130,19 +130,7 @@ export async function seedDefaultInventoryData(
   // Fix any bad returnDates from the previous seed before doing anything else
   migrateReturnDates();
 
-  // Already seeded locally? Done — onSnapshot delivers live updates on top.
-  const cachedUnits = (() => {
-    try { return JSON.parse(localStorage.getItem('nexus_db_inventoryUnits') || '[]'); }
-    catch { return []; }
-  })();
-  if (cachedUnits.length > 0) {
-    onProgress?.(1, 1); // dismiss any loading screen immediately
-    return;
-  }
-
-  // ── Try Firestore first — gets current live data, not stale seed ──────────
-  // New devices where Firestore already has up-to-date sold/added records
-  // get the correct numbers immediately instead of a stale snapshot from JSON.
+  // ── Always try Firestore first — guarantees all devices see identical data ──
   try {
     await ensureAuthReady();
     const [sSnap, uSnap] = await Promise.all([

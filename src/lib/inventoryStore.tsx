@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
-import { dbService } from './dbService';
+import { dbService, clearAllLocalCaches } from './dbService';
 import { InventoryUnit, Supplier } from '../types';
 
 interface Store {
@@ -14,6 +14,9 @@ export function InventoryStoreProvider({ children }: { children: React.ReactNode
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
 
   useEffect(() => {
+    // Always wipe stale local data so Firestore is the single source of truth.
+    // onSnapshot delivers the canonical dataset within 1-2 seconds.
+    clearAllLocalCaches();
     const u = dbService.subscribeToCollection('inventoryUnits', setUnits);
     const s = dbService.subscribeToCollection('suppliers', setSuppliers);
     return () => { u(); s(); };

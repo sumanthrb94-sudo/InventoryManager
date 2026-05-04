@@ -1,63 +1,75 @@
-
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { CheckCircle2, ShoppingBag, X } from 'lucide-react';
+import { ShoppingBag, Package, X } from 'lucide-react';
 import { notificationService, Notification } from '../lib/notificationService';
 
+const DISPLAY_MS = 5000;
+const MAX_VISIBLE = 3;
+
 export default function NotificationToast() {
-  const [activeNotification, setActiveNotification] = useState<Notification | null>(null);
+  const [queue, setQueue]   = useState<Notification[]>([]);
+  const shownIds            = useRef<Set<string>>(new Set());
 
   useEffect(() => {
-    const unsub = notificationService.subscribe((notifications) => {
-      const latest = notifications[0];
-      if (latest && !latest.read) {
-        // Show as toast if it's new (within last 5 seconds)
-        const age = new Date().getTime() - new Date(latest.timestamp).getTime();
-        if (age < 5000) {
-          setActiveNotification(latest);
-          const timer = setTimeout(() => setActiveNotification(null), 5000);
-          return () => clearTimeout(timer);
-        }
-      }
+    return notificationService.subscribe((notifications) => {
+      const fresh = notifications.filter(n => {
+        const age = Date.now() - new Date(n.timestamp).getTime();
+        return !n.read && age < 10_000 && !shownIds.current.has(n.id);
+      });
+      if (!fresh.length) return;
+      fresh.forEach(n => shownIds.current.add(n.id));
+      setQueue(prev => [...fresh, ...prev].slice(0, MAX_VISIBLE));
     });
-    return unsub;
   }, []);
 
+  const dismiss = (id: string) => {
+    setQueue(prev => prev.filter(n => n.id !== id));
+    notificationService.markAsRead(id);
+  };
+
   return (
-    <div className="fixed top-6 right-6 z-[100] pointer-events-none">
-      <AnimatePresence>
-        {activeNotification && (
-          <motion.div
-            initial={{ opacity: 0, x: 50, scale: 0.9 }}
-            animate={{ opacity: 1, x: 0, scale: 1 }}
-            exit={{ opacity: 0, x: 20, scale: 0.95 }}
-            className="pointer-events-auto bg-black text-white p-4 rounded-2xl shadow-2xl border border-white/10 flex items-center gap-4 min-w-[320px] max-w-[400px]"
-          >
-            <div className={`w-12 h-12 rounded-xl flex items-center justify-center flex-shrink-0 ${
-              activeNotification.type === 'sold' ? 'bg-emerald-500' : 'bg-blue-500'
-            }`}>
-              {activeNotification.type === 'sold' ? <ShoppingBag size={20} /> : <CheckCircle2 size={20} />}
-            </div>
-            <div className="flex-1 min-w-0">
-              <h4 className="text-[11px] font-bold uppercase tracking-[0.2em] opacity-60 mb-0.5">
-                {activeNotification.title}
-              </h4>
-              <p className="text-sm font-bold truncate leading-tight">
-                {activeNotification.model}
-              </p>
-              <p className="text-[10px] text-gray-400 font-mono mt-1">
-                {activeNotification.message}
-              </p>
-            </div>
-            <button 
-              onClick={() => setActiveNotification(null)}
-              className="p-1 hover:bg-white/10 rounded-lg transition-all"
-            >
-              <X size={16} className="text-gray-500" />
-            </button>
-          </motion.div>
-        )}
+    <div className="fixed top-4 left-4 right-4 md:left-auto md:right-6 md:top-6 z-[200] pointer-events-none flex flex-col gap-2 items-stretch md:items-end">
+      <AnimatePresence initial={false}>
+        {queue.map(n => (
+          <ToastCard key={n.id} notification={n} onDismiss={() => dismiss(n.id)} />
+        ))}
       </AnimatePresence>
     </div>
+  );
+}
+
+function ToastCard({ notification, onDismiss }: { key?: React.Key; notification: Notification; onDismiss: () => void }) {
+  useEffect(() => {
+    const t = setTimeout(onDismiss, DISPLAY_MS);
+    return () => clearTimeout(t);
+  }, [onDismiss]);
+
+  const isSold = notification.type === 'sold';
+
+  return (
+    <motion.div
+      layout
+      initial={{ opacity: 0, y: -12, scale: 0.96 }}
+      animate={{ opacity: 1, y: 0, scale: 1 }}
+      exit={{ opacity: 0, scale: 0.94, transition: { duration: 0.15 } }}
+      transition={{ type: 'spring', stiffness: 400, damping: 30 }}
+      className="pointer-events-auto w-full md:w-[360px] bg-gray-900 text-white px-4 py-3 rounded-2xl shadow-2xl border border-white/10 flex items-center gap-3"
+    >
+      <div className={`w-9 h-9 rounded-xl flex-shrink-0 flex items-center justify-center ${isSold ? 'bg-emerald-500' : 'bg-blue-500'}`}>
+        {isSold ? <ShoppingBag size={16} /> : <Package size={16} />}
+      </div>
+      <div className="flex-1 min-w-0">
+        <p className="text-[9px] font-bold uppercase tracking-widest text-gray-400 mb-0.5">{notification.title}</p>
+        <p className="text-sm font-semibold truncate leading-snug">{notification.model}</p>
+        <p className="text-[10px] text-gray-500 font-mono truncate">{notification.message}</p>
+      </div>
+      <button
+        onClick={onDismiss}
+        className="p-1.5 hover:bg-white/10 rounded-lg transition-all flex-shrink-0"
+        aria-label="Dismiss"
+      >
+        <X size={13} className="text-gray-500" />
+      </button>
+    </motion.div>
   );
 }
