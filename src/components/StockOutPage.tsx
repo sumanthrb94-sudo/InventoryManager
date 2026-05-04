@@ -1,7 +1,7 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useMemo } from 'react';
 import { PackageMinus, Search, CheckCircle2, Clock, DollarSign } from 'lucide-react';
-import { dbService } from '../lib/dbService';
 import { InventoryUnit } from '../types';
+import { useInventoryStore } from '../lib/inventoryStore';
 import CopyImei from './CopyImei';
 
 
@@ -10,13 +10,8 @@ interface Props {
 }
 
 export default function StockOutPage({ onOpenUnit }: Props) {
-  const [units, setUnits] = useState<InventoryUnit[]>([]);
+  const { units }         = useInventoryStore();
   const [search, setSearch] = useState('');
-
-  useEffect(() => {
-    const u = dbService.subscribeToCollection('inventoryUnits', setUnits);
-    return u;
-  }, []);
 
   const today = new Date().toISOString().split('T')[0];
   const yesterday = new Date(Date.now() - 86400000).toISOString().split('T')[0];

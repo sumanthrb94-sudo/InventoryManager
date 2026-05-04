@@ -1,11 +1,11 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import {
   ChevronLeft, ChevronRight, ChevronDown, X, ShoppingBag,
   PackagePlus, RotateCcw, Cpu, TrendingUp, Package
 } from 'lucide-react';
-import { dbService } from '../lib/dbService';
 import { InventoryUnit, Supplier } from '../types';
+import { useInventoryStore } from '../lib/inventoryStore';
 import { formatIMEI } from '../lib/imeiUtils';
 
 type EventType = 'sold' | 'stock_in' | 'returned';
@@ -45,40 +45,30 @@ function firstDayOfMonth(year: number, month: number) {
 }
 
 export default function CalendarPage() {
-  const [units, setUnits]       = useState<InventoryUnit[]>([]);
-  const [suppliers, setSuppliers] = useState<Supplier[]>([]);
+  const { units, suppliers }    = useInventoryStore();
   const [today]                 = useState(new Date());
   const [cursor, setCursor]     = useState({ year: today.getFullYear(), month: today.getMonth() });
   const [selectedDate, setSelectedDate] = useState<string | null>(toDateKey(today));
 
-  const hasAutoNavigated = React.useRef(false);
+  const hasAutoNavigated = useRef(false);
 
+  // Auto-navigate once to the month with the most recent data
   useEffect(() => {
-    const u = dbService.subscribeToCollection('inventoryUnits', (data: InventoryUnit[]) => {
-      setUnits(data);
-      // Auto-navigate once to the month with the most recent data
-      if (!hasAutoNavigated.current && data.length > 0) {
-        hasAutoNavigated.current = true;
-        const dates: string[] = data
-          .flatMap((unit: InventoryUnit) => [
-            unit.saleDate,
-            unit.dateIn,
-          ])
-          .filter((d): d is string => !!d)
-          .sort()
-          .reverse();
-        if (dates.length > 0) {
-          const mostRecent = new Date(dates[0] + 'T12:00:00');
-          if (!isNaN(mostRecent.getTime())) {
-            setCursor({ year: mostRecent.getFullYear(), month: mostRecent.getMonth() });
-            setSelectedDate(dates[0]);
-          }
-        }
+    if (hasAutoNavigated.current || units.length === 0) return;
+    hasAutoNavigated.current = true;
+    const dates = units
+      .flatMap(u => [u.saleDate, u.dateIn])
+      .filter((d): d is string => !!d)
+      .sort()
+      .reverse();
+    if (dates.length > 0) {
+      const mostRecent = new Date(dates[0] + 'T12:00:00');
+      if (!isNaN(mostRecent.getTime())) {
+        setCursor({ year: mostRecent.getFullYear(), month: mostRecent.getMonth() });
+        setSelectedDate(dates[0]);
       }
-    });
-    const s = dbService.subscribeToCollection('suppliers', setSuppliers);
-    return () => { u(); s(); };
-  }, []);
+    }
+  }, [units]);
 
   // Build event map: dateKey → DaySummary
   const eventMap = useMemo(() => {

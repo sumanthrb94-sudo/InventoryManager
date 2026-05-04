@@ -1,7 +1,8 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useMemo } from 'react';
 import { BarChart2, Star, FileText, Receipt, Download } from 'lucide-react';
 import { dbService } from '../lib/dbService';
 import { InventoryUnit, Supplier } from '../types';
+import { useInventoryStore } from '../lib/inventoryStore';
 import CopyImei from './CopyImei';
 import PDFReportButton from './PDFReportButton';
 import {
@@ -37,16 +38,9 @@ function exportCSV(filename: string, rows: Record<string, string | number | unde
 }
 
 export default function ReportingPage() {
-  const [units, setUnits]       = useState<InventoryUnit[]>([]);
-  const [suppliers, setSuppliers] = useState<Supplier[]>([]);
+  const { units, suppliers }    = useInventoryStore();
   const [tab, setTab]           = useState<ReportTab>('daily');
   const [dateFilter, setDateFilter] = useState(() => new Date().toISOString().split('T')[0]);
-
-  useEffect(() => {
-    const u = dbService.subscribeToCollection('inventoryUnits', setUnits);
-    const s = dbService.subscribeToCollection('suppliers', setSuppliers);
-    return () => { u(); s(); };
-  }, []);
 
   const supplierMap = useMemo(() => {
     const m: Record<string, string> = {};

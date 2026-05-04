@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
+import { useInventoryStore } from '../lib/inventoryStore';
 import {
   Bell, CheckCircle2, Star, Truck,
   ChevronDown, Clock, Search, ShoppingBag, Smartphone
@@ -30,17 +31,14 @@ const FLAG_CONFIG: Record<OperationalFlag, { label: string; icon: any; style: st
 };
 
 export default function Sales() {
-  const [units, setUnits] = useState<InventoryUnit[]>([]);
-  const [suppliers, setSuppliers] = useState<Supplier[]>([]);
+  const { units, suppliers }      = useInventoryStore();
   const [activeListings, setActiveListings] = useState<ActiveListing[]>([]);
   const [recentNotifications, setRecentNotifications] = useState<Notification[]>([]);
 
   useEffect(() => {
-    const unsub1 = dbService.subscribeToCollection('inventoryUnits', setUnits);
-    const unsub2 = dbService.subscribeToCollection('suppliers', setSuppliers);
     const unsub3 = dbService.subscribeToCollection('activeListings', setActiveListings);
     const unsub4 = notificationService.subscribe(setRecentNotifications);
-    return () => { unsub1(); unsub2(); unsub3(); unsub4(); };
+    return () => { unsub3(); unsub4(); };
   }, []);
 
   const [isTodayStockOpen, setIsTodayStockOpen] = useState(true);

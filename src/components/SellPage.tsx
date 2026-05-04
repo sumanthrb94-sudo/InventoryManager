@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useMemo } from 'react';
 import {
   ShoppingCart, Search, CheckCircle2, Clock, ChevronRight,
   X, Package, AlertCircle, ChevronDown, ChevronUp,
@@ -6,6 +6,7 @@ import {
 import { AnimatePresence, motion } from 'motion/react';
 import { dbService } from '../lib/dbService';
 import { InventoryUnit } from '../types';
+import { useInventoryStore } from '../lib/inventoryStore';
 import CopyImei from './CopyImei';
 import { PLATFORM_LIST, PLATFORMS, DEFAULT_POSTAGE_COST, platformTotalFee, calcNetProfit, platformFixedFee } from '../lib/platforms';
 import CollapsibleSection from './CollapsibleSection';
@@ -248,18 +249,11 @@ function SellOrderModal({
 
 // ── Main Sell Page ──────────────────────────────────────────────────────────
 export default function SellPage() {
-  const [units, setUnits]       = useState<InventoryUnit[]>([]);
-  const [suppliers, setSuppliers] = useState<any[]>([]);
+  const { units, suppliers }    = useInventoryStore();
   const [search, setSearch]     = useState('');
   const [selected, setSelected] = useState<InventoryUnit | null>(null);
   const [savedFlag, setSavedFlag] = useState(false);
   const [expandedId, setExpandedId] = useState<string | null>(null);
-
-  useEffect(() => {
-    const u = dbService.subscribeToCollection('inventoryUnits', setUnits);
-    const s = dbService.subscribeToCollection('suppliers', setSuppliers);
-    return () => { u(); s(); };
-  }, []);
 
   const supplierMap = useMemo(() => {
     const m: Record<string, string> = {};

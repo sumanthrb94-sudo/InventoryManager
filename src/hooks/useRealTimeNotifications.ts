@@ -1,46 +1,36 @@
-
 import { useEffect, useRef } from 'react';
-import { dbService } from '../lib/dbService';
 import { InventoryUnit } from '../types';
 import { notificationService } from '../lib/notificationService';
+import { useInventoryStore } from '../lib/inventoryStore';
 
 export function useRealTimeNotifications() {
-  const prevUnitsRef = useRef<InventoryUnit[]>([]);
-  const isInitialLoad = useRef(true);
+  const { units }     = useInventoryStore();
+  const prevRef       = useRef<InventoryUnit[]>([]);
+  const initialLoad   = useRef(true);
 
   useEffect(() => {
-    const unsub = dbService.subscribeToCollection('inventoryUnits', (units) => {
-      if (isInitialLoad.current) {
-        prevUnitsRef.current = units;
-        isInitialLoad.current = false;
-        return;
-      }
+    if (initialLoad.current) {
+      prevRef.current = units;
+      initialLoad.current = false;
+      return;
+    }
 
-      const prevUnits = prevUnitsRef.current;
-      const today = new Date().toISOString().split('T')[0];
+    const prev  = prevRef.current;
+    const today = new Date().toISOString().split('T')[0];
 
-      // Detect New Stock
-      units.forEach(unit => {
-        const isNew = !prevUnits.some(p => p.id === unit.id);
-        // Only notify for units added today to avoid old data noise
-        const wasAddedToday = unit.dateIn === today || unit.createdAt?.startsWith(today);
-        
-        if (isNew && wasAddedToday) {
-          notificationService.addNotification('new_stock', unit);
-        }
-      });
-
-      // Detect Sold
-      units.forEach(unit => {
-        const prevUnit = prevUnits.find(p => p.id === unit.id);
-        if (prevUnit && prevUnit.status !== 'sold' && unit.status === 'sold') {
-          notificationService.addNotification('sold', unit);
-        }
-      });
-
-      prevUnitsRef.current = units;
+    units.forEach(unit => {
+      const isNew = !prev.some(p => p.id === unit.id);
+      const addedToday = unit.dateIn === today || unit.createdAt?.startsWith(today);
+      if (isNew && addedToday) notificationService.addNotification('new_stock', unit);
     });
 
-    return unsub;
-  }, []);
+    units.forEach(unit => {
+      const p = prev.find(p => p.id === unit.id);
+      if (p && p.status !== 'sold' && unit.status === 'sold') {
+        notificationService.addNotification('sold', unit);
+      }
+    });
+
+    prevRef.current = units;
+  }, [units]);
 }

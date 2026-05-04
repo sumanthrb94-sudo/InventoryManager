@@ -26,6 +26,7 @@ import NotificationToast from './components/NotificationToast';
 import NotificationBell from './components/NotificationBell';
 import { notificationService } from './lib/notificationService';
 import { subscribeToSyncStatus } from './lib/dbService';
+import { InventoryStoreProvider } from './lib/inventoryStore';
 
 type Tab = 'overview' | 'buystk' | 'sell' | 'returns' | 'reports' | 'suppliers' | 'analytics';
 
@@ -115,6 +116,7 @@ export default function App() {
 
   // ── Main app shell ─────────────────────────────────────────────────────────
   return (
+    <InventoryStoreProvider>
     <div className="min-h-[100dvh] bg-[#FAFAFA] text-black flex flex-col md:flex-row">
 
       {/* ── Seed loading overlay ──────────────────────────────────────────── */}
@@ -305,6 +307,7 @@ export default function App() {
 
       <NotificationToast />
     </div>
+    </InventoryStoreProvider>
   );
 }
 

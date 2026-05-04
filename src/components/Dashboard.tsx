@@ -5,6 +5,7 @@ import {
 } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts';
 import { dbService } from '../lib/dbService';
+import { useInventoryStore } from '../lib/inventoryStore';
 import { InventoryUnit, Supplier } from '../types';
 import { getOnHandValue } from '../lib/inventorySummary';
 import CopyImei from './CopyImei';
@@ -28,14 +29,7 @@ interface Props {
 }
 
 export default function Dashboard({ onNavigate }: Props) {
-  const [units, setUnits]         = useState<InventoryUnit[]>([]);
-  const [suppliers, setSuppliers] = useState<Supplier[]>([]);
-
-  useEffect(() => {
-    const u = dbService.subscribeToCollection('inventoryUnits', setUnits);
-    const s = dbService.subscribeToCollection('suppliers', setSuppliers);
-    return () => { u(); s(); };
-  }, []);
+  const { units, suppliers } = useInventoryStore();
 
   const available    = units.filter(u => u.status === 'available');
   const sold         = units.filter(u => u.status === 'sold');
