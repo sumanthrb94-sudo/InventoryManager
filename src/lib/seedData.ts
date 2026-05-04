@@ -1,8 +1,15 @@
-import { collection, doc, getDocs, writeBatch } from 'firebase/firestore';
+import { collection, doc, getDoc, getDocs, setDoc, writeBatch, query, limit } from 'firebase/firestore';
 import { db, ensureAuthReady } from './firebase';
-import { dbService } from './dbService';
+import { dbService, clearAllLocalCaches } from './dbService';
+
+// Increment this string whenever you upload a new master Excel file.
+// Every device that sees a version mismatch will wipe + re-seed automatically.
+const MASTER_SEED_VERSION = 'master-v1';
+const SEED_VERSION_KEY    = 'nexus_seed_version';
+const META_DOC            = '_meta/seedVersion';
 
 type SeedInventory = {
+  version?: string;
   suppliers: Array<Record<string, any>>;
   units: Array<Record<string, any>>;
 };
@@ -89,17 +96,30 @@ function writeToFirestoreBackground(suppliers: Record<string, any>[], units: Sto
         }
         await batch.commit();
       }
+      // Write meta doc so other devices know Firestore is already at this version
+      await setDoc(doc(db, META_DOC.split('/')[0], META_DOC.split('/')[1]), { version: MASTER_SEED_VERSION });
     } catch {
       // Firestore rules may not be deployed — localStorage covers local device
     }
   })();
 }
 
+async function wipeFirestoreCollections() {
+  const colNames = ['inventoryUnits', 'suppliers'];
+  for (const colName of colNames) {
+    while (true) {
+      const snap = await getDocs(query(collection(db, colName), limit(499)));
+      if (snap.empty) break;
+      const batch = writeBatch(db);
+      snap.docs.forEach(d => batch.delete(d.ref));
+      await batch.commit();
+      if (snap.docs.length < 499) break;
+    }
+  }
+}
+
 // ── One-time migration ────────────────────────────────────────────────────────
-// Earlier seed script incorrectly stamped all historical returned units with
-// today's returnDate, causing "Returned Today" to show 394 instead of 0.
-// Fix: clear returnDate from any returned unit where createdAt === updatedAt
-// (i.e. it was seeded as returned — never touched by a real user action).
+
 function migrateReturnDates() {
   const KEY = 'nexus_db_inventoryUnits';
   try {
@@ -120,47 +140,13 @@ function migrateReturnDates() {
   } catch { /* ignore parse errors */ }
 }
 
-// ── Main export ──────────────────────────────────────────────────────────────
+// ── JSON seed helper ─────────────────────────────────────────────────────────
 
-export async function seedDefaultInventoryData(
-  onProgress?: (loaded: number, total: number) => void,
-) {
-  if (typeof window === 'undefined') return;
-
-  // Fix any bad returnDates from the previous seed before doing anything else
-  migrateReturnDates();
-
-  // ── Always try Firestore first — guarantees all devices see identical data ──
-  try {
-    await ensureAuthReady();
-    const [sSnap, uSnap] = await Promise.all([
-      getDocs(collection(db, 'suppliers')),
-      getDocs(collection(db, 'inventoryUnits')),
-    ]);
-
-    if (uSnap.size > 0) {
-      const suppliers = sSnap.docs.map(d => ({ ...d.data() as Record<string, any>, id: d.id }));
-      const units     = uSnap.docs.map(d => ({ ...d.data() as Record<string, any>, id: d.id }));
-      const total     = suppliers.length + units.length;
-
-      localStorage.setItem('nexus_db_suppliers', JSON.stringify(suppliers));
-      dbService.refreshFromLocalCache('suppliers');
-      onProgress?.(suppliers.length, total);
-
-      localStorage.setItem('nexus_db_inventoryUnits', JSON.stringify(units));
-      dbService.refreshFromLocalCache('inventoryUnits');
-      onProgress?.(total, total);
-      return; // onSnapshot keeps it live from here
-    }
-  } catch {
-    // Not authenticated yet or Firestore unavailable — fall through to JSON seed
-  }
-
-  // ── Firestore empty / unreachable — seed from bundled master JSON ─────────
+async function seedFromMasterJSON(onProgress?: (loaded: number, total: number) => void) {
   let suppliers: Record<string, any>[];
   let units: StoredUnit[];
   try {
-    const res = await fetch('/imported_inventory.json');
+    const res = await fetch('/master_seed.json');
     if (!res.ok) { onProgress?.(1, 1); return; }
     const seed: SeedInventory = await res.json();
     if (!seed?.suppliers?.length || !seed?.units?.length) { onProgress?.(1, 1); return; }
@@ -188,6 +174,60 @@ export async function seedDefaultInventoryData(
   dbService.refreshFromLocalCache('inventoryUnits');
   onProgress?.(total, total);
 
-  // Push to Firestore in background so other devices pick it up via onSnapshot
+  // Push to Firestore in background so all other devices pick it up via onSnapshot
   writeToFirestoreBackground(suppliers, units);
+}
+
+// ── Main export ──────────────────────────────────────────────────────────────
+
+export async function seedDefaultInventoryData(
+  onProgress?: (loaded: number, total: number) => void,
+) {
+  if (typeof window === 'undefined') return;
+
+  migrateReturnDates();
+
+  const localVersion = localStorage.getItem(SEED_VERSION_KEY);
+
+  // ── Fast path: this device already seeded the current master version ─────────
+  if (localVersion === MASTER_SEED_VERSION) {
+    // Firestore subscription (onSnapshot) handles all future sync — nothing to do
+    return;
+  }
+
+  // ── Version mismatch — need to force-reseed ──────────────────────────────────
+  // First check: has ANOTHER device already seeded Firestore to this version?
+  let firestoreAlreadySeeded = false;
+  try {
+    await ensureAuthReady();
+    const metaSnap = await getDoc(doc(db, '_meta', 'seedVersion'));
+    if (metaSnap.exists() && metaSnap.data()?.version === MASTER_SEED_VERSION) {
+      firestoreAlreadySeeded = true;
+    }
+  } catch {
+    // Auth not ready or Firestore unavailable
+  }
+
+  if (firestoreAlreadySeeded) {
+    // Firestore already has master-v1 data — wipe local cache so onSnapshot
+    // overwrites it with the canonical Firestore data
+    clearAllLocalCaches();
+    localStorage.setItem(SEED_VERSION_KEY, MASTER_SEED_VERSION);
+    // onSnapshot in dbService will fire shortly with the Firestore data
+    onProgress?.(1, 1);
+    return;
+  }
+
+  // ── This device is first — wipe Firestore and seed from master JSON ──────────
+  clearAllLocalCaches();
+
+  try {
+    await ensureAuthReady();
+    await wipeFirestoreCollections();
+  } catch {
+    // Firestore unavailable — seed locally only; Firestore sync happens in background
+  }
+
+  await seedFromMasterJSON(onProgress);
+  localStorage.setItem(SEED_VERSION_KEY, MASTER_SEED_VERSION);
 }
