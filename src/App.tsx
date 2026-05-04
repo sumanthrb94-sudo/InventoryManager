@@ -112,7 +112,6 @@ function AppShell({ user }: { user: User }) {
   useEffect(() => subscribeToSyncStatus(setSyncConnected), []);
 
   // Seed data: tries Firestore getDocs first, falls back to bundled JSON.
-  // Runs on every login to ensure localStorage is populated even if it was wiped.
   useEffect(() => {
     import('./lib/seedData').then(({ seedDefaultInventoryData }) => {
       seedDefaultInventoryData();

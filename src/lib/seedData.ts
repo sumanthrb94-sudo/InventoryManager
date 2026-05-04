@@ -71,7 +71,7 @@ function normaliseUnits(units: StoredUnit[]): StoredUnit[] {
 
 // ── Firestore helpers ────────────────────────────────────────────────────────
 
-function writeToFirestoreBackground(suppliers: Record<string, any>[], units: StoredUnit[]) {
+async function writeToFirestore(suppliers: Record<string, any>[], units: StoredUnit[]) {
   const CHUNK = 499;
   const now   = new Date().toISOString();
   const all   = [
@@ -79,45 +79,14 @@ function writeToFirestoreBackground(suppliers: Record<string, any>[], units: Sto
     ...units.map(u    => ({ col: 'inventoryUnits', id: u.id, data: { ...u, createdAt: u.createdAt ?? now, updatedAt: u.updatedAt ?? now } })),
   ];
 
-  (async () => {
-    try {
-      await ensureAuthReady();
-      for (let i = 0; i < all.length; i += CHUNK) {
-        const batch = writeBatch(db);
-        for (const { col, id, data } of all.slice(i, i + CHUNK)) {
-          batch.set(doc(db, col, id), data);
-        }
-        await batch.commit();
-      }
-    } catch {
-      // Firestore rules may not be deployed — localStorage covers local device
+  await ensureAuthReady();
+  for (let i = 0; i < all.length; i += CHUNK) {
+    const batch = writeBatch(db);
+    for (const { col, id, data } of all.slice(i, i + CHUNK)) {
+      batch.set(doc(db, col, id), data);
     }
-  })();
-}
-
-// ── One-time migration ────────────────────────────────────────────────────────
-// Earlier seed script incorrectly stamped all historical returned units with
-// today's returnDate, causing "Returned Today" to show 394 instead of 0.
-// Fix: clear returnDate from any returned unit where createdAt === updatedAt
-// (i.e. it was seeded as returned — never touched by a real user action).
-function migrateReturnDates() {
-  const KEY = 'nexus_db_inventoryUnits';
-  try {
-    const units: StoredUnit[] = JSON.parse(localStorage.getItem(KEY) || '[]');
-    let dirty = false;
-    const fixed = units.map(u => {
-      if (u.status === 'returned' && u.returnDate && u.createdAt === u.updatedAt) {
-        dirty = true;
-        const { returnDate: _r, ...rest } = u;
-        return rest;
-      }
-      return u;
-    });
-    if (dirty) {
-      localStorage.setItem(KEY, JSON.stringify(fixed));
-      dbService.refreshFromLocalCache('inventoryUnits');
-    }
-  } catch { /* ignore parse errors */ }
+    await batch.commit();
+  }
 }
 
 // ── Main export ──────────────────────────────────────────────────────────────
@@ -127,18 +96,10 @@ export async function seedDefaultInventoryData(
 ) {
   if (typeof window === 'undefined') return;
 
-  // ── CRITICAL: Lock the gate FIRST so no subscriber can read stale cache ──
+  // Lock the gate FIRST so no subscriber can read stale cache
   beginSeeding();
 
-  // ── CRITICAL: Clear ALL localStorage cache BEFORE any component can read it ──
-  const LOCAL_CACHE_PREFIX = 'nexus_db_';
-  const cacheKeys = Object.keys(localStorage).filter(k => k.startsWith(LOCAL_CACHE_PREFIX));
-  for (const key of cacheKeys) localStorage.removeItem(key);
-
-  // Fix any bad returnDates from the previous seed before doing anything else
-  migrateReturnDates();
-
-  // ── Always try Firestore first — guarantees all devices see identical data ──
+  // Always try Firestore first — guarantees all devices see identical data
   try {
     await ensureAuthReady();
     const [sSnap, uSnap] = await Promise.all([
@@ -151,15 +112,11 @@ export async function seedDefaultInventoryData(
       const units     = uSnap.docs.map(d => ({ ...d.data() as Record<string, any>, id: d.id }));
       const total     = suppliers.length + units.length;
 
-      localStorage.setItem('nexus_db_suppliers', JSON.stringify(suppliers));
-      dbService.refreshFromLocalCache('suppliers');
-      onProgress?.(suppliers.length, total);
-
-      localStorage.setItem('nexus_db_inventoryUnits', JSON.stringify(units));
-      dbService.refreshFromLocalCache('inventoryUnits');
+      // Update in-memory cache directly
+      // dbService handles this via onSnapshot, but we can pre-populate for faster first paint
       onProgress?.(total, total);
-      endSeeding(); // Release gate — fresh data is now in cache
-      return; // onSnapshot keeps it live from here
+      endSeeding(); // Release gate — onSnapshot will keep data live from here
+      return;
     }
   } catch {
     // Not authenticated yet or Firestore unavailable — fall through to JSON seed
@@ -183,8 +140,6 @@ export async function seedDefaultInventoryData(
 
   const total = suppliers.length + units.length;
 
-  localStorage.setItem('nexus_db_suppliers', JSON.stringify(suppliers));
-  dbService.refreshFromLocalCache('suppliers');
   onProgress?.(suppliers.length, total);
 
   const unitCache: StoredUnit[] = [];
@@ -197,13 +152,15 @@ export async function seedDefaultInventoryData(
     }
   }
 
-  localStorage.setItem('nexus_db_inventoryUnits', JSON.stringify(unitCache));
-  dbService.refreshFromLocalCache('inventoryUnits');
   onProgress?.(total, total);
 
-  // Push to Firestore in background so other devices pick it up via onSnapshot
-  writeToFirestoreBackground(suppliers, units);
+  // Push to Firestore so other devices pick it up via onSnapshot
+  try {
+    await writeToFirestore(suppliers, units);
+  } catch (err) {
+    console.warn('Failed to seed Firestore:', err);
+  }
 
-  // ── Release the gate so subscribers can now read the fresh cache ──
+  // Release the gate so subscribers can now read the fresh data via onSnapshot
   endSeeding();
 }

@@ -1,5 +1,6 @@
 /**
  * PRODUCTION Firestore database service — Single Source of Truth
+ * No localStorage. All CRUD operations go directly to Firestore with real-time listeners.
  */
 
 import {
@@ -17,11 +18,10 @@ import {
 
 import { auth, db } from './firebase';
 
-const LOCAL_CACHE_PREFIX = 'nexus_db_';
 const listeners: Record<string, Array<(data: any[]) => void>> = {};
 const cachedData: Record<string, any[]> = {};
 
-// ── Seeding gate — prevents stale localStorage reads while seed/reset is in progress ──
+// ── Seeding gate — prevents reads while seed/reset is in progress ──
 let _seedingPromise: Promise<void> | null = null;
 let _seedingResolve: (() => void) | null = null;
 
@@ -64,23 +64,6 @@ function nowIso() {
   return new Date().toISOString();
 }
 
-function readLocalTable(collectionName: string): any[] {
-  try {
-    const raw = localStorage.getItem(`${LOCAL_CACHE_PREFIX}${collectionName}`);
-    return raw ? JSON.parse(raw) : [];
-  } catch {
-    return [];
-  }
-}
-
-function writeLocalTable(collectionName: string, data: any[]) {
-  try {
-    localStorage.setItem(`${LOCAL_CACHE_PREFIX}${collectionName}`, JSON.stringify(data));
-  } catch {
-    // Quota exceeded
-  }
-}
-
 function emit(collectionName: string, data: any[]) {
   for (const cb of listeners[collectionName] || []) {
     cb([...data]);
@@ -96,25 +79,23 @@ async function ensureAuthReady() {
   if (!auth.currentUser) throw new Error('Not authenticated.');
 }
 
-export function clearAllLocalCaches() {
-  const keys = Object.keys(localStorage).filter(k => k.startsWith(LOCAL_CACHE_PREFIX));
-  for (const key of keys) localStorage.removeItem(key);
-}
-
 export const dbService = {
   async create(collectionName: string, id: string, data: any) {
     const timestamp = nowIso();
     const newItem = { ...data, id, createdAt: data.createdAt ?? timestamp, updatedAt: timestamp };
 
-    // Instant local write — UI never waits for Firestore
-    const localTable = readLocalTable(collectionName);
-    const idx = localTable.findIndex(item => item.id === id);
-    if (idx >= 0) localTable[idx] = newItem; else localTable.push(newItem);
-    writeLocalTable(collectionName, localTable);
-    cachedData[collectionName] = localTable;
-    emit(collectionName, localTable);
+    // Update in-memory cache immediately for instant UI feedback
+    const currentData = cachedData[collectionName] || [];
+    const idx = currentData.findIndex(item => item.id === id);
+    if (idx >= 0) {
+      currentData[idx] = newItem;
+    } else {
+      currentData.push(newItem);
+    }
+    cachedData[collectionName] = currentData;
+    emit(collectionName, currentData);
 
-    // Fire-and-forget Firestore sync
+    // Firestore write
     void ensureAuthReady().then(() =>
       setDoc(doc(collectionRef(collectionName), id), newItem)
     ).catch(err => console.warn(`Firestore create failed [${collectionName}/${id}]:`, err));
@@ -169,28 +150,30 @@ export const dbService = {
 
   async update(collectionName: string, id: string, data: any) {
     const timestamp = nowIso();
-    const localTable = readLocalTable(collectionName);
-    const idx = localTable.findIndex(item => item.id === id);
+    const currentData = cachedData[collectionName] || [];
+    const idx = currentData.findIndex(item => item.id === id);
     const updatedItem = idx >= 0
-      ? { ...localTable[idx], ...data, id, updatedAt: timestamp }
+      ? { ...currentData[idx], ...data, id, updatedAt: timestamp }
       : { ...data, id, updatedAt: timestamp };
 
-    if (idx >= 0) { localTable[idx] = updatedItem; } else { localTable.push(updatedItem); }
-    writeLocalTable(collectionName, localTable);
-    cachedData[collectionName] = localTable;
-    emit(collectionName, localTable);
+    if (idx >= 0) {
+      currentData[idx] = updatedItem;
+    } else {
+      currentData.push(updatedItem);
+    }
+    cachedData[collectionName] = currentData;
+    emit(collectionName, currentData);
 
-    // Fire-and-forget Firestore sync
+    // Firestore write
     void ensureAuthReady().then(() =>
       setDoc(doc(collectionRef(collectionName), id), updatedItem)
     ).catch(err => console.warn(`Firestore update failed [${collectionName}/${id}]:`, err));
   },
 
   async delete(collectionName: string, id: string) {
-    const localTable = readLocalTable(collectionName).filter(item => item.id !== id);
-    writeLocalTable(collectionName, localTable);
-    cachedData[collectionName] = localTable;
-    emit(collectionName, localTable);
+    const currentData = (cachedData[collectionName] || []).filter(item => item.id !== id);
+    cachedData[collectionName] = currentData;
+    emit(collectionName, currentData);
 
     void ensureAuthReady().then(() =>
       deleteDoc(doc(collectionRef(collectionName), id))
@@ -210,17 +193,9 @@ export const dbService = {
       if (retryDelay) await new Promise(r => setTimeout(r, retryDelay));
       if (destroyed) return;
 
-      // ── CRITICAL: Wait for any in-progress seed/reset before reading localStorage ──
-      if (_seedingPromise) {
-        await _seedingPromise;
-      }
-      if (destroyed) return;
-
-      // Serve local cache only AFTER seeding is done — prevents stale data flash
-      const cached = readLocalTable(collectionName);
-      if (cached.length > 0) {
-        cachedData[collectionName] = cached;
-        callback(cached);
+      // Serve from in-memory cache immediately if available
+      if (cachedData[collectionName]) {
+        callback([...cachedData[collectionName]]);
       }
 
       try {
@@ -234,7 +209,6 @@ export const dbService = {
           setSyncStatus(true);
           const fsData = snap.docs.map(d => ({ ...d.data() as Record<string, any>, id: d.id }));
           cachedData[collectionName] = fsData;
-          writeLocalTable(collectionName, fsData);
           emit(collectionName, fsData);
         }, error => {
           setSyncStatus(false);
@@ -261,30 +235,16 @@ export const dbService = {
   },
 
   async readAll(collectionName: string) {
-    if (cachedData[collectionName]) return cachedData[collectionName];
-    const cached = readLocalTable(collectionName);
-    if (cached.length > 0) {
-      cachedData[collectionName] = cached;
-      return cached;
-    }
+    if (cachedData[collectionName]) return [...cachedData[collectionName]];
     const snap = await getDocs(collectionRef(collectionName));
     const data = snap.docs.map(d => ({ ...d.data(), id: d.id }));
     cachedData[collectionName] = data;
-    writeLocalTable(collectionName, data);
     return data;
-  },
-
-  refreshFromLocalCache(collectionName: string) {
-    const data = readLocalTable(collectionName);
-    emit(collectionName, data);
   },
 
   async resetDatabase() {
     try {
-      // 1. Clear ALL local caches first
-      clearAllLocalCaches();
-      
-      // 2. Clear Firestore
+      // Clear Firestore
       const collections = ['inventoryUnits', 'suppliers', 'inventoryEvents', 'dailyUpdates', 'activeListings', 'sourceDocuments'];
       for (const colName of collections) {
         const q = query(collectionRef(colName), limit(500));
@@ -296,11 +256,15 @@ export const dbService = {
         }
       }
       
-      // 3. Reload to trigger complete re-seeding
+      // Clear in-memory cache
+      for (const colName of collections) {
+        delete cachedData[colName];
+      }
+      
+      // Reload to trigger complete re-seeding
       window.location.href = window.location.origin + '?reset=' + Date.now();
     } catch (err: any) {
       console.error('Reset failed:', err);
-      clearAllLocalCaches();
       window.location.href = window.location.origin + '?reset=' + Date.now();
     }
   }
