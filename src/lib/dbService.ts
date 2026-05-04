@@ -68,8 +68,9 @@ function emit(collectionName: string, data: any[]) {
 }
 
 async function ensureAuthReady() {
+  // 15-second ceiling — slow mobile devices need more time
   const timeout = new Promise<never>((_, reject) =>
-    setTimeout(() => reject(new Error('Auth timeout')), 5000)
+    setTimeout(() => reject(new Error('Auth timeout')), 15000)
   );
   await Promise.race([auth.authStateReady(), timeout]);
   if (!auth.currentUser) throw new Error('Not authenticated.');
@@ -187,45 +188,53 @@ export const dbService = {
     listeners[collectionName].push(callback);
 
     let unsub: (() => void) | null = null;
+    let retryTimer: ReturnType<typeof setTimeout> | null = null;
+    let destroyed = false;
 
-    // Load fast from local cache first to prevent any initial UI flicker
+    // Serve local cache immediately so the UI is never blank while Firestore loads
     const cached = readLocalTable(collectionName);
     if (cached.length > 0) {
       cachedData[collectionName] = cached;
       callback(cached);
     }
 
-    void (async () => {
+    const connect = async (retryDelay = 0) => {
+      if (destroyed) return;
+      if (retryDelay) await new Promise(r => setTimeout(r, retryDelay));
+      if (destroyed) return;
+
       try {
         await ensureAuthReady();
+        if (destroyed) return;
+
         const orderField = collectionName === 'inventoryUnits' ? 'dateIn' : 'createdAt';
-        const q = query(
-          collectionRef(collectionName),
-          orderBy(orderField, 'desc'),
-          limit(12000)
-        );
+        const q = query(collectionRef(collectionName), orderBy(orderField, 'desc'), limit(15000));
 
         unsub = onSnapshot(q, snap => {
           setSyncStatus(true);
-          const fsData = snap.docs.map(d => ({ ...d.data(), id: d.id }));
-
-          // Save perfectly to cache
+          const fsData = snap.docs.map(d => ({ ...d.data() as Record<string, any>, id: d.id }));
           cachedData[collectionName] = fsData;
           writeLocalTable(collectionName, fsData);
           emit(collectionName, fsData);
         }, error => {
           setSyncStatus(false);
-          console.error(`Firestore subscription error for ${collectionName}:`, error);
+          console.error(`Firestore [${collectionName}] error:`, error);
+          // Auto-reconnect after 5 seconds on subscription error
+          if (!destroyed) retryTimer = setTimeout(() => connect(0), 5000);
         });
       } catch (error) {
         setSyncStatus(false);
-        console.error(`Firestore subscribe init failed for ${collectionName}:`, error);
-        const cached = readLocalTable(collectionName);
-        callback(cached);
+        console.error(`Firestore [${collectionName}] init failed:`, error);
+        // Retry after 8 seconds (covers slow auth on first load)
+        if (!destroyed) retryTimer = setTimeout(() => connect(0), 8000);
       }
-    })();
+    };
+
+    void connect();
 
     return () => {
+      destroyed = true;
+      if (retryTimer) clearTimeout(retryTimer);
       listeners[collectionName] = listeners[collectionName].filter(cb => cb !== callback);
       if (unsub) unsub();
     };
