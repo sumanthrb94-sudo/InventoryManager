@@ -203,7 +203,7 @@ export const dbService = {
         if (destroyed) return;
 
         const orderField = collectionName === 'inventoryUnits' ? 'dateIn' : 'createdAt';
-        const q = query(collectionRef(collectionName), orderBy(orderField, 'desc'), limit(15000));
+        const q = query(collectionRef(collectionName), orderBy(orderField, 'desc'), limit(10000));
 
         unsub = onSnapshot(q, snap => {
           setSyncStatus(true);
@@ -212,6 +212,12 @@ export const dbService = {
           emit(collectionName, fsData);
         }, error => {
           setSyncStatus(false);
+          const isQuotaError = error?.message?.includes('quota') || error?.code === 'resource-exhausted';
+          if (isQuotaError) {
+            console.error(`[FATAL] Firestore quota exceeded. Enable billing or wait 24h.`);
+            // Don't retry on quota errors - just stay offline
+            return;
+          }
           console.error(`Firestore [${collectionName}] error:`, error);
           // Auto-reconnect after 5 seconds on subscription error
           if (!destroyed) retryTimer = setTimeout(() => connect(0), 5000);

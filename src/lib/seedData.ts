@@ -11,6 +11,7 @@ type StoredUnit = Record<string, any>;
 // ── Inference helpers ────────────────────────────────────────────────────────
 
 function inferBrand(model: string, fallback?: string) {
+  if (!model) return fallback || 'Other';
   const m = model.toUpperCase();
   if (m.includes('IPHONE') || m.includes('IPAD') || m.includes('APPLE WATCH') || m.includes('IWATCH') || m.includes('MACBOOK') || m.includes('AIRPODS')) return 'Apple';
   if (m.includes('SAMSUNG') || m.includes('GALAXY')) return 'Samsung';
@@ -18,6 +19,7 @@ function inferBrand(model: string, fallback?: string) {
 }
 
 function inferCategory(model: string, fallback?: string) {
+  if (!model) return fallback || 'Other';
   const m = model.toUpperCase();
   if (m.includes('IPAD')) return 'iPad';
   if (m.includes('IPHONE')) return 'iPhone';
@@ -32,6 +34,7 @@ function inferCategory(model: string, fallback?: string) {
 
 function inferColour(model: string, fallback?: string) {
   if (fallback && fallback !== 'Unknown') return fallback;
+  if (!model) return fallback || 'Unknown';
   const upper = model.toUpperCase();
   const colours = [
     'NATURAL TITANIUM','BLACK TITANIUM','WHITE TITANIUM','BLUE TITANIUM','DESERT TITANIUM',
@@ -168,8 +171,13 @@ export async function seedDefaultInventoryData(
   // Push to Firestore so other devices pick it up via onSnapshot
   try {
     await writeToFirestore(suppliers, units);
-  } catch (err) {
-    console.warn('Failed to seed Firestore:', err);
+  } catch (err: any) {
+    const isQuotaError = err?.message?.includes('quota') || err?.code === 'resource-exhausted';
+    if (isQuotaError) {
+      console.error('[SEED] Firestore quota exceeded. Data loaded locally only.');
+    } else {
+      console.warn('Failed to seed Firestore:', err);
+    }
   }
 
   // Release the gate so subscribers can now read the fresh data via onSnapshot
