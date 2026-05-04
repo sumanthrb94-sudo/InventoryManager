@@ -1,8 +1,3 @@
-/**
- * @license
- * SPDX-License-Identifier: Apache-2.0
- */
-
 import React, { useState, useEffect } from 'react';
 import { onAuthStateChanged, User } from 'firebase/auth';
 import { auth, signInWithGoogle, signOut } from './lib/firebase';
@@ -26,135 +21,80 @@ import NotificationToast from './components/NotificationToast';
 import NotificationBell from './components/NotificationBell';
 import { notificationService } from './lib/notificationService';
 import { subscribeToSyncStatus } from './lib/dbService';
-import { InventoryStoreProvider } from './lib/inventoryStore';
+import { InventoryStoreProvider, useInventoryStore } from './lib/inventoryStore';
 
 type Tab = 'overview' | 'buystk' | 'sell' | 'returns' | 'reports' | 'suppliers' | 'analytics';
-
-interface SeedProgress { loaded: number; total: number; }
 
 const APP_NAME    = 'MOBILEPHONEMARKET';
 const APP_TAGLINE = 'Inventory Manager';
 
 export default function App() {
-  const [user, setUser]           = useState<User | null>(null);
-  const [loading, setLoading]     = useState(true);
-  const [activeTab, setActiveTab] = useState<Tab>('overview');
-  const [isBatchModalOpen,  setIsBatchModalOpen]  = useState(false);
+  const [user, setUser]     = useState<User | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    return onAuthStateChanged(auth, u => { setUser(u); setLoading(false); });
+  }, []);
+
+  if (loading) return (
+    <div className="min-h-screen bg-white flex items-center justify-center">
+      <motion.div animate={{ rotate: 360 }} transition={{ duration: 1, repeat: Infinity, ease: 'linear' }}
+        className="w-8 h-8 border-2 border-black border-t-transparent rounded-full" />
+    </div>
+  );
+
+  if (!user) return <LoginPage />;
+
+  return (
+    <InventoryStoreProvider>
+      <AppShell user={user} />
+    </InventoryStoreProvider>
+  );
+}
+
+// ── Authenticated shell — lives inside InventoryStoreProvider ──────────────────
+function AppShell({ user }: { user: User }) {
+  const { loaded }                                = useInventoryStore();
+  const [activeTab, setActiveTab]                 = useState<Tab>('overview');
+  const [isBatchModalOpen, setIsBatchModalOpen]   = useState(false);
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
-  const [unreadCount, setUnreadCount]       = useState(0);
-  const [seedProgress, setSeedProgress]     = useState<SeedProgress | null>(null);
-  const [syncConnected, setSyncConnected]   = useState(false);
+  const [unreadCount, setUnreadCount]             = useState(0);
+  const [syncConnected, setSyncConnected]         = useState(false);
 
   useRealTimeNotifications();
 
   useEffect(() => {
-    const unsub = notificationService.subscribe(() => {
-      setUnreadCount(notificationService.getUnreadCount());
-    });
-    return unsub;
+    return notificationService.subscribe(() => setUnreadCount(notificationService.getUnreadCount()));
   }, []);
 
   useEffect(() => subscribeToSyncStatus(setSyncConnected), []);
-
-  // ── Firebase Auth state listener ──────────────────────────────────────────
-  useEffect(() => {
-    const unsub = onAuthStateChanged(auth, (firebaseUser) => {
-      setUser(firebaseUser);
-      setLoading(false);
-
-      // If a user just logged in and localStorage is empty, show the loading
-      // overlay *immediately* — before the seed useEffect even fires — so the
-      // dashboard never flashes zeros on a fresh device.
-      if (firebaseUser) {
-        const hasLocalData = (() => {
-          try { return JSON.parse(localStorage.getItem('nexus_db_inventoryUnits') || '[]').length > 0; }
-          catch { return false; }
-        })();
-        if (!hasLocalData) setSeedProgress({ loaded: 0, total: 1 });
-      }
-    });
-    return unsub;
-  }, []);
-
-  // ── Seed default data once user is authenticated ──────────────────────────
-  useEffect(() => {
-    if (!user) return;
-    import('./lib/seedData').then(({ seedDefaultInventoryData }) => {
-      seedDefaultInventoryData((loaded, total) => {
-        if (loaded >= total) {
-          setTimeout(() => setSeedProgress(null), 600);
-        } else {
-          setSeedProgress({ loaded, total });
-        }
-      });
-    });
-  }, [user]);
 
   const handleNavigate = (action: NavAction) => {
     if (action.tab === 'inventory') setActiveTab('overview');
     else if (action.tab === 'suppliers') setActiveTab('suppliers');
     else setActiveTab(action.tab as Tab);
   };
-
   const handleLogout = () => signOut();
 
-  if (loading) {
-    return (
-      <div className="min-h-screen bg-white flex items-center justify-center">
-        <motion.div
-          animate={{ rotate: 360 }}
-          transition={{ duration: 1, repeat: Infinity, ease: 'linear' }}
-          className="w-8 h-8 border-2 border-black border-t-transparent rounded-full"
-        />
-      </div>
-    );
-  }
-
-  if (!user) {
-    return <LoginPage />;
-  }
-
-  // ── Main app shell ─────────────────────────────────────────────────────────
   return (
-    <InventoryStoreProvider>
     <div className="min-h-[100dvh] bg-[#FAFAFA] text-black flex flex-col md:flex-row">
 
-      {/* ── Seed loading overlay ──────────────────────────────────────────── */}
+      {/* ── Loading overlay — shown until Firestore delivers first snapshot ── */}
       <AnimatePresence>
-        {seedProgress && (
+        {!loaded && (
           <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
+            initial={{ opacity: 1 }}
             exit={{ opacity: 0 }}
+            transition={{ duration: 0.4 }}
             className="fixed inset-0 z-[300] bg-white flex flex-col items-center justify-center gap-8"
           >
             <div className="text-center">
               <h1 className="text-3xl font-bold tracking-tighter uppercase font-display">{APP_NAME}</h1>
               <p className="text-[9px] text-gray-400 font-mono uppercase tracking-[0.4em] mt-1">{APP_TAGLINE}</p>
             </div>
-            <div className="w-72 space-y-3">
-              <div className="flex items-center justify-between">
-                <span className="text-[10px] font-bold uppercase tracking-widest text-gray-500 font-mono">Loading inventory…</span>
-                <span className="text-[10px] font-mono text-gray-400">
-                  {Math.round(seedProgress.loaded / seedProgress.total * 100)}%
-                </span>
-              </div>
-              <div className="h-1 bg-gray-100 rounded-full overflow-hidden">
-                <motion.div
-                  className="h-full bg-black rounded-full"
-                  animate={{ width: `${Math.round(seedProgress.loaded / seedProgress.total * 100)}%` }}
-                  transition={{ duration: 0.3 }}
-                />
-              </div>
-              <p className="text-[9px] font-mono text-gray-300 text-center">
-                {seedProgress.loaded.toLocaleString()} / {seedProgress.total.toLocaleString()} units
-              </p>
-            </div>
-            <motion.div
-              animate={{ rotate: 360 }}
-              transition={{ duration: 1.2, repeat: Infinity, ease: 'linear' }}
-              className="w-5 h-5 border-2 border-gray-200 border-t-black rounded-full"
-            />
+            <motion.div animate={{ rotate: 360 }} transition={{ duration: 1.2, repeat: Infinity, ease: 'linear' }}
+              className="w-6 h-6 border-2 border-gray-200 border-t-black rounded-full" />
+            <p className="text-[10px] font-mono text-gray-400 uppercase tracking-widest">Loading inventory…</p>
           </motion.div>
         )}
       </AnimatePresence>
@@ -307,7 +247,6 @@ export default function App() {
 
       <NotificationToast />
     </div>
-    </InventoryStoreProvider>
   );
 }
 

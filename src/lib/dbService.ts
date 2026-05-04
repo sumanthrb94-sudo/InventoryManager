@@ -84,16 +84,9 @@ export function clearAllLocalCaches() {
 export const dbService = {
   async create(collectionName: string, id: string, data: any) {
     const timestamp = nowIso();
-    const ownerId = auth.currentUser?.uid || 'system';
-    const newItem = {
-      ...data,
-      id,
-      ownerId: data.ownerId || ownerId,
-      createdAt: data.createdAt ?? timestamp,
-      updatedAt: timestamp
-    };
+    const newItem = { ...data, id, createdAt: data.createdAt ?? timestamp, updatedAt: timestamp };
 
-    // 1. Instant local write
+    // Instant local write — UI never waits for Firestore
     const localTable = readLocalTable(collectionName);
     const idx = localTable.findIndex(item => item.id === id);
     if (idx >= 0) localTable[idx] = newItem; else localTable.push(newItem);
@@ -101,8 +94,10 @@ export const dbService = {
     cachedData[collectionName] = localTable;
     emit(collectionName, localTable);
 
-    // 2. Direct Firestore create
-    await setDoc(doc(collectionRef(collectionName), id), newItem);
+    // Fire-and-forget Firestore sync
+    void ensureAuthReady().then(() =>
+      setDoc(doc(collectionRef(collectionName), id), newItem)
+    ).catch(err => console.warn(`Firestore create failed [${collectionName}/${id}]:`, err));
   },
 
   async bulkCreate(
@@ -156,31 +151,30 @@ export const dbService = {
     const timestamp = nowIso();
     const localTable = readLocalTable(collectionName);
     const idx = localTable.findIndex(item => item.id === id);
-    let updatedItem: any = null;
+    const updatedItem = idx >= 0
+      ? { ...localTable[idx], ...data, id, updatedAt: timestamp }
+      : { ...data, id, updatedAt: timestamp };
 
-    if (idx >= 0) {
-      updatedItem = { ...localTable[idx], ...data, id, updatedAt: timestamp };
-      localTable[idx] = updatedItem;
-      writeLocalTable(collectionName, localTable);
-      cachedData[collectionName] = localTable;
-      emit(collectionName, localTable);
-    } else {
-      updatedItem = { ...data, id, updatedAt: timestamp };
-    }
+    if (idx >= 0) { localTable[idx] = updatedItem; } else { localTable.push(updatedItem); }
+    writeLocalTable(collectionName, localTable);
+    cachedData[collectionName] = localTable;
+    emit(collectionName, localTable);
 
-    // Direct Firestore update
-    await setDoc(doc(collectionRef(collectionName), id), updatedItem);
+    // Fire-and-forget Firestore sync
+    void ensureAuthReady().then(() =>
+      setDoc(doc(collectionRef(collectionName), id), updatedItem)
+    ).catch(err => console.warn(`Firestore update failed [${collectionName}/${id}]:`, err));
   },
 
   async delete(collectionName: string, id: string) {
-    // 1. Instant local delete
     const localTable = readLocalTable(collectionName).filter(item => item.id !== id);
     writeLocalTable(collectionName, localTable);
     cachedData[collectionName] = localTable;
     emit(collectionName, localTable);
 
-    // 2. Direct Firestore delete
-    await deleteDoc(doc(collectionRef(collectionName), id));
+    void ensureAuthReady().then(() =>
+      deleteDoc(doc(collectionRef(collectionName), id))
+    ).catch(err => console.warn(`Firestore delete failed [${collectionName}/${id}]:`, err));
   },
 
   subscribeToCollection(collectionName: string, callback: (data: any[]) => void) {
