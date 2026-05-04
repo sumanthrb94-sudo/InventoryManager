@@ -102,6 +102,8 @@ function AppShell({ user }: { user: User }) {
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
   const [unreadCount, setUnreadCount]             = useState(0);
   const [syncConnected, setSyncConnected]         = useState(false);
+  const [showResetConfirm, setShowResetConfirm]   = useState(false);
+  const [isResetting, setIsResetting]             = useState(false);
 
   useRealTimeNotifications();
 
@@ -113,8 +115,10 @@ function AppShell({ user }: { user: User }) {
 
   // Seed data: tries Firestore getDocs first, falls back to bundled JSON.
   useEffect(() => {
-    import('./lib/seedData').then(({ seedDefaultInventoryData }) => {
+    import('./lib/seedData').then(({ seedDefaultInventoryData, forceResetAndSeed }) => {
       seedDefaultInventoryData();
+      // Expose reset function for admin use
+      (window as any).forceInventoryReset = forceResetAndSeed;
     });
   }, []);
 
@@ -124,6 +128,21 @@ function AppShell({ user }: { user: User }) {
     else setActiveTab(action.tab as Tab);
   };
   const handleLogout = () => signOut();
+
+  const handleReset = async () => {
+    setIsResetting(true);
+    try {
+      const { forceResetAndSeed } = await import('./lib/seedData');
+      await forceResetAndSeed();
+      setShowResetConfirm(false);
+      window.location.reload();
+    } catch (err) {
+      console.error('Reset failed:', err);
+      alert('Reset failed. Please try again.');
+    } finally {
+      setIsResetting(false);
+    }
+  };
 
   return (
     <div className="min-h-[100dvh] bg-[#FAFAFA] text-black flex flex-col md:flex-row">
@@ -221,6 +240,14 @@ function AppShell({ user }: { user: User }) {
                 <Plus size={16} strokeWidth={3} />
                 <span className="hidden md:inline">Add Supplier Delivery</span>
               </button>
+              <button
+                onClick={() => setShowResetConfirm(true)}
+                className="border border-red-200 bg-red-50 text-red-600 px-3 md:px-5 py-2 md:py-2.5 rounded-xl text-[10px] md:text-xs font-bold uppercase tracking-widest flex items-center gap-2 hover:bg-red-100 transition-all"
+                title="Reset all data"
+              >
+                <RefreshCw size={14} />
+                <span className="hidden md:inline">Reset</span>
+              </button>
             </div>
           </div>
         </header>
@@ -277,6 +304,66 @@ function AppShell({ user }: { user: User }) {
       <AnimatePresence>
         {isBatchModalOpen  && <NewBatchModal onClose={() => setIsBatchModalOpen(false)} />}
         {isImportModalOpen && <ImportModal   onClose={() => setIsImportModalOpen(false)} />}
+      </AnimatePresence>
+
+      {/* Reset Confirmation Modal */}
+      <AnimatePresence>
+        {showResetConfirm && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[200] bg-black/50 flex items-center justify-center p-4"
+            onClick={() => !isResetting && setShowResetConfirm(false)}
+          >
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              className="bg-white rounded-2xl p-6 max-w-sm w-full shadow-2xl"
+              onClick={e => e.stopPropagation()}
+            >
+              <div className="text-center space-y-4">
+                <div className="w-12 h-12 bg-red-100 rounded-full flex items-center justify-center mx-auto">
+                  <RefreshCw size={24} className="text-red-600" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-bold text-black">Reset All Data?</h3>
+                  <p className="text-sm text-gray-500 mt-1">
+                    This will delete all inventory data and reload from the master 5K dataset. This action cannot be undone.
+                  </p>
+                </div>
+                <div className="flex gap-3 pt-2">
+                  <button
+                    onClick={() => setShowResetConfirm(false)}
+                    disabled={isResetting}
+                    className="flex-1 px-4 py-3 border border-gray-200 rounded-xl text-sm font-semibold text-gray-600 hover:bg-gray-50 transition-all disabled:opacity-50"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={handleReset}
+                    disabled={isResetting}
+                    className="flex-1 px-4 py-3 bg-red-600 text-white rounded-xl text-sm font-semibold hover:bg-red-700 transition-all disabled:opacity-50 flex items-center justify-center gap-2"
+                  >
+                    {isResetting ? (
+                      <>
+                        <motion.div
+                          animate={{ rotate: 360 }}
+                          transition={{ duration: 1, repeat: Infinity, ease: 'linear' }}
+                          className="w-4 h-4 border-2 border-white border-t-transparent rounded-full"
+                        />
+                        Resetting...
+                      </>
+                    ) : (
+                      'Reset Data'
+                    )}
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
       </AnimatePresence>
 
       <NotificationToast />

@@ -1,4 +1,4 @@
-import { collection, doc, getDocs, writeBatch } from 'firebase/firestore';
+import { collection, doc, getDocs, writeBatch, deleteDoc } from 'firebase/firestore';
 import { db, ensureAuthReady } from './firebase';
 import { dbService, beginSeeding, endSeeding } from './dbService';
 
@@ -126,7 +126,7 @@ export async function seedDefaultInventoryData(
   let suppliers: Record<string, any>[];
   let units: StoredUnit[];
   try {
-    const res = await fetch('/imported_inventory.json');
+    const res = await fetch('/inventory_5k.json');
     if (!res.ok) { onProgress?.(1, 1); return; }
     const seed: SeedInventory = await res.json();
     if (!seed?.suppliers?.length || !seed?.units?.length) { onProgress?.(1, 1); return; }
@@ -163,4 +163,74 @@ export async function seedDefaultInventoryData(
 
   // Release the gate so subscribers can now read the fresh data via onSnapshot
   endSeeding();
+}
+
+// ── Force Reset ──────────────────────────────────────────────────────────────
+
+export async function forceResetAndSeed(
+  onProgress?: (loaded: number, total: number) => void,
+) {
+  if (typeof window === 'undefined') return;
+
+  console.log('[RESET] Starting forced reset...');
+  beginSeeding();
+
+  const COLLECTIONS = ['inventoryUnits', 'suppliers', 'batches', 'sourceDocuments', 'inventoryEvents', 'dailyUpdates'];
+
+  // 1. Clear existing data
+  try {
+    await ensureAuthReady();
+    for (const colName of COLLECTIONS) {
+      const snap = await getDocs(collection(db, colName));
+      if (!snap.empty) {
+        for (const d of snap.docs) {
+          await deleteDoc(doc(db, colName, d.id));
+        }
+        console.log(`[RESET] Cleared ${snap.size} docs from ${colName}`);
+      }
+    }
+  } catch (err) {
+    console.warn('[RESET] Failed to clear Firestore:', err);
+    endSeeding();
+    return;
+  }
+
+  // 2. Load and seed new data
+  let suppliers: Record<string, any>[];
+  let units: StoredUnit[];
+  try {
+    const res = await fetch('/inventory_5k.json');
+    if (!res.ok) throw new Error('Failed to fetch inventory_5k.json');
+    const seed: SeedInventory = await res.json();
+    if (!seed?.suppliers?.length || !seed?.units?.length) throw new Error('Empty seed data');
+    suppliers = seed.suppliers;
+    units = normaliseUnits(seed.units);
+  } catch (err) {
+    console.warn('[RESET] Failed to load seed data:', err);
+    endSeeding();
+    onProgress?.(1, 1);
+    return;
+  }
+
+  const total = suppliers.length + units.length;
+  onProgress?.(suppliers.length, total);
+
+  for (let i = 0; i < units.length; i++) {
+    if ((i + 1) % 1000 === 0 || i === units.length - 1) {
+      onProgress?.(suppliers.length + i + 1, total);
+      await new Promise(r => setTimeout(r, 0));
+    }
+  }
+
+  onProgress?.(total, total);
+
+  try {
+    await writeToFirestore(suppliers, units);
+    console.log(`[RESET] Seeded ${total} records from inventory_5k.json`);
+  } catch (err) {
+    console.warn('[RESET] Failed to seed Firestore:', err);
+  }
+
+  endSeeding();
+  console.log('[RESET] Complete. Refresh the page to see fresh data.');
 }
