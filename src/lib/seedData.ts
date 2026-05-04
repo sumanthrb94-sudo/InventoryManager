@@ -127,12 +127,23 @@ export async function seedDefaultInventoryData(
   let units: StoredUnit[];
   try {
     const res = await fetch('/inventory_5k.json');
-    if (!res.ok) { onProgress?.(1, 1); return; }
+    if (!res.ok) {
+      console.warn('[SEED] Fetch failed:', res.status, res.statusText);
+      endSeeding();
+      onProgress?.(1, 1);
+      return;
+    }
     const seed: SeedInventory = await res.json();
-    if (!seed?.suppliers?.length || !seed?.units?.length) { onProgress?.(1, 1); return; }
+    if (!seed?.suppliers?.length || !seed?.units?.length) {
+      console.warn('[SEED] Empty seed data');
+      endSeeding();
+      onProgress?.(1, 1);
+      return;
+    }
     suppliers = seed.suppliers;
     units     = normaliseUnits(seed.units);
-  } catch {
+  } catch (err) {
+    console.warn('[SEED] Error loading seed data:', err);
     endSeeding();
     onProgress?.(1, 1);
     return;
