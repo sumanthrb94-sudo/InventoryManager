@@ -22,6 +22,7 @@ import NotificationBell from './components/NotificationBell';
 import { notificationService } from './lib/notificationService';
 import { subscribeToSyncStatus } from './lib/dbService';
 import { InventoryStoreProvider, useInventoryStore } from './lib/inventoryStore';
+import DataSeedPage from './components/DataSeedPage';
 
 type Tab = 'overview' | 'buystk' | 'sell' | 'returns' | 'reports' | 'suppliers' | 'analytics';
 
@@ -31,6 +32,11 @@ const APP_TAGLINE = 'Inventory Manager';
 export default function App() {
   const [user, setUser]     = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
+
+  // Hidden seed route — navigate to /?seed=1 to load client data
+  if (new URLSearchParams(window.location.search).get('seed') === '1') {
+    return <DataSeedPage />;
+  }
 
   useEffect(() => {
     return onAuthStateChanged(auth, u => { setUser(u); setLoading(false); });
