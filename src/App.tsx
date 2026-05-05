@@ -30,13 +30,15 @@ const APP_NAME    = 'MOBILEPHONEMARKET';
 const APP_TAGLINE = 'Inventory Manager';
 
 export default function App() {
-  const [user, setUser]     = useState<User | null>(null);
-  const [loading, setLoading] = useState(true);
-
-  // Hidden seed route — navigate to /?seed=1 to load client data
   if (new URLSearchParams(window.location.search).get('seed') === '1') {
     return <DataSeedPage />;
   }
+  return <AppWithAuth />;
+}
+
+function AppWithAuth() {
+  const [user, setUser]     = useState<User | null>(null);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     return onAuthStateChanged(auth, u => { setUser(u); setLoading(false); });
