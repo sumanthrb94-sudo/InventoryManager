@@ -256,4 +256,33 @@ export const dbService = {
       .single();
     return !!data;
   },
+
+  async getByImei(imei: string): Promise<any | null> {
+    const cached = (cachedData['inventoryUnits'] || []).find((u: any) => u.imei === imei);
+    if (cached) return cached;
+    const { data, error } = await supabase
+      .from('inventory_units')
+      .select('*')
+      .eq('imei', imei)
+      .single();
+    if (error) return null;
+    return data ? dbToApp(data) : null;
+  },
+
+  async updateByImei(imei: string, data: any) {
+    const timestamp = nowIso();
+    const current = [...(cachedData['inventoryUnits'] || [])];
+    const idx = current.findIndex((item: any) => item.imei === imei);
+    const updated = idx >= 0
+      ? { ...current[idx], ...data, imei, updatedAt: timestamp }
+      : { ...data, imei, updatedAt: timestamp };
+    if (idx >= 0) current[idx] = updated;
+    cachedData['inventoryUnits'] = current;
+    emit('inventoryUnits', current);
+    const { error } = await supabase
+      .from('inventory_units')
+      .update(appToDb(updated))
+      .eq('imei', imei);
+    if (error) console.warn(`Supabase updateByImei [${imei}]:`, error.message);
+  },
 };
