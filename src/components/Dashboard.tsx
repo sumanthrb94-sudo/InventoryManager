@@ -217,25 +217,29 @@ export default function Dashboard({ onNavigate }: Props) {
           sub="Back in pipeline" icon={<TrendingUp size={16}/>}
           onClick={() => onNavigate({ tab:'inventory', filters:{ status:'returned' } })}
         />
-        {incoming.length > 0 && (
-          <KPICard
-            label="Incoming (SHS)" value={incoming.length}
-            sub="Expected stock" icon={<Truck size={16}/>}
-            badge="Pending"
-            onClick={() => onNavigate({ tab:'inventory', filters:{ status:'incoming' } })}
-            accent="bg-blue-50 border-blue-100 text-blue-900"
-          />
-        )}
+        <KPICard
+          label="Incoming (SHS)" value={incoming.length}
+          sub={incoming.length > 0 ? "Expected stock" : "No pending stock"} icon={<Truck size={16}/>}
+          badge={incoming.length > 0 ? "Pending" : undefined}
+          onClick={() => onNavigate({ tab:'inventory', filters:{ status:'incoming' } })}
+          accent={incoming.length > 0 ? "bg-blue-50 border-blue-100 text-blue-900" : undefined}
+        />
       </div>
 
       {/* Expected Stock (SHS) */}
-      {incoming.length > 0 && (
-        <CollapsibleSection
-          title="Expected Stock (SHS)"
-          count={incoming.length}
-          accent="border-l-blue-500"
-          defaultOpen={false}
-        >
+      <CollapsibleSection
+        title="Expected Stock (SHS)"
+        count={incoming.length}
+        accent="border-l-blue-500"
+        defaultOpen={false}
+      >
+        {incoming.length === 0 ? (
+          <div className="py-8 flex flex-col items-center gap-2 text-gray-300">
+            <Truck size={32} />
+            <p className="text-xs font-mono">No expected stock (SHS)</p>
+            <p className="text-[10px] text-gray-400 font-mono">Add SHS from Buy Stock → Add Supplier Delivery</p>
+          </div>
+        ) : (
           <div className="divide-y divide-gray-50">
             {incoming.slice(0, 20).map(u => (
               <div key={u.id} className="flex items-center gap-3 px-4 py-3">
@@ -251,8 +255,8 @@ export default function Dashboard({ onNavigate }: Props) {
               <p className="text-[9px] text-gray-400 font-mono text-center py-2">+{incoming.length - 20} more expected</p>
             )}
           </div>
-        </CollapsibleSection>
-      )}
+        )}
+      </CollapsibleSection>
 
       {/* Yesterday's Sales */}
       <CollapsibleSection
