@@ -68,9 +68,9 @@ function emit(collectionName: string, data: any[]) {
 }
 
 async function ensureAuthReady() {
-  // 15-second ceiling — slow mobile devices need more time
+  // 5-second ceiling — fail fast so localStorage fallback kicks in quickly
   const timeout = new Promise<never>((_, reject) =>
-    setTimeout(() => reject(new Error('Auth timeout')), 15000)
+    setTimeout(() => reject(new Error('Auth timeout')), 5000)
   );
   await Promise.race([auth.authStateReady(), timeout]);
   if (!auth.currentUser) throw new Error('Not authenticated.');
@@ -213,14 +213,14 @@ export const dbService = {
         }, error => {
           setSyncStatus(false);
           console.error(`Firestore [${collectionName}] error:`, error);
-          // Auto-reconnect after 5 seconds on subscription error
-          if (!destroyed) retryTimer = setTimeout(() => connect(0), 5000);
+          // Back off 30s on subscription error — avoids hammering rate-limited Firebase
+          if (!destroyed) retryTimer = setTimeout(() => connect(0), 30000);
         });
       } catch (error) {
         setSyncStatus(false);
         console.error(`Firestore [${collectionName}] init failed:`, error);
-        // Retry after 8 seconds (covers slow auth on first load)
-        if (!destroyed) retryTimer = setTimeout(() => connect(0), 8000);
+        // Back off 60s on auth/init failure — Firebase quota exceeded, no point retrying fast
+        if (!destroyed) retryTimer = setTimeout(() => connect(0), 60000);
       }
     };
 

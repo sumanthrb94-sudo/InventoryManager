@@ -1,12 +1,9 @@
-import { collection, doc, getDoc, getDocs, setDoc, writeBatch, query, limit } from 'firebase/firestore';
+import { doc, setDoc, writeBatch } from 'firebase/firestore';
 import { db, ensureAuthReady } from './firebase';
 import { dbService, clearAllLocalCaches } from './dbService';
 
-// Increment this string whenever you upload a new master Excel file.
-// Every device that sees a version mismatch will wipe + re-seed automatically.
 const MASTER_SEED_VERSION = 'client-v1';
 const SEED_VERSION_KEY    = 'nexus_seed_version';
-const META_DOC            = '_meta/seedVersion';
 
 type SeedInventory = {
   version?: string;
@@ -15,7 +12,7 @@ type SeedInventory = {
 };
 type StoredUnit = Record<string, any>;
 
-// ── Inference helpers ────────────────────────────────────────────────────────
+// ── Inference helpers ─────────────────────────────────────────────────────────
 
 function inferBrand(model: string, fallback?: string) {
   const m = model.toUpperCase();
@@ -60,7 +57,7 @@ function normaliseUnits(units: StoredUnit[]): StoredUnit[] {
   const deduped = new Map<string, StoredUnit>();
   for (const raw of units) {
     if (!raw?.id) continue;
-    const model = String(raw.model || '').trim();
+    const model  = String(raw.model || '').trim();
     const isSold = raw.status === 'sold';
     deduped.set(raw.id, {
       ...raw,
@@ -76,9 +73,10 @@ function normaliseUnits(units: StoredUnit[]): StoredUnit[] {
   return Array.from(deduped.values());
 }
 
-// ── Firestore helpers ────────────────────────────────────────────────────────
-
-function writeToFirestoreBackground(suppliers: Record<string, any>[], units: StoredUnit[]) {
+// ── Background Firestore sync — truly non-blocking, fails silently ─────────────
+// Called AFTER localStorage is already populated. If Firebase is rate-limited
+// this will fail silently and the app continues working from localStorage.
+function syncToFirestoreInBackground(suppliers: Record<string, any>[], units: StoredUnit[]) {
   const CHUNK = 499;
   const now   = new Date().toISOString();
   const all   = [
@@ -86,39 +84,23 @@ function writeToFirestoreBackground(suppliers: Record<string, any>[], units: Sto
     ...units.map(u    => ({ col: 'inventoryUnits', id: u.id, data: { ...u, createdAt: u.createdAt ?? now, updatedAt: u.updatedAt ?? now } })),
   ];
 
-  (async () => {
+  void (async () => {
     try {
       await ensureAuthReady();
       for (let i = 0; i < all.length; i += CHUNK) {
         const batch = writeBatch(db);
-        for (const { col, id, data } of all.slice(i, i + CHUNK)) {
+        for (const { col, id, data } of all.slice(i, i + CHUNK))
           batch.set(doc(db, col, id), data);
-        }
         await batch.commit();
       }
-      // Write meta doc so other devices know Firestore is already at this version
-      await setDoc(doc(db, META_DOC.split('/')[0], META_DOC.split('/')[1]), { version: MASTER_SEED_VERSION });
+      await setDoc(doc(db, '_meta', 'seedVersion'), { version: MASTER_SEED_VERSION });
     } catch {
-      // Firestore rules may not be deployed — localStorage covers local device
+      // Firebase unavailable / rate-limited — localStorage is source of truth, that's fine
     }
   })();
 }
 
-async function wipeFirestoreCollections() {
-  const colNames = ['inventoryUnits', 'suppliers'];
-  for (const colName of colNames) {
-    while (true) {
-      const snap = await getDocs(query(collection(db, colName), limit(499)));
-      if (snap.empty) break;
-      const batch = writeBatch(db);
-      snap.docs.forEach(d => batch.delete(d.ref));
-      await batch.commit();
-      if (snap.docs.length < 499) break;
-    }
-  }
-}
-
-// ── One-time migration ────────────────────────────────────────────────────────
+// ── Return date migration (one-time fix) ──────────────────────────────────────
 
 function migrateReturnDates() {
   const KEY = 'nexus_db_inventoryUnits';
@@ -137,10 +119,10 @@ function migrateReturnDates() {
       localStorage.setItem(KEY, JSON.stringify(fixed));
       dbService.refreshFromLocalCache('inventoryUnits');
     }
-  } catch { /* ignore parse errors */ }
+  } catch { /* ignore */ }
 }
 
-// ── JSON seed helper ─────────────────────────────────────────────────────────
+// ── Seed from bundled JSON → localStorage (no Firebase dependency) ────────────
 
 async function seedFromMasterJSON(onProgress?: (loaded: number, total: number) => void) {
   let suppliers: Record<string, any>[];
@@ -156,29 +138,31 @@ async function seedFromMasterJSON(onProgress?: (loaded: number, total: number) =
 
   const total = suppliers.length + units.length;
 
+  // Suppliers first (small — instant)
   localStorage.setItem('nexus_db_suppliers', JSON.stringify(suppliers));
   dbService.refreshFromLocalCache('suppliers');
   onProgress?.(suppliers.length, total);
 
+  // Units in chunks, yielding to the browser between each chunk
   const unitCache: StoredUnit[] = [];
-  const YIELD_EVERY = 1000;
+  const CHUNK = 500;
   for (let i = 0; i < units.length; i++) {
     unitCache.push(units[i]);
-    if ((i + 1) % YIELD_EVERY === 0 || i === units.length - 1) {
+    if ((i + 1) % CHUNK === 0 || i === units.length - 1) {
+      localStorage.setItem('nexus_db_inventoryUnits', JSON.stringify(unitCache));
+      dbService.refreshFromLocalCache('inventoryUnits');
       onProgress?.(suppliers.length + i + 1, total);
-      await new Promise(r => setTimeout(r, 0));
+      await new Promise(r => setTimeout(r, 0)); // yield
     }
   }
 
-  localStorage.setItem('nexus_db_inventoryUnits', JSON.stringify(unitCache));
-  dbService.refreshFromLocalCache('inventoryUnits');
   onProgress?.(total, total);
 
-  // Push to Firestore in background so all other devices pick it up via onSnapshot
-  writeToFirestoreBackground(suppliers, units);
+  // Attempt Firestore sync after localStorage is already live (fire-and-forget)
+  syncToFirestoreInBackground(suppliers, units);
 }
 
-// ── Main export ──────────────────────────────────────────────────────────────
+// ── Main export ───────────────────────────────────────────────────────────────
 
 export async function seedDefaultInventoryData(
   onProgress?: (loaded: number, total: number) => void,
@@ -187,47 +171,12 @@ export async function seedDefaultInventoryData(
 
   migrateReturnDates();
 
-  const localVersion = localStorage.getItem(SEED_VERSION_KEY);
+  // Already on current version — localStorage has the data, nothing to do
+  if (localStorage.getItem(SEED_VERSION_KEY) === MASTER_SEED_VERSION) return;
 
-  // ── Fast path: this device already seeded the current master version ─────────
-  if (localVersion === MASTER_SEED_VERSION) {
-    // Firestore subscription (onSnapshot) handles all future sync — nothing to do
-    return;
-  }
-
-  // ── Version mismatch — need to force-reseed ──────────────────────────────────
-  // First check: has ANOTHER device already seeded Firestore to this version?
-  let firestoreAlreadySeeded = false;
-  try {
-    await ensureAuthReady();
-    const metaSnap = await getDoc(doc(db, '_meta', 'seedVersion'));
-    if (metaSnap.exists() && metaSnap.data()?.version === MASTER_SEED_VERSION) {
-      firestoreAlreadySeeded = true;
-    }
-  } catch {
-    // Auth not ready or Firestore unavailable
-  }
-
-  if (firestoreAlreadySeeded) {
-    // Firestore already has master-v1 data — wipe local cache so onSnapshot
-    // overwrites it with the canonical Firestore data
-    clearAllLocalCaches();
-    localStorage.setItem(SEED_VERSION_KEY, MASTER_SEED_VERSION);
-    // onSnapshot in dbService will fire shortly with the Firestore data
-    onProgress?.(1, 1);
-    return;
-  }
-
-  // ── This device is first — wipe Firestore and seed from master JSON ──────────
-  clearAllLocalCaches();
-
-  try {
-    await ensureAuthReady();
-    await wipeFirestoreCollections();
-  } catch {
-    // Firestore unavailable — seed locally only; Firestore sync happens in background
-  }
-
+  // Version mismatch — seed from bundled JSON directly into localStorage.
+  // No Firebase reads, no auth wait, no Firestore wipe.
+  // Firebase sync happens in background AFTER localStorage is already populated.
   await seedFromMasterJSON(onProgress);
   localStorage.setItem(SEED_VERSION_KEY, MASTER_SEED_VERSION);
 }
