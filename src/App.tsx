@@ -22,6 +22,7 @@ import NotificationBell from './components/NotificationBell';
 import { notificationService } from './lib/notificationService';
 import { subscribeToSyncStatus } from './lib/dbService';
 import { InventoryStoreProvider, useInventoryStore } from './lib/inventoryStore';
+import DataSeedPage from './components/DataSeedPage';
 
 type Tab = 'overview' | 'buystk' | 'sell' | 'returns' | 'reports' | 'suppliers' | 'analytics';
 
@@ -29,6 +30,13 @@ const APP_NAME    = 'MOBILEPHONEMARKET';
 const APP_TAGLINE = 'Inventory Manager';
 
 export default function App() {
+  if (new URLSearchParams(window.location.search).get('seed') === '1') {
+    return <DataSeedPage />;
+  }
+  return <AppWithAuth />;
+}
+
+function AppWithAuth() {
   const [user, setUser]     = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
 
