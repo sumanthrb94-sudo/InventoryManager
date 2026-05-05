@@ -52,20 +52,8 @@ export default function App() {
   );
 }
 
-// ── Loading screen with animated progress bar ──────────────────────────────────
-function LoadingScreen() {
-  const [progress, setProgress] = useState(0);
-
-  useEffect(() => {
-    // Animate quickly to 85%, then hold until data arrives and component unmounts
-    const t1 = setTimeout(() => setProgress(40),  100);
-    const t2 = setTimeout(() => setProgress(70),  600);
-    const t3 = setTimeout(() => setProgress(85), 1200);
-    // Jump to 100% right before AnimatePresence fades it out
-    const t4 = setTimeout(() => setProgress(100), 1800);
-    return () => { clearTimeout(t1); clearTimeout(t2); clearTimeout(t3); clearTimeout(t4); };
-  }, []);
-
+// ── Loading screen — progress is real, driven by actual seed progress ──────────
+function LoadingScreen({ progress }: { progress: number }) {
   return (
     <motion.div
       initial={{ opacity: 1 }}
@@ -79,14 +67,16 @@ function LoadingScreen() {
       </div>
       <div className="w-64 space-y-2">
         <div className="flex justify-between items-center">
-          <span className="text-[10px] font-mono uppercase tracking-widest text-gray-400">Loading inventory</span>
+          <span className="text-[10px] font-mono uppercase tracking-widest text-gray-400">
+            {progress === 0 ? 'Starting…' : progress < 100 ? 'Loading inventory…' : 'Ready'}
+          </span>
           <span className="text-[10px] font-mono text-gray-400">{progress}%</span>
         </div>
         <div className="h-1 bg-gray-100 rounded-full overflow-hidden">
           <motion.div
             className="h-full bg-black rounded-full"
             animate={{ width: `${progress}%` }}
-            transition={{ duration: 0.5, ease: 'easeOut' }}
+            transition={{ duration: 0.4, ease: 'easeOut' }}
           />
         </div>
       </div>
@@ -102,6 +92,10 @@ function AppShell({ user }: { user: User }) {
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
   const [unreadCount, setUnreadCount]             = useState(0);
   const [syncConnected, setSyncConnected]         = useState(false);
+  const [seedProgress, setSeedProgress]           = useState(() => {
+    // Start at 100% if data is already cached (no seeding needed — flash is instant)
+    try { return !!localStorage.getItem('nexus_db_inventoryUnits') ? 100 : 0; } catch { return 0; }
+  });
 
   useRealTimeNotifications();
 
@@ -111,12 +105,14 @@ function AppShell({ user }: { user: User }) {
 
   useEffect(() => subscribeToSyncStatus(setSyncConnected), []);
 
-  // Seed data: tries Firestore getDocs first, falls back to bundled JSON.
-  // Runs on every login to ensure localStorage is populated even if it was wiped.
+  // Seed from master_seed.json → localStorage on first load or after version bump.
+  // onProgress drives the real loading bar (0 → 100%).
   useEffect(() => {
-    import('./lib/seedData').then(({ seedDefaultInventoryData }) => {
-      seedDefaultInventoryData();
-    });
+    import('./lib/seedData').then(({ seedDefaultInventoryData }) =>
+      seedDefaultInventoryData((done, total) => {
+        setSeedProgress(Math.round((done / total) * 100));
+      })
+    ).then(() => setSeedProgress(100));
   }, []);
 
   const handleNavigate = (action: NavAction) => {
@@ -129,9 +125,8 @@ function AppShell({ user }: { user: User }) {
   return (
     <div className="min-h-[100dvh] bg-[#FAFAFA] text-black flex flex-col md:flex-row">
 
-      {/* ── Loading overlay — shown until Firestore delivers first snapshot ── */}
       <AnimatePresence>
-        {!loaded && <LoadingScreen />}
+        {!loaded && <LoadingScreen progress={seedProgress} />}
       </AnimatePresence>
 
       {/* Desktop Sidebar */}

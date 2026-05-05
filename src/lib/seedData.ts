@@ -1,5 +1,4 @@
-import { doc, setDoc, writeBatch } from 'firebase/firestore';
-import { db, ensureAuthReady } from './firebase';
+import { supabase } from './supabase';
 import { dbService, clearAllLocalCaches } from './dbService';
 
 const MASTER_SEED_VERSION = 'client-v1';
@@ -73,29 +72,37 @@ function normaliseUnits(units: StoredUnit[]): StoredUnit[] {
   return Array.from(deduped.values());
 }
 
-// ── Background Firestore sync — truly non-blocking, fails silently ─────────────
-// Called AFTER localStorage is already populated. If Firebase is rate-limited
-// this will fail silently and the app continues working from localStorage.
-function syncToFirestoreInBackground(suppliers: Record<string, any>[], units: StoredUnit[]) {
-  const CHUNK = 499;
-  const now   = new Date().toISOString();
-  const all   = [
-    ...suppliers.map(s => ({ col: 'suppliers',     id: s.id, data: { ...s, createdAt: s.createdAt ?? now } })),
-    ...units.map(u    => ({ col: 'inventoryUnits', id: u.id, data: { ...u, createdAt: u.createdAt ?? now, updatedAt: u.updatedAt ?? now } })),
-  ];
+// ── Background Supabase sync — non-blocking, fails silently ───────────────────
+// Called AFTER localStorage is already populated. App continues from localStorage
+// if Supabase is temporarily unavailable.
+function syncToSupabaseInBackground(suppliers: Record<string, any>[], units: StoredUnit[]) {
+  const toSnake = (s: string) => s.replace(/[A-Z]/g, c => `_${c.toLowerCase()}`);
+  const appToDb = (obj: Record<string, any>) =>
+    Object.fromEntries(
+      Object.entries(obj)
+        .filter(([k, v]) => v !== undefined && k !== 'supplierName')
+        .map(([k, v]) => [toSnake(k), v]),
+    );
 
+  const CHUNK = 100;
   void (async () => {
     try {
-      await ensureAuthReady();
-      for (let i = 0; i < all.length; i += CHUNK) {
-        const batch = writeBatch(db);
-        for (const { col, id, data } of all.slice(i, i + CHUNK))
-          batch.set(doc(db, col, id), data);
-        await batch.commit();
+      // Upsert suppliers
+      for (let i = 0; i < suppliers.length; i += CHUNK) {
+        const { error } = await supabase
+          .from('suppliers')
+          .upsert(suppliers.slice(i, i + CHUNK).map(appToDb));
+        if (error) throw error;
       }
-      await setDoc(doc(db, '_meta', 'seedVersion'), { version: MASTER_SEED_VERSION });
+      // Upsert inventory units
+      for (let i = 0; i < units.length; i += CHUNK) {
+        const { error } = await supabase
+          .from('inventory_units')
+          .upsert(units.slice(i, i + CHUNK).map(appToDb));
+        if (error) throw error;
+      }
     } catch {
-      // Firebase unavailable / rate-limited — localStorage is source of truth, that's fine
+      // Supabase unavailable — localStorage is source of truth, that's fine
     }
   })();
 }
@@ -122,19 +129,19 @@ function migrateReturnDates() {
   } catch { /* ignore */ }
 }
 
-// ── Seed from bundled JSON → localStorage (no Firebase dependency) ────────────
-
-async function seedFromMasterJSON(onProgress?: (loaded: number, total: number) => void) {
+// ── Seed from bundled JSON → localStorage (no network dependency) ─────────────
+// Returns true if data was successfully written, false if fetch failed.
+async function seedFromMasterJSON(onProgress?: (loaded: number, total: number) => void): Promise<boolean> {
   let suppliers: Record<string, any>[];
   let units: StoredUnit[];
   try {
     const res = await fetch('/master_seed.json');
-    if (!res.ok) { onProgress?.(1, 1); return; }
+    if (!res.ok) { onProgress?.(1, 1); return false; }
     const seed: SeedInventory = await res.json();
-    if (!seed?.suppliers?.length || !seed?.units?.length) { onProgress?.(1, 1); return; }
+    if (!seed?.suppliers?.length || !seed?.units?.length) { onProgress?.(1, 1); return false; }
     suppliers = seed.suppliers;
     units     = normaliseUnits(seed.units);
-  } catch { onProgress?.(1, 1); return; }
+  } catch { onProgress?.(1, 1); return false; }
 
   const total = suppliers.length + units.length;
 
@@ -152,14 +159,16 @@ async function seedFromMasterJSON(onProgress?: (loaded: number, total: number) =
       localStorage.setItem('nexus_db_inventoryUnits', JSON.stringify(unitCache));
       dbService.refreshFromLocalCache('inventoryUnits');
       onProgress?.(suppliers.length + i + 1, total);
-      await new Promise(r => setTimeout(r, 0)); // yield
+      await new Promise(r => setTimeout(r, 0)); // yield to browser
     }
   }
 
   onProgress?.(total, total);
 
-  // Attempt Firestore sync after localStorage is already live (fire-and-forget)
-  syncToFirestoreInBackground(suppliers, units);
+  // Sync to Supabase after localStorage is already live (fire-and-forget)
+  syncToSupabaseInBackground(suppliers, units);
+
+  return true;
 }
 
 // ── Main export ───────────────────────────────────────────────────────────────
@@ -171,12 +180,14 @@ export async function seedDefaultInventoryData(
 
   migrateReturnDates();
 
-  // Already on current version — localStorage has the data, nothing to do
+  // Already on current version AND data exists — nothing to do
   if (localStorage.getItem(SEED_VERSION_KEY) === MASTER_SEED_VERSION) return;
 
-  // Version mismatch — seed from bundled JSON directly into localStorage.
-  // No Firebase reads, no auth wait, no Firestore wipe.
-  // Firebase sync happens in background AFTER localStorage is already populated.
-  await seedFromMasterJSON(onProgress);
-  localStorage.setItem(SEED_VERSION_KEY, MASTER_SEED_VERSION);
+  // Version mismatch — seed from bundled JSON into localStorage first.
+  // Only mark as seeded if data was actually written successfully.
+  const ok = await seedFromMasterJSON(onProgress);
+  if (ok) localStorage.setItem(SEED_VERSION_KEY, MASTER_SEED_VERSION);
 }
+
+// Exported so clearAllLocalCaches is available to other modules
+export { clearAllLocalCaches };

@@ -1,25 +1,48 @@
 /**
- * PRODUCTION Firestore database service — Single Source of Truth
+ * Supabase database service with localStorage cache.
+ * Pattern: localStorage served immediately; Supabase syncs in background.
+ * All columns are snake_case in Supabase; app uses camelCase — converted automatically.
  */
 
-import {
-  collection,
-  deleteDoc,
-  doc,
-  getDocs,
-  onSnapshot,
-  orderBy,
-  query,
-  setDoc,
-  limit,
-  writeBatch,
-} from 'firebase/firestore';
-
-import { auth, db } from './firebase';
+import { supabase } from './supabase';
 
 const LOCAL_CACHE_PREFIX = 'nexus_db_';
 const listeners: Record<string, Array<(data: any[]) => void>> = {};
 const cachedData: Record<string, any[]> = {};
+
+// ── Table name mapping ────────────────────────────────────────────────────────
+const TABLE_MAP: Record<string, string> = {
+  inventoryUnits:  'inventory_units',
+  suppliers:       'suppliers',
+  inventoryEvents: 'inventory_events',
+  dailyUpdates:    'daily_updates',
+  activeListings:  'active_listings',
+  sourceDocuments: 'source_documents',
+};
+
+function tableName(col: string): string {
+  return TABLE_MAP[col] ?? col;
+}
+
+// ── camelCase ↔ snake_case ────────────────────────────────────────────────────
+function toSnake(s: string): string {
+  return s.replace(/[A-Z]/g, c => `_${c.toLowerCase()}`);
+}
+function toCamel(s: string): string {
+  return s.replace(/_([a-z])/g, (_, c) => c.toUpperCase());
+}
+// DB row → app object (snake_case keys → camelCase)
+function dbToApp(row: Record<string, any>): Record<string, any> {
+  return Object.fromEntries(Object.entries(row).map(([k, v]) => [toCamel(k), v]));
+}
+// App object → DB row (camelCase → snake_case, strips fields not in schema)
+function appToDb(obj: Record<string, any>): Record<string, any> {
+  return Object.fromEntries(
+    Object.entries(obj)
+      .filter(([k, v]) => v !== undefined && k !== 'supplierName')
+      .map(([k, v]) => [toSnake(k), v]),
+  );
+}
 
 // ── Sync status ───────────────────────────────────────────────────────────────
 let _syncConnected = false;
@@ -36,191 +59,207 @@ export function subscribeToSyncStatus(cb: (connected: boolean) => void) {
   return () => { const i = _syncListeners.indexOf(cb); if (i >= 0) _syncListeners.splice(i, 1); };
 }
 
-function collectionRef(collectionName: string) {
-  return collection(db, collectionName);
-}
-
-function nowIso() {
-  return new Date().toISOString();
-}
-
+// ── localStorage helpers ──────────────────────────────────────────────────────
 function readLocalTable(collectionName: string): any[] {
   try {
     const raw = localStorage.getItem(`${LOCAL_CACHE_PREFIX}${collectionName}`);
     return raw ? JSON.parse(raw) : [];
-  } catch {
-    return [];
-  }
+  } catch { return []; }
 }
 
 function writeLocalTable(collectionName: string, data: any[]) {
   try {
     localStorage.setItem(`${LOCAL_CACHE_PREFIX}${collectionName}`, JSON.stringify(data));
-  } catch {
-    // Quota exceeded
-  }
+  } catch { /* quota exceeded */ }
 }
 
 function emit(collectionName: string, data: any[]) {
-  for (const cb of listeners[collectionName] || []) {
-    cb([...data]);
-  }
+  for (const cb of listeners[collectionName] || []) cb([...data]);
 }
 
-async function ensureAuthReady() {
-  // 5-second ceiling — fail fast so localStorage fallback kicks in quickly
-  const timeout = new Promise<never>((_, reject) =>
-    setTimeout(() => reject(new Error('Auth timeout')), 5000)
-  );
-  await Promise.race([auth.authStateReady(), timeout]);
-  if (!auth.currentUser) throw new Error('Not authenticated.');
-}
+function nowIso() { return new Date().toISOString(); }
 
 export function clearAllLocalCaches() {
-  const keys = Object.keys(localStorage).filter(k => k.startsWith(LOCAL_CACHE_PREFIX));
-  for (const key of keys) localStorage.removeItem(key);
+  Object.keys(localStorage)
+    .filter(k => k.startsWith(LOCAL_CACHE_PREFIX))
+    .forEach(k => localStorage.removeItem(k));
 }
 
+// ── dbService ─────────────────────────────────────────────────────────────────
 export const dbService = {
+
   async create(collectionName: string, id: string, data: any) {
     const timestamp = nowIso();
     const newItem = { ...data, id, createdAt: data.createdAt ?? timestamp, updatedAt: timestamp };
 
-    // Instant local write — UI never waits for Firestore
-    const localTable = readLocalTable(collectionName);
-    const idx = localTable.findIndex(item => item.id === id);
-    if (idx >= 0) localTable[idx] = newItem; else localTable.push(newItem);
-    writeLocalTable(collectionName, localTable);
-    cachedData[collectionName] = localTable;
-    emit(collectionName, localTable);
+    // Instant local write — UI never waits for Supabase
+    const local = readLocalTable(collectionName);
+    const idx = local.findIndex(item => item.id === id);
+    if (idx >= 0) local[idx] = newItem; else local.push(newItem);
+    writeLocalTable(collectionName, local);
+    cachedData[collectionName] = local;
+    emit(collectionName, local);
 
-    // Fire-and-forget Firestore sync
-    void ensureAuthReady().then(() =>
-      setDoc(doc(collectionRef(collectionName), id), newItem)
-    ).catch(err => console.warn(`Firestore create failed [${collectionName}/${id}]:`, err));
-  },
-
-  async bulkCreate(
-    entries: Array<{ collection: string; id: string; data: any }>,
-    onProgress?: (done: number, total: number) => void
-  ) {
-    await ensureAuthReady();
-    const ownerId = auth.currentUser?.uid || 'system';
-    const timestamp = nowIso();
-
-    const byCollection: Record<string, { id: string; data: any }[]> = {};
-    for (const entry of entries) {
-      if (!byCollection[entry.collection]) byCollection[entry.collection] = [];
-      byCollection[entry.collection].push({ id: entry.id, data: entry.data });
-    }
-
-    let done = 0;
-    const total = entries.length;
-
-    try {
-      for (const [collectionName, items] of Object.entries(byCollection)) {
-        const BATCH_LIMIT = 499;
-        for (let offset = 0; offset < items.length; offset += BATCH_LIMIT) {
-          const chunk = items.slice(offset, offset + BATCH_LIMIT);
-          const batch = writeBatch(db);
-          for (const item of chunk) {
-            batch.set(doc(collectionRef(collectionName), item.id), {
-              ...item.data,
-              id: item.id,
-              ownerId: item.data.ownerId || ownerId,
-              createdAt: item.data.createdAt ?? timestamp,
-              updatedAt: timestamp,
-            });
-            done++;
-            if (onProgress && done % 50 === 0) {
-              onProgress(done, total);
-              await new Promise(r => setTimeout(r, 0));
-            }
-          }
-          await batch.commit();
-        }
-      }
-    } catch (err: any) {
-      console.error('Failed to bulk save to database', err);
-      throw err;
-    }
-    if (onProgress) onProgress(total, total);
+    // Background Supabase sync
+    void supabase
+      .from(tableName(collectionName))
+      .upsert(appToDb(newItem))
+      .then(({ error }) => {
+        if (error) console.warn(`Supabase create [${collectionName}/${id}]:`, error.message);
+      });
   },
 
   async update(collectionName: string, id: string, data: any) {
     const timestamp = nowIso();
-    const localTable = readLocalTable(collectionName);
-    const idx = localTable.findIndex(item => item.id === id);
-    const updatedItem = idx >= 0
-      ? { ...localTable[idx], ...data, id, updatedAt: timestamp }
+    const local = readLocalTable(collectionName);
+    const idx = local.findIndex(item => item.id === id);
+    const updated = idx >= 0
+      ? { ...local[idx], ...data, id, updatedAt: timestamp }
       : { ...data, id, updatedAt: timestamp };
 
-    if (idx >= 0) { localTable[idx] = updatedItem; } else { localTable.push(updatedItem); }
-    writeLocalTable(collectionName, localTable);
-    cachedData[collectionName] = localTable;
-    emit(collectionName, localTable);
+    if (idx >= 0) local[idx] = updated; else local.push(updated);
+    writeLocalTable(collectionName, local);
+    cachedData[collectionName] = local;
+    emit(collectionName, local);
 
-    // Fire-and-forget Firestore sync
-    void ensureAuthReady().then(() =>
-      setDoc(doc(collectionRef(collectionName), id), updatedItem)
-    ).catch(err => console.warn(`Firestore update failed [${collectionName}/${id}]:`, err));
+    void supabase
+      .from(tableName(collectionName))
+      .upsert(appToDb(updated))
+      .then(({ error }) => {
+        if (error) console.warn(`Supabase update [${collectionName}/${id}]:`, error.message);
+      });
   },
 
   async delete(collectionName: string, id: string) {
-    const localTable = readLocalTable(collectionName).filter(item => item.id !== id);
-    writeLocalTable(collectionName, localTable);
-    cachedData[collectionName] = localTable;
-    emit(collectionName, localTable);
+    const local = readLocalTable(collectionName).filter(item => item.id !== id);
+    writeLocalTable(collectionName, local);
+    cachedData[collectionName] = local;
+    emit(collectionName, local);
 
-    void ensureAuthReady().then(() =>
-      deleteDoc(doc(collectionRef(collectionName), id))
-    ).catch(err => console.warn(`Firestore delete failed [${collectionName}/${id}]:`, err));
+    void supabase
+      .from(tableName(collectionName))
+      .delete()
+      .eq('id', id)
+      .then(({ error }) => {
+        if (error) console.warn(`Supabase delete [${collectionName}/${id}]:`, error.message);
+      });
+  },
+
+  async bulkCreate(
+    entries: Array<{ collection: string; id: string; data: any }>,
+    onProgress?: (done: number, total: number) => void,
+  ) {
+    const timestamp = nowIso();
+    const total = entries.length;
+    let done = 0;
+
+    // Group by collection
+    const byCollection: Record<string, any[]> = {};
+    for (const entry of entries) {
+      const item = {
+        ...entry.data,
+        id: entry.id,
+        ownerId: entry.data.ownerId || 'shared',
+        createdAt: entry.data.createdAt ?? timestamp,
+        updatedAt: timestamp,
+      };
+      if (!byCollection[entry.collection]) byCollection[entry.collection] = [];
+      byCollection[entry.collection].push(item);
+    }
+
+    // 1. Write to localStorage instantly so UI never waits
+    for (const [col, items] of Object.entries(byCollection)) {
+      const existing = readLocalTable(col);
+      for (const item of items) {
+        const idx = existing.findIndex(e => e.id === item.id);
+        if (idx >= 0) existing[idx] = item; else existing.push(item);
+      }
+      writeLocalTable(col, existing);
+      cachedData[col] = existing;
+      emit(col, existing);
+    }
+
+    // 2. Sync to Supabase in chunks of 100
+    const CHUNK = 100;
+    for (const [col, items] of Object.entries(byCollection)) {
+      const rows = items.map(appToDb);
+      for (let i = 0; i < rows.length; i += CHUNK) {
+        const { error } = await supabase.from(tableName(col)).upsert(rows.slice(i, i + CHUNK));
+        if (error) throw new Error(`Supabase bulkCreate [${col}]: ${error.message}`);
+        done += Math.min(CHUNK, rows.length - i);
+        onProgress?.(done, total);
+        await new Promise(r => setTimeout(r, 0));
+      }
+    }
+
+    onProgress?.(total, total);
   },
 
   subscribeToCollection(collectionName: string, callback: (data: any[]) => void) {
     if (!listeners[collectionName]) listeners[collectionName] = [];
     listeners[collectionName].push(callback);
 
-    let unsub: (() => void) | null = null;
-    let retryTimer: ReturnType<typeof setTimeout> | null = null;
     let destroyed = false;
+    let retryTimer: ReturnType<typeof setTimeout> | null = null;
+    let channel: any = null;
 
-    // Serve local cache immediately so the UI is never blank while Firestore loads
+    // Serve local cache immediately so UI is never blank
     const cached = readLocalTable(collectionName);
     if (cached.length > 0) {
       cachedData[collectionName] = cached;
       callback(cached);
     }
 
-    const connect = async (retryDelay = 0) => {
-      if (destroyed) return;
-      if (retryDelay) await new Promise(r => setTimeout(r, retryDelay));
-      if (destroyed) return;
+    const orderCol = collectionName === 'inventoryUnits' ? 'date_in' : 'created_at';
 
+    const fetchLatest = async () => {
+      const { data, error } = await supabase
+        .from(tableName(collectionName))
+        .select('*')
+        .order(orderCol, { ascending: false })
+        .limit(15000);
+      if (error) throw error;
+      return (data || []).map(dbToApp);
+    };
+
+    const connect = async () => {
+      if (destroyed) return;
       try {
-        await ensureAuthReady();
+        const appData = await fetchLatest();
         if (destroyed) return;
 
-        const orderField = collectionName === 'inventoryUnits' ? 'dateIn' : 'createdAt';
-        const q = query(collectionRef(collectionName), orderBy(orderField, 'desc'), limit(15000));
+        // Only update if Supabase has data (don't overwrite seed with empty)
+        if (appData.length > 0) {
+          cachedData[collectionName] = appData;
+          writeLocalTable(collectionName, appData);
+          emit(collectionName, appData);
+        }
+        setSyncStatus(true);
 
-        unsub = onSnapshot(q, snap => {
-          setSyncStatus(true);
-          const fsData = snap.docs.map(d => ({ ...d.data() as Record<string, any>, id: d.id }));
-          cachedData[collectionName] = fsData;
-          writeLocalTable(collectionName, fsData);
-          emit(collectionName, fsData);
-        }, error => {
-          setSyncStatus(false);
-          console.error(`Firestore [${collectionName}] error:`, error);
-          // Back off 30s on subscription error — avoids hammering rate-limited Firebase
-          if (!destroyed) retryTimer = setTimeout(() => connect(0), 30000);
-        });
-      } catch (error) {
+        // Real-time subscription — updates the local cache on any DB change
+        channel = supabase
+          .channel(`rt_${collectionName}_${Date.now()}`)
+          .on('postgres_changes', { event: '*', schema: 'public', table: tableName(collectionName) }, async () => {
+            if (destroyed) return;
+            try {
+              const fresh = await fetchLatest();
+              cachedData[collectionName] = fresh;
+              writeLocalTable(collectionName, fresh);
+              emit(collectionName, fresh);
+            } catch { /* ignore mid-session refresh errors */ }
+          })
+          .subscribe(status => {
+            if (status === 'SUBSCRIBED') setSyncStatus(true);
+            if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+              setSyncStatus(false);
+              if (!destroyed) retryTimer = setTimeout(connect, 30000);
+            }
+          });
+
+      } catch (err) {
         setSyncStatus(false);
-        console.error(`Firestore [${collectionName}] init failed:`, error);
-        // Back off 60s on auth/init failure — Firebase quota exceeded, no point retrying fast
-        if (!destroyed) retryTimer = setTimeout(() => connect(0), 60000);
+        console.warn(`Supabase [${collectionName}] connection failed:`, err);
+        if (!destroyed) retryTimer = setTimeout(connect, 30000);
       }
     };
 
@@ -229,23 +268,27 @@ export const dbService = {
     return () => {
       destroyed = true;
       if (retryTimer) clearTimeout(retryTimer);
-      listeners[collectionName] = listeners[collectionName].filter(cb => cb !== callback);
-      if (unsub) unsub();
+      if (channel) supabase.removeChannel(channel);
+      listeners[collectionName] = (listeners[collectionName] || []).filter(cb => cb !== callback);
     };
   },
 
   async readAll(collectionName: string) {
-    if (cachedData[collectionName]) return cachedData[collectionName];
+    if (cachedData[collectionName]?.length) return cachedData[collectionName];
     const cached = readLocalTable(collectionName);
     if (cached.length > 0) {
       cachedData[collectionName] = cached;
       return cached;
     }
-    const snap = await getDocs(collectionRef(collectionName));
-    const data = snap.docs.map(d => ({ ...d.data(), id: d.id }));
-    cachedData[collectionName] = data;
-    writeLocalTable(collectionName, data);
-    return data;
+    const orderCol = collectionName === 'inventoryUnits' ? 'date_in' : 'created_at';
+    const { data } = await supabase
+      .from(tableName(collectionName))
+      .select('*')
+      .order(orderCol, { ascending: false });
+    const appData = (data || []).map(dbToApp);
+    cachedData[collectionName] = appData;
+    writeLocalTable(collectionName, appData);
+    return appData;
   },
 
   refreshFromLocalCache(collectionName: string) {
@@ -254,28 +297,7 @@ export const dbService = {
   },
 
   async resetDatabase() {
-    try {
-      // 1. Clear ALL local caches first
-      clearAllLocalCaches();
-      
-      // 2. Clear Firestore
-      const collections = ['inventoryUnits', 'suppliers', 'inventoryEvents', 'dailyUpdates', 'activeListings', 'sourceDocuments'];
-      for (const colName of collections) {
-        const q = query(collectionRef(colName), limit(500));
-        const snap = await getDocs(q);
-        if (!snap.empty) {
-          const batch = writeBatch(db);
-          snap.docs.forEach(d => batch.delete(d.ref));
-          await batch.commit();
-        }
-      }
-      
-      // 3. Reload to trigger complete re-seeding
-      window.location.href = window.location.origin + '?reset=' + Date.now();
-    } catch (err: any) {
-      console.error('Reset failed:', err);
-      clearAllLocalCaches();
-      window.location.href = window.location.origin + '?reset=' + Date.now();
-    }
-  }
+    clearAllLocalCaches();
+    window.location.href = window.location.origin + '?reset=' + Date.now();
+  },
 };

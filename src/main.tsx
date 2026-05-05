@@ -4,14 +4,22 @@ import App from './App.tsx';
 import './index.css';
 
 // ── Stale-cache guard (runs BEFORE React renders) ────────────────────────────
-// If the seed version stored in localStorage doesn't match the current master,
-// wipe the cached db tables NOW so subscriptions never serve wrong data.
-// seedData.ts will repopulate from master_seed.json + Firestore in the background.
+// Ensures localStorage is never in a state where version is set but data is gone.
 const CURRENT_SEED_VERSION = 'client-v1';
-if (localStorage.getItem('nexus_seed_version') !== CURRENT_SEED_VERSION) {
+const storedVersion = localStorage.getItem('nexus_seed_version');
+
+if (storedVersion !== CURRENT_SEED_VERSION) {
+  // Version mismatch — wipe stale cached tables so subscriptions never serve wrong data
   Object.keys(localStorage)
     .filter(k => k.startsWith('nexus_db_'))
     .forEach(k => localStorage.removeItem(k));
+} else {
+  // Version matches — but verify data actually exists (browser may have evicted it)
+  const hasData = !!localStorage.getItem('nexus_db_inventoryUnits');
+  if (!hasData) {
+    // Data is gone; clear version key so seedDefaultInventoryData re-seeds on next cycle
+    localStorage.removeItem('nexus_seed_version');
+  }
 }
 
 createRoot(document.getElementById('root')!).render(
