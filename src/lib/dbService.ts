@@ -31,7 +31,11 @@ function toCamel(s: string): string {
   return s.replace(/_([a-z])/g, (_, c) => c.toUpperCase());
 }
 function dbToApp(row: Record<string, any>): Record<string, any> {
-  return Object.fromEntries(Object.entries(row).map(([k, v]) => [toCamel(k), v]));
+  const obj = Object.fromEntries(Object.entries(row).map(([k, v]) => [toCamel(k), v]));
+  // Defensive: flags and listingSites must always be arrays
+  if (obj.flags != null && !Array.isArray(obj.flags)) obj.flags = [];
+  if (obj.listingSites != null && !Array.isArray(obj.listingSites)) obj.listingSites = [];
+  return obj;
 }
 function appToDb(obj: Record<string, any>): Record<string, any> {
   return Object.fromEntries(
