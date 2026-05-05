@@ -1,152 +1,455 @@
 /**
- * import_excel.js
- * 
- * Reads the INVENTORY REPORT xlsx and outputs clean JSON
- * ready for Firestore import.
- * 
- * OG STOCK DATA sheet columns:
- *   [0] Date Added   (Excel serial number or blank)
- *   [1] Model        (e.g. "IPHONE 15 PRO MAX 256 BLACK TITANIUM")
- *   [2] IMEI/Serial  (15-digit number or string)
- *   [3] Supplier     (e.g. "NIHAL", "RR STOCK")
- *   [4] Cost / BP    (number)
- *   [5] Status       ("SOLD" or blank = available)
- *   [6] Marketplace  (e.g. "Amazon", "eBay", blank)
- *   [7] Sale Price   (number or blank)
+ * import_excel.cjs  —  Production-grade Excel → Firestore import tool
+ *
+ * Reads the master inventory workbook and outputs clean JSON
+ * ready for Firestore import. All parameters are taken from:
+ *   1. CLI flags  (highest priority)
+ *   2. Environment variables
+ *   3. client.config.js  (default/fallback)
+ *
+ * Usage:
+ *   node import_excel.cjs                               # uses client.config.js defaults
+ *   node import_excel.cjs --file "path/to/file.xlsx"   # override file
+ *   node import_excel.cjs --sheet "Sheet1"             # override sheet name
+ *   node import_excel.cjs --output ./out.json          # override output path
+ *   node import_excel.cjs --help                       # show help
+ *
+ * Environment overrides:
+ *   MASTER_EXCEL_PATH  — absolute path to master Excel file
+ *   IMPORT_SHEET_NAME  — sheet name override
+ *   IMPORT_OUTPUT_PATH — output JSON path override
  */
 
-const XLSX = require('xlsx');
-const fs = require('fs');
-const path = require('path');
+'use strict';
 
-const FILE_PATH = 'C:/Users/Manikanta Sridhar M/Downloads/INVENTORY REPORT 2026.xlsx';
-const OUTPUT_PATH = path.join(__dirname, 'imported_inventory.json');
+const XLSX   = require('xlsx');
+const fs     = require('fs');
+const path   = require('path');
+const crypto = require('crypto');
+const cfg    = require('./client.config.cjs');
 
-// ── Helpers ──────────────────────────────────────────────────────────────────
-
-/** Convert Excel serial date to ISO string */
-function excelDateToISO(serial) {
-  if (!serial || typeof serial !== 'number') return new Date().toISOString().split('T')[0];
-  const date = XLSX.SSF.parse_date_code(serial);
-  const d = new Date(Date.UTC(date.y, date.m - 1, date.d));
-  return d.toISOString().split('T')[0];
+// ── CLI Argument Parser (no external deps) ────────────────────────────────────
+function parseArgs(argv) {
+  const args = {};
+  for (let i = 2; i < argv.length; i++) {
+    const arg = argv[i];
+    if (arg === '--help' || arg === '-h') { args.help = true; continue; }
+    if (arg === '--dry-run')              { args.dryRun = true; continue; }
+    if (arg === '--verbose' || arg === '-v') { args.verbose = true; continue; }
+    if ((arg === '--file'   || arg === '-f') && argv[i + 1]) { args.file   = argv[++i]; continue; }
+    if ((arg === '--sheet'  || arg === '-s') && argv[i + 1]) { args.sheet  = argv[++i]; continue; }
+    if ((arg === '--output' || arg === '-o') && argv[i + 1]) { args.output = argv[++i]; continue; }
+    if (arg === '--public'  && argv[i + 1]) { args.public = argv[++i]; continue; }
+  }
+  return args;
 }
 
-/** Parse colour from model string */
-function parseColour(model) {
+function printHelp() {
+  console.log(`
+╔══════════════════════════════════════════════════════════════════════╗
+║           MOBILEPHONEMARKET — Excel Import Tool v2.0                 ║
+╚══════════════════════════════════════════════════════════════════════╝
+
+Usage:
+  node import_excel.cjs [options]
+
+Options:
+  -f, --file    <path>   Path to Excel file (overrides client.config.js)
+  -s, --sheet   <name>   Sheet name to import (overrides client.config.js)
+  -o, --output  <path>   Output JSON path (default: imported_inventory.json)
+      --public  <path>   Also write a copy to public/ for app seeding
+      --dry-run          Parse only — do not write any files
+  -v, --verbose          Show detailed per-row logging
+  -h, --help             Show this help
+
+Environment variables:
+  MASTER_EXCEL_PATH      Override Excel file path
+  IMPORT_SHEET_NAME      Override sheet name
+  IMPORT_OUTPUT_PATH     Override output JSON path
+
+Examples:
+  # Use the master file defined in client.config.js
+  node import_excel.cjs
+
+  # Import a specific file and write to public/ for app seeding
+  node import_excel.cjs --file "SAMPLE_INVENTORY_REPORT_2026.xlsx" --public public/imported_inventory.json
+
+  # Dry run to validate a new file without writing
+  node import_excel.cjs --file "new_stock.xlsx" --dry-run --verbose
+`);
+}
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+function resolveExcelFile(cliFile) {
+  // Priority: CLI arg → env var → config value → auto-discover
+  const candidates = [
+    cliFile,
+    process.env.MASTER_EXCEL_PATH,
+    cfg.masterExcel.filePath,
+    ...cfg.masterExcel.nameHints.map(n => path.resolve(__dirname, n)),
+  ].filter(Boolean);
+
+  for (const candidate of candidates) {
+    const resolved = path.resolve(candidate);
+    if (fs.existsSync(resolved)) {
+      return resolved;
+    }
+  }
+  return null;
+}
+
+function resolveSheet(wb, cliSheet) {
+  const sheetName = cliSheet || process.env.IMPORT_SHEET_NAME || cfg.masterExcel.sheetName;
+  if (sheetName && wb.SheetNames.includes(sheetName)) return sheetName;
+
+  // Try fallbacks
+  for (const fallback of cfg.masterExcel.sheetFallbacks) {
+    if (wb.SheetNames.includes(fallback)) return fallback;
+  }
+  return wb.SheetNames[0];
+}
+
+function excelDateToISO(serial) {
+  if (!serial) return new Date().toISOString().split('T')[0];
+  if (serial instanceof Date) return serial.toISOString().split('T')[0];
+  if (typeof serial === 'number') {
+    try {
+      const parsed = XLSX.SSF.parse_date_code(serial);
+      const d = new Date(Date.UTC(parsed.y, parsed.m - 1, parsed.d));
+      return d.toISOString().split('T')[0];
+    } catch { /* fall through */ }
+  }
+  if (typeof serial === 'string') {
+    const d = new Date(serial);
+    if (!isNaN(d.getTime())) return d.toISOString().split('T')[0];
+  }
+  return new Date().toISOString().split('T')[0];
+}
+
+function findColIndex(header, keyAliases) {
+  return header.findIndex(h =>
+    keyAliases.some(alias =>
+      h?.toString().toUpperCase().trim() === alias.toUpperCase().trim()
+    )
+  );
+}
+
+function resolveColIndices(header) {
+  const colMap = cfg.masterExcel.columnMap;
+  return {
+    dateIn:    findColIndex(header, colMap.dateIn),
+    model:     findColIndex(header, colMap.model),
+    imei:      findColIndex(header, colMap.imei),
+    supplier:  findColIndex(header, colMap.supplier),
+    buyPrice:  findColIndex(header, colMap.buyPrice),
+    status:    findColIndex(header, colMap.status),
+    platform:  findColIndex(header, colMap.platform),
+    salePrice: findColIndex(header, colMap.salePrice),
+    saleDate:  findColIndex(header, colMap.saleDate),
+    colour:    findColIndex(header, colMap.colour),
+    storage:   findColIndex(header, colMap.storage),
+    condition: findColIndex(header, colMap.condition),
+    notes:     findColIndex(header, colMap.notes),
+    orderNum:  findColIndex(header, colMap.orderNum),
+    customer:  findColIndex(header, colMap.customer),
+  };
+}
+
+function getCell(row, idx, fallback = '') {
+  if (idx < 0) return fallback;
+  return row[idx]?.toString().trim() || fallback;
+}
+
+function normaliseSupplier(raw) {
+  if (!raw) return 'Unknown';
+  const key = raw.toUpperCase().trim();
+  return cfg.supplierAliases[key] || (raw.trim() || 'Unknown');
+}
+
+function normalisePlatform(raw) {
+  if (!raw) return '';
+  const key = raw.toUpperCase().trim();
+  return cfg.platformAliases[key] || raw.trim();
+}
+
+const COLOUR_LIST = [
+  'NATURAL TITANIUM', 'BLACK TITANIUM', 'WHITE TITANIUM', 'BLUE TITANIUM',
+  'DESERT TITANIUM', 'PACIFIC BLUE', 'SIERRA BLUE', 'ALPINE GREEN',
+  'STARLIGHT', 'MIDNIGHT', 'SPACE GREY', 'SPACE GRAY', 'GRAPHITE',
+  'PHANTOM BLACK', 'PHANTOM WHITE', 'PHANTOM SILVER',
+  'ROSE GOLD', 'PRODUCT RED', 'SILVER', 'GOLD', 'BLACK', 'WHITE',
+  'BLUE', 'GREEN', 'YELLOW', 'PURPLE', 'CORAL', 'MINT', 'PINK',
+  'TEAL', 'ORANGE', 'RED', 'CREAM', 'LAVENDER',
+];
+
+function parseColour(model, rawColour) {
+  if (rawColour && rawColour.toLowerCase() !== 'unknown' && rawColour.toLowerCase() !== 'nan') {
+    return rawColour.trim();
+  }
   const m = model.toUpperCase();
-  const colours = [
-    'NATURAL TITANIUM', 'BLACK TITANIUM', 'WHITE TITANIUM', 'BLUE TITANIUM',
-    'DESERT TITANIUM', 'STARLIGHT', 'MIDNIGHT', 'SPACE GREY', 'SPACE GRAY',
-    'GRAPHITE', 'SILVER', 'GOLD', 'ROSE GOLD', 'PRODUCT RED', 'RED',
-    'PHANTOM BLACK', 'PHANTOM WHITE', 'PHANTOM SILVER',
-    'CREAM', 'LAVENDER', 'GREEN', 'YELLOW', 'PURPLE', 'CORAL',
-    'BLACK', 'WHITE', 'BLUE', 'MINT', 'PINK', 'TEAL', 'ORANGE',
-  ];
-  for (const c of colours) {
-    if (m.includes(c)) return c.charAt(0) + c.slice(1).toLowerCase();
+  for (const c of COLOUR_LIST) {
+    if (m.includes(c)) {
+      if (c === 'SPACE GREY' || c === 'SPACE GRAY') return 'Space Grey';
+      return c.charAt(0) + c.slice(1).toLowerCase();
+    }
   }
   return 'Unknown';
 }
 
-/** Detect category from model string */
 function parseCategory(model) {
   const m = model.toUpperCase();
-  if (m.includes('IPAD') || m.includes('IPAD PRO') || m.includes('IPAD AIR') || m.includes('IPAD MINI')) return 'iPad';
-  if (m.includes('APPLE WATCH') || m.includes('WATCH ULTRA') || m.includes('WATCH SE') || m.includes('WATCH S')) return 'Apple Watch';
-  if (m.includes('IPHONE')) return 'iPhone';
+  if (m.includes('IPAD PRO') || m.includes('IPAD AIR') || m.includes('IPAD MINI')) return 'iPad';
+  if (m.includes('IPAD'))          return 'iPad';
+  if (m.includes('APPLE WATCH') || m.includes('WATCH ULTRA') || m.includes('WATCH SE')) return 'Apple Watch';
+  if (m.includes('IPHONE'))        return 'iPhone';
   if (m.includes('GALAXY TAB') || m.includes('TAB A') || m.includes('TAB S')) return 'Tablet';
-  if (m.includes('GALAXY S') || m.includes('S20') || m.includes('S21') || m.includes('S22') || m.includes('S23') || m.includes('S24') || m.includes('S25')) return 'Samsung S Series';
-  if (m.includes('GALAXY A') || m.includes('A12') || m.includes('A13') || m.includes('A14') || m.includes('A15') || m.includes('A32') || m.includes('A52') || m.includes('A54')) return 'Samsung A Series';
-  if (m.includes('SAMSUNG') || m.includes('GALAXY')) return 'Samsung A Series';
+  if (m.match(/GALAXY S\d|S20|S21|S22|S23|S24|S25/)) return 'Samsung S Series';
+  if (m.match(/GALAXY A\d|A\d{2}/))                   return 'Samsung A Series';
+  if (m.includes('SAMSUNG') || m.includes('GALAXY'))  return 'Samsung A Series';
   return 'Other';
 }
 
-/** Detect brand from category/model */
-function parseBrand(model, category) {
+function parseBrand(category) {
   if (['iPhone', 'iPad', 'Apple Watch'].includes(category)) return 'Apple';
-  if (['Samsung S Series', 'Samsung A Series', 'Tablet'].includes(category)) {
-    if (model.toUpperCase().includes('SAMSUNG') || model.toUpperCase().includes('GALAXY')) return 'Samsung';
-  }
+  if (category.startsWith('Samsung')) return 'Samsung';
   return 'Other';
 }
 
-// ── Main ──────────────────────────────────────────────────────────────────────
-
-const wb = XLSX.readFile(FILE_PATH);
-const ws = wb.Sheets['OG STOCK DATA'];
-const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
-
-// Collect unique suppliers to create supplier records
-const supplierNames = new Set();
-const units = [];
-let skipped = 0;
-
-for (let i = 1; i < rows.length; i++) {
-  const r = rows[i];
-  const model = r[1]?.toString().trim();
-  if (!model) { skipped++; continue; }
-
-  const imei = r[2]?.toString().trim() || '';
-  const supplierName = r[3]?.toString().trim() || 'UNKNOWN';
-  const buyPrice = parseFloat(r[4]) || 0;
-  const statusRaw = r[5]?.toString().trim().toUpperCase();
-  const status = statusRaw === 'SOLD' ? 'sold' : 'available';
-  const salePlatform = r[6]?.toString().trim() || '';
-  const salePrice = parseFloat(r[7]) || 0;
-  const dateIn = excelDateToISO(r[0]);
-
-  if (supplierName) supplierNames.add(supplierName);
-
-  const category = parseCategory(model);
-  const brand = parseBrand(model, category);
-  const colour = parseColour(model);
-
-  const unit = {
-    id: `unit_import_${i}`,
-    imei,
-    model: model.trim(),
-    brand,
-    category,
-    colour,
-    buyPrice,
-    dateIn,
-    supplierId: `sup_${supplierName.replace(/\s+/g, '_').toLowerCase()}`,
-    supplierName, // for reference
-    status,
-    flags: [],
-    notes: '',
-    platformListed: status === 'available',
-    ownerId: 'anonymous',
-    createdAt: new Date().toISOString(),
-    ...(status === 'sold' ? {
-      salePlatform,
-      salePrice: salePrice || undefined,
-    } : {}),
-  };
-
-  units.push(unit);
+function buildUnitId(imei, model, dateIn, supplierId, buyPrice, status) {
+  const key = [imei || model, dateIn, supplierId, buyPrice, status].join('|');
+  return 'u_' + crypto.createHash('md5').update(key).digest('hex').slice(0, 16);
 }
 
-// Build supplier records
-const suppliers = [...supplierNames].map(name => ({
-  id: `sup_${name.replace(/\s+/g, '_').toLowerCase()}`,
-  name,
-  portal: 'Direct',
-  ownerId: 'anonymous',
-  createdAt: new Date().toISOString(),
-}));
+function isValidRow(model) {
+  if (!model || !model.trim()) return false;
+  // Skip obvious header/separator rows
+  if (model.toUpperCase().includes('MODEL') && model.length < 10) return false;
+  return true;
+}
 
-const available = units.filter(u => u.status === 'available').length;
-const sold = units.filter(u => u.status === 'sold').length;
+function isSoldStatus(raw) {
+  const upper = (raw || '').toUpperCase().trim();
+  return cfg.masterExcel.soldStatusValues.some(v => upper === v.toUpperCase());
+}
 
-const output = { suppliers, units };
-fs.writeFileSync(OUTPUT_PATH, JSON.stringify(output, null, 2));
+// ── Main Parse ────────────────────────────────────────────────────────────────
 
-console.log('✅ Import complete!');
-console.log(`   Total units: ${units.length}`);
-console.log(`   Available:   ${available}`);
-console.log(`   Sold:        ${sold}`);
-console.log(`   Skipped:     ${skipped}`);
-console.log(`   Suppliers:   ${suppliers.length}`);
-console.log(`   Output:      ${OUTPUT_PATH}`);
+function parseWorksheet(ws, verbose) {
+  const rows  = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
+  const startRow = cfg.masterExcel.headerRow;
+  const header   = rows[startRow] || [];
+
+  const cols = resolveColIndices(header);
+
+  if (verbose) {
+    console.log('\n  Detected column indices:');
+    for (const [k, v] of Object.entries(cols)) {
+      const headerLabel = v >= 0 ? `"${header[v]}" (col ${v})` : '— not found';
+      console.log(`    ${k.padEnd(12)} → ${headerLabel}`);
+    }
+  }
+
+  const supplierMap = new Map();
+  const unitMap     = new Map();
+  let skipped       = 0;
+  let duplicates    = 0;
+
+  for (let i = startRow + 1; i < rows.length; i++) {
+    const r = rows[i];
+
+    // Skip fully empty rows
+    if (r.every(cell => !cell || cell.toString().trim() === '')) continue;
+
+    const model = getCell(r, cols.model);
+    if (!isValidRow(model)) { skipped++; continue; }
+
+    const rawImei      = getCell(r, cols.imei);
+    const imei         = rawImei.replace(/\D/g, '');
+    const rawSupplier  = getCell(r, cols.supplier, 'Unknown');
+    const supplierName = normaliseSupplier(rawSupplier);
+    const buyPrice     = parseFloat(getCell(r, cols.buyPrice, '0')) || 0;
+    const rawStatus    = getCell(r, cols.status);
+    const isSold       = isSoldStatus(rawStatus);
+    const rawPlatform  = getCell(r, cols.platform);
+    const platform     = normalisePlatform(rawPlatform);
+    const salePrice    = parseFloat(getCell(r, cols.salePrice, '0')) || 0;
+    const dateIn       = excelDateToISO(r[cols.dateIn >= 0 ? cols.dateIn : 0]);
+    const rawSaleDate  = cols.saleDate >= 0 ? r[cols.saleDate] : null;
+    const saleDate     = rawSaleDate ? excelDateToISO(rawSaleDate) : dateIn;
+    const rawColour    = getCell(r, cols.colour);
+    const rawStorage   = getCell(r, cols.storage);
+    const rawCondition = getCell(r, cols.condition);
+    const rawNotes     = getCell(r, cols.notes);
+    const rawOrderNum  = getCell(r, cols.orderNum);
+    const rawCustomer  = getCell(r, cols.customer);
+
+    // Build supplier
+    const supplierId = `sup_${supplierName.replace(/\s+/g, '_').toLowerCase()}`;
+    if (!supplierMap.has(supplierId)) {
+      supplierMap.set(supplierId, {
+        id:        supplierId,
+        name:      supplierName,
+        portal:    'Direct',
+        ownerId:   cfg.firebase.ownerIdCli,
+        createdAt: new Date().toISOString(),
+      });
+    }
+
+    const category  = parseCategory(model);
+    const brand     = parseBrand(category);
+    const colour    = parseColour(model, rawColour);
+    const unitId    = buildUnitId(imei, model, dateIn, supplierId, buyPrice, rawStatus);
+    const dedupeKey = imei || unitId;
+
+    if (unitMap.has(dedupeKey)) {
+      if (verbose) console.log(`  [DUPE] Row ${i + 1}: ${model} (${imei || 'no IMEI'})`);
+      duplicates++;
+      if (!cfg.import.upsertOnConflict) continue;
+    }
+
+    const status = isSold ? 'sold' : 'available';
+    const listingSites = (!isSold && platform) ? [platform] : [];
+
+    const unit = {
+      id:             unitId,
+      imei,
+      model:          model.trim(),
+      brand,
+      category,
+      colour,
+      storage:        rawStorage || undefined,
+      conditionGrade: rawCondition || undefined,
+      buyPrice,
+      dateIn,
+      supplierId,
+      status,
+      flags:          [],
+      notes:          rawNotes || '',
+      platformListed: !isSold && listingSites.length > 0,
+      listingSites,
+      ownerId:        cfg.firebase.ownerIdCli,
+      createdAt:      new Date().toISOString(),
+      updatedAt:      new Date().toISOString(),
+      ...(isSold && platform  ? { salePlatform: platform }  : {}),
+      ...(isSold && salePrice ? { salePrice }                : {}),
+      ...(isSold              ? { saleDate }                 : {}),
+      ...(rawOrderNum         ? { saleOrderId: rawOrderNum } : {}),
+      ...(rawCustomer         ? { customerName: rawCustomer }: {}),
+    };
+
+    unitMap.set(dedupeKey, unit);
+
+    if (verbose && i <= startRow + 6) {
+      console.log(`  [Row ${i + 1}] ${status.toUpperCase()} | ${model} | ${colour} | £${buyPrice}`);
+    }
+  }
+
+  const units     = Array.from(unitMap.values());
+  const suppliers = Array.from(supplierMap.values());
+
+  return {
+    suppliers,
+    units,
+    stats: {
+      total:      units.length,
+      available:  units.filter(u => u.status === 'available').length,
+      sold:       units.filter(u => u.status === 'sold').length,
+      skipped,
+      duplicates,
+    },
+  };
+}
+
+// ── Entry Point ───────────────────────────────────────────────────────────────
+
+function main() {
+  const args = parseArgs(process.argv);
+
+  if (args.help) { printHelp(); process.exit(0); }
+
+  const verbose = Boolean(args.verbose);
+
+  console.log('\n╔══════════════════════════════════════════════════════════════╗');
+  console.log(  '║         MOBILEPHONEMARKET — Excel Import Tool v2.0          ║');
+  console.log(  '╚══════════════════════════════════════════════════════════════╝\n');
+
+  // ── Resolve file ──────────────────────────────────────────────────────────
+  const filePath = resolveExcelFile(args.file);
+  if (!filePath) {
+    console.error('❌ Could not locate master Excel file.');
+    console.error('   Tried paths from client.config.js masterExcel.nameHints');
+    console.error('   Use: node import_excel.cjs --file "path/to/file.xlsx"');
+    process.exit(1);
+  }
+  console.log(`📂 File: ${filePath}`);
+  console.log(`   Size: ${(fs.statSync(filePath).size / 1024).toFixed(0)} KB`);
+
+  // ── Read workbook ─────────────────────────────────────────────────────────
+  let wb;
+  try {
+    wb = XLSX.readFile(filePath, { cellDates: false });
+  } catch (err) {
+    console.error('❌ Failed to read Excel file:', err.message);
+    process.exit(1);
+  }
+
+  const sheetName = resolveSheet(wb, args.sheet);
+  console.log(`📋 Sheet: "${sheetName}" (available: ${wb.SheetNames.join(', ')})`);
+
+  const ws = wb.Sheets[sheetName];
+  if (!ws) {
+    console.error(`❌ Sheet "${sheetName}" not found in workbook.`);
+    process.exit(1);
+  }
+
+  // ── Parse ─────────────────────────────────────────────────────────────────
+  console.log('\n⏳ Parsing rows...\n');
+  const result = parseWorksheet(ws, verbose);
+
+  // ── Stats ─────────────────────────────────────────────────────────────────
+  const { stats } = result;
+  console.log('┌─────────────────────────────────────────────────────┐');
+  console.log(`│  Total units parsed : ${String(stats.total).padEnd(28)} │`);
+  console.log(`│  Available          : ${String(stats.available).padEnd(28)} │`);
+  console.log(`│  Sold (historical)  : ${String(stats.sold).padEnd(28)} │`);
+  console.log(`│  Suppliers detected : ${String(result.suppliers.length).padEnd(28)} │`);
+  console.log(`│  Skipped rows       : ${String(stats.skipped).padEnd(28)} │`);
+  console.log(`│  Duplicate IMEIs    : ${String(stats.duplicates).padEnd(28)} │`);
+  console.log('└─────────────────────────────────────────────────────┘');
+
+  if (result.suppliers.length > 0) {
+    console.log(`\n  Suppliers: ${result.suppliers.map(s => s.name).join(' · ')}`);
+  }
+
+  if (args.dryRun) {
+    console.log('\n✅ Dry run complete — no files written.\n');
+    return;
+  }
+
+  // ── Write primary output ──────────────────────────────────────────────────
+  const outputPath = args.output
+    || process.env.IMPORT_OUTPUT_PATH
+    || cfg.output.importedInventoryJson;
+
+  const payload = { suppliers: result.suppliers, units: result.units };
+  fs.writeFileSync(outputPath, JSON.stringify(payload, null, 2));
+  const sizeKb = (fs.statSync(outputPath).size / 1024).toFixed(0);
+  console.log(`\n✅ Written: ${outputPath}  (${sizeKb} KB)`);
+
+  // ── Optional: write to public/ for in-app seeding ─────────────────────────
+  const publicPath = args.public || null;
+  if (publicPath) {
+    const resolved = path.resolve(publicPath);
+    fs.mkdirSync(path.dirname(resolved), { recursive: true });
+    fs.writeFileSync(resolved, JSON.stringify(payload, null, 2));
+    console.log(`✅ Written: ${resolved}  (public seed)`);
+  }
+
+  console.log('\n  Next steps:');
+  console.log('  1. Run: node upload_to_firestore.cjs   (push to Firestore)');
+  console.log('  2. Or add --public public/imported_inventory.json to seed the app bundle');
+  console.log('  3. Or run the app and use the Import Excel button in the UI\n');
+}
+
+main();

@@ -1,4 +1,3 @@
-
 import { InventoryUnit } from '../types';
 
 export type NotificationType = 'sold' | 'new_stock';
@@ -24,21 +23,11 @@ class NotificationService {
   private notifications: Notification[] = [];
 
   constructor() {
-    // Load today's notifications from localStorage
-    const today = new Date().toISOString().split('T')[0];
-    const saved = localStorage.getItem(`notifications_${today}`);
-    if (saved) {
-      try {
-        this.notifications = JSON.parse(saved);
-      } catch (e) {
-        this.notifications = [];
-      }
-    }
+    // Notifications are kept in-memory only (device-specific, transient)
+    // No localStorage persistence needed
   }
 
   private save() {
-    const today = new Date().toISOString().split('T')[0];
-    localStorage.setItem(`notifications_${today}`, JSON.stringify(this.notifications));
     this.notify();
   }
 

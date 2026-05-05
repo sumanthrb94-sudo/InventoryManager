@@ -6,7 +6,7 @@
 
 const { initializeApp } = require('firebase/app');
 const { getFirestore, collection, getDocs, deleteDoc, doc } = require('firebase/firestore');
-const { getAuth, signInAnonymously } = require('firebase/auth');
+const { getAuth, signInWithEmailAndPassword } = require('firebase/auth');
 
 const config = {
   apiKey: "AIzaSyADYz4DwF-GUSzHqjfLrtS2pG2NC-IY4gU",
@@ -34,8 +34,8 @@ async function clearAll() {
   const db = getFirestore(app, DB_ID);
 
   console.log('🔐 Signing in as admin...');
-  await signInAnonymously(auth);
-  console.log('✅ Signed in anonymously.\n');
+  await signInWithEmailAndPassword(auth, 'admin@nexusinventory.com', 'Nexus@2026');
+  console.log('✅ Signed in as admin.\n');
 
   let grandTotal = 0;
 
