@@ -1,0 +1,26 @@
+name: Supabase Keep-Alive
+# Pings the Supabase project every 5 days to prevent
+# free-tier auto-pause (triggered after 7 days inactivity).
+
+on:
+  schedule:
+    - cron: '0 8 */5 * *'   # Every 5 days at 8:00 AM UTC
+  workflow_dispatch:          # Allow manual trigger from GitHub Actions tab
+
+jobs:
+  ping:
+    name: Ping Supabase
+    runs-on: ubuntu-latest
+    steps:
+      - name: Keep Supabase project active
+        run: |
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
+            "${{ secrets.VITE_SUPABASE_URL }}/rest/v1/suppliers?limit=1&select=id" \
+            -H "apikey: ${{ secrets.VITE_SUPABASE_ANON_KEY }}" \
+            -H "Authorization: Bearer ${{ secrets.VITE_SUPABASE_ANON_KEY }}")
+          echo "Supabase ping status: HTTP $STATUS"
+          if [ "$STATUS" != "200" ]; then
+            echo "::warning::Supabase ping returned HTTP $STATUS — project may be paused"
+            exit 1
+          fi
+          echo "✅ Supabase is active"
