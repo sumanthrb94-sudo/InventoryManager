@@ -32,8 +32,9 @@ export default function StockInPage({ onOpenBatch, onOpenImport }: Props) {
     [units]);
 
   const received = useMemo(() =>
-    [...units].filter(u => u.status !== 'incoming' && u.dateIn)
-      .sort((a, b) => new Date(b.dateIn).getTime() - new Date(a.dateIn).getTime()),
+    [...units]
+      .filter(u => u.status !== 'incoming')
+      .sort((a, b) => new Date(b.dateIn || 0).getTime() - new Date(a.dateIn || 0).getTime()),
     [units]);
 
   const filtered = useMemo(() => {
@@ -100,8 +101,19 @@ export default function StockInPage({ onOpenBatch, onOpenImport }: Props) {
         </button>
       </div>
 
-      {incoming.length > 0 && (
-        <CollapsibleSection title="SHS — Expected Stock" count={incoming.length} accent="border-l-amber-400" defaultOpen={true}>
+      <CollapsibleSection
+        title="SHS — Expected Stock"
+        count={incoming.length}
+        accent={incoming.length > 0 ? 'border-l-amber-400' : 'border-l-gray-200'}
+        defaultOpen={true}
+      >
+        {incoming.length === 0 ? (
+          <div className="py-8 flex flex-col items-center gap-2 text-gray-300">
+            <Clock size={28} />
+            <p className="text-xs font-mono">No pending SHS units</p>
+            <p className="text-[9px] font-mono text-gray-300">Add a delivery and mark units as SHS</p>
+          </div>
+        ) : (
           <div className="divide-y divide-gray-50">
             {incoming.map(u => (
               <div key={u.id} className="flex items-center gap-3 px-4 py-3 hover:bg-amber-50/40 transition-all">
@@ -125,8 +137,8 @@ export default function StockInPage({ onOpenBatch, onOpenImport }: Props) {
               </div>
             ))}
           </div>
-        </CollapsibleSection>
-      )}
+        )}
+      </CollapsibleSection>
 
       <div className="relative">
         <Search size={14} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400" />

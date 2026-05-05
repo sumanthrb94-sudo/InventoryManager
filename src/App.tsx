@@ -23,6 +23,7 @@ import { notificationService } from './lib/notificationService';
 import { subscribeToSyncStatus } from './lib/dbService';
 import { InventoryStoreProvider, useInventoryStore } from './lib/inventoryStore';
 import DataSeedPage from './components/DataSeedPage';
+import ErrorBoundary from './components/ErrorBoundary';
 
 type Tab = 'overview' | 'buystk' | 'sell' | 'returns' | 'reports' | 'suppliers' | 'analytics';
 
@@ -54,9 +55,11 @@ function AppWithAuth() {
   if (!user) return <LoginPage />;
 
   return (
-    <InventoryStoreProvider>
-      <AppShell user={user} />
-    </InventoryStoreProvider>
+    <ErrorBoundary>
+      <InventoryStoreProvider>
+        <AppShell user={user} />
+      </InventoryStoreProvider>
+    </ErrorBoundary>
   );
 }
 

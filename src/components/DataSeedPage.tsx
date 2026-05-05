@@ -1,7 +1,12 @@
 import React, { useState } from 'react';
 import { supabase } from '../lib/supabase';
-import { CheckCircle2, AlertCircle, Database } from 'lucide-react';
+import { CheckCircle2, AlertCircle, Database, Clock } from 'lucide-react';
 import seedData from '../lib/clientSeedData.json';
+
+const units     = seedData.units as any[];
+const available = units.filter(u => u.status === 'available').length;
+const incoming  = units.filter(u => u.status === 'incoming').length;
+const sold      = units.filter(u => u.status === 'sold').length;
 
 export default function DataSeedPage() {
   const [status, setStatus] = useState<'idle' | 'running' | 'done' | 'error'>('idle');
@@ -15,7 +20,6 @@ export default function DataSeedPage() {
     setLog([]);
     setError('');
     try {
-      // 1. Wipe existing data
       addLog('Clearing existing inventory units…');
       const { error: delErr } = await supabase.from('inventory_units').delete().neq('id', '__none__');
       if (delErr) throw new Error('Clear units: ' + delErr.message);
@@ -24,16 +28,13 @@ export default function DataSeedPage() {
       const { error: delSupErr } = await supabase.from('suppliers').delete().neq('id', '__none__');
       if (delSupErr) throw new Error('Clear suppliers: ' + delSupErr.message);
 
-      // 2. Insert suppliers
       addLog(`Inserting ${seedData.suppliers.length} suppliers…`);
       const { error: supErr } = await supabase.from('suppliers').upsert(
         seedData.suppliers.map((s: any) => ({ ...s, created_at: new Date().toISOString() }))
       );
       if (supErr) throw new Error('Suppliers: ' + supErr.message);
 
-      // 3. Insert units in chunks of 50
       const CHUNK = 50;
-      const units = seedData.units as any[];
       let done = 0;
       for (let i = 0; i < units.length; i += CHUNK) {
         const chunk = units.slice(i, i + CHUNK);
@@ -43,7 +44,7 @@ export default function DataSeedPage() {
         addLog(`Inserted ${done} / ${units.length} units…`);
       }
 
-      addLog('✓ Done! Reload the app to see your data.');
+      addLog(`✓ Done! ${available} available · ${incoming} SHS · ${sold} sold`);
       setStatus('done');
     } catch (err: any) {
       setError(err.message);
@@ -59,15 +60,34 @@ export default function DataSeedPage() {
             <Database size={18} />
           </div>
           <div>
-            <h1 className="text-lg font-bold uppercase tracking-tight">Load Client Data</h1>
+            <h1 className="text-lg font-bold uppercase tracking-tight">Reload Client Data</h1>
             <p className="text-[10px] text-gray-400 font-mono">
-              {(seedData.units as any[]).length} units · {seedData.suppliers.length} suppliers
+              {units.length} units · {seedData.suppliers.length} suppliers
             </p>
           </div>
         </div>
 
+        {/* Stats */}
+        <div className="grid grid-cols-3 gap-2">
+          <div className="bg-emerald-50 border border-emerald-100 rounded-xl p-3 text-center">
+            <p className="text-xl font-bold text-emerald-700">{available}</p>
+            <p className="text-[8px] text-emerald-500 font-mono uppercase tracking-widest">Available</p>
+          </div>
+          <div className="bg-amber-50 border border-amber-100 rounded-xl p-3 text-center">
+            <p className="text-xl font-bold text-amber-700">{incoming}</p>
+            <p className="text-[8px] text-amber-500 font-mono uppercase tracking-widest flex items-center justify-center gap-1">
+              <Clock size={9} /> SHS
+            </p>
+          </div>
+          <div className="bg-gray-50 border border-gray-100 rounded-xl p-3 text-center">
+            <p className="text-xl font-bold text-gray-600">{sold}</p>
+            <p className="text-[8px] text-gray-400 font-mono uppercase tracking-widest">Sold</p>
+          </div>
+        </div>
+
         <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 text-xs text-amber-800 font-mono">
-          ⚠ This will DELETE all existing inventory data and replace it with the client dataset. Cannot be undone.
+          ⚠ This will DELETE all existing inventory data and replace it with the latest client dataset.
+          Run this again whenever the seed file is updated.
         </div>
 
         {log.length > 0 && (
@@ -88,7 +108,9 @@ export default function DataSeedPage() {
         {status === 'done' ? (
           <div className="flex items-center gap-2 bg-emerald-50 border border-emerald-200 rounded-xl px-4 py-3">
             <CheckCircle2 size={16} className="text-emerald-600" />
-            <p className="text-xs font-bold text-emerald-700">Data loaded successfully. Reload the app.</p>
+            <p className="text-xs font-bold text-emerald-700">
+              {units.length} units loaded — tap Reload to see them.
+            </p>
           </div>
         ) : (
           <button
@@ -98,16 +120,16 @@ export default function DataSeedPage() {
           >
             {status === 'running'
               ? <><div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" /> Loading…</>
-              : 'Load Client Data into Supabase'}
+              : `Load ${units.length} Units into Supabase`}
           </button>
         )}
 
         {status === 'done' && (
           <button
-            onClick={() => window.location.reload()}
+            onClick={() => { window.location.href = '/'; }}
             className="w-full py-3 border border-gray-200 rounded-xl text-xs font-bold uppercase tracking-widest hover:bg-gray-50 transition-all"
           >
-            Reload App
+            Go to App →
           </button>
         )}
       </div>

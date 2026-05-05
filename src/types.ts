@@ -3,7 +3,7 @@ export type DeviceCategory = 'iPhone' | 'iPad' | 'Apple Watch' | 'Tablet' | 'Sam
 export type DeviceStatus = 'available' | 'sold' | 'reserved' | 'returned' | 'lost' | 'incoming';
 export type ListingSite = 'eBay' | 'Amazon' | 'OnBuy' | 'Backmarket' | 'Other';
 export type StockLocation = 'office';  // Single location — all stock is held at the office
-export type ConditionGrade = 'A' | 'B' | 'C' | 'D' | 'Unknown';
+export type ConditionGrade = 'A+' | 'A' | 'A-' | 'B+' | 'B' | 'B-' | 'C' | 'D' | 'Unknown';
 
 export type OperationalFlag = 'top10' | 'supplierHasStock' | 'stockSold';
 

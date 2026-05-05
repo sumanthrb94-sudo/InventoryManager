@@ -10,47 +10,52 @@ interface Props {
 }
 
 export default function ReceiveSHSModal({ unit, onClose }: Props) {
-  const [imei, setImei]       = useState('');
-  const [saving, setSaving]   = useState(false);
-  const [saved, setSaved]     = useState(false);
-  const [error, setError]     = useState('');
+  const [imei, setImei]     = useState('');
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved]   = useState(false);
+  const [error, setError]   = useState('');
 
   const cleanImei = imei.replace(/\D/g, '');
-  const imeiOk    = cleanImei.length >= 14 && cleanImei.length <= 15;
+  // Allow 14-15 digit numeric IMEIs OR accept alphanumeric serial (≥8 chars) for tablets
+  const isNumeric    = /^\d+$/.test(cleanImei);
+  const numericOk    = isNumeric && cleanImei.length >= 14 && cleanImei.length <= 15;
+  const alphaSerial  = imei.trim().length >= 8 && !isNumeric;
+  const inputOk      = numericOk || alphaSerial;
+  const finalId      = alphaSerial ? imei.trim().toUpperCase() : cleanImei;
 
   const handleSave = async () => {
-    if (!imeiOk) { setError('IMEI must be 14-15 digits'); return; }
+    if (!inputOk) { setError('Enter a 14-15 digit IMEI or device serial (≥8 chars)'); return; }
     setSaving(true);
     setError('');
     try {
-      const exists = await dbService.imeiExists(cleanImei);
-      if (exists) { setError(`IMEI ${cleanImei} already in stock`); setSaving(false); return; }
+      const exists = await dbService.imeiExists(finalId);
+      if (exists) { setError(`${finalId} already exists in stock`); setSaving(false); return; }
 
-      // Delete the old SHS placeholder and create with real IMEI as ID
       await dbService.delete('inventoryUnits', unit.id);
-      await dbService.create('inventoryUnits', cleanImei, {
-        imei: cleanImei,
+      await dbService.create('inventoryUnits', finalId, {
+        imei:           finalId,
         model:          unit.model,
         brand:          unit.brand,
         category:       unit.category,
-        colour:         unit.colour,
+        colour:         unit.colour || 'Unknown',
+        storage:        unit.storage,
         buyPrice:       unit.buyPrice,
         dateIn:         new Date().toISOString().split('T')[0],
         supplierId:     unit.supplierId,
         batchId:        unit.batchId,
         status:         'available',
         flags:          unit.flags || [],
-        notes:          unit.notes || '',
+        notes:          (unit.notes || '').replace(/SHS\s*-\s*Expected stock\s*·?\s*/i, '').trim(),
         platformListed: false,
         listingSites:   [],
         conditionGrade: unit.conditionGrade,
-        ownerId:        'shared',
+        ownerId:        unit.ownerId || 'shared',
         createdAt:      unit.createdAt,
       });
       setSaved(true);
       setTimeout(onClose, 900);
     } catch (err: any) {
-      setError(err?.message || 'Save failed');
+      setError(err?.message || 'Save failed — please try again');
       setSaving(false);
     }
   };
@@ -84,39 +89,54 @@ export default function ReceiveSHSModal({ unit, onClose }: Props) {
           <div className="bg-blue-50 border border-blue-100 rounded-xl px-4 py-3 space-y-1">
             <p className="text-[8px] font-bold uppercase tracking-widest text-blue-500">Expected Unit</p>
             <p className="text-xs font-bold">{unit.model}</p>
-            <p className="text-[9px] text-gray-500 font-mono">{unit.colour} · £{unit.buyPrice} BP</p>
+            <p className="text-[9px] text-gray-500 font-mono">
+              {unit.colour || 'Unknown'} · £{unit.buyPrice} BP
+              {unit.supplierId ? ` · ${unit.supplierId}` : ''}
+            </p>
           </div>
 
           <div>
-            <label className="text-[8px] font-bold uppercase tracking-widest text-gray-400">Real IMEI</label>
+            <label className="text-[8px] font-bold uppercase tracking-widest text-gray-400">
+              IMEI / Serial Number
+            </label>
             <input
               autoFocus
               value={imei}
-              onChange={e => { setImei(e.target.value.replace(/\D/g, '')); setError(''); }}
-              placeholder="14-15 digit IMEI"
-              maxLength={15}
-              inputMode="numeric"
+              onChange={e => { setImei(e.target.value); setError(''); }}
+              placeholder="14-15 digit IMEI or device serial"
+              maxLength={20}
+              inputMode="text"
               className={`w-full mt-1 border rounded-xl px-4 py-3 text-sm font-mono focus:outline-none transition-all ${
-                imei && !imeiOk ? 'border-red-300 bg-red-50' : 'border-gray-200 focus:border-black bg-white'
+                imei && !inputOk ? 'border-red-300 bg-red-50' : 'border-gray-200 focus:border-black bg-white'
               }`}
             />
-            {imei && (
-              <p className={`text-[9px] font-mono mt-1 ${imeiOk ? 'text-emerald-600' : 'text-red-500'}`}>
-                {cleanImei.length} digits {imeiOk ? '✓' : `— need ${14 - cleanImei.length} more`}
+            {imei.trim().length > 0 && (
+              <p className={`text-[9px] font-mono mt-1 ${inputOk ? 'text-emerald-600' : 'text-red-500'}`}>
+                {alphaSerial
+                  ? `Serial: ${finalId} ✓`
+                  : isNumeric
+                    ? `${cleanImei.length} digits ${numericOk ? '✓' : `— need ${14 - cleanImei.length} more`}`
+                    : 'Contains non-numeric chars — treating as serial'}
               </p>
             )}
           </div>
 
-          {error && <p className="text-[10px] text-red-500 font-mono">{error}</p>}
+          {error && (
+            <div className="bg-red-50 border border-red-100 rounded-xl px-3 py-2">
+              <p className="text-[10px] text-red-600 font-mono">{error}</p>
+            </div>
+          )}
 
           <button
             onClick={handleSave}
-            disabled={!imeiOk || saving || saved}
+            disabled={!inputOk || saving || saved}
             className="w-full py-3.5 bg-blue-600 text-white rounded-xl text-[11px] font-bold uppercase tracking-widest hover:bg-blue-700 transition-all disabled:opacity-50 flex items-center justify-center gap-2"
           >
-            {saved   ? <><CheckCircle2 size={14} /> Stock Received!</> :
-             saving  ? <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" /> :
-             'Mark as Received → Available'}
+            {saved
+              ? <><CheckCircle2 size={14} /> Stock Received!</>
+              : saving
+                ? <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                : 'Mark as Received → Available'}
           </button>
         </div>
       </motion.div>
