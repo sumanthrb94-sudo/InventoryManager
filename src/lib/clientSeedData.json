@@ -27,13 +27,16 @@
       "date_in": "2026-01-15",
       "supplier_id": "sup_nanak",
       "status": "available",
-      "flags": [],
+      "flags": {},
       "notes": "",
       "platform_listed": false,
-      "listing_sites": [],
+      "listing_sites": {},
       "owner_id": "shared",
       "created_at": "2026-01-15",
-      "updated_at": "2026-01-15"
+      "updated_at": "2026-01-15",
+      "storage": "64GB",
+      "condition_grade": "A-",
+      "batch_id": "SEED_001"
     },
     {
       "id": "tab_a11_wf_64_grey",
@@ -46,13 +49,16 @@
       "date_in": "2026-01-15",
       "supplier_id": "sup_mhl",
       "status": "available",
-      "flags": [],
+      "flags": {},
       "notes": "ONU",
       "platform_listed": false,
-      "listing_sites": [],
+      "listing_sites": {},
       "owner_id": "shared",
       "created_at": "2026-01-15",
-      "updated_at": "2026-01-15"
+      "updated_at": "2026-01-15",
+      "storage": "64GB",
+      "condition_grade": "A-",
+      "batch_id": "SEED_001"
     },
     {
       "id": "tab_a11_wf_64_silver",
@@ -65,13 +71,16 @@
       "date_in": "2026-01-15",
       "supplier_id": "sup_mhl",
       "status": "available",
-      "flags": [],
+      "flags": {},
       "notes": "ONU",
       "platform_listed": false,
-      "listing_sites": [],
+      "listing_sites": {},
       "owner_id": "shared",
       "created_at": "2026-01-15",
-      "updated_at": "2026-01-15"
+      "updated_at": "2026-01-15",
+      "storage": "64GB",
+      "condition_grade": "A-",
+      "batch_id": "SEED_001"
     },
     {
       "id": "tab_a11_cell_64_grey",
@@ -84,13 +93,16 @@
       "date_in": "2026-01-15",
       "supplier_id": "sup_mhl",
       "status": "available",
-      "flags": [],
+      "flags": {},
       "notes": "ONU",
       "platform_listed": false,
-      "listing_sites": [],
+      "listing_sites": {},
       "owner_id": "shared",
       "created_at": "2026-01-15",
-      "updated_at": "2026-01-15"
+      "updated_at": "2026-01-15",
+      "storage": "64GB",
+      "condition_grade": "A-",
+      "batch_id": "SEED_001"
     },
     {
       "id": "tab_a11_cell_64_silver",
@@ -103,13 +115,16 @@
       "date_in": "2026-01-15",
       "supplier_id": "sup_mhl",
       "status": "available",
-      "flags": [],
+      "flags": {},
       "notes": "ONU",
       "platform_listed": false,
-      "listing_sites": [],
+      "listing_sites": {},
       "owner_id": "shared",
       "created_at": "2026-01-15",
-      "updated_at": "2026-01-15"
+      "updated_at": "2026-01-15",
+      "storage": "64GB",
+      "condition_grade": "A-",
+      "batch_id": "SEED_001"
     },
     {
       "id": "tab_a11_wf_128_grey",
@@ -122,13 +137,16 @@
       "date_in": "2026-01-15",
       "supplier_id": "sup_mhl",
       "status": "available",
-      "flags": [],
+      "flags": {},
       "notes": "ONU",
       "platform_listed": false,
-      "listing_sites": [],
+      "listing_sites": {},
       "owner_id": "shared",
       "created_at": "2026-01-15",
-      "updated_at": "2026-01-15"
+      "updated_at": "2026-01-15",
+      "storage": "128GB",
+      "condition_grade": "A-",
+      "batch_id": "SEED_001"
     },
     {
       "id": "tab_a11_wf_128_silver",
@@ -141,13 +159,16 @@
       "date_in": "2026-01-15",
       "supplier_id": "sup_mhl",
       "status": "available",
-      "flags": [],
+      "flags": {},
       "notes": "ONU",
       "platform_listed": false,
-      "listing_sites": [],
+      "listing_sites": {},
       "owner_id": "shared",
       "created_at": "2026-01-15",
-      "updated_at": "2026-01-15"
+      "updated_at": "2026-01-15",
+      "storage": "128GB",
+      "condition_grade": "A-",
+      "batch_id": "SEED_001"
     },
     {
       "id": "tab_a11_plus_cell_128_grey",
@@ -160,13 +181,16 @@
       "date_in": "2026-01-15",
       "supplier_id": "sup_mhl",
       "status": "available",
-      "flags": [],
+      "flags": {},
       "notes": "ONU",
       "platform_listed": false,
-      "listing_sites": [],
+      "listing_sites": {},
       "owner_id": "shared",
       "created_at": "2026-01-15",
-      "updated_at": "2026-01-15"
+      "updated_at": "2026-01-15",
+      "storage": "128GB",
+      "condition_grade": "A-",
+      "batch_id": "SEED_001"
     },
     {
       "id": "tab_a11_plus_cell_128_silver",
@@ -179,13 +203,16 @@
       "date_in": "2026-01-15",
       "supplier_id": "sup_mhl",
       "status": "available",
-      "flags": [],
+      "flags": {},
       "notes": "ONU",
       "platform_listed": false,
-      "listing_sites": [],
+      "listing_sites": {},
       "owner_id": "shared",
       "created_at": "2026-01-15",
-      "updated_at": "2026-01-15"
+      "updated_at": "2026-01-15",
+      "storage": "128GB",
+      "condition_grade": "A-",
+      "batch_id": "SEED_001"
     },
     {
       "id": "a16_5g_128_black",
@@ -198,13 +225,16 @@
       "date_in": "2026-01-15",
       "supplier_id": "sup_mhl",
       "status": "available",
-      "flags": [],
+      "flags": {},
       "notes": "ONU",
       "platform_listed": false,
-      "listing_sites": [],
+      "listing_sites": {},
       "owner_id": "shared",
       "created_at": "2026-01-15",
-      "updated_at": "2026-01-15"
+      "updated_at": "2026-01-15",
+      "storage": "128GB",
+      "condition_grade": "A-",
+      "batch_id": "SEED_001"
     },
     {
       "id": "a30s_64_black",
@@ -217,13 +247,16 @@
       "date_in": "2026-01-15",
       "supplier_id": "sup_mhl",
       "status": "available",
-      "flags": [],
+      "flags": {},
       "notes": "",
       "platform_listed": false,
-      "listing_sites": [],
+      "listing_sites": {},
       "owner_id": "shared",
       "created_at": "2026-01-15",
-      "updated_at": "2026-01-15"
+      "updated_at": "2026-01-15",
+      "storage": "64GB",
+      "condition_grade": "A-",
+      "batch_id": "SEED_001"
     },
     {
       "id": "a26_5g_128_black",
@@ -236,13 +269,16 @@
       "date_in": "2026-01-15",
       "supplier_id": "sup_mhl",
       "status": "available",
-      "flags": [],
+      "flags": {},
       "notes": "ONU",
       "platform_listed": false,
-      "listing_sites": [],
+      "listing_sites": {},
       "owner_id": "shared",
       "created_at": "2026-01-15",
-      "updated_at": "2026-01-15"
+      "updated_at": "2026-01-15",
+      "storage": "128GB",
+      "condition_grade": "A-",
+      "batch_id": "SEED_001"
     },
     {
       "id": "a26_5g_128_white",
@@ -255,13 +291,16 @@
       "date_in": "2026-01-15",
       "supplier_id": "sup_mhl",
       "status": "available",
-      "flags": [],
+      "flags": {},
       "notes": "ONU",
       "platform_listed": false,
-      "listing_sites": [],
+      "listing_sites": {},
       "owner_id": "shared",
       "created_at": "2026-01-15",
-      "updated_at": "2026-01-15"
+      "updated_at": "2026-01-15",
+      "storage": "128GB",
+      "condition_grade": "A-",
+      "batch_id": "SEED_001"
     },
     {
       "id": "a26_5g_128_pink",
@@ -274,13 +313,16 @@
       "date_in": "2026-01-15",
       "supplier_id": "sup_mhl",
       "status": "available",
-      "flags": [],
+      "flags": {},
       "notes": "ONU",
       "platform_listed": false,
-      "listing_sites": [],
+      "listing_sites": {},
       "owner_id": "shared",
       "created_at": "2026-01-15",
-      "updated_at": "2026-01-15"
+      "updated_at": "2026-01-15",
+      "storage": "128GB",
+      "condition_grade": "A-",
+      "batch_id": "SEED_001"
     },
     {
       "id": "a26_5g_128_mint",
@@ -293,13 +335,16 @@
       "date_in": "2026-01-15",
       "supplier_id": "sup_mhl",
       "status": "available",
-      "flags": [],
+      "flags": {},
       "notes": "ONU",
       "platform_listed": false,
-      "listing_sites": [],
+      "listing_sites": {},
       "owner_id": "shared",
       "created_at": "2026-01-15",
-      "updated_at": "2026-01-15"
+      "updated_at": "2026-01-15",
+      "storage": "128GB",
+      "condition_grade": "A-",
+      "batch_id": "SEED_001"
     },
     {
       "id": "a26_5g_256_black",
@@ -312,13 +357,16 @@
       "date_in": "2026-01-15",
       "supplier_id": "sup_mhl",
       "status": "available",
-      "flags": [],
+      "flags": {},
       "notes": "ONU",
       "platform_listed": false,
-      "listing_sites": [],
+      "listing_sites": {},
       "owner_id": "shared",
       "created_at": "2026-01-15",
-      "updated_at": "2026-01-15"
+      "updated_at": "2026-01-15",
+      "storage": "256GB",
+      "condition_grade": "A-",
+      "batch_id": "SEED_001"
     },
     {
       "id": "a26_5g_256_white",
@@ -331,13 +379,16 @@
       "date_in": "2026-01-15",
       "supplier_id": "sup_mhl",
       "status": "available",
-      "flags": [],
+      "flags": {},
       "notes": "ONU",
       "platform_listed": false,
-      "listing_sites": [],
+      "listing_sites": {},
       "owner_id": "shared",
       "created_at": "2026-01-15",
-      "updated_at": "2026-01-15"
+      "updated_at": "2026-01-15",
+      "storage": "256GB",
+      "condition_grade": "A-",
+      "batch_id": "SEED_001"
     },
     {
       "id": "a26_5g_256_pink",
@@ -350,13 +401,16 @@
       "date_in": "2026-01-15",
       "supplier_id": "sup_mhl",
       "status": "available",
-      "flags": [],
+      "flags": {},
       "notes": "ONU",
       "platform_listed": false,
-      "listing_sites": [],
+      "listing_sites": {},
       "owner_id": "shared",
       "created_at": "2026-01-15",
-      "updated_at": "2026-01-15"
+      "updated_at": "2026-01-15",
+      "storage": "256GB",
+      "condition_grade": "A-",
+      "batch_id": "SEED_001"
     },
     {
       "id": "a26_5g_256_mint",
@@ -369,13 +423,16 @@
       "date_in": "2026-01-15",
       "supplier_id": "sup_mhl",
       "status": "available",
-      "flags": [],
+      "flags": {},
       "notes": "ONU",
       "platform_listed": false,
-      "listing_sites": [],
+      "listing_sites": {},
       "owner_id": "shared",
       "created_at": "2026-01-15",
-      "updated_at": "2026-01-15"
+      "updated_at": "2026-01-15",
+      "storage": "256GB",
+      "condition_grade": "A-",
+      "batch_id": "SEED_001"
     },
     {
       "id": "a36_5g_128_black",
@@ -388,13 +445,16 @@
       "date_in": "2026-01-15",
       "supplier_id": "sup_mhl",
       "status": "available",
-      "flags": [],
+      "flags": {},
       "notes": "ONU",
       "platform_listed": false,
-      "listing_sites": [],
+      "listing_sites": {},
       "owner_id": "shared",
       "created_at": "2026-01-15",
-      "updated_at": "2026-01-15"
+      "updated_at": "2026-01-15",
+      "storage": "128GB",
+      "condition_grade": "A-",
+      "batch_id": "SEED_001"
     },
     {
       "id": "a36_5g_128_white",
@@ -407,13 +467,16 @@
       "date_in": "2026-01-15",
       "supplier_id": "sup_mhl",
       "status": "available",
-      "flags": [],
+      "flags": {},
       "notes": "ONU",
       "platform_listed": false,
-      "listing_sites": [],
+      "listing_sites": {},
       "owner_id": "shared",
       "created_at": "2026-01-15",
-      "updated_at": "2026-01-15"
+      "updated_at": "2026-01-15",
+      "storage": "128GB",
+      "condition_grade": "A-",
+      "batch_id": "SEED_001"
     },
     {
       "id": "a36_5g_128_lime",
@@ -426,13 +489,16 @@
       "date_in": "2026-01-15",
       "supplier_id": "sup_mhl",
       "status": "available",
-      "flags": [],
+      "flags": {},
       "notes": "ONU",
       "platform_listed": false,
-      "listing_sites": [],
+      "listing_sites": {},
       "owner_id": "shared",
       "created_at": "2026-01-15",
-      "updated_at": "2026-01-15"
+      "updated_at": "2026-01-15",
+      "storage": "128GB",
+      "condition_grade": "A-",
+      "batch_id": "SEED_001"
     },
     {
       "id": "a36_5g_128_lavender",
@@ -445,13 +511,16 @@
       "date_in": "2026-01-15",
       "supplier_id": "sup_mhl",
       "status": "available",
-      "flags": [],
+      "flags": {},
       "notes": "ONU",
       "platform_listed": false,
-      "listing_sites": [],
+      "listing_sites": {},
       "owner_id": "shared",
       "created_at": "2026-01-15",
-      "updated_at": "2026-01-15"
+      "updated_at": "2026-01-15",
+      "storage": "128GB",
+      "condition_grade": "A-",
+      "batch_id": "SEED_001"
     },
     {
       "id": "a36_5g_256_black",
@@ -464,13 +533,16 @@
       "date_in": "2026-01-15",
       "supplier_id": "sup_mhl",
       "status": "available",
-      "flags": [],
+      "flags": {},
       "notes": "ONU",
       "platform_listed": false,
-      "listing_sites": [],
+      "listing_sites": {},
       "owner_id": "shared",
       "created_at": "2026-01-15",
-      "updated_at": "2026-01-15"
+      "updated_at": "2026-01-15",
+      "storage": "256GB",
+      "condition_grade": "A-",
+      "batch_id": "SEED_001"
     },
     {
       "id": "a36_5g_256_white",
@@ -483,13 +555,16 @@
       "date_in": "2026-01-15",
       "supplier_id": "sup_mhl",
       "status": "available",
-      "flags": [],
+      "flags": {},
       "notes": "ONU",
       "platform_listed": false,
-      "listing_sites": [],
+      "listing_sites": {},
       "owner_id": "shared",
       "created_at": "2026-01-15",
-      "updated_at": "2026-01-15"
+      "updated_at": "2026-01-15",
+      "storage": "256GB",
+      "condition_grade": "A-",
+      "batch_id": "SEED_001"
     },
     {
       "id": "a36_5g_256_lime",
@@ -502,13 +577,16 @@
       "date_in": "2026-01-15",
       "supplier_id": "sup_mhl",
       "status": "available",
-      "flags": [],
+      "flags": {},
       "notes": "ONU",
       "platform_listed": false,
-      "listing_sites": [],
+      "listing_sites": {},
       "owner_id": "shared",
       "created_at": "2026-01-15",
-      "updated_at": "2026-01-15"
+      "updated_at": "2026-01-15",
+      "storage": "256GB",
+      "condition_grade": "A-",
+      "batch_id": "SEED_001"
     },
     {
       "id": "a36_5g_256_lavender",
@@ -521,13 +599,16 @@
       "date_in": "2026-01-15",
       "supplier_id": "sup_mhl",
       "status": "available",
-      "flags": [],
+      "flags": {},
       "notes": "ONU",
       "platform_listed": false,
-      "listing_sites": [],
+      "listing_sites": {},
       "owner_id": "shared",
       "created_at": "2026-01-15",
-      "updated_at": "2026-01-15"
+      "updated_at": "2026-01-15",
+      "storage": "256GB",
+      "condition_grade": "A-",
+      "batch_id": "SEED_001"
     },
     {
       "id": "a56_5g_128_black",
@@ -540,13 +621,16 @@
       "date_in": "2026-01-15",
       "supplier_id": "sup_mhl",
       "status": "available",
-      "flags": [],
+      "flags": {},
       "notes": "ONU",
       "platform_listed": false,
-      "listing_sites": [],
+      "listing_sites": {},
       "owner_id": "shared",
       "created_at": "2026-01-15",
-      "updated_at": "2026-01-15"
+      "updated_at": "2026-01-15",
+      "storage": "128GB",
+      "condition_grade": "A-",
+      "batch_id": "SEED_001"
     },
     {
       "id": "a56_5g_128_white",
@@ -559,13 +643,16 @@
       "date_in": "2026-01-15",
       "supplier_id": "sup_mhl",
       "status": "available",
-      "flags": [],
+      "flags": {},
       "notes": "ONU",
       "platform_listed": false,
-      "listing_sites": [],
+      "listing_sites": {},
       "owner_id": "shared",
       "created_at": "2026-01-15",
-      "updated_at": "2026-01-15"
+      "updated_at": "2026-01-15",
+      "storage": "128GB",
+      "condition_grade": "A-",
+      "batch_id": "SEED_001"
     },
     {
       "id": "a56_5g_128_lime",
@@ -578,13 +665,16 @@
       "date_in": "2026-01-15",
       "supplier_id": "sup_mhl",
       "status": "available",
-      "flags": [],
+      "flags": {},
       "notes": "ONU",
       "platform_listed": false,
-      "listing_sites": [],
+      "listing_sites": {},
       "owner_id": "shared",
       "created_at": "2026-01-15",
-      "updated_at": "2026-01-15"
+      "updated_at": "2026-01-15",
+      "storage": "128GB",
+      "condition_grade": "A-",
+      "batch_id": "SEED_001"
     },
     {
       "id": "a56_5g_128_lavender",
@@ -597,13 +687,16 @@
       "date_in": "2026-01-15",
       "supplier_id": "sup_mhl",
       "status": "available",
-      "flags": [],
+      "flags": {},
       "notes": "ONU",
       "platform_listed": false,
-      "listing_sites": [],
+      "listing_sites": {},
       "owner_id": "shared",
       "created_at": "2026-01-15",
-      "updated_at": "2026-01-15"
+      "updated_at": "2026-01-15",
+      "storage": "128GB",
+      "condition_grade": "A-",
+      "batch_id": "SEED_001"
     },
     {
       "id": "a56_5g_256_black",
@@ -616,13 +709,16 @@
       "date_in": "2026-01-15",
       "supplier_id": "sup_mhl",
       "status": "available",
-      "flags": [],
+      "flags": {},
       "notes": "ONU",
       "platform_listed": false,
-      "listing_sites": [],
+      "listing_sites": {},
       "owner_id": "shared",
       "created_at": "2026-01-15",
-      "updated_at": "2026-01-15"
+      "updated_at": "2026-01-15",
+      "storage": "256GB",
+      "condition_grade": "A-",
+      "batch_id": "SEED_001"
     },
     {
       "id": "a56_5g_256_white",
@@ -635,13 +731,16 @@
       "date_in": "2026-01-15",
       "supplier_id": "sup_mhl",
       "status": "available",
-      "flags": [],
+      "flags": {},
       "notes": "ONU",
       "platform_listed": false,
-      "listing_sites": [],
+      "listing_sites": {},
       "owner_id": "shared",
       "created_at": "2026-01-15",
-      "updated_at": "2026-01-15"
+      "updated_at": "2026-01-15",
+      "storage": "256GB",
+      "condition_grade": "A-",
+      "batch_id": "SEED_001"
     },
     {
       "id": "a56_5g_256_lime",
@@ -654,13 +753,16 @@
       "date_in": "2026-01-15",
       "supplier_id": "sup_mhl",
       "status": "available",
-      "flags": [],
+      "flags": {},
       "notes": "ONU",
       "platform_listed": false,
-      "listing_sites": [],
+      "listing_sites": {},
       "owner_id": "shared",
       "created_at": "2026-01-15",
-      "updated_at": "2026-01-15"
+      "updated_at": "2026-01-15",
+      "storage": "256GB",
+      "condition_grade": "A-",
+      "batch_id": "SEED_001"
     },
     {
       "id": "a56_5g_256_lavender",
@@ -673,13 +775,16 @@
       "date_in": "2026-01-15",
       "supplier_id": "sup_mhl",
       "status": "available",
-      "flags": [],
+      "flags": {},
       "notes": "ONU",
       "platform_listed": false,
-      "listing_sites": [],
+      "listing_sites": {},
       "owner_id": "shared",
       "created_at": "2026-01-15",
-      "updated_at": "2026-01-15"
+      "updated_at": "2026-01-15",
+      "storage": "256GB",
+      "condition_grade": "A-",
+      "batch_id": "SEED_001"
     },
     {
       "id": "shs_iphone_15_001",
@@ -692,13 +797,16 @@
       "date_in": "2026-01-20",
       "supplier_id": "sup_nanak",
       "status": "incoming",
-      "flags": [],
-      "notes": "SHS \u2014 Expected stock",
+      "flags": {},
+      "notes": "SHS — Expected stock",
       "platform_listed": false,
-      "listing_sites": [],
+      "listing_sites": {},
       "owner_id": "shared",
       "created_at": "2026-01-20",
-      "updated_at": "2026-01-20"
+      "updated_at": "2026-01-20",
+      "storage": "128GB",
+      "condition_grade": "Unknown",
+      "batch_id": "SHS_001"
     },
     {
       "id": "shs_iphone_15_002",
@@ -711,13 +819,16 @@
       "date_in": "2026-01-20",
       "supplier_id": "sup_nanak",
       "status": "incoming",
-      "flags": [],
-      "notes": "SHS \u2014 Expected stock",
+      "flags": {},
+      "notes": "SHS — Expected stock",
       "platform_listed": false,
-      "listing_sites": [],
+      "listing_sites": {},
       "owner_id": "shared",
       "created_at": "2026-01-20",
-      "updated_at": "2026-01-20"
+      "updated_at": "2026-01-20",
+      "storage": "128GB",
+      "condition_grade": "Unknown",
+      "batch_id": "SHS_001"
     },
     {
       "id": "shs_galaxy_s24_001",
@@ -730,13 +841,16 @@
       "date_in": "2026-01-22",
       "supplier_id": "sup_mhl",
       "status": "incoming",
-      "flags": [],
-      "notes": "SHS \u2014 Expected stock \u00b7 ONU",
+      "flags": {},
+      "notes": "SHS — Expected stock · ONU",
       "platform_listed": false,
-      "listing_sites": [],
+      "listing_sites": {},
       "owner_id": "shared",
       "created_at": "2026-01-22",
-      "updated_at": "2026-01-22"
+      "updated_at": "2026-01-22",
+      "storage": "128GB",
+      "condition_grade": "Unknown",
+      "batch_id": "SHS_001"
     },
     {
       "id": "shs_galaxy_s24_002",
@@ -749,13 +863,16 @@
       "date_in": "2026-01-22",
       "supplier_id": "sup_mhl",
       "status": "incoming",
-      "flags": [],
-      "notes": "SHS \u2014 Expected stock \u00b7 ONU",
+      "flags": {},
+      "notes": "SHS — Expected stock · ONU",
       "platform_listed": false,
-      "listing_sites": [],
+      "listing_sites": {},
       "owner_id": "shared",
       "created_at": "2026-01-22",
-      "updated_at": "2026-01-22"
+      "updated_at": "2026-01-22",
+      "storage": "256GB",
+      "condition_grade": "Unknown",
+      "batch_id": "SHS_001"
     },
     {
       "id": "shs_tab_s9_001",
@@ -768,13 +885,16 @@
       "date_in": "2026-01-25",
       "supplier_id": "sup_mhl",
       "status": "incoming",
-      "flags": [],
-      "notes": "SHS \u2014 Expected stock",
+      "flags": {},
+      "notes": "SHS — Expected stock",
       "platform_listed": false,
-      "listing_sites": [],
+      "listing_sites": {},
       "owner_id": "shared",
       "created_at": "2026-01-25",
-      "updated_at": "2026-01-25"
+      "updated_at": "2026-01-25",
+      "storage": "128GB",
+      "condition_grade": "Unknown",
+      "batch_id": "SHS_001"
     },
     {
       "id": "shs_iphone_14_001",
@@ -787,13 +907,16 @@
       "date_in": "2026-01-18",
       "supplier_id": "sup_nanak",
       "status": "incoming",
-      "flags": [],
-      "notes": "SHS \u2014 Expected stock",
+      "flags": {},
+      "notes": "SHS — Expected stock",
       "platform_listed": false,
-      "listing_sites": [],
+      "listing_sites": {},
       "owner_id": "shared",
       "created_at": "2026-01-18",
-      "updated_at": "2026-01-18"
+      "updated_at": "2026-01-18",
+      "storage": "128GB",
+      "condition_grade": "Unknown",
+      "batch_id": "SHS_001"
     },
     {
       "id": "shs_a55_001",
@@ -806,13 +929,16 @@
       "date_in": "2026-01-23",
       "supplier_id": "sup_mhl",
       "status": "incoming",
-      "flags": [],
-      "notes": "SHS \u2014 Expected stock \u00b7 ONU",
+      "flags": {},
+      "notes": "SHS — Expected stock · ONU",
       "platform_listed": false,
-      "listing_sites": [],
+      "listing_sites": {},
       "owner_id": "shared",
       "created_at": "2026-01-23",
-      "updated_at": "2026-01-23"
+      "updated_at": "2026-01-23",
+      "storage": "128GB",
+      "condition_grade": "Unknown",
+      "batch_id": "SHS_001"
     },
     {
       "id": "shs_a55_002",
@@ -825,13 +951,16 @@
       "date_in": "2026-01-23",
       "supplier_id": "sup_mhl",
       "status": "incoming",
-      "flags": [],
-      "notes": "SHS \u2014 Expected stock \u00b7 ONU",
+      "flags": {},
+      "notes": "SHS — Expected stock · ONU",
       "platform_listed": false,
-      "listing_sites": [],
+      "listing_sites": {},
       "owner_id": "shared",
       "created_at": "2026-01-23",
-      "updated_at": "2026-01-23"
+      "updated_at": "2026-01-23",
+      "storage": "128GB",
+      "condition_grade": "Unknown",
+      "batch_id": "SHS_001"
     }
   ]
 }
