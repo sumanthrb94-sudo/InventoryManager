@@ -7,7 +7,6 @@ import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContaine
 import { dbService } from '../lib/dbService';
 import { useInventoryStore } from '../lib/inventoryStore';
 import { InventoryUnit, Supplier } from '../types';
-import { getOnHandValue } from '../lib/inventorySummary';
 import CopyImei from './CopyImei';
 import PeriodicInventory from './PeriodicInventory';
 import CollapsibleSection from './CollapsibleSection';
@@ -35,7 +34,8 @@ export default function Dashboard({ onNavigate }: Props) {
   const sold         = units.filter(u => u.status === 'sold');
   const returned     = units.filter(u => u.status === 'returned');
   const incoming     = units.filter(u => u.status === 'incoming');
-  const totalValue   = getOnHandValue(units);
+  // Available-only value: matches the "Office Stock" count shown in the KPI card
+  const totalValue   = available.reduce((sum, u) => sum + u.buyPrice, 0);
   const top10Units   = available.filter(u => u.flags.includes('top10'));
   const today        = new Date().toISOString().split('T')[0];
   const yesterday    = new Date(Date.now() - 86400000).toISOString().split('T')[0];
