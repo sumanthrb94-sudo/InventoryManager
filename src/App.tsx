@@ -52,8 +52,8 @@ export default function App() {
   );
 }
 
-// ── Loading screen — progress is real, driven by actual seed progress ──────────
-function LoadingScreen({ progress }: { progress: number }) {
+// ── Loading screen — shown while waiting for Supabase initial fetch ────────────
+function LoadingScreen() {
   return (
     <motion.div
       initial={{ opacity: 1 }}
@@ -65,20 +65,13 @@ function LoadingScreen({ progress }: { progress: number }) {
         <h1 className="text-3xl font-bold tracking-tighter uppercase font-display">{APP_NAME}</h1>
         <p className="text-[9px] text-gray-400 font-mono uppercase tracking-[0.4em] mt-1">{APP_TAGLINE}</p>
       </div>
-      <div className="w-64 space-y-2">
-        <div className="flex justify-between items-center">
-          <span className="text-[10px] font-mono uppercase tracking-widest text-gray-400">
-            {progress === 0 ? 'Starting…' : progress < 100 ? 'Loading inventory…' : 'Ready'}
-          </span>
-          <span className="text-[10px] font-mono text-gray-400">{progress}%</span>
-        </div>
-        <div className="h-1 bg-gray-100 rounded-full overflow-hidden">
-          <motion.div
-            className="h-full bg-black rounded-full"
-            animate={{ width: `${progress}%` }}
-            transition={{ duration: 0.4, ease: 'easeOut' }}
-          />
-        </div>
+      <div className="flex flex-col items-center gap-3">
+        <motion.div
+          animate={{ rotate: 360 }}
+          transition={{ duration: 1, repeat: Infinity, ease: 'linear' }}
+          className="w-6 h-6 border-2 border-black border-t-transparent rounded-full"
+        />
+        <span className="text-[10px] font-mono uppercase tracking-widest text-gray-400">Loading inventory…</span>
       </div>
     </motion.div>
   );
@@ -92,14 +85,9 @@ function AppShell({ user }: { user: User }) {
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
   const [unreadCount, setUnreadCount]             = useState(0);
   const [syncConnected, setSyncConnected]         = useState(false);
-  const [seedProgress, setSeedProgress]           = useState(() => {
-    // Start at 100% if data is already cached (no seeding needed — flash is instant)
-    try { return !!localStorage.getItem('nexus_db_inventoryUnits') ? 100 : 0; } catch { return 0; }
-  });
 
   useRealTimeNotifications();
 
-  // Load this user's persisted notifications (read state + fired log)
   useEffect(() => {
     notificationService.setUser(user.uid);
   }, [user.uid]);
@@ -109,16 +97,6 @@ function AppShell({ user }: { user: User }) {
   }, []);
 
   useEffect(() => subscribeToSyncStatus(setSyncConnected), []);
-
-  // Seed from master_seed.json → localStorage on first load or after version bump.
-  // onProgress drives the real loading bar (0 → 100%).
-  useEffect(() => {
-    import('./lib/seedData').then(({ seedDefaultInventoryData }) =>
-      seedDefaultInventoryData((done, total) => {
-        setSeedProgress(Math.round((done / total) * 100));
-      })
-    ).then(() => setSeedProgress(100));
-  }, []);
 
   const handleNavigate = (action: NavAction) => {
     if (action.tab === 'inventory') setActiveTab('overview');
@@ -131,7 +109,7 @@ function AppShell({ user }: { user: User }) {
     <div className="min-h-[100dvh] bg-[#FAFAFA] text-black flex flex-col md:flex-row">
 
       <AnimatePresence>
-        {!loaded && <LoadingScreen progress={seedProgress} />}
+        {!loaded && <LoadingScreen />}
       </AnimatePresence>
 
       {/* Desktop Sidebar */}

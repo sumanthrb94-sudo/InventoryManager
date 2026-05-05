@@ -1,12 +1,11 @@
 /**
- * Supabase database service with localStorage cache.
- * Pattern: localStorage served immediately; Supabase syncs in background.
+ * Supabase database service — pure Supabase, no localStorage cache.
+ * In-memory cache (cachedData) is used for instant re-renders within the session only.
  * All columns are snake_case in Supabase; app uses camelCase — converted automatically.
  */
 
 import { supabase } from './supabase';
 
-const LOCAL_CACHE_PREFIX = 'nexus_db_';
 const listeners: Record<string, Array<(data: any[]) => void>> = {};
 const cachedData: Record<string, any[]> = {};
 
@@ -31,11 +30,9 @@ function toSnake(s: string): string {
 function toCamel(s: string): string {
   return s.replace(/_([a-z])/g, (_, c) => c.toUpperCase());
 }
-// DB row → app object (snake_case keys → camelCase)
 function dbToApp(row: Record<string, any>): Record<string, any> {
   return Object.fromEntries(Object.entries(row).map(([k, v]) => [toCamel(k), v]));
 }
-// App object → DB row (camelCase → snake_case, strips fields not in schema)
 function appToDb(obj: Record<string, any>): Record<string, any> {
   return Object.fromEntries(
     Object.entries(obj)
@@ -59,31 +56,11 @@ export function subscribeToSyncStatus(cb: (connected: boolean) => void) {
   return () => { const i = _syncListeners.indexOf(cb); if (i >= 0) _syncListeners.splice(i, 1); };
 }
 
-// ── localStorage helpers ──────────────────────────────────────────────────────
-function readLocalTable(collectionName: string): any[] {
-  try {
-    const raw = localStorage.getItem(`${LOCAL_CACHE_PREFIX}${collectionName}`);
-    return raw ? JSON.parse(raw) : [];
-  } catch { return []; }
-}
-
-function writeLocalTable(collectionName: string, data: any[]) {
-  try {
-    localStorage.setItem(`${LOCAL_CACHE_PREFIX}${collectionName}`, JSON.stringify(data));
-  } catch { /* quota exceeded */ }
-}
-
 function emit(collectionName: string, data: any[]) {
   for (const cb of listeners[collectionName] || []) cb([...data]);
 }
 
 function nowIso() { return new Date().toISOString(); }
-
-export function clearAllLocalCaches() {
-  Object.keys(localStorage)
-    .filter(k => k.startsWith(LOCAL_CACHE_PREFIX))
-    .forEach(k => localStorage.removeItem(k));
-}
 
 // ── dbService ─────────────────────────────────────────────────────────────────
 export const dbService = {
@@ -92,57 +69,47 @@ export const dbService = {
     const timestamp = nowIso();
     const newItem = { ...data, id, createdAt: data.createdAt ?? timestamp, updatedAt: timestamp };
 
-    // Instant local write — UI never waits for Supabase
-    const local = readLocalTable(collectionName);
-    const idx = local.findIndex(item => item.id === id);
-    if (idx >= 0) local[idx] = newItem; else local.push(newItem);
-    writeLocalTable(collectionName, local);
-    cachedData[collectionName] = local;
-    emit(collectionName, local);
+    // Optimistic in-memory update so UI is instant
+    const current = [...(cachedData[collectionName] || [])];
+    const idx = current.findIndex(item => item.id === id);
+    if (idx >= 0) current[idx] = newItem; else current.push(newItem);
+    cachedData[collectionName] = current;
+    emit(collectionName, current);
 
-    // Background Supabase sync
-    void supabase
+    const { error } = await supabase
       .from(tableName(collectionName))
-      .upsert(appToDb(newItem))
-      .then(({ error }) => {
-        if (error) console.warn(`Supabase create [${collectionName}/${id}]:`, error.message);
-      });
+      .upsert(appToDb(newItem));
+    if (error) console.warn(`Supabase create [${collectionName}/${id}]:`, error.message);
   },
 
   async update(collectionName: string, id: string, data: any) {
     const timestamp = nowIso();
-    const local = readLocalTable(collectionName);
-    const idx = local.findIndex(item => item.id === id);
+    const current = [...(cachedData[collectionName] || [])];
+    const idx = current.findIndex(item => item.id === id);
     const updated = idx >= 0
-      ? { ...local[idx], ...data, id, updatedAt: timestamp }
+      ? { ...current[idx], ...data, id, updatedAt: timestamp }
       : { ...data, id, updatedAt: timestamp };
 
-    if (idx >= 0) local[idx] = updated; else local.push(updated);
-    writeLocalTable(collectionName, local);
-    cachedData[collectionName] = local;
-    emit(collectionName, local);
+    if (idx >= 0) current[idx] = updated; else current.push(updated);
+    cachedData[collectionName] = current;
+    emit(collectionName, current);
 
-    void supabase
+    const { error } = await supabase
       .from(tableName(collectionName))
-      .upsert(appToDb(updated))
-      .then(({ error }) => {
-        if (error) console.warn(`Supabase update [${collectionName}/${id}]:`, error.message);
-      });
+      .upsert(appToDb(updated));
+    if (error) console.warn(`Supabase update [${collectionName}/${id}]:`, error.message);
   },
 
   async delete(collectionName: string, id: string) {
-    const local = readLocalTable(collectionName).filter(item => item.id !== id);
-    writeLocalTable(collectionName, local);
-    cachedData[collectionName] = local;
-    emit(collectionName, local);
+    const current = (cachedData[collectionName] || []).filter(item => item.id !== id);
+    cachedData[collectionName] = current;
+    emit(collectionName, current);
 
-    void supabase
+    const { error } = await supabase
       .from(tableName(collectionName))
       .delete()
-      .eq('id', id)
-      .then(({ error }) => {
-        if (error) console.warn(`Supabase delete [${collectionName}/${id}]:`, error.message);
-      });
+      .eq('id', id);
+    if (error) console.warn(`Supabase delete [${collectionName}/${id}]:`, error.message);
   },
 
   async bulkCreate(
@@ -153,7 +120,6 @@ export const dbService = {
     const total = entries.length;
     let done = 0;
 
-    // Group by collection
     const byCollection: Record<string, any[]> = {};
     for (const entry of entries) {
       const item = {
@@ -167,19 +133,18 @@ export const dbService = {
       byCollection[entry.collection].push(item);
     }
 
-    // 1. Write to localStorage instantly so UI never waits
+    // Optimistic in-memory update
     for (const [col, items] of Object.entries(byCollection)) {
-      const existing = readLocalTable(col);
+      const existing = [...(cachedData[col] || [])];
       for (const item of items) {
         const idx = existing.findIndex(e => e.id === item.id);
         if (idx >= 0) existing[idx] = item; else existing.push(item);
       }
-      writeLocalTable(col, existing);
       cachedData[col] = existing;
       emit(col, existing);
     }
 
-    // 2. Sync to Supabase in chunks of 100
+    // Sync to Supabase in chunks
     const CHUNK = 100;
     for (const [col, items] of Object.entries(byCollection)) {
       const rows = items.map(appToDb);
@@ -203,11 +168,9 @@ export const dbService = {
     let retryTimer: ReturnType<typeof setTimeout> | null = null;
     let channel: any = null;
 
-    // Serve local cache immediately so UI is never blank
-    const cached = readLocalTable(collectionName);
-    if (cached.length > 0) {
-      cachedData[collectionName] = cached;
-      callback(cached);
+    // Serve in-memory cache immediately if we already fetched this session
+    if (cachedData[collectionName]?.length) {
+      callback([...cachedData[collectionName]]);
     }
 
     const orderCol = collectionName === 'inventoryUnits' ? 'date_in' : 'created_at';
@@ -228,15 +191,10 @@ export const dbService = {
         const appData = await fetchLatest();
         if (destroyed) return;
 
-        // Only update if Supabase has data (don't overwrite seed with empty)
-        if (appData.length > 0) {
-          cachedData[collectionName] = appData;
-          writeLocalTable(collectionName, appData);
-          emit(collectionName, appData);
-        }
+        cachedData[collectionName] = appData;
+        emit(collectionName, appData);
         setSyncStatus(true);
 
-        // Real-time subscription — updates the local cache on any DB change
         channel = supabase
           .channel(`rt_${collectionName}_${Date.now()}`)
           .on('postgres_changes', { event: '*', schema: 'public', table: tableName(collectionName) }, async () => {
@@ -244,7 +202,6 @@ export const dbService = {
             try {
               const fresh = await fetchLatest();
               cachedData[collectionName] = fresh;
-              writeLocalTable(collectionName, fresh);
               emit(collectionName, fresh);
             } catch { /* ignore mid-session refresh errors */ }
           })
@@ -275,11 +232,6 @@ export const dbService = {
 
   async readAll(collectionName: string) {
     if (cachedData[collectionName]?.length) return cachedData[collectionName];
-    const cached = readLocalTable(collectionName);
-    if (cached.length > 0) {
-      cachedData[collectionName] = cached;
-      return cached;
-    }
     const orderCol = collectionName === 'inventoryUnits' ? 'date_in' : 'created_at';
     const { data } = await supabase
       .from(tableName(collectionName))
@@ -287,17 +239,11 @@ export const dbService = {
       .order(orderCol, { ascending: false });
     const appData = (data || []).map(dbToApp);
     cachedData[collectionName] = appData;
-    writeLocalTable(collectionName, appData);
     return appData;
   },
 
-  refreshFromLocalCache(collectionName: string) {
-    const data = readLocalTable(collectionName);
-    emit(collectionName, data);
-  },
-
   async resetDatabase() {
-    clearAllLocalCaches();
+    Object.keys(cachedData).forEach(k => delete cachedData[k]);
     window.location.href = window.location.origin + '?reset=' + Date.now();
   },
 };
