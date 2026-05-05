@@ -4,16 +4,21 @@ import { notificationService } from '../lib/notificationService';
 import { useInventoryStore } from '../lib/inventoryStore';
 
 export function useRealTimeNotifications() {
-  const { units }   = useInventoryStore();
-  // Store previous state as a Map for O(n) lookup instead of O(n²) forEach+find
+  const { units, loaded } = useInventoryStore();
   const prevMap     = useRef<Map<string, InventoryUnit>>(new Map());
-  const initialLoad = useRef(true);
+  const initialised = useRef(false);
 
   useEffect(() => {
-    // Skip the first delivery — it's the full initial dataset, not a change
-    if (initialLoad.current) {
+    // Don't start watching until the store has fully loaded its initial dataset.
+    // Without this guard, the first delivery (localStorage cache) always appears
+    // as "new units" because prevMap is empty on mount — triggering spurious
+    // notifications on every page reload.
+    if (!loaded || units.length === 0) return;
+
+    if (!initialised.current) {
+      // First stable snapshot — record as baseline, never fire notifications here
       prevMap.current = new Map(units.map(u => [u.id, u]));
-      initialLoad.current = false;
+      initialised.current = true;
       return;
     }
 
@@ -23,7 +28,7 @@ export function useRealTimeNotifications() {
     for (const unit of units) {
       const p = prev.get(unit.id);
       if (!p) {
-        // Brand-new unit — only notify if added today (ignore historical seed)
+        // New unit — only notify if it arrived today (ignore historical data)
         if (unit.dateIn === today || unit.createdAt?.startsWith(today)) {
           notificationService.addNotification('new_stock', unit);
         }
@@ -32,7 +37,6 @@ export function useRealTimeNotifications() {
       }
     }
 
-    // Rebuild map for next diff
     prevMap.current = new Map(units.map(u => [u.id, u]));
-  }, [units]);
+  }, [units, loaded]);
 }

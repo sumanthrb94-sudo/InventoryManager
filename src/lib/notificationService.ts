@@ -14,21 +14,72 @@ export interface Notification {
 }
 
 const SOUNDS = {
-  sold: 'https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3', // Success/Cashier
-  new_stock: 'https://assets.mixkit.co/active_storage/sfx/2354/2354-preview.mp3', // Ding
+  sold:      'https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3',
+  new_stock: 'https://assets.mixkit.co/active_storage/sfx/2354/2354-preview.mp3',
 };
+
+const NOTIFS_KEY_PREFIX = 'nexus_notifs_';
+const FIRED_KEY_PREFIX  = 'nexus_notif_fired_';
 
 class NotificationService {
   private listeners: ((notifications: Notification[]) => void)[] = [];
   private notifications: Notification[] = [];
+  private userId = 'anon';
+  private playSoundTimeout: any = null;
 
-  constructor() {
-    // Notifications are kept in-memory only (device-specific, transient)
-    // No localStorage persistence needed
+  // Called once login is confirmed — loads persisted notifications for this user
+  setUser(uid: string) {
+    if (this.userId === uid) return;
+    this.userId = uid;
+    this.loadFromStorage();
+    this.notify();
   }
 
-  private save() {
-    this.notify();
+  private notifsKey() { return `${NOTIFS_KEY_PREFIX}${this.userId}`; }
+  private firedKey()  { return `${FIRED_KEY_PREFIX}${this.userId}`; }
+
+  private loadFromStorage() {
+    try {
+      const raw = localStorage.getItem(this.notifsKey());
+      this.notifications = raw ? JSON.parse(raw) : [];
+    } catch { this.notifications = []; }
+  }
+
+  private saveToStorage() {
+    try {
+      localStorage.setItem(this.notifsKey(), JSON.stringify(this.notifications));
+    } catch { /* storage quota */ }
+  }
+
+  // Returns the set of already-fired event keys (survives reloads)
+  private getFiredSet(): Set<string> {
+    try {
+      const raw = localStorage.getItem(this.firedKey());
+      if (!raw) return new Set();
+      const entries: { key: string; date: string }[] = JSON.parse(raw);
+      // Only keep last 7 days
+      const cutoff = new Date();
+      cutoff.setDate(cutoff.getDate() - 7);
+      const cutoffStr = cutoff.toISOString().split('T')[0];
+      return new Set(entries.filter(e => e.date >= cutoffStr).map(e => e.key));
+    } catch { return new Set(); }
+  }
+
+  // Marks a notification event as fired so it won't re-trigger on reload
+  private markFired(key: string) {
+    try {
+      const raw = localStorage.getItem(this.firedKey());
+      const entries: { key: string; date: string }[] = raw ? JSON.parse(raw) : [];
+      const today = new Date().toISOString().split('T')[0];
+      if (!entries.some(e => e.key === key)) {
+        entries.push({ key, date: today });
+      }
+      // Prune entries older than 7 days
+      const cutoff = new Date();
+      cutoff.setDate(cutoff.getDate() - 7);
+      const cutoffStr = cutoff.toISOString().split('T')[0];
+      localStorage.setItem(this.firedKey(), JSON.stringify(entries.filter(e => e.date >= cutoffStr)));
+    } catch { /* ignore */ }
   }
 
   private notify() {
@@ -44,54 +95,57 @@ class NotificationService {
   }
 
   addNotification(type: NotificationType, unit: InventoryUnit) {
-    // Check if we already have this notification for this unit in the last 10 seconds (to prevent duplicates from snapshots)
-    const now = new Date();
-    const isDuplicate = this.notifications.some(n => 
-      n.unitId === unit.id && 
-      n.type === type && 
-      (now.getTime() - new Date(n.timestamp).getTime() < 10000)
-    );
+    const today   = new Date().toISOString().split('T')[0];
+    // Key includes date so a re-sold unit on a different day fires again
+    const firedKey = `${unit.id}_${type}_${today}`;
 
+    // Already shown today — don't fire again on reload or real-time re-fetch
+    if (this.getFiredSet().has(firedKey)) return;
+
+    // In-memory guard for rapid duplicates within the same session (< 10s)
+    const now = new Date();
+    const isDuplicate = this.notifications.some(n =>
+      n.unitId === unit.id &&
+      n.type === type &&
+      now.getTime() - new Date(n.timestamp).getTime() < 10000,
+    );
     if (isDuplicate) return;
 
     const notification: Notification = {
       id: Math.random().toString(36).substring(2, 9),
       type,
-      title: type === 'sold' ? 'Unit Sold!' : 'New Stock Added',
+      title:   type === 'sold' ? 'Unit Sold!' : 'New Stock Added',
       message: `${unit.model} (${unit.imei.slice(-4)}) ${type === 'sold' ? 'has been marked as sold.' : 'is now in stock.'}`,
       timestamp: now.toISOString(),
       unitId: unit.id,
-      model: unit.model,
-      read: false,
+      model:  unit.model,
+      read:   false,
     };
 
-    this.notifications = [notification, ...this.notifications].slice(0, 50); // Keep last 50
-    this.save();
+    this.notifications = [notification, ...this.notifications].slice(0, 50);
+    this.markFired(firedKey);  // Persist so reload doesn't re-fire
+    this.saveToStorage();
+    this.notify();
     this.playSound(type);
   }
 
   markAsRead(id: string) {
     this.notifications = this.notifications.map(n => n.id === id ? { ...n, read: true } : n);
-    this.save();
+    this.saveToStorage();
+    this.notify();
   }
 
   markAllAsRead() {
     this.notifications = this.notifications.map(n => ({ ...n, read: true }));
-    this.save();
+    this.saveToStorage();
+    this.notify();
   }
 
-  private playSoundTimeout: any = null;
-
   private playSound(type: NotificationType) {
-    // Debounce sound to play only once per burst (especially for bulk imports)
     if (this.playSoundTimeout) return;
-    
     const audio = new Audio(SOUNDS[type]);
     audio.play().catch(e => console.warn('Audio playback failed:', e));
-    
-    this.playSoundTimeout = setTimeout(() => {
-      this.playSoundTimeout = null;
-    }, 1000); // Only play sound once per second
+    this.playSoundTimeout = setTimeout(() => { this.playSoundTimeout = null; }, 1000);
   }
 
   getUnreadCount() {

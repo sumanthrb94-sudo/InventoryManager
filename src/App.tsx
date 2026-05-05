@@ -99,6 +99,11 @@ function AppShell({ user }: { user: User }) {
 
   useRealTimeNotifications();
 
+  // Load this user's persisted notifications (read state + fired log)
+  useEffect(() => {
+    notificationService.setUser(user.uid);
+  }, [user.uid]);
+
   useEffect(() => {
     return notificationService.subscribe(() => setUnreadCount(notificationService.getUnreadCount()));
   }, []);
