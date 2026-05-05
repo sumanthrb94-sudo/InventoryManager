@@ -4,7 +4,7 @@ import { dbService, clearAllLocalCaches } from './dbService';
 
 // Increment this string whenever you upload a new master Excel file.
 // Every device that sees a version mismatch will wipe + re-seed automatically.
-const MASTER_SEED_VERSION = 'master-v1';
+const MASTER_SEED_VERSION = 'client-v1';
 const SEED_VERSION_KEY    = 'nexus_seed_version';
 const META_DOC            = '_meta/seedVersion';
 

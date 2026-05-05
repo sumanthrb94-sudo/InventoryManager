@@ -34,6 +34,7 @@ export default function Dashboard({ onNavigate }: Props) {
   const available    = units.filter(u => u.status === 'available');
   const sold         = units.filter(u => u.status === 'sold');
   const returned     = units.filter(u => u.status === 'returned');
+  const incoming     = units.filter(u => u.status === 'incoming');
   const totalValue   = getOnHandValue(units);
   const top10Units   = available.filter(u => u.flags.includes('top10'));
   const today        = new Date().toISOString().split('T')[0];
@@ -216,7 +217,42 @@ export default function Dashboard({ onNavigate }: Props) {
           sub="Back in pipeline" icon={<TrendingUp size={16}/>}
           onClick={() => onNavigate({ tab:'inventory', filters:{ status:'returned' } })}
         />
+        {incoming.length > 0 && (
+          <KPICard
+            label="Incoming (SHS)" value={incoming.length}
+            sub="Expected stock" icon={<Truck size={16}/>}
+            badge="Pending"
+            onClick={() => onNavigate({ tab:'inventory', filters:{ status:'incoming' } })}
+            accent="bg-blue-50 border-blue-100 text-blue-900"
+          />
+        )}
       </div>
+
+      {/* Expected Stock (SHS) */}
+      {incoming.length > 0 && (
+        <CollapsibleSection
+          title="Expected Stock (SHS)"
+          count={incoming.length}
+          accent="border-l-blue-500"
+          defaultOpen={false}
+        >
+          <div className="divide-y divide-gray-50">
+            {incoming.slice(0, 20).map(u => (
+              <div key={u.id} className="flex items-center gap-3 px-4 py-3">
+                <div className="w-2 h-2 rounded-full bg-blue-400 flex-shrink-0" />
+                <div className="flex-1 min-w-0">
+                  <p className="text-xs font-bold truncate">{u.model}</p>
+                  <p className="text-[9px] text-gray-400 font-mono">{u.supplierName || 'Unknown supplier'} · £{u.buyPrice} BP</p>
+                </div>
+                <span className="text-[8px] bg-blue-100 text-blue-700 font-bold px-2 py-0.5 rounded-full uppercase tracking-wide">SHS</span>
+              </div>
+            ))}
+            {incoming.length > 20 && (
+              <p className="text-[9px] text-gray-400 font-mono text-center py-2">+{incoming.length - 20} more expected</p>
+            )}
+          </div>
+        </CollapsibleSection>
+      )}
 
       {/* Yesterday's Sales */}
       <CollapsibleSection
@@ -419,19 +455,19 @@ export default function Dashboard({ onNavigate }: Props) {
   );
 }
 
-function KPICard({ label, value, sub, icon, badge, onClick }: {
+function KPICard({ label, value, sub, icon, badge, onClick, accent }: {
   label: string; value: number | string; sub?: string;
-  icon: React.ReactNode; badge?: string; onClick: () => void;
+  icon: React.ReactNode; badge?: string; onClick: () => void; accent?: string;
 }) {
   return (
     <button onClick={onClick}
-      className="bg-white border border-gray-100 rounded-2xl p-4 shadow-sm text-left hover:shadow-md hover:border-gray-300 active:scale-[0.98] transition-all group w-full"
+      className={`${accent || 'bg-white border-gray-100'} border rounded-2xl p-4 shadow-sm text-left hover:shadow-md active:scale-[0.98] transition-all group w-full`}
     >
       <div className="flex items-center justify-between mb-3">
         <div className="w-8 h-8 bg-gray-100 rounded-xl flex items-center justify-center text-gray-600 group-hover:bg-black group-hover:text-white transition-all">
           {icon}
         </div>
-        {badge && <span className="text-[8px] bg-black text-white px-2 py-0.5 rounded-full font-mono font-bold">{badge}</span>}
+        {badge && <span className="text-[8px] bg-blue-500 text-white px-2 py-0.5 rounded-full font-mono font-bold">{badge}</span>}
         <ChevronRight size={13} className="text-gray-300 group-hover:text-black transition-all"/>
       </div>
       <p className="text-[8px] text-gray-400 uppercase tracking-widest font-mono">{label}</p>

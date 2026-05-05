@@ -23,8 +23,10 @@ export function InventoryStoreProvider({ children }: { children: React.ReactNode
       if (unitsReady && suppliersReady) setLoaded(true);
     };
 
-    // Hard timeout — never leave users on the loading screen beyond 5s
-    const timeout = setTimeout(() => setLoaded(true), 5000);
+    // If localStorage was just wiped (seed version mismatch), give seedData up to 20s
+    // to repopulate before we bail. If cache exists, 5s is plenty.
+    const hasCached = (() => { try { return !!localStorage.getItem('nexus_db_inventoryUnits'); } catch { return false; } })();
+    const timeout = setTimeout(() => setLoaded(true), hasCached ? 5000 : 20000);
 
     const u = dbService.subscribeToCollection('inventoryUnits', data => {
       setUnits(data);

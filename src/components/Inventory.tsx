@@ -27,7 +27,7 @@ const FLAG_CONFIG: Record<OperationalFlag, { label: string; icon: any; style: st
   supplierHasStock:{ label:'Supplier Stock',icon:Truck,      style:'bg-green-50 text-green-800 border-green-200' },
   stockSold:       { label:'Sold',          icon:CheckCircle2,style:'bg-gray-50 text-gray-600 border-gray-200' },
 };
-const STATUS_OPTS = ['All','available','sold','returned','reserved'];
+const STATUS_OPTS = ['All','available','sold','returned','reserved','incoming'];
 const SORT_OPTS   = [
   { value:'dateIn_desc', label:'Newest First' },
   { value:'dateIn_asc',  label:'Oldest First' },

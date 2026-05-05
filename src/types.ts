@@ -1,6 +1,6 @@
 export type DeviceCategory = 'iPhone' | 'iPad' | 'Apple Watch' | 'Tablet' | 'Samsung S Series' | 'Samsung A Series' | 'Other';
 
-export type DeviceStatus = 'available' | 'sold' | 'reserved' | 'returned' | 'lost';
+export type DeviceStatus = 'available' | 'sold' | 'reserved' | 'returned' | 'lost' | 'incoming';
 export type ListingSite = 'eBay' | 'Amazon' | 'OnBuy' | 'Backmarket' | 'Other';
 export type StockLocation = 'office';  // Single location — all stock is held at the office
 export type ConditionGrade = 'A' | 'B' | 'C' | 'D' | 'Unknown';
@@ -58,6 +58,7 @@ export interface InventoryUnit {
   buyPrice: number;       // Buying price (BP)
   dateIn: string;         // ISO date string — when unit arrived in office
   supplierId: string;
+  supplierName?: string;
   batchId?: string;
   stockLocation?: StockLocation;
   status: DeviceStatus;
