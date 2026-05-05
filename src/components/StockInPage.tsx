@@ -1,11 +1,12 @@
 import React, { useState, useMemo } from 'react';
-import { PackagePlus, Search, ChevronRight, Plus, FileSpreadsheet, CheckCircle2, Clock, ChevronDown, ChevronUp } from 'lucide-react';
+import { PackagePlus, Search, ChevronRight, Plus, FileSpreadsheet, CheckCircle2, Clock, ChevronDown, ChevronUp, Camera } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
 import { dbService } from '../lib/dbService';
 import { InventoryUnit, Supplier } from '../types';
 import { useInventoryStore } from '../lib/inventoryStore';
 import CopyImei from './CopyImei';
 import CollapsibleSection from './CollapsibleSection';
+import ScanInModal from './ScanInModal';
 
 interface Props {
   onOpenBatch: () => void;
@@ -16,6 +17,7 @@ export default function StockInPage({ onOpenBatch, onOpenImport }: Props) {
   const { units, suppliers }    = useInventoryStore();
   const [search, setSearch]     = useState('');
   const [expandedId, setExpandedId] = useState<string|null>(null);
+  const [isScanModalOpen, setIsScanModalOpen] = useState(false);
 
   const today = new Date().toISOString().split('T')[0];
 
@@ -75,14 +77,22 @@ export default function StockInPage({ onOpenBatch, onOpenImport }: Props) {
       </div>
 
       {/* Actions */}
-      <div className="grid grid-cols-2 gap-3">
+      <div className="grid grid-cols-3 gap-3">
         <button
           onClick={onOpenBatch}
           className="flex flex-col items-center gap-2 p-4 bg-black text-white rounded-2xl hover:bg-gray-800 transition-all active:scale-95"
         >
           <Plus size={20} />
-          <span className="text-[10px] font-bold uppercase tracking-widest">Add Supplier Delivery</span>
-          <span className="text-[8px] text-gray-400 font-mono">Add multiple units</span>
+          <span className="text-[10px] font-bold uppercase tracking-widest">Add Delivery</span>
+          <span className="text-[8px] text-gray-400 font-mono">Multiple units</span>
+        </button>
+        <button
+          onClick={() => setIsScanModalOpen(true)}
+          className="flex flex-col items-center gap-2 p-4 bg-emerald-600 text-white rounded-2xl hover:bg-emerald-700 transition-all active:scale-95"
+        >
+          <Camera size={20} />
+          <span className="text-[10px] font-bold uppercase tracking-widest">Scan IMEI</span>
+          <span className="text-[8px] text-emerald-100 font-mono">Single unit</span>
         </button>
         <button
           onClick={onOpenImport}
@@ -90,7 +100,7 @@ export default function StockInPage({ onOpenBatch, onOpenImport }: Props) {
         >
           <FileSpreadsheet size={20} className="text-gray-700" />
           <span className="text-[10px] font-bold uppercase tracking-widest text-black">Import Excel</span>
-          <span className="text-[8px] text-gray-400 font-mono">Bulk import from sheet</span>
+          <span className="text-[8px] text-gray-400 font-mono">Bulk import</span>
         </button>
       </div>
 
@@ -169,6 +179,10 @@ export default function StockInPage({ onOpenBatch, onOpenImport }: Props) {
           </div>
         )}
       </CollapsibleSection>
+
+      <AnimatePresence>
+        {isScanModalOpen && <ScanInModal onClose={() => setIsScanModalOpen(false)} />}
+      </AnimatePresence>
     </div>
   );
 }

@@ -246,4 +246,14 @@ export const dbService = {
     Object.keys(cachedData).forEach(k => delete cachedData[k]);
     window.location.href = window.location.origin + '?reset=' + Date.now();
   },
+
+  async imeiExists(imei: string): Promise<boolean> {
+    if (!imei || imei.length < 14) return false;
+    const { data } = await supabase
+      .from('inventory_units')
+      .select('imei')
+      .eq('imei', imei)
+      .single();
+    return !!data;
+  },
 };
