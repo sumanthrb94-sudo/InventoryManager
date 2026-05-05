@@ -408,6 +408,7 @@ export default function NewBatchModal({ onClose }: Props) {
 
 // ── Row card ──────────────────────────────────────────────────────────────────
 interface RowProps {
+  key?: React.Key;
   row: BatchRow;
   index: number;
   knownSuppliers: string[];
