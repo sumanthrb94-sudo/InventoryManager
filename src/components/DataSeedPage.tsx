@@ -26,7 +26,7 @@ export default function DataSeedPage() {
 
       // 2. Insert suppliers
       addLog(`Inserting ${seedData.suppliers.length} suppliers…`);
-      const { error: supErr } = await supabase.from('suppliers').insert(
+      const { error: supErr } = await supabase.from('suppliers').upsert(
         seedData.suppliers.map((s: any) => ({ ...s, created_at: new Date().toISOString() }))
       );
       if (supErr) throw new Error('Suppliers: ' + supErr.message);
