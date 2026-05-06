@@ -1,7 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import {
   PackagePlus, Search, Plus, FileSpreadsheet, CheckCircle2, Clock,
-  ChevronDown, ChevronUp, Truck, PackageCheck, AlertCircle,
+  ChevronDown, ChevronUp, Truck, PackageCheck, AlertCircle, Camera,
 } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
 import { dbService } from '../lib/dbService';
@@ -11,6 +11,7 @@ import CopyImei from './CopyImei';
 import CollapsibleSection from './CollapsibleSection';
 import ReceiveSHSModal from './ReceiveSHSModal';
 import AddSHSModal from './AddSHSModal';
+import ScanInModal from './ScanInModal';
 import IntelligencePanel from './IntelligencePanel';
 
 interface Props {
@@ -24,6 +25,7 @@ export default function StockInPage({ onOpenBatch, onOpenImport }: Props) {
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [receivingUnit, setReceivingUnit] = useState<InventoryUnit | null>(null);
   const [showAddSHS, setShowAddSHS]       = useState(false);
+  const [showScan, setShowScan]           = useState(false);
 
   const today = new Date().toISOString().split('T')[0];
 
@@ -66,16 +68,25 @@ export default function StockInPage({ onOpenBatch, onOpenImport }: Props) {
   return (
     <div className="space-y-5">
       {/* Header */}
-      <div>
-        <h2 className="text-2xl font-bold tracking-tighter uppercase font-display flex items-center gap-3">
-          <span className="w-8 h-8 bg-emerald-100 rounded-lg flex items-center justify-center">
-            <PackagePlus size={16} className="text-emerald-700" />
-          </span>
-          Stock In
-        </h2>
-        <p className="text-[10px] text-gray-400 font-mono uppercase tracking-widest mt-1">
-          Record incoming stock · Model · IMEI · Buy Price
-        </p>
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h2 className="text-2xl font-bold tracking-tighter uppercase font-display flex items-center gap-3">
+            <span className="w-8 h-8 bg-emerald-100 rounded-lg flex items-center justify-center">
+              <PackagePlus size={16} className="text-emerald-700" />
+            </span>
+            Stock In
+          </h2>
+          <p className="text-[10px] text-gray-400 font-mono uppercase tracking-widest mt-1">
+            Record incoming stock · Model · IMEI · Buy Price
+          </p>
+        </div>
+        <button
+          onClick={() => setShowScan(true)}
+          className="flex items-center gap-2 px-4 py-2.5 bg-emerald-600 text-white rounded-xl hover:bg-emerald-700 transition-all active:scale-95 flex-shrink-0 whitespace-nowrap"
+        >
+          <Camera size={16} />
+          <span className="text-[10px] font-bold uppercase tracking-widest">Scan Unit</span>
+        </button>
       </div>
 
       {/* Today's summary */}
@@ -251,6 +262,9 @@ export default function StockInPage({ onOpenBatch, onOpenImport }: Props) {
       </CollapsibleSection>
 
       {/* Modals */}
+      <AnimatePresence>
+        {showScan && <ScanInModal onClose={() => setShowScan(false)} />}
+      </AnimatePresence>
       <AnimatePresence>
         {showAddSHS && <AddSHSModal onClose={() => setShowAddSHS(false)} />}
       </AnimatePresence>
