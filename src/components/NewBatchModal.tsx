@@ -194,9 +194,9 @@ export default function NewBatchModal({ onClose }: Props) {
         if (r.isSHS) {
           const tempId = `shs_${ts}_${idx++}`;
           await dbService.create('inventoryUnits', tempId, {
-            imei: null,
+            imei: '',
             model: r.model.trim(), brand, category,
-            colour: 'Unknown',
+            colour: r.colour.trim() || 'Unknown',
             buyPrice: bp, dateIn: date,
             supplierId, batchId,
             status: 'incoming', flags: [],

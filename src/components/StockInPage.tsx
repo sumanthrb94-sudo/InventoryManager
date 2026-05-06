@@ -1,11 +1,16 @@
 import React, { useState, useMemo } from 'react';
-import { PackagePlus, Search, ChevronRight, Plus, FileSpreadsheet, CheckCircle2, Clock, ChevronDown, ChevronUp } from 'lucide-react';
+import {
+  PackagePlus, Search, Plus, FileSpreadsheet, CheckCircle2, Clock,
+  ChevronDown, ChevronUp, Truck, PackageCheck, AlertCircle,
+} from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
 import { dbService } from '../lib/dbService';
 import { InventoryUnit, Supplier } from '../types';
 import { useInventoryStore } from '../lib/inventoryStore';
 import CopyImei from './CopyImei';
 import CollapsibleSection from './CollapsibleSection';
+import ReceiveSHSModal from './ReceiveSHSModal';
+import AddSHSModal from './AddSHSModal';
 
 interface Props {
   onOpenBatch: () => void;
@@ -13,23 +18,35 @@ interface Props {
 }
 
 export default function StockInPage({ onOpenBatch, onOpenImport }: Props) {
-  const { units, suppliers }    = useInventoryStore();
-  const [search, setSearch]     = useState('');
-  const [expandedId, setExpandedId] = useState<string|null>(null);
+  const { units, suppliers }        = useInventoryStore();
+  const [search, setSearch]         = useState('');
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [receivingUnit, setReceivingUnit] = useState<InventoryUnit | null>(null);
+  const [showAddSHS, setShowAddSHS]       = useState(false);
 
   const today = new Date().toISOString().split('T')[0];
-
-  const allSorted = useMemo(() => {
-    return [...units]
-      .filter(u => u.dateIn)
-      .sort((a, b) => new Date(b.dateIn).getTime() - new Date(a.dateIn).getTime());
-  }, [units]);
 
   const supplierMap = useMemo(() => {
     const m: Record<string, string> = {};
     for (const s of suppliers) m[s.id] = s.name;
     return m;
   }, [suppliers]);
+
+  // Pending SHS — incoming units, sorted by dateIn desc
+  const pendingSHS = useMemo(() =>
+    [...units]
+      .filter(u => u.status === 'incoming')
+      .sort((a, b) => new Date(b.dateIn).getTime() - new Date(a.dateIn).getTime()),
+    [units],
+  );
+
+  // Regular stock list (non-incoming), sorted newest first
+  const allSorted = useMemo(() =>
+    [...units]
+      .filter(u => u.dateIn && u.status !== 'incoming')
+      .sort((a, b) => new Date(b.dateIn).getTime() - new Date(a.dateIn).getTime()),
+    [units],
+  );
 
   const filtered = useMemo(() => {
     if (!search.trim()) return allSorted.slice(0, 50);
@@ -38,12 +55,12 @@ export default function StockInPage({ onOpenBatch, onOpenImport }: Props) {
       u.model.toLowerCase().includes(q) ||
       (u.imei || '').toLowerCase().includes(q) ||
       (u.buyPrice + '').includes(q) ||
-      (supplierMap[u.supplierId] || '').toLowerCase().includes(q)
+      (supplierMap[u.supplierId] || '').toLowerCase().includes(q),
     );
   }, [allSorted, search, supplierMap]);
 
-  const todayIn = units.filter(u => u.dateIn === today);
-  const totalBP = todayIn.reduce((s, u) => s + u.buyPrice, 0);
+  const todayIn  = units.filter(u => u.dateIn === today && u.status !== 'incoming');
+  const totalBP  = todayIn.reduce((s, u) => s + u.buyPrice, 0);
 
   return (
     <div className="space-y-5 pb-24 md:pb-8">
@@ -61,7 +78,7 @@ export default function StockInPage({ onOpenBatch, onOpenImport }: Props) {
       </div>
 
       {/* Today's summary */}
-      <div className="grid grid-cols-2 gap-3">
+      <div className="grid grid-cols-3 gap-3">
         <div className="bg-emerald-50 border border-emerald-100 rounded-2xl p-4">
           <p className="text-[9px] font-mono uppercase tracking-widest text-emerald-600">Today's Intake</p>
           <p className="text-3xl font-bold font-display mt-1 text-emerald-700">{todayIn.length}</p>
@@ -72,17 +89,30 @@ export default function StockInPage({ onOpenBatch, onOpenImport }: Props) {
           <p className="text-2xl font-bold font-display mt-1 text-blue-700">£{totalBP.toLocaleString()}</p>
           <p className="text-[9px] text-blue-500 font-mono">total buy price</p>
         </div>
+        <div className="bg-amber-50 border border-amber-100 rounded-2xl p-4">
+          <p className="text-[9px] font-mono uppercase tracking-widest text-amber-600">Pending SHS</p>
+          <p className="text-3xl font-bold font-display mt-1 text-amber-700">{pendingSHS.length}</p>
+          <p className="text-[9px] text-amber-500 font-mono">awaiting delivery</p>
+        </div>
       </div>
 
       {/* Actions */}
-      <div className="grid grid-cols-2 gap-3">
+      <div className="grid grid-cols-3 gap-3">
         <button
           onClick={onOpenBatch}
           className="flex flex-col items-center gap-2 p-4 bg-black text-white rounded-2xl hover:bg-gray-800 transition-all active:scale-95"
         >
           <Plus size={20} />
-          <span className="text-[10px] font-bold uppercase tracking-widest">Add Supplier Delivery</span>
-          <span className="text-[8px] text-gray-400 font-mono">Add multiple units</span>
+          <span className="text-[10px] font-bold uppercase tracking-widest">Add Delivery</span>
+          <span className="text-[8px] text-gray-400 font-mono text-center">With IMEI</span>
+        </button>
+        <button
+          onClick={() => setShowAddSHS(true)}
+          className="flex flex-col items-center gap-2 p-4 bg-amber-500 text-white rounded-2xl hover:bg-amber-600 transition-all active:scale-95"
+        >
+          <Truck size={20} />
+          <span className="text-[10px] font-bold uppercase tracking-widest">Log SHS Order</span>
+          <span className="text-[8px] text-amber-100 font-mono text-center">No IMEI yet</span>
         </button>
         <button
           onClick={onOpenImport}
@@ -90,9 +120,48 @@ export default function StockInPage({ onOpenBatch, onOpenImport }: Props) {
         >
           <FileSpreadsheet size={20} className="text-gray-700" />
           <span className="text-[10px] font-bold uppercase tracking-widest text-black">Import Excel</span>
-          <span className="text-[8px] text-gray-400 font-mono">Bulk import from sheet</span>
+          <span className="text-[8px] text-gray-400 font-mono text-center">Bulk import</span>
         </button>
       </div>
+
+      {/* Pending SHS section */}
+      {pendingSHS.length > 0 && (
+        <CollapsibleSection
+          title="Pending SHS — Awaiting Delivery"
+          count={pendingSHS.length}
+          accent="border-l-amber-500"
+          defaultOpen={true}
+        >
+          <div className="divide-y divide-amber-50">
+            {pendingSHS.map(u => (
+              <div key={u.id} className="flex items-center gap-3 px-4 py-3 hover:bg-amber-50/50 transition-all">
+                <div className="w-8 h-8 rounded-lg bg-amber-100 flex items-center justify-center flex-shrink-0">
+                  <Truck size={14} className="text-amber-600" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-xs font-bold truncate">{u.model}</p>
+                  <p className="text-[9px] text-gray-400 font-mono mt-0.5">
+                    {u.colour && u.colour !== 'Unknown' ? `${u.colour} · ` : ''}
+                    {supplierMap[u.supplierId] || '—'} · {u.dateIn}
+                  </p>
+                  {u.notes && (
+                    <p className="text-[8px] text-amber-600 font-mono mt-0.5 truncate">{u.notes}</p>
+                  )}
+                </div>
+                <div className="flex items-center gap-2 flex-shrink-0">
+                  <span className="text-sm font-bold">£{u.buyPrice}</span>
+                  <button
+                    onClick={() => setReceivingUnit(u)}
+                    className="px-3 py-1.5 bg-amber-500 text-white text-[9px] font-bold uppercase tracking-widest rounded-lg hover:bg-amber-600 transition-all flex items-center gap-1"
+                  >
+                    <PackageCheck size={11} /> Receive
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </CollapsibleSection>
+      )}
 
       {/* Search */}
       <div className="relative">
@@ -106,6 +175,7 @@ export default function StockInPage({ onOpenBatch, onOpenImport }: Props) {
         />
       </div>
 
+      {/* Recent stock (non-SHS) */}
       <CollapsibleSection
         title="Recent Stock In"
         count={filtered.length}
@@ -138,21 +208,27 @@ export default function StockInPage({ onOpenBatch, onOpenImport }: Props) {
                     </div>
                     <div className="flex items-center gap-2 flex-shrink-0">
                       <span className="text-sm font-bold">£{u.buyPrice}</span>
-                      <button onClick={() => setExpandedId(isOpen ? null : u.id)}
-                        className="p-1.5 hover:bg-gray-100 rounded-lg transition-all text-gray-400">
-                        {isOpen ? <ChevronUp size={13}/> : <ChevronDown size={13}/>}
+                      <button
+                        onClick={() => setExpandedId(isOpen ? null : u.id)}
+                        className="p-1.5 hover:bg-gray-100 rounded-lg transition-all text-gray-400"
+                      >
+                        {isOpen ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
                       </button>
                     </div>
                   </div>
                   <AnimatePresence>
                     {isOpen && (
-                      <motion.div initial={{height:0,opacity:0}} animate={{height:'auto',opacity:1}} exit={{height:0,opacity:0}}
-                        className="overflow-hidden bg-gray-50 border-t border-gray-100">
-                        <div className="px-5 py-3 grid grid-cols-2 md:grid-cols-3 gap-3">
+                      <motion.div
+                        initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }}
+                        exit={{ height: 0, opacity: 0 }}
+                        className="overflow-hidden bg-gray-50 border-t border-gray-100"
+                      >
+                        <div className="px-5 py-3 grid grid-cols-2 md:grid-cols-4 gap-3">
                           {[
-                            { label: 'Supplier',  value: supplierMap[u.supplierId] || '—' },
-                            { label: 'Colour',    value: u.colour || '—' },
-                            { label: 'Status',    value: u.status.charAt(0).toUpperCase() + u.status.slice(1) },
+                            { label: 'Supplier', value: supplierMap[u.supplierId] || '—' },
+                            { label: 'Colour',   value: u.colour || '—' },
+                            { label: 'Storage',  value: (u as any).storage || '—' },
+                            { label: 'Status',   value: u.status.charAt(0).toUpperCase() + u.status.slice(1) },
                           ].map(f => (
                             <div key={f.label}>
                               <p className="text-[8px] text-gray-400 font-mono uppercase tracking-widest">{f.label}</p>
@@ -169,6 +245,16 @@ export default function StockInPage({ onOpenBatch, onOpenImport }: Props) {
           </div>
         )}
       </CollapsibleSection>
+
+      {/* Modals */}
+      <AnimatePresence>
+        {showAddSHS && <AddSHSModal onClose={() => setShowAddSHS(false)} />}
+      </AnimatePresence>
+      <AnimatePresence>
+        {receivingUnit && (
+          <ReceiveSHSModal unit={receivingUnit} onClose={() => setReceivingUnit(null)} />
+        )}
+      </AnimatePresence>
     </div>
   );
 }
