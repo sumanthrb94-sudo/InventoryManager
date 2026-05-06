@@ -11,6 +11,8 @@ import CopyImei from './CopyImei';
 import CollapsibleSection from './CollapsibleSection';
 import ReceiveSHSModal from './ReceiveSHSModal';
 import AddSHSModal from './AddSHSModal';
+import AddDeliveryModal from './AddDeliveryModal';
+import ScanInModal from './ScanInModal';
 import IntelligencePanel from './IntelligencePanel';
 
 interface Props {
@@ -24,6 +26,8 @@ export default function StockInPage({ onOpenBatch, onOpenImport }: Props) {
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [receivingUnit, setReceivingUnit] = useState<InventoryUnit | null>(null);
   const [showAddSHS, setShowAddSHS]       = useState(false);
+  const [showAddDelivery, setShowAddDelivery] = useState(false);
+  const [showScanUnit, setShowScanUnit] = useState(false);
 
   const today = new Date().toISOString().split('T')[0];
 
@@ -100,7 +104,7 @@ export default function StockInPage({ onOpenBatch, onOpenImport }: Props) {
       {/* Actions */}
       <div className="grid grid-cols-3 gap-3">
         <button
-          onClick={onOpenBatch}
+          onClick={() => setShowAddDelivery(true)}
           className="flex flex-col items-center gap-2 p-4 bg-black text-white rounded-2xl hover:bg-gray-800 transition-all active:scale-95"
         >
           <Plus size={20} />
@@ -146,7 +150,7 @@ export default function StockInPage({ onOpenBatch, onOpenImport }: Props) {
                   <p className="text-xs font-bold truncate">{u.model}</p>
                   <p className="text-[9px] text-gray-400 font-mono mt-0.5">
                     {u.colour && u.colour !== 'Unknown' ? `${u.colour} · ` : ''}
-                    {supplierMap[u.supplierId] || '—'} · {u.dateIn}
+                    {supplierMap[u.supplierId] || '—'} · {u.batchId === 'master_batch' ? 'Master' : (u.batchId || 'Default')} · {u.dateIn}
                   </p>
                   {u.notes && (
                     <p className="text-[8px] text-amber-600 font-mono mt-0.5 truncate">{u.notes}</p>
@@ -230,9 +234,9 @@ export default function StockInPage({ onOpenBatch, onOpenImport }: Props) {
                         <div className="px-5 py-3 grid grid-cols-2 md:grid-cols-4 gap-3">
                           {[
                             { label: 'Supplier', value: supplierMap[u.supplierId] || '—' },
+                            { label: 'Batch', value: u.batchId === 'master_batch' ? 'Master' : (u.batchId || 'Default') },
                             { label: 'Colour',   value: u.colour || '—' },
                             { label: 'Storage',  value: (u as any).storage || '—' },
-                            { label: 'Status',   value: u.status.charAt(0).toUpperCase() + u.status.slice(1) },
                           ].map(f => (
                             <div key={f.label}>
                               <p className="text-[8px] text-gray-400 font-mono uppercase tracking-widest">{f.label}</p>
@@ -251,6 +255,24 @@ export default function StockInPage({ onOpenBatch, onOpenImport }: Props) {
       </CollapsibleSection>
 
       {/* Modals */}
+      <AnimatePresence>
+        {showAddDelivery && (
+          <AddDeliveryModal
+            onSelectSingle={() => {
+              setShowAddDelivery(false);
+              setShowScanUnit(true);
+            }}
+            onSelectBatch={() => {
+              setShowAddDelivery(false);
+              onOpenBatch();
+            }}
+            onClose={() => setShowAddDelivery(false)}
+          />
+        )}
+      </AnimatePresence>
+      <AnimatePresence>
+        {showScanUnit && <ScanInModal onClose={() => setShowScanUnit(false)} />}
+      </AnimatePresence>
       <AnimatePresence>
         {showAddSHS && <AddSHSModal onClose={() => setShowAddSHS(false)} />}
       </AnimatePresence>

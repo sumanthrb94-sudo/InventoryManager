@@ -156,6 +156,7 @@ export default function ScanInModal({ onClose }: Props) {
         buyPrice: bp,
         dateIn: today(),
         supplierId,
+        batchId: 'master_batch',
         status: 'available',
         flags: [],
         notes: notes || '',
