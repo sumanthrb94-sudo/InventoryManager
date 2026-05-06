@@ -8,6 +8,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { dbService } from '../lib/dbService';
 import { InventoryUnit, Supplier, OperationalFlag, ActiveListing } from '../types';
 import { notificationService, Notification } from '../lib/notificationService';
+import { platformTotalFee, calcNetProfit } from '../lib/platforms';
 
 const FLAG_CONFIG: Record<OperationalFlag, { label: string; icon: any; style: string; action: string }> = {
   top10: {
@@ -368,27 +369,57 @@ export default function Sales() {
                     <div className="px-6 py-12 text-center text-gray-400 font-mono text-[10px]">
                       {soldSearch ? `No matching sales found for "${soldSearch}"` : "No devices sold today yet."}
                     </div>
-                  ) : filteredSold.map(u => (
-                    <div key={u.id} className="px-6 py-4 flex items-center gap-6 group hover:bg-gray-50 transition-all">
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2">
-                          <p className="text-sm font-bold truncate">{u.model}</p>
-                          {u.saleOrderId && (
-                            <span className="text-[8px] font-bold bg-emerald-100 text-emerald-700 px-1.5 py-0.5 rounded border border-emerald-200 font-mono">
-                              #{u.saleOrderId}
-                            </span>
-                          )}
+                  ) : filteredSold.map(u => {
+                    const platformFee = platformTotalFee(u.salePlatform || 'eBay', u.salePrice || 0);
+                    const postage = u.postagePrice || 8;
+                    const netProfit = calcNetProfit(u.salePrice || 0, u.buyPrice, u.salePlatform || 'eBay', postage);
+
+                    return (
+                      <div key={u.id} className="px-6 py-4 border-b border-gray-50 group hover:bg-gray-50 transition-all">
+                        <div className="flex items-start justify-between mb-3">
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2">
+                              <p className="text-sm font-bold truncate">{u.model}</p>
+                              {u.saleOrderId && (
+                                <span className="text-[8px] font-bold bg-emerald-100 text-emerald-700 px-1.5 py-0.5 rounded border border-emerald-200 font-mono">
+                                  #{u.saleOrderId}
+                                </span>
+                              )}
+                            </div>
+                            <p className="text-[10px] text-gray-500 font-mono uppercase mt-0.5">
+                              {u.colour} · <span className="text-black font-bold">IMEI: {u.imei || '—'}</span>
+                            </p>
+                          </div>
+                          <div className="text-right ml-4 flex-shrink-0">
+                            <p className="text-xs font-bold font-mono text-emerald-600">£{(u.salePrice || u.buyPrice).toFixed(2)}</p>
+                            <p className="text-[8px] text-gray-400 font-mono uppercase">Sale Price</p>
+                          </div>
                         </div>
-                        <p className="text-[10px] text-gray-500 font-mono uppercase mt-0.5">
-                          {u.colour} · <span className="text-black font-bold">IMEI: {u.imei || '—'}</span> · {u.salePlatform || 'Direct'}
-                        </p>
+
+                        {/* Financial Breakdown */}
+                        <div className="grid grid-cols-4 gap-2 bg-gray-50 rounded p-3 mt-2">
+                          <div className="text-center">
+                            <p className="text-[10px] font-bold text-gray-600 uppercase">Buy Price</p>
+                            <p className="text-xs font-mono font-bold text-gray-800 mt-1">£{u.buyPrice.toFixed(2)}</p>
+                          </div>
+                          <div className="text-center">
+                            <p className="text-[10px] font-bold text-gray-600 uppercase">{u.salePlatform || 'eBay'} Fee</p>
+                            <p className="text-xs font-mono font-bold text-red-600 mt-1">-£{platformFee.toFixed(2)}</p>
+                          </div>
+                          <div className="text-center">
+                            <p className="text-[10px] font-bold text-gray-600 uppercase">Postage</p>
+                            <p className="text-xs font-mono font-bold text-red-600 mt-1">-£{postage.toFixed(2)}</p>
+                          </div>
+                          <div className="text-center bg-emerald-50 rounded border border-emerald-200">
+                            <p className="text-[10px] font-bold text-emerald-700 uppercase">Net Profit</p>
+                            <p className={`text-xs font-mono font-bold mt-1 ${netProfit >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
+                              £{netProfit.toFixed(2)}
+                            </p>
+                          </div>
+                        </div>
                       </div>
-                      <div className="text-right flex-shrink-0">
-                        <p className="text-xs font-bold font-mono text-emerald-600">£{u.salePrice || u.buyPrice}</p>
-                        <p className="text-[8px] text-gray-400 font-mono uppercase mt-1">Ready for Courier</p>
-                      </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               </motion.div>
             )}

@@ -65,16 +65,27 @@ function buildSignals(units: InventoryUnit[], mode: 'buy' | 'sell'): Signal[] {
 
   // ── signal builders ──────────────────────────────────────────────────────────
 
-  // 1. RESTOCK: fast sellers running dry
+  // 1. RESTOCK: fast sellers running dry + out of stock alerts
   const restockRows: Row[] = Object.entries(vel14)
-    .filter(([m, v]) => v >= 2 && (depth[m] || 0) <= 3)
-    .sort(([ma, va], [mb, vb]) => (depth[ma] || 0) - (depth[mb] || 0) || vb - va)
-    .slice(0, 4)
+    .filter(([m, v]) => {
+      const stock = depth[m] || 0;
+      // Show if: sold 2+ in 14d AND stock <= 3, OR stock is 0
+      return (v >= 2 && stock <= 3) || stock === 0;
+    })
+    .sort(([ma, va], [mb, vb]) => {
+      const depthA = depth[ma] || 0;
+      const depthB = depth[mb] || 0;
+      // Prioritize out-of-stock items first
+      if ((depthA === 0) !== (depthB === 0)) return (depthA === 0) ? -1 : 1;
+      // Then by lowest stock, then by velocity
+      return depthA - depthB || vb - va;
+    })
+    .slice(0, 5)
     .map(([m, v]) => ({
       name:    label(m),
-      primary: `${depth[m] || 0} left`,
-      sub:     `${v} sold / 14d`,
-      alert:   (depth[m] || 0) === 0,
+      primary: depth[m] === 0 ? '⚠️ OUT OF STOCK' : `${depth[m] || 0} left`,
+      sub:     `${v} sold / 14d · Velocity: ${(v / 14).toFixed(1)}/day`,
+      alert:   (depth[m] || 0) <= 1,
     }));
 
   // 2. VELOCITY: top sellers by volume
@@ -136,8 +147,8 @@ function buildSignals(units: InventoryUnit[], mode: 'buy' | 'sell'): Signal[] {
     return [
       {
         key:   'restock',
-        label: 'Restock Now',
-        hint:  'Selling fast, stock low',
+        label: 'Reorder Alerts',
+        hint:  'Fast sellers with low/zero stock · Action required',
         color: '#ef4444',
         rows:  restockRows,
         empty: 'All models well stocked',
