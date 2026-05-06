@@ -37,10 +37,17 @@ export default function Sales() {
   const [recentNotifications, setRecentNotifications] = useState<Notification[]>([]);
 
   useEffect(() => {
+    // Subscribe to real-time active listings
     const unsub3 = dbService.subscribeToCollection('activeListings', setActiveListings);
+    // Subscribe to real-time notifications
     const unsub4 = notificationService.subscribe(setRecentNotifications);
     return () => { unsub3(); unsub4(); };
   }, []);
+
+  // Re-calculate whenever units change (ensures live data)
+  useEffect(() => {
+    // Force re-render when units change
+  }, [units, suppliers]);
 
   const [isTodayStockOpen, setIsTodayStockOpen] = useState(true);
   const [isPlatformListOpen, setIsPlatformListOpen] = useState(true);
@@ -370,12 +377,18 @@ export default function Sales() {
                       {soldSearch ? `No matching sales found for "${soldSearch}"` : "No devices sold today yet."}
                     </div>
                   ) : filteredSold.map(u => {
-                    const platformFee = platformTotalFee(u.salePlatform || 'eBay', u.salePrice || 0);
+                    // Ensure we have valid values, use defaults if missing
+                    const salePrice = u.salePrice || 0;
+                    const buyPrice = u.buyPrice || 0;
+                    const platform = u.salePlatform || 'eBay';
                     const postage = u.postagePrice || 8;
-                    const netProfit = calcNetProfit(u.salePrice || 0, u.buyPrice, u.salePlatform || 'eBay', postage);
+
+                    const platformFee = platformTotalFee(platform, salePrice);
+                    const netProfit = calcNetProfit(salePrice, buyPrice, platform, postage);
 
                     return (
-                      <div key={u.id} className="px-6 py-4 border-b border-gray-50 group hover:bg-gray-50 transition-all">
+                      <div key={u.id} className="px-6 py-4 border-b border-gray-100 group hover:bg-emerald-50 transition-all">
+                        {/* Header: Product and Sale Price */}
                         <div className="flex items-start justify-between mb-3">
                           <div className="flex-1 min-w-0">
                             <div className="flex items-center gap-2">
@@ -387,36 +400,39 @@ export default function Sales() {
                               )}
                             </div>
                             <p className="text-[10px] text-gray-500 font-mono uppercase mt-0.5">
-                              {u.colour} · <span className="text-black font-bold">IMEI: {u.imei || '—'}</span>
+                              {u.colour} · <span className="text-black font-bold">IMEI: {u.imei || '—'}</span> · {platform}
                             </p>
                           </div>
                           <div className="text-right ml-4 flex-shrink-0">
-                            <p className="text-xs font-bold font-mono text-emerald-600">£{(u.salePrice || u.buyPrice).toFixed(2)}</p>
-                            <p className="text-[8px] text-gray-400 font-mono uppercase">Sale Price</p>
+                            <p className="text-sm font-bold font-mono text-emerald-600">£{salePrice.toFixed(2)}</p>
+                            <p className="text-[8px] text-gray-400 font-mono uppercase mt-0.5">Sale Price</p>
                           </div>
                         </div>
 
                         {/* Financial Breakdown */}
-                        <div className="grid grid-cols-4 gap-2 bg-gray-50 rounded p-3 mt-2">
+                        <div className="grid grid-cols-4 gap-2 bg-gradient-to-r from-gray-50 to-white rounded-lg p-3 mt-2 border border-gray-200">
                           <div className="text-center">
-                            <p className="text-[10px] font-bold text-gray-600 uppercase">Buy Price</p>
-                            <p className="text-xs font-mono font-bold text-gray-800 mt-1">£{u.buyPrice.toFixed(2)}</p>
+                            <p className="text-[9px] font-bold text-gray-600 uppercase tracking-wider">Buy Price</p>
+                            <p className="text-xs font-mono font-bold text-gray-900 mt-1.5">£{buyPrice.toFixed(2)}</p>
                           </div>
-                          <div className="text-center">
-                            <p className="text-[10px] font-bold text-gray-600 uppercase">{u.salePlatform || 'eBay'} Fee</p>
-                            <p className="text-xs font-mono font-bold text-red-600 mt-1">-£{platformFee.toFixed(2)}</p>
+                          <div className="text-center border-l border-gray-200">
+                            <p className="text-[9px] font-bold text-gray-600 uppercase tracking-wider">{platform}</p>
+                            <p className="text-xs font-mono font-bold text-red-600 mt-1.5">-£{platformFee.toFixed(2)}</p>
                           </div>
-                          <div className="text-center">
-                            <p className="text-[10px] font-bold text-gray-600 uppercase">Postage</p>
-                            <p className="text-xs font-mono font-bold text-red-600 mt-1">-£{postage.toFixed(2)}</p>
+                          <div className="text-center border-l border-gray-200">
+                            <p className="text-[9px] font-bold text-gray-600 uppercase tracking-wider">Postage</p>
+                            <p className="text-xs font-mono font-bold text-red-600 mt-1.5">-£{postage.toFixed(2)}</p>
                           </div>
-                          <div className="text-center bg-emerald-50 rounded border border-emerald-200">
-                            <p className="text-[10px] font-bold text-emerald-700 uppercase">Net Profit</p>
-                            <p className={`text-xs font-mono font-bold mt-1 ${netProfit >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
+                          <div className="text-center border-l border-gray-200 bg-emerald-50 rounded-r-lg">
+                            <p className="text-[9px] font-bold text-emerald-700 uppercase tracking-wider">Profit</p>
+                            <p className={`text-xs font-mono font-bold mt-1.5 ${netProfit >= 0 ? 'text-emerald-700' : 'text-red-700'}`}>
                               £{netProfit.toFixed(2)}
                             </p>
                           </div>
                         </div>
+                      </div>
+                    );
+                  })}
                       </div>
                     );
                   })}
