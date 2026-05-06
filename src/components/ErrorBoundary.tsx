@@ -1,13 +1,12 @@
 import React from 'react';
 import { AlertTriangle, RefreshCw } from 'lucide-react';
 
+interface Props { children: React.ReactNode }
 interface State { hasError: boolean; message: string }
 
-export default class ErrorBoundary extends React.Component<{ children: React.ReactNode }, State> {
-  constructor(props: any) {
-    super(props);
-    this.state = { hasError: false, message: '' };
-  }
+export default class ErrorBoundary extends React.Component {
+  props!: Props;
+  state: State = { hasError: false, message: '' };
 
   static getDerivedStateFromError(err: Error): State {
     return { hasError: true, message: err?.message || 'Unknown error' };

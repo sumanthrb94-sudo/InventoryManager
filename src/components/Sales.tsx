@@ -64,7 +64,7 @@ export default function Sales() {
     if (!soldSearch) return soldToday;
     const s = soldSearch.toLowerCase();
     return soldToday.filter(u => 
-      u.imei.toLowerCase().includes(s) || 
+      (u.imei || '').toLowerCase().includes(s) ||
       u.model.toLowerCase().includes(s) || 
       u.saleOrderId?.toLowerCase().includes(s)
     );

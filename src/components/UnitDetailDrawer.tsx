@@ -57,7 +57,7 @@ export default function UnitDetailDrawer({ unit, supplierName, onClose }: Props)
   const hasListingSites = listingSites.length > 0;
   const isListed = hasListingSites || unit.platformListed;
 
-  const imeiDigits = unit.imei.replace(/\D/g, '');
+  const imeiDigits = (unit.imei || '').replace(/\D/g, '');
   const imeiValid  = imeiDigits.length === 15 ? validateIMEI(unit.imei) : null;
   const statusCfg  = STATUS_CONFIG[unit.status] || STATUS_CONFIG.available;
 
@@ -278,7 +278,6 @@ export default function UnitDetailDrawer({ unit, supplierName, onClose }: Props)
                   { label: 'Supplier',     value: supplierName || '—' },
                   { label: 'Date In',      value: new Date(unit.dateIn).toLocaleDateString('en-GB') },
                   { label: 'Location',     value: 'Office Stock' },
-                  { label: 'Grade',        value: unit.conditionGrade || '—' },
                   { label: 'Network',      value: unit.networkLock || 'Unlocked' },
                   {
                     label: 'Listing Sites',

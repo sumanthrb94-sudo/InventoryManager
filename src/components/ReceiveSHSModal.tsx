@@ -48,7 +48,6 @@ export default function ReceiveSHSModal({ unit, onClose }: Props) {
         notes:          (unit.notes || '').replace(/SHS\s*-\s*Expected stock\s*·?\s*/i, '').trim(),
         platformListed: false,
         listingSites:   [],
-        conditionGrade: unit.conditionGrade,
         ownerId:        unit.ownerId || 'shared',
         createdAt:      unit.createdAt,
       });

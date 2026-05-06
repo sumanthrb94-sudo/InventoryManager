@@ -7,6 +7,8 @@
 export function validateIMEI(imei: string): boolean {
   const digits = imei.replace(/\D/g, '');
   if (digits.length !== 15) return false;
+  // All-zeros is technically Luhn-valid but is not a real IMEI
+  if (/^0+$/.test(digits)) return false;
   let sum = 0;
   for (let i = 0; i < 15; i++) {
     let d = parseInt(digits[i], 10);
@@ -23,11 +25,10 @@ export function formatIMEI(imei: string): string {
   return `${d.slice(0,2)}-${d.slice(2,8)}-${d.slice(8,14)}-${d.slice(14)}`;
 }
 
-/** Mask IMEI for privacy — show last 4 digits only */
+/** Mask IMEI/serial for privacy — show last 4 characters only */
 export function maskIMEI(imei: string): string {
-  const d = imei.replace(/\D/g, '');
-  if (d.length < 4) return imei;
-  return `${'•'.repeat(d.length - 4)}${d.slice(-4)}`;
+  if (imei.length < 4) return imei;
+  return `${'•'.repeat(imei.length - 4)}${imei.slice(-4)}`;
 }
 
 /** Derive TAC (Type Allocation Code) — first 8 digits identify device model */

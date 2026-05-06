@@ -49,7 +49,7 @@ export default function ScanPage() {
 
   const lookupIMEI = (raw: string) => {
     const digits = raw.replace(/\D/g, '');
-    const match  = units.find(u => u.imei.replace(/\D/g,'') === digits);
+    const match  = units.find(u => (u.imei || '').replace(/\D/g,'') === digits);
     if (match) {
       setFoundUnit(match);
       setNotFound(false);
@@ -408,7 +408,7 @@ export default function ScanPage() {
             {history.map((h, i) => (
               <div key={i} className="px-5 py-3 flex items-center justify-between">
                 <div>
-                  <p className="text-xs font-bold font-mono">{h.imei.slice(0,8)}•••••••</p>
+                  <p className="text-xs font-bold font-mono">{(h.imei || '').slice(0,8)}•••••••</p>
                   <p className="text-[10px] text-gray-500 font-mono mt-0.5">{h.action}</p>
                 </div>
                 <span className="text-[9px] text-gray-400 font-mono">{h.ts}</span>

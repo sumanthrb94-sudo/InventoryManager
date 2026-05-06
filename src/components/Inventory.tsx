@@ -85,7 +85,7 @@ export default function Inventory({ initialFilters = {} }: { initialFilters?: In
     const matchingKeys = allSummaries
       .filter(summary =>
         summary.variants.some(variant =>
-          variant.units.some(unit => unit.imei.toLowerCase().includes(searchLower))
+          variant.units.some(unit => (unit.imei || '').toLowerCase().includes(searchLower))
         )
       )
       .map(summary => `${summary.brand}||${summary.model}`);
@@ -120,7 +120,7 @@ export default function Inventory({ initialFilters = {} }: { initialFilters?: In
       return s.model.toLowerCase().includes(searchLower) ||
              s.brand.toLowerCase().includes(searchLower) ||
              s.variants.some(v => v.colour.toLowerCase().includes(searchLower) ||
-                                  v.units.some(u => u.imei.toLowerCase().includes(searchLower)));
+                                  v.units.some(u => (u.imei || '').toLowerCase().includes(searchLower)));
     });
     return applySort(results, sort);
   }, [allSummaries, search, catFilter, statusFilter, flagFilter, supplierFilter, sort, suppliers]);
@@ -324,7 +324,7 @@ export default function Inventory({ initialFilters = {} }: { initialFilters?: In
                         <div className="divide-y divide-gray-50">
                           {variant.units.map(unit => {
                             const supplier = suppliers.find(s => s.id === unit.supplierId);
-                            const imeiDigits = unit.imei.replace(/\D/g, '');
+                            const imeiDigits = (unit.imei || '').replace(/\D/g, '');
                             const imeiOk = imeiDigits.length === 15 ? validateIMEI(unit.imei) : null;
                             return (
                               <div key={unit.id} className={`px-4 py-3 ${unit.status === 'sold' ? 'opacity-50' : ''}`}>

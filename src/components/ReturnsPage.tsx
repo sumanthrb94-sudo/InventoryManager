@@ -106,12 +106,6 @@ function ProcessReturnModal({
             <CopyImei imei={unit.imei} truncate={12} />
             <span className="text-[9px] text-gray-400 font-mono">·</span>
             <span className="text-[9px] text-gray-500 font-mono">{unit.colour}</span>
-            {unit.conditionGrade && (
-              <>
-                <span className="text-[9px] text-gray-400 font-mono">·</span>
-                <span className="text-[9px] font-mono font-bold text-gray-700">Grade {unit.conditionGrade}</span>
-              </>
-            )}
           </div>
           
           <div className="grid grid-cols-2 gap-4">
@@ -249,7 +243,7 @@ export default function ReturnsPage() {
       const q = search.toLowerCase();
       list = list.filter(u =>
         u.model.toLowerCase().includes(q) ||
-        u.imei.includes(q) ||
+        (u.imei || '').includes(q) ||
         (u.returnReason || u.notes || '').toLowerCase().includes(q)
       );
     }
@@ -460,7 +454,7 @@ function SoldUnitPicker({ units, onSelect }: { units: InventoryUnit[]; onSelect:
     const s = q.toLowerCase();
     return sorted.filter(u =>
       u.model.toLowerCase().includes(s) ||
-      u.imei.includes(s) ||
+      (u.imei || '').includes(s) ||
       (u.saleOrderId || '').toLowerCase().includes(s)
     ).slice(0, 8);
   }, [units, q]);
@@ -481,7 +475,7 @@ function SoldUnitPicker({ units, onSelect }: { units: InventoryUnit[]; onSelect:
               <div className="min-w-0">
                 <p className="text-xs font-bold truncate">{u.model}</p>
                 <p className="text-[9px] text-gray-400 font-mono mt-0.5">
-                  {u.imei.slice(0, 10)}… · {u.salePlatform || '—'} · Order: {u.saleOrderId || '—'}
+                  {(u.imei || '').slice(0, 10)}{u.imei && u.imei.length > 10 ? '…' : ''} · {u.salePlatform || '—'} · Order: {u.saleOrderId || '—'}
                 </p>
               </div>
               <span className="text-xs font-bold text-orange-600 ml-3 flex-shrink-0">Return →</span>

@@ -10,7 +10,6 @@ interface Props {
   onClose: () => void;
 }
 
-const GRADES = ['A+', 'A', 'A-', 'B+', 'B', 'B-', 'C'];
 const QUICK_NOTES = ['CLEARANCE', 'ONU', 'BOXED', 'NO BOX'];
 
 export default function EditUnitModal({ unit, onClose }: Props) {
@@ -20,7 +19,6 @@ export default function EditUnitModal({ unit, onClose }: Props) {
   const [colour,   setColour]   = useState(unit.colour || '');
   const [buyPrice, setBuyPrice] = useState(String(unit.buyPrice || ''));
   const [dateIn,   setDateIn]   = useState(unit.dateIn || '');
-  const [grade,    setGrade]    = useState(unit.conditionGrade || '');
   const [notes,    setNotes]    = useState(unit.notes || '');
   const [suppId,   setSuppId]   = useState(unit.supplierId || '');
   const [saving,   setSaving]   = useState(false);
@@ -42,7 +40,6 @@ export default function EditUnitModal({ unit, onClose }: Props) {
         colour:         colour.trim() || 'Unknown',
         buyPrice:       bp,
         dateIn:         dateIn || unit.dateIn,
-        conditionGrade: grade || undefined,
         notes:          notes.trim(),
         supplierId:     suppId || unit.supplierId,
       });
@@ -105,25 +102,12 @@ export default function EditUnitModal({ unit, onClose }: Props) {
             </div>
           </div>
 
-          {/* Colour + Grade */}
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="text-[8px] font-bold uppercase tracking-widest text-gray-400">Colour</label>
-              <input value={colour} onChange={e => setColour(e.target.value)}
-                placeholder="Black, White…"
-                className="w-full mt-1 border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-black bg-white transition-all" />
-            </div>
-            <div>
-              <label className="text-[8px] font-bold uppercase tracking-widest text-gray-400">Condition</label>
-              <div className="flex flex-wrap gap-1 mt-1">
-                {GRADES.map(g => (
-                  <button key={g} onClick={() => setGrade(g === grade ? '' : g)}
-                    className={`px-2.5 py-1.5 rounded-lg text-[10px] font-bold border transition-all ${
-                      grade === g ? 'bg-black text-white border-black' : 'border-gray-200 text-gray-600 hover:border-gray-400'
-                    }`}>{g}</button>
-                ))}
-              </div>
-            </div>
+          {/* Colour */}
+          <div>
+            <label className="text-[8px] font-bold uppercase tracking-widest text-gray-400">Colour</label>
+            <input value={colour} onChange={e => setColour(e.target.value)}
+              placeholder="Black, White…"
+              className="w-full mt-1 border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-black bg-white transition-all" />
           </div>
 
           {/* Supplier */}

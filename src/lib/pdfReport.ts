@@ -234,7 +234,7 @@ export function generateInventoryReport(units: InventoryUnit[], suppliers: Suppl
     'Sales Performance   ·   Daily trend · Platform breakdown · Top-selling models',
     'Inventory Health    ·   Category breakdown · Aged stock · Velocity analysis',
     'Reorder Intelligence ·  Low-stock alerts · Supplier sell-through performance',
-    'Full Stock Report   ·   All available units with IMEI, grade, storage, days held',
+    'Full Stock Report   ·   All available units with IMEI, storage, days held',
     'Sales Log           ·   Complete transaction history with gross margin per sale',
   ].forEach((s, i) => {
     setFill(doc, C.emerald);
@@ -601,14 +601,13 @@ export function generateInventoryReport(units: InventoryUnit[], suppliers: Suppl
   autoTable(doc, {
     startY: y,
     margin: { left: ML, right: MR },
-    head: [['Model', 'IMEI / Serial', 'Colour', 'Gr.', 'Storage', 'Buy £', 'Supplier', 'Date In', 'Days']],
+    head: [['Model', 'IMEI / Serial', 'Colour', 'Storage', 'Buy £', 'Supplier', 'Date In', 'Days']],
     body: available.map(u => {
       const age = u.dateIn ? Math.floor((Date.now() - new Date(u.dateIn).getTime()) / 86400000) : '—';
       return [
         u.model,
         u.imei,
         u.colour || '—',
-        u.conditionGrade ?? '—',
         u.storage || '—',
         `£${u.buyPrice}`,
         supplierMap[u.supplierId] || '—',
