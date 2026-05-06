@@ -2,13 +2,14 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { useInventoryStore } from '../lib/inventoryStore';
 import {
   Bell, CheckCircle2, Star, Truck,
-  ChevronDown, Clock, Search, ShoppingBag, Smartphone
+  ChevronDown, Clock, Search, ShoppingBag, Smartphone,
+  AlertCircle, Package, RefreshCw
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { dbService } from '../lib/dbService';
 import { InventoryUnit, Supplier, OperationalFlag, ActiveListing } from '../types';
 import { notificationService, Notification } from '../lib/notificationService';
-import { platformTotalFee, calcNetProfit } from '../lib/platforms';
+import { platformTotalFee, calcNetProfit, DEFAULT_POSTAGE_COST } from '../lib/platforms';
 
 const FLAG_CONFIG: Record<OperationalFlag, { label: string; icon: any; style: string; action: string }> = {
   top10: {
@@ -37,17 +38,10 @@ export default function Sales() {
   const [recentNotifications, setRecentNotifications] = useState<Notification[]>([]);
 
   useEffect(() => {
-    // Subscribe to real-time active listings
     const unsub3 = dbService.subscribeToCollection('activeListings', setActiveListings);
-    // Subscribe to real-time notifications
     const unsub4 = notificationService.subscribe(setRecentNotifications);
     return () => { unsub3(); unsub4(); };
   }, []);
-
-  // Re-calculate whenever units change (ensures live data)
-  useEffect(() => {
-    // Force re-render when units change
-  }, [units, suppliers]);
 
   const [isTodayStockOpen, setIsTodayStockOpen] = useState(true);
   const [isPlatformListOpen, setIsPlatformListOpen] = useState(true);
@@ -214,20 +208,30 @@ export default function Sales() {
         <div className="bg-white border border-gray-200 rounded-2xl overflow-hidden shadow-sm">
           <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between bg-gray-50/50">
             <h3 className="text-[10px] font-bold uppercase tracking-widest text-gray-500">Recent Activity Feed</h3>
-            <button 
-              onClick={() => notificationService.markAllAsRead()}
-              className="text-[9px] font-bold text-gray-400 hover:text-black uppercase tracking-widest transition-colors"
-            >
-              Clear All
-            </button>
+            {recentNotifications.some(n => !n.read) && (
+              <button
+                onClick={() => notificationService.markAllAsRead()}
+                className="text-[9px] font-bold text-gray-400 hover:text-black uppercase tracking-widest transition-colors"
+              >
+                Mark All Read
+              </button>
+            )}
           </div>
           <div className="divide-y divide-gray-50 max-h-[240px] overflow-y-auto custom-scrollbar">
-            {recentNotifications.map(n => (
+            {recentNotifications.map(n => {
+              const typeConfig: Record<string, { bg: string; icon: any; label: string }> = {
+                sold: { bg: 'bg-emerald-100 text-emerald-600', icon: ShoppingBag, label: 'Sold' },
+                loss_sell: { bg: 'bg-red-100 text-red-600', icon: AlertCircle, label: 'Loss Sell' },
+                new_stock: { bg: 'bg-blue-100 text-blue-600', icon: Package, label: 'New Stock' },
+                return_processed: { bg: 'bg-amber-100 text-amber-600', icon: RefreshCw, label: 'Return' },
+                shs_received: { bg: 'bg-purple-100 text-purple-600', icon: Truck, label: 'SHS Received' },
+              };
+              const config = typeConfig[n.type] || typeConfig.new_stock;
+              const Icon = config.icon;
+              return (
               <div key={n.id} className={`px-6 py-3 flex items-center gap-4 hover:bg-gray-50 transition-all ${!n.read ? 'bg-blue-50/30' : ''}`}>
-                <div className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${
-                  n.type === 'sold' ? 'bg-emerald-100 text-emerald-600' : 'bg-blue-100 text-blue-600'
-                }`}>
-                  {n.type === 'sold' ? <ShoppingBag size={14} /> : <CheckCircle2 size={14} />}
+                <div className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${config.bg}`}>
+                  <Icon size={14} />
                 </div>
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center justify-between">
@@ -237,9 +241,15 @@ export default function Sales() {
                     </span>
                   </div>
                   <p className="text-[10px] text-gray-500 truncate mt-0.5">{n.message}</p>
+                  {n.profitAmount !== undefined && (
+                    <p className={`text-[8px] font-bold mt-1 ${n.profitAmount >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
+                      {n.profitAmount >= 0 ? '✓ Profit' : '⚠ Loss'}: £{Math.abs(n.profitAmount).toFixed(2)}
+                    </p>
+                  )}
                 </div>
               </div>
-            ))}
+            );
+            })}
           </div>
         </div>
       )}
@@ -377,64 +387,54 @@ export default function Sales() {
                       {soldSearch ? `No matching sales found for "${soldSearch}"` : "No devices sold today yet."}
                     </div>
                   ) : filteredSold.map(u => {
-                    // Ensure we have valid values, use defaults if missing
-                    const salePrice = u.salePrice || 0;
-                    const buyPrice = u.buyPrice || 0;
+                    const bp = u.buyPrice || 0;
+                    const sp = u.salePrice || 0;
                     const platform = u.salePlatform || 'eBay';
-                    const postage = u.postagePrice || 8;
-
-                    const platformFee = platformTotalFee(platform, salePrice);
-                    const netProfit = calcNetProfit(salePrice, buyPrice, platform, postage);
+                    const postage = u.postageCost ?? DEFAULT_POSTAGE_COST;
+                    const platformFee = sp > 0 ? platformTotalFee(platform, sp) : 0;
+                    const netProfit = calcNetProfit(sp, bp, platform, postage);
 
                     return (
-                      <div key={u.id} className="px-6 py-4 border-b border-gray-100 group hover:bg-emerald-50 transition-all">
-                        {/* Header: Product and Sale Price */}
-                        <div className="flex items-start justify-between mb-3">
-                          <div className="flex-1 min-w-0">
-                            <div className="flex items-center gap-2">
-                              <p className="text-sm font-bold truncate">{u.model}</p>
-                              {u.saleOrderId && (
-                                <span className="text-[8px] font-bold bg-emerald-100 text-emerald-700 px-1.5 py-0.5 rounded border border-emerald-200 font-mono">
-                                  #{u.saleOrderId}
-                                </span>
-                              )}
-                            </div>
-                            <p className="text-[10px] text-gray-500 font-mono uppercase mt-0.5">
-                              {u.colour} · <span className="text-black font-bold">IMEI: {u.imei || '—'}</span> · {platform}
-                            </p>
+                    <div key={u.id} className={`px-6 py-4 group hover:bg-opacity-50 transition-all ${netProfit < 0 ? 'hover:bg-red-50' : 'hover:bg-emerald-50'}`}>
+                      <div className="flex items-center gap-4 mb-3">
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2">
+                            <p className="text-sm font-bold truncate">{u.model}</p>
+                            {u.saleOrderId && (
+                              <span className={`text-[8px] font-bold px-1.5 py-0.5 rounded border font-mono ${netProfit < 0 ? 'bg-red-100 text-red-700 border-red-200' : 'bg-emerald-100 text-emerald-700 border-emerald-200'}`}>
+                                #{u.saleOrderId}
+                              </span>
+                            )}
                           </div>
-                          <div className="text-right ml-4 flex-shrink-0">
-                            <p className="text-sm font-bold font-mono text-emerald-600">£{salePrice.toFixed(2)}</p>
-                            <p className="text-[8px] text-gray-400 font-mono uppercase mt-0.5">Sale Price</p>
-                          </div>
+                          <p className="text-[10px] text-gray-500 font-mono uppercase mt-0.5">
+                            {u.colour} · <span className="text-black font-bold">IMEI: {u.imei || '—'}</span> · {platform}
+                          </p>
                         </div>
+                      </div>
 
-                        {/* Financial Breakdown */}
-                        <div className="grid grid-cols-4 gap-2 bg-gradient-to-r from-gray-50 to-white rounded-lg p-3 mt-2 border border-gray-200">
-                          <div className="text-center">
-                            <p className="text-[9px] font-bold text-gray-600 uppercase tracking-wider">Buy Price</p>
-                            <p className="text-xs font-mono font-bold text-gray-900 mt-1.5">£{buyPrice.toFixed(2)}</p>
-                          </div>
-                          <div className="text-center border-l border-gray-200">
-                            <p className="text-[9px] font-bold text-gray-600 uppercase tracking-wider">{platform}</p>
-                            <p className="text-xs font-mono font-bold text-red-600 mt-1.5">-£{platformFee.toFixed(2)}</p>
-                          </div>
-                          <div className="text-center border-l border-gray-200">
-                            <p className="text-[9px] font-bold text-gray-600 uppercase tracking-wider">Postage</p>
-                            <p className="text-xs font-mono font-bold text-red-600 mt-1.5">-£{postage.toFixed(2)}</p>
-                          </div>
-                          <div className="text-center border-l border-gray-200 bg-emerald-50 rounded-r-lg">
-                            <p className="text-[9px] font-bold text-emerald-700 uppercase tracking-wider">Profit</p>
-                            <p className={`text-xs font-mono font-bold mt-1.5 ${netProfit >= 0 ? 'text-emerald-700' : 'text-red-700'}`}>
-                              £{netProfit.toFixed(2)}
-                            </p>
-                          </div>
+                      {/* Financial breakdown */}
+                      <div className={`grid grid-cols-4 gap-2 rounded-lg p-2.5 border ${netProfit < 0 ? 'bg-red-50 border-red-100' : 'bg-emerald-50 border-emerald-100'}`}>
+                        <div className="text-center">
+                          <p className="text-[8px] font-bold text-gray-600 uppercase">BP</p>
+                          <p className="text-xs font-mono font-bold text-gray-900">£{bp.toFixed(2)}</p>
+                        </div>
+                        <div className="text-center border-l border-gray-200">
+                          <p className="text-[8px] font-bold text-gray-600 uppercase">{platform}</p>
+                          <p className="text-xs font-mono font-bold text-red-600">-£{platformFee.toFixed(2)}</p>
+                        </div>
+                        <div className="text-center border-l border-gray-200">
+                          <p className="text-[8px] font-bold text-gray-600 uppercase">Postage</p>
+                          <p className="text-xs font-mono font-bold text-red-600">-£{postage.toFixed(2)}</p>
+                        </div>
+                        <div className={`text-center border-l border-gray-200 rounded-r ${netProfit < 0 ? 'bg-red-100' : 'bg-emerald-100'}`}>
+                          <p className={`text-[8px] font-bold uppercase ${netProfit < 0 ? 'text-red-700' : 'text-emerald-700'}`}>Profit</p>
+                          <p className={`text-xs font-mono font-bold ${netProfit < 0 ? 'text-red-700' : 'text-emerald-700'}`}>
+                            {netProfit >= 0 ? '+' : ''}£{netProfit.toFixed(2)}
+                          </p>
                         </div>
                       </div>
-                    );
-                  })}
-                      </div>
-                    );
+                    </div>
+                  );
                   })}
                 </div>
               </motion.div>

@@ -7,6 +7,7 @@ import { AnimatePresence, motion } from 'motion/react';
 import { dbService } from '../lib/dbService';
 import { InventoryUnit, ReturnCategory } from '../types';
 import { useInventoryStore } from '../lib/inventoryStore';
+import { notificationService } from '../lib/notificationService';
 import CopyImei from './CopyImei';
 import { getWarrantyStatus } from '../lib/warrantyUtils';
 
@@ -77,6 +78,10 @@ function ProcessReturnModal({
           } : {}),
         });
       }
+
+      // Trigger return_processed notification
+      notificationService.addNotification('return_processed', unit);
+
       onSaved();
       onClose();
     } catch {

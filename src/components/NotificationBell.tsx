@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Bell, ShoppingBag, PackagePlus, X, CheckCheck } from 'lucide-react';
+import { Bell, ShoppingBag, PackagePlus, X, CheckCheck, AlertCircle, RefreshCw, Truck } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { notificationService, Notification } from '../lib/notificationService';
 
@@ -121,26 +121,37 @@ export default function NotificationBell({ unreadCount }: { unreadCount: number 
                       </span>
                     </div>
                     <div className="divide-y divide-gray-50">
-                      {group.items.map(n => (
+                      {group.items.map(n => {
+                        const typeConfig: Record<string, { bg: string; icon: React.ReactNode; label: string }> = {
+                          sold: { bg: 'bg-emerald-100 text-emerald-600', icon: <ShoppingBag size={13} />, label: 'Sold' },
+                          loss_sell: { bg: 'bg-red-100 text-red-600', icon: <AlertCircle size={13} />, label: 'Loss Sell' },
+                          new_stock: { bg: 'bg-blue-100 text-blue-600', icon: <PackagePlus size={13} />, label: 'New Stock' },
+                          return_processed: { bg: 'bg-amber-100 text-amber-600', icon: <RefreshCw size={13} />, label: 'Return' },
+                          shs_received: { bg: 'bg-purple-100 text-purple-600', icon: <Truck size={13} />, label: 'SHS Received' },
+                        };
+                        const config = typeConfig[n.type] || typeConfig.new_stock;
+                        return (
                         <div key={n.id} className={`flex items-start gap-3 px-4 py-3 transition-colors ${n.read ? 'opacity-60' : 'bg-white'}`}>
-                          <div className={`w-8 h-8 rounded-xl flex items-center justify-center flex-shrink-0 ${
-                            n.type === 'sold' ? 'bg-emerald-100 text-emerald-600' : 'bg-blue-100 text-blue-600'
-                          }`}>
-                            {n.type === 'sold'
-                              ? <ShoppingBag size={13} />
-                              : <PackagePlus size={13} />}
+                          <div className={`w-8 h-8 rounded-xl flex items-center justify-center flex-shrink-0 ${config.bg}`}>
+                            {config.icon}
                           </div>
                           <div className="flex-1 min-w-0">
                             <p className="text-[11px] font-bold truncate">{n.model}</p>
                             <p className="text-[9px] font-mono text-gray-400 mt-0.5 leading-relaxed">
-                              {n.type === 'sold' ? 'Sold' : 'Added to stock'} · IMEI ···{n.unitId.slice(-4)}
+                              {config.label} · {n.message.slice(0, 40)}
                             </p>
+                            {n.profitAmount !== undefined && (
+                              <p className={`text-[8px] font-bold mt-1 ${n.profitAmount >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
+                                {n.profitAmount >= 0 ? '✓ Profit' : '⚠ Loss'}: £{Math.abs(n.profitAmount).toFixed(2)}
+                              </p>
+                            )}
                           </div>
                           <span className="text-[8px] font-mono text-gray-300 flex-shrink-0 mt-0.5">
                             {timeAgo(n.timestamp)}
                           </span>
                         </div>
-                      ))}
+                      );
+                      })}
                     </div>
                   </div>
                 ))

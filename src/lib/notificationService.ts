@@ -1,6 +1,6 @@
 import { InventoryUnit } from '../types';
 
-export type NotificationType = 'sold' | 'new_stock';
+export type NotificationType = 'sold' | 'loss_sell' | 'new_stock' | 'return_processed' | 'shs_received';
 
 export interface Notification {
   id: string;
@@ -11,11 +11,15 @@ export interface Notification {
   unitId: string;
   model: string;
   read: boolean;
+  profitAmount?: number;
 }
 
 const SOUNDS = {
-  sold:      'https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3',
-  new_stock: 'https://assets.mixkit.co/active_storage/sfx/2354/2354-preview.mp3',
+  sold:              'https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3',  // Success chime
+  loss_sell:         'https://assets.mixkit.co/active_storage/sfx/2372/2372-preview.mp3',  // Alert/warning sound
+  new_stock:         'https://assets.mixkit.co/active_storage/sfx/2354/2354-preview.mp3',  // Notification
+  return_processed:  'https://assets.mixkit.co/active_storage/sfx/2811/2811-preview.mp3',  // Refresh/reload
+  shs_received:      'https://assets.mixkit.co/active_storage/sfx/2892/2892-preview.mp3',  // Notification chime
 };
 
 const NOTIFS_KEY_PREFIX = 'nexus_notifs_';
@@ -94,7 +98,7 @@ class NotificationService {
     };
   }
 
-  addNotification(type: NotificationType, unit: InventoryUnit) {
+  addNotification(type: NotificationType, unit: InventoryUnit, profitAmount?: number) {
     const today   = new Date().toISOString().split('T')[0];
     // Key includes date so a re-sold unit on a different day fires again
     const firedKey = `${unit.id}_${type}_${today}`;
@@ -111,15 +115,32 @@ class NotificationService {
     );
     if (isDuplicate) return;
 
+    const titles: Record<NotificationType, string> = {
+      sold: '✅ Unit Sold!',
+      loss_sell: '⚠️ Loss Sell Alert',
+      new_stock: '📦 New Stock Added',
+      return_processed: '↩️ Return Processed',
+      shs_received: '🚚 SHS Order Received',
+    };
+
+    const messages: Record<NotificationType, string> = {
+      sold: `${unit.model} (${unit.imei ? unit.imei.slice(-4) : unit.id.slice(-4)}) has been sold - Profit: £${profitAmount?.toFixed(2) || '0.00'}`,
+      loss_sell: `⚠️ ${unit.model} sold at a LOSS of £${Math.abs(profitAmount || 0).toFixed(2)}`,
+      new_stock: `${unit.model} is now in stock and ready for listing.`,
+      return_processed: `${unit.model} has been returned and restored to inventory.`,
+      shs_received: `${unit.model} from SHS order has been received.`,
+    };
+
     const notification: Notification = {
       id: Math.random().toString(36).substring(2, 9),
       type,
-      title:   type === 'sold' ? 'Unit Sold!' : 'New Stock Added',
-      message: `${unit.model} (${unit.imei ? unit.imei.slice(-4) : unit.id.slice(-4)}) ${type === 'sold' ? 'has been marked as sold.' : 'is now in stock.'}`,
+      title: titles[type],
+      message: messages[type],
       timestamp: now.toISOString(),
       unitId: unit.id,
-      model:  unit.model,
-      read:   false,
+      model: unit.model,
+      read: false,
+      profitAmount,
     };
 
     this.notifications = [notification, ...this.notifications].slice(0, 50);

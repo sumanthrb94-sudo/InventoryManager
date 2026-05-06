@@ -2,8 +2,9 @@ import React, { useState, useMemo, useCallback } from 'react';
 import { X, Plus, Trash2, CheckCircle2, Truck } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { dbService } from '../lib/dbService';
-import { DeviceCategory } from '../types';
+import { DeviceCategory, InventoryUnit } from '../types';
 import { useInventoryStore } from '../lib/inventoryStore';
+import { notificationService } from '../lib/notificationService';
 import { logInventoryEvent } from '../lib/inventoryEvents';
 
 interface Props { onClose: () => void; }
@@ -117,7 +118,8 @@ export default function AddSHSModal({ onClose }: Props) {
 
         for (let i = 0; i < qty; i++) {
           const tempId = `shs_${ts}_${idx++}`;
-          await dbService.create('inventoryUnits', tempId, {
+          const newUnit: InventoryUnit = {
+            id: tempId,
             imei:           '',
             model:          r.model.trim(),
             brand,
@@ -135,7 +137,12 @@ export default function AddSHSModal({ onClose }: Props) {
             listingSites:   [],
             ownerId:        'shared',
             createdAt:      new Date().toISOString(),
-          });
+          };
+          await dbService.create('inventoryUnits', tempId, newUnit);
+          // Trigger shs_received notification for the first unit in batch to avoid spam
+          if (i === 0) {
+            notificationService.addNotification('shs_received', newUnit);
+          }
           totalUnits++;
         }
       }

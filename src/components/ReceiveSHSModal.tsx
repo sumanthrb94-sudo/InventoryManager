@@ -3,6 +3,7 @@ import { X, CheckCircle2, PackageCheck } from 'lucide-react';
 import { motion } from 'motion/react';
 import { dbService } from '../lib/dbService';
 import { InventoryUnit } from '../types';
+import { notificationService } from '../lib/notificationService';
 
 interface Props {
   unit: InventoryUnit;
@@ -31,8 +32,8 @@ export default function ReceiveSHSModal({ unit, onClose }: Props) {
       const exists = await dbService.imeiExists(finalId);
       if (exists) { setError(`${finalId} already exists in stock`); setSaving(false); return; }
 
-      await dbService.delete('inventoryUnits', unit.id);
-      await dbService.create('inventoryUnits', finalId, {
+      const newUnit: InventoryUnit = {
+        id: finalId,
         imei:           finalId,
         model:          unit.model,
         brand:          unit.brand,
@@ -50,7 +51,14 @@ export default function ReceiveSHSModal({ unit, onClose }: Props) {
         listingSites:   [],
         ownerId:        unit.ownerId || 'shared',
         createdAt:      unit.createdAt,
-      });
+      };
+
+      await dbService.delete('inventoryUnits', unit.id);
+      await dbService.create('inventoryUnits', finalId, newUnit);
+
+      // Trigger new_stock notification when SHS unit is received
+      notificationService.addNotification('new_stock', newUnit);
+
       setSaved(true);
       setTimeout(onClose, 900);
     } catch (err: any) {
