@@ -48,10 +48,41 @@ function buildSignals(units: InventoryUnit[], mode: 'buy' | 'sell'): Signal[] {
   // ── stock depth & age per model ─────────────────────────────────────────────
   const depth: Record<string, number>     = {};
   const ages:  Record<string, number[]>   = {};
+  const allPerModel: Record<string, InventoryUnit[]> = {};
+
   for (const u of avail) {
     depth[u.model] = (depth[u.model] || 0) + 1;
     const d = Math.floor((now - new Date(u.dateIn).getTime()) / MS);
     (ages[u.model] = ages[u.model] || []).push(d);
+  }
+
+  // ── all units (sold + available) for sell-through calculation ─────────────────
+  for (const u of units) {
+    if (!allPerModel[u.model]) allPerModel[u.model] = [];
+    allPerModel[u.model].push(u);
+  }
+
+  // ── sell-through % and average sell time per model ───────────────────────────
+  const sellThrough: Record<string, { pct: number; avgDays: number; totalCount: number }> = {};
+  const sellTimesPerModel: Record<string, number[]> = {};
+
+  for (const [model, allUnits] of Object.entries(allPerModel)) {
+    const soldUnits = allUnits.filter(u => u.status === 'sold');
+    const totalUnits = allUnits.length;
+    const sellThroughPct = totalUnits > 0 ? Math.round((soldUnits.length / totalUnits) * 100) : 0;
+
+    // Average sell time: from dateIn to saleDate
+    const sellTimes: number[] = [];
+    for (const u of soldUnits) {
+      if (u.dateIn && u.saleDate) {
+        const daysToSell = Math.floor((new Date(u.saleDate).getTime() - new Date(u.dateIn).getTime()) / MS);
+        sellTimes.push(Math.max(0, daysToSell));
+      }
+    }
+
+    const avgSellDays = sellTimes.length > 0 ? Math.round(sellTimes.reduce((a, b) => a + b, 0) / sellTimes.length) : 0;
+    sellThrough[model] = { pct: sellThroughPct, avgDays: avgSellDays, totalCount: totalUnits };
+    sellTimesPerModel[model] = sellTimes;
   }
 
   // ── platform revenue (sold 14d) ─────────────────────────────────────────────
@@ -69,8 +100,9 @@ function buildSignals(units: InventoryUnit[], mode: 'buy' | 'sell'): Signal[] {
   const restockRows: Row[] = Object.entries(vel14)
     .filter(([m, v]) => {
       const stock = depth[m] || 0;
-      // Show if: sold 2+ in 14d AND stock <= 3, OR stock is 0
-      return (v >= 2 && stock <= 3) || stock === 0;
+      // Show if: sold 2+ in 14d AND stock <= 3, OR stock is 0, OR high sell-through
+      const st = sellThrough[m];
+      return (v >= 2 && stock <= 3) || stock === 0 || (st && st.pct >= 67);
     })
     .sort(([ma, va], [mb, vb]) => {
       const depthA = depth[ma] || 0;
@@ -80,13 +112,19 @@ function buildSignals(units: InventoryUnit[], mode: 'buy' | 'sell'): Signal[] {
       // Then by lowest stock, then by velocity
       return depthA - depthB || vb - va;
     })
-    .slice(0, 5)
-    .map(([m, v]) => ({
-      name:    label(m),
-      primary: depth[m] === 0 ? '⚠️ OUT OF STOCK' : `${depth[m] || 0} left`,
-      sub:     `${v} sold / 14d · Velocity: ${(v / 14).toFixed(1)}/day`,
-      alert:   (depth[m] || 0) <= 1,
-    }));
+    .slice(0, 6)
+    .map(([m, v]) => {
+      const stock = depth[m] || 0;
+      const st = sellThrough[m] || { pct: 0, avgDays: 0, totalCount: 0 };
+      const stockStatus = stock === 0 ? 'OUT' : `${stock} left`;
+
+      return {
+        name:    label(m),
+        primary: stockStatus,  // Stock badge shown prominently on right
+        sub:     `sold · ${st.pct}% sell-through · ${st.avgDays}d avg sell`,  // Metrics below
+        alert:   stock <= 1,
+      };
+    });
 
   // 2. VELOCITY: top sellers by volume
   const velRows: Row[] = Object.entries(mode === 'sell' ? vel7 : vel14)
