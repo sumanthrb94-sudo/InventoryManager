@@ -56,9 +56,16 @@ function SellOrderModal({
     if (!orderId.trim()) { setError('Please enter the order number from the platform.'); return; }
     setSaving(true);
     try {
+      const spNum = Number(sp);
+      const postageNum = postage ? Number(postage) : DEFAULT_POSTAGE_COST;
+
+      // Calculate profit for notification
+      const profit = calcNetProfit(spNum, unit.buyPrice, platform, postageNum);
+      const notificationType = profit < 0 ? 'loss_sell' : 'sold';
+
       await dbService.update('inventoryUnits', unit.id, {
         status:      'sold',
-        salePrice:   Number(sp),
+        salePrice:   spNum,
         salePlatform: platform,
         saleOrderId: orderId.trim(),
         saleDate,
@@ -66,9 +73,8 @@ function SellOrderModal({
         ...(isSHS ? { imei: imeiInput.trim() || '' } : {}),
       });
 
-      // Trigger notification for the sale
-      const notificationType = netProfit! < 0 ? 'loss_sell' : 'sold';
-      notificationService.addNotification(notificationType, unit, netProfit);
+      // Trigger notification with correct type and profit amount
+      notificationService.addNotification(notificationType, unit, profit);
 
       onSaved();
       onClose();
