@@ -291,25 +291,51 @@ const SignalCard: React.FC<{ sig: Signal }> = ({ sig }) => {
           {sig.empty}
         </p>
       ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
           {sig.rows.map((row, i) => (
-            <div key={i} style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 6 }}>
-              <p style={{
-                fontSize: 9, fontWeight: 600, color: row.alert ? '#fca5a5' : '#cbd5e1',
-                flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-                lineHeight: 1.3,
-              }}>
-                {row.name}
-              </p>
-              <div style={{ textAlign: 'right', flexShrink: 0 }}>
+            <div key={i} style={{
+              display: 'flex',
+              alignItems: 'flex-start',
+              justifyContent: 'space-between',
+              gap: 8,
+              paddingBottom: 8,
+              borderBottom: i < sig.rows.length - 1 ? '1px solid rgba(255,255,255,0.06)' : 'none',
+            }}>
+              <div style={{ flex: 1, minWidth: 0 }}>
                 <p style={{
-                  fontSize: 9, fontWeight: 800, fontFamily: 'monospace',
-                  color: row.alert ? '#f87171' : sig.color, lineHeight: 1.2,
+                  fontSize: 10, fontWeight: 700, color: '#f1f5f9',
+                  lineHeight: 1.3, marginBottom: 3,
+                  overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'normal',
+                  wordBreak: 'break-word',
+                }}>
+                  {row.name}
+                </p>
+                <p style={{
+                  fontSize: 8,
+                  color: '#94a3b8',
+                  fontFamily: 'monospace',
+                  lineHeight: 1.4,
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                }}>
+                  {row.sub}
+                </p>
+              </div>
+              <div style={{
+                textAlign: 'right',
+                flexShrink: 0,
+                minWidth: 'max-content',
+                marginLeft: 8,
+              }}>
+                <p style={{
+                  fontSize: 10, fontWeight: 900, fontFamily: 'monospace',
+                  color: row.alert ? '#fca5a5' : sig.color,
+                  lineHeight: 1.2,
+                  padding: '4px 8px',
+                  backgroundColor: row.alert ? 'rgba(252, 165, 165, 0.1)' : 'transparent',
+                  borderRadius: 4,
                 }}>
                   {row.primary}
-                </p>
-                <p style={{ fontSize: 7, color: '#475569', fontFamily: 'monospace', lineHeight: 1.2 }}>
-                  {row.sub}
                 </p>
               </div>
             </div>
