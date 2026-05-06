@@ -1,17 +1,30 @@
 import React, { useState } from 'react';
-import { supabase } from '../lib/supabase';
 import { CheckCircle2, AlertCircle, Database, Clock } from 'lucide-react';
+import { dbService, toCamel } from '../lib/dbService';
 import seedData from '../lib/clientSeedData.json';
 
-const units     = seedData.units as any[];
-const available = units.filter(u => u.status === 'available').length;
-const incoming  = units.filter(u => u.status === 'incoming').length;
-const sold      = units.filter(u => u.status === 'sold').length;
+const rawUnits     = seedData.units as any[];
+const rawSuppliers = seedData.suppliers as any[];
+
+// Convert snake_case keys to camelCase for Firestore
+function toAppObj(obj: any): any {
+  if (!obj || typeof obj !== 'object') return obj;
+  return Object.fromEntries(
+    Object.entries(obj).map(([k, v]) => [toCamel(k), v])
+  );
+}
+
+const appUnits     = rawUnits.map(toAppObj);
+const appSuppliers = rawSuppliers.map(toAppObj);
+
+const available = appUnits.filter((u: any) => u.status === 'available').length;
+const incoming  = appUnits.filter((u: any) => u.status === 'incoming').length;
+const sold      = appUnits.filter((u: any) => u.status === 'sold').length;
 
 export default function DataSeedPage() {
   const [status, setStatus] = useState<'idle' | 'running' | 'done' | 'error'>('idle');
-  const [log, setLog]       = useState<string[]>([]);
-  const [error, setError]   = useState('');
+  const [log,    setLog]    = useState<string[]>([]);
+  const [error,  setError]  = useState('');
 
   const addLog = (msg: string) => setLog(prev => [...prev, msg]);
 
@@ -20,29 +33,26 @@ export default function DataSeedPage() {
     setLog([]);
     setError('');
     try {
-      addLog('Clearing existing inventory units…');
-      const { error: delErr } = await supabase.from('inventory_units').delete().neq('id', '__none__');
-      if (delErr) throw new Error('Clear units: ' + delErr.message);
+      const entries: Array<{ collection: string; id: string; data: any }> = [
+        ...appSuppliers.map((s: any) => ({
+          collection: 'suppliers',
+          id: s.id,
+          data: s,
+        })),
+        ...appUnits.map((u: any) => ({
+          collection: 'inventoryUnits',
+          id: u.id || u.imei || `unit_${Math.random().toString(36).slice(2)}`,
+          data: u,
+        })),
+      ];
 
-      addLog('Clearing existing suppliers…');
-      const { error: delSupErr } = await supabase.from('suppliers').delete().neq('id', '__none__');
-      if (delSupErr) throw new Error('Clear suppliers: ' + delSupErr.message);
+      addLog(`Seeding ${appSuppliers.length} suppliers + ${appUnits.length} units into Firestore…`);
 
-      addLog(`Inserting ${seedData.suppliers.length} suppliers…`);
-      const { error: supErr } = await supabase.from('suppliers').upsert(
-        seedData.suppliers.map((s: any) => ({ ...s, created_at: new Date().toISOString() }))
-      );
-      if (supErr) throw new Error('Suppliers: ' + supErr.message);
-
-      const CHUNK = 50;
-      let done = 0;
-      for (let i = 0; i < units.length; i += CHUNK) {
-        const chunk = units.slice(i, i + CHUNK);
-        const { error: uErr } = await supabase.from('inventory_units').insert(chunk);
-        if (uErr) throw new Error(`Units chunk ${i}: ${uErr.message}`);
-        done += chunk.length;
-        addLog(`Inserted ${done} / ${units.length} units…`);
-      }
+      await dbService.bulkCreate(entries, (done, total) => {
+        if (done % 20 === 0 || done === total) {
+          addLog(`Inserted ${done} / ${total}…`);
+        }
+      });
 
       addLog(`✓ Done! ${available} available · ${incoming} SHS · ${sold} sold`);
       setStatus('done');
@@ -62,12 +72,11 @@ export default function DataSeedPage() {
           <div>
             <h1 className="text-lg font-bold uppercase tracking-tight">Reload Client Data</h1>
             <p className="text-[10px] text-gray-400 font-mono">
-              {units.length} units · {seedData.suppliers.length} suppliers
+              {appUnits.length} units · {appSuppliers.length} suppliers
             </p>
           </div>
         </div>
 
-        {/* Stats */}
         <div className="grid grid-cols-3 gap-2">
           <div className="bg-emerald-50 border border-emerald-100 rounded-xl p-3 text-center">
             <p className="text-xl font-bold text-emerald-700">{available}</p>
@@ -86,8 +95,8 @@ export default function DataSeedPage() {
         </div>
 
         <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 text-xs text-amber-800 font-mono">
-          ⚠ This will DELETE all existing inventory data and replace it with the latest client dataset.
-          Run this again whenever the seed file is updated.
+          ⚠ This will overwrite matching Firestore documents with the latest client dataset.
+          Use Reset Data first to start from a clean slate.
         </div>
 
         {log.length > 0 && (
@@ -109,7 +118,7 @@ export default function DataSeedPage() {
           <div className="flex items-center gap-2 bg-emerald-50 border border-emerald-200 rounded-xl px-4 py-3">
             <CheckCircle2 size={16} className="text-emerald-600" />
             <p className="text-xs font-bold text-emerald-700">
-              {units.length} units loaded — tap Reload to see them.
+              {appUnits.length} units loaded — tap Reload to see them.
             </p>
           </div>
         ) : (
@@ -120,7 +129,7 @@ export default function DataSeedPage() {
           >
             {status === 'running'
               ? <><div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" /> Loading…</>
-              : `Load ${units.length} Units into Supabase`}
+              : `Load ${appUnits.length} Units into Firestore`}
           </button>
         )}
 

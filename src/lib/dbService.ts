@@ -1,29 +1,47 @@
 /**
- * Supabase database service — pure Supabase, no localStorage cache.
- * In-memory cache (cachedData) is used for instant re-renders within the session only.
- * All columns are snake_case in Supabase; app uses camelCase — converted automatically.
+ * Firestore database service.
+ * Collections are camelCase; data is stored as-is (no snake_case conversion).
+ * In-memory cache provides instant re-renders within the session.
  */
 
-import { supabase } from './supabase';
+import {
+  collection, doc, setDoc, deleteDoc, getDocs,
+  onSnapshot, query, where, writeBatch, getDoc,
+  QuerySnapshot, DocumentData,
+} from 'firebase/firestore';
+import { db } from './firebase';
 
-const listeners: Record<string, Array<(data: any[]) => void>> = {};
+const listeners:  Record<string, Array<(data: any[]) => void>> = {};
 const cachedData: Record<string, any[]> = {};
 
-// ── Table name mapping ────────────────────────────────────────────────────────
-const TABLE_MAP: Record<string, string> = {
-  inventoryUnits:  'inventory_units',
+// ── Collection name map (app name → Firestore collection) ─────────────────────
+const COL: Record<string, string> = {
+  inventoryUnits:  'inventoryUnits',
   suppliers:       'suppliers',
-  inventoryEvents: 'inventory_events',
-  dailyUpdates:    'daily_updates',
-  activeListings:  'active_listings',
-  sourceDocuments: 'source_documents',
+  inventoryEvents: 'inventoryEvents',
+  dailyUpdates:    'dailyUpdates',
+  activeListings:  'activeListings',
+  sourceDocuments: 'sourceDocuments',
 };
 
-function tableName(col: string): string {
-  return TABLE_MAP[col] ?? col;
+function colRef(name: string) {
+  return collection(db, COL[name] ?? name);
+}
+function docRef(name: string, id: string) {
+  return doc(db, COL[name] ?? name, id);
 }
 
-// ── camelCase ↔ snake_case (exported for testing) ────────────────────────────
+// ── Snapshot → app objects ────────────────────────────────────────────────────
+function snapToItems(snap: QuerySnapshot<DocumentData>): any[] {
+  return snap.docs.map(d => {
+    const item: any = { ...d.data(), id: d.id };
+    if (!Array.isArray(item.flags)) item.flags = [];
+    if (!Array.isArray(item.listingSites)) item.listingSites = [];
+    return item;
+  });
+}
+
+// ── Legacy conversion helpers — kept for backward-compat & tests ──────────────
 export function toSnake(s: string): string {
   return s.replace(/[A-Z]/g, c => `_${c.toLowerCase()}`);
 }
@@ -49,6 +67,7 @@ export function appToDb(obj: Record<string, any>): Record<string, any> {
 // ── Sync status ───────────────────────────────────────────────────────────────
 let _syncConnected = false;
 const _syncListeners: Array<(connected: boolean) => void> = [];
+
 function setSyncStatus(connected: boolean) {
   if (_syncConnected === connected) return;
   _syncConnected = connected;
@@ -58,39 +77,48 @@ function setSyncStatus(connected: boolean) {
 export function subscribeToSyncStatus(cb: (connected: boolean) => void) {
   _syncListeners.push(cb);
   cb(_syncConnected);
-  return () => { const i = _syncListeners.indexOf(cb); if (i >= 0) _syncListeners.splice(i, 1); };
+  return () => {
+    const i = _syncListeners.indexOf(cb);
+    if (i >= 0) _syncListeners.splice(i, 1);
+  };
 }
 
-function emit(collectionName: string, data: any[]) {
-  for (const cb of listeners[collectionName] || []) cb([...data]);
+function emit(name: string, data: any[]) {
+  for (const cb of listeners[name] || []) cb([...data]);
 }
 
 function nowIso() { return new Date().toISOString(); }
+
+function cleanForFirestore(obj: Record<string, any>): Record<string, any> {
+  return Object.fromEntries(
+    Object.entries(obj).filter(([k, v]) => v !== undefined && k !== 'supplierName')
+  );
+}
 
 // ── dbService ─────────────────────────────────────────────────────────────────
 export const dbService = {
 
   async create(collectionName: string, id: string, data: any) {
     const timestamp = nowIso();
-    const newItem = { ...data, id, createdAt: data.createdAt ?? timestamp, updatedAt: timestamp };
+    const item = { ...data, id, createdAt: data.createdAt ?? timestamp, updatedAt: timestamp };
 
-    // Optimistic in-memory update so UI is instant
     const current = [...(cachedData[collectionName] || [])];
-    const idx = current.findIndex(item => item.id === id);
-    if (idx >= 0) current[idx] = newItem; else current.push(newItem);
+    const idx = current.findIndex(x => x.id === id);
+    if (idx >= 0) current[idx] = item; else current.push(item);
     cachedData[collectionName] = current;
     emit(collectionName, current);
 
-    const { error } = await supabase
-      .from(tableName(collectionName))
-      .upsert(appToDb(newItem));
-    if (error) console.warn(`Supabase create [${collectionName}/${id}]:`, error.message);
+    try {
+      await setDoc(docRef(collectionName, id), cleanForFirestore(item), { merge: true });
+    } catch (err: any) {
+      console.warn(`Firestore create [${collectionName}/${id}]:`, err.message);
+    }
   },
 
   async update(collectionName: string, id: string, data: any) {
     const timestamp = nowIso();
     const current = [...(cachedData[collectionName] || [])];
-    const idx = current.findIndex(item => item.id === id);
+    const idx = current.findIndex(x => x.id === id);
     const updated = idx >= 0
       ? { ...current[idx], ...data, id, updatedAt: timestamp }
       : { ...data, id, updatedAt: timestamp };
@@ -99,22 +127,23 @@ export const dbService = {
     cachedData[collectionName] = current;
     emit(collectionName, current);
 
-    const { error } = await supabase
-      .from(tableName(collectionName))
-      .upsert(appToDb(updated));
-    if (error) console.warn(`Supabase update [${collectionName}/${id}]:`, error.message);
+    try {
+      await setDoc(docRef(collectionName, id), cleanForFirestore(updated), { merge: true });
+    } catch (err: any) {
+      console.warn(`Firestore update [${collectionName}/${id}]:`, err.message);
+    }
   },
 
   async delete(collectionName: string, id: string) {
-    const current = (cachedData[collectionName] || []).filter(item => item.id !== id);
+    const current = (cachedData[collectionName] || []).filter(x => x.id !== id);
     cachedData[collectionName] = current;
     emit(collectionName, current);
 
-    const { error } = await supabase
-      .from(tableName(collectionName))
-      .delete()
-      .eq('id', id);
-    if (error) console.warn(`Supabase delete [${collectionName}/${id}]:`, error.message);
+    try {
+      await deleteDoc(docRef(collectionName, id));
+    } catch (err: any) {
+      console.warn(`Firestore delete [${collectionName}/${id}]:`, err.message);
+    }
   },
 
   async bulkCreate(
@@ -125,6 +154,7 @@ export const dbService = {
     const total = entries.length;
     let done = 0;
 
+    // Build per-collection items
     const byCollection: Record<string, any[]> = {};
     for (const entry of entries) {
       const item = {
@@ -134,8 +164,7 @@ export const dbService = {
         createdAt: entry.data.createdAt ?? timestamp,
         updatedAt: timestamp,
       };
-      if (!byCollection[entry.collection]) byCollection[entry.collection] = [];
-      byCollection[entry.collection].push(item);
+      (byCollection[entry.collection] ??= []).push(item);
     }
 
     // Optimistic in-memory update
@@ -149,102 +178,64 @@ export const dbService = {
       emit(col, existing);
     }
 
-    // Sync to Supabase in chunks
-    const CHUNK = 100;
-    for (const [col, items] of Object.entries(byCollection)) {
-      const rows = items.map(appToDb);
-      for (let i = 0; i < rows.length; i += CHUNK) {
-        const { error } = await supabase.from(tableName(col)).upsert(rows.slice(i, i + CHUNK));
-        if (error) throw new Error(`Supabase bulkCreate [${col}]: ${error.message}`);
-        done += Math.min(CHUNK, rows.length - i);
-        onProgress?.(done, total);
-        await new Promise(r => setTimeout(r, 0));
+    // Write to Firestore in batches of 400 (under the 500-write limit)
+    const BATCH_SIZE = 400;
+    for (let i = 0; i < entries.length; i += BATCH_SIZE) {
+      const chunk = entries.slice(i, i + BATCH_SIZE);
+      const batch = writeBatch(db);
+      for (const entry of chunk) {
+        const item = cleanForFirestore({
+          ...entry.data,
+          id: entry.id,
+          ownerId: entry.data.ownerId || 'shared',
+          createdAt: entry.data.createdAt ?? timestamp,
+          updatedAt: timestamp,
+        });
+        batch.set(docRef(entry.collection, entry.id), item, { merge: true });
       }
+      await batch.commit();
+      done += chunk.length;
+      onProgress?.(done, total);
+      await new Promise(r => setTimeout(r, 0));
     }
 
     onProgress?.(total, total);
   },
 
   subscribeToCollection(collectionName: string, callback: (data: any[]) => void) {
-    if (!listeners[collectionName]) listeners[collectionName] = [];
-    listeners[collectionName].push(callback);
+    (listeners[collectionName] ??= []).push(callback);
 
-    let destroyed = false;
-    let retryTimer: ReturnType<typeof setTimeout> | null = null;
-    let channel: any = null;
-
-    // Serve in-memory cache immediately if we already fetched this session
+    // Serve in-memory cache immediately
     if (cachedData[collectionName]?.length) {
       callback([...cachedData[collectionName]]);
     }
 
-    const orderCol = collectionName === 'inventoryUnits' ? 'date_in' : 'created_at';
-
-    const fetchLatest = async () => {
-      const { data, error } = await supabase
-        .from(tableName(collectionName))
-        .select('*')
-        .order(orderCol, { ascending: false })
-        .limit(15000);
-      if (error) throw error;
-      return (data || []).map(dbToApp);
-    };
-
-    const connect = async () => {
-      if (destroyed) return;
-      try {
-        const appData = await fetchLatest();
-        if (destroyed) return;
-
-        cachedData[collectionName] = appData;
-        emit(collectionName, appData);
+    const unsub = onSnapshot(
+      colRef(collectionName),
+      snap => {
+        const data = snapToItems(snap);
+        cachedData[collectionName] = data;
+        emit(collectionName, data);
         setSyncStatus(true);
-
-        channel = supabase
-          .channel(`rt_${collectionName}_${Date.now()}`)
-          .on('postgres_changes', { event: '*', schema: 'public', table: tableName(collectionName) }, async () => {
-            if (destroyed) return;
-            try {
-              const fresh = await fetchLatest();
-              cachedData[collectionName] = fresh;
-              emit(collectionName, fresh);
-            } catch { /* ignore mid-session refresh errors */ }
-          })
-          .subscribe(status => {
-            if (status === 'SUBSCRIBED') setSyncStatus(true);
-            if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
-              setSyncStatus(false);
-              if (!destroyed) retryTimer = setTimeout(connect, 30000);
-            }
-          });
-
-      } catch (err) {
+      },
+      err => {
         setSyncStatus(false);
-        console.warn(`Supabase [${collectionName}] connection failed:`, err);
-        if (!destroyed) retryTimer = setTimeout(connect, 30000);
-      }
-    };
-
-    void connect();
+        console.warn(`Firestore [${collectionName}] snapshot error:`, err.message);
+      },
+    );
 
     return () => {
-      destroyed = true;
-      if (retryTimer) clearTimeout(retryTimer);
-      if (channel) supabase.removeChannel(channel);
+      unsub();
       listeners[collectionName] = (listeners[collectionName] || []).filter(cb => cb !== callback);
     };
   },
 
   async readAll(collectionName: string) {
     if (cachedData[collectionName]?.length) return cachedData[collectionName];
-    const orderCol = collectionName === 'inventoryUnits' ? 'date_in' : 'created_at';
-    const { data } = await supabase
-      .from(tableName(collectionName))
-      .select('*')
-      .order(orderCol, { ascending: false });
-    const appData = (data || []).map(dbToApp);
-    cachedData[collectionName] = appData;
-    return appData;
+    const snap = await getDocs(colRef(collectionName));
+    const data = snapToItems(snap);
+    cachedData[collectionName] = data;
+    return data;
   },
 
   async resetDatabase() {
@@ -254,40 +245,40 @@ export const dbService = {
 
   async imeiExists(imei: string): Promise<boolean> {
     if (!imei || imei.length < 14) return false;
-    const { data } = await supabase
-      .from('inventory_units')
-      .select('imei')
-      .eq('imei', imei)
-      .single();
-    return !!data;
+    const cached = (cachedData['inventoryUnits'] || []).find((u: any) => u.imei === imei);
+    if (cached) return true;
+    const snap = await getDocs(query(colRef('inventoryUnits'), where('imei', '==', imei)));
+    return !snap.empty;
   },
 
   async getByImei(imei: string): Promise<any | null> {
     const cached = (cachedData['inventoryUnits'] || []).find((u: any) => u.imei === imei);
     if (cached) return cached;
-    const { data, error } = await supabase
-      .from('inventory_units')
-      .select('*')
-      .eq('imei', imei)
-      .single();
-    if (error) return null;
-    return data ? dbToApp(data) : null;
+    const snap = await getDocs(query(colRef('inventoryUnits'), where('imei', '==', imei)));
+    if (snap.empty) return null;
+    return snapToItems(snap)[0];
   },
 
   async updateByImei(imei: string, data: any) {
     const timestamp = nowIso();
     const current = [...(cachedData['inventoryUnits'] || [])];
-    const idx = current.findIndex((item: any) => item.imei === imei);
+    const idx = current.findIndex((x: any) => x.imei === imei);
     const updated = idx >= 0
       ? { ...current[idx], ...data, imei, updatedAt: timestamp }
       : { ...data, imei, updatedAt: timestamp };
+
     if (idx >= 0) current[idx] = updated;
     cachedData['inventoryUnits'] = current;
     emit('inventoryUnits', current);
-    const { error } = await supabase
-      .from('inventory_units')
-      .update(appToDb(updated))
-      .eq('imei', imei);
-    if (error) console.warn(`Supabase updateByImei [${imei}]:`, error.message);
+
+    // Find and update the Firestore document
+    try {
+      const snap = await getDocs(query(colRef('inventoryUnits'), where('imei', '==', imei)));
+      if (!snap.empty) {
+        await setDoc(snap.docs[0].ref, cleanForFirestore(updated), { merge: true });
+      }
+    } catch (err: any) {
+      console.warn(`Firestore updateByImei [${imei}]:`, err.message);
+    }
   },
 };

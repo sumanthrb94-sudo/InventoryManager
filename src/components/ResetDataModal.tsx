@@ -1,17 +1,18 @@
 import React, { useState } from 'react';
 import { X, Trash2, AlertTriangle, CheckCircle2, RefreshCw } from 'lucide-react';
 import { motion } from 'motion/react';
-import { supabase } from '../lib/supabase';
+import { collection, getDocs, writeBatch } from 'firebase/firestore';
+import { db } from '../lib/firebase';
 
 interface Props { onClose: () => void; }
 
-const TABLES = [
-  'inventory_units',
+const COLLECTIONS = [
+  'inventoryUnits',
   'suppliers',
-  'inventory_events',
-  'active_listings',
-  'daily_updates',
-  'source_documents',
+  'inventoryEvents',
+  'activeListings',
+  'dailyUpdates',
+  'sourceDocuments',
 ];
 
 export default function ResetDataModal({ onClose }: Props) {
@@ -27,26 +28,36 @@ export default function ResetDataModal({ onClose }: Props) {
     setRunning(true);
     setError('');
     try {
-      for (const table of TABLES) {
-        addLog(`Clearing ${table}…`);
-        const { error: err } = await supabase.from(table).delete().neq('id', '__none__');
-        if (err) {
-          // Non-fatal: table may not exist or be empty — log and continue
-          addLog(`  ↳ skipped (${err.message})`);
-        } else {
-          addLog(`  ↳ done`);
+      for (const col of COLLECTIONS) {
+        addLog(`Clearing ${col}…`);
+        const snap = await getDocs(collection(db, col));
+        if (snap.empty) {
+          addLog(`  ↳ already empty`);
+          continue;
         }
+        const BATCH_SIZE = 400;
+        let batch = writeBatch(db);
+        let count = 0;
+        for (const docSnap of snap.docs) {
+          batch.delete(docSnap.ref);
+          count++;
+          if (count % BATCH_SIZE === 0) {
+            await batch.commit();
+            batch = writeBatch(db);
+          }
+        }
+        if (count % BATCH_SIZE !== 0) await batch.commit();
+        addLog(`  ↳ deleted ${snap.size} documents`);
       }
-      addLog('All tables cleared.');
+      addLog('All collections cleared.');
       setDone(true);
     } catch (err: any) {
-      setError(err?.message || 'Reset failed — check Supabase connection');
+      setError(err?.message || 'Reset failed — check Firestore connection');
       setRunning(false);
     }
   };
 
   const handleReload = () => {
-    // Clear in-memory cache by hard-navigating
     window.location.href = window.location.origin + '?t=' + Date.now();
   };
 
@@ -83,30 +94,27 @@ export default function ResetDataModal({ onClose }: Props) {
         <div className="p-5 space-y-4">
           {!done ? (
             <>
-              {/* Warning */}
               <div className="flex items-start gap-3 bg-red-50 border border-red-200 rounded-xl px-4 py-3">
                 <AlertTriangle size={16} className="text-red-500 mt-0.5 flex-shrink-0" />
                 <div className="space-y-1">
                   <p className="text-xs font-bold text-red-900">This will permanently delete all data</p>
                   <p className="text-[9px] text-red-700 font-mono leading-relaxed">
-                    All inventory units, suppliers, events, and listings will be removed from Supabase.
+                    All inventory units, suppliers, events, and listings will be removed from Firestore.
                     Use this to load a fresh Excel sample for testing.
                     <br /><strong>This cannot be undone.</strong>
                   </p>
                 </div>
               </div>
 
-              {/* Tables that will be cleared */}
               <div>
-                <p className="text-[8px] font-bold uppercase tracking-widest text-gray-400 mb-2">Tables to clear</p>
+                <p className="text-[8px] font-bold uppercase tracking-widest text-gray-400 mb-2">Collections to clear</p>
                 <div className="flex flex-wrap gap-1.5">
-                  {TABLES.map(t => (
-                    <span key={t} className="text-[9px] font-mono bg-gray-100 text-gray-600 px-2 py-0.5 rounded-lg">{t}</span>
+                  {COLLECTIONS.map(c => (
+                    <span key={c} className="text-[9px] font-mono bg-gray-100 text-gray-600 px-2 py-0.5 rounded-lg">{c}</span>
                   ))}
                 </div>
               </div>
 
-              {/* Progress log */}
               {log.length > 0 && (
                 <div className="bg-gray-50 rounded-xl p-3 max-h-40 overflow-y-auto space-y-0.5">
                   {log.map((l, i) => (
@@ -121,7 +129,6 @@ export default function ResetDataModal({ onClose }: Props) {
                 </div>
               )}
 
-              {/* Confirm checkbox */}
               {!running && (
                 <label className="flex items-center gap-3 cursor-pointer select-none">
                   <div
@@ -158,7 +165,6 @@ export default function ResetDataModal({ onClose }: Props) {
               </div>
             </>
           ) : (
-            /* Done state */
             <div className="py-4 space-y-4 text-center">
               <CheckCircle2 className="mx-auto text-emerald-600" size={40} />
               <div>
