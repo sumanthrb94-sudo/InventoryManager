@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { X, Database, AlertTriangle, CheckCircle2, RefreshCw } from 'lucide-react';
+import { X, Database, Sparkles, CheckCircle2, RefreshCw, Loader2 } from 'lucide-react';
 import { motion } from 'motion/react';
 import { collection, getDocs, writeBatch } from 'firebase/firestore';
 import { db } from '../lib/firebase';
@@ -40,7 +40,7 @@ export default function LoadMockDataModal({ onClose }: Props) {
   const [done, setDone] = useState(false);
   const [log, setLog] = useState<string[]>([]);
   const [error, setError] = useState('');
-  const [stage, setStage] = useState<'clear' | 'loading'>('clear');
+  const [stage, setStage] = useState<'idle' | 'clearing' | 'loading'>('idle');
 
   const addLog = (msg: string) => setLog(prev => [...prev, msg]);
 
@@ -48,8 +48,7 @@ export default function LoadMockDataModal({ onClose }: Props) {
     setRunning(true);
     setError('');
     try {
-      // Stage 1: Clear all collections
-      setStage('clear');
+      setStage('clearing');
       for (const col of COLLECTIONS) {
         addLog(`Clearing ${col}…`);
         const snap = await getDocs(collection(db, col));
@@ -73,7 +72,6 @@ export default function LoadMockDataModal({ onClose }: Props) {
       }
       addLog('All collections cleared.');
 
-      // Stage 2: Load mock data
       setStage('loading');
       const entries: Array<{ collection: string; id: string; data: any }> = [
         ...appSuppliers.map((s: any) => ({
@@ -96,7 +94,7 @@ export default function LoadMockDataModal({ onClose }: Props) {
         }
       });
 
-      addLog(`✓ Done! ${available} available · ${incoming} SHS · ${sold} sold`);
+      addLog(`✓ Done · ${available} available · ${incoming} SHS · ${sold} sold`);
       setDone(true);
     } catch (err: any) {
       setError(err?.message || 'Failed to load mock data');
@@ -111,137 +109,177 @@ export default function LoadMockDataModal({ onClose }: Props) {
   return (
     <motion.div
       initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-      className="fixed inset-0 z-[80] flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm"
+      className="fixed inset-0 z-[80] flex items-center justify-center p-4 bg-slate-900/30 backdrop-blur-md"
       onClick={!running ? onClose : undefined}
     >
       <motion.div
-        initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }}
-        exit={{ scale: 0.95, opacity: 0 }}
+        initial={{ scale: 0.96, opacity: 0, y: 8 }} animate={{ scale: 1, opacity: 1, y: 0 }}
+        exit={{ scale: 0.96, opacity: 0, y: 8 }}
+        transition={{ type: 'spring', stiffness: 280, damping: 26 }}
         onClick={e => e.stopPropagation()}
-        className="bg-white w-full max-w-md rounded-2xl shadow-2xl overflow-hidden"
+        className="bg-white w-full max-w-md rounded-2xl shadow-xl shadow-slate-900/10 ring-1 ring-slate-200/70 overflow-hidden"
       >
         {/* Header */}
-        <div className="flex items-center justify-between px-5 py-4 border-b border-blue-100 bg-blue-50">
+        <div className="flex items-center justify-between px-6 py-5">
           <div className="flex items-center gap-3">
-            <div className="w-8 h-8 bg-blue-600 text-white rounded-xl flex items-center justify-center">
-              <Database size={15} />
+            <div className="w-9 h-9 bg-slate-50 ring-1 ring-slate-200/80 rounded-xl flex items-center justify-center text-slate-500">
+              <Database size={16} strokeWidth={1.75} />
             </div>
             <div>
-              <p className="text-sm font-bold text-blue-900">Load Mock Data</p>
-              <p className="text-[9px] text-blue-500 font-mono uppercase tracking-widest">Test Environment</p>
+              <p className="text-sm font-semibold text-slate-800 tracking-tight">Load Sample Data</p>
+              <p className="text-[10px] text-slate-400 mt-0.5 tracking-wide">Replaces existing inventory</p>
             </div>
           </div>
           {!running && (
-            <button onClick={onClose} className="p-2 hover:bg-blue-100 rounded-xl text-blue-400 transition-all">
-              <X size={15} />
+            <button onClick={onClose}
+              className="p-1.5 rounded-lg text-slate-300 hover:text-slate-600 hover:bg-slate-50 transition-all">
+              <X size={16} strokeWidth={1.75} />
             </button>
           )}
         </div>
 
-        <div className="p-5 space-y-4">
+        <div className="border-t border-slate-100" />
+
+        <div className="px-6 py-5 space-y-5">
           {!done ? (
             <>
-              <div className="flex items-start gap-3 bg-blue-50 border border-blue-200 rounded-xl px-4 py-3">
-                <AlertTriangle size={16} className="text-blue-500 mt-0.5 flex-shrink-0" />
-                <div className="space-y-1">
-                  <p className="text-xs font-bold text-blue-900">Load {appUnits.length} test units</p>
-                  <p className="text-[9px] text-blue-700 font-mono leading-relaxed">
-                    This will clear all current data and load sample inventory for testing.
-                    <br /><strong>Your current data will be permanently deleted.</strong>
-                  </p>
-                </div>
-              </div>
-
+              {/* Stat cards — soft, equal-weight */}
               <div className="grid grid-cols-3 gap-2">
-                <div className="bg-emerald-50 border border-emerald-100 rounded-lg p-2 text-center">
-                  <p className="text-lg font-bold text-emerald-700">{available}</p>
-                  <p className="text-[8px] text-emerald-500 font-mono uppercase">Available</p>
-                </div>
-                <div className="bg-amber-50 border border-amber-100 rounded-lg p-2 text-center">
-                  <p className="text-lg font-bold text-amber-700">{incoming}</p>
-                  <p className="text-[8px] text-amber-500 font-mono uppercase">SHS</p>
-                </div>
-                <div className="bg-gray-50 border border-gray-100 rounded-lg p-2 text-center">
-                  <p className="text-lg font-bold text-gray-600">{sold}</p>
-                  <p className="text-[8px] text-gray-400 font-mono uppercase">Sold</p>
-                </div>
+                <Stat label="Units" value={appUnits.length} tone="primary" />
+                <Stat label="Suppliers" value={appSuppliers.length} tone="muted" />
+                <Stat label="Available" value={available} tone="muted" />
               </div>
 
+              {/* Inline note */}
+              <div className="flex items-start gap-2.5 text-[11px] text-slate-500 leading-relaxed">
+                <Sparkles size={13} className="text-slate-400 mt-0.5 flex-shrink-0" strokeWidth={1.75} />
+                <p>
+                  Wipes all current inventory, suppliers, events and listings, then inserts a curated
+                  sample dataset. Use this to evaluate the app or reset to a clean state.
+                </p>
+              </div>
+
+              {/* Activity log */}
               {log.length > 0 && (
-                <div className="bg-gray-50 rounded-xl p-3 max-h-40 overflow-y-auto space-y-0.5">
+                <div className="bg-slate-50 rounded-xl px-3.5 py-3 max-h-36 overflow-y-auto custom-scrollbar space-y-0.5 ring-1 ring-slate-100">
                   {log.map((l, i) => (
-                    <p key={i} className="text-[9px] font-mono text-gray-600">{l}</p>
+                    <p key={i} className="text-[10px] font-mono text-slate-500 leading-relaxed">{l}</p>
                   ))}
                 </div>
               )}
 
               {error && (
-                <div className="bg-red-50 border border-red-200 rounded-xl px-3 py-2">
-                  <p className="text-[10px] text-red-600 font-mono">{error}</p>
+                <div className="bg-rose-50/70 ring-1 ring-rose-100 rounded-xl px-3.5 py-2.5">
+                  <p className="text-[11px] text-rose-600 font-medium">{error}</p>
                 </div>
               )}
 
+              {/* Confirmation */}
               {!running && (
-                <label className="flex items-center gap-3 cursor-pointer select-none">
-                  <div
-                    onClick={() => setConfirmed(c => !c)}
-                    className={`w-5 h-5 rounded-md border-2 flex items-center justify-center transition-all flex-shrink-0 ${
-                      confirmed ? 'bg-blue-600 border-blue-600' : 'border-gray-300 bg-white'
-                    }`}
-                  >
-                    {confirmed && <CheckCircle2 size={12} className="text-white" />}
+                <button
+                  onClick={() => setConfirmed(c => !c)}
+                  className="w-full flex items-center gap-2.5 group select-none text-left"
+                >
+                  <div className={`w-4 h-4 rounded-md border flex items-center justify-center transition-all flex-shrink-0 ${
+                    confirmed
+                      ? 'bg-slate-800 border-slate-800'
+                      : 'border-slate-300 bg-white group-hover:border-slate-400'
+                  }`}>
+                    {confirmed && <CheckCircle2 size={10} className="text-white" strokeWidth={2.5} />}
                   </div>
-                  <span className="text-xs text-gray-700 font-medium">
-                    I understand this will delete all current inventory data
+                  <span className="text-[11px] text-slate-600 leading-relaxed">
+                    I understand current data will be deleted
                   </span>
-                </label>
+                </button>
               )}
 
-              <div className="flex gap-3">
+              {/* Actions */}
+              <div className="flex gap-2 pt-1">
                 {!running && (
-                  <button onClick={onClose}
-                    className="flex-1 py-2.5 border border-gray-200 rounded-xl text-[10px] font-bold uppercase tracking-widest text-gray-500 hover:bg-gray-50 transition-all">
+                  <button
+                    onClick={onClose}
+                    className="flex-1 py-2.5 text-[11px] font-medium text-slate-500 hover:text-slate-800 hover:bg-slate-50 rounded-xl transition-all"
+                  >
                     Cancel
                   </button>
                 )}
                 <button
                   onClick={handleLoadMockData}
                   disabled={!confirmed || running}
-                  className="flex-1 py-2.5 bg-blue-600 text-white rounded-xl text-[10px] font-bold uppercase tracking-widest hover:bg-blue-700 transition-all disabled:opacity-40 flex items-center justify-center gap-2"
+                  className="flex-1 py-2.5 bg-slate-800 text-white rounded-xl text-[11px] font-medium hover:bg-slate-900 transition-all disabled:bg-slate-200 disabled:text-slate-400 disabled:cursor-not-allowed flex items-center justify-center gap-2"
                 >
                   {running
-                    ? <><div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" /> {stage === 'clear' ? 'Clearing…' : 'Loading…'}</>
-                    : <><Database size={12} /> Load Mock Data</>
+                    ? <>
+                        <Loader2 size={13} className="animate-spin" strokeWidth={2} />
+                        <span>{stage === 'clearing' ? 'Clearing data' : 'Loading sample'}</span>
+                      </>
+                    : <>
+                        <span>Load sample</span>
+                      </>
                   }
                 </button>
               </div>
             </>
           ) : (
-            <div className="py-4 space-y-4 text-center">
-              <CheckCircle2 className="mx-auto text-emerald-600" size={40} />
+            <div className="py-3 space-y-5 text-center">
+              <div className="mx-auto w-12 h-12 bg-emerald-50 ring-1 ring-emerald-100 rounded-2xl flex items-center justify-center">
+                <CheckCircle2 className="text-emerald-500" size={22} strokeWidth={1.75} />
+              </div>
               <div>
-                <p className="text-sm font-bold">Mock data loaded!</p>
-                <p className="text-xs text-gray-500 mt-1 font-mono">
+                <p className="text-sm font-semibold text-slate-800 tracking-tight">Sample data ready</p>
+                <p className="text-[11px] text-slate-400 mt-1">
                   {appUnits.length} units · {appSuppliers.length} suppliers
                 </p>
               </div>
-              {log.length > 0 && (
-                <div className="bg-gray-50 rounded-xl p-3 max-h-32 overflow-y-auto text-left">
-                  {log.map((l, i) => (
-                    <p key={i} className="text-[9px] font-mono text-gray-600">{l}</p>
-                  ))}
-                </div>
-              )}
+
+              {/* Inline final summary */}
+              <div className="grid grid-cols-3 gap-2">
+                <SummaryPill label="Available" value={available} />
+                <SummaryPill label="SHS" value={incoming} />
+                <SummaryPill label="Sold" value={sold} />
+              </div>
+
               <button
                 onClick={handleReload}
-                className="w-full py-3 bg-black text-white rounded-xl text-[10px] font-bold uppercase tracking-widest hover:bg-gray-800 transition-all flex items-center justify-center gap-2"
+                className="w-full py-2.5 bg-slate-800 text-white rounded-xl text-[11px] font-medium hover:bg-slate-900 transition-all flex items-center justify-center gap-2"
               >
-                <RefreshCw size={13} /> Reload App
+                <RefreshCw size={12} strokeWidth={2} /> Reload app
               </button>
             </div>
           )}
         </div>
       </motion.div>
     </motion.div>
+  );
+}
+
+// ── Sub-components ─────────────────────────────────────────────────────────────
+
+function Stat({ label, value, tone }: { label: string; value: number; tone: 'primary' | 'muted' }) {
+  const isPrimary = tone === 'primary';
+  return (
+    <div className={`rounded-xl px-3 py-2.5 ${
+      isPrimary
+        ? 'bg-slate-800 text-white'
+        : 'bg-slate-50 ring-1 ring-slate-100 text-slate-700'
+    }`}>
+      <p className={`text-lg font-semibold tracking-tight ${isPrimary ? '' : 'text-slate-800'}`}>
+        {value}
+      </p>
+      <p className={`text-[9px] mt-0.5 tracking-wider uppercase ${
+        isPrimary ? 'text-slate-300' : 'text-slate-400'
+      }`}>
+        {label}
+      </p>
+    </div>
+  );
+}
+
+function SummaryPill({ label, value }: { label: string; value: number }) {
+  return (
+    <div className="bg-slate-50 ring-1 ring-slate-100 rounded-xl px-2 py-2">
+      <p className="text-base font-semibold text-slate-700">{value}</p>
+      <p className="text-[9px] text-slate-400 mt-0.5 tracking-wider uppercase">{label}</p>
+    </div>
   );
 }

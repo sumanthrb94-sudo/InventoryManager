@@ -370,56 +370,66 @@ export default function ImportModal({ onClose }: ImportModalProps) {
   return (
     <motion.div
       initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-      className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-white/90 backdrop-blur-md"
+      className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-slate-900/30 backdrop-blur-md"
     >
       <motion.div
-        initial={{ y: 20, opacity: 0 }} animate={{ y: 0, opacity: 1 }} exit={{ y: 20, opacity: 0 }}
-        className="bg-white border border-gray-200 shadow-2xl w-full max-w-2xl overflow-hidden text-black flex flex-col max-h-[90vh]"
+        initial={{ y: 12, opacity: 0, scale: 0.98 }} animate={{ y: 0, opacity: 1, scale: 1 }}
+        exit={{ y: 12, opacity: 0, scale: 0.98 }}
+        transition={{ type: 'spring', stiffness: 280, damping: 26 }}
+        className="bg-white rounded-2xl shadow-xl shadow-slate-900/10 ring-1 ring-slate-200/70 w-full max-w-2xl overflow-hidden text-slate-700 flex flex-col max-h-[90vh]"
       >
         {/* Header */}
-        <div className="flex items-center justify-between px-8 py-5 border-b border-gray-200 bg-gray-50">
-          <div className="flex items-center gap-4">
-            <FileSpreadsheet size={20} className="text-green-700" />
+        <div className="flex items-center justify-between px-6 py-5">
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 bg-slate-50 ring-1 ring-slate-200/80 rounded-xl flex items-center justify-center text-slate-500">
+              <FileSpreadsheet size={16} strokeWidth={1.75} />
+            </div>
             <div>
-              <h2 className="text-sm font-bold uppercase tracking-widest">Import Stock</h2>
-              <p className="text-[9px] text-gray-400 font-mono uppercase mt-0.5">
+              <h2 className="text-sm font-semibold text-slate-800 tracking-tight">Import Stock</h2>
+              <p className="text-[10px] text-slate-400 mt-0.5 tracking-wide">
                 {isClientFmt
-                  ? 'Bulk format · MODEL · BP · QTY · COLOURS · SUPPLIER'
-                  : 'Master sheet · Date In · Model · IMEI · Colour · Status'}
+                  ? 'Bulk format · model · BP · qty · colours · supplier'
+                  : 'Master sheet · date · model · IMEI · colour · status'}
               </p>
             </div>
           </div>
-          <button onClick={onClose} className="p-2 hover:bg-gray-200 transition-all text-gray-400 hover:text-black">
-            <X size={16} />
+          <button onClick={onClose} className="p-1.5 rounded-lg text-slate-300 hover:text-slate-600 hover:bg-slate-50 transition-all">
+            <X size={16} strokeWidth={1.75} />
           </button>
         </div>
 
+        <div className="border-t border-slate-100" />
+
         {/* Body */}
-        <div className="p-8 overflow-y-auto flex-1">
+        <div className="p-6 overflow-y-auto flex-1 custom-scrollbar">
 
           {/* ── Upload ── */}
           {stage === 'upload' && (
-            <div className="space-y-5">
-              <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-4">
+              <div className="grid grid-cols-2 gap-2.5">
                 {[
                   {
-                    title: 'Your Stock Report',
-                    desc:  'MODEL · BP · QTY · COLOURS · SUPPLIER · NOTES',
-                    eg:    'Samsung Galaxy A32, 60, 122, 7320, BLACK 122, IMAX,',
+                    title: 'Stock Report',
+                    desc:  'MODEL · BP · QTY · COLOURS · SUPPLIER',
+                    eg:    'Galaxy A32, 60, 122, 7320, BLACK 122, IMAX',
                     tag:   'Auto-detected',
                   },
                   {
                     title: 'Master Sheet',
-                    desc:  'Date In · Model · IMEI · Supplier · Buy Price · Colour · Storage · Status · Sale Platform · Sale Price · Sale Date · Sale Order ID · Postage Cost · Notes',
-                    eg:    '2026-04-01, iPhone 15 Pro Max 256GB, 353209102768686, TechSource, 800, Natural Titanium, 256GB, available',
+                    desc:  'Date · Model · IMEI · Supplier · BP · Colour · Status',
+                    eg:    '2026-04-01, iPhone 15 Pro Max, 35320…, TechSource, 800',
                     tag:   'Recommended',
                   },
                 ].map(f => (
-                  <div key={f.title} className="border border-gray-200 rounded-xl p-4 space-y-2">
-                    <p className="text-[9px] font-bold uppercase tracking-widest">{f.title}</p>
-                    <p className="text-[8px] text-gray-400 font-mono">{f.desc}</p>
-                    <p className="text-[8px] bg-gray-50 px-2 py-1 font-mono text-gray-500 rounded truncate">{f.eg}</p>
-                    <span className="inline-block text-[7px] bg-black text-white px-2 py-0.5 rounded-full font-bold uppercase">{f.tag}</span>
+                  <div key={f.title} className="bg-slate-50/70 rounded-xl p-3.5 ring-1 ring-slate-100 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <p className="text-[10px] font-semibold text-slate-700 tracking-tight">{f.title}</p>
+                      <span className="text-[8px] tracking-wider uppercase text-slate-500 bg-white px-2 py-0.5 rounded-full ring-1 ring-slate-200/80">
+                        {f.tag}
+                      </span>
+                    </div>
+                    <p className="text-[9px] text-slate-400 leading-relaxed">{f.desc}</p>
+                    <p className="text-[9px] bg-white px-2 py-1 font-mono text-slate-500 rounded-md truncate ring-1 ring-slate-200/60">{f.eg}</p>
                   </div>
                 ))}
               </div>
@@ -428,16 +438,16 @@ export default function ImportModal({ onClose }: ImportModalProps) {
               <a
                 href="/sample-100-units.xlsx"
                 download="sample-100-units.xlsx"
-                className="flex items-center justify-between w-full px-4 py-3 border border-dashed border-gray-300 rounded-xl hover:border-black hover:bg-gray-50 transition-all group"
+                className="flex items-center justify-between w-full px-4 py-3 border border-dashed border-slate-200 rounded-xl hover:border-slate-300 hover:bg-slate-50/50 transition-all group"
               >
                 <div className="flex items-center gap-3">
-                  <FileSpreadsheet size={16} className="text-green-600 flex-shrink-0" />
+                  <FileSpreadsheet size={15} className="text-slate-400 flex-shrink-0" strokeWidth={1.75} />
                   <div>
-                    <p className="text-[10px] font-bold uppercase tracking-widest">Download Sample File</p>
-                    <p className="text-[8px] text-gray-400 font-mono mt-0.5">100 mock units · available + sold + SHS · correct column format</p>
+                    <p className="text-[11px] font-medium text-slate-700">Download sample file</p>
+                    <p className="text-[9px] text-slate-400 mt-0.5">100 mock units · correct column format</p>
                   </div>
                 </div>
-                <Download size={14} className="text-gray-400 group-hover:text-black transition-colors flex-shrink-0" />
+                <Download size={13} className="text-slate-300 group-hover:text-slate-500 transition-colors flex-shrink-0" strokeWidth={1.75} />
               </a>
 
               <div
@@ -445,20 +455,27 @@ export default function ImportModal({ onClose }: ImportModalProps) {
                 onDragOver={e => { e.preventDefault(); setIsDragging(true); }}
                 onDragLeave={() => setIsDragging(false)}
                 onClick={() => fileRef.current?.click()}
-                className={`border-2 border-dashed rounded-xl p-12 text-center cursor-pointer transition-all ${
-                  isDragging ? 'border-black bg-gray-50' : 'border-gray-200 hover:border-gray-400 hover:bg-gray-50'
+                className={`border-2 border-dashed rounded-2xl p-10 text-center cursor-pointer transition-all ${
+                  isDragging
+                    ? 'border-slate-400 bg-slate-50'
+                    : 'border-slate-200 hover:border-slate-300 hover:bg-slate-50/50'
                 }`}
               >
-                <Upload className="mx-auto mb-3 text-gray-300" size={36} />
-                <p className="text-sm font-bold text-gray-700">Drop your Excel or CSV file here</p>
-                <p className="text-xs text-gray-400 mt-1 font-mono">or click to browse</p>
-                <p className="text-[9px] text-gray-300 mt-3 font-mono uppercase tracking-widest">.xlsx · .xls · .csv supported</p>
+                <div className={`mx-auto mb-3 w-11 h-11 rounded-2xl flex items-center justify-center transition-all ${
+                  isDragging ? 'bg-slate-200 text-slate-600' : 'bg-slate-100 text-slate-400'
+                }`}>
+                  <Upload size={18} strokeWidth={1.75} />
+                </div>
+                <p className="text-sm font-medium text-slate-700">Drop Excel or CSV here</p>
+                <p className="text-[11px] text-slate-400 mt-1">or click to browse</p>
+                <p className="text-[9px] text-slate-300 mt-3 tracking-wider uppercase">.xlsx · .xls · .csv</p>
                 <input ref={fileRef} type="file" accept=".xlsx,.xls,.csv" className="hidden" onChange={handleFileInput} />
               </div>
 
               {error && (
-                <div className="flex items-center gap-3 p-4 bg-red-50 border border-red-200 text-red-700 text-xs">
-                  <AlertTriangle size={14} /> {error}
+                <div className="flex items-center gap-2.5 px-4 py-3 bg-rose-50/70 ring-1 ring-rose-100 rounded-xl">
+                  <AlertTriangle size={13} className="text-rose-500 flex-shrink-0" strokeWidth={1.75} />
+                  <p className="text-[11px] text-rose-600">{error}</p>
                 </div>
               )}
             </div>
@@ -466,73 +483,66 @@ export default function ImportModal({ onClose }: ImportModalProps) {
 
           {/* ── Preview ── */}
           {stage === 'preview' && parsed && (
-            <div className="space-y-6">
-              <div className="flex items-center gap-3 p-4 bg-green-50 border border-green-200">
-                <CheckCircle2 size={16} className="text-green-700" />
-                <div>
-                  <p className="text-sm font-bold text-green-900">{fileName}</p>
-                  <p className="text-[9px] text-green-700 font-mono uppercase mt-0.5">
-                    {isClientFmt ? 'Bulk stock format detected' : 'IMEI-per-row format detected'} · Ready to import
+            <div className="space-y-5">
+              <div className="flex items-center gap-3 px-4 py-3 bg-emerald-50/60 ring-1 ring-emerald-100/80 rounded-xl">
+                <CheckCircle2 size={15} className="text-emerald-500 flex-shrink-0" strokeWidth={1.75} />
+                <div className="min-w-0">
+                  <p className="text-[12px] font-medium text-slate-800 truncate">{fileName}</p>
+                  <p className="text-[10px] text-emerald-700/70 mt-0.5">
+                    {isClientFmt ? 'Bulk stock format detected' : 'IMEI-per-row format detected'} · ready to import
                   </p>
                 </div>
               </div>
 
-              <div className="grid grid-cols-4 gap-3">
-                {[
-                  { label: 'Total Units',      value: parsed.stats.total,     style: 'border-black' },
-                  { label: 'Available',        value: parsed.stats.available, style: 'border-gray-200' },
-                  parsed.stats.incoming > 0
-                    ? { label: 'SHS / Expected', value: parsed.stats.incoming, style: 'border-blue-300' }
-                    : { label: 'Sold (History)', value: parsed.stats.sold,     style: 'border-gray-200' },
-                  { label: 'Suppliers',        value: parsed.suppliers.length, style: 'border-gray-200' },
-                ].map(s => (
-                  <div key={s.label} className={`border ${s.style} p-4 text-center`}>
-                    <p className="text-2xl font-bold font-display tracking-tighter">{s.value}</p>
-                    <p className="text-[8px] text-gray-400 font-mono uppercase tracking-widest mt-1">{s.label}</p>
-                  </div>
-                ))}
+              <div className="grid grid-cols-4 gap-2">
+                <PreviewStat label="Total"     value={parsed.stats.total}     tone="primary" />
+                <PreviewStat label="Available" value={parsed.stats.available} tone="muted" />
+                {parsed.stats.incoming > 0
+                  ? <PreviewStat label="SHS"  value={parsed.stats.incoming} tone="muted" />
+                  : <PreviewStat label="Sold" value={parsed.stats.sold}     tone="muted" />}
+                <PreviewStat label="Suppliers" value={parsed.suppliers.length} tone="muted" />
               </div>
 
               {existingMatches > 0 && (
-                <div className="p-4 border border-amber-200 bg-amber-50 text-amber-900 flex items-start gap-3">
-                  <AlertTriangle size={16} className="mt-0.5 flex-shrink-0" />
-                  <p className="text-[10px] font-mono leading-relaxed">
-                    {existingMatches} unit{existingMatches !== 1 ? 's' : ''} already exist in inventory and will be updated.
+                <div className="px-4 py-3 ring-1 ring-amber-100 bg-amber-50/60 rounded-xl flex items-start gap-2.5">
+                  <AlertTriangle size={14} className="mt-0.5 flex-shrink-0 text-amber-500" strokeWidth={1.75} />
+                  <p className="text-[11px] text-amber-800/90 leading-relaxed">
+                    {existingMatches} unit{existingMatches !== 1 ? 's' : ''} already in inventory — these will be updated.
                   </p>
                 </div>
               )}
 
               <div>
-                <p className="text-[9px] font-bold text-gray-400 uppercase tracking-widest font-mono mb-2">Suppliers detected</p>
-                <div className="flex flex-wrap gap-2">
+                <p className="text-[9px] font-medium text-slate-400 uppercase tracking-wider mb-2">Suppliers detected</p>
+                <div className="flex flex-wrap gap-1.5">
                   {parsed.suppliers.map(s => (
-                    <span key={s.id} className="text-[10px] font-mono bg-gray-100 px-2 py-1 text-gray-700">{s.name}</span>
+                    <span key={s.id} className="text-[10px] bg-slate-50 ring-1 ring-slate-100 px-2 py-1 text-slate-600 rounded-lg">
+                      {s.name}
+                    </span>
                   ))}
                 </div>
               </div>
 
               <div>
-                <p className="text-[9px] font-bold text-gray-400 uppercase tracking-widest font-mono mb-2">Sample rows (first 5)</p>
-                <div className="border border-gray-200 divide-y divide-gray-100">
+                <p className="text-[9px] font-medium text-slate-400 uppercase tracking-wider mb-2">Sample rows</p>
+                <div className="rounded-xl ring-1 ring-slate-100 divide-y divide-slate-100 overflow-hidden">
                   {parsed.units.slice(0, 5).map((u, i) => (
-                    <div key={i} className="px-4 py-2 flex items-center gap-4 text-xs">
-                      <span className={`text-[8px] font-bold font-mono px-1.5 py-0.5 flex-shrink-0 ${
-                        u.status === 'available' ? 'bg-black text-white' :
-                        u.status === 'incoming'  ? 'bg-blue-500 text-white' : 'bg-gray-100 text-gray-500'
-                      }`}>{u.status}</span>
+                    <div key={i} className="px-4 py-2.5 flex items-center gap-3 text-xs bg-white">
+                      <StatusPill status={u.status} />
                       <div className="flex-1 min-w-0">
-                        <p className="font-bold truncate">{u.model}</p>
-                        <p className="text-[9px] text-gray-400 font-mono">{u.colour} · £{u.buyPrice}</p>
+                        <p className="text-[12px] font-medium text-slate-700 truncate">{u.model}</p>
+                        <p className="text-[10px] text-slate-400 mt-0.5">{u.colour} · £{u.buyPrice}</p>
                       </div>
-                      <span className="text-[9px] text-gray-400 font-mono flex-shrink-0">{u.supplierName || '—'}</span>
+                      <span className="text-[10px] text-slate-400 flex-shrink-0">{u.supplierName || '—'}</span>
                     </div>
                   ))}
                 </div>
               </div>
 
               {error && (
-                <div className="flex items-center gap-3 p-4 bg-red-50 border border-red-200 text-red-700 text-xs">
-                  <AlertTriangle size={14} /> {error}
+                <div className="flex items-center gap-2.5 px-4 py-3 bg-rose-50/70 ring-1 ring-rose-100 rounded-xl">
+                  <AlertTriangle size={13} className="text-rose-500 flex-shrink-0" strokeWidth={1.75} />
+                  <p className="text-[11px] text-rose-600">{error}</p>
                 </div>
               )}
             </div>
@@ -540,66 +550,122 @@ export default function ImportModal({ onClose }: ImportModalProps) {
 
           {/* ── Importing ── */}
           {stage === 'importing' && (
-            <div className="py-8 space-y-6 text-center">
-              <Loader2 className="mx-auto animate-spin text-gray-400" size={40} />
+            <div className="py-12 space-y-6 text-center">
+              <div className="mx-auto w-12 h-12 rounded-2xl bg-slate-50 ring-1 ring-slate-100 flex items-center justify-center">
+                <Loader2 className="animate-spin text-slate-400" size={20} strokeWidth={1.75} />
+              </div>
               <div>
-                <p className="text-sm font-bold">Saving to Firestore…</p>
-                <p className="text-xs text-gray-400 mt-1 font-mono">{progress.done} / {progress.total} records</p>
+                <p className="text-sm font-medium text-slate-700">Saving to Firestore</p>
+                <p className="text-[11px] text-slate-400 mt-1 font-mono">{progress.done} of {progress.total} records</p>
               </div>
-              <div className="w-full h-1 bg-gray-100 rounded-xl">
-                <motion.div className="h-full bg-black" initial={{ width: 0 }}
-                  animate={{ width: `${pct}%` }} transition={{ ease: 'linear' }} />
+              <div className="max-w-xs mx-auto">
+                <div className="w-full h-1 bg-slate-100 rounded-full overflow-hidden">
+                  <motion.div
+                    className="h-full bg-slate-700 rounded-full"
+                    initial={{ width: 0 }}
+                    animate={{ width: `${pct}%` }}
+                    transition={{ ease: 'linear' }}
+                  />
+                </div>
               </div>
-              <p className="text-2xl font-bold font-display tracking-tighter">{pct}%</p>
+              <p className="text-2xl font-semibold text-slate-800 tracking-tight tabular-nums">{pct}%</p>
             </div>
           )}
 
           {/* ── Done ── */}
           {stage === 'done' && parsed && (
             <div className="py-8 space-y-6 text-center">
-              <CheckCircle2 className="mx-auto text-green-600" size={48} />
+              <div className="mx-auto w-12 h-12 bg-emerald-50 ring-1 ring-emerald-100 rounded-2xl flex items-center justify-center">
+                <CheckCircle2 className="text-emerald-500" size={22} strokeWidth={1.75} />
+              </div>
               <div>
-                <p className="text-xl font-bold">Import Complete!</p>
-                <p className="text-sm text-gray-500 mt-2">
-                  {parsed.units.length} units · {parsed.suppliers.length} suppliers saved.
+                <p className="text-base font-semibold text-slate-800 tracking-tight">Import complete</p>
+                <p className="text-[12px] text-slate-500 mt-1.5">
+                  {parsed.units.length} units · {parsed.suppliers.length} suppliers saved
                 </p>
               </div>
-              <div className="grid grid-cols-2 gap-4 text-left">
-                <div className="border border-gray-200 p-4">
-                  <p className="text-2xl font-bold font-display">{parsed.stats.available}</p>
-                  <p className="text-[9px] text-gray-400 font-mono uppercase tracking-widest mt-1">Available to sell</p>
-                </div>
-                <div className="border border-gray-200 p-4">
-                  <p className="text-2xl font-bold font-display">{parsed.stats.incoming || parsed.stats.sold}</p>
-                  <p className="text-[9px] text-gray-400 font-mono uppercase tracking-widest mt-1">
-                    {parsed.stats.incoming > 0 ? 'SHS / Expected' : 'Historical sold'}
-                  </p>
-                </div>
+              <div className="grid grid-cols-2 gap-2 max-w-sm mx-auto">
+                <SummaryTile value={parsed.stats.available} label="Available" />
+                <SummaryTile
+                  value={parsed.stats.incoming || parsed.stats.sold}
+                  label={parsed.stats.incoming > 0 ? 'SHS / Expected' : 'Historical sold'}
+                />
               </div>
             </div>
           )}
         </div>
 
         {/* Footer */}
-        <div className="px-8 py-5 border-t border-gray-200 flex justify-between items-center bg-gray-50">
-          <button onClick={onClose}
-            className="px-6 py-2.5 border border-gray-200 text-[10px] font-bold uppercase tracking-widest hover:bg-white text-gray-600 transition-all">
+        <div className="border-t border-slate-100 px-6 py-4 flex justify-between items-center">
+          <button
+            onClick={onClose}
+            className="px-4 py-2 text-[11px] font-medium text-slate-500 hover:text-slate-800 hover:bg-slate-50 rounded-lg transition-all"
+          >
             {stage === 'done' ? 'Close' : 'Cancel'}
           </button>
           {stage === 'upload' && (
-            <button onClick={() => fileRef.current?.click()}
-              className="px-10 py-2.5 bg-black text-white text-[10px] font-bold uppercase tracking-widest hover:bg-gray-800 transition-all flex items-center gap-3">
-              Select File <Upload size={14} />
+            <button
+              onClick={() => fileRef.current?.click()}
+              className="px-5 py-2 bg-slate-800 text-white text-[11px] font-medium rounded-lg hover:bg-slate-900 transition-all flex items-center gap-2"
+            >
+              Select file <Upload size={12} strokeWidth={2} />
             </button>
           )}
           {stage === 'preview' && (
-            <button onClick={handleImport}
-              className="px-10 py-2.5 bg-black text-white text-[10px] font-bold uppercase tracking-widest hover:bg-gray-800 transition-all flex items-center gap-3">
-              Import {parsed!.units.length} Units <ArrowRight size={14} />
+            <button
+              onClick={handleImport}
+              className="px-5 py-2 bg-slate-800 text-white text-[11px] font-medium rounded-lg hover:bg-slate-900 transition-all flex items-center gap-2"
+            >
+              Import {parsed!.units.length} units <ArrowRight size={12} strokeWidth={2} />
             </button>
           )}
         </div>
       </motion.div>
     </motion.div>
+  );
+}
+
+// ── Sub-components ─────────────────────────────────────────────────────────────
+
+function PreviewStat({ value, label, tone }: { value: number; label: string; tone: 'primary' | 'muted' }) {
+  const isPrimary = tone === 'primary';
+  return (
+    <div className={`rounded-xl px-3 py-3 text-center ${
+      isPrimary
+        ? 'bg-slate-800 text-white'
+        : 'bg-slate-50 ring-1 ring-slate-100'
+    }`}>
+      <p className={`text-xl font-semibold tabular-nums ${isPrimary ? '' : 'text-slate-700'}`}>
+        {value}
+      </p>
+      <p className={`text-[9px] mt-0.5 tracking-wider uppercase ${
+        isPrimary ? 'text-slate-300' : 'text-slate-400'
+      }`}>
+        {label}
+      </p>
+    </div>
+  );
+}
+
+function StatusPill({ status }: { status: string }) {
+  const tone =
+    status === 'available'
+      ? 'bg-emerald-50 text-emerald-700 ring-emerald-100'
+      : status === 'incoming'
+      ? 'bg-sky-50 text-sky-700 ring-sky-100'
+      : 'bg-slate-50 text-slate-500 ring-slate-100';
+  return (
+    <span className={`text-[9px] font-medium px-2 py-0.5 rounded-md ring-1 ${tone} flex-shrink-0`}>
+      {status}
+    </span>
+  );
+}
+
+function SummaryTile({ value, label }: { value: number; label: string }) {
+  return (
+    <div className="bg-slate-50 ring-1 ring-slate-100 rounded-xl px-4 py-3 text-left">
+      <p className="text-2xl font-semibold text-slate-800 tabular-nums">{value}</p>
+      <p className="text-[9px] text-slate-400 uppercase tracking-wider mt-1">{label}</p>
+    </div>
   );
 }

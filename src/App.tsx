@@ -4,7 +4,7 @@ import { auth, signInWithGoogle, signOut } from './lib/firebase';
 import {
   PackagePlus, ShoppingCart, RefreshCw, BarChart2,
   LogOut, Plus, FileSpreadsheet, LayoutDashboard,
-  TrendingUp, FileText, Users, Settings,
+  TrendingUp, FileText, Users, Settings, Database,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import Dashboard, { NavAction } from './components/Dashboard';
@@ -181,8 +181,8 @@ function AppShell({ user }: { user: User }) {
             <LogOut size={12} strokeWidth={2.5} /> Sign Out
           </button>
           <button onClick={() => setIsLoadMockDataOpen(true)}
-            className="w-full flex items-center gap-2 px-3 py-2 rounded-xl text-[10px] font-bold uppercase tracking-widest text-blue-400 hover:text-blue-600 hover:bg-blue-50 transition-all">
-            <Settings size={12} strokeWidth={2.5} /> Load Mock Data
+            className="w-full flex items-center gap-2 px-3 py-2 rounded-xl text-[10px] font-bold uppercase tracking-widest text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-all">
+            <Database size={12} strokeWidth={2} /> Sample Data
           </button>
         </div>
       </aside>
