@@ -3,8 +3,8 @@ import { motion, AnimatePresence } from 'motion/react';
 import { ShoppingBag, Package, X, AlertCircle, RefreshCw, Truck } from 'lucide-react';
 import { notificationService, Notification } from '../lib/notificationService';
 
-const DISPLAY_MS = 5000;
-const MAX_VISIBLE = 3;
+const DISPLAY_MS = Infinity; // Persistent notifications
+const MAX_VISIBLE = 10;
 
 export default function NotificationToast() {
   const [queue, setQueue]   = useState<Notification[]>([]);
