@@ -414,6 +414,12 @@ export default function Sales() {
                           <p className="text-[9px] text-gray-400 font-mono mt-1">
                             Batch: <span className="text-gray-600 font-bold">{u.batchId === 'master_batch' ? 'Master' : (u.batchId || 'Default')}</span>
                           </p>
+                          <div className="flex items-center gap-3 mt-2 text-[9px] font-mono">
+                            <span className="text-gray-600">BP: <span className="text-gray-900 font-bold">£{bp.toFixed(2)}</span></span>
+                            <span className="text-gray-600">Sale: <span className="text-gray-900 font-bold">£{sp.toFixed(2)}</span></span>
+                            <span className={`${platformFee > 0 ? 'text-red-600' : 'text-gray-600'}`}>Fee: <span className="font-bold">-£{platformFee.toFixed(2)}</span> <span className="text-[8px]">({feePercentage}%)</span></span>
+                            <span className={`${netProfit < 0 ? 'text-red-600' : 'text-emerald-600'} font-bold`}>{netProfit < 0 ? '-' : '+'}£{Math.abs(netProfit).toFixed(2)}</span>
+                          </div>
                         </div>
                       </div>
 
