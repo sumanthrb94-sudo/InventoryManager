@@ -731,38 +731,67 @@ export default function SellPage() {
                     </span>
                   </div>
                   <div className="grid gap-2">
-                    {dayUnits.map(u => (
-                      <div key={u.id} className={`flex items-center justify-between p-3 bg-white border rounded-xl hover:border-blue-200 transition-all ${!u.imei ? 'border-orange-200' : 'border-gray-100'}`}>
-                        <div className="flex items-center gap-3">
-                          <div className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${!u.imei ? 'bg-orange-50 text-orange-500' : 'bg-blue-50 text-blue-600'}`}>
-                            {!u.imei ? <Truck size={14} /> : <ShoppingCart size={14} />}
+                    {dayUnits.map(u => {
+                      const platformFee = u.salePrice && u.salePlatform ? platformTotalFee(u.salePlatform, u.salePrice) : 0;
+                      const profit = u.salePrice && u.salePlatform ? calcNetProfit(u.salePrice, u.buyPrice, u.salePlatform, u.postageCost || 0) : null;
+                      const feePercentage = u.salePrice && platformFee ? ((platformFee / u.salePrice) * 100).toFixed(1) : '0';
+                      return (
+                        <div key={u.id}>
+                          <div className={`flex items-center justify-between p-3 bg-white border rounded-t-xl hover:border-blue-200 transition-all ${!u.imei ? 'border-orange-200' : 'border-gray-100'}`}>
+                            <div className="flex items-center gap-3">
+                              <div className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${!u.imei ? 'bg-orange-50 text-orange-500' : 'bg-blue-50 text-blue-600'}`}>
+                                {!u.imei ? <Truck size={14} /> : <ShoppingCart size={14} />}
+                              </div>
+                              <div>
+                                <p className="text-xs font-bold">{u.model}</p>
+                                <div className="flex items-center gap-2 mt-0.5 flex-wrap">
+                                  {u.imei
+                                    ? <CopyImei imei={u.imei} truncate={10} />
+                                    : <button
+                                        onClick={() => setEnterImeiUnit(u)}
+                                        className="flex items-center gap-1 text-[9px] font-bold font-mono bg-orange-100 text-orange-700 border border-orange-300 px-1.5 py-0.5 rounded hover:bg-orange-200 transition-all"
+                                      >
+                                        <Pencil size={9} /> Enter IMEI
+                                      </button>
+                                  }
+                                  {u.salePlatform && (
+                                    <span className={`text-[8px] font-bold px-1.5 py-0.5 rounded-full border ${PLATFORM_STYLE[u.salePlatform] || 'bg-gray-100 text-gray-600 border-gray-200'}`}>
+                                      {u.salePlatform}
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+                            <div className="text-right">
+                              <p className="text-sm font-bold text-emerald-600">£{u.salePrice}</p>
+                              {u.saleOrderId && <p className="text-[9px] font-mono text-gray-400 mt-0.5">{u.saleOrderId}</p>}
+                            </div>
                           </div>
-                          <div>
-                            <p className="text-xs font-bold">{u.model}</p>
-                            <div className="flex items-center gap-2 mt-0.5 flex-wrap">
-                              {u.imei
-                                ? <CopyImei imei={u.imei} truncate={10} />
-                                : <button
-                                    onClick={() => setEnterImeiUnit(u)}
-                                    className="flex items-center gap-1 text-[9px] font-bold font-mono bg-orange-100 text-orange-700 border border-orange-300 px-1.5 py-0.5 rounded hover:bg-orange-200 transition-all"
-                                  >
-                                    <Pencil size={9} /> Enter IMEI
-                                  </button>
-                              }
-                              {u.salePlatform && (
-                                <span className={`text-[8px] font-bold px-1.5 py-0.5 rounded-full border ${PLATFORM_STYLE[u.salePlatform] || 'bg-gray-100 text-gray-600 border-gray-200'}`}>
-                                  {u.salePlatform}
-                                </span>
-                              )}
+                          <div className="px-3 pb-3 bg-gray-50 border border-t-0 border-gray-100 rounded-b-xl">
+                            <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-[9px]">
+                              <div>
+                                <p className="text-gray-500 font-mono uppercase tracking-widest mb-0.5">Buy Price</p>
+                                <p className="font-bold">£{u.buyPrice}</p>
+                              </div>
+                              <div>
+                                <p className="text-gray-500 font-mono uppercase tracking-widest mb-0.5">Fee</p>
+                                <p className="font-bold text-red-600">-£{platformFee.toFixed(2)} ({feePercentage}%)</p>
+                              </div>
+                              <div>
+                                <p className="text-gray-500 font-mono uppercase tracking-widest mb-0.5">Postage</p>
+                                <p className="font-bold text-red-600">-£{(u.postageCost || 3.5).toFixed(2)}</p>
+                              </div>
+                              <div>
+                                <p className="text-gray-500 font-mono uppercase tracking-widest mb-0.5">Profit</p>
+                                <p className={`font-bold ${profit !== null && profit < 0 ? 'text-red-600' : 'text-emerald-600'}`}>
+                                  {profit !== null ? `${profit >= 0 ? '+' : ''}£${profit.toFixed(2)}` : '—'}
+                                </p>
+                              </div>
                             </div>
                           </div>
                         </div>
-                        <div className="text-right">
-                          <p className="text-sm font-bold text-emerald-600">£{u.salePrice}</p>
-                          {u.saleOrderId && <p className="text-[9px] font-mono text-gray-400 mt-0.5">{u.saleOrderId}</p>}
-                        </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 </div>
               ))}
