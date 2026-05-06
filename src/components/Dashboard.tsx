@@ -432,6 +432,8 @@ export default function Dashboard({ onNavigate }: Props) {
                       <CopyImei imei={u.imei} truncate={10} />
                       <span className="text-[9px] text-gray-300">·</span>
                       <span className="text-[9px] text-gray-400 font-mono">{supplier?.name || 'Unknown'}</span>
+                      <span className="text-[9px] text-gray-300">·</span>
+                      <span className="text-[9px] text-gray-400 font-mono">{u.batchId === 'master_batch' ? 'Master' : (u.batchId || 'Default')}</span>
                     </div>
                   </div>
                   <div className="text-right flex-shrink-0">

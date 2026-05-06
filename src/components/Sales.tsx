@@ -411,6 +411,9 @@ export default function Sales() {
                           <p className="text-[10px] text-gray-500 font-mono uppercase mt-0.5">
                             {u.colour} · <span className="text-black font-bold">IMEI: {u.imei || '—'}</span> · {platform}
                           </p>
+                          <p className="text-[9px] text-gray-400 font-mono mt-1">
+                            Batch: <span className="text-gray-600 font-bold">{u.batchId === 'master_batch' ? 'Master' : (u.batchId || 'Default')}</span>
+                          </p>
                         </div>
                       </div>
 
