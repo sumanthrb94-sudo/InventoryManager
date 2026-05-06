@@ -16,6 +16,8 @@ interface BatchRow {
   buyPrice: string;
   colour: string;
   supplierName: string;
+  grade: string;
+  batchNo: string;
   notes: string;
   isSHS: boolean;
 }
@@ -25,7 +27,7 @@ const today = () => new Date().toISOString().split('T')[0];
 const QUICK_NOTES = ['CLEARANCE', 'ONU', 'BOXED', 'NO BOX'];
 
 function emptyRow(supplierName = ''): BatchRow {
-  return { id: uid(), model: '', imei: '', buyPrice: '', colour: '', supplierName, notes: '', isSHS: false };
+  return { id: uid(), model: '', imei: '', buyPrice: '', colour: '', supplierName, grade: '', batchNo: '', notes: '', isSHS: false };
 }
 
 function detectCategory(model: string): DeviceCategory {
@@ -44,13 +46,13 @@ function detectBrand(cat: DeviceCategory): string {
   return 'Other';
 }
 
-// CSV format: MODEL, IMEI, BP, COLOUR, SUPPLIER, NOTES
+// CSV format: MODEL, IMEI, GRADE, BP, COLOUR, BATCH, SUPPLIER, NOTES
 function parsePastedCSV(text: string, fallbackSupplier: string): BatchRow[] {
   const rows: BatchRow[] = [];
   for (const raw of text.trim().split('\n')) {
     const parts = raw.split(',').map(p => p.trim());
     if (parts.length < 2) continue;
-    const [model, imei, bp, colour, supplier, notes] = parts;
+    const [model, imei, grade, bp, colour, batch, supplier, notes] = parts;
     if (!model || model.toLowerCase() === 'model') continue;
     const isSHS = (imei ?? '').toUpperCase() === 'SHS';
     if (!isSHS && isNaN(parseFloat(bp))) continue;
@@ -60,6 +62,8 @@ function parsePastedCSV(text: string, fallbackSupplier: string): BatchRow[] {
       imei: isSHS ? '' : (imei ?? '').replace(/\D/g, ''),
       buyPrice: isSHS ? (bp ?? '') : (bp ?? ''),
       colour: (colour ?? '').trim(),
+      grade: (grade ?? '').trim(),
+      batchNo: (batch ?? '').trim(),
       supplierName: ((supplier ?? '').split('/')[0]).trim() || fallbackSupplier,
       notes: (notes ?? '').trim(),
       isSHS,
@@ -199,6 +203,8 @@ export default function NewBatchModal({ onClose }: Props) {
             imei: '',
             model: r.model.trim(), brand, category,
             colour: r.colour.trim() || 'Unknown',
+            grade: r.grade.trim() || undefined,
+            batchNo: r.batchNo.trim() || undefined,
             buyPrice: bp, dateIn: date,
             supplierId, batchId,
             status: 'incoming', flags: [],
@@ -212,6 +218,8 @@ export default function NewBatchModal({ onClose }: Props) {
             imei: cleanImei,
             model: r.model.trim(), brand, category,
             colour: r.colour || 'Unknown',
+            grade: r.grade.trim() || undefined,
+            batchNo: r.batchNo.trim() || undefined,
             buyPrice: bp, dateIn: date,
             supplierId, batchId,
             status: 'available', flags: [],
@@ -294,10 +302,12 @@ export default function NewBatchModal({ onClose }: Props) {
         {/* Column headers */}
         <div className="hidden md:grid grid-cols-12 gap-1 px-5 pt-3 pb-1 flex-shrink-0">
           {[
-            ['col-span-3', 'MODEL'],
-            ['col-span-3', 'IMEI (14-15 digits)'],
-            ['col-span-2', 'BP (£)'],
-            ['col-span-2', 'COLOUR'],
+            ['col-span-2', 'MODEL'],
+            ['col-span-2', 'IMEI (14-15 digits)'],
+            ['col-span-1', 'GRADE'],
+            ['col-span-1', 'BP (£)'],
+            ['col-span-1', 'COLOUR'],
+            ['col-span-3', 'BATCH #'],
             ['col-span-1', 'SUPPLIER'],
             ['col-span-1', ''],
           ].map(([cls, label]) => (
@@ -389,10 +399,10 @@ export default function NewBatchModal({ onClose }: Props) {
               </div>
               <div className="p-5 space-y-3">
                 <div className="bg-gray-50 rounded-xl p-3 text-[9px] font-mono text-gray-500 leading-relaxed">
-                  <p className="font-bold text-gray-700 mb-1">Format: MODEL, IMEI, BP, COLOUR, SUPPLIER, NOTES</p>
-                  <p>Apple iPhone 14 128GB, 359108096724237, 255, Black, MHL,</p>
-                  <p>Samsung Galaxy S21 128GB, 350220437101229, 120, Grey, NIHAL,</p>
-                  <p>Apple iPhone SE 2nd, SHS, 60, , NANAK,</p>
+                  <p className="font-bold text-gray-700 mb-1">Format: MODEL, IMEI, GRADE, BP, COLOUR, BATCH, SUPPLIER, NOTES</p>
+                  <p>Apple iPhone 14 128GB, 359108096724237, A, 255, Black, INV-2061, MHL,</p>
+                  <p>Samsung Galaxy S21 128GB, 350220437101229, B, 120, Grey, INV-2061, NIHAL,</p>
+                  <p>Apple iPhone SE 2nd, SHS, , 60, , INV-2061, NANAK,</p>
                 </div>
                 <textarea
                   autoFocus
@@ -459,12 +469,12 @@ function BatchRowCard({ row, index, knownSuppliers, onChange, onRemove, canRemov
 
             {/* Desktop grid */}
             <div className="hidden md:grid grid-cols-12 gap-1 px-3 py-2 items-center">
-              <div className="col-span-3">
+              <div className="col-span-2">
                 <input value={row.model} onChange={e => onChange({ model: e.target.value })}
                   placeholder="e.g. iPhone 14 128GB"
                   className="w-full border border-gray-200 rounded-lg px-2.5 py-2 text-xs focus:outline-none focus:border-black bg-white transition-all" />
               </div>
-              <div className="col-span-3">
+              <div className="col-span-2">
                 {row.isSHS ? (
                   <div className="px-2.5 py-2 text-[9px] text-blue-500 font-mono bg-blue-50 rounded-lg border border-blue-200">
                     No IMEI — expected stock
@@ -478,15 +488,25 @@ function BatchRowCard({ row, index, knownSuppliers, onChange, onRemove, canRemov
                     }`} />
                 )}
               </div>
-              <div className="col-span-2">
+              <div className="col-span-1">
+                <input value={row.grade} onChange={e => onChange({ grade: e.target.value })}
+                  placeholder="A, B, C…"
+                  className="w-full border border-gray-200 rounded-lg px-2.5 py-2 text-xs font-mono focus:outline-none focus:border-black bg-white transition-all" />
+              </div>
+              <div className="col-span-1">
                 <input type="number" min={0} value={row.buyPrice} onChange={e => onChange({ buyPrice: e.target.value })}
                   placeholder="0"
                   className="w-full border border-gray-200 rounded-lg px-2.5 py-2 text-xs font-mono focus:outline-none focus:border-black bg-white text-right transition-all" />
               </div>
-              <div className="col-span-2">
+              <div className="col-span-1">
                 <input value={row.colour} onChange={e => onChange({ colour: e.target.value })}
                   placeholder="Black"
                   className="w-full border border-gray-200 rounded-lg px-2.5 py-2 text-xs focus:outline-none focus:border-black bg-white transition-all" />
+              </div>
+              <div className="col-span-3">
+                <input value={row.batchNo} onChange={e => onChange({ batchNo: e.target.value })}
+                  placeholder="e.g. INV-2061"
+                  className="w-full border border-gray-200 rounded-lg px-2.5 py-2 text-xs font-mono focus:outline-none focus:border-black bg-white transition-all" />
               </div>
               <div className="col-span-1">
                 <input list={`sup-list-${row.id}`} value={row.supplierName}
@@ -550,7 +570,13 @@ function BatchRowCard({ row, index, knownSuppliers, onChange, onRemove, canRemov
                     }`} />
                 </div>
               )}
-              <div className="grid grid-cols-2 gap-2">
+              <div className="grid grid-cols-3 gap-2">
+                <div>
+                  <label className="text-[8px] font-bold uppercase tracking-widest text-gray-400">Grade</label>
+                  <input value={row.grade} onChange={e => onChange({ grade: e.target.value })}
+                    placeholder="A, B, C…"
+                    className="w-full mt-1 border border-gray-200 rounded-lg px-3 py-2 text-xs font-mono focus:outline-none focus:border-black bg-white" />
+                </div>
                 <div>
                   <label className="text-[8px] font-bold uppercase tracking-widest text-gray-400">Buy Price (£)</label>
                   <input type="number" min={0} value={row.buyPrice} onChange={e => onChange({ buyPrice: e.target.value })}
@@ -563,6 +589,12 @@ function BatchRowCard({ row, index, knownSuppliers, onChange, onRemove, canRemov
                     placeholder="Black"
                     className="w-full mt-1 border border-gray-200 rounded-lg px-3 py-2 text-xs focus:outline-none focus:border-black bg-white" />
                 </div>
+              </div>
+              <div>
+                <label className="text-[8px] font-bold uppercase tracking-widest text-gray-400">Batch Number</label>
+                <input value={row.batchNo} onChange={e => onChange({ batchNo: e.target.value })}
+                  placeholder="e.g. INV-2061"
+                  className="w-full mt-1 border border-gray-200 rounded-lg px-3 py-2 text-xs font-mono focus:outline-none focus:border-black bg-white" />
               </div>
               <div>
                 <label className="text-[8px] font-bold uppercase tracking-widest text-gray-400">Supplier</label>

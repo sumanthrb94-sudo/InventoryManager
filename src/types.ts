@@ -49,6 +49,7 @@ export interface InventoryUnit {
   colour: string;         // e.g. "Natural Titanium", "Phantom Black"
   storage?: string;
   grade?: string;         // e.g. "A", "B", "C", "Refurbished"
+  batchNo?: string;       // e.g. "INV-2061", custom batch identifier
   boxIncluded?: boolean;
   batteryHealth?: number;
   networkLock?: string;
