@@ -1,6 +1,6 @@
 import React, { useState, useRef, useCallback } from 'react';
 import * as XLSX from 'xlsx';
-import { X, Upload, FileSpreadsheet, CheckCircle2, AlertTriangle, Loader2, ArrowRight } from 'lucide-react';
+import { X, Upload, FileSpreadsheet, CheckCircle2, AlertTriangle, Loader2, ArrowRight, Download } from 'lucide-react';
 import { motion } from 'motion/react';
 import { dbService } from '../lib/dbService';
 import { DeviceCategory, InventoryUnit, Supplier } from '../types';
@@ -418,6 +418,22 @@ export default function ImportModal({ onClose }: ImportModalProps) {
                   </div>
                 ))}
               </div>
+
+              {/* Sample file download */}
+              <a
+                href="/sample-100-units.xlsx"
+                download="sample-100-units.xlsx"
+                className="flex items-center justify-between w-full px-4 py-3 border border-dashed border-gray-300 rounded-xl hover:border-black hover:bg-gray-50 transition-all group"
+              >
+                <div className="flex items-center gap-3">
+                  <FileSpreadsheet size={16} className="text-green-600 flex-shrink-0" />
+                  <div>
+                    <p className="text-[10px] font-bold uppercase tracking-widest">Download Sample File</p>
+                    <p className="text-[8px] text-gray-400 font-mono mt-0.5">100 mock units · available + sold + SHS · correct column format</p>
+                  </div>
+                </div>
+                <Download size={14} className="text-gray-400 group-hover:text-black transition-colors flex-shrink-0" />
+              </a>
 
               <div
                 onDrop={handleDrop}
