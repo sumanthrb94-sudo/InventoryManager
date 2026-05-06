@@ -138,7 +138,7 @@ export default function Inventory({ initialFilters = {} }: { initialFilters?: In
   const activeFilters = [catFilter, statusFilter, flagFilter, supplierFilter].filter(f => f !== 'All').length;
 
   return (
-    <div className="space-y-4 pb-24 md:pb-8 max-w-full overflow-x-hidden">
+    <div className="space-y-4 max-w-full overflow-x-hidden">
       {/* Header */}
       <div className="flex items-start justify-between gap-3">
         <div className="flex flex-col gap-1">

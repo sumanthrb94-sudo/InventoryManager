@@ -117,45 +117,44 @@ function AppShell({ user }: { user: User }) {
   ];
 
   return (
-    <div className="min-h-[100dvh] bg-[#FAFAFA] text-black flex flex-col md:flex-row">
+    <div className="h-[100dvh] bg-slate-50 text-slate-900 flex overflow-hidden">
 
       <AnimatePresence>{!loaded && <LoadingScreen />}</AnimatePresence>
 
       {/* ── Desktop Sidebar ── */}
-      <aside className="hidden md:flex w-64 border-r border-gray-200 flex-col pt-10 pb-6 bg-white z-30">
-        <button onClick={() => setActiveTab('buy')}
-          className="px-7 mb-12 text-left group hover:opacity-80 transition-all active:scale-95 origin-left">
-          <h1 className="text-2xl font-bold tracking-tighter uppercase font-display leading-none text-black group-hover:text-emerald-600 transition-colors">
-            {APP_NAME}
-          </h1>
-          <p className="text-[8px] text-gray-400 font-mono uppercase tracking-[0.4em] mt-1.5">{APP_TAGLINE}</p>
-        </button>
+      <aside className="hidden md:flex w-56 lg:w-64 flex-shrink-0 bg-white border-r border-slate-200 flex-col overflow-hidden">
 
-        <nav className="flex-1 px-4 space-y-0.5">
+        {/* Brand strip — same height as header */}
+        <div className="h-16 flex-shrink-0 flex items-center px-5 border-b border-slate-100">
+          <button onClick={() => setActiveTab('buy')} className="text-left group active:scale-95 transition-transform">
+            <h1 className="text-[13px] font-black tracking-tighter uppercase font-display text-slate-900 leading-none">
+              {APP_NAME}
+            </h1>
+            <p className="text-[7px] text-slate-400 font-mono uppercase tracking-[0.35em] mt-1">{APP_TAGLINE}</p>
+          </button>
+        </div>
+
+        {/* Nav items */}
+        <nav className="flex-1 p-3 space-y-0.5 overflow-y-auto">
           {NAV_TABS.map(t => (
             <button key={t.id} onClick={() => setActiveTab(t.id)}
-              className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm transition-all relative
+              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all
                 ${activeTab === t.id
-                  ? 'text-black bg-gray-100 font-bold'
-                  : 'text-gray-500 hover:text-black hover:bg-gray-50'}`}>
-              {activeTab === t.id && (
-                <motion.div layoutId="sidebar-indicator"
-                  className="absolute left-0 w-1 h-5 bg-black rounded-r-full" />
-              )}
-              <span className={activeTab === t.id ? 'text-black' : 'text-gray-400'}>{t.icon}</span>
+                  ? 'bg-slate-900 text-white'
+                  : 'text-slate-500 hover:text-slate-900 hover:bg-slate-100'}`}>
+              <span className="flex-shrink-0">{t.icon}</span>
               <span className="text-[11px] font-bold uppercase tracking-widest">{t.label}</span>
             </button>
           ))}
 
-          {/* Analytics sub-nav — visible only when analytics tab is active */}
           {activeTab === 'analytics' && (
-            <div className="ml-4 mt-1 space-y-0.5 border-l-2 border-gray-100 pl-4">
+            <div className="ml-3 mt-1 space-y-0.5 border-l-2 border-slate-100 pl-3">
               {ANALYTICS_SUBS.map(s => (
                 <button key={s.id} onClick={() => setAnalyticsSub(s.id)}
-                  className={`w-full flex items-center gap-2 px-3 py-2 rounded-lg text-xs transition-all
+                  className={`w-full flex items-center gap-2 px-3 py-2 rounded-lg transition-all
                     ${analyticsSub === s.id
-                      ? 'text-black bg-gray-100 font-bold'
-                      : 'text-gray-400 hover:text-black hover:bg-gray-50'}`}>
+                      ? 'text-slate-900 bg-slate-100 font-bold'
+                      : 'text-slate-400 hover:text-slate-900 hover:bg-slate-50'}`}>
                   {s.icon}
                   <span className="text-[10px] font-bold uppercase tracking-widest">{s.label}</span>
                 </button>
@@ -164,119 +163,129 @@ function AppShell({ user }: { user: User }) {
           )}
         </nav>
 
-        <div className="px-4 pt-6 border-t border-gray-100 space-y-3">
-          <div className="px-4 py-3 flex items-center gap-3 bg-gray-50 border border-gray-100 rounded-xl">
+        {/* User footer */}
+        <div className="flex-shrink-0 p-3 border-t border-slate-100 space-y-1">
+          <div className="flex items-center gap-2.5 px-3 py-2.5 rounded-xl bg-slate-50">
             {user.photoURL
-              ? <img src={user.photoURL} alt="" className="w-8 h-8 rounded-xl object-cover flex-shrink-0" referrerPolicy="no-referrer" />
-              : <div className="w-8 h-8 rounded-xl bg-black flex items-center justify-center flex-shrink-0 text-white text-xs font-bold">
+              ? <img src={user.photoURL} alt="" className="w-7 h-7 rounded-lg object-cover flex-shrink-0" referrerPolicy="no-referrer" />
+              : <div className="w-7 h-7 rounded-lg bg-slate-900 flex items-center justify-center flex-shrink-0 text-white text-xs font-bold">
                   {(user.displayName || user.email || 'U')[0].toUpperCase()}
                 </div>}
             <div className="flex-1 min-w-0">
-              <p className="text-[10px] font-bold uppercase tracking-widest text-black truncate">{user.displayName || 'User'}</p>
-              <p className="text-[9px] text-gray-400 font-mono truncate mt-0.5">{user.email}</p>
+              <p className="text-[10px] font-bold text-slate-900 truncate leading-none">{user.displayName || 'User'}</p>
+              <p className="text-[9px] text-slate-400 font-mono truncate mt-0.5">{user.email}</p>
             </div>
           </div>
           <button onClick={() => signOut()}
-            className="w-full flex items-center gap-3 px-4 py-2.5 text-[10px] font-bold uppercase tracking-widest text-gray-400 hover:text-black hover:bg-gray-100 transition-all rounded-xl">
-            <LogOut size={13} strokeWidth={2.5} /> Sign Out
+            className="w-full flex items-center gap-2 px-3 py-2 rounded-xl text-[10px] font-bold uppercase tracking-widest text-slate-500 hover:text-slate-900 hover:bg-slate-100 transition-all">
+            <LogOut size={12} strokeWidth={2.5} /> Sign Out
           </button>
           <button onClick={() => setIsResetModalOpen(true)}
-            className="w-full flex items-center gap-3 px-4 py-2.5 text-[10px] font-bold uppercase tracking-widest text-red-300 hover:text-red-600 hover:bg-red-50 transition-all rounded-xl">
-            <Settings size={13} strokeWidth={2.5} /> Reset Data
+            className="w-full flex items-center gap-2 px-3 py-2 rounded-xl text-[10px] font-bold uppercase tracking-widest text-red-400 hover:text-red-600 hover:bg-red-50 transition-all">
+            <Settings size={12} strokeWidth={2.5} /> Reset Data
           </button>
         </div>
       </aside>
 
-      {/* ── Main content ── */}
-      <main className="flex-1 flex flex-col h-[100dvh] overflow-hidden pb-16 md:pb-0">
-        {/* Header */}
-        <header className="h-14 md:h-16 border-b border-gray-200 flex items-center px-4 md:px-8 bg-white/90 backdrop-blur-xl sticky top-0 z-20">
-          {/* Mobile: app name */}
-          <button onClick={() => setActiveTab('buy')}
-            className="md:hidden text-left active:scale-95 transition-transform mr-auto">
-            <h1 className="text-xl font-bold tracking-tighter uppercase font-display">{APP_NAME}</h1>
-          </button>
-          {/* Desktop: current tab label */}
-          <p className="hidden md:block text-[11px] font-bold uppercase tracking-widest text-gray-400">
-            {NAV_TABS.find(t => t.id === activeTab)?.label}
-            {activeTab === 'analytics' && ` · ${ANALYTICS_SUBS.find(s => s.id === analyticsSub)?.label}`}
-          </p>
+      {/* ── Right column (header + scrollable content) ── */}
+      <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
 
-          <div className="flex items-center gap-2 ml-auto">
-            {/* Sync indicator */}
-            <div title={syncConnected ? 'Live sync' : 'Offline'} className="flex items-center gap-1.5">
-              <span className={`w-2 h-2 rounded-full flex-shrink-0 ${syncConnected ? 'bg-emerald-500 shadow-[0_0_6px_rgba(16,185,129,0.8)]' : 'bg-amber-400'}`} />
-              <span className="hidden md:inline text-[9px] font-mono uppercase tracking-widest text-gray-400">
+        {/* Top header */}
+        <header className="flex-shrink-0 h-14 md:h-16 bg-white border-b border-slate-200 flex items-center px-4 md:px-6 gap-3 z-20">
+
+          {/* Mobile: brand */}
+          <button onClick={() => setActiveTab('buy')} className="md:hidden mr-auto active:scale-95 transition-transform">
+            <h1 className="text-base font-black tracking-tighter uppercase font-display text-slate-900 leading-none">{APP_NAME}</h1>
+            <p className="text-[7px] text-slate-400 font-mono uppercase tracking-[0.35em] mt-0.5">{APP_TAGLINE}</p>
+          </button>
+
+          {/* Desktop: section breadcrumb */}
+          <div className="hidden md:flex items-center gap-2 min-w-0">
+            <span className="text-[11px] font-bold uppercase tracking-widest text-slate-400 truncate">
+              {NAV_TABS.find(t => t.id === activeTab)?.label}
+            </span>
+            {activeTab === 'analytics' && (
+              <>
+                <span className="text-slate-300 flex-shrink-0">/</span>
+                <span className="text-[11px] font-bold uppercase tracking-widest text-slate-600 truncate">
+                  {ANALYTICS_SUBS.find(s => s.id === analyticsSub)?.label}
+                </span>
+              </>
+            )}
+          </div>
+
+          {/* Right actions */}
+          <div className="flex items-center gap-2 ml-auto flex-shrink-0">
+            <div className="flex items-center gap-1.5" title={syncConnected ? 'Live sync' : 'Offline'}>
+              <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${syncConnected ? 'bg-emerald-500' : 'bg-amber-400'}`} />
+              <span className="hidden md:inline text-[9px] font-mono uppercase tracking-widest text-slate-400">
                 {syncConnected ? 'Live' : 'Offline'}
               </span>
             </div>
             <NotificationBell unreadCount={unreadCount} />
-            {/* Mobile logout */}
             <button onClick={() => signOut()}
-              className="md:hidden border border-gray-200 text-gray-400 hover:text-red-500 hover:border-red-200 p-2 rounded-xl transition-all">
+              className="md:hidden p-2 rounded-xl text-slate-400 hover:text-slate-900 hover:bg-slate-100 transition-all">
               <LogOut size={14} strokeWidth={2.5} />
             </button>
-            {/* Reset data */}
             <button onClick={() => setIsResetModalOpen(true)}
               title="Reset all data"
-              className="border border-gray-200 text-gray-400 hover:text-red-500 hover:border-red-200 p-2 rounded-xl transition-all">
+              className="p-2 rounded-xl text-slate-400 hover:text-slate-900 hover:bg-slate-100 transition-all">
               <Settings size={14} strokeWidth={2.5} />
             </button>
-            {/* Import Excel */}
             <button onClick={() => setIsImportModalOpen(true)}
-              className="border border-gray-200 bg-white text-black px-3 md:px-4 py-2 rounded-xl text-[10px] font-bold uppercase tracking-widest flex items-center gap-1.5 hover:bg-gray-50 transition-all">
-              <FileSpreadsheet size={13} />
+              className="flex items-center gap-1.5 px-3 py-2 bg-slate-900 text-white rounded-xl text-[10px] font-bold uppercase tracking-widest hover:bg-slate-700 transition-all">
+              <FileSpreadsheet size={12} />
               <span className="hidden md:inline">Import</span>
             </button>
           </div>
         </header>
 
-        {/* Page content */}
-        <div className="flex-1 overflow-y-auto p-4 md:p-8 custom-scrollbar">
+        {/* Scrollable page content */}
+        <main className="flex-1 overflow-y-auto custom-scrollbar">
+          <div className="p-4 md:p-8 pb-24 md:pb-8">
 
-          {/* Mobile analytics sub-nav — shown inline when on analytics tab */}
-          {activeTab === 'analytics' && (
-            <div className="md:hidden flex gap-2 mb-5 overflow-x-auto pb-1 -mx-1 px-1">
-              {ANALYTICS_SUBS.map(s => (
-                <button key={s.id} onClick={() => setAnalyticsSub(s.id)}
-                  className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-[10px] font-bold uppercase tracking-widest flex-shrink-0 transition-all border
-                    ${analyticsSub === s.id
-                      ? 'bg-black text-white border-black'
-                      : 'bg-white text-gray-500 border-gray-200 hover:border-gray-400'}`}>
-                  {s.icon}{s.label}
-                </button>
-              ))}
-            </div>
-          )}
+            {/* Mobile analytics sub-nav */}
+            {activeTab === 'analytics' && (
+              <div className="md:hidden flex gap-2 mb-5 overflow-x-auto pb-1 -mx-1 px-1">
+                {ANALYTICS_SUBS.map(s => (
+                  <button key={s.id} onClick={() => setAnalyticsSub(s.id)}
+                    className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-[10px] font-bold uppercase tracking-widest flex-shrink-0 transition-all border
+                      ${analyticsSub === s.id
+                        ? 'bg-slate-900 text-white border-slate-900'
+                        : 'bg-white text-slate-500 border-slate-200 hover:border-slate-400'}`}>
+                    {s.icon}{s.label}
+                  </button>
+                ))}
+              </div>
+            )}
 
-          <AnimatePresence mode="wait">
-            <motion.div key={activeTab === 'analytics' ? `analytics-${analyticsSub}` : activeTab}
-              initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -8 }} transition={{ duration: 0.18 }}>
-              {activeTab === 'buy'     && <StockInPage onOpenBatch={() => setIsBatchModalOpen(true)} onOpenImport={() => setIsImportModalOpen(true)} />}
-              {activeTab === 'sell'    && <SellPage />}
-              {activeTab === 'returns' && <ReturnsPage />}
-              {activeTab === 'analytics' && analyticsSub === 'overview'  && <Dashboard onNavigate={handleNavigate} />}
-              {activeTab === 'analytics' && analyticsSub === 'insights'  && <AnalyticsPage />}
-              {activeTab === 'analytics' && analyticsSub === 'reports'   && <ReportingPage />}
-              {activeTab === 'analytics' && analyticsSub === 'suppliers' && <Suppliers />}
-            </motion.div>
-          </AnimatePresence>
-        </div>
-      </main>
+            <AnimatePresence mode="wait">
+              <motion.div key={activeTab === 'analytics' ? `analytics-${analyticsSub}` : activeTab}
+                initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -8 }} transition={{ duration: 0.18 }}>
+                {activeTab === 'buy'     && <StockInPage onOpenBatch={() => setIsBatchModalOpen(true)} onOpenImport={() => setIsImportModalOpen(true)} />}
+                {activeTab === 'sell'    && <SellPage />}
+                {activeTab === 'returns' && <ReturnsPage />}
+                {activeTab === 'analytics' && analyticsSub === 'overview'  && <Dashboard onNavigate={handleNavigate} />}
+                {activeTab === 'analytics' && analyticsSub === 'insights'  && <AnalyticsPage />}
+                {activeTab === 'analytics' && analyticsSub === 'reports'   && <ReportingPage />}
+                {activeTab === 'analytics' && analyticsSub === 'suppliers' && <Suppliers />}
+              </motion.div>
+            </AnimatePresence>
+          </div>
+        </main>
+      </div>
 
-      {/* ── Mobile bottom nav (4 tabs) ── */}
-      <nav className="md:hidden fixed bottom-0 w-full bg-white border-t border-gray-100 z-30 flex items-center justify-around px-2 py-1 safe-area-bottom">
+      {/* ── Mobile bottom nav ── */}
+      <nav className="md:hidden fixed bottom-0 inset-x-0 z-40 bg-white border-t border-slate-200 safe-area-bottom flex items-stretch">
         {NAV_TABS.map(t => (
           <button key={t.id} onClick={() => setActiveTab(t.id)}
-            className={`flex flex-col items-center justify-center flex-1 py-2 gap-0.5 rounded-xl transition-all ${
-              activeTab === t.id ? 'text-black' : 'text-gray-400'}`}>
-            <div className={`p-1.5 rounded-xl transition-all ${activeTab === t.id ? 'bg-black text-white' : ''}`}>
+            className={`flex-1 flex flex-col items-center justify-center py-2 gap-0.5 transition-all
+              ${activeTab === t.id ? 'text-slate-900' : 'text-slate-400'}`}>
+            <div className={`p-1.5 rounded-xl transition-all ${activeTab === t.id ? 'bg-slate-900 text-white' : ''}`}>
               {t.icon}
             </div>
-            <span className={`text-[9px] uppercase tracking-wide font-bold ${activeTab === t.id ? 'text-black' : 'text-gray-400'}`}>
-              {t.label}
-            </span>
+            <span className="text-[9px] font-bold uppercase tracking-wide">{t.label}</span>
           </button>
         ))}
       </nav>

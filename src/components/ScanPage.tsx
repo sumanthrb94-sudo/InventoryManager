@@ -140,7 +140,7 @@ export default function ScanPage() {
   };
 
   return (
-    <div className="space-y-5 pb-24 md:pb-8">
+    <div className="space-y-5">
 
       {/* Page header */}
       <div>

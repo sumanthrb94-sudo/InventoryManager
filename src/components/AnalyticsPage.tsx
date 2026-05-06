@@ -274,7 +274,7 @@ export default function AnalyticsPage() {
   const DAY_LABELS = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
 
   return (
-    <div className="space-y-5 pb-24 md:pb-8">
+    <div className="space-y-5">
 
       {/* ── Header ── */}
       <div className="flex items-center justify-between flex-wrap gap-3">

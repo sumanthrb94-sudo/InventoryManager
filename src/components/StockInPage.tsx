@@ -64,7 +64,7 @@ export default function StockInPage({ onOpenBatch, onOpenImport }: Props) {
   const totalBP  = todayIn.reduce((s, u) => s + u.buyPrice, 0);
 
   return (
-    <div className="space-y-5 pb-24 md:pb-8">
+    <div className="space-y-5">
       {/* Header */}
       <div>
         <h2 className="text-2xl font-bold tracking-tighter uppercase font-display flex items-center gap-3">

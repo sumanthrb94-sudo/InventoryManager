@@ -97,7 +97,7 @@ export default function Suppliers() {
   const histSlice = historyItems.slice((historyPage - 1) * HIST_PAGE_SIZE, historyPage * HIST_PAGE_SIZE);
 
   return (
-    <div className="space-y-4 pb-24 md:pb-8 max-w-full overflow-x-hidden">
+    <div className="space-y-4 max-w-full overflow-x-hidden">
       {/* Header */}
       <div className="flex items-center justify-between gap-3">
         <div>
