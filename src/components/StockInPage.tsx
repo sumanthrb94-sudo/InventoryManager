@@ -36,7 +36,7 @@ export default function StockInPage({ onOpenBatch, onOpenImport }: Props) {
     const q = search.toLowerCase();
     return allSorted.filter(u =>
       u.model.toLowerCase().includes(q) ||
-      u.imei.toLowerCase().includes(q) ||
+      (u.imei || '').toLowerCase().includes(q) ||
       (u.buyPrice + '').includes(q) ||
       (supplierMap[u.supplierId] || '').toLowerCase().includes(q)
     );

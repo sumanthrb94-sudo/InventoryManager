@@ -34,7 +34,7 @@ export default function StockOutPage({ onOpenUnit }: Props) {
     const q = search.toLowerCase();
     return recentSold.filter(u =>
       u.model.toLowerCase().includes(q) ||
-      u.imei.includes(q) ||
+      (u.imei || '').includes(q) ||
       (u.salePrice + '').includes(q) ||
       (u.salePlatform || '').toLowerCase().includes(q)
     );

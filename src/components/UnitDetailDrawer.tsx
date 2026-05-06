@@ -57,7 +57,7 @@ export default function UnitDetailDrawer({ unit, supplierName, onClose }: Props)
   const hasListingSites = listingSites.length > 0;
   const isListed = hasListingSites || unit.platformListed;
 
-  const imeiDigits = unit.imei.replace(/\D/g, '');
+  const imeiDigits = (unit.imei || '').replace(/\D/g, '');
   const imeiValid  = imeiDigits.length === 15 ? validateIMEI(unit.imei) : null;
   const statusCfg  = STATUS_CONFIG[unit.status] || STATUS_CONFIG.available;
 

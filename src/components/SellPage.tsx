@@ -277,7 +277,7 @@ export default function SellPage() {
     const q = search.toLowerCase();
     return inStock.filter(u =>
       u.model.toLowerCase().includes(q) ||
-      u.imei.toLowerCase().includes(q) ||
+      (u.imei || '').toLowerCase().includes(q) ||
       u.colour?.toLowerCase().includes(q) ||
       u.storage?.toLowerCase().includes(q) ||
       (supplierMap[u.supplierId] || '').toLowerCase().includes(q)

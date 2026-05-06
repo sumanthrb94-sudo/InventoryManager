@@ -31,7 +31,7 @@ export default function QuickSaleModal({ unit: initialUnit, availableUnits = [],
     if (!imeiSearch) return availableUnits;
     const s = imeiSearch.toLowerCase();
     return availableUnits.filter(u => 
-      u.imei.toLowerCase().includes(s) ||
+      (u.imei || '').toLowerCase().includes(s) ||
       u.colour.toLowerCase().includes(s)
     );
   }, [availableUnits, imeiSearch]);
