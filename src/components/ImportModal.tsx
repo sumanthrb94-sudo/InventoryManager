@@ -220,10 +220,12 @@ function parseOGStockSheet(rows: any[][]): ParsedData {
     if (!supplierMap.has(supplierId))
       supplierMap.set(supplierId, { id: supplierId, name: supplierName, portal: 'Direct', ownerId: 'shared' });
 
-    const category  = parseCategory(model);
-    const brand     = parseBrand(category);
-    const unitId    = buildStableUnitId({ imei, model, dateIn, supplierId, buyPrice, status });
-    const dedupeKey = normalizeImei(imei) || unitId;
+    const category    = parseCategory(model);
+    const brand       = parseBrand(category);
+    const cleanedImei = normalizeImei(imei);
+    // Non-SHS with valid IMEI → use raw IMEI as ID (matches NewBatchModal, same unit = same record)
+    const unitId    = cleanedImei.length >= 14 ? cleanedImei : buildStableUnitId({ imei, model, dateIn, supplierId, buyPrice, status });
+    const dedupeKey = cleanedImei || unitId;
 
     if (seenImeis.has(dedupeKey)) { duplicateRows++; }
     seenImeis.add(dedupeKey);

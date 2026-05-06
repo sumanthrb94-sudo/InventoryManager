@@ -4,7 +4,7 @@ import { auth, signInWithGoogle, signOut } from './lib/firebase';
 import {
   PackagePlus, ShoppingCart, RefreshCw, BarChart2,
   LogOut, Plus, FileSpreadsheet, LayoutDashboard,
-  TrendingUp, FileText, Users,
+  TrendingUp, FileText, Users, Settings,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import Dashboard, { NavAction } from './components/Dashboard';
@@ -23,6 +23,7 @@ import { notificationService } from './lib/notificationService';
 import { subscribeToSyncStatus } from './lib/dbService';
 import { InventoryStoreProvider, useInventoryStore } from './lib/inventoryStore';
 import DataSeedPage from './components/DataSeedPage';
+import ResetDataModal from './components/ResetDataModal';
 import ErrorBoundary from './components/ErrorBoundary';
 
 type Tab        = 'buy' | 'sell' | 'returns' | 'analytics';
@@ -86,6 +87,7 @@ function AppShell({ user }: { user: User }) {
   const [analyticsSub, setAnalyticsSub]           = useState<AnalyticsSub>('overview');
   const [isBatchModalOpen, setIsBatchModalOpen]   = useState(false);
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
+  const [isResetModalOpen, setIsResetModalOpen]   = useState(false);
   const [unreadCount, setUnreadCount]             = useState(0);
   const [syncConnected, setSyncConnected]         = useState(false);
 
@@ -178,6 +180,10 @@ function AppShell({ user }: { user: User }) {
             className="w-full flex items-center gap-3 px-4 py-2.5 text-[10px] font-bold uppercase tracking-widest text-gray-400 hover:text-black hover:bg-gray-100 transition-all rounded-xl">
             <LogOut size={13} strokeWidth={2.5} /> Sign Out
           </button>
+          <button onClick={() => setIsResetModalOpen(true)}
+            className="w-full flex items-center gap-3 px-4 py-2.5 text-[10px] font-bold uppercase tracking-widest text-red-300 hover:text-red-600 hover:bg-red-50 transition-all rounded-xl">
+            <Settings size={13} strokeWidth={2.5} /> Reset Data
+          </button>
         </div>
       </aside>
 
@@ -209,6 +215,12 @@ function AppShell({ user }: { user: User }) {
             <button onClick={() => signOut()}
               className="md:hidden border border-gray-200 text-gray-400 hover:text-red-500 hover:border-red-200 p-2 rounded-xl transition-all">
               <LogOut size={14} strokeWidth={2.5} />
+            </button>
+            {/* Reset data */}
+            <button onClick={() => setIsResetModalOpen(true)}
+              title="Reset all data"
+              className="border border-gray-200 text-gray-400 hover:text-red-500 hover:border-red-200 p-2 rounded-xl transition-all">
+              <Settings size={14} strokeWidth={2.5} />
             </button>
             {/* Import Excel */}
             <button onClick={() => setIsImportModalOpen(true)}
@@ -272,6 +284,7 @@ function AppShell({ user }: { user: User }) {
       <AnimatePresence>
         {isBatchModalOpen  && <NewBatchModal  onClose={() => setIsBatchModalOpen(false)} />}
         {isImportModalOpen && <ImportModal    onClose={() => setIsImportModalOpen(false)} />}
+        {isResetModalOpen  && <ResetDataModal onClose={() => setIsResetModalOpen(false)} />}
       </AnimatePresence>
       <NotificationToast />
     </div>
