@@ -48,6 +48,7 @@ export interface InventoryUnit {
   category: DeviceCategory;
   colour: string;         // e.g. "Natural Titanium", "Phantom Black"
   storage?: string;
+  grade?: string;         // e.g. "A", "B", "C", "Refurbished"
   boxIncluded?: boolean;
   batteryHealth?: number;
   networkLock?: string;
