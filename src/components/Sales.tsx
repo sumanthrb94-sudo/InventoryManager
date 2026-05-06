@@ -394,6 +394,8 @@ export default function Sales() {
                     const platformFee = sp > 0 ? platformTotalFee(platform, sp) : 0;
                     const netProfit = calcNetProfit(sp, bp, platform, postage);
 
+                    const feePercentage = sp > 0 ? ((platformFee / sp) * 100).toFixed(1) : 0;
+
                     return (
                     <div key={u.id} className={`px-6 py-4 group hover:bg-opacity-50 transition-all ${netProfit < 0 ? 'hover:bg-red-50' : 'hover:bg-emerald-50'}`}>
                       <div className="flex items-center gap-4 mb-3">
@@ -413,14 +415,19 @@ export default function Sales() {
                       </div>
 
                       {/* Financial breakdown */}
-                      <div className={`grid grid-cols-4 gap-2 rounded-lg p-2.5 border ${netProfit < 0 ? 'bg-red-50 border-red-100' : 'bg-emerald-50 border-emerald-100'}`}>
+                      <div className={`grid grid-cols-5 gap-2 rounded-lg p-2.5 border ${netProfit < 0 ? 'bg-red-50 border-red-100' : 'bg-emerald-50 border-emerald-100'}`}>
                         <div className="text-center">
                           <p className="text-[8px] font-bold text-gray-600 uppercase">BP</p>
                           <p className="text-xs font-mono font-bold text-gray-900">£{bp.toFixed(2)}</p>
                         </div>
                         <div className="text-center border-l border-gray-200">
-                          <p className="text-[8px] font-bold text-gray-600 uppercase">{platform}</p>
+                          <p className="text-[8px] font-bold text-gray-600 uppercase">Sale</p>
+                          <p className="text-xs font-mono font-bold text-gray-900">£{sp.toFixed(2)}</p>
+                        </div>
+                        <div className="text-center border-l border-gray-200">
+                          <p className="text-[8px] font-bold text-gray-600 uppercase">{platform} Fee</p>
                           <p className="text-xs font-mono font-bold text-red-600">-£{platformFee.toFixed(2)}</p>
+                          <p className="text-[7px] font-mono text-red-500">({feePercentage}%)</p>
                         </div>
                         <div className="text-center border-l border-gray-200">
                           <p className="text-[8px] font-bold text-gray-600 uppercase">Postage</p>
