@@ -8,6 +8,7 @@ import { AnimatePresence, motion } from 'motion/react';
 import { dbService } from '../lib/dbService';
 import { InventoryUnit } from '../types';
 import { useInventoryStore } from '../lib/inventoryStore';
+import { notificationService } from '../lib/notificationService';
 import CopyImei from './CopyImei';
 import {
   PLATFORM_LIST, PLATFORMS, DEFAULT_POSTAGE_COST,
@@ -64,6 +65,11 @@ function SellOrderModal({
         postageCost: postageNum,
         ...(isSHS ? { imei: imeiInput.trim() || '' } : {}),
       });
+
+      // Trigger notification for the sale
+      const notificationType = netProfit! < 0 ? 'loss_sell' : 'sold';
+      notificationService.addNotification(notificationType, unit, netProfit);
+
       onSaved();
       onClose();
     } catch {

@@ -2,8 +2,9 @@ import React, { useState, useMemo } from 'react';
 import { X, Camera, CheckCircle2, AlertCircle, Smartphone } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { dbService } from '../lib/dbService';
-import { DeviceCategory } from '../types';
+import { DeviceCategory, InventoryUnit } from '../types';
 import { useInventoryStore } from '../lib/inventoryStore';
+import { notificationService } from '../lib/notificationService';
 import IMEIScanner from './IMEIScanner';
 
 interface Props { onClose: () => void; }
@@ -105,7 +106,7 @@ export default function ScanInModal({ onClose }: Props) {
       const brand = detectBrand(category);
       const bp = parseFloat(buyPrice) || 0;
 
-      await dbService.create('inventoryUnits', imei, {
+      const newUnit: InventoryUnit = {
         id: imei,
         imei,
         model: model.trim(),
@@ -122,7 +123,12 @@ export default function ScanInModal({ onClose }: Props) {
         listingSites: [],
         ownerId: 'shared',
         createdAt: new Date().toISOString(),
-      });
+      };
+
+      await dbService.create('inventoryUnits', imei, newUnit);
+
+      // Trigger new_stock notification
+      notificationService.addNotification('new_stock', newUnit);
 
       setSaved(true);
       setTimeout(() => {
