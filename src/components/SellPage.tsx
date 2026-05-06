@@ -739,38 +739,57 @@ export default function SellPage() {
                     </span>
                   </div>
                   <div className="grid gap-2">
-                    {dayUnits.map(u => (
-                      <div key={u.id} className={`flex items-center justify-between p-3 bg-white border rounded-xl hover:border-blue-200 transition-all ${!u.imei ? 'border-orange-200' : 'border-gray-100'}`}>
-                        <div className="flex items-center gap-3">
-                          <div className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${!u.imei ? 'bg-orange-50 text-orange-500' : 'bg-blue-50 text-blue-600'}`}>
-                            {!u.imei ? <Truck size={14} /> : <ShoppingCart size={14} />}
-                          </div>
-                          <div>
-                            <p className="text-xs font-bold">{u.model}</p>
-                            <div className="flex items-center gap-2 mt-0.5 flex-wrap">
-                              {u.imei
-                                ? <CopyImei imei={u.imei} truncate={10} />
-                                : <button
-                                    onClick={() => setEnterImeiUnit(u)}
-                                    className="flex items-center gap-1 text-[9px] font-bold font-mono bg-orange-100 text-orange-700 border border-orange-300 px-1.5 py-0.5 rounded hover:bg-orange-200 transition-all"
-                                  >
-                                    <Pencil size={9} /> Enter IMEI
-                                  </button>
-                              }
-                              {u.salePlatform && (
-                                <span className={`text-[8px] font-bold px-1.5 py-0.5 rounded-full border ${PLATFORM_STYLE[u.salePlatform] || 'bg-gray-100 text-gray-600 border-gray-200'}`}>
-                                  {u.salePlatform}
-                                </span>
-                              )}
+                    {dayUnits.map(u => {
+                      const bp = u.buyPrice || 0;
+                      const sp = u.salePrice || 0;
+                      const platform = u.salePlatform || 'eBay';
+                      const postage = u.postageCost ?? DEFAULT_POSTAGE_COST;
+                      const platformFee = sp > 0 ? platformTotalFee(platform, sp) : 0;
+                      const netProfit = calcNetProfit(sp, bp, platform, postage);
+                      const feePercentage = sp > 0 ? ((platformFee / sp) * 100).toFixed(1) : 0;
+
+                      return (
+                      <div key={u.id} className={`flex flex-col p-3 bg-white border rounded-xl hover:border-blue-200 transition-all ${netProfit < 0 ? 'border-red-100 hover:border-red-200' : 'border-gray-100'}`}>
+                        <div className="flex items-start justify-between mb-2">
+                          <div className="flex items-center gap-3 flex-1">
+                            <div className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${!u.imei ? 'bg-orange-50 text-orange-500' : 'bg-blue-50 text-blue-600'}`}>
+                              {!u.imei ? <Truck size={14} /> : <ShoppingCart size={14} />}
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <p className="text-xs font-bold truncate">{u.model}</p>
+                              <div className="flex items-center gap-2 mt-0.5 flex-wrap">
+                                {u.imei
+                                  ? <CopyImei imei={u.imei} truncate={10} />
+                                  : <button
+                                      onClick={() => setEnterImeiUnit(u)}
+                                      className="flex items-center gap-1 text-[9px] font-bold font-mono bg-orange-100 text-orange-700 border border-orange-300 px-1.5 py-0.5 rounded hover:bg-orange-200 transition-all"
+                                    >
+                                      <Pencil size={9} /> Enter IMEI
+                                    </button>
+                                }
+                                {u.salePlatform && (
+                                  <span className={`text-[8px] font-bold px-1.5 py-0.5 rounded-full border ${PLATFORM_STYLE[u.salePlatform] || 'bg-gray-100 text-gray-600 border-gray-200'}`}>
+                                    {u.salePlatform}
+                                  </span>
+                                )}
+                              </div>
                             </div>
                           </div>
+                          <div className="text-right flex-shrink-0 ml-2">
+                            <p className={`text-sm font-bold ${netProfit < 0 ? 'text-red-600' : 'text-emerald-600'}`}>£{sp.toFixed(2)}</p>
+                            {u.saleOrderId && <p className="text-[8px] font-mono text-gray-400 mt-0.5">{u.saleOrderId}</p>}
+                          </div>
                         </div>
-                        <div className="text-right">
-                          <p className="text-sm font-bold text-emerald-600">£{u.salePrice}</p>
-                          {u.saleOrderId && <p className="text-[9px] font-mono text-gray-400 mt-0.5">{u.saleOrderId}</p>}
+                        <div className="flex items-center gap-2 text-[8px] font-mono px-1 py-1.5 bg-gray-50 rounded border border-gray-100">
+                          <span className="text-gray-600">BP: <span className="font-bold text-gray-900">£{bp.toFixed(2)}</span></span>
+                          <span className="text-gray-400">·</span>
+                          <span className="text-red-600">Fee: <span className="font-bold">-£{platformFee.toFixed(2)}</span> <span className="text-[7px]">({feePercentage}%)</span></span>
+                          <span className="text-gray-400 ml-auto">·</span>
+                          <span className="text-gray-600">Batch: <span className="font-bold">{u.batchId === 'master_batch' ? 'Master' : (u.batchId || 'Default')}</span></span>
                         </div>
                       </div>
-                    ))}
+                    );
+                    })}
                   </div>
                 </div>
               ))}
