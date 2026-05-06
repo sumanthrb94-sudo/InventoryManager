@@ -2,52 +2,52 @@ import React, { useState, useMemo } from 'react';
 import {
   ShoppingCart, Search, CheckCircle2, Clock, ChevronRight,
   X, Package, AlertCircle, ChevronDown, ChevronUp,
-  Truck, Pencil, AlertTriangle,
+  Truck, Pencil, AlertTriangle, PackageCheck,
 } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
 import { dbService } from '../lib/dbService';
 import { InventoryUnit } from '../types';
 import { useInventoryStore } from '../lib/inventoryStore';
 import CopyImei from './CopyImei';
-import { PLATFORM_LIST, PLATFORMS, DEFAULT_POSTAGE_COST, platformTotalFee, calcNetProfit, platformFixedFee } from '../lib/platforms';
+import {
+  PLATFORM_LIST, PLATFORMS, DEFAULT_POSTAGE_COST,
+  platformTotalFee, calcNetProfit, platformFixedFee,
+} from '../lib/platforms';
 import CollapsibleSection from './CollapsibleSection';
 import PeriodicInventory from './PeriodicInventory';
 
-// ── helpers ────────────────────────────────────────────────────────────────
+// ── helpers ────────────────────────────────────────────────────────────────────
 const today = () => new Date().toISOString().split('T')[0];
 
 const PLATFORM_STYLE: Record<string, string> = {
-  eBay: 'bg-yellow-50 text-yellow-800 border-yellow-200',
-  Amazon: 'bg-orange-50 text-orange-800 border-orange-200',
-  OnBuy: 'bg-blue-50   text-blue-800   border-blue-200',
+  eBay:       'bg-yellow-50 text-yellow-800 border-yellow-200',
+  Amazon:     'bg-orange-50 text-orange-800 border-orange-200',
+  OnBuy:      'bg-blue-50   text-blue-800   border-blue-200',
   Backmarket: 'bg-green-50  text-green-800  border-green-200',
 };
 
-// ── SellOrderModal ──────────────────────────────────────────────────────────
+// ── SellOrderModal ─────────────────────────────────────────────────────────────
 function SellOrderModal({
-  unit,
-  onClose,
-  onSaved,
-  isSHS = false,
+  unit, onClose, onSaved, isSHS = false,
 }: {
   unit: InventoryUnit;
   onClose: () => void;
   onSaved: () => void;
   isSHS?: boolean;
 }) {
-  const [sp, setSp] = useState('');
+  const [sp, setSp]           = useState('');
   const [platform, setPlatform] = useState<string>(PLATFORM_LIST[0]);
   const [orderId, setOrderId] = useState('');
   const [saleDate, setSaleDate] = useState(today());
   const [postage, setPostage] = useState(String(DEFAULT_POSTAGE_COST));
   const [imeiInput, setImeiInput] = useState('');
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState('');
+  const [saving, setSaving]   = useState(false);
+  const [error, setError]     = useState('');
 
-  const spNum = sp ? Number(sp) : 0;
+  const spNum      = sp ? Number(sp) : 0;
   const postageNum = postage ? Number(postage) : DEFAULT_POSTAGE_COST;
   const platformFee = spNum > 0 ? platformTotalFee(platform, spNum) : 0;
-  const netProfit = spNum > 0 ? calcNetProfit(spNum, unit.buyPrice, platform, postageNum) : null;
+  const netProfit   = spNum > 0 ? calcNetProfit(spNum, unit.buyPrice, platform, postageNum) : null;
 
   const handleSave = async () => {
     if (!sp || Number(sp) <= 0) { setError('Please enter a valid selling price.'); return; }
@@ -55,106 +55,92 @@ function SellOrderModal({
     setSaving(true);
     try {
       await dbService.update('inventoryUnits', unit.id, {
-        status: 'sold',
-        salePrice: Number(sp),
+        status:      'sold',
+        salePrice:   Number(sp),
         salePlatform: platform,
         saleOrderId: orderId.trim(),
         saleDate,
         postageCost: postageNum,
-        // SHS: save IMEI if entered now, leave blank if not (can be added later)
         ...(isSHS ? { imei: imeiInput.trim() || '' } : {}),
       });
       onSaved();
       onClose();
-    } catch (e) {
+    } catch {
       setError('Failed to save. Please try again.');
-    } finally {
       setSaving(false);
     }
   };
 
   return (
     <div className="fixed inset-0 z-[70] flex items-center justify-center p-3 md:p-4 bg-black/40 backdrop-blur-sm">
-      {/* max-h keeps modal within viewport; flex-col lets body scroll while footer stays fixed */}
       <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl flex flex-col" style={{ maxHeight: 'calc(100dvh - 24px)' }}>
 
         {/* Header */}
-        <div className="flex items-center justify-between px-6 py-5 border-b border-gray-100">
-          <div>
-            <p className="text-[9px] font-mono uppercase tracking-widest text-gray-400">Record Sale</p>
-            <h3 className="text-base font-bold truncate mt-0.5 max-w-[280px]">{unit.model}</h3>
+        <div className={`flex items-center justify-between px-6 py-4 border-b ${isSHS ? 'border-amber-100 bg-amber-50' : 'border-gray-100'}`}>
+          <div className="flex items-center gap-3">
+            <div className={`w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 ${isSHS ? 'bg-amber-500' : 'bg-black'}`}>
+              {isSHS ? <Truck size={17} className="text-white" /> : <Package size={17} className="text-white" />}
+            </div>
+            <div>
+              <p className="text-[9px] font-mono uppercase tracking-widest text-gray-400">
+                {isSHS ? 'Supplier Direct Sale' : 'Record Sale'}
+              </p>
+              <h3 className="text-sm font-bold truncate max-w-[260px]">{unit.model}</h3>
+              <p className="text-[9px] text-gray-500 font-mono">
+                {unit.colour}{unit.storage ? ` · ${unit.storage}` : ''} · BP £{unit.buyPrice}
+              </p>
+            </div>
           </div>
-          <button onClick={onClose} className="p-2 hover:bg-gray-100 rounded-xl transition-all">
+          <button onClick={onClose} className="p-2 hover:bg-gray-100 rounded-xl transition-all flex-shrink-0">
             <X size={16} />
           </button>
         </div>
 
-        {/* Unit summary */}
-        <div className={`px-6 py-4 border-b border-gray-100 flex items-center gap-4 ${isSHS ? 'bg-amber-50' : 'bg-gray-50'}`}>
-          <div className={`w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 ${isSHS ? 'bg-amber-500' : 'bg-black'}`}>
-            {isSHS ? <Truck size={18} className="text-white" /> : <Package size={18} className="text-white" />}
-          </div>
-          <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-2">
-              {isSHS
-                ? <span className="text-[8px] bg-amber-100 text-amber-700 font-bold px-1.5 py-0.5 rounded-full uppercase">Supplier Stock</span>
-                : <CopyImei imei={unit.imei} truncate={12} />
-              }
-              {!isSHS && <span className="text-[8px] bg-emerald-100 text-emerald-700 font-bold px-1.5 py-0.5 rounded-full uppercase">In Stock</span>}
-            </div>
-            <p className="text-[10px] text-gray-500 font-mono mt-0.5">
-              Paid: <span className="font-bold text-black">£{unit.buyPrice}</span>
-              {unit.colour && <> · {unit.colour}</>}
-              {unit.storage && <> · {unit.storage}</>}
-            </p>
-          </div>
-        </div>
-
-        {/* Form — scrollable body */}
-        <div className="flex-1 overflow-y-auto px-6 py-5 space-y-4">
-
-          {/* SHS IMEI field — optional at time of sale, can be added later */}
-          {isSHS && (
-            <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 space-y-2">
-              <div className="flex items-center gap-2">
-                <Truck size={12} className="text-amber-600" />
-                <p className="text-[9px] font-bold uppercase tracking-widest text-amber-700">Supplier Stock — IMEI optional</p>
-              </div>
+        {/* SHS IMEI field */}
+        {isSHS && (
+          <div className="px-6 pt-4 pb-0">
+            <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 space-y-2">
+              <p className="text-[9px] font-bold uppercase tracking-widest text-amber-700 flex items-center gap-1.5">
+                <Truck size={11} /> IMEI — Optional now, enter after supplier dispatches
+              </p>
               <input
                 value={imeiInput}
                 onChange={e => setImeiInput(e.target.value)}
-                placeholder="Enter IMEI now, or leave blank to add later"
-                className="w-full border border-amber-200 bg-white rounded-xl px-4 py-2.5 text-sm font-mono focus:outline-none focus:border-amber-500 transition-all"
+                placeholder="Enter IMEI if known, or leave blank"
+                className="w-full border border-amber-200 bg-white rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:border-amber-500 transition-all"
               />
               <p className="text-[8px] text-amber-600 font-mono">
-                {imeiInput.trim() ? `IMEI will be saved: ${imeiInput.trim()}` : 'No IMEI — you can enter it after supplier confirms'}
+                {imeiInput.trim()
+                  ? `IMEI saved: ${imeiInput.trim()}`
+                  : 'No IMEI — this unit will appear in "Awaiting IMEI" after the sale'}
               </p>
             </div>
-          )}
+          </div>
+        )}
+
+        {/* Form */}
+        <div className="flex-1 overflow-y-auto px-6 py-4 space-y-4">
 
           {/* Platform */}
           <div>
             <label className="text-[9px] font-bold uppercase tracking-widest text-gray-400 block mb-2">
-              Selling Platform *
+              Platform *
             </label>
             <div className="grid grid-cols-2 gap-2">
               {PLATFORM_LIST.map(p => (
-                <button
-                  key={p}
-                  onClick={() => setPlatform(p)}
-                  className={`py-2.5 px-3 rounded-xl border text-[10px] font-bold transition-all flex items-center justify-between ${platform === p
-                      ? 'bg-black text-white border-black'
-                      : `${PLATFORM_STYLE[p]} hover:opacity-80`
-                    }`}
+                <button key={p} onClick={() => setPlatform(p)}
+                  className={`py-2.5 px-3 rounded-xl border text-[10px] font-bold transition-all flex items-center justify-between ${
+                    platform === p ? 'bg-black text-white border-black' : `${PLATFORM_STYLE[p]} hover:opacity-80`
+                  }`}
                 >
                   {p}
-                  {platform === p && <CheckCircle2 size={12} />}
-                  {platform !== p && (
-                    <span className="text-[8px] font-mono opacity-60">
-                      {PLATFORMS[p as keyof typeof PLATFORMS].commission}%
-                      {platformFixedFee(p) > 0 ? ` +£${platformFixedFee(p)}` : ''}
-                    </span>
-                  )}
+                  {platform === p
+                    ? <CheckCircle2 size={12} />
+                    : <span className="text-[8px] font-mono opacity-60">
+                        {PLATFORMS[p as keyof typeof PLATFORMS].commission}%
+                        {platformFixedFee(p) > 0 ? ` +£${platformFixedFee(p)}` : ''}
+                      </span>
+                  }
                 </button>
               ))}
             </div>
@@ -173,72 +159,51 @@ function SellOrderModal({
             />
           </div>
 
-          {/* Selling Price */}
+          {/* Sale Price */}
           <div>
             <label className="text-[9px] font-bold uppercase tracking-widest text-gray-400 block mb-1.5">
               Selling Price (£) *
             </label>
             <input
-              type="number"
-              value={sp}
-              onChange={e => { setSp(e.target.value); setError(''); }}
-              placeholder="0.00"
-              min="0"
-              step="0.01"
+              type="number" value={sp} onChange={e => { setSp(e.target.value); setError(''); }}
+              placeholder="0.00" min="0" step="0.01"
               className="w-full border border-gray-200 rounded-xl px-4 py-3 text-lg font-bold font-mono focus:outline-none focus:border-black transition-all"
             />
           </div>
 
-          {/* Sale Date */}
-          <div>
-            <label className="text-[9px] font-bold uppercase tracking-widest text-gray-400 block mb-1.5">
-              Sale Date
-            </label>
-            <input
-              type="date"
-              value={saleDate}
-              onChange={e => setSaleDate(e.target.value)}
-              className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm font-mono focus:outline-none focus:border-black transition-all"
-            />
+          {/* Sale Date + Postage */}
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="text-[9px] font-bold uppercase tracking-widest text-gray-400 block mb-1.5">Sale Date</label>
+              <input type="date" value={saleDate} onChange={e => setSaleDate(e.target.value)}
+                className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm font-mono focus:outline-none focus:border-black transition-all" />
+            </div>
+            <div>
+              <label className="text-[9px] font-bold uppercase tracking-widest text-gray-400 block mb-1.5">
+                Postage (£)
+              </label>
+              <input type="number" value={postage} onChange={e => setPostage(e.target.value)}
+                placeholder={String(DEFAULT_POSTAGE_COST)} min="0" step="0.01"
+                className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm font-mono focus:outline-none focus:border-black transition-all" />
+            </div>
           </div>
 
-          {/* Postage Cost */}
-          <div>
-            <label className="text-[9px] font-bold uppercase tracking-widest text-gray-400 block mb-1.5">
-              Postage Cost (£) <span className="normal-case font-normal text-gray-400">— default £{DEFAULT_POSTAGE_COST}</span>
-            </label>
-            <input
-              type="number"
-              value={postage}
-              onChange={e => setPostage(e.target.value)}
-              placeholder={String(DEFAULT_POSTAGE_COST)}
-              min="0"
-              step="0.01"
-              className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm font-mono focus:outline-none focus:border-black transition-all"
-            />
-          </div>
-
-          {/* Live P&L preview */}
-          {sp && Number(sp) > 0 && (
+          {/* Live P&L */}
+          {spNum > 0 && (
             <div className={`rounded-xl p-4 border ${netProfit! >= 0 ? 'bg-emerald-50 border-emerald-200' : 'bg-red-50 border-red-200'}`}>
               <p className="text-[9px] font-mono uppercase tracking-widest text-gray-500 mb-2">Profit Breakdown</p>
               <div className="grid grid-cols-2 gap-2 text-center mb-2">
-                <div>
-                  <p className="text-[8px] text-gray-400 font-mono">Sold For</p>
-                  <p className="text-sm font-bold">£{spNum.toLocaleString()}</p>
-                </div>
-                <div>
-                  <p className="text-[8px] text-gray-400 font-mono">Bought For (BP)</p>
-                  <p className="text-sm font-bold text-gray-600">£{unit.buyPrice}</p>
-                </div>
-                <div>
-                  <p className="text-[8px] text-gray-400 font-mono">{platform} Fee (incl. fixed)</p>
-                  <p className="text-sm font-bold text-red-600">-£{platformFee}</p>
-                </div>
-                <div>
-                  <p className="text-[8px] text-gray-400 font-mono">Postage</p>
-                  <p className="text-sm font-bold text-red-600">-£{postageNum}</p>
-                </div>
+                {[
+                  { label: 'Sold For',  val: `£${spNum.toLocaleString()}`,     red: false },
+                  { label: 'Bought For', val: `£${unit.buyPrice}`,             red: false },
+                  { label: `${platform} Fee`, val: `-£${platformFee}`,         red: true  },
+                  { label: 'Postage',   val: `-£${postageNum}`,                 red: true  },
+                ].map(({ label, val, red }) => (
+                  <div key={label}>
+                    <p className="text-[8px] text-gray-400 font-mono">{label}</p>
+                    <p className={`text-sm font-bold ${red ? 'text-red-600' : ''}`}>{val}</p>
+                  </div>
+                ))}
               </div>
               <div className={`rounded-lg px-3 py-2 text-center border-t ${netProfit! >= 0 ? 'border-emerald-200' : 'border-red-200'}`}>
                 <p className="text-[8px] text-gray-400 font-mono mb-0.5">Net Profit</p>
@@ -249,7 +214,6 @@ function SellOrderModal({
             </div>
           )}
 
-          {/* Error */}
           {error && (
             <div className="flex items-center gap-2 text-red-600 bg-red-50 border border-red-200 rounded-xl px-4 py-3">
               <AlertCircle size={14} />
@@ -258,17 +222,17 @@ function SellOrderModal({
           )}
         </div>
 
-        {/* Footer — always pinned, never pushed off screen */}
+        {/* Footer */}
         <div className="flex-shrink-0 px-6 py-4 border-t border-gray-100 flex gap-3 bg-white">
           <button onClick={onClose}
             className="flex-1 py-3 border border-gray-200 rounded-xl text-[10px] font-bold uppercase tracking-widest text-gray-500 hover:bg-gray-50 transition-all">
             Cancel
           </button>
-          <button
-            onClick={handleSave}
-            disabled={saving}
-            className="flex-1 py-3 bg-black text-white rounded-xl text-[10px] font-bold uppercase tracking-widest hover:bg-gray-800 transition-all disabled:opacity-50 flex items-center justify-center gap-2">
-            {saving ? 'Saving…' : <>Confirm Sale <CheckCircle2 size={13} /></>}
+          <button onClick={handleSave} disabled={saving}
+            className={`flex-1 py-3 text-white rounded-xl text-[10px] font-bold uppercase tracking-widest transition-all disabled:opacity-50 flex items-center justify-center gap-2 ${
+              isSHS ? 'bg-amber-500 hover:bg-amber-600' : 'bg-black hover:bg-gray-800'
+            }`}>
+            {saving ? 'Saving…' : <><CheckCircle2 size={13} /> Confirm Sale</>}
           </button>
         </div>
       </div>
@@ -276,11 +240,9 @@ function SellOrderModal({
   );
 }
 
-// ── EnterImeiModal — attach IMEI to a sold SHS unit after supplier confirms ──
+// ── EnterImeiModal — attach IMEI after supplier confirms dispatch ───────────────
 function EnterImeiModal({
-  unit,
-  onClose,
-  onSaved,
+  unit, onClose, onSaved,
 }: {
   unit: InventoryUnit;
   onClose: () => void;
@@ -288,6 +250,7 @@ function EnterImeiModal({
 }) {
   const [imei, setImei]     = useState('');
   const [saving, setSaving] = useState(false);
+  const [saved, setSaved]   = useState(false);
   const [error, setError]   = useState('');
 
   const clean     = imei.replace(/\D/g, '');
@@ -304,8 +267,8 @@ function EnterImeiModal({
       const exists = await dbService.imeiExists(finalImei);
       if (exists) { setError(`${finalImei} is already in stock as a different unit`); setSaving(false); return; }
       await dbService.update('inventoryUnits', unit.id, { imei: finalImei });
-      onSaved();
-      onClose();
+      setSaved(true);
+      setTimeout(() => { onSaved(); onClose(); }, 700);
     } catch {
       setError('Save failed — please try again');
       setSaving(false);
@@ -314,31 +277,53 @@ function EnterImeiModal({
 
   return (
     <div className="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm">
-      <div className="bg-white rounded-2xl w-full max-w-sm shadow-2xl overflow-hidden">
-        <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
-          <div>
-            <p className="text-[9px] font-mono uppercase tracking-widest text-gray-400">Add IMEI to Sold Unit</p>
-            <h3 className="text-sm font-bold mt-0.5 truncate max-w-[260px]">{unit.model}</h3>
+      <motion.div
+        initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }}
+        className="bg-white rounded-2xl w-full max-w-sm shadow-2xl overflow-hidden"
+      >
+        {/* Header */}
+        <div className="flex items-center justify-between px-5 py-4 border-b border-orange-100 bg-orange-50">
+          <div className="flex items-center gap-3">
+            <div className="w-8 h-8 bg-orange-500 text-white rounded-xl flex items-center justify-center">
+              <PackageCheck size={15} />
+            </div>
+            <div>
+              <p className="text-[9px] font-mono uppercase tracking-widest text-orange-600">Supplier Dispatched</p>
+              <h3 className="text-sm font-bold truncate max-w-[220px]">{unit.model}</h3>
+            </div>
           </div>
-          <button onClick={onClose} className="p-2 hover:bg-gray-100 rounded-xl"><X size={15} /></button>
+          <button onClick={onClose} className="p-2 hover:bg-orange-100 rounded-xl text-orange-400"><X size={15} /></button>
         </div>
 
         <div className="p-5 space-y-4">
-          <div className="bg-orange-50 border border-orange-100 rounded-xl px-4 py-3 space-y-0.5">
-            <p className="text-[8px] font-bold uppercase tracking-widest text-orange-500">Sold — IMEI pending</p>
-            <p className="text-xs font-bold">{unit.colour} · £{unit.salePrice} sold · {unit.salePlatform}</p>
-            <p className="text-[9px] text-gray-400 font-mono">Order: {unit.saleOrderId || '—'} · {unit.saleDate}</p>
+          {/* Sale summary */}
+          <div className="bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 space-y-1">
+            <p className="text-[8px] font-bold uppercase tracking-widest text-gray-400">Sale Details</p>
+            <div className="flex items-center justify-between">
+              <p className="text-xs font-bold">{unit.colour}{unit.storage ? ` · ${unit.storage}` : ''}</p>
+              <p className="text-sm font-bold text-emerald-700">£{unit.salePrice}</p>
+            </div>
+            <div className="flex items-center gap-3 flex-wrap">
+              {unit.salePlatform && (
+                <span className={`text-[8px] font-bold px-2 py-0.5 rounded-full border ${PLATFORM_STYLE[unit.salePlatform] || 'bg-gray-100 text-gray-600 border-gray-200'}`}>
+                  {unit.salePlatform}
+                </span>
+              )}
+              {unit.saleOrderId && <p className="text-[9px] text-gray-500 font-mono">{unit.saleOrderId}</p>}
+              {unit.saleDate    && <p className="text-[9px] text-gray-400 font-mono">{unit.saleDate}</p>}
+            </div>
           </div>
 
+          {/* IMEI input */}
           <div>
             <label className="text-[8px] font-bold uppercase tracking-widest text-gray-400 block mb-1.5">
-              IMEI / Serial from Supplier
+              IMEI / Serial from Supplier Invoice
             </label>
             <input
               autoFocus
               value={imei}
               onChange={e => { setImei(e.target.value); setError(''); }}
-              placeholder="14–15 digit IMEI or device serial"
+              placeholder="Scan or type 14–15 digit IMEI"
               maxLength={20}
               className={`w-full border rounded-xl px-4 py-3 text-sm font-mono focus:outline-none transition-all ${
                 imei && !inputOk ? 'border-red-300 bg-red-50' : 'border-gray-200 focus:border-black'
@@ -350,7 +335,7 @@ function EnterImeiModal({
                   ? `Serial: ${finalImei} ✓`
                   : isNumeric
                     ? `${clean.length} digits ${numericOk ? '✓' : `— need ${14 - clean.length} more`}`
-                    : 'Contains non-numeric — treating as serial'}
+                    : 'Non-numeric — treating as serial'}
               </p>
             )}
           </div>
@@ -367,27 +352,29 @@ function EnterImeiModal({
               className="flex-1 py-3 border border-gray-200 rounded-xl text-[10px] font-bold uppercase tracking-widest text-gray-500 hover:bg-gray-50 transition-all">
               Cancel
             </button>
-            <button onClick={handleSave} disabled={!inputOk || saving}
-              className="flex-1 py-3 bg-black text-white rounded-xl text-[10px] font-bold uppercase tracking-widest hover:bg-gray-800 transition-all disabled:opacity-50 flex items-center justify-center gap-2">
-              {saving
-                ? <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                : <><CheckCircle2 size={13} /> Save IMEI</>
+            <button onClick={handleSave} disabled={!inputOk || saving || saved}
+              className="flex-1 py-3 bg-orange-500 text-white rounded-xl text-[10px] font-bold uppercase tracking-widest hover:bg-orange-600 transition-all disabled:opacity-50 flex items-center justify-center gap-2">
+              {saved
+                ? <><CheckCircle2 size={13} /> Saved!</>
+                : saving
+                  ? <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                  : <><PackageCheck size={13} /> Save IMEI</>
               }
             </button>
           </div>
         </div>
-      </div>
+      </motion.div>
     </div>
   );
 }
 
-// ── Main Sell Page ──────────────────────────────────────────────────────────
+// ── Main SellPage ──────────────────────────────────────────────────────────────
 export default function SellPage() {
-  const { units, suppliers }      = useInventoryStore();
-  const [search, setSearch]       = useState('');
-  const [selected, setSelected]   = useState<InventoryUnit | null>(null);
+  const { units, suppliers }        = useInventoryStore();
+  const [search, setSearch]         = useState('');
+  const [selected, setSelected]     = useState<InventoryUnit | null>(null);
   const [selectedIsSHS, setSelectedIsSHS] = useState(false);
-  const [savedFlag, setSavedFlag] = useState(false);
+  const [savedFlag, setSavedFlag]   = useState(false);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [enterImeiUnit, setEnterImeiUnit] = useState<InventoryUnit | null>(null);
 
@@ -397,19 +384,29 @@ export default function SellPage() {
     return m;
   }, [suppliers]);
 
-  const todayStr = today();
+  const todayStr  = today();
   const yesterday = new Date(Date.now() - 86400000).toISOString().split('T')[0];
 
   const inStock   = useMemo(() => units.filter(u => u.status === 'available'), [units]);
-  const shsUnits  = useMemo(() => units.filter(u => u.status === 'incoming'),  [units]);
-  const sold      = useMemo(() => units.filter(u => u.status === 'sold'),       [units]);
-  const soldMissingImei = useMemo(() => sold.filter(u => !u.imei),             [sold]);
+  const shsUnits  = useMemo(() =>
+    [...units.filter(u => u.status === 'incoming')]
+      .sort((a, b) => a.model.localeCompare(b.model)),
+    [units],
+  );
+  const sold      = useMemo(() => units.filter(u => u.status === 'sold'), [units]);
+
+  // Sold SHS units still awaiting IMEI from supplier
+  const awaitingImei = useMemo(() =>
+    [...sold.filter(u => !u.imei)]
+      .sort((a, b) => (b.saleDate || '').localeCompare(a.saleDate || '')),
+    [sold],
+  );
+
   const todaySold    = sold.filter(u => u.saleDate === todayStr);
   const ystdSold     = sold.filter(u => u.saleDate === yesterday);
   const todayRevenue = todaySold.reduce((s, u) => s + (u.salePrice || 0), 0);
   const todayProfit  = todaySold.reduce((s, u) => s + ((u.salePrice || 0) - u.buyPrice), 0);
 
-  // Show first 80 by default; search scans entire in-stock list
   const filtered = useMemo(() => {
     if (!search.trim()) return inStock.slice(0, 80);
     const q = search.toLowerCase();
@@ -418,7 +415,7 @@ export default function SellPage() {
       (u.imei || '').toLowerCase().includes(q) ||
       u.colour?.toLowerCase().includes(q) ||
       u.storage?.toLowerCase().includes(q) ||
-      (supplierMap[u.supplierId] || '').toLowerCase().includes(q)
+      (supplierMap[u.supplierId] || '').toLowerCase().includes(q),
     );
   }, [inStock, search, supplierMap]);
 
@@ -439,63 +436,85 @@ export default function SellPage() {
           Sell
         </h2>
         <p className="text-[10px] text-gray-400 font-mono uppercase tracking-widest mt-1">
-          Select a phone from stock → enter order details → confirm sale
+          In stock · Supplier direct (SHS) · Awaiting IMEI
         </p>
       </div>
 
       {/* Sale saved toast */}
-      {savedFlag && (
-        <div className="flex items-center gap-3 bg-emerald-600 text-white px-4 py-3 rounded-xl">
-          <CheckCircle2 size={16} />
-          <p className="text-sm font-bold">Sale recorded successfully!</p>
-        </div>
-      )}
+      <AnimatePresence>
+        {savedFlag && (
+          <motion.div initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}
+            className="flex items-center gap-3 bg-emerald-600 text-white px-4 py-3 rounded-xl">
+            <CheckCircle2 size={16} />
+            <p className="text-sm font-bold">Sale recorded successfully!</p>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
-      {/* Today's summary */}
-      <div className="grid grid-cols-3 gap-2">
+      {/* Stats */}
+      <div className="grid grid-cols-4 gap-2">
         <div className="bg-emerald-50 border border-emerald-100 rounded-2xl p-3">
           <p className="text-[8px] font-mono uppercase tracking-widest text-emerald-600">In Stock</p>
           <p className="text-2xl font-bold font-display mt-1 text-emerald-700">{inStock.length}</p>
-          <p className="text-[8px] text-emerald-500 font-mono">available to sell</p>
+          <p className="text-[8px] text-emerald-500 font-mono">in office</p>
+        </div>
+        <div className="bg-amber-50 border border-amber-100 rounded-2xl p-3">
+          <p className="text-[8px] font-mono uppercase tracking-widest text-amber-600">SHS Listed</p>
+          <p className="text-2xl font-bold font-display mt-1 text-amber-700">{shsUnits.length}</p>
+          <p className="text-[8px] text-amber-500 font-mono">supplier holds</p>
         </div>
         <div className="bg-blue-50 border border-blue-100 rounded-2xl p-3">
           <p className="text-[8px] font-mono uppercase tracking-widest text-blue-600">Sold Today</p>
           <p className="text-2xl font-bold font-display mt-1 text-blue-700">{todaySold.length}</p>
-          <p className="text-[8px] text-blue-500 font-mono">£{todayRevenue.toLocaleString()} revenue</p>
+          <p className="text-[8px] text-blue-500 font-mono">£{todayRevenue.toLocaleString()}</p>
         </div>
         <div className="bg-purple-50 border border-purple-100 rounded-2xl p-3">
-          <p className="text-[8px] font-mono uppercase tracking-widest text-purple-600">Today Profit</p>
+          <p className="text-[8px] font-mono uppercase tracking-widest text-purple-600">Profit</p>
           <p className="text-xl font-bold font-display mt-1 text-purple-700">£{todayProfit.toLocaleString()}</p>
-          <p className="text-[8px] text-purple-500 font-mono">gross margin</p>
+          <p className="text-[8px] text-purple-500 font-mono">today gross</p>
         </div>
       </div>
 
-      {/* Periodic inventory table — click an element to filter the stock list */}
+      {/* Periodic table */}
       <PeriodicInventory units={units} onNavigate={term => setSearch(term)} />
 
-      {/* SHS — sell directly from supplier stock */}
+      {/* ── SHS — Supplier Direct Listings ── */}
       {shsUnits.length > 0 && (
         <CollapsibleSection
-          title="Supplier Stock (SHS)"
-          count={shsUnits.length.toString()}
+          title="SHS — Supplier Direct"
+          count={shsUnits.length}
           accent="border-l-amber-500"
           defaultOpen={true}
         >
+          <div className="px-4 py-2 border-b border-amber-50 bg-amber-50/60">
+            <p className="text-[8px] font-mono text-amber-700 leading-relaxed">
+              These units are listed on your platforms. Supplier ships directly to the customer when sold.
+              Record the sale now — enter IMEI when supplier confirms dispatch.
+            </p>
+          </div>
           <div className="divide-y divide-gray-50">
             {shsUnits.map(u => (
-              <div key={u.id} className="flex items-center gap-3 px-4 py-3 hover:bg-amber-50 transition-all">
-                <Truck size={13} className="text-amber-500 flex-shrink-0" />
+              <div key={u.id} className="flex items-center gap-3 px-4 py-3 hover:bg-amber-50/50 transition-all">
+                <div className="w-8 h-8 bg-amber-100 rounded-lg flex items-center justify-center flex-shrink-0">
+                  <Truck size={14} className="text-amber-600" />
+                </div>
                 <div className="flex-1 min-w-0">
                   <p className="text-xs font-bold truncate">{u.model}</p>
                   <p className="text-[9px] text-gray-400 font-mono mt-0.5 truncate">
-                    {u.colour} · £{u.buyPrice} BP · Supplier holds
+                    {u.colour && u.colour !== 'Unknown' ? u.colour : ''}
+                    {u.storage ? ` · ${u.storage}` : ''}
+                    {' · '}BP £{u.buyPrice}
+                    {' · '}{supplierMap[u.supplierId] || 'Supplier'}
                   </p>
+                  {u.notes && u.notes !== 'SHS — Expected stock' && (
+                    <p className="text-[8px] text-amber-600 font-mono truncate mt-0.5">{u.notes}</p>
+                  )}
                 </div>
                 <button
                   onClick={() => { setSelected(u); setSelectedIsSHS(true); }}
                   className="px-3 py-1.5 bg-amber-500 text-white rounded-lg text-[9px] font-bold uppercase tracking-widest hover:bg-amber-600 transition-all flex items-center gap-1 flex-shrink-0"
                 >
-                  Sell <ChevronRight size={11} />
+                  Record Sale <ChevronRight size={11} />
                 </button>
               </div>
             ))}
@@ -503,19 +522,57 @@ export default function SellPage() {
         </CollapsibleSection>
       )}
 
-      {/* Sold units missing IMEI — banner to prompt entry */}
-      {soldMissingImei.length > 0 && (
-        <div className="bg-orange-50 border border-orange-200 rounded-2xl px-4 py-3 flex items-start gap-3">
-          <AlertTriangle size={14} className="text-orange-500 flex-shrink-0 mt-0.5" />
-          <div className="flex-1 min-w-0">
-            <p className="text-[10px] font-bold text-orange-800">
-              {soldMissingImei.length} sold unit{soldMissingImei.length > 1 ? 's' : ''} missing IMEI
-            </p>
-            <p className="text-[8px] text-orange-600 font-mono mt-0.5">
-              Enter IMEI once supplier confirms — scroll down to Sold Items History
+      {/* ── Awaiting IMEI from Supplier ── */}
+      {awaitingImei.length > 0 && (
+        <CollapsibleSection
+          title="Awaiting IMEI — Supplier Dispatching"
+          count={awaitingImei.length}
+          accent="border-l-orange-500"
+          defaultOpen={true}
+        >
+          <div className="px-4 py-2 border-b border-orange-50 bg-orange-50/60">
+            <p className="text-[8px] font-mono text-orange-700 leading-relaxed">
+              Sold — supplier is dispatching to the customer. Enter IMEI once supplier sends the dispatch confirmation / invoice.
             </p>
           </div>
-        </div>
+          <div className="divide-y divide-orange-50">
+            {awaitingImei.map(u => (
+              <div key={u.id} className="flex items-center gap-3 px-4 py-3 hover:bg-orange-50/40 transition-all">
+                <div className="w-8 h-8 bg-orange-100 rounded-lg flex items-center justify-center flex-shrink-0">
+                  <PackageCheck size={14} className="text-orange-600" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-xs font-bold truncate">{u.model}</p>
+                  <div className="flex items-center gap-2 mt-0.5 flex-wrap">
+                    {u.colour && u.colour !== 'Unknown' && (
+                      <span className="text-[8px] text-gray-500 font-mono">{u.colour}</span>
+                    )}
+                    {u.storage && (
+                      <span className="text-[8px] text-gray-500 font-mono">{u.storage}</span>
+                    )}
+                    {u.salePlatform && (
+                      <span className={`text-[8px] font-bold px-1.5 py-0.5 rounded-full border ${PLATFORM_STYLE[u.salePlatform] || 'bg-gray-100 text-gray-600 border-gray-200'}`}>
+                        {u.salePlatform}
+                      </span>
+                    )}
+                    {u.saleOrderId && (
+                      <span className="text-[8px] text-gray-400 font-mono">{u.saleOrderId}</span>
+                    )}
+                  </div>
+                  <p className="text-[8px] text-gray-400 font-mono mt-0.5">
+                    Sold {u.saleDate} · £{u.salePrice}
+                  </p>
+                </div>
+                <button
+                  onClick={() => setEnterImeiUnit(u)}
+                  className="px-3 py-1.5 bg-orange-500 text-white rounded-lg text-[9px] font-bold uppercase tracking-widest hover:bg-orange-600 transition-all flex items-center gap-1 flex-shrink-0"
+                >
+                  <Pencil size={10} /> Enter IMEI
+                </button>
+              </div>
+            ))}
+          </div>
+        </CollapsibleSection>
       )}
 
       {/* Yesterday pill */}
@@ -531,18 +588,14 @@ export default function SellPage() {
         </div>
       )}
 
-      {/* Search — in stock only */}
+      {/* Search — in stock */}
       <div>
-        <p className="text-[9px] font-bold uppercase tracking-widest text-gray-400 mb-2">
-          Search In-Stock Phones
-        </p>
+        <p className="text-[9px] font-bold uppercase tracking-widest text-gray-400 mb-2">Search In-Stock Phones</p>
         <div className="relative">
           <Search size={14} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400" />
           <input
-            type="text"
-            value={search}
-            onChange={e => setSearch(e.target.value)}
-            placeholder="Search by model, IMEI, colour, storage…"
+            type="text" value={search} onChange={e => setSearch(e.target.value)}
+            placeholder="Model, IMEI, colour, storage…"
             className="w-full pl-10 pr-4 py-3 bg-white border border-gray-200 rounded-xl text-sm focus:outline-none focus:border-black transition-all"
           />
           {search && (
@@ -554,23 +607,22 @@ export default function SellPage() {
         </div>
       </div>
 
-      {/* In-stock list */}
+      {/* Available stock */}
       <CollapsibleSection
         title="Available Stock"
         count={`${filtered.length}${inStock.length > 80 && !search ? ` of ${inStock.length}` : ''}`}
         accent="border-l-emerald-500"
         defaultOpen={true}
       >
-
         {inStock.length === 0 ? (
           <div className="py-16 flex flex-col items-center gap-3 text-gray-300">
             <ShoppingCart size={40} />
-            <p className="text-xs font-mono">No stock available. Add a supplier delivery first.</p>
+            <p className="text-xs font-mono">No stock in office. Add a supplier delivery on Stock In.</p>
           </div>
         ) : filtered.length === 0 ? (
           <div className="py-12 flex flex-col items-center gap-2 text-gray-300">
             <Search size={32} />
-            <p className="text-xs font-mono">No in-stock units match "{search}"</p>
+            <p className="text-xs font-mono">No units match "{search}"</p>
           </div>
         ) : (
           <div className="divide-y divide-gray-50">
@@ -578,7 +630,6 @@ export default function SellPage() {
               const isOpen = expandedId === u.id;
               return (
                 <div key={u.id}>
-                  {/* Collapsed row */}
                   <div className="flex items-center gap-3 px-4 py-3 hover:bg-gray-50 transition-all">
                     <div className="w-2 h-2 rounded-full bg-emerald-400 flex-shrink-0" />
                     <div className="flex-1 min-w-0">
@@ -586,33 +637,32 @@ export default function SellPage() {
                       <p className="text-[9px] text-gray-400 font-mono mt-0.5 truncate">
                         <CopyImei imei={u.imei} truncate={10} />
                         {u.colour && <> · {u.colour}</>}
+                        {u.storage && <> · {u.storage}</>}
                       </p>
                     </div>
                     <div className="flex items-center gap-2 flex-shrink-0">
                       <span className="text-sm font-bold">£{u.buyPrice}</span>
-                      {/* Expand/collapse */}
                       <button onClick={() => setExpandedId(isOpen ? null : u.id)}
                         className="p-1.5 hover:bg-gray-100 rounded-lg transition-all text-gray-400">
                         {isOpen ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
                       </button>
-                      {/* Sell button */}
                       <button onClick={() => { setSelected(u); setSelectedIsSHS(false); }}
                         className="px-3 py-1.5 bg-emerald-600 text-white rounded-lg text-[9px] font-bold uppercase tracking-widest hover:bg-emerald-700 transition-all flex items-center gap-1">
                         Sell <ChevronRight size={11} />
                       </button>
                     </div>
                   </div>
-                  {/* Expanded details */}
                   <AnimatePresence>
                     {isOpen && (
                       <motion.div
                         initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }}
-                        className="overflow-hidden bg-gray-50 border-t border-gray-100">
-                        <div className="px-6 py-3 grid grid-cols-2 md:grid-cols-4 gap-3 text-center">
+                        className="overflow-hidden bg-gray-50 border-t border-gray-100"
+                      >
+                        <div className="px-6 py-3 grid grid-cols-3 gap-3 text-center">
                           {[
                             { label: 'Storage', value: u.storage || '—' },
                             { label: 'Date In', value: u.dateIn || '—' },
-                            { label: 'Status', value: 'In Stock' },
+                            { label: 'Supplier', value: supplierMap[u.supplierId] || '—' },
                           ].map(f => (
                             <div key={f.label}>
                               <p className="text-[8px] text-gray-400 font-mono uppercase tracking-widest">{f.label}</p>
@@ -630,17 +680,17 @@ export default function SellPage() {
         )}
       </CollapsibleSection>
 
-      {/* Sold Items History (Calendar View) */}
+      {/* Sold History */}
       <CollapsibleSection
-        title="Sold Items History"
-        count={sold.length.toString()}
+        title="Sold History"
+        count={sold.length}
         accent="border-l-blue-500"
         defaultOpen={false}
       >
         {sold.length === 0 ? (
           <div className="py-12 flex flex-col items-center gap-2 text-gray-300">
             <ShoppingCart size={32} />
-            <p className="text-xs font-mono">No sold items recorded.</p>
+            <p className="text-xs font-mono">No sold items yet.</p>
           </div>
         ) : (
           <div className="divide-y divide-gray-50">
@@ -650,31 +700,38 @@ export default function SellPage() {
                 if (!acc[d]) acc[d] = [];
                 acc[d].push(u);
                 return acc;
-              }, {} as Record<string, InventoryUnit[]>)
+              }, {} as Record<string, InventoryUnit[]>),
             )
-              .sort((a, b) => b[0].localeCompare(a[0]))
+              .sort(([a], [b]) => b.localeCompare(a))
               .map(([date, dayUnits]: [string, InventoryUnit[]]) => (
                 <div key={date} className="p-4">
                   <div className="flex items-center gap-2 mb-3">
                     <span className="text-[10px] font-bold uppercase tracking-widest text-gray-400 bg-gray-100 px-2 py-1 rounded-md">
-                      {date === todayStr ? 'Today' : date === yesterday ? 'Yesterday' : date !== 'Unknown' ? new Date(date).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' }) : 'Unknown Date'}
+                      {date === todayStr
+                        ? 'Today'
+                        : date === yesterday
+                          ? 'Yesterday'
+                          : date !== 'Unknown'
+                            ? new Date(date).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' })
+                            : 'Unknown Date'}
                     </span>
                     <span className="text-[10px] text-gray-400 font-mono">{dayUnits.length} unit{dayUnits.length !== 1 ? 's' : ''}</span>
+                    <span className="text-[10px] font-bold text-emerald-600 ml-auto">
+                      £{dayUnits.reduce((s, u) => s + (u.salePrice || 0), 0).toLocaleString()}
+                    </span>
                   </div>
                   <div className="grid gap-2">
                     {dayUnits.map(u => (
-                      <div key={u.id} className="flex items-center justify-between p-3 bg-white border border-gray-100 rounded-xl hover:border-blue-200 transition-all">
+                      <div key={u.id} className={`flex items-center justify-between p-3 bg-white border rounded-xl hover:border-blue-200 transition-all ${!u.imei ? 'border-orange-200' : 'border-gray-100'}`}>
                         <div className="flex items-center gap-3">
-                          <div className="w-8 h-8 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center flex-shrink-0">
-                            <ShoppingCart size={14} />
+                          <div className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${!u.imei ? 'bg-orange-50 text-orange-500' : 'bg-blue-50 text-blue-600'}`}>
+                            {!u.imei ? <Truck size={14} /> : <ShoppingCart size={14} />}
                           </div>
                           <div>
                             <p className="text-xs font-bold">{u.model}</p>
                             <div className="flex items-center gap-2 mt-0.5 flex-wrap">
                               {u.imei
-                                ? <span className="text-[9px] font-mono text-gray-600 uppercase tracking-widest bg-gray-100 border border-gray-200 px-1.5 py-0.5 rounded shadow-sm">
-                                    IMEI: <span className="text-black font-bold">{u.imei}</span>
-                                  </span>
+                                ? <CopyImei imei={u.imei} truncate={10} />
                                 : <button
                                     onClick={() => setEnterImeiUnit(u)}
                                     className="flex items-center gap-1 text-[9px] font-bold font-mono bg-orange-100 text-orange-700 border border-orange-300 px-1.5 py-0.5 rounded hover:bg-orange-200 transition-all"
@@ -682,13 +739,17 @@ export default function SellPage() {
                                     <Pencil size={9} /> Enter IMEI
                                   </button>
                               }
-                              {u.salePlatform && <span className="text-[9px] font-mono text-gray-500 uppercase tracking-widest bg-gray-50 px-1.5 py-0.5 rounded">{u.salePlatform}</span>}
+                              {u.salePlatform && (
+                                <span className={`text-[8px] font-bold px-1.5 py-0.5 rounded-full border ${PLATFORM_STYLE[u.salePlatform] || 'bg-gray-100 text-gray-600 border-gray-200'}`}>
+                                  {u.salePlatform}
+                                </span>
+                              )}
                             </div>
                           </div>
                         </div>
                         <div className="text-right">
                           <p className="text-sm font-bold text-emerald-600">£{u.salePrice}</p>
-                          {u.saleOrderId && <p className="text-[9px] font-mono text-gray-400 mt-0.5">Order: {u.saleOrderId}</p>}
+                          {u.saleOrderId && <p className="text-[9px] font-mono text-gray-400 mt-0.5">{u.saleOrderId}</p>}
                         </div>
                       </div>
                     ))}
@@ -699,7 +760,7 @@ export default function SellPage() {
         )}
       </CollapsibleSection>
 
-      {/* Sell order modal */}
+      {/* Sell modal */}
       {selected && (
         <SellOrderModal
           unit={selected}
@@ -709,7 +770,7 @@ export default function SellPage() {
         />
       )}
 
-      {/* Enter IMEI modal — for sold SHS units awaiting supplier confirmation */}
+      {/* Enter IMEI modal */}
       {enterImeiUnit && (
         <EnterImeiModal
           unit={enterImeiUnit}
@@ -717,6 +778,6 @@ export default function SellPage() {
           onSaved={handleSaved}
         />
       )}
-    </div >
+    </div>
   );
 }
