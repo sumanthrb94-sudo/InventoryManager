@@ -10,6 +10,7 @@ import { useInventoryStore } from '../lib/inventoryStore';
 import CopyImei from './CopyImei';
 import { PLATFORM_LIST, PLATFORMS, DEFAULT_POSTAGE_COST, platformTotalFee, calcNetProfit, platformFixedFee } from '../lib/platforms';
 import CollapsibleSection from './CollapsibleSection';
+import PeriodicInventory from './PeriodicInventory';
 
 // ── helpers ────────────────────────────────────────────────────────────────
 const today = () => new Date().toISOString().split('T')[0];
@@ -331,6 +332,9 @@ export default function SellPage() {
           <p className="text-[8px] text-purple-500 font-mono">gross margin</p>
         </div>
       </div>
+
+      {/* Periodic inventory table — click an element to filter the stock list */}
+      <PeriodicInventory units={units} onNavigate={term => setSearch(term)} />
 
       {/* Yesterday pill */}
       {ystdSold.length > 0 && (
