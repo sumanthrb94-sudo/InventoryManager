@@ -155,22 +155,33 @@ function parseClientBulkSheet(rows: any[][]): ParsedData {
   };
 }
 
-// ── Parser B: IMEI-per-row format ─────────────────────────────────────────────
+// ── Parser B: Master sheet / IMEI-per-row format ─────────────────────────────
+// Canonical 14-column format:
+//   Date In · Model · IMEI · Supplier · Buy Price · Colour · Storage ·
+//   Status · Sale Platform · Sale Price · Sale Date · Sale Order ID ·
+//   Postage Cost · Notes
 
 function parseOGStockSheet(rows: any[][]): ParsedData {
   const header = rows[0] || [];
   const findCol = (names: string[]) =>
     header.findIndex((h: any) => names.some(n => h?.toString().toUpperCase().includes(n.toUpperCase())));
 
-  const dateInIdx    = Math.max(findCol(['Date In', 'Stock In', 'Received', 'Date']), 0);
+  // Required columns — fall back to positional index for legacy headerless sheets
+  const dateInIdx    = Math.max(findCol(['Date In', 'Stock In', 'Received']), 0);
   const modelIdx     = Math.max(findCol(['Model', 'Device', 'Description']), 1);
   const imeiIdx      = Math.max(findCol(['IMEI', 'Serial', 'S/N']), 2);
   const supplierIdx  = Math.max(findCol(['Supplier', 'Source', 'From']), 3);
   const buyPriceIdx  = Math.max(findCol(['Buy Price', 'BP', 'Cost']), 4);
-  const statusIdx    = Math.max(findCol(['Status', 'Available', 'State']), 5);
-  const platformIdx  = findCol(['Platform', 'Sale Platform', 'Listed']);
-  const salePriceIdx = findCol(['Sale Price', 'Price Sold', 'SP']);
-  const saleDateIdx  = findCol(['Sale Date', 'Date Sold', 'Sold Date']);
+  const statusIdx    = Math.max(findCol(['Status', 'State']), 5);
+  // Optional columns — -1 if absent
+  const colourIdx      = findCol(['Colour', 'Color']);
+  const storageIdx     = findCol(['Storage', 'Capacity']);
+  const platformIdx    = findCol(['Sale Platform', 'Platform', 'Listed']);
+  const salePriceIdx   = findCol(['Sale Price', 'Price Sold', 'SP']);
+  const saleDateIdx    = findCol(['Sale Date', 'Date Sold', 'Sold Date']);
+  const saleOrderIdx   = findCol(['Sale Order ID', 'Order ID', 'Order Number', 'Order No']);
+  const postageCostIdx = findCol(['Postage Cost', 'Postage', 'Shipping']);
+  const notesIdx       = findCol(['Notes', 'Note', 'Remark']);
 
   const supplierMap = new Map<string, Omit<Supplier, 'createdAt'>>();
   const unitMap     = new Map<string, Omit<InventoryUnit, 'createdAt'>>();
@@ -180,17 +191,29 @@ function parseOGStockSheet(rows: any[][]): ParsedData {
   for (let i = 1; i < rows.length; i++) {
     const r = rows[i];
     const model = r[modelIdx]?.toString().trim();
-    if (!model) { skipped++; continue; }
+    if (!model || /^(model|total|#)/i.test(model)) { skipped++; continue; }
 
     const imei         = r[imeiIdx]?.toString().trim() || '';
-    const supplierName = r[supplierIdx]?.toString().trim() || 'UNKNOWN';
+    const supplierName = r[supplierIdx]?.toString().trim() || 'Unknown';
     const buyPrice     = parseFloat(r[buyPriceIdx]) || 0;
-    const statusRaw    = r[statusIdx]?.toString().trim().toUpperCase();
-    const status: InventoryUnit['status'] = statusRaw === 'SOLD' ? 'sold' : 'available';
-    const salePlatform = r[platformIdx]?.toString().trim() || '';
-    const salePrice    = parseFloat(r[salePriceIdx]) || 0;
-    const dateIn       = excelSerialToISO(r[dateInIdx]);
-    const saleDate     = (status === 'sold' && saleDateIdx >= 0 && r[saleDateIdx])
+    const colour       = colourIdx >= 0 && r[colourIdx] ? r[colourIdx].toString().trim() : 'Unknown';
+    const storage      = storageIdx >= 0 && r[storageIdx] ? r[storageIdx].toString().trim() : undefined;
+    const notes        = notesIdx >= 0 && r[notesIdx] ? r[notesIdx].toString().trim() : '';
+
+    const statusRaw = r[statusIdx]?.toString().trim().toUpperCase();
+    const status: InventoryUnit['status'] =
+      statusRaw === 'SOLD'                          ? 'sold' :
+      statusRaw === 'INCOMING' || statusRaw === 'SHS' ? 'incoming' :
+      'available';
+
+    const salePlatform  = platformIdx  >= 0 ? r[platformIdx]?.toString().trim()  || '' : '';
+    const salePrice     = salePriceIdx >= 0 ? parseFloat(r[salePriceIdx])        || 0  : 0;
+    const saleOrderId   = saleOrderIdx >= 0 ? r[saleOrderIdx]?.toString().trim() || '' : '';
+    const postageCost   = postageCostIdx >= 0 && r[postageCostIdx]
+      ? parseFloat(r[postageCostIdx]) : undefined;
+
+    const dateIn  = excelSerialToISO(r[dateInIdx]);
+    const saleDate = status === 'sold' && saleDateIdx >= 0 && r[saleDateIdx]
       ? excelSerialToISO(r[saleDateIdx]) : dateIn;
 
     const supplierId = `sup_${supplierName.replace(/\s+/g, '_').toLowerCase()}`;
@@ -207,25 +230,31 @@ function parseOGStockSheet(rows: any[][]): ParsedData {
 
     unitMap.set(dedupeKey, {
       id: unitId, imei, model, brand, category,
-      colour: 'Unknown', buyPrice, dateIn, supplierId, status,
-      flags: [], notes: '',
+      colour, buyPrice, dateIn, supplierId, status,
+      flags: [], notes,
+      ...(storage      ? { storage }      : {}),
+      ...(postageCost  !== undefined ? { postageCost } : {}),
       platformListed: status === 'available' && !!salePlatform,
-      listingSites: salePlatform ? [salePlatform] : [],
+      listingSites:   salePlatform ? [salePlatform as any] : [],
       ownerId: 'shared',
-      ...(status === 'sold' ? { saleDate } : {}),
-      ...(status === 'sold' && salePlatform ? { salePlatform } : {}),
-      ...(status === 'sold' && salePrice    ? { salePrice }    : {}),
+      ...(status === 'sold' ? {
+        saleDate,
+        ...(salePlatform ? { salePlatform }   : {}),
+        ...(salePrice    ? { salePrice }       : {}),
+        ...(saleOrderId  ? { saleOrderId }     : {}),
+      } : {}),
     });
   }
 
-  const units     = Array.from(unitMap.values());
+  const units    = Array.from(unitMap.values());
   const available = units.filter(u => u.status === 'available').length;
   const sold      = units.filter(u => u.status === 'sold').length;
+  const incoming  = units.filter(u => u.status === 'incoming').length;
 
   return {
     suppliers: Array.from(supplierMap.values()),
     units,
-    stats: { total: units.length, available, sold, incoming: 0, skipped, duplicateRows },
+    stats: { total: units.length, available, sold, incoming, skipped, duplicateRows },
     format: 'imei-per-row',
   };
 }
@@ -351,7 +380,7 @@ export default function ImportModal({ onClose }: ImportModalProps) {
               <p className="text-[9px] text-gray-400 font-mono uppercase mt-0.5">
                 {isClientFmt
                   ? 'Bulk format · MODEL · BP · QTY · COLOURS · SUPPLIER'
-                  : 'IMEI-per-row · Date In · Model · IMEI · Supplier'}
+                  : 'Master sheet · Date In · Model · IMEI · Colour · Status'}
               </p>
             </div>
           </div>
@@ -375,10 +404,10 @@ export default function ImportModal({ onClose }: ImportModalProps) {
                     tag:   'Auto-detected',
                   },
                   {
-                    title: 'IMEI Per Row',
-                    desc:  'Date In · Model · IMEI · Supplier · Buy Price · Status',
-                    eg:    '2026-01-01, iPhone 14, 354..., MHL, 255, available',
-                    tag:   'Legacy format',
+                    title: 'Master Sheet',
+                    desc:  'Date In · Model · IMEI · Supplier · Buy Price · Colour · Storage · Status · Sale Platform · Sale Price · Sale Date · Sale Order ID · Postage Cost · Notes',
+                    eg:    '2026-04-01, iPhone 15 Pro Max 256GB, 353209102768686, TechSource, 800, Natural Titanium, 256GB, available',
+                    tag:   'Recommended',
                   },
                 ].map(f => (
                   <div key={f.title} className="border border-gray-200 rounded-xl p-4 space-y-2">
