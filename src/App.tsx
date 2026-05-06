@@ -216,12 +216,6 @@ function AppShell({ user }: { user: User }) {
               <FileSpreadsheet size={13} />
               <span className="hidden md:inline">Import</span>
             </button>
-            {/* Add Delivery */}
-            <button onClick={() => setIsBatchModalOpen(true)}
-              className="bg-black text-white px-3 md:px-6 py-2 rounded-xl text-[10px] font-bold uppercase tracking-widest flex items-center gap-1.5 hover:bg-gray-800 transition-all active:scale-95">
-              <Plus size={14} strokeWidth={3} />
-              <span className="hidden md:inline">Add Delivery</span>
-            </button>
           </div>
         </header>
 
