@@ -31,12 +31,14 @@ export function toCamel(s: string): string {
   return s.replace(/_([a-z])/g, (_, c) => c.toUpperCase());
 }
 export function dbToApp(row: Record<string, any>): Record<string, any> {
+  if (!row || typeof row !== 'object') return { flags: [], listingSites: [] };
   const obj = Object.fromEntries(Object.entries(row).map(([k, v]) => [toCamel(k), v]));
   if (!Array.isArray(obj.flags)) obj.flags = [];
   if (!Array.isArray(obj.listingSites)) obj.listingSites = [];
   return obj;
 }
 export function appToDb(obj: Record<string, any>): Record<string, any> {
+  if (!obj || typeof obj !== 'object') return {};
   return Object.fromEntries(
     Object.entries(obj)
       .filter(([k, v]) => v !== undefined && k !== 'supplierName')

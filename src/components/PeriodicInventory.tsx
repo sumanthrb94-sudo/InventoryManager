@@ -306,6 +306,7 @@ export default function PeriodicInventory({ units, onNavigate }: Props) {
   const todayReturned = units.filter(u => u.status === 'returned' && u.returnDate === today);
 
   const groups = useMemo(() => {
+    try {
     return BRAND_GROUPS.map(group => {
       const groupUnits    = available.filter(u => group.match(u.model));
       const groupIncoming = incoming.filter(u => group.match(u.model));
@@ -330,7 +331,7 @@ export default function PeriodicInventory({ units, onNavigate }: Props) {
 
       for (const u of groupIncoming) {
         const sk = group.seriesFn(u.model);
-        if (!seriesMap[sk]) seriesMap[sk] = { count: 0, shsCount: 0, value: 0, searchTerm: sk, variants: {}, prices: [] };
+        if (!seriesMap[sk]) seriesMap[sk] = { count: 0, shsCount: 0, value: 0, searchTerm: sk, variants: {}, storages: {}, prices: [] };
         seriesMap[sk].shsCount++;
       }
 
@@ -343,10 +344,10 @@ export default function PeriodicInventory({ units, onNavigate }: Props) {
           value:      d.value,
           searchTerm: d.searchTerm,
           ordinal:    i + 1,
-          variants: Object.entries(d.variants)
+          variants: Object.entries(d.variants || {})
             .sort(([, a], [, b]) => b - a)
             .map(([colour, count]) => ({ colour, count })),
-          storageVariants: Object.entries(d.storages)
+          storageVariants: Object.entries(d.storages || {})
             .sort(([a], [b]) => storageGb(a) - storageGb(b))
             .map(([storage, count]) => ({ storage, count })),
           priceRange: d.prices.length
@@ -366,6 +367,10 @@ export default function PeriodicInventory({ units, onNavigate }: Props) {
         totalValue: groupUnits.reduce((s, u) => s + u.buyPrice, 0),
       };
     }).filter(g => g.elements.length > 0);
+    } catch (e) {
+      console.error('PeriodicInventory groups error:', e);
+      return [];
+    }
   }, [available, incoming]);
 
   // ── Hover handlers with grace-period so cursor can reach the popover ─────────
