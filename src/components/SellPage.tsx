@@ -56,9 +56,17 @@ function SellOrderModal({
     if (!orderId.trim()) { setError('Please enter the order number from the platform.'); return; }
     setSaving(true);
     try {
+      const spNum = Number(sp);
+      const postageNum = postage ? Number(postage) : DEFAULT_POSTAGE_COST;
+
+      // Calculate profit for notification
+      const profit = calcNetProfit(spNum, unit.buyPrice, platform, postageNum);
+      const notificationType = profit < 0 ? 'loss_sell' : 'sold';
+      console.log(`[Sale] Selling ${unit.model} at £${spNum} on ${platform}`, { profit, notificationType });
+
       await dbService.update('inventoryUnits', unit.id, {
         status:      'sold',
-        salePrice:   Number(sp),
+        salePrice:   spNum,
         salePlatform: platform,
         saleOrderId: orderId.trim(),
         saleDate,
@@ -66,9 +74,8 @@ function SellOrderModal({
         ...(isSHS ? { imei: imeiInput.trim() || '' } : {}),
       });
 
-      // Trigger notification for the sale
-      const notificationType = netProfit! < 0 ? 'loss_sell' : 'sold';
-      notificationService.addNotification(notificationType, unit, netProfit);
+      // Trigger notification with correct type and profit amount
+      notificationService.addNotification(notificationType, unit, profit);
 
       onSaved();
       onClose();
@@ -668,11 +675,12 @@ export default function SellPage() {
                         initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }}
                         className="overflow-hidden bg-gray-50 border-t border-gray-100"
                       >
-                        <div className="px-6 py-3 grid grid-cols-3 gap-3 text-center">
+                        <div className="px-6 py-3 grid grid-cols-4 gap-3 text-center">
                           {[
                             { label: 'Storage', value: u.storage || '—' },
                             { label: 'Date In', value: u.dateIn || '—' },
                             { label: 'Supplier', value: supplierMap[u.supplierId] || '—' },
+                            { label: 'Batch', value: u.batchId === 'master_batch' ? 'Master' : (u.batchId || 'Default') },
                           ].map(f => (
                             <div key={f.label}>
                               <p className="text-[8px] text-gray-400 font-mono uppercase tracking-widest">{f.label}</p>

@@ -28,7 +28,7 @@ export default function NotificationToast() {
   };
 
   return (
-    <div className="fixed bottom-6 right-4 md:right-6 z-[999] pointer-events-none flex flex-col gap-3 items-stretch md:items-end max-w-[calc(100vw-2rem)] md:max-w-[400px]">
+    <div className="fixed top-4 left-1/2 -translate-x-1/2 z-[999] pointer-events-none flex flex-col gap-3 items-center max-w-[calc(100vw-2rem)] md:max-w-[400px]">
       <AnimatePresence initial={false}>
         {queue.map(n => (
           <ToastCard key={n.id} notification={n} onDismiss={() => dismiss(n.id)} />
@@ -59,11 +59,11 @@ function ToastCard({ notification, onDismiss }: { key?: React.Key; notification:
   return (
     <motion.div
       layout
-      initial={{ opacity: 0, y: 12, scale: 0.96 }}
+      initial={{ opacity: 0, y: -12, scale: 0.96 }}
       animate={{ opacity: 1, y: 0, scale: 1 }}
       exit={{ opacity: 0, scale: 0.94, transition: { duration: 0.15 } }}
       transition={{ type: 'spring', stiffness: 400, damping: 30 }}
-      className={`pointer-events-auto w-full md:w-[380px] bg-gray-900 text-white px-4 py-3 rounded-lg shadow-xl border border-white/5 flex items-start gap-3 backdrop-blur-sm ${config.bg}`}
+      className={`pointer-events-auto w-full md:w-[420px] bg-gray-900 text-white px-4 py-3 rounded-lg shadow-xl border border-white/5 flex items-start gap-3 backdrop-blur-sm ${config.bg}`}
     >
       <div className={`w-10 h-10 rounded-lg flex-shrink-0 flex items-center justify-center ${config.badge}`}>
         <Icon size={18} className="text-white" />

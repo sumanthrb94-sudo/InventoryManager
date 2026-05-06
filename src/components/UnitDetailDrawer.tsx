@@ -276,6 +276,7 @@ export default function UnitDetailDrawer({ unit, supplierName, onClose }: Props)
                 {[
                   { label: 'Buy Price',    value: `£${unit.buyPrice}` },
                   { label: 'Supplier',     value: supplierName || '—' },
+                  { label: 'Batch',        value: unit.batchId === 'master_batch' ? 'Master' : (unit.batchId || 'Default') },
                   { label: 'Date In',      value: new Date(unit.dateIn).toLocaleDateString('en-GB') },
                   { label: 'Location',     value: 'Office Stock' },
                   { label: 'Network',      value: unit.networkLock || 'Unlocked' },

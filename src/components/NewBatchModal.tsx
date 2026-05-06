@@ -1,10 +1,11 @@
 import React, { useState, useMemo, useCallback } from 'react';
-import { X, Plus, Trash2, CheckCircle2, ClipboardPaste, PackagePlus, ChevronDown, ChevronUp } from 'lucide-react';
+import { X, Plus, Trash2, CheckCircle2, ClipboardPaste, PackagePlus, ChevronDown, ChevronUp, Camera } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { dbService } from '../lib/dbService';
-import { DeviceCategory } from '../types';
+import { DeviceCategory, InventoryUnit } from '../types';
 import { useInventoryStore } from '../lib/inventoryStore';
 import { logInventoryEvent } from '../lib/inventoryEvents';
+import ScanInModal from './ScanInModal';
 
 interface Props { onClose: () => void; }
 
@@ -78,6 +79,7 @@ export default function NewBatchModal({ onClose }: Props) {
   const [error, setError]         = useState('');
   const [showPaste, setShowPaste] = useState(false);
   const [pasteText, setPasteText] = useState('');
+  const [showScan, setShowScan]   = useState(false);
 
   const supplierByName = useMemo(() => {
     const m: Record<string, string> = {};
@@ -258,9 +260,18 @@ export default function NewBatchModal({ onClose }: Props) {
               <p className="text-[9px] text-gray-400 font-mono uppercase tracking-widest">One row = one unit · IMEI required</p>
             </div>
           </div>
-          <button onClick={onClose} className="p-2 hover:bg-gray-100 rounded-xl transition-all text-gray-400">
-            <X size={16} />
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setShowScan(true)}
+              className="flex items-center gap-2 px-3 py-2 bg-emerald-100 text-emerald-600 rounded-xl hover:bg-emerald-200 transition-all"
+            >
+              <Camera size={14} />
+              <span className="text-[9px] font-bold uppercase tracking-widest">Scan</span>
+            </button>
+            <button onClick={onClose} className="p-2 hover:bg-gray-100 rounded-xl transition-all text-gray-400">
+              <X size={16} />
+            </button>
+          </div>
         </div>
 
         {/* Batch header */}
@@ -356,6 +367,7 @@ export default function NewBatchModal({ onClose }: Props) {
 
       {/* Paste CSV modal */}
       <AnimatePresence>
+        {showScan && <ScanInModal onClose={() => setShowScan(false)} />}
         {showPaste && (
           <motion.div
             initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}

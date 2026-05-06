@@ -394,6 +394,8 @@ export default function Sales() {
                     const platformFee = sp > 0 ? platformTotalFee(platform, sp) : 0;
                     const netProfit = calcNetProfit(sp, bp, platform, postage);
 
+                    const feePercentage = sp > 0 ? ((platformFee / sp) * 100).toFixed(1) : 0;
+
                     return (
                     <div key={u.id} className={`px-6 py-4 group hover:bg-opacity-50 transition-all ${netProfit < 0 ? 'hover:bg-red-50' : 'hover:bg-emerald-50'}`}>
                       <div className="flex items-center gap-4 mb-3">
@@ -409,18 +411,32 @@ export default function Sales() {
                           <p className="text-[10px] text-gray-500 font-mono uppercase mt-0.5">
                             {u.colour} · <span className="text-black font-bold">IMEI: {u.imei || '—'}</span> · {platform}
                           </p>
+                          <p className="text-[9px] text-gray-400 font-mono mt-1">
+                            Batch: <span className="text-gray-600 font-bold">{u.batchId === 'master_batch' ? 'Master' : (u.batchId || 'Default')}</span>
+                          </p>
+                          <div className="flex items-center gap-3 mt-2 text-[9px] font-mono">
+                            <span className="text-gray-600">BP: <span className="text-gray-900 font-bold">£{bp.toFixed(2)}</span></span>
+                            <span className="text-gray-600">Sale: <span className="text-gray-900 font-bold">£{sp.toFixed(2)}</span></span>
+                            <span className={`${platformFee > 0 ? 'text-red-600' : 'text-gray-600'}`}>Fee: <span className="font-bold">-£{platformFee.toFixed(2)}</span> <span className="text-[8px]">({feePercentage}%)</span></span>
+                            <span className={`${netProfit < 0 ? 'text-red-600' : 'text-emerald-600'} font-bold`}>{netProfit < 0 ? '-' : '+'}£{Math.abs(netProfit).toFixed(2)}</span>
+                          </div>
                         </div>
                       </div>
 
                       {/* Financial breakdown */}
-                      <div className={`grid grid-cols-4 gap-2 rounded-lg p-2.5 border ${netProfit < 0 ? 'bg-red-50 border-red-100' : 'bg-emerald-50 border-emerald-100'}`}>
+                      <div className={`grid grid-cols-5 gap-2 rounded-lg p-2.5 border ${netProfit < 0 ? 'bg-red-50 border-red-100' : 'bg-emerald-50 border-emerald-100'}`}>
                         <div className="text-center">
                           <p className="text-[8px] font-bold text-gray-600 uppercase">BP</p>
                           <p className="text-xs font-mono font-bold text-gray-900">£{bp.toFixed(2)}</p>
                         </div>
                         <div className="text-center border-l border-gray-200">
-                          <p className="text-[8px] font-bold text-gray-600 uppercase">{platform}</p>
+                          <p className="text-[8px] font-bold text-gray-600 uppercase">Sale</p>
+                          <p className="text-xs font-mono font-bold text-gray-900">£{sp.toFixed(2)}</p>
+                        </div>
+                        <div className="text-center border-l border-gray-200">
+                          <p className="text-[8px] font-bold text-gray-600 uppercase">{platform} Fee</p>
                           <p className="text-xs font-mono font-bold text-red-600">-£{platformFee.toFixed(2)}</p>
+                          <p className="text-[7px] font-mono text-red-500">({feePercentage}%)</p>
                         </div>
                         <div className="text-center border-l border-gray-200">
                           <p className="text-[8px] font-bold text-gray-600 uppercase">Postage</p>

@@ -80,6 +80,7 @@ function ProcessReturnModal({
       }
 
       // Trigger return_processed notification
+      console.log(`[Return] Processing return for ${unit.model}`, { returnType, unit });
       notificationService.addNotification('return_processed', unit);
 
       onSaved();
@@ -414,6 +415,7 @@ export default function ReturnsPage() {
                             { label: 'Buy Price',    value: `£${u.buyPrice}` },
                             { label: 'Sale Price',   value: u.salePrice ? `£${u.salePrice}` : '—' },
                             { label: 'Platform',     value: u.salePlatform || '—' },
+                            { label: 'Batch',        value: u.batchId === 'master_batch' ? 'Master' : (u.batchId || 'Default') },
                             { label: 'Return Type',  value: (u.returnType || '—').replace(/_/g, ' ') },
                           ].map(f => (
                             <div key={f.label}>

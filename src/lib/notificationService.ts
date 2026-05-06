@@ -103,8 +103,13 @@ class NotificationService {
     // Key includes date so a re-sold unit on a different day fires again
     const firedKey = `${unit.id}_${type}_${today}`;
 
+    console.log(`[Notification] Adding ${type} for ${unit.model}`, { firedKey, profitAmount });
+
     // Already shown today — don't fire again on reload or real-time re-fetch
-    if (this.getFiredSet().has(firedKey)) return;
+    if (this.getFiredSet().has(firedKey)) {
+      console.log(`[Notification] Already fired today: ${firedKey}`);
+      return;
+    }
 
     // In-memory guard for rapid duplicates within the same session (< 10s)
     const now = new Date();
@@ -163,9 +168,16 @@ class NotificationService {
   }
 
   private playSound(type: NotificationType) {
-    if (this.playSoundTimeout) return;
-    const audio = new Audio(SOUNDS[type]);
-    audio.play().catch(e => console.warn('Audio playback failed:', e));
+    if (this.playSoundTimeout) {
+      console.warn('[Sound] Sound already playing, skipping');
+      return;
+    }
+    const soundUrl = SOUNDS[type];
+    console.log(`[Sound] Playing sound for ${type}: ${soundUrl}`);
+    const audio = new Audio(soundUrl);
+    audio.play()
+      .then(() => console.log(`[Sound] ${type} sound played successfully`))
+      .catch(e => console.warn(`[Sound] Audio playback failed for ${type}:`, e));
     this.playSoundTimeout = setTimeout(() => { this.playSoundTimeout = null; }, 1000);
   }
 
