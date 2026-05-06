@@ -3,8 +3,6 @@ export type DeviceCategory = 'iPhone' | 'iPad' | 'Apple Watch' | 'Tablet' | 'Sam
 export type DeviceStatus = 'available' | 'sold' | 'reserved' | 'returned' | 'lost' | 'incoming';
 export type ListingSite = 'eBay' | 'Amazon' | 'OnBuy' | 'Backmarket' | 'Other';
 export type StockLocation = 'office';  // Single location — all stock is held at the office
-export type ConditionGrade = 'A' | 'B' | 'C' | 'D' | 'Unknown';
-
 export type OperationalFlag = 'top10' | 'supplierHasStock' | 'stockSold';
 
 export type ReturnCategory = 'returned_to_inventory' | 'returned_to_supplier' | 'repair';
@@ -50,7 +48,6 @@ export interface InventoryUnit {
   category: DeviceCategory;
   colour: string;         // e.g. "Natural Titanium", "Phantom Black"
   storage?: string;
-  conditionGrade?: ConditionGrade;
   boxIncluded?: boolean;
   batteryHealth?: number;
   networkLock?: string;

@@ -23,17 +23,20 @@ function tableName(col: string): string {
   return TABLE_MAP[col] ?? col;
 }
 
-// ── camelCase ↔ snake_case ────────────────────────────────────────────────────
-function toSnake(s: string): string {
+// ── camelCase ↔ snake_case (exported for testing) ────────────────────────────
+export function toSnake(s: string): string {
   return s.replace(/[A-Z]/g, c => `_${c.toLowerCase()}`);
 }
-function toCamel(s: string): string {
+export function toCamel(s: string): string {
   return s.replace(/_([a-z])/g, (_, c) => c.toUpperCase());
 }
-function dbToApp(row: Record<string, any>): Record<string, any> {
-  return Object.fromEntries(Object.entries(row).map(([k, v]) => [toCamel(k), v]));
+export function dbToApp(row: Record<string, any>): Record<string, any> {
+  const obj = Object.fromEntries(Object.entries(row).map(([k, v]) => [toCamel(k), v]));
+  if (!Array.isArray(obj.flags)) obj.flags = [];
+  if (!Array.isArray(obj.listingSites)) obj.listingSites = [];
+  return obj;
 }
-function appToDb(obj: Record<string, any>): Record<string, any> {
+export function appToDb(obj: Record<string, any>): Record<string, any> {
   return Object.fromEntries(
     Object.entries(obj)
       .filter(([k, v]) => v !== undefined && k !== 'supplierName')
@@ -245,5 +248,44 @@ export const dbService = {
   async resetDatabase() {
     Object.keys(cachedData).forEach(k => delete cachedData[k]);
     window.location.href = window.location.origin + '?reset=' + Date.now();
+  },
+
+  async imeiExists(imei: string): Promise<boolean> {
+    if (!imei || imei.length < 14) return false;
+    const { data } = await supabase
+      .from('inventory_units')
+      .select('imei')
+      .eq('imei', imei)
+      .single();
+    return !!data;
+  },
+
+  async getByImei(imei: string): Promise<any | null> {
+    const cached = (cachedData['inventoryUnits'] || []).find((u: any) => u.imei === imei);
+    if (cached) return cached;
+    const { data, error } = await supabase
+      .from('inventory_units')
+      .select('*')
+      .eq('imei', imei)
+      .single();
+    if (error) return null;
+    return data ? dbToApp(data) : null;
+  },
+
+  async updateByImei(imei: string, data: any) {
+    const timestamp = nowIso();
+    const current = [...(cachedData['inventoryUnits'] || [])];
+    const idx = current.findIndex((item: any) => item.imei === imei);
+    const updated = idx >= 0
+      ? { ...current[idx], ...data, imei, updatedAt: timestamp }
+      : { ...data, imei, updatedAt: timestamp };
+    if (idx >= 0) current[idx] = updated;
+    cachedData['inventoryUnits'] = current;
+    emit('inventoryUnits', current);
+    const { error } = await supabase
+      .from('inventory_units')
+      .update(appToDb(updated))
+      .eq('imei', imei);
+    if (error) console.warn(`Supabase updateByImei [${imei}]:`, error.message);
   },
 };

@@ -424,7 +424,6 @@ export default function SellPage() {
                         className="overflow-hidden bg-gray-50 border-t border-gray-100">
                         <div className="px-6 py-3 grid grid-cols-2 md:grid-cols-4 gap-3 text-center">
                           {[
-                            { label: 'Condition', value: u.conditionGrade ? `Grade ${u.conditionGrade}` : '—' },
                             { label: 'Storage', value: u.storage || '—' },
                             { label: 'Date In', value: u.dateIn || '—' },
                             { label: 'Status', value: 'In Stock' },

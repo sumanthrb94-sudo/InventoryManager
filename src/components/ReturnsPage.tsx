@@ -106,12 +106,6 @@ function ProcessReturnModal({
             <CopyImei imei={unit.imei} truncate={12} />
             <span className="text-[9px] text-gray-400 font-mono">·</span>
             <span className="text-[9px] text-gray-500 font-mono">{unit.colour}</span>
-            {unit.conditionGrade && (
-              <>
-                <span className="text-[9px] text-gray-400 font-mono">·</span>
-                <span className="text-[9px] font-mono font-bold text-gray-700">Grade {unit.conditionGrade}</span>
-              </>
-            )}
           </div>
           
           <div className="grid grid-cols-2 gap-4">

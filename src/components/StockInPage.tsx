@@ -150,10 +150,10 @@ export default function StockInPage({ onOpenBatch, onOpenImport }: Props) {
                         className="overflow-hidden bg-gray-50 border-t border-gray-100">
                         <div className="px-5 py-3 grid grid-cols-2 md:grid-cols-3 gap-3">
                           {[
-                            {label:'Supplier', value: supplierMap[u.supplierId] || 'Unknown'},
-                            {label:'Condition', value: u.conditionGrade ? `Grade ${u.conditionGrade}` : '—'},
-                            {label:'Colour', value: u.colour || '—'},
-                          ].map(f=>(
+                            { label: 'Supplier',  value: supplierMap[u.supplierId] || '—' },
+                            { label: 'Colour',    value: u.colour || '—' },
+                            { label: 'Status',    value: u.status.charAt(0).toUpperCase() + u.status.slice(1) },
+                          ].map(f => (
                             <div key={f.label}>
                               <p className="text-[8px] text-gray-400 font-mono uppercase tracking-widest">{f.label}</p>
                               <p className="text-xs font-bold mt-0.5">{f.value}</p>

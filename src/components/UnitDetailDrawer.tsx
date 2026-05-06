@@ -278,7 +278,6 @@ export default function UnitDetailDrawer({ unit, supplierName, onClose }: Props)
                   { label: 'Supplier',     value: supplierName || '—' },
                   { label: 'Date In',      value: new Date(unit.dateIn).toLocaleDateString('en-GB') },
                   { label: 'Location',     value: 'Office Stock' },
-                  { label: 'Grade',        value: unit.conditionGrade || '—' },
                   { label: 'Network',      value: unit.networkLock || 'Unlocked' },
                   {
                     label: 'Listing Sites',

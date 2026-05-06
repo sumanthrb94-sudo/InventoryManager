@@ -33,5 +33,16 @@ export default defineConfig(({mode}) => {
         },
       },
     },
+    test: {
+      globals: true,
+      environment: 'node',
+      include: ['src/__tests__/**/*.test.ts'],
+      coverage: {
+        provider: 'v8',
+        reporter: ['text', 'html'],
+        include: ['src/lib/**/*.ts'],
+        exclude: ['src/lib/supabase.ts', 'src/lib/firebase.ts', 'src/lib/clientSeedData.json'],
+      },
+    },
   };
 });

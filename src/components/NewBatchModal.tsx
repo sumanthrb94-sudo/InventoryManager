@@ -2,7 +2,7 @@ import React, { useState, useMemo, useRef, useCallback } from 'react';
 import { X, Plus, Trash2, CheckCircle2, ClipboardPaste, Info, Tag, PackagePlus, Camera, ChevronDown, ChevronUp } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { dbService } from '../lib/dbService';
-import { DeviceCategory, ConditionGrade } from '../types';
+import { DeviceCategory } from '../types';
 import { useInventoryStore } from '../lib/inventoryStore';
 import { logInventoryEvent } from '../lib/inventoryEvents';
 
