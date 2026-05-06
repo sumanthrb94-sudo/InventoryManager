@@ -345,15 +345,18 @@ export default function ImportModal({ onClose }: ImportModalProps) {
     setProgress({ done: 0, total: finalDocs.length });
     try {
       await dbService.bulkCreate(finalDocs, (done, total) => setProgress({ done, total }));
-      if (sourceFile) {
-        try {
-          const importId = `import_${Date.now()}`;
-          const source   = await uploadSourceAttachment(sourceFile, 'import', importId);
-          await dbService.create('sourceDocuments', `doc_${importId}`, { ...source, linkedId: importId, ownerId: 'shared' });
-          await logInventoryEvent({ type: 'file_attached', message: `Import: ${sourceFile.name}`, batchId: importId });
-        } catch { /* non-critical */ }
-      }
       setStage('done');
+      // Upload source file in background (non-blocking)
+      if (sourceFile) {
+        (async () => {
+          try {
+            const importId = `import_${Date.now()}`;
+            const source   = await uploadSourceAttachment(sourceFile, 'import', importId);
+            await dbService.create('sourceDocuments', `doc_${importId}`, { ...source, linkedId: importId, ownerId: 'shared' });
+            await logInventoryEvent({ type: 'file_attached', message: `Import: ${sourceFile.name}`, batchId: importId });
+          } catch { /* non-critical */ }
+        })();
+      }
       setTimeout(onClose, 2000);
     } catch (err: any) {
       setError('Import failed: ' + err.message);
