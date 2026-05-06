@@ -74,7 +74,15 @@ interface Element {
   searchTerm: string;
   ordinal: number;
   variants: { colour: string; count: number }[];
+  storageVariants: { storage: string; count: number }[];
   priceRange: { min: number; max: number };
+}
+
+// sort 64GB < 128GB < 256GB < 512GB < 1TB
+function storageGb(s: string): number {
+  const m = s.match(/(\d+)\s*(TB|GB)/i);
+  if (!m) return 9999;
+  return parseInt(m[1]) * (m[2].toUpperCase() === 'TB' ? 1024 : 1);
 }
 
 function makeSymbol(seriesKey: string, groupId: string): string {
@@ -228,6 +236,31 @@ function Popover({
         </div>
       )}
 
+      {/* Storage variants */}
+      {el.storageVariants.length > 0 && (
+        <div style={{ padding: '7px 12px 5px', borderTop: '1px solid #1e293b' }}>
+          <div style={{ fontSize: 8, fontFamily: 'monospace', textTransform: 'uppercase', letterSpacing: '0.12em', color: '#475569', marginBottom: 6 }}>
+            Storage — {el.count} units
+          </div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5 }}>
+            {el.storageVariants.map(v => {
+              const pct = Math.round((v.count / el.count) * 100);
+              return (
+                <div key={v.storage} style={{
+                  background: '#1e293b', borderRadius: 6, padding: '4px 8px',
+                  display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 1,
+                  minWidth: 48,
+                }}>
+                  <span style={{ fontSize: 11, fontWeight: 800, fontFamily: 'monospace', color: '#f1f5f9', lineHeight: 1 }}>{v.count}</span>
+                  <span style={{ fontSize: 8, fontFamily: 'monospace', color: accent, letterSpacing: '0.04em' }}>{v.storage}</span>
+                  <span style={{ fontSize: 7, fontFamily: 'monospace', color: '#475569' }}>{pct}%</span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
       {/* SHS note */}
       {el.shsCount > 0 && (
         <div style={{ margin: '0 12px 6px', padding: '6px 8px', background: 'rgba(253,230,138,0.08)', borderRadius: 6, border: '1px solid rgba(253,230,138,0.15)' }}>
@@ -279,17 +312,20 @@ export default function PeriodicInventory({ units, onNavigate }: Props) {
 
       const seriesMap: Record<string, {
         count: number; shsCount: number; value: number; searchTerm: string;
-        variants: Record<string, number>; prices: number[];
+        variants: Record<string, number>; storages: Record<string, number>; prices: number[];
       }> = {};
 
       for (const u of groupUnits) {
         const sk = group.seriesFn(u.model);
-        if (!seriesMap[sk]) seriesMap[sk] = { count: 0, shsCount: 0, value: 0, searchTerm: sk, variants: {}, prices: [] };
+        if (!seriesMap[sk]) seriesMap[sk] = { count: 0, shsCount: 0, value: 0, searchTerm: sk, variants: {}, storages: {}, prices: [] };
         seriesMap[sk].count++;
         seriesMap[sk].value += u.buyPrice;
         seriesMap[sk].prices.push(u.buyPrice);
         const col = u.colour || 'Unknown';
         seriesMap[sk].variants[col] = (seriesMap[sk].variants[col] || 0) + 1;
+        if (u.storage) {
+          seriesMap[sk].storages[u.storage] = (seriesMap[sk].storages[u.storage] || 0) + 1;
+        }
       }
 
       for (const u of groupIncoming) {
@@ -310,6 +346,9 @@ export default function PeriodicInventory({ units, onNavigate }: Props) {
           variants: Object.entries(d.variants)
             .sort(([, a], [, b]) => b - a)
             .map(([colour, count]) => ({ colour, count })),
+          storageVariants: Object.entries(d.storages)
+            .sort(([a], [b]) => storageGb(a) - storageGb(b))
+            .map(([storage, count]) => ({ storage, count })),
           priceRange: d.prices.length
             ? { min: Math.min(...d.prices), max: Math.max(...d.prices) }
             : { min: 0, max: 0 },
