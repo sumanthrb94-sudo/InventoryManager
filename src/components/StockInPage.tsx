@@ -11,6 +11,7 @@ import CopyImei from './CopyImei';
 import CollapsibleSection from './CollapsibleSection';
 import ReceiveSHSModal from './ReceiveSHSModal';
 import AddSHSModal from './AddSHSModal';
+import IntelligencePanel from './IntelligencePanel';
 
 interface Props {
   onOpenBatch: () => void;
@@ -123,6 +124,9 @@ export default function StockInPage({ onOpenBatch, onOpenImport }: Props) {
           <span className="text-[8px] text-gray-400 font-mono text-center">Bulk import</span>
         </button>
       </div>
+
+      {/* Intelligence panel */}
+      <IntelligencePanel units={units} mode="buy" />
 
       {/* Pending SHS section */}
       {pendingSHS.length > 0 && (

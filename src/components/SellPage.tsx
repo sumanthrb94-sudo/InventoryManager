@@ -15,6 +15,7 @@ import {
 } from '../lib/platforms';
 import CollapsibleSection from './CollapsibleSection';
 import PeriodicInventory from './PeriodicInventory';
+import IntelligencePanel from './IntelligencePanel';
 
 // ── helpers ────────────────────────────────────────────────────────────────────
 const today = () => new Date().toISOString().split('T')[0];
@@ -474,6 +475,9 @@ export default function SellPage() {
           <p className="text-[8px] text-purple-500 font-mono">today gross</p>
         </div>
       </div>
+
+      {/* Intelligence panel */}
+      <IntelligencePanel units={units} mode="sell" />
 
       {/* Periodic table */}
       <PeriodicInventory units={units} onNavigate={term => setSearch(term)} />
