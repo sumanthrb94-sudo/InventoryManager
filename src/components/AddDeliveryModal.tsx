@@ -62,7 +62,7 @@ export default function AddDeliveryModal({ onSelectSingle, onSelectBatch, onClos
                 <p className="text-[9px] text-gray-400 mt-0.5">Multiple units with same purchase order</p>
                 <p className="text-[8px] text-gray-500 mt-1">Add delivery with invoice number & supplier info</p>
               </div>
-            </button>
+            </div>
           </button>
         </div>
       </motion.div>
