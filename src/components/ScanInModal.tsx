@@ -36,6 +36,33 @@ const COLOUR_OPTIONS = [
   'Lavender','Desert Titanium','Pacific Blue','Rose Gold','Other',
 ];
 
+const GRADE_OPTIONS = ['A', 'B', 'C', 'Refurbished', 'Unknown'];
+
+// Parse barcode label to extract model, grade, storage info
+function parseBarcode(text: string): { model?: string; grade?: string; storage?: string } {
+  const result: { model?: string; grade?: string; storage?: string } = {};
+
+  // Extract model (e.g., "SAMSUNG S21 FE 5G", "IPHONE 15 PRO")
+  const modelMatch = text.match(/^([A-Z][\w\s\d]+?)(?:Grade|Memory|[A-Z]{2,}|$)/i);
+  if (modelMatch) {
+    result.model = modelMatch[1].trim();
+  }
+
+  // Extract grade (e.g., "Grade A", "Grade B")
+  const gradeMatch = text.match(/Grade\s+([A-C]|Refurbished)/i);
+  if (gradeMatch) {
+    result.grade = gradeMatch[1].toUpperCase();
+  }
+
+  // Extract storage (e.g., "Memory 128GB", "128GB", "256GB")
+  const storageMatch = text.match(/(?:Memory\s+)?(\d+(?:GB|TB))/i);
+  if (storageMatch) {
+    result.storage = storageMatch[1].toUpperCase();
+  }
+
+  return result;
+}
+
 export default function ScanInModal({ onClose }: Props) {
   const { suppliers } = useInventoryStore();
 
@@ -44,6 +71,8 @@ export default function ScanInModal({ onClose }: Props) {
   const [model, setModel] = useState('');
   const [buyPrice, setBuyPrice] = useState('');
   const [colour, setColour] = useState('');
+  const [storage, setStorage] = useState('');
+  const [grade, setGrade] = useState('A');
   const [supplierName, setSupplierName] = useState('');
   const [notes, setNotes] = useState('');
   const [saving, setSaving] = useState(false);
@@ -60,6 +89,15 @@ export default function ScanInModal({ onClose }: Props) {
 
   const handleScan = (value: string) => {
     const digits = value.replace(/\D/g, '');
+
+    // If barcode contains more than just IMEI, parse additional info
+    if (value.length > 20) {
+      const parsed = parseBarcode(value);
+      if (parsed.model) setModel(parsed.model);
+      if (parsed.grade) setGrade(parsed.grade);
+      if (parsed.storage) setStorage(parsed.storage);
+    }
+
     if (digits.length >= 14) {
       setImei(digits);
       setStage('form');
@@ -113,6 +151,8 @@ export default function ScanInModal({ onClose }: Props) {
         brand,
         category,
         colour,
+        storage: storage || undefined,
+        grade: grade || undefined,
         buyPrice: bp,
         dateIn: today(),
         supplierId,
@@ -138,6 +178,8 @@ export default function ScanInModal({ onClose }: Props) {
         setModel('');
         setBuyPrice('');
         setColour('');
+        setStorage('');
+        setGrade('A');
         setSupplierName('');
         setNotes('');
       }, 1200);
@@ -260,6 +302,35 @@ export default function ScanInModal({ onClose }: Props) {
                     placeholder="e.g. Apple iPhone 14 128GB"
                     className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-black transition-all"
                   />
+                </div>
+
+                {/* Storage */}
+                <div>
+                  <label className="text-[9px] font-bold uppercase tracking-widest text-gray-400 block mb-1.5">Storage</label>
+                  <input
+                    value={storage}
+                    onChange={e => { setStorage(e.target.value); setError(''); }}
+                    placeholder="e.g. 128GB, 256GB, 512GB"
+                    className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-black transition-all"
+                  />
+                </div>
+
+                {/* Grade */}
+                <div>
+                  <label className="text-[9px] font-bold uppercase tracking-widest text-gray-400 block mb-1.5">Grade</label>
+                  <div className="flex flex-wrap gap-1.5">
+                    {GRADE_OPTIONS.map(g => (
+                      <button
+                        key={g}
+                        onClick={() => setGrade(g)}
+                        className={`text-[9px] font-bold px-3 py-1.5 rounded-lg border transition-all ${
+                          grade === g ? 'bg-black text-white border-black' : 'border-gray-200 text-gray-500 hover:border-gray-400'
+                        }`}
+                      >
+                        {g}
+                      </button>
+                    ))}
+                  </div>
                 </div>
 
                 {/* Buy Price */}
