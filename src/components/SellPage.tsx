@@ -62,6 +62,7 @@ function SellOrderModal({
       // Calculate profit for notification
       const profit = calcNetProfit(spNum, unit.buyPrice, platform, postageNum);
       const notificationType = profit < 0 ? 'loss_sell' : 'sold';
+      console.log(`[Sale] Selling ${unit.model} at £${spNum} on ${platform}`, { profit, notificationType });
 
       await dbService.update('inventoryUnits', unit.id, {
         status:      'sold',

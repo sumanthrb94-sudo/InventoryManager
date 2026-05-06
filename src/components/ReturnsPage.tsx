@@ -80,6 +80,7 @@ function ProcessReturnModal({
       }
 
       // Trigger return_processed notification
+      console.log(`[Return] Processing return for ${unit.model}`, { returnType, unit });
       notificationService.addNotification('return_processed', unit);
 
       onSaved();
