@@ -23,7 +23,7 @@ import { notificationService } from './lib/notificationService';
 import { subscribeToSyncStatus } from './lib/dbService';
 import { InventoryStoreProvider, useInventoryStore } from './lib/inventoryStore';
 import DataSeedPage from './components/DataSeedPage';
-import ResetDataModal from './components/ResetDataModal';
+import LoadMockDataModal from './components/LoadMockDataModal';
 import ErrorBoundary from './components/ErrorBoundary';
 
 type Tab        = 'buy' | 'sell' | 'returns' | 'analytics';
@@ -87,7 +87,7 @@ function AppShell({ user }: { user: User }) {
   const [analyticsSub, setAnalyticsSub]           = useState<AnalyticsSub>('overview');
   const [isBatchModalOpen, setIsBatchModalOpen]   = useState(false);
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
-  const [isResetModalOpen, setIsResetModalOpen]   = useState(false);
+  const [isLoadMockDataOpen, setIsLoadMockDataOpen] = useState(false);
   const [unreadCount, setUnreadCount]             = useState(0);
   const [syncConnected, setSyncConnected]         = useState(false);
 
@@ -180,9 +180,9 @@ function AppShell({ user }: { user: User }) {
             className="w-full flex items-center gap-2 px-3 py-2 rounded-xl text-[10px] font-bold uppercase tracking-widest text-slate-500 hover:text-slate-900 hover:bg-slate-100 transition-all">
             <LogOut size={12} strokeWidth={2.5} /> Sign Out
           </button>
-          <button onClick={() => setIsResetModalOpen(true)}
-            className="w-full flex items-center gap-2 px-3 py-2 rounded-xl text-[10px] font-bold uppercase tracking-widest text-red-400 hover:text-red-600 hover:bg-red-50 transition-all">
-            <Settings size={12} strokeWidth={2.5} /> Reset Data
+          <button onClick={() => setIsLoadMockDataOpen(true)}
+            className="w-full flex items-center gap-2 px-3 py-2 rounded-xl text-[10px] font-bold uppercase tracking-widest text-blue-400 hover:text-blue-600 hover:bg-blue-50 transition-all">
+            <Settings size={12} strokeWidth={2.5} /> Load Mock Data
           </button>
         </div>
       </aside>
@@ -227,8 +227,8 @@ function AppShell({ user }: { user: User }) {
               className="md:hidden p-2 rounded-xl text-slate-400 hover:text-slate-900 hover:bg-slate-100 transition-all">
               <LogOut size={14} strokeWidth={2.5} />
             </button>
-            <button onClick={() => setIsResetModalOpen(true)}
-              title="Reset all data"
+            <button onClick={() => setIsLoadMockDataOpen(true)}
+              title="Load mock data"
               className="p-2 rounded-xl text-slate-400 hover:text-slate-900 hover:bg-slate-100 transition-all">
               <Settings size={14} strokeWidth={2.5} />
             </button>
@@ -293,7 +293,7 @@ function AppShell({ user }: { user: User }) {
       <AnimatePresence>
         {isBatchModalOpen  && <NewBatchModal  onClose={() => setIsBatchModalOpen(false)} />}
         {isImportModalOpen && <ImportModal    onClose={() => setIsImportModalOpen(false)} />}
-        {isResetModalOpen  && <ResetDataModal onClose={() => setIsResetModalOpen(false)} />}
+        {isLoadMockDataOpen && <LoadMockDataModal onClose={() => setIsLoadMockDataOpen(false)} />}
       </AnimatePresence>
       <NotificationToast />
     </div>
