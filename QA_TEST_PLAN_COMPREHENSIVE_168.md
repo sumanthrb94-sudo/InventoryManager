@@ -35,81 +35,91 @@ TOTAL:                             168 tests
 
 ## SECTION 1: PLATFORM FEE CALCULATION (28 Tests)
 
-### eBay Specific (8 tests)
-- TC-001: £1 sale (fixed fee dominates)
-- TC-002: £10 sale (percentage vs fixed)
-- TC-003: £50 sale
-- TC-004: £100 sale
-- TC-005: £500 sale
-- TC-006: £1000 sale (round number precision)
-- TC-007: £999.99 sale (fractional precision)
-- TC-008: £5000 sale (large transaction)
+### Platform Fee Formula Reference
+| Platform   | Commission | Fixed Fee | Formula |
+|-----------|-----------|-----------|---------|
+| eBay      | 12.8%     | £0.30     | (Sale Price × 0.128) + £0.30 |
+| Amazon    | 8%        | £0.00     | Sale Price × 0.08 |
+| OnBuy     | 9%        | £0.00     | Sale Price × 0.09 |
+| Backmarket| 10%       | £0.00     | Sale Price × 0.10 |
 
-### Amazon Specific (7 tests)
-- TC-009: £1 sale
-- TC-010: £50 sale
-- TC-011: £100 sale
-- TC-012: £333.33 sale (decimal rounding)
-- TC-013: £500 sale
-- TC-014: £1000 sale
-- TC-015: £2500 sale
+### eBay Specific (8 tests) - Commission: 12.8% + £0.30 Fixed Fee
+- TC-001: £1 sale → Fee = (1 × 0.128) + 0.30 = £0.43 (fixed fee dominates)
+- TC-002: £10 sale → Fee = (10 × 0.128) + 0.30 = £1.58 (percentage vs fixed)
+- TC-003: £50 sale → Fee = (50 × 0.128) + 0.30 = £6.70
+- TC-004: £100 sale → Fee = (100 × 0.128) + 0.30 = £13.10
+- TC-005: £500 sale → Fee = (500 × 0.128) + 0.30 = £64.30
+- TC-006: £1000 sale → Fee = (1000 × 0.128) + 0.30 = £128.30 (round number precision)
+- TC-007: £999.99 sale → Fee = (999.99 × 0.128) + 0.30 = £128.30 (fractional precision)
+- TC-008: £5000 sale → Fee = (5000 × 0.128) + 0.30 = £640.30 (large transaction)
 
-### OnBuy Specific (7 tests)
-- TC-016: £1 sale
-- TC-017: £100 sale
-- TC-018: £250 sale
-- TC-019: £500 sale
-- TC-020: £777.78 sale (rounding edge case)
-- TC-021: £1000 sale
-- TC-022: £3000 sale
+### Amazon Specific (7 tests) - Commission: 8% (No Fixed Fee)
+- TC-009: £1 sale → Fee = 1 × 0.08 = £0.08
+- TC-010: £50 sale → Fee = 50 × 0.08 = £4.00
+- TC-011: £100 sale → Fee = 100 × 0.08 = £8.00
+- TC-012: £333.33 sale → Fee = 333.33 × 0.08 = £26.67 (decimal rounding)
+- TC-013: £500 sale → Fee = 500 × 0.08 = £40.00
+- TC-014: £1000 sale → Fee = 1000 × 0.08 = £80.00
+- TC-015: £2500 sale → Fee = 2500 × 0.08 = £200.00
 
-### Backmarket Specific (6 tests)
-- TC-023: £100 sale
-- TC-024: £500 sale
-- TC-025: £1000 sale
-- TC-026: £1500 sale
-- TC-027: £2000 sale
-- TC-028: £10000 sale (luxury refurbished items)
+### OnBuy Specific (7 tests) - Commission: 9% (No Fixed Fee)
+- TC-016: £1 sale → Fee = 1 × 0.09 = £0.09
+- TC-017: £100 sale → Fee = 100 × 0.09 = £9.00
+- TC-018: £250 sale → Fee = 250 × 0.09 = £22.50
+- TC-019: £500 sale → Fee = 500 × 0.09 = £45.00
+- TC-020: £777.78 sale → Fee = 777.78 × 0.09 = £70.00 (rounding edge case)
+- TC-021: £1000 sale → Fee = 1000 × 0.09 = £90.00
+- TC-022: £3000 sale → Fee = 3000 × 0.09 = £270.00
+
+### Backmarket Specific (6 tests) - Commission: 10% (No Fixed Fee)
+- TC-023: £100 sale → Fee = 100 × 0.10 = £10.00
+- TC-024: £500 sale → Fee = 500 × 0.10 = £50.00
+- TC-025: £1000 sale → Fee = 1000 × 0.10 = £100.00
+- TC-026: £1500 sale → Fee = 1500 × 0.10 = £150.00
+- TC-027: £2000 sale → Fee = 2000 × 0.10 = £200.00
+- TC-028: £10000 sale → Fee = 10000 × 0.10 = £1000.00 (luxury refurbished items)
 
 ---
 
 ## SECTION 2: NET PROFIT CALCULATION (28 Tests)
 
+**Formula:** Net Profit = Sale Price - Buy Price - Platform Fee - Postage Cost
+
 ### Low Buy Price Scenarios (7 tests)
-- TC-029: BP £50, SP £100, eBay, Postage £8
-- TC-030: BP £75, SP £150, Amazon, Postage £8
-- TC-031: BP £100, SP £200, OnBuy, Postage £8
-- TC-032: BP £25, SP £50, Backmarket, Postage £0
-- TC-033: BP £60, SP £120, eBay, Postage £12
-- TC-034: BP £40, SP £80, Amazon, Postage £8
-- TC-035: BP £90, SP £180, OnBuy, Postage £8
+- TC-029: BP £50, SP £100, eBay (12.8% + £0.30), Postage £8 → Fee = £13.10, Net = 100 - 50 - 13.10 - 8 = **£28.90**
+- TC-030: BP £75, SP £150, Amazon (8%), Postage £8 → Fee = £12.00, Net = 150 - 75 - 12.00 - 8 = **£55.00**
+- TC-031: BP £100, SP £200, OnBuy (9%), Postage £8 → Fee = £18.00, Net = 200 - 100 - 18.00 - 8 = **£74.00**
+- TC-032: BP £25, SP £50, Backmarket (10%), Postage £0 → Fee = £5.00, Net = 50 - 25 - 5.00 - 0 = **£20.00**
+- TC-033: BP £60, SP £120, eBay (12.8% + £0.30), Postage £12 → Fee = £15.66, Net = 120 - 60 - 15.66 - 12 = **£32.34**
+- TC-034: BP £40, SP £80, Amazon (8%), Postage £8 → Fee = £6.40, Net = 80 - 40 - 6.40 - 8 = **£25.60**
+- TC-035: BP £90, SP £180, OnBuy (9%), Postage £8 → Fee = £16.20, Net = 180 - 90 - 16.20 - 8 = **£65.80**
 
 ### Medium Buy Price Scenarios (7 tests)
-- TC-036: BP £300, SP £500, eBay, Postage £8
-- TC-037: BP £400, SP £600, Amazon, Postage £8
-- TC-038: BP £350, SP £550, OnBuy, Postage £8
-- TC-039: BP £300, SP £500, Backmarket, Postage £8
-- TC-040: BP £500, SP £800, eBay, Postage £12
-- TC-041: BP £400, SP £700, Amazon, Postage £10
-- TC-042: BP £450, SP £750, OnBuy, Postage £8
+- TC-036: BP £300, SP £500, eBay (12.8% + £0.30), Postage £8 → Fee = £64.30, Net = 500 - 300 - 64.30 - 8 = **£127.70**
+- TC-037: BP £400, SP £600, Amazon (8%), Postage £8 → Fee = £48.00, Net = 600 - 400 - 48.00 - 8 = **£144.00**
+- TC-038: BP £350, SP £550, OnBuy (9%), Postage £8 → Fee = £49.50, Net = 550 - 350 - 49.50 - 8 = **£142.50**
+- TC-039: BP £300, SP £500, Backmarket (10%), Postage £8 → Fee = £50.00, Net = 500 - 300 - 50.00 - 8 = **£142.00**
+- TC-040: BP £500, SP £800, eBay (12.8% + £0.30), Postage £12 → Fee = £102.70, Net = 800 - 500 - 102.70 - 12 = **£185.30**
+- TC-041: BP £400, SP £700, Amazon (8%), Postage £10 → Fee = £56.00, Net = 700 - 400 - 56.00 - 10 = **£234.00**
+- TC-042: BP £450, SP £750, OnBuy (9%), Postage £8 → Fee = £67.50, Net = 750 - 450 - 67.50 - 8 = **£224.50**
 
 ### High Buy Price Scenarios (7 tests)
-- TC-043: BP £1000, SP £1500, eBay, Postage £8
-- TC-044: BP £1200, SP £1800, Amazon, Postage £8
-- TC-045: BP £1500, SP £2000, OnBuy, Postage £10
-- TC-046: BP £2000, SP £3000, Backmarket, Postage £12
-- TC-047: BP £800, SP £2500, eBay, Postage £8 (high margin)
-- TC-048: BP £500, SP £1200, Amazon, Postage £8 (large markup)
-- TC-049: BP £300, SP £1500, OnBuy, Postage £0 (luxury markup)
+- TC-043: BP £1000, SP £1500, eBay (12.8% + £0.30), Postage £8 → Fee = £192.30, Net = 1500 - 1000 - 192.30 - 8 = **£299.70**
+- TC-044: BP £1200, SP £1800, Amazon (8%), Postage £8 → Fee = £144.00, Net = 1800 - 1200 - 144.00 - 8 = **£448.00**
+- TC-045: BP £1500, SP £2000, OnBuy (9%), Postage £10 → Fee = £180.00, Net = 2000 - 1500 - 180.00 - 10 = **£310.00**
+- TC-046: BP £2000, SP £3000, Backmarket (10%), Postage £12 → Fee = £300.00, Net = 3000 - 2000 - 300.00 - 12 = **£688.00**
+- TC-047: BP £800, SP £2500, eBay (12.8% + £0.30), Postage £8 → Fee = £320.30, Net = 2500 - 800 - 320.30 - 8 = **£1371.70** (high margin)
+- TC-048: BP £500, SP £1200, Amazon (8%), Postage £8 → Fee = £96.00, Net = 1200 - 500 - 96.00 - 8 = **£596.00** (large markup)
+- TC-049: BP £300, SP £1500, OnBuy (9%), Postage £0 → Fee = £135.00, Net = 1500 - 300 - 135.00 - 0 = **£1065.00** (luxury markup)
 
 ### Negative Profit Scenarios (7 tests)
-- TC-050: BP £500, SP £300, eBay (loss scenario)
-- TC-051: BP £400, SP £200, Amazon (clearance sale)
-- TC-052: BP £600, SP £400, OnBuy (inventory clearing)
-- TC-053: BP £300, SP £100, Backmarket (loss leader)
-- TC-054: BP £1000, SP £500, eBay (heavy discount)
-- TC-055: BP £200, SP £50, Amazon (donation equivalent)
-- TC-056: BP £800, SP £300, OnBuy (final clearance)
+- TC-050: BP £500, SP £300, eBay (12.8% + £0.30), Postage £8 → Fee = £38.70, Net = 300 - 500 - 38.70 - 8 = **-£246.70** (loss scenario)
+- TC-051: BP £400, SP £200, Amazon (8%), Postage £8 → Fee = £16.00, Net = 200 - 400 - 16.00 - 8 = **-£224.00** (clearance sale)
+- TC-052: BP £600, SP £400, OnBuy (9%), Postage £8 → Fee = £36.00, Net = 400 - 600 - 36.00 - 8 = **-£244.00** (inventory clearing)
+- TC-053: BP £300, SP £100, Backmarket (10%), Postage £8 → Fee = £10.00, Net = 100 - 300 - 10.00 - 8 = **-£218.00** (loss leader)
+- TC-054: BP £1000, SP £500, eBay (12.8% + £0.30), Postage £8 → Fee = £64.30, Net = 500 - 1000 - 64.30 - 8 = **-£572.30** (heavy discount)
+- TC-055: BP £200, SP £50, Amazon (8%), Postage £8 → Fee = £4.00, Net = 50 - 200 - 4.00 - 8 = **-£162.00** (donation equivalent)
+- TC-056: BP £800, SP £300, OnBuy (9%), Postage £8 → Fee = £27.00, Net = 300 - 800 - 27.00 - 8 = **-£535.00** (final clearance)
 
 ---
 
