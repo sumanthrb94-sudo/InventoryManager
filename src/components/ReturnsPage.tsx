@@ -55,24 +55,28 @@ function ProcessReturnModal({
     if (!reason.trim()) { setError('Please enter a return reason.'); return; }
     setSaving(true);
     try {
-      const newStatus = returnType === 'returned_to_inventory' ? 'available' : 'returned';
-      await dbService.update('inventoryUnits', unit.id, {
-        status: newStatus,
-        returnType,
-        returnDate,
-        returnReason: reason.trim(),
-        // Always clear sale data on any return — prevents ghost sale records
-        salePrice: null,
-        saleDate: null,
-        salePlatform: null,
-        saleOrderId: null,
-        postageCost: null,
-        // Restore listing state if going back to available stock
-        ...(returnType === 'returned_to_inventory' ? {
-          platformListed: false,
-          listingSites: [],
-        } : {}),
-      });
+      if (returnType === 'returned_to_supplier') {
+        // Unit goes back to supplier — remove from inventory entirely
+        await dbService.delete('inventoryUnits', unit.id);
+      } else {
+        const newStatus = returnType === 'returned_to_inventory' ? 'available' : 'returned';
+        await dbService.update('inventoryUnits', unit.id, {
+          status: newStatus,
+          returnType,
+          returnDate,
+          returnReason: reason.trim(),
+          // Always clear sale data on any return — prevents ghost sale records
+          salePrice: null,
+          saleDate: null,
+          salePlatform: null,
+          saleOrderId: null,
+          postageCost: null,
+          ...(returnType === 'returned_to_inventory' ? {
+            platformListed: false,
+            listingSites: [],
+          } : {}),
+        });
+      }
       onSaved();
       onClose();
     } catch {
@@ -84,7 +88,7 @@ function ProcessReturnModal({
 
   const OPTION_LABELS: Record<ReturnCategory, { label: string; desc: string; color: string }> = {
     returned_to_inventory: { label: 'Back to Inventory', desc: 'Unit is resaleable — restore to available stock', color: 'border-emerald-300 bg-emerald-50 text-emerald-800' },
-    returned_to_supplier:  { label: 'Return to Supplier', desc: 'Faulty or wrong unit — send back to supplier', color: 'border-orange-300 bg-orange-50 text-orange-800' },
+    returned_to_supplier:  { label: 'Return to Supplier', desc: 'Send back to supplier — unit will be removed from stock', color: 'border-orange-300 bg-orange-50 text-orange-800' },
     repair:                { label: 'Send for Repair', desc: 'Unit needs repair before resale', color: 'border-blue-300 bg-blue-50 text-blue-800' },
   };
 
@@ -186,6 +190,14 @@ function ProcessReturnModal({
               <PackageCheck size={13} className="text-emerald-600 flex-shrink-0 mt-0.5" />
               <p className="text-[9px] text-emerald-700 font-mono leading-relaxed">
                 Unit will be restored to <strong>available</strong> stock and sale data cleared. Inspect condition before relisting.
+              </p>
+            </div>
+          )}
+          {returnType === 'returned_to_supplier' && (
+            <div className="flex items-start gap-2 bg-orange-50 border border-orange-200 rounded-xl p-3">
+              <ArrowUpRight size={13} className="text-orange-600 flex-shrink-0 mt-0.5" />
+              <p className="text-[9px] text-orange-700 font-mono leading-relaxed">
+                Unit will be <strong>permanently deleted</strong> from inventory. This cannot be undone — the unit is gone from your stock.
               </p>
             </div>
           )}

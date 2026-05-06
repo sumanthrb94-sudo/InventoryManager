@@ -1,4 +1,4 @@
-import React, { useMemo, useState, useRef, useEffect } from 'react';
+import React, { useMemo, useState, useRef, useCallback } from 'react';
 import { InventoryUnit } from '../types';
 
 interface Props {
@@ -68,12 +68,12 @@ const BRAND_GROUPS = [
 interface Element {
   seriesKey: string;
   symbol: string;
-  count: number;       // available in office
-  shsCount: number;    // listed with supplier (incoming)
+  count: number;
+  shsCount: number;
   value: number;
   searchTerm: string;
   ordinal: number;
-  variants: { colour: string; count: number; models: string[] }[];
+  variants: { colour: string; count: number }[];
   priceRange: { min: number; max: number };
 }
 
@@ -118,114 +118,144 @@ interface PopoverState {
   rect: DOMRect;
 }
 
-function Popover({ state, onClose, onNavigate }: {
+// accent colour for variant count badge — derived from group light colour
+function accentColor(light: string): string {
+  if (light === '#dbeafe') return '#3b82f6';
+  if (light === '#ede9fe') return '#8b5cf6';
+  if (light === '#fef3c7') return '#f59e0b';
+  if (light === '#d1fae5') return '#10b981';
+  if (light === '#cffafe') return '#06b6d4';
+  return '#94a3b8';
+}
+
+function Popover({
+  state,
+  onNavigate,
+  onMouseEnter,
+  onMouseLeave,
+}: {
   state: PopoverState;
-  onClose: () => void;
   onNavigate: (s: string) => void;
+  onMouseEnter: () => void;
+  onMouseLeave: () => void;
 }) {
   const { el, color, rect } = state;
-  const ref = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
-    const handler = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) onClose();
-    };
-    document.addEventListener('mousedown', handler);
-    return () => document.removeEventListener('mousedown', handler);
-  }, [onClose]);
-
-  // Position: above or below the element
   const spaceBelow = window.innerHeight - rect.bottom;
-  const showAbove  = spaceBelow < 280;
+  const showAbove  = spaceBelow < 310;
 
   const style: React.CSSProperties = {
-    position: 'fixed',
-    left:     Math.max(8, Math.min(rect.left, window.innerWidth - 260)),
-    zIndex:   9999,
-    width:    248,
-    background: '#0f172a',
-    border: `1.5px solid ${color.bg}40`,
+    position:     'fixed',
+    left:         Math.max(8, Math.min(rect.left, window.innerWidth - 264)),
+    zIndex:       9999,
+    width:        252,
+    background:   '#0f172a',
+    border:       `1.5px solid ${color.bg}50`,
     borderRadius: 12,
-    boxShadow: `0 8px 32px rgba(0,0,0,0.5), 0 0 0 1px ${color.bg}20`,
-    overflow: 'hidden',
+    boxShadow:    `0 12px 40px rgba(0,0,0,0.55), 0 0 0 1px ${color.bg}20`,
+    overflow:     'hidden',
+    pointerEvents: 'auto',
   };
 
   if (showAbove) {
-    style.bottom = window.innerHeight - rect.top + 6;
+    style.bottom = window.innerHeight - rect.top + 8;
   } else {
-    style.top = rect.bottom + 6;
+    style.top = rect.bottom + 8;
   }
 
+  const accent = accentColor(color.light);
+
   return (
-    <div ref={ref} style={style}>
+    <div style={style} onMouseEnter={onMouseEnter} onMouseLeave={onMouseLeave}>
       {/* Header */}
-      <div style={{ background: color.bg, padding: '10px 12px' }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          <span style={{ fontSize: 13, fontWeight: 800, color: '#fff', letterSpacing: '-0.02em' }}>
-            {el.seriesKey}
-          </span>
-          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-            <div style={{ textAlign: 'center' }}>
-              <div style={{ fontSize: 16, fontWeight: 900, color: '#fff', lineHeight: 1 }}>{el.count}</div>
-              <div style={{ fontSize: 7, color: 'rgba(255,255,255,0.7)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>in office</div>
+      <div style={{ background: color.bg, padding: '10px 12px 8px' }}>
+        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 8 }}>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontSize: 13, fontWeight: 800, color: '#fff', letterSpacing: '-0.02em', lineHeight: 1.2 }}>
+              {el.seriesKey}
+            </div>
+            {el.count > 0 && (
+              <div style={{ fontSize: 9, color: 'rgba(255,255,255,0.65)', marginTop: 3, fontFamily: 'monospace' }}>
+                Buy £{el.priceRange.min === el.priceRange.max
+                  ? el.priceRange.min
+                  : `${el.priceRange.min}–${el.priceRange.max}`}
+                &nbsp;·&nbsp;£{el.value.toLocaleString()} total
+              </div>
+            )}
+          </div>
+          {/* Stock counts */}
+          <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexShrink: 0 }}>
+            <div style={{ textAlign: 'center', background: 'rgba(0,0,0,0.2)', borderRadius: 7, padding: '4px 8px', minWidth: 36 }}>
+              <div style={{ fontSize: 18, fontWeight: 900, color: '#fff', lineHeight: 1 }}>{el.count}</div>
+              <div style={{ fontSize: 7, color: 'rgba(255,255,255,0.65)', textTransform: 'uppercase', letterSpacing: '0.08em', marginTop: 1 }}>in office</div>
             </div>
             {el.shsCount > 0 && (
-              <div style={{ textAlign: 'center', background: 'rgba(255,255,255,0.15)', borderRadius: 6, padding: '2px 6px' }}>
-                <div style={{ fontSize: 14, fontWeight: 800, color: '#fde68a', lineHeight: 1 }}>{el.shsCount}</div>
-                <div style={{ fontSize: 7, color: 'rgba(255,255,255,0.7)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>w/ supplier</div>
+              <div style={{ textAlign: 'center', background: 'rgba(255,255,255,0.12)', borderRadius: 7, padding: '4px 8px', minWidth: 36, border: '1px solid rgba(253,230,138,0.4)' }}>
+                <div style={{ fontSize: 16, fontWeight: 800, color: '#fde68a', lineHeight: 1 }}>{el.shsCount}</div>
+                <div style={{ fontSize: 7, color: 'rgba(255,255,255,0.65)', textTransform: 'uppercase', letterSpacing: '0.08em', marginTop: 1 }}>supplier</div>
               </div>
             )}
           </div>
         </div>
-        {el.count > 0 && (
-          <div style={{ fontSize: 9, color: 'rgba(255,255,255,0.7)', marginTop: 3, fontFamily: 'monospace' }}>
-            Buy £{el.priceRange.min === el.priceRange.max
-              ? el.priceRange.min
-              : `${el.priceRange.min}–${el.priceRange.max}`}
-            &nbsp;·&nbsp;
-            £{el.value.toLocaleString()} stock value
-          </div>
-        )}
       </div>
 
       {/* Colour variants */}
       {el.variants.length > 0 && (
-        <div style={{ padding: '8px 12px 4px' }}>
+        <div style={{ padding: '8px 12px 6px' }}>
           <div style={{ fontSize: 8, fontFamily: 'monospace', textTransform: 'uppercase', letterSpacing: '0.12em', color: '#475569', marginBottom: 6 }}>
-            Colour Variants
+            Colour Variants — {el.variants.reduce((s, v) => s + v.count, 0)} units
           </div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-            {el.variants.map(v => (
-              <div key={v.colour} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                <span style={{ fontSize: 10, color: '#94a3b8', fontFamily: 'monospace' }}>{v.colour}</span>
-                <span style={{
-                  fontSize: 10, fontWeight: 700, fontFamily: 'monospace',
-                  background: color.bg + '25',
-                  color: color.light === '#dbeafe' ? '#60a5fa' : color.light === '#fef3c7' ? '#fbbf24' : color.light === '#d1fae5' ? '#34d399' : color.light === '#cffafe' ? '#22d3ee' : '#a78bfa',
-                  padding: '1px 6px', borderRadius: 4,
-                }}>
-                  {v.count}
-                </span>
-              </div>
-            ))}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+            {el.variants.map(v => {
+              const pct = Math.round((v.count / el.count) * 100);
+              return (
+                <div key={v.colour}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 2 }}>
+                    <span style={{ fontSize: 10, color: '#cbd5e1', fontFamily: 'monospace' }}>{v.colour}</span>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                      <span style={{ fontSize: 10, fontWeight: 700, fontFamily: 'monospace', color: '#f1f5f9' }}>{v.count}</span>
+                      <span style={{ fontSize: 8, color: '#475569', fontFamily: 'monospace' }}>{pct}%</span>
+                    </div>
+                  </div>
+                  {/* mini progress bar */}
+                  <div style={{ height: 3, background: '#1e293b', borderRadius: 2, overflow: 'hidden' }}>
+                    <div style={{ height: '100%', width: `${pct}%`, background: accent, borderRadius: 2, transition: 'width 0.3s' }} />
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* SHS note */}
+      {el.shsCount > 0 && (
+        <div style={{ margin: '0 12px 6px', padding: '6px 8px', background: 'rgba(253,230,138,0.08)', borderRadius: 6, border: '1px solid rgba(253,230,138,0.15)' }}>
+          <div style={{ fontSize: 8, fontFamily: 'monospace', color: '#fde68a', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 2 }}>
+            SHS — Listed with Supplier
+          </div>
+          <div style={{ fontSize: 9, color: '#94a3b8', fontFamily: 'monospace' }}>
+            {el.shsCount} unit{el.shsCount > 1 ? 's' : ''} held by supplier · order to fulfil
           </div>
         </div>
       )}
 
       {/* CTA */}
-      <div style={{ padding: '8px 12px 10px' }}>
-        <button
-          onClick={() => { onNavigate(el.searchTerm); onClose(); }}
-          style={{
-            width: '100%', padding: '7px', background: color.bg, border: 'none',
-            borderRadius: 7, color: '#fff', fontSize: 10, fontWeight: 700,
-            fontFamily: 'monospace', textTransform: 'uppercase', letterSpacing: '0.1em',
-            cursor: 'pointer',
-          }}
-        >
-          View All {el.count} Units →
-        </button>
-      </div>
+      {el.count > 0 && (
+        <div style={{ padding: '6px 12px 10px' }}>
+          <button
+            onClick={() => onNavigate(el.searchTerm)}
+            style={{
+              width: '100%', padding: '7px', background: color.bg, border: 'none',
+              borderRadius: 7, color: '#fff', fontSize: 10, fontWeight: 700,
+              fontFamily: 'monospace', textTransform: 'uppercase', letterSpacing: '0.1em',
+              cursor: 'pointer',
+            }}
+          >
+            View All {el.count} Units →
+          </button>
+        </div>
+      )}
     </div>
   );
 }
@@ -235,6 +265,8 @@ export default function PeriodicInventory({ units, onNavigate }: Props) {
   const incoming  = units.filter(u => u.status === 'incoming');
 
   const [popover, setPopover] = useState<PopoverState | null>(null);
+  // Refs for the hover grace-period timers
+  const closeTimer  = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const today = new Date().toISOString().split('T')[0];
   const todaySold     = units.filter(u => u.status === 'sold' && (u.saleDate || u.dateIn) === today);
@@ -277,7 +309,7 @@ export default function PeriodicInventory({ units, onNavigate }: Props) {
           ordinal:    i + 1,
           variants: Object.entries(d.variants)
             .sort(([, a], [, b]) => b - a)
-            .map(([colour, count]) => ({ colour, count, models: [] })),
+            .map(([colour, count]) => ({ colour, count })),
           priceRange: d.prices.length
             ? { min: Math.min(...d.prices), max: Math.max(...d.prices) }
             : { min: 0, max: 0 },
@@ -289,24 +321,36 @@ export default function PeriodicInventory({ units, onNavigate }: Props) {
         })
         .map((el, i) => ({ ...el, ordinal: i + 1 }));
 
-      const totalCount = groupUnits.length;
-      const totalValue = groupUnits.reduce((s, u) => s + u.buyPrice, 0);
-
-      return { ...group, elements, totalCount, totalValue };
+      return {
+        ...group, elements,
+        totalCount: groupUnits.length,
+        totalValue: groupUnits.reduce((s, u) => s + u.buyPrice, 0),
+      };
     }).filter(g => g.elements.length > 0);
   }, [available, incoming]);
 
-  if (groups.length === 0) return null;
+  // ── Hover handlers with grace-period so cursor can reach the popover ─────────
+  const cancelClose = useCallback(() => {
+    if (closeTimer.current) { clearTimeout(closeTimer.current); closeTimer.current = null; }
+  }, []);
 
-  const handleElementClick = (
+  const scheduleClose = useCallback(() => {
+    cancelClose();
+    closeTimer.current = setTimeout(() => setPopover(null), 180);
+  }, [cancelClose]);
+
+  const handleElementEnter = useCallback((
     el: Element,
     color: { bg: string; light: string; text: string; border: string },
     e: React.MouseEvent<HTMLButtonElement>,
   ) => {
+    cancelClose();
     if (el.count === 0 && el.shsCount === 0) return;
     const rect = (e.currentTarget as HTMLButtonElement).getBoundingClientRect();
-    setPopover(prev => prev?.el.seriesKey === el.seriesKey ? null : { el, color, rect });
-  };
+    setPopover({ el, color, rect });
+  }, [cancelClose]);
+
+  if (groups.length === 0) return null;
 
   return (
     <>
@@ -346,9 +390,7 @@ export default function PeriodicInventory({ units, onNavigate }: Props) {
           {groups.map(g => (
             <div key={g.id} style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
               <div style={{ width: 8, height: 8, borderRadius: 2, background: g.color.bg }} />
-              <span style={{ fontSize: 9, fontFamily: 'monospace', color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.1em' }}>
-                {g.label}
-              </span>
+              <span style={{ fontSize: 9, fontFamily: 'monospace', color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.1em' }}>{g.label}</span>
               <span style={{ fontSize: 9, fontFamily: 'monospace', color: '#475569' }}>({g.totalCount})</span>
             </div>
           ))}
@@ -363,58 +405,46 @@ export default function PeriodicInventory({ units, onNavigate }: Props) {
                   {g.label}
                 </div>
                 <div style={{ flex: 1, height: 1, background: `${g.color.bg}30` }} />
-                <span style={{ fontSize: 8, fontFamily: 'monospace', color: '#475569' }}>
-                  £{g.totalValue.toLocaleString()} stock
-                </span>
+                <span style={{ fontSize: 8, fontFamily: 'monospace', color: '#475569' }}>£{g.totalValue.toLocaleString()} stock</span>
               </div>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
                 {g.elements.map(el => {
-                  const isSelected = popover?.el.seriesKey === el.seriesKey;
-                  const isEmpty = el.count === 0 && el.shsCount === 0;
+                  const isHovered = popover?.el.seriesKey === el.seriesKey;
+                  const isEmpty   = el.count === 0 && el.shsCount === 0;
                   return (
                     <button
                       key={el.seriesKey}
-                      onClick={e => handleElementClick(el, g.color, e)}
+                      onMouseEnter={e => handleElementEnter(el, g.color, e)}
+                      onMouseLeave={scheduleClose}
+                      onClick={() => el.count > 0 && onNavigate(el.searchTerm)}
+                      title={isEmpty ? el.seriesKey : undefined}
                       style={{
                         width: 72, height: 72,
-                        background: isEmpty ? '#1e293b' : isSelected ? g.color.bg : g.color.light,
-                        border: `1.5px solid ${isEmpty ? '#334155' : isSelected ? g.color.bg : g.color.border}`,
+                        background: isEmpty ? '#1e293b' : isHovered ? g.color.bg : g.color.light,
+                        border: `1.5px solid ${isEmpty ? '#334155' : isHovered ? g.color.bg : g.color.border}`,
                         borderRadius: 8,
                         padding: '5px 4px',
                         display: 'flex',
                         flexDirection: 'column',
                         justifyContent: 'space-between',
                         cursor: isEmpty ? 'default' : 'pointer',
-                        transition: 'transform 0.12s, box-shadow 0.12s',
-                        opacity: isEmpty ? 0.4 : 1,
-                        position: 'relative',
-                        outline: isSelected ? `2px solid ${g.color.bg}` : 'none',
-                        outlineOffset: 2,
-                      }}
-                      onMouseEnter={e => {
-                        if (!isEmpty && !isSelected) {
-                          (e.currentTarget as HTMLElement).style.transform = 'scale(1.08)';
-                          (e.currentTarget as HTMLElement).style.boxShadow = `0 0 0 2px ${g.color.bg}`;
-                        }
-                      }}
-                      onMouseLeave={e => {
-                        if (!isSelected) {
-                          (e.currentTarget as HTMLElement).style.transform = 'scale(1)';
-                          (e.currentTarget as HTMLElement).style.boxShadow = 'none';
-                        }
+                        transition: 'transform 0.1s, box-shadow 0.1s, background 0.1s',
+                        transform: isHovered && !isEmpty ? 'scale(1.1)' : 'scale(1)',
+                        boxShadow: isHovered && !isEmpty ? `0 0 0 2px ${g.color.bg}, 0 4px 12px rgba(0,0,0,0.3)` : 'none',
+                        opacity: isEmpty ? 0.35 : 1,
                       }}
                     >
-                      {/* Top row: ordinal + stock count */}
+                      {/* Ordinal + count */}
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', width: '100%' }}>
-                        <span style={{ fontSize: 8, fontFamily: 'monospace', fontWeight: 700, color: isSelected ? 'rgba(255,255,255,0.6)' : g.color.text, opacity: 0.7 }}>
+                        <span style={{ fontSize: 8, fontFamily: 'monospace', fontWeight: 700, color: isHovered ? 'rgba(255,255,255,0.6)' : g.color.text, opacity: 0.7 }}>
                           {el.ordinal}
                         </span>
                         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 1 }}>
-                          <span style={{ fontSize: 9, fontFamily: 'monospace', fontWeight: 800, color: isSelected ? '#fff' : g.color.text }}>
+                          <span style={{ fontSize: 9, fontFamily: 'monospace', fontWeight: 800, color: isHovered ? '#fff' : g.color.text }}>
                             {el.count}
                           </span>
                           {el.shsCount > 0 && (
-                            <span style={{ fontSize: 7, fontFamily: 'monospace', fontWeight: 700, color: isSelected ? '#fde68a' : '#d97706', lineHeight: 1 }}>
+                            <span style={{ fontSize: 7, fontFamily: 'monospace', fontWeight: 700, color: '#fbbf24', lineHeight: 1 }}>
                               +{el.shsCount}S
                             </span>
                           )}
@@ -426,7 +456,7 @@ export default function PeriodicInventory({ units, onNavigate }: Props) {
                         <span style={{
                           fontSize: el.symbol.length > 4 ? 13 : 17,
                           fontWeight: 900,
-                          color: isSelected ? '#fff' : g.color.text,
+                          color: isHovered ? '#fff' : g.color.text,
                           fontFamily: 'system-ui, sans-serif',
                           letterSpacing: '-0.04em',
                         }}>
@@ -437,15 +467,10 @@ export default function PeriodicInventory({ units, onNavigate }: Props) {
                       {/* Series name */}
                       <div style={{ width: '100%', textAlign: 'center' }}>
                         <span style={{
-                          fontSize: 6.5,
-                          fontFamily: 'monospace',
-                          color: isSelected ? 'rgba(255,255,255,0.8)' : g.color.text,
-                          opacity: 0.75,
-                          lineHeight: 1.2,
-                          display: 'block',
-                          overflow: 'hidden',
-                          textOverflow: 'ellipsis',
-                          whiteSpace: 'nowrap',
+                          fontSize: 6.5, fontFamily: 'monospace',
+                          color: isHovered ? 'rgba(255,255,255,0.8)' : g.color.text,
+                          opacity: 0.75, lineHeight: 1.2, display: 'block',
+                          overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
                         }}>
                           {el.seriesKey}
                         </span>
@@ -458,18 +483,21 @@ export default function PeriodicInventory({ units, onNavigate }: Props) {
           ))}
         </div>
 
-        {/* Legend for SHS indicator */}
         {groups.some(g => g.elements.some(el => el.shsCount > 0)) && (
           <div style={{ marginTop: 12, display: 'flex', alignItems: 'center', gap: 6 }}>
-            <span style={{ fontSize: 9, color: '#d97706', fontFamily: 'monospace', fontWeight: 700 }}>+NS</span>
-            <span style={{ fontSize: 8, color: '#475569', fontFamily: 'monospace' }}>= N units listed with supplier (SHS — click for details)</span>
+            <span style={{ fontSize: 9, color: '#fbbf24', fontFamily: 'monospace', fontWeight: 700 }}>+NS</span>
+            <span style={{ fontSize: 8, color: '#475569', fontFamily: 'monospace' }}>= N units listed with supplier (hover for details)</span>
           </div>
         )}
       </div>
 
-      {/* Popover rendered outside the overflow container */}
       {popover && (
-        <Popover state={popover} onClose={() => setPopover(null)} onNavigate={onNavigate} />
+        <Popover
+          state={popover}
+          onNavigate={s => { onNavigate(s); setPopover(null); }}
+          onMouseEnter={cancelClose}
+          onMouseLeave={scheduleClose}
+        />
       )}
     </>
   );
