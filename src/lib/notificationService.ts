@@ -115,7 +115,7 @@ class NotificationService {
       id: Math.random().toString(36).substring(2, 9),
       type,
       title:   type === 'sold' ? 'Unit Sold!' : 'New Stock Added',
-      message: `${unit.model} (${unit.imei.slice(-4)}) ${type === 'sold' ? 'has been marked as sold.' : 'is now in stock.'}`,
+      message: `${unit.model} (${unit.imei ? unit.imei.slice(-4) : unit.id.slice(-4)}) ${type === 'sold' ? 'has been marked as sold.' : 'is now in stock.'}`,
       timestamp: now.toISOString(),
       unitId: unit.id,
       model:  unit.model,
