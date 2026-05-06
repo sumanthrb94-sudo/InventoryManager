@@ -352,7 +352,7 @@ export default function AnalyticsPage() {
       </div>
 
       {/* ── 2. PLATFORM SCORECARD ── */}
-      <CollapsibleSection title="Platform Scorecard" accent="border-l-amber-400" defaultOpen={true}>
+      <CollapsibleSection title="Platform Scorecard" accent="border-l-amber-400" defaultOpen={false}>
         <div className="p-4 space-y-4">
           {/* Stat cards */}
           <div className="grid grid-cols-2 gap-2">
@@ -415,7 +415,7 @@ export default function AnalyticsPage() {
           count={fastMovers.length}
           meta="≤ 14d avg"
           accent="border-l-emerald-500"
-          defaultOpen={true}
+          defaultOpen={false}
         >
           {fastMovers.length === 0 ? (
             <div className="py-8 flex flex-col items-center gap-2 text-gray-300">
@@ -451,7 +451,7 @@ export default function AnalyticsPage() {
           count={slowMovers.length}
           meta="> 30d avg"
           accent="border-l-red-400"
-          defaultOpen={true}
+          defaultOpen={false}
         >
           {slowMovers.length === 0 ? (
             <div className="py-8 flex flex-col items-center gap-2 text-gray-300">
@@ -488,7 +488,7 @@ export default function AnalyticsPage() {
         count={available.length}
         meta={`${available.length} units`}
         accent="border-l-orange-400"
-        defaultOpen={true}
+        defaultOpen={false}
       >
         <div className="p-4 space-y-3">
           {agedBuckets.map(b => {
@@ -574,7 +574,7 @@ export default function AnalyticsPage() {
           count={reorderAlerts.length}
           meta="High ST · Low stock"
           accent="border-l-red-500"
-          defaultOpen={true}
+          defaultOpen={false}
         >
           <div className="divide-y divide-gray-50">
             {reorderAlerts.map(m => (

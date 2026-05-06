@@ -264,7 +264,7 @@ export default function Dashboard({ onNavigate }: Props) {
         count={yesterdaySold.length}
         meta={yesterdaySold.length > 0 ? `£${yesterdaySold.reduce((s,u)=>s+(u.salePrice||0),0).toLocaleString()}` : undefined}
         accent="border-l-gray-700"
-        defaultOpen={true}
+        defaultOpen={false}
       >
         <div className="bg-gradient-to-br from-gray-900 to-gray-800 p-4 text-white">
           <p className="text-[9px] text-gray-500 font-mono mb-3">{new Date(Date.now()-86400000).toLocaleDateString('en-GB',{weekday:'long',day:'numeric',month:'short'})}</p>

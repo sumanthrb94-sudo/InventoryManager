@@ -349,7 +349,7 @@ export default function CalendarPage() {
                     count={selectedSummary.sold.length}
                     icon={<ShoppingBag size={13} />}
                     color="text-green-600"
-                    defaultOpen={true}
+                    defaultOpen={false}
                   >
                     {/* Platform pills */}
                     <div className="flex flex-wrap gap-2 mb-3">

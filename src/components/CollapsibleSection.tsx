@@ -20,7 +20,7 @@ interface Props {
   icon?: React.ReactNode;
   /** Accent colour class for the left border stripe, e.g. 'border-l-emerald-500' */
   accent?: string;
-  /** Whether to start open. Defaults to true. */
+  /** Whether to start open. Defaults to false. */
   defaultOpen?: boolean;
   children: React.ReactNode;
   /** Extra classes on the outer wrapper */
@@ -33,7 +33,7 @@ export default function CollapsibleSection({
   meta,
   icon,
   accent = 'border-l-gray-300',
-  defaultOpen = true,
+  defaultOpen = false,
   children,
   className = '',
 }: Props) {

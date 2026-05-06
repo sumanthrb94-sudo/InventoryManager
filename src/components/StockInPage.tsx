@@ -130,7 +130,7 @@ export default function StockInPage({ onOpenBatch, onOpenImport }: Props) {
           title="Pending SHS — Awaiting Delivery"
           count={pendingSHS.length}
           accent="border-l-amber-500"
-          defaultOpen={true}
+          defaultOpen={false}
         >
           <div className="divide-y divide-amber-50">
             {pendingSHS.map(u => (
@@ -180,7 +180,7 @@ export default function StockInPage({ onOpenBatch, onOpenImport }: Props) {
         title="Recent Stock In"
         count={filtered.length}
         accent="border-l-emerald-500"
-        defaultOpen={true}
+        defaultOpen={false}
       >
         {filtered.length === 0 ? (
           <div className="py-12 flex flex-col items-center gap-2 text-gray-300">

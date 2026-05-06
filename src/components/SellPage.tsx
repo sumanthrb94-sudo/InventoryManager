@@ -484,7 +484,7 @@ export default function SellPage() {
           title="SHS — Supplier Direct"
           count={shsUnits.length}
           accent="border-l-amber-500"
-          defaultOpen={true}
+          defaultOpen={false}
         >
           <div className="px-4 py-2 border-b border-amber-50 bg-amber-50/60">
             <p className="text-[8px] font-mono text-amber-700 leading-relaxed">
@@ -528,7 +528,7 @@ export default function SellPage() {
           title="Awaiting IMEI — Supplier Dispatching"
           count={awaitingImei.length}
           accent="border-l-orange-500"
-          defaultOpen={true}
+          defaultOpen={false}
         >
           <div className="px-4 py-2 border-b border-orange-50 bg-orange-50/60">
             <p className="text-[8px] font-mono text-orange-700 leading-relaxed">
@@ -612,7 +612,7 @@ export default function SellPage() {
         title="Available Stock"
         count={`${filtered.length}${inStock.length > 80 && !search ? ` of ${inStock.length}` : ''}`}
         accent="border-l-emerald-500"
-        defaultOpen={true}
+        defaultOpen={false}
       >
         {inStock.length === 0 ? (
           <div className="py-16 flex flex-col items-center gap-3 text-gray-300">
