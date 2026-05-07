@@ -32,7 +32,8 @@ export default function NotificationBell({ unreadCount }: { unreadCount: number 
 
   const handleOpen = () => {
     setOpen(o => !o);
-    if (!open) notificationService.markAllAsRead();
+    // Don't auto-mark as read - let user see all notifications
+    // Notifications stay until explicitly dismissed
   };
 
   const today     = new Date().toISOString().split('T')[0];

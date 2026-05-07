@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { ShoppingBag, Package, X, AlertCircle, RefreshCw, Truck } from 'lucide-react';
 import { notificationService, Notification } from '../lib/notificationService';
 
-const DISPLAY_MS = Infinity; // Persistent notifications
+const DISPLAY_MS = 5000; // Auto-dismiss after 5 seconds
 const MAX_VISIBLE = 10;
 
 export default function NotificationToast() {
@@ -12,9 +12,9 @@ export default function NotificationToast() {
 
   useEffect(() => {
     return notificationService.subscribe((notifications) => {
+      // Show newly added unread notifications (only show once per session)
       const fresh = notifications.filter(n => {
-        const age = Date.now() - new Date(n.timestamp).getTime();
-        return !n.read && age < 10_000 && !shownIds.current.has(n.id);
+        return !n.read && !shownIds.current.has(n.id);
       });
       if (!fresh.length) return;
       fresh.forEach(n => shownIds.current.add(n.id));

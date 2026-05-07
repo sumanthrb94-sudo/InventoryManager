@@ -45,7 +45,17 @@ class NotificationService {
   private loadFromStorage() {
     try {
       const raw = localStorage.getItem(this.notifsKey());
-      this.notifications = raw ? JSON.parse(raw) : [];
+      if (!raw) {
+        this.notifications = [];
+        return;
+      }
+      const loaded = JSON.parse(raw);
+      // Keep notifications for 30 days (don't auto-expire)
+      const thirtyDaysAgo = new Date();
+      thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+      this.notifications = loaded.filter((n: Notification) =>
+        new Date(n.timestamp) > thirtyDaysAgo
+      );
     } catch { this.notifications = []; }
   }
 
@@ -99,26 +109,20 @@ class NotificationService {
   }
 
   addNotification(type: NotificationType, unit: InventoryUnit, profitAmount?: number) {
-    const today   = new Date().toISOString().split('T')[0];
-    // Key includes date so a re-sold unit on a different day fires again
-    const firedKey = `${unit.id}_${type}_${today}`;
-
-    console.log(`[Notification] Adding ${type} for ${unit.model}`, { firedKey, profitAmount });
-
-    // Already shown today — don't fire again on reload or real-time re-fetch
-    if (this.getFiredSet().has(firedKey)) {
-      console.log(`[Notification] Already fired today: ${firedKey}`);
-      return;
-    }
-
-    // In-memory guard for rapid duplicates within the same session (< 10s)
+    // In-memory guard for rapid duplicates within the same session (< 5s)
+    // This prevents notification spam if the same action fires multiple times
     const now = new Date();
     const isDuplicate = this.notifications.some(n =>
       n.unitId === unit.id &&
       n.type === type &&
-      now.getTime() - new Date(n.timestamp).getTime() < 10000,
+      now.getTime() - new Date(n.timestamp).getTime() < 5000,
     );
-    if (isDuplicate) return;
+    if (isDuplicate) {
+      console.log(`[Notification] Duplicate prevented: ${unit.id} ${type} (< 5s ago)`);
+      return;
+    }
+
+    console.log(`[Notification] Adding ${type} for ${unit.model}`, { profitAmount });
 
     const titles: Record<NotificationType, string> = {
       sold: '✅ Unit Sold!',
@@ -148,8 +152,7 @@ class NotificationService {
       profitAmount,
     };
 
-    this.notifications = [notification, ...this.notifications].slice(0, 50);
-    this.markFired(firedKey);  // Persist so reload doesn't re-fire
+    this.notifications = [notification, ...this.notifications].slice(0, 100);
     this.saveToStorage();
     this.notify();
     this.playSound(type);
