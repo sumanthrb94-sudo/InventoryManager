@@ -1,10 +1,12 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 import { InventoryUnit } from '../../types';
+import { generateMockSeedData, getMockDataStats } from '../fixtures/seedMockData';
 
 /**
  * E2E Integration Tests (Mocked) - Complete Workflows
  * Tests real user flows with mocked database
  * Verifies data accuracy and business logic
+ * Uses realistic seed data with 200 units
  */
 
 // Simple in-memory mock database
@@ -33,6 +35,18 @@ class MockDB {
 
   clear() {
     this.units.clear();
+  }
+
+  loadSeedData() {
+    const seedUnits = generateMockSeedData();
+    seedUnits.forEach(unit => {
+      this.units.set(unit.id, unit);
+    });
+    return seedUnits;
+  }
+
+  getStats() {
+    return getMockDataStats(this.getAll());
   }
 }
 
@@ -588,6 +602,172 @@ describe('E2E Workflows (Mocked) - Real Logic Testing', () => {
       expect(profits[0]).toBeGreaterThan(0);
       // Second sale should be loss
       expect(profits[1]).toBeLessThan(0);
+    });
+  });
+
+  // ─── SEED DATA TESTS: 200 Unit Dataset ───────────────────
+  describe('Seed Data: 200 Unit Dataset', () => {
+    beforeEach(() => {
+      mockDb.loadSeedData();
+    });
+
+    it('should load 200 units from seed data', () => {
+      const all = mockDb.getAll();
+      expect(all.length).toBe(200);
+    });
+
+    it('should have correct distribution: 60% available, 30% sold, 8% returned, 2% incoming', () => {
+      const stats = mockDb.getStats();
+      expect(stats.available).toBe(120);
+      expect(stats.sold).toBe(60);
+      expect(stats.returned).toBe(16);
+      expect(stats.incoming).toBe(4);
+      expect(stats.total).toBe(200);
+    });
+
+    it('should have valid historical dates (no future dates)', () => {
+      const now = new Date();
+      const all = mockDb.getAll();
+
+      all.forEach(unit => {
+        const dateIn = new Date(unit.dateIn);
+        expect(dateIn.getTime()).toBeLessThanOrEqual(now.getTime());
+      });
+    });
+
+    it('should generate realistic buy prices (£100-£500)', () => {
+      const all = mockDb.getAll();
+      const prices = all.map(u => u.buyPrice);
+
+      prices.forEach(price => {
+        expect(price).toBeGreaterThanOrEqual(100);
+        expect(price).toBeLessThanOrEqual(500);
+      });
+    });
+
+    it('should have valid IMEIs for all units except incoming SHS', () => {
+      const all = mockDb.getAll();
+      const nonIncoming = all.filter(u => u.status !== 'incoming');
+
+      nonIncoming.forEach(unit => {
+        expect(unit.imei).toBeDefined();
+        expect(unit.imei.length).toBeGreaterThanOrEqual(14);
+      });
+    });
+
+    it('should have SHS units with empty IMEI', () => {
+      const all = mockDb.getAll();
+      const shs = all.filter(u => u.status === 'incoming');
+
+      shs.forEach(unit => {
+        expect(unit.imei).toBe('');
+        expect(unit.flags).toContain('SHS');
+      });
+    });
+
+    it('should calculate realistic revenue from sold units', () => {
+      const stats = mockDb.getStats();
+      // 60 units sold should generate £5000-£30000 total revenue
+      expect(stats.totalRevenue).toBeGreaterThan(5000);
+      expect(stats.totalRevenue).toBeLessThan(30000);
+    });
+
+    it('should have profit calculation for sold units', () => {
+      const stats = mockDb.getStats();
+      // Profit should vary (some profit, some loss)
+      expect(typeof stats.totalProfit).toBe('number');
+    });
+
+    it('should have realistic average buy price around £200-£300', () => {
+      const stats = mockDb.getStats();
+      expect(stats.averageBuyPrice).toBeGreaterThan(150);
+      expect(stats.averageBuyPrice).toBeLessThan(350);
+    });
+
+    it('should assign units to realistic batches', () => {
+      const all = mockDb.getAll();
+      const batches = new Set(all.map(u => u.batchId));
+
+      // Should have multiple batches
+      expect(batches.size).toBeGreaterThan(5);
+      expect(batches.size).toBeLessThanOrEqual(20);
+    });
+
+    it('should distribute units across multiple suppliers', () => {
+      const all = mockDb.getAll();
+      const suppliers = new Set(all.map(u => u.supplierId));
+
+      // Should have 10 suppliers
+      expect(suppliers.size).toBe(10);
+    });
+
+    it('should maintain data integrity after operations on seed data', () => {
+      const all = mockDb.getAll();
+      const availableUnit = all.find(u => u.status === 'available')!;
+
+      // Simulate sale
+      const salePrice = 350;
+      const platform = 'eBay';
+      const fee = (salePrice * 0.128) + 0.30;
+      const postage = 8;
+      const profit = salePrice - availableUnit.buyPrice - fee - postage;
+
+      mockDb.update(availableUnit.id, {
+        status: 'sold',
+        salePrice,
+        platform,
+        saleDate: new Date().toISOString().split('T')[0],
+        postage,
+        profit,
+      });
+
+      const updated = mockDb.read(availableUnit.id)!;
+      expect(updated.status).toBe('sold');
+      expect(updated.salePrice).toBe(salePrice);
+      expect(updated.platform).toBe(platform);
+      expect(typeof updated.profit).toBe('number');
+    });
+
+    it('should handle concurrent operations on seed data', () => {
+      const all = mockDb.getAll();
+      const available = all.filter(u => u.status === 'available');
+
+      // Simulate 5 concurrent sales
+      available.slice(0, 5).forEach((unit, idx) => {
+        mockDb.update(unit.id, {
+          status: 'sold',
+          salePrice: 350 + (idx * 50),
+          saleDate: new Date().toISOString().split('T')[0],
+        });
+      });
+
+      const stats = mockDb.getStats();
+      expect(stats.sold).toBe(65); // 60 original + 5 new
+      expect(stats.available).toBe(115); // 120 original - 5 sold
+    });
+
+    it('should verify profit/loss distribution in seed data', () => {
+      const all = mockDb.getAll();
+      const sold = all.filter(u => u.status === 'sold');
+
+      const profitable = sold.filter(u => (u.profit || 0) > 0).length;
+      const losses = sold.filter(u => (u.profit || 0) < 0).length;
+
+      // Should have mix of profitable and loss sales
+      expect(profitable).toBeGreaterThan(0);
+      expect(losses).toBeGreaterThan(0);
+      expect(profitable + losses).toBe(sold.length);
+    });
+
+    it('should verify returned units have correct return info', () => {
+      const all = mockDb.getAll();
+      const returned = all.filter(u => u.status === 'returned');
+
+      returned.forEach(unit => {
+        expect(unit.returnType).toBeDefined();
+        expect(unit.returnReason).toBeDefined();
+        expect(unit.returnDate).toBeDefined();
+      });
     });
   });
 
