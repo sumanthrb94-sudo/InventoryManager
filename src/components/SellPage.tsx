@@ -71,7 +71,7 @@ function SellOrderModal({
         saleOrderId: orderId.trim(),
         saleDate,
         postageCost: postageNum,
-        ...(isSHS ? { imei: imeiInput.trim() || '' } : {}),
+        ...(isSHS && imeiInput.trim() ? { imei: imeiInput.trim() } : {}),
       });
 
       // Trigger notification with correct type and profit amount
