@@ -5,6 +5,7 @@ import { collection, getDocs, writeBatch } from 'firebase/firestore';
 import * as XLSX from 'xlsx';
 import { db } from '../lib/firebase';
 import { dbService, toCamel } from '../lib/dbService';
+import { notificationService } from '../lib/notificationService';
 import seedData from '../lib/clientSeedData.json';
 
 interface Props { onClose: () => void; }
@@ -72,6 +73,8 @@ export default function LoadMockDataModal({ onClose }: Props) {
         addLog(`  ↳ deleted ${snap.size} documents`);
       }
       addLog('All collections cleared.');
+      addLog('Clearing notifications…');
+      notificationService.clear();
 
       setStage('loading');
       const entries: Array<{ collection: string; id: string; data: any }> = [

@@ -187,6 +187,15 @@ class NotificationService {
   getUnreadCount() {
     return this.notifications.filter(n => !n.read).length;
   }
+
+  clear() {
+    this.notifications = [];
+    this.saveToStorage();
+    try {
+      localStorage.removeItem(this.firedKey());
+    } catch { /* ignore */ }
+    this.notify();
+  }
 }
 
 export const notificationService = new NotificationService();
