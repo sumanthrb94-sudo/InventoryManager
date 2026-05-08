@@ -645,9 +645,14 @@ export default function SellPage() {
           <div className="divide-y divide-gray-50">
             {filtered.map(u => {
               const isOpen = expandedId === u.id;
+              const isSHS = u.batchId?.startsWith('shs_') || u.notes?.includes('SHS');
               return (
                 <div key={u.id}>
-                  <div className="flex items-center gap-3 px-4 py-3 hover:bg-gray-50 transition-all">
+                  <div className={`flex items-center gap-3 px-4 py-3 transition-all ${
+                    isSHS
+                      ? 'bg-orange-50/60 hover:bg-orange-50'
+                      : 'hover:bg-gray-50'
+                  }`}>
                     <div className="w-2 h-2 rounded-full bg-emerald-400 flex-shrink-0" />
                     <div className="flex-1 min-w-0">
                       <p className="text-xs font-bold truncate">{u.model}</p>
@@ -743,9 +748,14 @@ export default function SellPage() {
                       const platformFee = u.salePrice && u.salePlatform ? platformTotalFee(u.salePlatform, u.salePrice) : 0;
                       const profit = u.salePrice && u.salePlatform ? calcNetProfit(u.salePrice, u.buyPrice, u.salePlatform, u.postageCost || 0) : null;
                       const feePercentage = u.salePrice && platformFee ? ((platformFee / u.salePrice) * 100).toFixed(1) : '0';
+                      const isSHS = u.batchId?.startsWith('shs_') || u.notes?.includes('SHS');
                       return (
-                        <div key={u.id}>
-                          <div className={`flex items-center justify-between p-3 bg-white border rounded-t-xl hover:border-blue-200 transition-all ${!u.imei ? 'border-orange-200' : 'border-gray-100'}`}>
+                        <div key={u.id} className={isSHS ? 'bg-orange-50/60 rounded-xl' : ''}>
+                          <div className={`flex items-center justify-between p-3 border rounded-t-xl transition-all ${
+                            isSHS
+                              ? 'bg-orange-50 hover:border-orange-200 border-orange-100'
+                              : `bg-white hover:border-blue-200 ${!u.imei ? 'border-orange-200' : 'border-gray-100'}`
+                          }`}>
                             <div className="flex items-center gap-3">
                               <div className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${!u.imei ? 'bg-orange-50 text-orange-500' : 'bg-blue-50 text-blue-600'}`}>
                                 {!u.imei ? <Truck size={14} /> : <ShoppingCart size={14} />}
@@ -775,7 +785,11 @@ export default function SellPage() {
                               {u.saleOrderId && <p className="text-[9px] font-mono text-gray-400 mt-0.5">{u.saleOrderId}</p>}
                             </div>
                           </div>
-                          <div className="px-3 pb-3 bg-gray-50 border border-t-0 border-gray-100 rounded-b-xl">
+                          <div className={`px-3 pb-3 border border-t-0 rounded-b-xl ${
+                            isSHS
+                              ? 'bg-orange-50/40 border-orange-100'
+                              : 'bg-gray-50 border-gray-100'
+                          }`}>
                             <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-[9px]">
                               <div>
                                 <p className="text-gray-500 font-mono uppercase tracking-widest mb-0.5">Buy Price</p>
