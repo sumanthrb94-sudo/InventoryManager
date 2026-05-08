@@ -551,7 +551,7 @@ export default function PeriodicInventory({ units, onNavigate }: Props) {
       </div>
 
       {/* Sidebar - visible on lg screens in grid layout */}
-      <div className="hidden lg:col-span-1 lg:flex">
+      <div className="hidden lg:flex lg:col-span-1">
         <PeriodicTableSidebar
           seriesKey={selectedSeries?.seriesKey || null}
           searchTerm={selectedSeries?.searchTerm || null}
