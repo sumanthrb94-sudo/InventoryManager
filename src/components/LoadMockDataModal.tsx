@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { X, Database, Sparkles, CheckCircle2, RefreshCw, Loader2, Download } from 'lucide-react';
 import { motion } from 'motion/react';
 import { collection, getDocs, writeBatch } from 'firebase/firestore';
+import * as XLSX from 'xlsx';
 import { db } from '../lib/firebase';
 import { dbService, toCamel } from '../lib/dbService';
 import seedData from '../lib/clientSeedData.json';
@@ -107,33 +108,38 @@ export default function LoadMockDataModal({ onClose }: Props) {
   };
 
   const handleDownloadMockData = () => {
-    // Create download object with the seed data
-    const downloadData = {
-      metadata: {
-        generatedAt: new Date().toISOString(),
-        totalUnits: appUnits.length,
-        totalSuppliers: appSuppliers.length,
-        description: 'Sample inventory data for testing and evaluation',
-      },
-      units: appUnits,
-      suppliers: appSuppliers,
-    };
+    // Create a new workbook
+    const workbook = XLSX.utils.book_new();
 
-    // Create JSON file
-    const jsonString = JSON.stringify(downloadData, null, 2);
-    const blob = new Blob([jsonString], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
+    // Create Summary sheet
+    const summaryData = [
+      ['MOCK DATA SUMMARY'],
+      [],
+      ['Generated:', new Date().toISOString()],
+      ['Total Units:', appUnits.length],
+      ['Total Suppliers:', appSuppliers.length],
+      [],
+      ['Status Breakdown:'],
+      ['Available:', available],
+      ['Incoming (SHS):', incoming],
+      ['Sold:', sold],
+      [],
+      ['Description:', 'Sample inventory data for testing and evaluation'],
+    ];
+    const summarySheet = XLSX.utils.aoa_to_sheet(summaryData);
+    XLSX.utils.book_append_sheet(workbook, summarySheet, 'Summary');
 
-    // Trigger download
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `mock-data-${new Date().toISOString().split('T')[0]}.json`;
-    document.body.appendChild(link);
-    link.click();
+    // Create Units sheet
+    const unitsSheet = XLSX.utils.json_to_sheet(appUnits);
+    XLSX.utils.book_append_sheet(workbook, unitsSheet, 'Units');
 
-    // Cleanup
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
+    // Create Suppliers sheet
+    const suppliersSheet = XLSX.utils.json_to_sheet(appSuppliers);
+    XLSX.utils.book_append_sheet(workbook, suppliersSheet, 'Suppliers');
+
+    // Generate file and download
+    const fileName = `mock-data-${new Date().toISOString().split('T')[0]}.xlsx`;
+    XLSX.writeFile(workbook, fileName);
   };
 
   return (
