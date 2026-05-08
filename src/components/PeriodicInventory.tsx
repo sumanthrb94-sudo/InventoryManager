@@ -1,5 +1,7 @@
 import React, { useMemo, useState, useRef, useCallback } from 'react';
+import { AnimatePresence } from 'motion/react';
 import { InventoryUnit } from '../types';
+import ViewAllUnitsModal from './ViewAllUnitsModal';
 
 interface Props {
   units: InventoryUnit[];
@@ -139,11 +141,13 @@ function accentColor(light: string): string {
 function Popover({
   state,
   onNavigate,
+  onViewAll,
   onMouseEnter,
   onMouseLeave,
 }: {
   state: PopoverState;
   onNavigate: (s: string) => void;
+  onViewAll: (seriesKey: string, searchTerm: string) => void;
   onMouseEnter: () => void;
   onMouseLeave: () => void;
 }) {
@@ -277,7 +281,7 @@ function Popover({
       {el.count > 0 && (
         <div style={{ padding: '6px 12px 10px' }}>
           <button
-            onClick={() => onNavigate(el.searchTerm)}
+            onClick={() => onViewAll(el.seriesKey, el.searchTerm)}
             style={{
               width: '100%', padding: '7px', background: color.bg, border: 'none',
               borderRadius: 7, color: '#fff', fontSize: 10, fontWeight: 700,
@@ -298,6 +302,7 @@ export default function PeriodicInventory({ units, onNavigate }: Props) {
   const incoming  = units.filter(u => u.status === 'incoming');
 
   const [popover, setPopover] = useState<PopoverState | null>(null);
+  const [viewAllModal, setViewAllModal] = useState<{ seriesKey: string; searchTerm: string } | null>(null);
   // Refs for the hover grace-period timers
   const closeTimer  = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -539,10 +544,23 @@ export default function PeriodicInventory({ units, onNavigate }: Props) {
         <Popover
           state={popover}
           onNavigate={s => { onNavigate(s); setPopover(null); }}
+          onViewAll={(seriesKey, searchTerm) => { setViewAllModal({ seriesKey, searchTerm }); setPopover(null); }}
           onMouseEnter={cancelClose}
           onMouseLeave={scheduleClose}
         />
       )}
+
+      {/* View All Units Modal */}
+      <AnimatePresence>
+        {viewAllModal && (
+          <ViewAllUnitsModal
+            seriesKey={viewAllModal.seriesKey}
+            searchTerm={viewAllModal.searchTerm}
+            units={units}
+            onClose={() => setViewAllModal(null)}
+          />
+        )}
+      </AnimatePresence>
     </>
   );
 }
