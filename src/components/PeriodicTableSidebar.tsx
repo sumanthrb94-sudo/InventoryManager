@@ -19,14 +19,17 @@ interface Element {
   priceRange: { min: number; max: number };
 }
 
-function calculateElement(searchTerm: string, units: InventoryUnit[]): Element | null {
-  const q = searchTerm.toLowerCase();
-  const matching = units.filter(u =>
-    u.model.toLowerCase().includes(q) ||
-    (u.model.includes('iPhone') && q.includes('iphone')) ||
-    (u.model.includes('iPad') && q.includes('ipad')) ||
-    (u.model.includes('Galaxy') && (q.includes('galaxy') || q.includes('samsung')))
-  );
+function calculateElement(seriesKey: string, searchTerm: string, units: InventoryUnit[]): Element | null {
+  // Find matching units by series key (exact match on the series name from periodic table)
+  const matching = units.filter(u => {
+    const model = u.model.toLowerCase();
+    const search = searchTerm.toLowerCase();
+
+    // Match by model containing the exact series key
+    // For "Galaxy S23" search for models with "Galaxy S23" or "S23"
+    // For "iPhone 15" search for models with "iPhone 15" or "15"
+    return model.includes(search) || model.includes(seriesKey.toLowerCase());
+  });
 
   const available = matching.filter(u => u.status === 'available');
   const incoming = matching.filter(u => u.status === 'incoming');
@@ -49,7 +52,7 @@ function calculateElement(searchTerm: string, units: InventoryUnit[]): Element |
   const storageArray = Object.entries(storages).map(([storage, count]) => ({ storage, count }));
 
   return {
-    seriesKey: searchTerm,
+    seriesKey: seriesKey,
     count: available.length,
     shsCount: incoming.length,
     variants: variantArray.sort((a, b) => b.count - a.count),
@@ -61,16 +64,33 @@ function calculateElement(searchTerm: string, units: InventoryUnit[]): Element |
   };
 }
 
-function accentColor(hue: number): string {
-  const colors = ['#3b82f6', '#8b5cf6', '#f59e0b', '#10b981', '#06b6d4'];
-  return colors[hue % colors.length];
+function getBrandColor(seriesKey: string): { bg: string; text: string; accent: string; light: string } {
+  const lower = seriesKey.toLowerCase();
+  if (lower.includes('iphone')) {
+    return { bg: '#1d4ed8', text: '#1e3a8a', accent: '#3b82f6', light: '#dbeafe' };
+  }
+  if (lower.includes('ipad')) {
+    return { bg: '#7c3aed', text: '#4c1d95', accent: '#8b5cf6', light: '#ede9fe' };
+  }
+  if (lower.includes('galaxy s') || lower.includes('s-series')) {
+    return { bg: '#d97706', text: '#78350f', accent: '#f59e0b', light: '#fef3c7' };
+  }
+  if (lower.includes('galaxy a') || lower.includes('a-series')) {
+    return { bg: '#059669', text: '#064e3b', accent: '#10b981', light: '#d1fae5' };
+  }
+  if (lower.includes('galaxy z') || lower.includes('tab') || lower.includes('samsung')) {
+    return { bg: '#0891b2', text: '#164e63', accent: '#06b6d4', light: '#cffafe' };
+  }
+  return { bg: '#6b7280', text: '#374151', accent: '#9ca3af', light: '#f3f4f6' };
 }
 
 export default function PeriodicTableSidebar({ seriesKey, searchTerm, units, onViewAll }: Props) {
   const element = useMemo(() => {
     if (!seriesKey || !searchTerm) return null;
-    return calculateElement(searchTerm, units);
+    return calculateElement(seriesKey, searchTerm, units);
   }, [seriesKey, searchTerm, units]);
+
+  const brandColor = seriesKey ? getBrandColor(seriesKey) : null;
 
   if (!element) {
     return (
@@ -81,14 +101,21 @@ export default function PeriodicTableSidebar({ seriesKey, searchTerm, units, onV
   }
 
   const maxVariants = Math.max(...element.variants.map(v => v.count), 1);
-  const accent = accentColor(element.seriesKey.charCodeAt(0));
+
+  if (!brandColor) {
+    return (
+      <div className="hidden lg:flex lg:flex-col h-full bg-white border-l border-gray-200 p-6 justify-center items-center text-center">
+        <p className="text-sm text-gray-400 font-mono">No data</p>
+      </div>
+    );
+  }
 
   return (
-    <div className="hidden lg:flex lg:flex-col h-full bg-gradient-to-b from-gray-50 to-white border-l border-gray-200 overflow-y-auto">
+    <div className="hidden lg:flex lg:flex-col h-full border-l overflow-y-auto" style={{ background: brandColor.light }}>
       {/* Header */}
-      <div className="px-6 py-4 border-b border-gray-200">
-        <h3 className="text-lg font-bold text-gray-900">{element.seriesKey}</h3>
-        <p className="text-xs text-gray-500 font-mono mt-1">
+      <div className="px-6 py-4 border-b" style={{ background: brandColor.bg, borderColor: brandColor.accent }}>
+        <h3 className="text-lg font-bold text-white">{element.seriesKey}</h3>
+        <p className="text-xs text-white font-mono mt-1 opacity-80">
           {element.priceRange.min === element.priceRange.max
             ? `£${element.priceRange.min}`
             : `£${element.priceRange.min}–${element.priceRange.max}`}
@@ -113,22 +140,22 @@ export default function PeriodicTableSidebar({ seriesKey, searchTerm, units, onV
 
       {/* Colour variants */}
       {element.variants.length > 0 && (
-        <div className="px-6 py-4 border-b border-gray-200">
-          <p className="text-xs text-gray-600 font-mono font-bold uppercase tracking-widest mb-3">Colour Variants</p>
+        <div className="px-6 py-4 border-b" style={{ borderColor: brandColor.light }}>
+          <p className="text-xs font-mono font-bold uppercase tracking-widest mb-3" style={{ color: brandColor.text }}>Colour Variants</p>
           <div className="space-y-2">
             {element.variants.slice(0, 5).map(v => {
               const pct = Math.round((v.count / element.count) * 100);
               return (
                 <div key={v.colour}>
                   <div className="flex items-center justify-between mb-1">
-                    <span className="text-xs text-gray-700 font-medium">{v.colour}</span>
-                    <span className="text-xs font-bold text-gray-900">{v.count}</span>
+                    <span className="text-xs font-medium" style={{ color: brandColor.text }}>{v.colour}</span>
+                    <span className="text-xs font-bold" style={{ color: brandColor.text }}>{v.count}</span>
                   </div>
-                  <div className="h-2 bg-gray-200 rounded-full overflow-hidden">
+                  <div className="h-2 rounded-full overflow-hidden" style={{ background: brandColor.light }}>
                     <div
                       style={{
                         width: `${pct}%`,
-                        background: accent,
+                        background: brandColor.accent,
                       }}
                       className="h-full rounded-full transition-all"
                     />

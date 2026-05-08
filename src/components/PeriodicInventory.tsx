@@ -562,7 +562,8 @@ export default function PeriodicInventory({ units, onNavigate }: Props) {
         />
       </div>
 
-      {popover && (
+      {/* Popover removed - replaced with sidebar on desktop, modal available on mobile */}
+      {/* {popover && (
         <Popover
           state={popover}
           onNavigate={s => { onNavigate(s); setPopover(null); }}
@@ -570,7 +571,7 @@ export default function PeriodicInventory({ units, onNavigate }: Props) {
           onMouseEnter={cancelClose}
           onMouseLeave={scheduleClose}
         />
-      )}
+      )} */}
 
       {/* View All Units Modal */}
       <AnimatePresence>
