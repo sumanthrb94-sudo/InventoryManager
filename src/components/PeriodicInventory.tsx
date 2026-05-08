@@ -1,5 +1,6 @@
 import React, { useMemo, useState, useRef, useCallback } from 'react';
-import { AnimatePresence } from 'motion/react';
+import { AnimatePresence, motion } from 'motion/react';
+import { X } from 'lucide-react';
 import { InventoryUnit } from '../types';
 import ViewAllUnitsModal from './ViewAllUnitsModal';
 import PeriodicTableSidebar from './PeriodicTableSidebar';
@@ -549,8 +550,8 @@ export default function PeriodicInventory({ units, onNavigate }: Props) {
       </div>
       </div>
 
-      {/* Sidebar - visible on lg screens */}
-      <div className="lg:col-span-1">
+      {/* Sidebar - visible on lg screens in grid layout */}
+      <div className="hidden lg:col-span-1 lg:flex">
         <PeriodicTableSidebar
           seriesKey={selectedSeries?.seriesKey || null}
           searchTerm={selectedSeries?.searchTerm || null}
@@ -562,16 +563,51 @@ export default function PeriodicInventory({ units, onNavigate }: Props) {
         />
       </div>
 
-      {/* Popover removed - replaced with sidebar on desktop, modal available on mobile */}
-      {/* {popover && (
-        <Popover
-          state={popover}
-          onNavigate={s => { onNavigate(s); setPopover(null); }}
-          onViewAll={(seriesKey, searchTerm) => { setViewAllModal({ seriesKey, searchTerm }); setPopover(null); }}
-          onMouseEnter={cancelClose}
-          onMouseLeave={scheduleClose}
-        />
-      )} */}
+      {/* Mobile sidebar modal - visible on smaller screens */}
+      <AnimatePresence>
+        {selectedSeries && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="lg:hidden fixed inset-0 z-50 flex items-end bg-black/40 backdrop-blur-sm"
+            onClick={() => setSelectedSeries(null)}
+          >
+            <motion.div
+              initial={{ y: '100%' }}
+              animate={{ y: 0 }}
+              exit={{ y: '100%' }}
+              transition={{ type: 'spring', damping: 30, stiffness: 300 }}
+              className="w-full bg-white rounded-t-2xl max-h-[85vh] overflow-y-auto"
+              onClick={e => e.stopPropagation()}
+            >
+              {/* Mobile sidebar header */}
+              <div className="sticky top-0 bg-white border-b border-gray-200 p-4 flex items-center justify-between rounded-t-2xl">
+                <h3 className="text-lg font-bold">{selectedSeries.seriesKey}</h3>
+                <button
+                  onClick={() => setSelectedSeries(null)}
+                  className="p-2 hover:bg-gray-100 rounded-lg transition-all"
+                >
+                  <X size={20} className="text-gray-500" />
+                </button>
+              </div>
+
+              {/* Mobile sidebar content */}
+              <div className="p-4">
+                <PeriodicTableSidebar
+                  seriesKey={selectedSeries.seriesKey}
+                  searchTerm={selectedSeries.searchTerm}
+                  units={units}
+                  onViewAll={(seriesKey, searchTerm) => {
+                    setViewAllModal({ seriesKey, searchTerm });
+                    setSelectedSeries(null);
+                  }}
+                />
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* View All Units Modal */}
       <AnimatePresence>
