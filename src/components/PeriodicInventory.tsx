@@ -2,6 +2,7 @@ import React, { useMemo, useState, useRef, useCallback } from 'react';
 import { AnimatePresence } from 'motion/react';
 import { InventoryUnit } from '../types';
 import ViewAllUnitsModal from './ViewAllUnitsModal';
+import PeriodicTableSidebar from './PeriodicTableSidebar';
 
 interface Props {
   units: InventoryUnit[];
@@ -303,6 +304,7 @@ export default function PeriodicInventory({ units, onNavigate }: Props) {
 
   const [popover, setPopover] = useState<PopoverState | null>(null);
   const [viewAllModal, setViewAllModal] = useState<{ seriesKey: string; searchTerm: string } | null>(null);
+  const [selectedSeries, setSelectedSeries] = useState<{ seriesKey: string; searchTerm: string } | null>(null);
   // Refs for the hover grace-period timers
   const closeTimer  = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -402,8 +404,9 @@ export default function PeriodicInventory({ units, onNavigate }: Props) {
   if (groups.length === 0) return null;
 
   return (
-    <>
-      <div style={{ background: '#0f172a', borderRadius: 20, padding: '20px 16px', overflowX: 'auto' }}>
+    <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 h-full lg:h-auto">
+      <div className="lg:col-span-2">
+        <div style={{ background: '#0f172a', borderRadius: 20, padding: '20px 16px', overflowX: 'auto' }}>
         {/* Header */}
         <div style={{ marginBottom: 16 }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
@@ -465,7 +468,12 @@ export default function PeriodicInventory({ units, onNavigate }: Props) {
                       key={el.seriesKey}
                       onMouseEnter={e => handleElementEnter(el, g.color, e)}
                       onMouseLeave={scheduleClose}
-                      onClick={() => el.count > 0 && onNavigate(el.searchTerm)}
+                      onClick={() => {
+                        if (el.count > 0) {
+                          onNavigate(el.searchTerm);
+                          setSelectedSeries({ seriesKey: el.seriesKey, searchTerm: el.searchTerm });
+                        }
+                      }}
                       title={isEmpty ? el.seriesKey : undefined}
                       style={{
                         width: 72, height: 72,
@@ -539,6 +547,20 @@ export default function PeriodicInventory({ units, onNavigate }: Props) {
           </div>
         )}
       </div>
+      </div>
+
+      {/* Sidebar - visible on lg screens */}
+      <div className="lg:col-span-1">
+        <PeriodicTableSidebar
+          seriesKey={selectedSeries?.seriesKey || null}
+          searchTerm={selectedSeries?.searchTerm || null}
+          units={units}
+          onViewAll={(seriesKey, searchTerm) => {
+            setViewAllModal({ seriesKey, searchTerm });
+            setSelectedSeries(null);
+          }}
+        />
+      </div>
 
       {popover && (
         <Popover
@@ -561,6 +583,6 @@ export default function PeriodicInventory({ units, onNavigate }: Props) {
           />
         )}
       </AnimatePresence>
-    </>
+    </div>
   );
 }
