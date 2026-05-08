@@ -3,6 +3,8 @@ import { X, Check, Loader2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { InventoryUnit, ListingSite } from '../types';
 import { dbService } from '../lib/dbService';
+import { useInventoryStore } from '../lib/inventoryStore';
+import CopyImei from './CopyImei';
 
 interface Props {
   seriesKey: string;
@@ -14,10 +16,17 @@ interface Props {
 const LISTING_SITES: ListingSite[] = ['eBay', 'Amazon', 'OnBuy', 'Backmarket'];
 
 export default function ViewAllUnitsModal({ seriesKey, searchTerm, units, onClose }: Props) {
+  const { suppliers } = useInventoryStore();
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [updating, setUpdating] = useState(false);
   const [updateError, setUpdateError] = useState('');
-  const [listingSiteFilter, setListingSiteFilter] = useState<ListingSite | 'all'>('all');
+  const [activeTab, setActiveTab] = useState<'in-stock' | 'shs' | 'sold'>('in-stock');
+
+  const supplierMap = useMemo(() => {
+    const map: Record<string, string> = {};
+    for (const s of suppliers) map[s.id] = s.name;
+    return map;
+  }, [suppliers]);
 
   const filtered = useMemo(() => {
     const q = searchTerm.toLowerCase();
@@ -33,11 +42,13 @@ export default function ViewAllUnitsModal({ seriesKey, searchTerm, units, onClos
   const shs = filtered.filter(u => u.status === 'incoming');
   const sold = filtered.filter(u => u.status === 'sold');
 
+  const displayUnits = activeTab === 'in-stock' ? inStock : activeTab === 'shs' ? shs : sold;
+
   const handleSelectAll = () => {
-    if (selected.size === inStock.length) {
+    if (selected.size === displayUnits.length) {
       setSelected(new Set());
     } else {
-      setSelected(new Set(inStock.map(u => u.id)));
+      setSelected(new Set(displayUnits.map(u => u.id)));
     }
   };
 
@@ -93,7 +104,7 @@ export default function ViewAllUnitsModal({ seriesKey, searchTerm, units, onClos
           <div>
             <h2 className="text-xl font-bold tracking-tight">{seriesKey}</h2>
             <p className="text-sm text-gray-500 font-mono mt-1">
-              {filtered.length} total · {inStock.length} in stock {shs.length > 0 ? `· ${shs.length} SHS` : ''}
+              {filtered.length} total · {inStock.length} in stock {shs.length > 0 ? `· ${shs.length} SHS` : ''} {sold.length > 0 ? `· ${sold.length} sold` : ''}
             </p>
           </div>
           <button
@@ -105,33 +116,49 @@ export default function ViewAllUnitsModal({ seriesKey, searchTerm, units, onClos
           </button>
         </div>
 
+        {/* Tabs */}
+        <div className="flex border-b border-gray-100 bg-white px-6">
+          <button
+            onClick={() => setActiveTab('in-stock')}
+            className={`py-3 px-4 text-sm font-bold border-b-2 transition-all ${
+              activeTab === 'in-stock'
+                ? 'border-emerald-500 text-emerald-700'
+                : 'border-transparent text-gray-600 hover:text-gray-900'
+            }`}
+          >
+            In Stock ({inStock.length})
+          </button>
+          {shs.length > 0 && (
+            <button
+              onClick={() => setActiveTab('shs')}
+              className={`py-3 px-4 text-sm font-bold border-b-2 transition-all ${
+                activeTab === 'shs'
+                  ? 'border-amber-500 text-amber-700'
+                  : 'border-transparent text-gray-600 hover:text-gray-900'
+              }`}
+            >
+              SHS ({shs.length})
+            </button>
+          )}
+          {sold.length > 0 && (
+            <button
+              onClick={() => setActiveTab('sold')}
+              className={`py-3 px-4 text-sm font-bold border-b-2 transition-all ${
+                activeTab === 'sold'
+                  ? 'border-blue-500 text-blue-700'
+                  : 'border-transparent text-gray-600 hover:text-gray-900'
+              }`}
+            >
+              Sold ({sold.length})
+            </button>
+          )}
+        </div>
+
         {/* Content */}
         <div className="flex-1 overflow-y-auto">
-          {/* Stats */}
-          <div className="px-6 py-4 border-b border-gray-100 bg-gray-50">
-            <div className="grid grid-cols-3 gap-4">
-              <div>
-                <p className="text-xs text-gray-500 font-mono uppercase tracking-widest">In Stock</p>
-                <p className="text-2xl font-bold mt-1 text-emerald-700">{inStock.length}</p>
-              </div>
-              {shs.length > 0 && (
-                <div>
-                  <p className="text-xs text-gray-500 font-mono uppercase tracking-widest">SHS</p>
-                  <p className="text-2xl font-bold mt-1 text-amber-700">{shs.length}</p>
-                </div>
-              )}
-              {sold.length > 0 && (
-                <div>
-                  <p className="text-xs text-gray-500 font-mono uppercase tracking-widest">Sold</p>
-                  <p className="text-2xl font-bold mt-1 text-blue-700">{sold.length}</p>
-                </div>
-              )}
-            </div>
-          </div>
-
-          {/* Bulk actions */}
-          {inStock.length > 0 && (
-            <div className="px-6 py-4 border-b border-gray-100 bg-white space-y-3">
+          {/* Bulk actions for In Stock tab */}
+          {activeTab === 'in-stock' && inStock.length > 0 && (
+            <div className="px-6 py-4 border-b border-gray-100 bg-gray-50 space-y-3">
               <div className="flex items-center gap-3">
                 <input
                   type="checkbox"
@@ -139,14 +166,14 @@ export default function ViewAllUnitsModal({ seriesKey, searchTerm, units, onClos
                   onChange={handleSelectAll}
                   className="w-4 h-4 rounded border-gray-300"
                 />
-                <span className="text-sm font-medium">
+                <span className="text-sm font-medium text-gray-900">
                   {selected.size === 0 ? 'Select all' : `${selected.size} selected`}
                 </span>
               </div>
 
               {selected.size > 0 && (
                 <div className="space-y-2">
-                  <p className="text-xs text-gray-600 font-mono">UPDATE LISTING SITES</p>
+                  <p className="text-xs text-gray-600 font-mono uppercase tracking-widest">Update Listing Sites</p>
                   <div className="flex gap-2 flex-wrap">
                     {LISTING_SITES.map(site => (
                       <button
@@ -175,58 +202,95 @@ export default function ViewAllUnitsModal({ seriesKey, searchTerm, units, onClos
 
           {/* Units list */}
           <div className="divide-y divide-gray-100">
-            {inStock.length === 0 ? (
+            {displayUnits.length === 0 ? (
               <div className="py-16 flex flex-col items-center gap-2 text-gray-400">
-                <p className="text-sm font-mono">No units in stock</p>
+                <p className="text-sm font-mono">No units in this category</p>
               </div>
             ) : (
-              inStock.map(u => (
-                <div key={u.id} className="px-6 py-3 hover:bg-gray-50 transition-all flex items-center gap-3">
-                  <input
-                    type="checkbox"
-                    checked={selected.has(u.id)}
-                    onChange={() => handleToggleSelect(u.id)}
-                    className="w-4 h-4 rounded border-gray-300"
-                  />
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2">
-                      <span className="font-mono text-xs text-gray-400">{u.imei?.slice(-4)}</span>
-                    </div>
-                    <p className="text-sm font-semibold text-gray-900">{u.model}</p>
-                    <div className="flex items-center gap-2 mt-1 flex-wrap">
-                      {u.colour && (
-                        <span className="text-xs text-gray-600 font-mono">{u.colour}</span>
-                      )}
-                      {u.storage && (
-                        <span className="text-xs text-gray-600 font-mono">{u.storage}</span>
-                      )}
-                      {u.grade && (
-                        <span className="text-xs bg-gray-100 text-gray-700 px-2 py-0.5 rounded font-mono">
-                          {u.grade}
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-4 flex-shrink-0 text-right">
-                    <div>
-                      <p className="text-sm font-bold text-gray-900">£{u.buyPrice}</p>
-                      <p className="text-xs text-gray-500">Buy Price</p>
-                    </div>
-                    {u.listingSites && u.listingSites.length > 0 && (
-                      <div className="flex gap-1">
-                        {u.listingSites.map(site => (
-                          <span
-                            key={site}
-                            className="text-xs bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded font-mono font-bold"
-                          >
-                            {site}
-                          </span>
-                        ))}
-                      </div>
+              displayUnits.map(u => {
+                const isSHS = activeTab === 'shs';
+                const hasIMEI = !!u.imei;
+                const supplierName = supplierMap[u.supplierId] || 'Unknown Supplier';
+
+                return (
+                  <div
+                    key={u.id}
+                    className={`px-6 py-3 transition-all ${
+                      isSHS ? 'bg-orange-50/60 hover:bg-orange-50' : 'hover:bg-gray-50'
+                    } flex items-center gap-3`}
+                  >
+                    {activeTab === 'in-stock' && (
+                      <input
+                        type="checkbox"
+                        checked={selected.has(u.id)}
+                        onChange={() => handleToggleSelect(u.id)}
+                        className="w-4 h-4 rounded border-gray-300 flex-shrink-0"
+                      />
                     )}
+
+                    <div className="flex-1 min-w-0">
+                      {/* Top row: IMEI and model */}
+                      <div className="flex items-start gap-2 mb-1">
+                        {hasIMEI ? (
+                          <CopyImei imei={u.imei} truncate={12} />
+                        ) : isSHS ? (
+                          <span className="text-xs italic text-amber-600 font-mono">
+                            IMEI will be updated while marking sold
+                          </span>
+                        ) : (
+                          <span className="text-xs text-gray-400 font-mono">No IMEI</span>
+                        )}
+                      </div>
+
+                      {/* Model name */}
+                      <p className="text-sm font-semibold text-gray-900 mb-1">{u.model}</p>
+
+                      {/* Specs row */}
+                      <div className="flex items-center gap-2 flex-wrap mb-2">
+                        {u.colour && (
+                          <span className="text-xs text-gray-600 font-mono">{u.colour}</span>
+                        )}
+                        {u.storage && (
+                          <span className="text-xs text-gray-600 font-mono">{u.storage}</span>
+                        )}
+                        {u.grade && (
+                          <span className="text-xs bg-gray-100 text-gray-700 px-2 py-0.5 rounded font-mono font-bold">
+                            {u.grade}
+                          </span>
+                        )}
+                      </div>
+
+                      {/* Batch and Supplier info */}
+                      <div className="text-xs text-gray-500 font-mono space-y-0.5">
+                        {u.batchId && (
+                          <p>Batch: <span className="text-gray-700 font-bold">{u.batchId === 'master_batch' ? 'Master Batch' : u.batchId}</span></p>
+                        )}
+                        <p>Supplier: <span className="text-gray-700 font-bold">{supplierName}</span></p>
+                      </div>
+                    </div>
+
+                    {/* Right side: Price and listing sites */}
+                    <div className="flex items-center gap-4 flex-shrink-0 text-right">
+                      <div>
+                        <p className="text-sm font-bold text-gray-900">£{u.buyPrice}</p>
+                        <p className="text-xs text-gray-500">Buy Price</p>
+                      </div>
+                      {u.listingSites && u.listingSites.length > 0 && (
+                        <div className="flex gap-1 flex-col items-end">
+                          {u.listingSites.map(site => (
+                            <span
+                              key={site}
+                              className="text-xs bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded font-mono font-bold"
+                            >
+                              {site}
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                    </div>
                   </div>
-                </div>
-              ))
+                );
+              })
             )}
           </div>
         </div>
