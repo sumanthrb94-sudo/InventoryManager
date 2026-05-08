@@ -458,55 +458,98 @@ export default function ReturnsPage() {
 // ── Sold unit picker (search + select to process return) ─────────────────────
 function SoldUnitPicker({ units, onSelect }: { units: InventoryUnit[]; onSelect: (u: InventoryUnit) => void }) {
   const [q, setQ] = useState('');
+  const [page, setPage] = useState(1);
+  const ITEMS_PER_PAGE = 8;
 
-  const filtered = useMemo(() => {
+  const { sorted, filtered } = useMemo(() => {
     let sorted = [...units].sort((a, b) => {
       const da = a.saleDate || a.dateIn;
       const db = b.saleDate || b.dateIn;
       return new Date(db).getTime() - new Date(da).getTime();
     });
 
-    if (!q.trim()) {
-      return sorted.slice(0, 8); // Show up to 8 recent sold items by default
+    let result = sorted;
+    if (q.trim()) {
+      const s = q.toLowerCase();
+      result = sorted.filter(u =>
+        u.model.toLowerCase().includes(s) ||
+        (u.imei || '').includes(s) ||
+        (u.saleOrderId || '').toLowerCase().includes(s)
+      );
     }
 
-    const s = q.toLowerCase();
-    return sorted.filter(u =>
-      u.model.toLowerCase().includes(s) ||
-      (u.imei || '').includes(s) ||
-      (u.saleOrderId || '').toLowerCase().includes(s)
-    ).slice(0, 8);
+    return { sorted, filtered: result };
   }, [units, q]);
+
+  const totalPages = Math.ceil(filtered.length / ITEMS_PER_PAGE);
+  const validPage = Math.min(page, Math.max(1, totalPages));
+  const start = (validPage - 1) * ITEMS_PER_PAGE;
+  const paginatedItems = filtered.slice(start, start + ITEMS_PER_PAGE);
+
+  const handlePrevPage = () => setPage(p => Math.max(1, p - 1));
+  const handleNextPage = () => setPage(p => Math.min(totalPages, p + 1));
+
+  const handleSearch = (value: string) => {
+    setQ(value);
+    setPage(1);
+  };
 
   return (
     <div className="space-y-2">
       <div className="relative">
         <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-        <input value={q} onChange={e => setQ(e.target.value)}
+        <input value={q} onChange={e => handleSearch(e.target.value)}
           placeholder="Search sold units by model, IMEI or order number…"
           className="w-full pl-9 pr-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-xs focus:outline-none focus:border-black transition-all" />
       </div>
       {filtered.length > 0 && (
-        <div className="border border-gray-200 rounded-xl overflow-hidden divide-y divide-gray-50">
-          {filtered.map(u => (
-            <button key={u.id} onClick={() => { onSelect(u); setQ(''); }}
-              className="w-full flex items-center justify-between px-4 py-3 hover:bg-gray-50 transition-all text-left">
-              <div className="min-w-0">
-                <p className="text-xs font-bold truncate">{u.model}</p>
-                <p className="text-[9px] text-gray-400 font-mono mt-0.5">
-                  {(u.imei || '').slice(0, 10)}{u.imei && u.imei.length > 10 ? '…' : ''} · {u.salePlatform || '—'} · Order: {u.saleOrderId || '—'}
-                </p>
-              </div>
-              <span className="text-xs font-bold text-orange-600 ml-3 flex-shrink-0">Return →</span>
-            </button>
-          ))}
-        </div>
+        <>
+          <div className="border border-gray-200 rounded-xl overflow-hidden divide-y divide-gray-50">
+            {paginatedItems.map(u => {
+              const isSHS = u.batchId?.startsWith('shs_') || u.notes?.includes('SHS');
+              return (
+              <button key={u.id} onClick={() => { onSelect(u); setQ(''); setPage(1); }}
+                className={`w-full flex items-center justify-between px-4 py-3 transition-all text-left ${isSHS ? 'bg-orange-50/60 hover:bg-orange-50' : 'hover:bg-gray-50'}`}>
+                <div className="min-w-0">
+                  <p className="text-xs font-bold truncate">{u.model}</p>
+                  <p className="text-[9px] text-gray-400 font-mono mt-0.5">
+                    {(u.imei || '').slice(0, 10)}{u.imei && u.imei.length > 10 ? '…' : ''} · {u.salePlatform || '—'} · Order: {u.saleOrderId || '—'}
+                  </p>
+                </div>
+                <span className="text-xs font-bold text-orange-600 ml-3 flex-shrink-0">Return →</span>
+              </button>
+            );
+            })}
+          </div>
+
+          {/* Pagination controls */}
+          {totalPages > 1 && (
+            <div className="flex items-center justify-between px-3 py-2 bg-gray-50 border border-gray-200 rounded-xl">
+              <button
+                onClick={handlePrevPage}
+                disabled={validPage === 1}
+                className="p-1.5 hover:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed rounded-lg transition-all text-gray-400"
+                title="Previous page"
+              >
+                <ChevronDown size={14} className="rotate-90" />
+              </button>
+              <span className="text-[9px] font-mono text-gray-500">
+                Page {validPage} of {totalPages}
+              </span>
+              <button
+                onClick={handleNextPage}
+                disabled={validPage === totalPages}
+                className="p-1.5 hover:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed rounded-lg transition-all text-gray-400"
+                title="Next page"
+              >
+                <ChevronUp size={14} className="rotate-90" />
+              </button>
+            </div>
+          )}
+        </>
       )}
       {q.trim() && filtered.length === 0 && (
         <p className="text-[10px] text-gray-400 font-mono text-center py-2">No sold units match "{q}"</p>
-      )}
-      {!q.trim() && units.length > 8 && (
-        <p className="text-[9px] text-gray-400 font-mono text-center py-1 mt-1">Showing 8 most recent. Search to find older items.</p>
       )}
     </div>
   );
