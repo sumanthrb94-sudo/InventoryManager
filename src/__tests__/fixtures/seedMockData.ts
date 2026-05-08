@@ -126,11 +126,10 @@ export function generateMockSeedData(): InventoryUnit[] {
       buyPrice: buyPrice,
       dateIn: getDateDaysAgo(daysAgo + 20),
       salePrice: salePrice,
-      platform: platform,
-      orderId: `ORD-${String(Math.random()).substring(2, 7)}-${Date.now() % 100000}`,
+      salePlatform: platform,
+      saleOrderId: `ORD-${String(Math.random()).substring(2, 7)}-${Date.now() % 100000}`,
       saleDate: getDateDaysAgo(daysAgo),
-      postage: postage,
-      profit: profit,
+      postageCost: postage,
       supplierId: randomFrom(suppliers),
       batchId: `batch_${Math.floor((120 + i) / 20)}`,
       batchNo: `INV-${2026}${String(Math.floor((120 + i) / 20) + 1).padStart(2, '0')}`,
@@ -142,6 +141,9 @@ export function generateMockSeedData(): InventoryUnit[] {
       ownerId: 'shared',
       createdAt: getDateDaysAgo(daysAgo + 20) + 'T09:00:00Z',
     };
+    // Add calculated profit field for testing
+    (unit as any).profit = profit;
+    (unit as any).platformFee = fee;
     units.push(unit);
   }
 
@@ -218,21 +220,48 @@ export function resetMockDatabase(): InventoryUnit[] {
  * Get stats about seed data
  */
 export function getMockDataStats(units: InventoryUnit[]) {
+  const sold = units.filter(u => u.status === 'sold');
+  const available = units.filter(u => u.status === 'available');
+  const returned = units.filter(u => u.status === 'returned');
+  const incoming = units.filter(u => u.status === 'incoming');
+
+  const totalRevenue = sold.reduce((sum, u) => sum + (u.salePrice || 0), 0);
+  const totalCost = units.reduce((sum, u) => sum + u.buyPrice, 0);
+  const totalPostage = sold.reduce((sum, u) => sum + (u.postageCost || 8), 0);
+  const stockValue = available.reduce((sum, u) => sum + u.buyPrice, 0);
+
+  // Calculate profit correctly
+  const totalProfit = sold.reduce((sum, u) => {
+    const profit = (u.salePrice || 0) - u.buyPrice - (u.postageCost || 8) - ((u as any).platformFee || 0);
+    return sum + profit;
+  }, 0);
+
+  const grossProfit = totalRevenue - totalCost - totalPostage;
+
+  // Top models by count
+  const modelCounts: Record<string, number> = {};
+  sold.forEach(u => {
+    modelCounts[u.model] = (modelCounts[u.model] || 0) + 1;
+  });
+  const topModels = Object.entries(modelCounts)
+    .sort(([, a], [, b]) => b - a)
+    .slice(0, 10)
+    .map(([model, count]) => ({ model, count }));
+
   const stats = {
     total: units.length,
-    available: units.filter(u => u.status === 'available').length,
-    sold: units.filter(u => u.status === 'sold').length,
-    returned: units.filter(u => u.status === 'returned').length,
-    incoming: units.filter(u => u.status === 'incoming').length,
-    totalRevenue: units
-      .filter(u => u.status === 'sold' && u.salePrice)
-      .reduce((sum, u) => sum + (u.salePrice || 0), 0),
-    totalProfit: units
-      .filter(u => u.status === 'sold' && u.profit)
-      .reduce((sum, u) => sum + (u.profit || 0), 0),
-    averageBuyPrice: Math.round(
-      units.reduce((sum, u) => sum + u.buyPrice, 0) / units.length
-    ),
+    available: available.length,
+    sold: sold.length,
+    returned: returned.length,
+    incoming: incoming.length,
+    totalRevenue,
+    totalCost,
+    totalPostage,
+    stockValue,
+    grossProfit,
+    totalProfit,
+    topModels,
+    averageBuyPrice: Math.round(totalCost / units.length),
   };
   return stats;
 }
