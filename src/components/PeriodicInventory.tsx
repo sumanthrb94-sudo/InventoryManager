@@ -406,9 +406,9 @@ export default function PeriodicInventory({ units, onNavigate }: Props) {
   return (
     <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 h-full lg:h-auto">
       <div className="lg:col-span-2">
-        <div style={{ background: '#ffffff', borderRadius: 20, padding: '20px 16px', overflow: 'hidden' }}>
+        <div style={{ background: '#ffffff', borderRadius: 20, padding: '12px 10px', overflow: 'hidden' }}>
         {/* Header */}
-        <div style={{ marginBottom: 16 }}>
+        <div style={{ marginBottom: 12 }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
             <div>
               <p style={{ fontSize: 10, fontFamily: 'monospace', textTransform: 'uppercase', letterSpacing: '0.15em', color: '#64748b', marginBottom: 2 }}>
@@ -438,7 +438,7 @@ export default function PeriodicInventory({ units, onNavigate }: Props) {
         </div>
 
         {/* Group legend */}
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 14 }}>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 10 }}>
           {groups.map(g => (
             <div key={g.id} style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
               <div style={{ width: 8, height: 8, borderRadius: 2, background: g.color.bg }} />
@@ -449,7 +449,7 @@ export default function PeriodicInventory({ units, onNavigate }: Props) {
         </div>
 
         {/* Periodic rows */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
           {groups.map(g => (
             <div key={g.id}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
@@ -476,11 +476,11 @@ export default function PeriodicInventory({ units, onNavigate }: Props) {
                       }}
                       title={isEmpty ? el.seriesKey : undefined}
                       style={{
-                        width: 72, height: 72,
+                        width: 60, height: 60,
                         background: isEmpty ? '#1e293b' : isHovered ? g.color.bg : g.color.light,
                         border: `1.5px solid ${isEmpty ? '#334155' : isHovered ? g.color.bg : g.color.border}`,
                         borderRadius: 8,
-                        padding: '5px 4px',
+                        padding: '3px 2px',
                         display: 'flex',
                         flexDirection: 'column',
                         justifyContent: 'space-between',
