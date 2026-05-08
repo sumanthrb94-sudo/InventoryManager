@@ -7,6 +7,7 @@ import {
   TrendingUp, FileText, Users, Settings, Database,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
+import CollapsibleNavMenu from './components/CollapsibleNavMenu';
 import Dashboard, { NavAction } from './components/Dashboard';
 import NewBatchModal from './components/NewBatchModal';
 import ImportModal from './components/ImportModal';
@@ -116,76 +117,23 @@ function AppShell({ user }: { user: User }) {
     { id: 'analytics', label: 'Analytics', icon: <BarChart2 size={20} /> },
   ];
 
+  const navItems = NAV_TABS.map(t => ({
+    id: t.id,
+    label: t.label,
+    icon: t.icon,
+    onClick: () => setActiveTab(t.id),
+    section: t.id === 'analytics' ? 'secondary' : 'main',
+  }));
+
   return (
     <div className="h-[100dvh] bg-slate-50 text-slate-900 flex overflow-hidden">
 
       <AnimatePresence>{!loaded && <LoadingScreen />}</AnimatePresence>
 
-      {/* ── Desktop Sidebar ── */}
-      <aside className="hidden md:flex w-56 lg:w-64 flex-shrink-0 bg-white border-r border-slate-200 flex-col overflow-hidden">
-
-        {/* Brand strip — same height as header */}
-        <div className="h-16 flex-shrink-0 flex items-center px-5 border-b border-slate-100">
-          <button onClick={() => setActiveTab('buy')} className="text-left group active:scale-95 transition-transform">
-            <h1 className="text-[13px] font-black tracking-tighter uppercase font-display text-slate-900 leading-none">
-              {APP_NAME}
-            </h1>
-            <p className="text-[7px] text-slate-400 font-mono uppercase tracking-[0.35em] mt-1">{APP_TAGLINE}</p>
-          </button>
-        </div>
-
-        {/* Nav items */}
-        <nav className="flex-1 p-3 space-y-0.5 overflow-y-auto">
-          {NAV_TABS.map(t => (
-            <button key={t.id} onClick={() => setActiveTab(t.id)}
-              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all
-                ${activeTab === t.id
-                  ? 'bg-slate-900 text-white'
-                  : 'text-slate-500 hover:text-slate-900 hover:bg-slate-100'}`}>
-              <span className="flex-shrink-0">{t.icon}</span>
-              <span className="text-[11px] font-bold uppercase tracking-widest">{t.label}</span>
-            </button>
-          ))}
-
-          {activeTab === 'analytics' && (
-            <div className="ml-3 mt-1 space-y-0.5 border-l-2 border-slate-100 pl-3">
-              {ANALYTICS_SUBS.map(s => (
-                <button key={s.id} onClick={() => setAnalyticsSub(s.id)}
-                  className={`w-full flex items-center gap-2 px-3 py-2 rounded-lg transition-all
-                    ${analyticsSub === s.id
-                      ? 'text-slate-900 bg-slate-100 font-bold'
-                      : 'text-slate-400 hover:text-slate-900 hover:bg-slate-50'}`}>
-                  {s.icon}
-                  <span className="text-[10px] font-bold uppercase tracking-widest">{s.label}</span>
-                </button>
-              ))}
-            </div>
-          )}
-        </nav>
-
-        {/* User footer */}
-        <div className="flex-shrink-0 p-3 border-t border-slate-100 space-y-1">
-          <div className="flex items-center gap-2.5 px-3 py-2.5 rounded-xl bg-slate-50">
-            {user.photoURL
-              ? <img src={user.photoURL} alt="" className="w-7 h-7 rounded-lg object-cover flex-shrink-0" referrerPolicy="no-referrer" />
-              : <div className="w-7 h-7 rounded-lg bg-slate-900 flex items-center justify-center flex-shrink-0 text-white text-xs font-bold">
-                  {(user.displayName || user.email || 'U')[0].toUpperCase()}
-                </div>}
-            <div className="flex-1 min-w-0">
-              <p className="text-[10px] font-bold text-slate-900 truncate leading-none">{user.displayName || 'User'}</p>
-              <p className="text-[9px] text-slate-400 font-mono truncate mt-0.5">{user.email}</p>
-            </div>
-          </div>
-          <button onClick={() => signOut()}
-            className="w-full flex items-center gap-2 px-3 py-2 rounded-xl text-[10px] font-bold uppercase tracking-widest text-slate-500 hover:text-slate-900 hover:bg-slate-100 transition-all">
-            <LogOut size={12} strokeWidth={2.5} /> Sign Out
-          </button>
-          <button onClick={() => setIsLoadMockDataOpen(true)}
-            className="w-full flex items-center gap-2 px-3 py-2 rounded-xl text-[10px] font-bold uppercase tracking-widest text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-all">
-            <Database size={12} strokeWidth={2} /> Sample Data
-          </button>
-        </div>
-      </aside>
+      {/* ── Collapsible Navigation ── */}
+      <div className="hidden md:flex">
+        <CollapsibleNavMenu items={navItems} activeItem={activeTab} />
+      </div>
 
       {/* ── Right column (header + scrollable content) ── */}
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden">

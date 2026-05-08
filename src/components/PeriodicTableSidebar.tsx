@@ -111,7 +111,7 @@ export default function PeriodicTableSidebar({ seriesKey, searchTerm, units, onV
   }
 
   return (
-    <div className="hidden lg:flex lg:flex-col h-full border-l overflow-y-auto" style={{ background: brandColor.light }}>
+    <div className="hidden lg:flex lg:flex-col h-full border-l overflow-y-auto rounded-2xl mr-4" style={{ background: brandColor.light }}>
       {/* Header */}
       <div className="px-6 py-4 border-b" style={{ background: brandColor.bg, borderColor: brandColor.accent }}>
         <h3 className="text-lg font-bold text-white">{element.seriesKey}</h3>
