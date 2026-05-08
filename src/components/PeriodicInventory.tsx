@@ -406,7 +406,7 @@ export default function PeriodicInventory({ units, onNavigate }: Props) {
   return (
     <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 h-full lg:h-auto">
       <div className="lg:col-span-2">
-        <div style={{ background: '#ffffff', borderRadius: 20, padding: '20px 16px', overflowX: 'auto' }}>
+        <div style={{ background: '#ffffff', borderRadius: 20, padding: '20px 16px', overflow: 'hidden' }}>
         {/* Header */}
         <div style={{ marginBottom: 16 }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>

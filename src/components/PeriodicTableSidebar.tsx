@@ -14,8 +14,7 @@ interface Element {
   seriesKey: string;
   count: number;
   shsCount: number;
-  variants: { colour: string; count: number }[];
-  storageVariants: { storage: string; count: number }[];
+  variants: { colour: string; count: number; storages: { storage: string; count: number }[] }[];
   priceRange: { min: number; max: number };
 }
 
@@ -36,27 +35,33 @@ function calculateElement(seriesKey: string, searchTerm: string, units: Inventor
 
   if (available.length === 0 && incoming.length === 0) return null;
 
-  const variants: Record<string, number> = {};
-  const storages: Record<string, number> = {};
+  const variants: Record<string, { count: number; storages: Record<string, number> }> = {};
   const prices: number[] = [];
 
   for (const u of available) {
     const colour = u.colour || 'Unknown';
-    variants[colour] = (variants[colour] || 0) + 1;
+    if (!variants[colour]) {
+      variants[colour] = { count: 0, storages: {} };
+    }
+    variants[colour].count += 1;
+
     const storage = u.storage || 'Unknown';
-    storages[storage] = (storages[storage] || 0) + 1;
+    variants[colour].storages[storage] = (variants[colour].storages[storage] || 0) + 1;
+
     prices.push(u.buyPrice);
   }
 
-  const variantArray = Object.entries(variants).map(([colour, count]) => ({ colour, count }));
-  const storageArray = Object.entries(storages).map(([storage, count]) => ({ storage, count }));
+  const variantArray = Object.entries(variants).map(([colour, data]) => ({
+    colour,
+    count: data.count,
+    storages: Object.entries(data.storages).map(([storage, count]) => ({ storage, count })),
+  }));
 
   return {
     seriesKey: seriesKey,
     count: available.length,
     shsCount: incoming.length,
     variants: variantArray.sort((a, b) => b.count - a.count),
-    storageVariants: storageArray,
     priceRange: {
       min: prices.length > 0 ? Math.min(...prices) : 0,
       max: prices.length > 0 ? Math.max(...prices) : 0,
@@ -111,7 +116,7 @@ export default function PeriodicTableSidebar({ seriesKey, searchTerm, units, onV
   }
 
   return (
-    <div className="hidden lg:flex lg:flex-col h-full border-l overflow-y-auto rounded-2xl mr-4" style={{ background: brandColor.light }}>
+    <div className="hidden lg:flex lg:flex-col h-full border-l rounded-2xl mr-4 overflow-hidden" style={{ background: brandColor.light }}>
       {/* Header */}
       <div className="px-6 py-4 border-b" style={{ background: brandColor.bg, borderColor: brandColor.accent }}>
         <h3 className="text-lg font-bold text-white">{element.seriesKey}</h3>
@@ -138,11 +143,11 @@ export default function PeriodicTableSidebar({ seriesKey, searchTerm, units, onV
         </div>
       </div>
 
-      {/* Colour variants */}
+      {/* Colour variants with storage */}
       {element.variants.length > 0 && (
-        <div className="px-6 py-4 border-b" style={{ borderColor: brandColor.light }}>
-          <p className="text-xs font-mono font-bold uppercase tracking-widest mb-3" style={{ color: brandColor.text }}>Colour Variants</p>
-          <div className="space-y-2">
+        <div className="px-6 py-4 border-b flex-1 overflow-hidden flex flex-col" style={{ borderColor: brandColor.light }}>
+          <p className="text-xs font-mono font-bold uppercase tracking-widest mb-3 flex-shrink-0" style={{ color: brandColor.text }}>Colour Variants</p>
+          <div className="space-y-3 overflow-y-auto flex-1">
             {element.variants.slice(0, 5).map(v => {
               const pct = Math.round((v.count / element.count) * 100);
               return (
@@ -151,7 +156,7 @@ export default function PeriodicTableSidebar({ seriesKey, searchTerm, units, onV
                     <span className="text-xs font-medium" style={{ color: brandColor.text }}>{v.colour}</span>
                     <span className="text-xs font-bold" style={{ color: brandColor.text }}>{v.count}</span>
                   </div>
-                  <div className="h-2 rounded-full overflow-hidden" style={{ background: brandColor.light }}>
+                  <div className="h-2 rounded-full overflow-hidden mb-2" style={{ background: brandColor.light }}>
                     <div
                       style={{
                         width: `${pct}%`,
@@ -160,26 +165,21 @@ export default function PeriodicTableSidebar({ seriesKey, searchTerm, units, onV
                       className="h-full rounded-full transition-all"
                     />
                   </div>
+                  {v.storages.length > 0 && (
+                    <div className="ml-2 space-y-1">
+                      {v.storages.map(s => (
+                        <span
+                          key={s.storage}
+                          className="text-xs font-mono font-bold bg-gray-100 text-gray-700 px-2 py-1 rounded block"
+                        >
+                          {s.count} × {s.storage}
+                        </span>
+                      ))}
+                    </div>
+                  )}
                 </div>
               );
             })}
-          </div>
-        </div>
-      )}
-
-      {/* Storage variants */}
-      {element.storageVariants.length > 0 && (
-        <div className="px-6 py-4 border-b border-gray-200">
-          <p className="text-xs text-gray-600 font-mono font-bold uppercase tracking-widest mb-3">Storage Options</p>
-          <div className="flex flex-wrap gap-2">
-            {element.storageVariants.map(v => (
-              <span
-                key={v.storage}
-                className="text-xs font-mono font-bold bg-gray-100 text-gray-700 px-2 py-1 rounded"
-              >
-                {v.count} × {v.storage}
-              </span>
-            ))}
           </div>
         </div>
       )}
