@@ -116,7 +116,7 @@ export default function PeriodicTableSidebar({ seriesKey, searchTerm, units, onV
   }
 
   return (
-    <div className="hidden lg:flex lg:flex-col h-full border-l overflow-y-auto rounded-2xl mr-4" style={{ background: brandColor.light }}>
+    <div className="hidden lg:flex lg:flex-col h-full border-l rounded-2xl mr-4 overflow-hidden" style={{ background: brandColor.light }}>
       {/* Header */}
       <div className="px-6 py-4 border-b" style={{ background: brandColor.bg, borderColor: brandColor.accent }}>
         <h3 className="text-lg font-bold text-white">{element.seriesKey}</h3>
@@ -145,9 +145,9 @@ export default function PeriodicTableSidebar({ seriesKey, searchTerm, units, onV
 
       {/* Colour variants with storage */}
       {element.variants.length > 0 && (
-        <div className="px-6 py-4 border-b" style={{ borderColor: brandColor.light }}>
-          <p className="text-xs font-mono font-bold uppercase tracking-widest mb-3" style={{ color: brandColor.text }}>Colour Variants</p>
-          <div className="space-y-3">
+        <div className="px-6 py-4 border-b flex-1 overflow-hidden flex flex-col" style={{ borderColor: brandColor.light }}>
+          <p className="text-xs font-mono font-bold uppercase tracking-widest mb-3 flex-shrink-0" style={{ color: brandColor.text }}>Colour Variants</p>
+          <div className="space-y-3 overflow-y-auto flex-1">
             {element.variants.slice(0, 5).map(v => {
               const pct = Math.round((v.count / element.count) * 100);
               return (

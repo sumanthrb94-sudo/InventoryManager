@@ -398,7 +398,7 @@ export default function PeriodicInventory({ units, onNavigate }: Props) {
 
   return (
     <>
-      <div style={{ background: '#0f172a', borderRadius: 20, padding: '20px 16px', overflowX: 'auto' }}>
+      <div style={{ background: '#0f172a', borderRadius: 20, padding: '20px 16px', overflow: 'hidden' }}>
         {/* Header */}
         <div style={{ marginBottom: 16 }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
