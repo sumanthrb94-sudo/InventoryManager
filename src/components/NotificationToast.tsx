@@ -22,8 +22,12 @@ export default function NotificationToast() {
     });
   }, []);
 
-  const dismiss = (id: string) => {
+  const removeFromQueue = (id: string) => {
     setQueue(prev => prev.filter(n => n.id !== id));
+  };
+
+  const dismiss = (id: string) => {
+    removeFromQueue(id);
     notificationService.markAsRead(id);
   };
 
@@ -31,18 +35,23 @@ export default function NotificationToast() {
     <div className="fixed top-4 left-1/2 -translate-x-1/2 z-[999] pointer-events-none flex flex-col gap-3 items-center max-w-[calc(100vw-2rem)] md:max-w-[400px]">
       <AnimatePresence initial={false}>
         {queue.map(n => (
-          <ToastCard key={n.id} notification={n} onDismiss={() => dismiss(n.id)} />
+          <ToastCard
+            key={n.id}
+            notification={n}
+            onAutoClose={() => removeFromQueue(n.id)}
+            onDismiss={() => dismiss(n.id)}
+          />
         ))}
       </AnimatePresence>
     </div>
   );
 }
 
-function ToastCard({ notification, onDismiss }: { key?: React.Key; notification: Notification; onDismiss: () => void }) {
+function ToastCard({ notification, onAutoClose, onDismiss }: { key?: React.Key; notification: Notification; onAutoClose: () => void; onDismiss: () => void }) {
   useEffect(() => {
-    const t = setTimeout(onDismiss, DISPLAY_MS);
+    const t = setTimeout(onAutoClose, DISPLAY_MS);
     return () => clearTimeout(t);
-  }, [onDismiss]);
+  }, [onAutoClose]);
 
   // Icon and color mapping for different notification types
   const typeConfig = {
