@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { X, Database, Sparkles, CheckCircle2, RefreshCw, Loader2 } from 'lucide-react';
+import { X, Database, Sparkles, CheckCircle2, RefreshCw, Loader2, Download } from 'lucide-react';
 import { motion } from 'motion/react';
 import { collection, getDocs, writeBatch } from 'firebase/firestore';
 import { db } from '../lib/firebase';
@@ -106,6 +106,36 @@ export default function LoadMockDataModal({ onClose }: Props) {
     window.location.href = window.location.origin + '?t=' + Date.now();
   };
 
+  const handleDownloadMockData = () => {
+    // Create download object with the seed data
+    const downloadData = {
+      metadata: {
+        generatedAt: new Date().toISOString(),
+        totalUnits: appUnits.length,
+        totalSuppliers: appSuppliers.length,
+        description: 'Sample inventory data for testing and evaluation',
+      },
+      units: appUnits,
+      suppliers: appSuppliers,
+    };
+
+    // Create JSON file
+    const jsonString = JSON.stringify(downloadData, null, 2);
+    const blob = new Blob([jsonString], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+
+    // Trigger download
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `mock-data-${new Date().toISOString().split('T')[0]}.json`;
+    document.body.appendChild(link);
+    link.click();
+
+    // Cleanup
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
+
   return (
     <motion.div
       initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
@@ -196,12 +226,22 @@ export default function LoadMockDataModal({ onClose }: Props) {
               {/* Actions */}
               <div className="flex gap-2 pt-1">
                 {!running && (
-                  <button
-                    onClick={onClose}
-                    className="flex-1 py-2.5 text-[11px] font-medium text-slate-500 hover:text-slate-800 hover:bg-slate-50 rounded-xl transition-all"
-                  >
-                    Cancel
-                  </button>
+                  <>
+                    <button
+                      onClick={onClose}
+                      className="flex-1 py-2.5 text-[11px] font-medium text-slate-500 hover:text-slate-800 hover:bg-slate-50 rounded-xl transition-all"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      onClick={handleDownloadMockData}
+                      title="Download mock data as JSON file"
+                      className="py-2.5 px-3 bg-slate-100 text-slate-600 rounded-xl text-[11px] font-medium hover:bg-slate-200 hover:text-slate-800 transition-all flex items-center justify-center gap-2"
+                    >
+                      <Download size={13} strokeWidth={2} />
+                      <span className="hidden sm:inline">Download</span>
+                    </button>
+                  </>
                 )}
                 <button
                   onClick={handleLoadMockData}
