@@ -406,7 +406,7 @@ export default function PeriodicInventory({ units, onNavigate }: Props) {
   return (
     <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 h-full lg:h-auto">
       <div className="lg:col-span-2">
-        <div style={{ background: '#0f172a', borderRadius: 20, padding: '20px 16px', overflowX: 'auto' }}>
+        <div style={{ background: '#ffffff', borderRadius: 20, padding: '20px 16px', overflowX: 'auto' }}>
         {/* Header */}
         <div style={{ marginBottom: 16 }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
@@ -414,7 +414,7 @@ export default function PeriodicInventory({ units, onNavigate }: Props) {
               <p style={{ fontSize: 10, fontFamily: 'monospace', textTransform: 'uppercase', letterSpacing: '0.15em', color: '#64748b', marginBottom: 2 }}>
                 Inventory Periodic Table
               </p>
-              <p style={{ fontSize: 18, fontWeight: 800, color: '#f1f5f9', letterSpacing: '-0.03em', textTransform: 'uppercase' }}>
+              <p style={{ fontSize: 18, fontWeight: 800, color: '#1f2937', letterSpacing: '-0.03em', textTransform: 'uppercase' }}>
                 Stock Visibility
               </p>
             </div>
