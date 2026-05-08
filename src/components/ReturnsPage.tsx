@@ -528,7 +528,7 @@ function SoldUnitPicker({ units, onSelect }: { units: InventoryUnit[]; onSelect:
                 className="p-1.5 hover:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed rounded-lg transition-all text-gray-400"
                 title="Previous page"
               >
-                <ChevronUp size={14} className="rotate-90" />
+                <ChevronDown size={14} className="rotate-90" />
               </button>
               <span className="text-[9px] font-mono text-gray-500">
                 Page {validPage} of {totalPages}
@@ -539,7 +539,7 @@ function SoldUnitPicker({ units, onSelect }: { units: InventoryUnit[]; onSelect:
                 className="p-1.5 hover:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed rounded-lg transition-all text-gray-400"
                 title="Next page"
               >
-                <ChevronDown size={14} className="rotate-90" />
+                <ChevronUp size={14} className="rotate-90" />
               </button>
             </div>
           )}
