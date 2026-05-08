@@ -199,9 +199,14 @@ export default function StockInPage({ onOpenBatch, onOpenImport }: Props) {
           <div className="divide-y divide-gray-50">
             {filtered.map(u => {
               const isOpen = expandedId === u.id;
+              const isSHS = u.batchId?.startsWith('shs_') || u.notes?.includes('SHS');
               return (
                 <div key={u.id}>
-                  <div className="flex items-center gap-3 px-4 py-3 hover:bg-gray-50 transition-all">
+                  <div className={`flex items-center gap-3 px-4 py-3 transition-all ${
+                    isSHS
+                      ? 'bg-orange-50/60 hover:bg-orange-50'
+                      : 'hover:bg-gray-50'
+                  }`}>
                     <div className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${u.dateIn === today ? 'bg-emerald-100' : 'bg-gray-100'}`}>
                       {u.dateIn === today
                         ? <CheckCircle2 size={14} className="text-emerald-600" />
