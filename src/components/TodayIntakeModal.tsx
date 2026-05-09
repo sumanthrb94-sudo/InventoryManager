@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { X, Edit2 } from 'lucide-react';
+import { X } from 'lucide-react';
 import { motion } from 'motion/react';
 import { InventoryUnit } from '../types';
 import { useInventoryStore } from '../lib/inventoryStore';
@@ -14,7 +14,6 @@ interface Props {
 export default function TodayIntakeModal({ units, onClose }: Props) {
   const { suppliers } = useInventoryStore();
   const [notes, setNotes] = useState<Record<string, string>>({});
-  const [editingNotes, setEditingNotes] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
   const supplierMap = useMemo(() => {
@@ -103,8 +102,6 @@ export default function TodayIntakeModal({ units, onClose }: Props) {
               <tbody>
                 {units.map((u, idx) => {
                   const supplierName = supplierMap[u.supplierId] || 'Unknown';
-                  const displayNotes = notes[u.id] ?? (u.internalNotes || '');
-                  const isEditing = editingNotes === u.id;
 
                   return (
                     <tr key={u.id} className="border-b border-gray-200 hover:bg-emerald-50 transition-colors">
@@ -154,44 +151,21 @@ export default function TodayIntakeModal({ units, onClose }: Props) {
 
                       {/* Notes */}
                       <td className="px-4 py-3 text-xs">
-                        {isEditing ? (
-                          <div className="flex gap-2 items-center">
-                            <input
-                              type="text"
-                              value={notes[u.id] ?? (u.internalNotes || '')}
-                              onChange={(e) => setNotes(prev => ({ ...prev, [u.id]: e.target.value }))}
-                              placeholder="Add notes..."
-                              className="flex-1 px-2 py-1 text-xs border border-emerald-300 rounded font-mono focus:outline-none focus:ring-1 focus:ring-emerald-500"
-                              autoFocus
-                            />
-                            <button
-                              onClick={() => handleSaveNotes(u.id, notes[u.id] ?? (u.internalNotes || ''))}
-                              disabled={saving}
-                              className="px-2 py-1 bg-emerald-600 text-white text-xs font-bold rounded hover:bg-emerald-700 transition-all disabled:opacity-50 whitespace-nowrap"
-                            >
-                              {saving ? '...' : 'Save'}
-                            </button>
-                            <button
-                              onClick={() => setEditingNotes(null)}
-                              className="px-2 py-1 bg-gray-300 text-gray-700 text-xs font-bold rounded hover:bg-gray-400 transition-all whitespace-nowrap"
-                            >
-                              Cancel
-                            </button>
-                          </div>
-                        ) : (
-                          <div className="flex items-center gap-2 group">
-                            <span className="text-gray-600 font-mono truncate max-w-xs">
-                              {displayNotes || <span className="text-gray-400">—</span>}
-                            </span>
-                            <button
-                              onClick={() => setEditingNotes(u.id)}
-                              className="p-1 hover:bg-emerald-200 rounded opacity-0 group-hover:opacity-100 transition-all flex-shrink-0"
-                              title="Edit notes"
-                            >
-                              <Edit2 size={12} className="text-emerald-600" />
-                            </button>
-                          </div>
-                        )}
+                        <div className="flex gap-2 items-center">
+                          <input
+                            type="text"
+                            value={notes[u.id] ?? (u.internalNotes || '')}
+                            onChange={(e) => setNotes(prev => ({ ...prev, [u.id]: e.target.value }))}
+                            onBlur={() => {
+                              const currentValue = notes[u.id] ?? (u.internalNotes || '');
+                              if (currentValue !== (u.internalNotes || '')) {
+                                handleSaveNotes(u.id, currentValue);
+                              }
+                            }}
+                            placeholder="Add notes..."
+                            className="flex-1 px-2 py-1 text-xs border border-gray-300 rounded font-mono focus:outline-none focus:ring-1 focus:ring-emerald-500 focus:border-emerald-300"
+                          />
+                        </div>
                       </td>
                     </tr>
                   );
