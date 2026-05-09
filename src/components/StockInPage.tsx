@@ -182,10 +182,10 @@ export default function StockInPage({ onOpenBatch }: Props) {
                   </button>
                   <button
                     onClick={() => handleDeletePendingSHS(u)}
-                    className="px-3 py-1.5 bg-red-500 text-white text-[9px] font-bold uppercase tracking-widest rounded-lg hover:bg-red-600 transition-all flex items-center gap-1"
+                    className="p-2 bg-red-500 text-white rounded-lg hover:bg-red-600 transition-all flex items-center justify-center"
                     title="Delete this pending SHS stock"
                   >
-                    <X size={11} /> Delete
+                    <X size={14} />
                   </button>
                 </div>
               </div>
