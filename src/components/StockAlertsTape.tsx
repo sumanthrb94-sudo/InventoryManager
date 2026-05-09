@@ -59,6 +59,9 @@ export default function StockAlertsTape({ units }: Props) {
       }
     }
 
+    console.log('[StockAlertsTape] All series found:', Array.from(allSeries).sort());
+    console.log('[StockAlertsTape] Series stats:', seriesStats);
+
     // Generate alerts for each series - BULLETPROOF DETECTION
     for (const series of Array.from(allSeries).sort()) {
       if (!seriesStats[series]) continue; // Safety check
