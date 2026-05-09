@@ -216,8 +216,13 @@ export default function StockAlertsTape({ units }: Props) {
         overflowY: 'auto',
         overflowX: 'hidden',
       }}>
+        {/* Debug: show alert count */}
+        <div style={{ padding: '4px 10px', fontSize: 7, color: '#94a3b8', borderBottom: '1px solid #f1f5f9' }}>
+          {alerts.length} alert{alerts.length !== 1 ? 's' : ''}
+        </div>
+
         {alerts.length > 0 ? (
-          <div style={{ overflow: 'hidden' }}>
+          <>
             {/* Show each alert exactly once - NO DUPLICATES */}
             {alerts.map(alert => (
               <div
@@ -261,7 +266,7 @@ export default function StockAlertsTape({ units }: Props) {
                 </div>
               </div>
             ))}
-          </div>
+          </>
         ) : (
           <div style={{
             padding: '12px 10px',
