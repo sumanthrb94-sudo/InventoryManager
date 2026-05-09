@@ -17,6 +17,7 @@ import {
 import CollapsibleSection from './CollapsibleSection';
 import PeriodicInventory from './PeriodicInventory';
 import IntelligencePanel from './IntelligencePanel';
+import TodaySalesModal from './TodaySalesModal';
 
 // ── helpers ────────────────────────────────────────────────────────────────────
 const today = () => new Date().toISOString().split('T')[0];
@@ -391,6 +392,7 @@ export default function SellPage() {
   const [savedFlag, setSavedFlag]   = useState(false);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [enterImeiUnit, setEnterImeiUnit] = useState<InventoryUnit | null>(null);
+  const [showTodaySales, setShowTodaySales] = useState(false);
 
   const supplierMap = useMemo(() => {
     const m: Record<string, string> = {};
@@ -477,11 +479,15 @@ export default function SellPage() {
           <p className="text-2xl font-bold font-display mt-1 text-amber-700">{shsUnits.length}</p>
           <p className="text-[8px] text-amber-500 font-mono">supplier holds</p>
         </div>
-        <div className="bg-blue-50 border border-blue-100 rounded-2xl p-3">
+        <button
+          onClick={() => setShowTodaySales(true)}
+          disabled={todaySold.length === 0}
+          className="bg-blue-50 border border-blue-100 rounded-2xl p-3 hover:bg-blue-100 transition-all disabled:opacity-50 disabled:cursor-default text-left"
+        >
           <p className="text-[8px] font-mono uppercase tracking-widest text-blue-600">Sold Today</p>
           <p className="text-2xl font-bold font-display mt-1 text-blue-700">{todaySold.length}</p>
           <p className="text-[8px] text-blue-500 font-mono">£{todayRevenue.toLocaleString()}</p>
-        </div>
+        </button>
         <div className="bg-purple-50 border border-purple-100 rounded-2xl p-3">
           <p className="text-[8px] font-mono uppercase tracking-widest text-purple-600">Profit</p>
           <p className="text-xl font-bold font-display mt-1 text-purple-700">£{todayProfit.toLocaleString()}</p>
@@ -839,6 +845,16 @@ export default function SellPage() {
           onSaved={handleSaved}
         />
       )}
+
+      {/* Today's Sales modal */}
+      <AnimatePresence>
+        {showTodaySales && (
+          <TodaySalesModal
+            units={todaySold}
+            onClose={() => setShowTodaySales(false)}
+          />
+        )}
+      </AnimatePresence>
     </div>
   );
 }
