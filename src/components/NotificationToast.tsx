@@ -63,7 +63,7 @@ function ToastCard({ notification, onAutoClose, onDismiss }: { key?: React.Key; 
     shs_removed: { icon: AlertCircle, bg: 'bg-orange-500/20 border-orange-500/30', badge: 'bg-orange-500', icon_color: 'text-orange-400' },
   };
 
-  const config = typeConfig[notification.type];
+  const config = typeConfig[notification.type] || typeConfig.new_stock;
   const Icon = config.icon;
 
   return (
