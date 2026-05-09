@@ -180,8 +180,27 @@ export default function StockAlertsTape({ units }: Props) {
   }, [units]);
 
   // Always show the tape for debugging, even if 0 alerts
+  // Mobile-responsive: bottom on mobile, right side on desktop
+  const isMobile = typeof window !== 'undefined' && window.innerWidth < 768;
+
   return (
-    <div style={{
+    <div style={isMobile ? {
+      // Mobile: bottom center horizontal scroll
+      position: 'fixed',
+      bottom: 0,
+      left: 0,
+      right: 0,
+      width: '100%',
+      maxHeight: '140px',
+      background: '#ffffff',
+      border: '1px solid #e2e8f0',
+      borderTop: '2px solid #e2e8f0',
+      borderRadius: '12px 12px 0 0',
+      boxShadow: '0 -4px 12px rgba(0,0,0,0.08)',
+      overflow: 'hidden',
+      zIndex: 40,
+    } : {
+      // Desktop: right side vertical scroll
       position: 'fixed',
       right: 0,
       top: '50%',
@@ -215,7 +234,11 @@ export default function StockAlertsTape({ units }: Props) {
       </div>
 
       {/* Scrolling alerts - NO DUPLICATES */}
-      <div style={{
+      <div style={isMobile ? {
+        maxHeight: 'calc(140px - 32px)',
+        overflowY: 'auto',
+        overflowX: 'hidden',
+      } : {
         maxHeight: 'calc(70vh - 32px)',
         overflowY: 'auto',
         overflowX: 'hidden',
