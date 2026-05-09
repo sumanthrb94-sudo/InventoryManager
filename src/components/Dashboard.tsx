@@ -182,8 +182,8 @@ export default function Dashboard({ onNavigate }: Props) {
       {/* Header */}
       <div className="flex items-start justify-between gap-3 flex-wrap">
         <div>
-          <h2 className="text-2xl font-bold tracking-tighter uppercase font-display">Operations Hub</h2>
-          <p className="text-[10px] text-gray-400 font-mono uppercase tracking-widest mt-1">
+          <h2 className="text-xl sm:text-2xl font-bold tracking-tighter uppercase font-display">Operations Hub</h2>
+          <p className="text-[8px] sm:text-[10px] text-gray-400 font-mono uppercase tracking-widest mt-1">
             {new Date().toLocaleDateString('en-GB', { weekday:'long', day:'numeric', month:'long', year:'numeric' })}
           </p>
         </div>
@@ -198,7 +198,7 @@ export default function Dashboard({ onNavigate }: Props) {
       <StockAlertsTape units={units} />
 
       {/* KPI Cards — ALL CLICKABLE */}
-      <div className="grid grid-cols-2 gap-3">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
         <KPICard
           label="Office Stock" value={available.length}
           sub="Units available" icon={<Package size={16}/>}
