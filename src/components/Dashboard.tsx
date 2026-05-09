@@ -9,6 +9,7 @@ import { useInventoryStore } from '../lib/inventoryStore';
 import { InventoryUnit, Supplier } from '../types';
 import CopyImei from './CopyImei';
 import PeriodicInventory from './PeriodicInventory';
+import StockAlertsTape from './StockAlertsTape';
 import CollapsibleSection from './CollapsibleSection';
 
 
@@ -193,6 +194,8 @@ export default function Dashboard({ onNavigate }: Props) {
         units={units}
         onNavigate={(search) => onNavigate({ tab: 'inventory', filters: { search, status: 'available' } })}
       />
+
+      <StockAlertsTape units={units} />
 
       {/* KPI Cards — ALL CLICKABLE */}
       <div className="grid grid-cols-2 gap-3">
