@@ -22,6 +22,9 @@ export default function StockAlertsTape({ units }: Props) {
   const alerts = useMemo(() => {
     if (units.length === 0) return [];
 
+    console.log('[StockAlertsTape] Received units:', units.length);
+    console.log('[StockAlertsTape] Sample units:', units.slice(0, 5).map(u => ({ model: u.model, status: u.status })));
+
     const seen = new Set<string>();
     const list: Alert[] = [];
 
@@ -62,6 +65,8 @@ export default function StockAlertsTape({ units }: Props) {
 
       const stats = seriesStats[series];
       const totalUnitsInSeries = units.filter(u => u.model.split(' ').slice(0, 2).join(' ') === series).length;
+
+      console.log(`[StockAlertsTape] Series: "${series}" | total: ${totalUnitsInSeries} | available: ${stats.availableCount} | shs: ${stats.shsCount} | listed: ${stats.listedCount} | returned: ${stats.returnedCount}`);
 
       // Priority 1: OUT OF STOCK - Series exists in data but NO available units
       if (totalUnitsInSeries > 0 && stats.availableCount === 0) {
