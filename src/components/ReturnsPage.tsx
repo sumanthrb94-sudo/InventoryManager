@@ -100,60 +100,22 @@ function ProcessReturnModal({
 
   return (
     <div className="fixed inset-0 z-[70] flex items-center justify-center p-3 md:p-4 bg-black/40 backdrop-blur-sm">
-      <div className="bg-white rounded-3xl w-full max-w-md shadow-2xl flex flex-col" style={{ maxHeight: 'calc(100dvh - 24px)' }}>
+      <div className="bg-white rounded-3xl overflow-hidden w-full max-w-sm shadow-2xl flex flex-col" style={{ maxHeight: 'calc(100dvh - 24px)' }}>
         {/* Header */}
-        <div className="flex items-center justify-between px-6 py-5 border-b border-gray-100 flex-shrink-0">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100 flex-shrink-0">
           <div>
             <p className="text-[9px] font-mono uppercase tracking-widest text-gray-400">Process Return</p>
-            <h3 className="text-base font-bold truncate mt-0.5 max-w-[280px]">{unit.model}</h3>
+            <h3 className="text-sm font-bold truncate mt-0.5 max-w-[240px]">{unit.model}</h3>
           </div>
           <button onClick={onClose} className="p-2 hover:bg-gray-100 rounded-xl transition-all"><X size={16} /></button>
         </div>
 
-        {/* Unit summary */}
-        <div className="px-6 py-4 bg-gray-50 border-b border-gray-100 flex-shrink-0 space-y-3">
-          <div className="flex items-center gap-3">
-            <CopyImei imei={unit.imei} truncate={12} />
-            <span className="text-[9px] text-gray-400 font-mono">·</span>
-            <span className="text-[9px] text-gray-500 font-mono">{unit.colour}</span>
-          </div>
-          
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <p className="text-[8px] font-mono uppercase tracking-widest text-gray-400">Buy Data</p>
-              <p className="text-xs font-bold mt-0.5">£{unit.buyPrice} <span className="text-[9px] text-gray-400 font-normal ml-1">on {unit.dateIn}</span></p>
-            </div>
-            <div>
-              <p className="text-[8px] font-mono uppercase tracking-widest text-gray-400">Sale Data</p>
-              <p className="text-xs font-bold mt-0.5 text-emerald-600">
-                {unit.salePrice ? `£${unit.salePrice}` : '—'} 
-                {unit.saleDate && <span className="text-[9px] text-gray-400 font-normal ml-1">on {unit.saleDate}</span>}
-              </p>
-            </div>
-            {(unit.salePlatform || unit.saleOrderId) && (
-              <div className="col-span-2">
-                <p className="text-[8px] font-mono uppercase tracking-widest text-gray-400">Platform & Order</p>
-                <p className="text-xs mt-0.5 text-gray-600">
-                  {unit.salePlatform || 'Unknown Platform'} {unit.saleOrderId && `· Order: ${unit.saleOrderId}`}
-                </p>
-              </div>
-            )}
-          </div>
-        </div>
-
-        <div className="flex-1 overflow-y-auto px-6 py-5 space-y-4">
-          {/* Warranty Alert */}
+        <div className="flex-1 overflow-y-auto px-6 py-4 space-y-3">
+          {/* Warranty Alert - Compact */}
           {unit.saleDate && (
-            <div className={`flex items-start gap-3 p-3 rounded-xl border ${warranty.isExpired ? 'bg-red-50 border-red-200 text-red-800' : 'bg-emerald-50 border-emerald-200 text-emerald-800'}`}>
-              {warranty.isExpired ? <ShieldAlert size={16} className="mt-0.5 text-red-600" /> : <ShieldCheck size={16} className="mt-0.5 text-emerald-600" />}
-              <div>
-                <p className="text-xs font-bold">{warranty.isExpired ? 'Warranty Expired' : 'Warranty Active'}</p>
-                <p className="text-[10px] mt-0.5 opacity-80">
-                  {warranty.isExpired 
-                    ? `Expired on ${warranty.endDate} (${Math.abs(warranty.daysLeft)} days ago)` 
-                    : `${warranty.daysLeft} days remaining (Expires ${warranty.endDate})`}
-                </p>
-              </div>
+            <div className={`flex items-center gap-2 p-2 rounded-lg border text-[9px] ${warranty.isExpired ? 'bg-red-50 border-red-200 text-red-700' : 'bg-emerald-50 border-emerald-200 text-emerald-700'}`}>
+              {warranty.isExpired ? <ShieldAlert size={14} className="flex-shrink-0" /> : <ShieldCheck size={14} className="flex-shrink-0" />}
+              <span className="font-bold">{warranty.isExpired ? 'Warranty Expired' : 'Warranty Active'} • {warranty.isExpired ? `${Math.abs(warranty.daysLeft)}d ago` : `${warranty.daysLeft}d left`}</span>
             </div>
           )}
 
