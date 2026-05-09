@@ -340,7 +340,7 @@ export default function AnalyticsPage() {
               />
               <YAxis fontSize={7} tickLine={false} axisLine={false} stroke="#aaa" allowDecimals={false}/>
               <Tooltip
-                contentStyle={{ borderRadius: 8, fontSize: 11, border: '1px solid #e5e7eb' }}
+                contentStyle={{ borderRadius: 16, fontSize: 11, border: '1px solid #e5e7eb' }}
                 formatter={(v: number) => [`${v} units`, 'Sold']}
               />
               <Area type="monotone" dataKey="units" stroke="#000" strokeWidth={2}
@@ -392,7 +392,7 @@ export default function AnalyticsPage() {
                 <XAxis dataKey="platform" fontSize={8} tickLine={false} axisLine={false}/>
                 <YAxis fontSize={8} tickLine={false} axisLine={false} allowDecimals={false}/>
                 <Tooltip
-                  contentStyle={{ borderRadius: 8, fontSize: 11, border: '1px solid #e5e7eb' }}
+                  contentStyle={{ borderRadius: 16, fontSize: 11, border: '1px solid #e5e7eb' }}
                   formatter={(v: number) => [`${v}`, 'Units Sold']}
                 />
                 <Bar dataKey="count" name="Units Sold" radius={[4, 4, 0, 0]}>

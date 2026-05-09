@@ -277,7 +277,7 @@ const SignalCard: React.FC<{ sig: Signal }> = ({ sig }) => {
   return (
     <div style={{
       background: bgMap[sig.color] || 'rgba(240, 245, 250, 0.8)',
-      borderRadius: 10,
+      borderRadius: 16,
       borderTop: `2px solid ${sig.color}`,
       padding: '10px 10px 8px',
       display: 'flex',
@@ -350,7 +350,7 @@ const SignalCard: React.FC<{ sig: Signal }> = ({ sig }) => {
                   lineHeight: 1.2,
                   padding: '4px 8px',
                   backgroundColor: row.alert ? 'rgba(220, 38, 38, 0.1)' : 'transparent',
-                  borderRadius: 4,
+                  borderRadius: 8,
                 }}>
                   {row.primary}
                 </p>

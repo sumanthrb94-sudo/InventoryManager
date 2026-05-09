@@ -393,7 +393,7 @@ export default function NewBatchModal({ onClose }: Props) {
               initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.95, opacity: 0 }}
               onClick={e => e.stopPropagation()}
-              className="bg-white rounded-3xl shadow-2xl w-full max-w-lg overflow-hidden"
+              className="bg-white rounded-3xl overflow-hidden shadow-2xl w-full max-w-lg overflow-hidden"
             >
               <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
                 <div>

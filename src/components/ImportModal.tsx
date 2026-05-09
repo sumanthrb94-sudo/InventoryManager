@@ -376,7 +376,7 @@ export default function ImportModal({ onClose }: ImportModalProps) {
         initial={{ y: 12, opacity: 0, scale: 0.98 }} animate={{ y: 0, opacity: 1, scale: 1 }}
         exit={{ y: 12, opacity: 0, scale: 0.98 }}
         transition={{ type: 'spring', stiffness: 280, damping: 26 }}
-        className="bg-white rounded-3xl shadow-xl shadow-slate-900/10 ring-1 ring-slate-200/70 w-full max-w-2xl overflow-hidden text-slate-700 flex flex-col max-h-[90vh]"
+        className="bg-white rounded-3xl overflow-hidden shadow-xl shadow-slate-900/10 ring-1 ring-slate-200/70 w-full max-w-2xl overflow-hidden text-slate-700 flex flex-col max-h-[90vh]"
       >
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-5">
