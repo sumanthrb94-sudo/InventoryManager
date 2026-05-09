@@ -163,6 +163,21 @@ export default function StockAlertsTape({ units }: Props) {
 
     console.log(`[StockAlertsTape] Total alerts generated: ${list.length}`, list);
 
+    // Temporary test: Add hardcoded alerts to verify rendering works
+    if (list.length < 2) {
+      list.push({
+        id: 'test-lowstock',
+        type: 'lowstock',
+        model: 'TEST iPhone 13',
+        detail: 'Only 2 units left',
+        icon: <TrendingDown size={14} />,
+        color: 'text-amber-600',
+        bg: 'bg-amber-50 border-amber-200',
+        priority: 80,
+      });
+      console.log('[StockAlertsTape] Added TEST alert');
+    }
+
     // Sort by priority (descending) then by model name (ascending)
     return list.sort((a, b) => {
       if (b.priority !== a.priority) return b.priority - a.priority;
