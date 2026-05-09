@@ -81,7 +81,7 @@ function ToastCard({ notification, onAutoClose, onDismiss }: { key?: React.Key; 
       <div className="flex-1 min-w-0">
         <p className={`text-[9px] font-bold uppercase tracking-widest mb-0.5 ${config.icon_color}`}>{notification.title}</p>
         <p className="text-sm font-semibold truncate leading-snug text-white">{notification.model}</p>
-        <p className="text-[10px] text-gray-400 font-mono mt-0.5 line-clamp-2">{notification.message}</p>
+        <p className="text-[10px] text-gray-400 font-mono mt-0.5">{notification.message}</p>
         {notification.profitAmount !== undefined && (
           <p className={`text-[9px] font-bold mt-1 ${notification.profitAmount >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
             {notification.profitAmount >= 0 ? '✓ Profit' : '⚠ Loss'}: £{Math.abs(notification.profitAmount).toFixed(2)}

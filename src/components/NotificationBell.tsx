@@ -49,6 +49,22 @@ export default function NotificationBell({ unreadCount }: { unreadCount: number 
   if (yesterdayItems.length) grouped.push({ label: 'Yesterday', items: yesterdayItems });
   if (olderItems.length)     grouped.push({ label: 'Earlier',   items: olderItems });
 
+  // Get the color of the most recent unread notification
+  const getLatestNotificationColor = () => {
+    const unreadNotifications = notifications.filter(n => !n.read);
+    if (unreadNotifications.length === 0) return 'bg-gray-400';
+
+    const typeColors: Record<string, string> = {
+      sold: 'bg-emerald-500',
+      loss_sell: 'bg-red-500',
+      new_stock: 'bg-blue-500',
+      return_processed: 'bg-amber-500',
+      shs_received: 'bg-purple-500',
+      shs_removed: 'bg-orange-500',
+    };
+    return typeColors[unreadNotifications[0].type] || 'bg-gray-500';
+  };
+
   return (
     <div className="relative" ref={panelRef}>
       {/* Bell button */}
@@ -65,7 +81,7 @@ export default function NotificationBell({ unreadCount }: { unreadCount: number 
               initial={{ scale: 0 }}
               animate={{ scale: 1 }}
               exit={{ scale: 0 }}
-              className="absolute -top-1.5 -right-1.5 min-w-[18px] h-[18px] px-1 bg-black text-white text-[9px] font-bold rounded-full flex items-center justify-center font-mono"
+              className={`absolute -top-1.5 -right-1.5 min-w-[18px] h-[18px] px-1 ${getLatestNotificationColor()} text-white text-[9px] font-bold rounded-full flex items-center justify-center font-mono`}
             >
               {unreadCount > 99 ? '99+' : unreadCount}
             </motion.span>
@@ -123,12 +139,13 @@ export default function NotificationBell({ unreadCount }: { unreadCount: number 
                     </div>
                     <div className="divide-y divide-gray-50">
                       {group.items.map(n => {
-                        const typeConfig: Record<string, { bg: string; icon: React.ReactNode; label: string }> = {
-                          sold: { bg: 'bg-emerald-100 text-emerald-600', icon: <ShoppingBag size={13} />, label: 'Sold' },
-                          loss_sell: { bg: 'bg-red-100 text-red-600', icon: <AlertCircle size={13} />, label: 'Loss Sell' },
-                          new_stock: { bg: 'bg-blue-100 text-blue-600', icon: <PackagePlus size={13} />, label: 'New Stock' },
-                          return_processed: { bg: 'bg-amber-100 text-amber-600', icon: <RefreshCw size={13} />, label: 'Return' },
-                          shs_received: { bg: 'bg-purple-100 text-purple-600', icon: <Truck size={13} />, label: 'SHS Received' },
+                        const typeConfig: Record<string, { bg: string; icon: React.ReactNode; label: string; badgeBg: string }> = {
+                          sold: { bg: 'bg-emerald-100 text-emerald-600', icon: <ShoppingBag size={13} />, label: 'Sold', badgeBg: 'bg-emerald-500' },
+                          loss_sell: { bg: 'bg-red-100 text-red-600', icon: <AlertCircle size={13} />, label: 'Loss Sell', badgeBg: 'bg-red-500' },
+                          new_stock: { bg: 'bg-blue-100 text-blue-600', icon: <PackagePlus size={13} />, label: 'New Stock', badgeBg: 'bg-blue-500' },
+                          return_processed: { bg: 'bg-amber-100 text-amber-600', icon: <RefreshCw size={13} />, label: 'Return', badgeBg: 'bg-amber-500' },
+                          shs_received: { bg: 'bg-purple-100 text-purple-600', icon: <Truck size={13} />, label: 'SHS Received', badgeBg: 'bg-purple-500' },
+                          shs_removed: { bg: 'bg-orange-100 text-orange-600', icon: <AlertCircle size={13} />, label: 'SHS Removed', badgeBg: 'bg-orange-500' },
                         };
                         const config = typeConfig[n.type] || typeConfig.new_stock;
                         return (
@@ -139,7 +156,7 @@ export default function NotificationBell({ unreadCount }: { unreadCount: number 
                           <div className="flex-1 min-w-0">
                             <p className="text-[11px] font-bold truncate">{n.model}</p>
                             <p className="text-[9px] font-mono text-gray-400 mt-0.5 leading-relaxed">
-                              {config.label} · {n.message.slice(0, 40)}
+                              {config.label} · {n.message}
                             </p>
                             {n.profitAmount !== undefined && (
                               <p className={`text-[8px] font-bold mt-1 ${n.profitAmount >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
