@@ -173,7 +173,6 @@ class NotificationService {
     this.notify();
 
     // Mark this notification as fired so it won't trigger again on reload
-    const firedKey = `${unit.id}:${type}`;
     this.markFired(firedKey);
 
     this.playSound(type);
