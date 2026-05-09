@@ -174,8 +174,7 @@ export default function StockAlertsTape({ units }: Props) {
     });
   }, [units]);
 
-  if (alerts.length === 0) return null;
-
+  // Always show the tape for debugging, even if 0 alerts
   return (
     <div style={{
       position: 'fixed',
