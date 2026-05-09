@@ -14,6 +14,7 @@ import AddSHSModal from './AddSHSModal';
 import AddDeliveryModal from './AddDeliveryModal';
 import ScanInModal from './ScanInModal';
 import IntelligencePanel from './IntelligencePanel';
+import TodayIntakeModal from './TodayIntakeModal';
 
 interface Props {
   onOpenBatch: () => void;
@@ -28,6 +29,7 @@ export default function StockInPage({ onOpenBatch, onOpenImport }: Props) {
   const [showAddSHS, setShowAddSHS]       = useState(false);
   const [showAddDelivery, setShowAddDelivery] = useState(false);
   const [showScanUnit, setShowScanUnit] = useState(false);
+  const [showTodayIntake, setShowTodayIntake] = useState(false);
 
   const today = new Date().toISOString().split('T')[0];
 
@@ -84,11 +86,15 @@ export default function StockInPage({ onOpenBatch, onOpenImport }: Props) {
 
       {/* Today's summary */}
       <div className="grid grid-cols-3 gap-3">
-        <div className="bg-emerald-50 border border-emerald-100 rounded-2xl p-4">
+        <button
+          onClick={() => setShowTodayIntake(true)}
+          disabled={todayIn.length === 0}
+          className="bg-emerald-50 border border-emerald-100 rounded-2xl p-4 text-left hover:bg-emerald-100/50 transition-all disabled:opacity-50 disabled:cursor-default"
+        >
           <p className="text-[9px] font-mono uppercase tracking-widest text-emerald-600">Today's Intake</p>
           <p className="text-3xl font-bold font-display mt-1 text-emerald-700">{todayIn.length}</p>
           <p className="text-[9px] text-emerald-500 font-mono">units received</p>
-        </div>
+        </button>
         <div className="bg-blue-50 border border-blue-100 rounded-2xl p-4">
           <p className="text-[9px] font-mono uppercase tracking-widest text-blue-600">Today's Spend</p>
           <p className="text-2xl font-bold font-display mt-1 text-blue-700">£{totalBP.toLocaleString()}</p>
@@ -284,6 +290,11 @@ export default function StockInPage({ onOpenBatch, onOpenImport }: Props) {
       <AnimatePresence>
         {receivingUnit && (
           <ReceiveSHSModal unit={receivingUnit} onClose={() => setReceivingUnit(null)} />
+        )}
+      </AnimatePresence>
+      <AnimatePresence>
+        {showTodayIntake && (
+          <TodayIntakeModal units={todayIn} onClose={() => setShowTodayIntake(false)} />
         )}
       </AnimatePresence>
     </div>
