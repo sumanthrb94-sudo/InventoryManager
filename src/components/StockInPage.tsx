@@ -1,10 +1,11 @@
 import React, { useState, useMemo } from 'react';
 import {
   PackagePlus, Search, Plus, CheckCircle2, Clock,
-  ChevronDown, ChevronUp, Truck, PackageCheck, AlertCircle,
+  ChevronDown, ChevronUp, Truck, PackageCheck, AlertCircle, X,
 } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
 import { dbService } from '../lib/dbService';
+import { notificationService } from '../lib/notificationService';
 import { InventoryUnit, Supplier } from '../types';
 import { useInventoryStore } from '../lib/inventoryStore';
 import CopyImei from './CopyImei';
@@ -31,6 +32,15 @@ export default function StockInPage({ onOpenBatch }: Props) {
   const [showTodayIntake, setShowTodayIntake] = useState(false);
 
   const today = new Date().toISOString().split('T')[0];
+
+  const handleDeletePendingSHS = async (unit: InventoryUnit) => {
+    try {
+      await dbService.delete('inventoryUnits', unit.id);
+      notificationService.addNotification('shs_removed', unit);
+    } catch (err) {
+      console.error('Failed to delete pending SHS:', err);
+    }
+  };
 
   const supplierMap = useMemo(() => {
     const m: Record<string, string> = {};
@@ -169,6 +179,13 @@ export default function StockInPage({ onOpenBatch }: Props) {
                     className="px-3 py-1.5 bg-amber-500 text-white text-[9px] font-bold uppercase tracking-widest rounded-lg hover:bg-amber-600 transition-all flex items-center gap-1"
                   >
                     <PackageCheck size={11} /> Receive
+                  </button>
+                  <button
+                    onClick={() => handleDeletePendingSHS(u)}
+                    className="px-3 py-1.5 bg-red-500 text-white text-[9px] font-bold uppercase tracking-widest rounded-lg hover:bg-red-600 transition-all flex items-center gap-1"
+                    title="Delete this pending SHS stock"
+                  >
+                    <X size={11} /> Delete
                   </button>
                 </div>
               </div>

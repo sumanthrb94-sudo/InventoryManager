@@ -60,6 +60,7 @@ function ToastCard({ notification, onAutoClose, onDismiss }: { key?: React.Key; 
     new_stock: { icon: Package, bg: 'bg-blue-500/20 border-blue-500/30', badge: 'bg-blue-500', icon_color: 'text-blue-400' },
     return_processed: { icon: RefreshCw, bg: 'bg-amber-500/20 border-amber-500/30', badge: 'bg-amber-500', icon_color: 'text-amber-400' },
     shs_received: { icon: Truck, bg: 'bg-purple-500/20 border-purple-500/30', badge: 'bg-purple-500', icon_color: 'text-purple-400' },
+    shs_removed: { icon: AlertCircle, bg: 'bg-orange-500/20 border-orange-500/30', badge: 'bg-orange-500', icon_color: 'text-orange-400' },
   };
 
   const config = typeConfig[notification.type];

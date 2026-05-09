@@ -1,6 +1,6 @@
 import { InventoryUnit } from '../types';
 
-export type NotificationType = 'sold' | 'loss_sell' | 'new_stock' | 'return_processed' | 'shs_received';
+export type NotificationType = 'sold' | 'loss_sell' | 'new_stock' | 'return_processed' | 'shs_received' | 'shs_removed';
 
 export interface Notification {
   id: string;
@@ -130,6 +130,7 @@ class NotificationService {
       new_stock: '📦 New Stock Added',
       return_processed: '↩️ Return Processed',
       shs_received: '🚚 SHS Order Received',
+      shs_removed: '❌ SHS Stock Removed',
     };
 
     const messages: Record<NotificationType, string> = {
@@ -138,6 +139,7 @@ class NotificationService {
       new_stock: `${unit.model} is now in stock and ready for listing.`,
       return_processed: `${unit.model} has been returned and restored to inventory.`,
       shs_received: `${unit.model} from SHS order has been received.`,
+      shs_removed: `${unit.model} SHS pending stock has been removed.`,
     };
 
     const notification: Notification = {
