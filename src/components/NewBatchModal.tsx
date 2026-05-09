@@ -5,6 +5,7 @@ import { dbService } from '../lib/dbService';
 import { DeviceCategory, InventoryUnit } from '../types';
 import { useInventoryStore } from '../lib/inventoryStore';
 import { logInventoryEvent } from '../lib/inventoryEvents';
+import { GradeSelectCompact, StorageSelectCompact } from './FormSelects';
 import ScanInModal from './ScanInModal';
 
 interface Props { onClose: () => void; }
@@ -15,6 +16,7 @@ interface BatchRow {
   imei: string;
   buyPrice: string;
   colour: string;
+  storage: string;
   supplierName: string;
   grade: string;
   batchNo: string;
@@ -27,7 +29,7 @@ const today = () => new Date().toISOString().split('T')[0];
 const QUICK_NOTES = ['CLEARANCE', 'ONU', 'BOXED', 'NO BOX'];
 
 function emptyRow(supplierName = ''): BatchRow {
-  return { id: uid(), model: '', imei: '', buyPrice: '', colour: '', supplierName, grade: '', batchNo: '', notes: '', isSHS: false };
+  return { id: uid(), model: '', imei: '', buyPrice: '', colour: '', storage: '', supplierName, grade: '', batchNo: '', notes: '', isSHS: false };
 }
 
 function detectCategory(model: string): DeviceCategory {
@@ -62,6 +64,7 @@ function parsePastedCSV(text: string, fallbackSupplier: string): BatchRow[] {
       imei: isSHS ? '' : (imei ?? '').replace(/\D/g, ''),
       buyPrice: isSHS ? (bp ?? '') : (bp ?? ''),
       colour: (colour ?? '').trim(),
+      storage: '',
       grade: (grade ?? '').trim(),
       batchNo: (batch ?? '').trim(),
       supplierName: ((supplier ?? '').split('/')[0]).trim() || fallbackSupplier,
@@ -203,6 +206,7 @@ export default function NewBatchModal({ onClose }: Props) {
             imei: '',
             model: r.model.trim(), brand, category,
             colour: r.colour.trim() || 'Unknown',
+            storage: r.storage.trim() || undefined,
             grade: r.grade.trim() || undefined,
             batchNo: r.batchNo.trim() || undefined,
             buyPrice: bp, dateIn: date,
@@ -218,6 +222,7 @@ export default function NewBatchModal({ onClose }: Props) {
             imei: cleanImei,
             model: r.model.trim(), brand, category,
             colour: r.colour || 'Unknown',
+            storage: r.storage.trim() || undefined,
             grade: r.grade.trim() || undefined,
             batchNo: r.batchNo.trim() || undefined,
             buyPrice: bp, dateIn: date,
@@ -489,9 +494,7 @@ function BatchRowCard({ row, index, knownSuppliers, onChange, onRemove, canRemov
                 )}
               </div>
               <div className="col-span-1">
-                <input value={row.grade} onChange={e => onChange({ grade: e.target.value })}
-                  placeholder="A, B, C…"
-                  className="w-full border border-gray-200 rounded-lg px-2.5 py-2 text-xs font-mono focus:outline-none focus:border-black bg-white transition-all" />
+                <GradeSelectCompact value={row.grade} onChange={e => onChange({ grade: e })} />
               </div>
               <div className="col-span-1">
                 <input type="number" min={0} value={row.buyPrice} onChange={e => onChange({ buyPrice: e.target.value })}
@@ -573,9 +576,7 @@ function BatchRowCard({ row, index, knownSuppliers, onChange, onRemove, canRemov
               <div className="grid grid-cols-3 gap-2">
                 <div>
                   <label className="text-[8px] font-bold uppercase tracking-widest text-gray-400">Grade</label>
-                  <input value={row.grade} onChange={e => onChange({ grade: e.target.value })}
-                    placeholder="A, B, C…"
-                    className="w-full mt-1 border border-gray-200 rounded-lg px-3 py-2 text-xs font-mono focus:outline-none focus:border-black bg-white" />
+                  <GradeSelectCompact value={row.grade} onChange={e => onChange({ grade: e })} className="w-full mt-1 border border-gray-200 rounded-lg px-3 py-2 text-xs font-mono focus:outline-none focus:border-black bg-white" />
                 </div>
                 <div>
                   <label className="text-[8px] font-bold uppercase tracking-widest text-gray-400">Buy Price (£)</label>

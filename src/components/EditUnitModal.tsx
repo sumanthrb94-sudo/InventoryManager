@@ -4,6 +4,7 @@ import { motion } from 'motion/react';
 import { dbService } from '../lib/dbService';
 import { InventoryUnit } from '../types';
 import { useInventoryStore } from '../lib/inventoryStore';
+import { GradeSelect, StorageSelect } from './FormSelects';
 
 interface Props {
   unit: InventoryUnit;
@@ -17,6 +18,8 @@ export default function EditUnitModal({ unit, onClose }: Props) {
 
   const [model,    setModel]    = useState(unit.model);
   const [colour,   setColour]   = useState(unit.colour || '');
+  const [grade,    setGrade]    = useState(unit.grade || '');
+  const [storage,  setStorage]  = useState(unit.storage || '');
   const [buyPrice, setBuyPrice] = useState(String(unit.buyPrice || ''));
   const [dateIn,   setDateIn]   = useState(unit.dateIn || '');
   const [notes,    setNotes]    = useState(unit.notes || '');
@@ -38,6 +41,8 @@ export default function EditUnitModal({ unit, onClose }: Props) {
       await dbService.update('inventoryUnits', unit.id, {
         model:          model.trim(),
         colour:         colour.trim() || 'Unknown',
+        grade:          grade || undefined,
+        storage:        storage || undefined,
         buyPrice:       bp,
         dateIn:         dateIn || unit.dateIn,
         notes:          notes.trim(),
@@ -108,6 +113,12 @@ export default function EditUnitModal({ unit, onClose }: Props) {
             <input value={colour} onChange={e => setColour(e.target.value)}
               placeholder="Black, White…"
               className="w-full mt-1 border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-black bg-white transition-all" />
+          </div>
+
+          {/* Grade & Storage */}
+          <div className="grid grid-cols-2 gap-3">
+            <GradeSelect value={grade} onChange={setGrade} />
+            <StorageSelect value={storage} onChange={setStorage} />
           </div>
 
           {/* Supplier */}

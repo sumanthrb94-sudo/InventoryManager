@@ -5,6 +5,7 @@ import { dbService } from '../lib/dbService';
 import { DeviceCategory, InventoryUnit } from '../types';
 import { useInventoryStore } from '../lib/inventoryStore';
 import { notificationService } from '../lib/notificationService';
+import { StorageSelectCompact } from './FormSelects';
 import { logInventoryEvent } from '../lib/inventoryEvents';
 
 interface Props { onClose: () => void; }
@@ -322,9 +323,7 @@ function SHSRowCard({ row, index, knownSuppliers, onChange, onRemove, canRemove 
             className="w-full border border-gray-200 rounded-lg px-2.5 py-2 text-xs focus:outline-none focus:border-amber-400 bg-white transition-all" />
         </div>
         <div className="col-span-1">
-          <input value={row.storage} onChange={e => onChange({ storage: e.target.value })}
-            placeholder="256GB"
-            className="w-full border border-gray-200 rounded-lg px-2.5 py-2 text-xs font-mono focus:outline-none focus:border-amber-400 bg-white transition-all" />
+          <StorageSelectCompact value={row.storage} onChange={e => onChange({ storage: e })} className="w-full border border-gray-200 rounded-lg px-2.5 py-2 text-xs font-mono focus:outline-none focus:border-amber-400 bg-white transition-all" />
         </div>
         <div className="col-span-2">
           <input list={`shs-sup-${row.id}`} value={row.supplierName}
@@ -378,9 +377,7 @@ function SHSRowCard({ row, index, knownSuppliers, onChange, onRemove, canRemove 
           </div>
           <div>
             <label className="text-[8px] font-bold uppercase tracking-widest text-gray-400">Storage</label>
-            <input value={row.storage} onChange={e => onChange({ storage: e.target.value })}
-              placeholder="256GB"
-              className="w-full mt-1 border border-gray-200 rounded-lg px-3 py-2 text-xs font-mono focus:outline-none focus:border-amber-400 bg-white" />
+            <StorageSelectCompact value={row.storage} onChange={e => onChange({ storage: e })} className="w-full mt-1 border border-gray-200 rounded-lg px-3 py-2 text-xs font-mono focus:outline-none focus:border-amber-400 bg-white" />
           </div>
         </div>
         <div className="grid grid-cols-2 gap-2">
