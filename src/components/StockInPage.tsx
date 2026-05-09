@@ -116,13 +116,13 @@ export default function StockInPage({ onOpenBatch }: Props) {
         {/* Divider */}
         <div className="w-px h-12 bg-gray-200 mx-2" />
 
-        {/* Add Delivery */}
+        {/* Add Stock */}
         <button
           onClick={() => setShowAddDelivery(true)}
           className="flex items-center gap-2 px-4 py-3 bg-black text-white rounded-lg hover:bg-gray-800 transition-all active:scale-95 flex-shrink-0 whitespace-nowrap"
         >
           <Plus size={16} />
-          <span className="text-[9px] font-bold uppercase tracking-widest">Delivery</span>
+          <span className="text-[9px] font-bold uppercase tracking-widest">Add Stock</span>
         </button>
 
         {/* Log SHS Order */}
