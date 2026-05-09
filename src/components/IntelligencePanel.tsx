@@ -269,29 +269,29 @@ const SignalCard: React.FC<{ sig: Signal }> = ({ sig }) => {
   const colors = colorMap[sig.color] || { bg: 'bg-gray-50 border-gray-100', text: 'text-gray-600', textLight: 'text-gray-500' };
 
   return (
-    <div className={`border rounded-lg p-2 flex-shrink-0 min-w-fit ${colors.bg}`}>
+    <div className={`border rounded p-1.5 flex-shrink-0 min-w-fit ${colors.bg}`}>
       {/* Header */}
-      <p className={`text-[7px] font-bold uppercase tracking-widest font-mono ${colors.text} mb-1`}>
+      <p className={`text-[6px] font-bold uppercase tracking-widest font-mono ${colors.text} mb-0.5`}>
         {sig.label}
       </p>
 
       {/* Content */}
       {sig.rows.length === 0 ? (
-        <p className="text-[7px] text-gray-400 font-mono italic">
+        <p className="text-[6px] text-gray-400 font-mono italic">
           {sig.empty}
         </p>
       ) : (
-        <div className="space-y-0.5">
+        <div className="space-y-0">
           {sig.rows.slice(0, 2).map((row, i) => (
-            <div key={i} className="flex items-center justify-between gap-2">
-              <span className="text-[8px] font-bold text-gray-700 truncate max-w-[120px]">{row.name}</span>
-              <span className={`text-[8px] font-bold font-mono whitespace-nowrap ${row.alert ? 'text-red-500' : colors.textLight}`}>
+            <div key={i} className="flex items-center justify-between gap-1">
+              <span className="text-[7px] font-bold text-gray-700 truncate max-w-[100px]">{row.name}</span>
+              <span className={`text-[7px] font-bold font-mono whitespace-nowrap ${row.alert ? 'text-red-500' : colors.textLight}`}>
                 {row.primary}
               </span>
             </div>
           ))}
           {sig.rows.length > 2 && (
-            <p className="text-[6px] text-gray-400 font-mono pt-0.5">+{sig.rows.length - 2}</p>
+            <p className="text-[5px] text-gray-400 font-mono">+{sig.rows.length - 2}</p>
           )}
         </div>
       )}
@@ -312,19 +312,19 @@ export default function IntelligencePanel({ units, mode }: Props) {
     : 'Sell Intelligence · Demand & Margin Signals';
 
   return (
-    <div className="bg-gradient-to-r from-gray-50 to-white border border-gray-100 rounded-lg p-3">
+    <div className="bg-white border border-gray-100 rounded-lg p-2">
       {/* Panel header */}
-      <div className="flex items-center justify-between mb-3">
-        <p className="text-[8px] font-bold uppercase tracking-widest text-gray-500 font-mono">
+      <div className="flex items-center justify-between mb-2">
+        <p className="text-[7px] font-bold uppercase tracking-widest text-gray-500 font-mono">
           {title}
         </p>
-        <p className="text-[7px] text-gray-400 font-mono flex-shrink-0">
-          14-day window
+        <p className="text-[6px] text-gray-400 font-mono flex-shrink-0">
+          14-day
         </p>
       </div>
 
       {/* Signal cards — horizontal flex */}
-      <div className="flex items-center gap-2 overflow-x-auto pb-1">
+      <div className="flex items-center gap-1.5 overflow-x-auto">
         {signals.map(sig => (
           <SignalCard key={sig.key} sig={sig} />
         ))}
