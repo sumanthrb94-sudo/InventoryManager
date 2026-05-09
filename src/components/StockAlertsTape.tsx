@@ -1,5 +1,4 @@
 import React, { useMemo } from 'react';
-import { motion } from 'motion/react';
 import { AlertCircle, TrendingDown, Truck, ShoppingBag, RefreshCw } from 'lucide-react';
 import { InventoryUnit } from '../types';
 
@@ -20,10 +19,15 @@ interface Alert {
 
 export default function StockAlertsTape({ units }: Props) {
   const alerts = useMemo(() => {
-    if (units.length === 0) return [];
+    if (!units || !Array.isArray(units) || units.length === 0) return [];
 
-    console.log('[StockAlertsTape] Received units:', units.length);
-    console.log('[StockAlertsTape] Sample units:', units.slice(0, 5).map(u => ({ model: u.model, status: u.status })));
+    console.log('[StockAlertsTape] Received units:', units.length, 'Total models:', new Set(units.map(u => u.model)).size);
+    const lowStockItems = units.filter(u => u.status === 'available').reduce((acc, u) => {
+      const series = u.model.split(' ').slice(0, 2).join(' ');
+      acc[series] = (acc[series] || 0) + 1;
+      return acc;
+    }, {} as Record<string, number>);
+    console.log('[StockAlertsTape] Low stock candidates (1-2 available):', Object.entries(lowStockItems).filter(([s, c]) => c >= 1 && c <= 2).map(([s, c]) => `${s}: ${c}`));
 
     const seen = new Set<string>();
     const list: Alert[] = [];
@@ -58,9 +62,6 @@ export default function StockAlertsTape({ units }: Props) {
         seriesStats[series].returnedCount++;
       }
     }
-
-    console.log('[StockAlertsTape] All series found:', Array.from(allSeries).sort());
-    console.log('[StockAlertsTape] Series stats:', seriesStats);
 
     // Generate alerts for each series - BULLETPROOF DETECTION
     for (const series of Array.from(allSeries).sort()) {
@@ -166,21 +167,6 @@ export default function StockAlertsTape({ units }: Props) {
 
     console.log(`[StockAlertsTape] Total alerts generated: ${list.length}`, list);
 
-    // Temporary test: Add hardcoded alerts to verify rendering works
-    if (list.length < 2) {
-      list.push({
-        id: 'test-lowstock',
-        type: 'lowstock',
-        model: 'TEST iPhone 13',
-        detail: 'Only 2 units left',
-        icon: <TrendingDown size={14} />,
-        color: 'text-amber-600',
-        bg: 'bg-amber-50 border-amber-200',
-        priority: 80,
-      });
-      console.log('[StockAlertsTape] Added TEST alert');
-    }
-
     // Sort by priority (descending) then by model name (ascending)
     return list.sort((a, b) => {
       if (b.priority !== a.priority) return b.priority - a.priority;
@@ -231,16 +217,7 @@ export default function StockAlertsTape({ units }: Props) {
         overflowX: 'hidden',
       }}>
         {alerts.length > 0 ? (
-          <motion.div
-            initial={{ y: 0 }}
-            animate={{ y: alerts.length > 6 ? `-${alerts.length * 60}px` : 0 }}
-            transition={{
-              duration: alerts.length > 6 ? alerts.length * 4 : 0,
-              repeat: alerts.length > 6 ? Infinity : 0,
-              ease: 'linear',
-            }}
-            style={{ paddingTop: 0 }}
-          >
+          <div style={{ overflow: 'hidden' }}>
             {/* Show each alert exactly once - NO DUPLICATES */}
             {alerts.map(alert => (
               <div
@@ -248,7 +225,7 @@ export default function StockAlertsTape({ units }: Props) {
                 style={{
                   padding: '8px 10px',
                   borderBottom: '1px solid #f1f5f9',
-                  borderLeft: `3px solid`,
+                  borderLeft: `3px solid currentColor`,
                   minHeight: 60,
                   display: 'flex',
                   flexDirection: 'column',
@@ -284,7 +261,7 @@ export default function StockAlertsTape({ units }: Props) {
                 </div>
               </div>
             ))}
-          </motion.div>
+          </div>
         ) : (
           <div style={{
             padding: '12px 10px',
