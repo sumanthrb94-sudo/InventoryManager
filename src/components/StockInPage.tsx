@@ -16,6 +16,7 @@ import AddDeliveryModal from './AddDeliveryModal';
 import ScanInModal from './ScanInModal';
 import IntelligencePanel from './IntelligencePanel';
 import TodayIntakeModal from './TodayIntakeModal';
+import SHSListingPanel from './SHSListingPanel';
 
 interface Props {
   onOpenBatch: () => void;
@@ -153,6 +154,9 @@ export default function StockInPage({ onOpenBatch }: Props) {
 
       {/* Intelligence panel */}
       <IntelligencePanel units={units} mode="buy" />
+
+      {/* SHS Listing Panel */}
+      <SHSListingPanel units={units} mode="buy" />
 
       {/* Pending SHS section */}
       {pendingSHS.length > 0 && (

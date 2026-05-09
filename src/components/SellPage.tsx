@@ -19,6 +19,7 @@ import PeriodicInventory from './PeriodicInventory';
 import IntelligencePanel from './IntelligencePanel';
 import TodaySalesModal from './TodaySalesModal';
 import InStockModal from './InStockModal';
+import SHSListingPanel from './SHSListingPanel';
 
 // ── helpers ────────────────────────────────────────────────────────────────────
 const today = () => new Date().toISOString().split('T')[0];
@@ -500,6 +501,9 @@ export default function SellPage() {
 
       {/* Periodic table */}
       <PeriodicInventory units={units} onNavigate={term => setSearch(term)} />
+
+      {/* SHS Listing Panel */}
+      <SHSListingPanel units={units} mode="sell" />
 
       {/* ── SHS — Supplier Direct Listings ── */}
       {shsUnits.length > 0 && (
