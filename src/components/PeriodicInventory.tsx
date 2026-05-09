@@ -473,7 +473,7 @@ export default function PeriodicInventory({ units, onNavigate }: Props) {
                         width: 60, height: 60,
                         background: isEmpty ? '#fef2f2' : isHovered ? g.color.bg : g.color.light,
                         border: `1.5px solid ${isEmpty ? '#fecaca' : isHovered ? g.color.bg : g.color.border}`,
-                        borderRadius: 16,
+                        borderRadius: 8,
                         padding: '3px 2px',
                         display: 'flex',
                         flexDirection: 'column',
@@ -485,21 +485,16 @@ export default function PeriodicInventory({ units, onNavigate }: Props) {
                         opacity: 1,
                       }}
                     >
-                      {/* Ordinal + count */}
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', width: '100%' }}>
-                        <span style={{ fontSize: 8, fontFamily: 'monospace', fontWeight: 700, color: isHovered ? 'rgba(255,255,255,0.6)' : g.color.text, opacity: 0.7 }}>
-                          {el.ordinal}
+                      {/* Count */}
+                      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 1 }}>
+                        <span style={{ fontSize: 9, fontFamily: 'monospace', fontWeight: 800, color: isHovered ? '#fff' : g.color.text }}>
+                          {el.count}
                         </span>
-                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 1 }}>
-                          <span style={{ fontSize: 9, fontFamily: 'monospace', fontWeight: 800, color: isHovered ? '#fff' : g.color.text }}>
-                            {el.count}
+                        {el.shsCount > 0 && (
+                          <span style={{ fontSize: 7, fontFamily: 'monospace', fontWeight: 700, color: '#fbbf24', lineHeight: 1 }}>
+                            +{el.shsCount}S
                           </span>
-                          {el.shsCount > 0 && (
-                            <span style={{ fontSize: 7, fontFamily: 'monospace', fontWeight: 700, color: '#fbbf24', lineHeight: 1 }}>
-                              +{el.shsCount}S
-                            </span>
-                          )}
-                        </div>
+                        )}
                       </div>
 
                       {/* Symbol */}
