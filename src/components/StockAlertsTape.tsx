@@ -20,39 +20,48 @@ interface Alert {
 
 export default function StockAlertsTape({ units }: Props) {
   const alerts = useMemo(() => {
+    if (units.length === 0) return [];
+
     const seen = new Set<string>();
     const list: Alert[] = [];
 
-    // Group by series for efficient alert generation
-    const seriesMap: Record<string, { outOfStock: number; lowStock: number; shs: number; listed: number; returned: number }> = {};
+    // Build comprehensive series stats
+    const seriesStats: Record<string, {
+      availableCount: number;
+      shsCount: number;
+      listedCount: number;
+      returnedCount: number;
+    }> = {};
+
+    // Get all unique series from all units
+    const allSeries = new Set<string>();
 
     for (const u of units) {
       const series = u.model.split(' ').slice(0, 2).join(' ');
-      if (!seriesMap[series]) {
-        seriesMap[series] = { outOfStock: 0, lowStock: 0, shs: 0, listed: 0, returned: 0 };
+      allSeries.add(series);
+
+      if (!seriesStats[series]) {
+        seriesStats[series] = { availableCount: 0, shsCount: 0, listedCount: 0, returnedCount: 0 };
       }
 
       if (u.status === 'available') {
-        if (u.platformListed || u.listingSites?.length > 0) {
-          seriesMap[series].listed++;
+        seriesStats[series].availableCount++;
+        if (u.platformListed || (u.listingSites && u.listingSites.length > 0)) {
+          seriesStats[series].listedCount++;
         }
       } else if (u.status === 'incoming') {
-        seriesMap[series].shs++;
+        seriesStats[series].shsCount++;
       } else if (u.status === 'returned') {
-        seriesMap[series].returned++;
+        seriesStats[series].returnedCount++;
       }
     }
 
-    // Out of stock: series with 0 available
-    const available = units.filter(u => u.status === 'available');
-    const availableSeries = new Set(available.map(u => u.model.split(' ').slice(0, 2).join(' ')));
+    // Generate alerts for each series
+    for (const series of Array.from(allSeries).sort()) {
+      const stats = seriesStats[series];
 
-    const allSeries = new Set([
-      ...Array.from(units).map(u => u.model.split(' ').slice(0, 2).join(' '))
-    ]);
-
-    for (const series of allSeries) {
-      if (!availableSeries.has(series)) {
+      // Priority 1: OUT OF STOCK (highest priority)
+      if (stats.availableCount === 0) {
         const alertId = `outofstock-${series}`;
         if (!seen.has(alertId)) {
           seen.add(alertId);
@@ -67,29 +76,28 @@ export default function StockAlertsTape({ units }: Props) {
             priority: 100,
           });
         }
-      } else {
-        // Check for low stock (only 1-2 units available)
-        const count = available.filter(u => u.model.split(' ').slice(0, 2).join(' ') === series).length;
-        if (count > 0 && count <= 2) {
-          const alertId = `lowstock-${series}-${count}`;
-          if (!seen.has(alertId)) {
-            seen.add(alertId);
-            list.push({
-              id: alertId,
-              type: 'lowstock',
-              model: series,
-              detail: `Only ${count} unit${count > 1 ? 's' : ''} left`,
-              icon: <TrendingDown size={14} />,
-              color: 'text-amber-600',
-              bg: 'bg-amber-50 border-amber-200',
-              priority: 80,
-            });
-          }
+      }
+
+      // Priority 2: LOW STOCK (1-2 units only)
+      if (stats.availableCount > 0 && stats.availableCount <= 2) {
+        const alertId = `lowstock-${series}-${stats.availableCount}`;
+        if (!seen.has(alertId)) {
+          seen.add(alertId);
+          list.push({
+            id: alertId,
+            type: 'lowstock',
+            model: series,
+            detail: `Only ${stats.availableCount} unit${stats.availableCount === 1 ? '' : 's'} left`,
+            icon: <TrendingDown size={14} />,
+            color: 'text-amber-600',
+            bg: 'bg-amber-50 border-amber-200',
+            priority: 80,
+          });
         }
       }
 
-      // SHS (Supplier Holding Stock)
-      if (seriesMap[series]?.shs > 0) {
+      // Priority 3: SHS (with supplier)
+      if (stats.shsCount > 0) {
         const alertId = `shs-${series}`;
         if (!seen.has(alertId)) {
           seen.add(alertId);
@@ -97,17 +105,17 @@ export default function StockAlertsTape({ units }: Props) {
             id: alertId,
             type: 'shs',
             model: series,
-            detail: `${seriesMap[series].shs} with supplier`,
+            detail: `${stats.shsCount} with supplier`,
             icon: <Truck size={14} />,
             color: 'text-blue-600',
             bg: 'bg-blue-50 border-blue-200',
-            priority: 40,
+            priority: 50,
           });
         }
       }
 
-      // Listed
-      if (seriesMap[series]?.listed > 0) {
+      // Priority 4: LISTED
+      if (stats.listedCount > 0) {
         const alertId = `listed-${series}`;
         if (!seen.has(alertId)) {
           seen.add(alertId);
@@ -115,7 +123,7 @@ export default function StockAlertsTape({ units }: Props) {
             id: alertId,
             type: 'listed',
             model: series,
-            detail: `${seriesMap[series].listed} listed for sale`,
+            detail: `${stats.listedCount} listed for sale`,
             icon: <ShoppingBag size={14} />,
             color: 'text-green-600',
             bg: 'bg-green-50 border-green-200',
@@ -124,8 +132,8 @@ export default function StockAlertsTape({ units }: Props) {
         }
       }
 
-      // Returned
-      if (seriesMap[series]?.returned > 0) {
+      // Priority 5: RETURNED
+      if (stats.returnedCount > 0) {
         const alertId = `returned-${series}`;
         if (!seen.has(alertId)) {
           seen.add(alertId);
@@ -133,7 +141,7 @@ export default function StockAlertsTape({ units }: Props) {
             id: alertId,
             type: 'returned',
             model: series,
-            detail: `${seriesMap[series].returned} returned`,
+            detail: `${stats.returnedCount} returned`,
             icon: <RefreshCw size={14} />,
             color: 'text-orange-600',
             bg: 'bg-orange-50 border-orange-200',
@@ -143,7 +151,7 @@ export default function StockAlertsTape({ units }: Props) {
       }
     }
 
-    // Sort by priority (descending) then by model name
+    // Sort by priority (descending) then by model name (ascending)
     return list.sort((a, b) => {
       if (b.priority !== a.priority) return b.priority - a.priority;
       return a.model.localeCompare(b.model);
