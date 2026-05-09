@@ -215,13 +215,17 @@ export default function StockAlertsTape({ units }: Props) {
       zIndex: 40,
     }}>
       {/* Header */}
-      <div style={{
+      <div style={isMobile ? {
+        padding: '6px 8px',
+        borderBottom: '1px solid #e2e8f0',
+        background: '#f8fafc',
+      } : {
         padding: '8px 10px',
         borderBottom: '1px solid #e2e8f0',
         background: '#f8fafc',
       }}>
         <p style={{
-          fontSize: 8,
+          fontSize: isMobile ? 6 : 8,
           fontFamily: 'monospace',
           fontWeight: 700,
           textTransform: 'uppercase',
@@ -229,7 +233,7 @@ export default function StockAlertsTape({ units }: Props) {
           color: '#64748b',
           margin: 0,
         }}>
-          Stock Alerts
+          {isMobile ? 'Alerts' : 'Stock Alerts'}
         </p>
       </div>
 
@@ -244,7 +248,12 @@ export default function StockAlertsTape({ units }: Props) {
         overflowX: 'hidden',
       }}>
         {/* Debug: show alert count */}
-        <div style={{ padding: '4px 10px', fontSize: 7, color: '#94a3b8', borderBottom: '1px solid #f1f5f9' }}>
+        <div style={{
+          padding: isMobile ? '3px 6px' : '4px 10px',
+          fontSize: isMobile ? 6 : 7,
+          color: '#94a3b8',
+          borderBottom: '1px solid #f1f5f9'
+        }}>
           {alerts.length} alert{alerts.length !== 1 ? 's' : ''}
         </div>
 
@@ -262,7 +271,17 @@ export default function StockAlertsTape({ units }: Props) {
             {[...alerts, ...alerts].map((alert, idx) => (
               <div
                 key={`${alert.id}-${idx}`}
-                style={{
+                style={isMobile ? {
+                  // Mobile: compact layout
+                  padding: '6px 8px',
+                  borderBottom: '1px solid #f1f5f9',
+                  borderLeft: `3px solid currentColor`,
+                  minHeight: 50,
+                  display: 'flex',
+                  flexDirection: 'column',
+                  justifyContent: 'center',
+                } : {
+                  // Desktop: normal layout
                   padding: '8px 10px',
                   borderBottom: '1px solid #f1f5f9',
                   borderLeft: `3px solid currentColor`,
@@ -273,15 +292,15 @@ export default function StockAlertsTape({ units }: Props) {
                 }}
                 className={alert.bg}
               >
-                <div style={{ display: 'flex', alignItems: 'flex-start', gap: 6 }}>
+                <div style={{ display: 'flex', alignItems: 'flex-start', gap: isMobile ? 4 : 6 }}>
                   <div style={{ flexShrink: 0, marginTop: 2 }} className={alert.color}>
-                    {alert.icon}
+                    {isMobile ? alert.icon : alert.icon}
                   </div>
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <p style={{
-                      fontSize: 9,
+                      fontSize: isMobile ? 7 : 9,
                       fontWeight: 700,
-                      margin: '0 0 2px 0',
+                      margin: '0 0 1px 0',
                       overflow: 'hidden',
                       textOverflow: 'ellipsis',
                       whiteSpace: 'nowrap',
@@ -290,7 +309,7 @@ export default function StockAlertsTape({ units }: Props) {
                       {alert.model}
                     </p>
                     <p style={{
-                      fontSize: 7.5,
+                      fontSize: isMobile ? 6 : 7.5,
                       margin: 0,
                       color: '#64748b',
                       fontFamily: 'monospace',
@@ -304,13 +323,13 @@ export default function StockAlertsTape({ units }: Props) {
           </motion.div>
         ) : (
           <div style={{
-            padding: '12px 10px',
+            padding: isMobile ? '8px 6px' : '12px 10px',
             textAlign: 'center',
             color: '#94a3b8',
-            fontSize: 8,
+            fontSize: isMobile ? 6 : 8,
             fontFamily: 'monospace',
           }}>
-            All good!
+            {isMobile ? 'All good!' : 'All good!'}
           </div>
         )}
       </div>
