@@ -25,7 +25,6 @@ export default function TodaySalesModal({ units, onClose }: Props) {
   }, [suppliers]);
 
   const totalRevenue = units.reduce((s, u) => s + (u.salePrice || 0), 0);
-  const totalProfit = units.reduce((s, u) => s + ((u.salePrice || 0) - u.buyPrice), 0);
 
   const handleSaveNotes = async (unitId: string, noteText: string) => {
     setSaving(true);
@@ -49,7 +48,6 @@ export default function TodaySalesModal({ units, onClose }: Props) {
     { key: 'sp', label: 'Sale Price', width: 'w-24' },
     { key: 'platform', label: 'Platform', width: 'w-28' },
     { key: 'orderId', label: 'Order ID', width: 'w-32' },
-    { key: 'profit', label: 'Profit/Loss', width: 'w-28' },
   ];
 
   return (
@@ -105,12 +103,7 @@ export default function TodaySalesModal({ units, onClose }: Props) {
 
               {/* Table Body */}
               <tbody>
-                {units.map((u, idx) => {
-                  const profit = (u.salePrice || 0) - u.buyPrice;
-                  const isEditingNotes = editingNotes === u.id;
-                  const noteText = notes[u.id] ?? u.internalNotes ?? '';
-
-                  return (
+                {units.map((u, idx) => (
                     <tr key={u.id} className="border-b border-gray-200 hover:bg-gray-50">
                       <td className="px-4 py-3 text-xs font-mono text-gray-500">{idx + 1}</td>
                       <td className="px-4 py-3 text-xs font-bold text-gray-900 truncate">{u.model}</td>
@@ -132,12 +125,8 @@ export default function TodaySalesModal({ units, onClose }: Props) {
                         </span>
                       </td>
                       <td className="px-4 py-3 text-xs font-mono text-gray-700">{u.saleOrderId || '—'}</td>
-                      <td className={`px-4 py-3 text-xs font-bold ${profit >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
-                        £{profit.toFixed(2)}
-                      </td>
                     </tr>
-                  );
-                })}
+                  ))}
               </tbody>
 
               {/* Footer Summary */}
@@ -150,10 +139,7 @@ export default function TodaySalesModal({ units, onClose }: Props) {
                   <td className="px-4 py-3 text-xs font-mono font-bold text-emerald-600">
                     £{totalRevenue.toFixed(2)}
                   </td>
-                  <td colSpan={2} className="px-4 py-3" />
-                  <td className={`px-4 py-3 text-xs font-bold ${totalProfit >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
-                    £{totalProfit.toFixed(2)}
-                  </td>
+                  <td colSpan={3} className="px-4 py-3" />
                 </tr>
               </tfoot>
             </table>

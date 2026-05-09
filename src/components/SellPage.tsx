@@ -423,7 +423,6 @@ export default function SellPage() {
   const todaySold    = sold.filter(u => u.saleDate === todayStr);
   const ystdSold     = sold.filter(u => u.saleDate === yesterday);
   const todayRevenue = todaySold.reduce((s, u) => s + (u.salePrice || 0), 0);
-  const todayProfit  = todaySold.reduce((s, u) => s + ((u.salePrice || 0) - u.buyPrice), 0);
 
   const filtered = useMemo(() => {
     if (!search.trim()) return inStock.slice(0, 80);
@@ -470,7 +469,7 @@ export default function SellPage() {
       </AnimatePresence>
 
       {/* Stats */}
-      <div className="grid grid-cols-4 gap-2">
+      <div className="grid grid-cols-3 gap-2">
         <button
           onClick={() => setShowInStock(true)}
           disabled={inStock.length === 0}
@@ -494,11 +493,6 @@ export default function SellPage() {
           <p className="text-2xl font-bold font-display mt-1 text-blue-700">{todaySold.length}</p>
           <p className="text-[8px] text-blue-500 font-mono">£{todayRevenue.toLocaleString()}</p>
         </button>
-        <div className="bg-purple-50 border border-purple-100 rounded-2xl p-3">
-          <p className="text-[8px] font-mono uppercase tracking-widest text-purple-600">Profit</p>
-          <p className="text-xl font-bold font-display mt-1 text-purple-700">£{todayProfit.toLocaleString()}</p>
-          <p className="text-[8px] text-purple-500 font-mono">today gross</p>
-        </div>
       </div>
 
       {/* Intelligence panel */}
@@ -758,7 +752,6 @@ export default function SellPage() {
                   <div className="grid gap-2">
                     {dayUnits.map(u => {
                       const platformFee = u.salePrice && u.salePlatform ? platformTotalFee(u.salePlatform, u.salePrice) : 0;
-                      const profit = u.salePrice && u.salePlatform ? calcNetProfit(u.salePrice, u.buyPrice, u.salePlatform, u.postageCost || 0) : null;
                       const feePercentage = u.salePrice && platformFee ? ((platformFee / u.salePrice) * 100).toFixed(1) : '0';
                       const isSHS = u.batchId?.startsWith('shs_') || u.notes?.includes('SHS');
                       return (
@@ -802,7 +795,7 @@ export default function SellPage() {
                               ? 'bg-orange-50/40 border-orange-100'
                               : 'bg-gray-50 border-gray-100'
                           }`}>
-                            <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-[9px]">
+                            <div className="grid grid-cols-2 md:grid-cols-3 gap-2 text-[9px]">
                               <div>
                                 <p className="text-gray-500 font-mono uppercase tracking-widest mb-0.5">Buy Price</p>
                                 <p className="font-bold">£{u.buyPrice}</p>
@@ -814,12 +807,6 @@ export default function SellPage() {
                               <div>
                                 <p className="text-gray-500 font-mono uppercase tracking-widest mb-0.5">Postage</p>
                                 <p className="font-bold text-red-600">-£{(u.postageCost || 3.5).toFixed(2)}</p>
-                              </div>
-                              <div>
-                                <p className="text-gray-500 font-mono uppercase tracking-widest mb-0.5">Profit</p>
-                                <p className={`font-bold ${profit !== null && profit < 0 ? 'text-red-600' : 'text-emerald-600'}`}>
-                                  {profit !== null ? `${profit >= 0 ? '+' : ''}£${profit.toFixed(2)}` : '—'}
-                                </p>
                               </div>
                             </div>
                           </div>
