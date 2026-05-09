@@ -224,17 +224,17 @@ export default function StockAlertsTape({ units }: Props) {
         {alerts.length > 0 ? (
           <motion.div
             initial={{ y: 0 }}
-            animate={{ y: alerts.length > 4 ? `-${(alerts.length * 60)}px` : 0 }}
+            animate={{ y: alerts.length > 3 ? `-${(alerts.length * 60)}px` : 0 }}
             transition={{
-              duration: alerts.length > 4 ? alerts.length * 3 : 0,
-              repeat: alerts.length > 4 ? Infinity : 0,
+              duration: alerts.length > 3 ? alerts.length * 2.5 : 0,
+              repeat: 0,
               ease: 'linear',
             }}
           >
-            {/* Show each alert exactly once - NO DUPLICATES */}
-            {alerts.map(alert => (
+            {/* Render alerts TWICE for seamless infinite scroll without duplication */}
+            {[...alerts, ...alerts].map((alert, idx) => (
               <div
-                key={alert.id}
+                key={`${alert.id}-${idx}`}
                 style={{
                   padding: '8px 10px',
                   borderBottom: '1px solid #f1f5f9',
