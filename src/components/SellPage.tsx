@@ -18,6 +18,7 @@ import CollapsibleSection from './CollapsibleSection';
 import PeriodicInventory from './PeriodicInventory';
 import IntelligencePanel from './IntelligencePanel';
 import TodaySalesModal from './TodaySalesModal';
+import InStockModal from './InStockModal';
 
 // ── helpers ────────────────────────────────────────────────────────────────────
 const today = () => new Date().toISOString().split('T')[0];
@@ -393,6 +394,7 @@ export default function SellPage() {
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [enterImeiUnit, setEnterImeiUnit] = useState<InventoryUnit | null>(null);
   const [showTodaySales, setShowTodaySales] = useState(false);
+  const [showInStock, setShowInStock] = useState(false);
 
   const supplierMap = useMemo(() => {
     const m: Record<string, string> = {};
@@ -469,11 +471,15 @@ export default function SellPage() {
 
       {/* Stats */}
       <div className="grid grid-cols-4 gap-2">
-        <div className="bg-emerald-50 border border-emerald-100 rounded-2xl p-3">
+        <button
+          onClick={() => setShowInStock(true)}
+          disabled={inStock.length === 0}
+          className="bg-emerald-50 border border-emerald-100 rounded-2xl p-3 hover:bg-emerald-100 hover:border-emerald-200 active:scale-95 transition-all disabled:opacity-50 disabled:cursor-default text-left cursor-pointer"
+        >
           <p className="text-[8px] font-mono uppercase tracking-widest text-emerald-600">In Stock</p>
           <p className="text-2xl font-bold font-display mt-1 text-emerald-700">{inStock.length}</p>
           <p className="text-[8px] text-emerald-500 font-mono">in office</p>
-        </div>
+        </button>
         <div className="bg-amber-50 border border-amber-100 rounded-2xl p-3">
           <p className="text-[8px] font-mono uppercase tracking-widest text-amber-600">SHS Listed</p>
           <p className="text-2xl font-bold font-display mt-1 text-amber-700">{shsUnits.length}</p>
@@ -852,6 +858,16 @@ export default function SellPage() {
           <TodaySalesModal
             units={todaySold}
             onClose={() => setShowTodaySales(false)}
+          />
+        )}
+      </AnimatePresence>
+
+      {/* In Stock modal */}
+      <AnimatePresence>
+        {showInStock && (
+          <InStockModal
+            units={inStock}
+            onClose={() => setShowInStock(false)}
           />
         )}
       </AnimatePresence>
