@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import {
-  PackagePlus, Search, Plus, FileSpreadsheet, CheckCircle2, Clock,
+  PackagePlus, Search, Plus, CheckCircle2, Clock,
   ChevronDown, ChevronUp, Truck, PackageCheck, AlertCircle,
 } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
@@ -18,10 +18,9 @@ import TodayIntakeModal from './TodayIntakeModal';
 
 interface Props {
   onOpenBatch: () => void;
-  onOpenImport: () => void;
 }
 
-export default function StockInPage({ onOpenBatch, onOpenImport }: Props) {
+export default function StockInPage({ onOpenBatch }: Props) {
   const { units, suppliers }        = useInventoryStore();
   const [search, setSearch]         = useState('');
   const [expandedId, setExpandedId] = useState<string | null>(null);
@@ -84,54 +83,55 @@ export default function StockInPage({ onOpenBatch, onOpenImport }: Props) {
         </p>
       </div>
 
-      {/* Today's summary */}
-      <div className="grid grid-cols-3 gap-3">
+      {/* Compact dashboard */}
+      <div className="flex items-center gap-2 bg-gradient-to-r from-gray-50 to-white border border-gray-100 rounded-xl p-3">
+        {/* Today's Intake */}
         <button
           onClick={() => setShowTodayIntake(true)}
           disabled={todayIn.length === 0}
-          className="bg-emerald-50 border border-emerald-100 rounded-2xl p-4 text-left hover:bg-emerald-100/50 transition-all disabled:opacity-50 disabled:cursor-default"
+          className="flex items-center gap-2 px-3 py-2 bg-emerald-50 border border-emerald-100 rounded-lg hover:bg-emerald-100 transition-all disabled:opacity-50 disabled:cursor-default flex-shrink-0"
         >
-          <p className="text-[9px] font-mono uppercase tracking-widest text-emerald-600">Today's Intake</p>
-          <p className="text-3xl font-bold font-display mt-1 text-emerald-700">{todayIn.length}</p>
-          <p className="text-[9px] text-emerald-500 font-mono">units received</p>
+          <div className="text-center">
+            <p className="text-[7px] font-mono uppercase tracking-widest text-emerald-600">Intake</p>
+            <p className="text-lg font-bold text-emerald-700 leading-tight">{todayIn.length}</p>
+          </div>
         </button>
-        <div className="bg-blue-50 border border-blue-100 rounded-2xl p-4">
-          <p className="text-[9px] font-mono uppercase tracking-widest text-blue-600">Today's Spend</p>
-          <p className="text-2xl font-bold font-display mt-1 text-blue-700">£{totalBP.toLocaleString()}</p>
-          <p className="text-[9px] text-blue-500 font-mono">total buy price</p>
-        </div>
-        <div className="bg-amber-50 border border-amber-100 rounded-2xl p-4">
-          <p className="text-[9px] font-mono uppercase tracking-widest text-amber-600">Pending SHS</p>
-          <p className="text-3xl font-bold font-display mt-1 text-amber-700">{pendingSHS.length}</p>
-          <p className="text-[9px] text-amber-500 font-mono">awaiting delivery</p>
-        </div>
-      </div>
 
-      {/* Actions */}
-      <div className="grid grid-cols-3 gap-3">
+        {/* Today's Spend */}
+        <div className="flex items-center gap-2 px-3 py-2 bg-blue-50 border border-blue-100 rounded-lg flex-shrink-0">
+          <div className="text-center">
+            <p className="text-[7px] font-mono uppercase tracking-widest text-blue-600">Spend</p>
+            <p className="text-sm font-bold text-blue-700 leading-tight">£{totalBP.toLocaleString()}</p>
+          </div>
+        </div>
+
+        {/* Pending SHS */}
+        <div className="flex items-center gap-2 px-3 py-2 bg-amber-50 border border-amber-100 rounded-lg flex-shrink-0">
+          <div className="text-center">
+            <p className="text-[7px] font-mono uppercase tracking-widest text-amber-600">SHS</p>
+            <p className="text-lg font-bold text-amber-700 leading-tight">{pendingSHS.length}</p>
+          </div>
+        </div>
+
+        {/* Divider */}
+        <div className="w-px h-8 bg-gray-200 mx-1" />
+
+        {/* Add Delivery */}
         <button
           onClick={() => setShowAddDelivery(true)}
-          className="flex flex-col items-center gap-2 p-4 bg-black text-white rounded-2xl hover:bg-gray-800 transition-all active:scale-95"
+          className="flex items-center gap-1.5 px-3 py-2 bg-black text-white rounded-lg hover:bg-gray-800 transition-all active:scale-95 flex-shrink-0 whitespace-nowrap"
         >
-          <Plus size={20} />
-          <span className="text-[10px] font-bold uppercase tracking-widest">Add Delivery</span>
-          <span className="text-[8px] text-gray-400 font-mono text-center">With IMEI</span>
+          <Plus size={14} />
+          <span className="text-[8px] font-bold uppercase tracking-widest">Delivery</span>
         </button>
+
+        {/* Log SHS Order */}
         <button
           onClick={() => setShowAddSHS(true)}
-          className="flex flex-col items-center gap-2 p-4 bg-amber-500 text-white rounded-2xl hover:bg-amber-600 transition-all active:scale-95"
+          className="flex items-center gap-1.5 px-3 py-2 bg-amber-500 text-white rounded-lg hover:bg-amber-600 transition-all active:scale-95 flex-shrink-0 whitespace-nowrap"
         >
-          <Truck size={20} />
-          <span className="text-[10px] font-bold uppercase tracking-widest">Log SHS Order</span>
-          <span className="text-[8px] text-amber-100 font-mono text-center">No IMEI yet</span>
-        </button>
-        <button
-          onClick={onOpenImport}
-          className="flex flex-col items-center gap-2 p-4 bg-white border border-gray-200 rounded-2xl hover:bg-gray-50 transition-all active:scale-95"
-        >
-          <FileSpreadsheet size={20} className="text-gray-700" />
-          <span className="text-[10px] font-bold uppercase tracking-widest text-black">Import Excel</span>
-          <span className="text-[8px] text-gray-400 font-mono text-center">Bulk import</span>
+          <Truck size={14} />
+          <span className="text-[8px] font-bold uppercase tracking-widest">SHS Order</span>
         </button>
       </div>
 
