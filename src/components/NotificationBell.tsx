@@ -39,6 +39,11 @@ export default function NotificationBell({ unreadCount }: { unreadCount: number 
   const today     = new Date().toISOString().split('T')[0];
   const yesterday = new Date(Date.now() - 86400000).toISOString().split('T')[0];
 
+  // Check for notifications older than 24 hours
+  const cutoff24h = new Date();
+  cutoff24h.setHours(cutoff24h.getHours() - 24);
+  const veryOldNotifications = notifications.filter(n => new Date(n.timestamp) < cutoff24h);
+
   const grouped: { label: string; items: Notification[] }[] = [];
   const todayItems     = notifications.filter(n => n.timestamp.startsWith(today));
   const yesterdayItems = notifications.filter(n => n.timestamp.startsWith(yesterday));
@@ -116,14 +121,14 @@ export default function NotificationBell({ unreadCount }: { unreadCount: number 
                       <CheckCheck size={11} />
                       Read
                     </button>
-                    {olderItems.length > 0 && (
+                    {veryOldNotifications.length > 0 && (
                       <button
-                        onClick={() => notificationService.clearBeforeToday()}
+                        onClick={() => notificationService.clearOldNotifications(24)}
                         className="flex items-center gap-1 text-[9px] font-mono text-amber-400 hover:text-amber-600 transition-colors"
-                        title="Clear old notifications (Yesterday & Earlier)"
+                        title="Clear notifications older than 24 hours"
                       >
                         <X size={11} />
-                        Old
+                        Clear
                       </button>
                     )}
                     <button
