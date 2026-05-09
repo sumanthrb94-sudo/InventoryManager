@@ -84,54 +84,54 @@ export default function StockInPage({ onOpenBatch }: Props) {
       </div>
 
       {/* Compact dashboard */}
-      <div className="flex items-center gap-2 bg-gradient-to-r from-gray-50 to-white border border-gray-100 rounded-xl p-3">
+      <div className="flex items-center gap-3 bg-gradient-to-r from-gray-50 to-white border border-gray-100 rounded-xl p-4">
         {/* Today's Intake */}
         <button
           onClick={() => setShowTodayIntake(true)}
           disabled={todayIn.length === 0}
-          className="flex items-center gap-2 px-3 py-2 bg-emerald-50 border border-emerald-100 rounded-lg hover:bg-emerald-100 transition-all disabled:opacity-50 disabled:cursor-default flex-shrink-0"
+          className="flex items-center gap-3 px-5 py-3 bg-emerald-50 border border-emerald-100 rounded-lg hover:bg-emerald-100 transition-all disabled:opacity-50 disabled:cursor-default flex-shrink-0"
         >
           <div className="text-center">
-            <p className="text-[7px] font-mono uppercase tracking-widest text-emerald-600">Intake</p>
-            <p className="text-lg font-bold text-emerald-700 leading-tight">{todayIn.length}</p>
+            <p className="text-[8px] font-mono uppercase tracking-widest text-emerald-600">Intake</p>
+            <p className="text-2xl font-bold text-emerald-700 leading-tight">{todayIn.length}</p>
           </div>
         </button>
 
         {/* Today's Spend */}
-        <div className="flex items-center gap-2 px-3 py-2 bg-blue-50 border border-blue-100 rounded-lg flex-shrink-0">
+        <div className="flex items-center gap-3 px-5 py-3 bg-blue-50 border border-blue-100 rounded-lg flex-shrink-0">
           <div className="text-center">
-            <p className="text-[7px] font-mono uppercase tracking-widest text-blue-600">Spend</p>
-            <p className="text-sm font-bold text-blue-700 leading-tight">£{totalBP.toLocaleString()}</p>
+            <p className="text-[8px] font-mono uppercase tracking-widest text-blue-600">Spend</p>
+            <p className="text-xl font-bold text-blue-700 leading-tight">£{totalBP.toLocaleString()}</p>
           </div>
         </div>
 
         {/* Pending SHS */}
-        <div className="flex items-center gap-2 px-3 py-2 bg-amber-50 border border-amber-100 rounded-lg flex-shrink-0">
+        <div className="flex items-center gap-3 px-5 py-3 bg-amber-50 border border-amber-100 rounded-lg flex-shrink-0">
           <div className="text-center">
-            <p className="text-[7px] font-mono uppercase tracking-widest text-amber-600">SHS</p>
-            <p className="text-lg font-bold text-amber-700 leading-tight">{pendingSHS.length}</p>
+            <p className="text-[8px] font-mono uppercase tracking-widest text-amber-600">SHS</p>
+            <p className="text-2xl font-bold text-amber-700 leading-tight">{pendingSHS.length}</p>
           </div>
         </div>
 
         {/* Divider */}
-        <div className="w-px h-8 bg-gray-200 mx-1" />
+        <div className="w-px h-12 bg-gray-200 mx-2" />
 
         {/* Add Delivery */}
         <button
           onClick={() => setShowAddDelivery(true)}
-          className="flex items-center gap-1.5 px-3 py-2 bg-black text-white rounded-lg hover:bg-gray-800 transition-all active:scale-95 flex-shrink-0 whitespace-nowrap"
+          className="flex items-center gap-2 px-4 py-3 bg-black text-white rounded-lg hover:bg-gray-800 transition-all active:scale-95 flex-shrink-0 whitespace-nowrap"
         >
-          <Plus size={14} />
-          <span className="text-[8px] font-bold uppercase tracking-widest">Delivery</span>
+          <Plus size={16} />
+          <span className="text-[9px] font-bold uppercase tracking-widest">Delivery</span>
         </button>
 
         {/* Log SHS Order */}
         <button
           onClick={() => setShowAddSHS(true)}
-          className="flex items-center gap-1.5 px-3 py-2 bg-amber-500 text-white rounded-lg hover:bg-amber-600 transition-all active:scale-95 flex-shrink-0 whitespace-nowrap"
+          className="flex items-center gap-2 px-4 py-3 bg-amber-500 text-white rounded-lg hover:bg-amber-600 transition-all active:scale-95 flex-shrink-0 whitespace-nowrap"
         >
-          <Truck size={14} />
-          <span className="text-[8px] font-bold uppercase tracking-widest">SHS Order</span>
+          <Truck size={16} />
+          <span className="text-[9px] font-bold uppercase tracking-widest">SHS Order</span>
         </button>
       </div>
 
