@@ -14,6 +14,7 @@ interface Props {
 export default function TodayIntakeModal({ units, onClose }: Props) {
   const { suppliers } = useInventoryStore();
   const [notes, setNotes] = useState<Record<string, string>>({});
+  const [editingNotes, setEditingNotes] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
   const supplierMap = useMemo(() => {
