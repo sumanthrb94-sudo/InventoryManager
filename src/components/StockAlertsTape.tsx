@@ -23,12 +23,6 @@ export default function StockAlertsTape({ units }: Props) {
     if (!units || !Array.isArray(units) || units.length === 0) return [];
 
     console.log('[StockAlertsTape] Received units:', units.length, 'Total models:', new Set(units.map(u => u.model)).size);
-    const lowStockItems = units.filter(u => u.status === 'available').reduce((acc, u) => {
-      const series = u.model.split(' ').slice(0, 2).join(' ');
-      acc[series] = (acc[series] || 0) + 1;
-      return acc;
-    }, {} as Record<string, number>);
-    console.log('[StockAlertsTape] Low stock candidates (1-2 available):', Object.entries(lowStockItems).filter(([s, c]) => c >= 1 && c <= 2).map(([s, c]) => `${s}: ${c}`));
 
     const seen = new Set<string>();
     const list: Alert[] = [];
@@ -41,7 +35,7 @@ export default function StockAlertsTape({ units }: Props) {
       returnedCount: number;
     }> = {};
 
-    // Get all unique series from all units
+    // Get all unique series from all units and build stats
     const allSeries = new Set<string>();
 
     for (const u of units) {
@@ -63,6 +57,16 @@ export default function StockAlertsTape({ units }: Props) {
         seriesStats[series].returnedCount++;
       }
     }
+
+    // Debug: show all series with available counts
+    console.log('[StockAlertsTape] Series with counts:', Array.from(allSeries).map(s => ({
+      series: s,
+      available: seriesStats[s].availableCount,
+      shs: seriesStats[s].shsCount,
+      listed: seriesStats[s].listedCount,
+      returned: seriesStats[s].returnedCount,
+    })));
+
 
     // Generate alerts for each series - BULLETPROOF DETECTION
     for (const series of Array.from(allSeries).sort()) {
