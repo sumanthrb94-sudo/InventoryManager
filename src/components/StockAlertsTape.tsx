@@ -59,13 +59,18 @@ export default function StockAlertsTape({ units }: Props) {
     }
 
     // Debug: show all series with available counts
-    console.log('[StockAlertsTape] Series with counts:', Array.from(allSeries).map(s => ({
+    const seriesInfo = Array.from(allSeries).map(s => ({
       series: s,
       available: seriesStats[s].availableCount,
       shs: seriesStats[s].shsCount,
       listed: seriesStats[s].listedCount,
       returned: seriesStats[s].returnedCount,
-    })));
+    }));
+    console.log('[StockAlertsTape] Series with counts:', seriesInfo);
+
+    // Debug: Show which series have 1-2 available
+    const lowStockCandidates = seriesInfo.filter(s => s.available >= 1 && s.available <= 2);
+    console.log('[StockAlertsTape] Low stock candidates (should trigger alerts):', lowStockCandidates);
 
 
     // Generate alerts for each series - BULLETPROOF DETECTION
@@ -260,17 +265,16 @@ export default function StockAlertsTape({ units }: Props) {
         {alerts.length > 0 ? (
           <motion.div
             initial={{ y: 0 }}
-            animate={{ y: alerts.length > 3 ? `-${(alerts.length * 60)}px` : 0 }}
+            animate={{ y: 0 }}
             transition={{
-              duration: alerts.length > 3 ? alerts.length * 2.5 : 0,
-              repeat: 0,
+              duration: 0,
               ease: 'linear',
             }}
           >
-            {/* Render alerts TWICE for seamless infinite scroll without duplication */}
-            {[...alerts, ...alerts].map((alert, idx) => (
+            {/* Render alerts ONCE - no duplication */}
+            {alerts.map((alert) => (
               <div
-                key={`${alert.id}-${idx}`}
+                key={alert.id}
                 style={isMobile ? {
                   // Mobile: compact layout
                   padding: '6px 8px',
