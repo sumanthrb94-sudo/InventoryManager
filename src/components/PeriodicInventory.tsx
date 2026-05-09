@@ -1,5 +1,7 @@
 import React, { useMemo, useState, useRef, useCallback } from 'react';
+import { AnimatePresence, motion } from 'motion/react';
 import { InventoryUnit } from '../types';
+import ViewAllUnitsModal from './ViewAllUnitsModal';
 
 interface Props {
   units: InventoryUnit[];
@@ -139,11 +141,13 @@ function accentColor(light: string): string {
 function Popover({
   state,
   onNavigate,
+  onViewAll,
   onMouseEnter,
   onMouseLeave,
 }: {
   state: PopoverState;
   onNavigate: (s: string) => void;
+  onViewAll: (seriesKey: string, searchTerm: string) => void;
   onMouseEnter: () => void;
   onMouseLeave: () => void;
 }) {
@@ -277,7 +281,7 @@ function Popover({
       {el.count > 0 && (
         <div style={{ padding: '6px 12px 10px' }}>
           <button
-            onClick={() => onNavigate(el.searchTerm)}
+            onClick={() => onViewAll(el.seriesKey, el.searchTerm)}
             style={{
               width: '100%', padding: '7px', background: color.bg, border: 'none',
               borderRadius: 7, color: '#fff', fontSize: 10, fontWeight: 700,
@@ -298,6 +302,7 @@ export default function PeriodicInventory({ units, onNavigate }: Props) {
   const incoming  = units.filter(u => u.status === 'incoming');
 
   const [popover, setPopover] = useState<PopoverState | null>(null);
+  const [viewAllModal, setViewAllModal] = useState<{ seriesKey: string; searchTerm: string } | null>(null);
   // Refs for the hover grace-period timers
   const closeTimer  = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -397,16 +402,16 @@ export default function PeriodicInventory({ units, onNavigate }: Props) {
   if (groups.length === 0) return null;
 
   return (
-    <>
-      <div style={{ background: '#0f172a', borderRadius: 20, padding: '20px 16px', overflow: 'hidden' }}>
+    <div className="h-full lg:h-auto">
+      <div style={{ background: '#ffffff', borderRadius: 20, padding: '12px 10px', overflow: 'hidden' }}>
         {/* Header */}
-        <div style={{ marginBottom: 16 }}>
+        <div style={{ marginBottom: 12 }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
             <div>
               <p style={{ fontSize: 10, fontFamily: 'monospace', textTransform: 'uppercase', letterSpacing: '0.15em', color: '#64748b', marginBottom: 2 }}>
                 Inventory Periodic Table
               </p>
-              <p style={{ fontSize: 18, fontWeight: 800, color: '#f1f5f9', letterSpacing: '-0.03em', textTransform: 'uppercase' }}>
+              <p style={{ fontSize: 18, fontWeight: 800, color: '#1f2937', letterSpacing: '-0.03em', textTransform: 'uppercase' }}>
                 Stock Visibility
               </p>
             </div>
@@ -430,7 +435,7 @@ export default function PeriodicInventory({ units, onNavigate }: Props) {
         </div>
 
         {/* Group legend */}
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 14 }}>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 10 }}>
           {groups.map(g => (
             <div key={g.id} style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
               <div style={{ width: 8, height: 8, borderRadius: 2, background: g.color.bg }} />
@@ -441,7 +446,7 @@ export default function PeriodicInventory({ units, onNavigate }: Props) {
         </div>
 
         {/* Periodic rows */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
           {groups.map(g => (
             <div key={g.id}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
@@ -460,14 +465,18 @@ export default function PeriodicInventory({ units, onNavigate }: Props) {
                       key={el.seriesKey}
                       onMouseEnter={e => handleElementEnter(el, g.color, e)}
                       onMouseLeave={scheduleClose}
-                      onClick={() => el.count > 0 && onNavigate(el.searchTerm)}
+                      onClick={() => {
+                        if (el.count > 0 || el.shsCount > 0) {
+                          setViewAllModal({ seriesKey: el.seriesKey, searchTerm: el.searchTerm });
+                        }
+                      }}
                       title={isEmpty ? el.seriesKey : undefined}
                       style={{
-                        width: 72, height: 72,
+                        width: 60, height: 60,
                         background: isEmpty ? '#1e293b' : isHovered ? g.color.bg : g.color.light,
                         border: `1.5px solid ${isEmpty ? '#334155' : isHovered ? g.color.bg : g.color.border}`,
                         borderRadius: 8,
-                        padding: '5px 4px',
+                        padding: '3px 2px',
                         display: 'flex',
                         flexDirection: 'column',
                         justifyContent: 'space-between',
@@ -535,14 +544,17 @@ export default function PeriodicInventory({ units, onNavigate }: Props) {
         )}
       </div>
 
-      {popover && (
-        <Popover
-          state={popover}
-          onNavigate={s => { onNavigate(s); setPopover(null); }}
-          onMouseEnter={cancelClose}
-          onMouseLeave={scheduleClose}
-        />
-      )}
-    </>
+      {/* View All Units Modal */}
+      <AnimatePresence>
+        {viewAllModal && (
+          <ViewAllUnitsModal
+            seriesKey={viewAllModal.seriesKey}
+            searchTerm={viewAllModal.searchTerm}
+            units={units}
+            onClose={() => setViewAllModal(null)}
+          />
+        )}
+      </AnimatePresence>
+    </div>
   );
 }
