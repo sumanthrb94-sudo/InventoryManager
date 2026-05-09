@@ -109,6 +109,20 @@ class NotificationService {
   }
 
   addNotification(type: NotificationType, unit: InventoryUnit, profitAmount?: number) {
+    // Check if this notification was already fired (persisted across page reloads)
+    const firedKey = `${unit.id}:${type}`;
+    try {
+      const raw = localStorage.getItem(this.firedKey());
+      const entries: { key: string; date: string }[] = raw ? JSON.parse(raw) : [];
+      const today = new Date().toISOString().split('T')[0];
+
+      // Check if this specific unit+type was already fired today
+      if (entries.some(e => e.key === firedKey && e.date === today)) {
+        console.log(`[Notification] Already fired today: ${firedKey}`);
+        return;
+      }
+    } catch { /* ignore */ }
+
     // In-memory guard for rapid duplicates within the same session (< 5s)
     // This prevents notification spam if the same action fires multiple times
     const now = new Date();
@@ -157,6 +171,11 @@ class NotificationService {
     this.notifications = [notification, ...this.notifications].slice(0, 100);
     this.saveToStorage();
     this.notify();
+
+    // Mark this notification as fired so it won't trigger again on reload
+    const firedKey = `${unit.id}:${type}`;
+    this.markFired(firedKey);
+
     this.playSound(type);
   }
 
