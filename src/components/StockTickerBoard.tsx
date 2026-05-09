@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { AlertCircle, Trash2 } from 'lucide-react';
+import React, { useState, useEffect, useRef } from 'react';
+import { AlertCircle, Trash2, TrendingDown } from 'lucide-react';
 import { motion } from 'motion/react';
 import { useInventoryStore } from '../lib/inventoryStore';
 import { notificationService } from '../lib/notificationService';
@@ -15,7 +15,38 @@ export default function StockTickerBoard() {
   const { units } = useInventoryStore();
   const [items, setItems] = useState<TickerItem[]>([]);
   const [seenNotificationIds, setSeenNotificationIds] = useState<Set<string>>(new Set());
+  const [outOfStockModels, setOutOfStockModels] = useState<Set<string>>(new Set());
+  const prevUnitsRef = useRef<Map<string, number>>(new Map());
 
+  // Track available units per model and detect when stock goes out
+  useEffect(() => {
+    const currentInventory = new Map<string, number>();
+    units.forEach(u => {
+      if (u.status === 'available') {
+        const count = (currentInventory.get(u.model) || 0) + 1;
+        currentInventory.set(u.model, count);
+      }
+    });
+
+    // Check for models that went out of stock
+    prevUnitsRef.current.forEach((prevCount, model) => {
+      const currentCount = currentInventory.get(model) || 0;
+      if (prevCount > 0 && currentCount === 0 && !outOfStockModels.has(model)) {
+        const newItem: TickerItem = {
+          id: `outofstock_${Date.now()}_${model}`,
+          model,
+          type: 'out_of_stock',
+          timestamp: Date.now(),
+        };
+        setItems(prev => [newItem, ...prev].slice(0, 20));
+        setOutOfStockModels(prev => new Set([...prev, model]));
+      }
+    });
+
+    prevUnitsRef.current = currentInventory;
+  }, [units, outOfStockModels]);
+
+  // Track SHS removed notifications
   useEffect(() => {
     return notificationService.subscribe((notifications) => {
       notifications.forEach(n => {
@@ -45,6 +76,14 @@ export default function StockTickerBoard() {
         >
           {[...items, ...items].map((item, idx) => (
             <div key={`${item.id}-${idx}`} className="flex items-center gap-2 flex-shrink-0">
+              {item.type === 'out_of_stock' && (
+                <>
+                  <TrendingDown size={13} className="text-red-400" />
+                  <span className="text-[10px] font-mono text-red-300 uppercase tracking-widest">
+                    {item.model} · OUT OF STOCK
+                  </span>
+                </>
+              )}
               {item.type === 'shs_removed' && (
                 <>
                   <Trash2 size={13} className="text-orange-400" />
