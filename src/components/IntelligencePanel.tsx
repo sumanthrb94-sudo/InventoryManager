@@ -257,42 +257,106 @@ function buildSignals(units: InventoryUnit[], mode: 'buy' | 'sell'): Signal[] {
 // ── Sub-components ─────────────────────────────────────────────────────────────
 
 const SignalCard: React.FC<{ sig: Signal }> = ({ sig }) => {
-  // Map signal colors to light backgrounds and text colors
-  const colorMap: Record<string, { bg: string; text: string; textLight: string }> = {
-    '#ef4444': { bg: 'bg-red-50 border-red-100', text: 'text-red-600', textLight: 'text-red-500' },
-    '#10b981': { bg: 'bg-emerald-50 border-emerald-100', text: 'text-emerald-600', textLight: 'text-emerald-500' },
-    '#8b5cf6': { bg: 'bg-purple-50 border-purple-100', text: 'text-purple-600', textLight: 'text-purple-500' },
-    '#f59e0b': { bg: 'bg-amber-50 border-amber-100', text: 'text-amber-600', textLight: 'text-amber-500' },
-    '#38bdf8': { bg: 'bg-blue-50 border-blue-100', text: 'text-blue-600', textLight: 'text-blue-500' },
+  // Map signal colors to light backgrounds
+  const bgMap: Record<string, string> = {
+    '#ef4444': 'rgba(254, 242, 242, 0.8)', // red-50
+    '#10b981': 'rgba(240, 253, 250, 0.8)', // emerald-50
+    '#8b5cf6': 'rgba(250, 245, 255, 0.8)', // purple-50
+    '#f59e0b': 'rgba(255, 251, 235, 0.8)', // amber-50
+    '#38bdf8': 'rgba(240, 249, 255, 0.8)', // blue-50
   };
 
-  const colors = colorMap[sig.color] || { bg: 'bg-gray-50 border-gray-100', text: 'text-gray-600', textLight: 'text-gray-500' };
+  const textColorMap: Record<string, string> = {
+    '#ef4444': '#dc2626',
+    '#10b981': '#059669',
+    '#8b5cf6': '#7c3aed',
+    '#f59e0b': '#d97706',
+    '#38bdf8': '#0284c7',
+  };
 
   return (
-    <div className={`border rounded p-1.5 flex-shrink-0 min-w-fit ${colors.bg}`}>
+    <div style={{
+      background: bgMap[sig.color] || 'rgba(240, 245, 250, 0.8)',
+      borderRadius: 10,
+      borderTop: `2px solid ${sig.color}`,
+      padding: '10px 10px 8px',
+      display: 'flex',
+      flexDirection: 'column',
+      gap: 0,
+      minWidth: 0,
+    }}>
       {/* Header */}
-      <p className={`text-[6px] font-bold uppercase tracking-widest font-mono ${colors.text} mb-0.5`}>
-        {sig.label}
-      </p>
+      <div style={{ marginBottom: 8 }}>
+        <p style={{
+          fontSize: 9, fontWeight: 800, letterSpacing: '0.1em',
+          color: sig.color, fontFamily: 'monospace', textTransform: 'uppercase',
+          lineHeight: 1,
+        }}>
+          {sig.label}
+        </p>
+        <p style={{ fontSize: 7, color: '#64748b', fontFamily: 'monospace', marginTop: 2 }}>
+          {sig.hint}
+        </p>
+      </div>
 
-      {/* Content */}
+      {/* Divider */}
+      <div style={{ height: 1, background: 'rgba(0,0,0,0.05)', marginBottom: 7 }} />
+
+      {/* Rows */}
       {sig.rows.length === 0 ? (
-        <p className="text-[6px] text-gray-400 font-mono italic">
+        <p style={{ fontSize: 8, color: '#64748b', fontFamily: 'monospace', fontStyle: 'italic', lineHeight: 1.4 }}>
           {sig.empty}
         </p>
       ) : (
-        <div className="space-y-0">
-          {sig.rows.slice(0, 2).map((row, i) => (
-            <div key={i} className="flex items-center justify-between gap-1">
-              <span className="text-[7px] font-bold text-gray-700 truncate max-w-[100px]">{row.name}</span>
-              <span className={`text-[7px] font-bold font-mono whitespace-nowrap ${row.alert ? 'text-red-500' : colors.textLight}`}>
-                {row.primary}
-              </span>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          {sig.rows.map((row, i) => (
+            <div key={i} style={{
+              display: 'flex',
+              alignItems: 'flex-start',
+              justifyContent: 'space-between',
+              gap: 8,
+              paddingBottom: 8,
+              borderBottom: i < sig.rows.length - 1 ? '1px solid rgba(0,0,0,0.05)' : 'none',
+            }}>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <p style={{
+                  fontSize: 10, fontWeight: 700, color: '#1e293b',
+                  lineHeight: 1.3, marginBottom: 3,
+                  overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'normal',
+                  wordBreak: 'break-word',
+                }}>
+                  {row.name}
+                </p>
+                <p style={{
+                  fontSize: 8,
+                  color: '#64748b',
+                  fontFamily: 'monospace',
+                  lineHeight: 1.4,
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                }}>
+                  {row.sub}
+                </p>
+              </div>
+              <div style={{
+                textAlign: 'right',
+                flexShrink: 0,
+                minWidth: 'max-content',
+                marginLeft: 8,
+              }}>
+                <p style={{
+                  fontSize: 10, fontWeight: 900, fontFamily: 'monospace',
+                  color: row.alert ? '#dc2626' : sig.color,
+                  lineHeight: 1.2,
+                  padding: '4px 8px',
+                  backgroundColor: row.alert ? 'rgba(220, 38, 38, 0.1)' : 'transparent',
+                  borderRadius: 4,
+                }}>
+                  {row.primary}
+                </p>
+              </div>
             </div>
           ))}
-          {sig.rows.length > 2 && (
-            <p className="text-[5px] text-gray-400 font-mono">+{sig.rows.length - 2}</p>
-          )}
         </div>
       )}
     </div>
@@ -312,19 +376,27 @@ export default function IntelligencePanel({ units, mode }: Props) {
     : 'Sell Intelligence · Demand & Margin Signals';
 
   return (
-    <div className="bg-white border border-gray-100 rounded-lg p-2">
+    <div style={{ background: '#ffffff', borderRadius: 16, padding: '12px 12px 10px', overflow: 'hidden', border: '1px solid #e2e8f0' }}>
       {/* Panel header */}
-      <div className="flex items-center justify-between mb-2">
-        <p className="text-[7px] font-bold uppercase tracking-widest text-gray-500 font-mono">
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+        <p style={{
+          fontSize: 8, fontWeight: 700, letterSpacing: '0.18em',
+          color: '#64748b', fontFamily: 'monospace', textTransform: 'uppercase',
+        }}>
           {title}
         </p>
-        <p className="text-[6px] text-gray-400 font-mono flex-shrink-0">
-          14-day
+        <p style={{ fontSize: 7, color: '#94a3b8', fontFamily: 'monospace', flexShrink: 0 }}>
+          14-day window
         </p>
       </div>
 
-      {/* Signal cards — horizontal flex */}
-      <div className="flex items-center gap-1.5 overflow-x-auto">
+      {/* Signal cards — horizontal scroll on mobile */}
+      <div style={{
+        display: 'grid',
+        gridTemplateColumns: 'repeat(4, minmax(140px, 1fr))',
+        gap: 8,
+        overflowX: 'auto',
+      }}>
         {signals.map(sig => (
           <SignalCard key={sig.key} sig={sig} />
         ))}
