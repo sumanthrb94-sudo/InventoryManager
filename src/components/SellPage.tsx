@@ -446,7 +446,7 @@ export default function SellPage() {
 
       {/* Header */}
       <div>
-        <h2 className="text-2xl font-bold tracking-tighter uppercase font-display flex items-center gap-3">
+        <h2 className="text-xl sm:text-2xl font-bold tracking-tighter uppercase font-display flex items-center gap-3 flex-wrap">
           <span className="w-8 h-8 bg-emerald-100 rounded-lg flex items-center justify-center">
             <ShoppingCart size={16} className="text-emerald-600" />
           </span>

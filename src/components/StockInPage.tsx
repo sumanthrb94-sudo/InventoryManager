@@ -88,8 +88,8 @@ export default function StockInPage({ onOpenBatch }: Props) {
     <div className="space-y-5">
       {/* Header */}
       <div>
-        <h2 className="text-2xl font-bold tracking-tighter uppercase font-display flex items-center gap-3">
-          <span className="w-8 h-8 bg-emerald-100 rounded-lg flex items-center justify-center">
+        <h2 className="text-xl sm:text-2xl font-bold tracking-tighter uppercase font-display flex items-center gap-3">
+          <span className="w-8 h-8 bg-emerald-100 rounded-lg flex items-center justify-center flex-shrink-0">
             <PackagePlus size={16} className="text-emerald-700" />
           </span>
           Stock In
