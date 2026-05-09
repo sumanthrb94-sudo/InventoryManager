@@ -71,7 +71,7 @@ export default function TodaySalesModal({ units, onClose }: Props) {
           <div>
             <h2 className="text-lg font-bold text-gray-900">Today's Sales</h2>
             <p className="text-xs text-gray-600 font-mono mt-1">
-              {units.length} units · £{totalRevenue.toLocaleString()} revenue · £{totalProfit.toLocaleString()} profit
+              {units.length} units · £{totalRevenue.toLocaleString()} revenue
             </p>
           </div>
           <button onClick={onClose} className="p-2 hover:bg-gray-200 rounded-lg transition-all">
