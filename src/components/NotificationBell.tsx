@@ -131,14 +131,6 @@ export default function NotificationBell({ unreadCount }: { unreadCount: number 
                         Clear
                       </button>
                     )}
-                    <button
-                      onClick={() => notificationService.clearAll()}
-                      className="flex items-center gap-1 text-[9px] font-mono text-red-400 hover:text-red-600 transition-colors"
-                      title="Clear all notifications"
-                    >
-                      <X size={11} />
-                      Clear
-                    </button>
                   </>
                 )}
                 <button onClick={() => setOpen(false)} className="p-0.5 text-gray-400 hover:text-black">
