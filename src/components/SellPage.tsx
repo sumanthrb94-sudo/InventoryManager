@@ -482,7 +482,7 @@ export default function SellPage() {
         <button
           onClick={() => setShowTodaySales(true)}
           disabled={todaySold.length === 0}
-          className="bg-blue-50 border border-blue-100 rounded-2xl p-3 hover:bg-blue-100 transition-all disabled:opacity-50 disabled:cursor-default text-left"
+          className="bg-blue-50 border border-blue-100 rounded-2xl p-3 hover:bg-blue-100 hover:border-blue-200 active:scale-95 transition-all disabled:opacity-50 disabled:cursor-default text-left cursor-pointer"
         >
           <p className="text-[8px] font-mono uppercase tracking-widest text-blue-600">Sold Today</p>
           <p className="text-2xl font-bold font-display mt-1 text-blue-700">{todaySold.length}</p>
