@@ -61,74 +61,75 @@ export default function TodayIntakeModal({ units, onClose }: Props) {
               <p className="text-sm font-mono">No units received today</p>
             </div>
           ) : (
-            <div className="divide-y divide-gray-100">
-              {units.map(u => {
-                const supplierName = supplierMap[u.supplierId] || 'Unknown Supplier';
-                const hasIMEI = !!u.imei;
+            <div>
+              {/* Table header */}
+              <div className="sticky top-0 bg-gray-50 border-b border-gray-200 px-6 py-3 flex items-center gap-4 text-xs font-bold text-gray-600 uppercase tracking-widest">
+                <div style={{ flex: '0 0 120px' }}>IMEI</div>
+                <div style={{ flex: '1 1 200px' }} className="min-w-0">Model</div>
+                <div style={{ flex: '0 0 100px' }}>Colour</div>
+                <div style={{ flex: '0 0 100px' }}>Storage</div>
+                <div style={{ flex: '0 0 80px' }}>Grade</div>
+                <div style={{ flex: '0 0 150px' }}>Batch</div>
+                <div style={{ flex: '0 0 150px' }}>Supplier</div>
+                <div style={{ flex: '0 0 80px', textAlign: 'right' }}>Price</div>
+              </div>
 
-                return (
-                  <div
-                    key={u.id}
-                    className="px-6 py-4 hover:bg-gray-50 transition-all flex items-start gap-4"
-                  >
-                    <div className="flex-1 min-w-0">
-                      {/* Top row: IMEI and model */}
-                      <div className="flex items-start gap-2 mb-2">
+              {/* Table rows */}
+              <div className="divide-y divide-gray-100">
+                {units.map(u => {
+                  const supplierName = supplierMap[u.supplierId] || 'Unknown';
+                  const hasIMEI = !!u.imei;
+
+                  return (
+                    <div
+                      key={u.id}
+                      className="px-6 py-3 hover:bg-gray-50 transition-all flex items-center gap-4 text-sm"
+                    >
+                      <div style={{ flex: '0 0 120px' }} className="truncate">
                         {hasIMEI ? (
-                          <CopyImei imei={u.imei} truncate={12} />
+                          <CopyImei imei={u.imei} truncate={10} />
                         ) : (
                           <span className="text-xs text-gray-400 font-mono">No IMEI</span>
                         )}
                       </div>
 
-                      {/* Model name */}
-                      <p className="text-sm font-semibold text-gray-900 mb-2">{u.model}</p>
+                      <div style={{ flex: '1 1 200px' }} className="min-w-0 truncate font-semibold text-gray-900">
+                        {u.model}
+                      </div>
 
-                      {/* Specs row */}
-                      <div className="flex items-center gap-2 flex-wrap mb-2">
-                        {u.colour && (
-                          <span className="text-xs text-gray-600 font-mono bg-gray-100 px-2 py-1 rounded">
-                            {u.colour}
-                          </span>
-                        )}
-                        {u.storage && (
-                          <span className="text-xs text-gray-600 font-mono bg-gray-100 px-2 py-1 rounded">
-                            {u.storage}
-                          </span>
-                        )}
-                        {u.grade && (
-                          <span className="text-xs bg-amber-100 text-amber-700 px-2 py-1 rounded font-mono font-bold">
+                      <div style={{ flex: '0 0 100px' }} className="truncate text-gray-600 font-mono text-xs">
+                        {u.colour || '—'}
+                      </div>
+
+                      <div style={{ flex: '0 0 100px' }} className="truncate text-gray-600 font-mono text-xs">
+                        {u.storage || '—'}
+                      </div>
+
+                      <div style={{ flex: '0 0 80px' }} className="truncate">
+                        {u.grade ? (
+                          <span className="text-xs bg-amber-100 text-amber-700 px-2 py-1 rounded font-bold inline-block">
                             {u.grade}
                           </span>
+                        ) : (
+                          <span className="text-gray-400">—</span>
                         )}
                       </div>
 
-                      {/* Batch and Supplier info */}
-                      <div className="text-xs text-gray-500 font-mono space-y-0.5">
-                        {u.batchId && (
-                          <p>
-                            Batch:{' '}
-                            <span className="text-gray-700 font-bold">
-                              {u.batchId === 'master_batch' ? 'Master Batch' : u.batchId}
-                            </span>
-                          </p>
-                        )}
-                        <p>
-                          Supplier: <span className="text-gray-700 font-bold">{supplierName}</span>
-                        </p>
+                      <div style={{ flex: '0 0 150px' }} className="truncate text-gray-600 font-mono text-xs">
+                        {u.batchId === 'master_batch' ? 'Master Batch' : u.batchId || '—'}
                       </div>
-                    </div>
 
-                    {/* Right side: Price */}
-                    <div className="flex items-center gap-4 flex-shrink-0 text-right">
-                      <div>
-                        <p className="text-sm font-bold text-gray-900">£{u.buyPrice}</p>
-                        <p className="text-xs text-gray-500">Buy Price</p>
+                      <div style={{ flex: '0 0 150px' }} className="truncate text-gray-600 font-mono text-xs">
+                        {supplierName}
+                      </div>
+
+                      <div style={{ flex: '0 0 80px', textAlign: 'right' }} className="font-bold text-gray-900">
+                        £{u.buyPrice}
                       </div>
                     </div>
-                  </div>
-                );
-              })}
+                  );
+                })}
+              </div>
             </div>
           )}
         </div>
