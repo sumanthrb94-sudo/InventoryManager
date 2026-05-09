@@ -39,10 +39,15 @@ export default function NotificationBell({ unreadCount }: { unreadCount: number 
   const today     = new Date().toISOString().split('T')[0];
   const yesterday = new Date(Date.now() - 86400000).toISOString().split('T')[0];
 
+  // Auto-clear notifications older than 24 hours
+  const cutoff24h = new Date();
+  cutoff24h.setHours(cutoff24h.getHours() - 24);
+  const recentNotifications = notifications.filter(n => new Date(n.timestamp) > cutoff24h);
+
   const grouped: { label: string; items: Notification[] }[] = [];
-  const todayItems     = notifications.filter(n => n.timestamp.startsWith(today));
-  const yesterdayItems = notifications.filter(n => n.timestamp.startsWith(yesterday));
-  const olderItems     = notifications.filter(n =>
+  const todayItems     = recentNotifications.filter(n => n.timestamp.startsWith(today));
+  const yesterdayItems = recentNotifications.filter(n => n.timestamp.startsWith(yesterday));
+  const olderItems     = recentNotifications.filter(n =>
     !n.timestamp.startsWith(today) && !n.timestamp.startsWith(yesterday)
   );
   if (todayItems.length)     grouped.push({ label: 'Today',     items: todayItems });
@@ -106,14 +111,25 @@ export default function NotificationBell({ unreadCount }: { unreadCount: number 
                 <span className="text-[10px] font-bold uppercase tracking-widest text-black">Live Activity</span>
               </div>
               <div className="flex items-center gap-2">
-                {notifications.length > 0 && (
-                  <button
-                    onClick={() => notificationService.markAllAsRead()}
-                    className="flex items-center gap-1 text-[9px] font-mono text-gray-400 hover:text-black transition-colors"
-                  >
-                    <CheckCheck size={11} />
-                    All read
-                  </button>
+                {recentNotifications.length > 0 && (
+                  <>
+                    <button
+                      onClick={() => notificationService.markAllAsRead()}
+                      className="flex items-center gap-1 text-[9px] font-mono text-gray-400 hover:text-black transition-colors"
+                      title="Mark all as read"
+                    >
+                      <CheckCheck size={11} />
+                      Read
+                    </button>
+                    <button
+                      onClick={() => notificationService.clearAll()}
+                      className="flex items-center gap-1 text-[9px] font-mono text-red-400 hover:text-red-600 transition-colors"
+                      title="Clear all notifications"
+                    >
+                      <X size={11} />
+                      Clear
+                    </button>
+                  </>
                 )}
                 <button onClick={() => setOpen(false)} className="p-0.5 text-gray-400 hover:text-black">
                   <X size={13} />

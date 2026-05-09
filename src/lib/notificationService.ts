@@ -189,6 +189,20 @@ class NotificationService {
   getUnreadCount() {
     return this.notifications.filter(n => !n.read).length;
   }
+
+  clearAll() {
+    this.notifications = [];
+    this.saveToStorage();
+    this.notify();
+  }
+
+  clearOldNotifications(hoursOld: number = 24) {
+    const cutoff = new Date();
+    cutoff.setHours(cutoff.getHours() - hoursOld);
+    this.notifications = this.notifications.filter(n => new Date(n.timestamp) > cutoff);
+    this.saveToStorage();
+    this.notify();
+  }
 }
 
 export const notificationService = new NotificationService();

@@ -3,6 +3,7 @@ import { X, Trash2, AlertTriangle, CheckCircle2, RefreshCw } from 'lucide-react'
 import { motion } from 'motion/react';
 import { collection, getDocs, writeBatch } from 'firebase/firestore';
 import { db } from '../lib/firebase';
+import { notificationService } from '../lib/notificationService';
 
 interface Props { onClose: () => void; }
 
@@ -50,6 +51,7 @@ export default function ResetDataModal({ onClose }: Props) {
         addLog(`  ↳ deleted ${snap.size} documents`);
       }
       addLog('All collections cleared.');
+      notificationService.clearAll();
       setDone(true);
     } catch (err: any) {
       setError(err?.message || 'Reset failed — check Firestore connection');
