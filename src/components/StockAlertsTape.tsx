@@ -56,15 +56,19 @@ export default function StockAlertsTape({ units }: Props) {
       }
     }
 
-    // Generate alerts for each series
+    // Generate alerts for each series - BULLETPROOF DETECTION
     for (const series of Array.from(allSeries).sort()) {
-      const stats = seriesStats[series];
+      if (!seriesStats[series]) continue; // Safety check
 
-      // Priority 1: OUT OF STOCK (highest priority)
-      if (stats.availableCount === 0) {
+      const stats = seriesStats[series];
+      const totalUnitsInSeries = units.filter(u => u.model.split(' ').slice(0, 2).join(' ') === series).length;
+
+      // Priority 1: OUT OF STOCK - Series exists in data but NO available units
+      if (totalUnitsInSeries > 0 && stats.availableCount === 0) {
         const alertId = `outofstock-${series}`;
         if (!seen.has(alertId)) {
           seen.add(alertId);
+          console.log(`[StockAlertsTape] OUT OF STOCK: ${series} (total: ${totalUnitsInSeries}, available: ${stats.availableCount})`);
           list.push({
             id: alertId,
             type: 'outofstock',
@@ -78,11 +82,12 @@ export default function StockAlertsTape({ units }: Props) {
         }
       }
 
-      // Priority 2: LOW STOCK (1-2 units only)
+      // Priority 2: LOW STOCK - Only 1-2 available units
       if (stats.availableCount > 0 && stats.availableCount <= 2) {
         const alertId = `lowstock-${series}-${stats.availableCount}`;
         if (!seen.has(alertId)) {
           seen.add(alertId);
+          console.log(`[StockAlertsTape] LOW STOCK: ${series} (available: ${stats.availableCount})`);
           list.push({
             id: alertId,
             type: 'lowstock',
@@ -150,6 +155,8 @@ export default function StockAlertsTape({ units }: Props) {
         }
       }
     }
+
+    console.log(`[StockAlertsTape] Total alerts generated: ${list.length}`, list);
 
     // Sort by priority (descending) then by model name (ascending)
     return list.sort((a, b) => {
