@@ -155,7 +155,7 @@ export default function LoadMockDataModal({ onClose }: Props) {
         exit={{ scale: 0.96, opacity: 0, y: 8 }}
         transition={{ type: 'spring', stiffness: 280, damping: 26 }}
         onClick={e => e.stopPropagation()}
-        className="bg-white w-full max-w-md rounded-2xl shadow-xl shadow-slate-900/10 ring-1 ring-slate-200/70 overflow-hidden"
+        className="bg-white w-full max-w-md rounded-3xl shadow-xl shadow-slate-900/10 ring-1 ring-slate-200/70 overflow-hidden"
       >
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-5">
@@ -270,7 +270,7 @@ export default function LoadMockDataModal({ onClose }: Props) {
             </>
           ) : (
             <div className="py-3 space-y-5 text-center">
-              <div className="mx-auto w-12 h-12 bg-emerald-50 ring-1 ring-emerald-100 rounded-2xl flex items-center justify-center">
+              <div className="mx-auto w-12 h-12 bg-emerald-50 ring-1 ring-emerald-100 rounded-3xl flex items-center justify-center">
                 <CheckCircle2 className="text-emerald-500" size={22} strokeWidth={1.75} />
               </div>
               <div>

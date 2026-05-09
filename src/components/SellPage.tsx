@@ -89,7 +89,7 @@ function SellOrderModal({
 
   return (
     <div className="fixed inset-0 z-[70] flex items-center justify-center p-3 md:p-4 bg-black/40 backdrop-blur-sm">
-      <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl flex flex-col" style={{ maxHeight: 'calc(100dvh - 24px)' }}>
+      <div className="bg-white rounded-3xl w-full max-w-md shadow-2xl flex flex-col" style={{ maxHeight: 'calc(100dvh - 24px)' }}>
 
         {/* Header */}
         <div className={`flex items-center justify-between px-6 py-4 border-b ${isSHS ? 'border-amber-100 bg-amber-50' : 'border-gray-100'}`}>
@@ -295,7 +295,7 @@ function EnterImeiModal({
     <div className="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm">
       <motion.div
         initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }}
-        className="bg-white rounded-2xl w-full max-w-sm shadow-2xl overflow-hidden"
+        className="bg-white rounded-3xl w-full max-w-sm shadow-2xl overflow-hidden"
       >
         {/* Header */}
         <div className="flex items-center justify-between px-5 py-4 border-b border-orange-100 bg-orange-50">
@@ -473,13 +473,13 @@ export default function SellPage() {
         <button
           onClick={() => setShowInStock(true)}
           disabled={inStock.length === 0}
-          className="bg-emerald-50 border border-emerald-100 rounded-2xl p-3 hover:bg-emerald-100 hover:border-emerald-200 active:scale-95 transition-all disabled:opacity-50 disabled:cursor-default text-left cursor-pointer"
+          className="bg-emerald-50 border border-emerald-100 rounded-3xl p-3 hover:bg-emerald-100 hover:border-emerald-200 active:scale-95 transition-all disabled:opacity-50 disabled:cursor-default text-left cursor-pointer"
         >
           <p className="text-[8px] font-mono uppercase tracking-widest text-emerald-600">In Stock</p>
           <p className="text-2xl font-bold font-display mt-1 text-emerald-700">{inStock.length}</p>
           <p className="text-[8px] text-emerald-500 font-mono">in office</p>
         </button>
-        <div className="bg-amber-50 border border-amber-100 rounded-2xl p-3">
+        <div className="bg-amber-50 border border-amber-100 rounded-3xl p-3">
           <p className="text-[8px] font-mono uppercase tracking-widest text-amber-600">SHS Listed</p>
           <p className="text-2xl font-bold font-display mt-1 text-amber-700">{shsUnits.length}</p>
           <p className="text-[8px] text-amber-500 font-mono">supplier holds</p>
@@ -487,7 +487,7 @@ export default function SellPage() {
         <button
           onClick={() => setShowTodaySales(true)}
           disabled={todaySold.length === 0}
-          className="bg-blue-50 border border-blue-100 rounded-2xl p-3 hover:bg-blue-100 hover:border-blue-200 active:scale-95 transition-all disabled:opacity-50 disabled:cursor-default text-left cursor-pointer"
+          className="bg-blue-50 border border-blue-100 rounded-3xl p-3 hover:bg-blue-100 hover:border-blue-200 active:scale-95 transition-all disabled:opacity-50 disabled:cursor-default text-left cursor-pointer"
         >
           <p className="text-[8px] font-mono uppercase tracking-widest text-blue-600">Sold Today</p>
           <p className="text-2xl font-bold font-display mt-1 text-blue-700">{todaySold.length}</p>

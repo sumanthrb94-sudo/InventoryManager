@@ -77,7 +77,7 @@ export default function ReceiveSHSModal({ unit, onClose }: Props) {
         initial={{ y: 30, opacity: 0 }} animate={{ y: 0, opacity: 1 }}
         exit={{ y: 30, opacity: 0 }} transition={{ type: 'spring', damping: 28, stiffness: 300 }}
         onClick={e => e.stopPropagation()}
-        className="bg-white w-full md:max-w-sm rounded-t-3xl md:rounded-2xl shadow-2xl overflow-hidden"
+        className="bg-white w-full md:max-w-sm rounded-t-3xl md:rounded-3xl shadow-2xl overflow-hidden"
       >
         <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
           <div className="flex items-center gap-3">

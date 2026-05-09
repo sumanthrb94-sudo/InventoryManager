@@ -376,7 +376,7 @@ export default function ImportModal({ onClose }: ImportModalProps) {
         initial={{ y: 12, opacity: 0, scale: 0.98 }} animate={{ y: 0, opacity: 1, scale: 1 }}
         exit={{ y: 12, opacity: 0, scale: 0.98 }}
         transition={{ type: 'spring', stiffness: 280, damping: 26 }}
-        className="bg-white rounded-2xl shadow-xl shadow-slate-900/10 ring-1 ring-slate-200/70 w-full max-w-2xl overflow-hidden text-slate-700 flex flex-col max-h-[90vh]"
+        className="bg-white rounded-3xl shadow-xl shadow-slate-900/10 ring-1 ring-slate-200/70 w-full max-w-2xl overflow-hidden text-slate-700 flex flex-col max-h-[90vh]"
       >
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-5">
@@ -455,13 +455,13 @@ export default function ImportModal({ onClose }: ImportModalProps) {
                 onDragOver={e => { e.preventDefault(); setIsDragging(true); }}
                 onDragLeave={() => setIsDragging(false)}
                 onClick={() => fileRef.current?.click()}
-                className={`border-2 border-dashed rounded-2xl p-10 text-center cursor-pointer transition-all ${
+                className={`border-2 border-dashed rounded-3xl p-10 text-center cursor-pointer transition-all ${
                   isDragging
                     ? 'border-slate-400 bg-slate-50'
                     : 'border-slate-200 hover:border-slate-300 hover:bg-slate-50/50'
                 }`}
               >
-                <div className={`mx-auto mb-3 w-11 h-11 rounded-2xl flex items-center justify-center transition-all ${
+                <div className={`mx-auto mb-3 w-11 h-11 rounded-3xl flex items-center justify-center transition-all ${
                   isDragging ? 'bg-slate-200 text-slate-600' : 'bg-slate-100 text-slate-400'
                 }`}>
                   <Upload size={18} strokeWidth={1.75} />
@@ -551,7 +551,7 @@ export default function ImportModal({ onClose }: ImportModalProps) {
           {/* ── Importing ── */}
           {stage === 'importing' && (
             <div className="py-12 space-y-6 text-center">
-              <div className="mx-auto w-12 h-12 rounded-2xl bg-slate-50 ring-1 ring-slate-100 flex items-center justify-center">
+              <div className="mx-auto w-12 h-12 rounded-3xl bg-slate-50 ring-1 ring-slate-100 flex items-center justify-center">
                 <Loader2 className="animate-spin text-slate-400" size={20} strokeWidth={1.75} />
               </div>
               <div>
@@ -575,7 +575,7 @@ export default function ImportModal({ onClose }: ImportModalProps) {
           {/* ── Done ── */}
           {stage === 'done' && parsed && (
             <div className="py-8 space-y-6 text-center">
-              <div className="mx-auto w-12 h-12 bg-emerald-50 ring-1 ring-emerald-100 rounded-2xl flex items-center justify-center">
+              <div className="mx-auto w-12 h-12 bg-emerald-50 ring-1 ring-emerald-100 rounded-3xl flex items-center justify-center">
                 <CheckCircle2 className="text-emerald-500" size={22} strokeWidth={1.75} />
               </div>
               <div>

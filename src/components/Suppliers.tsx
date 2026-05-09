@@ -118,7 +118,7 @@ export default function Suppliers() {
           <motion.form
             initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }}
             onSubmit={handleAdd}
-            className="overflow-hidden bg-white border border-gray-200 rounded-2xl p-4 space-y-3"
+            className="overflow-hidden bg-white border border-gray-200 rounded-3xl p-4 space-y-3"
           >
             <p className="text-[11px] font-bold uppercase tracking-widest text-gray-500">New Supplier</p>
             <div className="grid grid-cols-2 gap-2">
@@ -200,7 +200,7 @@ export default function Suppliers() {
           const stats = supplierStats[sup.id];
           const isOpen = selected === sup.id;
           return (
-            <div key={sup.id} className="bg-white border border-gray-200 rounded-2xl overflow-hidden shadow-sm">
+            <div key={sup.id} className="bg-white border border-gray-200 rounded-3xl overflow-hidden shadow-sm">
               {/* Card header */}
               <button
                 onClick={() => { setSelected(isOpen ? null : sup.id); setHistoryPage(1); }}
@@ -351,7 +351,7 @@ export default function Suppliers() {
       </div>
 
       {suppliers.length === 0 && (
-        <div className="py-16 flex flex-col items-center gap-3 border-2 border-dashed border-gray-200 rounded-2xl">
+        <div className="py-16 flex flex-col items-center gap-3 border-2 border-dashed border-gray-200 rounded-3xl">
           <Package size={40} className="text-gray-300" />
           <p className="text-gray-400 font-mono text-sm">No suppliers yet. Import your Excel data first.</p>
         </div>

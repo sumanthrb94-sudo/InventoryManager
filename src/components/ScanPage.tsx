@@ -157,7 +157,7 @@ export default function ScanPage() {
           { label: 'In Stock',    value: totalAvailable,         icon: <PackagePlus size={14} />,  color: 'text-black' },
           { label: 'Returned',    value: todayReturned.length,   icon: <RotateCcw size={14} />,    color: 'text-orange-600' },
         ].map(k => (
-          <div key={k.label} className="bg-white rounded-2xl p-4 border border-gray-100 shadow-sm text-center">
+          <div key={k.label} className="bg-white rounded-3xl p-4 border border-gray-100 shadow-sm text-center">
             <div className={`flex justify-center mb-1 ${k.color}`}>{k.icon}</div>
             <p className="text-2xl font-bold font-display tracking-tighter">{k.value}</p>
             <p className="text-[9px] text-gray-400 font-mono uppercase tracking-wider mt-0.5">{k.label}</p>
@@ -166,7 +166,7 @@ export default function ScanPage() {
       </div>
 
       {/* Scanner / manual search */}
-      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+      <div className="bg-white rounded-3xl border border-gray-100 shadow-sm overflow-hidden">
         <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
           <div className="flex items-center gap-2">
             <Cpu size={14} className="text-gray-400" />
@@ -258,7 +258,7 @@ export default function ScanPage() {
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: 10 }}
-            className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden"
+            className="bg-white rounded-3xl border border-gray-100 shadow-sm overflow-hidden"
           >
             {/* Unit summary */}
             <div className="px-5 py-4 bg-gray-950 flex items-start justify-between gap-4">
@@ -399,7 +399,7 @@ export default function ScanPage() {
 
       {/* Today's activity log */}
       {history.length > 0 && (
-        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+        <div className="bg-white rounded-3xl border border-gray-100 shadow-sm overflow-hidden">
           <div className="px-5 py-3 border-b border-gray-100 flex items-center gap-2">
             <TrendingUp size={13} className="text-gray-400" />
             <p className="text-[10px] font-bold uppercase tracking-widest text-gray-500">Session Log</p>

@@ -45,7 +45,7 @@ export default function InStockModal({ units, onClose }: Props) {
         initial={{ scale: 0.95, opacity: 0 }}
         animate={{ scale: 1, opacity: 1 }}
         exit={{ scale: 0.95, opacity: 0 }}
-        className="bg-white rounded-2xl w-full max-w-7xl shadow-2xl flex flex-col"
+        className="bg-white rounded-3xl w-full max-w-7xl shadow-2xl flex flex-col"
         style={{ maxHeight: '90vh' }}
         onClick={e => e.stopPropagation()}
       >

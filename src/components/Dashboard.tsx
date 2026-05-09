@@ -338,7 +338,7 @@ export default function Dashboard({ onNavigate }: Props) {
       {/* Suppliers clickable */}
       <button
         onClick={() => onNavigate({ tab:'suppliers' })}
-        className="w-full bg-white rounded-2xl border border-gray-100 shadow-sm px-4 py-3.5 flex items-center justify-between hover:bg-gray-50 transition-all"
+        className="w-full bg-white rounded-3xl border border-gray-100 shadow-sm px-4 py-3.5 flex items-center justify-between hover:bg-gray-50 transition-all"
       >
         <div className="flex items-center gap-3">
           <div className="w-9 h-9 bg-gray-100 rounded-xl flex items-center justify-center">
@@ -452,7 +452,7 @@ export default function Dashboard({ onNavigate }: Props) {
 
       {/* Empty state */}
       {units.length === 0 && (
-        <div className="py-20 flex flex-col items-center gap-3 border-2 border-dashed border-gray-200 rounded-2xl">
+        <div className="py-20 flex flex-col items-center gap-3 border-2 border-dashed border-gray-200 rounded-3xl">
           <Package size={48} className="text-gray-200"/>
           <p className="text-gray-400 font-mono text-sm text-center px-4">No data yet.<br/>Import your Excel sheet to get started.</p>
         </div>
@@ -467,7 +467,7 @@ function KPICard({ label, value, sub, icon, badge, onClick, accent }: {
 }) {
   return (
     <button onClick={onClick}
-      className={`${accent || 'bg-white border-gray-100'} border rounded-2xl p-4 shadow-sm text-left hover:shadow-md active:scale-[0.98] transition-all group w-full`}
+      className={`${accent || 'bg-white border-gray-100'} border rounded-3xl p-4 shadow-sm text-left hover:shadow-md active:scale-[0.98] transition-all group w-full`}
     >
       <div className="flex items-center justify-between mb-3">
         <div className="w-8 h-8 bg-gray-100 rounded-xl flex items-center justify-center text-gray-600 group-hover:bg-black group-hover:text-white transition-all">

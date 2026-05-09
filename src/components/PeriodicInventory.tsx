@@ -163,7 +163,7 @@ function Popover({
     width:        252,
     background:   '#0f172a',
     border:       `1.5px solid ${color.bg}50`,
-    borderRadius: 12,
+    borderRadius: 28,
     boxShadow:    `0 12px 40px rgba(0,0,0,0.55), 0 0 0 1px ${color.bg}20`,
     overflow:     'hidden',
     pointerEvents: 'auto',
@@ -197,12 +197,12 @@ function Popover({
           </div>
           {/* Stock counts */}
           <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexShrink: 0 }}>
-            <div style={{ textAlign: 'center', background: 'rgba(0,0,0,0.2)', borderRadius: 7, padding: '4px 8px', minWidth: 36 }}>
+            <div style={{ textAlign: 'center', background: 'rgba(0,0,0,0.2)', borderRadius: 12, padding: '4px 8px', minWidth: 36 }}>
               <div style={{ fontSize: 18, fontWeight: 900, color: '#fff', lineHeight: 1 }}>{el.count}</div>
               <div style={{ fontSize: 7, color: 'rgba(255,255,255,0.65)', textTransform: 'uppercase', letterSpacing: '0.08em', marginTop: 1 }}>in office</div>
             </div>
             {el.shsCount > 0 && (
-              <div style={{ textAlign: 'center', background: 'rgba(255,255,255,0.12)', borderRadius: 7, padding: '4px 8px', minWidth: 36, border: '1px solid rgba(253,230,138,0.4)' }}>
+              <div style={{ textAlign: 'center', background: 'rgba(255,255,255,0.12)', borderRadius: 12, padding: '4px 8px', minWidth: 36, border: '1px solid rgba(253,230,138,0.4)' }}>
                 <div style={{ fontSize: 16, fontWeight: 800, color: '#fde68a', lineHeight: 1 }}>{el.shsCount}</div>
                 <div style={{ fontSize: 7, color: 'rgba(255,255,255,0.65)', textTransform: 'uppercase', letterSpacing: '0.08em', marginTop: 1 }}>supplier</div>
               </div>
@@ -251,7 +251,7 @@ function Popover({
               const pct = Math.round((v.count / el.count) * 100);
               return (
                 <div key={v.storage} style={{
-                  background: '#1e293b', borderRadius: 6, padding: '4px 8px',
+                  background: '#1e293b', borderRadius: 12, padding: '4px 8px',
                   display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 1,
                   minWidth: 48,
                 }}>
@@ -267,7 +267,7 @@ function Popover({
 
       {/* SHS note */}
       {el.shsCount > 0 && (
-        <div style={{ margin: '0 12px 6px', padding: '6px 8px', background: 'rgba(253,230,138,0.08)', borderRadius: 6, border: '1px solid rgba(253,230,138,0.15)' }}>
+        <div style={{ margin: '0 12px 6px', padding: '6px 8px', background: 'rgba(253,230,138,0.08)', borderRadius: 12, border: '1px solid rgba(253,230,138,0.15)' }}>
           <div style={{ fontSize: 8, fontFamily: 'monospace', color: '#fde68a', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 2 }}>
             SHS — Listed with Supplier
           </div>
@@ -284,7 +284,7 @@ function Popover({
             onClick={() => onViewAll(el.seriesKey, el.searchTerm)}
             style={{
               width: '100%', padding: '7px', background: color.bg, border: 'none',
-              borderRadius: 7, color: '#fff', fontSize: 10, fontWeight: 700,
+              borderRadius: 12, color: '#fff', fontSize: 10, fontWeight: 700,
               fontFamily: 'monospace', textTransform: 'uppercase', letterSpacing: '0.1em',
               cursor: 'pointer',
             }}
@@ -403,7 +403,7 @@ export default function PeriodicInventory({ units, onNavigate }: Props) {
 
   return (
     <div className="h-full lg:h-auto">
-      <div style={{ background: '#ffffff', borderRadius: 20, padding: '12px 10px', overflow: 'hidden' }}>
+      <div style={{ background: '#ffffff', borderRadius: 28, padding: '12px 10px', overflow: 'hidden' }}>
         {/* Header */}
         <div style={{ marginBottom: 12 }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
@@ -450,7 +450,7 @@ export default function PeriodicInventory({ units, onNavigate }: Props) {
           {groups.map(g => (
             <div key={g.id}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
-                <div style={{ fontSize: 8, fontFamily: 'monospace', textTransform: 'uppercase', letterSpacing: '0.15em', color: g.color.bg, fontWeight: 700, minWidth: 80, flexShrink: 0 }}>
+                <div style={{ fontSize: 13, fontFamily: 'system-ui', textTransform: 'capitalize', color: g.color.bg, fontWeight: 800, minWidth: 120, flexShrink: 0, letterSpacing: '-0.02em' }}>
                   {g.label}
                 </div>
                 <div style={{ flex: 1, height: 1, background: `${g.color.bg}30` }} />
@@ -466,25 +466,23 @@ export default function PeriodicInventory({ units, onNavigate }: Props) {
                       onMouseEnter={e => handleElementEnter(el, g.color, e)}
                       onMouseLeave={scheduleClose}
                       onClick={() => {
-                        if (el.count > 0 || el.shsCount > 0) {
-                          setViewAllModal({ seriesKey: el.seriesKey, searchTerm: el.searchTerm });
-                        }
+                        setViewAllModal({ seriesKey: el.seriesKey, searchTerm: el.searchTerm });
                       }}
-                      title={isEmpty ? el.seriesKey : undefined}
+                      title={isEmpty ? `${el.seriesKey} - Out of Stock` : undefined}
                       style={{
                         width: 60, height: 60,
-                        background: isEmpty ? '#1e293b' : isHovered ? g.color.bg : g.color.light,
-                        border: `1.5px solid ${isEmpty ? '#334155' : isHovered ? g.color.bg : g.color.border}`,
-                        borderRadius: 8,
+                        background: isEmpty ? '#fef2f2' : isHovered ? g.color.bg : g.color.light,
+                        border: `1.5px solid ${isEmpty ? '#fecaca' : isHovered ? g.color.bg : g.color.border}`,
+                        borderRadius: 16,
                         padding: '3px 2px',
                         display: 'flex',
                         flexDirection: 'column',
                         justifyContent: 'space-between',
-                        cursor: isEmpty ? 'default' : 'pointer',
+                        cursor: 'pointer',
                         transition: 'transform 0.1s, box-shadow 0.1s, background 0.1s',
-                        transform: isHovered && !isEmpty ? 'scale(1.1)' : 'scale(1)',
-                        boxShadow: isHovered && !isEmpty ? `0 0 0 2px ${g.color.bg}, 0 4px 12px rgba(0,0,0,0.3)` : 'none',
-                        opacity: isEmpty ? 0.35 : 1,
+                        transform: isHovered ? 'scale(1.1)' : 'scale(1)',
+                        boxShadow: isHovered ? `0 0 0 2px ${isEmpty ? '#fca5a5' : g.color.bg}, 0 4px 12px rgba(0,0,0,0.3)` : 'none',
+                        opacity: 1,
                       }}
                     >
                       {/* Ordinal + count */}

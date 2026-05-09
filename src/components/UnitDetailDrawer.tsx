@@ -176,7 +176,7 @@ export default function UnitDetailDrawer({ unit, supplierName, onClose }: Props)
         exit={{ y: 60, opacity: 0 }}
         transition={{ type: 'spring', damping: 28, stiffness: 300 }}
         onClick={e => e.stopPropagation()}
-        className="bg-white w-full md:max-w-lg rounded-t-3xl md:rounded-2xl overflow-hidden shadow-2xl max-h-[90vh] flex flex-col"
+        className="bg-white w-full md:max-w-lg rounded-t-3xl md:rounded-3xl overflow-hidden shadow-2xl max-h-[90vh] flex flex-col"
       >
         {/* Header */}
         <div className="px-6 pt-6 pb-4 border-b border-gray-100">
@@ -197,7 +197,7 @@ export default function UnitDetailDrawer({ unit, supplierName, onClose }: Props)
           </div>
 
           {/* IMEI chip — centrepiece */}
-          <div className="mt-4 bg-gray-950 rounded-2xl px-5 py-4 flex items-center justify-between">
+          <div className="mt-4 bg-gray-950 rounded-3xl px-5 py-4 flex items-center justify-between">
             <div>
               <p className="text-[9px] text-gray-500 font-mono uppercase tracking-widest mb-1">IMEI / Serial</p>
               <p className="text-white font-mono text-sm font-bold tracking-wider">
@@ -299,7 +299,7 @@ export default function UnitDetailDrawer({ unit, supplierName, onClose }: Props)
 
               {/* Warranty Banner */}
               {unit.saleDate && (
-                <div className={`flex items-start gap-3 p-4 rounded-2xl border ${warranty.isExpired ? 'bg-red-50 border-red-200 text-red-800' : 'bg-emerald-50 border-emerald-200 text-emerald-800'}`}>
+                <div className={`flex items-start gap-3 p-4 rounded-3xl border ${warranty.isExpired ? 'bg-red-50 border-red-200 text-red-800' : 'bg-emerald-50 border-emerald-200 text-emerald-800'}`}>
                   {warranty.isExpired ? <ShieldAlert size={18} className="mt-0.5 text-red-600" /> : <ShieldCheck size={18} className="mt-0.5 text-emerald-600" />}
                   <div>
                     <p className="text-sm font-bold">{warranty.isExpired ? 'Warranty Expired' : 'Warranty Active'}</p>
@@ -330,7 +330,7 @@ export default function UnitDetailDrawer({ unit, supplierName, onClose }: Props)
             <div className="p-6 space-y-5">
               {/* Platform listing toggle */}
               {unit.status !== 'sold' && (
-                <div className="bg-gray-50 rounded-2xl p-4">
+                <div className="bg-gray-50 rounded-3xl p-4">
                   <p className="text-[10px] font-bold uppercase tracking-widest text-gray-500 mb-3">Platform Listing</p>
                   <div className="flex items-center justify-between gap-3 mb-3">
                     <div>
@@ -366,7 +366,7 @@ export default function UnitDetailDrawer({ unit, supplierName, onClose }: Props)
 
               {/* Mark as sold */}
               {unit.status !== 'sold' && (
-                <div className="bg-gray-50 rounded-2xl p-4 space-y-3">
+                <div className="bg-gray-50 rounded-3xl p-4 space-y-3">
                   <p className="text-[10px] font-bold uppercase tracking-widest text-gray-500">Mark as Sold</p>
                   <div className="grid grid-cols-2 gap-2">
                     <div>
@@ -421,7 +421,7 @@ export default function UnitDetailDrawer({ unit, supplierName, onClose }: Props)
               )}
 
               {/* Flags */}
-              <div className="bg-gray-50 rounded-2xl p-4 space-y-3">
+              <div className="bg-gray-50 rounded-3xl p-4 space-y-3">
                 <p className="text-[10px] font-bold uppercase tracking-widest text-gray-500">Operational Flags</p>
                 <div className="grid grid-cols-2 gap-2">
                   {([
@@ -445,7 +445,7 @@ export default function UnitDetailDrawer({ unit, supplierName, onClose }: Props)
               </div>
 
               {/* Notes */}
-              <div className="bg-gray-50 rounded-2xl p-4 space-y-3">
+              <div className="bg-gray-50 rounded-3xl p-4 space-y-3">
                 <p className="text-[10px] font-bold uppercase tracking-widest text-gray-500">Notes</p>
                 <textarea
                   value={notes}
@@ -466,7 +466,7 @@ export default function UnitDetailDrawer({ unit, supplierName, onClose }: Props)
 
               {/* Source files */}
               {linkedDocs.length > 0 && (
-                <div className="bg-gray-50 rounded-2xl p-4 space-y-3">
+                <div className="bg-gray-50 rounded-3xl p-4 space-y-3">
                   <p className="text-[10px] font-bold uppercase tracking-widest text-gray-500">Source Files</p>
                   <div className="space-y-2">
                     {linkedDocs.map(doc => (

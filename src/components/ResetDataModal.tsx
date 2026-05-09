@@ -73,7 +73,7 @@ export default function ResetDataModal({ onClose }: Props) {
         initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }}
         exit={{ scale: 0.95, opacity: 0 }}
         onClick={e => e.stopPropagation()}
-        className="bg-white w-full max-w-md rounded-2xl shadow-2xl overflow-hidden"
+        className="bg-white w-full max-w-md rounded-3xl shadow-2xl overflow-hidden"
       >
         {/* Header */}
         <div className="flex items-center justify-between px-5 py-4 border-b border-red-100 bg-red-50">

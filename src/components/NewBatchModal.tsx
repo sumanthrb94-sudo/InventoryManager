@@ -259,7 +259,7 @@ export default function NewBatchModal({ onClose }: Props) {
         initial={{ y: 40, opacity: 0 }} animate={{ y: 0, opacity: 1 }}
         exit={{ y: 40, opacity: 0 }} transition={{ type: 'spring', damping: 28, stiffness: 300 }}
         onClick={e => e.stopPropagation()}
-        className="bg-white w-full md:max-w-3xl rounded-t-3xl md:rounded-2xl shadow-2xl flex flex-col overflow-hidden"
+        className="bg-white w-full md:max-w-3xl rounded-t-3xl md:rounded-3xl shadow-2xl flex flex-col overflow-hidden"
         style={{ maxHeight: 'calc(100dvh - 16px)' }}
       >
         {/* Header */}
@@ -393,7 +393,7 @@ export default function NewBatchModal({ onClose }: Props) {
               initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.95, opacity: 0 }}
               onClick={e => e.stopPropagation()}
-              className="bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden"
+              className="bg-white rounded-3xl shadow-2xl w-full max-w-lg overflow-hidden"
             >
               <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
                 <div>

@@ -66,7 +66,7 @@ export default function EditUnitModal({ unit, onClose }: Props) {
         initial={{ y: 30, opacity: 0 }} animate={{ y: 0, opacity: 1 }}
         exit={{ y: 30, opacity: 0 }} transition={{ type: 'spring', damping: 28, stiffness: 300 }}
         onClick={e => e.stopPropagation()}
-        className="bg-white w-full md:max-w-md rounded-t-3xl md:rounded-2xl shadow-2xl flex flex-col overflow-hidden"
+        className="bg-white w-full md:max-w-md rounded-t-3xl md:rounded-3xl shadow-2xl flex flex-col overflow-hidden"
         style={{ maxHeight: 'calc(100dvh - 16px)' }}
       >
         {/* Header */}

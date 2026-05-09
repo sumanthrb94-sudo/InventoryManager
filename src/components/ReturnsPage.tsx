@@ -100,7 +100,7 @@ function ProcessReturnModal({
 
   return (
     <div className="fixed inset-0 z-[70] flex items-center justify-center p-3 md:p-4 bg-black/40 backdrop-blur-sm">
-      <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl flex flex-col" style={{ maxHeight: 'calc(100dvh - 24px)' }}>
+      <div className="bg-white rounded-3xl w-full max-w-md shadow-2xl flex flex-col" style={{ maxHeight: 'calc(100dvh - 24px)' }}>
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-5 border-b border-gray-100 flex-shrink-0">
           <div>
@@ -303,22 +303,22 @@ export default function ReturnsPage() {
 
       {/* Summary cards */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
-        <div className="bg-gray-50 border border-gray-200 rounded-2xl p-4">
+        <div className="bg-gray-50 border border-gray-200 rounded-3xl p-4">
           <p className="text-[9px] font-mono uppercase tracking-widest text-gray-500">Total Returns</p>
           <p className="text-3xl font-bold font-display mt-1">{returned.length}</p>
           <p className="text-[9px] text-gray-400 font-mono">all time</p>
         </div>
-        <div className="bg-emerald-50 border border-emerald-100 rounded-2xl p-4">
+        <div className="bg-emerald-50 border border-emerald-100 rounded-3xl p-4">
           <p className="text-[9px] font-mono uppercase tracking-widest text-emerald-600">To Inventory</p>
           <p className="text-3xl font-bold font-display mt-1 text-emerald-700">{counts.returned_to_inventory}</p>
           <p className="text-[9px] text-emerald-400 font-mono">units</p>
         </div>
-        <div className="bg-blue-50 border border-blue-100 rounded-2xl p-4">
+        <div className="bg-blue-50 border border-blue-100 rounded-3xl p-4">
           <p className="text-[9px] font-mono uppercase tracking-widest text-blue-600">Repair</p>
           <p className="text-3xl font-bold font-display mt-1 text-blue-700">{counts.repair}</p>
           <p className="text-[9px] text-blue-400 font-mono">units</p>
         </div>
-        <div className="bg-orange-50 border border-orange-100 rounded-2xl p-4">
+        <div className="bg-orange-50 border border-orange-100 rounded-3xl p-4">
           <p className="text-[9px] font-mono uppercase tracking-widest text-orange-600">To Supplier</p>
           <p className="text-3xl font-bold font-display mt-1 text-orange-700">{counts.returned_to_supplier}</p>
           <p className="text-[9px] text-orange-400 font-mono">units</p>
@@ -326,7 +326,7 @@ export default function ReturnsPage() {
       </div>
 
       {/* Process a return from sold stock */}
-      <div className="bg-white border border-gray-200 rounded-2xl overflow-hidden">
+      <div className="bg-white border border-gray-200 rounded-3xl overflow-hidden">
         <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between">
           <p className="text-[10px] font-bold uppercase tracking-widest text-gray-400">Process New Return</p>
           <span className="text-[9px] font-mono text-gray-400">{sold.length} sold units</span>
@@ -368,7 +368,7 @@ export default function ReturnsPage() {
       </div>
 
       {/* List */}
-      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+      <div className="bg-white rounded-3xl border border-gray-100 shadow-sm overflow-hidden">
         <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between">
           <p className="text-[10px] font-bold uppercase tracking-widest text-gray-400">
             {filter === 'all' ? 'All Returns' : RETURN_TYPES.find(r => r.key === filter)?.label}
