@@ -203,6 +203,14 @@ class NotificationService {
     this.saveToStorage();
     this.notify();
   }
+
+  clearBeforeToday() {
+    const todayStart = new Date();
+    todayStart.setHours(0, 0, 0, 0);
+    this.notifications = this.notifications.filter(n => new Date(n.timestamp) >= todayStart);
+    this.saveToStorage();
+    this.notify();
+  }
 }
 
 export const notificationService = new NotificationService();

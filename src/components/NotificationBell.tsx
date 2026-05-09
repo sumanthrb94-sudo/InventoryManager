@@ -39,15 +39,10 @@ export default function NotificationBell({ unreadCount }: { unreadCount: number 
   const today     = new Date().toISOString().split('T')[0];
   const yesterday = new Date(Date.now() - 86400000).toISOString().split('T')[0];
 
-  // Auto-clear notifications older than 24 hours
-  const cutoff24h = new Date();
-  cutoff24h.setHours(cutoff24h.getHours() - 24);
-  const recentNotifications = notifications.filter(n => new Date(n.timestamp) > cutoff24h);
-
   const grouped: { label: string; items: Notification[] }[] = [];
-  const todayItems     = recentNotifications.filter(n => n.timestamp.startsWith(today));
-  const yesterdayItems = recentNotifications.filter(n => n.timestamp.startsWith(yesterday));
-  const olderItems     = recentNotifications.filter(n =>
+  const todayItems     = notifications.filter(n => n.timestamp.startsWith(today));
+  const yesterdayItems = notifications.filter(n => n.timestamp.startsWith(yesterday));
+  const olderItems     = notifications.filter(n =>
     !n.timestamp.startsWith(today) && !n.timestamp.startsWith(yesterday)
   );
   if (todayItems.length)     grouped.push({ label: 'Today',     items: todayItems });
@@ -111,7 +106,7 @@ export default function NotificationBell({ unreadCount }: { unreadCount: number 
                 <span className="text-[10px] font-bold uppercase tracking-widest text-black">Live Activity</span>
               </div>
               <div className="flex items-center gap-2">
-                {recentNotifications.length > 0 && (
+                {notifications.length > 0 && (
                   <>
                     <button
                       onClick={() => notificationService.markAllAsRead()}
@@ -121,6 +116,16 @@ export default function NotificationBell({ unreadCount }: { unreadCount: number 
                       <CheckCheck size={11} />
                       Read
                     </button>
+                    {olderItems.length > 0 && (
+                      <button
+                        onClick={() => notificationService.clearBeforeToday()}
+                        className="flex items-center gap-1 text-[9px] font-mono text-amber-400 hover:text-amber-600 transition-colors"
+                        title="Clear old notifications (Yesterday & Earlier)"
+                      >
+                        <X size={11} />
+                        Old
+                      </button>
+                    )}
                     <button
                       onClick={() => notificationService.clearAll()}
                       className="flex items-center gap-1 text-[9px] font-mono text-red-400 hover:text-red-600 transition-colors"
@@ -139,7 +144,7 @@ export default function NotificationBell({ unreadCount }: { unreadCount: number 
 
             {/* Body */}
             <div className="max-h-[420px] overflow-y-auto">
-              {grouped.length === 0 ? (
+              {notifications.length === 0 ? (
                 <div className="py-12 flex flex-col items-center gap-2 text-gray-300">
                   <Bell size={28} />
                   <p className="text-[10px] font-mono uppercase tracking-widest">No activity yet</p>
