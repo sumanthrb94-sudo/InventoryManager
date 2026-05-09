@@ -194,102 +194,78 @@ export default function StockAlertsTape({ units }: Props) {
         </p>
       </div>
 
-      {/* Scrolling alerts */}
+      {/* Scrolling alerts - NO DUPLICATES */}
       <div style={{
         maxHeight: 'calc(70vh - 32px)',
         overflowY: 'auto',
         overflowX: 'hidden',
       }}>
-        <motion.div
-          initial={{ y: 0 }}
-          animate={{ y: -2000 }}
-          transition={{
-            duration: alerts.length * 3,
-            repeat: Infinity,
-            ease: 'linear',
-          }}
-          style={{ paddingTop: 0 }}
-        >
-          {/* First pass */}
-          {alerts.map(alert => (
-            <div
-              key={`${alert.id}-1`}
-              style={{
-                padding: '8px 10px',
-                borderBottom: '1px solid #f1f5f9',
-                borderLeft: `3px solid`,
-              }}
-              className={alert.bg}
-            >
-              <div style={{ display: 'flex', alignItems: 'flex-start', gap: 6 }}>
-                <div style={{ flexShrink: 0, marginTop: 2 }} className={alert.color}>
-                  {alert.icon}
-                </div>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <p style={{
-                    fontSize: 9,
-                    fontWeight: 700,
-                    margin: '0 0 2px 0',
-                    overflow: 'hidden',
-                    textOverflow: 'ellipsis',
-                    whiteSpace: 'nowrap',
-                    color: '#1e293b',
-                  }}>
-                    {alert.model}
-                  </p>
-                  <p style={{
-                    fontSize: 7.5,
-                    margin: 0,
-                    color: '#64748b',
-                    fontFamily: 'monospace',
-                  }}>
-                    {alert.detail}
-                  </p>
-                </div>
-              </div>
-            </div>
-          ))}
-
-          {/* Second pass (seamless loop) */}
-          {alerts.map(alert => (
-            <div
-              key={`${alert.id}-2`}
-              style={{
-                padding: '8px 10px',
-                borderBottom: '1px solid #f1f5f9',
-                borderLeft: `3px solid`,
-              }}
-              className={alert.bg}
-            >
-              <div style={{ display: 'flex', alignItems: 'flex-start', gap: 6 }}>
-                <div style={{ flexShrink: 0, marginTop: 2 }} className={alert.color}>
-                  {alert.icon}
-                </div>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <p style={{
-                    fontSize: 9,
-                    fontWeight: 700,
-                    margin: '0 0 2px 0',
-                    overflow: 'hidden',
-                    textOverflow: 'ellipsis',
-                    whiteSpace: 'nowrap',
-                    color: '#1e293b',
-                  }}>
-                    {alert.model}
-                  </p>
-                  <p style={{
-                    fontSize: 7.5,
-                    margin: 0,
-                    color: '#64748b',
-                    fontFamily: 'monospace',
-                  }}>
-                    {alert.detail}
-                  </p>
+        {alerts.length > 0 ? (
+          <motion.div
+            initial={{ y: 0 }}
+            animate={{ y: alerts.length > 6 ? `-${alerts.length * 60}px` : 0 }}
+            transition={{
+              duration: alerts.length > 6 ? alerts.length * 4 : 0,
+              repeat: alerts.length > 6 ? Infinity : 0,
+              ease: 'linear',
+            }}
+            style={{ paddingTop: 0 }}
+          >
+            {/* Show each alert exactly once - NO DUPLICATES */}
+            {alerts.map(alert => (
+              <div
+                key={alert.id}
+                style={{
+                  padding: '8px 10px',
+                  borderBottom: '1px solid #f1f5f9',
+                  borderLeft: `3px solid`,
+                  minHeight: 60,
+                  display: 'flex',
+                  flexDirection: 'column',
+                  justifyContent: 'center',
+                }}
+                className={alert.bg}
+              >
+                <div style={{ display: 'flex', alignItems: 'flex-start', gap: 6 }}>
+                  <div style={{ flexShrink: 0, marginTop: 2 }} className={alert.color}>
+                    {alert.icon}
+                  </div>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <p style={{
+                      fontSize: 9,
+                      fontWeight: 700,
+                      margin: '0 0 2px 0',
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      whiteSpace: 'nowrap',
+                      color: '#1e293b',
+                    }}>
+                      {alert.model}
+                    </p>
+                    <p style={{
+                      fontSize: 7.5,
+                      margin: 0,
+                      color: '#64748b',
+                      fontFamily: 'monospace',
+                    }}>
+                      {alert.detail}
+                    </p>
+                  </div>
                 </div>
               </div>
-            </div>
-          ))}
-        </motion.div>
+            ))}
+          </motion.div>
+        ) : (
+          <div style={{
+            padding: '12px 10px',
+            textAlign: 'center',
+            color: '#94a3b8',
+            fontSize: 8,
+            fontFamily: 'monospace',
+          }}>
+            All good!
+          </div>
+        )}
       </div>
     </div>
   );
