@@ -257,94 +257,47 @@ function buildSignals(units: InventoryUnit[], mode: 'buy' | 'sell'): Signal[] {
 // ── Sub-components ─────────────────────────────────────────────────────────────
 
 const SignalCard: React.FC<{ sig: Signal }> = ({ sig }) => {
+  // Map signal colors to light backgrounds and text colors
+  const colorMap: Record<string, { bg: string; text: string; textLight: string }> = {
+    '#ef4444': { bg: 'bg-red-50 border-red-100', text: 'text-red-600', textLight: 'text-red-500' },
+    '#10b981': { bg: 'bg-emerald-50 border-emerald-100', text: 'text-emerald-600', textLight: 'text-emerald-500' },
+    '#8b5cf6': { bg: 'bg-purple-50 border-purple-100', text: 'text-purple-600', textLight: 'text-purple-500' },
+    '#f59e0b': { bg: 'bg-amber-50 border-amber-100', text: 'text-amber-600', textLight: 'text-amber-500' },
+    '#38bdf8': { bg: 'bg-blue-50 border-blue-100', text: 'text-blue-600', textLight: 'text-blue-500' },
+  };
+
+  const colors = colorMap[sig.color] || { bg: 'bg-gray-50 border-gray-100', text: 'text-gray-600', textLight: 'text-gray-500' };
+
   return (
-    <div style={{
-      background: 'rgba(255,255,255,0.04)',
-      borderRadius: 10,
-      borderTop: `2px solid ${sig.color}`,
-      padding: '10px 10px 8px',
-      display: 'flex',
-      flexDirection: 'column',
-      gap: 0,
-      minWidth: 0,
-    }}>
+    <div className={`border rounded-lg p-2 flex-shrink-0 min-w-fit ${colors.bg}`}>
       {/* Header */}
-      <div style={{ marginBottom: 8 }}>
-        <p style={{
-          fontSize: 9, fontWeight: 800, letterSpacing: '0.1em',
-          color: sig.color, fontFamily: 'monospace', textTransform: 'uppercase',
-          lineHeight: 1,
-        }}>
-          {sig.label}
-        </p>
-        <p style={{ fontSize: 7, color: '#475569', fontFamily: 'monospace', marginTop: 2 }}>
-          {sig.hint}
-        </p>
-      </div>
+      <p className={`text-[7px] font-bold uppercase tracking-widest font-mono ${colors.text} mb-1`}>
+        {sig.label}
+      </p>
 
-      {/* Divider */}
-      <div style={{ height: 1, background: 'rgba(255,255,255,0.06)', marginBottom: 7 }} />
-
-      {/* Rows */}
+      {/* Content */}
       {sig.rows.length === 0 ? (
-        <p style={{ fontSize: 8, color: '#334155', fontFamily: 'monospace', fontStyle: 'italic', lineHeight: 1.4 }}>
+        <p className="text-[7px] text-gray-400 font-mono italic">
           {sig.empty}
         </p>
       ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-          {sig.rows.map((row, i) => (
-            <div key={i} style={{
-              display: 'flex',
-              alignItems: 'flex-start',
-              justifyContent: 'space-between',
-              gap: 8,
-              paddingBottom: 8,
-              borderBottom: i < sig.rows.length - 1 ? '1px solid rgba(255,255,255,0.06)' : 'none',
-            }}>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <p style={{
-                  fontSize: 10, fontWeight: 700, color: '#f1f5f9',
-                  lineHeight: 1.3, marginBottom: 3,
-                  overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'normal',
-                  wordBreak: 'break-word',
-                }}>
-                  {row.name}
-                </p>
-                <p style={{
-                  fontSize: 8,
-                  color: '#94a3b8',
-                  fontFamily: 'monospace',
-                  lineHeight: 1.4,
-                  overflow: 'hidden',
-                  textOverflow: 'ellipsis',
-                }}>
-                  {row.sub}
-                </p>
-              </div>
-              <div style={{
-                textAlign: 'right',
-                flexShrink: 0,
-                minWidth: 'max-content',
-                marginLeft: 8,
-              }}>
-                <p style={{
-                  fontSize: 10, fontWeight: 900, fontFamily: 'monospace',
-                  color: row.alert ? '#fca5a5' : sig.color,
-                  lineHeight: 1.2,
-                  padding: '4px 8px',
-                  backgroundColor: row.alert ? 'rgba(252, 165, 165, 0.1)' : 'transparent',
-                  borderRadius: 4,
-                }}>
-                  {row.primary}
-                </p>
-              </div>
+        <div className="space-y-0.5">
+          {sig.rows.slice(0, 2).map((row, i) => (
+            <div key={i} className="flex items-center justify-between gap-2">
+              <span className="text-[8px] font-bold text-gray-700 truncate max-w-[120px]">{row.name}</span>
+              <span className={`text-[8px] font-bold font-mono whitespace-nowrap ${row.alert ? 'text-red-500' : colors.textLight}`}>
+                {row.primary}
+              </span>
             </div>
           ))}
+          {sig.rows.length > 2 && (
+            <p className="text-[6px] text-gray-400 font-mono pt-0.5">+{sig.rows.length - 2}</p>
+          )}
         </div>
       )}
     </div>
   );
-}
+};
 
 // ── Main component ─────────────────────────────────────────────────────────────
 
@@ -359,27 +312,19 @@ export default function IntelligencePanel({ units, mode }: Props) {
     : 'Sell Intelligence · Demand & Margin Signals';
 
   return (
-    <div style={{ background: '#0f172a', borderRadius: 16, padding: '12px 12px 10px', overflow: 'hidden' }}>
+    <div className="bg-gradient-to-r from-gray-50 to-white border border-gray-100 rounded-lg p-3">
       {/* Panel header */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
-        <p style={{
-          fontSize: 8, fontWeight: 700, letterSpacing: '0.18em',
-          color: '#64748b', fontFamily: 'monospace', textTransform: 'uppercase',
-        }}>
+      <div className="flex items-center justify-between mb-3">
+        <p className="text-[8px] font-bold uppercase tracking-widest text-gray-500 font-mono">
           {title}
         </p>
-        <p style={{ fontSize: 7, color: '#334155', fontFamily: 'monospace', flexShrink: 0 }}>
+        <p className="text-[7px] text-gray-400 font-mono flex-shrink-0">
           14-day window
         </p>
       </div>
 
-      {/* Signal cards — horizontal scroll on mobile */}
-      <div style={{
-        display: 'grid',
-        gridTemplateColumns: 'repeat(4, minmax(140px, 1fr))',
-        gap: 8,
-        overflowX: 'auto',
-      }}>
+      {/* Signal cards — horizontal flex */}
+      <div className="flex items-center gap-2 overflow-x-auto pb-1">
         {signals.map(sig => (
           <SignalCard key={sig.key} sig={sig} />
         ))}
