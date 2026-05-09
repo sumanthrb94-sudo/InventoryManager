@@ -33,7 +33,7 @@ export default function TodayIntakeModal({ units, onClose }: Props) {
         initial={{ scale: 0.95, opacity: 0 }}
         animate={{ scale: 1, opacity: 1 }}
         exit={{ scale: 0.95, opacity: 0 }}
-        className="bg-white rounded-2xl w-full max-w-3xl shadow-2xl flex flex-col"
+        className="bg-white rounded-2xl w-full max-w-7xl shadow-2xl flex flex-col"
         style={{ maxHeight: '90vh' }}
         onClick={e => e.stopPropagation()}
       >
@@ -64,14 +64,14 @@ export default function TodayIntakeModal({ units, onClose }: Props) {
             <div>
               {/* Table header */}
               <div className="sticky top-0 bg-gray-50 border-b border-gray-200 px-6 py-3 flex items-center gap-4 text-xs font-bold text-gray-600 uppercase tracking-widest">
-                <div style={{ flex: '0 0 120px' }}>IMEI</div>
-                <div style={{ flex: '1 1 200px' }} className="min-w-0">Model</div>
-                <div style={{ flex: '0 0 100px' }}>Colour</div>
-                <div style={{ flex: '0 0 100px' }}>Storage</div>
-                <div style={{ flex: '0 0 80px' }}>Grade</div>
-                <div style={{ flex: '0 0 150px' }}>Batch</div>
-                <div style={{ flex: '0 0 150px' }}>Supplier</div>
-                <div style={{ flex: '0 0 80px', textAlign: 'right' }}>Price</div>
+                <div style={{ flex: '0 0 140px' }}>IMEI</div>
+                <div style={{ flex: '1 1 280px' }} className="min-w-0">Model</div>
+                <div style={{ flex: '0 0 140px' }}>Colour</div>
+                <div style={{ flex: '0 0 140px' }}>Storage</div>
+                <div style={{ flex: '0 0 100px' }}>Grade</div>
+                <div style={{ flex: '0 0 180px' }}>Batch</div>
+                <div style={{ flex: '0 0 200px' }}>Supplier</div>
+                <div style={{ flex: '0 0 100px', textAlign: 'right' }}>Price</div>
               </div>
 
               {/* Table rows */}
@@ -85,27 +85,27 @@ export default function TodayIntakeModal({ units, onClose }: Props) {
                       key={u.id}
                       className="px-6 py-3 hover:bg-gray-50 transition-all flex items-center gap-4 text-sm"
                     >
-                      <div style={{ flex: '0 0 120px' }} className="truncate">
+                      <div style={{ flex: '0 0 140px' }} className="truncate">
                         {hasIMEI ? (
-                          <CopyImei imei={u.imei} truncate={10} />
+                          <CopyImei imei={u.imei} truncate={12} />
                         ) : (
                           <span className="text-xs text-gray-400 font-mono">No IMEI</span>
                         )}
                       </div>
 
-                      <div style={{ flex: '1 1 200px' }} className="min-w-0 truncate font-semibold text-gray-900">
+                      <div style={{ flex: '1 1 280px' }} className="min-w-0 truncate font-semibold text-gray-900">
                         {u.model}
                       </div>
 
-                      <div style={{ flex: '0 0 100px' }} className="truncate text-gray-600 font-mono text-xs">
+                      <div style={{ flex: '0 0 140px' }} className="truncate text-gray-600 font-mono text-xs">
                         {u.colour || '—'}
                       </div>
 
-                      <div style={{ flex: '0 0 100px' }} className="truncate text-gray-600 font-mono text-xs">
+                      <div style={{ flex: '0 0 140px' }} className="truncate text-gray-600 font-mono text-xs">
                         {u.storage || '—'}
                       </div>
 
-                      <div style={{ flex: '0 0 80px' }} className="truncate">
+                      <div style={{ flex: '0 0 100px' }} className="truncate">
                         {u.grade ? (
                           <span className="text-xs bg-amber-100 text-amber-700 px-2 py-1 rounded font-bold inline-block">
                             {u.grade}
@@ -115,15 +115,15 @@ export default function TodayIntakeModal({ units, onClose }: Props) {
                         )}
                       </div>
 
-                      <div style={{ flex: '0 0 150px' }} className="truncate text-gray-600 font-mono text-xs">
+                      <div style={{ flex: '0 0 180px' }} className="truncate text-gray-600 font-mono text-xs">
                         {u.batchId === 'master_batch' ? 'Master Batch' : u.batchId || '—'}
                       </div>
 
-                      <div style={{ flex: '0 0 150px' }} className="truncate text-gray-600 font-mono text-xs">
+                      <div style={{ flex: '0 0 200px' }} className="truncate text-gray-600 font-mono text-xs">
                         {supplierName}
                       </div>
 
-                      <div style={{ flex: '0 0 80px', textAlign: 'right' }} className="font-bold text-gray-900">
+                      <div style={{ flex: '0 0 100px', textAlign: 'right' }} className="font-bold text-gray-900">
                         £{u.buyPrice}
                       </div>
                     </div>
