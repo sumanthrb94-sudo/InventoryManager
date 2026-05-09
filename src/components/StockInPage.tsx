@@ -1,7 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import {
   PackagePlus, Search, Plus, CheckCircle2, Clock,
-  ChevronDown, ChevronUp, Truck, PackageCheck, AlertCircle, X,
+  ChevronDown, ChevronUp, Truck, PackageCheck, AlertCircle, MoreVertical, Trash2,
 } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
 import { dbService } from '../lib/dbService';
@@ -30,13 +30,19 @@ export default function StockInPage({ onOpenBatch }: Props) {
   const [showAddDelivery, setShowAddDelivery] = useState(false);
   const [showScanUnit, setShowScanUnit] = useState(false);
   const [showTodayIntake, setShowTodayIntake] = useState(false);
+  const [openMenuId, setOpenMenuId] = useState<string | null>(null);
+  const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
 
   const today = new Date().toISOString().split('T')[0];
 
   const handleDeletePendingSHS = async (unit: InventoryUnit) => {
+    if (!window.confirm(`Delete "${unit.model}" from database? This action cannot be undone.`)) {
+      return;
+    }
     try {
       await dbService.delete('inventoryUnits', unit.id);
       notificationService.addNotification('shs_removed', unit);
+      setOpenMenuId(null);
     } catch (err) {
       console.error('Failed to delete pending SHS:', err);
     }
@@ -180,13 +186,29 @@ export default function StockInPage({ onOpenBatch }: Props) {
                   >
                     <PackageCheck size={11} /> Receive
                   </button>
-                  <button
-                    onClick={() => handleDeletePendingSHS(u)}
-                    className="p-2 bg-red-500 text-white rounded-lg hover:bg-red-600 transition-all flex items-center justify-center"
-                    title="Delete this pending SHS stock"
-                  >
-                    <X size={14} />
-                  </button>
+
+                  {/* Options Menu */}
+                  <div className="relative">
+                    <button
+                      onClick={() => setOpenMenuId(openMenuId === u.id ? null : u.id)}
+                      className="p-2 hover:bg-gray-100 rounded-lg transition-all text-gray-500"
+                      title="More options"
+                    >
+                      <MoreVertical size={14} />
+                    </button>
+
+                    {/* Dropdown Menu */}
+                    {openMenuId === u.id && (
+                      <div className="absolute right-0 mt-1 w-40 bg-white border border-gray-200 rounded-lg shadow-lg z-10">
+                        <button
+                          onClick={() => handleDeletePendingSHS(u)}
+                          className="w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-red-50 flex items-center gap-2 transition-all rounded-lg m-1"
+                        >
+                          <Trash2 size={14} /> Delete from DB
+                        </button>
+                      </div>
+                    )}
+                  </div>
                 </div>
               </div>
             ))}
