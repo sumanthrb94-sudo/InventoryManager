@@ -1,4 +1,5 @@
 import React, { useMemo } from 'react';
+import { motion } from 'motion/react';
 import { AlertCircle, TrendingDown, Truck, ShoppingBag, RefreshCw } from 'lucide-react';
 import { InventoryUnit } from '../types';
 
@@ -221,7 +222,15 @@ export default function StockAlertsTape({ units }: Props) {
         </div>
 
         {alerts.length > 0 ? (
-          <>
+          <motion.div
+            initial={{ y: 0 }}
+            animate={{ y: alerts.length > 4 ? `-${(alerts.length * 60)}px` : 0 }}
+            transition={{
+              duration: alerts.length > 4 ? alerts.length * 3 : 0,
+              repeat: alerts.length > 4 ? Infinity : 0,
+              ease: 'linear',
+            }}
+          >
             {/* Show each alert exactly once - NO DUPLICATES */}
             {alerts.map(alert => (
               <div
@@ -265,7 +274,7 @@ export default function StockAlertsTape({ units }: Props) {
                 </div>
               </div>
             ))}
-          </>
+          </motion.div>
         ) : (
           <div style={{
             padding: '12px 10px',
