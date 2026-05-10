@@ -91,6 +91,7 @@ function AppShell({ user }: { user: User }) {
   const [isLoadMockDataOpen, setIsLoadMockDataOpen] = useState(false);
   const [unreadCount, setUnreadCount]             = useState(0);
   const [syncConnected, setSyncConnected]         = useState(false);
+  const [isAlertsExpanded, setIsAlertsExpanded]   = useState(false);
 
   useRealTimeNotifications();
   useEffect(() => { notificationService.setUser(user.uid); }, [user.uid]);
@@ -164,44 +165,94 @@ function AppShell({ user }: { user: User }) {
           )}
         </nav>
 
-        {/* Stock Alerts Section */}
-        <div className="flex-1 min-h-0 overflow-hidden flex flex-col border-t border-slate-100">
-          <div className="px-3 py-2 flex-shrink-0">
+        {/* Stock Alerts Section - Collapsible */}
+        <div className="flex-shrink-0 border-t border-slate-100">
+          <button
+            onClick={() => setIsAlertsExpanded(!isAlertsExpanded)}
+            className="w-full px-3 py-2.5 flex items-center justify-between hover:bg-slate-50 transition-colors"
+          >
             <p className="text-[9px] font-bold uppercase tracking-widest text-slate-700">Stock Alerts</p>
-          </div>
-          <div className="flex-1 overflow-y-auto min-h-0 px-2">
-            <div className="space-y-1">
+            {(() => {
+              const units = useInventoryStore().units;
+              const seen = new Set<string>();
+              let criticalCount = 0;
+
+              const seriesStats: Record<string, { availableCount: number; returnedCount: number }> = {};
+              const allSeries = new Set<string>();
+
+              for (const u of units) {
+                const series = u.model.split(' ').slice(0, 2).join(' ');
+                allSeries.add(series);
+                if (!seriesStats[series]) {
+                  seriesStats[series] = { availableCount: 0, returnedCount: 0 };
+                }
+                if (u.status === 'available') {
+                  seriesStats[series].availableCount++;
+                } else if (u.status === 'returned') {
+                  seriesStats[series].returnedCount++;
+                }
+              }
+
+              for (const series of Array.from(allSeries)) {
+                const stats = seriesStats[series];
+                const totalUnitsInSeries = units.filter(u => u.model.split(' ').slice(0, 2).join(' ') === series).length;
+
+                if (totalUnitsInSeries > 0 && stats.availableCount === 0) {
+                  const alertId = `outofstock-${series}`;
+                  if (!seen.has(alertId)) {
+                    seen.add(alertId);
+                    criticalCount++;
+                  }
+                }
+
+                if (stats.availableCount > 0 && stats.availableCount <= 2) {
+                  const alertId = `lowstock-${series}`;
+                  if (!seen.has(alertId)) {
+                    seen.add(alertId);
+                    criticalCount++;
+                  }
+                }
+
+                if (stats.returnedCount > 0) {
+                  const alertId = `returned-${series}`;
+                  if (!seen.has(alertId)) {
+                    seen.add(alertId);
+                    criticalCount++;
+                  }
+                }
+              }
+
+              return criticalCount > 0 ? (
+                <span className="w-5 h-5 rounded-full bg-red-600 text-white text-[8px] font-bold flex items-center justify-center">{criticalCount}</span>
+              ) : null;
+            })()}
+          </button>
+
+          {isAlertsExpanded && (
+            <div className="max-h-64 overflow-y-auto border-t border-slate-100 px-2 py-2 space-y-1 bg-slate-50">
               {useInventoryStore().units.length > 0 ? (
                 (() => {
                   const units = useInventoryStore().units;
                   const seen = new Set<string>();
-                  const alerts: Array<{ id: string; model: string; detail: string; color: string }> = [];
+                  const alerts: Array<{ id: string; model: string; detail: string }> = [];
 
-                  const seriesStats: Record<string, { availableCount: number; shsCount: number; listedCount: number; returnedCount: number }> = {};
+                  const seriesStats: Record<string, { availableCount: number; returnedCount: number }> = {};
                   const allSeries = new Set<string>();
 
                   for (const u of units) {
                     const series = u.model.split(' ').slice(0, 2).join(' ');
                     allSeries.add(series);
-
                     if (!seriesStats[series]) {
-                      seriesStats[series] = { availableCount: 0, shsCount: 0, listedCount: 0, returnedCount: 0 };
+                      seriesStats[series] = { availableCount: 0, returnedCount: 0 };
                     }
-
                     if (u.status === 'available') {
                       seriesStats[series].availableCount++;
-                      if (u.platformListed || (u.listingSites && u.listingSites.length > 0)) {
-                        seriesStats[series].listedCount++;
-                      }
-                    } else if (u.status === 'incoming') {
-                      seriesStats[series].shsCount++;
                     } else if (u.status === 'returned') {
                       seriesStats[series].returnedCount++;
                     }
                   }
 
                   for (const series of Array.from(allSeries).sort()) {
-                    if (!seriesStats[series]) continue;
                     const stats = seriesStats[series];
                     const totalUnitsInSeries = units.filter(u => u.model.split(' ').slice(0, 2).join(' ') === series).length;
 
@@ -209,31 +260,15 @@ function AppShell({ user }: { user: User }) {
                       const alertId = `outofstock-${series}`;
                       if (!seen.has(alertId)) {
                         seen.add(alertId);
-                        alerts.push({ id: alertId, model: series, detail: 'Out of Stock', color: 'text-red-600' });
+                        alerts.push({ id: alertId, model: series, detail: 'Out of Stock' });
                       }
                     }
 
                     if (stats.availableCount > 0 && stats.availableCount <= 2) {
-                      const alertId = `lowstock-${series}-${stats.availableCount}`;
+                      const alertId = `lowstock-${series}`;
                       if (!seen.has(alertId)) {
                         seen.add(alertId);
-                        alerts.push({ id: alertId, model: series, detail: `Only ${stats.availableCount} left`, color: 'text-amber-600' });
-                      }
-                    }
-
-                    if (stats.shsCount > 0) {
-                      const alertId = `shs-${series}`;
-                      if (!seen.has(alertId)) {
-                        seen.add(alertId);
-                        alerts.push({ id: alertId, model: series, detail: `${stats.shsCount} with supplier`, color: 'text-blue-600' });
-                      }
-                    }
-
-                    if (stats.listedCount > 0) {
-                      const alertId = `listed-${series}`;
-                      if (!seen.has(alertId)) {
-                        seen.add(alertId);
-                        alerts.push({ id: alertId, model: series, detail: `${stats.listedCount} listed`, color: 'text-green-600' });
+                        alerts.push({ id: alertId, model: series, detail: `Only ${stats.availableCount} left` });
                       }
                     }
 
@@ -241,30 +276,32 @@ function AppShell({ user }: { user: User }) {
                       const alertId = `returned-${series}`;
                       if (!seen.has(alertId)) {
                         seen.add(alertId);
-                        alerts.push({ id: alertId, model: series, detail: `${stats.returnedCount} returned`, color: 'text-orange-600' });
+                        alerts.push({ id: alertId, model: series, detail: `${stats.returnedCount} returned` });
                       }
                     }
                   }
 
-                  const priorityMap = { 'Out of Stock': 100, 'Only': 80, 'with supplier': 50, 'listed': 30, 'returned': 20 };
                   alerts.sort((a, b) => {
-                    const aPriority = Object.entries(priorityMap).find(([k]) => a.detail.includes(k))?.[1] || 0;
-                    const bPriority = Object.entries(priorityMap).find(([k]) => b.detail.includes(k))?.[1] || 0;
-                    return bPriority - aPriority;
+                    const orderA = a.detail.includes('Out of Stock') ? 0 : a.detail.includes('Only') ? 1 : 2;
+                    const orderB = b.detail.includes('Out of Stock') ? 0 : b.detail.includes('Only') ? 1 : 2;
+                    if (orderA !== orderB) return orderA - orderB;
+                    return a.model.localeCompare(b.model);
                   });
 
-                  return alerts.map(alert => (
-                    <div key={alert.id} className="px-2 py-2 bg-slate-50 rounded-lg border border-slate-200 hover:bg-slate-100 transition-colors">
-                      <p className={`text-[9px] font-bold truncate ${alert.color}`}>{alert.model}</p>
-                      <p className="text-[8px] text-slate-500 font-mono mt-0.5">{alert.detail}</p>
+                  return alerts.length > 0 ? alerts.map(alert => (
+                    <div key={alert.id} className="px-2 py-1 text-[8px]">
+                      <p className="font-bold text-red-600 truncate">{alert.model}</p>
+                      <p className="text-slate-600 text-[7px]">{alert.detail}</p>
                     </div>
-                  ));
+                  )) : (
+                    <p className="text-[8px] text-slate-400 text-center py-2">No critical alerts</p>
+                  );
                 })()
               ) : (
-                <p className="text-[8px] text-slate-400 text-center py-4">No alerts</p>
+                <p className="text-[8px] text-slate-400 text-center py-2">No data</p>
               )}
             </div>
-          </div>
+          )}
         </div>
 
         {/* User footer */}
