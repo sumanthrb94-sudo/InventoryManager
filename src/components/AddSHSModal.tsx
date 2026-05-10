@@ -5,7 +5,7 @@ import { dbService } from '../lib/dbService';
 import { DeviceCategory, InventoryUnit } from '../types';
 import { useInventoryStore } from '../lib/inventoryStore';
 import { notificationService } from '../lib/notificationService';
-import { StorageSelectCompact } from './FormSelects';
+import { StorageSelectCompact, GradeSelectCompact } from './FormSelects';
 import { logInventoryEvent } from '../lib/inventoryEvents';
 
 interface Props { onClose: () => void; }
@@ -17,6 +17,7 @@ interface SHSRow {
   buyPrice: string;
   colour: string;
   storage: string;
+  grade: string;
   supplierName: string;
   eta: string;
 }
@@ -25,7 +26,7 @@ const uid = () => Math.random().toString(36).slice(2, 9);
 const today = () => new Date().toISOString().split('T')[0];
 
 function emptyRow(supplierName = ''): SHSRow {
-  return { id: uid(), model: '', qty: '1', buyPrice: '', colour: '', storage: '', supplierName, eta: '' };
+  return { id: uid(), model: '', qty: '1', buyPrice: '', colour: '', storage: '', grade: '', supplierName, eta: '' };
 }
 
 function detectCategory(model: string): DeviceCategory {
@@ -127,6 +128,7 @@ export default function AddSHSModal({ onClose }: Props) {
             category,
             colour:         r.colour.trim() || 'Unknown',
             ...(r.storage.trim() ? { storage: r.storage.trim() } : {}),
+            ...(r.grade.trim() ? { grade: r.grade.trim() } : {}),
             buyPrice:       bp,
             dateIn:         date,
             supplierId,
@@ -214,7 +216,8 @@ export default function AddSHSModal({ onClose }: Props) {
             ['col-span-3', 'MODEL'],
             ['col-span-1', 'QTY'],
             ['col-span-1', 'BP (£)'],
-            ['col-span-2', 'COLOUR'],
+            ['col-span-1', 'COLOUR'],
+            ['col-span-1', 'GRADE'],
             ['col-span-1', 'STORAGE'],
             ['col-span-2', 'SUPPLIER'],
             ['col-span-2', 'ETA / NOTES'],
@@ -317,10 +320,13 @@ function SHSRowCard({ row, index, knownSuppliers, onChange, onRemove, canRemove 
             placeholder="0"
             className="w-full border border-gray-200 rounded-lg px-2.5 py-2 text-xs font-mono text-right focus:outline-none focus:border-amber-400 bg-white transition-all" />
         </div>
-        <div className="col-span-2">
+        <div className="col-span-1">
           <input value={row.colour} onChange={e => onChange({ colour: e.target.value })}
             placeholder="Black Titanium"
             className="w-full border border-gray-200 rounded-lg px-2.5 py-2 text-xs focus:outline-none focus:border-amber-400 bg-white transition-all" />
+        </div>
+        <div className="col-span-1">
+          <GradeSelectCompact value={row.grade} onChange={e => onChange({ grade: e })} className="w-full border border-gray-200 rounded-lg px-2.5 py-2 text-xs font-mono focus:outline-none focus:border-amber-400 bg-white transition-all" />
         </div>
         <div className="col-span-1">
           <StorageSelectCompact value={row.storage} onChange={e => onChange({ storage: e })} className="w-full border border-gray-200 rounded-lg px-2.5 py-2 text-xs font-mono focus:outline-none focus:border-amber-400 bg-white transition-all" />
@@ -380,12 +386,16 @@ function SHSRowCard({ row, index, knownSuppliers, onChange, onRemove, canRemove 
             <StorageSelectCompact value={row.storage} onChange={e => onChange({ storage: e })} className="w-full mt-1 border border-gray-200 rounded-lg px-3 py-2 text-xs font-mono focus:outline-none focus:border-amber-400 bg-white" />
           </div>
         </div>
-        <div className="grid grid-cols-2 gap-2">
+        <div className="grid grid-cols-3 gap-2">
           <div>
             <label className="text-[8px] font-bold uppercase tracking-widest text-gray-400">Colour</label>
             <input value={row.colour} onChange={e => onChange({ colour: e.target.value })}
               placeholder="Black Titanium"
               className="w-full mt-1 border border-gray-200 rounded-lg px-3 py-2 text-xs focus:outline-none focus:border-amber-400 bg-white" />
+          </div>
+          <div>
+            <label className="text-[8px] font-bold uppercase tracking-widest text-gray-400">Grade</label>
+            <GradeSelectCompact value={row.grade} onChange={e => onChange({ grade: e })} className="w-full mt-1 border border-gray-200 rounded-lg px-3 py-2 text-xs font-mono focus:outline-none focus:border-amber-400 bg-white" />
           </div>
           <div>
             <label className="text-[8px] font-bold uppercase tracking-widest text-gray-400">Supplier</label>
