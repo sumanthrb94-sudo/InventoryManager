@@ -184,156 +184,45 @@ export default function StockAlertsTape({ units }: Props) {
     });
   }, [units]);
 
-  // Always show the tape for debugging, even if 0 alerts
-  // Mobile-responsive: bottom on mobile, right side on desktop
-  const isMobile = typeof window !== 'undefined' && window.innerWidth < 768;
-
+  // Integrated into page flow - responsive layout
   return (
-    <div style={isMobile ? {
-      // Mobile: bottom center horizontal scroll
-      position: 'fixed',
-      bottom: 0,
-      left: 0,
-      right: 0,
-      width: '100%',
-      maxHeight: '140px',
-      background: '#ffffff',
-      border: '1px solid #e2e8f0',
-      borderTop: '2px solid #e2e8f0',
-      borderRadius: '12px 12px 0 0',
-      boxShadow: '0 -4px 12px rgba(0,0,0,0.08)',
-      overflow: 'hidden',
-      zIndex: 40,
-    } : {
-      // Desktop: right side vertical scroll
-      position: 'fixed',
-      right: 0,
-      top: '50%',
-      transform: 'translateY(-50%)',
-      width: 180,
-      maxHeight: '70vh',
-      background: '#ffffff',
-      border: '1px solid #e2e8f0',
-      borderRadius: '12px 0 0 12px',
-      boxShadow: '-4px 0 12px rgba(0,0,0,0.08)',
-      overflow: 'hidden',
-      zIndex: 40,
-    }}>
+    <div className="w-full bg-white border border-gray-200 rounded-3xl overflow-hidden shadow-sm">
       {/* Header */}
-      <div style={isMobile ? {
-        padding: '6px 8px',
-        borderBottom: '1px solid #e2e8f0',
-        background: '#f8fafc',
-      } : {
-        padding: '8px 10px',
-        borderBottom: '1px solid #e2e8f0',
-        background: '#f8fafc',
-      }}>
-        <p style={{
-          fontSize: isMobile ? 6 : 8,
-          fontFamily: 'monospace',
-          fontWeight: 700,
-          textTransform: 'uppercase',
-          letterSpacing: '0.1em',
-          color: '#64748b',
-          margin: 0,
-        }}>
-          {isMobile ? 'Alerts' : 'Stock Alerts'}
+      <div className="px-4 md:px-6 py-3 border-b border-gray-200 bg-gray-50 flex items-center justify-between">
+        <p className="text-xs md:text-sm font-bold uppercase tracking-tight text-gray-900">
+          Stock Alerts
+        </p>
+        <p className="text-[9px] text-gray-500 font-mono">
+          {alerts.length} alert{alerts.length !== 1 ? 's' : ''}
         </p>
       </div>
 
-      {/* Scrolling alerts - NO DUPLICATES */}
-      <div style={isMobile ? {
-        maxHeight: 'calc(140px - 32px)',
-        overflowY: 'auto',
-        overflowX: 'hidden',
-      } : {
-        maxHeight: 'calc(70vh - 32px)',
-        overflowY: 'auto',
-        overflowX: 'hidden',
-      }}>
-        {/* Debug: show alert count */}
-        <div style={{
-          padding: isMobile ? '3px 6px' : '4px 10px',
-          fontSize: isMobile ? 6 : 7,
-          color: '#94a3b8',
-          borderBottom: '1px solid #f1f5f9'
-        }}>
-          {alerts.length} alert{alerts.length !== 1 ? 's' : ''}
-        </div>
-
+      {/* Scrollable alerts - scroll horizontally on mobile, vertically on desktop */}
+      <div className="overflow-x-auto md:overflow-x-hidden md:max-h-96 custom-scrollbar">
         {alerts.length > 0 ? (
-          <motion.div
-            initial={{ y: 0 }}
-            animate={{ y: 0 }}
-            transition={{
-              duration: 0,
-              ease: 'linear',
-            }}
-          >
-            {/* Render alerts ONCE - no duplication */}
+          <div className="flex md:flex-col divide-x md:divide-x-0 md:divide-y divide-gray-100">
             {alerts.map((alert) => (
               <div
                 key={alert.id}
-                style={isMobile ? {
-                  // Mobile: compact layout
-                  padding: '6px 8px',
-                  borderBottom: '1px solid #f1f5f9',
-                  borderLeft: `3px solid currentColor`,
-                  minHeight: 50,
-                  display: 'flex',
-                  flexDirection: 'column',
-                  justifyContent: 'center',
-                } : {
-                  // Desktop: normal layout
-                  padding: '8px 10px',
-                  borderBottom: '1px solid #f1f5f9',
-                  borderLeft: `3px solid currentColor`,
-                  minHeight: 60,
-                  display: 'flex',
-                  flexDirection: 'column',
-                  justifyContent: 'center',
-                }}
-                className={alert.bg}
+                className={`flex-shrink-0 md:flex-shrink w-72 md:w-full px-4 md:px-6 py-4 hover:bg-gray-50 transition-colors flex items-start gap-3 ${alert.bg}`}
               >
-                <div style={{ display: 'flex', alignItems: 'flex-start', gap: isMobile ? 4 : 6 }}>
-                  <div style={{ flexShrink: 0, marginTop: 2 }} className={alert.color}>
-                    {isMobile ? alert.icon : alert.icon}
-                  </div>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <p style={{
-                      fontSize: isMobile ? 7 : 9,
-                      fontWeight: 700,
-                      margin: '0 0 1px 0',
-                      overflow: 'hidden',
-                      textOverflow: 'ellipsis',
-                      whiteSpace: 'nowrap',
-                      color: '#1e293b',
-                    }}>
-                      {alert.model}
-                    </p>
-                    <p style={{
-                      fontSize: isMobile ? 6 : 7.5,
-                      margin: 0,
-                      color: '#64748b',
-                      fontFamily: 'monospace',
-                    }}>
-                      {alert.detail}
-                    </p>
-                  </div>
+                <div className={`w-6 h-6 rounded-lg flex items-center justify-center flex-shrink-0 ${alert.color}`}>
+                  {alert.icon}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-bold text-gray-900 truncate">
+                    {alert.model}
+                  </p>
+                  <p className="text-xs text-gray-600 font-mono mt-0.5">
+                    {alert.detail}
+                  </p>
                 </div>
               </div>
             ))}
-          </motion.div>
+          </div>
         ) : (
-          <div style={{
-            padding: isMobile ? '8px 6px' : '12px 10px',
-            textAlign: 'center',
-            color: '#94a3b8',
-            fontSize: isMobile ? 6 : 8,
-            fontFamily: 'monospace',
-          }}>
-            {isMobile ? 'All good!' : 'All good!'}
+          <div className="py-12 flex flex-col items-center gap-2 text-gray-400">
+            <p className="text-sm font-mono">All good!</p>
           </div>
         )}
       </div>

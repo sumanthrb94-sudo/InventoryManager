@@ -190,12 +190,14 @@ export default function Dashboard({ onNavigate }: Props) {
 
       </div>
 
+      {/* Stock Alerts - Integrated below header */}
+      <StockAlertsTape units={units} />
+
+      {/* Periodic Inventory Table */}
       <PeriodicInventory
         units={units}
         onNavigate={(search) => onNavigate({ tab: 'inventory', filters: { search, status: 'available' } })}
       />
-
-      <StockAlertsTape units={units} />
 
       {/* KPI Cards — ALL CLICKABLE */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
