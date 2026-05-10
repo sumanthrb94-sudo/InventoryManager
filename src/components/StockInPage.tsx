@@ -35,16 +35,19 @@ export default function StockInPage({ onOpenBatch }: Props) {
 
   const today = new Date().toISOString().split('T')[0];
 
-  const handleDeletePendingSHS = async (unit: InventoryUnit) => {
-    if (!window.confirm(`Delete "${unit.model}" from database? This action cannot be undone.`)) {
+  const handleDeletePendingSHSGroup = async (groupUnits: InventoryUnit[]) => {
+    const sample = groupUnits[0];
+    const qty = groupUnits.length;
+    const label = qty === 1 ? `"${sample.model}"` : `${qty} × "${sample.model}"`;
+    if (!window.confirm(`Delete ${label} from database? This action cannot be undone.`)) {
       return;
     }
     try {
-      await dbService.delete('inventoryUnits', unit.id);
-      notificationService.addNotification('shs_removed', unit);
+      await Promise.all(groupUnits.map(u => dbService.delete('inventoryUnits', u.id)));
+      notificationService.addNotification('shs_removed', sample);
       setOpenMenuId(null);
     } catch (err) {
-      console.error('Failed to delete pending SHS:', err);
+      console.error('Failed to delete pending SHS group:', err);
     }
   };
 
@@ -61,6 +64,27 @@ export default function StockInPage({ onOpenBatch }: Props) {
       .sort((a, b) => new Date(b.dateIn).getTime() - new Date(a.dateIn).getTime()),
     [units],
   );
+
+  // Group identical pending SHS units to avoid sequential duplicate rows
+  const pendingSHSGroups = useMemo(() => {
+    const map = new Map<string, InventoryUnit[]>();
+    for (const u of pendingSHS) {
+      const key = [
+        u.model,
+        u.colour || '',
+        (u as any).storage || '',
+        u.supplierId || '',
+        u.batchId || '',
+        u.buyPrice,
+        u.dateIn,
+        u.notes || '',
+      ].join('|');
+      const arr = map.get(key);
+      if (arr) arr.push(u);
+      else map.set(key, [u]);
+    }
+    return Array.from(map.values());
+  }, [pendingSHS]);
 
   // Regular stock list (non-incoming), sorted newest first
   const allSorted = useMemo(() =>
@@ -163,55 +187,69 @@ export default function StockInPage({ onOpenBatch }: Props) {
           defaultOpen={false}
         >
           <div className="divide-y divide-amber-50">
-            {pendingSHS.map(u => (
-              <div key={u.id} className="flex items-center gap-3 px-4 py-3 hover:bg-amber-50/50 transition-all">
-                <div className="w-8 h-8 rounded-lg bg-amber-100 flex items-center justify-center flex-shrink-0">
-                  <Truck size={14} className="text-amber-600" />
-                </div>
-                <div className="flex-1 min-w-0">
-                  <p className="text-xs font-bold truncate">{u.model}</p>
-                  <p className="text-[9px] text-gray-400 font-mono mt-0.5">
-                    {u.colour && u.colour !== 'Unknown' ? `${u.colour} · ` : ''}
-                    {supplierMap[u.supplierId] || '—'} · {u.batchId === 'master_batch' ? 'Master' : (u.batchId || 'Default')} · {u.dateIn}
-                  </p>
-                  {u.notes && (
-                    <p className="text-[8px] text-amber-600 font-mono mt-0.5 truncate">{u.notes}</p>
-                  )}
-                </div>
-                <div className="flex items-center gap-2 flex-shrink-0">
-                  <span className="text-sm font-bold">£{u.buyPrice}</span>
-                  <button
-                    onClick={() => setReceivingUnit(u)}
-                    className="px-3 py-1.5 bg-amber-500 text-white text-[9px] font-bold uppercase tracking-widest rounded-lg hover:bg-amber-600 transition-all flex items-center gap-1"
-                  >
-                    <PackageCheck size={11} /> Receive
-                  </button>
-
-                  {/* Options Menu */}
-                  <div className="relative">
-                    <button
-                      onClick={() => setOpenMenuId(openMenuId === u.id ? null : u.id)}
-                      className="p-2 hover:bg-gray-100 rounded-lg transition-all text-gray-500"
-                      title="More options"
-                    >
-                      <MoreVertical size={14} />
-                    </button>
-
-                    {/* Dropdown Menu */}
-                    {openMenuId === u.id && (
-                      <div className="absolute right-0 mt-1 w-40 bg-white border border-gray-200 rounded-lg shadow-lg z-10">
-                        <button
-                          onClick={() => handleDeletePendingSHS(u)}
-                          className="w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-red-50 flex items-center gap-2 transition-all rounded-lg m-1"
-                        >
-                          <Trash2 size={14} /> Delete from DB
-                        </button>
-                      </div>
+            {pendingSHSGroups.map(group => {
+              const u = group[0];
+              const qty = group.length;
+              return (
+                <div key={u.id} className="flex items-center gap-3 px-4 py-3 hover:bg-amber-50/50 transition-all">
+                  <div className="w-8 h-8 rounded-lg bg-amber-100 flex items-center justify-center flex-shrink-0">
+                    <Truck size={14} className="text-amber-600" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2">
+                      <p className="text-xs font-bold truncate">{u.model}</p>
+                      {qty > 1 && (
+                        <span className="text-[9px] font-bold text-amber-700 bg-amber-100 px-1.5 py-0.5 rounded font-mono flex-shrink-0">
+                          ×{qty}
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-[9px] text-gray-400 font-mono mt-0.5">
+                      {u.colour && u.colour !== 'Unknown' ? `${u.colour} · ` : ''}
+                      {supplierMap[u.supplierId] || '—'} · {u.batchId === 'master_batch' ? 'Master' : (u.batchId || 'Default')} · {u.dateIn}
+                    </p>
+                    {u.notes && (
+                      <p className="text-[8px] text-amber-600 font-mono mt-0.5 truncate">{u.notes}</p>
                     )}
                   </div>
+                  <div className="flex items-center gap-2 flex-shrink-0">
+                    <span className="text-sm font-bold">
+                      £{u.buyPrice}
+                      {qty > 1 && <span className="text-[9px] text-gray-400 font-mono ml-1">/ £{(u.buyPrice * qty).toLocaleString()}</span>}
+                    </span>
+                    <button
+                      onClick={() => setReceivingUnit(u)}
+                      className="px-3 py-1.5 bg-amber-500 text-white text-[9px] font-bold uppercase tracking-widest rounded-lg hover:bg-amber-600 transition-all flex items-center gap-1"
+                    >
+                      <PackageCheck size={11} /> Receive
+                    </button>
+
+                    {/* Options Menu */}
+                    <div className="relative">
+                      <button
+                        onClick={() => setOpenMenuId(openMenuId === u.id ? null : u.id)}
+                        className="p-2 hover:bg-gray-100 rounded-lg transition-all text-gray-500"
+                        title="More options"
+                      >
+                        <MoreVertical size={14} />
+                      </button>
+
+                      {/* Dropdown Menu */}
+                      {openMenuId === u.id && (
+                        <div className="absolute right-0 mt-1 w-44 bg-white border border-gray-200 rounded-lg shadow-lg z-10">
+                          <button
+                            onClick={() => handleDeletePendingSHSGroup(group)}
+                            className="w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-red-50 flex items-center gap-2 transition-all rounded-lg m-1"
+                          >
+                            <Trash2 size={14} /> Delete {qty > 1 ? `all ${qty}` : 'from DB'}
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </CollapsibleSection>
       )}
