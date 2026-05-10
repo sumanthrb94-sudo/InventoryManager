@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { X } from 'lucide-react';
+import { X, ChevronUp, ChevronDown } from 'lucide-react';
 import { motion } from 'motion/react';
 import { InventoryUnit } from '../types';
 import { useInventoryStore } from '../lib/inventoryStore';
@@ -15,6 +15,8 @@ interface Props {
 export default function ViewAllUnitsModal({ seriesKey, searchTerm, units, onClose }: Props) {
   const { suppliers } = useInventoryStore();
   const [activeTab, setActiveTab] = useState<'in-stock' | 'shs' | 'sold'>('in-stock');
+  const [sortKey, setSortKey] = useState<string>('');
+  const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
 
   const supplierMap = useMemo(() => {
     const map: Record<string, string> = {};
@@ -37,6 +39,56 @@ export default function ViewAllUnitsModal({ seriesKey, searchTerm, units, onClos
   const sold = filtered.filter(u => u.status === 'sold');
 
   const displayUnits = activeTab === 'in-stock' ? inStock : activeTab === 'shs' ? shs : sold;
+
+  const columns = [
+    { key: 'unit', label: '#', width: 'w-12', sortable: false },
+    { key: 'model', label: 'Model', width: 'w-32', sortable: true },
+    { key: 'colour', label: 'Colour', width: 'w-28', sortable: true },
+    { key: 'storage', label: 'Storage', width: 'w-24', sortable: true },
+    { key: 'grade', label: 'Grade', width: 'w-20', sortable: true },
+    { key: 'imei', label: 'IMEI', width: 'w-40', sortable: true },
+    { key: 'supplier', label: 'Supplier', width: 'w-32', sortable: true },
+    { key: 'bp', label: 'Buy Price', width: 'w-24', sortable: true },
+    { key: 'batch', label: 'Batch', width: 'w-32', sortable: true },
+  ];
+
+  const handleSort = (key: string) => {
+    if (sortKey === key) {
+      setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc');
+    } else {
+      setSortKey(key);
+      setSortOrder('asc');
+    }
+  };
+
+  const sortedUnits = useMemo(() => {
+    if (!sortKey) return displayUnits;
+    const sorted = [...displayUnits];
+    sorted.sort((a, b) => {
+      let aVal: any = '';
+      let bVal: any = '';
+
+      if (sortKey === 'model') { aVal = a.model; bVal = b.model; }
+      else if (sortKey === 'colour') { aVal = a.colour || ''; bVal = b.colour || ''; }
+      else if (sortKey === 'storage') { aVal = a.storage || ''; bVal = b.storage || ''; }
+      else if (sortKey === 'grade') { aVal = a.grade || ''; bVal = b.grade || ''; }
+      else if (sortKey === 'imei') { aVal = a.imei || ''; bVal = b.imei || ''; }
+      else if (sortKey === 'supplier') {
+        aVal = supplierMap[a.supplierId] || '';
+        bVal = supplierMap[b.supplierId] || '';
+      }
+      else if (sortKey === 'bp') { aVal = a.buyPrice; bVal = b.buyPrice; }
+      else if (sortKey === 'batch') { aVal = a.batchId || ''; bVal = b.batchId || ''; }
+
+      if (typeof aVal === 'string') {
+        const cmp = aVal.localeCompare(bVal);
+        return sortOrder === 'asc' ? cmp : -cmp;
+      } else {
+        return sortOrder === 'asc' ? aVal - bVal : bVal - aVal;
+      }
+    });
+    return sorted;
+  }, [sortKey, sortOrder, displayUnits, supplierMap]);
 
   return (
     <motion.div
@@ -120,21 +172,30 @@ export default function ViewAllUnitsModal({ seriesKey, searchTerm, units, onClos
               {/* Table Header */}
               <thead className="sticky top-0 bg-gray-100 border-b border-gray-300 z-10">
                 <tr>
-                  <th className="w-12 px-4 py-3 text-left text-xs font-bold text-gray-700 uppercase tracking-wide border-r border-gray-300">#</th>
-                  <th className="w-32 px-4 py-3 text-left text-xs font-bold text-gray-700 uppercase tracking-wide border-r border-gray-300">Model</th>
-                  <th className="w-28 px-4 py-3 text-left text-xs font-bold text-gray-700 uppercase tracking-wide border-r border-gray-300">Colour</th>
-                  <th className="w-24 px-4 py-3 text-left text-xs font-bold text-gray-700 uppercase tracking-wide border-r border-gray-300">Storage</th>
-                  <th className="w-20 px-4 py-3 text-left text-xs font-bold text-gray-700 uppercase tracking-wide border-r border-gray-300">Grade</th>
-                  <th className="w-40 px-4 py-3 text-left text-xs font-bold text-gray-700 uppercase tracking-wide border-r border-gray-300">IMEI</th>
-                  <th className="w-32 px-4 py-3 text-left text-xs font-bold text-gray-700 uppercase tracking-wide border-r border-gray-300">Supplier</th>
-                  <th className="w-24 px-4 py-3 text-left text-xs font-bold text-gray-700 uppercase tracking-wide border-r border-gray-300">Buy Price</th>
-                  <th className="w-32 px-4 py-3 text-left text-xs font-bold text-gray-700 uppercase tracking-wide">Batch</th>
+                  {columns.map(col => (
+                    <th
+                      key={col.key}
+                      onClick={() => col.sortable && handleSort(col.key)}
+                      className={`${col.width} px-4 py-3 text-left text-xs font-bold text-gray-700 uppercase tracking-wide border-r border-gray-300 last:border-r-0 ${
+                        col.sortable ? 'cursor-pointer hover:bg-gray-200 transition-colors' : ''
+                      }`}
+                    >
+                      <div className="flex items-center gap-1.5">
+                        {col.label}
+                        {col.sortable && sortKey === col.key && (
+                          sortOrder === 'asc'
+                            ? <ChevronUp size={13} className="text-gray-500" />
+                            : <ChevronDown size={13} className="text-gray-500" />
+                        )}
+                      </div>
+                    </th>
+                  ))}
                 </tr>
               </thead>
 
               {/* Table Body */}
               <tbody>
-                {displayUnits.map((u, idx) => (
+                {sortedUnits.map((u, idx) => (
                   <tr key={u.id} className="border-b border-gray-200 hover:bg-gray-50">
                     <td className="px-4 py-3 text-xs font-mono text-gray-500">{idx + 1}</td>
                     <td className="px-4 py-3 text-xs font-bold text-gray-900 truncate">{u.model}</td>
@@ -163,7 +224,7 @@ export default function ViewAllUnitsModal({ seriesKey, searchTerm, units, onClos
                 <tr>
                   <td colSpan={7} className="px-4 py-3 text-xs font-bold text-gray-700">TOTAL</td>
                   <td className="px-4 py-3 text-xs font-mono font-bold text-gray-900">
-                    £{displayUnits.reduce((s, u) => s + u.buyPrice, 0).toFixed(2)}
+                    £{sortedUnits.reduce((s, u) => s + u.buyPrice, 0).toFixed(2)}
                   </td>
                   <td className="px-4 py-3" />
                 </tr>

@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { X } from 'lucide-react';
+import { X, ChevronUp, ChevronDown } from 'lucide-react';
 import { motion } from 'motion/react';
 import { InventoryUnit } from '../types';
 import { useInventoryStore } from '../lib/inventoryStore';
@@ -17,6 +17,8 @@ export default function TodaySalesModal({ units, onClose }: Props) {
   const [notes, setNotes] = useState<Record<string, string>>({});
   const [editingNotes, setEditingNotes] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [sortKey, setSortKey] = useState<string>('');
+  const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
 
   const supplierMap = useMemo(() => {
     const map: Record<string, string> = {};
@@ -40,15 +42,49 @@ export default function TodaySalesModal({ units, onClose }: Props) {
   };
 
   const columns = [
-    { key: 'unit', label: '#', width: 'w-12' },
-    { key: 'model', label: 'Model', width: 'w-32' },
-    { key: 'colour', label: 'Colour', width: 'w-28' },
-    { key: 'storage', label: 'Storage', width: 'w-24' },
-    { key: 'bp', label: 'Buy Price', width: 'w-24' },
-    { key: 'sp', label: 'Sale Price', width: 'w-24' },
-    { key: 'platform', label: 'Platform', width: 'w-28' },
-    { key: 'orderId', label: 'Order ID', width: 'w-32' },
+    { key: 'unit', label: '#', width: 'w-12', sortable: false },
+    { key: 'model', label: 'Model', width: 'w-32', sortable: true },
+    { key: 'colour', label: 'Colour', width: 'w-28', sortable: true },
+    { key: 'storage', label: 'Storage', width: 'w-24', sortable: true },
+    { key: 'bp', label: 'Buy Price', width: 'w-24', sortable: true },
+    { key: 'sp', label: 'Sale Price', width: 'w-24', sortable: true },
+    { key: 'platform', label: 'Platform', width: 'w-28', sortable: true },
+    { key: 'orderId', label: 'Order ID', width: 'w-32', sortable: true },
   ];
+
+  const handleSort = (key: string) => {
+    if (sortKey === key) {
+      setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc');
+    } else {
+      setSortKey(key);
+      setSortOrder('asc');
+    }
+  };
+
+  const sortedUnits = useMemo(() => {
+    if (!sortKey) return units;
+    const sorted = [...units];
+    sorted.sort((a, b) => {
+      let aVal: any = '';
+      let bVal: any = '';
+
+      if (sortKey === 'model') { aVal = a.model; bVal = b.model; }
+      else if (sortKey === 'colour') { aVal = a.colour || ''; bVal = b.colour || ''; }
+      else if (sortKey === 'storage') { aVal = a.storage || ''; bVal = b.storage || ''; }
+      else if (sortKey === 'bp') { aVal = a.buyPrice; bVal = b.buyPrice; }
+      else if (sortKey === 'sp') { aVal = a.salePrice || 0; bVal = b.salePrice || 0; }
+      else if (sortKey === 'platform') { aVal = a.salePlatform || ''; bVal = b.salePlatform || ''; }
+      else if (sortKey === 'orderId') { aVal = a.saleOrderId || ''; bVal = b.saleOrderId || ''; }
+
+      if (typeof aVal === 'string') {
+        const cmp = aVal.localeCompare(bVal);
+        return sortOrder === 'asc' ? cmp : -cmp;
+      } else {
+        return sortOrder === 'asc' ? aVal - bVal : bVal - aVal;
+      }
+    });
+    return sorted;
+  }, [sortKey, sortOrder, units]);
 
   return (
     <motion.div
@@ -93,9 +129,19 @@ export default function TodaySalesModal({ units, onClose }: Props) {
                   {columns.map(col => (
                     <th
                       key={col.key}
-                      className={`${col.width} px-4 py-3 text-left text-xs font-bold text-gray-700 uppercase tracking-wide border-r border-gray-300 last:border-r-0`}
+                      onClick={() => col.sortable && handleSort(col.key)}
+                      className={`${col.width} px-4 py-3 text-left text-xs font-bold text-gray-700 uppercase tracking-wide border-r border-gray-300 last:border-r-0 ${
+                        col.sortable ? 'cursor-pointer hover:bg-gray-200 transition-colors' : ''
+                      }`}
                     >
-                      {col.label}
+                      <div className="flex items-center gap-1.5">
+                        {col.label}
+                        {col.sortable && sortKey === col.key && (
+                          sortOrder === 'asc'
+                            ? <ChevronUp size={13} className="text-gray-500" />
+                            : <ChevronDown size={13} className="text-gray-500" />
+                        )}
+                      </div>
                     </th>
                   ))}
                 </tr>
@@ -103,7 +149,7 @@ export default function TodaySalesModal({ units, onClose }: Props) {
 
               {/* Table Body */}
               <tbody>
-                {units.map((u, idx) => (
+                {sortedUnits.map((u, idx) => (
                     <tr key={u.id} className="border-b border-gray-200 hover:bg-gray-50">
                       <td className="px-4 py-3 text-xs font-mono text-gray-500">{idx + 1}</td>
                       <td className="px-4 py-3 text-xs font-bold text-gray-900 truncate">{u.model}</td>

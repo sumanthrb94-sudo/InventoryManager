@@ -1,5 +1,5 @@
-import React, { useMemo } from 'react';
-import { X } from 'lucide-react';
+import React, { useMemo, useState } from 'react';
+import { X, ChevronUp, ChevronDown } from 'lucide-react';
 import { motion } from 'motion/react';
 import { InventoryUnit } from '../types';
 import { useInventoryStore } from '../lib/inventoryStore';
@@ -12,6 +12,8 @@ interface Props {
 
 export default function InStockModal({ units, onClose }: Props) {
   const { suppliers } = useInventoryStore();
+  const [sortKey, setSortKey] = useState<string>('');
+  const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
 
   const supplierMap = useMemo(() => {
     const map: Record<string, string> = {};
@@ -19,19 +21,57 @@ export default function InStockModal({ units, onClose }: Props) {
     return map;
   }, [suppliers]);
 
-  const totalBP = units.reduce((s, u) => s + u.buyPrice, 0);
-
   const columns = [
-    { key: 'unit', label: '#', width: 'w-12' },
-    { key: 'model', label: 'Model', width: 'w-36' },
-    { key: 'colour', label: 'Colour', width: 'w-28' },
-    { key: 'storage', label: 'Storage', width: 'w-24' },
-    { key: 'grade', label: 'Grade', width: 'w-20' },
-    { key: 'imei', label: 'IMEI', width: 'w-40' },
-    { key: 'supplier', label: 'Supplier', width: 'w-32' },
-    { key: 'bp', label: 'Buy Price', width: 'w-24' },
-    { key: 'dateIn', label: 'Date In', width: 'w-24' },
+    { key: 'unit', label: '#', width: 'w-12', sortable: false },
+    { key: 'model', label: 'Model', width: 'w-36', sortable: true },
+    { key: 'colour', label: 'Colour', width: 'w-28', sortable: true },
+    { key: 'storage', label: 'Storage', width: 'w-24', sortable: true },
+    { key: 'grade', label: 'Grade', width: 'w-20', sortable: true },
+    { key: 'imei', label: 'IMEI', width: 'w-40', sortable: true },
+    { key: 'supplier', label: 'Supplier', width: 'w-32', sortable: true },
+    { key: 'bp', label: 'Buy Price', width: 'w-24', sortable: true },
+    { key: 'dateIn', label: 'Date In', width: 'w-24', sortable: true },
   ];
+
+  const handleSort = (key: string) => {
+    if (sortKey === key) {
+      setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc');
+    } else {
+      setSortKey(key);
+      setSortOrder('asc');
+    }
+  };
+
+  const sortedUnits = useMemo(() => {
+    if (!sortKey) return units;
+    const sorted = [...units];
+    sorted.sort((a, b) => {
+      let aVal: any = '';
+      let bVal: any = '';
+
+      if (sortKey === 'model') { aVal = a.model; bVal = b.model; }
+      else if (sortKey === 'colour') { aVal = a.colour || ''; bVal = b.colour || ''; }
+      else if (sortKey === 'storage') { aVal = a.storage || ''; bVal = b.storage || ''; }
+      else if (sortKey === 'grade') { aVal = a.grade || ''; bVal = b.grade || ''; }
+      else if (sortKey === 'imei') { aVal = a.imei || ''; bVal = b.imei || ''; }
+      else if (sortKey === 'supplier') {
+        aVal = supplierMap[a.supplierId] || '';
+        bVal = supplierMap[b.supplierId] || '';
+      }
+      else if (sortKey === 'bp') { aVal = a.buyPrice; bVal = b.buyPrice; }
+      else if (sortKey === 'dateIn') { aVal = a.dateIn || ''; bVal = b.dateIn || ''; }
+
+      if (typeof aVal === 'string') {
+        const cmp = aVal.localeCompare(bVal);
+        return sortOrder === 'asc' ? cmp : -cmp;
+      } else {
+        return sortOrder === 'asc' ? aVal - bVal : bVal - aVal;
+      }
+    });
+    return sorted;
+  }, [sortKey, sortOrder, units, supplierMap]);
+
+  const totalBP = units.reduce((s, u) => s + u.buyPrice, 0);
 
   return (
     <motion.div
@@ -76,9 +116,19 @@ export default function InStockModal({ units, onClose }: Props) {
                   {columns.map(col => (
                     <th
                       key={col.key}
-                      className={`${col.width} px-4 py-3 text-left text-xs font-bold text-gray-700 uppercase tracking-wide border-r border-gray-300 last:border-r-0`}
+                      onClick={() => col.sortable && handleSort(col.key)}
+                      className={`${col.width} px-4 py-3 text-left text-xs font-bold text-gray-700 uppercase tracking-wide border-r border-gray-300 last:border-r-0 ${
+                        col.sortable ? 'cursor-pointer hover:bg-gray-200 transition-colors' : ''
+                      }`}
                     >
-                      {col.label}
+                      <div className="flex items-center gap-1.5">
+                        {col.label}
+                        {col.sortable && sortKey === col.key && (
+                          sortOrder === 'asc'
+                            ? <ChevronUp size={13} className="text-gray-500" />
+                            : <ChevronDown size={13} className="text-gray-500" />
+                        )}
+                      </div>
                     </th>
                   ))}
                 </tr>
@@ -86,7 +136,7 @@ export default function InStockModal({ units, onClose }: Props) {
 
               {/* Table Body */}
               <tbody>
-                {units.map((u, idx) => (
+                {sortedUnits.map((u, idx) => (
                   <tr key={u.id} className="border-b border-gray-200 hover:bg-gray-50">
                     <td className="px-4 py-3 text-xs font-mono text-gray-500">{idx + 1}</td>
                     <td className="px-4 py-3 text-xs font-bold text-gray-900 truncate">{u.model}</td>
