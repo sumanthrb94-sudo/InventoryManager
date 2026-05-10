@@ -223,13 +223,13 @@ function AppShell({ user }: { user: User }) {
               }
 
               return criticalCount > 0 ? (
-                <span className="w-5 h-5 rounded-full bg-red-600 text-white text-[8px] font-bold flex items-center justify-center">{criticalCount}</span>
+                <span className="min-w-[20px] h-5 px-1.5 rounded-full bg-rose-100 text-rose-700 text-[10px] font-bold flex items-center justify-center border border-rose-200">{criticalCount}</span>
               ) : null;
             })()}
           </button>
 
           {isAlertsExpanded && (
-            <div className="max-h-64 overflow-y-auto border-t border-slate-100 px-2 py-2 space-y-1 bg-slate-50">
+            <div className="max-h-64 overflow-y-auto border-t border-slate-100 px-2 py-2 space-y-0.5 bg-rose-50/40">
               {useInventoryStore().units.length > 0 ? (
                 (() => {
                   const units = useInventoryStore().units;
@@ -289,16 +289,16 @@ function AppShell({ user }: { user: User }) {
                   });
 
                   return alerts.length > 0 ? alerts.map(alert => (
-                    <div key={alert.id} className="px-2 py-1 text-[8px]">
-                      <p className="font-bold text-red-600 truncate">{alert.model}</p>
-                      <p className="text-slate-600 text-[7px]">{alert.detail}</p>
+                    <div key={alert.id} className="px-2 py-1.5 border-l-2 border-rose-300 bg-white/60 rounded-sm">
+                      <p className="text-[11px] font-bold text-slate-900 truncate leading-tight">{alert.model}</p>
+                      <p className="text-[10px] text-slate-700 mt-0.5 leading-tight">{alert.detail}</p>
                     </div>
                   )) : (
-                    <p className="text-[8px] text-slate-400 text-center py-2">No critical alerts</p>
+                    <p className="text-[10px] text-slate-500 text-center py-3">No critical alerts</p>
                   );
                 })()
               ) : (
-                <p className="text-[8px] text-slate-400 text-center py-2">No data</p>
+                <p className="text-[10px] text-slate-500 text-center py-3">No data</p>
               )}
             </div>
           )}
