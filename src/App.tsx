@@ -20,6 +20,7 @@ import { useRealTimeNotifications } from './hooks/useRealTimeNotifications';
 import NotificationToast from './components/NotificationToast';
 import NotificationBell from './components/NotificationBell';
 import StockTickerBoard from './components/StockTickerBoard';
+import StockAlertsTape from './components/StockAlertsTape';
 import { notificationService } from './lib/notificationService';
 import { subscribeToSyncStatus } from './lib/dbService';
 import { InventoryStoreProvider, useInventoryStore } from './lib/inventoryStore';
@@ -247,6 +248,11 @@ function AppShell({ user }: { user: User }) {
         {/* Scrollable page content */}
         <main className="flex-1 overflow-y-auto custom-scrollbar">
           <div className="p-4 md:p-8 pb-24 md:pb-8">
+
+            {/* Stock Alerts - Visible on all screens */}
+            <div className="mb-5 h-80">
+              <StockAlertsTape units={useInventoryStore().units} />
+            </div>
 
             {/* Mobile analytics sub-nav */}
             {activeTab === 'analytics' && (
