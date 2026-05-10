@@ -184,36 +184,36 @@ export default function StockAlertsTape({ units }: Props) {
     });
   }, [units]);
 
-  // Integrated into page flow - responsive layout
+  // Integrated as right-side panel - responsive layout
   return (
-    <div className="w-full bg-white border border-gray-200 rounded-3xl overflow-hidden shadow-sm">
+    <div className="w-full bg-white border border-gray-200 rounded-3xl overflow-hidden shadow-sm flex flex-col h-full">
       {/* Header */}
-      <div className="px-4 md:px-6 py-3 border-b border-gray-200 bg-gray-50 flex items-center justify-between">
-        <p className="text-xs md:text-sm font-bold uppercase tracking-tight text-gray-900">
+      <div className="px-4 py-3 border-b border-gray-200 bg-gray-50 flex items-center justify-between flex-shrink-0">
+        <p className="text-xs font-bold uppercase tracking-tight text-gray-900">
           Stock Alerts
         </p>
         <p className="text-[9px] text-gray-500 font-mono">
-          {alerts.length} alert{alerts.length !== 1 ? 's' : ''}
+          {alerts.length}
         </p>
       </div>
 
-      {/* Scrollable alerts - scroll horizontally on mobile, vertically on desktop */}
-      <div className="overflow-x-auto md:overflow-x-hidden md:max-h-96 custom-scrollbar">
+      {/* Scrollable alerts - vertical scroll */}
+      <div className="overflow-y-auto flex-1 custom-scrollbar">
         {alerts.length > 0 ? (
-          <div className="flex md:flex-col divide-x md:divide-x-0 md:divide-y divide-gray-100">
+          <div className="divide-y divide-gray-100">
             {alerts.map((alert) => (
               <div
                 key={alert.id}
-                className={`flex-shrink-0 md:flex-shrink w-72 md:w-full px-4 md:px-6 py-4 hover:bg-gray-50 transition-colors flex items-start gap-3 ${alert.bg}`}
+                className={`px-4 py-3 hover:bg-gray-50 transition-colors flex items-start gap-2.5 ${alert.bg}`}
               >
-                <div className={`w-6 h-6 rounded-lg flex items-center justify-center flex-shrink-0 ${alert.color}`}>
+                <div className={`w-5 h-5 rounded-lg flex items-center justify-center flex-shrink-0 mt-0.5 ${alert.color}`}>
                   {alert.icon}
                 </div>
                 <div className="flex-1 min-w-0">
-                  <p className="text-sm font-bold text-gray-900 truncate">
+                  <p className="text-xs font-bold text-gray-900 truncate">
                     {alert.model}
                   </p>
-                  <p className="text-xs text-gray-600 font-mono mt-0.5">
+                  <p className="text-[11px] text-gray-600 font-mono mt-0.5 line-clamp-2">
                     {alert.detail}
                   </p>
                 </div>
@@ -221,8 +221,8 @@ export default function StockAlertsTape({ units }: Props) {
             ))}
           </div>
         ) : (
-          <div className="py-12 flex flex-col items-center gap-2 text-gray-400">
-            <p className="text-sm font-mono">All good!</p>
+          <div className="py-8 px-4 flex flex-col items-center gap-2 text-gray-400 text-center">
+            <p className="text-xs font-mono">All good!</p>
           </div>
         )}
       </div>

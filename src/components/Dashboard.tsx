@@ -190,14 +190,21 @@ export default function Dashboard({ onNavigate }: Props) {
 
       </div>
 
-      {/* Stock Alerts - Integrated below header */}
-      <StockAlertsTape units={units} />
+      {/* Periodic Inventory + Stock Alerts (side by side on desktop) */}
+      <div className="grid grid-cols-1 lg:grid-cols-4 gap-4">
+        {/* Periodic Inventory Table - 3 columns on desktop */}
+        <div className="lg:col-span-3">
+          <PeriodicInventory
+            units={units}
+            onNavigate={(search) => onNavigate({ tab: 'inventory', filters: { search, status: 'available' } })}
+          />
+        </div>
 
-      {/* Periodic Inventory Table */}
-      <PeriodicInventory
-        units={units}
-        onNavigate={(search) => onNavigate({ tab: 'inventory', filters: { search, status: 'available' } })}
-      />
+        {/* Stock Alerts - 1 column on desktop, full width on mobile */}
+        <div className="lg:col-span-1">
+          <StockAlertsTape units={units} />
+        </div>
+      </div>
 
       {/* KPI Cards — ALL CLICKABLE */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
