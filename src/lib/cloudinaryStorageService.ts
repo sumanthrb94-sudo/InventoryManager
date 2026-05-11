@@ -60,8 +60,16 @@ class CloudinaryStorageService {
       const formData = new FormData();
       formData.append('file', file);
       formData.append('upload_preset', CLOUDINARY_UPLOAD_PRESET);
-      formData.append('folder', storagePath); // Organize by folder
+      formData.append('folder', storagePath);
       formData.append('resource_type', 'auto');
+
+      // DEBUG: Log what we're sending
+      console.log(`[Cloudinary Storage] Uploading with:`, {
+        cloud_name: CLOUDINARY_CLOUD_NAME,
+        preset: CLOUDINARY_UPLOAD_PRESET,
+        folder: storagePath,
+        url: CLOUDINARY_UPLOAD_URL,
+      });
 
       // Upload with progress tracking
       const xhr = new XMLHttpRequest();
