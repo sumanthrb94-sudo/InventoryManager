@@ -12,7 +12,11 @@ export const TEXT_PATTERNS = {
   color: /(?:Color|Colour|Color:|Colour:|[Cc]olour?:?\s*)?([A-Za-z\s]+)/gi,
 
   // Device model patterns (iPhone, iPad, Galaxy, etc.)
-  deviceModel: /\b(?:iPhone\s*\d{1,3}(?:\s*Pro)?(?:\s*Max)?|iPad\s*(?:Air|Pro|Mini)?|Galaxy\s*S\d{1,2}|Galaxy\s*A\d{1,2})\b/gi,
+  // Samsung wholesale labels commonly omit the "Galaxy" prefix
+  // (e.g. "SAMSUNG S21 FE 5G", "S22 ULTRA", "A52 5G"), so we accept
+  // bare S/A/Note/Z-Fold/Z-Flip designators too. Optional FE/PLUS/ULTRA/
+  // MAX/MINI/5G suffixes pick up the SKU variants.
+  deviceModel: /\b(?:iPhone\s*(?:SE|XR|XS|X|\d{1,3})(?:\s*(?:Pro|Plus|Max|Mini))*|iPad(?:\s*(?:Air|Pro|Mini))?(?:\s*\d{1,2})?|(?:Galaxy\s*)?(?:S|A|Note)\s*\d{1,3}(?:\s*(?:FE|Plus|Ultra|5G))*|(?:Galaxy\s*)?Z\s*(?:Flip|Fold)\s*\d{1,2}(?:\s*5G)?|Pixel\s*\d{1,2}(?:\s*(?:Pro|XL|a))?)\b/gi,
 };
 
 export const COLOR_SYNONYMS: Record<string, string> = {
