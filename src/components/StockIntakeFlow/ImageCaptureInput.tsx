@@ -93,16 +93,9 @@ export default function ImageCaptureInput({ onImageSelected, onBack, intakeType 
       // Upload to Imgbb in background
       uploadToImgbb(file, metadata);
 
-      // Trigger OCR after image is loaded
-      if (isOCRSupported()) {
-        if (processTimeoutRef.current) clearTimeout(processTimeoutRef.current);
-        processTimeoutRef.current = setTimeout(() => {
-          console.log('[Gallery] Triggering OCR processing...');
-          performOCROnFile(file, metadata);
-        }, 300); // Wait for state update
-      } else {
-        console.log('[Gallery] OCR not supported on this device');
-      }
+      // OCR disabled - worker files not available in deployment
+      // Users can manually fill device details if OCR data is needed
+      console.log('[Gallery] OCR disabled (optional feature, not critical for workflow)');
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : 'Failed to process image';
       console.error('[Gallery] Error processing image:', errorMsg, err);
@@ -224,6 +217,7 @@ export default function ImageCaptureInput({ onImageSelected, onBack, intakeType 
       setError('Please wait for upload to complete');
       return;
     }
+    // Proceed regardless of OCR status - it's optional for auto-fill
     onImageSelected(imageState.file, imageState.previewUrl, ocrResult, imageState.supabaseUrl);
   };
 
@@ -378,32 +372,14 @@ export default function ImageCaptureInput({ onImageSelected, onBack, intakeType 
                 </motion.div>
               )}
 
-              {/* OCR Progress */}
-              {isOcrProcessing && (
-                <div className="mb-3 p-3 bg-blue-50 rounded-lg border border-blue-200">
-                  <OcrProgress progress={ocrProgress} isProcessing={isOcrProcessing} />
-                </div>
-              )}
 
-              {/* OCR Results Summary */}
-              {ocrResult && !isOcrProcessing && (
-                <div className="mb-3 p-2 bg-emerald-50 rounded-lg border border-emerald-200 text-xs">
-                  <p className="text-emerald-700 font-semibold mb-1">✓ Auto-detected information:</p>
-                  <div className="space-y-1 text-emerald-600">
-                    {ocrResult.device.imei.confidence > 0 && <p>• IMEI: {ocrResult.device.imei.value}</p>}
-                    {ocrResult.device.brand.confidence > 0 && <p>• Brand: {ocrResult.device.brand.value}</p>}
-                    {ocrResult.device.model.confidence > 0 && <p>• Model: {ocrResult.device.model.value}</p>}
-                  </div>
-                </div>
-              )}
-
-              {/* Action Button */}
+              {/* Action Button - Only blocks during upload, not OCR (OCR is optional) */}
               <button
                 onClick={handleProceed}
-                disabled={isOcrProcessing || imageState.isUploading}
+                disabled={imageState.isUploading}
                 className="w-full bg-blue-600 text-white py-2 rounded-lg text-sm font-semibold hover:bg-blue-700 active:bg-blue-800 transition disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                {isOcrProcessing ? 'Processing OCR...' : imageState.isUploading ? 'Uploading...' : 'Continue with This Image'}
+                {imageState.isUploading ? 'Uploading...' : 'Continue with This Image'}
               </button>
             </motion.div>
           )}
