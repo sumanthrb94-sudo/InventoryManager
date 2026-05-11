@@ -1,8 +1,7 @@
 import { initializeApp } from 'firebase/app';
 import {
   getAuth,
-  GoogleAuthProvider,
-  signInWithPopup,
+  signInWithEmailAndPassword,
   signOut as fbSignOut,
 } from 'firebase/auth';
 import { getFirestore } from 'firebase/firestore';
@@ -14,11 +13,74 @@ export const db      = getFirestore(app, firebaseConfig.firestoreDatabaseId);
 export const storage = getStorage(app, firebaseConfig.storageBucket);
 export const auth    = getAuth(app);
 
-export const googleProvider = new GoogleAuthProvider();
+// ── Team login ────────────────────────────────────────────────────────────────
+//
+// Internal tool used by a fixed 4-5 person team. We use Firebase Auth with
+// email/password so password hashing, brute-force protection, and session
+// persistence are handled by Firebase rather than rolled by hand — but the
+// UI only asks for a username because no one in the team thinks of
+// themselves as an email address.
+//
+// Each entry below maps a short username to the synthetic email Firebase
+// expects. To add a teammate:
+//   1. Add `{ username: 'frank', email: 'frank@mpm.local' }` to ALLOWED_USERS
+//   2. Create the auth record in Firebase Console
+//      (Authentication → Add user → email = frank@mpm.local, set password)
+// To remove a teammate: drop from the list AND disable in Firebase Console.
+//
+// Passwords are NOT stored here — Firebase handles them.
+export interface TeamUser {
+  username: string;
+  email: string;
+  displayName?: string;
+}
 
-/** Opens the Google Sign-In popup. */
-export function signInWithGoogle() {
-  return signInWithPopup(auth, googleProvider);
+export const ALLOWED_USERS: TeamUser[] = [
+  { username: 'admin',   email: 'admin@mpm.local',   displayName: 'Admin' },
+  { username: 'sumanth', email: 'sumanth@mpm.local', displayName: 'Sumanth' },
+  { username: 'ram',     email: 'ram@mpm.local',     displayName: 'Ram' },
+  { username: 'ops1',    email: 'ops1@mpm.local',    displayName: 'Ops 1' },
+  { username: 'ops2',    email: 'ops2@mpm.local',    displayName: 'Ops 2' },
+];
+
+function findTeamUser(usernameOrEmail: string): TeamUser | undefined {
+  const key = usernameOrEmail.trim().toLowerCase();
+  return ALLOWED_USERS.find(
+    u => u.username.toLowerCase() === key || u.email.toLowerCase() === key,
+  );
+}
+
+/**
+ * Sign in with a team username (or email) + password.
+ * Returns the Firebase user credential. Throws a friendly Error on failure.
+ */
+export async function signInWithUsername(usernameOrEmail: string, password: string) {
+  const teamUser = findTeamUser(usernameOrEmail);
+  if (!teamUser) {
+    throw new Error('Unknown username. Ask an admin to add you.');
+  }
+  if (!password) {
+    throw new Error('Password is required.');
+  }
+  try {
+    return await signInWithEmailAndPassword(auth, teamUser.email, password);
+  } catch (err: any) {
+    // Normalise Firebase's verbose error codes into something we can show.
+    const code = err?.code || '';
+    if (code === 'auth/wrong-password' || code === 'auth/invalid-credential' || code === 'auth/invalid-login-credentials') {
+      throw new Error('Wrong password.');
+    }
+    if (code === 'auth/user-not-found' || code === 'auth/user-disabled') {
+      throw new Error('Account is not active. Ask an admin.');
+    }
+    if (code === 'auth/too-many-requests') {
+      throw new Error('Too many attempts. Try again in a few minutes.');
+    }
+    if (code === 'auth/network-request-failed') {
+      throw new Error('Network error. Check your connection.');
+    }
+    throw new Error(err?.message || 'Sign-in failed.');
+  }
 }
 
 /** Signs the current user out. */
@@ -27,9 +89,15 @@ export function signOut() {
 }
 
 /**
+ * Resolve the synthetic email back to a display name / username for UI.
+ */
+export function teamUserForEmail(email: string | null | undefined): TeamUser | undefined {
+  if (!email) return undefined;
+  return ALLOWED_USERS.find(u => u.email.toLowerCase() === email.toLowerCase());
+}
+
+/**
  * Waits for Firebase Auth to resolve its persisted session.
- * Replaces ensureAnonymousAuth — no anonymous fallback needed now
- * that all users sign in with Google.
  */
 export function ensureAuthReady(): Promise<void> {
   return auth.authStateReady();
