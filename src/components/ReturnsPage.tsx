@@ -628,19 +628,19 @@ export default function ReturnsPage() {
 
       {/* Return Buttons */}
       <div className="grid grid-cols-3 gap-2">
+        <button onClick={() => setShowQuickRepairPickerModal(true)}
+          disabled={withCategory.filter(u => u.returnCategory === 'repair').length === 0}
+          className="py-3 bg-blue-600 text-white rounded-3xl font-bold uppercase tracking-widest text-sm hover:bg-blue-700 transition-all disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2">
+          <Truck size={14} />
+          <span className="hidden sm:inline">Mark Repaired</span>
+          <span className="sm:hidden">Repaired</span>
+        </button>
         <button onClick={() => setShowQuickPickerModal(true)}
           disabled={sold.length === 0}
           className="py-3 bg-emerald-600 text-white rounded-3xl font-bold uppercase tracking-widest text-sm hover:bg-emerald-700 transition-all disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2">
           <PackageCheck size={14} />
           <span className="hidden sm:inline">Mark Return</span>
           <span className="sm:hidden">Return</span>
-        </button>
-        <button onClick={() => setShowQuickRepairPickerModal(true)}
-          disabled={sold.length === 0}
-          className="py-3 bg-blue-600 text-white rounded-3xl font-bold uppercase tracking-widest text-sm hover:bg-blue-700 transition-all disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2">
-          <Wrench size={14} />
-          <span className="hidden sm:inline">Send Repair</span>
-          <span className="sm:hidden">Repair</span>
         </button>
         <button onClick={() => setShowPickerModal(true)}
           disabled={sold.length === 0}
@@ -708,12 +708,6 @@ export default function ReturnsPage() {
                     </div>
                     <div className="flex items-center gap-2 flex-shrink-0">
                       <span className="text-sm font-bold">£{u.buyPrice}</span>
-                      {cat === 'repair' && (
-                        <button onClick={() => setReadyToShip(u)}
-                          className="px-3 py-1.5 bg-blue-600 text-white text-[9px] font-bold uppercase tracking-widest rounded-lg hover:bg-blue-700 transition-all flex items-center gap-1">
-                          <Truck size={11} /> Ready
-                        </button>
-                      )}
                       <button onClick={() => setExpandedId(isOpen ? null : u.id)}
                         className="p-1.5 hover:bg-gray-100 rounded-lg transition-all text-gray-400">
                         {isOpen ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
@@ -789,7 +783,7 @@ export default function ReturnsPage() {
         </motion.div>
       )}
 
-      {showQuickRepairPickerModal && sold.length > 0 && (
+      {showQuickRepairPickerModal && withCategory.filter(u => u.returnCategory === 'repair').length > 0 && (
         <motion.div
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
@@ -807,15 +801,15 @@ export default function ReturnsPage() {
           >
             <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100 flex-shrink-0">
               <div>
-                <p className="text-[9px] font-mono uppercase tracking-widest text-gray-400">Send to Repair</p>
-                <h3 className="text-sm font-bold truncate mt-0.5">Select Unit to Repair</h3>
+                <p className="text-[9px] font-mono uppercase tracking-widest text-gray-400">Mark Repaired</p>
+                <h3 className="text-sm font-bold truncate mt-0.5">Select Unit to Restore</h3>
               </div>
               <button onClick={() => setShowQuickRepairPickerModal(false)} className="p-2 hover:bg-gray-100 rounded-xl transition-all">
                 <X size={16} />
               </button>
             </div>
             <div className="flex-1 overflow-y-auto px-6 py-4">
-              <SoldUnitPicker units={sold} onSelect={u => {
+              <RepairUnitPicker units={withCategory.filter(u => u.returnCategory === 'repair')} onSelect={u => {
                 setQuickRepairUnit(u);
                 setShowQuickRepairPickerModal(false);
               }} />
@@ -1013,6 +1007,106 @@ function SoldUnitPicker({ units, onSelect }: { units: InventoryUnit[]; onSelect:
       )}
       {q.trim() && filtered.length === 0 && (
         <p className="text-[10px] text-gray-400 font-mono text-center py-2">No sold units match "{q}"</p>
+      )}
+    </div>
+  );
+}
+
+// ── Repair unit picker (for selecting repair units to mark as ready) ─────────
+function RepairUnitPicker({ units, onSelect }: { units: InventoryUnit[]; onSelect: (u: InventoryUnit) => void }) {
+  const [q, setQ] = useState('');
+  const [page, setPage] = useState(1);
+  const ITEMS_PER_PAGE = 8;
+
+  const { sorted, filtered } = useMemo(() => {
+    let sorted = [...units].sort((a, b) => {
+      const da = a.returnDate || a.dateIn;
+      const db = b.returnDate || b.dateIn;
+      return new Date(db).getTime() - new Date(da).getTime();
+    });
+
+    let result = sorted;
+    if (q.trim()) {
+      const s = q.toLowerCase();
+      result = sorted.filter(u =>
+        u.model.toLowerCase().includes(s) ||
+        (u.imei || '').includes(s) ||
+        (u.returnReason || '').toLowerCase().includes(s)
+      );
+    }
+
+    return { sorted, filtered: result };
+  }, [units, q]);
+
+  const totalPages = Math.ceil(filtered.length / ITEMS_PER_PAGE);
+  const validPage = Math.min(page, Math.max(1, totalPages));
+  const start = (validPage - 1) * ITEMS_PER_PAGE;
+  const paginatedItems = filtered.slice(start, start + ITEMS_PER_PAGE);
+
+  const handlePrevPage = () => setPage(p => Math.max(1, p - 1));
+  const handleNextPage = () => setPage(p => Math.min(totalPages, p + 1));
+
+  const handleSearch = (value: string) => {
+    setQ(value);
+    setPage(1);
+  };
+
+  return (
+    <div className="space-y-2">
+      <div className="relative">
+        <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+        <input value={q} onChange={e => handleSearch(e.target.value)}
+          placeholder="Search repair units by model, IMEI or reason…"
+          className="w-full pl-9 pr-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-xs focus:outline-none focus:border-black transition-all" />
+      </div>
+      {filtered.length > 0 && (
+        <>
+          <div className="border border-gray-200 rounded-xl overflow-hidden divide-y divide-gray-50">
+            {paginatedItems.map(u => (
+              <button key={u.id} onClick={() => { onSelect(u); setQ(''); setPage(1); }}
+                className="w-full flex items-center justify-between px-4 py-3 transition-all text-left bg-blue-50/40 hover:bg-blue-50">
+                <div className="min-w-0">
+                  <p className="text-xs font-bold truncate">{u.model}</p>
+                  <p className="text-[9px] text-gray-400 font-mono mt-0.5">
+                    {(u.imei || '').slice(0, 10)}{u.imei && u.imei.length > 10 ? '…' : ''} · {u.returnDate || u.dateIn}
+                  </p>
+                  {u.returnReason && (
+                    <p className="text-[8px] text-gray-500 mt-0.5">{u.returnReason}</p>
+                  )}
+                </div>
+                <span className="text-xs font-bold text-blue-600 ml-3 flex-shrink-0">Mark →</span>
+              </button>
+            ))}
+          </div>
+
+          {/* Pagination controls */}
+          {totalPages > 1 && (
+            <div className="flex items-center justify-between px-3 py-2 bg-gray-50 border border-gray-200 rounded-xl">
+              <button
+                onClick={handlePrevPage}
+                disabled={validPage === 1}
+                className="p-1.5 hover:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed rounded-lg transition-all text-gray-400"
+                title="Previous page"
+              >
+                <ChevronDown size={14} className="rotate-90" />
+              </button>
+              <span className="text-[9px] font-mono text-gray-500">
+                Page {validPage} of {totalPages}
+              </span>
+              <button
+                onClick={handleNextPage}
+                disabled={validPage === totalPages}
+                className="p-1.5 hover:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed rounded-lg transition-all text-gray-400"
+                title="Next page"
+              >
+                <ChevronUp size={14} className="rotate-90" />
+              </button>
+            </div>
+          )}
+        </>
+      )}
+      {q.trim() && filtered.length === 0 && (
+        <p className="text-[10px] text-gray-400 font-mono text-center py-2">No repair units match "{q}"</p>
       )}
     </div>
   );
