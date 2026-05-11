@@ -22,6 +22,9 @@ export interface UploadProgress {
 
 const CLOUDINARY_CLOUD_NAME = 'diofyOvxc';
 const CLOUDINARY_UPLOAD_URL = `https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD_NAME}/image/upload`;
+// Upload preset must be created in Cloudinary Dashboard → Settings → Upload → Add unsigned preset
+// If you don't have a preset yet, create one named "stock_intake" and set it to Unsigned mode
+const CLOUDINARY_UPLOAD_PRESET = import.meta.env.VITE_CLOUDINARY_PRESET || 'stock_intake';
 
 class CloudinaryStorageService {
   private static instance: CloudinaryStorageService;
@@ -53,7 +56,7 @@ class CloudinaryStorageService {
       // Create FormData for Cloudinary upload
       const formData = new FormData();
       formData.append('file', file);
-      formData.append('upload_preset', 'ml_default'); // Use unsigned preset (public upload)
+      formData.append('upload_preset', CLOUDINARY_UPLOAD_PRESET);
       formData.append('folder', storagePath); // Organize by folder
       formData.append('resource_type', 'auto');
 
@@ -91,6 +94,10 @@ class CloudinaryStorageService {
             };
 
             resolve(uploadedImage);
+          } else if (xhr.status === 401) {
+            const msg = `Upload preset '${CLOUDINARY_UPLOAD_PRESET}' not found or invalid. Create an unsigned preset in Cloudinary Dashboard.`;
+            console.error(`[Cloudinary Storage] ${msg}`);
+            reject(new Error(msg));
           } else {
             reject(new Error(`Upload failed with status ${xhr.status}`));
           }
