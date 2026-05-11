@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { onAuthStateChanged, User } from 'firebase/auth';
 import { auth, ensureAnonymousSignIn, signInWithUsername, signOut, teamUserForEmail } from './lib/firebase';
 import {
@@ -38,58 +38,52 @@ export default function App() {
   return <AppWithAuth />;
 }
 
+// TEMP: universal access — no auth gate. We don't block on Firebase Auth
+// resolving because the user can't update Firebase Console right now to
+// enable a sign-in provider. We still TRY anonymous sign-in in the
+// background so Firestore reads/writes succeed if anonymous is enabled
+// later, but the UI renders immediately either way using a stub User.
+//
+// Caveat: if Firestore security rules require request.auth != null and no
+// real auth ever resolves, every Firestore call will return
+// PERMISSION_DENIED and the inventory will appear empty. The fix is one
+// toggle in Firebase Console → Authentication → Sign-in method →
+// Anonymous → Enable. Until then we just let the UI render so the user
+// isn't stuck behind a gate.
+//
+// To re-enable proper login: revert this component to gate on `user` and
+// render <LoginPage /> when null. The LoginPage + signInWithUsername code
+// is still present below.
 function AppWithAuth() {
-  const [user, setUser]       = useState<User | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [authError, setAuthError] = useState('');
+  const [authUser, setAuthUser] = useState<User | null>(null);
 
-  // TEMP: auth is disabled at the user's request — auto sign-in anonymously
-  // so Firestore rules (which require request.auth != null) still allow
-  // reads/writes, then drop straight into the app. To re-enable the
-  // username/password login, swap this back to `if (!user) return <LoginPage />;`
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, u => {
-      setUser(u);
-      setLoading(false);
-      // If the user is null (initial load or after sign-out), kick off
-      // anonymous sign-in so we never sit in a logged-out state while
-      // the login UI is disabled.
+      setAuthUser(u);
       if (!u) {
-        ensureAnonymousSignIn().catch(() => { /* surfaced below */ });
+        // Best-effort: try to get a real auth.uid in the background so
+        // Firestore writes can succeed. Failures are non-fatal — the UI
+        // is already rendering against the stub user.
+        ensureAnonymousSignIn().catch(err => {
+          console.warn(
+            '[auth] Anonymous sign-in unavailable; Firestore writes may ' +
+            'fail until Anonymous is enabled in Firebase Console.',
+            err?.code || err,
+          );
+        });
       }
-    });
-    ensureAnonymousSignIn().catch((err: any) => {
-      const code = err?.code || '';
-      if (code === 'auth/admin-restricted-operation' || code === 'auth/operation-not-allowed') {
-        setAuthError(
-          'Anonymous sign-in is not enabled on this Firebase project. ' +
-          'Enable it in Firebase Console → Authentication → Sign-in method → Anonymous.',
-        );
-      } else {
-        setAuthError(err?.message || 'Sign-in failed.');
-      }
-      setLoading(false);
     });
     return unsub;
   }, []);
 
-  if (loading) return (
-    <div className="min-h-screen bg-white flex items-center justify-center">
-      <motion.div animate={{ rotate: 360 }} transition={{ duration: 1, repeat: Infinity, ease: 'linear' }}
-        className="w-8 h-8 border-2 border-black border-t-transparent rounded-full" />
-    </div>
-  );
+  const stubUser = useMemo(() => ({
+    uid: 'guest',
+    email: null,
+    displayName: 'Guest',
+    photoURL: null,
+  } as unknown as User), []);
 
-  if (!user) return (
-    <div className="min-h-screen bg-white flex items-center justify-center p-6">
-      <div className="max-w-md text-center space-y-3">
-        <p className="text-sm font-bold">Couldn't start a session</p>
-        <p className="text-xs text-gray-600 font-mono">
-          {authError || 'Sign-in is unavailable right now.'}
-        </p>
-      </div>
-    </div>
-  );
+  const user = authUser ?? stubUser;
 
   return (
     <ErrorBoundary>
