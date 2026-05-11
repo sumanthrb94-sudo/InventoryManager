@@ -44,20 +44,22 @@ export async function performOCR(file: File, onProgress?: (progress: number) => 
   const startTime = Date.now();
 
   try {
-    // Read file as data URL
-    const fileBuffer = await new Promise<ArrayBuffer>((resolve, reject) => {
+    // Read file as data URL (better for worker serialization)
+    const fileDataUrl = await new Promise<string>((resolve, reject) => {
       const reader = new FileReader();
-      reader.onload = () => resolve(reader.result as ArrayBuffer);
+      reader.onload = () => resolve(reader.result as string);
       reader.onerror = () => reject(new Error('Failed to read file'));
-      reader.readAsArrayBuffer(file);
+      reader.readAsDataURL(file);
     });
+
+    console.log('[OCR] File read as data URL, size:', fileDataUrl.length);
 
     // Get or create worker
     const tesseractWorker = await getWorker();
     onProgress?.(10);
 
-    // Recognize text from image
-    const result = await tesseractWorker.recognize(fileBuffer, 'eng', {
+    // Recognize text from image using data URL
+    const result = await tesseractWorker.recognize(fileDataUrl, 'eng', {
       logger: (m: any) => {
         const progress = Math.round(m.progress * 80) + 10; // 10-90%
         onProgress?.(progress);
