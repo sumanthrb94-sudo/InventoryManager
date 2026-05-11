@@ -34,6 +34,114 @@ const BG_MAP: Record<FilterTab, string> = {
   repair:                'bg-blue-100',
 };
 
+// ── Quick Return Modal (fast return to inventory) ────────────────────────────
+function QuickReturnModal({
+  unit,
+  onClose,
+  onSaved,
+}: {
+  unit: InventoryUnit;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+
+  const handleQuickReturn = async () => {
+    setSaving(true);
+    try {
+      await dbService.update('inventoryUnits', unit.id, {
+        status: 'available',
+        returnType: 'returned_to_inventory',
+        returnDate: new Date().toISOString().split('T')[0],
+        returnReason: 'Quick return to inventory',
+        salePrice: null,
+        saleDate: null,
+        salePlatform: null,
+        saleOrderId: null,
+        postageCost: null,
+        platformListed: false,
+        listingSites: [],
+      });
+
+      notificationService.addNotification('return_processed', unit);
+      onSaved();
+      onClose();
+    } catch {
+      setError('Failed to save. Please try again.');
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-[70] flex items-center justify-center p-3 md:p-4 bg-black/40 backdrop-blur-sm">
+      <div className="bg-white rounded-3xl overflow-hidden w-full max-w-sm shadow-2xl flex flex-col" style={{ maxHeight: 'calc(100dvh - 24px)' }}>
+        {/* Header */}
+        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100 flex-shrink-0">
+          <div>
+            <p className="text-[9px] font-mono uppercase tracking-widest text-gray-400">Quick Return</p>
+            <h3 className="text-sm font-bold truncate mt-0.5 max-w-[240px]">{unit.model}</h3>
+          </div>
+          <button onClick={onClose} className="p-2 hover:bg-gray-100 rounded-xl transition-all"><X size={16} /></button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto px-6 py-4 space-y-4">
+          {/* Info */}
+          <div className="flex items-start gap-3 bg-emerald-50 border border-emerald-200 rounded-xl p-4">
+            <PackageCheck size={16} className="text-emerald-600 flex-shrink-0 mt-0.5" />
+            <div>
+              <p className="text-xs font-bold text-emerald-900 mb-1">Returning to Inventory</p>
+              <p className="text-[9px] text-emerald-800 font-mono leading-relaxed">
+                Unit will be restored to <strong>available</strong> stock. Sale data will be cleared and unit can be resold immediately.
+              </p>
+            </div>
+          </div>
+
+          {/* Unit Details */}
+          <div className="space-y-2">
+            <div className="grid grid-cols-2 gap-2">
+              <div className="bg-gray-50 rounded-lg p-3">
+                <p className="text-[8px] font-mono uppercase tracking-widest text-gray-500">Model</p>
+                <p className="text-xs font-bold mt-1 truncate">{unit.model}</p>
+              </div>
+              <div className="bg-gray-50 rounded-lg p-3">
+                <p className="text-[8px] font-mono uppercase tracking-widest text-gray-500">Buy Price</p>
+                <p className="text-xs font-bold mt-1">£{unit.buyPrice}</p>
+              </div>
+              <div className="bg-gray-50 rounded-lg p-3">
+                <p className="text-[8px] font-mono uppercase tracking-widest text-gray-500">Sale Price</p>
+                <p className="text-xs font-bold mt-1">£{unit.salePrice || '—'}</p>
+              </div>
+              <div className="bg-gray-50 rounded-lg p-3">
+                <p className="text-[8px] font-mono uppercase tracking-widest text-gray-500">Platform</p>
+                <p className="text-xs font-bold mt-1 truncate">{unit.salePlatform || '—'}</p>
+              </div>
+            </div>
+          </div>
+
+          {error && (
+            <div className="flex items-center gap-2 text-red-600 bg-red-50 border border-red-200 rounded-xl px-4 py-3">
+              <AlertCircle size={14} />
+              <p className="text-xs font-mono">{error}</p>
+            </div>
+          )}
+        </div>
+
+        <div className="flex-shrink-0 px-6 py-4 border-t border-gray-100 flex gap-3 bg-white">
+          <button onClick={onClose}
+            className="flex-1 py-3 border border-gray-200 rounded-xl text-[10px] font-bold uppercase tracking-widest text-gray-500 hover:bg-gray-50 transition-all">
+            Cancel
+          </button>
+          <button onClick={handleQuickReturn} disabled={saving}
+            className="flex-1 py-3 bg-emerald-600 text-white rounded-xl text-[10px] font-bold uppercase tracking-widest hover:bg-emerald-700 transition-all disabled:opacity-50 flex items-center justify-center gap-2">
+            {saving ? 'Saving…' : <><PackageCheck size={13} /> Mark as Returned</>}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Ready to Ship Modal (for repair units) ──────────────────────────────────
 function ReadyToShipModal({
   unit,
@@ -318,7 +426,9 @@ export default function ReturnsPage() {
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [processing, setProcessing] = useState<InventoryUnit | null>(null);
   const [readyToShip, setReadyToShip] = useState<InventoryUnit | null>(null);
+  const [quickReturnUnit, setQuickReturnUnit] = useState<InventoryUnit | null>(null);
   const [showPickerModal, setShowPickerModal] = useState(false);
+  const [showQuickPickerModal, setShowQuickPickerModal] = useState(false);
   const [savedFlag, setSavedFlag]   = useState(false);
 
   // Returned = status 'returned' OR units that came back to available via returnType
@@ -406,13 +516,21 @@ export default function ReturnsPage() {
         </div>
       </div>
 
-      {/* Create Return Button */}
-      <button onClick={() => setShowPickerModal(true)}
-        disabled={sold.length === 0}
-        className="w-full py-3 bg-black text-white rounded-3xl font-bold uppercase tracking-widest text-sm hover:bg-gray-800 transition-all disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2">
-        <RefreshCw size={16} />
-        Create Return
-      </button>
+      {/* Return Buttons */}
+      <div className="grid grid-cols-2 gap-3">
+        <button onClick={() => setShowQuickPickerModal(true)}
+          disabled={sold.length === 0}
+          className="py-3 bg-emerald-600 text-white rounded-3xl font-bold uppercase tracking-widest text-sm hover:bg-emerald-700 transition-all disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2">
+          <PackageCheck size={16} />
+          Mark Return
+        </button>
+        <button onClick={() => setShowPickerModal(true)}
+          disabled={sold.length === 0}
+          className="py-3 bg-black text-white rounded-3xl font-bold uppercase tracking-widest text-sm hover:bg-gray-800 transition-all disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2">
+          <RefreshCw size={16} />
+          Create Return
+        </button>
+      </div>
 
       {/* Filter tabs */}
       <div className="flex gap-2 flex-wrap">
@@ -517,6 +635,41 @@ export default function ReturnsPage() {
         )}
       </div>
 
+      {showQuickPickerModal && sold.length > 0 && (
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          className="fixed inset-0 z-[65] flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm"
+          onClick={() => setShowQuickPickerModal(false)}
+        >
+          <motion.div
+            initial={{ scale: 0.95, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
+            exit={{ scale: 0.95, opacity: 0 }}
+            className="bg-white rounded-3xl overflow-hidden w-full max-w-md shadow-2xl flex flex-col"
+            style={{ maxHeight: '80vh' }}
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100 flex-shrink-0">
+              <div>
+                <p className="text-[9px] font-mono uppercase tracking-widest text-gray-400">Quick Return</p>
+                <h3 className="text-sm font-bold truncate mt-0.5">Select Unit to Mark</h3>
+              </div>
+              <button onClick={() => setShowQuickPickerModal(false)} className="p-2 hover:bg-gray-100 rounded-xl transition-all">
+                <X size={16} />
+              </button>
+            </div>
+            <div className="flex-1 overflow-y-auto px-6 py-4">
+              <SoldUnitPicker units={sold} onSelect={u => {
+                setQuickReturnUnit(u);
+                setShowQuickPickerModal(false);
+              }} />
+            </div>
+          </motion.div>
+        </motion.div>
+      )}
+
       {showPickerModal && sold.length > 0 && (
         <motion.div
           initial={{ opacity: 0 }}
@@ -573,6 +726,20 @@ export default function ReturnsPage() {
             onClose={() => setReadyToShip(null)}
             onSaved={() => {
               setReadyToShip(null);
+              setSavedFlag(true);
+              setTimeout(() => setSavedFlag(false), 3000);
+            }}
+          />
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {quickReturnUnit && (
+          <QuickReturnModal
+            unit={quickReturnUnit}
+            onClose={() => setQuickReturnUnit(null)}
+            onSaved={() => {
+              setQuickReturnUnit(null);
               setSavedFlag(true);
               setTimeout(() => setSavedFlag(false), 3000);
             }}
