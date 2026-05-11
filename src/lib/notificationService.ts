@@ -12,6 +12,7 @@ export interface Notification {
   model: string;
   read: boolean;
   profitAmount?: number;
+  quantity?: number;
 }
 
 const SOUNDS = {
@@ -208,6 +209,7 @@ class NotificationService {
       model: unit.model,
       read: false,
       profitAmount,
+      quantity: count,
     };
 
     this.notifications = [notification, ...this.notifications].slice(0, 100);

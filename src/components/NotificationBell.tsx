@@ -164,6 +164,7 @@ export default function NotificationBell({ unreadCount }: { unreadCount: number 
                           return_processed: { bg: 'bg-amber-100 text-amber-600', icon: <RefreshCw size={13} />, label: 'Return', badgeBg: 'bg-amber-500' },
                           shs_received: { bg: 'bg-purple-100 text-purple-600', icon: <Truck size={13} />, label: 'SHS Received', badgeBg: 'bg-purple-500' },
                           shs_removed: { bg: 'bg-orange-100 text-orange-600', icon: <AlertCircle size={13} />, label: 'SHS Removed', badgeBg: 'bg-orange-500' },
+                          unit_repaired: { bg: 'bg-indigo-100 text-indigo-600', icon: <RefreshCw size={13} />, label: 'Repaired', badgeBg: 'bg-indigo-500' },
                         };
                         const config = typeConfig[n.type] || typeConfig.new_stock;
                         return (
@@ -172,7 +173,14 @@ export default function NotificationBell({ unreadCount }: { unreadCount: number 
                             {config.icon}
                           </div>
                           <div className="flex-1 min-w-0">
-                            <p className="text-[11px] font-bold truncate">{n.model}</p>
+                            <div className="flex items-center gap-2">
+                              <p className="text-[11px] font-bold truncate">{n.model}</p>
+                              {n.quantity && n.quantity > 1 && (
+                                <span className={`inline-flex items-center justify-center px-2 py-0.5 rounded-md text-[8px] font-bold text-white ${config.badgeBg} flex-shrink-0`}>
+                                  ×{n.quantity}
+                                </span>
+                              )}
+                            </div>
                             <p className="text-[9px] font-mono text-gray-400 mt-0.5 leading-relaxed">
                               {config.label} · {n.message}
                             </p>

@@ -61,6 +61,7 @@ function ToastCard({ notification, onAutoClose, onDismiss }: { key?: React.Key; 
     return_processed: { icon: RefreshCw, bg: 'bg-amber-500/20 border-amber-500/30', badge: 'bg-amber-500', icon_color: 'text-amber-400' },
     shs_received: { icon: Truck, bg: 'bg-purple-500/20 border-purple-500/30', badge: 'bg-purple-500', icon_color: 'text-purple-400' },
     shs_removed: { icon: AlertCircle, bg: 'bg-orange-500/20 border-orange-500/30', badge: 'bg-orange-500', icon_color: 'text-orange-400' },
+    unit_repaired: { icon: RefreshCw, bg: 'bg-indigo-500/20 border-indigo-500/30', badge: 'bg-indigo-500', icon_color: 'text-indigo-400' },
   };
 
   const config = typeConfig[notification.type] || typeConfig.new_stock;
@@ -79,7 +80,14 @@ function ToastCard({ notification, onAutoClose, onDismiss }: { key?: React.Key; 
         <Icon size={18} className="text-white" />
       </div>
       <div className="flex-1 min-w-0">
-        <p className={`text-[9px] font-bold uppercase tracking-widest mb-0.5 ${config.icon_color}`}>{notification.title}</p>
+        <div className="flex items-center gap-2 mb-1">
+          <p className={`text-[9px] font-bold uppercase tracking-widest ${config.icon_color}`}>{notification.title}</p>
+          {notification.quantity && notification.quantity > 1 && (
+            <span className={`inline-flex items-center justify-center px-2 py-0.5 rounded-full text-[8px] font-bold ${config.badge} text-white`}>
+              ×{notification.quantity}
+            </span>
+          )}
+        </div>
         <p className="text-sm font-semibold truncate leading-snug text-white">{notification.model}</p>
         <p className="text-[10px] text-gray-400 font-mono mt-0.5">{notification.message}</p>
         {notification.profitAmount !== undefined && (
