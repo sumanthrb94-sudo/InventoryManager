@@ -90,6 +90,10 @@ export default function ImageCaptureInput({ onImageSelected, onBack, intakeType 
         };
       });
 
+      // Drop back to the select view so the preview, upload progress
+      // and OCR result actually render — they live in that block.
+      setMode('select');
+
       // Upload to Imgbb in background
       uploadToImgbb(file, metadata);
 
