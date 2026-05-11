@@ -264,6 +264,14 @@ function parseOGStockSheet(rows: any[][]): ParsedData {
 // ── Component ─────────────────────────────────────────────────────────────────
 
 type Stage = 'upload' | 'preview' | 'importing' | 'done';
+type DuplicateStrategy = 'skip' | 'overwrite';
+
+interface ImportResult {
+  imported: number;
+  skipped: number;
+  duplicates: number;
+  failed: number;
+}
 
 export default function ImportModal({ onClose }: ImportModalProps) {
   const [stage,          setStage]          = useState<Stage>('upload');
@@ -273,6 +281,10 @@ export default function ImportModal({ onClose }: ImportModalProps) {
   const [progress,       setProgress]       = useState({ done: 0, total: 0 });
   const [error,          setError]          = useState('');
   const [existingMatches,setExistingMatches]= useState(0);
+  // Default 'skip' — overwrite is destructive and should be a deliberate choice.
+  const [duplicateStrategy, setDuplicateStrategy] = useState<DuplicateStrategy>('skip');
+  const [importResult, setImportResult] = useState<ImportResult | null>(null);
+  const [existingImeiSet, setExistingImeiSet] = useState<Set<string>>(new Set());
   const [sourceFile,     setSourceFile]     = useState<File | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
@@ -280,24 +292,34 @@ export default function ImportModal({ onClose }: ImportModalProps) {
     setSourceFile(file);
     setFileName(file.name);
     setError('');
+    const isCsv = /\.csv$/i.test(file.name) || file.type === 'text/csv';
     const reader = new FileReader();
     reader.onload = (e) => {
       try {
-        const data = new Uint8Array(e.target!.result as ArrayBuffer);
-        const wb   = XLSX.read(data, { type: 'array' });
+        // xlsx auto-detects CSV vs binary, but CSVs need to be read as text
+        // (or as binary string) to avoid byte-order mark corruption. Branch
+        // on extension/MIME so we hand xlsx the right input every time.
+        const wb = isCsv
+          ? XLSX.read(e.target!.result as string, { type: 'string' })
+          : XLSX.read(new Uint8Array(e.target!.result as ArrayBuffer), { type: 'array' });
         const sheetName = wb.SheetNames.includes('OG STOCK DATA') ? 'OG STOCK DATA' : wb.SheetNames[0];
         const ws   = wb.Sheets[sheetName];
         const rows: any[][] = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' }) as any[][];
 
         const format = detectFormat(rows[0] || []);
         const result = format === 'client-bulk' ? parseClientBulkSheet(rows) : parseOGStockSheet(rows);
+        if (!result.units.length) {
+          setError('No valid rows found. Check the file has a header row and at least one data row matching the expected columns.');
+          return;
+        }
         setParsed(result);
         setStage('preview');
       } catch (err: any) {
         setError('Failed to parse file: ' + err.message);
       }
     };
-    reader.readAsArrayBuffer(file);
+    if (isCsv) reader.readAsText(file);
+    else reader.readAsArrayBuffer(file);
   }, []);
 
   const handleDrop = useCallback((e: React.DragEvent) => {
@@ -316,26 +338,45 @@ export default function ImportModal({ onClose }: ImportModalProps) {
     let cancelled = false;
     void (async () => {
       if (stage !== 'preview' || !parsed || parsed.format === 'client-bulk') {
-        setExistingMatches(0); return;
+        setExistingMatches(0);
+        setExistingImeiSet(new Set());
+        return;
       }
       const inventory = await dbService.readAll('inventoryUnits');
       const existingImeis = new Set(
-        inventory.map((unit: InventoryUnit) => normalizeImei(unit.imei)).filter(Boolean)
+        inventory.map((unit: InventoryUnit) => normalizeImei(unit.imei)).filter(Boolean) as string[],
       );
       const matches = parsed.units.filter(u => existingImeis.has(normalizeImei(u.imei))).length;
-      if (!cancelled) setExistingMatches(matches);
-    })().catch(() => { if (!cancelled) setExistingMatches(0); });
+      if (!cancelled) {
+        setExistingMatches(matches);
+        setExistingImeiSet(existingImeis);
+      }
+    })().catch(() => { if (!cancelled) { setExistingMatches(0); setExistingImeiSet(new Set()); } });
     return () => { cancelled = true; };
   }, [parsed, stage]);
 
   const handleImport = async () => {
     if (!parsed) return;
     setStage('importing');
+    setError('');
+
+    // Apply the duplicate-handling strategy. We only filter unit docs;
+    // suppliers always get upserted (low cardinality, low risk).
+    const filteredUnits = duplicateStrategy === 'skip' && existingImeiSet.size > 0
+      ? parsed.units.filter(u => {
+          const key = normalizeImei(u.imei);
+          // Keep rows where the IMEI doesn't look real (PENDING_/SHS_) or
+          // isn't already in inventory.
+          return !key || !existingImeiSet.has(key);
+        })
+      : parsed.units;
+
+    const skippedAsDuplicate = parsed.units.length - filteredUnits.length;
 
     const allDocs: { collection: string; id: string; data: any }[] = [];
     for (const s of parsed.suppliers)
       allDocs.push({ collection: 'suppliers',      id: s.id, data: { ...s, ownerId: 'shared' } });
-    for (const u of parsed.units)
+    for (const u of filteredUnits)
       allDocs.push({ collection: 'inventoryUnits', id: u.id, data: { ...u, ownerId: 'shared' } });
 
     const uniqueDocsMap = new Map<string, { collection: string; id: string; data: any }>();
@@ -345,6 +386,12 @@ export default function ImportModal({ onClose }: ImportModalProps) {
     setProgress({ done: 0, total: finalDocs.length });
     try {
       await dbService.bulkCreate(finalDocs, (done, total) => setProgress({ done, total }));
+      setImportResult({
+        imported: filteredUnits.length,
+        skipped: parsed.stats.skipped || 0,
+        duplicates: skippedAsDuplicate,
+        failed: 0,
+      });
       setStage('done');
       // Upload source file in background (non-blocking)
       if (sourceFile) {
@@ -504,10 +551,46 @@ export default function ImportModal({ onClose }: ImportModalProps) {
               </div>
 
               {existingMatches > 0 && (
-                <div className="px-4 py-3 ring-1 ring-amber-100 bg-amber-50/60 rounded-xl flex items-start gap-2.5">
-                  <AlertTriangle size={14} className="mt-0.5 flex-shrink-0 text-amber-500" strokeWidth={1.75} />
-                  <p className="text-[11px] text-amber-800/90 leading-relaxed">
-                    {existingMatches} unit{existingMatches !== 1 ? 's' : ''} already in inventory — these will be updated.
+                <div className="px-4 py-3 ring-1 ring-amber-100 bg-amber-50/60 rounded-xl space-y-2.5">
+                  <div className="flex items-start gap-2.5">
+                    <AlertTriangle size={14} className="mt-0.5 flex-shrink-0 text-amber-500" strokeWidth={1.75} />
+                    <p className="text-[11px] text-amber-800/90 leading-relaxed">
+                      <span className="font-semibold">{existingMatches}</span> unit{existingMatches !== 1 ? 's' : ''} already in inventory.
+                    </p>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2 pl-6">
+                    {([
+                      { id: 'skip',      label: 'Skip duplicates',    desc: 'Recommended · safe' },
+                      { id: 'overwrite', label: 'Overwrite existing', desc: 'Replaces fields' },
+                    ] as const).map(opt => {
+                      const active = duplicateStrategy === opt.id;
+                      return (
+                        <button
+                          key={opt.id}
+                          type="button"
+                          onClick={() => setDuplicateStrategy(opt.id)}
+                          className={`text-left px-3 py-2 rounded-lg ring-1 transition-all ${
+                            active
+                              ? 'bg-white ring-amber-300 shadow-sm'
+                              : 'bg-amber-50/40 ring-amber-100/80 hover:bg-white/60'
+                          }`}
+                        >
+                          <p className={`text-[11px] font-semibold ${active ? 'text-amber-900' : 'text-amber-800/80'}`}>
+                            {opt.label}
+                          </p>
+                          <p className="text-[9px] text-amber-700/70 mt-0.5">{opt.desc}</p>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {parsed.stats.skipped > 0 && (
+                <div className="px-4 py-3 ring-1 ring-slate-200 bg-slate-50/60 rounded-xl flex items-start gap-2.5">
+                  <AlertTriangle size={14} className="mt-0.5 flex-shrink-0 text-slate-400" strokeWidth={1.75} />
+                  <p className="text-[11px] text-slate-600 leading-relaxed">
+                    <span className="font-semibold">{parsed.stats.skipped}</span> row{parsed.stats.skipped !== 1 ? 's' : ''} couldn't be parsed (missing model, no buy price, or header repeated). They'll be skipped.
                   </p>
                 </div>
               )}
@@ -573,23 +656,26 @@ export default function ImportModal({ onClose }: ImportModalProps) {
           )}
 
           {/* ── Done ── */}
-          {stage === 'done' && parsed && (
-            <div className="py-8 space-y-6 text-center">
+          {stage === 'done' && parsed && importResult && (
+            <div className="py-6 space-y-6 text-center">
               <div className="mx-auto w-12 h-12 bg-emerald-50 ring-1 ring-emerald-100 rounded-3xl flex items-center justify-center">
                 <CheckCircle2 className="text-emerald-500" size={22} strokeWidth={1.75} />
               </div>
               <div>
                 <p className="text-base font-semibold text-slate-800 tracking-tight">Import complete</p>
                 <p className="text-[12px] text-slate-500 mt-1.5">
-                  {parsed.units.length} units · {parsed.suppliers.length} suppliers saved
+                  {importResult.imported} unit{importResult.imported !== 1 ? 's' : ''}{' '}
+                  {duplicateStrategy === 'overwrite' && existingMatches > 0
+                    ? `· ${existingMatches} updated`
+                    : ''}{' '}
+                  · {parsed.suppliers.length} supplier{parsed.suppliers.length !== 1 ? 's' : ''}
                 </p>
               </div>
-              <div className="grid grid-cols-2 gap-2 max-w-sm mx-auto">
-                <SummaryTile value={parsed.stats.available} label="Available" />
-                <SummaryTile
-                  value={parsed.stats.incoming || parsed.stats.sold}
-                  label={parsed.stats.incoming > 0 ? 'SHS / Expected' : 'Historical sold'}
-                />
+              <div className="grid grid-cols-2 gap-2 max-w-md mx-auto">
+                <SummaryTile value={importResult.imported}  label="Imported" />
+                <SummaryTile value={importResult.duplicates} label={duplicateStrategy === 'skip' ? 'Skipped (duplicate)' : 'Overwritten'} />
+                <SummaryTile value={importResult.skipped}    label="Skipped (invalid)" />
+                <SummaryTile value={importResult.failed}     label="Failed" />
               </div>
             </div>
           )}
@@ -611,14 +697,22 @@ export default function ImportModal({ onClose }: ImportModalProps) {
               Select file <Upload size={12} strokeWidth={2} />
             </button>
           )}
-          {stage === 'preview' && (
-            <button
-              onClick={handleImport}
-              className="px-5 py-2 bg-slate-800 text-white text-[11px] font-medium rounded-lg hover:bg-slate-900 transition-all flex items-center gap-2"
-            >
-              Import {parsed!.units.length} units <ArrowRight size={12} strokeWidth={2} />
-            </button>
-          )}
+          {stage === 'preview' && (() => {
+            const willImport = duplicateStrategy === 'skip'
+              ? parsed!.units.length - existingMatches
+              : parsed!.units.length;
+            return (
+              <button
+                onClick={handleImport}
+                disabled={willImport <= 0}
+                className="px-5 py-2 bg-slate-800 text-white text-[11px] font-medium rounded-lg hover:bg-slate-900 transition-all flex items-center gap-2 disabled:bg-slate-300 disabled:cursor-not-allowed"
+              >
+                {willImport <= 0
+                  ? 'Nothing to import'
+                  : <>Import {willImport} unit{willImport !== 1 ? 's' : ''} <ArrowRight size={12} strokeWidth={2} /></>}
+              </button>
+            );
+          })()}
         </div>
       </motion.div>
     </motion.div>
