@@ -126,55 +126,61 @@ export default function StockInPage({ onOpenBatch }: Props) {
       </div>
 
       {/* Compact dashboard */}
-      <div className="flex items-center gap-3 bg-gradient-to-r from-gray-50 to-white border border-gray-100 rounded-xl p-4">
-        {/* Today's Intake */}
-        <button
-          onClick={() => setShowTodayIntake(true)}
-          disabled={todayIn.length === 0}
-          className="flex items-center gap-3 px-5 py-3 bg-emerald-50 border border-emerald-100 rounded-lg hover:bg-emerald-100 transition-all disabled:opacity-50 disabled:cursor-default flex-shrink-0"
-        >
-          <div className="text-center">
-            <p className="text-[8px] font-mono uppercase tracking-widest text-emerald-600">Intake</p>
-            <p className="text-2xl font-bold text-emerald-700 leading-tight">{todayIn.length}</p>
-          </div>
-        </button>
+      <div className="flex flex-col md:flex-row items-stretch md:items-center gap-3 bg-gradient-to-r from-gray-50 to-white border border-gray-100 rounded-xl p-4">
+        {/* KPI Row (responsive) */}
+        <div className="flex items-center gap-3 flex-1 min-w-0 overflow-x-auto md:overflow-visible pb-2 md:pb-0">
+          {/* Today's Intake */}
+          <button
+            onClick={() => setShowTodayIntake(true)}
+            disabled={todayIn.length === 0}
+            className="flex items-center gap-3 px-5 py-3 bg-emerald-50 border border-emerald-100 rounded-lg hover:bg-emerald-100 transition-all disabled:opacity-50 disabled:cursor-default flex-shrink-0"
+          >
+            <div className="text-center">
+              <p className="text-[8px] font-mono uppercase tracking-widest text-emerald-600">Intake</p>
+              <p className="text-2xl font-bold text-emerald-700 leading-tight">{todayIn.length}</p>
+            </div>
+          </button>
 
-        {/* Today's Spend */}
-        <div className="flex items-center gap-3 px-5 py-3 bg-blue-50 border border-blue-100 rounded-lg flex-shrink-0">
-          <div className="text-center">
-            <p className="text-[8px] font-mono uppercase tracking-widest text-blue-600">Spend</p>
-            <p className="text-xl font-bold text-blue-700 leading-tight">£{totalBP.toLocaleString()}</p>
+          {/* Today's Spend */}
+          <div className="flex items-center gap-3 px-5 py-3 bg-blue-50 border border-blue-100 rounded-lg flex-shrink-0">
+            <div className="text-center">
+              <p className="text-[8px] font-mono uppercase tracking-widest text-blue-600">Spend</p>
+              <p className="text-xl font-bold text-blue-700 leading-tight">£{totalBP.toLocaleString()}</p>
+            </div>
+          </div>
+
+          {/* Pending SHS */}
+          <div className="flex items-center gap-3 px-5 py-3 bg-amber-50 border border-amber-100 rounded-lg flex-shrink-0">
+            <div className="text-center">
+              <p className="text-[8px] font-mono uppercase tracking-widest text-amber-600">SHS</p>
+              <p className="text-2xl font-bold text-amber-700 leading-tight">{pendingSHS.length}</p>
+            </div>
           </div>
         </div>
 
-        {/* Pending SHS */}
-        <div className="flex items-center gap-3 px-5 py-3 bg-amber-50 border border-amber-100 rounded-lg flex-shrink-0">
-          <div className="text-center">
-            <p className="text-[8px] font-mono uppercase tracking-widest text-amber-600">SHS</p>
-            <p className="text-2xl font-bold text-amber-700 leading-tight">{pendingSHS.length}</p>
-          </div>
+        {/* Divider (hidden on mobile) */}
+        <div className="hidden md:block w-px h-12 bg-gray-200 mx-2 flex-shrink-0" />
+
+        {/* Action Buttons Row */}
+        <div className="flex flex-col sm:flex-row gap-3 w-full md:w-auto">
+          {/* Add Stock (New Flow) */}
+          <button
+            onClick={() => setShowStockIntakeFlow(true)}
+            className="flex items-center justify-center sm:justify-start gap-2 px-4 py-3 bg-gradient-to-r from-blue-600 to-blue-700 text-white rounded-lg hover:from-blue-700 hover:to-blue-800 transition-all active:scale-95 shadow-md whitespace-nowrap"
+          >
+            <Plus size={16} />
+            <span className="text-[9px] font-bold uppercase tracking-widest">Add Stock (New)</span>
+          </button>
+
+          {/* Log SHS Order */}
+          <button
+            onClick={() => setShowAddSHS(true)}
+            className="flex items-center justify-center sm:justify-start gap-2 px-4 py-3 bg-amber-500 text-white rounded-lg hover:bg-amber-600 transition-all active:scale-95 whitespace-nowrap"
+          >
+            <Truck size={16} />
+            <span className="text-[9px] font-bold uppercase tracking-widest">SHS Order</span>
+          </button>
         </div>
-
-        {/* Divider */}
-        <div className="w-px h-12 bg-gray-200 mx-2" />
-
-        {/* Add Stock (New Flow) */}
-        <button
-          onClick={() => setShowStockIntakeFlow(true)}
-          className="flex items-center gap-2 px-4 py-3 bg-gradient-to-r from-blue-600 to-blue-700 text-white rounded-lg hover:from-blue-700 hover:to-blue-800 transition-all active:scale-95 flex-shrink-0 whitespace-nowrap shadow-md"
-        >
-          <Plus size={16} />
-          <span className="text-[9px] font-bold uppercase tracking-widest">Add Stock (New)</span>
-        </button>
-
-        {/* Log SHS Order */}
-        <button
-          onClick={() => setShowAddSHS(true)}
-          className="flex items-center gap-2 px-4 py-3 bg-amber-500 text-white rounded-lg hover:bg-amber-600 transition-all active:scale-95 flex-shrink-0 whitespace-nowrap"
-        >
-          <Truck size={16} />
-          <span className="text-[9px] font-bold uppercase tracking-widest">SHS Order</span>
-        </button>
       </div>
 
       {/* Intelligence panel */}
