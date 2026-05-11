@@ -1,6 +1,6 @@
 import { InventoryUnit } from '../types';
 
-export type NotificationType = 'sold' | 'loss_sell' | 'new_stock' | 'return_processed' | 'shs_received' | 'shs_removed';
+export type NotificationType = 'sold' | 'loss_sell' | 'new_stock' | 'return_processed' | 'shs_received' | 'shs_removed' | 'unit_repaired';
 
 export interface Notification {
   id: string;
@@ -20,6 +20,8 @@ const SOUNDS = {
   new_stock:         'https://assets.mixkit.co/active_storage/sfx/2354/2354-preview.mp3',  // Notification
   return_processed:  'https://assets.mixkit.co/active_storage/sfx/2811/2811-preview.mp3',  // Refresh/reload
   shs_received:      'https://assets.mixkit.co/active_storage/sfx/2892/2892-preview.mp3',  // Notification chime
+  shs_removed:       'https://assets.mixkit.co/active_storage/sfx/2372/2372-preview.mp3',  // Alert/warning sound
+  unit_repaired:     'https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3',  // Success chime
 };
 
 const NOTIFS_KEY_PREFIX = 'nexus_notifs_';
@@ -145,6 +147,7 @@ class NotificationService {
       return_processed: '↩️ Return Processed',
       shs_received: '🚚 SHS Order Received',
       shs_removed: '❌ SHS Stock Removed',
+      unit_repaired: '🔧 Unit Repaired & Added to Inventory',
     };
 
     const messages: Record<NotificationType, string> = {
@@ -154,6 +157,7 @@ class NotificationService {
       return_processed: `${unit.model} has been returned and restored to inventory.`,
       shs_received: `${unit.model} from SHS order has been received.`,
       shs_removed: `${unit.model} SHS pending stock has been removed.`,
+      unit_repaired: `${unit.model} has been repaired and added back to inventory.`,
     };
 
     const notification: Notification = {

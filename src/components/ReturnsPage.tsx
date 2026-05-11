@@ -165,7 +165,7 @@ function ReadyToShipModal({
         flags: [...(unit.flags || []), 'repaired_unit'],
       });
 
-      notificationService.addNotification('return_processed', unit);
+      notificationService.addNotification('unit_repaired', unit);
       onSaved();
       onClose();
     } catch {
