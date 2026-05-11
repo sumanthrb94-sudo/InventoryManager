@@ -28,14 +28,22 @@ async function loadTesseract() {
 }
 
 let worker: any = null;
+let workerInitError: Error | null = null;
 
 async function getWorker() {
+  if (workerInitError) throw workerInitError;
   if (!worker) {
-    const TesseractModule = await loadTesseract();
-    worker = await TesseractModule.createWorker('eng', 1, {
-      workerPath: '/tesseract/worker.min.js',
-      langPath: '/tesseract/lang-data',
-    });
+    try {
+      const TesseractModule = await loadTesseract();
+      worker = await TesseractModule.createWorker('eng', 1, {
+        workerPath: '/tesseract/worker.min.js',
+        langPath: '/tesseract/lang-data',
+      });
+    } catch (error) {
+      workerInitError = error as Error;
+      console.warn('[OCR] Worker initialization failed, OCR will be disabled:', workerInitError.message);
+      throw workerInitError;
+    }
   }
   return worker;
 }
