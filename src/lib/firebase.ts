@@ -71,13 +71,29 @@ export async function signInWithUsername(usernameOrEmail: string, password: stri
       throw new Error('Wrong password.');
     }
     if (code === 'auth/user-not-found' || code === 'auth/user-disabled') {
-      throw new Error('Account is not active. Ask an admin.');
+      throw new Error('Account is not active. Ask an admin to provision your login.');
     }
     if (code === 'auth/too-many-requests') {
       throw new Error('Too many attempts. Try again in a few minutes.');
     }
     if (code === 'auth/network-request-failed') {
       throw new Error('Network error. Check your connection.');
+    }
+    if (code === 'auth/operation-not-allowed') {
+      // The Email/Password provider isn't enabled on the Firebase project.
+      // This is a one-time admin action, not something the user can fix —
+      // surface it clearly so the right person sees the right next step.
+      throw new Error(
+        'Sign-in is disabled at the project level. An admin needs to ' +
+        'enable Email/Password in Firebase Console → Authentication → ' +
+        'Sign-in method.',
+      );
+    }
+    if (code === 'auth/configuration-not-found') {
+      throw new Error(
+        'Firebase Auth is not configured for this project. An admin needs ' +
+        'to enable Email/Password sign-in in Firebase Console.',
+      );
     }
     throw new Error(err?.message || 'Sign-in failed.');
   }
