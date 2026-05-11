@@ -1,5 +1,5 @@
 import React, { useMemo } from 'react';
-import { ChevronLeft, Lock, AlertTriangle } from 'lucide-react';
+import { ChevronLeft, Lock, AlertTriangle, Minus, Plus } from 'lucide-react';
 import { motion } from 'motion/react';
 import { useInventoryStore } from '../../lib/inventoryStore';
 import { GRADE_OPTIONS, STORAGE_OPTIONS } from '../../lib/unitConstants';
@@ -105,10 +105,31 @@ export default function DetailForm({
   }, [imeiDigits, units, intakeType]);
   const hasDuplicate = !!duplicateUnit;
 
-  const handleQuantityChange = (val: number) => {
-    setQuantity(Math.max(1, Math.min(999, val)));
+  // Quantity input has a free-typing buffer so the user can clear it and
+  // type "100" without the previous "1" snapping back the moment the
+  // field is empty. We only push to the upstream `quantity` state when
+  // the buffer parses to a real positive integer. Steppers, presets, and
+  // blur all bypass the buffer and write directly.
+  const [quantityInput, setQuantityInput] = React.useState(String(quantity || 1));
+  React.useEffect(() => {
+    // Keep the buffer in sync if upstream `quantity` changes (e.g. preset
+    // tap), but don't fight the user mid-typing — only update when the
+    // current buffer's parsed value differs from upstream.
+    const parsed = parseInt(quantityInput, 10);
+    if (parsed !== quantity && !Number.isNaN(quantity)) {
+      setQuantityInput(String(quantity));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [quantity]);
+
+  const commitQuantity = (val: number) => {
+    const clamped = Math.max(1, Math.min(999, Math.floor(val) || 1));
+    setQuantity(clamped);
+    setQuantityInput(String(clamped));
     setError('');
   };
+
+  const QUANTITY_PRESETS = [10, 25, 50, 100];
 
   return (
     <motion.div
@@ -173,14 +194,65 @@ export default function DetailForm({
         {intakeType === 'bulk' && (
           <div className="col-span-2">
             <label className="block text-xs font-bold text-gray-700 uppercase mb-1">Quantity</label>
-            <input
-              type="number"
-              min="1"
-              max="999"
-              value={quantity}
-              onChange={e => handleQuantityChange(parseInt(e.target.value) || 1)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-            />
+            <div className="flex items-stretch gap-2">
+              <button
+                type="button"
+                onClick={() => commitQuantity(quantity - 1)}
+                disabled={quantity <= 1}
+                className="w-10 flex-shrink-0 flex items-center justify-center rounded-lg border border-gray-300 text-gray-600 hover:bg-gray-50 active:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed"
+                aria-label="Decrease quantity"
+              >
+                <Minus size={14} />
+              </button>
+              <input
+                type="text"
+                inputMode="numeric"
+                pattern="[0-9]*"
+                value={quantityInput}
+                onChange={e => {
+                  // Strip non-digits; keep the buffer as a string so the
+                  // user can clear it without snapping back to "1".
+                  const cleaned = e.target.value.replace(/\D/g, '').slice(0, 4);
+                  setQuantityInput(cleaned);
+                  setError('');
+                  const n = parseInt(cleaned, 10);
+                  if (!Number.isNaN(n) && n >= 1) setQuantity(Math.min(999, n));
+                }}
+                onBlur={() => {
+                  const n = parseInt(quantityInput, 10);
+                  commitQuantity(Number.isNaN(n) || n < 1 ? 1 : n);
+                }}
+                onFocus={e => e.target.select()}
+                placeholder="Type up to 999"
+                className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm text-center font-semibold tabular-nums focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+              <button
+                type="button"
+                onClick={() => commitQuantity(quantity + 1)}
+                disabled={quantity >= 999}
+                className="w-10 flex-shrink-0 flex items-center justify-center rounded-lg border border-gray-300 text-gray-600 hover:bg-gray-50 active:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed"
+                aria-label="Increase quantity"
+              >
+                <Plus size={14} />
+              </button>
+            </div>
+            <div className="mt-2 flex flex-wrap gap-1.5">
+              {QUANTITY_PRESETS.map(n => (
+                <button
+                  key={n}
+                  type="button"
+                  onClick={() => commitQuantity(n)}
+                  className={`text-[11px] font-semibold px-3 py-1.5 rounded-lg border transition-all ${
+                    quantity === n
+                      ? 'bg-blue-600 text-white border-blue-600'
+                      : 'border-gray-200 text-gray-600 hover:border-gray-400 hover:bg-gray-50'
+                  }`}
+                >
+                  {n}
+                </button>
+              ))}
+            </div>
+            <p className="text-[10px] text-gray-500 mt-1">Tap a preset, use ± , or type a value 1–999.</p>
           </div>
         )}
 
