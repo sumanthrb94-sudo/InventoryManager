@@ -39,14 +39,33 @@ export default function ImageCaptureInput({ onImageSelected, onBack, intakeType 
 
   const handleGallerySelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (!file) return;
+
+    console.log('[Gallery] File selected:', {
+      filename: file?.name,
+      size: file?.size,
+      type: file?.type,
+      exists: !!file
+    });
+
+    if (!file) {
+      console.warn('[Gallery] No file selected');
+      return;
+    }
 
     try {
       setImageState(prev => ({ ...prev, isValidating: true, validationError: '' }));
       setError('');
 
+      console.log('[Gallery] Starting image processing...');
+
       // Validate and process image using the service
       const metadata = await imageService.processImage(file);
+
+      console.log('[Gallery] Image processed successfully:', {
+        width: metadata.width,
+        height: metadata.height,
+        compressed: metadata.compressed
+      });
 
       // Update state with processed image
       setImageState({
@@ -66,6 +85,7 @@ export default function ImageCaptureInput({ onImageSelected, onBack, intakeType 
       }
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : 'Failed to process image';
+      console.error('[Gallery] Error processing image:', errorMsg);
       setImageState(prev => ({
         ...prev,
         isValidating: false,
@@ -158,10 +178,30 @@ export default function ImageCaptureInput({ onImageSelected, onBack, intakeType 
   }, []);
 
   const triggerFileInput = () => {
-    // Reset input value before clicking to allow same file selection
-    if (fileInputRef.current) {
+    console.log('[FileInput] Triggering file picker...');
+
+    if (!fileInputRef.current) {
+      console.error('[FileInput] File input ref not available');
+      setError('File picker not available. Please refresh the page.');
+      return;
+    }
+
+    try {
+      // Reset input value to allow same file selection
       fileInputRef.current.value = '';
-      fileInputRef.current.click();
+
+      // Dispatch click event with explicit target
+      const clickEvent = new MouseEvent('click', {
+        view: window,
+        bubbles: true,
+        cancelable: true
+      });
+
+      fileInputRef.current.dispatchEvent(clickEvent);
+      console.log('[FileInput] Click event dispatched');
+    } catch (err) {
+      console.error('[FileInput] Error triggering file input:', err);
+      setError('Failed to open file picker. Please try again.');
     }
   };
 
@@ -321,33 +361,52 @@ export default function ImageCaptureInput({ onImageSelected, onBack, intakeType 
       {/* Gallery Mode */}
       {mode === 'gallery' && (
         <div className="space-y-3">
-          {/* Hidden file input */}
+          {/* Hidden file input - Critical: Use native file picker without cloud services */}
           <input
             key="file-input-gallery"
             ref={fileInputRef}
             type="file"
-            accept="image/*"
+            accept="image/jpeg,image/jpg,image/png,image/webp,image/gif"
             onChange={handleGallerySelect}
+            capture={false}
             className="hidden"
             aria-label="Select image from gallery"
-            style={{ display: 'none' }}
+            style={{ display: 'none', visibility: 'hidden', position: 'absolute', pointerEvents: 'none' }}
           />
 
-          {/* Clickable upload area - REGULAR BUTTON (not motion.button) */}
-          <button
-            type="button"
-            onClick={triggerFileInput}
-            onTouchEnd={triggerFileInput}
-            className="w-full p-6 sm:p-8 border-2 border-dashed border-gray-300 rounded-2xl text-center hover:border-blue-500 hover:bg-blue-50 active:bg-blue-100 transition cursor-pointer group text-center"
-            style={{
-              WebkitAppearance: 'none',
-              appearance: 'none',
-            }}
-          >
-            <Upload size={40} className="mx-auto text-gray-400 group-hover:text-blue-600 mb-3" />
-            <p className="font-semibold text-gray-900">Choose an image</p>
-            <p className="text-xs text-gray-500 mt-1">Tap to select from your phone</p>
-          </button>
+          {/* Clickable upload area with explicit tap handling */}
+          <div className="space-y-2">
+            <button
+              type="button"
+              onClick={() => {
+                console.log('[Gallery] Button clicked - triggering file input');
+                triggerFileInput();
+              }}
+              onTouchStart={(e) => {
+                // Prevent default to ensure click handler fires
+                e.preventDefault();
+              }}
+              onTouchEnd={(e) => {
+                e.preventDefault();
+                console.log('[Gallery] Touch event - triggering file input');
+                triggerFileInput();
+              }}
+              className="w-full p-6 sm:p-8 border-2 border-dashed border-gray-300 rounded-2xl text-center hover:border-blue-500 hover:bg-blue-50 active:bg-blue-100 transition cursor-pointer group"
+              style={{
+                WebkitAppearance: 'none',
+                appearance: 'none',
+              }}
+            >
+              <Upload size={40} className="mx-auto text-gray-400 group-hover:text-blue-600 mb-3" />
+              <p className="font-semibold text-gray-900">Choose an image</p>
+              <p className="text-xs text-gray-500 mt-1">Tap to select from your phone</p>
+            </button>
+            {error && (
+              <div className="p-2 bg-red-50 text-red-700 rounded-lg text-xs border border-red-200">
+                {error}
+              </div>
+            )}
+          </div>
 
           <button
             type="button"
