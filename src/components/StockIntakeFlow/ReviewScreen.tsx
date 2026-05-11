@@ -21,7 +21,7 @@ export default function ReviewScreen({ units, batchId, onSubmit, onBack, error }
       className="space-y-6"
     >
       {/* Summary */}
-      <div className="grid grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4">
         <div className="p-4 bg-blue-50 rounded-xl border border-blue-200">
           <p className="text-[10px] font-bold uppercase tracking-widest text-blue-700 mb-1">Total Units</p>
           <p className="text-2xl font-bold text-blue-900">{units.length}</p>
@@ -37,29 +37,29 @@ export default function ReviewScreen({ units, batchId, onSubmit, onBack, error }
       </div>
 
       {/* Units table - scrollable */}
-      <div className="overflow-x-auto rounded-xl border border-gray-200">
-        <table className="w-full text-sm">
+      <div className="overflow-x-auto rounded-xl border border-gray-200 text-xs sm:text-sm">
+        <table className="w-full">
           <thead className="bg-gray-50 border-b border-gray-200">
             <tr>
-              <th className="px-4 py-3 text-left font-bold text-gray-700">#</th>
-              <th className="px-4 py-3 text-left font-bold text-gray-700">IMEI</th>
-              <th className="px-4 py-3 text-left font-bold text-gray-700">Model</th>
-              <th className="px-4 py-3 text-left font-bold text-gray-700">Colour</th>
-              <th className="px-4 py-3 text-left font-bold text-gray-700">Storage</th>
-              <th className="px-4 py-3 text-left font-bold text-gray-700">Grade</th>
-              <th className="px-4 py-3 text-right font-bold text-gray-700">Price</th>
+              <th className="px-2 sm:px-4 py-2 sm:py-3 text-left font-bold text-gray-700">#</th>
+              <th className="px-2 sm:px-4 py-2 sm:py-3 text-left font-bold text-gray-700">IMEI</th>
+              <th className="px-2 sm:px-4 py-2 sm:py-3 text-left font-bold text-gray-700">Model</th>
+              <th className="px-2 sm:px-4 py-2 sm:py-3 text-left font-bold text-gray-700">Colour</th>
+              <th className="hidden sm:table-cell px-4 py-3 text-left font-bold text-gray-700">Storage</th>
+              <th className="hidden sm:table-cell px-4 py-3 text-left font-bold text-gray-700">Grade</th>
+              <th className="px-2 sm:px-4 py-2 sm:py-3 text-right font-bold text-gray-700">Price</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-200">
             {units.map((unit, idx) => (
               <tr key={unit.id} className="hover:bg-gray-50 transition">
-                <td className="px-4 py-3 text-gray-600 font-mono text-xs">{String(idx + 1).padStart(2, '0')}</td>
-                <td className="px-4 py-3 font-mono text-xs text-gray-700 max-w-xs truncate">{unit.imei}</td>
-                <td className="px-4 py-3 text-gray-700 truncate">{unit.model}</td>
-                <td className="px-4 py-3 text-gray-700">{unit.colour}</td>
-                <td className="px-4 py-3 text-gray-600 text-xs">{unit.storage || '-'}</td>
-                <td className="px-4 py-3 text-gray-600 font-semibold text-xs">{unit.grade || '-'}</td>
-                <td className="px-4 py-3 text-right font-mono font-semibold text-gray-900">£{unit.buyPrice.toFixed(2)}</td>
+                <td className="px-2 sm:px-4 py-2 sm:py-3 text-gray-600 font-mono text-xs">{String(idx + 1).padStart(2, '0')}</td>
+                <td className="px-2 sm:px-4 py-2 sm:py-3 font-mono text-xs text-gray-700 max-w-[80px] sm:max-w-xs truncate">{unit.imei}</td>
+                <td className="px-2 sm:px-4 py-2 sm:py-3 text-gray-700 truncate text-xs sm:text-sm">{unit.model}</td>
+                <td className="px-2 sm:px-4 py-2 sm:py-3 text-gray-700 text-xs sm:text-sm">{unit.colour}</td>
+                <td className="hidden sm:table-cell px-4 py-3 text-gray-600 text-xs">{unit.storage || '-'}</td>
+                <td className="hidden sm:table-cell px-4 py-3 text-gray-600 font-semibold text-xs">{unit.grade || '-'}</td>
+                <td className="px-2 sm:px-4 py-2 sm:py-3 text-right font-mono font-semibold text-gray-900 text-xs sm:text-sm">£{unit.buyPrice.toFixed(2)}</td>
               </tr>
             ))}
           </tbody>

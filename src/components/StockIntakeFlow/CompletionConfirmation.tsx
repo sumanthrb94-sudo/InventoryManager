@@ -45,20 +45,20 @@ export default function CompletionConfirmation({ units, batchId, onClose }: Prop
 
       {/* Summary cards */}
       <div className="w-full space-y-3">
-        <div className="p-4 bg-blue-50 rounded-xl border border-blue-200">
+        <div className="p-3 sm:p-4 bg-blue-50 rounded-xl border border-blue-200">
           <p className="text-[10px] font-bold uppercase tracking-widest text-blue-700 mb-1">Batch ID</p>
-          <p className="text-lg font-mono font-bold text-blue-900">{batchId}</p>
+          <p className="text-sm sm:text-lg font-mono font-bold text-blue-900 truncate">{batchId}</p>
         </div>
 
-        <div className="grid grid-cols-2 gap-3">
-          <div className="p-4 bg-emerald-50 rounded-xl border border-emerald-200">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 sm:gap-3">
+          <div className="p-3 sm:p-4 bg-emerald-50 rounded-xl border border-emerald-200">
             <p className="text-[10px] font-bold uppercase tracking-widest text-emerald-700 mb-1">Total Units</p>
-            <p className="text-2xl font-bold text-emerald-900">{units.length}</p>
+            <p className="text-xl sm:text-2xl font-bold text-emerald-900">{units.length}</p>
           </div>
 
-          <div className="p-4 bg-purple-50 rounded-xl border border-purple-200">
+          <div className="p-3 sm:p-4 bg-purple-50 rounded-xl border border-purple-200">
             <p className="text-[10px] font-bold uppercase tracking-widest text-purple-700 mb-1">Total Value</p>
-            <p className="text-2xl font-bold text-purple-900">£{totalValue.toFixed(2)}</p>
+            <p className="text-xl sm:text-2xl font-bold text-purple-900">£{totalValue.toFixed(2)}</p>
           </div>
         </div>
 

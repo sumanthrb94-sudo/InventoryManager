@@ -104,7 +104,7 @@ export default function DetailForm({
       )}
 
       {/* Main form grid */}
-      <div className="grid grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
         {/* IMEI - larger if bulk, reduced if single */}
         <div className={intakeType === 'bulk' ? 'col-span-2' : 'col-span-2'}>
           <label className="block text-xs font-bold text-gray-700 uppercase mb-1">
