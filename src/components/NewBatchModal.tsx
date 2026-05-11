@@ -23,6 +23,7 @@ interface BatchRow {
   batchNo: string;
   notes: string;
   isSHS: boolean;
+  quantity: number;
 }
 
 const uid = () => Math.random().toString(36).slice(2, 9);
@@ -30,7 +31,7 @@ const today = () => new Date().toISOString().split('T')[0];
 const QUICK_NOTES = ['CLEARANCE', 'ONU', 'BOXED', 'NO BOX'];
 
 function emptyRow(supplierName = ''): BatchRow {
-  return { id: uid(), model: '', imei: '', buyPrice: '', colour: '', storage: '', supplierName, grade: '', batchNo: '', notes: '', isSHS: false };
+  return { id: uid(), model: '', imei: '', buyPrice: '', colour: '', storage: '', supplierName, grade: '', batchNo: '', notes: '', isSHS: false, quantity: 1 };
 }
 
 function detectCategory(model: string): DeviceCategory {
@@ -49,16 +50,17 @@ function detectBrand(cat: DeviceCategory): string {
   return 'Other';
 }
 
-// CSV format: MODEL, IMEI, GRADE, BP, COLOUR, BATCH, SUPPLIER, NOTES
+// CSV format: MODEL, IMEI, GRADE, BP, COLOUR, BATCH, SUPPLIER, NOTES, QUANTITY
 function parsePastedCSV(text: string, fallbackSupplier: string): BatchRow[] {
   const rows: BatchRow[] = [];
   for (const raw of text.trim().split('\n')) {
     const parts = raw.split(',').map(p => p.trim());
     if (parts.length < 2) continue;
-    const [model, imei, grade, bp, colour, batch, supplier, notes] = parts;
+    const [model, imei, grade, bp, colour, batch, supplier, notes, qty] = parts;
     if (!model || model.toLowerCase() === 'model') continue;
     const isSHS = (imei ?? '').toUpperCase() === 'SHS';
     if (!isSHS && isNaN(parseFloat(bp))) continue;
+    const quantity = Math.max(1, parseInt(qty) || 1);
     rows.push({
       id: uid(),
       model: model.trim(),
@@ -71,6 +73,7 @@ function parsePastedCSV(text: string, fallbackSupplier: string): BatchRow[] {
       supplierName: ((supplier ?? '').split('/')[0]).trim() || fallbackSupplier,
       notes: (notes ?? '').trim(),
       isSHS,
+      quantity,
     });
   }
   return rows;
@@ -120,8 +123,9 @@ export default function NewBatchModal({ onClose }: Props) {
   const totals = useMemo(() => {
     let units = 0, value = 0, shs = 0;
     for (const r of rows) {
-      if (r.isSHS) { shs++; continue; }
-      if (r.model.trim()) { units++; value += parseFloat(r.buyPrice) || 0; }
+      const qty = r.quantity || 1;
+      if (r.isSHS) { shs += qty; continue; }
+      if (r.model.trim()) { units += qty; value += (parseFloat(r.buyPrice) || 0) * qty; }
     }
     return { units, value, shs };
   }, [rows]);
@@ -215,6 +219,7 @@ export default function NewBatchModal({ onClose }: Props) {
 
       let idx = 0;
       for (const r of validRows) {
+        const qty = r.quantity || 1;
         const supplierKey = r.supplierName.trim().toUpperCase();
         const supplierId = supCache[supplierKey] || '';
         const batchId = batchIdCache[supplierKey] || `bat_${Date.now()}_${idx}`;
@@ -222,38 +227,48 @@ export default function NewBatchModal({ onClose }: Props) {
         const brand      = detectBrand(category);
         const bp         = parseFloat(r.buyPrice) || 0;
 
-        if (r.isSHS) {
-          const tempId = `shs_${ts}_${idx++}`;
-          await dbService.create('inventoryUnits', tempId, {
-            imei: '',
-            model: r.model.trim(), brand, category,
-            colour: r.colour.trim() || 'Unknown',
-            storage: r.storage.trim() || undefined,
-            grade: r.grade.trim() || undefined,
-            batchNo: r.batchNo.trim() || undefined,
-            buyPrice: bp, dateIn: date,
-            supplierId, batchId,
-            status: 'incoming', flags: [],
-            notes: `SHS — Expected stock${r.notes ? ' · ' + r.notes : ''}`,
-            platformListed: false, listingSites: [],
-            ownerId: 'shared', createdAt: new Date().toISOString(),
-          });
-        } else {
-          const cleanImei = r.imei.replace(/\D/g, '');
-          await dbService.create('inventoryUnits', cleanImei, {
-            imei: cleanImei,
-            model: r.model.trim(), brand, category,
-            colour: r.colour || 'Unknown',
-            storage: r.storage.trim() || undefined,
-            grade: r.grade.trim() || undefined,
-            batchNo: r.batchNo.trim() || undefined,
-            buyPrice: bp, dateIn: date,
-            supplierId, batchId,
-            status: 'available', flags: [],
-            notes: r.notes || '',
-            platformListed: false, listingSites: [],
-            ownerId: 'shared', createdAt: new Date().toISOString(),
-          });
+        // Create multiple units if quantity > 1
+        for (let q = 0; q < qty; q++) {
+          if (r.isSHS) {
+            const tempId = `shs_${ts}_${idx++}`;
+            await dbService.create('inventoryUnits', tempId, {
+              imei: '',
+              model: r.model.trim(), brand, category,
+              colour: r.colour.trim() || 'Unknown',
+              storage: r.storage.trim() || undefined,
+              grade: r.grade.trim() || undefined,
+              batchNo: r.batchNo.trim() || undefined,
+              buyPrice: bp, dateIn: date,
+              supplierId, batchId,
+              status: 'incoming', flags: [],
+              notes: `SHS — Expected stock${r.notes ? ' · ' + r.notes : ''}`,
+              platformListed: false, listingSites: [],
+              ownerId: 'shared', createdAt: new Date().toISOString(),
+            });
+          } else {
+            const cleanImei = r.imei.replace(/\D/g, '');
+            const unitId = qty === 1 ? cleanImei : `${cleanImei}-${String(q + 1).padStart(3, '0')}`;
+            const exists = await dbService.imeiExists(unitId);
+            if (exists && qty > 1) {
+              setError(`${unitId} already exists`);
+              setSaving(false);
+              return;
+            }
+            await dbService.create('inventoryUnits', unitId, {
+              imei: unitId,
+              model: r.model.trim(), brand, category,
+              colour: r.colour || 'Unknown',
+              storage: r.storage.trim() || undefined,
+              grade: r.grade.trim() || undefined,
+              batchNo: r.batchNo.trim() || undefined,
+              buyPrice: bp, dateIn: date,
+              supplierId, batchId,
+              status: 'available', flags: [],
+              notes: r.notes || '',
+              platformListed: false, listingSites: [],
+              ownerId: 'shared', createdAt: new Date().toISOString(),
+            });
+          }
         }
       }
 
@@ -353,8 +368,9 @@ export default function NewBatchModal({ onClose }: Props) {
             ['col-span-1', 'GRADE'],
             ['col-span-1', 'BP (£)'],
             ['col-span-1', 'COLOUR'],
-            ['col-span-3', 'BATCH #'],
+            ['col-span-2', 'BATCH #'],
             ['col-span-1', 'SUPPLIER'],
+            ['col-span-1', 'QTY'],
             ['col-span-1', ''],
           ].map(([cls, label]) => (
             <div key={label} className={`${cls} text-[7px] font-bold uppercase tracking-widest text-gray-400`}>{label}</div>
@@ -547,7 +563,7 @@ function BatchRowCard({ row, index, knownSuppliers, onChange, onRemove, canRemov
                   placeholder="Black"
                   className="w-full border border-gray-200 rounded-lg px-2.5 py-2 text-xs focus:outline-none focus:border-black bg-white transition-all" />
               </div>
-              <div className="col-span-3">
+              <div className="col-span-2">
                 <input value={row.batchNo} onChange={e => onChange({ batchNo: e.target.value })}
                   placeholder="e.g. INV-2061"
                   className="w-full border border-gray-200 rounded-lg px-2.5 py-2 text-xs font-mono focus:outline-none focus:border-black bg-white transition-all" />
@@ -560,6 +576,11 @@ function BatchRowCard({ row, index, knownSuppliers, onChange, onRemove, canRemov
                 <datalist id={`sup-list-${row.id}`}>
                   {knownSuppliers.map(s => <option key={s} value={s} />)}
                 </datalist>
+              </div>
+              <div className="col-span-1">
+                <input type="number" min="1" max="999" value={row.quantity || 1} onChange={e => onChange({ quantity: Math.max(1, parseInt(e.target.value) || 1) })}
+                  placeholder="1"
+                  className="w-full border border-gray-200 rounded-lg px-2.5 py-2 text-xs font-bold text-center focus:outline-none focus:border-black bg-white transition-all" />
               </div>
               <div className="col-span-1 flex items-center justify-end gap-1">
                 {canRemove && (
