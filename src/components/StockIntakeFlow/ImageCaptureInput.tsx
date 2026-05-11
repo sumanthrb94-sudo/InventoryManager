@@ -410,6 +410,9 @@ export default function ImageCaptureInput({ onImageSelected, onBack, intakeType 
                     {ocrResult.device.imei.confidence > 0 && <p>• IMEI: {ocrResult.device.imei.value}</p>}
                     {ocrResult.device.brand.confidence > 0 && <p>• Brand: {ocrResult.device.brand.value}</p>}
                     {ocrResult.device.model.confidence > 0 && <p>• Model: {ocrResult.device.model.value}</p>}
+                    {ocrResult.device.storage.confidence > 0 && <p>• Storage: {ocrResult.device.storage.value}</p>}
+                    {ocrResult.device.grade.confidence > 0 && <p>• Grade: {ocrResult.device.grade.value}</p>}
+                    {ocrResult.device.colour.confidence > 0 && <p>• Colour: {ocrResult.device.colour.value}</p>}
                   </div>
                 </div>
               )}

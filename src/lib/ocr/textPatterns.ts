@@ -12,11 +12,17 @@ export const TEXT_PATTERNS = {
   color: /(?:Color|Colour|Color:|Colour:|[Cc]olour?:?\s*)?([A-Za-z\s]+)/gi,
 
   // Device model patterns (iPhone, iPad, Galaxy, etc.)
+  //
   // Samsung wholesale labels commonly omit the "Galaxy" prefix
   // (e.g. "SAMSUNG S21 FE 5G", "S22 ULTRA", "A52 5G"), so we accept
-  // bare S/A/Note/Z-Fold/Z-Flip designators too. Optional FE/PLUS/ULTRA/
-  // MAX/MINI/5G suffixes pick up the SKU variants.
-  deviceModel: /\b(?:iPhone\s*(?:SE|XR|XS|X|\d{1,3})(?:\s*(?:Pro|Plus|Max|Mini))*|iPad(?:\s*(?:Air|Pro|Mini))?(?:\s*\d{1,2})?|(?:Galaxy\s*)?(?:S|A|Note)\s*\d{1,3}(?:\s*(?:FE|Plus|Ultra|5G))*|(?:Galaxy\s*)?Z\s*(?:Flip|Fold)\s*\d{1,2}(?:\s*5G)?|Pixel\s*\d{1,2}(?:\s*(?:Pro|XL|a))?)\b/gi,
+  // bare S/A/Note designators too. Constraints to avoid false matches
+  // on stray text like "Grade A 3":
+  //   - digit must come immediately after the series letter (no space)
+  //   - A-series requires at least 2 digits (A10+; no real "A 3" device)
+  //   - S-series stays 1-2 digits (S6 .. S25)
+  //   - Note-series stays 1-2 digits (Note 7+)
+  // Optional FE/PLUS/ULTRA/MAX/MINI/5G suffixes pick up SKU variants.
+  deviceModel: /\b(?:iPhone\s*(?:SE|XR|XS|X|\d{1,3})(?:\s*(?:Pro|Plus|Max|Mini))*|iPad(?:\s*(?:Air|Pro|Mini))?(?:\s*\d{1,2})?|(?:Galaxy\s*)?(?:S\d{1,2}|A\d{2,3}|Note\s*\d{1,2})(?:\s*(?:FE|Plus|Ultra|5G|\+))*|(?:Galaxy\s*)?Z\s*(?:Flip|Fold)\s*\d{1,2}(?:\s*5G)?|Pixel\s*\d{1,2}(?:\s*(?:Pro|XL|a))?)\b/gi,
 };
 
 export const COLOR_SYNONYMS: Record<string, string> = {
