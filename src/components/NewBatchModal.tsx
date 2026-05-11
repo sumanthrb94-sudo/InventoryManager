@@ -8,6 +8,7 @@ import { logInventoryEvent } from '../lib/inventoryEvents';
 import { GradeSelectCompact, StorageSelectCompact } from './FormSelects';
 import { generateBatchId, formatBatchId } from '../lib/batchUtils';
 import ScanInModal from './ScanInModal';
+import { buildDeviceCatalog } from '../lib/deviceCatalog';
 
 interface Props { onClose: () => void; }
 
@@ -80,7 +81,10 @@ function parsePastedCSV(text: string, fallbackSupplier: string): BatchRow[] {
 }
 
 export default function NewBatchModal({ onClose }: Props) {
-  const { suppliers } = useInventoryStore();
+  const { suppliers, units } = useInventoryStore();
+  // Surface known (brand, model) pairs as native autocomplete suggestions
+  // for every row's Model input. Cheap; doesn't change row data shape.
+  const deviceCatalog = useMemo(() => buildDeviceCatalog(units), [units]);
 
   const [date, setDate]           = useState(today());
   const [invoiceNo, setInvoiceNo] = useState('');
@@ -292,6 +296,15 @@ export default function NewBatchModal({ onClose }: Props) {
       className="fixed inset-0 z-[60] flex items-end md:items-center justify-center bg-black/60 backdrop-blur-sm p-0 md:p-4"
       onClick={onClose}
     >
+      {/* Shared autocomplete catalog for every row's model input. */}
+      <datalist id="device-catalog-options">
+        {deviceCatalog.map(d => (
+          <option key={`${d.brand}|${d.model}`} value={d.model}>
+            {d.brand} · {d.count} in stock
+          </option>
+        ))}
+      </datalist>
+
       <motion.div
         initial={{ y: 40, opacity: 0 }} animate={{ y: 0, opacity: 1 }}
         exit={{ y: 40, opacity: 0 }} transition={{ type: 'spring', damping: 28, stiffness: 300 }}
@@ -533,6 +546,7 @@ function BatchRowCard({ row, index, knownSuppliers, onChange, onRemove, canRemov
             <div className="hidden md:grid grid-cols-12 gap-1 px-3 py-2 items-center">
               <div className="col-span-2">
                 <input value={row.model} onChange={e => onChange({ model: e.target.value })}
+                  list="device-catalog-options"
                   placeholder="e.g. iPhone 14 128GB"
                   className="w-full border border-gray-200 rounded-lg px-2.5 py-2 text-xs focus:outline-none focus:border-black bg-white transition-all" />
               </div>
@@ -622,6 +636,7 @@ function BatchRowCard({ row, index, knownSuppliers, onChange, onRemove, canRemov
               <div>
                 <label className="text-[8px] font-bold uppercase tracking-widest text-gray-400">Model</label>
                 <input value={row.model} onChange={e => onChange({ model: e.target.value })}
+                  list="device-catalog-options"
                   placeholder="e.g. Apple iPhone 14 128GB"
                   className="w-full mt-1 border border-gray-200 rounded-lg px-3 py-2 text-xs focus:outline-none focus:border-black bg-white" />
               </div>

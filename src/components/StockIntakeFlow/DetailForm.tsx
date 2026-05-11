@@ -5,6 +5,7 @@ import { useInventoryStore } from '../../lib/inventoryStore';
 import { GRADE_OPTIONS, STORAGE_OPTIONS } from '../../lib/unitConstants';
 import { GradeSelect, StorageSelect } from '../FormSelects';
 import ConfidenceBadge from '../OCR/ConfidenceBadge';
+import DeviceComboBox from '../DeviceComboBox';
 import type { OCRResult } from '../../lib/ocr/ocrEngine';
 
 const normaliseImei = (s: string) => (s || '').replace(/\D/g, '');
@@ -191,14 +192,26 @@ export default function DetailForm({
               <ConfidenceBadge confidence={ocrResult.device.model.confidence} label="OCR" showIcon={false} />
             )}
           </div>
-          <input
-            type="text"
-            value={model}
-            onChange={e => setModel(e.target.value)}
+          <DeviceComboBox
+            units={units}
+            brand={brand}
+            model={model}
+            onModelChange={setModel}
+            onPick={entry => {
+              // Mirror the catalog entry into the form so brand + model + the
+              // suggested defaults (storage, colour, grade) stay in sync.
+              if (entry.brand) setBrand(entry.brand);
+              setModel(entry.model);
+              if (!storage && entry.storages[0]) setStorage(entry.storages[0]);
+              if (!colour && entry.colours[0]) setColour(entry.colours[0]);
+              if (entry.topGrade) setGrade(entry.topGrade);
+              if (!buyPrice && entry.medianBuyPrice) setBuyPrice(String(entry.medianBuyPrice));
+            }}
             placeholder="e.g. iPhone 15 Pro Max  /  S21 FE 5G"
-            className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
           />
-          <p className="text-[10px] text-gray-500 mt-1">Model designation only — brand is set above</p>
+          <p className="text-[10px] text-gray-500 mt-1">
+            Start typing or tap the arrow to pick from known devices in stock
+          </p>
         </div>
 
         {/* Category */}
