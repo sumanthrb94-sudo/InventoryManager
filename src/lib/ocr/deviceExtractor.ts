@@ -1,4 +1,63 @@
-import { TEXT_PATTERNS, COLOR_SYNONYMS, GRADE_MAPPING, STORAGE_OPTIONS, BRAND_KEYWORDS } from './textPatterns';
+import { TEXT_PATTERNS, COLOR_SYNONYMS, GRADE_MAPPING, STORAGE_OPTIONS, BRAND_KEYWORDS, KNOWN_MODELS } from './textPatterns';
+
+// Snap an OCR-noisy designator (e.g. "S82") to the closest canonical
+// model designator (e.g. "S22") using Levenshtein distance. Returns the
+// candidate untouched if no canonical match is within `maxDistance`.
+//
+// We snap on the designator portion (S/A/Note number, or full iPhone N
+// tier) and re-attach any FE/Plus/Ultra/5G/Pro Max/Mini suffix we saw in
+// the OCR so we don't lose information.
+function snapToKnownModel(
+  candidate: string,
+  brandHint: string,
+  maxDistance = 2,
+): { value: string; snapped: boolean } | null {
+  if (!candidate) return null;
+  const upper = candidate.trim().toUpperCase();
+  // Pull out the leading "designator" and any trailing suffix tokens.
+  const parts = upper.split(/\s+/);
+  if (!parts.length) return null;
+
+  // Designator can be 1-3 leading tokens depending on family:
+  //   "S21", "S 21", "Note 20", "Z Fold 5", "iPhone 14"
+  let designatorTokens: string[];
+  if (parts[0].startsWith('IPHONE')) {
+    designatorTokens = parts.slice(0, 2); // iPhone N
+  } else if (parts[0] === 'Z') {
+    designatorTokens = parts.slice(0, 3); // Z Fold N / Z Flip N
+  } else if (parts[0] === 'NOTE') {
+    designatorTokens = parts.slice(0, 2); // Note N
+  } else {
+    designatorTokens = parts.slice(0, 1); // S21 / A52
+  }
+  const designator = designatorTokens.join(' ');
+  const suffix = parts.slice(designatorTokens.length).join(' ');
+
+  // Find the closest canonical designator within the same family.
+  let bestDist = Infinity;
+  let best: { brand: string; designator: string; suffixes: string[] } | null = null;
+  for (const km of KNOWN_MODELS) {
+    if (brandHint && km.brand.toLowerCase() !== brandHint.toLowerCase()) continue;
+    const d = calculateLevenshteinDistance(designator, km.designator.toUpperCase());
+    if (d < bestDist) {
+      bestDist = d;
+      best = km;
+    }
+  }
+  if (!best || bestDist > maxDistance) return null;
+
+  // If the OCR captured a suffix that matches one this model supports,
+  // keep it. Otherwise drop it (fragmentary suffixes are worse than none).
+  const matchedSuffix = suffix
+    ? best.suffixes.find(s => s.toUpperCase() === suffix) ||
+      best.suffixes.find(s => s && suffix.includes(s.toUpperCase()))
+    : '';
+  const finalSuffix = matchedSuffix ? ` ${matchedSuffix}` : '';
+  return {
+    value: `${best.designator}${finalSuffix}`,
+    snapped: bestDist > 0,
+  };
+}
 
 export interface ExtractedField {
   value: string;
@@ -183,9 +242,11 @@ export function extractModel(text: string, brand: string = ''): ExtractedField {
   // ── Apple ────────────────────────────────────────────────────────────
   const iphone = T.match(/IPHONE\s*(SE|XR|XS|X|\d{1,3})(?:\s*(PRO\s*MAX|PROMAX|PRO|PLUS|MAX|MINI))?/);
   if (iphone) {
-    const num = iphone[1].toUpperCase().replace(/^\d/, m => m); // keep digits / SE/XR/XS/X
+    const num = iphone[1].toUpperCase().replace(/^\d/, m => m);
     const tier = iphone[2] ? ` ${titleCase(iphone[2].replace(/PROMAX/, 'Pro Max'))}` : '';
-    return { value: `iPhone ${num}${tier}`.trim(), confidence: 0.92 };
+    const raw = `iPhone ${num}${tier}`.trim();
+    const snap = snapToKnownModel(raw, 'Apple');
+    return { value: snap?.value || raw, confidence: snap?.snapped ? 0.88 : 0.92 };
   }
   if (/\bIPAD\b/.test(T)) {
     const ipad = T.match(/IPAD(?:\s*(AIR|MINI|PRO))?(?:\s*(\d{1,2}))?/);
@@ -198,7 +259,9 @@ export function extractModel(text: string, brand: string = ''): ExtractedField {
   }
 
   // ── Samsung ──────────────────────────────────────────────────────────
-  // 1. Brand-anchored window: high confidence
+  // 1. Brand-anchored window: high confidence. Also snap the result to
+  //    the nearest canonical model so OCR confusions like S82->S22 don't
+  //    leak through.
   const brandAnchor = T.match(/(?:SAMSUNG|GALAXY)/);
   if (brandAnchor) {
     const start = (brandAnchor.index ?? 0) + brandAnchor[0].length;
@@ -207,21 +270,36 @@ export function extractModel(text: string, brand: string = ''): ExtractedField {
       /\b(S\s?\d{1,2}|A\s?\d{2,3}|NOTE\s*\d{1,2}|Z\s*(?:FLIP|FOLD)\s*\d{1,2})((?:\s+(?:FE|PLUS|ULTRA|5G|\+))*)/,
     );
     if (m) {
-      return { value: tidyModel(m[0]), confidence: 0.90 };
+      const tidied = tidyModel(m[0]);
+      const snap = snapToKnownModel(tidied, 'Samsung');
+      if (snap) {
+        return { value: snap.value, confidence: snap.snapped ? 0.85 : 0.92 };
+      }
+      // Fell outside snap distance — only trust the regex match if it
+      // looks plausible (has a Samsung-style suffix or matches a known
+      // SKU shape). Otherwise drop it rather than emit garbage.
+      const looksPlausible = /\b(FE|PLUS|ULTRA|5G|\+)\b/i.test(tidied);
+      if (looksPlausible) {
+        return { value: tidied, confidence: 0.75 };
+      }
     }
   }
 
   // 2. Standalone Samsung-series match with strict constraints.
-  //    Required: digit must immediately follow the series letter, A-series
-  //    needs 2+ digits, and either the brand is already Samsung or the
-  //    model carries a Samsung-specific suffix (FE/Ultra/Plus/5G).
   const standalone = T.match(
     /\b(S\d{1,2}|A\d{2,3}|NOTE\s*\d{1,2}|Z\s*(?:FLIP|FOLD)\s*\d{1,2})((?:\s+(?:FE|PLUS|ULTRA|5G|\+))*)/,
   );
   if (standalone) {
     const hasSamsungSuffix = !!standalone[2]?.trim();
     if (brandLower === 'samsung' || hasSamsungSuffix) {
-      return { value: tidyModel(standalone[0]), confidence: 0.80 };
+      const tidied = tidyModel(standalone[0]);
+      const snap = snapToKnownModel(tidied, 'Samsung');
+      if (snap) {
+        return { value: snap.value, confidence: snap.snapped ? 0.78 : 0.85 };
+      }
+      if (hasSamsungSuffix) {
+        return { value: tidied, confidence: 0.72 };
+      }
     }
   }
 

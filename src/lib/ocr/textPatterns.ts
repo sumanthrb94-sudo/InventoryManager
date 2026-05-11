@@ -104,6 +104,37 @@ export const GRADE_MAPPING: Record<string, string> = {
 
 export const STORAGE_OPTIONS = ['16GB', '32GB', '64GB', '128GB', '256GB', '512GB', '1TB'];
 
+// Canonical list of model designators we consider valid output for the
+// auto-fill. Used by the extractor to snap noisy OCR candidates (e.g.
+// "S82" → "S22") to the closest known model when within edit-distance.
+// Keep this conservative: a wrong-but-close snap is worse than no snap,
+// so we only include the designators actually shipping in current SKUs.
+export const KNOWN_MODELS: { brand: string; designator: string; suffixes: string[] }[] = [
+  // Samsung Galaxy S-series (S20 .. S25), each with FE / + / Ultra variants
+  ...['S20', 'S21', 'S22', 'S23', 'S24', 'S25'].flatMap(d => [
+    { brand: 'Samsung', designator: d, suffixes: ['', '5G', 'FE', 'FE 5G', 'Plus', 'Plus 5G', 'Ultra', 'Ultra 5G'] },
+  ]),
+  // Samsung Galaxy A-series — the actual A-series numbers that have shipped
+  ...['A04', 'A05', 'A10', 'A11', 'A12', 'A13', 'A14', 'A15', 'A20', 'A21', 'A22',
+      'A23', 'A24', 'A25', 'A30', 'A31', 'A32', 'A33', 'A34', 'A35', 'A50', 'A51',
+      'A52', 'A53', 'A54', 'A55', 'A70', 'A71', 'A72', 'A73', 'A74', 'A75'].flatMap(d => [
+    { brand: 'Samsung', designator: d, suffixes: ['', '5G'] },
+  ]),
+  // Samsung Galaxy Note — discontinued line but inventory is common
+  ...['Note 8', 'Note 9', 'Note 10', 'Note 20'].flatMap(d => [
+    { brand: 'Samsung', designator: d, suffixes: ['', 'Plus', 'Ultra', 'Ultra 5G'] },
+  ]),
+  // Samsung Z Fold / Z Flip
+  ...['Z Fold 3', 'Z Fold 4', 'Z Fold 5', 'Z Fold 6',
+      'Z Flip 3', 'Z Flip 4', 'Z Flip 5', 'Z Flip 6'].flatMap(d => [
+    { brand: 'Samsung', designator: d, suffixes: ['', '5G'] },
+  ]),
+  // Apple iPhone (SE / X / XR / XS, then 11..17, each with Plus / Pro / Pro Max / Mini)
+  ...['SE', 'X', 'XR', 'XS', '11', '12', '13', '14', '15', '16', '17'].flatMap(n => [
+    { brand: 'Apple', designator: `iPhone ${n}`, suffixes: ['', 'Mini', 'Plus', 'Pro', 'Pro Max'] },
+  ]),
+];
+
 export const BRAND_KEYWORDS: Record<string, string> = {
   iphone: 'Apple',
   ipad: 'Apple',
