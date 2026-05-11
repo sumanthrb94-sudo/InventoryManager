@@ -123,22 +123,29 @@ function ToastCard({
   onNext: () => void;
   onPrev: () => void;
 }) {
-  // Icon and color mapping for different notification types
+  // Icon and color mapping for different notification types.
+  //
+  // NOTE: `accent` is *border + glow only* — we used to put a translucent
+  // `bg-<color>/20` here too, but Tailwind cascade order let that tint
+  // override the solid `bg-gray-900` on the outer div, so the whole toast
+  // rendered as a 20%-opacity rectangle and you could see the page through
+  // it. The dark base now stays solid; colour comes from the accent border,
+  // the badge tile, and the icon colour.
   const typeConfig = {
-    sold: { icon: ShoppingBag, bg: 'bg-emerald-500/20 border-emerald-500/30', badge: 'bg-emerald-500', icon_color: 'text-emerald-400' },
-    loss_sell: { icon: AlertCircle, bg: 'bg-red-500/20 border-red-500/30', badge: 'bg-red-500', icon_color: 'text-red-400' },
-    new_stock: { icon: Package, bg: 'bg-blue-500/20 border-blue-500/30', badge: 'bg-blue-500', icon_color: 'text-blue-400' },
-    return_processed: { icon: RefreshCw, bg: 'bg-amber-500/20 border-amber-500/30', badge: 'bg-amber-500', icon_color: 'text-amber-400' },
-    shs_received: { icon: Truck, bg: 'bg-purple-500/20 border-purple-500/30', badge: 'bg-purple-500', icon_color: 'text-purple-400' },
-    shs_removed: { icon: AlertCircle, bg: 'bg-orange-500/20 border-orange-500/30', badge: 'bg-orange-500', icon_color: 'text-orange-400' },
-    unit_repaired: { icon: RefreshCw, bg: 'bg-indigo-500/20 border-indigo-500/30', badge: 'bg-indigo-500', icon_color: 'text-indigo-400' },
+    sold: { icon: ShoppingBag, accent: 'border-emerald-500/40', badge: 'bg-emerald-500', icon_color: 'text-emerald-400' },
+    loss_sell: { icon: AlertCircle, accent: 'border-red-500/40', badge: 'bg-red-500', icon_color: 'text-red-400' },
+    new_stock: { icon: Package, accent: 'border-blue-500/40', badge: 'bg-blue-500', icon_color: 'text-blue-400' },
+    return_processed: { icon: RefreshCw, accent: 'border-amber-500/40', badge: 'bg-amber-500', icon_color: 'text-amber-400' },
+    shs_received: { icon: Truck, accent: 'border-purple-500/40', badge: 'bg-purple-500', icon_color: 'text-purple-400' },
+    shs_removed: { icon: AlertCircle, accent: 'border-orange-500/40', badge: 'bg-orange-500', icon_color: 'text-orange-400' },
+    unit_repaired: { icon: RefreshCw, accent: 'border-indigo-500/40', badge: 'bg-indigo-500', icon_color: 'text-indigo-400' },
   };
 
   const config = typeConfig[notification.type] || typeConfig.new_stock;
   const Icon = config.icon;
 
   return (
-    <div className={`w-full md:w-[440px] bg-gray-900 text-white px-4 py-3 rounded-lg shadow-xl border border-white/5 backdrop-blur-sm ${config.bg}`}>
+    <div className={`w-full md:w-[440px] bg-gray-900 text-white px-4 py-3 rounded-lg shadow-xl border ${config.accent}`}>
       {/* Header with close button */}
       <div className="flex items-start gap-3 mb-2">
         <div className={`w-10 h-10 rounded-lg flex-shrink-0 flex items-center justify-center ${config.badge}`}>
