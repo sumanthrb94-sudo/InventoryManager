@@ -32,6 +32,9 @@ class NotificationService {
   private notifications: Notification[] = [];
   private userId = 'anon';
   private playSoundTimeout: any = null;
+  private batchBuffer: { type: NotificationType; unit: InventoryUnit; profitAmount?: number }[] = [];
+  private batchTimeout: any = null;
+  private readonly BATCH_WINDOW_MS = 500;
 
   // Called once login is confirmed — loads persisted notifications for this user
   setUser(uid: string) {
@@ -106,7 +109,46 @@ class NotificationService {
     };
   }
 
+  private processBatch() {
+    if (this.batchBuffer.length === 0) return;
+
+    const first = this.batchBuffer[0];
+    const batchableTypes = ['new_stock', 'shs_received'];
+    const isBatchable = batchableTypes.includes(first.type);
+
+    if (isBatchable && this.batchBuffer.length > 1) {
+      // Check if all items in batch are the same model and type
+      const allSameModel = this.batchBuffer.every(b => b.unit.model === first.unit.model && b.type === first.type);
+      if (allSameModel) {
+        this.addNotificationDirect(first.type, first.unit, first.profitAmount, this.batchBuffer.length);
+        this.batchBuffer = [];
+        return;
+      }
+    }
+
+    // Process items individually if not batchable
+    for (const item of this.batchBuffer) {
+      this.addNotificationDirect(item.type, item.unit, item.profitAmount, 1);
+    }
+    this.batchBuffer = [];
+  }
+
   addNotification(type: NotificationType, unit: InventoryUnit, profitAmount?: number, count?: number) {
+    // For bulk additions like new_stock and shs_received, use batching
+    const batchableTypes = ['new_stock', 'shs_received'];
+    if (batchableTypes.includes(type) && !count) {
+      this.batchBuffer.push({ type, unit, profitAmount });
+
+      if (this.batchTimeout) clearTimeout(this.batchTimeout);
+      this.batchTimeout = setTimeout(() => this.processBatch(), this.BATCH_WINDOW_MS);
+      return;
+    }
+
+    // For explicit counts or non-batchable types, process immediately
+    this.addNotificationDirect(type, unit, profitAmount, count);
+  }
+
+  private addNotificationDirect(type: NotificationType, unit: InventoryUnit, profitAmount?: number, count?: number) {
     // Check if this notification was already fired (persisted across page reloads)
     const firedKey = `${unit.id}:${type}`;
     try {
@@ -139,9 +181,9 @@ class NotificationService {
     const titles: Record<NotificationType, string> = {
       sold: '✅ Unit Sold!',
       loss_sell: '⚠️ Loss Sell Alert',
-      new_stock: '📦 New Stock Added',
+      new_stock: count && count > 1 ? `📦 ${count} Units Added to Stock` : '📦 New Stock Added',
       return_processed: '↩️ Return Processed',
-      shs_received: '🚚 SHS Order Received',
+      shs_received: count && count > 1 ? `🚚 ${count} SHS Units Received` : '🚚 SHS Order Received',
       shs_removed: count && count > 1 ? `❌ ${count} SHS Units Removed` : '❌ SHS Stock Removed',
       unit_repaired: '🔧 Unit Repaired & Added to Inventory',
     };
@@ -149,9 +191,9 @@ class NotificationService {
     const messages: Record<NotificationType, string> = {
       sold: `${unit.model} (${unit.imei ? unit.imei.slice(-4) : unit.id.slice(-4)}) has been sold - Profit: £${profitAmount?.toFixed(2) || '0.00'}`,
       loss_sell: `⚠️ ${unit.model} sold at a LOSS of £${Math.abs(profitAmount || 0).toFixed(2)}`,
-      new_stock: `${unit.model} is now in stock and ready for listing.`,
+      new_stock: count && count > 1 ? `${count} × ${unit.model} units are now in stock and ready for listing.` : `${unit.model} is now in stock and ready for listing.`,
       return_processed: `${unit.model} has been returned and restored to inventory.`,
-      shs_received: `${unit.model} from SHS order has been received.`,
+      shs_received: count && count > 1 ? `${count} × ${unit.model} units from SHS order have been received.` : `${unit.model} from SHS order has been received.`,
       shs_removed: count && count > 1 ? `${count} × ${unit.model} SHS units removed from pending stock.` : `${unit.model} SHS pending stock has been removed.`,
       unit_repaired: `${unit.model} has been repaired and added back to inventory.`,
     };
