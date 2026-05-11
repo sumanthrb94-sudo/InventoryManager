@@ -59,12 +59,10 @@ export async function performOCR(file: File, onProgress?: (progress: number) => 
     onProgress?.(10);
 
     // Recognize text from image using data URL
-    const result = await tesseractWorker.recognize(fileDataUrl, 'eng', {
-      logger: (m: any) => {
-        const progress = Math.round(m.progress * 80) + 10; // 10-90%
-        onProgress?.(progress);
-      },
-    });
+    // Note: Cannot pass onProgress callback to logger due to Worker serialization.
+    // The logger callback itself would be serialized, causing DataCloneError.
+    // Progress is tracked at key milestones instead.
+    const result = await tesseractWorker.recognize(fileDataUrl, 'eng');
 
     onProgress?.(95);
 
