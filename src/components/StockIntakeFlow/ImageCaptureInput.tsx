@@ -1,15 +1,17 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Camera, Image as ImageIcon, ChevronLeft, Upload, AlertCircle, CheckCircle2, Loader } from 'lucide-react';
+import { Camera, Image as ImageIcon, ChevronLeft, Upload, AlertCircle, CheckCircle2, Loader, Cloud } from 'lucide-react';
 import { motion } from 'motion/react';
 import IMEIScanner from '../IMEIScanner';
 import OcrProgress from '../OCR/OcrProgress';
 import { performOCR, isOCRSupported } from '../../lib/ocr/ocrEngine';
 import { ocrCache } from '../../lib/ocr/ocrCacheService';
 import { imageService, type ImageMetadata } from '../../lib/imageService';
+import { supabaseStorageService } from '../../lib/supabaseStorageService';
+import { STORAGE_BUCKETS, getStoragePath } from '../../lib/supabase';
 import type { OCRResult } from '../../lib/ocr/ocrEngine';
 
 interface Props {
-  onImageSelected: (file: File, preview: string, ocrResult?: OCRResult) => void;
+  onImageSelected: (file: File, preview: string, ocrResult?: OCRResult, supabaseUrl?: string) => void;
   onBack: () => void;
   intakeType: 'single' | 'bulk';
 }
@@ -18,8 +20,12 @@ interface ImageState {
   metadata?: ImageMetadata;
   file: File | null;
   previewUrl: string;
+  supabaseUrl?: string;
   isValidating: boolean;
+  isUploading: boolean;
+  uploadProgress: number;
   validationError: string;
+  uploadError: string;
 }
 
 export default function ImageCaptureInput({ onImageSelected, onBack, intakeType }: Props) {
@@ -28,7 +34,10 @@ export default function ImageCaptureInput({ onImageSelected, onBack, intakeType 
     file: null,
     previewUrl: '',
     isValidating: false,
+    isUploading: false,
+    uploadProgress: 0,
     validationError: '',
+    uploadError: '',
   });
   const [error, setError] = useState('');
   const [ocrProgress, setOcrProgress] = useState(0);
@@ -36,6 +45,7 @@ export default function ImageCaptureInput({ onImageSelected, onBack, intakeType 
   const [ocrResult, setOcrResult] = useState<OCRResult | undefined>();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const processTimeoutRef = useRef<NodeJS.Timeout>();
+  const jobIdRef = useRef(`intake_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`);
 
   const handleGallerySelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -68,13 +78,17 @@ export default function ImageCaptureInput({ onImageSelected, onBack, intakeType 
       });
 
       // Update state with processed image
-      setImageState({
+      setImageState(prev => ({
+        ...prev,
         file,
         metadata,
         previewUrl: metadata.dataUrl,
         isValidating: false,
         validationError: '',
-      });
+      }));
+
+      // Upload to Supabase in background
+      uploadToSupabase(file, metadata);
 
       // Trigger OCR after image is loaded
       if (isOCRSupported()) {
@@ -92,6 +106,42 @@ export default function ImageCaptureInput({ onImageSelected, onBack, intakeType 
         validationError: errorMsg,
       }));
       setError(errorMsg);
+    }
+  };
+
+  const uploadToSupabase = async (file: File, metadata: ImageMetadata) => {
+    try {
+      console.log('[Supabase] Starting upload:', file.name);
+      setImageState(prev => ({ ...prev, isUploading: true, uploadError: '' }));
+
+      const storagePath = getStoragePath.stockIntakeImage(jobIdRef.current, file.name);
+
+      const uploadedImage = await supabaseStorageService.uploadImage(
+        file,
+        STORAGE_BUCKETS.STOCK_INTAKE_IMAGES,
+        storagePath,
+        (progress) => {
+          console.log(`[Supabase] Upload progress: ${progress}%`);
+          setImageState(prev => ({ ...prev, uploadProgress: progress }));
+        }
+      );
+
+      console.log('[Supabase] Upload successful:', uploadedImage.url);
+      setImageState(prev => ({
+        ...prev,
+        supabaseUrl: uploadedImage.url,
+        isUploading: false,
+        uploadProgress: 100,
+      }));
+    } catch (err) {
+      const errorMsg = err instanceof Error ? err.message : 'Upload failed';
+      console.error('[Supabase] Upload error:', errorMsg);
+      setImageState(prev => ({
+        ...prev,
+        isUploading: false,
+        uploadProgress: 0,
+        uploadError: errorMsg,
+      }));
     }
   };
 
@@ -168,7 +218,11 @@ export default function ImageCaptureInput({ onImageSelected, onBack, intakeType 
       setError('Please select an image or scan a barcode');
       return;
     }
-    onImageSelected(imageState.file, imageState.previewUrl, ocrResult);
+    if (imageState.isUploading) {
+      setError('Please wait for upload to complete');
+      return;
+    }
+    onImageSelected(imageState.file, imageState.previewUrl, ocrResult, imageState.supabaseUrl);
   };
 
   useEffect(() => {
@@ -300,6 +354,52 @@ export default function ImageCaptureInput({ onImageSelected, onBack, intakeType 
                 </div>
               )}
 
+              {/* Supabase Upload Progress */}
+              {imageState.isUploading && (
+                <div className="mb-3 p-3 bg-purple-50 rounded-lg border border-purple-200">
+                  <div className="flex items-center gap-2 mb-2">
+                    <Cloud size={16} className="text-purple-600 animate-pulse" />
+                    <p className="text-sm font-semibold text-purple-900">Uploading to Supabase...</p>
+                  </div>
+                  <div className="w-full h-2 bg-purple-200 rounded-full overflow-hidden">
+                    <motion.div
+                      initial={{ width: 0 }}
+                      animate={{ width: `${imageState.uploadProgress}%` }}
+                      transition={{ duration: 0.3 }}
+                      className="h-full bg-gradient-to-r from-purple-500 to-purple-600"
+                    />
+                  </div>
+                  <p className="text-xs text-purple-600 mt-1">{imageState.uploadProgress}%</p>
+                </div>
+              )}
+
+              {/* Supabase Upload Error */}
+              {imageState.uploadError && (
+                <motion.div
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  className="mb-3 p-3 bg-orange-50 rounded-lg border border-orange-200 flex items-start gap-2"
+                >
+                  <AlertCircle size={16} className="text-orange-600 flex-shrink-0 mt-0.5" />
+                  <div className="flex-1">
+                    <p className="text-sm text-orange-700">{imageState.uploadError}</p>
+                    <p className="text-xs text-orange-600 mt-1">Image saved locally but cloud upload failed. You can retry later.</p>
+                  </div>
+                </motion.div>
+              )}
+
+              {/* Supabase Upload Success */}
+              {imageState.supabaseUrl && !imageState.isUploading && (
+                <motion.div
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  className="mb-3 p-2 bg-purple-50 rounded-lg border border-purple-200 text-xs flex items-start gap-2"
+                >
+                  <CheckCircle2 size={14} className="text-purple-600 flex-shrink-0 mt-0.5" />
+                  <p className="text-purple-700">✓ Image uploaded to Supabase Cloud</p>
+                </motion.div>
+              )}
+
               {/* OCR Progress */}
               {isOcrProcessing && (
                 <div className="mb-3 p-3 bg-blue-50 rounded-lg border border-blue-200">
@@ -322,10 +422,10 @@ export default function ImageCaptureInput({ onImageSelected, onBack, intakeType 
               {/* Action Button */}
               <button
                 onClick={handleProceed}
-                disabled={isOcrProcessing}
+                disabled={isOcrProcessing || imageState.isUploading}
                 className="w-full bg-blue-600 text-white py-2 rounded-lg text-sm font-semibold hover:bg-blue-700 active:bg-blue-800 transition disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                {isOcrProcessing ? 'Processing...' : 'Continue with This Image'}
+                {isOcrProcessing ? 'Processing OCR...' : imageState.isUploading ? 'Uploading...' : 'Continue with This Image'}
               </button>
             </motion.div>
           )}

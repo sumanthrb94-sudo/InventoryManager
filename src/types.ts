@@ -83,6 +83,7 @@ export interface InventoryUnit {
   returnDate?: string;
   returnReason?: string;
   attachments?: string[];
+  imageUrl?: string;        // Supabase cloud image URL for the device
   ownerId: string;
   createdAt: any;
   updatedAt?: any;
