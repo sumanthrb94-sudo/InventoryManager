@@ -52,12 +52,8 @@ class NotificationService {
         return;
       }
       const loaded = JSON.parse(raw);
-      // Keep notifications for 30 days (don't auto-expire)
-      const thirtyDaysAgo = new Date();
-      thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-      this.notifications = loaded.filter((n: Notification) =>
-        new Date(n.timestamp) > thirtyDaysAgo
-      );
+      // Only load unread notifications (older read ones are discarded on reload)
+      this.notifications = loaded.filter((n: Notification) => !n.read);
     } catch { this.notifications = []; }
   }
 
@@ -183,13 +179,13 @@ class NotificationService {
   }
 
   markAsRead(id: string) {
-    this.notifications = this.notifications.map(n => n.id === id ? { ...n, read: true } : n);
+    this.notifications = this.notifications.filter(n => n.id !== id);
     this.saveToStorage();
     this.notify();
   }
 
   markAllAsRead() {
-    this.notifications = this.notifications.map(n => ({ ...n, read: true }));
+    this.notifications = [];
     this.saveToStorage();
     this.notify();
   }
