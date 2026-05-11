@@ -35,13 +35,20 @@ async function getWorker() {
   if (!worker) {
     try {
       const TesseractModule = await loadTesseract();
+      console.log('[OCR] Initializing Tesseract worker with CDN...');
+
+      // Use CDN-hosted Tesseract files for production reliability
+      // This avoids need to manage local files and works globally
       worker = await TesseractModule.createWorker('eng', 1, {
-        workerPath: '/tesseract/worker.min.js',
-        langPath: '/tesseract/lang-data',
+        corePath: 'https://cdn.jsdelivr.net/npm/tesseract.js-core@v4/tesseract-core.wasm.js',
+        workerPath: 'https://cdn.jsdelivr.net/npm/tesseract.js@v4/dist/worker.min.js',
+        langPath: 'https://cdn.jsdelivr.net/npm/tesseract.js-data/4.0.0',
       });
+
+      console.log('[OCR] Worker initialized successfully');
     } catch (error) {
       workerInitError = error as Error;
-      console.warn('[OCR] Worker initialization failed, OCR will be disabled:', workerInitError.message);
+      console.error('[OCR] Worker initialization failed:', workerInitError.message);
       throw workerInitError;
     }
   }
@@ -61,21 +68,35 @@ export async function performOCR(file: File, onProgress?: (progress: number) => 
     });
 
     console.log('[OCR] File read as data URL, size:', fileDataUrl.length);
+    onProgress?.(5);
 
-    // Get or create worker
-    const tesseractWorker = await getWorker();
-    onProgress?.(10);
+    // Get or create worker with retry logic
+    let tesseractWorker;
+    try {
+      tesseractWorker = await getWorker();
+    } catch (error) {
+      console.error('[OCR] Worker initialization failed, retrying...', error);
+      // Force reinitialize on next attempt
+      worker = null;
+      workerInitError = null;
+      tesseractWorker = await getWorker();
+    }
+
+    onProgress?.(15);
 
     // Recognize text from image using data URL
     // Note: Cannot pass onProgress callback to logger due to Worker serialization.
     // The logger callback itself would be serialized, causing DataCloneError.
     // Progress is tracked at key milestones instead.
+    console.log('[OCR] Starting recognition...');
     const result = await tesseractWorker.recognize(fileDataUrl, 'eng');
 
-    onProgress?.(95);
+    onProgress?.(90);
 
     const extractedText = result.data.text || '';
     const ocrConfidence = (result.data.confidence || 0) / 100;
+
+    console.log('[OCR] Recognition complete, text length:', extractedText.length, 'confidence:', ocrConfidence);
 
     // Extract device information from OCR text
     const device = extractDeviceFromText(extractedText);
@@ -91,7 +112,9 @@ export async function performOCR(file: File, onProgress?: (progress: number) => 
       processingTime,
     };
   } catch (error) {
-    throw new Error(`OCR processing failed: ${error instanceof Error ? error.message : String(error)}`);
+    const errorMsg = error instanceof Error ? error.message : String(error);
+    console.error('[OCR] Processing failed:', errorMsg);
+    throw new Error(`OCR processing failed: ${errorMsg}`);
   }
 }
 

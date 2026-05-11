@@ -93,9 +93,16 @@ export default function ImageCaptureInput({ onImageSelected, onBack, intakeType 
       // Upload to Imgbb in background
       uploadToImgbb(file, metadata);
 
-      // OCR disabled - worker files not available in deployment
-      // Users can manually fill device details if OCR data is needed
-      console.log('[Gallery] OCR disabled (optional feature, not critical for workflow)');
+      // Trigger OCR in background (non-blocking) if supported
+      if (isOCRSupported()) {
+        if (processTimeoutRef.current) clearTimeout(processTimeoutRef.current);
+        processTimeoutRef.current = setTimeout(() => {
+          console.log('[Gallery] Starting OCR processing...');
+          performOCROnFile(file, metadata);
+        }, 500); // Wait for image to load
+      } else {
+        console.log('[Gallery] OCR not supported on this device');
+      }
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : 'Failed to process image';
       console.error('[Gallery] Error processing image:', errorMsg, err);
@@ -157,22 +164,33 @@ export default function ImageCaptureInput({ onImageSelected, onBack, intakeType 
 
       console.log('[OCR] Processing image:', metadata?.filename);
 
-      // Perform OCR
-      const result = await performOCR(file, (progress) => {
-        setOcrProgress(progress);
-      });
+      // Create timeout promise
+      const timeoutPromise = new Promise((_, reject) =>
+        setTimeout(() => reject(new Error('OCR processing timeout (>30s)')), 30000)
+      );
+
+      // Race OCR against timeout
+      const result = await Promise.race([
+        performOCR(file, (progress) => {
+          setOcrProgress(progress);
+        }),
+        timeoutPromise as Promise<any>
+      ]);
 
       // Cache result
       await ocrCache.set(file, result);
       setOcrResult(result);
+      console.log('[OCR] Processing complete, confidence:', result.confidence);
       setIsOcrProcessing(false);
       setOcrProgress(100);
     } catch (err) {
       // OCR is optional - fail gracefully without blocking the workflow
-      console.warn('[OCR] Processing skipped (optional):', err instanceof Error ? err.message : String(err));
+      const errorMsg = err instanceof Error ? err.message : String(err);
+      console.warn('[OCR] Processing skipped (optional):', errorMsg);
       setIsOcrProcessing(false);
       setOcrProgress(0);
       setOcrResult(undefined);
+      // Don't show error to user - OCR is nice-to-have enhancement
     }
   };
 
@@ -373,7 +391,26 @@ export default function ImageCaptureInput({ onImageSelected, onBack, intakeType 
               )}
 
 
-              {/* Action Button - Only blocks during upload, not OCR (OCR is optional) */}
+              {/* OCR Progress */}
+              {isOcrProcessing && (
+                <div className="mb-3 p-3 bg-blue-50 rounded-lg border border-blue-200">
+                  <OcrProgress progress={ocrProgress} isProcessing={isOcrProcessing} />
+                </div>
+              )}
+
+              {/* OCR Results Summary */}
+              {ocrResult && !isOcrProcessing && (
+                <div className="mb-3 p-2 bg-emerald-50 rounded-lg border border-emerald-200 text-xs">
+                  <p className="text-emerald-700 font-semibold mb-1">✓ Auto-detected information:</p>
+                  <div className="space-y-1 text-emerald-600">
+                    {ocrResult.device.imei.confidence > 0 && <p>• IMEI: {ocrResult.device.imei.value}</p>}
+                    {ocrResult.device.brand.confidence > 0 && <p>• Brand: {ocrResult.device.brand.value}</p>}
+                    {ocrResult.device.model.confidence > 0 && <p>• Model: {ocrResult.device.model.value}</p>}
+                  </div>
+                </div>
+              )}
+
+              {/* Action Button - Only blocks during upload, OCR runs in background */}
               <button
                 onClick={handleProceed}
                 disabled={imageState.isUploading}
