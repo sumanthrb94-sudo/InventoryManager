@@ -151,26 +151,38 @@ export default function ImageCaptureInput({ onImageSelected, onBack, intakeType 
         <div className="space-y-3">
           {/* Hidden file input */}
           <input
+            key="file-input-gallery"
             ref={fileInputRef}
             type="file"
             accept="image/*"
             onChange={handleGallerySelect}
+            onClick={(e) => {
+              // Reset value so same file can be selected again
+              (e.target as HTMLInputElement).value = '';
+            }}
             className="hidden"
             aria-label="Select image from gallery"
+            style={{ display: 'none' }}
           />
 
-          {/* Clickable upload area */}
-          <motion.button
+          {/* Clickable upload area - REGULAR BUTTON (not motion.button) */}
+          <button
+            type="button"
             onClick={triggerFileInput}
-            whileTap={{ scale: 0.98 }}
-            className="w-full p-6 sm:p-8 border-2 border-dashed border-gray-300 rounded-2xl text-center hover:border-blue-500 hover:bg-blue-50 active:bg-blue-100 transition cursor-pointer group"
+            onTouchEnd={triggerFileInput}
+            className="w-full p-6 sm:p-8 border-2 border-dashed border-gray-300 rounded-2xl text-center hover:border-blue-500 hover:bg-blue-50 active:bg-blue-100 transition cursor-pointer group text-center"
+            style={{
+              WebkitAppearance: 'none',
+              appearance: 'none',
+            }}
           >
             <Upload size={40} className="mx-auto text-gray-400 group-hover:text-blue-600 mb-3" />
             <p className="font-semibold text-gray-900">Choose an image</p>
             <p className="text-xs text-gray-500 mt-1">Tap to select from your phone</p>
-          </motion.button>
+          </button>
 
           <button
+            type="button"
             onClick={() => setMode('select')}
             className="w-full py-2.5 border border-gray-300 rounded-lg text-sm font-semibold hover:bg-gray-50 active:bg-gray-100 transition flex items-center justify-center gap-2"
           >
