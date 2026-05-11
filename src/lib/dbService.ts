@@ -10,24 +10,9 @@ import {
   QuerySnapshot, DocumentData,
 } from 'firebase/firestore';
 import { db } from './firebase';
-import seedData from './clientSeedData.json';
 
 const listeners:  Record<string, Array<(data: any[]) => void>> = {};
-
-// DEMO MODE: Firestore is unreachable (no auth + closed rules), but the
-// app's UI is driven through this in-memory cache layer — every dbService
-// write updates `cachedData` and emits to subscribers BEFORE touching
-// Firestore, and the Firestore write is wrapped in try/catch. That means
-// pre-seeding the cache here gives the demo:
-//   - 150 real-looking units + 5 suppliers on first paint
-//   - Add / sell / return / edit all appear to work and persist within
-//     the session (Firestore writes fail silently in the console)
-// As soon as Firebase is reachable again, the first onSnapshot tick
-// replaces this seed with the real server data. No revert needed.
-const cachedData: Record<string, any[]> = {
-  inventoryUnits: ((seedData as any).units ?? []) as any[],
-  suppliers:      ((seedData as any).suppliers ?? []) as any[],
-};
+const cachedData: Record<string, any[]> = {};
 
 // ── Collection name map (app name → Firestore collection) ─────────────────────
 const COL: Record<string, string> = {

@@ -1,6 +1,6 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect } from 'react';
 import { onAuthStateChanged, User } from 'firebase/auth';
-import { auth, ensureAnonymousSignIn, signOut, teamUserForEmail } from './lib/firebase';
+import { auth, signInWithGoogle, signOut } from './lib/firebase';
 import {
   PackagePlus, ShoppingCart, RefreshCw, BarChart2,
   LogOut, Plus, FileSpreadsheet, LayoutDashboard,
@@ -34,63 +34,22 @@ const APP_NAME    = 'MOBILEPHONEMARKET';
 const APP_TAGLINE = 'Inventory Manager';
 
 export default function App() {
-  // Build marker — open DevTools console and look for this line. If you see
-  // it, the universal-access build is live. If not, you're on an older
-  // cached deploy; hard refresh (Ctrl/Cmd+Shift+R).
-  useEffect(() => {
-    console.log('[App] universal-access build — no login required');
-  }, []);
-
   if (new URLSearchParams(window.location.search).get('seed') === '1') return <DataSeedPage />;
   return <AppWithAuth />;
 }
 
-// TEMP: universal access — no auth gate. We don't block on Firebase Auth
-// resolving because the user can't update Firebase Console right now to
-// enable a sign-in provider. We still TRY anonymous sign-in in the
-// background so Firestore reads/writes succeed if anonymous is enabled
-// later, but the UI renders immediately either way using a stub User.
-//
-// Caveat: if Firestore security rules require request.auth != null and no
-// real auth ever resolves, every Firestore call will return
-// PERMISSION_DENIED and the inventory will appear empty. The fix is one
-// toggle in Firebase Console → Authentication → Sign-in method →
-// Anonymous → Enable. Until then we just let the UI render so the user
-// isn't stuck behind a gate.
-//
-// To re-enable proper login: revert this component to gate on `user` and
-// render <LoginPage /> when null. The LoginPage + signInWithUsername code
-// is still present below.
 function AppWithAuth() {
-  const [authUser, setAuthUser] = useState<User | null>(null);
+  const [user, setUser]       = useState<User | null>(null);
+  const [loading, setLoading] = useState(true);
+  useEffect(() => onAuthStateChanged(auth, u => { setUser(u); setLoading(false); }), []);
 
-  useEffect(() => {
-    const unsub = onAuthStateChanged(auth, u => {
-      setAuthUser(u);
-      if (!u) {
-        // Best-effort: try to get a real auth.uid in the background so
-        // Firestore writes can succeed. Failures are non-fatal — the UI
-        // is already rendering against the stub user.
-        ensureAnonymousSignIn().catch(err => {
-          console.warn(
-            '[auth] Anonymous sign-in unavailable; Firestore writes may ' +
-            'fail until Anonymous is enabled in Firebase Console.',
-            err?.code || err,
-          );
-        });
-      }
-    });
-    return unsub;
-  }, []);
-
-  const stubUser = useMemo(() => ({
-    uid: 'guest',
-    email: null,
-    displayName: 'Guest',
-    photoURL: null,
-  } as unknown as User), []);
-
-  const user = authUser ?? stubUser;
+  if (loading) return (
+    <div className="min-h-screen bg-white flex items-center justify-center">
+      <motion.div animate={{ rotate: 360 }} transition={{ duration: 1, repeat: Infinity, ease: 'linear' }}
+        className="w-8 h-8 border-2 border-black border-t-transparent rounded-full" />
+    </div>
+  );
+  if (!user) return <LoginPage />;
 
   return (
     <ErrorBoundary>
@@ -349,22 +308,17 @@ function AppShell({ user }: { user: User }) {
 
         {/* User footer */}
         <div className="flex-shrink-0 p-3 border-t border-slate-100 space-y-1">
-          {(() => {
-            const teamUser = teamUserForEmail(user.email);
-            const displayName = teamUser?.displayName || user.displayName || teamUser?.username || 'User';
-            const handle = teamUser?.username ? `@${teamUser.username}` : user.email;
-            return (
-              <div className="flex items-center gap-2.5 px-3 py-2.5 rounded-xl bg-slate-50">
-                <div className="w-7 h-7 rounded-lg bg-slate-900 flex items-center justify-center flex-shrink-0 text-white text-xs font-bold">
-                  {displayName[0].toUpperCase()}
-                </div>
-                <div className="flex-1 min-w-0">
-                  <p className="text-[10px] font-bold text-slate-900 truncate leading-none">{displayName}</p>
-                  <p className="text-[9px] text-slate-400 font-mono truncate mt-0.5">{handle}</p>
-                </div>
-              </div>
-            );
-          })()}
+          <div className="flex items-center gap-2.5 px-3 py-2.5 rounded-xl bg-slate-50">
+            {user.photoURL
+              ? <img src={user.photoURL} alt="" className="w-7 h-7 rounded-lg object-cover flex-shrink-0" referrerPolicy="no-referrer" />
+              : <div className="w-7 h-7 rounded-lg bg-slate-900 flex items-center justify-center flex-shrink-0 text-white text-xs font-bold">
+                  {(user.displayName || user.email || 'U')[0].toUpperCase()}
+                </div>}
+            <div className="flex-1 min-w-0">
+              <p className="text-[10px] font-bold text-slate-900 truncate leading-none">{user.displayName || 'User'}</p>
+              <p className="text-[9px] text-slate-400 font-mono truncate mt-0.5">{user.email}</p>
+            </div>
+          </div>
           <button onClick={() => signOut()}
             className="w-full flex items-center gap-2 px-3 py-2 rounded-xl text-[10px] font-bold uppercase tracking-widest text-slate-500 hover:text-slate-900 hover:bg-slate-100 transition-all">
             <LogOut size={12} strokeWidth={2.5} /> Sign Out
@@ -492,3 +446,100 @@ function AppShell({ user }: { user: User }) {
   );
 }
 
+
+// ── Login Page ────────────────────────────────────────────────────────────────
+function LoginPage() {
+  const [loading, setLoading] = useState(false);
+  const [error, setError]     = useState('');
+
+  const handleSignIn = async () => {
+    setError('');
+    setLoading(true);
+    try {
+      await signInWithGoogle();
+    } catch (err: any) {
+      if (err?.code === 'auth/popup-closed-by-user' || err?.code === 'auth/cancelled-popup-request') {
+        // user dismissed
+      } else if (err?.code === 'auth/unauthorized-domain') {
+        setError('Domain not authorised — add it in Firebase Auth → Authorised domains.');
+      } else if (err?.code === 'auth/operation-not-allowed') {
+        setError('Google sign-in is not enabled. Firebase Console → Authentication → Sign-in method → Google → Enable.');
+      } else {
+        setError(err?.message || 'Sign-in failed. Please try again.');
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="min-h-[100dvh] bg-white flex">
+      <div className="hidden lg:flex w-1/2 bg-black flex-col justify-between p-16">
+        <div>
+          <h1 className="text-5xl font-bold tracking-tighter uppercase text-white font-display">{APP_NAME}</h1>
+          <p className="text-[9px] text-gray-500 font-mono uppercase tracking-[0.4em] mt-2">{APP_TAGLINE} · Admin Portal</p>
+        </div>
+        <div className="space-y-8">
+          {[
+            { label: 'Real-time Stock Tracking',  desc: 'IMEI-level visibility for every unit' },
+            { label: 'Live Multi-device Sync',     desc: 'Any change is instant everywhere' },
+            { label: 'Excel Import',               desc: 'One-click migration from your stock sheet' },
+          ].map(f => (
+            <div key={f.label} className="flex items-start gap-4">
+              <div className="w-1 h-1 mt-2 bg-white rounded-full flex-shrink-0" />
+              <div>
+                <p className="text-sm font-bold text-white tracking-tight">{f.label}</p>
+                <p className="text-[10px] text-gray-500 font-mono mt-0.5">{f.desc}</p>
+              </div>
+            </div>
+          ))}
+        </div>
+        <p className="text-[9px] text-gray-600 font-mono uppercase tracking-widest">Admin access only</p>
+      </div>
+
+      <div className="flex-1 flex items-center justify-center p-6">
+        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}
+          className="w-full max-w-sm space-y-8">
+          <div className="lg:hidden text-center">
+            <h1 className="text-4xl font-bold tracking-tighter uppercase font-display">{APP_NAME}</h1>
+            <p className="text-[10px] text-gray-400 font-mono uppercase tracking-[0.4em] mt-1">{APP_TAGLINE}</p>
+          </div>
+          <div>
+            <h2 className="text-2xl font-bold tracking-tight">Sign In</h2>
+            <p className="text-sm text-gray-500 mt-1">Use your Google account to continue</p>
+          </div>
+          <AnimatePresence>
+            {error && (
+              <motion.p initial={{ opacity: 0, y: -4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}
+                className="text-xs text-red-600 font-mono bg-red-50 border border-red-100 px-4 py-2.5 rounded-xl">
+                {error}
+              </motion.p>
+            )}
+          </AnimatePresence>
+          <button onClick={handleSignIn} disabled={loading}
+            className="w-full flex items-center justify-center gap-3 bg-white border border-gray-300 rounded-xl py-3.5 px-6 text-sm font-semibold text-gray-700 hover:bg-gray-50 hover:border-gray-400 transition-all active:scale-[0.98] disabled:opacity-50 shadow-sm">
+            {loading
+              ? <motion.div animate={{ rotate: 360 }} transition={{ duration: 0.8, repeat: Infinity, ease: 'linear' }}
+                  className="w-5 h-5 border-2 border-gray-400 border-t-transparent rounded-full" />
+              : <GoogleIcon />}
+            {loading ? 'Signing in…' : 'Continue with Google'}
+          </button>
+          <p className="text-[9px] text-gray-400 font-mono text-center uppercase tracking-wide">
+            Internal tool · MOBILEPHONEMARKET staff only
+          </p>
+        </motion.div>
+      </div>
+    </div>
+  );
+}
+
+function GoogleIcon() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
+      <path d="M17.64 9.20455C17.64 8.56636 17.5827 7.95273 17.4764 7.36364H9V10.845H13.8436C13.635 11.97 13.0009 12.9232 12.0477 13.5614V15.8195H14.9564C16.6582 14.2527 17.64 11.9455 17.64 9.20455Z" fill="#4285F4"/>
+      <path d="M9 18C11.43 18 13.4673 17.1941 14.9564 15.8195L12.0477 13.5614C11.2418 14.1014 10.2109 14.4205 9 14.4205C6.65591 14.4205 4.67182 12.8373 3.96409 10.71H0.957275V13.0418C2.43818 15.9832 5.48182 18 9 18Z" fill="#34A853"/>
+      <path d="M3.96409 10.71C3.78409 10.17 3.68182 9.59318 3.68182 9C3.68182 8.40682 3.78409 7.83 3.96409 7.29V4.95818H0.957275C0.347727 6.17318 0 7.54773 0 9C0 10.4523 0.347727 11.8268 0.957275 13.0418L3.96409 10.71Z" fill="#FBBC05"/>
+      <path d="M9 3.57955C10.3214 3.57955 11.5077 4.03364 12.4405 4.92545L15.0218 2.34409C13.4632 0.891818 11.4259 0 9 0C5.48182 0 2.43818 2.01682 0.957275 4.95818L3.96409 7.29C4.67182 5.16273 6.65591 3.57955 9 3.57955Z" fill="#EA4335"/>
+    </svg>
+  );
+}
