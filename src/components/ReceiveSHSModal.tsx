@@ -1,9 +1,11 @@
-import React, { useState } from 'react';
-import { X, CheckCircle2, PackageCheck, Plus, Trash2 } from 'lucide-react';
+import React, { useState, useMemo } from 'react';
+import { X, CheckCircle2, PackageCheck, Plus, Trash2, Lock } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { dbService } from '../lib/dbService';
-import { InventoryUnit } from '../types';
+import { InventoryUnit, Supplier } from '../types';
 import { notificationService } from '../lib/notificationService';
+import { generateBatchId, formatBatchId } from '../lib/batchUtils';
+import { useInventoryStore } from '../lib/inventoryStore';
 
 interface Props {
   unit: InventoryUnit;
@@ -17,6 +19,7 @@ interface ColorVariant {
 }
 
 export default function ReceiveSHSModal({ unit, onClose }: Props) {
+  const { suppliers } = useInventoryStore();
   const [imei, setImei]     = useState('');
   const [quantity, setQuantity] = useState(1);
   const [colorVariants, setColorVariants] = useState<ColorVariant[]>([]);
@@ -25,6 +28,12 @@ export default function ReceiveSHSModal({ unit, onClose }: Props) {
   const [saving, setSaving] = useState(false);
   const [saved, setSaved]   = useState(false);
   const [error, setError]   = useState('');
+
+  // Auto-generate batch ID based on supplier
+  const batchId = useMemo(() => {
+    const supplier = suppliers.find(s => s.id === unit.supplierId);
+    return generateBatchId(supplier?.name || 'Unknown');
+  }, [unit.supplierId, suppliers]);
 
   const cleanImei = imei.replace(/\D/g, '');
   const isNumeric    = /^\d+$/.test(cleanImei);
@@ -153,7 +162,7 @@ export default function ReceiveSHSModal({ unit, onClose }: Props) {
               buyPrice: unit.buyPrice,
               dateIn: baseDate,
               supplierId: unit.supplierId,
-              batchId: unit.batchId,
+              batchId: batchId,
               status: 'available',
               flags: unit.flags || [],
               notes: (unit.notes || '').replace(/SHS\s*-\s*Expected stock\s*·?\s*/i, '').trim(),
@@ -257,13 +266,26 @@ export default function ReceiveSHSModal({ unit, onClose }: Props) {
         </div>
 
         <div className="p-5 space-y-4 max-h-[calc(100dvh-200px)] overflow-y-auto">
-          <div className="bg-blue-50 border border-blue-100 rounded-xl px-4 py-3 space-y-1">
-            <p className="text-[8px] font-bold uppercase tracking-widest text-blue-500">Expected Unit</p>
-            <p className="text-xs font-bold">{unit.model}</p>
-            <p className="text-[9px] text-gray-500 font-mono">
-              {unit.storage && `${unit.storage} · `}£{unit.buyPrice} BP
-              {unit.supplierId ? ` · ${unit.supplierId}` : ''}
-            </p>
+          <div className="bg-blue-50 border border-blue-100 rounded-xl px-4 py-3 space-y-2">
+            <div className="flex items-center justify-between">
+              <div className="flex-1">
+                <p className="text-[8px] font-bold uppercase tracking-widest text-blue-500">Expected Unit</p>
+                <p className="text-xs font-bold">{unit.model}</p>
+                <p className="text-[9px] text-gray-500 font-mono">
+                  {unit.storage && `${unit.storage} · `}£{unit.buyPrice} BP
+                  {unit.supplierId ? ` · ${unit.supplierId}` : ''}
+                </p>
+              </div>
+              <div className="flex items-center gap-1 bg-white border border-blue-200 rounded-lg px-2.5 py-1.5 flex-shrink-0">
+                <Lock size={11} className="text-blue-600" />
+                <p className="text-[8px] font-bold text-blue-600 uppercase tracking-widest whitespace-nowrap">Auto Batch</p>
+              </div>
+            </div>
+            <div className="bg-white border border-blue-200 rounded-lg px-3 py-2">
+              <p className="text-[7px] font-mono text-gray-400 uppercase tracking-widest mb-0.5">Batch ID</p>
+              <p className="text-[9px] font-bold font-mono text-gray-900 break-all">{formatBatchId(batchId)}</p>
+              <p className="text-[8px] text-gray-400 font-mono mt-1">Format: SUP-YYYYMMDD-HHMMSS</p>
+            </div>
           </div>
 
           <div className="grid grid-cols-3 gap-3">
