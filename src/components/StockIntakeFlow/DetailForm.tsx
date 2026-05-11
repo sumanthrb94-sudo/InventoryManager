@@ -4,6 +4,8 @@ import { motion } from 'motion/react';
 import { useInventoryStore } from '../../lib/inventoryStore';
 import { GRADE_OPTIONS, STORAGE_OPTIONS } from '../../lib/unitConstants';
 import { GradeSelect, StorageSelect } from '../FormSelects';
+import ConfidenceBadge from '../OCR/ConfidenceBadge';
+import type { OCRResult } from '../../lib/ocr/ocrEngine';
 
 const COLOUR_OPTIONS = [
   'Black','White','Blue','Green','Red','Pink','Purple','Yellow',
@@ -42,6 +44,7 @@ interface Props {
   error: string;
   setError: (v: string) => void;
   batchId: string;
+  ocrResult?: OCRResult;
 }
 
 export default function DetailForm({
@@ -73,6 +76,7 @@ export default function DetailForm({
   error,
   setError,
   batchId,
+  ocrResult,
 }: Props) {
   const { suppliers } = useInventoryStore();
 
@@ -107,9 +111,14 @@ export default function DetailForm({
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
         {/* IMEI - larger if bulk, reduced if single */}
         <div className={intakeType === 'bulk' ? 'col-span-2' : 'col-span-2'}>
-          <label className="block text-xs font-bold text-gray-700 uppercase mb-1">
-            {intakeType === 'bulk' ? 'Starting IMEI (Optional)' : 'IMEI'}
-          </label>
+          <div className="flex items-center justify-between mb-1">
+            <label className="block text-xs font-bold text-gray-700 uppercase">
+              {intakeType === 'bulk' ? 'Starting IMEI (Optional)' : 'IMEI'}
+            </label>
+            {ocrResult?.device.imei.confidence > 0 && (
+              <ConfidenceBadge confidence={ocrResult.device.imei.confidence} label="OCR" showIcon={false} />
+            )}
+          </div>
           <input
             type="text"
             value={imei}
@@ -139,7 +148,12 @@ export default function DetailForm({
 
         {/* Model */}
         <div className="col-span-2">
-          <label className="block text-xs font-bold text-gray-700 uppercase mb-1">Model *</label>
+          <div className="flex items-center justify-between mb-1">
+            <label className="block text-xs font-bold text-gray-700 uppercase">Model *</label>
+            {ocrResult?.device.model.confidence > 0 && (
+              <ConfidenceBadge confidence={ocrResult.device.model.confidence} label="OCR" showIcon={false} />
+            )}
+          </div>
           <input
             type="text"
             value={model}
@@ -166,7 +180,12 @@ export default function DetailForm({
 
         {/* Brand */}
         <div>
-          <label className="block text-xs font-bold text-gray-700 uppercase mb-1">Brand</label>
+          <div className="flex items-center justify-between mb-1">
+            <label className="block text-xs font-bold text-gray-700 uppercase">Brand</label>
+            {ocrResult?.device.brand.confidence > 0 && (
+              <ConfidenceBadge confidence={ocrResult.device.brand.confidence} label="OCR" showIcon={false} />
+            )}
+          </div>
           <input
             type="text"
             value={brand}
@@ -178,7 +197,12 @@ export default function DetailForm({
 
         {/* Storage */}
         <div>
-          <label className="block text-xs font-bold text-gray-700 uppercase mb-1">Storage</label>
+          <div className="flex items-center justify-between mb-1">
+            <label className="block text-xs font-bold text-gray-700 uppercase">Storage</label>
+            {ocrResult?.device.storage.confidence > 0 && (
+              <ConfidenceBadge confidence={ocrResult.device.storage.confidence} label="OCR" showIcon={false} />
+            )}
+          </div>
           <select
             value={storage}
             onChange={e => setStorage(e.target.value)}
@@ -193,13 +217,23 @@ export default function DetailForm({
 
         {/* Grade */}
         <div>
-          <label className="block text-xs font-bold text-gray-700 uppercase mb-1">Grade</label>
+          <div className="flex items-center justify-between mb-1">
+            <label className="block text-xs font-bold text-gray-700 uppercase">Grade</label>
+            {ocrResult?.device.grade.confidence > 0 && (
+              <ConfidenceBadge confidence={ocrResult.device.grade.confidence} label="OCR" showIcon={false} />
+            )}
+          </div>
           <GradeSelect value={grade} onChange={setGrade} />
         </div>
 
         {/* Colour */}
         <div className="col-span-2">
-          <label className="block text-xs font-bold text-gray-700 uppercase mb-1">Colour *</label>
+          <div className="flex items-center justify-between mb-1">
+            <label className="block text-xs font-bold text-gray-700 uppercase">Colour *</label>
+            {ocrResult?.device.colour.confidence > 0 && (
+              <ConfidenceBadge confidence={ocrResult.device.colour.confidence} label="OCR" showIcon={false} />
+            )}
+          </div>
           <select
             value={colour}
             onChange={e => setColour(e.target.value)}

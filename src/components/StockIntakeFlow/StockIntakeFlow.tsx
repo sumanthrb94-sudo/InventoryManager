@@ -6,6 +6,7 @@ import { dbService } from '../../lib/dbService';
 import { notificationService } from '../../lib/notificationService';
 import { useInventoryStore } from '../../lib/inventoryStore';
 import { generateBatchId } from '../../lib/batchUtils';
+import type { OCRResult } from '../../lib/ocr/ocrEngine';
 import IntakeTypeSelector from './IntakeTypeSelector';
 import ImageCaptureInput from './ImageCaptureInput';
 import DetailForm from './DetailForm';
@@ -35,6 +36,7 @@ export default function StockIntakeFlow({ onClose }: Props) {
   // Image & extraction
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [imagePreview, setImagePreview] = useState<string>('');
+  const [ocrResult, setOcrResult] = useState<OCRResult | undefined>();
 
   // Form fields
   const [imei, setImei] = useState('');
@@ -76,9 +78,33 @@ export default function StockIntakeFlow({ onClose }: Props) {
     setStage('image-input');
   };
 
-  const handleImageSelected = (file: File, preview: string) => {
+  const handleImageSelected = (file: File, preview: string, ocrData?: OCRResult) => {
     setImageFile(file);
     setImagePreview(preview);
+    setOcrResult(ocrData);
+
+    // Pre-populate form fields from OCR result if available
+    if (ocrData?.device) {
+      if (ocrData.device.imei.confidence > 0.6) {
+        setImei(ocrData.device.imei.value);
+      }
+      if (ocrData.device.brand.confidence > 0.6) {
+        setBrand(ocrData.device.brand.value);
+      }
+      if (ocrData.device.model.confidence > 0.6) {
+        setModel(ocrData.device.model.value);
+      }
+      if (ocrData.device.storage.confidence > 0.6) {
+        setStorage(ocrData.device.storage.value);
+      }
+      if (ocrData.device.grade.confidence > 0.6) {
+        setGrade(ocrData.device.grade.value);
+      }
+      if (ocrData.device.colour.confidence > 0.6) {
+        setColour(ocrData.device.colour.value);
+      }
+    }
+
     setStage('details');
   };
 
@@ -383,6 +409,7 @@ export default function StockIntakeFlow({ onClose }: Props) {
                   error={error}
                   setError={setError}
                   batchId={generatedBatchId}
+                  ocrResult={ocrResult}
                 />
               </motion.div>
             )}

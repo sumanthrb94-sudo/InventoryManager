@@ -2,9 +2,13 @@ import React, { useState, useRef } from 'react';
 import { Camera, Image as ImageIcon, ChevronLeft, Upload } from 'lucide-react';
 import { motion } from 'motion/react';
 import IMEIScanner from '../IMEIScanner';
+import OcrProgress from '../OCR/OcrProgress';
+import { performOCR, isOCRSupported } from '../../lib/ocr/ocrEngine';
+import { ocrCache } from '../../lib/ocr/ocrCacheService';
+import type { OCRResult } from '../../lib/ocr/ocrEngine';
 
 interface Props {
-  onImageSelected: (file: File, preview: string) => void;
+  onImageSelected: (file: File, preview: string, ocrResult?: OCRResult) => void;
   onBack: () => void;
   intakeType: 'single' | 'bulk';
 }
@@ -14,9 +18,12 @@ export default function ImageCaptureInput({ onImageSelected, onBack, intakeType 
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [preview, setPreview] = useState('');
   const [error, setError] = useState('');
+  const [ocrProgress, setOcrProgress] = useState(0);
+  const [isOcrProcessing, setIsOcrProcessing] = useState(false);
+  const [ocrResult, setOcrResult] = useState<OCRResult | undefined>();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const handleGallerySelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleGallerySelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
@@ -26,13 +33,51 @@ export default function ImageCaptureInput({ onImageSelected, onBack, intakeType 
     }
 
     setSelectedFile(file);
+    setError('');
+
     const reader = new FileReader();
     reader.onload = (evt) => {
       const dataUrl = evt.target?.result as string;
       setPreview(dataUrl);
-      setError('');
     };
     reader.readAsDataURL(file);
+
+    // Trigger OCR if supported
+    if (isOCRSupported()) {
+      await performOCROnFile(file);
+    }
+  };
+
+  const performOCROnFile = async (file: File) => {
+    try {
+      setIsOcrProcessing(true);
+      setOcrProgress(0);
+
+      // Check cache first
+      const cached = await ocrCache.get(file);
+      if (cached) {
+        setOcrResult(cached);
+        setIsOcrProcessing(false);
+        setOcrProgress(100);
+        return;
+      }
+
+      // Perform OCR
+      const result = await performOCR(file, (progress) => {
+        setOcrProgress(progress);
+      });
+
+      // Cache result
+      await ocrCache.set(file, result);
+      setOcrResult(result);
+      setIsOcrProcessing(false);
+      setOcrProgress(100);
+    } catch (err) {
+      console.warn('OCR processing failed, continuing without auto-fill:', err);
+      setIsOcrProcessing(false);
+      setOcrProgress(0);
+      // Don't show error to user - OCR is optional
+    }
   };
 
   const handleCameraScan = (value: string) => {
@@ -56,7 +101,7 @@ export default function ImageCaptureInput({ onImageSelected, onBack, intakeType 
       setError('Please select an image or scan a barcode');
       return;
     }
-    onImageSelected(selectedFile, preview);
+    onImageSelected(selectedFile, preview, ocrResult);
   };
 
   const triggerFileInput = () => {
@@ -109,11 +154,32 @@ export default function ImageCaptureInput({ onImageSelected, onBack, intakeType 
                   <img src={preview} alt="Preview" className="w-full h-full object-cover" />
                 </div>
               )}
+
+              {/* OCR Progress */}
+              {isOcrProcessing && (
+                <div className="mb-3 p-3 bg-blue-50 rounded-lg border border-blue-200">
+                  <OcrProgress progress={ocrProgress} isProcessing={isOcrProcessing} />
+                </div>
+              )}
+
+              {/* OCR Results Summary */}
+              {ocrResult && !isOcrProcessing && (
+                <div className="mb-3 p-2 bg-emerald-50 rounded-lg border border-emerald-200 text-xs">
+                  <p className="text-emerald-700 font-semibold mb-1">✓ Auto-detected information:</p>
+                  <div className="space-y-1 text-emerald-600">
+                    {ocrResult.device.imei.confidence > 0 && <p>• IMEI: {ocrResult.device.imei.value}</p>}
+                    {ocrResult.device.brand.confidence > 0 && <p>• Brand: {ocrResult.device.brand.value}</p>}
+                    {ocrResult.device.model.confidence > 0 && <p>• Model: {ocrResult.device.model.value}</p>}
+                  </div>
+                </div>
+              )}
+
               <button
                 onClick={handleProceed}
-                className="w-full bg-blue-600 text-white py-2 rounded-lg text-sm font-semibold hover:bg-blue-700 active:bg-blue-800 transition"
+                disabled={isOcrProcessing}
+                className="w-full bg-blue-600 text-white py-2 rounded-lg text-sm font-semibold hover:bg-blue-700 active:bg-blue-800 transition disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                Continue with This Image
+                {isOcrProcessing ? 'Processing...' : 'Continue with This Image'}
               </button>
             </motion.div>
           )}
