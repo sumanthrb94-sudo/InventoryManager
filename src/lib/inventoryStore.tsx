@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { dbService } from './dbService';
 import { InventoryUnit, Supplier } from '../types';
+import seedData from './clientSeedData.json';
 
 interface Store {
   units: InventoryUnit[];
@@ -10,28 +11,30 @@ interface Store {
 
 const Ctx = createContext<Store>({ units: [], suppliers: [], loaded: false });
 
+// DEMO MODE: while auth is bypassed we can't read Firestore (rules require
+// auth). Seed the store from the bundled clientSeedData.json immediately
+// so the UI has data to show. The Firestore subscription below will
+// override this seed once/if real auth resolves and reads start working.
+const SEED_UNITS = (seedData as any).units as InventoryUnit[];
+const SEED_SUPPLIERS = (seedData as any).suppliers as Supplier[];
+
 export function InventoryStoreProvider({ children }: { children: React.ReactNode }) {
-  const [units, setUnits]         = useState<InventoryUnit[]>([]);
-  const [suppliers, setSuppliers] = useState<Supplier[]>([]);
-  const [loaded, setLoaded]       = useState(false);
+  const [units, setUnits]         = useState<InventoryUnit[]>(SEED_UNITS);
+  const [suppliers, setSuppliers] = useState<Supplier[]>(SEED_SUPPLIERS);
+  const [loaded, setLoaded]       = useState(true);
 
   useEffect(() => {
-    let unitsReady = false;
-    let suppliersReady = false;
-
-    const markLoaded = () => {
-      if (unitsReady && suppliersReady) setLoaded(true);
-    };
-
     const timeout = setTimeout(() => setLoaded(true), 15000);
 
     const u = dbService.subscribeToCollection('inventoryUnits', data => {
-      setUnits(data);
-      if (!unitsReady) { unitsReady = true; markLoaded(); }
+      // Only replace seed data if Firestore returned a non-empty list —
+      // an empty/denied response shouldn't wipe out the demo data.
+      if (data && data.length > 0) setUnits(data);
+      setLoaded(true);
     });
     const s = dbService.subscribeToCollection('suppliers', data => {
-      setSuppliers(data);
-      if (!suppliersReady) { suppliersReady = true; markLoaded(); }
+      if (data && data.length > 0) setSuppliers(data);
+      setLoaded(true);
     });
 
     return () => { clearTimeout(timeout); u(); s(); };
