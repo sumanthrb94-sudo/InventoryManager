@@ -1,10 +1,13 @@
 import { extractDeviceFromText, ExtractedDevice } from './deviceExtractor';
+import { preprocessImageForOCR, validateImageForOCR } from './imagePreprocessor';
 
 export interface OCRResult {
   text: string;
   confidence: number;
   device: ExtractedDevice;
   processingTime: number;
+  preprocessed: boolean;
+  retryCount: number;
 }
 
 // Lazy load Tesseract to avoid blocking initial page load
@@ -55,11 +58,66 @@ async function getWorker() {
   return worker;
 }
 
+async function performOCRWithRetry(
+  fileDataUrl: string,
+  maxRetries: number = 2,
+  onProgress?: (progress: number) => void
+): Promise<{ text: string; confidence: number; retryCount: number }> {
+  let lastError: Error | null = null;
+
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      if (attempt > 0) {
+        console.log(`[OCR] Retry attempt ${attempt}/${maxRetries}...`);
+        onProgress?.(10 + attempt * 5);
+        // Wait before retrying
+        await new Promise(resolve => setTimeout(resolve, 1000 * attempt));
+      }
+
+      let tesseractWorker;
+      try {
+        tesseractWorker = await getWorker();
+      } catch (error) {
+        console.error('[OCR] Worker initialization failed, reinitializing...', error);
+        // Force reinitialize
+        worker = null;
+        workerInitError = null;
+        tesseractWorker = await getWorker();
+      }
+
+      console.log('[OCR] Starting recognition (attempt', attempt + 1, ')...');
+      const result = await tesseractWorker.recognize(fileDataUrl, 'eng');
+
+      const extractedText = result.data.text || '';
+      const ocrConfidence = (result.data.confidence || 0) / 100;
+
+      console.log('[OCR] Recognition complete, text length:', extractedText.length, 'confidence:', ocrConfidence);
+      return { text: extractedText, confidence: ocrConfidence, retryCount: attempt };
+    } catch (error) {
+      lastError = error as Error;
+      console.warn(`[OCR] Attempt ${attempt + 1} failed:`, lastError.message);
+
+      if (attempt < maxRetries) {
+        // Try with preprocessing on retry
+        console.log('[OCR] Attempting with preprocessed image...');
+        try {
+          const preprocessedUrl = await preprocessImageForOCR(fileDataUrl);
+          fileDataUrl = preprocessedUrl;
+        } catch (preprocessError) {
+          console.warn('[OCR] Preprocessing failed:', preprocessError);
+        }
+      }
+    }
+  }
+
+  throw lastError || new Error('OCR processing failed after all retries');
+}
+
 export async function performOCR(file: File, onProgress?: (progress: number) => void): Promise<OCRResult> {
   const startTime = Date.now();
 
   try {
-    // Read file as data URL (better for worker serialization)
+    // Read file as data URL
     const fileDataUrl = await new Promise<string>((resolve, reject) => {
       const reader = new FileReader();
       reader.onload = () => resolve(reader.result as string);
@@ -70,33 +128,36 @@ export async function performOCR(file: File, onProgress?: (progress: number) => 
     console.log('[OCR] File read as data URL, size:', fileDataUrl.length);
     onProgress?.(5);
 
-    // Get or create worker with retry logic
-    let tesseractWorker;
-    try {
-      tesseractWorker = await getWorker();
-    } catch (error) {
-      console.error('[OCR] Worker initialization failed, retrying...', error);
-      // Force reinitialize on next attempt
-      worker = null;
-      workerInitError = null;
-      tesseractWorker = await getWorker();
+    // Validate image quality
+    const validation = await validateImageForOCR(fileDataUrl);
+    console.log('[OCR] Image validation:', validation.message, validation.stats);
+
+    let processedUrl = fileDataUrl;
+    let wasPreprocessed = false;
+
+    // Preprocess if image quality is suboptimal
+    if (validation.stats && !validation.stats.isOptimalForOCR) {
+      console.log('[OCR] Preprocessing image due to suboptimal quality...');
+      onProgress?.(10);
+      try {
+        processedUrl = await preprocessImageForOCR(fileDataUrl);
+        wasPreprocessed = true;
+        console.log('[OCR] Image preprocessed successfully');
+      } catch (error) {
+        console.warn('[OCR] Preprocessing failed, continuing with original:', error);
+      }
     }
 
-    onProgress?.(15);
+    onProgress?.(20);
 
-    // Recognize text from image using data URL
-    // Note: Cannot pass onProgress callback to logger due to Worker serialization.
-    // The logger callback itself would be serialized, causing DataCloneError.
-    // Progress is tracked at key milestones instead.
-    console.log('[OCR] Starting recognition...');
-    const result = await tesseractWorker.recognize(fileDataUrl, 'eng');
+    // Perform OCR with retry logic
+    const { text: extractedText, confidence: ocrConfidence, retryCount } = await performOCRWithRetry(
+      processedUrl,
+      2,
+      onProgress
+    );
 
-    onProgress?.(90);
-
-    const extractedText = result.data.text || '';
-    const ocrConfidence = (result.data.confidence || 0) / 100;
-
-    console.log('[OCR] Recognition complete, text length:', extractedText.length, 'confidence:', ocrConfidence);
+    onProgress?.(95);
 
     // Extract device information from OCR text
     const device = extractDeviceFromText(extractedText);
@@ -110,6 +171,8 @@ export async function performOCR(file: File, onProgress?: (progress: number) => 
       confidence: ocrConfidence,
       device,
       processingTime,
+      preprocessed: wasPreprocessed,
+      retryCount,
     };
   } catch (error) {
     const errorMsg = error instanceof Error ? error.message : String(error);
