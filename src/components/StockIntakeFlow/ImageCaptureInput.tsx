@@ -6,8 +6,7 @@ import OcrProgress from '../OCR/OcrProgress';
 import { performOCR, isOCRSupported } from '../../lib/ocr/ocrEngine';
 import { ocrCache } from '../../lib/ocr/ocrCacheService';
 import { imageService, type ImageMetadata } from '../../lib/imageService';
-import { supabaseStorageService } from '../../lib/supabaseStorageService';
-import { STORAGE_BUCKETS, getStoragePath } from '../../lib/supabase';
+import { firebaseStorageService } from '../../lib/firebaseStorageService';
 import type { OCRResult } from '../../lib/ocr/ocrEngine';
 
 interface Props {
@@ -91,8 +90,8 @@ export default function ImageCaptureInput({ onImageSelected, onBack, intakeType 
         };
       });
 
-      // Upload to Supabase in background
-      uploadToSupabase(file, metadata);
+      // Upload to Firebase Storage in background
+      uploadToFirebase(file, metadata);
 
       // Trigger OCR after image is loaded
       if (isOCRSupported()) {
@@ -116,24 +115,23 @@ export default function ImageCaptureInput({ onImageSelected, onBack, intakeType 
     }
   };
 
-  const uploadToSupabase = async (file: File, metadata: ImageMetadata) => {
+  const uploadToFirebase = async (file: File, metadata: ImageMetadata) => {
     try {
-      console.log('[Supabase] Starting upload:', file.name);
+      console.log('[Firebase Storage] Starting upload:', file.name);
       setImageState(prev => ({ ...prev, isUploading: true, uploadError: '' }));
 
-      const storagePath = getStoragePath.stockIntakeImage(jobIdRef.current, file.name);
+      const storagePath = `stock-intake/${jobIdRef.current}`;
 
-      const uploadedImage = await supabaseStorageService.uploadImage(
+      const uploadedImage = await firebaseStorageService.uploadImage(
         file,
-        STORAGE_BUCKETS.STOCK_INTAKE_IMAGES,
         storagePath,
         (progress) => {
-          console.log(`[Supabase] Upload progress: ${progress}%`);
+          console.log(`[Firebase Storage] Upload progress: ${progress}%`);
           setImageState(prev => ({ ...prev, uploadProgress: progress }));
         }
       );
 
-      console.log('[Supabase] Upload successful:', uploadedImage.url);
+      console.log('[Firebase Storage] Upload successful:', uploadedImage.url);
       setImageState(prev => ({
         ...prev,
         supabaseUrl: uploadedImage.url,
@@ -142,7 +140,7 @@ export default function ImageCaptureInput({ onImageSelected, onBack, intakeType 
       }));
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : 'Upload failed';
-      console.error('[Supabase] Upload error:', errorMsg);
+      console.error('[Firebase Storage] Upload error:', errorMsg);
       setImageState(prev => ({
         ...prev,
         isUploading: false,
@@ -337,26 +335,26 @@ export default function ImageCaptureInput({ onImageSelected, onBack, intakeType 
                 </div>
               )}
 
-              {/* Supabase Upload Progress */}
+              {/* Firebase Storage Upload Progress */}
               {imageState.isUploading && (
-                <div className="mb-3 p-3 bg-purple-50 rounded-lg border border-purple-200">
+                <div className="mb-3 p-3 bg-blue-50 rounded-lg border border-blue-200">
                   <div className="flex items-center gap-2 mb-2">
-                    <Cloud size={16} className="text-purple-600 animate-pulse" />
-                    <p className="text-sm font-semibold text-purple-900">Uploading to Supabase...</p>
+                    <Cloud size={16} className="text-blue-600 animate-pulse" />
+                    <p className="text-sm font-semibold text-blue-900">Uploading to Cloud Storage...</p>
                   </div>
-                  <div className="w-full h-2 bg-purple-200 rounded-full overflow-hidden">
+                  <div className="w-full h-2 bg-blue-200 rounded-full overflow-hidden">
                     <motion.div
                       initial={{ width: 0 }}
                       animate={{ width: `${imageState.uploadProgress}%` }}
                       transition={{ duration: 0.3 }}
-                      className="h-full bg-gradient-to-r from-purple-500 to-purple-600"
+                      className="h-full bg-gradient-to-r from-blue-500 to-blue-600"
                     />
                   </div>
-                  <p className="text-xs text-purple-600 mt-1">{imageState.uploadProgress}%</p>
+                  <p className="text-xs text-blue-600 mt-1">{imageState.uploadProgress}%</p>
                 </div>
               )}
 
-              {/* Supabase Upload Error */}
+              {/* Firebase Storage Upload Error */}
               {imageState.uploadError && (
                 <motion.div
                   initial={{ opacity: 0, y: 10 }}
@@ -371,15 +369,15 @@ export default function ImageCaptureInput({ onImageSelected, onBack, intakeType 
                 </motion.div>
               )}
 
-              {/* Supabase Upload Success */}
+              {/* Firebase Storage Upload Success */}
               {imageState.supabaseUrl && !imageState.isUploading && (
                 <motion.div
                   initial={{ opacity: 0, y: 10 }}
                   animate={{ opacity: 1, y: 0 }}
-                  className="mb-3 p-2 bg-purple-50 rounded-lg border border-purple-200 text-xs flex items-start gap-2"
+                  className="mb-3 p-2 bg-blue-50 rounded-lg border border-blue-200 text-xs flex items-start gap-2"
                 >
-                  <CheckCircle2 size={14} className="text-purple-600 flex-shrink-0 mt-0.5" />
-                  <p className="text-purple-700">✓ Image uploaded to Supabase Cloud</p>
+                  <CheckCircle2 size={14} className="text-blue-600 flex-shrink-0 mt-0.5" />
+                  <p className="text-blue-700">✓ Image uploaded to Cloud Storage</p>
                 </motion.div>
               )}
 
