@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { onAuthStateChanged, User } from 'firebase/auth';
-import { auth, signInWithUsername, signOut, teamUserForEmail } from './lib/firebase';
+import { auth, ensureAnonymousSignIn, signInWithUsername, signOut, teamUserForEmail } from './lib/firebase';
 import {
   PackagePlus, ShoppingCart, RefreshCw, BarChart2,
   LogOut, Plus, FileSpreadsheet, LayoutDashboard,
@@ -41,14 +41,56 @@ export default function App() {
 function AppWithAuth() {
   const [user, setUser]       = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
-  useEffect(() => onAuthStateChanged(auth, u => { setUser(u); setLoading(false); }), []);
+  const [authError, setAuthError] = useState('');
+
+  // TEMP: auth is disabled at the user's request — auto sign-in anonymously
+  // so Firestore rules (which require request.auth != null) still allow
+  // reads/writes, then drop straight into the app. To re-enable the
+  // username/password login, swap this back to `if (!user) return <LoginPage />;`
+  useEffect(() => {
+    const unsub = onAuthStateChanged(auth, u => {
+      setUser(u);
+      setLoading(false);
+      // If the user is null (initial load or after sign-out), kick off
+      // anonymous sign-in so we never sit in a logged-out state while
+      // the login UI is disabled.
+      if (!u) {
+        ensureAnonymousSignIn().catch(() => { /* surfaced below */ });
+      }
+    });
+    ensureAnonymousSignIn().catch((err: any) => {
+      const code = err?.code || '';
+      if (code === 'auth/admin-restricted-operation' || code === 'auth/operation-not-allowed') {
+        setAuthError(
+          'Anonymous sign-in is not enabled on this Firebase project. ' +
+          'Enable it in Firebase Console → Authentication → Sign-in method → Anonymous.',
+        );
+      } else {
+        setAuthError(err?.message || 'Sign-in failed.');
+      }
+      setLoading(false);
+    });
+    return unsub;
+  }, []);
+
   if (loading) return (
     <div className="min-h-screen bg-white flex items-center justify-center">
       <motion.div animate={{ rotate: 360 }} transition={{ duration: 1, repeat: Infinity, ease: 'linear' }}
         className="w-8 h-8 border-2 border-black border-t-transparent rounded-full" />
     </div>
   );
-  if (!user) return <LoginPage />;
+
+  if (!user) return (
+    <div className="min-h-screen bg-white flex items-center justify-center p-6">
+      <div className="max-w-md text-center space-y-3">
+        <p className="text-sm font-bold">Couldn't start a session</p>
+        <p className="text-xs text-gray-600 font-mono">
+          {authError || 'Sign-in is unavailable right now.'}
+        </p>
+      </div>
+    </div>
+  );
+
   return (
     <ErrorBoundary>
       <InventoryStoreProvider>

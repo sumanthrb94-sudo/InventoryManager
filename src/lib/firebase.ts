@@ -1,6 +1,7 @@
 import { initializeApp } from 'firebase/app';
 import {
   getAuth,
+  signInAnonymously,
   signInWithEmailAndPassword,
   signOut as fbSignOut,
 } from 'firebase/auth';
@@ -119,5 +120,38 @@ export function ensureAuthReady(): Promise<void> {
   return auth.authStateReady();
 }
 
+/**
+ * Temporary bypass for the login screen — auto sign-in anonymously so the
+ * app loads without anyone typing credentials. We still need a real Firebase
+ * auth.uid because Firestore security rules require `request.auth != null`,
+ * so a client-side stub user would just trigger PERMISSION_DENIED on every
+ * read/write. signInAnonymously gives every browser its own ephemeral uid
+ * with no UI.
+ *
+ * To re-enable the username/password login, just stop calling this from
+ * App.tsx — the LoginPage / signInWithUsername code is intact below.
+ *
+ * Requires "Anonymous" sign-in provider to be enabled in Firebase Console
+ * (Authentication → Sign-in method → Anonymous → Enable).
+ */
+export async function ensureAnonymousSignIn(): Promise<void> {
+  await auth.authStateReady();
+  if (auth.currentUser) return; // already signed in (anon or otherwise)
+  try {
+    await signInAnonymously(auth);
+  } catch (err: any) {
+    const code = err?.code || '';
+    if (code === 'auth/admin-restricted-operation' || code === 'auth/operation-not-allowed') {
+      console.error(
+        '[auth] Anonymous sign-in is disabled. Enable it in Firebase Console → ' +
+        'Authentication → Sign-in method → Anonymous.',
+      );
+    } else {
+      console.error('[auth] Anonymous sign-in failed:', err);
+    }
+    throw err;
+  }
+}
+
 // Backward-compat alias used by seedData.ts
-export const ensureAnonymousAuth = ensureAuthReady;
+export const ensureAnonymousAuth = ensureAnonymousSignIn;
