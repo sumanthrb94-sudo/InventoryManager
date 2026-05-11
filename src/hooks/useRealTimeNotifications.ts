@@ -3,6 +3,18 @@ import { InventoryUnit } from '../types';
 import { notificationService } from '../lib/notificationService';
 import { useInventoryStore } from '../lib/inventoryStore';
 
+// Track units created in current session to avoid duplicate notifications
+// when StockIntakeFlow's own notification is already batched
+const sessionCreatedUnits = new Set<string>();
+
+export function registerSessionCreatedUnits(unitIds: string[]) {
+  unitIds.forEach(id => sessionCreatedUnits.add(id));
+  // Auto-clear after 3 seconds to allow real-time notifications for manual additions
+  setTimeout(() => {
+    unitIds.forEach(id => sessionCreatedUnits.delete(id));
+  }, 3000);
+}
+
 export function useRealTimeNotifications() {
   const { units, loaded } = useInventoryStore();
   const prevMap     = useRef<Map<string, InventoryUnit>>(new Map());
@@ -29,7 +41,8 @@ export function useRealTimeNotifications() {
       const p = prev.get(unit.id);
       if (!p) {
         // New unit — only notify if it arrived today (ignore historical data)
-        if (unit.dateIn === today || unit.createdAt?.startsWith(today)) {
+        // SKIP if this unit was created in the current session (StockIntakeFlow already batched it)
+        if ((unit.dateIn === today || unit.createdAt?.startsWith(today)) && !sessionCreatedUnits.has(unit.id)) {
           notificationService.addNotification('new_stock', unit);
         }
       } else if (p.status !== 'sold' && unit.status === 'sold') {

@@ -6,6 +6,7 @@ import { dbService } from '../../lib/dbService';
 import { notificationService } from '../../lib/notificationService';
 import { useInventoryStore } from '../../lib/inventoryStore';
 import { generateBatchId } from '../../lib/batchUtils';
+import { registerSessionCreatedUnits } from '../../hooks/useRealTimeNotifications';
 import type { OCRResult } from '../../lib/ocr/ocrEngine';
 import IntakeTypeSelector from './IntakeTypeSelector';
 import ImageCaptureInput from './ImageCaptureInput';
@@ -263,6 +264,9 @@ export default function StockIntakeFlow({ onClose }: Props) {
       await dbService.bulkCreate(entries, (done, total) => {
         setProcessingProgress({ done, total });
       });
+
+      // Register units as session-created to prevent duplicate notifications from useRealTimeNotifications
+      registerSessionCreatedUnits(unitsForReview.map(u => u.id));
 
       // Trigger notification with batch count
       if (unitsForReview.length > 0) {

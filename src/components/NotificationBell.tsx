@@ -102,10 +102,10 @@ export default function NotificationBell({ unreadCount }: { unreadCount: number 
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: -8, scale: 0.97 }}
             transition={{ duration: 0.15 }}
-            className="absolute right-0 top-12 w-80 bg-white border border-gray-200 rounded-3xl shadow-2xl z-[200] overflow-hidden"
+            className="fixed sm:absolute right-0 bottom-0 sm:top-12 w-full sm:w-80 h-[90vh] sm:h-auto max-h-[90vh] sm:max-h-[600px] bg-white sm:border sm:border-gray-200 rounded-t-3xl sm:rounded-3xl shadow-2xl z-[200] flex flex-col"
           >
             {/* Header */}
-            <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100">
+            <div className="flex-shrink-0 flex items-center justify-between px-4 py-3 border-b border-gray-100">
               <div className="flex items-center gap-2">
                 <Bell size={13} className="text-gray-500" />
                 <span className="text-[10px] font-bold uppercase tracking-widest text-black">Live Activity</span>
@@ -140,7 +140,7 @@ export default function NotificationBell({ unreadCount }: { unreadCount: number 
             </div>
 
             {/* Body */}
-            <div className="max-h-[420px] overflow-y-auto">
+            <div className="flex-1 overflow-y-auto">
               {notifications.length === 0 ? (
                 <div className="py-12 flex flex-col items-center gap-2 text-gray-300">
                   <Bell size={28} />
@@ -203,7 +203,7 @@ export default function NotificationBell({ unreadCount }: { unreadCount: number 
             </div>
 
             {/* Footer */}
-            <div className="px-4 py-2.5 border-t border-gray-100 bg-gray-50">
+            <div className="flex-shrink-0 px-4 py-2.5 border-t border-gray-100 bg-gray-50">
               <p className="text-[8px] font-mono text-gray-300 uppercase tracking-widest text-center">
                 Real-time · Today's activity persists across sessions
               </p>

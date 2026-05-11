@@ -35,16 +35,23 @@ export default function ImageCaptureInput({ onImageSelected, onBack, intakeType 
     setSelectedFile(file);
     setError('');
 
+    // Read file and create preview
     const reader = new FileReader();
     reader.onload = (evt) => {
       const dataUrl = evt.target?.result as string;
       setPreview(dataUrl);
     };
+    reader.onerror = () => {
+      setError('Failed to read image file. Please try again.');
+    };
     reader.readAsDataURL(file);
 
-    // Trigger OCR if supported
+    // Trigger OCR after FileReader completes (use file object directly, not DOM state)
     if (isOCRSupported()) {
-      await performOCROnFile(file);
+      // Wait for next tick to ensure preview is set
+      setTimeout(() => {
+        performOCROnFile(file);
+      }, 0);
     }
   };
 
@@ -73,10 +80,12 @@ export default function ImageCaptureInput({ onImageSelected, onBack, intakeType 
       setIsOcrProcessing(false);
       setOcrProgress(100);
     } catch (err) {
-      console.warn('OCR processing failed, continuing without auto-fill:', err);
+      // OCR is optional - fail gracefully without blocking the workflow
+      console.warn('OCR processing skipped (optional):', err instanceof Error ? err.message : String(err));
       setIsOcrProcessing(false);
       setOcrProgress(0);
-      // Don't show error to user - OCR is optional
+      // Don't set error state - OCR failure shouldn't block user
+      setOcrResult(undefined);
     }
   };
 
@@ -105,7 +114,11 @@ export default function ImageCaptureInput({ onImageSelected, onBack, intakeType 
   };
 
   const triggerFileInput = () => {
-    fileInputRef.current?.click();
+    // Reset input value before clicking to allow same file selection
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+      fileInputRef.current.click();
+    }
   };
 
   return (
@@ -222,10 +235,6 @@ export default function ImageCaptureInput({ onImageSelected, onBack, intakeType 
             type="file"
             accept="image/*"
             onChange={handleGallerySelect}
-            onClick={(e) => {
-              // Reset value so same file can be selected again
-              (e.target as HTMLInputElement).value = '';
-            }}
             className="hidden"
             aria-label="Select image from gallery"
             style={{ display: 'none' }}
