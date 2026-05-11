@@ -16,6 +16,7 @@ import AddDeliveryModal from './AddDeliveryModal';
 import ScanInModal from './ScanInModal';
 import IntelligencePanel from './IntelligencePanel';
 import TodayIntakeModal from './TodayIntakeModal';
+import { StockIntakeFlow } from './StockIntakeFlow';
 
 interface Props {
   onOpenBatch: () => void;
@@ -30,6 +31,7 @@ export default function StockInPage({ onOpenBatch }: Props) {
   const [showAddDelivery, setShowAddDelivery] = useState(false);
   const [showScanUnit, setShowScanUnit] = useState(false);
   const [showTodayIntake, setShowTodayIntake] = useState(false);
+  const [showStockIntakeFlow, setShowStockIntakeFlow] = useState(false);
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
 
@@ -156,13 +158,13 @@ export default function StockInPage({ onOpenBatch }: Props) {
         {/* Divider */}
         <div className="w-px h-12 bg-gray-200 mx-2" />
 
-        {/* Add Stock */}
+        {/* Add Stock (New Flow) */}
         <button
-          onClick={() => setShowAddDelivery(true)}
-          className="flex items-center gap-2 px-4 py-3 bg-black text-white rounded-lg hover:bg-gray-800 transition-all active:scale-95 flex-shrink-0 whitespace-nowrap"
+          onClick={() => setShowStockIntakeFlow(true)}
+          className="flex items-center gap-2 px-4 py-3 bg-gradient-to-r from-blue-600 to-blue-700 text-white rounded-lg hover:from-blue-700 hover:to-blue-800 transition-all active:scale-95 flex-shrink-0 whitespace-nowrap shadow-md"
         >
           <Plus size={16} />
-          <span className="text-[9px] font-bold uppercase tracking-widest">Add Stock</span>
+          <span className="text-[9px] font-bold uppercase tracking-widest">Add Stock (New)</span>
         </button>
 
         {/* Log SHS Order */}
@@ -372,6 +374,11 @@ export default function StockInPage({ onOpenBatch }: Props) {
       <AnimatePresence>
         {showTodayIntake && (
           <TodayIntakeModal units={todayIn} onClose={() => setShowTodayIntake(false)} />
+        )}
+      </AnimatePresence>
+      <AnimatePresence>
+        {showStockIntakeFlow && (
+          <StockIntakeFlow onClose={() => setShowStockIntakeFlow(false)} />
         )}
       </AnimatePresence>
     </div>
