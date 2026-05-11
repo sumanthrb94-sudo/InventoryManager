@@ -238,33 +238,6 @@ export default function ImageCaptureInput({ onImageSelected, onBack, intakeType 
     };
   }, []);
 
-  const triggerFileInput = () => {
-    console.log('[FileInput] Triggering file picker...');
-
-    if (!fileInputRef.current) {
-      console.error('[FileInput] File input ref not available');
-      setError('File picker not available. Please refresh the page.');
-      return;
-    }
-
-    try {
-      // Reset input value to allow same file selection
-      fileInputRef.current.value = '';
-
-      // Dispatch click event with explicit target
-      const clickEvent = new MouseEvent('click', {
-        view: window,
-        bubbles: true,
-        cancelable: true
-      });
-
-      fileInputRef.current.dispatchEvent(clickEvent);
-      console.log('[FileInput] Click event dispatched');
-    } catch (err) {
-      console.error('[FileInput] Error triggering file input:', err);
-      setError('Failed to open file picker. Please try again.');
-    }
-  };
 
   return (
     <div className="space-y-4 max-h-[70vh] overflow-y-auto">
@@ -471,9 +444,10 @@ export default function ImageCaptureInput({ onImageSelected, onBack, intakeType 
       {/* Gallery Mode */}
       {mode === 'gallery' && (
         <div className="space-y-3">
-          {/* Hidden file input - Critical: Use native file picker without cloud services */}
+          {/* Hidden file input */}
           <input
             ref={fileInputRef}
+            id="gallery-file-input"
             type="file"
             accept="image/jpeg,image/jpg,image/png,image/webp,image/gif"
             onChange={(e) => {
@@ -483,43 +457,25 @@ export default function ImageCaptureInput({ onImageSelected, onBack, intakeType 
               });
               handleGallerySelect(e);
             }}
-            className="hidden"
+            className="sr-only"
             aria-label="Select image from gallery"
           />
 
-          {/* Clickable upload area with explicit tap handling */}
-          <div className="space-y-2">
-            <button
-              type="button"
-              onClick={() => {
-                console.log('[Gallery] Button clicked - triggering file input');
-                triggerFileInput();
-              }}
-              onTouchStart={(e) => {
-                // Prevent default to ensure click handler fires
-                e.preventDefault();
-              }}
-              onTouchEnd={(e) => {
-                e.preventDefault();
-                console.log('[Gallery] Touch event - triggering file input');
-                triggerFileInput();
-              }}
-              className="w-full p-6 sm:p-8 border-2 border-dashed border-gray-300 rounded-2xl text-center hover:border-blue-500 hover:bg-blue-50 active:bg-blue-100 transition cursor-pointer group"
-              style={{
-                WebkitAppearance: 'none',
-                appearance: 'none',
-              }}
-            >
-              <Upload size={40} className="mx-auto text-gray-400 group-hover:text-blue-600 mb-3" />
-              <p className="font-semibold text-gray-900">Choose an image</p>
-              <p className="text-xs text-gray-500 mt-1">Tap to select from your phone</p>
-            </button>
-            {error && (
-              <div className="p-2 bg-red-50 text-red-700 rounded-lg text-xs border border-red-200">
-                {error}
-              </div>
-            )}
-          </div>
+          {/* Clickable upload area using label */}
+          <label
+            htmlFor="gallery-file-input"
+            className="block w-full p-6 sm:p-8 border-2 border-dashed border-gray-300 rounded-2xl text-center hover:border-blue-500 hover:bg-blue-50 active:bg-blue-100 transition cursor-pointer group"
+          >
+            <Upload size={40} className="mx-auto text-gray-400 group-hover:text-blue-600 mb-3" />
+            <p className="font-semibold text-gray-900">Choose an image</p>
+            <p className="text-xs text-gray-500 mt-1">Tap to select from your phone</p>
+          </label>
+
+          {error && (
+            <div className="p-2 bg-red-50 text-red-700 rounded-lg text-xs border border-red-200">
+              {error}
+            </div>
+          )}
 
           <button
             type="button"
