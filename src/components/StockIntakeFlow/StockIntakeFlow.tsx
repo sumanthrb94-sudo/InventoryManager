@@ -14,6 +14,7 @@ import DetailForm from './DetailForm';
 import ReviewScreen from './ReviewScreen';
 import ProcessingState from './ProcessingState';
 import CompletionConfirmation from './CompletionConfirmation';
+import BatchImageCapture, { PlannedUnit, CapturedUnit } from './BatchImageCapture';
 
 interface ColorVariant {
   id: string;
@@ -21,7 +22,7 @@ interface ColorVariant {
   quantity: number;
 }
 
-type Stage = 'type-selection' | 'image-input' | 'details' | 'color-distribution' | 'review' | 'processing' | 'complete';
+type Stage = 'type-selection' | 'image-input' | 'details' | 'color-distribution' | 'batch-capture' | 'review' | 'processing' | 'complete';
 
 interface Props {
   onClose: () => void;
@@ -57,6 +58,8 @@ export default function StockIntakeFlow({ onClose }: Props) {
   const [colorVariants, setColorVariants] = useState<ColorVariant[]>([]);
   const [newColorName, setNewColorName] = useState('');
   const [newColorQty, setNewColorQty] = useState(1);
+  const [plannedUnits, setPlannedUnits] = useState<PlannedUnit[]>([]);
+  const [capturedUnits, setCapturedUnits] = useState<CapturedUnit[]>([]);
 
   // Processing
   const [unitsForReview, setUnitsForReview] = useState<InventoryUnit[]>([]);
@@ -235,17 +238,22 @@ export default function StockIntakeFlow({ onClose }: Props) {
       };
       units.push(unit);
     } else {
-      // Bulk with colors
+      // Bulk with colors. Each planned unit may have its own captured
+      // IMEI + preview image from the BatchImageCapture step; fall back
+      // to the seed IMEI + sequential suffix if the operator skipped a
+      // unit.
+      const cleanImei = imei.replace(/\D/g, '');
+      const baseName = cleanImei || `bulk_${Date.now()}`;
       let unitIndex = 0;
       for (const color of colorVariants) {
         for (let i = 0; i < color.quantity; i++) {
-          const cleanImei = imei.replace(/\D/g, '');
-          const baseName = cleanImei || `bulk_${Date.now()}`;
-          const unitId = `${baseName}-${String(unitIndex + 1).padStart(3, '0')}`;
-
+          const fallbackId = `${baseName}-${String(unitIndex + 1).padStart(3, '0')}`;
+          const captured = capturedUnits[unitIndex];
+          const usableImei =
+            captured && captured.imei && !captured.skipped ? captured.imei : fallbackId;
           const unit: InventoryUnit = {
-            id: unitId,
-            imei: unitId,
+            id: usableImei,
+            imei: usableImei,
             model: model.trim(),
             brand,
             category: category as any,
@@ -262,7 +270,7 @@ export default function StockIntakeFlow({ onClose }: Props) {
             flags: [],
             notes,
             platformListed: false,
-            imageUrl: supabaseImageUrl || undefined,
+            imageUrl: captured?.previewUrl || supabaseImageUrl || undefined,
             ownerId: 'shared',
             createdAt: now,
           };
@@ -275,6 +283,42 @@ export default function StockIntakeFlow({ onClose }: Props) {
     setUnitsForReview(units);
     setBatchId(bid);
     setStage('review');
+  };
+
+  /**
+   * Color Distribution → Batch Image Capture.
+   * Expand the colour map into one PlannedUnit per physical phone in
+   * batch order, then jump to the per-unit capture screen.
+   */
+  const handleColorDistributionSubmit = () => {
+    if (!isColorDistributionValid) {
+      setError(`Colour totals (${colorTotalQty}) must equal quantity (${quantity}).`);
+      return;
+    }
+    setError('');
+    const cleanImei = imei.replace(/\D/g, '');
+    const baseName = cleanImei || `bulk_${Date.now()}`;
+    const planned: PlannedUnit[] = [];
+    let unitIndex = 0;
+    for (const color of colorVariants) {
+      for (let i = 0; i < color.quantity; i++) {
+        planned.push({
+          index: unitIndex,
+          colour: color.name,
+          unitId: `${baseName}-${String(unitIndex + 1).padStart(3, '0')}`,
+        });
+        unitIndex++;
+      }
+    }
+    setPlannedUnits(planned);
+    setCapturedUnits([]); // BatchImageCapture seeds its own initial state
+    setStage('batch-capture');
+  };
+
+  /** BatchImageCapture → Review */
+  const handleBatchCaptureSubmit = async (captured: CapturedUnit[]) => {
+    setCapturedUnits(captured);
+    await buildUnitsForReview();
   };
 
   const handleReviewSubmit = async () => {
@@ -323,6 +367,7 @@ export default function StockIntakeFlow({ onClose }: Props) {
       'image-input',
       'details',
       'color-distribution',
+      'batch-capture',
       'review',
     ];
     const currentIndex = stageSequence.indexOf(stage);
@@ -360,6 +405,7 @@ export default function StockIntakeFlow({ onClose }: Props) {
                 {stage === 'image-input' && (intakeType === 'single' ? 'Scan or Upload Item' : 'Bulk Stock Intake')}
                 {stage === 'details' && 'Device Details'}
                 {stage === 'color-distribution' && 'Color Distribution'}
+                {stage === 'batch-capture' && 'Capture Each Unit'}
                 {stage === 'review' && 'Review Units'}
                 {stage === 'processing' && 'Processing...'}
               </h2>
@@ -524,7 +570,44 @@ export default function StockIntakeFlow({ onClose }: Props) {
                   </div>
 
                   {error && <div className="p-3 bg-red-50 text-red-700 rounded-lg text-sm">{error}</div>}
+
+                  {/* Footer actions */}
+                  <div className="flex items-center gap-3 pt-2">
+                    <button
+                      type="button"
+                      onClick={handleBack}
+                      className="flex-shrink-0 py-3 px-4 border border-gray-200 rounded-xl text-[11px] font-bold uppercase tracking-widest text-gray-600 hover:bg-gray-50"
+                    >
+                      Back
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleColorDistributionSubmit}
+                      disabled={!isColorDistributionValid}
+                      className="flex-1 py-3 px-4 bg-blue-600 text-white rounded-xl text-[11px] font-bold uppercase tracking-widest hover:bg-blue-700 transition-all disabled:bg-gray-300 disabled:cursor-not-allowed"
+                    >
+                      {!isColorDistributionValid
+                        ? `Total ${colorTotalQty}/${quantity}`
+                        : `Continue · Capture ${quantity} Unit${quantity !== 1 ? 's' : ''}`}
+                    </button>
+                  </div>
                 </div>
+              </motion.div>
+            )}
+
+            {stage === 'batch-capture' && (
+              <motion.div
+                key="batch-capture"
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -10 }}
+              >
+                <BatchImageCapture
+                  plannedUnits={plannedUnits}
+                  baseImei={imei}
+                  onSubmit={handleBatchCaptureSubmit}
+                  onBack={handleBack}
+                />
               </motion.div>
             )}
 
