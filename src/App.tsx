@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { onAuthStateChanged, User } from 'firebase/auth';
-import { auth, ensureAnonymousSignIn, signInWithUsername, signOut, teamUserForEmail } from './lib/firebase';
+import { auth, ensureAnonymousSignIn, signOut, teamUserForEmail } from './lib/firebase';
 import {
   PackagePlus, ShoppingCart, RefreshCw, BarChart2,
   LogOut, Plus, FileSpreadsheet, LayoutDashboard,
@@ -34,6 +34,13 @@ const APP_NAME    = 'MOBILEPHONEMARKET';
 const APP_TAGLINE = 'Inventory Manager';
 
 export default function App() {
+  // Build marker — open DevTools console and look for this line. If you see
+  // it, the universal-access build is live. If not, you're on an older
+  // cached deploy; hard refresh (Ctrl/Cmd+Shift+R).
+  useEffect(() => {
+    console.log('[App] universal-access build — no login required');
+  }, []);
+
   if (new URLSearchParams(window.location.search).get('seed') === '1') return <DataSeedPage />;
   return <AppWithAuth />;
 }
@@ -485,131 +492,3 @@ function AppShell({ user }: { user: User }) {
   );
 }
 
-// ── Login Page ────────────────────────────────────────────────────────────────
-//
-// Team-level auth. We removed Google Sign-In because we're a fixed 4-5
-// person team and don't want random Google accounts that happen to land on
-// the URL to be able to even try logging in. Username + password against a
-// pre-provisioned list (see src/lib/firebase.ts ALLOWED_USERS).
-function LoginPage() {
-  const [username, setUsername] = useState('');
-  const [password, setPassword] = useState('');
-  const [loading, setLoading]   = useState(false);
-  const [error, setError]       = useState('');
-
-  const canSubmit = username.trim().length > 0 && password.length > 0 && !loading;
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!canSubmit) return;
-    setError('');
-    setLoading(true);
-    try {
-      await signInWithUsername(username.trim(), password);
-    } catch (err: any) {
-      setError(err?.message || 'Sign-in failed. Please try again.');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  return (
-    <div className="min-h-[100dvh] bg-white flex">
-      <div className="hidden lg:flex w-1/2 bg-black flex-col justify-between p-16">
-        <div>
-          <h1 className="text-5xl font-bold tracking-tighter uppercase text-white font-display">{APP_NAME}</h1>
-          <p className="text-[9px] text-gray-500 font-mono uppercase tracking-[0.4em] mt-2">{APP_TAGLINE} · Admin Portal</p>
-        </div>
-        <div className="space-y-8">
-          {[
-            { label: 'Real-time Stock Tracking',  desc: 'IMEI-level visibility for every unit' },
-            { label: 'Live Multi-device Sync',     desc: 'Any change is instant everywhere' },
-            { label: 'Excel Import',               desc: 'One-click migration from your stock sheet' },
-          ].map(f => (
-            <div key={f.label} className="flex items-start gap-4">
-              <div className="w-1 h-1 mt-2 bg-white rounded-full flex-shrink-0" />
-              <div>
-                <p className="text-sm font-bold text-white tracking-tight">{f.label}</p>
-                <p className="text-[10px] text-gray-500 font-mono mt-0.5">{f.desc}</p>
-              </div>
-            </div>
-          ))}
-        </div>
-        <p className="text-[9px] text-gray-600 font-mono uppercase tracking-widest">Team access only</p>
-      </div>
-
-      <div className="flex-1 flex items-center justify-center p-6">
-        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}
-          className="w-full max-w-sm space-y-6">
-          <div className="lg:hidden text-center">
-            <h1 className="text-4xl font-bold tracking-tighter uppercase font-display">{APP_NAME}</h1>
-            <p className="text-[10px] text-gray-400 font-mono uppercase tracking-[0.4em] mt-1">{APP_TAGLINE}</p>
-          </div>
-          <div>
-            <h2 className="text-2xl font-bold tracking-tight">Sign In</h2>
-            <p className="text-sm text-gray-500 mt-1">Team credentials only</p>
-          </div>
-          <form onSubmit={handleSubmit} className="space-y-4">
-            <div>
-              <label htmlFor="login-username" className="block text-[10px] font-bold uppercase tracking-widest text-gray-500 mb-1.5">
-                Username
-              </label>
-              <input
-                id="login-username"
-                type="text"
-                autoComplete="username"
-                autoCapitalize="none"
-                autoCorrect="off"
-                spellCheck={false}
-                value={username}
-                onChange={e => setUsername(e.target.value)}
-                placeholder="e.g. sumanth"
-                className="w-full border border-gray-300 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-black focus:border-transparent transition-all"
-              />
-            </div>
-            <div>
-              <label htmlFor="login-password" className="block text-[10px] font-bold uppercase tracking-widest text-gray-500 mb-1.5">
-                Password
-              </label>
-              <input
-                id="login-password"
-                type="password"
-                autoComplete="current-password"
-                value={password}
-                onChange={e => setPassword(e.target.value)}
-                placeholder="••••••••"
-                className="w-full border border-gray-300 rounded-xl px-4 py-3 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-black focus:border-transparent transition-all"
-              />
-            </div>
-
-            <AnimatePresence>
-              {error && (
-                <motion.p
-                  initial={{ opacity: 0, y: -4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}
-                  className="text-xs text-red-600 font-mono bg-red-50 border border-red-100 px-4 py-2.5 rounded-xl"
-                >
-                  {error}
-                </motion.p>
-              )}
-            </AnimatePresence>
-
-            <button
-              type="submit"
-              disabled={!canSubmit}
-              className="w-full flex items-center justify-center gap-3 bg-black text-white rounded-xl py-3.5 px-6 text-sm font-semibold hover:bg-gray-800 active:scale-[0.98] transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              {loading
-                ? <motion.div animate={{ rotate: 360 }} transition={{ duration: 0.8, repeat: Infinity, ease: 'linear' }}
-                    className="w-5 h-5 border-2 border-white/40 border-t-white rounded-full" />
-                : null}
-              {loading ? 'Signing in…' : 'Sign In'}
-            </button>
-          </form>
-          <p className="text-[9px] text-gray-400 font-mono text-center uppercase tracking-wide">
-            Forgot password? Ask an admin to reset it.
-          </p>
-        </motion.div>
-      </div>
-    </div>
-  );
-}
