@@ -34,6 +34,114 @@ const BG_MAP: Record<FilterTab, string> = {
   repair:                'bg-blue-100',
 };
 
+// ── Quick Repair Modal (fast send to repair) ──────────────────────────────────
+function QuickRepairModal({
+  unit,
+  onClose,
+  onSaved,
+}: {
+  unit: InventoryUnit;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+
+  const handleSendToRepair = async () => {
+    setSaving(true);
+    try {
+      await dbService.update('inventoryUnits', unit.id, {
+        status: 'returned',
+        returnType: 'repair',
+        returnDate: new Date().toISOString().split('T')[0],
+        returnReason: 'Unit sent for repair',
+        salePrice: null,
+        saleDate: null,
+        salePlatform: null,
+        saleOrderId: null,
+        postageCost: null,
+        platformListed: false,
+        listingSites: [],
+      });
+
+      notificationService.addNotification('return_processed', unit);
+      onSaved();
+      onClose();
+    } catch {
+      setError('Failed to save. Please try again.');
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-[70] flex items-center justify-center p-3 md:p-4 bg-black/40 backdrop-blur-sm">
+      <div className="bg-white rounded-3xl overflow-hidden w-full max-w-sm shadow-2xl flex flex-col" style={{ maxHeight: 'calc(100dvh - 24px)' }}>
+        {/* Header */}
+        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100 flex-shrink-0">
+          <div>
+            <p className="text-[9px] font-mono uppercase tracking-widest text-gray-400">Send for Repair</p>
+            <h3 className="text-sm font-bold truncate mt-0.5 max-w-[240px]">{unit.model}</h3>
+          </div>
+          <button onClick={onClose} className="p-2 hover:bg-gray-100 rounded-xl transition-all"><X size={16} /></button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto px-6 py-4 space-y-4">
+          {/* Info */}
+          <div className="flex items-start gap-3 bg-blue-50 border border-blue-200 rounded-xl p-4">
+            <Wrench size={16} className="text-blue-600 flex-shrink-0 mt-0.5" />
+            <div>
+              <p className="text-xs font-bold text-blue-900 mb-1">Unit Sent for Repair</p>
+              <p className="text-[9px] text-blue-800 font-mono leading-relaxed">
+                Unit status will be set to <strong>Repair</strong>. Once repaired and tested, mark it as <strong>Ready to Ship</strong> to restore to inventory.
+              </p>
+            </div>
+          </div>
+
+          {/* Unit Details */}
+          <div className="space-y-2">
+            <div className="grid grid-cols-2 gap-2">
+              <div className="bg-gray-50 rounded-lg p-3">
+                <p className="text-[8px] font-mono uppercase tracking-widest text-gray-500">Model</p>
+                <p className="text-xs font-bold mt-1 truncate">{unit.model}</p>
+              </div>
+              <div className="bg-gray-50 rounded-lg p-3">
+                <p className="text-[8px] font-mono uppercase tracking-widest text-gray-500">Buy Price</p>
+                <p className="text-xs font-bold mt-1">£{unit.buyPrice}</p>
+              </div>
+              <div className="bg-gray-50 rounded-lg p-3">
+                <p className="text-[8px] font-mono uppercase tracking-widest text-gray-500">Sale Price</p>
+                <p className="text-xs font-bold mt-1">£{unit.salePrice || '—'}</p>
+              </div>
+              <div className="bg-gray-50 rounded-lg p-3">
+                <p className="text-[8px] font-mono uppercase tracking-widest text-gray-500">Platform</p>
+                <p className="text-xs font-bold mt-1 truncate">{unit.salePlatform || '—'}</p>
+              </div>
+            </div>
+          </div>
+
+          {error && (
+            <div className="flex items-center gap-2 text-red-600 bg-red-50 border border-red-200 rounded-xl px-4 py-3">
+              <AlertCircle size={14} />
+              <p className="text-xs font-mono">{error}</p>
+            </div>
+          )}
+        </div>
+
+        <div className="flex-shrink-0 px-6 py-4 border-t border-gray-100 flex gap-3 bg-white">
+          <button onClick={onClose}
+            className="flex-1 py-3 border border-gray-200 rounded-xl text-[10px] font-bold uppercase tracking-widest text-gray-500 hover:bg-gray-50 transition-all">
+            Cancel
+          </button>
+          <button onClick={handleSendToRepair} disabled={saving}
+            className="flex-1 py-3 bg-blue-600 text-white rounded-xl text-[10px] font-bold uppercase tracking-widest hover:bg-blue-700 transition-all disabled:opacity-50 flex items-center justify-center gap-2">
+            {saving ? 'Saving…' : <><Wrench size={13} /> Send to Repair</>}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Quick Return Modal (fast return to inventory) ────────────────────────────
 function QuickReturnModal({
   unit,
@@ -427,8 +535,10 @@ export default function ReturnsPage() {
   const [processing, setProcessing] = useState<InventoryUnit | null>(null);
   const [readyToShip, setReadyToShip] = useState<InventoryUnit | null>(null);
   const [quickReturnUnit, setQuickReturnUnit] = useState<InventoryUnit | null>(null);
+  const [quickRepairUnit, setQuickRepairUnit] = useState<InventoryUnit | null>(null);
   const [showPickerModal, setShowPickerModal] = useState(false);
   const [showQuickPickerModal, setShowQuickPickerModal] = useState(false);
+  const [showQuickRepairPickerModal, setShowQuickRepairPickerModal] = useState(false);
   const [savedFlag, setSavedFlag]   = useState(false);
 
   // Returned = status 'returned' OR units that came back to available via returnType
@@ -517,18 +627,27 @@ export default function ReturnsPage() {
       </div>
 
       {/* Return Buttons */}
-      <div className="grid grid-cols-2 gap-3">
+      <div className="grid grid-cols-3 gap-2">
         <button onClick={() => setShowQuickPickerModal(true)}
           disabled={sold.length === 0}
           className="py-3 bg-emerald-600 text-white rounded-3xl font-bold uppercase tracking-widest text-sm hover:bg-emerald-700 transition-all disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2">
-          <PackageCheck size={16} />
-          Mark Return
+          <PackageCheck size={14} />
+          <span className="hidden sm:inline">Mark Return</span>
+          <span className="sm:hidden">Return</span>
+        </button>
+        <button onClick={() => setShowQuickRepairPickerModal(true)}
+          disabled={sold.length === 0}
+          className="py-3 bg-blue-600 text-white rounded-3xl font-bold uppercase tracking-widest text-sm hover:bg-blue-700 transition-all disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2">
+          <Wrench size={14} />
+          <span className="hidden sm:inline">Send Repair</span>
+          <span className="sm:hidden">Repair</span>
         </button>
         <button onClick={() => setShowPickerModal(true)}
           disabled={sold.length === 0}
           className="py-3 bg-black text-white rounded-3xl font-bold uppercase tracking-widest text-sm hover:bg-gray-800 transition-all disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2">
-          <RefreshCw size={16} />
-          Create Return
+          <RefreshCw size={14} />
+          <span className="hidden sm:inline">Create Return</span>
+          <span className="sm:hidden">Create</span>
         </button>
       </div>
 
@@ -670,6 +789,41 @@ export default function ReturnsPage() {
         </motion.div>
       )}
 
+      {showQuickRepairPickerModal && sold.length > 0 && (
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          className="fixed inset-0 z-[65] flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm"
+          onClick={() => setShowQuickRepairPickerModal(false)}
+        >
+          <motion.div
+            initial={{ scale: 0.95, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
+            exit={{ scale: 0.95, opacity: 0 }}
+            className="bg-white rounded-3xl overflow-hidden w-full max-w-md shadow-2xl flex flex-col"
+            style={{ maxHeight: '80vh' }}
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100 flex-shrink-0">
+              <div>
+                <p className="text-[9px] font-mono uppercase tracking-widest text-gray-400">Send to Repair</p>
+                <h3 className="text-sm font-bold truncate mt-0.5">Select Unit to Repair</h3>
+              </div>
+              <button onClick={() => setShowQuickRepairPickerModal(false)} className="p-2 hover:bg-gray-100 rounded-xl transition-all">
+                <X size={16} />
+              </button>
+            </div>
+            <div className="flex-1 overflow-y-auto px-6 py-4">
+              <SoldUnitPicker units={sold} onSelect={u => {
+                setQuickRepairUnit(u);
+                setShowQuickRepairPickerModal(false);
+              }} />
+            </div>
+          </motion.div>
+        </motion.div>
+      )}
+
       {showPickerModal && sold.length > 0 && (
         <motion.div
           initial={{ opacity: 0 }}
@@ -740,6 +894,20 @@ export default function ReturnsPage() {
             onClose={() => setQuickReturnUnit(null)}
             onSaved={() => {
               setQuickReturnUnit(null);
+              setSavedFlag(true);
+              setTimeout(() => setSavedFlag(false), 3000);
+            }}
+          />
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {quickRepairUnit && (
+          <QuickRepairModal
+            unit={quickRepairUnit}
+            onClose={() => setQuickRepairUnit(null)}
+            onSaved={() => {
+              setQuickRepairUnit(null);
               setSavedFlag(true);
               setTimeout(() => setSavedFlag(false), 3000);
             }}
