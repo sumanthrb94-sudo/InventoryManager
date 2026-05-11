@@ -6,7 +6,7 @@ import OcrProgress from '../OCR/OcrProgress';
 import { performOCR, isOCRSupported } from '../../lib/ocr/ocrEngine';
 import { ocrCache } from '../../lib/ocr/ocrCacheService';
 import { imageService, type ImageMetadata } from '../../lib/imageService';
-import { cloudinaryStorageService } from '../../lib/cloudinaryStorageService';
+import { imgbbStorageService } from '../../lib/imgbbStorageService';
 import type { OCRResult } from '../../lib/ocr/ocrEngine';
 
 interface Props {
@@ -90,8 +90,8 @@ export default function ImageCaptureInput({ onImageSelected, onBack, intakeType 
         };
       });
 
-      // Upload to Cloudinary in background
-      uploadToCloudinary(file, metadata);
+      // Upload to Imgbb in background
+      uploadToImgbb(file, metadata);
 
       // Trigger OCR after image is loaded
       if (isOCRSupported()) {
@@ -115,23 +115,20 @@ export default function ImageCaptureInput({ onImageSelected, onBack, intakeType 
     }
   };
 
-  const uploadToCloudinary = async (file: File, metadata: ImageMetadata) => {
+  const uploadToImgbb = async (file: File, metadata: ImageMetadata) => {
     try {
-      console.log('[Cloudinary] Starting upload:', file.name);
+      console.log('[Imgbb] Starting upload:', file.name);
       setImageState(prev => ({ ...prev, isUploading: true, uploadError: '' }));
 
-      const storagePath = `stock-intake/${jobIdRef.current}`;
-
-      const uploadedImage = await cloudinaryStorageService.uploadImage(
+      const uploadedImage = await imgbbStorageService.uploadImage(
         file,
-        storagePath,
         (progress) => {
-          console.log(`[Cloudinary] Upload progress: ${progress}%`);
+          console.log(`[Imgbb] Upload progress: ${progress}%`);
           setImageState(prev => ({ ...prev, uploadProgress: progress }));
         }
       );
 
-      console.log('[Cloudinary] Upload successful:', uploadedImage.url);
+      console.log('[Imgbb] Upload successful:', uploadedImage.url);
       setImageState(prev => ({
         ...prev,
         supabaseUrl: uploadedImage.url,
@@ -140,7 +137,7 @@ export default function ImageCaptureInput({ onImageSelected, onBack, intakeType 
       }));
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : 'Upload failed';
-      console.error('[Cloudinary] Upload error:', errorMsg);
+      console.error('[Imgbb] Upload error:', errorMsg);
       setImageState(prev => ({
         ...prev,
         isUploading: false,
@@ -340,7 +337,7 @@ export default function ImageCaptureInput({ onImageSelected, onBack, intakeType 
                 <div className="mb-3 p-3 bg-blue-50 rounded-lg border border-blue-200">
                   <div className="flex items-center gap-2 mb-2">
                     <Cloud size={16} className="text-blue-600 animate-pulse" />
-                    <p className="text-sm font-semibold text-blue-900">Uploading to Cloudinary...</p>
+                    <p className="text-sm font-semibold text-blue-900">Uploading image...</p>
                   </div>
                   <div className="w-full h-2 bg-blue-200 rounded-full overflow-hidden">
                     <motion.div
@@ -377,7 +374,7 @@ export default function ImageCaptureInput({ onImageSelected, onBack, intakeType 
                   className="mb-3 p-2 bg-blue-50 rounded-lg border border-blue-200 text-xs flex items-start gap-2"
                 >
                   <CheckCircle2 size={14} className="text-blue-600 flex-shrink-0 mt-0.5" />
-                  <p className="text-blue-700">✓ Image uploaded to Cloudinary</p>
+                  <p className="text-blue-700">✓ Image uploaded</p>
                 </motion.div>
               )}
 
