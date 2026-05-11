@@ -121,6 +121,7 @@ class NotificationService {
       // Check if all items in batch are the same model and type
       const allSameModel = this.batchBuffer.every(b => b.unit.model === first.unit.model && b.type === first.type);
       if (allSameModel) {
+        console.log('[Notification Batch] Processing batch:', { type: first.type, count: this.batchBuffer.length, model: first.unit.model });
         this.addNotificationDirect(first.type, first.unit, first.profitAmount, this.batchBuffer.length);
         this.batchBuffer = [];
         return;
@@ -128,6 +129,7 @@ class NotificationService {
     }
 
     // Process items individually if not batchable
+    console.log('[Notification Batch] Items not batchable, processing individually:', this.batchBuffer.length);
     for (const item of this.batchBuffer) {
       this.addNotificationDirect(item.type, item.unit, item.profitAmount, 1);
     }
@@ -138,6 +140,7 @@ class NotificationService {
     // For bulk additions like new_stock and shs_received, use batching
     const batchableTypes = ['new_stock', 'shs_received'];
     if (batchableTypes.includes(type) && !count) {
+      console.log('[Notification Batch] Adding to buffer:', { type, model: unit.model, bufferSize: this.batchBuffer.length + 1 });
       this.batchBuffer.push({ type, unit, profitAmount });
 
       if (this.batchTimeout) clearTimeout(this.batchTimeout);
@@ -146,6 +149,7 @@ class NotificationService {
     }
 
     // For explicit counts or non-batchable types, process immediately
+    console.log('[Notification Direct] Processing immediately:', { type, count, model: unit.model });
     this.addNotificationDirect(type, unit, profitAmount, count);
   }
 

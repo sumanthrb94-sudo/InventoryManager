@@ -268,12 +268,13 @@ export default function StockIntakeFlow({ onClose }: Props) {
         data: u,
       }));
 
+      // Register units as session-created BEFORE database write
+      // This ensures the deduplication set is populated before real-time notifications fire
+      registerSessionCreatedUnits(unitsForReview.map(u => u.id));
+
       await dbService.bulkCreate(entries, (done, total) => {
         setProcessingProgress({ done, total });
       });
-
-      // Register units as session-created to prevent duplicate notifications from useRealTimeNotifications
-      registerSessionCreatedUnits(unitsForReview.map(u => u.id));
 
       // Trigger notification with batch count
       if (unitsForReview.length > 0) {
