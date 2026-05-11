@@ -44,7 +44,7 @@ export default function StockInPage({ onOpenBatch }: Props) {
     }
     try {
       await Promise.all(groupUnits.map(u => dbService.delete('inventoryUnits', u.id)));
-      notificationService.addNotification('shs_removed', sample);
+      notificationService.addNotification('shs_removed', sample, undefined, qty);
       setOpenMenuId(null);
     } catch (err) {
       console.error('Failed to delete pending SHS group:', err);

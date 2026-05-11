@@ -106,7 +106,7 @@ class NotificationService {
     };
   }
 
-  addNotification(type: NotificationType, unit: InventoryUnit, profitAmount?: number) {
+  addNotification(type: NotificationType, unit: InventoryUnit, profitAmount?: number, count?: number) {
     // Check if this notification was already fired (persisted across page reloads)
     const firedKey = `${unit.id}:${type}`;
     try {
@@ -142,7 +142,7 @@ class NotificationService {
       new_stock: '📦 New Stock Added',
       return_processed: '↩️ Return Processed',
       shs_received: '🚚 SHS Order Received',
-      shs_removed: '❌ SHS Stock Removed',
+      shs_removed: count && count > 1 ? `❌ ${count} SHS Units Removed` : '❌ SHS Stock Removed',
       unit_repaired: '🔧 Unit Repaired & Added to Inventory',
     };
 
@@ -152,7 +152,7 @@ class NotificationService {
       new_stock: `${unit.model} is now in stock and ready for listing.`,
       return_processed: `${unit.model} has been returned and restored to inventory.`,
       shs_received: `${unit.model} from SHS order has been received.`,
-      shs_removed: `${unit.model} SHS pending stock has been removed.`,
+      shs_removed: count && count > 1 ? `${count} × ${unit.model} SHS units removed from pending stock.` : `${unit.model} SHS pending stock has been removed.`,
       unit_repaired: `${unit.model} has been repaired and added back to inventory.`,
     };
 
