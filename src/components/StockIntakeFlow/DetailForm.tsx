@@ -1,11 +1,13 @@
 import React, { useMemo } from 'react';
-import { ChevronLeft, Lock } from 'lucide-react';
+import { ChevronLeft, Lock, AlertTriangle } from 'lucide-react';
 import { motion } from 'motion/react';
 import { useInventoryStore } from '../../lib/inventoryStore';
 import { GRADE_OPTIONS, STORAGE_OPTIONS } from '../../lib/unitConstants';
 import { GradeSelect, StorageSelect } from '../FormSelects';
 import ConfidenceBadge from '../OCR/ConfidenceBadge';
 import type { OCRResult } from '../../lib/ocr/ocrEngine';
+
+const normaliseImei = (s: string) => (s || '').replace(/\D/g, '');
 
 const COLOUR_OPTIONS = [
   'Black','White','Blue','Green','Red','Pink','Purple','Yellow',
@@ -78,12 +80,22 @@ export default function DetailForm({
   batchId,
   ocrResult,
 }: Props) {
-  const { suppliers } = useInventoryStore();
+  const { suppliers, units } = useInventoryStore();
 
   const categories = [
     'iPhone', 'iPad', 'Apple Watch', 'Tablet',
     'Samsung S Series', 'Samsung A Series', 'Other'
   ];
+
+  // Live IMEI duplicate detection against the inventory store.
+  // Skipped for bulk intake where the IMEI field is optional/starting-seed.
+  const imeiDigits = normaliseImei(imei);
+  const duplicateUnit = useMemo(() => {
+    if (intakeType !== 'single') return null;
+    if (imeiDigits.length < 14) return null;
+    return units.find(u => normaliseImei(u.imei) === imeiDigits) || null;
+  }, [imeiDigits, units, intakeType]);
+  const hasDuplicate = !!duplicateUnit;
 
   const handleQuantityChange = (val: number) => {
     setQuantity(Math.max(1, Math.min(999, val)));
@@ -124,11 +136,29 @@ export default function DetailForm({
             value={imei}
             onChange={e => setImei(e.target.value)}
             placeholder={intakeType === 'bulk' ? 'Leave blank for auto-generation' : '14-15 digits'}
-            className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            className={`w-full px-3 py-2 border rounded-lg text-sm focus:outline-none focus:ring-2 ${
+              hasDuplicate
+                ? 'border-red-400 focus:ring-red-500 bg-red-50'
+                : 'border-gray-300 focus:ring-blue-500'
+            }`}
           />
-          <p className="text-[10px] text-gray-500 mt-1">
-            {imei ? `Digits: ${imei.replace(/\D/g, '').length}` : 'Optional for bulk'}
-          </p>
+          {hasDuplicate ? (
+            <div className="mt-1 flex items-start gap-1.5 text-[11px] text-red-700 bg-red-50 border border-red-200 rounded-md px-2 py-1.5">
+              <AlertTriangle size={13} className="flex-shrink-0 mt-0.5" />
+              <div>
+                <p className="font-semibold">IMEI already in inventory</p>
+                <p className="text-red-600">
+                  {duplicateUnit!.model}
+                  {duplicateUnit!.status ? ` · status: ${duplicateUnit!.status}` : ''}
+                  {duplicateUnit!.dateIn ? ` · added ${duplicateUnit!.dateIn}` : ''}
+                </p>
+              </div>
+            </div>
+          ) : (
+            <p className="text-[10px] text-gray-500 mt-1">
+              {imei ? `Digits: ${imeiDigits.length}` : 'Optional for bulk'}
+            </p>
+          )}
         </div>
 
         {/* Quantity - bulk only */}
@@ -305,9 +335,12 @@ export default function DetailForm({
         </button>
         <button
           onClick={onSubmit}
-          className="flex-1 py-2 bg-blue-600 text-white rounded-lg text-sm font-semibold hover:bg-blue-700 transition"
+          disabled={hasDuplicate}
+          className="flex-1 py-2 bg-blue-600 text-white rounded-lg text-sm font-semibold hover:bg-blue-700 transition disabled:bg-gray-300 disabled:cursor-not-allowed"
         >
-          {intakeType === 'bulk' && quantity > 1 ? 'Continue to Colors' : 'Review Units'}
+          {hasDuplicate
+            ? 'IMEI Duplicate'
+            : intakeType === 'bulk' && quantity > 1 ? 'Continue to Colors' : 'Review Units'}
         </button>
       </div>
     </motion.div>

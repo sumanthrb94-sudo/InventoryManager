@@ -168,6 +168,25 @@ export default function StockIntakeFlow({ onClose }: Props) {
     if (!colour) { setError('Colour is required'); return; }
     if (!supplierId) { setError('Supplier is required'); return; }
 
+    // Server-side IMEI duplicate guard (single intake). DetailForm blocks
+    // duplicates against the in-memory store; this catches the case where
+    // the local store is stale (e.g. another device added the IMEI in the
+    // meantime) before we waste the user's time on the review screen.
+    if (intakeType === 'single') {
+      const cleanImei = imei.replace(/\D/g, '');
+      if (cleanImei.length >= 14) {
+        try {
+          const exists = await dbService.imeiExists(cleanImei);
+          if (exists) {
+            setError(`IMEI ${cleanImei} already exists in inventory`);
+            return;
+          }
+        } catch (err) {
+          console.warn('[Intake] imeiExists check failed, continuing:', err);
+        }
+      }
+    }
+
     setError('');
 
     if (intakeType === 'bulk' && quantity > 1) {
