@@ -1,10 +1,11 @@
-import React, { useState, useRef } from 'react';
-import { Camera, Image as ImageIcon, ChevronLeft, Upload } from 'lucide-react';
+import React, { useState, useRef, useEffect } from 'react';
+import { Camera, Image as ImageIcon, ChevronLeft, Upload, AlertCircle, CheckCircle2, Loader } from 'lucide-react';
 import { motion } from 'motion/react';
 import IMEIScanner from '../IMEIScanner';
 import OcrProgress from '../OCR/OcrProgress';
 import { performOCR, isOCRSupported } from '../../lib/ocr/ocrEngine';
 import { ocrCache } from '../../lib/ocr/ocrCacheService';
+import { imageService, type ImageMetadata } from '../../lib/imageService';
 import type { OCRResult } from '../../lib/ocr/ocrEngine';
 
 interface Props {
@@ -13,49 +14,68 @@ interface Props {
   intakeType: 'single' | 'bulk';
 }
 
+interface ImageState {
+  metadata?: ImageMetadata;
+  file: File | null;
+  previewUrl: string;
+  isValidating: boolean;
+  validationError: string;
+}
+
 export default function ImageCaptureInput({ onImageSelected, onBack, intakeType }: Props) {
   const [mode, setMode] = useState<'select' | 'camera' | 'gallery'>('select');
-  const [selectedFile, setSelectedFile] = useState<File | null>(null);
-  const [preview, setPreview] = useState('');
+  const [imageState, setImageState] = useState<ImageState>({
+    file: null,
+    previewUrl: '',
+    isValidating: false,
+    validationError: '',
+  });
   const [error, setError] = useState('');
   const [ocrProgress, setOcrProgress] = useState(0);
   const [isOcrProcessing, setIsOcrProcessing] = useState(false);
   const [ocrResult, setOcrResult] = useState<OCRResult | undefined>();
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const processTimeoutRef = useRef<NodeJS.Timeout>();
 
   const handleGallerySelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    if (!file.type.startsWith('image/')) {
-      setError('Please select an image file');
-      return;
-    }
+    try {
+      setImageState(prev => ({ ...prev, isValidating: true, validationError: '' }));
+      setError('');
 
-    setSelectedFile(file);
-    setError('');
+      // Validate and process image using the service
+      const metadata = await imageService.processImage(file);
 
-    // Read file and create preview
-    const reader = new FileReader();
-    reader.onload = (evt) => {
-      const dataUrl = evt.target?.result as string;
-      setPreview(dataUrl);
-    };
-    reader.onerror = () => {
-      setError('Failed to read image file. Please try again.');
-    };
-    reader.readAsDataURL(file);
+      // Update state with processed image
+      setImageState({
+        file,
+        metadata,
+        previewUrl: metadata.dataUrl,
+        isValidating: false,
+        validationError: '',
+      });
 
-    // Trigger OCR after FileReader completes (use file object directly, not DOM state)
-    if (isOCRSupported()) {
-      // Wait for next tick to ensure preview is set
-      setTimeout(() => {
-        performOCROnFile(file);
-      }, 0);
+      // Trigger OCR after image is loaded
+      if (isOCRSupported()) {
+        if (processTimeoutRef.current) clearTimeout(processTimeoutRef.current);
+        processTimeoutRef.current = setTimeout(() => {
+          performOCROnFile(file, metadata);
+        }, 300); // Wait for state update
+      }
+    } catch (err) {
+      const errorMsg = err instanceof Error ? err.message : 'Failed to process image';
+      setImageState(prev => ({
+        ...prev,
+        isValidating: false,
+        validationError: errorMsg,
+      }));
+      setError(errorMsg);
     }
   };
 
-  const performOCROnFile = async (file: File) => {
+  const performOCROnFile = async (file: File, metadata?: ImageMetadata) => {
     try {
       setIsOcrProcessing(true);
       setOcrProgress(0);
@@ -63,11 +83,14 @@ export default function ImageCaptureInput({ onImageSelected, onBack, intakeType 
       // Check cache first
       const cached = await ocrCache.get(file);
       if (cached) {
+        console.log('[OCR] Cache hit:', metadata?.filename);
         setOcrResult(cached);
         setIsOcrProcessing(false);
         setOcrProgress(100);
         return;
       }
+
+      console.log('[OCR] Processing image:', metadata?.filename);
 
       // Perform OCR
       const result = await performOCR(file, (progress) => {
@@ -81,21 +104,36 @@ export default function ImageCaptureInput({ onImageSelected, onBack, intakeType 
       setOcrProgress(100);
     } catch (err) {
       // OCR is optional - fail gracefully without blocking the workflow
-      console.warn('OCR processing skipped (optional):', err instanceof Error ? err.message : String(err));
+      console.warn('[OCR] Processing skipped (optional):', err instanceof Error ? err.message : String(err));
       setIsOcrProcessing(false);
       setOcrProgress(0);
-      // Don't set error state - OCR failure shouldn't block user
       setOcrResult(undefined);
     }
   };
 
   const handleCameraScan = (value: string) => {
     // Create a virtual "file" from the scanned IMEI
-    // This allows us to continue with the same flow
     const blob = new Blob([value], { type: 'text/plain' });
     const file = new File([blob], `scan_${Date.now()}.txt`, { type: 'text/plain' });
-    setSelectedFile(file);
-    setPreview(`data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='100' height='100'%3E%3Crect fill='%23ddd' width='100' height='100'/%3E%3Ctext x='50' y='50' text-anchor='middle' dy='.3em' font-family='monospace' font-size='12'%3EScanned%3C/text%3E%3C/svg%3E`);
+    const svgPreview = `data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='100' height='100'%3E%3Crect fill='%23ddd' width='100' height='100'/%3E%3Ctext x='50' y='50' text-anchor='middle' dy='.3em' font-family='monospace' font-size='12'%3EScanned%3C/text%3E%3C/svg%3E`;
+
+    setImageState({
+      file,
+      previewUrl: svgPreview,
+      isValidating: false,
+      validationError: '',
+      metadata: {
+        id: Date.now().toString(),
+        filename: `scan_${Date.now()}.txt`,
+        size: blob.size,
+        width: 100,
+        height: 100,
+        mimeType: 'text/plain',
+        dataUrl: svgPreview,
+        timestamp: Date.now(),
+        compressed: false,
+      },
+    });
     setError('');
     setMode('select');
   };
@@ -106,12 +144,18 @@ export default function ImageCaptureInput({ onImageSelected, onBack, intakeType 
   };
 
   const handleProceed = () => {
-    if (!selectedFile) {
+    if (!imageState.file) {
       setError('Please select an image or scan a barcode');
       return;
     }
-    onImageSelected(selectedFile, preview, ocrResult);
+    onImageSelected(imageState.file, imageState.previewUrl, ocrResult);
   };
+
+  useEffect(() => {
+    return () => {
+      if (processTimeoutRef.current) clearTimeout(processTimeoutRef.current);
+    };
+  }, []);
 
   const triggerFileInput = () => {
     // Reset input value before clicking to allow same file selection
@@ -154,17 +198,65 @@ export default function ImageCaptureInput({ onImageSelected, onBack, intakeType 
             </motion.button>
           </div>
 
-          {/* Selected File Preview */}
-          {selectedFile && (
+          {/* Image Processing State */}
+          {imageState.isValidating && (
+            <motion.div
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="p-4 bg-blue-50 rounded-xl border border-blue-200 flex items-center gap-3"
+            >
+              <Loader size={18} className="text-blue-600 animate-spin" />
+              <div>
+                <p className="text-sm font-semibold text-blue-900">Validating and processing image...</p>
+                <p className="text-xs text-blue-700">Checking dimensions, compressing if needed</p>
+              </div>
+            </motion.div>
+          )}
+
+          {/* Validation Error */}
+          {imageState.validationError && (
+            <motion.div
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="p-3 bg-red-50 rounded-lg border border-red-200 flex items-start gap-2"
+            >
+              <AlertCircle size={16} className="text-red-600 flex-shrink-0 mt-0.5" />
+              <p className="text-sm text-red-700">{imageState.validationError}</p>
+            </motion.div>
+          )}
+
+          {/* Selected Image Preview */}
+          {imageState.file && !imageState.isValidating && !imageState.validationError && (
             <motion.div
               initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
               className="p-3 sm:p-4 bg-gray-50 rounded-xl border border-gray-200"
             >
-              <p className="text-xs font-mono text-gray-600 mb-2">✓ Selected: {selectedFile.name}</p>
-              {preview && (
+              {/* Image Info */}
+              <div className="flex items-start justify-between mb-3">
+                <div className="flex-1 min-w-0">
+                  <p className="text-xs font-mono text-gray-700 truncate flex items-center gap-1">
+                    <CheckCircle2 size={13} className="text-emerald-600 flex-shrink-0" />
+                    {imageState.file.name}
+                  </p>
+                  {imageState.metadata && (
+                    <p className="text-[10px] text-gray-500 mt-0.5">
+                      {imageState.metadata.width}×{imageState.metadata.height}px
+                      {imageState.metadata.compressed && ' (compressed)'}
+                    </p>
+                  )}
+                </div>
+              </div>
+
+              {/* Preview Image */}
+              {imageState.previewUrl && (
                 <div className="w-full h-32 sm:h-40 rounded-lg overflow-hidden mb-3 bg-gray-200">
-                  <img src={preview} alt="Preview" className="w-full h-full object-cover" />
+                  <img
+                    src={imageState.previewUrl}
+                    alt="Preview"
+                    className="w-full h-full object-cover"
+                    loading="lazy"
+                  />
                 </div>
               )}
 
@@ -187,6 +279,7 @@ export default function ImageCaptureInput({ onImageSelected, onBack, intakeType 
                 </div>
               )}
 
+              {/* Action Button */}
               <button
                 onClick={handleProceed}
                 disabled={isOcrProcessing}
