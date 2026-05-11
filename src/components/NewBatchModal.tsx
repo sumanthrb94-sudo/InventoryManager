@@ -1,11 +1,12 @@
 import React, { useState, useMemo, useCallback } from 'react';
-import { X, Plus, Trash2, CheckCircle2, ClipboardPaste, PackagePlus, ChevronDown, ChevronUp, Camera } from 'lucide-react';
+import { X, Plus, Trash2, CheckCircle2, ClipboardPaste, PackagePlus, ChevronDown, ChevronUp, Camera, Lock } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { dbService } from '../lib/dbService';
 import { DeviceCategory, InventoryUnit } from '../types';
 import { useInventoryStore } from '../lib/inventoryStore';
 import { logInventoryEvent } from '../lib/inventoryEvents';
 import { GradeSelectCompact, StorageSelectCompact } from './FormSelects';
+import { generateBatchId, formatBatchId } from '../lib/batchUtils';
 import ScanInModal from './ScanInModal';
 
 interface Props { onClose: () => void; }
@@ -97,6 +98,19 @@ export default function NewBatchModal({ onClose }: Props) {
   const knownNames = useMemo(() => suppliers.map(s => s.name), [suppliers]);
   const lastSupplierName = rows.filter(r => r.supplierName).at(-1)?.supplierName ?? '';
 
+  // Pre-calculate batch IDs for display
+  const batchIdPreview = useMemo(() => {
+    const validRows = rows.filter(r => r.model.trim() && (r.buyPrice || r.isSHS));
+    const batchIds: Record<string, string> = {};
+    for (const r of validRows) {
+      const key = r.supplierName.trim().toUpperCase();
+      if (key && !batchIds[key]) {
+        batchIds[key] = generateBatchId(r.supplierName);
+      }
+    }
+    return batchIds;
+  }, [rows]);
+
   const updateRow = useCallback((id: string, patch: Partial<BatchRow>) =>
     setRows(rs => rs.map(r => r.id === id ? { ...r, ...patch } : r)), []);
 
@@ -174,13 +188,19 @@ export default function NewBatchModal({ onClose }: Props) {
         return;
       }
 
-      const batchId = `bat_${Date.now()}`;
       const ts      = Date.now();
 
       const supCache: Record<string, string> = {};
+      const batchIdCache: Record<string, string> = {};
+
+      // Ensure all suppliers exist and generate batch IDs per supplier
       for (const r of validRows) {
         const key = r.supplierName.trim().toUpperCase();
-        if (key && !supCache[key]) supCache[key] = await ensureSupplier(r.supplierName);
+        if (key && !supCache[key]) {
+          supCache[key] = await ensureSupplier(r.supplierName);
+          // Generate unique batch ID for this supplier
+          batchIdCache[key] = generateBatchId(r.supplierName);
+        }
       }
 
       await dbService.create('batches', batchId, {
@@ -195,7 +215,9 @@ export default function NewBatchModal({ onClose }: Props) {
 
       let idx = 0;
       for (const r of validRows) {
-        const supplierId = supCache[r.supplierName.trim().toUpperCase()] || '';
+        const supplierKey = r.supplierName.trim().toUpperCase();
+        const supplierId = supCache[supplierKey] || '';
+        const batchId = batchIdCache[supplierKey] || `bat_${Date.now()}_${idx}`;
         const category   = detectCategory(r.model);
         const brand      = detectBrand(category);
         const bp         = parseFloat(r.buyPrice) || 0;
@@ -288,7 +310,7 @@ export default function NewBatchModal({ onClose }: Props) {
         </div>
 
         {/* Batch header */}
-        <div className="px-5 py-3 border-b border-gray-100 bg-gray-50 flex-shrink-0">
+        <div className="px-5 py-3 border-b border-gray-100 bg-gray-50 space-y-3 flex-shrink-0">
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="text-[8px] font-bold uppercase tracking-widest text-gray-400">Date</label>
@@ -302,6 +324,25 @@ export default function NewBatchModal({ onClose }: Props) {
                 className="w-full mt-1 border border-gray-200 rounded-xl px-3 py-2 text-xs font-mono focus:outline-none focus:border-black bg-white transition-all" />
             </div>
           </div>
+
+          {/* Batch IDs Preview */}
+          {Object.keys(batchIdPreview).length > 0 && (
+            <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 space-y-2">
+              <div className="flex items-center gap-2">
+                <Lock size={12} className="text-blue-600" />
+                <p className="text-[8px] font-bold uppercase tracking-widest text-blue-600">Auto Generated Batch IDs</p>
+              </div>
+              <div className="space-y-1.5">
+                {Object.entries(batchIdPreview).map(([supplier, batchId]) => (
+                  <div key={supplier} className="bg-white border border-blue-100 rounded px-2.5 py-1.5">
+                    <p className="text-[8px] font-mono text-gray-600 uppercase tracking-tight">
+                      {supplier || 'Unknown'}: <span className="font-bold text-blue-600">{formatBatchId(batchId)}</span>
+                    </p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Column headers */}
