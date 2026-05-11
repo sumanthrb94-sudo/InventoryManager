@@ -71,6 +71,21 @@ export function buildModelSummaries(units: InventoryUnit[]): ModelSummary[] {
     }
   }
 
+  // Sort each variant's units latest-first so expanded model rows show the
+  // most recent intake at the top everywhere they're rendered.
+  for (const summary of map.values()) {
+    for (const variant of summary.variants) {
+      variant.units.sort((a, b) => {
+        const ad = a.dateIn || '';
+        const bd = b.dateIn || '';
+        if (ad !== bd) return bd.localeCompare(ad);
+        const ac = (a as any).createdAt || '';
+        const bc = (b as any).createdAt || '';
+        return bc.localeCompare(ac);
+      });
+    }
+  }
+
   return Array.from(map.values());
 }
 

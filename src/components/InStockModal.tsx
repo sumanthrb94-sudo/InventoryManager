@@ -12,8 +12,9 @@ interface Props {
 
 export default function InStockModal({ units, onClose }: Props) {
   const { suppliers } = useInventoryStore();
-  const [sortKey, setSortKey] = useState<string>('');
-  const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
+  // Default to most-recent first across the app — overridable via column header.
+  const [sortKey, setSortKey] = useState<string>('dateIn');
+  const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
 
   const supplierMap = useMemo(() => {
     const map: Record<string, string> = {};

@@ -17,6 +17,13 @@ const COLOUR_OPTIONS = [
   'Lavender','Desert Titanium','Pacific Blue','Rose Gold','Other',
 ];
 
+// Constrained brand list — keeps Brand orthogonal to Model so the auto-fill
+// pipeline (and any downstream filtering) can reason about them separately.
+const BRAND_OPTIONS = [
+  'Apple', 'Samsung', 'Google', 'OnePlus', 'Xiaomi', 'Huawei', 'OPPO', 'Vivo',
+  'Motorola', 'Nokia', 'Other',
+];
+
 interface Props {
   intakeType: 'single' | 'bulk';
   imei: string;
@@ -188,9 +195,10 @@ export default function DetailForm({
             type="text"
             value={model}
             onChange={e => setModel(e.target.value)}
-            placeholder="e.g. iPhone 15 Pro Max 256GB"
+            placeholder="e.g. iPhone 15 Pro Max  /  S21 FE 5G"
             className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
           />
+          <p className="text-[10px] text-gray-500 mt-1">Model designation only — brand is set above</p>
         </div>
 
         {/* Category */}
@@ -211,18 +219,21 @@ export default function DetailForm({
         {/* Brand */}
         <div>
           <div className="flex items-center justify-between mb-1">
-            <label className="block text-xs font-bold text-gray-700 uppercase">Brand</label>
+            <label className="block text-xs font-bold text-gray-700 uppercase">Brand *</label>
             {ocrResult?.device.brand.confidence > 0 && (
               <ConfidenceBadge confidence={ocrResult.device.brand.confidence} label="OCR" showIcon={false} />
             )}
           </div>
-          <input
-            type="text"
+          <select
             value={brand}
             onChange={e => setBrand(e.target.value)}
-            placeholder="Apple, Samsung, etc"
-            className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-          />
+            className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+          >
+            <option value="">Select brand</option>
+            {BRAND_OPTIONS.map(b => (
+              <option key={b} value={b}>{b}</option>
+            ))}
+          </select>
         </div>
 
         {/* Storage */}
