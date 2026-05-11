@@ -59,6 +59,7 @@ export default function ImageCaptureInput({ onImageSelected, onBack, intakeType 
 
     if (!file) {
       console.warn('[Gallery] No file selected');
+      setError('No file was selected');
       return;
     }
 
@@ -78,14 +79,17 @@ export default function ImageCaptureInput({ onImageSelected, onBack, intakeType 
       });
 
       // Update state with processed image
-      setImageState(prev => ({
-        ...prev,
-        file,
-        metadata,
-        previewUrl: metadata.dataUrl,
-        isValidating: false,
-        validationError: '',
-      }));
+      setImageState(prev => {
+        console.log('[Gallery] Setting image state with metadata and preview');
+        return {
+          ...prev,
+          file,
+          metadata,
+          previewUrl: metadata.dataUrl,
+          isValidating: false,
+          validationError: '',
+        };
+      });
 
       // Upload to Supabase in background
       uploadToSupabase(file, metadata);
@@ -94,12 +98,15 @@ export default function ImageCaptureInput({ onImageSelected, onBack, intakeType 
       if (isOCRSupported()) {
         if (processTimeoutRef.current) clearTimeout(processTimeoutRef.current);
         processTimeoutRef.current = setTimeout(() => {
+          console.log('[Gallery] Triggering OCR processing...');
           performOCROnFile(file, metadata);
         }, 300); // Wait for state update
+      } else {
+        console.log('[Gallery] OCR not supported on this device');
       }
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : 'Failed to process image';
-      console.error('[Gallery] Error processing image:', errorMsg);
+      console.error('[Gallery] Error processing image:', errorMsg, err);
       setImageState(prev => ({
         ...prev,
         isValidating: false,
@@ -281,7 +288,10 @@ export default function ImageCaptureInput({ onImageSelected, onBack, intakeType 
             <motion.button
               whileHover={{ scale: 1.02 }}
               whileTap={{ scale: 0.98 }}
-              onClick={() => setMode('gallery')}
+              onClick={() => {
+                console.log('[Gallery] Upload button clicked, changing mode to gallery');
+                setMode('gallery');
+              }}
               className="p-4 sm:p-6 rounded-2xl border-2 border-gray-200 hover:border-emerald-500 transition-all hover:bg-emerald-50 text-left group active:bg-emerald-100"
             >
               <div className="w-12 h-12 rounded-xl bg-emerald-100 flex items-center justify-center mb-2 sm:mb-3 group-hover:bg-emerald-200 transition">
@@ -463,15 +473,18 @@ export default function ImageCaptureInput({ onImageSelected, onBack, intakeType 
         <div className="space-y-3">
           {/* Hidden file input - Critical: Use native file picker without cloud services */}
           <input
-            key="file-input-gallery"
             ref={fileInputRef}
             type="file"
             accept="image/jpeg,image/jpg,image/png,image/webp,image/gif"
-            onChange={handleGallerySelect}
-            capture={false}
+            onChange={(e) => {
+              console.log('[FileInput] onChange triggered:', {
+                files: e.target.files?.length,
+                file: e.target.files?.[0]?.name
+              });
+              handleGallerySelect(e);
+            }}
             className="hidden"
             aria-label="Select image from gallery"
-            style={{ display: 'none', visibility: 'hidden', position: 'absolute', pointerEvents: 'none' }}
           />
 
           {/* Clickable upload area with explicit tap handling */}
