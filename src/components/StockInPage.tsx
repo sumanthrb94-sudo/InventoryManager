@@ -14,6 +14,7 @@ import ReceiveSHSModal from './ReceiveSHSModal';
 import AddSHSModal from './AddSHSModal';
 import AddDeliveryModal from './AddDeliveryModal';
 import ScanInModal from './ScanInModal';
+import { groupIdenticalUnits } from '../lib/unitGroups';
 import IntelligencePanel from './IntelligencePanel';
 import TodayIntakeModal from './TodayIntakeModal';
 import { StockIntakeFlow } from './StockIntakeFlow';
@@ -288,32 +289,43 @@ export default function StockInPage({ onOpenBatch }: Props) {
           </div>
         ) : (
           <div className="divide-y divide-gray-50">
-            {filtered.map(u => {
-              const isOpen = expandedId === u.id;
+            {groupIdenticalUnits(filtered).map(g => {
+              const u = g.representative;
+              const isOpen = expandedId === g.key;
               const isSHS = u.batchId?.startsWith('shs_') || u.notes?.includes('SHS');
               return (
-                <div key={u.id}>
+                <div key={g.key}>
                   <div className={`flex items-center gap-3 px-4 py-3 transition-all ${
                     isSHS
                       ? 'bg-orange-50/60 hover:bg-orange-50'
                       : 'hover:bg-gray-50'
                   }`}>
-                    <div className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${u.dateIn === today ? 'bg-emerald-100' : 'bg-gray-100'}`}>
+                    <div className={`relative w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${u.dateIn === today ? 'bg-emerald-100' : 'bg-gray-100'}`}>
                       {u.dateIn === today
                         ? <CheckCircle2 size={14} className="text-emerald-600" />
                         : <Clock size={14} className="text-gray-400" />
                       }
+                      {g.count > 1 && (
+                        <span className="absolute -top-1.5 -right-1.5 min-w-[18px] h-[18px] px-1 rounded-full bg-slate-900 text-white text-[9px] font-bold flex items-center justify-center">
+                          ×{g.count}
+                        </span>
+                      )}
                     </div>
                     <div className="flex-1 min-w-0">
-                      <p className="text-xs font-bold truncate">{u.model}</p>
+                      <p className="text-xs font-bold truncate">
+                        {u.model}
+                        {g.count > 1 && <span className="ml-1.5 text-slate-500 font-mono text-[10px]">× {g.count}</span>}
+                      </p>
                       <p className="text-[9px] text-gray-400 font-mono mt-0.5">
-                        <CopyImei imei={u.imei} truncate={10} /> · {u.dateIn}
+                        {g.count > 1
+                          ? <>{g.count} units · {u.dateIn}</>
+                          : <><CopyImei imei={u.imei} truncate={10} /> · {u.dateIn}</>}
                       </p>
                     </div>
                     <div className="flex items-center gap-2 flex-shrink-0">
                       <span className="text-sm font-bold">£{u.buyPrice}</span>
                       <button
-                        onClick={() => setExpandedId(isOpen ? null : u.id)}
+                        onClick={() => setExpandedId(isOpen ? null : g.key)}
                         className="p-1.5 hover:bg-gray-100 rounded-lg transition-all text-gray-400"
                       >
                         {isOpen ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
@@ -340,6 +352,20 @@ export default function StockInPage({ onOpenBatch }: Props) {
                             </div>
                           ))}
                         </div>
+                        {g.count > 1 && (
+                          <div className="px-5 pb-3 -mt-1">
+                            <p className="text-[8px] text-gray-400 font-mono uppercase tracking-widest mb-1.5">
+                              IMEIs in this group ({g.count})
+                            </p>
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-x-4 gap-y-0.5 max-h-44 overflow-y-auto">
+                              {g.units.map(individual => (
+                                <p key={individual.id} className="text-[10px] font-mono text-gray-600 truncate">
+                                  <CopyImei imei={individual.imei} truncate={18} />
+                                </p>
+                              ))}
+                            </div>
+                          </div>
+                        )}
                       </motion.div>
                     )}
                   </AnimatePresence>
