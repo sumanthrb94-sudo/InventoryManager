@@ -2,7 +2,7 @@
 @import "tailwindcss";
 
 /* ─── Theme tokens ─────────────────────────────────────────────────────────
- * Mint-inspired brand layer. Surfaces stay neutral; emerald sits in the
+ * Ink-blue brand layer. Surfaces stay neutral; ink-blue sits in the
  * accent / focus / brand spots. We do this here (not on every component
  * className) so the polish lands across the whole app without touching
  * functional code.
@@ -12,22 +12,22 @@
   --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
   --font-display: "Space Grotesk", sans-serif;
 
-  /* Brand */
-  --color-brand-50:  #ecfdf5;
-  --color-brand-100: #d1fae5;
-  --color-brand-200: #a7f3d0;
-  --color-brand-300: #6ee7b7;
-  --color-brand-400: #34d399;
-  --color-brand-500: #10b981;
-  --color-brand-600: #059669;
-  --color-brand-700: #047857;
-  --color-brand-800: #065f46;
-  --color-brand-900: #064e3b;
+  /* Brand — ink blue (deep, slightly indigo-leaning) */
+  --color-brand-50:  #EEF2FF;
+  --color-brand-100: #E0E7FF;
+  --color-brand-200: #C7D2FE;
+  --color-brand-300: #A5B4FC;
+  --color-brand-400: #6366F1;
+  --color-brand-500: #4F46E5;
+  --color-brand-600: #4338CA;
+  --color-brand-700: #3730A3;
+  --color-brand-800: #312E81;
+  --color-brand-900: #1E1B4B;
 
   /* Surfaces — warmer than #FAFAFA, softer contrast */
-  --color-surface-base:    #F7FAF8;
+  --color-surface-base:    #F7F8FB;
   --color-surface-raised:  #FFFFFF;
-  --color-surface-sunken:  #F1F5F3;
+  --color-surface-sunken:  #EEF0F5;
   --color-hairline:        rgba(15, 23, 42, 0.06);
   --color-hairline-strong: rgba(15, 23, 42, 0.10);
 
@@ -56,10 +56,10 @@
 
   body {
     background: var(--color-surface-base);
-    /* Faint mint wash so the page never feels flat under harsh light. */
+    /* Faint ink-blue wash so the page never feels flat under harsh light. */
     background-image:
-      radial-gradient(at 8% -10%, rgba(16, 185, 129, 0.05), transparent 50%),
-      radial-gradient(at 100% 0%, rgba(16, 185, 129, 0.03), transparent 40%);
+      radial-gradient(at 8% -10%, rgba(79, 70, 229, 0.05), transparent 50%),
+      radial-gradient(at 100% 0%, rgba(79, 70, 229, 0.03), transparent 40%);
     background-attachment: fixed;
     color: var(--color-ink-1);
     @apply font-sans antialiased;
@@ -68,7 +68,7 @@
   }
 
   ::selection {
-    background-color: rgba(16, 185, 129, 0.18);
+    background-color: rgba(79, 70, 229, 0.18);
     color: var(--color-ink-1);
   }
 
@@ -100,9 +100,9 @@
     outline: none;
   }
 
-  /* Replace harsh blue browser focus ring with a soft mint ring across the
-   * whole app. Components that already set their own ring-* utilities still
-   * win — this only fills in unstyled focus. */
+  /* Soft ink-blue focus ring across the whole app. Components that already
+   * set their own ring-* utilities still win — this only fills in unstyled
+   * focus. */
   :focus-visible {
     outline: 2px solid var(--color-brand-400);
     outline-offset: 2px;
@@ -151,7 +151,7 @@
   overflow-x: hidden;
 }
 
-/* ─── Scrollbars — refined, mint-tinted ──────────────────────────────────── */
+/* ─── Scrollbars — refined, ink-blue tinted on hover ─────────────────────── */
 * {
   scrollbar-width: thin;
   scrollbar-color: rgba(15, 23, 42, 0.18) transparent;
@@ -165,7 +165,7 @@
   background-clip: padding-box;
 }
 *::-webkit-scrollbar-thumb:hover {
-  background: rgba(16, 185, 129, 0.45);
+  background: rgba(79, 70, 229, 0.45);
   background-clip: padding-box;
 }
 
@@ -177,7 +177,7 @@
   border-radius: 999px;
 }
 .custom-scrollbar::-webkit-scrollbar-thumb:hover {
-  background: rgba(16, 185, 129, 0.35);
+  background: rgba(79, 70, 229, 0.35);
 }
 
 /* ─── Card / surface helpers (opt-in via existing class names) ───────────── */
@@ -191,7 +191,7 @@
   transform: translateY(-2px);
   box-shadow:
     0 1px 2px rgba(15, 23, 42, 0.04),
-    0 8px 24px -8px rgba(16, 185, 129, 0.18),
+    0 8px 24px -8px rgba(79, 70, 229, 0.18),
     0 4px 12px -4px rgba(15, 23, 42, 0.06);
 }
 
@@ -224,7 +224,7 @@
 .shadow-2xl {
   box-shadow:
     0 24px 48px -12px rgba(15, 23, 42, 0.18),
-    0 8px 24px -8px rgba(16, 185, 129, 0.10),
+    0 8px 24px -8px rgba(79, 70, 229, 0.10),
     0 0 0 1px rgba(15, 23, 42, 0.04);
 }
 
@@ -237,7 +237,7 @@
   background: linear-gradient(
     90deg,
     rgba(15, 23, 42, 0.04) 0%,
-    rgba(16, 185, 129, 0.12) 50%,
+    rgba(79, 70, 229, 0.12) 50%,
     rgba(15, 23, 42, 0.04) 100%
   );
   background-size: 200% 100%;
