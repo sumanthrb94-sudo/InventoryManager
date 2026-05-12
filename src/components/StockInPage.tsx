@@ -15,6 +15,7 @@ import AddSHSModal from './AddSHSModal';
 import AddDeliveryModal from './AddDeliveryModal';
 import ScanInModal from './ScanInModal';
 import { groupIdenticalUnits } from '../lib/unitGroups';
+import ColourBreakdown from './ColourBreakdown';
 import IntelligencePanel from './IntelligencePanel';
 import TodayIntakeModal from './TodayIntakeModal';
 import { StockIntakeFlow } from './StockIntakeFlow';
@@ -318,9 +319,10 @@ export default function StockInPage({ onOpenBatch }: Props) {
                       </p>
                       <p className="text-[9px] text-gray-400 font-mono mt-0.5">
                         {g.count > 1
-                          ? <>{g.count} units · {u.dateIn}</>
+                          ? <>{g.colours.length === 1 ? g.representative.colour : `${g.colours.length} colours`} · {u.dateIn}</>
                           : <><CopyImei imei={u.imei} truncate={10} /> · {u.dateIn}</>}
                       </p>
+                      <ColourBreakdown colours={g.colours} />
                     </div>
                     <div className="flex items-center gap-2 flex-shrink-0">
                       <span className="text-sm font-bold">£{u.buyPrice}</span>
