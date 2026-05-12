@@ -20,6 +20,7 @@ import { useRealTimeNotifications } from './hooks/useRealTimeNotifications';
 import NotificationToast from './components/NotificationToast';
 import NotificationBell from './components/NotificationBell';
 import StockTickerBoard from './components/StockTickerBoard';
+import StockAlertsTape from './components/StockAlertsTape';
 import { notificationService } from './lib/notificationService';
 import { subscribeToSyncStatus } from './lib/dbService';
 import { InventoryStoreProvider, useInventoryStore } from './lib/inventoryStore';
@@ -85,7 +86,7 @@ const ANALYTICS_SUBS: { id: AnalyticsSub; label: string; icon: React.ReactNode }
 ];
 
 function AppShell({ user }: { user: User }) {
-  const { loaded }                                = useInventoryStore();
+  const { loaded, units }                         = useInventoryStore();
   const [activeTab, setActiveTab]                 = useState<Tab>('buy');
   const [analyticsSub, setAnalyticsSub]           = useState<AnalyticsSub>('overview');
   const [isBatchModalOpen, setIsBatchModalOpen]   = useState(false);
@@ -385,6 +386,28 @@ function AppShell({ user }: { user: User }) {
 
         {/* Stock Ticker Board */}
         <StockTickerBoard />
+
+        {/* Stock Alerts sticker tape — horizontal scrolling alerts strip
+         * pinned right under the ticker. Pulls live `units` from the
+         * inventory store so out-of-stock / low-stock / SHS expected
+         * series surface immediately at page load. */}
+        {units.length > 0 && (
+          <div className="flex-shrink-0 border-b border-slate-200 bg-white">
+            <div className="md:hidden">
+              {/* Mobile: horizontally scrolling tape (the component's
+               * existing flex row mode). */}
+              <StockAlertsTape units={units} />
+            </div>
+            <div className="hidden md:block max-h-32 overflow-hidden">
+              {/* Desktop: clamp height so the alerts surface stays
+               * compact at the top of the page instead of pushing the
+               * main content down. Scroll inside if needed. */}
+              <div className="overflow-y-auto h-32 custom-scrollbar">
+                <StockAlertsTape units={units} />
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Scrollable page content */}
         <main className="flex-1 overflow-y-auto custom-scrollbar">
