@@ -73,6 +73,8 @@ export default function LoadMockDataModal({ onClose }: Props) {
         addLog(`  ↳ deleted ${snap.size} documents`);
       }
       addLog('All collections cleared.');
+      addLog('Clearing notifications…');
+      notificationService.clear();
 
       setStage('loading');
       const entries: Array<{ collection: string; id: string; data: any }> = [

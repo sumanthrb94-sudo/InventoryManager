@@ -1,7 +1,8 @@
 import React, { useState, useMemo } from 'react';
-import { X, ChevronUp, ChevronDown } from 'lucide-react';
-import { motion } from 'motion/react';
-import { InventoryUnit } from '../types';
+import { X, Check, Loader2 } from 'lucide-react';
+import { motion, AnimatePresence } from 'motion/react';
+import { InventoryUnit, ListingSite } from '../types';
+import { dbService } from '../lib/dbService';
 import { useInventoryStore } from '../lib/inventoryStore';
 import CopyImei from './CopyImei';
 
@@ -12,11 +13,14 @@ interface Props {
   onClose: () => void;
 }
 
+const LISTING_SITES: ListingSite[] = ['eBay', 'Amazon', 'OnBuy', 'Backmarket'];
+
 export default function ViewAllUnitsModal({ seriesKey, searchTerm, units, onClose }: Props) {
   const { suppliers } = useInventoryStore();
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [updating, setUpdating] = useState(false);
+  const [updateError, setUpdateError] = useState('');
   const [activeTab, setActiveTab] = useState<'in-stock' | 'shs' | 'sold'>('in-stock');
-  const [sortKey, setSortKey] = useState<string>('');
-  const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
 
   const supplierMap = useMemo(() => {
     const map: Record<string, string> = {};
@@ -40,55 +44,44 @@ export default function ViewAllUnitsModal({ seriesKey, searchTerm, units, onClos
 
   const displayUnits = activeTab === 'in-stock' ? inStock : activeTab === 'shs' ? shs : sold;
 
-  const columns = [
-    { key: 'unit', label: '#', width: 'w-12', sortable: false },
-    { key: 'model', label: 'Model', width: 'w-32', sortable: true },
-    { key: 'colour', label: 'Colour', width: 'w-28', sortable: true },
-    { key: 'storage', label: 'Storage', width: 'w-24', sortable: true },
-    { key: 'grade', label: 'Grade', width: 'w-20', sortable: true },
-    { key: 'imei', label: 'IMEI', width: 'w-40', sortable: true },
-    { key: 'supplier', label: 'Supplier', width: 'w-32', sortable: true },
-    { key: 'bp', label: 'Buy Price', width: 'w-24', sortable: true },
-    { key: 'batch', label: 'Batch', width: 'w-32', sortable: true },
-  ];
-
-  const handleSort = (key: string) => {
-    if (sortKey === key) {
-      setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc');
+  const handleSelectAll = () => {
+    if (selected.size === displayUnits.length) {
+      setSelected(new Set());
     } else {
-      setSortKey(key);
-      setSortOrder('asc');
+      setSelected(new Set(displayUnits.map(u => u.id)));
     }
   };
 
-  const sortedUnits = useMemo(() => {
-    if (!sortKey) return displayUnits;
-    const sorted = [...displayUnits];
-    sorted.sort((a, b) => {
-      let aVal: any = '';
-      let bVal: any = '';
+  const handleToggleSelect = (id: string) => {
+    const newSelected = new Set(selected);
+    if (newSelected.has(id)) {
+      newSelected.delete(id);
+    } else {
+      newSelected.add(id);
+    }
+    setSelected(newSelected);
+  };
 
-      if (sortKey === 'model') { aVal = a.model; bVal = b.model; }
-      else if (sortKey === 'colour') { aVal = a.colour || ''; bVal = b.colour || ''; }
-      else if (sortKey === 'storage') { aVal = a.storage || ''; bVal = b.storage || ''; }
-      else if (sortKey === 'grade') { aVal = a.grade || ''; bVal = b.grade || ''; }
-      else if (sortKey === 'imei') { aVal = a.imei || ''; bVal = b.imei || ''; }
-      else if (sortKey === 'supplier') {
-        aVal = supplierMap[a.supplierId] || '';
-        bVal = supplierMap[b.supplierId] || '';
+  const handleUpdateListingSites = async (site: ListingSite, add: boolean) => {
+    if (selected.size === 0) return;
+    setUpdating(true);
+    setUpdateError('');
+    try {
+      const selectedUnits = inStock.filter(u => selected.has(u.id));
+      for (const unit of selectedUnits) {
+        const currentSites = unit.listingSites || [];
+        const newSites = add
+          ? [...new Set([...currentSites, site])]
+          : currentSites.filter(s => s !== site);
+        await dbService.update('inventoryUnits', unit.id, { listingSites: newSites });
       }
-      else if (sortKey === 'bp') { aVal = a.buyPrice; bVal = b.buyPrice; }
-      else if (sortKey === 'batch') { aVal = a.batchId || ''; bVal = b.batchId || ''; }
-
-      if (typeof aVal === 'string') {
-        const cmp = aVal.localeCompare(bVal);
-        return sortOrder === 'asc' ? cmp : -cmp;
-      } else {
-        return sortOrder === 'asc' ? aVal - bVal : bVal - aVal;
-      }
-    });
-    return sorted;
-  }, [sortKey, sortOrder, displayUnits, supplierMap]);
+      setSelected(new Set());
+    } catch (err: any) {
+      setUpdateError(err?.message || 'Failed to update listing sites');
+    } finally {
+      setUpdating(false);
+    }
+  };
 
   return (
     <motion.div
@@ -102,7 +95,7 @@ export default function ViewAllUnitsModal({ seriesKey, searchTerm, units, onClos
         initial={{ scale: 0.95, opacity: 0 }}
         animate={{ scale: 1, opacity: 1 }}
         exit={{ scale: 0.95, opacity: 0 }}
-        className="bg-white rounded-3xl overflow-hidden w-full max-w-4xl shadow-2xl flex flex-col overflow-hidden"
+        className="bg-white rounded-2xl w-full max-w-4xl shadow-2xl flex flex-col"
         style={{ maxHeight: '90vh' }}
         onClick={e => e.stopPropagation()}
       >
@@ -162,82 +155,151 @@ export default function ViewAllUnitsModal({ seriesKey, searchTerm, units, onClos
         </div>
 
         {/* Content */}
-        <div className="flex-1 overflow-auto">
-          {displayUnits.length === 0 ? (
-            <div className="py-16 flex flex-col items-center gap-2 text-gray-400">
-              <p className="text-sm font-mono">No units in this category</p>
+        <div className="flex-1 overflow-y-auto">
+          {/* Bulk actions for In Stock tab */}
+          {activeTab === 'in-stock' && inStock.length > 0 && (
+            <div className="px-6 py-4 border-b border-gray-100 bg-gray-50 space-y-3">
+              <div className="flex items-center gap-3">
+                <input
+                  type="checkbox"
+                  checked={selected.size === inStock.length && inStock.length > 0}
+                  onChange={handleSelectAll}
+                  className="w-4 h-4 rounded border-gray-300"
+                />
+                <span className="text-sm font-medium text-gray-900">
+                  {selected.size === 0 ? 'Select all' : `${selected.size} selected`}
+                </span>
+              </div>
+
+              {selected.size > 0 && (
+                <div className="space-y-2">
+                  <p className="text-xs text-gray-600 font-mono uppercase tracking-widest">Update Listing Sites</p>
+                  <div className="flex gap-2 flex-wrap">
+                    {LISTING_SITES.map(site => (
+                      <button
+                        key={site}
+                        disabled={updating}
+                        onClick={() => handleUpdateListingSites(site, true)}
+                        className="px-3 py-1.5 bg-blue-50 text-blue-700 border border-blue-200 rounded-lg text-xs font-bold hover:bg-blue-100 transition-all disabled:opacity-50 flex items-center gap-1"
+                      >
+                        {updating ? (
+                          <Loader2 size={12} className="animate-spin" />
+                        ) : (
+                          <Check size={12} />
+                        )}
+                        Add to {site}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {updateError && (
+                <p className="text-xs text-red-600 font-mono">{updateError}</p>
+              )}
             </div>
-          ) : (
-            <table className="w-full border-collapse">
-              {/* Table Header */}
-              <thead className="sticky top-0 bg-gray-100 border-b border-gray-300 z-10">
-                <tr>
-                  {columns.map(col => (
-                    <th
-                      key={col.key}
-                      onClick={() => col.sortable && handleSort(col.key)}
-                      className={`${col.width} px-4 py-3 text-left text-xs font-bold text-gray-700 uppercase tracking-wide border-r border-gray-300 last:border-r-0 ${
-                        col.sortable ? 'cursor-pointer hover:bg-gray-200 transition-colors' : ''
-                      }`}
-                    >
-                      <div className="flex items-center gap-1.5">
-                        {col.label}
-                        {col.sortable && sortKey === col.key && (
-                          sortOrder === 'asc'
-                            ? <ChevronUp size={13} className="text-gray-500" />
-                            : <ChevronDown size={13} className="text-gray-500" />
+          )}
+
+          {/* Units list */}
+          <div className="divide-y divide-gray-100">
+            {displayUnits.length === 0 ? (
+              <div className="py-16 flex flex-col items-center gap-2 text-gray-400">
+                <p className="text-sm font-mono">No units in this category</p>
+              </div>
+            ) : (
+              displayUnits.map(u => {
+                const isSHS = activeTab === 'shs';
+                const hasIMEI = !!u.imei;
+                const supplierName = supplierMap[u.supplierId] || 'Unknown Supplier';
+
+                return (
+                  <div
+                    key={u.id}
+                    className={`px-6 py-3 transition-all ${
+                      isSHS ? 'bg-orange-50/60 hover:bg-orange-50' : 'hover:bg-gray-50'
+                    } flex items-center gap-3`}
+                  >
+                    {activeTab === 'in-stock' && (
+                      <input
+                        type="checkbox"
+                        checked={selected.has(u.id)}
+                        onChange={() => handleToggleSelect(u.id)}
+                        className="w-4 h-4 rounded border-gray-300 flex-shrink-0"
+                      />
+                    )}
+
+                    <div className="flex-1 min-w-0">
+                      {/* Top row: IMEI and model */}
+                      <div className="flex items-start gap-2 mb-1">
+                        {hasIMEI ? (
+                          <CopyImei imei={u.imei} truncate={12} />
+                        ) : isSHS ? (
+                          <span className="text-xs italic text-amber-600 font-mono">
+                            IMEI will be updated while marking sold
+                          </span>
+                        ) : (
+                          <span className="text-xs text-gray-400 font-mono">No IMEI</span>
                         )}
                       </div>
-                    </th>
-                  ))}
-                </tr>
-              </thead>
 
-              {/* Table Body */}
-              <tbody>
-                {sortedUnits.map((u, idx) => (
-                  <tr key={u.id} className="border-b border-gray-200 hover:bg-gray-50">
-                    <td className="px-4 py-3 text-xs font-mono text-gray-500">{idx + 1}</td>
-                    <td className="px-4 py-3 text-xs font-bold text-gray-900 truncate">{u.model}</td>
-                    <td className="px-4 py-3 text-xs text-gray-700">{u.colour || '—'}</td>
-                    <td className="px-4 py-3 text-xs text-gray-700">{u.storage || '—'}</td>
-                    <td className="px-4 py-3 text-xs text-gray-700 font-semibold">{u.grade || '—'}</td>
-                    <td className="px-4 py-3 text-xs font-mono text-gray-700">
-                      {u.imei ? (
-                        <span className="flex items-center gap-2">
-                          {u.imei.slice(-6)}
-                          <CopyImei imei={u.imei} />
-                        </span>
-                      ) : (
-                        '—'
+                      {/* Model name */}
+                      <p className="text-sm font-semibold text-gray-900 mb-1">{u.model}</p>
+
+                      {/* Specs row */}
+                      <div className="flex items-center gap-2 flex-wrap mb-2">
+                        {u.colour && (
+                          <span className="text-xs text-gray-600 font-mono">{u.colour}</span>
+                        )}
+                        {u.storage && (
+                          <span className="text-xs text-gray-600 font-mono">{u.storage}</span>
+                        )}
+                        {u.grade && (
+                          <span className="text-xs bg-gray-100 text-gray-700 px-2 py-0.5 rounded font-mono font-bold">
+                            {u.grade}
+                          </span>
+                        )}
+                      </div>
+
+                      {/* Batch and Supplier info */}
+                      <div className="text-xs text-gray-500 font-mono space-y-0.5">
+                        {u.batchId && (
+                          <p>Batch: <span className="text-gray-700 font-bold">{u.batchId === 'master_batch' ? 'Master Batch' : u.batchId}</span></p>
+                        )}
+                        <p>Supplier: <span className="text-gray-700 font-bold">{supplierName}</span></p>
+                      </div>
+                    </div>
+
+                    {/* Right side: Price and listing sites */}
+                    <div className="flex items-center gap-4 flex-shrink-0 text-right">
+                      <div>
+                        <p className="text-sm font-bold text-gray-900">£{u.buyPrice}</p>
+                        <p className="text-xs text-gray-500">Buy Price</p>
+                      </div>
+                      {u.listingSites && u.listingSites.length > 0 && (
+                        <div className="flex gap-1 flex-col items-end">
+                          {u.listingSites.map(site => (
+                            <span
+                              key={site}
+                              className="text-xs bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded font-mono font-bold"
+                            >
+                              {site}
+                            </span>
+                          ))}
+                        </div>
                       )}
-                    </td>
-                    <td className="px-4 py-3 text-xs text-gray-700">{supplierMap[u.supplierId] || '—'}</td>
-                    <td className="px-4 py-3 text-xs font-mono font-bold text-gray-900">£{u.buyPrice.toFixed(2)}</td>
-                    <td className="px-4 py-3 text-xs font-mono text-gray-700">{u.batchId === 'master_batch' ? 'Master' : (u.batchId || '—')}</td>
-                  </tr>
-                ))}
-              </tbody>
-
-              {/* Footer Summary */}
-              <tfoot className="sticky bottom-0 bg-gray-100 border-t border-gray-300">
-                <tr>
-                  <td colSpan={7} className="px-4 py-3 text-xs font-bold text-gray-700">TOTAL</td>
-                  <td className="px-4 py-3 text-xs font-mono font-bold text-gray-900">
-                    £{sortedUnits.reduce((s, u) => s + u.buyPrice, 0).toFixed(2)}
-                  </td>
-                  <td className="px-4 py-3" />
-                </tr>
-              </tfoot>
-            </table>
-          )}
+                    </div>
+                  </div>
+                );
+              })
+            )}
+          </div>
         </div>
 
         {/* Footer */}
-        <div className="px-6 py-4 border-t border-gray-300 bg-gray-50">
+        <div className="px-6 py-4 border-t border-gray-100 bg-gray-50 flex gap-3">
           <button
             onClick={onClose}
-            className="w-full py-2 bg-blue-600 text-white rounded-xl text-sm font-bold uppercase tracking-widest hover:bg-blue-700 transition-all"
+            className="flex-1 py-2 border border-gray-300 rounded-lg text-sm font-bold text-gray-700 hover:bg-gray-100 transition-all"
           >
             Close
           </button>

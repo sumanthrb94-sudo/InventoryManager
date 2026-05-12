@@ -269,6 +269,19 @@ class NotificationService {
     this.saveToStorage();
     this.notify();
   }
+
+  // Hard reset — used when mock data is loaded so per-day dedupe keys
+  // (the firedKey set in localStorage) also get wiped, otherwise old
+  // dedupe markers would suppress notifications for the freshly seeded
+  // units.
+  clear() {
+    this.notifications = [];
+    this.saveToStorage();
+    try {
+      localStorage.removeItem(this.firedKey());
+    } catch { /* ignore */ }
+    this.notify();
+  }
 }
 
 export const notificationService = new NotificationService();
