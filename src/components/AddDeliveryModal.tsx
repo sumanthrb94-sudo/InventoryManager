@@ -19,7 +19,7 @@ export default function AddDeliveryModal({ onSelectSingle, onSelectBatch, onClos
         initial={{ y: 40, opacity: 0 }} animate={{ y: 0, opacity: 1 }}
         exit={{ y: 40, opacity: 0 }} transition={{ type: 'spring', damping: 28, stiffness: 300 }}
         onClick={e => e.stopPropagation()}
-        className="bg-white w-full md:max-w-md rounded-t-3xl md:rounded-2xl shadow-2xl overflow-hidden"
+        className="bg-white w-full md:max-w-md rounded-t-3xl md:rounded-3xl shadow-2xl overflow-hidden"
       >
         <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
           <h2 className="text-sm font-bold uppercase tracking-tight">Add Delivery</h2>
@@ -34,7 +34,7 @@ export default function AddDeliveryModal({ onSelectSingle, onSelectBatch, onClos
           {/* Single Unit */}
           <button
             onClick={onSelectSingle}
-            className="w-full p-4 border-2 border-gray-200 rounded-2xl hover:border-emerald-500 hover:bg-emerald-50 transition-all active:scale-95 text-left group"
+            className="w-full p-4 border-2 border-gray-200 rounded-3xl hover:border-emerald-500 hover:bg-emerald-50 transition-all active:scale-95 text-left group"
           >
             <div className="flex items-start gap-3">
               <div className="w-10 h-10 bg-emerald-100 rounded-xl flex items-center justify-center group-hover:bg-emerald-200 transition-all flex-shrink-0">
@@ -51,7 +51,7 @@ export default function AddDeliveryModal({ onSelectSingle, onSelectBatch, onClos
           {/* Batch */}
           <button
             onClick={onSelectBatch}
-            className="w-full p-4 border-2 border-gray-200 rounded-2xl hover:border-blue-500 hover:bg-blue-50 transition-all active:scale-95 text-left group"
+            className="w-full p-4 border-2 border-gray-200 rounded-3xl hover:border-blue-500 hover:bg-blue-50 transition-all active:scale-95 text-left group"
           >
             <div className="flex items-start gap-3">
               <div className="w-10 h-10 bg-blue-100 rounded-xl flex items-center justify-center group-hover:bg-blue-200 transition-all flex-shrink-0">

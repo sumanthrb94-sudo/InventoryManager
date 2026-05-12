@@ -1,12 +1,44 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&family=Space+Grotesk:wght@300;400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&family=Space+Grotesk:wght@300;400;500;600;700&display=swap');
 @import "tailwindcss";
 
+/* ─── Theme tokens ─────────────────────────────────────────────────────────
+ * Ink-blue brand layer. Surfaces stay neutral; ink-blue sits in the
+ * accent / focus / brand spots. We do this here (not on every component
+ * className) so the polish lands across the whole app without touching
+ * functional code.
+ */
 @theme {
   --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
   --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
   --font-display: "Space Grotesk", sans-serif;
+
+  /* Brand — ink blue (deep, slightly indigo-leaning) */
+  --color-brand-50:  #EEF2FF;
+  --color-brand-100: #E0E7FF;
+  --color-brand-200: #C7D2FE;
+  --color-brand-300: #A5B4FC;
+  --color-brand-400: #6366F1;
+  --color-brand-500: #4F46E5;
+  --color-brand-600: #4338CA;
+  --color-brand-700: #3730A3;
+  --color-brand-800: #312E81;
+  --color-brand-900: #1E1B4B;
+
+  /* Surfaces — warmer than #FAFAFA, softer contrast */
+  --color-surface-base:    #F7F8FB;
+  --color-surface-raised:  #FFFFFF;
+  --color-surface-sunken:  #EEF0F5;
+  --color-hairline:        rgba(15, 23, 42, 0.06);
+  --color-hairline-strong: rgba(15, 23, 42, 0.10);
+
+  /* Ink */
+  --color-ink-1: #0F172A;   /* primary text */
+  --color-ink-2: #334155;   /* secondary */
+  --color-ink-3: #64748B;   /* muted */
+  --color-ink-4: #94A3B8;   /* hint */
 }
 
+/* ─── Base reset + page chrome ───────────────────────────────────────────── */
 @layer base {
   *, *::before, *::after {
     box-sizing: border-box;
@@ -15,49 +47,152 @@
   html {
     overflow-x: hidden;
     -webkit-text-size-adjust: 100%;
+    /* Subtle vertical rhythm */
+    text-rendering: optimizeLegibility;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    font-feature-settings: 'cv11', 'ss01', 'ss03';
   }
 
   body {
-    @apply bg-[#FAFAFA] text-black font-sans antialiased;
+    background: var(--color-surface-base);
+    /* Faint ink-blue wash so the page never feels flat under harsh light. */
+    background-image:
+      radial-gradient(at 8% -10%, rgba(79, 70, 229, 0.05), transparent 50%),
+      radial-gradient(at 100% 0%, rgba(79, 70, 229, 0.03), transparent 40%);
+    background-attachment: fixed;
+    color: var(--color-ink-1);
+    @apply font-sans antialiased;
     overflow-x: hidden;
     max-width: 100vw;
   }
 
   ::selection {
-    @apply bg-black/10 text-black;
+    background-color: rgba(79, 70, 229, 0.18);
+    color: var(--color-ink-1);
+  }
+
+  /* Hairlines feel sharper than border-gray-100 in light themes */
+  hr {
+    border-color: var(--color-hairline);
+  }
+
+  /* Typography polish */
+  h1, h2, h3, h4 {
+    letter-spacing: -0.018em;
+  }
+  h1 { letter-spacing: -0.028em; }
+  h2 { letter-spacing: -0.022em; }
+
+  /* JetBrains Mono renders heavy by default; nudge weight down a touch. */
+  .font-mono, code, kbd, pre {
+    font-feature-settings: 'liga' 0, 'calt' 0, 'cv01';
   }
 }
 
-/* Safe area for bottom nav on iOS */
+/* ─── Form / input chrome (global, non-functional) ───────────────────────── */
+@layer base {
+  input, select, textarea {
+    background-color: var(--color-surface-raised);
+  }
+
+  input:focus, select:focus, textarea:focus {
+    outline: none;
+  }
+
+  /* Soft ink-blue focus ring across the whole app. Components that already
+   * set their own ring-* utilities still win — this only fills in unstyled
+   * focus. */
+  :focus-visible {
+    outline: 2px solid var(--color-brand-400);
+    outline-offset: 2px;
+    border-radius: 6px;
+  }
+  button:focus-visible, a:focus-visible {
+    outline-offset: 3px;
+  }
+
+  /* Native disabled states feel disabled instead of just looking it. */
+  button[disabled], input[disabled], select[disabled], textarea[disabled] {
+    cursor: not-allowed;
+  }
+
+  /* Pre-fill background — Chrome's yellow autofill is ugly in our palette. */
+  input:-webkit-autofill,
+  input:-webkit-autofill:hover,
+  input:-webkit-autofill:focus {
+    -webkit-box-shadow: 0 0 0 1000px var(--color-surface-raised) inset !important;
+    -webkit-text-fill-color: var(--color-ink-1) !important;
+    transition: background-color 9999s ease-out;
+  }
+}
+
+/* ─── Buttons — global polish without overriding component variants ──────── */
+@layer base {
+  /* All clickable elements get a subtle press-down + transition. Component
+   * Tailwind classes still control colour, padding, etc. We only smooth out
+   * the motion + add a tiny tactile cue. */
+  button, a, [role="button"], select {
+    transition-property: background-color, border-color, color, box-shadow, transform, opacity;
+    transition-duration: 180ms;
+    transition-timing-function: cubic-bezier(0.2, 0.8, 0.2, 1);
+  }
+  button:active:not(:disabled), [role="button"]:active:not(:disabled) {
+    transform: translateY(0.5px) scale(0.997);
+  }
+}
+
+/* ─── Safe areas + scroll utilities (kept from previous theme) ───────────── */
 .safe-area-bottom {
   padding-bottom: env(safe-area-inset-bottom, 8px);
 }
-
-/* Prevent ALL children from overflowing on mobile */
 .mobile-safe {
   max-width: 100%;
   overflow-x: hidden;
 }
 
-/* Smooth global transitions */
-button, a, select {
-  @apply transition-all duration-200 ease-out;
+/* ─── Scrollbars — refined, ink-blue tinted on hover ─────────────────────── */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(15, 23, 42, 0.18) transparent;
+}
+*::-webkit-scrollbar { width: 8px; height: 8px; }
+*::-webkit-scrollbar-track { background: transparent; }
+*::-webkit-scrollbar-thumb {
+  background: rgba(15, 23, 42, 0.18);
+  border-radius: 999px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+*::-webkit-scrollbar-thumb:hover {
+  background: rgba(79, 70, 229, 0.45);
+  background-clip: padding-box;
 }
 
-/* Compact input focus */
-input:focus, select:focus, textarea:focus {
-  outline: none;
-}
-
-/* Scrollbar */
-.custom-scrollbar::-webkit-scrollbar { width: 4px; height: 4px; }
+/* Compact scrollbar variant (used by ImportModal etc.) — narrower, lighter */
+.custom-scrollbar::-webkit-scrollbar { width: 5px; height: 5px; }
 .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
-.custom-scrollbar::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.15); border-radius: 20px; }
-.custom-scrollbar::-webkit-scrollbar-thumb:hover { background: rgba(0,0,0,0.3); }
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background: rgba(15, 23, 42, 0.10);
+  border-radius: 999px;
+}
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: rgba(79, 70, 229, 0.35);
+}
 
-/* Card hover lift */
+/* ─── Card / surface helpers (opt-in via existing class names) ───────────── */
+
+/* Lift on hover — used by Dashboard tiles via .hover-card */
 .hover-card {
-  @apply hover:shadow-lg hover:-translate-y-0.5 transition-all duration-300;
+  transition: transform 240ms cubic-bezier(0.2, 0.8, 0.2, 1),
+              box-shadow 240ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+.hover-card:hover {
+  transform: translateY(-2px);
+  box-shadow:
+    0 1px 2px rgba(15, 23, 42, 0.04),
+    0 8px 24px -8px rgba(79, 70, 229, 0.18),
+    0 4px 12px -4px rgba(15, 23, 42, 0.06);
 }
 
 /* Horizontal scroll container — only for tables that must scroll */
@@ -73,4 +208,65 @@ input:focus, select:focus, textarea:focus {
   text-overflow: ellipsis;
   white-space: nowrap;
   max-width: 100%;
+}
+
+/* ─── Tactile polish on common shapes ────────────────────────────────────── */
+
+/* Rounded boxes with a faint inner highlight — gives every card a single-
+ * pixel "edge" that catches the light. Only applies to elements that
+ * already opt into a bg-white surface, so it never affects layout. */
+.bg-white {
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.5);
+}
+
+/* Slight elevation for top-level modals (don't override component shadow-2xl
+ * — augment it). */
+.shadow-2xl {
+  box-shadow:
+    0 24px 48px -12px rgba(15, 23, 42, 0.18),
+    0 8px 24px -8px rgba(79, 70, 229, 0.10),
+    0 0 0 1px rgba(15, 23, 42, 0.04);
+}
+
+/* ─── Loading shimmer (opt-in via .shimmer) ─────────────────────────────── */
+@keyframes brand-shimmer {
+  0%   { background-position: -200% 0; }
+  100% { background-position:  200% 0; }
+}
+.shimmer {
+  background: linear-gradient(
+    90deg,
+    rgba(15, 23, 42, 0.04) 0%,
+    rgba(79, 70, 229, 0.12) 50%,
+    rgba(15, 23, 42, 0.04) 100%
+  );
+  background-size: 200% 100%;
+  animation: brand-shimmer 1.6s ease-in-out infinite;
+}
+
+/* ─── Status pill polish (auto-applies wherever these Tailwind classes
+ * appear). Augments — components keep their own background. */
+.bg-emerald-100, .bg-emerald-50 {
+  background-image: linear-gradient(180deg, rgba(255,255,255,0.5), rgba(255,255,255,0) 40%);
+}
+.bg-amber-100, .bg-amber-50 {
+  background-image: linear-gradient(180deg, rgba(255,255,255,0.5), rgba(255,255,255,0) 40%);
+}
+.bg-red-100, .bg-red-50 {
+  background-image: linear-gradient(180deg, rgba(255,255,255,0.5), rgba(255,255,255,0) 40%);
+}
+.bg-blue-100, .bg-blue-50 {
+  background-image: linear-gradient(180deg, rgba(255,255,255,0.5), rgba(255,255,255,0) 40%);
+}
+
+/* ─── Live indicator dots get a soft ring of their own colour ───────────── */
+.bg-emerald-500.rounded-full,
+.bg-green-500.rounded-full {
+  box-shadow: 0 0 0 4px rgba(16, 185, 129, 0.18);
+}
+
+/* ─── Print: hide noisy chrome (logs, dev banners) on print exports ─────── */
+@media print {
+  body { background: white; }
+  button, .no-print { display: none !important; }
 }

@@ -1,7 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import {
   RefreshCw, Search, ArrowUpRight, Wrench, PackageCheck,
-  ChevronDown, ChevronUp, X, CheckCircle2, AlertCircle, ShieldAlert, ShieldCheck
+  ChevronDown, ChevronUp, X, CheckCircle2, AlertCircle, ShieldAlert, ShieldCheck, Truck
 } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
 import { dbService } from '../lib/dbService';
@@ -33,6 +33,231 @@ const BG_MAP: Record<FilterTab, string> = {
   returned_to_supplier:  'bg-orange-100',
   repair:                'bg-blue-100',
 };
+
+// ── Quick Repair Modal (fast send to repair) ──────────────────────────────────
+function QuickRepairModal({
+  unit,
+  onClose,
+  onSaved,
+}: {
+  unit: InventoryUnit;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+
+  const handleSendToRepair = async () => {
+    setSaving(true);
+    try {
+      await dbService.update('inventoryUnits', unit.id, {
+        status: 'returned',
+        returnType: 'repair',
+        returnDate: new Date().toISOString().split('T')[0],
+        returnReason: 'Unit sent for repair',
+        salePrice: null,
+        saleDate: null,
+        salePlatform: null,
+        saleOrderId: null,
+        postageCost: null,
+        platformListed: false,
+        listingSites: [],
+      });
+
+      notificationService.addNotification('return_processed', unit);
+      onSaved();
+      onClose();
+    } catch {
+      setError('Failed to save. Please try again.');
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-[70] flex items-center justify-center p-3 md:p-4 bg-black/40 backdrop-blur-sm">
+      <div className="bg-white rounded-3xl overflow-hidden w-full max-w-sm shadow-2xl flex flex-col" style={{ maxHeight: 'calc(100dvh - 24px)' }}>
+        {/* Header */}
+        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100 flex-shrink-0">
+          <div>
+            <p className="text-[9px] font-mono uppercase tracking-widest text-gray-400">Send for Repair</p>
+            <h3 className="text-sm font-bold truncate mt-0.5 max-w-[240px]">{unit.model}</h3>
+          </div>
+          <button onClick={onClose} className="p-2 hover:bg-gray-100 rounded-xl transition-all"><X size={16} /></button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto px-6 py-4 space-y-4">
+          {/* Info */}
+          <div className="flex items-start gap-3 bg-blue-50 border border-blue-200 rounded-xl p-4">
+            <Wrench size={16} className="text-blue-600 flex-shrink-0 mt-0.5" />
+            <div>
+              <p className="text-xs font-bold text-blue-900 mb-1">Unit Sent for Repair</p>
+              <p className="text-[9px] text-blue-800 font-mono leading-relaxed">
+                Unit status will be set to <strong>Repair</strong>. Once repaired and tested, mark it as <strong>Ready to Ship</strong> to restore to inventory.
+              </p>
+            </div>
+          </div>
+
+          {/* Unit Details */}
+          <div className="space-y-2">
+            <div className="grid grid-cols-2 gap-2">
+              <div className="bg-gray-50 rounded-lg p-3">
+                <p className="text-[8px] font-mono uppercase tracking-widest text-gray-500">Model</p>
+                <p className="text-xs font-bold mt-1 truncate">{unit.model}</p>
+              </div>
+              <div className="bg-gray-50 rounded-lg p-3">
+                <p className="text-[8px] font-mono uppercase tracking-widest text-gray-500">Buy Price</p>
+                <p className="text-xs font-bold mt-1">£{unit.buyPrice}</p>
+              </div>
+              <div className="bg-gray-50 rounded-lg p-3">
+                <p className="text-[8px] font-mono uppercase tracking-widest text-gray-500">Sale Price</p>
+                <p className="text-xs font-bold mt-1">£{unit.salePrice || '—'}</p>
+              </div>
+              <div className="bg-gray-50 rounded-lg p-3">
+                <p className="text-[8px] font-mono uppercase tracking-widest text-gray-500">Platform</p>
+                <p className="text-xs font-bold mt-1 truncate">{unit.salePlatform || '—'}</p>
+              </div>
+            </div>
+          </div>
+
+          {error && (
+            <div className="flex items-center gap-2 text-red-600 bg-red-50 border border-red-200 rounded-xl px-4 py-3">
+              <AlertCircle size={14} />
+              <p className="text-xs font-mono">{error}</p>
+            </div>
+          )}
+        </div>
+
+        <div className="flex-shrink-0 px-6 py-4 border-t border-gray-100 flex gap-3 bg-white">
+          <button onClick={onClose}
+            className="flex-1 py-3 border border-gray-200 rounded-xl text-[10px] font-bold uppercase tracking-widest text-gray-500 hover:bg-gray-50 transition-all">
+            Cancel
+          </button>
+          <button onClick={handleSendToRepair} disabled={saving}
+            className="flex-1 py-3 bg-blue-600 text-white rounded-xl text-[10px] font-bold uppercase tracking-widest hover:bg-blue-700 transition-all disabled:opacity-50 flex items-center justify-center gap-2">
+            {saving ? 'Saving…' : <><Wrench size={13} /> Send to Repair</>}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Ready to Ship Modal (for repair units) ──────────────────────────────────
+function ReadyToShipModal({
+  unit,
+  onClose,
+  onSaved,
+}: {
+  unit: InventoryUnit;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+
+  const handleMoveToInventory = async () => {
+    setSaving(true);
+    try {
+      await dbService.update('inventoryUnits', unit.id, {
+        status: 'available',
+        returnType: 'returned_to_inventory',
+        repairedAt: new Date().toISOString().split('T')[0],
+        flags: [...(unit.flags || []), 'repaired_unit'],
+      });
+
+      notificationService.addNotification('unit_repaired', unit);
+      onSaved();
+      onClose();
+    } catch {
+      setError('Failed to save. Please try again.');
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-[70] flex items-center justify-center p-3 md:p-4 bg-black/40 backdrop-blur-sm">
+      <div className="bg-white rounded-3xl overflow-hidden w-full max-w-sm shadow-2xl flex flex-col" style={{ maxHeight: 'calc(100dvh - 24px)' }}>
+        {/* Header */}
+        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100 flex-shrink-0">
+          <div>
+            <p className="text-[9px] font-mono uppercase tracking-widest text-gray-400">Mark as Ready</p>
+            <h3 className="text-sm font-bold truncate mt-0.5 max-w-[240px]">{unit.model}</h3>
+          </div>
+          <button onClick={onClose} className="p-2 hover:bg-gray-100 rounded-xl transition-all"><X size={16} /></button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto px-6 py-4 space-y-4">
+          {/* Disclaimer */}
+          <div className="flex items-start gap-3 bg-blue-50 border border-blue-200 rounded-xl p-4">
+            <AlertCircle size={16} className="text-blue-600 flex-shrink-0 mt-0.5" />
+            <div>
+              <p className="text-xs font-bold text-blue-900 mb-1">Returned Category Disclaimer</p>
+              <p className="text-[9px] text-blue-800 font-mono leading-relaxed">
+                This unit is under the <strong>Returned Category</strong>. It has been tested and repaired. Mark as ready to restore to available inventory for resale.
+              </p>
+            </div>
+          </div>
+
+          {/* Unit Details */}
+          <div className="space-y-2">
+            <div className="grid grid-cols-2 gap-2">
+              <div className="bg-gray-50 rounded-lg p-3">
+                <p className="text-[8px] font-mono uppercase tracking-widest text-gray-500">Model</p>
+                <p className="text-xs font-bold mt-1">{unit.model}</p>
+              </div>
+              <div className="bg-gray-50 rounded-lg p-3">
+                <p className="text-[8px] font-mono uppercase tracking-widest text-gray-500">Buy Price</p>
+                <p className="text-xs font-bold mt-1">£{unit.buyPrice}</p>
+              </div>
+              <div className="bg-gray-50 rounded-lg p-3">
+                <p className="text-[8px] font-mono uppercase tracking-widest text-gray-500">Colour</p>
+                <p className="text-xs font-bold mt-1">{unit.colour || '—'}</p>
+              </div>
+              <div className="bg-gray-50 rounded-lg p-3">
+                <p className="text-[8px] font-mono uppercase tracking-widest text-gray-500">Status</p>
+                <p className="text-xs font-bold mt-1 text-blue-600">Under Repair</p>
+              </div>
+            </div>
+          </div>
+
+          {/* Return Reason */}
+          {unit.returnReason && (
+            <div className="bg-gray-50 rounded-lg p-3">
+              <p className="text-[8px] font-mono uppercase tracking-widest text-gray-500">Return Reason</p>
+              <p className="text-xs text-gray-700 mt-1">{unit.returnReason}</p>
+            </div>
+          )}
+
+          {/* Confirmation */}
+          <div className="flex items-start gap-2 bg-emerald-50 border border-emerald-200 rounded-xl p-3">
+            <CheckCircle2 size={13} className="text-emerald-600 flex-shrink-0 mt-0.5" />
+            <p className="text-[9px] text-emerald-700 font-mono leading-relaxed">
+              After clicking below, this unit will be restored to <strong>available</strong> inventory and ready for resale.
+            </p>
+          </div>
+
+          {error && (
+            <div className="flex items-center gap-2 text-red-600 bg-red-50 border border-red-200 rounded-xl px-4 py-3">
+              <AlertCircle size={14} />
+              <p className="text-xs font-mono">{error}</p>
+            </div>
+          )}
+        </div>
+
+        <div className="flex-shrink-0 px-6 py-4 border-t border-gray-100 flex gap-3 bg-white">
+          <button onClick={onClose}
+            className="flex-1 py-3 border border-gray-200 rounded-xl text-[10px] font-bold uppercase tracking-widest text-gray-500 hover:bg-gray-50 transition-all">
+            Cancel
+          </button>
+          <button onClick={handleMoveToInventory} disabled={saving}
+            className="flex-1 py-3 bg-blue-600 text-white rounded-xl text-[10px] font-bold uppercase tracking-widest hover:bg-blue-700 transition-all disabled:opacity-50 flex items-center justify-center gap-2">
+            {saving ? 'Saving…' : <><Truck size={13} /> Ready to Ship</>}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 // ── Process Return Modal ─────────────────────────────────────────────────────
 function ProcessReturnModal({
@@ -100,60 +325,22 @@ function ProcessReturnModal({
 
   return (
     <div className="fixed inset-0 z-[70] flex items-center justify-center p-3 md:p-4 bg-black/40 backdrop-blur-sm">
-      <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl flex flex-col" style={{ maxHeight: 'calc(100dvh - 24px)' }}>
+      <div className="bg-white rounded-3xl overflow-hidden w-full max-w-sm shadow-2xl flex flex-col" style={{ maxHeight: 'calc(100dvh - 24px)' }}>
         {/* Header */}
-        <div className="flex items-center justify-between px-6 py-5 border-b border-gray-100 flex-shrink-0">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100 flex-shrink-0">
           <div>
             <p className="text-[9px] font-mono uppercase tracking-widest text-gray-400">Process Return</p>
-            <h3 className="text-base font-bold truncate mt-0.5 max-w-[280px]">{unit.model}</h3>
+            <h3 className="text-sm font-bold truncate mt-0.5 max-w-[240px]">{unit.model}</h3>
           </div>
           <button onClick={onClose} className="p-2 hover:bg-gray-100 rounded-xl transition-all"><X size={16} /></button>
         </div>
 
-        {/* Unit summary */}
-        <div className="px-6 py-4 bg-gray-50 border-b border-gray-100 flex-shrink-0 space-y-3">
-          <div className="flex items-center gap-3">
-            <CopyImei imei={unit.imei} truncate={12} />
-            <span className="text-[9px] text-gray-400 font-mono">·</span>
-            <span className="text-[9px] text-gray-500 font-mono">{unit.colour}</span>
-          </div>
-          
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <p className="text-[8px] font-mono uppercase tracking-widest text-gray-400">Buy Data</p>
-              <p className="text-xs font-bold mt-0.5">£{unit.buyPrice} <span className="text-[9px] text-gray-400 font-normal ml-1">on {unit.dateIn}</span></p>
-            </div>
-            <div>
-              <p className="text-[8px] font-mono uppercase tracking-widest text-gray-400">Sale Data</p>
-              <p className="text-xs font-bold mt-0.5 text-emerald-600">
-                {unit.salePrice ? `£${unit.salePrice}` : '—'} 
-                {unit.saleDate && <span className="text-[9px] text-gray-400 font-normal ml-1">on {unit.saleDate}</span>}
-              </p>
-            </div>
-            {(unit.salePlatform || unit.saleOrderId) && (
-              <div className="col-span-2">
-                <p className="text-[8px] font-mono uppercase tracking-widest text-gray-400">Platform & Order</p>
-                <p className="text-xs mt-0.5 text-gray-600">
-                  {unit.salePlatform || 'Unknown Platform'} {unit.saleOrderId && `· Order: ${unit.saleOrderId}`}
-                </p>
-              </div>
-            )}
-          </div>
-        </div>
-
-        <div className="flex-1 overflow-y-auto px-6 py-5 space-y-4">
-          {/* Warranty Alert */}
+        <div className="flex-1 overflow-y-auto px-6 py-4 space-y-3">
+          {/* Warranty Alert - Compact */}
           {unit.saleDate && (
-            <div className={`flex items-start gap-3 p-3 rounded-xl border ${warranty.isExpired ? 'bg-red-50 border-red-200 text-red-800' : 'bg-emerald-50 border-emerald-200 text-emerald-800'}`}>
-              {warranty.isExpired ? <ShieldAlert size={16} className="mt-0.5 text-red-600" /> : <ShieldCheck size={16} className="mt-0.5 text-emerald-600" />}
-              <div>
-                <p className="text-xs font-bold">{warranty.isExpired ? 'Warranty Expired' : 'Warranty Active'}</p>
-                <p className="text-[10px] mt-0.5 opacity-80">
-                  {warranty.isExpired 
-                    ? `Expired on ${warranty.endDate} (${Math.abs(warranty.daysLeft)} days ago)` 
-                    : `${warranty.daysLeft} days remaining (Expires ${warranty.endDate})`}
-                </p>
-              </div>
+            <div className={`flex items-center gap-2 p-2 rounded-lg border text-[9px] ${warranty.isExpired ? 'bg-red-50 border-red-200 text-red-700' : 'bg-emerald-50 border-emerald-200 text-emerald-700'}`}>
+              {warranty.isExpired ? <ShieldAlert size={14} className="flex-shrink-0" /> : <ShieldCheck size={14} className="flex-shrink-0" />}
+              <span className="font-bold">{warranty.isExpired ? 'Warranty Expired' : 'Warranty Active'} • {warranty.isExpired ? `${Math.abs(warranty.daysLeft)}d ago` : `${warranty.daysLeft}d left`}</span>
             </div>
           )}
 
@@ -238,6 +425,10 @@ export default function ReturnsPage() {
   const [filter, setFilter]         = useState<FilterTab>('all');
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [processing, setProcessing] = useState<InventoryUnit | null>(null);
+  const [readyToShip, setReadyToShip] = useState<InventoryUnit | null>(null);
+  const [quickRepairUnit, setQuickRepairUnit] = useState<InventoryUnit | null>(null);
+  const [showPickerModal, setShowPickerModal] = useState(false);
+  const [showQuickRepairPickerModal, setShowQuickRepairPickerModal] = useState(false);
   const [savedFlag, setSavedFlag]   = useState(false);
 
   // Returned = status 'returned' OR units that came back to available via returnType
@@ -303,44 +494,42 @@ export default function ReturnsPage() {
 
       {/* Summary cards */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
-        <div className="bg-gray-50 border border-gray-200 rounded-2xl p-4">
+        <div className="bg-gray-50 border border-gray-200 rounded-3xl p-4">
           <p className="text-[9px] font-mono uppercase tracking-widest text-gray-500">Total Returns</p>
           <p className="text-3xl font-bold font-display mt-1">{returned.length}</p>
           <p className="text-[9px] text-gray-400 font-mono">all time</p>
         </div>
-        <div className="bg-emerald-50 border border-emerald-100 rounded-2xl p-4">
+        <div className="bg-emerald-50 border border-emerald-100 rounded-3xl p-4">
           <p className="text-[9px] font-mono uppercase tracking-widest text-emerald-600">To Inventory</p>
           <p className="text-3xl font-bold font-display mt-1 text-emerald-700">{counts.returned_to_inventory}</p>
           <p className="text-[9px] text-emerald-400 font-mono">units</p>
         </div>
-        <div className="bg-blue-50 border border-blue-100 rounded-2xl p-4">
+        <div className="bg-blue-50 border border-blue-100 rounded-3xl p-4">
           <p className="text-[9px] font-mono uppercase tracking-widest text-blue-600">Repair</p>
           <p className="text-3xl font-bold font-display mt-1 text-blue-700">{counts.repair}</p>
           <p className="text-[9px] text-blue-400 font-mono">units</p>
         </div>
-        <div className="bg-orange-50 border border-orange-100 rounded-2xl p-4">
+        <div className="bg-orange-50 border border-orange-100 rounded-3xl p-4">
           <p className="text-[9px] font-mono uppercase tracking-widest text-orange-600">To Supplier</p>
           <p className="text-3xl font-bold font-display mt-1 text-orange-700">{counts.returned_to_supplier}</p>
           <p className="text-[9px] text-orange-400 font-mono">units</p>
         </div>
       </div>
 
-      {/* Process a return from sold stock */}
-      <div className="bg-white border border-gray-200 rounded-2xl overflow-hidden">
-        <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between">
-          <p className="text-[10px] font-bold uppercase tracking-widest text-gray-400">Process New Return</p>
-          <span className="text-[9px] font-mono text-gray-400">{sold.length} sold units</span>
-        </div>
-        <div className="px-4 py-3">
-          {sold.length > 0 ? (
-            <SoldUnitPicker units={sold} onSelect={u => setProcessing(u)} />
-          ) : (
-            <div className="py-4 text-center">
-              <p className="text-xs text-gray-400 font-mono">No items are currently marked as "Sold".</p>
-              <p className="text-[10px] text-gray-400 font-mono mt-1">You must sell an item before you can process a return.</p>
-            </div>
-          )}
-        </div>
+      {/* Return Buttons */}
+      <div className="grid grid-cols-2 gap-3">
+        <button onClick={() => setShowQuickRepairPickerModal(true)}
+          disabled={withCategory.filter(u => u.returnCategory === 'repair').length === 0}
+          className="py-3 bg-blue-600 text-white rounded-3xl font-bold uppercase tracking-widest text-sm hover:bg-blue-700 transition-all disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2">
+          <Truck size={16} />
+          Mark Repaired
+        </button>
+        <button onClick={() => setShowPickerModal(true)}
+          disabled={sold.length === 0}
+          className="py-3 bg-black text-white rounded-3xl font-bold uppercase tracking-widest text-sm hover:bg-gray-800 transition-all disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2">
+          <RefreshCw size={16} />
+          Create Return
+        </button>
       </div>
 
       {/* Filter tabs */}
@@ -368,7 +557,7 @@ export default function ReturnsPage() {
       </div>
 
       {/* List */}
-      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+      <div className="bg-white rounded-3xl border border-gray-100 shadow-sm overflow-hidden">
         <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between">
           <p className="text-[10px] font-bold uppercase tracking-widest text-gray-400">
             {filter === 'all' ? 'All Returns' : RETURN_TYPES.find(r => r.key === filter)?.label}
@@ -440,17 +629,117 @@ export default function ReturnsPage() {
         )}
       </div>
 
-      {processing && (
-        <ProcessReturnModal
-          unit={processing}
-          onClose={() => setProcessing(null)}
-          onSaved={() => {
-            setProcessing(null);
-            setSavedFlag(true);
-            setTimeout(() => setSavedFlag(false), 3000);
-          }}
-        />
+      {showQuickRepairPickerModal && withCategory.filter(u => u.returnCategory === 'repair').length > 0 && (
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          className="fixed inset-0 z-[65] flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm"
+          onClick={() => setShowQuickRepairPickerModal(false)}
+        >
+          <motion.div
+            initial={{ scale: 0.95, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
+            exit={{ scale: 0.95, opacity: 0 }}
+            className="bg-white rounded-3xl overflow-hidden w-full max-w-md shadow-2xl flex flex-col"
+            style={{ maxHeight: '80vh' }}
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100 flex-shrink-0">
+              <div>
+                <p className="text-[9px] font-mono uppercase tracking-widest text-gray-400">Mark Repaired</p>
+                <h3 className="text-sm font-bold truncate mt-0.5">Select Unit to Restore</h3>
+              </div>
+              <button onClick={() => setShowQuickRepairPickerModal(false)} className="p-2 hover:bg-gray-100 rounded-xl transition-all">
+                <X size={16} />
+              </button>
+            </div>
+            <div className="flex-1 overflow-y-auto px-6 py-4">
+              <RepairUnitPicker units={withCategory.filter(u => u.returnCategory === 'repair')} onSelect={u => {
+                setQuickRepairUnit(u);
+                setShowQuickRepairPickerModal(false);
+              }} />
+            </div>
+          </motion.div>
+        </motion.div>
       )}
+
+      {showPickerModal && sold.length > 0 && (
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          className="fixed inset-0 z-[65] flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm"
+          onClick={() => setShowPickerModal(false)}
+        >
+          <motion.div
+            initial={{ scale: 0.95, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
+            exit={{ scale: 0.95, opacity: 0 }}
+            className="bg-white rounded-3xl overflow-hidden w-full max-w-md shadow-2xl flex flex-col"
+            style={{ maxHeight: '80vh' }}
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100 flex-shrink-0">
+              <div>
+                <p className="text-[9px] font-mono uppercase tracking-widest text-gray-400">Select Unit</p>
+                <h3 className="text-sm font-bold truncate mt-0.5">Find Unit to Return</h3>
+              </div>
+              <button onClick={() => setShowPickerModal(false)} className="p-2 hover:bg-gray-100 rounded-xl transition-all">
+                <X size={16} />
+              </button>
+            </div>
+            <div className="flex-1 overflow-y-auto px-6 py-4">
+              <SoldUnitPicker units={sold} onSelect={u => {
+                setProcessing(u);
+                setShowPickerModal(false);
+              }} />
+            </div>
+          </motion.div>
+        </motion.div>
+      )}
+
+      <AnimatePresence>
+        {processing && (
+          <ProcessReturnModal
+            unit={processing}
+            onClose={() => setProcessing(null)}
+            onSaved={() => {
+              setProcessing(null);
+              setSavedFlag(true);
+              setTimeout(() => setSavedFlag(false), 3000);
+            }}
+          />
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {readyToShip && (
+          <ReadyToShipModal
+            unit={readyToShip}
+            onClose={() => setReadyToShip(null)}
+            onSaved={() => {
+              setReadyToShip(null);
+              setSavedFlag(true);
+              setTimeout(() => setSavedFlag(false), 3000);
+            }}
+          />
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {quickRepairUnit && (
+          <QuickRepairModal
+            unit={quickRepairUnit}
+            onClose={() => setQuickRepairUnit(null)}
+            onSaved={() => {
+              setQuickRepairUnit(null);
+              setSavedFlag(true);
+              setTimeout(() => setSavedFlag(false), 3000);
+            }}
+          />
+        )}
+      </AnimatePresence>
     </div>
   );
 }
@@ -505,9 +794,11 @@ function SoldUnitPicker({ units, onSelect }: { units: InventoryUnit[]; onSelect:
       {filtered.length > 0 && (
         <>
           <div className="border border-gray-200 rounded-xl overflow-hidden divide-y divide-gray-50">
-            {paginatedItems.map(u => (
+            {paginatedItems.map(u => {
+              const isSHS = u.batchId?.startsWith('shs_') || u.notes?.includes('SHS');
+              return (
               <button key={u.id} onClick={() => { onSelect(u); setQ(''); setPage(1); }}
-                className="w-full flex items-center justify-between px-4 py-3 hover:bg-gray-50 transition-all text-left">
+                className={`w-full flex items-center justify-between px-4 py-3 transition-all text-left ${isSHS ? 'bg-orange-50/60 hover:bg-orange-50' : 'hover:bg-gray-50'}`}>
                 <div className="min-w-0">
                   <p className="text-xs font-bold truncate">{u.model}</p>
                   <p className="text-[9px] text-gray-400 font-mono mt-0.5">
@@ -515,6 +806,107 @@ function SoldUnitPicker({ units, onSelect }: { units: InventoryUnit[]; onSelect:
                   </p>
                 </div>
                 <span className="text-xs font-bold text-orange-600 ml-3 flex-shrink-0">Return →</span>
+              </button>
+            );
+            })}
+          </div>
+
+          {/* Pagination controls */}
+          {totalPages > 1 && (
+            <div className="flex items-center justify-between px-3 py-2 bg-gray-50 border border-gray-200 rounded-xl">
+              <button
+                onClick={handlePrevPage}
+                disabled={validPage === 1}
+                className="p-1.5 hover:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed rounded-lg transition-all text-gray-400"
+                title="Previous page"
+              >
+                <ChevronDown size={14} className="rotate-90" />
+              </button>
+              <span className="text-[9px] font-mono text-gray-500">
+                Page {validPage} of {totalPages}
+              </span>
+              <button
+                onClick={handleNextPage}
+                disabled={validPage === totalPages}
+                className="p-1.5 hover:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed rounded-lg transition-all text-gray-400"
+                title="Next page"
+              >
+                <ChevronUp size={14} className="rotate-90" />
+              </button>
+            </div>
+          )}
+        </>
+      )}
+      {q.trim() && filtered.length === 0 && (
+        <p className="text-[10px] text-gray-400 font-mono text-center py-2">No sold units match "{q}"</p>
+      )}
+    </div>
+  );
+}
+
+// ── Repair unit picker (for selecting repair units to mark as ready) ─────────
+function RepairUnitPicker({ units, onSelect }: { units: InventoryUnit[]; onSelect: (u: InventoryUnit) => void }) {
+  const [q, setQ] = useState('');
+  const [page, setPage] = useState(1);
+  const ITEMS_PER_PAGE = 8;
+
+  const { sorted, filtered } = useMemo(() => {
+    let sorted = [...units].sort((a, b) => {
+      const da = a.returnDate || a.dateIn;
+      const db = b.returnDate || b.dateIn;
+      return new Date(db).getTime() - new Date(da).getTime();
+    });
+
+    let result = sorted;
+    if (q.trim()) {
+      const s = q.toLowerCase();
+      result = sorted.filter(u =>
+        u.model.toLowerCase().includes(s) ||
+        (u.imei || '').includes(s) ||
+        (u.returnReason || '').toLowerCase().includes(s)
+      );
+    }
+
+    return { sorted, filtered: result };
+  }, [units, q]);
+
+  const totalPages = Math.ceil(filtered.length / ITEMS_PER_PAGE);
+  const validPage = Math.min(page, Math.max(1, totalPages));
+  const start = (validPage - 1) * ITEMS_PER_PAGE;
+  const paginatedItems = filtered.slice(start, start + ITEMS_PER_PAGE);
+
+  const handlePrevPage = () => setPage(p => Math.max(1, p - 1));
+  const handleNextPage = () => setPage(p => Math.min(totalPages, p + 1));
+
+  const handleSearch = (value: string) => {
+    setQ(value);
+    setPage(1);
+  };
+
+  return (
+    <div className="space-y-2">
+      <div className="relative">
+        <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+        <input value={q} onChange={e => handleSearch(e.target.value)}
+          placeholder="Search repair units by model, IMEI or reason…"
+          className="w-full pl-9 pr-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-xs focus:outline-none focus:border-black transition-all" />
+      </div>
+      {filtered.length > 0 && (
+        <>
+          <div className="border border-gray-200 rounded-xl overflow-hidden divide-y divide-gray-50">
+            {paginatedItems.map(u => (
+              <button key={u.id} onClick={() => { onSelect(u); setQ(''); setPage(1); }}
+                className="w-full flex items-center justify-between px-4 py-3 transition-all text-left bg-blue-50/40 hover:bg-blue-50">
+                <div className="min-w-0">
+                  <p className="text-xs font-bold truncate">{u.model}</p>
+                  <p className="text-[9px] text-gray-400 font-mono mt-0.5">
+                    {(u.imei || '').slice(0, 10)}{u.imei && u.imei.length > 10 ? '…' : ''} · {u.returnDate || u.dateIn}
+                  </p>
+                  {u.returnReason && (
+                    <p className="text-[8px] text-gray-500 mt-0.5">{u.returnReason}</p>
+                  )}
+                </div>
+                <span className="text-xs font-bold text-blue-600 ml-3 flex-shrink-0">Mark →</span>
               </button>
             ))}
           </div>
@@ -546,7 +938,7 @@ function SoldUnitPicker({ units, onSelect }: { units: InventoryUnit[]; onSelect:
         </>
       )}
       {q.trim() && filtered.length === 0 && (
-        <p className="text-[10px] text-gray-400 font-mono text-center py-2">No sold units match "{q}"</p>
+        <p className="text-[10px] text-gray-400 font-mono text-center py-2">No repair units match "{q}"</p>
       )}
     </div>
   );

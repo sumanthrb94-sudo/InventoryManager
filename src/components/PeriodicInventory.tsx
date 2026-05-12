@@ -165,7 +165,7 @@ function Popover({
     width:        252,
     background:   '#0f172a',
     border:       `1.5px solid ${color.bg}50`,
-    borderRadius: 12,
+    borderRadius: 28,
     boxShadow:    `0 12px 40px rgba(0,0,0,0.55), 0 0 0 1px ${color.bg}20`,
     overflow:     'hidden',
     pointerEvents: 'auto',
@@ -199,12 +199,12 @@ function Popover({
           </div>
           {/* Stock counts */}
           <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexShrink: 0 }}>
-            <div style={{ textAlign: 'center', background: 'rgba(0,0,0,0.2)', borderRadius: 7, padding: '4px 8px', minWidth: 36 }}>
+            <div style={{ textAlign: 'center', background: 'rgba(0,0,0,0.2)', borderRadius: 12, padding: '4px 8px', minWidth: 36 }}>
               <div style={{ fontSize: 18, fontWeight: 900, color: '#fff', lineHeight: 1 }}>{el.count}</div>
               <div style={{ fontSize: 7, color: 'rgba(255,255,255,0.65)', textTransform: 'uppercase', letterSpacing: '0.08em', marginTop: 1 }}>in office</div>
             </div>
             {el.shsCount > 0 && (
-              <div style={{ textAlign: 'center', background: 'rgba(255,255,255,0.12)', borderRadius: 7, padding: '4px 8px', minWidth: 36, border: '1px solid rgba(253,230,138,0.4)' }}>
+              <div style={{ textAlign: 'center', background: 'rgba(255,255,255,0.12)', borderRadius: 12, padding: '4px 8px', minWidth: 36, border: '1px solid rgba(253,230,138,0.4)' }}>
                 <div style={{ fontSize: 16, fontWeight: 800, color: '#fde68a', lineHeight: 1 }}>{el.shsCount}</div>
                 <div style={{ fontSize: 7, color: 'rgba(255,255,255,0.65)', textTransform: 'uppercase', letterSpacing: '0.08em', marginTop: 1 }}>supplier</div>
               </div>
@@ -253,7 +253,7 @@ function Popover({
               const pct = Math.round((v.count / el.count) * 100);
               return (
                 <div key={v.storage} style={{
-                  background: '#1e293b', borderRadius: 6, padding: '4px 8px',
+                  background: '#1e293b', borderRadius: 12, padding: '4px 8px',
                   display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 1,
                   minWidth: 48,
                 }}>
@@ -269,7 +269,7 @@ function Popover({
 
       {/* SHS note */}
       {el.shsCount > 0 && (
-        <div style={{ margin: '0 12px 6px', padding: '6px 8px', background: 'rgba(253,230,138,0.08)', borderRadius: 6, border: '1px solid rgba(253,230,138,0.15)' }}>
+        <div style={{ margin: '0 12px 6px', padding: '6px 8px', background: 'rgba(253,230,138,0.08)', borderRadius: 12, border: '1px solid rgba(253,230,138,0.15)' }}>
           <div style={{ fontSize: 8, fontFamily: 'monospace', color: '#fde68a', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 2 }}>
             SHS — Listed with Supplier
           </div>
@@ -286,7 +286,7 @@ function Popover({
             onClick={() => onViewAll(el.seriesKey, el.searchTerm)}
             style={{
               width: '100%', padding: '7px', background: color.bg, border: 'none',
-              borderRadius: 7, color: '#fff', fontSize: 10, fontWeight: 700,
+              borderRadius: 12, color: '#fff', fontSize: 10, fontWeight: 700,
               fontFamily: 'monospace', textTransform: 'uppercase', letterSpacing: '0.1em',
               cursor: 'pointer',
             }}
@@ -412,7 +412,7 @@ export default function PeriodicInventory({ units, onNavigate }: Props) {
         <div style={{ marginBottom: 12 }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
             <div>
-              <p style={{ fontSize: 10, fontFamily: 'monospace', textTransform: 'uppercase', letterSpacing: '0.15em', color: '#64748b', marginBottom: 2 }}>
+              <p style={{ fontSize: typeof window !== 'undefined' && window.innerWidth < 768 ? 8 : 10, fontFamily: 'monospace', textTransform: 'uppercase', letterSpacing: '0.15em', color: '#64748b', marginBottom: 2 }}>
                 Inventory Periodic Table
               </p>
               <p style={{ fontSize: 18, fontWeight: 800, color: '#1f2937', letterSpacing: '-0.03em', textTransform: 'uppercase' }}>
@@ -420,20 +420,20 @@ export default function PeriodicInventory({ units, onNavigate }: Props) {
               </p>
             </div>
             <div style={{ textAlign: 'right' }}>
-              <p style={{ fontSize: 11, fontFamily: 'monospace', color: '#94a3b8' }}>{available.length} units</p>
+              <p style={{ fontSize: typeof window !== 'undefined' && window.innerWidth < 768 ? 9 : 11, fontFamily: 'monospace', color: '#94a3b8' }}>{available.length} units</p>
               <p style={{ fontSize: 10, fontFamily: 'monospace', color: '#475569' }}>
                 {incoming.length > 0 ? `+ ${incoming.length} w/ supplier` : 'in office'}
               </p>
             </div>
           </div>
-          <div style={{ display: 'flex', gap: 8 }}>
-            <div style={{ flex: 1, background: '#1e293b', borderRadius: 8, padding: '8px 10px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-              <span style={{ fontSize: 9, fontFamily: 'monospace', textTransform: 'uppercase', letterSpacing: '0.1em', color: '#94a3b8' }}>Sold Today</span>
-              <span style={{ fontSize: 13, fontWeight: 800, fontFamily: 'monospace', color: '#34d399' }}>{todaySold.length}</span>
+          <div style={{ display: 'flex', gap: typeof window !== 'undefined' && window.innerWidth < 768 ? 6 : 8, flexWrap: 'wrap' }}>
+            <div style={{ flex: 1, minWidth: 120, background: '#1e293b', borderRadius: 8, padding: typeof window !== 'undefined' && window.innerWidth < 768 ? '6px 8px' : '8px 10px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <span style={{ fontSize: typeof window !== 'undefined' && window.innerWidth < 768 ? 7 : 9, fontFamily: 'monospace', textTransform: 'uppercase', letterSpacing: '0.1em', color: '#94a3b8' }}>Sold Today</span>
+              <span style={{ fontSize: typeof window !== 'undefined' && window.innerWidth < 768 ? 11 : 13, fontWeight: 800, fontFamily: 'monospace', color: '#34d399' }}>{todaySold.length}</span>
             </div>
-            <div style={{ flex: 1, background: '#1e293b', borderRadius: 8, padding: '8px 10px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-              <span style={{ fontSize: 9, fontFamily: 'monospace', textTransform: 'uppercase', letterSpacing: '0.1em', color: '#94a3b8' }}>Returned Today</span>
-              <span style={{ fontSize: 13, fontWeight: 800, fontFamily: 'monospace', color: '#fbbf24' }}>{todayReturned.length}</span>
+            <div style={{ flex: 1, minWidth: 140, background: '#1e293b', borderRadius: 8, padding: typeof window !== 'undefined' && window.innerWidth < 768 ? '6px 8px' : '8px 10px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <span style={{ fontSize: typeof window !== 'undefined' && window.innerWidth < 768 ? 7 : 9, fontFamily: 'monospace', textTransform: 'uppercase', letterSpacing: '0.1em', color: '#94a3b8' }}>Returned Today</span>
+              <span style={{ fontSize: typeof window !== 'undefined' && window.innerWidth < 768 ? 11 : 13, fontWeight: 800, fontFamily: 'monospace', color: '#fbbf24' }}>{todayReturned.length}</span>
             </div>
           </div>
         </div>
@@ -454,7 +454,7 @@ export default function PeriodicInventory({ units, onNavigate }: Props) {
           {groups.map(g => (
             <div key={g.id}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
-                <div style={{ fontSize: 8, fontFamily: 'monospace', textTransform: 'uppercase', letterSpacing: '0.15em', color: g.color.bg, fontWeight: 700, minWidth: 80, flexShrink: 0 }}>
+                <div style={{ fontSize: 13, fontFamily: 'system-ui', textTransform: 'capitalize', color: g.color.bg, fontWeight: 800, minWidth: 120, flexShrink: 0, letterSpacing: '-0.02em' }}>
                   {g.label}
                 </div>
                 <div style={{ flex: 1, height: 1, background: `${g.color.bg}30` }} />
@@ -485,28 +485,23 @@ export default function PeriodicInventory({ units, onNavigate }: Props) {
                         display: 'flex',
                         flexDirection: 'column',
                         justifyContent: 'space-between',
-                        cursor: isEmpty ? 'default' : 'pointer',
+                        cursor: 'pointer',
                         transition: 'transform 0.1s, box-shadow 0.1s, background 0.1s',
-                        transform: isHovered && !isEmpty ? 'scale(1.1)' : 'scale(1)',
-                        boxShadow: isHovered && !isEmpty ? `0 0 0 2px ${g.color.bg}, 0 4px 12px rgba(0,0,0,0.3)` : 'none',
-                        opacity: isEmpty ? 0.35 : 1,
+                        transform: isHovered ? 'scale(1.1)' : 'scale(1)',
+                        boxShadow: isHovered ? `0 0 0 2px ${isEmpty ? '#fca5a5' : g.color.bg}, 0 4px 12px rgba(0,0,0,0.3)` : 'none',
+                        opacity: 1,
                       }}
                     >
-                      {/* Ordinal + count */}
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', width: '100%' }}>
-                        <span style={{ fontSize: 8, fontFamily: 'monospace', fontWeight: 700, color: isHovered ? 'rgba(255,255,255,0.6)' : g.color.text, opacity: 0.7 }}>
-                          {el.ordinal}
+                      {/* Count */}
+                      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 1 }}>
+                        <span style={{ fontSize: 9, fontFamily: 'monospace', fontWeight: 800, color: isHovered ? '#fff' : g.color.text }}>
+                          {el.count}
                         </span>
-                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 1 }}>
-                          <span style={{ fontSize: 9, fontFamily: 'monospace', fontWeight: 800, color: isHovered ? '#fff' : g.color.text }}>
-                            {el.count}
+                        {el.shsCount > 0 && (
+                          <span style={{ fontSize: 7, fontFamily: 'monospace', fontWeight: 700, color: '#fbbf24', lineHeight: 1 }}>
+                            +{el.shsCount}S
                           </span>
-                          {el.shsCount > 0 && (
-                            <span style={{ fontSize: 7, fontFamily: 'monospace', fontWeight: 700, color: '#fbbf24', lineHeight: 1 }}>
-                              +{el.shsCount}S
-                            </span>
-                          )}
-                        </div>
+                        )}
                       </div>
 
                       {/* Symbol */}

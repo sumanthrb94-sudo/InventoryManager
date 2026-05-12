@@ -1,11 +1,14 @@
 import React, { useState, useMemo, useCallback } from 'react';
-import { X, Plus, Trash2, CheckCircle2, ClipboardPaste, PackagePlus, ChevronDown, ChevronUp, Camera } from 'lucide-react';
+import { X, Plus, Trash2, CheckCircle2, ClipboardPaste, PackagePlus, ChevronDown, ChevronUp, Camera, Lock } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { dbService } from '../lib/dbService';
 import { DeviceCategory, InventoryUnit } from '../types';
 import { useInventoryStore } from '../lib/inventoryStore';
 import { logInventoryEvent } from '../lib/inventoryEvents';
+import { GradeSelectCompact, StorageSelectCompact } from './FormSelects';
+import { generateBatchId, formatBatchId } from '../lib/batchUtils';
 import ScanInModal from './ScanInModal';
+import { buildDeviceCatalog } from '../lib/deviceCatalog';
 
 interface Props { onClose: () => void; }
 
@@ -15,11 +18,13 @@ interface BatchRow {
   imei: string;
   buyPrice: string;
   colour: string;
+  storage: string;
   supplierName: string;
   grade: string;
   batchNo: string;
   notes: string;
   isSHS: boolean;
+  quantity: number;
 }
 
 const uid = () => Math.random().toString(36).slice(2, 9);
@@ -27,7 +32,7 @@ const today = () => new Date().toISOString().split('T')[0];
 const QUICK_NOTES = ['CLEARANCE', 'ONU', 'BOXED', 'NO BOX'];
 
 function emptyRow(supplierName = ''): BatchRow {
-  return { id: uid(), model: '', imei: '', buyPrice: '', colour: '', supplierName, grade: '', batchNo: '', notes: '', isSHS: false };
+  return { id: uid(), model: '', imei: '', buyPrice: '', colour: '', storage: '', supplierName, grade: '', batchNo: '', notes: '', isSHS: false, quantity: 1 };
 }
 
 function detectCategory(model: string): DeviceCategory {
@@ -46,34 +51,40 @@ function detectBrand(cat: DeviceCategory): string {
   return 'Other';
 }
 
-// CSV format: MODEL, IMEI, GRADE, BP, COLOUR, BATCH, SUPPLIER, NOTES
+// CSV format: MODEL, IMEI, GRADE, BP, COLOUR, BATCH, SUPPLIER, NOTES, QUANTITY
 function parsePastedCSV(text: string, fallbackSupplier: string): BatchRow[] {
   const rows: BatchRow[] = [];
   for (const raw of text.trim().split('\n')) {
     const parts = raw.split(',').map(p => p.trim());
     if (parts.length < 2) continue;
-    const [model, imei, grade, bp, colour, batch, supplier, notes] = parts;
+    const [model, imei, grade, bp, colour, batch, supplier, notes, qty] = parts;
     if (!model || model.toLowerCase() === 'model') continue;
     const isSHS = (imei ?? '').toUpperCase() === 'SHS';
     if (!isSHS && isNaN(parseFloat(bp))) continue;
+    const quantity = Math.max(1, parseInt(qty) || 1);
     rows.push({
       id: uid(),
       model: model.trim(),
       imei: isSHS ? '' : (imei ?? '').replace(/\D/g, ''),
       buyPrice: isSHS ? (bp ?? '') : (bp ?? ''),
       colour: (colour ?? '').trim(),
+      storage: '',
       grade: (grade ?? '').trim(),
       batchNo: (batch ?? '').trim(),
       supplierName: ((supplier ?? '').split('/')[0]).trim() || fallbackSupplier,
       notes: (notes ?? '').trim(),
       isSHS,
+      quantity,
     });
   }
   return rows;
 }
 
 export default function NewBatchModal({ onClose }: Props) {
-  const { suppliers } = useInventoryStore();
+  const { suppliers, units } = useInventoryStore();
+  // Surface known (brand, model) pairs as native autocomplete suggestions
+  // for every row's Model input. Cheap; doesn't change row data shape.
+  const deviceCatalog = useMemo(() => buildDeviceCatalog(units), [units]);
 
   const [date, setDate]           = useState(today());
   const [invoiceNo, setInvoiceNo] = useState('');
@@ -94,6 +105,19 @@ export default function NewBatchModal({ onClose }: Props) {
   const knownNames = useMemo(() => suppliers.map(s => s.name), [suppliers]);
   const lastSupplierName = rows.filter(r => r.supplierName).at(-1)?.supplierName ?? '';
 
+  // Pre-calculate batch IDs for display
+  const batchIdPreview = useMemo(() => {
+    const validRows = rows.filter(r => r.model.trim() && (r.buyPrice || r.isSHS));
+    const batchIds: Record<string, string> = {};
+    for (const r of validRows) {
+      const key = r.supplierName.trim().toUpperCase();
+      if (key && !batchIds[key]) {
+        batchIds[key] = generateBatchId(r.supplierName);
+      }
+    }
+    return batchIds;
+  }, [rows]);
+
   const updateRow = useCallback((id: string, patch: Partial<BatchRow>) =>
     setRows(rs => rs.map(r => r.id === id ? { ...r, ...patch } : r)), []);
 
@@ -103,8 +127,9 @@ export default function NewBatchModal({ onClose }: Props) {
   const totals = useMemo(() => {
     let units = 0, value = 0, shs = 0;
     for (const r of rows) {
-      if (r.isSHS) { shs++; continue; }
-      if (r.model.trim()) { units++; value += parseFloat(r.buyPrice) || 0; }
+      const qty = r.quantity || 1;
+      if (r.isSHS) { shs += qty; continue; }
+      if (r.model.trim()) { units += qty; value += (parseFloat(r.buyPrice) || 0) * qty; }
     }
     return { units, value, shs };
   }, [rows]);
@@ -171,13 +196,19 @@ export default function NewBatchModal({ onClose }: Props) {
         return;
       }
 
-      const batchId = `bat_${Date.now()}`;
       const ts      = Date.now();
 
       const supCache: Record<string, string> = {};
+      const batchIdCache: Record<string, string> = {};
+
+      // Ensure all suppliers exist and generate batch IDs per supplier
       for (const r of validRows) {
         const key = r.supplierName.trim().toUpperCase();
-        if (key && !supCache[key]) supCache[key] = await ensureSupplier(r.supplierName);
+        if (key && !supCache[key]) {
+          supCache[key] = await ensureSupplier(r.supplierName);
+          // Generate unique batch ID for this supplier
+          batchIdCache[key] = generateBatchId(r.supplierName);
+        }
       }
 
       await dbService.create('batches', batchId, {
@@ -192,41 +223,56 @@ export default function NewBatchModal({ onClose }: Props) {
 
       let idx = 0;
       for (const r of validRows) {
-        const supplierId = supCache[r.supplierName.trim().toUpperCase()] || '';
+        const qty = r.quantity || 1;
+        const supplierKey = r.supplierName.trim().toUpperCase();
+        const supplierId = supCache[supplierKey] || '';
+        const batchId = batchIdCache[supplierKey] || `bat_${Date.now()}_${idx}`;
         const category   = detectCategory(r.model);
         const brand      = detectBrand(category);
         const bp         = parseFloat(r.buyPrice) || 0;
 
-        if (r.isSHS) {
-          const tempId = `shs_${ts}_${idx++}`;
-          await dbService.create('inventoryUnits', tempId, {
-            imei: '',
-            model: r.model.trim(), brand, category,
-            colour: r.colour.trim() || 'Unknown',
-            grade: r.grade.trim() || undefined,
-            batchNo: r.batchNo.trim() || undefined,
-            buyPrice: bp, dateIn: date,
-            supplierId, batchId,
-            status: 'incoming', flags: [],
-            notes: `SHS — Expected stock${r.notes ? ' · ' + r.notes : ''}`,
-            platformListed: false, listingSites: [],
-            ownerId: 'shared', createdAt: new Date().toISOString(),
-          });
-        } else {
-          const cleanImei = r.imei.replace(/\D/g, '');
-          await dbService.create('inventoryUnits', cleanImei, {
-            imei: cleanImei,
-            model: r.model.trim(), brand, category,
-            colour: r.colour || 'Unknown',
-            grade: r.grade.trim() || undefined,
-            batchNo: r.batchNo.trim() || undefined,
-            buyPrice: bp, dateIn: date,
-            supplierId, batchId,
-            status: 'available', flags: [],
-            notes: r.notes || '',
-            platformListed: false, listingSites: [],
-            ownerId: 'shared', createdAt: new Date().toISOString(),
-          });
+        // Create multiple units if quantity > 1
+        for (let q = 0; q < qty; q++) {
+          if (r.isSHS) {
+            const tempId = `shs_${ts}_${idx++}`;
+            await dbService.create('inventoryUnits', tempId, {
+              imei: '',
+              model: r.model.trim(), brand, category,
+              colour: r.colour.trim() || 'Unknown',
+              storage: r.storage.trim() || undefined,
+              grade: r.grade.trim() || undefined,
+              batchNo: r.batchNo.trim() || undefined,
+              buyPrice: bp, dateIn: date,
+              supplierId, batchId,
+              status: 'incoming', flags: [],
+              notes: `SHS — Expected stock${r.notes ? ' · ' + r.notes : ''}`,
+              platformListed: false, listingSites: [],
+              ownerId: 'shared', createdAt: new Date().toISOString(),
+            });
+          } else {
+            const cleanImei = r.imei.replace(/\D/g, '');
+            const unitId = qty === 1 ? cleanImei : `${cleanImei}-${String(q + 1).padStart(3, '0')}`;
+            const exists = await dbService.imeiExists(unitId);
+            if (exists && qty > 1) {
+              setError(`${unitId} already exists`);
+              setSaving(false);
+              return;
+            }
+            await dbService.create('inventoryUnits', unitId, {
+              imei: unitId,
+              model: r.model.trim(), brand, category,
+              colour: r.colour || 'Unknown',
+              storage: r.storage.trim() || undefined,
+              grade: r.grade.trim() || undefined,
+              batchNo: r.batchNo.trim() || undefined,
+              buyPrice: bp, dateIn: date,
+              supplierId, batchId,
+              status: 'available', flags: [],
+              notes: r.notes || '',
+              platformListed: false, listingSites: [],
+              ownerId: 'shared', createdAt: new Date().toISOString(),
+            });
+          }
         }
       }
 
@@ -250,11 +296,20 @@ export default function NewBatchModal({ onClose }: Props) {
       className="fixed inset-0 z-[60] flex items-end md:items-center justify-center bg-black/60 backdrop-blur-sm p-0 md:p-4"
       onClick={onClose}
     >
+      {/* Shared autocomplete catalog for every row's model input. */}
+      <datalist id="device-catalog-options">
+        {deviceCatalog.map(d => (
+          <option key={`${d.brand}|${d.model}`} value={d.model}>
+            {d.brand} · {d.count} in stock
+          </option>
+        ))}
+      </datalist>
+
       <motion.div
         initial={{ y: 40, opacity: 0 }} animate={{ y: 0, opacity: 1 }}
         exit={{ y: 40, opacity: 0 }} transition={{ type: 'spring', damping: 28, stiffness: 300 }}
         onClick={e => e.stopPropagation()}
-        className="bg-white w-full md:max-w-3xl rounded-t-3xl md:rounded-2xl shadow-2xl flex flex-col overflow-hidden"
+        className="bg-white w-full md:max-w-3xl rounded-t-3xl md:rounded-3xl shadow-2xl flex flex-col overflow-hidden"
         style={{ maxHeight: 'calc(100dvh - 16px)' }}
       >
         {/* Header */}
@@ -283,7 +338,7 @@ export default function NewBatchModal({ onClose }: Props) {
         </div>
 
         {/* Batch header */}
-        <div className="px-5 py-3 border-b border-gray-100 bg-gray-50 flex-shrink-0">
+        <div className="px-5 py-3 border-b border-gray-100 bg-gray-50 space-y-3 flex-shrink-0">
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="text-[8px] font-bold uppercase tracking-widest text-gray-400">Date</label>
@@ -297,6 +352,25 @@ export default function NewBatchModal({ onClose }: Props) {
                 className="w-full mt-1 border border-gray-200 rounded-xl px-3 py-2 text-xs font-mono focus:outline-none focus:border-black bg-white transition-all" />
             </div>
           </div>
+
+          {/* Batch IDs Preview */}
+          {Object.keys(batchIdPreview).length > 0 && (
+            <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 space-y-2">
+              <div className="flex items-center gap-2">
+                <Lock size={12} className="text-blue-600" />
+                <p className="text-[8px] font-bold uppercase tracking-widest text-blue-600">Auto Generated Batch IDs</p>
+              </div>
+              <div className="space-y-1.5">
+                {Object.entries(batchIdPreview).map(([supplier, batchId]) => (
+                  <div key={supplier} className="bg-white border border-blue-100 rounded px-2.5 py-1.5">
+                    <p className="text-[8px] font-mono text-gray-600 uppercase tracking-tight">
+                      {supplier || 'Unknown'}: <span className="font-bold text-blue-600">{formatBatchId(batchId)}</span>
+                    </p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Column headers */}
@@ -307,8 +381,9 @@ export default function NewBatchModal({ onClose }: Props) {
             ['col-span-1', 'GRADE'],
             ['col-span-1', 'BP (£)'],
             ['col-span-1', 'COLOUR'],
-            ['col-span-3', 'BATCH #'],
+            ['col-span-2', 'BATCH #'],
             ['col-span-1', 'SUPPLIER'],
+            ['col-span-1', 'QTY'],
             ['col-span-1', ''],
           ].map(([cls, label]) => (
             <div key={label} className={`${cls} text-[7px] font-bold uppercase tracking-widest text-gray-400`}>{label}</div>
@@ -388,7 +463,7 @@ export default function NewBatchModal({ onClose }: Props) {
               initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.95, opacity: 0 }}
               onClick={e => e.stopPropagation()}
-              className="bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden"
+              className="bg-white rounded-3xl overflow-hidden shadow-2xl w-full max-w-lg overflow-hidden"
             >
               <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
                 <div>
@@ -471,6 +546,7 @@ function BatchRowCard({ row, index, knownSuppliers, onChange, onRemove, canRemov
             <div className="hidden md:grid grid-cols-12 gap-1 px-3 py-2 items-center">
               <div className="col-span-2">
                 <input value={row.model} onChange={e => onChange({ model: e.target.value })}
+                  list="device-catalog-options"
                   placeholder="e.g. iPhone 14 128GB"
                   className="w-full border border-gray-200 rounded-lg px-2.5 py-2 text-xs focus:outline-none focus:border-black bg-white transition-all" />
               </div>
@@ -489,9 +565,7 @@ function BatchRowCard({ row, index, knownSuppliers, onChange, onRemove, canRemov
                 )}
               </div>
               <div className="col-span-1">
-                <input value={row.grade} onChange={e => onChange({ grade: e.target.value })}
-                  placeholder="A, B, C…"
-                  className="w-full border border-gray-200 rounded-lg px-2.5 py-2 text-xs font-mono focus:outline-none focus:border-black bg-white transition-all" />
+                <GradeSelectCompact value={row.grade} onChange={e => onChange({ grade: e })} />
               </div>
               <div className="col-span-1">
                 <input type="number" min={0} value={row.buyPrice} onChange={e => onChange({ buyPrice: e.target.value })}
@@ -503,7 +577,7 @@ function BatchRowCard({ row, index, knownSuppliers, onChange, onRemove, canRemov
                   placeholder="Black"
                   className="w-full border border-gray-200 rounded-lg px-2.5 py-2 text-xs focus:outline-none focus:border-black bg-white transition-all" />
               </div>
-              <div className="col-span-3">
+              <div className="col-span-2">
                 <input value={row.batchNo} onChange={e => onChange({ batchNo: e.target.value })}
                   placeholder="e.g. INV-2061"
                   className="w-full border border-gray-200 rounded-lg px-2.5 py-2 text-xs font-mono focus:outline-none focus:border-black bg-white transition-all" />
@@ -516,6 +590,11 @@ function BatchRowCard({ row, index, knownSuppliers, onChange, onRemove, canRemov
                 <datalist id={`sup-list-${row.id}`}>
                   {knownSuppliers.map(s => <option key={s} value={s} />)}
                 </datalist>
+              </div>
+              <div className="col-span-1">
+                <input type="number" min="1" max="999" value={row.quantity || 1} onChange={e => onChange({ quantity: Math.max(1, parseInt(e.target.value) || 1) })}
+                  placeholder="1"
+                  className="w-full border border-gray-200 rounded-lg px-2.5 py-2 text-xs font-bold text-center focus:outline-none focus:border-black bg-white transition-all" />
               </div>
               <div className="col-span-1 flex items-center justify-end gap-1">
                 {canRemove && (
@@ -557,6 +636,7 @@ function BatchRowCard({ row, index, knownSuppliers, onChange, onRemove, canRemov
               <div>
                 <label className="text-[8px] font-bold uppercase tracking-widest text-gray-400">Model</label>
                 <input value={row.model} onChange={e => onChange({ model: e.target.value })}
+                  list="device-catalog-options"
                   placeholder="e.g. Apple iPhone 14 128GB"
                   className="w-full mt-1 border border-gray-200 rounded-lg px-3 py-2 text-xs focus:outline-none focus:border-black bg-white" />
               </div>
@@ -573,9 +653,7 @@ function BatchRowCard({ row, index, knownSuppliers, onChange, onRemove, canRemov
               <div className="grid grid-cols-3 gap-2">
                 <div>
                   <label className="text-[8px] font-bold uppercase tracking-widest text-gray-400">Grade</label>
-                  <input value={row.grade} onChange={e => onChange({ grade: e.target.value })}
-                    placeholder="A, B, C…"
-                    className="w-full mt-1 border border-gray-200 rounded-lg px-3 py-2 text-xs font-mono focus:outline-none focus:border-black bg-white" />
+                  <GradeSelectCompact value={row.grade} onChange={e => onChange({ grade: e })} className="w-full mt-1 border border-gray-200 rounded-lg px-3 py-2 text-xs font-mono focus:outline-none focus:border-black bg-white" />
                 </div>
                 <div>
                   <label className="text-[8px] font-bold uppercase tracking-widest text-gray-400">Buy Price (£)</label>

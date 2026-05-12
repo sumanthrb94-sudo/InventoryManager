@@ -5,6 +5,8 @@ import { dbService } from '../lib/dbService';
 import { DeviceCategory, InventoryUnit } from '../types';
 import { useInventoryStore } from '../lib/inventoryStore';
 import { notificationService } from '../lib/notificationService';
+import { GRADE_OPTIONS, STORAGE_OPTIONS } from '../lib/unitConstants';
+import { GradeSelect, StorageSelect } from './FormSelects';
 import IMEIScanner from './IMEIScanner';
 
 interface Props { onClose: () => void; }
@@ -35,8 +37,6 @@ const COLOUR_OPTIONS = [
   'Space Grey','Sierra Blue','Alpine Green','Coral','Mint','Cream',
   'Lavender','Desert Titanium','Pacific Blue','Rose Gold','Other',
 ];
-
-const GRADE_OPTIONS = ['A', 'B', 'C', 'Refurbished', 'Unknown'];
 
 // Parse barcode label to extract model, grade, storage info
 function parseBarcode(text: string): { model?: string; grade?: string; storage?: string } {
@@ -201,7 +201,7 @@ export default function ScanInModal({ onClose }: Props) {
         initial={{ y: 40, opacity: 0 }} animate={{ y: 0, opacity: 1 }}
         exit={{ y: 40, opacity: 0 }} transition={{ type: 'spring', damping: 28, stiffness: 300 }}
         onClick={e => e.stopPropagation()}
-        className="bg-white w-full md:max-w-lg rounded-t-3xl md:rounded-2xl shadow-2xl flex flex-col overflow-hidden"
+        className="bg-white w-full md:max-w-lg rounded-t-3xl md:rounded-3xl shadow-2xl flex flex-col overflow-hidden"
         style={{ maxHeight: 'calc(100dvh - 16px)' }}
       >
         {/* Header */}
@@ -306,33 +306,10 @@ export default function ScanInModal({ onClose }: Props) {
                 </div>
 
                 {/* Storage */}
-                <div>
-                  <label className="text-[9px] font-bold uppercase tracking-widest text-gray-400 block mb-1.5">Storage</label>
-                  <input
-                    value={storage}
-                    onChange={e => { setStorage(e.target.value); setError(''); }}
-                    placeholder="e.g. 128GB, 256GB, 512GB"
-                    className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-black transition-all"
-                  />
-                </div>
+                <StorageSelect value={storage} onChange={e => { setStorage(e); setError(''); }} />
 
                 {/* Grade */}
-                <div>
-                  <label className="text-[9px] font-bold uppercase tracking-widest text-gray-400 block mb-1.5">Grade</label>
-                  <div className="flex flex-wrap gap-1.5">
-                    {GRADE_OPTIONS.map(g => (
-                      <button
-                        key={g}
-                        onClick={() => setGrade(g)}
-                        className={`text-[9px] font-bold px-3 py-1.5 rounded-lg border transition-all ${
-                          grade === g ? 'bg-black text-white border-black' : 'border-gray-200 text-gray-500 hover:border-gray-400'
-                        }`}
-                      >
-                        {g}
-                      </button>
-                    ))}
-                  </div>
-                </div>
+                <GradeSelect value={grade} onChange={e => { setGrade(e); setError(''); }} />
 
                 {/* Buy Price */}
                 <div>

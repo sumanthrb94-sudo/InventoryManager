@@ -1,10 +1,11 @@
 import React, { useState, useMemo } from 'react';
 import {
-  PackagePlus, Search, Plus, FileSpreadsheet, CheckCircle2, Clock,
-  ChevronDown, ChevronUp, Truck, PackageCheck, AlertCircle,
+  PackagePlus, Search, Plus, CheckCircle2, Clock,
+  ChevronDown, ChevronUp, Truck, PackageCheck, AlertCircle, MoreVertical, Trash2,
 } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
 import { dbService } from '../lib/dbService';
+import { notificationService } from '../lib/notificationService';
 import { InventoryUnit, Supplier } from '../types';
 import { useInventoryStore } from '../lib/inventoryStore';
 import CopyImei from './CopyImei';
@@ -14,13 +15,14 @@ import AddSHSModal from './AddSHSModal';
 import AddDeliveryModal from './AddDeliveryModal';
 import ScanInModal from './ScanInModal';
 import IntelligencePanel from './IntelligencePanel';
+import TodayIntakeModal from './TodayIntakeModal';
+import { StockIntakeFlow } from './StockIntakeFlow';
 
 interface Props {
   onOpenBatch: () => void;
-  onOpenImport: () => void;
 }
 
-export default function StockInPage({ onOpenBatch, onOpenImport }: Props) {
+export default function StockInPage({ onOpenBatch }: Props) {
   const { units, suppliers }        = useInventoryStore();
   const [search, setSearch]         = useState('');
   const [expandedId, setExpandedId] = useState<string | null>(null);
@@ -28,8 +30,28 @@ export default function StockInPage({ onOpenBatch, onOpenImport }: Props) {
   const [showAddSHS, setShowAddSHS]       = useState(false);
   const [showAddDelivery, setShowAddDelivery] = useState(false);
   const [showScanUnit, setShowScanUnit] = useState(false);
+  const [showTodayIntake, setShowTodayIntake] = useState(false);
+  const [showStockIntakeFlow, setShowStockIntakeFlow] = useState(false);
+  const [openMenuId, setOpenMenuId] = useState<string | null>(null);
+  const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
 
   const today = new Date().toISOString().split('T')[0];
+
+  const handleDeletePendingSHSGroup = async (groupUnits: InventoryUnit[]) => {
+    const sample = groupUnits[0];
+    const qty = groupUnits.length;
+    const label = qty === 1 ? `"${sample.model}"` : `${qty} × "${sample.model}"`;
+    if (!window.confirm(`Delete ${label} from database? This action cannot be undone.`)) {
+      return;
+    }
+    try {
+      await Promise.all(groupUnits.map(u => dbService.delete('inventoryUnits', u.id)));
+      notificationService.addNotification('shs_removed', sample, undefined, qty);
+      setOpenMenuId(null);
+    } catch (err) {
+      console.error('Failed to delete pending SHS group:', err);
+    }
+  };
 
   const supplierMap = useMemo(() => {
     const m: Record<string, string> = {};
@@ -44,6 +66,27 @@ export default function StockInPage({ onOpenBatch, onOpenImport }: Props) {
       .sort((a, b) => new Date(b.dateIn).getTime() - new Date(a.dateIn).getTime()),
     [units],
   );
+
+  // Group identical pending SHS units to avoid sequential duplicate rows
+  const pendingSHSGroups = useMemo(() => {
+    const map = new Map<string, InventoryUnit[]>();
+    for (const u of pendingSHS) {
+      const key = [
+        u.model,
+        u.colour || '',
+        (u as any).storage || '',
+        u.supplierId || '',
+        u.batchId || '',
+        u.buyPrice,
+        u.dateIn,
+        u.notes || '',
+      ].join('|');
+      const arr = map.get(key);
+      if (arr) arr.push(u);
+      else map.set(key, [u]);
+    }
+    return Array.from(map.values());
+  }, [pendingSHS]);
 
   // Regular stock list (non-incoming), sorted newest first
   const allSorted = useMemo(() =>
@@ -71,8 +114,8 @@ export default function StockInPage({ onOpenBatch, onOpenImport }: Props) {
     <div className="space-y-5">
       {/* Header */}
       <div>
-        <h2 className="text-2xl font-bold tracking-tighter uppercase font-display flex items-center gap-3">
-          <span className="w-8 h-8 bg-emerald-100 rounded-lg flex items-center justify-center">
+        <h2 className="text-xl sm:text-2xl font-bold tracking-tighter uppercase font-display flex items-center gap-3">
+          <span className="w-8 h-8 bg-emerald-100 rounded-lg flex items-center justify-center flex-shrink-0">
             <PackagePlus size={16} className="text-emerald-700" />
           </span>
           Stock In
@@ -82,51 +125,62 @@ export default function StockInPage({ onOpenBatch, onOpenImport }: Props) {
         </p>
       </div>
 
-      {/* Today's summary */}
-      <div className="grid grid-cols-3 gap-3">
-        <div className="bg-emerald-50 border border-emerald-100 rounded-2xl p-4">
-          <p className="text-[9px] font-mono uppercase tracking-widest text-emerald-600">Today's Intake</p>
-          <p className="text-3xl font-bold font-display mt-1 text-emerald-700">{todayIn.length}</p>
-          <p className="text-[9px] text-emerald-500 font-mono">units received</p>
-        </div>
-        <div className="bg-blue-50 border border-blue-100 rounded-2xl p-4">
-          <p className="text-[9px] font-mono uppercase tracking-widest text-blue-600">Today's Spend</p>
-          <p className="text-2xl font-bold font-display mt-1 text-blue-700">£{totalBP.toLocaleString()}</p>
-          <p className="text-[9px] text-blue-500 font-mono">total buy price</p>
-        </div>
-        <div className="bg-amber-50 border border-amber-100 rounded-2xl p-4">
-          <p className="text-[9px] font-mono uppercase tracking-widest text-amber-600">Pending SHS</p>
-          <p className="text-3xl font-bold font-display mt-1 text-amber-700">{pendingSHS.length}</p>
-          <p className="text-[9px] text-amber-500 font-mono">awaiting delivery</p>
-        </div>
-      </div>
+      {/* Compact dashboard */}
+      <div className="flex flex-col md:flex-row items-stretch md:items-center gap-3 bg-gradient-to-r from-gray-50 to-white border border-gray-100 rounded-xl p-4">
+        {/* KPI Row (responsive) */}
+        <div className="flex items-center gap-3 flex-1 min-w-0 overflow-x-auto md:overflow-visible pb-2 md:pb-0">
+          {/* Today's Intake */}
+          <button
+            onClick={() => setShowTodayIntake(true)}
+            disabled={todayIn.length === 0}
+            className="flex items-center gap-3 px-5 py-3 bg-emerald-50 border border-emerald-100 rounded-lg hover:bg-emerald-100 transition-all disabled:opacity-50 disabled:cursor-default flex-shrink-0"
+          >
+            <div className="text-center">
+              <p className="text-[8px] font-mono uppercase tracking-widest text-emerald-600">Intake</p>
+              <p className="text-2xl font-bold text-emerald-700 leading-tight">{todayIn.length}</p>
+            </div>
+          </button>
 
-      {/* Actions */}
-      <div className="grid grid-cols-3 gap-3">
-        <button
-          onClick={() => setShowAddDelivery(true)}
-          className="flex flex-col items-center gap-2 p-4 bg-black text-white rounded-2xl hover:bg-gray-800 transition-all active:scale-95"
-        >
-          <Plus size={20} />
-          <span className="text-[10px] font-bold uppercase tracking-widest">Add Delivery</span>
-          <span className="text-[8px] text-gray-400 font-mono text-center">With IMEI</span>
-        </button>
-        <button
-          onClick={() => setShowAddSHS(true)}
-          className="flex flex-col items-center gap-2 p-4 bg-amber-500 text-white rounded-2xl hover:bg-amber-600 transition-all active:scale-95"
-        >
-          <Truck size={20} />
-          <span className="text-[10px] font-bold uppercase tracking-widest">Log SHS Order</span>
-          <span className="text-[8px] text-amber-100 font-mono text-center">No IMEI yet</span>
-        </button>
-        <button
-          onClick={onOpenImport}
-          className="flex flex-col items-center gap-2 p-4 bg-white border border-gray-200 rounded-2xl hover:bg-gray-50 transition-all active:scale-95"
-        >
-          <FileSpreadsheet size={20} className="text-gray-700" />
-          <span className="text-[10px] font-bold uppercase tracking-widest text-black">Import Excel</span>
-          <span className="text-[8px] text-gray-400 font-mono text-center">Bulk import</span>
-        </button>
+          {/* Today's Spend */}
+          <div className="flex items-center gap-3 px-5 py-3 bg-blue-50 border border-blue-100 rounded-lg flex-shrink-0">
+            <div className="text-center">
+              <p className="text-[8px] font-mono uppercase tracking-widest text-blue-600">Spend</p>
+              <p className="text-xl font-bold text-blue-700 leading-tight">£{totalBP.toLocaleString()}</p>
+            </div>
+          </div>
+
+          {/* Pending SHS */}
+          <div className="flex items-center gap-3 px-5 py-3 bg-amber-50 border border-amber-100 rounded-lg flex-shrink-0">
+            <div className="text-center">
+              <p className="text-[8px] font-mono uppercase tracking-widest text-amber-600">SHS</p>
+              <p className="text-2xl font-bold text-amber-700 leading-tight">{pendingSHS.length}</p>
+            </div>
+          </div>
+        </div>
+
+        {/* Divider (hidden on mobile) */}
+        <div className="hidden md:block w-px h-12 bg-gray-200 mx-2 flex-shrink-0" />
+
+        {/* Action Buttons Row */}
+        <div className="flex flex-col sm:flex-row gap-3 w-full md:w-auto">
+          {/* Add Stock (New Flow) */}
+          <button
+            onClick={() => setShowStockIntakeFlow(true)}
+            className="flex items-center justify-center sm:justify-start gap-2 px-4 py-3 bg-gradient-to-r from-blue-600 to-blue-700 text-white rounded-lg hover:from-blue-700 hover:to-blue-800 transition-all active:scale-95 shadow-md whitespace-nowrap"
+          >
+            <Plus size={16} />
+            <span className="text-[9px] font-bold uppercase tracking-widest">Add Stock (New)</span>
+          </button>
+
+          {/* Log SHS Order */}
+          <button
+            onClick={() => setShowAddSHS(true)}
+            className="flex items-center justify-center sm:justify-start gap-2 px-4 py-3 bg-amber-500 text-white rounded-lg hover:bg-amber-600 transition-all active:scale-95 whitespace-nowrap"
+          >
+            <Truck size={16} />
+            <span className="text-[9px] font-bold uppercase tracking-widest">SHS Order</span>
+          </button>
+        </div>
       </div>
 
       {/* Intelligence panel */}
@@ -141,32 +195,69 @@ export default function StockInPage({ onOpenBatch, onOpenImport }: Props) {
           defaultOpen={false}
         >
           <div className="divide-y divide-amber-50">
-            {pendingSHS.map(u => (
-              <div key={u.id} className="flex items-center gap-3 px-4 py-3 hover:bg-amber-50/50 transition-all">
-                <div className="w-8 h-8 rounded-lg bg-amber-100 flex items-center justify-center flex-shrink-0">
-                  <Truck size={14} className="text-amber-600" />
+            {pendingSHSGroups.map(group => {
+              const u = group[0];
+              const qty = group.length;
+              return (
+                <div key={u.id} className="flex items-center gap-3 px-4 py-3 hover:bg-amber-50/50 transition-all">
+                  <div className="w-8 h-8 rounded-lg bg-amber-100 flex items-center justify-center flex-shrink-0">
+                    <Truck size={14} className="text-amber-600" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2">
+                      <p className="text-xs font-bold truncate">{u.model}</p>
+                      {qty > 1 && (
+                        <span className="text-[9px] font-bold text-amber-700 bg-amber-100 px-1.5 py-0.5 rounded font-mono flex-shrink-0">
+                          ×{qty}
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-[9px] text-gray-400 font-mono mt-0.5">
+                      {u.colour && u.colour !== 'Unknown' ? `${u.colour} · ` : ''}
+                      {supplierMap[u.supplierId] || '—'} · {u.batchId === 'master_batch' ? 'Master' : (u.batchId || 'Default')} · {u.dateIn}
+                    </p>
+                    {u.notes && (
+                      <p className="text-[8px] text-amber-600 font-mono mt-0.5 truncate">{u.notes}</p>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-2 flex-shrink-0">
+                    <span className="text-sm font-bold">
+                      £{u.buyPrice}
+                      {qty > 1 && <span className="text-[9px] text-gray-400 font-mono ml-1">/ £{(u.buyPrice * qty).toLocaleString()}</span>}
+                    </span>
+                    <button
+                      onClick={() => setReceivingUnit(u)}
+                      className="px-3 py-1.5 bg-amber-500 text-white text-[9px] font-bold uppercase tracking-widest rounded-lg hover:bg-amber-600 transition-all flex items-center gap-1"
+                    >
+                      <PackageCheck size={11} /> Receive
+                    </button>
+
+                    {/* Options Menu */}
+                    <div className="relative">
+                      <button
+                        onClick={() => setOpenMenuId(openMenuId === u.id ? null : u.id)}
+                        className="p-2 hover:bg-gray-100 rounded-lg transition-all text-gray-500"
+                        title="More options"
+                      >
+                        <MoreVertical size={14} />
+                      </button>
+
+                      {/* Dropdown Menu */}
+                      {openMenuId === u.id && (
+                        <div className="absolute right-0 mt-1 w-44 bg-white border border-gray-200 rounded-lg shadow-lg z-10">
+                          <button
+                            onClick={() => handleDeletePendingSHSGroup(group)}
+                            className="w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-red-50 flex items-center gap-2 transition-all rounded-lg m-1"
+                          >
+                            <Trash2 size={14} /> Delete {qty > 1 ? `all ${qty}` : 'from DB'}
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  </div>
                 </div>
-                <div className="flex-1 min-w-0">
-                  <p className="text-xs font-bold truncate">{u.model}</p>
-                  <p className="text-[9px] text-gray-400 font-mono mt-0.5">
-                    {u.colour && u.colour !== 'Unknown' ? `${u.colour} · ` : ''}
-                    {supplierMap[u.supplierId] || '—'} · {u.batchId === 'master_batch' ? 'Master' : (u.batchId || 'Default')} · {u.dateIn}
-                  </p>
-                  {u.notes && (
-                    <p className="text-[8px] text-amber-600 font-mono mt-0.5 truncate">{u.notes}</p>
-                  )}
-                </div>
-                <div className="flex items-center gap-2 flex-shrink-0">
-                  <span className="text-sm font-bold">£{u.buyPrice}</span>
-                  <button
-                    onClick={() => setReceivingUnit(u)}
-                    className="px-3 py-1.5 bg-amber-500 text-white text-[9px] font-bold uppercase tracking-widest rounded-lg hover:bg-amber-600 transition-all flex items-center gap-1"
-                  >
-                    <PackageCheck size={11} /> Receive
-                  </button>
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </CollapsibleSection>
       )}
@@ -284,6 +375,16 @@ export default function StockInPage({ onOpenBatch, onOpenImport }: Props) {
       <AnimatePresence>
         {receivingUnit && (
           <ReceiveSHSModal unit={receivingUnit} onClose={() => setReceivingUnit(null)} />
+        )}
+      </AnimatePresence>
+      <AnimatePresence>
+        {showTodayIntake && (
+          <TodayIntakeModal units={todayIn} onClose={() => setShowTodayIntake(false)} />
+        )}
+      </AnimatePresence>
+      <AnimatePresence>
+        {showStockIntakeFlow && (
+          <StockIntakeFlow onClose={() => setShowStockIntakeFlow(false)} />
         )}
       </AnimatePresence>
     </div>

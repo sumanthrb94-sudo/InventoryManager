@@ -177,7 +177,7 @@ export default function CalendarPage() {
           { label: 'Stock In',   value: monthStats.stockIn, icon: <PackagePlus size={13} />, color: 'text-blue-600' },
           { label: 'Returned',   value: monthStats.returned, icon: <RotateCcw size={13} />, color: 'text-orange-500' },
         ].map(k => (
-          <div key={k.label} className="bg-white rounded-2xl p-4 border border-gray-100 shadow-sm flex items-center gap-3">
+          <div key={k.label} className="bg-white rounded-3xl p-4 border border-gray-100 shadow-sm flex items-center gap-3">
             <div className={`${k.color}`}>{k.icon}</div>
             <div>
               <p className="text-lg font-bold font-display tracking-tighter">{k.value}</p>
@@ -205,7 +205,7 @@ export default function CalendarPage() {
       )}
 
       {/* Calendar */}
-      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+      <div className="bg-white rounded-3xl border border-gray-100 shadow-sm overflow-hidden">
         {/* Nav */}
         <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
           <button onClick={prevMonth} className="p-2 rounded-xl hover:bg-gray-100 transition-all">
@@ -309,7 +309,7 @@ export default function CalendarPage() {
             initial={{ opacity: 0, y: 12 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: 12 }}
-            className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden"
+            className="bg-white rounded-3xl border border-gray-100 shadow-sm overflow-hidden"
           >
             {/* Day header */}
             <div className="px-5 py-4 bg-gray-950 flex items-center justify-between">

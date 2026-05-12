@@ -28,8 +28,6 @@ export function signOut() {
 
 /**
  * Waits for Firebase Auth to resolve its persisted session.
- * Replaces ensureAnonymousAuth — no anonymous fallback needed now
- * that all users sign in with Google.
  */
 export function ensureAuthReady(): Promise<void> {
   return auth.authStateReady();

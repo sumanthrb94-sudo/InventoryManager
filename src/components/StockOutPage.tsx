@@ -64,17 +64,17 @@ export default function StockOutPage({ onOpenUnit }: Props) {
 
       {/* Today summary */}
       <div className="grid grid-cols-3 gap-2">
-        <div className="bg-red-50 border border-red-100 rounded-2xl p-3">
+        <div className="bg-red-50 border border-red-100 rounded-3xl p-3">
           <p className="text-[8px] font-mono uppercase tracking-widest text-red-500">Today Sold</p>
           <p className="text-2xl font-bold font-display mt-1 text-red-700">{todaySold.length}</p>
           <p className="text-[8px] text-red-400 font-mono">units</p>
         </div>
-        <div className="bg-green-50 border border-green-100 rounded-2xl p-3">
+        <div className="bg-green-50 border border-green-100 rounded-3xl p-3">
           <p className="text-[8px] font-mono uppercase tracking-widest text-green-600">Revenue</p>
           <p className="text-xl font-bold font-display mt-1 text-green-700">£{(todayRevenue/1000).toFixed(1)}k</p>
           <p className="text-[8px] text-green-500 font-mono">today</p>
         </div>
-        <div className="bg-purple-50 border border-purple-100 rounded-2xl p-3">
+        <div className="bg-purple-50 border border-purple-100 rounded-3xl p-3">
           <p className="text-[8px] font-mono uppercase tracking-widest text-purple-600">Profit</p>
           <p className="text-xl font-bold font-display mt-1 text-purple-700">£{todayProfit.toLocaleString()}</p>
           <p className="text-[8px] text-purple-500 font-mono">today</p>
@@ -107,7 +107,7 @@ export default function StockOutPage({ onOpenUnit }: Props) {
       </div>
 
       {/* Sold list */}
-      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+      <div className="bg-white rounded-3xl border border-gray-100 shadow-sm overflow-hidden">
         <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between">
           <p className="text-[10px] font-bold uppercase tracking-widest text-gray-400">Recent Sales</p>
           <span className="text-[9px] font-mono text-gray-400">{filtered.length} records</span>

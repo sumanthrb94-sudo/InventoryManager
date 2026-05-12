@@ -257,10 +257,27 @@ function buildSignals(units: InventoryUnit[], mode: 'buy' | 'sell'): Signal[] {
 // ── Sub-components ─────────────────────────────────────────────────────────────
 
 const SignalCard: React.FC<{ sig: Signal }> = ({ sig }) => {
+  // Map signal colors to light backgrounds
+  const bgMap: Record<string, string> = {
+    '#ef4444': 'rgba(254, 242, 242, 0.8)', // red-50
+    '#10b981': 'rgba(240, 253, 250, 0.8)', // emerald-50
+    '#8b5cf6': 'rgba(250, 245, 255, 0.8)', // purple-50
+    '#f59e0b': 'rgba(255, 251, 235, 0.8)', // amber-50
+    '#38bdf8': 'rgba(240, 249, 255, 0.8)', // blue-50
+  };
+
+  const textColorMap: Record<string, string> = {
+    '#ef4444': '#dc2626',
+    '#10b981': '#059669',
+    '#8b5cf6': '#7c3aed',
+    '#f59e0b': '#d97706',
+    '#38bdf8': '#0284c7',
+  };
+
   return (
     <div style={{
-      background: 'rgba(255,255,255,0.04)',
-      borderRadius: 10,
+      background: bgMap[sig.color] || 'rgba(240, 245, 250, 0.8)',
+      borderRadius: 16,
       borderTop: `2px solid ${sig.color}`,
       padding: '10px 10px 8px',
       display: 'flex',
@@ -277,17 +294,17 @@ const SignalCard: React.FC<{ sig: Signal }> = ({ sig }) => {
         }}>
           {sig.label}
         </p>
-        <p style={{ fontSize: 7, color: '#475569', fontFamily: 'monospace', marginTop: 2 }}>
+        <p style={{ fontSize: 7, color: '#64748b', fontFamily: 'monospace', marginTop: 2 }}>
           {sig.hint}
         </p>
       </div>
 
       {/* Divider */}
-      <div style={{ height: 1, background: 'rgba(255,255,255,0.06)', marginBottom: 7 }} />
+      <div style={{ height: 1, background: 'rgba(0,0,0,0.05)', marginBottom: 7 }} />
 
       {/* Rows */}
       {sig.rows.length === 0 ? (
-        <p style={{ fontSize: 8, color: '#334155', fontFamily: 'monospace', fontStyle: 'italic', lineHeight: 1.4 }}>
+        <p style={{ fontSize: 8, color: '#64748b', fontFamily: 'monospace', fontStyle: 'italic', lineHeight: 1.4 }}>
           {sig.empty}
         </p>
       ) : (
@@ -299,11 +316,11 @@ const SignalCard: React.FC<{ sig: Signal }> = ({ sig }) => {
               justifyContent: 'space-between',
               gap: 8,
               paddingBottom: 8,
-              borderBottom: i < sig.rows.length - 1 ? '1px solid rgba(255,255,255,0.06)' : 'none',
+              borderBottom: i < sig.rows.length - 1 ? '1px solid rgba(0,0,0,0.05)' : 'none',
             }}>
               <div style={{ flex: 1, minWidth: 0 }}>
                 <p style={{
-                  fontSize: 10, fontWeight: 700, color: '#f1f5f9',
+                  fontSize: 10, fontWeight: 700, color: '#1e293b',
                   lineHeight: 1.3, marginBottom: 3,
                   overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'normal',
                   wordBreak: 'break-word',
@@ -312,7 +329,7 @@ const SignalCard: React.FC<{ sig: Signal }> = ({ sig }) => {
                 </p>
                 <p style={{
                   fontSize: 8,
-                  color: '#94a3b8',
+                  color: '#64748b',
                   fontFamily: 'monospace',
                   lineHeight: 1.4,
                   overflow: 'hidden',
@@ -329,11 +346,11 @@ const SignalCard: React.FC<{ sig: Signal }> = ({ sig }) => {
               }}>
                 <p style={{
                   fontSize: 10, fontWeight: 900, fontFamily: 'monospace',
-                  color: row.alert ? '#fca5a5' : sig.color,
+                  color: row.alert ? '#dc2626' : sig.color,
                   lineHeight: 1.2,
                   padding: '4px 8px',
-                  backgroundColor: row.alert ? 'rgba(252, 165, 165, 0.1)' : 'transparent',
-                  borderRadius: 4,
+                  backgroundColor: row.alert ? 'rgba(220, 38, 38, 0.1)' : 'transparent',
+                  borderRadius: 8,
                 }}>
                   {row.primary}
                 </p>
@@ -344,7 +361,7 @@ const SignalCard: React.FC<{ sig: Signal }> = ({ sig }) => {
       )}
     </div>
   );
-}
+};
 
 // ── Main component ─────────────────────────────────────────────────────────────
 
@@ -359,7 +376,7 @@ export default function IntelligencePanel({ units, mode }: Props) {
     : 'Sell Intelligence · Demand & Margin Signals';
 
   return (
-    <div style={{ background: '#0f172a', borderRadius: 16, padding: '12px 12px 10px', overflow: 'hidden' }}>
+    <div style={{ background: '#ffffff', borderRadius: 16, padding: '12px 12px 10px', overflow: 'hidden', border: '1px solid #e2e8f0' }}>
       {/* Panel header */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
         <p style={{
@@ -368,7 +385,7 @@ export default function IntelligencePanel({ units, mode }: Props) {
         }}>
           {title}
         </p>
-        <p style={{ fontSize: 7, color: '#334155', fontFamily: 'monospace', flexShrink: 0 }}>
+        <p style={{ fontSize: 7, color: '#94a3b8', fontFamily: 'monospace', flexShrink: 0 }}>
           14-day window
         </p>
       </div>

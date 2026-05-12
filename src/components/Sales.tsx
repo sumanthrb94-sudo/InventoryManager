@@ -205,7 +205,7 @@ export default function Sales() {
 
       {/* Recent Activity Feed */}
       {recentNotifications.length > 0 && (
-        <div className="bg-white border border-gray-200 rounded-2xl overflow-hidden shadow-sm">
+        <div className="bg-white border border-gray-200 rounded-3xl overflow-hidden shadow-sm">
           <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between bg-gray-50/50">
             <h3 className="text-[10px] font-bold uppercase tracking-widest text-gray-500">Recent Activity Feed</h3>
             {recentNotifications.some(n => !n.read) && (
@@ -255,7 +255,7 @@ export default function Sales() {
       )}
 
       {/* Listing Reconciliation — Critical Insights */}
-      <div className="bg-white border border-gray-200 rounded-2xl overflow-hidden shadow-sm">
+      <div className="bg-white border border-gray-200 rounded-3xl overflow-hidden shadow-sm">
         <div className="px-6 py-4 border-b border-gray-100 bg-gray-50/50 flex items-center justify-between">
           <div>
             <h3 className="text-[10px] font-bold uppercase tracking-widest text-gray-500">Inventory Reconciliation</h3>

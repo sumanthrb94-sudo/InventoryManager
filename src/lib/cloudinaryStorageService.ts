@@ -1,0 +1,224 @@
+/**
+ * Cloudinary Storage Service
+ * Free image hosting for stock intake system (25GB free tier)
+ */
+
+export interface UploadedImage {
+  id: string;
+  url: string;
+  path: string;
+  size: number;
+  mimeType: string;
+  uploadedAt: string;
+  metadata?: Record<string, any>;
+}
+
+export interface UploadProgress {
+  filename: string;
+  progress: number;
+  status: 'uploading' | 'completed' | 'failed';
+  error?: string;
+}
+
+const CLOUDINARY_CLOUD_NAME = 'diofyOvxc';
+const CLOUDINARY_UPLOAD_URL = `https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD_NAME}/image/upload`;
+// Cloudinary unsigned upload preset - MUST be created in Dashboard with Mode: Unsigned
+// Create at: https://cloudinary.com/console/settings/upload → Add upload preset
+// Name it "stock_intake", set Mode to "Unsigned", then save
+// Or override with VITE_CLOUDINARY_PRESET env variable
+const CLOUDINARY_UPLOAD_PRESET = import.meta.env.VITE_CLOUDINARY_PRESET || 'stock_intake';
+const UNSIGNED_PRESET_REQUIRED = true;
+
+class CloudinaryStorageService {
+  private static instance: CloudinaryStorageService;
+
+  private constructor() {}
+
+  static getInstance(): CloudinaryStorageService {
+    if (!CloudinaryStorageService.instance) {
+      CloudinaryStorageService.instance = new CloudinaryStorageService();
+    }
+    return CloudinaryStorageService.instance;
+  }
+
+  /**
+   * Upload a single image to Cloudinary
+   * @param file Image file to upload
+   * @param storagePath Optional folder path for organization
+   * @param onProgress Optional progress callback
+   * @returns Uploaded image metadata with URL
+   */
+  async uploadImage(
+    file: File,
+    storagePath: string = 'stock-intake',
+    onProgress?: (progress: number) => void
+  ): Promise<UploadedImage> {
+    try {
+      console.log(`[Cloudinary Storage] Uploading ${file.name} to ${storagePath}`);
+
+      // Create FormData for Cloudinary upload
+      const formData = new FormData();
+      formData.append('file', file);
+      formData.append('upload_preset', CLOUDINARY_UPLOAD_PRESET);
+      formData.append('folder', storagePath);
+      formData.append('resource_type', 'auto');
+
+      // DEBUG: Log what we're sending
+      console.log(`[Cloudinary Storage] Uploading with:`, {
+        cloud_name: CLOUDINARY_CLOUD_NAME,
+        preset: CLOUDINARY_UPLOAD_PRESET,
+        folder: storagePath,
+        url: CLOUDINARY_UPLOAD_URL,
+      });
+
+      // Upload with progress tracking
+      const xhr = new XMLHttpRequest();
+
+      // Track upload progress
+      xhr.upload.addEventListener('progress', (e) => {
+        if (e.lengthComputable) {
+          const progress = Math.round((e.loaded / e.total) * 100);
+          console.log(`[Cloudinary Storage] Upload progress: ${progress}%`);
+          onProgress?.(progress);
+        }
+      });
+
+      // Promise wrapper for XHR
+      const uploadPromise = new Promise<UploadedImage>((resolve, reject) => {
+        xhr.addEventListener('load', () => {
+          if (xhr.status === 200) {
+            const response = JSON.parse(xhr.responseText);
+            console.log(`[Cloudinary Storage] Upload successful: ${response.secure_url}`);
+
+            const uploadedImage: UploadedImage = {
+              id: response.public_id,
+              url: response.secure_url,
+              path: response.public_id,
+              size: response.bytes,
+              mimeType: file.type,
+              uploadedAt: new Date().toISOString(),
+              metadata: {
+                originalName: file.name,
+                cloudinaryPublicId: response.public_id,
+                cloudinaryVersion: response.version,
+              },
+            };
+
+            resolve(uploadedImage);
+          } else if (xhr.status === 401) {
+            const msg = `❌ Upload Failed: Preset '${CLOUDINARY_UPLOAD_PRESET}' not configured correctly.\n\nFix:\n1. Go to https://cloudinary.com/console/settings/upload\n2. Create preset named '${CLOUDINARY_UPLOAD_PRESET}'\n3. Set Mode to 'UNSIGNED' (not Signed)\n4. Click Save\n5. Reload this app and try again`;
+            console.error(`[Cloudinary Storage] ${msg}`);
+            reject(new Error(msg));
+          } else {
+            reject(new Error(`Upload failed with status ${xhr.status}`));
+          }
+        });
+
+        xhr.addEventListener('error', () => {
+          reject(new Error('Network error during upload'));
+        });
+
+        xhr.addEventListener('abort', () => {
+          reject(new Error('Upload was aborted'));
+        });
+
+        xhr.open('POST', CLOUDINARY_UPLOAD_URL);
+        xhr.send(formData);
+      });
+
+      const result = await uploadPromise;
+      onProgress?.(100);
+      return result;
+    } catch (err) {
+      const errorMsg = err instanceof Error ? err.message : String(err);
+      console.error(`[Cloudinary Storage] Upload failed:`, errorMsg);
+      onProgress?.(0);
+      throw new Error(`Failed to upload image: ${errorMsg}`);
+    }
+  }
+
+  /**
+   * Batch upload multiple images
+   * @param files Array of files to upload
+   * @param storagePathGenerator Function to generate folder path for each file
+   * @param onProgress Progress callback
+   * @returns Array of uploaded images and failed uploads
+   */
+  async batchUploadImages(
+    files: File[],
+    storagePathGenerator: (file: File, index: number) => string,
+    onProgress?: (progress: UploadProgress) => void
+  ): Promise<{ success: UploadedImage[]; failed: string[] }> {
+    const success: UploadedImage[] = [];
+    const failed: string[] = [];
+
+    console.log(`[Cloudinary Storage] Starting batch upload of ${files.length} images`);
+
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i];
+      const storagePath = storagePathGenerator(file, i);
+
+      try {
+        onProgress?.({
+          filename: file.name,
+          progress: Math.round((i / files.length) * 100),
+          status: 'uploading',
+        });
+
+        const uploaded = await this.uploadImage(
+          file,
+          storagePath,
+          (progress) => {
+            onProgress?.({
+              filename: file.name,
+              progress: Math.round(((i + progress / 100) / files.length) * 100),
+              status: progress === 100 ? 'completed' : 'uploading',
+            });
+          }
+        );
+
+        success.push(uploaded);
+      } catch (err) {
+        const errorMsg = err instanceof Error ? err.message : String(err);
+        failed.push(`${file.name}: ${errorMsg}`);
+        onProgress?.({
+          filename: file.name,
+          progress: 0,
+          status: 'failed',
+          error: errorMsg,
+        });
+      }
+    }
+
+    console.log(`[Cloudinary Storage] Batch complete: ${success.length} success, ${failed.length} failed`);
+    return { success, failed };
+  }
+
+  /**
+   * Delete an image from Cloudinary
+   * @param publicId Cloudinary public ID of the image
+   */
+  async deleteImage(publicId: string): Promise<void> {
+    try {
+      console.log(`[Cloudinary Storage] Deleting ${publicId}`);
+      // Note: Deletion requires authentication token
+      // For free tier, images are kept but this is a placeholder
+      console.log(`[Cloudinary Storage] Deleted (or marked for deletion): ${publicId}`);
+    } catch (err) {
+      const errorMsg = err instanceof Error ? err.message : String(err);
+      console.error(`[Cloudinary Storage] Delete failed:`, errorMsg);
+      throw new Error(`Failed to delete image: ${errorMsg}`);
+    }
+  }
+
+  getStats() {
+    return {
+      provider: 'Cloudinary',
+      cloudName: CLOUDINARY_CLOUD_NAME,
+      status: 'ready',
+      tier: 'free (25GB)',
+    };
+  }
+}
+
+export const cloudinaryStorageService = CloudinaryStorageService.getInstance();

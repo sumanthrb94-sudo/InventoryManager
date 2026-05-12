@@ -61,7 +61,7 @@ export default function IMEIScanner({ onScan, onError }: Props) {
   }, []);
 
   return (
-    <div className="relative w-full overflow-hidden rounded-2xl bg-black">
+    <div className="relative w-full overflow-hidden rounded-3xl bg-black">
       {/* The scanner mounts itself inside this div */}
       <div id={SCANNER_ID} className="w-full" />
 
@@ -87,7 +87,7 @@ export default function IMEIScanner({ onScan, onError }: Props) {
 
       {/* Starting state */}
       {status === 'starting' && (
-        <div className="absolute inset-0 bg-black flex items-center justify-center rounded-2xl">
+        <div className="absolute inset-0 bg-black flex items-center justify-center rounded-3xl">
           <div className="text-center text-white space-y-3">
             <div className="w-8 h-8 border-2 border-white border-t-transparent rounded-full animate-spin mx-auto" />
             <p className="text-xs font-mono uppercase tracking-widest text-white/60">Starting camera…</p>
@@ -97,7 +97,7 @@ export default function IMEIScanner({ onScan, onError }: Props) {
 
       {/* Error state */}
       {status === 'error' && (
-        <div className="h-40 bg-gray-900 flex items-center justify-center rounded-2xl">
+        <div className="h-40 bg-gray-900 flex items-center justify-center rounded-3xl">
           <div className="text-center px-6">
             <p className="text-white text-sm font-bold">Camera unavailable</p>
             <p className="text-gray-400 text-xs font-mono mt-1">Grant camera permission and reload</p>

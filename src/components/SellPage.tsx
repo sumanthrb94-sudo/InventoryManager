@@ -17,6 +17,8 @@ import {
 import CollapsibleSection from './CollapsibleSection';
 import PeriodicInventory from './PeriodicInventory';
 import IntelligencePanel from './IntelligencePanel';
+import TodaySalesModal from './TodaySalesModal';
+import InStockModal from './InStockModal';
 
 // ── helpers ────────────────────────────────────────────────────────────────────
 const today = () => new Date().toISOString().split('T')[0];
@@ -87,7 +89,7 @@ function SellOrderModal({
 
   return (
     <div className="fixed inset-0 z-[70] flex items-center justify-center p-3 md:p-4 bg-black/40 backdrop-blur-sm">
-      <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl flex flex-col" style={{ maxHeight: 'calc(100dvh - 24px)' }}>
+      <div className="bg-white rounded-3xl w-full max-w-md shadow-2xl flex flex-col" style={{ maxHeight: 'calc(100dvh - 24px)' }}>
 
         {/* Header */}
         <div className={`flex items-center justify-between px-6 py-4 border-b ${isSHS ? 'border-amber-100 bg-amber-50' : 'border-gray-100'}`}>
@@ -293,7 +295,7 @@ function EnterImeiModal({
     <div className="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm">
       <motion.div
         initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }}
-        className="bg-white rounded-2xl w-full max-w-sm shadow-2xl overflow-hidden"
+        className="bg-white rounded-3xl w-full max-w-sm shadow-2xl overflow-hidden"
       >
         {/* Header */}
         <div className="flex items-center justify-between px-5 py-4 border-b border-orange-100 bg-orange-50">
@@ -391,6 +393,8 @@ export default function SellPage() {
   const [savedFlag, setSavedFlag]   = useState(false);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [enterImeiUnit, setEnterImeiUnit] = useState<InventoryUnit | null>(null);
+  const [showTodaySales, setShowTodaySales] = useState(false);
+  const [showInStock, setShowInStock] = useState(false);
 
   const supplierMap = useMemo(() => {
     const m: Record<string, string> = {};
@@ -404,7 +408,7 @@ export default function SellPage() {
   const inStock   = useMemo(() => units.filter(u => u.status === 'available'), [units]);
   const shsUnits  = useMemo(() =>
     [...units.filter(u => u.status === 'incoming')]
-      .sort((a, b) => a.model.localeCompare(b.model)),
+      .sort((a, b) => (b.dateIn || '').localeCompare(a.dateIn || '')),
     [units],
   );
   const sold      = useMemo(() => units.filter(u => u.status === 'sold'), [units]);
@@ -419,7 +423,6 @@ export default function SellPage() {
   const todaySold    = sold.filter(u => u.saleDate === todayStr);
   const ystdSold     = sold.filter(u => u.saleDate === yesterday);
   const todayRevenue = todaySold.reduce((s, u) => s + (u.salePrice || 0), 0);
-  const todayProfit  = todaySold.reduce((s, u) => s + ((u.salePrice || 0) - u.buyPrice), 0);
 
   const filtered = useMemo(() => {
     if (!search.trim()) return inStock.slice(0, 80);
@@ -443,7 +446,7 @@ export default function SellPage() {
 
       {/* Header */}
       <div>
-        <h2 className="text-2xl font-bold tracking-tighter uppercase font-display flex items-center gap-3">
+        <h2 className="text-xl sm:text-2xl font-bold tracking-tighter uppercase font-display flex items-center gap-3 flex-wrap">
           <span className="w-8 h-8 bg-emerald-100 rounded-lg flex items-center justify-center">
             <ShoppingCart size={16} className="text-emerald-600" />
           </span>
@@ -466,27 +469,30 @@ export default function SellPage() {
       </AnimatePresence>
 
       {/* Stats */}
-      <div className="grid grid-cols-4 gap-2">
-        <div className="bg-emerald-50 border border-emerald-100 rounded-2xl p-3">
+      <div className="grid grid-cols-3 gap-2">
+        <button
+          onClick={() => setShowInStock(true)}
+          disabled={inStock.length === 0}
+          className="bg-emerald-50 border border-emerald-100 rounded-3xl p-3 hover:bg-emerald-100 hover:border-emerald-200 active:scale-95 transition-all disabled:opacity-50 disabled:cursor-default text-left cursor-pointer"
+        >
           <p className="text-[8px] font-mono uppercase tracking-widest text-emerald-600">In Stock</p>
           <p className="text-2xl font-bold font-display mt-1 text-emerald-700">{inStock.length}</p>
           <p className="text-[8px] text-emerald-500 font-mono">in office</p>
-        </div>
-        <div className="bg-amber-50 border border-amber-100 rounded-2xl p-3">
+        </button>
+        <div className="bg-amber-50 border border-amber-100 rounded-3xl p-3">
           <p className="text-[8px] font-mono uppercase tracking-widest text-amber-600">SHS Listed</p>
           <p className="text-2xl font-bold font-display mt-1 text-amber-700">{shsUnits.length}</p>
           <p className="text-[8px] text-amber-500 font-mono">supplier holds</p>
         </div>
-        <div className="bg-blue-50 border border-blue-100 rounded-2xl p-3">
+        <button
+          onClick={() => setShowTodaySales(true)}
+          disabled={todaySold.length === 0}
+          className="bg-blue-50 border border-blue-100 rounded-3xl p-3 hover:bg-blue-100 hover:border-blue-200 active:scale-95 transition-all disabled:opacity-50 disabled:cursor-default text-left cursor-pointer"
+        >
           <p className="text-[8px] font-mono uppercase tracking-widest text-blue-600">Sold Today</p>
           <p className="text-2xl font-bold font-display mt-1 text-blue-700">{todaySold.length}</p>
           <p className="text-[8px] text-blue-500 font-mono">£{todayRevenue.toLocaleString()}</p>
-        </div>
-        <div className="bg-purple-50 border border-purple-100 rounded-2xl p-3">
-          <p className="text-[8px] font-mono uppercase tracking-widest text-purple-600">Profit</p>
-          <p className="text-xl font-bold font-display mt-1 text-purple-700">£{todayProfit.toLocaleString()}</p>
-          <p className="text-[8px] text-purple-500 font-mono">today gross</p>
-        </div>
+        </button>
       </div>
 
       {/* Intelligence panel */}
@@ -746,7 +752,6 @@ export default function SellPage() {
                   <div className="grid gap-2">
                     {dayUnits.map(u => {
                       const platformFee = u.salePrice && u.salePlatform ? platformTotalFee(u.salePlatform, u.salePrice) : 0;
-                      const profit = u.salePrice && u.salePlatform ? calcNetProfit(u.salePrice, u.buyPrice, u.salePlatform, u.postageCost || 0) : null;
                       const feePercentage = u.salePrice && platformFee ? ((platformFee / u.salePrice) * 100).toFixed(1) : '0';
                       const isSHS = u.batchId?.startsWith('shs_') || u.notes?.includes('SHS');
                       return (
@@ -790,7 +795,7 @@ export default function SellPage() {
                               ? 'bg-orange-50/40 border-orange-100'
                               : 'bg-gray-50 border-gray-100'
                           }`}>
-                            <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-[9px]">
+                            <div className="grid grid-cols-2 md:grid-cols-3 gap-2 text-[9px]">
                               <div>
                                 <p className="text-gray-500 font-mono uppercase tracking-widest mb-0.5">Buy Price</p>
                                 <p className="font-bold">£{u.buyPrice}</p>
@@ -802,12 +807,6 @@ export default function SellPage() {
                               <div>
                                 <p className="text-gray-500 font-mono uppercase tracking-widest mb-0.5">Postage</p>
                                 <p className="font-bold text-red-600">-£{(u.postageCost || 3.5).toFixed(2)}</p>
-                              </div>
-                              <div>
-                                <p className="text-gray-500 font-mono uppercase tracking-widest mb-0.5">Profit</p>
-                                <p className={`font-bold ${profit !== null && profit < 0 ? 'text-red-600' : 'text-emerald-600'}`}>
-                                  {profit !== null ? `${profit >= 0 ? '+' : ''}£${profit.toFixed(2)}` : '—'}
-                                </p>
                               </div>
                             </div>
                           </div>
@@ -839,6 +838,26 @@ export default function SellPage() {
           onSaved={handleSaved}
         />
       )}
+
+      {/* Today's Sales modal */}
+      <AnimatePresence>
+        {showTodaySales && (
+          <TodaySalesModal
+            units={todaySold}
+            onClose={() => setShowTodaySales(false)}
+          />
+        )}
+      </AnimatePresence>
+
+      {/* In Stock modal */}
+      <AnimatePresence>
+        {showInStock && (
+          <InStockModal
+            units={inStock}
+            onClose={() => setShowInStock(false)}
+          />
+        )}
+      </AnimatePresence>
     </div>
   );
 }

@@ -1,6 +1,6 @@
 import { InventoryUnit } from '../types';
 
-export type NotificationType = 'sold' | 'loss_sell' | 'new_stock' | 'return_processed' | 'shs_received';
+export type NotificationType = 'sold' | 'loss_sell' | 'new_stock' | 'return_processed' | 'shs_received' | 'shs_removed' | 'unit_repaired';
 
 export interface Notification {
   id: string;
@@ -12,6 +12,7 @@ export interface Notification {
   model: string;
   read: boolean;
   profitAmount?: number;
+  quantity?: number;
 }
 
 const SOUNDS = {
@@ -20,6 +21,8 @@ const SOUNDS = {
   new_stock:         'https://assets.mixkit.co/active_storage/sfx/2354/2354-preview.mp3',  // Notification
   return_processed:  'https://assets.mixkit.co/active_storage/sfx/2811/2811-preview.mp3',  // Refresh/reload
   shs_received:      'https://assets.mixkit.co/active_storage/sfx/2892/2892-preview.mp3',  // Notification chime
+  shs_removed:       'https://assets.mixkit.co/active_storage/sfx/2372/2372-preview.mp3',  // Alert/warning sound
+  unit_repaired:     'https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3',  // Success chime
 };
 
 const NOTIFS_KEY_PREFIX = 'nexus_notifs_';
@@ -30,6 +33,9 @@ class NotificationService {
   private notifications: Notification[] = [];
   private userId = 'anon';
   private playSoundTimeout: any = null;
+  private batchBuffer: { type: NotificationType; unit: InventoryUnit; profitAmount?: number }[] = [];
+  private batchTimeout: any = null;
+  private readonly BATCH_WINDOW_MS = 500;
 
   // Called once login is confirmed — loads persisted notifications for this user
   setUser(uid: string) {
@@ -50,12 +56,8 @@ class NotificationService {
         return;
       }
       const loaded = JSON.parse(raw);
-      // Keep notifications for 30 days (don't auto-expire)
-      const thirtyDaysAgo = new Date();
-      thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-      this.notifications = loaded.filter((n: Notification) =>
-        new Date(n.timestamp) > thirtyDaysAgo
-      );
+      // Only load unread notifications (older read ones are discarded on reload)
+      this.notifications = loaded.filter((n: Notification) => !n.read);
     } catch { this.notifications = []; }
   }
 
@@ -108,7 +110,64 @@ class NotificationService {
     };
   }
 
-  addNotification(type: NotificationType, unit: InventoryUnit, profitAmount?: number) {
+  private processBatch() {
+    if (this.batchBuffer.length === 0) return;
+
+    const first = this.batchBuffer[0];
+    const batchableTypes = ['new_stock', 'shs_received'];
+    const isBatchable = batchableTypes.includes(first.type);
+
+    if (isBatchable && this.batchBuffer.length > 1) {
+      // Check if all items in batch are the same model and type
+      const allSameModel = this.batchBuffer.every(b => b.unit.model === first.unit.model && b.type === first.type);
+      if (allSameModel) {
+        console.log('[Notification Batch] Processing batch:', { type: first.type, count: this.batchBuffer.length, model: first.unit.model });
+        this.addNotificationDirect(first.type, first.unit, first.profitAmount, this.batchBuffer.length);
+        this.batchBuffer = [];
+        return;
+      }
+    }
+
+    // Process items individually if not batchable
+    console.log('[Notification Batch] Items not batchable, processing individually:', this.batchBuffer.length);
+    for (const item of this.batchBuffer) {
+      this.addNotificationDirect(item.type, item.unit, item.profitAmount, 1);
+    }
+    this.batchBuffer = [];
+  }
+
+  addNotification(type: NotificationType, unit: InventoryUnit, profitAmount?: number, count?: number) {
+    // For bulk additions like new_stock and shs_received, use batching
+    const batchableTypes = ['new_stock', 'shs_received'];
+    if (batchableTypes.includes(type) && !count) {
+      console.log('[Notification Batch] Adding to buffer:', { type, model: unit.model, bufferSize: this.batchBuffer.length + 1 });
+      this.batchBuffer.push({ type, unit, profitAmount });
+
+      if (this.batchTimeout) clearTimeout(this.batchTimeout);
+      this.batchTimeout = setTimeout(() => this.processBatch(), this.BATCH_WINDOW_MS);
+      return;
+    }
+
+    // For explicit counts or non-batchable types, process immediately
+    console.log('[Notification Direct] Processing immediately:', { type, count, model: unit.model });
+    this.addNotificationDirect(type, unit, profitAmount, count);
+  }
+
+  private addNotificationDirect(type: NotificationType, unit: InventoryUnit, profitAmount?: number, count?: number) {
+    // Check if this notification was already fired (persisted across page reloads)
+    const firedKey = `${unit.id}:${type}`;
+    try {
+      const raw = localStorage.getItem(this.firedKey());
+      const entries: { key: string; date: string }[] = raw ? JSON.parse(raw) : [];
+      const today = new Date().toISOString().split('T')[0];
+
+      // Check if this specific unit+type was already fired today
+      if (entries.some(e => e.key === firedKey && e.date === today)) {
+        console.log(`[Notification] Already fired today: ${firedKey}`);
+        return;
+      }
+    } catch { /* ignore */ }
+
     // In-memory guard for rapid duplicates within the same session (< 5s)
     // This prevents notification spam if the same action fires multiple times
     const now = new Date();
@@ -127,17 +186,21 @@ class NotificationService {
     const titles: Record<NotificationType, string> = {
       sold: '✅ Unit Sold!',
       loss_sell: '⚠️ Loss Sell Alert',
-      new_stock: '📦 New Stock Added',
+      new_stock: count && count > 1 ? `📦 ${count} Units Added to Stock` : '📦 New Stock Added',
       return_processed: '↩️ Return Processed',
-      shs_received: '🚚 SHS Order Received',
+      shs_received: count && count > 1 ? `🚚 ${count} SHS Units Received` : '🚚 SHS Order Received',
+      shs_removed: count && count > 1 ? `❌ ${count} SHS Units Removed` : '❌ SHS Stock Removed',
+      unit_repaired: '🔧 Unit Repaired & Added to Inventory',
     };
 
     const messages: Record<NotificationType, string> = {
       sold: `${unit.model} (${unit.imei ? unit.imei.slice(-4) : unit.id.slice(-4)}) has been sold - Profit: £${profitAmount?.toFixed(2) || '0.00'}`,
       loss_sell: `⚠️ ${unit.model} sold at a LOSS of £${Math.abs(profitAmount || 0).toFixed(2)}`,
-      new_stock: `${unit.model} is now in stock and ready for listing.`,
+      new_stock: count && count > 1 ? `${count} × ${unit.model} units are now in stock and ready for listing.` : `${unit.model} is now in stock and ready for listing.`,
       return_processed: `${unit.model} has been returned and restored to inventory.`,
-      shs_received: `${unit.model} from SHS order has been received.`,
+      shs_received: count && count > 1 ? `${count} × ${unit.model} units from SHS order have been received.` : `${unit.model} from SHS order has been received.`,
+      shs_removed: count && count > 1 ? `${count} × ${unit.model} SHS units removed from pending stock.` : `${unit.model} SHS pending stock has been removed.`,
+      unit_repaired: `${unit.model} has been repaired and added back to inventory.`,
     };
 
     const notification: Notification = {
@@ -150,22 +213,27 @@ class NotificationService {
       model: unit.model,
       read: false,
       profitAmount,
+      quantity: count,
     };
 
     this.notifications = [notification, ...this.notifications].slice(0, 100);
     this.saveToStorage();
     this.notify();
+
+    // Mark this notification as fired so it won't trigger again on reload
+    this.markFired(firedKey);
+
     this.playSound(type);
   }
 
   markAsRead(id: string) {
-    this.notifications = this.notifications.map(n => n.id === id ? { ...n, read: true } : n);
+    this.notifications = this.notifications.filter(n => n.id !== id);
     this.saveToStorage();
     this.notify();
   }
 
   markAllAsRead() {
-    this.notifications = this.notifications.map(n => ({ ...n, read: true }));
+    this.notifications = [];
     this.saveToStorage();
     this.notify();
   }
@@ -188,6 +256,24 @@ class NotificationService {
     return this.notifications.filter(n => !n.read).length;
   }
 
+  clearAll() {
+    this.notifications = [];
+    this.saveToStorage();
+    this.notify();
+  }
+
+  clearOldNotifications(hoursOld: number = 24) {
+    const cutoff = new Date();
+    cutoff.setHours(cutoff.getHours() - hoursOld);
+    this.notifications = this.notifications.filter(n => new Date(n.timestamp) > cutoff);
+    this.saveToStorage();
+    this.notify();
+  }
+
+  // Hard reset — used when mock data is loaded so per-day dedupe keys
+  // (the firedKey set in localStorage) also get wiped, otherwise old
+  // dedupe markers would suppress notifications for the freshly seeded
+  // units.
   clear() {
     this.notifications = [];
     this.saveToStorage();

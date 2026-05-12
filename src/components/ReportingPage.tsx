@@ -255,19 +255,19 @@ export default function ReportingPage() {
 
       {/* KPIs */}
       <div className="grid grid-cols-3 gap-2">
-        <div className="bg-white border border-gray-100 shadow-sm rounded-2xl p-3">
+        <div className="bg-white border border-gray-100 shadow-sm rounded-3xl p-3">
           <p className="text-[8px] font-mono uppercase tracking-widest text-gray-400">Inventory</p>
           <p className="text-xl font-bold font-display mt-1">£{(totalInventoryValue / 1000).toFixed(1)}k</p>
           <p className="text-[8px] text-gray-400 font-mono">{available.length} units</p>
         </div>
-        <div className="bg-green-50 border border-green-100 rounded-2xl p-3">
+        <div className="bg-green-50 border border-green-100 rounded-3xl p-3">
           <p className="text-[8px] font-mono uppercase tracking-widest text-green-600">Revenue</p>
           <p className="text-xl font-bold font-display mt-1 text-green-700">
             £{(sold.reduce((s, u) => s + (u.salePrice || 0), 0) / 1000).toFixed(1)}k
           </p>
           <p className="text-[8px] text-green-500 font-mono">{sold.length} sold</p>
         </div>
-        <div className="bg-purple-50 border border-purple-100 rounded-2xl p-3">
+        <div className="bg-purple-50 border border-purple-100 rounded-3xl p-3">
           <p className="text-[8px] font-mono uppercase tracking-widest text-purple-600">VAT Due</p>
           <p className="text-xl font-bold font-display mt-1 text-purple-700">£{vatData.netVATPayable.toLocaleString()}</p>
           <p className="text-[8px] text-purple-400 font-mono">last {vatPeriodDays}d</p>
@@ -336,7 +336,7 @@ export default function ReportingPage() {
             })}
           </div>
 
-          <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+          <div className="bg-white rounded-3xl border border-gray-100 shadow-sm overflow-hidden">
             <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between">
               <p className="text-[10px] font-bold uppercase tracking-widest text-gray-400">Sales for {dateFilter}</p>
               <button onClick={exportDailySales}
@@ -390,7 +390,7 @@ export default function ReportingPage() {
 
           {/* Quick-sale top 10 */}
           {quickSale.length > 0 && (
-            <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+            <div className="bg-white rounded-3xl border border-gray-100 shadow-sm overflow-hidden">
               <div className="px-4 py-3 border-b border-gray-100 flex items-center gap-2">
                 <Star size={13} className="text-amber-500" />
                 <p className="text-[10px] font-bold uppercase tracking-widest text-gray-400">Top 10 Quick-Sale · Order Priority</p>
@@ -419,7 +419,7 @@ export default function ReportingPage() {
 
       {/* ── STOCK REPORT ─────────────────────────────────────────────────────── */}
       {tab === 'stock' && (
-        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+        <div className="bg-white rounded-3xl border border-gray-100 shadow-sm overflow-hidden">
           <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between">
             <p className="text-[10px] font-bold uppercase tracking-widest text-gray-400">
               Stock Availability · All Models
@@ -483,7 +483,7 @@ export default function ReportingPage() {
 
       {/* ── SALES LOG ────────────────────────────────────────────────────────── */}
       {tab === 'sales' && (
-        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+        <div className="bg-white rounded-3xl border border-gray-100 shadow-sm overflow-hidden">
           <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between">
             <p className="text-[10px] font-bold uppercase tracking-widest text-gray-400">
               Full Sales Log · {sold.length} records
@@ -575,7 +575,7 @@ export default function ReportingPage() {
           </div>
 
           {/* HMRC-style VAT Return Summary */}
-          <div className="bg-gradient-to-br from-slate-900 to-slate-800 rounded-2xl p-5 text-white">
+          <div className="bg-gradient-to-br from-slate-900 to-slate-800 rounded-3xl p-5 text-white">
             <div className="flex items-center gap-2 mb-5">
               <Receipt size={16} className="text-slate-400" />
               <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">
@@ -619,7 +619,7 @@ export default function ReportingPage() {
           </div>
 
           {/* Per-transaction breakdown */}
-          <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+          <div className="bg-white rounded-3xl border border-gray-100 shadow-sm overflow-hidden">
             <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between">
               <p className="text-[10px] font-bold uppercase tracking-widest text-gray-400">Margin Scheme Transactions</p>
               <span className="text-[9px] font-mono text-gray-400">VAT = margin ÷ 6</span>

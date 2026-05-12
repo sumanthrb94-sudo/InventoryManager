@@ -242,7 +242,7 @@ export default function Inventory({ initialFilters = {} }: { initialFilters?: In
 
       {/* Empty */}
       {filtered.length === 0 && (
-        <div className="py-16 flex flex-col items-center gap-3 border-2 border-dashed border-gray-200 rounded-2xl">
+        <div className="py-16 flex flex-col items-center gap-3 border-2 border-dashed border-gray-200 rounded-3xl">
           <Package size={40} className="text-gray-300" />
           <p className="text-gray-400 font-mono text-sm text-center px-4">No inventory found.</p>
         </div>
@@ -254,7 +254,7 @@ export default function Inventory({ initialFilters = {} }: { initialFilters?: In
           const key = `${summary.brand}||${summary.model}`;
           const isExpanded = expandedModels.has(key);
           return (
-            <div key={key} className="bg-white border border-gray-200 rounded-2xl overflow-hidden shadow-sm">
+            <div key={key} className="bg-white border border-gray-200 rounded-3xl overflow-hidden shadow-sm">
               <button onClick={() => toggleExpand(key)}
                 className="w-full text-left px-4 py-3.5 flex items-center gap-3 hover:bg-gray-50 transition-all">
                 <span className={`text-[8px] font-bold uppercase tracking-widest px-2 py-1 rounded-lg font-mono flex-shrink-0 ${CATEGORY_COLOURS[summary.category] || 'bg-gray-200 text-black'}`}>

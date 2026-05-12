@@ -39,6 +39,11 @@ export default function NotificationBell({ unreadCount }: { unreadCount: number 
   const today     = new Date().toISOString().split('T')[0];
   const yesterday = new Date(Date.now() - 86400000).toISOString().split('T')[0];
 
+  // Check for notifications older than 24 hours
+  const cutoff24h = new Date();
+  cutoff24h.setHours(cutoff24h.getHours() - 24);
+  const veryOldNotifications = notifications.filter(n => new Date(n.timestamp) < cutoff24h);
+
   const grouped: { label: string; items: Notification[] }[] = [];
   const todayItems     = notifications.filter(n => n.timestamp.startsWith(today));
   const yesterdayItems = notifications.filter(n => n.timestamp.startsWith(yesterday));
@@ -48,6 +53,22 @@ export default function NotificationBell({ unreadCount }: { unreadCount: number 
   if (todayItems.length)     grouped.push({ label: 'Today',     items: todayItems });
   if (yesterdayItems.length) grouped.push({ label: 'Yesterday', items: yesterdayItems });
   if (olderItems.length)     grouped.push({ label: 'Earlier',   items: olderItems });
+
+  // Get the color of the most recent unread notification
+  const getLatestNotificationColor = () => {
+    const unreadNotifications = notifications.filter(n => !n.read);
+    if (unreadNotifications.length === 0) return 'bg-gray-400';
+
+    const typeColors: Record<string, string> = {
+      sold: 'bg-emerald-500',
+      loss_sell: 'bg-red-500',
+      new_stock: 'bg-blue-500',
+      return_processed: 'bg-amber-500',
+      shs_received: 'bg-purple-500',
+      shs_removed: 'bg-orange-500',
+    };
+    return typeColors[unreadNotifications[0].type] || 'bg-gray-500';
+  };
 
   return (
     <div className="relative" ref={panelRef}>
@@ -65,7 +86,7 @@ export default function NotificationBell({ unreadCount }: { unreadCount: number 
               initial={{ scale: 0 }}
               animate={{ scale: 1 }}
               exit={{ scale: 0 }}
-              className="absolute -top-1.5 -right-1.5 min-w-[18px] h-[18px] px-1 bg-black text-white text-[9px] font-bold rounded-full flex items-center justify-center font-mono"
+              className={`absolute -top-1.5 -right-1.5 min-w-[18px] h-[18px] px-1 ${getLatestNotificationColor()} text-white text-[9px] font-bold rounded-full flex items-center justify-center font-mono`}
             >
               {unreadCount > 99 ? '99+' : unreadCount}
             </motion.span>
@@ -81,23 +102,36 @@ export default function NotificationBell({ unreadCount }: { unreadCount: number 
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: -8, scale: 0.97 }}
             transition={{ duration: 0.15 }}
-            className="absolute right-0 top-12 w-80 bg-white border border-gray-200 rounded-2xl shadow-2xl z-[200] overflow-hidden"
+            className="fixed sm:absolute right-0 bottom-0 sm:top-12 w-full sm:w-80 h-[90vh] sm:h-auto max-h-[90vh] sm:max-h-[600px] bg-white sm:border sm:border-gray-200 rounded-t-3xl sm:rounded-3xl shadow-2xl z-[200] flex flex-col"
           >
             {/* Header */}
-            <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100">
+            <div className="flex-shrink-0 flex items-center justify-between px-4 py-3 border-b border-gray-100">
               <div className="flex items-center gap-2">
                 <Bell size={13} className="text-gray-500" />
                 <span className="text-[10px] font-bold uppercase tracking-widest text-black">Live Activity</span>
               </div>
               <div className="flex items-center gap-2">
                 {notifications.length > 0 && (
-                  <button
-                    onClick={() => notificationService.markAllAsRead()}
-                    className="flex items-center gap-1 text-[9px] font-mono text-gray-400 hover:text-black transition-colors"
-                  >
-                    <CheckCheck size={11} />
-                    All read
-                  </button>
+                  <>
+                    <button
+                      onClick={() => notificationService.markAllAsRead()}
+                      className="flex items-center gap-1 text-[9px] font-mono text-gray-400 hover:text-black transition-colors"
+                      title="Mark all as read"
+                    >
+                      <CheckCheck size={11} />
+                      Read
+                    </button>
+                    {veryOldNotifications.length > 0 && (
+                      <button
+                        onClick={() => notificationService.clearOldNotifications(24)}
+                        className="flex items-center gap-1 text-[9px] font-mono text-amber-400 hover:text-amber-600 transition-colors"
+                        title="Clear notifications older than 24 hours"
+                      >
+                        <X size={11} />
+                        Clear
+                      </button>
+                    )}
+                  </>
                 )}
                 <button onClick={() => setOpen(false)} className="p-0.5 text-gray-400 hover:text-black">
                   <X size={13} />
@@ -106,8 +140,8 @@ export default function NotificationBell({ unreadCount }: { unreadCount: number 
             </div>
 
             {/* Body */}
-            <div className="max-h-[420px] overflow-y-auto">
-              {grouped.length === 0 ? (
+            <div className="flex-1 overflow-y-auto">
+              {notifications.length === 0 ? (
                 <div className="py-12 flex flex-col items-center gap-2 text-gray-300">
                   <Bell size={28} />
                   <p className="text-[10px] font-mono uppercase tracking-widest">No activity yet</p>
@@ -123,12 +157,14 @@ export default function NotificationBell({ unreadCount }: { unreadCount: number 
                     </div>
                     <div className="divide-y divide-gray-50">
                       {group.items.map(n => {
-                        const typeConfig: Record<string, { bg: string; icon: React.ReactNode; label: string }> = {
-                          sold: { bg: 'bg-emerald-100 text-emerald-600', icon: <ShoppingBag size={13} />, label: 'Sold' },
-                          loss_sell: { bg: 'bg-red-100 text-red-600', icon: <AlertCircle size={13} />, label: 'Loss Sell' },
-                          new_stock: { bg: 'bg-blue-100 text-blue-600', icon: <PackagePlus size={13} />, label: 'New Stock' },
-                          return_processed: { bg: 'bg-amber-100 text-amber-600', icon: <RefreshCw size={13} />, label: 'Return' },
-                          shs_received: { bg: 'bg-purple-100 text-purple-600', icon: <Truck size={13} />, label: 'SHS Received' },
+                        const typeConfig: Record<string, { bg: string; icon: React.ReactNode; label: string; badgeBg: string }> = {
+                          sold: { bg: 'bg-emerald-100 text-emerald-600', icon: <ShoppingBag size={13} />, label: 'Sold', badgeBg: 'bg-emerald-500' },
+                          loss_sell: { bg: 'bg-red-100 text-red-600', icon: <AlertCircle size={13} />, label: 'Loss Sell', badgeBg: 'bg-red-500' },
+                          new_stock: { bg: 'bg-blue-100 text-blue-600', icon: <PackagePlus size={13} />, label: 'New Stock', badgeBg: 'bg-blue-500' },
+                          return_processed: { bg: 'bg-amber-100 text-amber-600', icon: <RefreshCw size={13} />, label: 'Return', badgeBg: 'bg-amber-500' },
+                          shs_received: { bg: 'bg-purple-100 text-purple-600', icon: <Truck size={13} />, label: 'SHS Received', badgeBg: 'bg-purple-500' },
+                          shs_removed: { bg: 'bg-orange-100 text-orange-600', icon: <AlertCircle size={13} />, label: 'SHS Removed', badgeBg: 'bg-orange-500' },
+                          unit_repaired: { bg: 'bg-indigo-100 text-indigo-600', icon: <RefreshCw size={13} />, label: 'Repaired', badgeBg: 'bg-indigo-500' },
                         };
                         const config = typeConfig[n.type] || typeConfig.new_stock;
                         return (
@@ -137,9 +173,16 @@ export default function NotificationBell({ unreadCount }: { unreadCount: number 
                             {config.icon}
                           </div>
                           <div className="flex-1 min-w-0">
-                            <p className="text-[11px] font-bold truncate">{n.model}</p>
+                            <div className="flex items-center gap-2">
+                              <p className="text-[11px] font-bold truncate">{n.model}</p>
+                              {n.quantity && n.quantity > 1 && (
+                                <span className={`inline-flex items-center justify-center px-2 py-0.5 rounded-md text-[8px] font-bold text-white ${config.badgeBg} flex-shrink-0`}>
+                                  ×{n.quantity}
+                                </span>
+                              )}
+                            </div>
                             <p className="text-[9px] font-mono text-gray-400 mt-0.5 leading-relaxed">
-                              {config.label} · {n.message.slice(0, 40)}
+                              {config.label} · {n.message}
                             </p>
                             {n.profitAmount !== undefined && (
                               <p className={`text-[8px] font-bold mt-1 ${n.profitAmount >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
@@ -160,7 +203,7 @@ export default function NotificationBell({ unreadCount }: { unreadCount: number 
             </div>
 
             {/* Footer */}
-            <div className="px-4 py-2.5 border-t border-gray-100 bg-gray-50">
+            <div className="flex-shrink-0 px-4 py-2.5 border-t border-gray-100 bg-gray-50">
               <p className="text-[8px] font-mono text-gray-300 uppercase tracking-widest text-center">
                 Real-time · Today's activity persists across sessions
               </p>

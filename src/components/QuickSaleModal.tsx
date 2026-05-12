@@ -94,7 +94,7 @@ export default function QuickSaleModal({ unit: initialUnit, availableUnits = [],
         initial={{ y: 40, opacity: 0 }} animate={{ y: 0, opacity: 1 }}
         exit={{ y: 40, opacity: 0 }} transition={{ type: 'spring', damping: 28, stiffness: 300 }}
         onClick={e => e.stopPropagation()}
-        className="bg-white w-full md:max-w-md rounded-t-3xl md:rounded-2xl overflow-hidden shadow-2xl"
+        className="bg-white w-full md:max-w-md rounded-t-3xl md:rounded-3xl overflow-hidden shadow-2xl"
       >
         {/* Header */}
         <div className="bg-gray-950 px-5 py-4 flex items-start justify-between">

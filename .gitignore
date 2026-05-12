@@ -6,3 +6,8 @@ coverage/
 *.log
 .env*
 !.env.example
+
+# Firebase admin credentials & team passwords — never commit.
+firebase-service-account.json
+firebase-service-account*.json
+scripts/team-passwords.json

@@ -305,7 +305,7 @@ export default function AnalyticsPage() {
       </div>
 
       {/* ── 1. SALES VELOCITY TREND ── */}
-      <div className="bg-white border border-gray-100 rounded-2xl shadow-sm overflow-hidden">
+      <div className="bg-white border border-gray-100 rounded-3xl shadow-sm overflow-hidden">
         <div className="px-5 pt-5 pb-2 flex items-start justify-between">
           <div>
             <p className="text-[9px] font-mono uppercase tracking-widest text-gray-400">
@@ -340,7 +340,7 @@ export default function AnalyticsPage() {
               />
               <YAxis fontSize={7} tickLine={false} axisLine={false} stroke="#aaa" allowDecimals={false}/>
               <Tooltip
-                contentStyle={{ borderRadius: 8, fontSize: 11, border: '1px solid #e5e7eb' }}
+                contentStyle={{ borderRadius: 16, fontSize: 11, border: '1px solid #e5e7eb' }}
                 formatter={(v: number) => [`${v} units`, 'Sold']}
               />
               <Area type="monotone" dataKey="units" stroke="#000" strokeWidth={2}
@@ -392,7 +392,7 @@ export default function AnalyticsPage() {
                 <XAxis dataKey="platform" fontSize={8} tickLine={false} axisLine={false}/>
                 <YAxis fontSize={8} tickLine={false} axisLine={false} allowDecimals={false}/>
                 <Tooltip
-                  contentStyle={{ borderRadius: 8, fontSize: 11, border: '1px solid #e5e7eb' }}
+                  contentStyle={{ borderRadius: 16, fontSize: 11, border: '1px solid #e5e7eb' }}
                   formatter={(v: number) => [`${v}`, 'Units Sold']}
                 />
                 <Bar dataKey="count" name="Units Sold" radius={[4, 4, 0, 0]}>
@@ -658,7 +658,7 @@ export default function AnalyticsPage() {
 
       {/* Empty state */}
       {units.length === 0 && (
-        <div className="py-20 flex flex-col items-center gap-3 border-2 border-dashed border-gray-200 rounded-2xl">
+        <div className="py-20 flex flex-col items-center gap-3 border-2 border-dashed border-gray-200 rounded-3xl">
           <Package size={48} className="text-gray-200"/>
           <p className="text-gray-400 font-mono text-sm text-center px-4">No data yet.<br/>Import your Excel sheet to get started.</p>
         </div>
