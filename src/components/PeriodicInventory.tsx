@@ -470,9 +470,14 @@ export default function PeriodicInventory({ units, onNavigate }: Props) {
                       onMouseEnter={e => handleElementEnter(el, g.color, e)}
                       onMouseLeave={scheduleClose}
                       onClick={() => {
-                        if (el.count > 0) {
+                        // Restore HEAD-style behaviour: clicking a populated
+                        // element opens the Excel-style ViewAllUnitsModal
+                        // directly. The PeriodicTableSidebar still updates
+                        // for ambient context, but isn't the primary action.
+                        if (el.count > 0 || el.shsCount > 0) {
                           onNavigate(el.searchTerm);
                           setSelectedSeries({ seriesKey: el.seriesKey, searchTerm: el.searchTerm });
+                          setViewAllModal({ seriesKey: el.seriesKey, searchTerm: el.searchTerm });
                         }
                       }}
                       title={isEmpty ? el.seriesKey : undefined}
