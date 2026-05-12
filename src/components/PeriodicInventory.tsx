@@ -3,7 +3,6 @@ import { AnimatePresence, motion } from 'motion/react';
 import { X } from 'lucide-react';
 import { InventoryUnit } from '../types';
 import ViewAllUnitsModal from './ViewAllUnitsModal';
-import PeriodicTableSidebar from './PeriodicTableSidebar';
 
 interface Props {
   units: InventoryUnit[];
@@ -305,7 +304,6 @@ export default function PeriodicInventory({ units, onNavigate }: Props) {
 
   const [popover, setPopover] = useState<PopoverState | null>(null);
   const [viewAllModal, setViewAllModal] = useState<{ seriesKey: string; searchTerm: string } | null>(null);
-  const [selectedSeries, setSelectedSeries] = useState<{ seriesKey: string; searchTerm: string } | null>(null);
   // Refs for the hover grace-period timers
   const closeTimer  = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -405,8 +403,8 @@ export default function PeriodicInventory({ units, onNavigate }: Props) {
   if (groups.length === 0) return null;
 
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 h-full lg:h-auto">
-      <div className="lg:col-span-2">
+    <div className="h-full lg:h-auto">
+      <div>
         <div style={{ background: '#ffffff', borderRadius: 20, padding: '12px 10px', overflow: 'hidden' }}>
         {/* Header */}
         <div style={{ marginBottom: 12 }}>
@@ -470,13 +468,12 @@ export default function PeriodicInventory({ units, onNavigate }: Props) {
                       onMouseEnter={e => handleElementEnter(el, g.color, e)}
                       onMouseLeave={scheduleClose}
                       onClick={() => {
-                        // Restore HEAD-style behaviour: clicking a populated
-                        // element opens the Excel-style ViewAllUnitsModal
-                        // directly. The PeriodicTableSidebar still updates
-                        // for ambient context, but isn't the primary action.
+                        // Click → open the Excel-style ViewAllUnitsModal.
+                        // The sidebar (both desktop column and mobile
+                        // drawer) is gone; the modal is the single
+                        // browsing surface.
                         if (el.count > 0 || el.shsCount > 0) {
                           onNavigate(el.searchTerm);
-                          setSelectedSeries({ seriesKey: el.seriesKey, searchTerm: el.searchTerm });
                           setViewAllModal({ seriesKey: el.seriesKey, searchTerm: el.searchTerm });
                         }
                       }}
@@ -550,23 +547,10 @@ export default function PeriodicInventory({ units, onNavigate }: Props) {
       </div>
       </div>
 
-      {/* Sidebar - visible on lg screens in grid layout */}
-      <div className="hidden lg:flex lg:col-span-1">
-        <PeriodicTableSidebar
-          seriesKey={selectedSeries?.seriesKey || null}
-          searchTerm={selectedSeries?.searchTerm || null}
-          units={units}
-          onViewAll={(seriesKey, searchTerm) => {
-            setViewAllModal({ seriesKey, searchTerm });
-            setSelectedSeries(null);
-          }}
-        />
-      </div>
-
-      {/* Mobile drawer removed — on mobile, tapping a periodic element
-       * opens the Excel-style ViewAllUnitsModal directly. Having both
-       * stacked produced the double-modal the user reported. The desktop
-       * sidebar above stays as ambient context on lg+ screens. */}
+      {/* Sidebar removed (both desktop column and mobile drawer).
+       * Clicking a periodic element now opens only the Excel-style
+       * ViewAllUnitsModal — full unit table with sortable columns,
+       * in-stock / SHS / sold tabs. */}
 
       {/* View All Units Modal */}
       <AnimatePresence>
