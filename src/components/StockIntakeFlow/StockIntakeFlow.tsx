@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { X } from 'lucide-react';
+import { X, Minus, Plus } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { InventoryUnit } from '../../types';
 import { dbService } from '../../lib/dbService';
@@ -508,52 +508,112 @@ export default function StockIntakeFlow({ onClose }: Props) {
 
                   {/* Add color form */}
                   <div className="space-y-3 p-4 bg-gray-50 rounded-xl">
-                    <div className="grid grid-cols-3 gap-3">
+                    <div className="flex gap-2">
                       <input
                         type="text"
                         placeholder="Color name"
                         value={newColorName}
-                        onChange={e => setNewColorName(e.target.value)}
-                        className="col-span-2 px-3 py-2 border border-gray-300 rounded-lg text-sm"
+                        onChange={e => { setNewColorName(e.target.value); if (error) setError(''); }}
+                        className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                       />
-                      <input
-                        type="number"
-                        min="1"
-                        max={quantity - colorTotalQty}
-                        value={newColorQty}
-                        onChange={e => setNewColorQty(Math.max(1, parseInt(e.target.value) || 1))}
-                        className="px-3 py-2 border border-gray-300 rounded-lg text-sm"
-                      />
+                      {/* Qty with ± steppers — free-typing, snaps to ≥1 on blur */}
+                      <div className="flex items-stretch gap-1.5 flex-shrink-0">
+                        <button
+                          type="button"
+                          onClick={() => setNewColorQty(Math.max(1, newColorQty - 1))}
+                          disabled={newColorQty <= 1}
+                          className="w-9 flex items-center justify-center rounded-lg border border-gray-300 text-gray-600 hover:bg-white disabled:opacity-40"
+                          aria-label="Decrease"
+                        >
+                          <Minus size={13} />
+                        </button>
+                        <input
+                          type="text"
+                          inputMode="numeric"
+                          pattern="[0-9]*"
+                          value={String(newColorQty)}
+                          onChange={e => {
+                            const cleaned = e.target.value.replace(/\D/g, '').slice(0, 4);
+                            const n = parseInt(cleaned, 10);
+                            if (!Number.isNaN(n) && n >= 1) setNewColorQty(n);
+                            else if (cleaned === '') setNewColorQty(1);
+                            if (error) setError('');
+                          }}
+                          onFocus={e => e.target.select()}
+                          onBlur={() => { if (!newColorQty || newColorQty < 1) setNewColorQty(1); }}
+                          className="w-14 px-2 py-2 text-center font-semibold tabular-nums border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setNewColorQty(Math.min(quantity - colorTotalQty || 1, newColorQty + 1))}
+                          disabled={colorTotalQty + newColorQty >= quantity}
+                          className="w-9 flex items-center justify-center rounded-lg border border-gray-300 text-gray-600 hover:bg-white disabled:opacity-40"
+                          aria-label="Increase"
+                        >
+                          <Plus size={13} />
+                        </button>
+                      </div>
                     </div>
                     <button
                       onClick={addColorVariant}
-                      className="w-full bg-blue-600 text-white py-2 rounded-lg text-sm font-semibold hover:bg-blue-700 transition"
+                      disabled={!newColorName.trim() || colorTotalQty + newColorQty > quantity}
+                      className="w-full bg-blue-600 text-white py-2 rounded-lg text-sm font-semibold hover:bg-blue-700 transition disabled:bg-gray-300 disabled:cursor-not-allowed"
                     >
                       Add Color
                     </button>
                   </div>
 
-                  {/* Color list */}
+                  {/* Color list — each row gets its own ± steppers */}
                   <div className="space-y-2">
                     {colorVariants.map(color => (
-                      <div key={color.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
-                        <div className="flex-1">
-                          <p className="text-sm font-semibold text-gray-900">{color.name}</p>
+                      <div key={color.id} className="flex items-center justify-between gap-3 p-3 bg-gray-50 rounded-lg">
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-semibold text-gray-900 truncate">{color.name}</p>
                           <p className="text-xs text-gray-500">×{color.quantity}</p>
                         </div>
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-stretch gap-1.5 flex-shrink-0">
+                          <button
+                            type="button"
+                            onClick={() => updateColorQuantity(color.id, Math.max(1, color.quantity - 1))}
+                            disabled={color.quantity <= 1}
+                            className="w-8 flex items-center justify-center rounded-lg border border-gray-200 text-gray-600 hover:bg-white disabled:opacity-40"
+                            aria-label="Decrease"
+                          >
+                            <Minus size={12} />
+                          </button>
                           <input
-                            type="number"
-                            min="1"
-                            value={color.quantity}
-                            onChange={e => updateColorQuantity(color.id, Math.max(1, parseInt(e.target.value) || 1))}
-                            className="w-16 px-2 py-1 border border-gray-300 rounded text-sm"
+                            type="text"
+                            inputMode="numeric"
+                            pattern="[0-9]*"
+                            value={String(color.quantity)}
+                            onChange={e => {
+                              const cleaned = e.target.value.replace(/\D/g, '').slice(0, 4);
+                              const n = parseInt(cleaned, 10);
+                              if (!Number.isNaN(n) && n >= 1) updateColorQuantity(color.id, n);
+                            }}
+                            onFocus={e => e.target.select()}
+                            className="w-12 px-1 py-1.5 text-center font-semibold tabular-nums border border-gray-200 rounded text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                           />
                           <button
-                            onClick={() => removeColorVariant(color.id)}
-                            className="p-1 hover:bg-red-100 text-red-600 rounded transition"
+                            type="button"
+                            onClick={() => {
+                              const otherTotal = colorVariants.reduce((s, c) => c.id === color.id ? s : s + c.quantity, 0);
+                              if (otherTotal + color.quantity + 1 <= quantity) {
+                                updateColorQuantity(color.id, color.quantity + 1);
+                              }
+                            }}
+                            disabled={colorTotalQty >= quantity}
+                            className="w-8 flex items-center justify-center rounded-lg border border-gray-200 text-gray-600 hover:bg-white disabled:opacity-40"
+                            aria-label="Increase"
                           >
-                            ✕
+                            <Plus size={12} />
+                          </button>
+                          <button
+                            onClick={() => removeColorVariant(color.id)}
+                            className="p-1.5 ml-1 hover:bg-red-100 text-red-600 rounded transition"
+                            aria-label="Remove colour"
+                          >
+                            <X size={13} />
                           </button>
                         </div>
                       </div>
@@ -561,15 +621,32 @@ export default function StockIntakeFlow({ onClose }: Props) {
                   </div>
 
                   {/* Validation status */}
-                  <div className="p-3 bg-blue-50 rounded-lg border border-blue-200">
+                  <div className={`p-3 rounded-lg border ${
+                    colorTotalQty === quantity
+                      ? 'bg-emerald-50 border-emerald-200'
+                      : colorTotalQty > quantity
+                      ? 'bg-red-50 border-red-200'
+                      : 'bg-blue-50 border-blue-200'
+                  }`}>
                     <p className="text-xs font-mono text-gray-700">
-                      Distribution: <span className={colorTotalQty === quantity ? 'text-green-600 font-bold' : 'text-amber-600'}>
+                      Distribution: <span className={
+                        colorTotalQty === quantity ? 'text-emerald-600 font-bold'
+                        : colorTotalQty > quantity ? 'text-red-600 font-bold'
+                        : 'text-amber-600 font-bold'
+                      }>
                         {colorTotalQty} / {quantity}
                       </span>
+                      {colorTotalQty > quantity && ` (over by ${colorTotalQty - quantity})`}
+                      {colorTotalQty < quantity && ` (${quantity - colorTotalQty} more needed)`}
                     </p>
                   </div>
 
-                  {error && <div className="p-3 bg-red-50 text-red-700 rounded-lg text-sm">{error}</div>}
+                  {/* Only show the inline error when the user actively
+                      tries something invalid — never when totals already
+                      match (was getting stuck on screen). */}
+                  {error && colorTotalQty !== quantity && (
+                    <div className="p-3 bg-red-50 text-red-700 rounded-lg text-sm">{error}</div>
+                  )}
 
                   {/* Footer actions */}
                   <div className="flex items-center gap-3 pt-2">
