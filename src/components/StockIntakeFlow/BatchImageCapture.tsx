@@ -255,22 +255,41 @@ export default function BatchImageCapture({
     onSubmit(captured);
   };
 
+  const [activeColourIdx, setActiveColourIdx] = useState(0);
+  const activeGroup = colourGroups[activeColourIdx];
+  const isLastColour = activeColourIdx >= colourGroups.length - 1;
+
   const handleSkipAll = () => {
     // Mark every empty slot as skipped explicitly. Tiles that already
     // have an image come through normally.
     handleSubmit();
   };
 
+  const advanceColourOrSubmit = () => {
+    setError('');
+    if (isLastColour) {
+      handleSubmit();
+    } else {
+      setActiveColourIdx(i => i + 1);
+    }
+  };
+
+  const goPrevColour = () => {
+    setError('');
+    if (activeColourIdx === 0) onBack();
+    else setActiveColourIdx(i => i - 1);
+  };
+
   return (
     <div className="space-y-5">
-      {/* Header progress */}
+      {/* Overall progress across every colour */}
       <div className="space-y-2">
         <div className="flex items-center justify-between">
           <p className="text-[10px] font-bold uppercase tracking-widest text-gray-500">
-            Capture by colour
+            Colour {activeColourIdx + 1} of {colourGroups.length}
           </p>
           <p className="text-[10px] font-mono text-gray-500">
-            {filledSlots} / {totalSlots} captured
+            {filledSlots} / {totalSlots} captured overall
           </p>
         </div>
         <div className="h-1.5 bg-gray-100 rounded-full overflow-hidden">
@@ -279,59 +298,94 @@ export default function BatchImageCapture({
             style={{ width: `${totalSlots ? (filledSlots / totalSlots) * 100 : 0}%` }}
           />
         </div>
+        {/* Per-colour pip strip — shows which colours are complete */}
+        <div className="flex items-center gap-1 pt-1">
+          {colourGroups.map((g, i) => {
+            const arr: (CapturedTile | undefined)[] = tiles[g.colour] || Array(g.quantity).fill(undefined);
+            const filled = arr.filter(Boolean).length;
+            const complete = filled === g.quantity;
+            const active = i === activeColourIdx;
+            return (
+              <button
+                key={g.colour}
+                type="button"
+                onClick={() => { setActiveColourIdx(i); setError(''); }}
+                className={`flex-1 text-[9px] font-mono uppercase tracking-widest px-1.5 py-1 rounded transition-all truncate ${
+                  active
+                    ? 'bg-slate-900 text-white'
+                    : complete
+                    ? 'bg-emerald-100 text-emerald-700'
+                    : filled > 0
+                    ? 'bg-amber-100 text-amber-700'
+                    : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
+                }`}
+                title={`${g.colour} — ${filled}/${g.quantity}`}
+              >
+                {g.colour} {filled}/{g.quantity}
+              </button>
+            );
+          })}
+        </div>
       </div>
 
-      {/* Per-colour group */}
-      <div className="space-y-4">
-        {colourGroups.map(group => {
-          const arr: (CapturedTile | undefined)[] = tiles[group.colour] || Array(group.quantity).fill(undefined);
-          const captured = arr.filter(Boolean).length;
-          const remaining = group.quantity - captured;
-          return (
-            <div key={group.colour} className="border border-gray-200 rounded-2xl overflow-hidden">
-              <div className="flex items-center justify-between px-4 py-3 bg-gray-50 border-b border-gray-200">
-                <div>
-                  <p className="text-sm font-bold">{group.colour}</p>
-                  <p className="text-[10px] font-mono text-gray-500">
-                    {captured} of {group.quantity} captured
-                    {remaining > 0 ? ` · ${remaining} remaining` : ''}
-                  </p>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => pickFiles(group.colour)}
-                  disabled={remaining <= 0}
-                  className="flex items-center gap-1.5 px-3 py-2 bg-blue-600 text-white rounded-lg text-[10px] font-bold uppercase tracking-widest hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed"
-                >
-                  <Plus size={12} />
-                  Add images
-                </button>
-                <input
-                  ref={el => { inputRefs.current[group.colour] = el; }}
-                  type="file"
-                  accept="image/*"
-                  multiple
-                  capture="environment"
-                  className="hidden"
-                  onChange={e => handleFilesChosen(group.colour, e.target.files)}
-                />
+      {/* Active colour's section — focused, one at a time */}
+      {(() => {
+        const group = activeGroup;
+        const arr: (CapturedTile | undefined)[] = tiles[group.colour] || Array(group.quantity).fill(undefined);
+        const captured = arr.filter(Boolean).length;
+        const remaining = group.quantity - captured;
+        return (
+          <div className="border border-gray-200 rounded-2xl overflow-hidden">
+            <div className="flex items-center justify-between px-4 py-3 bg-gray-50 border-b border-gray-200">
+              <div className="min-w-0">
+                <p className="text-sm font-bold truncate">{group.colour}</p>
+                <p className="text-[10px] font-mono text-gray-500">
+                  {captured} of {group.quantity} captured
+                  {remaining > 0 ? ` · ${remaining} remaining` : ' · complete'}
+                </p>
               </div>
-
-              {/* Grid of slots */}
-              <div className="p-3 grid grid-cols-3 sm:grid-cols-4 gap-2">
-                {arr.map((tile, slot) => (
-                  <CaptureTile
-                    key={slot}
-                    tile={tile}
-                    onRemove={() => removeTile(group.colour, slot)}
-                    onImeiChange={v => setTileImei(group.colour, slot, v)}
-                  />
-                ))}
-              </div>
+              <button
+                type="button"
+                onClick={() => pickFiles(group.colour)}
+                disabled={remaining <= 0}
+                className="flex items-center gap-1.5 px-3 py-2 bg-blue-600 text-white rounded-lg text-[10px] font-bold uppercase tracking-widest hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed flex-shrink-0"
+              >
+                <Plus size={12} />
+                Add images
+              </button>
+              <input
+                ref={el => { inputRefs.current[group.colour] = el; }}
+                type="file"
+                accept="image/*"
+                multiple
+                capture="environment"
+                className="hidden"
+                onChange={e => handleFilesChosen(group.colour, e.target.files)}
+              />
             </div>
-          );
-        })}
-      </div>
+
+            {/* Grid of slots for this colour only */}
+            <div className="p-3 grid grid-cols-3 sm:grid-cols-4 gap-2">
+              {arr.map((tile, slot) => (
+                <CaptureTile
+                  key={slot}
+                  tile={tile}
+                  onRemove={() => removeTile(group.colour, slot)}
+                  onImeiChange={v => setTileImei(group.colour, slot, v)}
+                />
+              ))}
+            </div>
+
+            {remaining > 0 && captured === 0 && (
+              <div className="px-4 pb-3 -mt-1">
+                <p className="text-[10px] text-gray-500 leading-relaxed">
+                  Pick all {group.quantity} {group.colour.toLowerCase()} unit photos at once — system will OCR each in parallel and you can edit any IMEI before continuing.
+                </p>
+              </div>
+            )}
+          </div>
+        );
+      })()}
 
       {error && (
         <div className="flex items-start gap-2 p-3 bg-red-50 border border-red-200 rounded-lg">
@@ -340,16 +394,16 @@ export default function BatchImageCapture({
         </div>
       )}
 
-      {/* Navigation */}
+      {/* Navigation — per-colour Prev/Next, final colour switches to Continue */}
       <div className="flex items-center gap-2 pt-2 border-t border-gray-100">
         <button
           type="button"
-          onClick={onBack}
+          onClick={goPrevColour}
           disabled={submitting}
           className="flex-shrink-0 py-3 px-4 border border-gray-200 rounded-xl text-[11px] font-bold uppercase tracking-widest text-gray-600 hover:bg-gray-50 disabled:opacity-50 flex items-center gap-1.5"
         >
           <ChevronLeft size={14} />
-          Back
+          {activeColourIdx === 0 ? 'Back' : 'Prev colour'}
         </button>
 
         <button
@@ -357,28 +411,28 @@ export default function BatchImageCapture({
           onClick={handleSkipAll}
           disabled={submitting}
           className="flex-shrink-0 py-3 px-4 border border-gray-200 rounded-xl text-[11px] font-bold uppercase tracking-widest text-gray-500 hover:bg-gray-50 disabled:opacity-50 flex items-center gap-1.5"
+          title="Skip remaining empty slots in every colour and go to review"
         >
           <SkipForward size={13} />
-          Skip empty
+          Skip rest
         </button>
 
         <button
           type="button"
-          onClick={handleSubmit}
-          disabled={submitting || filledSlots === 0}
+          onClick={advanceColourOrSubmit}
+          disabled={submitting}
           className="flex-1 py-3 px-4 bg-blue-600 text-white rounded-xl text-[11px] font-bold uppercase tracking-widest hover:bg-blue-700 transition-all disabled:bg-gray-300 disabled:cursor-not-allowed flex items-center justify-center gap-2"
         >
           {submitting
             ? <><Loader2 size={14} className="animate-spin" /> Processing…</>
-            : filledSlots < totalSlots
-            ? <><Check size={14} /> Continue ({filledSlots}/{totalSlots})</>
-            : <><Check size={14} /> Continue to Review</>}
+            : isLastColour
+            ? <><Check size={14} /> Continue to Review</>
+            : <>Next colour <ChevronRight size={14} /></>}
         </button>
       </div>
     </div>
   );
 }
-
 function CaptureTile({
   tile,
   onRemove,
