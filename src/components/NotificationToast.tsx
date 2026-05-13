@@ -56,9 +56,12 @@ export default function NotificationToast() {
     }
   };
 
+  // Toast dismiss is intentionally local-only. It removes the entry
+  // from THIS toast queue but does NOT touch the notification service —
+  // so the bell counter and the bell list still show the notification
+  // until the user explicitly hits "Read all" or "Clear" in the bell.
+  // (Auto-dismiss after DISPLAY_MS should not silently zero the badge.)
   const dismiss = () => {
-    const current = queue[currentIndex];
-    notificationService.markAsRead(current.id);
     const updated = queue.filter((_, i) => i !== currentIndex);
     setQueue(updated);
     if (currentIndex >= updated.length && currentIndex > 0) {
@@ -67,7 +70,6 @@ export default function NotificationToast() {
   };
 
   const dismissAll = () => {
-    queue.forEach(n => notificationService.markAsRead(n.id));
     setQueue([]);
     setCurrentIndex(0);
   };

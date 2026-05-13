@@ -55,9 +55,15 @@ class NotificationService {
         this.notifications = [];
         return;
       }
-      const loaded = JSON.parse(raw);
-      // Only load unread notifications (older read ones are discarded on reload)
-      this.notifications = loaded.filter((n: Notification) => !n.read);
+      const loaded: Notification[] = JSON.parse(raw);
+      // Keep the past 24 hours regardless of read/unread state so the
+      // bell preserves history. Anything older is dropped (the bell's
+      // own Clear button explicitly trims to <24h too).
+      const cutoff = Date.now() - 24 * 60 * 60 * 1000;
+      this.notifications = loaded.filter(n => {
+        const ts = new Date(n.timestamp).getTime();
+        return Number.isFinite(ts) && ts >= cutoff;
+      });
     } catch { this.notifications = []; }
   }
 
@@ -226,16 +232,34 @@ class NotificationService {
     this.playSound(type);
   }
 
+  // Flip the read flag rather than deleting — the bell's "Today /
+  // Yesterday / Earlier" list shows read notifications too, so we
+  // preserve the 24-hour history. Counters drop because they filter
+  // on !n.read.
   markAsRead(id: string) {
-    this.notifications = this.notifications.filter(n => n.id !== id);
-    this.saveToStorage();
-    this.notify();
+    let changed = false;
+    this.notifications = this.notifications.map(n => {
+      if (n.id !== id || n.read) return n;
+      changed = true;
+      return { ...n, read: true };
+    });
+    if (changed) {
+      this.saveToStorage();
+      this.notify();
+    }
   }
 
   markAllAsRead() {
-    this.notifications = [];
-    this.saveToStorage();
-    this.notify();
+    let changed = false;
+    this.notifications = this.notifications.map(n => {
+      if (n.read) return n;
+      changed = true;
+      return { ...n, read: true };
+    });
+    if (changed) {
+      this.saveToStorage();
+      this.notify();
+    }
   }
 
   private playSound(type: NotificationType) {
