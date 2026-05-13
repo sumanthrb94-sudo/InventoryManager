@@ -169,6 +169,7 @@ export default function AddSHSModal({ onClose }: Props) {
         else buckets.set(key, { rep: u, count: 1 });
       }
       for (const { rep, count } of buckets.values()) {
+        console.log(`[AddSHSModal] Firing shs_received notification: ${rep.model} × ${count}`);
         notificationService.addNotification('shs_received', rep, undefined, count);
       }
 
