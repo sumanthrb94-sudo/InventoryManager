@@ -15,6 +15,7 @@ import ReviewScreen from './ReviewScreen';
 import ProcessingState from './ProcessingState';
 import CompletionConfirmation from './CompletionConfirmation';
 import BatchImageCapture, { PlannedUnit, CapturedUnit } from './BatchImageCapture';
+import AddSHSModal from '../AddSHSModal';
 
 interface ColorVariant {
   id: string;
@@ -34,6 +35,10 @@ export default function StockIntakeFlow({ onClose }: Props) {
   // Stage management
   const [stage, setStage] = useState<Stage>('type-selection');
   const [intakeType, setIntakeType] = useState<'single' | 'bulk'>('single');
+  // 'shs' isn't a value `intakeType` ever holds — picking SHS routes to
+  // AddSHSModal, which has its own self-contained flow. We keep
+  // intakeType bound to 'single' | 'bulk' so DetailForm / Review etc.
+  // don't need to handle a third case.
 
   // Image & extraction
   const [imageFile, setImageFile] = useState<File | null>(null);
@@ -78,9 +83,22 @@ export default function StockIntakeFlow({ onClose }: Props) {
   const colorTotalQty = colorVariants.reduce((sum, c) => sum + c.quantity, 0);
   const isColorDistributionValid = quantity > 1 ? (colorVariants.length > 0 && colorTotalQty === quantity) : true;
 
-  const handleTypeSelection = (type: 'single' | 'bulk') => {
+  // SHS goes to its own dedicated modal which already supports
+  // single & multi-row entry (qty per row). We hand off rather than
+  // duplicate the SHS form here.
+  const [showSHSModal, setShowSHSModal] = useState(false);
+
+  const handleTypeSelection = (type: 'single' | 'bulk' | 'shs') => {
+    if (type === 'shs') {
+      setShowSHSModal(true);
+      return;
+    }
     setIntakeType(type);
-    setStage('image-input');
+    // Bulk skips the single image-input step entirely — each unit
+    // gets its own image later in BatchImageCapture, per colour.
+    // The single-unit OCR-prefill flow is the only place where one
+    // image at this stage makes sense.
+    setStage(type === 'bulk' ? 'details' : 'image-input');
   };
 
   const handleImageSelected = (file: File, preview: string, ocrData?: OCRResult, supabaseUrl?: string) => {
@@ -734,6 +752,21 @@ export default function StockIntakeFlow({ onClose }: Props) {
           </AnimatePresence>
         </div>
       </motion.div>
+
+      {/* SHS modal overlay — when the user picks the SHS option on the
+       * intake-type selector, we hand off to the existing dedicated
+       * AddSHSModal. It already supports single + multi-row entry with
+       * per-row quantities, sums up batched shs_received notifications,
+       * and registers session-dedup. Closing it also closes this flow
+       * so the operator returns to the main app. */}
+      {showSHSModal && (
+        <AddSHSModal
+          onClose={() => {
+            setShowSHSModal(false);
+            onClose();
+          }}
+        />
+      )}
     </motion.div>
   );
 }
