@@ -126,41 +126,47 @@ export default function StockTickerBoard() {
       <div className="h-full flex items-center px-4 md:px-6 gap-4">
         {/* Persistent left-side label so the operator always knows what
          * surface this is, even when no recent removals exist. */}
-        <div className="flex items-center gap-1.5 flex-shrink-0">
+        <div className="flex items-center gap-1.5 flex-shrink-0 pr-4 border-r border-slate-700">
           <Trash2 size={12} className="text-orange-400" />
           <span className="text-[9px] font-mono uppercase tracking-widest text-orange-300/80">
             SHS Removed · last 48h
           </span>
         </div>
 
-        {isEmpty ? (
-          <span className="text-[10px] font-mono uppercase tracking-widest text-slate-400">
-            No delisting actions in the last 48 hours
-          </span>
-        ) : (
-          <motion.div
-            animate={{ x: ['100%', '-100%'] }}
-            transition={{ duration: 55, repeat: Infinity, ease: 'linear' }}
-            className="flex gap-8 whitespace-nowrap"
-          >
-            {/* Doubled list for a seamless marquee loop. */}
-            {[...items, ...items].map((item, idx) => (
-              <div key={`${item.id}-${idx}`} className="flex items-center gap-2 flex-shrink-0">
-                <Trash2 size={13} className="text-orange-400" />
-                <span className="text-[10px] font-mono text-orange-300 uppercase tracking-widest">
-                  SHS Unit · {item.model} × {item.quantity} Removed
-                </span>
-                <span className="text-[10px] font-mono text-amber-400 uppercase tracking-widest font-bold">
-                  Please Delist
-                </span>
-                <span className="inline-flex items-center gap-1 text-[10px] font-mono text-slate-300/80 uppercase tracking-widest">
-                  <Clock size={10} />
-                  {nowTzString(new Date(item.removedAt))}
-                </span>
-              </div>
-            ))}
-          </motion.div>
-        )}
+        {/* Right column — either idle text or marquee. The flex-1 +
+         * overflow-hidden + relative wrapper clips the marquee to its
+         * own column so the scrolling content can't bleed back into
+         * the persistent label on the left. */}
+        <div className="flex-1 min-w-0 h-full flex items-center overflow-hidden relative">
+          {isEmpty ? (
+            <span className="text-[10px] font-mono uppercase tracking-widest text-slate-400">
+              No delisting actions in the last 48 hours
+            </span>
+          ) : (
+            <motion.div
+              animate={{ x: ['100%', '-100%'] }}
+              transition={{ duration: 55, repeat: Infinity, ease: 'linear' }}
+              className="flex gap-8 whitespace-nowrap absolute left-0 will-change-transform"
+            >
+              {/* Doubled list for a seamless marquee loop. */}
+              {[...items, ...items].map((item, idx) => (
+                <div key={`${item.id}-${idx}`} className="flex items-center gap-2 flex-shrink-0">
+                  <Trash2 size={13} className="text-orange-400" />
+                  <span className="text-[10px] font-mono text-orange-300 uppercase tracking-widest">
+                    SHS Unit · {item.model} × {item.quantity} Removed
+                  </span>
+                  <span className="text-[10px] font-mono text-amber-400 uppercase tracking-widest font-bold">
+                    Please Delist
+                  </span>
+                  <span className="inline-flex items-center gap-1 text-[10px] font-mono text-slate-300/80 uppercase tracking-widest">
+                    <Clock size={10} />
+                    {nowTzString(new Date(item.removedAt))}
+                  </span>
+                </div>
+              ))}
+            </motion.div>
+          )}
+        </div>
       </div>
     </div>
   );
