@@ -1,9 +1,10 @@
 import React, { useMemo, useState } from 'react';
-import { X, ChevronUp, ChevronDown } from 'lucide-react';
+import { X, ChevronUp, ChevronDown, ChevronRight } from 'lucide-react';
 import { motion } from 'motion/react';
 import { InventoryUnit } from '../types';
 import { useInventoryStore } from '../lib/inventoryStore';
 import CopyImei from './CopyImei';
+import { groupIdenticalUnits } from '../lib/unitGroups';
 
 interface Props {
   units: InventoryUnit[];
@@ -15,6 +16,7 @@ export default function InStockModal({ units, onClose }: Props) {
   // Default to most-recent first across the app — overridable via column header.
   const [sortKey, setSortKey] = useState<string>('dateIn');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
+  const [expandedKey, setExpandedKey] = useState<string | null>(null);
 
   const supplierMap = useMemo(() => {
     const map: Record<string, string> = {};
@@ -22,15 +24,21 @@ export default function InStockModal({ units, onClose }: Props) {
     return map;
   }, [suppliers]);
 
+  // Group identical SKUs (model · storage · grade · supplier · status)
+  // into one row each so a 20-unit bulk import surfaces as a single row
+  // with × 20 + an expandable per-colour and per-IMEI breakdown rather
+  // than 20 visually-identical lines.
+  const groups = useMemo(() => groupIdenticalUnits(units), [units]);
+
   const columns = [
-    { key: 'unit', label: '#', width: 'w-12', sortable: false },
-    { key: 'model', label: 'Model', width: 'w-36', sortable: true },
-    { key: 'colour', label: 'Colour', width: 'w-28', sortable: true },
+    { key: 'expand', label: '', width: 'w-10', sortable: false },
+    { key: 'model', label: 'Model', width: 'w-44', sortable: true },
+    { key: 'qty', label: 'Qty', width: 'w-16', sortable: true },
+    { key: 'colour', label: 'Colour', width: 'w-44', sortable: true },
     { key: 'storage', label: 'Storage', width: 'w-24', sortable: true },
     { key: 'grade', label: 'Grade', width: 'w-20', sortable: true },
-    { key: 'imei', label: 'IMEI', width: 'w-40', sortable: true },
     { key: 'supplier', label: 'Supplier', width: 'w-32', sortable: true },
-    { key: 'bp', label: 'Buy Price', width: 'w-24', sortable: true },
+    { key: 'bp', label: 'Buy Price', width: 'w-28', sortable: true },
     { key: 'dateIn', label: 'Date In', width: 'w-24', sortable: true },
   ];
 
@@ -43,24 +51,29 @@ export default function InStockModal({ units, onClose }: Props) {
     }
   };
 
-  const sortedUnits = useMemo(() => {
-    if (!sortKey) return units;
-    const sorted = [...units];
+  const sortedGroups = useMemo(() => {
+    if (!sortKey) return groups;
+    const sorted = [...groups];
     sorted.sort((a, b) => {
+      const ar = a.representative;
+      const br = b.representative;
       let aVal: any = '';
       let bVal: any = '';
 
-      if (sortKey === 'model') { aVal = a.model; bVal = b.model; }
-      else if (sortKey === 'colour') { aVal = a.colour || ''; bVal = b.colour || ''; }
-      else if (sortKey === 'storage') { aVal = a.storage || ''; bVal = b.storage || ''; }
-      else if (sortKey === 'grade') { aVal = a.grade || ''; bVal = b.grade || ''; }
-      else if (sortKey === 'imei') { aVal = a.imei || ''; bVal = b.imei || ''; }
-      else if (sortKey === 'supplier') {
-        aVal = supplierMap[a.supplierId] || '';
-        bVal = supplierMap[b.supplierId] || '';
+      if (sortKey === 'model') { aVal = ar.model; bVal = br.model; }
+      else if (sortKey === 'qty') { aVal = a.count; bVal = b.count; }
+      else if (sortKey === 'colour') {
+        aVal = a.colours.length === 1 ? a.colours[0].colour : `${a.colours.length} colours`;
+        bVal = b.colours.length === 1 ? b.colours[0].colour : `${b.colours.length} colours`;
       }
-      else if (sortKey === 'bp') { aVal = a.buyPrice; bVal = b.buyPrice; }
-      else if (sortKey === 'dateIn') { aVal = a.dateIn || ''; bVal = b.dateIn || ''; }
+      else if (sortKey === 'storage') { aVal = ar.storage || ''; bVal = br.storage || ''; }
+      else if (sortKey === 'grade') { aVal = ar.grade || ''; bVal = br.grade || ''; }
+      else if (sortKey === 'supplier') {
+        aVal = supplierMap[ar.supplierId] || '';
+        bVal = supplierMap[br.supplierId] || '';
+      }
+      else if (sortKey === 'bp') { aVal = ar.buyPrice; bVal = br.buyPrice; }
+      else if (sortKey === 'dateIn') { aVal = ar.dateIn || ''; bVal = br.dateIn || ''; }
 
       if (typeof aVal === 'string') {
         const cmp = aVal.localeCompare(bVal);
@@ -70,7 +83,7 @@ export default function InStockModal({ units, onClose }: Props) {
       }
     });
     return sorted;
-  }, [sortKey, sortOrder, units, supplierMap]);
+  }, [sortKey, sortOrder, groups, supplierMap]);
 
   const totalBP = units.reduce((s, u) => s + u.buyPrice, 0);
 
@@ -95,7 +108,7 @@ export default function InStockModal({ units, onClose }: Props) {
           <div>
             <h2 className="text-lg font-bold text-gray-900">In Stock · Office</h2>
             <p className="text-xs text-gray-600 font-mono mt-1">
-              {units.length} units · £{totalBP.toLocaleString()} total buy value
+              {units.length} units · {groups.length} {groups.length === 1 ? 'SKU' : 'SKUs'} · £{totalBP.toLocaleString()} total buy value
             </p>
           </div>
           <button onClick={onClose} className="p-2 hover:bg-gray-200 rounded-lg transition-all">
@@ -135,36 +148,105 @@ export default function InStockModal({ units, onClose }: Props) {
                 </tr>
               </thead>
 
-              {/* Table Body */}
+              {/* Table Body — one row per (model + storage + grade +
+                  supplier + status) group. Click chevron to expand into
+                  per-colour breakdown + per-IMEI list. */}
               <tbody>
-                {sortedUnits.map((u, idx) => (
-                  <tr key={u.id} className="border-b border-gray-200 hover:bg-gray-50">
-                    <td className="px-4 py-3 text-xs font-mono text-gray-500">{idx + 1}</td>
-                    <td className="px-4 py-3 text-xs font-bold text-gray-900 truncate">{u.model}</td>
-                    <td className="px-4 py-3 text-xs text-gray-700">{u.colour || '—'}</td>
-                    <td className="px-4 py-3 text-xs text-gray-700">{u.storage || '—'}</td>
-                    <td className="px-4 py-3 text-xs text-gray-700 font-semibold">{u.grade || '—'}</td>
-                    <td className="px-4 py-3 text-xs font-mono text-gray-700">
-                      {u.imei ? (
-                        <span className="flex items-center gap-2">
-                          {u.imei.slice(-6)}
-                          <CopyImei imei={u.imei} />
-                        </span>
-                      ) : (
-                        '—'
+                {sortedGroups.map(g => {
+                  const u = g.representative;
+                  const isExpanded = expandedKey === g.key;
+                  const colourLabel = g.colours.length === 1
+                    ? g.colours[0].colour || '—'
+                    : `${g.colours.length} colours`;
+                  return (
+                    <React.Fragment key={g.key}>
+                      <tr
+                        className={`border-b border-gray-200 hover:bg-gray-50 cursor-pointer ${
+                          isExpanded ? 'bg-blue-50/40' : ''
+                        }`}
+                        onClick={() => setExpandedKey(isExpanded ? null : g.key)}
+                      >
+                        <td className="px-2 py-3 text-gray-400 text-center">
+                          <ChevronRight
+                            size={14}
+                            className={`inline-block transition-transform ${isExpanded ? 'rotate-90 text-gray-700' : ''}`}
+                          />
+                        </td>
+                        <td className="px-4 py-3 text-xs font-bold text-gray-900 truncate">{u.model}</td>
+                        <td className="px-4 py-3 text-xs font-mono font-bold text-gray-900">
+                          {g.count > 1 ? <span>×&nbsp;{g.count}</span> : <span className="text-gray-500">1</span>}
+                        </td>
+                        <td className="px-4 py-3 text-xs text-gray-700">{colourLabel}</td>
+                        <td className="px-4 py-3 text-xs text-gray-700">{u.storage || '—'}</td>
+                        <td className="px-4 py-3 text-xs text-gray-700 font-semibold">{u.grade || '—'}</td>
+                        <td className="px-4 py-3 text-xs text-gray-700">{supplierMap[u.supplierId] || '—'}</td>
+                        <td className="px-4 py-3 text-xs font-mono font-bold text-gray-900">
+                          £{u.buyPrice.toFixed(2)}
+                          {g.count > 1 && (
+                            <span className="ml-1 text-[10px] font-normal text-gray-500">
+                              (£{g.totalBuyPrice.toFixed(2)})
+                            </span>
+                          )}
+                        </td>
+                        <td className="px-4 py-3 text-xs font-mono text-gray-700">{u.dateIn || '—'}</td>
+                      </tr>
+                      {isExpanded && (
+                        <tr className="bg-gray-50 border-b border-gray-200">
+                          <td colSpan={9} className="px-6 py-4">
+                            <div className="space-y-4">
+                              {/* Per-colour breakdown */}
+                              {g.colours.length > 1 && (
+                                <div>
+                                  <p className="text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-2">
+                                    Colour breakdown ({g.colours.length})
+                                  </p>
+                                  <div className="flex flex-wrap gap-1.5">
+                                    {g.colours.map(c => (
+                                      <span
+                                        key={c.colour}
+                                        className="inline-flex items-center gap-2 text-[11px] px-2.5 py-1 bg-white border border-gray-200 rounded-full"
+                                      >
+                                        <span className="font-semibold text-gray-900">{c.colour}</span>
+                                        <span className="text-gray-500 font-mono">×&nbsp;{c.count}</span>
+                                      </span>
+                                    ))}
+                                  </div>
+                                </div>
+                              )}
+
+                              {/* Per-IMEI list */}
+                              <div>
+                                <p className="text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-2">
+                                  Units ({g.units.length})
+                                </p>
+                                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-x-6 gap-y-1 max-h-64 overflow-y-auto custom-scrollbar">
+                                  {g.units.map(individual => (
+                                    <div key={individual.id} className="flex items-center justify-between gap-2 py-1 border-b border-gray-100 last:border-b-0">
+                                      <span className="text-[11px] font-mono text-gray-700 truncate">
+                                        {individual.imei ? <CopyImei imei={individual.imei} truncate={18} /> : '—'}
+                                      </span>
+                                      <span className="text-[10px] text-gray-500 flex-shrink-0">
+                                        {individual.colour || '—'}
+                                      </span>
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            </div>
+                          </td>
+                        </tr>
                       )}
-                    </td>
-                    <td className="px-4 py-3 text-xs text-gray-700">{supplierMap[u.supplierId] || '—'}</td>
-                    <td className="px-4 py-3 text-xs font-mono font-bold text-gray-900">£{u.buyPrice.toFixed(2)}</td>
-                    <td className="px-4 py-3 text-xs font-mono text-gray-700">{u.dateIn || '—'}</td>
-                  </tr>
-                ))}
+                    </React.Fragment>
+                  );
+                })}
               </tbody>
 
               {/* Footer Summary */}
               <tfoot className="sticky bottom-0 bg-gray-100 border-t border-gray-300">
                 <tr>
-                  <td colSpan={7} className="px-4 py-3 text-xs font-bold text-gray-700">TOTAL</td>
+                  <td colSpan={7} className="px-4 py-3 text-xs font-bold text-gray-700">
+                    TOTAL · {units.length} units · {groups.length} SKUs
+                  </td>
                   <td className="px-4 py-3 text-xs font-mono font-bold text-gray-900">
                     £{totalBP.toFixed(2)}
                   </td>
