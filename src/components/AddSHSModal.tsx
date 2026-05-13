@@ -5,6 +5,7 @@ import { dbService } from '../lib/dbService';
 import { DeviceCategory, InventoryUnit } from '../types';
 import { useInventoryStore } from '../lib/inventoryStore';
 import { notificationService } from '../lib/notificationService';
+import { registerSessionCreatedUnits } from '../hooks/useRealTimeNotifications';
 import { StorageSelectCompact, GradeSelectCompact } from './FormSelects';
 import { logInventoryEvent } from '../lib/inventoryEvents';
 
@@ -108,6 +109,13 @@ export default function AddSHSModal({ onClose }: Props) {
 
       let idx = 0;
       let totalUnits = 0;
+      // Collect every created unit so we can (a) register them all with
+      // session-dedup at once so useRealTimeNotifications doesn't double-
+      // fire on Firestore echo, and (b) emit a single shs_received
+      // notification per (model, colour) bucket at the end with the
+      // correct quantity instead of one per row.
+      const createdUnits: InventoryUnit[] = [];
+
       for (const r of validRows) {
         const qty        = Math.max(1, parseInt(r.qty) || 1);
         const supplierId = supCache[r.supplierName.trim().toUpperCase()] || '';
@@ -142,12 +150,26 @@ export default function AddSHSModal({ onClose }: Props) {
             createdAt:      new Date().toISOString(),
           };
           await dbService.create('inventoryUnits', tempId, newUnit);
-          // Trigger shs_received notification for the first unit in batch to avoid spam
-          if (i === 0) {
-            notificationService.addNotification('shs_received', newUnit);
-          }
+          createdUnits.push(newUnit);
           totalUnits++;
         }
+      }
+
+      // Register every created unit ID so the real-time hook skips them
+      // (Firestore echo would otherwise emit a per-unit notification).
+      registerSessionCreatedUnits(createdUnits.map(u => u.id));
+
+      // Emit one shs_received notification per (model, colour) bucket
+      // with the actual quantity.
+      const buckets = new Map<string, { rep: InventoryUnit; count: number }>();
+      for (const u of createdUnits) {
+        const key = `${u.model}|${u.colour}`;
+        const b = buckets.get(key);
+        if (b) b.count++;
+        else buckets.set(key, { rep: u, count: 1 });
+      }
+      for (const { rep, count } of buckets.values()) {
+        notificationService.addNotification('shs_received', rep, undefined, count);
       }
 
       await logInventoryEvent({
