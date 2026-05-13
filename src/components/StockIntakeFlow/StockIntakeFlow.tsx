@@ -700,6 +700,7 @@ export default function StockIntakeFlow({ onClose }: Props) {
                   batchId={batchId}
                   onSubmit={handleReviewSubmit}
                   onBack={handleBack}
+                  onUnitsChange={setUnitsForReview}
                   error={error}
                 />
               </motion.div>
