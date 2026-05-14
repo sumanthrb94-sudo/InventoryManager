@@ -44,7 +44,7 @@ export default function StockInPage({ onOpenBatch }: Props) {
     const sample = groupUnits[0];
     const qty = groupUnits.length;
     const label = qty === 1 ? `"${sample.model}"` : `${qty} × "${sample.model}"`;
-    if (!window.confirm(`Delete ${label} from database? This action cannot be undone.`)) {
+    if (!window.confirm(`Remove ${label} from pending SHS? You can restore it within 48 hours from the Recently Removed list.`)) {
       return;
     }
     try {
