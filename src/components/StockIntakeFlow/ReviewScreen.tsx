@@ -1,8 +1,9 @@
 import React, { useMemo, useState } from 'react';
-import { ChevronLeft, AlertTriangle, Check } from 'lucide-react';
+import { ChevronLeft, AlertTriangle, Check, Layers } from 'lucide-react';
 import { motion } from 'motion/react';
 import { InventoryUnit } from '../../types';
 import { GRADE_OPTIONS, STORAGE_OPTIONS } from '../../lib/unitConstants';
+import { useInventoryStore } from '../../lib/inventoryStore';
 
 interface Props {
   units: InventoryUnit[];
@@ -32,6 +33,7 @@ const normaliseImei = (s: string) => (s || '').replace(/\D/g, '');
  */
 export default function ReviewScreen({ units, batchId, onSubmit, onBack, onUnitsChange, error }: Props) {
   const [submitting, setSubmitting] = useState(false);
+  const { suppliers } = useInventoryStore();
 
   const totalValue = useMemo(
     () => units.reduce((sum, u) => sum + (u.buyPrice || 0), 0),
@@ -56,11 +58,48 @@ export default function ReviewScreen({ units, batchId, onSubmit, onBack, onUnits
     () => units.filter(u => !u.model || !u.model.trim()).length,
     [units],
   );
+  const missingSupplierRows = useMemo(
+    () => units.filter(u => !u.supplierId).length,
+    [units],
+  );
+  const missingPriceRows = useMemo(
+    () => units.filter(u => !u.buyPrice || u.buyPrice <= 0).length,
+    [units],
+  );
   const blockingError = duplicateImeis.size > 0
     ? `${duplicateImeis.size} duplicate IMEI${duplicateImeis.size > 1 ? 's' : ''} within batch — fix before saving.`
     : missingModelRows > 0
     ? `${missingModelRows} row${missingModelRows > 1 ? 's' : ''} missing a model.`
+    : missingSupplierRows > 0
+    ? `Pick a supplier (applies to all rows).`
+    : missingPriceRows > 0
+    ? `Set a buy price (applies to all rows).`
     : '';
+
+  // The Bulk path lands here without supplier or buyPrice — the
+  // "Set for all" toolbar fills them in across every row. Per-row
+  // override is still possible in the grid below.
+  const inferCommon = <K extends keyof InventoryUnit>(key: K): InventoryUnit[K] | '' => {
+    if (units.length === 0) return '';
+    const first = units[0][key];
+    return units.every(u => u[key] === first) ? (first as any) : '' as any;
+  };
+  const commonSupplier = (inferCommon('supplierId') as string) || '';
+  const commonPrice    = (inferCommon('buyPrice') as number) || 0;
+  const commonGrade    = (inferCommon('grade') as string) || '';
+
+  const applyToAll = (patch: Partial<InventoryUnit>) => {
+    if (!onUnitsChange) return;
+    const supplierName = patch.supplierId
+      ? suppliers.find(s => s.id === patch.supplierId)?.name
+      : undefined;
+    const next = units.map(u => {
+      const merged: InventoryUnit = { ...u, ...patch };
+      if (patch.supplierId) merged.supplierName = supplierName;
+      return merged;
+    });
+    onUnitsChange(next);
+  };
 
   const updateUnit = (idx: number, patch: Partial<InventoryUnit>) => {
     if (!onUnitsChange) return;
@@ -94,6 +133,68 @@ export default function ReviewScreen({ units, batchId, onSubmit, onBack, onUnits
         <div className="p-4 bg-purple-50 rounded-xl border border-purple-200">
           <p className="text-[10px] font-bold uppercase tracking-widest text-purple-700 mb-1">Batch ID</p>
           <p className="text-sm font-mono font-bold text-purple-900 truncate">{batchId}</p>
+        </div>
+      </div>
+
+      {/* Set-for-all toolbar — supplier / buy price / grade applied
+       * across every row in one shot. Bulk intake skips the upfront
+       * details form, so this is where those batch-uniform fields get
+       * filled in. Operators can still override per row in the grid. */}
+      <div className="border border-blue-200 bg-blue-50/50 rounded-xl p-3 sm:p-4">
+        <div className="flex items-center gap-1.5 mb-3">
+          <Layers size={12} className="text-blue-700" />
+          <p className="text-[10px] font-bold uppercase tracking-widest text-blue-700">
+            Set for all rows
+          </p>
+        </div>
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <div>
+            <label className="block text-[10px] font-mono uppercase tracking-widest text-gray-500 mb-1">
+              Supplier
+            </label>
+            <select
+              value={commonSupplier}
+              onChange={e => applyToAll({ supplierId: e.target.value })}
+              className={`w-full px-3 py-2 text-xs rounded-lg border bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 ${
+                !commonSupplier ? 'border-amber-400' : 'border-gray-200'
+              }`}
+            >
+              <option value="">Select supplier…</option>
+              {suppliers.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className="block text-[10px] font-mono uppercase tracking-widest text-gray-500 mb-1">
+              Buy Price (£)
+            </label>
+            <input
+              type="number"
+              min="0"
+              step="0.01"
+              value={commonPrice || ''}
+              placeholder="0.00"
+              onChange={e => {
+                const n = parseFloat(e.target.value);
+                applyToAll({ buyPrice: Number.isFinite(n) && n >= 0 ? n : 0 });
+              }}
+              className={`w-full px-3 py-2 text-xs font-mono rounded-lg border bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 ${
+                !commonPrice ? 'border-amber-400' : 'border-gray-200'
+              }`}
+            />
+          </div>
+          <div>
+            <label className="block text-[10px] font-mono uppercase tracking-widest text-gray-500 mb-1">
+              Grade
+            </label>
+            <select
+              value={commonGrade}
+              onChange={e => applyToAll({ grade: e.target.value || undefined } as any)}
+              className="w-full px-3 py-2 text-xs rounded-lg border border-gray-200 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+            >
+              <option value="">—</option>
+              {GRADE_OPTIONS.map(g => <option key={g} value={g}>{g}</option>)}
+            </select>
+          </div>
         </div>
       </div>
 

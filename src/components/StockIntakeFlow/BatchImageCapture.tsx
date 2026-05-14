@@ -36,6 +36,15 @@ export interface CapturedUnit {
   previewUrl?: string;
   ocrConfidence?: number;
   skipped: boolean;
+  // Per-unit OCR-extracted fields. Bulk intake no longer asks for
+  // model/brand/storage/grade up front — each unit's label provides
+  // them. Empty values are normal; the Review screen lets the operator
+  // fix anything OCR missed.
+  model?: string;
+  brand?: string;
+  storage?: string;
+  grade?: string;
+  colour?: string;
 }
 
 interface CapturedTile {
@@ -44,6 +53,13 @@ interface CapturedTile {
   imei: string;
   confidence?: number;
   error?: string;
+  // Hold the rest of the OCR-extracted fields alongside the IMEI so
+  // they can flow into CapturedUnit on submit.
+  model?: string;
+  brand?: string;
+  storage?: string;
+  grade?: string;
+  ocrColour?: string;
 }
 
 interface Props {
@@ -159,6 +175,12 @@ export default function BatchImageCapture({
       performOCR(file)
         .then(result => {
           const detected = normaliseImei(result.device?.imei?.value || '');
+          const d = result.device;
+          // Confidence gate per field: same threshold the single-unit
+          // flow uses for OCR prefill. Anything below is left blank so
+          // the operator notices on Review rather than trusting bad data.
+          const pickIf = (field?: { value: string; confidence: number }) =>
+            field && field.confidence >= 0.6 && field.value.trim() ? field.value.trim() : undefined;
           setTiles(prev => {
             const arr = [...(prev[colour] || [])];
             if (arr[slot]) {
@@ -167,6 +189,11 @@ export default function BatchImageCapture({
                 status: 'ready',
                 imei: detected,
                 confidence: result.confidence,
+                model:     pickIf(d?.model),
+                brand:     pickIf(d?.brand),
+                storage:   pickIf(d?.storage),
+                grade:     pickIf(d?.grade),
+                ocrColour: pickIf(d?.colour),
               };
             }
             return { ...prev, [colour]: arr };
@@ -234,6 +261,11 @@ export default function BatchImageCapture({
             previewUrl: t.previewUrl,
             ocrConfidence: t.confidence,
             skipped: false,
+            model:   t.model,
+            brand:   t.brand,
+            storage: t.storage,
+            grade:   t.grade,
+            colour:  t.ocrColour,
           });
         }
       }
