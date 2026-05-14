@@ -97,13 +97,24 @@ export default function NotificationBell({ unreadCount }: { unreadCount: number 
       {/* Notification panel */}
       <AnimatePresence>
         {open && (
-          <motion.div
-            initial={{ opacity: 0, y: -8, scale: 0.97 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: -8, scale: 0.97 }}
-            transition={{ duration: 0.15 }}
-            className="fixed sm:absolute right-0 bottom-0 sm:top-12 w-full sm:w-80 h-[90vh] sm:h-auto max-h-[90vh] sm:max-h-[600px] bg-white sm:border sm:border-gray-200 rounded-t-3xl sm:rounded-3xl shadow-2xl z-[200] flex flex-col"
-          >
+          <>
+            {/* Mobile backdrop — also helps the panel render against a known layer */}
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.12 }}
+              className="sm:hidden fixed inset-0 bg-black/30 z-[190]"
+              onClick={() => setOpen(false)}
+            />
+            <motion.div
+              initial={{ opacity: 0, y: -8, scale: 0.97 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: -8, scale: 0.97 }}
+              transition={{ duration: 0.15 }}
+              style={{ backgroundColor: '#ffffff' }}
+              className="fixed sm:absolute right-0 bottom-0 sm:top-12 w-full sm:w-80 h-[90vh] sm:h-auto max-h-[90vh] sm:max-h-[600px] sm:border sm:border-gray-200 rounded-t-3xl sm:rounded-3xl shadow-2xl z-[200] flex flex-col isolate"
+            >
             {/* Header */}
             <div className="flex-shrink-0 flex items-center justify-between px-4 py-3 border-b border-gray-100">
               <div className="flex items-center gap-2">
@@ -168,7 +179,7 @@ export default function NotificationBell({ unreadCount }: { unreadCount: number 
                         };
                         const config = typeConfig[n.type] || typeConfig.new_stock;
                         return (
-                        <div key={n.id} className={`flex items-start gap-3 px-4 py-3 transition-colors ${n.read ? 'opacity-60' : 'bg-white'}`}>
+                        <div key={n.id} className={`flex items-start gap-3 px-4 py-3 transition-colors bg-white ${n.read ? 'opacity-60' : ''}`}>
                           <div className={`w-8 h-8 rounded-xl flex items-center justify-center flex-shrink-0 ${config.bg}`}>
                             {config.icon}
                           </div>
@@ -208,7 +219,8 @@ export default function NotificationBell({ unreadCount }: { unreadCount: number 
                 Real-time · Today's activity persists across sessions
               </p>
             </div>
-          </motion.div>
+            </motion.div>
+          </>
         )}
       </AnimatePresence>
     </div>
