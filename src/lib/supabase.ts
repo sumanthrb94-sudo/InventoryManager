@@ -1,8 +1,15 @@
 import { createClient } from '@supabase/supabase-js';
 
-// Supabase credentials from environment
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || 'https://hpeyrtxcmiasvpfhsffu.supabase.co';
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...';
+// Supabase credentials from environment — no fallback so a missing config fails
+// loudly at boot instead of silently leaking a real project URL/key from source.
+const supabaseUrl     = import.meta.env.VITE_SUPABASE_URL;
+const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+
+if (!supabaseUrl || !supabaseAnonKey) {
+  throw new Error(
+    'Supabase env not configured: set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY.',
+  );
+}
 
 // Initialize Supabase client
 export const supabase = createClient(supabaseUrl, supabaseAnonKey, {

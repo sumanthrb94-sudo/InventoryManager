@@ -1,10 +1,15 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { supabase } from './_lib/supabase';
-import { handleOptions, ok, err } from './_lib/cors';
+import { handleOptions, ok, err, setCors } from './_lib/cors';
+import { requireAdmin } from './_lib/auth';
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (handleOptions(req, res)) return;
+  setCors(req, res);
   if (req.method !== 'GET') return err(res, 'Method not allowed', 405);
+
+  const caller = await requireAdmin(req, res);
+  if (!caller) return;
 
   const { from, to } = req.query as Record<string, string>;
 
@@ -12,6 +17,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   const { data: units, error } = await supabase
     .from('inventory_units')
     .select('id, status, buy_price, sale_price, sale_date, date_in, model, colour, supplier_id, postage_cost, sale_platform')
+    .is('deleted_at', null)
     .order('date_in', { ascending: false })
     .limit(15000);
 

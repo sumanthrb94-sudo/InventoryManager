@@ -1,6 +1,8 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { supabase } from './_lib/supabase';
-import { handleOptions, ok, err } from './_lib/cors';
+import { handleOptions, ok, err, setCors } from './_lib/cors';
+import { requireAdmin } from './_lib/auth';
+import { pickInventoryUnit, escapeIlike, randomId } from './_lib/validate';
 
 function toCamel(s: string) { return s.replace(/_([a-z])/g, (_, c) => c.toUpperCase()); }
 function toSnake(s: string) { return s.replace(/[A-Z]/g, c => `_${c.toLowerCase()}`); }
@@ -22,6 +24,10 @@ function appToDb(obj: Record<string, any>) {
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (handleOptions(req, res)) return;
+  setCors(req, res);
+
+  const caller = await requireAdmin(req, res);
+  if (!caller) return;
 
   // GET /api/inventory?status=available&limit=500&offset=0
   if (req.method === 'GET') {
@@ -34,11 +40,16 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       q = q.is('deleted_at', null);
     }
 
-    if (status)  q = q.eq('status', status);
-    if (model)   q = q.ilike('model', `%${model}%`);
-    if (search)  q = q.or(`model.ilike.%${search}%,imei.ilike.%${search}%,colour.ilike.%${search}%`);
+    if (status) q = q.eq('status', status);
+    if (model)  q = q.ilike('model', `%${escapeIlike(model)}%`);
+    if (search) {
+      const s = escapeIlike(search);
+      q = q.or(`model.ilike.%${s}%,imei.ilike.%${s}%,colour.ilike.%${s}%`);
+    }
 
-    q = q.range(parseInt(offset), parseInt(offset) + parseInt(limit) - 1);
+    const lim = Math.min(Math.max(parseInt(limit) || 0, 1), 1000);
+    const off = Math.max(parseInt(offset) || 0, 0);
+    q = q.range(off, off + lim - 1);
 
     const { data, error } = await q;
     if (error) return err(res, error.message, 500);
@@ -47,11 +58,18 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   // POST /api/inventory — create a unit
   if (req.method === 'POST') {
-    const body = req.body;
-    if (!body?.model || !body?.status) return err(res, 'model and status are required');
-    const id = body.id || Math.random().toString(36).substring(2, 11);
+    const body = pickInventoryUnit(req.body);
+    if (!body.model || !body.status) return err(res, 'model and status are required');
+    const id = (typeof body.id === 'string' && body.id) || randomId();
     const now = new Date().toISOString();
-    const row = appToDb({ ...body, id, createdAt: body.createdAt || now, updatedAt: now });
+    const row = appToDb({
+      ...body,
+      id,
+      ownerId: caller.email,
+      createdAt: now,
+      updatedAt: now,
+      deletedAt: null,
+    });
     const { data, error } = await supabase.from('inventory_units').upsert(row).select().single();
     if (error) return err(res, error.message, 500);
     return ok(res, dbToApp(data), 201);

@@ -1,6 +1,8 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { supabase } from './_lib/supabase';
-import { handleOptions, ok, err } from './_lib/cors';
+import { handleOptions, ok, err, setCors } from './_lib/cors';
+import { requireAdmin } from './_lib/auth';
+import { pickShs, randomId } from './_lib/validate';
 
 function toCamel(s: string) { return s.replace(/_([a-z])/g, (_, c) => c.toUpperCase()); }
 function toSnake(s: string) { return s.replace(/[A-Z]/g, c => `_${c.toLowerCase()}`); }
@@ -22,6 +24,10 @@ function appToDb(obj: Record<string, any>) {
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (handleOptions(req, res)) return;
+  setCors(req, res);
+
+  const caller = await requireAdmin(req, res);
+  if (!caller) return;
 
   // GET /api/shs — SHS (incoming) units = listed with supplier.
   // ?includeDeleted=true also returns soft-deleted items (kept 48h for testing).
@@ -45,26 +51,27 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   // POST /api/shs — create a new SHS listing
   if (req.method === 'POST') {
-    const body = req.body;
-    if (!body?.model) return err(res, 'model is required');
-    const id = body.id || Math.random().toString(36).substring(2, 11);
+    const body = pickShs(req.body);
+    if (!body.model) return err(res, 'model is required');
+    const id = (typeof body.id === 'string' && body.id) || randomId();
     const now = new Date().toISOString();
     const row = appToDb({
       ...body,
       id,
       status: 'incoming',
       imei: body.imei || null,
-      flags: body.flags || [],
-      listingSites: body.listingSites || [],
+      flags: Array.isArray(body.flags) ? body.flags : [],
+      listingSites: Array.isArray(body.listingSites) ? body.listingSites : [],
       notes: body.notes || 'SHS - Listed with supplier',
-      createdAt: body.createdAt || now,
+      ownerId: caller.email,
+      createdAt: now,
       updatedAt: now,
+      deletedAt: null,
     });
     const { data, error } = await supabase.from('inventory_units').upsert(row).select().single();
     if (error) return err(res, error.message, 500);
     return ok(res, dbToApp(data), 201);
   }
 
-  // PUT /api/shs/:id/receive — mark SHS unit as received (needs IMEI)
   return err(res, 'Method not allowed', 405);
 }

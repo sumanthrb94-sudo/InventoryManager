@@ -1,6 +1,8 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { supabase } from './_lib/supabase';
-import { handleOptions, ok, err } from './_lib/cors';
+import { handleOptions, ok, err, setCors } from './_lib/cors';
+import { requireAdmin } from './_lib/auth';
+import { pickSupplier, randomId } from './_lib/validate';
 
 function toCamel(s: string) { return s.replace(/_([a-z])/g, (_, c) => c.toUpperCase()); }
 function toSnake(s: string) { return s.replace(/[A-Z]/g, c => `_${c.toLowerCase()}`); }
@@ -11,6 +13,10 @@ const appToDb = (obj: Record<string, any>) =>
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (handleOptions(req, res)) return;
+  setCors(req, res);
+
+  const caller = await requireAdmin(req, res);
+  if (!caller) return;
 
   if (req.method === 'GET') {
     const { data, error } = await supabase
@@ -20,11 +26,17 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 
   if (req.method === 'POST') {
-    const body = req.body;
-    if (!body?.name) return err(res, 'name is required');
-    const id = body.id || Math.random().toString(36).substring(2, 11);
+    const body = pickSupplier(req.body);
+    if (!body.name) return err(res, 'name is required');
+    const id = (typeof body.id === 'string' && body.id) || randomId();
     const now = new Date().toISOString();
-    const row = appToDb({ ...body, id, createdAt: body.createdAt || now, updatedAt: now });
+    const row = appToDb({
+      ...body,
+      id,
+      ownerId: caller.email,
+      createdAt: now,
+      updatedAt: now,
+    });
     const { data, error } = await supabase.from('suppliers').upsert(row).select().single();
     if (error) return err(res, error.message, 500);
     return ok(res, dbToApp(data), 201);

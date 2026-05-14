@@ -1,6 +1,8 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { supabase } from '../_lib/supabase';
-import { handleOptions, ok, err } from '../_lib/cors';
+import { handleOptions, ok, err, setCors } from '../_lib/cors';
+import { requireAdmin } from '../_lib/auth';
+import { pickInventoryUnit } from '../_lib/validate';
 
 function toCamel(s: string) { return s.replace(/_([a-z])/g, (_, c) => c.toUpperCase()); }
 function toSnake(s: string) { return s.replace(/[A-Z]/g, c => `_${c.toLowerCase()}`); }
@@ -22,6 +24,10 @@ function appToDb(obj: Record<string, any>) {
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (handleOptions(req, res)) return;
+  setCors(req, res);
+
+  const caller = await requireAdmin(req, res);
+  if (!caller) return;
 
   const { id } = req.query as { id: string };
   if (!id) return err(res, 'id is required');
@@ -37,7 +43,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   // PUT /api/inventory/:id — full or partial update
   if (req.method === 'PUT') {
     const now = new Date().toISOString();
-    const row = appToDb({ ...req.body, id, updatedAt: now });
+    const body = pickInventoryUnit(req.body);
+    const row = appToDb({ ...body, id, updatedAt: now });
     const { data, error } = await supabase
       .from('inventory_units').upsert(row).select().single();
     if (error) return err(res, error.message, 500);
