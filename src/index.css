@@ -212,12 +212,11 @@
 
 /* ─── Tactile polish on common shapes ────────────────────────────────────── */
 
-/* Rounded boxes with a faint inner highlight — gives every card a single-
- * pixel "edge" that catches the light. Only applies to elements that
- * already opt into a bg-white surface, so it never affects layout. */
-.bg-white {
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.5);
-}
+/* (Removed the global `.bg-white { box-shadow: inset 0 1px 0 …; }` rule —
+ * it was painting a subtle 1px white highlight on every white surface,
+ * but in some Tailwind v4 cascade orders it was tripping the
+ * NotificationBell panel into rendering see-through. The 1px highlight
+ * isn't worth that regression.) */
 
 /* Slight elevation for top-level modals (don't override component shadow-2xl
  * — augment it). */
