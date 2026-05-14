@@ -1,6 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { onAuthStateChanged, User } from 'firebase/auth';
-import { auth, signInWithEmail, sendPasswordReset, signOut } from './lib/firebase';
+import {
+  auth, signInWithEmail, sendPasswordReset, signOut,
+  expireSession, isSessionExpired, getSessionAgeMs,
+  SESSION_MAX_AGE_MS, consumeExpiredFlag,
+} from './lib/firebase';
 import {
   PackagePlus, ShoppingCart, RefreshCw, BarChart2,
   LogOut, Plus, FileSpreadsheet, LayoutDashboard,
@@ -43,7 +47,45 @@ export default function App() {
 function AppWithAuth({ seedRequested = false }: { seedRequested?: boolean }) {
   const [user, setUser]       = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
-  useEffect(() => onAuthStateChanged(auth, u => { setUser(u); setLoading(false); }), []);
+
+  useEffect(() => onAuthStateChanged(auth, u => {
+    // Enforce the 1h session policy at the moment Firebase tells us who's
+    // signed in. Two cases force an immediate sign-out:
+    //   1. The persisted session is older than the limit (laptop closed
+    //      overnight, etc.).
+    //   2. We have a signed-in user but no recorded sign-in timestamp —
+    //      i.e. they signed in before this policy code shipped. Force
+    //      a single re-login to upgrade them onto the new policy.
+    if (u && (isSessionExpired() || getSessionAgeMs() === null)) {
+      expireSession();
+      return;
+    }
+    setUser(u);
+    setLoading(false);
+  }), []);
+
+  // While signed in, poll every 30s for the session age. Also re-check
+  // whenever the tab regains focus, since a tab can sleep through the
+  // interval (background-throttling in Chrome) and miss the window.
+  useEffect(() => {
+    if (!user) return;
+    const check = () => { if (isSessionExpired()) expireSession(); };
+    const intervalId = window.setInterval(check, 30_000);
+    const onVisible = () => { if (document.visibilityState === 'visible') check(); };
+    document.addEventListener('visibilitychange', onVisible);
+    // Cross-tab: if another tab logs out, this one will see a null user
+    // via onAuthStateChanged, but the storage event covers the case where
+    // the timestamp was cleared without a Firebase auth change.
+    const onStorage = (e: StorageEvent) => {
+      if (e.key === 'auth_session_started_at' && !e.newValue) check();
+    };
+    window.addEventListener('storage', onStorage);
+    return () => {
+      window.clearInterval(intervalId);
+      document.removeEventListener('visibilitychange', onVisible);
+      window.removeEventListener('storage', onStorage);
+    };
+  }, [user]);
 
   if (loading) return (
     <div className="min-h-screen bg-white flex items-center justify-center">
@@ -459,6 +501,8 @@ function LoginPage() {
   const [loading, setLoading]   = useState(false);
   const [error, setError]       = useState('');
   const [resetState, setResetState] = useState<'idle' | 'sending' | 'sent'>('idle');
+  // Surfaced once if the previous session ended because of the 1h timeout.
+  const [sessionExpired] = useState(() => consumeExpiredFlag());
 
   // Map Firebase Auth error codes to operator-facing copy. The raw
   // Firebase messages are technical and sometimes leak whether an
@@ -562,6 +606,17 @@ function LoginPage() {
             <h2 className="text-2xl font-bold tracking-tight">Sign In</h2>
             <p className="text-sm text-gray-500 mt-1">Use your team account credentials.</p>
           </div>
+
+          <AnimatePresence>
+            {sessionExpired && (
+              <motion.div
+                initial={{ opacity: 0, y: -4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}
+                className="text-xs font-mono text-amber-800 bg-amber-50 border border-amber-200 px-4 py-2.5 rounded-xl"
+              >
+                Your 1-hour session expired. Please sign in again.
+              </motion.div>
+            )}
+          </AnimatePresence>
 
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>

@@ -48,6 +48,14 @@ Everything that **must** be done before the first deploy, in order.
 - [ ] Remove a pending SHS → confirm it appears on the **Stock Ticker tape** at the top and in the bell notification.
 - [ ] Try `https://<your-domain>/?seed=1` while signed-out → should hit the login page, not the seed UI.
 
+## Session policy
+
+- Sessions auto-expire **1 hour** after sign-in (absolute, not idle-based). Configurable via `SESSION_MAX_AGE_MS` in `src/lib/firebase.ts`.
+- Enforcement: the `AppWithAuth` component checks session age on mount, every 30 s, on tab visibility change, and via cross-tab `storage` events.
+- When the timeout fires, the user is signed out and the next login page shows a one-time amber banner: *"Your 1-hour session expired. Please sign in again."*
+- Manual sign-out still works (clears the timestamp + Firebase auth).
+- Operators are forced through one extra sign-in after this code first deploys (existing persisted sessions have no timestamp).
+
 ## Known operational gaps
 
 These are intentional for the current "internal testing" phase:
