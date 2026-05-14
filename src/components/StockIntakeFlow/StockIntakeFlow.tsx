@@ -3,6 +3,7 @@ import { X, Minus, Plus } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { InventoryUnit } from '../../types';
 import { dbService } from '../../lib/dbService';
+import { firebaseStorageService } from '../../lib/firebaseStorageService';
 import { notificationService } from '../../lib/notificationService';
 import { useInventoryStore } from '../../lib/inventoryStore';
 import { generateBatchId } from '../../lib/batchUtils';
@@ -43,7 +44,11 @@ export default function StockIntakeFlow({ onClose }: Props) {
   // Image & extraction
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [imagePreview, setImagePreview] = useState<string>('');
-  const [uploadedImageUrl, setUploadedImageUrl] = useState<string>('');
+  // We track BOTH the public download URL (currently unused after save)
+  // and the storage path (so we can delete the underlying object in the
+  // background once the unit is persisted — images are transient post-OCR).
+  const [uploadedImageUrl, setUploadedImageUrl]   = useState<string>('');
+  const [uploadedImagePath, setUploadedImagePath] = useState<string>('');
   const [ocrResult, setOcrResult] = useState<OCRResult | undefined>();
 
   // Form fields
@@ -121,13 +126,18 @@ export default function StockIntakeFlow({ onClose }: Props) {
     setStage('color-distribution');
   };
 
-  const handleImageSelected = (file: File, preview: string, ocrData?: OCRResult, uploadedUrl?: string) => {
+  const handleImageSelected = (
+    file: File,
+    preview: string,
+    ocrData?: OCRResult,
+    uploadedUrl?: string,
+    uploadedPath?: string,
+  ) => {
     setImageFile(file);
     setImagePreview(preview);
     setOcrResult(ocrData);
-    if (uploadedUrl) {
-      setUploadedImageUrl(uploadedUrl);
-    }
+    if (uploadedUrl) setUploadedImageUrl(uploadedUrl);
+    if (uploadedPath) setUploadedImagePath(uploadedPath);
 
     // Pre-populate form fields from OCR result if available
     if (ocrData?.device) {
@@ -269,7 +279,10 @@ export default function StockIntakeFlow({ onClose }: Props) {
         flags: [],
         notes,
         platformListed: false,
-        imageUrl: uploadedImageUrl || undefined,
+        // imageUrl intentionally omitted: the OCR image is transient and
+        // deleted from Storage after bulkCreate succeeds (see
+        // handleReviewSubmit). Persisting the URL would leave a stale
+        // 404 reference on the unit.
         ownerId: 'shared',
         createdAt: now,
       };
@@ -311,7 +324,7 @@ export default function StockIntakeFlow({ onClose }: Props) {
             flags: [],
             notes,
             platformListed: false,
-            imageUrl: captured?.previewUrl || uploadedImageUrl || undefined,
+            // imageUrl intentionally omitted — see single-unit branch above.
             ownerId: 'shared',
             createdAt: now,
           };
@@ -389,6 +402,20 @@ export default function StockIntakeFlow({ onClose }: Props) {
       await dbService.bulkCreate(entries, (done, total) => {
         setProcessingProgress({ done, total });
       });
+
+      // Background cleanup of the transient OCR image. Fire-and-forget —
+      // the user has already seen the success state; if Storage delete
+      // fails (already gone, network blip), it's logged and the file
+      // gets cleaned up next pass. Path captured into a local before
+      // the state-clear so a re-render race can't null it out mid-call.
+      const pathToDelete = uploadedImagePath;
+      if (pathToDelete) {
+        setUploadedImagePath('');
+        setUploadedImageUrl('');
+        void firebaseStorageService.deleteImage(pathToDelete).catch(err => {
+          console.warn('[StockIntakeFlow] Background image cleanup failed:', err?.message || err);
+        });
+      }
 
       // Trigger notification with batch count
       if (unitsForReview.length > 0) {

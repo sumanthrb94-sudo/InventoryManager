@@ -28,6 +28,34 @@ Both `firestore.rules` and `storage.rules` ship with placeholder admin emails.
   firebase deploy --only firestore:rules,storage
   ```
 
+## 3b. Firebase Storage CORS
+
+Firestore and Firebase Auth handle CORS automatically via the Firebase Web SDK.
+**Storage** is the only service that may need an explicit bucket CORS policy —
+specifically when the SDK uploads via XHR PUT (resumable uploads) or when any
+code fetches a download URL via `fetch()` instead of `<img src>`.
+
+- [ ] Edit `cors.json` at the repo root — replace `https://your-app.vercel.app`
+      with the real deployed origin (keep the localhost entries for dev).
+- [ ] Apply with the Google Cloud CLI:
+  ```
+  gcloud storage buckets update gs://<YOUR-BUCKET> --cors-file=cors.json
+  ```
+  Or with the legacy `gsutil`:
+  ```
+  gsutil cors set cors.json gs://<YOUR-BUCKET>
+  ```
+  `<YOUR-BUCKET>` is the value of `storageBucket` in `firebase-applet-config.json`
+  (e.g. `my-project.appspot.com`).
+- [ ] Verify:
+  ```
+  gcloud storage buckets describe gs://<YOUR-BUCKET> --format="default(cors_config)"
+  ```
+
+If you skip this and uploads still work — Firebase Storage's default CORS
+already covered your case. If you see a "blocked by CORS policy" error in the
+browser console during upload, apply the file above.
+
 ## 4. Firebase App Check (recommended)
 
 - [ ] Enable App Check in Firebase Console with reCAPTCHA Enterprise (or v3) — protects the public `apiKey` from quota abuse.

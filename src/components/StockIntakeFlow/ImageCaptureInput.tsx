@@ -10,7 +10,13 @@ import { firebaseStorageService } from '../../lib/firebaseStorageService';
 import type { OCRResult } from '../../lib/ocr/ocrEngine';
 
 interface Props {
-  onImageSelected: (file: File, preview: string, ocrResult?: OCRResult, uploadedUrl?: string) => void;
+  onImageSelected: (
+    file: File,
+    preview: string,
+    ocrResult?: OCRResult,
+    uploadedUrl?: string,
+    uploadedPath?: string,
+  ) => void;
   onBack: () => void;
   intakeType: 'single' | 'bulk';
 }
@@ -20,6 +26,7 @@ interface ImageState {
   file: File | null;
   previewUrl: string;
   uploadedUrl?: string;
+  uploadedPath?: string;
   isValidating: boolean;
   isUploading: boolean;
   uploadProgress: number;
@@ -134,6 +141,7 @@ export default function ImageCaptureInput({ onImageSelected, onBack, intakeType 
       setImageState(prev => ({
         ...prev,
         uploadedUrl: uploadedImage.url,
+        uploadedPath: uploadedImage.path,
         isUploading: false,
         uploadProgress: 100,
       }));
@@ -238,7 +246,13 @@ export default function ImageCaptureInput({ onImageSelected, onBack, intakeType 
       return;
     }
     // Proceed regardless of OCR status - it's optional for auto-fill
-    onImageSelected(imageState.file, imageState.previewUrl, ocrResult, imageState.uploadedUrl);
+    onImageSelected(
+      imageState.file,
+      imageState.previewUrl,
+      ocrResult,
+      imageState.uploadedUrl,
+      imageState.uploadedPath,
+    );
   };
 
   useEffect(() => {
