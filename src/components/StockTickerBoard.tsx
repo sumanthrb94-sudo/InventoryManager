@@ -133,23 +133,46 @@ export default function StockTickerBoard() {
           </span>
         </div>
 
-        {/* Right column — either idle text or marquee. The flex-1 +
-         * overflow-hidden + relative wrapper clips the marquee to its
-         * own column so the scrolling content can't bleed back into
-         * the persistent label on the left. */}
+        {/* Pinned latest entry — always readable, no animation. The
+         * marquee with the older entries scrolls separately in the
+         * remaining space. Shown only when there's at least one
+         * recent removal. */}
+        {!isEmpty && (
+          <div className="flex items-center gap-2 flex-shrink-0 pr-4 border-r border-slate-700 max-w-[45%]">
+            <Trash2 size={12} className="text-orange-400 flex-shrink-0" />
+            <span className="text-[10px] font-mono text-orange-300 uppercase tracking-widest truncate">
+              SHS Unit · {items[0].model} × {items[0].quantity} Removed
+            </span>
+            <span className="text-[10px] font-mono text-amber-400 uppercase tracking-widest font-bold flex-shrink-0">
+              Please Delist
+            </span>
+            <span className="hidden md:inline-flex items-center gap-1 text-[10px] font-mono text-slate-300/80 uppercase tracking-widest flex-shrink-0">
+              <Clock size={10} />
+              {nowTzString(new Date(items[0].removedAt))}
+            </span>
+          </div>
+        )}
+
+        {/* Right column — idle text when no items, or a marquee of any
+         * OLDER entries (the latest one is pinned above). The flex-1
+         * + overflow-hidden + relative wrapper clips the marquee to
+         * its own column so the scrolling content can't bleed back
+         * into the persistent label or the pinned item. */}
         <div className="flex-1 min-w-0 h-full flex items-center overflow-hidden relative">
           {isEmpty ? (
             <span className="text-[10px] font-mono uppercase tracking-widest text-slate-400">
               No delisting actions in the last 48 hours
             </span>
-          ) : (
+          ) : items.length > 1 ? (
             <motion.div
               animate={{ x: ['100%', '-100%'] }}
               transition={{ duration: 120, repeat: Infinity, ease: 'linear' }}
               className="flex gap-8 whitespace-nowrap absolute left-0 will-change-transform"
             >
-              {/* Doubled list for a seamless marquee loop. */}
-              {[...items, ...items].map((item, idx) => (
+              {/* Marquee shows the OLDER entries (skip index 0 — it's
+               * already pinned above). Doubled list for a seamless
+               * loop. */}
+              {[...items.slice(1), ...items.slice(1)].map((item, idx) => (
                 <div key={`${item.id}-${idx}`} className="flex items-center gap-2 flex-shrink-0">
                   <Trash2 size={13} className="text-orange-400" />
                   <span className="text-[10px] font-mono text-orange-300 uppercase tracking-widest">
@@ -165,6 +188,10 @@ export default function StockTickerBoard() {
                 </div>
               ))}
             </motion.div>
+          ) : (
+            <span className="text-[10px] font-mono uppercase tracking-widest text-slate-400/60">
+              No older entries
+            </span>
           )}
         </div>
       </div>

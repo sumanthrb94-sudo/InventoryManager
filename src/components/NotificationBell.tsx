@@ -116,7 +116,12 @@ export default function NotificationBell({ unreadCount }: { unreadCount: number 
               opacity: 1,
               isolation: 'isolate',
             }}
-            className="fixed sm:absolute right-0 bottom-0 sm:top-12 w-full sm:w-80 h-[90vh] sm:h-auto max-h-[90vh] sm:max-h-[600px] bg-white sm:border sm:border-gray-200 rounded-t-3xl sm:rounded-3xl shadow-2xl z-[200] flex flex-col"
+            // Use a CONCRETE height on desktop (sm:h-[560px]) — the
+            // previous `sm:h-auto sm:max-h-[600px]` combo let the
+            // flex-col container shrink to fit, which collapsed the
+            // flex-1 body to 0 height and rendered notifications
+            // invisibly between the header and footer.
+            className="fixed sm:absolute right-0 bottom-0 sm:top-12 w-full sm:w-80 h-[90vh] sm:h-[560px] max-h-[90vh] bg-white sm:border sm:border-gray-200 rounded-t-3xl sm:rounded-3xl shadow-2xl z-[200] flex flex-col"
           >
             {/* Header */}
             <div
