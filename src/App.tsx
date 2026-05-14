@@ -34,11 +34,13 @@ const APP_NAME    = 'MOBILEPHONEMARKET';
 const APP_TAGLINE = 'Inventory Manager';
 
 export default function App() {
-  if (new URLSearchParams(window.location.search).get('seed') === '1') return <DataSeedPage />;
-  return <AppWithAuth />;
+  const seedRequested = new URLSearchParams(window.location.search).get('seed') === '1';
+  // DataSeedPage writes to Firestore — gate it behind auth so unauthenticated
+  // visitors can't see the page or attempt to trigger writes.
+  return <AppWithAuth seedRequested={seedRequested} />;
 }
 
-function AppWithAuth() {
+function AppWithAuth({ seedRequested = false }: { seedRequested?: boolean }) {
   const [user, setUser]       = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
   useEffect(() => onAuthStateChanged(auth, u => { setUser(u); setLoading(false); }), []);
@@ -50,6 +52,7 @@ function AppWithAuth() {
     </div>
   );
   if (!user) return <LoginPage />;
+  if (seedRequested) return <DataSeedPage />;
 
   return (
     <ErrorBoundary>

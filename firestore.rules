@@ -1,7 +1,8 @@
 rules_version = '2';
 
 // Internal inventory tool. Access is restricted to a hard-coded list of
-// authorised staff Google accounts. Edit ADMIN_EMAILS below before deploying.
+// authorised staff accounts (email/password sign-in via Firebase Auth).
+// Edit the email list in `isAdmin()` below before deploying.
 service cloud.firestore {
   match /databases/{database}/documents {
 
@@ -9,11 +10,10 @@ service cloud.firestore {
       return request.auth != null;
     }
 
-    // Replace the placeholder addresses with the real staff Google accounts
-    // before deploying. Email is sourced from the verified Google OAuth token.
+    // Replace the placeholder addresses with the real staff accounts
+    // before deploying. Auth provider: Firebase email/password.
     function isAdmin() {
       return isSignedIn()
-        && request.auth.token.email_verified == true
         && request.auth.token.email in [
              'owner@mobilephonemarket.example',
              'ops@mobilephonemarket.example'
@@ -28,6 +28,10 @@ service cloud.firestore {
     match /dailyUpdates/{updateId}       { allow read, write: if isAdmin(); }
     match /activeListings/{listingId}    { allow read, write: if isAdmin(); }
     match /sourceDocuments/{docId}       { allow read, write: if isAdmin(); }
+
+    // SHS removal audit log — written from StockInPage when pending SHS
+    // groups are removed; read by StockTickerBoard for the live tape.
+    match /shsRemovals/{removalId}       { allow read, write: if isAdmin(); }
 
     // Catch-all: deny anything we haven't explicitly authorised.
     match /{document=**} {
