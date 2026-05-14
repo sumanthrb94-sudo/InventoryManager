@@ -102,6 +102,12 @@ export default function NotificationBell({ unreadCount }: { unreadCount: number 
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: -8, scale: 0.97 }}
             transition={{ duration: 0.15 }}
+            // Inline background as a defensive lock — Tailwind's bg-white
+            // was reportedly rendering transparent in some browsers under
+            // the brand-revamp index.css overlay. Explicit inline always
+            // wins on specificity and we don't want this panel ever
+            // showing the page underneath.
+            style={{ backgroundColor: '#ffffff' }}
             className="fixed sm:absolute right-0 bottom-0 sm:top-12 w-full sm:w-80 h-[90vh] sm:h-auto max-h-[90vh] sm:max-h-[600px] bg-white sm:border sm:border-gray-200 rounded-t-3xl sm:rounded-3xl shadow-2xl z-[200] flex flex-col"
           >
             {/* Header */}
