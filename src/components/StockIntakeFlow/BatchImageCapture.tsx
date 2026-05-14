@@ -1,28 +1,24 @@
-// Bulk intake — capture stage.
+// Bulk intake — per-unit capture wizard.
 //
-// After Color Distribution defines (e.g.) Black ×10, Pink ×3, the
-// operator picks ALL the photos for each colour in one go via the
-// system multi-file picker. We OCR each in parallel, surface the
-// IMEI per image with a confidence pill, let the operator edit /
-// remove any tile, and only advance to Review once every slot is
-// filled (or explicitly skipped).
+// Step-through, one phone at a time. After Color Distribution defines
+// (e.g.) Black ×3, Pink ×2, the operator works the line linearly:
 //
-// Output: one CapturedUnit per planned slot. Skipped slots get a
-// deterministic fallback ID from the parent flow.
+//   Black · Unit 1 of 3 → take/upload photo → OCR → confirm → Next
+//   Black · Unit 2 of 3 → ...
+//   ...
+//   Pink  · Unit 2 of 2 → ... → Continue to Review
+//
+// One image per unit. OCR fills IMEI + model + brand + storage +
+// grade. The operator can edit any field (typically the IMEI) before
+// confirming, or skip the current unit if a photo can't be taken.
 
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useMemo, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import {
-  ChevronLeft, ChevronRight, Upload, Loader2, X, Check,
-  AlertCircle, Image as ImageIcon, Plus, SkipForward,
+  ChevronLeft, ChevronRight, Loader2, X, Check,
+  AlertCircle, Camera, RefreshCcw, SkipForward,
 } from 'lucide-react';
 import { performOCR } from '../../lib/ocr/ocrEngine';
-
-export interface ColourGroup {
-  colour: string;
-  quantity: number;        // how many units of this colour expected
-  startIndex: number;      // first planned-unit index in the batch
-}
 
 export interface PlannedUnit {
   index: number;
@@ -36,10 +32,6 @@ export interface CapturedUnit {
   previewUrl?: string;
   ocrConfidence?: number;
   skipped: boolean;
-  // Per-unit OCR-extracted fields. Bulk intake no longer asks for
-  // model/brand/storage/grade up front — each unit's label provides
-  // them. Empty values are normal; the Review screen lets the operator
-  // fix anything OCR missed.
   model?: string;
   brand?: string;
   storage?: string;
@@ -47,19 +39,17 @@ export interface CapturedUnit {
   colour?: string;
 }
 
-interface CapturedTile {
-  status: 'ready' | 'processing' | 'failed';
-  previewUrl: string;
+interface CurrentTile {
+  status: 'idle' | 'processing' | 'ready' | 'failed';
+  previewUrl?: string;
   imei: string;
   confidence?: number;
-  error?: string;
-  // Hold the rest of the OCR-extracted fields alongside the IMEI so
-  // they can flow into CapturedUnit on submit.
   model?: string;
   brand?: string;
   storage?: string;
   grade?: string;
   ocrColour?: string;
+  error?: string;
 }
 
 interface Props {
@@ -80,203 +70,144 @@ function fileToDataUrl(file: File): Promise<string> {
   });
 }
 
-export default function BatchImageCapture({
-  plannedUnits,
-  baseImei,
-  onSubmit,
-  onBack,
-}: Props) {
-  // Group planned units by colour, preserving batch order.
-  const colourGroups = useMemo<ColourGroup[]>(() => {
-    const groups: ColourGroup[] = [];
-    for (let i = 0; i < plannedUnits.length; i++) {
-      const last = groups[groups.length - 1];
-      if (last && last.colour === plannedUnits[i].colour) {
-        last.quantity++;
-      } else {
-        groups.push({ colour: plannedUnits[i].colour, quantity: 1, startIndex: i });
-      }
-    }
-    return groups;
-  }, [plannedUnits]);
+const emptyTile = (): CurrentTile => ({ status: 'idle', imei: '' });
 
-  // tiles[colour] = array of length `quantity`, each entry maybe-undefined.
-  const [tiles, setTiles] = useState<Record<string, (CapturedTile | undefined)[]>>(() => {
-    const init: Record<string, (CapturedTile | undefined)[]> = {};
-    for (const g of colourGroups) init[g.colour] = Array(g.quantity).fill(undefined);
-    return init;
-  });
-  const [error, setError] = useState('');
+export default function BatchImageCapture({ plannedUnits, baseImei, onSubmit, onBack }: Props) {
+  const [currentIdx, setCurrentIdx] = useState(0);
+  const [captured, setCaptured]     = useState<Record<number, CapturedUnit>>({});
+  const [tile, setTile]             = useState<CurrentTile>(emptyTile);
+  const [error, setError]           = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const fileInputRef                = useRef<HTMLInputElement | null>(null);
 
-  const totalSlots = plannedUnits.length;
-  const filledSlots = useMemo(
-    () => Object.values(tiles).reduce(
-      (sum: number, arr: (CapturedTile | undefined)[]) => sum + arr.filter(Boolean).length,
-      0,
-    ),
-    [tiles],
-  );
+  const total      = plannedUnits.length;
+  const planned    = plannedUnits[currentIdx];
+  const completed  = Object.keys(captured).length;
+  const isLast     = currentIdx >= total - 1;
 
-  // Lazy per-colour file-input ref so the system picker only opens for
-  // the colour the operator tapped.
-  const inputRefs = useRef<Record<string, HTMLInputElement | null>>({});
-
-  const pickFiles = (colour: string) => {
-    const el = inputRefs.current[colour];
-    if (el) {
-      el.value = ''; // allow re-picking the same file later
-      el.click();
+  // Per-colour position so the header reads "Black · Unit 2 of 3" for
+  // the operator. We compute by walking the planned list — cheap, no
+  // memo needed for sane batch sizes.
+  const colourPosition = useMemo(() => {
+    if (!planned) return { ofN: 0, totalN: 0 };
+    let ofN = 0;
+    let totalN = 0;
+    for (let i = 0; i < plannedUnits.length; i++) {
+      if (plannedUnits[i].colour === planned.colour) {
+        totalN++;
+        if (i <= currentIdx) ofN++;
+      }
     }
-  };
+    return { ofN, totalN };
+  }, [planned, plannedUnits, currentIdx]);
 
-  const handleFilesChosen = async (colour: string, fileList: FileList | null) => {
-    if (!fileList || !fileList.length) return;
-    setError('');
-
-    const group = colourGroups.find(g => g.colour === colour);
-    if (!group) return;
-
-    const existing = tiles[colour] || [];
-    // First find the empty slot indices, in order. Fill those first.
-    const emptyIndices: number[] = [];
-    existing.forEach((t, i) => { if (!t) emptyIndices.push(i); });
-
-    const files = Array.from(fileList);
-    const acceptCount = Math.min(files.length, emptyIndices.length);
-    if (files.length > emptyIndices.length) {
-      setError(
-        `Picked ${files.length} image${files.length !== 1 ? 's' : ''} but only ${emptyIndices.length} slot${emptyIndices.length !== 1 ? 's' : ''} left for ${colour}. Extras ignored.`,
-      );
-    }
-
-    // Seed placeholders synchronously so the grid reflects the work in
-    // progress, then OCR each one.
-    const accepted = files.slice(0, acceptCount);
-    const placeholderUrls = await Promise.all(accepted.map(fileToDataUrl));
-    setTiles(prev => {
-      const next = { ...prev };
-      const arr = [...(next[colour] || [])];
-      accepted.forEach((_, i) => {
-        const slot = emptyIndices[i];
-        arr[slot] = {
-          status: 'processing',
-          previewUrl: placeholderUrls[i],
-          imei: '',
-        };
+  // When stepping to a new index, hydrate the tile state from any
+  // already-captured value so the operator sees what they had before
+  // (and can re-confirm or edit). On a fresh slot, reset to empty.
+  React.useEffect(() => {
+    const prev = captured[currentIdx];
+    if (prev && !prev.skipped) {
+      setTile({
+        status:    'ready',
+        previewUrl: prev.previewUrl,
+        imei:      prev.imei,
+        confidence: prev.ocrConfidence,
+        model:     prev.model,
+        brand:     prev.brand,
+        storage:   prev.storage,
+        grade:     prev.grade,
+        ocrColour: prev.colour,
       });
-      next[colour] = arr;
-      return next;
-    });
-
-    // Now OCR each in parallel; update tiles as each resolves.
-    accepted.forEach((file, i) => {
-      const slot = emptyIndices[i];
-      performOCR(file)
-        .then(result => {
-          const detected = normaliseImei(result.device?.imei?.value || '');
-          const d = result.device;
-          // Confidence gate per field: same threshold the single-unit
-          // flow uses for OCR prefill. Anything below is left blank so
-          // the operator notices on Review rather than trusting bad data.
-          const pickIf = (field?: { value: string; confidence: number }) =>
-            field && field.confidence >= 0.6 && field.value.trim() ? field.value.trim() : undefined;
-          setTiles(prev => {
-            const arr = [...(prev[colour] || [])];
-            if (arr[slot]) {
-              arr[slot] = {
-                ...arr[slot]!,
-                status: 'ready',
-                imei: detected,
-                confidence: result.confidence,
-                model:     pickIf(d?.model),
-                brand:     pickIf(d?.brand),
-                storage:   pickIf(d?.storage),
-                grade:     pickIf(d?.grade),
-                ocrColour: pickIf(d?.colour),
-              };
-            }
-            return { ...prev, [colour]: arr };
-          });
-        })
-        .catch(err => {
-          console.warn('[BatchCapture] OCR failed:', err?.message);
-          setTiles(prev => {
-            const arr = [...(prev[colour] || [])];
-            if (arr[slot]) {
-              arr[slot] = {
-                ...arr[slot]!,
-                status: 'failed',
-                imei: '',
-                error: 'Couldn\'t read label; type IMEI or remove',
-              };
-            }
-            return { ...prev, [colour]: arr };
-          });
-        });
-    });
-  };
-
-  const removeTile = (colour: string, slot: number) => {
-    setTiles(prev => {
-      const arr = [...(prev[colour] || [])];
-      arr[slot] = undefined;
-      return { ...prev, [colour]: arr };
-    });
-    setError('');
-  };
-
-  const setTileImei = (colour: string, slot: number, value: string) => {
-    setTiles(prev => {
-      const arr = [...(prev[colour] || [])];
-      if (arr[slot]) {
-        arr[slot] = { ...arr[slot]!, imei: value.replace(/\D/g, '').slice(0, 17) };
-      }
-      return { ...prev, [colour]: arr };
-    });
-  };
-
-  const handleSubmit = () => {
-    setError('');
-    // Build the CapturedUnit[] using the plannedUnits ordering.
-    const captured: CapturedUnit[] = [];
-    for (const g of colourGroups) {
-      const arr = tiles[g.colour] || [];
-      for (let i = 0; i < g.quantity; i++) {
-        const t = arr[i];
-        const planned = plannedUnits[g.startIndex + i];
-        if (!t) {
-          captured.push({ index: planned.index, imei: planned.unitId, skipped: true });
-        } else {
-          const trimmed = normaliseImei(t.imei);
-          const finalImei =
-            trimmed.length >= 14
-              ? trimmed
-              : baseImei
-              ? `${normaliseImei(baseImei)}-${String(planned.index + 1).padStart(3, '0')}`
-              : planned.unitId;
-          captured.push({
-            index: planned.index,
-            imei: finalImei,
-            previewUrl: t.previewUrl,
-            ocrConfidence: t.confidence,
-            skipped: false,
-            model:   t.model,
-            brand:   t.brand,
-            storage: t.storage,
-            grade:   t.grade,
-            colour:  t.ocrColour,
-          });
-        }
-      }
+    } else {
+      setTile(emptyTile());
     }
-    // IMEI duplicate-within-batch check.
+    setError('');
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentIdx]);
+
+  const pickFile = () => {
+    if (!fileInputRef.current) return;
+    fileInputRef.current.value = '';
+    fileInputRef.current.click();
+  };
+
+  const handleFile = async (file: File) => {
+    setError('');
+    const previewUrl = await fileToDataUrl(file);
+    setTile({ status: 'processing', previewUrl, imei: '' });
+    try {
+      const result = await performOCR(file);
+      const d = result.device;
+      const detectedImei = normaliseImei(d?.imei?.value || '');
+      const pickIf = (field?: { value: string; confidence: number }) =>
+        field && field.confidence >= 0.6 && field.value.trim() ? field.value.trim() : undefined;
+      setTile({
+        status:    'ready',
+        previewUrl,
+        imei:      detectedImei,
+        confidence: result.confidence,
+        model:     pickIf(d?.model),
+        brand:     pickIf(d?.brand),
+        storage:   pickIf(d?.storage),
+        grade:     pickIf(d?.grade),
+        ocrColour: pickIf(d?.colour),
+      });
+    } catch (err: any) {
+      console.warn('[BatchCapture] OCR failed:', err?.message);
+      setTile({
+        status:    'failed',
+        previewUrl,
+        imei:      '',
+        error:     "Couldn't read label. Type the IMEI manually.",
+      });
+    }
+  };
+
+  const retake = () => {
+    setTile(emptyTile());
+    setError('');
+  };
+
+  const persistCurrent = (skipped: boolean): CapturedUnit => {
+    const trimmed = normaliseImei(tile.imei);
+    const finalImei = skipped
+      ? planned.unitId
+      : trimmed.length >= 14
+        ? trimmed
+        : baseImei
+          ? `${normaliseImei(baseImei)}-${String(planned.index + 1).padStart(3, '0')}`
+          : planned.unitId;
+    const entry: CapturedUnit = skipped
+      ? { index: planned.index, imei: planned.unitId, skipped: true }
+      : {
+          index: planned.index,
+          imei: finalImei,
+          previewUrl: tile.previewUrl,
+          ocrConfidence: tile.confidence,
+          skipped: false,
+          model:   tile.model,
+          brand:   tile.brand,
+          storage: tile.storage,
+          grade:   tile.grade,
+          colour:  tile.ocrColour,
+        };
+    setCaptured(prev => ({ ...prev, [planned.index]: entry }));
+    return entry;
+  };
+
+  const finalise = (afterCurrent: CapturedUnit) => {
+    // Build the full ordered array, substituting the just-confirmed
+    // entry for the current slot since React state batching may not
+    // have flushed yet.
+    const out: CapturedUnit[] = plannedUnits.map(p => {
+      if (p.index === planned.index) return afterCurrent;
+      return captured[p.index] || { index: p.index, imei: p.unitId, skipped: true };
+    });
+    // Within-batch IMEI duplicate guard — same rule as before.
     const seen = new Map<string, number>();
-    for (const c of captured) {
+    for (const c of out) {
       const k = normaliseImei(c.imei);
-      if (k && k.length >= 14) {
-        seen.set(k, (seen.get(k) || 0) + 1);
-      }
+      if (k && k.length >= 14) seen.set(k, (seen.get(k) || 0) + 1);
     }
     const dupes = Array.from(seen.entries()).filter(([, n]) => n > 1).map(([k]) => k);
     if (dupes.length) {
@@ -284,140 +215,229 @@ export default function BatchImageCapture({
       return;
     }
     setSubmitting(true);
-    onSubmit(captured);
+    onSubmit(out);
   };
 
-  const [activeColourIdx, setActiveColourIdx] = useState(0);
-  const activeGroup = colourGroups[activeColourIdx];
-  const isLastColour = activeColourIdx >= colourGroups.length - 1;
-
-  const handleSkipAll = () => {
-    // Mark every empty slot as skipped explicitly. Tiles that already
-    // have an image come through normally.
-    handleSubmit();
-  };
-
-  const advanceColourOrSubmit = () => {
-    setError('');
-    if (isLastColour) {
-      handleSubmit();
+  const confirmAndNext = () => {
+    if (tile.status === 'idle') {
+      setError('Take or upload a photo first, or use Skip.');
+      return;
+    }
+    if (tile.status === 'processing') {
+      setError('OCR still running — wait for it to finish.');
+      return;
+    }
+    const trimmed = normaliseImei(tile.imei);
+    // OCR-failed path is allowed through if the operator typed an IMEI
+    // manually; otherwise nudge them to type or skip.
+    if (tile.status === 'failed' && trimmed.length < 14) {
+      setError('Type a valid IMEI (≥14 digits) or click Skip.');
+      return;
+    }
+    const entry = persistCurrent(false);
+    if (isLast) {
+      finalise(entry);
     } else {
-      setActiveColourIdx(i => i + 1);
+      setCurrentIdx(i => i + 1);
     }
   };
 
-  const goPrevColour = () => {
-    setError('');
-    if (activeColourIdx === 0) onBack();
-    else setActiveColourIdx(i => i - 1);
+  const skipCurrent = () => {
+    const entry = persistCurrent(true);
+    if (isLast) {
+      finalise(entry);
+    } else {
+      setCurrentIdx(i => i + 1);
+    }
   };
+
+  const goPrev = () => {
+    setError('');
+    if (currentIdx === 0) {
+      onBack();
+      return;
+    }
+    setCurrentIdx(i => i - 1);
+  };
+
+  if (!planned) {
+    return (
+      <div className="text-sm text-gray-500">No planned units in this batch.</div>
+    );
+  }
 
   return (
     <div className="space-y-5">
-      {/* Overall progress across every colour */}
+      {/* Overall progress */}
       <div className="space-y-2">
         <div className="flex items-center justify-between">
           <p className="text-[10px] font-bold uppercase tracking-widest text-gray-500">
-            Colour {activeColourIdx + 1} of {colourGroups.length}
+            {planned.colour} · Unit {colourPosition.ofN} of {colourPosition.totalN}
           </p>
           <p className="text-[10px] font-mono text-gray-500">
-            {filledSlots} / {totalSlots} captured overall
+            {completed} / {total} captured
           </p>
         </div>
         <div className="h-1.5 bg-gray-100 rounded-full overflow-hidden">
           <div
             className="h-full bg-blue-600 transition-all"
-            style={{ width: `${totalSlots ? (filledSlots / totalSlots) * 100 : 0}%` }}
+            style={{ width: `${total ? (completed / total) * 100 : 0}%` }}
           />
         </div>
-        {/* Per-colour pip strip — shows which colours are complete */}
-        <div className="flex items-center gap-1 pt-1">
-          {colourGroups.map((g, i) => {
-            const arr: (CapturedTile | undefined)[] = tiles[g.colour] || Array(g.quantity).fill(undefined);
-            const filled = arr.filter(Boolean).length;
-            const complete = filled === g.quantity;
-            const active = i === activeColourIdx;
+        {/* Per-unit pip strip — operator can jump back to any prior unit */}
+        <div className="flex items-center gap-1 pt-1 overflow-x-auto pb-1">
+          {plannedUnits.map((p, i) => {
+            const c = captured[p.index];
+            const state = i === currentIdx
+              ? 'active'
+              : !c
+                ? 'pending'
+                : c.skipped
+                  ? 'skipped'
+                  : 'done';
+            const cls =
+              state === 'active'   ? 'bg-slate-900 text-white' :
+              state === 'done'     ? 'bg-emerald-100 text-emerald-700' :
+              state === 'skipped'  ? 'bg-gray-200 text-gray-500'        :
+                                     'bg-gray-100 text-gray-400 hover:bg-gray-200';
             return (
               <button
-                key={g.colour}
+                key={p.index}
                 type="button"
-                onClick={() => { setActiveColourIdx(i); setError(''); }}
-                className={`flex-1 text-[9px] font-mono uppercase tracking-widest px-1.5 py-1 rounded transition-all truncate ${
-                  active
-                    ? 'bg-slate-900 text-white'
-                    : complete
-                    ? 'bg-emerald-100 text-emerald-700'
-                    : filled > 0
-                    ? 'bg-amber-100 text-amber-700'
-                    : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
-                }`}
-                title={`${g.colour} — ${filled}/${g.quantity}`}
+                onClick={() => setCurrentIdx(i)}
+                className={`flex-shrink-0 text-[9px] font-mono uppercase tracking-widest px-2 py-1 rounded transition-all ${cls}`}
+                title={`${p.colour} · #${i + 1}${c ? (c.skipped ? ' · skipped' : ` · ${c.imei.slice(-6)}`) : ' · pending'}`}
               >
-                {g.colour} {filled}/{g.quantity}
+                {String(i + 1).padStart(2, '0')}
               </button>
             );
           })}
         </div>
       </div>
 
-      {/* Active colour's section — focused, one at a time */}
-      {(() => {
-        const group = activeGroup;
-        const arr: (CapturedTile | undefined)[] = tiles[group.colour] || Array(group.quantity).fill(undefined);
-        const captured = arr.filter(Boolean).length;
-        const remaining = group.quantity - captured;
-        return (
-          <div className="border border-gray-200 rounded-2xl overflow-hidden">
-            <div className="flex items-center justify-between px-4 py-3 bg-gray-50 border-b border-gray-200">
-              <div className="min-w-0">
-                <p className="text-sm font-bold truncate">{group.colour}</p>
-                <p className="text-[10px] font-mono text-gray-500">
-                  {captured} of {group.quantity} captured
-                  {remaining > 0 ? ` · ${remaining} remaining` : ' · complete'}
+      {/* Image stage — one big drop-zone OR the captured preview */}
+      <div className="border border-gray-200 rounded-2xl overflow-hidden">
+        <AnimatePresence mode="wait">
+          {tile.status === 'idle' && (
+            <motion.div
+              key="idle"
+              initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+              className="aspect-[4/3] bg-gray-50 flex flex-col items-center justify-center gap-3 cursor-pointer hover:bg-gray-100 transition"
+              onClick={pickFile}
+            >
+              <div className="w-14 h-14 rounded-full bg-blue-100 flex items-center justify-center text-blue-600">
+                <Camera size={22} />
+              </div>
+              <div className="text-center px-6">
+                <p className="text-sm font-bold text-gray-800">Take or upload one photo</p>
+                <p className="text-[11px] text-gray-500 mt-1">
+                  Aim at the device's IMEI / model label. We'll OCR it.
                 </p>
               </div>
               <button
                 type="button"
-                onClick={() => pickFiles(group.colour)}
-                disabled={remaining <= 0}
-                className="flex items-center gap-1.5 px-3 py-2 bg-blue-600 text-white rounded-lg text-[10px] font-bold uppercase tracking-widest hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed flex-shrink-0"
+                onClick={(e) => { e.stopPropagation(); pickFile(); }}
+                className="px-4 py-2 bg-blue-600 text-white rounded-lg text-[11px] font-bold uppercase tracking-widest hover:bg-blue-700"
               >
-                <Plus size={12} />
-                Add images
+                Open camera / picker
               </button>
-              <input
-                ref={el => { inputRefs.current[group.colour] = el; }}
-                type="file"
-                accept="image/*"
-                multiple
-                capture="environment"
-                className="hidden"
-                onChange={e => handleFilesChosen(group.colour, e.target.files)}
-              />
-            </div>
+            </motion.div>
+          )}
 
-            {/* Grid of slots for this colour only */}
-            <div className="p-3 grid grid-cols-3 sm:grid-cols-4 gap-2">
-              {arr.map((tile, slot) => (
-                <CaptureTile
-                  key={slot}
-                  tile={tile}
-                  onRemove={() => removeTile(group.colour, slot)}
-                  onImeiChange={v => setTileImei(group.colour, slot, v)}
-                />
-              ))}
-            </div>
-
-            {remaining > 0 && captured === 0 && (
-              <div className="px-4 pb-3 -mt-1">
-                <p className="text-[10px] text-gray-500 leading-relaxed">
-                  Pick all {group.quantity} {group.colour.toLowerCase()} unit photos at once — system will OCR each in parallel and you can edit any IMEI before continuing.
-                </p>
+          {(tile.status === 'processing' || tile.status === 'ready' || tile.status === 'failed') && (
+            <motion.div
+              key="captured"
+              initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+              className="grid grid-cols-1 md:grid-cols-[3fr_4fr]"
+            >
+              {/* Left: image preview */}
+              <div className="relative aspect-[4/3] md:aspect-auto md:min-h-[260px] bg-black">
+                {tile.previewUrl && (
+                  <img src={tile.previewUrl} alt="" className="absolute inset-0 w-full h-full object-contain" />
+                )}
+                {tile.status === 'processing' && (
+                  <div className="absolute inset-0 bg-black/60 flex flex-col items-center justify-center text-white text-[10px] font-mono uppercase tracking-widest gap-1.5">
+                    <Loader2 size={20} className="animate-spin" />
+                    Reading label…
+                  </div>
+                )}
               </div>
-            )}
-          </div>
-        );
-      })()}
+
+              {/* Right: detected fields */}
+              <div className="p-4 space-y-3 bg-white">
+                <div className="flex items-center justify-between">
+                  <p className="text-[10px] font-bold uppercase tracking-widest text-gray-500">
+                    Detected
+                  </p>
+                  {tile.confidence != null && (
+                    <span className={`text-[10px] font-mono px-2 py-0.5 rounded ${
+                      tile.confidence >= 0.7 ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'
+                    }`}>
+                      OCR {Math.round(tile.confidence * 100)}%
+                    </span>
+                  )}
+                </div>
+
+                {/* IMEI — primary editable field */}
+                <div>
+                  <label className="block text-[10px] font-mono uppercase tracking-widest text-gray-500 mb-1">
+                    IMEI
+                  </label>
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    value={tile.imei}
+                    onChange={e => setTile(t => ({ ...t, imei: e.target.value.replace(/\D/g, '').slice(0, 17) }))}
+                    placeholder={tile.status === 'failed' ? 'Type IMEI manually' : '14-15 digits'}
+                    className={`w-full px-3 py-2 text-sm font-mono rounded-lg border focus:outline-none focus:ring-2 focus:ring-blue-500 ${
+                      tile.status === 'failed' && tile.imei.length < 14 ? 'border-red-300 bg-red-50' : 'border-gray-200'
+                    }`}
+                    autoFocus={tile.status === 'failed' || (tile.status === 'ready' && !tile.imei)}
+                  />
+                </div>
+
+                {/* Other detected fields — read-only here; full editing
+                 * happens on the Review screen. Showing them gives the
+                 * operator a quick "did OCR get it right" sanity check. */}
+                <div className="grid grid-cols-2 gap-2 pt-1">
+                  <FieldRow label="Model"   value={tile.model} />
+                  <FieldRow label="Brand"   value={tile.brand} />
+                  <FieldRow label="Storage" value={tile.storage} />
+                  <FieldRow label="Grade"   value={tile.grade} />
+                </div>
+
+                {tile.status === 'failed' && tile.error && (
+                  <div className="flex items-start gap-2 p-2 bg-red-50 border border-red-200 rounded-lg">
+                    <AlertCircle size={12} className="text-red-600 mt-0.5 flex-shrink-0" />
+                    <p className="text-[11px] text-red-700">{tile.error}</p>
+                  </div>
+                )}
+
+                <button
+                  type="button"
+                  onClick={retake}
+                  className="w-full flex items-center justify-center gap-1.5 py-2 border border-gray-200 rounded-lg text-[11px] font-mono uppercase tracking-widest text-gray-600 hover:bg-gray-50"
+                >
+                  <RefreshCcw size={11} />
+                  Retake / pick different image
+                </button>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="image/*"
+          capture="environment"
+          className="hidden"
+          onChange={e => {
+            const f = e.target.files?.[0];
+            if (f) handleFile(f);
+          }}
+        />
+      </div>
 
       {error && (
         <div className="flex items-start gap-2 p-3 bg-red-50 border border-red-200 rounded-lg">
@@ -426,107 +446,53 @@ export default function BatchImageCapture({
         </div>
       )}
 
-      {/* Navigation — per-colour Prev/Next, final colour switches to Continue */}
+      {/* Navigation */}
       <div className="flex items-center gap-2 pt-2 border-t border-gray-100">
         <button
           type="button"
-          onClick={goPrevColour}
+          onClick={goPrev}
           disabled={submitting}
           className="flex-shrink-0 py-3 px-4 border border-gray-200 rounded-xl text-[11px] font-bold uppercase tracking-widest text-gray-600 hover:bg-gray-50 disabled:opacity-50 flex items-center gap-1.5"
         >
           <ChevronLeft size={14} />
-          {activeColourIdx === 0 ? 'Back' : 'Prev colour'}
+          {currentIdx === 0 ? 'Back' : 'Prev unit'}
         </button>
 
         <button
           type="button"
-          onClick={handleSkipAll}
+          onClick={skipCurrent}
           disabled={submitting}
           className="flex-shrink-0 py-3 px-4 border border-gray-200 rounded-xl text-[11px] font-bold uppercase tracking-widest text-gray-500 hover:bg-gray-50 disabled:opacity-50 flex items-center gap-1.5"
-          title="Skip remaining empty slots in every colour and go to review"
+          title="Skip this unit and continue"
         >
           <SkipForward size={13} />
-          Skip rest
+          Skip
         </button>
 
         <button
           type="button"
-          onClick={advanceColourOrSubmit}
-          disabled={submitting}
+          onClick={confirmAndNext}
+          disabled={submitting || tile.status === 'processing'}
           className="flex-1 py-3 px-4 bg-blue-600 text-white rounded-xl text-[11px] font-bold uppercase tracking-widest hover:bg-blue-700 transition-all disabled:bg-gray-300 disabled:cursor-not-allowed flex items-center justify-center gap-2"
         >
           {submitting
             ? <><Loader2 size={14} className="animate-spin" /> Processing…</>
-            : isLastColour
-            ? <><Check size={14} /> Continue to Review</>
-            : <>Next colour <ChevronRight size={14} /></>}
+            : isLast
+              ? <><Check size={14} /> Confirm & Continue to Review</>
+              : <>Confirm & Next Unit <ChevronRight size={14} /></>}
         </button>
       </div>
     </div>
   );
 }
-function CaptureTile({
-  tile,
-  onRemove,
-  onImeiChange,
-}: {
-  tile: CapturedTile | undefined;
-  onRemove: () => void;
-  onImeiChange: (v: string) => void;
-}) {
-  if (!tile) {
-    return (
-      <div className="aspect-square border-2 border-dashed border-gray-200 rounded-xl flex items-center justify-center text-gray-300">
-        <ImageIcon size={20} />
-      </div>
-    );
-  }
+
+function FieldRow({ label, value }: { label: string; value?: string }) {
   return (
-    <div className="aspect-square relative rounded-xl overflow-hidden bg-gray-100 group">
-      <img src={tile.previewUrl} alt="" className="w-full h-full object-cover" />
-      {tile.status === 'processing' && (
-        <div className="absolute inset-0 bg-black/50 flex flex-col items-center justify-center text-white text-[10px] font-mono uppercase tracking-widest gap-1">
-          <Loader2 size={16} className="animate-spin" />
-          Reading…
-        </div>
-      )}
-      {tile.status === 'ready' && (
-        <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/90 via-black/60 to-transparent p-1.5 space-y-0.5">
-          <input
-            type="text"
-            inputMode="numeric"
-            value={tile.imei}
-            onChange={e => onImeiChange(e.target.value)}
-            placeholder="IMEI"
-            className="w-full text-[9px] font-mono text-white bg-transparent border-0 placeholder:text-white/40 focus:outline-none"
-          />
-          {tile.confidence != null && (
-            <p className="text-[8px] font-mono text-emerald-300">
-              OCR {Math.round(tile.confidence * 100)}%
-            </p>
-          )}
-        </div>
-      )}
-      {tile.status === 'failed' && (
-        <div className="absolute inset-x-0 bottom-0 bg-red-700/95 p-1">
-          <input
-            type="text"
-            inputMode="numeric"
-            value={tile.imei}
-            onChange={e => onImeiChange(e.target.value)}
-            placeholder="Type IMEI"
-            className="w-full text-[9px] font-mono text-white bg-transparent border-0 placeholder:text-white/60 focus:outline-none"
-          />
-        </div>
-      )}
-      <button
-        type="button"
-        onClick={onRemove}
-        className="absolute top-1 right-1 bg-black/70 hover:bg-red-600 text-white p-1 rounded-full opacity-100 group-hover:opacity-100 transition-all"
-        aria-label="Remove image"
-      >
-        <X size={10} />
-      </button>
+    <div className="px-2 py-1.5 bg-gray-50 rounded">
+      <p className="text-[9px] font-mono uppercase tracking-widest text-gray-400">{label}</p>
+      <p className={`text-[11px] font-mono mt-0.5 truncate ${value ? 'text-gray-800' : 'text-gray-300'}`}>
+        {value || '—'}
+      </p>
     </div>
   );
 }
