@@ -1,0 +1,31 @@
+rules_version = '2';
+
+// Firebase Storage rules for the inventory manager.
+// Mirrors the Firestore admin allow-list policy. Replace the placeholder
+// emails before deploy. Deploy with: firebase deploy --only storage
+service firebase.storage {
+  match /b/{bucket}/o {
+
+    function isAdmin() {
+      return request.auth != null
+        && request.auth.token.email in [
+             'owner@mobilephonemarket.example',
+             'ops@mobilephonemarket.example'
+           ];
+    }
+
+    // Stock intake images — uploaded by ImageCaptureInput before OCR.
+    // No size cap: OCR can need higher-resolution scans.
+    match /stock-intake/{file=**} {
+      allow read:   if isAdmin();
+      allow write:  if isAdmin()
+                       && request.resource.contentType.matches('image/.*');
+      allow delete: if isAdmin();
+    }
+
+    // Catch-all deny — anything not explicitly allowed above is closed.
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}

@@ -16,14 +16,16 @@ Everything that **must** be done before the first deploy, in order.
   ```
   (requires `firebase-admin` service-account JSON; see `scripts/create-team-users.cjs`).
 
-## 3. Firestore rules — REQUIRED EDIT
+## 3. Firestore + Storage rules — REQUIRED EDIT
 
-- [ ] **Edit `firestore.rules` lines 17–20**: replace the placeholder admin emails
-  (`owner@mobilephonemarket.example`, `ops@mobilephonemarket.example`) with the real Firebase Auth admin email(s).
-  Without this, **no one passes `isAdmin()` and the entire app is locked out**.
-- [ ] Deploy rules:
+Both `firestore.rules` and `storage.rules` ship with placeholder admin emails.
+
+- [ ] **Edit `firestore.rules` lines 17–20** and **`storage.rules` lines 13–16**: replace the placeholder
+  emails (`owner@mobilephonemarket.example`, `ops@mobilephonemarket.example`) with the real Firebase Auth
+  admin email(s). Without this, **no one passes `isAdmin()` and the entire app is locked out**.
+- [ ] Deploy both rule sets:
   ```
-  firebase deploy --only firestore:rules
+  firebase deploy --only firestore:rules,storage
   ```
 
 ## 4. Firebase App Check (recommended)
@@ -35,8 +37,8 @@ Everything that **must** be done before the first deploy, in order.
 
 - [ ] Connect this repo to a Vercel project.
 - [ ] Set environment variables in Vercel project settings:
-  - `VITE_IMGBB_API_KEY` — imgbb upload token (note: this is bundled into the SPA, so it's effectively public; rotate periodically).
   - `GEMINI_API_KEY` — if AI features are used.
+  - (Image uploads use Firebase Storage via the signed-in operator session — no upload token needed.)
 - [ ] First deploy command (auto-detected): `npm run build` → `dist/`.
 
 ## 6. Post-deploy smoke test
@@ -61,9 +63,9 @@ Everything that **must** be done before the first deploy, in order.
 These are intentional for the current "internal testing" phase:
 
 - **No server-side purge job.** Soft-deleted rows are hard-deleted by the client when any operator is online with the app open. If no one opens the app for >48 h the deleted rows persist in Firestore. Add a scheduled Cloud Function (`functions/` directory) on the Blaze plan if this matters.
-- **imgbb API key is bundled.** Vite `VITE_*` vars are always public. imgbb is free-tier; abuse cost is essentially zero. Replace with Firebase Storage if/when uploads become high-volume.
-- **Single admin allow-list.** Multi-user support is descoped for now — edit the email list in `firestore.rules` to add staff.
-- **Cloud Function scheduled cron** for purge / sweep is not deployed (see first bullet).
+- **No auto-cleanup of uploaded images.** `ImageCaptureInput` uploads to `stock-intake/` in Firebase Storage and the URL is persisted on the unit record. Nothing currently deletes the underlying file. If you want OCR-only / transient images, decide whether to (a) stop persisting `imageUrl`, or (b) add a scheduled sweep.
+- **Single admin allow-list.** Multi-user support is descoped for now — edit the email list in `firestore.rules` and `storage.rules` to add staff.
+- **Cloud Function scheduled cron** for purge / sweep is not deployed (see first bullets).
 
 ## Useful commands
 
