@@ -9,6 +9,8 @@ import { dbService } from '../lib/dbService';
 import { InventoryUnit } from '../types';
 import { useInventoryStore } from '../lib/inventoryStore';
 import { notificationService } from '../lib/notificationService';
+import { groupIdenticalUnits } from '../lib/unitGroups';
+import ColourBreakdown from './ColourBreakdown';
 import CopyImei from './CopyImei';
 import {
   PLATFORM_LIST, PLATFORMS, DEFAULT_POSTAGE_COST,
@@ -516,31 +518,47 @@ export default function SellPage() {
             </p>
           </div>
           <div className="divide-y divide-gray-50">
-            {shsUnits.map(u => (
-              <div key={u.id} className="flex items-center gap-3 px-4 py-3 hover:bg-amber-50/50 transition-all">
-                <div className="w-8 h-8 bg-amber-100 rounded-lg flex items-center justify-center flex-shrink-0">
+            {groupIdenticalUnits(shsUnits).map(g => {
+              const u = g.representative;
+              return (
+              <div key={g.key} className="flex items-start gap-3 px-4 py-3 hover:bg-amber-50/50 transition-all">
+                <div className="relative w-8 h-8 bg-amber-100 rounded-lg flex items-center justify-center flex-shrink-0 mt-0.5">
                   <Truck size={14} className="text-amber-600" />
+                  {g.count > 1 && (
+                    <span className="absolute -top-1.5 -right-1.5 min-w-[18px] h-[18px] px-1 rounded-full bg-amber-500 text-white text-[9px] font-bold flex items-center justify-center">
+                      ×{g.count}
+                    </span>
+                  )}
                 </div>
                 <div className="flex-1 min-w-0">
-                  <p className="text-xs font-bold truncate">{u.model}</p>
+                  <p className="text-xs font-bold truncate">
+                    {u.model}{g.count > 1 ? <span className="ml-1 text-amber-600 font-mono">× {g.count}</span> : null}
+                  </p>
                   <p className="text-[9px] text-gray-400 font-mono mt-0.5 truncate">
-                    {u.colour && u.colour !== 'Unknown' ? u.colour : ''}
-                    {u.storage ? ` · ${u.storage}` : ''}
+                    {g.colours.length === 1 && u.colour && u.colour !== 'Unknown'
+                      ? <>{u.colour}{u.storage ? ` · ${u.storage}` : ''}</>
+                      : <>{g.colours.length} colours{u.storage ? ` · ${u.storage}` : ''}</>}
                     {' · '}BP £{u.buyPrice}
                     {' · '}{supplierMap[u.supplierId] || 'Supplier'}
                   </p>
                   {u.notes && u.notes !== 'SHS — Expected stock' && (
                     <p className="text-[8px] text-amber-600 font-mono truncate mt-0.5">{u.notes}</p>
                   )}
+                  <ColourBreakdown
+                    colours={g.colours}
+                    accentClass="bg-amber-500 text-white"
+                    onPickColour={entry => { setSelected(entry.units[0]); setSelectedIsSHS(true); }}
+                  />
                 </div>
                 <button
                   onClick={() => { setSelected(u); setSelectedIsSHS(true); }}
-                  className="px-3 py-1.5 bg-amber-500 text-white rounded-lg text-[9px] font-bold uppercase tracking-widest hover:bg-amber-600 transition-all flex items-center gap-1 flex-shrink-0"
+                  className="px-3 py-1.5 bg-amber-500 text-white rounded-lg text-[9px] font-bold uppercase tracking-widest hover:bg-amber-600 transition-all flex items-center gap-1 flex-shrink-0 mt-0.5"
                 >
                   Record Sale <ChevronRight size={11} />
                 </button>
               </div>
-            ))}
+              );
+            })}
           </div>
         </CollapsibleSection>
       )}

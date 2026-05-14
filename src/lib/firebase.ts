@@ -1,9 +1,10 @@
 import { initializeApp } from 'firebase/app';
 import {
   getAuth,
-  GoogleAuthProvider,
-  signInWithPopup,
+  signInWithEmailAndPassword,
   signOut as fbSignOut,
+  setPersistence,
+  browserLocalPersistence,
 } from 'firebase/auth';
 import { getFirestore } from 'firebase/firestore';
 import { getStorage } from 'firebase/storage';
@@ -14,11 +15,16 @@ export const db      = getFirestore(app, firebaseConfig.firestoreDatabaseId);
 export const storage = getStorage(app, firebaseConfig.storageBucket);
 export const auth    = getAuth(app);
 
-export const googleProvider = new GoogleAuthProvider();
+// Keep the session across reloads / new tabs until the user explicitly
+// signs out. Without this, refresh would bounce the operator back to
+// the login screen.
+setPersistence(auth, browserLocalPersistence).catch(() => {
+  /* falls back to in-memory persistence; non-fatal */
+});
 
-/** Opens the Google Sign-In popup. */
-export function signInWithGoogle() {
-  return signInWithPopup(auth, googleProvider);
+/** Signs in with a team account provisioned in the Firebase console. */
+export function signInWithEmail(email: string, password: string) {
+  return signInWithEmailAndPassword(auth, email.trim(), password);
 }
 
 /** Signs the current user out. */
@@ -26,9 +32,7 @@ export function signOut() {
   return fbSignOut(auth);
 }
 
-/**
- * Waits for Firebase Auth to resolve its persisted session.
- */
+/** Waits for Firebase Auth to resolve its persisted session. */
 export function ensureAuthReady(): Promise<void> {
   return auth.authStateReady();
 }

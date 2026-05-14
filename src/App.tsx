@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { onAuthStateChanged, User } from 'firebase/auth';
-import { auth, signInWithGoogle, signOut } from './lib/firebase';
+import { auth, signInWithEmail, signOut } from './lib/firebase';
 import {
   PackagePlus, ShoppingCart, RefreshCw, BarChart2,
   LogOut, Plus, FileSpreadsheet, LayoutDashboard,
@@ -383,7 +383,9 @@ function AppShell({ user }: { user: User }) {
           </div>
         </header>
 
-        {/* Stock Ticker Board */}
+        {/* Stock Ticker Board — only shows SHS-removed events ("please
+         * delist"). All other alerts surface via NotificationBell, not
+         * here. */}
         <StockTickerBoard />
 
         {/* Scrollable page content */}
@@ -449,24 +451,55 @@ function AppShell({ user }: { user: User }) {
 
 // ── Login Page ────────────────────────────────────────────────────────────────
 function LoginPage() {
-  const [loading, setLoading] = useState(false);
-  const [error, setError]     = useState('');
+  const [email, setEmail]       = useState('');
+  const [password, setPassword] = useState('');
+  const [loading, setLoading]   = useState(false);
+  const [error, setError]       = useState('');
 
-  const handleSignIn = async () => {
+  // Map Firebase Auth error codes to operator-facing copy. The raw
+  // Firebase messages are technical and sometimes leak whether an
+  // email exists, which defeats the allowlist's "quiet rejection"
+  // for non-team accounts. Collapse credential errors into a single
+  // generic message.
+  const friendlyError = (code: string, fallback: string) => {
+    switch (code) {
+      case 'auth/invalid-email':
+        return 'That email address looks malformed.';
+      case 'auth/missing-password':
+        return 'Enter your password.';
+      case 'auth/invalid-credential':
+      case 'auth/wrong-password':
+      case 'auth/user-not-found':
+      case 'auth/invalid-login-credentials':
+        return 'Incorrect email or password.';
+      case 'auth/user-disabled':
+        return 'This account has been disabled. Contact an admin.';
+      case 'auth/too-many-requests':
+        return 'Too many failed attempts. Wait a minute and try again.';
+      case 'auth/network-request-failed':
+        return 'Network error. Check your connection and retry.';
+      case 'auth/unauthorized-domain':
+        return 'This domain is not authorised in Firebase Auth → Authorised domains.';
+      case 'auth/operation-not-allowed':
+        return 'Email/password sign-in is not enabled in Firebase.';
+      default:
+        return fallback || 'Sign-in failed. Please try again.';
+    }
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (loading) return;
     setError('');
+    if (!email.trim() || !password) {
+      setError('Enter both email and password.');
+      return;
+    }
     setLoading(true);
     try {
-      await signInWithGoogle();
+      await signInWithEmail(email, password);
     } catch (err: any) {
-      if (err?.code === 'auth/popup-closed-by-user' || err?.code === 'auth/cancelled-popup-request') {
-        // user dismissed
-      } else if (err?.code === 'auth/unauthorized-domain') {
-        setError('Domain not authorised — add it in Firebase Auth → Authorised domains.');
-      } else if (err?.code === 'auth/operation-not-allowed') {
-        setError('Google sign-in is not enabled. Firebase Console → Authentication → Sign-in method → Google → Enable.');
-      } else {
-        setError(err?.message || 'Sign-in failed. Please try again.');
-      }
+      setError(friendlyError(err?.code, err?.message));
     } finally {
       setLoading(false);
     }
@@ -494,52 +527,84 @@ function LoginPage() {
             </div>
           ))}
         </div>
-        <p className="text-[9px] text-gray-600 font-mono uppercase tracking-widest">Admin access only</p>
+        <p className="text-[9px] text-gray-600 font-mono uppercase tracking-widest">Team access only</p>
       </div>
 
       <div className="flex-1 flex items-center justify-center p-6">
         <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}
-          className="w-full max-w-sm space-y-8">
+          className="w-full max-w-sm space-y-7">
           <div className="lg:hidden text-center">
             <h1 className="text-4xl font-bold tracking-tighter uppercase font-display">{APP_NAME}</h1>
             <p className="text-[10px] text-gray-400 font-mono uppercase tracking-[0.4em] mt-1">{APP_TAGLINE}</p>
           </div>
           <div>
             <h2 className="text-2xl font-bold tracking-tight">Sign In</h2>
-            <p className="text-sm text-gray-500 mt-1">Use your Google account to continue</p>
+            <p className="text-sm text-gray-500 mt-1">Use your team account credentials.</p>
           </div>
-          <AnimatePresence>
-            {error && (
-              <motion.p initial={{ opacity: 0, y: -4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}
-                className="text-xs text-red-600 font-mono bg-red-50 border border-red-100 px-4 py-2.5 rounded-xl">
-                {error}
-              </motion.p>
-            )}
-          </AnimatePresence>
-          <button onClick={handleSignIn} disabled={loading}
-            className="w-full flex items-center justify-center gap-3 bg-white border border-gray-300 rounded-xl py-3.5 px-6 text-sm font-semibold text-gray-700 hover:bg-gray-50 hover:border-gray-400 transition-all active:scale-[0.98] disabled:opacity-50 shadow-sm">
-            {loading
-              ? <motion.div animate={{ rotate: 360 }} transition={{ duration: 0.8, repeat: Infinity, ease: 'linear' }}
-                  className="w-5 h-5 border-2 border-gray-400 border-t-transparent rounded-full" />
-              : <GoogleIcon />}
-            {loading ? 'Signing in…' : 'Continue with Google'}
-          </button>
+
+          <form onSubmit={handleSubmit} className="space-y-4">
+            <div>
+              <label className="block text-[10px] font-mono uppercase tracking-widest text-gray-500 mb-1.5">
+                Email
+              </label>
+              <input
+                type="email"
+                autoComplete="username"
+                autoFocus
+                value={email}
+                onChange={e => setEmail(e.target.value)}
+                disabled={loading}
+                className="w-full px-4 py-3 text-sm border border-gray-200 rounded-xl bg-white focus:border-black focus:ring-0 focus:outline-none transition-colors"
+                placeholder="you@example.com"
+              />
+            </div>
+            <div>
+              <label className="block text-[10px] font-mono uppercase tracking-widest text-gray-500 mb-1.5">
+                Password
+              </label>
+              <input
+                type="password"
+                autoComplete="current-password"
+                value={password}
+                onChange={e => setPassword(e.target.value)}
+                disabled={loading}
+                className="w-full px-4 py-3 text-sm border border-gray-200 rounded-xl bg-white focus:border-black focus:ring-0 focus:outline-none transition-colors"
+                placeholder="••••••••"
+              />
+            </div>
+
+            <AnimatePresence>
+              {error && (
+                <motion.p
+                  initial={{ opacity: 0, y: -4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}
+                  className="text-xs text-red-600 font-mono bg-red-50 border border-red-100 px-4 py-2.5 rounded-xl"
+                >
+                  {error}
+                </motion.p>
+              )}
+            </AnimatePresence>
+
+            <button
+              type="submit"
+              disabled={loading}
+              className="w-full flex items-center justify-center gap-3 bg-black border border-black rounded-xl py-3.5 px-6 text-sm font-semibold text-white hover:bg-gray-900 transition-all active:scale-[0.98] disabled:opacity-50 shadow-sm"
+            >
+              {loading && (
+                <motion.div
+                  animate={{ rotate: 360 }}
+                  transition={{ duration: 0.8, repeat: Infinity, ease: 'linear' }}
+                  className="w-4 h-4 border-2 border-white/60 border-t-transparent rounded-full"
+                />
+              )}
+              {loading ? 'Signing in…' : 'Sign In'}
+            </button>
+          </form>
+
           <p className="text-[9px] text-gray-400 font-mono text-center uppercase tracking-wide">
             Internal tool · MOBILEPHONEMARKET staff only
           </p>
         </motion.div>
       </div>
     </div>
-  );
-}
-
-function GoogleIcon() {
-  return (
-    <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
-      <path d="M17.64 9.20455C17.64 8.56636 17.5827 7.95273 17.4764 7.36364H9V10.845H13.8436C13.635 11.97 13.0009 12.9232 12.0477 13.5614V15.8195H14.9564C16.6582 14.2527 17.64 11.9455 17.64 9.20455Z" fill="#4285F4"/>
-      <path d="M9 18C11.43 18 13.4673 17.1941 14.9564 15.8195L12.0477 13.5614C11.2418 14.1014 10.2109 14.4205 9 14.4205C6.65591 14.4205 4.67182 12.8373 3.96409 10.71H0.957275V13.0418C2.43818 15.9832 5.48182 18 9 18Z" fill="#34A853"/>
-      <path d="M3.96409 10.71C3.78409 10.17 3.68182 9.59318 3.68182 9C3.68182 8.40682 3.78409 7.83 3.96409 7.29V4.95818H0.957275C0.347727 6.17318 0 7.54773 0 9C0 10.4523 0.347727 11.8268 0.957275 13.0418L3.96409 10.71Z" fill="#FBBC05"/>
-      <path d="M9 3.57955C10.3214 3.57955 11.5077 4.03364 12.4405 4.92545L15.0218 2.34409C13.4632 0.891818 11.4259 0 9 0C5.48182 0 2.43818 2.01682 0.957275 4.95818L3.96409 7.29C4.67182 5.16273 6.65591 3.57955 9 3.57955Z" fill="#EA4335"/>
-    </svg>
   );
 }

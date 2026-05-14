@@ -55,9 +55,15 @@ class NotificationService {
         this.notifications = [];
         return;
       }
-      const loaded = JSON.parse(raw);
-      // Only load unread notifications (older read ones are discarded on reload)
-      this.notifications = loaded.filter((n: Notification) => !n.read);
+      const loaded: Notification[] = JSON.parse(raw);
+      // Keep the past 24 hours regardless of read/unread state so the
+      // bell preserves history. Anything older is dropped (the bell's
+      // own Clear button explicitly trims to <24h too).
+      const cutoff = Date.now() - 24 * 60 * 60 * 1000;
+      this.notifications = loaded.filter(n => {
+        const ts = new Date(n.timestamp).getTime();
+        return Number.isFinite(ts) && ts >= cutoff;
+      });
     } catch { this.notifications = []; }
   }
 
@@ -154,22 +160,31 @@ class NotificationService {
   }
 
   private addNotificationDirect(type: NotificationType, unit: InventoryUnit, profitAmount?: number, count?: number) {
-    // Check if this notification was already fired (persisted across page reloads)
+    // Explicit-count calls (bulk intake, SHS receive, SHS remove) are
+    // deliberate user actions, not Firestore echoes. Skip the persisted
+    // fired-key gate for them — that gate exists to suppress the real-
+    // time hook from re-firing a notification across reloads for the
+    // same unit, NOT to block intentional batch events that may reuse
+    // a representative unit id across sessions.
+    const isExplicitBatch = typeof count === 'number' && count > 0;
     const firedKey = `${unit.id}:${type}`;
-    try {
-      const raw = localStorage.getItem(this.firedKey());
-      const entries: { key: string; date: string }[] = raw ? JSON.parse(raw) : [];
-      const today = new Date().toISOString().split('T')[0];
+    if (!isExplicitBatch) {
+      try {
+        const raw = localStorage.getItem(this.firedKey());
+        const entries: { key: string; date: string }[] = raw ? JSON.parse(raw) : [];
+        const today = new Date().toISOString().split('T')[0];
 
-      // Check if this specific unit+type was already fired today
-      if (entries.some(e => e.key === firedKey && e.date === today)) {
-        console.log(`[Notification] Already fired today: ${firedKey}`);
-        return;
-      }
-    } catch { /* ignore */ }
+        // Check if this specific unit+type was already fired today
+        if (entries.some(e => e.key === firedKey && e.date === today)) {
+          console.log(`[Notification] Already fired today: ${firedKey}`);
+          return;
+        }
+      } catch { /* ignore */ }
+    }
 
-    // In-memory guard for rapid duplicates within the same session (< 5s)
-    // This prevents notification spam if the same action fires multiple times
+    // In-memory guard for rapid duplicates within the same session (< 5s).
+    // Applies to all paths — even explicit batches shouldn't double-fire
+    // if the user clicks Save twice in 5 seconds.
     const now = new Date();
     const isDuplicate = this.notifications.some(n =>
       n.unitId === unit.id &&
@@ -181,7 +196,11 @@ class NotificationService {
       return;
     }
 
-    console.log(`[Notification] Adding ${type} for ${unit.model}`, { profitAmount });
+    console.log(`[Notification] Adding ${type} for ${unit.model}`, {
+      profitAmount,
+      count,
+      explicitBatch: isExplicitBatch,
+    });
 
     const titles: Record<NotificationType, string> = {
       sold: '✅ Unit Sold!',
@@ -220,22 +239,45 @@ class NotificationService {
     this.saveToStorage();
     this.notify();
 
-    // Mark this notification as fired so it won't trigger again on reload
-    this.markFired(firedKey);
+    // Mark this notification as fired so it won't trigger again on reload.
+    // Skip for explicit batches — they're deliberate user actions whose
+    // representative unit id is internal/throwaway, and stamping it would
+    // suppress legitimate future batches that happen to reuse the id.
+    if (!isExplicitBatch) {
+      this.markFired(firedKey);
+    }
 
     this.playSound(type);
   }
 
+  // Flip the read flag rather than deleting — the bell's "Today /
+  // Yesterday / Earlier" list shows read notifications too, so we
+  // preserve the 24-hour history. Counters drop because they filter
+  // on !n.read.
   markAsRead(id: string) {
-    this.notifications = this.notifications.filter(n => n.id !== id);
-    this.saveToStorage();
-    this.notify();
+    let changed = false;
+    this.notifications = this.notifications.map(n => {
+      if (n.id !== id || n.read) return n;
+      changed = true;
+      return { ...n, read: true };
+    });
+    if (changed) {
+      this.saveToStorage();
+      this.notify();
+    }
   }
 
   markAllAsRead() {
-    this.notifications = [];
-    this.saveToStorage();
-    this.notify();
+    let changed = false;
+    this.notifications = this.notifications.map(n => {
+      if (n.read) return n;
+      changed = true;
+      return { ...n, read: true };
+    });
+    if (changed) {
+      this.saveToStorage();
+      this.notify();
+    }
   }
 
   private playSound(type: NotificationType) {

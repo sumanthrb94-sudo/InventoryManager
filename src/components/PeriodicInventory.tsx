@@ -3,7 +3,6 @@ import { AnimatePresence, motion } from 'motion/react';
 import { X } from 'lucide-react';
 import { InventoryUnit } from '../types';
 import ViewAllUnitsModal from './ViewAllUnitsModal';
-import PeriodicTableSidebar from './PeriodicTableSidebar';
 
 interface Props {
   units: InventoryUnit[];
@@ -305,7 +304,6 @@ export default function PeriodicInventory({ units, onNavigate }: Props) {
 
   const [popover, setPopover] = useState<PopoverState | null>(null);
   const [viewAllModal, setViewAllModal] = useState<{ seriesKey: string; searchTerm: string } | null>(null);
-  const [selectedSeries, setSelectedSeries] = useState<{ seriesKey: string; searchTerm: string } | null>(null);
   // Refs for the hover grace-period timers
   const closeTimer  = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -405,8 +403,8 @@ export default function PeriodicInventory({ units, onNavigate }: Props) {
   if (groups.length === 0) return null;
 
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 h-full lg:h-auto">
-      <div className="lg:col-span-2">
+    <div className="h-full lg:h-auto">
+      <div>
         <div style={{ background: '#ffffff', borderRadius: 20, padding: '12px 10px', overflow: 'hidden' }}>
         {/* Header */}
         <div style={{ marginBottom: 12 }}>
@@ -470,9 +468,13 @@ export default function PeriodicInventory({ units, onNavigate }: Props) {
                       onMouseEnter={e => handleElementEnter(el, g.color, e)}
                       onMouseLeave={scheduleClose}
                       onClick={() => {
-                        if (el.count > 0) {
+                        // Click → open the Excel-style ViewAllUnitsModal.
+                        // The sidebar (both desktop column and mobile
+                        // drawer) is gone; the modal is the single
+                        // browsing surface.
+                        if (el.count > 0 || el.shsCount > 0) {
                           onNavigate(el.searchTerm);
-                          setSelectedSeries({ seriesKey: el.seriesKey, searchTerm: el.searchTerm });
+                          setViewAllModal({ seriesKey: el.seriesKey, searchTerm: el.searchTerm });
                         }
                       }}
                       title={isEmpty ? el.seriesKey : undefined}
@@ -545,64 +547,10 @@ export default function PeriodicInventory({ units, onNavigate }: Props) {
       </div>
       </div>
 
-      {/* Sidebar - visible on lg screens in grid layout */}
-      <div className="hidden lg:flex lg:col-span-1">
-        <PeriodicTableSidebar
-          seriesKey={selectedSeries?.seriesKey || null}
-          searchTerm={selectedSeries?.searchTerm || null}
-          units={units}
-          onViewAll={(seriesKey, searchTerm) => {
-            setViewAllModal({ seriesKey, searchTerm });
-            setSelectedSeries(null);
-          }}
-        />
-      </div>
-
-      {/* Mobile sidebar modal - visible on smaller screens */}
-      <AnimatePresence>
-        {selectedSeries && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="lg:hidden fixed inset-0 z-50 flex items-end bg-black/40 backdrop-blur-sm"
-            onClick={() => setSelectedSeries(null)}
-          >
-            <motion.div
-              initial={{ y: '100%' }}
-              animate={{ y: 0 }}
-              exit={{ y: '100%' }}
-              transition={{ type: 'spring', damping: 30, stiffness: 300 }}
-              className="w-full bg-white rounded-t-2xl max-h-[85vh] overflow-y-auto"
-              onClick={e => e.stopPropagation()}
-            >
-              {/* Mobile sidebar header */}
-              <div className="sticky top-0 bg-white border-b border-gray-200 p-4 flex items-center justify-between rounded-t-2xl">
-                <h3 className="text-lg font-bold">{selectedSeries.seriesKey}</h3>
-                <button
-                  onClick={() => setSelectedSeries(null)}
-                  className="p-2 hover:bg-gray-100 rounded-lg transition-all"
-                >
-                  <X size={20} className="text-gray-500" />
-                </button>
-              </div>
-
-              {/* Mobile sidebar content */}
-              <div className="p-4">
-                <PeriodicTableSidebar
-                  seriesKey={selectedSeries.seriesKey}
-                  searchTerm={selectedSeries.searchTerm}
-                  units={units}
-                  onViewAll={(seriesKey, searchTerm) => {
-                    setViewAllModal({ seriesKey, searchTerm });
-                    setSelectedSeries(null);
-                  }}
-                />
-              </div>
-            </motion.div>
-          </motion.div>
-        )}
-      </AnimatePresence>
+      {/* Sidebar removed (both desktop column and mobile drawer).
+       * Clicking a periodic element now opens only the Excel-style
+       * ViewAllUnitsModal — full unit table with sortable columns,
+       * in-stock / SHS / sold tabs. */}
 
       {/* View All Units Modal */}
       <AnimatePresence>

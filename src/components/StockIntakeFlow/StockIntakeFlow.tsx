@@ -15,6 +15,7 @@ import ReviewScreen from './ReviewScreen';
 import ProcessingState from './ProcessingState';
 import CompletionConfirmation from './CompletionConfirmation';
 import BatchImageCapture, { PlannedUnit, CapturedUnit } from './BatchImageCapture';
+import AddSHSModal from '../AddSHSModal';
 
 interface ColorVariant {
   id: string;
@@ -22,7 +23,7 @@ interface ColorVariant {
   quantity: number;
 }
 
-type Stage = 'type-selection' | 'image-input' | 'details' | 'color-distribution' | 'batch-capture' | 'review' | 'processing' | 'complete';
+type Stage = 'type-selection' | 'image-input' | 'details' | 'quantity' | 'color-distribution' | 'batch-capture' | 'review' | 'processing' | 'complete';
 
 interface Props {
   onClose: () => void;
@@ -34,6 +35,10 @@ export default function StockIntakeFlow({ onClose }: Props) {
   // Stage management
   const [stage, setStage] = useState<Stage>('type-selection');
   const [intakeType, setIntakeType] = useState<'single' | 'bulk'>('single');
+  // 'shs' isn't a value `intakeType` ever holds — picking SHS routes to
+  // AddSHSModal, which has its own self-contained flow. We keep
+  // intakeType bound to 'single' | 'bulk' so DetailForm / Review etc.
+  // don't need to handle a third case.
 
   // Image & extraction
   const [imageFile, setImageFile] = useState<File | null>(null);
@@ -78,9 +83,42 @@ export default function StockIntakeFlow({ onClose }: Props) {
   const colorTotalQty = colorVariants.reduce((sum, c) => sum + c.quantity, 0);
   const isColorDistributionValid = quantity > 1 ? (colorVariants.length > 0 && colorTotalQty === quantity) : true;
 
-  const handleTypeSelection = (type: 'single' | 'bulk') => {
+  // SHS goes to its own dedicated modal which already supports
+  // single & multi-row entry (qty per row). We hand off rather than
+  // duplicate the SHS form here.
+  const [showSHSModal, setShowSHSModal] = useState(false);
+
+  const handleTypeSelection = (type: 'single' | 'bulk' | 'shs') => {
+    if (type === 'shs') {
+      setShowSHSModal(true);
+      return;
+    }
     setIntakeType(type);
-    setStage('image-input');
+    // Bulk flow: quantity → colour distribution → per-unit OCR capture
+    // → review. No upfront DetailForm; per-unit OCR fills model/brand/
+    // storage/IMEI per row, and supplier/buyPrice get set-for-all on
+    // the Review screen.
+    // Single flow: image-input → details → review (unchanged).
+    setStage(type === 'bulk' ? 'quantity' : 'image-input');
+  };
+
+  // Bulk-only entry. Quantity is the single required field at this
+  // step — colour distribution comes next, per-unit OCR after that.
+  const handleQuantitySubmit = () => {
+    if (!quantity || quantity < 1) {
+      setError('Enter a quantity of at least 1.');
+      return;
+    }
+    setError('');
+    if (quantity === 1) {
+      // Trivial bulk: skip colour distribution, go straight to capture
+      // with a single "Default" colour bucket. Operator can still tweak
+      // colour per-row on the Review screen.
+      setColorVariants([{ id: 'single', name: 'Default', quantity: 1 }]);
+      handleColorDistributionSubmit({ colorVariants: [{ id: 'single', name: 'Default', quantity: 1 }] });
+      return;
+    }
+    setStage('color-distribution');
   };
 
   const handleImageSelected = (file: File, preview: string, ocrData?: OCRResult, supabaseUrl?: string) => {
@@ -238,12 +276,14 @@ export default function StockIntakeFlow({ onClose }: Props) {
       };
       units.push(unit);
     } else {
-      // Bulk with colors. Each planned unit may have its own captured
-      // IMEI + preview image from the BatchImageCapture step; fall back
-      // to the seed IMEI + sequential suffix if the operator skipped a
-      // unit.
-      const cleanImei = imei.replace(/\D/g, '');
-      const baseName = cleanImei || `bulk_${Date.now()}`;
+      // Bulk path. The new flow doesn't ask for model/brand/storage/
+      // grade up front — each unit's OCR fills those fields per row.
+      // Common fields the operator still controls on the Review screen
+      // (supplier, buyPrice, category, notes) are read from the
+      // top-level form state, which the Review's "Set for all" bar
+      // pushes into. If a per-unit OCR field is empty the operator
+      // sees a blank cell on Review and fixes it inline.
+      const baseName = `bulk_${Date.now()}`;
       let unitIndex = 0;
       for (const color of colorVariants) {
         for (let i = 0; i < color.quantity; i++) {
@@ -254,12 +294,14 @@ export default function StockIntakeFlow({ onClose }: Props) {
           const unit: InventoryUnit = {
             id: usableImei,
             imei: usableImei,
-            model: model.trim(),
-            brand,
+            model:   (captured?.model    || model || '').trim(),
+            brand:   (captured?.brand    || brand || '').trim(),
             category: category as any,
+            // Planned colour wins over OCR — operator deliberately
+            // distributed quantities per colour in the previous step.
             colour: color.name,
-            storage: storage || undefined,
-            grade: grade || undefined,
+            storage: captured?.storage  || storage || undefined,
+            grade:   captured?.grade    || grade   || undefined,
             batchId: bid,
             buyPrice: bp,
             dateIn: today,
@@ -289,18 +331,28 @@ export default function StockIntakeFlow({ onClose }: Props) {
    * Color Distribution → Batch Image Capture.
    * Expand the colour map into one PlannedUnit per physical phone in
    * batch order, then jump to the per-unit capture screen.
+   *
+   * Accepts an optional override so the qty=1 short-circuit in
+   * `handleQuantitySubmit` can pass its synthetic single-bucket
+   * distribution without waiting for React state to flush.
    */
-  const handleColorDistributionSubmit = () => {
-    if (!isColorDistributionValid) {
-      setError(`Colour totals (${colorTotalQty}) must equal quantity (${quantity}).`);
+  const handleColorDistributionSubmit = (
+    override?: { colorVariants: ColorVariant[] },
+  ) => {
+    const effectiveVariants = override?.colorVariants ?? colorVariants;
+    const effectiveTotal = effectiveVariants.reduce((sum, c) => sum + c.quantity, 0);
+    const valid = quantity > 1
+      ? (effectiveVariants.length > 0 && effectiveTotal === quantity)
+      : (effectiveVariants.length > 0 && effectiveTotal === quantity);
+    if (!valid) {
+      setError(`Colour totals (${effectiveTotal}) must equal quantity (${quantity}).`);
       return;
     }
     setError('');
-    const cleanImei = imei.replace(/\D/g, '');
-    const baseName = cleanImei || `bulk_${Date.now()}`;
+    const baseName = `bulk_${Date.now()}`;
     const planned: PlannedUnit[] = [];
     let unitIndex = 0;
-    for (const color of colorVariants) {
+    for (const color of effectiveVariants) {
       for (let i = 0; i < color.quantity; i++) {
         planned.push({
           index: unitIndex,
@@ -361,18 +413,17 @@ export default function StockIntakeFlow({ onClose }: Props) {
       onClose();
       return;
     }
-
-    const stageSequence: Stage[] = [
-      'type-selection',
-      'image-input',
-      'details',
-      'color-distribution',
-      'batch-capture',
-      'review',
-    ];
-    const currentIndex = stageSequence.indexOf(stage);
-    if (currentIndex > 0) {
-      setStage(stageSequence[currentIndex - 1]);
+    // Per-stage explicit transitions — the bulk and single paths
+    // diverge after type-selection so a flat linear sequence breaks.
+    setError('');
+    switch (stage) {
+      case 'image-input':         return setStage('type-selection');
+      case 'details':             return setStage(intakeType === 'bulk' ? 'batch-capture' : 'image-input');
+      case 'quantity':            return setStage('type-selection');
+      case 'color-distribution':  return setStage('quantity');
+      case 'batch-capture':       return setStage('color-distribution');
+      case 'review':              return setStage(intakeType === 'bulk' ? 'batch-capture' : 'details');
+      default:                    return;
     }
   };
 
@@ -404,6 +455,7 @@ export default function StockIntakeFlow({ onClose }: Props) {
                 {stage === 'type-selection' && 'Add Stock'}
                 {stage === 'image-input' && (intakeType === 'single' ? 'Scan or Upload Item' : 'Bulk Stock Intake')}
                 {stage === 'details' && 'Device Details'}
+                {stage === 'quantity' && 'Batch Quantity'}
                 {stage === 'color-distribution' && 'Color Distribution'}
                 {stage === 'batch-capture' && 'Capture Each Unit'}
                 {stage === 'review' && 'Review Units'}
@@ -488,6 +540,101 @@ export default function StockIntakeFlow({ onClose }: Props) {
                   batchId={generatedBatchId}
                   ocrResult={ocrResult}
                 />
+              </motion.div>
+            )}
+
+            {stage === 'quantity' && (
+              <motion.div
+                key="quantity"
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -10 }}
+              >
+                <div className="space-y-6">
+                  <div>
+                    <h3 className="text-sm font-bold text-gray-900 mb-1">How many units in this batch?</h3>
+                    <p className="text-xs text-gray-500">
+                      Enter the total quantity. Next you'll split it across colours, then capture each unit's label one at a time.
+                    </p>
+                  </div>
+
+                  <div className="flex items-center justify-center gap-3 py-4">
+                    <button
+                      type="button"
+                      onClick={() => setQuantity(Math.max(1, quantity - 1))}
+                      disabled={quantity <= 1}
+                      className="w-12 h-12 flex items-center justify-center rounded-2xl border border-gray-200 text-gray-700 hover:bg-gray-50 disabled:opacity-40 active:scale-95 transition"
+                      aria-label="Decrease quantity"
+                    >
+                      <Minus size={18} />
+                    </button>
+                    <input
+                      type="text"
+                      inputMode="numeric"
+                      pattern="[0-9]*"
+                      value={String(quantity)}
+                      onChange={e => {
+                        const cleaned = e.target.value.replace(/\D/g, '').slice(0, 4);
+                        const n = parseInt(cleaned, 10);
+                        if (!Number.isNaN(n) && n >= 1) setQuantity(n);
+                        else if (cleaned === '') setQuantity(1);
+                        if (error) setError('');
+                      }}
+                      onFocus={e => e.target.select()}
+                      onBlur={() => { if (!quantity || quantity < 1) setQuantity(1); }}
+                      className="w-28 h-14 text-3xl text-center font-bold tabular-nums border border-gray-200 rounded-2xl focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      autoFocus
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setQuantity(Math.min(9999, quantity + 1))}
+                      className="w-12 h-12 flex items-center justify-center rounded-2xl border border-gray-200 text-gray-700 hover:bg-gray-50 active:scale-95 transition"
+                      aria-label="Increase quantity"
+                    >
+                      <Plus size={18} />
+                    </button>
+                  </div>
+
+                  {/* Quick-pick presets — common batch sizes */}
+                  <div className="flex items-center justify-center gap-2">
+                    {[5, 10, 20, 50].map(n => (
+                      <button
+                        key={n}
+                        type="button"
+                        onClick={() => { setQuantity(n); if (error) setError(''); }}
+                        className={`px-3 py-1.5 rounded-lg text-[11px] font-mono uppercase tracking-widest border transition ${
+                          quantity === n
+                            ? 'bg-blue-600 text-white border-blue-600'
+                            : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50'
+                        }`}
+                      >
+                        ×{n}
+                      </button>
+                    ))}
+                  </div>
+
+                  {error && (
+                    <div className="p-3 bg-red-50 text-red-700 rounded-lg text-sm">{error}</div>
+                  )}
+
+                  <div className="flex items-center gap-3 pt-2">
+                    <button
+                      type="button"
+                      onClick={handleBack}
+                      className="flex-shrink-0 py-3 px-4 border border-gray-200 rounded-xl text-[11px] font-bold uppercase tracking-widest text-gray-600 hover:bg-gray-50"
+                    >
+                      Back
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleQuantitySubmit}
+                      disabled={!quantity || quantity < 1}
+                      className="flex-1 py-3 px-4 bg-blue-600 text-white rounded-xl text-[11px] font-bold uppercase tracking-widest hover:bg-blue-700 transition-all disabled:bg-gray-300 disabled:cursor-not-allowed"
+                    >
+                      Continue · {quantity === 1 ? 'Capture Unit' : `Distribute ${quantity} Units By Colour`}
+                    </button>
+                  </div>
+                </div>
               </motion.div>
             )}
 
@@ -659,7 +806,7 @@ export default function StockIntakeFlow({ onClose }: Props) {
                     </button>
                     <button
                       type="button"
-                      onClick={handleColorDistributionSubmit}
+                      onClick={() => handleColorDistributionSubmit()}
                       disabled={!isColorDistributionValid}
                       className="flex-1 py-3 px-4 bg-blue-600 text-white rounded-xl text-[11px] font-bold uppercase tracking-widest hover:bg-blue-700 transition-all disabled:bg-gray-300 disabled:cursor-not-allowed"
                     >
@@ -700,6 +847,7 @@ export default function StockIntakeFlow({ onClose }: Props) {
                   batchId={batchId}
                   onSubmit={handleReviewSubmit}
                   onBack={handleBack}
+                  onUnitsChange={setUnitsForReview}
                   error={error}
                 />
               </motion.div>
@@ -733,6 +881,21 @@ export default function StockIntakeFlow({ onClose }: Props) {
           </AnimatePresence>
         </div>
       </motion.div>
+
+      {/* SHS modal overlay — when the user picks the SHS option on the
+       * intake-type selector, we hand off to the existing dedicated
+       * AddSHSModal. It already supports single + multi-row entry with
+       * per-row quantities, sums up batched shs_received notifications,
+       * and registers session-dedup. Closing it also closes this flow
+       * so the operator returns to the main app. */}
+      {showSHSModal && (
+        <AddSHSModal
+          onClose={() => {
+            setShowSHSModal(false);
+            onClose();
+          }}
+        />
+      )}
     </motion.div>
   );
 }
