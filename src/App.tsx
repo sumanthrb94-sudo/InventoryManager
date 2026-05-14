@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { onAuthStateChanged, User } from 'firebase/auth';
-import { auth, signInWithEmail, signOut } from './lib/firebase';
+import { auth, signInWithEmail, sendPasswordReset, signOut } from './lib/firebase';
 import {
   PackagePlus, ShoppingCart, RefreshCw, BarChart2,
   LogOut, Plus, FileSpreadsheet, LayoutDashboard,
@@ -458,6 +458,7 @@ function LoginPage() {
   const [password, setPassword] = useState('');
   const [loading, setLoading]   = useState(false);
   const [error, setError]       = useState('');
+  const [resetState, setResetState] = useState<'idle' | 'sending' | 'sent'>('idle');
 
   // Map Firebase Auth error codes to operator-facing copy. The raw
   // Firebase messages are technical and sometimes leak whether an
@@ -505,6 +506,23 @@ function LoginPage() {
       setError(friendlyError(err?.code, err?.message));
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleForgotPassword = async () => {
+    setError('');
+    if (!email.trim()) {
+      setError('Enter your email above first, then click "Forgot password".');
+      return;
+    }
+    setResetState('sending');
+    try {
+      await sendPasswordReset(email);
+      setResetState('sent');
+    } catch (err: any) {
+      // Use the same friendly mapping so we don't leak which emails exist.
+      setError(friendlyError(err?.code, err?.message));
+      setResetState('idle');
     }
   };
 
@@ -562,9 +580,19 @@ function LoginPage() {
               />
             </div>
             <div>
-              <label className="block text-[10px] font-mono uppercase tracking-widest text-gray-500 mb-1.5">
-                Password
-              </label>
+              <div className="flex items-center justify-between mb-1.5">
+                <label className="block text-[10px] font-mono uppercase tracking-widest text-gray-500">
+                  Password
+                </label>
+                <button
+                  type="button"
+                  onClick={handleForgotPassword}
+                  disabled={loading || resetState === 'sending'}
+                  className="text-[10px] font-mono uppercase tracking-widest text-gray-400 hover:text-black transition-colors disabled:opacity-50"
+                >
+                  {resetState === 'sending' ? 'Sending…' : 'Forgot password?'}
+                </button>
+              </div>
               <input
                 type="password"
                 autoComplete="current-password"
@@ -574,6 +602,16 @@ function LoginPage() {
                 className="w-full px-4 py-3 text-sm border border-gray-200 rounded-xl bg-white focus:border-black focus:ring-0 focus:outline-none transition-colors"
                 placeholder="••••••••"
               />
+              <AnimatePresence>
+                {resetState === 'sent' && (
+                  <motion.p
+                    initial={{ opacity: 0, y: -4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}
+                    className="text-[10px] font-mono text-emerald-700 bg-emerald-50 border border-emerald-100 px-3 py-2 rounded-lg mt-2"
+                  >
+                    Reset link sent to {email}. Check your inbox.
+                  </motion.p>
+                )}
+              </AnimatePresence>
             </div>
 
             <AnimatePresence>

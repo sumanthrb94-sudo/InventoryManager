@@ -2,6 +2,7 @@ import { initializeApp } from 'firebase/app';
 import {
   getAuth,
   signInWithEmailAndPassword,
+  sendPasswordResetEmail,
   signOut as fbSignOut,
   setPersistence,
   browserLocalPersistence,
@@ -30,6 +31,11 @@ export function signInWithEmail(email: string, password: string) {
 /** Signs the current user out. */
 export function signOut() {
   return fbSignOut(auth);
+}
+
+/** Sends a Firebase password-reset email to the admin account. */
+export function sendPasswordReset(email: string) {
+  return sendPasswordResetEmail(auth, email.trim());
 }
 
 /** Waits for Firebase Auth to resolve its persisted session. */

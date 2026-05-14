@@ -223,8 +223,10 @@ export default function ReceiveSHSModal({ unit, onClose }: Props) {
         }
       }
 
-      // Delete the original SHS pending unit
-      await dbService.delete('inventoryUnits', unit.id);
+      // Hard-delete the original SHS pending unit: this is a state transition
+      // (pending → received), not a user-initiated removal, so it should not
+      // appear in the Recently Removed recovery list.
+      await dbService.hardDelete('inventoryUnits', unit.id);
 
       // Add all new units
       await Promise.all(unitsToAdd.map(u => dbService.create('inventoryUnits', u.id, u)));

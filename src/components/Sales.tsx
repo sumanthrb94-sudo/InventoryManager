@@ -169,7 +169,9 @@ export default function Sales() {
   const handleUpdateListing = async (model: string, platform: string, quantity: number) => {
     const listingId = `list_${model.replace(/\s+/g, '_').toLowerCase()}_${platform.toLowerCase()}`;
     if (quantity <= 0) {
-      await dbService.delete('activeListings', listingId);
+      // activeListings is a transient counter, not historical data, so a
+      // zero-quantity update fully removes the row instead of soft-deleting.
+      await dbService.hardDelete('activeListings', listingId);
     } else {
       await dbService.create('activeListings', listingId, {
         model,

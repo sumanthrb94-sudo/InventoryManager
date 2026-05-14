@@ -54,8 +54,11 @@ export async function dedupeInventoryUnitsByImei() {
     removals.push(...ordered.slice(1).map(unit => unit.id));
   }
 
+  // Duplicates are not user-deleted data — they should be fully removed,
+  // not soft-deleted into the Recently Removed recovery list where they'd
+  // confusingly resurface as restorable.
   for (const id of removals) {
-    await dbService.delete('inventoryUnits', id);
+    await dbService.hardDelete('inventoryUnits', id);
   }
 
   return { removed: removals.length };

@@ -1,0 +1,47 @@
+# Anything not needed at runtime should be skipped from the Vercel deploy
+# upload. Vercel only needs source + package.json/lock for `vite build`.
+
+# Large sample/QA data at repo root (~95 MB combined) — only used by
+# local CLI tools. Public/ xlsx are intentionally kept (they're served
+# as download templates by ImportModal).
+/*.xlsx
+/inventory_*.csv
+public/imported_inventory.json
+
+# Local dev / debugging scripts
+inject_console.js
+recover_data.js
+import_excel.cjs
+import_og_data.cjs
+inject_to_localstorage.cjs
+generate_qa_test_data.mjs
+generate_sample_excel.mjs
+generate-mock-data.py
+generate_qa_report.py
+convert_excel.py
+update_colors.js
+
+# Local scratchpads / one-off folders
+scratch/
+meta_ads_screenshots/
+QA_MANUAL/
+SOPs/
+"ram qa/"
+ramfinal_qa/
+
+# Markdown reports / docs
+*_REPORT.md
+*_GUIDE.md
+*_PLAN.md
+*_SPEC.md
+*_REPORT.txt
+*_SUMMARY.txt
+SETUP.md
+
+# Postman / API artefacts left over from old Supabase API
+postman_collection.json
+firebase-applet-config.json.bak
+
+# Misc
+.vscode/
+*.docx

@@ -142,7 +142,16 @@ export const dbService = {
 
   async create(collectionName: string, id: string, data: any) {
     const timestamp = nowIso();
-    const item = { ...data, id, createdAt: data.createdAt ?? timestamp, updatedAt: timestamp };
+    // Force deletedAt: null on create so re-adding a previously soft-deleted
+    // ID (e.g. re-importing an IMEI) restores the row to "live" instead of
+    // silently merging on top of the deletedAt marker and staying hidden.
+    const item = {
+      ...data,
+      id,
+      createdAt: data.createdAt ?? timestamp,
+      updatedAt: timestamp,
+      deletedAt: null,
+    };
 
     const current = [...(cachedData[collectionName] || [])];
     const idx = current.findIndex(x => x.id === id);
@@ -234,7 +243,9 @@ export const dbService = {
     const total = entries.length;
     let done = 0;
 
-    // Build per-collection items
+    // Build per-collection items. deletedAt is forced to null so that a
+    // re-import of a previously soft-deleted ID resurfaces the row instead
+    // of silently merging on top of the tombstone.
     const byCollection: Record<string, any[]> = {};
     for (const entry of entries) {
       const item = {
@@ -243,6 +254,7 @@ export const dbService = {
         ownerId: entry.data.ownerId || 'shared',
         createdAt: entry.data.createdAt ?? timestamp,
         updatedAt: timestamp,
+        deletedAt: null,
       };
       (byCollection[entry.collection] ??= []).push(item);
     }
@@ -270,6 +282,7 @@ export const dbService = {
           ownerId: entry.data.ownerId || 'shared',
           createdAt: entry.data.createdAt ?? timestamp,
           updatedAt: timestamp,
+          deletedAt: null,
         });
         batch.set(docRef(entry.collection, entry.id), item, { merge: true });
       }
