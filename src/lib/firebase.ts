@@ -77,11 +77,26 @@ export async function expireSession(): Promise<void> {
   try { await fbSignOut(auth); } catch { /* ignore — UI will re-render anyway */ }
 }
 
-/** Signs in with a team account provisioned in the Firebase console. */
+/**
+ * Signs in with a team account provisioned in the Firebase console.
+ *
+ * Note on ordering: `markSessionStart()` MUST run *before*
+ * `signInWithEmailAndPassword`, because Firebase's `onAuthStateChanged`
+ * listeners can fire as soon as the credential is internally accepted —
+ * before the awaited promise resolves to this function's caller. The
+ * AppWithAuth migration check then runs against the new user, sees no
+ * timestamp, and would immediately expire the session, looking like
+ * "login is broken". On rejection we roll the timestamp back so an
+ * un-authenticated user doesn't end up with a future-dated session.
+ */
 export async function signInWithEmail(email: string, password: string) {
-  const cred = await signInWithEmailAndPassword(auth, email.trim(), password);
   markSessionStart();
-  return cred;
+  try {
+    return await signInWithEmailAndPassword(auth, email.trim(), password);
+  } catch (e) {
+    clearSessionTimestamp();
+    throw e;
+  }
 }
 
 /** Signs the current user out (user-initiated). */
