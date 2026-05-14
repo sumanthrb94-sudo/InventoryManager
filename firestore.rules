@@ -10,13 +10,12 @@ service cloud.firestore {
       return request.auth != null;
     }
 
-    // Replace the placeholder addresses with the real staff accounts
-    // before deploying. Auth provider: Firebase email/password.
+    // Authorised staff accounts. Add additional admin emails here as
+    // staff are onboarded. Auth provider: Firebase email/password.
     function isAdmin() {
       return isSignedIn()
         && request.auth.token.email in [
-             'owner@mobilephonemarket.example',
-             'ops@mobilephonemarket.example'
+             'admin@inventorymanager.com'
            ];
     }
 

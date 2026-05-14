@@ -9,8 +9,7 @@ service firebase.storage {
     function isAdmin() {
       return request.auth != null
         && request.auth.token.email in [
-             'owner@mobilephonemarket.example',
-             'ops@mobilephonemarket.example'
+             'admin@inventorymanager.com'
            ];
     }
 
