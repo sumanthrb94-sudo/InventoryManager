@@ -145,7 +145,7 @@ export default function StockTickerBoard() {
           ) : (
             <motion.div
               animate={{ x: ['100%', '-100%'] }}
-              transition={{ duration: 55, repeat: Infinity, ease: 'linear' }}
+              transition={{ duration: 120, repeat: Infinity, ease: 'linear' }}
               className="flex gap-8 whitespace-nowrap absolute left-0 will-change-transform"
             >
               {/* Doubled list for a seamless marquee loop. */}
