@@ -5,15 +5,17 @@ import { InventoryUnit, Supplier } from '../types';
 interface Store {
   units: InventoryUnit[];
   suppliers: Supplier[];
+  deletedUnits: InventoryUnit[];
   loaded: boolean;
 }
 
-const Ctx = createContext<Store>({ units: [], suppliers: [], loaded: false });
+const Ctx = createContext<Store>({ units: [], suppliers: [], deletedUnits: [], loaded: false });
 
 export function InventoryStoreProvider({ children }: { children: React.ReactNode }) {
-  const [units, setUnits]         = useState<InventoryUnit[]>([]);
-  const [suppliers, setSuppliers] = useState<Supplier[]>([]);
-  const [loaded, setLoaded]       = useState(false);
+  const [units, setUnits]                 = useState<InventoryUnit[]>([]);
+  const [suppliers, setSuppliers]         = useState<Supplier[]>([]);
+  const [deletedUnits, setDeletedUnits]   = useState<InventoryUnit[]>([]);
+  const [loaded, setLoaded]               = useState(false);
 
   useEffect(() => {
     let unitsReady = false;
@@ -33,11 +35,16 @@ export function InventoryStoreProvider({ children }: { children: React.ReactNode
       setSuppliers(data);
       if (!suppliersReady) { suppliersReady = true; markLoaded(); }
     });
+    const d = dbService.subscribeToCollection(
+      'inventoryUnits',
+      setDeletedUnits,
+      { deletedOnly: true },
+    );
 
-    return () => { clearTimeout(timeout); u(); s(); };
+    return () => { clearTimeout(timeout); u(); s(); d(); };
   }, []);
 
-  return <Ctx.Provider value={{ units, suppliers, loaded }}>{children}</Ctx.Provider>;
+  return <Ctx.Provider value={{ units, suppliers, deletedUnits, loaded }}>{children}</Ctx.Provider>;
 }
 
 export function useInventoryStore(): Store {

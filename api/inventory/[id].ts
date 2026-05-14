@@ -44,11 +44,21 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return ok(res, dbToApp(data));
   }
 
-  // DELETE /api/inventory/:id
+  // DELETE /api/inventory/:id — soft delete (sets deleted_at). Pass ?hard=true to remove.
   if (req.method === 'DELETE') {
-    const { error } = await supabase.from('inventory_units').delete().eq('id', id);
+    const hard = String((req.query as Record<string, string>).hard || '') === 'true';
+    if (hard) {
+      const { error } = await supabase.from('inventory_units').delete().eq('id', id);
+      if (error) return err(res, error.message, 500);
+      return ok(res, { deleted: id, hard: true });
+    }
+    const now = new Date().toISOString();
+    const { data, error } = await supabase
+      .from('inventory_units')
+      .update({ deleted_at: now, updated_at: now })
+      .eq('id', id).select().single();
     if (error) return err(res, error.message, 500);
-    return ok(res, { deleted: id });
+    return ok(res, { deleted: id, deletedAt: now, unit: dbToApp(data) });
   }
 
   return err(res, 'Method not allowed', 405);

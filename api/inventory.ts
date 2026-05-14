@@ -25,8 +25,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   // GET /api/inventory?status=available&limit=500&offset=0
   if (req.method === 'GET') {
-    const { status, model, search, limit = '500', offset = '0' } = req.query as Record<string, string>;
+    const { status, model, search, limit = '500', offset = '0', includeDeleted, deletedOnly } = req.query as Record<string, string>;
     let q = supabase.from('inventory_units').select('*').order('date_in', { ascending: false });
+
+    if (deletedOnly === 'true') {
+      q = q.not('deleted_at', 'is', null);
+    } else if (includeDeleted !== 'true') {
+      q = q.is('deleted_at', null);
+    }
 
     if (status)  q = q.eq('status', status);
     if (model)   q = q.ilike('model', `%${model}%`);

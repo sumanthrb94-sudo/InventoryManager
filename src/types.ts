@@ -21,6 +21,7 @@ export interface Supplier {
   websiteUrl?: string;
   ownerId: string;
   createdAt: any;
+  deletedAt?: string | null;
 }
 
 export interface SourceDocument {
@@ -87,6 +88,7 @@ export interface InventoryUnit {
   ownerId: string;
   createdAt: any;
   updatedAt?: any;
+  deletedAt?: string | null;
 }
 
 /**

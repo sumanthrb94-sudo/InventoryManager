@@ -1,20 +1,40 @@
 import React, { useMemo, useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Truck, Plus, ShoppingBag, AlertCircle, Search, ChevronDown, ChevronUp } from 'lucide-react';
+import { Truck, Plus, ShoppingBag, AlertCircle, Search, ChevronDown, ChevronUp, RotateCcw, Trash2 } from 'lucide-react';
 import { InventoryUnit } from '../types';
 import { useInventoryStore } from '../lib/inventoryStore';
+import { dbService, SOFT_DELETE_RETENTION_MS } from '../lib/dbService';
 
 interface Props {
   units: InventoryUnit[];
   mode: 'buy' | 'sell';
 }
 
+function formatRemaining(deletedAt?: string | null): string {
+  if (!deletedAt) return '';
+  const expires = new Date(deletedAt).getTime() + SOFT_DELETE_RETENTION_MS;
+  const ms = expires - Date.now();
+  if (ms <= 0) return 'purging…';
+  const hrs = Math.floor(ms / (60 * 60 * 1000));
+  const mins = Math.floor((ms % (60 * 60 * 1000)) / (60 * 1000));
+  return hrs > 0 ? `${hrs}h ${mins}m left` : `${mins}m left`;
+}
+
 export default function SHSListingPanel({ units, mode }: Props) {
-  const { suppliers } = useInventoryStore();
+  const { suppliers, deletedUnits } = useInventoryStore();
   const [search, setSearch] = useState('');
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [removedExpanded, setRemovedExpanded] = useState(false);
 
   const shsUnits = useMemo(() => units.filter(u => u.status === 'incoming'), [units]);
+
+  // Recently-removed (last 48h) — shown for recovery while in testing.
+  const recentlyRemoved = useMemo(() => {
+    const cutoff = Date.now() - SOFT_DELETE_RETENTION_MS;
+    return (deletedUnits || [])
+      .filter(u => u.deletedAt && new Date(u.deletedAt).getTime() >= cutoff)
+      .sort((a, b) => new Date(b.deletedAt!).getTime() - new Date(a.deletedAt!).getTime());
+  }, [deletedUnits]);
 
   const supplierMap = useMemo(() => {
     const map: Record<string, string> = {};
@@ -49,11 +69,17 @@ export default function SHSListingPanel({ units, mode }: Props) {
       .sort((a, b) => b.count - a.count);
   }, [filtered]);
 
-  if (shsUnits.length === 0) {
+  if (shsUnits.length === 0 && recentlyRemoved.length === 0) {
     return null;
   }
 
+  const handleRestore = async (id: string) => {
+    await dbService.restore('inventoryUnits', id);
+  };
+
   return (
+    <div className="space-y-4">
+    {shsUnits.length > 0 && (
     <div className="bg-gradient-to-br from-orange-50 to-orange-50 border-2 border-orange-200 rounded-3xl overflow-hidden shadow-sm">
       {/* Header */}
       <div className="bg-orange-500 text-white px-6 py-4 flex items-center justify-between">
@@ -188,6 +214,75 @@ export default function SHSListingPanel({ units, mode }: Props) {
             : 'Pre-order SHS products to expand your catalog without office inventory'}
         </p>
       </div>
+    </div>
+    )}
+
+    {recentlyRemoved.length > 0 && (
+      <div className="bg-slate-50 border-2 border-slate-300 rounded-3xl overflow-hidden shadow-sm">
+        <button
+          onClick={() => setRemovedExpanded(v => !v)}
+          className="w-full bg-slate-700 text-white px-6 py-4 flex items-center justify-between"
+        >
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 bg-slate-800 rounded-xl flex items-center justify-center">
+              <Trash2 size={18} />
+            </div>
+            <div className="text-left">
+              <h3 className="font-bold text-sm uppercase tracking-tight">Recently Removed</h3>
+              <p className="text-[10px] font-mono opacity-80">
+                {recentlyRemoved.length} item{recentlyRemoved.length === 1 ? '' : 's'} · kept 48h for recovery
+              </p>
+            </div>
+          </div>
+          {removedExpanded
+            ? <ChevronUp size={16} />
+            : <ChevronDown size={16} />}
+        </button>
+
+        <AnimatePresence>
+          {removedExpanded && (
+            <motion.div
+              initial={{ height: 0, opacity: 0 }}
+              animate={{ height: 'auto', opacity: 1 }}
+              exit={{ height: 0, opacity: 0 }}
+              className="overflow-hidden"
+            >
+              <div className="max-h-96 overflow-y-auto divide-y divide-slate-200">
+                {recentlyRemoved.map(u => (
+                  <div key={u.id} className="flex items-start justify-between px-6 py-3 bg-white">
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs font-bold text-gray-900 truncate">{u.model}</p>
+                      <p className="text-[9px] text-gray-500 font-mono mt-1">
+                        {u.colour || '—'} · {u.storage || '—'} · {u.imei || 'no IMEI'} · {u.status}
+                      </p>
+                      <p className="text-[9px] text-slate-600 font-mono mt-1">
+                        Removed {new Date(u.deletedAt!).toLocaleString()} · {formatRemaining(u.deletedAt)}
+                      </p>
+                    </div>
+                    <div className="text-right flex-shrink-0 ml-3">
+                      <p className="text-sm font-bold text-gray-900">£{u.buyPrice}</p>
+                      <button
+                        onClick={() => handleRestore(u.id)}
+                        title="Restore this unit"
+                        className="mt-2 inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-[9px] font-bold uppercase tracking-widest bg-emerald-600 text-white hover:bg-emerald-700 transition-all"
+                      >
+                        <RotateCcw size={10} /> Restore
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <div className="px-6 py-2 border-t border-slate-200 bg-slate-100 flex items-center gap-2">
+                <AlertCircle size={12} className="text-slate-600 flex-shrink-0" />
+                <p className="text-[9px] text-slate-600 font-mono">
+                  Items soft-deleted in testing mode. Permanently removed after 48 hours.
+                </p>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </div>
+    )}
     </div>
   );
 }

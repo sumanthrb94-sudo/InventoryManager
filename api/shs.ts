@@ -23,13 +23,22 @@ function appToDb(obj: Record<string, any>) {
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (handleOptions(req, res)) return;
 
-  // GET /api/shs — all SHS (incoming) units = listed with supplier
+  // GET /api/shs — SHS (incoming) units = listed with supplier.
+  // ?includeDeleted=true also returns soft-deleted items (kept 48h for testing).
+  // ?deletedOnly=true returns only soft-deleted items.
   if (req.method === 'GET') {
-    const { data, error } = await supabase
+    const { includeDeleted, deletedOnly } = req.query as Record<string, string>;
+    let q = supabase
       .from('inventory_units')
       .select('*')
       .eq('status', 'incoming')
       .order('created_at', { ascending: false });
+    if (deletedOnly === 'true') {
+      q = q.not('deleted_at', 'is', null);
+    } else if (includeDeleted !== 'true') {
+      q = q.is('deleted_at', null);
+    }
+    const { data, error } = await q;
     if (error) return err(res, error.message, 500);
     return ok(res, (data || []).map(dbToApp));
   }
