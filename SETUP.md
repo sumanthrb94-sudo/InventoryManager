@@ -78,6 +78,46 @@ browser console during upload, apply the file above.
 - [ ] Remove a pending SHS → confirm it appears on the **Stock Ticker tape** at the top and in the bell notification.
 - [ ] Try `https://<your-domain>/?seed=1` while signed-out → should hit the login page, not the seed UI.
 
+## Architecture: CQRS layer
+
+All write operations go through `src/lib/commandBus.ts`. The pattern:
+
+```ts
+import { dispatch } from '../lib/commandBus';
+import { SoftDeleteUnit } from '../lib/commands';
+
+await dispatch(new SoftDeleteUnit(unit.id));
+```
+
+- **Commands** live in `src/lib/commands/`. Each is a typed, serialisable
+  intent object: `type` (audit string), `payload()` (what gets logged), and
+  `execute()` (the actual side effect, typically a single dbService call).
+- **Dispatcher** runs every command through a middleware chain. The default
+  middleware writes to `/commandLog` in Firestore on both success and failure
+  so the system has a tamper-evident audit trail of every state change. The
+  audit write is fire-and-forget — a failed audit never blocks the command.
+- **Queries** live in `src/lib/queries/`. They're typed selector hooks over
+  the existing `useInventoryStore()` substrate (`useAvailableUnits`,
+  `useDeletedUnits`, `useRecentlyRemoved`, etc.). Reads stay live-subscribed
+  via Firestore `onSnapshot`; queries just expose pre-built filters.
+
+Components MUST use the bus for new writes — direct `dbService.*` calls are
+allowed only inside command classes themselves.
+
+### Why this exists
+- One place to add cross-cutting concerns (logging, audit, validation, rate-
+  limiting) without touching every component.
+- Every write is type-checked at the call site (`new SoftDeleteUnit('x')`),
+  so refactors are compiler-enforced.
+- `/commandLog` doubles as a forensic record — answers "who changed what,
+  when, and did it succeed?" Useful when investigating unexpected stock
+  movements.
+
+### When NOT to add a new command
+- Pure UI state (modal open/closed, scroll position).
+- Local-only data (sessionStorage, in-memory caches).
+- Reads — those go through `src/lib/queries/`.
+
 ## Session policy
 
 - Sessions auto-expire **1 hour** after sign-in (absolute, not idle-based). Configurable via `SESSION_MAX_AGE_MS` in `src/lib/firebase.ts`.

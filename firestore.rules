@@ -33,6 +33,15 @@ service cloud.firestore {
     // groups are removed; read by StockTickerBoard for the live tape.
     match /shsRemovals/{removalId}       { allow read, write: if isAdmin(); }
 
+    // Command bus audit log — every dispatched Command writes one row.
+    // Append-only: updates / deletes are denied so the audit trail is
+    // tamper-evident even from the admin UI.
+    match /commandLog/{logId} {
+      allow read:   if isAdmin();
+      allow create: if isAdmin();
+      allow update, delete: if false;
+    }
+
     // Catch-all: deny anything we haven't explicitly authorised.
     match /{document=**} {
       allow read, write: if false;

@@ -5,6 +5,8 @@ import {
 } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
 import { dbService } from '../lib/dbService';
+import { dispatch } from '../lib/commandBus';
+import { ProcessReturn } from '../lib/commands';
 import { InventoryUnit, ReturnCategory } from '../types';
 import { useInventoryStore } from '../lib/inventoryStore';
 import { notificationService } from '../lib/notificationService';
@@ -281,28 +283,7 @@ function ProcessReturnModal({
     if (!reason.trim()) { setError('Please enter a return reason.'); return; }
     setSaving(true);
     try {
-      if (returnType === 'returned_to_supplier') {
-        // Unit goes back to supplier — remove from inventory entirely
-        await dbService.delete('inventoryUnits', unit.id);
-      } else {
-        const newStatus = returnType === 'returned_to_inventory' ? 'available' : 'returned';
-        await dbService.update('inventoryUnits', unit.id, {
-          status: newStatus,
-          returnType,
-          returnDate,
-          returnReason: reason.trim(),
-          // Always clear sale data on any return — prevents ghost sale records
-          salePrice: null,
-          saleDate: null,
-          salePlatform: null,
-          saleOrderId: null,
-          postageCost: null,
-          ...(returnType === 'returned_to_inventory' ? {
-            platformListed: false,
-            listingSites: [],
-          } : {}),
-        });
-      }
+      await dispatch(new ProcessReturn(unit.id, returnType, returnDate, reason));
 
       // Trigger return_processed notification
       console.log(`[Return] Processing return for ${unit.model}`, { returnType, unit });

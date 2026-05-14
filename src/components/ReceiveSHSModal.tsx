@@ -2,6 +2,8 @@ import React, { useState, useMemo } from 'react';
 import { X, CheckCircle2, PackageCheck, Plus, Trash2, Lock } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { dbService } from '../lib/dbService';
+import { dispatch } from '../lib/commandBus';
+import { ReceiveSHSUnit } from '../lib/commands';
 import { InventoryUnit, Supplier } from '../types';
 import { notificationService } from '../lib/notificationService';
 import { generateBatchId, formatBatchId } from '../lib/batchUtils';
@@ -223,13 +225,10 @@ export default function ReceiveSHSModal({ unit, onClose }: Props) {
         }
       }
 
-      // Hard-delete the original SHS pending unit: this is a state transition
-      // (pending → received), not a user-initiated removal, so it should not
-      // appear in the Recently Removed recovery list.
-      await dbService.hardDelete('inventoryUnits', unit.id);
-
-      // Add all new units
-      await Promise.all(unitsToAdd.map(u => dbService.create('inventoryUnits', u.id, u)));
+      // Single composite command: writes the received unit(s), then
+      // hard-deletes the pending placeholder. The audit row captures
+      // the full state transition under one type/payload.
+      await dispatch(new ReceiveSHSUnit(unit.id, unitsToAdd));
 
       // Trigger batched notification
       notificationService.addNotification('new_stock', unitsToAdd[0], undefined, quantity);

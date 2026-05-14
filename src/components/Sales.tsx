@@ -7,6 +7,8 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { dbService } from '../lib/dbService';
+import { dispatch } from '../lib/commandBus';
+import { ZeroOutListing, UpdateActiveListing } from '../lib/commands';
 import { InventoryUnit, Supplier, OperationalFlag, ActiveListing } from '../types';
 import { notificationService, Notification } from '../lib/notificationService';
 import { platformTotalFee, calcNetProfit, DEFAULT_POSTAGE_COST } from '../lib/platforms';
@@ -171,15 +173,14 @@ export default function Sales() {
     if (quantity <= 0) {
       // activeListings is a transient counter, not historical data, so a
       // zero-quantity update fully removes the row instead of soft-deleting.
-      await dbService.hardDelete('activeListings', listingId);
+      await dispatch(new ZeroOutListing(listingId));
     } else {
-      await dbService.create('activeListings', listingId, {
+      await dispatch(new UpdateActiveListing({
+        id: listingId,
         model,
         platform,
         quantity,
-        updatedAt: new Date().toISOString(),
-        ownerId: 'shared'
-      });
+      }));
     }
   };
 

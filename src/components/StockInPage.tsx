@@ -5,8 +5,9 @@ import {
 } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
 import { dbService, SOFT_DELETE_RETENTION_MS } from '../lib/dbService';
+import { dispatch } from '../lib/commandBus';
+import { SoftDeleteUnit, RestoreUnit, LogSHSRemoval } from '../lib/commands';
 import { notificationService } from '../lib/notificationService';
-import { logSHSRemoval } from '../lib/shsRemovalLog';
 import { InventoryUnit, Supplier } from '../types';
 import { useInventoryStore } from '../lib/inventoryStore';
 import CopyImei from './CopyImei';
@@ -48,19 +49,19 @@ export default function StockInPage({ onOpenBatch }: Props) {
       return;
     }
     try {
-      await Promise.all(groupUnits.map(u => dbService.delete('inventoryUnits', u.id)));
+      await Promise.all(groupUnits.map(u => dispatch(new SoftDeleteUnit(u.id))));
       // Persist a server-side audit row so the StockTickerBoard can
       // surface this removal on any device, even on a fresh login —
       // the in-app notification stream is per-user/localStorage and
       // can't carry that history across sessions.
       try {
-        await logSHSRemoval({
+        await dispatch(new LogSHSRemoval({
           model:      sample.model,
           quantity:   qty,
           colour:     sample.colour,
           storage:    (sample as any).storage,
           supplierId: sample.supplierId,
-        });
+        }));
       } catch (logErr) {
         console.warn('SHS removal log write failed (non-fatal):', logErr);
       }
@@ -87,7 +88,7 @@ export default function StockInPage({ onOpenBatch }: Props) {
 
   const handleRestore = async (id: string) => {
     try {
-      await dbService.restore('inventoryUnits', id);
+      await dispatch(new RestoreUnit(id));
     } catch (err) {
       console.error('Failed to restore unit:', err);
     }
