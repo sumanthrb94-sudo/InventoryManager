@@ -11,8 +11,25 @@ import {
 } from 'firebase/firestore';
 import { db } from './firebase';
 
-const listeners:  Record<string, Array<(data: any[]) => void>> = {};
+type Listener = (data: any[]) => void;
+interface ListenerEntry { cb: Listener; includeDeleted: boolean; deletedOnly: boolean; }
+
+const listeners:  Record<string, ListenerEntry[]> = {};
+// Cache holds the raw snapshot including soft-deleted rows; consumers receive a filtered view.
 const cachedData: Record<string, any[]> = {};
+
+// Soft-delete retention window. After this, rows are hard-deleted in the background.
+export const SOFT_DELETE_RETENTION_MS = 48 * 60 * 60 * 1000;
+
+function isSoftDeleted(item: any): boolean {
+  return !!item?.deletedAt;
+}
+
+function applyDeletedFilter(items: any[], entry: ListenerEntry): any[] {
+  if (entry.deletedOnly) return items.filter(isSoftDeleted);
+  if (entry.includeDeleted) return items;
+  return items.filter(it => !isSoftDeleted(it));
+}
 
 // ── Collection name map (app name → Firestore collection) ─────────────────────
 const COL: Record<string, string> = {
@@ -85,7 +102,31 @@ export function subscribeToSyncStatus(cb: (connected: boolean) => void) {
 }
 
 function emit(name: string, data: any[]) {
-  for (const cb of listeners[name] || []) cb([...data]);
+  for (const entry of listeners[name] || []) {
+    entry.cb(applyDeletedFilter(data, entry));
+  }
+}
+
+// Hard-delete any rows whose deletedAt is older than the retention window.
+// Runs opportunistically on every snapshot — keeps Firestore tidy without a cron.
+function schedulePurge(collectionName: string, items: any[]) {
+  const cutoff = Date.now() - SOFT_DELETE_RETENTION_MS;
+  const expired = items.filter(it => {
+    if (!it?.deletedAt) return false;
+    const ts = new Date(it.deletedAt).getTime();
+    return Number.isFinite(ts) && ts < cutoff;
+  });
+  if (expired.length === 0) return;
+  // Fire-and-forget; failures are logged but do not block subscribers.
+  (async () => {
+    for (const it of expired) {
+      try {
+        await deleteDoc(docRef(collectionName, it.id));
+      } catch (err: any) {
+        console.warn(`Firestore purge [${collectionName}/${it.id}]:`, err.message);
+      }
+    }
+  })();
 }
 
 function nowIso() { return new Date().toISOString(); }
@@ -135,7 +176,45 @@ export const dbService = {
     }
   },
 
+  // Soft delete: marks the row with deletedAt. Hidden from default subscribers but
+  // still queryable via { includeDeleted: true } for 48h before being purged.
   async delete(collectionName: string, id: string) {
+    const timestamp = nowIso();
+    const current = [...(cachedData[collectionName] || [])];
+    const idx = current.findIndex(x => x.id === id);
+    if (idx < 0) return;
+    const updated = { ...current[idx], deletedAt: timestamp, updatedAt: timestamp };
+    current[idx] = updated;
+    cachedData[collectionName] = current;
+    emit(collectionName, current);
+
+    try {
+      await setDoc(docRef(collectionName, id), cleanForFirestore(updated), { merge: true });
+    } catch (err: any) {
+      console.warn(`Firestore soft-delete [${collectionName}/${id}]:`, err.message);
+    }
+  },
+
+  // Restore a soft-deleted row by clearing deletedAt.
+  async restore(collectionName: string, id: string) {
+    const timestamp = nowIso();
+    const current = [...(cachedData[collectionName] || [])];
+    const idx = current.findIndex(x => x.id === id);
+    if (idx < 0) return;
+    const updated = { ...current[idx], deletedAt: null, updatedAt: timestamp };
+    current[idx] = updated;
+    cachedData[collectionName] = current;
+    emit(collectionName, current);
+
+    try {
+      await setDoc(docRef(collectionName, id), cleanForFirestore(updated), { merge: true });
+    } catch (err: any) {
+      console.warn(`Firestore restore [${collectionName}/${id}]:`, err.message);
+    }
+  },
+
+  // Hard delete — fully removes the document. Use only for admin/reset flows.
+  async hardDelete(collectionName: string, id: string) {
     const current = (cachedData[collectionName] || []).filter(x => x.id !== id);
     cachedData[collectionName] = current;
     emit(collectionName, current);
@@ -143,7 +222,7 @@ export const dbService = {
     try {
       await deleteDoc(docRef(collectionName, id));
     } catch (err: any) {
-      console.warn(`Firestore delete [${collectionName}/${id}]:`, err.message);
+      console.warn(`Firestore hardDelete [${collectionName}/${id}]:`, err.message);
     }
   },
 
@@ -203,12 +282,21 @@ export const dbService = {
     onProgress?.(total, total);
   },
 
-  subscribeToCollection(collectionName: string, callback: (data: any[]) => void) {
-    (listeners[collectionName] ??= []).push(callback);
+  subscribeToCollection(
+    collectionName: string,
+    callback: Listener,
+    opts?: { includeDeleted?: boolean; deletedOnly?: boolean },
+  ) {
+    const entry: ListenerEntry = {
+      cb: callback,
+      includeDeleted: !!opts?.includeDeleted || !!opts?.deletedOnly,
+      deletedOnly: !!opts?.deletedOnly,
+    };
+    (listeners[collectionName] ??= []).push(entry);
 
     // Serve in-memory cache immediately
     if (cachedData[collectionName]?.length) {
-      callback([...cachedData[collectionName]]);
+      callback(applyDeletedFilter(cachedData[collectionName], entry));
     }
 
     const unsub = onSnapshot(
@@ -218,6 +306,7 @@ export const dbService = {
         cachedData[collectionName] = data;
         emit(collectionName, data);
         setSyncStatus(true);
+        schedulePurge(collectionName, data);
       },
       err => {
         setSyncStatus(false);
@@ -227,16 +316,19 @@ export const dbService = {
 
     return () => {
       unsub();
-      listeners[collectionName] = (listeners[collectionName] || []).filter(cb => cb !== callback);
+      listeners[collectionName] = (listeners[collectionName] || []).filter(e => e !== entry);
     };
   },
 
-  async readAll(collectionName: string) {
-    if (cachedData[collectionName]?.length) return cachedData[collectionName];
+  async readAll(collectionName: string, opts?: { includeDeleted?: boolean }) {
+    const cached = cachedData[collectionName];
+    if (cached?.length) {
+      return opts?.includeDeleted ? cached : cached.filter(it => !isSoftDeleted(it));
+    }
     const snap = await getDocs(colRef(collectionName));
     const data = snapToItems(snap);
     cachedData[collectionName] = data;
-    return data;
+    return opts?.includeDeleted ? data : data.filter(it => !isSoftDeleted(it));
   },
 
   async resetDatabase() {
@@ -246,18 +338,18 @@ export const dbService = {
 
   async imeiExists(imei: string): Promise<boolean> {
     if (!imei || imei.length < 14) return false;
-    const cached = (cachedData['inventoryUnits'] || []).find((u: any) => u.imei === imei);
+    const cached = (cachedData['inventoryUnits'] || []).find((u: any) => u.imei === imei && !isSoftDeleted(u));
     if (cached) return true;
     const snap = await getDocs(query(colRef('inventoryUnits'), where('imei', '==', imei)));
-    return !snap.empty;
+    return snap.docs.some(d => !d.data()?.deletedAt);
   },
 
   async getByImei(imei: string): Promise<any | null> {
-    const cached = (cachedData['inventoryUnits'] || []).find((u: any) => u.imei === imei);
+    const cached = (cachedData['inventoryUnits'] || []).find((u: any) => u.imei === imei && !isSoftDeleted(u));
     if (cached) return cached;
     const snap = await getDocs(query(colRef('inventoryUnits'), where('imei', '==', imei)));
-    if (snap.empty) return null;
-    return snapToItems(snap)[0];
+    const live = snapToItems(snap).find(it => !isSoftDeleted(it));
+    return live ?? null;
   },
 
   async updateByImei(imei: string, data: any) {

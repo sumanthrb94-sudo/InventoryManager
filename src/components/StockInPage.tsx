@@ -1,10 +1,10 @@
 import React, { useState, useMemo } from 'react';
 import {
   PackagePlus, Search, Plus, CheckCircle2, Clock,
-  ChevronDown, ChevronUp, Truck, PackageCheck, AlertCircle, MoreVertical, Trash2,
+  ChevronDown, ChevronUp, Truck, PackageCheck, AlertCircle, MoreVertical, Trash2, RotateCcw,
 } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
-import { dbService } from '../lib/dbService';
+import { dbService, SOFT_DELETE_RETENTION_MS } from '../lib/dbService';
 import { notificationService } from '../lib/notificationService';
 import { logSHSRemoval } from '../lib/shsRemovalLog';
 import { InventoryUnit, Supplier } from '../types';
@@ -26,7 +26,7 @@ interface Props {
 }
 
 export default function StockInPage({ onOpenBatch }: Props) {
-  const { units, suppliers }        = useInventoryStore();
+  const { units, suppliers, deletedUnits } = useInventoryStore();
   const [search, setSearch]         = useState('');
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [receivingUnit, setReceivingUnit] = useState<InventoryUnit | null>(null);
@@ -76,6 +76,22 @@ export default function StockInPage({ onOpenBatch }: Props) {
     for (const s of suppliers) m[s.id] = s.name;
     return m;
   }, [suppliers]);
+
+  // Recently-removed units (last 48h) — soft-delete recovery list.
+  const recentlyRemoved = useMemo(() => {
+    const cutoff = Date.now() - SOFT_DELETE_RETENTION_MS;
+    return (deletedUnits || [])
+      .filter(u => u.deletedAt && new Date(u.deletedAt).getTime() >= cutoff)
+      .sort((a, b) => new Date(b.deletedAt!).getTime() - new Date(a.deletedAt!).getTime());
+  }, [deletedUnits]);
+
+  const handleRestore = async (id: string) => {
+    try {
+      await dbService.restore('inventoryUnits', id);
+    } catch (err) {
+      console.error('Failed to restore unit:', err);
+    }
+  };
 
   // Pending SHS — incoming units, sorted by dateIn desc
   const pendingSHS = useMemo(() =>
@@ -276,6 +292,58 @@ export default function StockInPage({ onOpenBatch }: Props) {
                 </div>
               );
             })}
+          </div>
+        </CollapsibleSection>
+      )}
+
+      {/* Recently Removed — soft-deleted units kept 48h for testing recovery */}
+      {recentlyRemoved.length > 0 && (
+        <CollapsibleSection
+          title="Recently Removed — Kept for 48h"
+          count={recentlyRemoved.length}
+          accent="border-l-slate-500"
+          defaultOpen={false}
+        >
+          <div className="divide-y divide-slate-100">
+            {recentlyRemoved.map(u => {
+              const expiresMs = new Date(u.deletedAt!).getTime() + SOFT_DELETE_RETENTION_MS - Date.now();
+              const hrs = Math.max(0, Math.floor(expiresMs / (60 * 60 * 1000)));
+              const mins = Math.max(0, Math.floor((expiresMs % (60 * 60 * 1000)) / (60 * 1000)));
+              const remaining = expiresMs <= 0 ? 'purging…' : (hrs > 0 ? `${hrs}h ${mins}m left` : `${mins}m left`);
+              return (
+                <div key={u.id} className="flex items-center gap-3 px-4 py-3 hover:bg-slate-50 transition-all">
+                  <div className="w-8 h-8 rounded-lg bg-slate-100 flex items-center justify-center flex-shrink-0">
+                    <Trash2 size={14} className="text-slate-500" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs font-bold truncate">{u.model}</p>
+                    <p className="text-[9px] text-gray-400 font-mono mt-0.5">
+                      {u.colour && u.colour !== 'Unknown' ? `${u.colour} · ` : ''}
+                      {u.imei || 'no IMEI'} · status: {u.status}
+                    </p>
+                    <p className="text-[9px] text-slate-500 font-mono mt-0.5">
+                      Removed {new Date(u.deletedAt!).toLocaleString()} · {remaining}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2 flex-shrink-0">
+                    <span className="text-sm font-bold">£{u.buyPrice}</span>
+                    <button
+                      onClick={() => handleRestore(u.id)}
+                      className="px-3 py-1.5 bg-emerald-600 text-white text-[9px] font-bold uppercase tracking-widest rounded-lg hover:bg-emerald-700 transition-all flex items-center gap-1"
+                      title="Restore this unit"
+                    >
+                      <RotateCcw size={11} /> Restore
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+          <div className="px-4 py-2 border-t border-slate-100 bg-slate-50 flex items-center gap-2">
+            <AlertCircle size={12} className="text-slate-500 flex-shrink-0" />
+            <p className="text-[9px] text-slate-500 font-mono">
+              Testing phase: items are soft-deleted and permanently removed after 48 hours.
+            </p>
           </div>
         </CollapsibleSection>
       )}

@@ -21,6 +21,7 @@ export interface Supplier {
   websiteUrl?: string;
   ownerId: string;
   createdAt: any;
+  deletedAt?: string | null;
 }
 
 export interface SourceDocument {
@@ -83,10 +84,11 @@ export interface InventoryUnit {
   returnDate?: string;
   returnReason?: string;
   attachments?: string[];
-  imageUrl?: string;        // Supabase cloud image URL for the device
+  imageUrl?: string;        // Cloud image URL for the device
   ownerId: string;
   createdAt: any;
   updatedAt?: any;
+  deletedAt?: string | null;
 }
 
 /**

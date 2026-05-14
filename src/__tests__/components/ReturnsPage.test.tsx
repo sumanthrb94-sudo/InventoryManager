@@ -428,7 +428,7 @@ describe('ReturnsPage', () => {
           const supplierButton = screen.getByRole('button', { name: /Return to Supplier/i });
           await user.click(supplierButton);
 
-          expect(screen.getByText(/permanently deleted/i)).toBeInTheDocument();
+          expect(screen.getByText(/Recently Removed/i)).toBeInTheDocument();
         });
       }
     });

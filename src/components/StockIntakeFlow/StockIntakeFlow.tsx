@@ -43,7 +43,7 @@ export default function StockIntakeFlow({ onClose }: Props) {
   // Image & extraction
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [imagePreview, setImagePreview] = useState<string>('');
-  const [supabaseImageUrl, setSupabaseImageUrl] = useState<string>('');
+  const [uploadedImageUrl, setUploadedImageUrl] = useState<string>('');
   const [ocrResult, setOcrResult] = useState<OCRResult | undefined>();
 
   // Form fields
@@ -121,13 +121,12 @@ export default function StockIntakeFlow({ onClose }: Props) {
     setStage('color-distribution');
   };
 
-  const handleImageSelected = (file: File, preview: string, ocrData?: OCRResult, supabaseUrl?: string) => {
+  const handleImageSelected = (file: File, preview: string, ocrData?: OCRResult, uploadedUrl?: string) => {
     setImageFile(file);
     setImagePreview(preview);
     setOcrResult(ocrData);
-    if (supabaseUrl) {
-      setSupabaseImageUrl(supabaseUrl);
-      console.log('[StockIntakeFlow] Image URL from Supabase:', supabaseUrl);
+    if (uploadedUrl) {
+      setUploadedImageUrl(uploadedUrl);
     }
 
     // Pre-populate form fields from OCR result if available
@@ -270,7 +269,7 @@ export default function StockIntakeFlow({ onClose }: Props) {
         flags: [],
         notes,
         platformListed: false,
-        imageUrl: supabaseImageUrl || undefined,
+        imageUrl: uploadedImageUrl || undefined,
         ownerId: 'shared',
         createdAt: now,
       };
@@ -312,7 +311,7 @@ export default function StockIntakeFlow({ onClose }: Props) {
             flags: [],
             notes,
             platformListed: false,
-            imageUrl: captured?.previewUrl || supabaseImageUrl || undefined,
+            imageUrl: captured?.previewUrl || uploadedImageUrl || undefined,
             ownerId: 'shared',
             createdAt: now,
           };

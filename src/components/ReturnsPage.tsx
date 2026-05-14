@@ -390,7 +390,7 @@ function ProcessReturnModal({
             <div className="flex items-start gap-2 bg-orange-50 border border-orange-200 rounded-xl p-3">
               <ArrowUpRight size={13} className="text-orange-600 flex-shrink-0 mt-0.5" />
               <p className="text-[9px] text-orange-700 font-mono leading-relaxed">
-                Unit will be <strong>permanently deleted</strong> from inventory. This cannot be undone — the unit is gone from your stock.
+                Unit will be <strong>removed</strong> from inventory. While in testing, it is kept for 48 hours in the Recently Removed list and can be restored.
               </p>
             </div>
           )}

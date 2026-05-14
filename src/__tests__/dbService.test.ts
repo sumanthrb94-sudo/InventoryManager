@@ -120,7 +120,7 @@ describe('appToDb', () => {
     expect(result).toHaveProperty('model');
   });
 
-  it('preserves null values (explicit null = clear the field in Supabase)', () => {
+  it('preserves null values (explicit null = clear the field)', () => {
     const result = appToDb({ imei: null, model: 'iPhone' });
     expect(result).toHaveProperty('imei', null);
   });

@@ -1,32 +1,35 @@
 rules_version = '2';
+
+// Internal inventory tool. Access is restricted to a hard-coded list of
+// authorised staff Google accounts. Edit ADMIN_EMAILS below before deploying.
 service cloud.firestore {
   match /databases/{database}/documents {
+
     function isSignedIn() {
       return request.auth != null;
     }
 
-    match /suppliers/{supplierId} {
-      allow read, write: if isSignedIn();
-    }
-    match /batches/{batchId} {
-      allow read, write: if isSignedIn();
-    }
-    match /inventoryUnits/{unitId} {
-      allow read, write: if isSignedIn();
-    }
-    match /inventoryEvents/{eventId} {
-      allow read, write: if isSignedIn();
-    }
-    match /dailyUpdates/{updateId} {
-      allow read, write: if isSignedIn();
-    }
-    match /activeListings/{listingId} {
-      allow read, write: if isSignedIn();
-    }
-    match /sourceDocuments/{docId} {
-      allow read, write: if isSignedIn();
+    // Replace the placeholder addresses with the real staff Google accounts
+    // before deploying. Email is sourced from the verified Google OAuth token.
+    function isAdmin() {
+      return isSignedIn()
+        && request.auth.token.email_verified == true
+        && request.auth.token.email in [
+             'owner@mobilephonemarket.example',
+             'ops@mobilephonemarket.example'
+           ];
     }
 
+    // Operational collections — full read/write for admins only.
+    match /suppliers/{supplierId}        { allow read, write: if isAdmin(); }
+    match /batches/{batchId}             { allow read, write: if isAdmin(); }
+    match /inventoryUnits/{unitId}       { allow read, write: if isAdmin(); }
+    match /inventoryEvents/{eventId}     { allow read, write: if isAdmin(); }
+    match /dailyUpdates/{updateId}       { allow read, write: if isAdmin(); }
+    match /activeListings/{listingId}    { allow read, write: if isAdmin(); }
+    match /sourceDocuments/{docId}       { allow read, write: if isAdmin(); }
+
+    // Catch-all: deny anything we haven't explicitly authorised.
     match /{document=**} {
       allow read, write: if false;
     }
