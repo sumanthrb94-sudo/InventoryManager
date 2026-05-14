@@ -1,30 +1,18 @@
-import React, { useState, useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Trash2 } from 'lucide-react';
 import { motion } from 'motion/react';
-import { notificationService, Notification } from '../lib/notificationService';
+import { subscribeRecentRemovals, SHSRemovalLogEntry } from '../lib/shsRemovalLog';
 
 // Persistent SHS-removal tape.
 //
-// Requirements (from user):
-//   - Tape is visible 24/7 — not only when something new fires.
-//   - Each SHS-removed event stays on the tape for 48 hours, with its
-//     timestamp (date + time + timezone) so an operator can see
-//     when a unit was actually delisted.
-//
-// We can't lean on notificationService here — it caps history at 24h.
-// Persist our own list to localStorage with a 48h TTL, and reconcile
-// with the notification stream on every render so events delivered
-// while we're mounted get folded in.
+// Source of truth: the `shsRemovals` Firestore collection, written by
+// StockInPage whenever a pending SHS group is delisted. Every device,
+// every session, every operator sees the same last 48h history — no
+// per-device localStorage state, no dependency on whether a
+// notification happened to fire while the user was mounted.
 
-interface TickerItem {
-  id: string;
-  model: string;
-  quantity: number;
-  removedAt: number; // ms epoch
-}
-
-const STORAGE_KEY = 'mpm:shs-removed-tape:v1';
-const TTL_MS      = 48 * 60 * 60 * 1000;
+const WINDOW_HOURS = 48;
+const REFRESH_TICK_MS = 60_000; // re-render once a minute so "5m"/"1h" advances
 
 // Compact "time-ago" for the tape. Real stock tickers use short codes
 // (5m, 2h, 1d) — full timestamps eat the row and force the model name
@@ -39,93 +27,40 @@ function shortAgo(ms: number): string {
   return `${Math.floor(h / 24)}d`;
 }
 
-function loadFromStorage(): TickerItem[] {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return [];
-    const parsed: TickerItem[] = JSON.parse(raw);
-    if (!Array.isArray(parsed)) return [];
-    const cutoff = Date.now() - TTL_MS;
-    return parsed
-      .filter(t => typeof t.removedAt === 'number' && t.removedAt >= cutoff)
-      .sort((a, b) => b.removedAt - a.removedAt);
-  } catch {
-    return [];
-  }
-}
-
-function saveToStorage(items: TickerItem[]) {
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(items.slice(0, 50)));
-  } catch {
-    /* quota — non-fatal */
-  }
-}
-
 export default function StockTickerBoard() {
-  const [items, setItems] = useState<TickerItem[]>(() => loadFromStorage());
+  const [items, setItems] = useState<SHSRemovalLogEntry[]>([]);
+  const [, setTick]       = useState(0);
 
-  // Reconcile with notificationService whenever the notification list
-  // mutates. Any shs_removed entry we haven't already captured gets
-  // folded into the persistent tape with the notification's own
-  // timestamp.
+  // Live subscription to recent removals. Server-side filtered to the
+  // last 48h, sorted newest-first.
   useEffect(() => {
-    const merge = (notifications: Notification[]) => {
-      setItems(prev => {
-        const byId = new Map(prev.map(t => [t.id, t]));
-        for (const n of notifications) {
-          if (n.type !== 'shs_removed') continue;
-          if (byId.has(n.id)) continue;
-          const removedAt = new Date(n.timestamp).getTime();
-          if (!Number.isFinite(removedAt)) continue;
-          byId.set(n.id, {
-            id: n.id,
-            model: n.model || 'Unknown model',
-            quantity: n.quantity && n.quantity > 0 ? n.quantity : 1,
-            removedAt,
-          });
-        }
-        // Re-apply 48h cutoff (handles items aging out while mounted)
-        const cutoff = Date.now() - TTL_MS;
-        const next = Array.from(byId.values())
-          .filter(t => t.removedAt >= cutoff)
-          .sort((a, b) => b.removedAt - a.removedAt);
-        saveToStorage(next);
-        return next;
-      });
-    };
-    return notificationService.subscribe(merge);
+    return subscribeRecentRemovals(setItems, WINDOW_HOURS);
   }, []);
 
-  // Re-evaluate TTL once a minute so items age off without needing a
-  // notification mutation to trigger the cleanup.
+  // Force a re-render every minute so the "Nm / Nh" labels stay current
+  // even when no new removal arrives.
   useEffect(() => {
-    const interval = setInterval(() => {
-      const cutoff = Date.now() - TTL_MS;
-      setItems(prev => {
-        const next = prev.filter(t => t.removedAt >= cutoff);
-        if (next.length === prev.length) return prev;
-        saveToStorage(next);
-        return next;
-      });
-    }, 60_000);
-    return () => clearInterval(interval);
+    const id = setInterval(() => setTick(t => t + 1), REFRESH_TICK_MS);
+    return () => clearInterval(id);
   }, []);
 
   const isEmpty = items.length === 0;
 
   // Single compact entry. Used for both the pinned-latest slot and the
   // scrolling marquee. Tight stock-ticker format: model • ×qty • Nh.
-  const TickerEntry = ({ item, live }: { item: TickerItem; live?: boolean }) => (
-    <span className="inline-flex items-center gap-1.5 flex-shrink-0 text-[10px] font-mono tracking-wider whitespace-nowrap">
-      {live && (
-        <span className="w-1.5 h-1.5 rounded-full bg-orange-400 animate-pulse" />
-      )}
-      <span className="text-orange-200">{item.model}</span>
-      <span className="text-orange-400/80">×{item.quantity}</span>
-      <span className="text-slate-400">· {shortAgo(item.removedAt)}</span>
-    </span>
-  );
+  const TickerEntry = ({ item, live }: { item: SHSRemovalLogEntry; live?: boolean }) => {
+    const ts = new Date(item.removedAt).getTime();
+    return (
+      <span className="inline-flex items-center gap-1.5 flex-shrink-0 text-[10px] font-mono tracking-wider whitespace-nowrap">
+        {live && (
+          <span className="w-1.5 h-1.5 rounded-full bg-orange-400 animate-pulse" />
+        )}
+        <span className="text-orange-200">{item.model}</span>
+        <span className="text-orange-400/80">×{item.quantity}</span>
+        <span className="text-slate-400">· {Number.isFinite(ts) ? shortAgo(ts) : '—'}</span>
+      </span>
+    );
+  };
 
   return (
     <div className="flex-shrink-0 h-7 md:h-8 bg-gradient-to-r from-slate-900 via-slate-800 to-slate-900 border-b border-slate-700 overflow-hidden">

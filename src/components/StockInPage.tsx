@@ -6,6 +6,7 @@ import {
 import { AnimatePresence, motion } from 'motion/react';
 import { dbService } from '../lib/dbService';
 import { notificationService } from '../lib/notificationService';
+import { logSHSRemoval } from '../lib/shsRemovalLog';
 import { InventoryUnit, Supplier } from '../types';
 import { useInventoryStore } from '../lib/inventoryStore';
 import CopyImei from './CopyImei';
@@ -48,6 +49,21 @@ export default function StockInPage({ onOpenBatch }: Props) {
     }
     try {
       await Promise.all(groupUnits.map(u => dbService.delete('inventoryUnits', u.id)));
+      // Persist a server-side audit row so the StockTickerBoard can
+      // surface this removal on any device, even on a fresh login —
+      // the in-app notification stream is per-user/localStorage and
+      // can't carry that history across sessions.
+      try {
+        await logSHSRemoval({
+          model:      sample.model,
+          quantity:   qty,
+          colour:     sample.colour,
+          storage:    (sample as any).storage,
+          supplierId: sample.supplierId,
+        });
+      } catch (logErr) {
+        console.warn('SHS removal log write failed (non-fatal):', logErr);
+      }
       notificationService.addNotification('shs_removed', sample, undefined, qty);
       setOpenMenuId(null);
     } catch (err) {

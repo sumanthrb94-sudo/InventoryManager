@@ -22,6 +22,7 @@ const COL: Record<string, string> = {
   dailyUpdates:    'dailyUpdates',
   activeListings:  'activeListings',
   sourceDocuments: 'sourceDocuments',
+  shsRemovals:     'shsRemovals',
 };
 
 function colRef(name: string) {
