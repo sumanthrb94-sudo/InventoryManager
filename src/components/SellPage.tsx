@@ -6,6 +6,7 @@ import {
 } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
 import { dbService } from '../lib/dbService';
+import { classifyDeviceId } from '../lib/deviceId';
 import { InventoryUnit } from '../types';
 import { useInventoryStore } from '../lib/inventoryStore';
 import { notificationService } from '../lib/notificationService';
@@ -269,15 +270,15 @@ function EnterImeiModal({
   const [saved, setSaved]   = useState(false);
   const [error, setError]   = useState('');
 
-  const clean     = imei.replace(/\D/g, '');
-  const isNumeric = /^\d+$/.test(clean);
-  const numericOk = isNumeric && clean.length >= 14 && clean.length <= 15;
-  const alphaOk   = imei.trim().length >= 8 && !isNumeric;
-  const inputOk   = numericOk || alphaOk;
-  const finalImei = alphaOk ? imei.trim().toUpperCase() : clean;
+  const idClass   = classifyDeviceId(imei);
+  const inputOk   = idClass.valid;
+  const finalImei = idClass.valid ? idClass.normalized : '';
 
   const handleSave = async () => {
-    if (!inputOk) { setError('Enter a valid 14–15 digit IMEI or device serial (≥8 chars)'); return; }
+    if (!inputOk) {
+      setError(idClass.reason || 'Enter a 15-digit IMEI or 8-14 char device serial');
+      return;
+    }
     setSaving(true);
     try {
       const exists = await dbService.imeiExists(finalImei);
@@ -339,19 +340,21 @@ function EnterImeiModal({
               autoFocus
               value={imei}
               onChange={e => { setImei(e.target.value); setError(''); }}
-              placeholder="Scan or type 14–15 digit IMEI"
-              maxLength={20}
+              placeholder="15-digit IMEI or 8-14 char serial"
+              inputMode="text"
+              autoCapitalize="characters"
+              autoCorrect="off"
+              spellCheck={false}
+              maxLength={17}
               className={`w-full border rounded-xl px-4 py-3 text-sm font-mono focus:outline-none transition-all ${
                 imei && !inputOk ? 'border-red-300 bg-red-50' : 'border-gray-200 focus:border-black'
               }`}
             />
             {imei.trim().length > 0 && (
               <p className={`text-[9px] font-mono mt-1 ${inputOk ? 'text-emerald-600' : 'text-red-500'}`}>
-                {alphaOk
-                  ? `Serial: ${finalImei} ✓`
-                  : isNumeric
-                    ? `${clean.length} digits ${numericOk ? '✓' : `— need ${14 - clean.length} more`}`
-                    : 'Non-numeric — treating as serial'}
+                {idClass.valid
+                  ? `${idClass.label || 'Device ID'}: ${finalImei} ✓`
+                  : idClass.reason || 'Not a recognised device ID'}
               </p>
             )}
           </div>

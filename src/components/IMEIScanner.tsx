@@ -39,11 +39,10 @@ export default function IMEIScanner({ onScan, onError }: Props) {
         if (decodedText === lastScan.current) return;
         lastScan.current = decodedText;
 
-        // Extract digits only (IMEI is 15 digits)
-        const digits = decodedText.replace(/\D/g, '');
-        const value  = digits.length >= 14 ? digits : decodedText;
-
-        onScan(value);
+        // Pass the raw decoded text to the consumer. Each call site
+        // normalizes / validates via classifyDeviceId() — keeping the
+        // scanner reusable for IMEIs, Apple serials, and MEIDs.
+        onScan(decodedText);
 
         // Brief pause before allowing next scan
         setTimeout(() => { lastScan.current = ''; }, 3000);

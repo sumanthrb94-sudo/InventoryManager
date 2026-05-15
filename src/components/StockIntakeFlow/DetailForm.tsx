@@ -6,8 +6,9 @@ import { GradeSelect } from '../FormSelects';
 import { STORAGE_OPTIONS } from '../../lib/unitConstants';
 import DeviceComboBox from '../DeviceComboBox';
 import IMEIScanner from '../IMEIScanner';
+import { classifyDeviceId, normalizeDeviceId } from '../../lib/deviceId';
 
-const normaliseImei = (s: string) => (s || '').replace(/\D/g, '');
+const digitsOnly = (s: string) => (s || '').replace(/\D/g, '');
 
 const COLOUR_OPTIONS = [
   'Black','White','Blue','Green','Red','Pink','Purple','Yellow',
@@ -93,15 +94,23 @@ export default function DetailForm({
     'Samsung S Series', 'Samsung A Series', 'Other'
   ];
 
-  // Live IMEI duplicate detection against the inventory store.
-  // Skipped for bulk intake where the IMEI field is optional/starting-seed.
-  const imeiDigits = normaliseImei(imei);
+  // Classify the entered ID once — drives the validity badge,
+  // duplicate-lookup key, and the disabled state on the submit button.
+  const idClass = useMemo(() => classifyDeviceId(imei), [imei]);
+
+  // Live IMEI duplicate detection against the inventory store. Skipped
+  // for bulk intake where the IMEI field is optional/starting-seed.
   const duplicateUnit = useMemo(() => {
     if (intakeType !== 'single') return null;
-    if (imeiDigits.length < 14) return null;
-    return units.find(u => normaliseImei(u.imei) === imeiDigits) || null;
-  }, [imeiDigits, units, intakeType]);
+    if (!idClass.valid) return null;
+    const key = idClass.normalized;
+    return units.find(u => normalizeDeviceId(u.imei) === key) || null;
+  }, [idClass, units, intakeType]);
   const hasDuplicate = !!duplicateUnit;
+  // For single intake the ID is required; for bulk it's an optional seed.
+  const idRequired = intakeType === 'single';
+  const idInvalid  = imei.trim().length > 0 && !idClass.valid;
+  const blockSubmit = hasDuplicate || (idRequired && (imei.trim().length === 0 || !idClass.valid));
 
   const [quantityInput, setQuantityInput] = React.useState(String(quantity || 1));
   React.useEffect(() => {
@@ -122,13 +131,13 @@ export default function DetailForm({
   const QUANTITY_PRESETS = [10, 25, 50, 100];
 
   const handleScanResult = (value: string) => {
-    const digits = normaliseImei(value);
-    if (digits.length >= 14) {
-      setImei(digits);
+    const c = classifyDeviceId(value);
+    if (c.valid) {
+      setImei(c.normalized);
       setShowScanner(false);
       setError('');
     } else {
-      setError(`Scanned value "${value}" needs at least 14 digits`);
+      setError(`Scanned value "${value}" — ${c.reason || 'not a recognised device ID'}`);
     }
   };
 
@@ -184,10 +193,12 @@ export default function DetailForm({
               type="text"
               value={imei}
               onChange={e => setImei(e.target.value)}
-              placeholder={intakeType === 'bulk' ? 'Leave blank for auto-generation' : '14-15 digits'}
+              placeholder={intakeType === 'bulk' ? 'Leave blank for auto-generation' : '15-digit IMEI or 8-14 char serial'}
               className={`flex-1 px-3 py-2 border rounded-lg text-sm focus:outline-none focus:ring-2 ${
-                hasDuplicate
+                hasDuplicate || idInvalid
                   ? 'border-red-400 focus:ring-red-500 bg-red-50'
+                  : idClass.valid
+                  ? 'border-emerald-300 focus:ring-emerald-500 bg-emerald-50/30'
                   : 'border-gray-300 focus:ring-blue-500'
               }`}
             />
@@ -217,9 +228,20 @@ export default function DetailForm({
                 </p>
               </div>
             </div>
+          ) : idInvalid ? (
+            <div className="mt-1 flex items-start gap-1.5 text-[11px] text-red-700 bg-red-50 border border-red-200 rounded-md px-2 py-1.5">
+              <AlertTriangle size={13} className="flex-shrink-0 mt-0.5" />
+              <p className="font-semibold">{idClass.reason || 'Not a recognised device ID'}</p>
+            </div>
+          ) : idClass.valid ? (
+            <p className="text-[10px] text-emerald-700 font-mono mt-1">
+              ✓ {idClass.label || 'Device ID'} · {idClass.normalized.length} chars
+            </p>
           ) : (
             <p className="text-[10px] text-gray-500 mt-1">
-              {imei ? `Digits: ${imeiDigits.length}` : 'Type the IMEI or tap Scan to use the camera'}
+              {intakeType === 'bulk'
+                ? 'Optional seed for auto-generated batch IDs · 15-digit IMEI or 8-14 char serial'
+                : 'Type the IMEI/serial or tap Scan to use the camera'}
             </p>
           )}
         </div>
@@ -436,12 +458,18 @@ export default function DetailForm({
         </button>
         <button
           onClick={onSubmit}
-          disabled={hasDuplicate}
+          disabled={blockSubmit}
           className="flex-1 py-2 bg-blue-600 text-white rounded-lg text-sm font-semibold hover:bg-blue-700 transition disabled:bg-gray-300 disabled:cursor-not-allowed"
         >
           {hasDuplicate
             ? 'IMEI Duplicate'
-            : intakeType === 'bulk' && quantity > 1 ? 'Continue to Colors' : 'Review Units'}
+            : idInvalid
+            ? 'Invalid IMEI / Serial'
+            : idRequired && imei.trim().length === 0
+            ? 'IMEI Required'
+            : intakeType === 'bulk' && quantity > 1
+            ? 'Continue to Colors'
+            : 'Review Units'}
         </button>
       </div>
     </motion.div>

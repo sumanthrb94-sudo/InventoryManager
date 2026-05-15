@@ -8,6 +8,7 @@ import { notificationService } from '../lib/notificationService';
 import { GRADE_OPTIONS, STORAGE_OPTIONS } from '../lib/unitConstants';
 import { GradeSelect, StorageSelect } from './FormSelects';
 import IMEIScanner from './IMEIScanner';
+import { classifyDeviceId } from '../lib/deviceId';
 
 interface Props { onClose: () => void; }
 
@@ -88,9 +89,8 @@ export default function ScanInModal({ onClose }: Props) {
   }, [suppliers]);
 
   const handleScan = (value: string) => {
-    const digits = value.replace(/\D/g, '');
-
-    // If barcode contains more than just IMEI, parse additional info
+    // If barcode contains more than just an ID, lift any extra device
+    // hints out before validating.
     if (value.length > 20) {
       const parsed = parseBarcode(value);
       if (parsed.model) setModel(parsed.model);
@@ -98,12 +98,13 @@ export default function ScanInModal({ onClose }: Props) {
       if (parsed.storage) setStorage(parsed.storage);
     }
 
-    if (digits.length >= 14) {
-      setImei(digits);
+    const cls = classifyDeviceId(value);
+    if (cls.valid) {
+      setImei(cls.normalized);
       setStage('form');
       setError('');
     } else {
-      setError(`Invalid scan: "${value}" — need 14-15 digits`);
+      setError(`Invalid scan: "${value}" — ${cls.reason || 'not a recognised device ID'}`);
     }
   };
 
@@ -243,23 +244,27 @@ export default function ScanInModal({ onClose }: Props) {
                   </div>
                 )}
 
-                {/* Manual IMEI fallback */}
+                {/* Manual IMEI / serial fallback */}
                 <div className="border border-gray-200 rounded-xl p-4 space-y-3">
                   <p className="text-[9px] font-bold uppercase tracking-widest text-gray-400">
-                    Or type IMEI manually
+                    Or type IMEI / serial manually
                   </p>
                   <div className="flex gap-2">
                     <input
                       type="text"
+                      inputMode="text"
+                      autoCapitalize="characters"
+                      autoCorrect="off"
+                      spellCheck={false}
                       value={imei}
-                      onChange={e => setImei(e.target.value.replace(/\D/g, ''))}
-                      placeholder="123456789012345"
-                      maxLength={15}
+                      onChange={e => setImei(e.target.value.replace(/[\s\-_.]+/g, '').slice(0, 17))}
+                      placeholder="15-digit IMEI or 8-14 char serial"
+                      maxLength={17}
                       className="flex-1 border border-gray-200 rounded-xl px-4 py-3 text-sm font-mono focus:outline-none focus:border-black transition-all"
                     />
                     <button
                       onClick={() => handleScan(imei)}
-                      disabled={imei.length < 14}
+                      disabled={!classifyDeviceId(imei).valid}
                       className="bg-black text-white px-5 rounded-xl text-[10px] font-bold uppercase tracking-widest hover:bg-gray-800 transition-all disabled:opacity-40"
                     >
                       Next

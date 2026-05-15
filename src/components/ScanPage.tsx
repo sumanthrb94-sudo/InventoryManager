@@ -9,6 +9,7 @@ import { dbService } from '../lib/dbService';
 import { InventoryUnit } from '../types';
 import { useInventoryStore } from '../lib/inventoryStore';
 import { formatIMEI, validateIMEI } from '../lib/imeiUtils';
+import { normalizeDeviceId } from '../lib/deviceId';
 import { logInventoryEvent } from '../lib/inventoryEvents';
 
 const PLATFORMS = ['eBay', 'Amazon', 'OnBuy', 'Backmarket', 'Other'] as const;
@@ -48,8 +49,18 @@ export default function ScanPage() {
   const totalAvailable = useMemo(() => units.filter(u => u.status === 'available').length, [units]);
 
   const lookupIMEI = (raw: string) => {
-    const digits = raw.replace(/\D/g, '');
-    const match  = units.find(u => (u.imei || '').replace(/\D/g,'') === digits);
+    // Lenient lookup: normalize both sides (digits-only for numeric IMEIs,
+    // uppercase/stripped for serials) and check both representations so
+    // stored legacy data still matches.
+    const norm   = normalizeDeviceId(raw);
+    const digits = (raw || '').replace(/\D/g, '');
+    const match  = units.find(u => {
+      const uId = u.imei || '';
+      const uNorm = normalizeDeviceId(uId);
+      if (norm && uNorm && uNorm === norm) return true;
+      if (digits && uId.replace(/\D/g, '') === digits) return true;
+      return false;
+    });
     if (match) {
       setFoundUnit(match);
       setNotFound(false);
@@ -62,7 +73,7 @@ export default function ScanPage() {
 
   const handleScan = (value: string) => {
     setScanMode(false);
-    setManualImei(value.replace(/\D/g,''));
+    setManualImei(normalizeDeviceId(value));
     lookupIMEI(value);
   };
 
@@ -214,11 +225,14 @@ export default function ScanPage() {
               <input
                 ref={manualRef}
                 type="text"
-                inputMode="numeric"
+                inputMode="text"
+                autoCapitalize="characters"
+                autoCorrect="off"
+                spellCheck={false}
                 value={manualImei}
-                onChange={e => setManualImei(e.target.value.replace(/\D/g,''))}
+                onChange={e => setManualImei(e.target.value.replace(/[\s\-_.]+/g, '').slice(0, 17))}
                 onKeyDown={e => e.key === 'Enter' && handleManualSearch()}
-                placeholder="Type IMEI number…"
+                placeholder="IMEI or serial…"
                 className="w-full bg-gray-50 border border-gray-200 rounded-xl py-3 pl-9 pr-4 text-sm font-mono focus:outline-none focus:border-black transition-all"
               />
             </div>

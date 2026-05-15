@@ -7,6 +7,7 @@ import { notificationService } from '../../lib/notificationService';
 import { useInventoryStore } from '../../lib/inventoryStore';
 import { generateBatchId } from '../../lib/batchUtils';
 import { registerSessionCreatedUnits } from '../../hooks/useRealTimeNotifications';
+import { classifyDeviceId } from '../../lib/deviceId';
 import IntakeTypeSelector from './IntakeTypeSelector';
 import DetailForm from './DetailForm';
 import ReviewScreen from './ReviewScreen';
@@ -134,12 +135,12 @@ export default function StockIntakeFlow({ onClose }: Props) {
     // the local store is stale (e.g. another device added the IMEI in the
     // meantime) before we waste the user's time on the review screen.
     if (intakeType === 'single') {
-      const cleanImei = imei.replace(/\D/g, '');
-      if (cleanImei.length >= 14) {
+      const idClass = classifyDeviceId(imei);
+      if (idClass.valid) {
         try {
-          const exists = await dbService.imeiExists(cleanImei);
+          const exists = await dbService.imeiExists(idClass.normalized);
           if (exists) {
-            setError(`IMEI ${cleanImei} already exists in inventory`);
+            setError(`IMEI ${idClass.normalized} already exists in inventory`);
             return;
           }
         } catch (err) {
@@ -167,7 +168,8 @@ export default function StockIntakeFlow({ onClose }: Props) {
     const units: InventoryUnit[] = [];
 
     if (intakeType === 'single' || quantity === 1) {
-      const cleanImei = imei.replace(/\D/g, '');
+      const idClass = classifyDeviceId(imei);
+      const cleanImei = idClass.valid ? idClass.normalized : '';
       const unitId = cleanImei || `manual_${Date.now()}`;
 
       const unit: InventoryUnit = {
@@ -197,7 +199,8 @@ export default function StockIntakeFlow({ onClose }: Props) {
       // Bulk with colors. Each planned unit may have a captured IMEI from
       // the BatchIMEIEntry step; fall back to the seed IMEI + sequential
       // suffix if the operator skipped a slot.
-      const cleanImei = imei.replace(/\D/g, '');
+      const seedClass = classifyDeviceId(imei);
+      const cleanImei = seedClass.valid ? seedClass.normalized : '';
       const baseName = cleanImei || `bulk_${Date.now()}`;
       let unitIndex = 0;
       for (const color of colorVariants) {
@@ -250,7 +253,8 @@ export default function StockIntakeFlow({ onClose }: Props) {
       return;
     }
     setError('');
-    const cleanImei = imei.replace(/\D/g, '');
+    const seedClass = classifyDeviceId(imei);
+    const cleanImei = seedClass.valid ? seedClass.normalized : '';
     const baseName = cleanImei || `bulk_${Date.now()}`;
     const planned: PlannedUnit[] = [];
     let unitIndex = 0;

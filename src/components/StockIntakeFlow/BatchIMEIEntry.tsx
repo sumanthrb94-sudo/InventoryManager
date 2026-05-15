@@ -12,6 +12,7 @@ import {
   Camera, X, SkipForward,
 } from 'lucide-react';
 import IMEIScanner from '../IMEIScanner';
+import { classifyDeviceId, normalizeDeviceId } from '../../lib/deviceId';
 
 export interface ColourGroup {
   colour: string;
@@ -38,7 +39,7 @@ interface Props {
   onBack: () => void;
 }
 
-const normaliseImei = (s: string) => (s || '').replace(/\D/g, '');
+const isValidSlot = (s: string) => classifyDeviceId(s).valid;
 
 export default function BatchIMEIEntry({
   plannedUnits,
@@ -75,7 +76,7 @@ export default function BatchIMEIEntry({
   const totalSlots = plannedUnits.length;
   const filledSlots = useMemo(
     () => Object.values(imeis).reduce<number>(
-      (sum, arr: string[]) => sum + arr.filter(v => normaliseImei(v).length >= 14).length,
+      (sum, arr: string[]) => sum + arr.filter(isValidSlot).length,
       0,
     ),
     [imeis],
@@ -85,7 +86,10 @@ export default function BatchIMEIEntry({
   const isLastColour = activeColourIdx >= colourGroups.length - 1;
 
   const setSlot = (colour: string, slot: number, value: string) => {
-    const cleaned = value.replace(/\D/g, '').slice(0, 17);
+    // Allow up to SERIAL_MAX (17) chars so the operator can type a full
+    // IMEI / IMEISV / Apple serial. Strip separators but preserve case
+    // for serials — we'll normalize at validation time.
+    const cleaned = value.replace(/[\s\-_.]+/g, '').slice(0, 17);
     setImeis(prev => {
       const arr = [...(prev[colour] || [])];
       arr[slot] = cleaned;
@@ -96,12 +100,12 @@ export default function BatchIMEIEntry({
 
   const handleScanResult = (value: string) => {
     if (!scanTarget) return;
-    const digits = normaliseImei(value);
-    if (digits.length >= 14) {
-      setSlot(scanTarget.colour, scanTarget.slot, digits);
-      // Advance focus to next empty slot in the same colour
+    const c = classifyDeviceId(value);
+    if (c.valid) {
+      setSlot(scanTarget.colour, scanTarget.slot, c.normalized);
+      // Advance focus to the next empty / invalid slot.
       const arr = imeis[scanTarget.colour] || [];
-      const nextEmpty = arr.findIndex((v, i) => i > scanTarget.slot && normaliseImei(v).length < 14);
+      const nextEmpty = arr.findIndex((v, i) => i > scanTarget.slot && !isValidSlot(v));
       const target = nextEmpty >= 0 ? nextEmpty : -1;
       setScanTarget(null);
       if (target >= 0) {
@@ -110,7 +114,7 @@ export default function BatchIMEIEntry({
         }, 100);
       }
     } else {
-      setError(`Scanned value "${value}" needs at least 14 digits`);
+      setError(`Scanned value "${value}" — ${c.reason || 'not a recognised device ID'}`);
     }
   };
 
@@ -120,12 +124,16 @@ export default function BatchIMEIEntry({
       const arr = imeis[g.colour] || [];
       for (let i = 0; i < g.quantity; i++) {
         const planned = plannedUnits[g.startIndex + i];
-        const typed = normaliseImei(arr[i] || '');
-        if (typed.length >= 14) {
-          captured.push({ index: planned.index, imei: typed, skipped: false });
+        const cls = classifyDeviceId(arr[i] || '');
+        if (cls.valid) {
+          captured.push({ index: planned.index, imei: cls.normalized, skipped: false });
         } else {
-          // Empty — fall back to baseImei sequence or the deterministic unitId.
-          const baseClean = normaliseImei(baseImei);
+          // Empty or invalid — fall back to baseImei sequence or the
+          // deterministic unitId. We don't refuse the batch here; the
+          // submit handler refuses on invalid-but-non-empty input
+          // explicitly below.
+          const baseClass = classifyDeviceId(baseImei);
+          const baseClean = baseClass.valid ? baseClass.normalized : '';
           const fallback = baseClean
             ? `${baseClean}-${String(planned.index + 1).padStart(3, '0')}`
             : planned.unitId;
@@ -138,13 +146,39 @@ export default function BatchIMEIEntry({
 
   const handleSubmit = () => {
     setError('');
+
+    // Refuse to advance if any slot has typed content that doesn't pass
+    // validation — silent auto-numbering is fine for empty slots, but
+    // typo'd IMEIs / serials must be fixed before review.
+    const invalidSlots: Array<{ colour: string; slot: number; reason: string }> = [];
+    for (const g of colourGroups) {
+      const arr = imeis[g.colour] || [];
+      for (let i = 0; i < g.quantity; i++) {
+        const raw = (arr[i] || '').trim();
+        if (!raw) continue;
+        const cls = classifyDeviceId(raw);
+        if (!cls.valid) {
+          invalidSlots.push({ colour: g.colour, slot: i, reason: cls.reason || 'invalid' });
+        }
+      }
+    }
+    if (invalidSlots.length) {
+      const first = invalidSlots[0];
+      setError(
+        `${invalidSlots.length} invalid slot${invalidSlots.length > 1 ? 's' : ''} — fix or clear them first (${first.colour} slot ${first.slot + 1}: ${first.reason}).`,
+      );
+      return;
+    }
+
     const captured = buildCaptured();
 
-    // Duplicate IMEI within batch
+    // Duplicate IMEI within batch — normalized form is the comparison key.
     const seen = new Map<string, number>();
     for (const c of captured) {
-      const k = normaliseImei(c.imei);
-      if (k && k.length >= 14) seen.set(k, (seen.get(k) || 0) + 1);
+      const key = normalizeDeviceId(c.imei);
+      if (key && classifyDeviceId(key).valid) {
+        seen.set(key, (seen.get(key) || 0) + 1);
+      }
     }
     const dupes = Array.from(seen.entries()).filter(([, n]) => n > 1).map(([k]) => k);
     if (dupes.length) {
@@ -202,7 +236,7 @@ export default function BatchIMEIEntry({
   }
 
   const arr = imeis[activeGroup.colour] || Array(activeGroup.quantity).fill('');
-  const filledInGroup = arr.filter(v => normaliseImei(v).length >= 14).length;
+  const filledInGroup = arr.filter(isValidSlot).length;
   const remaining = activeGroup.quantity - filledInGroup;
 
   return (
@@ -226,7 +260,7 @@ export default function BatchIMEIEntry({
         <div className="flex items-center gap-1 pt-1">
           {colourGroups.map((g, i) => {
             const groupArr = imeis[g.colour] || [];
-            const filled = groupArr.filter(v => normaliseImei(v).length >= 14).length;
+            const filled = groupArr.filter(isValidSlot).length;
             const complete = filled === g.quantity;
             const active = i === activeColourIdx;
             return (
@@ -266,8 +300,9 @@ export default function BatchIMEIEntry({
 
         <div className="p-3 space-y-2">
           {arr.map((value, slot) => {
-            const digits = normaliseImei(value);
-            const ok = digits.length >= 14;
+            const cls = classifyDeviceId(value);
+            const ok = cls.valid;
+            const invalid = !ok && (value || '').trim().length > 0;
             const planned = plannedUnits[activeGroup.startIndex + slot];
             return (
               <div key={slot} className="flex items-center gap-2">
@@ -282,17 +317,22 @@ export default function BatchIMEIEntry({
                     inputRefs.current[activeGroup.colour][slot] = el;
                   }}
                   type="text"
-                  inputMode="numeric"
-                  pattern="[0-9]*"
+                  // IMEIs are numeric but serials (Apple, Samsung) are
+                  // alphanumeric — let the keyboard show letters too.
+                  inputMode="text"
+                  autoCapitalize="characters"
+                  autoCorrect="off"
+                  spellCheck={false}
                   value={value}
                   onChange={e => setSlot(activeGroup.colour, slot, e.target.value)}
                   onFocus={e => e.target.select()}
-                  placeholder={`IMEI for unit ${planned.index + 1}`}
+                  placeholder={`IMEI / serial for unit ${planned.index + 1}`}
+                  title={invalid ? cls.reason : ok ? cls.label : undefined}
                   className={`flex-1 px-3 py-2 border rounded-lg text-sm font-mono focus:outline-none focus:ring-2 ${
                     ok
                       ? 'border-emerald-300 bg-emerald-50/50 focus:ring-emerald-500'
-                      : value
-                      ? 'border-amber-300 bg-amber-50/50 focus:ring-amber-500'
+                      : invalid
+                      ? 'border-red-400 bg-red-50/50 focus:ring-red-500'
                       : 'border-gray-300 focus:ring-blue-500'
                   }`}
                 />

@@ -5,6 +5,7 @@ import { motion } from 'motion/react';
 import { dbService } from '../lib/dbService';
 import { DeviceCategory, InventoryUnit, Supplier } from '../types';
 import { buildStableUnitId } from '../lib/inventoryMaintenance';
+import { classifyDeviceId } from '../lib/deviceId';
 import { uploadSourceAttachment } from '../lib/fileAttachments';
 import { logInventoryEvent } from '../lib/inventoryEvents';
 
@@ -45,6 +46,9 @@ function parseBrand(category: DeviceCategory): string {
   return 'Other';
 }
 
+// Legacy digits-only normalizer — kept for backwards-compat with the
+// dedupe key on existing imported rows. New code should prefer the
+// classifyDeviceId / normalizeDeviceId pair from `lib/deviceId`.
 function normalizeImei(imei: string) { return imei.replace(/\D/g, ''); }
 
 // Parse "BLACK 3 GREY 1" → [{colour:'Black', qty:3}, {colour:'Grey', qty:1}]
@@ -223,9 +227,17 @@ function parseOGStockSheet(rows: any[][]): ParsedData {
     const category    = parseCategory(model);
     const brand       = parseBrand(category);
     const cleanedImei = normalizeImei(imei);
-    // Non-SHS with valid IMEI → use raw IMEI as ID (matches NewBatchModal, same unit = same record)
-    const unitId    = cleanedImei.length >= 14 ? cleanedImei : buildStableUnitId({ imei, model, dateIn, supplierId, buyPrice, status });
-    const dedupeKey = cleanedImei || unitId;
+    // Industry-grade ID derivation:
+    //   • Valid IMEI / IMEISV / Apple serial / MEID → use the normalized
+    //     classifier output (matches NewBatchModal so same physical unit
+    //     = same record across import paths).
+    //   • Anything else → synthesize a stable hash from row content so
+    //     legacy / messy Excel rows still import deterministically.
+    const idClass   = classifyDeviceId(imei);
+    const unitId    = idClass.valid
+      ? idClass.normalized
+      : buildStableUnitId({ imei, model, dateIn, supplierId, buyPrice, status });
+    const dedupeKey = idClass.valid ? idClass.normalized : (cleanedImei || unitId);
 
     if (seenImeis.has(dedupeKey)) { duplicateRows++; }
     seenImeis.add(dedupeKey);

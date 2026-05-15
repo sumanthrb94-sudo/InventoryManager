@@ -9,6 +9,7 @@ import { GradeSelectCompact, StorageSelectCompact } from './FormSelects';
 import { generateBatchId, formatBatchId } from '../lib/batchUtils';
 import ScanInModal from './ScanInModal';
 import { buildDeviceCatalog } from '../lib/deviceCatalog';
+import { classifyDeviceId } from '../lib/deviceId';
 
 interface Props { onClose: () => void; }
 
@@ -65,7 +66,7 @@ function parsePastedCSV(text: string, fallbackSupplier: string): BatchRow[] {
     rows.push({
       id: uid(),
       model: model.trim(),
-      imei: isSHS ? '' : (imei ?? '').replace(/\D/g, ''),
+      imei: isSHS ? '' : ((imei ?? '').replace(/[\s\-_.]+/g, '').slice(0, 17)),
       buyPrice: isSHS ? (bp ?? '') : (bp ?? ''),
       colour: (colour ?? '').trim(),
       storage: '',
@@ -164,11 +165,11 @@ export default function NewBatchModal({ onClose }: Props) {
     const validRows = rows.filter(r => r.model.trim() && (r.buyPrice || r.isSHS));
     if (!validRows.length) { setError('Add at least one unit to save.'); return; }
 
-    // Validate IMEIs for non-SHS rows
+    // Validate IMEIs / serials for non-SHS rows
     for (const r of validRows.filter(r => !r.isSHS)) {
-      const clean = r.imei.replace(/\D/g, '');
-      if (clean.length < 14) {
-        setError(`"${r.model}" — IMEI must be 14-15 digits`);
+      const cls = classifyDeviceId(r.imei);
+      if (!cls.valid) {
+        setError(`"${r.model}" — ${cls.reason || 'invalid IMEI / serial'}`);
         return;
       }
     }
@@ -176,22 +177,22 @@ export default function NewBatchModal({ onClose }: Props) {
     setSaving(true);
     setError('');
     try {
-      // Check IMEI uniqueness against DB
+      // Check IMEI / serial uniqueness against DB
       const realRows = validRows.filter(r => !r.isSHS);
       for (const r of realRows) {
-        const clean = r.imei.replace(/\D/g, '');
+        const clean = classifyDeviceId(r.imei).normalized;
         const exists = await dbService.imeiExists(clean);
         if (exists) {
-          setError(`IMEI ${clean} already exists in stock`);
+          setError(`IMEI / serial ${clean} already exists in stock`);
           setSaving(false);
           return;
         }
       }
 
       // Check for duplicates within this batch
-      const batchImeis = realRows.map(r => r.imei.replace(/\D/g, ''));
-      if (new Set(batchImeis).size !== batchImeis.length) {
-        setError('Duplicate IMEIs within this batch — check your entries');
+      const batchIds = realRows.map(r => classifyDeviceId(r.imei).normalized);
+      if (new Set(batchIds).size !== batchIds.length) {
+        setError('Duplicate IMEIs / serials within this batch — check your entries');
         setSaving(false);
         return;
       }
@@ -250,7 +251,7 @@ export default function NewBatchModal({ onClose }: Props) {
               ownerId: 'shared', createdAt: new Date().toISOString(),
             });
           } else {
-            const cleanImei = r.imei.replace(/\D/g, '');
+            const cleanImei = classifyDeviceId(r.imei).normalized;
             const unitId = qty === 1 ? cleanImei : `${cleanImei}-${String(q + 1).padStart(3, '0')}`;
             const exists = await dbService.imeiExists(unitId);
             if (exists && qty > 1) {
@@ -516,7 +517,7 @@ interface RowProps {
 
 function BatchRowCard({ row, index, knownSuppliers, onChange, onRemove, canRemove }: RowProps) {
   const [expanded, setExpanded] = useState(true);
-  const imeiOk = row.isSHS || row.imei.replace(/\D/g, '').length >= 14;
+  const imeiOk = row.isSHS || classifyDeviceId(row.imei).valid;
 
   return (
     <motion.div
@@ -556,9 +557,13 @@ function BatchRowCard({ row, index, knownSuppliers, onChange, onRemove, canRemov
                     No IMEI — expected stock
                   </div>
                 ) : (
-                  <input value={row.imei} onChange={e => onChange({ imei: e.target.value.replace(/\D/g, '') })}
-                    placeholder="14-15 digit IMEI"
-                    maxLength={15}
+                  <input value={row.imei} onChange={e => onChange({ imei: e.target.value.replace(/[\s\-_.]+/g, '').slice(0, 17) })}
+                    placeholder="15-digit IMEI or 8-14 char serial"
+                    inputMode="text"
+                    autoCapitalize="characters"
+                    autoCorrect="off"
+                    spellCheck={false}
+                    maxLength={17}
                     className={`w-full border rounded-lg px-2.5 py-2 text-xs font-mono focus:outline-none bg-white transition-all ${
                       row.imei && !imeiOk ? 'border-red-300 focus:border-red-500' : 'border-gray-200 focus:border-black'
                     }`} />
@@ -643,8 +648,9 @@ function BatchRowCard({ row, index, knownSuppliers, onChange, onRemove, canRemov
               {!row.isSHS && (
                 <div>
                   <label className="text-[8px] font-bold uppercase tracking-widest text-gray-400">IMEI</label>
-                  <input value={row.imei} onChange={e => onChange({ imei: e.target.value.replace(/\D/g, '') })}
-                    placeholder="14-15 digit IMEI" maxLength={15} inputMode="numeric"
+                  <input value={row.imei} onChange={e => onChange({ imei: e.target.value.replace(/[\s\-_.]+/g, '').slice(0, 17) })}
+                    placeholder="15-digit IMEI or 8-14 char serial" maxLength={17}
+                    inputMode="text" autoCapitalize="characters" autoCorrect="off" spellCheck={false}
                     className={`w-full mt-1 border rounded-lg px-3 py-2 text-xs font-mono focus:outline-none bg-white ${
                       row.imei && !imeiOk ? 'border-red-300' : 'border-gray-200 focus:border-black'
                     }`} />

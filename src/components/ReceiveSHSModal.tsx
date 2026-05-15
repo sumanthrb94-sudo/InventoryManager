@@ -6,6 +6,7 @@ import { InventoryUnit, Supplier } from '../types';
 import { notificationService } from '../lib/notificationService';
 import { generateBatchId, formatBatchId } from '../lib/batchUtils';
 import { useInventoryStore } from '../lib/inventoryStore';
+import { classifyDeviceId } from '../lib/deviceId';
 
 interface Props {
   unit: InventoryUnit;
@@ -35,12 +36,17 @@ export default function ReceiveSHSModal({ unit, onClose }: Props) {
     return generateBatchId(supplier?.name || 'Unknown');
   }, [unit.supplierId, suppliers]);
 
-  const cleanImei = imei.replace(/\D/g, '');
-  const isNumeric    = /^\d+$/.test(cleanImei);
-  const numericOk    = isNumeric && cleanImei.length >= 14 && cleanImei.length <= 15;
-  const alphaSerial  = imei.trim().length >= 8 && !isNumeric;
-  const inputOk      = (numericOk || alphaSerial || (quantity > 1 && !imei.trim())) && quantity >= 1;
-  const finalId      = alphaSerial ? imei.trim().toUpperCase() : cleanImei;
+  // Single source of truth — classifyDeviceId decides IMEI vs serial,
+  // applies Luhn, and returns the storage-ready normalized form.
+  const idClass    = classifyDeviceId(imei);
+  const cleanImei  = idClass.kind === 'imei' || idClass.kind === 'imeisv'
+    ? idClass.normalized
+    : (imei || '').replace(/\D/g, '');
+  const isNumeric  = idClass.kind === 'imei' || idClass.kind === 'imeisv';
+  const numericOk  = isNumeric && idClass.valid;
+  const alphaSerial = (idClass.kind === 'apple_serial' || idClass.kind === 'serial' || idClass.kind === 'meid_hex') && idClass.valid;
+  const inputOk    = (numericOk || alphaSerial || (quantity > 1 && !imei.trim())) && quantity >= 1;
+  const finalId    = idClass.valid ? idClass.normalized : cleanImei;
 
   // Calculate color totals and validation
   const colorTotalQty = colorVariants.reduce((sum, c) => sum + c.quantity, 0);
@@ -101,9 +107,11 @@ export default function ReceiveSHSModal({ unit, onClose }: Props) {
   const handleSave = async () => {
     if (!inputOk) {
       if (quantity > 1 && !imei.trim()) {
-        setError('For batch adds, provide starting IMEI or leave blank for auto-generate');
+        setError('For batch adds, provide a starting IMEI or leave blank for auto-generate');
+      } else if (imei.trim()) {
+        setError(idClass.reason || 'Enter a valid IMEI (15 digits) or serial (8-14 chars)');
       } else {
-        setError('Enter a 14-15 digit IMEI or device serial (≥8 chars)');
+        setError('Enter a 15-digit IMEI or 8-14 char device serial');
       }
       return;
     }
@@ -297,7 +305,7 @@ export default function ReceiveSHSModal({ unit, onClose }: Props) {
                 autoFocus
                 value={imei}
                 onChange={e => { setImei(e.target.value); setError(''); }}
-                placeholder={quantity > 1 ? 'Leave blank to auto-generate' : '14-15 digit IMEI or device serial'}
+                placeholder={quantity > 1 ? 'Leave blank to auto-generate' : '15-digit IMEI or 8-14 char serial'}
                 maxLength={20}
                 inputMode="text"
                 className={`w-full mt-1 border rounded-xl px-4 py-3 text-sm font-mono focus:outline-none transition-all ${
@@ -306,11 +314,9 @@ export default function ReceiveSHSModal({ unit, onClose }: Props) {
               />
               {imei.trim().length > 0 && (
                 <p className={`text-[9px] font-mono mt-1 ${inputOk ? 'text-emerald-600' : 'text-red-500'}`}>
-                  {alphaSerial
-                    ? `Serial: ${finalId} ✓`
-                    : isNumeric
-                      ? `${cleanImei.length} digits ${numericOk ? '✓' : `— need ${14 - cleanImei.length} more`}`
-                      : 'Contains non-numeric chars — treating as serial'}
+                  {idClass.valid
+                    ? `${idClass.label || 'Device ID'}: ${finalId} ✓`
+                    : idClass.reason || 'Not a recognised device ID'}
                 </p>
               )}
             </div>
