@@ -431,6 +431,12 @@ export default function StockInPage({ onOpenBatch }: Props) {
                             </div>
                           ))}
                         </div>
+                        {u.notes && (
+                          <div className="px-5 pb-3">
+                            <p className="text-[8px] text-gray-400 font-mono uppercase tracking-widest">Notes</p>
+                            <p className="text-xs text-gray-700 mt-0.5 whitespace-pre-wrap break-words">{u.notes}</p>
+                          </div>
+                        )}
                       </motion.div>
                     )}
                   </AnimatePresence>

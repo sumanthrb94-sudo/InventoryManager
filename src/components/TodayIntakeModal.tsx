@@ -30,7 +30,7 @@ export default function TodayIntakeModal({ units, onClose }: Props) {
   const handleSaveNotes = async (unitId: string, noteText: string) => {
     setSaving(true);
     try {
-      await dbService.update('inventoryUnits', unitId, { internalNotes: noteText });
+      await dbService.update('inventoryUnits', unitId, { notes: noteText });
       setNotes(prev => ({ ...prev, [unitId]: noteText }));
       setEditingNotes(null);
     } catch (err) {
@@ -207,11 +207,11 @@ export default function TodayIntakeModal({ units, onClose }: Props) {
                         <div className="flex gap-2 items-center">
                           <input
                             type="text"
-                            value={notes[u.id] ?? (u.internalNotes || '')}
+                            value={notes[u.id] ?? (u.notes || '')}
                             onChange={(e) => setNotes(prev => ({ ...prev, [u.id]: e.target.value }))}
                             onBlur={() => {
-                              const currentValue = notes[u.id] ?? (u.internalNotes || '');
-                              if (currentValue !== (u.internalNotes || '')) {
+                              const currentValue = notes[u.id] ?? (u.notes || '');
+                              if (currentValue !== (u.notes || '')) {
                                 handleSaveNotes(u.id, currentValue);
                               }
                             }}

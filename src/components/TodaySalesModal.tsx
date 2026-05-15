@@ -31,7 +31,7 @@ export default function TodaySalesModal({ units, onClose }: Props) {
   const handleSaveNotes = async (unitId: string, noteText: string) => {
     setSaving(true);
     try {
-      await dbService.update('inventoryUnits', unitId, { internalNotes: noteText });
+      await dbService.update('inventoryUnits', unitId, { notes: noteText });
       setNotes(prev => ({ ...prev, [unitId]: noteText }));
       setEditingNotes(null);
     } catch (err) {
