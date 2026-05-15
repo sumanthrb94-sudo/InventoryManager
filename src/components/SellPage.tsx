@@ -407,7 +407,7 @@ export default function SellPage() {
 
   const inStock   = useMemo(() => units.filter(u => u.status === 'available'), [units]);
   const shsUnits  = useMemo(() =>
-    [...units.filter(u => u.status === 'incoming')]
+    [...units.filter(u => u.status === 'incoming' && u.active !== false)]
       .sort((a, b) => (b.dateIn || '').localeCompare(a.dateIn || '')),
     [units],
   );

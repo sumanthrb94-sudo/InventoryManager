@@ -31,7 +31,7 @@ function calculateElement(seriesKey: string, searchTerm: string, units: Inventor
   });
 
   const available = matching.filter(u => u.status === 'available');
-  const incoming = matching.filter(u => u.status === 'incoming');
+  const incoming = matching.filter(u => u.status === 'incoming' && u.active !== false);
 
   if (available.length === 0 && incoming.length === 0) return null;
 

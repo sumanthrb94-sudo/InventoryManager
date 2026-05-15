@@ -14,7 +14,7 @@ export default function SHSListingPanel({ units, mode }: Props) {
   const [search, setSearch] = useState('');
   const [expandedId, setExpandedId] = useState<string | null>(null);
 
-  const shsUnits = useMemo(() => units.filter(u => u.status === 'incoming'), [units]);
+  const shsUnits = useMemo(() => units.filter(u => u.status === 'incoming' && u.active !== false), [units]);
 
   const supplierMap = useMemo(() => {
     const map: Record<string, string> = {};

@@ -301,7 +301,7 @@ function Popover({
 
 export default function PeriodicInventory({ units, onNavigate }: Props) {
   const available = units.filter(u => u.status === 'available');
-  const incoming  = units.filter(u => u.status === 'incoming');
+  const incoming  = units.filter(u => u.status === 'incoming' && u.active !== false);
 
   const [popover, setPopover] = useState<PopoverState | null>(null);
   const [viewAllModal, setViewAllModal] = useState<{ seriesKey: string; searchTerm: string } | null>(null);

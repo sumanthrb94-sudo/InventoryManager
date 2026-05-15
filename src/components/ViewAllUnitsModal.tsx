@@ -39,7 +39,7 @@ export default function ViewAllUnitsModal({ seriesKey, searchTerm, units, onClos
   }, [units, searchTerm]);
 
   const inStock = filtered.filter(u => u.status === 'available');
-  const shs = filtered.filter(u => u.status === 'incoming');
+  const shs = filtered.filter(u => u.status === 'incoming' && u.active !== false);
   const sold = filtered.filter(u => u.status === 'sold');
 
   const displayUnits = activeTab === 'in-stock' ? inStock : activeTab === 'shs' ? shs : sold;

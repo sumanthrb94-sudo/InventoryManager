@@ -163,7 +163,7 @@ export default function NotificationBell({ unreadCount }: { unreadCount: number 
                           new_stock: { bg: 'bg-blue-100 text-blue-600', icon: <PackagePlus size={13} />, label: 'New Stock', badgeBg: 'bg-blue-500' },
                           return_processed: { bg: 'bg-amber-100 text-amber-600', icon: <RefreshCw size={13} />, label: 'Return', badgeBg: 'bg-amber-500' },
                           shs_received: { bg: 'bg-purple-100 text-purple-600', icon: <Truck size={13} />, label: 'SHS Received', badgeBg: 'bg-purple-500' },
-                          shs_removed: { bg: 'bg-orange-100 text-orange-600', icon: <AlertCircle size={13} />, label: 'SHS Removed', badgeBg: 'bg-orange-500' },
+                          shs_removed: { bg: 'bg-orange-100 text-orange-600', icon: <AlertCircle size={13} />, label: 'SHS Inactive', badgeBg: 'bg-orange-500' },
                           unit_repaired: { bg: 'bg-indigo-100 text-indigo-600', icon: <RefreshCw size={13} />, label: 'Repaired', badgeBg: 'bg-indigo-500' },
                         };
                         const config = typeConfig[n.type] || typeConfig.new_stock;

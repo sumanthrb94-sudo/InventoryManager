@@ -189,7 +189,7 @@ class NotificationService {
       new_stock: count && count > 1 ? `📦 ${count} Units Added to Stock` : '📦 New Stock Added',
       return_processed: '↩️ Return Processed',
       shs_received: count && count > 1 ? `🚚 ${count} SHS Units Received` : '🚚 SHS Order Received',
-      shs_removed: count && count > 1 ? `❌ ${count} SHS Units Removed` : '❌ SHS Stock Removed',
+      shs_removed: count && count > 1 ? `📦 ${count} SHS Units Marked Inactive` : '📦 SHS Stock Marked Inactive',
       unit_repaired: '🔧 Unit Repaired & Added to Inventory',
     };
 
@@ -199,7 +199,7 @@ class NotificationService {
       new_stock: count && count > 1 ? `${count} × ${unit.model} units are now in stock and ready for listing.` : `${unit.model} is now in stock and ready for listing.`,
       return_processed: `${unit.model} has been returned and restored to inventory.`,
       shs_received: count && count > 1 ? `${count} × ${unit.model} units from SHS order have been received.` : `${unit.model} from SHS order has been received.`,
-      shs_removed: count && count > 1 ? `${count} × ${unit.model} SHS units removed from pending stock.` : `${unit.model} SHS pending stock has been removed.`,
+      shs_removed: count && count > 1 ? `${count} × ${unit.model} SHS units marked inactive. Restore from the Stock In page if needed.` : `${unit.model} SHS pending stock marked inactive. Restore from the Stock In page if needed.`,
       unit_repaired: `${unit.model} has been repaired and added back to inventory.`,
     };
 

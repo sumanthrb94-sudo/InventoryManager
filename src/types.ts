@@ -84,6 +84,10 @@ export interface InventoryUnit {
   returnReason?: string;
   attachments?: string[];
   imageUrl?: string;        // Supabase cloud image URL for the device
+  // Soft-delete flag. Undefined or true → active (visible in default views).
+  // Explicit false → archived (hidden from default views, restorable from
+  // the "Inactive SHS" section). Used in place of hard-deleting SHS units.
+  active?: boolean;
   ownerId: string;
   createdAt: any;
   updatedAt?: any;

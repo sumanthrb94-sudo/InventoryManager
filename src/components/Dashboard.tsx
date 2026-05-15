@@ -33,7 +33,7 @@ export default function Dashboard({ onNavigate }: Props) {
   const available    = units.filter(u => u.status === 'available');
   const sold         = units.filter(u => u.status === 'sold');
   const returned     = units.filter(u => u.status === 'returned');
-  const incoming     = units.filter(u => u.status === 'incoming');
+  const incoming     = units.filter(u => u.status === 'incoming' && u.active !== false);
   // Available-only value: matches the "Office Stock" count shown in the KPI card
   const totalValue   = available.reduce((sum, u) => sum + u.buyPrice, 0);
   const top10Units   = available.filter(u => u.flags.includes('top10'));

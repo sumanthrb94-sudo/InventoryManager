@@ -1,7 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import {
   PackagePlus, Search, Plus, CheckCircle2, Clock,
-  ChevronDown, ChevronUp, Truck, PackageCheck, AlertCircle, MoreVertical, Trash2,
+  ChevronDown, ChevronUp, Truck, PackageCheck, MoreVertical, Archive, RotateCcw,
 } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
 import { dbService } from '../lib/dbService';
@@ -33,23 +33,28 @@ export default function StockInPage({ onOpenBatch }: Props) {
   const [showTodayIntake, setShowTodayIntake] = useState(false);
   const [showStockIntakeFlow, setShowStockIntakeFlow] = useState(false);
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
-  const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
+  const [showInactiveSHS, setShowInactiveSHS] = useState(false);
 
   const today = new Date().toISOString().split('T')[0];
 
-  const handleDeletePendingSHSGroup = async (groupUnits: InventoryUnit[]) => {
+  const setSHSGroupActive = async (groupUnits: InventoryUnit[], active: boolean) => {
     const sample = groupUnits[0];
     const qty = groupUnits.length;
     const label = qty === 1 ? `"${sample.model}"` : `${qty} × "${sample.model}"`;
-    if (!window.confirm(`Delete ${label} from database? This action cannot be undone.`)) {
+    if (!active && !window.confirm(`Mark ${label} as inactive? They stay in the database and can be restored.`)) {
       return;
     }
     try {
-      await Promise.all(groupUnits.map(u => dbService.delete('inventoryUnits', u.id)));
-      notificationService.addNotification('shs_removed', sample, undefined, qty);
+      const updatedAt = new Date().toISOString();
+      await Promise.all(groupUnits.map(u =>
+        dbService.update('inventoryUnits', u.id, { active, updatedAt }),
+      ));
+      if (!active) {
+        notificationService.addNotification('shs_removed', sample, undefined, qty);
+      }
       setOpenMenuId(null);
     } catch (err) {
-      console.error('Failed to delete pending SHS group:', err);
+      console.error('Failed to toggle SHS group active state:', err);
     }
   };
 
@@ -59,18 +64,12 @@ export default function StockInPage({ onOpenBatch }: Props) {
     return m;
   }, [suppliers]);
 
-  // Pending SHS — incoming units, sorted by dateIn desc
-  const pendingSHS = useMemo(() =>
-    [...units]
-      .filter(u => u.status === 'incoming')
-      .sort((a, b) => new Date(b.dateIn).getTime() - new Date(a.dateIn).getTime()),
-    [units],
-  );
-
-  // Group identical pending SHS units to avoid sequential duplicate rows
-  const pendingSHSGroups = useMemo(() => {
+  // Pending SHS — incoming units, sorted by dateIn desc. Split into active
+  // and inactive: the active list drives the visible "awaiting delivery"
+  // section, the inactive list backs the restore section below it.
+  const groupSHS = (rows: InventoryUnit[]) => {
     const map = new Map<string, InventoryUnit[]>();
-    for (const u of pendingSHS) {
+    for (const u of rows) {
       const key = [
         u.model,
         u.colour || '',
@@ -86,7 +85,23 @@ export default function StockInPage({ onOpenBatch }: Props) {
       else map.set(key, [u]);
     }
     return Array.from(map.values());
-  }, [pendingSHS]);
+  };
+
+  const activePendingSHS = useMemo(() =>
+    [...units]
+      .filter(u => u.status === 'incoming' && u.active !== false)
+      .sort((a, b) => new Date(b.dateIn).getTime() - new Date(a.dateIn).getTime()),
+    [units],
+  );
+  const inactivePendingSHS = useMemo(() =>
+    [...units]
+      .filter(u => u.status === 'incoming' && u.active === false)
+      .sort((a, b) => new Date(b.dateIn).getTime() - new Date(a.dateIn).getTime()),
+    [units],
+  );
+
+  const activePendingSHSGroups = useMemo(() => groupSHS(activePendingSHS), [activePendingSHS]);
+  const inactivePendingSHSGroups = useMemo(() => groupSHS(inactivePendingSHS), [inactivePendingSHS]);
 
   // Regular stock list (non-incoming), sorted newest first
   const allSorted = useMemo(() =>
@@ -153,7 +168,7 @@ export default function StockInPage({ onOpenBatch }: Props) {
           <div className="flex items-center gap-3 px-5 py-3 bg-amber-50 border border-amber-100 rounded-lg flex-shrink-0">
             <div className="text-center">
               <p className="text-[8px] font-mono uppercase tracking-widest text-amber-600">SHS</p>
-              <p className="text-2xl font-bold text-amber-700 leading-tight">{pendingSHS.length}</p>
+              <p className="text-2xl font-bold text-amber-700 leading-tight">{activePendingSHS.length}</p>
             </div>
           </div>
         </div>
@@ -186,16 +201,16 @@ export default function StockInPage({ onOpenBatch }: Props) {
       {/* Intelligence panel */}
       <IntelligencePanel units={units} mode="buy" />
 
-      {/* Pending SHS section */}
-      {pendingSHS.length > 0 && (
+      {/* Pending SHS section — active units awaiting delivery */}
+      {activePendingSHS.length > 0 && (
         <CollapsibleSection
           title="Pending SHS — Awaiting Delivery"
-          count={pendingSHS.length}
+          count={activePendingSHS.length}
           accent="border-l-amber-500"
           defaultOpen={false}
         >
           <div className="divide-y divide-amber-50">
-            {pendingSHSGroups.map(group => {
+            {activePendingSHSGroups.map(group => {
               const u = group[0];
               const qty = group.length;
               return (
@@ -211,6 +226,9 @@ export default function StockInPage({ onOpenBatch }: Props) {
                           ×{qty}
                         </span>
                       )}
+                      <span className="text-[8px] font-bold text-emerald-700 bg-emerald-100 px-1.5 py-0.5 rounded font-mono flex-shrink-0 uppercase tracking-widest">
+                        Active
+                      </span>
                     </div>
                     <p className="text-[9px] text-gray-400 font-mono mt-0.5">
                       {u.colour && u.colour !== 'Unknown' ? `${u.colour} · ` : ''}
@@ -242,14 +260,13 @@ export default function StockInPage({ onOpenBatch }: Props) {
                         <MoreVertical size={14} />
                       </button>
 
-                      {/* Dropdown Menu */}
                       {openMenuId === u.id && (
-                        <div className="absolute right-0 mt-1 w-44 bg-white border border-gray-200 rounded-lg shadow-lg z-10">
+                        <div className="absolute right-0 mt-1 w-48 bg-white border border-gray-200 rounded-lg shadow-lg z-10">
                           <button
-                            onClick={() => handleDeletePendingSHSGroup(group)}
-                            className="w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-red-50 flex items-center gap-2 transition-all rounded-lg m-1"
+                            onClick={() => setSHSGroupActive(group, false)}
+                            className="w-full text-left px-4 py-2 text-sm text-amber-700 hover:bg-amber-50 flex items-center gap-2 transition-all rounded-lg m-1"
                           >
-                            <Trash2 size={14} /> Delete {qty > 1 ? `all ${qty}` : 'from DB'}
+                            <Archive size={14} /> Mark {qty > 1 ? `all ${qty}` : 'as'} inactive
                           </button>
                         </div>
                       )}
@@ -260,6 +277,80 @@ export default function StockInPage({ onOpenBatch }: Props) {
             })}
           </div>
         </CollapsibleSection>
+      )}
+
+      {/* Inactive SHS section — archived units, restorable */}
+      {inactivePendingSHS.length > 0 && (
+        <div className="bg-white border border-gray-200 rounded-xl overflow-hidden">
+          <button
+            type="button"
+            onClick={() => setShowInactiveSHS(s => !s)}
+            className="w-full flex items-center justify-between px-4 py-3 border-l-4 border-l-gray-400 hover:bg-gray-50 transition-all"
+          >
+            <div className="flex items-center gap-3">
+              <Archive size={14} className="text-gray-500" />
+              <div className="text-left">
+                <p className="text-xs font-bold text-gray-700 uppercase tracking-tight">
+                  Inactive SHS
+                </p>
+                <p className="text-[9px] text-gray-400 font-mono uppercase tracking-widest">
+                  Archived — restore to bring back into pending stock
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="text-[10px] font-bold text-gray-500 bg-gray-100 px-2 py-0.5 rounded-full font-mono">
+                {inactivePendingSHS.length}
+              </span>
+              {showInactiveSHS ? <ChevronUp size={14} className="text-gray-400" /> : <ChevronDown size={14} className="text-gray-400" />}
+            </div>
+          </button>
+
+          {showInactiveSHS && (
+            <div className="divide-y divide-gray-100 border-t border-gray-100">
+              {inactivePendingSHSGroups.map(group => {
+                const u = group[0];
+                const qty = group.length;
+                return (
+                  <div key={u.id} className="flex items-center gap-3 px-4 py-3 bg-gray-50/40 hover:bg-gray-50 transition-all">
+                    <div className="w-8 h-8 rounded-lg bg-gray-200 flex items-center justify-center flex-shrink-0">
+                      <Archive size={14} className="text-gray-500" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2">
+                        <p className="text-xs font-bold text-gray-700 truncate">{u.model}</p>
+                        {qty > 1 && (
+                          <span className="text-[9px] font-bold text-gray-600 bg-gray-200 px-1.5 py-0.5 rounded font-mono flex-shrink-0">
+                            ×{qty}
+                          </span>
+                        )}
+                        <span className="text-[8px] font-bold text-gray-600 bg-gray-200 px-1.5 py-0.5 rounded font-mono flex-shrink-0 uppercase tracking-widest">
+                          Inactive
+                        </span>
+                      </div>
+                      <p className="text-[9px] text-gray-400 font-mono mt-0.5">
+                        {u.colour && u.colour !== 'Unknown' ? `${u.colour} · ` : ''}
+                        {supplierMap[u.supplierId] || '—'} · {u.batchId === 'master_batch' ? 'Master' : (u.batchId || 'Default')} · {u.dateIn}
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-2 flex-shrink-0">
+                      <span className="text-sm font-bold text-gray-600">
+                        £{u.buyPrice}
+                        {qty > 1 && <span className="text-[9px] text-gray-400 font-mono ml-1">/ £{(u.buyPrice * qty).toLocaleString()}</span>}
+                      </span>
+                      <button
+                        onClick={() => setSHSGroupActive(group, true)}
+                        className="px-3 py-1.5 bg-emerald-600 text-white text-[9px] font-bold uppercase tracking-widest rounded-lg hover:bg-emerald-700 transition-all flex items-center gap-1"
+                      >
+                        <RotateCcw size={11} /> Restore{qty > 1 ? ` all ${qty}` : ''}
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
       )}
 
       {/* Search */}
