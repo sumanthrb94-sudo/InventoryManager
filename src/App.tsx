@@ -4,7 +4,7 @@ import { auth, signInWithGoogle, signOut } from './lib/firebase';
 import {
   PackagePlus, ShoppingCart, RefreshCw, BarChart2,
   LogOut, Plus, FileSpreadsheet, LayoutDashboard,
-  TrendingUp, FileText, Users, Settings, Database,
+  TrendingUp, FileText, Users, Settings, Database, ShieldCheck,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import Dashboard, { NavAction } from './components/Dashboard';
@@ -25,8 +25,9 @@ import { InventoryStoreProvider, useInventoryStore } from './lib/inventoryStore'
 import DataSeedPage from './components/DataSeedPage';
 import LoadMockDataModal from './components/LoadMockDataModal';
 import ErrorBoundary from './components/ErrorBoundary';
+import AdminPage, { ADMIN_SUBS, AdminSub } from './components/admin/AdminPage';
 
-type Tab        = 'buy' | 'sell' | 'returns' | 'analytics';
+type Tab        = 'buy' | 'sell' | 'returns' | 'analytics' | 'admin';
 type AnalyticsSub = 'overview' | 'insights' | 'reports' | 'suppliers';
 
 const APP_NAME    = 'MOBILEPHONEMARKET';
@@ -87,6 +88,7 @@ function AppShell({ user }: { user: User }) {
   const { loaded }                                = useInventoryStore();
   const [activeTab, setActiveTab]                 = useState<Tab>('buy');
   const [analyticsSub, setAnalyticsSub]           = useState<AnalyticsSub>('overview');
+  const [adminSub, setAdminSub]                   = useState<AdminSub>('data');
   const [isBatchModalOpen, setIsBatchModalOpen]   = useState(false);
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
   const [isLoadMockDataOpen, setIsLoadMockDataOpen] = useState(false);
@@ -117,6 +119,7 @@ function AppShell({ user }: { user: User }) {
     { id: 'sell',      label: 'Sell',      icon: <ShoppingCart size={20} /> },
     { id: 'returns',   label: 'Returns',   icon: <RefreshCw size={20} /> },
     { id: 'analytics', label: 'Analytics', icon: <BarChart2 size={20} /> },
+    { id: 'admin',     label: 'Admin',     icon: <ShieldCheck size={20} /> },
   ];
 
   return (
@@ -156,6 +159,21 @@ function AppShell({ user }: { user: User }) {
                 <button key={s.id} onClick={() => setAnalyticsSub(s.id)}
                   className={`w-full flex items-center gap-2 px-3 py-2 rounded-lg transition-all
                     ${analyticsSub === s.id
+                      ? 'text-slate-900 bg-slate-100 font-bold'
+                      : 'text-slate-400 hover:text-slate-900 hover:bg-slate-50'}`}>
+                  {s.icon}
+                  <span className="text-[10px] font-bold uppercase tracking-widest">{s.label}</span>
+                </button>
+              ))}
+            </div>
+          )}
+
+          {activeTab === 'admin' && (
+            <div className="ml-3 mt-1 space-y-0.5 border-l-2 border-slate-100 pl-3">
+              {ADMIN_SUBS.map(s => (
+                <button key={s.id} onClick={() => setAdminSub(s.id)}
+                  className={`w-full flex items-center gap-2 px-3 py-2 rounded-lg transition-all
+                    ${adminSub === s.id
                       ? 'text-slate-900 bg-slate-100 font-bold'
                       : 'text-slate-400 hover:text-slate-900 hover:bg-slate-50'}`}>
                   {s.icon}
@@ -354,6 +372,14 @@ function AppShell({ user }: { user: User }) {
                 </span>
               </>
             )}
+            {activeTab === 'admin' && (
+              <>
+                <span className="text-slate-300 flex-shrink-0">/</span>
+                <span className="text-[11px] font-bold uppercase tracking-widest text-slate-600 truncate">
+                  {ADMIN_SUBS.find(s => s.id === adminSub)?.label}
+                </span>
+              </>
+            )}
           </div>
 
           {/* Right actions */}
@@ -401,17 +427,39 @@ function AppShell({ user }: { user: User }) {
               </div>
             )}
 
+            {/* Mobile admin sub-nav */}
+            {activeTab === 'admin' && (
+              <div className="md:hidden flex gap-2 mb-5 overflow-x-auto pb-1 -mx-1 px-1">
+                {ADMIN_SUBS.map(s => (
+                  <button key={s.id} onClick={() => setAdminSub(s.id)}
+                    className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-[10px] font-bold uppercase tracking-widest flex-shrink-0 transition-all border
+                      ${adminSub === s.id
+                        ? 'bg-slate-900 text-white border-slate-900'
+                        : 'bg-white text-slate-500 border-slate-200 hover:border-slate-400'}`}>
+                    {s.icon}{s.label}
+                  </button>
+                ))}
+              </div>
+            )}
+
             <AnimatePresence mode="wait">
-              <motion.div key={activeTab === 'analytics' ? `analytics-${analyticsSub}` : activeTab}
+              <motion.div key={
+                activeTab === 'analytics'
+                  ? `analytics-${analyticsSub}`
+                  : activeTab === 'admin'
+                  ? `admin-${adminSub}`
+                  : activeTab
+              }
                 initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: -8 }} transition={{ duration: 0.18 }}>
-                {activeTab === 'buy'     && <StockInPage onOpenBatch={() => setIsBatchModalOpen(true)} onOpenImport={() => setIsImportModalOpen(true)} />}
+                {activeTab === 'buy'     && <StockInPage onOpenBatch={() => setIsBatchModalOpen(true)} />}
                 {activeTab === 'sell'    && <SellPage />}
                 {activeTab === 'returns' && <ReturnsPage />}
                 {activeTab === 'analytics' && analyticsSub === 'overview'  && <Dashboard onNavigate={handleNavigate} />}
                 {activeTab === 'analytics' && analyticsSub === 'insights'  && <AnalyticsPage />}
                 {activeTab === 'analytics' && analyticsSub === 'reports'   && <ReportingPage />}
                 {activeTab === 'analytics' && analyticsSub === 'suppliers' && <Suppliers />}
+                {activeTab === 'admin'   && <AdminPage sub={adminSub} />}
               </motion.div>
             </AnimatePresence>
           </div>

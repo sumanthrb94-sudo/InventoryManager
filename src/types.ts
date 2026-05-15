@@ -119,7 +119,7 @@ export interface Batch {
 
 export interface InventoryEvent {
   id: string;
-  type: 'batch_created' | 'file_attached' | 'listed' | 'delisted' | 'sold' | 'returned' | 'available' | 'price_update' | 'stock_adjusted' | 'notes_updated';
+  type: 'batch_created' | 'file_attached' | 'listed' | 'delisted' | 'sold' | 'returned' | 'available' | 'price_update' | 'stock_adjusted' | 'notes_updated' | 'unit_deleted';
   message: string;
   unitId?: string;
   batchId?: string;
