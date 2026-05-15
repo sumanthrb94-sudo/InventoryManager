@@ -1,12 +1,11 @@
-import React, { useMemo } from 'react';
-import { ChevronLeft, Lock, AlertTriangle, Minus, Plus } from 'lucide-react';
+import React, { useMemo, useState } from 'react';
+import { ChevronLeft, Lock, AlertTriangle, Minus, Plus, Camera, X } from 'lucide-react';
 import { motion } from 'motion/react';
 import { useInventoryStore } from '../../lib/inventoryStore';
-import { GRADE_OPTIONS, STORAGE_OPTIONS } from '../../lib/unitConstants';
-import { GradeSelect, StorageSelect } from '../FormSelects';
-import ConfidenceBadge from '../OCR/ConfidenceBadge';
+import { GradeSelect } from '../FormSelects';
+import { STORAGE_OPTIONS } from '../../lib/unitConstants';
 import DeviceComboBox from '../DeviceComboBox';
-import type { OCRResult } from '../../lib/ocr/ocrEngine';
+import IMEIScanner from '../IMEIScanner';
 
 const normaliseImei = (s: string) => (s || '').replace(/\D/g, '');
 
@@ -18,8 +17,8 @@ const COLOUR_OPTIONS = [
   'Lavender','Desert Titanium','Pacific Blue','Rose Gold','Other',
 ];
 
-// Constrained brand list — keeps Brand orthogonal to Model so the auto-fill
-// pipeline (and any downstream filtering) can reason about them separately.
+// Constrained brand list — keeps Brand orthogonal to Model so downstream
+// filtering can reason about them separately.
 const BRAND_OPTIONS = [
   'Apple', 'Samsung', 'Google', 'OnePlus', 'Xiaomi', 'Huawei', 'OPPO', 'Vivo',
   'Motorola', 'Nokia', 'Other',
@@ -54,7 +53,6 @@ interface Props {
   error: string;
   setError: (v: string) => void;
   batchId: string;
-  ocrResult?: OCRResult;
 }
 
 export default function DetailForm({
@@ -86,9 +84,9 @@ export default function DetailForm({
   error,
   setError,
   batchId,
-  ocrResult,
 }: Props) {
   const { suppliers, units } = useInventoryStore();
+  const [showScanner, setShowScanner] = useState(false);
 
   const categories = [
     'iPhone', 'iPad', 'Apple Watch', 'Tablet',
@@ -105,16 +103,8 @@ export default function DetailForm({
   }, [imeiDigits, units, intakeType]);
   const hasDuplicate = !!duplicateUnit;
 
-  // Quantity input has a free-typing buffer so the user can clear it and
-  // type "100" without the previous "1" snapping back the moment the
-  // field is empty. We only push to the upstream `quantity` state when
-  // the buffer parses to a real positive integer. Steppers, presets, and
-  // blur all bypass the buffer and write directly.
   const [quantityInput, setQuantityInput] = React.useState(String(quantity || 1));
   React.useEffect(() => {
-    // Keep the buffer in sync if upstream `quantity` changes (e.g. preset
-    // tap), but don't fight the user mid-typing — only update when the
-    // current buffer's parsed value differs from upstream.
     const parsed = parseInt(quantityInput, 10);
     if (parsed !== quantity && !Number.isNaN(quantity)) {
       setQuantityInput(String(quantity));
@@ -130,6 +120,17 @@ export default function DetailForm({
   };
 
   const QUANTITY_PRESETS = [10, 25, 50, 100];
+
+  const handleScanResult = (value: string) => {
+    const digits = normaliseImei(value);
+    if (digits.length >= 14) {
+      setImei(digits);
+      setShowScanner(false);
+      setError('');
+    } else {
+      setError(`Scanned value "${value}" needs at least 14 digits`);
+    }
+  };
 
   return (
     <motion.div
@@ -148,29 +149,62 @@ export default function DetailForm({
         </div>
       )}
 
+      {/* Inline IMEI scanner */}
+      {showScanner && (
+        <div className="space-y-3 p-3 border border-gray-200 rounded-xl bg-gray-50">
+          <div className="flex items-center justify-between">
+            <p className="text-xs font-bold uppercase tracking-widest text-gray-600">
+              Scan IMEI Barcode
+            </p>
+            <button
+              type="button"
+              onClick={() => setShowScanner(false)}
+              className="p-1 hover:bg-gray-200 rounded-md text-gray-500"
+              aria-label="Close scanner"
+            >
+              <X size={14} />
+            </button>
+          </div>
+          <IMEIScanner
+            onScan={handleScanResult}
+            onError={msg => setError(msg)}
+          />
+        </div>
+      )}
+
       {/* Main form grid */}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
-        {/* IMEI - larger if bulk, reduced if single */}
-        <div className={intakeType === 'bulk' ? 'col-span-2' : 'col-span-2'}>
-          <div className="flex items-center justify-between mb-1">
-            <label className="block text-xs font-bold text-gray-700 uppercase">
-              {intakeType === 'bulk' ? 'Starting IMEI (Optional)' : 'IMEI'}
-            </label>
-            {ocrResult?.device.imei.confidence > 0 && (
-              <ConfidenceBadge confidence={ocrResult.device.imei.confidence} label="OCR" showIcon={false} />
-            )}
+        {/* IMEI with inline scan button */}
+        <div className="col-span-2">
+          <label className="block text-xs font-bold text-gray-700 uppercase mb-1">
+            {intakeType === 'bulk' ? 'Starting IMEI (Optional)' : 'IMEI'}
+          </label>
+          <div className="flex gap-2">
+            <input
+              type="text"
+              value={imei}
+              onChange={e => setImei(e.target.value)}
+              placeholder={intakeType === 'bulk' ? 'Leave blank for auto-generation' : '14-15 digits'}
+              className={`flex-1 px-3 py-2 border rounded-lg text-sm focus:outline-none focus:ring-2 ${
+                hasDuplicate
+                  ? 'border-red-400 focus:ring-red-500 bg-red-50'
+                  : 'border-gray-300 focus:ring-blue-500'
+              }`}
+            />
+            <button
+              type="button"
+              onClick={() => setShowScanner(s => !s)}
+              className={`flex-shrink-0 px-3 py-2 border rounded-lg flex items-center gap-1.5 text-xs font-bold uppercase tracking-widest transition ${
+                showScanner
+                  ? 'bg-blue-600 text-white border-blue-600 hover:bg-blue-700'
+                  : 'border-gray-300 text-gray-700 hover:bg-gray-50'
+              }`}
+              aria-label="Scan IMEI"
+            >
+              <Camera size={14} />
+              Scan
+            </button>
           </div>
-          <input
-            type="text"
-            value={imei}
-            onChange={e => setImei(e.target.value)}
-            placeholder={intakeType === 'bulk' ? 'Leave blank for auto-generation' : '14-15 digits'}
-            className={`w-full px-3 py-2 border rounded-lg text-sm focus:outline-none focus:ring-2 ${
-              hasDuplicate
-                ? 'border-red-400 focus:ring-red-500 bg-red-50'
-                : 'border-gray-300 focus:ring-blue-500'
-            }`}
-          />
           {hasDuplicate ? (
             <div className="mt-1 flex items-start gap-1.5 text-[11px] text-red-700 bg-red-50 border border-red-200 rounded-md px-2 py-1.5">
               <AlertTriangle size={13} className="flex-shrink-0 mt-0.5" />
@@ -185,7 +219,7 @@ export default function DetailForm({
             </div>
           ) : (
             <p className="text-[10px] text-gray-500 mt-1">
-              {imei ? `Digits: ${imeiDigits.length}` : 'Optional for bulk'}
+              {imei ? `Digits: ${imeiDigits.length}` : 'Type the IMEI or tap Scan to use the camera'}
             </p>
           )}
         </div>
@@ -210,8 +244,6 @@ export default function DetailForm({
                 pattern="[0-9]*"
                 value={quantityInput}
                 onChange={e => {
-                  // Strip non-digits; keep the buffer as a string so the
-                  // user can clear it without snapping back to "1".
                   const cleaned = e.target.value.replace(/\D/g, '').slice(0, 4);
                   setQuantityInput(cleaned);
                   setError('');
@@ -258,20 +290,13 @@ export default function DetailForm({
 
         {/* Model */}
         <div className="col-span-2">
-          <div className="flex items-center justify-between mb-1">
-            <label className="block text-xs font-bold text-gray-700 uppercase">Model *</label>
-            {ocrResult?.device.model.confidence > 0 && (
-              <ConfidenceBadge confidence={ocrResult.device.model.confidence} label="OCR" showIcon={false} />
-            )}
-          </div>
+          <label className="block text-xs font-bold text-gray-700 uppercase mb-1">Model *</label>
           <DeviceComboBox
             units={units}
             brand={brand}
             model={model}
             onModelChange={setModel}
             onPick={entry => {
-              // Mirror the catalog entry into the form so brand + model + the
-              // suggested defaults (storage, colour, grade) stay in sync.
               if (entry.brand) setBrand(entry.brand);
               setModel(entry.model);
               if (!storage && entry.storages[0]) setStorage(entry.storages[0]);
@@ -303,12 +328,7 @@ export default function DetailForm({
 
         {/* Brand */}
         <div>
-          <div className="flex items-center justify-between mb-1">
-            <label className="block text-xs font-bold text-gray-700 uppercase">Brand *</label>
-            {ocrResult?.device.brand.confidence > 0 && (
-              <ConfidenceBadge confidence={ocrResult.device.brand.confidence} label="OCR" showIcon={false} />
-            )}
-          </div>
+          <label className="block text-xs font-bold text-gray-700 uppercase mb-1">Brand *</label>
           <select
             value={brand}
             onChange={e => setBrand(e.target.value)}
@@ -323,12 +343,7 @@ export default function DetailForm({
 
         {/* Storage */}
         <div>
-          <div className="flex items-center justify-between mb-1">
-            <label className="block text-xs font-bold text-gray-700 uppercase">Storage</label>
-            {ocrResult?.device.storage.confidence > 0 && (
-              <ConfidenceBadge confidence={ocrResult.device.storage.confidence} label="OCR" showIcon={false} />
-            )}
-          </div>
+          <label className="block text-xs font-bold text-gray-700 uppercase mb-1">Storage</label>
           <select
             value={storage}
             onChange={e => setStorage(e.target.value)}
@@ -343,23 +358,13 @@ export default function DetailForm({
 
         {/* Grade */}
         <div>
-          <div className="flex items-center justify-between mb-1">
-            <label className="block text-xs font-bold text-gray-700 uppercase">Grade</label>
-            {ocrResult?.device.grade.confidence > 0 && (
-              <ConfidenceBadge confidence={ocrResult.device.grade.confidence} label="OCR" showIcon={false} />
-            )}
-          </div>
+          <label className="block text-xs font-bold text-gray-700 uppercase mb-1">Grade</label>
           <GradeSelect value={grade} onChange={setGrade} />
         </div>
 
         {/* Colour */}
         <div className="col-span-2">
-          <div className="flex items-center justify-between mb-1">
-            <label className="block text-xs font-bold text-gray-700 uppercase">Colour *</label>
-            {ocrResult?.device.colour.confidence > 0 && (
-              <ConfidenceBadge confidence={ocrResult.device.colour.confidence} label="OCR" showIcon={false} />
-            )}
-          </div>
+          <label className="block text-xs font-bold text-gray-700 uppercase mb-1">Colour *</label>
           <select
             value={colour}
             onChange={e => setColour(e.target.value)}

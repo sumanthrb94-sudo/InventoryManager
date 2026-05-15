@@ -7,14 +7,12 @@ import { notificationService } from '../../lib/notificationService';
 import { useInventoryStore } from '../../lib/inventoryStore';
 import { generateBatchId } from '../../lib/batchUtils';
 import { registerSessionCreatedUnits } from '../../hooks/useRealTimeNotifications';
-import type { OCRResult } from '../../lib/ocr/ocrEngine';
 import IntakeTypeSelector from './IntakeTypeSelector';
-import ImageCaptureInput from './ImageCaptureInput';
 import DetailForm from './DetailForm';
 import ReviewScreen from './ReviewScreen';
 import ProcessingState from './ProcessingState';
 import CompletionConfirmation from './CompletionConfirmation';
-import BatchImageCapture, { PlannedUnit, CapturedUnit } from './BatchImageCapture';
+import BatchIMEIEntry, { PlannedUnit, CapturedUnit } from './BatchIMEIEntry';
 
 interface ColorVariant {
   id: string;
@@ -22,7 +20,7 @@ interface ColorVariant {
   quantity: number;
 }
 
-type Stage = 'type-selection' | 'image-input' | 'details' | 'color-distribution' | 'batch-capture' | 'review' | 'processing' | 'complete';
+type Stage = 'type-selection' | 'details' | 'color-distribution' | 'batch-imei' | 'review' | 'processing' | 'complete';
 
 interface Props {
   onClose: () => void;
@@ -34,12 +32,6 @@ export default function StockIntakeFlow({ onClose }: Props) {
   // Stage management
   const [stage, setStage] = useState<Stage>('type-selection');
   const [intakeType, setIntakeType] = useState<'single' | 'bulk'>('single');
-
-  // Image & extraction
-  const [imageFile, setImageFile] = useState<File | null>(null);
-  const [imagePreview, setImagePreview] = useState<string>('');
-  const [supabaseImageUrl, setSupabaseImageUrl] = useState<string>('');
-  const [ocrResult, setOcrResult] = useState<OCRResult | undefined>();
 
   // Form fields
   const [imei, setImei] = useState('');
@@ -80,40 +72,6 @@ export default function StockIntakeFlow({ onClose }: Props) {
 
   const handleTypeSelection = (type: 'single' | 'bulk') => {
     setIntakeType(type);
-    setStage('image-input');
-  };
-
-  const handleImageSelected = (file: File, preview: string, ocrData?: OCRResult, supabaseUrl?: string) => {
-    setImageFile(file);
-    setImagePreview(preview);
-    setOcrResult(ocrData);
-    if (supabaseUrl) {
-      setSupabaseImageUrl(supabaseUrl);
-      console.log('[StockIntakeFlow] Image URL from Supabase:', supabaseUrl);
-    }
-
-    // Pre-populate form fields from OCR result if available
-    if (ocrData?.device) {
-      if (ocrData.device.imei.confidence > 0.6) {
-        setImei(ocrData.device.imei.value);
-      }
-      if (ocrData.device.brand.confidence > 0.6) {
-        setBrand(ocrData.device.brand.value);
-      }
-      if (ocrData.device.model.confidence > 0.6) {
-        setModel(ocrData.device.model.value);
-      }
-      if (ocrData.device.storage.confidence > 0.6) {
-        setStorage(ocrData.device.storage.value);
-      }
-      if (ocrData.device.grade.confidence > 0.6) {
-        setGrade(ocrData.device.grade.value);
-      }
-      if (ocrData.device.colour.confidence > 0.6) {
-        setColour(ocrData.device.colour.value);
-      }
-    }
-
     setStage('details');
   };
 
@@ -209,7 +167,6 @@ export default function StockIntakeFlow({ onClose }: Props) {
     const units: InventoryUnit[] = [];
 
     if (intakeType === 'single' || quantity === 1) {
-      // Single unit
       const cleanImei = imei.replace(/\D/g, '');
       const unitId = cleanImei || `manual_${Date.now()}`;
 
@@ -232,16 +189,14 @@ export default function StockIntakeFlow({ onClose }: Props) {
         flags: [],
         notes,
         platformListed: false,
-        imageUrl: supabaseImageUrl || undefined,
         ownerId: 'shared',
         createdAt: now,
       };
       units.push(unit);
     } else {
-      // Bulk with colors. Each planned unit may have its own captured
-      // IMEI + preview image from the BatchImageCapture step; fall back
-      // to the seed IMEI + sequential suffix if the operator skipped a
-      // unit.
+      // Bulk with colors. Each planned unit may have a captured IMEI from
+      // the BatchIMEIEntry step; fall back to the seed IMEI + sequential
+      // suffix if the operator skipped a slot.
       const cleanImei = imei.replace(/\D/g, '');
       const baseName = cleanImei || `bulk_${Date.now()}`;
       let unitIndex = 0;
@@ -270,7 +225,6 @@ export default function StockIntakeFlow({ onClose }: Props) {
             flags: [],
             notes,
             platformListed: false,
-            imageUrl: captured?.previewUrl || supabaseImageUrl || undefined,
             ownerId: 'shared',
             createdAt: now,
           };
@@ -286,9 +240,9 @@ export default function StockIntakeFlow({ onClose }: Props) {
   };
 
   /**
-   * Color Distribution → Batch Image Capture.
+   * Color Distribution → Batch IMEI Entry.
    * Expand the colour map into one PlannedUnit per physical phone in
-   * batch order, then jump to the per-unit capture screen.
+   * batch order, then jump to the per-unit IMEI entry screen.
    */
   const handleColorDistributionSubmit = () => {
     if (!isColorDistributionValid) {
@@ -311,11 +265,11 @@ export default function StockIntakeFlow({ onClose }: Props) {
       }
     }
     setPlannedUnits(planned);
-    setCapturedUnits([]); // BatchImageCapture seeds its own initial state
-    setStage('batch-capture');
+    setCapturedUnits([]);
+    setStage('batch-imei');
   };
 
-  /** BatchImageCapture → Review */
+  /** BatchIMEIEntry → Review */
   const handleBatchCaptureSubmit = async (captured: CapturedUnit[]) => {
     setCapturedUnits(captured);
     await buildUnitsForReview();
@@ -364,10 +318,9 @@ export default function StockIntakeFlow({ onClose }: Props) {
 
     const stageSequence: Stage[] = [
       'type-selection',
-      'image-input',
       'details',
       'color-distribution',
-      'batch-capture',
+      'batch-imei',
       'review',
     ];
     const currentIndex = stageSequence.indexOf(stage);
@@ -377,7 +330,7 @@ export default function StockIntakeFlow({ onClose }: Props) {
   };
 
   const handleClose = () => {
-    if (stage === 'processing') return; // Prevent closing during processing
+    if (stage === 'processing') return;
     onClose();
   };
 
@@ -402,10 +355,9 @@ export default function StockIntakeFlow({ onClose }: Props) {
             <div>
               <h2 className="text-xl font-bold text-gray-900">
                 {stage === 'type-selection' && 'Add Stock'}
-                {stage === 'image-input' && (intakeType === 'single' ? 'Scan or Upload Item' : 'Bulk Stock Intake')}
-                {stage === 'details' && 'Device Details'}
+                {stage === 'details' && (intakeType === 'single' ? 'Device Details' : 'Bulk Stock Details')}
                 {stage === 'color-distribution' && 'Color Distribution'}
-                {stage === 'batch-capture' && 'Capture Each Unit'}
+                {stage === 'batch-imei' && 'Enter IMEIs'}
                 {stage === 'review' && 'Review Units'}
                 {stage === 'processing' && 'Processing...'}
               </h2>
@@ -432,21 +384,6 @@ export default function StockIntakeFlow({ onClose }: Props) {
                 exit={{ opacity: 0, y: -10 }}
               >
                 <IntakeTypeSelector onSelect={handleTypeSelection} />
-              </motion.div>
-            )}
-
-            {stage === 'image-input' && (
-              <motion.div
-                key="image-input"
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -10 }}
-              >
-                <ImageCaptureInput
-                  onImageSelected={handleImageSelected}
-                  onBack={handleBack}
-                  intakeType={intakeType}
-                />
               </motion.div>
             )}
 
@@ -486,7 +423,6 @@ export default function StockIntakeFlow({ onClose }: Props) {
                   error={error}
                   setError={setError}
                   batchId={generatedBatchId}
-                  ocrResult={ocrResult}
                 />
               </motion.div>
             )}
@@ -516,7 +452,6 @@ export default function StockIntakeFlow({ onClose }: Props) {
                         onChange={e => { setNewColorName(e.target.value); if (error) setError(''); }}
                         className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                       />
-                      {/* Qty with ± steppers — free-typing, snaps to ≥1 on blur */}
                       <div className="flex items-stretch gap-1.5 flex-shrink-0">
                         <button
                           type="button"
@@ -563,7 +498,7 @@ export default function StockIntakeFlow({ onClose }: Props) {
                     </button>
                   </div>
 
-                  {/* Color list — each row gets its own ± steppers */}
+                  {/* Color list */}
                   <div className="space-y-2">
                     {colorVariants.map(color => (
                       <div key={color.id} className="flex items-center justify-between gap-3 p-3 bg-gray-50 rounded-lg">
@@ -620,7 +555,6 @@ export default function StockIntakeFlow({ onClose }: Props) {
                     ))}
                   </div>
 
-                  {/* Validation status */}
                   <div className={`p-3 rounded-lg border ${
                     colorTotalQty === quantity
                       ? 'bg-emerald-50 border-emerald-200'
@@ -641,14 +575,10 @@ export default function StockIntakeFlow({ onClose }: Props) {
                     </p>
                   </div>
 
-                  {/* Only show the inline error when the user actively
-                      tries something invalid — never when totals already
-                      match (was getting stuck on screen). */}
                   {error && colorTotalQty !== quantity && (
                     <div className="p-3 bg-red-50 text-red-700 rounded-lg text-sm">{error}</div>
                   )}
 
-                  {/* Footer actions */}
                   <div className="flex items-center gap-3 pt-2">
                     <button
                       type="button"
@@ -665,21 +595,21 @@ export default function StockIntakeFlow({ onClose }: Props) {
                     >
                       {!isColorDistributionValid
                         ? `Total ${colorTotalQty}/${quantity}`
-                        : `Continue · Capture ${quantity} Unit${quantity !== 1 ? 's' : ''}`}
+                        : `Continue · Enter ${quantity} IMEI${quantity !== 1 ? 's' : ''}`}
                     </button>
                   </div>
                 </div>
               </motion.div>
             )}
 
-            {stage === 'batch-capture' && (
+            {stage === 'batch-imei' && (
               <motion.div
-                key="batch-capture"
+                key="batch-imei"
                 initial={{ opacity: 0, y: 10 }}
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: -10 }}
               >
-                <BatchImageCapture
+                <BatchIMEIEntry
                   plannedUnits={plannedUnits}
                   baseImei={imei}
                   onSubmit={handleBatchCaptureSubmit}
