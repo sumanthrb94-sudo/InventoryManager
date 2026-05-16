@@ -6,7 +6,7 @@ import {
 } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
 import { dbService } from '../lib/dbService';
-import { InventoryUnit } from '../types';
+import { InventoryUnit, Sale, Marketplace } from '../types';
 import { useInventoryStore } from '../lib/inventoryStore';
 import { notificationService } from '../lib/notificationService';
 import { parseBrandModelStorage } from '../lib/modelStorage';
@@ -14,7 +14,10 @@ import CopyImei from './CopyImei';
 import {
   PLATFORM_LIST, PLATFORMS, DEFAULT_POSTAGE_COST,
   platformTotalFee, calcNetProfit, platformFixedFee,
+  marketplaceFromListingSite,
 } from '../lib/platforms';
+import { recomputeSale } from '../lib/recomputeSale';
+import { fmtDateForUser, useUserRegion } from '../lib/userLocale';
 import CollapsibleSection from './CollapsibleSection';
 import PeriodicInventory from './PeriodicInventory';
 import IntelligencePanel from './IntelligencePanel';
@@ -45,6 +48,60 @@ function deriveSku(u: InventoryUnit): { brand: string; model: string; storage?: 
     model: p.model || u.model,
     storage: u.storage || p.storage,
     series: p.series,
+  };
+}
+
+// ── Sold-history helpers ──────────────────────────────────────────────────────
+const MARKETPLACE_BADGE: Record<Marketplace, string> = {
+  AMAZON:  'bg-amber-100  text-amber-800  border-amber-200',
+  BM:      'bg-emerald-100 text-emerald-800 border-emerald-200',
+  EBAY:    'bg-blue-100   text-blue-800   border-blue-200',
+  ONBUY:   'bg-purple-100 text-purple-800 border-purple-200',
+  PROJECT: 'bg-pink-100   text-pink-800   border-pink-200',
+};
+
+const fmtGBP = (n: number | undefined | null): string => {
+  if (n == null || Number.isNaN(n)) return '—';
+  return `£${n.toFixed(2)}`;
+};
+
+/** Map a legacy in-app sold inventoryUnit into a Sale-shaped row so the
+ *  unified Sold History panel can render it alongside imported sales.
+ *  Mirrors `inventoryUnitToSale` in Sales.tsx — placeholder derived fields
+ *  are overwritten by `recomputeSale()` downstream. */
+function inventoryUnitToSale(u: InventoryUnit): Sale {
+  const marketplace: Marketplace =
+    (marketplaceFromListingSite(u.salePlatform || '') as Marketplace | undefined) ?? 'EBAY';
+  const sp = u.salePrice ?? 0;
+  const bp = u.buyPrice ?? 0;
+  return {
+    id: u.id,
+    marketplace,
+    orderNumber: u.saleOrderId || '',
+    sku: u.sku,
+    imei: u.imei,
+    unitId: u.id,
+    supplierId: u.supplierId,
+    supplierName: u.supplierName,
+    saleDate: (u.saleDate || u.updatedAt?.split?.('T')?.[0] || '') as string,
+    quantity: 1,
+    buyPrice: bp,
+    salePrice: sp,
+    paymentMode: undefined,
+    spMinusBp: sp - bp,
+    marginalTax: 0,
+    commission: 0,
+    postage: u.postageCost ?? 0,
+    grossProfit: 0,
+    gpPercent: 0,
+    comments: u.notes || undefined,
+    importBatchId: 'inapp',
+    sourceFile: 'inapp-sell-flow',
+    sourceRow: 0,
+    importedAt: u.updatedAt ?? u.createdAt,
+    createdAt: u.createdAt,
+    updatedAt: u.updatedAt,
+    ownerId: u.ownerId,
   };
 }
 
@@ -404,7 +461,8 @@ function EnterImeiModal({
 
 // ── Main SellPage ──────────────────────────────────────────────────────────────
 export default function SellPage() {
-  const { units, suppliers }        = useInventoryStore();
+  const { units, suppliers, sales } = useInventoryStore();
+  const region                      = useUserRegion();
   const [search, setSearch]         = useState('');
   const [selected, setSelected]     = useState<InventoryUnit | null>(null);
   const [selectedIsSHS, setSelectedIsSHS] = useState(false);

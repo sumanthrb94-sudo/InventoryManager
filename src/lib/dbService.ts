@@ -393,4 +393,31 @@ export const dbService = {
     ));
     return snapToItems(snap);
   },
+
+  /**
+   * Apply a listing-sites change to every available unit matching the given SKU.
+   * Used by the SKU-level listing editor (Pending IMEIs / Inventory group rows).
+   * Pass `[]` to clear all sites for the SKU; pass an array to replace.
+   *
+   * Writes the same `listingSites` value to every unit so the derived SKU
+   * union (see `deriveSkuListing`) collapses back to that exact set. Also
+   * stamps `platformListed` so the Pending IMEIs query drops the unit out of
+   * its "awaiting listing" bucket the moment any marketplace is selected.
+   */
+  async setSkuListingSites(
+    units: import('../types').InventoryUnit[],
+    next: import('../types').ListingSite[],
+  ): Promise<void> {
+    const writes = units.map(u => ({
+      collection: 'inventoryUnits',
+      id: u.id,
+      data: {
+        listingSites: next,
+        platformListed: next.length > 0,
+        // updatedAt is server-stamped automatically by cleanForFirestore()
+        updatedAt: nowIso(),
+      },
+    }));
+    await this.bulkCreate(writes);
+  },
 };
