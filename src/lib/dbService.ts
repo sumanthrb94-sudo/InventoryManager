@@ -7,6 +7,7 @@
 import {
   collection, doc, setDoc, deleteDoc, getDocs,
   onSnapshot, query, where, writeBatch, getDoc,
+  serverTimestamp, orderBy, Timestamp,
   QuerySnapshot, DocumentData,
 } from 'firebase/firestore';
 import { db } from './firebase';
@@ -16,12 +17,18 @@ const cachedData: Record<string, any[]> = {};
 
 // ── Collection name map (app name → Firestore collection) ─────────────────────
 const COL: Record<string, string> = {
-  inventoryUnits:  'inventoryUnits',
-  suppliers:       'suppliers',
-  inventoryEvents: 'inventoryEvents',
-  dailyUpdates:    'dailyUpdates',
-  activeListings:  'activeListings',
-  sourceDocuments: 'sourceDocuments',
+  inventoryUnits:          'inventoryUnits',
+  suppliers:               'suppliers',
+  inventoryEvents:         'inventoryEvents',
+  dailyUpdates:            'dailyUpdates',
+  activeListings:          'activeListings',
+  sourceDocuments:         'sourceDocuments',
+  // Master-files audit (Wave 2): client master file support
+  importBatches:           'importBatches',
+  sales:                   'sales',
+  inventoryAggregates:     'inventoryAggregates',
+  marketplaceFees:         'marketplaceFees',
+  supplierWhatsappUpdates: 'supplierWhatsappUpdates',
 };
 
 function colRef(name: string) {
@@ -89,10 +96,20 @@ function emit(name: string, data: any[]) {
 
 function nowIso() { return new Date().toISOString(); }
 
+/** Server-stamped fields swapped into the Firestore payload at write time.
+ *  In-memory cache keeps the local ISO string so optimistic UI keeps working
+ *  before Firestore round-trips the real Timestamp back via the snapshot listener. */
+const SERVER_TS_FIELDS = new Set([
+  'createdAt', 'updatedAt', 'importedAt', 'postedAt',
+]);
+
 function cleanForFirestore(obj: Record<string, any>): Record<string, any> {
-  return Object.fromEntries(
-    Object.entries(obj).filter(([k, v]) => v !== undefined && k !== 'supplierName')
-  );
+  const out: Record<string, any> = {};
+  for (const [k, v] of Object.entries(obj)) {
+    if (v === undefined || k === 'supplierName') continue;
+    out[k] = SERVER_TS_FIELDS.has(k) && typeof v === 'string' ? serverTimestamp() : v;
+  }
+  return out;
 }
 
 // ── dbService ─────────────────────────────────────────────────────────────────
@@ -284,5 +301,96 @@ export const dbService = {
     } catch (err: any) {
       console.warn(`Firestore updateByImei [${imei}]:`, err.message);
     }
+  },
+
+  // ── Master-files audit (Wave 2) ───────────────────────────────────────────
+  // Specialised writers/readers for the new collections introduced to support
+  // round-tripping the client's INVENTORY_REPORT and SALES_REPORT workbooks.
+
+  /**
+   * Create a single importBatches row and return its id.
+   * Every imported unit / sale / aggregate must carry this id for audit trail.
+   * Pass omitting `id` to let Firestore auto-assign.
+   */
+  async createImportBatch(meta: {
+    sourceFile: string;
+    sourceSheet?: string;
+    rowCount: number;
+    supplierId?: string;
+    importedBy?: string;
+    notes?: string;
+  }): Promise<string> {
+    const ref = doc(colRef('importBatches'));
+    const id = ref.id;
+    const payload: any = {
+      id,
+      sourceFile: meta.sourceFile,
+      sourceSheet: meta.sourceSheet,
+      rowCount: meta.rowCount,
+      supplierId: meta.supplierId,
+      importedBy: meta.importedBy ?? 'shared',
+      importedAt: serverTimestamp(),
+      notes: meta.notes,
+      ownerId: 'shared',
+    };
+    // Mirror in cache with ISO so optimistic UI works
+    const cacheItem = { ...payload, importedAt: nowIso() };
+    const current = [...(cachedData['importBatches'] || []), cacheItem];
+    cachedData['importBatches'] = current;
+    emit('importBatches', current);
+    try {
+      await setDoc(ref, cleanForFirestore(payload));
+    } catch (err: any) {
+      console.warn(`Firestore createImportBatch:`, err.message);
+    }
+    return id;
+  },
+
+  /**
+   * Upsert sales using the composite doc id `${marketplace}__${orderNumber}`
+   * so re-importing the same sales workbook deduplicates naturally
+   * (Firestore has no UNIQUE constraint — composite ids are the idiom).
+   */
+  async bulkUpsertSales(
+    sales: Array<any & { marketplace: string; orderNumber: string }>,
+    onProgress?: (done: number, total: number) => void,
+  ): Promise<void> {
+    const entries = sales.map(s => ({
+      collection: 'sales',
+      id: `${s.marketplace}__${s.orderNumber}`,
+      data: s,
+    }));
+    await this.bulkCreate(entries, onProgress);
+  },
+
+  /**
+   * Query inventoryUnits modified within a date range (server importedAt or
+   * updatedAt). Used by the daily-report exporter to scope a snapshot.
+   * Both `from` and `to` are ISO date strings (yyyy-mm-dd); the server-side
+   * Timestamp comparison is inclusive on both ends.
+   */
+  async getInventoryChangesInRange(from: string, to: string): Promise<any[]> {
+    const fromTs = Timestamp.fromDate(new Date(`${from}T00:00:00.000Z`));
+    const toTs   = Timestamp.fromDate(new Date(`${to}T23:59:59.999Z`));
+    const snap = await getDocs(query(
+      colRef('inventoryUnits'),
+      where('importedAt', '>=', fromTs),
+      where('importedAt', '<=', toTs),
+      orderBy('importedAt', 'desc'),
+    ));
+    return snapToItems(snap);
+  },
+
+  /**
+   * Same as above for the sales collection (uses saleDate string, not server timestamp).
+   */
+  async getSalesInRange(from: string, to: string): Promise<any[]> {
+    const snap = await getDocs(query(
+      colRef('sales'),
+      where('saleDate', '>=', from),
+      where('saleDate', '<=', to),
+      orderBy('saleDate', 'desc'),
+    ));
+    return snapToItems(snap);
   },
 };

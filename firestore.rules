@@ -27,6 +27,25 @@ service cloud.firestore {
       allow read, write: if isSignedIn();
     }
 
+    // ── Master-files audit collections ─────────────────────────────────────
+    match /importBatches/{batchId} {
+      allow read, write: if isSignedIn();
+    }
+    match /sales/{saleId} {
+      allow read, write: if isSignedIn();
+    }
+    match /inventoryAggregates/{aggregateId} {
+      allow read, write: if isSignedIn();
+    }
+    match /marketplaceFees/{marketplace} {
+      allow read: if isSignedIn();
+      // Reference data — also writable by signed-in admins to seed/update.
+      allow write: if isSignedIn();
+    }
+    match /supplierWhatsappUpdates/{updateId} {
+      allow read, write: if isSignedIn();
+    }
+
     match /{document=**} {
       allow read, write: if false;
     }
