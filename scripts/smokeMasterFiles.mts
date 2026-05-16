@@ -120,14 +120,14 @@ function excelDateToIso(v: any): string | undefined {
 
 // ── Parse INVENTORY sheet (286 rows, model+supplier roll-up rows) ──────────
 
-interface ParseResult {
+export interface ParseResult {
   units: InventoryUnit[];
   aggregates: InventoryAggregate[];
   whatsapp: SupplierWhatsappUpdate[];
   suppliers: Supplier[];
 }
 
-function parseInventoryWorkbook(buf: Buffer): ParseResult {
+export function parseInventoryWorkbook(buf: Buffer): ParseResult {
   const wb = XLSX.read(buf, { type: 'buffer', raw: true, cellText: true, cellDates: true });
   const supplierMap = new Map<string, Supplier>();
   function supplierIdFor(name: string): string {
@@ -306,8 +306,12 @@ async function main() {
   console.log(`  date/IMEI/money formats and the per-marketplace fee math should match.`);
 }
 
-main().catch(err => {
-  console.error('\n✗ smoke test FAILED');
-  console.error(err);
-  process.exit(1);
-});
+// Only auto-run when invoked directly (not when imported as a module).
+const isDirectRun = import.meta.url === `file://${process.argv[1]}`;
+if (isDirectRun) {
+  main().catch(err => {
+    console.error('\n✗ smoke test FAILED');
+    console.error(err);
+    process.exit(1);
+  });
+}
