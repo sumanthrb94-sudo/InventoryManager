@@ -166,6 +166,11 @@ export interface ModelSummary {
   model: string;
   brand: string;
   category: DeviceCategory;
+  /** Storage capacity (e.g. "128GB", "1TB") — part of the SKU grouping key.
+   *  May be `undefined` for legacy units whose storage is embedded in the
+   *  `model` string. The (brand, model, storage) tuple is the canonical
+   *  unique key; rows with different storage must not collapse together. */
+  storage?: string;
   variants: {
     colour: string;
     availableCount: number;

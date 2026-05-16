@@ -1,10 +1,25 @@
 import React, { useState, useMemo } from 'react';
-import { Plus, Package, TrendingUp, RotateCcw, ChevronDown, ChevronRight, X, ShoppingBag, Cpu, ArrowUpRight } from 'lucide-react';
+import { Plus, Package, TrendingUp, RotateCcw, ChevronDown, ChevronUp, ChevronRight, X, ShoppingBag, Cpu, ArrowUpRight } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { dbService } from '../lib/dbService';
 import { Supplier, InventoryUnit } from '../types';
 import { useInventoryStore } from '../lib/inventoryStore';
 import { formatIMEI } from '../lib/imeiUtils';
+import { parseBrandModelStorage } from '../lib/modelStorage';
+
+/** Mirror of the deriveSku helper in StockInPage — prefer pre-split fields,
+ *  fall back to parsing legacy single-string `model` at runtime. */
+function deriveSku(u: InventoryUnit): { brand: string; model: string; storage?: string } {
+  if (u.brand && u.storage) {
+    return { brand: u.brand, model: u.model, storage: u.storage };
+  }
+  const p = parseBrandModelStorage(u.model || '');
+  return {
+    brand: u.brand || p.brand,
+    model: p.model || u.model,
+    storage: u.storage || p.storage,
+  };
+}
 
 const PLATFORM_COLORS: Record<string, string> = {
   eBay: 'bg-yellow-100 text-yellow-800',
@@ -31,6 +46,8 @@ export default function Suppliers() {
     websiteUrl: '',
   });
   const [historyPage, setHistoryPage] = useState(1);
+  // Expanded SKU group within the order history (group key) — null = collapsed.
+  const [expandedGroup, setExpandedGroup] = useState<string | null>(null);
   const HIST_PAGE_SIZE = 20;
 
   const handleAdd = async (e: React.FormEvent) => {
@@ -85,7 +102,8 @@ export default function Suppliers() {
   const selectedSupplier = suppliers.find(s => s.id === selected);
   const selectedStats    = selected ? supplierStats[selected] : null;
 
-  // History: flat list sorted by date desc
+  // History: flat list sorted by date desc (kept for `historyItems.length`
+  // total count, but the rendering pipeline below groups by SKU first).
   const historyItems = useMemo(() => {
     if (!selectedStats) return [] as { date: string; unit: InventoryUnit }[];
     return Object.entries(selectedStats.byDate)
@@ -93,8 +111,46 @@ export default function Suppliers() {
       .flatMap(([date, us]) => (us as InventoryUnit[]).map(u => ({ date, unit: u })));
   }, [selectedStats]);
 
-  const histPages = Math.max(1, Math.ceil(historyItems.length / HIST_PAGE_SIZE));
-  const histSlice = historyItems.slice((historyPage - 1) * HIST_PAGE_SIZE, historyPage * HIST_PAGE_SIZE);
+  // SKU-grouped order history — collapses 6× "S21 GREY 128GB available" into a
+  // single expandable row. Key includes status so sold and available variants
+  // of the same SKU stay in separate groups (operationally distinct).
+  const historyGroups = useMemo(() => {
+    if (!selectedStats) return [] as Array<{
+      key: string;
+      sku: { brand: string; model: string; storage?: string };
+      colour: string;
+      status: string;
+      latestDate: string;
+      units: InventoryUnit[];
+    }>;
+    const map = new Map<string, {
+      key: string;
+      sku: { brand: string; model: string; storage?: string };
+      colour: string;
+      status: string;
+      latestDate: string;
+      units: InventoryUnit[];
+    }>();
+    for (const { unit, date } of historyItems) {
+      const sku = deriveSku(unit);
+      const colour = unit.colour && unit.colour !== 'Unknown' ? unit.colour : '';
+      const status = unit.status;
+      const key = `${sku.brand}|${sku.model}|${sku.storage || ''}|${colour}|${status}`;
+      const existing = map.get(key);
+      if (existing) {
+        existing.units.push(unit);
+        if (date > existing.latestDate) existing.latestDate = date;
+      } else {
+        map.set(key, { key, sku, colour, status, latestDate: date, units: [unit] });
+      }
+    }
+    return Array.from(map.values()).sort((a, b) =>
+      b.latestDate.localeCompare(a.latestDate) || b.units.length - a.units.length,
+    );
+  }, [historyItems, selectedStats]);
+
+  const histPages = Math.max(1, Math.ceil(historyGroups.length / HIST_PAGE_SIZE));
+  const histGroupSlice = historyGroups.slice((historyPage - 1) * HIST_PAGE_SIZE, historyPage * HIST_PAGE_SIZE);
 
   return (
     <div className="space-y-4 max-w-full overflow-x-hidden">
@@ -203,7 +259,7 @@ export default function Suppliers() {
             <div key={sup.id} className="bg-white border border-gray-200 rounded-3xl overflow-hidden shadow-sm">
               {/* Card header */}
               <button
-                onClick={() => { setSelected(isOpen ? null : sup.id); setHistoryPage(1); }}
+                onClick={() => { setSelected(isOpen ? null : sup.id); setHistoryPage(1); setExpandedGroup(null); }}
                 className="w-full text-left px-4 py-3.5 flex items-center gap-3 hover:bg-gray-50 transition-all"
               >
                 {/* Avatar */}
@@ -277,52 +333,112 @@ export default function Suppliers() {
                       </div>
                     )}
 
-                    {/* Order history */}
+                    {/* Order history — SKU-grouped to avoid line-by-line repetition
+                        of identical (brand · model · storage · colour · status)
+                        rows. Expand a group to see per-IMEI children. */}
                     <div className="border-t border-gray-100">
                       <div className="px-4 py-3 flex items-center justify-between">
                         <p className="text-[10px] font-bold uppercase tracking-widest text-gray-500">Order History</p>
-                        <p className="text-[9px] text-gray-400 font-mono">{historyItems.length} units · {histPages} pages</p>
+                        <p className="text-[9px] text-gray-400 font-mono">
+                          {historyItems.length} units across {historyGroups.length} SKUs · {histPages} page{histPages === 1 ? '' : 's'}
+                        </p>
                       </div>
 
                       <div className="divide-y divide-gray-50 max-h-96 overflow-y-auto custom-scrollbar">
-                        {histSlice.map(({ date, unit }, idx) => (
-                          <div key={idx} className="px-4 py-3 flex items-center gap-3">
-                            {/* Date badge */}
-                            <div className="w-16 flex-shrink-0 text-center">
-                              <p className="text-[9px] font-bold font-mono bg-gray-100 px-2 py-1 rounded-lg text-gray-600">
-                                {new Date(date + 'T12:00:00').toLocaleDateString('en-GB', { day: '2-digit', month: 'short' })}
-                              </p>
-                            </div>
+                        {histGroupSlice.map(group => {
+                          const isOpen = expandedGroup === group.key;
+                          const qty = group.units.length;
+                          const totalBP = group.units.reduce((s, u) => s + (u.buyPrice || 0), 0);
+                          const titleParts = [
+                            group.sku.brand,
+                            group.sku.model,
+                            group.sku.storage,
+                            group.colour || null,
+                          ].filter(Boolean);
+                          return (
+                            <div key={group.key}>
+                              <button
+                                type="button"
+                                onClick={() => setExpandedGroup(isOpen ? null : group.key)}
+                                className="w-full text-left px-4 py-3 flex items-center gap-3 hover:bg-gray-50 transition-all"
+                              >
+                                {/* Latest-date badge */}
+                                <div className="w-16 flex-shrink-0 text-center">
+                                  <p className="text-[9px] font-bold font-mono bg-gray-100 px-2 py-1 rounded-lg text-gray-600">
+                                    {group.latestDate
+                                      ? new Date(group.latestDate + 'T12:00:00').toLocaleDateString('en-GB', { day: '2-digit', month: 'short' })
+                                      : '—'}
+                                  </p>
+                                </div>
 
-                            <Cpu size={10} className="text-gray-300 flex-shrink-0" />
+                                <Cpu size={10} className="text-gray-300 flex-shrink-0" />
 
-                            <div className="flex-1 min-w-0">
-                              <p className="text-xs font-bold truncate">{unit.model}</p>
-                              <div className="flex items-center gap-2 mt-0.5 flex-wrap">
-                                <span className="text-[9px] text-gray-400 font-mono">{unit.colour}</span>
-                                <span className="text-[9px] text-gray-400 font-mono">
-                                  {unit.imei ? unit.imei.slice(0,8) + '…' : '—'}
+                                <div className="flex-1 min-w-0">
+                                  <div className="flex items-center gap-2 flex-wrap">
+                                    <p className="text-xs font-bold truncate">{titleParts.join(' · ')}</p>
+                                    {qty > 1 && (
+                                      <span className="text-[9px] font-bold text-gray-700 bg-gray-100 px-1.5 py-0.5 rounded font-mono flex-shrink-0">
+                                        ×{qty}
+                                      </span>
+                                    )}
+                                  </div>
+                                  <p className="text-[9px] text-gray-400 font-mono mt-0.5">
+                                    {qty} unit{qty === 1 ? '' : 's'} · latest {group.latestDate || '—'}
+                                  </p>
+                                </div>
+
+                                <div className="flex flex-col items-end gap-1 flex-shrink-0">
+                                  <span className="text-xs font-bold font-mono">£{totalBP.toLocaleString()}</span>
+                                  <span className={`text-[8px] font-bold px-2 py-0.5 rounded-full font-mono ${
+                                    group.status === 'sold'      ? 'bg-gray-200 text-gray-600' :
+                                    group.status === 'available' ? 'bg-emerald-100 text-emerald-700' :
+                                    'bg-orange-100 text-orange-700'
+                                  }`}>
+                                    {group.status}
+                                  </span>
+                                </div>
+                                <span className="p-1.5 text-gray-400 flex-shrink-0">
+                                  {isOpen ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
                                 </span>
-                              </div>
-                            </div>
+                              </button>
 
-                            <div className="flex flex-col items-end gap-1 flex-shrink-0">
-                              <span className="text-xs font-bold font-mono">£{unit.buyPrice}</span>
-                              <span className={`text-[8px] font-bold px-2 py-0.5 rounded-full font-mono ${
-                                unit.status === 'sold'      ? 'bg-gray-200 text-gray-600' :
-                                unit.status === 'available' ? 'bg-emerald-100 text-emerald-700' :
-                                'bg-orange-100 text-orange-700'
-                              }`}>
-                                {unit.status}
-                              </span>
-                              {unit.salePlatform && (
-                                <span className={`text-[7px] font-bold px-1.5 py-0.5 rounded-full font-mono ${PLATFORM_COLORS[unit.salePlatform] || PLATFORM_COLORS.Other}`}>
-                                  {unit.salePlatform}
-                                </span>
-                              )}
+                              <AnimatePresence>
+                                {isOpen && (
+                                  <motion.div
+                                    initial={{ height: 0, opacity: 0 }}
+                                    animate={{ height: 'auto', opacity: 1 }}
+                                    exit={{ height: 0, opacity: 0 }}
+                                    className="overflow-hidden bg-gray-50 border-t border-gray-100"
+                                  >
+                                    <div className="divide-y divide-gray-100">
+                                      {group.units
+                                        .slice()
+                                        .sort((a, b) => (b.dateIn || '').localeCompare(a.dateIn || ''))
+                                        .map(unit => (
+                                          <div key={unit.id} className="px-5 py-2 flex items-center gap-3">
+                                            <span className="text-[9px] text-gray-500 font-mono w-16 flex-shrink-0">
+                                              {unit.dateIn || '—'}
+                                            </span>
+                                            <div className="flex-1 min-w-0 flex items-center gap-2 flex-wrap">
+                                              <span className="text-[10px] font-mono text-gray-700">
+                                                {unit.imei ? unit.imei.slice(0, 10) + '…' : '—'}
+                                              </span>
+                                              {unit.salePlatform && (
+                                                <span className={`text-[7px] font-bold px-1.5 py-0.5 rounded-full font-mono ${PLATFORM_COLORS[unit.salePlatform] || PLATFORM_COLORS.Other}`}>
+                                                  {unit.salePlatform}
+                                                </span>
+                                              )}
+                                            </div>
+                                            <span className="text-[10px] font-bold font-mono">£{unit.buyPrice}</span>
+                                          </div>
+                                        ))}
+                                    </div>
+                                  </motion.div>
+                                )}
+                              </AnimatePresence>
                             </div>
-                          </div>
-                        ))}
+                          );
+                        })}
                       </div>
 
                       {/* History pagination */}

@@ -10,6 +10,22 @@ import { useInventoryStore } from '../lib/inventoryStore';
 import { notificationService } from '../lib/notificationService';
 import CopyImei from './CopyImei';
 import { getWarrantyStatus } from '../lib/warrantyUtils';
+import { parseBrandModelStorage } from '../lib/modelStorage';
+
+/** Mirror of the deriveSku helper in StockInPage — prefer pre-split fields,
+ *  fall back to parsing the legacy single-string `model` at runtime so
+ *  legacy docs collapse correctly without a re-import. */
+function deriveSku(u: InventoryUnit): { brand: string; model: string; storage?: string } {
+  if (u.brand && u.storage) {
+    return { brand: u.brand, model: u.model, storage: u.storage };
+  }
+  const p = parseBrandModelStorage(u.model || '');
+  return {
+    brand: u.brand || p.brand,
+    model: p.model || u.model,
+    storage: u.storage || p.storage,
+  };
+}
 
 type FilterTab = 'all' | ReturnCategory;
 
@@ -463,6 +479,41 @@ export default function ReturnsPage() {
     });
   }, [withCategory, filter, search]);
 
+  // Group by (brand, model, storage, colour, returnType) so 5× "S21 GREY 128GB
+  // returned_to_inventory" collapses into one expandable row. `returnType` is
+  // PART of the key by design — returned-to-inventory and returned-to-supplier
+  // for the same SKU are operationally different and must stay separate.
+  const groupedReturns = useMemo(() => {
+    const map = new Map<string, {
+      key: string;
+      sku: { brand: string; model: string; storage?: string };
+      colour: string;
+      returnType: ReturnCategory;
+      units: (InventoryUnit & { returnCategory: ReturnCategory })[];
+    }>();
+    for (const u of filtered) {
+      const sku = deriveSku(u);
+      const colour = u.colour && u.colour !== 'Unknown' ? u.colour : '';
+      const returnType = u.returnCategory;
+      const key = `${sku.brand}|${sku.model}|${sku.storage || ''}|${colour}|${returnType}`;
+      const g = map.get(key);
+      if (g) g.units.push(u);
+      else map.set(key, { key, sku, colour, returnType, units: [u] });
+    }
+    return Array.from(map.values()).sort((a, b) => {
+      // Sort by latest activity in the group, newest first.
+      const aDate = a.units.reduce((acc, u) => {
+        const d = u.returnDate || u.dateIn;
+        return d > acc ? d : acc;
+      }, '');
+      const bDate = b.units.reduce((acc, u) => {
+        const d = u.returnDate || u.dateIn;
+        return d > acc ? d : acc;
+      }, '');
+      return bDate.localeCompare(aDate);
+    });
+  }, [filtered]);
+
   const counts = useMemo(() => ({
     all:                   returned.length,
     returned_to_inventory: withCategory.filter(u => u.returnCategory === 'returned_to_inventory').length,
@@ -571,53 +622,92 @@ export default function ReturnsPage() {
           </div>
         ) : (
           <div className="divide-y divide-gray-50">
-            {filtered.map(u => {
-              const isOpen = expandedId === u.id;
-              const cat = u.returnCategory as FilterTab;
+            {/* SKU-grouped rows — one row per (brand, model, storage, colour,
+                returnType) bucket. returnType is part of the key so
+                returned_to_inventory and returned_to_supplier for the same
+                SKU stay in separate rows. Expand to see per-IMEI children
+                where the per-unit Update/inspect workflow stays available. */}
+            {groupedReturns.map(group => {
+              const isOpen = expandedId === group.key;
+              const cat = group.returnType as FilterTab;
+              const qty = group.units.length;
+              const totalBP = group.units.reduce((s, u) => s + (u.buyPrice || 0), 0);
+              const latestDate = group.units.reduce((acc, u) => {
+                const d = u.returnDate || u.dateIn;
+                return d > acc ? d : acc;
+              }, '');
+              const titleParts = [
+                group.sku.brand,
+                group.sku.model,
+                group.sku.storage,
+                group.colour || null,
+              ].filter(Boolean);
               return (
-                <div key={u.id}>
-                  <div className="flex items-center gap-3 px-4 py-3 hover:bg-gray-50 transition-all">
+                <div key={group.key}>
+                  <button
+                    type="button"
+                    onClick={() => setExpandedId(isOpen ? null : group.key)}
+                    className="w-full text-left flex items-center gap-3 px-4 py-3 hover:bg-gray-50 transition-all"
+                  >
                     <div className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${BG_MAP[cat]}`}>
                       {ICON_MAP[cat]}
                     </div>
                     <div className="flex-1 min-w-0">
-                      <p className="text-xs font-bold truncate">{u.model}</p>
-                      <div className="flex items-center gap-2 mt-0.5">
-                        <CopyImei imei={u.imei} truncate={10} />
-                        <span className="text-[8px] text-gray-400 font-mono">{u.returnDate || u.dateIn}</span>
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <p className="text-xs font-bold truncate">{titleParts.join(' · ')}</p>
+                        {qty > 1 && (
+                          <span className="text-[9px] font-bold text-gray-700 bg-gray-100 px-1.5 py-0.5 rounded font-mono flex-shrink-0">
+                            ×{qty}
+                          </span>
+                        )}
+                        <span className="text-[8px] font-bold uppercase tracking-widest text-gray-500 font-mono flex-shrink-0">
+                          {(group.returnType || '').replace(/_/g, ' ')}
+                        </span>
                       </div>
+                      <p className="text-[9px] text-gray-400 font-mono mt-0.5">
+                        {qty} unit{qty === 1 ? '' : 's'} · latest {latestDate || '—'}
+                      </p>
                     </div>
                     <div className="flex items-center gap-2 flex-shrink-0">
-                      <span className="text-sm font-bold">£{u.buyPrice}</span>
-                      <button onClick={() => setExpandedId(isOpen ? null : u.id)}
-                        className="p-1.5 hover:bg-gray-100 rounded-lg transition-all text-gray-400">
+                      <span className="text-sm font-bold">£{totalBP.toLocaleString()}</span>
+                      <span className="p-1.5 text-gray-400">
                         {isOpen ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
-                      </button>
+                      </span>
                     </div>
-                  </div>
+                  </button>
                   <AnimatePresence>
                     {isOpen && (
                       <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }}
                         className="overflow-hidden bg-gray-50 border-t border-gray-100">
-                        <div className="px-5 py-3 grid grid-cols-2 md:grid-cols-4 gap-3">
-                          {[
-                            { label: 'Buy Price',    value: `£${u.buyPrice}` },
-                            { label: 'Sale Price',   value: u.salePrice ? `£${u.salePrice}` : '—' },
-                            { label: 'Platform',     value: u.salePlatform || '—' },
-                            { label: 'Batch',        value: u.batchId === 'master_batch' ? 'Master' : (u.batchId || 'Default') },
-                            { label: 'Return Type',  value: (u.returnType || '—').replace(/_/g, ' ') },
-                          ].map(f => (
-                            <div key={f.label}>
-                              <p className="text-[8px] text-gray-400 font-mono uppercase tracking-widest">{f.label}</p>
-                              <p className="text-xs font-bold mt-0.5 capitalize">{f.value}</p>
+                        <div className="divide-y divide-gray-100">
+                          {group.units.map(u => (
+                            <div key={u.id} className="px-5 py-3">
+                              <div className="flex items-center gap-2 mb-2">
+                                <CopyImei imei={u.imei} truncate={12} />
+                                <span className="text-[9px] text-gray-400 font-mono">{u.returnDate || u.dateIn}</span>
+                                <span className="text-[9px] text-gray-500 font-mono ml-auto">£{u.buyPrice}</span>
+                              </div>
+                              <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+                                {[
+                                  { label: 'Sale Price',   value: u.salePrice ? `£${u.salePrice}` : '—' },
+                                  { label: 'Platform',     value: u.salePlatform || '—' },
+                                  { label: 'Batch',        value: u.batchId === 'master_batch' ? 'Master' : (u.batchId || 'Default') },
+                                  { label: 'Status',       value: u.status },
+                                ].map(f => (
+                                  <div key={f.label}>
+                                    <p className="text-[8px] text-gray-400 font-mono uppercase tracking-widest">{f.label}</p>
+                                    <p className="text-[10px] font-bold mt-0.5 capitalize">{f.value}</p>
+                                  </div>
+                                ))}
+                              </div>
+                              {(u.returnReason || u.notes) && (
+                                <div className="mt-2">
+                                  <p className="text-[8px] text-gray-400 font-mono uppercase tracking-widest">Return Reason</p>
+                                  <p className="text-[10px] mt-0.5 text-gray-700">{u.returnReason || u.notes}</p>
+                                </div>
+                              )}
                             </div>
                           ))}
-                          {(u.returnReason || u.notes) && (
-                            <div className="col-span-2 md:col-span-4">
-                              <p className="text-[8px] text-gray-400 font-mono uppercase tracking-widest">Return Reason</p>
-                              <p className="text-xs mt-0.5 text-gray-700">{u.returnReason || u.notes}</p>
-                            </div>
-                          )}
                         </div>
                       </motion.div>
                     )}

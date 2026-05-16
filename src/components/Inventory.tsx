@@ -97,7 +97,7 @@ export default function Inventory({ initialFilters = {} }: { initialFilters?: In
           variant.units.some(unit => (unit.imei || '').toLowerCase().includes(searchLower))
         )
       )
-      .map(summary => `${summary.brand}||${summary.model}`);
+      .map(summary => `${summary.brand}||${summary.model}||${summary.storage || ''}`);
 
     if (matchingKeys.length === 0) return;
 
@@ -260,7 +260,7 @@ export default function Inventory({ initialFilters = {} }: { initialFilters?: In
       {/* Model cards */}
       <div className="space-y-2">
         {paginated.map(summary => {
-          const key = `${summary.brand}||${summary.model}`;
+          const key = `${summary.brand}||${summary.model}||${summary.storage || ''}`;
           const isExpanded = expandedModels.has(key);
           return (
             <div key={key} className="bg-white border border-gray-200 rounded-3xl overflow-hidden shadow-sm">
@@ -270,7 +270,12 @@ export default function Inventory({ initialFilters = {} }: { initialFilters?: In
                   {summary.category.replace('Samsung ','S.')}
                 </span>
                 <div className="flex-1 min-w-0">
-                  <p className="text-sm font-bold truncate">{summary.model}</p>
+                  <p className="text-sm font-bold truncate">
+                    {summary.model}
+                    {summary.storage && !summary.model.toUpperCase().includes(summary.storage.toUpperCase()) && (
+                      <span className="text-gray-400 font-mono ml-1.5 text-xs">· {summary.storage}</span>
+                    )}
+                  </p>
                   <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
                     {summary.flags.slice(0,2).map(f => {
                       const cfg = FLAG_CONFIG[f]; const Icon = cfg.icon;
