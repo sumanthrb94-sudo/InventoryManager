@@ -6,13 +6,14 @@ import {
   ChevronRight, Zap, TrendingUp
 } from 'lucide-react';
 import { dbService } from '../lib/dbService';
-import { InventoryUnit } from '../types';
+import { InventoryUnit, ListingSite } from '../types';
 import { useInventoryStore } from '../lib/inventoryStore';
 import { formatIMEI, validateIMEI } from '../lib/imeiUtils';
 import { logInventoryEvent } from '../lib/inventoryEvents';
+import { LISTING_SITES, listingSiteLabel } from '../lib/platforms';
 
-const PLATFORMS = ['eBay', 'Amazon', 'OnBuy', 'Backmarket', 'Other'] as const;
-type Platform = typeof PLATFORMS[number];
+const PLATFORMS = LISTING_SITES;
+type Platform = ListingSite;
 
 type ActionType = 'sold' | 'returned' | 'available';
 
@@ -342,7 +343,7 @@ export default function ScanPage() {
                       onChange={e => setPendingAction(p => p ? { ...p, platform: e.target.value as Platform } : p)}
                       className="w-full mt-1 bg-gray-50 border border-gray-200 rounded-xl px-3 py-2.5 text-sm font-mono focus:outline-none focus:border-black"
                     >
-                      {PLATFORMS.map(p => <option key={p}>{p}</option>)}
+                      {PLATFORMS.map(p => <option key={p} value={p}>{listingSiteLabel(p)}</option>)}
                     </select>
                   </div>
                   <div>

@@ -27,7 +27,16 @@ const FLAG_CONFIG: Record<OperationalFlag, { label: string; icon: any; style: st
   supplierHasStock:{ label:'Supplier Stock',icon:Truck,      style:'bg-green-50 text-green-800 border-green-200' },
   stockSold:       { label:'Sold',          icon:CheckCircle2,style:'bg-gray-50 text-gray-600 border-gray-200' },
 };
-const STATUS_OPTS = ['All','available','sold','returned','reserved','incoming'];
+const STATUS_OPTS = ['All','available','sold','returned','reserved','incoming','ready_to_ship','fba'];
+const STATUS_LABELS: Record<string, string> = {
+  available: 'Available',
+  sold: 'Sold',
+  returned: 'Returned',
+  reserved: 'Reserved',
+  incoming: 'Incoming',
+  ready_to_ship: 'Ready to Ship',
+  fba: 'FBA',
+};
 const SORT_OPTS   = [
   { value:'dateIn_desc', label:'Newest First' },
   { value:'dateIn_asc',  label:'Oldest First' },
@@ -198,7 +207,7 @@ export default function Inventory({ initialFilters = {} }: { initialFilters?: In
               {/* Status */}
               <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)}
                 className="bg-white border border-gray-200 rounded-xl py-2 px-3 text-xs font-mono focus:outline-none focus:border-black">
-                {STATUS_OPTS.map(s => <option key={s} value={s}>{s === 'All' ? 'All Statuses' : s.charAt(0).toUpperCase()+s.slice(1)}</option>)}
+                {STATUS_OPTS.map(s => <option key={s} value={s}>{s === 'All' ? 'All Statuses' : (STATUS_LABELS[s] ?? s.charAt(0).toUpperCase()+s.slice(1))}</option>)}
               </select>
               {/* Supplier */}
               <select value={supplierFilter} onChange={e => setSupplierFilter(e.target.value)}

@@ -5,8 +5,7 @@ import { dbService } from '../lib/dbService';
 import { buildModelSummaries } from '../lib/modelSummaries';
 import { InventoryUnit } from '../types';
 import { useInventoryStore } from '../lib/inventoryStore';
-
-const LISTING_SITES = ['eBay', 'Amazon', 'OnBuy', 'Backmarket', 'Other'] as const;
+import { LISTING_SITES, listingSiteLabel } from '../lib/platforms';
 
 interface Props {
   onClose: () => void;
@@ -167,7 +166,7 @@ export default function BulkListingModal({ onClose }: Props) {
                           active ? 'bg-black text-white border-black' : 'bg-gray-50 text-gray-700 border-gray-200 hover:border-gray-400'
                         }`}
                       >
-                        {site}
+                        {listingSiteLabel(site)}
                       </button>
                     );
                   })}

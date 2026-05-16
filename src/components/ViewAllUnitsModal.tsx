@@ -4,6 +4,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { InventoryUnit, ListingSite } from '../types';
 import { dbService } from '../lib/dbService';
 import { useInventoryStore } from '../lib/inventoryStore';
+import { LISTING_SITES, listingSiteLabel } from '../lib/platforms';
 import CopyImei from './CopyImei';
 
 interface Props {
@@ -12,8 +13,6 @@ interface Props {
   units: InventoryUnit[];
   onClose: () => void;
 }
-
-const LISTING_SITES: ListingSite[] = ['eBay', 'Amazon', 'OnBuy', 'Backmarket'];
 
 export default function ViewAllUnitsModal({ seriesKey, searchTerm, units, onClose }: Props) {
   const { suppliers } = useInventoryStore();
@@ -187,7 +186,7 @@ export default function ViewAllUnitsModal({ seriesKey, searchTerm, units, onClos
                         ) : (
                           <Check size={12} />
                         )}
-                        Add to {site}
+                        Add to {listingSiteLabel(site)}
                       </button>
                     ))}
                   </div>
