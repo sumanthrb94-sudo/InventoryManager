@@ -2,8 +2,9 @@ import React, { useState, useMemo, useEffect } from 'react';
 import {
   PackagePlus, Search, Plus, CheckCircle2, Clock,
   ChevronDown, ChevronUp, Truck, PackageCheck, AlertCircle, MoreVertical, Trash2,
-  Inbox,
+  Inbox, AlertTriangle, Save,
 } from 'lucide-react';
+import { isValidImei } from '../lib/imeiValidation';
 import { AnimatePresence, motion } from 'motion/react';
 import { dbService } from '../lib/dbService';
 import { notificationService } from '../lib/notificationService';
@@ -176,12 +177,28 @@ export default function StockInPage({ onOpenBatch, onOpenImport: _onOpenImport }
   const totalBP  = todayIn.reduce((s, u) => s + u.buyPrice, 0);
 
   // ───────────────── Pending IMEIs ─────────────────
-  // Physical units in office, not sold, not yet listed on a marketplace.
-  // Source: inventoryUnits with status='available' and !platformListed —
-  // these are the ~280 rows that came in from the IMEI NUMBERS master
-  // sheet with a blank STATUS column.
+  // Physical units in office, not sold, not yet listed on a marketplace,
+  // AND with a valid IMEI / serial. Source: inventoryUnits with
+  // status='available' and !platformListed — these are the ~280 rows that
+  // came in from the IMEI NUMBERS master sheet with a blank STATUS column.
   const pendingImeis = useMemo(() =>
-    units.filter(u => u.status === 'available' && !u.platformListed),
+    units.filter(u =>
+      u.status === 'available' &&
+      !u.platformListed &&
+      isValidImei(u.imei)
+    ),
+    [units],
+  );
+
+  // Units that SHOULD have an IMEI but don't — data quality backlog.
+  // Excludes SHS placeholders (status='incoming') because those are
+  // intentionally IMEI-less until the supplier delivers. Operator
+  // backfills inline via the Missing IMEIs section.
+  const missingImeis = useMemo(() =>
+    units.filter(u =>
+      u.status !== 'incoming' &&
+      !isValidImei(u.imei)
+    ),
     [units],
   );
 
@@ -320,13 +337,15 @@ export default function StockInPage({ onOpenBatch, onOpenImport: _onOpenImport }
       {/* Intelligence panel */}
       <IntelligencePanel units={units} mode="buy" />
 
-      {/* Supplier Has Stock (SHS) — INVENTORY-sheet aggregates whose QUANTITY
-          column is the literal "SHS". These are rolled-up model+supplier rows
-          (no IMEI yet) representing stock the supplier holds for us. */}
-      {shsAggregates.length > 0 && (
+      {/* Unified "Supplier Holdings (SHS)" section — combines:
+            (a) INVENTORY-sheet aggregates (quantityText='SHS')
+            (b) per-unit incoming placeholders (status='incoming')
+          Both represent stock the supplier holds for us; IMEIs don't exist
+          yet. The single section makes the ops queue obvious. */}
+      {(shsAggregates.length > 0 || pendingSHS.length > 0) && (
         <CollapsibleSection
-          title="Supplier Has Stock (SHS)"
-          count={shsAggregates.length}
+          title="Supplier Holdings (SHS) — Awaiting Receive"
+          count={shsAggregates.length + pendingSHSGroups.length}
           accent="border-l-orange-500"
           defaultOpen={true}
         >
@@ -396,19 +415,19 @@ export default function StockInPage({ onOpenBatch, onOpenImport: _onOpenImport }
               );
             })}
           </div>
-        </CollapsibleSection>
-      )}
 
-      {/* Pending SHS section */}
-      {pendingSHS.length > 0 && (
-        <CollapsibleSection
-          title="Pending SHS — Awaiting Delivery"
-          count={pendingSHS.length}
-          accent="border-l-amber-500"
-          defaultOpen={false}
-        >
-          <div className="divide-y divide-amber-50">
-            {pendingSHSGroups.map(group => {
+          {/* Per-unit incoming placeholders (manually logged SHS orders).
+              Same section, separated by a labelled divider so ops can see
+              both flows in one queue. */}
+          {pendingSHSGroups.length > 0 && (
+            <>
+              <div className="px-4 pt-3 pb-2 border-t border-amber-100">
+                <p className="text-[10px] font-mono uppercase tracking-widest text-amber-700/80">
+                  Manually-logged SHS orders ({pendingSHSGroups.length})
+                </p>
+              </div>
+              <div className="divide-y divide-amber-50">
+                {pendingSHSGroups.map(group => {
               const u = group[0];
               const qty = group.length;
               return (
@@ -469,10 +488,20 @@ export default function StockInPage({ onOpenBatch, onOpenImport: _onOpenImport }
                     </div>
                   </div>
                 </div>
-              );
-            })}
-          </div>
+                );
+              })}
+              </div>
+            </>
+          )}
         </CollapsibleSection>
+      )}
+
+      {/* ───────────────── Missing IMEIs · Backfill Required ─────────────────
+          Units that should have an IMEI but don't — data quality backlog.
+          Operator backfills inline; saving moves the unit out of this list.
+          SHS placeholders are excluded (they're supposed to be IMEI-less). */}
+      {missingImeis.length > 0 && (
+        <MissingImeisSection units={missingImeis} suppliers={supplierMap} />
       )}
 
       {/* ───────────────── Pending IMEIs · In Office · Awaiting Listing ─────────────────
@@ -545,12 +574,17 @@ export default function StockInPage({ onOpenBatch, onOpenImport: _onOpenImport }
             </div>
           </div>
 
-          {/* Excel-style header row — matches IMEI NUMBERS sheet column order */}
+          {/* Excel-style table — wrapped in overflow-x-auto so the 7-column
+              header + rows scroll horizontally on mobile instead of
+              collapsing into overlap. */}
+          <div className="overflow-x-auto">
+          {/* Header row — matches IMEI NUMBERS sheet column order */}
           <div
             className="px-4 py-2 grid items-center gap-2 bg-gray-100 border-y border-gray-200 text-[9px] font-bold uppercase tracking-widest text-gray-500"
             style={{
               fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
-              gridTemplateColumns: '90px 1.6fr 70px 130px 100px 80px 1fr',
+              gridTemplateColumns: '90px minmax(220px, 1.6fr) 90px 130px 100px 70px minmax(160px, 1fr)',
+              minWidth: 'max-content',
             }}
           >
             <span>Stock In</span>
@@ -626,9 +660,12 @@ export default function StockInPage({ onOpenBatch, onOpenImport: _onOpenImport }
                         exit={{ height: 0, opacity: 0 }}
                         className="overflow-hidden bg-gray-50 border-t border-gray-100"
                       >
+                        {/* overflow-x-auto so the 7-column grid scrolls on
+                            mobile instead of overlapping. min-width keeps the
+                            cells from collapsing under their own ellipsis. */}
                         <div
-                          className="divide-y divide-gray-100"
-                          style={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace' }}
+                          className="divide-y divide-gray-100 overflow-x-auto"
+                          style={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace', minWidth: '100%' }}
                         >
                           {group.units
                             .slice()
@@ -641,7 +678,7 @@ export default function StockInPage({ onOpenBatch, onOpenImport: _onOpenImport }
                                 <div
                                   key={u.id}
                                   className="px-4 py-1.5 grid items-center gap-2 hover:bg-white transition-colors text-[10px] text-gray-700"
-                                  style={{ gridTemplateColumns: '90px 1.6fr 70px 130px 100px 80px 1fr' }}
+                                  style={{ gridTemplateColumns: '90px minmax(220px, 1.6fr) 90px 130px 100px 70px minmax(160px, 1fr)', minWidth: 'max-content' }}
                                 >
                                   <span className="text-gray-500">{u.dateIn || '—'}</span>
                                   <span className="flex items-center gap-2 min-w-0">
@@ -678,6 +715,7 @@ export default function StockInPage({ onOpenBatch, onOpenImport: _onOpenImport }
               );
             })}
           </div>
+          </div>{/* /overflow-x-auto */}
         </CollapsibleSection>
       )}
 
@@ -853,3 +891,106 @@ export default function StockInPage({ onOpenBatch, onOpenImport: _onOpenImport }
     </div>
   );
 }
+
+/**
+ * MissingImeisSection — backfill UI for units that exist in inventory but
+ * don't have a valid IMEI / Apple serial assigned yet (data quality
+ * backlog). SHS placeholders are intentionally excluded upstream because
+ * they're meant to be IMEI-less until the supplier delivers.
+ *
+ * Each row has an inline IMEI input. Save → dbService.update writes the
+ * imei field; the unit drops out of this list on the next snapshot.
+ */
+function MissingImeisSection({ units, suppliers }: { units: InventoryUnit[]; suppliers: Record<string, string> }) {
+  const [drafts, setDrafts] = useState<Record<string, string>>({});
+  const [savingId, setSavingId] = useState<string | null>(null);
+  const [error, setError] = useState<Record<string, string>>({});
+
+  const handleSave = async (unit: InventoryUnit) => {
+    const next = (drafts[unit.id] || '').trim();
+    if (!isValidImei(next)) {
+      setError(e => ({ ...e, [unit.id]: 'Enter a valid IMEI or serial' }));
+      return;
+    }
+    // Re-check uniqueness against the cached units (cheap optimistic
+    // check; bulkCreate would also reject a doc-id collision).
+    const collision = units.find(u => u.id !== unit.id && u.imei === next);
+    if (collision) {
+      setError(e => ({ ...e, [unit.id]: 'IMEI already on another unit' }));
+      return;
+    }
+    setSavingId(unit.id);
+    try {
+      await dbService.update('inventoryUnits', unit.id, { imei: next });
+      // Optimistic UI — clear the draft; snapshot listener will drop the row.
+      setDrafts(d => { const c = { ...d }; delete c[unit.id]; return c; });
+      setError(e => { const c = { ...e }; delete c[unit.id]; return c; });
+    } catch (err: any) {
+      setError(e => ({ ...e, [unit.id]: err?.message || 'Save failed' }));
+    } finally {
+      setSavingId(null);
+    }
+  };
+
+  return (
+    <CollapsibleSection
+      title="Missing IMEIs · Backfill Required"
+      count={units.length}
+      accent="border-l-rose-500"
+      defaultOpen={true}
+    >
+      <p className="px-4 pt-3 pb-2 text-[10px] text-rose-700/80 font-mono flex items-center gap-1.5">
+        <AlertTriangle size={11} />
+        These units don't have a valid IMEI or serial yet. Enter it below and save — the unit drops out of this list immediately.
+      </p>
+      <div className="divide-y divide-rose-50">
+        {units.map(u => {
+          const draft = drafts[u.id] ?? '';
+          const err = error[u.id];
+          const saving = savingId === u.id;
+          const valid = isValidImei(draft);
+          return (
+            <div key={u.id} className="px-4 py-2.5 flex items-center gap-3 hover:bg-rose-50/40 transition-colors">
+              <div className="w-8 h-8 rounded-lg bg-rose-100 flex items-center justify-center flex-shrink-0">
+                <AlertCircle size={14} className="text-rose-600" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-xs font-bold truncate">{u.model || '—'}{u.storage ? ' · ' + u.storage : ''}</p>
+                <p className="text-[9px] text-gray-400 font-mono mt-0.5 truncate">
+                  {u.colour && u.colour !== 'Unknown' ? u.colour + ' · ' : ''}
+                  {suppliers[u.supplierId] || u.supplierName || '—'} · {u.dateIn || '—'} · £{u.buyPrice}
+                </p>
+                {err && (
+                  <p className="text-[9px] text-rose-600 font-mono mt-1">{err}</p>
+                )}
+              </div>
+              <div className="flex items-center gap-2 flex-shrink-0">
+                <input
+                  type="text"
+                  value={draft}
+                  onChange={e => setDrafts(d => ({ ...d, [u.id]: e.target.value }))}
+                  onKeyDown={e => { if (e.key === 'Enter' && valid && !saving) handleSave(u); }}
+                  placeholder="IMEI or serial"
+                  className={`px-3 py-1.5 border rounded-lg text-[11px] font-mono w-44 transition-all focus:outline-none ${
+                    draft && !valid ? 'border-rose-300 bg-rose-50 focus:border-rose-500'
+                                    : 'border-gray-200 focus:border-black bg-white'
+                  }`}
+                  disabled={saving}
+                />
+                <button
+                  onClick={() => handleSave(u)}
+                  disabled={!valid || saving}
+                  className="px-3 py-1.5 bg-rose-600 text-white text-[9px] font-bold uppercase tracking-widest rounded-lg hover:bg-rose-700 transition-all disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-1"
+                >
+                  {saving ? <Clock size={11} className="animate-spin" /> : <Save size={11} />}
+                  Save
+                </button>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </CollapsibleSection>
+  );
+}
+
