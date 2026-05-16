@@ -1,10 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { onAuthStateChanged, User } from 'firebase/auth';
-import { auth, signInWithEmail, signOut } from './lib/firebase';
+import { auth, signInWithEmail, signOut, isAdmin } from './lib/firebase';
 import {
-  PackagePlus, ShoppingCart, RefreshCw, BarChart2,
+  PackagePlus, ShoppingCart, RefreshCw,
   LogOut, Plus, FileSpreadsheet, LayoutDashboard,
   TrendingUp, FileText, Users, Settings, Database,
+  ClipboardList, History,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import Dashboard, { NavAction } from './components/Dashboard';
@@ -17,6 +18,7 @@ import ReturnsPage from './components/ReturnsPage';
 import ReportingPage from './components/ReportingPage';
 import Suppliers from './components/Suppliers';
 import AnalyticsPage from './components/AnalyticsPage';
+import Sales from './components/Sales';
 import { useRealTimeNotifications } from './hooks/useRealTimeNotifications';
 import NotificationToast from './components/NotificationToast';
 import NotificationBell from './components/NotificationBell';
@@ -27,9 +29,10 @@ import { InventoryStoreProvider, useInventoryStore } from './lib/inventoryStore'
 import DataSeedPage from './components/DataSeedPage';
 import LoadMockDataModal from './components/LoadMockDataModal';
 import ErrorBoundary from './components/ErrorBoundary';
+import type { ImportBatch, SupplierWhatsappUpdate } from './types';
 
-type Tab        = 'buy' | 'sell' | 'returns' | 'analytics';
-type AnalyticsSub = 'overview' | 'insights' | 'reports' | 'suppliers';
+type Tab      = 'buy' | 'sell' | 'returns' | 'admin';
+type AdminSub = 'overview' | 'masterData' | 'salesHistory' | 'insights' | 'reports' | 'suppliers' | 'audit';
 
 const APP_NAME    = 'MOBILEPHONEMARKET';
 const APP_TAGLINE = 'Inventory Manager';
@@ -78,20 +81,24 @@ function LoadingScreen() {
   );
 }
 
-const ANALYTICS_SUBS: { id: AnalyticsSub; label: string; icon: React.ReactNode }[] = [
-  { id: 'overview',  label: 'Overview',  icon: <LayoutDashboard size={14} /> },
-  { id: 'insights',  label: 'Insights',  icon: <TrendingUp size={14} /> },
-  { id: 'reports',   label: 'Reports',   icon: <FileText size={14} /> },
-  { id: 'suppliers', label: 'Suppliers', icon: <Users size={14} /> },
+const ADMIN_SUBS: { id: AdminSub; label: string; icon: React.ReactNode }[] = [
+  { id: 'overview',     label: 'Overview',      icon: <LayoutDashboard size={14} /> },
+  { id: 'masterData',   label: 'Master Data',   icon: <FileSpreadsheet size={14} /> },
+  { id: 'salesHistory', label: 'Sales History', icon: <ClipboardList size={14} /> },
+  { id: 'insights',     label: 'Insights',      icon: <TrendingUp size={14} /> },
+  { id: 'reports',      label: 'Reports',       icon: <FileText size={14} /> },
+  { id: 'suppliers',    label: 'Suppliers',     icon: <Users size={14} /> },
+  { id: 'audit',        label: 'Audit',         icon: <History size={14} /> },
 ];
 
 function AppShell({ user }: { user: User }) {
-  const { loaded, units }                         = useInventoryStore();
+  const { loaded, units, whatsappFeed, importBatches } = useInventoryStore();
+  const userIsAdmin                               = isAdmin(user);
   // Hide the "Sample Data" entrypoints once real master data is in the DB.
   // Devs can still reach the modal by loading the app with an empty DB.
   const showSampleDataButton                      = units.length <= 100;
   const [activeTab, setActiveTab]                 = useState<Tab>('buy');
-  const [analyticsSub, setAnalyticsSub]           = useState<AnalyticsSub>('overview');
+  const [adminSub, setAdminSub]                   = useState<AdminSub>('overview');
   const [isBatchModalOpen, setIsBatchModalOpen]   = useState(false);
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
   const [isMasterDataOpen, setIsMasterDataOpen]   = useState(false);
@@ -105,24 +112,35 @@ function AppShell({ user }: { user: User }) {
   useEffect(() => notificationService.subscribe(() => setUnreadCount(notificationService.getUnreadCount())), []);
   useEffect(() => subscribeToSyncStatus(setSyncConnected), []);
 
+  // Folding the Master Data sidebar entry into Admin: when the sub-tab is
+  // 'masterData', open the modal. Closing it returns the user to Overview.
+  useEffect(() => {
+    if (activeTab === 'admin' && adminSub === 'masterData' && userIsAdmin) {
+      setIsMasterDataOpen(true);
+    }
+  }, [activeTab, adminSub, userIsAdmin]);
+
   const handleNavigate = (action: NavAction) => {
+    if (!userIsAdmin) return;
     if (action.tab === 'inventory' || action.tab === 'sales') {
-      setActiveTab('analytics');
-      setAnalyticsSub('overview');
+      setActiveTab('admin');
+      setAdminSub('overview');
     } else if (action.tab === 'suppliers') {
-      setActiveTab('analytics');
-      setAnalyticsSub('suppliers');
+      setActiveTab('admin');
+      setAdminSub('suppliers');
     } else if (action.tab === 'calendar') {
-      setActiveTab('analytics');
-      setAnalyticsSub('insights');
+      setActiveTab('admin');
+      setAdminSub('insights');
     }
   };
 
   const NAV_TABS: { id: Tab; label: string; icon: React.ReactNode }[] = [
-    { id: 'buy',       label: 'Buy',       icon: <PackagePlus size={20} /> },
-    { id: 'sell',      label: 'Sell',      icon: <ShoppingCart size={20} /> },
-    { id: 'returns',   label: 'Returns',   icon: <RefreshCw size={20} /> },
-    { id: 'analytics', label: 'Analytics', icon: <BarChart2 size={20} /> },
+    { id: 'buy',     label: 'Buy',     icon: <PackagePlus size={20} /> },
+    { id: 'sell',    label: 'Sell',    icon: <ShoppingCart size={20} /> },
+    { id: 'returns', label: 'Returns', icon: <RefreshCw size={20} /> },
+    ...(userIsAdmin
+      ? [{ id: 'admin' as Tab, label: 'Admin', icon: <Settings size={20} /> }]
+      : []),
   ];
 
   return (
@@ -156,24 +174,14 @@ function AppShell({ user }: { user: User }) {
             </button>
           ))}
 
-          {/* Always-visible Master Data entry — opens the linked-import surface
-              that accepts INVENTORY_REPORT + SALES_REPORT in a single batch.
-              The legacy single-file ImportModal stays wired to the header's
-              "IMPORT" button so one-off re-imports still work. */}
-          <button
-            onClick={() => setIsMasterDataOpen(true)}
-            className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all text-slate-500 hover:text-slate-900 hover:bg-slate-100"
-          >
-            <span className="flex-shrink-0"><FileSpreadsheet size={20} /></span>
-            <span className="text-[11px] font-bold uppercase tracking-widest">Master Data</span>
-          </button>
-
-          {activeTab === 'analytics' && (
+          {/* Admin sub-nav (sidebar). Hidden entirely for non-admins because
+              the Admin tab itself is hidden from NAV_TABS for them. */}
+          {userIsAdmin && activeTab === 'admin' && (
             <div className="ml-3 mt-1 space-y-0.5 border-l-2 border-slate-100 pl-3">
-              {ANALYTICS_SUBS.map(s => (
-                <button key={s.id} onClick={() => setAnalyticsSub(s.id)}
+              {ADMIN_SUBS.map(s => (
+                <button key={s.id} onClick={() => setAdminSub(s.id)}
                   className={`w-full flex items-center gap-2 px-3 py-2 rounded-lg transition-all
-                    ${analyticsSub === s.id
+                    ${adminSub === s.id
                       ? 'text-slate-900 bg-slate-100 font-bold'
                       : 'text-slate-400 hover:text-slate-900 hover:bg-slate-50'}`}>
                   {s.icon}
@@ -369,11 +377,11 @@ function AppShell({ user }: { user: User }) {
             <span className="text-[11px] font-bold uppercase tracking-widest text-slate-400 truncate">
               {NAV_TABS.find(t => t.id === activeTab)?.label}
             </span>
-            {activeTab === 'analytics' && (
+            {activeTab === 'admin' && userIsAdmin && (
               <>
                 <span className="text-slate-300 flex-shrink-0">/</span>
                 <span className="text-[11px] font-bold uppercase tracking-widest text-slate-600 truncate">
-                  {ANALYTICS_SUBS.find(s => s.id === analyticsSub)?.label}
+                  {ADMIN_SUBS.find(s => s.id === adminSub)?.label}
                 </span>
               </>
             )}
@@ -399,11 +407,13 @@ function AppShell({ user }: { user: User }) {
                 <Settings size={14} strokeWidth={2.5} />
               </button>
             )}
-            <button onClick={() => setIsImportModalOpen(true)}
-              className="flex items-center gap-1.5 px-3 py-2 bg-slate-900 text-white rounded-xl text-[10px] font-bold uppercase tracking-widest hover:bg-slate-700 transition-all">
-              <FileSpreadsheet size={12} />
-              <span className="hidden md:inline">Import</span>
-            </button>
+            {userIsAdmin && (
+              <button onClick={() => setIsImportModalOpen(true)}
+                className="flex items-center gap-1.5 px-3 py-2 bg-slate-900 text-white rounded-xl text-[10px] font-bold uppercase tracking-widest hover:bg-slate-700 transition-all">
+                <FileSpreadsheet size={12} />
+                <span className="hidden md:inline">Import</span>
+              </button>
+            )}
           </div>
         </header>
 
@@ -414,13 +424,15 @@ function AppShell({ user }: { user: User }) {
         <main className="flex-1 overflow-y-auto custom-scrollbar">
           <div className="p-4 md:p-8 pb-24 md:pb-8">
 
-            {/* Mobile analytics sub-nav */}
-            {activeTab === 'analytics' && (
-              <div className="md:hidden flex gap-2 mb-5 overflow-x-auto pb-1 -mx-1 px-1">
-                {ANALYTICS_SUBS.map(s => (
-                  <button key={s.id} onClick={() => setAnalyticsSub(s.id)}
+            {/* Admin sub-nav strip (mobile shows it inline; desktop also gets a
+                horizontal pill row above the pane so the active section is
+                obvious even with the sidebar visible). */}
+            {activeTab === 'admin' && userIsAdmin && (
+              <div className="flex gap-2 mb-5 overflow-x-auto pb-1 -mx-1 px-1">
+                {ADMIN_SUBS.map(s => (
+                  <button key={s.id} onClick={() => setAdminSub(s.id)}
                     className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-[10px] font-bold uppercase tracking-widest flex-shrink-0 transition-all border
-                      ${analyticsSub === s.id
+                      ${adminSub === s.id
                         ? 'bg-slate-900 text-white border-slate-900'
                         : 'bg-white text-slate-500 border-slate-200 hover:border-slate-400'}`}>
                     {s.icon}{s.label}
@@ -430,16 +442,46 @@ function AppShell({ user }: { user: User }) {
             )}
 
             <AnimatePresence mode="wait">
-              <motion.div key={activeTab === 'analytics' ? `analytics-${analyticsSub}` : activeTab}
+              <motion.div key={activeTab === 'admin' ? `admin-${adminSub}` : activeTab}
                 initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: -8 }} transition={{ duration: 0.18 }}>
                 {activeTab === 'buy'     && <StockInPage onOpenBatch={() => setIsBatchModalOpen(true)} onOpenImport={() => setIsImportModalOpen(true)} />}
                 {activeTab === 'sell'    && <SellPage />}
                 {activeTab === 'returns' && <ReturnsPage />}
-                {activeTab === 'analytics' && analyticsSub === 'overview'  && <Dashboard user={user} onNavigate={handleNavigate} onOpenImport={() => setIsImportModalOpen(true)} />}
-                {activeTab === 'analytics' && analyticsSub === 'insights'  && <AnalyticsPage />}
-                {activeTab === 'analytics' && analyticsSub === 'reports'   && <ReportingPage />}
-                {activeTab === 'analytics' && analyticsSub === 'suppliers' && <Suppliers />}
+                {activeTab === 'admin' && userIsAdmin && adminSub === 'overview'     && (
+                  <Dashboard
+                    user={user}
+                    onNavigate={handleNavigate}
+                    onOpenImport={() => setIsImportModalOpen(true)}
+                    onOpenMasterData={() => setAdminSub('masterData')}
+                  />
+                )}
+                {activeTab === 'admin' && userIsAdmin && adminSub === 'masterData'   && (
+                  <div className="bg-white border border-slate-200 rounded-3xl p-8 shadow-sm text-center">
+                    <FileSpreadsheet size={28} className="mx-auto text-slate-400" />
+                    <h3 className="mt-3 text-base font-bold tracking-tight">Master Data Importer</h3>
+                    <p className="mt-1 text-[11px] text-slate-500 font-mono">
+                      The importer is open in a dialog. Close it to return here.
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => setIsMasterDataOpen(true)}
+                      className="mt-4 inline-flex items-center gap-2 bg-slate-900 text-white rounded-xl px-3.5 py-2 text-[10px] font-bold uppercase tracking-widest hover:bg-slate-700 transition-all"
+                    >
+                      <FileSpreadsheet size={11} /> Re-open Importer
+                    </button>
+                  </div>
+                )}
+                {activeTab === 'admin' && userIsAdmin && adminSub === 'salesHistory' && <Sales />}
+                {activeTab === 'admin' && userIsAdmin && adminSub === 'insights'     && <AnalyticsPage />}
+                {activeTab === 'admin' && userIsAdmin && adminSub === 'reports'      && <ReportingPage />}
+                {activeTab === 'admin' && userIsAdmin && adminSub === 'suppliers'    && (
+                  <div className="space-y-6">
+                    <Suppliers />
+                    <SupplierWhatsappPanel feed={whatsappFeed} />
+                  </div>
+                )}
+                {activeTab === 'admin' && userIsAdmin && adminSub === 'audit'        && <AuditPane batches={importBatches} />}
               </motion.div>
             </AnimatePresence>
           </div>
@@ -463,7 +505,10 @@ function AppShell({ user }: { user: User }) {
       <AnimatePresence>
         {isBatchModalOpen  && <NewBatchModal  onClose={() => setIsBatchModalOpen(false)} />}
         {isImportModalOpen && <ImportModal    onClose={() => setIsImportModalOpen(false)} />}
-        {isMasterDataOpen  && <MasterDataLinkedImport onClose={() => setIsMasterDataOpen(false)} />}
+        {isMasterDataOpen  && <MasterDataLinkedImport onClose={() => {
+          setIsMasterDataOpen(false);
+          if (adminSub === 'masterData') setAdminSub('overview');
+        }} />}
         {isLoadMockDataOpen && <LoadMockDataModal onClose={() => setIsLoadMockDataOpen(false)} />}
       </AnimatePresence>
       <NotificationToast />
@@ -596,6 +641,112 @@ function LoginPage() {
           </p>
         </motion.div>
       </div>
+    </div>
+  );
+}
+
+
+// ── Admin → Suppliers → WhatsApp Updates ──────────────────────────────────────
+// Small surface for the supplier WhatsApp feed pulled from the store. This was
+// previously unsurfaced; Admin → Suppliers is the natural home for it.
+function SupplierWhatsappPanel({ feed }: { feed: SupplierWhatsappUpdate[] }) {
+  if (!feed || feed.length === 0) {
+    return (
+      <div className="bg-white border border-gray-100 rounded-3xl p-5 shadow-sm">
+        <h3 className="text-sm font-bold tracking-tight">Supplier WhatsApp Updates</h3>
+        <p className="text-[11px] text-slate-500 font-mono mt-1">No supplier messages captured yet.</p>
+      </div>
+    );
+  }
+  return (
+    <div className="bg-white border border-gray-100 rounded-3xl p-5 shadow-sm">
+      <div className="flex items-center justify-between mb-3">
+        <h3 className="text-sm font-bold tracking-tight">Supplier WhatsApp Updates</h3>
+        <span className="text-[9px] font-mono uppercase tracking-widest text-slate-400">{feed.length} msgs</span>
+      </div>
+      <div className="divide-y divide-slate-100 -mx-2">
+        {feed.map(row => (
+          <div key={row.id} className="flex items-start gap-3 px-2 py-2">
+            <p className="flex-1 min-w-0 text-[11px] font-mono text-slate-800 whitespace-pre-wrap break-words leading-relaxed">
+              {row.rawText}
+            </p>
+            <p className="flex-shrink-0 text-[12px] font-bold tracking-tight text-slate-900 text-right tabular-nums">
+              {row.priceText ?? ''}
+            </p>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+
+// ── Admin → Audit (import batches, newest-first) ──────────────────────────────
+// Read-only provenance table. Sticky header, no actions.
+function AuditPane({ batches }: { batches: ImportBatch[] }) {
+  const toMillis = (v: any): number => {
+    if (!v) return 0;
+    if (typeof v === 'string') return new Date(v).getTime() || 0;
+    if (typeof v?.toMillis === 'function') return v.toMillis();
+    if (typeof v?.seconds === 'number') return v.seconds * 1000;
+    return 0;
+  };
+  const fmtWhen = (v: any): string => {
+    const ms = toMillis(v);
+    if (!ms) return '—';
+    return new Date(ms).toLocaleString();
+  };
+  const rows = [...(batches ?? [])].sort((a, b) => toMillis(b.importedAt) - toMillis(a.importedAt));
+
+  const copyId = (id: string) => {
+    try { navigator.clipboard.writeText(id); } catch { /* clipboard may be blocked */ }
+  };
+
+  return (
+    <div className="bg-white border border-gray-100 rounded-3xl shadow-sm overflow-hidden">
+      <div className="flex items-center justify-between px-5 py-3 border-b border-slate-100">
+        <div>
+          <h3 className="text-sm font-bold tracking-tight">Import Audit</h3>
+          <p className="text-[10px] text-slate-500 font-mono">Provenance log · {rows.length} batches</p>
+        </div>
+      </div>
+      {rows.length === 0 ? (
+        <p className="px-5 py-8 text-center text-[11px] text-slate-500 font-mono">No import batches recorded yet.</p>
+      ) : (
+        <div className="max-h-[70vh] overflow-y-auto">
+          <table className="w-full text-left text-[11px]">
+            <thead className="sticky top-0 bg-slate-50 border-b border-slate-200">
+              <tr className="text-[9px] font-bold uppercase tracking-widest text-slate-500">
+                <th className="px-4 py-2.5 font-bold">When</th>
+                <th className="px-4 py-2.5 font-bold">Source File</th>
+                <th className="px-4 py-2.5 font-bold text-right">Rows</th>
+                <th className="px-4 py-2.5 font-bold">Notes</th>
+                <th className="px-4 py-2.5 font-bold">Batch ID</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {rows.map(b => (
+                <tr key={b.id} className="hover:bg-slate-50/60">
+                  <td className="px-4 py-2 font-mono text-slate-700 whitespace-nowrap">{fmtWhen(b.importedAt)}</td>
+                  <td className="px-4 py-2 text-slate-900 truncate max-w-[280px]" title={b.sourceFile}>{b.sourceFile}</td>
+                  <td className="px-4 py-2 font-mono text-right tabular-nums text-slate-700">{(b.rowCount ?? 0).toLocaleString()}</td>
+                  <td className="px-4 py-2 text-slate-600 truncate max-w-[260px]" title={b.notes || ''}>{b.notes || '—'}</td>
+                  <td className="px-4 py-2">
+                    <button
+                      type="button"
+                      onClick={() => copyId(b.id)}
+                      title={`Copy ${b.id}`}
+                      className="font-mono text-[10px] text-slate-500 hover:text-slate-900 hover:bg-slate-100 rounded px-1.5 py-0.5 transition-all"
+                    >
+                      {b.id.slice(0, 8)}
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
     </div>
   );
 }

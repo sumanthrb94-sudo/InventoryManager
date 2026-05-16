@@ -31,9 +31,13 @@ interface Props {
   user?: User | null;
   onNavigate: (action: NavAction) => void;
   onOpenImport?: () => void;
+  onOpenMasterData?: () => void;
 }
 
-export default function Dashboard({ user, onNavigate, onOpenImport }: Props) {
+export default function Dashboard({ user, onNavigate, onOpenImport, onOpenMasterData }: Props) {
+  // Master Data button prefers the dedicated `onOpenMasterData` handler
+  // (Admin → Master Data sub-tab) and falls back to the legacy import modal.
+  const handleOpenMasterData = () => (onOpenMasterData ?? onOpenImport)?.();
   const { units, suppliers, sales, aggregates, importBatches } = useInventoryStore();
   const showAdminPanel = isAdmin(user);
 
@@ -404,7 +408,7 @@ export default function Dashboard({ user, onNavigate, onOpenImport }: Props) {
           <div className="mt-4 flex flex-wrap gap-2">
             <button
               type="button"
-              onClick={() => onOpenImport?.()}
+              onClick={handleOpenMasterData}
               className="inline-flex items-center gap-2 bg-white text-black rounded-xl px-3.5 py-2 text-[10px] font-bold uppercase tracking-widest hover:bg-emerald-300 transition-all"
             >
               <RefreshCw size={11} /> Re-load Master Data
