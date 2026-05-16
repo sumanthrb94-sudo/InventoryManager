@@ -131,8 +131,19 @@ interface ParsedData {
   /** INVENTORY-sheet roll-up rows (one per Model+Supplier) — populated by
    *  parseClientBulkSheet; empty for IMEI-per-row imports. */
   aggregates?: ParsedAggregate[];
+  /** Sales rows parsed from the SALES_REPORT sheet, if present. Wired through
+   *  to `dbService.bulkUpsertSales` by handleImport — see B9 follow-up. */
+  sales?: Array<Record<string, any> & { marketplace: string; orderNumber: string }>;
   stats: { total: number; available: number; sold: number; incoming: number; skipped: number; duplicateRows: number };
   format: 'client-bulk' | 'imei-per-row';
+  /** Stamped by processFile (not by the parsers themselves) so the importBatch
+   *  audit row carries the workbook's actual sheet name. */
+  sheetName?: string;
+  /** Best-effort supplier id when the workbook is single-supplier (e.g. the
+   *  SUPPLIER WHATSAPP UPDATES sheets); undefined for mixed-supplier imports. */
+  detectedSupplierId?: string;
+  /** Short human-readable summary used as the importBatch.notes field. */
+  summary?: string;
 }
 
 // ── Format detection ──────────────────────────────────────────────────────────
@@ -448,6 +459,13 @@ export default function ImportModal({ onClose }: ImportModalProps) {
           setError('No valid rows found. Check the file has a header row and at least one data row matching the expected columns.');
           return;
         }
+        // Stamp workbook/sheet metadata + a short summary onto the parsed
+        // payload so handleImport can record them on the importBatches row
+        // without the parsers having to know about them.
+        result.sheetName = sheetName;
+        result.summary = `${result.format} · ${result.stats.total} units` +
+          (result.aggregates?.length ? ` · ${result.aggregates.length} aggregates` : '') +
+          (result.suppliers.length ? ` · ${result.suppliers.length} suppliers` : '');
         setParsed(result);
         setStage('preview');
       } catch (err: any) {
@@ -492,7 +510,7 @@ export default function ImportModal({ onClose }: ImportModalProps) {
   }, [parsed, stage]);
 
   const handleImport = async () => {
-    if (!parsed) return;
+    if (!parsed || !sourceFile) return;
     setStage('importing');
     setError('');
 
@@ -508,20 +526,130 @@ export default function ImportModal({ onClose }: ImportModalProps) {
       : parsed.units;
 
     const skippedAsDuplicate = parsed.units.length - filteredUnits.length;
+    const file = sourceFile;
+    const aggregates = parsed.aggregates ?? [];
+    const sales = parsed.sales ?? [];
 
-    const allDocs: { collection: string; id: string; data: any }[] = [];
-    for (const s of parsed.suppliers)
-      allDocs.push({ collection: 'suppliers',      id: s.id, data: { ...s, ownerId: 'shared' } });
-    for (const u of filteredUnits)
-      allDocs.push({ collection: 'inventoryUnits', id: u.id, data: { ...u, ownerId: 'shared' } });
-
-    const uniqueDocsMap = new Map<string, { collection: string; id: string; data: any }>();
-    for (const doc of allDocs) uniqueDocsMap.set(`${doc.collection}_${doc.id}`, doc);
-    const finalDocs = Array.from(uniqueDocsMap.values());
-
-    setProgress({ done: 0, total: finalDocs.length });
     try {
+      // ── B9 step 1 ── Create the importBatches row up-front so every
+      // downstream doc can carry its id. rowCount covers both unit + aggregate
+      // writes (suppliers and the event are bookkeeping, not data rows).
+      const importBatchId = await dbService.createImportBatch({
+        sourceFile: file.name,
+        sourceSheet: parsed.sheetName,
+        rowCount: filteredUnits.length + aggregates.length,
+        supplierId: parsed.detectedSupplierId,
+        notes: parsed.summary,
+      });
+      const importedAt = new Date().toISOString();
+
+      // ── B7 follow-up ── Resolve synthetic `sup_<slug>` ids to real
+      // `suppliers` collection docs. Match case-insensitive trim against
+      // existing `name`; otherwise create on the fly with a stable slug id.
+      const existingSuppliers = await dbService.readAll('suppliers');
+      const byNormName = new Map<string, any>();
+      for (const sup of existingSuppliers) {
+        const n = String(sup?.name || '').trim().toLowerCase();
+        if (n) byNormName.set(n, sup);
+      }
+
+      const slugify = (name: string) =>
+        `sup_${name.trim().toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '') || 'unknown'}`;
+
+      // syntheticId → realId for rewriting unit/aggregate references.
+      const idRemap = new Map<string, string>();
+      // realId → supplier doc to upsert (covers brand-new suppliers only).
+      const suppliersToCreate = new Map<string, Omit<Supplier, 'createdAt'>>();
+
+      for (const parsedSup of parsed.suppliers) {
+        const name = (parsedSup.name || '').trim();
+        const norm = name.toLowerCase();
+        const existing = norm ? byNormName.get(norm) : undefined;
+        if (existing?.id) {
+          idRemap.set(parsedSup.id, existing.id);
+        } else {
+          // Brand new supplier — mint a stable slug id and queue it for write.
+          const realId = slugify(name || 'Unknown');
+          idRemap.set(parsedSup.id, realId);
+          if (!suppliersToCreate.has(realId)) {
+            suppliersToCreate.set(realId, {
+              id: realId,
+              name: name || 'Unknown',
+              portal: parsedSup.portal || 'Wholesale',
+              ownerId: 'shared',
+            });
+            // Cache locally so subsequent rows in this batch resolve to the same id.
+            byNormName.set(name.toLowerCase(), { id: realId, name });
+          }
+        }
+      }
+
+      const resolveId = (synthetic: string | undefined): string | undefined =>
+        synthetic ? (idRemap.get(synthetic) ?? synthetic) : synthetic;
+      const resolveIds = (ids: string[] | undefined): string[] | undefined =>
+        ids ? ids.map(id => idRemap.get(id) ?? id) : ids;
+
+      // ── B9 step 2 ── Stamp every unit with batch/source provenance and
+      // rewrite supplier ids to point at the real collection docs.
+      const stampedUnits = filteredUnits.map((u, idx) => ({
+        ...u,
+        supplierId:  resolveId(u.supplierId)!,
+        supplierIds: resolveIds(u.supplierIds),
+        importBatchId,
+        sourceFile:  file.name,
+        // Parser doesn't currently emit `_sourceRow` on units; derive from
+        // the array position so the audit field is always populated.
+        sourceRow:   (u as any)._sourceRow ?? (idx + 1),
+        importedAt,
+        ownerId:     'shared',
+      }));
+
+      // ── B8 step ── Persist aggregates (the INVENTORY-sheet roll-up rows
+      // that B8 stopped dropping silently). Same provenance fields as units.
+      const stampedAggregates = aggregates.map(a => ({
+        ...a,
+        supplierIds: resolveIds(a.supplierIds) ?? [],
+        importBatchId,
+        sourceFile:  file.name,
+        sourceRow:   a.sourceRow,
+        importedAt,
+        ownerId:     'shared',
+      }));
+
+      // Assemble the single bulk-create payload (suppliers → units → aggregates).
+      const allDocs: { collection: string; id: string; data: any }[] = [];
+      for (const s of suppliersToCreate.values())
+        allDocs.push({ collection: 'suppliers', id: s.id, data: s });
+      for (const u of stampedUnits)
+        allDocs.push({ collection: 'inventoryUnits', id: u.id, data: u });
+      for (const a of stampedAggregates)
+        allDocs.push({ collection: 'inventoryAggregates', id: a.id, data: a });
+
+      const uniqueDocsMap = new Map<string, { collection: string; id: string; data: any }>();
+      for (const d of allDocs) uniqueDocsMap.set(`${d.collection}_${d.id}`, d);
+      const finalDocs = Array.from(uniqueDocsMap.values());
+
+      setProgress({ done: 0, total: finalDocs.length });
       await dbService.bulkCreate(finalDocs, (done, total) => setProgress({ done, total }));
+
+      // Sales are owned by a sibling agent's workstream; only wire through
+      // if the parser emits them. Same provenance fields go on each row.
+      if (sales.length > 0) {
+        await dbService.bulkUpsertSales(
+          sales.map(s => ({ ...s, importBatchId, importedAt })),
+        );
+      }
+
+      // ── B9 step 5 ── Single audit event summarising the whole import.
+      await logInventoryEvent({
+        type: 'batch_created',
+        message:
+          `Imported ${stampedUnits.length} units, ${stampedAggregates.length} aggregates, ` +
+          `${sales.length} sales from ${file.name} (batch ${importBatchId})`,
+        batchId: importBatchId,
+        supplierId: parsed.detectedSupplierId,
+      });
+
       setImportResult({
         imported: filteredUnits.length,
         skipped: parsed.stats.skipped || 0,
@@ -529,17 +657,23 @@ export default function ImportModal({ onClose }: ImportModalProps) {
         failed: 0,
       });
       setStage('done');
-      // Upload source file in background (non-blocking)
-      if (sourceFile) {
-        (async () => {
-          try {
-            const importId = `import_${Date.now()}`;
-            const source   = await uploadSourceAttachment(sourceFile, 'import', importId);
-            await dbService.create('sourceDocuments', `doc_${importId}`, { ...source, linkedId: importId, ownerId: 'shared' });
-            await logInventoryEvent({ type: 'file_attached', message: `Import: ${sourceFile.name}`, batchId: importId });
-          } catch { /* non-critical */ }
-        })();
-      }
+
+      // Upload source file in background (non-blocking). Use the real
+      // importBatchId so sourceDocuments link back to the audit row.
+      (async () => {
+        try {
+          const source = await uploadSourceAttachment(file, 'import', importBatchId);
+          await dbService.create('sourceDocuments', `doc_${importBatchId}`, {
+            ...source, linkedId: importBatchId, ownerId: 'shared',
+          });
+          await logInventoryEvent({
+            type: 'file_attached',
+            message: `Import: ${file.name}`,
+            batchId: importBatchId,
+          });
+        } catch { /* non-critical */ }
+      })();
+
       setTimeout(onClose, 2000);
     } catch (err: any) {
       setError('Import failed: ' + err.message);
