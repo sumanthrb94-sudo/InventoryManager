@@ -8,6 +8,7 @@ import type { User } from 'firebase/auth';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts';
 import { dbService } from '../lib/dbService';
 import { isAdmin } from '../lib/firebase';
+import { fmtDateTimeForUser, useUserRegion } from '../lib/userLocale';
 import { useInventoryStore } from '../lib/inventoryStore';
 import { recomputeSale } from '../lib/recomputeSale';
 import { InventoryUnit, Supplier, MARKETPLACES } from '../types';
@@ -40,6 +41,7 @@ export default function Dashboard({ user, onNavigate, onOpenImport, onOpenMaster
   const handleOpenMasterData = () => (onOpenMasterData ?? onOpenImport)?.();
   const { units, suppliers, sales, aggregates, importBatches } = useInventoryStore();
   const showAdminPanel = isAdmin(user);
+  const region = useUserRegion();
 
   // Sales aren't in the store — pull them directly so we can detect a
   // completely empty database (no units AND no sales) for the first-run CTA.
@@ -321,9 +323,9 @@ export default function Dashboard({ user, onNavigate, onOpenImport, onOpenMaster
     return {
       sourceFile: latest.sourceFile || '—',
       rowCount: latest.rowCount || 0,
-      timestamp: ms ? new Date(ms).toLocaleString('en-GB', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }) : '—',
+      timestamp: ms ? (fmtDateTimeForUser(new Date(ms), region) || '—') : '—',
     };
-  }, [importBatches]);
+  }, [importBatches, region]);
 
   const MARKETPLACE_HEX: Record<string, string> = {
     AMAZON: '#f97316',
@@ -381,7 +383,7 @@ export default function Dashboard({ user, onNavigate, onOpenImport, onOpenMaster
                 ? (adminKpis.lastBatch.sourceFile?.split('/').pop() || '—')
                 : '—'}
               sub={adminKpis?.lastBatch?.importedAt
-                ? new Date(adminKpis.lastBatch.importedAt).toLocaleString('en-GB', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })
+                ? (fmtDateTimeForUser(adminKpis.lastBatch.importedAt, region) || 'No imports yet')
                 : 'No imports yet'}
             />
             <AdminKpi

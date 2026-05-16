@@ -14,6 +14,7 @@ import {
 import { notificationService, Notification } from '../lib/notificationService';
 import { marketplaceFromListingSite } from '../lib/platforms';
 import { recomputeSale } from '../lib/recomputeSale';
+import { fmtDateForUser, useUserRegion } from '../lib/userLocale';
 
 const FLAG_CONFIG: Record<OperationalFlag, { label: string; icon: any; style: string; action: string }> = {
   top10: {
@@ -138,6 +139,7 @@ function inventoryUnitToSale(u: InventoryUnit): Sale {
 
 export default function Sales() {
   const { units, sales }                    = useInventoryStore();
+  const region                              = useUserRegion();
   const [activeListings, setActiveListings] = useState<ActiveListing[]>([]);
   const [recentNotifications, setRecentNotifications] = useState<Notification[]>([]);
 
@@ -722,7 +724,9 @@ export default function Sales() {
                               let display: React.ReactNode = '';
                               switch (c.key) {
                                 case 'saleDate':
-                                  display = formatDateDdMmmYyyy(s.saleDate);
+                                  display = s.saleDate
+                                    ? (fmtDateForUser(s.saleDate, region) || formatDateDdMmmYyyy(s.saleDate))
+                                    : '';
                                   break;
                                 case 'marketplace':
                                   display = (

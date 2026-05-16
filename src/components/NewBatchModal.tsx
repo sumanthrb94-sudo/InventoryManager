@@ -9,6 +9,7 @@ import { GradeSelectCompact, StorageSelectCompact } from './FormSelects';
 import { generateBatchId, formatBatchId } from '../lib/batchUtils';
 import ScanInModal from './ScanInModal';
 import { buildDeviceCatalog } from '../lib/deviceCatalog';
+import { isValidImei, IMEI_REQUIRED_MESSAGE } from '../lib/imeiValidation';
 
 interface Props { onClose: () => void; }
 

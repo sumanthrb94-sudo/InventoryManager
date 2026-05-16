@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { onAuthStateChanged, User } from 'firebase/auth';
 import { auth, signInWithEmail, signOut, isAdmin, userRegion, canBuy, canSell } from './lib/firebase';
-import { fmtDateTimeForUser } from './lib/userLocale';
+import { fmtDateTimeForUser, useUserRegion } from './lib/userLocale';
 import {
   PackagePlus, ShoppingCart, RefreshCw,
   LogOut, Plus, FileSpreadsheet, LayoutDashboard,
@@ -190,11 +190,19 @@ function AppShell({ user }: { user: User }) {
 
         {/* Brand strip — same height as header */}
         <div className="h-16 flex-shrink-0 flex items-center px-5 border-b border-slate-100">
-          <button onClick={() => setActiveTab('buy')} className="text-left group active:scale-95 transition-transform">
+          <button onClick={() => setActiveTab(NAV_TABS[0]?.id ?? 'returns')} className="text-left group active:scale-95 transition-transform">
             <h1 className="text-[13px] font-black tracking-tighter uppercase font-display text-slate-900 leading-none">
               {APP_NAME}
             </h1>
-            <p className="text-[7px] text-slate-400 font-mono uppercase tracking-[0.35em] mt-1">{APP_TAGLINE}</p>
+            <p className="text-[7px] text-slate-400 font-mono uppercase tracking-[0.35em] mt-1">
+              {APP_TAGLINE}
+              {regionBadge && (
+                <>
+                  {' · '}
+                  <span className="text-slate-600">{regionBadge.toUpperCase()}</span>
+                </>
+              )}
+            </p>
           </button>
         </div>
 
@@ -404,9 +412,17 @@ function AppShell({ user }: { user: User }) {
         <header className="flex-shrink-0 h-14 md:h-16 bg-white border-b border-slate-200 flex items-center px-4 md:px-6 gap-3 z-20">
 
           {/* Mobile: brand */}
-          <button onClick={() => setActiveTab('buy')} className="md:hidden mr-auto active:scale-95 transition-transform">
+          <button onClick={() => setActiveTab(NAV_TABS[0]?.id ?? 'returns')} className="md:hidden mr-auto active:scale-95 transition-transform">
             <h1 className="text-base font-black tracking-tighter uppercase font-display text-slate-900 leading-none">{APP_NAME}</h1>
-            <p className="text-[7px] text-slate-400 font-mono uppercase tracking-[0.35em] mt-0.5">{APP_TAGLINE}</p>
+            <p className="text-[7px] text-slate-400 font-mono uppercase tracking-[0.35em] mt-0.5">
+              {APP_TAGLINE}
+              {regionBadge && (
+                <>
+                  {' · '}
+                  <span className="text-slate-600">{regionBadge.toUpperCase()}</span>
+                </>
+              )}
+            </p>
           </button>
 
           {/* Desktop: section breadcrumb */}
@@ -721,6 +737,7 @@ function SupplierWhatsappPanel({ feed }: { feed: SupplierWhatsappUpdate[] }) {
 // ── Admin → Audit (import batches, newest-first) ──────────────────────────────
 // Read-only provenance table. Sticky header, no actions.
 function AuditPane({ batches }: { batches: ImportBatch[] }) {
+  const region = useUserRegion();
   const toMillis = (v: any): number => {
     if (!v) return 0;
     if (typeof v === 'string') return new Date(v).getTime() || 0;
@@ -731,7 +748,7 @@ function AuditPane({ batches }: { batches: ImportBatch[] }) {
   const fmtWhen = (v: any): string => {
     const ms = toMillis(v);
     if (!ms) return '—';
-    return new Date(ms).toLocaleString();
+    return fmtDateTimeForUser(new Date(ms), region) || '—';
   };
   const rows = [...(batches ?? [])].sort((a, b) => toMillis(b.importedAt) - toMillis(a.importedAt));
 

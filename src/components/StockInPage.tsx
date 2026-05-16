@@ -12,7 +12,9 @@ import { useInventoryStore } from '../lib/inventoryStore';
 import { parseBrandModelStorage } from '../lib/modelStorage';
 import CopyImei from './CopyImei';
 import CollapsibleSection from './CollapsibleSection';
+import { fmtDateForUser, useUserRegion } from '../lib/userLocale';
 import ReceiveSHSModal from './ReceiveSHSModal';
+import ReceiveShsAggregateModal from './ReceiveShsAggregateModal';
 import AddSHSModal from './AddSHSModal';
 import AddDeliveryModal from './AddDeliveryModal';
 import ScanInModal from './ScanInModal';
@@ -46,11 +48,13 @@ function deriveSku(u: InventoryUnit): { brand: string; model: string; storage?: 
 
 export default function StockInPage({ onOpenBatch, onOpenImport: _onOpenImport }: Props) {
   const { units, suppliers }        = useInventoryStore();
+  const region                      = useUserRegion();
   const [search, setSearch]         = useState('');
   // `expandedId` is now a GROUP key, not a per-IMEI id — when a SKU group is
   // expanded we render the nested per-unit child rows underneath.
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [receivingUnit, setReceivingUnit] = useState<InventoryUnit | null>(null);
+  const [receivingAggregate, setReceivingAggregate] = useState<InventoryAggregate | null>(null);
   const [showAddSHS, setShowAddSHS]       = useState(false);
   const [showAddDelivery, setShowAddDelivery] = useState(false);
   const [showScanUnit, setShowScanUnit] = useState(false);
@@ -733,7 +737,7 @@ export default function StockInPage({ onOpenBatch, onOpenImport: _onOpenImport }
                           )}
                         </div>
                         <p className="text-[9px] text-gray-400 font-mono mt-0.5">
-                          {qty} unit{qty === 1 ? '' : 's'} · latest {latestDateIn}
+                          {qty} unit{qty === 1 ? '' : 's'} · latest {fmtDateForUser(latestDateIn, region) || latestDateIn}
                         </p>
                       </div>
                       <div className="flex items-center gap-2 flex-shrink-0">

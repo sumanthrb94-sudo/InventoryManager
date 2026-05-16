@@ -4,7 +4,9 @@
 // transact in £. Only date/time presentation is region-aware. Underlying
 // storage stays ISO/UTC; we only shift on render.
 
-import type { UserRegion } from './firebase';
+import { useEffect, useState } from 'react';
+import { onAuthStateChanged, type User } from 'firebase/auth';
+import { auth, userRegion, type UserRegion } from './firebase';
 
 /** Resolve an IANA timezone for the given region. */
 export function userTimeZone(region: UserRegion): string {
@@ -46,4 +48,15 @@ export function fmtDateTimeForUser(
     day: '2-digit', month: 'short', year: 'numeric',
     hour: '2-digit', minute: '2-digit',
   }).format(d);
+}
+
+/**
+ * React hook returning the current signed-in user's region. Re-renders when
+ * auth state changes (sign-in / sign-out). Falls back to 'both' before auth
+ * resolves and for any user that isn't on the UK/India allowlists.
+ */
+export function useUserRegion(): UserRegion {
+  const [region, setRegion] = useState<UserRegion>(() => userRegion(auth.currentUser));
+  useEffect(() => onAuthStateChanged(auth, (u: User | null) => setRegion(userRegion(u))), []);
+  return region;
 }
