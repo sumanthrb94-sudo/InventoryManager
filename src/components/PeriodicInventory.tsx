@@ -3,12 +3,14 @@ import { AnimatePresence, motion } from 'motion/react';
 import { X } from 'lucide-react';
 import { InventoryUnit } from '../types';
 import { parseBrandModelStorage, type Series } from '../lib/modelStorage';
-import ViewAllUnitsModal from './ViewAllUnitsModal';
-import PeriodicTableSidebar from './PeriodicTableSidebar';
+import SkuOverlayModal from './SkuOverlayModal';
 
 interface Props {
   units: InventoryUnit[];
-  onNavigate: (search: string) => void;
+  /** Optional — kept for back-compat with callers that wired a page-level
+   *  filter. The periodic table no longer drives this on click; the
+   *  Excel-style overlay is the new click target. */
+  onNavigate?: (search: string) => void;
 }
 
 /** Per-series visual theme + display label for the periodic table. */
@@ -278,8 +280,8 @@ export default function PeriodicInventory({ units, onNavigate }: Props) {
   const incoming  = units.filter(u => u.status === 'incoming');
 
   const [popover, setPopover] = useState<PopoverState | null>(null);
-  const [viewAllModal, setViewAllModal] = useState<{ seriesKey: string; searchTerm: string } | null>(null);
-  const [selectedSeries, setSelectedSeries] = useState<{ seriesKey: string; searchTerm: string } | null>(null);
+  /** Excel-style overlay target — set when a block is clicked, null when closed. */
+  const [overlay, setOverlay] = useState<{ seriesKey: string; model: string; storage?: string } | null>(null);
   // Refs for the hover grace-period timers
   const closeTimer  = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -348,7 +350,7 @@ export default function PeriodicInventory({ units, onNavigate }: Props) {
       const elements: Element[] = Object.values(buckets)
         .map((d, i) => {
           // Label: full model name + optional storage. The substring filter
-          // downstream (ViewAllUnitsModal / PeriodicTableSidebar) does OR-based
+          // downstream (the Excel overlay) matches by model+storage with
           // matching across model/storage/colour/imei, so we hand it the model
           // alone — that reliably narrows to all units of this model. Storage
           // is shown in the UI as a small caption so the user still sees
@@ -422,8 +424,8 @@ export default function PeriodicInventory({ units, onNavigate }: Props) {
   if (groups.length === 0) return null;
 
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 h-full lg:h-auto">
-      <div className="lg:col-span-2">
+    <div className="h-full lg:h-auto">
+      <div>
         <div style={{ background: '#ffffff', borderRadius: 20, padding: '12px 10px', overflow: 'hidden' }}>
         {/* Header */}
         <div style={{ marginBottom: 12 }}>
@@ -491,10 +493,14 @@ export default function PeriodicInventory({ units, onNavigate }: Props) {
                       onMouseEnter={e => handleElementEnter(el, g.color, e)}
                       onMouseLeave={scheduleClose}
                       onClick={() => {
-                        if (el.count > 0) {
-                          onNavigate(el.searchTerm);
-                          setSelectedSeries({ seriesKey: el.seriesKey, searchTerm: el.searchTerm });
-                        }
+                        // Click opens the Excel-style overlay for this SKU.
+                        // Empty blocks (zero stock + zero SHS) are non-actionable.
+                        if (el.count === 0 && el.shsCount === 0) return;
+                        setOverlay({
+                          seriesKey: el.seriesKey,
+                          model: el.model,
+                          storage: el.storage,
+                        });
                       }}
                       title={el.seriesKey}
                       style={{
@@ -566,76 +572,12 @@ export default function PeriodicInventory({ units, onNavigate }: Props) {
       </div>
       </div>
 
-      {/* Sidebar - visible on lg screens in grid layout */}
-      <div className="hidden lg:flex lg:col-span-1">
-        <PeriodicTableSidebar
-          seriesKey={selectedSeries?.seriesKey || null}
-          searchTerm={selectedSeries?.searchTerm || null}
-          units={units}
-          onViewAll={(seriesKey, searchTerm) => {
-            setViewAllModal({ seriesKey, searchTerm });
-            setSelectedSeries(null);
-          }}
-        />
-      </div>
-
-      {/* Mobile sidebar modal - visible on smaller screens */}
-      <AnimatePresence>
-        {selectedSeries && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="lg:hidden fixed inset-0 z-50 flex items-end bg-black/40 backdrop-blur-sm"
-            onClick={() => setSelectedSeries(null)}
-          >
-            <motion.div
-              initial={{ y: '100%' }}
-              animate={{ y: 0 }}
-              exit={{ y: '100%' }}
-              transition={{ type: 'spring', damping: 30, stiffness: 300 }}
-              className="w-full bg-white rounded-t-2xl max-h-[85vh] overflow-y-auto"
-              onClick={e => e.stopPropagation()}
-            >
-              {/* Mobile sidebar header */}
-              <div className="sticky top-0 bg-white border-b border-gray-200 p-4 flex items-center justify-between rounded-t-2xl">
-                <h3 className="text-lg font-bold">{selectedSeries.seriesKey}</h3>
-                <button
-                  onClick={() => setSelectedSeries(null)}
-                  className="p-2 hover:bg-gray-100 rounded-lg transition-all"
-                >
-                  <X size={20} className="text-gray-500" />
-                </button>
-              </div>
-
-              {/* Mobile sidebar content */}
-              <div className="p-4">
-                <PeriodicTableSidebar
-                  seriesKey={selectedSeries.seriesKey}
-                  searchTerm={selectedSeries.searchTerm}
-                  units={units}
-                  onViewAll={(seriesKey, searchTerm) => {
-                    setViewAllModal({ seriesKey, searchTerm });
-                    setSelectedSeries(null);
-                  }}
-                />
-              </div>
-            </motion.div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-
-      {/* View All Units Modal */}
-      <AnimatePresence>
-        {viewAllModal && (
-          <ViewAllUnitsModal
-            seriesKey={viewAllModal.seriesKey}
-            searchTerm={viewAllModal.searchTerm}
-            units={units}
-            onClose={() => setViewAllModal(null)}
-          />
-        )}
-      </AnimatePresence>
+      {/* Excel-style SKU overlay — replaces the old sidebar/bottom-sheet/view-all flow. */}
+      <SkuOverlayModal
+        selection={overlay}
+        units={units}
+        onClose={() => setOverlay(null)}
+      />
     </div>
   );
 }
