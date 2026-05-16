@@ -94,7 +94,7 @@ function collapseWhitespace(s: string): string {
 export type Brand = 'Apple' | 'Samsung' | 'Google' | 'Xiaomi' | 'OnePlus' | 'Other';
 export type Series =
   | 'iPhone' | 'iPad' | 'Apple Watch' | 'MacBook'
-  | 'Galaxy S' | 'Galaxy A' | 'Galaxy Tab' | 'Galaxy Note'
+  | 'Galaxy S' | 'Galaxy A' | 'Galaxy Note' | 'Galaxy Z' | 'Galaxy M' | 'Galaxy XCover' | 'Galaxy Tab'
   | 'Pixel' | 'Other';
 
 export interface ParsedModel {

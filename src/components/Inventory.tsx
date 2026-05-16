@@ -273,6 +273,17 @@ export default function Inventory({ initialFilters = {} }: { initialFilters?: In
         {paginated.map(summary => {
           const key = `${summary.brand}||${summary.model}||${summary.storage || ''}`;
           const isExpanded = expandedModels.has(key);
+          // SKU-level listing union — pulled at runtime from the units list
+          // so we always reflect what's actually on disk (rather than the
+          // pre-built summary.listingSites which may lag a freshly-saved
+          // bulk update).
+          const skuUnits = summary.variants.flatMap(v => v.units);
+          const skuListing = deriveSkuListing(skuUnits);
+          const skuListLabel = [
+            summary.brand,
+            summary.model,
+            summary.storage && !summary.model.toUpperCase().includes(summary.storage.toUpperCase()) ? summary.storage : null,
+          ].filter(Boolean).join(' ');
           return (
             <div key={key} className="bg-white border border-gray-200 rounded-3xl overflow-hidden shadow-sm">
               <button onClick={() => toggleExpand(key)}
@@ -292,11 +303,50 @@ export default function Inventory({ initialFilters = {} }: { initialFilters?: In
                       const cfg = FLAG_CONFIG[f]; const Icon = cfg.icon;
                       return <span key={f} className={`text-[7px] font-bold px-1.5 py-0.5 border rounded-md font-mono flex items-center gap-0.5 ${cfg.style}`}><Icon size={7}/>{cfg.label}</span>;
                     })}
-                    {summary.listingSites.map(site => (
-                      <span key={site} className="text-[7px] font-bold px-1.5 py-0.5 bg-gray-900 text-white rounded-md font-mono uppercase tracking-tighter">
-                        {site}
-                      </span>
-                    ))}
+                    {/* SKU-level marketplace summary — one listing per
+                        marketplace, quantity decrements as units sell.
+                        Renders the per-site chips inline plus an edit
+                        affordance that opens SkuListingEditor. The wrapper
+                        span uses role=button (not a nested <button>) since
+                        the parent row is already a <button>. */}
+                    {skuListing.listedOn.length > 0
+                      ? skuListing.listedOn.map(site => (
+                          <span key={site} className="text-[7px] font-bold px-1.5 py-0.5 bg-gray-900 text-white rounded-md font-mono uppercase tracking-tighter">
+                            {listingSiteLabel(site)}
+                          </span>
+                        ))
+                      : (
+                        <span className="text-[7px] font-bold px-1.5 py-0.5 bg-gray-100 text-gray-400 rounded-md font-mono uppercase tracking-tighter">
+                          Not listed
+                        </span>
+                      )}
+                    <span
+                      role="button"
+                      tabIndex={0}
+                      onClick={e => {
+                        e.stopPropagation();
+                        setListingEditor({
+                          label: skuListLabel,
+                          units: skuUnits,
+                          current: skuListing.listedOn,
+                        });
+                      }}
+                      onKeyDown={e => {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          setListingEditor({
+                            label: skuListLabel,
+                            units: skuUnits,
+                            current: skuListing.listedOn,
+                          });
+                        }
+                      }}
+                      className="inline-flex items-center gap-0.5 text-[7px] font-bold px-1.5 py-0.5 border border-gray-300 text-gray-600 hover:bg-black hover:text-white hover:border-black rounded-md font-mono uppercase tracking-tighter transition-all cursor-pointer"
+                      title={`Edit marketplace listings — ${skuListing.listedOn.length} marketplace${skuListing.listedOn.length === 1 ? '' : 's'} · ${skuListing.availableCount} avail`}
+                    >
+                      <Pencil size={7} /> Edit
+                    </span>
                   </div>
                 </div>
                 
@@ -459,6 +509,20 @@ export default function Inventory({ initialFilters = {} }: { initialFilters?: In
         )}
         {bulkListingOpen && <BulkListingModal onClose={() => setBulkListingOpen(false)} />}
       </AnimatePresence>
+
+      {/* SKU-level listing editor — opened from each ModelSummary card.
+          Edits the marketplace presence for every available unit in the
+          (brand, model, storage) group; deriveSkuListing renders the union
+          back into the card's chip strip on the next snapshot. */}
+      {listingEditor && (
+        <SkuListingEditor
+          skuLabel={listingEditor.label}
+          units={listingEditor.units}
+          current={listingEditor.current}
+          onClose={() => setListingEditor(null)}
+          onSaved={() => setListingEditor(null)}
+        />
+      )}
     </div>
   );
 }
