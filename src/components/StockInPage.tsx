@@ -13,6 +13,7 @@ import { useInventoryStore } from '../lib/inventoryStore';
 import { parseBrandModelStorage } from '../lib/modelStorage';
 import { deriveSkuListing } from '../lib/skuListings';
 import { listingSiteLabel } from '../lib/platforms';
+import { totalShsRecords, manualShsUnitsFrom, shsAggregatesFrom } from '../lib/shsCount';
 import SkuListingEditor from './SkuListingEditor';
 import CopyImei from './CopyImei';
 import CollapsibleSection from './CollapsibleSection';
@@ -24,7 +25,9 @@ import AddDeliveryModal from './AddDeliveryModal';
 import ScanInModal from './ScanInModal';
 import IntelligencePanel from './IntelligencePanel';
 import TodayIntakeModal from './TodayIntakeModal';
-import { StockIntakeFlow } from './StockIntakeFlow';
+// Manual SHS-style row-per-IMEI form. Replaces the legacy camera/OCR
+// StockIntakeFlow which ops asked us to disable for now.
+import AddStockManualModal from './AddStockManualModal';
 
 interface Props {
   onOpenBatch: () => void;
@@ -63,7 +66,10 @@ export default function StockInPage({ onOpenBatch, onOpenImport: _onOpenImport }
   const [showAddDelivery, setShowAddDelivery] = useState(false);
   const [showScanUnit, setShowScanUnit] = useState(false);
   const [showTodayIntake, setShowTodayIntake] = useState(false);
-  const [showStockIntakeFlow, setShowStockIntakeFlow] = useState(false);
+  /** Manual Add-Stock flow — the SHS-style row-per-IMEI form. The legacy
+   *  StockIntakeFlow (camera/OCR/single-IMEI wizard) is disabled for now
+   *  per ops feedback: "use this manual only for now". */
+  const [showAddStockManual, setShowAddStockManual] = useState(false);
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
   // SKU-level listing editor — opened from Pending IMEIs group rows.
@@ -108,23 +114,20 @@ export default function StockInPage({ onOpenBatch, onOpenImport: _onOpenImport }
     return m;
   }, [suppliers]);
 
-  // Pending SHS — incoming units, sorted by dateIn desc
-  const pendingSHS = useMemo(() =>
-    [...units]
-      .filter(u => u.status === 'incoming')
-      .sort((a, b) => new Date(b.dateIn).getTime() - new Date(a.dateIn).getTime()),
-    [units],
-  );
+  // Pending SHS — MANUAL orders only (status='incoming' excluding the
+  // parser-synthesised placeholders that mirror master-file aggregates).
+  // Excluding placeholders here is what makes the BUY and SELL SHS KPIs
+  // agree — counting placeholders AND their source aggregates was the
+  // double-count that produced "69 vs 23" on the two surfaces.
+  const pendingSHS = useMemo(() => manualShsUnitsFrom(units), [units]);
 
   // SHS aggregates — the master-file INVENTORY-sheet roll-up rows whose
   // QUANTITY column is the literal "SHS". These represent stock the supplier
   // holds for us; we haven't received it yet.
-  const shsAggregates = useMemo(() =>
-    aggregates.filter(a => (a.quantityText || '').toUpperCase() === 'SHS'),
-    [aggregates],
-  );
+  const shsAggregates = useMemo(() => shsAggregatesFrom(aggregates), [aggregates]);
 
-  const shsTotal = pendingSHS.length + shsAggregates.length;
+  // Canonical SHS count used by every KPI across the app.
+  const shsTotal = useMemo(() => totalShsRecords(units, aggregates), [units, aggregates]);
 
   // Group identical pending SHS units to avoid sequential duplicate rows
   const pendingSHSGroups = useMemo(() => {
@@ -327,7 +330,7 @@ export default function StockInPage({ onOpenBatch, onOpenImport: _onOpenImport }
         <div className="flex flex-col sm:flex-row gap-3 w-full md:w-auto">
           {/* Add Stock (New Flow) */}
           <button
-            onClick={() => setShowStockIntakeFlow(true)}
+            onClick={() => setShowAddStockManual(true)}
             className="flex items-center justify-center sm:justify-start gap-2 px-4 py-3 bg-gradient-to-r from-blue-600 to-blue-700 text-white rounded-lg hover:from-blue-700 hover:to-blue-800 transition-all active:scale-95 shadow-md whitespace-nowrap"
           >
             <Plus size={16} />
@@ -950,8 +953,8 @@ export default function StockInPage({ onOpenBatch, onOpenImport: _onOpenImport }
         )}
       </AnimatePresence>
       <AnimatePresence>
-        {showStockIntakeFlow && (
-          <StockIntakeFlow onClose={() => setShowStockIntakeFlow(false)} />
+        {showAddStockManual && (
+          <AddStockManualModal onClose={() => setShowAddStockManual(false)} />
         )}
       </AnimatePresence>
 

@@ -11,6 +11,7 @@ import { useInventoryStore } from '../lib/inventoryStore';
 import { notificationService } from '../lib/notificationService';
 import { parseBrandModelStorage } from '../lib/modelStorage';
 import { deriveSkuListing } from '../lib/skuListings';
+import { totalShsRecords, manualShsUnitsFrom } from '../lib/shsCount';
 import SkuListingEditor from './SkuListingEditor';
 import CopyImei from './CopyImei';
 import {
@@ -463,7 +464,7 @@ function EnterImeiModal({
 
 // ── Main SellPage ──────────────────────────────────────────────────────────────
 export default function SellPage() {
-  const { units, suppliers, sales } = useInventoryStore();
+  const { units, suppliers, sales, aggregates } = useInventoryStore();
   const region                      = useUserRegion();
   const [search, setSearch]         = useState('');
   const [selected, setSelected]     = useState<InventoryUnit | null>(null);
@@ -491,11 +492,13 @@ export default function SellPage() {
   const yesterday = new Date(Date.now() - 86400000).toISOString().split('T')[0];
 
   const inStock   = useMemo(() => units.filter(u => u.status === 'available'), [units]);
-  const shsUnits  = useMemo(() =>
-    [...units.filter(u => u.status === 'incoming')]
-      .sort((a, b) => (b.dateIn || '').localeCompare(a.dateIn || '')),
-    [units],
-  );
+  // Manual SHS orders only — synthetic placeholders for master-file
+  // aggregates are excluded here to avoid double counting with the
+  // aggregate-derived total below. Both surfaces (BUY KPI + SELL KPI)
+  // now agree via totalShsRecords().
+  const shsUnits  = useMemo(() => manualShsUnitsFrom(units), [units]);
+  /** Canonical SHS records count — matches the BUY tab's SHS KPI. */
+  const shsTotal  = useMemo(() => totalShsRecords(units, aggregates), [units, aggregates]);
   const sold      = useMemo(() => units.filter(u => u.status === 'sold'), [units]);
 
   // Sold SHS units still awaiting IMEI from supplier
@@ -677,8 +680,8 @@ export default function SellPage() {
           <p className="text-[8px] text-emerald-500 font-mono">in office</p>
         </button>
         <div className="bg-amber-50 border border-amber-100 rounded-3xl p-3">
-          <p className="text-[8px] font-mono uppercase tracking-widest text-amber-600">SHS Listed</p>
-          <p className="text-2xl font-bold font-display mt-1 text-amber-700">{shsUnits.length}</p>
+          <p className="text-[8px] font-mono uppercase tracking-widest text-amber-600">SHS</p>
+          <p className="text-2xl font-bold font-display mt-1 text-amber-700">{shsTotal}</p>
           <p className="text-[8px] text-amber-500 font-mono">supplier holds</p>
         </div>
         <button
