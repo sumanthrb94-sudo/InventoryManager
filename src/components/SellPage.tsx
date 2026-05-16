@@ -1241,6 +1241,20 @@ export default function SellPage() {
           />
         )}
       </AnimatePresence>
+
+      {/* SKU-level listing editor — same flow as Pending IMEIs on StockInPage.
+          Mirrors `dbService.setSkuListingSites` writes to every available
+          unit in the SKU so the derived union (deriveSkuListing) collapses
+          back to the chosen set on the next snapshot. */}
+      {listingEditor && (
+        <SkuListingEditor
+          skuLabel={listingEditor.label}
+          units={listingEditor.units}
+          current={listingEditor.current}
+          onClose={() => setListingEditor(null)}
+          onSaved={() => setListingEditor(null)}
+        />
+      )}
     </div>
   );
 }

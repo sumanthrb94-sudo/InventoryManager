@@ -2,17 +2,20 @@ import { useState, useEffect, useMemo } from 'react';
 import {
   Search, ChevronDown, ChevronRight, ChevronLeft,
   Star, Package, Truck, CheckCircle2, Cpu,
-  Filter, ArrowUpDown, Edit2, ShoppingBag
+  Filter, ArrowUpDown, Edit2, ShoppingBag, Tag, Pencil,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { dbService } from '../lib/dbService';
 import { useInventoryStore } from '../lib/inventoryStore';
-import { InventoryUnit, Supplier, OperationalFlag, DeviceCategory, ModelSummary } from '../types';
+import { InventoryUnit, Supplier, OperationalFlag, DeviceCategory, ModelSummary, ListingSite } from '../types';
 import UnitDetailDrawer from './UnitDetailDrawer';
 import QuickSaleModal from './QuickSaleModal';
 import { validateIMEI } from '../lib/imeiUtils';
 import { getOnHandValue } from '../lib/inventorySummary';
 import { buildModelSummaries } from '../lib/modelSummaries';
+import { deriveSkuListing } from '../lib/skuListings';
+import { listingSiteLabel } from '../lib/platforms';
+import SkuListingEditor from './SkuListingEditor';
 import BulkListingModal from './BulkListingModal';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -79,6 +82,14 @@ export default function Inventory({ initialFilters = {} }: { initialFilters?: In
   const [quickUnit, setQuickUnit] = useState<InventoryUnit | null>(null);
   const [quickSaleUnits, setQuickSaleUnits] = useState<InventoryUnit[] | null>(null);
   const [bulkListingOpen, setBulkListingOpen] = useState(false);
+  // SKU-level listing editor — opens from each model card so ops can edit
+  // marketplace presence at the (brand, model, storage) level without
+  // touching individual IMEIs.
+  const [listingEditor, setListingEditor] = useState<{
+    label: string;
+    units: InventoryUnit[];
+    current: ListingSite[];
+  } | null>(null);
   const [pageSize, setPageSize]   = useState(25);
   const [page, setPage]           = useState(1);
   const [showFilters, setShowFilters] = useState(
