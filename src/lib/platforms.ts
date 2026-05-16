@@ -274,53 +274,53 @@ export function excelFormulaFor(marketplace: Marketplace, row: number): Record<s
     case 'PROJECT': {
       // Headers: ... G=BP, H=SP, I=SP-BP, J=Marginal Tax, K=Commission, L=Postage, M=GP, N=GP%
       return {
-        spMinusBp:   `=H${r}-G${r}`,
-        marginalTax: `=I${r}/${fee.marginTaxDivisor ?? 6}`,
-        commission:  `=H${r}/100*${fee.commissionPct}`,
+        spMinusBp:   `H${r}-G${r}`,
+        marginalTax: `I${r}/${fee.marginTaxDivisor ?? 6}`,
+        commission:  `H${r}/100*${fee.commissionPct}`,
         postage:     `${fee.postage}`,
-        grossProfit: `=H${r}-G${r}-J${r}-K${r}-L${r}`,
-        gpPercent:   `=M${r}/G${r}*100`,
+        grossProfit: `H${r}-G${r}-J${r}-K${r}-L${r}`,
+        gpPercent:   `M${r}/G${r}*100`,
       };
     }
     case 'BM': {
       // Headers: ... G=BP, H=SP, I=Payment Mode, J=SP-BP, K=Marginal Tax,
       //          L=PayPal/Klarna Com, M=Commission, N=Postage, O=GP, P=GP%
       return {
-        spMinusBp:        `=H${r}-G${r}`,
-        marginalTax:      `=J${r}/${fee.marginTaxDivisor ?? 6}`,
-        payPalKlarnaCom:  `=H${r}/100*${fee.payPalKlarnaPct ?? 2.5}`,
-        commission:       `=H${r}/100*${fee.commissionPct}`,
+        spMinusBp:        `H${r}-G${r}`,
+        marginalTax:      `J${r}/${fee.marginTaxDivisor ?? 6}`,
+        payPalKlarnaCom:  `H${r}/100*${fee.payPalKlarnaPct ?? 2.5}`,
+        commission:       `H${r}/100*${fee.commissionPct}`,
         postage:          `${fee.postage}`,
-        grossProfit:      `=H${r}-G${r}-K${r}-M${r}-N${r}-L${r}`,
-        gpPercent:        `=O${r}/G${r}*100`,
+        grossProfit:      `H${r}-G${r}-K${r}-M${r}-N${r}-L${r}`,
+        gpPercent:        `O${r}/G${r}*100`,
       };
     }
     case 'EBAY': {
       // Headers: ... G=BP, H=SP, I=SP-BP, J=MAR TAX, K=COM, L=ROF, M=FVF,
       //          N=0.2 (20% bundle), O=T.COM, P=SHIPPING, Q=GP, R=GP%, S=NP
       return {
-        spMinusBp:     `=H${r}-G${r}`,
-        marTax:        `=I${r}*16.6%`,
-        commission:    `=(H${r}*${fee.commissionPct}%)-(H${r}*${fee.commissionPct}%)*${fee.commissionReductionPct ?? 10}%`,
-        rof:           `=H${r}*${fee.rofPct ?? 0.35}%`,
+        spMinusBp:     `H${r}-G${r}`,
+        marTax:        `I${r}*16.6%`,
+        commission:    `(H${r}*${fee.commissionPct}%)-(H${r}*${fee.commissionPct}%)*${fee.commissionReductionPct ?? 10}%`,
+        rof:           `H${r}*${fee.rofPct ?? 0.35}%`,
         fvf:           `${fee.fixedFee ?? 0.4}`,
-        twentyPercent: `=(K${r}+L${r}+M${r})*${fee.vatPct ?? 20}%`,
-        totalCom:      `=K${r}+L${r}+M${r}+N${r}`,
-        grossProfit:   `=I${r}-J${r}-O${r}-P${r}`,
-        gpPercent:     `=Q${r}/H${r}*100`,
-        netProfit:     `=Q${r}-H${r}*${fee.promoPct ?? 5}%`,
+        twentyPercent: `(K${r}+L${r}+M${r})*${fee.vatPct ?? 20}%`,
+        totalCom:      `K${r}+L${r}+M${r}+N${r}`,
+        grossProfit:   `I${r}-J${r}-O${r}-P${r}`,
+        gpPercent:     `Q${r}/H${r}*100`,
+        netProfit:     `Q${r}-H${r}*${fee.promoPct ?? 5}%`,
       };
     }
     case 'ONBUY': {
       // Headers: ... F=BP, G=SP, H=SP-BP, I=MAR VAT, J=COM 7%, K=VAT 20%, L=SHIP, M=GP, N=GP%
       return {
-        spMinusBp:   `=G${r}-F${r}`,
-        marVat:      `=H${r}/${fee.marginTaxDivisor ?? 6}`,
-        commission:  `=G${r}*${fee.commissionPct}%`,
-        vat20:       `=I${r}*${fee.vatPct ?? 20}%`,
+        spMinusBp:   `G${r}-F${r}`,
+        marVat:      `H${r}/${fee.marginTaxDivisor ?? 6}`,
+        commission:  `G${r}*${fee.commissionPct}%`,
+        vat20:       `I${r}*${fee.vatPct ?? 20}%`,
         postage:     `${fee.postage}`,
-        grossProfit: `=G${r}-F${r}-J${r}-K${r}-L${r}-I${r}`,
-        gpPercent:   `=M${r}/G${r}*100`,
+        grossProfit: `G${r}-F${r}-J${r}-K${r}-L${r}-I${r}`,
+        gpPercent:   `M${r}/G${r}*100`,
       };
     }
   }
