@@ -135,7 +135,7 @@ interface ParsedData {
   /** Sales rows parsed from the SALES_REPORT sheet, if present. Wired through
    *  to `dbService.bulkUpsertSales` by handleImport — see B9 follow-up. */
   sales?: Array<Record<string, any> & { marketplace: string; orderNumber: string }>;
-  stats: { total: number; available: number; sold: number; incoming: number; skipped: number; duplicateRows: number };
+  stats: { total: number; available: number; sold: number; incoming: number; skipped: number; ignoredEmpty?: number; duplicateRows: number };
   format: 'client-bulk' | 'imei-per-row';
   /** Stamped by processFile (not by the parsers themselves) so the importBatch
    *  audit row carries the workbook's actual sheet name. */
@@ -145,6 +145,20 @@ interface ParsedData {
   detectedSupplierId?: string;
   /** Short human-readable summary used as the importBatch.notes field. */
   summary?: string;
+}
+
+/**
+ * Merge supplier lists from multiple sheets in the same workbook, deduping by
+ * stable id (or by case-insensitive trimmed name when ids differ). The first
+ * occurrence wins on conflicting fields — sheets are processed in order.
+ */
+function mergeSuppliers(list: Omit<Supplier, 'createdAt'>[]): Omit<Supplier, 'createdAt'>[] {
+  const byKey = new Map<string, Omit<Supplier, 'createdAt'>>();
+  for (const s of list) {
+    const key = s.id || `name:${(s.name || '').trim().toLowerCase()}`;
+    if (!byKey.has(key)) byKey.set(key, s);
+  }
+  return [...byKey.values()];
 }
 
 // ── Format detection ──────────────────────────────────────────────────────────
@@ -174,8 +188,28 @@ function parseClientBulkSheet(rows: any[][]): ParsedData {
   const units: Omit<InventoryUnit, 'createdAt'>[] = [];
   const aggregates: ParsedAggregate[] = [];
   let skipped = 0;
+  /** Fully-empty trailing rows (Excel pads sheets out to max_row even when most
+   *  rows have no content). Tracked separately so the preview doesn't scare
+   *  the operator with a giant "skipped" number for what's really just file
+   *  padding. */
+  let ignoredEmpty = 0;
   let uid = 1;
   let aggUid = 1;
+
+  /** True if the row has no meaningful content in any of the columns we care
+   *  about — i.e. xlsx-padding noise, not real data. */
+  const isRowFullyEmpty = (r: any[]): boolean => {
+    if (!r || r.length === 0) return true;
+    for (let c = 0; c < r.length; c++) {
+      const v = r[c];
+      if (v == null) continue;
+      if (typeof v === 'number') return false;
+      if (typeof v === 'string' && v.trim() !== '') return false;
+      if (typeof v === 'boolean') return false;
+      if (v instanceof Date) return false;
+    }
+    return true;
+  };
 
   // Map supplier display-name → synthetic id (kept stable across the sheet).
   const supplierIdFor = (name: string): string => {
@@ -188,6 +222,8 @@ function parseClientBulkSheet(rows: any[][]): ParsedData {
 
   for (let i = 1; i < rows.length; i++) {
     const r = rows[i];
+    // Silently drop Excel's trailing empty padding — those aren't errors.
+    if (isRowFullyEmpty(r)) { ignoredEmpty++; continue; }
     const rawModel   = modelIdx >= 0 ? String(r[modelIdx] || '').trim() : '';
     // Split into brand / model / storage / series so the doc carries first-class
     // fields (brand drives filters, model drives the unit card, storage drives
@@ -330,7 +366,7 @@ function parseClientBulkSheet(rows: any[][]): ParsedData {
     suppliers: Array.from(supplierMap.values()),
     units,
     aggregates,
-    stats: { total: units.length, available, sold: 0, incoming, skipped, duplicateRows: 0 },
+    stats: { total: units.length, available, sold: 0, incoming, skipped, ignoredEmpty, duplicateRows: 0 },
     format: 'client-bulk',
   };
 }
@@ -366,10 +402,24 @@ function parseOGStockSheet(rows: any[][]): ParsedData {
   const supplierMap = new Map<string, Omit<Supplier, 'createdAt'>>();
   const unitMap     = new Map<string, Omit<InventoryUnit, 'createdAt'>>();
   const seenImeis   = new Set<string>();
-  let skipped = 0, duplicateRows = 0;
+  let skipped = 0, duplicateRows = 0, ignoredEmpty = 0;
+
+  /** Same Excel-padding filter as parseClientBulkSheet. */
+  const isRowFullyEmpty = (r: any[]): boolean => {
+    if (!r || r.length === 0) return true;
+    for (const v of r) {
+      if (v == null) continue;
+      if (typeof v === 'number') return false;
+      if (typeof v === 'string' && v.trim() !== '') return false;
+      if (typeof v === 'boolean') return false;
+      if (v instanceof Date) return false;
+    }
+    return true;
+  };
 
   for (let i = 1; i < rows.length; i++) {
     const r = rows[i];
+    if (isRowFullyEmpty(r)) { ignoredEmpty++; continue; }
     const rawModel = r[modelIdx]?.toString().trim();
     if (!rawModel || /^(model|total|#)/i.test(rawModel)) { skipped++; continue; }
     // Split into brand / model / storage / series. The cleaned model is what
@@ -454,7 +504,7 @@ function parseOGStockSheet(rows: any[][]): ParsedData {
   return {
     suppliers: Array.from(supplierMap.values()),
     units,
-    stats: { total: units.length, available, sold, incoming, skipped, duplicateRows },
+    stats: { total: units.length, available, sold, incoming, skipped, ignoredEmpty, duplicateRows },
     format: 'imei-per-row',
   };
 }
@@ -537,16 +587,54 @@ export default function ImportModal({ onClose }: ImportModalProps) {
           return;
         }
 
-        const sheetName = wb.SheetNames.includes('OG STOCK DATA') ? 'OG STOCK DATA' : wb.SheetNames[0];
-        const ws   = wb.Sheets[sheetName];
-        const rows: any[][] = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' }) as any[][];
+        // INVENTORY_REPORT workbooks ship with two stock-relevant sheets:
+        // "INVENTORY" (the model+supplier roll-up, bulk format) and
+        // "IMEI NUMBERS" (one row per physical IMEI). Process WHICHEVER is
+        // present, merging the results — that way the user gets aggregates
+        // + per-unit records from the same upload instead of having to drag
+        // the file in twice.
+        const parsedSheets: { name: string; result: ParsedData }[] = [];
+        const sheetCandidates = wb.SheetNames.includes('OG STOCK DATA')
+          ? ['OG STOCK DATA']
+          : ['INVENTORY', 'IMEI NUMBERS'].filter(n => wb.SheetNames.includes(n));
+        // Fall back to the very first sheet if neither named sheet is present.
+        if (sheetCandidates.length === 0 && wb.SheetNames.length > 0) {
+          sheetCandidates.push(wb.SheetNames[0]);
+        }
+        for (const sheetName of sheetCandidates) {
+          const ws = wb.Sheets[sheetName];
+          if (!ws) continue;
+          const rows: any[][] = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' }) as any[][];
+          if (!rows.length) continue;
+          const format = detectFormat(rows[0] || []);
+          const result = format === 'client-bulk' ? parseClientBulkSheet(rows) : parseOGStockSheet(rows);
+          if (!result.units.length && !(result.aggregates?.length)) continue;
+          parsedSheets.push({ name: sheetName, result });
+        }
 
-        const format = detectFormat(rows[0] || []);
-        const result = format === 'client-bulk' ? parseClientBulkSheet(rows) : parseOGStockSheet(rows);
-        if (!result.units.length) {
+        if (parsedSheets.length === 0) {
           setError('No valid rows found. Check the file has a header row and at least one data row matching the expected columns.');
           return;
         }
+
+        // Merge multi-sheet results into one ParsedData payload.
+        const result: ParsedData = parsedSheets[0].result;
+        for (let i = 1; i < parsedSheets.length; i++) {
+          const next = parsedSheets[i].result;
+          result.units = [...result.units, ...next.units];
+          result.suppliers = mergeSuppliers([...result.suppliers, ...next.suppliers]);
+          result.aggregates = [...(result.aggregates ?? []), ...(next.aggregates ?? [])];
+          result.stats = {
+            total:        result.stats.total + next.stats.total,
+            available:    result.stats.available + next.stats.available,
+            sold:         result.stats.sold + next.stats.sold,
+            incoming:     result.stats.incoming + next.stats.incoming,
+            skipped:      result.stats.skipped + next.stats.skipped,
+            ignoredEmpty: (result.stats.ignoredEmpty ?? 0) + (next.stats.ignoredEmpty ?? 0),
+            duplicateRows: result.stats.duplicateRows + next.stats.duplicateRows,
+          };
+        }
+        const sheetName = parsedSheets.map(s => s.name).join(' + ');
         // Stamp workbook/sheet metadata + a short summary onto the parsed
         // payload so handleImport can record them on the importBatches row
         // without the parsers having to know about them.
@@ -948,9 +1036,14 @@ export default function ImportModal({ onClose }: ImportModalProps) {
                 <div className="px-4 py-3 ring-1 ring-slate-200 bg-slate-50/60 rounded-xl flex items-start gap-2.5">
                   <AlertTriangle size={14} className="mt-0.5 flex-shrink-0 text-slate-400" strokeWidth={1.75} />
                   <p className="text-[11px] text-slate-600 leading-relaxed">
-                    <span className="font-semibold">{parsed.stats.skipped}</span> row{parsed.stats.skipped !== 1 ? 's' : ''} couldn't be parsed (missing model, no buy price, or header repeated). They'll be skipped.
+                    <span className="font-semibold">{parsed.stats.skipped}</span> row{parsed.stats.skipped !== 1 ? 's' : ''} had a header repeat or a section title (no model, no buy price). Skipped — no action needed.
                   </p>
                 </div>
+              )}
+              {parsed.stats.ignoredEmpty !== undefined && parsed.stats.ignoredEmpty > 0 && (
+                <p className="text-[10px] text-slate-400 font-mono mt-1">
+                  {parsed.stats.ignoredEmpty} empty padding row{parsed.stats.ignoredEmpty !== 1 ? 's' : ''} ignored (Excel formatting noise).
+                </p>
               )}
 
               <div>
