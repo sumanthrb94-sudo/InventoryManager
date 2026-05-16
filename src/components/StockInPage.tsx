@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import {
   PackagePlus, Search, Plus, CheckCircle2, Clock,
   ChevronDown, ChevronUp, Truck, PackageCheck, AlertCircle, MoreVertical, Trash2,
@@ -6,7 +6,7 @@ import {
 import { AnimatePresence, motion } from 'motion/react';
 import { dbService } from '../lib/dbService';
 import { notificationService } from '../lib/notificationService';
-import { InventoryUnit, Supplier } from '../types';
+import { InventoryUnit, InventoryAggregate, Supplier } from '../types';
 import { useInventoryStore } from '../lib/inventoryStore';
 import CopyImei from './CopyImei';
 import CollapsibleSection from './CollapsibleSection';
@@ -37,6 +37,15 @@ export default function StockInPage({ onOpenBatch, onOpenImport: _onOpenImport }
   const [showStockIntakeFlow, setShowStockIntakeFlow] = useState(false);
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
+  // Live subscription to inventoryAggregates so SHS roll-up rows (which the
+  // master-file parser emits with quantityText='SHS') are visible here even
+  // though they aren't synthesised into the per-unit `units` array.
+  const [aggregates, setAggregates] = useState<InventoryAggregate[]>([]);
+
+  useEffect(() => {
+    const unsub = dbService.subscribeToCollection('inventoryAggregates', setAggregates);
+    return () => { unsub(); };
+  }, []);
 
   const today = new Date().toISOString().split('T')[0];
 
@@ -69,6 +78,16 @@ export default function StockInPage({ onOpenBatch, onOpenImport: _onOpenImport }
       .sort((a, b) => new Date(b.dateIn).getTime() - new Date(a.dateIn).getTime()),
     [units],
   );
+
+  // SHS aggregates — the master-file INVENTORY-sheet roll-up rows whose
+  // QUANTITY column is the literal "SHS". These represent stock the supplier
+  // holds for us; we haven't received it yet.
+  const shsAggregates = useMemo(() =>
+    aggregates.filter(a => (a.quantityText || '').toUpperCase() === 'SHS'),
+    [aggregates],
+  );
+
+  const shsTotal = pendingSHS.length + shsAggregates.length;
 
   // Group identical pending SHS units to avoid sequential duplicate rows
   const pendingSHSGroups = useMemo(() => {
@@ -152,11 +171,12 @@ export default function StockInPage({ onOpenBatch, onOpenImport: _onOpenImport }
             </div>
           </div>
 
-          {/* Pending SHS */}
+          {/* Pending SHS — includes both per-unit incoming placeholders and
+              INVENTORY-sheet aggregate roll-up rows flagged as SHS. */}
           <div className="flex items-center gap-3 px-5 py-3 bg-amber-50 border border-amber-100 rounded-lg flex-shrink-0">
             <div className="text-center">
               <p className="text-[8px] font-mono uppercase tracking-widest text-amber-600">SHS</p>
-              <p className="text-2xl font-bold text-amber-700 leading-tight">{pendingSHS.length}</p>
+              <p className="text-2xl font-bold text-amber-700 leading-tight">{shsTotal}</p>
             </div>
           </div>
         </div>
@@ -188,6 +208,68 @@ export default function StockInPage({ onOpenBatch, onOpenImport: _onOpenImport }
 
       {/* Intelligence panel */}
       <IntelligencePanel units={units} mode="buy" />
+
+      {/* Supplier Has Stock (SHS) — INVENTORY-sheet aggregates whose QUANTITY
+          column is the literal "SHS". These are rolled-up model+supplier rows
+          (no IMEI yet) representing stock the supplier holds for us. */}
+      {shsAggregates.length > 0 && (
+        <CollapsibleSection
+          title="Supplier Has Stock (SHS)"
+          count={shsAggregates.length}
+          accent="border-l-orange-500"
+          defaultOpen={true}
+        >
+          <div className="divide-y divide-orange-50">
+            {shsAggregates.map(a => {
+              const supplierName = a.supplierIds && a.supplierIds.length > 0
+                ? (supplierMap[a.supplierIds[0]] || a.supplierIds[0])
+                : '—';
+              const qty = a.quantityNum ?? '—';
+              return (
+                <div key={a.id} className="flex items-center gap-3 px-4 py-3 hover:bg-orange-50/50 transition-all">
+                  <div className="w-8 h-8 rounded-lg bg-orange-100 flex items-center justify-center flex-shrink-0">
+                    <Truck size={14} className="text-orange-600" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2">
+                      <p className="text-xs font-bold truncate">{a.model}</p>
+                      <span className="text-[9px] font-bold text-orange-700 bg-orange-100 px-1.5 py-0.5 rounded font-mono flex-shrink-0">
+                        SHS
+                      </span>
+                      {typeof qty === 'number' && (
+                        <span className="text-[9px] font-bold text-orange-700 bg-orange-50 px-1.5 py-0.5 rounded font-mono flex-shrink-0">
+                          ×{qty}
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-[9px] text-gray-400 font-mono mt-0.5">
+                      {(a as any).storage ? `${(a as any).storage} · ` : ''}
+                      {supplierName}
+                      {a.coloursRaw ? ` · ${a.coloursRaw}` : ''}
+                    </p>
+                    {a.notes && (
+                      <p className="text-[8px] text-orange-600 font-mono mt-0.5 truncate">{a.notes}</p>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-2 flex-shrink-0">
+                    {typeof a.buyPrice === 'number' && (
+                      <span className="text-sm font-bold">£{a.buyPrice}</span>
+                    )}
+                    <button
+                      type="button"
+                      disabled
+                      title="Receive flow will be wired up in a follow-up"
+                      className="px-3 py-1.5 bg-orange-400 text-white text-[9px] font-bold uppercase tracking-widest rounded-lg opacity-60 cursor-not-allowed flex items-center gap-1"
+                    >
+                      <PackageCheck size={11} /> Receive into stock
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </CollapsibleSection>
+      )}
 
       {/* Pending SHS section */}
       {pendingSHS.length > 0 && (

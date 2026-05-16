@@ -25,6 +25,7 @@ import {
   buildInventoryWorkbookBuffer,
   buildSalesWorkbookBuffer,
 } from '../src/lib/clientReport.ts';
+import { extractStorage } from '../src/lib/modelStorage.ts';
 import type {
   InventoryUnit,
   InventoryAggregate,
@@ -143,24 +144,33 @@ export function parseInventoryWorkbook(buf: Buffer): ParseResult {
 
   // --- Sheet: INVENTORY (aggregate roll-ups)
   const aggregates: InventoryAggregate[] = [];
+  // SHS rows additionally emit synthetic InventoryUnit placeholders (status:
+  // 'incoming') so the legacy StockInPage "Pending SHS" list lights up.
+  const shsUnits: InventoryUnit[] = [];
+  const todayIso = new Date().toISOString().slice(0, 10);
   const invSheet = wb.Sheets['INVENTORY'];
   if (invSheet) {
     const rows = XLSX.utils.sheet_to_json<any[]>(invSheet, { header: 1, defval: '' });
     // Header row at index 0: MODEL | BP | QUANTITY | (D notes) | VALUE | COLOURS | SUPPLIER | NOTES
     for (let r = 1; r < rows.length; r++) {
       const row = rows[r] ?? [];
-      const model = trimOrUndef(row[0]);
-      if (!model) continue;
+      const rawModel = trimOrUndef(row[0]);
+      if (!rawModel) continue;
+      // Strip embedded storage out of the MODEL string and persist it on the
+      // aggregate so downstream consumers can filter / display capacity.
+      const { model, storage } = extractStorage(rawModel);
       const bp = typeof row[1] === 'number' ? row[1] : parseFloat(String(row[1] ?? '')) || undefined;
       const qty = parseQuantityCell(row[2]);
       const notesFlag = trimOrUndef(row[3]);
       const { coloursMap, coloursRaw } = parseColoursAndQty(trimOrUndef(row[5]));
       const supplierParsed = parseSupplierCell(row[6]);
       const supplierIds = supplierParsed.allNames.map(supplierIdFor).filter(Boolean);
+      const supplierId  = supplierParsed.primaryName ? supplierIdFor(supplierParsed.primaryName) : '';
       const notes = trimOrUndef(row[7]);
       aggregates.push({
         id: `agg_${r}_${slugify(model)}`,
         model,
+        ...(storage ? { storage } : {}),
         buyPrice: bp,
         quantityNum: 'qty' in qty && qty.qty !== undefined ? qty.qty : undefined,
         quantityText: 'flag' in qty ? qty.raw : undefined,
@@ -174,11 +184,49 @@ export function parseInventoryWorkbook(buf: Buffer): ParseResult {
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
       });
+
+      // SHS placeholder unit — mirrors ImportModal::parseClientBulkSheet so the
+      // legacy StockInPage "Pending SHS" list (filters status === 'incoming')
+      // lights up. The aggregate above is the canonical SHS record; this unit
+      // is purely a UI bridge for legacy consumers.
+      const isShs = 'flag' in qty && qty.flag === 'SHS';
+      if (isShs) {
+        const primaryColour = Object.keys(coloursMap)[0] || (coloursRaw || 'Unknown');
+        const upperModel = model.toUpperCase();
+        const brand = (upperModel.includes('IPHONE') || upperModel.includes('IPAD') || upperModel.includes('MACBOOK'))
+          ? 'Apple' : 'Other';
+        shsUnits.push({
+          id: `shs_${slugify(model)}_${slugify(supplierParsed.primaryName || 'unknown')}_${r}`,
+          imei: '',
+          model,
+          ...(storage ? { storage } : {}),
+          brand,
+          category: 'Other' as any,
+          colour: primaryColour,
+          buyPrice: bp ?? 0,
+          dateIn: todayIso,
+          supplierId,
+          supplierIds: supplierIds.length > 0 ? supplierIds : (supplierId ? [supplierId] : []),
+          supplierName: supplierParsed.primaryName || '',
+          status: 'incoming' as any,
+          statusRaw: 'SHS',
+          flags: [],
+          notes: `SHS — Expected${notes ? ' · ' + notes : ''}`,
+          platformListed: false,
+          ownerId: 'shared',
+          sourceRow: r + 1,
+          createdAt: new Date().toISOString(),
+          // Sentinel + supplier-held quantity (free-form fields — InventoryUnit
+          // permits extra keys, so no type change required).
+          _isShsPlaceholder: true,
+          _shsQuantity: 'qty' in qty && qty.qty !== undefined ? qty.qty : 1,
+        } as any);
+      }
     }
   }
 
   // --- Sheet: IMEI NUMBERS (855 rows, per-unit)
-  const units: InventoryUnit[] = [];
+  const units: InventoryUnit[] = [...shsUnits];
   const imeiSheet = wb.Sheets['IMEI NUMBERS'];
   if (imeiSheet) {
     const rows = XLSX.utils.sheet_to_json<any[]>(imeiSheet, { header: 1, defval: '' });
@@ -186,8 +234,13 @@ export function parseInventoryWorkbook(buf: Buffer): ParseResult {
     for (let r = 1; r < rows.length; r++) {
       const row = rows[r] ?? [];
       const imei = normaliseImei(row[2]);
-      const model = trimOrUndef(row[1]);
-      if (!imei && !model) continue;
+      const rawModel = trimOrUndef(row[1]);
+      if (!imei && !rawModel) continue;
+      // Strip embedded storage out of the MODEL string and propagate it as a
+      // first-class field on the unit (`InventoryUnit.storage`).
+      const { model, storage } = rawModel
+        ? extractStorage(rawModel)
+        : { model: '', storage: undefined as string | undefined };
       const supplierParsed = parseSupplierCell(row[5]);
       const supplierId = supplierParsed.primaryName ? supplierIdFor(supplierParsed.primaryName) : '';
       const supplierIds = supplierParsed.allNames.map(supplierIdFor).filter(Boolean);
@@ -195,11 +248,13 @@ export function parseInventoryWorkbook(buf: Buffer): ParseResult {
       const marketplace = trimOrUndef(row[8]);
       const dateIn = excelDateToIso(row[0]) ?? '';
       const stockOutDate = excelDateToIso(row[9]);
+      const upperModel = (model || '').toUpperCase();
       units.push({
         id: imei || `unit_${r}`,
         imei,
         model: model ?? '',
-        brand: model?.toUpperCase().includes('IPHONE') || model?.toUpperCase().includes('IPAD') || model?.toUpperCase().includes('MACBOOK') ? 'Apple' : 'Other',
+        ...(storage ? { storage } : {}),
+        brand: upperModel.includes('IPHONE') || upperModel.includes('IPAD') || upperModel.includes('MACBOOK') ? 'Apple' : 'Other',
         category: 'Other' as any,
         colour: trimOrUndef(row[4]) ?? '',
         buyPrice: typeof row[3] === 'number' ? row[3] : parseFloat(String(row[3] ?? '')) || 0,

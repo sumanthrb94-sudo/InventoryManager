@@ -23,6 +23,7 @@ import argparse
 import hashlib
 import json
 import os
+import re
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -250,6 +251,48 @@ def normalise_platform(raw) -> str:
     return PLATFORM_ALIASES.get(key, str(raw).strip())
 
 
+# ── Storage extraction ───────────────────────────────────────────────────────
+#
+# Mirrors src/lib/modelStorage.ts (kept inline because this script is standalone
+# Python and can't import the TS helper). Keep the regex + normalisation rules
+# in sync.
+#
+#   "IPAD 7TH GEN 32GB W/C"                  -> ("IPAD 7TH GEN W/C", "32GB")
+#   "iPad 7 32GB Wifi 2019 10.2 - WIFI + 4G" -> ("iPad 7 Wifi 2019 10.2 - WIFI + 4G", "32GB")
+#   "iPhone 13 Pro Max"                      -> ("iPhone 13 Pro Max", None)
+#   "Galaxy S22 Ultra 1TB"                   -> ("Galaxy S22 Ultra", "1TB")
+STORAGE_REGEX = re.compile(r'\b(\d+\s?(?:GB|TB))\b', re.IGNORECASE)
+
+
+def _collapse_whitespace(s: str) -> str:
+    return re.sub(r'\s+', ' ', s).strip()
+
+
+def extract_storage(raw):
+    """Extract storage capacity from a model string.
+
+    Returns a (model, storage) tuple where `storage` is normalised to upper-case
+    with no internal whitespace (e.g. "32 gb" -> "32GB") or `None` if no storage
+    pattern was found. The returned `model` has the matched substring removed
+    and whitespace collapsed.
+    """
+    input_str = '' if raw is None else str(raw)
+    if not input_str.strip():
+        return input_str.strip(), None
+
+    match = STORAGE_REGEX.search(input_str)
+    if not match:
+        return _collapse_whitespace(input_str), None
+
+    storage = re.sub(r'\s+', '', match.group(1)).upper()
+    start, end = match.span()
+    stitched = input_str[:start] + ' ' + input_str[end:]
+    stitched = re.sub(r'\s+,', ',', stitched)
+    stitched = re.sub(r',\s*,', ',', stitched)
+    stitched = re.sub(r'^\s*,\s*|\s*,\s*$', '', stitched)
+    return _collapse_whitespace(stitched), storage
+
+
 def parse_colour(model: str, raw_colour) -> str:
     rc = str(raw_colour).strip() if raw_colour else ''
     if rc and rc.lower() not in ('unknown', 'nan', 'none', ''):
@@ -368,10 +411,14 @@ def parse_sheet(df, cols: dict, verbose: bool) -> dict:
         return safe_str(val, default)
 
     for idx, row in df.iterrows():
-        model = get(row, 'model')
-        if not model:
+        raw_model = get(row, 'model')
+        if not raw_model:
             skipped += 1
             continue
+        # Strip embedded storage (e.g. "iPad 7 32GB Wifi" -> "iPad 7 Wifi" + "32GB").
+        # The cleaned model is what we persist; storage falls back to the value
+        # in the dedicated Storage column when present.
+        model, model_storage = extract_storage(raw_model)
 
         # Use the raw cell value (not safe_str'd) so normalize_imei can detect
         # floats from openpyxl and format them as ints (avoids 1.23e+14 scientific notation).
@@ -400,7 +447,9 @@ def parse_sheet(df, cols: dict, verbose: bool) -> dict:
         raw_sale_date = row.get(cols.get('saleDate')) if cols.get('saleDate') else None
         sale_date     = safe_date(raw_sale_date) if raw_sale_date else date_in
         raw_colour    = get(row, 'colour')
-        storage       = get(row, 'storage') or None
+        # Prefer the dedicated Storage column when present, fall back to the
+        # value we extracted out of the MODEL string above.
+        storage       = (get(row, 'storage') or model_storage) or None
         condition     = get(row, 'condition') or None
         notes         = get(row, 'notes') or ''
         order_num     = get(row, 'orderNum') or None

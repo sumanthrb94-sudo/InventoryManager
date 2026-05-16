@@ -301,6 +301,9 @@ export interface MarketplaceFee {
 export interface InventoryAggregate {
   id: string;
   model: string;
+  /** Storage capacity (e.g. "32GB", "1TB") extracted out of the MODEL string
+   * by `extractStorage()`; mirrors `InventoryUnit.storage`. */
+  storage?: string;
   buyPrice?: number;
   quantityNum?: number;
   /** Captures non-numeric quantity values like "SHS", "NO STOCK". */

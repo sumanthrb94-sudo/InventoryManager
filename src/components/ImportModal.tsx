@@ -7,6 +7,7 @@ import { DeviceCategory, InventoryAggregate, InventoryUnit, Supplier } from '../
 import { buildStableUnitId } from '../lib/inventoryMaintenance';
 import { uploadSourceAttachment } from '../lib/fileAttachments';
 import { logInventoryEvent } from '../lib/inventoryEvents';
+import { extractStorage } from '../lib/modelStorage';
 
 interface ImportModalProps { onClose: () => void; }
 
@@ -187,7 +188,10 @@ function parseClientBulkSheet(rows: any[][]): ParsedData {
 
   for (let i = 1; i < rows.length; i++) {
     const r = rows[i];
-    const model      = modelIdx >= 0 ? String(r[modelIdx] || '').trim() : '';
+    const rawModel   = modelIdx >= 0 ? String(r[modelIdx] || '').trim() : '';
+    // Strip embedded storage (e.g. "iPad 7 32GB Wifi" → "iPad 7 Wifi" + "32GB").
+    // The cleaned model is what we persist; storage is propagated separately.
+    const { model, storage } = extractStorage(rawModel);
     const bpRaw      = bpIdx >= 0 ? r[bpIdx] : 0;
     const qtyRawCell = qtyIdx >= 0 ? r[qtyIdx] : '';
     const qtyParsed  = parseQuantityCell(qtyRawCell);
@@ -208,11 +212,14 @@ function parseClientBulkSheet(rows: any[][]): ParsedData {
     if (!isNumeric && !isSHS) {
       // Non-numeric, non-SHS (e.g. "NO STOCK", blank, "OTHER"): capture as
       // an InventoryAggregate so downstream can decide what to do with it.
+      // qtyParsed is narrowed to the flagged variant here (qty is undefined).
+      const rawQtyText = 'raw' in qtyParsed ? qtyParsed.raw : '';
       aggregates.push({
         id: `agg_${aggUid++}`,
         model,
+        ...(storage ? { storage } : {}),
         ...(bp ? { buyPrice: bp } : {}),
-        quantityText: qtyParsed.raw,
+        quantityText: rawQtyText,
         ...(colours ? { coloursRaw: colours } : {}),
         supplierIds: supParsed.allNames.map(supplierIdFor),
         supplierNames: supParsed.allNames,
@@ -242,6 +249,7 @@ function parseClientBulkSheet(rows: any[][]): ParsedData {
     aggregates.push({
       id: `agg_${aggUid++}`,
       model,
+      ...(storage ? { storage } : {}),
       ...(bp ? { buyPrice: bp } : {}),
       ...(isNumeric ? { quantityNum: qtyParsed.qty as number } : {}),
       ...(isSHS ? { quantityText: 'SHS' } : {}),
@@ -255,17 +263,32 @@ function parseClientBulkSheet(rows: any[][]): ParsedData {
     });
 
     if (isSHS) {
-      const parsed = parseColourStr(colours);
-      const colourList = parsed.length ? parsed.map(c => c.colour) : ['Unknown'];
-      for (const colour of colourList) {
-        units.push({
-          id: `import_shs_${uid++}`, imei: `SHS_import_${uid}`,
-          model, brand, category, colour, buyPrice: bp,
-          dateIn, supplierId, supplierIds, supplierName: primaryName, status: 'incoming',
-          flags: [], notes: `SHS — Expected${notes ? ' · ' + notes : ''}`,
-          platformListed: false, listingSites: [], ownerId: 'shared',
-        });
-      }
+      // SHS rows emit ONE synthetic InventoryUnit placeholder so the legacy
+      // StockInPage "Pending SHS" list (which filters units.status==='incoming')
+      // lights up. The aggregate above is the source-of-truth for the new
+      // dedicated SHS panel. Deterministic id → re-imports upsert cleanly.
+      const slug = (s: string) =>
+        String(s || '').trim().toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '') || 'unknown';
+      const parsedColours = parseColourStr(colours);
+      const primaryColour = parsedColours[0]?.colour || (colours || 'Unknown');
+      units.push({
+        id: `shs_${slug(model)}_${slug(primaryName || 'unknown')}_${i}`,
+        imei: '',
+        model, brand, category, colour: primaryColour, buyPrice: bp,
+        dateIn, supplierId, supplierIds, supplierName: primaryName,
+        status: 'incoming',
+        statusRaw: 'SHS',
+        flags: [],
+        notes: `SHS — Expected${notes ? ' · ' + notes : ''}`,
+        platformListed: false, listingSites: [], ownerId: 'shared',
+        // Sentinel + supplier-held qty so downstream consumers can recognise
+        // a synthetic SHS placeholder (vs a real per-IMEI incoming unit).
+        _isShsPlaceholder: true,
+        _shsQuantity: qtyParsed.qty !== undefined ? qtyParsed.qty : 1,
+        // Stamp the source row so the bulk-create loop picks it up via
+        // `(u as any)._sourceRow ?? (idx + 1)` (see persist loop below).
+        _sourceRow: i,
+      } as any);
     } else {
       const parsed = parseColourStr(colours);
       const colourList: string[] = parsed.length
@@ -331,8 +354,12 @@ function parseOGStockSheet(rows: any[][]): ParsedData {
 
   for (let i = 1; i < rows.length; i++) {
     const r = rows[i];
-    const model = r[modelIdx]?.toString().trim();
-    if (!model || /^(model|total|#)/i.test(model)) { skipped++; continue; }
+    const rawModel = r[modelIdx]?.toString().trim();
+    if (!rawModel || /^(model|total|#)/i.test(rawModel)) { skipped++; continue; }
+    // Strip embedded storage (e.g. "iPad 7 32GB Wifi" → "iPad 7 Wifi" + "32GB").
+    // The cleaned model is what we persist; storage is propagated separately
+    // and used as a fallback when the dedicated Storage column is absent/empty.
+    const { model, storage: modelStorage } = extractStorage(rawModel);
 
     // Cast IMEI cell to string explicitly so a 15-digit number doesn't become "1.23e+14"
     const imei         = r[imeiIdx] === undefined || r[imeiIdx] === null
@@ -343,7 +370,10 @@ function parseOGStockSheet(rows: any[][]): ParsedData {
     const supplierName = r[supplierIdx]?.toString().trim() || 'Unknown';
     const buyPrice     = parseFloat(r[buyPriceIdx]) || 0;
     const colour       = colourIdx >= 0 && r[colourIdx] ? r[colourIdx].toString().trim() : 'Unknown';
-    const storage      = storageIdx >= 0 && r[storageIdx] ? r[storageIdx].toString().trim() : undefined;
+    // Prefer the dedicated Storage column when present, fall back to the value
+    // we just extracted out of the MODEL string.
+    const explicitStorage = storageIdx >= 0 && r[storageIdx] ? r[storageIdx].toString().trim() : undefined;
+    const storage      = explicitStorage || modelStorage;
     const notes        = notesIdx >= 0 && r[notesIdx] ? r[notesIdx].toString().trim() : '';
 
     const statusRaw = r[statusIdx]?.toString().trim().toUpperCase();

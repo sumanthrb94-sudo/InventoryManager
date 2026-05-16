@@ -161,6 +161,40 @@ function getCell(row, idx, fallback = '') {
   return row[idx]?.toString().trim() || fallback;
 }
 
+// ── Storage extraction ───────────────────────────────────────────────────────
+//
+// Mirrors src/lib/modelStorage.ts (kept inline because this script is CJS and
+// can't import the TS helper). Keep the regex + normalisation rules in sync.
+//
+//   "IPAD 7TH GEN 32GB W/C"                  → { model: "IPAD 7TH GEN W/C", storage: "32GB" }
+//   "iPad 7 32GB Wifi 2019 10.2 - WIFI + 4G" → { model: "iPad 7 Wifi 2019 10.2 - WIFI + 4G", storage: "32GB" }
+//   "iPhone 13 Pro Max"                      → { model: "iPhone 13 Pro Max", storage: undefined }
+//   "Galaxy S22 Ultra 1TB"                   → { model: "Galaxy S22 Ultra", storage: "1TB" }
+const STORAGE_REGEX = /\b(\d+\s?(?:GB|TB))\b/i;
+
+function collapseWhitespace(s) {
+  return String(s).replace(/\s+/g, ' ').trim();
+}
+
+function extractStorage(raw) {
+  const input = (raw == null ? '' : String(raw));
+  if (!input.trim()) return { model: input.trim(), storage: undefined };
+
+  const match = input.match(STORAGE_REGEX);
+  if (!match) return { model: collapseWhitespace(input), storage: undefined };
+
+  const storage = match[1].replace(/\s+/g, '').toUpperCase();
+  const start = match.index || 0;
+  const end = start + match[0].length;
+  const before = input.slice(0, start);
+  const after = input.slice(end);
+  const stitched = (before + ' ' + after)
+    .replace(/\s+,/g, ',')
+    .replace(/,\s*,/g, ',')
+    .replace(/^\s*,\s*|\s*,\s*$/g, '');
+  return { model: collapseWhitespace(stitched), storage };
+}
+
 // Preserve IMEIs verbatim: client data includes alphanumeric Apple serials
 // (e.g. "NL6CMQCYTD", "SKC9P3QVP6F"), so we MUST NOT strip non-digits.
 function normalizeImei(raw) {
@@ -318,8 +352,12 @@ function parseWorksheet(ws, verbose) {
     // Skip fully empty rows
     if (r.every(cell => !cell || cell.toString().trim() === '')) continue;
 
-    const model = getCell(r, cols.model);
-    if (!isValidRow(model)) { skipped++; continue; }
+    const rawModel = getCell(r, cols.model);
+    if (!isValidRow(rawModel)) { skipped++; continue; }
+    // Strip embedded storage (e.g. "iPad 7 32GB Wifi" → "iPad 7 Wifi" + "32GB").
+    // The cleaned model is what we persist; storage falls back to the value
+    // in the dedicated Storage column when present.
+    const { model, storage: modelStorage } = extractStorage(rawModel);
 
     const rawImei      = getCell(r, cols.imei);
     // Preserve IMEIs verbatim: alphanumeric Apple serials (e.g. "NL6CMQCYTD") must not be stripped.
@@ -380,6 +418,10 @@ function parseWorksheet(ws, verbose) {
     const status = isSold ? 'sold' : 'available';
     const listingSites = (!isSold && platform) ? [platform] : [];
 
+    // Prefer the dedicated Storage column when present, fall back to the value
+    // we extracted out of the MODEL string above.
+    const storage = rawStorage || modelStorage || undefined;
+
     const unit = {
       id:             unitId,
       imei,
@@ -387,7 +429,7 @@ function parseWorksheet(ws, verbose) {
       brand,
       category,
       colour,
-      storage:        rawStorage || undefined,
+      storage,
       conditionGrade: rawCondition || undefined,
       buyPrice,
       dateIn,
