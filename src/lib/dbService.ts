@@ -243,15 +243,19 @@ export const dbService = {
     window.location.href = window.location.origin + '?reset=' + Date.now();
   },
 
+  // Accept any non-empty IMEI/serial verbatim — client data includes alphanumeric Apple
+  // serials (e.g. "NL6CMQCYTD", "SKC9P3QVP6F") that are shorter than 14 chars.
   async imeiExists(imei: string): Promise<boolean> {
-    if (!imei || imei.length < 14) return false;
+    if (!imei) return false;
     const cached = (cachedData['inventoryUnits'] || []).find((u: any) => u.imei === imei);
     if (cached) return true;
     const snap = await getDocs(query(colRef('inventoryUnits'), where('imei', '==', imei)));
     return !snap.empty;
   },
 
+  // Accept any non-empty IMEI/serial verbatim — see imeiExists() comment above.
   async getByImei(imei: string): Promise<any | null> {
+    if (!imei) return null;
     const cached = (cachedData['inventoryUnits'] || []).find((u: any) => u.imei === imei);
     if (cached) return cached;
     const snap = await getDocs(query(colRef('inventoryUnits'), where('imei', '==', imei)));

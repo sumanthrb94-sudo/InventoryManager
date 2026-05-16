@@ -273,6 +273,27 @@ def safe_str(val, default='') -> str:
     return default if s.lower() in ('', 'nan', 'none', 'nat') else s
 
 
+# Preserve IMEIs verbatim: client data includes alphanumeric Apple serials
+# (e.g. "NL6CMQCYTD", "SKC9P3QVP6F"), so we MUST NOT strip non-digits.
+def normalize_imei(val) -> str:
+    if val is None:
+        return ''
+    # openpyxl reads numeric IMEIs as float; format as integer to avoid scientific notation.
+    if isinstance(val, float):
+        if val != val:  # NaN
+            return ''
+        if val.is_integer():
+            return format(int(val), 'd')
+        return repr(val)
+    if isinstance(val, int):
+        return format(val, 'd')
+    s = str(val).strip()
+    if s.lower() in ('nan', 'none', 'nat'):
+        return ''
+    # strip surrounding whitespace and quotes only
+    return s.strip().strip('"').strip("'").strip()
+
+
 def build_unit_id(imei: str, model: str, date_in: str, supplier_id: str,
                   buy_price: float, status: str) -> str:
     key = '|'.join([imei or model, date_in, supplier_id, str(buy_price), status])
@@ -302,8 +323,11 @@ def parse_sheet(df, cols: dict, verbose: bool) -> dict:
             skipped += 1
             continue
 
-        raw_imei      = get(row, 'imei')
-        imei          = ''.join(filter(str.isdigit, raw_imei))
+        # Use the raw cell value (not safe_str'd) so normalize_imei can detect
+        # floats from openpyxl and format them as ints (avoids 1.23e+14 scientific notation).
+        imei_col = cols.get('imei')
+        raw_imei = row.get(imei_col) if imei_col is not None else ''
+        imei     = normalize_imei(raw_imei)
         raw_supplier  = get(row, 'supplier', 'Unknown')
         supplier_name = normalise_supplier(raw_supplier)
         buy_price     = safe_float(get(row, 'buyPrice', '0'))
