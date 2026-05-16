@@ -135,6 +135,10 @@ export interface ParsedData {
   /** Sales rows parsed from the SALES_REPORT sheet, if present. Wired through
    *  to `dbService.bulkUpsertSales` by handleImport — see B9 follow-up. */
   sales?: Array<Record<string, any> & { marketplace: string; orderNumber: string }>;
+  /** SUPPLIER WHATSAPP UPDATES rows — captured from sheet 3 of the master
+   *  INVENTORY_REPORT workbook. Persists to the supplierWhatsappUpdates
+   *  collection and renders under Admin → Suppliers. */
+  whatsappUpdates?: Array<{ id: string; rawText: string; priceText?: string; ownerId: 'shared' }>;
   stats: { total: number; available: number; sold: number; incoming: number; skipped: number; ignoredEmpty?: number; duplicateRows: number };
   format: 'client-bulk' | 'imei-per-row';
   /** Stamped by processFile (not by the parsers themselves) so the importBatch
@@ -161,6 +165,41 @@ export function mergeSuppliers(list: Omit<Supplier, 'createdAt'>[]): Omit<Suppli
   return [...byKey.values()];
 }
 
+// ── Parser C: SUPPLIER WHATSAPP UPDATES sheet ────────────────────────────────
+//
+// Sheet shape: 2 columns
+//   A "MOBILE KIT SUPPLIER" — free-form supplier message line (model + colour + notes)
+//   B (unlabeled)           — price text e.g. "£85", "£100" (may be blank)
+//
+// The line in col A is opaque to us — the operator writes whatever notation
+// the supplier uses. We capture it verbatim into supplierWhatsappUpdates so
+// it shows up in Admin → Suppliers without losing the original wording.
+
+export function parseSupplierWhatsappSheet(rows: any[][]): {
+  updates: Array<{ id: string; rawText: string; priceText?: string; ownerId: 'shared' }>;
+  ignoredEmpty: number;
+} {
+  const updates: Array<{ id: string; rawText: string; priceText?: string; ownerId: 'shared' }> = [];
+  let ignoredEmpty = 0;
+  let i = 1; // skip header
+  let uid = 1;
+  for (; i < rows.length; i++) {
+    const r = rows[i] ?? [];
+    // Drop fully-empty padding rows silently.
+    const colA = r[0] == null ? '' : String(r[0]).trim();
+    const colB = r[1] == null ? '' : String(r[1]).trim();
+    if (!colA && !colB) { ignoredEmpty++; continue; }
+    if (!colA) { ignoredEmpty++; continue; }
+    updates.push({
+      id: `wa_${uid++}`,
+      rawText: colA,
+      ...(colB ? { priceText: colB } : {}),
+      ownerId: 'shared',
+    });
+  }
+  return { updates, ignoredEmpty };
+}
+
 // ── Format detection ──────────────────────────────────────────────────────────
 
 export function detectFormat(headers: string[]): 'client-bulk' | 'imei-per-row' {
@@ -182,6 +221,12 @@ export function parseClientBulkSheet(rows: any[][]): ParsedData {
   const colourIdx   = col(['COLOUR', 'COLOR']);
   const supplierIdx = col(['SUPPLIER', 'SOURCE']);
   const notesIdx    = col(['NOTES', 'NOTE', 'REMARK']);
+  // Master INVENTORY sheet has an unlabeled column D between QUANTITY and
+  // VALUE that carries section / focus tags (e.g. "SALES FOCUS", "TOP10").
+  // It has NO header label, so detect it positionally as the cell directly
+  // after QUANTITY. Falls back to col 3 (D) when both are at canonical
+  // positions; -1 when the structure is unrecognisable.
+  const notesFlagIdx = qtyIdx >= 0 ? qtyIdx + 1 : 3;
 
   const dateIn = new Date().toISOString().split('T')[0];
   const supplierMap = new Map<string, Omit<Supplier, 'createdAt'>>();
@@ -234,6 +279,11 @@ export function parseClientBulkSheet(rows: any[][]): ParsedData {
     const { brand: parsedBrand, model, storage, series: parsedSeries } = parsedModel;
     const bpRaw      = bpIdx >= 0 ? r[bpIdx] : 0;
     const qtyRawCell = qtyIdx >= 0 ? r[qtyIdx] : '';
+    // Unlabeled col D — "SALES FOCUS" / "TOP10" / etc. — sits between
+    // QUANTITY and VALUE in the master file.
+    const notesFlag  = notesFlagIdx >= 0 && r[notesFlagIdx]
+      ? String(r[notesFlagIdx]).trim() || undefined
+      : undefined;
     const qtyParsed  = parseQuantityCell(qtyRawCell);
     const colours    = colourIdx >= 0 ? String(r[colourIdx] || '').trim() : '';
     const supplierCell = supplierIdx >= 0 ? r[supplierIdx] : '';
@@ -262,6 +312,7 @@ export function parseClientBulkSheet(rows: any[][]): ParsedData {
         ...(storage ? { storage } : {}),
         ...(bp ? { buyPrice: bp } : {}),
         quantityText: rawQtyText,
+        ...(notesFlag ? { notesFlag } : {}),
         ...(colours ? { coloursRaw: colours } : {}),
         supplierIds: supParsed.allNames.map(supplierIdFor),
         supplierNames: supParsed.allNames,
@@ -301,6 +352,7 @@ export function parseClientBulkSheet(rows: any[][]): ParsedData {
       ...(bp ? { buyPrice: bp } : {}),
       ...(isNumeric ? { quantityNum: qtyParsed.qty as number } : {}),
       ...(isSHS ? { quantityText: 'SHS' } : {}),
+      ...(notesFlag ? { notesFlag } : {}),
       ...(Object.keys(coloursMap).length ? { coloursMap } : {}),
       ...(colours ? { coloursRaw: colours } : {}),
       supplierIds,
@@ -393,6 +445,13 @@ export function parseOGStockSheet(rows: any[][]): ParsedData {
   const colourIdx      = findCol(['Colour', 'Color']);
   const storageIdx     = findCol(['Storage', 'Capacity']);
   const platformIdx    = findCol(['Sale Platform', 'Platform', 'Listed']);
+  // Master file IMEI NUMBERS sheet has a dedicated MARKETPLACE column
+  // (Back Market / Amazon / FBA / Project / R T S). Capture it verbatim.
+  const marketplaceIdx = findCol(['Marketplace', 'Channel', 'Listed On']);
+  // Master file IMEI NUMBERS sheet has STOCK OUT DATE; preserve it
+  // alongside the existing Sale Date column (semantically distinct: stock-out
+  // can predate the actual marketplace sale_date).
+  const stockOutIdx    = findCol(['Stock Out', 'Out Date', 'Dispatched']);
   const salePriceIdx   = findCol(['Sale Price', 'Price Sold', 'SP']);
   const saleDateIdx    = findCol(['Sale Date', 'Date Sold', 'Sold Date']);
   const saleOrderIdx   = findCol(['Sale Order ID', 'Order ID', 'Order Number', 'Order No']);
@@ -444,11 +503,29 @@ export function parseOGStockSheet(rows: any[][]): ParsedData {
     const storage      = explicitStorage || modelStorage;
     const notes        = notesIdx >= 0 && r[notesIdx] ? r[notesIdx].toString().trim() : '';
 
-    const statusRaw = r[statusIdx]?.toString().trim().toUpperCase();
+    // Preserve the raw STATUS string verbatim ("R T S", "FBA", "SOLD", etc.)
+    // alongside the normalised enum, so downstream displays can show the
+    // operator-typed value AND filter on the canonical state.
+    const statusRawCell  = r[statusIdx]?.toString().trim() || '';
+    const statusRawUpper = statusRawCell.toUpperCase();
     const status: InventoryUnit['status'] =
-      statusRaw === 'SOLD'                          ? 'sold' :
-      statusRaw === 'INCOMING' || statusRaw === 'SHS' ? 'incoming' :
+      statusRawUpper === 'SOLD'                                      ? 'sold' :
+      statusRawUpper === 'INCOMING' || statusRawUpper === 'SHS'      ? 'incoming' :
+      statusRawUpper === 'FBA'                                       ? 'fba' :
+      statusRawUpper.replace(/\s+/g, '') === 'RTS'                   ? 'ready_to_ship' :
       'available';
+    const statusRaw      = statusRawCell || undefined;
+
+    // MARKETPLACE column (verbatim — preserves the client's spelling like
+    // "Back Market" with the space, "Project", "R T S").
+    const marketplace = marketplaceIdx >= 0 && r[marketplaceIdx]
+      ? String(r[marketplaceIdx]).trim() || undefined
+      : undefined;
+    // STOCK OUT DATE — distinct from saleDate (a unit can be dispatched
+    // before / independently of the marketplace sale record).
+    const stockOutDate = stockOutIdx >= 0 && r[stockOutIdx]
+      ? excelSerialToISO(r[stockOutIdx])
+      : undefined;
 
     const salePlatform  = platformIdx  >= 0 ? r[platformIdx]?.toString().trim()  || '' : '';
     const salePrice     = salePriceIdx >= 0 ? parseFloat(r[salePriceIdx])        || 0  : 0;
@@ -484,7 +561,14 @@ export function parseOGStockSheet(rows: any[][]): ParsedData {
       ...(storage      ? { storage }      : {}),
       ...(parsedSeries ? { series: parsedSeries } : {}),
       ...(postageCost  !== undefined ? { postageCost } : {}),
-      platformListed: status === 'available' && !!salePlatform,
+      // Gap fixes — preserve the master file's verbatim values
+      // (B6 follow-up: status verbatim, marketplace, stock-out date).
+      ...(statusRaw    ? { statusRaw }    : {}),
+      ...(marketplace  ? { marketplace }  : {}),
+      ...(stockOutDate ? { stockOutDate } : {}),
+      // platformListed: any unit that has a marketplace assignment OR has
+      // a listing platform OR is in the FBA/R T S pipeline counts as listed.
+      platformListed: !!salePlatform || !!marketplace || status === 'fba' || status === 'ready_to_ship',
       listingSites:   salePlatform ? [salePlatform as any] : [],
       ownerId: 'shared',
       ...(status === 'sold' ? {
@@ -612,13 +696,32 @@ export default function ImportModal({ onClose }: ImportModalProps) {
           parsedSheets.push({ name: sheetName, result });
         }
 
-        if (parsedSheets.length === 0) {
+        // SUPPLIER WHATSAPP UPDATES sheet — captured separately because it's
+        // not a unit / aggregate stream. Lands in supplierWhatsappUpdates
+        // collection via handleImport.
+        let whatsappUpdates: ParsedData['whatsappUpdates'];
+        if (wb.SheetNames.includes('SUPPLIER WHATSAPP UPDATES')) {
+          const waRows: any[][] = XLSX.utils.sheet_to_json(
+            wb.Sheets['SUPPLIER WHATSAPP UPDATES'],
+            { header: 1, defval: '' },
+          ) as any[][];
+          const parsedWa = parseSupplierWhatsappSheet(waRows);
+          if (parsedWa.updates.length) whatsappUpdates = parsedWa.updates;
+        }
+
+        if (parsedSheets.length === 0 && !whatsappUpdates?.length) {
           setError('No valid rows found. Check the file has a header row and at least one data row matching the expected columns.');
           return;
         }
 
         // Merge multi-sheet results into one ParsedData payload.
-        const result: ParsedData = parsedSheets[0].result;
+        const result: ParsedData = parsedSheets[0]?.result ?? {
+          suppliers: [],
+          units: [],
+          aggregates: [],
+          stats: { total: 0, available: 0, sold: 0, incoming: 0, skipped: 0, duplicateRows: 0 },
+          format: 'client-bulk',
+        };
         for (let i = 1; i < parsedSheets.length; i++) {
           const next = parsedSheets[i].result;
           result.units = [...result.units, ...next.units];
@@ -634,7 +737,11 @@ export default function ImportModal({ onClose }: ImportModalProps) {
             duplicateRows: result.stats.duplicateRows + next.stats.duplicateRows,
           };
         }
-        const sheetName = parsedSheets.map(s => s.name).join(' + ');
+        if (whatsappUpdates) result.whatsappUpdates = whatsappUpdates;
+        const sheetName = [
+          ...parsedSheets.map(s => s.name),
+          ...(whatsappUpdates?.length ? ['SUPPLIER WHATSAPP UPDATES'] : []),
+        ].join(' + ');
         // Stamp workbook/sheet metadata + a short summary onto the parsed
         // payload so handleImport can record them on the importBatches row
         // without the parsers having to know about them.
@@ -792,7 +899,28 @@ export default function ImportModal({ onClose }: ImportModalProps) {
         ownerId:     'shared',
       }));
 
-      // Assemble the single bulk-create payload (suppliers → units → aggregates).
+      // SUPPLIER WHATSAPP UPDATES — stamp the same provenance fields and
+      // route to the supplierWhatsappUpdates collection. Best-effort match
+      // each line to a known supplier when the rawText contains their name;
+      // otherwise leave supplierId blank (operator can backfill).
+      const stampedWhatsapp = (parsed.whatsappUpdates ?? []).map((w, idx) => {
+        const upper = w.rawText.toUpperCase();
+        const matchedSupplier = [...byNormName.values()].find(
+          s => s.name && upper.includes(s.name.toUpperCase()),
+        );
+        return {
+          ...w,
+          id: w.id || `wa_${importBatchId.slice(0, 6)}_${idx}`,
+          ...(matchedSupplier ? { supplierId: matchedSupplier.id } : {}),
+          importBatchId,
+          sourceFile: file.name,
+          sourceRow: idx + 2,
+          postedAt: importedAt,
+          ownerId: 'shared',
+        };
+      });
+
+      // Assemble the single bulk-create payload (suppliers → units → aggregates → whatsapp).
       const allDocs: { collection: string; id: string; data: any }[] = [];
       for (const s of suppliersToCreate.values())
         allDocs.push({ collection: 'suppliers', id: s.id, data: s });
@@ -800,6 +928,8 @@ export default function ImportModal({ onClose }: ImportModalProps) {
         allDocs.push({ collection: 'inventoryUnits', id: u.id, data: u });
       for (const a of stampedAggregates)
         allDocs.push({ collection: 'inventoryAggregates', id: a.id, data: a });
+      for (const w of stampedWhatsapp)
+        allDocs.push({ collection: 'supplierWhatsappUpdates', id: w.id, data: w });
 
       const uniqueDocsMap = new Map<string, { collection: string; id: string; data: any }>();
       for (const d of allDocs) uniqueDocsMap.set(`${d.collection}_${d.id}`, d);
