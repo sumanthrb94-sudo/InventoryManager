@@ -36,12 +36,16 @@ export default function ReceiveSHSModal({ unit, onClose }: Props) {
     return generateBatchId(supplier?.name || 'Unknown');
   }, [unit.supplierId, suppliers]);
 
+  // Use the shared validator: numeric IMEIs (14-17 digits) and
+  // alphanumeric Apple serials (8-16 chars) are both acceptable.
+  // For batch receives (qty > 1) IMEI is optional (auto-generated per
+  // unit); for single-unit receives an IMEI is REQUIRED — this is the
+  // moment SHS stock transitions from "expected" to "available".
   const cleanImei = imei.replace(/\D/g, '');
-  const isNumeric    = /^\d+$/.test(cleanImei);
-  const numericOk    = isNumeric && cleanImei.length >= 14 && cleanImei.length <= 15;
-  const alphaSerial  = imei.trim().length >= 8 && !isNumeric;
-  const inputOk      = (numericOk || alphaSerial || (quantity > 1 && !imei.trim())) && quantity >= 1;
-  const finalId      = alphaSerial ? imei.trim().toUpperCase() : cleanImei;
+  const isNumeric    = /^\d+$/.test(cleanImei) && cleanImei.length === imei.trim().length;
+  const validInput   = isValidImei(imei);
+  const inputOk      = (validInput || (quantity > 1 && !imei.trim())) && quantity >= 1;
+  const finalId      = isNumeric ? cleanImei : imei.trim().toUpperCase();
 
   // Calculate color totals and validation
   const colorTotalQty = colorVariants.reduce((sum, c) => sum + c.quantity, 0);

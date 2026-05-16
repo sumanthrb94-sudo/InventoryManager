@@ -109,7 +109,7 @@ export default function NewBatchModal({ onClose }: Props) {
   const lastSupplierName = rows.filter(r => r.supplierName).at(-1)?.supplierName ?? '';
 
   // Pre-calculate batch IDs for display
-  const batchIdPreview = useMemo(() => {
+  const batchIdPreview = useMemo<Record<string, string>>(() => {
     const validRows = rows.filter(r => r.model.trim() && (r.buyPrice || r.isSHS));
     const batchIds: Record<string, string> = {};
     for (const r of validRows) {
@@ -204,6 +204,11 @@ export default function NewBatchModal({ onClose }: Props) {
       }
 
       const ts      = Date.now();
+      // Outer batch id covers the whole stock-in form submission; each
+      // per-supplier sub-batch (used below for individual unit rows) gets
+      // its own id from batchIdCache. The wrapper batchId is logged to
+      // inventoryEvents and stored on the batches doc.
+      const outerBatchId = `bat_${ts}_outer`;
 
       const supCache: Record<string, string> = {};
       const batchIdCache: Record<string, string> = {};
@@ -218,7 +223,7 @@ export default function NewBatchModal({ onClose }: Props) {
         }
       }
 
-      await dbService.create('batches', batchId, {
+      await dbService.create('batches', outerBatchId, {
         invoiceNumber: invoiceNo || undefined,
         date,
         unitCount: totals.units,
@@ -288,7 +293,7 @@ export default function NewBatchModal({ onClose }: Props) {
       await logInventoryEvent({
         type: 'batch_created',
         message: `Stock in: ${totals.units} units added (${totals.shs} SHS expected)${invoiceNo ? ' · Invoice ' + invoiceNo : ''}`,
-        batchId,
+        batchId: outerBatchId,
       });
 
       setSaved(true);
@@ -373,7 +378,7 @@ export default function NewBatchModal({ onClose }: Props) {
                 {Object.entries(batchIdPreview).map(([supplier, batchId]) => (
                   <div key={supplier} className="bg-white border border-blue-100 rounded px-2.5 py-1.5">
                     <p className="text-[8px] font-mono text-gray-600 uppercase tracking-tight">
-                      {supplier || 'Unknown'}: <span className="font-bold text-blue-600">{formatBatchId(batchId)}</span>
+                      {supplier || 'Unknown'}: <span className="font-bold text-blue-600">{formatBatchId(String(batchId))}</span>
                     </p>
                   </div>
                 ))}

@@ -97,7 +97,7 @@ export default function ReceiveShsAggregateModal({ aggregate, onClose }: Props) 
     let lastErr = '';
     for (const tok of tokens) {
       const res = await addOne(tok);
-      if (res.ok) {
+      if (res.ok === true) {
         added++;
       } else {
         lastErr = res.reason;
