@@ -2,15 +2,18 @@ import React, { useState, useMemo, useEffect } from 'react';
 import {
   PackagePlus, Search, Plus, CheckCircle2, Clock,
   ChevronDown, ChevronUp, Truck, PackageCheck, AlertCircle, MoreVertical, Trash2,
-  Inbox, AlertTriangle, Save,
+  Inbox, AlertTriangle, Save, Pencil, Tag,
 } from 'lucide-react';
 import { isValidImei } from '../lib/imeiValidation';
 import { AnimatePresence, motion } from 'motion/react';
 import { dbService } from '../lib/dbService';
 import { notificationService } from '../lib/notificationService';
-import { InventoryUnit, InventoryAggregate, Supplier } from '../types';
+import { InventoryUnit, InventoryAggregate, Supplier, ListingSite } from '../types';
 import { useInventoryStore } from '../lib/inventoryStore';
 import { parseBrandModelStorage } from '../lib/modelStorage';
+import { deriveSkuListing } from '../lib/skuListings';
+import { listingSiteLabel } from '../lib/platforms';
+import SkuListingEditor from './SkuListingEditor';
 import CopyImei from './CopyImei';
 import CollapsibleSection from './CollapsibleSection';
 import { fmtDateForUser, useUserRegion } from '../lib/userLocale';
@@ -63,6 +66,14 @@ export default function StockInPage({ onOpenBatch, onOpenImport: _onOpenImport }
   const [showStockIntakeFlow, setShowStockIntakeFlow] = useState(false);
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
+  // SKU-level listing editor — opened from Pending IMEIs group rows.
+  // `label` is the pretty header string; `units` is every unit in the SKU
+  // group (the editor itself only writes to status==='available').
+  const [listingEditor, setListingEditor] = useState<{
+    label: string;
+    units: InventoryUnit[];
+    current: ListingSite[];
+  } | null>(null);
   // Live subscription to inventoryAggregates so SHS roll-up rows (which the
   // master-file parser emits with quantityText='SHS') are visible here even
   // though they aren't synthesised into the per-unit `units` array.
@@ -615,6 +626,11 @@ export default function StockInPage({ onOpenBatch, onOpenImport: _onOpenImport }
                 group.sku.storage,
                 group.colour || null,
               ].filter(Boolean);
+              const skuLabel = titleParts.join(' ');
+              // Derived SKU listing state — union of `listingSites` across
+              // every available unit in the group. Drives the chip strip
+              // below the title and seeds SkuListingEditor on edit.
+              const listing = deriveSkuListing(group.units);
               return (
                 <div key={groupKey}>
                   <button
@@ -643,6 +659,56 @@ export default function StockInPage({ onOpenBatch, onOpenImport: _onOpenImport }
                       <p className="text-[9px] text-gray-400 font-mono mt-0.5">
                         {qty} unit{qty === 1 ? '' : 's'} · oldest {groupOldestDays}d · {supplierMap[head.supplierId] || head.supplierName || '—'}
                       </p>
+                      {/* SKU-level listing chip strip. One listing per SKU per
+                          marketplace — quantity decrements as units sell, so
+                          there's no per-IMEI listing toggle. Clicking the
+                          pencil opens SkuListingEditor; the parent button's
+                          click is suppressed via stopPropagation so the row
+                          doesn't collapse/expand at the same time. */}
+                      <div className="mt-1.5 flex items-center gap-1.5 flex-wrap">
+                        <span className="text-[8px] font-mono uppercase tracking-widest text-gray-400">
+                          Listed on:
+                        </span>
+                        {listing.listedOn.length === 0 ? (
+                          <span className="text-[9px] font-mono text-gray-400 italic">Not listed</span>
+                        ) : (
+                          listing.listedOn.map(site => (
+                            <span
+                              key={site}
+                              className="text-[8px] font-bold px-1.5 py-0.5 bg-gray-900 text-white rounded font-mono uppercase tracking-tighter"
+                            >
+                              {listingSiteLabel(site)}
+                            </span>
+                          ))
+                        )}
+                        <span
+                          role="button"
+                          tabIndex={0}
+                          onClick={e => {
+                            e.stopPropagation();
+                            setListingEditor({
+                              label: skuLabel,
+                              units: group.units,
+                              current: listing.listedOn,
+                            });
+                          }}
+                          onKeyDown={e => {
+                            if (e.key === 'Enter' || e.key === ' ') {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              setListingEditor({
+                                label: skuLabel,
+                                units: group.units,
+                                current: listing.listedOn,
+                              });
+                            }
+                          }}
+                          className="inline-flex items-center gap-1 text-[8px] font-bold uppercase tracking-widest text-indigo-700 hover:text-white hover:bg-indigo-600 border border-indigo-200 hover:border-indigo-600 px-1.5 py-0.5 rounded font-mono transition-all cursor-pointer"
+                          title="Edit SKU marketplace listings"
+                        >
+                          <Pencil size={9} /> Edit
+                        </span>
+                      </div>
                     </div>
                     <div className="flex items-center gap-2 flex-shrink-0">
                       <span className="text-sm font-bold">£{groupBP.toLocaleString()}</span>
@@ -888,6 +954,20 @@ export default function StockInPage({ onOpenBatch, onOpenImport: _onOpenImport }
           <StockIntakeFlow onClose={() => setShowStockIntakeFlow(false)} />
         )}
       </AnimatePresence>
+
+      {/* SKU-level listing editor — one listing per marketplace per SKU.
+          On save we close immediately; the inventoryUnits snapshot listener
+          will repaint the Pending IMEIs section (units gain platformListed=true
+          so they drop out of the !platformListed filter). */}
+      {listingEditor && (
+        <SkuListingEditor
+          skuLabel={listingEditor.label}
+          units={listingEditor.units}
+          current={listingEditor.current}
+          onClose={() => setListingEditor(null)}
+          onSaved={() => setListingEditor(null)}
+        />
+      )}
     </div>
   );
 }

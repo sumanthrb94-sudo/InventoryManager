@@ -6,15 +6,17 @@ import {
 } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
 import { dbService } from '../lib/dbService';
-import { InventoryUnit, Sale, Marketplace } from '../types';
+import { InventoryUnit, Sale, Marketplace, ListingSite } from '../types';
 import { useInventoryStore } from '../lib/inventoryStore';
 import { notificationService } from '../lib/notificationService';
 import { parseBrandModelStorage } from '../lib/modelStorage';
+import { deriveSkuListing } from '../lib/skuListings';
+import SkuListingEditor from './SkuListingEditor';
 import CopyImei from './CopyImei';
 import {
   PLATFORM_LIST, PLATFORMS, DEFAULT_POSTAGE_COST,
   platformTotalFee, calcNetProfit, platformFixedFee,
-  marketplaceFromListingSite,
+  marketplaceFromListingSite, listingSiteLabel,
 } from '../lib/platforms';
 import { recomputeSale } from '../lib/recomputeSale';
 import { fmtDateForUser, useUserRegion } from '../lib/userLocale';
@@ -471,6 +473,13 @@ export default function SellPage() {
   const [enterImeiUnit, setEnterImeiUnit] = useState<InventoryUnit | null>(null);
   const [showTodaySales, setShowTodaySales] = useState(false);
   const [showInStock, setShowInStock] = useState(false);
+  // SKU-level listing editor — opens from each Available Stock group row so
+  // ops can list/de-list a whole SKU without scanning every IMEI.
+  const [listingEditor, setListingEditor] = useState<{
+    label: string;
+    units: InventoryUnit[];
+    current: ListingSite[];
+  } | null>(null);
 
   const supplierMap = useMemo(() => {
     const m: Record<string, string> = {};
@@ -499,6 +508,89 @@ export default function SellPage() {
   const todaySold    = sold.filter(u => u.saleDate === todayStr);
   const ystdSold     = sold.filter(u => u.saleDate === yesterday);
   const todayRevenue = todaySold.reduce((s, u) => s + (u.salePrice || 0), 0);
+
+  // ────────────────────────────────────────────────────────────────────────
+  // Unified Sold History data — same merge pattern as Admin → Sales History
+  // (Sales.tsx). Master `sales` collection (1,450 rows) is the source of
+  // truth; legacy in-app sold units get folded in if they don't already
+  // appear in the sales collection. Every row passes through `recomputeSale`
+  // so commission / GP / GP% are live against current MARKETPLACE_FEES.
+  // ────────────────────────────────────────────────────────────────────────
+  const allSold = useMemo<Sale[]>(() => {
+    const merged: Sale[] = [];
+    const seenIds = new Set<string>();
+    const seenKeys = new Set<string>();
+    for (const s of sales) {
+      const fresh = recomputeSale(s);
+      merged.push(fresh);
+      seenIds.add(s.id);
+      if (fresh.orderNumber) {
+        seenKeys.add(`${fresh.marketplace}__${fresh.orderNumber}`);
+      }
+    }
+    for (const u of units) {
+      if (u.status !== 'sold' || u.salePrice == null) continue;
+      if (seenIds.has(u.id)) continue;
+      const candidate = inventoryUnitToSale(u);
+      const dedupeKey = candidate.orderNumber
+        ? `${candidate.marketplace}__${candidate.orderNumber}`
+        : '';
+      if (dedupeKey && seenKeys.has(dedupeKey)) continue;
+      merged.push(recomputeSale(candidate));
+    }
+    return merged.sort((a, b) => (b.saleDate || '').localeCompare(a.saleDate || ''));
+  }, [sales, units]);
+
+  // Date-scope tabs for the Sold History panel
+  type SoldScope = 'today' | 'month' | 'range' | 'all';
+  const [soldScope, setSoldScope] = useState<SoldScope>('today');
+  const monthStart = useMemo(() => {
+    const d = new Date();
+    return new Date(d.getFullYear(), d.getMonth(), 1).toISOString().split('T')[0];
+  }, []);
+  const [rangeFrom, setRangeFrom] = useState<string>(monthStart);
+  const [rangeTo,   setRangeTo]   = useState<string>(todayStr);
+
+  const scopedSold = useMemo<Sale[]>(() => {
+    if (soldScope === 'all') return allSold;
+    if (soldScope === 'today') {
+      return allSold.filter(s => (s.saleDate || '').split('T')[0] === todayStr);
+    }
+    if (soldScope === 'month') {
+      return allSold.filter(s => {
+        const d = (s.saleDate || '').split('T')[0];
+        return d >= monthStart && d <= todayStr;
+      });
+    }
+    return allSold.filter(s => {
+      const d = (s.saleDate || '').split('T')[0];
+      if (!d) return false;
+      return d >= rangeFrom && d <= rangeTo;
+    });
+  }, [allSold, soldScope, todayStr, monthStart, rangeFrom, rangeTo]);
+
+  // KPI aggregates for the panel header — count · Σ SP · Σ GP · avg GP%
+  const buildKpi = (rows: Sale[]) => {
+    const sumSP = rows.reduce((s, r) => s + (r.salePrice  || 0), 0);
+    const sumGP = rows.reduce((s, r) => s + (r.grossProfit || 0), 0);
+    const avgGpPct = rows.length
+      ? rows.reduce((s, r) => s + (r.gpPercent || 0), 0) / rows.length
+      : 0;
+    return { count: rows.length, sumSP, sumGP, avgGpPct };
+  };
+  const kpiToday = useMemo(
+    () => buildKpi(allSold.filter(s => (s.saleDate || '').split('T')[0] === todayStr)),
+    [allSold, todayStr],
+  );
+  const kpiMonth = useMemo(
+    () => buildKpi(allSold.filter(s => {
+      const d = (s.saleDate || '').split('T')[0];
+      return d >= monthStart && d <= todayStr;
+    })),
+    [allSold, monthStart, todayStr],
+  );
+  const kpiAll   = useMemo(() => buildKpi(allSold), [allSold]);
+  const kpiScope = useMemo(() => buildKpi(scopedSold), [scopedSold]);
 
   // Apply search BEFORE grouping so an IMEI hit still surfaces the SKU
   // group containing that IMEI. No top-N slice here — we cap by SKU groups
@@ -777,6 +869,11 @@ export default function SellPage() {
                 group.sku.storage,
                 group.colour || null,
               ].filter(Boolean);
+              // SKU-level listing state — union of `listingSites` across the
+              // available units. Drives both the chip strip and the editor
+              // seed when ops opens the marketplace picker from this row.
+              const skuLabel = [group.sku.brand, ...titleParts].filter(Boolean).join(' ');
+              const listing = deriveSkuListing(group.units);
               return (
                 <div key={group.key}>
                   <div className={`flex items-center gap-3 px-4 py-3 transition-all ${
@@ -795,6 +892,38 @@ export default function SellPage() {
                       <p className="text-[9px] text-gray-400 font-mono mt-0.5 truncate">
                         {qty} unit{qty === 1 ? '' : 's'} · {bpLabel} ea
                       </p>
+                      {/* SKU-level marketplace chips — one listing per
+                          marketplace per SKU, quantity decrements as units
+                          sell. Edit opens SkuListingEditor. */}
+                      <div className="mt-1.5 flex items-center gap-1.5 flex-wrap">
+                        <span className="text-[8px] font-mono uppercase tracking-widest text-gray-400">
+                          Listed on:
+                        </span>
+                        {listing.listedOn.length === 0 ? (
+                          <span className="text-[9px] font-mono text-gray-400 italic">Not listed</span>
+                        ) : (
+                          listing.listedOn.map(site => (
+                            <span
+                              key={site}
+                              className="text-[8px] font-bold px-1.5 py-0.5 bg-gray-900 text-white rounded font-mono uppercase tracking-tighter"
+                            >
+                              {listingSiteLabel(site)}
+                            </span>
+                          ))
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => setListingEditor({
+                            label: skuLabel,
+                            units: group.units,
+                            current: listing.listedOn,
+                          })}
+                          className="inline-flex items-center gap-1 text-[8px] font-bold uppercase tracking-widest text-emerald-700 hover:text-white hover:bg-emerald-600 border border-emerald-200 hover:border-emerald-600 px-1.5 py-0.5 rounded font-mono transition-all"
+                          title="Edit SKU marketplace listings"
+                        >
+                          <Pencil size={9} /> Edit
+                        </button>
+                      </div>
                     </div>
                     <div className="flex items-center gap-2 flex-shrink-0">
                       <span className="text-sm font-bold">{bpLabel}</span>
@@ -848,113 +977,228 @@ export default function SellPage() {
         )}
       </CollapsibleSection>
 
-      {/* Sold History */}
+      {/* Sold History — Excel-parity, merges master `sales` + legacy in-app sells */}
       <CollapsibleSection
         title="Sold History"
-        count={sold.length}
+        count={allSold.length}
         accent="border-l-blue-500"
         defaultOpen={false}
       >
-        {sold.length === 0 ? (
+        {allSold.length === 0 ? (
           <div className="py-12 flex flex-col items-center gap-2 text-gray-300">
             <ShoppingCart size={32} />
             <p className="text-xs font-mono">No sold items yet.</p>
           </div>
         ) : (
-          <div className="divide-y divide-gray-50">
-            {Object.entries(
-              sold.reduce((acc, u) => {
-                const d = u.saleDate || 'Unknown';
-                if (!acc[d]) acc[d] = [];
-                acc[d].push(u);
-                return acc;
-              }, {} as Record<string, InventoryUnit[]>),
-            )
-              .sort(([a], [b]) => b.localeCompare(a))
-              .map(([date, dayUnits]: [string, InventoryUnit[]]) => (
-                <div key={date} className="p-4">
-                  <div className="flex items-center gap-2 mb-3">
-                    <span className="text-[10px] font-bold uppercase tracking-widest text-gray-400 bg-gray-100 px-2 py-1 rounded-md">
-                      {date === todayStr
-                        ? 'Today'
-                        : date === yesterday
-                          ? 'Yesterday'
-                          : date !== 'Unknown'
-                            ? new Date(date).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' })
-                            : 'Unknown Date'}
+          <div className="flex flex-col">
+            {/* KPI strip — Today · This Month · All Time + active scope summary */}
+            <div className="px-4 py-3 border-b border-gray-100 bg-gradient-to-b from-gray-50 to-white grid grid-cols-2 md:grid-cols-4 gap-2">
+              {[
+                { label: 'Today',      k: kpiToday },
+                { label: 'This Month', k: kpiMonth },
+                { label: 'All Time',   k: kpiAll   },
+                { label: 'In Scope',   k: kpiScope, highlight: true },
+              ].map(({ label, k, highlight }) => (
+                <div
+                  key={label}
+                  className={`rounded-xl border p-2.5 ${
+                    highlight
+                      ? 'bg-blue-50 border-blue-200'
+                      : 'bg-white border-gray-100'
+                  }`}
+                >
+                  <p className="text-[8px] font-mono uppercase tracking-widest text-gray-400">
+                    {label}
+                  </p>
+                  <p className="text-lg font-bold font-display leading-tight mt-0.5">
+                    {k.count.toLocaleString('en-GB')}
+                    <span className="text-[9px] font-mono text-gray-400 ml-1">units</span>
+                  </p>
+                  <p className="text-[10px] font-mono text-gray-600 mt-0.5">
+                    £{k.sumSP.toLocaleString('en-GB', { maximumFractionDigits: 0 })}
+                    <span className="text-gray-300 mx-1">·</span>
+                    <span className={k.sumGP < 0 ? 'text-red-600 font-bold' : 'text-emerald-700 font-bold'}>
+                      GP £{k.sumGP.toLocaleString('en-GB', { maximumFractionDigits: 0 })}
                     </span>
-                    <span className="text-[10px] text-gray-400 font-mono">{dayUnits.length} unit{dayUnits.length !== 1 ? 's' : ''}</span>
-                    <span className="text-[10px] font-bold text-emerald-600 ml-auto">
-                      £{dayUnits.reduce((s, u) => s + (u.salePrice || 0), 0).toLocaleString()}
+                    <span className="text-gray-300 mx-1">·</span>
+                    <span className={k.avgGpPct < 0 ? 'text-red-600' : 'text-emerald-700'}>
+                      {k.avgGpPct.toFixed(1)}%
                     </span>
-                  </div>
-                  <div className="grid gap-2">
-                    {dayUnits.map(u => {
-                      const platformFee = u.salePrice && u.salePlatform ? platformTotalFee(u.salePlatform, u.salePrice) : 0;
-                      const feePercentage = u.salePrice && platformFee ? ((platformFee / u.salePrice) * 100).toFixed(1) : '0';
-                      const isSHS = u.batchId?.startsWith('shs_') || u.notes?.includes('SHS');
-                      return (
-                        <div key={u.id} className={isSHS ? 'bg-orange-50/60 rounded-xl' : ''}>
-                          <div className={`flex items-center justify-between p-3 border rounded-t-xl transition-all ${
-                            isSHS
-                              ? 'bg-orange-50 hover:border-orange-200 border-orange-100'
-                              : `bg-white hover:border-blue-200 ${!u.imei ? 'border-orange-200' : 'border-gray-100'}`
-                          }`}>
-                            <div className="flex items-center gap-3">
-                              <div className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${!u.imei ? 'bg-orange-50 text-orange-500' : 'bg-blue-50 text-blue-600'}`}>
-                                {!u.imei ? <Truck size={14} /> : <ShoppingCart size={14} />}
-                              </div>
-                              <div>
-                                <p className="text-xs font-bold">{u.model}</p>
-                                <div className="flex items-center gap-2 mt-0.5 flex-wrap">
-                                  {u.imei
-                                    ? <CopyImei imei={u.imei} truncate={10} />
-                                    : <button
-                                        onClick={() => setEnterImeiUnit(u)}
-                                        className="flex items-center gap-1 text-[9px] font-bold font-mono bg-orange-100 text-orange-700 border border-orange-300 px-1.5 py-0.5 rounded hover:bg-orange-200 transition-all"
-                                      >
-                                        <Pencil size={9} /> Enter IMEI
-                                      </button>
-                                  }
-                                  {u.salePlatform && (
-                                    <span className={`text-[8px] font-bold px-1.5 py-0.5 rounded-full border ${PLATFORM_STYLE[u.salePlatform] || 'bg-gray-100 text-gray-600 border-gray-200'}`}>
-                                      {u.salePlatform}
-                                    </span>
-                                  )}
-                                </div>
-                              </div>
-                            </div>
-                            <div className="text-right">
-                              <p className="text-sm font-bold text-emerald-600">£{u.salePrice}</p>
-                              {u.saleOrderId && <p className="text-[9px] font-mono text-gray-400 mt-0.5">{u.saleOrderId}</p>}
-                            </div>
-                          </div>
-                          <div className={`px-3 pb-3 border border-t-0 rounded-b-xl ${
-                            isSHS
-                              ? 'bg-orange-50/40 border-orange-100'
-                              : 'bg-gray-50 border-gray-100'
-                          }`}>
-                            <div className="grid grid-cols-2 md:grid-cols-3 gap-2 text-[9px]">
-                              <div>
-                                <p className="text-gray-500 font-mono uppercase tracking-widest mb-0.5">Buy Price</p>
-                                <p className="font-bold">£{u.buyPrice}</p>
-                              </div>
-                              <div>
-                                <p className="text-gray-500 font-mono uppercase tracking-widest mb-0.5">Fee</p>
-                                <p className="font-bold text-red-600">-£{platformFee.toFixed(2)} ({feePercentage}%)</p>
-                              </div>
-                              <div>
-                                <p className="text-gray-500 font-mono uppercase tracking-widest mb-0.5">Postage</p>
-                                <p className="font-bold text-red-600">-£{(u.postageCost || 3.5).toFixed(2)}</p>
-                              </div>
-                            </div>
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
+                  </p>
                 </div>
               ))}
+            </div>
+
+            {/* Scope tabs + range picker */}
+            <div className="px-4 py-2.5 border-b border-gray-100 bg-white flex items-center gap-2 flex-wrap">
+              <div className="inline-flex border border-gray-200 rounded-lg overflow-hidden">
+                {(['today','month','range','all'] as SoldScope[]).map(s => (
+                  <button
+                    key={s}
+                    onClick={() => setSoldScope(s)}
+                    className={`px-3 py-1.5 text-[9px] font-bold uppercase tracking-widest transition-all ${
+                      soldScope === s
+                        ? 'bg-black text-white'
+                        : 'bg-white text-gray-500 hover:text-black hover:bg-gray-50'
+                    }`}
+                  >
+                    {s === 'today' ? 'Today' : s === 'month' ? 'This Month' : s === 'range' ? 'Date Range' : 'All Time'}
+                  </button>
+                ))}
+              </div>
+              {soldScope === 'range' && (
+                <div className="flex items-center gap-2 text-[10px] font-mono">
+                  <input
+                    type="date"
+                    value={rangeFrom}
+                    onChange={e => setRangeFrom(e.target.value)}
+                    className="bg-gray-50 border border-gray-200 rounded px-2 py-1 text-[10px] font-mono focus:outline-none focus:border-blue-500"
+                  />
+                  <span className="text-gray-400">→</span>
+                  <input
+                    type="date"
+                    value={rangeTo}
+                    onChange={e => setRangeTo(e.target.value)}
+                    className="bg-gray-50 border border-gray-200 rounded px-2 py-1 text-[10px] font-mono focus:outline-none focus:border-blue-500"
+                  />
+                </div>
+              )}
+            </div>
+
+            {/* Excel-style sticky-header grid */}
+            <div className="max-h-[560px] overflow-auto custom-scrollbar">
+              {scopedSold.length === 0 ? (
+                <div className="px-6 py-12 text-center text-gray-400 font-mono text-[11px]">
+                  No sales in this scope.
+                </div>
+              ) : (
+                <table
+                  className="w-full border-collapse"
+                  style={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace', fontSize: 11 }}
+                >
+                  <thead className="sticky top-0 z-10 bg-gray-100 shadow-sm">
+                    <tr>
+                      {[
+                        { label: 'Date',        w: 100 },
+                        { label: 'Market',      w: 80  },
+                        { label: 'Model',       w: 200 },
+                        { label: 'IMEI',        w: 140 },
+                        { label: 'Order #',     w: 140 },
+                        { label: 'BP',          w: 70,  align: 'right' as const },
+                        { label: 'SP',          w: 70,  align: 'right' as const },
+                        { label: 'Postage',     w: 70,  align: 'right' as const },
+                        { label: 'Commission',  w: 90,  align: 'right' as const },
+                        { label: 'GP',          w: 80,  align: 'right' as const },
+                        { label: 'GP%',         w: 60,  align: 'right' as const },
+                        { label: 'Pay/Detail',  w: 130 },
+                      ].map(c => (
+                        <th
+                          key={c.label}
+                          className="px-2 py-2 text-[9px] font-bold uppercase tracking-widest text-gray-500 border-b border-r border-gray-200"
+                          style={{ width: c.w, textAlign: c.align ?? 'left' }}
+                        >
+                          {c.label}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {scopedSold.map(s => {
+                      const isInApp  = s.importBatchId === 'inapp';
+                      const unit     = s.unitId ? units.find(u => u.id === s.unitId) : undefined;
+                      const modelStr = unit?.model
+                        || [unit?.brand, unit?.model, unit?.storage, unit?.colour].filter(Boolean).join(' ')
+                        || s.sku
+                        || '—';
+                      const gpPct = s.buyPrice > 0
+                        ? (s.grossProfit / s.buyPrice) * 100
+                        : 0;
+                      // Marketplace-specific extra detail (BM payment, eBay net profit)
+                      let detail: React.ReactNode = '—';
+                      if (s.marketplace === 'BM') {
+                        detail = (
+                          <span className="text-[10px] text-gray-700">
+                            {s.paymentMode || '—'}
+                          </span>
+                        );
+                      } else if (s.marketplace === 'EBAY') {
+                        const np = s.netProfit ?? s.grossProfit;
+                        detail = (
+                          <span
+                            className={`text-[10px] font-bold ${np < 0 ? 'text-red-600' : 'text-emerald-700'}`}
+                            title={`ROF ${fmtGBP(s.rof)} · FVF ${fmtGBP(s.fvf)} · 20% ${fmtGBP(s.twentyPercent)} · Net ${fmtGBP(np)}`}
+                          >
+                            Net {fmtGBP(np)}
+                          </span>
+                        );
+                      }
+                      return (
+                        <tr
+                          key={s.id}
+                          className={`hover:bg-blue-50/60 transition-colors ${isInApp ? 'bg-blue-50/30' : ''}`}
+                          title={isInApp ? 'In-app sale (recorded via Sell page)' : 'Imported sale (master file)'}
+                        >
+                          <td className="px-2 py-1.5 border-b border-r border-gray-100 text-gray-800">
+                            {s.saleDate ? fmtDateForUser(s.saleDate, region) : '—'}
+                          </td>
+                          <td className="px-2 py-1.5 border-b border-r border-gray-100">
+                            <span
+                              className={`text-[9px] font-bold uppercase px-1.5 py-0.5 rounded border font-mono ${
+                                MARKETPLACE_BADGE[s.marketplace] ?? 'bg-gray-100 text-gray-600 border-gray-200'
+                              }`}
+                            >
+                              {s.marketplace}
+                            </span>
+                          </td>
+                          <td className="px-2 py-1.5 border-b border-r border-gray-100 truncate text-gray-800" title={modelStr}>
+                            {modelStr}
+                          </td>
+                          <td className="px-2 py-1.5 border-b border-r border-gray-100">
+                            {s.imei ? <CopyImei imei={s.imei} truncate={12} /> : <span className="text-gray-300">—</span>}
+                          </td>
+                          <td className="px-2 py-1.5 border-b border-r border-gray-100 truncate text-gray-600" title={s.orderNumber}>
+                            {s.orderNumber || '—'}
+                          </td>
+                          <td className="px-2 py-1.5 border-b border-r border-gray-100 text-right">{fmtGBP(s.buyPrice)}</td>
+                          <td className="px-2 py-1.5 border-b border-r border-gray-100 text-right font-bold">{fmtGBP(s.salePrice)}</td>
+                          <td className="px-2 py-1.5 border-b border-r border-gray-100 text-right text-red-600">
+                            {s.postage ? `-${fmtGBP(s.postage)}` : '—'}
+                          </td>
+                          <td className="px-2 py-1.5 border-b border-r border-gray-100 text-right text-red-600">
+                            {s.commission ? `-${fmtGBP(s.commission)}` : '—'}
+                          </td>
+                          <td className="px-2 py-1.5 border-b border-r border-gray-100 text-right">
+                            <span className={s.grossProfit < 0 ? 'text-red-600 font-bold' : 'text-emerald-700 font-bold'}>
+                              {fmtGBP(s.grossProfit)}
+                            </span>
+                          </td>
+                          <td className="px-2 py-1.5 border-b border-r border-gray-100 text-right">
+                            <span className={gpPct < 0 ? 'text-red-600 font-bold' : 'text-emerald-700 font-bold'}>
+                              {gpPct.toFixed(1)}%
+                            </span>
+                          </td>
+                          <td className="px-2 py-1.5 border-b border-r border-gray-100">
+                            {detail}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              )}
+            </div>
+
+            {/* Footer hint — link to full Admin view */}
+            <div className="px-4 py-2 border-t border-gray-100 bg-gray-50 text-[9px] font-mono uppercase tracking-widest text-gray-500 flex items-center justify-between flex-wrap gap-2">
+              <span>
+                {scopedSold.length.toLocaleString('en-GB')} row{scopedSold.length === 1 ? '' : 's'} shown
+                <span className="text-gray-300 mx-2">·</span>
+                <span className="text-blue-700 normal-case tracking-normal">Blue rows = in-app sales</span>
+              </span>
+              <span className="text-gray-400 normal-case tracking-normal">
+                For full Excel-parity view (search · sort · marketplace chips) see Admin → Sales History.
+              </span>
+            </div>
           </div>
         )}
       </CollapsibleSection>
