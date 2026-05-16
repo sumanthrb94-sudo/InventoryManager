@@ -10,6 +10,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import Dashboard, { NavAction } from './components/Dashboard';
 import NewBatchModal from './components/NewBatchModal';
 import ImportModal from './components/ImportModal';
+import MasterDataLinkedImport from './components/MasterDataLinkedImport';
 import StockInPage from './components/StockInPage';
 import SellPage from './components/SellPage';
 import ReturnsPage from './components/ReturnsPage';
@@ -93,6 +94,7 @@ function AppShell({ user }: { user: User }) {
   const [analyticsSub, setAnalyticsSub]           = useState<AnalyticsSub>('overview');
   const [isBatchModalOpen, setIsBatchModalOpen]   = useState(false);
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
+  const [isMasterDataOpen, setIsMasterDataOpen]   = useState(false);
   const [isLoadMockDataOpen, setIsLoadMockDataOpen] = useState(false);
   const [unreadCount, setUnreadCount]             = useState(0);
   const [syncConnected, setSyncConnected]         = useState(false);
@@ -154,9 +156,12 @@ function AppShell({ user }: { user: User }) {
             </button>
           ))}
 
-          {/* Always-visible Master Data entry — opens the ImportModal */}
+          {/* Always-visible Master Data entry — opens the linked-import surface
+              that accepts INVENTORY_REPORT + SALES_REPORT in a single batch.
+              The legacy single-file ImportModal stays wired to the header's
+              "IMPORT" button so one-off re-imports still work. */}
           <button
-            onClick={() => setIsImportModalOpen(true)}
+            onClick={() => setIsMasterDataOpen(true)}
             className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all text-slate-500 hover:text-slate-900 hover:bg-slate-100"
           >
             <span className="flex-shrink-0"><FileSpreadsheet size={20} /></span>
@@ -458,6 +463,7 @@ function AppShell({ user }: { user: User }) {
       <AnimatePresence>
         {isBatchModalOpen  && <NewBatchModal  onClose={() => setIsBatchModalOpen(false)} />}
         {isImportModalOpen && <ImportModal    onClose={() => setIsImportModalOpen(false)} />}
+        {isMasterDataOpen  && <MasterDataLinkedImport onClose={() => setIsMasterDataOpen(false)} />}
         {isLoadMockDataOpen && <LoadMockDataModal onClose={() => setIsLoadMockDataOpen(false)} />}
       </AnimatePresence>
       <NotificationToast />

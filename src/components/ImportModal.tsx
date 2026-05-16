@@ -126,7 +126,7 @@ export type ParsedAggregate = Omit<InventoryAggregate, 'createdAt' | 'updatedAt'
   supplierNames: string[];
 };
 
-interface ParsedData {
+export interface ParsedData {
   suppliers: Omit<Supplier, 'createdAt'>[];
   units: Omit<InventoryUnit, 'createdAt'>[];
   /** INVENTORY-sheet roll-up rows (one per Model+Supplier) — populated by
@@ -152,7 +152,7 @@ interface ParsedData {
  * stable id (or by case-insensitive trimmed name when ids differ). The first
  * occurrence wins on conflicting fields — sheets are processed in order.
  */
-function mergeSuppliers(list: Omit<Supplier, 'createdAt'>[]): Omit<Supplier, 'createdAt'>[] {
+export function mergeSuppliers(list: Omit<Supplier, 'createdAt'>[]): Omit<Supplier, 'createdAt'>[] {
   const byKey = new Map<string, Omit<Supplier, 'createdAt'>>();
   for (const s of list) {
     const key = s.id || `name:${(s.name || '').trim().toLowerCase()}`;
@@ -163,7 +163,7 @@ function mergeSuppliers(list: Omit<Supplier, 'createdAt'>[]): Omit<Supplier, 'cr
 
 // ── Format detection ──────────────────────────────────────────────────────────
 
-function detectFormat(headers: string[]): 'client-bulk' | 'imei-per-row' {
+export function detectFormat(headers: string[]): 'client-bulk' | 'imei-per-row' {
   const h = headers.map(x => String(x || '').toUpperCase()).join(' ');
   if ((h.includes('QUANTITY') || h.includes('QTY')) && h.includes('COLOUR')) return 'client-bulk';
   return 'imei-per-row';
@@ -171,7 +171,7 @@ function detectFormat(headers: string[]): 'client-bulk' | 'imei-per-row' {
 
 // ── Parser A: Client bulk format (MODEL · BP · QTY · COLOURS · SUPPLIER · NOTES) ──
 
-function parseClientBulkSheet(rows: any[][]): ParsedData {
+export function parseClientBulkSheet(rows: any[][]): ParsedData {
   const header = (rows[0] || []).map((h: any) => String(h || '').trim().toUpperCase());
   const col = (names: string[]) =>
     header.findIndex((h: string) => names.some(n => h.includes(n.toUpperCase())));
@@ -377,7 +377,7 @@ function parseClientBulkSheet(rows: any[][]): ParsedData {
 //   Status · Sale Platform · Sale Price · Sale Date · Sale Order ID ·
 //   Postage Cost · Notes
 
-function parseOGStockSheet(rows: any[][]): ParsedData {
+export function parseOGStockSheet(rows: any[][]): ParsedData {
   const header = rows[0] || [];
   const findCol = (names: string[]) =>
     header.findIndex((h: any) => names.some(n => h?.toString().toUpperCase().includes(n.toUpperCase())));
