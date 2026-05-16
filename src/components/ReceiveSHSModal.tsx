@@ -6,6 +6,7 @@ import { InventoryUnit, Supplier } from '../types';
 import { notificationService } from '../lib/notificationService';
 import { generateBatchId, formatBatchId } from '../lib/batchUtils';
 import { useInventoryStore } from '../lib/inventoryStore';
+import { isValidImei, IMEI_REQUIRED_MESSAGE } from '../lib/imeiValidation';
 
 interface Props {
   unit: InventoryUnit;

@@ -336,6 +336,15 @@ export default function StockInPage({ onOpenBatch, onOpenImport: _onOpenImport }
                 ? (supplierMap[a.supplierIds[0]] || a.supplierIds[0])
                 : '—';
               const qty = a.quantityNum ?? '—';
+              // Partial-receive badge — `originalQuantityNum` is stamped by
+              // ReceiveShsAggregateModal on the first receive so we can show
+              // "received X/Y" even after a refresh.
+              const originalQty = (a as any).originalQuantityNum as number | undefined;
+              const partial = typeof originalQty === 'number'
+                && typeof a.quantityNum === 'number'
+                && a.quantityNum > 0
+                && a.quantityNum < originalQty;
+              const partialReceived = partial ? (originalQty! - (a.quantityNum ?? 0)) : 0;
               return (
                 <div key={a.id} className="flex items-center gap-3 px-4 py-3 hover:bg-orange-50/50 transition-all">
                   <div className="w-8 h-8 rounded-lg bg-orange-100 flex items-center justify-center flex-shrink-0">
@@ -350,6 +359,14 @@ export default function StockInPage({ onOpenBatch, onOpenImport: _onOpenImport }
                       {typeof qty === 'number' && (
                         <span className="text-[9px] font-bold text-orange-700 bg-orange-50 px-1.5 py-0.5 rounded font-mono flex-shrink-0">
                           ×{qty}
+                        </span>
+                      )}
+                      {partial && (
+                        <span
+                          className="text-[9px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-100 px-1.5 py-0.5 rounded font-mono flex-shrink-0"
+                          title={`${partialReceived} of ${originalQty} already received`}
+                        >
+                          {partialReceived}/{originalQty} received
                         </span>
                       )}
                     </div>
@@ -368,9 +385,9 @@ export default function StockInPage({ onOpenBatch, onOpenImport: _onOpenImport }
                     )}
                     <button
                       type="button"
-                      disabled
-                      title="Receive flow will be wired up in a follow-up"
-                      className="px-3 py-1.5 bg-orange-400 text-white text-[9px] font-bold uppercase tracking-widest rounded-lg opacity-60 cursor-not-allowed flex items-center gap-1"
+                      onClick={() => setReceivingAggregate(a)}
+                      title="Receive these units into stock"
+                      className="px-3 py-1.5 bg-orange-500 text-white text-[9px] font-bold uppercase tracking-widest rounded-lg hover:bg-orange-600 transition-all flex items-center gap-1"
                     >
                       <PackageCheck size={11} /> Receive into stock
                     </button>
@@ -813,6 +830,14 @@ export default function StockInPage({ onOpenBatch, onOpenImport: _onOpenImport }
       <AnimatePresence>
         {receivingUnit && (
           <ReceiveSHSModal unit={receivingUnit} onClose={() => setReceivingUnit(null)} />
+        )}
+      </AnimatePresence>
+      <AnimatePresence>
+        {receivingAggregate && (
+          <ReceiveShsAggregateModal
+            aggregate={receivingAggregate}
+            onClose={() => setReceivingAggregate(null)}
+          />
         )}
       </AnimatePresence>
       <AnimatePresence>

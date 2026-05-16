@@ -97,8 +97,11 @@ export default function ReceiveShsAggregateModal({ aggregate, onClose }: Props) 
     let lastErr = '';
     for (const tok of tokens) {
       const res = await addOne(tok);
-      if (res.ok) added++;
-      else lastErr = res.reason;
+      if (res.ok) {
+        added++;
+      } else {
+        lastErr = res.reason;
+      }
     }
 
     setImeiInput('');
