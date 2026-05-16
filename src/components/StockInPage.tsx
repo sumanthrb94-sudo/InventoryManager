@@ -2,6 +2,7 @@ import React, { useState, useMemo, useEffect } from 'react';
 import {
   PackagePlus, Search, Plus, CheckCircle2, Clock,
   ChevronDown, ChevronUp, Truck, PackageCheck, AlertCircle, MoreVertical, Trash2,
+  Inbox,
 } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
 import { dbService } from '../lib/dbService';
@@ -169,6 +170,74 @@ export default function StockInPage({ onOpenBatch, onOpenImport: _onOpenImport }
 
   const todayIn  = units.filter(u => u.dateIn === today && u.status !== 'incoming');
   const totalBP  = todayIn.reduce((s, u) => s + u.buyPrice, 0);
+
+  // ───────────────── Pending IMEIs ─────────────────
+  // Physical units in office, not sold, not yet listed on a marketplace.
+  // Source: inventoryUnits with status='available' and !platformListed —
+  // these are the ~280 rows that came in from the IMEI NUMBERS master
+  // sheet with a blank STATUS column.
+  const pendingImeis = useMemo(() =>
+    units.filter(u => u.status === 'available' && !u.platformListed),
+    [units],
+  );
+
+  // Group by SKU (brand, model, storage, colour) — mirrors the Recent Stock
+  // In grouping pattern so 14× "iPhone 15 Pro 256GB Natural Titanium"
+  // collapses to one expandable row.
+  const pendingImeiGroups = useMemo(() => {
+    const map = new Map<string, {
+      key: string;
+      sku: { brand: string; model: string; storage?: string; series?: string };
+      colour: string;
+      units: InventoryUnit[];
+    }>();
+    for (const u of pendingImeis) {
+      const sku = deriveSku(u);
+      const colour = u.colour && u.colour !== 'Unknown' ? u.colour : '';
+      const key = `${sku.brand}|${sku.model}|${sku.storage || ''}|${colour}`;
+      const g = map.get(key);
+      if (g) g.units.push(u);
+      else map.set(key, { key, sku, colour, units: [u] });
+    }
+    return Array.from(map.values()).sort((a, b) =>
+      b.units.length - a.units.length || a.sku.model.localeCompare(b.sku.model),
+    );
+  }, [pendingImeis]);
+
+  // KPIs for the Pending IMEIs strip
+  const pendingKpis = useMemo(() => {
+    const total = pendingImeis.length;
+    const tiedCapital = pendingImeis.reduce((s, u) => s + (u.buyPrice || 0), 0);
+    const now = Date.now();
+    const daysSince = (iso: string) => {
+      const t = new Date(iso || 0).getTime();
+      if (!t) return 0;
+      return Math.floor((now - t) / 86_400_000);
+    };
+    const oldestDays = pendingImeis.reduce((max, u) => {
+      const d = daysSince(u.dateIn);
+      return d > max ? d : max;
+    }, 0);
+    const staleCount = pendingImeis.filter(u => daysSince(u.dateIn) > 30).length;
+
+    // Supplier distribution — stacked bar segments, count per supplier
+    const bySupplier: Record<string, number> = {};
+    for (const u of pendingImeis) {
+      const name = supplierMap[u.supplierId] || u.supplierName || 'Unassigned';
+      bySupplier[name] = (bySupplier[name] || 0) + 1;
+    }
+    const supplierBreakdown = Object.entries(bySupplier)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 6); // keep mini-bar readable
+
+    return { total, tiedCapital, oldestDays, staleCount, supplierBreakdown, daysSince };
+  }, [pendingImeis, supplierMap]);
+
+  // Stable colour palette for the supplier mini stacked bar
+  const SUPPLIER_TONES = [
+    'bg-emerald-500', 'bg-blue-500', 'bg-amber-500', 'bg-violet-500',
+    'bg-rose-500', 'bg-cyan-500',
+  ];
 
   return (
     <div className="space-y-5">
@@ -378,6 +447,212 @@ export default function StockInPage({ onOpenBatch, onOpenImport: _onOpenImport }
                       )}
                     </div>
                   </div>
+                </div>
+              );
+            })}
+          </div>
+        </CollapsibleSection>
+      )}
+
+      {/* ───────────────── Pending IMEIs · In Office · Awaiting Listing ─────────────────
+          Physical units already in office (status='available') that have NOT
+          been listed on a marketplace yet (!platformListed). These are the
+          rows from the IMEI NUMBERS sheet whose STATUS column was blank.
+          One row per SKU group with a count + chevron — expand to see IMEIs. */}
+      {pendingImeis.length > 0 && (
+        <CollapsibleSection
+          title="Pending IMEIs · In Office · Awaiting Listing"
+          count={pendingImeis.length}
+          accent="border-l-indigo-500"
+          defaultOpen={true}
+        >
+          <p className="px-4 pt-3 pb-2 text-[10px] text-gray-500 font-mono">
+            Physical units received, not yet sold or listed on a marketplace.
+          </p>
+
+          {/* KPI strip */}
+          <div className="px-4 pb-3 grid grid-cols-2 md:grid-cols-4 gap-2">
+            <div className="bg-indigo-50 border border-indigo-100 rounded-lg px-3 py-2">
+              <p className="text-[8px] font-mono uppercase tracking-widest text-indigo-600">Total Pending</p>
+              <p className="text-xl font-bold text-indigo-700 leading-tight">{pendingKpis.total}</p>
+            </div>
+            <div className="bg-blue-50 border border-blue-100 rounded-lg px-3 py-2">
+              <p className="text-[8px] font-mono uppercase tracking-widest text-blue-600">Tied-Up Capital</p>
+              <p className="text-xl font-bold text-blue-700 leading-tight">
+                £{pendingKpis.tiedCapital.toLocaleString('en-GB', { maximumFractionDigits: 0 })}
+              </p>
+            </div>
+            <div className={`border rounded-lg px-3 py-2 ${pendingKpis.oldestDays > 30 ? 'bg-amber-50 border-amber-100' : 'bg-gray-50 border-gray-100'}`}>
+              <p className={`text-[8px] font-mono uppercase tracking-widest ${pendingKpis.oldestDays > 30 ? 'text-amber-600' : 'text-gray-500'}`}>
+                Oldest Pending
+              </p>
+              <p className={`text-xl font-bold leading-tight ${pendingKpis.oldestDays > 30 ? 'text-amber-700' : 'text-gray-700'}`}>
+                {pendingKpis.oldestDays}d
+                {pendingKpis.staleCount > 0 && (
+                  <span className="text-[9px] font-mono text-amber-600 ml-2">
+                    {pendingKpis.staleCount} stale
+                  </span>
+                )}
+              </p>
+            </div>
+            <div className="bg-gray-50 border border-gray-100 rounded-lg px-3 py-2">
+              <p className="text-[8px] font-mono uppercase tracking-widest text-gray-500 mb-1.5">By Supplier</p>
+              {pendingKpis.supplierBreakdown.length === 0 ? (
+                <p className="text-[10px] font-mono text-gray-400">—</p>
+              ) : (
+                <>
+                  <div className="flex h-2 w-full rounded overflow-hidden bg-gray-100">
+                    {pendingKpis.supplierBreakdown.map(([name, n], i) => (
+                      <div
+                        key={name}
+                        className={SUPPLIER_TONES[i % SUPPLIER_TONES.length]}
+                        style={{ width: `${(n / pendingKpis.total) * 100}%` }}
+                        title={`${name} — ${n}`}
+                      />
+                    ))}
+                  </div>
+                  <div className="flex flex-wrap gap-x-2 gap-y-0.5 mt-1.5">
+                    {pendingKpis.supplierBreakdown.slice(0, 3).map(([name, n], i) => (
+                      <span key={name} className="flex items-center gap-1 text-[8px] font-mono text-gray-600">
+                        <span className={`w-1.5 h-1.5 rounded-sm ${SUPPLIER_TONES[i % SUPPLIER_TONES.length]}`} />
+                        {name} <span className="text-gray-400">{n}</span>
+                      </span>
+                    ))}
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
+
+          {/* Excel-style header row — matches IMEI NUMBERS sheet column order */}
+          <div
+            className="px-4 py-2 grid items-center gap-2 bg-gray-100 border-y border-gray-200 text-[9px] font-bold uppercase tracking-widest text-gray-500"
+            style={{
+              fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
+              gridTemplateColumns: '90px 1.6fr 70px 130px 100px 80px 1fr',
+            }}
+          >
+            <span>Stock In</span>
+            <span>Model · Storage</span>
+            <span>Colour</span>
+            <span>Supplier</span>
+            <span>Marketplace</span>
+            <span className="text-right">BP / Days</span>
+            <span>Notes</span>
+          </div>
+
+          {/* SKU group rows — each group is collapsible; child rows show IMEI */}
+          <div className="divide-y divide-gray-100">
+            {pendingImeiGroups.map(group => {
+              const groupKey = `pending-${group.key}`;
+              const isOpen = expandedId === groupKey;
+              const head = group.units[0];
+              const qty = group.units.length;
+              const groupOldestDays = group.units.reduce((max, u) => {
+                const d = pendingKpis.daysSince(u.dateIn);
+                return d > max ? d : max;
+              }, 0);
+              const groupBP = group.units.reduce((s, u) => s + (u.buyPrice || 0), 0);
+              const stale = groupOldestDays > 30;
+              const titleParts = [
+                group.sku.brand,
+                group.sku.model,
+                group.sku.storage,
+                group.colour || null,
+              ].filter(Boolean);
+              return (
+                <div key={groupKey}>
+                  <button
+                    type="button"
+                    onClick={() => setExpandedId(isOpen ? null : groupKey)}
+                    className="w-full text-left flex items-center gap-3 px-4 py-3 hover:bg-indigo-50/50 transition-all"
+                  >
+                    <div className="w-8 h-8 rounded-lg bg-indigo-100 flex items-center justify-center flex-shrink-0">
+                      <Inbox size={14} className="text-indigo-600" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <p className="text-xs font-bold truncate">{titleParts.join(' · ')}</p>
+                        <span className="text-[9px] font-bold text-indigo-700 bg-indigo-100 px-1.5 py-0.5 rounded font-mono flex-shrink-0">
+                          ×{qty}
+                        </span>
+                        {stale && (
+                          <span
+                            className="flex items-center gap-1 text-[8px] font-bold uppercase tracking-widest text-amber-700 bg-amber-50 px-1.5 py-0.5 rounded font-mono flex-shrink-0"
+                            title={`${groupOldestDays} days since stock in — flagged as stale`}
+                          >
+                            <span className="w-1.5 h-1.5 rounded-full bg-amber-500" /> Stale
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-[9px] text-gray-400 font-mono mt-0.5">
+                        {qty} unit{qty === 1 ? '' : 's'} · oldest {groupOldestDays}d · {supplierMap[head.supplierId] || head.supplierName || '—'}
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-2 flex-shrink-0">
+                      <span className="text-sm font-bold">£{groupBP.toLocaleString()}</span>
+                      <span className="p-1.5 text-gray-400">
+                        {isOpen ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
+                      </span>
+                    </div>
+                  </button>
+
+                  <AnimatePresence>
+                    {isOpen && (
+                      <motion.div
+                        initial={{ height: 0, opacity: 0 }}
+                        animate={{ height: 'auto', opacity: 1 }}
+                        exit={{ height: 0, opacity: 0 }}
+                        className="overflow-hidden bg-gray-50 border-t border-gray-100"
+                      >
+                        <div
+                          className="divide-y divide-gray-100"
+                          style={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace' }}
+                        >
+                          {group.units
+                            .slice()
+                            .sort((a, b) => new Date(a.dateIn || 0).getTime() - new Date(b.dateIn || 0).getTime())
+                            .map(u => {
+                              const days = pendingKpis.daysSince(u.dateIn);
+                              const rowStale = days > 30;
+                              const marketplace = (u.marketplace || '').trim();
+                              return (
+                                <div
+                                  key={u.id}
+                                  className="px-4 py-1.5 grid items-center gap-2 hover:bg-white transition-colors text-[10px] text-gray-700"
+                                  style={{ gridTemplateColumns: '90px 1.6fr 70px 130px 100px 80px 1fr' }}
+                                >
+                                  <span className="text-gray-500">{u.dateIn || '—'}</span>
+                                  <span className="flex items-center gap-2 min-w-0">
+                                    <CopyImei imei={u.imei} truncate={14} />
+                                    <span className="text-gray-400">·</span>
+                                    <span className="text-gray-600 truncate">
+                                      {[group.sku.model, group.sku.storage].filter(Boolean).join(' ')}
+                                    </span>
+                                  </span>
+                                  <span className="text-gray-600 truncate">{u.colour || '—'}</span>
+                                  <span className="text-gray-600 truncate">
+                                    {supplierMap[u.supplierId] || u.supplierName || '—'}
+                                  </span>
+                                  <span className={`truncate ${marketplace ? 'text-gray-700' : 'text-gray-300'}`}>
+                                    {marketplace || '—'}
+                                  </span>
+                                  <span className="text-right">
+                                    <span className="font-bold text-gray-800">£{u.buyPrice}</span>
+                                    <span className={`block text-[8px] font-mono ${rowStale ? 'text-amber-600' : 'text-gray-400'}`}>
+                                      {days}d{rowStale && ' ●'}
+                                    </span>
+                                  </span>
+                                  <span className="text-gray-500 truncate" title={u.notes || ''}>
+                                    {u.notes || ''}
+                                  </span>
+                                </div>
+                              );
+                            })}
+                        </div>
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
                 </div>
               );
             })}
