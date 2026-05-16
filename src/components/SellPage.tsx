@@ -9,6 +9,7 @@ import { dbService } from '../lib/dbService';
 import { InventoryUnit } from '../types';
 import { useInventoryStore } from '../lib/inventoryStore';
 import { notificationService } from '../lib/notificationService';
+import { parseBrandModelStorage } from '../lib/modelStorage';
 import CopyImei from './CopyImei';
 import {
   PLATFORM_LIST, PLATFORMS, DEFAULT_POSTAGE_COST,
@@ -29,6 +30,23 @@ const PLATFORM_STYLE: Record<string, string> = {
   OnBuy:      'bg-blue-50   text-blue-800   border-blue-200',
   Backmarket: 'bg-green-50  text-green-800  border-green-200',
 };
+
+/** Resolve a unit's SKU using pre-split fields when present, otherwise
+ *  parse the legacy single-string `model` column at runtime. Mirrors the
+ *  helper in StockInPage so legacy "SAMSUNG S21 128GB" strings still
+ *  group together with newly-imported brand-split units. */
+function deriveSku(u: InventoryUnit): { brand: string; model: string; storage?: string; series?: string } {
+  if (u.brand && u.storage) {
+    return { brand: u.brand, model: u.model, storage: u.storage };
+  }
+  const p = parseBrandModelStorage(u.model || '');
+  return {
+    brand: u.brand || p.brand,
+    model: p.model || u.model,
+    storage: u.storage || p.storage,
+    series: p.series,
+  };
+}
 
 // ── SellOrderModal ─────────────────────────────────────────────────────────────
 function SellOrderModal({
@@ -424,8 +442,11 @@ export default function SellPage() {
   const ystdSold     = sold.filter(u => u.saleDate === yesterday);
   const todayRevenue = todaySold.reduce((s, u) => s + (u.salePrice || 0), 0);
 
+  // Apply search BEFORE grouping so an IMEI hit still surfaces the SKU
+  // group containing that IMEI. No top-N slice here — we cap by SKU groups
+  // in the render below (so users never see a stack of duplicate rows).
   const filtered = useMemo(() => {
-    if (!search.trim()) return inStock.slice(0, 80);
+    if (!search.trim()) return inStock;
     const q = search.toLowerCase();
     return inStock.filter(u =>
       u.model.toLowerCase().includes(q) ||
@@ -435,6 +456,32 @@ export default function SellPage() {
       (supplierMap[u.supplierId] || '').toLowerCase().includes(q),
     );
   }, [inStock, search, supplierMap]);
+
+  // Collapse the filtered list into one row per SKU (brand · model · storage ·
+  // colour). Mirrors the StockInPage grouping pattern so 354 individual
+  // IMEIs render as ~47 expandable rows instead of stacking three identical
+  // S21 GREY 128GB lines. Empty / "Unknown" colours collapse to one
+  // colour-less bucket (consistent with StockInPage). Sort: largest group
+  // first; ties broken alphabetically by model.
+  const availableGroups = useMemo(() => {
+    const map = new Map<string, {
+      key: string;
+      sku: { brand: string; model: string; storage?: string; series?: string };
+      colour: string;
+      units: InventoryUnit[];
+    }>();
+    for (const u of filtered) {
+      const sku = deriveSku(u);
+      const colour = u.colour && u.colour !== 'Unknown' ? u.colour : '';
+      const key = `${sku.brand}|${sku.model}|${sku.storage || ''}|${colour}`;
+      const g = map.get(key);
+      if (g) g.units.push(u);
+      else map.set(key, { key, sku, colour, units: [u] });
+    }
+    return Array.from(map.values()).sort((a, b) =>
+      b.units.length - a.units.length || a.sku.model.localeCompare(b.sku.model),
+    );
+  }, [filtered]);
 
   const handleSaved = () => {
     setSavedFlag(true);
@@ -630,10 +677,14 @@ export default function SellPage() {
         </div>
       </div>
 
-      {/* Available stock */}
+      {/* Available stock — grouped by (brand, model, storage, colour) so 354
+          IMEIs collapse to ~47 SKU rows. Click a row to expand the per-IMEI
+          list; each child row has its own SELL button for IMEI-level
+          targeting, while the group-level SELL button opens the existing
+          single-unit modal on the first IMEI in the group. */}
       <CollapsibleSection
         title="Available Stock"
-        count={`${filtered.length}${inStock.length > 80 && !search ? ` of ${inStock.length}` : ''}`}
+        count={`${availableGroups.length} SKUs · ${filtered.length} units`}
         accent="border-l-emerald-500"
         defaultOpen={false}
       >
@@ -642,39 +693,58 @@ export default function SellPage() {
             <ShoppingCart size={40} />
             <p className="text-xs font-mono">No stock in office. Add a supplier delivery on Stock In.</p>
           </div>
-        ) : filtered.length === 0 ? (
+        ) : availableGroups.length === 0 ? (
           <div className="py-12 flex flex-col items-center gap-2 text-gray-300">
             <Search size={32} />
             <p className="text-xs font-mono">No units match "{search}"</p>
           </div>
         ) : (
           <div className="divide-y divide-gray-50">
-            {filtered.map(u => {
-              const isOpen = expandedId === u.id;
-              const isSHS = u.batchId?.startsWith('shs_') || u.notes?.includes('SHS');
+            {availableGroups.map(group => {
+              const isOpen = expandedId === group.key;
+              const head = group.units[0];
+              const isSHS = head.batchId?.startsWith('shs_') || head.notes?.includes('SHS');
+              const qty = group.units.length;
+              // BP summary: if every unit in the group shares the same BP,
+              // show a single price. Otherwise show "from £min" so the
+              // operator sees the cheapest unit at a glance without us
+              // hiding the variance. Defensive against the all-zero-BP case
+              // (pre-fix imports) — just renders "£0".
+              const bps = group.units.map(u => u.buyPrice || 0);
+              const minBp = bps.reduce((m, v) => (v < m ? v : m), bps[0] ?? 0);
+              const maxBp = bps.reduce((m, v) => (v > m ? v : m), bps[0] ?? 0);
+              const bpLabel = minBp === maxBp ? `£${minBp}` : `from £${minBp}`;
+              const titleParts = [
+                group.sku.model,
+                group.sku.storage,
+                group.colour || null,
+              ].filter(Boolean);
               return (
-                <div key={u.id}>
+                <div key={group.key}>
                   <div className={`flex items-center gap-3 px-4 py-3 transition-all ${
-                    isSHS
-                      ? 'bg-orange-50/60 hover:bg-orange-50'
-                      : 'hover:bg-gray-50'
+                    isSHS ? 'bg-orange-50/60 hover:bg-orange-50' : 'hover:bg-gray-50'
                   }`}>
                     <div className="w-2 h-2 rounded-full bg-emerald-400 flex-shrink-0" />
                     <div className="flex-1 min-w-0">
-                      <p className="text-xs font-bold truncate">{u.model}</p>
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <p className="text-xs font-bold truncate">{titleParts.join(' · ')}</p>
+                        {qty > 1 && (
+                          <span className="text-[9px] font-bold text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded font-mono flex-shrink-0">
+                            ×{qty} units
+                          </span>
+                        )}
+                      </div>
                       <p className="text-[9px] text-gray-400 font-mono mt-0.5 truncate">
-                        <CopyImei imei={u.imei} truncate={10} />
-                        {u.colour && <> · {u.colour}</>}
-                        {u.storage && <> · {u.storage}</>}
+                        {qty} unit{qty === 1 ? '' : 's'} · {bpLabel} ea
                       </p>
                     </div>
                     <div className="flex items-center gap-2 flex-shrink-0">
-                      <span className="text-sm font-bold">£{u.buyPrice}</span>
-                      <button onClick={() => setExpandedId(isOpen ? null : u.id)}
+                      <span className="text-sm font-bold">{bpLabel}</span>
+                      <button onClick={() => setExpandedId(isOpen ? null : group.key)}
                         className="p-1.5 hover:bg-gray-100 rounded-lg transition-all text-gray-400">
                         {isOpen ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
                       </button>
-                      <button onClick={() => { setSelected(u); setSelectedIsSHS(false); }}
+                      <button onClick={() => { setSelected(group.units[0]); setSelectedIsSHS(false); }}
                         className="px-3 py-1.5 bg-emerald-600 text-white rounded-lg text-[9px] font-bold uppercase tracking-widest hover:bg-emerald-700 transition-all flex items-center gap-1">
                         Sell <ChevronRight size={11} />
                       </button>
@@ -686,16 +756,27 @@ export default function SellPage() {
                         initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }}
                         className="overflow-hidden bg-gray-50 border-t border-gray-100"
                       >
-                        <div className="px-6 py-3 grid grid-cols-4 gap-3 text-center">
-                          {[
-                            { label: 'Storage', value: u.storage || '—' },
-                            { label: 'Date In', value: u.dateIn || '—' },
-                            { label: 'Supplier', value: supplierMap[u.supplierId] || '—' },
-                            { label: 'Batch', value: u.batchId === 'master_batch' ? 'Master' : (u.batchId || 'Default') },
-                          ].map(f => (
-                            <div key={f.label}>
-                              <p className="text-[8px] text-gray-400 font-mono uppercase tracking-widest">{f.label}</p>
-                              <p className="text-xs font-bold mt-0.5">{f.value}</p>
+                        <div className="divide-y divide-gray-100">
+                          {group.units.map(u => (
+                            <div key={u.id} className="px-5 py-2.5 flex items-center gap-3">
+                              <div className="flex-1 min-w-0">
+                                <p className="text-[10px] font-mono text-gray-700 flex items-center gap-2 flex-wrap">
+                                  <CopyImei imei={u.imei} truncate={14} />
+                                  <span className="text-gray-400">·</span>
+                                  <span className="text-gray-500">{supplierMap[u.supplierId] || '—'}</span>
+                                  <span className="text-gray-400">·</span>
+                                  <span className="text-gray-500">{u.dateIn || '—'}</span>
+                                  <span className="text-gray-400">·</span>
+                                  <span className="text-gray-700 font-bold">£{u.buyPrice}</span>
+                                </p>
+                                <p className="text-[8px] text-gray-400 font-mono mt-0.5">
+                                  Batch: {u.batchId === 'master_batch' ? 'Master' : (u.batchId || 'Default')}
+                                </p>
+                              </div>
+                              <button onClick={() => { setSelected(u); setSelectedIsSHS(false); }}
+                                className="px-2.5 py-1 bg-emerald-600 text-white rounded-lg text-[9px] font-bold uppercase tracking-widest hover:bg-emerald-700 transition-all flex items-center gap-1 flex-shrink-0">
+                                Sell <ChevronRight size={10} />
+                              </button>
                             </div>
                           ))}
                         </div>

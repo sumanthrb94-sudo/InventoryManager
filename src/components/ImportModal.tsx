@@ -434,13 +434,23 @@ export function parseOGStockSheet(rows: any[][]): ParsedData {
   const findCol = (names: string[]) =>
     header.findIndex((h: any) => names.some(n => h?.toString().toUpperCase().includes(n.toUpperCase())));
 
-  // Required columns — fall back to positional index for legacy headerless sheets
-  const dateInIdx    = Math.max(findCol(['Date In', 'Stock In', 'Received']), 0);
-  const modelIdx     = Math.max(findCol(['Model', 'Device', 'Description']), 1);
-  const imeiIdx      = Math.max(findCol(['IMEI', 'Serial', 'S/N']), 2);
-  const supplierIdx  = Math.max(findCol(['Supplier', 'Source', 'From']), 3);
-  const buyPriceIdx  = Math.max(findCol(['Buy Price', 'BP', 'Cost']), 4);
-  const statusIdx    = Math.max(findCol(['Status', 'State']), 5);
+  // Required columns — fall back to positional index for legacy headerless
+  // sheets. Critical: ONLY use the fallback when the header genuinely isn't
+  // found. The previous `Math.max(findCol(...), fallback)` pattern picked
+  // the LARGER of (real, fallback) — that broke BP detection on the master
+  // IMEI NUMBERS sheet, where BP sits at col 3 but the fallback (4) won,
+  // making the parser read the COLOURS column and coerce every buyPrice
+  // to NaN → 0. The new helper preserves the header position whenever found.
+  const pickCol = (aliases: string[], fallback: number): number => {
+    const found = findCol(aliases);
+    return found >= 0 ? found : fallback;
+  };
+  const dateInIdx    = pickCol(['Date In', 'Stock In', 'Received'], 0);
+  const modelIdx     = pickCol(['Model', 'Device', 'Description'], 1);
+  const imeiIdx      = pickCol(['IMEI', 'Serial', 'S/N'], 2);
+  const supplierIdx  = pickCol(['Supplier', 'Source', 'From'], 3);
+  const buyPriceIdx  = pickCol(['Buy Price', 'BP', 'Cost'], 4);
+  const statusIdx    = pickCol(['Status', 'State'], 5);
   // Optional columns — -1 if absent
   const colourIdx      = findCol(['Colour', 'Color']);
   const storageIdx     = findCol(['Storage', 'Capacity']);
