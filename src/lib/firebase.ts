@@ -13,62 +13,35 @@ export const db      = getFirestore(app, firebaseConfig.firestoreDatabaseId);
 export const storage = getStorage(app, firebaseConfig.storageBucket);
 export const auth    = getAuth(app);
 
-// ── Team login ────────────────────────────────────────────────────────────────
+// ── Sign-in ──────────────────────────────────────────────────────────────────
 //
-// Internal tool used by a fixed 4-5 person team. We use Firebase Auth with
-// email/password so password hashing, brute-force protection, and session
-// persistence are handled by Firebase rather than rolled by hand — but the
-// UI only asks for a username because no one in the team thinks of
-// themselves as an email address.
-//
-// Each entry below maps a short username to the synthetic email Firebase
-// expects. To add a teammate:
-//   1. Add `{ username: 'frank', email: 'frank@mpm.local' }` to ALLOWED_USERS
-//   2. Create the auth record in Firebase Console
-//      (Authentication → Add user → email = frank@mpm.local, set password)
-// To remove a teammate: drop from the list AND disable in Firebase Console.
-//
-// Passwords are NOT stored here — Firebase handles them.
-export interface TeamUser {
-  username: string;
-  email: string;
-  displayName?: string;
-}
-
-export const ALLOWED_USERS: TeamUser[] = [
-  { username: 'admin',   email: 'admin@mpm.local',   displayName: 'Admin' },
-  { username: 'sumanth', email: 'sumanth@mpm.local', displayName: 'Sumanth' },
-  { username: 'ram',     email: 'ram@mpm.local',     displayName: 'Ram' },
-  { username: 'ops1',    email: 'ops1@mpm.local',    displayName: 'Ops 1' },
-  { username: 'ops2',    email: 'ops2@mpm.local',    displayName: 'Ops 2' },
-];
-
-function findTeamUser(usernameOrEmail: string): TeamUser | undefined {
-  const key = usernameOrEmail.trim().toLowerCase();
-  return ALLOWED_USERS.find(
-    u => u.username.toLowerCase() === key || u.email.toLowerCase() === key,
-  );
-}
+// Plain Firebase email/password — users sign in with their REAL email
+// (e.g. `admin@inventorymanager.com`, or any teammate's `@gmail.com`).
+// No allowlist, no username-to-synthetic-email mapping. The Firebase
+// Console is the source of truth for who can sign in.
 
 /**
- * Sign in with a team username (or email) + password.
+ * Sign in with email + password.
  * Returns the Firebase user credential. Throws a friendly Error on failure.
  */
-export async function signInWithUsername(usernameOrEmail: string, password: string) {
-  const teamUser = findTeamUser(usernameOrEmail);
-  if (!teamUser) {
-    throw new Error('Unknown username. Ask an admin to add you.');
+export async function signInWithEmail(email: string, password: string) {
+  const trimmed = email.trim();
+  if (!trimmed) {
+    throw new Error('Email is required.');
   }
   if (!password) {
     throw new Error('Password is required.');
   }
   try {
-    return await signInWithEmailAndPassword(auth, teamUser.email, password);
+    return await signInWithEmailAndPassword(auth, trimmed, password);
   } catch (err: any) {
     // Normalise Firebase's verbose error codes into something we can show.
     const code = err?.code || '';
     if (code === 'auth/wrong-password' || code === 'auth/invalid-credential' || code === 'auth/invalid-login-credentials') {
-      throw new Error('Wrong password.');
+      throw new Error('Wrong email or password.');
+    }
+    if (code === 'auth/invalid-email') {
+      throw new Error('That doesn’t look like a valid email.');
     }
     if (code === 'auth/user-not-found' || code === 'auth/user-disabled') {
       throw new Error('Account is not active. Ask an admin.');
@@ -86,14 +59,6 @@ export async function signInWithUsername(usernameOrEmail: string, password: stri
 /** Signs the current user out. */
 export function signOut() {
   return fbSignOut(auth);
-}
-
-/**
- * Resolve the synthetic email back to a display name / username for UI.
- */
-export function teamUserForEmail(email: string | null | undefined): TeamUser | undefined {
-  if (!email) return undefined;
-  return ALLOWED_USERS.find(u => u.email.toLowerCase() === email.toLowerCase());
 }
 
 /**

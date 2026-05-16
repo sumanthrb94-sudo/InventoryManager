@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { onAuthStateChanged, User } from 'firebase/auth';
-import { auth, signInWithUsername, signOut, teamUserForEmail } from './lib/firebase';
+import { auth, signInWithEmail, signOut } from './lib/firebase';
 import {
   PackagePlus, ShoppingCart, RefreshCw, BarChart2,
   LogOut, Plus, FileSpreadsheet, LayoutDashboard,
@@ -318,9 +318,7 @@ function AppShell({ user }: { user: User }) {
         {/* User footer */}
         <div className="flex-shrink-0 p-3 border-t border-slate-100 space-y-1">
           {(() => {
-            const teamUser = teamUserForEmail(user.email);
-            const displayName = teamUser?.displayName || user.displayName || teamUser?.username || 'User';
-            const handle = teamUser?.username ? `@${teamUser.username}` : user.email;
+            const displayName = user.displayName || user.email?.split('@')[0] || 'User';
             return (
               <div className="flex items-center gap-2.5 px-3 py-2.5 rounded-xl bg-slate-50">
                 <div className="w-7 h-7 rounded-lg bg-slate-900 flex items-center justify-center flex-shrink-0 text-white text-xs font-bold">
@@ -328,7 +326,7 @@ function AppShell({ user }: { user: User }) {
                 </div>
                 <div className="flex-1 min-w-0">
                   <p className="text-[10px] font-bold text-slate-900 truncate leading-none">{displayName}</p>
-                  <p className="text-[9px] text-slate-400 font-mono truncate mt-0.5">{handle}</p>
+                  <p className="text-[9px] text-slate-400 font-mono truncate mt-0.5">{user.email}</p>
                 </div>
               </div>
             );
@@ -463,17 +461,16 @@ function AppShell({ user }: { user: User }) {
 
 // ── Login Page ────────────────────────────────────────────────────────────────
 //
-// Team-level auth. We removed Google Sign-In because we're a fixed 4-5
-// person team and don't want random Google accounts that happen to land on
-// the URL to be able to even try logging in. Username + password against a
-// pre-provisioned list (see src/lib/firebase.ts ALLOWED_USERS).
+// Plain Firebase email/password sign-in. The Firebase Console is the source
+// of truth for who's allowed in — provision new teammates via Authentication →
+// Add user. No client-side allowlist.
 function LoginPage() {
-  const [username, setUsername] = useState('');
+  const [email, setEmail]       = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading]   = useState(false);
   const [error, setError]       = useState('');
 
-  const canSubmit = username.trim().length > 0 && password.length > 0 && !loading;
+  const canSubmit = email.trim().length > 0 && password.length > 0 && !loading;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -481,7 +478,7 @@ function LoginPage() {
     setError('');
     setLoading(true);
     try {
-      await signInWithUsername(username.trim(), password);
+      await signInWithEmail(email.trim(), password);
     } catch (err: any) {
       setError(err?.message || 'Sign-in failed. Please try again.');
     } finally {
@@ -523,23 +520,23 @@ function LoginPage() {
           </div>
           <div>
             <h2 className="text-2xl font-bold tracking-tight">Sign In</h2>
-            <p className="text-sm text-gray-500 mt-1">Team credentials only</p>
+            <p className="text-sm text-gray-500 mt-1">Sign in with your email and password</p>
           </div>
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>
-              <label htmlFor="login-username" className="block text-[10px] font-bold uppercase tracking-widest text-gray-500 mb-1.5">
-                Username
+              <label htmlFor="login-email" className="block text-[10px] font-bold uppercase tracking-widest text-gray-500 mb-1.5">
+                Email
               </label>
               <input
-                id="login-username"
-                type="text"
-                autoComplete="username"
+                id="login-email"
+                type="email"
+                autoComplete="email"
                 autoCapitalize="none"
                 autoCorrect="off"
                 spellCheck={false}
-                value={username}
-                onChange={e => setUsername(e.target.value)}
-                placeholder="e.g. sumanth"
+                value={email}
+                onChange={e => setEmail(e.target.value)}
+                placeholder="you@example.com"
                 className="w-full border border-gray-300 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-black focus:border-transparent transition-all"
               />
             </div>
