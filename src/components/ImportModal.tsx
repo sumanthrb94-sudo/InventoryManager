@@ -440,7 +440,7 @@ export default function ImportModal({ onClose }: ImportModalProps) {
     setError('');
     const isCsv = /\.csv$/i.test(file.name) || file.type === 'text/csv';
     const reader = new FileReader();
-    reader.onload = (e) => {
+    reader.onload = async (e) => {
       try {
         // xlsx auto-detects CSV vs binary, but CSVs need to be read as text
         // (or as binary string) to avoid byte-order mark corruption. Branch
@@ -449,6 +449,42 @@ export default function ImportModal({ onClose }: ImportModalProps) {
         const wb = isCsv
           ? XLSX.read(e.target!.result as string, { type: 'string', raw: true, cellText: true })
           : XLSX.read(new Uint8Array(e.target!.result as ArrayBuffer), { type: 'array', raw: true, cellText: true });
+
+        // Detect a SALES_REPORT-style workbook by sheet names. If any of the
+        // five marketplace sheets are present, dispatch to the dedicated sales
+        // parser instead of the inventory parsers.
+        const salesSheets = wb.SheetNames.filter(n =>
+          ['AMAZON', 'BM', 'EBAY', 'ONBUY', 'PROJECT'].includes(n.toUpperCase())
+        );
+        if (salesSheets.length > 0 && !isCsv) {
+          const { parseSalesWorkbook } = await import('../lib/salesImport');
+          const parsedSales = await parseSalesWorkbook(
+            e.target!.result as ArrayBuffer,
+            file.name,
+          );
+          if (!parsedSales.sales.length) {
+            setError(
+              'Sales workbook detected but no valid rows were parsed. ' +
+              `Errors: ${parsedSales.errors.slice(0, 3).map(x => `${x.sheet}#${x.row}: ${x.message}`).join('; ')}`,
+            );
+            return;
+          }
+          const result: ParsedData = {
+            units: [],
+            suppliers: [],
+            aggregates: [],
+            sales: parsedSales.sales as ParsedData['sales'],
+            stats: { total: 0, available: 0, sold: 0, incoming: 0, skipped: 0, duplicateRows: 0 },
+            format: 'client-bulk',
+            sheetName: salesSheets.join(', '),
+            summary: `sales · ${parsedSales.sales.length} rows across ${salesSheets.length} marketplaces` +
+              (parsedSales.errors.length ? ` · ${parsedSales.errors.length} skipped` : ''),
+          };
+          setParsed(result);
+          setStage('preview');
+          return;
+        }
+
         const sheetName = wb.SheetNames.includes('OG STOCK DATA') ? 'OG STOCK DATA' : wb.SheetNames[0];
         const ws   = wb.Sheets[sheetName];
         const rows: any[][] = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' }) as any[][];

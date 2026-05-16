@@ -5,6 +5,7 @@ import { InventoryUnit, Supplier } from '../types';
 import { useInventoryStore } from '../lib/inventoryStore';
 import CopyImei from './CopyImei';
 import PDFReportButton from './PDFReportButton';
+import ExcelReportButton from './ExcelReportButton';
 import {
   PLATFORMS, PLATFORM_LIST,
   platformCommission, platformTotalFee, calcNetProfit,
@@ -250,7 +251,10 @@ export default function ReportingPage() {
             Daily Sales · Stock Value · VAT Returns · Margin Insights
           </p>
         </div>
-        <PDFReportButton units={units} suppliers={suppliers} variant="outline" />
+        <div className="flex items-center gap-2">
+          <ExcelReportButton units={units} suppliers={suppliers} variant="outline" />
+          <PDFReportButton units={units} suppliers={suppliers} variant="outline" />
+        </div>
       </div>
 
       {/* KPIs */}
