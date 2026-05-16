@@ -20,9 +20,12 @@ import { StockIntakeFlow } from './StockIntakeFlow';
 
 interface Props {
   onOpenBatch: () => void;
+  /** Optional callback that opens the global ImportModal — used by the
+   *  "IMPORT" button in the top-right header. */
+  onOpenImport?: () => void;
 }
 
-export default function StockInPage({ onOpenBatch }: Props) {
+export default function StockInPage({ onOpenBatch, onOpenImport: _onOpenImport }: Props) {
   const { units, suppliers }        = useInventoryStore();
   const [search, setSearch]         = useState('');
   const [expandedId, setExpandedId] = useState<string | null>(null);

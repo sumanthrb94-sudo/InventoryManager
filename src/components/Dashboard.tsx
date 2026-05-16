@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import {
   TrendingUp, Package, CircleDollarSign,
-  ChevronRight, Truck, ShoppingBag,
+  ChevronRight, Truck, ShoppingBag, FileSpreadsheet, Upload,
 } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts';
 import { dbService } from '../lib/dbService';
@@ -25,10 +25,24 @@ export interface NavAction {
 
 interface Props {
   onNavigate: (action: NavAction) => void;
+  onOpenImport?: () => void;
 }
 
-export default function Dashboard({ onNavigate }: Props) {
+export default function Dashboard({ onNavigate, onOpenImport }: Props) {
   const { units, suppliers } = useInventoryStore();
+
+  // Sales aren't in the store — pull them directly so we can detect a
+  // completely empty database (no units AND no sales) for the first-run CTA.
+  const [salesCount, setSalesCount] = useState<number | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    dbService.readAll('sales')
+      .then(rows => { if (!cancelled) setSalesCount(Array.isArray(rows) ? rows.length : 0); })
+      .catch(() => { if (!cancelled) setSalesCount(0); });
+    return () => { cancelled = true; };
+  }, [units.length]);
+
+  const isEmptyDb = units.length === 0 && (salesCount ?? 0) === 0;
 
   const available    = units.filter(u => u.status === 'available');
   const sold         = units.filter(u => u.status === 'sold');
@@ -188,6 +202,50 @@ export default function Dashboard({ onNavigate }: Props) {
         </div>
 
       </div>
+
+      {/* First-run CTA — only when DB is completely empty */}
+      {isEmptyDb && (
+        <button
+          type="button"
+          onClick={() => onOpenImport?.()}
+          className="w-full text-left bg-gradient-to-br from-slate-900 via-slate-800 to-black text-white rounded-3xl border border-slate-800 shadow-xl p-6 md:p-8 hover:shadow-2xl hover:from-black hover:to-slate-900 active:scale-[0.995] transition-all group"
+        >
+          <div className="flex items-start gap-4 md:gap-6">
+            <div className="w-12 h-12 md:w-14 md:h-14 rounded-2xl bg-white/10 border border-white/15 flex items-center justify-center flex-shrink-0 group-hover:bg-white/20 transition-all">
+              <FileSpreadsheet size={24} className="text-white"/>
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-[9px] md:text-[10px] font-mono uppercase tracking-[0.35em] text-emerald-300/90 mb-1.5">Get Started</p>
+              <h3 className="text-xl md:text-3xl font-bold tracking-tighter font-display leading-tight">Load Master Data</h3>
+              <p className="text-[11px] md:text-sm text-slate-300 font-mono mt-2 leading-relaxed">
+                Drop INVENTORY_REPORT_*.xlsx or SALES_REPORT_*.xlsx to populate the app
+              </p>
+
+              <div className="mt-5 grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                <div className="flex items-center gap-3 bg-white/5 border border-dashed border-white/20 rounded-2xl px-4 py-3 group-hover:border-white/40 transition-all">
+                  <Upload size={16} className="text-emerald-300 flex-shrink-0"/>
+                  <div className="min-w-0">
+                    <p className="text-[11px] font-bold leading-tight">INVENTORY_REPORT</p>
+                    <p className="text-[9px] text-slate-400 font-mono mt-0.5">Stock workbook</p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-3 bg-white/5 border border-dashed border-white/20 rounded-2xl px-4 py-3 group-hover:border-white/40 transition-all">
+                  <Upload size={16} className="text-emerald-300 flex-shrink-0"/>
+                  <div className="min-w-0">
+                    <p className="text-[11px] font-bold leading-tight">SALES_REPORT</p>
+                    <p className="text-[9px] text-slate-400 font-mono mt-0.5">Sales workbook</p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="mt-5 inline-flex items-center gap-2 text-[10px] md:text-[11px] font-bold uppercase tracking-widest text-white bg-white/10 group-hover:bg-white/20 rounded-xl px-3.5 py-2 transition-all">
+                <FileSpreadsheet size={12}/> Open Importer
+                <ChevronRight size={13} className="group-hover:translate-x-0.5 transition-transform"/>
+              </div>
+            </div>
+          </div>
+        </button>
+      )}
 
       {/* Periodic Inventory Table */}
       <PeriodicInventory
@@ -451,13 +509,8 @@ export default function Dashboard({ onNavigate }: Props) {
 
       {/* placeholder removed — periodic table now at top */}
 
-      {/* Empty state */}
-      {units.length === 0 && (
-        <div className="py-20 flex flex-col items-center gap-3 border-2 border-dashed border-gray-200 rounded-3xl">
-          <Package size={48} className="text-gray-200"/>
-          <p className="text-gray-400 font-mono text-sm text-center px-4">No data yet.<br/>Import your Excel sheet to get started.</p>
-        </div>
-      )}
+      {/* Legacy empty state replaced by the "Load Master Data" hero CTA at the
+          top of the dashboard, which is rendered only when the DB is empty. */}
     </div>
   );
 }
