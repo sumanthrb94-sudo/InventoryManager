@@ -87,3 +87,49 @@ export function isAdmin(user: User | null | undefined): boolean {
   if (!email) return false;
   return ADMIN_EMAILS.has(email);
 }
+
+// ── Regional role gating (UX only) ───────────────────────────────────────────
+//
+// Splits the (non-admin) team into UK warehouse ops (buy + returns) vs
+// India sell-ops (sell + returns). Admin → Users sub-tab will manage these
+// allowlists in a follow-up; for the MVP they are empty and every gmail user
+// falls through to 'both' (current default — Buy + Sell + Returns).
+//
+// Emails must be lowercase + trimmed. The 'admin' region is derived from
+// `isAdmin()` — do NOT duplicate admin emails into these sets.
+
+export type UserRegion = 'uk' | 'india' | 'both' | 'admin';
+
+// eslint-disable-next-line @typescript-eslint/no-inferrable-types
+const UK_OPS_EMAILS: ReadonlySet<string> = new Set<string>([
+  // TODO: admin to fill in UK warehouse ops gmail addresses
+]);
+
+const INDIA_OPS_EMAILS: ReadonlySet<string> = new Set<string>([
+  // TODO: admin to fill in India sell-ops gmail addresses
+]);
+
+/**
+ * Resolve a user's region for nav-gating purposes.
+ * Admin wins over allowlists; unknown users default to 'both'.
+ */
+export function userRegion(user: User | null | undefined): UserRegion {
+  if (!user) return 'both';
+  if (isAdmin(user)) return 'admin';
+  const email = user.email?.toLowerCase().trim() ?? '';
+  if (UK_OPS_EMAILS.has(email))    return 'uk';
+  if (INDIA_OPS_EMAILS.has(email)) return 'india';
+  return 'both'; // default — non-allowlisted users see both Buy and Sell
+}
+
+/** Whether the user should see the Buy tab. */
+export function canBuy(user: User | null | undefined): boolean {
+  const r = userRegion(user);
+  return r === 'uk' || r === 'both' || r === 'admin';
+}
+
+/** Whether the user should see the Sell tab. */
+export function canSell(user: User | null | undefined): boolean {
+  const r = userRegion(user);
+  return r === 'india' || r === 'both' || r === 'admin';
+}

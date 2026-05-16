@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { onAuthStateChanged, User } from 'firebase/auth';
-import { auth, signInWithEmail, signOut, isAdmin } from './lib/firebase';
+import { auth, signInWithEmail, signOut, isAdmin, userRegion, canBuy, canSell } from './lib/firebase';
+import { fmtDateTimeForUser } from './lib/userLocale';
 import {
   PackagePlus, ShoppingCart, RefreshCw,
   LogOut, Plus, FileSpreadsheet, LayoutDashboard,
@@ -33,6 +34,37 @@ import type { ImportBatch, SupplierWhatsappUpdate } from './types';
 
 type Tab      = 'buy' | 'sell' | 'returns' | 'admin';
 type AdminSub = 'overview' | 'masterData' | 'salesHistory' | 'insights' | 'reports' | 'suppliers' | 'audit';
+
+interface NavTab {
+  id: Tab;
+  label: string;
+  icon: React.ReactNode;
+}
+
+/**
+ * Build the sidebar/bottom-nav tabs visible to the given user, gated by their
+ * region. Returns is shared by both UK and India ops; admin gets everything.
+ * Used by both the sidebar render and the redirect-on-mount fallback so they
+ * stay in sync.
+ */
+function buildNavTabs(user: User): NavTab[] {
+  const tabs: NavTab[] = [];
+  if (canBuy(user))   tabs.push({ id: 'buy',     label: 'Buy',     icon: <PackagePlus size={20} /> });
+  if (canSell(user))  tabs.push({ id: 'sell',    label: 'Sell',    icon: <ShoppingCart size={20} /> });
+  tabs.push({           id: 'returns', label: 'Returns', icon: <RefreshCw size={20} /> });
+  if (isAdmin(user))  tabs.push({ id: 'admin',   label: 'Admin',   icon: <Settings size={20} /> });
+  return tabs;
+}
+
+/** Human-facing label for the sidebar region badge ('' = hide). */
+function regionBadgeLabel(region: ReturnType<typeof userRegion>): string {
+  switch (region) {
+    case 'uk':    return 'UK ops';
+    case 'india': return 'India ops';
+    case 'admin': return 'Admin';
+    default:      return '';
+  }
+}
 
 const APP_NAME    = 'MOBILEPHONEMARKET';
 const APP_TAGLINE = 'Inventory Manager';
@@ -134,14 +166,19 @@ function AppShell({ user }: { user: User }) {
     }
   };
 
-  const NAV_TABS: { id: Tab; label: string; icon: React.ReactNode }[] = [
-    { id: 'buy',     label: 'Buy',     icon: <PackagePlus size={20} /> },
-    { id: 'sell',    label: 'Sell',    icon: <ShoppingCart size={20} /> },
-    { id: 'returns', label: 'Returns', icon: <RefreshCw size={20} /> },
-    ...(userIsAdmin
-      ? [{ id: 'admin' as Tab, label: 'Admin', icon: <Settings size={20} /> }]
-      : []),
-  ];
+  const NAV_TABS = React.useMemo(() => buildNavTabs(user), [user]);
+  const region   = userRegion(user);
+  const regionBadge = regionBadgeLabel(region);
+
+  // Redirect-on-mount: if the user landed on a tab they're not allowed to
+  // see (e.g. activeTab='buy' but they're India-only), fall back to the
+  // first tab in their allowed set. Returns is in every region's list so
+  // there's always at least one tab.
+  useEffect(() => {
+    if (!NAV_TABS.some(t => t.id === activeTab)) {
+      setActiveTab(NAV_TABS[0].id);
+    }
+  }, [NAV_TABS, activeTab]);
 
   return (
     <div className="h-[100dvh] bg-slate-50 text-slate-900 flex overflow-hidden">
