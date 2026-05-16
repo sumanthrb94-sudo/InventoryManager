@@ -304,14 +304,27 @@ BRAND_RULES_PY = [
 ]
 LEADING_BRAND_TOKENS_PY = {'apple', 'samsung', 'google', 'xiaomi', 'oneplus'}
 
-_GALAXY_TAB_RE = re.compile(r'\btab [as]\d')
-_GALAXY_NOTE_RE = re.compile(r'\bnote\s?\d')
-_GALAXY_S_RE = re.compile(r'\bgalaxy s\d')
-# Trailing `(fe|ultra|plus|+)?` catches "S20FE", "S22Ultra", "S21+", etc.
-_BARE_S_RE = re.compile(r'\bs\d{1,2}(fe|ultra|plus|\+)?\b')
-_GALAXY_A_RE = re.compile(r'\bgalaxy a\d')
-# Trailing `s?` catches "A21S" / "A52S".
-_BARE_A_RE = re.compile(r'\ba\d{1,3}s?\b')
+# ── Samsung bare-model regexes (keep in sync with src/lib/modelStorage.ts) ──
+_RE_GALAXY_TAB    = re.compile(r'\bgalaxy\s*tab|\btab\s*[as]\d', re.IGNORECASE)
+_RE_GALAXY_NOTE   = re.compile(r'\bgalaxy\s*note|\bnote\s?\d', re.IGNORECASE)
+_RE_GALAXY_Z      = re.compile(r'\bgalaxy\s*z|\bz\s*(fold|flip)', re.IGNORECASE)
+_RE_GALAXY_M      = re.compile(r'\bgalaxy\s*m\b|\bgalaxy\s*m\d|\bm\d{2}\b', re.IGNORECASE)
+_RE_GALAXY_XCOVER = re.compile(r'\b(x\s*cover|xcover)\b', re.IGNORECASE)
+_RE_GALAXY_S      = re.compile(r'\bgalaxy\s*s\s*\d+|\bs\d{1,2}(fe|ultra|plus|\+)?\b|\bs\d{1,2}\s*(fe|ultra|plus)\b', re.IGNORECASE)
+_RE_GALAXY_A      = re.compile(r'\bgalaxy\s*a\s*\d+|\ba\d{1,3}s?(\s*5g|\s*4g)?\b', re.IGNORECASE)
+_RE_PIXEL         = re.compile(r'\bpixel\s*\d', re.IGNORECASE)
+
+
+def _looks_like_samsung(lower):
+    return bool(
+        _RE_GALAXY_TAB.search(lower)
+        or _RE_GALAXY_NOTE.search(lower)
+        or _RE_GALAXY_Z.search(lower)
+        or _RE_GALAXY_XCOVER.search(lower)
+        or _RE_GALAXY_S.search(lower)
+        or _RE_GALAXY_A.search(lower)
+        or _RE_GALAXY_M.search(lower)
+    )
 
 
 def _detect_brand_py(lower):
@@ -319,6 +332,12 @@ def _detect_brand_py(lower):
         for k in keywords:
             if k in lower:
                 return brand
+    # Fall back to Samsung-shape inference for cleaned strings whose
+    # "Samsung" prefix has already been stripped.
+    if _looks_like_samsung(lower):
+        return 'Samsung'
+    if _RE_PIXEL.search(lower):
+        return 'Google'
     return 'Other'
 
 
@@ -336,17 +355,24 @@ def _detect_series_py(brand, lower):
             return 'MacBook'
         return 'Other'
     if brand == 'Samsung':
-        if 'galaxy tab' in lower or _GALAXY_TAB_RE.search(lower):
+        # Specific buckets first so Tab/Note/Z/XCover win over generic S/A.
+        if _RE_GALAXY_TAB.search(lower):
             return 'Galaxy Tab'
-        if 'galaxy note' in lower or _GALAXY_NOTE_RE.search(lower):
+        if _RE_GALAXY_NOTE.search(lower):
             return 'Galaxy Note'
-        if _GALAXY_S_RE.search(lower) or _BARE_S_RE.search(lower):
+        if _RE_GALAXY_Z.search(lower):
+            return 'Galaxy Z'
+        if _RE_GALAXY_XCOVER.search(lower):
+            return 'Galaxy XCover'
+        if _RE_GALAXY_S.search(lower):
             return 'Galaxy S'
-        if _GALAXY_A_RE.search(lower) or _BARE_A_RE.search(lower):
+        if _RE_GALAXY_A.search(lower):
             return 'Galaxy A'
+        if _RE_GALAXY_M.search(lower):
+            return 'Galaxy M'
         return 'Other'
     if brand == 'Google':
-        if 'pixel' in lower:
+        if _RE_PIXEL.search(lower) or 'pixel' in lower:
             return 'Pixel'
         return 'Other'
     return 'Other'

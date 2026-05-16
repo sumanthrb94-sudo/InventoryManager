@@ -60,6 +60,10 @@ export async function parseSalesWorkbook(
     AMAZON: 0, BM: 0, EBAY: 0, ONBUY: 0, PROJECT: 0,
   };
 
+  // Track mean SP per marketplace — surfaces the SP=£0 column-detection bug
+  // immediately at parse time instead of leaking into Firestore unnoticed.
+  const spSum: Record<Marketplace, number> = { AMAZON: 0, BM: 0, EBAY: 0, ONBUY: 0, PROJECT: 0 };
+
   for (const marketplace of MARKETPLACES) {
     const sheetName = findSheetName(wb, marketplace);
     if (!sheetName) {
@@ -89,9 +93,25 @@ export async function parseSalesWorkbook(
       if (parsed) {
         sales.push(parsed);
         perSheetCounts[marketplace]++;
+        spSum[marketplace] += parsed.salePrice ?? 0;
       }
     }
   }
+
+  // Parse-time canary: mean SP per marketplace must land in £100–£200 for the
+  // live workbook. A mean of 0 means SP isn't being read (column-detection
+  // regression) — log loudly so an importer can see it before pushing to
+  // Firestore. Wrapped in try/catch so a console-less environment never throws.
+  try {
+    if (typeof console !== 'undefined' && console.info) {
+      const summary = MARKETPLACES.map((m) => {
+        const n = perSheetCounts[m];
+        const mean = n > 0 ? (spSum[m] / n).toFixed(2) : '—';
+        return `${m}=£${mean}(n=${n})`;
+      }).join(' ');
+      console.info(`[salesImport] mean SP per marketplace: ${summary}`);
+    }
+  } catch { /* non-critical diagnostic */ }
 
   return { sales, perSheetCounts, errors };
 }
@@ -107,8 +127,22 @@ type ColKey =
   | 'postage' | 'comments';
 
 interface SheetLayout {
-  /** Header aliases per logical column (case-insensitive, whitespace-collapsed). */
+  /** Header aliases per logical column (case-insensitive, whitespace-collapsed).
+   *  Each value is the list of accepted header strings; the FIRST entry can be
+   *  used as the canonical name when emitting diagnostics. */
   columns: Partial<Record<ColKey, string[]>>;
+  /**
+   * Positional fallback indices used ONLY when the header alias match fails
+   * (mirrors `pickCol(aliases, fallback)` from ImportModal.parseOGStockSheet).
+   * Indices come straight from MASTER_FILES_SPEC.md §File 2 — verified against
+   * the live SALES_REPORT_2026.xlsx via scripts/_headerdump.mts.
+   *
+   * Critical: ONBUY has NO Quantity column, so BP/SP indices shift LEFT by one
+   * vs the other marketplaces. BM inserts Payment Mode at col 8, which shifts
+   * SP-BP/MAR TAX/... to the right but DOES NOT affect BP/SP (cols 6/7) — they
+   * sit before the Payment Mode column.
+   */
+  fallback: Partial<Record<ColKey, number>>;
   /** Columns required for parseRow to consider the row valid. */
   required: ColKey[];
 }
@@ -117,8 +151,19 @@ interface SheetLayout {
  * Header aliases match the live AMAZON/BM/EBAY/ONBUY/PROJECT sheets verbatim
  * (see MASTER_FILES_SPEC.md §File 2). The matcher trims, lowercases and
  * collapses whitespace, so trailing spaces / case variations are tolerated.
+ *
+ * Each layout also carries `fallback` positional indices. If a header alias
+ * cannot be matched (e.g. a corrupted header row, an export with the header
+ * stripped, or a future column rename), the parser uses the documented
+ * positional index instead of dropping the column. That guarantees BP / SP
+ * keep flowing as REAL numbers — never silently defaulting to whatever happens
+ * to sit at column 0 (which historically caused every row to come through with
+ * SP=£0 + POSTAGE=£0 + COMMISSION=£0 and `GP = 0 - buyPrice`).
  */
 const SHEET_LAYOUTS: Record<Marketplace, SheetLayout> = {
+  // AMAZON cols (15):  nw | Order Number | SKU | IMEI | Supplier | Quantity |
+  //                    BP | SP | SP-BP | Marginal Tax | Commission | Postage |
+  //                    GP | GP % | Comments
   AMAZON: {
     columns: {
       date:        ['nw', 'date'],
@@ -131,8 +176,15 @@ const SHEET_LAYOUTS: Record<Marketplace, SheetLayout> = {
       salePrice:   ['sp'],
       comments:    ['comments'],
     },
+    fallback: {
+      date: 0, orderNumber: 1, sku: 2, imei: 3, supplier: 4,
+      quantity: 5, buyPrice: 6, salePrice: 7, comments: 14,
+    },
     required: ['date', 'orderNumber', 'buyPrice', 'salePrice'],
   },
+  // BM cols (17): Date | Order No | SKU | IMEI | Supplier | Quantity | BP | SP |
+  //               Payment Mode | SP-BP | Marginal Tax | PayPal/Klarna Com |
+  //               Commission | Postage | GP | GP % | Comments
   BM: {
     columns: {
       date:        ['date'],
@@ -146,8 +198,15 @@ const SHEET_LAYOUTS: Record<Marketplace, SheetLayout> = {
       paymentMode: ['payment mode'],
       comments:    ['comments'],
     },
+    fallback: {
+      date: 0, orderNumber: 1, sku: 2, imei: 3, supplier: 4,
+      quantity: 5, buyPrice: 6, salePrice: 7, paymentMode: 8, comments: 16,
+    },
     required: ['date', 'orderNumber', 'buyPrice', 'salePrice'],
   },
+  // EBAY cols (19): DATE | ORDER NUMBER | SKU | IMEI NUMBER | SUPPLIER | UNITS |
+  //                 BP | SP | SP-BP | MAR TAX | COM | ROF | FVF | 0.2 | T.COM |
+  //                 SHIPPING | GP | GP% | NP(incl. PROMOTION)
   EBAY: {
     columns: {
       date:        ['date'],
@@ -163,10 +222,17 @@ const SHEET_LAYOUTS: Record<Marketplace, SheetLayout> = {
       netProfit:   ['np(incl. promotion)', 'np incl. promotion', 'np'],
       comments:    ['comments'],
     },
+    fallback: {
+      date: 0, orderNumber: 1, sku: 2, imei: 3, supplier: 4,
+      quantity: 5, buyPrice: 6, salePrice: 7, shipping: 15, netProfit: 18,
+    },
     required: ['date', 'orderNumber', 'buyPrice', 'salePrice'],
   },
+  // ONBUY cols (15): DATE | Order Number | SKU | IMEI | Supplier | BP | SP |
+  //                  SP-BP | MAR VAT | COM 7% | VAT 20% | SHIP |
+  //                  GP=SP-BP-COM-SHIP-MARVAT | GP% | Comments
+  // OnBuy has NO QUANT column — BP/SP shift LEFT by one vs other sheets.
   ONBUY: {
-    // OnBuy has NO QUANT column — quantity defaults to 1.
     columns: {
       date:        ['date'],
       orderNumber: ['order number', 'order no'],
@@ -177,8 +243,17 @@ const SHEET_LAYOUTS: Record<Marketplace, SheetLayout> = {
       salePrice:   ['sp'],
       comments:    ['comments'],
     },
+    fallback: {
+      date: 0, orderNumber: 1, sku: 2, imei: 3, supplier: 4,
+      // NB: BP at 5, SP at 6 — one less than the other marketplaces because
+      // OnBuy has no Quantity column.
+      buyPrice: 5, salePrice: 6, comments: 14,
+    },
     required: ['date', 'orderNumber', 'buyPrice', 'salePrice'],
   },
+  // PROJECT cols (15): Date | Order Number | SKU | IMEI | Supplier | QUANT |
+  //                    BP | SP | SP-BP | MAR TAX | COMM | POST |
+  //                    GP | GP % | Comments
   PROJECT: {
     columns: {
       date:        ['date'],
@@ -190,6 +265,10 @@ const SHEET_LAYOUTS: Record<Marketplace, SheetLayout> = {
       buyPrice:    ['bp'],
       salePrice:   ['sp'],
       comments:    ['comments'],
+    },
+    fallback: {
+      date: 0, orderNumber: 1, sku: 2, imei: 3, supplier: 4,
+      quantity: 5, buyPrice: 6, salePrice: 7, comments: 14,
     },
     required: ['date', 'orderNumber', 'buyPrice', 'salePrice'],
   },
@@ -212,7 +291,20 @@ function normHeader(v: unknown): string {
   return String(v).trim().toLowerCase().replace(/\s+/g, ' ');
 }
 
-/** Build a column-key → column-index lookup for one sheet from its header row. */
+/**
+ * Build a column-key → column-index lookup for one sheet.
+ *
+ * Strategy mirrors `pickCol(aliases, fallback)` from
+ * ImportModal.parseOGStockSheet: header alias wins when found, else fall back
+ * to the documented positional index from `layout.fallback`. We only emit a
+ * "required column not found" error when BOTH the header and the positional
+ * fallback are missing — that way SP and BP keep arriving as REAL numbers
+ * even on a workbook whose header row got nuked / renamed downstream.
+ *
+ * Without this fallback, a single missing/renamed header used to silently
+ * fail-open: every row got SP=undefined → coerced to 0 → COMMISSION=0 →
+ * POSTAGE=0 → `GP = 0 - buyPrice` (the bug shape the user reported).
+ */
 function resolveColumns(
   headerRow: any[],
   layout: SheetLayout,
@@ -222,15 +314,29 @@ function resolveColumns(
   const normalised = headerRow.map(normHeader);
   const out: Partial<Record<ColKey, number>> = {};
   for (const [key, aliases] of Object.entries(layout.columns) as [ColKey, string[]][]) {
-    const idx = normalised.findIndex((h) => aliases.includes(h));
-    if (idx >= 0) out[key] = idx;
+    const headerIdx = normalised.findIndex((h) => aliases.includes(h));
+    if (headerIdx >= 0) {
+      out[key] = headerIdx;
+      continue;
+    }
+    // Header miss — fall back to the documented positional index, but only if
+    // that slot actually exists in the row and isn't already claimed by a
+    // different logical key (defensive — keeps the fallback from clobbering a
+    // header-matched neighbour on shuffled sheets).
+    const fallbackIdx = layout.fallback[key];
+    if (fallbackIdx !== undefined && fallbackIdx < headerRow.length) {
+      const alreadyTaken = Object.values(out).includes(fallbackIdx);
+      if (!alreadyTaken) {
+        out[key] = fallbackIdx;
+      }
+    }
   }
   for (const req of layout.required) {
     if (out[req] === undefined) {
       errors.push({
         sheet: sheetName,
         row: 1,
-        message: `required column "${req}" not found (aliases: ${layout.columns[req]?.join('|')})`,
+        message: `required column "${req}" not found (aliases: ${layout.columns[req]?.join('|')}, fallback idx ${layout.fallback[req] ?? '—'})`,
       });
     }
   }

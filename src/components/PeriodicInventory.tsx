@@ -22,18 +22,48 @@ interface SeriesGroupDef {
 
 // Order here drives the on-screen row order. Each `id` matches a `Series` value
 // returned by parseBrandModelStorage so the grouping is brand-aware.
+//
+// Per spec: iPhone → iPad → Apple Watch → MacBook → Galaxy S → Galaxy A →
+// Galaxy Note → Galaxy Z → Galaxy M → Galaxy XCover → Galaxy Tab → Pixel → Other.
+// New Samsung sections use distinct colour families so the legend reads at a
+// glance: Note=cyan, Z=purple, M=yellow, XCover=slate (rugged feel).
 const SERIES_GROUPS: ReadonlyArray<SeriesGroupDef> = [
-  { id: 'iPhone',      label: 'Apple iPhones',  color: { bg: '#1d4ed8', light: '#dbeafe', text: '#1e3a8a', border: '#93c5fd' } },
-  { id: 'iPad',        label: 'Apple iPads',    color: { bg: '#7c3aed', light: '#ede9fe', text: '#4c1d95', border: '#c4b5fd' } },
-  { id: 'Apple Watch', label: 'Apple Watch',    color: { bg: '#be185d', light: '#fce7f3', text: '#831843', border: '#f9a8d4' } },
-  { id: 'MacBook',     label: 'MacBook',        color: { bg: '#0f766e', light: '#ccfbf1', text: '#134e4a', border: '#5eead4' } },
-  { id: 'Galaxy S',    label: 'Samsung Galaxy S', color: { bg: '#1e3a8a', light: '#dbeafe', text: '#1e3a8a', border: '#93c5fd' } },
-  { id: 'Galaxy A',    label: 'Samsung Galaxy A', color: { bg: '#2563eb', light: '#eff6ff', text: '#1e40af', border: '#bfdbfe' } },
-  { id: 'Galaxy Tab',  label: 'Samsung Tabs',   color: { bg: '#0891b2', light: '#cffafe', text: '#164e63', border: '#67e8f9' } },
-  { id: 'Galaxy Note', label: 'Samsung Note',   color: { bg: '#4338ca', light: '#e0e7ff', text: '#312e81', border: '#a5b4fc' } },
-  { id: 'Pixel',       label: 'Google Pixel',   color: { bg: '#ea580c', light: '#ffedd5', text: '#7c2d12', border: '#fdba74' } },
-  { id: 'Other',       label: 'Other',          color: { bg: '#475569', light: '#f1f5f9', text: '#334155', border: '#cbd5e1' } },
+  { id: 'iPhone',        label: 'Apple iPhones',     color: { bg: '#1d4ed8', light: '#dbeafe', text: '#1e3a8a', border: '#93c5fd' } },
+  { id: 'iPad',          label: 'Apple iPads',       color: { bg: '#7c3aed', light: '#ede9fe', text: '#4c1d95', border: '#c4b5fd' } },
+  { id: 'Apple Watch',   label: 'Apple Watch',       color: { bg: '#be185d', light: '#fce7f3', text: '#831843', border: '#f9a8d4' } },
+  { id: 'MacBook',       label: 'MacBook',           color: { bg: '#0f766e', light: '#ccfbf1', text: '#134e4a', border: '#5eead4' } },
+  { id: 'Galaxy S',      label: 'Samsung Galaxy S',  color: { bg: '#1e3a8a', light: '#dbeafe', text: '#1e3a8a', border: '#93c5fd' } },
+  { id: 'Galaxy A',      label: 'Samsung Galaxy A',  color: { bg: '#2563eb', light: '#eff6ff', text: '#1e40af', border: '#bfdbfe' } },
+  { id: 'Galaxy Note',   label: 'Samsung Note',      color: { bg: '#0e7490', light: '#cffafe', text: '#164e63', border: '#67e8f9' } },
+  { id: 'Galaxy Z',      label: 'Samsung Z (Fold/Flip)', color: { bg: '#6d28d9', light: '#ede9fe', text: '#4c1d95', border: '#c4b5fd' } },
+  { id: 'Galaxy M',      label: 'Samsung Galaxy M',  color: { bg: '#b45309', light: '#fef3c7', text: '#78350f', border: '#fcd34d' } },
+  { id: 'Galaxy XCover', label: 'Samsung XCover',    color: { bg: '#475569', light: '#e2e8f0', text: '#1e293b', border: '#94a3b8' } },
+  { id: 'Galaxy Tab',    label: 'Samsung Tabs',      color: { bg: '#0891b2', light: '#cffafe', text: '#164e63', border: '#67e8f9' } },
+  { id: 'Pixel',         label: 'Google Pixel',      color: { bg: '#ea580c', light: '#ffedd5', text: '#7c2d12', border: '#fdba74' } },
+  { id: 'Other',         label: 'Other',             color: { bg: '#475569', light: '#f1f5f9', text: '#334155', border: '#cbd5e1' } },
 ];
+
+/**
+ * unitSeries — derive the periodic-table bucket for a single inventory unit.
+ *
+ * Why runtime, not stored: the 354 units currently in Firestore were imported
+ * with the OLD parseBrandModelStorage regex, which dumped every bare-coded
+ * Samsung model ("S21", "A32 5G", "X COVER 5") into `series='Other'`. Until
+ * the operator re-imports the workbook, the stored field is stale and would
+ * still mis-bucket those units. Re-parsing the cleaned `model` string at
+ * render time picks up the new buckets without a backfill migration.
+ *
+ * Fallback chain: live detector → stored doc field → 'Other'. The stored
+ * field is preferred only when the live detector returns 'Other' so a unit
+ * that the live parser CAN classify always wins (the live parser is now
+ * strictly more permissive than the import-time one was).
+ */
+function unitSeries(u: InventoryUnit): Series {
+  const live = parseBrandModelStorage(u.model || '').series;
+  if (live && live !== 'Other') return live;
+  const stored = (u as unknown as { series?: Series }).series;
+  return stored || 'Other';
+}
 
 interface Element {
   /** Display label for the popover / sidebar — full clean model + optional storage. */
@@ -339,7 +369,10 @@ export default function PeriodicInventory({ units, onNavigate }: Props) {
       // tablet-RAM-ambiguity case (parser returns 6GB RAM for some tabs) and
       // any docs that already have storage broken out at import time.
       const storage = u.storage || p.storage;
-      const series: Series = p.series ?? 'Other';
+      // Series goes through unitSeries() so legacy docs stamped with the old
+      // (buggy) `series='Other'` field get re-derived from the cleaned model
+      // string at render time. See unitSeries doc-comment.
+      const series: Series = unitSeries(u);
       return { unit: u, model: p.model || u.model, storage, series };
     };
 

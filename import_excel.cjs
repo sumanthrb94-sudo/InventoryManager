@@ -218,10 +218,36 @@ const BRAND_RULES_CJS = [
 ];
 const LEADING_BRAND_TOKENS_CJS = new Set(['apple', 'samsung', 'google', 'xiaomi', 'oneplus']);
 
+// ── Samsung bare-model regexes (keep in sync with src/lib/modelStorage.ts) ──
+const RE_GALAXY_TAB_CJS    = /\bgalaxy\s*tab|\btab\s*[as]\d/i;
+const RE_GALAXY_NOTE_CJS   = /\bgalaxy\s*note|\bnote\s?\d/i;
+const RE_GALAXY_Z_CJS      = /\bgalaxy\s*z|\bz\s*(fold|flip)/i;
+const RE_GALAXY_M_CJS      = /\bgalaxy\s*m\b|\bgalaxy\s*m\d|\bm\d{2}\b/i;
+const RE_GALAXY_XCOVER_CJS = /\b(x\s*cover|xcover)\b/i;
+const RE_GALAXY_S_CJS      = /\bgalaxy\s*s\s*\d+|\bs\d{1,2}(fe|ultra|plus|\+)?\b|\bs\d{1,2}\s*(fe|ultra|plus)\b/i;
+const RE_GALAXY_A_CJS      = /\bgalaxy\s*a\s*\d+|\ba\d{1,3}s?(\s*5g|\s*4g)?\b/i;
+const RE_PIXEL_CJS         = /\bpixel\s*\d/i;
+
+function looksLikeSamsungCjs(lower) {
+  return (
+    RE_GALAXY_TAB_CJS.test(lower) ||
+    RE_GALAXY_NOTE_CJS.test(lower) ||
+    RE_GALAXY_Z_CJS.test(lower) ||
+    RE_GALAXY_XCOVER_CJS.test(lower) ||
+    RE_GALAXY_S_CJS.test(lower) ||
+    RE_GALAXY_A_CJS.test(lower) ||
+    RE_GALAXY_M_CJS.test(lower)
+  );
+}
+
 function detectBrandCjs(lower) {
   for (const rule of BRAND_RULES_CJS) {
     if (rule.keywords.some(k => lower.includes(k))) return rule.brand;
   }
+  // Fall back to bare-model inference so cleaned strings like "S21" /
+  // "A32 5G" still resolve to Samsung at re-parse time.
+  if (looksLikeSamsungCjs(lower)) return 'Samsung';
+  if (RE_PIXEL_CJS.test(lower)) return 'Google';
   return 'Other';
 }
 
@@ -235,16 +261,18 @@ function detectSeriesCjs(brand, lower) {
     return 'Other';
   }
   if (brand === 'Samsung') {
-    if (lower.includes('galaxy tab') || /\btab [as]\d/.test(lower)) return 'Galaxy Tab';
-    if (lower.includes('galaxy note') || /\bnote\s?\d/.test(lower)) return 'Galaxy Note';
-    // Trailing `(fe|ultra|plus|+)?` catches "S20FE", "S22Ultra", "S21+", etc.
-    if (/\bgalaxy s\d/.test(lower) || /\bs\d{1,2}(fe|ultra|plus|\+)?\b/.test(lower)) return 'Galaxy S';
-    // Trailing `s?` catches "A21S" / "A52S".
-    if (/\bgalaxy a\d/.test(lower) || /\ba\d{1,3}s?\b/.test(lower)) return 'Galaxy A';
+    // Specific buckets first so Tab/Note/Z/XCover win over generic S/A.
+    if (RE_GALAXY_TAB_CJS.test(lower)) return 'Galaxy Tab';
+    if (RE_GALAXY_NOTE_CJS.test(lower)) return 'Galaxy Note';
+    if (RE_GALAXY_Z_CJS.test(lower)) return 'Galaxy Z';
+    if (RE_GALAXY_XCOVER_CJS.test(lower)) return 'Galaxy XCover';
+    if (RE_GALAXY_S_CJS.test(lower)) return 'Galaxy S';
+    if (RE_GALAXY_A_CJS.test(lower)) return 'Galaxy A';
+    if (RE_GALAXY_M_CJS.test(lower)) return 'Galaxy M';
     return 'Other';
   }
   if (brand === 'Google') {
-    if (lower.includes('pixel')) return 'Pixel';
+    if (RE_PIXEL_CJS.test(lower) || lower.includes('pixel')) return 'Pixel';
     return 'Other';
   }
   return 'Other';

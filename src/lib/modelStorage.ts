@@ -97,6 +97,42 @@ export type Series =
   | 'Galaxy S' | 'Galaxy A' | 'Galaxy Note' | 'Galaxy Z' | 'Galaxy M' | 'Galaxy XCover' | 'Galaxy Tab'
   | 'Pixel' | 'Other';
 
+// ---------------------------------------------------------------------------
+// Samsung bare-model regexes — exported so series detection AND brand
+// inference (when the "Samsung" prefix has been stripped at import time and
+// the runtime UI re-parses the cleaned model string) share one source of
+// truth. Order in detectSeries matters: longer / more specific first.
+// ---------------------------------------------------------------------------
+/** Galaxy Tab — "Galaxy Tab", or "Tab A9" / "Tab S8" bare form. */
+const RE_GALAXY_TAB = /\bgalaxy\s*tab|\btab\s*[as]\d/i;
+/** Galaxy Note — "Galaxy Note", or bare "Note 20". */
+const RE_GALAXY_NOTE = /\bgalaxy\s*note|\bnote\s?\d/i;
+/** Galaxy Z (foldables) — "Galaxy Z", or "Z Fold 5" / "Z Flip 4". */
+const RE_GALAXY_Z = /\bgalaxy\s*z|\bz\s*(fold|flip)/i;
+/** Galaxy M (budget) — "Galaxy M", or bare "M53". */
+const RE_GALAXY_M = /\bgalaxy\s*m\b|\bgalaxy\s*m\d|\bm\d{2}\b/i;
+/** Galaxy XCover (rugged) — "X COVER 5" with optional space, or "XCover Pro". */
+const RE_GALAXY_XCOVER = /\b(x\s*cover|xcover)\b/i;
+/** Galaxy S — "Galaxy S21" (any spacing), bare "S22", "S21FE", "S22 Ultra", "S9+". */
+const RE_GALAXY_S = /\bgalaxy\s*s\s*\d+|\bs\d{1,2}(fe|ultra|plus|\+)?\b|\bs\d{1,2}\s*(fe|ultra|plus)\b/i;
+/** Galaxy A — "Galaxy A32", bare "A12" / "A32 5G" / "A21S". */
+const RE_GALAXY_A = /\bgalaxy\s*a\s*\d+|\ba\d{1,3}s?(\s*5g|\s*4g)?\b/i;
+/** Pixel — "Pixel 8 Pro". */
+const RE_PIXEL = /\bpixel\s*\d/i;
+
+/** True if the cleaned string looks like a Samsung product (bare or prefixed). */
+function looksLikeSamsung(lower: string): boolean {
+  return (
+    RE_GALAXY_TAB.test(lower) ||
+    RE_GALAXY_NOTE.test(lower) ||
+    RE_GALAXY_Z.test(lower) ||
+    RE_GALAXY_XCOVER.test(lower) ||
+    RE_GALAXY_S.test(lower) ||
+    RE_GALAXY_A.test(lower) ||
+    RE_GALAXY_M.test(lower)
+  );
+}
+
 export interface ParsedModel {
   brand: Brand;
   /** Brand-prefix stripped, storage stripped, whitespace-collapsed. */
@@ -125,6 +161,12 @@ function detectBrand(lower: string): Brand {
   for (const rule of BRAND_RULES) {
     if (rule.keywords.some(k => lower.includes(k))) return rule.brand;
   }
+  // Fall back to Samsung-shape inference for legacy docs whose model string
+  // has already had the "Samsung" prefix stripped at import time. Without this
+  // the runtime UI re-parses "S21" and gets brand=Other / series=Other,
+  // dumping every Galaxy unit into the "Other" section.
+  if (looksLikeSamsung(lower)) return 'Samsung';
+  if (RE_PIXEL.test(lower)) return 'Google';
   return 'Other';
 }
 
@@ -138,19 +180,21 @@ function detectSeries(brand: Brand, lower: string): Series | undefined {
     return 'Other';
   }
   if (brand === 'Samsung') {
-    if (lower.includes('galaxy tab') || /\btab [as]\d/.test(lower)) return 'Galaxy Tab';
-    if (lower.includes('galaxy note') || /\bnote\s?\d/.test(lower)) return 'Galaxy Note';
-    // Galaxy S / A: match the explicit "Galaxy S20" form AND the bare "S21"
-    // form that appears in legacy strings like "SAMSUNG S21 128GB". The
-    // trailing-letter clause (`s\d{1,2}(fe|ultra|plus)?`) catches "S20FE",
-    // "S22Ultra", etc. where no space separates the suffix. Word-boundary on
-    // the left so we don't catch "GalaxyS"/"Asia".
-    if (/\bgalaxy s\d/.test(lower) || /\bs\d{1,2}(fe|ultra|plus|\+)?\b/.test(lower)) return 'Galaxy S';
-    if (/\bgalaxy a\d/.test(lower) || /\ba\d{1,3}s?\b/.test(lower)) return 'Galaxy A';
+    // Order matters: longer / more specific patterns first so "Galaxy Tab"
+    // wins over the generic "A9" Tab-A bucket, "Z Fold" wins over generic
+    // S/A digits, and "X COVER" wins before the bare-A regex could match
+    // "cover" via no-op.
+    if (RE_GALAXY_TAB.test(lower)) return 'Galaxy Tab';
+    if (RE_GALAXY_NOTE.test(lower)) return 'Galaxy Note';
+    if (RE_GALAXY_Z.test(lower)) return 'Galaxy Z';
+    if (RE_GALAXY_XCOVER.test(lower)) return 'Galaxy XCover';
+    if (RE_GALAXY_S.test(lower)) return 'Galaxy S';
+    if (RE_GALAXY_A.test(lower)) return 'Galaxy A';
+    if (RE_GALAXY_M.test(lower)) return 'Galaxy M';
     return 'Other';
   }
   if (brand === 'Google') {
-    if (lower.includes('pixel')) return 'Pixel';
+    if (RE_PIXEL.test(lower) || lower.includes('pixel')) return 'Pixel';
     return 'Other';
   }
   return 'Other';
@@ -315,6 +359,39 @@ if (import.meta.vitest) {
     it('detects Galaxy A for trailing-S bare models (A21S / A52S)', () => {
       expect(parseBrandModelStorage('SAMSUNG A21S 32GB').series).toBe('Galaxy A');
       expect(parseBrandModelStorage('SAMSUNG A52S 128GB').series).toBe('Galaxy A');
+    });
+
+    // --- New buckets + bare-model inference (the runtime-derivation fix). The
+    // 354 Firestore docs were imported with `series='Other'` because their
+    // model strings ("S21", "A32 5G", "X COVER 5") were not matched by the
+    // old regexes after the "SAMSUNG" prefix was stripped. The bare cases
+    // below must round-trip without re-import.
+    it('parses bare-model Galaxy S codes (no Samsung prefix)', () => {
+      expect(parseBrandModelStorage('S21FE 128GB').series).toBe('Galaxy S');
+      expect(parseBrandModelStorage('S9+ 64GB').series).toBe('Galaxy S');
+      expect(parseBrandModelStorage('S22 Ultra 256GB').series).toBe('Galaxy S');
+      expect(parseBrandModelStorage('S21FE 128GB').brand).toBe('Samsung');
+    });
+    it('parses bare-model Galaxy A codes (no Samsung prefix)', () => {
+      expect(parseBrandModelStorage('A21S 32GB').series).toBe('Galaxy A');
+      expect(parseBrandModelStorage('A32 5G 64GB').series).toBe('Galaxy A');
+      expect(parseBrandModelStorage('A05 64GB').series).toBe('Galaxy A');
+      expect(parseBrandModelStorage('A32 5G 64GB').brand).toBe('Samsung');
+    });
+    it('parses Galaxy XCover (rugged) — new bucket', () => {
+      expect(parseBrandModelStorage('X COVER 5 64GB').series).toBe('Galaxy XCover');
+      expect(parseBrandModelStorage('XCover Pro 64GB').series).toBe('Galaxy XCover');
+      expect(parseBrandModelStorage('X COVER 5 64GB').brand).toBe('Samsung');
+    });
+    it('parses Galaxy Note bare model — new bucket coverage', () => {
+      expect(parseBrandModelStorage('Note 20 Ultra 256GB').series).toBe('Galaxy Note');
+    });
+    it('parses Galaxy Z foldables — new bucket', () => {
+      expect(parseBrandModelStorage('Z Fold 5 512GB').series).toBe('Galaxy Z');
+      expect(parseBrandModelStorage('Z Flip 4 256GB').series).toBe('Galaxy Z');
+    });
+    it('parses Galaxy M budget line — new bucket', () => {
+      expect(parseBrandModelStorage('M53 128GB').series).toBe('Galaxy M');
     });
   });
 }

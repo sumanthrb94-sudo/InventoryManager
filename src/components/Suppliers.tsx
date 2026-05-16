@@ -4,6 +4,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { dbService } from '../lib/dbService';
 import { Supplier, InventoryUnit } from '../types';
 import { useInventoryStore } from '../lib/inventoryStore';
+import { recomputeSale } from '../lib/recomputeSale';
 import { formatIMEI } from '../lib/imeiUtils';
 import { parseBrandModelStorage } from '../lib/modelStorage';
 
@@ -30,7 +31,7 @@ const PLATFORM_COLORS: Record<string, string> = {
 };
 
 export default function Suppliers() {
-  const { units, suppliers }      = useInventoryStore();
+  const { units, suppliers, sales } = useInventoryStore();
   const [selected, setSelected]   = useState<string | null>(null);
   const [isAdding, setIsAdding]   = useState(false);
   const [newSupplier, setNewSupplier] = useState({
@@ -70,6 +71,10 @@ export default function Suppliers() {
   };
 
   // Per-supplier stats
+  // `sold` / `revenue` prefer the master-file `sales` collection (live
+  // recompute) so the figures reflect actual marketplace transactions, then
+  // fall back to legacy unit.status==='sold' attribution when no `sales`
+  // doc exists for that supplier (migration window).
   const supplierStats = useMemo(() => {
     const map: Record<string, {
       total: number; available: number; sold: number;
@@ -96,8 +101,41 @@ export default function Suppliers() {
       if (!s.byDate[d]) s.byDate[d] = [] as InventoryUnit[];
       (s.byDate[d] as InventoryUnit[]).push(u);
     }
+
+    // Marketplace codes → friendly platform labels for the chip row
+    const mkToPlatform: Record<string, string> = {
+      EBAY: 'eBay', AMAZON: 'Amazon', BM: 'Backmarket', ONBUY: 'OnBuy', PROJECT: 'Other',
+    };
+
+    // Sales-collection overlay — prefer over unit-derived sold/revenue.
+    const salesBySupplier: Record<string, {
+      count: number; revenue: number; platforms: Record<string, number>;
+    }> = {};
+    for (const raw of sales) {
+      const s = recomputeSale(raw);
+      const sid = s.supplierId;
+      if (!sid) continue;
+      if (!salesBySupplier[sid]) salesBySupplier[sid] = { count: 0, revenue: 0, platforms: {} };
+      salesBySupplier[sid].count++;
+      salesBySupplier[sid].revenue += s.salePrice || 0;
+      const p = mkToPlatform[s.marketplace] || s.marketplace;
+      if (p) salesBySupplier[sid].platforms[p] = (salesBySupplier[sid].platforms[p] || 0) + 1;
+    }
+    for (const sid of Object.keys(salesBySupplier)) {
+      if (!map[sid]) {
+        map[sid] = { total: 0, available: 0, sold: 0, totalCost: 0, revenue: 0, byDate: {}, platforms: {} };
+      }
+      const sv = salesBySupplier[sid];
+      // Sales collection is authoritative when present.
+      map[sid].sold = sv.count;
+      map[sid].revenue = sv.revenue;
+      // Merge platform breakdown without losing legacy unit-derived entries.
+      for (const [p, c] of Object.entries(sv.platforms)) {
+        map[sid].platforms[p] = (map[sid].platforms[p] || 0) + c;
+      }
+    }
     return map;
-  }, [units]);
+  }, [units, sales]);
 
   const selectedSupplier = suppliers.find(s => s.id === selected);
   const selectedStats    = selected ? supplierStats[selected] : null;
