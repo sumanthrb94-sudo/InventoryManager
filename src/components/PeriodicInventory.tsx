@@ -71,22 +71,56 @@ function storageGb(s: string): number {
  *   "iPad 7th Gen"      → "iPad 7"
  *   "Tab A9+"           → "A9+"
  */
+/**
+ * shortCode — compress a full model name into a label that fits inside a
+ * 60×60 periodic-table block (max ~7-8 chars rendered). The full model is
+ * always shown in the block's `title` attribute on hover.
+ *
+ * Strategy:
+ *   1. Strip parenthetical noise (DUAL PHYSI SIM), (TWO PHY), etc.
+ *   2. Strip SIM/network modifier phrases (2 SIM SLOTS, SS No E-Sim,
+ *      TWO PHYSICAL SIM, W/C, eSIM, WiFi-only chatter).
+ *   3. Drop the brand/series prefix (Galaxy, iPhone, Tab) — section title
+ *      already says it.
+ *   4. Apply standard abbreviations: Pro Max → PM, Ultra → U, Plus → +,
+ *      Mini → mini, FE stays FE.
+ *   5. Hard cap at 8 characters; truncate with no ellipsis (ellipsis
+ *      itself eats one of the precious 8 characters).
+ */
 function shortCode(model: string): string {
   if (!model) return '?';
   let s = model.trim();
 
-  // Drop redundant brand/series prefixes — they're already in the section title.
-  // Use word-boundary anchors so we don't eat the leading letters of a real model.
+  // 1. Drop parenthetical clutter — "(DUAL PHYSI SIM)", "(TWO PHYSICAL)".
+  s = s.replace(/\([^)]*\)/g, ' ');
+
+  // 2. Strip noisy SIM / connectivity modifier phrases that overflow boxes.
+  //    Order matters: longer multi-word patterns first.
+  const noise: RegExp[] = [
+    /\bTWO\s+PHYSICAL(?:\s+SIM)?\b/gi,
+    /\bDUAL\s+PHYSI(?:CAL)?(?:\s+SIM)?\b/gi,
+    /\bSS\s*No\s*E-?Sim\b/gi,
+    /\b\d+\s*SIM\s*(?:SLOTS?)?\b/gi,
+    /\bWiFi\s*\+\s*(?:4G|5G|Cellular)\b/gi,
+    /\bWiFi(?:\s*only)?\b/gi,
+    /\bCellular\b/gi,
+    /\bUNLOCKED\b/gi,
+    /\bW\/C\b/gi,           // "with Cellular" shorthand
+    /\beSIM\b/gi,
+    /\bREPLACEMENT\b/gi,
+  ];
+  for (const r of noise) s = s.replace(r, ' ');
+
+  // 3. Drop redundant brand/series prefixes — they're already in the section title.
   s = s.replace(/^iPhone\s+/i, '');
   s = s.replace(/^Galaxy\s+/i, '');
-  // For iPad we KEEP the "iPad" prefix per spec ("iPad 7th Gen" → "iPad 7")
-  // because dropping it would leave a bare ordinal. We just normalise "Nth Gen".
+  s = s.replace(/^Samsung\s+/i, '');
+  // For iPad we keep the "iPad" prefix ("iPad 7th Gen" → "iPad 7").
   s = s.replace(/(\d+)(st|nd|rd|th)\s*Gen\b/i, '$1');
-  // Strip the (Nth Gen) parenthesised form too (e.g. "iPad (10th Gen)" → "iPad 10").
   s = s.replace(/\((\d+)(st|nd|rd|th)\s*Gen\)/i, '$1');
   s = s.replace(/^Tab\s+/i, ''); // "Tab A9+" → "A9+"
 
-  // Apply standard abbreviations. Order: longer match first.
+  // 4. Standard abbreviations. Order: longer match first.
   s = s.replace(/\bPro Max\b/gi, 'PM');
   s = s.replace(/\bUltra\b/gi, 'U');
   s = s.replace(/\bPlus\b/gi, '+');
@@ -96,8 +130,13 @@ function shortCode(model: string): string {
   // "S22 U" reads as "S22U" and "17 PM" still reads as "17 PM" (multi-char).
   s = s.replace(/(\w)\s+(U|\+)\b/g, '$1$2');
 
-  // Collapse whitespace and trim.
-  return s.replace(/\s+/g, ' ').trim() || '?';
+  // Collapse whitespace + dashes left behind by the strip passes.
+  s = s.replace(/\s+/g, ' ').replace(/\s*-\s*$/, '').trim();
+
+  // 5. Hard cap at 8 chars to guarantee box fit.
+  if (s.length > 8) s = s.slice(0, 8).trim();
+
+  return s || '?';
 }
 
 interface PopoverState {
@@ -509,6 +548,9 @@ export default function PeriodicInventory({ units, onNavigate }: Props) {
                         border: `1.5px solid ${isEmpty ? '#334155' : isHovered ? g.color.bg : g.color.border}`,
                         borderRadius: 8,
                         padding: '3px 2px',
+                        // Hard clip: no label, badge, or caption may bleed
+                        // past the block border — guarantees fixed grid.
+                        overflow: 'hidden',
                         display: 'flex',
                         flexDirection: 'column',
                         justifyContent: 'space-between',
@@ -531,14 +573,24 @@ export default function PeriodicInventory({ units, onNavigate }: Props) {
                         )}
                       </div>
 
-                      {/* Big symbol (shortCode of the model) */}
-                      <div style={{ textAlign: 'center', lineHeight: 1 }}>
+                      {/* Big symbol (shortCode of the model) — font-size
+                          scales down by length so even an 8-char label
+                          fits inside the fixed 60px width. */}
+                      <div style={{ textAlign: 'center', lineHeight: 1, width: '100%', overflow: 'hidden' }}>
                         <span style={{
-                          fontSize: el.symbol.length > 5 ? 11 : el.symbol.length > 4 ? 13 : 17,
+                          fontSize:
+                            el.symbol.length > 7 ? 9  :
+                            el.symbol.length > 6 ? 10 :
+                            el.symbol.length > 5 ? 11 :
+                            el.symbol.length > 4 ? 13 :
+                                                   17,
                           fontWeight: 900,
                           color: isHovered ? '#fff' : g.color.text,
                           fontFamily: 'system-ui, sans-serif',
                           letterSpacing: '-0.04em',
+                          whiteSpace: 'nowrap',
+                          display: 'inline-block',
+                          maxWidth: '100%',
                         }}>
                           {el.symbol}
                         </span>
