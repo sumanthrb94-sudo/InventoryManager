@@ -193,6 +193,56 @@ def normalise_supplier(raw) -> str:
     return SUPPLIER_ALIASES.get(key, str(raw).strip() or 'Unknown')
 
 
+# B8 fix — INVENTORY-sheet QUANTITY is mixed-type (numbers, "SHS",
+# "NO STOCK", blanks). Callers must keep the row regardless of type;
+# this helper classifies the cell so downstream can branch sanely.
+def parse_quantity_cell(v):
+    """Return a dict:
+       {'qty': <number>}                                 when numeric
+       {'qty': None, 'flag': 'SHS'|'NO_STOCK'|'OTHER',   when non-numeric
+        'raw': <original string>}
+    """
+    if isinstance(v, bool):
+        # bool is a subclass of int — exclude to avoid True/False sneaking in.
+        return {'qty': None, 'flag': 'OTHER', 'raw': str(v)}
+    if isinstance(v, (int, float)):
+        # NaN floats are not finite
+        if isinstance(v, float) and v != v:
+            return {'qty': None, 'flag': 'OTHER', 'raw': ''}
+        return {'qty': v}
+
+    raw   = '' if v is None else str(v).strip()
+    upper = raw.upper()
+
+    if upper == 'SHS':
+        return {'qty': None, 'flag': 'SHS', 'raw': raw}
+    if upper in ('NO STOCK', 'NOSTOCK'):
+        return {'qty': None, 'flag': 'NO_STOCK', 'raw': raw}
+
+    import re as _re
+    if raw and _re.fullmatch(r'-?\d+(\.\d+)?', raw):
+        try:
+            return {'qty': float(raw)}
+        except ValueError:
+            pass
+    return {'qty': None, 'flag': 'OTHER', 'raw': raw}
+
+
+# B7 fix — INVENTORY-sheet SUPPLIER column may list multiple suppliers
+# separated by " / " (e.g. "MHL / ABC / NIHAL"). Returns the primary
+# (first) name and the full list with empties dropped.
+def parse_supplier_cell(v):
+    """Return {'primaryName': str, 'allNames': list[str]}."""
+    raw = '' if v is None else str(v).strip()
+    if not raw:
+        return {'primaryName': '', 'allNames': []}
+    all_names = [s.strip() for s in raw.split('/') if s and s.strip()]
+    return {
+        'primaryName': all_names[0] if all_names else '',
+        'allNames':    all_names,
+    }
+
+
 def normalise_platform(raw) -> str:
     if not raw or str(raw).strip().lower() in ('', 'nan', 'none'):
         return ''
@@ -329,7 +379,15 @@ def parse_sheet(df, cols: dict, verbose: bool) -> dict:
         raw_imei = row.get(imei_col) if imei_col is not None else ''
         imei     = normalize_imei(raw_imei)
         raw_supplier  = get(row, 'supplier', 'Unknown')
-        supplier_name = normalise_supplier(raw_supplier)
+        # B7 fix: a single cell may carry multiple suppliers ("MHL / ABC / NIHAL").
+        # primaryName drives the legacy supplierId; the full list is preserved on the unit.
+        sup_parsed    = parse_supplier_cell(raw_supplier)
+        supplier_name = normalise_supplier(sup_parsed['primaryName'] or raw_supplier)
+        supplier_names_all = (
+            [normalise_supplier(n) for n in sup_parsed['allNames']]
+            if sup_parsed['allNames']
+            else [supplier_name]
+        )
         buy_price     = safe_float(get(row, 'buyPrice', '0'))
         raw_status    = get(row, 'status')
         sold          = is_sold(raw_status)
@@ -348,16 +406,20 @@ def parse_sheet(df, cols: dict, verbose: bool) -> dict:
         order_num     = get(row, 'orderNum') or None
         customer      = get(row, 'customer') or None
 
-        # Supplier record
-        supplier_id = f"sup_{supplier_name.replace(' ', '_').lower()}"
-        if supplier_id not in supplier_map:
-            supplier_map[supplier_id] = {
-                'id':        supplier_id,
-                'name':      supplier_name,
-                'portal':    'Direct',
-                'ownerId':   'shared',
-                'createdAt': now,
-            }
+        # Supplier record(s). One synthetic id per supplier name; the first is primary.
+        def _supplier_id_for(name, _map=supplier_map, _now=now):
+            sid = f"sup_{name.replace(' ', '_').lower()}"
+            if sid not in _map:
+                _map[sid] = {
+                    'id':        sid,
+                    'name':      name,
+                    'portal':    'Direct',
+                    'ownerId':   'shared',
+                    'createdAt': _now,
+                }
+            return sid
+        supplier_id  = _supplier_id_for(supplier_name)
+        supplier_ids = [_supplier_id_for(n) for n in supplier_names_all]
 
         category = parse_category(model)
         brand    = parse_brand(category)
@@ -383,6 +445,7 @@ def parse_sheet(df, cols: dict, verbose: bool) -> dict:
             'buyPrice':       buy_price,
             'dateIn':         date_in,
             'supplierId':     supplier_id,
+            **({'supplierIds': supplier_ids} if len(supplier_ids) > 1 else {}),
             'status':         status,
             'flags':          [],
             'notes':          notes,

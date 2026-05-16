@@ -161,10 +161,67 @@ function getCell(row, idx, fallback = '') {
   return row[idx]?.toString().trim() || fallback;
 }
 
+// Preserve IMEIs verbatim: client data includes alphanumeric Apple serials
+// (e.g. "NL6CMQCYTD", "SKC9P3QVP6F"), so we MUST NOT strip non-digits.
+function normalizeImei(raw) {
+  if (raw === undefined || raw === null) return '';
+  // If openpyxl/SheetJS handed us a number (15-digit IMEI), render as integer.
+  if (typeof raw === 'number') {
+    if (Number.isInteger(raw)) return raw.toFixed(0);
+    return String(raw);
+  }
+  return String(raw).trim().replace(/^["'\s]+|["'\s]+$/g, '');
+}
+
 function normaliseSupplier(raw) {
   if (!raw) return 'Unknown';
   const key = raw.toUpperCase().trim();
   return cfg.supplierAliases[key] || (raw.trim() || 'Unknown');
+}
+
+/**
+ * parseQuantityCell — INVENTORY-sheet QUANTITY column is mixed-type:
+ * numeric values, "SHS" placeholders, "NO STOCK" tags, blanks, etc.
+ *
+ * Returns either:
+ *   - `{ qty: <number> }`                            when numeric
+ *   - `{ qty: undefined, flag, raw }`                when non-numeric
+ *     where flag ∈ 'SHS' | 'NO_STOCK' | 'OTHER'
+ *
+ * Callers must keep the row in either case (B8 fix — non-numeric QUANTITY
+ * rows used to be silently dropped at the BP guard).
+ */
+function parseQuantityCell(v) {
+  if (typeof v === 'number' && Number.isFinite(v)) return { qty: v };
+
+  const raw   = (v === undefined || v === null) ? '' : String(v).trim();
+  const upper = raw.toUpperCase();
+
+  if (upper === 'SHS')                              return { qty: undefined, flag: 'SHS',      raw };
+  if (upper === 'NO STOCK' || upper === 'NOSTOCK')  return { qty: undefined, flag: 'NO_STOCK', raw };
+
+  if (raw !== '' && /^-?\d+(\.\d+)?$/.test(raw)) {
+    const n = parseFloat(raw);
+    if (Number.isFinite(n)) return { qty: n };
+  }
+  return { qty: undefined, flag: 'OTHER', raw };
+}
+
+/**
+ * parseSupplierCell — INVENTORY-sheet SUPPLIER column may list multiple
+ * suppliers separated by " / " (e.g. "MHL / ABC / NIHAL"). Returns the
+ * primary (first) name and the full list with empties dropped.
+ *
+ * B7 fix — caller previously did `.split('/')[0]` and dropped the rest.
+ */
+function parseSupplierCell(v) {
+  const raw = (v === undefined || v === null) ? '' : String(v).trim();
+  if (!raw) return { primaryName: '', allNames: [] };
+  const allNames = raw
+    .split('/')
+    .map(s => s.trim())
+    .filter(s => s.length > 0);
+  return { primaryName: allNames[0] || '', allNames };
 }
 
 function normalisePlatform(raw) {
@@ -265,9 +322,16 @@ function parseWorksheet(ws, verbose) {
     if (!isValidRow(model)) { skipped++; continue; }
 
     const rawImei      = getCell(r, cols.imei);
-    const imei         = rawImei.replace(/\D/g, '');
+    // Preserve IMEIs verbatim: alphanumeric Apple serials (e.g. "NL6CMQCYTD") must not be stripped.
+    const imei         = normalizeImei(rawImei);
     const rawSupplier  = getCell(r, cols.supplier, 'Unknown');
-    const supplierName = normaliseSupplier(rawSupplier);
+    // B7 fix: a single cell may carry multiple suppliers ("MHL / ABC / NIHAL").
+    // primaryName drives the legacy supplierId; the full list is preserved on the unit.
+    const supParsed    = parseSupplierCell(rawSupplier);
+    const supplierName = normaliseSupplier(supParsed.primaryName || rawSupplier);
+    const supplierNamesAll = supParsed.allNames.length > 0
+      ? supParsed.allNames.map(n => normaliseSupplier(n))
+      : [supplierName];
     const buyPrice     = parseFloat(getCell(r, cols.buyPrice, '0')) || 0;
     const rawStatus    = getCell(r, cols.status);
     const isSold       = isSoldStatus(rawStatus);
@@ -284,17 +348,22 @@ function parseWorksheet(ws, verbose) {
     const rawOrderNum  = getCell(r, cols.orderNum);
     const rawCustomer  = getCell(r, cols.customer);
 
-    // Build supplier
-    const supplierId = `sup_${supplierName.replace(/\s+/g, '_').toLowerCase()}`;
-    if (!supplierMap.has(supplierId)) {
-      supplierMap.set(supplierId, {
-        id:        supplierId,
-        name:      supplierName,
-        portal:    'Direct',
-        ownerId:   cfg.firebase.ownerIdCli,
-        createdAt: new Date().toISOString(),
-      });
-    }
+    // Build supplier(s). One synthetic id per supplier name; the first is primary.
+    const supplierIdFor = (name) => {
+      const id = `sup_${name.replace(/\s+/g, '_').toLowerCase()}`;
+      if (!supplierMap.has(id)) {
+        supplierMap.set(id, {
+          id,
+          name,
+          portal:    'Direct',
+          ownerId:   cfg.firebase.ownerIdCli,
+          createdAt: new Date().toISOString(),
+        });
+      }
+      return id;
+    };
+    const supplierId  = supplierIdFor(supplierName);
+    const supplierIds = supplierNamesAll.map(supplierIdFor);
 
     const category  = parseCategory(model);
     const brand     = parseBrand(category);
@@ -323,6 +392,7 @@ function parseWorksheet(ws, verbose) {
       buyPrice,
       dateIn,
       supplierId,
+      ...(supplierIds.length > 1 ? { supplierIds } : {}),
       status,
       flags:          [],
       notes:          rawNotes || '',
@@ -388,7 +458,8 @@ function main() {
   // ── Read workbook ─────────────────────────────────────────────────────────
   let wb;
   try {
-    wb = XLSX.readFile(filePath, { cellDates: false });
+    // raw + cellDates: keep 15-digit IMEIs as strings, avoid 1.23e+14 coercion; preserve dates as Date objects.
+    wb = XLSX.read(fs.readFileSync(filePath), { type: 'buffer', cellDates: true, raw: true });
   } catch (err) {
     console.error('❌ Failed to read Excel file:', err.message);
     process.exit(1);

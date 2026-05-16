@@ -3,7 +3,7 @@ import * as XLSX from 'xlsx';
 import { X, Upload, FileSpreadsheet, CheckCircle2, AlertTriangle, Loader2, ArrowRight, Download } from 'lucide-react';
 import { motion } from 'motion/react';
 import { dbService } from '../lib/dbService';
-import { DeviceCategory, InventoryUnit, Supplier } from '../types';
+import { DeviceCategory, InventoryAggregate, InventoryUnit, Supplier } from '../types';
 import { buildStableUnitId } from '../lib/inventoryMaintenance';
 import { uploadSourceAttachment } from '../lib/fileAttachments';
 import { logInventoryEvent } from '../lib/inventoryEvents';
@@ -28,6 +28,60 @@ function excelSerialToISO(serial: any): string {
   return new Date().toISOString().split('T')[0];
 }
 
+/**
+ * parseQuantityCell — INVENTORY-sheet QUANTITY column is mixed-type:
+ * numeric values, "SHS" placeholders, "NO STOCK" tags, blanks, etc.
+ *
+ * Returns either:
+ *   - `{ qty: number }`                                              when numeric
+ *   - `{ qty: undefined; flag: 'SHS'|'NO_STOCK'|'OTHER'; raw }`      when non-numeric
+ *
+ * Callers should keep the row in either case (B8 fix — non-numeric
+ * QUANTITY rows used to be silently dropped at the BP guard).
+ */
+export function parseQuantityCell(
+  v: unknown,
+):
+  | { qty: number; flag?: undefined }
+  | { qty: undefined; flag: 'SHS' | 'NO_STOCK' | 'OTHER'; raw: string } {
+  // Native numbers (incl. 0) come through unchanged.
+  if (typeof v === 'number' && Number.isFinite(v)) return { qty: v };
+
+  const raw = (v == null ? '' : String(v)).trim();
+  const upper = raw.toUpperCase();
+
+  if (upper === 'SHS')                              return { qty: undefined, flag: 'SHS',      raw };
+  if (upper === 'NO STOCK' || upper === 'NOSTOCK')  return { qty: undefined, flag: 'NO_STOCK', raw };
+
+  // Numeric-string path — but only if the entire string parses as a number,
+  // so "12 SOLD" doesn't sneak through as `12`.
+  if (raw !== '' && /^-?\d+(\.\d+)?$/.test(raw)) {
+    const n = parseFloat(raw);
+    if (Number.isFinite(n)) return { qty: n };
+  }
+
+  return { qty: undefined, flag: 'OTHER', raw };
+}
+
+/**
+ * parseSupplierCell — INVENTORY-sheet SUPPLIER column may list multiple
+ * suppliers separated by " / " (e.g. "MHL / ABC / NIHAL"). Returns the
+ * primary (first) name and the full list with empties dropped.
+ *
+ * B7 fix — caller previously did `.split('/')[0]` and dropped the rest.
+ */
+export function parseSupplierCell(
+  v: unknown,
+): { primaryName: string; allNames: string[] } {
+  const raw = (v == null ? '' : String(v)).trim();
+  if (!raw) return { primaryName: '', allNames: [] };
+  const allNames = raw
+    .split('/')
+    .map(s => s.trim())
+    .filter(s => s.length > 0);
+  return { primaryName: allNames[0] || '', allNames };
+}
+
 function parseCategory(model: string): DeviceCategory {
   const m = model.toUpperCase();
   if (m.includes('IPAD')) return 'iPad';
@@ -45,7 +99,11 @@ function parseBrand(category: DeviceCategory): string {
   return 'Other';
 }
 
-function normalizeImei(imei: string) { return imei.replace(/\D/g, ''); }
+// Preserve IMEIs verbatim: client data includes alphanumeric Apple serials
+// (e.g. "NL6CMQCYTD", "SKC9P3QVP6F"), so we MUST NOT strip non-digits.
+function normalizeImei(imei: string) {
+  return String(imei ?? '').trim().replace(/^["'\s]+|["'\s]+$/g, '');
+}
 
 // Parse "BLACK 3 GREY 1" → [{colour:'Black', qty:3}, {colour:'Grey', qty:1}]
 function parseColourStr(s: string): Array<{ colour: string; qty: number }> {
@@ -57,9 +115,22 @@ function parseColourStr(s: string): Array<{ colour: string; qty: number }> {
     .filter(c => c.colour && c.qty > 0);
 }
 
+/**
+ * `InventoryAggregate` row as emitted by the parser — `supplierIds` here is
+ * the parser's best guess (one synthetic id per supplier name); the bulk-write
+ * step is responsible for re-mapping these to the real `suppliers` doc ids.
+ * `supplierNames` is the original list, preserved so the upsert step can match.
+ */
+export type ParsedAggregate = Omit<InventoryAggregate, 'createdAt' | 'updatedAt'> & {
+  supplierNames: string[];
+};
+
 interface ParsedData {
   suppliers: Omit<Supplier, 'createdAt'>[];
   units: Omit<InventoryUnit, 'createdAt'>[];
+  /** INVENTORY-sheet roll-up rows (one per Model+Supplier) — populated by
+   *  parseClientBulkSheet; empty for IMEI-per-row imports. */
+  aggregates?: ParsedAggregate[];
   stats: { total: number; available: number; sold: number; incoming: number; skipped: number; duplicateRows: number };
   format: 'client-bulk' | 'imei-per-row';
 }
@@ -89,30 +160,88 @@ function parseClientBulkSheet(rows: any[][]): ParsedData {
   const dateIn = new Date().toISOString().split('T')[0];
   const supplierMap = new Map<string, Omit<Supplier, 'createdAt'>>();
   const units: Omit<InventoryUnit, 'createdAt'>[] = [];
+  const aggregates: ParsedAggregate[] = [];
   let skipped = 0;
   let uid = 1;
+  let aggUid = 1;
+
+  // Map supplier display-name → synthetic id (kept stable across the sheet).
+  const supplierIdFor = (name: string): string => {
+    const key = (name || 'UNKNOWN').toUpperCase();
+    const id  = `sup_${key.replace(/\s+/g, '_').toLowerCase()}`;
+    if (!supplierMap.has(id))
+      supplierMap.set(id, { id, name: name || 'Unknown', portal: 'Wholesale', ownerId: 'shared' });
+    return id;
+  };
 
   for (let i = 1; i < rows.length; i++) {
     const r = rows[i];
-    const model   = modelIdx >= 0 ? String(r[modelIdx] || '').trim() : '';
-    const bpRaw   = bpIdx >= 0 ? r[bpIdx] : 0;
-    const qtyRaw  = qtyIdx >= 0 ? String(r[qtyIdx] || '').trim() : '';
-    const colours = colourIdx >= 0 ? String(r[colourIdx] || '').trim() : '';
-    const supName = supplierIdx >= 0 ? String(r[supplierIdx] || '').trim().split('/')[0].trim() : '';
-    const notes   = notesIdx >= 0 ? String(r[notesIdx] || '').trim() : '';
+    const model      = modelIdx >= 0 ? String(r[modelIdx] || '').trim() : '';
+    const bpRaw      = bpIdx >= 0 ? r[bpIdx] : 0;
+    const qtyRawCell = qtyIdx >= 0 ? r[qtyIdx] : '';
+    const qtyParsed  = parseQuantityCell(qtyRawCell);
+    const colours    = colourIdx >= 0 ? String(r[colourIdx] || '').trim() : '';
+    const supplierCell = supplierIdx >= 0 ? r[supplierIdx] : '';
+    const supParsed  = parseSupplierCell(supplierCell);
+    const notes      = notesIdx >= 0 ? String(r[notesIdx] || '').trim() : '';
 
     if (!model || /^(model|total|#)/i.test(model)) { skipped++; continue; }
     const bp = parseFloat(String(bpRaw)) || 0;
-    if (!bp && qtyRaw.toUpperCase() !== 'SHS') { skipped++; continue; }
 
-    const isSHS    = qtyRaw.toUpperCase() === 'SHS';
+    // B8 fix: do NOT drop rows with non-numeric QUANTITY. The row still has
+    // useful provenance (model/supplier/notes flag) — emit an aggregate row
+    // and skip unit synthesis. Numeric rows with no BP are still data errors.
+    const isSHS      = qtyParsed.qty === undefined && qtyParsed.flag === 'SHS';
+    const isNumeric  = qtyParsed.qty !== undefined;
+
+    if (!isNumeric && !isSHS) {
+      // Non-numeric, non-SHS (e.g. "NO STOCK", blank, "OTHER"): capture as
+      // an InventoryAggregate so downstream can decide what to do with it.
+      aggregates.push({
+        id: `agg_${aggUid++}`,
+        model,
+        ...(bp ? { buyPrice: bp } : {}),
+        quantityText: qtyParsed.raw,
+        ...(colours ? { coloursRaw: colours } : {}),
+        supplierIds: supParsed.allNames.map(supplierIdFor),
+        supplierNames: supParsed.allNames,
+        ...(notes ? { notes } : {}),
+        sourceRow: i,
+        ownerId: 'shared',
+      });
+      continue;
+    }
+
+    if (!bp && !isSHS) { skipped++; continue; }
+
     const category = parseCategory(model);
     const brand    = parseBrand(category);
 
-    const supKey     = supName.toUpperCase() || 'UNKNOWN';
-    const supplierId = `sup_${supKey.replace(/\s+/g, '_').toLowerCase()}`;
-    if (!supplierMap.has(supplierId))
-      supplierMap.set(supplierId, { id: supplierId, name: supName || 'Unknown', portal: 'Wholesale', ownerId: 'shared' });
+    // B7 fix: support "MHL / ABC / NIHAL" — primary supplier drives the legacy
+    // supplierId field; the full list is preserved in supplierIds.
+    const primaryName = supParsed.primaryName;
+    const supplierId  = supplierIdFor(primaryName);
+    const supplierIds = supParsed.allNames.length > 0
+      ? supParsed.allNames.map(supplierIdFor)
+      : [supplierId];
+
+    // Also emit an aggregate roll-up so the INVENTORY-sheet shape is preserved.
+    const coloursMap: { [c: string]: number } = {};
+    for (const c of parseColourStr(colours)) coloursMap[c.colour] = c.qty;
+    aggregates.push({
+      id: `agg_${aggUid++}`,
+      model,
+      ...(bp ? { buyPrice: bp } : {}),
+      ...(isNumeric ? { quantityNum: qtyParsed.qty as number } : {}),
+      ...(isSHS ? { quantityText: 'SHS' } : {}),
+      ...(Object.keys(coloursMap).length ? { coloursMap } : {}),
+      ...(colours ? { coloursRaw: colours } : {}),
+      supplierIds,
+      supplierNames: supParsed.allNames,
+      ...(notes ? { notes } : {}),
+      sourceRow: i,
+      ownerId: 'shared',
+    });
 
     if (isSHS) {
       const parsed = parseColourStr(colours);
@@ -121,7 +250,7 @@ function parseClientBulkSheet(rows: any[][]): ParsedData {
         units.push({
           id: `import_shs_${uid++}`, imei: `SHS_import_${uid}`,
           model, brand, category, colour, buyPrice: bp,
-          dateIn, supplierId, supplierName: supName, status: 'incoming',
+          dateIn, supplierId, supplierIds, supplierName: primaryName, status: 'incoming',
           flags: [], notes: `SHS — Expected${notes ? ' · ' + notes : ''}`,
           platformListed: false, listingSites: [], ownerId: 'shared',
         });
@@ -136,7 +265,7 @@ function parseClientBulkSheet(rows: any[][]): ParsedData {
         units.push({
           id: `import_${uid++}`, imei: `PENDING_import_${uid}`,
           model, brand, category, colour, buyPrice: bp,
-          dateIn, supplierId, supplierName: supName, status: 'available',
+          dateIn, supplierId, supplierIds, supplierName: primaryName, status: 'available',
           flags: [], notes: notes || '',
           platformListed: false, listingSites: [], ownerId: 'shared',
         });
@@ -150,6 +279,7 @@ function parseClientBulkSheet(rows: any[][]): ParsedData {
   return {
     suppliers: Array.from(supplierMap.values()),
     units,
+    aggregates,
     stats: { total: units.length, available, sold: 0, incoming, skipped, duplicateRows: 0 },
     format: 'client-bulk',
   };
@@ -193,7 +323,12 @@ function parseOGStockSheet(rows: any[][]): ParsedData {
     const model = r[modelIdx]?.toString().trim();
     if (!model || /^(model|total|#)/i.test(model)) { skipped++; continue; }
 
-    const imei         = r[imeiIdx]?.toString().trim() || '';
+    // Cast IMEI cell to string explicitly so a 15-digit number doesn't become "1.23e+14"
+    const imei         = r[imeiIdx] === undefined || r[imeiIdx] === null
+      ? ''
+      : (typeof r[imeiIdx] === 'number'
+          ? Number.isInteger(r[imeiIdx]) ? r[imeiIdx].toFixed(0) : String(r[imeiIdx])
+          : String(r[imeiIdx])).trim();
     const supplierName = r[supplierIdx]?.toString().trim() || 'Unknown';
     const buyPrice     = parseFloat(r[buyPriceIdx]) || 0;
     const colour       = colourIdx >= 0 && r[colourIdx] ? r[colourIdx].toString().trim() : 'Unknown';
@@ -223,8 +358,8 @@ function parseOGStockSheet(rows: any[][]): ParsedData {
     const category    = parseCategory(model);
     const brand       = parseBrand(category);
     const cleanedImei = normalizeImei(imei);
-    // Non-SHS with valid IMEI → use raw IMEI as ID (matches NewBatchModal, same unit = same record)
-    const unitId    = cleanedImei.length >= 14 ? cleanedImei : buildStableUnitId({ imei, model, dateIn, supplierId, buyPrice, status });
+    // Non-SHS with any non-empty IMEI/serial → use it as ID (alphanumeric Apple serials accepted)
+    const unitId    = cleanedImei ? cleanedImei : buildStableUnitId({ imei, model, dateIn, supplierId, buyPrice, status });
     const dedupeKey = cleanedImei || unitId;
 
     if (seenImeis.has(dedupeKey)) { duplicateRows++; }
@@ -299,9 +434,10 @@ export default function ImportModal({ onClose }: ImportModalProps) {
         // xlsx auto-detects CSV vs binary, but CSVs need to be read as text
         // (or as binary string) to avoid byte-order mark corruption. Branch
         // on extension/MIME so we hand xlsx the right input every time.
+        // raw + cellText: keep 15-digit IMEIs as strings, avoid 1.23e+14 coercion
         const wb = isCsv
-          ? XLSX.read(e.target!.result as string, { type: 'string' })
-          : XLSX.read(new Uint8Array(e.target!.result as ArrayBuffer), { type: 'array' });
+          ? XLSX.read(e.target!.result as string, { type: 'string', raw: true, cellText: true })
+          : XLSX.read(new Uint8Array(e.target!.result as ArrayBuffer), { type: 'array', raw: true, cellText: true });
         const sheetName = wb.SheetNames.includes('OG STOCK DATA') ? 'OG STOCK DATA' : wb.SheetNames[0];
         const ws   = wb.Sheets[sheetName];
         const rows: any[][] = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' }) as any[][];

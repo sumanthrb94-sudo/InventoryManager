@@ -11,3 +11,4 @@ coverage/
 firebase-service-account.json
 firebase-service-account*.json
 scripts/team-passwords.json
+__pycache__/
