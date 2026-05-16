@@ -7,7 +7,7 @@ import { DeviceCategory, InventoryAggregate, InventoryUnit, Supplier } from '../
 import { buildStableUnitId } from '../lib/inventoryMaintenance';
 import { uploadSourceAttachment } from '../lib/fileAttachments';
 import { logInventoryEvent } from '../lib/inventoryEvents';
-import { extractStorage } from '../lib/modelStorage';
+import { parseBrandModelStorage } from '../lib/modelStorage';
 
 interface ImportModalProps { onClose: () => void; }
 
@@ -189,9 +189,13 @@ function parseClientBulkSheet(rows: any[][]): ParsedData {
   for (let i = 1; i < rows.length; i++) {
     const r = rows[i];
     const rawModel   = modelIdx >= 0 ? String(r[modelIdx] || '').trim() : '';
-    // Strip embedded storage (e.g. "iPad 7 32GB Wifi" → "iPad 7 Wifi" + "32GB").
-    // The cleaned model is what we persist; storage is propagated separately.
-    const { model, storage } = extractStorage(rawModel);
+    // Split into brand / model / storage / series so the doc carries first-class
+    // fields (brand drives filters, model drives the unit card, storage drives
+    // the capacity badge, series drives the periodic-table grouping). Mirrors
+    // parseOGStockSheet below + the CJS / Python ports — see
+    // src/lib/modelStorage.ts for the rules.
+    const parsedModel = parseBrandModelStorage(rawModel);
+    const { brand: parsedBrand, model, storage, series: parsedSeries } = parsedModel;
     const bpRaw      = bpIdx >= 0 ? r[bpIdx] : 0;
     const qtyRawCell = qtyIdx >= 0 ? r[qtyIdx] : '';
     const qtyParsed  = parseQuantityCell(qtyRawCell);
@@ -217,6 +221,8 @@ function parseClientBulkSheet(rows: any[][]): ParsedData {
       aggregates.push({
         id: `agg_${aggUid++}`,
         model,
+        brand: parsedBrand,
+        ...(parsedSeries ? { series: parsedSeries } : {}),
         ...(storage ? { storage } : {}),
         ...(bp ? { buyPrice: bp } : {}),
         quantityText: rawQtyText,
@@ -226,14 +232,18 @@ function parseClientBulkSheet(rows: any[][]): ParsedData {
         ...(notes ? { notes } : {}),
         sourceRow: i,
         ownerId: 'shared',
-      });
+      } as any);
       continue;
     }
 
     if (!bp && !isSHS) { skipped++; continue; }
 
     const category = parseCategory(model);
-    const brand    = parseBrand(category);
+    // Prefer the parseBrandModelStorage result (covers Google/Xiaomi/OnePlus
+    // and recognises "Apple" / "SAMSUNG" leading words) over the legacy
+    // category-derived brand. Fall back to the legacy parseBrand only when the
+    // new detector returns 'Other' so we don't regress on existing data.
+    const brand = parsedBrand !== 'Other' ? parsedBrand : parseBrand(category);
 
     // B7 fix: support "MHL / ABC / NIHAL" — primary supplier drives the legacy
     // supplierId field; the full list is preserved in supplierIds.
@@ -249,6 +259,8 @@ function parseClientBulkSheet(rows: any[][]): ParsedData {
     aggregates.push({
       id: `agg_${aggUid++}`,
       model,
+      brand,
+      ...(parsedSeries ? { series: parsedSeries } : {}),
       ...(storage ? { storage } : {}),
       ...(bp ? { buyPrice: bp } : {}),
       ...(isNumeric ? { quantityNum: qtyParsed.qty as number } : {}),
@@ -260,7 +272,7 @@ function parseClientBulkSheet(rows: any[][]): ParsedData {
       ...(notes ? { notes } : {}),
       sourceRow: i,
       ownerId: 'shared',
-    });
+    } as any);
 
     if (isSHS) {
       // SHS rows emit ONE synthetic InventoryUnit placeholder so the legacy
@@ -275,6 +287,8 @@ function parseClientBulkSheet(rows: any[][]): ParsedData {
         id: `shs_${slug(model)}_${slug(primaryName || 'unknown')}_${i}`,
         imei: '',
         model, brand, category, colour: primaryColour, buyPrice: bp,
+        ...(storage ? { storage } : {}),
+        ...(parsedSeries ? { series: parsedSeries } : {}),
         dateIn, supplierId, supplierIds, supplierName: primaryName,
         status: 'incoming',
         statusRaw: 'SHS',
@@ -299,10 +313,12 @@ function parseClientBulkSheet(rows: any[][]): ParsedData {
         units.push({
           id: `import_${uid++}`, imei: `PENDING_import_${uid}`,
           model, brand, category, colour, buyPrice: bp,
+          ...(storage ? { storage } : {}),
+          ...(parsedSeries ? { series: parsedSeries } : {}),
           dateIn, supplierId, supplierIds, supplierName: primaryName, status: 'available',
           flags: [], notes: notes || '',
           platformListed: false, listingSites: [], ownerId: 'shared',
-        });
+        } as any);
       }
     }
   }
@@ -356,10 +372,12 @@ function parseOGStockSheet(rows: any[][]): ParsedData {
     const r = rows[i];
     const rawModel = r[modelIdx]?.toString().trim();
     if (!rawModel || /^(model|total|#)/i.test(rawModel)) { skipped++; continue; }
-    // Strip embedded storage (e.g. "iPad 7 32GB Wifi" → "iPad 7 Wifi" + "32GB").
-    // The cleaned model is what we persist; storage is propagated separately
-    // and used as a fallback when the dedicated Storage column is absent/empty.
-    const { model, storage: modelStorage } = extractStorage(rawModel);
+    // Split into brand / model / storage / series. The cleaned model is what
+    // we persist; storage falls back to the dedicated Storage column when
+    // present; brand/series are first-class doc fields so legacy renderers
+    // don't have to re-parse at read time.
+    const parsedModel = parseBrandModelStorage(rawModel);
+    const { brand: parsedBrand, model, storage: modelStorage, series: parsedSeries } = parsedModel;
 
     // Cast IMEI cell to string explicitly so a 15-digit number doesn't become "1.23e+14"
     const imei         = r[imeiIdx] === undefined || r[imeiIdx] === null
@@ -397,7 +415,10 @@ function parseOGStockSheet(rows: any[][]): ParsedData {
       supplierMap.set(supplierId, { id: supplierId, name: supplierName, portal: 'Direct', ownerId: 'shared' });
 
     const category    = parseCategory(model);
-    const brand       = parseBrand(category);
+    // Prefer the parseBrandModelStorage detector (covers Google/Xiaomi/OnePlus
+    // and recognises bare "S21" / "A32" models) over the legacy category-derived
+    // brand. Fall back to parseBrand only when the new detector says 'Other'.
+    const brand       = parsedBrand !== 'Other' ? parsedBrand : parseBrand(category);
     const cleanedImei = normalizeImei(imei);
     // Non-SHS with any non-empty IMEI/serial → use it as ID (alphanumeric Apple serials accepted)
     const unitId    = cleanedImei ? cleanedImei : buildStableUnitId({ imei, model, dateIn, supplierId, buyPrice, status });
@@ -411,6 +432,7 @@ function parseOGStockSheet(rows: any[][]): ParsedData {
       colour, buyPrice, dateIn, supplierId, status,
       flags: [], notes,
       ...(storage      ? { storage }      : {}),
+      ...(parsedSeries ? { series: parsedSeries } : {}),
       ...(postageCost  !== undefined ? { postageCost } : {}),
       platformListed: status === 'available' && !!salePlatform,
       listingSites:   salePlatform ? [salePlatform as any] : [],

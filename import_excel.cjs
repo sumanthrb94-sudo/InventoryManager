@@ -195,6 +195,81 @@ function extractStorage(raw) {
   return { model: collapseWhitespace(stitched), storage };
 }
 
+// ── parseBrandModelStorage — CJS port of src/lib/modelStorage.ts ───────────
+// Keep these rules in sync with the TS version. See that file for full docs.
+//
+// Brand detection (case-insensitive substring, first match wins):
+//   apple/iphone/ipad/macbook/apple watch → Apple
+//   samsung/galaxy                         → Samsung
+//   google/pixel                           → Google
+//   xiaomi/redmi/poco                      → Xiaomi
+//   oneplus                                → OnePlus
+//   anything else                          → Other
+//
+// After brand detection the FIRST token is stripped from the model only if it
+// is the literal brand name itself (so "Apple iPhone" loses "Apple" but
+// "iPhone" keeps "iPhone"). Then storage is extracted via extractStorage.
+const BRAND_RULES_CJS = [
+  { brand: 'Apple',   keywords: ['apple', 'iphone', 'ipad', 'macbook', 'apple watch'] },
+  { brand: 'Samsung', keywords: ['samsung', 'galaxy'] },
+  { brand: 'Google',  keywords: ['google', 'pixel'] },
+  { brand: 'Xiaomi',  keywords: ['xiaomi', 'redmi', 'poco'] },
+  { brand: 'OnePlus', keywords: ['oneplus'] },
+];
+const LEADING_BRAND_TOKENS_CJS = new Set(['apple', 'samsung', 'google', 'xiaomi', 'oneplus']);
+
+function detectBrandCjs(lower) {
+  for (const rule of BRAND_RULES_CJS) {
+    if (rule.keywords.some(k => lower.includes(k))) return rule.brand;
+  }
+  return 'Other';
+}
+
+function detectSeriesCjs(brand, lower) {
+  if (!lower) return undefined;
+  if (brand === 'Apple') {
+    if (lower.includes('iphone')) return 'iPhone';
+    if (lower.includes('ipad')) return 'iPad';
+    if (lower.includes('apple watch') || lower.includes('watch ultra') || lower.includes('watch se')) return 'Apple Watch';
+    if (lower.includes('macbook')) return 'MacBook';
+    return 'Other';
+  }
+  if (brand === 'Samsung') {
+    if (lower.includes('galaxy tab') || /\btab [as]\d/.test(lower)) return 'Galaxy Tab';
+    if (lower.includes('galaxy note') || /\bnote\s?\d/.test(lower)) return 'Galaxy Note';
+    // Trailing `(fe|ultra|plus|+)?` catches "S20FE", "S22Ultra", "S21+", etc.
+    if (/\bgalaxy s\d/.test(lower) || /\bs\d{1,2}(fe|ultra|plus|\+)?\b/.test(lower)) return 'Galaxy S';
+    // Trailing `s?` catches "A21S" / "A52S".
+    if (/\bgalaxy a\d/.test(lower) || /\ba\d{1,3}s?\b/.test(lower)) return 'Galaxy A';
+    return 'Other';
+  }
+  if (brand === 'Google') {
+    if (lower.includes('pixel')) return 'Pixel';
+    return 'Other';
+  }
+  return 'Other';
+}
+
+function parseBrandModelStorage(raw) {
+  const input = (raw == null ? '' : String(raw));
+  const trimmed = input.trim();
+  if (!trimmed) return { brand: 'Other', model: '', storage: undefined, series: undefined };
+
+  const lower = trimmed.toLowerCase();
+  const brand = detectBrandCjs(lower);
+
+  let working = trimmed;
+  const firstToken = working.split(/\s+/, 1)[0];
+  if (firstToken && LEADING_BRAND_TOKENS_CJS.has(firstToken.toLowerCase())) {
+    working = working.slice(firstToken.length).replace(/^\s+/, '');
+  }
+
+  const { model: modelWithoutStorage, storage } = extractStorage(working);
+  const model = collapseWhitespace(modelWithoutStorage);
+  const series = detectSeriesCjs(brand, lower);
+  return { brand, model, storage, series };
+}
+
 // Preserve IMEIs verbatim: client data includes alphanumeric Apple serials
 // (e.g. "NL6CMQCYTD", "SKC9P3QVP6F"), so we MUST NOT strip non-digits.
 function normalizeImei(raw) {
@@ -354,10 +429,11 @@ function parseWorksheet(ws, verbose) {
 
     const rawModel = getCell(r, cols.model);
     if (!isValidRow(rawModel)) { skipped++; continue; }
-    // Strip embedded storage (e.g. "iPad 7 32GB Wifi" → "iPad 7 Wifi" + "32GB").
-    // The cleaned model is what we persist; storage falls back to the value
-    // in the dedicated Storage column when present.
-    const { model, storage: modelStorage } = extractStorage(rawModel);
+    // Split brand / model / storage / series so the doc carries first-class
+    // fields (drives Inventory list filters + periodic-table grouping in the
+    // UI without re-parsing at read time).
+    const parsedBMS = parseBrandModelStorage(rawModel);
+    const { brand: parsedBrand, model, storage: modelStorage, series: parsedSeries } = parsedBMS;
 
     const rawImei      = getCell(r, cols.imei);
     // Preserve IMEIs verbatim: alphanumeric Apple serials (e.g. "NL6CMQCYTD") must not be stripped.
@@ -404,7 +480,10 @@ function parseWorksheet(ws, verbose) {
     const supplierIds = supplierNamesAll.map(supplierIdFor);
 
     const category  = parseCategory(model);
-    const brand     = parseBrand(category);
+    // Prefer parseBrandModelStorage's brand (covers Google/Xiaomi/OnePlus +
+    // recognises bare "S21"/"A32" forms); fall back to the legacy
+    // category-derived brand only when the new detector says 'Other'.
+    const brand     = parsedBrand !== 'Other' ? parsedBrand : parseBrand(category);
     const colour    = parseColour(model, rawColour);
     const unitId    = buildUnitId(imei, model, dateIn, supplierId, buyPrice, rawStatus);
     const dedupeKey = imei || unitId;
@@ -427,6 +506,7 @@ function parseWorksheet(ws, verbose) {
       imei,
       model:          model.trim(),
       brand,
+      ...(parsedSeries ? { series: parsedSeries } : {}),
       category,
       colour,
       storage,

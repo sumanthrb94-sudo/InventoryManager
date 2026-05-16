@@ -25,7 +25,7 @@ import {
   buildInventoryWorkbookBuffer,
   buildSalesWorkbookBuffer,
 } from '../src/lib/clientReport.ts';
-import { extractStorage } from '../src/lib/modelStorage.ts';
+import { parseBrandModelStorage } from '../src/lib/modelStorage.ts';
 import type {
   InventoryUnit,
   InventoryAggregate,
@@ -156,9 +156,10 @@ export function parseInventoryWorkbook(buf: Buffer): ParseResult {
       const row = rows[r] ?? [];
       const rawModel = trimOrUndef(row[0]);
       if (!rawModel) continue;
-      // Strip embedded storage out of the MODEL string and persist it on the
-      // aggregate so downstream consumers can filter / display capacity.
-      const { model, storage } = extractStorage(rawModel);
+      // Split brand/model/storage/series so the aggregate carries first-class
+      // fields for the new periodic-table grouping + capacity badge.
+      const parsed = parseBrandModelStorage(rawModel);
+      const { brand: parsedBrand, model, storage, series: parsedSeries } = parsed;
       const bp = typeof row[1] === 'number' ? row[1] : parseFloat(String(row[1] ?? '')) || undefined;
       const qty = parseQuantityCell(row[2]);
       const notesFlag = trimOrUndef(row[3]);
@@ -170,6 +171,8 @@ export function parseInventoryWorkbook(buf: Buffer): ParseResult {
       aggregates.push({
         id: `agg_${r}_${slugify(model)}`,
         model,
+        brand: parsedBrand,
+        ...(parsedSeries ? { series: parsedSeries } : {}),
         ...(storage ? { storage } : {}),
         buyPrice: bp,
         quantityNum: 'qty' in qty && qty.qty !== undefined ? qty.qty : undefined,
@@ -183,7 +186,7 @@ export function parseInventoryWorkbook(buf: Buffer): ParseResult {
         ownerId: 'shared',
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
-      });
+      } as any);
 
       // SHS placeholder unit — mirrors ImportModal::parseClientBulkSheet so the
       // legacy StockInPage "Pending SHS" list (filters status === 'incoming')
@@ -192,14 +195,20 @@ export function parseInventoryWorkbook(buf: Buffer): ParseResult {
       const isShs = 'flag' in qty && qty.flag === 'SHS';
       if (isShs) {
         const primaryColour = Object.keys(coloursMap)[0] || (coloursRaw || 'Unknown');
+        // Prefer the parseBrandModelStorage result for brand (covers Google /
+        // Xiaomi / OnePlus + Samsung S/A series); fall back to a legacy
+        // Apple-substring heuristic only if the detector says 'Other'.
         const upperModel = model.toUpperCase();
-        const brand = (upperModel.includes('IPHONE') || upperModel.includes('IPAD') || upperModel.includes('MACBOOK'))
-          ? 'Apple' : 'Other';
+        const brand: string = parsedBrand !== 'Other'
+          ? parsedBrand
+          : ((upperModel.includes('IPHONE') || upperModel.includes('IPAD') || upperModel.includes('MACBOOK'))
+              ? 'Apple' : 'Other');
         shsUnits.push({
           id: `shs_${slugify(model)}_${slugify(supplierParsed.primaryName || 'unknown')}_${r}`,
           imei: '',
           model,
           ...(storage ? { storage } : {}),
+          ...(parsedSeries ? { series: parsedSeries } : {}),
           brand,
           category: 'Other' as any,
           colour: primaryColour,
@@ -236,11 +245,13 @@ export function parseInventoryWorkbook(buf: Buffer): ParseResult {
       const imei = normaliseImei(row[2]);
       const rawModel = trimOrUndef(row[1]);
       if (!imei && !rawModel) continue;
-      // Strip embedded storage out of the MODEL string and propagate it as a
-      // first-class field on the unit (`InventoryUnit.storage`).
-      const { model, storage } = rawModel
-        ? extractStorage(rawModel)
-        : { model: '', storage: undefined as string | undefined };
+      // Split brand/model/storage/series. The cleaned model is what we persist
+      // on the unit; brand/series are first-class fields so the periodic-table
+      // grouping renders without re-parsing at read time.
+      const parsedUnit = rawModel
+        ? parseBrandModelStorage(rawModel)
+        : { brand: 'Other' as const, model: '', storage: undefined as string | undefined, series: undefined };
+      const { brand: parsedUnitBrand, model, storage, series: parsedUnitSeries } = parsedUnit;
       const supplierParsed = parseSupplierCell(row[5]);
       const supplierId = supplierParsed.primaryName ? supplierIdFor(supplierParsed.primaryName) : '';
       const supplierIds = supplierParsed.allNames.map(supplierIdFor).filter(Boolean);
@@ -249,12 +260,19 @@ export function parseInventoryWorkbook(buf: Buffer): ParseResult {
       const dateIn = excelDateToIso(row[0]) ?? '';
       const stockOutDate = excelDateToIso(row[9]);
       const upperModel = (model || '').toUpperCase();
+      // Prefer parseBrandModelStorage's brand; fall back to the legacy Apple
+      // substring heuristic only when the detector returns 'Other'.
+      const unitBrand: string = parsedUnitBrand !== 'Other'
+        ? parsedUnitBrand
+        : ((upperModel.includes('IPHONE') || upperModel.includes('IPAD') || upperModel.includes('MACBOOK'))
+            ? 'Apple' : 'Other');
       units.push({
         id: imei || `unit_${r}`,
         imei,
         model: model ?? '',
         ...(storage ? { storage } : {}),
-        brand: upperModel.includes('IPHONE') || upperModel.includes('IPAD') || upperModel.includes('MACBOOK') ? 'Apple' : 'Other',
+        ...(parsedUnitSeries ? { series: parsedUnitSeries } : {}),
+        brand: unitBrand,
         category: 'Other' as any,
         colour: trimOrUndef(row[4]) ?? '',
         buyPrice: typeof row[3] === 'number' ? row[3] : parseFloat(String(row[3] ?? '')) || 0,

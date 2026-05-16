@@ -293,6 +293,91 @@ def extract_storage(raw):
     return _collapse_whitespace(stitched), storage
 
 
+# ── parseBrandModelStorage — Python port of src/lib/modelStorage.ts ─────────
+# Keep these rules in sync with the TS + CJS ports. See the TS file for docs.
+BRAND_RULES_PY = [
+    ('Apple',   ['apple', 'iphone', 'ipad', 'macbook', 'apple watch']),
+    ('Samsung', ['samsung', 'galaxy']),
+    ('Google',  ['google', 'pixel']),
+    ('Xiaomi',  ['xiaomi', 'redmi', 'poco']),
+    ('OnePlus', ['oneplus']),
+]
+LEADING_BRAND_TOKENS_PY = {'apple', 'samsung', 'google', 'xiaomi', 'oneplus'}
+
+_GALAXY_TAB_RE = re.compile(r'\btab [as]\d')
+_GALAXY_NOTE_RE = re.compile(r'\bnote\s?\d')
+_GALAXY_S_RE = re.compile(r'\bgalaxy s\d')
+# Trailing `(fe|ultra|plus|+)?` catches "S20FE", "S22Ultra", "S21+", etc.
+_BARE_S_RE = re.compile(r'\bs\d{1,2}(fe|ultra|plus|\+)?\b')
+_GALAXY_A_RE = re.compile(r'\bgalaxy a\d')
+# Trailing `s?` catches "A21S" / "A52S".
+_BARE_A_RE = re.compile(r'\ba\d{1,3}s?\b')
+
+
+def _detect_brand_py(lower):
+    for brand, keywords in BRAND_RULES_PY:
+        for k in keywords:
+            if k in lower:
+                return brand
+    return 'Other'
+
+
+def _detect_series_py(brand, lower):
+    if not lower:
+        return None
+    if brand == 'Apple':
+        if 'iphone' in lower:
+            return 'iPhone'
+        if 'ipad' in lower:
+            return 'iPad'
+        if 'apple watch' in lower or 'watch ultra' in lower or 'watch se' in lower:
+            return 'Apple Watch'
+        if 'macbook' in lower:
+            return 'MacBook'
+        return 'Other'
+    if brand == 'Samsung':
+        if 'galaxy tab' in lower or _GALAXY_TAB_RE.search(lower):
+            return 'Galaxy Tab'
+        if 'galaxy note' in lower or _GALAXY_NOTE_RE.search(lower):
+            return 'Galaxy Note'
+        if _GALAXY_S_RE.search(lower) or _BARE_S_RE.search(lower):
+            return 'Galaxy S'
+        if _GALAXY_A_RE.search(lower) or _BARE_A_RE.search(lower):
+            return 'Galaxy A'
+        return 'Other'
+    if brand == 'Google':
+        if 'pixel' in lower:
+            return 'Pixel'
+        return 'Other'
+    return 'Other'
+
+
+def parse_brand_model_storage(raw):
+    """Split a raw "brand model storage" string into a dict with brand/model/storage/series.
+
+    Mirrors `parseBrandModelStorage` from src/lib/modelStorage.ts. Empty input
+    returns {'brand': 'Other', 'model': '', 'storage': None, 'series': None}.
+    """
+    input_str = '' if raw is None else str(raw)
+    trimmed = input_str.strip()
+    if not trimmed:
+        return {'brand': 'Other', 'model': '', 'storage': None, 'series': None}
+
+    lower = trimmed.lower()
+    brand = _detect_brand_py(lower)
+
+    working = trimmed
+    parts = working.split(None, 1)
+    first_token = parts[0] if parts else ''
+    if first_token and first_token.lower() in LEADING_BRAND_TOKENS_PY:
+        working = parts[1] if len(parts) > 1 else ''
+
+    model_without_storage, storage = extract_storage(working)
+    model = _collapse_whitespace(model_without_storage)
+    series = _detect_series_py(brand, lower)
+    return {'brand': brand, 'model': model, 'storage': storage, 'series': series}
+
+
 def parse_colour(model: str, raw_colour) -> str:
     rc = str(raw_colour).strip() if raw_colour else ''
     if rc and rc.lower() not in ('unknown', 'nan', 'none', ''):
@@ -415,10 +500,14 @@ def parse_sheet(df, cols: dict, verbose: bool) -> dict:
         if not raw_model:
             skipped += 1
             continue
-        # Strip embedded storage (e.g. "iPad 7 32GB Wifi" -> "iPad 7 Wifi" + "32GB").
-        # The cleaned model is what we persist; storage falls back to the value
-        # in the dedicated Storage column when present.
-        model, model_storage = extract_storage(raw_model)
+        # Split brand / model / storage / series. The cleaned model is what we
+        # persist; storage falls back to the dedicated Storage column when
+        # present; brand/series are first-class doc fields.
+        parsed_bms    = parse_brand_model_storage(raw_model)
+        model         = parsed_bms['model']
+        model_storage = parsed_bms['storage']
+        parsed_brand  = parsed_bms['brand']
+        parsed_series = parsed_bms['series']
 
         # Use the raw cell value (not safe_str'd) so normalize_imei can detect
         # floats from openpyxl and format them as ints (avoids 1.23e+14 scientific notation).
@@ -471,7 +560,10 @@ def parse_sheet(df, cols: dict, verbose: bool) -> dict:
         supplier_ids = [_supplier_id_for(n) for n in supplier_names_all]
 
         category = parse_category(model)
-        brand    = parse_brand(category)
+        # Prefer parse_brand_model_storage's brand (covers Google/Xiaomi/OnePlus
+        # + bare "S21" / "A32" models); fall back to legacy parse_brand only when
+        # the new detector returns 'Other'.
+        brand    = parsed_brand if parsed_brand != 'Other' else parse_brand(category)
         colour   = parse_colour(model, raw_colour)
         status   = 'sold' if sold else ('returned' if returned else 'available')
         unit_id  = build_unit_id(imei, model, date_in, supplier_id, buy_price, status)
@@ -506,6 +598,7 @@ def parse_sheet(df, cols: dict, verbose: bool) -> dict:
         }
 
         if storage:       unit['storage']       = storage
+        if parsed_series: unit['series']         = parsed_series
         if condition:     unit['conditionGrade'] = condition
         if sold and platform:   unit['salePlatform']  = platform
         if sold and sale_price: unit['salePrice']     = sale_price

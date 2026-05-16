@@ -3,6 +3,7 @@ import {
   getAuth,
   signInWithEmailAndPassword,
   signOut as fbSignOut,
+  type User,
 } from 'firebase/auth';
 import { getFirestore } from 'firebase/firestore';
 import { getStorage } from 'firebase/storage';
@@ -70,3 +71,19 @@ export function ensureAuthReady(): Promise<void> {
 
 // Backward-compat alias used by seedData.ts
 export const ensureAnonymousAuth = ensureAuthReady;
+
+// ── Role gating (UX only) ────────────────────────────────────────────────────
+//
+// Single-admin allowlist. UX gate only — this is NOT a server-side rule.
+// Firestore rules are the actual security boundary. Expand the list if/when
+// more admins are needed.
+const ADMIN_EMAILS = new Set<string>([
+  'admin@inventorymanager.com',
+]);
+
+/** Returns true when the signed-in user is the inventory admin. */
+export function isAdmin(user: User | null | undefined): boolean {
+  const email = user?.email?.toLowerCase().trim();
+  if (!email) return false;
+  return ADMIN_EMAILS.has(email);
+}

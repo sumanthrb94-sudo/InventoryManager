@@ -67,6 +67,154 @@ function collapseWhitespace(s: string): string {
 }
 
 // ---------------------------------------------------------------------------
+// parseBrandModelStorage — the canonical brand/model/storage splitter
+// ---------------------------------------------------------------------------
+//
+// Why: legacy unit docs in Firestore still carry `model: "SAMSUNG S21 128GB"`
+// (one string) but the UI now wants brand/model/storage/series split out for
+// the periodic-table grouping + the per-card display. Rather than re-import
+// everything, both the import-time parsers AND the runtime UI call this
+// helper. New imports get `{brand, model, storage}` written to the doc;
+// existing docs are normalised on-the-fly at read time.
+//
+// Detection rules (case-insensitive substring match, evaluated in this order
+// so an ambiguous string like "Apple Galaxy Tab" still resolves to Apple):
+//   apple / iphone / ipad / macbook / apple watch  → 'Apple'
+//   samsung / galaxy                                → 'Samsung'
+//   google / pixel                                  → 'Google'
+//   xiaomi / redmi / poco                           → 'Xiaomi'
+//   oneplus                                         → 'OnePlus'
+//   anything else                                   → 'Other'
+//
+// After brand detection the FIRST token is stripped from the model only if it
+// is the literal brand name itself (so "Apple iPhone 17" loses the leading
+// "Apple", but "iPhone 17" keeps "iPhone"). Then storage is extracted via the
+// existing `extractStorage` helper and whitespace collapsed.
+
+export type Brand = 'Apple' | 'Samsung' | 'Google' | 'Xiaomi' | 'OnePlus' | 'Other';
+export type Series =
+  | 'iPhone' | 'iPad' | 'Apple Watch' | 'MacBook'
+  | 'Galaxy S' | 'Galaxy A' | 'Galaxy Tab' | 'Galaxy Note'
+  | 'Pixel' | 'Other';
+
+export interface ParsedModel {
+  brand: Brand;
+  /** Brand-prefix stripped, storage stripped, whitespace-collapsed. */
+  model: string;
+  /** Normalised storage capacity ("32GB" / "1TB"); `undefined` if none found. */
+  storage?: string;
+  /** Short bucket used for periodic-table grouping; `undefined` for empty input. */
+  series?: Series;
+}
+
+/** Brand keyword → canonical Brand. Order matters (first match wins) so the
+ *  Apple-flavoured Galaxy-Tab-style edge cases above resolve correctly. */
+const BRAND_RULES: ReadonlyArray<{ brand: Brand; keywords: string[] }> = [
+  { brand: 'Apple',   keywords: ['apple', 'iphone', 'ipad', 'macbook', 'apple watch'] },
+  { brand: 'Samsung', keywords: ['samsung', 'galaxy'] },
+  { brand: 'Google',  keywords: ['google', 'pixel'] },
+  { brand: 'Xiaomi',  keywords: ['xiaomi', 'redmi', 'poco'] },
+  { brand: 'OnePlus', keywords: ['oneplus'] },
+];
+
+/** Words that, when they appear as the very first token, should be dropped
+ *  from the cleaned model string (so "Apple iPhone 17" → "iPhone 17"). */
+const LEADING_BRAND_TOKENS = new Set(['apple', 'samsung', 'google', 'xiaomi', 'oneplus']);
+
+function detectBrand(lower: string): Brand {
+  for (const rule of BRAND_RULES) {
+    if (rule.keywords.some(k => lower.includes(k))) return rule.brand;
+  }
+  return 'Other';
+}
+
+function detectSeries(brand: Brand, lower: string): Series | undefined {
+  if (!lower) return undefined;
+  if (brand === 'Apple') {
+    if (lower.includes('iphone')) return 'iPhone';
+    if (lower.includes('ipad')) return 'iPad';
+    if (lower.includes('apple watch') || lower.includes('watch ultra') || lower.includes('watch se')) return 'Apple Watch';
+    if (lower.includes('macbook')) return 'MacBook';
+    return 'Other';
+  }
+  if (brand === 'Samsung') {
+    if (lower.includes('galaxy tab') || /\btab [as]\d/.test(lower)) return 'Galaxy Tab';
+    if (lower.includes('galaxy note') || /\bnote\s?\d/.test(lower)) return 'Galaxy Note';
+    // Galaxy S / A: match the explicit "Galaxy S20" form AND the bare "S21"
+    // form that appears in legacy strings like "SAMSUNG S21 128GB". The
+    // trailing-letter clause (`s\d{1,2}(fe|ultra|plus)?`) catches "S20FE",
+    // "S22Ultra", etc. where no space separates the suffix. Word-boundary on
+    // the left so we don't catch "GalaxyS"/"Asia".
+    if (/\bgalaxy s\d/.test(lower) || /\bs\d{1,2}(fe|ultra|plus|\+)?\b/.test(lower)) return 'Galaxy S';
+    if (/\bgalaxy a\d/.test(lower) || /\ba\d{1,3}s?\b/.test(lower)) return 'Galaxy A';
+    return 'Other';
+  }
+  if (brand === 'Google') {
+    if (lower.includes('pixel')) return 'Pixel';
+    return 'Other';
+  }
+  return 'Other';
+}
+
+/**
+ * Parse a raw "brand model storage" string into structured fields.
+ *
+ * The single source of truth for brand/model/storage splitting. Used by:
+ *   - the import parsers (ImportModal, smokeMasterFiles, import_excel.cjs,
+ *     convert_excel.py) so new units get split fields saved on the doc
+ *   - the runtime UI list/grid renderers so legacy single-string docs render
+ *     correctly without a re-import.
+ *
+ * Examples:
+ *   "Apple iPhone 17 Pro Max 128GB"  → { brand:'Apple',   model:'iPhone 17 Pro Max', storage:'128GB', series:'iPhone'   }
+ *   "SAMSUNG S21 128GB"              → { brand:'Samsung', model:'S21',               storage:'128GB', series:'Galaxy S' }
+ *   "IPAD 7TH GEN 32GB W/C"          → { brand:'Apple',   model:'IPAD 7TH GEN W/C',  storage:'32GB',  series:'iPad'     }
+ *   "Galaxy A32 5G 64GB"             → { brand:'Samsung', model:'Galaxy A32 5G',     storage:'64GB',  series:'Galaxy A' }
+ *   "Pixel 8 Pro 256GB"              → { brand:'Google',  model:'Pixel 8 Pro',       storage:'256GB', series:'Pixel'    }
+ *   "iPhone 11"                      → { brand:'Apple',   model:'iPhone 11',         storage:undefined, series:'iPhone' }
+ *   ""                               → { brand:'Other',   model:'',                  storage:undefined, series:undefined }
+ *
+ * Galaxy Tab note: the storage regex returns the FIRST GB token (per existing
+ * `extractStorage` contract). For tablet strings carrying both a RAM and a
+ * storage capacity (e.g. "Galaxy Tab A9+ 6GB 128GB - WiFi") this means the
+ * smaller RAM number wins. Acceptable per spec; documented here so callers
+ * aren't surprised.
+ */
+export function parseBrandModelStorage(raw: string | undefined | null): ParsedModel {
+  const input = (raw ?? '').toString();
+  const trimmed = input.trim();
+
+  // Empty input short-circuits — preserve current `extractStorage` contract.
+  if (!trimmed) {
+    return { brand: 'Other', model: '', storage: undefined, series: undefined };
+  }
+
+  const lower = trimmed.toLowerCase();
+  const brand = detectBrand(lower);
+
+  // Strip a leading brand-name word ("Apple", "Samsung", …) — but ONLY the
+  // brand label, not series words like "iPhone" or "Galaxy". Use word
+  // boundaries so we don't eat the leading letters of a real model.
+  let working = trimmed;
+  const firstToken = working.split(/\s+/, 1)[0];
+  if (firstToken && LEADING_BRAND_TOKENS.has(firstToken.toLowerCase())) {
+    working = working.slice(firstToken.length).trimStart();
+  }
+
+  // Pull storage out and clean whitespace.
+  const { model: modelWithoutStorage, storage } = extractStorage(working);
+  const model = collapseWhitespace(modelWithoutStorage);
+
+  // Series uses the ORIGINAL lower-cased string (so we still see "iPhone"
+  // even if the leading brand word was stripped — both work because the
+  // brand-strip only removes the brand label, but using the original keeps
+  // the rule symmetric and obvious).
+  const series = detectSeries(brand, lower);
+
+  return { brand, model, storage, series };
+}
+
+// ---------------------------------------------------------------------------
 // Inline vitest smoke test (skipped when import.meta.vitest is unavailable).
 // `vite.config.ts` does not currently enable `test.includeSource`, so this
 // block is dead-stripped from the prod bundle and only runs when a future
@@ -109,6 +257,64 @@ if (import.meta.vitest) {
         model: 'iPhone 11 Black',
         storage: '128GB',
       });
+    });
+  });
+
+  describe('parseBrandModelStorage', () => {
+    it('splits "Apple iPhone 17 Pro Max 128GB"', () => {
+      expect(parseBrandModelStorage('Apple iPhone 17 Pro Max 128GB')).toEqual({
+        brand: 'Apple', model: 'iPhone 17 Pro Max', storage: '128GB', series: 'iPhone',
+      });
+    });
+    it('recognises all-caps SAMSUNG and bare S21 model', () => {
+      expect(parseBrandModelStorage('SAMSUNG S21 128GB')).toEqual({
+        brand: 'Samsung', model: 'S21', storage: '128GB', series: 'Galaxy S',
+      });
+    });
+    it('handles IPAD with trailing W/C tag', () => {
+      expect(parseBrandModelStorage('IPAD 7TH GEN 32GB W/C')).toEqual({
+        brand: 'Apple', model: 'IPAD 7TH GEN W/C', storage: '32GB', series: 'iPad',
+      });
+    });
+    it('handles Galaxy A32 5G + 64GB', () => {
+      expect(parseBrandModelStorage('Galaxy A32 5G 64GB')).toEqual({
+        brand: 'Samsung', model: 'Galaxy A32 5G', storage: '64GB', series: 'Galaxy A',
+      });
+    });
+    it('handles Pixel 8 Pro', () => {
+      expect(parseBrandModelStorage('Pixel 8 Pro 256GB')).toEqual({
+        brand: 'Google', model: 'Pixel 8 Pro', storage: '256GB', series: 'Pixel',
+      });
+    });
+    it('handles iPhone 11 with no storage', () => {
+      expect(parseBrandModelStorage('iPhone 11')).toEqual({
+        brand: 'Apple', model: 'iPhone 11', storage: undefined, series: 'iPhone',
+      });
+    });
+    it('treats empty string as Other with no series', () => {
+      expect(parseBrandModelStorage('')).toEqual({
+        brand: 'Other', model: '', storage: undefined, series: undefined,
+      });
+    });
+    it('extracts first GB token from "Galaxy Tab A9+ 6GB 128GB"', () => {
+      // Documented: first GB token wins (RAM 6GB), per existing extractStorage contract.
+      expect(parseBrandModelStorage('Galaxy Tab A9+ 6GB 128GB - WiFi + CELLULAR')).toEqual({
+        brand: 'Samsung', model: 'Galaxy Tab A9+ 128GB - WiFi + CELLULAR', storage: '6GB', series: 'Galaxy Tab',
+      });
+    });
+    it('does not re-extract storage if already extracted', () => {
+      expect(parseBrandModelStorage('iPhone 17 Pro Max')).toEqual({
+        brand: 'Apple', model: 'iPhone 17 Pro Max', storage: undefined, series: 'iPhone',
+      });
+    });
+    it('detects Galaxy S for FE / + / Ultra suffixed bare models', () => {
+      expect(parseBrandModelStorage('SAMSUNG S20FE 128GB').series).toBe('Galaxy S');
+      expect(parseBrandModelStorage('SAMSUNG S21+ 128GB').series).toBe('Galaxy S');
+      expect(parseBrandModelStorage('SAMSUNG S22 Ultra 256GB').series).toBe('Galaxy S');
+    });
+    it('detects Galaxy A for trailing-S bare models (A21S / A52S)', () => {
+      expect(parseBrandModelStorage('SAMSUNG A21S 32GB').series).toBe('Galaxy A');
+      expect(parseBrandModelStorage('SAMSUNG A52S 128GB').series).toBe('Galaxy A');
     });
   });
 }

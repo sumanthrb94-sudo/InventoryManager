@@ -2,9 +2,12 @@ import React, { useState, useEffect, useMemo } from 'react';
 import {
   TrendingUp, Package, CircleDollarSign,
   ChevronRight, Truck, ShoppingBag, FileSpreadsheet, Upload,
+  ShieldCheck, ExternalLink, RefreshCw, Database,
 } from 'lucide-react';
+import type { User } from 'firebase/auth';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts';
 import { dbService } from '../lib/dbService';
+import { isAdmin } from '../lib/firebase';
 import { useInventoryStore } from '../lib/inventoryStore';
 import { InventoryUnit, Supplier } from '../types';
 import CopyImei from './CopyImei';
@@ -24,12 +27,14 @@ export interface NavAction {
 }
 
 interface Props {
+  user?: User | null;
   onNavigate: (action: NavAction) => void;
   onOpenImport?: () => void;
 }
 
-export default function Dashboard({ onNavigate, onOpenImport }: Props) {
+export default function Dashboard({ user, onNavigate, onOpenImport }: Props) {
   const { units, suppliers } = useInventoryStore();
+  const showAdminPanel = isAdmin(user);
 
   // Sales aren't in the store — pull them directly so we can detect a
   // completely empty database (no units AND no sales) for the first-run CTA.
@@ -43,6 +48,61 @@ export default function Dashboard({ onNavigate, onOpenImport }: Props) {
   }, [units.length]);
 
   const isEmptyDb = units.length === 0 && (salesCount ?? 0) === 0;
+
+  // ── Admin KPIs ────────────────────────────────────────────────────────────
+  // Latest import batch (by importedAt) + total Firestore doc counts across
+  // the core collections. Read-only — no server-side gating.
+  const [adminKpis, setAdminKpis] = useState<{
+    lastBatch: { sourceFile?: string; rowCount?: number; importedAt?: string } | null;
+    totalDocs: number;
+    breakdown: { units: number; aggregates: number; sales: number; suppliers: number };
+  } | null>(null);
+
+  useEffect(() => {
+    if (!showAdminPanel) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const [batches, aggregates, sales, suppliersRows, unitsRows] = await Promise.all([
+          dbService.readAll('importBatches').catch(() => []),
+          dbService.readAll('inventoryAggregates').catch(() => []),
+          dbService.readAll('sales').catch(() => []),
+          dbService.readAll('suppliers').catch(() => []),
+          dbService.readAll('inventoryUnits').catch(() => []),
+        ]);
+        if (cancelled) return;
+        const toMillis = (v: any): number => {
+          if (!v) return 0;
+          if (typeof v === 'string') return new Date(v).getTime() || 0;
+          if (typeof v?.toMillis === 'function') return v.toMillis();
+          if (typeof v?.seconds === 'number') return v.seconds * 1000;
+          return 0;
+        };
+        const latest = [...batches].sort((a, b) => toMillis(b.importedAt) - toMillis(a.importedAt))[0];
+        const lastBatch = latest ? {
+          sourceFile: latest.sourceFile,
+          rowCount: latest.rowCount,
+          importedAt: latest.importedAt && typeof latest.importedAt === 'string'
+            ? latest.importedAt
+            : (toMillis(latest.importedAt) ? new Date(toMillis(latest.importedAt)).toISOString() : undefined),
+        } : null;
+        const breakdown = {
+          units: unitsRows.length,
+          aggregates: aggregates.length,
+          sales: sales.length,
+          suppliers: suppliersRows.length,
+        };
+        setAdminKpis({
+          lastBatch,
+          totalDocs: breakdown.units + breakdown.aggregates + breakdown.sales + breakdown.suppliers,
+          breakdown,
+        });
+      } catch {
+        if (!cancelled) setAdminKpis({ lastBatch: null, totalDocs: 0, breakdown: { units: 0, aggregates: 0, sales: 0, suppliers: 0 } });
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [showAdminPanel, units.length]);
 
   const available    = units.filter(u => u.status === 'available');
   const sold         = units.filter(u => u.status === 'sold');
@@ -202,6 +262,84 @@ export default function Dashboard({ onNavigate, onOpenImport }: Props) {
         </div>
 
       </div>
+
+      {/* Admin-only operational panel */}
+      {showAdminPanel && (
+        <section
+          aria-label="Admin dashboard"
+          className="bg-black text-white rounded-3xl border border-black shadow-xl p-5 md:p-6"
+        >
+          <div className="flex items-center justify-between gap-3 flex-wrap mb-4">
+            <div className="flex items-center gap-2.5 min-w-0">
+              <div className="w-9 h-9 rounded-2xl bg-white/10 border border-white/15 flex items-center justify-center flex-shrink-0">
+                <ShieldCheck size={16} className="text-emerald-300" />
+              </div>
+              <div className="min-w-0">
+                <p className="text-[9px] md:text-[10px] font-mono uppercase tracking-[0.35em] text-emerald-300/90">Admin</p>
+                <h3 className="text-base md:text-lg font-bold tracking-tighter font-display leading-tight truncate">
+                  {user?.email}
+                </h3>
+              </div>
+            </div>
+            <a
+              href="https://console.firebase.google.com/"
+              target="_blank"
+              rel="noreferrer noopener"
+              className="inline-flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-widest bg-white/10 hover:bg-white/20 rounded-xl px-3 py-2 transition-all"
+            >
+              <ExternalLink size={11} /> Firebase Auth
+            </a>
+          </div>
+
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-2.5">
+            <AdminKpi
+              label="Last Import"
+              value={adminKpis?.lastBatch
+                ? (adminKpis.lastBatch.sourceFile?.split('/').pop() || '—')
+                : '—'}
+              sub={adminKpis?.lastBatch?.importedAt
+                ? new Date(adminKpis.lastBatch.importedAt).toLocaleString('en-GB', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })
+                : 'No imports yet'}
+            />
+            <AdminKpi
+              label="Batch Rows"
+              value={adminKpis?.lastBatch?.rowCount?.toLocaleString() ?? '—'}
+              sub="In latest import"
+            />
+            <AdminKpi
+              label="Total Docs"
+              value={adminKpis?.totalDocs?.toLocaleString() ?? '—'}
+              sub={adminKpis
+                ? `${adminKpis.breakdown.units}u · ${adminKpis.breakdown.sales}s · ${adminKpis.breakdown.suppliers}sp`
+                : 'Across collections'}
+            />
+            <AdminKpi
+              label="Integrity"
+              value={adminKpis ? (adminKpis.totalDocs > 0 ? 'OK' : 'Empty') : '—'}
+              sub={adminKpis?.breakdown.aggregates
+                ? `${adminKpis.breakdown.aggregates} aggregates`
+                : 'No aggregates'}
+            />
+          </div>
+
+          <div className="mt-4 flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={() => onOpenImport?.()}
+              className="inline-flex items-center gap-2 bg-white text-black rounded-xl px-3.5 py-2 text-[10px] font-bold uppercase tracking-widest hover:bg-emerald-300 transition-all"
+            >
+              <RefreshCw size={11} /> Re-load Master Data
+            </button>
+            <button
+              type="button"
+              onClick={() => onNavigate({ tab: 'inventory', filters: { status: 'available' } })}
+              className="inline-flex items-center gap-2 bg-white/10 hover:bg-white/20 rounded-xl px-3.5 py-2 text-[10px] font-bold uppercase tracking-widest transition-all"
+            >
+              <Database size={11} /> Inspect Units
+            </button>
+          </div>
+        </section>
+      )}
 
       {/* First-run CTA — only when DB is completely empty */}
       {isEmptyDb && (
@@ -534,5 +672,21 @@ function KPICard({ label, value, sub, icon, badge, onClick, accent }: {
       <p className="text-2xl font-bold tracking-tighter font-display mt-0.5">{value}</p>
       {sub && <p className="text-[9px] text-gray-400 font-mono mt-0.5">{sub}</p>}
     </button>
+  );
+}
+
+function AdminKpi({ label, value, sub }: {
+  label: string;
+  value: string | number;
+  sub?: string;
+}) {
+  return (
+    <div className="bg-white/5 border border-white/10 rounded-2xl px-3 py-3">
+      <p className="text-[8px] font-mono uppercase tracking-[0.3em] text-emerald-300/80">{label}</p>
+      <p className="text-lg md:text-xl font-bold tracking-tighter font-display mt-1 leading-tight truncate" title={String(value)}>
+        {value}
+      </p>
+      {sub && <p className="text-[9px] text-slate-400 font-mono mt-0.5 truncate" title={sub}>{sub}</p>}
+    </div>
   );
 }

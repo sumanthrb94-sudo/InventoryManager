@@ -85,7 +85,10 @@ const ANALYTICS_SUBS: { id: AnalyticsSub; label: string; icon: React.ReactNode }
 ];
 
 function AppShell({ user }: { user: User }) {
-  const { loaded }                                = useInventoryStore();
+  const { loaded, units }                         = useInventoryStore();
+  // Hide the "Sample Data" entrypoints once real master data is in the DB.
+  // Devs can still reach the modal by loading the app with an empty DB.
+  const showSampleDataButton                      = units.length <= 100;
   const [activeTab, setActiveTab]                 = useState<Tab>('buy');
   const [analyticsSub, setAnalyticsSub]           = useState<AnalyticsSub>('overview');
   const [isBatchModalOpen, setIsBatchModalOpen]   = useState(false);
@@ -335,10 +338,12 @@ function AppShell({ user }: { user: User }) {
             className="w-full flex items-center gap-2 px-3 py-2 rounded-xl text-[10px] font-bold uppercase tracking-widest text-slate-500 hover:text-slate-900 hover:bg-slate-100 transition-all">
             <LogOut size={12} strokeWidth={2.5} /> Sign Out
           </button>
-          <button onClick={() => setIsLoadMockDataOpen(true)}
-            className="w-full flex items-center gap-2 px-3 py-2 rounded-xl text-[10px] font-bold uppercase tracking-widest text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-all">
-            <Database size={12} strokeWidth={2} /> Sample Data
-          </button>
+          {showSampleDataButton && (
+            <button onClick={() => setIsLoadMockDataOpen(true)}
+              className="w-full flex items-center gap-2 px-3 py-2 rounded-xl text-[10px] font-bold uppercase tracking-widest text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-all">
+              <Database size={12} strokeWidth={2} /> Sample Data
+            </button>
+          )}
         </div>
       </aside>
 
@@ -382,11 +387,13 @@ function AppShell({ user }: { user: User }) {
               className="md:hidden p-2 rounded-xl text-slate-400 hover:text-slate-900 hover:bg-slate-100 transition-all">
               <LogOut size={14} strokeWidth={2.5} />
             </button>
-            <button onClick={() => setIsLoadMockDataOpen(true)}
-              title="Load mock data"
-              className="p-2 rounded-xl text-slate-400 hover:text-slate-900 hover:bg-slate-100 transition-all">
-              <Settings size={14} strokeWidth={2.5} />
-            </button>
+            {showSampleDataButton && (
+              <button onClick={() => setIsLoadMockDataOpen(true)}
+                title="Load sample data"
+                className="p-2 rounded-xl text-slate-400 hover:text-slate-900 hover:bg-slate-100 transition-all">
+                <Settings size={14} strokeWidth={2.5} />
+              </button>
+            )}
             <button onClick={() => setIsImportModalOpen(true)}
               className="flex items-center gap-1.5 px-3 py-2 bg-slate-900 text-white rounded-xl text-[10px] font-bold uppercase tracking-widest hover:bg-slate-700 transition-all">
               <FileSpreadsheet size={12} />
@@ -424,7 +431,7 @@ function AppShell({ user }: { user: User }) {
                 {activeTab === 'buy'     && <StockInPage onOpenBatch={() => setIsBatchModalOpen(true)} onOpenImport={() => setIsImportModalOpen(true)} />}
                 {activeTab === 'sell'    && <SellPage />}
                 {activeTab === 'returns' && <ReturnsPage />}
-                {activeTab === 'analytics' && analyticsSub === 'overview'  && <Dashboard onNavigate={handleNavigate} onOpenImport={() => setIsImportModalOpen(true)} />}
+                {activeTab === 'analytics' && analyticsSub === 'overview'  && <Dashboard user={user} onNavigate={handleNavigate} onOpenImport={() => setIsImportModalOpen(true)} />}
                 {activeTab === 'analytics' && analyticsSub === 'insights'  && <AnalyticsPage />}
                 {activeTab === 'analytics' && analyticsSub === 'reports'   && <ReportingPage />}
                 {activeTab === 'analytics' && analyticsSub === 'suppliers' && <Suppliers />}

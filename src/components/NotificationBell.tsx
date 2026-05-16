@@ -76,6 +76,7 @@ export default function NotificationBell({ unreadCount }: { unreadCount: number 
       return_processed: 'bg-amber-500',
       shs_received: 'bg-purple-500',
       shs_removed: 'bg-orange-500',
+      unit_repaired: 'bg-indigo-500',
     };
     return typeColors[unreadNotifications[0].type] || 'bg-gray-500';
   };

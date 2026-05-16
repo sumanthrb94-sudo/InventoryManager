@@ -8,6 +8,7 @@ import { dbService } from '../lib/dbService';
 import { notificationService } from '../lib/notificationService';
 import { InventoryUnit, InventoryAggregate, Supplier } from '../types';
 import { useInventoryStore } from '../lib/inventoryStore';
+import { parseBrandModelStorage } from '../lib/modelStorage';
 import CopyImei from './CopyImei';
 import CollapsibleSection from './CollapsibleSection';
 import ReceiveSHSModal from './ReceiveSHSModal';
@@ -25,9 +26,28 @@ interface Props {
   onOpenImport?: () => void;
 }
 
+/** Resolve a unit's SKU using pre-split fields when present, otherwise
+ *  parse the legacy single-string `model` column at runtime. Used as the
+ *  grouping key for the Recent Stock In list so 6× "SAMSUNG S21 128GB"
+ *  collapses into one row. */
+function deriveSku(u: InventoryUnit): { brand: string; model: string; storage?: string; series?: string } {
+  if (u.brand && u.storage) {
+    return { brand: u.brand, model: u.model, storage: u.storage };
+  }
+  const p = parseBrandModelStorage(u.model || '');
+  return {
+    brand: u.brand || p.brand,
+    model: p.model || u.model,
+    storage: u.storage || p.storage,
+    series: p.series,
+  };
+}
+
 export default function StockInPage({ onOpenBatch, onOpenImport: _onOpenImport }: Props) {
   const { units, suppliers }        = useInventoryStore();
   const [search, setSearch]         = useState('');
+  // `expandedId` is now a GROUP key, not a per-IMEI id — when a SKU group is
+  // expanded we render the nested per-unit child rows underneath.
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [receivingUnit, setReceivingUnit] = useState<InventoryUnit | null>(null);
   const [showAddSHS, setShowAddSHS]       = useState(false);
@@ -128,6 +148,24 @@ export default function StockInPage({ onOpenBatch, onOpenImport: _onOpenImport }
       (supplierMap[u.supplierId] || '').toLowerCase().includes(q),
     );
   }, [allSorted, search, supplierMap]);
+
+  // Group identical units in the recent-stock list so 6× "Samsung S21 128GB"
+  // collapses to a single expandable row instead of stacking 6 duplicates.
+  // Key: (brand, model, storage, colour, status) — status keeps available
+  // and sold variants of the same SKU in separate groups.
+  const recentStockGroups = useMemo(() => {
+    const map = new Map<string, { key: string; sku: { brand: string; model: string; storage?: string; series?: string }; units: InventoryUnit[] }>();
+    for (const u of filtered) {
+      const sku = deriveSku(u);
+      const key = `${sku.brand}|${sku.model}|${sku.storage || ''}|${u.colour || ''}|${u.status}`;
+      const g = map.get(key);
+      if (g) g.units.push(u);
+      else map.set(key, { key, sku, units: [u] });
+    }
+    return Array.from(map.values()).sort((a, b) =>
+      b.units.length - a.units.length || a.sku.model.localeCompare(b.sku.model),
+    );
+  }, [filtered]);
 
   const todayIn  = units.filter(u => u.dateIn === today && u.status !== 'incoming');
   const totalBP  = todayIn.reduce((s, u) => s + u.buyPrice, 0);
@@ -359,7 +397,10 @@ export default function StockInPage({ onOpenBatch, onOpenImport: _onOpenImport }
         />
       </div>
 
-      {/* Recent stock (non-SHS) */}
+      {/* Recent stock (non-SHS) — grouped by SKU (brand+model+storage+colour+status)
+          so importing 6 identical Samsung S21 128GBs collapses to a single
+          expandable row instead of stacking 6 duplicates. Search runs BEFORE
+          grouping so IMEI substrings still match groups that contain them. */}
       <CollapsibleSection
         title="Recent Stock In"
         count={filtered.length}
@@ -372,66 +413,99 @@ export default function StockInPage({ onOpenBatch, onOpenImport: _onOpenImport }
             <p className="text-xs font-mono">No stock records yet</p>
           </div>
         ) : (
-          <div className="divide-y divide-gray-50">
-            {filtered.map(u => {
-              const isOpen = expandedId === u.id;
-              const isSHS = u.batchId?.startsWith('shs_') || u.notes?.includes('SHS');
-              return (
-                <div key={u.id}>
-                  <div className={`flex items-center gap-3 px-4 py-3 transition-all ${
-                    isSHS
-                      ? 'bg-orange-50/60 hover:bg-orange-50'
-                      : 'hover:bg-gray-50'
-                  }`}>
-                    <div className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${u.dateIn === today ? 'bg-emerald-100' : 'bg-gray-100'}`}>
-                      {u.dateIn === today
-                        ? <CheckCircle2 size={14} className="text-emerald-600" />
-                        : <Clock size={14} className="text-gray-400" />
-                      }
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-xs font-bold truncate">{u.model}</p>
-                      <p className="text-[9px] text-gray-400 font-mono mt-0.5">
-                        <CopyImei imei={u.imei} truncate={10} /> · {u.dateIn}
-                      </p>
-                    </div>
-                    <div className="flex items-center gap-2 flex-shrink-0">
-                      <span className="text-sm font-bold">£{u.buyPrice}</span>
-                      <button
-                        onClick={() => setExpandedId(isOpen ? null : u.id)}
-                        className="p-1.5 hover:bg-gray-100 rounded-lg transition-all text-gray-400"
-                      >
-                        {isOpen ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
-                      </button>
-                    </div>
-                  </div>
-                  <AnimatePresence>
-                    {isOpen && (
-                      <motion.div
-                        initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }}
-                        exit={{ height: 0, opacity: 0 }}
-                        className="overflow-hidden bg-gray-50 border-t border-gray-100"
-                      >
-                        <div className="px-5 py-3 grid grid-cols-2 md:grid-cols-4 gap-3">
-                          {[
-                            { label: 'Supplier', value: supplierMap[u.supplierId] || '—' },
-                            { label: 'Batch', value: u.batchId === 'master_batch' ? 'Master' : (u.batchId || 'Default') },
-                            { label: 'Colour',   value: u.colour || '—' },
-                            { label: 'Storage',  value: (u as any).storage || '—' },
-                          ].map(f => (
-                            <div key={f.label}>
-                              <p className="text-[8px] text-gray-400 font-mono uppercase tracking-widest">{f.label}</p>
-                              <p className="text-xs font-bold mt-0.5">{f.value}</p>
-                            </div>
-                          ))}
+          <>
+            <div className="px-4 py-2 text-[9px] text-gray-400 font-mono uppercase tracking-widest border-b border-gray-50">
+              {filtered.length} units across {recentStockGroups.length} SKUs
+            </div>
+            <div className="divide-y divide-gray-50">
+              {recentStockGroups.map(group => {
+                const isOpen = expandedId === group.key;
+                const head = group.units[0];
+                const isSHS = head.batchId?.startsWith('shs_') || head.notes?.includes('SHS');
+                const qty = group.units.length;
+                const latestDateIn = group.units.reduce(
+                  (acc, u) => (u.dateIn > acc ? u.dateIn : acc),
+                  group.units[0].dateIn,
+                );
+                const titleParts = [
+                  group.sku.brand,
+                  group.sku.model,
+                  group.sku.storage,
+                  head.colour && head.colour !== 'Unknown' ? head.colour : null,
+                ].filter(Boolean);
+                return (
+                  <div key={group.key}>
+                    <button
+                      type="button"
+                      onClick={() => setExpandedId(isOpen ? null : group.key)}
+                      className={`w-full text-left flex items-center gap-3 px-4 py-3 transition-all ${
+                        isSHS ? 'bg-orange-50/60 hover:bg-orange-50' : 'hover:bg-gray-50'
+                      }`}
+                    >
+                      <div className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${latestDateIn === today ? 'bg-emerald-100' : 'bg-gray-100'}`}>
+                        {latestDateIn === today
+                          ? <CheckCircle2 size={14} className="text-emerald-600" />
+                          : <Clock size={14} className="text-gray-400" />
+                        }
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <p className="text-xs font-bold truncate">{titleParts.join(' · ')}</p>
+                          {head.status !== 'available' && (
+                            <span className="text-[8px] font-bold uppercase tracking-widest px-1.5 py-0.5 rounded font-mono bg-gray-100 text-gray-600">
+                              {head.status}
+                            </span>
+                          )}
                         </div>
-                      </motion.div>
-                    )}
-                  </AnimatePresence>
-                </div>
-              );
-            })}
-          </div>
+                        <p className="text-[9px] text-gray-400 font-mono mt-0.5">
+                          {qty} unit{qty === 1 ? '' : 's'} · latest {latestDateIn}
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-2 flex-shrink-0">
+                        <span className="text-sm font-bold">£{head.buyPrice}</span>
+                        <span className="p-1.5 text-gray-400">
+                          {isOpen ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
+                        </span>
+                      </div>
+                    </button>
+                    <AnimatePresence>
+                      {isOpen && (
+                        <motion.div
+                          initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }}
+                          exit={{ height: 0, opacity: 0 }}
+                          className="overflow-hidden bg-gray-50 border-t border-gray-100"
+                        >
+                          <div className="divide-y divide-gray-100">
+                            {group.units.map(u => (
+                              <div key={u.id} className="px-5 py-2.5 flex items-center gap-3">
+                                <div className="flex-1 min-w-0">
+                                  <p className="text-[10px] font-mono text-gray-700 flex items-center gap-2 flex-wrap">
+                                    <CopyImei imei={u.imei} truncate={14} />
+                                    <span className="text-gray-400">·</span>
+                                    <span className="text-gray-500">{supplierMap[u.supplierId] || '—'}</span>
+                                    <span className="text-gray-400">·</span>
+                                    <span className="text-gray-500">{u.dateIn}</span>
+                                    <span className="text-gray-400">·</span>
+                                    <span className="text-gray-500">{u.status}</span>
+                                  </p>
+                                  <p className="text-[8px] text-gray-400 font-mono mt-0.5">
+                                    Batch: {u.batchId === 'master_batch' ? 'Master' : (u.batchId || 'Default')}
+                                    {(u as any).storage ? ` · Storage: ${(u as any).storage}` : ''}
+                                    {u.colour ? ` · Colour: ${u.colour}` : ''}
+                                  </p>
+                                </div>
+                                <span className="text-[11px] font-bold font-mono">£{u.buyPrice}</span>
+                              </div>
+                            ))}
+                          </div>
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
+                  </div>
+                );
+              })}
+            </div>
+          </>
         )}
       </CollapsibleSection>
 
