@@ -16,6 +16,7 @@ import {
   Search, Plus, Truck, PackageCheck, ChevronDown, ChevronUp, ChevronsUpDown,
   Filter, X, MoreHorizontal, Download, AlertCircle, Save, Clock,
   Eye, Trash2, AlertTriangle, MessageCircle, Sparkles, Layers,
+  Upload, Info,
 } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
 import { dbService } from '../lib/dbService';
@@ -36,6 +37,7 @@ import AddSHSModal from './AddSHSModal';
 import ReceiveSHSModal from './ReceiveSHSModal';
 import ReceiveShsAggregateModal from './ReceiveShsAggregateModal';
 import TodayIntakeModal from './TodayIntakeModal';
+import MasterDataLinkedImport from './MasterDataLinkedImport';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -94,6 +96,8 @@ export default function BuySheet(_props: Props) {
   const [receivingUnit, setReceivingUnit] = useState<InventoryUnit | null>(null);
   const [receivingAggregate, setReceivingAggregate] = useState<InventoryAggregate | null>(null);
   const [showTodayIntake, setShowTodayIntake] = useState(false);
+  const [showMasterImport, setShowMasterImport] = useState(false);
+  const [showSchemaHelp, setShowSchemaHelp] = useState(false);
 
   // Close any open row menu on outside-click.
   useEffect(() => {
@@ -284,6 +288,12 @@ export default function BuySheet(_props: Props) {
           </div>
           <div className="flex items-center gap-2 flex-wrap">
             <button
+              onClick={() => setShowMasterImport(true)}
+              className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-indigo-600 text-white text-[10px] font-bold uppercase tracking-widest hover:bg-indigo-700 transition-all shadow-sm"
+            >
+              <Upload size={12} /> Load Master Sheet
+            </button>
+            <button
               onClick={() => setShowAddStockManual(true)}
               className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-slate-900 text-white text-[10px] font-bold uppercase tracking-widest hover:bg-slate-700 transition-all"
             >
@@ -300,6 +310,17 @@ export default function BuySheet(_props: Props) {
               className="flex items-center gap-1.5 px-3 py-2 rounded-xl border border-slate-200 text-slate-700 text-[10px] font-bold uppercase tracking-widest hover:bg-slate-50 transition-all"
             >
               <Download size={12} /> Export CSV
+            </button>
+            <button
+              onClick={() => setShowSchemaHelp(s => !s)}
+              title="Show required fields"
+              className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-[10px] font-bold uppercase tracking-widest transition-all border ${
+                showSchemaHelp
+                  ? 'bg-slate-900 text-white border-slate-900'
+                  : 'bg-white text-slate-600 border-slate-200 hover:border-slate-400'
+              }`}
+            >
+              <Info size={12} /> Schema
             </button>
           </div>
         </div>
@@ -338,6 +359,20 @@ export default function BuySheet(_props: Props) {
           />
         </div>
       </div>
+
+      {/* ── Schema help (column requirements to match the Excel report) ── */}
+      <AnimatePresence>
+        {showSchemaHelp && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: 'auto', opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            className="overflow-hidden"
+          >
+            <SchemaHelpCard onClose={() => setShowSchemaHelp(false)} />
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* ── SHS pinned section (master-file aggregates + manual orders) ─── */}
       {(shsAggs.length > 0 || manualShs.length > 0) && (
@@ -510,8 +545,9 @@ export default function BuySheet(_props: Props) {
         )}
       </AnimatePresence>
 
-      {/* ── Legacy modals (unchanged) ──────────────────────────────────── */}
+      {/* ── Modals ─────────────────────────────────────────────────────── */}
       <AnimatePresence>
+        {showMasterImport   && <MasterDataLinkedImport onClose={() => setShowMasterImport(false)} />}
         {showAddStockManual && <AddStockManualModal onClose={() => setShowAddStockManual(false)} />}
         {showAddSHS         && <AddSHSModal         onClose={() => setShowAddSHS(false)} />}
         {receivingUnit      && <ReceiveSHSModal unit={receivingUnit} onClose={() => setReceivingUnit(null)} />}
@@ -1042,6 +1078,76 @@ function ShsAwaitingSection({
           </motion.div>
         )}
       </AnimatePresence>
+    </div>
+  );
+}
+
+// ── Schema help card ─────────────────────────────────────────────────────────
+// Documents the required fields every IMEI row needs so the in-app data round-
+// trips cleanly into the INVENTORY_REPORT_2026 master spreadsheet. Surfaced
+// from the Buy header (Info button) — useful when ops onboards new staff or
+// when the importer rejects rows for missing fields.
+function SchemaHelpCard({ onClose }: { onClose: () => void }) {
+  const fields: Array<{
+    col: string;
+    field: string;
+    required: 'always' | 'on-sale' | 'optional';
+    note: string;
+  }> = [
+    { col: 'A',  field: 'STOCK IN DATE',  required: 'always',   note: 'When the unit arrived in office. ISO date.' },
+    { col: 'B',  field: 'MODEL',          required: 'always',   note: 'Full model + storage, e.g. "Apple iPhone 13 128GB".' },
+    { col: 'C',  field: 'IMEI NUMBER',    required: 'always',   note: '15-digit IMEI (or 10–12 char serial for Apple). The distinct key.' },
+    { col: 'D',  field: 'BP',             required: 'always',   note: 'Buy price in £. Drives Tied Capital + In-Office Value.' },
+    { col: 'E',  field: 'COLOURS',        required: 'always',   note: 'Single colour per row (e.g. "Space Grey").' },
+    { col: 'F',  field: 'SUPPLIER',       required: 'always',   note: 'Supplier name; resolved to a supplier record on import.' },
+    { col: 'G',  field: 'NOTES',          required: 'optional', note: 'Free text — condition, lock state, etc.' },
+    { col: 'H',  field: 'STATUS',         required: 'on-sale',  note: 'Blank = available. "SOLD" once sold.' },
+    { col: 'I',  field: 'MARKETPLACE',    required: 'on-sale',  note: 'Amazon / eBay / OnBuy / Back Market / Project / FBA / R T S.' },
+    { col: 'J',  field: 'STOCK OUT DATE', required: 'on-sale',  note: 'Date sold; auto-stamped when status flips to SOLD.' },
+  ];
+  const toneFor = (r: typeof fields[number]['required']) =>
+    r === 'always'   ? { dot: 'bg-rose-500',    text: 'text-rose-700',    bg: 'bg-rose-50',    label: 'Required' }
+    : r === 'on-sale'? { dot: 'bg-amber-500',   text: 'text-amber-700',   bg: 'bg-amber-50',   label: 'When sold' }
+    :                  { dot: 'bg-slate-400',   text: 'text-slate-600',   bg: 'bg-slate-50',   label: 'Optional' };
+
+  return (
+    <div className="bg-indigo-50/40 border border-indigo-100 rounded-3xl p-5 shadow-sm">
+      <div className="flex items-start justify-between gap-3 mb-3">
+        <div>
+          <p className="text-[11px] font-bold uppercase tracking-widest text-indigo-900 flex items-center gap-2">
+            <Info size={14} /> Required Fields · IMEI NUMBERS sheet
+          </p>
+          <p className="text-[10px] font-mono text-indigo-700/70 mt-1">
+            Every IMEI row needs these columns to round-trip into the INVENTORY_REPORT_2026 workbook.
+          </p>
+        </div>
+        <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-indigo-100 text-indigo-600 transition-all">
+          <X size={14} />
+        </button>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+        {fields.map(f => {
+          const t = toneFor(f.required);
+          return (
+            <div key={f.field} className="flex items-start gap-3 bg-white border border-indigo-100 rounded-xl px-3 py-2.5">
+              <span className="text-[10px] font-mono text-indigo-400 w-4 text-center flex-shrink-0">{f.col}</span>
+              <div className="flex-1 min-w-0">
+                <p className="text-[11px] font-bold text-slate-900 truncate">{f.field}</p>
+                <p className="text-[10px] text-slate-500 font-mono mt-0.5 leading-snug">{f.note}</p>
+              </div>
+              <span className={`inline-flex items-center gap-1 text-[8px] font-bold uppercase tracking-widest ${t.text} ${t.bg} px-1.5 py-0.5 rounded border border-current/10 flex-shrink-0`}>
+                <span className={`w-1.5 h-1.5 rounded-full ${t.dot}`} /> {t.label}
+              </span>
+            </div>
+          );
+        })}
+      </div>
+
+      <p className="text-[9px] font-mono text-indigo-700/70 mt-3 flex items-center gap-1.5">
+        <AlertCircle size={10} />
+        Rows missing any "Required" column are dropped during import. SHS rows skip IMEI/STATUS/MARKETPLACE — they sync via the SHS section.
+      </p>
     </div>
   );
 }
