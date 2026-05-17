@@ -9,6 +9,7 @@ import { GradeSelectCompact, StorageSelectCompact } from './FormSelects';
 import { generateBatchId, formatBatchId } from '../lib/batchUtils';
 import ScanInModal from './ScanInModal';
 import { buildDeviceCatalog } from '../lib/deviceCatalog';
+import { isValidImei, IMEI_REQUIRED_MESSAGE } from '../lib/imeiValidation';
 
 interface Props { onClose: () => void; }
 
@@ -65,7 +66,9 @@ function parsePastedCSV(text: string, fallbackSupplier: string): BatchRow[] {
     rows.push({
       id: uid(),
       model: model.trim(),
-      imei: isSHS ? '' : (imei ?? '').replace(/\D/g, ''),
+      // Keep alphanumerics (Apple serials are letters+digits), strip
+      // whitespace and uppercase. Numeric IMEIs survive unchanged.
+      imei: isSHS ? '' : (imei ?? '').toUpperCase().replace(/[^A-Z0-9]/g, ''),
       buyPrice: isSHS ? (bp ?? '') : (bp ?? ''),
       colour: (colour ?? '').trim(),
       storage: '',
@@ -106,7 +109,7 @@ export default function NewBatchModal({ onClose }: Props) {
   const lastSupplierName = rows.filter(r => r.supplierName).at(-1)?.supplierName ?? '';
 
   // Pre-calculate batch IDs for display
-  const batchIdPreview = useMemo(() => {
+  const batchIdPreview = useMemo<Record<string, string>>(() => {
     const validRows = rows.filter(r => r.model.trim() && (r.buyPrice || r.isSHS));
     const batchIds: Record<string, string> = {};
     for (const r of validRows) {
@@ -164,11 +167,12 @@ export default function NewBatchModal({ onClose }: Props) {
     const validRows = rows.filter(r => r.model.trim() && (r.buyPrice || r.isSHS));
     if (!validRows.length) { setError('Add at least one unit to save.'); return; }
 
-    // Validate IMEIs for non-SHS rows
+    // Validate IMEI / Apple serial for non-SHS rows. Accept numeric IMEIs
+    // (14-17 digits) and alphanumeric Apple serials (e.g. NL6CMQCYTD, 10
+    // chars) via the shared validator. The only IMEI-optional path is SHS.
     for (const r of validRows.filter(r => !r.isSHS)) {
-      const clean = r.imei.replace(/\D/g, '');
-      if (clean.length < 14) {
-        setError(`"${r.model}" — IMEI must be 14-15 digits`);
+      if (!isValidImei(r.imei)) {
+        setError(`"${r.model}" — ${IMEI_REQUIRED_MESSAGE}`);
         return;
       }
     }
@@ -176,10 +180,13 @@ export default function NewBatchModal({ onClose }: Props) {
     setSaving(true);
     setError('');
     try {
-      // Check IMEI uniqueness against DB
+      // Check IMEI / serial uniqueness against DB. We accept both numeric
+      // IMEIs and alphanumeric Apple serials — normalise to uppercase but
+      // do not strip alphabetic chars (that would corrupt Apple serials).
       const realRows = validRows.filter(r => !r.isSHS);
+      const normalise = (s: string) => s.trim().toUpperCase();
       for (const r of realRows) {
-        const clean = r.imei.replace(/\D/g, '');
+        const clean = normalise(r.imei);
         const exists = await dbService.imeiExists(clean);
         if (exists) {
           setError(`IMEI ${clean} already exists in stock`);
@@ -189,7 +196,7 @@ export default function NewBatchModal({ onClose }: Props) {
       }
 
       // Check for duplicates within this batch
-      const batchImeis = realRows.map(r => r.imei.replace(/\D/g, ''));
+      const batchImeis = realRows.map(r => normalise(r.imei));
       if (new Set(batchImeis).size !== batchImeis.length) {
         setError('Duplicate IMEIs within this batch — check your entries');
         setSaving(false);
@@ -197,6 +204,11 @@ export default function NewBatchModal({ onClose }: Props) {
       }
 
       const ts      = Date.now();
+      // Outer batch id covers the whole stock-in form submission; each
+      // per-supplier sub-batch (used below for individual unit rows) gets
+      // its own id from batchIdCache. The wrapper batchId is logged to
+      // inventoryEvents and stored on the batches doc.
+      const outerBatchId = `bat_${ts}_outer`;
 
       const supCache: Record<string, string> = {};
       const batchIdCache: Record<string, string> = {};
@@ -211,7 +223,7 @@ export default function NewBatchModal({ onClose }: Props) {
         }
       }
 
-      await dbService.create('batches', batchId, {
+      await dbService.create('batches', outerBatchId, {
         invoiceNumber: invoiceNo || undefined,
         date,
         unitCount: totals.units,
@@ -250,7 +262,9 @@ export default function NewBatchModal({ onClose }: Props) {
               ownerId: 'shared', createdAt: new Date().toISOString(),
             });
           } else {
-            const cleanImei = r.imei.replace(/\D/g, '');
+            // Accept alphanumeric Apple serials too — uppercase & trim,
+            // do not strip letters. Multi-qty rows append a sequence.
+            const cleanImei = r.imei.trim().toUpperCase();
             const unitId = qty === 1 ? cleanImei : `${cleanImei}-${String(q + 1).padStart(3, '0')}`;
             const exists = await dbService.imeiExists(unitId);
             if (exists && qty > 1) {
@@ -279,7 +293,7 @@ export default function NewBatchModal({ onClose }: Props) {
       await logInventoryEvent({
         type: 'batch_created',
         message: `Stock in: ${totals.units} units added (${totals.shs} SHS expected)${invoiceNo ? ' · Invoice ' + invoiceNo : ''}`,
-        batchId,
+        batchId: outerBatchId,
       });
 
       setSaved(true);
@@ -364,7 +378,7 @@ export default function NewBatchModal({ onClose }: Props) {
                 {Object.entries(batchIdPreview).map(([supplier, batchId]) => (
                   <div key={supplier} className="bg-white border border-blue-100 rounded px-2.5 py-1.5">
                     <p className="text-[8px] font-mono text-gray-600 uppercase tracking-tight">
-                      {supplier || 'Unknown'}: <span className="font-bold text-blue-600">{formatBatchId(batchId)}</span>
+                      {supplier || 'Unknown'}: <span className="font-bold text-blue-600">{formatBatchId(String(batchId))}</span>
                     </p>
                   </div>
                 ))}
@@ -377,7 +391,7 @@ export default function NewBatchModal({ onClose }: Props) {
         <div className="hidden md:grid grid-cols-12 gap-1 px-5 pt-3 pb-1 flex-shrink-0">
           {[
             ['col-span-2', 'MODEL'],
-            ['col-span-2', 'IMEI (14-15 digits)'],
+            ['col-span-2', 'IMEI / SERIAL *'],
             ['col-span-1', 'GRADE'],
             ['col-span-1', 'BP (£)'],
             ['col-span-1', 'COLOUR'],
@@ -436,11 +450,26 @@ export default function NewBatchModal({ onClose }: Props) {
             </button>
           </div>
 
+          {/* Block submit while any non-SHS row is missing an IMEI / serial.
+              SHS rows are the only IMEI-optional path. */}
+          {(() => {
+            const missing = rows.filter(r => !r.isSHS && r.model.trim() && !isValidImei(r.imei)).length;
+            return missing > 0 ? (
+              <p className="text-[10px] text-red-500 font-mono">
+                {missing} row{missing !== 1 ? 's' : ''} missing IMEI — {IMEI_REQUIRED_MESSAGE.toLowerCase()}.
+              </p>
+            ) : null;
+          })()}
+
           {error && <p className="text-[10px] text-red-500 font-mono">{error}</p>}
 
           <button
             onClick={handleSave}
-            disabled={saving || saved || totals.units + totals.shs === 0}
+            disabled={
+              saving || saved || totals.units + totals.shs === 0 ||
+              // Every non-SHS row with a model must have a valid IMEI/serial.
+              rows.some(r => !r.isSHS && r.model.trim() && !isValidImei(r.imei))
+            }
             className="w-full py-3.5 bg-emerald-600 text-white rounded-xl text-[11px] font-bold uppercase tracking-widest hover:bg-emerald-700 transition-all disabled:opacity-50 flex items-center justify-center gap-2"
           >
             {saved   ? <><CheckCircle2 size={15} /> Saved!</> :
@@ -516,7 +545,9 @@ interface RowProps {
 
 function BatchRowCard({ row, index, knownSuppliers, onChange, onRemove, canRemove }: RowProps) {
   const [expanded, setExpanded] = useState(true);
-  const imeiOk = row.isSHS || row.imei.replace(/\D/g, '').length >= 14;
+  // SHS rows skip the IMEI check (no IMEI yet); every other row requires
+  // an IMEI or Apple-style serial per the shared validator.
+  const imeiOk = row.isSHS || isValidImei(row.imei);
 
   return (
     <motion.div
@@ -556,12 +587,16 @@ function BatchRowCard({ row, index, knownSuppliers, onChange, onRemove, canRemov
                     No IMEI — expected stock
                   </div>
                 ) : (
-                  <input value={row.imei} onChange={e => onChange({ imei: e.target.value.replace(/\D/g, '') })}
-                    placeholder="14-15 digit IMEI"
-                    maxLength={15}
+                  <input
+                    value={row.imei}
+                    // Accept alphanumeric (Apple serials are letters+digits).
+                    onChange={e => onChange({ imei: e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '') })}
+                    placeholder="IMEI or serial *"
+                    maxLength={20}
                     className={`w-full border rounded-lg px-2.5 py-2 text-xs font-mono focus:outline-none bg-white transition-all ${
                       row.imei && !imeiOk ? 'border-red-300 focus:border-red-500' : 'border-gray-200 focus:border-black'
-                    }`} />
+                    }`}
+                  />
                 )}
               </div>
               <div className="col-span-1">
@@ -642,12 +677,22 @@ function BatchRowCard({ row, index, knownSuppliers, onChange, onRemove, canRemov
               </div>
               {!row.isSHS && (
                 <div>
-                  <label className="text-[8px] font-bold uppercase tracking-widest text-gray-400">IMEI</label>
-                  <input value={row.imei} onChange={e => onChange({ imei: e.target.value.replace(/\D/g, '') })}
-                    placeholder="14-15 digit IMEI" maxLength={15} inputMode="numeric"
+                  <label className="text-[8px] font-bold uppercase tracking-widest text-gray-400">
+                    IMEI / Serial <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    value={row.imei}
+                    onChange={e => onChange({ imei: e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '') })}
+                    placeholder="IMEI (15 digits) or serial (e.g. NL6CMQCYTD)"
+                    maxLength={20}
+                    inputMode="text"
                     className={`w-full mt-1 border rounded-lg px-3 py-2 text-xs font-mono focus:outline-none bg-white ${
                       row.imei && !imeiOk ? 'border-red-300' : 'border-gray-200 focus:border-black'
-                    }`} />
+                    }`}
+                  />
+                  {row.imei && !imeiOk && (
+                    <p className="text-[9px] text-red-500 font-mono mt-0.5">{IMEI_REQUIRED_MESSAGE}</p>
+                  )}
                 </div>
               )}
               <div className="grid grid-cols-3 gap-2">

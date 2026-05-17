@@ -8,6 +8,7 @@ import { notificationService } from '../lib/notificationService';
 import { GRADE_OPTIONS, STORAGE_OPTIONS } from '../lib/unitConstants';
 import { GradeSelect, StorageSelect } from './FormSelects';
 import IMEIScanner from './IMEIScanner';
+import { isValidImei, IMEI_REQUIRED_MESSAGE } from '../lib/imeiValidation';
 
 interface Props { onClose: () => void; }
 
@@ -98,12 +99,16 @@ export default function ScanInModal({ onClose }: Props) {
       if (parsed.storage) setStorage(parsed.storage);
     }
 
-    if (digits.length >= 14) {
-      setImei(digits);
+    // Accept either a numeric IMEI (14-17 digits) or an Apple alphanumeric
+    // serial (e.g. "NL6CMQCYTD" is 10 chars). Use the shared validator so
+    // we never reject legitimate Apple serials with a length-14 gate.
+    const scanned = digits.length >= 14 ? digits : value.trim();
+    if (isValidImei(scanned)) {
+      setImei(scanned);
       setStage('form');
       setError('');
     } else {
-      setError(`Invalid scan: "${value}" — need 14-15 digits`);
+      setError(`Invalid scan: "${value}" — enter IMEI (14-17 digits) or serial (≥8 chars)`);
     }
   };
 
@@ -123,6 +128,8 @@ export default function ScanInModal({ onClose }: Props) {
   };
 
   const handleSave = async () => {
+    // IMEI is required on every non-SHS form. This page never creates SHS.
+    if (!isValidImei(imei)) { setError(IMEI_REQUIRED_MESSAGE); return; }
     if (!model.trim()) { setError('Model is required'); return; }
     if (!buyPrice || isNaN(parseFloat(buyPrice))) { setError('Buy price is required'); return; }
     if (!colour) { setError('Colour is required'); return; }
@@ -246,25 +253,33 @@ export default function ScanInModal({ onClose }: Props) {
                 {/* Manual IMEI fallback */}
                 <div className="border border-gray-200 rounded-xl p-4 space-y-3">
                   <p className="text-[9px] font-bold uppercase tracking-widest text-gray-400">
-                    Or type IMEI manually
+                    Or type IMEI / serial manually <span className="text-red-500">*</span>
                   </p>
                   <div className="flex gap-2">
                     <input
                       type="text"
                       value={imei}
-                      onChange={e => setImei(e.target.value.replace(/\D/g, ''))}
-                      placeholder="123456789012345"
-                      maxLength={15}
+                      // Accept alphanumerics (Apple serials are letters+digits)
+                      // and uppercase for consistency. The validator handles
+                      // numeric IMEIs and alphanumeric serials uniformly.
+                      onChange={e => setImei(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ''))}
+                      placeholder="IMEI (15 digits) or Apple serial (e.g. NL6CMQCYTD)"
+                      maxLength={20}
                       className="flex-1 border border-gray-200 rounded-xl px-4 py-3 text-sm font-mono focus:outline-none focus:border-black transition-all"
                     />
                     <button
                       onClick={() => handleScan(imei)}
-                      disabled={imei.length < 14}
+                      disabled={!isValidImei(imei)}
                       className="bg-black text-white px-5 rounded-xl text-[10px] font-bold uppercase tracking-widest hover:bg-gray-800 transition-all disabled:opacity-40"
                     >
                       Next
                     </button>
                   </div>
+                  {!isValidImei(imei) && imei.trim().length > 0 && (
+                    <p className="text-[9px] text-red-500 font-mono">
+                      {IMEI_REQUIRED_MESSAGE} — at least 5 chars, IMEI digits, or Apple serial.
+                    </p>
+                  )}
                 </div>
               </motion.div>
             )}
@@ -277,14 +292,16 @@ export default function ScanInModal({ onClose }: Props) {
                 exit={{ opacity: 0, x: -20 }}
                 className="p-5 space-y-4"
               >
-                {/* IMEI display */}
+                {/* IMEI display — required, locked once scanned */}
                 <div className="bg-gray-50 border border-gray-200 rounded-xl p-4 flex items-center gap-3">
                   <div className="w-10 h-10 bg-emerald-100 rounded-xl flex items-center justify-center">
                     <Smartphone size={18} className="text-emerald-600" />
                   </div>
                   <div>
-                    <p className="text-[9px] font-mono uppercase tracking-widest text-gray-400">Scanned IMEI</p>
-                    <p className="text-sm font-bold font-mono">{imei}</p>
+                    <p className="text-[9px] font-mono uppercase tracking-widest text-gray-400">
+                      Scanned IMEI / Serial <span className="text-red-500">*</span>
+                    </p>
+                    <p className="text-sm font-bold font-mono">{imei || <span className="text-red-500">— required</span>}</p>
                   </div>
                   <button
                     onClick={() => setStage('scan')}
@@ -380,10 +397,13 @@ export default function ScanInModal({ onClose }: Props) {
 
         {/* Footer */}
         {stage === 'form' && (
-          <div className="border-t border-gray-100 px-5 py-4 bg-gray-50 flex-shrink-0">
+          <div className="border-t border-gray-100 px-5 py-4 bg-gray-50 flex-shrink-0 space-y-2">
+            {!isValidImei(imei) && (
+              <p className="text-[9px] text-red-500 font-mono text-center">{IMEI_REQUIRED_MESSAGE}</p>
+            )}
             <button
               onClick={handleSave}
-              disabled={saving || saved}
+              disabled={saving || saved || !isValidImei(imei)}
               className="w-full py-3.5 bg-emerald-600 text-white rounded-xl text-[11px] font-bold uppercase tracking-widest hover:bg-emerald-700 transition-all disabled:opacity-50 flex items-center justify-center gap-2"
             >
               {saved ? (

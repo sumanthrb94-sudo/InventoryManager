@@ -5,8 +5,7 @@ import { dbService } from '../lib/dbService';
 import { buildModelSummaries } from '../lib/modelSummaries';
 import { InventoryUnit } from '../types';
 import { useInventoryStore } from '../lib/inventoryStore';
-
-const LISTING_SITES = ['eBay', 'Amazon', 'OnBuy', 'Backmarket', 'Other'] as const;
+import { LISTING_SITES, listingSiteLabel } from '../lib/platforms';
 
 interface Props {
   onClose: () => void;
@@ -28,7 +27,7 @@ export default function BulkListingModal({ onClose }: Props) {
   );
 
   const selectedSummary = useMemo(
-    () => summaries.find(summary => `${summary.brand}||${summary.model}` === selectedModelKey) || null,
+    () => summaries.find(summary => `${summary.brand}||${summary.model}||${summary.storage || ''}` === selectedModelKey) || null,
     [summaries, selectedModelKey]
   );
 
@@ -44,7 +43,7 @@ export default function BulkListingModal({ onClose }: Props) {
       return;
     }
 
-    const nextKey = selectedModelKey && summaries.some(summary => `${summary.brand}||${summary.model}` === selectedModelKey)
+    const nextKey = selectedModelKey && summaries.some(summary => `${summary.brand}||${summary.model}||${summary.storage || ''}` === selectedModelKey)
       ? selectedModelKey
       : `${summaries[0].brand}||${summaries[0].model}`;
 
@@ -141,10 +140,10 @@ export default function BulkListingModal({ onClose }: Props) {
                   className="w-full mt-1 bg-white border border-gray-200 rounded-xl px-3 py-3 text-sm font-mono focus:outline-none focus:border-black"
                 >
                   {summaries.map(summary => {
-                    const key = `${summary.brand}||${summary.model}`;
+                    const key = `${summary.brand}||${summary.model}||${summary.storage || ''}`;
                     return (
                       <option key={key} value={key}>
-                        {summary.model} · {summary.totalAvailable} available · {summary.variants.reduce((sum, variant) => sum + variant.units.length, 0)} total
+                        {summary.model}{summary.storage && !summary.model.toUpperCase().includes(summary.storage.toUpperCase()) ? ` · ${summary.storage}` : ''} · {summary.totalAvailable} available · {summary.variants.reduce((sum, variant) => sum + variant.units.length, 0)} total
                       </option>
                     );
                   })}
@@ -167,7 +166,7 @@ export default function BulkListingModal({ onClose }: Props) {
                           active ? 'bg-black text-white border-black' : 'bg-gray-50 text-gray-700 border-gray-200 hover:border-gray-400'
                         }`}
                       >
-                        {site}
+                        {listingSiteLabel(site)}
                       </button>
                     );
                   })}

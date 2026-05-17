@@ -30,6 +30,16 @@ export default function NotificationBell({ unreadCount }: { unreadCount: number 
     return () => document.removeEventListener('mousedown', handler);
   }, [open]);
 
+  // Close on Escape key
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setOpen(false);
+    };
+    document.addEventListener('keydown', handler);
+    return () => document.removeEventListener('keydown', handler);
+  }, [open]);
+
   const handleOpen = () => {
     setOpen(o => !o);
     // Don't auto-mark as read - let user see all notifications
@@ -66,6 +76,7 @@ export default function NotificationBell({ unreadCount }: { unreadCount: number 
       return_processed: 'bg-amber-500',
       shs_received: 'bg-purple-500',
       shs_removed: 'bg-orange-500',
+      unit_repaired: 'bg-indigo-500',
     };
     return typeColors[unreadNotifications[0].type] || 'bg-gray-500';
   };
@@ -97,13 +108,28 @@ export default function NotificationBell({ unreadCount }: { unreadCount: number 
       {/* Notification panel */}
       <AnimatePresence>
         {open && (
-          <motion.div
-            initial={{ opacity: 0, y: -8, scale: 0.97 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: -8, scale: 0.97 }}
-            transition={{ duration: 0.15 }}
-            className="fixed sm:absolute right-0 bottom-0 sm:top-12 w-full sm:w-80 h-[90vh] sm:h-auto max-h-[90vh] sm:max-h-[600px] bg-white sm:border sm:border-gray-200 rounded-t-3xl sm:rounded-3xl shadow-2xl z-[200] flex flex-col"
-          >
+          <>
+            {/* Backdrop — dims the page behind the panel and catches outside clicks.
+                Mobile only: the sm: variant renders only a small popover that doesn't
+                need a backdrop. Without this, the full-screen mobile sheet could appear
+                as a transparent banner during the open/close transition because the
+                page content was visible through the partial-opacity panel. */}
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.15 }}
+              onClick={() => setOpen(false)}
+              className="sm:hidden fixed inset-0 bg-black/30 z-[199]"
+              aria-hidden="true"
+            />
+            <motion.div
+              initial={{ opacity: 0, y: -8, scale: 0.97 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: -8, scale: 0.97 }}
+              transition={{ duration: 0.15 }}
+              className="fixed sm:absolute right-0 bottom-0 sm:top-12 sm:bottom-auto w-full sm:w-80 h-[90vh] sm:h-auto max-h-[90vh] sm:max-h-[600px] bg-white border border-gray-200 rounded-t-3xl sm:rounded-3xl shadow-2xl z-[200] flex flex-col"
+            >
             {/* Header */}
             <div className="flex-shrink-0 flex items-center justify-between px-4 py-3 border-b border-gray-100">
               <div className="flex items-center gap-2">
@@ -208,7 +234,8 @@ export default function NotificationBell({ unreadCount }: { unreadCount: number 
                 Real-time · Today's activity persists across sessions
               </p>
             </div>
-          </motion.div>
+            </motion.div>
+          </>
         )}
       </AnimatePresence>
     </div>

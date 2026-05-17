@@ -1,28 +1,55 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { dbService } from './dbService';
-import { InventoryUnit, Supplier } from '../types';
+import {
+  InventoryUnit,
+  Supplier,
+  Sale,
+  InventoryAggregate,
+  SupplierWhatsappUpdate,
+  ImportBatch,
+} from '../types';
 
 interface Store {
+  loaded: boolean;
   units: InventoryUnit[];
   suppliers: Supplier[];
-  loaded: boolean;
+  // ── NEW master-file feeds ───────────────────────
+  sales: Sale[];
+  aggregates: InventoryAggregate[];
+  whatsappFeed: SupplierWhatsappUpdate[];
+  importBatches: ImportBatch[];
 }
 
-const Ctx = createContext<Store>({ units: [], suppliers: [], loaded: false });
+const Ctx = createContext<Store>({
+  loaded: false,
+  units: [],
+  suppliers: [],
+  sales: [],
+  aggregates: [],
+  whatsappFeed: [],
+  importBatches: [],
+});
 
 export function InventoryStoreProvider({ children }: { children: React.ReactNode }) {
-  const [units, setUnits]         = useState<InventoryUnit[]>([]);
-  const [suppliers, setSuppliers] = useState<Supplier[]>([]);
-  const [loaded, setLoaded]       = useState(false);
+  const [units, setUnits]                 = useState<InventoryUnit[]>([]);
+  const [suppliers, setSuppliers]         = useState<Supplier[]>([]);
+  const [sales, setSales]                 = useState<Sale[]>([]);
+  const [aggregates, setAggregates]       = useState<InventoryAggregate[]>([]);
+  const [whatsappFeed, setWhatsappFeed]   = useState<SupplierWhatsappUpdate[]>([]);
+  const [importBatches, setImportBatches] = useState<ImportBatch[]>([]);
+  const [loaded, setLoaded]               = useState(false);
 
   useEffect(() => {
     let unitsReady = false;
-    let suppliersReady = false;
+    let salesReady = false;
+    let aggregatesReady = false;
 
     const markLoaded = () => {
-      if (unitsReady && suppliersReady) setLoaded(true);
+      if (unitsReady && salesReady && aggregatesReady) setLoaded(true);
     };
 
+    // Fallback: match the existing 15s convention so the UI never stalls
+    // forever if a master-file collection happens to be empty/offline.
     const timeout = setTimeout(() => setLoaded(true), 15000);
 
     const u = dbService.subscribeToCollection('inventoryUnits', data => {
@@ -31,13 +58,48 @@ export function InventoryStoreProvider({ children }: { children: React.ReactNode
     });
     const s = dbService.subscribeToCollection('suppliers', data => {
       setSuppliers(data);
-      if (!suppliersReady) { suppliersReady = true; markLoaded(); }
+    });
+    const sl = dbService.subscribeToCollection('sales', data => {
+      setSales(data);
+      if (!salesReady) { salesReady = true; markLoaded(); }
+    });
+    const ag = dbService.subscribeToCollection('inventoryAggregates', data => {
+      setAggregates(data);
+      if (!aggregatesReady) { aggregatesReady = true; markLoaded(); }
+    });
+    const wa = dbService.subscribeToCollection('supplierWhatsappUpdates', data => {
+      setWhatsappFeed(data);
+    });
+    const ib = dbService.subscribeToCollection('importBatches', data => {
+      setImportBatches(data);
     });
 
-    return () => { clearTimeout(timeout); u(); s(); };
+    return () => {
+      clearTimeout(timeout);
+      u();
+      s();
+      sl();
+      ag();
+      wa();
+      ib();
+    };
   }, []);
 
-  return <Ctx.Provider value={{ units, suppliers, loaded }}>{children}</Ctx.Provider>;
+  return (
+    <Ctx.Provider
+      value={{
+        loaded,
+        units,
+        suppliers,
+        sales,
+        aggregates,
+        whatsappFeed,
+        importBatches,
+      }}
+    >
+      {children}
+    </Ctx.Provider>
+  );
 }
 
 export function useInventoryStore(): Store {

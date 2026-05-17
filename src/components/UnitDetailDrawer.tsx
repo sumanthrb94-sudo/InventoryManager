@@ -13,8 +13,9 @@ import { getWarrantyStatus } from '../lib/warrantyUtils';
 
 
 import { logInventoryEvent } from '../lib/inventoryEvents';
+import { LISTING_SITES, listingSiteLabel } from '../lib/platforms';
 
-const PLATFORMS = ['eBay', 'Amazon', 'OnBuy', 'Backmarket', 'Other'] as const;
+const PLATFORMS = LISTING_SITES;
 
 const STATUS_CONFIG: Record<string, { label: string; color: string; bg: string }> = {
   available: { label: 'Available',  color: 'text-emerald-700', bg: 'bg-emerald-50 border-emerald-200' },
@@ -356,7 +357,7 @@ export default function UnitDetailDrawer({ unit, supplierName, onClose }: Props)
                             active ? 'bg-black text-white border-black' : 'bg-white text-gray-600 border-gray-200 hover:border-gray-400'
                           }`}
                         >
-                          {site}
+                          {listingSiteLabel(site)}
                         </button>
                       );
                     })}
@@ -386,7 +387,7 @@ export default function UnitDetailDrawer({ unit, supplierName, onClose }: Props)
                         onChange={e => setPlatform(e.target.value)}
                         className="w-full mt-1 bg-white border border-gray-200 rounded-xl px-3 py-2 text-sm font-mono focus:outline-none focus:border-black"
                       >
-                        {PLATFORMS.map(p => <option key={p}>{p}</option>)}
+                        {PLATFORMS.map(p => <option key={p} value={p}>{listingSiteLabel(p)}</option>)}
                       </select>
                     </div>
                     <div>

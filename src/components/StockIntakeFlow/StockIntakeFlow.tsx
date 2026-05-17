@@ -38,7 +38,7 @@ export default function StockIntakeFlow({ onClose }: Props) {
   // Image & extraction
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [imagePreview, setImagePreview] = useState<string>('');
-  const [supabaseImageUrl, setSupabaseImageUrl] = useState<string>('');
+  const [cloudImageUrl, setCloudImageUrl] = useState<string>('');
   const [ocrResult, setOcrResult] = useState<OCRResult | undefined>();
 
   // Form fields
@@ -83,13 +83,13 @@ export default function StockIntakeFlow({ onClose }: Props) {
     setStage('image-input');
   };
 
-  const handleImageSelected = (file: File, preview: string, ocrData?: OCRResult, supabaseUrl?: string) => {
+  const handleImageSelected = (file: File, preview: string, ocrData?: OCRResult, cloudImageUrl?: string) => {
     setImageFile(file);
     setImagePreview(preview);
     setOcrResult(ocrData);
-    if (supabaseUrl) {
-      setSupabaseImageUrl(supabaseUrl);
-      console.log('[StockIntakeFlow] Image URL from Supabase:', supabaseUrl);
+    if (cloudImageUrl) {
+      setCloudImageUrl(cloudImageUrl);
+      console.log('[StockIntakeFlow] Cloud image URL:', cloudImageUrl);
     }
 
     // Pre-populate form fields from OCR result if available
@@ -232,7 +232,7 @@ export default function StockIntakeFlow({ onClose }: Props) {
         flags: [],
         notes,
         platformListed: false,
-        imageUrl: supabaseImageUrl || undefined,
+        imageUrl: cloudImageUrl || undefined,
         ownerId: 'shared',
         createdAt: now,
       };
@@ -270,7 +270,7 @@ export default function StockIntakeFlow({ onClose }: Props) {
             flags: [],
             notes,
             platformListed: false,
-            imageUrl: captured?.previewUrl || supabaseImageUrl || undefined,
+            imageUrl: captured?.previewUrl || cloudImageUrl || undefined,
             ownerId: 'shared',
             createdAt: now,
           };

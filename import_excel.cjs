@@ -161,10 +161,204 @@ function getCell(row, idx, fallback = '') {
   return row[idx]?.toString().trim() || fallback;
 }
 
+// ── Storage extraction ───────────────────────────────────────────────────────
+//
+// Mirrors src/lib/modelStorage.ts (kept inline because this script is CJS and
+// can't import the TS helper). Keep the regex + normalisation rules in sync.
+//
+//   "IPAD 7TH GEN 32GB W/C"                  → { model: "IPAD 7TH GEN W/C", storage: "32GB" }
+//   "iPad 7 32GB Wifi 2019 10.2 - WIFI + 4G" → { model: "iPad 7 Wifi 2019 10.2 - WIFI + 4G", storage: "32GB" }
+//   "iPhone 13 Pro Max"                      → { model: "iPhone 13 Pro Max", storage: undefined }
+//   "Galaxy S22 Ultra 1TB"                   → { model: "Galaxy S22 Ultra", storage: "1TB" }
+const STORAGE_REGEX = /\b(\d+\s?(?:GB|TB))\b/i;
+
+function collapseWhitespace(s) {
+  return String(s).replace(/\s+/g, ' ').trim();
+}
+
+function extractStorage(raw) {
+  const input = (raw == null ? '' : String(raw));
+  if (!input.trim()) return { model: input.trim(), storage: undefined };
+
+  const match = input.match(STORAGE_REGEX);
+  if (!match) return { model: collapseWhitespace(input), storage: undefined };
+
+  const storage = match[1].replace(/\s+/g, '').toUpperCase();
+  const start = match.index || 0;
+  const end = start + match[0].length;
+  const before = input.slice(0, start);
+  const after = input.slice(end);
+  const stitched = (before + ' ' + after)
+    .replace(/\s+,/g, ',')
+    .replace(/,\s*,/g, ',')
+    .replace(/^\s*,\s*|\s*,\s*$/g, '');
+  return { model: collapseWhitespace(stitched), storage };
+}
+
+// ── parseBrandModelStorage — CJS port of src/lib/modelStorage.ts ───────────
+// Keep these rules in sync with the TS version. See that file for full docs.
+//
+// Brand detection (case-insensitive substring, first match wins):
+//   apple/iphone/ipad/macbook/apple watch → Apple
+//   samsung/galaxy                         → Samsung
+//   google/pixel                           → Google
+//   xiaomi/redmi/poco                      → Xiaomi
+//   oneplus                                → OnePlus
+//   anything else                          → Other
+//
+// After brand detection the FIRST token is stripped from the model only if it
+// is the literal brand name itself (so "Apple iPhone" loses "Apple" but
+// "iPhone" keeps "iPhone"). Then storage is extracted via extractStorage.
+const BRAND_RULES_CJS = [
+  { brand: 'Apple',   keywords: ['apple', 'iphone', 'ipad', 'macbook', 'apple watch'] },
+  { brand: 'Samsung', keywords: ['samsung', 'galaxy'] },
+  { brand: 'Google',  keywords: ['google', 'pixel'] },
+  { brand: 'Xiaomi',  keywords: ['xiaomi', 'redmi', 'poco'] },
+  { brand: 'OnePlus', keywords: ['oneplus'] },
+];
+const LEADING_BRAND_TOKENS_CJS = new Set(['apple', 'samsung', 'google', 'xiaomi', 'oneplus']);
+
+// ── Samsung bare-model regexes (keep in sync with src/lib/modelStorage.ts) ──
+const RE_GALAXY_TAB_CJS    = /\bgalaxy\s*tab|\btab\s*[as]\d/i;
+const RE_GALAXY_NOTE_CJS   = /\bgalaxy\s*note|\bnote\s?\d/i;
+const RE_GALAXY_Z_CJS      = /\bgalaxy\s*z|\bz\s*(fold|flip)/i;
+const RE_GALAXY_M_CJS      = /\bgalaxy\s*m\b|\bgalaxy\s*m\d|\bm\d{2}\b/i;
+const RE_GALAXY_XCOVER_CJS = /\b(x\s*cover|xcover)\b/i;
+const RE_GALAXY_S_CJS      = /\bgalaxy\s*s\s*\d+|\bs\d{1,2}(fe|ultra|plus|\+)?\b|\bs\d{1,2}\s*(fe|ultra|plus)\b/i;
+const RE_GALAXY_A_CJS      = /\bgalaxy\s*a\s*\d+|\ba\d{1,3}s?(\s*5g|\s*4g)?\b/i;
+const RE_PIXEL_CJS         = /\bpixel\s*\d/i;
+
+function looksLikeSamsungCjs(lower) {
+  return (
+    RE_GALAXY_TAB_CJS.test(lower) ||
+    RE_GALAXY_NOTE_CJS.test(lower) ||
+    RE_GALAXY_Z_CJS.test(lower) ||
+    RE_GALAXY_XCOVER_CJS.test(lower) ||
+    RE_GALAXY_S_CJS.test(lower) ||
+    RE_GALAXY_A_CJS.test(lower) ||
+    RE_GALAXY_M_CJS.test(lower)
+  );
+}
+
+function detectBrandCjs(lower) {
+  for (const rule of BRAND_RULES_CJS) {
+    if (rule.keywords.some(k => lower.includes(k))) return rule.brand;
+  }
+  // Fall back to bare-model inference so cleaned strings like "S21" /
+  // "A32 5G" still resolve to Samsung at re-parse time.
+  if (looksLikeSamsungCjs(lower)) return 'Samsung';
+  if (RE_PIXEL_CJS.test(lower)) return 'Google';
+  return 'Other';
+}
+
+function detectSeriesCjs(brand, lower) {
+  if (!lower) return undefined;
+  if (brand === 'Apple') {
+    if (lower.includes('iphone')) return 'iPhone';
+    if (lower.includes('ipad')) return 'iPad';
+    if (lower.includes('apple watch') || lower.includes('watch ultra') || lower.includes('watch se')) return 'Apple Watch';
+    if (lower.includes('macbook')) return 'MacBook';
+    return 'Other';
+  }
+  if (brand === 'Samsung') {
+    // Specific buckets first so Tab/Note/Z/XCover win over generic S/A.
+    if (RE_GALAXY_TAB_CJS.test(lower)) return 'Galaxy Tab';
+    if (RE_GALAXY_NOTE_CJS.test(lower)) return 'Galaxy Note';
+    if (RE_GALAXY_Z_CJS.test(lower)) return 'Galaxy Z';
+    if (RE_GALAXY_XCOVER_CJS.test(lower)) return 'Galaxy XCover';
+    if (RE_GALAXY_S_CJS.test(lower)) return 'Galaxy S';
+    if (RE_GALAXY_A_CJS.test(lower)) return 'Galaxy A';
+    if (RE_GALAXY_M_CJS.test(lower)) return 'Galaxy M';
+    return 'Other';
+  }
+  if (brand === 'Google') {
+    if (RE_PIXEL_CJS.test(lower) || lower.includes('pixel')) return 'Pixel';
+    return 'Other';
+  }
+  return 'Other';
+}
+
+function parseBrandModelStorage(raw) {
+  const input = (raw == null ? '' : String(raw));
+  const trimmed = input.trim();
+  if (!trimmed) return { brand: 'Other', model: '', storage: undefined, series: undefined };
+
+  const lower = trimmed.toLowerCase();
+  const brand = detectBrandCjs(lower);
+
+  let working = trimmed;
+  const firstToken = working.split(/\s+/, 1)[0];
+  if (firstToken && LEADING_BRAND_TOKENS_CJS.has(firstToken.toLowerCase())) {
+    working = working.slice(firstToken.length).replace(/^\s+/, '');
+  }
+
+  const { model: modelWithoutStorage, storage } = extractStorage(working);
+  const model = collapseWhitespace(modelWithoutStorage);
+  const series = detectSeriesCjs(brand, lower);
+  return { brand, model, storage, series };
+}
+
+// Preserve IMEIs verbatim: client data includes alphanumeric Apple serials
+// (e.g. "NL6CMQCYTD", "SKC9P3QVP6F"), so we MUST NOT strip non-digits.
+function normalizeImei(raw) {
+  if (raw === undefined || raw === null) return '';
+  // If openpyxl/SheetJS handed us a number (15-digit IMEI), render as integer.
+  if (typeof raw === 'number') {
+    if (Number.isInteger(raw)) return raw.toFixed(0);
+    return String(raw);
+  }
+  return String(raw).trim().replace(/^["'\s]+|["'\s]+$/g, '');
+}
+
 function normaliseSupplier(raw) {
   if (!raw) return 'Unknown';
   const key = raw.toUpperCase().trim();
   return cfg.supplierAliases[key] || (raw.trim() || 'Unknown');
+}
+
+/**
+ * parseQuantityCell — INVENTORY-sheet QUANTITY column is mixed-type:
+ * numeric values, "SHS" placeholders, "NO STOCK" tags, blanks, etc.
+ *
+ * Returns either:
+ *   - `{ qty: <number> }`                            when numeric
+ *   - `{ qty: undefined, flag, raw }`                when non-numeric
+ *     where flag ∈ 'SHS' | 'NO_STOCK' | 'OTHER'
+ *
+ * Callers must keep the row in either case (B8 fix — non-numeric QUANTITY
+ * rows used to be silently dropped at the BP guard).
+ */
+function parseQuantityCell(v) {
+  if (typeof v === 'number' && Number.isFinite(v)) return { qty: v };
+
+  const raw   = (v === undefined || v === null) ? '' : String(v).trim();
+  const upper = raw.toUpperCase();
+
+  if (upper === 'SHS')                              return { qty: undefined, flag: 'SHS',      raw };
+  if (upper === 'NO STOCK' || upper === 'NOSTOCK')  return { qty: undefined, flag: 'NO_STOCK', raw };
+
+  if (raw !== '' && /^-?\d+(\.\d+)?$/.test(raw)) {
+    const n = parseFloat(raw);
+    if (Number.isFinite(n)) return { qty: n };
+  }
+  return { qty: undefined, flag: 'OTHER', raw };
+}
+
+/**
+ * parseSupplierCell — INVENTORY-sheet SUPPLIER column may list multiple
+ * suppliers separated by " / " (e.g. "MHL / ABC / NIHAL"). Returns the
+ * primary (first) name and the full list with empties dropped.
+ *
+ * B7 fix — caller previously did `.split('/')[0]` and dropped the rest.
+ */
+function parseSupplierCell(v) {
+  const raw = (v === undefined || v === null) ? '' : String(v).trim();
+  if (!raw) return { primaryName: '', allNames: [] };
+  const allNames = raw
+    .split('/')
+    .map(s => s.trim())
+    .filter(s => s.length > 0);
+  return { primaryName: allNames[0] || '', allNames };
 }
 
 function normalisePlatform(raw) {
@@ -261,13 +455,25 @@ function parseWorksheet(ws, verbose) {
     // Skip fully empty rows
     if (r.every(cell => !cell || cell.toString().trim() === '')) continue;
 
-    const model = getCell(r, cols.model);
-    if (!isValidRow(model)) { skipped++; continue; }
+    const rawModel = getCell(r, cols.model);
+    if (!isValidRow(rawModel)) { skipped++; continue; }
+    // Split brand / model / storage / series so the doc carries first-class
+    // fields (drives Inventory list filters + periodic-table grouping in the
+    // UI without re-parsing at read time).
+    const parsedBMS = parseBrandModelStorage(rawModel);
+    const { brand: parsedBrand, model, storage: modelStorage, series: parsedSeries } = parsedBMS;
 
     const rawImei      = getCell(r, cols.imei);
-    const imei         = rawImei.replace(/\D/g, '');
+    // Preserve IMEIs verbatim: alphanumeric Apple serials (e.g. "NL6CMQCYTD") must not be stripped.
+    const imei         = normalizeImei(rawImei);
     const rawSupplier  = getCell(r, cols.supplier, 'Unknown');
-    const supplierName = normaliseSupplier(rawSupplier);
+    // B7 fix: a single cell may carry multiple suppliers ("MHL / ABC / NIHAL").
+    // primaryName drives the legacy supplierId; the full list is preserved on the unit.
+    const supParsed    = parseSupplierCell(rawSupplier);
+    const supplierName = normaliseSupplier(supParsed.primaryName || rawSupplier);
+    const supplierNamesAll = supParsed.allNames.length > 0
+      ? supParsed.allNames.map(n => normaliseSupplier(n))
+      : [supplierName];
     const buyPrice     = parseFloat(getCell(r, cols.buyPrice, '0')) || 0;
     const rawStatus    = getCell(r, cols.status);
     const isSold       = isSoldStatus(rawStatus);
@@ -284,20 +490,28 @@ function parseWorksheet(ws, verbose) {
     const rawOrderNum  = getCell(r, cols.orderNum);
     const rawCustomer  = getCell(r, cols.customer);
 
-    // Build supplier
-    const supplierId = `sup_${supplierName.replace(/\s+/g, '_').toLowerCase()}`;
-    if (!supplierMap.has(supplierId)) {
-      supplierMap.set(supplierId, {
-        id:        supplierId,
-        name:      supplierName,
-        portal:    'Direct',
-        ownerId:   cfg.firebase.ownerIdCli,
-        createdAt: new Date().toISOString(),
-      });
-    }
+    // Build supplier(s). One synthetic id per supplier name; the first is primary.
+    const supplierIdFor = (name) => {
+      const id = `sup_${name.replace(/\s+/g, '_').toLowerCase()}`;
+      if (!supplierMap.has(id)) {
+        supplierMap.set(id, {
+          id,
+          name,
+          portal:    'Direct',
+          ownerId:   cfg.firebase.ownerIdCli,
+          createdAt: new Date().toISOString(),
+        });
+      }
+      return id;
+    };
+    const supplierId  = supplierIdFor(supplierName);
+    const supplierIds = supplierNamesAll.map(supplierIdFor);
 
     const category  = parseCategory(model);
-    const brand     = parseBrand(category);
+    // Prefer parseBrandModelStorage's brand (covers Google/Xiaomi/OnePlus +
+    // recognises bare "S21"/"A32" forms); fall back to the legacy
+    // category-derived brand only when the new detector says 'Other'.
+    const brand     = parsedBrand !== 'Other' ? parsedBrand : parseBrand(category);
     const colour    = parseColour(model, rawColour);
     const unitId    = buildUnitId(imei, model, dateIn, supplierId, buyPrice, rawStatus);
     const dedupeKey = imei || unitId;
@@ -311,18 +525,24 @@ function parseWorksheet(ws, verbose) {
     const status = isSold ? 'sold' : 'available';
     const listingSites = (!isSold && platform) ? [platform] : [];
 
+    // Prefer the dedicated Storage column when present, fall back to the value
+    // we extracted out of the MODEL string above.
+    const storage = rawStorage || modelStorage || undefined;
+
     const unit = {
       id:             unitId,
       imei,
       model:          model.trim(),
       brand,
+      ...(parsedSeries ? { series: parsedSeries } : {}),
       category,
       colour,
-      storage:        rawStorage || undefined,
+      storage,
       conditionGrade: rawCondition || undefined,
       buyPrice,
       dateIn,
       supplierId,
+      ...(supplierIds.length > 1 ? { supplierIds } : {}),
       status,
       flags:          [],
       notes:          rawNotes || '',
@@ -388,7 +608,8 @@ function main() {
   // ── Read workbook ─────────────────────────────────────────────────────────
   let wb;
   try {
-    wb = XLSX.readFile(filePath, { cellDates: false });
+    // raw + cellDates: keep 15-digit IMEIs as strings, avoid 1.23e+14 coercion; preserve dates as Date objects.
+    wb = XLSX.read(fs.readFileSync(filePath), { type: 'buffer', cellDates: true, raw: true });
   } catch (err) {
     console.error('❌ Failed to read Excel file:', err.message);
     process.exit(1);

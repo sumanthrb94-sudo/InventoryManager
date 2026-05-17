@@ -1,32 +1,406 @@
 /**
- * PLATFORMS — single source of truth for all 4 listing sites.
- * Import this wherever you need platform names, colors, or commission rates.
+ * platforms.ts — single source of truth for marketplace fee schedules.
+ *
+ * Resolves audit blocker B5: previous `PLATFORMS` constants had wrong commission
+ * rates and were missing Project, eBay ROF/FVF/VAT/promo and BM PayPal/Klarna.
+ *
+ * The new authoritative table is `MARKETPLACE_FEES` (keyed by canonical
+ * `Marketplace` sheet names: AMAZON / BM / EBAY / ONBUY / PROJECT). It powers:
+ *   - `calcSaleFinancials()` — runtime GP/NP calculator for sales documents
+ *   - `excelFormulaFor()`   — Excel formula strings for the SALES_REPORT writer
+ *   - `getMarketplaceFee()` — Firestore loader hook (returns defaults today)
+ *
+ * Legacy `PLATFORMS` / `DEFAULT_POSTAGE_COST` / `platform*` helpers are kept as
+ * back-compat shims derived from MARKETPLACE_FEES so existing UI callers
+ * (SellPage, ReportingPage, Sales, pdfReport, TodaySalesModal, tests) keep
+ * compiling. Migrating those call sites to the marketplace-aware API is a
+ * separate task.
  */
+
+import type { ListingSite, Marketplace, MarketplaceFee } from '../types';
+import { MARKETPLACES } from '../types';
+
+// ---------------------------------------------------------------------------
+// Authoritative fee schedule
+// ---------------------------------------------------------------------------
+
+/**
+ * Seed values, sourced verbatim from MASTER_FILES_AUDIT.md §5 and the per-sheet
+ * formulas in MASTER_FILES_SPEC.md. These are the code-side defaults; at boot
+ * `getMarketplaceFee()` can be swapped to read from the Firestore
+ * `marketplaceFees` collection (doc id = marketplace name).
+ */
+export const DEFAULT_MARKETPLACE_FEES: Record<Marketplace, MarketplaceFee> = {
+  AMAZON: {
+    marketplace: 'AMAZON',
+    commissionPct: 7.14,
+    postage: 8.00,
+    marginTaxDivisor: 6,
+  },
+  BM: {
+    marketplace: 'BM',
+    commissionPct: 12.00,
+    postage: 10.00,
+    marginTaxDivisor: 6,
+    payPalKlarnaPct: 2.5,
+  },
+  EBAY: {
+    marketplace: 'EBAY',
+    commissionPct: 6.90,
+    commissionReductionPct: 10,
+    fixedFee: 0.40,
+    postage: 8.00,
+    rofPct: 0.35,
+    vatPct: 20,
+    promoPct: 5,
+  },
+  ONBUY: {
+    marketplace: 'ONBUY',
+    commissionPct: 7.00,
+    postage: 8.00,
+    marginTaxDivisor: 6,
+    vatPct: 20,
+  },
+  PROJECT: {
+    marketplace: 'PROJECT',
+    commissionPct: 7.14,
+    postage: 5.90,
+    marginTaxDivisor: 6,
+  },
+};
+
+/**
+ * Look up the fee schedule for a marketplace. Today this just returns the
+ * baked-in defaults; the Firestore loader will mutate the cache behind this
+ * helper so callers do not need to re-import anything when live fees change.
+ */
+export function getMarketplaceFee(m: Marketplace): MarketplaceFee {
+  return DEFAULT_MARKETPLACE_FEES[m];
+}
+
+// ---------------------------------------------------------------------------
+// ListingSite <-> Marketplace bridge
+// ---------------------------------------------------------------------------
+
+/**
+ * Canonical mapping between marketplace sheet names (used by SALES_REPORT and
+ * the `Sale` entity) and the user-facing `ListingSite` strings preserved
+ * verbatim from the client master file.
+ *
+ * - 'BM' canonicalises to 'Back Market' (with legacy 'Backmarket' also accepted).
+ * - 'PROJECT' maps to 'Project' (previously missing from the enum — see B6).
+ */
+const MARKETPLACE_TO_LISTING_SITE: Record<Marketplace, ListingSite> = {
+  AMAZON: 'Amazon',
+  BM: 'Back Market',
+  EBAY: 'eBay',
+  ONBUY: 'OnBuy',
+  PROJECT: 'Project',
+};
+
+const LISTING_SITE_TO_MARKETPLACE: Record<string, Marketplace> = {
+  'Amazon':     'AMAZON',
+  'Back Market':'BM',
+  'Backmarket': 'BM',   // legacy
+  'eBay':       'EBAY',
+  'OnBuy':      'ONBUY',
+  'Project':    'PROJECT',
+};
+
+export function listingSiteFromMarketplace(m: Marketplace): ListingSite {
+  return MARKETPLACE_TO_LISTING_SITE[m];
+}
+
+export function marketplaceFromListingSite(s: ListingSite | string): Marketplace | undefined {
+  return LISTING_SITE_TO_MARKETPLACE[s as string];
+}
+
+// ---------------------------------------------------------------------------
+// Runtime GP / NP calculator
+// ---------------------------------------------------------------------------
+
+export interface CalcSaleFinancialsInput {
+  marketplace: Marketplace;
+  buyPrice: number;
+  salePrice: number;
+  /** Override the per-marketplace default postage (eBay tiers, free shipping…). */
+  postageOverride?: number;
+  /** eBay only — explicit shipping tier (£1, £2, £8). Trumps `postageOverride`. */
+  eBayShippingTier?: 1 | 2 | 8;
+  /** BM only — apply 2.5% PayPal/Klarna commission on top. */
+  hasPayPalKlarna?: boolean;
+}
+
+export interface SaleFinancials {
+  spMinusBp: number;
+  marginalTax: number;
+  commission: number;
+  payPalKlarnaCom?: number;   // BM
+  rof?: number;               // eBay
+  fvf?: number;               // eBay
+  twentyPercent?: number;     // eBay 20%-on-fees bundle
+  totalCom?: number;          // eBay
+  vat20?: number;             // OnBuy / eBay
+  marVat?: number;            // OnBuy MAR VAT (alias for marginalTax on OnBuy)
+  postage: number;
+  grossProfit: number;
+  gpPercent: number;
+  netProfit?: number;         // eBay incl. promo
+}
+
+const r2 = (n: number) => Math.round(n * 100) / 100;
+
+/**
+ * Compute every derived sale field for one marketplace transaction.
+ *
+ * Formulas mirror MASTER_FILES_SPEC.md per-sheet definitions exactly:
+ *   AMAZON  GP = SP - BP - (SP-BP)/6 - SP*7.14% - postage
+ *   BM      GP = SP - BP - (SP-BP)/6 - SP*12%   - postage [- SP*2.5% if PayPal/Klarna]
+ *   EBAY    COM      = (SP*6.9%) - (SP*6.9%)*10%
+ *           ROF      = SP*0.35%
+ *           FVF      = 0.40
+ *           20%      = (COM + ROF + FVF) * 20%
+ *           T.COM    = COM + ROF + FVF + 20%
+ *           GP       = (SP-BP)*16.6%-shaped MAR TAX path → I - J - O - P
+ *                    where I = SP-BP, J = MAR TAX, O = T.COM, P = SHIPPING
+ *           NP(promo)= GP - SP*5%
+ *   ONBUY   MAR VAT  = (SP-BP)/6
+ *           COM 7%   = SP*7%
+ *           VAT 20%  = MAR VAT * 20%
+ *           GP       = SP - BP - COM - SHIP - MAR VAT - VAT20
+ *   PROJECT same as AMAZON but postage = £5.90
+ */
+export function calcSaleFinancials(input: CalcSaleFinancialsInput): SaleFinancials {
+  const { marketplace, buyPrice: bp, salePrice: sp, postageOverride, eBayShippingTier, hasPayPalKlarna } = input;
+  const fee = getMarketplaceFee(marketplace);
+
+  const spMinusBp = r2(sp - bp);
+  const postage = r2(
+    eBayShippingTier ?? postageOverride ?? fee.postage,
+  );
+
+  switch (marketplace) {
+    case 'AMAZON':
+    case 'PROJECT': {
+      // AMAZON / PROJECT share the same shape; only postage differs.
+      const marginalTax = r2(spMinusBp / (fee.marginTaxDivisor ?? 6));
+      const commission  = r2(sp * fee.commissionPct / 100);
+      const grossProfit = r2(sp - bp - marginalTax - commission - postage);
+      const gpPercent   = sp > 0 ? r2(grossProfit / sp * 100) : 0;
+      return { spMinusBp, marginalTax, commission, postage, grossProfit, gpPercent };
+    }
+
+    case 'BM': {
+      const marginalTax = r2(spMinusBp / (fee.marginTaxDivisor ?? 6));
+      const commission  = r2(sp * fee.commissionPct / 100);
+      const payPalKlarnaCom = hasPayPalKlarna && fee.payPalKlarnaPct != null
+        ? r2(sp * fee.payPalKlarnaPct / 100)
+        : undefined;
+      const ppk = payPalKlarnaCom ?? 0;
+      const grossProfit = r2(sp - bp - marginalTax - commission - postage - ppk);
+      const gpPercent   = sp > 0 ? r2(grossProfit / sp * 100) : 0;
+      return { spMinusBp, marginalTax, commission, payPalKlarnaCom, postage, grossProfit, gpPercent };
+    }
+
+    case 'EBAY': {
+      // MAR TAX uses the eBay-specific 16.6% rate (= 1/6 expressed as a %).
+      // Spec line: `MAR TAX = I*16.6%` where I = SP-BP.
+      const marginalTax = r2(spMinusBp * 16.6 / 100);
+
+      const comGross  = sp * fee.commissionPct / 100;            // SP*6.9%
+      const reduction = comGross * (fee.commissionReductionPct ?? 0) / 100;
+      const commission = r2(comGross - reduction);              // (SP*6.9%) - (SP*6.9%)*10%
+
+      const rof = r2(sp * (fee.rofPct ?? 0) / 100);             // SP*0.35%
+      const fvf = r2(fee.fixedFee ?? 0);                        // 0.40
+
+      // `0.2` column (literal numeric header in the workbook) = 20% on the
+      // (COM + ROF + FVF) bundle. Use unrounded intermediates to avoid drift.
+      const twentyPercent = r2((commission + rof + fvf) * ((fee.vatPct ?? 20) / 100));
+      const totalCom      = r2(commission + rof + fvf + twentyPercent);
+
+      // GP = I - J - O - P  → (SP-BP) - MAR TAX - T.COM - SHIPPING
+      const grossProfit = r2(spMinusBp - marginalTax - totalCom - postage);
+      const gpPercent   = sp > 0 ? r2(grossProfit / sp * 100) : 0;
+
+      // NP(incl. PROMOTION) = GP - SP*5%
+      const netProfit = r2(grossProfit - sp * (fee.promoPct ?? 0) / 100);
+
+      return {
+        spMinusBp, marginalTax, commission,
+        rof, fvf, twentyPercent, totalCom,
+        vat20: twentyPercent,
+        postage, grossProfit, gpPercent, netProfit,
+      };
+    }
+
+    case 'ONBUY': {
+      const marVat   = r2(spMinusBp / (fee.marginTaxDivisor ?? 6));   // MAR VAT = (SP-BP)/6
+      const commission = r2(sp * fee.commissionPct / 100);            // COM 7% = SP*7%
+      const vat20    = r2(marVat * (fee.vatPct ?? 20) / 100);         // VAT 20% = MAR VAT * 20%
+      const grossProfit = r2(sp - bp - commission - postage - marVat - vat20);
+      const gpPercent   = sp > 0 ? r2(grossProfit / sp * 100) : 0;
+      return {
+        spMinusBp,
+        marginalTax: marVat,   // populate the generic field too
+        marVat,
+        commission,
+        vat20,
+        postage,
+        grossProfit,
+        gpPercent,
+      };
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Excel formula emitter — used by the SALES_REPORT writer
+// ---------------------------------------------------------------------------
+
+/**
+ * Per-marketplace Excel formula generator. `row` is the 1-based spreadsheet row
+ * number (typically the loop index + 2 to skip the header row). Returned
+ * strings are bare formulas — the caller wraps them as
+ * `cell.value = { formula: excelFormulaFor(...).spMinusBp }`.
+ *
+ * Column letters match the headers in MASTER_FILES_SPEC.md §AMAZON/BM/EBAY/ONBUY/PROJECT.
+ */
+export function excelFormulaFor(marketplace: Marketplace, row: number): Record<string, string> {
+  const fee = getMarketplaceFee(marketplace);
+  const r = row;
+  switch (marketplace) {
+    case 'AMAZON':
+    case 'PROJECT': {
+      // Headers: ... G=BP, H=SP, I=SP-BP, J=Marginal Tax, K=Commission, L=Postage, M=GP, N=GP%
+      return {
+        spMinusBp:   `H${r}-G${r}`,
+        marginalTax: `I${r}/${fee.marginTaxDivisor ?? 6}`,
+        commission:  `H${r}/100*${fee.commissionPct}`,
+        postage:     `${fee.postage}`,
+        grossProfit: `H${r}-G${r}-J${r}-K${r}-L${r}`,
+        gpPercent:   `M${r}/G${r}*100`,
+      };
+    }
+    case 'BM': {
+      // Headers: ... G=BP, H=SP, I=Payment Mode, J=SP-BP, K=Marginal Tax,
+      //          L=PayPal/Klarna Com, M=Commission, N=Postage, O=GP, P=GP%
+      return {
+        spMinusBp:        `H${r}-G${r}`,
+        marginalTax:      `J${r}/${fee.marginTaxDivisor ?? 6}`,
+        payPalKlarnaCom:  `H${r}/100*${fee.payPalKlarnaPct ?? 2.5}`,
+        commission:       `H${r}/100*${fee.commissionPct}`,
+        postage:          `${fee.postage}`,
+        grossProfit:      `H${r}-G${r}-K${r}-M${r}-N${r}-L${r}`,
+        gpPercent:        `O${r}/G${r}*100`,
+      };
+    }
+    case 'EBAY': {
+      // Headers: ... G=BP, H=SP, I=SP-BP, J=MAR TAX, K=COM, L=ROF, M=FVF,
+      //          N=0.2 (20% bundle), O=T.COM, P=SHIPPING, Q=GP, R=GP%, S=NP
+      return {
+        spMinusBp:     `H${r}-G${r}`,
+        marTax:        `I${r}*16.6%`,
+        commission:    `(H${r}*${fee.commissionPct}%)-(H${r}*${fee.commissionPct}%)*${fee.commissionReductionPct ?? 10}%`,
+        rof:           `H${r}*${fee.rofPct ?? 0.35}%`,
+        fvf:           `${fee.fixedFee ?? 0.4}`,
+        twentyPercent: `(K${r}+L${r}+M${r})*${fee.vatPct ?? 20}%`,
+        totalCom:      `K${r}+L${r}+M${r}+N${r}`,
+        grossProfit:   `I${r}-J${r}-O${r}-P${r}`,
+        gpPercent:     `Q${r}/H${r}*100`,
+        netProfit:     `Q${r}-H${r}*${fee.promoPct ?? 5}%`,
+      };
+    }
+    case 'ONBUY': {
+      // Headers: ... F=BP, G=SP, H=SP-BP, I=MAR VAT, J=COM 7%, K=VAT 20%, L=SHIP, M=GP, N=GP%
+      return {
+        spMinusBp:   `G${r}-F${r}`,
+        marVat:      `H${r}/${fee.marginTaxDivisor ?? 6}`,
+        commission:  `G${r}*${fee.commissionPct}%`,
+        vat20:       `I${r}*${fee.vatPct ?? 20}%`,
+        postage:     `${fee.postage}`,
+        grossProfit: `G${r}-F${r}-J${r}-K${r}-L${r}-I${r}`,
+        gpPercent:   `M${r}/G${r}*100`,
+      };
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Listing-site helpers (preserved)
+// ---------------------------------------------------------------------------
+
+/**
+ * LISTING_SITES — single source of truth for the user-facing platform
+ * dropdowns. Includes legacy `Backmarket`, the canonical `Back Market` used by
+ * the client master file, plus `FBA`, `Project`, `R T S`, and `Other`.
+ */
+export const LISTING_SITES: ListingSite[] = [
+  'eBay',
+  'Amazon',
+  'OnBuy',
+  'Backmarket',
+  'Back Market',
+  'FBA',
+  'Project',
+  'R T S',
+  'Other',
+];
+
+/**
+ * Map a raw `ListingSite` enum value (preserved verbatim from the client master
+ * file) to a clean user-facing label.
+ *   "Backmarket" -> "Back Market"
+ *   "R T S"      -> "Ready To Ship"
+ */
+export function listingSiteLabel(s: ListingSite | string): string {
+  switch (s) {
+    case 'Backmarket': return 'Back Market';
+    case 'R T S':      return 'Ready To Ship';
+    default:           return s as string;
+  }
+}
+
+// Re-export for convenience so legacy `import { Marketplace } from '../lib/platforms'` keeps working.
+export { MARKETPLACES };
+export type { Marketplace, MarketplaceFee };
+
+// ---------------------------------------------------------------------------
+// Back-compat shims — derived from MARKETPLACE_FEES
+// ---------------------------------------------------------------------------
+// Existing callers (SellPage, ReportingPage, Sales, pdfReport, TodaySalesModal,
+// and the platforms.test.ts unit tests) still import the legacy `PLATFORMS`
+// table and `platform*` helpers. Until those call sites are migrated to the
+// marketplace-aware API, derive thin shims so they keep compiling. The values
+// reflect the OLD (pre-B5) constants used by the legacy UI — DO NOT change
+// them here; instead migrate the call sites to `calcSaleFinancials`.
 
 export const PLATFORM_LIST = ['eBay', 'Amazon', 'OnBuy', 'Backmarket'] as const;
 export type Platform = typeof PLATFORM_LIST[number];
 
-/** Default outbound postage cost per unit (Royal Mail / DPD, UK) */
-export const DEFAULT_POSTAGE_COST = 8;
-
 export interface PlatformConfig {
   name: Platform;
-  /** Percentage commission on sale price */
+  /** Percentage commission on sale price (legacy — superseded by MARKETPLACE_FEES). */
   commission: number;
-  /** Fixed per-order fee in £ (e.g. eBay £0.30) */
+  /** Fixed per-order fee in £ (legacy). */
   fixedFee: number;
-  /** Tailwind badge classes */
   badge: string;
-  /** Tailwind ring/border accent */
   accent: string;
-  /** Hex brand color for charts */
   hex: string;
 }
 
+/** Legacy default postage — kept at £8 to avoid breaking existing UI flows. */
+export const DEFAULT_POSTAGE_COST = 8;
+
+/**
+ * @deprecated Use `MARKETPLACE_FEES` / `calcSaleFinancials` instead. Retained
+ * solely as a back-compat shim — values match the pre-B5 constants so the
+ * legacy SellPage / ReportingPage / Sales UI keeps rendering. The
+ * authoritative fee schedule lives in `DEFAULT_MARKETPLACE_FEES`.
+ */
 export const PLATFORMS: Record<Platform, PlatformConfig> = {
   eBay: {
     name: 'eBay',
-    // 12.8% Final Value Fee on total + £0.30/order — UK phones category 2024/25
     commission: 12.8,
     fixedFee: 0.30,
     badge: 'bg-yellow-100 text-yellow-800 border-yellow-200',
@@ -35,7 +409,6 @@ export const PLATFORMS: Record<Platform, PlatformConfig> = {
   },
   Amazon: {
     name: 'Amazon',
-    // 8% Referral Fee — UK phones & electronics category 2024/25
     commission: 8.0,
     fixedFee: 0,
     badge: 'bg-orange-100 text-orange-800 border-orange-200',
@@ -44,7 +417,6 @@ export const PLATFORMS: Record<Platform, PlatformConfig> = {
   },
   OnBuy: {
     name: 'OnBuy',
-    // 9% standard Boost plan commission — UK 2024/25
     commission: 9.0,
     fixedFee: 0,
     badge: 'bg-blue-100 text-blue-800 border-blue-200',
@@ -53,7 +425,6 @@ export const PLATFORMS: Record<Platform, PlatformConfig> = {
   },
   Backmarket: {
     name: 'Backmarket',
-    // ~10% for refurbished smartphones — varies 6–12% by grade
     commission: 10.0,
     fixedFee: 0,
     badge: 'bg-green-100 text-green-800 border-green-200',
@@ -62,36 +433,31 @@ export const PLATFORMS: Record<Platform, PlatformConfig> = {
   },
 };
 
-/** Quick badge lookup — falls back gracefully for unknown platforms */
 export function platformBadge(name: string): string {
   return PLATFORMS[name as Platform]?.badge ?? 'bg-gray-100 text-gray-600 border-gray-200';
 }
 
-/** Commission % for a platform */
 export function platformCommission(name: string): number {
   return PLATFORMS[name as Platform]?.commission ?? 0;
 }
 
-/** Fixed per-order fee £ for a platform */
 export function platformFixedFee(name: string): number {
   return PLATFORMS[name as Platform]?.fixedFee ?? 0;
 }
 
-/** Total platform fee in £ (percentage + fixed fee) */
 export function platformTotalFee(name: string, salePrice: number): number {
   const pct = PLATFORMS[name as Platform]?.commission ?? 0;
   const fixed = PLATFORMS[name as Platform]?.fixedFee ?? 0;
   return +(salePrice * pct / 100 + fixed).toFixed(2);
 }
 
-/** Commission amount in £ (percentage only — kept for backwards compat) */
 export function platformCommissionAmt(name: string, salePrice: number): number {
   return +(salePrice * platformCommission(name) / 100).toFixed(2);
 }
 
 /**
- * Net profit after platform fees and postage.
- * net = SP - BP - platform_fee(%) - platform_fixed_fee - postage
+ * @deprecated Use `calcSaleFinancials({ marketplace, buyPrice, salePrice }).grossProfit`.
+ * Legacy net profit: net = SP - BP - platform_fee(%) - fixed_fee - postage.
  */
 export function calcNetProfit(
   salePrice: number,

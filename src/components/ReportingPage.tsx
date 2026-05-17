@@ -1,10 +1,12 @@
 import React, { useState, useMemo } from 'react';
 import { BarChart2, Star, FileText, Receipt, Download } from 'lucide-react';
 import { dbService } from '../lib/dbService';
-import { InventoryUnit, Supplier } from '../types';
+import { InventoryUnit, Supplier, Sale } from '../types';
 import { useInventoryStore } from '../lib/inventoryStore';
+import { recomputeSale } from '../lib/recomputeSale';
 import CopyImei from './CopyImei';
 import PDFReportButton from './PDFReportButton';
+import ExcelReportButton from './ExcelReportButton';
 import {
   PLATFORMS, PLATFORM_LIST,
   platformCommission, platformTotalFee, calcNetProfit,
@@ -38,7 +40,7 @@ function exportCSV(filename: string, rows: Record<string, string | number | unde
 }
 
 export default function ReportingPage() {
-  const { units, suppliers }    = useInventoryStore();
+  const { units, suppliers, sales } = useInventoryStore();
   const [tab, setTab]           = useState<ReportTab>('daily');
   const [dateFilter, setDateFilter] = useState(() => new Date().toISOString().split('T')[0]);
 
@@ -51,23 +53,90 @@ export default function ReportingPage() {
   const available = useMemo(() => units.filter(u => u.status === 'available'), [units]);
   const sold      = useMemo(() => units.filter(u => u.status === 'sold'), [units]);
 
-  // Daily sales for selected date
-  const dailySales = useMemo(() =>
-    sold.filter(u => u.saleDate === dateFilter || (!u.saleDate && u.dateIn === dateFilter)),
-    [sold, dateFilter]);
+  // ── Unified sales feed ──────────────────────────────────────────────────
+  // Master-file `sales` collection is the source of truth. Each row is
+  // recomputed live so commission/GP reflect current MARKETPLACE_FEES.
+  // Legacy in-app sold units (no matching `sales` doc) are merged in so the
+  // report stays correct during the migration window.
+  const liveSales = useMemo<Sale[]>(() => sales.map(recomputeSale), [sales]);
 
-  const dailyRevenue = dailySales.reduce((s, u) => s + (u.salePrice || 0), 0);
-  const dailyGrossProfit = dailySales.reduce((s, u) => s + ((u.salePrice || 0) - u.buyPrice), 0);
-  const dailyNetProfit = dailySales.reduce((s, u) =>
-    s + calcNetProfit(u.salePrice || 0, u.buyPrice, u.salePlatform || '', u.postageCost ?? DEFAULT_POSTAGE_COST), 0);
+  const allSalesUnified = useMemo<{
+    rows: Array<{
+      // Common projection used by the report grids/export
+      date: string;            // ISO yyyy-mm-dd
+      model: string;
+      imei: string;
+      orderNumber: string;
+      buyPrice: number;
+      salePrice: number;
+      platform: string;        // human-readable platform label (eBay/Amazon/...)
+      postageCost: number;
+      grossProfit?: number;    // present for sales-collection rows (live recompute)
+      _src: 'sale' | 'unit';
+      _id: string;
+    }>;
+  }>(() => {
+    const seen = new Set<string>();
+    const rows: any[] = [];
+    // Map marketplace codes → friendly labels matched by the legacy fee tables
+    const mkToPlatform: Record<string, string> = {
+      EBAY: 'eBay', AMAZON: 'Amazon', BM: 'Backmarket', ONBUY: 'OnBuy', PROJECT: 'Other',
+    };
+    const unitById = new Map<string, InventoryUnit>();
+    for (const u of units) unitById.set(u.id, u);
+    for (const s of liveSales) {
+      seen.add(s.id);
+      const u = s.unitId ? unitById.get(s.unitId) : undefined;
+      rows.push({
+        date:        s.saleDate || '',
+        model:       u?.model || s.sku || '',
+        imei:        s.imei || u?.imei || '',
+        orderNumber: s.orderNumber || '',
+        buyPrice:    s.buyPrice || 0,
+        salePrice:   s.salePrice || 0,
+        platform:    mkToPlatform[s.marketplace] || s.marketplace || '',
+        postageCost: s.postage ?? DEFAULT_POSTAGE_COST,
+        grossProfit: s.grossProfit,
+        _src: 'sale',
+        _id:  s.id,
+      });
+    }
+    // Legacy in-app sold units that don't already have a `sales` doc
+    for (const u of sold) {
+      if (seen.has(u.id)) continue;
+      rows.push({
+        date:        u.saleDate || u.dateIn || '',
+        model:       u.model,
+        imei:        u.imei,
+        orderNumber: u.saleOrderId || '',
+        buyPrice:    u.buyPrice,
+        salePrice:   u.salePrice || 0,
+        platform:    u.salePlatform || '',
+        postageCost: u.postageCost ?? DEFAULT_POSTAGE_COST,
+        _src: 'unit',
+        _id:  u.id,
+      });
+    }
+    return { rows };
+  }, [liveSales, sold, units]);
+
+  // Daily sales for selected date (sourced from unified feed)
+  const dailySales = useMemo(
+    () => allSalesUnified.rows.filter(r => r.date === dateFilter),
+    [allSalesUnified, dateFilter],
+  );
+
+  const dailyRevenue = dailySales.reduce((s, r) => s + (r.salePrice || 0), 0);
+  const dailyGrossProfit = dailySales.reduce((s, r) => s + ((r.salePrice || 0) - r.buyPrice), 0);
+  const dailyNetProfit = dailySales.reduce((s, r) =>
+    s + (r.grossProfit ?? calcNetProfit(r.salePrice || 0, r.buyPrice, r.platform || '', r.postageCost ?? DEFAULT_POSTAGE_COST)), 0);
 
   // ── VAT MARGIN SCHEME (UK Second-Hand Goods) ─────────────────────────────
   const now = Date.now();
   const [vatPeriodDays, setVatPeriodDays] = React.useState(90);
-  const vatSales = useMemo(() => sold.filter(u => {
-    const d = u.saleDate || u.dateIn;
-    return d && (now - new Date(d).getTime()) <= vatPeriodDays * 86400000;
-  }), [sold, vatPeriodDays]);
+  const vatSales = useMemo(() => allSalesUnified.rows.filter(r => {
+    return r.date && (now - new Date(r.date).getTime()) <= vatPeriodDays * 86400000;
+  }), [allSalesUnified, vatPeriodDays, now]);
 
   const vatData = useMemo(() => {
     let grossMargin = 0;
@@ -76,9 +145,9 @@ export default function ReportingPage() {
     let platformFeesTotal = 0;
     let inputVAT = 0;
 
-    for (const u of vatSales) {
-      const sp = u.salePrice || 0;
-      const bp = u.buyPrice || 0;
+    for (const r of vatSales) {
+      const sp = r.salePrice || 0;
+      const bp = r.buyPrice || 0;
       const margin = sp - bp;
       if (margin > 0) {
         const vatOnMargin = +(margin / 6).toFixed(2);
@@ -86,7 +155,7 @@ export default function ReportingPage() {
         grossMargin += margin;
         eligibleSales++;
       }
-      const fee = platformTotalFee(u.salePlatform || '', sp);
+      const fee = platformTotalFee(r.platform || '', sp);
       const feeVAT = +(fee * 0.2 / 1.2).toFixed(2);
       platformFeesTotal += fee;
       inputVAT += feeVAT;
@@ -103,7 +172,7 @@ export default function ReportingPage() {
     };
   }, [vatSales]);
 
-  const vatRevenue = vatSales.reduce((s, u) => s + (u.salePrice || 0), 0);
+  const vatRevenue = vatSales.reduce((s, r) => s + (r.salePrice || 0), 0);
 
   // Per-model stock report
   const modelReport = useMemo(() => {
@@ -165,19 +234,19 @@ export default function ReportingPage() {
 
   // ── CSV exports ────────────────────────────────────────────────────────────
   const exportDailySales = () => exportCSV(`daily-sales-${dateFilter}.csv`,
-    dailySales.map(u => ({
-      Date: u.saleDate || u.dateIn,
-      Model: u.model,
-      IMEI: u.imei,
-      'Order Number': u.saleOrderId || '',
-      'Buy Price £': u.buyPrice,
-      'Sale Price £': u.salePrice || 0,
-      'Gross Margin £': (u.salePrice || 0) - u.buyPrice,
-      'Platform Fee £': platformTotalFee(u.salePlatform || '', u.salePrice || 0),
-      'Postage £': u.postageCost ?? DEFAULT_POSTAGE_COST,
-      'Net Profit £': calcNetProfit(u.salePrice || 0, u.buyPrice, u.salePlatform || '', u.postageCost ?? DEFAULT_POSTAGE_COST),
-      Platform: u.salePlatform || '',
-      'Commission %': platformCommission(u.salePlatform || ''),
+    dailySales.map(r => ({
+      Date: r.date,
+      Model: r.model,
+      IMEI: r.imei,
+      'Order Number': r.orderNumber || '',
+      'Buy Price £': r.buyPrice,
+      'Sale Price £': r.salePrice || 0,
+      'Gross Margin £': (r.salePrice || 0) - r.buyPrice,
+      'Platform Fee £': platformTotalFee(r.platform || '', r.salePrice || 0),
+      'Postage £': r.postageCost ?? DEFAULT_POSTAGE_COST,
+      'Net Profit £': r.grossProfit ?? calcNetProfit(r.salePrice || 0, r.buyPrice, r.platform || '', r.postageCost ?? DEFAULT_POSTAGE_COST),
+      Platform: r.platform || '',
+      'Commission %': platformCommission(r.platform || ''),
     }))
   );
 
@@ -196,42 +265,42 @@ export default function ReportingPage() {
   );
 
   const exportSalesLog = () => exportCSV(`sales-log-${new Date().toISOString().split('T')[0]}.csv`,
-    [...sold]
-      .sort((a, b) => new Date(b.saleDate || b.dateIn).getTime() - new Date(a.saleDate || a.dateIn).getTime())
-      .map(u => ({
-        Date: u.saleDate || u.dateIn,
-        'Order Number': u.saleOrderId || '',
-        Model: u.model,
-        IMEI: u.imei,
-        'Buy Price £': u.buyPrice,
-        'Sale Price £': u.salePrice || 0,
-        'Platform Fee £': platformTotalFee(u.salePlatform || '', u.salePrice || 0),
-        'Postage £': u.postageCost ?? DEFAULT_POSTAGE_COST,
-        'Net Profit £': calcNetProfit(u.salePrice || 0, u.buyPrice, u.salePlatform || '', u.postageCost ?? DEFAULT_POSTAGE_COST),
-        Platform: u.salePlatform || '',
-        'Commission %': platformCommission(u.salePlatform || ''),
+    [...allSalesUnified.rows]
+      .sort((a, b) => (b.date || '').localeCompare(a.date || ''))
+      .map(r => ({
+        Date: r.date,
+        'Order Number': r.orderNumber || '',
+        Model: r.model,
+        IMEI: r.imei,
+        'Buy Price £': r.buyPrice,
+        'Sale Price £': r.salePrice || 0,
+        'Platform Fee £': platformTotalFee(r.platform || '', r.salePrice || 0),
+        'Postage £': r.postageCost ?? DEFAULT_POSTAGE_COST,
+        'Net Profit £': r.grossProfit ?? calcNetProfit(r.salePrice || 0, r.buyPrice, r.platform || '', r.postageCost ?? DEFAULT_POSTAGE_COST),
+        Platform: r.platform || '',
+        'Commission %': platformCommission(r.platform || ''),
       }))
   );
 
   const exportVAT = () => exportCSV(`vat-margin-scheme-${vatPeriodDays}d.csv`,
-    vatSales.map(u => {
-      const sp = u.salePrice || 0;
-      const bp = u.buyPrice || 0;
+    vatSales.map(r => {
+      const sp = r.salePrice || 0;
+      const bp = r.buyPrice || 0;
       const margin = sp - bp;
       const vatOnMargin = margin > 0 ? +(margin / 6).toFixed(2) : 0;
-      const fee = platformTotalFee(u.salePlatform || '', sp);
+      const fee = platformTotalFee(r.platform || '', sp);
       const feeVAT = +(fee * 0.2 / 1.2).toFixed(2);
       return {
-        Date: u.saleDate || u.dateIn,
-        Model: u.model,
-        IMEI: u.imei,
+        Date: r.date,
+        Model: r.model,
+        IMEI: r.imei,
         'BP £': bp,
         'SP £': sp,
         'Margin £': margin,
         'Output VAT (Box 1) £': vatOnMargin,
         'Platform Fee £': fee.toFixed(2),
         'Input VAT (Box 4) £': feeVAT,
-        Platform: u.salePlatform || '',
+        Platform: r.platform || '',
       };
     })
   );
@@ -250,7 +319,10 @@ export default function ReportingPage() {
             Daily Sales · Stock Value · VAT Returns · Margin Insights
           </p>
         </div>
-        <PDFReportButton units={units} suppliers={suppliers} variant="outline" />
+        <div className="flex items-center gap-2">
+          <ExcelReportButton units={units} suppliers={suppliers} variant="outline" />
+          <PDFReportButton units={units} suppliers={suppliers} variant="outline" />
+        </div>
       </div>
 
       {/* KPIs */}
@@ -263,9 +335,9 @@ export default function ReportingPage() {
         <div className="bg-green-50 border border-green-100 rounded-3xl p-3">
           <p className="text-[8px] font-mono uppercase tracking-widest text-green-600">Revenue</p>
           <p className="text-xl font-bold font-display mt-1 text-green-700">
-            £{(sold.reduce((s, u) => s + (u.salePrice || 0), 0) / 1000).toFixed(1)}k
+            £{(allSalesUnified.rows.reduce((s, r) => s + (r.salePrice || 0), 0) / 1000).toFixed(1)}k
           </p>
-          <p className="text-[8px] text-green-500 font-mono">{sold.length} sold</p>
+          <p className="text-[8px] text-green-500 font-mono">{allSalesUnified.rows.length} sold</p>
         </div>
         <div className="bg-purple-50 border border-purple-100 rounded-3xl p-3">
           <p className="text-[8px] font-mono uppercase tracking-widest text-purple-600">VAT Due</p>
@@ -318,9 +390,9 @@ export default function ReportingPage() {
           <div className="grid grid-cols-2 gap-2">
             {PLATFORM_LIST.map(p => {
               const cfg = PLATFORMS[p];
-              const pSales = dailySales.filter(u => u.salePlatform === p);
-              const rev = pSales.reduce((s, u) => s + (u.salePrice || 0), 0);
-              const totalFee = pSales.reduce((s, u) => s + platformTotalFee(p, u.salePrice || 0), 0);
+              const pSales = dailySales.filter(r => r.platform === p);
+              const rev = pSales.reduce((s, r) => s + (r.salePrice || 0), 0);
+              const totalFee = pSales.reduce((s, r) => s + platformTotalFee(p, r.salePrice || 0), 0);
               return (
                 <div key={p} className={`flex items-center justify-between px-3 py-2.5 rounded-xl border ${cfg.badge}`}>
                   <div>
@@ -362,23 +434,23 @@ export default function ReportingPage() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-50">
-                    {dailySales.map(u => {
-                      const sp = u.salePrice || 0;
-                      const post = u.postageCost ?? DEFAULT_POSTAGE_COST;
-                      const fee = platformTotalFee(u.salePlatform || '', sp);
-                      const net = calcNetProfit(sp, u.buyPrice, u.salePlatform || '', post);
+                    {dailySales.map(r => {
+                      const sp = r.salePrice || 0;
+                      const post = r.postageCost ?? DEFAULT_POSTAGE_COST;
+                      const fee = platformTotalFee(r.platform || '', sp);
+                      const net = r.grossProfit ?? calcNetProfit(sp, r.buyPrice, r.platform || '', post);
                       return (
-                        <tr key={u.id} className="hover:bg-gray-50">
-                          <td className="px-4 py-2.5 font-semibold max-w-[120px] truncate">{u.model}</td>
-                          <td className="px-3 py-2.5"><CopyImei imei={u.imei} truncate={10} /></td>
-                          <td className="px-3 py-2.5 font-mono text-gray-500 text-[9px]">{u.saleOrderId || '—'}</td>
-                          <td className="px-3 py-2.5 text-right font-mono">£{u.buyPrice}</td>
+                        <tr key={r._id} className="hover:bg-gray-50">
+                          <td className="px-4 py-2.5 font-semibold max-w-[120px] truncate">{r.model}</td>
+                          <td className="px-3 py-2.5"><CopyImei imei={r.imei} truncate={10} /></td>
+                          <td className="px-3 py-2.5 font-mono text-gray-500 text-[9px]">{r.orderNumber || '—'}</td>
+                          <td className="px-3 py-2.5 text-right font-mono">£{r.buyPrice}</td>
                           <td className="px-3 py-2.5 text-right font-mono font-bold">£{sp}</td>
                           <td className="px-3 py-2.5 text-right font-mono text-red-500 text-[9px]">-£{(fee + post).toFixed(2)}</td>
                           <td className={`px-3 py-2.5 text-right font-mono font-bold ${net >= 0 ? 'text-green-600' : 'text-red-500'}`}>
-                            {net >= 0 ? '+' : ''}£{net}
+                            {net >= 0 ? '+' : ''}£{Math.round(net)}
                           </td>
-                          <td className="px-3 py-2.5 text-[10px]">{u.salePlatform || '—'}</td>
+                          <td className="px-3 py-2.5 text-[10px]">{r.platform || '—'}</td>
                         </tr>
                       );
                     })}
@@ -486,7 +558,7 @@ export default function ReportingPage() {
         <div className="bg-white rounded-3xl border border-gray-100 shadow-sm overflow-hidden">
           <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between">
             <p className="text-[10px] font-bold uppercase tracking-widest text-gray-400">
-              Full Sales Log · {sold.length} records
+              Full Sales Log · {allSalesUnified.rows.length} records
             </p>
             <button onClick={exportSalesLog}
               className="flex items-center gap-1.5 px-3 py-1.5 bg-gray-100 hover:bg-gray-200 rounded-lg text-[9px] font-bold uppercase tracking-widest transition-all">
@@ -509,28 +581,28 @@ export default function ReportingPage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-50">
-                {[...sold]
-                  .sort((a, b) => new Date(b.saleDate || b.dateIn).getTime() - new Date(a.saleDate || a.dateIn).getTime())
-                  .map(u => {
-                    const sp = u.salePrice || 0;
-                    const post = u.postageCost ?? DEFAULT_POSTAGE_COST;
-                    const fee = platformTotalFee(u.salePlatform || '', sp);
-                    const net = calcNetProfit(sp, u.buyPrice, u.salePlatform || '', post);
+                {[...allSalesUnified.rows]
+                  .sort((a, b) => (b.date || '').localeCompare(a.date || ''))
+                  .map(r => {
+                    const sp = r.salePrice || 0;
+                    const post = r.postageCost ?? DEFAULT_POSTAGE_COST;
+                    const fee = platformTotalFee(r.platform || '', sp);
+                    const net = r.grossProfit ?? calcNetProfit(sp, r.buyPrice, r.platform || '', post);
                     return (
-                      <tr key={u.id} className="hover:bg-gray-50">
-                        <td className="px-4 py-2 font-mono text-gray-500">{u.saleDate || u.dateIn}</td>
-                        <td className="px-3 py-2 font-semibold max-w-[110px] truncate">{u.model}</td>
-                        <td className="px-3 py-2"><CopyImei imei={u.imei} truncate={9} /></td>
-                        <td className="px-3 py-2 font-mono text-gray-500 text-[9px]">{u.saleOrderId || '—'}</td>
+                      <tr key={r._id} className="hover:bg-gray-50">
+                        <td className="px-4 py-2 font-mono text-gray-500">{r.date}</td>
+                        <td className="px-3 py-2 font-semibold max-w-[110px] truncate">{r.model}</td>
+                        <td className="px-3 py-2"><CopyImei imei={r.imei} truncate={9} /></td>
+                        <td className="px-3 py-2 font-mono text-gray-500 text-[9px]">{r.orderNumber || '—'}</td>
                         <td className="px-3 py-2 text-right font-mono font-bold">£{sp}</td>
                         <td className="px-3 py-2 text-right font-mono text-red-500 text-[9px]">-£{(fee + post).toFixed(2)}</td>
                         <td className={`px-3 py-2 text-right font-mono font-bold ${net >= 0 ? 'text-green-600' : 'text-red-500'}`}>
-                          {net >= 0 ? '+' : ''}£{net}
+                          {net >= 0 ? '+' : ''}£{Math.round(net)}
                         </td>
-                        <td className="px-3 py-2 text-[10px]">{u.salePlatform || '—'}</td>
+                        <td className="px-3 py-2 text-[10px]">{r.platform || '—'}</td>
                         <td className="px-3 py-2 text-right font-mono text-gray-500">
-                          {platformCommission(u.salePlatform || '') > 0
-                            ? `${platformCommission(u.salePlatform || '')}%`
+                          {platformCommission(r.platform || '') > 0
+                            ? `${platformCommission(r.platform || '')}%`
                             : '—'}
                         </td>
                       </tr>
@@ -639,17 +711,17 @@ export default function ReportingPage() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-50">
-                  {vatSales.map(u => {
-                    const sp = u.salePrice || 0;
-                    const bp = u.buyPrice || 0;
+                  {vatSales.map(r => {
+                    const sp = r.salePrice || 0;
+                    const bp = r.buyPrice || 0;
                     const margin = sp - bp;
                     const vatOnMargin = margin > 0 ? +(margin / 6).toFixed(2) : 0;
-                    const fee = platformTotalFee(u.salePlatform || '', sp);
+                    const fee = platformTotalFee(r.platform || '', sp);
                     const feeVAT = +(fee * 0.2 / 1.2).toFixed(2);
                     return (
-                      <tr key={u.id} className="hover:bg-gray-50">
-                        <td className="px-4 py-2 font-mono text-gray-500 text-[9px]">{u.saleDate || u.dateIn}</td>
-                        <td className="px-3 py-2 font-semibold max-w-[100px] truncate">{u.model}</td>
+                      <tr key={r._id} className="hover:bg-gray-50">
+                        <td className="px-4 py-2 font-mono text-gray-500 text-[9px]">{r.date}</td>
+                        <td className="px-3 py-2 font-semibold max-w-[100px] truncate">{r.model}</td>
                         <td className="px-3 py-2 text-right font-mono text-gray-500">£{bp}</td>
                         <td className="px-3 py-2 text-right font-mono font-bold">£{sp}</td>
                         <td className={`px-3 py-2 text-right font-mono font-bold ${margin >= 0 ? 'text-green-600' : 'text-red-500'}`}>
@@ -661,7 +733,7 @@ export default function ReportingPage() {
                         <td className="px-3 py-2 text-right font-mono text-emerald-600">
                           {feeVAT > 0 ? `+£${feeVAT}` : '—'}
                         </td>
-                        <td className="px-3 py-2 text-[10px] text-gray-500">{u.salePlatform || '—'}</td>
+                        <td className="px-3 py-2 text-[10px] text-gray-500">{r.platform || '—'}</td>
                       </tr>
                     );
                   })}

@@ -3,10 +3,11 @@ import * as XLSX from 'xlsx';
 import { X, Upload, FileSpreadsheet, CheckCircle2, AlertTriangle, Loader2, ArrowRight, Download } from 'lucide-react';
 import { motion } from 'motion/react';
 import { dbService } from '../lib/dbService';
-import { DeviceCategory, InventoryUnit, Supplier } from '../types';
+import { DeviceCategory, InventoryAggregate, InventoryUnit, Supplier } from '../types';
 import { buildStableUnitId } from '../lib/inventoryMaintenance';
 import { uploadSourceAttachment } from '../lib/fileAttachments';
 import { logInventoryEvent } from '../lib/inventoryEvents';
+import { parseBrandModelStorage } from '../lib/modelStorage';
 
 interface ImportModalProps { onClose: () => void; }
 
@@ -28,6 +29,60 @@ function excelSerialToISO(serial: any): string {
   return new Date().toISOString().split('T')[0];
 }
 
+/**
+ * parseQuantityCell — INVENTORY-sheet QUANTITY column is mixed-type:
+ * numeric values, "SHS" placeholders, "NO STOCK" tags, blanks, etc.
+ *
+ * Returns either:
+ *   - `{ qty: number }`                                              when numeric
+ *   - `{ qty: undefined; flag: 'SHS'|'NO_STOCK'|'OTHER'; raw }`      when non-numeric
+ *
+ * Callers should keep the row in either case (B8 fix — non-numeric
+ * QUANTITY rows used to be silently dropped at the BP guard).
+ */
+export function parseQuantityCell(
+  v: unknown,
+):
+  | { qty: number; flag?: undefined }
+  | { qty: undefined; flag: 'SHS' | 'NO_STOCK' | 'OTHER'; raw: string } {
+  // Native numbers (incl. 0) come through unchanged.
+  if (typeof v === 'number' && Number.isFinite(v)) return { qty: v };
+
+  const raw = (v == null ? '' : String(v)).trim();
+  const upper = raw.toUpperCase();
+
+  if (upper === 'SHS')                              return { qty: undefined, flag: 'SHS',      raw };
+  if (upper === 'NO STOCK' || upper === 'NOSTOCK')  return { qty: undefined, flag: 'NO_STOCK', raw };
+
+  // Numeric-string path — but only if the entire string parses as a number,
+  // so "12 SOLD" doesn't sneak through as `12`.
+  if (raw !== '' && /^-?\d+(\.\d+)?$/.test(raw)) {
+    const n = parseFloat(raw);
+    if (Number.isFinite(n)) return { qty: n };
+  }
+
+  return { qty: undefined, flag: 'OTHER', raw };
+}
+
+/**
+ * parseSupplierCell — INVENTORY-sheet SUPPLIER column may list multiple
+ * suppliers separated by " / " (e.g. "MHL / ABC / NIHAL"). Returns the
+ * primary (first) name and the full list with empties dropped.
+ *
+ * B7 fix — caller previously did `.split('/')[0]` and dropped the rest.
+ */
+export function parseSupplierCell(
+  v: unknown,
+): { primaryName: string; allNames: string[] } {
+  const raw = (v == null ? '' : String(v)).trim();
+  if (!raw) return { primaryName: '', allNames: [] };
+  const allNames = raw
+    .split('/')
+    .map(s => s.trim())
+    .filter(s => s.length > 0);
+  return { primaryName: allNames[0] || '', allNames };
+}
+
 function parseCategory(model: string): DeviceCategory {
   const m = model.toUpperCase();
   if (m.includes('IPAD')) return 'iPad';
@@ -45,7 +100,11 @@ function parseBrand(category: DeviceCategory): string {
   return 'Other';
 }
 
-function normalizeImei(imei: string) { return imei.replace(/\D/g, ''); }
+// Preserve IMEIs verbatim: client data includes alphanumeric Apple serials
+// (e.g. "NL6CMQCYTD", "SKC9P3QVP6F"), so we MUST NOT strip non-digits.
+function normalizeImei(imei: string) {
+  return String(imei ?? '').trim().replace(/^["'\s]+|["'\s]+$/g, '');
+}
 
 // Parse "BLACK 3 GREY 1" → [{colour:'Black', qty:3}, {colour:'Grey', qty:1}]
 function parseColourStr(s: string): Array<{ colour: string; qty: number }> {
@@ -57,16 +116,93 @@ function parseColourStr(s: string): Array<{ colour: string; qty: number }> {
     .filter(c => c.colour && c.qty > 0);
 }
 
-interface ParsedData {
+/**
+ * `InventoryAggregate` row as emitted by the parser — `supplierIds` here is
+ * the parser's best guess (one synthetic id per supplier name); the bulk-write
+ * step is responsible for re-mapping these to the real `suppliers` doc ids.
+ * `supplierNames` is the original list, preserved so the upsert step can match.
+ */
+export type ParsedAggregate = Omit<InventoryAggregate, 'createdAt' | 'updatedAt'> & {
+  supplierNames: string[];
+};
+
+export interface ParsedData {
   suppliers: Omit<Supplier, 'createdAt'>[];
   units: Omit<InventoryUnit, 'createdAt'>[];
-  stats: { total: number; available: number; sold: number; incoming: number; skipped: number; duplicateRows: number };
+  /** INVENTORY-sheet roll-up rows (one per Model+Supplier) — populated by
+   *  parseClientBulkSheet; empty for IMEI-per-row imports. */
+  aggregates?: ParsedAggregate[];
+  /** Sales rows parsed from the SALES_REPORT sheet, if present. Wired through
+   *  to `dbService.bulkUpsertSales` by handleImport — see B9 follow-up. */
+  sales?: Array<Record<string, any> & { marketplace: string; orderNumber: string }>;
+  /** SUPPLIER WHATSAPP UPDATES rows — captured from sheet 3 of the master
+   *  INVENTORY_REPORT workbook. Persists to the supplierWhatsappUpdates
+   *  collection and renders under Admin → Suppliers. */
+  whatsappUpdates?: Array<{ id: string; rawText: string; priceText?: string; ownerId: 'shared' }>;
+  stats: { total: number; available: number; sold: number; incoming: number; skipped: number; ignoredEmpty?: number; duplicateRows: number };
   format: 'client-bulk' | 'imei-per-row';
+  /** Stamped by processFile (not by the parsers themselves) so the importBatch
+   *  audit row carries the workbook's actual sheet name. */
+  sheetName?: string;
+  /** Best-effort supplier id when the workbook is single-supplier (e.g. the
+   *  SUPPLIER WHATSAPP UPDATES sheets); undefined for mixed-supplier imports. */
+  detectedSupplierId?: string;
+  /** Short human-readable summary used as the importBatch.notes field. */
+  summary?: string;
+}
+
+/**
+ * Merge supplier lists from multiple sheets in the same workbook, deduping by
+ * stable id (or by case-insensitive trimmed name when ids differ). The first
+ * occurrence wins on conflicting fields — sheets are processed in order.
+ */
+export function mergeSuppliers(list: Omit<Supplier, 'createdAt'>[]): Omit<Supplier, 'createdAt'>[] {
+  const byKey = new Map<string, Omit<Supplier, 'createdAt'>>();
+  for (const s of list) {
+    const key = s.id || `name:${(s.name || '').trim().toLowerCase()}`;
+    if (!byKey.has(key)) byKey.set(key, s);
+  }
+  return [...byKey.values()];
+}
+
+// ── Parser C: SUPPLIER WHATSAPP UPDATES sheet ────────────────────────────────
+//
+// Sheet shape: 2 columns
+//   A "MOBILE KIT SUPPLIER" — free-form supplier message line (model + colour + notes)
+//   B (unlabeled)           — price text e.g. "£85", "£100" (may be blank)
+//
+// The line in col A is opaque to us — the operator writes whatever notation
+// the supplier uses. We capture it verbatim into supplierWhatsappUpdates so
+// it shows up in Admin → Suppliers without losing the original wording.
+
+export function parseSupplierWhatsappSheet(rows: any[][]): {
+  updates: Array<{ id: string; rawText: string; priceText?: string; ownerId: 'shared' }>;
+  ignoredEmpty: number;
+} {
+  const updates: Array<{ id: string; rawText: string; priceText?: string; ownerId: 'shared' }> = [];
+  let ignoredEmpty = 0;
+  let i = 1; // skip header
+  let uid = 1;
+  for (; i < rows.length; i++) {
+    const r = rows[i] ?? [];
+    // Drop fully-empty padding rows silently.
+    const colA = r[0] == null ? '' : String(r[0]).trim();
+    const colB = r[1] == null ? '' : String(r[1]).trim();
+    if (!colA && !colB) { ignoredEmpty++; continue; }
+    if (!colA) { ignoredEmpty++; continue; }
+    updates.push({
+      id: `wa_${uid++}`,
+      rawText: colA,
+      ...(colB ? { priceText: colB } : {}),
+      ownerId: 'shared',
+    });
+  }
+  return { updates, ignoredEmpty };
 }
 
 // ── Format detection ──────────────────────────────────────────────────────────
 
-function detectFormat(headers: string[]): 'client-bulk' | 'imei-per-row' {
+export function detectFormat(headers: string[]): 'client-bulk' | 'imei-per-row' {
   const h = headers.map(x => String(x || '').toUpperCase()).join(' ');
   if ((h.includes('QUANTITY') || h.includes('QTY')) && h.includes('COLOUR')) return 'client-bulk';
   return 'imei-per-row';
@@ -74,7 +210,7 @@ function detectFormat(headers: string[]): 'client-bulk' | 'imei-per-row' {
 
 // ── Parser A: Client bulk format (MODEL · BP · QTY · COLOURS · SUPPLIER · NOTES) ──
 
-function parseClientBulkSheet(rows: any[][]): ParsedData {
+export function parseClientBulkSheet(rows: any[][]): ParsedData {
   const header = (rows[0] || []).map((h: any) => String(h || '').trim().toUpperCase());
   const col = (names: string[]) =>
     header.findIndex((h: string) => names.some(n => h.includes(n.toUpperCase())));
@@ -85,47 +221,176 @@ function parseClientBulkSheet(rows: any[][]): ParsedData {
   const colourIdx   = col(['COLOUR', 'COLOR']);
   const supplierIdx = col(['SUPPLIER', 'SOURCE']);
   const notesIdx    = col(['NOTES', 'NOTE', 'REMARK']);
+  // Master INVENTORY sheet has an unlabeled column D between QUANTITY and
+  // VALUE that carries section / focus tags (e.g. "SALES FOCUS", "TOP10").
+  // It has NO header label, so detect it positionally as the cell directly
+  // after QUANTITY. Falls back to col 3 (D) when both are at canonical
+  // positions; -1 when the structure is unrecognisable.
+  const notesFlagIdx = qtyIdx >= 0 ? qtyIdx + 1 : 3;
 
   const dateIn = new Date().toISOString().split('T')[0];
   const supplierMap = new Map<string, Omit<Supplier, 'createdAt'>>();
   const units: Omit<InventoryUnit, 'createdAt'>[] = [];
+  const aggregates: ParsedAggregate[] = [];
   let skipped = 0;
+  /** Fully-empty trailing rows (Excel pads sheets out to max_row even when most
+   *  rows have no content). Tracked separately so the preview doesn't scare
+   *  the operator with a giant "skipped" number for what's really just file
+   *  padding. */
+  let ignoredEmpty = 0;
   let uid = 1;
+  let aggUid = 1;
+
+  /** True if the row has no meaningful content in any of the columns we care
+   *  about — i.e. xlsx-padding noise, not real data. */
+  const isRowFullyEmpty = (r: any[]): boolean => {
+    if (!r || r.length === 0) return true;
+    for (let c = 0; c < r.length; c++) {
+      const v = r[c];
+      if (v == null) continue;
+      if (typeof v === 'number') return false;
+      if (typeof v === 'string' && v.trim() !== '') return false;
+      if (typeof v === 'boolean') return false;
+      if (v instanceof Date) return false;
+    }
+    return true;
+  };
+
+  // Map supplier display-name → synthetic id (kept stable across the sheet).
+  const supplierIdFor = (name: string): string => {
+    const key = (name || 'UNKNOWN').toUpperCase();
+    const id  = `sup_${key.replace(/\s+/g, '_').toLowerCase()}`;
+    if (!supplierMap.has(id))
+      supplierMap.set(id, { id, name: name || 'Unknown', portal: 'Wholesale', ownerId: 'shared' });
+    return id;
+  };
 
   for (let i = 1; i < rows.length; i++) {
     const r = rows[i];
-    const model   = modelIdx >= 0 ? String(r[modelIdx] || '').trim() : '';
-    const bpRaw   = bpIdx >= 0 ? r[bpIdx] : 0;
-    const qtyRaw  = qtyIdx >= 0 ? String(r[qtyIdx] || '').trim() : '';
-    const colours = colourIdx >= 0 ? String(r[colourIdx] || '').trim() : '';
-    const supName = supplierIdx >= 0 ? String(r[supplierIdx] || '').trim().split('/')[0].trim() : '';
-    const notes   = notesIdx >= 0 ? String(r[notesIdx] || '').trim() : '';
+    // Silently drop Excel's trailing empty padding — those aren't errors.
+    if (isRowFullyEmpty(r)) { ignoredEmpty++; continue; }
+    const rawModel   = modelIdx >= 0 ? String(r[modelIdx] || '').trim() : '';
+    // Split into brand / model / storage / series so the doc carries first-class
+    // fields (brand drives filters, model drives the unit card, storage drives
+    // the capacity badge, series drives the periodic-table grouping). Mirrors
+    // parseOGStockSheet below + the CJS / Python ports — see
+    // src/lib/modelStorage.ts for the rules.
+    const parsedModel = parseBrandModelStorage(rawModel);
+    const { brand: parsedBrand, model, storage, series: parsedSeries } = parsedModel;
+    const bpRaw      = bpIdx >= 0 ? r[bpIdx] : 0;
+    const qtyRawCell = qtyIdx >= 0 ? r[qtyIdx] : '';
+    // Unlabeled col D — "SALES FOCUS" / "TOP10" / etc. — sits between
+    // QUANTITY and VALUE in the master file.
+    const notesFlag  = notesFlagIdx >= 0 && r[notesFlagIdx]
+      ? String(r[notesFlagIdx]).trim() || undefined
+      : undefined;
+    const qtyParsed  = parseQuantityCell(qtyRawCell);
+    const colours    = colourIdx >= 0 ? String(r[colourIdx] || '').trim() : '';
+    const supplierCell = supplierIdx >= 0 ? r[supplierIdx] : '';
+    const supParsed  = parseSupplierCell(supplierCell);
+    const notes      = notesIdx >= 0 ? String(r[notesIdx] || '').trim() : '';
 
     if (!model || /^(model|total|#)/i.test(model)) { skipped++; continue; }
     const bp = parseFloat(String(bpRaw)) || 0;
-    if (!bp && qtyRaw.toUpperCase() !== 'SHS') { skipped++; continue; }
 
-    const isSHS    = qtyRaw.toUpperCase() === 'SHS';
+    // B8 fix: do NOT drop rows with non-numeric QUANTITY. The row still has
+    // useful provenance (model/supplier/notes flag) — emit an aggregate row
+    // and skip unit synthesis. Numeric rows with no BP are still data errors.
+    const isSHS      = qtyParsed.qty === undefined && qtyParsed.flag === 'SHS';
+    const isNumeric  = qtyParsed.qty !== undefined;
+
+    if (!isNumeric && !isSHS) {
+      // Non-numeric, non-SHS (e.g. "NO STOCK", blank, "OTHER"): capture as
+      // an InventoryAggregate so downstream can decide what to do with it.
+      // qtyParsed is narrowed to the flagged variant here (qty is undefined).
+      const rawQtyText = 'raw' in qtyParsed ? qtyParsed.raw : '';
+      aggregates.push({
+        id: `agg_${aggUid++}`,
+        model,
+        brand: parsedBrand,
+        ...(parsedSeries ? { series: parsedSeries } : {}),
+        ...(storage ? { storage } : {}),
+        ...(bp ? { buyPrice: bp } : {}),
+        quantityText: rawQtyText,
+        ...(notesFlag ? { notesFlag } : {}),
+        ...(colours ? { coloursRaw: colours } : {}),
+        supplierIds: supParsed.allNames.map(supplierIdFor),
+        supplierNames: supParsed.allNames,
+        ...(notes ? { notes } : {}),
+        sourceRow: i,
+        ownerId: 'shared',
+      } as any);
+      continue;
+    }
+
+    if (!bp && !isSHS) { skipped++; continue; }
+
     const category = parseCategory(model);
-    const brand    = parseBrand(category);
+    // Prefer the parseBrandModelStorage result (covers Google/Xiaomi/OnePlus
+    // and recognises "Apple" / "SAMSUNG" leading words) over the legacy
+    // category-derived brand. Fall back to the legacy parseBrand only when the
+    // new detector returns 'Other' so we don't regress on existing data.
+    const brand = parsedBrand !== 'Other' ? parsedBrand : parseBrand(category);
 
-    const supKey     = supName.toUpperCase() || 'UNKNOWN';
-    const supplierId = `sup_${supKey.replace(/\s+/g, '_').toLowerCase()}`;
-    if (!supplierMap.has(supplierId))
-      supplierMap.set(supplierId, { id: supplierId, name: supName || 'Unknown', portal: 'Wholesale', ownerId: 'shared' });
+    // B7 fix: support "MHL / ABC / NIHAL" — primary supplier drives the legacy
+    // supplierId field; the full list is preserved in supplierIds.
+    const primaryName = supParsed.primaryName;
+    const supplierId  = supplierIdFor(primaryName);
+    const supplierIds = supParsed.allNames.length > 0
+      ? supParsed.allNames.map(supplierIdFor)
+      : [supplierId];
+
+    // Also emit an aggregate roll-up so the INVENTORY-sheet shape is preserved.
+    const coloursMap: { [c: string]: number } = {};
+    for (const c of parseColourStr(colours)) coloursMap[c.colour] = c.qty;
+    aggregates.push({
+      id: `agg_${aggUid++}`,
+      model,
+      brand,
+      ...(parsedSeries ? { series: parsedSeries } : {}),
+      ...(storage ? { storage } : {}),
+      ...(bp ? { buyPrice: bp } : {}),
+      ...(isNumeric ? { quantityNum: qtyParsed.qty as number } : {}),
+      ...(isSHS ? { quantityText: 'SHS' } : {}),
+      ...(notesFlag ? { notesFlag } : {}),
+      ...(Object.keys(coloursMap).length ? { coloursMap } : {}),
+      ...(colours ? { coloursRaw: colours } : {}),
+      supplierIds,
+      supplierNames: supParsed.allNames,
+      ...(notes ? { notes } : {}),
+      sourceRow: i,
+      ownerId: 'shared',
+    } as any);
 
     if (isSHS) {
-      const parsed = parseColourStr(colours);
-      const colourList = parsed.length ? parsed.map(c => c.colour) : ['Unknown'];
-      for (const colour of colourList) {
-        units.push({
-          id: `import_shs_${uid++}`, imei: `SHS_import_${uid}`,
-          model, brand, category, colour, buyPrice: bp,
-          dateIn, supplierId, supplierName: supName, status: 'incoming',
-          flags: [], notes: `SHS — Expected${notes ? ' · ' + notes : ''}`,
-          platformListed: false, listingSites: [], ownerId: 'shared',
-        });
-      }
+      // SHS rows emit ONE synthetic InventoryUnit placeholder so the legacy
+      // StockInPage "Pending SHS" list (which filters units.status==='incoming')
+      // lights up. The aggregate above is the source-of-truth for the new
+      // dedicated SHS panel. Deterministic id → re-imports upsert cleanly.
+      const slug = (s: string) =>
+        String(s || '').trim().toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '') || 'unknown';
+      const parsedColours = parseColourStr(colours);
+      const primaryColour = parsedColours[0]?.colour || (colours || 'Unknown');
+      units.push({
+        id: `shs_${slug(model)}_${slug(primaryName || 'unknown')}_${i}`,
+        imei: '',
+        model, brand, category, colour: primaryColour, buyPrice: bp,
+        ...(storage ? { storage } : {}),
+        ...(parsedSeries ? { series: parsedSeries } : {}),
+        dateIn, supplierId, supplierIds, supplierName: primaryName,
+        status: 'incoming',
+        statusRaw: 'SHS',
+        flags: [],
+        notes: `SHS — Expected${notes ? ' · ' + notes : ''}`,
+        platformListed: false, listingSites: [], ownerId: 'shared',
+        // Sentinel + supplier-held qty so downstream consumers can recognise
+        // a synthetic SHS placeholder (vs a real per-IMEI incoming unit).
+        _isShsPlaceholder: true,
+        _shsQuantity: qtyParsed.qty !== undefined ? qtyParsed.qty : 1,
+        // Stamp the source row so the bulk-create loop picks it up via
+        // `(u as any)._sourceRow ?? (idx + 1)` (see persist loop below).
+        _sourceRow: i,
+      } as any);
     } else {
       const parsed = parseColourStr(colours);
       const colourList: string[] = parsed.length
@@ -136,10 +401,12 @@ function parseClientBulkSheet(rows: any[][]): ParsedData {
         units.push({
           id: `import_${uid++}`, imei: `PENDING_import_${uid}`,
           model, brand, category, colour, buyPrice: bp,
-          dateIn, supplierId, supplierName: supName, status: 'available',
+          ...(storage ? { storage } : {}),
+          ...(parsedSeries ? { series: parsedSeries } : {}),
+          dateIn, supplierId, supplierIds, supplierName: primaryName, status: 'available',
           flags: [], notes: notes || '',
           platformListed: false, listingSites: [], ownerId: 'shared',
-        });
+        } as any);
       }
     }
   }
@@ -150,7 +417,8 @@ function parseClientBulkSheet(rows: any[][]): ParsedData {
   return {
     suppliers: Array.from(supplierMap.values()),
     units,
-    stats: { total: units.length, available, sold: 0, incoming, skipped, duplicateRows: 0 },
+    aggregates,
+    stats: { total: units.length, available, sold: 0, incoming, skipped, ignoredEmpty, duplicateRows: 0 },
     format: 'client-bulk',
   };
 }
@@ -161,22 +429,39 @@ function parseClientBulkSheet(rows: any[][]): ParsedData {
 //   Status · Sale Platform · Sale Price · Sale Date · Sale Order ID ·
 //   Postage Cost · Notes
 
-function parseOGStockSheet(rows: any[][]): ParsedData {
+export function parseOGStockSheet(rows: any[][]): ParsedData {
   const header = rows[0] || [];
   const findCol = (names: string[]) =>
     header.findIndex((h: any) => names.some(n => h?.toString().toUpperCase().includes(n.toUpperCase())));
 
-  // Required columns — fall back to positional index for legacy headerless sheets
-  const dateInIdx    = Math.max(findCol(['Date In', 'Stock In', 'Received']), 0);
-  const modelIdx     = Math.max(findCol(['Model', 'Device', 'Description']), 1);
-  const imeiIdx      = Math.max(findCol(['IMEI', 'Serial', 'S/N']), 2);
-  const supplierIdx  = Math.max(findCol(['Supplier', 'Source', 'From']), 3);
-  const buyPriceIdx  = Math.max(findCol(['Buy Price', 'BP', 'Cost']), 4);
-  const statusIdx    = Math.max(findCol(['Status', 'State']), 5);
+  // Required columns — fall back to positional index for legacy headerless
+  // sheets. Critical: ONLY use the fallback when the header genuinely isn't
+  // found. The previous `Math.max(findCol(...), fallback)` pattern picked
+  // the LARGER of (real, fallback) — that broke BP detection on the master
+  // IMEI NUMBERS sheet, where BP sits at col 3 but the fallback (4) won,
+  // making the parser read the COLOURS column and coerce every buyPrice
+  // to NaN → 0. The new helper preserves the header position whenever found.
+  const pickCol = (aliases: string[], fallback: number): number => {
+    const found = findCol(aliases);
+    return found >= 0 ? found : fallback;
+  };
+  const dateInIdx    = pickCol(['Date In', 'Stock In', 'Received'], 0);
+  const modelIdx     = pickCol(['Model', 'Device', 'Description'], 1);
+  const imeiIdx      = pickCol(['IMEI', 'Serial', 'S/N'], 2);
+  const supplierIdx  = pickCol(['Supplier', 'Source', 'From'], 3);
+  const buyPriceIdx  = pickCol(['Buy Price', 'BP', 'Cost'], 4);
+  const statusIdx    = pickCol(['Status', 'State'], 5);
   // Optional columns — -1 if absent
   const colourIdx      = findCol(['Colour', 'Color']);
   const storageIdx     = findCol(['Storage', 'Capacity']);
   const platformIdx    = findCol(['Sale Platform', 'Platform', 'Listed']);
+  // Master file IMEI NUMBERS sheet has a dedicated MARKETPLACE column
+  // (Back Market / Amazon / FBA / Project / R T S). Capture it verbatim.
+  const marketplaceIdx = findCol(['Marketplace', 'Channel', 'Listed On']);
+  // Master file IMEI NUMBERS sheet has STOCK OUT DATE; preserve it
+  // alongside the existing Sale Date column (semantically distinct: stock-out
+  // can predate the actual marketplace sale_date).
+  const stockOutIdx    = findCol(['Stock Out', 'Out Date', 'Dispatched']);
   const salePriceIdx   = findCol(['Sale Price', 'Price Sold', 'SP']);
   const saleDateIdx    = findCol(['Sale Date', 'Date Sold', 'Sold Date']);
   const saleOrderIdx   = findCol(['Sale Order ID', 'Order ID', 'Order Number', 'Order No']);
@@ -186,25 +471,71 @@ function parseOGStockSheet(rows: any[][]): ParsedData {
   const supplierMap = new Map<string, Omit<Supplier, 'createdAt'>>();
   const unitMap     = new Map<string, Omit<InventoryUnit, 'createdAt'>>();
   const seenImeis   = new Set<string>();
-  let skipped = 0, duplicateRows = 0;
+  let skipped = 0, duplicateRows = 0, ignoredEmpty = 0;
+
+  /** Same Excel-padding filter as parseClientBulkSheet. */
+  const isRowFullyEmpty = (r: any[]): boolean => {
+    if (!r || r.length === 0) return true;
+    for (const v of r) {
+      if (v == null) continue;
+      if (typeof v === 'number') return false;
+      if (typeof v === 'string' && v.trim() !== '') return false;
+      if (typeof v === 'boolean') return false;
+      if (v instanceof Date) return false;
+    }
+    return true;
+  };
 
   for (let i = 1; i < rows.length; i++) {
     const r = rows[i];
-    const model = r[modelIdx]?.toString().trim();
-    if (!model || /^(model|total|#)/i.test(model)) { skipped++; continue; }
+    if (isRowFullyEmpty(r)) { ignoredEmpty++; continue; }
+    const rawModel = r[modelIdx]?.toString().trim();
+    if (!rawModel || /^(model|total|#)/i.test(rawModel)) { skipped++; continue; }
+    // Split into brand / model / storage / series. The cleaned model is what
+    // we persist; storage falls back to the dedicated Storage column when
+    // present; brand/series are first-class doc fields so legacy renderers
+    // don't have to re-parse at read time.
+    const parsedModel = parseBrandModelStorage(rawModel);
+    const { brand: parsedBrand, model, storage: modelStorage, series: parsedSeries } = parsedModel;
 
-    const imei         = r[imeiIdx]?.toString().trim() || '';
+    // Cast IMEI cell to string explicitly so a 15-digit number doesn't become "1.23e+14"
+    const imei         = r[imeiIdx] === undefined || r[imeiIdx] === null
+      ? ''
+      : (typeof r[imeiIdx] === 'number'
+          ? Number.isInteger(r[imeiIdx]) ? r[imeiIdx].toFixed(0) : String(r[imeiIdx])
+          : String(r[imeiIdx])).trim();
     const supplierName = r[supplierIdx]?.toString().trim() || 'Unknown';
     const buyPrice     = parseFloat(r[buyPriceIdx]) || 0;
     const colour       = colourIdx >= 0 && r[colourIdx] ? r[colourIdx].toString().trim() : 'Unknown';
-    const storage      = storageIdx >= 0 && r[storageIdx] ? r[storageIdx].toString().trim() : undefined;
+    // Prefer the dedicated Storage column when present, fall back to the value
+    // we just extracted out of the MODEL string.
+    const explicitStorage = storageIdx >= 0 && r[storageIdx] ? r[storageIdx].toString().trim() : undefined;
+    const storage      = explicitStorage || modelStorage;
     const notes        = notesIdx >= 0 && r[notesIdx] ? r[notesIdx].toString().trim() : '';
 
-    const statusRaw = r[statusIdx]?.toString().trim().toUpperCase();
+    // Preserve the raw STATUS string verbatim ("R T S", "FBA", "SOLD", etc.)
+    // alongside the normalised enum, so downstream displays can show the
+    // operator-typed value AND filter on the canonical state.
+    const statusRawCell  = r[statusIdx]?.toString().trim() || '';
+    const statusRawUpper = statusRawCell.toUpperCase();
     const status: InventoryUnit['status'] =
-      statusRaw === 'SOLD'                          ? 'sold' :
-      statusRaw === 'INCOMING' || statusRaw === 'SHS' ? 'incoming' :
+      statusRawUpper === 'SOLD'                                      ? 'sold' :
+      statusRawUpper === 'INCOMING' || statusRawUpper === 'SHS'      ? 'incoming' :
+      statusRawUpper === 'FBA'                                       ? 'fba' :
+      statusRawUpper.replace(/\s+/g, '') === 'RTS'                   ? 'ready_to_ship' :
       'available';
+    const statusRaw      = statusRawCell || undefined;
+
+    // MARKETPLACE column (verbatim — preserves the client's spelling like
+    // "Back Market" with the space, "Project", "R T S").
+    const marketplace = marketplaceIdx >= 0 && r[marketplaceIdx]
+      ? String(r[marketplaceIdx]).trim() || undefined
+      : undefined;
+    // STOCK OUT DATE — distinct from saleDate (a unit can be dispatched
+    // before / independently of the marketplace sale record).
+    const stockOutDate = stockOutIdx >= 0 && r[stockOutIdx]
+      ? excelSerialToISO(r[stockOutIdx])
+      : undefined;
 
     const salePlatform  = platformIdx  >= 0 ? r[platformIdx]?.toString().trim()  || '' : '';
     const salePrice     = salePriceIdx >= 0 ? parseFloat(r[salePriceIdx])        || 0  : 0;
@@ -221,10 +552,13 @@ function parseOGStockSheet(rows: any[][]): ParsedData {
       supplierMap.set(supplierId, { id: supplierId, name: supplierName, portal: 'Direct', ownerId: 'shared' });
 
     const category    = parseCategory(model);
-    const brand       = parseBrand(category);
+    // Prefer the parseBrandModelStorage detector (covers Google/Xiaomi/OnePlus
+    // and recognises bare "S21" / "A32" models) over the legacy category-derived
+    // brand. Fall back to parseBrand only when the new detector says 'Other'.
+    const brand       = parsedBrand !== 'Other' ? parsedBrand : parseBrand(category);
     const cleanedImei = normalizeImei(imei);
-    // Non-SHS with valid IMEI → use raw IMEI as ID (matches NewBatchModal, same unit = same record)
-    const unitId    = cleanedImei.length >= 14 ? cleanedImei : buildStableUnitId({ imei, model, dateIn, supplierId, buyPrice, status });
+    // Non-SHS with any non-empty IMEI/serial → use it as ID (alphanumeric Apple serials accepted)
+    const unitId    = cleanedImei ? cleanedImei : buildStableUnitId({ imei, model, dateIn, supplierId, buyPrice, status });
     const dedupeKey = cleanedImei || unitId;
 
     if (seenImeis.has(dedupeKey)) { duplicateRows++; }
@@ -235,8 +569,16 @@ function parseOGStockSheet(rows: any[][]): ParsedData {
       colour, buyPrice, dateIn, supplierId, status,
       flags: [], notes,
       ...(storage      ? { storage }      : {}),
+      ...(parsedSeries ? { series: parsedSeries } : {}),
       ...(postageCost  !== undefined ? { postageCost } : {}),
-      platformListed: status === 'available' && !!salePlatform,
+      // Gap fixes — preserve the master file's verbatim values
+      // (B6 follow-up: status verbatim, marketplace, stock-out date).
+      ...(statusRaw    ? { statusRaw }    : {}),
+      ...(marketplace  ? { marketplace }  : {}),
+      ...(stockOutDate ? { stockOutDate } : {}),
+      // platformListed: any unit that has a marketplace assignment OR has
+      // a listing platform OR is in the FBA/R T S pipeline counts as listed.
+      platformListed: !!salePlatform || !!marketplace || status === 'fba' || status === 'ready_to_ship',
       listingSites:   salePlatform ? [salePlatform as any] : [],
       ownerId: 'shared',
       ...(status === 'sold' ? {
@@ -256,7 +598,7 @@ function parseOGStockSheet(rows: any[][]): ParsedData {
   return {
     suppliers: Array.from(supplierMap.values()),
     units,
-    stats: { total: units.length, available, sold, incoming, skipped, duplicateRows },
+    stats: { total: units.length, available, sold, incoming, skipped, ignoredEmpty, duplicateRows },
     format: 'imei-per-row',
   };
 }
@@ -294,24 +636,129 @@ export default function ImportModal({ onClose }: ImportModalProps) {
     setError('');
     const isCsv = /\.csv$/i.test(file.name) || file.type === 'text/csv';
     const reader = new FileReader();
-    reader.onload = (e) => {
+    reader.onload = async (e) => {
       try {
         // xlsx auto-detects CSV vs binary, but CSVs need to be read as text
         // (or as binary string) to avoid byte-order mark corruption. Branch
         // on extension/MIME so we hand xlsx the right input every time.
+        // raw + cellText: keep 15-digit IMEIs as strings, avoid 1.23e+14 coercion
         const wb = isCsv
-          ? XLSX.read(e.target!.result as string, { type: 'string' })
-          : XLSX.read(new Uint8Array(e.target!.result as ArrayBuffer), { type: 'array' });
-        const sheetName = wb.SheetNames.includes('OG STOCK DATA') ? 'OG STOCK DATA' : wb.SheetNames[0];
-        const ws   = wb.Sheets[sheetName];
-        const rows: any[][] = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' }) as any[][];
+          ? XLSX.read(e.target!.result as string, { type: 'string', raw: true, cellText: true })
+          : XLSX.read(new Uint8Array(e.target!.result as ArrayBuffer), { type: 'array', raw: true, cellText: true });
 
-        const format = detectFormat(rows[0] || []);
-        const result = format === 'client-bulk' ? parseClientBulkSheet(rows) : parseOGStockSheet(rows);
-        if (!result.units.length) {
+        // Detect a SALES_REPORT-style workbook by sheet names. If any of the
+        // five marketplace sheets are present, dispatch to the dedicated sales
+        // parser instead of the inventory parsers.
+        const salesSheets = wb.SheetNames.filter(n =>
+          ['AMAZON', 'BM', 'EBAY', 'ONBUY', 'PROJECT'].includes(n.toUpperCase())
+        );
+        if (salesSheets.length > 0 && !isCsv) {
+          const { parseSalesWorkbook } = await import('../lib/salesImport');
+          const parsedSales = await parseSalesWorkbook(
+            e.target!.result as ArrayBuffer,
+            file.name,
+          );
+          if (!parsedSales.sales.length) {
+            setError(
+              'Sales workbook detected but no valid rows were parsed. ' +
+              `Errors: ${parsedSales.errors.slice(0, 3).map(x => `${x.sheet}#${x.row}: ${x.message}`).join('; ')}`,
+            );
+            return;
+          }
+          const result: ParsedData = {
+            units: [],
+            suppliers: [],
+            aggregates: [],
+            sales: parsedSales.sales as ParsedData['sales'],
+            stats: { total: 0, available: 0, sold: 0, incoming: 0, skipped: 0, duplicateRows: 0 },
+            format: 'client-bulk',
+            sheetName: salesSheets.join(', '),
+            summary: `sales · ${parsedSales.sales.length} rows across ${salesSheets.length} marketplaces` +
+              (parsedSales.errors.length ? ` · ${parsedSales.errors.length} skipped` : ''),
+          };
+          setParsed(result);
+          setStage('preview');
+          return;
+        }
+
+        // INVENTORY_REPORT workbooks ship with two stock-relevant sheets:
+        // "INVENTORY" (the model+supplier roll-up, bulk format) and
+        // "IMEI NUMBERS" (one row per physical IMEI). Process WHICHEVER is
+        // present, merging the results — that way the user gets aggregates
+        // + per-unit records from the same upload instead of having to drag
+        // the file in twice.
+        const parsedSheets: { name: string; result: ParsedData }[] = [];
+        const sheetCandidates = wb.SheetNames.includes('OG STOCK DATA')
+          ? ['OG STOCK DATA']
+          : ['INVENTORY', 'IMEI NUMBERS'].filter(n => wb.SheetNames.includes(n));
+        // Fall back to the very first sheet if neither named sheet is present.
+        if (sheetCandidates.length === 0 && wb.SheetNames.length > 0) {
+          sheetCandidates.push(wb.SheetNames[0]);
+        }
+        for (const sheetName of sheetCandidates) {
+          const ws = wb.Sheets[sheetName];
+          if (!ws) continue;
+          const rows: any[][] = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' }) as any[][];
+          if (!rows.length) continue;
+          const format = detectFormat(rows[0] || []);
+          const result = format === 'client-bulk' ? parseClientBulkSheet(rows) : parseOGStockSheet(rows);
+          if (!result.units.length && !(result.aggregates?.length)) continue;
+          parsedSheets.push({ name: sheetName, result });
+        }
+
+        // SUPPLIER WHATSAPP UPDATES sheet — captured separately because it's
+        // not a unit / aggregate stream. Lands in supplierWhatsappUpdates
+        // collection via handleImport.
+        let whatsappUpdates: ParsedData['whatsappUpdates'];
+        if (wb.SheetNames.includes('SUPPLIER WHATSAPP UPDATES')) {
+          const waRows: any[][] = XLSX.utils.sheet_to_json(
+            wb.Sheets['SUPPLIER WHATSAPP UPDATES'],
+            { header: 1, defval: '' },
+          ) as any[][];
+          const parsedWa = parseSupplierWhatsappSheet(waRows);
+          if (parsedWa.updates.length) whatsappUpdates = parsedWa.updates;
+        }
+
+        if (parsedSheets.length === 0 && !whatsappUpdates?.length) {
           setError('No valid rows found. Check the file has a header row and at least one data row matching the expected columns.');
           return;
         }
+
+        // Merge multi-sheet results into one ParsedData payload.
+        const result: ParsedData = parsedSheets[0]?.result ?? {
+          suppliers: [],
+          units: [],
+          aggregates: [],
+          stats: { total: 0, available: 0, sold: 0, incoming: 0, skipped: 0, duplicateRows: 0 },
+          format: 'client-bulk',
+        };
+        for (let i = 1; i < parsedSheets.length; i++) {
+          const next = parsedSheets[i].result;
+          result.units = [...result.units, ...next.units];
+          result.suppliers = mergeSuppliers([...result.suppliers, ...next.suppliers]);
+          result.aggregates = [...(result.aggregates ?? []), ...(next.aggregates ?? [])];
+          result.stats = {
+            total:        result.stats.total + next.stats.total,
+            available:    result.stats.available + next.stats.available,
+            sold:         result.stats.sold + next.stats.sold,
+            incoming:     result.stats.incoming + next.stats.incoming,
+            skipped:      result.stats.skipped + next.stats.skipped,
+            ignoredEmpty: (result.stats.ignoredEmpty ?? 0) + (next.stats.ignoredEmpty ?? 0),
+            duplicateRows: result.stats.duplicateRows + next.stats.duplicateRows,
+          };
+        }
+        if (whatsappUpdates) result.whatsappUpdates = whatsappUpdates;
+        const sheetName = [
+          ...parsedSheets.map(s => s.name),
+          ...(whatsappUpdates?.length ? ['SUPPLIER WHATSAPP UPDATES'] : []),
+        ].join(' + ');
+        // Stamp workbook/sheet metadata + a short summary onto the parsed
+        // payload so handleImport can record them on the importBatches row
+        // without the parsers having to know about them.
+        result.sheetName = sheetName;
+        result.summary = `${result.format} · ${result.stats.total} units` +
+          (result.aggregates?.length ? ` · ${result.aggregates.length} aggregates` : '') +
+          (result.suppliers.length ? ` · ${result.suppliers.length} suppliers` : '');
         setParsed(result);
         setStage('preview');
       } catch (err: any) {
@@ -356,7 +803,7 @@ export default function ImportModal({ onClose }: ImportModalProps) {
   }, [parsed, stage]);
 
   const handleImport = async () => {
-    if (!parsed) return;
+    if (!parsed || !sourceFile) return;
     setStage('importing');
     setError('');
 
@@ -372,20 +819,153 @@ export default function ImportModal({ onClose }: ImportModalProps) {
       : parsed.units;
 
     const skippedAsDuplicate = parsed.units.length - filteredUnits.length;
+    const file = sourceFile;
+    const aggregates = parsed.aggregates ?? [];
+    const sales = parsed.sales ?? [];
 
-    const allDocs: { collection: string; id: string; data: any }[] = [];
-    for (const s of parsed.suppliers)
-      allDocs.push({ collection: 'suppliers',      id: s.id, data: { ...s, ownerId: 'shared' } });
-    for (const u of filteredUnits)
-      allDocs.push({ collection: 'inventoryUnits', id: u.id, data: { ...u, ownerId: 'shared' } });
-
-    const uniqueDocsMap = new Map<string, { collection: string; id: string; data: any }>();
-    for (const doc of allDocs) uniqueDocsMap.set(`${doc.collection}_${doc.id}`, doc);
-    const finalDocs = Array.from(uniqueDocsMap.values());
-
-    setProgress({ done: 0, total: finalDocs.length });
     try {
+      // ── B9 step 1 ── Create the importBatches row up-front so every
+      // downstream doc can carry its id. rowCount covers both unit + aggregate
+      // writes (suppliers and the event are bookkeeping, not data rows).
+      const importBatchId = await dbService.createImportBatch({
+        sourceFile: file.name,
+        sourceSheet: parsed.sheetName,
+        rowCount: filteredUnits.length + aggregates.length,
+        supplierId: parsed.detectedSupplierId,
+        notes: parsed.summary,
+      });
+      const importedAt = new Date().toISOString();
+
+      // ── B7 follow-up ── Resolve synthetic `sup_<slug>` ids to real
+      // `suppliers` collection docs. Match case-insensitive trim against
+      // existing `name`; otherwise create on the fly with a stable slug id.
+      const existingSuppliers = await dbService.readAll('suppliers');
+      const byNormName = new Map<string, any>();
+      for (const sup of existingSuppliers) {
+        const n = String(sup?.name || '').trim().toLowerCase();
+        if (n) byNormName.set(n, sup);
+      }
+
+      const slugify = (name: string) =>
+        `sup_${name.trim().toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '') || 'unknown'}`;
+
+      // syntheticId → realId for rewriting unit/aggregate references.
+      const idRemap = new Map<string, string>();
+      // realId → supplier doc to upsert (covers brand-new suppliers only).
+      const suppliersToCreate = new Map<string, Omit<Supplier, 'createdAt'>>();
+
+      for (const parsedSup of parsed.suppliers) {
+        const name = (parsedSup.name || '').trim();
+        const norm = name.toLowerCase();
+        const existing = norm ? byNormName.get(norm) : undefined;
+        if (existing?.id) {
+          idRemap.set(parsedSup.id, existing.id);
+        } else {
+          // Brand new supplier — mint a stable slug id and queue it for write.
+          const realId = slugify(name || 'Unknown');
+          idRemap.set(parsedSup.id, realId);
+          if (!suppliersToCreate.has(realId)) {
+            suppliersToCreate.set(realId, {
+              id: realId,
+              name: name || 'Unknown',
+              portal: parsedSup.portal || 'Wholesale',
+              ownerId: 'shared',
+            });
+            // Cache locally so subsequent rows in this batch resolve to the same id.
+            byNormName.set(name.toLowerCase(), { id: realId, name });
+          }
+        }
+      }
+
+      const resolveId = (synthetic: string | undefined): string | undefined =>
+        synthetic ? (idRemap.get(synthetic) ?? synthetic) : synthetic;
+      const resolveIds = (ids: string[] | undefined): string[] | undefined =>
+        ids ? ids.map(id => idRemap.get(id) ?? id) : ids;
+
+      // ── B9 step 2 ── Stamp every unit with batch/source provenance and
+      // rewrite supplier ids to point at the real collection docs.
+      const stampedUnits = filteredUnits.map((u, idx) => ({
+        ...u,
+        supplierId:  resolveId(u.supplierId)!,
+        supplierIds: resolveIds(u.supplierIds),
+        importBatchId,
+        sourceFile:  file.name,
+        // Parser doesn't currently emit `_sourceRow` on units; derive from
+        // the array position so the audit field is always populated.
+        sourceRow:   (u as any)._sourceRow ?? (idx + 1),
+        importedAt,
+        ownerId:     'shared',
+      }));
+
+      // ── B8 step ── Persist aggregates (the INVENTORY-sheet roll-up rows
+      // that B8 stopped dropping silently). Same provenance fields as units.
+      const stampedAggregates = aggregates.map(a => ({
+        ...a,
+        supplierIds: resolveIds(a.supplierIds) ?? [],
+        importBatchId,
+        sourceFile:  file.name,
+        sourceRow:   a.sourceRow,
+        importedAt,
+        ownerId:     'shared',
+      }));
+
+      // SUPPLIER WHATSAPP UPDATES — stamp the same provenance fields and
+      // route to the supplierWhatsappUpdates collection. Best-effort match
+      // each line to a known supplier when the rawText contains their name;
+      // otherwise leave supplierId blank (operator can backfill).
+      const stampedWhatsapp = (parsed.whatsappUpdates ?? []).map((w, idx) => {
+        const upper = w.rawText.toUpperCase();
+        const matchedSupplier = [...byNormName.values()].find(
+          s => s.name && upper.includes(s.name.toUpperCase()),
+        );
+        return {
+          ...w,
+          id: w.id || `wa_${importBatchId.slice(0, 6)}_${idx}`,
+          ...(matchedSupplier ? { supplierId: matchedSupplier.id } : {}),
+          importBatchId,
+          sourceFile: file.name,
+          sourceRow: idx + 2,
+          postedAt: importedAt,
+          ownerId: 'shared',
+        };
+      });
+
+      // Assemble the single bulk-create payload (suppliers → units → aggregates → whatsapp).
+      const allDocs: { collection: string; id: string; data: any }[] = [];
+      for (const s of suppliersToCreate.values())
+        allDocs.push({ collection: 'suppliers', id: s.id, data: s });
+      for (const u of stampedUnits)
+        allDocs.push({ collection: 'inventoryUnits', id: u.id, data: u });
+      for (const a of stampedAggregates)
+        allDocs.push({ collection: 'inventoryAggregates', id: a.id, data: a });
+      for (const w of stampedWhatsapp)
+        allDocs.push({ collection: 'supplierWhatsappUpdates', id: w.id, data: w });
+
+      const uniqueDocsMap = new Map<string, { collection: string; id: string; data: any }>();
+      for (const d of allDocs) uniqueDocsMap.set(`${d.collection}_${d.id}`, d);
+      const finalDocs = Array.from(uniqueDocsMap.values());
+
+      setProgress({ done: 0, total: finalDocs.length });
       await dbService.bulkCreate(finalDocs, (done, total) => setProgress({ done, total }));
+
+      // Sales are owned by a sibling agent's workstream; only wire through
+      // if the parser emits them. Same provenance fields go on each row.
+      if (sales.length > 0) {
+        await dbService.bulkUpsertSales(
+          sales.map(s => ({ ...s, importBatchId, importedAt })),
+        );
+      }
+
+      // ── B9 step 5 ── Single audit event summarising the whole import.
+      await logInventoryEvent({
+        type: 'batch_created',
+        message:
+          `Imported ${stampedUnits.length} units, ${stampedAggregates.length} aggregates, ` +
+          `${sales.length} sales from ${file.name} (batch ${importBatchId})`,
+        batchId: importBatchId,
+        supplierId: parsed.detectedSupplierId,
+      });
+
       setImportResult({
         imported: filteredUnits.length,
         skipped: parsed.stats.skipped || 0,
@@ -393,17 +973,23 @@ export default function ImportModal({ onClose }: ImportModalProps) {
         failed: 0,
       });
       setStage('done');
-      // Upload source file in background (non-blocking)
-      if (sourceFile) {
-        (async () => {
-          try {
-            const importId = `import_${Date.now()}`;
-            const source   = await uploadSourceAttachment(sourceFile, 'import', importId);
-            await dbService.create('sourceDocuments', `doc_${importId}`, { ...source, linkedId: importId, ownerId: 'shared' });
-            await logInventoryEvent({ type: 'file_attached', message: `Import: ${sourceFile.name}`, batchId: importId });
-          } catch { /* non-critical */ }
-        })();
-      }
+
+      // Upload source file in background (non-blocking). Use the real
+      // importBatchId so sourceDocuments link back to the audit row.
+      (async () => {
+        try {
+          const source = await uploadSourceAttachment(file, 'import', importBatchId);
+          await dbService.create('sourceDocuments', `doc_${importBatchId}`, {
+            ...source, linkedId: importBatchId, ownerId: 'shared',
+          });
+          await logInventoryEvent({
+            type: 'file_attached',
+            message: `Import: ${file.name}`,
+            batchId: importBatchId,
+          });
+        } catch { /* non-critical */ }
+      })();
+
       setTimeout(onClose, 2000);
     } catch (err: any) {
       setError('Import failed: ' + err.message);
@@ -590,9 +1176,14 @@ export default function ImportModal({ onClose }: ImportModalProps) {
                 <div className="px-4 py-3 ring-1 ring-slate-200 bg-slate-50/60 rounded-xl flex items-start gap-2.5">
                   <AlertTriangle size={14} className="mt-0.5 flex-shrink-0 text-slate-400" strokeWidth={1.75} />
                   <p className="text-[11px] text-slate-600 leading-relaxed">
-                    <span className="font-semibold">{parsed.stats.skipped}</span> row{parsed.stats.skipped !== 1 ? 's' : ''} couldn't be parsed (missing model, no buy price, or header repeated). They'll be skipped.
+                    <span className="font-semibold">{parsed.stats.skipped}</span> row{parsed.stats.skipped !== 1 ? 's' : ''} had a header repeat or a section title (no model, no buy price). Skipped — no action needed.
                   </p>
                 </div>
+              )}
+              {parsed.stats.ignoredEmpty !== undefined && parsed.stats.ignoredEmpty > 0 && (
+                <p className="text-[10px] text-slate-400 font-mono mt-1">
+                  {parsed.stats.ignoredEmpty} empty padding row{parsed.stats.ignoredEmpty !== 1 ? 's' : ''} ignored (Excel formatting noise).
+                </p>
               )}
 
               <div>

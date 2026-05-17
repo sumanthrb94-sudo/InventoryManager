@@ -1,21 +1,25 @@
 import React, { useState, useEffect } from 'react';
 import { onAuthStateChanged, User } from 'firebase/auth';
-import { auth, signInWithGoogle, signOut } from './lib/firebase';
+import { auth, signInWithEmail, signOut, isAdmin, userRegion, canBuy, canSell } from './lib/firebase';
+import { fmtDateTimeForUser, useUserRegion } from './lib/userLocale';
 import {
-  PackagePlus, ShoppingCart, RefreshCw, BarChart2,
+  PackagePlus, ShoppingCart, RefreshCw,
   LogOut, Plus, FileSpreadsheet, LayoutDashboard,
   TrendingUp, FileText, Users, Settings, Database,
+  ClipboardList, History,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import Dashboard, { NavAction } from './components/Dashboard';
 import NewBatchModal from './components/NewBatchModal';
 import ImportModal from './components/ImportModal';
+import MasterDataLinkedImport from './components/MasterDataLinkedImport';
 import StockInPage from './components/StockInPage';
 import SellPage from './components/SellPage';
 import ReturnsPage from './components/ReturnsPage';
 import ReportingPage from './components/ReportingPage';
 import Suppliers from './components/Suppliers';
 import AnalyticsPage from './components/AnalyticsPage';
+import Sales from './components/Sales';
 import { useRealTimeNotifications } from './hooks/useRealTimeNotifications';
 import NotificationToast from './components/NotificationToast';
 import NotificationBell from './components/NotificationBell';
@@ -26,9 +30,41 @@ import { InventoryStoreProvider, useInventoryStore } from './lib/inventoryStore'
 import DataSeedPage from './components/DataSeedPage';
 import LoadMockDataModal from './components/LoadMockDataModal';
 import ErrorBoundary from './components/ErrorBoundary';
+import type { ImportBatch, SupplierWhatsappUpdate } from './types';
 
-type Tab        = 'buy' | 'sell' | 'returns' | 'analytics';
-type AnalyticsSub = 'overview' | 'insights' | 'reports' | 'suppliers';
+type Tab      = 'buy' | 'sell' | 'returns' | 'admin';
+type AdminSub = 'overview' | 'masterData' | 'salesHistory' | 'insights' | 'reports' | 'suppliers' | 'audit';
+
+interface NavTab {
+  id: Tab;
+  label: string;
+  icon: React.ReactNode;
+}
+
+/**
+ * Build the sidebar/bottom-nav tabs visible to the given user, gated by their
+ * region. Returns is shared by both UK and India ops; admin gets everything.
+ * Used by both the sidebar render and the redirect-on-mount fallback so they
+ * stay in sync.
+ */
+function buildNavTabs(user: User): NavTab[] {
+  const tabs: NavTab[] = [];
+  if (canBuy(user))   tabs.push({ id: 'buy',     label: 'Buy',     icon: <PackagePlus size={20} /> });
+  if (canSell(user))  tabs.push({ id: 'sell',    label: 'Sell',    icon: <ShoppingCart size={20} /> });
+  tabs.push({           id: 'returns', label: 'Returns', icon: <RefreshCw size={20} /> });
+  if (isAdmin(user))  tabs.push({ id: 'admin',   label: 'Admin',   icon: <Settings size={20} /> });
+  return tabs;
+}
+
+/** Human-facing label for the sidebar region badge ('' = hide). */
+function regionBadgeLabel(region: ReturnType<typeof userRegion>): string {
+  switch (region) {
+    case 'uk':    return 'UK ops';
+    case 'india': return 'India ops';
+    case 'admin': return 'Admin';
+    default:      return '';
+  }
+}
 
 const APP_NAME    = 'MOBILEPHONEMARKET';
 const APP_TAGLINE = 'Inventory Manager';
@@ -77,19 +113,27 @@ function LoadingScreen() {
   );
 }
 
-const ANALYTICS_SUBS: { id: AnalyticsSub; label: string; icon: React.ReactNode }[] = [
-  { id: 'overview',  label: 'Overview',  icon: <LayoutDashboard size={14} /> },
-  { id: 'insights',  label: 'Insights',  icon: <TrendingUp size={14} /> },
-  { id: 'reports',   label: 'Reports',   icon: <FileText size={14} /> },
-  { id: 'suppliers', label: 'Suppliers', icon: <Users size={14} /> },
+const ADMIN_SUBS: { id: AdminSub; label: string; icon: React.ReactNode }[] = [
+  { id: 'overview',     label: 'Overview',      icon: <LayoutDashboard size={14} /> },
+  { id: 'masterData',   label: 'Master Data',   icon: <FileSpreadsheet size={14} /> },
+  { id: 'salesHistory', label: 'Sales History', icon: <ClipboardList size={14} /> },
+  { id: 'insights',     label: 'Insights',      icon: <TrendingUp size={14} /> },
+  { id: 'reports',      label: 'Reports',       icon: <FileText size={14} /> },
+  { id: 'suppliers',    label: 'Suppliers',     icon: <Users size={14} /> },
+  { id: 'audit',        label: 'Audit',         icon: <History size={14} /> },
 ];
 
 function AppShell({ user }: { user: User }) {
-  const { loaded }                                = useInventoryStore();
+  const { loaded, units, whatsappFeed, importBatches } = useInventoryStore();
+  const userIsAdmin                               = isAdmin(user);
+  // Hide the "Sample Data" entrypoints once real master data is in the DB.
+  // Devs can still reach the modal by loading the app with an empty DB.
+  const showSampleDataButton                      = units.length <= 100;
   const [activeTab, setActiveTab]                 = useState<Tab>('buy');
-  const [analyticsSub, setAnalyticsSub]           = useState<AnalyticsSub>('overview');
+  const [adminSub, setAdminSub]                   = useState<AdminSub>('overview');
   const [isBatchModalOpen, setIsBatchModalOpen]   = useState(false);
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
+  const [isMasterDataOpen, setIsMasterDataOpen]   = useState(false);
   const [isLoadMockDataOpen, setIsLoadMockDataOpen] = useState(false);
   const [unreadCount, setUnreadCount]             = useState(0);
   const [syncConnected, setSyncConnected]         = useState(false);
@@ -100,25 +144,41 @@ function AppShell({ user }: { user: User }) {
   useEffect(() => notificationService.subscribe(() => setUnreadCount(notificationService.getUnreadCount())), []);
   useEffect(() => subscribeToSyncStatus(setSyncConnected), []);
 
+  // Folding the Master Data sidebar entry into Admin: when the sub-tab is
+  // 'masterData', open the modal. Closing it returns the user to Overview.
+  useEffect(() => {
+    if (activeTab === 'admin' && adminSub === 'masterData' && userIsAdmin) {
+      setIsMasterDataOpen(true);
+    }
+  }, [activeTab, adminSub, userIsAdmin]);
+
   const handleNavigate = (action: NavAction) => {
+    if (!userIsAdmin) return;
     if (action.tab === 'inventory' || action.tab === 'sales') {
-      setActiveTab('analytics');
-      setAnalyticsSub('overview');
+      setActiveTab('admin');
+      setAdminSub('overview');
     } else if (action.tab === 'suppliers') {
-      setActiveTab('analytics');
-      setAnalyticsSub('suppliers');
+      setActiveTab('admin');
+      setAdminSub('suppliers');
     } else if (action.tab === 'calendar') {
-      setActiveTab('analytics');
-      setAnalyticsSub('insights');
+      setActiveTab('admin');
+      setAdminSub('insights');
     }
   };
 
-  const NAV_TABS: { id: Tab; label: string; icon: React.ReactNode }[] = [
-    { id: 'buy',       label: 'Buy',       icon: <PackagePlus size={20} /> },
-    { id: 'sell',      label: 'Sell',      icon: <ShoppingCart size={20} /> },
-    { id: 'returns',   label: 'Returns',   icon: <RefreshCw size={20} /> },
-    { id: 'analytics', label: 'Analytics', icon: <BarChart2 size={20} /> },
-  ];
+  const NAV_TABS = React.useMemo(() => buildNavTabs(user), [user]);
+  const region   = userRegion(user);
+  const regionBadge = regionBadgeLabel(region);
+
+  // Redirect-on-mount: if the user landed on a tab they're not allowed to
+  // see (e.g. activeTab='buy' but they're India-only), fall back to the
+  // first tab in their allowed set. Returns is in every region's list so
+  // there's always at least one tab.
+  useEffect(() => {
+    if (!NAV_TABS.some(t => t.id === activeTab)) {
+      setActiveTab(NAV_TABS[0].id);
+    }
+  }, [NAV_TABS, activeTab]);
 
   return (
     <div className="h-[100dvh] bg-slate-50 text-slate-900 flex overflow-hidden">
@@ -130,11 +190,19 @@ function AppShell({ user }: { user: User }) {
 
         {/* Brand strip — same height as header */}
         <div className="h-16 flex-shrink-0 flex items-center px-5 border-b border-slate-100">
-          <button onClick={() => setActiveTab('buy')} className="text-left group active:scale-95 transition-transform">
+          <button onClick={() => setActiveTab(NAV_TABS[0]?.id ?? 'returns')} className="text-left group active:scale-95 transition-transform">
             <h1 className="text-[13px] font-black tracking-tighter uppercase font-display text-slate-900 leading-none">
               {APP_NAME}
             </h1>
-            <p className="text-[7px] text-slate-400 font-mono uppercase tracking-[0.35em] mt-1">{APP_TAGLINE}</p>
+            <p className="text-[7px] text-slate-400 font-mono uppercase tracking-[0.35em] mt-1">
+              {APP_TAGLINE}
+              {regionBadge && (
+                <>
+                  {' · '}
+                  <span className="text-slate-600">{regionBadge.toUpperCase()}</span>
+                </>
+              )}
+            </p>
           </button>
         </div>
 
@@ -151,12 +219,14 @@ function AppShell({ user }: { user: User }) {
             </button>
           ))}
 
-          {activeTab === 'analytics' && (
+          {/* Admin sub-nav (sidebar). Hidden entirely for non-admins because
+              the Admin tab itself is hidden from NAV_TABS for them. */}
+          {userIsAdmin && activeTab === 'admin' && (
             <div className="ml-3 mt-1 space-y-0.5 border-l-2 border-slate-100 pl-3">
-              {ANALYTICS_SUBS.map(s => (
-                <button key={s.id} onClick={() => setAnalyticsSub(s.id)}
+              {ADMIN_SUBS.map(s => (
+                <button key={s.id} onClick={() => setAdminSub(s.id)}
                   className={`w-full flex items-center gap-2 px-3 py-2 rounded-lg transition-all
-                    ${analyticsSub === s.id
+                    ${adminSub === s.id
                       ? 'text-slate-900 bg-slate-100 font-bold'
                       : 'text-slate-400 hover:text-slate-900 hover:bg-slate-50'}`}>
                   {s.icon}
@@ -308,25 +378,30 @@ function AppShell({ user }: { user: User }) {
 
         {/* User footer */}
         <div className="flex-shrink-0 p-3 border-t border-slate-100 space-y-1">
-          <div className="flex items-center gap-2.5 px-3 py-2.5 rounded-xl bg-slate-50">
-            {user.photoURL
-              ? <img src={user.photoURL} alt="" className="w-7 h-7 rounded-lg object-cover flex-shrink-0" referrerPolicy="no-referrer" />
-              : <div className="w-7 h-7 rounded-lg bg-slate-900 flex items-center justify-center flex-shrink-0 text-white text-xs font-bold">
-                  {(user.displayName || user.email || 'U')[0].toUpperCase()}
-                </div>}
-            <div className="flex-1 min-w-0">
-              <p className="text-[10px] font-bold text-slate-900 truncate leading-none">{user.displayName || 'User'}</p>
-              <p className="text-[9px] text-slate-400 font-mono truncate mt-0.5">{user.email}</p>
-            </div>
-          </div>
+          {(() => {
+            const displayName = user.displayName || user.email?.split('@')[0] || 'User';
+            return (
+              <div className="flex items-center gap-2.5 px-3 py-2.5 rounded-xl bg-slate-50">
+                <div className="w-7 h-7 rounded-lg bg-slate-900 flex items-center justify-center flex-shrink-0 text-white text-xs font-bold">
+                  {displayName[0].toUpperCase()}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-[10px] font-bold text-slate-900 truncate leading-none">{displayName}</p>
+                  <p className="text-[9px] text-slate-400 font-mono truncate mt-0.5">{user.email}</p>
+                </div>
+              </div>
+            );
+          })()}
           <button onClick={() => signOut()}
             className="w-full flex items-center gap-2 px-3 py-2 rounded-xl text-[10px] font-bold uppercase tracking-widest text-slate-500 hover:text-slate-900 hover:bg-slate-100 transition-all">
             <LogOut size={12} strokeWidth={2.5} /> Sign Out
           </button>
-          <button onClick={() => setIsLoadMockDataOpen(true)}
-            className="w-full flex items-center gap-2 px-3 py-2 rounded-xl text-[10px] font-bold uppercase tracking-widest text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-all">
-            <Database size={12} strokeWidth={2} /> Sample Data
-          </button>
+          {showSampleDataButton && (
+            <button onClick={() => setIsLoadMockDataOpen(true)}
+              className="w-full flex items-center gap-2 px-3 py-2 rounded-xl text-[10px] font-bold uppercase tracking-widest text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-all">
+              <Database size={12} strokeWidth={2} /> Sample Data
+            </button>
+          )}
         </div>
       </aside>
 
@@ -337,9 +412,17 @@ function AppShell({ user }: { user: User }) {
         <header className="flex-shrink-0 h-14 md:h-16 bg-white border-b border-slate-200 flex items-center px-4 md:px-6 gap-3 z-20">
 
           {/* Mobile: brand */}
-          <button onClick={() => setActiveTab('buy')} className="md:hidden mr-auto active:scale-95 transition-transform">
+          <button onClick={() => setActiveTab(NAV_TABS[0]?.id ?? 'returns')} className="md:hidden mr-auto active:scale-95 transition-transform">
             <h1 className="text-base font-black tracking-tighter uppercase font-display text-slate-900 leading-none">{APP_NAME}</h1>
-            <p className="text-[7px] text-slate-400 font-mono uppercase tracking-[0.35em] mt-0.5">{APP_TAGLINE}</p>
+            <p className="text-[7px] text-slate-400 font-mono uppercase tracking-[0.35em] mt-0.5">
+              {APP_TAGLINE}
+              {regionBadge && (
+                <>
+                  {' · '}
+                  <span className="text-slate-600">{regionBadge.toUpperCase()}</span>
+                </>
+              )}
+            </p>
           </button>
 
           {/* Desktop: section breadcrumb */}
@@ -347,11 +430,11 @@ function AppShell({ user }: { user: User }) {
             <span className="text-[11px] font-bold uppercase tracking-widest text-slate-400 truncate">
               {NAV_TABS.find(t => t.id === activeTab)?.label}
             </span>
-            {activeTab === 'analytics' && (
+            {activeTab === 'admin' && userIsAdmin && (
               <>
                 <span className="text-slate-300 flex-shrink-0">/</span>
                 <span className="text-[11px] font-bold uppercase tracking-widest text-slate-600 truncate">
-                  {ANALYTICS_SUBS.find(s => s.id === analyticsSub)?.label}
+                  {ADMIN_SUBS.find(s => s.id === adminSub)?.label}
                 </span>
               </>
             )}
@@ -370,16 +453,20 @@ function AppShell({ user }: { user: User }) {
               className="md:hidden p-2 rounded-xl text-slate-400 hover:text-slate-900 hover:bg-slate-100 transition-all">
               <LogOut size={14} strokeWidth={2.5} />
             </button>
-            <button onClick={() => setIsLoadMockDataOpen(true)}
-              title="Load mock data"
-              className="p-2 rounded-xl text-slate-400 hover:text-slate-900 hover:bg-slate-100 transition-all">
-              <Settings size={14} strokeWidth={2.5} />
-            </button>
-            <button onClick={() => setIsImportModalOpen(true)}
-              className="flex items-center gap-1.5 px-3 py-2 bg-slate-900 text-white rounded-xl text-[10px] font-bold uppercase tracking-widest hover:bg-slate-700 transition-all">
-              <FileSpreadsheet size={12} />
-              <span className="hidden md:inline">Import</span>
-            </button>
+            {showSampleDataButton && (
+              <button onClick={() => setIsLoadMockDataOpen(true)}
+                title="Load sample data"
+                className="p-2 rounded-xl text-slate-400 hover:text-slate-900 hover:bg-slate-100 transition-all">
+                <Settings size={14} strokeWidth={2.5} />
+              </button>
+            )}
+            {userIsAdmin && (
+              <button onClick={() => setIsImportModalOpen(true)}
+                className="flex items-center gap-1.5 px-3 py-2 bg-slate-900 text-white rounded-xl text-[10px] font-bold uppercase tracking-widest hover:bg-slate-700 transition-all">
+                <FileSpreadsheet size={12} />
+                <span className="hidden md:inline">Import</span>
+              </button>
+            )}
           </div>
         </header>
 
@@ -390,13 +477,15 @@ function AppShell({ user }: { user: User }) {
         <main className="flex-1 overflow-y-auto custom-scrollbar">
           <div className="p-4 md:p-8 pb-24 md:pb-8">
 
-            {/* Mobile analytics sub-nav */}
-            {activeTab === 'analytics' && (
-              <div className="md:hidden flex gap-2 mb-5 overflow-x-auto pb-1 -mx-1 px-1">
-                {ANALYTICS_SUBS.map(s => (
-                  <button key={s.id} onClick={() => setAnalyticsSub(s.id)}
+            {/* Admin sub-nav strip (mobile shows it inline; desktop also gets a
+                horizontal pill row above the pane so the active section is
+                obvious even with the sidebar visible). */}
+            {activeTab === 'admin' && userIsAdmin && (
+              <div className="flex gap-2 mb-5 overflow-x-auto pb-1 -mx-1 px-1">
+                {ADMIN_SUBS.map(s => (
+                  <button key={s.id} onClick={() => setAdminSub(s.id)}
                     className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-[10px] font-bold uppercase tracking-widest flex-shrink-0 transition-all border
-                      ${analyticsSub === s.id
+                      ${adminSub === s.id
                         ? 'bg-slate-900 text-white border-slate-900'
                         : 'bg-white text-slate-500 border-slate-200 hover:border-slate-400'}`}>
                     {s.icon}{s.label}
@@ -406,16 +495,46 @@ function AppShell({ user }: { user: User }) {
             )}
 
             <AnimatePresence mode="wait">
-              <motion.div key={activeTab === 'analytics' ? `analytics-${analyticsSub}` : activeTab}
+              <motion.div key={activeTab === 'admin' ? `admin-${adminSub}` : activeTab}
                 initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: -8 }} transition={{ duration: 0.18 }}>
                 {activeTab === 'buy'     && <StockInPage onOpenBatch={() => setIsBatchModalOpen(true)} onOpenImport={() => setIsImportModalOpen(true)} />}
                 {activeTab === 'sell'    && <SellPage />}
                 {activeTab === 'returns' && <ReturnsPage />}
-                {activeTab === 'analytics' && analyticsSub === 'overview'  && <Dashboard onNavigate={handleNavigate} />}
-                {activeTab === 'analytics' && analyticsSub === 'insights'  && <AnalyticsPage />}
-                {activeTab === 'analytics' && analyticsSub === 'reports'   && <ReportingPage />}
-                {activeTab === 'analytics' && analyticsSub === 'suppliers' && <Suppliers />}
+                {activeTab === 'admin' && userIsAdmin && adminSub === 'overview'     && (
+                  <Dashboard
+                    user={user}
+                    onNavigate={handleNavigate}
+                    onOpenImport={() => setIsImportModalOpen(true)}
+                    onOpenMasterData={() => setAdminSub('masterData')}
+                  />
+                )}
+                {activeTab === 'admin' && userIsAdmin && adminSub === 'masterData'   && (
+                  <div className="bg-white border border-slate-200 rounded-3xl p-8 shadow-sm text-center">
+                    <FileSpreadsheet size={28} className="mx-auto text-slate-400" />
+                    <h3 className="mt-3 text-base font-bold tracking-tight">Master Data Importer</h3>
+                    <p className="mt-1 text-[11px] text-slate-500 font-mono">
+                      The importer is open in a dialog. Close it to return here.
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => setIsMasterDataOpen(true)}
+                      className="mt-4 inline-flex items-center gap-2 bg-slate-900 text-white rounded-xl px-3.5 py-2 text-[10px] font-bold uppercase tracking-widest hover:bg-slate-700 transition-all"
+                    >
+                      <FileSpreadsheet size={11} /> Re-open Importer
+                    </button>
+                  </div>
+                )}
+                {activeTab === 'admin' && userIsAdmin && adminSub === 'salesHistory' && <Sales />}
+                {activeTab === 'admin' && userIsAdmin && adminSub === 'insights'     && <AnalyticsPage />}
+                {activeTab === 'admin' && userIsAdmin && adminSub === 'reports'      && <ReportingPage />}
+                {activeTab === 'admin' && userIsAdmin && adminSub === 'suppliers'    && (
+                  <div className="space-y-6">
+                    <Suppliers />
+                    <SupplierWhatsappPanel feed={whatsappFeed} />
+                  </div>
+                )}
+                {activeTab === 'admin' && userIsAdmin && adminSub === 'audit'        && <AuditPane batches={importBatches} />}
               </motion.div>
             </AnimatePresence>
           </div>
@@ -439,6 +558,10 @@ function AppShell({ user }: { user: User }) {
       <AnimatePresence>
         {isBatchModalOpen  && <NewBatchModal  onClose={() => setIsBatchModalOpen(false)} />}
         {isImportModalOpen && <ImportModal    onClose={() => setIsImportModalOpen(false)} />}
+        {isMasterDataOpen  && <MasterDataLinkedImport onClose={() => {
+          setIsMasterDataOpen(false);
+          if (adminSub === 'masterData') setAdminSub('overview');
+        }} />}
         {isLoadMockDataOpen && <LoadMockDataModal onClose={() => setIsLoadMockDataOpen(false)} />}
       </AnimatePresence>
       <NotificationToast />
@@ -448,25 +571,27 @@ function AppShell({ user }: { user: User }) {
 
 
 // ── Login Page ────────────────────────────────────────────────────────────────
+//
+// Plain Firebase email/password sign-in. The Firebase Console is the source
+// of truth for who's allowed in — provision new teammates via Authentication →
+// Add user. No client-side allowlist.
 function LoginPage() {
-  const [loading, setLoading] = useState(false);
-  const [error, setError]     = useState('');
+  const [email, setEmail]       = useState('');
+  const [password, setPassword] = useState('');
+  const [loading, setLoading]   = useState(false);
+  const [error, setError]       = useState('');
 
-  const handleSignIn = async () => {
+  const canSubmit = email.trim().length > 0 && password.length > 0 && !loading;
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!canSubmit) return;
     setError('');
     setLoading(true);
     try {
-      await signInWithGoogle();
+      await signInWithEmail(email.trim(), password);
     } catch (err: any) {
-      if (err?.code === 'auth/popup-closed-by-user' || err?.code === 'auth/cancelled-popup-request') {
-        // user dismissed
-      } else if (err?.code === 'auth/unauthorized-domain') {
-        setError('Domain not authorised — add it in Firebase Auth → Authorised domains.');
-      } else if (err?.code === 'auth/operation-not-allowed') {
-        setError('Google sign-in is not enabled. Firebase Console → Authentication → Sign-in method → Google → Enable.');
-      } else {
-        setError(err?.message || 'Sign-in failed. Please try again.');
-      }
+      setError(err?.message || 'Sign-in failed. Please try again.');
     } finally {
       setLoading(false);
     }
@@ -494,38 +619,78 @@ function LoginPage() {
             </div>
           ))}
         </div>
-        <p className="text-[9px] text-gray-600 font-mono uppercase tracking-widest">Admin access only</p>
+        <p className="text-[9px] text-gray-600 font-mono uppercase tracking-widest">Team access only</p>
       </div>
 
       <div className="flex-1 flex items-center justify-center p-6">
         <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}
-          className="w-full max-w-sm space-y-8">
+          className="w-full max-w-sm space-y-6">
           <div className="lg:hidden text-center">
             <h1 className="text-4xl font-bold tracking-tighter uppercase font-display">{APP_NAME}</h1>
             <p className="text-[10px] text-gray-400 font-mono uppercase tracking-[0.4em] mt-1">{APP_TAGLINE}</p>
           </div>
           <div>
             <h2 className="text-2xl font-bold tracking-tight">Sign In</h2>
-            <p className="text-sm text-gray-500 mt-1">Use your Google account to continue</p>
+            <p className="text-sm text-gray-500 mt-1">Sign in with your email and password</p>
           </div>
-          <AnimatePresence>
-            {error && (
-              <motion.p initial={{ opacity: 0, y: -4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}
-                className="text-xs text-red-600 font-mono bg-red-50 border border-red-100 px-4 py-2.5 rounded-xl">
-                {error}
-              </motion.p>
-            )}
-          </AnimatePresence>
-          <button onClick={handleSignIn} disabled={loading}
-            className="w-full flex items-center justify-center gap-3 bg-white border border-gray-300 rounded-xl py-3.5 px-6 text-sm font-semibold text-gray-700 hover:bg-gray-50 hover:border-gray-400 transition-all active:scale-[0.98] disabled:opacity-50 shadow-sm">
-            {loading
-              ? <motion.div animate={{ rotate: 360 }} transition={{ duration: 0.8, repeat: Infinity, ease: 'linear' }}
-                  className="w-5 h-5 border-2 border-gray-400 border-t-transparent rounded-full" />
-              : <GoogleIcon />}
-            {loading ? 'Signing in…' : 'Continue with Google'}
-          </button>
+          <form onSubmit={handleSubmit} className="space-y-4">
+            <div>
+              <label htmlFor="login-email" className="block text-[10px] font-bold uppercase tracking-widest text-gray-500 mb-1.5">
+                Email
+              </label>
+              <input
+                id="login-email"
+                type="email"
+                autoComplete="email"
+                autoCapitalize="none"
+                autoCorrect="off"
+                spellCheck={false}
+                value={email}
+                onChange={e => setEmail(e.target.value)}
+                placeholder="you@example.com"
+                className="w-full border border-gray-300 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-black focus:border-transparent transition-all"
+              />
+            </div>
+            <div>
+              <label htmlFor="login-password" className="block text-[10px] font-bold uppercase tracking-widest text-gray-500 mb-1.5">
+                Password
+              </label>
+              <input
+                id="login-password"
+                type="password"
+                autoComplete="current-password"
+                value={password}
+                onChange={e => setPassword(e.target.value)}
+                placeholder="••••••••"
+                className="w-full border border-gray-300 rounded-xl px-4 py-3 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-black focus:border-transparent transition-all"
+              />
+            </div>
+
+            <AnimatePresence>
+              {error && (
+                <motion.p
+                  initial={{ opacity: 0, y: -4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}
+                  className="text-xs text-red-600 font-mono bg-red-50 border border-red-100 px-4 py-2.5 rounded-xl"
+                >
+                  {error}
+                </motion.p>
+              )}
+            </AnimatePresence>
+
+            <button
+              type="submit"
+              disabled={!canSubmit}
+              className="w-full flex items-center justify-center gap-3 bg-black text-white rounded-xl py-3.5 px-6 text-sm font-semibold hover:bg-gray-800 active:scale-[0.98] transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {loading
+                ? <motion.div animate={{ rotate: 360 }} transition={{ duration: 0.8, repeat: Infinity, ease: 'linear' }}
+                    className="w-5 h-5 border-2 border-white/40 border-t-white rounded-full" />
+                : null}
+              {loading ? 'Signing in…' : 'Sign In'}
+            </button>
+          </form>
           <p className="text-[9px] text-gray-400 font-mono text-center uppercase tracking-wide">
-            Internal tool · MOBILEPHONEMARKET staff only
+            Forgot password? Ask an admin to reset it.
           </p>
         </motion.div>
       </div>
@@ -533,13 +698,109 @@ function LoginPage() {
   );
 }
 
-function GoogleIcon() {
+
+// ── Admin → Suppliers → WhatsApp Updates ──────────────────────────────────────
+// Small surface for the supplier WhatsApp feed pulled from the store. This was
+// previously unsurfaced; Admin → Suppliers is the natural home for it.
+function SupplierWhatsappPanel({ feed }: { feed: SupplierWhatsappUpdate[] }) {
+  if (!feed || feed.length === 0) {
+    return (
+      <div className="bg-white border border-gray-100 rounded-3xl p-5 shadow-sm">
+        <h3 className="text-sm font-bold tracking-tight">Supplier WhatsApp Updates</h3>
+        <p className="text-[11px] text-slate-500 font-mono mt-1">No supplier messages captured yet.</p>
+      </div>
+    );
+  }
   return (
-    <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
-      <path d="M17.64 9.20455C17.64 8.56636 17.5827 7.95273 17.4764 7.36364H9V10.845H13.8436C13.635 11.97 13.0009 12.9232 12.0477 13.5614V15.8195H14.9564C16.6582 14.2527 17.64 11.9455 17.64 9.20455Z" fill="#4285F4"/>
-      <path d="M9 18C11.43 18 13.4673 17.1941 14.9564 15.8195L12.0477 13.5614C11.2418 14.1014 10.2109 14.4205 9 14.4205C6.65591 14.4205 4.67182 12.8373 3.96409 10.71H0.957275V13.0418C2.43818 15.9832 5.48182 18 9 18Z" fill="#34A853"/>
-      <path d="M3.96409 10.71C3.78409 10.17 3.68182 9.59318 3.68182 9C3.68182 8.40682 3.78409 7.83 3.96409 7.29V4.95818H0.957275C0.347727 6.17318 0 7.54773 0 9C0 10.4523 0.347727 11.8268 0.957275 13.0418L3.96409 10.71Z" fill="#FBBC05"/>
-      <path d="M9 3.57955C10.3214 3.57955 11.5077 4.03364 12.4405 4.92545L15.0218 2.34409C13.4632 0.891818 11.4259 0 9 0C5.48182 0 2.43818 2.01682 0.957275 4.95818L3.96409 7.29C4.67182 5.16273 6.65591 3.57955 9 3.57955Z" fill="#EA4335"/>
-    </svg>
+    <div className="bg-white border border-gray-100 rounded-3xl p-5 shadow-sm">
+      <div className="flex items-center justify-between mb-3">
+        <h3 className="text-sm font-bold tracking-tight">Supplier WhatsApp Updates</h3>
+        <span className="text-[9px] font-mono uppercase tracking-widest text-slate-400">{feed.length} msgs</span>
+      </div>
+      <div className="divide-y divide-slate-100 -mx-2">
+        {feed.map(row => (
+          <div key={row.id} className="flex items-start gap-3 px-2 py-2">
+            <p className="flex-1 min-w-0 text-[11px] font-mono text-slate-800 whitespace-pre-wrap break-words leading-relaxed">
+              {row.rawText}
+            </p>
+            <p className="flex-shrink-0 text-[12px] font-bold tracking-tight text-slate-900 text-right tabular-nums">
+              {row.priceText ?? ''}
+            </p>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+
+// ── Admin → Audit (import batches, newest-first) ──────────────────────────────
+// Read-only provenance table. Sticky header, no actions.
+function AuditPane({ batches }: { batches: ImportBatch[] }) {
+  const region = useUserRegion();
+  const toMillis = (v: any): number => {
+    if (!v) return 0;
+    if (typeof v === 'string') return new Date(v).getTime() || 0;
+    if (typeof v?.toMillis === 'function') return v.toMillis();
+    if (typeof v?.seconds === 'number') return v.seconds * 1000;
+    return 0;
+  };
+  const fmtWhen = (v: any): string => {
+    const ms = toMillis(v);
+    if (!ms) return '—';
+    return fmtDateTimeForUser(new Date(ms), region) || '—';
+  };
+  const rows = [...(batches ?? [])].sort((a, b) => toMillis(b.importedAt) - toMillis(a.importedAt));
+
+  const copyId = (id: string) => {
+    try { navigator.clipboard.writeText(id); } catch { /* clipboard may be blocked */ }
+  };
+
+  return (
+    <div className="bg-white border border-gray-100 rounded-3xl shadow-sm overflow-hidden">
+      <div className="flex items-center justify-between px-5 py-3 border-b border-slate-100">
+        <div>
+          <h3 className="text-sm font-bold tracking-tight">Import Audit</h3>
+          <p className="text-[10px] text-slate-500 font-mono">Provenance log · {rows.length} batches</p>
+        </div>
+      </div>
+      {rows.length === 0 ? (
+        <p className="px-5 py-8 text-center text-[11px] text-slate-500 font-mono">No import batches recorded yet.</p>
+      ) : (
+        <div className="max-h-[70vh] overflow-y-auto">
+          <table className="w-full text-left text-[11px]">
+            <thead className="sticky top-0 bg-slate-50 border-b border-slate-200">
+              <tr className="text-[9px] font-bold uppercase tracking-widest text-slate-500">
+                <th className="px-4 py-2.5 font-bold">When</th>
+                <th className="px-4 py-2.5 font-bold">Source File</th>
+                <th className="px-4 py-2.5 font-bold text-right">Rows</th>
+                <th className="px-4 py-2.5 font-bold">Notes</th>
+                <th className="px-4 py-2.5 font-bold">Batch ID</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {rows.map(b => (
+                <tr key={b.id} className="hover:bg-slate-50/60">
+                  <td className="px-4 py-2 font-mono text-slate-700 whitespace-nowrap">{fmtWhen(b.importedAt)}</td>
+                  <td className="px-4 py-2 text-slate-900 truncate max-w-[280px]" title={b.sourceFile}>{b.sourceFile}</td>
+                  <td className="px-4 py-2 font-mono text-right tabular-nums text-slate-700">{(b.rowCount ?? 0).toLocaleString()}</td>
+                  <td className="px-4 py-2 text-slate-600 truncate max-w-[260px]" title={b.notes || ''}>{b.notes || '—'}</td>
+                  <td className="px-4 py-2">
+                    <button
+                      type="button"
+                      onClick={() => copyId(b.id)}
+                      title={`Copy ${b.id}`}
+                      className="font-mono text-[10px] text-slate-500 hover:text-slate-900 hover:bg-slate-100 rounded px-1.5 py-0.5 transition-all"
+                    >
+                      {b.id.slice(0, 8)}
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
   );
 }

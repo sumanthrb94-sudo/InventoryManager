@@ -1,39 +1,94 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import {
   PackagePlus, Search, Plus, CheckCircle2, Clock,
   ChevronDown, ChevronUp, Truck, PackageCheck, AlertCircle, MoreVertical, Trash2,
+  Inbox, AlertTriangle, Save, Pencil, Tag,
 } from 'lucide-react';
+import { isValidImei } from '../lib/imeiValidation';
 import { AnimatePresence, motion } from 'motion/react';
 import { dbService } from '../lib/dbService';
 import { notificationService } from '../lib/notificationService';
-import { InventoryUnit, Supplier } from '../types';
+import { InventoryUnit, InventoryAggregate, Supplier, ListingSite } from '../types';
 import { useInventoryStore } from '../lib/inventoryStore';
+import { parseBrandModelStorage } from '../lib/modelStorage';
+import { deriveSkuListing } from '../lib/skuListings';
+import { listingSiteLabel } from '../lib/platforms';
+import { totalShsRecords, manualShsUnitsFrom, shsAggregatesFrom } from '../lib/shsCount';
+import SkuListingEditor from './SkuListingEditor';
 import CopyImei from './CopyImei';
 import CollapsibleSection from './CollapsibleSection';
+import { fmtDateForUser, useUserRegion } from '../lib/userLocale';
 import ReceiveSHSModal from './ReceiveSHSModal';
+import ReceiveShsAggregateModal from './ReceiveShsAggregateModal';
 import AddSHSModal from './AddSHSModal';
 import AddDeliveryModal from './AddDeliveryModal';
 import ScanInModal from './ScanInModal';
 import IntelligencePanel from './IntelligencePanel';
 import TodayIntakeModal from './TodayIntakeModal';
-import { StockIntakeFlow } from './StockIntakeFlow';
+// Manual SHS-style row-per-IMEI form. Replaces the legacy camera/OCR
+// StockIntakeFlow which ops asked us to disable for now.
+import AddStockManualModal from './AddStockManualModal';
 
 interface Props {
   onOpenBatch: () => void;
+  /** Optional callback that opens the global ImportModal — used by the
+   *  "IMPORT" button in the top-right header. */
+  onOpenImport?: () => void;
 }
 
-export default function StockInPage({ onOpenBatch }: Props) {
+/** Resolve a unit's SKU using pre-split fields when present, otherwise
+ *  parse the legacy single-string `model` column at runtime. Used as the
+ *  grouping key for the Recent Stock In list so 6× "SAMSUNG S21 128GB"
+ *  collapses into one row. */
+function deriveSku(u: InventoryUnit): { brand: string; model: string; storage?: string; series?: string } {
+  if (u.brand && u.storage) {
+    return { brand: u.brand, model: u.model, storage: u.storage };
+  }
+  const p = parseBrandModelStorage(u.model || '');
+  return {
+    brand: u.brand || p.brand,
+    model: p.model || u.model,
+    storage: u.storage || p.storage,
+    series: p.series,
+  };
+}
+
+export default function StockInPage({ onOpenBatch, onOpenImport: _onOpenImport }: Props) {
   const { units, suppliers }        = useInventoryStore();
+  const region                      = useUserRegion();
   const [search, setSearch]         = useState('');
+  // `expandedId` is now a GROUP key, not a per-IMEI id — when a SKU group is
+  // expanded we render the nested per-unit child rows underneath.
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [receivingUnit, setReceivingUnit] = useState<InventoryUnit | null>(null);
+  const [receivingAggregate, setReceivingAggregate] = useState<InventoryAggregate | null>(null);
   const [showAddSHS, setShowAddSHS]       = useState(false);
   const [showAddDelivery, setShowAddDelivery] = useState(false);
   const [showScanUnit, setShowScanUnit] = useState(false);
   const [showTodayIntake, setShowTodayIntake] = useState(false);
-  const [showStockIntakeFlow, setShowStockIntakeFlow] = useState(false);
+  /** Manual Add-Stock flow — the SHS-style row-per-IMEI form. The legacy
+   *  StockIntakeFlow (camera/OCR/single-IMEI wizard) is disabled for now
+   *  per ops feedback: "use this manual only for now". */
+  const [showAddStockManual, setShowAddStockManual] = useState(false);
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
+  // SKU-level listing editor — opened from Pending IMEIs group rows.
+  // `label` is the pretty header string; `units` is every unit in the SKU
+  // group (the editor itself only writes to status==='available').
+  const [listingEditor, setListingEditor] = useState<{
+    label: string;
+    units: InventoryUnit[];
+    current: ListingSite[];
+  } | null>(null);
+  // Live subscription to inventoryAggregates so SHS roll-up rows (which the
+  // master-file parser emits with quantityText='SHS') are visible here even
+  // though they aren't synthesised into the per-unit `units` array.
+  const [aggregates, setAggregates] = useState<InventoryAggregate[]>([]);
+
+  useEffect(() => {
+    const unsub = dbService.subscribeToCollection('inventoryAggregates', setAggregates);
+    return () => { unsub(); };
+  }, []);
 
   const today = new Date().toISOString().split('T')[0];
 
@@ -59,13 +114,20 @@ export default function StockInPage({ onOpenBatch }: Props) {
     return m;
   }, [suppliers]);
 
-  // Pending SHS — incoming units, sorted by dateIn desc
-  const pendingSHS = useMemo(() =>
-    [...units]
-      .filter(u => u.status === 'incoming')
-      .sort((a, b) => new Date(b.dateIn).getTime() - new Date(a.dateIn).getTime()),
-    [units],
-  );
+  // Pending SHS — MANUAL orders only (status='incoming' excluding the
+  // parser-synthesised placeholders that mirror master-file aggregates).
+  // Excluding placeholders here is what makes the BUY and SELL SHS KPIs
+  // agree — counting placeholders AND their source aggregates was the
+  // double-count that produced "69 vs 23" on the two surfaces.
+  const pendingSHS = useMemo(() => manualShsUnitsFrom(units), [units]);
+
+  // SHS aggregates — the master-file INVENTORY-sheet roll-up rows whose
+  // QUANTITY column is the literal "SHS". These represent stock the supplier
+  // holds for us; we haven't received it yet.
+  const shsAggregates = useMemo(() => shsAggregatesFrom(aggregates), [aggregates]);
+
+  // Canonical SHS count used by every KPI across the app.
+  const shsTotal = useMemo(() => totalShsRecords(units, aggregates), [units, aggregates]);
 
   // Group identical pending SHS units to avoid sequential duplicate rows
   const pendingSHSGroups = useMemo(() => {
@@ -107,8 +169,110 @@ export default function StockInPage({ onOpenBatch }: Props) {
     );
   }, [allSorted, search, supplierMap]);
 
+  // Group identical units in the recent-stock list so 6× "Samsung S21 128GB"
+  // collapses to a single expandable row instead of stacking 6 duplicates.
+  // Key: (brand, model, storage, colour, status) — status keeps available
+  // and sold variants of the same SKU in separate groups.
+  const recentStockGroups = useMemo(() => {
+    const map = new Map<string, { key: string; sku: { brand: string; model: string; storage?: string; series?: string }; units: InventoryUnit[] }>();
+    for (const u of filtered) {
+      const sku = deriveSku(u);
+      const key = `${sku.brand}|${sku.model}|${sku.storage || ''}|${u.colour || ''}|${u.status}`;
+      const g = map.get(key);
+      if (g) g.units.push(u);
+      else map.set(key, { key, sku, units: [u] });
+    }
+    return Array.from(map.values()).sort((a, b) =>
+      b.units.length - a.units.length || a.sku.model.localeCompare(b.sku.model),
+    );
+  }, [filtered]);
+
   const todayIn  = units.filter(u => u.dateIn === today && u.status !== 'incoming');
   const totalBP  = todayIn.reduce((s, u) => s + u.buyPrice, 0);
+
+  // ───────────────── Pending IMEIs ─────────────────
+  // Physical units in office, not sold, not yet listed on a marketplace,
+  // AND with a valid IMEI / serial. Source: inventoryUnits with
+  // status='available' and !platformListed — these are the ~280 rows that
+  // came in from the IMEI NUMBERS master sheet with a blank STATUS column.
+  const pendingImeis = useMemo(() =>
+    units.filter(u =>
+      u.status === 'available' &&
+      !u.platformListed &&
+      isValidImei(u.imei)
+    ),
+    [units],
+  );
+
+  // Units that SHOULD have an IMEI but don't — data quality backlog.
+  // Excludes SHS placeholders (status='incoming') because those are
+  // intentionally IMEI-less until the supplier delivers. Operator
+  // backfills inline via the Missing IMEIs section.
+  const missingImeis = useMemo(() =>
+    units.filter(u =>
+      u.status !== 'incoming' &&
+      !isValidImei(u.imei)
+    ),
+    [units],
+  );
+
+  // Group by SKU (brand, model, storage, colour) — mirrors the Recent Stock
+  // In grouping pattern so 14× "iPhone 15 Pro 256GB Natural Titanium"
+  // collapses to one expandable row.
+  const pendingImeiGroups = useMemo(() => {
+    const map = new Map<string, {
+      key: string;
+      sku: { brand: string; model: string; storage?: string; series?: string };
+      colour: string;
+      units: InventoryUnit[];
+    }>();
+    for (const u of pendingImeis) {
+      const sku = deriveSku(u);
+      const colour = u.colour && u.colour !== 'Unknown' ? u.colour : '';
+      const key = `${sku.brand}|${sku.model}|${sku.storage || ''}|${colour}`;
+      const g = map.get(key);
+      if (g) g.units.push(u);
+      else map.set(key, { key, sku, colour, units: [u] });
+    }
+    return Array.from(map.values()).sort((a, b) =>
+      b.units.length - a.units.length || a.sku.model.localeCompare(b.sku.model),
+    );
+  }, [pendingImeis]);
+
+  // KPIs for the Pending IMEIs strip
+  const pendingKpis = useMemo(() => {
+    const total = pendingImeis.length;
+    const tiedCapital = pendingImeis.reduce((s, u) => s + (u.buyPrice || 0), 0);
+    const now = Date.now();
+    const daysSince = (iso: string) => {
+      const t = new Date(iso || 0).getTime();
+      if (!t) return 0;
+      return Math.floor((now - t) / 86_400_000);
+    };
+    const oldestDays = pendingImeis.reduce((max, u) => {
+      const d = daysSince(u.dateIn);
+      return d > max ? d : max;
+    }, 0);
+    const staleCount = pendingImeis.filter(u => daysSince(u.dateIn) > 30).length;
+
+    // Supplier distribution — stacked bar segments, count per supplier
+    const bySupplier: Record<string, number> = {};
+    for (const u of pendingImeis) {
+      const name = supplierMap[u.supplierId] || u.supplierName || 'Unassigned';
+      bySupplier[name] = (bySupplier[name] || 0) + 1;
+    }
+    const supplierBreakdown = Object.entries(bySupplier)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 6); // keep mini-bar readable
+
+    return { total, tiedCapital, oldestDays, staleCount, supplierBreakdown, daysSince };
+  }, [pendingImeis, supplierMap]);
+
+  // Stable colour palette for the supplier mini stacked bar
+  const SUPPLIER_TONES = [
+    'bg-emerald-500', 'bg-blue-500', 'bg-amber-500', 'bg-violet-500',
+    'bg-rose-500', 'bg-cyan-500',
+  ];
 
   return (
     <div className="space-y-5">
@@ -149,11 +313,12 @@ export default function StockInPage({ onOpenBatch }: Props) {
             </div>
           </div>
 
-          {/* Pending SHS */}
+          {/* Pending SHS — includes both per-unit incoming placeholders and
+              INVENTORY-sheet aggregate roll-up rows flagged as SHS. */}
           <div className="flex items-center gap-3 px-5 py-3 bg-amber-50 border border-amber-100 rounded-lg flex-shrink-0">
             <div className="text-center">
               <p className="text-[8px] font-mono uppercase tracking-widest text-amber-600">SHS</p>
-              <p className="text-2xl font-bold text-amber-700 leading-tight">{pendingSHS.length}</p>
+              <p className="text-2xl font-bold text-amber-700 leading-tight">{shsTotal}</p>
             </div>
           </div>
         </div>
@@ -165,7 +330,7 @@ export default function StockInPage({ onOpenBatch }: Props) {
         <div className="flex flex-col sm:flex-row gap-3 w-full md:w-auto">
           {/* Add Stock (New Flow) */}
           <button
-            onClick={() => setShowStockIntakeFlow(true)}
+            onClick={() => setShowAddStockManual(true)}
             className="flex items-center justify-center sm:justify-start gap-2 px-4 py-3 bg-gradient-to-r from-blue-600 to-blue-700 text-white rounded-lg hover:from-blue-700 hover:to-blue-800 transition-all active:scale-95 shadow-md whitespace-nowrap"
           >
             <Plus size={16} />
@@ -186,16 +351,97 @@ export default function StockInPage({ onOpenBatch }: Props) {
       {/* Intelligence panel */}
       <IntelligencePanel units={units} mode="buy" />
 
-      {/* Pending SHS section */}
-      {pendingSHS.length > 0 && (
+      {/* Unified "Supplier Holdings (SHS)" section — combines:
+            (a) INVENTORY-sheet aggregates (quantityText='SHS')
+            (b) per-unit incoming placeholders (status='incoming')
+          Both represent stock the supplier holds for us; IMEIs don't exist
+          yet. The single section makes the ops queue obvious. */}
+      {(shsAggregates.length > 0 || pendingSHS.length > 0) && (
         <CollapsibleSection
-          title="Pending SHS — Awaiting Delivery"
-          count={pendingSHS.length}
-          accent="border-l-amber-500"
-          defaultOpen={false}
+          title="Supplier Holdings (SHS) — Awaiting Receive"
+          count={shsAggregates.length + pendingSHSGroups.length}
+          accent="border-l-orange-500"
+          defaultOpen={true}
         >
-          <div className="divide-y divide-amber-50">
-            {pendingSHSGroups.map(group => {
+          <div className="divide-y divide-orange-50">
+            {shsAggregates.map(a => {
+              const supplierName = a.supplierIds && a.supplierIds.length > 0
+                ? (supplierMap[a.supplierIds[0]] || a.supplierIds[0])
+                : '—';
+              const qty = a.quantityNum ?? '—';
+              // Partial-receive badge — `originalQuantityNum` is stamped by
+              // ReceiveShsAggregateModal on the first receive so we can show
+              // "received X/Y" even after a refresh.
+              const originalQty = (a as any).originalQuantityNum as number | undefined;
+              const partial = typeof originalQty === 'number'
+                && typeof a.quantityNum === 'number'
+                && a.quantityNum > 0
+                && a.quantityNum < originalQty;
+              const partialReceived = partial ? (originalQty! - (a.quantityNum ?? 0)) : 0;
+              return (
+                <div key={a.id} className="flex items-center gap-3 px-4 py-3 hover:bg-orange-50/50 transition-all">
+                  <div className="w-8 h-8 rounded-lg bg-orange-100 flex items-center justify-center flex-shrink-0">
+                    <Truck size={14} className="text-orange-600" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2">
+                      <p className="text-xs font-bold truncate">{a.model}</p>
+                      <span className="text-[9px] font-bold text-orange-700 bg-orange-100 px-1.5 py-0.5 rounded font-mono flex-shrink-0">
+                        SHS
+                      </span>
+                      {typeof qty === 'number' && (
+                        <span className="text-[9px] font-bold text-orange-700 bg-orange-50 px-1.5 py-0.5 rounded font-mono flex-shrink-0">
+                          ×{qty}
+                        </span>
+                      )}
+                      {partial && (
+                        <span
+                          className="text-[9px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-100 px-1.5 py-0.5 rounded font-mono flex-shrink-0"
+                          title={`${partialReceived} of ${originalQty} already received`}
+                        >
+                          {partialReceived}/{originalQty} received
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-[9px] text-gray-400 font-mono mt-0.5">
+                      {(a as any).storage ? `${(a as any).storage} · ` : ''}
+                      {supplierName}
+                      {a.coloursRaw ? ` · ${a.coloursRaw}` : ''}
+                    </p>
+                    {a.notes && (
+                      <p className="text-[8px] text-orange-600 font-mono mt-0.5 truncate">{a.notes}</p>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-2 flex-shrink-0">
+                    {typeof a.buyPrice === 'number' && (
+                      <span className="text-sm font-bold">£{a.buyPrice}</span>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => setReceivingAggregate(a)}
+                      title="Receive these units into stock"
+                      className="px-3 py-1.5 bg-orange-500 text-white text-[9px] font-bold uppercase tracking-widest rounded-lg hover:bg-orange-600 transition-all flex items-center gap-1"
+                    >
+                      <PackageCheck size={11} /> Receive into stock
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Per-unit incoming placeholders (manually logged SHS orders).
+              Same section, separated by a labelled divider so ops can see
+              both flows in one queue. */}
+          {pendingSHSGroups.length > 0 && (
+            <>
+              <div className="px-4 pt-3 pb-2 border-t border-amber-100">
+                <p className="text-[10px] font-mono uppercase tracking-widest text-amber-700/80">
+                  Manually-logged SHS orders ({pendingSHSGroups.length})
+                </p>
+              </div>
+              <div className="divide-y divide-amber-50">
+                {pendingSHSGroups.map(group => {
               const u = group[0];
               const qty = group.length;
               return (
@@ -256,9 +502,289 @@ export default function StockInPage({ onOpenBatch }: Props) {
                     </div>
                   </div>
                 </div>
+                );
+              })}
+              </div>
+            </>
+          )}
+        </CollapsibleSection>
+      )}
+
+      {/* ───────────────── Missing IMEIs · Backfill Required ─────────────────
+          Units that should have an IMEI but don't — data quality backlog.
+          Operator backfills inline; saving moves the unit out of this list.
+          SHS placeholders are excluded (they're supposed to be IMEI-less). */}
+      {missingImeis.length > 0 && (
+        <MissingImeisSection units={missingImeis} suppliers={supplierMap} />
+      )}
+
+      {/* ───────────────── Pending IMEIs · In Office · Awaiting Listing ─────────────────
+          Physical units already in office (status='available') that have NOT
+          been listed on a marketplace yet (!platformListed). These are the
+          rows from the IMEI NUMBERS sheet whose STATUS column was blank.
+          One row per SKU group with a count + chevron — expand to see IMEIs. */}
+      {pendingImeis.length > 0 && (
+        <CollapsibleSection
+          title="Pending IMEIs · In Office · Awaiting Listing"
+          count={pendingImeis.length}
+          accent="border-l-indigo-500"
+          defaultOpen={true}
+        >
+          <p className="px-4 pt-3 pb-2 text-[10px] text-gray-500 font-mono">
+            Physical units received, not yet sold or listed on a marketplace.
+          </p>
+
+          {/* KPI strip */}
+          <div className="px-4 pb-3 grid grid-cols-2 md:grid-cols-4 gap-2">
+            <div className="bg-indigo-50 border border-indigo-100 rounded-lg px-3 py-2">
+              <p className="text-[8px] font-mono uppercase tracking-widest text-indigo-600">Total Pending</p>
+              <p className="text-xl font-bold text-indigo-700 leading-tight">{pendingKpis.total}</p>
+            </div>
+            <div className="bg-blue-50 border border-blue-100 rounded-lg px-3 py-2">
+              <p className="text-[8px] font-mono uppercase tracking-widest text-blue-600">Tied-Up Capital</p>
+              <p className="text-xl font-bold text-blue-700 leading-tight">
+                £{pendingKpis.tiedCapital.toLocaleString('en-GB', { maximumFractionDigits: 0 })}
+              </p>
+            </div>
+            <div className={`border rounded-lg px-3 py-2 ${pendingKpis.oldestDays > 30 ? 'bg-amber-50 border-amber-100' : 'bg-gray-50 border-gray-100'}`}>
+              <p className={`text-[8px] font-mono uppercase tracking-widest ${pendingKpis.oldestDays > 30 ? 'text-amber-600' : 'text-gray-500'}`}>
+                Oldest Pending
+              </p>
+              <p className={`text-xl font-bold leading-tight ${pendingKpis.oldestDays > 30 ? 'text-amber-700' : 'text-gray-700'}`}>
+                {pendingKpis.oldestDays}d
+                {pendingKpis.staleCount > 0 && (
+                  <span className="text-[9px] font-mono text-amber-600 ml-2">
+                    {pendingKpis.staleCount} stale
+                  </span>
+                )}
+              </p>
+            </div>
+            <div className="bg-gray-50 border border-gray-100 rounded-lg px-3 py-2">
+              <p className="text-[8px] font-mono uppercase tracking-widest text-gray-500 mb-1.5">By Supplier</p>
+              {pendingKpis.supplierBreakdown.length === 0 ? (
+                <p className="text-[10px] font-mono text-gray-400">—</p>
+              ) : (
+                <>
+                  <div className="flex h-2 w-full rounded overflow-hidden bg-gray-100">
+                    {pendingKpis.supplierBreakdown.map(([name, n], i) => (
+                      <div
+                        key={name}
+                        className={SUPPLIER_TONES[i % SUPPLIER_TONES.length]}
+                        style={{ width: `${(n / pendingKpis.total) * 100}%` }}
+                        title={`${name} — ${n}`}
+                      />
+                    ))}
+                  </div>
+                  <div className="flex flex-wrap gap-x-2 gap-y-0.5 mt-1.5">
+                    {pendingKpis.supplierBreakdown.slice(0, 3).map(([name, n], i) => (
+                      <span key={name} className="flex items-center gap-1 text-[8px] font-mono text-gray-600">
+                        <span className={`w-1.5 h-1.5 rounded-sm ${SUPPLIER_TONES[i % SUPPLIER_TONES.length]}`} />
+                        {name} <span className="text-gray-400">{n}</span>
+                      </span>
+                    ))}
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
+
+          {/* Excel-style table — wrapped in overflow-x-auto so the 7-column
+              header + rows scroll horizontally on mobile instead of
+              collapsing into overlap. */}
+          <div className="overflow-x-auto">
+          {/* Header row — matches IMEI NUMBERS sheet column order */}
+          <div
+            className="px-4 py-2 grid items-center gap-2 bg-gray-100 border-y border-gray-200 text-[9px] font-bold uppercase tracking-widest text-gray-500"
+            style={{
+              fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
+              gridTemplateColumns: '90px minmax(220px, 1.6fr) 90px 130px 100px 70px minmax(160px, 1fr)',
+              minWidth: 'max-content',
+            }}
+          >
+            <span>Stock In</span>
+            <span>Model · Storage</span>
+            <span>Colour</span>
+            <span>Supplier</span>
+            <span>Marketplace</span>
+            <span className="text-right">BP / Days</span>
+            <span>Notes</span>
+          </div>
+
+          {/* SKU group rows — each group is collapsible; child rows show IMEI */}
+          <div className="divide-y divide-gray-100">
+            {pendingImeiGroups.map(group => {
+              const groupKey = `pending-${group.key}`;
+              const isOpen = expandedId === groupKey;
+              const head = group.units[0];
+              const qty = group.units.length;
+              const groupOldestDays = group.units.reduce((max, u) => {
+                const d = pendingKpis.daysSince(u.dateIn);
+                return d > max ? d : max;
+              }, 0);
+              const groupBP = group.units.reduce((s, u) => s + (u.buyPrice || 0), 0);
+              const stale = groupOldestDays > 30;
+              const titleParts = [
+                group.sku.brand,
+                group.sku.model,
+                group.sku.storage,
+                group.colour || null,
+              ].filter(Boolean);
+              const skuLabel = titleParts.join(' ');
+              // Derived SKU listing state — union of `listingSites` across
+              // every available unit in the group. Drives the chip strip
+              // below the title and seeds SkuListingEditor on edit.
+              const listing = deriveSkuListing(group.units);
+              return (
+                <div key={groupKey}>
+                  <button
+                    type="button"
+                    onClick={() => setExpandedId(isOpen ? null : groupKey)}
+                    className="w-full text-left flex items-center gap-3 px-4 py-3 hover:bg-indigo-50/50 transition-all"
+                  >
+                    <div className="w-8 h-8 rounded-lg bg-indigo-100 flex items-center justify-center flex-shrink-0">
+                      <Inbox size={14} className="text-indigo-600" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <p className="text-xs font-bold truncate">{titleParts.join(' · ')}</p>
+                        <span className="text-[9px] font-bold text-indigo-700 bg-indigo-100 px-1.5 py-0.5 rounded font-mono flex-shrink-0">
+                          ×{qty}
+                        </span>
+                        {stale && (
+                          <span
+                            className="flex items-center gap-1 text-[8px] font-bold uppercase tracking-widest text-amber-700 bg-amber-50 px-1.5 py-0.5 rounded font-mono flex-shrink-0"
+                            title={`${groupOldestDays} days since stock in — flagged as stale`}
+                          >
+                            <span className="w-1.5 h-1.5 rounded-full bg-amber-500" /> Stale
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-[9px] text-gray-400 font-mono mt-0.5">
+                        {qty} unit{qty === 1 ? '' : 's'} · oldest {groupOldestDays}d · {supplierMap[head.supplierId] || head.supplierName || '—'}
+                      </p>
+                      {/* SKU-level listing chip strip. One listing per SKU per
+                          marketplace — quantity decrements as units sell, so
+                          there's no per-IMEI listing toggle. Clicking the
+                          pencil opens SkuListingEditor; the parent button's
+                          click is suppressed via stopPropagation so the row
+                          doesn't collapse/expand at the same time. */}
+                      <div className="mt-1.5 flex items-center gap-1.5 flex-wrap">
+                        <span className="text-[8px] font-mono uppercase tracking-widest text-gray-400">
+                          Listed on:
+                        </span>
+                        {listing.listedOn.length === 0 ? (
+                          <span className="text-[9px] font-mono text-gray-400 italic">Not listed</span>
+                        ) : (
+                          listing.listedOn.map(site => (
+                            <span
+                              key={site}
+                              className="text-[8px] font-bold px-1.5 py-0.5 bg-gray-900 text-white rounded font-mono uppercase tracking-tighter"
+                            >
+                              {listingSiteLabel(site)}
+                            </span>
+                          ))
+                        )}
+                        <span
+                          role="button"
+                          tabIndex={0}
+                          onClick={e => {
+                            e.stopPropagation();
+                            setListingEditor({
+                              label: skuLabel,
+                              units: group.units,
+                              current: listing.listedOn,
+                            });
+                          }}
+                          onKeyDown={e => {
+                            if (e.key === 'Enter' || e.key === ' ') {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              setListingEditor({
+                                label: skuLabel,
+                                units: group.units,
+                                current: listing.listedOn,
+                              });
+                            }
+                          }}
+                          className="inline-flex items-center gap-1 text-[8px] font-bold uppercase tracking-widest text-indigo-700 hover:text-white hover:bg-indigo-600 border border-indigo-200 hover:border-indigo-600 px-1.5 py-0.5 rounded font-mono transition-all cursor-pointer"
+                          title="Edit SKU marketplace listings"
+                        >
+                          <Pencil size={9} /> Edit
+                        </span>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2 flex-shrink-0">
+                      <span className="text-sm font-bold">£{groupBP.toLocaleString()}</span>
+                      <span className="p-1.5 text-gray-400">
+                        {isOpen ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
+                      </span>
+                    </div>
+                  </button>
+
+                  <AnimatePresence>
+                    {isOpen && (
+                      <motion.div
+                        initial={{ height: 0, opacity: 0 }}
+                        animate={{ height: 'auto', opacity: 1 }}
+                        exit={{ height: 0, opacity: 0 }}
+                        className="overflow-hidden bg-gray-50 border-t border-gray-100"
+                      >
+                        {/* overflow-x-auto so the 7-column grid scrolls on
+                            mobile instead of overlapping. min-width keeps the
+                            cells from collapsing under their own ellipsis. */}
+                        <div
+                          className="divide-y divide-gray-100 overflow-x-auto"
+                          style={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace', minWidth: '100%' }}
+                        >
+                          {group.units
+                            .slice()
+                            .sort((a, b) => new Date(a.dateIn || 0).getTime() - new Date(b.dateIn || 0).getTime())
+                            .map(u => {
+                              const days = pendingKpis.daysSince(u.dateIn);
+                              const rowStale = days > 30;
+                              const marketplace = (u.marketplace || '').trim();
+                              return (
+                                <div
+                                  key={u.id}
+                                  className="px-4 py-1.5 grid items-center gap-2 hover:bg-white transition-colors text-[10px] text-gray-700"
+                                  style={{ gridTemplateColumns: '90px minmax(220px, 1.6fr) 90px 130px 100px 70px minmax(160px, 1fr)', minWidth: 'max-content' }}
+                                >
+                                  <span className="text-gray-500">{u.dateIn || '—'}</span>
+                                  <span className="flex items-center gap-2 min-w-0">
+                                    <CopyImei imei={u.imei} truncate={14} />
+                                    <span className="text-gray-400">·</span>
+                                    <span className="text-gray-600 truncate">
+                                      {[group.sku.model, group.sku.storage].filter(Boolean).join(' ')}
+                                    </span>
+                                  </span>
+                                  <span className="text-gray-600 truncate">{u.colour || '—'}</span>
+                                  <span className="text-gray-600 truncate">
+                                    {supplierMap[u.supplierId] || u.supplierName || '—'}
+                                  </span>
+                                  <span className={`truncate ${marketplace ? 'text-gray-700' : 'text-gray-300'}`}>
+                                    {marketplace || '—'}
+                                  </span>
+                                  <span className="text-right">
+                                    <span className="font-bold text-gray-800">£{u.buyPrice}</span>
+                                    <span className={`block text-[8px] font-mono ${rowStale ? 'text-amber-600' : 'text-gray-400'}`}>
+                                      {days}d{rowStale && ' ●'}
+                                    </span>
+                                  </span>
+                                  <span className="text-gray-500 truncate" title={u.notes || ''}>
+                                    {u.notes || ''}
+                                  </span>
+                                </div>
+                              );
+                            })}
+                        </div>
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+                </div>
               );
             })}
           </div>
+          </div>{/* /overflow-x-auto */}
         </CollapsibleSection>
       )}
 
@@ -274,7 +800,10 @@ export default function StockInPage({ onOpenBatch }: Props) {
         />
       </div>
 
-      {/* Recent stock (non-SHS) */}
+      {/* Recent stock (non-SHS) — grouped by SKU (brand+model+storage+colour+status)
+          so importing 6 identical Samsung S21 128GBs collapses to a single
+          expandable row instead of stacking 6 duplicates. Search runs BEFORE
+          grouping so IMEI substrings still match groups that contain them. */}
       <CollapsibleSection
         title="Recent Stock In"
         count={filtered.length}
@@ -287,66 +816,99 @@ export default function StockInPage({ onOpenBatch }: Props) {
             <p className="text-xs font-mono">No stock records yet</p>
           </div>
         ) : (
-          <div className="divide-y divide-gray-50">
-            {filtered.map(u => {
-              const isOpen = expandedId === u.id;
-              const isSHS = u.batchId?.startsWith('shs_') || u.notes?.includes('SHS');
-              return (
-                <div key={u.id}>
-                  <div className={`flex items-center gap-3 px-4 py-3 transition-all ${
-                    isSHS
-                      ? 'bg-orange-50/60 hover:bg-orange-50'
-                      : 'hover:bg-gray-50'
-                  }`}>
-                    <div className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${u.dateIn === today ? 'bg-emerald-100' : 'bg-gray-100'}`}>
-                      {u.dateIn === today
-                        ? <CheckCircle2 size={14} className="text-emerald-600" />
-                        : <Clock size={14} className="text-gray-400" />
-                      }
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-xs font-bold truncate">{u.model}</p>
-                      <p className="text-[9px] text-gray-400 font-mono mt-0.5">
-                        <CopyImei imei={u.imei} truncate={10} /> · {u.dateIn}
-                      </p>
-                    </div>
-                    <div className="flex items-center gap-2 flex-shrink-0">
-                      <span className="text-sm font-bold">£{u.buyPrice}</span>
-                      <button
-                        onClick={() => setExpandedId(isOpen ? null : u.id)}
-                        className="p-1.5 hover:bg-gray-100 rounded-lg transition-all text-gray-400"
-                      >
-                        {isOpen ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
-                      </button>
-                    </div>
-                  </div>
-                  <AnimatePresence>
-                    {isOpen && (
-                      <motion.div
-                        initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }}
-                        exit={{ height: 0, opacity: 0 }}
-                        className="overflow-hidden bg-gray-50 border-t border-gray-100"
-                      >
-                        <div className="px-5 py-3 grid grid-cols-2 md:grid-cols-4 gap-3">
-                          {[
-                            { label: 'Supplier', value: supplierMap[u.supplierId] || '—' },
-                            { label: 'Batch', value: u.batchId === 'master_batch' ? 'Master' : (u.batchId || 'Default') },
-                            { label: 'Colour',   value: u.colour || '—' },
-                            { label: 'Storage',  value: (u as any).storage || '—' },
-                          ].map(f => (
-                            <div key={f.label}>
-                              <p className="text-[8px] text-gray-400 font-mono uppercase tracking-widest">{f.label}</p>
-                              <p className="text-xs font-bold mt-0.5">{f.value}</p>
-                            </div>
-                          ))}
+          <>
+            <div className="px-4 py-2 text-[9px] text-gray-400 font-mono uppercase tracking-widest border-b border-gray-50">
+              {filtered.length} units across {recentStockGroups.length} SKUs
+            </div>
+            <div className="divide-y divide-gray-50">
+              {recentStockGroups.map(group => {
+                const isOpen = expandedId === group.key;
+                const head = group.units[0];
+                const isSHS = head.batchId?.startsWith('shs_') || head.notes?.includes('SHS');
+                const qty = group.units.length;
+                const latestDateIn = group.units.reduce(
+                  (acc, u) => (u.dateIn > acc ? u.dateIn : acc),
+                  group.units[0].dateIn,
+                );
+                const titleParts = [
+                  group.sku.brand,
+                  group.sku.model,
+                  group.sku.storage,
+                  head.colour && head.colour !== 'Unknown' ? head.colour : null,
+                ].filter(Boolean);
+                return (
+                  <div key={group.key}>
+                    <button
+                      type="button"
+                      onClick={() => setExpandedId(isOpen ? null : group.key)}
+                      className={`w-full text-left flex items-center gap-3 px-4 py-3 transition-all ${
+                        isSHS ? 'bg-orange-50/60 hover:bg-orange-50' : 'hover:bg-gray-50'
+                      }`}
+                    >
+                      <div className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${latestDateIn === today ? 'bg-emerald-100' : 'bg-gray-100'}`}>
+                        {latestDateIn === today
+                          ? <CheckCircle2 size={14} className="text-emerald-600" />
+                          : <Clock size={14} className="text-gray-400" />
+                        }
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <p className="text-xs font-bold truncate">{titleParts.join(' · ')}</p>
+                          {head.status !== 'available' && (
+                            <span className="text-[8px] font-bold uppercase tracking-widest px-1.5 py-0.5 rounded font-mono bg-gray-100 text-gray-600">
+                              {head.status}
+                            </span>
+                          )}
                         </div>
-                      </motion.div>
-                    )}
-                  </AnimatePresence>
-                </div>
-              );
-            })}
-          </div>
+                        <p className="text-[9px] text-gray-400 font-mono mt-0.5">
+                          {qty} unit{qty === 1 ? '' : 's'} · latest {fmtDateForUser(latestDateIn, region) || latestDateIn}
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-2 flex-shrink-0">
+                        <span className="text-sm font-bold">£{head.buyPrice}</span>
+                        <span className="p-1.5 text-gray-400">
+                          {isOpen ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
+                        </span>
+                      </div>
+                    </button>
+                    <AnimatePresence>
+                      {isOpen && (
+                        <motion.div
+                          initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }}
+                          exit={{ height: 0, opacity: 0 }}
+                          className="overflow-hidden bg-gray-50 border-t border-gray-100"
+                        >
+                          <div className="divide-y divide-gray-100">
+                            {group.units.map(u => (
+                              <div key={u.id} className="px-5 py-2.5 flex items-center gap-3">
+                                <div className="flex-1 min-w-0">
+                                  <p className="text-[10px] font-mono text-gray-700 flex items-center gap-2 flex-wrap">
+                                    <CopyImei imei={u.imei} truncate={14} />
+                                    <span className="text-gray-400">·</span>
+                                    <span className="text-gray-500">{supplierMap[u.supplierId] || '—'}</span>
+                                    <span className="text-gray-400">·</span>
+                                    <span className="text-gray-500">{u.dateIn}</span>
+                                    <span className="text-gray-400">·</span>
+                                    <span className="text-gray-500">{u.status}</span>
+                                  </p>
+                                  <p className="text-[8px] text-gray-400 font-mono mt-0.5">
+                                    Batch: {u.batchId === 'master_batch' ? 'Master' : (u.batchId || 'Default')}
+                                    {(u as any).storage ? ` · Storage: ${(u as any).storage}` : ''}
+                                    {u.colour ? ` · Colour: ${u.colour}` : ''}
+                                  </p>
+                                </div>
+                                <span className="text-[11px] font-bold font-mono">£{u.buyPrice}</span>
+                              </div>
+                            ))}
+                          </div>
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
+                  </div>
+                );
+              })}
+            </div>
+          </>
         )}
       </CollapsibleSection>
 
@@ -378,15 +940,140 @@ export default function StockInPage({ onOpenBatch }: Props) {
         )}
       </AnimatePresence>
       <AnimatePresence>
+        {receivingAggregate && (
+          <ReceiveShsAggregateModal
+            aggregate={receivingAggregate}
+            onClose={() => setReceivingAggregate(null)}
+          />
+        )}
+      </AnimatePresence>
+      <AnimatePresence>
         {showTodayIntake && (
           <TodayIntakeModal units={todayIn} onClose={() => setShowTodayIntake(false)} />
         )}
       </AnimatePresence>
       <AnimatePresence>
-        {showStockIntakeFlow && (
-          <StockIntakeFlow onClose={() => setShowStockIntakeFlow(false)} />
+        {showAddStockManual && (
+          <AddStockManualModal onClose={() => setShowAddStockManual(false)} />
         )}
       </AnimatePresence>
+
+      {/* SKU-level listing editor — one listing per marketplace per SKU.
+          On save we close immediately; the inventoryUnits snapshot listener
+          will repaint the Pending IMEIs section (units gain platformListed=true
+          so they drop out of the !platformListed filter). */}
+      {listingEditor && (
+        <SkuListingEditor
+          skuLabel={listingEditor.label}
+          units={listingEditor.units}
+          current={listingEditor.current}
+          onClose={() => setListingEditor(null)}
+          onSaved={() => setListingEditor(null)}
+        />
+      )}
     </div>
   );
 }
+
+/**
+ * MissingImeisSection — backfill UI for units that exist in inventory but
+ * don't have a valid IMEI / Apple serial assigned yet (data quality
+ * backlog). SHS placeholders are intentionally excluded upstream because
+ * they're meant to be IMEI-less until the supplier delivers.
+ *
+ * Each row has an inline IMEI input. Save → dbService.update writes the
+ * imei field; the unit drops out of this list on the next snapshot.
+ */
+function MissingImeisSection({ units, suppliers }: { units: InventoryUnit[]; suppliers: Record<string, string> }) {
+  const [drafts, setDrafts] = useState<Record<string, string>>({});
+  const [savingId, setSavingId] = useState<string | null>(null);
+  const [error, setError] = useState<Record<string, string>>({});
+
+  const handleSave = async (unit: InventoryUnit) => {
+    const next = (drafts[unit.id] || '').trim();
+    if (!isValidImei(next)) {
+      setError(e => ({ ...e, [unit.id]: 'Enter a valid IMEI or serial' }));
+      return;
+    }
+    // Re-check uniqueness against the cached units (cheap optimistic
+    // check; bulkCreate would also reject a doc-id collision).
+    const collision = units.find(u => u.id !== unit.id && u.imei === next);
+    if (collision) {
+      setError(e => ({ ...e, [unit.id]: 'IMEI already on another unit' }));
+      return;
+    }
+    setSavingId(unit.id);
+    try {
+      await dbService.update('inventoryUnits', unit.id, { imei: next });
+      // Optimistic UI — clear the draft; snapshot listener will drop the row.
+      setDrafts(d => { const c = { ...d }; delete c[unit.id]; return c; });
+      setError(e => { const c = { ...e }; delete c[unit.id]; return c; });
+    } catch (err: any) {
+      setError(e => ({ ...e, [unit.id]: err?.message || 'Save failed' }));
+    } finally {
+      setSavingId(null);
+    }
+  };
+
+  return (
+    <CollapsibleSection
+      title="Missing IMEIs · Backfill Required"
+      count={units.length}
+      accent="border-l-rose-500"
+      defaultOpen={true}
+    >
+      <p className="px-4 pt-3 pb-2 text-[10px] text-rose-700/80 font-mono flex items-center gap-1.5">
+        <AlertTriangle size={11} />
+        These units don't have a valid IMEI or serial yet. Enter it below and save — the unit drops out of this list immediately.
+      </p>
+      <div className="divide-y divide-rose-50">
+        {units.map(u => {
+          const draft = drafts[u.id] ?? '';
+          const err = error[u.id];
+          const saving = savingId === u.id;
+          const valid = isValidImei(draft);
+          return (
+            <div key={u.id} className="px-4 py-2.5 flex items-center gap-3 hover:bg-rose-50/40 transition-colors">
+              <div className="w-8 h-8 rounded-lg bg-rose-100 flex items-center justify-center flex-shrink-0">
+                <AlertCircle size={14} className="text-rose-600" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-xs font-bold truncate">{u.model || '—'}{u.storage ? ' · ' + u.storage : ''}</p>
+                <p className="text-[9px] text-gray-400 font-mono mt-0.5 truncate">
+                  {u.colour && u.colour !== 'Unknown' ? u.colour + ' · ' : ''}
+                  {suppliers[u.supplierId] || u.supplierName || '—'} · {u.dateIn || '—'} · £{u.buyPrice}
+                </p>
+                {err && (
+                  <p className="text-[9px] text-rose-600 font-mono mt-1">{err}</p>
+                )}
+              </div>
+              <div className="flex items-center gap-2 flex-shrink-0">
+                <input
+                  type="text"
+                  value={draft}
+                  onChange={e => setDrafts(d => ({ ...d, [u.id]: e.target.value }))}
+                  onKeyDown={e => { if (e.key === 'Enter' && valid && !saving) handleSave(u); }}
+                  placeholder="IMEI or serial"
+                  className={`px-3 py-1.5 border rounded-lg text-[11px] font-mono w-44 transition-all focus:outline-none ${
+                    draft && !valid ? 'border-rose-300 bg-rose-50 focus:border-rose-500'
+                                    : 'border-gray-200 focus:border-black bg-white'
+                  }`}
+                  disabled={saving}
+                />
+                <button
+                  onClick={() => handleSave(u)}
+                  disabled={!valid || saving}
+                  className="px-3 py-1.5 bg-rose-600 text-white text-[9px] font-bold uppercase tracking-widest rounded-lg hover:bg-rose-700 transition-all disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-1"
+                >
+                  {saving ? <Clock size={11} className="animate-spin" /> : <Save size={11} />}
+                  Save
+                </button>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </CollapsibleSection>
+  );
+}
+

@@ -10,7 +10,7 @@ import { imgbbStorageService } from '../../lib/imgbbStorageService';
 import type { OCRResult } from '../../lib/ocr/ocrEngine';
 
 interface Props {
-  onImageSelected: (file: File, preview: string, ocrResult?: OCRResult, supabaseUrl?: string) => void;
+  onImageSelected: (file: File, preview: string, ocrResult?: OCRResult, cloudImageUrl?: string) => void;
   onBack: () => void;
   intakeType: 'single' | 'bulk';
 }
@@ -19,7 +19,7 @@ interface ImageState {
   metadata?: ImageMetadata;
   file: File | null;
   previewUrl: string;
-  supabaseUrl?: string;
+  cloudImageUrl?: string;
   isValidating: boolean;
   isUploading: boolean;
   uploadProgress: number;
@@ -135,7 +135,7 @@ export default function ImageCaptureInput({ onImageSelected, onBack, intakeType 
       console.log('[Imgbb] Upload successful:', uploadedImage.url);
       setImageState(prev => ({
         ...prev,
-        supabaseUrl: uploadedImage.url,
+        cloudImageUrl: uploadedImage.url,
         isUploading: false,
         uploadProgress: 100,
       }));
@@ -240,7 +240,7 @@ export default function ImageCaptureInput({ onImageSelected, onBack, intakeType 
       return;
     }
     // Proceed regardless of OCR status - it's optional for auto-fill
-    onImageSelected(imageState.file, imageState.previewUrl, ocrResult, imageState.supabaseUrl);
+    onImageSelected(imageState.file, imageState.previewUrl, ocrResult, imageState.cloudImageUrl);
   };
 
   useEffect(() => {
@@ -383,7 +383,7 @@ export default function ImageCaptureInput({ onImageSelected, onBack, intakeType 
               )}
 
               {/* Cloudinary Upload Success */}
-              {imageState.supabaseUrl && !imageState.isUploading && (
+              {imageState.cloudImageUrl && !imageState.isUploading && (
                 <motion.div
                   initial={{ opacity: 0, y: 10 }}
                   animate={{ opacity: 1, y: 0 }}

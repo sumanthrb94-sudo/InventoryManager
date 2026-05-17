@@ -23,6 +23,7 @@ import argparse
 import hashlib
 import json
 import os
+import re
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -193,11 +194,214 @@ def normalise_supplier(raw) -> str:
     return SUPPLIER_ALIASES.get(key, str(raw).strip() or 'Unknown')
 
 
+# B8 fix — INVENTORY-sheet QUANTITY is mixed-type (numbers, "SHS",
+# "NO STOCK", blanks). Callers must keep the row regardless of type;
+# this helper classifies the cell so downstream can branch sanely.
+def parse_quantity_cell(v):
+    """Return a dict:
+       {'qty': <number>}                                 when numeric
+       {'qty': None, 'flag': 'SHS'|'NO_STOCK'|'OTHER',   when non-numeric
+        'raw': <original string>}
+    """
+    if isinstance(v, bool):
+        # bool is a subclass of int — exclude to avoid True/False sneaking in.
+        return {'qty': None, 'flag': 'OTHER', 'raw': str(v)}
+    if isinstance(v, (int, float)):
+        # NaN floats are not finite
+        if isinstance(v, float) and v != v:
+            return {'qty': None, 'flag': 'OTHER', 'raw': ''}
+        return {'qty': v}
+
+    raw   = '' if v is None else str(v).strip()
+    upper = raw.upper()
+
+    if upper == 'SHS':
+        return {'qty': None, 'flag': 'SHS', 'raw': raw}
+    if upper in ('NO STOCK', 'NOSTOCK'):
+        return {'qty': None, 'flag': 'NO_STOCK', 'raw': raw}
+
+    import re as _re
+    if raw and _re.fullmatch(r'-?\d+(\.\d+)?', raw):
+        try:
+            return {'qty': float(raw)}
+        except ValueError:
+            pass
+    return {'qty': None, 'flag': 'OTHER', 'raw': raw}
+
+
+# B7 fix — INVENTORY-sheet SUPPLIER column may list multiple suppliers
+# separated by " / " (e.g. "MHL / ABC / NIHAL"). Returns the primary
+# (first) name and the full list with empties dropped.
+def parse_supplier_cell(v):
+    """Return {'primaryName': str, 'allNames': list[str]}."""
+    raw = '' if v is None else str(v).strip()
+    if not raw:
+        return {'primaryName': '', 'allNames': []}
+    all_names = [s.strip() for s in raw.split('/') if s and s.strip()]
+    return {
+        'primaryName': all_names[0] if all_names else '',
+        'allNames':    all_names,
+    }
+
+
 def normalise_platform(raw) -> str:
     if not raw or str(raw).strip().lower() in ('', 'nan', 'none'):
         return ''
     key = str(raw).strip().upper()
     return PLATFORM_ALIASES.get(key, str(raw).strip())
+
+
+# ── Storage extraction ───────────────────────────────────────────────────────
+#
+# Mirrors src/lib/modelStorage.ts (kept inline because this script is standalone
+# Python and can't import the TS helper). Keep the regex + normalisation rules
+# in sync.
+#
+#   "IPAD 7TH GEN 32GB W/C"                  -> ("IPAD 7TH GEN W/C", "32GB")
+#   "iPad 7 32GB Wifi 2019 10.2 - WIFI + 4G" -> ("iPad 7 Wifi 2019 10.2 - WIFI + 4G", "32GB")
+#   "iPhone 13 Pro Max"                      -> ("iPhone 13 Pro Max", None)
+#   "Galaxy S22 Ultra 1TB"                   -> ("Galaxy S22 Ultra", "1TB")
+STORAGE_REGEX = re.compile(r'\b(\d+\s?(?:GB|TB))\b', re.IGNORECASE)
+
+
+def _collapse_whitespace(s: str) -> str:
+    return re.sub(r'\s+', ' ', s).strip()
+
+
+def extract_storage(raw):
+    """Extract storage capacity from a model string.
+
+    Returns a (model, storage) tuple where `storage` is normalised to upper-case
+    with no internal whitespace (e.g. "32 gb" -> "32GB") or `None` if no storage
+    pattern was found. The returned `model` has the matched substring removed
+    and whitespace collapsed.
+    """
+    input_str = '' if raw is None else str(raw)
+    if not input_str.strip():
+        return input_str.strip(), None
+
+    match = STORAGE_REGEX.search(input_str)
+    if not match:
+        return _collapse_whitespace(input_str), None
+
+    storage = re.sub(r'\s+', '', match.group(1)).upper()
+    start, end = match.span()
+    stitched = input_str[:start] + ' ' + input_str[end:]
+    stitched = re.sub(r'\s+,', ',', stitched)
+    stitched = re.sub(r',\s*,', ',', stitched)
+    stitched = re.sub(r'^\s*,\s*|\s*,\s*$', '', stitched)
+    return _collapse_whitespace(stitched), storage
+
+
+# ── parseBrandModelStorage — Python port of src/lib/modelStorage.ts ─────────
+# Keep these rules in sync with the TS + CJS ports. See the TS file for docs.
+BRAND_RULES_PY = [
+    ('Apple',   ['apple', 'iphone', 'ipad', 'macbook', 'apple watch']),
+    ('Samsung', ['samsung', 'galaxy']),
+    ('Google',  ['google', 'pixel']),
+    ('Xiaomi',  ['xiaomi', 'redmi', 'poco']),
+    ('OnePlus', ['oneplus']),
+]
+LEADING_BRAND_TOKENS_PY = {'apple', 'samsung', 'google', 'xiaomi', 'oneplus'}
+
+# ── Samsung bare-model regexes (keep in sync with src/lib/modelStorage.ts) ──
+_RE_GALAXY_TAB    = re.compile(r'\bgalaxy\s*tab|\btab\s*[as]\d', re.IGNORECASE)
+_RE_GALAXY_NOTE   = re.compile(r'\bgalaxy\s*note|\bnote\s?\d', re.IGNORECASE)
+_RE_GALAXY_Z      = re.compile(r'\bgalaxy\s*z|\bz\s*(fold|flip)', re.IGNORECASE)
+_RE_GALAXY_M      = re.compile(r'\bgalaxy\s*m\b|\bgalaxy\s*m\d|\bm\d{2}\b', re.IGNORECASE)
+_RE_GALAXY_XCOVER = re.compile(r'\b(x\s*cover|xcover)\b', re.IGNORECASE)
+_RE_GALAXY_S      = re.compile(r'\bgalaxy\s*s\s*\d+|\bs\d{1,2}(fe|ultra|plus|\+)?\b|\bs\d{1,2}\s*(fe|ultra|plus)\b', re.IGNORECASE)
+_RE_GALAXY_A      = re.compile(r'\bgalaxy\s*a\s*\d+|\ba\d{1,3}s?(\s*5g|\s*4g)?\b', re.IGNORECASE)
+_RE_PIXEL         = re.compile(r'\bpixel\s*\d', re.IGNORECASE)
+
+
+def _looks_like_samsung(lower):
+    return bool(
+        _RE_GALAXY_TAB.search(lower)
+        or _RE_GALAXY_NOTE.search(lower)
+        or _RE_GALAXY_Z.search(lower)
+        or _RE_GALAXY_XCOVER.search(lower)
+        or _RE_GALAXY_S.search(lower)
+        or _RE_GALAXY_A.search(lower)
+        or _RE_GALAXY_M.search(lower)
+    )
+
+
+def _detect_brand_py(lower):
+    for brand, keywords in BRAND_RULES_PY:
+        for k in keywords:
+            if k in lower:
+                return brand
+    # Fall back to Samsung-shape inference for cleaned strings whose
+    # "Samsung" prefix has already been stripped.
+    if _looks_like_samsung(lower):
+        return 'Samsung'
+    if _RE_PIXEL.search(lower):
+        return 'Google'
+    return 'Other'
+
+
+def _detect_series_py(brand, lower):
+    if not lower:
+        return None
+    if brand == 'Apple':
+        if 'iphone' in lower:
+            return 'iPhone'
+        if 'ipad' in lower:
+            return 'iPad'
+        if 'apple watch' in lower or 'watch ultra' in lower or 'watch se' in lower:
+            return 'Apple Watch'
+        if 'macbook' in lower:
+            return 'MacBook'
+        return 'Other'
+    if brand == 'Samsung':
+        # Specific buckets first so Tab/Note/Z/XCover win over generic S/A.
+        if _RE_GALAXY_TAB.search(lower):
+            return 'Galaxy Tab'
+        if _RE_GALAXY_NOTE.search(lower):
+            return 'Galaxy Note'
+        if _RE_GALAXY_Z.search(lower):
+            return 'Galaxy Z'
+        if _RE_GALAXY_XCOVER.search(lower):
+            return 'Galaxy XCover'
+        if _RE_GALAXY_S.search(lower):
+            return 'Galaxy S'
+        if _RE_GALAXY_A.search(lower):
+            return 'Galaxy A'
+        if _RE_GALAXY_M.search(lower):
+            return 'Galaxy M'
+        return 'Other'
+    if brand == 'Google':
+        if _RE_PIXEL.search(lower) or 'pixel' in lower:
+            return 'Pixel'
+        return 'Other'
+    return 'Other'
+
+
+def parse_brand_model_storage(raw):
+    """Split a raw "brand model storage" string into a dict with brand/model/storage/series.
+
+    Mirrors `parseBrandModelStorage` from src/lib/modelStorage.ts. Empty input
+    returns {'brand': 'Other', 'model': '', 'storage': None, 'series': None}.
+    """
+    input_str = '' if raw is None else str(raw)
+    trimmed = input_str.strip()
+    if not trimmed:
+        return {'brand': 'Other', 'model': '', 'storage': None, 'series': None}
+
+    lower = trimmed.lower()
+    brand = _detect_brand_py(lower)
+
+    working = trimmed
+    parts = working.split(None, 1)
+    first_token = parts[0] if parts else ''
+    if first_token and first_token.lower() in LEADING_BRAND_TOKENS_PY:
+        working = parts[1] if len(parts) > 1 else ''
+
+    model_without_storage, storage = extract_storage(working)
+    model = _collapse_whitespace(model_without_storage)
+    series = _detect_series_py(brand, lower)
+    return {'brand': brand, 'model': model, 'storage': storage, 'series': series}
 
 
 def parse_colour(model: str, raw_colour) -> str:
@@ -273,6 +477,27 @@ def safe_str(val, default='') -> str:
     return default if s.lower() in ('', 'nan', 'none', 'nat') else s
 
 
+# Preserve IMEIs verbatim: client data includes alphanumeric Apple serials
+# (e.g. "NL6CMQCYTD", "SKC9P3QVP6F"), so we MUST NOT strip non-digits.
+def normalize_imei(val) -> str:
+    if val is None:
+        return ''
+    # openpyxl reads numeric IMEIs as float; format as integer to avoid scientific notation.
+    if isinstance(val, float):
+        if val != val:  # NaN
+            return ''
+        if val.is_integer():
+            return format(int(val), 'd')
+        return repr(val)
+    if isinstance(val, int):
+        return format(val, 'd')
+    s = str(val).strip()
+    if s.lower() in ('nan', 'none', 'nat'):
+        return ''
+    # strip surrounding whitespace and quotes only
+    return s.strip().strip('"').strip("'").strip()
+
+
 def build_unit_id(imei: str, model: str, date_in: str, supplier_id: str,
                   buy_price: float, status: str) -> str:
     key = '|'.join([imei or model, date_in, supplier_id, str(buy_price), status])
@@ -297,15 +522,34 @@ def parse_sheet(df, cols: dict, verbose: bool) -> dict:
         return safe_str(val, default)
 
     for idx, row in df.iterrows():
-        model = get(row, 'model')
-        if not model:
+        raw_model = get(row, 'model')
+        if not raw_model:
             skipped += 1
             continue
+        # Split brand / model / storage / series. The cleaned model is what we
+        # persist; storage falls back to the dedicated Storage column when
+        # present; brand/series are first-class doc fields.
+        parsed_bms    = parse_brand_model_storage(raw_model)
+        model         = parsed_bms['model']
+        model_storage = parsed_bms['storage']
+        parsed_brand  = parsed_bms['brand']
+        parsed_series = parsed_bms['series']
 
-        raw_imei      = get(row, 'imei')
-        imei          = ''.join(filter(str.isdigit, raw_imei))
+        # Use the raw cell value (not safe_str'd) so normalize_imei can detect
+        # floats from openpyxl and format them as ints (avoids 1.23e+14 scientific notation).
+        imei_col = cols.get('imei')
+        raw_imei = row.get(imei_col) if imei_col is not None else ''
+        imei     = normalize_imei(raw_imei)
         raw_supplier  = get(row, 'supplier', 'Unknown')
-        supplier_name = normalise_supplier(raw_supplier)
+        # B7 fix: a single cell may carry multiple suppliers ("MHL / ABC / NIHAL").
+        # primaryName drives the legacy supplierId; the full list is preserved on the unit.
+        sup_parsed    = parse_supplier_cell(raw_supplier)
+        supplier_name = normalise_supplier(sup_parsed['primaryName'] or raw_supplier)
+        supplier_names_all = (
+            [normalise_supplier(n) for n in sup_parsed['allNames']]
+            if sup_parsed['allNames']
+            else [supplier_name]
+        )
         buy_price     = safe_float(get(row, 'buyPrice', '0'))
         raw_status    = get(row, 'status')
         sold          = is_sold(raw_status)
@@ -318,25 +562,34 @@ def parse_sheet(df, cols: dict, verbose: bool) -> dict:
         raw_sale_date = row.get(cols.get('saleDate')) if cols.get('saleDate') else None
         sale_date     = safe_date(raw_sale_date) if raw_sale_date else date_in
         raw_colour    = get(row, 'colour')
-        storage       = get(row, 'storage') or None
+        # Prefer the dedicated Storage column when present, fall back to the
+        # value we extracted out of the MODEL string above.
+        storage       = (get(row, 'storage') or model_storage) or None
         condition     = get(row, 'condition') or None
         notes         = get(row, 'notes') or ''
         order_num     = get(row, 'orderNum') or None
         customer      = get(row, 'customer') or None
 
-        # Supplier record
-        supplier_id = f"sup_{supplier_name.replace(' ', '_').lower()}"
-        if supplier_id not in supplier_map:
-            supplier_map[supplier_id] = {
-                'id':        supplier_id,
-                'name':      supplier_name,
-                'portal':    'Direct',
-                'ownerId':   'shared',
-                'createdAt': now,
-            }
+        # Supplier record(s). One synthetic id per supplier name; the first is primary.
+        def _supplier_id_for(name, _map=supplier_map, _now=now):
+            sid = f"sup_{name.replace(' ', '_').lower()}"
+            if sid not in _map:
+                _map[sid] = {
+                    'id':        sid,
+                    'name':      name,
+                    'portal':    'Direct',
+                    'ownerId':   'shared',
+                    'createdAt': _now,
+                }
+            return sid
+        supplier_id  = _supplier_id_for(supplier_name)
+        supplier_ids = [_supplier_id_for(n) for n in supplier_names_all]
 
         category = parse_category(model)
-        brand    = parse_brand(category)
+        # Prefer parse_brand_model_storage's brand (covers Google/Xiaomi/OnePlus
+        # + bare "S21" / "A32" models); fall back to legacy parse_brand only when
+        # the new detector returns 'Other'.
+        brand    = parsed_brand if parsed_brand != 'Other' else parse_brand(category)
         colour   = parse_colour(model, raw_colour)
         status   = 'sold' if sold else ('returned' if returned else 'available')
         unit_id  = build_unit_id(imei, model, date_in, supplier_id, buy_price, status)
@@ -359,6 +612,7 @@ def parse_sheet(df, cols: dict, verbose: bool) -> dict:
             'buyPrice':       buy_price,
             'dateIn':         date_in,
             'supplierId':     supplier_id,
+            **({'supplierIds': supplier_ids} if len(supplier_ids) > 1 else {}),
             'status':         status,
             'flags':          [],
             'notes':          notes,
@@ -370,6 +624,7 @@ def parse_sheet(df, cols: dict, verbose: bool) -> dict:
         }
 
         if storage:       unit['storage']       = storage
+        if parsed_series: unit['series']         = parsed_series
         if condition:     unit['conditionGrade'] = condition
         if sold and platform:   unit['salePlatform']  = platform
         if sold and sale_price: unit['salePrice']     = sale_price

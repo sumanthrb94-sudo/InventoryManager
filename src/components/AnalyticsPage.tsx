@@ -1,16 +1,18 @@
 import React, { useState, useMemo } from 'react';
 import {
   Zap, TrendingUp, TrendingDown, AlertTriangle,
-  Clock, Package,
+  Clock, Package, CircleDollarSign, Trophy,
 } from 'lucide-react';
 import PDFReportButton from './PDFReportButton';
 import {
   AreaChart, Area, BarChart, Bar,
+  LineChart, Line,
   XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, Cell,
 } from 'recharts';
 import { useInventoryStore } from '../lib/inventoryStore';
-import { InventoryUnit, Supplier } from '../types';
+import { recomputeSale } from '../lib/recomputeSale';
+import { InventoryUnit, Supplier, MARKETPLACES, Marketplace } from '../types';
 import CollapsibleSection from './CollapsibleSection';
 
 type Period = 7 | 30 | 90 | 0; // 0 = all time
@@ -22,9 +24,22 @@ const PLATFORM_HEX: Record<string, string> = {
   Backmarket: '#10b981',
 };
 
+// Canonical marketplace colour palette (matches Dashboard.tsx)
+const MARKETPLACE_HEX: Record<Marketplace, string> = {
+  AMAZON: '#f97316',
+  BM:     '#10b981',
+  EBAY:   '#f59e0b',
+  ONBUY:  '#3b82f6',
+  PROJECT:'#6b7280',
+};
+
 export default function AnalyticsPage() {
-  const { units, suppliers } = useInventoryStore();
+  const { units, suppliers, sales } = useInventoryStore();
   const [period, setPeriod]  = useState<Period>(0);
+
+  // ── Live-recompute every sale so GP/SP/commission reflect current
+  // MARKETPLACE_FEES, not the (possibly stale) stored values from import time.
+  const liveSales = useMemo(() => sales.map(recomputeSale), [sales]);
 
   const todayStr = useMemo(() => new Date().toISOString().split('T')[0], []);
 
@@ -261,6 +276,204 @@ export default function AnalyticsPage() {
       .sort((a, b) => b.sellThrough - a.sellThrough);
   }, [units, supplierMap]);
 
+  // ════════════════════════════════════════════════════════════════════════
+  // SALES-DERIVED ANALYTICS (sourced from `sales` collection — master file)
+  // ════════════════════════════════════════════════════════════════════════
+
+  // ── Daily Revenue & GP — last 90 days ────────────────────────────────────
+  // One row per ISO date; revenue = Σ salePrice, gp = Σ recomputed grossProfit.
+  // Dates with no sales emit a zero row so the line chart shows the gap.
+  const dailySales90 = useMemo(() => {
+    const buckets: Record<string, { revenue: number; gp: number }> = {};
+    for (let i = 89; i >= 0; i--) {
+      const d = new Date(todayStr);
+      d.setDate(d.getDate() - i);
+      const key = d.toISOString().split('T')[0];
+      buckets[key] = { revenue: 0, gp: 0 };
+    }
+    for (const s of liveSales) {
+      const key = s.saleDate;
+      if (!key || !(key in buckets)) continue;
+      buckets[key].revenue += s.salePrice || 0;
+      buckets[key].gp      += s.grossProfit || 0;
+    }
+    return Object.entries(buckets).map(([dateStr, v]) => ({
+      dateStr,
+      label: new Date(dateStr).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }),
+      revenue: Math.round(v.revenue),
+      gp: Math.round(v.gp),
+    }));
+  }, [liveSales, todayStr]);
+
+  const revenue90Total = useMemo(
+    () => dailySales90.reduce((s, d) => s + d.revenue, 0),
+    [dailySales90],
+  );
+  const gp90Total = useMemo(
+    () => dailySales90.reduce((s, d) => s + d.gp, 0),
+    [dailySales90],
+  );
+
+  // ── Per-Marketplace Margin Table ────────────────────────────────────────
+  // Rows: AMAZON / BM / EBAY / ONBUY / PROJECT.
+  // count, total revenue, avg SP, avg BP, avg commission, avg GP, GP %.
+  const marketplaceMargin = useMemo(() => {
+    return MARKETPLACES.map(mk => {
+      const rows = liveSales.filter(s => s.marketplace === mk);
+      const count = rows.length;
+      const revenue = rows.reduce((s, r) => s + (r.salePrice || 0), 0);
+      const totalBp = rows.reduce((s, r) => s + (r.buyPrice || 0), 0);
+      const totalCom = rows.reduce((s, r) => s + (r.commission || 0), 0);
+      const totalGp = rows.reduce((s, r) => s + (r.grossProfit || 0), 0);
+      return {
+        marketplace:   mk,
+        count,
+        revenue:       Math.round(revenue),
+        avgSp:         count ? Math.round(revenue / count) : 0,
+        avgBp:         count ? Math.round(totalBp / count) : 0,
+        avgCommission: count ? Math.round((totalCom / count) * 100) / 100 : 0,
+        avgGp:         count ? Math.round(totalGp / count) : 0,
+        gpPct:         revenue > 0 ? Math.round((totalGp / revenue) * 1000) / 10 : 0,
+      };
+    });
+  }, [liveSales]);
+
+  // ── Top 10 Best Sellers by (brand, model, storage) — by total GP ────────
+  // For sales rows the brand/storage aren't on the sale doc, so we enrich
+  // from the linked InventoryUnit when present. Falls back to SKU otherwise.
+  const bestSellers = useMemo(() => {
+    const unitById: Record<string, InventoryUnit> = {};
+    for (const u of units) unitById[u.id] = u;
+
+    const map: Record<string, {
+      key: string;
+      brand: string;
+      model: string;
+      storage: string;
+      count: number;
+      revenue: number;
+      gp: number;
+    }> = {};
+
+    for (const s of liveSales) {
+      const u = s.unitId ? unitById[s.unitId] : undefined;
+      const brand   = u?.brand   || (s.sku ? s.sku.split(/[ _-]/)[0] : 'Unknown');
+      const model   = u?.model   || (s.sku || 'Unknown');
+      const storage = u?.storage || '';
+      const key = `${brand}::${model}::${storage}`;
+      if (!map[key]) map[key] = { key, brand, model, storage, count: 0, revenue: 0, gp: 0 };
+      map[key].count++;
+      map[key].revenue += s.salePrice || 0;
+      map[key].gp      += s.grossProfit || 0;
+    }
+
+    return Object.values(map)
+      .sort((a, b) => b.gp - a.gp)
+      .slice(0, 10)
+      .map(r => ({
+        ...r,
+        revenue: Math.round(r.revenue),
+        gp:      Math.round(r.gp),
+      }));
+  }, [liveSales, units]);
+
+  // ── Slow Movers — units in stock > 30 days, grouped by SKU ──────────────
+  // SKU prefer u.sku; fall back to "${brand} ${model} ${storage}".
+  const slowMoversBySku = useMemo(() => {
+    const cutoffMs = Date.now() - 30 * 86400000;
+    const map: Record<string, {
+      sku: string;
+      count: number;
+      totalBpValue: number;
+      oldestDays: number;
+    }> = {};
+
+    for (const u of units) {
+      if (u.status !== 'available') continue;
+      if (!u.dateIn) continue;
+      const inMs = new Date(u.dateIn).getTime();
+      if (Number.isNaN(inMs) || inMs > cutoffMs) continue;
+
+      const sku = u.sku
+        || `${u.brand || ''} ${u.model || ''}${u.storage ? ' ' + u.storage : ''}`.trim()
+        || 'Unknown';
+      const days = Math.floor((Date.now() - inMs) / 86400000);
+      if (!map[sku]) map[sku] = { sku, count: 0, totalBpValue: 0, oldestDays: 0 };
+      map[sku].count++;
+      map[sku].totalBpValue += u.buyPrice || 0;
+      if (days > map[sku].oldestDays) map[sku].oldestDays = days;
+    }
+    return Object.values(map)
+      .sort((a, b) => b.oldestDays - a.oldestDays || b.count - a.count)
+      .slice(0, 20)
+      .map(r => ({ ...r, totalBpValue: Math.round(r.totalBpValue) }));
+  }, [units]);
+
+  // ── Supplier Performance (sales-derived) ────────────────────────────────
+  // For each supplier: count of sold sales, total GP, GP%, and return rate.
+  // Return rate counts InventoryUnits where status === 'returned' against
+  // total units attributed to that supplier (matches the previous "bought"
+  // definition which used the unit ledger).
+  const supplierSalesPerf = useMemo(() => {
+    // Build per-supplier unit counts for the return-rate denominator.
+    const unitsBySupplier: Record<string, { total: number; returned: number; name: string }> = {};
+    for (const u of units) {
+      if (!u.supplierId) continue;
+      if (!unitsBySupplier[u.supplierId]) {
+        unitsBySupplier[u.supplierId] = {
+          total: 0,
+          returned: 0,
+          name: supplierMap[u.supplierId] || u.supplierName || 'Unknown',
+        };
+      }
+      unitsBySupplier[u.supplierId].total++;
+      if (u.status === 'returned') unitsBySupplier[u.supplierId].returned++;
+    }
+
+    // Aggregate sale revenue/GP per supplier (sales carry supplierId verbatim).
+    const salesBySupplier: Record<string, { revenue: number; gp: number; count: number; name?: string }> = {};
+    for (const s of liveSales) {
+      const sid = s.supplierId || 'unknown';
+      if (!salesBySupplier[sid]) {
+        salesBySupplier[sid] = { revenue: 0, gp: 0, count: 0, name: s.supplierName };
+      }
+      salesBySupplier[sid].revenue += s.salePrice || 0;
+      salesBySupplier[sid].gp      += s.grossProfit || 0;
+      salesBySupplier[sid].count++;
+    }
+
+    // Merge keys from both sources so suppliers with units-only or sales-only
+    // attribution still appear.
+    const allIds = new Set<string>([
+      ...Object.keys(unitsBySupplier),
+      ...Object.keys(salesBySupplier),
+    ]);
+
+    return Array.from(allIds).map(id => {
+      const u = unitsBySupplier[id];
+      const s = salesBySupplier[id];
+      const name = (u?.name || s?.name || supplierMap[id] || 'Unknown');
+      const soldCount = s?.count || 0;
+      const revenue = s?.revenue || 0;
+      const gp = s?.gp || 0;
+      const totalUnits = u?.total || 0;
+      const returned = u?.returned || 0;
+      return {
+        id,
+        name,
+        soldCount,
+        revenue: Math.round(revenue),
+        gp: Math.round(gp),
+        gpPct: revenue > 0 ? Math.round((gp / revenue) * 1000) / 10 : 0,
+        totalUnits,
+        returned,
+        returnRate: totalUnits > 0 ? Math.round((returned / totalUnits) * 1000) / 10 : 0,
+      };
+    })
+    .filter(r => r.soldCount > 0 || r.totalUnits > 0)
+    .sort((a, b) => b.gp - a.gp);
+  }, [liveSales, units, supplierMap]);
+
   // ── Heatmap cell colour ──────────────────────────────────────────────────
   function heatColor(count: number, max: number) {
     if (count === 0) return 'bg-gray-100';
@@ -350,6 +563,265 @@ export default function AnalyticsPage() {
           </ResponsiveContainer>
         </div>
       </div>
+
+      {/* ════════════════════════════════════════════════════════════════ */}
+      {/* SALES-DERIVED ANALYTICS (master file is the source of truth)     */}
+      {/* ════════════════════════════════════════════════════════════════ */}
+
+      {/* ── Revenue Trend · Last 90 Days ── */}
+      <div className="bg-white border border-gray-100 rounded-3xl shadow-sm overflow-hidden">
+        <div className="px-5 pt-5 pb-2 flex items-start justify-between flex-wrap gap-2">
+          <div>
+            <p className="text-[9px] font-mono uppercase tracking-widest text-gray-400 flex items-center gap-1.5">
+              <CircleDollarSign size={10} /> Revenue · Last 90 Days
+            </p>
+            <div className="flex items-baseline gap-3 mt-1">
+              <p className="text-3xl font-bold font-display tracking-tighter">£{revenue90Total.toLocaleString()}</p>
+              <p className="text-xs text-gray-400 font-mono">{liveSales.length} sales total</p>
+            </div>
+          </div>
+        </div>
+        <div className="h-40 px-2 pb-4">
+          <ResponsiveContainer width="100%" height="100%">
+            <LineChart data={dailySales90} margin={{ top: 4, right: 8, bottom: 0, left: -10 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" vertical={false}/>
+              <XAxis dataKey="label" fontSize={7} tickLine={false} axisLine={false} stroke="#aaa" interval={13}/>
+              <YAxis fontSize={7} tickLine={false} axisLine={false} stroke="#aaa"
+                tickFormatter={(v: number) => `£${v >= 1000 ? `${Math.round(v / 1000)}k` : v}`}/>
+              <Tooltip
+                contentStyle={{ borderRadius: 12, fontSize: 11, border: '1px solid #e5e7eb' }}
+                formatter={(v: number) => [`£${v.toLocaleString()}`, 'Revenue']}
+              />
+              <Line type="monotone" dataKey="revenue" stroke="#000" strokeWidth={2} dot={false}
+                activeDot={{ r: 3, fill: '#000' }} />
+            </LineChart>
+          </ResponsiveContainer>
+        </div>
+      </div>
+
+      {/* ── GP Trend · Last 90 Days ── */}
+      <div className="bg-white border border-gray-100 rounded-3xl shadow-sm overflow-hidden">
+        <div className="px-5 pt-5 pb-2 flex items-start justify-between flex-wrap gap-2">
+          <div>
+            <p className="text-[9px] font-mono uppercase tracking-widest text-gray-400 flex items-center gap-1.5">
+              <TrendingUp size={10} /> Gross Profit · Last 90 Days
+            </p>
+            <div className="flex items-baseline gap-3 mt-1">
+              <p className="text-3xl font-bold font-display tracking-tighter text-emerald-700">£{gp90Total.toLocaleString()}</p>
+              <p className="text-xs text-gray-400 font-mono">
+                {revenue90Total > 0 ? `${Math.round(gp90Total / revenue90Total * 1000) / 10}% margin` : '—'}
+              </p>
+            </div>
+          </div>
+        </div>
+        <div className="h-40 px-2 pb-4">
+          <ResponsiveContainer width="100%" height="100%">
+            <LineChart data={dailySales90} margin={{ top: 4, right: 8, bottom: 0, left: -10 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" vertical={false}/>
+              <XAxis dataKey="label" fontSize={7} tickLine={false} axisLine={false} stroke="#aaa" interval={13}/>
+              <YAxis fontSize={7} tickLine={false} axisLine={false} stroke="#aaa"
+                tickFormatter={(v: number) => `£${v >= 1000 ? `${Math.round(v / 1000)}k` : v}`}/>
+              <Tooltip
+                contentStyle={{ borderRadius: 12, fontSize: 11, border: '1px solid #e5e7eb' }}
+                formatter={(v: number) => [`£${v.toLocaleString()}`, 'GP']}
+              />
+              <Line type="monotone" dataKey="gp" stroke="#059669" strokeWidth={2} dot={false}
+                activeDot={{ r: 3, fill: '#059669' }} />
+            </LineChart>
+          </ResponsiveContainer>
+        </div>
+      </div>
+
+      {/* ── Per-Marketplace Margin Table ── */}
+      <CollapsibleSection
+        title="Per-Marketplace Margin"
+        count={marketplaceMargin.reduce((s, m) => s + m.count, 0)}
+        meta="Live recompute · all sales"
+        accent="border-l-violet-400"
+        defaultOpen={true}
+      >
+        <div className="overflow-x-auto">
+          <table className="w-full text-xs">
+            <thead className="bg-gray-50 border-b border-gray-100">
+              <tr>
+                <th className="text-left px-4 py-2.5 text-[9px] font-mono uppercase text-gray-400">Marketplace</th>
+                <th className="text-right px-3 py-2.5 text-[9px] font-mono uppercase text-gray-400">Sales</th>
+                <th className="text-right px-3 py-2.5 text-[9px] font-mono uppercase text-gray-400">Revenue</th>
+                <th className="text-right px-3 py-2.5 text-[9px] font-mono uppercase text-gray-400">Avg SP</th>
+                <th className="text-right px-3 py-2.5 text-[9px] font-mono uppercase text-gray-400">Avg BP</th>
+                <th className="text-right px-3 py-2.5 text-[9px] font-mono uppercase text-gray-400">Avg Com</th>
+                <th className="text-right px-3 py-2.5 text-[9px] font-mono uppercase text-gray-400">Avg GP</th>
+                <th className="text-right px-3 py-2.5 text-[9px] font-mono uppercase text-gray-400">GP %</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-50">
+              {marketplaceMargin.map(m => (
+                <tr key={m.marketplace} className="hover:bg-gray-50">
+                  <td className="px-4 py-2.5 font-semibold">
+                    <span className="inline-flex items-center gap-2">
+                      <span className="w-2 h-2 rounded-full" style={{ background: MARKETPLACE_HEX[m.marketplace] }} />
+                      {m.marketplace}
+                    </span>
+                  </td>
+                  <td className="px-3 py-2.5 text-right font-mono">{m.count}</td>
+                  <td className="px-3 py-2.5 text-right font-mono">£{m.revenue.toLocaleString()}</td>
+                  <td className="px-3 py-2.5 text-right font-mono">£{m.avgSp.toLocaleString()}</td>
+                  <td className="px-3 py-2.5 text-right font-mono">£{m.avgBp.toLocaleString()}</td>
+                  <td className="px-3 py-2.5 text-right font-mono text-gray-500">£{m.avgCommission}</td>
+                  <td className="px-3 py-2.5 text-right font-mono">£{m.avgGp.toLocaleString()}</td>
+                  <td className="px-3 py-2.5 text-right">
+                    <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold ${
+                      m.gpPct >= 15 ? 'bg-emerald-100 text-emerald-700'
+                      : m.gpPct >= 8 ? 'bg-amber-100 text-amber-700'
+                      : 'bg-red-100 text-red-700'
+                    }`}>
+                      {m.gpPct}%
+                    </span>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </CollapsibleSection>
+
+      {/* ── Top 10 Best Sellers by GP ── */}
+      <CollapsibleSection
+        title="Top 10 Best Sellers · By GP"
+        count={bestSellers.length}
+        meta="brand · model · storage"
+        accent="border-l-amber-500"
+        defaultOpen={false}
+      >
+        {bestSellers.length === 0 ? (
+          <div className="py-8 flex flex-col items-center gap-2 text-gray-300">
+            <Trophy size={24}/>
+            <p className="text-[10px] font-mono">No sales data yet</p>
+          </div>
+        ) : (
+          <div className="divide-y divide-gray-50">
+            {bestSellers.map((m, i) => (
+              <div key={m.key} className="flex items-center gap-3 px-4 py-3">
+                <span className={`text-[9px] font-mono font-bold w-5 flex-shrink-0 ${i < 3 ? 'text-amber-500' : 'text-gray-300'}`}>
+                  {String(i + 1).padStart(2, '0')}
+                </span>
+                <div className="flex-1 min-w-0">
+                  <p className="text-xs font-bold truncate">
+                    {m.brand}{m.brand ? ' · ' : ''}{m.model}
+                    {m.storage ? <span className="text-gray-400"> · {m.storage}</span> : null}
+                  </p>
+                  <p className="text-[8px] font-mono text-gray-400 mt-0.5">
+                    {m.count} sold · £{m.revenue.toLocaleString()} revenue
+                  </p>
+                </div>
+                <div className="text-right flex-shrink-0">
+                  <p className="text-sm font-bold text-emerald-600">£{m.gp.toLocaleString()}</p>
+                  <p className="text-[7px] font-mono text-gray-400">total GP</p>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </CollapsibleSection>
+
+      {/* ── Slow Movers (sales-derived: stock > 30d, by SKU) ── */}
+      <CollapsibleSection
+        title="Slow Movers · By SKU"
+        count={slowMoversBySku.length}
+        meta="In stock > 30d"
+        accent="border-l-orange-500"
+        defaultOpen={false}
+      >
+        {slowMoversBySku.length === 0 ? (
+          <div className="py-8 flex flex-col items-center gap-2 text-gray-300">
+            <Clock size={24}/>
+            <p className="text-[10px] font-mono">No slow movers yet</p>
+          </div>
+        ) : (
+          <div className="divide-y divide-gray-50">
+            {slowMoversBySku.map(m => (
+              <div key={m.sku} className="flex items-center gap-3 px-4 py-2.5">
+                <div className="flex-1 min-w-0">
+                  <p className="text-xs font-bold truncate">{m.sku}</p>
+                  <p className="text-[8px] font-mono text-gray-400 mt-0.5">
+                    {m.count} unit{m.count === 1 ? '' : 's'} · £{m.totalBpValue.toLocaleString()} BP locked
+                  </p>
+                </div>
+                <div className="text-right flex-shrink-0">
+                  <p className="text-sm font-bold text-orange-600">{m.oldestDays}d</p>
+                  <p className="text-[7px] font-mono text-gray-400">oldest</p>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </CollapsibleSection>
+
+      {/* ── Supplier Performance (sales-derived) ── */}
+      {supplierSalesPerf.length > 0 && (
+        <CollapsibleSection
+          title="Supplier Performance · Sales"
+          count={supplierSalesPerf.length}
+          meta="GP · return rate"
+          accent="border-l-indigo-500"
+          defaultOpen={false}
+        >
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs">
+              <thead className="bg-gray-50 border-b border-gray-100">
+                <tr>
+                  <th className="text-left px-4 py-2.5 text-[9px] font-mono uppercase text-gray-400">Supplier</th>
+                  <th className="text-right px-3 py-2.5 text-[9px] font-mono uppercase text-gray-400">Sold</th>
+                  <th className="text-right px-3 py-2.5 text-[9px] font-mono uppercase text-gray-400">Revenue</th>
+                  <th className="text-right px-3 py-2.5 text-[9px] font-mono uppercase text-gray-400">Total GP</th>
+                  <th className="text-right px-3 py-2.5 text-[9px] font-mono uppercase text-gray-400">GP %</th>
+                  <th className="text-right px-3 py-2.5 text-[9px] font-mono uppercase text-gray-400">Return Rate</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-50">
+                {supplierSalesPerf.map(s => (
+                  <tr key={s.id} className="hover:bg-gray-50">
+                    <td className="px-4 py-2.5 font-semibold max-w-[180px] truncate">{s.name}</td>
+                    <td className="px-3 py-2.5 text-right font-mono">{s.soldCount}</td>
+                    <td className="px-3 py-2.5 text-right font-mono">£{s.revenue.toLocaleString()}</td>
+                    <td className="px-3 py-2.5 text-right font-mono">£{s.gp.toLocaleString()}</td>
+                    <td className="px-3 py-2.5 text-right">
+                      <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold ${
+                        s.gpPct >= 15 ? 'bg-emerald-100 text-emerald-700'
+                        : s.gpPct >= 8 ? 'bg-amber-100 text-amber-700'
+                        : s.gpPct > 0 ? 'bg-red-100 text-red-700'
+                        : 'bg-gray-100 text-gray-500'
+                      }`}>
+                        {s.gpPct > 0 ? `${s.gpPct}%` : '—'}
+                      </span>
+                    </td>
+                    <td className="px-3 py-2.5 text-right">
+                      <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold font-mono ${
+                        s.returnRate === 0 ? 'bg-gray-100 text-gray-500'
+                        : s.returnRate < 5 ? 'bg-emerald-100 text-emerald-700'
+                        : s.returnRate < 10 ? 'bg-amber-100 text-amber-700'
+                        : 'bg-red-100 text-red-700'
+                      }`}>
+                        {s.totalUnits > 0 ? `${s.returnRate}%` : '—'}
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <div className="px-4 py-2 bg-gray-50 border-t border-gray-100">
+            <p className="text-[8px] font-mono text-gray-400 uppercase tracking-widest">
+              GP% = total GP ÷ revenue · Return rate = returned units ÷ total units attributed
+            </p>
+          </div>
+        </CollapsibleSection>
+      )}
+
+      {/* ════════════════════════════════════════════════════════════════ */}
+      {/* LEGACY UNIT-DERIVED ANALYTICS (preserved — sales view above is    */}
+      {/* the source of truth)                                              */}
+      {/* ════════════════════════════════════════════════════════════════ */}
 
       {/* ── 2. PLATFORM SCORECARD ── */}
       <CollapsibleSection title="Platform Scorecard" accent="border-l-amber-400" defaultOpen={false}>

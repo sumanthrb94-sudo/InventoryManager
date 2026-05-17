@@ -2,75 +2,77 @@ import React, { useMemo, useState, useRef, useCallback } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
 import { X } from 'lucide-react';
 import { InventoryUnit } from '../types';
-import ViewAllUnitsModal from './ViewAllUnitsModal';
-import PeriodicTableSidebar from './PeriodicTableSidebar';
+import { parseBrandModelStorage, type Series } from '../lib/modelStorage';
+import SkuOverlayModal from './SkuOverlayModal';
 
 interface Props {
   units: InventoryUnit[];
-  onNavigate: (search: string) => void;
+  /** Optional — kept for back-compat with callers that wired a page-level
+   *  filter. The periodic table no longer drives this on click; the
+   *  Excel-style overlay is the new click target. */
+  onNavigate?: (search: string) => void;
 }
 
-const BRAND_GROUPS = [
-  {
-    id: 'apple-iphones',
-    label: 'Apple iPhones',
-    color: { bg: '#1d4ed8', light: '#dbeafe', text: '#1e3a8a', border: '#93c5fd' },
-    match: (m: string) => /iphone/i.test(m),
-    seriesFn: (m: string) => {
-      const num = m.match(/\d+/)?.[0] || '';
-      return `iPhone ${num}`;
-    },
-  },
-  {
-    id: 'apple-ipads',
-    label: 'Apple iPads',
-    color: { bg: '#7c3aed', light: '#ede9fe', text: '#4c1d95', border: '#c4b5fd' },
-    match: (m: string) => /ipad/i.test(m),
-    seriesFn: (m: string) => {
-      const mL = m.toLowerCase();
-      if (mL.includes('pro')) return 'iPad Pro';
-      if (mL.includes('air')) return 'iPad Air';
-      if (mL.includes('mini')) return 'iPad Mini';
-      return 'iPad';
-    },
-  },
-  {
-    id: 'samsung-s',
-    label: 'Samsung S Series',
-    color: { bg: '#d97706', light: '#fef3c7', text: '#78350f', border: '#fcd34d' },
-    match: (m: string) => /galaxy\s+s\d/i.test(m),
-    seriesFn: (m: string) => {
-      const numMatch = m.match(/S\s*(\d+)/i);
-      return `Galaxy S${numMatch?.[1] || ''}`;
-    },
-  },
-  {
-    id: 'samsung-a',
-    label: 'Samsung A Series',
-    color: { bg: '#059669', light: '#d1fae5', text: '#064e3b', border: '#6ee7b7' },
-    match: (m: string) => /galaxy\s+a\d/i.test(m),
-    seriesFn: (m: string) => {
-      const numMatch = m.match(/A\s*(\d+)/i);
-      return `Galaxy A${numMatch?.[1] || ''}`;
-    },
-  },
-  {
-    id: 'samsung-tabs',
-    label: 'Samsung Tabs',
-    color: { bg: '#0891b2', light: '#cffafe', text: '#164e63', border: '#67e8f9' },
-    match: (m: string) => /(galaxy\s+tab|galaxy\s+z)/i.test(m),
-    seriesFn: (m: string) => {
-      const mL = m.toLowerCase();
-      if (mL.includes('fold')) return 'Z Fold';
-      if (mL.includes('flip')) return 'Z Flip';
-      const tabMatch = m.match(/Tab\s+(\w+\d*)/i);
-      return tabMatch ? `Tab ${tabMatch[1]}` : 'Tab';
-    },
-  },
+/** Per-series visual theme + display label for the periodic table. */
+interface SeriesGroupDef {
+  id: Series;
+  label: string;
+  color: { bg: string; light: string; text: string; border: string };
+}
+
+// Order here drives the on-screen row order. Each `id` matches a `Series` value
+// returned by parseBrandModelStorage so the grouping is brand-aware.
+//
+// Per spec: iPhone → iPad → Apple Watch → MacBook → Galaxy S → Galaxy A →
+// Galaxy Note → Galaxy Z → Galaxy M → Galaxy XCover → Galaxy Tab → Pixel → Other.
+// New Samsung sections use distinct colour families so the legend reads at a
+// glance: Note=cyan, Z=purple, M=yellow, XCover=slate (rugged feel).
+const SERIES_GROUPS: ReadonlyArray<SeriesGroupDef> = [
+  { id: 'iPhone',        label: 'Apple iPhones',     color: { bg: '#1d4ed8', light: '#dbeafe', text: '#1e3a8a', border: '#93c5fd' } },
+  { id: 'iPad',          label: 'Apple iPads',       color: { bg: '#7c3aed', light: '#ede9fe', text: '#4c1d95', border: '#c4b5fd' } },
+  { id: 'Apple Watch',   label: 'Apple Watch',       color: { bg: '#be185d', light: '#fce7f3', text: '#831843', border: '#f9a8d4' } },
+  { id: 'MacBook',       label: 'MacBook',           color: { bg: '#0f766e', light: '#ccfbf1', text: '#134e4a', border: '#5eead4' } },
+  { id: 'Galaxy S',      label: 'Samsung Galaxy S',  color: { bg: '#1e3a8a', light: '#dbeafe', text: '#1e3a8a', border: '#93c5fd' } },
+  { id: 'Galaxy A',      label: 'Samsung Galaxy A',  color: { bg: '#2563eb', light: '#eff6ff', text: '#1e40af', border: '#bfdbfe' } },
+  { id: 'Galaxy Note',   label: 'Samsung Note',      color: { bg: '#0e7490', light: '#cffafe', text: '#164e63', border: '#67e8f9' } },
+  { id: 'Galaxy Z',      label: 'Samsung Z (Fold/Flip)', color: { bg: '#6d28d9', light: '#ede9fe', text: '#4c1d95', border: '#c4b5fd' } },
+  { id: 'Galaxy M',      label: 'Samsung Galaxy M',  color: { bg: '#b45309', light: '#fef3c7', text: '#78350f', border: '#fcd34d' } },
+  { id: 'Galaxy XCover', label: 'Samsung XCover',    color: { bg: '#475569', light: '#e2e8f0', text: '#1e293b', border: '#94a3b8' } },
+  { id: 'Galaxy Tab',    label: 'Samsung Tabs',      color: { bg: '#0891b2', light: '#cffafe', text: '#164e63', border: '#67e8f9' } },
+  { id: 'Pixel',         label: 'Google Pixel',      color: { bg: '#ea580c', light: '#ffedd5', text: '#7c2d12', border: '#fdba74' } },
+  { id: 'Other',         label: 'Other',             color: { bg: '#475569', light: '#f1f5f9', text: '#334155', border: '#cbd5e1' } },
 ];
 
+/**
+ * unitSeries — derive the periodic-table bucket for a single inventory unit.
+ *
+ * Why runtime, not stored: the 354 units currently in Firestore were imported
+ * with the OLD parseBrandModelStorage regex, which dumped every bare-coded
+ * Samsung model ("S21", "A32 5G", "X COVER 5") into `series='Other'`. Until
+ * the operator re-imports the workbook, the stored field is stale and would
+ * still mis-bucket those units. Re-parsing the cleaned `model` string at
+ * render time picks up the new buckets without a backfill migration.
+ *
+ * Fallback chain: live detector → stored doc field → 'Other'. The stored
+ * field is preferred only when the live detector returns 'Other' so a unit
+ * that the live parser CAN classify always wins (the live parser is now
+ * strictly more permissive than the import-time one was).
+ */
+function unitSeries(u: InventoryUnit): Series {
+  const live = parseBrandModelStorage(u.model || '').series;
+  if (live && live !== 'Other') return live;
+  const stored = (u as unknown as { series?: Series }).series;
+  return stored || 'Other';
+}
+
 interface Element {
+  /** Display label for the popover / sidebar — full clean model + optional storage. */
   seriesKey: string;
+  /** Model name without storage, used as the sidebar filter substring. */
+  model: string;
+  /** Storage capacity for this block, or undefined when the model has none. */
+  storage?: string;
+  /** Big abbreviated label rendered inside the block tile. */
   symbol: string;
   count: number;
   shsCount: number;
@@ -89,39 +91,82 @@ function storageGb(s: string): number {
   return parseInt(m[1]) * (m[2].toUpperCase() === 'TB' ? 1024 : 1);
 }
 
-function makeSymbol(seriesKey: string, groupId: string): string {
-  const mL = seriesKey.toLowerCase();
-  if (groupId === 'apple-iphones') {
-    const num = seriesKey.match(/\d+/)?.[0] || '';
-    if (mL.includes('pro max')) return `i${num}PM`;
-    if (mL.includes('pro')) return `i${num}P`;
-    if (mL.includes('plus')) return `i${num}+`;
-    if (mL.includes('mini')) return `i${num}M`;
-    return `i${num}`;
-  }
-  if (groupId === 'apple-ipads') {
-    if (mL.includes('pro')) return 'iPP';
-    if (mL.includes('air')) return 'iPA';
-    if (mL.includes('mini')) return 'iPM';
-    return 'iPd';
-  }
-  if (groupId === 'samsung-s') {
-    const num = seriesKey.match(/\d+/)?.[0] || '';
-    if (mL.includes('ultra')) return `S${num}U`;
-    if (mL.includes('plus')) return `S${num}+`;
-    return `S${num}`;
-  }
-  if (groupId === 'samsung-a') {
-    const num = seriesKey.match(/\d+/)?.[0] || '';
-    return `A${num}`;
-  }
-  if (groupId === 'samsung-tabs') {
-    if (mL.includes('fold')) return 'ZFd';
-    if (mL.includes('flip')) return 'ZFp';
-    const num = seriesKey.match(/\d+/)?.[0] || '';
-    return `T${num}`;
-  }
-  return seriesKey.slice(0, 3).toUpperCase();
+/**
+ * Build a compact display code for a model name. Strips redundant series
+ * prefixes ("iPhone", "Galaxy", "iPad") and applies the standard
+ * abbreviations: Pro Max → PM, Ultra → U, Plus → +, Mini → mini.
+ *
+ *   "iPhone 17 Pro Max" → "17 PM"
+ *   "Galaxy S22 Ultra"  → "S22U"
+ *   "iPad 7th Gen"      → "iPad 7"
+ *   "Tab A9+"           → "A9+"
+ */
+/**
+ * shortCode — compress a full model name into a label that fits inside a
+ * 60×60 periodic-table block (max ~7-8 chars rendered). The full model is
+ * always shown in the block's `title` attribute on hover.
+ *
+ * Strategy:
+ *   1. Strip parenthetical noise (DUAL PHYSI SIM), (TWO PHY), etc.
+ *   2. Strip SIM/network modifier phrases (2 SIM SLOTS, SS No E-Sim,
+ *      TWO PHYSICAL SIM, W/C, eSIM, WiFi-only chatter).
+ *   3. Drop the brand/series prefix (Galaxy, iPhone, Tab) — section title
+ *      already says it.
+ *   4. Apply standard abbreviations: Pro Max → PM, Ultra → U, Plus → +,
+ *      Mini → mini, FE stays FE.
+ *   5. Hard cap at 8 characters; truncate with no ellipsis (ellipsis
+ *      itself eats one of the precious 8 characters).
+ */
+function shortCode(model: string): string {
+  if (!model) return '?';
+  let s = model.trim();
+
+  // 1. Drop parenthetical clutter — "(DUAL PHYSI SIM)", "(TWO PHYSICAL)".
+  s = s.replace(/\([^)]*\)/g, ' ');
+
+  // 2. Strip noisy SIM / connectivity modifier phrases that overflow boxes.
+  //    Order matters: longer multi-word patterns first.
+  const noise: RegExp[] = [
+    /\bTWO\s+PHYSICAL(?:\s+SIM)?\b/gi,
+    /\bDUAL\s+PHYSI(?:CAL)?(?:\s+SIM)?\b/gi,
+    /\bSS\s*No\s*E-?Sim\b/gi,
+    /\b\d+\s*SIM\s*(?:SLOTS?)?\b/gi,
+    /\bWiFi\s*\+\s*(?:4G|5G|Cellular)\b/gi,
+    /\bWiFi(?:\s*only)?\b/gi,
+    /\bCellular\b/gi,
+    /\bUNLOCKED\b/gi,
+    /\bW\/C\b/gi,           // "with Cellular" shorthand
+    /\beSIM\b/gi,
+    /\bREPLACEMENT\b/gi,
+  ];
+  for (const r of noise) s = s.replace(r, ' ');
+
+  // 3. Drop redundant brand/series prefixes — they're already in the section title.
+  s = s.replace(/^iPhone\s+/i, '');
+  s = s.replace(/^Galaxy\s+/i, '');
+  s = s.replace(/^Samsung\s+/i, '');
+  // For iPad we keep the "iPad" prefix ("iPad 7th Gen" → "iPad 7").
+  s = s.replace(/(\d+)(st|nd|rd|th)\s*Gen\b/i, '$1');
+  s = s.replace(/\((\d+)(st|nd|rd|th)\s*Gen\)/i, '$1');
+  s = s.replace(/^Tab\s+/i, ''); // "Tab A9+" → "A9+"
+
+  // 4. Standard abbreviations. Order: longer match first.
+  s = s.replace(/\bPro Max\b/gi, 'PM');
+  s = s.replace(/\bUltra\b/gi, 'U');
+  s = s.replace(/\bPlus\b/gi, '+');
+  s = s.replace(/\bMini\b/gi, 'mini');
+
+  // Glue single-letter abbreviations onto the preceding alphanumeric token so
+  // "S22 U" reads as "S22U" and "17 PM" still reads as "17 PM" (multi-char).
+  s = s.replace(/(\w)\s+(U|\+)\b/g, '$1$2');
+
+  // Collapse whitespace + dashes left behind by the strip passes.
+  s = s.replace(/\s+/g, ' ').replace(/\s*-\s*$/, '').trim();
+
+  // 5. Hard cap at 8 chars to guarantee box fit.
+  if (s.length > 8) s = s.slice(0, 8).trim();
+
+  return s || '?';
 }
 
 interface PopoverState {
@@ -304,8 +349,8 @@ export default function PeriodicInventory({ units, onNavigate }: Props) {
   const incoming  = units.filter(u => u.status === 'incoming');
 
   const [popover, setPopover] = useState<PopoverState | null>(null);
-  const [viewAllModal, setViewAllModal] = useState<{ seriesKey: string; searchTerm: string } | null>(null);
-  const [selectedSeries, setSelectedSeries] = useState<{ seriesKey: string; searchTerm: string } | null>(null);
+  /** Excel-style overlay target — set when a block is clicked, null when closed. */
+  const [overlay, setOverlay] = useState<{ seriesKey: string; model: string; storage?: string } | null>(null);
   // Refs for the hover grace-period timers
   const closeTimer  = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -315,64 +360,110 @@ export default function PeriodicInventory({ units, onNavigate }: Props) {
 
   const groups = useMemo(() => {
     try {
-    return BRAND_GROUPS.map(group => {
-      const groupUnits    = available.filter(u => group.match(u.model));
-      const groupIncoming = incoming.filter(u => group.match(u.model));
+    // Parse every unit ONCE upfront. Cache the parsed brand/model/storage/series
+    // alongside the unit so we can bucket by series and then by model+storage.
+    type ParsedUnit = { unit: InventoryUnit; model: string; storage?: string; series: Series };
+    const parseUnit = (u: InventoryUnit): ParsedUnit => {
+      const p = parseBrandModelStorage(u.model);
+      // Prefer the unit's own storage field when present — covers the
+      // tablet-RAM-ambiguity case (parser returns 6GB RAM for some tabs) and
+      // any docs that already have storage broken out at import time.
+      const storage = u.storage || p.storage;
+      // Series goes through unitSeries() so legacy docs stamped with the old
+      // (buggy) `series='Other'` field get re-derived from the cleaned model
+      // string at render time. See unitSeries doc-comment.
+      const series: Series = unitSeries(u);
+      return { unit: u, model: p.model || u.model, storage, series };
+    };
 
-      const seriesMap: Record<string, {
-        count: number; shsCount: number; value: number; searchTerm: string;
+    const parsedAvailable = available.map(parseUnit);
+    const parsedIncoming  = incoming.map(parseUnit);
+
+    return SERIES_GROUPS.map(group => {
+      const groupUnits    = parsedAvailable.filter(p => p.series === group.id);
+      const groupIncoming = parsedIncoming.filter(p => p.series === group.id);
+
+      // Key buckets by `model|storage` so 128GB and 256GB of the same model
+      // produce SEPARATE blocks. Each bucket carries the canonical model + storage
+      // so we can format the label without re-parsing.
+      type Bucket = {
+        model: string;
+        storage?: string;
+        count: number; shsCount: number; value: number;
         variants: Record<string, number>; storages: Record<string, number>; prices: number[];
-      }> = {};
+      };
+      const buckets: Record<string, Bucket> = {};
+      const bucketKey = (model: string, storage?: string) => `${model}|${storage ?? ''}`;
 
-      for (const u of groupUnits) {
-        const sk = group.seriesFn(u.model);
-        if (!seriesMap[sk]) seriesMap[sk] = { count: 0, shsCount: 0, value: 0, searchTerm: sk, variants: {}, storages: {}, prices: [] };
-        seriesMap[sk].count++;
-        seriesMap[sk].value += u.buyPrice;
-        seriesMap[sk].prices.push(u.buyPrice);
-        const col = u.colour || 'Unknown';
-        seriesMap[sk].variants[col] = (seriesMap[sk].variants[col] || 0) + 1;
-        if (u.storage) {
-          seriesMap[sk].storages[u.storage] = (seriesMap[sk].storages[u.storage] || 0) + 1;
+      for (const p of groupUnits) {
+        const key = bucketKey(p.model, p.storage);
+        if (!buckets[key]) {
+          buckets[key] = { model: p.model, storage: p.storage, count: 0, shsCount: 0, value: 0, variants: {}, storages: {}, prices: [] };
+        }
+        const b = buckets[key];
+        b.count++;
+        b.value += p.unit.buyPrice;
+        b.prices.push(p.unit.buyPrice);
+        const col = p.unit.colour || 'Unknown';
+        b.variants[col] = (b.variants[col] || 0) + 1;
+        if (p.storage) {
+          b.storages[p.storage] = (b.storages[p.storage] || 0) + 1;
         }
       }
 
-      for (const u of groupIncoming) {
-        const sk = group.seriesFn(u.model);
-        if (!seriesMap[sk]) seriesMap[sk] = { count: 0, shsCount: 0, value: 0, searchTerm: sk, variants: {}, storages: {}, prices: [] };
-        seriesMap[sk].shsCount++;
+      for (const p of groupIncoming) {
+        const key = bucketKey(p.model, p.storage);
+        if (!buckets[key]) {
+          buckets[key] = { model: p.model, storage: p.storage, count: 0, shsCount: 0, value: 0, variants: {}, storages: {}, prices: [] };
+        }
+        buckets[key].shsCount++;
       }
 
-      const elements: Element[] = Object.entries(seriesMap)
-        .map(([sk, d], i) => ({
-          seriesKey:  sk,
-          symbol:     makeSymbol(sk, group.id),
-          count:      d.count,
-          shsCount:   d.shsCount,
-          value:      d.value,
-          searchTerm: d.searchTerm,
-          ordinal:    i + 1,
-          variants: Object.entries(d.variants || {})
-            .sort(([, a], [, b]) => b - a)
-            .map(([colour, count]) => ({ colour, count })),
-          storageVariants: Object.entries(d.storages || {})
-            .sort(([a], [b]) => storageGb(a) - storageGb(b))
-            .map(([storage, count]) => ({ storage, count })),
-          priceRange: d.prices.length
-            ? { min: Math.min(...d.prices), max: Math.max(...d.prices) }
-            : { min: 0, max: 0 },
-        }))
+      const elements: Element[] = Object.values(buckets)
+        .map((d, i) => {
+          // Label: full model name + optional storage. The substring filter
+          // downstream (the Excel overlay) matches by model+storage with
+          // matching across model/storage/colour/imei, so we hand it the model
+          // alone — that reliably narrows to all units of this model. Storage
+          // is shown in the UI as a small caption so the user still sees
+          // separate blocks per (model, storage).
+          const symbol = shortCode(d.model);
+          const seriesKey = d.storage ? `${d.model} ${d.storage}` : d.model;
+          return {
+            seriesKey,
+            model:       d.model,
+            storage:     d.storage,
+            symbol,
+            count:       d.count,
+            shsCount:    d.shsCount,
+            value:       d.value,
+            searchTerm:  d.model,
+            ordinal:     i + 1,
+            variants: Object.entries(d.variants || {})
+              .sort(([, a], [, b]) => b - a)
+              .map(([colour, count]) => ({ colour, count })),
+            storageVariants: Object.entries(d.storages || {})
+              .sort(([a], [b]) => storageGb(a) - storageGb(b))
+              .map(([storage, count]) => ({ storage, count })),
+            priceRange: d.prices.length
+              ? { min: Math.min(...d.prices), max: Math.max(...d.prices) }
+              : { min: 0, max: 0 },
+          };
+        })
+        // Sort by model number descending (newest model first), tie-break by
+        // storage ascending so a "S22 128GB" sits left of "S22 256GB".
         .sort((a, b) => {
-          const na = parseInt(a.seriesKey.match(/\d+/)?.[0] || '0');
-          const nb = parseInt(b.seriesKey.match(/\d+/)?.[0] || '0');
-          return nb - na;
+          const na = parseInt(a.model.match(/\d+/)?.[0] || '0');
+          const nb = parseInt(b.model.match(/\d+/)?.[0] || '0');
+          if (nb !== na) return nb - na;
+          return storageGb(a.storage || '') - storageGb(b.storage || '');
         })
         .map((el, i) => ({ ...el, ordinal: i + 1 }));
 
       return {
         ...group, elements,
         totalCount: groupUnits.length,
-        totalValue: groupUnits.reduce((s, u) => s + u.buyPrice, 0),
+        totalValue: groupUnits.reduce((s, p) => s + p.unit.buyPrice, 0),
       };
     }).filter(g => g.elements.length > 0);
     } catch (e) {
@@ -405,8 +496,8 @@ export default function PeriodicInventory({ units, onNavigate }: Props) {
   if (groups.length === 0) return null;
 
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 h-full lg:h-auto">
-      <div className="lg:col-span-2">
+    <div className="h-full lg:h-auto">
+      <div>
         <div style={{ background: '#ffffff', borderRadius: 20, padding: '12px 10px', overflow: 'hidden' }}>
         {/* Header */}
         <div style={{ marginBottom: 12 }}>
@@ -462,26 +553,37 @@ export default function PeriodicInventory({ units, onNavigate }: Props) {
               </div>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
                 {g.elements.map(el => {
-                  const isHovered = popover?.el.seriesKey === el.seriesKey;
+                  const blockKey  = `${el.model}|${el.storage ?? ''}`;
+                  const hoverKey  = popover ? `${popover.el.model}|${popover.el.storage ?? ''}` : null;
+                  const isHovered = hoverKey === blockKey;
                   const isEmpty   = el.count === 0 && el.shsCount === 0;
+                  // Caption: storage if present, otherwise fall back to the full model name.
+                  const caption   = el.storage || el.model;
                   return (
                     <button
-                      key={el.seriesKey}
+                      key={blockKey}
                       onMouseEnter={e => handleElementEnter(el, g.color, e)}
                       onMouseLeave={scheduleClose}
                       onClick={() => {
-                        if (el.count > 0) {
-                          onNavigate(el.searchTerm);
-                          setSelectedSeries({ seriesKey: el.seriesKey, searchTerm: el.searchTerm });
-                        }
+                        // Click opens the Excel-style overlay for this SKU.
+                        // Empty blocks (zero stock + zero SHS) are non-actionable.
+                        if (el.count === 0 && el.shsCount === 0) return;
+                        setOverlay({
+                          seriesKey: el.seriesKey,
+                          model: el.model,
+                          storage: el.storage,
+                        });
                       }}
-                      title={isEmpty ? el.seriesKey : undefined}
+                      title={el.seriesKey}
                       style={{
                         width: 60, height: 60,
                         background: isEmpty ? '#1e293b' : isHovered ? g.color.bg : g.color.light,
                         border: `1.5px solid ${isEmpty ? '#334155' : isHovered ? g.color.bg : g.color.border}`,
                         borderRadius: 8,
                         padding: '3px 2px',
+                        // Hard clip: no label, badge, or caption may bleed
+                        // past the block border — guarantees fixed grid.
+                        overflow: 'hidden',
                         display: 'flex',
                         flexDirection: 'column',
                         justifyContent: 'space-between',
@@ -492,7 +594,7 @@ export default function PeriodicInventory({ units, onNavigate }: Props) {
                         opacity: 1,
                       }}
                     >
-                      {/* Count */}
+                      {/* Count (top-right corner) */}
                       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 1 }}>
                         <span style={{ fontSize: 9, fontFamily: 'monospace', fontWeight: 800, color: isHovered ? '#fff' : g.color.text }}>
                           {el.count}
@@ -504,20 +606,30 @@ export default function PeriodicInventory({ units, onNavigate }: Props) {
                         )}
                       </div>
 
-                      {/* Symbol */}
-                      <div style={{ textAlign: 'center', lineHeight: 1 }}>
+                      {/* Big symbol (shortCode of the model) — font-size
+                          scales down by length so even an 8-char label
+                          fits inside the fixed 60px width. */}
+                      <div style={{ textAlign: 'center', lineHeight: 1, width: '100%', overflow: 'hidden' }}>
                         <span style={{
-                          fontSize: el.symbol.length > 4 ? 13 : 17,
+                          fontSize:
+                            el.symbol.length > 7 ? 9  :
+                            el.symbol.length > 6 ? 10 :
+                            el.symbol.length > 5 ? 11 :
+                            el.symbol.length > 4 ? 13 :
+                                                   17,
                           fontWeight: 900,
                           color: isHovered ? '#fff' : g.color.text,
                           fontFamily: 'system-ui, sans-serif',
                           letterSpacing: '-0.04em',
+                          whiteSpace: 'nowrap',
+                          display: 'inline-block',
+                          maxWidth: '100%',
                         }}>
                           {el.symbol}
                         </span>
                       </div>
 
-                      {/* Series name */}
+                      {/* Small caption: storage if present, otherwise full model name */}
                       <div style={{ width: '100%', textAlign: 'center' }}>
                         <span style={{
                           fontSize: 6.5, fontFamily: 'monospace',
@@ -525,7 +637,7 @@ export default function PeriodicInventory({ units, onNavigate }: Props) {
                           opacity: 0.75, lineHeight: 1.2, display: 'block',
                           overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
                         }}>
-                          {el.seriesKey}
+                          {caption}
                         </span>
                       </div>
                     </button>
@@ -545,76 +657,12 @@ export default function PeriodicInventory({ units, onNavigate }: Props) {
       </div>
       </div>
 
-      {/* Sidebar - visible on lg screens in grid layout */}
-      <div className="hidden lg:flex lg:col-span-1">
-        <PeriodicTableSidebar
-          seriesKey={selectedSeries?.seriesKey || null}
-          searchTerm={selectedSeries?.searchTerm || null}
-          units={units}
-          onViewAll={(seriesKey, searchTerm) => {
-            setViewAllModal({ seriesKey, searchTerm });
-            setSelectedSeries(null);
-          }}
-        />
-      </div>
-
-      {/* Mobile sidebar modal - visible on smaller screens */}
-      <AnimatePresence>
-        {selectedSeries && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="lg:hidden fixed inset-0 z-50 flex items-end bg-black/40 backdrop-blur-sm"
-            onClick={() => setSelectedSeries(null)}
-          >
-            <motion.div
-              initial={{ y: '100%' }}
-              animate={{ y: 0 }}
-              exit={{ y: '100%' }}
-              transition={{ type: 'spring', damping: 30, stiffness: 300 }}
-              className="w-full bg-white rounded-t-2xl max-h-[85vh] overflow-y-auto"
-              onClick={e => e.stopPropagation()}
-            >
-              {/* Mobile sidebar header */}
-              <div className="sticky top-0 bg-white border-b border-gray-200 p-4 flex items-center justify-between rounded-t-2xl">
-                <h3 className="text-lg font-bold">{selectedSeries.seriesKey}</h3>
-                <button
-                  onClick={() => setSelectedSeries(null)}
-                  className="p-2 hover:bg-gray-100 rounded-lg transition-all"
-                >
-                  <X size={20} className="text-gray-500" />
-                </button>
-              </div>
-
-              {/* Mobile sidebar content */}
-              <div className="p-4">
-                <PeriodicTableSidebar
-                  seriesKey={selectedSeries.seriesKey}
-                  searchTerm={selectedSeries.searchTerm}
-                  units={units}
-                  onViewAll={(seriesKey, searchTerm) => {
-                    setViewAllModal({ seriesKey, searchTerm });
-                    setSelectedSeries(null);
-                  }}
-                />
-              </div>
-            </motion.div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-
-      {/* View All Units Modal */}
-      <AnimatePresence>
-        {viewAllModal && (
-          <ViewAllUnitsModal
-            seriesKey={viewAllModal.seriesKey}
-            searchTerm={viewAllModal.searchTerm}
-            units={units}
-            onClose={() => setViewAllModal(null)}
-          />
-        )}
-      </AnimatePresence>
+      {/* Excel-style SKU overlay — replaces the old sidebar/bottom-sheet/view-all flow. */}
+      <SkuOverlayModal
+        selection={overlay}
+        units={units}
+        onClose={() => setOverlay(null)}
+      />
     </div>
   );
 }

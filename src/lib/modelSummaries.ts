@@ -4,13 +4,21 @@ export function buildModelSummaries(units: InventoryUnit[]): ModelSummary[] {
   const map = new Map<string, ModelSummary>();
 
   for (const unit of units) {
-    const key = `${unit.brand}||${unit.model}`;
+    // Storage is part of the SKU identity — a 128GB and a 256GB iPhone 15 are
+    // different products and must not collapse into the same model row.
+    // Legacy units often carry the storage as part of `model` already (e.g.
+    // "iPhone 15 Pro Max 256GB") which means `unit.storage` is undefined; in
+    // that case the model string itself differentiates groups, so the empty
+    // storage segment is safe. New imports set `unit.storage` explicitly.
+    const storage = unit.storage || '';
+    const key = `${unit.brand}||${unit.model}||${storage}`;
 
     if (!map.has(key)) {
       map.set(key, {
         model: unit.model,
         brand: unit.brand,
         category: unit.category,
+        storage: unit.storage,
         variants: [],
         totalAvailable: 0,
         totalValue: 0,

@@ -1,4 +1,5 @@
 import { InventoryUnit } from '../types';
+import { parseBrandModelStorage } from './modelStorage';
 
 export type NotificationType = 'sold' | 'loss_sell' | 'new_stock' | 'return_processed' | 'shs_received' | 'shs_removed' | 'unit_repaired';
 
@@ -13,6 +14,49 @@ export interface Notification {
   read: boolean;
   profitAmount?: number;
   quantity?: number;
+  /** SKU dedupe key — `${brand}|${model}|${storage}|${colour}` — set on stored
+   *  notifications so the next addNotification can find & increment an
+   *  existing same-SKU entry instead of pushing a new row. */
+  skuKey?: string;
+}
+
+/** Window during which a new same-SKU notification is rolled into an existing
+ *  one (incrementing its count rather than pushing a new entry).
+ *  10 minutes — long enough to fold a 640-unit import (which trickles in over
+ *  seconds) and a follow-up scan a few minutes later, but short enough that
+ *  units scanned an hour later get their own fresh notification. */
+const DEDUP_WINDOW_MS = 10 * 60 * 1000;
+/** Only scan this far back through the notifications list when looking for a
+ *  same-SKU entry to merge into — bounds the per-call work to O(30). */
+const DEDUP_SCAN_DEPTH = 30;
+
+/**
+ * Build a stable SKU key for a unit so notifications can dedupe across the
+ * "field-split" vs "single-string model" divide. Legacy units carry
+ * `model: "SAMSUNG S21 128GB"` (everything in one string); new units carry
+ * `brand: "Samsung", model: "S21", storage: "128GB"`. Both should produce the
+ * same key so a batch containing a mix still groups under one notification.
+ */
+export function skuKeyOf(unit: InventoryUnit): string {
+  // Prefer the pre-split fields when present — they're already normalised at
+  // import time. Fall back to parseBrandModelStorage on the raw model string
+  // for legacy docs that never got re-imported.
+  const hasSplitFields = !!(unit.brand && unit.storage);
+  let brand: string;
+  let model: string;
+  let storage: string;
+  if (hasSplitFields) {
+    brand = unit.brand;
+    model = unit.model;
+    storage = unit.storage || '';
+  } else {
+    const parsed = parseBrandModelStorage(unit.model);
+    brand = unit.brand || parsed.brand;
+    model = parsed.model || unit.model || '';
+    storage = unit.storage || parsed.storage || '';
+  }
+  const colour = unit.colour || '';
+  return `${brand}|${model}|${storage}|${colour}`.toUpperCase();
 }
 
 const SOUNDS = {
@@ -181,39 +225,69 @@ class NotificationService {
       return;
     }
 
-    console.log(`[Notification] Adding ${type} for ${unit.model}`, { profitAmount });
+    const incomingCount = count && count > 0 ? count : 1;
+    const skuKey = skuKeyOf(unit);
+    const todayIso = now.toISOString().split('T')[0];
 
-    const titles: Record<NotificationType, string> = {
-      sold: '✅ Unit Sold!',
-      loss_sell: '⚠️ Loss Sell Alert',
-      new_stock: count && count > 1 ? `📦 ${count} Units Added to Stock` : '📦 New Stock Added',
-      return_processed: '↩️ Return Processed',
-      shs_received: count && count > 1 ? `🚚 ${count} SHS Units Received` : '🚚 SHS Order Received',
-      shs_removed: count && count > 1 ? `❌ ${count} SHS Units Removed` : '❌ SHS Stock Removed',
-      unit_repaired: '🔧 Unit Repaired & Added to Inventory',
-    };
+    // Same-SKU dedupe: scan the most recent N notifications. If we find one
+    // matching (type, skuKey) on the SAME day and within the dedupe window,
+    // increment its count and bump its timestamp instead of pushing a new
+    // entry. This is what collapses a 640-unit import down to a handful of
+    // "N× <model>" rows, one per distinct SKU.
+    //
+    // Skipped for `sold` / `loss_sell` because those are explicitly
+    // per-unit events (each sale carries its own profit/IMEI and the user
+    // wants to see them separately).
+    const mergeableTypes: NotificationType[] = ['new_stock', 'shs_received', 'shs_removed', 'return_processed', 'unit_repaired'];
+    if (mergeableTypes.includes(type)) {
+      const scanLimit = Math.min(this.notifications.length, DEDUP_SCAN_DEPTH);
+      for (let i = 0; i < scanLimit; i++) {
+        const existing = this.notifications[i];
+        if (existing.type !== type) continue;
+        if (existing.skuKey !== skuKey) continue;
+        if (!existing.timestamp.startsWith(todayIso)) continue;
+        const age = now.getTime() - new Date(existing.timestamp).getTime();
+        if (age > DEDUP_WINDOW_MS) continue;
 
-    const messages: Record<NotificationType, string> = {
-      sold: `${unit.model} (${unit.imei ? unit.imei.slice(-4) : unit.id.slice(-4)}) has been sold - Profit: £${profitAmount?.toFixed(2) || '0.00'}`,
-      loss_sell: `⚠️ ${unit.model} sold at a LOSS of £${Math.abs(profitAmount || 0).toFixed(2)}`,
-      new_stock: count && count > 1 ? `${count} × ${unit.model} units are now in stock and ready for listing.` : `${unit.model} is now in stock and ready for listing.`,
-      return_processed: `${unit.model} has been returned and restored to inventory.`,
-      shs_received: count && count > 1 ? `${count} × ${unit.model} units from SHS order have been received.` : `${unit.model} from SHS order has been received.`,
-      shs_removed: count && count > 1 ? `${count} × ${unit.model} SHS units removed from pending stock.` : `${unit.model} SHS pending stock has been removed.`,
-      unit_repaired: `${unit.model} has been repaired and added back to inventory.`,
-    };
+        // Found a recent same-SKU notification — fold this one into it.
+        const newCount = (existing.quantity || 1) + incomingCount;
+        const updated: Notification = {
+          ...existing,
+          quantity: newCount,
+          timestamp: now.toISOString(),
+          title: this.buildTitle(type, newCount),
+          message: this.buildMessage(type, unit, newCount, profitAmount),
+          read: false,
+        };
+        this.notifications = [
+          updated,
+          ...this.notifications.slice(0, i),
+          ...this.notifications.slice(i + 1),
+        ].slice(0, 100);
+        this.saveToStorage();
+        this.notify();
+        this.markFired(firedKey);
+        console.log(`[Notification] Merged into existing same-SKU entry: ${skuKey} now ${newCount}×`);
+        // Don't replay the sound on every merged unit — keeps the import
+        // from sounding like a slot machine.
+        return;
+      }
+    }
+
+    console.log(`[Notification] Adding ${type} for ${unit.model}`, { profitAmount, skuKey });
 
     const notification: Notification = {
       id: Math.random().toString(36).substring(2, 9),
       type,
-      title: titles[type],
-      message: messages[type],
+      title: this.buildTitle(type, incomingCount),
+      message: this.buildMessage(type, unit, incomingCount, profitAmount),
       timestamp: now.toISOString(),
       unitId: unit.id,
       model: unit.model,
       read: false,
       profitAmount,
-      quantity: count,
+      quantity: incomingCount,
+      skuKey,
     };
 
     this.notifications = [notification, ...this.notifications].slice(0, 100);
@@ -226,6 +300,32 @@ class NotificationService {
     this.playSound(type);
   }
 
+  private buildTitle(type: NotificationType, count: number): string {
+    const plural = count > 1;
+    switch (type) {
+      case 'sold':             return '✅ Unit Sold!';
+      case 'loss_sell':        return '⚠️ Loss Sell Alert';
+      case 'new_stock':        return plural ? `📦 ${count} Units Added to Stock`  : '📦 New Stock Added';
+      case 'return_processed': return plural ? `↩️ ${count} Returns Processed`     : '↩️ Return Processed';
+      case 'shs_received':     return plural ? `🚚 ${count} SHS Units Received`    : '🚚 SHS Order Received';
+      case 'shs_removed':      return plural ? `❌ ${count} SHS Units Removed`     : '❌ SHS Stock Removed';
+      case 'unit_repaired':    return plural ? `🔧 ${count} Units Repaired`        : '🔧 Unit Repaired & Added to Inventory';
+    }
+  }
+
+  private buildMessage(type: NotificationType, unit: InventoryUnit, count: number, profitAmount?: number): string {
+    const plural = count > 1;
+    switch (type) {
+      case 'sold':             return `${unit.model} (${unit.imei ? unit.imei.slice(-4) : unit.id.slice(-4)}) has been sold - Profit: £${profitAmount?.toFixed(2) || '0.00'}`;
+      case 'loss_sell':        return `⚠️ ${unit.model} sold at a LOSS of £${Math.abs(profitAmount || 0).toFixed(2)}`;
+      case 'new_stock':        return plural ? `${count} × ${unit.model} units are now in stock and ready for listing.`        : `${unit.model} is now in stock and ready for listing.`;
+      case 'return_processed': return plural ? `${count} × ${unit.model} units have been returned and restored to inventory.` : `${unit.model} has been returned and restored to inventory.`;
+      case 'shs_received':     return plural ? `${count} × ${unit.model} units from SHS order have been received.`            : `${unit.model} from SHS order has been received.`;
+      case 'shs_removed':      return plural ? `${count} × ${unit.model} SHS units removed from pending stock.`               : `${unit.model} SHS pending stock has been removed.`;
+      case 'unit_repaired':    return plural ? `${count} × ${unit.model} units have been repaired and added back to inventory.` : `${unit.model} has been repaired and added back to inventory.`;
+    }
+  }
+
   markAsRead(id: string) {
     this.notifications = this.notifications.filter(n => n.id !== id);
     this.saveToStorage();
@@ -234,6 +334,13 @@ class NotificationService {
 
   markAllAsRead() {
     this.notifications = [];
+    // Also drain any pending batch buffer so an in-flight 500ms flush
+    // can't resurrect a notification the user just cleared.
+    this.batchBuffer = [];
+    if (this.batchTimeout) {
+      clearTimeout(this.batchTimeout);
+      this.batchTimeout = null;
+    }
     this.saveToStorage();
     this.notify();
   }
@@ -258,6 +365,11 @@ class NotificationService {
 
   clearAll() {
     this.notifications = [];
+    this.batchBuffer = [];
+    if (this.batchTimeout) {
+      clearTimeout(this.batchTimeout);
+      this.batchTimeout = null;
+    }
     this.saveToStorage();
     this.notify();
   }

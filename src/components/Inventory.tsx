@@ -2,17 +2,20 @@ import { useState, useEffect, useMemo } from 'react';
 import {
   Search, ChevronDown, ChevronRight, ChevronLeft,
   Star, Package, Truck, CheckCircle2, Cpu,
-  Filter, ArrowUpDown, Edit2, ShoppingBag
+  Filter, ArrowUpDown, Edit2, ShoppingBag, Tag, Pencil,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { dbService } from '../lib/dbService';
 import { useInventoryStore } from '../lib/inventoryStore';
-import { InventoryUnit, Supplier, OperationalFlag, DeviceCategory, ModelSummary } from '../types';
+import { InventoryUnit, Supplier, OperationalFlag, DeviceCategory, ModelSummary, ListingSite } from '../types';
 import UnitDetailDrawer from './UnitDetailDrawer';
 import QuickSaleModal from './QuickSaleModal';
 import { validateIMEI } from '../lib/imeiUtils';
 import { getOnHandValue } from '../lib/inventorySummary';
 import { buildModelSummaries } from '../lib/modelSummaries';
+import { deriveSkuListing } from '../lib/skuListings';
+import { listingSiteLabel } from '../lib/platforms';
+import SkuListingEditor from './SkuListingEditor';
 import BulkListingModal from './BulkListingModal';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -27,7 +30,16 @@ const FLAG_CONFIG: Record<OperationalFlag, { label: string; icon: any; style: st
   supplierHasStock:{ label:'Supplier Stock',icon:Truck,      style:'bg-green-50 text-green-800 border-green-200' },
   stockSold:       { label:'Sold',          icon:CheckCircle2,style:'bg-gray-50 text-gray-600 border-gray-200' },
 };
-const STATUS_OPTS = ['All','available','sold','returned','reserved','incoming'];
+const STATUS_OPTS = ['All','available','sold','returned','reserved','incoming','ready_to_ship','fba'];
+const STATUS_LABELS: Record<string, string> = {
+  available: 'Available',
+  sold: 'Sold',
+  returned: 'Returned',
+  reserved: 'Reserved',
+  incoming: 'Incoming',
+  ready_to_ship: 'Ready to Ship',
+  fba: 'FBA',
+};
 const SORT_OPTS   = [
   { value:'dateIn_desc', label:'Newest First' },
   { value:'dateIn_asc',  label:'Oldest First' },
@@ -70,6 +82,14 @@ export default function Inventory({ initialFilters = {} }: { initialFilters?: In
   const [quickUnit, setQuickUnit] = useState<InventoryUnit | null>(null);
   const [quickSaleUnits, setQuickSaleUnits] = useState<InventoryUnit[] | null>(null);
   const [bulkListingOpen, setBulkListingOpen] = useState(false);
+  // SKU-level listing editor — opens from each model card so ops can edit
+  // marketplace presence at the (brand, model, storage) level without
+  // touching individual IMEIs.
+  const [listingEditor, setListingEditor] = useState<{
+    label: string;
+    units: InventoryUnit[];
+    current: ListingSite[];
+  } | null>(null);
   const [pageSize, setPageSize]   = useState(25);
   const [page, setPage]           = useState(1);
   const [showFilters, setShowFilters] = useState(
@@ -88,7 +108,7 @@ export default function Inventory({ initialFilters = {} }: { initialFilters?: In
           variant.units.some(unit => (unit.imei || '').toLowerCase().includes(searchLower))
         )
       )
-      .map(summary => `${summary.brand}||${summary.model}`);
+      .map(summary => `${summary.brand}||${summary.model}||${summary.storage || ''}`);
 
     if (matchingKeys.length === 0) return;
 
@@ -198,7 +218,7 @@ export default function Inventory({ initialFilters = {} }: { initialFilters?: In
               {/* Status */}
               <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)}
                 className="bg-white border border-gray-200 rounded-xl py-2 px-3 text-xs font-mono focus:outline-none focus:border-black">
-                {STATUS_OPTS.map(s => <option key={s} value={s}>{s === 'All' ? 'All Statuses' : s.charAt(0).toUpperCase()+s.slice(1)}</option>)}
+                {STATUS_OPTS.map(s => <option key={s} value={s}>{s === 'All' ? 'All Statuses' : (STATUS_LABELS[s] ?? s.charAt(0).toUpperCase()+s.slice(1))}</option>)}
               </select>
               {/* Supplier */}
               <select value={supplierFilter} onChange={e => setSupplierFilter(e.target.value)}
@@ -251,8 +271,19 @@ export default function Inventory({ initialFilters = {} }: { initialFilters?: In
       {/* Model cards */}
       <div className="space-y-2">
         {paginated.map(summary => {
-          const key = `${summary.brand}||${summary.model}`;
+          const key = `${summary.brand}||${summary.model}||${summary.storage || ''}`;
           const isExpanded = expandedModels.has(key);
+          // SKU-level listing union — pulled at runtime from the units list
+          // so we always reflect what's actually on disk (rather than the
+          // pre-built summary.listingSites which may lag a freshly-saved
+          // bulk update).
+          const skuUnits = summary.variants.flatMap(v => v.units);
+          const skuListing = deriveSkuListing(skuUnits);
+          const skuListLabel = [
+            summary.brand,
+            summary.model,
+            summary.storage && !summary.model.toUpperCase().includes(summary.storage.toUpperCase()) ? summary.storage : null,
+          ].filter(Boolean).join(' ');
           return (
             <div key={key} className="bg-white border border-gray-200 rounded-3xl overflow-hidden shadow-sm">
               <button onClick={() => toggleExpand(key)}
@@ -261,17 +292,61 @@ export default function Inventory({ initialFilters = {} }: { initialFilters?: In
                   {summary.category.replace('Samsung ','S.')}
                 </span>
                 <div className="flex-1 min-w-0">
-                  <p className="text-sm font-bold truncate">{summary.model}</p>
+                  <p className="text-sm font-bold truncate">
+                    {summary.model}
+                    {summary.storage && !summary.model.toUpperCase().includes(summary.storage.toUpperCase()) && (
+                      <span className="text-gray-400 font-mono ml-1.5 text-xs">· {summary.storage}</span>
+                    )}
+                  </p>
                   <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
                     {summary.flags.slice(0,2).map(f => {
                       const cfg = FLAG_CONFIG[f]; const Icon = cfg.icon;
                       return <span key={f} className={`text-[7px] font-bold px-1.5 py-0.5 border rounded-md font-mono flex items-center gap-0.5 ${cfg.style}`}><Icon size={7}/>{cfg.label}</span>;
                     })}
-                    {summary.listingSites.map(site => (
-                      <span key={site} className="text-[7px] font-bold px-1.5 py-0.5 bg-gray-900 text-white rounded-md font-mono uppercase tracking-tighter">
-                        {site}
-                      </span>
-                    ))}
+                    {/* SKU-level marketplace summary — one listing per
+                        marketplace, quantity decrements as units sell.
+                        Renders the per-site chips inline plus an edit
+                        affordance that opens SkuListingEditor. The wrapper
+                        span uses role=button (not a nested <button>) since
+                        the parent row is already a <button>. */}
+                    {skuListing.listedOn.length > 0
+                      ? skuListing.listedOn.map(site => (
+                          <span key={site} className="text-[7px] font-bold px-1.5 py-0.5 bg-gray-900 text-white rounded-md font-mono uppercase tracking-tighter">
+                            {listingSiteLabel(site)}
+                          </span>
+                        ))
+                      : (
+                        <span className="text-[7px] font-bold px-1.5 py-0.5 bg-gray-100 text-gray-400 rounded-md font-mono uppercase tracking-tighter">
+                          Not listed
+                        </span>
+                      )}
+                    <span
+                      role="button"
+                      tabIndex={0}
+                      onClick={e => {
+                        e.stopPropagation();
+                        setListingEditor({
+                          label: skuListLabel,
+                          units: skuUnits,
+                          current: skuListing.listedOn,
+                        });
+                      }}
+                      onKeyDown={e => {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          setListingEditor({
+                            label: skuListLabel,
+                            units: skuUnits,
+                            current: skuListing.listedOn,
+                          });
+                        }
+                      }}
+                      className="inline-flex items-center gap-0.5 text-[7px] font-bold px-1.5 py-0.5 border border-gray-300 text-gray-600 hover:bg-black hover:text-white hover:border-black rounded-md font-mono uppercase tracking-tighter transition-all cursor-pointer"
+                      title={`Edit marketplace listings — ${skuListing.listedOn.length} marketplace${skuListing.listedOn.length === 1 ? '' : 's'} · ${skuListing.availableCount} avail`}
+                    >
+                      <Pencil size={7} /> Edit
+                    </span>
                   </div>
                 </div>
                 
@@ -434,6 +509,20 @@ export default function Inventory({ initialFilters = {} }: { initialFilters?: In
         )}
         {bulkListingOpen && <BulkListingModal onClose={() => setBulkListingOpen(false)} />}
       </AnimatePresence>
+
+      {/* SKU-level listing editor — opened from each ModelSummary card.
+          Edits the marketplace presence for every available unit in the
+          (brand, model, storage) group; deriveSkuListing renders the union
+          back into the card's chip strip on the next snapshot. */}
+      {listingEditor && (
+        <SkuListingEditor
+          skuLabel={listingEditor.label}
+          units={listingEditor.units}
+          current={listingEditor.current}
+          onClose={() => setListingEditor(null)}
+          onSaved={() => setListingEditor(null)}
+        />
+      )}
     </div>
   );
 }
