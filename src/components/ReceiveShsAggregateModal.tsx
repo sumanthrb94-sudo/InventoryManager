@@ -1,5 +1,5 @@
 import React, { useMemo, useRef, useState } from 'react';
-import { X, CheckCircle2, PackageCheck, Trash2, AlertCircle, ScanLine } from 'lucide-react';
+import { X, CheckCircle2, PackageCheck, Trash2, AlertCircle, ScanLine, Plus } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { dbService } from '../lib/dbService';
 import { InventoryAggregate, InventoryUnit, DeviceCategory } from '../types';
@@ -297,23 +297,35 @@ export default function ReceiveShsAggregateModal({ aggregate, onClose }: Props) 
             <label className="text-[8px] font-bold uppercase tracking-widest text-gray-400">
               Scan or paste IMEI{remaining > 0 ? ` · ${remaining} to go` : ''}
             </label>
-            <input
-              ref={inputRef}
-              autoFocus
-              value={imeiInput}
-              onChange={e => { setImeiInput(e.target.value); setError(''); }}
-              placeholder="14-15 digit IMEI · Enter to add · paste multiple supported"
-              inputMode="text"
-              className={`w-full border rounded-xl px-4 py-3 text-sm font-mono focus:outline-none transition-all ${
-                error ? 'border-red-300 bg-red-50' : 'border-gray-200 focus:border-black bg-white'
-              }`}
-            />
+            <div className="flex items-stretch gap-2">
+              <input
+                ref={inputRef}
+                autoFocus
+                value={imeiInput}
+                onChange={e => { setImeiInput(e.target.value); setError(''); }}
+                placeholder="Type or paste IMEI then click Add (or press Enter)"
+                inputMode="text"
+                className={`flex-1 min-w-0 border rounded-xl px-4 py-3 text-sm font-mono focus:outline-none transition-all ${
+                  error ? 'border-red-300 bg-red-50' : 'border-gray-200 focus:border-black bg-white'
+                }`}
+              />
+              <button
+                type="submit"
+                disabled={!imeiInput.trim()}
+                className="px-4 py-3 bg-black text-white rounded-xl text-[10px] font-bold uppercase tracking-widest hover:bg-gray-900 transition-all disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-1.5 flex-shrink-0"
+              >
+                <Plus size={12} /> Add
+              </button>
+            </div>
             {error && (
               <div className="flex items-center gap-2 text-[10px] text-red-600 font-mono bg-red-50 border border-red-100 rounded-lg px-3 py-1.5">
                 <AlertCircle size={11} />
                 {error}
               </div>
             )}
+            <p className="text-[9px] font-mono text-gray-400">
+              Tip: paste a multi-line list to add many IMEIs in one go.
+            </p>
           </form>
         </div>
 
