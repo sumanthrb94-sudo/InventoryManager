@@ -58,7 +58,7 @@ const todayStr = () => new Date().toISOString().split('T')[0];
 // ── Component ────────────────────────────────────────────────────────────────
 
 export default function ReturnsPage() {
-  const { units, suppliers } = useInventoryStore();
+  const { units, suppliers, sales } = useInventoryStore();
   const region = useUserRegion();
 
   const supplierMap = useMemo(() => {
@@ -99,6 +99,18 @@ export default function ReturnsPage() {
     () => units.filter(u => u.status === 'sold' && !!u.salePrice),
     [units],
   );
+
+  // Every unit that has ever been sold (active OR voided sale), looked up by
+  // unitId. Used by the Return History timeline to keep the 'Sold' chip on a
+  // unit's journey even after a supplier return cleared the sale fields off
+  // the unit doc itself.
+  const everSoldUnitIds = useMemo(() => {
+    const s = new Set<string>();
+    for (const sale of sales) {
+      if (sale.unitId) s.add(sale.unitId);
+    }
+    return s;
+  }, [sales]);
 
   // ── KPIs ──────────────────────────────────────────────────────────────────
   const kpis = useMemo(() => {
@@ -396,6 +408,7 @@ export default function ReturnsPage() {
           completed the loop. */}
       <ReturnHistorySection
         units={allReturns}
+        everSoldUnitIds={everSoldUnitIds}
         supplierMap={supplierMap}
         region={region}
         onReadyShip={u => setReadyShipUnit(u)}
@@ -787,9 +800,13 @@ function SheetTable({
 // Units that completed the repair-and-return-to-stock loop carry a green
 // 'Back to Stock' chip so the operator sees the wins.
 function ReturnHistorySection({
-  units, supplierMap, region, onReadyShip,
+  units, everSoldUnitIds, supplierMap, region, onReadyShip,
 }: {
   units: InventoryUnit[];
+  /** Set of unitIds that have any Sale doc against them (active or voided).
+   *  Used to render the 'Sold' chip on the unit's journey even when the
+   *  sale fields on the unit doc were cleared during the return flow. */
+  everSoldUnitIds: Set<string>;
   supplierMap: Record<string, string>;
   region: 'uk' | 'india' | 'admin' | 'both';
   onReadyShip: (u: InventoryUnit) => void;
@@ -847,12 +864,15 @@ function ReturnHistorySection({
                 const tone = TYPE_TONE[u.returnType as ReturnCategory] || TYPE_TONE.returned_to_inventory;
                 const supplierName = supplierMap[u.supplierId] || u.supplierName || '—';
                 const wasRepaired = !!repairedAt;
+                const isSupplierReturn = u.returnType === 'returned_to_supplier';
                 // Journey chips — each return tells a small story.
                 const journey: Array<{ label: string; cls: string }> = [];
-                if (u.saleOrderId || (u as any).saleDate || repairedAt) {
-                  // Was sold at some point (sale fields preserved in the
-                  // unit when going to repair; cleared by ProcessReturnModal
-                  // when sent back to inventory — repairedAt is the hint).
+                // 'Sold' chip survives the return flow: the everSoldUnitIds
+                // set sees any Sale doc (including voided ones), so a unit
+                // returned to supplier — where ProcessReturnModal clears the
+                // unit-side sale fields — still shows its original sale
+                // origin in the journey rather than appearing out of nowhere.
+                if (u.saleOrderId || (u as any).saleDate || repairedAt || everSoldUnitIds.has(u.id)) {
                   journey.push({ label: 'Sold', cls: 'bg-slate-100 text-slate-700' });
                 }
                 journey.push({ label: 'Returned', cls: 'bg-rose-100 text-rose-700' });
@@ -875,7 +895,15 @@ function ReturnHistorySection({
                       <span className={`w-2.5 h-2.5 rounded-full ${tone.dot}`} />
                     </div>
                     {/* Event card */}
-                    <div className="flex-1 min-w-0 bg-slate-50/50 hover:bg-slate-100/60 border border-slate-100 rounded-xl px-3 py-2 transition-colors">
+                    {/* Supplier returns are soft-deleted from active stock
+                        — paint the card amber + dashed border so the
+                        operator's eye can sweep the timeline and spot the
+                        write-offs vs the back-to-stock wins. */}
+                    <div className={`flex-1 min-w-0 border rounded-xl px-3 py-2 transition-colors ${
+                      isSupplierReturn
+                        ? 'bg-amber-50/60 hover:bg-amber-100/60 border-amber-200 border-dashed'
+                        : 'bg-slate-50/50 hover:bg-slate-100/60 border-slate-100'
+                    }`}>
                       <div className="flex items-start gap-2">
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-2 flex-wrap">
@@ -886,6 +914,14 @@ function ReturnHistorySection({
                               <span className={`w-1.5 h-1.5 rounded-full ${tone.dot}`} />
                               {tone.label}
                             </span>
+                            {isSupplierReturn && (
+                              <span
+                                title="Soft-deleted from active inventory; preserved here for audit"
+                                className="inline-flex items-center gap-1 text-[8px] font-bold uppercase tracking-widest px-1.5 py-0.5 rounded bg-amber-200/70 text-amber-900 border border-amber-300 flex-shrink-0"
+                              >
+                                Soft-deleted
+                              </span>
+                            )}
                           </div>
                           {/* Journey chips */}
                           <div className="flex items-center gap-1 mt-1.5 flex-wrap">
