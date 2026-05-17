@@ -34,7 +34,6 @@ import { mapAllUnits, ORPHAN_MARKER, type MappingResult } from '../lib/inventory
 import { fmtDateForUser, useUserRegion } from '../lib/userLocale';
 import CopyImei from './CopyImei';
 import AddStockManualModal from './AddStockManualModal';
-import AddSHSModal from './AddSHSModal';
 import ReceiveSHSModal from './ReceiveSHSModal';
 import ReceiveShsAggregateModal from './ReceiveShsAggregateModal';
 import TodayIntakeModal from './TodayIntakeModal';
@@ -94,8 +93,9 @@ export default function BuySheet(_props: Props) {
   const [rowMenuId, setRowMenuId] = useState<string | null>(null);
 
   // ── Modals (legacy flows preserved) ────────────────────────────────────────
-  const [showAddStockManual, setShowAddStockManual] = useState(false);
-  const [showAddSHS, setShowAddSHS] = useState(false);
+  // Both 'Add Stock' and 'SHS Order' open the same unified modal — the
+  // initialMode prop determines which tab is pre-selected.
+  const [addStockMode, setAddStockMode] = useState<'office' | 'shs' | null>(null);
   const [receivingUnit, setReceivingUnit] = useState<InventoryUnit | null>(null);
   const [receivingAggregate, setReceivingAggregate] = useState<InventoryAggregate | null>(null);
   const [showTodayIntake, setShowTodayIntake] = useState(false);
@@ -312,13 +312,13 @@ export default function BuySheet(_props: Props) {
               <Upload size={12} /> Load Master Sheet
             </button>
             <button
-              onClick={() => setShowAddStockManual(true)}
+              onClick={() => setAddStockMode('office')}
               className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-slate-900 text-white text-[10px] font-bold uppercase tracking-widest hover:bg-slate-700 transition-all"
             >
               <Plus size={12} /> Add Stock
             </button>
             <button
-              onClick={() => setShowAddSHS(true)}
+              onClick={() => setAddStockMode('shs')}
               className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-amber-500 text-white text-[10px] font-bold uppercase tracking-widest hover:bg-amber-600 transition-all"
             >
               <Truck size={12} /> SHS Order
@@ -595,8 +595,7 @@ export default function BuySheet(_props: Props) {
       <AnimatePresence>
         {showResetData      && <ResetDataModal           onClose={() => setShowResetData(false)} />}
         {showMasterImport   && <MasterDataLinkedImport onClose={() => setShowMasterImport(false)} />}
-        {showAddStockManual && <AddStockManualModal onClose={() => setShowAddStockManual(false)} />}
-        {showAddSHS         && <AddSHSModal         onClose={() => setShowAddSHS(false)} />}
+        {addStockMode && <AddStockManualModal initialMode={addStockMode} onClose={() => setAddStockMode(null)} />}
         {receivingUnit      && <ReceiveSHSModal unit={receivingUnit} onClose={() => setReceivingUnit(null)} />}
         {receivingAggregate && <ReceiveShsAggregateModal aggregate={receivingAggregate} onClose={() => setReceivingAggregate(null)} />}
         {showTodayIntake    && (
