@@ -30,6 +30,7 @@ import { backfillImei } from '../services';
 import { isValidImei, isAppleDevice } from '../lib/imeiValidation';
 import { LISTING_SITES, listingSiteLabel } from '../lib/platforms';
 import { shsAggregatesFrom, manualShsUnitsFrom, totalShsRecords } from '../lib/shsCount';
+import { mapAllUnits, ORPHAN_MARKER, type MappingResult } from '../lib/inventoryMapping';
 import { fmtDateForUser, useUserRegion } from '../lib/userLocale';
 import CopyImei from './CopyImei';
 import AddStockManualModal from './AddStockManualModal';
@@ -41,7 +42,7 @@ import MasterDataLinkedImport from './MasterDataLinkedImport';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
-type StatusFilter = 'all' | 'available' | 'sold' | 'incoming' | 'returned' | 'missing';
+type StatusFilter = 'all' | 'available' | 'sold' | 'incoming' | 'returned' | 'missing' | 'unmapped';
 
 type SortKey =
   | 'dateIn' | 'model' | 'storage' | 'colour' | 'buyPrice'
@@ -107,6 +108,13 @@ export default function BuySheet(_props: Props) {
     return () => document.removeEventListener('click', close);
   }, [rowMenuId]);
 
+  // ── Mapping: per-unit link to its INVENTORY-sheet aggregate ───────────────
+  // INVENTORY is the source of truth for the model; IMEI sheet is the mapping
+  // table. We auto-match every unit at runtime and stash the result so the
+  // sheet can badge each row + the review queue can surface the unmapped ones
+  // with suggestions ready to confirm.
+  const mappings = useMemo(() => mapAllUnits(units, aggregates), [units, aggregates]);
+
   // ── Derived rows ───────────────────────────────────────────────────────────
   const sortedUnits = useMemo(() => {
     return sortUnits(units, sort, supplierMap);
@@ -120,6 +128,9 @@ export default function BuySheet(_props: Props) {
         if (statusFilter === 'missing') {
           if (isValidImei(u.imei, { isAppleSerial: isAppleDevice(u.model) })) return false;
           if (u.status === 'incoming') return false;
+        } else if (statusFilter === 'unmapped') {
+          const m = mappings.get(u.id);
+          if (!m || (m.status !== 'unmapped' && m.status !== 'orphan')) return false;
         } else {
           if (u.status !== statusFilter) return false;
         }
@@ -144,7 +155,7 @@ export default function BuySheet(_props: Props) {
       }
       return true;
     });
-  }, [sortedUnits, search, statusFilter, supplierFilter, marketplaceFilter, supplierMap]);
+  }, [sortedUnits, search, statusFilter, supplierFilter, marketplaceFilter, supplierMap, mappings]);
 
   // ── KPIs ───────────────────────────────────────────────────────────────────
   // Office Stock + Tied Capital are the INVENTORY-sheet ground truth: sum of
@@ -163,17 +174,19 @@ export default function BuySheet(_props: Props) {
       tiedCapital += qty * (a.buyPrice || 0);
     }
 
-    let availableImeis = 0, sold = 0, incoming = 0, missing = 0;
+    let availableImeis = 0, sold = 0, incoming = 0, missing = 0, unmapped = 0;
     for (const u of units) {
       if (u.status === 'available') availableImeis++;
       else if (u.status === 'sold') sold++;
       else if (u.status === 'incoming') incoming++;
       const apple = isAppleDevice(u.model);
       if (u.status !== 'incoming' && !isValidImei(u.imei, { isAppleSerial: apple })) missing++;
+      const m = mappings.get(u.id);
+      if (m && (m.status === 'unmapped' || m.status === 'orphan')) unmapped++;
     }
     const shsTotal = totalShsRecords(units, aggregates);
-    return { total: units.length, officeStock, tiedCapital, availableImeis, sold, incoming, missing, shsTotal };
-  }, [units, aggregates]);
+    return { total: units.length, officeStock, tiedCapital, availableImeis, sold, incoming, missing, unmapped, shsTotal };
+  }, [units, aggregates, mappings]);
 
   // ── Filter chip options ────────────────────────────────────────────────────
   const supplierOptions = useMemo(() => {
@@ -425,6 +438,7 @@ export default function BuySheet(_props: Props) {
               ['incoming',  'Incoming',    kpis.incoming],
               ['returned',  'Returned',    units.filter(u => u.status === 'returned').length],
               ['missing',   'Missing IMEI', kpis.missing],
+              ['unmapped',  'Unmapped',    kpis.unmapped],
             ] as Array<[StatusFilter, string, number]>).map(([id, label, n]) => (
               <button
                 key={id}
@@ -506,6 +520,7 @@ export default function BuySheet(_props: Props) {
         units={filteredUnits}
         supplierMap={supplierMap}
         aggIndex={aggIndex}
+        mappings={mappings}
         sort={sort}
         onSort={setSort}
         activeUnitId={activeUnit?.id ?? null}
@@ -520,6 +535,20 @@ export default function BuySheet(_props: Props) {
         onViewDetail={u => setActiveUnit(u)}
         region={region}
       />
+
+      {/* ── Mapping Review (shown when Unmapped filter is on OR an audit is needed) ── */}
+      {statusFilter === 'unmapped' && filteredUnits.length > 0 && (
+        <MappingReviewSection
+          units={filteredUnits}
+          mappings={mappings}
+          onConfirm={async (unitId, aggregateId) => {
+            await dbService.update('inventoryUnits', unitId, { inventoryAggregateId: aggregateId });
+          }}
+          onMarkOrphan={async (unitId) => {
+            await dbService.update('inventoryUnits', unitId, { inventoryAggregateId: ORPHAN_MARKER });
+          }}
+        />
+      )}
 
       {/* ── Missing IMEIs · inline backfill (only when that filter is on) ── */}
       {statusFilter === 'missing' && filteredUnits.length > 0 && (
@@ -632,13 +661,14 @@ function FilterChipsGroup({
 
 // ── Sheet (the spreadsheet table itself) ─────────────────────────────────────
 function Sheet({
-  units, supplierMap, aggIndex, sort, onSort,
+  units, supplierMap, aggIndex, mappings, sort, onSort,
   activeUnitId, onSelect, editingCell, onEdit, onCancelEdit, onSaveCell,
   rowMenuId, setRowMenuId, onDelete, onViewDetail, region,
 }: {
   units: InventoryUnit[];
   supplierMap: Record<string, string>;
   aggIndex: Map<string, InventoryAggregate>;
+  mappings: Map<string, MappingResult>;
   sort: { key: SortKey; dir: SortDir };
   onSort: (s: { key: SortKey; dir: SortDir }) => void;
   activeUnitId: string | null;
@@ -699,7 +729,12 @@ function Sheet({
               const tone = STATUS_TONE[u.status] || STATUS_TONE.available;
               const apple = isAppleDevice(u.model);
               const imeiValid = isValidImei(u.imei, { isAppleSerial: apple });
-              const agg = aggIndex.get(aggKey(u.brand, u.model, u.storage));
+              // Mapping result is the source of truth for the linked aggregate
+              // (auto-match + operator override + orphan handling); fall back to
+              // the legacy key-based lookup only when the mapper returned
+              // nothing usable (defensive — should not happen at runtime).
+              const mapping = mappings.get(u.id);
+              const agg = mapping?.aggregate ?? aggIndex.get(aggKey(u.brand, u.model, u.storage));
               const salesFocus = (agg?.notesFlag || '').toUpperCase().includes('SALES FOCUS');
               const rowBg = isActive
                 ? 'bg-indigo-50'
@@ -734,6 +769,7 @@ function Sheet({
                       title={u.model}
                     >
                       <span className="truncate">{u.model || '—'}</span>
+                      <MappingBadge mapping={mapping} />
                       {salesFocus && (
                         <span className="text-[8px] font-bold px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-700 border border-emerald-200 flex-shrink-0 uppercase tracking-widest">
                           Focus
@@ -1434,6 +1470,124 @@ function NotesEditor({ value, onSave }: { value: string; onSave: (v: string) => 
         >
           {saving ? 'Saving…' : 'Save notes'}
         </button>
+      </div>
+    </div>
+  );
+}
+
+// ── Mapping badge + review queue ─────────────────────────────────────────────
+
+function MappingBadge({ mapping }: { mapping: MappingResult | undefined }) {
+  if (!mapping || mapping.status === 'shs') return null;
+  if (mapping.status === 'mapped' || mapping.status === 'manual') {
+    const isManual = mapping.status === 'manual';
+    return (
+      <span
+        title={`${isManual ? 'Operator-confirmed' : 'Auto-matched'} to: ${mapping.aggregate?.model ?? ''}`}
+        className={`text-[8px] font-bold px-1.5 py-0.5 rounded border flex-shrink-0 uppercase tracking-widest ${
+          isManual
+            ? 'bg-violet-50 text-violet-700 border-violet-200'
+            : 'bg-emerald-50 text-emerald-700 border-emerald-200'
+        }`}
+      >
+        {isManual ? 'Mapped ✓' : 'Mapped'}
+      </span>
+    );
+  }
+  if (mapping.status === 'orphan') {
+    return (
+      <span
+        title="Operator confirmed: no INVENTORY row for this IMEI"
+        className="text-[8px] font-bold px-1.5 py-0.5 rounded bg-slate-100 text-slate-500 border border-slate-200 flex-shrink-0 uppercase tracking-widest"
+      >
+        Orphan
+      </span>
+    );
+  }
+  return (
+    <span
+      title="No match in INVENTORY master sheet — review required"
+      className="text-[8px] font-bold px-1.5 py-0.5 rounded bg-amber-50 text-amber-700 border border-amber-200 flex-shrink-0 uppercase tracking-widest inline-flex items-center gap-0.5"
+    >
+      <AlertTriangle size={9} /> Unmapped
+    </span>
+  );
+}
+
+function MappingReviewSection({
+  units, mappings, onConfirm, onMarkOrphan,
+}: {
+  units: InventoryUnit[];
+  mappings: Map<string, MappingResult>;
+  onConfirm: (unitId: string, aggregateId: string) => Promise<void>;
+  onMarkOrphan: (unitId: string) => Promise<void>;
+}) {
+  const [busyId, setBusyId] = useState<string | null>(null);
+
+  if (units.length === 0) return null;
+
+  return (
+    <div className="bg-amber-50/40 border border-amber-100 rounded-3xl shadow-sm">
+      <div className="flex items-center gap-2 px-5 py-3 border-b border-amber-100">
+        <AlertTriangle size={14} className="text-amber-600" />
+        <div className="flex-1">
+          <p className="text-[11px] font-bold uppercase tracking-widest text-amber-900">
+            Mapping Review · {units.length} IMEI{units.length === 1 ? '' : 's'}
+          </p>
+          <p className="text-[10px] font-mono text-amber-700/70 mt-0.5">
+            Pick the matching INVENTORY model from the suggestions, or mark as Orphan if no master row exists.
+          </p>
+        </div>
+      </div>
+      <div className="divide-y divide-amber-100/60">
+        {units.map(u => {
+          const m = mappings.get(u.id);
+          const suggestions = m?.suggestions ?? [];
+          const busy = busyId === u.id;
+          return (
+            <div key={u.id} className="px-4 py-3 hover:bg-amber-50/60 transition-colors">
+              <div className="flex items-start gap-3 mb-2">
+                <div className="flex-1 min-w-0">
+                  <p className="text-[11px] font-bold text-slate-900 truncate">
+                    {u.model || '—'}
+                    {u.storage ? <span className="text-slate-500 font-mono ml-1">{u.storage}</span> : null}
+                  </p>
+                  <p className="text-[9px] text-slate-500 font-mono mt-0.5 truncate">
+                    IMEI {u.imei || '—'} · {u.colour || '—'} · £{u.buyPrice}
+                  </p>
+                </div>
+                <button
+                  onClick={async () => { setBusyId(u.id); try { await onMarkOrphan(u.id); } finally { setBusyId(null); } }}
+                  disabled={busy}
+                  className="px-3 py-1 border border-slate-200 text-slate-600 text-[9px] font-bold uppercase tracking-widest rounded-lg hover:bg-slate-50 transition-all disabled:opacity-40 flex-shrink-0"
+                >
+                  Mark Orphan
+                </button>
+              </div>
+              {suggestions.length === 0 ? (
+                <p className="text-[10px] font-mono text-amber-600/70 pl-1">No close matches — mark as Orphan or update the INVENTORY sheet.</p>
+              ) : (
+                <div className="flex flex-wrap gap-1.5">
+                  {suggestions.map(s => (
+                    <button
+                      key={s.id}
+                      onClick={async () => { setBusyId(u.id); try { await onConfirm(u.id, s.id); } finally { setBusyId(null); } }}
+                      disabled={busy}
+                      className="text-left bg-white border border-amber-200 hover:border-amber-500 hover:bg-amber-50 rounded-lg px-2.5 py-1.5 transition-all disabled:opacity-40"
+                    >
+                      <p className="text-[10px] font-bold text-slate-900 truncate max-w-xs">{s.model}</p>
+                      <p className="text-[9px] font-mono text-slate-500 mt-0.5">
+                        {s.storage || '—'}
+                        {typeof s.quantityNum === 'number' ? ` · qty ${s.quantityNum}` : ''}
+                        {s.buyPrice ? ` · £${s.buyPrice}` : ''}
+                      </p>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          );
+        })}
       </div>
     </div>
   );
