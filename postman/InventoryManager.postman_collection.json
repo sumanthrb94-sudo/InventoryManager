@@ -614,7 +614,6 @@
               "pm.test('colour === PINK', () => pm.expect(json.fields.colour.stringValue).to.eql('PINK'));",
               "pm.test('status === available', () => pm.expect(json.fields.status.stringValue).to.eql('available'));"
             ] } } ]
-          }
         },
         {
           "name": "3. PATCH inventoryUnits/{imei2} (BLUE)",
@@ -636,7 +635,6 @@
               "pm.test('Status 200', () => pm.response.to.have.status(200));",
               "pm.test('colour === BLUE', () => pm.expect(pm.response.json().fields.colour.stringValue).to.eql('BLUE'));"
             ] } } ]
-          }
         },
         {
           "name": "4. PATCH inventoryUnits/{imei3} (SILVER)",
@@ -658,7 +656,6 @@
               "pm.test('Status 200', () => pm.response.to.have.status(200));",
               "pm.test('colour === SILVER', () => pm.expect(pm.response.json().fields.colour.stringValue).to.eql('SILVER'));"
             ] } } ]
-          }
         },
         {
           "name": "5. PATCH inventoryUnits/{imei4} (YELLOW)",
@@ -680,7 +677,6 @@
               "pm.test('Status 200', () => pm.response.to.have.status(200));",
               "pm.test('colour === YELLOW', () => pm.expect(pm.response.json().fields.colour.stringValue).to.eql('YELLOW'));"
             ] } } ]
-          }
         },
         {
           "name": "6. Decrement aggregate quantityNum → 0 + quantityText='RECEIVED'",
@@ -709,7 +705,6 @@
               "pm.test('quantityNum === 0', () => pm.expect(json.fields.quantityNum.integerValue).to.eql('0'));",
               "pm.test('quantityText === RECEIVED', () => pm.expect(json.fields.quantityText.stringValue).to.eql('RECEIVED'));"
             ] } } ]
-          }
         }
       ]
     },
@@ -777,7 +772,6 @@
               "pm.test('salePlatform === EBAY', () => pm.expect(json.fields.salePlatform.stringValue).to.eql('EBAY'));",
               "pm.test('saleOrderId === order_sell_001', () => pm.expect(json.fields.saleOrderId.stringValue).to.eql('order_sell_001'));"
             ] } } ]
-          }
         },
         {
           "name": "3. GET inventoryUnits/{imei} — assert status='sold'",
@@ -797,7 +791,6 @@
               "pm.test('status === sold', () => pm.expect(json.fields.status.stringValue).to.eql('sold'));",
               "pm.test('saleOrderId is set', () => pm.expect(json.fields.saleOrderId.stringValue).to.eql('order_sell_001'));"
             ] } } ]
-          }
         }
       ]
     },
@@ -846,7 +839,6 @@
               "pm.test('returnType === returned_to_inventory', () => pm.expect(json.fields.returnType.stringValue).to.eql('returned_to_inventory'));",
               "pm.test('saleOrderId cleared (null)', () => pm.expect(json.fields.saleOrderId).to.have.property('nullValue'));"
             ] } } ]
-          }
         },
         {
           "name": "2. PATCH sales/{saleId} → voidedAt + voidReason",
@@ -872,7 +864,6 @@
               "pm.test('Status 200', () => pm.response.to.have.status(200));",
               "pm.test('voidedAt is set', () => pm.expect(pm.response.json().fields.voidedAt.stringValue).to.eql('2026-05-17'));"
             ] } } ]
-          }
         },
         {
           "name": "3. GET sales/{saleId} — assert voidedAt is set",
@@ -892,7 +883,6 @@
               "pm.test('voidedAt present', () => pm.expect(json.fields).to.have.property('voidedAt'));",
               "pm.test('voidedAt === 2026-05-17', () => pm.expect(json.fields.voidedAt.stringValue).to.eql('2026-05-17'));"
             ] } } ]
-          }
         },
         {
           "name": "4. GET inventoryUnits/{imei} — assert status='available' + returnType set",
@@ -912,7 +902,6 @@
               "pm.test('status === available', () => pm.expect(json.fields.status.stringValue).to.eql('available'));",
               "pm.test('returnType is set', () => pm.expect(json.fields.returnType.stringValue).to.eql('returned_to_inventory'));"
             ] } } ]
-          }
         }
       ]
     },
@@ -965,7 +954,6 @@
             { "listen": "test", "script": { "type": "text/javascript", "exec": [
               "pm.test('Status 200', () => pm.response.to.have.status(200));"
             ] } } ]
-          }
         },
         {
           "name": "3. PATCH inventoryUnits/{imei} → status='returned' + returnType='returned_to_supplier' (NO hard delete)",
@@ -1000,7 +988,6 @@
               "pm.test('status === returned', () => pm.expect(json.fields.status.stringValue).to.eql('returned'));",
               "pm.test('returnType === returned_to_supplier', () => pm.expect(json.fields.returnType.stringValue).to.eql('returned_to_supplier'));"
             ] } } ]
-          }
         },
         {
           "name": "4. PATCH linked sales/{saleId} → voidedAt",
@@ -1026,7 +1013,6 @@
               "pm.test('Status 200', () => pm.response.to.have.status(200));",
               "pm.test('voidedAt is set', () => pm.expect(pm.response.json().fields.voidedAt.stringValue).to.eql('2026-05-17'));"
             ] } } ]
-          }
         },
         {
           "name": "5. GET inventoryUnits/{imei} — assert status='returned' AND doc still exists",
@@ -1047,7 +1033,6 @@
               "pm.test('status === returned', () => pm.expect(json.fields.status.stringValue).to.eql('returned'));",
               "pm.test('returnType === returned_to_supplier', () => pm.expect(json.fields.returnType.stringValue).to.eql('returned_to_supplier'));"
             ] } } ]
-          }
         }
       ]
     },
@@ -1075,7 +1060,6 @@
             { "listen": "test", "script": { "type": "text/javascript", "exec": [
               "pm.test('Status 200', () => pm.response.to.have.status(200));"
             ] } } ]
-          }
         },
         {
           "name": "2. PATCH inventoryUnits/{shsUnitId} (backfill IMEI)",
@@ -1099,7 +1083,6 @@
               "const json = pm.response.json();",
               "pm.test('imei backfilled', () => pm.expect(json.fields.imei.stringValue).to.eql('353000000000111'));"
             ] } } ]
-          }
         },
         {
           "name": "3. PATCH sales/{newSaleId} (full body)",
@@ -1123,7 +1106,6 @@
               "pm.test('marketplace === EBAY', () => pm.expect(json.fields.marketplace.stringValue).to.eql('EBAY'));",
               "pm.test('imei is set on sale', () => pm.expect(json.fields.imei.stringValue).to.eql('353000000000111'));"
             ] } } ]
-          }
         },
         {
           "name": "4. PATCH inventoryUnits/{shsUnitId} → status='sold'",
@@ -1151,7 +1133,6 @@
             { "listen": "test", "script": { "type": "text/javascript", "exec": [
               "pm.test('Status 200', () => pm.response.to.have.status(200));"
             ] } } ]
-          }
         },
         {
           "name": "5. GET inventoryUnits/{shsUnitId} — assert imei is present AND status='sold'",
@@ -1171,7 +1152,6 @@
               "pm.test('imei is present', () => pm.expect(json.fields.imei.stringValue).to.be.a('string').and.not.empty);",
               "pm.test('status === sold', () => pm.expect(json.fields.status.stringValue).to.eql('sold'));"
             ] } } ]
-          }
         }
       ]
     }
