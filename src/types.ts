@@ -256,6 +256,13 @@ export interface Sale {
   gpPercent: number;
   netProfit?: number;            // eBay incl. promo
   comments?: string;
+  // Void / return reversal — set when the linked unit goes through the
+  // Returns flow. The sale doc is preserved for audit, but every Sell-side
+  // surface filters it out so revenue, GP and Avg GP% reflect only what
+  // actually stuck. If the unit is later re-sold a new Sale doc is written;
+  // this one stays voided in the audit trail.
+  voidedAt?: string;     // ISO date when the sale was reversed
+  voidReason?: string;   // From ProcessReturnModal (return reason)
   // Provenance
   importBatchId: string;
   sourceFile: string;

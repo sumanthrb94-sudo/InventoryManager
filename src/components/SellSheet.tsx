@@ -21,7 +21,7 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import {
   Search, ShoppingCart, ChevronDown, ChevronUp, ChevronsUpDown,
-  Filter, X, Download, AlertCircle, Plus, Info, Sparkles, Eye,
+  Filter, X, Download, AlertCircle, Plus, Info, Sparkles,
   TrendingUp, TrendingDown, PackageCheck, Truck,
 } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
@@ -143,11 +143,23 @@ export default function SellSheet(_props: Props) {
   // mismatched the sale doc (AMAZON__order vs EBAY__order) so dedupe missed
   // and Amazon sales appeared twice.
   const allSold = useMemo<Sale[]>(() => {
+    // Build a quick lookup of returned units (returnType set) so we can
+    // suppress legacy data where the sale doc itself wasn't voided. Going
+    // forward ProcessReturnModal stamps voidedAt on the sale, but old
+    // returns processed before that wiring still need to be excluded.
+    const returnedUnits = new Set<string>();
+    for (const u of units) if (u.returnType) returnedUnits.add(u.id);
+
     const merged: Sale[] = [];
     const seenIds = new Set<string>();
     const seenUnitIds = new Set<string>();
     const seenKeys = new Set<string>();
     for (const s of sales) {
+      // Skip voided sales — a returned sale didn't actually earn us
+      // anything, so it's hidden from every Sell-side surface (revenue,
+      // GP, Avg GP%, row count). Voided sales live in Returns instead.
+      if (s.voidedAt) continue;
+      if (s.unitId && returnedUnits.has(s.unitId)) continue;
       const fresh = recomputeSale(s);
       merged.push(fresh);
       seenIds.add(s.id);
@@ -156,14 +168,37 @@ export default function SellSheet(_props: Props) {
     }
     for (const u of units) {
       if (u.status !== 'sold' || u.salePrice == null) continue;
+      if (u.returnType) continue;        // defense: returned units never count as sold
       if (seenIds.has(u.id)) continue;
-      if (seenUnitIds.has(u.id)) continue; // recordSale already wrote this one
+      if (seenUnitIds.has(u.id)) continue;
       const candidate = inventoryUnitToSale(u);
       const dedupeKey = candidate.orderNumber ? `${candidate.marketplace}__${candidate.orderNumber}` : '';
       if (dedupeKey && seenKeys.has(dedupeKey)) continue;
       merged.push(recomputeSale(candidate));
     }
     return merged;
+  }, [sales, units]);
+
+  // Separate stream of voided sales — used for the 'returned this period'
+  // chip on each Sold tile (informational, never counted as sold).
+  const voidedSales = useMemo<Array<{ voidedAt: string; sale: Sale }>>(() => {
+    const out: Array<{ voidedAt: string; sale: Sale }> = [];
+    // Sales explicitly flagged voided on the doc
+    for (const s of sales) {
+      if (s.voidedAt) out.push({ voidedAt: s.voidedAt, sale: s });
+    }
+    // Fallback for legacy returns: unit has returnType but the sale doc
+    // wasn't patched. Use unit.returnDate as the event date.
+    const seen = new Set<string>(out.map(x => x.sale.id));
+    for (const u of units) {
+      if (!u.returnType || !u.returnDate) continue;
+      const match = sales.find(s => s.unitId === u.id);
+      if (match && !seen.has(match.id)) {
+        out.push({ voidedAt: u.returnDate, sale: match });
+        seen.add(match.id);
+      }
+    }
+    return out;
   }, [sales, units]);
 
   // ── Date-scoped subset ────────────────────────────────────────────────────
@@ -238,66 +273,45 @@ export default function SellSheet(_props: Props) {
   );
 
   // ── KPIs ──────────────────────────────────────────────────────────────────
-  // For every sale row we also check whether the linked unit has since been
-  // returned — if `unit.returnType` is set, the sale was reversed on
-  // `unit.returnDate`. That return is counted by its own return date (not
-  // the sale date), so 'Sold today' shows the gross day-of sales count
-  // while 'Returned today' surfaces any reversals that happened today,
-  // regardless of when the original sale ran. The Net subtitle is
-  // gross - returns for that same period — what actually stayed sold.
+  // allSold already excludes voided sales (the soft-delete filter in the
+  // useMemo above), so every counter here naturally reflects ACTIVE revenue
+  // only — what actually stayed sold. Returns are surfaced as a separate
+  // 'returned this period' badge sourced from `voidedSales`, counted by
+  // when the return happened (not by the original sale date).
   const kpis = useMemo(() => {
     const today = todayStr();
     const monthStart = (() => {
       const d = new Date(); return new Date(d.getFullYear(), d.getMonth(), 1).toISOString().split('T')[0];
     })();
-    // Quick lookup: unitId → return date (only for units that have been
-    // through the Returns flow, regardless of destination).
-    const returnByUnit = new Map<string, string>();
-    for (const u of units) {
-      if (u.returnType && u.returnDate) returnByUnit.set(u.id, u.returnDate);
-    }
     let todayCount = 0, todayRevenue = 0, todayGP = 0;
     let monthCount = 0, monthRevenue = 0, monthGP = 0;
     let allCount = 0, allGP = 0;
-    let todayReturned = 0, monthReturned = 0, allReturned = 0;
     let lossCount = 0;
     let gpPctSum = 0;
-    let activeGpPctSum = 0; // GP% excluding sales that were returned
-    let activeCount = 0;
     for (const s of allSold) {
-      const wasReturned = !!(s.unitId && returnByUnit.has(s.unitId));
-      const returnDate = wasReturned ? returnByUnit.get(s.unitId!) : '';
-      // Sale-date counters (gross — counts the sale event)
-      const saleD = (s.saleDate || '').split('T')[0];
-      if (saleD === today) { todayCount++; todayRevenue += s.salePrice ?? 0; todayGP += s.grossProfit ?? 0; }
-      if (saleD >= monthStart && saleD <= today) { monthCount++; monthRevenue += s.salePrice ?? 0; monthGP += s.grossProfit ?? 0; }
       allCount++;
       allGP += s.grossProfit ?? 0;
       gpPctSum += s.gpPercent ?? 0;
       if ((s.grossProfit ?? 0) < 0) lossCount++;
-      // Return-date counters (counts the return event in the period it
-      // happened, not the period the original sale ran).
-      if (wasReturned) {
-        allReturned++;
-        if (returnDate === today) todayReturned++;
-        if (returnDate && returnDate >= monthStart && returnDate <= today) monthReturned++;
-      } else {
-        // Only non-returned sales count toward the "real" margin average —
-        // returning a sale erases its profit, so including it in Avg GP %
-        // would over-represent the operation's actual margin.
-        activeCount++;
-        activeGpPctSum += s.gpPercent ?? 0;
-      }
+      const d = (s.saleDate || '').split('T')[0];
+      if (d === today) { todayCount++; todayRevenue += s.salePrice ?? 0; todayGP += s.grossProfit ?? 0; }
+      if (d >= monthStart && d <= today) { monthCount++; monthRevenue += s.salePrice ?? 0; monthGP += s.grossProfit ?? 0; }
+    }
+    let todayReturned = 0, monthReturned = 0, allReturned = 0;
+    for (const v of voidedSales) {
+      allReturned++;
+      const d = v.voidedAt.split('T')[0];
+      if (d === today) todayReturned++;
+      if (d >= monthStart && d <= today) monthReturned++;
     }
     return {
       todayCount, todayRevenue, todayGP, todayReturned,
       monthCount, monthRevenue, monthGP, monthReturned,
       allCount, allGP, allReturned, lossCount,
-      avgGpPct: activeCount > 0 ? activeGpPctSum / activeCount : 0,
-      avgGpPctGross: allCount > 0 ? gpPctSum / allCount : 0,
+      avgGpPct: allCount > 0 ? gpPctSum / allCount : 0,
       awaitingImei: awaitingImei.length,
     };
-  }, [allSold, units, awaitingImei]);
+  }, [allSold, voidedSales, awaitingImei]);
 
   // ── Filter chip options ───────────────────────────────────────────────────
   const supplierOptions = useMemo(() => {
@@ -411,38 +425,41 @@ export default function SellSheet(_props: Props) {
         </div>
 
         <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
-          <SoldVsReturnedTile
+          {/* Each Sold tile shows only the active (non-voided) count as the
+              headline — returned sales never inflate revenue / GP. The
+              'returned this period' chip below is informational only. */}
+          <BigKpiTile
             label="Sold Today"
-            sold={kpis.todayCount}
-            returned={kpis.todayReturned}
+            value={kpis.todayCount}
             sub={fmtGBP(kpis.todayRevenue, 0)}
             footer={fmtGBP(kpis.todayGP, 0) + ' GP'}
+            returnChip={kpis.todayReturned > 0 ? `↻ ${kpis.todayReturned} returned today` : undefined}
             tone="emerald"
             onClick={() => setOverlay('today')}
           />
-          <SoldVsReturnedTile
+          <BigKpiTile
             label="This Month"
-            sold={kpis.monthCount}
-            returned={kpis.monthReturned}
+            value={kpis.monthCount}
             sub={fmtGBP(kpis.monthRevenue, 0)}
             footer={fmtGBP(kpis.monthGP, 0) + ' GP'}
+            returnChip={kpis.monthReturned > 0 ? `↻ ${kpis.monthReturned} returned this month` : undefined}
             tone="blue"
             onClick={() => setOverlay('month')}
           />
-          <SoldVsReturnedTile
+          <BigKpiTile
             label="All-time Sold"
-            sold={kpis.allCount}
-            returned={kpis.allReturned}
+            value={kpis.allCount}
             sub={fmtGBP(kpis.allGP, 0) + ' GP'}
             footer={kpis.lossCount > 0 ? `${kpis.lossCount} loss-making` : 'all profitable'}
+            returnChip={kpis.allReturned > 0 ? `↻ ${kpis.allReturned} returned lifetime` : undefined}
             tone="slate"
             onClick={() => setOverlay('all')}
           />
           <BigKpiTile
             label="Avg GP %"
             value={`${kpis.avgGpPct.toFixed(1)}%`}
-            sub={kpis.allReturned > 0 ? `ex-returns · ${kpis.avgGpPctGross.toFixed(1)}% gross` :
-                 kpis.avgGpPct >= 20 ? 'healthy' : kpis.avgGpPct >= 10 ? 'fair' : 'thin'}
+            sub={kpis.avgGpPct >= 20 ? 'healthy' : kpis.avgGpPct >= 10 ? 'fair' : 'thin'}
+            footer={kpis.allReturned > 0 ? 'voided sales excluded' : undefined}
             tone={kpis.avgGpPct >= 20 ? 'emerald' : kpis.avgGpPct >= 10 ? 'amber' : 'rose'}
             onClick={() => setOverlay('gpPct')}
           />
@@ -660,70 +677,18 @@ export default function SellSheet(_props: Props) {
   );
 }
 
-// ── Sold-vs-Returned KPI tile ────────────────────────────────────────────────
-// Two-box layout inside one tile: gross sold count on the left, returned
-// count on the right, then the net (sold − returned) + revenue / GP subtitle
-// underneath. Used for Sold Today / This Month / All-time Sold so returns
-// can never silently inflate the sold story (per ops feedback: sold 1 then
-// returned 1 must read "1 sold · 1 returned · Net 0", not "Sold 1").
-function SoldVsReturnedTile({
-  label, sold, returned, sub, footer, tone, onClick,
-}: {
-  label: string;
-  sold: number;
-  returned: number;
-  sub?: string;
-  footer?: string;
-  tone: 'emerald' | 'blue' | 'amber' | 'slate' | 'rose';
-  onClick?: () => void;
-}) {
-  const tones: Record<string, { wrap: string; soldText: string; }> = {
-    emerald: { wrap: 'bg-gradient-to-br from-emerald-50 to-emerald-100/50 border-emerald-200 text-emerald-800 hover:from-emerald-100', soldText: 'text-emerald-800' },
-    blue:    { wrap: 'bg-gradient-to-br from-blue-50    to-blue-100/50    border-blue-200    text-blue-800    hover:from-blue-100',    soldText: 'text-blue-800' },
-    amber:   { wrap: 'bg-gradient-to-br from-amber-50   to-amber-100/50   border-amber-200   text-amber-800   hover:from-amber-100',   soldText: 'text-amber-800' },
-    slate:   { wrap: 'bg-gradient-to-br from-slate-50   to-slate-100/50   border-slate-200   text-slate-800   hover:from-slate-100',   soldText: 'text-slate-800' },
-    rose:    { wrap: 'bg-gradient-to-br from-rose-50    to-rose-100/50    border-rose-200    text-rose-800    hover:from-rose-100',    soldText: 'text-rose-800' },
-  };
-  const t = tones[tone];
-  const net = sold - returned;
-  const Inner = (
-    <>
-      <div className="flex items-start justify-between">
-        <p className="text-[10px] font-bold uppercase tracking-widest opacity-80">{label}</p>
-        {onClick && <Eye size={11} className="opacity-30 group-hover:opacity-70 transition-opacity flex-shrink-0" />}
-      </div>
-      {/* Two boxes: sold (primary tone) + returned (rose so it always reads as
-          a deduction). Net is shown underneath so the operator can see at a
-          glance how many sales actually stuck. */}
-      <div className="flex items-stretch gap-2 mt-2">
-        <div className="flex-1 bg-white/70 border border-white/80 rounded-lg px-2 py-1.5">
-          <p className="text-[8px] font-mono uppercase tracking-widest opacity-70">Sold</p>
-          <p className={`text-2xl font-bold tabular-nums leading-none ${t.soldText}`}>{sold}</p>
-        </div>
-        <div className="flex-1 bg-rose-50/80 border border-rose-200/70 rounded-lg px-2 py-1.5">
-          <p className="text-[8px] font-mono uppercase tracking-widest text-rose-700/80">Returned</p>
-          <p className="text-2xl font-bold tabular-nums leading-none text-rose-700">{returned}</p>
-        </div>
-      </div>
-      <p className="text-[10px] font-mono mt-2 opacity-80">
-        Net <span className="font-bold tabular-nums">{net}</span>{sub ? ` · ${sub}` : ''}
-      </p>
-      {footer && <p className="text-[9px] font-mono opacity-60 mt-0.5">{footer}</p>}
-    </>
-  );
-  const wrap = `text-left rounded-2xl border px-3 py-3 transition-all ${t.wrap} ${onClick ? 'hover:shadow-sm active:scale-[0.98] cursor-pointer group' : 'cursor-default group'}`;
-  if (onClick) return <button onClick={onClick} className={wrap}>{Inner}</button>;
-  return <div className={wrap}>{Inner}</div>;
-}
-
 // ── KPI tile ─────────────────────────────────────────────────────────────────
 function BigKpiTile({
-  label, value, sub, footer, tone, onClick,
+  label, value, sub, footer, returnChip, tone, onClick,
 }: {
   label: string;
   value: string | number;
   sub?: string;
   footer?: string;
+  /** Optional rose-toned chip rendered above the sub line. Used on the
+   *  Sold KPIs to surface 'X returned this period' without inflating the
+   *  headline number (returned sales = no sale = excluded from value). */
+  returnChip?: string;
   tone: 'emerald' | 'blue' | 'amber' | 'slate' | 'rose';
   onClick?: () => void;
 }) {
@@ -738,6 +703,11 @@ function BigKpiTile({
     <>
       <p className="text-[10px] font-bold uppercase tracking-widest opacity-80">{label}</p>
       <p className="text-3xl font-bold tabular-nums mt-2 leading-tight">{value}</p>
+      {returnChip && (
+        <span className="inline-flex items-center mt-1.5 text-[9px] font-bold uppercase tracking-widest px-1.5 py-0.5 rounded bg-rose-100 text-rose-700 border border-rose-200">
+          {returnChip}
+        </span>
+      )}
       {sub    && <p className="text-[10px] font-mono opacity-80 mt-1">{sub}</p>}
       {footer && <p className="text-[9px]  font-mono opacity-60 mt-0.5">{footer}</p>}
     </>

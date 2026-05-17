@@ -916,6 +916,28 @@ function ProcessReturnModal({
           ? { platformListed: false, listingSites: [] }
           : {}),
       });
+
+      // Void the linked Sale doc(s) — a returned sale is treated as if it
+      // never happened: zero revenue, zero GP, doesn't count in the Sell
+      // dashboard. The Sale doc stays in the collection for audit, just
+      // flagged with voidedAt + voidReason. If the unit is re-sold later,
+      // recordSale creates a NEW Sale doc and this one stays voided.
+      try {
+        const all = await dbService.readAll('sales');
+        const linked = all.filter((s: any) => s.unitId === unit.id && !s.voidedAt);
+        for (const s of linked) {
+          await dbService.update('sales', s.id, {
+            voidedAt: returnDate,
+            voidReason: reason.trim(),
+          });
+        }
+      } catch (err) {
+        // Best-effort; if it fails the unit-side returnType + returnDate
+        // still drive the Sell dashboard's runtime "is voided" check as a
+        // fallback, so accounting stays correct.
+        console.warn('Failed to void linked sales for unit', unit.id, err);
+      }
+
       notificationService.addNotification('return_processed', unit);
       onSaved();
       onClose();
