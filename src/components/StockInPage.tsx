@@ -4,7 +4,7 @@ import {
   ChevronDown, ChevronUp, Truck, PackageCheck, AlertCircle, MoreVertical, Trash2,
   Inbox, AlertTriangle, Save, Pencil, Tag,
 } from 'lucide-react';
-import { isValidImei } from '../lib/imeiValidation';
+import { isValidImei, isAppleDevice } from '../lib/imeiValidation';
 import { AnimatePresence, motion } from 'motion/react';
 import { dbService } from '../lib/dbService';
 import { notificationService } from '../lib/notificationService';
@@ -199,7 +199,7 @@ export default function StockInPage({ onOpenBatch, onOpenImport: _onOpenImport }
     units.filter(u =>
       u.status === 'available' &&
       !u.platformListed &&
-      isValidImei(u.imei)
+      isValidImei(u.imei, { isAppleSerial: isAppleDevice(u.model) })
     ),
     [units],
   );
@@ -211,7 +211,7 @@ export default function StockInPage({ onOpenBatch, onOpenImport: _onOpenImport }
   const missingImeis = useMemo(() =>
     units.filter(u =>
       u.status !== 'incoming' &&
-      !isValidImei(u.imei)
+      !isValidImei(u.imei, { isAppleSerial: isAppleDevice(u.model) })
     ),
     [units],
   );
@@ -991,8 +991,11 @@ function MissingImeisSection({ units, suppliers }: { units: InventoryUnit[]; sup
 
   const handleSave = async (unit: InventoryUnit) => {
     const next = (drafts[unit.id] || '').trim();
-    if (!isValidImei(next)) {
-      setError(e => ({ ...e, [unit.id]: 'Enter a valid IMEI or serial' }));
+    const apple = isAppleDevice(unit.model);
+    if (!isValidImei(next, { isAppleSerial: apple })) {
+      setError(e => ({ ...e, [unit.id]: apple
+        ? 'Enter a valid 15-digit IMEI or 10-12 char Apple serial'
+        : 'Enter a valid 15-digit IMEI (digits only)' }));
       return;
     }
     // Re-check uniqueness against the cached units (cheap optimistic

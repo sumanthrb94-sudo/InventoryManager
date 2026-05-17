@@ -7,7 +7,12 @@ import { useInventoryStore } from '../lib/inventoryStore';
 import { notificationService } from '../lib/notificationService';
 import { StorageSelectCompact, GradeSelectCompact } from './FormSelects';
 import { logInventoryEvent } from '../lib/inventoryEvents';
-import { isValidImei, IMEI_REQUIRED_MESSAGE } from '../lib/imeiValidation';
+import {
+  isValidImei,
+  isAppleDevice,
+  IMEI_REQUIRED_MESSAGE,
+  IMEI_OR_APPLE_SERIAL_MESSAGE,
+} from '../lib/imeiValidation';
 import { parseBrandModelStorage } from '../lib/modelStorage';
 
 interface Props { onClose: () => void; }
@@ -81,15 +86,19 @@ export default function AddStockManualModal({ onClose }: Props) {
   const addRow    = () => setRows(rs => [...rs, emptyRow(lastSupplierName)]);
 
   // Per-row validation summary, used for the bottom CTA + inline highlight.
+  // Apple devices unlock the 10-12 char alphanumeric serial format; all other
+  // brands must be 15-digit numeric IMEIs (per ops rule, 2026-05-17).
   const rowValidation = useMemo(() => rows.map(r => {
-    const imeiTrim = r.imei.trim().toUpperCase();
-    const imeiOk   = isValidImei(r.imei);
-    const dupeInRow = imeiTrim && rows.filter(x => x.imei.trim().toUpperCase() === imeiTrim).length > 1;
+    const imeiTrim   = r.imei.trim().toUpperCase();
+    const isApple    = isAppleDevice(r.model);
+    const imeiOk     = isValidImei(r.imei, { isAppleSerial: isApple });
+    const dupeInRow  = imeiTrim && rows.filter(x => x.imei.trim().toUpperCase() === imeiTrim).length > 1;
     const dupeExisting = imeiTrim && existingImeis.has(imeiTrim);
-    const modelOk  = r.model.trim().length > 0;
+    const modelOk    = r.model.trim().length > 0;
     const supplierOk = r.supplierName.trim().length > 0;
     return {
       imeiOk: !!imeiOk,
+      isApple,
       dupeInRow: !!dupeInRow,
       dupeExisting: !!dupeExisting,
       modelOk,
@@ -325,6 +334,8 @@ export default function AddStockManualModal({ onClose }: Props) {
 
 interface RowValidation {
   imeiOk: boolean;
+  /** True when the row's model is Apple — unlocks the alphanumeric serial form. */
+  isApple: boolean;
   dupeInRow: boolean;
   dupeExisting: boolean;
   modelOk: boolean;
@@ -354,7 +365,9 @@ function StockRowCard({ row, index, validation, knownSuppliers, onChange, onRemo
     if (!row.imei.trim()) return '';
     if (validation.dupeInRow)    return 'Duplicate IMEI in this batch';
     if (validation.dupeExisting) return 'IMEI already in inventory';
-    if (!validation.imeiOk)      return IMEI_REQUIRED_MESSAGE;
+    if (!validation.imeiOk) {
+      return validation.isApple ? IMEI_OR_APPLE_SERIAL_MESSAGE : IMEI_REQUIRED_MESSAGE;
+    }
     return '';
   })();
 
