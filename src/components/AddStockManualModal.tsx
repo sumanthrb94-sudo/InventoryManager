@@ -1,8 +1,6 @@
 import React, { useState, useMemo, useCallback } from 'react';
 import { X, Plus, Trash2, CheckCircle2, PackagePlus, AlertCircle } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { dbService } from '../lib/dbService';
-import { DeviceCategory, InventoryUnit } from '../types';
 import { useInventoryStore } from '../lib/inventoryStore';
 import { notificationService } from '../lib/notificationService';
 import { StorageSelectCompact, GradeSelectCompact } from './FormSelects';
@@ -13,7 +11,9 @@ import {
   IMEI_REQUIRED_MESSAGE,
   IMEI_OR_APPLE_SERIAL_MESSAGE,
 } from '../lib/imeiValidation';
-import { parseBrandModelStorage } from '../lib/modelStorage';
+// Service layer — owns IMEI validation, BP>0, duplicate-IMEI guard, brand
+// split, audit log emission. UI no longer writes inventoryUnits directly.
+import { addUnitManual } from '../services';
 
 interface Props { onClose: () => void; }
 
@@ -47,16 +47,8 @@ function emptyRow(supplierName = ''): StockRow {
   return { id: uid(), imei: '', model: '', buyPrice: '', colour: '', storage: '', grade: '', supplierName, notes: '' };
 }
 
-function detectCategory(model: string): DeviceCategory {
-  const m = (model || '').toUpperCase();
-  if (m.includes('IPAD')) return 'iPad';
-  if (/APPLE WATCH|WATCH ULTRA|WATCH SE/.test(m)) return 'Apple Watch';
-  if (m.includes('IPHONE')) return 'iPhone';
-  if (/GALAXY TAB|TAB A\d|TAB S\d/.test(m)) return 'Tablet';
-  if (m.includes('SAMSUNG') || m.includes('GALAXY'))
-    return /\bA\d{2,3}\b|GALAXY A/.test(m) ? 'Samsung A Series' : 'Samsung S Series';
-  return 'Other';
-}
+// Category / brand detection lives in inventoryService.addUnitManual now so
+// every entry surface (manual, SHS receive, scan-in) categorises identically.
 
 export default function AddStockManualModal({ onClose }: Props) {
   const { suppliers, units } = useInventoryStore();
@@ -67,11 +59,6 @@ export default function AddStockManualModal({ onClose }: Props) {
   const [error, setError]   = useState('');
 
   const knownNames = useMemo(() => suppliers.map(s => s.name), [suppliers]);
-  const supplierByName = useMemo(() => {
-    const m: Record<string, string> = {};
-    for (const s of suppliers) m[s.name.toUpperCase()] = s.id;
-    return m;
-  }, [suppliers]);
   const existingImeis = useMemo(() => {
     const s = new Set<string>();
     for (const u of units) if (u.imei) s.add(u.imei.trim().toUpperCase());
@@ -118,19 +105,6 @@ export default function AddStockManualModal({ onClose }: Props) {
     return { units, value };
   }, [rows, rowValidation]);
 
-  const ensureSupplier = async (name: string): Promise<string> => {
-    const key = name.trim().toUpperCase();
-    if (!key) return '';
-    const existing = supplierByName[key];
-    if (existing) return existing;
-    const newId = `sup_${Date.now()}_${uid()}`;
-    await dbService.create('suppliers', newId, {
-      name: name.trim(), portal: 'Wholesale', ownerId: 'shared',
-      createdAt: new Date().toISOString(),
-    });
-    return newId;
-  };
-
   const handleSave = async () => {
     const validIdxs: number[] = [];
     rowValidation.forEach((v, i) => { if (v.complete) validIdxs.push(i); });
@@ -143,61 +117,61 @@ export default function AddStockManualModal({ onClose }: Props) {
     setError('');
     try {
       const batchId = `manual_bat_${Date.now()}`;
-      const supCache: Record<string, string> = {};
-      for (const i of validIdxs) {
-        const key = rows[i].supplierName.trim().toUpperCase();
-        if (key && !supCache[key]) supCache[key] = await ensureSupplier(rows[i].supplierName);
-      }
 
       let totalUnits = 0;
+      const failures: string[] = [];
       for (const i of validIdxs) {
         const r = rows[i];
-        const supplierId = supCache[r.supplierName.trim().toUpperCase()] || '';
-        const imei       = r.imei.trim().toUpperCase();
-        const category   = detectCategory(r.model);
-        // Use the shared brand/series detector so the new unit lands in the
-        // right Periodic Table bucket and respects naming conventions.
-        const parsed     = parseBrandModelStorage(r.model);
-        const brand      = parsed.brand !== 'Other' ? parsed.brand
-                            : (['iPhone', 'iPad', 'Apple Watch'].includes(category) ? 'Apple'
-                                : (['Samsung S Series', 'Samsung A Series', 'Tablet'].includes(category) ? 'Samsung' : 'Other'));
-        const cleanModel = parsed.model || r.model.trim();
-        const storage    = r.storage.trim() || parsed.storage;
-        const bp         = parseFloat(r.buyPrice) || 0;
-        const newUnit: InventoryUnit = {
-          id:             imei,        // doc id = IMEI for upsert semantics
-          imei,
-          model:          cleanModel,
-          brand,
-          category,
-          colour:         r.colour.trim() || 'Unknown',
-          ...(storage      ? { storage }                : {}),
-          ...(parsed.series ? { series: parsed.series } : {}),
-          ...(r.grade.trim() ? { grade: r.grade.trim() } : {}),
-          buyPrice:       bp,
-          dateIn:         date,
-          supplierId,
+        // Service owns IMEI validation, BP>0 guard, in-DB duplicate check,
+        // brand/model/storage split, status defaults, and audit-log emission.
+        const res = await addUnitManual({
+          imei: r.imei,
+          model: r.model,
+          buyPrice: parseFloat(r.buyPrice) || 0,
+          supplierName: r.supplierName,
+          colour: r.colour,
+          storage: r.storage,
+          grade: r.grade,
+          notes: r.notes,
+          dateIn: date,
           batchId,
-          status:         'available',
-          flags:          [],
-          notes:          r.notes.trim(),
-          platformListed: false,
-          listingSites:   [],
-          ownerId:        'shared',
-          createdAt:      new Date().toISOString(),
-        };
-        await dbService.create('inventoryUnits', imei, newUnit);
+        });
+        if (!res.ok) {
+          failures.push(`${r.imei.trim().toUpperCase() || '(no imei)'}: ${res.message ?? res.error}`);
+          continue;
+        }
         // Single dedup-aware notification per unit; notificationService
         // already groups identical SKUs within its 10-min window.
-        notificationService.addNotification('new_stock', newUnit);
+        notificationService.addNotification('new_stock', {
+          // Minimal payload — notificationService only needs identity for
+          // dedupe grouping; the rest is rendered from the inventory cache.
+          id: res.id!, imei: res.id!, model: r.model,
+          colour: r.colour, buyPrice: parseFloat(r.buyPrice) || 0,
+        } as any);
         totalUnits++;
       }
 
-      await logInventoryEvent({
-        type:    'batch_created',
-        message: `Manual add: ${totalUnits} unit${totalUnits !== 1 ? 's' : ''} added by IMEI`,
-        batchId,
-      });
+      if (totalUnits > 0) {
+        await logInventoryEvent({
+          type:    'batch_created',
+          message: `Manual add: ${totalUnits} unit${totalUnits !== 1 ? 's' : ''} added by IMEI`,
+          batchId,
+        });
+      }
+
+      if (failures.length && totalUnits === 0) {
+        // Surface the first failure so ops can fix it; the rows already show
+        // inline validation status via rowValidation so the toast is brief.
+        setError(failures[0]);
+        setSaving(false);
+        return;
+      }
+      if (failures.length) {
+        // Partial success — keep the success path but warn that some rows
+        // were rejected by the service (e.g. duplicate race after the
+        // in-memory pre-check).
+        setError(`${totalUnits} added · ${failures.length} rejected: ${failures[0]}`);
+      }
 
       setSaved(true);
       setTimeout(onClose, 900);

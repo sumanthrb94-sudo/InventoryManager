@@ -12,6 +12,9 @@ import { InventoryUnit, InventoryAggregate, Supplier, ListingSite } from '../typ
 import { useInventoryStore } from '../lib/inventoryStore';
 import { parseBrandModelStorage } from '../lib/modelStorage';
 import { deriveSkuListing } from '../lib/skuListings';
+// Service layer — Missing-IMEIs backfill routes through here so the
+// model-aware IMEI validation + duplicate guard stay centralised.
+import { backfillImei } from '../services';
 import { listingSiteLabel } from '../lib/platforms';
 import { totalShsRecords, manualShsUnitsFrom, shsAggregatesFrom } from '../lib/shsCount';
 import SkuListingEditor from './SkuListingEditor';
@@ -991,6 +994,8 @@ function MissingImeisSection({ units, suppliers }: { units: InventoryUnit[]; sup
 
   const handleSave = async (unit: InventoryUnit) => {
     const next = (drafts[unit.id] || '').trim();
+    // Inline pre-checks for fast feedback; the service is the authority
+    // and re-checks both rules before writing.
     const apple = isAppleDevice(unit.model);
     if (!isValidImei(next, { isAppleSerial: apple })) {
       setError(e => ({ ...e, [unit.id]: apple
@@ -998,8 +1003,6 @@ function MissingImeisSection({ units, suppliers }: { units: InventoryUnit[]; sup
         : 'Enter a valid 15-digit IMEI (digits only)' }));
       return;
     }
-    // Re-check uniqueness against the cached units (cheap optimistic
-    // check; bulkCreate would also reject a doc-id collision).
     const collision = units.find(u => u.id !== unit.id && u.imei === next);
     if (collision) {
       setError(e => ({ ...e, [unit.id]: 'IMEI already on another unit' }));
@@ -1007,7 +1010,12 @@ function MissingImeisSection({ units, suppliers }: { units: InventoryUnit[]; sup
     }
     setSavingId(unit.id);
     try {
-      await dbService.update('inventoryUnits', unit.id, { imei: next });
+      // Service owns model-aware IMEI validation + cross-unit duplicate guard.
+      const res = await backfillImei(unit.id, next);
+      if (!res.ok) {
+        setError(e => ({ ...e, [unit.id]: res.message || res.error || 'Save failed' }));
+        return;
+      }
       // Optimistic UI — clear the draft; snapshot listener will drop the row.
       setDrafts(d => { const c = { ...d }; delete c[unit.id]; return c; });
       setError(e => { const c = { ...e }; delete c[unit.id]; return c; });

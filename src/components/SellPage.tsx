@@ -20,6 +20,10 @@ import {
   marketplaceFromListingSite, listingSiteLabel,
 } from '../lib/platforms';
 import { recomputeSale } from '../lib/recomputeSale';
+// Service layer — record sale routes through here so the GP math + composite
+// doc id + unit-status flip stay centralised. UI no longer calls
+// dbService.update('inventoryUnits') for the sale path.
+import { recordSale } from '../services';
 import { fmtDateForUser, useUserRegion } from '../lib/userLocale';
 import CollapsibleSection from './CollapsibleSection';
 import PeriodicInventory from './PeriodicInventory';
@@ -139,20 +143,39 @@ function SellOrderModal({
       const spNum = Number(sp);
       const postageNum = postage ? Number(postage) : DEFAULT_POSTAGE_COST;
 
-      // Calculate profit for notification
+      // Calculate profit for the notification (legacy two-input formula —
+      // mirrors what the SellPage UI displayed in the live P&L panel; the
+      // service stores authoritative GP via calcSaleFinancials).
       const profit = calcNetProfit(spNum, unit.buyPrice, platform, postageNum);
       const notificationType = profit < 0 ? 'loss_sell' : 'sold';
       console.log(`[Sale] Selling ${unit.model} at £${spNum} on ${platform}`, { profit, notificationType });
 
-      await dbService.update('inventoryUnits', unit.id, {
-        status:      'sold',
-        salePrice:   spNum,
-        salePlatform: platform,
-        saleOrderId: orderId.trim(),
+      // SHS path may carry a late-arriving IMEI from the supplier invoice
+      // — write it to the unit before flipping to sold so the sale row
+      // links to the correct (now-known) IMEI.
+      if (isSHS && imeiInput.trim()) {
+        await dbService.update('inventoryUnits', unit.id, { imei: imeiInput.trim() });
+      }
+
+      // Map the legacy PLATFORM_LIST string ("eBay" / "Amazon" / "OnBuy" /
+      // "Backmarket") to the canonical Marketplace enum used by the sales
+      // service + calcSaleFinancials. Falls back to EBAY if mapping fails.
+      const marketplace = (marketplaceFromListingSite(platform) as Marketplace | undefined) ?? 'EBAY';
+
+      const res = await recordSale({
+        marketplace,
+        orderNumber: orderId.trim(),
+        unitId: unit.id,
+        buyPrice: unit.buyPrice,
+        salePrice: spNum,
         saleDate,
-        postageCost: postageNum,
-        ...(isSHS && imeiInput.trim() ? { imei: imeiInput.trim() } : {}),
+        postageOverride: postageNum,
       });
+      if (!res.ok) {
+        setError(res.message || 'Failed to save. Please try again.');
+        setSaving(false);
+        return;
+      }
 
       // Trigger notification with correct type and profit amount
       notificationService.addNotification(notificationType, unit, profit);

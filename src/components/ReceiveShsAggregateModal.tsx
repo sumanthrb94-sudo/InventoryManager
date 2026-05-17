@@ -1,17 +1,19 @@
 import React, { useMemo, useRef, useState } from 'react';
-import { X, CheckCircle2, PackageCheck, Trash2, AlertCircle, ScanLine, Plus } from 'lucide-react';
+import { X, CheckCircle2, PackageCheck, AlertCircle, ScanLine, Plus } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { dbService } from '../lib/dbService';
-import { InventoryAggregate, InventoryUnit, DeviceCategory } from '../types';
+import { InventoryAggregate } from '../types';
 import { useInventoryStore } from '../lib/inventoryStore';
 import { notificationService } from '../lib/notificationService';
-import { logInventoryEvent } from '../lib/inventoryEvents';
 import {
   isValidImei,
   isAppleDevice,
   IMEI_REQUIRED_MESSAGE,
   IMEI_OR_APPLE_SERIAL_MESSAGE,
 } from '../lib/imeiValidation';
+// Service layer — owns SHS qty cap, IMEI validation, duplicate guard,
+// aggregate decrement, synthetic-placeholder cleanup, and audit-log emission.
+import { receiveShsAggregate } from '../services';
 
 interface Props {
   aggregate: InventoryAggregate;
@@ -22,29 +24,9 @@ interface Props {
  *  IMEI when the aggregate has multiple colours (PINK 1 BLUE 1). */
 interface ScannedItem { imei: string; colour: string; }
 
-/** Best-effort category inference from a model string (mirrors ScanInModal's
- *  heuristic — kept local to avoid coupling to ImportModal). */
-function inferCategory(model: string): DeviceCategory {
-  const m = (model || '').toUpperCase();
-  if (m.includes('IPAD')) return 'iPad';
-  if (/APPLE WATCH|WATCH ULTRA|WATCH SE/.test(m)) return 'Apple Watch';
-  if (m.includes('IPHONE')) return 'iPhone';
-  if (/GALAXY TAB|TAB A\d|TAB S\d/.test(m)) return 'Tablet';
-  if (m.includes('SAMSUNG') || m.includes('GALAXY')) {
-    return /\bA\d{2,3}\b|GALAXY A/.test(m) ? 'Samsung A Series' : 'Samsung S Series';
-  }
-  return 'Other';
-}
-
-/** Slugify identical to the SHS placeholder id encoding used at import time
- *  (src/components/ImportModal.tsx — keep in sync). */
-function slug(s: string): string {
-  return String(s || '')
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '_')
-    .replace(/^_+|_+$/g, '') || 'unknown';
-}
+// Category inference / placeholder-id slug / aggregate decrement all live in
+// receiveShsAggregate now. The UI just collects scans + colours and hands
+// the batch to the service in one call.
 
 export default function ReceiveShsAggregateModal({ aggregate, onClose }: Props) {
   const { suppliers } = useInventoryStore();
@@ -181,73 +163,36 @@ export default function ReceiveShsAggregateModal({ aggregate, onClose }: Props) 
     setSaving(true);
     setError('');
     try {
-      const importBatchId = aggregate.importBatchId;
-      const importedAt = new Date().toISOString();
-      const dateIn = importedAt.slice(0, 10);
-      const category = inferCategory(aggregate.model);
-      const brand = (aggregate as any).brand ?? 'Other';
+      // The service owns the entire write transaction: hard SHS qty cap,
+      // per-IMEI strict validation, bulkCreate of inventoryUnits, synthetic
+      // placeholder cleanup, aggregate decrement (partial vs full), and
+      // audit-log emission. The UI keeps the scanned-list state + colour
+      // picker; service returns receivedCount/errors for the toast.
+      const res = await receiveShsAggregate({ aggregate, scanned });
 
-      // 1. Build one inventoryUnits doc per scanned IMEI. The operator
-      //    picked a colour per row (defaulting via the auto-allocator);
-      //    persist it so the unit lands in the correct SKU bucket.
-      const newUnits: InventoryUnit[] = scanned.map(({ imei, colour }) => ({
-        id: imei,
-        imei,
-        model: aggregate.model,
-        brand,
-        category,
-        storage: aggregate.storage,
-        colour: colour || 'Unknown',
-        buyPrice: aggregate.buyPrice ?? 0,
-        dateIn,
-        supplierId: aggregate.supplierIds?.[0] ?? '',
-        supplierIds: aggregate.supplierIds,
-        status: 'available',
-        statusRaw: 'Received from SHS',
-        flags: [],
-        notes: aggregate.notes ?? '',
-        platformListed: false,
-        listingSites: [],
-        importBatchId,
-        sourceFile: 'shs-receive',
-        importedAt,
-        ownerId: 'shared',
-        createdAt: importedAt,
-      } as InventoryUnit));
-
-      await dbService.bulkCreate(
-        newUnits.map(u => ({ collection: 'inventoryUnits', id: u.id, data: u })),
-      );
-
-      // 2. Delete the synthetic SHS placeholder unit (if present).
-      const placeholderId = `shs_${slug(aggregate.model)}_${slug(supplierName)}_${aggregate.sourceRow}`;
-      await dbService.delete('inventoryUnits', placeholderId).catch(() => {});
-
-      // 3. Update the aggregate — partial vs full receive.
-      const newRemaining = expectedQty - scanned.length;
-      if (newRemaining <= 0) {
-        await dbService.update('inventoryAggregates', aggregate.id, {
-          quantityNum: 0,
-          quantityText: 'RECEIVED',
-          receivedAt: new Date().toISOString(),
-          originalQuantityNum: originalQty,
-        });
-      } else {
-        await dbService.update('inventoryAggregates', aggregate.id, {
-          quantityNum: newRemaining,
-          originalQuantityNum: originalQty,
-        });
+      if (!res.ok || res.receivedCount === 0) {
+        const first = res.errors[0];
+        setError(first
+          ? `Receive rejected (${first.reason}) on ${first.imei || '(empty)'}`
+          : 'Receive failed — please try again');
+        setSaving(false);
+        return;
       }
 
-      // 4. Log a inventoryEvents row.
-      await logInventoryEvent({
-        type: 'stock_adjusted',
-        message: `Received ${newUnits.length} unit${newUnits.length === 1 ? '' : 's'} from SHS · ${aggregate.model} · ${supplierName}`,
-        batchId: importBatchId,
-      });
+      // Notification — reuse shs_received with the head IMEI as a sample.
+      notificationService.addNotification(
+        'shs_received',
+        { imei: scanned[0].imei, model: aggregate.model, colour: scanned[0].colour } as any,
+        undefined,
+        res.receivedCount,
+      );
 
-      // 5. Surface a notification (reuse shs_received).
-      notificationService.addNotification('shs_received', newUnits[0], undefined, newUnits.length);
+      // Partial-success toast: surface any rejected scans so the operator
+      // knows which IMEIs to fix (e.g. duplicates, cap overflow).
+      if (res.errors.length > 0) {
+        const e = res.errors[0];
+        setError(`Received ${res.receivedCount} · ${res.errors.length} rejected (${e.reason})`);
+      }
 
       setSaved(true);
       setTimeout(onClose, 900);
