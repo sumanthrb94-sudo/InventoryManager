@@ -6,7 +6,7 @@ import {
   PackagePlus, ShoppingCart, RefreshCw,
   LogOut, Plus, FileSpreadsheet, LayoutDashboard,
   TrendingUp, FileText, Users, Settings, Database,
-  ClipboardList, History,
+  ClipboardList, History, Menu, X,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import Dashboard, { NavAction } from './components/Dashboard';
@@ -138,6 +138,18 @@ function AppShell({ user }: { user: User }) {
   const [unreadCount, setUnreadCount]             = useState(0);
   const [syncConnected, setSyncConnected]         = useState(false);
   const [isAlertsExpanded, setIsAlertsExpanded]   = useState(false);
+  /** Hamburger drawer for desktop nav. Mobile keeps its bottom-tab bar
+   *  (better thumb reach), so this only controls the slide-out on md+. */
+  const [sidebarOpen, setSidebarOpen]             = useState(false);
+
+  // Esc closes the drawer; navigating to a new tab also closes it so
+  // operators don't have to dismiss manually after picking.
+  useEffect(() => {
+    if (!sidebarOpen) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setSidebarOpen(false); };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [sidebarOpen]);
 
   useRealTimeNotifications();
   useEffect(() => { notificationService.setUser(user.uid); }, [user.uid]);
@@ -185,12 +197,39 @@ function AppShell({ user }: { user: User }) {
 
       <AnimatePresence>{!loaded && <LoadingScreen />}</AnimatePresence>
 
-      {/* ── Desktop Sidebar ── */}
-      <aside className="hidden md:flex w-56 lg:w-64 flex-shrink-0 bg-white border-r border-slate-200 flex-col overflow-hidden">
+      {/* ── Hamburger drawer (was the fixed desktop sidebar). Opens via the
+              menu button in the header. Slides in from the left, dims the
+              content with a backdrop, dismisses on outside-click or Esc.
+              Mobile still uses the bottom tab bar — better thumb reach. ── */}
+      <AnimatePresence>
+        {sidebarOpen && (
+          <motion.div
+            key="sidebar-backdrop"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.18 }}
+            className="fixed inset-0 z-40 bg-black/40 backdrop-blur-sm"
+            onClick={() => setSidebarOpen(false)}
+          />
+        )}
+      </AnimatePresence>
+      <AnimatePresence>
+        {sidebarOpen && (
+      <motion.aside
+        key="sidebar-drawer"
+        initial={{ x: '-100%' }}
+        animate={{ x: 0 }}
+        exit={{ x: '-100%' }}
+        transition={{ type: 'spring', damping: 28, stiffness: 320 }}
+        className="fixed inset-y-0 left-0 z-50 flex w-64 bg-white border-r border-slate-200 flex-col overflow-hidden shadow-2xl"
+        onClick={e => e.stopPropagation()}>
 
-        {/* Brand strip — same height as header */}
-        <div className="h-16 flex-shrink-0 flex items-center px-5 border-b border-slate-100">
-          <button onClick={() => setActiveTab(NAV_TABS[0]?.id ?? 'returns')} className="text-left group active:scale-95 transition-transform">
+        {/* Brand strip — same height as header. The X button mirrors the
+            hamburger in the page header so the open ↔ close gesture is
+            symmetric. */}
+        <div className="h-16 flex-shrink-0 flex items-center justify-between px-5 border-b border-slate-100">
+          <button onClick={() => { setActiveTab(NAV_TABS[0]?.id ?? 'returns'); setSidebarOpen(false); }} className="text-left group active:scale-95 transition-transform min-w-0">
             <h1 className="text-[13px] font-black tracking-tighter uppercase font-display text-slate-900 leading-none">
               {APP_NAME}
             </h1>
@@ -204,12 +243,20 @@ function AppShell({ user }: { user: User }) {
               )}
             </p>
           </button>
+          <button
+            onClick={() => setSidebarOpen(false)}
+            aria-label="Close menu"
+            className="p-2 hover:bg-slate-100 rounded-lg text-slate-400 hover:text-slate-900 transition-all"
+          >
+            <X size={16} />
+          </button>
         </div>
 
         {/* Nav items */}
         <nav className="p-3 space-y-0.5">
           {NAV_TABS.map(t => (
-            <button key={t.id} onClick={() => setActiveTab(t.id)}
+            <button key={t.id}
+              onClick={() => { setActiveTab(t.id); setSidebarOpen(false); }}
               className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all
                 ${activeTab === t.id
                   ? 'bg-slate-900 text-white'
@@ -224,7 +271,8 @@ function AppShell({ user }: { user: User }) {
           {userIsAdmin && activeTab === 'admin' && (
             <div className="ml-3 mt-1 space-y-0.5 border-l-2 border-slate-100 pl-3">
               {ADMIN_SUBS.map(s => (
-                <button key={s.id} onClick={() => setAdminSub(s.id)}
+                <button key={s.id}
+                  onClick={() => { setAdminSub(s.id); setSidebarOpen(false); }}
                   className={`w-full flex items-center gap-2 px-3 py-2 rounded-lg transition-all
                     ${adminSub === s.id
                       ? 'text-slate-900 bg-slate-100 font-bold'
@@ -403,7 +451,9 @@ function AppShell({ user }: { user: User }) {
             </button>
           )}
         </div>
-      </aside>
+      </motion.aside>
+        )}
+      </AnimatePresence>
 
       {/* ── Right column (header + scrollable content) ── */}
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
@@ -411,10 +461,22 @@ function AppShell({ user }: { user: User }) {
         {/* Top header */}
         <header className="flex-shrink-0 h-14 md:h-16 bg-white border-b border-slate-200 flex items-center px-4 md:px-6 gap-3 z-20">
 
-          {/* Mobile: brand */}
-          <button onClick={() => setActiveTab(NAV_TABS[0]?.id ?? 'returns')} className="md:hidden mr-auto active:scale-95 transition-transform">
-            <h1 className="text-base font-black tracking-tighter uppercase font-display text-slate-900 leading-none">{APP_NAME}</h1>
-            <p className="text-[7px] text-slate-400 font-mono uppercase tracking-[0.35em] mt-0.5">
+          {/* Hamburger — primary nav trigger across all viewports. The drawer
+              holds the full sidebar (brand strip + nav tabs + Admin sub-nav +
+              stock alerts + user footer). Mobile still has the bottom tab
+              bar as a thumb-reach fallback for the 4 top-level tabs. */}
+          <button
+            onClick={() => setSidebarOpen(true)}
+            aria-label="Open menu"
+            className="flex items-center justify-center w-10 h-10 rounded-xl hover:bg-slate-100 active:scale-95 transition-all text-slate-700"
+          >
+            <Menu size={20} strokeWidth={2.25} />
+          </button>
+
+          {/* Brand + region badge — always visible next to the hamburger. */}
+          <button onClick={() => setActiveTab(NAV_TABS[0]?.id ?? 'returns')} className="active:scale-95 transition-transform min-w-0 mr-auto md:mr-0">
+            <h1 className="text-sm md:text-base font-black tracking-tighter uppercase font-display text-slate-900 leading-none truncate">{APP_NAME}</h1>
+            <p className="text-[7px] text-slate-400 font-mono uppercase tracking-[0.35em] mt-0.5 truncate">
               {APP_TAGLINE}
               {regionBadge && (
                 <>
@@ -426,7 +488,7 @@ function AppShell({ user }: { user: User }) {
           </button>
 
           {/* Desktop: section breadcrumb */}
-          <div className="hidden md:flex items-center gap-2 min-w-0">
+          <div className="hidden md:flex items-center gap-2 min-w-0 ml-4">
             <span className="text-[11px] font-bold uppercase tracking-widest text-slate-400 truncate">
               {NAV_TABS.find(t => t.id === activeTab)?.label}
             </span>
