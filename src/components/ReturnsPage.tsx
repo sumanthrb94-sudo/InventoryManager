@@ -674,7 +674,7 @@ function SheetTable({
           <Th k="buyPrice"   sort={sort} onSort={toggleSort} width="80px" align="right">BP</Th>
           <Th k="returnType" sort={sort} onSort={toggleSort} width="120px">Type</Th>
           <Th k=""           sort={sort} onSort={undefined}  width="200px">Reason</Th>
-          <Th k=""           sort={sort} onSort={undefined}  width="70px"><span className="sr-only">Actions</span></Th>
+          <Th k=""           sort={sort} onSort={undefined}  width="180px"><span className="sr-only">Actions</span></Th>
         </tr>
       </thead>
       <tbody>
@@ -710,28 +710,42 @@ function SheetTable({
               </Td>
               <Td><span className="text-slate-500 truncate" title={u.returnReason || ''}>{u.returnReason || ''}</span></Td>
               <Td>
-                <div className="relative" onClick={e => e.stopPropagation()}>
-                  <button
-                    onClick={() => setMenuId(menuId === u.id ? null : u.id)}
-                    className="opacity-30 group-hover:opacity-100 p-1 rounded hover:bg-slate-200 text-slate-600 transition-all"
-                  >
-                    <MoreHorizontal size={13} />
-                  </button>
-                  {menuId === u.id && (
-                    <div className="absolute right-0 mt-1 w-48 bg-white border border-slate-200 rounded-lg shadow-xl z-20 py-1">
-                      {inRepair && (
+                <div className="flex items-center gap-1.5 justify-end" onClick={e => e.stopPropagation()}>
+                  {/* In-Repair rows get a primary 'Back to Stock' button
+                      surfaced inline so the operator never has to hunt for
+                      it. The 3-dot menu below carries secondary actions. */}
+                  {inRepair && (
+                    <button
+                      onClick={() => onReadyShip(u)}
+                      title="Mark this repaired unit as available again"
+                      className="flex items-center gap-1 px-2 py-1 rounded-md text-[9px] font-bold uppercase tracking-widest bg-emerald-600 text-white hover:bg-emerald-700 transition-all"
+                    >
+                      <Truck size={10} /> Back to Stock
+                    </button>
+                  )}
+                  <div className="relative">
+                    <button
+                      onClick={() => setMenuId(menuId === u.id ? null : u.id)}
+                      className="opacity-40 group-hover:opacity-100 p-1 rounded hover:bg-slate-200 text-slate-600 transition-all"
+                      title="More actions"
+                    >
+                      <MoreHorizontal size={13} />
+                    </button>
+                    {menuId === u.id && (
+                      <div className="absolute right-0 mt-1 w-48 bg-white border border-slate-200 rounded-lg shadow-xl z-20 py-1">
+                        {inRepair && (
+                          <button
+                            onClick={() => { setMenuId(null); onReadyShip(u); }}
+                            className="w-full flex items-center gap-2 px-3 py-1.5 text-[10px] text-emerald-700 hover:bg-emerald-50"
+                          >
+                            <Truck size={11} /> Ready to Ship · Back to Stock
+                          </button>
+                        )}
                         <button
-                          onClick={() => { setMenuId(null); onReadyShip(u); }}
-                          className="w-full flex items-center gap-2 px-3 py-1.5 text-[10px] text-emerald-700 hover:bg-emerald-50"
+                          onClick={() => { setMenuId(null); onRepair(u); }}
+                          className="w-full flex items-center gap-2 px-3 py-1.5 text-[10px] text-blue-700 hover:bg-blue-50"
                         >
-                          <Truck size={11} /> Ready to Ship · Back to Stock
-                        </button>
-                      )}
-                      <button
-                        onClick={() => { setMenuId(null); onRepair(u); }}
-                        className="w-full flex items-center gap-2 px-3 py-1.5 text-[10px] text-blue-700 hover:bg-blue-50"
-                      >
-                        <Wrench size={11} /> Send to Repair
+                          <Wrench size={11} /> Send to Repair
                       </button>
                       <button
                         onClick={() => { setMenuId(null); onReprocess(u); }}
@@ -739,8 +753,9 @@ function SheetTable({
                       >
                         <RotateCcw size={11} /> Re-process return
                       </button>
-                    </div>
-                  )}
+                      </div>
+                    )}
+                  </div>
                 </div>
               </Td>
             </tr>
