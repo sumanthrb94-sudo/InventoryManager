@@ -22,8 +22,6 @@ export default function StockAlertsTape({ units }: Props) {
   const alerts = useMemo(() => {
     if (!units || !Array.isArray(units) || units.length === 0) return [];
 
-    console.log('[StockAlertsTape] Received units:', units.length, 'Total models:', new Set(units.map(u => u.model)).size);
-
     const seen = new Set<string>();
     const list: Alert[] = [];
 
@@ -58,21 +56,6 @@ export default function StockAlertsTape({ units }: Props) {
       }
     }
 
-    // Debug: show all series with available counts
-    const seriesInfo = Array.from(allSeries).map(s => ({
-      series: s,
-      available: seriesStats[s].availableCount,
-      shs: seriesStats[s].shsCount,
-      listed: seriesStats[s].listedCount,
-      returned: seriesStats[s].returnedCount,
-    }));
-    console.log('[StockAlertsTape] Series with counts:', seriesInfo);
-
-    // Debug: Show which series have 1-2 available
-    const lowStockCandidates = seriesInfo.filter(s => s.available >= 1 && s.available <= 2);
-    console.log('[StockAlertsTape] Low stock candidates (should trigger alerts):', lowStockCandidates);
-
-
     // Generate alerts for each series - BULLETPROOF DETECTION
     for (const series of Array.from(allSeries).sort()) {
       if (!seriesStats[series]) continue; // Safety check
@@ -80,14 +63,11 @@ export default function StockAlertsTape({ units }: Props) {
       const stats = seriesStats[series];
       const totalUnitsInSeries = units.filter(u => u.model.split(' ').slice(0, 2).join(' ') === series).length;
 
-      console.log(`[StockAlertsTape] Series: "${series}" | total: ${totalUnitsInSeries} | available: ${stats.availableCount} | shs: ${stats.shsCount} | listed: ${stats.listedCount} | returned: ${stats.returnedCount}`);
-
       // Priority 1: OUT OF STOCK - Series exists in data but NO available units
       if (totalUnitsInSeries > 0 && stats.availableCount === 0) {
         const alertId = `outofstock-${series}`;
         if (!seen.has(alertId)) {
           seen.add(alertId);
-          console.log(`[StockAlertsTape] OUT OF STOCK: ${series} (total: ${totalUnitsInSeries}, available: ${stats.availableCount})`);
           list.push({
             id: alertId,
             type: 'outofstock',
@@ -106,7 +86,6 @@ export default function StockAlertsTape({ units }: Props) {
         const alertId = `lowstock-${series}-${stats.availableCount}`;
         if (!seen.has(alertId)) {
           seen.add(alertId);
-          console.log(`[StockAlertsTape] LOW STOCK: ${series} (available: ${stats.availableCount})`);
           list.push({
             id: alertId,
             type: 'lowstock',
@@ -174,8 +153,6 @@ export default function StockAlertsTape({ units }: Props) {
         }
       }
     }
-
-    console.log(`[StockAlertsTape] Total alerts generated: ${list.length}`, list);
 
     // Sort by priority (descending) then by model name (ascending)
     return list.sort((a, b) => {

@@ -163,7 +163,10 @@ export default function SkuListingEditor({ skuLabel, units, current, onClose, on
             </div>
 
             {error && (
-              <p className="mt-4 text-[10px] text-rose-600 font-mono">{error}</p>
+              <div className="mt-4 flex items-center gap-2 text-[10px] text-rose-600 font-mono bg-rose-50 border border-rose-100 rounded-lg px-3 py-2">
+                <span className="inline-block w-1.5 h-1.5 rounded-full bg-rose-500" />
+                {error}
+              </div>
             )}
           </div>
 

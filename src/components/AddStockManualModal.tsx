@@ -284,7 +284,12 @@ export default function AddStockManualModal({ onClose }: Props) {
             </div>
           </div>
 
-          {error && <p className="text-[10px] text-red-500 font-mono">{error}</p>}
+          {error && (
+            <div className="flex items-center gap-2 text-[10px] text-rose-600 font-mono bg-rose-50 border border-rose-100 rounded-lg px-3 py-2">
+              <AlertCircle size={11} />
+              {error}
+            </div>
+          )}
 
           <button
             onClick={handleSave}

@@ -148,7 +148,6 @@ function SellOrderModal({
       // service stores authoritative GP via calcSaleFinancials).
       const profit = calcNetProfit(spNum, unit.buyPrice, platform, postageNum);
       const notificationType = profit < 0 ? 'loss_sell' : 'sold';
-      console.log(`[Sale] Selling ${unit.model} at £${spNum} on ${platform}`, { profit, notificationType });
 
       // SHS path may carry a late-arriving IMEI from the supplier invoice
       // — write it to the unit before flipping to sold so the sale row
@@ -758,7 +757,7 @@ export default function SellPage() {
                 </div>
                 <button
                   onClick={() => { setSelected(u); setSelectedIsSHS(true); }}
-                  className="px-3 py-1.5 bg-amber-500 text-white rounded-lg text-[9px] font-bold uppercase tracking-widest hover:bg-amber-600 transition-all flex items-center gap-1 flex-shrink-0"
+                  className="px-3 py-2.5 bg-amber-500 text-white rounded-lg text-[10px] font-bold uppercase tracking-widest hover:bg-amber-600 transition-all flex items-center gap-1 flex-shrink-0 min-h-[40px]"
                 >
                   Record Sale <ChevronRight size={11} />
                 </button>
@@ -811,7 +810,7 @@ export default function SellPage() {
                 </div>
                 <button
                   onClick={() => setEnterImeiUnit(u)}
-                  className="px-3 py-1.5 bg-orange-500 text-white rounded-lg text-[9px] font-bold uppercase tracking-widest hover:bg-orange-600 transition-all flex items-center gap-1 flex-shrink-0"
+                  className="px-3 py-2.5 bg-orange-500 text-white rounded-lg text-[10px] font-bold uppercase tracking-widest hover:bg-orange-600 transition-all flex items-center gap-1 flex-shrink-0 min-h-[40px]"
                 >
                   <Pencil size={10} /> Enter IMEI
                 </button>
@@ -958,7 +957,7 @@ export default function SellPage() {
                         {isOpen ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
                       </button>
                       <button onClick={() => { setSelected(group.units[0]); setSelectedIsSHS(false); }}
-                        className="px-3 py-1.5 bg-emerald-600 text-white rounded-lg text-[9px] font-bold uppercase tracking-widest hover:bg-emerald-700 transition-all flex items-center gap-1">
+                        className="px-3 py-2.5 bg-emerald-600 text-white rounded-lg text-[10px] font-bold uppercase tracking-widest hover:bg-emerald-700 transition-all flex items-center gap-1 min-h-[40px]">
                         Sell <ChevronRight size={11} />
                       </button>
                     </div>

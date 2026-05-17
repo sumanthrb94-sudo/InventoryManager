@@ -665,8 +665,18 @@ export default function Sales() {
               {/* Excel-style grid */}
               <div className="max-h-[640px] overflow-auto custom-scrollbar">
                 {sortedSales.length === 0 ? (
-                  <div className="px-6 py-16 text-center text-gray-400 font-mono text-[11px]">
-                    No sales match the current filters.
+                  <div className="px-6 py-16 flex flex-col items-center gap-3 text-gray-300">
+                    <ShoppingBag size={36} />
+                    <p className="text-[11px] font-mono text-gray-500">
+                      {allSales.length === 0
+                        ? 'No sales recorded yet'
+                        : 'No sales match the current filters'}
+                    </p>
+                    {allSales.length === 0 && (
+                      <p className="text-[10px] font-mono text-gray-400 max-w-xs text-center">
+                        Record a sale on the Sell page, or import a sales master file from Master Data.
+                      </p>
+                    )}
                   </div>
                 ) : (
                   <table
