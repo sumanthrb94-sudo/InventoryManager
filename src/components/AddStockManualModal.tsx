@@ -227,7 +227,11 @@ export default function AddStockManualModal({ onClose, initialMode = 'office' }:
             const brand = parsed.brand !== 'Other' ? parsed.brand : 'Other';
             // Apple serials surface as IMEI too; uppercase + trim.
             const imei = r.imei.trim().toUpperCase();
-            const id = imei || `shs_manual_${Date.now()}_${i}`;
+            // id prefix is critical: isManualShsUnit() classifies anything
+            // status='incoming' whose id starts with 'shs_' as a synthesised
+            // placeholder (not a manual SHS), which would hide this row from
+            // the SHS KPI. Prefix with 'manual_shs_' so it's counted.
+            const id = imei || `manual_shs_${Date.now()}_${i}`;
             const newUnit: InventoryUnit = {
               id,
               imei,

@@ -15,8 +15,7 @@ import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react'
 import {
   Search, Plus, Truck, PackageCheck, ChevronDown, ChevronUp, ChevronsUpDown,
   Filter, X, MoreHorizontal, Download, AlertCircle, Save, Clock,
-  Eye, Trash2, AlertTriangle, MessageCircle, Sparkles, Layers,
-  Upload, Info,
+  Eye, Trash2, AlertTriangle, MessageCircle, Sparkles, Info,
 } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
 import { dbService } from '../lib/dbService';
@@ -37,7 +36,6 @@ import AddStockManualModal from './AddStockManualModal';
 import ReceiveSHSModal from './ReceiveSHSModal';
 import ReceiveShsAggregateModal from './ReceiveShsAggregateModal';
 import TodayIntakeModal from './TodayIntakeModal';
-import MasterDataLinkedImport from './MasterDataLinkedImport';
 import ResetDataModal from './ResetDataModal';
 import { auth, isAdmin } from '../lib/firebase';
 
@@ -99,7 +97,6 @@ export default function BuySheet(_props: Props) {
   const [receivingUnit, setReceivingUnit] = useState<InventoryUnit | null>(null);
   const [receivingAggregate, setReceivingAggregate] = useState<InventoryAggregate | null>(null);
   const [showTodayIntake, setShowTodayIntake] = useState(false);
-  const [showMasterImport, setShowMasterImport] = useState(false);
   const [showSchemaHelp, setShowSchemaHelp] = useState(false);
   const [showResetData, setShowResetData] = useState(false);
   // Admin-gated destructive action — non-admins never see the button.
@@ -163,32 +160,53 @@ export default function BuySheet(_props: Props) {
   }, [sortedUnits, search, statusFilter, supplierFilter, marketplaceFilter, supplierMap, mappings]);
 
   // ── KPIs ───────────────────────────────────────────────────────────────────
-  // Office Stock + Tied Capital are the INVENTORY-sheet ground truth: sum of
-  // quantityNum (and qty × BP) across master aggregates, EXCLUDING any row
-  // tagged SHS. Supplier-held stock isn't "in office" until received, so it
-  // doesn't count toward either total. Matches the user's TOTAL marker on the
-  // source spreadsheet (157 units / £14,719).
+  // Office Stock + Tied Capital combine two sources:
+  //   (a) INVENTORY-sheet master aggregates — the rollup ground truth when
+  //       an import is in play (157 / £14,719 on the user's spreadsheet).
+  //   (b) Manually-added inventoryUnits that don't (yet) map to any
+  //       aggregate — e.g. fresh-DB entries after the operator has wiped
+  //       and is keying stock in by hand.
+  // For each aggregate we count max(aggregate quantityNum, IMEIs mapped to
+  // it) so under-/over-tracking doesn't double-count. Unmapped available
+  // units are added on top. SHS rows in (a) are always excluded — supplier
+  // stock isn't "in office".
   const kpis = useMemo(() => {
+    // First pass over units: classify and bucket per-aggregate IMEI counts.
+    const imeiCountByAgg = new Map<string, number>();
+    let availableImeis = 0, sold = 0, incoming = 0, missing = 0, unmapped = 0;
+    let unmappedAvailable = 0, unmappedAvailableValue = 0;
+    for (const u of units) {
+      const m = mappings.get(u.id);
+      if (u.status === 'available') {
+        availableImeis++;
+        if (m && (m.status === 'mapped' || m.status === 'manual') && m.aggregate) {
+          imeiCountByAgg.set(m.aggregate.id, (imeiCountByAgg.get(m.aggregate.id) ?? 0) + 1);
+        } else {
+          unmappedAvailable++;
+          unmappedAvailableValue += u.buyPrice || 0;
+        }
+      } else if (u.status === 'sold') sold++;
+      else if (u.status === 'incoming') incoming++;
+      const apple = isAppleDevice(u.model);
+      if (u.status !== 'incoming' && !isValidImei(u.imei, { isAppleSerial: apple })) missing++;
+      if (m && (m.status === 'unmapped' || m.status === 'orphan')) unmapped++;
+    }
+
+    // Aggregate pass: take max(rollup, tracked) per non-SHS row.
     let officeStock = 0;
     let tiedCapital = 0;
     for (const a of aggregates) {
       if ((a.quantityText || '').toUpperCase() === 'SHS') continue;
-      const qty = a.quantityNum;
-      if (typeof qty !== 'number' || qty <= 0) continue;
-      officeStock += qty;
-      tiedCapital += qty * (a.buyPrice || 0);
+      const aggQty = (typeof a.quantityNum === 'number' && a.quantityNum > 0) ? a.quantityNum : 0;
+      const imeiQty = imeiCountByAgg.get(a.id) ?? 0;
+      const realQty = Math.max(aggQty, imeiQty);
+      officeStock += realQty;
+      tiedCapital += realQty * (a.buyPrice || 0);
     }
+    // Plus unmapped manual entries.
+    officeStock += unmappedAvailable;
+    tiedCapital += unmappedAvailableValue;
 
-    let availableImeis = 0, sold = 0, incoming = 0, missing = 0, unmapped = 0;
-    for (const u of units) {
-      if (u.status === 'available') availableImeis++;
-      else if (u.status === 'sold') sold++;
-      else if (u.status === 'incoming') incoming++;
-      const apple = isAppleDevice(u.model);
-      if (u.status !== 'incoming' && !isValidImei(u.imei, { isAppleSerial: apple })) missing++;
-      const m = mappings.get(u.id);
-      if (m && (m.status === 'unmapped' || m.status === 'orphan')) unmapped++;
-    }
     const shsTotal = totalShsRecords(units, aggregates);
     return { total: units.length, officeStock, tiedCapital, availableImeis, sold, incoming, missing, unmapped, shsTotal };
   }, [units, aggregates, mappings]);
@@ -291,26 +309,7 @@ export default function BuySheet(_props: Props) {
 
       {/* ── Header strip ─────────────────────────────────────────────────── */}
       <div className="bg-white border border-slate-200 rounded-3xl p-5 shadow-sm">
-        <div className="flex flex-col lg:flex-row lg:items-center gap-4">
-          <div className="flex-1 min-w-0">
-            <h2 className="text-xl sm:text-2xl font-bold tracking-tighter uppercase font-display flex items-center gap-2">
-              <Layers size={20} className="text-slate-700" />
-              Buy Sheet
-              <span className="text-[10px] font-mono uppercase tracking-widest text-slate-400 font-normal">
-                · IMEI-keyed
-              </span>
-            </h2>
-            <p className="text-[10px] text-slate-400 font-mono uppercase tracking-widest mt-1">
-              One row per IMEI · sortable · inline editable · master rollup + WhatsApp quotes in detail panel
-            </p>
-          </div>
-          <div className="flex items-center gap-2 flex-wrap">
-            <button
-              onClick={() => setShowMasterImport(true)}
-              className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-indigo-600 text-white text-[10px] font-bold uppercase tracking-widest hover:bg-indigo-700 transition-all shadow-sm"
-            >
-              <Upload size={12} /> Load Master Sheet
-            </button>
+        <div className="flex items-center gap-2 flex-wrap justify-end">
             <button
               onClick={() => setAddStockMode('office')}
               className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-slate-900 text-white text-[10px] font-bold uppercase tracking-widest hover:bg-slate-700 transition-all"
@@ -352,12 +351,11 @@ export default function BuySheet(_props: Props) {
                 <Trash2 size={12} /> Wipe DB
               </button>
             )}
-          </div>
         </div>
 
-        {/* KPI tiles — Office Stock + Tied Capital are the INVENTORY-sheet
-            master rollup (ex-SHS). Sold uses per-IMEI status. SHS is the
-            supplier-held queue (never counts as office stock). */}
+        {/* KPI tiles — Office Stock + Tied Capital come from the INVENTORY
+            master rollup when present, plus any manually-added IMEIs not yet
+            mapped to a master row. SHS rows never count as office stock. */}
         <div className="grid grid-cols-2 md:grid-cols-5 gap-2 mt-4">
           <KpiTile label="Total IMEIs" value={kpis.total} tone="slate" sub={`${kpis.availableImeis} tracked`} />
           <KpiTile
@@ -594,7 +592,6 @@ export default function BuySheet(_props: Props) {
       {/* ── Modals ─────────────────────────────────────────────────────── */}
       <AnimatePresence>
         {showResetData      && <ResetDataModal           onClose={() => setShowResetData(false)} />}
-        {showMasterImport   && <MasterDataLinkedImport onClose={() => setShowMasterImport(false)} />}
         {addStockMode && <AddStockManualModal initialMode={addStockMode} onClose={() => setAddStockMode(null)} />}
         {receivingUnit      && <ReceiveSHSModal unit={receivingUnit} onClose={() => setReceivingUnit(null)} />}
         {receivingAggregate && <ReceiveShsAggregateModal aggregate={receivingAggregate} onClose={() => setReceivingAggregate(null)} />}
