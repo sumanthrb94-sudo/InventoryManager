@@ -39,6 +39,8 @@ import ReceiveSHSModal from './ReceiveSHSModal';
 import ReceiveShsAggregateModal from './ReceiveShsAggregateModal';
 import TodayIntakeModal from './TodayIntakeModal';
 import MasterDataLinkedImport from './MasterDataLinkedImport';
+import ResetDataModal from './ResetDataModal';
+import { auth, isAdmin } from '../lib/firebase';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -99,6 +101,9 @@ export default function BuySheet(_props: Props) {
   const [showTodayIntake, setShowTodayIntake] = useState(false);
   const [showMasterImport, setShowMasterImport] = useState(false);
   const [showSchemaHelp, setShowSchemaHelp] = useState(false);
+  const [showResetData, setShowResetData] = useState(false);
+  // Admin-gated destructive action — non-admins never see the button.
+  const userIsAdmin = isAdmin(auth.currentUser);
 
   // Close any open row menu on outside-click.
   useEffect(() => {
@@ -335,6 +340,18 @@ export default function BuySheet(_props: Props) {
             >
               <Info size={12} /> Schema
             </button>
+            {/* Master delete — admin-gated. Two-step confirm inside the modal:
+                checkbox attestation + Delete All Data button. Wipes every
+                Firestore collection the app reads from. */}
+            {userIsAdmin && (
+              <button
+                onClick={() => setShowResetData(true)}
+                title="Wipe every collection · DANGER"
+                className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-[10px] font-bold uppercase tracking-widest transition-all border border-rose-200 bg-white text-rose-600 hover:bg-rose-50 hover:border-rose-400"
+              >
+                <Trash2 size={12} /> Wipe DB
+              </button>
+            )}
           </div>
         </div>
 
@@ -576,6 +593,7 @@ export default function BuySheet(_props: Props) {
 
       {/* ── Modals ─────────────────────────────────────────────────────── */}
       <AnimatePresence>
+        {showResetData      && <ResetDataModal           onClose={() => setShowResetData(false)} />}
         {showMasterImport   && <MasterDataLinkedImport onClose={() => setShowMasterImport(false)} />}
         {showAddStockManual && <AddStockManualModal onClose={() => setShowAddStockManual(false)} />}
         {showAddSHS         && <AddSHSModal         onClose={() => setShowAddSHS(false)} />}

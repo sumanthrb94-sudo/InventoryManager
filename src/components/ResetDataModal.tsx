@@ -9,11 +9,16 @@ interface Props { onClose: () => void; }
 
 const COLLECTIONS = [
   'inventoryUnits',
+  'inventoryAggregates',
+  'sales',
   'suppliers',
   'inventoryEvents',
   'activeListings',
   'dailyUpdates',
   'sourceDocuments',
+  'importBatches',
+  'supplierWhatsappUpdates',
+  'marketplaceFees',
 ];
 
 export default function ResetDataModal({ onClose }: Props) {
