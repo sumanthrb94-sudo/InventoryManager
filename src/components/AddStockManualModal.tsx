@@ -71,7 +71,7 @@ function emptyRow(supplierName = ''): StockRow {
   };
 }
 
-const GRADES = ['A', 'B', 'C', 'Refurbished', 'Other'];
+const GRADES = ['A', 'B', 'C', 'ONU', 'Brand new'];
 
 interface RowValidation {
   modelOk: boolean;
