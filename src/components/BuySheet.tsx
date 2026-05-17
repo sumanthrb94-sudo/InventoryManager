@@ -142,18 +142,33 @@ export default function BuySheet(_props: Props) {
     });
   }, [sortedUnits, search, statusFilter, supplierFilter, marketplaceFilter, supplierMap]);
 
-  // ── KPIs (driven by raw units so filters don't lie about totals) ──────────
+  // ── KPIs ───────────────────────────────────────────────────────────────────
+  // Office Stock + Tied Capital are the INVENTORY-sheet ground truth: sum of
+  // quantityNum (and qty × BP) across master aggregates, EXCLUDING any row
+  // tagged SHS. Supplier-held stock isn't "in office" until received, so it
+  // doesn't count toward either total. Matches the user's TOTAL marker on the
+  // source spreadsheet (157 units / £14,719).
   const kpis = useMemo(() => {
-    let inStock = 0, sold = 0, incoming = 0, missing = 0, tiedCapital = 0;
+    let officeStock = 0;
+    let tiedCapital = 0;
+    for (const a of aggregates) {
+      if ((a.quantityText || '').toUpperCase() === 'SHS') continue;
+      const qty = a.quantityNum;
+      if (typeof qty !== 'number' || qty <= 0) continue;
+      officeStock += qty;
+      tiedCapital += qty * (a.buyPrice || 0);
+    }
+
+    let availableImeis = 0, sold = 0, incoming = 0, missing = 0;
     for (const u of units) {
-      if (u.status === 'available') { inStock++; tiedCapital += (u.buyPrice || 0); }
+      if (u.status === 'available') availableImeis++;
       else if (u.status === 'sold') sold++;
       else if (u.status === 'incoming') incoming++;
       const apple = isAppleDevice(u.model);
       if (u.status !== 'incoming' && !isValidImei(u.imei, { isAppleSerial: apple })) missing++;
     }
     const shsTotal = totalShsRecords(units, aggregates);
-    return { total: units.length, inStock, sold, incoming, missing, tiedCapital, shsTotal };
+    return { total: units.length, officeStock, tiedCapital, availableImeis, sold, incoming, missing, shsTotal };
   }, [units, aggregates]);
 
   // ── Filter chip options ────────────────────────────────────────────────────
@@ -289,13 +304,16 @@ export default function BuySheet(_props: Props) {
           </div>
         </div>
 
-        {/* KPI tiles */}
+        {/* KPI tiles — Office Stock + Tied Capital are the INVENTORY-sheet
+            master rollup (ex-SHS). Sold uses per-IMEI status. SHS is the
+            supplier-held queue (never counts as office stock). */}
         <div className="grid grid-cols-2 md:grid-cols-5 gap-2 mt-4">
-          <KpiTile label="Total IMEIs" value={kpis.total} tone="slate" />
+          <KpiTile label="Total IMEIs" value={kpis.total} tone="slate" sub={`${kpis.availableImeis} tracked`} />
           <KpiTile
-            label="In Stock"
-            value={kpis.inStock}
+            label="Office Stock"
+            value={kpis.officeStock}
             tone="emerald"
+            sub="INVENTORY sheet · ex-SHS"
             onClick={() => setStatusFilter('available')}
             active={statusFilter === 'available'}
           />
@@ -307,15 +325,16 @@ export default function BuySheet(_props: Props) {
             active={statusFilter === 'sold'}
           />
           <KpiTile
-            label="SHS · Incoming"
+            label="SHS · Awaiting"
             value={kpis.shsTotal}
             tone="amber"
-            sub={kpis.incoming > 0 ? `${kpis.incoming} manual` : undefined}
+            sub={kpis.incoming > 0 ? `${kpis.incoming} manual` : 'Supplier-held'}
           />
           <KpiTile
-            label="Tied Capital"
+            label="In-Office Value"
             value={`£${kpis.tiedCapital.toLocaleString('en-GB', { maximumFractionDigits: 0 })}`}
             tone="blue"
+            sub="ex-SHS"
           />
         </div>
       </div>
@@ -366,7 +385,7 @@ export default function BuySheet(_props: Props) {
           <div className="flex items-center gap-1.5 overflow-x-auto pb-0.5">
             {([
               ['all',       'All',         kpis.total],
-              ['available', 'In Stock',    kpis.inStock],
+              ['available', 'In Stock',    kpis.availableImeis],
               ['sold',      'Sold',        kpis.sold],
               ['incoming',  'Incoming',    kpis.incoming],
               ['returned',  'Returned',    units.filter(u => u.status === 'returned').length],
