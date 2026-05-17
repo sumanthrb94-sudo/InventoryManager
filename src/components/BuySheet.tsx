@@ -24,7 +24,7 @@ import { dbService } from '../lib/dbService';
 import { InventoryUnit, InventoryAggregate } from '../types';
 import { useInventoryStore } from '../lib/inventoryStore';
 import { isValidImei, isAppleDevice } from '../lib/imeiValidation';
-import { manualShsUnitsFrom, shsAggregatesFrom } from '../lib/shsCount';
+import { shsAggregatesFrom } from '../lib/shsCount';
 import { fmtDateForUser, useUserRegion } from '../lib/userLocale';
 import { auth, isAdmin } from '../lib/firebase';
 import CopyImei from './CopyImei';
@@ -99,9 +99,12 @@ export default function BuySheet(_props: Props) {
   // (see kpiCounts below) but doesn't add visible rows.
   const officeUnits = useMemo(() => units.filter(u => u.status === 'available'), [units]);
 
-  // "SHS Stock" — manually-logged SHS units (status='incoming' not synth) +
-  // master-file SHS aggregates. Both appear as rows in the overlay.
-  const shsUnits = useMemo(() => manualShsUnitsFrom(units), [units]);
+  // "SHS Stock" — every unit with status='incoming'. This is robust to the
+  // id-prefix bug that previously caused fresh SHS adds with 'shs_manual_'
+  // ids to be misclassified as parser placeholders and hidden from the KPI.
+  // After a master-file import this still counts 1 per aggregate (each
+  // creates exactly one placeholder unit), so the math holds in both worlds.
+  const shsUnits = useMemo(() => units.filter(u => u.status === 'incoming'), [units]);
   const shsAggs = useMemo(() => shsAggregatesFrom(aggregates), [aggregates]);
 
   // "Sold Today" — status='sold' with saleDate = today (falls back to updatedAt).
@@ -124,8 +127,10 @@ export default function BuySheet(_props: Props) {
       const q = a.quantityNum;
       if (typeof q === 'number' && q > 0) aggOffice += q;
     }
-    // SHS rollup = aggregate SHS rows summed + manual SHS units.
-    const shsCount = shsAggs.length + shsUnits.length;
+    // SHS count = all incoming units (covers manual + import placeholders).
+    // Aggregates are NOT added on top — every import creates one placeholder
+    // per aggregate, so they're already represented in shsUnits.
+    const shsCount = shsUnits.length;
     // Office tile shows max(aggregate count, IMEI count) — works for both
     // master-imported and manually-entered scenarios.
     return {
@@ -147,17 +152,10 @@ export default function BuySheet(_props: Props) {
   }, [units, supplierMap]);
 
   // ── Rows passed into the overlay (depends on which KPI is active) ─────────
-  const overlayRows = useMemo<InventoryUnit[]>(() => {
-    if (!overlay) return [];
-    let base: InventoryUnit[];
-    switch (overlay) {
-      case 'today':      base = todayUnits; break;
-      case 'office':     base = officeUnits; break;
-      case 'shs':        base = shsUnits; break;
-      case 'sold_today': base = soldToday; break;
-      default:           base = units;
-    }
-    // Apply panel filters on top
+  // Shared filter — applied to both the inline table AND the overlay scope.
+  // `base` swaps depending on whether a KPI tile is opened (overlay) or we're
+  // viewing the always-on inline table (no overlay).
+  const applyPanelFilters = (base: InventoryUnit[]): InventoryUnit[] => {
     const q = search.trim().toLowerCase();
     return base.filter(u => {
       if (statusFilter !== 'all' && u.status !== statusFilter) return false;
@@ -174,7 +172,29 @@ export default function BuySheet(_props: Props) {
       }
       return true;
     });
+  };
+
+  // Rows scoped to a KPI tile when the overlay is open.
+  const overlayRows = useMemo<InventoryUnit[]>(() => {
+    if (!overlay) return [];
+    let base: InventoryUnit[];
+    switch (overlay) {
+      case 'today':      base = todayUnits; break;
+      case 'office':     base = officeUnits; break;
+      case 'shs':        base = shsUnits; break;
+      case 'sold_today': base = soldToday; break;
+      default:           base = units;
+    }
+    return applyPanelFilters(base);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [overlay, todayUnits, officeUnits, shsUnits, soldToday, units, search, statusFilter, supplierFilter, supplierMap]);
+
+  // Rows for the always-on inline table (every unit, panel-filtered).
+  const inlineRows = useMemo<InventoryUnit[]>(
+    () => sortUnits(applyPanelFilters(units), sort, supplierMap),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [units, search, statusFilter, supplierFilter, supplierMap, sort],
+  );
 
   // Sort the overlay rows.
   const sortedRows = useMemo(() => sortUnits(overlayRows, sort, supplierMap), [overlayRows, sort, supplierMap]);
@@ -403,10 +423,29 @@ export default function BuySheet(_props: Props) {
           </AnimatePresence>
         </div>
 
-        <div className="px-4 py-1.5 border-t border-slate-100 bg-slate-50/50 text-[9px] font-mono uppercase tracking-widest text-slate-500">
-          Filter applies to whichever KPI tile you open · click a tile above to view rows
+        <div className="px-4 py-1.5 border-t border-slate-100 bg-slate-50/50 text-[9px] font-mono uppercase tracking-widest text-slate-500 flex items-center justify-between">
+          <span>
+            Showing <span className="text-slate-900 font-bold">{inlineRows.length.toLocaleString()}</span> of {units.length.toLocaleString()} units
+          </span>
+          <span className="hidden sm:inline">
+            Sort: <span className="text-slate-900 font-bold">{sort.key}</span> {sort.dir === 'asc' ? '↑' : '↓'}
+          </span>
         </div>
       </div>
+
+      {/* ── Inline Excel sheet ─────────────────────────────────────────────
+          Always-on table below the filter panel. Shows every unit that
+          matches the panel state with sortable columns + inline edit. KPI
+          tiles open a full-screen overlay scoped to that subset; this is the
+          default reading view. */}
+      <InlineSheet
+        rows={inlineRows}
+        sort={sort}
+        onSort={setSort}
+        supplierMap={supplierMap}
+        region={region}
+        onSaveCell={saveCell}
+      />
 
       {/* ── Excel overlay modal — opens when a KPI tile is clicked ────────── */}
       <AnimatePresence>
@@ -494,6 +533,133 @@ function FilterChipsGroup({
             </button>
           );
         })}
+      </div>
+    </div>
+  );
+}
+
+// ── Inline Excel sheet (always-on, below the filter panel) ──────────────────
+// Renders the same 9-column buy schema as the overlay but without modal
+// chrome — this is the reading + sorting + inline-edit surface that lives on
+// the page so the operator never has to open an overlay just to view rows.
+function InlineSheet({
+  rows, sort, onSort, supplierMap, region, onSaveCell,
+}: {
+  rows: InventoryUnit[];
+  sort: { key: SortKey; dir: SortDir };
+  onSort: (s: { key: SortKey; dir: SortDir }) => void;
+  supplierMap: Record<string, string>;
+  region: 'uk' | 'india' | 'admin' | 'both';
+  onSaveCell: (u: InventoryUnit, field: string, value: any) => Promise<void>;
+}) {
+  const [editingCell, setEditingCell] = useState<{ id: string; field: string } | null>(null);
+  const toggleSort = (k: SortKey) => onSort({ key: k, dir: sort.key === k && sort.dir === 'desc' ? 'asc' : 'desc' });
+
+  if (rows.length === 0) {
+    return (
+      <div className="bg-white border border-slate-200 rounded-3xl p-12 text-center text-slate-400">
+        <Sparkles size={28} className="mx-auto" />
+        <p className="text-[11px] font-mono uppercase tracking-widest mt-2">No units match this filter</p>
+        <p className="text-[10px] font-mono mt-1 text-slate-500">Try clearing the search / status pills, or use Add Stock above</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="bg-white border border-slate-200 rounded-3xl shadow-sm overflow-hidden">
+      <div className="overflow-auto max-h-[calc(100vh-380px)] custom-scrollbar">
+        <table className="w-full text-[11px] border-separate border-spacing-0" style={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace' }}>
+          <thead>
+            <tr className="text-[9px] font-bold uppercase tracking-widest text-slate-500 bg-slate-50">
+              <Th k="dateIn"   sort={sort} onSort={toggleSort} width="110px" sticky leftPx={0}>Stock In</Th>
+              <Th k="model"    sort={sort} onSort={toggleSort} width="260px">Model</Th>
+              <Th k=""         sort={sort} onSort={undefined} width="180px">IMEI / Serial</Th>
+              <Th k="grade"    sort={sort} onSort={toggleSort} width="100px">Grade</Th>
+              <Th k="storage"  sort={sort} onSort={toggleSort} width="80px">Storage</Th>
+              <Th k="colour"   sort={sort} onSort={toggleSort} width="120px">Colour</Th>
+              <Th k="supplier" sort={sort} onSort={toggleSort} width="130px">Supplier</Th>
+              <Th k="buyPrice" sort={sort} onSort={toggleSort} width="80px" align="right">BP (£)</Th>
+              <Th k=""         sort={sort} onSort={undefined} width="220px">Notes</Th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((u, idx) => {
+              const isAlt = idx % 2 === 1;
+              const supplierName = supplierMap[u.supplierId] || u.supplierName || '—';
+              const rowBg = isAlt ? 'bg-slate-50/40 hover:bg-slate-100/60' : 'bg-white hover:bg-slate-50';
+              const apple = isAppleDevice(u.model);
+              const imeiValid = isValidImei(u.imei, { isAppleSerial: apple });
+              const tone = STATUS_TONE[u.status] || STATUS_TONE.available;
+              return (
+                <tr key={u.id} className={`${rowBg} transition-colors group`}>
+                  <Td sticky leftPx={0} className={`${rowBg} border-r border-slate-200`}>
+                    <span className="text-slate-700">{fmtDateForUser(u.dateIn || '', region) || u.dateIn || '—'}</span>
+                  </Td>
+                  <Td>
+                    <div className="flex items-center gap-2">
+                      <span className="font-bold text-slate-900 truncate max-w-[220px]" title={u.model}>{u.model || '—'}</span>
+                      <span className={`inline-flex items-center gap-1 text-[8px] font-bold uppercase tracking-widest px-1.5 py-0.5 rounded border ${tone.bg} ${tone.text} flex-shrink-0`}>
+                        <span className={`w-1.5 h-1.5 rounded-full ${tone.dot}`} />
+                        {u.status}
+                      </span>
+                    </div>
+                  </Td>
+                  <Td>
+                    {imeiValid ? (
+                      <CopyImei imei={u.imei} truncate={18} />
+                    ) : u.status === 'incoming' ? (
+                      <span className="text-[10px] font-mono text-slate-400 italic">Optional for SHS</span>
+                    ) : (
+                      <span className="inline-flex items-center gap-1 text-rose-600 text-[10px] font-mono">
+                        <AlertCircle size={10} /> {u.imei ? 'invalid' : 'missing'}
+                      </span>
+                    )}
+                  </Td>
+                  <Td>
+                    <InlineEditableSelect
+                      editing={editingCell?.id === u.id && editingCell?.field === 'grade'}
+                      onActivate={() => setEditingCell({ id: u.id, field: 'grade' })}
+                      onCommit={async v => { await onSaveCell(u, 'grade', v); setEditingCell(null); }}
+                      onCancel={() => setEditingCell(null)}
+                      value={u.grade || ''}
+                      options={['', 'A', 'B', 'C', 'ONU', 'Brand new']}
+                      formatLabel={v => v || '—'}
+                      display={<span className="text-slate-700">{u.grade || <span className="text-slate-300">—</span>}</span>}
+                    />
+                  </Td>
+                  <Td><span className="text-slate-600">{u.storage || '—'}</span></Td>
+                  <Td><span className="text-slate-600 truncate">{u.colour || '—'}</span></Td>
+                  <Td><span className="text-slate-700 truncate" title={supplierName}>{supplierName}</span></Td>
+                  <Td align="right">
+                    <InlineEditableCell
+                      editing={editingCell?.id === u.id && editingCell?.field === 'buyPrice'}
+                      onActivate={() => setEditingCell({ id: u.id, field: 'buyPrice' })}
+                      onCommit={async v => { await onSaveCell(u, 'buyPrice', Number(v) || 0); setEditingCell(null); }}
+                      onCancel={() => setEditingCell(null)}
+                      initialValue={String(u.buyPrice ?? 0)}
+                      display={<span className="font-bold text-slate-900">£{u.buyPrice ?? 0}</span>}
+                      align="right"
+                      type="number"
+                    />
+                  </Td>
+                  <Td>
+                    <InlineEditableCell
+                      editing={editingCell?.id === u.id && editingCell?.field === 'notes'}
+                      onActivate={() => setEditingCell({ id: u.id, field: 'notes' })}
+                      onCommit={async v => { await onSaveCell(u, 'notes', v); setEditingCell(null); }}
+                      onCancel={() => setEditingCell(null)}
+                      initialValue={u.notes || ''}
+                      display={<span className="text-slate-500 truncate" title={u.notes || ''}>{u.notes || ''}</span>}
+                    />
+                  </Td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+      <div className="px-5 py-2 border-t border-slate-100 bg-slate-50/60 text-[9px] font-mono uppercase tracking-widest text-slate-500">
+        Click column headers to sort · double-click any cell to edit
       </div>
     </div>
   );
