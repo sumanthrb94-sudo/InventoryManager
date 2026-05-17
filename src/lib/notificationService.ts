@@ -80,6 +80,37 @@ class NotificationService {
   private batchBuffer: { type: NotificationType; unit: InventoryUnit; profitAmount?: number }[] = [];
   private batchTimeout: any = null;
   private readonly BATCH_WINDOW_MS = 500;
+  // Panel retention window: notifications older than this drop off
+  // automatically. Loaded once on construction so the interval ticks even
+  // if no one is interacting with the bell.
+  private readonly RETENTION_HOURS = 24;
+  private cleanupInterval: any = null;
+
+  constructor() {
+    // Browser-only: every 5 minutes prune anything older than the
+    // retention window. saveToStorage + notify only run when something
+    // actually changes, so this is cheap when there's nothing to drop.
+    if (typeof window !== 'undefined') {
+      this.cleanupInterval = setInterval(() => {
+        this.pruneExpired();
+      }, 5 * 60 * 1000);
+    }
+  }
+
+  /** Drop notifications older than RETENTION_HOURS. Idempotent — only
+   *  saves + notifies when something actually got removed. */
+  private pruneExpired() {
+    const cutoff = Date.now() - this.RETENTION_HOURS * 60 * 60 * 1000;
+    const before = this.notifications.length;
+    this.notifications = this.notifications.filter(n => {
+      const t = new Date(n.timestamp).getTime();
+      return Number.isFinite(t) && t > cutoff;
+    });
+    if (this.notifications.length !== before) {
+      this.saveToStorage();
+      this.notify();
+    }
+  }
 
   // Called once login is confirmed — loads persisted notifications for this user
   setUser(uid: string) {
@@ -100,8 +131,15 @@ class NotificationService {
         return;
       }
       const loaded = JSON.parse(raw);
-      // Only load unread notifications (older read ones are discarded on reload)
-      this.notifications = loaded.filter((n: Notification) => !n.read);
+      // Keep everything from the last 24h, read or unread. The banner toast
+      // surfaces the unread ones briefly, but the panel keeps both for the
+      // full 24h retention window. Older entries are pruned here on load
+      // (and periodically by the cleanup interval below).
+      const cutoff = Date.now() - 24 * 60 * 60 * 1000;
+      this.notifications = loaded.filter((n: Notification) => {
+        const t = new Date(n.timestamp).getTime();
+        return Number.isFinite(t) && t > cutoff;
+      });
     } catch { this.notifications = []; }
   }
 
@@ -326,21 +364,48 @@ class NotificationService {
     }
   }
 
+  /** Flag a notification as 'banner seen' / 'read' without removing it from
+   *  the panel. Dismissing the toast (auto-hide or X button) calls this —
+   *  the unread badge clears, but the entry stays in the panel for the
+   *  full 24h retention window. To remove from the panel entirely, use
+   *  dismissFromPanel(id). */
   markAsRead(id: string) {
-    this.notifications = this.notifications.filter(n => n.id !== id);
-    this.saveToStorage();
-    this.notify();
+    let changed = false;
+    this.notifications = this.notifications.map(n => {
+      if (n.id === id && !n.read) { changed = true; return { ...n, read: true }; }
+      return n;
+    });
+    if (changed) {
+      this.saveToStorage();
+      this.notify();
+    }
   }
 
+  /** Mark every notification as read (kills the unread badge) but keeps
+   *  them in the panel until the 24h cleanup or an explicit dismiss. */
   markAllAsRead() {
-    this.notifications = [];
-    // Also drain any pending batch buffer so an in-flight 500ms flush
-    // can't resurrect a notification the user just cleared.
+    let changed = false;
+    this.notifications = this.notifications.map(n => {
+      if (!n.read) { changed = true; return { ...n, read: true }; }
+      return n;
+    });
+    // Drain any pending batch buffer so an in-flight 500ms flush can't
+    // resurrect a notification the user just acknowledged.
     this.batchBuffer = [];
     if (this.batchTimeout) {
       clearTimeout(this.batchTimeout);
       this.batchTimeout = null;
     }
+    if (changed) {
+      this.saveToStorage();
+      this.notify();
+    }
+  }
+
+  /** Remove a single notification from the panel entirely. Use for per-row
+   *  dismiss in the bell dropdown; banner dismissals should use markAsRead. */
+  dismissFromPanel(id: string) {
+    this.notifications = this.notifications.filter(n => n.id !== id);
     this.saveToStorage();
     this.notify();
   }
