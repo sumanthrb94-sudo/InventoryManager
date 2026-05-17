@@ -285,7 +285,16 @@ export async function addUnitManual(input: AddUnitInput): Promise<AddUnitResult>
  */
 export async function receiveShsAggregate(input: ReceiveShsInput): Promise<ReceiveShsResult> {
   const { aggregate, scanned } = input;
-  const expectedQty = aggregate.quantityNum ?? 1;
+  // Expected quantity = sum of coloursMap values when the aggregate breaks
+  // down by colour, otherwise the raw quantityNum, otherwise 1. The
+  // master sheet often carries "SHS" as the QUANTITY string (quantityNum
+  // undefined) but spells out colours like "PINK 1 BLUE 1 SILVER 1
+  // YELLOW 1" — sum to 4. Using `?? 1` here silently caps that receive
+  // at 1 unit, dropping the other 3.
+  const coloursMapSum = aggregate.coloursMap
+    ? Object.values(aggregate.coloursMap).reduce<number>((s, n) => s + (n ?? 0), 0)
+    : 0;
+  const expectedQty = coloursMapSum > 0 ? coloursMapSum : (aggregate.quantityNum ?? 1);
   const originalQty = (aggregate as any).originalQuantityNum ?? expectedQty;
   const apple = isAppleDevice(aggregate.model);
 
@@ -384,7 +393,20 @@ export async function receiveShsAggregate(input: ReceiveShsInput): Promise<Recei
   const placeholderId = `shs_${slugify(aggregate.model)}_${slugify(supplierName)}_${aggregate.sourceRow}`;
   await dbService.delete('inventoryUnits', placeholderId).catch(() => {});
 
-  // Decrement aggregate quantity — fully received vs partial.
+  // Decrement aggregate quantity — fully received vs partial. Also subtract
+  // per-colour counts from coloursMap so subsequent receives show only the
+  // remaining colours; stash a one-time snapshot in originalColoursMap so
+  // the modal can render "X/Y received" against the original breakdown.
+  const acceptedByColour: Record<string, number> = {};
+  for (const a of accepted) {
+    acceptedByColour[a.colour] = (acceptedByColour[a.colour] ?? 0) + 1;
+  }
+  const prevMap = aggregate.coloursMap ?? {};
+  const newColoursMap: Record<string, number> = { ...prevMap };
+  for (const [c, n] of Object.entries(acceptedByColour)) {
+    newColoursMap[c] = Math.max(0, (newColoursMap[c] ?? 0) - n);
+  }
+  const originalColoursMap = (aggregate as any).originalColoursMap ?? prevMap;
   const newRemaining = Math.max(0, expectedQty - accepted.length);
   if (newRemaining === 0) {
     await dbService.update('inventoryAggregates', aggregate.id, {
@@ -392,11 +414,15 @@ export async function receiveShsAggregate(input: ReceiveShsInput): Promise<Recei
       quantityText: 'RECEIVED',
       receivedAt: new Date().toISOString(),
       originalQuantityNum: originalQty,
+      coloursMap: newColoursMap,
+      originalColoursMap,
     });
   } else {
     await dbService.update('inventoryAggregates', aggregate.id, {
       quantityNum: newRemaining,
       originalQuantityNum: originalQty,
+      coloursMap: newColoursMap,
+      originalColoursMap,
     });
   }
 
