@@ -40,12 +40,24 @@ interface Props {
 }
 
 export default function SellOrderModal({ unit, onClose, onSaved, isSHS = false }: Props) {
+  // Model-aware IMEI semantics: Apple devices unlock the 10–12 char serial
+  // format alongside the 15-digit numeric IMEI.
+  const apple = isAppleDevice(unit.model);
+  const existingImei = (unit.imei || '').trim().toUpperCase();
+  // SHS units may already carry an IMEI if the operator entered it when
+  // logging the order — in that case the field is locked (read-only).
+  // Anything else requires the operator to enter + validate before save.
+  const hasValidExistingImei = !!existingImei && isValidImei(existingImei, { isAppleSerial: apple });
+  const lockedImei = isSHS && hasValidExistingImei;
+
   const [sp, setSp]                 = useState('');
   const [platform, setPlatform]     = useState<string>(PLATFORM_LIST[0]);
   const [orderId, setOrderId]       = useState('');
   const [saleDate, setSaleDate]     = useState(today());
   const [postage, setPostage]       = useState(String(DEFAULT_POSTAGE_COST));
-  const [imeiInput, setImeiInput]   = useState('');
+  // Pre-fill the IMEI input with whatever the unit already has, so a locked
+  // SHS unit can still pass through handleSave's IMEI checks cleanly.
+  const [imeiInput, setImeiInput]   = useState(existingImei);
   const [saving, setSaving]         = useState(false);
   const [error, setError]           = useState('');
 
@@ -58,27 +70,32 @@ export default function SellOrderModal({ unit, onClose, onSaved, isSHS = false }
     if (!sp || Number(sp) <= 0)     { setError('Please enter a valid selling price.'); return; }
     if (!orderId.trim())            { setError('Please enter the order number from the platform.'); return; }
 
-    // SHS sales require an IMEI before the unit can leave inventory. Per
-    // ops rule: a unit can't be 'sold' if we don't know what physical serial
-    // we sent the customer. Format check is model-aware (Apple unlocks the
-    // 10-12 char serial form).
-    const apple = isAppleDevice(unit.model);
-    if (isSHS) {
-      const imei = imeiInput.trim().toUpperCase();
-      if (!imei) {
-        setError('IMEI / serial is required before marking an SHS unit as sold.');
-        return;
-      }
-      if (!isValidImei(imei, { isAppleSerial: apple })) {
-        setError(apple ? IMEI_OR_APPLE_SERIAL_MESSAGE : IMEI_REQUIRED_MESSAGE);
-        return;
-      }
-      // Cross-collection duplicate check — the same IMEI must not already
-      // belong to another unit. The service repeats this guard, but failing
-      // early keeps the UX fast.
+    // Every sale — SHS or office — needs a valid IMEI on the unit before
+    // it can leave inventory. We can't ship a serial we don't know.
+    //   - Office sales: IMEI was required at Add Stock, so unit.imei is the
+    //     source of truth; block here only if data quality has somehow let
+    //     a unit through without one.
+    //   - SHS sales: the modal collects the IMEI inline (lockedImei when
+    //     it's already on file, otherwise editable input).
+    const imei = (isSHS ? imeiInput : unit.imei || '').trim().toUpperCase();
+    if (!imei) {
+      setError(isSHS
+        ? 'IMEI / serial is required before marking an SHS unit as sold.'
+        : 'This unit has no IMEI on file — add one before recording the sale.');
+      return;
+    }
+    if (!isValidImei(imei, { isAppleSerial: apple })) {
+      setError(apple ? IMEI_OR_APPLE_SERIAL_MESSAGE : IMEI_REQUIRED_MESSAGE);
+      return;
+    }
+    // For SHS where the operator typed a fresh IMEI, also run the
+    // cross-collection duplicate guard so they can't accidentally collide
+    // with another unit's serial. recordSale will re-check on the service
+    // side; failing early keeps the UX fast.
+    if (isSHS && !lockedImei) {
       try {
         const exists = await dbService.imeiExists(imei);
-        if (exists && imei !== (unit.imei || '').trim().toUpperCase()) {
+        if (exists && imei !== existingImei) {
           setError(`IMEI ${imei} already belongs to another unit.`);
           return;
         }
@@ -91,9 +108,11 @@ export default function SellOrderModal({ unit, onClose, onSaved, isSHS = false }
     try {
       const profit = calcNetProfit(spNum, unit.buyPrice, platform, postageNum);
       const notificationType = profit < 0 ? 'loss_sell' : 'sold';
-      if (isSHS) {
-        // We just validated imeiInput above; stamp it on the unit so the
-        // sale doc + downstream surfaces have a real serial to link to.
+      if (isSHS && !lockedImei) {
+        // Operator typed a fresh IMEI for an SHS unit that didn't have one;
+        // stamp it on the unit so the sale doc + downstream surfaces have a
+        // real serial to link to. Skipped when lockedImei (the IMEI was
+        // already on file and the input was read-only) — nothing to write.
         await dbService.update('inventoryUnits', unit.id, { imei: imeiInput.trim().toUpperCase() });
       }
       const marketplace = (marketplaceFromListingSite(platform) as Marketplace | undefined) ?? 'EBAY';
@@ -141,42 +160,70 @@ export default function SellOrderModal({ unit, onClose, onSaved, isSHS = false }
           <button onClick={onClose} className="p-2 hover:bg-gray-100 rounded-xl transition-all flex-shrink-0"><X size={16} /></button>
         </div>
 
-        {isSHS && (() => {
-          const apple    = isAppleDevice(unit.model);
+        {/* IMEI section
+            - SHS + locked: IMEI already on file from Add SHS; show read-only.
+            - SHS + empty:  collect + validate before save.
+            - Office sale:  IMEI is taken from the unit (set at Add Stock);
+              surface it inline as read-only so the operator can confirm. */}
+        {(() => {
           const imei     = imeiInput.trim().toUpperCase();
           const empty    = imei.length === 0;
           const valid    = imei && isValidImei(imei, { isAppleSerial: apple });
-          const showError = !empty && !valid;
+          const showError = isSHS && !lockedImei && !empty && !valid;
           const help =
             empty       ? (apple ? '15-digit IMEI or 10–12 char Apple serial' : '15-digit IMEI (digits only)')
             : !valid    ? (apple ? IMEI_OR_APPLE_SERIAL_MESSAGE : IMEI_REQUIRED_MESSAGE)
-            :             `Looks good — ${imei}`;
+            :             `Locked in — ${imei}`;
+          const sectionTone = isSHS
+            ? 'bg-amber-50 border-amber-200 text-amber-700'
+            : 'bg-slate-50 border-slate-200 text-slate-700';
+          const labelText = isSHS
+            ? (lockedImei ? 'IMEI / Serial · On file from Add SHS' : 'IMEI / Serial · Required for SHS sale')
+            : 'IMEI / Serial · From inventory';
           return (
             <div className="px-6 pt-4 pb-0">
-              <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 space-y-2">
-                <p className="text-[9px] font-bold uppercase tracking-widest text-amber-700 flex items-center gap-1.5">
-                  <Truck size={11} /> IMEI / Serial · Required for SHS sale
+              <div className={`border rounded-xl p-3 space-y-2 ${sectionTone}`}>
+                <p className="text-[9px] font-bold uppercase tracking-widest flex items-center gap-1.5">
+                  <Truck size={11} /> {labelText}
                 </p>
-                <input
-                  value={imeiInput}
-                  onChange={e => { setImeiInput(e.target.value); setError(''); }}
-                  placeholder={apple
-                    ? '15-digit IMEI or 10–12 char Apple serial'
-                    : '15-digit IMEI (digits only)'}
-                  inputMode={apple ? 'text' : 'numeric'}
-                  maxLength={apple ? 16 : 15}
-                  className={`w-full border rounded-lg px-3 py-2 text-sm font-mono focus:outline-none transition-all ${
-                    showError
-                      ? 'border-rose-400 bg-rose-50 focus:border-rose-500'
-                      : valid
-                        ? 'border-emerald-400 bg-emerald-50/40 focus:border-emerald-500'
-                        : 'border-amber-200 bg-white focus:border-amber-500'
-                  }`}
-                />
+                {/* Locked: render the existing IMEI as a static, un-editable
+                    value so the operator can verify but never accidentally
+                    overwrite the serial captured upstream. */}
+                {lockedImei || !isSHS ? (
+                  <div className={`w-full border bg-white rounded-lg px-3 py-2 text-sm font-mono flex items-center justify-between ${
+                    valid ? 'border-emerald-200 text-emerald-900' : 'border-rose-300 text-rose-700'
+                  }`}>
+                    <span className="truncate">{imei || '(none on file)'}</span>
+                    <span className={`text-[8px] font-bold uppercase tracking-widest px-1.5 py-0.5 rounded ${
+                      valid ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700'
+                    }`}>
+                      {valid ? 'Locked' : 'Missing'}
+                    </span>
+                  </div>
+                ) : (
+                  <input
+                    value={imeiInput}
+                    onChange={e => { setImeiInput(e.target.value); setError(''); }}
+                    placeholder={apple
+                      ? '15-digit IMEI or 10–12 char Apple serial'
+                      : '15-digit IMEI (digits only)'}
+                    inputMode={apple ? 'text' : 'numeric'}
+                    maxLength={apple ? 16 : 15}
+                    className={`w-full border rounded-lg px-3 py-2 text-sm font-mono focus:outline-none transition-all ${
+                      showError
+                        ? 'border-rose-400 bg-rose-50 focus:border-rose-500'
+                        : valid
+                          ? 'border-emerald-400 bg-emerald-50/40 focus:border-emerald-500'
+                          : 'border-amber-200 bg-white focus:border-amber-500'
+                    }`}
+                  />
+                )}
                 <p className={`text-[9px] font-mono ${
-                  showError ? 'text-rose-600' : valid ? 'text-emerald-700' : 'text-amber-600'
+                  showError ? 'text-rose-600'
+                  : valid     ? (isSHS ? 'text-emerald-700' : 'text-slate-500')
+                  :             (isSHS ? 'text-amber-600' : 'text-rose-600')
                 }`}>
-                  {help}
+                  {!isSHS && !valid ? 'No IMEI on this unit — sale will be blocked. Edit the unit on Buy first.' : help}
                 </p>
               </div>
             </div>
@@ -277,7 +324,12 @@ export default function SellOrderModal({ unit, onClose, onSaved, isSHS = false }
             className="flex-1 py-3 border border-gray-200 rounded-xl text-[10px] font-bold uppercase tracking-widest text-gray-500 hover:bg-gray-50 transition-all">
             Cancel
           </button>
-          <button onClick={handleSave} disabled={saving || (isSHS && !isValidImei(imeiInput.trim().toUpperCase(), { isAppleSerial: isAppleDevice(unit.model) }))}
+          <button
+            onClick={handleSave}
+            // Block Confirm when no valid IMEI is set, regardless of SHS vs
+            // Office. SHS reads from imeiInput (editable when not locked);
+            // Office reads from the unit itself (read-only mirror).
+            disabled={saving || !isValidImei((isSHS ? imeiInput : unit.imei || '').trim().toUpperCase(), { isAppleSerial: apple })}
             className={`flex-1 py-3 text-white rounded-xl text-[10px] font-bold uppercase tracking-widest transition-all disabled:opacity-50 flex items-center justify-center gap-2 ${
               isSHS ? 'bg-amber-500 hover:bg-amber-600' : 'bg-black hover:bg-gray-800'
             }`}>
