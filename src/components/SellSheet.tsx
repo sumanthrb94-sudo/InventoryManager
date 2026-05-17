@@ -38,6 +38,7 @@ import { fmtDateForUser, useUserRegion } from '../lib/userLocale';
 import { manualShsUnitsFrom } from '../lib/shsCount';
 import CopyImei from './CopyImei';
 import IntelligencePanel from './IntelligencePanel';
+import PeriodicInventory from './PeriodicInventory';
 import SellOrderModal from './SellOrderModal';
 import EnterImeiModal from './EnterImeiModal';
 
@@ -420,6 +421,12 @@ export default function SellSheet(_props: Props) {
 
       {/* ── Sell Intelligence panel — Hot This Week / Top Earners / etc ─── */}
       <IntelligencePanel units={units} mode="sell" />
+
+      {/* ── Periodic table — same component the dashboard uses, scoped to
+          live inventory. First word of every model is treated as the brand
+          (Apple / Samsung / Acme), middle words as the model name, the
+          trailing GB / TB token as storage. */}
+      <PeriodicInventory units={units} />
 
       {/* ── Awaiting IMEI pinned section ─────────────────────────────────── */}
       {awaitingImei.length > 0 && (

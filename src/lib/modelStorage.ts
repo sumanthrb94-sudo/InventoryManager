@@ -134,7 +134,12 @@ function looksLikeSamsung(lower: string): boolean {
 }
 
 export interface ParsedModel {
-  brand: Brand;
+  /** Brand label. One of the known {@link Brand} enum values when the first
+   *  word matches a recognised brand (Apple/Samsung/Google/Xiaomi/OnePlus),
+   *  otherwise the literal first word of the input (e.g. "Acme" from "Acme
+   *  PhoneX 64GB"). Per ops rule: the FIRST WORD of any model string is
+   *  always the brand. */
+  brand: Brand | string;
   /** Brand-prefix stripped, storage stripped, whitespace-collapsed. */
   model: string;
   /** Normalised storage capacity ("32GB" / "1TB"); `undefined` if none found. */
@@ -234,14 +239,36 @@ export function parseBrandModelStorage(raw: string | undefined | null): ParsedMo
   }
 
   const lower = trimmed.toLowerCase();
-  const brand = detectBrand(lower);
+  const detected = detectBrand(lower);
 
-  // Strip a leading brand-name word ("Apple", "Samsung", …) — but ONLY the
-  // brand label, not series words like "iPhone" or "Galaxy". Use word
-  // boundaries so we don't eat the leading letters of a real model.
+  // Per ops rule: the FIRST WORD of the input is the brand.
+  //   - For the 5 known brands (Apple/Samsung/Google/Xiaomi/OnePlus) the
+  //     first word matches LEADING_BRAND_TOKENS exactly → strip + use the
+  //     canonical Brand enum value.
+  //   - For unknown brands but with 2+ words AND the first word looking
+  //     like a brand label (alphabetic, 2+ chars, not starting with a
+  //     digit, not a known device-series prefix like "iPhone"/"Galaxy"
+  //     where the user dropped the brand prefix), strip it and use it
+  //     literally as the brand.
+  //   - Otherwise keep the detected brand (often 'Other') and don't strip.
+  const words = trimmed.split(/\s+/);
+  const firstToken = words[0] || '';
+  const firstLower = firstToken.toLowerCase();
+  const isKnownLeading = LEADING_BRAND_TOKENS.has(firstLower);
+  const looksLikeSeriesPrefix = /^(iphone|ipad|galaxy|pixel|macbook)$/i.test(firstToken);
+  const looksLikeBrandLabel =
+    words.length >= 2 &&
+    /^[A-Za-z][A-Za-z'&-]+$/.test(firstToken) &&
+    !looksLikeSeriesPrefix;
+
+  let brand: Brand | string = detected;
   let working = trimmed;
-  const firstToken = working.split(/\s+/, 1)[0];
-  if (firstToken && LEADING_BRAND_TOKENS.has(firstToken.toLowerCase())) {
+  if (isKnownLeading) {
+    // Known-brand prefix — strip + use canonical Brand enum value.
+    working = working.slice(firstToken.length).trimStart();
+  } else if (detected === 'Other' && looksLikeBrandLabel) {
+    // Unknown brand label — use the first word verbatim (capitalised).
+    brand = firstToken.charAt(0).toUpperCase() + firstToken.slice(1);
     working = working.slice(firstToken.length).trimStart();
   }
 
@@ -250,10 +277,15 @@ export function parseBrandModelStorage(raw: string | undefined | null): ParsedMo
   const model = collapseWhitespace(modelWithoutStorage);
 
   // Series uses the ORIGINAL lower-cased string (so we still see "iPhone"
-  // even if the leading brand word was stripped — both work because the
-  // brand-strip only removes the brand label, but using the original keeps
-  // the rule symmetric and obvious).
-  const series = detectSeries(brand, lower);
+  // even if the leading brand word was stripped). detectSeries takes a
+  // Brand enum value, so anything we treat as an unknown-string brand
+  // (the fallback path above) falls through to series='Other' which is
+  // the correct grouping for the periodic table.
+  const series = detectSeries(
+    typeof brand === 'string' && !(['Apple','Samsung','Google','Xiaomi','OnePlus','Other'] as const).includes(brand as any)
+      ? 'Other' : (brand as Brand),
+    lower,
+  );
 
   return { brand, model, storage, series };
 }
