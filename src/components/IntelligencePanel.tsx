@@ -126,7 +126,8 @@ function buildSignals(units: InventoryUnit[], mode: 'buy' | 'sell'): Signal[] {
       };
     });
 
-  // 2. VELOCITY: top sellers by volume
+  // 2. VELOCITY (14-day window): top sellers by volume — the long-window
+  //    'Fast Movers' card. Sell-mode reuses this as 'Hot This Week' below.
   const velRows: Row[] = Object.entries(mode === 'sell' ? vel7 : vel14)
     .sort(([, a], [, b]) => b - a)
     .slice(0, 4)
@@ -134,6 +135,18 @@ function buildSignals(units: InventoryUnit[], mode: 'buy' | 'sell'): Signal[] {
       name:    label(m),
       primary: `${v} sold`,
       sub:     mode === 'sell' ? '7 days' : `${(v / 14).toFixed(1)}/day`,
+    }));
+
+  // 2b. VELOCITY (7-day window): 'This Week Trending Sold' for the Buy tab.
+  //     Separate from velRows so the Buy dashboard can surface both the
+  //     long-view fast movers (14d) and the short-view trending (7d).
+  const trendingRows: Row[] = Object.entries(vel7)
+    .sort(([, a], [, b]) => b - a)
+    .slice(0, 4)
+    .map(([m, v]) => ({
+      name:    label(m),
+      primary: `${v} sold`,
+      sub:     '7 days',
     }));
 
   // 3. MARGIN LEADERS
@@ -184,14 +197,6 @@ function buildSignals(units: InventoryUnit[], mode: 'buy' | 'sell'): Signal[] {
   if (mode === 'buy') {
     return [
       {
-        key:   'restock',
-        label: 'Reorder Alerts',
-        hint:  'Fast sellers with low/zero stock · Action required',
-        color: '#ef4444',
-        rows:  restockRows,
-        empty: 'All models well stocked',
-      },
-      {
         key:   'velocity',
         label: 'Fast Movers',
         hint:  'Top velocity · 14 days',
@@ -209,11 +214,19 @@ function buildSignals(units: InventoryUnit[], mode: 'buy' | 'sell'): Signal[] {
       },
       {
         key:   'aging',
-        label: 'Slow Movers',
-        hint:  'Avoid over-buying',
+        label: 'Old Stock Alerts',
+        hint:  'Oldest in office · ≥14 days',
         color: '#f59e0b',
         rows:  agingRows,
         empty: 'Stock moving well',
+      },
+      {
+        key:   'trending',
+        label: 'This Week Trending Sold',
+        hint:  'Most-sold models · last 7 days',
+        color: '#ef4444',
+        rows:  trendingRows,
+        empty: 'No sales this week yet',
       },
     ];
   }

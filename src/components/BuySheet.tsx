@@ -18,6 +18,7 @@ import React, { useState, useMemo, useEffect, useRef } from 'react';
 import {
   Search, Plus, Truck, ChevronDown, ChevronUp, ChevronsUpDown,
   Filter, X, Download, AlertCircle, Trash2, Info, Sparkles, Eye,
+  PackageX, TrendingDown, AlertTriangle,
 } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
 import { dbService } from '../lib/dbService';
@@ -28,6 +29,7 @@ import { shsAggregatesFrom } from '../lib/shsCount';
 import { fmtDateForUser, useUserRegion } from '../lib/userLocale';
 import { auth, isAdmin } from '../lib/firebase';
 import CopyImei from './CopyImei';
+import IntelligencePanel from './IntelligencePanel';
 import AddStockManualModal from './AddStockManualModal';
 import ResetDataModal from './ResetDataModal';
 
@@ -332,6 +334,16 @@ export default function BuySheet(_props: Props) {
         </div>
       </div>
 
+      {/* ── Stock Alerts — main intelligence component on Buy.
+          Shows models that are sold out (had sales, now 0 available) and
+          models with low stock (1–3 available). Drives the operator's
+          reorder + clearance decisions. */}
+      <StockAlerts units={units} supplierMap={supplierMap} />
+
+      {/* ── Buy Intelligence panel — Fast Movers / Profit Drivers /
+          Old Stock Alerts / This Week Trending Sold ──────────────────────── */}
+      <IntelligencePanel units={units} mode="buy" />
+
       {/* ── Schema help card (toggled by the Schema button) ──────────────── */}
       <AnimatePresence>
         {showSchemaHelp && (
@@ -482,6 +494,190 @@ export default function BuySheet(_props: Props) {
         {showResetData && <ResetDataModal onClose={() => setShowResetData(false)} />}
         {addStockMode  && <AddStockManualModal initialMode={addStockMode} onClose={() => setAddStockMode(null)} />}
       </AnimatePresence>
+    </div>
+  );
+}
+
+// ── Stock Alerts ────────────────────────────────────────────────────────────
+// The headline operational dashboard for Buy. Groups inventoryUnits by SKU
+// (brand + model + storage) and surfaces two action queues:
+//   - SOLD OUT: SKUs that have ever sold a unit, but currently have 0
+//     available. Action: re-order from supplier.
+//   - LOW STOCK: SKUs with 1–3 available units. Action: re-order soon.
+// Both lists are model-level so the operator sees the SKU once even when
+// it spans multiple colours. Latest sale date is surfaced for context.
+function StockAlerts({
+  units, supplierMap,
+}: {
+  units: InventoryUnit[];
+  supplierMap: Record<string, string>;
+}) {
+  type Bucket = {
+    key: string;
+    label: string;
+    suppliers: Set<string>;
+    available: number;
+    sold: number;
+    lastSold: string;     // ISO date of latest sale (for context)
+    latestBp: number;     // most recent buy price seen (rough cost guide)
+  };
+
+  const buckets = useMemo(() => {
+    const map = new Map<string, Bucket>();
+    for (const u of units) {
+      const brand = (u.brand || '').trim();
+      const model = (u.model || '').trim();
+      const storage = (u.storage || '').trim();
+      const key = `${brand}|${model}|${storage}`.toLowerCase();
+      if (!key.trim()) continue;
+      let b = map.get(key);
+      if (!b) {
+        b = {
+          key,
+          label: [brand, model, storage].filter(Boolean).join(' '),
+          suppliers: new Set<string>(),
+          available: 0, sold: 0, lastSold: '',
+          latestBp: u.buyPrice || 0,
+        };
+        map.set(key, b);
+      }
+      const sname = supplierMap[u.supplierId] || u.supplierName || '';
+      if (sname) b.suppliers.add(sname);
+      if (u.status === 'available') b.available++;
+      else if (u.status === 'sold') {
+        b.sold++;
+        const d = (u.saleDate || '').split('T')[0];
+        if (d && d > b.lastSold) b.lastSold = d;
+      }
+      if (u.buyPrice && u.buyPrice > 0) b.latestBp = u.buyPrice;
+    }
+    return Array.from(map.values());
+  }, [units, supplierMap]);
+
+  const soldOut = useMemo(
+    () => buckets
+      .filter(b => b.available === 0 && b.sold > 0)
+      .sort((a, b) => (b.lastSold || '').localeCompare(a.lastSold || ''))
+      .slice(0, 12),
+    [buckets],
+  );
+  const lowStock = useMemo(
+    () => buckets
+      .filter(b => b.available > 0 && b.available <= 3)
+      .sort((a, b) => a.available - b.available)
+      .slice(0, 12),
+    [buckets],
+  );
+
+  const allClear = soldOut.length === 0 && lowStock.length === 0;
+
+  return (
+    <div className="bg-white border border-slate-200 rounded-3xl shadow-sm overflow-hidden">
+      <div className="flex items-center gap-3 px-5 py-3 border-b border-slate-100">
+        <div className="w-7 h-7 rounded-lg bg-rose-100 text-rose-700 flex items-center justify-center flex-shrink-0">
+          <AlertTriangle size={14} />
+        </div>
+        <div className="flex-1 min-w-0">
+          <p className="text-[11px] font-bold uppercase tracking-widest text-slate-900">Stock Alerts</p>
+          <p className="text-[9px] font-mono text-slate-500 mt-0.5">
+            Sold out · Low stock (≤ 3 units remaining)
+          </p>
+        </div>
+        <span className="text-[10px] font-mono bg-slate-100 text-slate-700 px-2 py-0.5 rounded-full">
+          {soldOut.length + lowStock.length}
+        </span>
+      </div>
+
+      {allClear ? (
+        <div className="py-8 flex flex-col items-center gap-2 text-emerald-600">
+          <Sparkles size={22} />
+          <p className="text-[11px] font-mono uppercase tracking-widest">All stock levels healthy</p>
+          <p className="text-[10px] font-mono text-slate-500">Nothing sold out · no SKU below 3 units</p>
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 divide-y md:divide-y-0 md:divide-x divide-slate-100">
+          {/* SOLD OUT */}
+          <AlertColumn
+            tone="rose"
+            icon={<PackageX size={12} />}
+            title="Sold Out · Reorder"
+            hint="Had sales · 0 in office now"
+            rows={soldOut.map(b => ({
+              key: b.key,
+              label: b.label,
+              meta: `${b.sold} sold${b.lastSold ? ` · last ${b.lastSold}` : ''}`,
+              tail: [...b.suppliers].slice(0, 2).join(' / ') || '—',
+              tailRight: b.latestBp ? `£${b.latestBp}` : '',
+            }))}
+            empty="Nothing fully sold out"
+          />
+          {/* LOW STOCK */}
+          <AlertColumn
+            tone="amber"
+            icon={<TrendingDown size={12} />}
+            title="Running Low · Reorder Soon"
+            hint="Available ≤ 3 units"
+            rows={lowStock.map(b => ({
+              key: b.key,
+              label: b.label,
+              meta: `${b.available} left${b.sold > 0 ? ` · ${b.sold} sold` : ''}`,
+              tail: [...b.suppliers].slice(0, 2).join(' / ') || '—',
+              tailRight: b.latestBp ? `£${b.latestBp}` : '',
+              warn: b.available === 1, // critical
+            }))}
+            empty="No SKU below 3 units"
+          />
+        </div>
+      )}
+    </div>
+  );
+}
+
+function AlertColumn({
+  tone, icon, title, hint, rows, empty,
+}: {
+  tone: 'rose' | 'amber';
+  icon: React.ReactNode;
+  title: string;
+  hint: string;
+  rows: Array<{ key: string; label: string; meta: string; tail: string; tailRight?: string; warn?: boolean }>;
+  empty: string;
+}) {
+  const headerCls = tone === 'rose'
+    ? 'bg-rose-50/60 border-b border-rose-100 text-rose-800'
+    : 'bg-amber-50/60 border-b border-amber-100 text-amber-800';
+  const rowHover = tone === 'rose' ? 'hover:bg-rose-50/40' : 'hover:bg-amber-50/40';
+  const dotTone = tone === 'rose' ? 'bg-rose-500' : 'bg-amber-500';
+  return (
+    <div className="min-w-0">
+      <div className={`px-4 py-2 flex items-center gap-2 ${headerCls}`}>
+        {icon}
+        <div className="flex-1 min-w-0">
+          <p className="text-[10px] font-bold uppercase tracking-widest">{title}</p>
+          <p className="text-[8px] font-mono opacity-70">{hint}</p>
+        </div>
+        <span className="text-[9px] font-mono bg-white/70 px-1.5 py-0.5 rounded">{rows.length}</span>
+      </div>
+      {rows.length === 0 ? (
+        <p className="px-4 py-6 text-center text-[10px] font-mono text-slate-400">{empty}</p>
+      ) : (
+        <div className="divide-y divide-slate-100">
+          {rows.map(r => (
+            <div key={r.key} className={`flex items-center gap-3 px-4 py-2 transition-colors ${rowHover}`}>
+              <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${r.warn ? 'bg-rose-500' : dotTone}`} />
+              <div className="flex-1 min-w-0">
+                <p className="text-[11px] font-bold text-slate-900 truncate" title={r.label}>{r.label}</p>
+                <p className="text-[9px] font-mono text-slate-500 mt-0.5 truncate">
+                  {r.meta} · {r.tail}
+                </p>
+              </div>
+              {r.tailRight && (
+                <span className="text-[10px] font-mono text-slate-600 flex-shrink-0 tabular-nums">{r.tailRight}</span>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

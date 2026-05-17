@@ -23,7 +23,6 @@ import Sales from './components/Sales';
 import { useRealTimeNotifications } from './hooks/useRealTimeNotifications';
 import NotificationToast from './components/NotificationToast';
 import NotificationBell from './components/NotificationBell';
-import StockTickerBoard from './components/StockTickerBoard';
 import { notificationService } from './lib/notificationService';
 import { subscribeToSyncStatus } from './lib/dbService';
 import { InventoryStoreProvider, useInventoryStore } from './lib/inventoryStore';
@@ -531,9 +530,6 @@ function AppShell({ user }: { user: User }) {
             )}
           </div>
         </header>
-
-        {/* Stock Ticker Board */}
-        <StockTickerBoard />
 
         {/* Scrollable page content */}
         <main className="flex-1 overflow-y-auto custom-scrollbar">
