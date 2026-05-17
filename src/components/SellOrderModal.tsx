@@ -17,6 +17,10 @@ import {
   platformTotalFee, calcNetProfit, platformFixedFee,
   marketplaceFromListingSite,
 } from '../lib/platforms';
+import {
+  isValidImei, isAppleDevice,
+  IMEI_REQUIRED_MESSAGE, IMEI_OR_APPLE_SERIAL_MESSAGE,
+} from '../lib/imeiValidation';
 import { recordSale } from '../services';
 
 const PLATFORM_STYLE: Record<string, string> = {
@@ -53,12 +57,44 @@ export default function SellOrderModal({ unit, onClose, onSaved, isSHS = false }
   const handleSave = async () => {
     if (!sp || Number(sp) <= 0)     { setError('Please enter a valid selling price.'); return; }
     if (!orderId.trim())            { setError('Please enter the order number from the platform.'); return; }
+
+    // SHS sales require an IMEI before the unit can leave inventory. Per
+    // ops rule: a unit can't be 'sold' if we don't know what physical serial
+    // we sent the customer. Format check is model-aware (Apple unlocks the
+    // 10-12 char serial form).
+    const apple = isAppleDevice(unit.model);
+    if (isSHS) {
+      const imei = imeiInput.trim().toUpperCase();
+      if (!imei) {
+        setError('IMEI / serial is required before marking an SHS unit as sold.');
+        return;
+      }
+      if (!isValidImei(imei, { isAppleSerial: apple })) {
+        setError(apple ? IMEI_OR_APPLE_SERIAL_MESSAGE : IMEI_REQUIRED_MESSAGE);
+        return;
+      }
+      // Cross-collection duplicate check — the same IMEI must not already
+      // belong to another unit. The service repeats this guard, but failing
+      // early keeps the UX fast.
+      try {
+        const exists = await dbService.imeiExists(imei);
+        if (exists && imei !== (unit.imei || '').trim().toUpperCase()) {
+          setError(`IMEI ${imei} already belongs to another unit.`);
+          return;
+        }
+      } catch {
+        // Network blip — let the service-side guard catch it.
+      }
+    }
+
     setSaving(true);
     try {
       const profit = calcNetProfit(spNum, unit.buyPrice, platform, postageNum);
       const notificationType = profit < 0 ? 'loss_sell' : 'sold';
-      if (isSHS && imeiInput.trim()) {
-        await dbService.update('inventoryUnits', unit.id, { imei: imeiInput.trim() });
+      if (isSHS) {
+        // We just validated imeiInput above; stamp it on the unit so the
+        // sale doc + downstream surfaces have a real serial to link to.
+        await dbService.update('inventoryUnits', unit.id, { imei: imeiInput.trim().toUpperCase() });
       }
       const marketplace = (marketplaceFromListingSite(platform) as Marketplace | undefined) ?? 'EBAY';
       const res = await recordSale({
@@ -105,21 +141,47 @@ export default function SellOrderModal({ unit, onClose, onSaved, isSHS = false }
           <button onClick={onClose} className="p-2 hover:bg-gray-100 rounded-xl transition-all flex-shrink-0"><X size={16} /></button>
         </div>
 
-        {isSHS && (
-          <div className="px-6 pt-4 pb-0">
-            <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 space-y-2">
-              <p className="text-[9px] font-bold uppercase tracking-widest text-amber-700 flex items-center gap-1.5">
-                <Truck size={11} /> IMEI — Optional now, enter after supplier dispatches
-              </p>
-              <input
-                value={imeiInput}
-                onChange={e => setImeiInput(e.target.value)}
-                placeholder="Enter IMEI if known, or leave blank"
-                className="w-full border border-amber-200 bg-white rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:border-amber-500 transition-all"
-              />
+        {isSHS && (() => {
+          const apple    = isAppleDevice(unit.model);
+          const imei     = imeiInput.trim().toUpperCase();
+          const empty    = imei.length === 0;
+          const valid    = imei && isValidImei(imei, { isAppleSerial: apple });
+          const showError = !empty && !valid;
+          const help =
+            empty       ? (apple ? '15-digit IMEI or 10–12 char Apple serial' : '15-digit IMEI (digits only)')
+            : !valid    ? (apple ? IMEI_OR_APPLE_SERIAL_MESSAGE : IMEI_REQUIRED_MESSAGE)
+            :             `Looks good — ${imei}`;
+          return (
+            <div className="px-6 pt-4 pb-0">
+              <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 space-y-2">
+                <p className="text-[9px] font-bold uppercase tracking-widest text-amber-700 flex items-center gap-1.5">
+                  <Truck size={11} /> IMEI / Serial · Required for SHS sale
+                </p>
+                <input
+                  value={imeiInput}
+                  onChange={e => { setImeiInput(e.target.value); setError(''); }}
+                  placeholder={apple
+                    ? '15-digit IMEI or 10–12 char Apple serial'
+                    : '15-digit IMEI (digits only)'}
+                  inputMode={apple ? 'text' : 'numeric'}
+                  maxLength={apple ? 16 : 15}
+                  className={`w-full border rounded-lg px-3 py-2 text-sm font-mono focus:outline-none transition-all ${
+                    showError
+                      ? 'border-rose-400 bg-rose-50 focus:border-rose-500'
+                      : valid
+                        ? 'border-emerald-400 bg-emerald-50/40 focus:border-emerald-500'
+                        : 'border-amber-200 bg-white focus:border-amber-500'
+                  }`}
+                />
+                <p className={`text-[9px] font-mono ${
+                  showError ? 'text-rose-600' : valid ? 'text-emerald-700' : 'text-amber-600'
+                }`}>
+                  {help}
+                </p>
+              </div>
             </div>
-          </div>
-        )}
+          );
+        })()}
 
         <div className="flex-1 overflow-y-auto px-6 py-4 space-y-4">
           <div>
@@ -215,7 +277,7 @@ export default function SellOrderModal({ unit, onClose, onSaved, isSHS = false }
             className="flex-1 py-3 border border-gray-200 rounded-xl text-[10px] font-bold uppercase tracking-widest text-gray-500 hover:bg-gray-50 transition-all">
             Cancel
           </button>
-          <button onClick={handleSave} disabled={saving}
+          <button onClick={handleSave} disabled={saving || (isSHS && !isValidImei(imeiInput.trim().toUpperCase(), { isAppleSerial: isAppleDevice(unit.model) }))}
             className={`flex-1 py-3 text-white rounded-xl text-[10px] font-bold uppercase tracking-widest transition-all disabled:opacity-50 flex items-center justify-center gap-2 ${
               isSHS ? 'bg-amber-500 hover:bg-amber-600' : 'bg-black hover:bg-gray-800'
             }`}>

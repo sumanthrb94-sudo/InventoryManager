@@ -130,19 +130,33 @@ export default function SellSheet(_props: Props) {
   );
 
   // Merge sales collection + legacy in-app sold units, recompute live.
+  // Dedupe in three layers so the same physical sale can't appear twice:
+  //   1. doc id  — sales doc and a legacy unit-derived doc share an id
+  //   2. unitId  — recordSale stamps sale.unitId; if any sale already links
+  //                to this unit, the unit-derived candidate is redundant
+  //   3. composite (marketplace, orderNumber) — natural dedupe key
+  // Layer 2 was missing and caused a real bug: when salePlatform on a unit
+  // was the canonical Marketplace enum ('AMAZON') but the listing-site
+  // mapper only knew pretty names ('Amazon'), the unit-derived candidate
+  // silently resolved to the 'EBAY' fallback. The composite key then
+  // mismatched the sale doc (AMAZON__order vs EBAY__order) so dedupe missed
+  // and Amazon sales appeared twice.
   const allSold = useMemo<Sale[]>(() => {
     const merged: Sale[] = [];
     const seenIds = new Set<string>();
+    const seenUnitIds = new Set<string>();
     const seenKeys = new Set<string>();
     for (const s of sales) {
       const fresh = recomputeSale(s);
       merged.push(fresh);
       seenIds.add(s.id);
+      if (fresh.unitId) seenUnitIds.add(fresh.unitId);
       if (fresh.orderNumber) seenKeys.add(`${fresh.marketplace}__${fresh.orderNumber}`);
     }
     for (const u of units) {
       if (u.status !== 'sold' || u.salePrice == null) continue;
       if (seenIds.has(u.id)) continue;
+      if (seenUnitIds.has(u.id)) continue; // recordSale already wrote this one
       const candidate = inventoryUnitToSale(u);
       const dedupeKey = candidate.orderNumber ? `${candidate.marketplace}__${candidate.orderNumber}` : '';
       if (dedupeKey && seenKeys.has(dedupeKey)) continue;
