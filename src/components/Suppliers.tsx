@@ -7,6 +7,7 @@ import { useInventoryStore } from '../lib/inventoryStore';
 import { recomputeSale } from '../lib/recomputeSale';
 import { formatIMEI } from '../lib/imeiUtils';
 import { parseBrandModelStorage } from '../lib/modelStorage';
+import CopyImei from './CopyImei';
 
 /** Mirror of the deriveSku helper in StockInPage — prefer pre-split fields,
  *  fall back to parsing legacy single-string `model` at runtime. */
@@ -373,7 +374,9 @@ export default function Suppliers() {
 
                     {/* Order history — SKU-grouped to avoid line-by-line repetition
                         of identical (brand · model · storage · colour · status)
-                        rows. Expand a group to see per-IMEI children. */}
+                        rows. Expand a group to see per-IMEI children.
+                        Desktop (md+): Excel-style 9-column sticky-header grid (per-IMEI).
+                        Mobile: existing card layout (touch-friendly). */}
                     <div className="border-t border-gray-100">
                       <div className="px-4 py-3 flex items-center justify-between">
                         <p className="text-[10px] font-bold uppercase tracking-widest text-gray-500">Order History</p>
@@ -382,7 +385,74 @@ export default function Suppliers() {
                         </p>
                       </div>
 
-                      <div className="divide-y divide-gray-50 max-h-96 overflow-y-auto custom-scrollbar">
+                      {/* ───────── Desktop: Excel-style grid (md+) — per-IMEI ───────── */}
+                      <div className="hidden md:block overflow-x-auto border border-gray-200 rounded-2xl bg-white mx-4 mb-3 max-h-96 overflow-y-auto">
+                        <div
+                          className="grid items-center gap-2 px-4 py-2 bg-gray-100 border-b border-gray-200 text-[9px] font-bold uppercase tracking-widest text-gray-500 sticky top-0 z-10"
+                          style={{
+                            gridTemplateColumns: 'minmax(200px, 1.4fr) 90px 130px 160px 100px 80px 90px 80px 100px',
+                            minWidth: 'max-content',
+                          }}
+                        >
+                          <span>Model</span>
+                          <span>Storage</span>
+                          <span>Colour</span>
+                          <span>IMEI</span>
+                          <span>Status</span>
+                          <span className="text-right">BP</span>
+                          <span className="text-right">Sale Price</span>
+                          <span className="text-right">GP</span>
+                          <span>Date</span>
+                        </div>
+                        <div className="divide-y divide-gray-100">
+                          {historyItems.map(({ unit: u, date }) => {
+                            const sku = deriveSku(u);
+                            const statusTone =
+                              u.status === 'sold'      ? 'bg-gray-100 text-gray-700' :
+                              u.status === 'available' ? 'bg-emerald-50 text-emerald-700' :
+                              u.status === 'returned'  ? 'bg-orange-50 text-orange-700' :
+                              'bg-amber-50 text-amber-700';
+                            const gp =
+                              u.status === 'sold' && u.salePrice != null
+                                ? (u.salePrice - (u.buyPrice || 0))
+                                : null;
+                            return (
+                              <div
+                                key={`sup-grid-${u.id}`}
+                                className="grid items-center gap-2 px-4 py-1.5 text-[11px] hover:bg-emerald-50/60 transition-colors"
+                                style={{
+                                  gridTemplateColumns: 'minmax(200px, 1.4fr) 90px 130px 160px 100px 80px 90px 80px 100px',
+                                  minWidth: 'max-content',
+                                  fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
+                                }}
+                              >
+                                <span className="truncate font-bold text-gray-900" title={`${sku.brand} ${sku.model}`}>
+                                  {[sku.brand, sku.model].filter(Boolean).join(' ')}
+                                </span>
+                                <span className="text-gray-700">{sku.storage || '—'}</span>
+                                <span className="truncate text-gray-700" title={u.colour || '—'}>{u.colour || '—'}</span>
+                                <span>{u.imei ? <CopyImei imei={u.imei} truncate={14} /> : <span className="text-gray-300">—</span>}</span>
+                                <span>
+                                  <span className={`text-[9px] font-bold uppercase px-1.5 py-0.5 rounded font-mono ${statusTone}`}>
+                                    {u.status}
+                                  </span>
+                                </span>
+                                <span className="text-right text-gray-900 font-bold">£{u.buyPrice}</span>
+                                <span className="text-right text-gray-900 font-bold">
+                                  {u.salePrice != null ? `£${u.salePrice}` : '—'}
+                                </span>
+                                <span className={`text-right font-bold ${gp == null ? 'text-gray-300' : gp < 0 ? 'text-red-600' : 'text-emerald-700'}`}>
+                                  {gp == null ? '—' : `£${gp.toFixed(0)}`}
+                                </span>
+                                <span className="text-gray-500">{date || u.dateIn || '—'}</span>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+
+                      {/* ───────── Mobile: existing card layout (touch-friendly) ───────── */}
+                      <div className="md:hidden divide-y divide-gray-50 max-h-96 overflow-y-auto custom-scrollbar">
                         {histGroupSlice.map(group => {
                           const isOpen = expandedGroup === group.key;
                           const qty = group.units.length;

@@ -874,7 +874,100 @@ export default function SellPage() {
             <p className="text-xs font-mono">No units match "{search}"</p>
           </div>
         ) : (
-          <div className="divide-y divide-gray-50">
+          <>
+          {/* ───────── Desktop: Excel-style grid (md+) ───────── */}
+          <div className="hidden md:block overflow-x-auto border border-gray-200 rounded-2xl bg-white">
+            <div
+              className="grid items-center gap-2 px-4 py-2 bg-gray-100 border-b border-gray-200 text-[9px] font-bold uppercase tracking-widest text-gray-500 sticky top-0 z-10"
+              style={{
+                gridTemplateColumns: 'minmax(220px, 1.6fr) 90px 130px 70px 100px minmax(180px, 1fr) 110px',
+                minWidth: 'max-content',
+              }}
+            >
+              <span>Model</span>
+              <span>Storage</span>
+              <span>Colour</span>
+              <span className="text-right">×Count</span>
+              <span className="text-right">Lowest BP</span>
+              <span>Listed On</span>
+              <span className="text-right">Action</span>
+            </div>
+            <div className="divide-y divide-gray-100">
+              {availableGroups.map(group => {
+                const head = group.units[0];
+                const qty = group.units.length;
+                const bps = group.units.map(u => u.buyPrice || 0);
+                const minBp = bps.reduce((m, v) => (v < m ? v : m), bps[0] ?? 0);
+                const colour = group.colour || '—';
+                const skuLabel = [group.sku.brand, group.sku.model, group.sku.storage, group.colour || null].filter(Boolean).join(' ');
+                const listing = deriveSkuListing(group.units);
+                return (
+                  <div
+                    key={`grid-${group.key}`}
+                    className="grid items-center gap-2 px-4 py-2 text-[11px] hover:bg-emerald-50/60 transition-colors"
+                    style={{
+                      gridTemplateColumns: 'minmax(220px, 1.6fr) 90px 130px 70px 100px minmax(180px, 1fr) 110px',
+                      minWidth: 'max-content',
+                      fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
+                    }}
+                  >
+                    <span className="truncate font-bold text-gray-900" title={`${group.sku.brand} ${group.sku.model}`}>
+                      {[group.sku.brand, group.sku.model].filter(Boolean).join(' ')}
+                    </span>
+                    <span className="text-gray-700">{group.sku.storage || '—'}</span>
+                    <span className="truncate text-gray-700" title={colour}>{colour}</span>
+                    <span className="text-right">
+                      <span className="text-[9px] font-bold text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded font-mono">
+                        ×{qty}
+                      </span>
+                    </span>
+                    <span className="text-right font-bold text-gray-900">£{minBp}</span>
+                    <span className="flex items-center gap-1 flex-wrap min-w-0">
+                      {listing.listedOn.length === 0 ? (
+                        <span className="text-[9px] font-mono text-gray-400 italic">Not listed</span>
+                      ) : (
+                        listing.listedOn.map(site => {
+                          const mk = (marketplaceFromListingSite(site) as Marketplace | undefined);
+                          const tone = mk ? MARKETPLACE_BADGE[mk] : 'bg-gray-100 text-gray-700 border-gray-200';
+                          return (
+                            <span
+                              key={site}
+                              className={`text-[8px] font-bold px-1.5 py-0.5 rounded border font-mono uppercase tracking-tighter ${tone}`}
+                            >
+                              {listingSiteLabel(site)}
+                            </span>
+                          );
+                        })
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => setListingEditor({
+                          label: skuLabel,
+                          units: group.units,
+                          current: listing.listedOn,
+                        })}
+                        title="Edit SKU marketplace listings"
+                        className="inline-flex items-center gap-0.5 text-[8px] font-bold uppercase tracking-widest text-emerald-700 hover:text-white hover:bg-emerald-600 border border-emerald-200 hover:border-emerald-600 px-1 py-0.5 rounded font-mono transition-all"
+                      >
+                        <Pencil size={8} /> Edit
+                      </button>
+                    </span>
+                    <span className="text-right">
+                      <button
+                        onClick={() => { setSelected(head); setSelectedIsSHS(false); }}
+                        className="px-2.5 py-1.5 bg-emerald-600 text-white rounded-lg text-[9px] font-bold uppercase tracking-widest hover:bg-emerald-700 transition-all inline-flex items-center gap-1"
+                      >
+                        Sell <ChevronRight size={10} />
+                      </button>
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* ───────── Mobile: existing card layout (touch-friendly) ───────── */}
+          <div className="md:hidden divide-y divide-gray-50">
             {availableGroups.map(group => {
               const isOpen = expandedId === group.key;
               const head = group.units[0];
@@ -999,6 +1092,7 @@ export default function SellPage() {
               );
             })}
           </div>
+          </>
         )}
       </CollapsibleSection>
 

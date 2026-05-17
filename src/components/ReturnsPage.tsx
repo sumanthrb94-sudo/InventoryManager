@@ -615,12 +615,99 @@ export default function ReturnsPage() {
           <span className="text-[9px] font-mono text-gray-400">{filtered.length} records</span>
         </div>
         {filtered.length === 0 ? (
-          <div className="py-12 flex flex-col items-center gap-2 text-gray-300">
-            <RefreshCw size={32} />
-            <p className="text-xs font-mono">No returns in this category</p>
-          </div>
+          <>
+            <div className="hidden md:block py-12 flex flex-col items-center gap-2 text-gray-300">
+              <RefreshCw size={32} />
+              <p className="text-xs font-mono">No returns in this category</p>
+            </div>
+            <div className="md:hidden py-12 flex flex-col items-center gap-2 text-gray-300">
+              <RefreshCw size={32} />
+              <p className="text-xs font-mono">No returns in this category</p>
+            </div>
+          </>
         ) : (
-          <div className="divide-y divide-gray-50">
+          <>
+          {/* ───────── Desktop: Excel-style grid (md+) — per-IMEI rows ───────── */}
+          <div className="hidden md:block overflow-x-auto border border-gray-200 rounded-2xl bg-white">
+            <div
+              className="grid items-center gap-2 px-4 py-2 bg-gray-100 border-b border-gray-200 text-[9px] font-bold uppercase tracking-widest text-gray-500 sticky top-0 z-10"
+              style={{
+                gridTemplateColumns: '100px 100px 160px minmax(200px, 1.4fr) 90px 100px 90px 130px minmax(180px, 1fr)',
+                minWidth: 'max-content',
+              }}
+            >
+              <span>Return Date</span>
+              <span>Stock In Date</span>
+              <span>IMEI</span>
+              <span>Model</span>
+              <span>Storage</span>
+              <span>Marketplace</span>
+              <span className="text-right">Sale Price</span>
+              <span>Return Type</span>
+              <span>Reason</span>
+            </div>
+            <div className="divide-y divide-gray-100">
+              {filtered.map(u => {
+                const sku = deriveSku(u);
+                const mkRaw = (u.salePlatform || '').toUpperCase().trim();
+                const mkKey =
+                  mkRaw.includes('AMAZON')   ? 'AMAZON'  :
+                  mkRaw.includes('BACK')     ? 'BM'      :
+                  mkRaw === 'BM'             ? 'BM'      :
+                  mkRaw.includes('EBAY')     ? 'EBAY'    :
+                  mkRaw.includes('ONBUY')    ? 'ONBUY'   :
+                  mkRaw.includes('PROJECT')  ? 'PROJECT' :
+                  '';
+                const MARKETPLACE_BADGE: Record<string, string> = {
+                  AMAZON:  'bg-amber-100 text-amber-800 border-amber-200',
+                  BM:      'bg-emerald-100 text-emerald-800 border-emerald-200',
+                  EBAY:    'bg-blue-100 text-blue-800 border-blue-200',
+                  ONBUY:   'bg-purple-100 text-purple-800 border-purple-200',
+                  PROJECT: 'bg-pink-100 text-pink-800 border-pink-200',
+                };
+                const mkTone = mkKey ? MARKETPLACE_BADGE[mkKey] : 'bg-gray-100 text-gray-500 border-gray-200';
+                const returnTypeLabel = (u.returnCategory || '').replace(/_/g, ' ');
+                return (
+                  <div
+                    key={`grid-${u.id}`}
+                    className="grid items-center gap-2 px-4 py-1.5 text-[11px] hover:bg-emerald-50/60 transition-colors"
+                    style={{
+                      gridTemplateColumns: '100px 100px 160px minmax(200px, 1.4fr) 90px 100px 90px 130px minmax(180px, 1fr)',
+                      minWidth: 'max-content',
+                      fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
+                    }}
+                  >
+                    <span className="text-gray-800">{u.returnDate || '—'}</span>
+                    <span className="text-gray-500">{u.dateIn || '—'}</span>
+                    <span>{u.imei ? <CopyImei imei={u.imei} truncate={14} /> : <span className="text-gray-300">—</span>}</span>
+                    <span className="truncate text-gray-900 font-bold" title={`${sku.brand} ${sku.model}`}>
+                      {[sku.brand, sku.model].filter(Boolean).join(' ')}
+                    </span>
+                    <span className="text-gray-700">{sku.storage || '—'}</span>
+                    <span>
+                      {u.salePlatform ? (
+                        <span className={`text-[9px] font-bold uppercase px-1.5 py-0.5 rounded border font-mono ${mkTone}`}>
+                          {u.salePlatform}
+                        </span>
+                      ) : <span className="text-gray-300">—</span>}
+                    </span>
+                    <span className="text-right text-gray-900 font-bold">
+                      {u.salePrice != null ? `£${u.salePrice}` : '—'}
+                    </span>
+                    <span className="text-[9px] text-gray-700 uppercase font-mono truncate" title={returnTypeLabel}>
+                      {returnTypeLabel}
+                    </span>
+                    <span className="text-gray-600 truncate" title={u.returnReason || u.notes || ''}>
+                      {u.returnReason || u.notes || '—'}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* ───────── Mobile: existing card layout (touch-friendly) ───────── */}
+          <div className="md:hidden divide-y divide-gray-50">
             {/* SKU-grouped rows — one row per (brand, model, storage, colour,
                 returnType) bucket. returnType is part of the key so
                 returned_to_inventory and returned_to_supplier for the same
@@ -715,6 +802,7 @@ export default function ReturnsPage() {
               );
             })}
           </div>
+          </>
         )}
       </div>
 

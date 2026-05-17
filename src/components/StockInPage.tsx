@@ -806,7 +806,9 @@ export default function StockInPage({ onOpenBatch, onOpenImport: _onOpenImport }
       {/* Recent stock (non-SHS) — grouped by SKU (brand+model+storage+colour+status)
           so importing 6 identical Samsung S21 128GBs collapses to a single
           expandable row instead of stacking 6 duplicates. Search runs BEFORE
-          grouping so IMEI substrings still match groups that contain them. */}
+          grouping so IMEI substrings still match groups that contain them.
+          Desktop (md+): Excel-style 9-column sticky-header grid.
+          Mobile: existing card layout (touch-friendly). */}
       <CollapsibleSection
         title="Recent Stock In"
         count={filtered.length}
@@ -823,7 +825,124 @@ export default function StockInPage({ onOpenBatch, onOpenImport: _onOpenImport }
             <div className="px-4 py-2 text-[9px] text-gray-400 font-mono uppercase tracking-widest border-b border-gray-50">
               {filtered.length} units across {recentStockGroups.length} SKUs
             </div>
-            <div className="divide-y divide-gray-50">
+
+            {/* ───────── Desktop: Excel-style grid (md+) ───────── */}
+            <div className="hidden md:block overflow-x-auto border border-gray-200 rounded-2xl bg-white">
+              <div
+                className="grid items-center gap-2 px-4 py-2 bg-gray-100 border-b border-gray-200 text-[9px] font-bold uppercase tracking-widest text-gray-500 sticky top-0 z-10"
+                style={{
+                  gridTemplateColumns: '100px minmax(220px, 1.6fr) 90px 130px 160px minmax(140px, 1fr) 80px 110px 60px',
+                  minWidth: 'max-content',
+                }}
+              >
+                <span>Stock In</span>
+                <span>Model</span>
+                <span>Storage</span>
+                <span>Colour</span>
+                <span>IMEI</span>
+                <span>Supplier</span>
+                <span className="text-right">BP</span>
+                <span>Status</span>
+                <span className="text-right">×N</span>
+              </div>
+              <div className="divide-y divide-gray-100">
+                {recentStockGroups.map(group => {
+                  const isOpen = expandedId === group.key;
+                  const head = group.units[0];
+                  const qty = group.units.length;
+                  const latestDateIn = group.units.reduce(
+                    (acc, u) => (u.dateIn > acc ? u.dateIn : acc),
+                    group.units[0].dateIn,
+                  );
+                  const colour = head.colour && head.colour !== 'Unknown' ? head.colour : '—';
+                  const statusTone =
+                    head.status === 'sold'      ? 'bg-gray-100 text-gray-700' :
+                    head.status === 'available' ? 'bg-emerald-50 text-emerald-700' :
+                    'bg-amber-50 text-amber-700';
+                  return (
+                    <div key={`grid-${group.key}`}>
+                      <div
+                        role="button"
+                        tabIndex={0}
+                        onClick={() => setExpandedId(isOpen ? null : group.key)}
+                        onKeyDown={e => {
+                          if (e.key === 'Enter' || e.key === ' ') {
+                            e.preventDefault();
+                            setExpandedId(isOpen ? null : group.key);
+                          }
+                        }}
+                        className="grid items-center gap-2 px-4 py-2 text-[11px] hover:bg-emerald-50/60 transition-colors cursor-pointer"
+                        style={{
+                          gridTemplateColumns: '100px minmax(220px, 1.6fr) 90px 130px 160px minmax(140px, 1fr) 80px 110px 60px',
+                          minWidth: 'max-content',
+                          fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
+                        }}
+                      >
+                        <span className="text-gray-700">{fmtDateForUser(latestDateIn, region) || latestDateIn || '—'}</span>
+                        <span className="truncate font-bold text-gray-900" title={`${group.sku.brand} ${group.sku.model}`}>
+                          {[group.sku.brand, group.sku.model].filter(Boolean).join(' ')}
+                        </span>
+                        <span className="text-gray-700">{group.sku.storage || '—'}</span>
+                        <span className="truncate text-gray-700" title={colour}>{colour}</span>
+                        <span><CopyImei imei={head.imei || ''} truncate={14} /></span>
+                        <span className="truncate text-gray-700" title={supplierMap[head.supplierId] || head.supplierName || '—'}>
+                          {supplierMap[head.supplierId] || head.supplierName || '—'}
+                        </span>
+                        <span className="text-right font-bold text-gray-900">£{head.buyPrice}</span>
+                        <span>
+                          <span className={`text-[9px] font-bold uppercase px-1.5 py-0.5 rounded font-mono ${statusTone}`}>
+                            {head.status}
+                          </span>
+                        </span>
+                        <span className="text-right">
+                          <span className="text-[9px] font-bold text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded font-mono">
+                            ×{qty}
+                          </span>
+                        </span>
+                      </div>
+                      <AnimatePresence>
+                        {isOpen && (
+                          <motion.div
+                            initial={{ height: 0, opacity: 0 }}
+                            animate={{ height: 'auto', opacity: 1 }}
+                            exit={{ height: 0, opacity: 0 }}
+                            className="overflow-hidden bg-gray-50/70 border-t border-gray-100"
+                          >
+                            <div
+                              className="divide-y divide-gray-100"
+                              style={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace', minWidth: 'max-content' }}
+                            >
+                              {group.units.map(u => (
+                                <div
+                                  key={u.id}
+                                  className="grid items-center gap-2 px-4 py-1.5 text-[10px] text-gray-700"
+                                  style={{ gridTemplateColumns: '100px minmax(220px, 1.6fr) 90px 130px 160px minmax(140px, 1fr) 80px 110px 60px' }}
+                                >
+                                  <span className="text-gray-500">{u.dateIn || '—'}</span>
+                                  <span className="truncate text-gray-700">{[group.sku.brand, group.sku.model].filter(Boolean).join(' ')}</span>
+                                  <span className="text-gray-500">{u.storage || group.sku.storage || '—'}</span>
+                                  <span className="truncate text-gray-500">{u.colour || '—'}</span>
+                                  <span><CopyImei imei={u.imei} truncate={14} /></span>
+                                  <span className="truncate text-gray-500">{supplierMap[u.supplierId] || '—'}</span>
+                                  <span className="text-right text-gray-700 font-bold">£{u.buyPrice}</span>
+                                  <span className="text-gray-500 capitalize">{u.status}</span>
+                                  <span className="text-right text-gray-400">
+                                    {u.batchId === 'master_batch' ? 'M' : ''}
+                                  </span>
+                                </div>
+                              ))}
+                            </div>
+                          </motion.div>
+                        )}
+                      </AnimatePresence>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* ───────── Mobile: existing card layout (touch-friendly) ───────── */}
+            <div className="md:hidden divide-y divide-gray-50">
               {recentStockGroups.map(group => {
                 const isOpen = expandedId === group.key;
                 const head = group.units[0];

@@ -268,8 +268,103 @@ export default function Inventory({ initialFilters = {} }: { initialFilters?: In
         </div>
       )}
 
-      {/* Model cards */}
-      <div className="space-y-2">
+      {/* ───────── Desktop: Excel-style ModelSummary grid (md+) ─────────
+          Same `paginated` data source as the mobile cards — when one
+          updates, both update. Row click expands the summary inline
+          (no per-summary modal exists; UnitDetailDrawer is per-IMEI). */}
+      <div className="hidden md:block overflow-x-auto border border-gray-200 rounded-2xl bg-white">
+        <div
+          className="grid items-center gap-2 px-4 py-2 bg-gray-100 border-b border-gray-200 text-[9px] font-bold uppercase tracking-widest text-gray-500 sticky top-0 z-10"
+          style={{
+            gridTemplateColumns: '90px minmax(220px, 1.6fr) 90px 80px 90px 110px minmax(160px, 1fr) 80px 80px',
+            minWidth: 'max-content',
+          }}
+        >
+          <span>Brand</span>
+          <span>Model</span>
+          <span>Storage</span>
+          <span className="text-right">In Stock</span>
+          <span className="text-right">Avg BP</span>
+          <span className="text-right">Stock Value</span>
+          <span>Listed Sites</span>
+          <span className="text-right">30d Sold</span>
+          <span className="text-right">GP%</span>
+        </div>
+        {paginated.length === 0 ? (
+          <div className="px-6 py-12 text-center text-gray-400 font-mono text-[11px]">
+            No inventory found.
+          </div>
+        ) : (
+          <div className="divide-y divide-gray-100">
+            {paginated.map(summary => {
+              const key = `${summary.brand}||${summary.model}||${summary.storage || ''}`;
+              const allUnits = summary.variants.flatMap(v => v.units);
+              const availUnits = allUnits.filter(u => u.status === 'available');
+              const totalBP = availUnits.reduce((s, u) => s + (u.buyPrice || 0), 0);
+              const avgBp = availUnits.length ? totalBP / availUnits.length : 0;
+              const skuListing = deriveSkuListing(allUnits);
+              const now = Date.now();
+              const cutoff = now - 30 * 86_400_000;
+              const sold30 = allUnits.filter(u => {
+                if (u.status !== 'sold') return false;
+                const d = new Date(u.saleDate || u.updatedAt || 0).getTime();
+                return d >= cutoff;
+              });
+              const sumBP30 = sold30.reduce((s, u) => s + (u.buyPrice || 0), 0);
+              const sumSP30 = sold30.reduce((s, u) => s + (u.salePrice || 0), 0);
+              const gpPct30 = sumBP30 > 0 ? ((sumSP30 - sumBP30) / sumBP30) * 100 : 0;
+              return (
+                <div
+                  key={`inv-grid-${key}`}
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => toggleExpand(key)}
+                  onKeyDown={e => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault();
+                      toggleExpand(key);
+                    }
+                  }}
+                  className="grid items-center gap-2 px-4 py-2 text-[11px] hover:bg-emerald-50/60 transition-colors cursor-pointer"
+                  style={{
+                    gridTemplateColumns: '90px minmax(220px, 1.6fr) 90px 80px 90px 110px minmax(160px, 1fr) 80px 80px',
+                    minWidth: 'max-content',
+                    fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
+                  }}
+                >
+                  <span className="truncate text-gray-700" title={summary.brand}>{summary.brand}</span>
+                  <span className="truncate font-bold text-gray-900" title={summary.model}>{summary.model}</span>
+                  <span className="text-gray-700">{summary.storage || '—'}</span>
+                  <span className="text-right font-bold text-gray-900">{summary.totalAvailable}</span>
+                  <span className="text-right text-gray-800">£{avgBp.toFixed(0)}</span>
+                  <span className="text-right text-gray-900 font-bold">£{summary.totalValue.toLocaleString()}</span>
+                  <span className="flex items-center gap-1 flex-wrap min-w-0">
+                    {skuListing.listedOn.length === 0 ? (
+                      <span className="text-[9px] font-mono text-gray-400 italic">Not listed</span>
+                    ) : (
+                      skuListing.listedOn.map(site => (
+                        <span
+                          key={site}
+                          className="text-[8px] font-bold px-1.5 py-0.5 bg-gray-900 text-white rounded font-mono uppercase tracking-tighter"
+                        >
+                          {listingSiteLabel(site)}
+                        </span>
+                      ))
+                    )}
+                  </span>
+                  <span className="text-right text-gray-800">{sold30.length}</span>
+                  <span className={`text-right font-bold ${sold30.length === 0 ? 'text-gray-300' : gpPct30 < 0 ? 'text-red-600' : 'text-emerald-700'}`}>
+                    {sold30.length === 0 ? '—' : `${gpPct30.toFixed(1)}%`}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      {/* ───────── Mobile: Model cards (touch-friendly) ───────── */}
+      <div className="md:hidden space-y-2">
         {paginated.map(summary => {
           const key = `${summary.brand}||${summary.model}||${summary.storage || ''}`;
           const isExpanded = expandedModels.has(key);
