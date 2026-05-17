@@ -43,7 +43,7 @@ import EnterImeiModal from './EnterImeiModal';
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
-type KpiId = 'today' | 'month' | 'all' | 'awaiting';
+type KpiId = 'today' | 'month' | 'all' | 'gpPct' | 'awaiting';
 type DateScope = 'today' | 'week' | 'month' | 'all';
 type SortKey =
   | 'saleDate' | 'model' | 'storage' | 'colour' | 'buyPrice' | 'salePrice'
@@ -287,10 +287,18 @@ export default function SellSheet(_props: Props) {
       case 'today':     base = allSold.filter(s => (s.saleDate || '').startsWith(today)); break;
       case 'month':     base = allSold.filter(s => (s.saleDate || '') >= monthStart && (s.saleDate || '') <= today); break;
       case 'all':       base = allSold; break;
+      case 'gpPct':     base = allSold; break; // sorted by GP% via gpSortOverride below
       case 'awaiting':  base = []; break; // Awaiting IMEI surfaces units, not sales
       default:          base = [];
     }
-    return sortSales(applyFilters(base));
+    // Avg GP% overlay always opens with rows sorted GP% desc — best/worst
+    // performers surface immediately. User can still re-sort by clicking a
+    // column header inside the overlay (gpSortOverride is one-shot per open).
+    const sorted = sortSales(applyFilters(base));
+    if (overlay === 'gpPct') {
+      return [...sorted].sort((a, b) => (b.gpPercent ?? 0) - (a.gpPercent ?? 0));
+    }
+    return sorted;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [overlay, allSold, search, marketplaceFilter, supplierFilter, supplierMap, sort, units]);
 
@@ -398,13 +406,14 @@ export default function SellSheet(_props: Props) {
             value={`${kpis.avgGpPct.toFixed(1)}%`}
             sub={kpis.avgGpPct >= 20 ? 'healthy' : kpis.avgGpPct >= 10 ? 'fair' : 'thin'}
             tone={kpis.avgGpPct >= 20 ? 'emerald' : kpis.avgGpPct >= 10 ? 'amber' : 'rose'}
+            onClick={() => setOverlay('gpPct')}
           />
           <BigKpiTile
             label="Awaiting IMEI"
             value={kpis.awaitingImei}
             sub="SHS dispatched · backfill below"
             tone="amber"
-            onClick={kpis.awaitingImei > 0 ? () => setOverlay('awaiting') : undefined}
+            onClick={() => setOverlay('awaiting')}
           />
         </div>
       </div>
@@ -1310,6 +1319,7 @@ function titleFor(kpi: KpiId): string {
     case 'today':    return 'Sold Today';
     case 'month':    return 'Sold This Month';
     case 'all':      return 'All Sales';
+    case 'gpPct':    return 'Avg GP % · ranked by margin';
     case 'awaiting': return 'Awaiting IMEI';
   }
 }
