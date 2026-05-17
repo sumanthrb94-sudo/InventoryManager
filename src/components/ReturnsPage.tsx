@@ -389,6 +389,18 @@ export default function ReturnsPage() {
         onReprocess={u => setProcessingUnit(u)}
       />
 
+      {/* ── Activity history at the bottom ────────────────────────────────
+          Visual timeline of return events, grouped by date bucket. Shows
+          each unit's journey (Sold → Returned, Returned → Repair → Back to
+          Stock, etc.) so the operator can see at a glance which returns
+          completed the loop. */}
+      <ReturnHistorySection
+        units={allReturns}
+        supplierMap={supplierMap}
+        region={region}
+        onReadyShip={u => setReadyShipUnit(u)}
+      />
+
       {/* ── KPI overlay modal ─────────────────────────────────────────────── */}
       <AnimatePresence>
         {overlay && (
@@ -764,6 +776,188 @@ function SheetTable({
       </tbody>
     </table>
   );
+}
+
+// ── Schema help card ────────────────────────────────────────────────────────
+// ── Return History timeline ─────────────────────────────────────────────────
+// Activity-feed view of every returned unit, grouped by date bucket and
+// ordered newest-first within each bucket. Each card shows the unit's
+// journey: where the return came from (sale + return event) and where it
+// ended up (back to inventory / in repair / soft-deleted to supplier).
+// Units that completed the repair-and-return-to-stock loop carry a green
+// 'Back to Stock' chip so the operator sees the wins.
+function ReturnHistorySection({
+  units, supplierMap, region, onReadyShip,
+}: {
+  units: InventoryUnit[];
+  supplierMap: Record<string, string>;
+  region: 'uk' | 'india' | 'admin' | 'both';
+  onReadyShip: (u: InventoryUnit) => void;
+}) {
+  // The most recent event per unit drives its position in the timeline.
+  // repairedAt > returnDate so a flipped-back unit floats above an
+  // in-repair unit that came in earlier.
+  const events = useMemo(() => {
+    return units
+      .map(u => {
+        const repairedAt = (u as any).repairedAt as string | undefined;
+        const eventDate = (repairedAt && u.returnType === 'returned_to_inventory')
+          ? repairedAt
+          : (u.returnDate || '');
+        return { unit: u, eventDate, repairedAt };
+      })
+      .filter(e => !!e.eventDate)
+      .sort((a, b) => b.eventDate.localeCompare(a.eventDate));
+  }, [units]);
+
+  const grouped = useMemo(() => bucketByDate(events), [events]);
+
+  if (events.length === 0) {
+    return (
+      <div className="bg-white border border-slate-200 rounded-3xl p-10 text-center text-slate-400">
+        <Sparkles size={26} className="mx-auto" />
+        <p className="text-[11px] font-mono uppercase tracking-widest mt-2">No return history yet</p>
+        <p className="text-[10px] font-mono mt-1 text-slate-500">Activity will land here as you process returns</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="bg-white border border-slate-200 rounded-3xl shadow-sm overflow-hidden">
+      <div className="flex items-center gap-3 px-5 py-3 border-b border-slate-100">
+        <div className="w-7 h-7 rounded-lg bg-slate-900 text-white flex items-center justify-center flex-shrink-0">
+          <RotateCcw size={14} />
+        </div>
+        <div className="flex-1 min-w-0">
+          <p className="text-[11px] font-bold uppercase tracking-widest text-slate-900">Return Activity History</p>
+          <p className="text-[9px] font-mono text-slate-500 mt-0.5">
+            {events.length} event{events.length === 1 ? '' : 's'} · newest first · grouped by date
+          </p>
+        </div>
+      </div>
+
+      <div className="divide-y divide-slate-100 max-h-[60vh] overflow-y-auto custom-scrollbar">
+        {grouped.map(g => (
+          <div key={g.label} className="px-5 py-3">
+            <p className="text-[9px] font-bold uppercase tracking-widest text-slate-400 mb-2">
+              {g.label} · {g.events.length}
+            </p>
+            <div className="space-y-2">
+              {g.events.map(({ unit: u, eventDate, repairedAt }) => {
+                const tone = TYPE_TONE[u.returnType as ReturnCategory] || TYPE_TONE.returned_to_inventory;
+                const supplierName = supplierMap[u.supplierId] || u.supplierName || '—';
+                const wasRepaired = !!repairedAt;
+                // Journey chips — each return tells a small story.
+                const journey: Array<{ label: string; cls: string }> = [];
+                if (u.saleOrderId || (u as any).saleDate || repairedAt) {
+                  // Was sold at some point (sale fields preserved in the
+                  // unit when going to repair; cleared by ProcessReturnModal
+                  // when sent back to inventory — repairedAt is the hint).
+                  journey.push({ label: 'Sold', cls: 'bg-slate-100 text-slate-700' });
+                }
+                journey.push({ label: 'Returned', cls: 'bg-rose-100 text-rose-700' });
+                if (u.returnType === 'repair' && !wasRepaired) {
+                  journey.push({ label: 'In Repair', cls: 'bg-blue-100 text-blue-700' });
+                }
+                if (wasRepaired) {
+                  journey.push({ label: 'Repaired', cls: 'bg-blue-100 text-blue-700' });
+                }
+                if (u.returnType === 'returned_to_inventory') {
+                  journey.push({ label: 'Back to Stock', cls: 'bg-emerald-100 text-emerald-700' });
+                }
+                if (u.returnType === 'returned_to_supplier') {
+                  journey.push({ label: 'To Supplier', cls: 'bg-amber-100 text-amber-700' });
+                }
+                return (
+                  <div key={u.id} className="flex items-start gap-3 group">
+                    {/* Timeline dot + connector */}
+                    <div className="flex flex-col items-center flex-shrink-0 pt-1">
+                      <span className={`w-2.5 h-2.5 rounded-full ${tone.dot}`} />
+                    </div>
+                    {/* Event card */}
+                    <div className="flex-1 min-w-0 bg-slate-50/50 hover:bg-slate-100/60 border border-slate-100 rounded-xl px-3 py-2 transition-colors">
+                      <div className="flex items-start gap-2">
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <p className="text-[11px] font-bold text-slate-900 truncate" title={u.model}>{u.model || '—'}</p>
+                            {u.storage && <span className="text-[9px] font-mono text-slate-500">{u.storage}</span>}
+                            {u.colour && <span className="text-[9px] font-mono text-slate-500">· {u.colour}</span>}
+                            <span className={`inline-flex items-center gap-1 text-[8px] font-bold uppercase tracking-widest px-1.5 py-0.5 rounded border flex-shrink-0 ${tone.bg} ${tone.text}`}>
+                              <span className={`w-1.5 h-1.5 rounded-full ${tone.dot}`} />
+                              {tone.label}
+                            </span>
+                          </div>
+                          {/* Journey chips */}
+                          <div className="flex items-center gap-1 mt-1.5 flex-wrap">
+                            {journey.map((j, i) => (
+                              <React.Fragment key={`${j.label}-${i}`}>
+                                <span className={`text-[8px] font-bold uppercase tracking-widest px-1.5 py-0.5 rounded ${j.cls}`}>
+                                  {j.label}
+                                </span>
+                                {i < journey.length - 1 && (
+                                  <span className="text-[10px] text-slate-300">›</span>
+                                )}
+                              </React.Fragment>
+                            ))}
+                          </div>
+                          <p className="text-[9px] text-slate-500 font-mono mt-1 truncate">
+                            {u.imei ? <span className="text-slate-600">{u.imei}</span> : '(no IMEI)'}
+                            {' · '}{supplierName}
+                            {u.returnReason ? ` · ${u.returnReason}` : ''}
+                          </p>
+                        </div>
+                        <div className="text-right flex-shrink-0">
+                          <p className="text-[10px] font-mono text-slate-700 whitespace-nowrap">
+                            {fmtDateForUser(eventDate, region) || eventDate}
+                          </p>
+                          <p className="text-[9px] font-bold text-slate-900 mt-0.5">£{u.buyPrice ?? 0}</p>
+                        </div>
+                      </div>
+                      {/* Quick action for In Repair rows — same flow as the
+                          inline Back-to-Stock button up top. */}
+                      {u.returnType === 'repair' && !wasRepaired && (
+                        <div className="mt-2 flex justify-end">
+                          <button
+                            onClick={() => onReadyShip(u)}
+                            className="flex items-center gap-1 px-2 py-1 rounded-md text-[9px] font-bold uppercase tracking-widest bg-emerald-600 text-white hover:bg-emerald-700 transition-all"
+                          >
+                            <PackageCheck size={10} /> Mark Repaired · Back to Stock
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+interface DateBucket {
+  label: string;
+  events: Array<{ unit: InventoryUnit; eventDate: string; repairedAt?: string }>;
+}
+function bucketByDate(events: Array<{ unit: InventoryUnit; eventDate: string; repairedAt?: string }>): DateBucket[] {
+  const today = todayStr();
+  const yesterday = new Date(Date.now() - 86_400_000).toISOString().slice(0, 10);
+  const weekAgo = new Date(Date.now() - 7 * 86_400_000).toISOString().slice(0, 10);
+  const monthAgo = new Date(Date.now() - 30 * 86_400_000).toISOString().slice(0, 10);
+  const buckets: Array<{ key: string; label: string; matches: (d: string) => boolean; events: typeof events }> = [
+    { key: 'today',     label: 'Today',     matches: d => d === today,                         events: [] },
+    { key: 'yesterday', label: 'Yesterday', matches: d => d === yesterday,                     events: [] },
+    { key: 'week',      label: 'This Week', matches: d => d >= weekAgo && d < yesterday,       events: [] },
+    { key: 'month',     label: 'This Month',matches: d => d >= monthAgo && d < weekAgo,        events: [] },
+    { key: 'older',     label: 'Older',     matches: () => true,                               events: [] },
+  ];
+  for (const e of events) {
+    const bucket = buckets.find(b => b.matches(e.eventDate));
+    if (bucket) bucket.events.push(e);
+  }
+  return buckets.filter(b => b.events.length > 0).map(b => ({ label: b.label, events: b.events }));
 }
 
 // ── Schema help card ────────────────────────────────────────────────────────
