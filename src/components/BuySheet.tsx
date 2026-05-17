@@ -50,6 +50,19 @@ const STATUS_TONE: Record<string, { bg: string; text: string; dot: string }> = {
   returned:  { bg: 'bg-rose-50 border-rose-200',      text: 'text-rose-700',    dot: 'bg-rose-500'   },
 };
 
+// Standard storage capacities used across Add Stock + inline edit. The unit
+// parser already returns values in this exact format (e.g. "128GB", "1TB").
+const STORAGE_OPTIONS = ['32GB', '64GB', '128GB', '256GB', '512GB', '1TB'];
+
+/** Return the standard options plus an empty entry plus the unit's current
+ *  storage if it's non-standard (so we never drop a legacy value). */
+function storageOptionsWith(current: string | undefined): string[] {
+  const out = [''];
+  if (current && !STORAGE_OPTIONS.includes(current)) out.push(current);
+  out.push(...STORAGE_OPTIONS);
+  return out;
+}
+
 // ── Component ────────────────────────────────────────────────────────────────
 
 export default function BuySheet(_props: Props) {
@@ -627,7 +640,18 @@ function InlineSheet({
                       display={<span className="text-slate-700">{u.grade || <span className="text-slate-300">—</span>}</span>}
                     />
                   </Td>
-                  <Td><span className="text-slate-600">{u.storage || '—'}</span></Td>
+                  <Td>
+                    <InlineEditableSelect
+                      editing={editingCell?.id === u.id && editingCell?.field === 'storage'}
+                      onActivate={() => setEditingCell({ id: u.id, field: 'storage' })}
+                      onCommit={async v => { await onSaveCell(u, 'storage', v); setEditingCell(null); }}
+                      onCancel={() => setEditingCell(null)}
+                      value={u.storage || ''}
+                      options={storageOptionsWith(u.storage)}
+                      formatLabel={v => v || '—'}
+                      display={<span className="text-slate-600">{u.storage || <span className="text-slate-300">—</span>}</span>}
+                    />
+                  </Td>
                   <Td><span className="text-slate-600 truncate">{u.colour || '—'}</span></Td>
                   <Td><span className="text-slate-700 truncate" title={supplierName}>{supplierName}</span></Td>
                   <Td align="right">
@@ -812,7 +836,18 @@ function BuyExcelOverlay({
                           display={<span className="text-slate-700">{u.grade || <span className="text-slate-300">—</span>}</span>}
                         />
                       </Td>
-                      <Td><span className="text-slate-600">{u.storage || '—'}</span></Td>
+                      <Td>
+                        <InlineEditableSelect
+                          editing={editingCell?.id === u.id && editingCell?.field === 'storage'}
+                          onActivate={() => setEditingCell({ id: u.id, field: 'storage' })}
+                          onCommit={async v => { await onSaveCell(u, 'storage', v); setEditingCell(null); }}
+                          onCancel={() => setEditingCell(null)}
+                          value={u.storage || ''}
+                          options={storageOptionsWith(u.storage)}
+                          formatLabel={v => v || '—'}
+                          display={<span className="text-slate-600">{u.storage || <span className="text-slate-300">—</span>}</span>}
+                        />
+                      </Td>
                       <Td><span className="text-slate-600 truncate">{u.colour || '—'}</span></Td>
                       <Td><span className="text-slate-700 truncate" title={supplierName}>{supplierName}</span></Td>
                       <Td align="right">

@@ -73,6 +73,13 @@ function emptyRow(supplierName = ''): StockRow {
 
 const GRADES = ['A', 'B', 'C', 'ONU', 'Brand new'];
 
+// Standard storage capacities. The model auto-parser returns values in this
+// exact format (e.g. "128GB", "1TB"), so the dropdown's selected value will
+// pre-populate cleanly after Model is typed. Anything outside this set keeps
+// whatever the parser returned and surfaces as an extra option at the top
+// of the list so the operator can see it and re-pick if they want.
+const STORAGE_OPTIONS = ['32GB', '64GB', '128GB', '256GB', '512GB', '1TB'];
+
 interface RowValidation {
   modelOk: boolean;
   imeiOk: boolean;        // true when IMEI is valid OR mode=shs and IMEI is empty
@@ -536,12 +543,18 @@ function Row({
       {/* Grid: Storage · Colour · Supplier · BP */}
       <div className="grid grid-cols-1 md:grid-cols-12 gap-2 mt-2">
         <Cell label="Storage" colSpan={2}>
-          <input
+          <select
             value={row.storage}
             onChange={e => onChange({ storage: e.target.value })}
-            placeholder="128GB"
-            className="w-full border border-gray-200 rounded-lg px-2.5 py-1.5 text-[12px] font-mono focus:outline-none focus:border-black"
-          />
+            className="w-full border border-gray-200 rounded-lg px-2.5 py-1.5 text-[12px] font-mono bg-white focus:outline-none focus:border-black"
+          >
+            <option value="">—</option>
+            {/* Surface any non-standard parsed value at the top so it's not lost. */}
+            {row.storage && !STORAGE_OPTIONS.includes(row.storage) && (
+              <option value={row.storage}>{row.storage}</option>
+            )}
+            {STORAGE_OPTIONS.map(s => <option key={s} value={s}>{s}</option>)}
+          </select>
         </Cell>
         <Cell label="Colour" colSpan={3}>
           <input
