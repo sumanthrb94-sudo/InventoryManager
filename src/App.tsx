@@ -14,7 +14,7 @@ import NewBatchModal from './components/NewBatchModal';
 import ImportModal from './components/ImportModal';
 import MasterDataLinkedImport from './components/MasterDataLinkedImport';
 import BuySheet from './components/BuySheet';
-import SellPage from './components/SellPage';
+import SellSheet from './components/SellSheet';
 import ReturnsPage from './components/ReturnsPage';
 import ReportingPage from './components/ReportingPage';
 import Suppliers from './components/Suppliers';
@@ -561,7 +561,7 @@ function AppShell({ user }: { user: User }) {
                 initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: -8 }} transition={{ duration: 0.18 }}>
                 {activeTab === 'buy'     && <BuySheet onOpenBatch={() => setIsBatchModalOpen(true)} onOpenImport={() => setIsImportModalOpen(true)} />}
-                {activeTab === 'sell'    && <SellPage />}
+                {activeTab === 'sell'    && <SellSheet />}
                 {activeTab === 'returns' && <ReturnsPage />}
                 {activeTab === 'admin' && userIsAdmin && adminSub === 'overview'     && (
                   <Dashboard
