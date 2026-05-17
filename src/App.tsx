@@ -13,7 +13,7 @@ import Dashboard, { NavAction } from './components/Dashboard';
 import NewBatchModal from './components/NewBatchModal';
 import ImportModal from './components/ImportModal';
 import MasterDataLinkedImport from './components/MasterDataLinkedImport';
-import StockInPage from './components/StockInPage';
+import BuySheet from './components/BuySheet';
 import SellPage from './components/SellPage';
 import ReturnsPage from './components/ReturnsPage';
 import ReportingPage from './components/ReportingPage';
@@ -560,7 +560,7 @@ function AppShell({ user }: { user: User }) {
               <motion.div key={activeTab === 'admin' ? `admin-${adminSub}` : activeTab}
                 initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: -8 }} transition={{ duration: 0.18 }}>
-                {activeTab === 'buy'     && <StockInPage onOpenBatch={() => setIsBatchModalOpen(true)} onOpenImport={() => setIsImportModalOpen(true)} />}
+                {activeTab === 'buy'     && <BuySheet onOpenBatch={() => setIsBatchModalOpen(true)} onOpenImport={() => setIsImportModalOpen(true)} />}
                 {activeTab === 'sell'    && <SellPage />}
                 {activeTab === 'returns' && <ReturnsPage />}
                 {activeTab === 'admin' && userIsAdmin && adminSub === 'overview'     && (
