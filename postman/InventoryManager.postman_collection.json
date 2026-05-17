@@ -1,0 +1,1179 @@
+{
+  "info": {
+    "_postman_id": "im-firestore-rest-collection-2026-05",
+    "name": "Inventory Manager — Firestore REST",
+    "description": "Exercises every Firestore collection the InventoryManager app reads/writes via the Firestore REST API.\n\n## Auth\nEvery request needs a Firebase ID token in `Authorization: Bearer {{idToken}}`. Run **Setup → Get ID Token** first; it stores `idToken` in collection variables.\n\n## Order to run\n1. Setup → Get ID Token\n2. Inventory Units (CRUD)\n3. Inventory Aggregates\n4. Sales\n5. Suppliers\n6. Scenarios 1–6 (each scenario is sequential — run requests top-to-bottom inside the folder).\n\n## Variables\n- `baseUrl` — Firestore REST documents root\n- `authUrl` — Firebase Auth REST root\n- `projectId`, `apiKey` — from `.env`\n- `email`, `password` — admin credentials\n- `idToken` — populated by Setup\n- `imei`, `saleId`, `aggregateId`, `supplierId`, `shsUnitId` — populated by Scenario flows\n\n## Soft-delete pattern\nReturns NEVER hard-delete. `inventoryUnits/{imei}` is patched with `status='returned' + returnType='returned_to_supplier'` and the linked `sales/{saleId}` doc is patched with `voidedAt + voidReason`. The Sell-side surfaces filter out voided sales at runtime.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "baseUrl",     "value": "https://firestore.googleapis.com/v1/projects/{{projectId}}/databases/(default)/documents", "type": "string" },
+    { "key": "authUrl",     "value": "https://identitytoolkit.googleapis.com/v1", "type": "string" },
+    { "key": "projectId",   "value": "REPLACE_WITH_FIREBASE_PROJECT_ID", "type": "string" },
+    { "key": "apiKey",      "value": "REPLACE_WITH_FIREBASE_API_KEY",    "type": "string" },
+    { "key": "email",       "value": "admin@example.com",                "type": "string" },
+    { "key": "password",    "value": "REPLACE_WITH_ADMIN_PASSWORD",      "type": "string" },
+    { "key": "idToken",     "value": "",                                  "type": "string" },
+    { "key": "imei",        "value": "359000000000001",                   "type": "string" },
+    { "key": "saleId",      "value": "EBAY__order123",                    "type": "string" },
+    { "key": "aggregateId", "value": "agg_shs_iphone_15",                 "type": "string" },
+    { "key": "supplierId",  "value": "sup_demo_001",                      "type": "string" },
+    { "key": "shsUnitId",   "value": "shs_iphone_15_demo_1",              "type": "string" }
+  ],
+  "auth": {
+    "type": "bearer",
+    "bearer": [ { "key": "token", "value": "{{idToken}}", "type": "string" } ]
+  },
+  "item": [
+    {
+      "name": "A. Setup",
+      "description": "Run **Get ID Token** first — it exchanges email/password for a Firebase ID token and stores it as `idToken` for every other request.",
+      "item": [
+        {
+          "name": "Get ID Token",
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "POST",
+            "header": [ { "key": "Content-Type", "value": "application/json" } ],
+            "url": {
+              "raw": "{{authUrl}}/accounts:signInWithPassword?key={{apiKey}}",
+              "host": [ "{{authUrl}}" ],
+              "path": [ "accounts:signInWithPassword" ],
+              "query": [ { "key": "key", "value": "{{apiKey}}" } ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{email}}\",\n  \"password\": \"{{password}}\",\n  \"returnSecureToken\": true\n}"
+            },
+            "description": "POST email/password to Firebase Auth REST. Stores `idToken` + `localId` in collection variables. All subsequent Firestore calls use `Authorization: Bearer {{idToken}}`."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "const json = pm.response.json();",
+                  "pm.test('idToken present', () => pm.expect(json.idToken).to.be.a('string').and.not.empty);",
+                  "pm.collectionVariables.set('idToken', json.idToken);",
+                  "pm.collectionVariables.set('localId', json.localId || '');",
+                  "console.log('idToken stored — expires in', json.expiresIn, 'seconds');"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+
+    {
+      "name": "B. Inventory Units (CRUD)",
+      "description": "Exercises `inventoryUnits` — keyed by IMEI/serial. Doc body uses Firestore's typed REST format (`{ fields: { imei: { stringValue: '…' } } }`).",
+      "item": [
+        {
+          "name": "Create unit (PATCH /documents/inventoryUnits/{imei})",
+          "request": {
+            "method": "PATCH",
+            "header": [ { "key": "Content-Type", "value": "application/json" } ],
+            "url": {
+              "raw": "{{baseUrl}}/inventoryUnits/{{imei}}",
+              "host": [ "{{baseUrl}}" ],
+              "path": [ "inventoryUnits", "{{imei}}" ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"fields\": {\n    \"imei\":            { \"stringValue\":  \"{{imei}}\" },\n    \"model\":           { \"stringValue\":  \"iPhone 15 Pro Max 256GB\" },\n    \"brand\":           { \"stringValue\":  \"Apple\" },\n    \"category\":        { \"stringValue\":  \"iPhone\" },\n    \"colour\":          { \"stringValue\":  \"Natural Titanium\" },\n    \"storage\":         { \"stringValue\":  \"256GB\" },\n    \"grade\":           { \"stringValue\":  \"A\" },\n    \"buyPrice\":        { \"integerValue\": \"850\" },\n    \"dateIn\":          { \"stringValue\":  \"2026-05-17\" },\n    \"supplierId\":      { \"stringValue\":  \"{{supplierId}}\" },\n    \"supplierName\":    { \"stringValue\":  \"Demo Supplier\" },\n    \"status\":          { \"stringValue\":  \"available\" },\n    \"statusRaw\":       { \"stringValue\":  \"Office Stock\" },\n    \"stockLocation\":   { \"stringValue\":  \"office\" },\n    \"flags\":           { \"arrayValue\": { \"values\": [] } },\n    \"notes\":           { \"stringValue\":  \"Created from Postman\" },\n    \"platformListed\":  { \"booleanValue\": false },\n    \"listingSites\":    { \"arrayValue\": { \"values\": [] } },\n    \"ownerId\":         { \"stringValue\":  \"shared\" },\n    \"createdAt\":       { \"timestampValue\": \"2026-05-17T09:00:00Z\" }\n  }\n}"
+            },
+            "description": "PATCH creates-or-updates the doc at `inventoryUnits/{imei}`. Firestore REST PATCH is an upsert."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "const json = pm.response.json();",
+                  "pm.test('Name path includes inventoryUnits/{imei}', () => {",
+                  "  pm.expect(json.name).to.include('inventoryUnits/' + pm.collectionVariables.get('imei'));",
+                  "});",
+                  "pm.test('status === available', () => pm.expect(json.fields.status.stringValue).to.eql('available'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Get unit by IMEI (GET)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/inventoryUnits/{{imei}}",
+              "host": [ "{{baseUrl}}" ],
+              "path": [ "inventoryUnits", "{{imei}}" ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "const json = pm.response.json();",
+                  "pm.test('imei matches', () => pm.expect(json.fields.imei.stringValue).to.eql(pm.collectionVariables.get('imei')));",
+                  "pm.test('status === available', () => pm.expect(json.fields.status.stringValue).to.eql('available'));",
+                  "pm.test('brand === Apple', () => pm.expect(json.fields.brand.stringValue).to.eql('Apple'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "List all units (GET /documents/inventoryUnits)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/inventoryUnits?pageSize=100",
+              "host": [ "{{baseUrl}}" ],
+              "path": [ "inventoryUnits" ],
+              "query": [ { "key": "pageSize", "value": "100" } ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "const json = pm.response.json();",
+                  "pm.test('documents is array', () => pm.expect(Array.isArray(json.documents || [])).to.be.true);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Update unit (PATCH with updateMask)",
+          "request": {
+            "method": "PATCH",
+            "header": [ { "key": "Content-Type", "value": "application/json" } ],
+            "url": {
+              "raw": "{{baseUrl}}/inventoryUnits/{{imei}}?updateMask.fieldPaths=notes&updateMask.fieldPaths=grade",
+              "host": [ "{{baseUrl}}" ],
+              "path": [ "inventoryUnits", "{{imei}}" ],
+              "query": [
+                { "key": "updateMask.fieldPaths", "value": "notes" },
+                { "key": "updateMask.fieldPaths", "value": "grade" }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"fields\": {\n    \"notes\": { \"stringValue\": \"Updated via Postman — minor scratch on rear\" },\n    \"grade\": { \"stringValue\": \"B\" }\n  }\n}"
+            },
+            "description": "`updateMask.fieldPaths` repeats once per field — only those fields are touched; everything else is preserved."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "const json = pm.response.json();",
+                  "pm.test('grade updated to B', () => pm.expect(json.fields.grade.stringValue).to.eql('B'));",
+                  "pm.test('notes updated', () => pm.expect(json.fields.notes.stringValue).to.include('Postman'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Delete unit (DELETE)",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/inventoryUnits/{{imei}}",
+              "host": [ "{{baseUrl}}" ],
+              "path": [ "inventoryUnits", "{{imei}}" ]
+            },
+            "description": "Hard delete. Returns and supplier-returns should use soft-delete (status='returned') instead — only use this for true cleanup."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "StructuredQuery: status === 'available'",
+          "request": {
+            "method": "POST",
+            "header": [ { "key": "Content-Type", "value": "application/json" } ],
+            "url": {
+              "raw": "{{baseUrl}}:runQuery",
+              "host": [ "{{baseUrl}}:runQuery" ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"structuredQuery\": {\n    \"from\": [ { \"collectionId\": \"inventoryUnits\" } ],\n    \"where\": {\n      \"fieldFilter\": {\n        \"field\": { \"fieldPath\": \"status\" },\n        \"op\": \"EQUAL\",\n        \"value\": { \"stringValue\": \"available\" }\n      }\n    },\n    \"limit\": 50\n  }\n}"
+            },
+            "description": "POST /documents:runQuery — returns an array of `{ document: { name, fields } }` envelopes."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "const arr = pm.response.json();",
+                  "pm.test('response is an array', () => pm.expect(Array.isArray(arr)).to.be.true);",
+                  "if (arr[0] && arr[0].document) {",
+                  "  pm.test('first doc status === available', () => {",
+                  "    pm.expect(arr[0].document.fields.status.stringValue).to.eql('available');",
+                  "  });",
+                  "}"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+
+    {
+      "name": "C. Inventory Aggregates",
+      "description": "`inventoryAggregates` — model+supplier roll-up rows. Free-text quantity (`quantityText='SHS'`), compound colour breakdown (`coloursMap`).",
+      "item": [
+        {
+          "name": "Create aggregate (SHS row)",
+          "request": {
+            "method": "PATCH",
+            "header": [ { "key": "Content-Type", "value": "application/json" } ],
+            "url": {
+              "raw": "{{baseUrl}}/inventoryAggregates/{{aggregateId}}",
+              "host": [ "{{baseUrl}}" ],
+              "path": [ "inventoryAggregates", "{{aggregateId}}" ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"fields\": {\n    \"model\":         { \"stringValue\":  \"iPhone 15\" },\n    \"storage\":       { \"stringValue\":  \"128GB\" },\n    \"buyPrice\":      { \"integerValue\": \"700\" },\n    \"quantityText\":  { \"stringValue\":  \"SHS\" },\n    \"quantityNum\":   { \"integerValue\": \"4\" },\n    \"coloursMap\": {\n      \"mapValue\": {\n        \"fields\": {\n          \"PINK\":   { \"integerValue\": \"1\" },\n          \"BLUE\":   { \"integerValue\": \"1\" },\n          \"SILVER\": { \"integerValue\": \"1\" },\n          \"YELLOW\": { \"integerValue\": \"1\" }\n        }\n      }\n    },\n    \"coloursRaw\":  { \"stringValue\": \"PINK 1 BLUE 1 SILVER 1 YELLOW 1\" },\n    \"supplierIds\": { \"arrayValue\": { \"values\": [ { \"stringValue\": \"{{supplierId}}\" } ] } },\n    \"notes\":       { \"stringValue\": \"SHS aggregate seeded from Postman\" },\n    \"ownerId\":     { \"stringValue\": \"shared\" },\n    \"createdAt\":   { \"timestampValue\": \"2026-05-17T09:00:00Z\" },\n    \"updatedAt\":   { \"timestampValue\": \"2026-05-17T09:00:00Z\" }\n  }\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "const json = pm.response.json();",
+                  "pm.test('quantityText === SHS', () => pm.expect(json.fields.quantityText.stringValue).to.eql('SHS'));",
+                  "pm.test('coloursMap has PINK=1', () => pm.expect(json.fields.coloursMap.mapValue.fields.PINK.integerValue).to.eql('1'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "List aggregates (GET)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/inventoryAggregates?pageSize=100",
+              "host": [ "{{baseUrl}}" ],
+              "path": [ "inventoryAggregates" ],
+              "query": [ { "key": "pageSize", "value": "100" } ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "const json = pm.response.json();",
+                  "pm.test('documents present', () => pm.expect(json).to.have.property('documents'));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+
+    {
+      "name": "D. Sales",
+      "description": "`sales` — composite doc id `${marketplace}__${orderNumber}` for natural dedupe on re-import. Stored derived financial fields are computed by `calcSaleFinancials` in the client.",
+      "item": [
+        {
+          "name": "Create sale (PATCH /documents/sales/EBAY__order123)",
+          "request": {
+            "method": "PATCH",
+            "header": [ { "key": "Content-Type", "value": "application/json" } ],
+            "url": {
+              "raw": "{{baseUrl}}/sales/{{saleId}}",
+              "host": [ "{{baseUrl}}" ],
+              "path": [ "sales", "{{saleId}}" ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"fields\": {\n    \"marketplace\":  { \"stringValue\":  \"EBAY\" },\n    \"orderNumber\":  { \"stringValue\":  \"order123\" },\n    \"sku\":          { \"stringValue\":  \"IP15PM-256-NT\" },\n    \"imei\":         { \"stringValue\":  \"{{imei}}\" },\n    \"unitId\":       { \"stringValue\":  \"{{imei}}\" },\n    \"supplierId\":   { \"stringValue\":  \"{{supplierId}}\" },\n    \"supplierName\": { \"stringValue\":  \"Demo Supplier\" },\n    \"saleDate\":     { \"stringValue\":  \"2026-05-17\" },\n    \"quantity\":     { \"integerValue\": \"1\" },\n    \"buyPrice\":     { \"integerValue\": \"850\" },\n    \"salePrice\":    { \"integerValue\": \"1100\" },\n    \"spMinusBp\":    { \"integerValue\": \"250\" },\n    \"marginalTax\":  { \"doubleValue\":  \"41.67\" },\n    \"commission\":   { \"doubleValue\":  \"110.0\" },\n    \"rof\":          { \"doubleValue\":  \"3.85\" },\n    \"fvf\":          { \"doubleValue\":  \"0.40\" },\n    \"twentyPercent\":{ \"doubleValue\":  \"22.85\" },\n    \"totalCom\":     { \"doubleValue\":  \"137.10\" },\n    \"vat20\":        { \"doubleValue\":  \"22.85\" },\n    \"postage\":      { \"integerValue\": \"8\" },\n    \"grossProfit\":  { \"doubleValue\":  \"63.23\" },\n    \"gpPercent\":    { \"doubleValue\":  \"5.75\" },\n    \"netProfit\":    { \"doubleValue\":  \"55.00\" },\n    \"comments\":     { \"stringValue\":  \"Sample sale from Postman\" },\n    \"importBatchId\":{ \"stringValue\":  \"inapp\" },\n    \"sourceFile\":   { \"stringValue\":  \"inapp-sell-flow\" },\n    \"sourceRow\":    { \"integerValue\": \"0\" },\n    \"importedAt\":   { \"timestampValue\": \"2026-05-17T09:05:00Z\" },\n    \"createdAt\":    { \"timestampValue\": \"2026-05-17T09:05:00Z\" },\n    \"updatedAt\":    { \"timestampValue\": \"2026-05-17T09:05:00Z\" },\n    \"ownerId\":      { \"stringValue\":  \"shared\" }\n  }\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "const json = pm.response.json();",
+                  "pm.test('marketplace === EBAY', () => pm.expect(json.fields.marketplace.stringValue).to.eql('EBAY'));",
+                  "pm.test('orderNumber === order123', () => pm.expect(json.fields.orderNumber.stringValue).to.eql('order123'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "List sales (GET)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/sales?pageSize=100",
+              "host": [ "{{baseUrl}}" ],
+              "path": [ "sales" ],
+              "query": [ { "key": "pageSize", "value": "100" } ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Void sale (PATCH voidedAt + voidReason)",
+          "request": {
+            "method": "PATCH",
+            "header": [ { "key": "Content-Type", "value": "application/json" } ],
+            "url": {
+              "raw": "{{baseUrl}}/sales/{{saleId}}?updateMask.fieldPaths=voidedAt&updateMask.fieldPaths=voidReason",
+              "host": [ "{{baseUrl}}" ],
+              "path": [ "sales", "{{saleId}}" ],
+              "query": [
+                { "key": "updateMask.fieldPaths", "value": "voidedAt" },
+                { "key": "updateMask.fieldPaths", "value": "voidReason" }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"fields\": {\n    \"voidedAt\":   { \"stringValue\": \"2026-05-17\" },\n    \"voidReason\": { \"stringValue\": \"Customer changed mind\" }\n  }\n}"
+            },
+            "description": "Voiding is a PATCH with updateMask — the doc stays in the collection for audit, but every Sell-side surface filters voided rows out of revenue / GP / Avg GP%."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "const json = pm.response.json();",
+                  "pm.test('voidedAt is set', () => pm.expect(json.fields.voidedAt.stringValue).to.eql('2026-05-17'));",
+                  "pm.test('voidReason is set', () => pm.expect(json.fields.voidReason.stringValue).to.include('Customer'));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+
+    {
+      "name": "E. Suppliers",
+      "description": "`suppliers` — created idempotently by `ensureSupplier(name)`. Key fields: `name`, `portal`, `ownerId`, `createdAt`.",
+      "item": [
+        {
+          "name": "Create supplier",
+          "request": {
+            "method": "PATCH",
+            "header": [ { "key": "Content-Type", "value": "application/json" } ],
+            "url": {
+              "raw": "{{baseUrl}}/suppliers/{{supplierId}}",
+              "host": [ "{{baseUrl}}" ],
+              "path": [ "suppliers", "{{supplierId}}" ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"fields\": {\n    \"name\":         { \"stringValue\": \"Demo Supplier\" },\n    \"portal\":       { \"stringValue\": \"Wholesale\" },\n    \"contactName\":  { \"stringValue\": \"Alice Manager\" },\n    \"contactEmail\": { \"stringValue\": \"alice@demo-supplier.example\" },\n    \"phone\":        { \"stringValue\": \"+44 20 0000 0000\" },\n    \"paymentTerms\": { \"stringValue\": \"Net 30\" },\n    \"returnTerms\":  { \"stringValue\": \"14 days, original packaging\" },\n    \"notes\":        { \"stringValue\": \"Seeded from Postman\" },\n    \"ownerId\":      { \"stringValue\": \"shared\" },\n    \"createdAt\":    { \"timestampValue\": \"2026-05-17T09:00:00Z\" }\n  }\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "const json = pm.response.json();",
+                  "pm.test('name === Demo Supplier', () => pm.expect(json.fields.name.stringValue).to.eql('Demo Supplier'));",
+                  "pm.test('portal === Wholesale', () => pm.expect(json.fields.portal.stringValue).to.eql('Wholesale'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "List suppliers (GET)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/suppliers?pageSize=100",
+              "host": [ "{{baseUrl}}" ],
+              "path": [ "suppliers" ],
+              "query": [ { "key": "pageSize", "value": "100" } ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+
+    {
+      "name": "F1. Scenario — Add Office Stock + verify",
+      "description": "End-to-end: write a unit at `inventoryUnits/{IMEI}` with `status='available'`, then GET it back and assert.",
+      "item": [
+        {
+          "name": "1. Seed supplier (idempotent)",
+          "request": {
+            "method": "PATCH",
+            "header": [ { "key": "Content-Type", "value": "application/json" } ],
+            "url": {
+              "raw": "{{baseUrl}}/suppliers/{{supplierId}}",
+              "host": [ "{{baseUrl}}" ],
+              "path": [ "suppliers", "{{supplierId}}" ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"fields\": {\n    \"name\":      { \"stringValue\": \"Demo Supplier\" },\n    \"portal\":    { \"stringValue\": \"Wholesale\" },\n    \"ownerId\":   { \"stringValue\": \"shared\" },\n    \"createdAt\": { \"timestampValue\": \"2026-05-17T09:00:00Z\" }\n  }\n}"
+            }
+          },
+          "event": [
+            { "listen": "prerequest", "script": { "type": "text/javascript", "exec": [ "pm.collectionVariables.set('imei', '359000000000001');" ] } },
+            { "listen": "test",        "script": { "type": "text/javascript", "exec": [ "pm.test('Status 200', () => pm.response.to.have.status(200));" ] } }
+          ]
+        },
+        {
+          "name": "2. PATCH inventoryUnits/{IMEI} with status='available'",
+          "request": {
+            "method": "PATCH",
+            "header": [ { "key": "Content-Type", "value": "application/json" } ],
+            "url": {
+              "raw": "{{baseUrl}}/inventoryUnits/{{imei}}",
+              "host": [ "{{baseUrl}}" ],
+              "path": [ "inventoryUnits", "{{imei}}" ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"fields\": {\n    \"imei\":           { \"stringValue\":  \"{{imei}}\" },\n    \"model\":          { \"stringValue\":  \"iPhone 15 Pro Max 256GB\" },\n    \"brand\":          { \"stringValue\":  \"Apple\" },\n    \"category\":       { \"stringValue\":  \"iPhone\" },\n    \"colour\":         { \"stringValue\":  \"Natural Titanium\" },\n    \"storage\":        { \"stringValue\":  \"256GB\" },\n    \"buyPrice\":       { \"integerValue\": \"850\" },\n    \"dateIn\":         { \"stringValue\":  \"2026-05-17\" },\n    \"supplierId\":     { \"stringValue\":  \"{{supplierId}}\" },\n    \"supplierName\":   { \"stringValue\":  \"Demo Supplier\" },\n    \"status\":         { \"stringValue\":  \"available\" },\n    \"statusRaw\":      { \"stringValue\":  \"Office Stock\" },\n    \"stockLocation\":  { \"stringValue\":  \"office\" },\n    \"flags\":          { \"arrayValue\":   { \"values\": [] } },\n    \"notes\":          { \"stringValue\":  \"Scenario 1 — Add Office Stock\" },\n    \"platformListed\": { \"booleanValue\": false },\n    \"listingSites\":   { \"arrayValue\":   { \"values\": [] } },\n    \"ownerId\":        { \"stringValue\":  \"shared\" },\n    \"createdAt\":      { \"timestampValue\": \"2026-05-17T09:00:00Z\" }\n  }\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "const json = pm.response.json();",
+                  "pm.test('status === available', () => pm.expect(json.fields.status.stringValue).to.eql('available'));",
+                  "pm.test('supplierId stored', () => pm.expect(json.fields.supplierId.stringValue).to.eql(pm.collectionVariables.get('supplierId')));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "3. GET inventoryUnits/{IMEI} — assert status='available' + supplier",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/inventoryUnits/{{imei}}",
+              "host": [ "{{baseUrl}}" ],
+              "path": [ "inventoryUnits", "{{imei}}" ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "const json = pm.response.json();",
+                  "pm.test('status === available', () => pm.expect(json.fields.status.stringValue).to.eql('available'));",
+                  "pm.test('supplier created and linked', () => {",
+                  "  pm.expect(json.fields.supplierId.stringValue).to.be.a('string').and.not.empty;",
+                  "  pm.expect(json.fields.supplierName.stringValue).to.eql('Demo Supplier');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+
+    {
+      "name": "F2. Scenario — Add SHS aggregate + receive",
+      "description": "Create an SHS aggregate (quantityText='SHS', coloursMap of 4), then write one inventoryUnit per scanned IMEI and decrement the aggregate.",
+      "item": [
+        {
+          "name": "1. PATCH inventoryAggregates/{aggId} (SHS, coloursMap 4)",
+          "request": {
+            "method": "PATCH",
+            "header": [ { "key": "Content-Type", "value": "application/json" } ],
+            "url": {
+              "raw": "{{baseUrl}}/inventoryAggregates/{{aggregateId}}",
+              "host": [ "{{baseUrl}}" ],
+              "path": [ "inventoryAggregates", "{{aggregateId}}" ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"fields\": {\n    \"model\":        { \"stringValue\":  \"iPhone 15\" },\n    \"storage\":      { \"stringValue\":  \"128GB\" },\n    \"buyPrice\":     { \"integerValue\": \"700\" },\n    \"quantityText\": { \"stringValue\":  \"SHS\" },\n    \"quantityNum\":  { \"integerValue\": \"4\" },\n    \"coloursMap\": {\n      \"mapValue\": {\n        \"fields\": {\n          \"PINK\":   { \"integerValue\": \"1\" },\n          \"BLUE\":   { \"integerValue\": \"1\" },\n          \"SILVER\": { \"integerValue\": \"1\" },\n          \"YELLOW\": { \"integerValue\": \"1\" }\n        }\n      }\n    },\n    \"coloursRaw\":  { \"stringValue\": \"PINK 1 BLUE 1 SILVER 1 YELLOW 1\" },\n    \"supplierIds\": { \"arrayValue\": { \"values\": [ { \"stringValue\": \"{{supplierId}}\" } ] } },\n    \"ownerId\":     { \"stringValue\": \"shared\" },\n    \"createdAt\":   { \"timestampValue\": \"2026-05-17T09:00:00Z\" },\n    \"updatedAt\":   { \"timestampValue\": \"2026-05-17T09:00:00Z\" }\n  }\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "const json = pm.response.json();",
+                  "pm.test('quantityText === SHS', () => pm.expect(json.fields.quantityText.stringValue).to.eql('SHS'));",
+                  "pm.test('quantityNum === 4', () => pm.expect(json.fields.quantityNum.integerValue).to.eql('4'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "2. PATCH inventoryUnits/{imei1} (PINK)",
+          "request": {
+            "method": "PATCH",
+            "header": [ { "key": "Content-Type", "value": "application/json" } ],
+            "url": {
+              "raw": "{{baseUrl}}/inventoryUnits/352000000000001",
+              "host": [ "{{baseUrl}}" ],
+              "path": [ "inventoryUnits", "352000000000001" ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"fields\": {\n    \"imei\":         { \"stringValue\":  \"352000000000001\" },\n    \"model\":        { \"stringValue\":  \"iPhone 15\" },\n    \"brand\":        { \"stringValue\":  \"Apple\" },\n    \"category\":     { \"stringValue\":  \"iPhone\" },\n    \"colour\":       { \"stringValue\":  \"PINK\" },\n    \"storage\":      { \"stringValue\":  \"128GB\" },\n    \"buyPrice\":     { \"integerValue\": \"700\" },\n    \"dateIn\":       { \"stringValue\":  \"2026-05-17\" },\n    \"supplierId\":   { \"stringValue\":  \"{{supplierId}}\" },\n    \"status\":       { \"stringValue\":  \"available\" },\n    \"statusRaw\":    { \"stringValue\":  \"Received from SHS\" },\n    \"flags\":        { \"arrayValue\": { \"values\": [] } },\n    \"notes\":        { \"stringValue\":  \"SHS receive 1/4\" },\n    \"platformListed\":{ \"booleanValue\": false },\n    \"listingSites\": { \"arrayValue\": { \"values\": [] } },\n    \"ownerId\":      { \"stringValue\":  \"shared\" },\n    \"createdAt\":    { \"timestampValue\": \"2026-05-17T09:10:00Z\" }\n  }\n}"
+            }
+          },
+          "event": [
+            { "listen": "test", "script": { "type": "text/javascript", "exec": [
+              "pm.test('Status 200', () => pm.response.to.have.status(200));",
+              "const json = pm.response.json();",
+              "pm.test('colour === PINK', () => pm.expect(json.fields.colour.stringValue).to.eql('PINK'));",
+              "pm.test('status === available', () => pm.expect(json.fields.status.stringValue).to.eql('available'));"
+            ] } } ]
+          }
+        },
+        {
+          "name": "3. PATCH inventoryUnits/{imei2} (BLUE)",
+          "request": {
+            "method": "PATCH",
+            "header": [ { "key": "Content-Type", "value": "application/json" } ],
+            "url": {
+              "raw": "{{baseUrl}}/inventoryUnits/352000000000002",
+              "host": [ "{{baseUrl}}" ],
+              "path": [ "inventoryUnits", "352000000000002" ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"fields\": {\n    \"imei\":         { \"stringValue\":  \"352000000000002\" },\n    \"model\":        { \"stringValue\":  \"iPhone 15\" },\n    \"brand\":        { \"stringValue\":  \"Apple\" },\n    \"category\":     { \"stringValue\":  \"iPhone\" },\n    \"colour\":       { \"stringValue\":  \"BLUE\" },\n    \"storage\":      { \"stringValue\":  \"128GB\" },\n    \"buyPrice\":     { \"integerValue\": \"700\" },\n    \"dateIn\":       { \"stringValue\":  \"2026-05-17\" },\n    \"supplierId\":   { \"stringValue\":  \"{{supplierId}}\" },\n    \"status\":       { \"stringValue\":  \"available\" },\n    \"statusRaw\":    { \"stringValue\":  \"Received from SHS\" },\n    \"flags\":        { \"arrayValue\": { \"values\": [] } },\n    \"notes\":        { \"stringValue\":  \"SHS receive 2/4\" },\n    \"platformListed\":{ \"booleanValue\": false },\n    \"listingSites\": { \"arrayValue\": { \"values\": [] } },\n    \"ownerId\":      { \"stringValue\":  \"shared\" },\n    \"createdAt\":    { \"timestampValue\": \"2026-05-17T09:10:00Z\" }\n  }\n}"
+            }
+          },
+          "event": [
+            { "listen": "test", "script": { "type": "text/javascript", "exec": [
+              "pm.test('Status 200', () => pm.response.to.have.status(200));",
+              "pm.test('colour === BLUE', () => pm.expect(pm.response.json().fields.colour.stringValue).to.eql('BLUE'));"
+            ] } } ]
+          }
+        },
+        {
+          "name": "4. PATCH inventoryUnits/{imei3} (SILVER)",
+          "request": {
+            "method": "PATCH",
+            "header": [ { "key": "Content-Type", "value": "application/json" } ],
+            "url": {
+              "raw": "{{baseUrl}}/inventoryUnits/352000000000003",
+              "host": [ "{{baseUrl}}" ],
+              "path": [ "inventoryUnits", "352000000000003" ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"fields\": {\n    \"imei\":         { \"stringValue\":  \"352000000000003\" },\n    \"model\":        { \"stringValue\":  \"iPhone 15\" },\n    \"brand\":        { \"stringValue\":  \"Apple\" },\n    \"category\":     { \"stringValue\":  \"iPhone\" },\n    \"colour\":       { \"stringValue\":  \"SILVER\" },\n    \"storage\":      { \"stringValue\":  \"128GB\" },\n    \"buyPrice\":     { \"integerValue\": \"700\" },\n    \"dateIn\":       { \"stringValue\":  \"2026-05-17\" },\n    \"supplierId\":   { \"stringValue\":  \"{{supplierId}}\" },\n    \"status\":       { \"stringValue\":  \"available\" },\n    \"flags\":        { \"arrayValue\": { \"values\": [] } },\n    \"notes\":        { \"stringValue\":  \"SHS receive 3/4\" },\n    \"platformListed\":{ \"booleanValue\": false },\n    \"listingSites\": { \"arrayValue\": { \"values\": [] } },\n    \"ownerId\":      { \"stringValue\":  \"shared\" },\n    \"createdAt\":    { \"timestampValue\": \"2026-05-17T09:10:00Z\" }\n  }\n}"
+            }
+          },
+          "event": [
+            { "listen": "test", "script": { "type": "text/javascript", "exec": [
+              "pm.test('Status 200', () => pm.response.to.have.status(200));",
+              "pm.test('colour === SILVER', () => pm.expect(pm.response.json().fields.colour.stringValue).to.eql('SILVER'));"
+            ] } } ]
+          }
+        },
+        {
+          "name": "5. PATCH inventoryUnits/{imei4} (YELLOW)",
+          "request": {
+            "method": "PATCH",
+            "header": [ { "key": "Content-Type", "value": "application/json" } ],
+            "url": {
+              "raw": "{{baseUrl}}/inventoryUnits/352000000000004",
+              "host": [ "{{baseUrl}}" ],
+              "path": [ "inventoryUnits", "352000000000004" ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"fields\": {\n    \"imei\":         { \"stringValue\":  \"352000000000004\" },\n    \"model\":        { \"stringValue\":  \"iPhone 15\" },\n    \"brand\":        { \"stringValue\":  \"Apple\" },\n    \"category\":     { \"stringValue\":  \"iPhone\" },\n    \"colour\":       { \"stringValue\":  \"YELLOW\" },\n    \"storage\":      { \"stringValue\":  \"128GB\" },\n    \"buyPrice\":     { \"integerValue\": \"700\" },\n    \"dateIn\":       { \"stringValue\":  \"2026-05-17\" },\n    \"supplierId\":   { \"stringValue\":  \"{{supplierId}}\" },\n    \"status\":       { \"stringValue\":  \"available\" },\n    \"flags\":        { \"arrayValue\": { \"values\": [] } },\n    \"notes\":        { \"stringValue\":  \"SHS receive 4/4\" },\n    \"platformListed\":{ \"booleanValue\": false },\n    \"listingSites\": { \"arrayValue\": { \"values\": [] } },\n    \"ownerId\":      { \"stringValue\":  \"shared\" },\n    \"createdAt\":    { \"timestampValue\": \"2026-05-17T09:10:00Z\" }\n  }\n}"
+            }
+          },
+          "event": [
+            { "listen": "test", "script": { "type": "text/javascript", "exec": [
+              "pm.test('Status 200', () => pm.response.to.have.status(200));",
+              "pm.test('colour === YELLOW', () => pm.expect(pm.response.json().fields.colour.stringValue).to.eql('YELLOW'));"
+            ] } } ]
+          }
+        },
+        {
+          "name": "6. Decrement aggregate quantityNum → 0 + quantityText='RECEIVED'",
+          "request": {
+            "method": "PATCH",
+            "header": [ { "key": "Content-Type", "value": "application/json" } ],
+            "url": {
+              "raw": "{{baseUrl}}/inventoryAggregates/{{aggregateId}}?updateMask.fieldPaths=quantityNum&updateMask.fieldPaths=quantityText&updateMask.fieldPaths=receivedAt",
+              "host": [ "{{baseUrl}}" ],
+              "path": [ "inventoryAggregates", "{{aggregateId}}" ],
+              "query": [
+                { "key": "updateMask.fieldPaths", "value": "quantityNum" },
+                { "key": "updateMask.fieldPaths", "value": "quantityText" },
+                { "key": "updateMask.fieldPaths", "value": "receivedAt" }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"fields\": {\n    \"quantityNum\":  { \"integerValue\": \"0\" },\n    \"quantityText\": { \"stringValue\":  \"RECEIVED\" },\n    \"receivedAt\":   { \"timestampValue\": \"2026-05-17T09:15:00Z\" }\n  }\n}"
+            }
+          },
+          "event": [
+            { "listen": "test", "script": { "type": "text/javascript", "exec": [
+              "pm.test('Status 200', () => pm.response.to.have.status(200));",
+              "const json = pm.response.json();",
+              "pm.test('quantityNum === 0', () => pm.expect(json.fields.quantityNum.integerValue).to.eql('0'));",
+              "pm.test('quantityText === RECEIVED', () => pm.expect(json.fields.quantityText.stringValue).to.eql('RECEIVED'));"
+            ] } } ]
+          }
+        }
+      ]
+    },
+
+    {
+      "name": "F3. Scenario — Sell + verify",
+      "description": "Write a sale (composite id EBAY__order), flip the unit to status='sold', then GET the unit and assert.",
+      "item": [
+        {
+          "name": "1. PATCH sales/{EBAY__order} (full body)",
+          "request": {
+            "method": "PATCH",
+            "header": [ { "key": "Content-Type", "value": "application/json" } ],
+            "url": {
+              "raw": "{{baseUrl}}/sales/EBAY__order_sell_001",
+              "host": [ "{{baseUrl}}" ],
+              "path": [ "sales", "EBAY__order_sell_001" ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"fields\": {\n    \"marketplace\":  { \"stringValue\":  \"EBAY\" },\n    \"orderNumber\":  { \"stringValue\":  \"order_sell_001\" },\n    \"imei\":         { \"stringValue\":  \"359000000000001\" },\n    \"unitId\":       { \"stringValue\":  \"359000000000001\" },\n    \"supplierId\":   { \"stringValue\":  \"{{supplierId}}\" },\n    \"saleDate\":     { \"stringValue\":  \"2026-05-17\" },\n    \"quantity\":     { \"integerValue\": \"1\" },\n    \"buyPrice\":     { \"integerValue\": \"850\" },\n    \"salePrice\":    { \"integerValue\": \"1100\" },\n    \"spMinusBp\":    { \"integerValue\": \"250\" },\n    \"marginalTax\":  { \"doubleValue\":  \"41.67\" },\n    \"commission\":   { \"doubleValue\":  \"110.0\" },\n    \"postage\":      { \"integerValue\": \"8\" },\n    \"grossProfit\":  { \"doubleValue\":  \"63.23\" },\n    \"gpPercent\":    { \"doubleValue\":  \"5.75\" },\n    \"netProfit\":    { \"doubleValue\":  \"55.00\" },\n    \"importBatchId\":{ \"stringValue\":  \"inapp\" },\n    \"sourceFile\":   { \"stringValue\":  \"inapp-sell-flow\" },\n    \"sourceRow\":    { \"integerValue\": \"0\" },\n    \"importedAt\":   { \"timestampValue\": \"2026-05-17T09:30:00Z\" },\n    \"createdAt\":    { \"timestampValue\": \"2026-05-17T09:30:00Z\" },\n    \"updatedAt\":    { \"timestampValue\": \"2026-05-17T09:30:00Z\" },\n    \"ownerId\":      { \"stringValue\":  \"shared\" }\n  }\n}"
+            }
+          },
+          "event": [
+            { "listen": "prerequest", "script": { "type": "text/javascript", "exec": [
+              "pm.collectionVariables.set('imei', '359000000000001');",
+              "pm.collectionVariables.set('saleId', 'EBAY__order_sell_001');"
+            ] } },
+            { "listen": "test", "script": { "type": "text/javascript", "exec": [
+              "pm.test('Status 200', () => pm.response.to.have.status(200));",
+              "const json = pm.response.json();",
+              "pm.test('marketplace === EBAY', () => pm.expect(json.fields.marketplace.stringValue).to.eql('EBAY'));",
+              "pm.test('orderNumber === order_sell_001', () => pm.expect(json.fields.orderNumber.stringValue).to.eql('order_sell_001'));"
+            ] } }
+          ]
+        },
+        {
+          "name": "2. PATCH inventoryUnits/{imei} → status='sold' + sale fields",
+          "request": {
+            "method": "PATCH",
+            "header": [ { "key": "Content-Type", "value": "application/json" } ],
+            "url": {
+              "raw": "{{baseUrl}}/inventoryUnits/{{imei}}?updateMask.fieldPaths=status&updateMask.fieldPaths=salePrice&updateMask.fieldPaths=saleDate&updateMask.fieldPaths=salePlatform&updateMask.fieldPaths=saleOrderId&updateMask.fieldPaths=postageCost",
+              "host": [ "{{baseUrl}}" ],
+              "path": [ "inventoryUnits", "{{imei}}" ],
+              "query": [
+                { "key": "updateMask.fieldPaths", "value": "status" },
+                { "key": "updateMask.fieldPaths", "value": "salePrice" },
+                { "key": "updateMask.fieldPaths", "value": "saleDate" },
+                { "key": "updateMask.fieldPaths", "value": "salePlatform" },
+                { "key": "updateMask.fieldPaths", "value": "saleOrderId" },
+                { "key": "updateMask.fieldPaths", "value": "postageCost" }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"fields\": {\n    \"status\":       { \"stringValue\":  \"sold\" },\n    \"salePrice\":    { \"integerValue\": \"1100\" },\n    \"saleDate\":     { \"stringValue\":  \"2026-05-17\" },\n    \"salePlatform\": { \"stringValue\":  \"EBAY\" },\n    \"saleOrderId\":  { \"stringValue\":  \"order_sell_001\" },\n    \"postageCost\":  { \"integerValue\": \"8\" }\n  }\n}"
+            }
+          },
+          "event": [
+            { "listen": "test", "script": { "type": "text/javascript", "exec": [
+              "pm.test('Status 200', () => pm.response.to.have.status(200));",
+              "const json = pm.response.json();",
+              "pm.test('status === sold', () => pm.expect(json.fields.status.stringValue).to.eql('sold'));",
+              "pm.test('salePlatform === EBAY', () => pm.expect(json.fields.salePlatform.stringValue).to.eql('EBAY'));",
+              "pm.test('saleOrderId === order_sell_001', () => pm.expect(json.fields.saleOrderId.stringValue).to.eql('order_sell_001'));"
+            ] } } ]
+          }
+        },
+        {
+          "name": "3. GET inventoryUnits/{imei} — assert status='sold'",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/inventoryUnits/{{imei}}",
+              "host": [ "{{baseUrl}}" ],
+              "path": [ "inventoryUnits", "{{imei}}" ]
+            }
+          },
+          "event": [
+            { "listen": "test", "script": { "type": "text/javascript", "exec": [
+              "pm.test('Status 200', () => pm.response.to.have.status(200));",
+              "const json = pm.response.json();",
+              "pm.test('status === sold', () => pm.expect(json.fields.status.stringValue).to.eql('sold'));",
+              "pm.test('saleOrderId is set', () => pm.expect(json.fields.saleOrderId.stringValue).to.eql('order_sell_001'));"
+            ] } } ]
+          }
+        }
+      ]
+    },
+
+    {
+      "name": "F4. Scenario — Return to inventory + void sale",
+      "description": "Flip the unit back to available with returnType='returned_to_inventory', mark the linked sale voided, then verify both.",
+      "item": [
+        {
+          "name": "1. PATCH inventoryUnits/{imei} → status='available' + returnType",
+          "request": {
+            "method": "PATCH",
+            "header": [ { "key": "Content-Type", "value": "application/json" } ],
+            "url": {
+              "raw": "{{baseUrl}}/inventoryUnits/{{imei}}?updateMask.fieldPaths=status&updateMask.fieldPaths=returnType&updateMask.fieldPaths=returnDate&updateMask.fieldPaths=returnReason&updateMask.fieldPaths=salePrice&updateMask.fieldPaths=saleDate&updateMask.fieldPaths=salePlatform&updateMask.fieldPaths=saleOrderId&updateMask.fieldPaths=postageCost&updateMask.fieldPaths=platformListed&updateMask.fieldPaths=listingSites",
+              "host": [ "{{baseUrl}}" ],
+              "path": [ "inventoryUnits", "{{imei}}" ],
+              "query": [
+                { "key": "updateMask.fieldPaths", "value": "status" },
+                { "key": "updateMask.fieldPaths", "value": "returnType" },
+                { "key": "updateMask.fieldPaths", "value": "returnDate" },
+                { "key": "updateMask.fieldPaths", "value": "returnReason" },
+                { "key": "updateMask.fieldPaths", "value": "salePrice" },
+                { "key": "updateMask.fieldPaths", "value": "saleDate" },
+                { "key": "updateMask.fieldPaths", "value": "salePlatform" },
+                { "key": "updateMask.fieldPaths", "value": "saleOrderId" },
+                { "key": "updateMask.fieldPaths", "value": "postageCost" },
+                { "key": "updateMask.fieldPaths", "value": "platformListed" },
+                { "key": "updateMask.fieldPaths", "value": "listingSites" }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"fields\": {\n    \"status\":         { \"stringValue\": \"available\" },\n    \"returnType\":     { \"stringValue\": \"returned_to_inventory\" },\n    \"returnDate\":     { \"stringValue\": \"2026-05-17\" },\n    \"returnReason\":   { \"stringValue\": \"Customer changed mind\" },\n    \"salePrice\":      { \"nullValue\":   null },\n    \"saleDate\":       { \"nullValue\":   null },\n    \"salePlatform\":   { \"nullValue\":   null },\n    \"saleOrderId\":    { \"nullValue\":   null },\n    \"postageCost\":    { \"nullValue\":   null },\n    \"platformListed\": { \"booleanValue\": false },\n    \"listingSites\":   { \"arrayValue\":   { \"values\": [] } }\n  }\n}"
+            }
+          },
+          "event": [
+            { "listen": "prerequest", "script": { "type": "text/javascript", "exec": [
+              "pm.collectionVariables.set('imei', '359000000000001');",
+              "pm.collectionVariables.set('saleId', 'EBAY__order_sell_001');"
+            ] } },
+            { "listen": "test", "script": { "type": "text/javascript", "exec": [
+              "pm.test('Status 200', () => pm.response.to.have.status(200));",
+              "const json = pm.response.json();",
+              "pm.test('status === available', () => pm.expect(json.fields.status.stringValue).to.eql('available'));",
+              "pm.test('returnType === returned_to_inventory', () => pm.expect(json.fields.returnType.stringValue).to.eql('returned_to_inventory'));",
+              "pm.test('saleOrderId cleared (null)', () => pm.expect(json.fields.saleOrderId).to.have.property('nullValue'));"
+            ] } } ]
+          }
+        },
+        {
+          "name": "2. PATCH sales/{saleId} → voidedAt + voidReason",
+          "request": {
+            "method": "PATCH",
+            "header": [ { "key": "Content-Type", "value": "application/json" } ],
+            "url": {
+              "raw": "{{baseUrl}}/sales/{{saleId}}?updateMask.fieldPaths=voidedAt&updateMask.fieldPaths=voidReason",
+              "host": [ "{{baseUrl}}" ],
+              "path": [ "sales", "{{saleId}}" ],
+              "query": [
+                { "key": "updateMask.fieldPaths", "value": "voidedAt" },
+                { "key": "updateMask.fieldPaths", "value": "voidReason" }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"fields\": {\n    \"voidedAt\":   { \"stringValue\": \"2026-05-17\" },\n    \"voidReason\": { \"stringValue\": \"Customer changed mind\" }\n  }\n}"
+            }
+          },
+          "event": [
+            { "listen": "test", "script": { "type": "text/javascript", "exec": [
+              "pm.test('Status 200', () => pm.response.to.have.status(200));",
+              "pm.test('voidedAt is set', () => pm.expect(pm.response.json().fields.voidedAt.stringValue).to.eql('2026-05-17'));"
+            ] } } ]
+          }
+        },
+        {
+          "name": "3. GET sales/{saleId} — assert voidedAt is set",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/sales/{{saleId}}",
+              "host": [ "{{baseUrl}}" ],
+              "path": [ "sales", "{{saleId}}" ]
+            }
+          },
+          "event": [
+            { "listen": "test", "script": { "type": "text/javascript", "exec": [
+              "pm.test('Status 200', () => pm.response.to.have.status(200));",
+              "const json = pm.response.json();",
+              "pm.test('voidedAt present', () => pm.expect(json.fields).to.have.property('voidedAt'));",
+              "pm.test('voidedAt === 2026-05-17', () => pm.expect(json.fields.voidedAt.stringValue).to.eql('2026-05-17'));"
+            ] } } ]
+          }
+        },
+        {
+          "name": "4. GET inventoryUnits/{imei} — assert status='available' + returnType set",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/inventoryUnits/{{imei}}",
+              "host": [ "{{baseUrl}}" ],
+              "path": [ "inventoryUnits", "{{imei}}" ]
+            }
+          },
+          "event": [
+            { "listen": "test", "script": { "type": "text/javascript", "exec": [
+              "pm.test('Status 200', () => pm.response.to.have.status(200));",
+              "const json = pm.response.json();",
+              "pm.test('status === available', () => pm.expect(json.fields.status.stringValue).to.eql('available'));",
+              "pm.test('returnType is set', () => pm.expect(json.fields.returnType.stringValue).to.eql('returned_to_inventory'));"
+            ] } } ]
+          }
+        }
+      ]
+    },
+
+    {
+      "name": "F5. Scenario — Return to supplier (soft delete)",
+      "description": "Soft-delete policy: PATCH unit with status='returned' + returnType='returned_to_supplier'. Doc is preserved (no hard DELETE). Linked sale is voided.",
+      "item": [
+        {
+          "name": "1. Seed a fresh sold unit + sale (so we have something to return)",
+          "request": {
+            "method": "PATCH",
+            "header": [ { "key": "Content-Type", "value": "application/json" } ],
+            "url": {
+              "raw": "{{baseUrl}}/inventoryUnits/359000000000099",
+              "host": [ "{{baseUrl}}" ],
+              "path": [ "inventoryUnits", "359000000000099" ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"fields\": {\n    \"imei\":         { \"stringValue\":  \"359000000000099\" },\n    \"model\":        { \"stringValue\":  \"iPhone 14\" },\n    \"brand\":        { \"stringValue\":  \"Apple\" },\n    \"category\":     { \"stringValue\":  \"iPhone\" },\n    \"colour\":       { \"stringValue\":  \"Midnight\" },\n    \"storage\":      { \"stringValue\":  \"128GB\" },\n    \"buyPrice\":     { \"integerValue\": \"650\" },\n    \"dateIn\":       { \"stringValue\":  \"2026-05-15\" },\n    \"supplierId\":   { \"stringValue\":  \"{{supplierId}}\" },\n    \"status\":       { \"stringValue\":  \"sold\" },\n    \"salePrice\":    { \"integerValue\": \"800\" },\n    \"saleDate\":     { \"stringValue\":  \"2026-05-16\" },\n    \"salePlatform\": { \"stringValue\":  \"EBAY\" },\n    \"saleOrderId\":  { \"stringValue\":  \"order_supplier_ret\" },\n    \"flags\":        { \"arrayValue\":   { \"values\": [] } },\n    \"notes\":        { \"stringValue\":  \"Scenario 5 seed\" },\n    \"platformListed\":{ \"booleanValue\": false },\n    \"listingSites\": { \"arrayValue\":   { \"values\": [] } },\n    \"ownerId\":      { \"stringValue\":  \"shared\" },\n    \"createdAt\":    { \"timestampValue\": \"2026-05-15T09:00:00Z\" }\n  }\n}"
+            }
+          },
+          "event": [
+            { "listen": "prerequest", "script": { "type": "text/javascript", "exec": [
+              "pm.collectionVariables.set('imei', '359000000000099');",
+              "pm.collectionVariables.set('saleId', 'EBAY__order_supplier_ret');"
+            ] } },
+            { "listen": "test", "script": { "type": "text/javascript", "exec": [
+              "pm.test('Status 200', () => pm.response.to.have.status(200));"
+            ] } }
+          ]
+        },
+        {
+          "name": "2. Seed linked sale",
+          "request": {
+            "method": "PATCH",
+            "header": [ { "key": "Content-Type", "value": "application/json" } ],
+            "url": {
+              "raw": "{{baseUrl}}/sales/{{saleId}}",
+              "host": [ "{{baseUrl}}" ],
+              "path": [ "sales", "{{saleId}}" ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"fields\": {\n    \"marketplace\":  { \"stringValue\":  \"EBAY\" },\n    \"orderNumber\":  { \"stringValue\":  \"order_supplier_ret\" },\n    \"imei\":         { \"stringValue\":  \"{{imei}}\" },\n    \"unitId\":       { \"stringValue\":  \"{{imei}}\" },\n    \"saleDate\":     { \"stringValue\":  \"2026-05-16\" },\n    \"quantity\":     { \"integerValue\": \"1\" },\n    \"buyPrice\":     { \"integerValue\": \"650\" },\n    \"salePrice\":    { \"integerValue\": \"800\" },\n    \"spMinusBp\":    { \"integerValue\": \"150\" },\n    \"marginalTax\":  { \"doubleValue\":  \"25.00\" },\n    \"commission\":   { \"doubleValue\":  \"80.00\" },\n    \"postage\":      { \"integerValue\": \"8\" },\n    \"grossProfit\":  { \"doubleValue\":  \"37.00\" },\n    \"gpPercent\":    { \"doubleValue\":  \"4.62\" },\n    \"importBatchId\":{ \"stringValue\":  \"inapp\" },\n    \"sourceFile\":   { \"stringValue\":  \"inapp-sell-flow\" },\n    \"sourceRow\":    { \"integerValue\": \"0\" },\n    \"importedAt\":   { \"timestampValue\": \"2026-05-16T09:30:00Z\" },\n    \"createdAt\":    { \"timestampValue\": \"2026-05-16T09:30:00Z\" },\n    \"updatedAt\":    { \"timestampValue\": \"2026-05-16T09:30:00Z\" },\n    \"ownerId\":      { \"stringValue\":  \"shared\" }\n  }\n}"
+            }
+          },
+          "event": [
+            { "listen": "test", "script": { "type": "text/javascript", "exec": [
+              "pm.test('Status 200', () => pm.response.to.have.status(200));"
+            ] } } ]
+          }
+        },
+        {
+          "name": "3. PATCH inventoryUnits/{imei} → status='returned' + returnType='returned_to_supplier' (NO hard delete)",
+          "request": {
+            "method": "PATCH",
+            "header": [ { "key": "Content-Type", "value": "application/json" } ],
+            "url": {
+              "raw": "{{baseUrl}}/inventoryUnits/{{imei}}?updateMask.fieldPaths=status&updateMask.fieldPaths=returnType&updateMask.fieldPaths=returnDate&updateMask.fieldPaths=returnReason&updateMask.fieldPaths=salePrice&updateMask.fieldPaths=saleDate&updateMask.fieldPaths=salePlatform&updateMask.fieldPaths=saleOrderId&updateMask.fieldPaths=postageCost",
+              "host": [ "{{baseUrl}}" ],
+              "path": [ "inventoryUnits", "{{imei}}" ],
+              "query": [
+                { "key": "updateMask.fieldPaths", "value": "status" },
+                { "key": "updateMask.fieldPaths", "value": "returnType" },
+                { "key": "updateMask.fieldPaths", "value": "returnDate" },
+                { "key": "updateMask.fieldPaths", "value": "returnReason" },
+                { "key": "updateMask.fieldPaths", "value": "salePrice" },
+                { "key": "updateMask.fieldPaths", "value": "saleDate" },
+                { "key": "updateMask.fieldPaths", "value": "salePlatform" },
+                { "key": "updateMask.fieldPaths", "value": "saleOrderId" },
+                { "key": "updateMask.fieldPaths", "value": "postageCost" }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"fields\": {\n    \"status\":       { \"stringValue\": \"returned\" },\n    \"returnType\":   { \"stringValue\": \"returned_to_supplier\" },\n    \"returnDate\":   { \"stringValue\": \"2026-05-17\" },\n    \"returnReason\": { \"stringValue\": \"Faulty — returning to supplier\" },\n    \"salePrice\":    { \"nullValue\":   null },\n    \"saleDate\":     { \"nullValue\":   null },\n    \"salePlatform\": { \"nullValue\":   null },\n    \"saleOrderId\":  { \"nullValue\":   null },\n    \"postageCost\":  { \"nullValue\":   null }\n  }\n}"
+            }
+          },
+          "event": [
+            { "listen": "test", "script": { "type": "text/javascript", "exec": [
+              "pm.test('Status 200', () => pm.response.to.have.status(200));",
+              "const json = pm.response.json();",
+              "pm.test('status === returned', () => pm.expect(json.fields.status.stringValue).to.eql('returned'));",
+              "pm.test('returnType === returned_to_supplier', () => pm.expect(json.fields.returnType.stringValue).to.eql('returned_to_supplier'));"
+            ] } } ]
+          }
+        },
+        {
+          "name": "4. PATCH linked sales/{saleId} → voidedAt",
+          "request": {
+            "method": "PATCH",
+            "header": [ { "key": "Content-Type", "value": "application/json" } ],
+            "url": {
+              "raw": "{{baseUrl}}/sales/{{saleId}}?updateMask.fieldPaths=voidedAt&updateMask.fieldPaths=voidReason",
+              "host": [ "{{baseUrl}}" ],
+              "path": [ "sales", "{{saleId}}" ],
+              "query": [
+                { "key": "updateMask.fieldPaths", "value": "voidedAt" },
+                { "key": "updateMask.fieldPaths", "value": "voidReason" }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"fields\": {\n    \"voidedAt\":   { \"stringValue\": \"2026-05-17\" },\n    \"voidReason\": { \"stringValue\": \"Faulty — returning to supplier\" }\n  }\n}"
+            }
+          },
+          "event": [
+            { "listen": "test", "script": { "type": "text/javascript", "exec": [
+              "pm.test('Status 200', () => pm.response.to.have.status(200));",
+              "pm.test('voidedAt is set', () => pm.expect(pm.response.json().fields.voidedAt.stringValue).to.eql('2026-05-17'));"
+            ] } } ]
+          }
+        },
+        {
+          "name": "5. GET inventoryUnits/{imei} — assert status='returned' AND doc still exists",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/inventoryUnits/{{imei}}",
+              "host": [ "{{baseUrl}}" ],
+              "path": [ "inventoryUnits", "{{imei}}" ]
+            }
+          },
+          "event": [
+            { "listen": "test", "script": { "type": "text/javascript", "exec": [
+              "pm.test('Status 200 (doc still exists — soft delete)', () => pm.response.to.have.status(200));",
+              "const json = pm.response.json();",
+              "pm.test('doc.name present', () => pm.expect(json.name).to.include('inventoryUnits/' + pm.collectionVariables.get('imei')));",
+              "pm.test('status === returned', () => pm.expect(json.fields.status.stringValue).to.eql('returned'));",
+              "pm.test('returnType === returned_to_supplier', () => pm.expect(json.fields.returnType.stringValue).to.eql('returned_to_supplier'));"
+            ] } } ]
+          }
+        }
+      ]
+    },
+
+    {
+      "name": "F6. Scenario — Sell SHS unit requires IMEI",
+      "description": "An SHS placeholder unit has a synthetic id (e.g. `shs_iphone_15_demo_1`) and no IMEI. We backfill the IMEI first, then record the sale; finally we verify the unit has imei + status='sold'.",
+      "item": [
+        {
+          "name": "1. Seed SHS placeholder unit (no IMEI)",
+          "request": {
+            "method": "PATCH",
+            "header": [ { "key": "Content-Type", "value": "application/json" } ],
+            "url": {
+              "raw": "{{baseUrl}}/inventoryUnits/{{shsUnitId}}",
+              "host": [ "{{baseUrl}}" ],
+              "path": [ "inventoryUnits", "{{shsUnitId}}" ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"fields\": {\n    \"imei\":           { \"stringValue\":  \"\" },\n    \"model\":          { \"stringValue\":  \"iPhone 15\" },\n    \"brand\":          { \"stringValue\":  \"Apple\" },\n    \"category\":       { \"stringValue\":  \"iPhone\" },\n    \"colour\":         { \"stringValue\":  \"PINK\" },\n    \"storage\":        { \"stringValue\":  \"128GB\" },\n    \"buyPrice\":       { \"integerValue\": \"700\" },\n    \"dateIn\":         { \"stringValue\":  \"2026-05-17\" },\n    \"supplierId\":     { \"stringValue\":  \"{{supplierId}}\" },\n    \"status\":         { \"stringValue\":  \"available\" },\n    \"statusRaw\":      { \"stringValue\":  \"SHS placeholder\" },\n    \"flags\":          { \"arrayValue\":   { \"values\": [] } },\n    \"notes\":          { \"stringValue\":  \"SHS placeholder awaiting IMEI backfill\" },\n    \"platformListed\": { \"booleanValue\": false },\n    \"listingSites\":   { \"arrayValue\":   { \"values\": [] } },\n    \"ownerId\":        { \"stringValue\":  \"shared\" },\n    \"createdAt\":      { \"timestampValue\": \"2026-05-17T09:00:00Z\" }\n  }\n}"
+            }
+          },
+          "event": [
+            { "listen": "test", "script": { "type": "text/javascript", "exec": [
+              "pm.test('Status 200', () => pm.response.to.have.status(200));"
+            ] } } ]
+          }
+        },
+        {
+          "name": "2. PATCH inventoryUnits/{shsUnitId} (backfill IMEI)",
+          "request": {
+            "method": "PATCH",
+            "header": [ { "key": "Content-Type", "value": "application/json" } ],
+            "url": {
+              "raw": "{{baseUrl}}/inventoryUnits/{{shsUnitId}}?updateMask.fieldPaths=imei",
+              "host": [ "{{baseUrl}}" ],
+              "path": [ "inventoryUnits", "{{shsUnitId}}" ],
+              "query": [ { "key": "updateMask.fieldPaths", "value": "imei" } ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"fields\": {\n    \"imei\": { \"stringValue\": \"353000000000111\" }\n  }\n}"
+            }
+          },
+          "event": [
+            { "listen": "test", "script": { "type": "text/javascript", "exec": [
+              "pm.test('Status 200', () => pm.response.to.have.status(200));",
+              "const json = pm.response.json();",
+              "pm.test('imei backfilled', () => pm.expect(json.fields.imei.stringValue).to.eql('353000000000111'));"
+            ] } } ]
+          }
+        },
+        {
+          "name": "3. PATCH sales/{newSaleId} (full body)",
+          "request": {
+            "method": "PATCH",
+            "header": [ { "key": "Content-Type", "value": "application/json" } ],
+            "url": {
+              "raw": "{{baseUrl}}/sales/EBAY__shs_order_001",
+              "host": [ "{{baseUrl}}" ],
+              "path": [ "sales", "EBAY__shs_order_001" ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"fields\": {\n    \"marketplace\":  { \"stringValue\":  \"EBAY\" },\n    \"orderNumber\":  { \"stringValue\":  \"shs_order_001\" },\n    \"imei\":         { \"stringValue\":  \"353000000000111\" },\n    \"unitId\":       { \"stringValue\":  \"{{shsUnitId}}\" },\n    \"supplierId\":   { \"stringValue\":  \"{{supplierId}}\" },\n    \"saleDate\":     { \"stringValue\":  \"2026-05-17\" },\n    \"quantity\":     { \"integerValue\": \"1\" },\n    \"buyPrice\":     { \"integerValue\": \"700\" },\n    \"salePrice\":    { \"integerValue\": \"950\" },\n    \"spMinusBp\":    { \"integerValue\": \"250\" },\n    \"marginalTax\":  { \"doubleValue\":  \"41.67\" },\n    \"commission\":   { \"doubleValue\":  \"95.0\" },\n    \"postage\":      { \"integerValue\": \"8\" },\n    \"grossProfit\":  { \"doubleValue\":  \"105.33\" },\n    \"gpPercent\":    { \"doubleValue\":  \"11.09\" },\n    \"importBatchId\":{ \"stringValue\":  \"inapp\" },\n    \"sourceFile\":   { \"stringValue\":  \"inapp-sell-flow\" },\n    \"sourceRow\":    { \"integerValue\": \"0\" },\n    \"importedAt\":   { \"timestampValue\": \"2026-05-17T09:45:00Z\" },\n    \"createdAt\":    { \"timestampValue\": \"2026-05-17T09:45:00Z\" },\n    \"updatedAt\":    { \"timestampValue\": \"2026-05-17T09:45:00Z\" },\n    \"ownerId\":      { \"stringValue\":  \"shared\" }\n  }\n}"
+            }
+          },
+          "event": [
+            { "listen": "test", "script": { "type": "text/javascript", "exec": [
+              "pm.test('Status 200', () => pm.response.to.have.status(200));",
+              "const json = pm.response.json();",
+              "pm.test('marketplace === EBAY', () => pm.expect(json.fields.marketplace.stringValue).to.eql('EBAY'));",
+              "pm.test('imei is set on sale', () => pm.expect(json.fields.imei.stringValue).to.eql('353000000000111'));"
+            ] } } ]
+          }
+        },
+        {
+          "name": "4. PATCH inventoryUnits/{shsUnitId} → status='sold'",
+          "request": {
+            "method": "PATCH",
+            "header": [ { "key": "Content-Type", "value": "application/json" } ],
+            "url": {
+              "raw": "{{baseUrl}}/inventoryUnits/{{shsUnitId}}?updateMask.fieldPaths=status&updateMask.fieldPaths=salePrice&updateMask.fieldPaths=saleDate&updateMask.fieldPaths=salePlatform&updateMask.fieldPaths=saleOrderId",
+              "host": [ "{{baseUrl}}" ],
+              "path": [ "inventoryUnits", "{{shsUnitId}}" ],
+              "query": [
+                { "key": "updateMask.fieldPaths", "value": "status" },
+                { "key": "updateMask.fieldPaths", "value": "salePrice" },
+                { "key": "updateMask.fieldPaths", "value": "saleDate" },
+                { "key": "updateMask.fieldPaths", "value": "salePlatform" },
+                { "key": "updateMask.fieldPaths", "value": "saleOrderId" }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"fields\": {\n    \"status\":       { \"stringValue\":  \"sold\" },\n    \"salePrice\":    { \"integerValue\": \"950\" },\n    \"saleDate\":     { \"stringValue\":  \"2026-05-17\" },\n    \"salePlatform\": { \"stringValue\":  \"EBAY\" },\n    \"saleOrderId\":  { \"stringValue\":  \"shs_order_001\" }\n  }\n}"
+            }
+          },
+          "event": [
+            { "listen": "test", "script": { "type": "text/javascript", "exec": [
+              "pm.test('Status 200', () => pm.response.to.have.status(200));"
+            ] } } ]
+          }
+        },
+        {
+          "name": "5. GET inventoryUnits/{shsUnitId} — assert imei is present AND status='sold'",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/inventoryUnits/{{shsUnitId}}",
+              "host": [ "{{baseUrl}}" ],
+              "path": [ "inventoryUnits", "{{shsUnitId}}" ]
+            }
+          },
+          "event": [
+            { "listen": "test", "script": { "type": "text/javascript", "exec": [
+              "pm.test('Status 200', () => pm.response.to.have.status(200));",
+              "const json = pm.response.json();",
+              "pm.test('imei is present', () => pm.expect(json.fields.imei.stringValue).to.be.a('string').and.not.empty);",
+              "pm.test('status === sold', () => pm.expect(json.fields.status.stringValue).to.eql('sold'));"
+            ] } } ]
+          }
+        }
+      ]
+    }
+  ]
+}
