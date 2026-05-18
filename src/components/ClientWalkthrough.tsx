@@ -28,6 +28,7 @@ import { createPortal } from 'react-dom';
 import {
   AlertCircle, CheckCircle2, Clock, Edit3, Download, FileText,
   Sparkles, Upload, Loader2, X, CheckCheck, Wand2,
+  RefreshCw, Tag, FlagTriangleRight,
 } from 'lucide-react';
 import ExcelJS from 'exceljs';
 import jsPDF from 'jspdf';
@@ -125,6 +126,10 @@ export default function ClientWalkthrough() {
   /** Cell edits keyed by `${sheet}|${row}|${col}`. Survives sheet
    *  switches; cleared only by reloading the page. */
   const [edits, setEdits] = useState<Record<string, string>>({});
+  /** Per-row classification overrides — set when the operator clicks
+   *  Mark green / Mark red in the issue card. Drives both the filter
+   *  visibility and what gets pushed by Load to DB. */
+  const [classOverrides, setClassOverrides] = useState<Record<number, Classification>>({});
   /** INVENTORY filter — defaults to GREEN per spec. Operator can pop
    *  open YELLOW/RED/BLUE as the walkthrough progresses. */
   const [filter, setFilter] = useState<Set<Classification>>(new Set(['green']));
@@ -138,14 +143,19 @@ export default function ClientWalkthrough() {
 
   const inv = SHEETS.INVENTORY;
 
+  /** Counts honour the operator's overrides so the filter pills
+   *  reflect the live state — every Mark green flips a digit. */
   const invCounts = useMemo(() => {
     const c: Record<Classification, number> = {
       green: 0, yellow: 0, red: 0, blue: 0,
       none: 0, divider: 0, blank: 0,
     };
-    inv.rows.forEach(r => { c[r.classification] += 1; });
+    inv.rows.forEach(r => {
+      const eff = classOverrides[r.row] ?? r.classification;
+      c[eff] += 1;
+    });
     return c;
-  }, [inv.rows]);
+  }, [inv.rows, classOverrides]);
 
   const editValue = (sheet: SheetName, row: number, col: number, original: string | number | null): string => {
     const key = `${sheet}|${row}|${col}`;
@@ -164,59 +174,108 @@ export default function ClientWalkthrough() {
     });
   };
 
+  /** Effective classification = manual override (if operator clicked
+   *  Mark green / Mark red) else the audit value baked into the JSON.
+   *  All visibility + loadability decisions use this, so the override
+   *  immediately moves a row between filter pills and the load set. */
+  const effectiveClass = (r: SheetRow): Classification =>
+    classOverrides[r.row] ?? r.classification;
+
   /** Rows currently visible in INVENTORY — controlled by the filter
    *  pills. Dividers and blanks always render so the row numbers line
    *  up with what the client sees. */
   const visibleInvRows = useMemo(() => {
-    return inv.rows.filter(r =>
-      r.classification === 'divider' ||
-      r.classification === 'blank' ||
-      filter.has(r.classification),
-    );
-  }, [inv.rows, filter]);
+    return inv.rows.filter(r => {
+      if (r.classification === 'divider' || r.classification === 'blank') return true;
+      return filter.has(effectiveClass(r));
+    });
+  }, [inv.rows, filter, classOverrides]);
 
   /** Rows that would be pushed to DB on Load. Always green by
    *  default; if the operator widened the filter we include whatever
    *  data rows are currently visible (and skip dividers/blanks). */
   const loadableInvRows = useMemo(() => {
-    return inv.rows.filter(r =>
-      r.classification !== 'divider' &&
-      r.classification !== 'blank' &&
-      r.classification !== 'none' &&
-      filter.has(r.classification),
-    );
-  }, [inv.rows, filter]);
+    return inv.rows.filter(r => {
+      if (r.classification === 'divider' || r.classification === 'blank') return false;
+      const eff = effectiveClass(r);
+      if (eff === 'none') return false;
+      return filter.has(eff);
+    });
+  }, [inv.rows, filter, classOverrides]);
 
-  /** For each model (normalised), the set of unique suppliers that
-   *  show up on its AVAILABLE IMEI rows. Powers the "Use IMEI
-   *  supplier" button — one click rewrites the rollup's supplier cell
-   *  to whatever the IMEI register actually says. */
-  const imeiSuppliersByModel = useMemo(() => {
-    const out = new Map<string, string[]>();
+  /** One digest per model (normalised) drawn from the AVAILABLE rows
+   *  of the IMEI sheet — powers every "Use IMEI <thing>" button on a
+   *  row: name, supplier, colour breakdown, qty. Computed once. */
+  const imeiByModel = useMemo(() => {
+    interface Digest {
+      modelLabel: string;       // canonical IMEI-side name
+      suppliers: string[];
+      colourCount: Map<string, number>;
+      qty: number;
+    }
+    const out = new Map<string, Digest>();
     for (const r of SHEETS['IMEI NUMBERS'].rows) {
       if (r.classification === 'blank') continue;
       const m = asStr(r.cells[1]);
       const status = asStr(r.cells[7]).trim().toUpperCase();
-      const sup = asStr(r.cells[5]).trim();
-      if (!m || !sup) continue;
+      if (!m) continue;
       if (status && status !== 'AVAILABLE') continue;
       const key = normalizeModel(m);
-      const list = out.get(key) ?? [];
-      if (!list.includes(sup)) list.push(sup);
-      out.set(key, list);
+      const d = out.get(key) ?? { modelLabel: m.trim(), suppliers: [], colourCount: new Map(), qty: 0 };
+      d.qty += 1;
+      const sup = asStr(r.cells[5]).trim();
+      if (sup && !d.suppliers.includes(sup)) d.suppliers.push(sup);
+      const colour = asStr(r.cells[4]).trim().toUpperCase();
+      if (colour) d.colourCount.set(colour, (d.colourCount.get(colour) ?? 0) + 1);
+      out.set(key, d);
     }
     return out;
   }, []);
 
-  /** One-click resolver for supplier mismatches: looks up the
-   *  available IMEI suppliers for this model and writes them into the
-   *  rollup's supplier cell, joined by " / " if there's more than
-   *  one. */
+  /** Build the colour-string used in the rollup ("BLUE 3 MINT 5 ...")
+   *  from a count map. Insertion order is preserved. */
+  const formatColourMap = (m: Map<string, number>): string => {
+    const parts: string[] = [];
+    for (const [c, n] of m.entries()) {
+      parts.push(`${c} ${n}`);
+    }
+    return parts.join(' ');
+  };
+
   const applyImeiSupplier = (rowI: number, model: string): boolean => {
-    const imeiSuppliers = imeiSuppliersByModel.get(normalizeModel(model)) ?? [];
-    if (imeiSuppliers.length === 0) return false;
-    setEdit('INVENTORY', rowI, 6, imeiSuppliers.join(' / '));
+    const d = imeiByModel.get(normalizeModel(model));
+    if (!d || d.suppliers.length === 0) return false;
+    setEdit('INVENTORY', rowI, 6, d.suppliers.join(' / '));
     return true;
+  };
+  const applyImeiName = (rowI: number, model: string): boolean => {
+    const d = imeiByModel.get(normalizeModel(model));
+    if (!d) return false;
+    setEdit('INVENTORY', rowI, 0, d.modelLabel);
+    return true;
+  };
+  const applyImeiColours = (rowI: number, model: string): boolean => {
+    const d = imeiByModel.get(normalizeModel(model));
+    if (!d || d.colourCount.size === 0) return false;
+    setEdit('INVENTORY', rowI, 5, formatColourMap(d.colourCount));
+    return true;
+  };
+  const applyImeiQty = (rowI: number, model: string): boolean => {
+    const d = imeiByModel.get(normalizeModel(model));
+    if (!d) return false;
+    setEdit('INVENTORY', rowI, 2, String(d.qty));
+    return true;
+  };
+
+  /** Flip a row's classification override. Used by the Mark green /
+   *  Mark red button on each row's issue card. */
+  const toggleRowClass = (rowI: number, target: Classification) => {
+    setClassOverrides(prev => {
+      const next = { ...prev };
+      if (prev[rowI] === target) delete next[rowI];
+      else next[rowI] = target;
+      return next;
+    });
   };
 
   /** Pre-count the IMEI units we'll create so the toolbar button can
@@ -631,8 +690,15 @@ export default function ClientWalkthrough() {
           visibleRows={visibleInvRows}
           editValue={editValue}
           setEdit={setEdit}
-          imeiSuppliersByModel={imeiSuppliersByModel}
+          imeiByModel={imeiByModel}
+          formatColourMap={formatColourMap}
           applyImeiSupplier={applyImeiSupplier}
+          applyImeiName={applyImeiName}
+          applyImeiColours={applyImeiColours}
+          applyImeiQty={applyImeiQty}
+          effectiveClass={effectiveClass}
+          isOverridden={(rowI: number) => rowI in classOverrides}
+          toggleRowClass={toggleRowClass}
         />
       )}
       {activeSheet === 'IMEI NUMBERS' && (
@@ -652,21 +718,42 @@ export default function ClientWalkthrough() {
   );
 }
 
-/** INVENTORY-specific table: row classification colouring + Issue/
- *  Explanation column populated for RED rows. The supplier column
- *  (index 6) renders a tiny "Use IMEI supplier" wand next to the
- *  input when the IMEI register has a different / non-empty
- *  supplier for the same model — one click resolves the mismatch. */
+/** INVENTORY-specific table.
+ *
+ *  Each data row carries:
+ *    - per-cell mismatch detection against the IMEI register: name,
+ *      qty, colour, supplier. When any of these disagree, a tiny
+ *      "Use IMEI" pencil button renders inside the cell — one click
+ *      copies the IMEI-side value into the rollup cell.
+ *    - an Issue / Explanation column on the right with the audit
+ *      headline (when there is one), live mismatch chips driven by
+ *      the current cell values, and a Mark green / Mark red toggle.
+ *      The toggle writes a per-row classification override that
+ *      flows through filter visibility and the Load-to-DB scope. */
 function InventoryTable({
   sheet, visibleRows, editValue, setEdit,
-  imeiSuppliersByModel, applyImeiSupplier,
+  imeiByModel, formatColourMap,
+  applyImeiSupplier, applyImeiName, applyImeiColours, applyImeiQty,
+  effectiveClass, isOverridden, toggleRowClass,
 }: {
   sheet: Sheet;
   visibleRows: SheetRow[];
   editValue: (sheet: SheetName, row: number, col: number, original: string | number | null) => string;
   setEdit: (sheet: SheetName, row: number, col: number, val: string) => void;
-  imeiSuppliersByModel: Map<string, string[]>;
+  imeiByModel: Map<string, {
+    modelLabel: string;
+    suppliers: string[];
+    colourCount: Map<string, number>;
+    qty: number;
+  }>;
+  formatColourMap: (m: Map<string, number>) => string;
   applyImeiSupplier: (rowI: number, model: string) => boolean;
+  applyImeiName:     (rowI: number, model: string) => boolean;
+  applyImeiColours:  (rowI: number, model: string) => boolean;
+  applyImeiQty:      (rowI: number, model: string) => boolean;
+  effectiveClass: (r: SheetRow) => Classification;
+  isOverridden:   (rowI: number) => boolean;
+  toggleRowClass: (rowI: number, target: Classification) => void;
 }) {
   return (
     <div className="bg-white border border-slate-200 rounded-3xl overflow-hidden">
@@ -674,13 +761,13 @@ function InventoryTable({
         <table className="w-full text-[11px] table-fixed">
           <colgroup>
             <col style={{ width: '44px' }} />
-            <col style={{ width: '22%' }} />
+            <col style={{ width: '20%' }} />
             <col style={{ width: '60px' }} />
+            <col style={{ width: '90px' }} />
             <col style={{ width: '70px' }} />
-            <col style={{ width: '70px' }} />
-            <col style={{ width: '18%' }} />
-            <col style={{ width: '11%' }} />
-            <col style={{ width: '10%' }} />
+            <col style={{ width: '17%' }} />
+            <col style={{ width: '12%' }} />
+            <col style={{ width: '9%' }} />
             <col />
           </colgroup>
           <thead>
@@ -714,51 +801,117 @@ function InventoryTable({
                   </tr>
                 );
               }
-              const issue = WALKTHROUGH_ISSUES[r.row] as RowIssue | undefined;
-              const showIssue = r.classification === 'red' && issue;
+
+              // Live cell values (after edits)
               const currentModel    = editValue('INVENTORY', r.row, 0, r.cells[0]);
+              const currentQty      = editValue('INVENTORY', r.row, 2, r.cells[2]);
+              const currentColours  = editValue('INVENTORY', r.row, 5, r.cells[5]);
               const currentSupplier = editValue('INVENTORY', r.row, 6, r.cells[6]);
-              const imeiSuppliers   = imeiSuppliersByModel.get(normalizeModel(currentModel)) ?? [];
-              const imeiSupString   = imeiSuppliers.join(' / ');
-              const supplierMismatch = imeiSuppliers.length > 0 && imeiSupString !== currentSupplier.trim();
+
+              // Look up the IMEI-side digest for this model.
+              const d = imeiByModel.get(normalizeModel(currentModel));
+              const imeiSupString = d?.suppliers.join(' / ') ?? '';
+              const imeiColString = d ? formatColourMap(d.colourCount) : '';
+              const imeiQtyStr    = d ? String(d.qty) : '';
+
+              // Per-cell mismatch detection — only flags when the IMEI
+              // register has data to suggest. A row with no matching
+              // IMEIs (e.g. row 24 phantom units) shows no buttons.
+              const nameMismatch     = !!d && d.modelLabel.trim() !== currentModel.trim();
+              const qtyMismatch      = !!d && imeiQtyStr !== currentQty.trim();
+              const colourMismatch   = !!d && d.colourCount.size > 0 && imeiColString !== currentColours.trim();
+              const supplierMismatch = !!d && d.suppliers.length > 0 && imeiSupString !== currentSupplier.trim();
+
+              const eff      = effectiveClass(r);
+              const isFlipped = isOverridden(r.row);
+              const issue    = WALKTHROUGH_ISSUES[r.row] as RowIssue | undefined;
+              const anyMismatch = nameMismatch || qtyMismatch || colourMismatch || supplierMismatch;
+
               return (
-                <tr key={r.row} className={`${ROW_BG[r.classification]} border-b border-slate-100`}>
+                <tr key={r.row} className={`${ROW_BG[eff]} border-b border-slate-100`}>
                   <td className="px-2 py-1.5 text-right font-mono text-[9px] text-slate-400 align-top pt-2">{r.row}</td>
                   {sheet.headers.map((_, i) => {
-                    if (i === 6) {
+                    // Cells with potential mismatch action buttons.
+                    let v = '';
+                    let alignR: 'left' | 'right' = 'left';
+                    let showBtn = false;
+                    let btnTitle = '';
+                    let btnIcon: React.ReactNode = null;
+                    let btnClick: (() => void) | null = null;
+                    if (i === 0) {
+                      v = currentModel;
+                      showBtn = nameMismatch;
+                      btnTitle = `Use IMEI name: ${d?.modelLabel}`;
+                      btnIcon = <Edit3 size={11} />;
+                      btnClick = () => { applyImeiName(r.row, currentModel); };
+                    } else if (i === 2) {
+                      v = currentQty;
+                      alignR = 'right';
+                      showBtn = qtyMismatch;
+                      btnTitle = `Use IMEI count: ${imeiQtyStr}`;
+                      btnIcon = <RefreshCw size={11} />;
+                      btnClick = () => { applyImeiQty(r.row, currentModel); };
+                    } else if (i === 5) {
+                      v = currentColours;
+                      showBtn = colourMismatch;
+                      btnTitle = `Use IMEI colours: ${imeiColString}`;
+                      btnIcon = <Tag size={11} />;
+                      btnClick = () => { applyImeiColours(r.row, currentModel); };
+                    } else if (i === 6) {
+                      v = currentSupplier;
+                      showBtn = supplierMismatch;
+                      btnTitle = `Use IMEI supplier: ${imeiSupString}`;
+                      btnIcon = <Wand2 size={11} />;
+                      btnClick = () => { applyImeiSupplier(r.row, currentModel); };
+                    } else {
                       return (
                         <td key={i} className="px-1 py-1 align-top">
-                          <div className="flex items-center gap-1">
-                            <EditableCell
-                              value={currentSupplier}
-                              onChange={v => setEdit('INVENTORY', r.row, 6, v)}
-                            />
-                            {supplierMismatch && (
-                              <button
-                                type="button"
-                                onClick={() => applyImeiSupplier(r.row, currentModel)}
-                                title={`Use IMEI supplier: ${imeiSupString}`}
-                                className="flex-shrink-0 p-1 rounded text-sky-600 hover:bg-sky-100 hover:text-sky-800 transition-all"
-                              >
-                                <Wand2 size={11} />
-                              </button>
-                            )}
-                          </div>
+                          <EditableCell
+                            value={editValue('INVENTORY', r.row, i, r.cells[i])}
+                            onChange={vv => setEdit('INVENTORY', r.row, i, vv)}
+                            align={i === 1 || i === 4 ? 'right' : 'left'}
+                          />
                         </td>
                       );
                     }
                     return (
                       <td key={i} className="px-1 py-1 align-top">
-                        <EditableCell
-                          value={editValue('INVENTORY', r.row, i, r.cells[i])}
-                          onChange={v => setEdit('INVENTORY', r.row, i, v)}
-                          align={i === 1 || i === 2 || i === 4 ? 'right' : 'left'}
-                        />
+                        <div className="flex items-center gap-1">
+                          <EditableCell
+                            value={v}
+                            onChange={vv => setEdit('INVENTORY', r.row, i, vv)}
+                            align={alignR}
+                          />
+                          {showBtn && btnClick && (
+                            <button
+                              type="button"
+                              onClick={btnClick}
+                              title={btnTitle}
+                              className="flex-shrink-0 p-1 rounded text-sky-600 hover:bg-sky-100 hover:text-sky-800 transition-all"
+                            >
+                              {btnIcon}
+                            </button>
+                          )}
+                        </div>
                       </td>
                     );
                   })}
                   <td className="px-2 py-1.5 align-top">
-                    {showIssue ? <IssueBlock issue={issue!} /> : null}
+                    <IssueCard
+                      effectiveClass={eff}
+                      originalClass={r.classification}
+                      isFlipped={isFlipped}
+                      issue={issue}
+                      mismatches={{
+                        name: nameMismatch,
+                        qty: qtyMismatch,
+                        colour: colourMismatch,
+                        supplier: supplierMismatch,
+                      }}
+                      anyMismatch={anyMismatch}
+                      onMarkGreen={() => toggleRowClass(r.row, 'green')}
+                      onMarkRed={() => toggleRowClass(r.row, 'red')}
+                    />
                   </td>
                 </tr>
               );
@@ -824,26 +977,115 @@ function RawSheetTable({
   );
 }
 
-function IssueBlock({ issue }: { issue: RowIssue }) {
+/** The right-column card on every INVENTORY row. Shows three things:
+ *
+ *  1. A status badge — OPEN (red) / RESOLVED (green) — plus the
+ *     original audit classification when the operator has overridden
+ *     it ("was: ISSUE"), so the audit trail stays visible.
+ *  2. Live mismatch chips driven by the current cell values: NAME,
+ *     QTY, COLOUR, SUPPLIER. Disappear as the operator applies fixes.
+ *  3. The audit headline / bullets / "ask the client" questions (when
+ *     there's an entry for this row), and a Mark green / Mark red
+ *     toggle at the bottom. */
+function IssueCard({
+  effectiveClass, originalClass, isFlipped, issue, mismatches, anyMismatch,
+  onMarkGreen, onMarkRed,
+}: {
+  effectiveClass: Classification;
+  originalClass: Classification;
+  isFlipped: boolean;
+  issue: RowIssue | undefined;
+  mismatches: { name: boolean; qty: boolean; colour: boolean; supplier: boolean };
+  anyMismatch: boolean;
+  onMarkGreen: () => void;
+  onMarkRed: () => void;
+}) {
+  // Render nothing for rows that are green from source and have
+  // nothing to say — keeps the meeting-mode default view clean.
+  if (effectiveClass === 'green' && !anyMismatch && !issue && !isFlipped) return null;
+
+  const isGreen = effectiveClass === 'green';
+  const statusClass = isGreen
+    ? 'bg-emerald-100 text-emerald-700 border-emerald-200'
+    : effectiveClass === 'yellow'
+      ? 'bg-amber-100 text-amber-700 border-amber-200'
+      : 'bg-rose-100 text-rose-700 border-rose-200';
+  const statusLabel = isGreen ? 'Resolved' : effectiveClass === 'yellow' ? 'Gap' : 'Open';
+
+  const chips: { id: string; label: string; tone: 'rose' | 'sky' }[] = [];
+  if (mismatches.name)     chips.push({ id: 'name',     label: 'NAME',     tone: 'sky' });
+  if (mismatches.qty)      chips.push({ id: 'qty',      label: 'QTY',      tone: 'sky' });
+  if (mismatches.colour)   chips.push({ id: 'colour',   label: 'COLOUR',   tone: 'sky' });
+  if (mismatches.supplier) chips.push({ id: 'supplier', label: 'SUPPLIER', tone: 'sky' });
+
   return (
     <div className="space-y-1.5 leading-snug">
-      <p className="text-[11px] font-bold text-rose-900">{issue.headline}</p>
-      <ul className="space-y-0.5">
-        {issue.bullets.map((b, i) => (
-          <li key={i} className="text-[10px] text-slate-700 flex gap-1.5">
-            <span className="text-rose-400 flex-shrink-0">•</span>
-            <span>{b}</span>
-          </li>
+      {/* Status badge + audit-history pill */}
+      <div className="flex items-center gap-1.5 flex-wrap">
+        <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded border text-[8px] font-bold uppercase tracking-widest ${statusClass}`}>
+          {isGreen ? <CheckCircle2 size={9} /> : <AlertCircle size={9} />}
+          {statusLabel}
+        </span>
+        {isFlipped && (
+          <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded border border-slate-200 bg-white text-slate-500 text-[8px] font-bold uppercase tracking-widest">
+            was: {originalClass}
+          </span>
+        )}
+        {chips.map(c => (
+          <span
+            key={c.id}
+            className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded border border-sky-200 bg-sky-50 text-sky-700 text-[8px] font-bold uppercase tracking-widest"
+          >
+            {c.label}
+          </span>
         ))}
-      </ul>
-      {issue.questions?.length ? (
-        <div className="mt-1.5 pt-1.5 border-t border-rose-200">
-          <p className="text-[8px] font-bold uppercase tracking-widest text-rose-400 mb-0.5">Ask the client</p>
-          {issue.questions.map((q, i) => (
-            <p key={i} className="text-[10px] text-slate-800 italic">"{q}"</p>
-          ))}
-        </div>
-      ) : null}
+      </div>
+
+      {/* Audit context, if we have a write-up for this row */}
+      {issue && (
+        <>
+          <p className={`text-[11px] font-bold ${isGreen ? 'text-emerald-900' : 'text-rose-900'}`}>{issue.headline}</p>
+          <ul className="space-y-0.5">
+            {issue.bullets.map((b, i) => (
+              <li key={i} className="text-[10px] text-slate-700 flex gap-1.5">
+                <span className={`flex-shrink-0 ${isGreen ? 'text-emerald-400' : 'text-rose-400'}`}>•</span>
+                <span>{b}</span>
+              </li>
+            ))}
+          </ul>
+          {issue.questions?.length ? (
+            <div className={`mt-1.5 pt-1.5 border-t ${isGreen ? 'border-emerald-200' : 'border-rose-200'}`}>
+              <p className={`text-[8px] font-bold uppercase tracking-widest mb-0.5 ${isGreen ? 'text-emerald-400' : 'text-rose-400'}`}>Ask the client</p>
+              {issue.questions.map((q, i) => (
+                <p key={i} className="text-[10px] text-slate-800 italic">"{q}"</p>
+              ))}
+            </div>
+          ) : null}
+        </>
+      )}
+
+      {/* Mark-green / mark-red toggle. Always shown when there's
+          anything to act on (mismatches present, audit issue exists,
+          or row was already overridden). */}
+      <div className="pt-1.5 flex gap-1.5">
+        {isGreen ? (
+          <button
+            type="button"
+            onClick={onMarkRed}
+            className="inline-flex items-center gap-1 px-2 py-1 rounded bg-white border border-rose-200 text-rose-700 hover:bg-rose-50 text-[9px] font-bold uppercase tracking-widest transition-all"
+          >
+            <FlagTriangleRight size={10} /> Mark red
+          </button>
+        ) : (
+          <button
+            type="button"
+            onClick={onMarkGreen}
+            className="inline-flex items-center gap-1 px-2 py-1 rounded bg-emerald-600 text-white hover:bg-emerald-700 text-[9px] font-bold uppercase tracking-widest transition-all"
+          >
+            <CheckCheck size={10} /> Mark green
+          </button>
+        )}
+      </div>
     </div>
   );
 }
