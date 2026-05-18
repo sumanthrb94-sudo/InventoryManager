@@ -27,7 +27,7 @@ import React, { useState, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import {
   AlertCircle, CheckCircle2, Clock, Edit3, Download, FileText,
-  Sparkles, Upload, Loader2, X, CheckCheck,
+  Sparkles, Upload, Loader2, X, CheckCheck, Wand2,
 } from 'lucide-react';
 import ExcelJS from 'exceljs';
 import jsPDF from 'jspdf';
@@ -186,6 +186,38 @@ export default function ClientWalkthrough() {
       filter.has(r.classification),
     );
   }, [inv.rows, filter]);
+
+  /** For each model (normalised), the set of unique suppliers that
+   *  show up on its AVAILABLE IMEI rows. Powers the "Use IMEI
+   *  supplier" button — one click rewrites the rollup's supplier cell
+   *  to whatever the IMEI register actually says. */
+  const imeiSuppliersByModel = useMemo(() => {
+    const out = new Map<string, string[]>();
+    for (const r of SHEETS['IMEI NUMBERS'].rows) {
+      if (r.classification === 'blank') continue;
+      const m = asStr(r.cells[1]);
+      const status = asStr(r.cells[7]).trim().toUpperCase();
+      const sup = asStr(r.cells[5]).trim();
+      if (!m || !sup) continue;
+      if (status && status !== 'AVAILABLE') continue;
+      const key = normalizeModel(m);
+      const list = out.get(key) ?? [];
+      if (!list.includes(sup)) list.push(sup);
+      out.set(key, list);
+    }
+    return out;
+  }, []);
+
+  /** One-click resolver for supplier mismatches: looks up the
+   *  available IMEI suppliers for this model and writes them into the
+   *  rollup's supplier cell, joined by " / " if there's more than
+   *  one. */
+  const applyImeiSupplier = (rowI: number, model: string): boolean => {
+    const imeiSuppliers = imeiSuppliersByModel.get(normalizeModel(model)) ?? [];
+    if (imeiSuppliers.length === 0) return false;
+    setEdit('INVENTORY', rowI, 6, imeiSuppliers.join(' / '));
+    return true;
+  };
 
   /** Pre-count the IMEI units we'll create so the toolbar button can
    *  show an honest preview ("Load to DB · 8 rows / 84 units"). Same
@@ -599,6 +631,8 @@ export default function ClientWalkthrough() {
           visibleRows={visibleInvRows}
           editValue={editValue}
           setEdit={setEdit}
+          imeiSuppliersByModel={imeiSuppliersByModel}
+          applyImeiSupplier={applyImeiSupplier}
         />
       )}
       {activeSheet === 'IMEI NUMBERS' && (
@@ -619,14 +653,20 @@ export default function ClientWalkthrough() {
 }
 
 /** INVENTORY-specific table: row classification colouring + Issue/
- *  Explanation column populated for RED rows. */
+ *  Explanation column populated for RED rows. The supplier column
+ *  (index 6) renders a tiny "Use IMEI supplier" wand next to the
+ *  input when the IMEI register has a different / non-empty
+ *  supplier for the same model — one click resolves the mismatch. */
 function InventoryTable({
   sheet, visibleRows, editValue, setEdit,
+  imeiSuppliersByModel, applyImeiSupplier,
 }: {
   sheet: Sheet;
   visibleRows: SheetRow[];
   editValue: (sheet: SheetName, row: number, col: number, original: string | number | null) => string;
   setEdit: (sheet: SheetName, row: number, col: number, val: string) => void;
+  imeiSuppliersByModel: Map<string, string[]>;
+  applyImeiSupplier: (rowI: number, model: string) => boolean;
 }) {
   return (
     <div className="bg-white border border-slate-200 rounded-3xl overflow-hidden">
@@ -676,18 +716,47 @@ function InventoryTable({
               }
               const issue = WALKTHROUGH_ISSUES[r.row] as RowIssue | undefined;
               const showIssue = r.classification === 'red' && issue;
+              const currentModel    = editValue('INVENTORY', r.row, 0, r.cells[0]);
+              const currentSupplier = editValue('INVENTORY', r.row, 6, r.cells[6]);
+              const imeiSuppliers   = imeiSuppliersByModel.get(normalizeModel(currentModel)) ?? [];
+              const imeiSupString   = imeiSuppliers.join(' / ');
+              const supplierMismatch = imeiSuppliers.length > 0 && imeiSupString !== currentSupplier.trim();
               return (
                 <tr key={r.row} className={`${ROW_BG[r.classification]} border-b border-slate-100`}>
                   <td className="px-2 py-1.5 text-right font-mono text-[9px] text-slate-400 align-top pt-2">{r.row}</td>
-                  {sheet.headers.map((_, i) => (
-                    <td key={i} className="px-1 py-1 align-top">
-                      <EditableCell
-                        value={editValue('INVENTORY', r.row, i, r.cells[i])}
-                        onChange={v => setEdit('INVENTORY', r.row, i, v)}
-                        align={i === 1 || i === 2 || i === 4 ? 'right' : 'left'}
-                      />
-                    </td>
-                  ))}
+                  {sheet.headers.map((_, i) => {
+                    if (i === 6) {
+                      return (
+                        <td key={i} className="px-1 py-1 align-top">
+                          <div className="flex items-center gap-1">
+                            <EditableCell
+                              value={currentSupplier}
+                              onChange={v => setEdit('INVENTORY', r.row, 6, v)}
+                            />
+                            {supplierMismatch && (
+                              <button
+                                type="button"
+                                onClick={() => applyImeiSupplier(r.row, currentModel)}
+                                title={`Use IMEI supplier: ${imeiSupString}`}
+                                className="flex-shrink-0 p-1 rounded text-sky-600 hover:bg-sky-100 hover:text-sky-800 transition-all"
+                              >
+                                <Wand2 size={11} />
+                              </button>
+                            )}
+                          </div>
+                        </td>
+                      );
+                    }
+                    return (
+                      <td key={i} className="px-1 py-1 align-top">
+                        <EditableCell
+                          value={editValue('INVENTORY', r.row, i, r.cells[i])}
+                          onChange={v => setEdit('INVENTORY', r.row, i, v)}
+                          align={i === 1 || i === 2 || i === 4 ? 'right' : 'left'}
+                        />
+                      </td>
+                    );
+                  })}
                   <td className="px-2 py-1.5 align-top">
                     {showIssue ? <IssueBlock issue={issue!} /> : null}
                   </td>
