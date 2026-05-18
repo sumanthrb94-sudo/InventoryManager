@@ -100,11 +100,11 @@ export const WALKTHROUGH_ISSUES: Record<number, RowIssue> = {
     questions: ['Were those 2 RR STOCK units a deliberate re-buy, or should the rollup just be split per batch?'],
   },
   20: {
-    headline: 'Samsung S21 Plus 5G 128GB — "+ vs Plus" naming, plus supplier mismatch',
+    headline: 'Samsung S21 Plus 5G 128GB — resolved: "Plus" naming, RR STOCK confirmed',
     bullets: [
-      'INV used "Samsung Galaxy S21+ 128GB"; IMEI used "SAMSUNG S21+ 128GB". Renamed in v2 to "S21 Plus".',
-      'Qty matches (1 each).',
-      'Supplier: INV says RR STOCK. Confirm vs IMEI value.',
+      'Both sheets read "Samsung Galaxy S21 Plus 5G 128GB" after the v2 rename.',
+      'Single PURPLE unit from RR STOCK matches across rollup + IMEI.',
+      'Trimmed trailing space on the supplier cell; row flipped green.',
     ],
   },
   21: {
