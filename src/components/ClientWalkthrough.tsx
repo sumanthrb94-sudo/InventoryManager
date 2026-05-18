@@ -35,7 +35,8 @@ import autoTable from 'jspdf-autotable';
 import workbookData from '../data/walkthroughWorkbook.json';
 import { WALKTHROUGH_ISSUES, RowIssue } from '../data/walkthroughIssues';
 import { dbService } from '../lib/dbService';
-import type { InventoryAggregate, Supplier } from '../types';
+import { parseBrandModelStorage } from '../lib/modelStorage';
+import type { InventoryAggregate, InventoryUnit, Supplier, DeviceCategory } from '../types';
 
 type Classification = 'green' | 'yellow' | 'red' | 'blue' | 'none' | 'divider' | 'blank';
 
@@ -78,6 +79,26 @@ function asStr(v: string | number | null): string {
   return String(v);
 }
 
+/** Mirrors src/services/inventoryService.ts:detectCategory so the
+ *  walkthrough loader and the rest of the app classify the same way. */
+function detectCategory(model: string): DeviceCategory {
+  const m = (model || '').toUpperCase();
+  if (m.includes('IPAD')) return 'iPad';
+  if (/APPLE WATCH|WATCH ULTRA|WATCH SE/.test(m)) return 'Apple Watch';
+  if (m.includes('IPHONE')) return 'iPhone';
+  if (/GALAXY TAB|TAB A\d|TAB S\d/.test(m)) return 'Tablet';
+  if (m.includes('SAMSUNG') || m.includes('GALAXY'))
+    return /\bA\d{2,3}\b|GALAXY A/.test(m) ? 'Samsung A Series' : 'Samsung S Series';
+  return 'Other';
+}
+
+/** Normalise a model string so two minor formatting differences
+ *  ("Galaxy Tab S9FE" vs "GALAXY TAB S9 FE") collide on the same key.
+ *  Used to match INVENTORY rollup rows to their IMEI sheet rows. */
+function normalizeModel(s: string): string {
+  return String(s || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+}
+
 /** Best-effort colours-string → { COLOUR: count } map. Handles the
  *  "BLACK 2 WHITE 1" shorthand the client uses. */
 function parseColoursRaw(raw: string): { [c: string]: number } {
@@ -111,7 +132,7 @@ export default function ClientWalkthrough() {
     | { kind: 'idle' }
     | { kind: 'confirm'; rows: SheetRow[] }
     | { kind: 'loading'; done: number; total: number }
-    | { kind: 'done'; count: number }
+    | { kind: 'done'; count: number; units: number }
     | { kind: 'error'; msg: string }
   >({ kind: 'idle' });
 
@@ -165,6 +186,29 @@ export default function ClientWalkthrough() {
       filter.has(r.classification),
     );
   }, [inv.rows, filter]);
+
+  /** Pre-count the IMEI units we'll create so the toolbar button can
+   *  show an honest preview ("Load to DB · 8 rows / 84 units"). Same
+   *  matching logic the loader uses. */
+  const loadableUnitCount = useMemo(() => {
+    const imei = SHEETS['IMEI NUMBERS'];
+    const availableByModel = new Map<string, number>();
+    for (const r of imei.rows) {
+      if (r.classification === 'blank') continue;
+      const m = asStr(r.cells[1]);
+      const status = asStr(r.cells[7]).trim().toUpperCase();
+      if (!m) continue;
+      if (status && status !== 'AVAILABLE') continue;
+      const key = normalizeModel(m);
+      availableByModel.set(key, (availableByModel.get(key) ?? 0) + 1);
+    }
+    let total = 0;
+    for (const r of loadableInvRows) {
+      const model = editValue('INVENTORY', r.row, 0, r.cells[0]).trim();
+      total += availableByModel.get(normalizeModel(model)) ?? 0;
+    }
+    return total;
+  }, [loadableInvRows, edits]);
 
   const handleDownloadXlsx = async () => {
     const wb = new ExcelJS.Workbook();
@@ -301,10 +345,17 @@ export default function ClientWalkthrough() {
     doc.save(`INVENTORY_REPORT_2026_issues_${new Date().toISOString().split('T')[0]}.pdf`);
   };
 
-  /** Push the currently-filtered INVENTORY rows to Firestore as
-   *  InventoryAggregate documents. Mirrors the supplier-lookup logic
-   *  in MasterDataLinkedImport so names resolve to the same docs the
-   *  rest of the app uses. */
+  /** Push the currently-filtered INVENTORY rows to Firestore. For each
+   *  green row we create:
+   *    - one InventoryAggregate doc (the rollup line for the master-data
+   *      panel), AND
+   *    - one InventoryUnit doc per matching available IMEI from the IMEI
+   *      NUMBERS sheet — the dashboards, BuySheet, SellSheet etc all
+   *      read inventoryUnits, so without these the data wouldn't show.
+   *
+   *  Supplier names resolve to existing supplier docs or create new
+   *  ones (mirroring MasterDataLinkedImport's path). The whole load is
+   *  tagged with a fresh importBatches entry. */
   const handleLoadToDb = async () => {
     setLoadState({ kind: 'loading', done: 0, total: loadableInvRows.length + 1 });
     try {
@@ -315,14 +366,15 @@ export default function ClientWalkthrough() {
         if (n) byNormName.set(n, s);
       }
       const suppliersToCreate = new Map<string, Supplier>();
-      const resolveSupplier = (name: string): string => {
-        const norm = name.trim().toLowerCase();
+      const resolveSupplier = (name: string): { id: string; name: string } => {
+        const cleanName = name.trim();
+        const norm = cleanName.toLowerCase();
         const existing = byNormName.get(norm);
-        if (existing?.id) return existing.id;
-        const id = slugify(name);
+        if (existing?.id) return { id: existing.id, name: existing.name || cleanName };
+        const id = slugify(cleanName);
         if (!suppliersToCreate.has(id)) {
           const supplier: Supplier = {
-            id, name: name.trim(),
+            id, name: cleanName,
             portal: 'Wholesale',
             ownerId: 'shared',
             createdAt: new Date().toISOString() as any,
@@ -330,8 +382,24 @@ export default function ClientWalkthrough() {
           suppliersToCreate.set(id, supplier);
           byNormName.set(norm, supplier);
         }
-        return id;
+        return { id, name: cleanName };
       };
+
+      // Build a lookup from normalised model → all matching IMEI rows
+      // that are still available (blank status field). Done once so we
+      // don't rescan the 655-row sheet per INVENTORY row.
+      const imei = SHEETS['IMEI NUMBERS'];
+      const imeiByModel = new Map<string, SheetRow[]>();
+      for (const r of imei.rows) {
+        if (r.classification === 'blank') continue;
+        const m = asStr(r.cells[1]);
+        const status = asStr(r.cells[7]).trim().toUpperCase();
+        if (!m) continue;
+        if (status && status !== 'AVAILABLE') continue;
+        const key = normalizeModel(m);
+        if (!imeiByModel.has(key)) imeiByModel.set(key, []);
+        imeiByModel.get(key)!.push(r);
+      }
 
       const importBatchId = await dbService.createImportBatch({
         sourceFile: 'INVENTORY_REPORT_2026_annotated.xlsx',
@@ -340,11 +408,11 @@ export default function ClientWalkthrough() {
         notes: `Client walkthrough — ${[...filter].join('/')} rows`,
       });
       const importedAt = new Date().toISOString();
+      const today = importedAt.split('T')[0];
 
       const docs: { collection: string; id: string; data: any }[] = [];
-      for (const s of suppliersToCreate.values()) {
-        docs.push({ collection: 'suppliers', id: s.id, data: s });
-      }
+      let unitsCreated = 0;
+
       for (const r of loadableInvRows) {
         const model    = editValue('INVENTORY', r.row, 0, r.cells[0]).trim();
         const bpStr    = editValue('INVENTORY', r.row, 1, r.cells[1]).trim();
@@ -356,12 +424,19 @@ export default function ClientWalkthrough() {
         const bp       = parseFloat(bpStr);
         const qtyNum   = parseFloat(qtyStr);
         const supplierNames = supRaw.split(/[\/,]/).map(s => s.trim()).filter(Boolean);
-        const supplierIds   = supplierNames.map(resolveSupplier);
+        const resolvedSuppliers = supplierNames.map(resolveSupplier);
+        const supplierIds   = resolvedSuppliers.map(s => s.id);
+        const primarySup    = resolvedSuppliers[0];
 
-        const id = `walkthrough_${importBatchId}_r${r.row}`;
+        const parsed = parseBrandModelStorage(model);
+        const category = detectCategory(model);
+
+        // 1) Aggregate doc — populates Admin → Master Data view.
+        const aggId = `walkthrough_${importBatchId}_agg_r${r.row}`;
         const aggregate: Omit<InventoryAggregate, 'createdAt' | 'updatedAt'> & { createdAt?: any; updatedAt?: any } = {
-          id,
+          id: aggId,
           model,
+          storage:      parsed.storage,
           buyPrice:     Number.isFinite(bp) ? bp : undefined,
           quantityNum:  Number.isFinite(qtyNum) ? qtyNum : undefined,
           quantityText: Number.isFinite(qtyNum) ? undefined : qtyStr || undefined,
@@ -373,13 +448,63 @@ export default function ClientWalkthrough() {
           sourceRow:    r.row,
           ownerId:      'shared',
         };
-        docs.push({ collection: 'inventoryAggregates', id, data: aggregate });
+        docs.push({ collection: 'inventoryAggregates', id: aggId, data: aggregate });
+
+        // 2) Unit docs — one per available IMEI in the IMEI NUMBERS
+        //    sheet matching this model. These are what the dashboards,
+        //    Inventory, BuySheet and SellSheet actually read.
+        const matchedImeis = imeiByModel.get(normalizeModel(model)) ?? [];
+        for (const ir of matchedImeis) {
+          const imeiVal = asStr(ir.cells[2]).trim();
+          if (!imeiVal) continue;
+          const imeiBp  = parseFloat(asStr(ir.cells[3]));
+          const imeiCol = asStr(ir.cells[4]).trim();
+          const imeiSupRaw = asStr(ir.cells[5]).trim();
+          const imeiSup = imeiSupRaw ? resolveSupplier(imeiSupRaw) : primarySup;
+          const imeiNotes  = asStr(ir.cells[6]).trim();
+          const dateInRaw  = asStr(ir.cells[0]).trim();
+          const dateIn = dateInRaw && !Number.isNaN(Date.parse(dateInRaw))
+            ? new Date(dateInRaw).toISOString().split('T')[0]
+            : today;
+          const unitId = `walkthrough_${importBatchId}_u_${imeiVal}`;
+          const unit: Partial<InventoryUnit> & { id: string } = {
+            id:           unitId,
+            imei:         imeiVal,
+            model,
+            brand:        parsed.brand,
+            category,
+            colour:       imeiCol || 'Unspecified',
+            storage:      parsed.storage,
+            buyPrice:     Number.isFinite(imeiBp) ? imeiBp : (Number.isFinite(bp) ? bp : 0),
+            dateIn,
+            supplierId:   imeiSup?.id ?? primarySup?.id ?? '',
+            supplierName: imeiSup?.name ?? primarySup?.name,
+            supplierIds:  supplierIds.length ? supplierIds : (imeiSup ? [imeiSup.id] : []),
+            status:       'available',
+            notes:        imeiNotes || undefined,
+            importBatchId,
+            sourceFile:   'INVENTORY_REPORT_2026_annotated.xlsx',
+            sourceRow:    ir.row,
+            importedAt,
+            ownerId:      'shared',
+          };
+          docs.push({ collection: 'inventoryUnits', id: unitId, data: unit });
+          unitsCreated += 1;
+        }
       }
 
-      await dbService.bulkCreate(docs, (done, total) =>
+      // Supplier docs need to be staged BEFORE the units that reference
+      // them — bulkCreate writes in order, so we sort them first.
+      const supplierDocs: { collection: string; id: string; data: any }[] = [];
+      for (const s of suppliersToCreate.values()) {
+        supplierDocs.push({ collection: 'suppliers', id: s.id, data: s });
+      }
+      const finalDocs = [...supplierDocs, ...docs];
+
+      await dbService.bulkCreate(finalDocs, (done, total) =>
         setLoadState({ kind: 'loading', done, total }),
       );
-      setLoadState({ kind: 'done', count: loadableInvRows.length });
+      setLoadState({ kind: 'done', count: loadableInvRows.length, units: unitsCreated });
     } catch (err: any) {
       setLoadState({ kind: 'error', msg: err?.message || String(err) });
     }
@@ -405,7 +530,7 @@ export default function ClientWalkthrough() {
               disabled={loadableInvRows.length === 0}
               className="inline-flex items-center gap-1.5 bg-emerald-600 text-white rounded-xl px-3 py-2 text-[10px] font-bold uppercase tracking-widest hover:bg-emerald-700 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
             >
-              <Upload size={11} /> Load to DB ({loadableInvRows.length})
+              <Upload size={11} /> Load to DB · {loadableInvRows.length} rows / {loadableUnitCount} units
             </button>
             <button
               onClick={handleDownloadXlsx}
@@ -685,7 +810,7 @@ function LoadToDbModal({
     | { kind: 'idle' }
     | { kind: 'confirm'; rows: SheetRow[] }
     | { kind: 'loading'; done: number; total: number }
-    | { kind: 'done'; count: number }
+    | { kind: 'done'; count: number; units: number }
     | { kind: 'error'; msg: string };
   onConfirm: () => void;
   onClose: () => void;
@@ -716,10 +841,10 @@ function LoadToDbModal({
               <button onClick={onClose} className="text-slate-400 hover:text-slate-700"><X size={16} /></button>
             </div>
             <div className="bg-slate-50 border border-slate-200 rounded-lg p-3 mb-4 text-[11px] text-slate-600 space-y-1">
-              <p>• Creates one <code>inventoryAggregates</code> doc per visible row.</p>
+              <p>• Creates an <code>inventoryAggregates</code> rollup per row, AND</p>
+              <p>• One <code>inventoryUnits</code> doc per matching available IMEI (this is what Dashboard, Inventory and Sell read).</p>
               <p>• Supplier names get matched to existing suppliers, or new docs created.</p>
               <p>• Tagged with a fresh <code>importBatches</code> entry so this run is reversible.</p>
-              <p>• Per-cell edits in the walkthrough are included.</p>
             </div>
             <div className="flex gap-2 justify-end">
               <button onClick={onClose} className="px-3 py-2 text-[10px] font-bold uppercase tracking-widest text-slate-600 hover:text-slate-900">Cancel</button>
@@ -739,8 +864,12 @@ function LoadToDbModal({
         {state.kind === 'done' && (
           <div className="text-center py-4">
             <CheckCheck size={28} className="mx-auto text-emerald-600" />
-            <p className="mt-3 text-[13px] font-bold">Loaded {state.count} rows to inventory DB.</p>
-            <p className="mt-1 text-[11px] text-slate-500 font-mono">Visible in Admin → Overview and Master Data screens.</p>
+            <p className="mt-3 text-[13px] font-bold">
+              Loaded {state.count} aggregate rows + {state.units} stock units.
+            </p>
+            <p className="mt-1 text-[11px] text-slate-500 font-mono">
+              Stock now visible in Dashboard, Inventory and Sell screens.
+            </p>
             <button onClick={onClose} className="mt-4 px-4 py-2 bg-slate-900 text-white rounded-xl text-[10px] font-bold uppercase tracking-widest">Close</button>
           </div>
         )}
