@@ -38,13 +38,12 @@ export const WALKTHROUGH_ISSUES: Record<number, RowIssue> = {
     ],
   },
   9: {
-    headline: 'iPhone SE 3rd — supplier drift',
+    headline: 'iPhone SE 3rd — resolved: supplier updated to RR STOCK',
     bullets: [
-      'INV says NANAK supplier.',
-      'IMEI sheet shows the 2 available units sourced from a different supplier — supplier mismatch on the row.',
-      'May be an ABC/RR sourcing flip similar to iPhone 13.',
+      'Rollup said NANAK × 1; IMEI sheet shows the 2 available units actually came from RR STOCK (the 2 NANAK units in IMEI are both SOLD).',
+      'Row updated to match IMEI: supplier RR STOCK, qty 2, colours "WHITE 2 RED 0".',
+      'Row reclassified green — safe to load.',
     ],
-    questions: ['Were the 2 SE 3rd units actually bought from NANAK or another supplier?'],
   },
   10: {
     headline: 'iPhone XS — GREY vs BLACK',
