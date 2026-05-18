@@ -1,54 +1,57 @@
 /**
  * Client Walkthrough — admin-only view for meeting-room data review.
  *
- * Renders the master file (INVENTORY_REPORT_2026) 1:1 as a single HTML
- * table, mirroring the layout the client sees when they open it in
- * Excel: in-office rows, the TOTAL marker, the SHS section header and
- * its line items, the SOLD section, blank spacer rows. Row numbers
- * shown match the workbook's row numbers exactly.
+ * Renders the client's master workbook 1:1 with one tab per sheet
+ * (INVENTORY, IMEI NUMBERS, SUPPLIER WHATSAPP UPDATES). The INVENTORY
+ * sheet carries the audit colour classifications applied during the
+ * May-17 review (green=clean, yellow=rollup-gap, red=issue, blue=our
+ * fix); the other two sheets render the raw rows.
  *
- * Cells are colour-coded by audit classification (red/yellow/green/
- * blue). Every editable cell is an inline text input so the operator
- * can correct values during the client meeting. The right-most column
- * "Issue / Explanation" is populated only for RED rows — it holds the
- * audit headline, bullets, and the verbatim question(s) to ask the
- * client.
+ * Cells are editable inline. Corrections live in component state until
+ * the operator clicks "Load to DB", which writes the visible INVENTORY
+ * rows into Firestore as InventoryAggregate documents — same path the
+ * Master Data Importer uses. Default filter on INVENTORY is GREEN
+ * rows only (the ones safe to import without further questions); the
+ * operator opens the others as the meeting works through them.
  *
- * Two downloads from the toolbar:
- *  1. Corrected workbook (xlsx) with the operator's edits applied.
- *  2. Issue report (PDF) — printable row-by-row write-up.
+ * Downloads in the toolbar:
+ *  - Corrected workbook (xlsx) with the operator's edits applied to
+ *    every sheet.
+ *  - Issue report (PDF) — printable row-by-row write-up of RED rows.
  *
- * Data source: src/data/walkthroughRows.json is built at audit time by
- * scripts/build_walkthrough_data.py. Issue text lives in
- * src/data/walkthroughIssues.ts so it can be hand-edited without
- * re-running the script.
+ * Data source: scripts/build_walkthrough_data.py extracts the three
+ * sheets and writes src/data/walkthroughWorkbook.json. RED-row
+ * commentary lives in src/data/walkthroughIssues.ts (hand-editable).
  */
 import React, { useState, useMemo } from 'react';
 import {
   AlertCircle, CheckCircle2, Clock, Edit3, Download, FileText,
-  Sparkles,
+  Sparkles, Upload, Loader2, X, CheckCheck,
 } from 'lucide-react';
+import { motion, AnimatePresence } from 'motion/react';
 import ExcelJS from 'exceljs';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
-import rowsData from '../data/walkthroughRows.json';
+import workbookData from '../data/walkthroughWorkbook.json';
 import { WALKTHROUGH_ISSUES, RowIssue } from '../data/walkthroughIssues';
+import { dbService } from '../lib/dbService';
+import type { InventoryAggregate, Supplier } from '../types';
 
 type Classification = 'green' | 'yellow' | 'red' | 'blue' | 'none' | 'divider' | 'blank';
 
-interface WalkRow {
+interface SheetRow {
   row: number;
-  model: string | null;
-  bp: number | string | null;
-  qty: number | string | null;
-  value: number | string | null;
-  colours: string | null;
-  supplier: string | null;
-  notes: string | null;
+  cells: (string | number | null)[];
   classification: Classification;
 }
+interface Sheet {
+  headers: (string | null)[];
+  rows: SheetRow[];
+}
+type SheetName = 'INVENTORY' | 'IMEI NUMBERS' | 'SUPPLIER WHATSAPP UPDATES';
 
-const ROWS = rowsData as WalkRow[];
+const SHEETS = workbookData as Record<SheetName, Sheet>;
+const SHEET_ORDER: SheetName[] = ['INVENTORY', 'IMEI NUMBERS', 'SUPPLIER WHATSAPP UPDATES'];
 
 const ROW_BG: Record<Classification, string> = {
   green:   'bg-emerald-50 hover:bg-emerald-100/60',
@@ -56,77 +59,115 @@ const ROW_BG: Record<Classification, string> = {
   red:     'bg-rose-50 hover:bg-rose-100/60',
   blue:    'bg-sky-50 hover:bg-sky-100/60',
   none:    'bg-white hover:bg-slate-50',
-  divider: 'bg-slate-100 font-bold',
+  divider: 'bg-slate-200 font-bold',
   blank:   'bg-white',
 };
 
-const COUNT_LABELS: { id: Classification; label: string; chip: string; icon: React.ReactNode }[] = [
-  { id: 'red',    label: 'Issue',      chip: 'bg-rose-500',    icon: <AlertCircle size={11} /> },
-  { id: 'yellow', label: 'Rollup gap', chip: 'bg-amber-500',   icon: <Clock size={11} /> },
+const CLASS_PILLS: { id: Classification; label: string; chip: string; icon: React.ReactNode }[] = [
   { id: 'green',  label: 'Clean',      chip: 'bg-emerald-500', icon: <CheckCircle2 size={11} /> },
+  { id: 'yellow', label: 'Rollup gap', chip: 'bg-amber-500',   icon: <Clock size={11} /> },
+  { id: 'red',    label: 'Issue',      chip: 'bg-rose-500',    icon: <AlertCircle size={11} /> },
   { id: 'blue',   label: 'Our fix',    chip: 'bg-sky-500',     icon: <Edit3 size={11} /> },
 ];
 
-function cellDisplay(v: number | string | null): string {
-  if (v === null || v === undefined || v === '') return '';
+const slugify = (name: string) =>
+  `sup_${name.trim().toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '') || 'unknown'}`;
+
+function asStr(v: string | number | null): string {
+  if (v === null || v === undefined) return '';
   return String(v);
 }
 
-export default function ClientWalkthrough() {
-  const [edits, setEdits] = useState<Record<string, string>>({});
-  /** When true, hide rows after the SOLD divider to keep the meeting
-   *  view focused on in-office + SHS. Default off — operator can
-   *  expand to show the historical SOLD section if needed. */
-  const [showSold, setShowSold] = useState(false);
+/** Best-effort colours-string → { COLOUR: count } map. Handles the
+ *  "BLACK 2 WHITE 1" shorthand the client uses. */
+function parseColoursRaw(raw: string): { [c: string]: number } {
+  const out: { [c: string]: number } = {};
+  if (!raw) return out;
+  const tokens = raw.split(/\s+/);
+  let i = 0;
+  while (i < tokens.length) {
+    let name = tokens[i];
+    let j = i + 1;
+    while (j < tokens.length && !/^\d+$/.test(tokens[j]) && tokens[j].length > 0) {
+      name += ' ' + tokens[j];
+      j += 1;
+    }
+    const qty = j < tokens.length ? parseInt(tokens[j], 10) : NaN;
+    if (Number.isFinite(qty)) out[name] = qty;
+    i = j + 1;
+  }
+  return out;
+}
 
-  const counts = useMemo(() => {
+export default function ClientWalkthrough() {
+  const [activeSheet, setActiveSheet] = useState<SheetName>('INVENTORY');
+  /** Cell edits keyed by `${sheet}|${row}|${col}`. Survives sheet
+   *  switches; cleared only by reloading the page. */
+  const [edits, setEdits] = useState<Record<string, string>>({});
+  /** INVENTORY filter — defaults to GREEN per spec. Operator can pop
+   *  open YELLOW/RED/BLUE as the walkthrough progresses. */
+  const [filter, setFilter] = useState<Set<Classification>>(new Set(['green']));
+  const [loadState, setLoadState] = useState<
+    | { kind: 'idle' }
+    | { kind: 'confirm'; rows: SheetRow[] }
+    | { kind: 'loading'; done: number; total: number }
+    | { kind: 'done'; count: number }
+    | { kind: 'error'; msg: string }
+  >({ kind: 'idle' });
+
+  const inv = SHEETS.INVENTORY;
+
+  const invCounts = useMemo(() => {
     const c: Record<Classification, number> = {
       green: 0, yellow: 0, red: 0, blue: 0,
       none: 0, divider: 0, blank: 0,
     };
-    ROWS.forEach(r => { c[r.classification] += 1; });
+    inv.rows.forEach(r => { c[r.classification] += 1; });
     return c;
-  }, []);
+  }, [inv.rows]);
 
-  const editValue = (rowI: number, field: keyof WalkRow): string => {
-    const key = `${rowI}.${String(field)}`;
-    if (key in edits) return edits[key];
-    return cellDisplay((ROWS.find(r => r.row === rowI) as any)?.[field] ?? null);
+  const editValue = (sheet: SheetName, row: number, col: number, original: string | number | null): string => {
+    const key = `${sheet}|${row}|${col}`;
+    return key in edits ? edits[key] : asStr(original);
+  };
+  const setEdit = (sheet: SheetName, row: number, col: number, val: string) => {
+    setEdits(prev => ({ ...prev, [`${sheet}|${row}|${col}`]: val }));
   };
 
-  const setEdit = (rowI: number, field: keyof WalkRow, val: string) => {
-    setEdits(prev => ({ ...prev, [`${rowI}.${String(field)}`]: val }));
+  const toggleFilter = (c: Classification) => {
+    setFilter(prev => {
+      const next = new Set(prev);
+      if (next.has(c)) next.delete(c);
+      else next.add(c);
+      return next;
+    });
   };
 
-  /** Find the row index of the SOLD divider so we can hide everything
-   *  past it when showSold is false. */
-  const soldDividerIdx = useMemo(() => {
-    return ROWS.findIndex(r => r.classification === 'divider' && String(r.model).trim().toUpperCase() === 'SOLD');
-  }, []);
+  /** Rows currently visible in INVENTORY — controlled by the filter
+   *  pills. Dividers and blanks always render so the row numbers line
+   *  up with what the client sees. */
+  const visibleInvRows = useMemo(() => {
+    return inv.rows.filter(r =>
+      r.classification === 'divider' ||
+      r.classification === 'blank' ||
+      filter.has(r.classification),
+    );
+  }, [inv.rows, filter]);
 
-  const visibleRows = useMemo(() => {
-    if (showSold || soldDividerIdx < 0) return ROWS;
-    return ROWS.slice(0, soldDividerIdx);
-  }, [showSold, soldDividerIdx]);
+  /** Rows that would be pushed to DB on Load. Always green by
+   *  default; if the operator widened the filter we include whatever
+   *  data rows are currently visible (and skip dividers/blanks). */
+  const loadableInvRows = useMemo(() => {
+    return inv.rows.filter(r =>
+      r.classification !== 'divider' &&
+      r.classification !== 'blank' &&
+      r.classification !== 'none' &&
+      filter.has(r.classification),
+    );
+  }, [inv.rows, filter]);
 
   const handleDownloadXlsx = async () => {
     const wb = new ExcelJS.Workbook();
-    const sheet = wb.addWorksheet('INVENTORY (edited)');
-    sheet.columns = [
-      { header: 'MODEL',    key: 'model',    width: 50 },
-      { header: 'BP',       key: 'bp',       width: 8  },
-      { header: 'QUANTITY', key: 'qty',      width: 10 },
-      { header: '',         key: 'gap',      width: 4  },
-      { header: 'VALUE',    key: 'value',    width: 10 },
-      { header: 'COLOURS',  key: 'colours',  width: 40 },
-      { header: 'SUPPLIER', key: 'supplier', width: 20 },
-      { header: 'NOTES',    key: 'notes',    width: 18 },
-      { header: 'ISSUE / EXPLANATION', key: 'issue', width: 60 },
-    ];
-    const hdr = sheet.getRow(1);
-    hdr.font = { bold: true, size: 10 };
-    hdr.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF1F5F9' } };
-
     const FILL: Record<Classification, string | null> = {
       green:   'FFC6EFCE',
       yellow:  'FFFFEB9C',
@@ -136,32 +177,36 @@ export default function ClientWalkthrough() {
       divider: 'FFE2E8F0',
       blank:   null,
     };
-
-    for (const r of ROWS) {
-      const issue = WALKTHROUGH_ISSUES[r.row];
-      const issueText = r.classification === 'red' && issue
-        ? `${issue.headline}\n• ${issue.bullets.join('\n• ')}${issue.questions?.length ? `\nAsk: ${issue.questions.join(' | ')}` : ''}`
-        : '';
-      const row = sheet.addRow({
-        model:    editValue(r.row, 'model'),
-        bp:       editValue(r.row, 'bp'),
-        qty:      editValue(r.row, 'qty'),
-        value:    editValue(r.row, 'value'),
-        colours:  editValue(r.row, 'colours'),
-        supplier: editValue(r.row, 'supplier'),
-        notes:    editValue(r.row, 'notes'),
-        issue:    issueText,
-      });
-      const argb = FILL[r.classification];
-      if (argb) {
-        row.eachCell(cell => {
-          cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb } };
-        });
+    for (const name of SHEET_ORDER) {
+      const sheet = SHEETS[name];
+      const ws = wb.addWorksheet(name);
+      const headers = [...sheet.headers];
+      if (name === 'INVENTORY') headers.push('ISSUE / EXPLANATION');
+      ws.addRow(headers);
+      const hdr = ws.getRow(1);
+      hdr.font = { bold: true, size: 10 };
+      hdr.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF1F5F9' } };
+      for (const r of sheet.rows) {
+        const cells = r.cells.map((v, i) => editValue(name, r.row, i, v));
+        if (name === 'INVENTORY') {
+          const issue = WALKTHROUGH_ISSUES[r.row];
+          const txt = r.classification === 'red' && issue
+            ? `${issue.headline}\n• ${issue.bullets.join('\n• ')}${issue.questions?.length ? `\nAsk: ${issue.questions.join(' | ')}` : ''}`
+            : '';
+          cells.push(txt);
+        }
+        const xlsxRow = ws.addRow(cells);
+        const argb = FILL[r.classification];
+        if (argb) xlsxRow.eachCell(c => { c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb } }; });
+        xlsxRow.font = { size: 10 };
+        xlsxRow.alignment = { vertical: 'top', wrapText: true };
       }
-      row.font = { size: 10 };
-      row.alignment = { vertical: 'top', wrapText: true };
+      ws.columns.forEach((c, i) => {
+        if (i === 0) c.width = 50;
+        else if (i === sheet.headers.length) c.width = 60;
+        else c.width = 14;
+      });
     }
-
     const buf = await wb.xlsx.writeBuffer();
     const blob = new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
     const url = URL.createObjectURL(blob);
@@ -181,18 +226,21 @@ export default function ClientWalkthrough() {
     y += 6;
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(9);
-    doc.text(`Generated ${new Date().toLocaleDateString()}  ·  ${counts.red} issues, ${counts.yellow} rollup gaps, ${counts.green} clean rows`, 14, y);
+    doc.text(
+      `Generated ${new Date().toLocaleDateString()}  ·  ${invCounts.red} issues, ${invCounts.yellow} rollup gaps, ${invCounts.green} clean rows`,
+      14, y,
+    );
     y += 8;
 
     autoTable(doc, {
       startY: y,
       head: [['Row', 'Class', 'Model', 'Issue']],
-      body: ROWS
+      body: inv.rows
         .filter(r => r.classification === 'red' || r.classification === 'yellow')
         .map(r => [
           r.row,
           r.classification.toUpperCase(),
-          (r.model ?? '').slice(0, 38),
+          asStr(r.cells[0]).slice(0, 38),
           (WALKTHROUGH_ISSUES[r.row]?.headline ?? '—').slice(0, 62),
         ]),
       styles: { fontSize: 8, cellPadding: 2 },
@@ -207,29 +255,26 @@ export default function ClientWalkthrough() {
     });
 
     Object.entries(WALKTHROUGH_ISSUES).forEach(([rowStr, issue]) => {
-      const r = ROWS.find(rr => rr.row === Number(rowStr));
+      const r = inv.rows.find(rr => rr.row === Number(rowStr));
       if (!r) return;
       doc.addPage();
       doc.setFont('helvetica', 'bold');
       doc.setFontSize(13);
       doc.text(`Row ${r.row}  ·  ${r.classification.toUpperCase()}`, 14, 16);
       doc.setFontSize(11);
-      const modelLines = doc.splitTextToSize(r.model ?? '', 180);
+      const modelLines = doc.splitTextToSize(asStr(r.cells[0]), 180);
       doc.text(modelLines, 14, 23);
       let yy = 23 + modelLines.length * 5 + 4;
-
       doc.setFont('helvetica', 'normal');
       doc.setFontSize(9);
-      doc.text(`BP £${r.bp ?? '—'}  ·  QTY ${r.qty ?? '—'}  ·  Supplier ${r.supplier ?? '—'}`, 14, yy);
+      doc.text(`BP £${r.cells[1] ?? '—'}  ·  QTY ${r.cells[2] ?? '—'}  ·  Supplier ${r.cells[6] ?? '—'}`, 14, yy);
       yy += 6;
-      doc.text(`Colours: ${r.colours ?? '—'}`, 14, yy);
+      doc.text(`Colours: ${r.cells[5] ?? '—'}`, 14, yy);
       yy += 8;
-
       doc.setFont('helvetica', 'bold');
       doc.setFontSize(11);
       doc.text(issue.headline, 14, yy);
       yy += 6;
-
       doc.setFont('helvetica', 'normal');
       doc.setFontSize(10);
       issue.bullets.forEach(b => {
@@ -237,7 +282,6 @@ export default function ClientWalkthrough() {
         doc.text(lines, 14, yy);
         yy += lines.length * 5 + 1;
       });
-
       if (issue.questions?.length) {
         yy += 4;
         doc.setFont('helvetica', 'bold');
@@ -257,6 +301,90 @@ export default function ClientWalkthrough() {
     doc.save(`INVENTORY_REPORT_2026_issues_${new Date().toISOString().split('T')[0]}.pdf`);
   };
 
+  /** Push the currently-filtered INVENTORY rows to Firestore as
+   *  InventoryAggregate documents. Mirrors the supplier-lookup logic
+   *  in MasterDataLinkedImport so names resolve to the same docs the
+   *  rest of the app uses. */
+  const handleLoadToDb = async () => {
+    setLoadState({ kind: 'loading', done: 0, total: loadableInvRows.length + 1 });
+    try {
+      const existingSuppliers = (await dbService.readAll('suppliers')) as Supplier[];
+      const byNormName = new Map<string, Supplier>();
+      for (const s of existingSuppliers) {
+        const n = (s.name || '').trim().toLowerCase();
+        if (n) byNormName.set(n, s);
+      }
+      const suppliersToCreate = new Map<string, Supplier>();
+      const resolveSupplier = (name: string): string => {
+        const norm = name.trim().toLowerCase();
+        const existing = byNormName.get(norm);
+        if (existing?.id) return existing.id;
+        const id = slugify(name);
+        if (!suppliersToCreate.has(id)) {
+          const supplier: Supplier = {
+            id, name: name.trim(),
+            portal: 'Wholesale',
+            ownerId: 'shared',
+            createdAt: new Date().toISOString() as any,
+          };
+          suppliersToCreate.set(id, supplier);
+          byNormName.set(norm, supplier);
+        }
+        return id;
+      };
+
+      const importBatchId = await dbService.createImportBatch({
+        sourceFile: 'INVENTORY_REPORT_2026_annotated.xlsx',
+        sourceSheet: 'INVENTORY',
+        rowCount: loadableInvRows.length,
+        notes: `Client walkthrough — ${[...filter].join('/')} rows`,
+      });
+      const importedAt = new Date().toISOString();
+
+      const docs: { collection: string; id: string; data: any }[] = [];
+      for (const s of suppliersToCreate.values()) {
+        docs.push({ collection: 'suppliers', id: s.id, data: s });
+      }
+      for (const r of loadableInvRows) {
+        const model    = editValue('INVENTORY', r.row, 0, r.cells[0]).trim();
+        const bpStr    = editValue('INVENTORY', r.row, 1, r.cells[1]).trim();
+        const qtyStr   = editValue('INVENTORY', r.row, 2, r.cells[2]).trim();
+        const valStr   = editValue('INVENTORY', r.row, 4, r.cells[4]).trim();
+        const colours  = editValue('INVENTORY', r.row, 5, r.cells[5]).trim();
+        const supRaw   = editValue('INVENTORY', r.row, 6, r.cells[6]).trim();
+        const notes    = editValue('INVENTORY', r.row, 7, r.cells[7]).trim();
+        const bp       = parseFloat(bpStr);
+        const qtyNum   = parseFloat(qtyStr);
+        const supplierNames = supRaw.split(/[\/,]/).map(s => s.trim()).filter(Boolean);
+        const supplierIds   = supplierNames.map(resolveSupplier);
+
+        const id = `walkthrough_${importBatchId}_r${r.row}`;
+        const aggregate: Omit<InventoryAggregate, 'createdAt' | 'updatedAt'> & { createdAt?: any; updatedAt?: any } = {
+          id,
+          model,
+          buyPrice:     Number.isFinite(bp) ? bp : undefined,
+          quantityNum:  Number.isFinite(qtyNum) ? qtyNum : undefined,
+          quantityText: Number.isFinite(qtyNum) ? undefined : qtyStr || undefined,
+          coloursRaw:   colours || undefined,
+          coloursMap:   parseColoursRaw(colours),
+          supplierIds,
+          notes:        [notes, valStr ? `value=${valStr}` : ''].filter(Boolean).join(' · ') || undefined,
+          importBatchId,
+          sourceRow:    r.row,
+          ownerId:      'shared',
+        };
+        docs.push({ collection: 'inventoryAggregates', id, data: aggregate });
+      }
+
+      await dbService.bulkCreate(docs, (done, total) =>
+        setLoadState({ kind: 'loading', done, total }),
+      );
+      setLoadState({ kind: 'done', count: loadableInvRows.length });
+    } catch (err: any) {
+      setLoadState({ kind: 'error', msg: err?.message || String(err) });
+    }
+  };
+
   return (
     <div className="space-y-4">
       {/* Header */}
@@ -268,10 +396,17 @@ export default function ClientWalkthrough() {
               Client Walkthrough — INVENTORY_REPORT_2026
             </h2>
             <p className="mt-1 text-[11px] text-slate-500 font-mono">
-              The client's master file rendered 1:1. Cells are editable. RED rows have the issue + explanation in the last column.
+              The client's three sheets rendered 1:1. Edit cells inline, then load corrected rows into the DB.
             </p>
           </div>
           <div className="flex gap-2 flex-shrink-0">
+            <button
+              onClick={() => setLoadState({ kind: 'confirm', rows: loadableInvRows })}
+              disabled={loadableInvRows.length === 0}
+              className="inline-flex items-center gap-1.5 bg-emerald-600 text-white rounded-xl px-3 py-2 text-[10px] font-bold uppercase tracking-widest hover:bg-emerald-700 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              <Upload size={11} /> Load to DB ({loadableInvRows.length})
+            </button>
             <button
               onClick={handleDownloadXlsx}
               className="inline-flex items-center gap-1.5 bg-slate-900 text-white rounded-xl px-3 py-2 text-[10px] font-bold uppercase tracking-widest hover:bg-slate-700 transition-all"
@@ -282,122 +417,219 @@ export default function ClientWalkthrough() {
               onClick={handleDownloadPdf}
               className="inline-flex items-center gap-1.5 bg-white border border-slate-300 text-slate-700 rounded-xl px-3 py-2 text-[10px] font-bold uppercase tracking-widest hover:bg-slate-50 transition-all"
             >
-              <FileText size={11} /> Issue report (PDF)
+              <FileText size={11} /> Issue PDF
             </button>
           </div>
         </div>
 
-        {/* Legend / counts */}
-        <div className="mt-4 flex flex-wrap gap-2 items-center">
-          {COUNT_LABELS.map(c => (
-            <div
-              key={c.id}
-              className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[10px] font-mono uppercase tracking-wider bg-white border border-slate-200"
+        {/* Sheet tabs */}
+        <div className="mt-4 flex gap-1 border-b border-slate-200">
+          {SHEET_ORDER.map(name => (
+            <button
+              key={name}
+              onClick={() => setActiveSheet(name)}
+              className={`px-3 py-2 text-[10px] font-bold uppercase tracking-widest border-b-2 -mb-px transition-all
+                ${activeSheet === name
+                  ? 'border-slate-900 text-slate-900'
+                  : 'border-transparent text-slate-400 hover:text-slate-700'}`}
             >
-              <span className={`w-2 h-2 rounded-full ${c.chip}`} />
-              {c.label}
-              <span className="text-slate-400 font-bold">{counts[c.id]}</span>
-            </div>
+              {name}
+              <span className="ml-1.5 text-slate-400 font-mono">{SHEETS[name].rows.length}</span>
+            </button>
           ))}
-          <button
-            onClick={() => setShowSold(s => !s)}
-            className="ml-auto inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[10px] font-mono uppercase tracking-wider bg-white border border-slate-200 hover:border-slate-400 transition-all"
-          >
-            {showSold ? 'Hide' : 'Show'} SOLD section
-          </button>
         </div>
+
+        {/* INVENTORY filter pills — only on the INVENTORY tab */}
+        {activeSheet === 'INVENTORY' && (
+          <div className="mt-3 flex flex-wrap gap-2 items-center">
+            <span className="text-[9px] font-mono uppercase tracking-widest text-slate-400">Show:</span>
+            {CLASS_PILLS.map(p => {
+              const active = filter.has(p.id);
+              return (
+                <button
+                  key={p.id}
+                  onClick={() => toggleFilter(p.id)}
+                  className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[10px] font-mono uppercase tracking-wider border transition-all
+                    ${active
+                      ? 'bg-slate-900 text-white border-slate-900'
+                      : 'bg-white text-slate-600 border-slate-200 hover:border-slate-400'}`}
+                >
+                  <span className={`w-2 h-2 rounded-full ${p.chip}`} />
+                  {p.label}
+                  <span className={active ? 'text-slate-300' : 'text-slate-400 font-bold'}>{invCounts[p.id]}</span>
+                </button>
+              );
+            })}
+            <span className="text-[9px] font-mono text-slate-400 ml-2">
+              Default: green rows only. Toggle to reveal others.
+            </span>
+          </div>
+        )}
       </div>
 
-      {/* The table — mirrors the workbook */}
-      <div className="bg-white border border-slate-200 rounded-3xl overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full text-[11px] table-fixed">
-            <colgroup>
-              <col style={{ width: '44px' }} />     {/* row # */}
-              <col style={{ width: '22%' }} />      {/* model */}
-              <col style={{ width: '60px' }} />     {/* BP */}
-              <col style={{ width: '70px' }} />     {/* qty */}
-              <col style={{ width: '70px' }} />     {/* value */}
-              <col style={{ width: '18%' }} />      {/* colours */}
-              <col style={{ width: '11%' }} />      {/* supplier */}
-              <col style={{ width: '10%' }} />      {/* notes */}
-              <col />                               {/* issue / explanation */}
-            </colgroup>
-            <thead>
-              <tr className="bg-slate-100 text-slate-700 sticky top-0 z-10">
-                <th className="px-2 py-2 text-left font-mono font-bold text-[9px] uppercase tracking-widest text-slate-400">#</th>
-                <th className="px-2 py-2 text-left font-bold text-[10px] uppercase tracking-wider">Model</th>
-                <th className="px-2 py-2 text-right font-bold text-[10px] uppercase tracking-wider">BP</th>
-                <th className="px-2 py-2 text-right font-bold text-[10px] uppercase tracking-wider">Quantity</th>
-                <th className="px-2 py-2 text-right font-bold text-[10px] uppercase tracking-wider">Value</th>
-                <th className="px-2 py-2 text-left font-bold text-[10px] uppercase tracking-wider">Colours</th>
-                <th className="px-2 py-2 text-left font-bold text-[10px] uppercase tracking-wider">Supplier</th>
-                <th className="px-2 py-2 text-left font-bold text-[10px] uppercase tracking-wider">Notes</th>
-                <th className="px-2 py-2 text-left font-bold text-[10px] uppercase tracking-wider">Issue / Explanation</th>
-              </tr>
-            </thead>
-            <tbody>
-              {visibleRows.map(r => {
-                if (r.classification === 'blank') {
-                  return (
-                    <tr key={r.row} className="bg-white">
-                      <td className="px-2 py-1 text-right font-mono text-[9px] text-slate-300">{r.row}</td>
-                      <td colSpan={8} className="px-2 py-1">&nbsp;</td>
-                    </tr>
-                  );
-                }
-                if (r.classification === 'divider') {
-                  return (
-                    <tr key={r.row} className="bg-slate-200">
-                      <td className="px-2 py-2 text-right font-mono text-[9px] text-slate-500 font-bold">{r.row}</td>
-                      <td colSpan={8} className="px-2 py-2 font-bold text-slate-900 uppercase tracking-widest text-[11px]">
-                        {r.model}
-                      </td>
-                    </tr>
-                  );
-                }
-                const issue = WALKTHROUGH_ISSUES[r.row] as RowIssue | undefined;
-                const showIssue = r.classification === 'red' && issue;
+      {/* Active sheet */}
+      {activeSheet === 'INVENTORY' && (
+        <InventoryTable
+          sheet={inv}
+          visibleRows={visibleInvRows}
+          editValue={editValue}
+          setEdit={setEdit}
+        />
+      )}
+      {activeSheet === 'IMEI NUMBERS' && (
+        <RawSheetTable sheet={SHEETS['IMEI NUMBERS']} name="IMEI NUMBERS" editValue={editValue} setEdit={setEdit} />
+      )}
+      {activeSheet === 'SUPPLIER WHATSAPP UPDATES' && (
+        <RawSheetTable sheet={SHEETS['SUPPLIER WHATSAPP UPDATES']} name="SUPPLIER WHATSAPP UPDATES" editValue={editValue} setEdit={setEdit} />
+      )}
+
+      {/* Load-to-DB modal */}
+      <LoadToDbModal
+        state={loadState}
+        onConfirm={handleLoadToDb}
+        onClose={() => setLoadState({ kind: 'idle' })}
+      />
+    </div>
+  );
+}
+
+/** INVENTORY-specific table: row classification colouring + Issue/
+ *  Explanation column populated for RED rows. */
+function InventoryTable({
+  sheet, visibleRows, editValue, setEdit,
+}: {
+  sheet: Sheet;
+  visibleRows: SheetRow[];
+  editValue: (sheet: SheetName, row: number, col: number, original: string | number | null) => string;
+  setEdit: (sheet: SheetName, row: number, col: number, val: string) => void;
+}) {
+  return (
+    <div className="bg-white border border-slate-200 rounded-3xl overflow-hidden">
+      <div className="overflow-x-auto">
+        <table className="w-full text-[11px] table-fixed">
+          <colgroup>
+            <col style={{ width: '44px' }} />
+            <col style={{ width: '22%' }} />
+            <col style={{ width: '60px' }} />
+            <col style={{ width: '70px' }} />
+            <col style={{ width: '70px' }} />
+            <col style={{ width: '18%' }} />
+            <col style={{ width: '11%' }} />
+            <col style={{ width: '10%' }} />
+            <col />
+          </colgroup>
+          <thead>
+            <tr className="bg-slate-100 text-slate-700 sticky top-0 z-10">
+              <th className="px-2 py-2 text-left font-mono text-[9px] uppercase tracking-widest text-slate-400">#</th>
+              {sheet.headers.map((h, i) => (
+                <th key={i} className="px-2 py-2 text-left font-bold text-[10px] uppercase tracking-wider">
+                  {h ?? ''}
+                </th>
+              ))}
+              <th className="px-2 py-2 text-left font-bold text-[10px] uppercase tracking-wider">Issue / Explanation</th>
+            </tr>
+          </thead>
+          <tbody>
+            {visibleRows.map(r => {
+              if (r.classification === 'blank') {
                 return (
-                  <tr key={r.row} className={`${ROW_BG[r.classification]} border-b border-slate-100`}>
-                    <td className="px-2 py-1.5 text-right font-mono text-[9px] text-slate-400 align-top pt-2">{r.row}</td>
-                    <td className="px-1 py-1 align-top">
-                      <EditableCell value={editValue(r.row, 'model')} onChange={v => setEdit(r.row, 'model', v)} />
-                    </td>
-                    <td className="px-1 py-1 align-top">
-                      <EditableCell value={editValue(r.row, 'bp')} onChange={v => setEdit(r.row, 'bp', v)} align="right" />
-                    </td>
-                    <td className="px-1 py-1 align-top">
-                      <EditableCell value={editValue(r.row, 'qty')} onChange={v => setEdit(r.row, 'qty', v)} align="right" />
-                    </td>
-                    <td className="px-1 py-1 align-top">
-                      <EditableCell value={editValue(r.row, 'value')} onChange={v => setEdit(r.row, 'value', v)} align="right" />
-                    </td>
-                    <td className="px-1 py-1 align-top">
-                      <EditableCell value={editValue(r.row, 'colours')} onChange={v => setEdit(r.row, 'colours', v)} />
-                    </td>
-                    <td className="px-1 py-1 align-top">
-                      <EditableCell value={editValue(r.row, 'supplier')} onChange={v => setEdit(r.row, 'supplier', v)} />
-                    </td>
-                    <td className="px-1 py-1 align-top">
-                      <EditableCell value={editValue(r.row, 'notes')} onChange={v => setEdit(r.row, 'notes', v)} />
-                    </td>
-                    <td className="px-2 py-1.5 align-top">
-                      {showIssue ? <IssueBlock issue={issue!} /> : null}
+                  <tr key={r.row} className="bg-white">
+                    <td className="px-2 py-1 text-right font-mono text-[9px] text-slate-300">{r.row}</td>
+                    <td colSpan={sheet.headers.length + 1} className="px-2 py-1">&nbsp;</td>
+                  </tr>
+                );
+              }
+              if (r.classification === 'divider') {
+                return (
+                  <tr key={r.row} className="bg-slate-200">
+                    <td className="px-2 py-2 text-right font-mono text-[9px] text-slate-500 font-bold">{r.row}</td>
+                    <td colSpan={sheet.headers.length + 1} className="px-2 py-2 font-bold text-slate-900 uppercase tracking-widest text-[11px]">
+                      {asStr(r.cells[0])}
                     </td>
                   </tr>
                 );
-              })}
-            </tbody>
-          </table>
-        </div>
+              }
+              const issue = WALKTHROUGH_ISSUES[r.row] as RowIssue | undefined;
+              const showIssue = r.classification === 'red' && issue;
+              return (
+                <tr key={r.row} className={`${ROW_BG[r.classification]} border-b border-slate-100`}>
+                  <td className="px-2 py-1.5 text-right font-mono text-[9px] text-slate-400 align-top pt-2">{r.row}</td>
+                  {sheet.headers.map((_, i) => (
+                    <td key={i} className="px-1 py-1 align-top">
+                      <EditableCell
+                        value={editValue('INVENTORY', r.row, i, r.cells[i])}
+                        onChange={v => setEdit('INVENTORY', r.row, i, v)}
+                        align={i === 1 || i === 2 || i === 4 ? 'right' : 'left'}
+                      />
+                    </td>
+                  ))}
+                  <td className="px-2 py-1.5 align-top">
+                    {showIssue ? <IssueBlock issue={issue!} /> : null}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
       </div>
     </div>
   );
 }
 
-/** Render the issue write-up inline inside the table's last column.
- *  Headline + bullets + verbatim questions, stacked vertically. */
+/** Plain renderer for IMEI / WHATSAPP sheets — no classifications. */
+function RawSheetTable({
+  sheet, name, editValue, setEdit,
+}: {
+  sheet: Sheet;
+  name: SheetName;
+  editValue: (sheet: SheetName, row: number, col: number, original: string | number | null) => string;
+  setEdit: (sheet: SheetName, row: number, col: number, val: string) => void;
+}) {
+  return (
+    <div className="bg-white border border-slate-200 rounded-3xl overflow-hidden">
+      <div className="overflow-x-auto max-h-[70vh]">
+        <table className="w-full text-[11px]">
+          <thead>
+            <tr className="bg-slate-100 text-slate-700 sticky top-0 z-10">
+              <th className="px-2 py-2 text-right font-mono text-[9px] uppercase tracking-widest text-slate-400 w-12">#</th>
+              {sheet.headers.map((h, i) => (
+                <th key={i} className="px-2 py-2 text-left font-bold text-[10px] uppercase tracking-wider whitespace-nowrap">
+                  {h ?? ''}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {sheet.rows.map(r => {
+              if (r.classification === 'blank') {
+                return (
+                  <tr key={r.row} className="bg-white">
+                    <td className="px-2 py-1 text-right font-mono text-[9px] text-slate-300">{r.row}</td>
+                    <td colSpan={sheet.headers.length} className="px-2 py-1">&nbsp;</td>
+                  </tr>
+                );
+              }
+              return (
+                <tr key={r.row} className="bg-white hover:bg-slate-50 border-b border-slate-100">
+                  <td className="px-2 py-1 text-right font-mono text-[9px] text-slate-400 align-top pt-2">{r.row}</td>
+                  {sheet.headers.map((_, i) => (
+                    <td key={i} className="px-1 py-1 align-top">
+                      <EditableCell
+                        value={editValue(name, r.row, i, r.cells[i])}
+                        onChange={v => setEdit(name, r.row, i, v)}
+                      />
+                    </td>
+                  ))}
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
 function IssueBlock({ issue }: { issue: RowIssue }) {
   return (
     <div className="space-y-1.5 leading-snug">
@@ -422,12 +654,8 @@ function IssueBlock({ issue }: { issue: RowIssue }) {
   );
 }
 
-/** Inline-edit input — looks flat until focused, then bordered like
- *  a spreadsheet cell in edit mode. */
 function EditableCell({
-  value,
-  onChange,
-  align = 'left',
+  value, onChange, align = 'left',
 }: {
   value: string;
   onChange: (v: string) => void;
@@ -440,5 +668,92 @@ function EditableCell({
       onChange={e => onChange(e.target.value)}
       className={`w-full bg-transparent border border-transparent rounded px-1.5 py-1 text-[11px] font-mono text-slate-800 hover:border-slate-200 focus:border-slate-400 focus:bg-white focus:outline-none transition-all truncate ${align === 'right' ? 'text-right tabular-nums' : ''}`}
     />
+  );
+}
+
+/** Confirm / progress / done modal for the Load-to-DB action. */
+function LoadToDbModal({
+  state, onConfirm, onClose,
+}: {
+  state:
+    | { kind: 'idle' }
+    | { kind: 'confirm'; rows: SheetRow[] }
+    | { kind: 'loading'; done: number; total: number }
+    | { kind: 'done'; count: number }
+    | { kind: 'error'; msg: string };
+  onConfirm: () => void;
+  onClose: () => void;
+}) {
+  if (state.kind === 'idle') return null;
+  return (
+    <AnimatePresence>
+      <motion.div
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        exit={{ opacity: 0 }}
+        className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4"
+        onClick={state.kind === 'confirm' || state.kind === 'done' || state.kind === 'error' ? onClose : undefined}
+      >
+        <motion.div
+          initial={{ scale: 0.95, opacity: 0 }}
+          animate={{ scale: 1, opacity: 1 }}
+          exit={{ scale: 0.95, opacity: 0 }}
+          className="bg-white rounded-2xl shadow-2xl max-w-md w-full p-6"
+          onClick={e => e.stopPropagation()}
+        >
+          {state.kind === 'confirm' && (
+            <>
+              <div className="flex items-start justify-between gap-3 mb-3">
+                <div>
+                  <h3 className="text-base font-bold flex items-center gap-2">
+                    <Upload size={16} className="text-emerald-600" /> Load to inventory DB
+                  </h3>
+                  <p className="text-[11px] text-slate-500 mt-1 font-mono">
+                    Pushes {state.rows.length} corrected aggregate rows into Firestore.
+                  </p>
+                </div>
+                <button onClick={onClose} className="text-slate-400 hover:text-slate-700"><X size={16} /></button>
+              </div>
+              <div className="bg-slate-50 border border-slate-200 rounded-lg p-3 mb-4 text-[11px] text-slate-600 space-y-1">
+                <p>• Creates one <code>inventoryAggregates</code> doc per visible row.</p>
+                <p>• Supplier names get matched to existing suppliers, or new docs created.</p>
+                <p>• Tagged with a fresh <code>importBatches</code> entry so this run is reversible.</p>
+                <p>• Per-cell edits in the walkthrough are included.</p>
+              </div>
+              <div className="flex gap-2 justify-end">
+                <button onClick={onClose} className="px-3 py-2 text-[10px] font-bold uppercase tracking-widest text-slate-600 hover:text-slate-900">Cancel</button>
+                <button onClick={onConfirm} className="px-3 py-2 bg-emerald-600 text-white rounded-xl text-[10px] font-bold uppercase tracking-widest hover:bg-emerald-700">Load {state.rows.length} rows</button>
+              </div>
+            </>
+          )}
+          {state.kind === 'loading' && (
+            <div className="text-center py-4">
+              <Loader2 size={28} className="mx-auto text-emerald-600 animate-spin" />
+              <p className="mt-3 text-[12px] font-bold">Writing {state.done} / {state.total}…</p>
+              <div className="mt-3 w-full bg-slate-100 rounded-full h-1.5">
+                <div className="bg-emerald-500 h-1.5 rounded-full transition-all" style={{ width: `${(state.done / Math.max(state.total, 1)) * 100}%` }} />
+              </div>
+            </div>
+          )}
+          {state.kind === 'done' && (
+            <div className="text-center py-4">
+              <CheckCheck size={28} className="mx-auto text-emerald-600" />
+              <p className="mt-3 text-[13px] font-bold">Loaded {state.count} rows to inventory DB.</p>
+              <p className="mt-1 text-[11px] text-slate-500 font-mono">Visible in Admin → Overview and Master Data screens.</p>
+              <button onClick={onClose} className="mt-4 px-4 py-2 bg-slate-900 text-white rounded-xl text-[10px] font-bold uppercase tracking-widest">Close</button>
+            </div>
+          )}
+          {state.kind === 'error' && (
+            <div className="py-2">
+              <h3 className="text-base font-bold text-rose-700 flex items-center gap-2">
+                <AlertCircle size={16} /> Load failed
+              </h3>
+              <p className="mt-2 text-[12px] text-slate-700 font-mono break-words">{state.msg}</p>
+              <button onClick={onClose} className="mt-4 px-4 py-2 bg-slate-900 text-white rounded-xl text-[10px] font-bold uppercase tracking-widest">Close</button>
+            </div>
+          )}
+        </motion.div>
+      </motion.div>
+    </AnimatePresence>
   );
 }

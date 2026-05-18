@@ -1,0 +1,11800 @@
+{
+ "INVENTORY": {
+  "headers": [
+   "MODEL ",
+   "BP",
+   "QUANTITY ",
+   null,
+   "VALUE",
+   "COLOURS",
+   "SUPPLIER",
+   "NOTES"
+  ],
+  "rows": [
+   {
+    "row": 2,
+    "cells": [
+     "iPad 7 32GB Wifi 2019 10.2 - WIFI + 4G",
+     75,
+     2,
+     null,
+     "=B2*C2",
+     "GREY 2 SILVER 0",
+     "NIHAL",
+     "CLEARANCE"
+    ],
+    "classification": "green"
+   },
+   {
+    "row": 3,
+    "cells": [
+     "iPad 10.2 (2021) 9th gen 64 GB - WiFi + 4G",
+     140,
+     10,
+     "SALES FOCUS",
+     "=B3*C3",
+     "GREY 10",
+     "MHL",
+     "SALES FOCUS"
+    ],
+    "classification": "yellow"
+   },
+   {
+    "row": 4,
+    "cells": [
+     "iPad Air 11-inch (M3) 128GB - Wi-Fi ",
+     380,
+     1,
+     null,
+     "=B4*C4",
+     "GREY 1",
+     "NANAK",
+     "CLEARANCE"
+    ],
+    "classification": "green"
+   },
+   {
+    "row": 5,
+    "cells": [
+     "iPad Pro 10.5 64GB - Wi-Fi ",
+     85,
+     1,
+     null,
+     "=B5*C5",
+     "ROSE GOLD 1",
+     "NIHAL",
+     "CLEARANCE"
+    ],
+    "classification": "green"
+   },
+   {
+    "row": 6,
+    "cells": [
+     "Galaxy Tab A8 32GB WiFi + LTE",
+     75,
+     16,
+     "SALES FOCUS",
+     "=B6*C6",
+     "GREY 16 SILVER 0",
+     "NANAK",
+     "SALES FOCUS"
+    ],
+    "classification": "red"
+   },
+   {
+    "row": 7,
+    "cells": [
+     "Galaxy Tab S9FE 128GB WiFi",
+     215,
+     3,
+     "SALES FOCUS",
+     "=B7*C7",
+     "GREY 3",
+     "IMAX",
+     null
+    ],
+    "classification": "red"
+   },
+   {
+    "row": 8,
+    "cells": [
+     null,
+     null,
+     null,
+     null,
+     null,
+     null,
+     null,
+     null
+    ],
+    "classification": "blank"
+   },
+   {
+    "row": 9,
+    "cells": [
+     "Apple iPhone SE 3rd 64GB",
+     88,
+     1,
+     null,
+     "=B9*C9",
+     "WHITE 1 RED 0",
+     "NANAK",
+     "CLEARANCE"
+    ],
+    "classification": "red"
+   },
+   {
+    "row": 10,
+    "cells": [
+     "Apple iPhone XS 64GB",
+     110,
+     1,
+     null,
+     "=B10*C10",
+     "GREY 1",
+     "MHL",
+     "CLEARANCE"
+    ],
+    "classification": "red"
+   },
+   {
+    "row": 11,
+    "cells": [
+     "Apple iPhone XR 128GB",
+     110,
+     1,
+     null,
+     "=B11*C11",
+     "YELLOW 1",
+     "NIHAL",
+     "CLEARANCE"
+    ],
+    "classification": "green"
+   },
+   {
+    "row": 12,
+    "cells": [
+     "Apple iPhone 12 128GB",
+     155,
+     1,
+     null,
+     155,
+     "RED 1",
+     "RR STOCK",
+     "CLEARANCE"
+    ],
+    "classification": "green"
+   },
+   {
+    "row": 13,
+    "cells": [
+     "Apple iPhone 13 128GB",
+     195,
+     2,
+     null,
+     "=B13*C13",
+     "BLACK 2",
+     "ABC",
+     null
+    ],
+    "classification": "red"
+   },
+   {
+    "row": 14,
+    "cells": [
+     null,
+     null,
+     null,
+     null,
+     null,
+     null,
+     null,
+     null
+    ],
+    "classification": "blank"
+   },
+   {
+    "row": 15,
+    "cells": [
+     "Samsung Galaxy S9+ 64GB",
+     80,
+     1,
+     null,
+     "=B15*C15",
+     "BLACK 0 PURPLE 1",
+     "MHL",
+     "SHS - BLACK AND PURPLE"
+    ],
+    "classification": "red"
+   },
+   {
+    "row": 16,
+    "cells": [
+     "Samsung Galaxy S20 5G 128GB - SS No E-Sim",
+     115,
+     4,
+     null,
+     "=B16*C16",
+     "GREY 0 PINK 1 WHITE 2 BLUE 1",
+     "MHL",
+     "SHS - GREY"
+    ],
+    "classification": "green"
+   },
+   {
+    "row": 17,
+    "cells": [
+     "Samsung Galaxy S20 FE 5G 128GB ",
+     105,
+     11,
+     "SALES FOCUS",
+     "=B17*C17",
+     "BLUE 3 LAVENDER 2 MINT 5 RED 1",
+     "MHL",
+     "SALES FOCUS"
+    ],
+    "classification": "red"
+   },
+   {
+    "row": 18,
+    "cells": [
+     "Samsung Galaxy S21 5G 128GB (DUAL PHY SIM)",
+     120,
+     9,
+     "SALES FOCUS",
+     120,
+     "GREY 6 WHITE 1 PINK 2",
+     "MHL",
+     "SALES FOCUS"
+    ],
+    "classification": "yellow"
+   },
+   {
+    "row": 19,
+    "cells": [
+     "Samsung Galaxy S21 FE 5G 128GB",
+     115,
+     3,
+     null,
+     "=B19*C19",
+     "GREY 1 GREEN 0 PURPLE 1 WHITE 1",
+     "MHL",
+     null
+    ],
+    "classification": "red"
+   },
+   {
+    "row": 20,
+    "cells": [
+     "Samsung Galaxy S21 Plus 5G 128GB",
+     150,
+     1,
+     null,
+     "=B20*C20",
+     "PURPLE 1",
+     "RR STOCK ",
+     "CLEARANCE"
+    ],
+    "classification": "red"
+   },
+   {
+    "row": 21,
+    "cells": [
+     "Samsung Galaxy S22 128GB",
+     140,
+     7,
+     "SALES FOCUS",
+     "=B21*C21",
+     "BLACK 6 GREEN 1 PINK 0 PURPLE 0 WHITE 0",
+     "MHL",
+     "SALES FOCUS"
+    ],
+    "classification": "yellow"
+   },
+   {
+    "row": 22,
+    "cells": [
+     "Samsung Galaxy S22 256GB",
+     145,
+     5,
+     null,
+     "=B22*C22",
+     "BLACK 1 WHITE 1 PURPLE 2 PINK 1",
+     "ABC / MHL",
+     null
+    ],
+    "classification": "red"
+   },
+   {
+    "row": 23,
+    "cells": [
+     "Samsung Galaxy S23 5G 128GB",
+     190,
+     2,
+     null,
+     "=B23*C23",
+     "GREEN 2 WHITE 0 BLACK 0 LAVENDER 0 (SHS)",
+     "MHL / ABC / NIHAL",
+     "CLEARANCE"
+    ],
+    "classification": "red"
+   },
+   {
+    "row": 24,
+    "cells": [
+     "Samsung Galaxy S23 FE 5G 128GB",
+     175,
+     1,
+     null,
+     "=B24*C24",
+     "BLACK 1 WHITE 1 PURPLE 2 GREEN 1",
+     "MOBILE KIT",
+     null
+    ],
+    "classification": "red"
+   },
+   {
+    "row": 25,
+    "cells": [
+     "Samsung Galaxy S23 FE 5G 256GB",
+     175,
+     1,
+     null,
+     "=B25*C25",
+     "BLACK 1 WHITE 1 PURPLE 2 GREEN 1",
+     "MOBILE KIT",
+     null
+    ],
+    "classification": "red"
+   },
+   {
+    "row": 26,
+    "cells": [
+     null,
+     null,
+     null,
+     null,
+     null,
+     null,
+     null,
+     null
+    ],
+    "classification": "blank"
+   },
+   {
+    "row": 27,
+    "cells": [
+     "Samsung Galaxy A12 32GB - 2 SIM SLOTS",
+     50,
+     2,
+     null,
+     "=B27*C27",
+     "RED 2",
+     "IMAX",
+     "CLEARANCE"
+    ],
+    "classification": "green"
+   },
+   {
+    "row": 28,
+    "cells": [
+     "Samsung Galaxy A13 64GB - 2 SIM SLOTS",
+     55,
+     5,
+     "SALES FOCUS",
+     "=B28*C28",
+     "BLACK 5",
+     "NIHAL",
+     "SALES FOCUS"
+    ],
+    "classification": "red"
+   },
+   {
+    "row": 29,
+    "cells": [
+     "Samsung Galaxy A14 4G 128GB - 2 SIM SLOTS",
+     70,
+     1,
+     null,
+     "=B29*C29",
+     "VIOLET 1",
+     "RR STOCK ",
+     "CLEARANCE"
+    ],
+    "classification": "red"
+   },
+   {
+    "row": 30,
+    "cells": [
+     "Samsung Galaxy A14 5G 128GB ",
+     60,
+     1,
+     null,
+     "=B30*C30",
+     "GREEN 1",
+     "MHL",
+     "CLEARANCE"
+    ],
+    "classification": "red"
+   },
+   {
+    "row": 31,
+    "cells": [
+     "Samsung Galaxy A14 5G 64GB ",
+     72,
+     5,
+     null,
+     "=B31*C31",
+     "BLACK 5",
+     "MHL",
+     "SHS - BLACK"
+    ],
+    "classification": "red"
+   },
+   {
+    "row": 32,
+    "cells": [
+     "Samsung Galaxy A15 5G 128GB ",
+     85,
+     1,
+     "SALES FOCUS",
+     "=B32*C32",
+     "BLACK 1",
+     "NANAK",
+     "SHS - BLACK"
+    ],
+    "classification": "red"
+   },
+   {
+    "row": 33,
+    "cells": [
+     "Samsung Galaxy A16 4G 128GB",
+     85,
+     2,
+     null,
+     "=B33*C33",
+     "GREEN 1 BLACK 0 WHITE 1",
+     "NANAK",
+     "ONU - SHS"
+    ],
+    "classification": "red"
+   },
+   {
+    "row": 34,
+    "cells": [
+     "Samsung Galaxy A16 5G 128GB",
+     115,
+     0,
+     null,
+     "=B34*C34",
+     "BLACK 0",
+     "NANAK",
+     "ONU - SHS"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 35,
+    "cells": [
+     "Samsung Galaxy A17 5G 128GB - 2 SIM SLOTS",
+     120,
+     1,
+     null,
+     "=B35*C35",
+     "BLACK 1",
+     "MHL",
+     "ONU - SHS"
+    ],
+    "classification": "green"
+   },
+   {
+    "row": 36,
+    "cells": [
+     "Samsung Galaxy A21S 32GB - 2 SIM SLOTS",
+     54,
+     4,
+     null,
+     "=B36*C36",
+     "BLUE 4",
+     "IMAX",
+     null
+    ],
+    "classification": "yellow"
+   },
+   {
+    "row": 37,
+    "cells": [
+     "Samsung Galaxy A32 5G 64GB - 2 SIM SLOTS",
+     57,
+     42,
+     "SALES FOCUS",
+     "=B37*C37",
+     "BLACK 41 VIOLET 0 BLUE 1",
+     "IMAX",
+     "SELL IN B GRADE AS WELL, B GRADE BP 52"
+    ],
+    "classification": "red"
+   },
+   {
+    "row": 38,
+    "cells": [
+     "Samsung Galaxy A51 5G 128GB - 2 SIM SLOTS ",
+     62,
+     0,
+     null,
+     "=B38*C38",
+     "WHITE 0",
+     "IMAX",
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 39,
+    "cells": [
+     null,
+     null,
+     null,
+     null,
+     null,
+     null,
+     null,
+     null
+    ],
+    "classification": "blank"
+   },
+   {
+    "row": 40,
+    "cells": [
+     "TOTAL",
+     null,
+     157,
+     null,
+     14719,
+     null,
+     null,
+     null
+    ],
+    "classification": "divider"
+   },
+   {
+    "row": 41,
+    "cells": [
+     null,
+     null,
+     null,
+     null,
+     null,
+     null,
+     null,
+     null
+    ],
+    "classification": "blank"
+   },
+   {
+    "row": 42,
+    "cells": [
+     "SHS",
+     null,
+     null,
+     null,
+     null,
+     null,
+     null,
+     null
+    ],
+    "classification": "divider"
+   },
+   {
+    "row": 43,
+    "cells": [
+     "iPad 11 (2025) 11th gen 128 GB - Wi-Fi",
+     240,
+     "SHS",
+     "240 NEW BP",
+     null,
+     "PINK 1 BLUE 1 SILVER 1 YELLOW 1",
+     "ABC",
+     "SHS"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 44,
+    "cells": [
+     "Apple iPhone 17 Pro Max 256GB",
+     null,
+     "SHS",
+     null,
+     null,
+     null,
+     null,
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 45,
+    "cells": [
+     "Apple iPhone 17 Pro Max 512GB",
+     null,
+     "SHS",
+     null,
+     null,
+     null,
+     null,
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 46,
+    "cells": [
+     "Apple iPhone 17 Pro Max 1TB",
+     null,
+     "SHS",
+     null,
+     null,
+     null,
+     null,
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 47,
+    "cells": [
+     "Apple iPhone SE 2nd 64GB",
+     60,
+     "SHS",
+     null,
+     null,
+     "BLACK",
+     "NANAK",
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 48,
+    "cells": [
+     "Samsung Galaxy A15 4G 128GB",
+     86,
+     "SHS",
+     null,
+     null,
+     "BLACK",
+     "NANAK",
+     "ONU"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 49,
+    "cells": [
+     "Samsung Galaxy S9 64GB",
+     55,
+     "SHS",
+     null,
+     null,
+     "BLACK 0 PURPLE 0 GREY 0",
+     "MHL",
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 50,
+    "cells": [
+     "Samsung Galaxy S21 256GB",
+     145,
+     "SHS",
+     null,
+     null,
+     "BLACK //  WHITE //",
+     "ABC",
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 51,
+    "cells": [
+     "Samsung Galaxy A04S 4G 32GB",
+     null,
+     "SHS",
+     null,
+     null,
+     "BLACK",
+     null,
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 52,
+    "cells": [
+     "Samsung Galaxy A05S 4G 64GB",
+     null,
+     "SHS",
+     null,
+     null,
+     "BLACK",
+     null,
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 53,
+    "cells": [
+     "Samsung Galaxy S24 Ultra 512GB TWO PHYSICAL SIM",
+     470,
+     "SHS",
+     null,
+     null,
+     "Grey / Violet / Yellow / Black / Blue / Green / Orange",
+     "ABC",
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 54,
+    "cells": [
+     "Galaxy Tab A9 4GB 64 GB - WiFi",
+     null,
+     "NO STOCK",
+     null,
+     null,
+     null,
+     "MHL",
+     "ONU"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 55,
+    "cells": [
+     "Galaxy Tab A9 4GB 64GB - WiFi + CELLULAR",
+     null,
+     "NO STOCK",
+     null,
+     null,
+     null,
+     "MHL",
+     "ONU"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 56,
+    "cells": [
+     "Galaxy Tab A9 4GB 128 GB - WiFi",
+     null,
+     "NO STOCK",
+     null,
+     null,
+     null,
+     "MHL",
+     "ONU"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 57,
+    "cells": [
+     "Galaxy Tab A9+ 6GB 128GB - WiFi + CELLULAR",
+     null,
+     "NO STOCK",
+     null,
+     null,
+     null,
+     "MHL",
+     "ONU"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 58,
+    "cells": [
+     "Galaxy Tab A11 4GB 64 GB - WiFi",
+     null,
+     "NO STOCK",
+     null,
+     null,
+     null,
+     "MHL",
+     "ONU"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 59,
+    "cells": [
+     "Galaxy Tab A11 4GB 64GB - WiFi + CELLULAR",
+     null,
+     "NO STOCK",
+     null,
+     null,
+     null,
+     "MHL",
+     "ONU"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 60,
+    "cells": [
+     "Galaxy Tab A11 4GB 128 GB - WiFi",
+     null,
+     "NO STOCK",
+     null,
+     null,
+     null,
+     "MHL",
+     "ONU"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 61,
+    "cells": [
+     "Galaxy Tab A11+ 6GB 128GB - WiFi + CELLULAR",
+     null,
+     "NO STOCK",
+     null,
+     null,
+     null,
+     "MHL",
+     "ONU"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 62,
+    "cells": [
+     "Samsung Galaxy A16 5G 128GB - (TWO PHYSICAL SIM)",
+     115,
+     "SHS",
+     null,
+     null,
+     "BLACK",
+     "MHL",
+     "ONU"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 63,
+    "cells": [
+     "Samsung Galaxy A30S 64GB - (TWO PHYSICAL SIM TRAY)",
+     45,
+     "SHS",
+     null,
+     null,
+     "BLACK",
+     "MHL",
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 64,
+    "cells": [
+     "Samsung Galaxy A26 5G 128GB - (TWO PHYSICAL SIM)",
+     145,
+     "SHS",
+     null,
+     null,
+     "BLACK // WHITE // PINK // MINT //",
+     "MHL",
+     "ONU"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 65,
+    "cells": [
+     "Samsung Galaxy A26 5G 256GB - (TWO PHYSICAL SIM)",
+     165,
+     "SHS",
+     null,
+     null,
+     "BLACK // WHITE // PINK // MINT //",
+     "MHL",
+     "ONU"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 66,
+    "cells": [
+     "Samsung Galaxy A36 5G 128GB",
+     170,
+     "SHS",
+     null,
+     null,
+     "BLACK // WHITE // LIME // LAVENDER //",
+     "MHL",
+     "ONU"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 67,
+    "cells": [
+     "Samsung Galaxy A36 5G 256GB",
+     203,
+     "SHS",
+     null,
+     null,
+     "BLACK // WHITE // LIME // LAVENDER //",
+     "MHL",
+     "ONU"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 68,
+    "cells": [
+     "Samsung Galaxy A56 5G 128GB",
+     218,
+     "SHS",
+     null,
+     null,
+     "BLACK // WHITE // LIME // LAVENDER //",
+     "MHL",
+     "ONU"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 69,
+    "cells": [
+     "Samsung Galaxy A56 5G 256GB",
+     245,
+     "SHS",
+     null,
+     null,
+     "BLACK // WHITE // LIME // LAVENDER //",
+     "MHL",
+     "ONU"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 70,
+    "cells": [
+     "Samsung Galaxy A37 5G 128GB",
+     230,
+     "SHS",
+     null,
+     null,
+     "GREY // PURPLE",
+     "NANAK",
+     "ONU"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 71,
+    "cells": [
+     "Samsung Galaxy A37 5G 256GB",
+     250,
+     "SHS",
+     null,
+     null,
+     "GREY // PURPLE",
+     "NANAK",
+     "ONU"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 72,
+    "cells": [
+     "Samsung Galaxy A57 5G 128GB",
+     270,
+     "SHS",
+     null,
+     null,
+     "GREY // PURPLE",
+     "NANAK",
+     "ONU"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 73,
+    "cells": [
+     "Samsung Galaxy A57 5G 256GB",
+     290,
+     "SHS",
+     null,
+     null,
+     "GREY // PURPLE",
+     "NANAK",
+     "ONU"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 74,
+    "cells": [
+     null,
+     null,
+     null,
+     null,
+     null,
+     null,
+     null,
+     null
+    ],
+    "classification": "blank"
+   },
+   {
+    "row": 75,
+    "cells": [
+     "SOLD",
+     null,
+     null,
+     null,
+     null,
+     null,
+     null,
+     null
+    ],
+    "classification": "divider"
+   },
+   {
+    "row": 76,
+    "cells": [
+     "iPad 10.2 (2021) 9th gen 64 GB - WiFi ",
+     120,
+     0,
+     null,
+     "=B76*C76",
+     "GREY 0",
+     "RR STOCK",
+     "SOLD"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 77,
+    "cells": [
+     "iPad 10 (2022) 10th gen 64 GB - Wi-Fi + 4G",
+     205,
+     0,
+     null,
+     "=B77*C77",
+     "BLUE 0",
+     "NIHAL",
+     "SOLD"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 78,
+    "cells": [
+     "Apple iPhone 13 Pro 128GB",
+     250,
+     0,
+     null,
+     "=B78*C78",
+     "WHITE 0",
+     "RR STOCK",
+     "SOLD"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 79,
+    "cells": [
+     "Apple iPhone 14 Pro 128GB",
+     325,
+     0,
+     null,
+     "=B79*C79",
+     "BLACK 0",
+     "IMAX",
+     "SOLD"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 80,
+    "cells": [
+     "Samsung Galaxy S20 FE 5G 256GB",
+     105,
+     0,
+     null,
+     "=B80*C80",
+     "BLUE 0",
+     "MHL",
+     "SOLD"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 81,
+    "cells": [
+     "iPad 8 32GB Wifi 2019 10.2 - WIFI + 4G",
+     100,
+     0,
+     null,
+     "=B81*C81",
+     "SILVER 0",
+     "MHL",
+     "SOLD"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 82,
+    "cells": [
+     "Apple iPhone 12 64GB",
+     140,
+     0,
+     null,
+     "=B82*C82",
+     "BLACK 0",
+     "NIHAL",
+     "SOLD"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 83,
+    "cells": [
+     "Apple iPhone 14 128GB",
+     255,
+     0,
+     null,
+     "=B83*C83",
+     "BLACK 0",
+     "MHL",
+     "SOLD"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 84,
+    "cells": [
+     "Samsung Galaxy S22 Plus 128GB",
+     150,
+     0,
+     null,
+     "=B84*C84",
+     "BLACK 0",
+     "RR STOCK ",
+     "SOLD"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 85,
+    "cells": [
+     "Samsung Galaxy S23 FE 5G 128GB",
+     180,
+     0,
+     null,
+     "=B85*C85",
+     "BLACK 0",
+     "RR STOCK ",
+     "SOLD"
+    ],
+    "classification": "blue"
+   },
+   {
+    "row": 86,
+    "cells": [
+     "Samsung Galaxy A12 64GB - 2 SIM SLOTS",
+     52,
+     0,
+     null,
+     "=B86*C86",
+     "BLACK 0",
+     "IMAX",
+     "SOLD"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 87,
+    "cells": [
+     "Samsung Galaxy A52 5G 128GB - 2 SIM SLOTS ",
+     80,
+     0,
+     null,
+     "=B87*C87",
+     "BLACK",
+     "SOLD",
+     "SOLD"
+    ],
+    "classification": "none"
+   }
+  ]
+ },
+ "IMEI NUMBERS": {
+  "headers": [
+   "STOCK IN DATE",
+   "MODEL",
+   "IMEI NUMBER",
+   "BP",
+   "COLOURS",
+   "SUPPLIER",
+   "NOTES",
+   "STATUS",
+   "MARKETPLACE",
+   "STOCK OUT DATE"
+  ],
+  "rows": [
+   {
+    "row": 2,
+    "cells": [
+     null,
+     null,
+     null,
+     null,
+     null,
+     null,
+     null,
+     null,
+     null,
+     null
+    ],
+    "classification": "blank"
+   },
+   {
+    "row": 3,
+    "cells": [
+     null,
+     "iPad 7 32GB Wifi 2019 10.2 - WIFI + 4G",
+     353209102768686,
+     75,
+     "SPACE GREY",
+     "NIHAL",
+     null,
+     null,
+     null,
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 4,
+    "cells": [
+     null,
+     "iPad 7 32GB Wifi 2019 10.2 - WIFI + 4G",
+     353209103065421,
+     75,
+     "SPACE GREY",
+     "NIHAL",
+     null,
+     null,
+     null,
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 5,
+    "cells": [
+     "2026-05-05 00:00:00",
+     "IPAD 8TH GEN 32GB W/C ",
+     356754112183779,
+     100,
+     "SILVER",
+     "MHL",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-12 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 6,
+    "cells": [
+     "2026-05-07 00:00:00",
+     "IPAD 9TH GEN 64GB W",
+     "F523170JCD",
+     120,
+     "SPACE GREY",
+     "RR STOCK",
+     null,
+     "SOLD",
+     "eBay",
+     "2026-05-08 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 7,
+    "cells": [
+     null,
+     "iPad 10.2 (2021) 9th gen 64 GB - WiFi + 4G",
+     357883401512577,
+     140,
+     "SPACE GREY",
+     "MHL",
+     null,
+     "SOLD",
+     "OnBuy",
+     "2026-05-05 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 8,
+    "cells": [
+     null,
+     "iPad 10.2 (2021) 9th gen 64 GB - WiFi + 4G",
+     355254192804932,
+     140,
+     "SPACE GREY",
+     "MHL",
+     null,
+     "SOLD",
+     "eBay",
+     "2026-05-05 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 9,
+    "cells": [
+     null,
+     "iPad 10.2 (2021) 9th gen 64 GB - WiFi + 4G",
+     351613965478360,
+     140,
+     "SPACE GREY",
+     "MHL",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-04 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 10,
+    "cells": [
+     null,
+     "iPad 10.2 (2021) 9th gen 64 GB - WiFi + 4G",
+     355994200043896,
+     140,
+     "SPACE GREY",
+     "MHL",
+     null,
+     null,
+     null,
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 11,
+    "cells": [
+     null,
+     "iPad 10.2 (2021) 9th gen 64 GB - WiFi + 4G",
+     "NL6CMQCYTD",
+     140,
+     "SPACE GREY",
+     "MOBILE KIT ",
+     null,
+     "SOLD",
+     "Back Market",
+     "2026-05-04 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 12,
+    "cells": [
+     null,
+     "iPad 10.2 (2021) 9th gen 64 GB - WiFi + 4G",
+     "MKTWG2TKX1",
+     140,
+     "SPACE GREY",
+     "MOBILE KIT ",
+     null,
+     "SOLD",
+     "eBay",
+     "2026-05-04 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 13,
+    "cells": [
+     "2026-05-05 00:00:00",
+     "iPad 10.2 (2021) 9th gen 64 GB - WiFi + 4G",
+     356134571175832,
+     140,
+     "SPACE GREY",
+     "MHL",
+     null,
+     null,
+     null,
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 14,
+    "cells": [
+     "2026-05-05 00:00:00",
+     "iPad 10.2 (2021) 9th gen 64 GB - WiFi + 4G",
+     355254199811450,
+     140,
+     "SPACE GREY",
+     "MHL",
+     null,
+     null,
+     null,
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 15,
+    "cells": [
+     "2026-05-05 00:00:00",
+     "iPad 10.2 (2021) 9th gen 64 GB - WiFi + 4G",
+     357883400511927,
+     140,
+     "SPACE GREY",
+     "MHL",
+     null,
+     null,
+     null,
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 16,
+    "cells": [
+     "2026-05-05 00:00:00",
+     "iPad 10.2 (2021) 9th gen 64 GB - WiFi + 4G",
+     355994203230672,
+     140,
+     "SPACE GREY",
+     "MHL",
+     null,
+     null,
+     null,
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 17,
+    "cells": [
+     "2026-05-05 00:00:00",
+     "iPad 10.2 (2021) 9th gen 64 GB - WiFi + 4G",
+     359552545464973,
+     140,
+     "SPACE GREY",
+     "MHL",
+     null,
+     null,
+     null,
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 18,
+    "cells": [
+     "2026-05-05 00:00:00",
+     "iPad 10.2 (2021) 9th gen 64 GB - WiFi + 4G",
+     355254195405539,
+     140,
+     "SPACE GREY",
+     "MHL",
+     null,
+     null,
+     null,
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 19,
+    "cells": [
+     "2026-05-05 00:00:00",
+     "iPad 10.2 (2021) 9th gen 64 GB - WiFi + 4G",
+     350698368812696,
+     140,
+     "SPACE GREY",
+     "MHL",
+     null,
+     "SOLD",
+     "eBay",
+     "2026-05-12 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 20,
+    "cells": [
+     "2026-05-05 00:00:00",
+     "iPad 10.2 (2021) 9th gen 64 GB - WiFi + 4G",
+     357883400668867,
+     140,
+     "SPACE GREY",
+     "MHL",
+     null,
+     null,
+     null,
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 21,
+    "cells": [
+     "2026-05-05 00:00:00",
+     "iPad 10.2 (2021) 9th gen 64 GB - WiFi + 4G",
+     356134572388038,
+     140,
+     "SPACE GREY",
+     "MHL",
+     null,
+     null,
+     null,
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 22,
+    "cells": [
+     "2026-05-05 00:00:00",
+     "iPad 10.2 (2021) 9th gen 64 GB - WiFi + 4G",
+     359552549815642,
+     140,
+     "SPACE GREY",
+     "MHL",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-07 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 23,
+    "cells": [
+     "2026-05-05 00:00:00",
+     "iPad 10.2 (2021) 9th gen 64 GB - WiFi + 4G",
+     350698369693004,
+     140,
+     "SPACE GREY",
+     "MHL",
+     null,
+     null,
+     null,
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 24,
+    "cells": [
+     "2026-05-05 00:00:00",
+     "iPad 10.2 (2021) 9th gen 64 GB - WiFi + 4G",
+     358233412628120,
+     140,
+     "SPACE GREY",
+     "MHL",
+     null,
+     "SOLD",
+     "eBay",
+     "2026-05-08 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 25,
+    "cells": [
+     "2026-05-05 00:00:00",
+     "iPad 10.2 (2021) 9th gen 64 GB - WiFi + 4G",
+     355994202895731,
+     140,
+     "SPACE GREY",
+     "MHL",
+     null,
+     null,
+     null,
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 26,
+    "cells": [
+     "2026-05-05 00:00:00",
+     "iPad 10.2 (2021) 9th gen 64 GB - WiFi + 4G",
+     351036279740707,
+     140,
+     "SPACE GREY",
+     "MHL",
+     null,
+     null,
+     null,
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 27,
+    "cells": [
+     "2026-05-05 00:00:00",
+     "iPad 10.2 (2021) 9th gen 64 GB - WiFi + 4G",
+     359552541850266,
+     140,
+     "SPACE GREY",
+     "MHL",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-05 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 28,
+    "cells": [
+     null,
+     "IPAD 10TH GEN 64GB W/C ",
+     356493662796090,
+     205,
+     "BLUE",
+     "NIHAL",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-06 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 29,
+    "cells": [
+     null,
+     "IPAD 11TH GEN 128GB W ",
+     "SF0WVYJVDY1",
+     247,
+     "BLUE",
+     "IMAX",
+     null,
+     "SOLD",
+     "eBay",
+     "2026-05-07 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 30,
+    "cells": [
+     null,
+     "IPAD 11TH GEN 128GB W ",
+     "SL70Q72H99Q",
+     247,
+     "PINK",
+     "IMAX",
+     null,
+     "SOLD",
+     "OnBuy",
+     "2026-05-05 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 31,
+    "cells": [
+     "2026-05-07 00:00:00",
+     "IPAD 11TH GEN 128GB W ",
+     "SKQYFH96DDF",
+     247,
+     "PINK",
+     "RR STOCK",
+     null,
+     "SOLD",
+     "eBay",
+     "2026-05-08 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 32,
+    "cells": [
+     null,
+     "iPad Pro 10.5 64GB - Wi-Fi",
+     "DMPVL061J28N",
+     85,
+     "ROSE GOLD",
+     "NIHAL",
+     null,
+     null,
+     null,
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 33,
+    "cells": [
+     null,
+     "iPad Air 11-inch (M3) 128GB - Wi-Fi",
+     "SCVQMXV9QRP",
+     380,
+     "GREY",
+     "NANAK",
+     null,
+     null,
+     null,
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 34,
+    "cells": [
+     null,
+     null,
+     null,
+     null,
+     null,
+     null,
+     null,
+     null,
+     null,
+     null
+    ],
+    "classification": "blank"
+   },
+   {
+    "row": 35,
+    "cells": [
+     null,
+     "Galaxy Tab A8 32GB WiFi + LTE",
+     350858557336531,
+     75,
+     "BLACK",
+     "NANAK",
+     null,
+     "SOLD",
+     "Project",
+     "2026-05-06 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 36,
+    "cells": [
+     null,
+     "Galaxy Tab A8 32GB WiFi + LTE",
+     "R8YW90H7FSD",
+     75,
+     "BLACK",
+     "NANAK",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-05 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 37,
+    "cells": [
+     null,
+     "Galaxy Tab A8 32GB WiFi + LTE",
+     "R8YWA0ALDFT",
+     75,
+     "BLACK",
+     "NANAK",
+     null,
+     "SOLD",
+     "Back Market",
+     "2026-05-04 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 38,
+    "cells": [
+     null,
+     "Galaxy Tab A8 32GB WiFi + LTE",
+     353289768690770,
+     75,
+     "BLACK",
+     "NANAK",
+     null,
+     "SOLD",
+     "Back Market",
+     "2026-05-04 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 39,
+    "cells": [
+     null,
+     "Galaxy Tab A8 32GB WiFi + LTE",
+     353289760822645,
+     75,
+     "BLACK",
+     "NANAK",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-10 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 40,
+    "cells": [
+     null,
+     "Galaxy Tab A8 32GB WiFi + LTE",
+     "R8YWA0AKNJH",
+     75,
+     "BLACK",
+     "NANAK",
+     null,
+     "SOLD",
+     "Project",
+     "2026-05-03 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 41,
+    "cells": [
+     null,
+     "Galaxy Tab A8 32GB WiFi + LTE",
+     355355258915635,
+     75,
+     "BLACK",
+     "NANAK",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-06 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 42,
+    "cells": [
+     null,
+     "Galaxy Tab A8 32GB WiFi + LTE",
+     353289763192335,
+     75,
+     "BLACK",
+     "NANAK",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-06 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 43,
+    "cells": [
+     null,
+     "Galaxy Tab A8 32GB WiFi + LTE",
+     "R9YTC01C3LH",
+     75,
+     "BLACK",
+     "NANAK",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-12 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 44,
+    "cells": [
+     null,
+     "Galaxy Tab A8 32GB WiFi + LTE",
+     350858557958425,
+     75,
+     "BLACK",
+     "NANAK",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-06 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 45,
+    "cells": [
+     null,
+     "Galaxy Tab A8 32GB WiFi + LTE",
+     "R8YW90H7F8Y",
+     75,
+     "BLACK",
+     "NANAK",
+     null,
+     "SOLD",
+     "Project",
+     "2026-05-09 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 46,
+    "cells": [
+     null,
+     "Galaxy Tab A8 32GB WiFi + LTE",
+     "R8YW91NW1XD",
+     75,
+     "BLACK",
+     "NANAK",
+     null,
+     "SOLD",
+     "Back Market",
+     "2026-05-05 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 47,
+    "cells": [
+     null,
+     "Galaxy Tab A8 32GB WiFi + LTE",
+     "R8YWA0M560W",
+     75,
+     "BLACK",
+     "NANAK",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-11 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 48,
+    "cells": [
+     null,
+     "Galaxy Tab A8 32GB WiFi + LTE",
+     "R8YW90H7NTE",
+     75,
+     "BLACK",
+     "NANAK",
+     null,
+     "SOLD",
+     "Back Market",
+     "2026-05-05 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 49,
+    "cells": [
+     null,
+     "Galaxy Tab A8 32GB WiFi + LTE",
+     353289769107154,
+     75,
+     "BLACK",
+     "NANAK",
+     null,
+     "SOLD",
+     "Project",
+     "2026-05-11 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 50,
+    "cells": [
+     null,
+     "Galaxy Tab A8 32GB WiFi + LTE",
+     "R8YW91NW2WT",
+     75,
+     "BLACK",
+     "NANAK",
+     null,
+     "SOLD",
+     "Back Market",
+     "2026-05-05 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 51,
+    "cells": [
+     null,
+     "Galaxy Tab A8 32GB WiFi + LTE",
+     350858558392301,
+     75,
+     "BLACK",
+     "NANAK",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-11 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 52,
+    "cells": [
+     null,
+     "Galaxy Tab A8 32GB WiFi + LTE",
+     350858557336796,
+     75,
+     "BLACK",
+     "NANAK",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-07 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 53,
+    "cells": [
+     null,
+     "Galaxy Tab A8 32GB WiFi + LTE",
+     353255360887312,
+     75,
+     "BLACK",
+     "NANAK",
+     null,
+     "SOLD",
+     "Project",
+     "2026-05-12 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 54,
+    "cells": [
+     null,
+     "Galaxy Tab A8 32GB WiFi + LTE",
+     "R8YWA0AJ4FY",
+     75,
+     "BLACK",
+     "NANAK",
+     null,
+     null,
+     null,
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 55,
+    "cells": [
+     null,
+     "Galaxy Tab A8 32GB WiFi + LTE",
+     "R8YWA0QSWGK",
+     75,
+     "BLACK",
+     "NANAK",
+     null,
+     "SOLD",
+     "Project",
+     "2026-05-08 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 56,
+    "cells": [
+     null,
+     "Galaxy Tab A8 32GB WiFi + LTE",
+     "R8YWA0ADYMJ",
+     75,
+     "BLACK",
+     "NANAK",
+     null,
+     "SOLD",
+     "Project",
+     "2026-05-09 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 57,
+    "cells": [
+     null,
+     "Galaxy Tab A8 32GB WiFi + LTE",
+     350858557960132,
+     75,
+     "BLACK",
+     "NANAK",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-11 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 58,
+    "cells": [
+     null,
+     "Galaxy Tab A8 32GB WiFi + LTE",
+     350858556520952,
+     75,
+     "BLACK",
+     "NANAK",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-07 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 59,
+    "cells": [
+     null,
+     "Galaxy Tab A8 32GB WiFi + LTE",
+     350858557336333,
+     75,
+     "BLACK",
+     "NANAK",
+     null,
+     null,
+     null,
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 60,
+    "cells": [
+     null,
+     "Galaxy Tab A8 32GB WiFi + LTE",
+     350858557337208,
+     75,
+     "BLACK",
+     "NANAK",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-08 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 61,
+    "cells": [
+     null,
+     "Galaxy Tab A8 32GB WiFi + LTE",
+     "R8YWA0QT2YM",
+     75,
+     "BLACK",
+     "NANAK",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-07 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 62,
+    "cells": [
+     null,
+     "Galaxy Tab A8 32GB WiFi + LTE",
+     351424287710898,
+     75,
+     "WHITE",
+     "NANAK",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-06 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 63,
+    "cells": [
+     null,
+     "Galaxy Tab A8 32GB WiFi + LTE",
+     350858557957039,
+     75,
+     "BLACK",
+     "NANAK",
+     null,
+     null,
+     null,
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 64,
+    "cells": [
+     "2026-05-11 00:00:00",
+     "Galaxy Tab A8 32GB WiFi + LTE",
+     350858554553351,
+     75,
+     "BLACK",
+     "NANAK",
+     null,
+     null,
+     null,
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 65,
+    "cells": [
+     null,
+     "Galaxy Tab A8 32GB WiFi + LTE",
+     350858557959209,
+     75,
+     "BLACK",
+     "NANAK",
+     null,
+     null,
+     null,
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 66,
+    "cells": [
+     null,
+     "Galaxy Tab A8 32GB WiFi + LTE",
+     350858557960090,
+     75,
+     "BLACK",
+     "NANAK",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-14 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 67,
+    "cells": [
+     null,
+     "Galaxy Tab A8 32GB WiFi + LTE",
+     350858557959423,
+     75,
+     "BLACK",
+     "NANAK",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-14 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 68,
+    "cells": [
+     null,
+     "Galaxy Tab A8 32GB WiFi + LTE",
+     350858557957492,
+     75,
+     "BLACK",
+     "NANAK",
+     null,
+     null,
+     null,
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 69,
+    "cells": [
+     null,
+     "Galaxy Tab A8 32GB WiFi + LTE",
+     353255363681886,
+     75,
+     "BLACK",
+     "NANAK",
+     null,
+     null,
+     null,
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 70,
+    "cells": [
+     null,
+     "Galaxy Tab A8 32GB WiFi + LTE",
+     350858557959050,
+     75,
+     "BLACK",
+     "NANAK",
+     null,
+     null,
+     null,
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 71,
+    "cells": [
+     null,
+     "Galaxy Tab A8 32GB WiFi + LTE",
+     353255363678346,
+     75,
+     "BLACK",
+     "NANAK",
+     null,
+     null,
+     null,
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 72,
+    "cells": [
+     null,
+     "Galaxy Tab A8 32GB WiFi + LTE",
+     350858557957997,
+     75,
+     "BLACK",
+     "NANAK",
+     null,
+     null,
+     null,
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 73,
+    "cells": [
+     null,
+     "Galaxy Tab A8 32GB WiFi + LTE",
+     350858557336465,
+     75,
+     "BLACK",
+     "NANAK",
+     null,
+     null,
+     null,
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 74,
+    "cells": [
+     null,
+     "Galaxy Tab A8 32GB WiFi + LTE",
+     350858557957534,
+     75,
+     "BLACK",
+     "NANAK",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-14 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 75,
+    "cells": [
+     null,
+     "Galaxy Tab A8 32GB WiFi + LTE",
+     350858557334619,
+     75,
+     "BLACK",
+     "NANAK",
+     null,
+     "SOLD",
+     "Back Market",
+     "2026-05-13 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 76,
+    "cells": [
+     null,
+     "Galaxy Tab A8 32GB WiFi + LTE",
+     350858557959746,
+     75,
+     "BLACK",
+     "NANAK",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-13 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 77,
+    "cells": [
+     null,
+     "Galaxy Tab A8 32GB WiFi + LTE",
+     350858558391907,
+     75,
+     "BLACK",
+     "NANAK",
+     null,
+     null,
+     null,
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 78,
+    "cells": [
+     null,
+     "Galaxy Tab A8 32GB WiFi + LTE",
+     350858558392160,
+     75,
+     "BLACK",
+     "NANAK",
+     null,
+     null,
+     null,
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 79,
+    "cells": [
+     null,
+     "Galaxy Tab A8 32GB WiFi + LTE",
+     350858557321301,
+     75,
+     "BLACK",
+     "NANAK",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-13 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 80,
+    "cells": [
+     null,
+     "Galaxy Tab A8 32GB WiFi + LTE",
+     350858557959324,
+     75,
+     "BLACK",
+     "NANAK",
+     null,
+     null,
+     null,
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 81,
+    "cells": [
+     null,
+     "Galaxy Tab A8 32GB WiFi + LTE",
+     350858557336481,
+     75,
+     "BLACK",
+     "NANAK",
+     null,
+     null,
+     null,
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 82,
+    "cells": [
+     null,
+     "Galaxy Tab A8 32GB WiFi + LTE",
+     350858557958748,
+     75,
+     "BLACK",
+     "NANAK",
+     null,
+     null,
+     null,
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 83,
+    "cells": [
+     "2026-05-12 00:00:00",
+     "Galaxy Tab A8 32GB WiFi + LTE",
+     350858557335384,
+     75,
+     "BLACK",
+     "NANAK",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-12 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 84,
+    "cells": [
+     null,
+     null,
+     null,
+     null,
+     null,
+     null,
+     null,
+     null,
+     null,
+     null
+    ],
+    "classification": "blank"
+   },
+   {
+    "row": 85,
+    "cells": [
+     null,
+     null,
+     null,
+     null,
+     null,
+     null,
+     null,
+     null,
+     null,
+     null
+    ],
+    "classification": "blank"
+   },
+   {
+    "row": 86,
+    "cells": [
+     null,
+     null,
+     null,
+     null,
+     null,
+     null,
+     null,
+     null,
+     null,
+     null
+    ],
+    "classification": "blank"
+   },
+   {
+    "row": 87,
+    "cells": [
+     "2026-05-05 00:00:00",
+     "Galaxy Tab S9FE 128GB WiFi",
+     355346633879133,
+     215,
+     "BLACK",
+     "IMAX",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-05 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 88,
+    "cells": [
+     null,
+     "Galaxy Tab S9FE 128GB WiFi",
+     355346634197428,
+     215,
+     "BLACK",
+     "IMAX",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-14 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 89,
+    "cells": [
+     null,
+     "Galaxy Tab S9FE 128GB WiFi",
+     355346634106064,
+     215,
+     "BLACK",
+     "IMAX",
+     null,
+     "SOLD",
+     "Back Market",
+     "2026-05-08 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 90,
+    "cells": [
+     null,
+     "Galaxy Tab S9FE 128GB WiFi",
+     355346633870868,
+     215,
+     "BLACK",
+     "IMAX",
+     null,
+     "SOLD",
+     "Back Market",
+     "2026-05-08 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 91,
+    "cells": [
+     null,
+     "Galaxy Tab S9FE 128GB WiFi",
+     355346632355630,
+     215,
+     "BLACK",
+     "IMAX",
+     null,
+     null,
+     null,
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 92,
+    "cells": [
+     null,
+     "Galaxy Tab S9FE 128GB WiFi",
+     355346632324669,
+     215,
+     "BLACK",
+     "IMAX",
+     null,
+     null,
+     null,
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 93,
+    "cells": [
+     null,
+     "Galaxy Tab S9FE 128GB WiFi",
+     355346633893852,
+     215,
+     "BLACK",
+     "IMAX",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-14 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 94,
+    "cells": [
+     null,
+     "Galaxy Tab S9FE 128GB WiFi",
+     355346634328734,
+     215,
+     "BLACK",
+     "IMAX",
+     null,
+     null,
+     null,
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 95,
+    "cells": [
+     null,
+     null,
+     null,
+     null,
+     null,
+     null,
+     null,
+     null,
+     null,
+     null
+    ],
+    "classification": "blank"
+   },
+   {
+    "row": 96,
+    "cells": [
+     null,
+     "Apple iPhone XR 128GB",
+     353079101459854,
+     110,
+     "BLUE",
+     "NIHAL",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-04 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 97,
+    "cells": [
+     null,
+     "Apple iPhone XR 128GB",
+     357353096101854,
+     110,
+     "YELLOW",
+     "NIHAL",
+     null,
+     null,
+     null,
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 98,
+    "cells": [
+     null,
+     "Apple iPhone XS 64GB",
+     353162103150836,
+     110,
+     "BLACK",
+     "MHL",
+     null,
+     null,
+     null,
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 99,
+    "cells": [
+     null,
+     "IPHONE SE2 64GB ",
+     351889400030269,
+     60,
+     "BLACK",
+     "NANAK",
+     null,
+     "SOLD",
+     "eBay",
+     "2026-05-06 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 100,
+    "cells": [
+     null,
+     "IPHONE SE2 64GB ",
+     356711119764050,
+     60,
+     "BLACK",
+     "NANAK",
+     null,
+     "SOLD",
+     "eBay",
+     "2026-05-06 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 101,
+    "cells": [
+     "2026-05-12 00:00:00",
+     "IPHONE SE2 64GB ",
+     356132580688589,
+     60,
+     "BLACK",
+     "MHL",
+     null,
+     "SOLD",
+     "eBay",
+     "2026-05-12 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 102,
+    "cells": [
+     "2026-05-12 00:00:00",
+     "IPHONE SE2 64GB ",
+     356780118864781,
+     60,
+     "BLACK",
+     "MHL",
+     null,
+     null,
+     null,
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 103,
+    "cells": [
+     null,
+     "Apple iPhone SE 3rd 64GB",
+     357558707749228,
+     90,
+     "RED",
+     "NANAK",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-14 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 104,
+    "cells": [
+     null,
+     "Apple iPhone SE 3rd 64GB",
+     352094703141140,
+     90,
+     "WHITE",
+     "NANAK",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-14 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 105,
+    "cells": [
+     null,
+     "Apple iPhone SE 3rd 64GB",
+     359949182999446,
+     90,
+     "WHITE",
+     "RR STOCK",
+     null,
+     null,
+     null,
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 106,
+    "cells": [
+     null,
+     "Apple iPhone SE 3rd 64GB",
+     350611984857581,
+     90,
+     "WHITE",
+     "RR STOCK",
+     null,
+     null,
+     null,
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 107,
+    "cells": [
+     null,
+     "IPHONE 12 64GB ",
+     351166892190954,
+     140,
+     "BLUE",
+     "RR STOCK",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-12 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 108,
+    "cells": [
+     "2026-05-12 00:00:00",
+     "Apple iPhone 12 128GB",
+     357140400332642,
+     155,
+     "BLACK",
+     "RR STOCK",
+     null,
+     "SOLD",
+     "eBay",
+     "2026-05-12 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 109,
+    "cells": [
+     "2026-05-12 00:00:00",
+     "Apple iPhone 12 128GB",
+     353361737733971,
+     155,
+     "RED",
+     "RR STOCK",
+     null,
+     null,
+     null,
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 110,
+    "cells": [
+     "2026-05-05 00:00:00",
+     "IPHONE 12 256GB ",
+     359458688969457,
+     170,
+     "PURPLE",
+     "NIHAL",
+     null,
+     "SOLD",
+     "eBay",
+     "2026-05-04 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 111,
+    "cells": [
+     null,
+     "Apple iPhone 13 128GB",
+     353970269891195,
+     195,
+     "BLACK",
+     "RR STOCK",
+     null,
+     null,
+     null,
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 112,
+    "cells": [
+     null,
+     "Apple iPhone 13 128GB",
+     354551508837253,
+     195,
+     "BLACK",
+     "NANAK",
+     null,
+     "SOLD",
+     "eBay",
+     "2026-05-06 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 113,
+    "cells": [
+     null,
+     "Apple iPhone 13 128GB",
+     354455404476374,
+     195,
+     "BLACK",
+     "NANAK",
+     null,
+     "SOLD",
+     "eBay",
+     "2026-05-06 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 114,
+    "cells": [
+     "2026-05-06 00:00:00",
+     "Apple iPhone 13 128GB",
+     359746504225918,
+     195,
+     "BLACK",
+     "IMAX",
+     null,
+     null,
+     null,
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 115,
+    "cells": [
+     null,
+     "IPHONE 13 PRO 128GB",
+     356133315283209,
+     250,
+     "WHITE",
+     "NANAK",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-06 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 116,
+    "cells": [
+     null,
+     "IPHONE 13 PRO 128GB",
+     350302398889713,
+     250,
+     "WHITE",
+     "RR STOCK",
+     null,
+     "SOLD",
+     "Back Market",
+     "2026-05-05 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 117,
+    "cells": [
+     null,
+     "IPHONE 14 128GB ",
+     359695605751175,
+     255,
+     "BLACK",
+     "MHL",
+     null,
+     "SOLD",
+     "OnBuy",
+     "2026-05-10 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 118,
+    "cells": [
+     null,
+     "IPHONE 14 PRO 128GB ",
+     358073464900765,
+     null,
+     "BLACK",
+     "IMAX",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-04 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 119,
+    "cells": [
+     null,
+     "IPHONE 14 PROMAX 128GB ",
+     359712283664545,
+     390,
+     "BLACK",
+     "IMAX",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-04 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 120,
+    "cells": [
+     null,
+     null,
+     null,
+     null,
+     null,
+     null,
+     null,
+     null,
+     null,
+     null
+    ],
+    "classification": "blank"
+   },
+   {
+    "row": 121,
+    "cells": [
+     null,
+     "Samsung Galaxy S9+ 64GB",
+     354645091391502,
+     55,
+     "BLACK",
+     "MHL",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-07 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 122,
+    "cells": [
+     null,
+     "Samsung Galaxy S9+ 64GB",
+     354263093124101,
+     55,
+     "PINK",
+     "MHL",
+     null,
+     null,
+     null,
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 123,
+    "cells": [
+     "2026-05-08 00:00:00",
+     "Samsung Galaxy S9+ 64GB",
+     354645090721725,
+     55,
+     "BLACK",
+     "MHL",
+     null,
+     "SOLD",
+     "Back Market",
+     "2026-05-08 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 124,
+    "cells": [
+     "2026-05-08 00:00:00",
+     "Samsung Galaxy S9+ 64GB",
+     353322090997140,
+     55,
+     "BLACK",
+     "MHL",
+     null,
+     "SOLD",
+     "OnBuy",
+     "2026-05-08 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 125,
+    "cells": [
+     "2026-05-11 00:00:00",
+     "Samsung Galaxy S9+ 64GB",
+     358216090204785,
+     55,
+     "BLACK",
+     "MHL",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-11 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 126,
+    "cells": [
+     "2026-05-11 00:00:00",
+     "Samsung Galaxy S9+ 64GB",
+     354644090663623,
+     55,
+     "BLACK",
+     "MHL",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-11 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 127,
+    "cells": [
+     "2026-05-11 00:00:00",
+     "Samsung Galaxy S9+ 64GB",
+     354641092518805,
+     55,
+     "BLACK",
+     "MHL",
+     null,
+     "SOLD",
+     "Back Market",
+     "2026-05-12 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 128,
+    "cells": [
+     null,
+     "Samsung Galaxy S20 5G 128GB - SS No E-Sim",
+     355623111106274,
+     115,
+     "GREY",
+     "MHL",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-05 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 129,
+    "cells": [
+     null,
+     "Samsung Galaxy S20 5G 128GB - SS No E-Sim",
+     355623112040233,
+     115,
+     "GREY",
+     "MHL",
+     null,
+     "SOLD",
+     "eBay",
+     "2026-05-08 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 130,
+    "cells": [
+     null,
+     "Samsung Galaxy S20 5G 128GB - SS No E-Sim",
+     355623111801270,
+     115,
+     "GREY",
+     "MHL",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-06 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 131,
+    "cells": [
+     null,
+     "Samsung Galaxy S20 5G 128GB - SS No E-Sim",
+     356420111030672,
+     115,
+     "WHITE",
+     "MHL",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-04 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 132,
+    "cells": [
+     null,
+     "Samsung Galaxy S20 5G 128GB - SS No E-Sim",
+     356420110790193,
+     115,
+     "WHITE",
+     "MHL",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-04 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 133,
+    "cells": [
+     null,
+     "Samsung Galaxy S20 5G 128GB - SS No E-Sim",
+     356136110866268,
+     115,
+     "PINK",
+     "MHL",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-04 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 134,
+    "cells": [
+     "2026-05-07 00:00:00",
+     "Samsung Galaxy S20 5G 128GB - SS No E-Sim",
+     356420110784956,
+     115,
+     "WHITE",
+     "MHL (RR)",
+     null,
+     null,
+     null,
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 135,
+    "cells": [
+     "2026-05-07 00:00:00",
+     "Samsung Galaxy S20 5G 128GB - SS No E-Sim",
+     356420110790193,
+     115,
+     "WHITE",
+     "MHL (RR)",
+     null,
+     null,
+     null,
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 136,
+    "cells": [
+     null,
+     "Samsung Galaxy S20 5G 128GB - SS No E-Sim",
+     356136110736974,
+     115,
+     "PINK",
+     "MHL",
+     null,
+     null,
+     null,
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 137,
+    "cells": [
+     "2026-05-05 00:00:00",
+     "Samsung Galaxy S20 5G 128GB - SS No E-Sim",
+     355623111234142,
+     115,
+     "GREY",
+     "MHL",
+     null,
+     "SOLD",
+     "Project",
+     "2026-05-11 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 138,
+    "cells": [
+     "2026-05-05 00:00:00",
+     "Samsung Galaxy S20 5G 128GB - SS No E-Sim",
+     355623112504030,
+     115,
+     "GREY",
+     "MHL",
+     null,
+     "SOLD",
+     "Project",
+     "2026-05-07 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 139,
+    "cells": [
+     "2026-05-05 00:00:00",
+     "Samsung Galaxy S20 5G 128GB - SS No E-Sim",
+     356420110900024,
+     115,
+     "PINK",
+     "MHL",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-06 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 140,
+    "cells": [
+     "2026-05-12 00:00:00",
+     "Samsung Galaxy S20 5G 128GB - SS No E-Sim",
+     354266113091960,
+     115,
+     "BLUE",
+     "MHL",
+     null,
+     null,
+     null,
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 141,
+    "cells": [
+     null,
+     "Samsung Galaxy S20 FE 5G 128GB",
+     355008374364655,
+     105,
+     "BLUE",
+     "IMAX",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-10 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 142,
+    "cells": [
+     null,
+     "Samsung Galaxy S20 FE 5G 128GB",
+     355008373890619,
+     105,
+     "BLUE",
+     "IMAX",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-10 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 143,
+    "cells": [
+     null,
+     "Samsung Galaxy S20 FE 5G 128GB",
+     351328119527927,
+     105,
+     "BLUE",
+     "IMAX",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-08 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 144,
+    "cells": [
+     null,
+     "Samsung Galaxy S20 FE 5G 128GB",
+     351328110350329,
+     105,
+     "BLUE",
+     "IMAX",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-08 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 145,
+    "cells": [
+     null,
+     "Samsung Galaxy S20 FE 5G 128GB",
+     351328117902379,
+     105,
+     "BLUE",
+     "IMAX",
+     null,
+     "SOLD",
+     "Back Market",
+     "2026-05-04 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 146,
+    "cells": [
+     null,
+     "Samsung Galaxy S20 FE 5G 128GB",
+     351328113701338,
+     105,
+     "BLUE",
+     "IMAX",
+     null,
+     "SOLD",
+     "Back Market",
+     "2026-05-04 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 147,
+    "cells": [
+     null,
+     "Samsung Galaxy S20 FE 5G 128GB",
+     351328115008625,
+     105,
+     "BLUE",
+     "IMAX",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-06 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 148,
+    "cells": [
+     null,
+     "Samsung Galaxy S20 FE 5G 128GB",
+     355008378419851,
+     105,
+     "BLUE",
+     "IMAX",
+     null,
+     "SOLD",
+     "eBay",
+     "2026-05-06 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 149,
+    "cells": [
+     null,
+     "Samsung Galaxy S20 FE 5G 128GB",
+     351328114112337,
+     105,
+     "BLUE",
+     "IMAX",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-07 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 150,
+    "cells": [
+     null,
+     "Samsung Galaxy S20 FE 5G 128GB",
+     351328110642048,
+     105,
+     "BLUE",
+     "IMAX",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-06 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 151,
+    "cells": [
+     null,
+     "Samsung Galaxy S20 FE 5G 128GB",
+     351017100340115,
+     105,
+     "BLUE",
+     "IMAX",
+     null,
+     "SOLD",
+     "eBay",
+     "2026-05-04 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 152,
+    "cells": [
+     null,
+     "Samsung Galaxy S20 FE 5G 128GB",
+     351328114243751,
+     105,
+     "BLUE",
+     "IMAX",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-04 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 153,
+    "cells": [
+     null,
+     "Samsung Galaxy S20 FE 5G 128GB",
+     355008371839014,
+     105,
+     "BLUE",
+     "IMAX",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-06 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 154,
+    "cells": [
+     null,
+     "Samsung Galaxy S20 FE 5G 128GB",
+     358619992250865,
+     105,
+     "BLUE",
+     "IMAX",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-04 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 155,
+    "cells": [
+     null,
+     "Samsung Galaxy S20 FE 5G 128GB",
+     355008372249460,
+     105,
+     "BLUE",
+     "IMAX",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-04 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 156,
+    "cells": [
+     null,
+     "Samsung Galaxy S20 FE 5G 128GB",
+     351328115812133,
+     105,
+     "BLUE",
+     "IMAX",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-04 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 157,
+    "cells": [
+     null,
+     "Samsung Galaxy S20 FE 5G 128GB",
+     351328110651833,
+     105,
+     "BLUE",
+     "IMAX",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-07 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 158,
+    "cells": [
+     null,
+     "Samsung Galaxy S20 FE 5G 128GB",
+     355008378178275,
+     105,
+     "BLUE",
+     "IMAX",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-08 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 159,
+    "cells": [
+     null,
+     "Samsung Galaxy S20 FE 5G 128GB",
+     355008372358691,
+     105,
+     "BLUE",
+     "IMAX",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-12 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 160,
+    "cells": [
+     "2026-05-07 00:00:00",
+     "Samsung Galaxy S20 FE 5G 128GB",
+     358122561867565,
+     105,
+     "BLUE",
+     "MHL",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-08 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 161,
+    "cells": [
+     "2026-05-07 00:00:00",
+     "Samsung Galaxy S20 FE 5G 128GB",
+     358122561166091,
+     105,
+     "BLUE",
+     "MHL",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-08 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 162,
+    "cells": [
+     "2026-05-07 00:00:00",
+     "Samsung Galaxy S20 FE 5G 128GB",
+     350533520802030,
+     105,
+     "BLUE",
+     "MHL",
+     null,
+     "SOLD",
+     "Back Market",
+     "2026-05-09 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 163,
+    "cells": [
+     "2026-05-07 00:00:00",
+     "Samsung Galaxy S20 FE 5G 128GB",
+     353173655896874,
+     105,
+     "BLUE",
+     "MHL",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-11 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 164,
+    "cells": [
+     null,
+     "Samsung Galaxy S20 FE 5G 128GB",
+     359737340305113,
+     105,
+     "PINK",
+     "MHL",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-05 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 165,
+    "cells": [
+     "2026-05-05 00:00:00",
+     "Samsung Galaxy S20 FE 5G 128GB",
+     359823610695084,
+     105,
+     "BLUE",
+     "NIHAL (RR)",
+     "PROJECT",
+     "SOLD",
+     "Amazon",
+     "2026-05-11 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 166,
+    "cells": [
+     "2026-05-05 00:00:00",
+     "Samsung Galaxy S20 FE 5G 128GB",
+     356115720244637,
+     105,
+     "PINK",
+     "MHL",
+     null,
+     "SOLD",
+     "Back Market",
+     "2026-05-09 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 167,
+    "cells": [
+     "2026-05-05 00:00:00",
+     "Samsung Galaxy S20 FE 5G 128GB",
+     355679523554741,
+     105,
+     "MINT",
+     "RR STOCK",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-12 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 168,
+    "cells": [
+     "2026-05-07 00:00:00",
+     "Samsung Galaxy S20 FE 5G 128GB",
+     351328112934245,
+     105,
+     "BLUE",
+     "FBA STOCK",
+     null,
+     "SOLD",
+     "eBay",
+     "2026-05-13 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 169,
+    "cells": [
+     "2026-05-07 00:00:00",
+     "Samsung Galaxy S20 FE 5G 128GB",
+     351328117295006,
+     105,
+     "BLUE",
+     "FBA STOCK",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-11 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 170,
+    "cells": [
+     "2026-05-07 00:00:00",
+     "Samsung Galaxy S20 FE 5G 128GB",
+     358619991360509,
+     105,
+     "BLUE",
+     "FBA STOCK",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-10 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 171,
+    "cells": [
+     "2026-05-12 00:00:00",
+     "Samsung Galaxy S20 FE 5G 128GB",
+     359823613627902,
+     105,
+     "BLUE",
+     "NIHAL ",
+     null,
+     null,
+     null,
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 172,
+    "cells": [
+     "2026-05-12 00:00:00",
+     "Samsung Galaxy S20 FE 5G 128GB",
+     356084611809314,
+     105,
+     "BLUE",
+     "NIHAL ",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-13 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 173,
+    "cells": [
+     "2026-05-12 00:00:00",
+     "Samsung Galaxy S20 FE 5G 128GB",
+     356334360389897,
+     105,
+     "BLUE",
+     "NIHAL ",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-14 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 174,
+    "cells": [
+     "2026-05-12 00:00:00",
+     "Samsung Galaxy S20 FE 5G 128GB",
+     352659952182233,
+     105,
+     "BLUE",
+     "NIHAL ",
+     null,
+     null,
+     null,
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 175,
+    "cells": [
+     "2026-05-12 00:00:00",
+     "Samsung Galaxy S20 FE 5G 128GB",
+     354586441093432,
+     105,
+     "BLUE",
+     "NIHAL ",
+     null,
+     null,
+     null,
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 176,
+    "cells": [
+     "2026-05-12 00:00:00",
+     "Samsung Galaxy S20 FE 5G 128GB",
+     350533520908811,
+     105,
+     "BLUE",
+     "NIHAL ",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-14 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 177,
+    "cells": [
+     "2026-05-12 00:00:00",
+     "Samsung Galaxy S20 FE 5G 128GB",
+     359823615755297,
+     105,
+     "BLUE",
+     "NIHAL ",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-14 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 178,
+    "cells": [
+     "2026-05-12 00:00:00",
+     "Samsung Galaxy S20 FE 5G 128GB",
+     358485150850783,
+     105,
+     "BLUE",
+     "NIHAL ",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-14 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 179,
+    "cells": [
+     "2026-05-12 00:00:00",
+     "Samsung Galaxy S20 FE 5G 128GB",
+     351675644070157,
+     105,
+     "BLUE",
+     "NIHAL ",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-12 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 180,
+    "cells": [
+     "2026-05-12 00:00:00",
+     "Samsung Galaxy S20 FE 5G 128GB",
+     358122566753570,
+     105,
+     "BLUE",
+     "NIHAL ",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-12 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 181,
+    "cells": [
+     "2026-05-12 00:00:00",
+     "Samsung Galaxy S20 FE 5G 128GB",
+     351675645158845,
+     105,
+     "RED",
+     "NIHAL ",
+     null,
+     null,
+     null,
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 182,
+    "cells": [
+     "2026-05-12 00:00:00",
+     "Samsung Galaxy S20 FE 5G 128GB",
+     351675643089794,
+     105,
+     "LAVENDER",
+     "NIHAL ",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-13 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 183,
+    "cells": [
+     "2026-05-12 00:00:00",
+     "Samsung Galaxy S20 FE 5G 128GB",
+     354586441541448,
+     105,
+     "MINT",
+     "NIHAL ",
+     null,
+     null,
+     null,
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 184,
+    "cells": [
+     "2026-05-12 00:00:00",
+     "Samsung Galaxy S20 FE 5G 128GB",
+     354586440591212,
+     105,
+     "MINT",
+     "NIHAL ",
+     null,
+     null,
+     null,
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 185,
+    "cells": [
+     "2026-05-12 00:00:00",
+     "Samsung Galaxy S20 FE 5G 128GB",
+     351675643238359,
+     105,
+     "MINT",
+     "NIHAL ",
+     null,
+     null,
+     null,
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 186,
+    "cells": [
+     "2026-05-12 00:00:00",
+     "Samsung Galaxy S20 FE 5G 128GB",
+     354586440412559,
+     105,
+     "MINT",
+     "NIHAL ",
+     null,
+     null,
+     null,
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 187,
+    "cells": [
+     "2026-05-12 00:00:00",
+     "Samsung Galaxy S20 FE 5G 128GB",
+     354586440832822,
+     105,
+     "MINT",
+     "NIHAL ",
+     null,
+     null,
+     null,
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 188,
+    "cells": [
+     null,
+     "SAMSUNG S20FE 256GB",
+     359260710310084,
+     105,
+     "BLUE",
+     "MHL",
+     null,
+     "SOLD",
+     "Back Market",
+     "2026-05-09 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 189,
+    "cells": [
+     "2026-05-12 00:00:00",
+     "Samsung Galaxy S20 FE 5G 128GB",
+     351675643970563,
+     105,
+     "VIOLET",
+     "NIHAL ",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-14 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 190,
+    "cells": [
+     "2026-05-14 00:00:00",
+     "Samsung Galaxy S20 FE 5G 128GB",
+     353575900434758,
+     105,
+     "VIOLET",
+     "NIHAL ",
+     null,
+     null,
+     null,
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 191,
+    "cells": [
+     "2026-05-14 00:00:00",
+     "Samsung Galaxy S20 FE 5G 128GB",
+     353575900562277,
+     105,
+     "VIOLET",
+     "NIHAL ",
+     null,
+     null,
+     null,
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 192,
+    "cells": [
+     null,
+     "Samsung Galaxy S21 5G 128GB (DUAL PHY SIM)",
+     350517927734888,
+     120,
+     "GREY",
+     "MHL",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-04 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 193,
+    "cells": [
+     null,
+     "Samsung Galaxy S21 5G 128GB (DUAL PHY SIM)",
+     350517927832740,
+     120,
+     "GREY",
+     "MHL",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-04 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 194,
+    "cells": [
+     null,
+     "Samsung Galaxy S21 5G 128GB (DUAL PHY SIM)",
+     352946244571632,
+     120,
+     "GREY",
+     "MHL",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-04 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 195,
+    "cells": [
+     null,
+     "Samsung Galaxy S21 5G 128GB (DUAL PHY SIM)",
+     352946244674980,
+     120,
+     "GREY",
+     "MHL",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-04 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 196,
+    "cells": [
+     null,
+     "Samsung Galaxy S21 5G 128GB (DUAL PHY SIM)",
+     352946244612006,
+     120,
+     "GREY",
+     "MHL",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-04 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 197,
+    "cells": [
+     null,
+     "Samsung Galaxy S21 5G 128GB (DUAL PHY SIM)",
+     350517922310478,
+     120,
+     "GREY",
+     "MHL",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-04 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 198,
+    "cells": [
+     "2026-05-05 00:00:00",
+     "Samsung Galaxy S21 5G 128GB (DUAL PHY SIM)",
+     352946244693170,
+     120,
+     "GREY",
+     "MHL",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-06 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 199,
+    "cells": [
+     "2026-05-05 00:00:00",
+     "Samsung Galaxy S21 5G 128GB (DUAL PHY SIM)",
+     357275659761024,
+     120,
+     "GREY",
+     "MHL",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-06 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 200,
+    "cells": [
+     "2026-05-05 00:00:00",
+     "Samsung Galaxy S21 5G 128GB (DUAL PHY SIM)",
+     353325701778239,
+     120,
+     "GREY",
+     "MHL",
+     null,
+     null,
+     null,
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 201,
+    "cells": [
+     "2026-05-06 00:00:00",
+     "Samsung Galaxy S21 5G 128GB (DUAL PHY SIM)",
+     352946244727523,
+     120,
+     "GREY",
+     "MHL",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-08 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 202,
+    "cells": [
+     "2026-05-06 00:00:00",
+     "Samsung Galaxy S21 5G 128GB (DUAL PHY SIM)",
+     352946241977485,
+     120,
+     "GREY",
+     "MHL",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-08 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 203,
+    "cells": [
+     "2026-05-06 00:00:00",
+     "Samsung Galaxy S21 5G 128GB (DUAL PHY SIM)",
+     352946244718597,
+     120,
+     "GREY",
+     "MHL",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-08 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 204,
+    "cells": [
+     "2026-05-06 00:00:00",
+     "Samsung Galaxy S21 5G 128GB (DUAL PHY SIM)",
+     352946244680839,
+     120,
+     "GREY",
+     "MHL",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-08 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 205,
+    "cells": [
+     "2026-05-06 00:00:00",
+     "Samsung Galaxy S21 5G 128GB (DUAL PHY SIM)",
+     352946244717128,
+     120,
+     "GREY",
+     "MHL",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-08 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 206,
+    "cells": [
+     "2026-05-06 00:00:00",
+     "Samsung Galaxy S21 5G 128GB (DUAL PHY SIM)",
+     352946244719538,
+     120,
+     "GREY",
+     "MHL",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-07 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 207,
+    "cells": [
+     "2026-05-05 00:00:00",
+     "Samsung Galaxy S21 5G 128GB (DUAL PHY SIM)",
+     355320549836065,
+     120,
+     "GREY",
+     "MHL",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-05 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 208,
+    "cells": [
+     "2026-05-05 00:00:00",
+     "Samsung Galaxy S21 5G 128GB (DUAL PHY SIM)",
+     352946244702195,
+     120,
+     "GREY",
+     "MHL",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-05 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 209,
+    "cells": [
+     "2026-05-05 00:00:00",
+     "Samsung Galaxy S21 5G 128GB (DUAL PHY SIM)",
+     352946241970886,
+     120,
+     "GREY",
+     "MHL",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-05 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 210,
+    "cells": [
+     null,
+     "Samsung Galaxy S21 5G 128GB (DUAL PHY SIM)",
+     355320541569698,
+     120,
+     "GREY",
+     "IMAX",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-06 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 211,
+    "cells": [
+     "2026-05-12 00:00:00",
+     "Samsung Galaxy S21 5G 128GB (DUAL PHY SIM)",
+     350517929633054,
+     120,
+     "GREY",
+     "MHL",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-12 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 212,
+    "cells": [
+     "2026-05-12 00:00:00",
+     "Samsung Galaxy S21 5G 128GB (DUAL PHY SIM)",
+     350517927834878,
+     120,
+     "GREY",
+     "MHL",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-13 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 213,
+    "cells": [
+     "2026-05-12 00:00:00",
+     "Samsung Galaxy S21 5G 128GB (DUAL PHY SIM)",
+     357786474737031,
+     120,
+     "GREY",
+     "MHL",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-14 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 214,
+    "cells": [
+     "2026-05-12 00:00:00",
+     "Samsung Galaxy S21 5G 128GB (DUAL PHY SIM)",
+     356163740358417,
+     120,
+     "WHITE",
+     "MHL",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-14 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 215,
+    "cells": [
+     "2026-05-13 00:00:00",
+     "Samsung Galaxy S21 5G 128GB (DUAL PHY SIM)",
+     352946241978194,
+     120,
+     "GREY",
+     "MHL",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-14 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 216,
+    "cells": [
+     null,
+     "Samsung Galaxy S21 5G 128GB (DUAL PHY SIM)",
+     352946244704118,
+     120,
+     "GREY",
+     "MHL",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-14 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 217,
+    "cells": [
+     null,
+     "Samsung Galaxy S21 5G 128GB (DUAL PHY SIM)",
+     352946244724355,
+     120,
+     "GREY",
+     "MHL",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-14 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 218,
+    "cells": [
+     "2026-05-14 00:00:00",
+     "Samsung Galaxy S21 5G 128GB (DUAL PHY SIM)",
+     350166280061396,
+     120,
+     "GREY",
+     "MHL",
+     null,
+     null,
+     null,
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 219,
+    "cells": [
+     "2026-05-14 00:00:00",
+     "Samsung Galaxy S21 5G 128GB (DUAL PHY SIM)",
+     354034472136549,
+     120,
+     "GREY",
+     "MHL",
+     null,
+     null,
+     null,
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 220,
+    "cells": [
+     "2026-05-14 00:00:00",
+     "Samsung Galaxy S21 5G 128GB (DUAL PHY SIM)",
+     354618410315957,
+     120,
+     "GREY",
+     "MHL",
+     null,
+     null,
+     null,
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 221,
+    "cells": [
+     "2026-05-14 00:00:00",
+     "Samsung Galaxy S21 5G 128GB (DUAL PHY SIM)",
+     350686131515316,
+     120,
+     "GREY",
+     "MHL",
+     null,
+     null,
+     null,
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 222,
+    "cells": [
+     "2026-05-14 00:00:00",
+     "Samsung Galaxy S21 5G 128GB (DUAL PHY SIM)",
+     350166283877434,
+     120,
+     "GREY",
+     "MHL",
+     null,
+     null,
+     null,
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 223,
+    "cells": [
+     "2026-05-14 00:00:00",
+     "Samsung Galaxy S21 5G 128GB (DUAL PHY SIM)",
+     350166284614356,
+     120,
+     "GREY",
+     "MHL",
+     null,
+     null,
+     null,
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 224,
+    "cells": [
+     "2026-05-14 00:00:00",
+     "Samsung Galaxy S21 5G 128GB (DUAL PHY SIM)",
+     350166285111436,
+     120,
+     "PINK",
+     "MHL",
+     null,
+     null,
+     null,
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 225,
+    "cells": [
+     "2026-05-14 00:00:00",
+     "Samsung Galaxy S21 5G 128GB (DUAL PHY SIM)",
+     358822630549686,
+     120,
+     "PINK",
+     "MHL",
+     null,
+     null,
+     null,
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 226,
+    "cells": [
+     "2026-05-14 00:00:00",
+     "Samsung Galaxy S21 5G 128GB (DUAL PHY SIM)",
+     351409490115506,
+     120,
+     "WHITE",
+     "MHL",
+     null,
+     null,
+     null,
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 227,
+    "cells": [
+     null,
+     "Samsung Galaxy S21 Plus 5G 128GB",
+     359230173710815,
+     130,
+     "PURPLE",
+     "RR STOCK",
+     null,
+     null,
+     null,
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 228,
+    "cells": [
+     null,
+     "Samsung Galaxy S21 FE 5G 128GB",
+     350799511945639,
+     115,
+     "GREY",
+     "MHL",
+     null,
+     "SOLD",
+     "OnBuy",
+     "2026-05-04 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 229,
+    "cells": [
+     null,
+     "Samsung Galaxy S21 FE 5G 128GB",
+     351844426476012,
+     115,
+     "GREY",
+     "MHL",
+     null,
+     null,
+     null,
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 230,
+    "cells": [
+     null,
+     "Samsung Galaxy S21 FE 5G 128GB",
+     351386341056743,
+     115,
+     "GREY",
+     "MHL",
+     "REPLACEMENT",
+     "SOLD",
+     "Amazon",
+     "2026-05-07 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 231,
+    "cells": [
+     null,
+     "Samsung Galaxy S21 FE 5G 128GB",
+     359938614561338,
+     115,
+     "GREY",
+     "MHL",
+     null,
+     null,
+     null,
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 232,
+    "cells": [
+     null,
+     "Samsung Galaxy S21 FE 5G 128GB",
+     358316600094922,
+     115,
+     "GREEN",
+     "MHL",
+     null,
+     "SOLD",
+     "Back Market",
+     "2026-05-05 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 233,
+    "cells": [
+     null,
+     "Samsung Galaxy S21 FE 5G 128GB",
+     351844423527080,
+     115,
+     "LAVENDER",
+     "MHL",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-04 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 234,
+    "cells": [
+     null,
+     "Samsung Galaxy S21 FE 5G 128GB",
+     358316600171373,
+     115,
+     "GREEN",
+     "MHL",
+     null,
+     "SOLD",
+     "Back Market",
+     "2026-05-06 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 235,
+    "cells": [
+     "2026-05-13 00:00:00",
+     "Samsung Galaxy S21 FE 5G 128GB",
+     353717346035118,
+     120,
+     "WHITE",
+     "NIHAL",
+     null,
+     null,
+     null,
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 236,
+    "cells": [
+     null,
+     "Samsung Galaxy S21 FE 5G 128GB",
+     351844423424148,
+     120,
+     "PURPLE",
+     "NIHAL",
+     null,
+     null,
+     null,
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 237,
+    "cells": [
+     null,
+     "Samsung Galaxy S22 128GB",
+     356045391538837,
+     140,
+     "BLACK",
+     "MHL",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-07 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 238,
+    "cells": [
+     null,
+     "Samsung Galaxy S22 128GB",
+     354285671243193,
+     140,
+     "BLACK",
+     "MHL",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-04 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 239,
+    "cells": [
+     null,
+     "Samsung Galaxy S22 128GB",
+     356919881433701,
+     140,
+     "BLACK",
+     "MHL",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-05 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 240,
+    "cells": [
+     null,
+     "Samsung Galaxy S22 128GB",
+     359670540560189,
+     140,
+     "GREEN",
+     "MHL",
+     null,
+     null,
+     null,
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 241,
+    "cells": [
+     "2026-05-05 00:00:00",
+     "Samsung Galaxy S22 128GB",
+     351561160856643,
+     140,
+     "LAVENDER",
+     "MHL",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-08 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 242,
+    "cells": [
+     "2026-05-05 00:00:00",
+     "Samsung Galaxy S22 128GB",
+     351334330374487,
+     140,
+     "PINK",
+     "MHL",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-06 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 243,
+    "cells": [
+     "2026-05-05 00:00:00",
+     "Samsung Galaxy S22 128GB",
+     351334330274778,
+     140,
+     "PINK",
+     "MHL",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-07 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 244,
+    "cells": [
+     "2026-05-05 00:00:00",
+     "Samsung Galaxy S22 128GB",
+     352539592656947,
+     140,
+     "GREEN",
+     "RR STOCK",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-08 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 245,
+    "cells": [
+     "2026-05-05 00:00:00",
+     "Samsung Galaxy S22 128GB",
+     357452522139619,
+     140,
+     "WHITE",
+     "RR STOCK",
+     null,
+     "SOLD",
+     "Project",
+     "2026-05-08 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 246,
+    "cells": [
+     "2026-05-05 00:00:00",
+     "Samsung Galaxy S22 128GB",
+     356666980470510,
+     140,
+     "PINK",
+     "MHL",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-05 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 247,
+    "cells": [
+     "2026-05-08 00:00:00",
+     "Samsung Galaxy S22 128GB",
+     356666983018126,
+     140,
+     "PURPLE",
+     "MHL",
+     null,
+     "SOLD",
+     "OnBuy",
+     "2026-05-08 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 248,
+    "cells": [
+     "2026-05-08 00:00:00",
+     "Samsung Galaxy S22 128GB",
+     359623900154259,
+     140,
+     "GREEN",
+     "MHL",
+     null,
+     null,
+     null,
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 249,
+    "cells": [
+     "2026-05-08 00:00:00",
+     "Samsung Galaxy S22 128GB",
+     352991850916655,
+     140,
+     "BLACK",
+     "MHL",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-08 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 250,
+    "cells": [
+     "2026-05-08 00:00:00",
+     "Samsung Galaxy S22 128GB",
+     352991850967724,
+     140,
+     "BLACK",
+     "MHL",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-08 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 251,
+    "cells": [
+     "2026-05-08 00:00:00",
+     "Samsung Galaxy S22 128GB",
+     356045396169059,
+     140,
+     "BLACK",
+     "MHL",
+     null,
+     null,
+     null,
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 252,
+    "cells": [
+     "2026-05-08 00:00:00",
+     "Samsung Galaxy S22 128GB",
+     359670540306294,
+     140,
+     "BLACK",
+     "MHL",
+     null,
+     null,
+     null,
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 253,
+    "cells": [
+     "2026-05-08 00:00:00",
+     "Samsung Galaxy S22 128GB",
+     359670540022842,
+     140,
+     "BLACK",
+     "MHL",
+     null,
+     null,
+     null,
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 254,
+    "cells": [
+     "2026-05-08 00:00:00",
+     "Samsung Galaxy S22 128GB",
+     359670541609266,
+     140,
+     "BLACK",
+     "MHL",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-14 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 255,
+    "cells": [
+     "2026-05-08 00:00:00",
+     "Samsung Galaxy S22 128GB",
+     354285670012169,
+     140,
+     "BLACK",
+     "MHL",
+     null,
+     null,
+     null,
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 256,
+    "cells": [
+     "2026-05-08 00:00:00",
+     "Samsung Galaxy S22 128GB",
+     353409205515816,
+     140,
+     "BLACK",
+     "MHL",
+     null,
+     null,
+     null,
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 257,
+    "cells": [
+     "2026-05-08 00:00:00",
+     "Samsung Galaxy S22 128GB",
+     357225630293746,
+     140,
+     "BLACK",
+     "MHL",
+     null,
+     null,
+     null,
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 258,
+    "cells": [
+     "2026-05-11 00:00:00",
+     "Samsung Galaxy S22 256GB",
+     350960051397058,
+     150,
+     "WHITE",
+     "IMAX",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-11 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 259,
+    "cells": [
+     "2026-05-11 00:00:00",
+     "Samsung Galaxy S22 256GB",
+     356724575819870,
+     160,
+     "BLACK",
+     "MHL",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-11 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 260,
+    "cells": [
+     "2026-05-11 00:00:00",
+     "Samsung Galaxy S22 256GB",
+     356724575038901,
+     160,
+     "BLACK",
+     "MHL",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-11 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 261,
+    "cells": [
+     null,
+     "Samsung Galaxy S22 256GB",
+     351286772412706,
+     145,
+     "BLACK",
+     "ABC",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-06 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 262,
+    "cells": [
+     null,
+     "Samsung Galaxy S22 256GB",
+     351286772681789,
+     145,
+     "BLACK",
+     "ABC",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-08 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 263,
+    "cells": [
+     null,
+     "Samsung Galaxy S22 256GB",
+     351286773517750,
+     145,
+     "BLACK",
+     "ABC",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-08 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 264,
+    "cells": [
+     null,
+     "Samsung Galaxy S22 256GB",
+     351286773445424,
+     145,
+     "BLACK",
+     "ABC",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-08 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 265,
+    "cells": [
+     null,
+     "Samsung Galaxy S22 256GB",
+     351286773499850,
+     145,
+     "BLACK",
+     "ABC",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-05 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 266,
+    "cells": [
+     null,
+     "Samsung Galaxy S22 256GB",
+     351286771618386,
+     145,
+     "BLACK",
+     "ABC",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-05 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 267,
+    "cells": [
+     null,
+     "Samsung Galaxy S22 256GB",
+     356724575161992,
+     145,
+     "BLACK",
+     "MHL",
+     null,
+     null,
+     null,
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 268,
+    "cells": [
+     "2026-05-11 00:00:00",
+     "Samsung Galaxy S22 256GB",
+     353114483002228,
+     145,
+     "LAVENDER",
+     "MHL",
+     null,
+     null,
+     null,
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 269,
+    "cells": [
+     null,
+     "Samsung Galaxy S22 256GB",
+     356666984042901,
+     145,
+     "LAVENDER",
+     "MHL",
+     null,
+     "SOLD",
+     "Back Market",
+     "2026-05-10 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 270,
+    "cells": [
+     "2026-05-11 00:00:00",
+     "Samsung Galaxy S22 256GB",
+     350960052400836,
+     145,
+     "PINK",
+     "IMAX",
+     null,
+     null,
+     null,
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 271,
+    "cells": [
+     null,
+     "Samsung Galaxy S22 256GB",
+     351286773597935,
+     145,
+     "PINK",
+     "ABC",
+     null,
+     "SOLD",
+     "Back Market",
+     "2026-05-04 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 272,
+    "cells": [
+     "2026-05-11 00:00:00",
+     "Samsung Galaxy S22 256GB",
+     350960052627941,
+     145,
+     "WHITE",
+     "IMAX",
+     null,
+     null,
+     null,
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 273,
+    "cells": [
+     null,
+     "Samsung Galaxy S22 256GB",
+     351286771671179,
+     145,
+     "WHITE",
+     "ABC",
+     null,
+     "SOLD",
+     "Project",
+     "2026-05-09 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 274,
+    "cells": [
+     null,
+     "Samsung Galaxy S22 256GB",
+     351286772940078,
+     145,
+     "PINK",
+     "MHL",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-06 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 275,
+    "cells": [
+     "2026-05-05 00:00:00",
+     "Samsung Galaxy S22 256GB",
+     350960052180669,
+     145,
+     "WHITE",
+     "RR STOCK",
+     null,
+     "SOLD",
+     "Project",
+     "2026-05-09 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 276,
+    "cells": [
+     "2026-05-08 00:00:00",
+     "Samsung Galaxy S22 256GB",
+     359231594059576,
+     145,
+     "WHITE",
+     "MHL",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-09 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 277,
+    "cells": [
+     "2026-05-08 00:00:00",
+     "Samsung Galaxy S22 256GB",
+     351286770897387,
+     145,
+     "WHITE",
+     "ABC",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-10 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 278,
+    "cells": [
+     "2026-05-08 00:00:00",
+     "Samsung Galaxy S22 256GB",
+     350960052178994,
+     145,
+     "WHITE",
+     "ABC",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-08 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 279,
+    "cells": [
+     "2026-05-12 00:00:00",
+     "Samsung Galaxy S22 256GB",
+     356666984100048,
+     160,
+     "LAVENDER",
+     "MHL",
+     null,
+     null,
+     null,
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 280,
+    "cells": [
+     "2026-05-12 00:00:00",
+     "Samsung Galaxy S22 256GB",
+     350744860101830,
+     160,
+     "BLACK",
+     "MHL",
+     null,
+     null,
+     null,
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 281,
+    "cells": [
+     "2026-05-12 00:00:00",
+     "Samsung Galaxy S22 256GB",
+     356919886827980,
+     160,
+     "BLACK",
+     "MHL",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-12 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 282,
+    "cells": [
+     null,
+     "SAMSUNG S22+ 128GB ",
+     350779537209269,
+     150,
+     "BLACK",
+     "RR STOCK",
+     "GRADE C",
+     "SOLD",
+     "OnBuy",
+     "2026-05-11 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 283,
+    "cells": [
+     null,
+     "Samsung Galaxy S23 5G 128GB",
+     350669645339654,
+     185,
+     "GREEN",
+     "ABC",
+     null,
+     null,
+     null,
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 284,
+    "cells": [
+     null,
+     "Samsung Galaxy S23 5G 128GB",
+     355552516948222,
+     185,
+     "GREEN",
+     "ABC",
+     null,
+     null,
+     null,
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 285,
+    "cells": [
+     null,
+     "Samsung Galaxy S23 5G 128GB",
+     350669641380561,
+     190,
+     "BLACK",
+     "MHL",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-04 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 286,
+    "cells": [
+     null,
+     "Samsung Galaxy S23 5G 128GB",
+     355552515119387,
+     190,
+     "WHITE",
+     "MHL",
+     null,
+     null,
+     null,
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 287,
+    "cells": [
+     null,
+     "SAMSUNG S23FE 128GB ",
+     355195306766873,
+     180,
+     "BLACK",
+     "RR STOCK",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-10 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 288,
+    "cells": [
+     null,
+     null,
+     null,
+     null,
+     null,
+     null,
+     null,
+     null,
+     null,
+     null
+    ],
+    "classification": "blank"
+   },
+   {
+    "row": 289,
+    "cells": [
+     null,
+     "SAMSUNG A05 128GB",
+     357492756813356,
+     65,
+     "GREEN",
+     "RR STOCK",
+     null,
+     null,
+     null,
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 290,
+    "cells": [
+     null,
+     "SAMSUNG A07 64GB",
+     355761222809582,
+     65,
+     "BLACK",
+     "RR STOCK",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-04 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 291,
+    "cells": [
+     null,
+     "SAMSUNG A07 128GB",
+     355761226947131,
+     75,
+     "BLACK",
+     "RR STOCK",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-14 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 292,
+    "cells": [
+     null,
+     "Samsung Galaxy A12 32GB - 2 SIM SLOTS",
+     352307137094119,
+     50,
+     "RED",
+     "IMAX",
+     null,
+     null,
+     null,
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 293,
+    "cells": [
+     null,
+     "Samsung Galaxy A12 32GB - 2 SIM SLOTS",
+     352307137095645,
+     50,
+     "RED",
+     "IMAX",
+     null,
+     null,
+     null,
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 294,
+    "cells": [
+     "2026-05-05 00:00:00",
+     "SAMSUNG A12 64GB",
+     352399915558720,
+     52,
+     "BLACK",
+     "IMAX (RR)",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-06 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 295,
+    "cells": [
+     "2026-05-07 00:00:00",
+     "SAMSUNG A12 64GB",
+     359573266750499,
+     52,
+     "BLACK",
+     "IMAX (RR)",
+     null,
+     "SOLD",
+     "eBay",
+     "2026-05-07 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 296,
+    "cells": [
+     null,
+     "Samsung Galaxy A13 5G 64GB",
+     359103250799615,
+     55,
+     "BLACK",
+     "NIHAL",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-04 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 297,
+    "cells": [
+     null,
+     "Samsung Galaxy A13 5G 64GB",
+     359103250876694,
+     55,
+     "BLACK",
+     "NIHAL",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-04 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 298,
+    "cells": [
+     null,
+     "Samsung Galaxy A13 5G 64GB",
+     359103250708970,
+     55,
+     "BLACK",
+     "NIHAL",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-04 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 299,
+    "cells": [
+     null,
+     "Samsung Galaxy A13 5G 64GB",
+     359103250885562,
+     55,
+     "BLACK",
+     "NIHAL",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-04 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 300,
+    "cells": [
+     null,
+     "Samsung Galaxy A13 5G 64GB",
+     359103251048426,
+     55,
+     "BLACK",
+     "NIHAL",
+     null,
+     "R T S",
+     "R T S",
+     "2026-05-04 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 301,
+    "cells": [
+     null,
+     "Samsung Galaxy A13 5G 64GB",
+     359103250817763,
+     55,
+     "BLACK",
+     "NIHAL",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-04 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 302,
+    "cells": [
+     null,
+     "Samsung Galaxy A13 5G 64GB",
+     359103251015318,
+     55,
+     "BLACK",
+     "NIHAL",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-04 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 303,
+    "cells": [
+     "2026-05-05 00:00:00",
+     "Samsung Galaxy A13 5G 64GB",
+     359103250823977,
+     55,
+     "BLACK",
+     "NIHAL",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-06 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 304,
+    "cells": [
+     "2026-05-05 00:00:00",
+     "Samsung Galaxy A13 5G 64GB",
+     359103250727293,
+     55,
+     "BLACK",
+     "NIHAL",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-06 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 305,
+    "cells": [
+     "2026-05-05 00:00:00",
+     "Samsung Galaxy A13 5G 64GB",
+     359103250878443,
+     55,
+     "BLACK",
+     "NIHAL",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-06 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 306,
+    "cells": [
+     "2026-05-05 00:00:00",
+     "Samsung Galaxy A13 5G 64GB",
+     359103250863031,
+     55,
+     "BLACK",
+     "NIHAL",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-06 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 307,
+    "cells": [
+     "2026-05-05 00:00:00",
+     "Samsung Galaxy A13 5G 64GB",
+     359103250722120,
+     55,
+     "BLACK",
+     "NIHAL",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-06 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 308,
+    "cells": [
+     "2026-05-05 00:00:00",
+     "Samsung Galaxy A13 5G 64GB",
+     359103250806253,
+     55,
+     "BLACK",
+     "NIHAL",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-06 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 309,
+    "cells": [
+     "2026-05-05 00:00:00",
+     "Samsung Galaxy A13 5G 64GB",
+     359103250881173,
+     55,
+     "BLACK",
+     "NIHAL",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-06 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 310,
+    "cells": [
+     "2026-05-05 00:00:00",
+     "Samsung Galaxy A13 5G 64GB",
+     359103250891255,
+     55,
+     "BLACK",
+     "NIHAL",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-06 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 311,
+    "cells": [
+     null,
+     "Samsung Galaxy A13 5G 64GB",
+     359103250797577,
+     55,
+     "BLACK",
+     "NIHAL",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-04 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 312,
+    "cells": [
+     null,
+     "Samsung Galaxy A13 5G 64GB",
+     359103250881124,
+     55,
+     "BLACK",
+     "NIHAL",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-04 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 313,
+    "cells": [
+     null,
+     "Samsung Galaxy A13 5G 64GB",
+     359103250790614,
+     55,
+     "BLACK",
+     "NIHAL",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-04 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 314,
+    "cells": [
+     null,
+     "Samsung Galaxy A13 5G 64GB",
+     359103250924205,
+     55,
+     "BLACK",
+     "NIHAL",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-04 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 315,
+    "cells": [
+     "2026-05-05 00:00:00",
+     "Samsung Galaxy A13 5G 64GB",
+     359103250680237,
+     55,
+     "BLACK",
+     "NIHAL",
+     null,
+     "R T S",
+     "R T S",
+     "2026-05-05 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 316,
+    "cells": [
+     "2026-05-05 00:00:00",
+     "Samsung Galaxy A13 5G 64GB",
+     359103250799508,
+     55,
+     "BLACK",
+     "NIHAL",
+     null,
+     "R T S",
+     "R T S",
+     "2026-05-05 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 317,
+    "cells": [
+     "2026-05-05 00:00:00",
+     "Samsung Galaxy A13 5G 64GB",
+     351082123205711,
+     55,
+     "BLACK",
+     "NIHAL",
+     null,
+     "R T S",
+     "R T S",
+     "2026-05-05 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 318,
+    "cells": [
+     "2026-05-05 00:00:00",
+     "Samsung Galaxy A13 5G 64GB",
+     359103250824629,
+     55,
+     "BLACK",
+     "NIHAL",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-05 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 319,
+    "cells": [
+     "2026-05-05 00:00:00",
+     "Samsung Galaxy A13 5G 64GB",
+     359103250751558,
+     55,
+     "BLACK",
+     "NIHAL",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-05 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 320,
+    "cells": [
+     "2026-05-05 00:00:00",
+     "Samsung Galaxy A13 5G 64GB",
+     359103250511606,
+     55,
+     "BLACK",
+     "NIHAL",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-05 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 321,
+    "cells": [
+     "2026-05-05 00:00:00",
+     "Samsung Galaxy A13 5G 64GB",
+     359103250744629,
+     55,
+     "BLACK",
+     "NIHAL",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-05 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 322,
+    "cells": [
+     "2026-05-05 00:00:00",
+     "Samsung Galaxy A13 5G 64GB",
+     359103250998068,
+     55,
+     "BLACK",
+     "NIHAL",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-05 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 323,
+    "cells": [
+     "2026-05-05 00:00:00",
+     "Samsung Galaxy A13 5G 64GB",
+     359103250888491,
+     55,
+     "BLACK",
+     "NIHAL",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-05 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 324,
+    "cells": [
+     "2026-05-05 00:00:00",
+     "Samsung Galaxy A13 5G 64GB",
+     359103250744033,
+     55,
+     "BLACK",
+     "NIHAL",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-05 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 325,
+    "cells": [
+     "2026-05-05 00:00:00",
+     "Samsung Galaxy A13 5G 64GB",
+     359708290847354,
+     55,
+     "BLACK",
+     "NIHAL",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-05 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 326,
+    "cells": [
+     null,
+     "Samsung Galaxy A13 5G 64GB",
+     359103250840229,
+     55,
+     "BLACK",
+     "NIHAL",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-06 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 327,
+    "cells": [
+     null,
+     "Samsung Galaxy A13 5G 64GB",
+     359103250796785,
+     55,
+     "BLACK",
+     "NIHAL",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-06 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 328,
+    "cells": [
+     null,
+     "Samsung Galaxy A13 5G 64GB",
+     359103250751418,
+     55,
+     "BLACK",
+     "NIHAL",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-06 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 329,
+    "cells": [
+     null,
+     "Samsung Galaxy A13 5G 64GB",
+     359103250755062,
+     55,
+     "BLACK",
+     "NIHAL",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-06 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 330,
+    "cells": [
+     null,
+     "Samsung Galaxy A13 5G 64GB",
+     359103250855987,
+     55,
+     "BLACK",
+     "NIHAL",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-06 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 331,
+    "cells": [
+     "2026-05-07 00:00:00",
+     "Samsung Galaxy A13 5G 64GB",
+     359103250729216,
+     55,
+     "BLACK",
+     "NIHAL",
+     null,
+     "R T S",
+     "R T S",
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 332,
+    "cells": [
+     "2026-05-07 00:00:00",
+     "Samsung Galaxy A13 5G 64GB",
+     359103250789384,
+     55,
+     "BLACK",
+     "NIHAL",
+     null,
+     "R T S",
+     "R T S",
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 333,
+    "cells": [
+     "2026-05-07 00:00:00",
+     "Samsung Galaxy A13 5G 64GB",
+     351082122948337,
+     55,
+     "BLACK",
+     "NIHAL",
+     null,
+     "R T S",
+     "R T S",
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 334,
+    "cells": [
+     "2026-05-07 00:00:00",
+     "Samsung Galaxy A13 5G 64GB",
+     359103250865465,
+     55,
+     "BLACK",
+     "NIHAL",
+     null,
+     "R T S",
+     "R T S",
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 335,
+    "cells": [
+     "2026-05-07 00:00:00",
+     "Samsung Galaxy A13 5G 64GB",
+     359103250680237,
+     55,
+     "BLACK",
+     "NIHAL",
+     null,
+     "R T S",
+     "R T S",
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 336,
+    "cells": [
+     "2026-05-07 00:00:00",
+     "Samsung Galaxy A13 5G 64GB",
+     351082123205711,
+     55,
+     "BLACK",
+     "NIHAL",
+     null,
+     "R T S",
+     "R T S",
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 337,
+    "cells": [
+     "2026-05-07 00:00:00",
+     "Samsung Galaxy A13 5G 64GB",
+     359103250865085,
+     55,
+     "BLACK",
+     "NIHAL",
+     null,
+     "R T S",
+     "R T S",
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 338,
+    "cells": [
+     "2026-05-07 00:00:00",
+     "Samsung Galaxy A13 5G 64GB",
+     359103250799508,
+     55,
+     "BLACK",
+     "NIHAL",
+     null,
+     "R T S",
+     "R T S",
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 339,
+    "cells": [
+     "2026-05-07 00:00:00",
+     "Samsung Galaxy A13 5G 64GB",
+     351082122259412,
+     55,
+     "BLACK",
+     "NIHAL",
+     null,
+     "R T S",
+     "R T S",
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 340,
+    "cells": [
+     "2026-05-07 00:00:00",
+     "Samsung Galaxy A13 5G 64GB",
+     351082121728250,
+     55,
+     "BLACK",
+     "NIHAL",
+     null,
+     "R T S",
+     "R T S",
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 341,
+    "cells": [
+     "2026-05-07 00:00:00",
+     "Samsung Galaxy A13 5G 64GB",
+     359103250867321,
+     55,
+     "BLACK",
+     "NIHAL",
+     null,
+     "R T S",
+     "R T S",
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 342,
+    "cells": [
+     "2026-05-07 00:00:00",
+     "Samsung Galaxy A13 5G 64GB",
+     359103250872107,
+     55,
+     "BLACK",
+     "NIHAL",
+     null,
+     "R T S",
+     "R T S",
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 343,
+    "cells": [
+     "2026-05-07 00:00:00",
+     "Samsung Galaxy A13 5G 64GB",
+     359103250864609,
+     55,
+     "BLACK",
+     "NIHAL",
+     null,
+     "R T S",
+     "R T S",
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 344,
+    "cells": [
+     "2026-05-07 00:00:00",
+     "Samsung Galaxy A13 5G 64GB",
+     359103250822185,
+     55,
+     "BLACK",
+     "NIHAL",
+     null,
+     "R T S",
+     "R T S",
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 345,
+    "cells": [
+     "2026-05-07 00:00:00",
+     "Samsung Galaxy A13 5G 64GB",
+     359103250885646,
+     55,
+     "BLACK",
+     "NIHAL",
+     null,
+     "FBA",
+     "FBA",
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 346,
+    "cells": [
+     "2026-05-07 00:00:00",
+     "Samsung Galaxy A13 5G 64GB",
+     359103251016035,
+     55,
+     "BLACK",
+     "NIHAL",
+     null,
+     "FBA",
+     "FBA",
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 347,
+    "cells": [
+     "2026-05-07 00:00:00",
+     "Samsung Galaxy A13 5G 64GB",
+     359103250792800,
+     55,
+     "BLACK",
+     "NIHAL",
+     null,
+     "FBA",
+     "FBA",
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 348,
+    "cells": [
+     "2026-05-07 00:00:00",
+     "Samsung Galaxy A13 5G 64GB",
+     359103250803078,
+     55,
+     "BLACK",
+     "NIHAL",
+     null,
+     "FBA",
+     "FBA",
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 349,
+    "cells": [
+     "2026-05-07 00:00:00",
+     "Samsung Galaxy A13 5G 64GB",
+     359103251050232,
+     55,
+     "BLACK",
+     "NIHAL",
+     null,
+     "FBA",
+     "FBA",
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 350,
+    "cells": [
+     "2026-05-07 00:00:00",
+     "Samsung Galaxy A13 5G 64GB",
+     359103250831939,
+     55,
+     "BLACK",
+     "NIHAL",
+     null,
+     "FBA",
+     "FBA",
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 351,
+    "cells": [
+     "2026-05-07 00:00:00",
+     "Samsung Galaxy A13 5G 64GB",
+     359103250860995,
+     55,
+     "BLACK",
+     "NIHAL",
+     null,
+     "FBA",
+     "FBA",
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 352,
+    "cells": [
+     "2026-05-07 00:00:00",
+     "Samsung Galaxy A13 5G 64GB",
+     359103250856431,
+     55,
+     "BLACK",
+     "NIHAL",
+     null,
+     "FBA",
+     "FBA",
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 353,
+    "cells": [
+     "2026-05-07 00:00:00",
+     "Samsung Galaxy A13 5G 64GB",
+     359103250853446,
+     55,
+     "BLACK",
+     "NIHAL",
+     null,
+     "FBA",
+     "FBA",
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 354,
+    "cells": [
+     "2026-05-07 00:00:00",
+     "Samsung Galaxy A13 5G 64GB",
+     359103251067988,
+     55,
+     "BLACK",
+     "NIHAL",
+     null,
+     "FBA",
+     "FBA",
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 355,
+    "cells": [
+     "2026-05-07 00:00:00",
+     "Samsung Galaxy A13 5G 64GB",
+     359103250838306,
+     55,
+     "BLACK",
+     "NIHAL",
+     null,
+     "FBA",
+     "FBA",
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 356,
+    "cells": [
+     "2026-05-07 00:00:00",
+     "Samsung Galaxy A13 5G 64GB",
+     359103250705893,
+     55,
+     "BLACK",
+     "NIHAL",
+     null,
+     "FBA",
+     "FBA",
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 357,
+    "cells": [
+     "2026-05-07 00:00:00",
+     "Samsung Galaxy A13 5G 64GB",
+     359103250849279,
+     55,
+     "BLACK",
+     "NIHAL",
+     null,
+     "FBA",
+     "FBA",
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 358,
+    "cells": [
+     "2026-05-07 00:00:00",
+     "Samsung Galaxy A13 5G 64GB",
+     359103250873071,
+     55,
+     "BLACK",
+     "NIHAL",
+     null,
+     "FBA",
+     "FBA",
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 359,
+    "cells": [
+     "2026-05-07 00:00:00",
+     "Samsung Galaxy A13 5G 64GB",
+     359103250879706,
+     55,
+     "BLACK",
+     "NIHAL",
+     null,
+     "FBA",
+     "FBA",
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 360,
+    "cells": [
+     "2026-05-07 00:00:00",
+     "Samsung Galaxy A13 5G 64GB",
+     359103250686457,
+     55,
+     "BLACK",
+     "NIHAL",
+     null,
+     "FBA",
+     "FBA",
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 361,
+    "cells": [
+     "2026-05-07 00:00:00",
+     "Samsung Galaxy A13 5G 64GB",
+     359103250894291,
+     55,
+     "BLACK",
+     "NIHAL",
+     null,
+     "FBA",
+     "FBA",
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 362,
+    "cells": [
+     "2026-05-07 00:00:00",
+     "Samsung Galaxy A13 5G 64GB",
+     359103250918959,
+     55,
+     "BLACK",
+     "NIHAL",
+     null,
+     "FBA",
+     "FBA",
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 363,
+    "cells": [
+     "2026-05-07 00:00:00",
+     "Samsung Galaxy A13 5G 64GB",
+     359103250869392,
+     55,
+     "BLACK",
+     "NIHAL",
+     null,
+     "FBA",
+     "FBA",
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 364,
+    "cells": [
+     "2026-05-07 00:00:00",
+     "Samsung Galaxy A13 5G 64GB",
+     359103250998100,
+     55,
+     "BLACK",
+     "NIHAL",
+     null,
+     "FBA",
+     "FBA",
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 365,
+    "cells": [
+     "2026-05-07 00:00:00",
+     "Samsung Galaxy A13 5G 64GB",
+     359103250785572,
+     55,
+     "BLACK",
+     "NIHAL",
+     null,
+     "FBA",
+     "FBA",
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 366,
+    "cells": [
+     "2026-05-07 00:00:00",
+     "Samsung Galaxy A13 5G 64GB",
+     359103250842159,
+     55,
+     "BLACK",
+     "NIHAL",
+     null,
+     "FBA",
+     "FBA",
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 367,
+    "cells": [
+     "2026-05-07 00:00:00",
+     "Samsung Galaxy A13 5G 64GB",
+     359708290862171,
+     55,
+     "BLACK",
+     "NIHAL",
+     null,
+     "FBA",
+     "FBA",
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 368,
+    "cells": [
+     "2026-05-07 00:00:00",
+     "Samsung Galaxy A13 5G 64GB",
+     359103250837936,
+     55,
+     "BLACK",
+     "NIHAL",
+     null,
+     "FBA",
+     "FBA",
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 369,
+    "cells": [
+     "2026-05-07 00:00:00",
+     "Samsung Galaxy A13 5G 64GB",
+     359103250798666,
+     55,
+     "BLACK",
+     "NIHAL",
+     null,
+     "FBA",
+     "FBA",
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 370,
+    "cells": [
+     "2026-05-07 00:00:00",
+     "Samsung Galaxy A13 5G 64GB",
+     359103250864807,
+     55,
+     "BLACK",
+     "NIHAL",
+     null,
+     "FBA",
+     "FBA",
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 371,
+    "cells": [
+     "2026-05-07 00:00:00",
+     "Samsung Galaxy A13 5G 64GB",
+     359103250784419,
+     55,
+     "BLACK",
+     "NIHAL",
+     null,
+     "FBA",
+     "FBA",
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 372,
+    "cells": [
+     "2026-05-07 00:00:00",
+     "Samsung Galaxy A13 5G 64GB",
+     359103250889614,
+     55,
+     "BLACK",
+     "NIHAL",
+     null,
+     "FBA",
+     "FBA",
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 373,
+    "cells": [
+     "2026-05-07 00:00:00",
+     "Samsung Galaxy A13 5G 64GB",
+     359103250705778,
+     55,
+     "BLACK",
+     "NIHAL",
+     null,
+     "FBA",
+     "FBA",
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 374,
+    "cells": [
+     "2026-05-07 00:00:00",
+     "Samsung Galaxy A13 5G 64GB",
+     359103250800926,
+     55,
+     "BLACK",
+     "NIHAL",
+     null,
+     "FBA",
+     "FBA",
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 375,
+    "cells": [
+     "2026-05-07 00:00:00",
+     "Samsung Galaxy A13 5G 64GB",
+     359103250870663,
+     55,
+     "BLACK",
+     "NIHAL",
+     null,
+     "FBA",
+     "FBA",
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 376,
+    "cells": [
+     "2026-05-07 00:00:00",
+     "Samsung Galaxy A13 5G 64GB",
+     359103250834958,
+     55,
+     "BLACK",
+     "NIHAL",
+     null,
+     "FBA",
+     "FBA",
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 377,
+    "cells": [
+     "2026-05-07 00:00:00",
+     "Samsung Galaxy A13 5G 64GB",
+     359103250598447,
+     55,
+     "BLACK",
+     "NIHAL",
+     null,
+     "FBA",
+     "FBA",
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 378,
+    "cells": [
+     "2026-05-07 00:00:00",
+     "Samsung Galaxy A13 5G 64GB",
+     359103250889796,
+     55,
+     "BLACK",
+     "NIHAL",
+     null,
+     "FBA",
+     "FBA",
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 379,
+    "cells": [
+     "2026-05-07 00:00:00",
+     "Samsung Galaxy A13 5G 64GB",
+     359103250798377,
+     55,
+     "BLACK",
+     "NIHAL",
+     null,
+     "FBA",
+     "FBA",
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 380,
+    "cells": [
+     "2026-05-07 00:00:00",
+     "Samsung Galaxy A13 5G 64GB",
+     359103250808945,
+     55,
+     "BLACK",
+     "NIHAL",
+     null,
+     "FBA",
+     "FBA",
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 381,
+    "cells": [
+     "2026-05-07 00:00:00",
+     "Samsung Galaxy A13 5G 64GB",
+     359103250745790,
+     55,
+     "BLACK",
+     "NIHAL",
+     null,
+     "FBA",
+     "FBA",
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 382,
+    "cells": [
+     "2026-05-07 00:00:00",
+     "Samsung Galaxy A13 5G 64GB",
+     359103250924759,
+     55,
+     "BLACK",
+     "NIHAL",
+     null,
+     "FBA",
+     "FBA",
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 383,
+    "cells": [
+     "2026-05-07 00:00:00",
+     "Samsung Galaxy A13 5G 64GB",
+     359103250884656,
+     55,
+     "BLACK",
+     "NIHAL",
+     null,
+     "FBA",
+     "FBA",
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 384,
+    "cells": [
+     "2026-05-07 00:00:00",
+     "Samsung Galaxy A13 5G 64GB",
+     359103250859286,
+     55,
+     "BLACK",
+     "NIHAL",
+     null,
+     "FBA",
+     "FBA",
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 385,
+    "cells": [
+     "2026-05-07 00:00:00",
+     "Samsung Galaxy A13 5G 64GB",
+     359103250875472,
+     55,
+     "BLACK",
+     "NIHAL",
+     null,
+     "FBA",
+     "FBA",
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 386,
+    "cells": [
+     "2026-05-07 00:00:00",
+     "Samsung Galaxy A13 5G 64GB",
+     359103250840310,
+     55,
+     "BLACK",
+     "NIHAL",
+     null,
+     "FBA",
+     "FBA",
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 387,
+    "cells": [
+     "2026-05-07 00:00:00",
+     "Samsung Galaxy A13 5G 64GB",
+     359103250803334,
+     55,
+     "BLACK",
+     "NIHAL",
+     null,
+     "FBA",
+     "FBA",
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 388,
+    "cells": [
+     "2026-05-07 00:00:00",
+     "Samsung Galaxy A13 5G 64GB",
+     359103250985339,
+     55,
+     "BLACK",
+     "NIHAL",
+     null,
+     "FBA",
+     "FBA",
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 389,
+    "cells": [
+     "2026-05-07 00:00:00",
+     "Samsung Galaxy A13 5G 64GB",
+     359103251049911,
+     55,
+     "BLACK",
+     "NIHAL",
+     null,
+     "FBA",
+     "FBA",
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 390,
+    "cells": [
+     "2026-05-07 00:00:00",
+     "Samsung Galaxy A13 5G 64GB",
+     359103250721445,
+     55,
+     "BLACK",
+     "NIHAL",
+     null,
+     "FBA",
+     "FBA",
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 391,
+    "cells": [
+     "2026-05-07 00:00:00",
+     "Samsung Galaxy A13 5G 64GB",
+     359103250869426,
+     55,
+     "BLACK",
+     "NIHAL",
+     null,
+     "FBA",
+     "FBA",
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 392,
+    "cells": [
+     "2026-05-07 00:00:00",
+     "Samsung Galaxy A13 5G 64GB",
+     359103251048186,
+     55,
+     "BLACK",
+     "NIHAL",
+     null,
+     "FBA",
+     "FBA",
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 393,
+    "cells": [
+     "2026-05-07 00:00:00",
+     "Samsung Galaxy A13 5G 64GB",
+     359103250868626,
+     55,
+     "BLACK",
+     "NIHAL",
+     null,
+     "FBA",
+     "FBA",
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 394,
+    "cells": [
+     "2026-05-07 00:00:00",
+     "Samsung Galaxy A13 5G 64GB",
+     359103250865986,
+     55,
+     "BLACK",
+     "NIHAL",
+     null,
+     "FBA",
+     "FBA",
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 395,
+    "cells": [
+     "2026-05-07 00:00:00",
+     "Samsung Galaxy A13 5G 64GB",
+     359103250786042,
+     55,
+     "BLACK",
+     "NIHAL",
+     null,
+     "SOLD",
+     "Project",
+     "2026-05-06 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 396,
+    "cells": [
+     "2026-05-07 00:00:00",
+     "Samsung Galaxy A13 5G 64GB",
+     359103250717997,
+     55,
+     "BLACK",
+     "NIHAL",
+     null,
+     "SOLD",
+     "eBay",
+     "2026-05-07 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 397,
+    "cells": [
+     "2026-05-07 00:00:00",
+     "Samsung Galaxy A13 5G 64GB",
+     359103250723508,
+     55,
+     "BLACK",
+     "NIHAL",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-13 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 398,
+    "cells": [
+     "2026-05-07 00:00:00",
+     "Samsung Galaxy A13 5G 64GB",
+     359103250723177,
+     55,
+     "BLACK",
+     "NIHAL",
+     null,
+     "SOLD",
+     "Project",
+     "2026-05-11 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 399,
+    "cells": [
+     "2026-05-07 00:00:00",
+     "Samsung Galaxy A13 5G 64GB",
+     359103251008263,
+     55,
+     "BLACK",
+     "NIHAL",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-11 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 400,
+    "cells": [
+     "2026-05-07 00:00:00",
+     "Samsung Galaxy A13 5G 64GB",
+     359103251077086,
+     55,
+     "BLACK",
+     "NIHAL",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-13 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 401,
+    "cells": [
+     "2026-05-07 00:00:00",
+     "Samsung Galaxy A13 5G 64GB",
+     359103251085790,
+     55,
+     "BLACK",
+     "NIHAL",
+     null,
+     "SOLD",
+     "Back Market",
+     "2026-05-13 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 402,
+    "cells": [
+     "2026-05-07 00:00:00",
+     "Samsung Galaxy A13 5G 64GB",
+     359103250980686,
+     55,
+     "BLACK",
+     "NIHAL",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-12 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 403,
+    "cells": [
+     "2026-05-07 00:00:00",
+     "Samsung Galaxy A13 5G 64GB",
+     359103250870994,
+     55,
+     "BLACK",
+     "NIHAL",
+     null,
+     "SOLD",
+     "Project",
+     "2026-05-08 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 404,
+    "cells": [
+     "2026-05-07 00:00:00",
+     "Samsung Galaxy A13 5G 64GB",
+     359103250870176,
+     55,
+     "BLACK",
+     "NIHAL",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-13 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 405,
+    "cells": [
+     "2026-05-07 00:00:00",
+     "Samsung Galaxy A13 5G 64GB",
+     359708290800601,
+     55,
+     "BLACK",
+     "NIHAL",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-12 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 406,
+    "cells": [
+     "2026-05-07 00:00:00",
+     "Samsung Galaxy A13 5G 64GB",
+     359103250872479,
+     55,
+     "BLACK",
+     "NIHAL",
+     null,
+     null,
+     null,
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 407,
+    "cells": [
+     "2026-05-07 00:00:00",
+     "Samsung Galaxy A13 5G 64GB",
+     359103250705810,
+     55,
+     "BLACK",
+     "NIHAL",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-10 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 408,
+    "cells": [
+     "2026-05-07 00:00:00",
+     "Samsung Galaxy A13 5G 64GB",
+     359103251067343,
+     55,
+     "BLACK",
+     "NIHAL",
+     null,
+     "SOLD",
+     "eBay",
+     "2026-05-09 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 409,
+    "cells": [
+     "2026-05-07 00:00:00",
+     "Samsung Galaxy A13 5G 64GB",
+     359103250831749,
+     55,
+     "BLACK",
+     "NIHAL",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-08 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 410,
+    "cells": [
+     "2026-05-07 00:00:00",
+     "Samsung Galaxy A13 5G 64GB",
+     359103250799664,
+     55,
+     "BLACK",
+     "NIHAL",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-08 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 411,
+    "cells": [
+     "2026-05-07 00:00:00",
+     "Samsung Galaxy A13 5G 64GB",
+     359103250732905,
+     55,
+     "BLACK",
+     "NIHAL",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-08 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 412,
+    "cells": [
+     "2026-05-07 00:00:00",
+     "Samsung Galaxy A13 5G 64GB",
+     359103250724928,
+     55,
+     "BLACK",
+     "NIHAL",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-08 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 413,
+    "cells": [
+     "2026-05-07 00:00:00",
+     "Samsung Galaxy A13 5G 64GB",
+     359103250682332,
+     55,
+     "BLACK",
+     "NIHAL",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-08 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 414,
+    "cells": [
+     "2026-05-07 00:00:00",
+     "Samsung Galaxy A13 5G 64GB",
+     359103250893640,
+     55,
+     "BLACK",
+     "NIHAL",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-08 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 415,
+    "cells": [
+     "2026-05-07 00:00:00",
+     "Samsung Galaxy A13 5G 64GB",
+     359103250796496,
+     55,
+     "BLACK",
+     "NIHAL",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-13 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 416,
+    "cells": [
+     "2026-05-07 00:00:00",
+     "Samsung Galaxy A13 5G 64GB",
+     359103250834453,
+     55,
+     "BLACK",
+     "NIHAL",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-12 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 417,
+    "cells": [
+     "2026-05-07 00:00:00",
+     "Samsung Galaxy A13 5G 64GB",
+     359103251006101,
+     55,
+     "BLACK",
+     "NIHAL",
+     null,
+     "SOLD",
+     "eBay",
+     "2026-05-08 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 418,
+    "cells": [
+     "2026-05-07 00:00:00",
+     "Samsung Galaxy A13 5G 64GB",
+     359103250800363,
+     55,
+     "BLACK",
+     "NIHAL",
+     null,
+     "SOLD",
+     "Project",
+     "2026-05-08 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 419,
+    "cells": [
+     "2026-05-07 00:00:00",
+     "Samsung Galaxy A13 5G 64GB",
+     359103250880969,
+     55,
+     "BLACK",
+     "NIHAL",
+     null,
+     "R T S",
+     "R T S",
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 420,
+    "cells": [
+     "2026-05-07 00:00:00",
+     "Samsung Galaxy A13 5G 64GB",
+     359103250893525,
+     55,
+     "BLACK",
+     "NIHAL",
+     null,
+     "SOLD",
+     "Back Market",
+     "2026-05-07 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 421,
+    "cells": [
+     "2026-05-07 00:00:00",
+     "Samsung Galaxy A13 5G 64GB",
+     359103250879144,
+     55,
+     "BLACK",
+     "NIHAL",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-08 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 422,
+    "cells": [
+     "2026-05-07 00:00:00",
+     "Samsung Galaxy A13 5G 64GB",
+     359103250786331,
+     55,
+     "BLACK",
+     "NIHAL",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-08 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 423,
+    "cells": [
+     "2026-05-07 00:00:00",
+     "Samsung Galaxy A13 5G 64GB",
+     359103250893293,
+     55,
+     "BLACK",
+     "NIHAL",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-07 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 424,
+    "cells": [
+     "2026-05-07 00:00:00",
+     "Samsung Galaxy A13 5G 64GB",
+     359103250827044,
+     55,
+     "BLACK",
+     "NIHAL",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-07 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 425,
+    "cells": [
+     "2026-05-07 00:00:00",
+     "Samsung Galaxy A13 5G 64GB",
+     359103250834354,
+     55,
+     "BLACK",
+     "NIHAL",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-07 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 426,
+    "cells": [
+     "2026-05-07 00:00:00",
+     "Samsung Galaxy A13 5G 64GB",
+     359103250921276,
+     55,
+     "BLACK",
+     "NIHAL",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-07 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 427,
+    "cells": [
+     "2026-05-07 00:00:00",
+     "Samsung Galaxy A13 5G 64GB",
+     359103250751533,
+     55,
+     "BLACK",
+     "NIHAL",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-07 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 428,
+    "cells": [
+     "2026-05-07 00:00:00",
+     "Samsung Galaxy A13 5G 64GB",
+     359103250874657,
+     55,
+     "BLACK",
+     "NIHAL",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-07 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 429,
+    "cells": [
+     "2026-05-07 00:00:00",
+     "Samsung Galaxy A13 5G 64GB",
+     359103250786315,
+     55,
+     "BLACK",
+     "NIHAL",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-07 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 430,
+    "cells": [
+     "2026-05-14 00:00:00",
+     "Samsung Galaxy A13 5G 64GB",
+     359103250864609,
+     55,
+     "BLACK",
+     "NIHAL",
+     null,
+     null,
+     null,
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 431,
+    "cells": [
+     "2026-05-14 00:00:00",
+     "Samsung Galaxy A13 5G 64GB",
+     359103251000377,
+     55,
+     "BLACK",
+     "NIHAL",
+     null,
+     null,
+     null,
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 432,
+    "cells": [
+     "2026-05-14 00:00:00",
+     "Samsung Galaxy A13 5G 64GB",
+     359103251070016,
+     55,
+     "BLACK",
+     "NIHAL",
+     null,
+     null,
+     null,
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 433,
+    "cells": [
+     "2026-05-14 00:00:00",
+     "Samsung Galaxy A13 5G 64GB",
+     359103250751434,
+     55,
+     "BLACK",
+     "NIHAL",
+     null,
+     null,
+     null,
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 434,
+    "cells": [
+     "2026-05-14 00:00:00",
+     "Samsung Galaxy A13 5G 64GB",
+     359103250733705,
+     55,
+     "BLACK",
+     "NIHAL",
+     null,
+     null,
+     null,
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 435,
+    "cells": [
+     null,
+     "SAMSUNG A14 4G 64GB ",
+     356608731063574,
+     70,
+     "VIOLET",
+     "RR STOCK",
+     null,
+     null,
+     null,
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 436,
+    "cells": [
+     null,
+     "Samsung Galaxy A14 5G 64GB",
+     350339953333273,
+     60,
+     "GREEN",
+     "MHL",
+     null,
+     null,
+     null,
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 437,
+    "cells": [
+     null,
+     "Samsung Galaxy A14 5G 64GB",
+     352117134295407,
+     65,
+     "BLACK",
+     "NANAK",
+     null,
+     "SOLD",
+     "Project",
+     "2026-05-03 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 438,
+    "cells": [
+     null,
+     "Samsung Galaxy A14 5G 64GB",
+     352117134290721,
+     65,
+     "BLACK",
+     "NANAK",
+     null,
+     "SOLD",
+     "Project",
+     "2026-05-03 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 439,
+    "cells": [
+     "2026-05-13 00:00:00",
+     "SAMSUNG A15 5G 64GB",
+     350318402764064,
+     85,
+     "BLACK",
+     "NANAK",
+     null,
+     null,
+     null,
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 440,
+    "cells": [
+     null,
+     "SAMSUNG A15 5G 64GB",
+     350318402585360,
+     85,
+     "BLACK",
+     "NANAK",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-14 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 441,
+    "cells": [
+     "2026-05-11 00:00:00",
+     "Samsung Galaxy A16 5G 128GB",
+     350525792421028,
+     115,
+     "BLACK",
+     "NANAK",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-11 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 442,
+    "cells": [
+     "2026-05-11 00:00:00",
+     "Samsung Galaxy A16 5G 128GB",
+     350525792285696,
+     115,
+     "BLACK",
+     "NANAK",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-11 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 443,
+    "cells": [
+     null,
+     "Samsung Galaxy A16 5G 128GB",
+     353684149926168,
+     85,
+     "GREEN",
+     "NANAK",
+     null,
+     null,
+     null,
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 444,
+    "cells": [
+     null,
+     "SAMSUNG A16 4G 128GB ",
+     352801608984824,
+     85,
+     "BLACK",
+     "NANAK",
+     null,
+     "SOLD",
+     "Project",
+     "2026-05-03 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 445,
+    "cells": [
+     null,
+     "SAMSUNG A16 4G 128GB ",
+     351272339332975,
+     85,
+     "BLACK",
+     "NANAK",
+     null,
+     "SOLD",
+     "Project",
+     "2026-05-03 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 446,
+    "cells": [
+     null,
+     "SAMSUNG A16 4G 128GB ",
+     350142327466211,
+     85,
+     "WHITE",
+     "NANAK",
+     null,
+     null,
+     null,
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 447,
+    "cells": [
+     "2026-05-11 00:00:00",
+     "Samsung Galaxy A16 5G 128GB",
+     350525792361646,
+     115,
+     "BLACK",
+     "NANAK",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-14 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 448,
+    "cells": [
+     null,
+     "Samsung Galaxy A17 5G 128GB - 2 SIM SLOTS",
+     357884910808795,
+     120,
+     "BLACK",
+     "MHL",
+     null,
+     null,
+     null,
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 449,
+    "cells": [
+     null,
+     "Samsung Galaxy A21S 32GB - 2 SIM SLOTS",
+     356157110883749,
+     54,
+     "BLUE",
+     "IMAX",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-04 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 450,
+    "cells": [
+     null,
+     "Samsung Galaxy A21S 32GB - 2 SIM SLOTS",
+     350179384717540,
+     54,
+     "BLUE",
+     "IMAX",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-04 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 451,
+    "cells": [
+     "2026-05-05 00:00:00",
+     "Samsung Galaxy A21S 32GB - 2 SIM SLOTS",
+     356157110961834,
+     54,
+     "BLUE",
+     "IMAX",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-07 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 452,
+    "cells": [
+     "2026-05-05 00:00:00",
+     "Samsung Galaxy A21S 32GB - 2 SIM SLOTS",
+     350179382622270,
+     54,
+     "BLUE",
+     "IMAX",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-08 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 453,
+    "cells": [
+     "2026-05-05 00:00:00",
+     "Samsung Galaxy A21S 32GB - 2 SIM SLOTS",
+     350179384747448,
+     54,
+     "BLUE",
+     "IMAX",
+     null,
+     null,
+     null,
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 454,
+    "cells": [
+     "2026-05-07 00:00:00",
+     "Samsung Galaxy A21S 32GB - 2 SIM SLOTS",
+     355451116241825,
+     54,
+     "BLUE",
+     "IMAX",
+     null,
+     null,
+     null,
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 455,
+    "cells": [
+     "2026-05-07 00:00:00",
+     "Samsung Galaxy A21S 32GB - 2 SIM SLOTS",
+     350179382865234,
+     54,
+     "BLUE",
+     "IMAX",
+     null,
+     null,
+     null,
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 456,
+    "cells": [
+     "2026-05-07 00:00:00",
+     "Samsung Galaxy A21S 32GB - 2 SIM SLOTS",
+     356157110960844,
+     54,
+     "BLUE",
+     "IMAX",
+     null,
+     null,
+     null,
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 457,
+    "cells": [
+     "2026-05-07 00:00:00",
+     "Samsung Galaxy A21S 32GB - 2 SIM SLOTS",
+     350179382622965,
+     54,
+     "BLUE",
+     "IMAX",
+     null,
+     null,
+     null,
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 458,
+    "cells": [
+     null,
+     "Samsung Galaxy A21S 32GB - 2 SIM SLOTS",
+     356157110947247,
+     54,
+     "BLUE",
+     "IMAX",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-06 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 459,
+    "cells": [
+     null,
+     "Samsung Galaxy A21S 32GB - 2 SIM SLOTS",
+     356157110945407,
+     54,
+     "BLUE",
+     "IMAX",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-06 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 460,
+    "cells": [
+     null,
+     "Samsung Galaxy A21S 32GB - 2 SIM SLOTS",
+     350179382632600,
+     54,
+     "BLUE",
+     "IMAX",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-04 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 461,
+    "cells": [
+     null,
+     "Samsung Galaxy A21S 32GB - 2 SIM SLOTS",
+     355451116481454,
+     54,
+     "BLUE",
+     "IMAX",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-05 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 462,
+    "cells": [
+     null,
+     "Samsung Galaxy A21S 32GB - 2 SIM SLOTS",
+     355451112108374,
+     54,
+     "BLUE",
+     "IMAX",
+     null,
+     "SOLD",
+     "Project",
+     "2026-05-02 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 463,
+    "cells": [
+     null,
+     "Samsung Galaxy A32 5G 64GB - 2 SIM SLOTS",
+     355213796935211,
+     55,
+     "BLACK",
+     "IMAX",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-05 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 464,
+    "cells": [
+     null,
+     "Samsung Galaxy A32 5G 64GB - 2 SIM SLOTS",
+     353427868596121,
+     55,
+     "BLACK",
+     "IMAX",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-05 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 465,
+    "cells": [
+     null,
+     "Samsung Galaxy A32 5G 64GB - 2 SIM SLOTS",
+     353427869724276,
+     55,
+     "BLACK",
+     "IMAX",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-05 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 466,
+    "cells": [
+     null,
+     "Samsung Galaxy A32 5G 64GB - 2 SIM SLOTS",
+     351554740234548,
+     55,
+     "BLACK",
+     "IMAX",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-05 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 467,
+    "cells": [
+     null,
+     "Samsung Galaxy A32 5G 64GB - 2 SIM SLOTS",
+     353427865378648,
+     55,
+     "BLACK",
+     "IMAX",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-05 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 468,
+    "cells": [
+     null,
+     "Samsung Galaxy A32 5G 64GB - 2 SIM SLOTS",
+     353427860393014,
+     55,
+     "BLACK",
+     "IMAX",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-04 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 469,
+    "cells": [
+     null,
+     "Samsung Galaxy A32 5G 64GB - 2 SIM SLOTS",
+     351554746751420,
+     55,
+     "BLACK",
+     "IMAX",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-05 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 470,
+    "cells": [
+     null,
+     "Samsung Galaxy A32 5G 64GB - 2 SIM SLOTS",
+     353427869758613,
+     55,
+     "BLACK",
+     "IMAX",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-05 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 471,
+    "cells": [
+     null,
+     "Samsung Galaxy A32 5G 64GB - 2 SIM SLOTS",
+     351554741948518,
+     55,
+     "BLACK",
+     "IMAX",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-05 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 472,
+    "cells": [
+     null,
+     "Samsung Galaxy A32 5G 64GB - 2 SIM SLOTS",
+     351554746219741,
+     55,
+     "BLACK",
+     "IMAX",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-05 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 473,
+    "cells": [
+     null,
+     "Samsung Galaxy A32 5G 64GB - 2 SIM SLOTS",
+     355808981006007,
+     55,
+     "BLACK",
+     "IMAX",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-04 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 474,
+    "cells": [
+     null,
+     "Samsung Galaxy A32 5G 64GB - 2 SIM SLOTS",
+     355213796909976,
+     55,
+     "BLACK",
+     "IMAX",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-04 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 475,
+    "cells": [
+     null,
+     "Samsung Galaxy A32 5G 64GB - 2 SIM SLOTS",
+     353427868111202,
+     55,
+     "BLACK",
+     "IMAX",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-05 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 476,
+    "cells": [
+     null,
+     "Samsung Galaxy A32 5G 64GB - 2 SIM SLOTS",
+     351554741528492,
+     55,
+     "BLACK",
+     "IMAX",
+     null,
+     "SOLD",
+     "Project",
+     "2026-05-06 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 477,
+    "cells": [
+     null,
+     "Samsung Galaxy A32 5G 64GB - 2 SIM SLOTS",
+     353427868203272,
+     55,
+     "BLACK",
+     "IMAX",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-04 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 478,
+    "cells": [
+     null,
+     "Samsung Galaxy A32 5G 64GB - 2 SIM SLOTS",
+     351554741526116,
+     55,
+     "BLACK",
+     "IMAX",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-04 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 479,
+    "cells": [
+     null,
+     "Samsung Galaxy A32 5G 64GB - 2 SIM SLOTS",
+     353427860469822,
+     55,
+     "BLACK",
+     "IMAX",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-04 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 480,
+    "cells": [
+     null,
+     "Samsung Galaxy A32 5G 64GB - 2 SIM SLOTS",
+     351554741530779,
+     55,
+     "BLACK",
+     "IMAX",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-04 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 481,
+    "cells": [
+     null,
+     "Samsung Galaxy A32 5G 64GB - 2 SIM SLOTS",
+     355213796909703,
+     55,
+     "BLACK",
+     "IMAX",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-04 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 482,
+    "cells": [
+     null,
+     "Samsung Galaxy A32 5G 64GB - 2 SIM SLOTS",
+     351554741087309,
+     55,
+     "BLACK",
+     "IMAX",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-04 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 483,
+    "cells": [
+     null,
+     "Samsung Galaxy A32 5G 64GB - 2 SIM SLOTS",
+     351554746781799,
+     55,
+     "BLACK",
+     "IMAX",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-05 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 484,
+    "cells": [
+     null,
+     "Samsung Galaxy A32 5G 64GB - 2 SIM SLOTS",
+     353427864187917,
+     55,
+     "BLACK",
+     "IMAX",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-04 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 485,
+    "cells": [
+     null,
+     "Samsung Galaxy A32 5G 64GB - 2 SIM SLOTS",
+     353427860390366,
+     55,
+     "BLACK",
+     "IMAX",
+     null,
+     "SOLD",
+     "Project",
+     "2026-05-01 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 486,
+    "cells": [
+     null,
+     "Samsung Galaxy A32 5G 64GB - 2 SIM SLOTS",
+     353427860829421,
+     55,
+     "BLACK",
+     "NANAK",
+     null,
+     null,
+     null,
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 487,
+    "cells": [
+     null,
+     "Samsung Galaxy A32 5G 64GB - 2 SIM SLOTS",
+     351554748383891,
+     55,
+     "VIOLET",
+     "NANAK",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-04 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 488,
+    "cells": [
+     null,
+     "Samsung Galaxy A32 5G 64GB - 2 SIM SLOTS",
+     355808982560382,
+     55,
+     "VIOLET",
+     "IMAX",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-04 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 489,
+    "cells": [
+     null,
+     "Samsung Galaxy A32 5G 64GB - 2 SIM SLOTS",
+     355561777365638,
+     60,
+     "WHITE",
+     "MOBILE KIT",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-06 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 490,
+    "cells": [
+     null,
+     "Samsung Galaxy A32 5G 64GB - 2 SIM SLOTS",
+     355561778558264,
+     60,
+     "BLUE",
+     "MOBILE KIT",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-14 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 491,
+    "cells": [
+     null,
+     "Samsung Galaxy A32 5G 64GB - 2 SIM SLOTS",
+     357157888856587,
+     60,
+     "BLACK",
+     "MOBILE KIT",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-06 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 492,
+    "cells": [
+     null,
+     "Samsung Galaxy A32 5G 64GB - 2 SIM SLOTS",
+     357157887697750,
+     60,
+     "BLACK",
+     "MOBILE KIT",
+     null,
+     "SOLD",
+     "Project",
+     "2026-05-06 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 493,
+    "cells": [
+     null,
+     "Samsung Galaxy A32 5G 64GB - 2 SIM SLOTS",
+     357157880524563,
+     60,
+     "BLACK",
+     "MOBILE KIT",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-05 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 494,
+    "cells": [
+     null,
+     "Samsung Galaxy A32 5G 64GB - 2 SIM SLOTS",
+     357157888231369,
+     60,
+     "BLACK",
+     "MOBILE KIT",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-05 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 495,
+    "cells": [
+     null,
+     "Samsung Galaxy A32 5G 64GB - 2 SIM SLOTS",
+     355561777245368,
+     60,
+     "BLACK",
+     "MOBILE KIT",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-05 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 496,
+    "cells": [
+     null,
+     "Samsung Galaxy A32 5G 64GB - 2 SIM SLOTS",
+     357157887258785,
+     60,
+     "BLACK",
+     "MOBILE KIT",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-05 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 497,
+    "cells": [
+     null,
+     "Samsung Galaxy A32 5G 64GB - 2 SIM SLOTS",
+     357157885729241,
+     60,
+     "BLACK",
+     "MOBILE KIT",
+     null,
+     "SOLD",
+     "Project",
+     "2026-05-06 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 498,
+    "cells": [
+     null,
+     "Samsung Galaxy A32 5G 64GB - 2 SIM SLOTS",
+     357157887361829,
+     60,
+     "BLACK",
+     "MOBILE KIT",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-05 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 499,
+    "cells": [
+     null,
+     "Samsung Galaxy A32 5G 64GB - 2 SIM SLOTS",
+     355561771607308,
+     60,
+     "BLACK",
+     "MOBILE KIT",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-05 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 500,
+    "cells": [
+     null,
+     "Samsung Galaxy A32 5G 64GB - 2 SIM SLOTS",
+     355561779123258,
+     60,
+     "BLACK",
+     "MOBILE KIT",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-06 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 501,
+    "cells": [
+     null,
+     "Samsung Galaxy A32 5G 64GB - 2 SIM SLOTS",
+     350091125731468,
+     60,
+     "BLACK",
+     "MOBILE KIT",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-06 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 502,
+    "cells": [
+     null,
+     "Samsung Galaxy A32 5G 64GB - 2 SIM SLOTS",
+     350091123985074,
+     60,
+     "BLACK",
+     "MOBILE KIT",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-06 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 503,
+    "cells": [
+     null,
+     "Samsung Galaxy A32 5G 64GB - 2 SIM SLOTS",
+     355561772303089,
+     60,
+     "BLACK",
+     "MOBILE KIT",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-06 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 504,
+    "cells": [
+     null,
+     "Samsung Galaxy A32 5G 64GB - 2 SIM SLOTS",
+     351404593441107,
+     60,
+     "BLACK",
+     "MOBILE KIT",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-06 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 505,
+    "cells": [
+     null,
+     "Samsung Galaxy A32 5G 64GB - 2 SIM SLOTS",
+     355561775795612,
+     60,
+     "BLACK",
+     "MOBILE KIT",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-06 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 506,
+    "cells": [
+     null,
+     "Samsung Galaxy A32 5G 64GB - 2 SIM SLOTS",
+     355561771370329,
+     60,
+     "BLACK",
+     "MOBILE KIT",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-06 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 507,
+    "cells": [
+     null,
+     "Samsung Galaxy A32 5G 64GB - 2 SIM SLOTS",
+     351404593764615,
+     60,
+     "BLACK",
+     "MOBILE KIT",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-06 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 508,
+    "cells": [
+     null,
+     "Samsung Galaxy A32 5G 64GB - 2 SIM SLOTS",
+     355561775543616,
+     60,
+     "BLACK",
+     "MOBILE KIT",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-06 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 509,
+    "cells": [
+     null,
+     "Samsung Galaxy A32 5G 64GB - 2 SIM SLOTS",
+     355561776718191,
+     60,
+     "BLACK",
+     "MOBILE KIT",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-06 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 510,
+    "cells": [
+     null,
+     "Samsung Galaxy A32 5G 64GB - 2 SIM SLOTS",
+     357157888106512,
+     60,
+     "BLACK",
+     "MOBILE KIT",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-06 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 511,
+    "cells": [
+     null,
+     "Samsung Galaxy A32 5G 64GB - 2 SIM SLOTS",
+     355561772295665,
+     60,
+     "BLACK",
+     "MOBILE KIT",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-06 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 512,
+    "cells": [
+     null,
+     "Samsung Galaxy A32 5G 64GB - 2 SIM SLOTS",
+     355561772794162,
+     60,
+     "BLACK",
+     "MOBILE KIT",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-06 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 513,
+    "cells": [
+     null,
+     "Samsung Galaxy A32 5G 64GB - 2 SIM SLOTS",
+     355561775590997,
+     60,
+     "BLACK",
+     "MOBILE KIT",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-06 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 514,
+    "cells": [
+     null,
+     "Samsung Galaxy A32 5G 64GB - 2 SIM SLOTS",
+     353245903332488,
+     60,
+     "BLACK",
+     "MOBILE KIT",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-07 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 515,
+    "cells": [
+     null,
+     "Samsung Galaxy A32 5G 64GB - 2 SIM SLOTS",
+     357157889747421,
+     60,
+     "BLACK",
+     "MOBILE KIT",
+     null,
+     "SOLD",
+     "Project",
+     "2026-05-07 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 516,
+    "cells": [
+     null,
+     "Samsung Galaxy A32 5G 64GB - 2 SIM SLOTS",
+     355561779906520,
+     60,
+     "BLACK",
+     "MOBILE KIT",
+     null,
+     "SOLD",
+     "Project",
+     "2026-05-07 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 517,
+    "cells": [
+     null,
+     "Samsung Galaxy A32 5G 64GB - 2 SIM SLOTS",
+     355561775423397,
+     60,
+     "BLACK",
+     "MOBILE KIT",
+     null,
+     "SOLD",
+     "Project",
+     "2026-05-07 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 518,
+    "cells": [
+     null,
+     "Samsung Galaxy A32 5G 64GB - 2 SIM SLOTS",
+     351404591950612,
+     60,
+     "BLACK",
+     "MOBILE KIT",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-07 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 519,
+    "cells": [
+     null,
+     "Samsung Galaxy A32 5G 64GB - 2 SIM SLOTS",
+     357157888085609,
+     60,
+     "BLACK",
+     "MOBILE KIT",
+     null,
+     "SOLD",
+     "Back Market",
+     "2026-05-10 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 520,
+    "cells": [
+     "2026-05-05 00:00:00",
+     "Samsung Galaxy A32 5G 64GB - 2 SIM SLOTS",
+     350647481970345,
+     60,
+     "BLACK",
+     "MHL (RR)",
+     null,
+     "SOLD",
+     "Project",
+     "2026-05-08 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 521,
+    "cells": [
+     "2026-05-05 00:00:00",
+     "Samsung Galaxy A32 5G 64GB - 2 SIM SLOTS",
+     350647481219610,
+     60,
+     "BLACK",
+     "MHL (RR)",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-07 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 522,
+    "cells": [
+     "2026-05-05 00:00:00",
+     "Samsung Galaxy A32 5G 64GB - 2 SIM SLOTS",
+     353427869724417,
+     60,
+     "LAVENDER",
+     "IMAX (RR)",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-06 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 523,
+    "cells": [
+     "2026-05-12 00:00:00",
+     "Samsung Galaxy A32 5G 64GB - 2 SIM SLOTS",
+     350647481681298,
+     57,
+     "BLACK",
+     "MHL",
+     null,
+     null,
+     null,
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 524,
+    "cells": [
+     "2026-05-12 00:00:00",
+     "Samsung Galaxy A32 5G 64GB - 2 SIM SLOTS",
+     352317951348889,
+     57,
+     "BLACK",
+     "MHL",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-14 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 525,
+    "cells": [
+     "2026-05-12 00:00:00",
+     "Samsung Galaxy A32 5G 64GB - 2 SIM SLOTS",
+     350647481253858,
+     57,
+     "BLACK",
+     "MHL",
+     null,
+     null,
+     null,
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 526,
+    "cells": [
+     "2026-05-12 00:00:00",
+     "Samsung Galaxy A32 5G 64GB - 2 SIM SLOTS",
+     352317951248394,
+     57,
+     "BLACK",
+     "MHL",
+     null,
+     null,
+     null,
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 527,
+    "cells": [
+     "2026-05-12 00:00:00",
+     "Samsung Galaxy A32 5G 64GB - 2 SIM SLOTS",
+     350647482065103,
+     57,
+     "BLACK",
+     "MHL",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-13 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 528,
+    "cells": [
+     "2026-05-12 00:00:00",
+     "Samsung Galaxy A32 5G 64GB - 2 SIM SLOTS",
+     352317951220138,
+     57,
+     "BLACK",
+     "MHL",
+     null,
+     null,
+     null,
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 529,
+    "cells": [
+     "2026-05-12 00:00:00",
+     "Samsung Galaxy A32 5G 64GB - 2 SIM SLOTS",
+     350647481972341,
+     57,
+     "BLACK",
+     "MHL",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-13 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 530,
+    "cells": [
+     "2026-05-12 00:00:00",
+     "Samsung Galaxy A32 5G 64GB - 2 SIM SLOTS",
+     352317951351974,
+     57,
+     "BLACK",
+     "MHL",
+     null,
+     null,
+     null,
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 531,
+    "cells": [
+     "2026-05-12 00:00:00",
+     "Samsung Galaxy A32 5G 64GB - 2 SIM SLOTS",
+     350647481943151,
+     57,
+     "BLACK",
+     "MHL",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-13 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 532,
+    "cells": [
+     "2026-05-12 00:00:00",
+     "Samsung Galaxy A32 5G 64GB - 2 SIM SLOTS",
+     350647482005620,
+     57,
+     "BLACK",
+     "MHL",
+     null,
+     null,
+     null,
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 533,
+    "cells": [
+     "2026-05-12 00:00:00",
+     "Samsung Galaxy A32 5G 64GB - 2 SIM SLOTS",
+     350647481175747,
+     57,
+     "BLACK",
+     "MHL",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-14 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 534,
+    "cells": [
+     "2026-05-12 00:00:00",
+     "Samsung Galaxy A32 5G 64GB - 2 SIM SLOTS",
+     350647481974958,
+     57,
+     "BLACK",
+     "MHL",
+     null,
+     null,
+     null,
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 535,
+    "cells": [
+     "2026-05-12 00:00:00",
+     "Samsung Galaxy A32 5G 64GB - 2 SIM SLOTS",
+     350647481689721,
+     57,
+     "BLACK",
+     "MHL",
+     null,
+     null,
+     null,
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 536,
+    "cells": [
+     "2026-05-12 00:00:00",
+     "Samsung Galaxy A32 5G 64GB - 2 SIM SLOTS",
+     350647481969297,
+     57,
+     "BLACK",
+     "MHL",
+     null,
+     null,
+     null,
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 537,
+    "cells": [
+     "2026-05-12 00:00:00",
+     "Samsung Galaxy A32 5G 64GB - 2 SIM SLOTS",
+     350647481688723,
+     57,
+     "BLACK",
+     "MHL",
+     null,
+     null,
+     null,
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 538,
+    "cells": [
+     "2026-05-12 00:00:00",
+     "Samsung Galaxy A32 5G 64GB - 2 SIM SLOTS",
+     350647481643942,
+     57,
+     "BLACK",
+     "MHL",
+     null,
+     null,
+     null,
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 539,
+    "cells": [
+     "2026-05-12 00:00:00",
+     "Samsung Galaxy A32 5G 64GB - 2 SIM SLOTS",
+     352317951357146,
+     57,
+     "BLACK",
+     "MHL",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-13 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 540,
+    "cells": [
+     "2026-05-12 00:00:00",
+     "Samsung Galaxy A32 5G 64GB - 2 SIM SLOTS",
+     350647481818213,
+     57,
+     "BLACK",
+     "MHL",
+     null,
+     null,
+     null,
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 541,
+    "cells": [
+     "2026-05-12 00:00:00",
+     "Samsung Galaxy A32 5G 64GB - 2 SIM SLOTS",
+     350647481195927,
+     57,
+     "BLACK",
+     "MHL",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-13 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 542,
+    "cells": [
+     "2026-05-12 00:00:00",
+     "Samsung Galaxy A32 5G 64GB - 2 SIM SLOTS",
+     352317951234949,
+     57,
+     "BLACK",
+     "MHL",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-13 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 543,
+    "cells": [
+     "2026-05-12 00:00:00",
+     "Samsung Galaxy A32 5G 64GB - 2 SIM SLOTS",
+     350647482038068,
+     57,
+     "BLACK",
+     "MHL",
+     null,
+     null,
+     null,
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 544,
+    "cells": [
+     "2026-05-12 00:00:00",
+     "Samsung Galaxy A32 5G 64GB - 2 SIM SLOTS",
+     350647481988347,
+     57,
+     "BLACK",
+     "MHL",
+     null,
+     null,
+     null,
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 545,
+    "cells": [
+     "2026-05-12 00:00:00",
+     "Samsung Galaxy A32 5G 64GB - 2 SIM SLOTS",
+     350647481674376,
+     57,
+     "BLACK",
+     "MHL",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-14 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 546,
+    "cells": [
+     "2026-05-12 00:00:00",
+     "Samsung Galaxy A32 5G 64GB - 2 SIM SLOTS",
+     350647481184384,
+     57,
+     "BLACK",
+     "MHL",
+     null,
+     null,
+     null,
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 547,
+    "cells": [
+     "2026-05-12 00:00:00",
+     "Samsung Galaxy A32 5G 64GB - 2 SIM SLOTS",
+     350647481982787,
+     57,
+     "BLACK",
+     "MHL",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-14 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 548,
+    "cells": [
+     "2026-05-12 00:00:00",
+     "Samsung Galaxy A32 5G 64GB - 2 SIM SLOTS",
+     350647482004425,
+     57,
+     "BLACK",
+     "MHL",
+     null,
+     null,
+     null,
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 549,
+    "cells": [
+     "2026-05-12 00:00:00",
+     "Samsung Galaxy A32 5G 64GB - 2 SIM SLOTS",
+     350647482000399,
+     57,
+     "BLACK",
+     "MHL",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-13 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 550,
+    "cells": [
+     "2026-05-12 00:00:00",
+     "Samsung Galaxy A32 5G 64GB - 2 SIM SLOTS",
+     350647481967291,
+     57,
+     "BLACK",
+     "MHL",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-14 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 551,
+    "cells": [
+     "2026-05-12 00:00:00",
+     "Samsung Galaxy A32 5G 64GB - 2 SIM SLOTS",
+     350647482055187,
+     57,
+     "BLACK",
+     "MHL",
+     null,
+     null,
+     null,
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 552,
+    "cells": [
+     "2026-05-12 00:00:00",
+     "Samsung Galaxy A32 5G 64GB - 2 SIM SLOTS",
+     350647481670382,
+     57,
+     "BLACK",
+     "MHL",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-13 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 553,
+    "cells": [
+     "2026-05-12 00:00:00",
+     "Samsung Galaxy A32 5G 64GB - 2 SIM SLOTS",
+     350647481978363,
+     57,
+     "BLACK",
+     "MHL",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-13 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 554,
+    "cells": [
+     "2026-05-12 00:00:00",
+     "Samsung Galaxy A32 5G 64GB - 2 SIM SLOTS",
+     352317951233685,
+     57,
+     "BLACK",
+     "MHL",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-14 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 555,
+    "cells": [
+     "2026-05-12 00:00:00",
+     "Samsung Galaxy A32 5G 64GB - 2 SIM SLOTS",
+     350647481181638,
+     57,
+     "BLACK",
+     "MHL",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-13 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 556,
+    "cells": [
+     "2026-05-12 00:00:00",
+     "Samsung Galaxy A32 5G 64GB - 2 SIM SLOTS",
+     350647481851842,
+     57,
+     "BLACK",
+     "MHL",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-13 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 557,
+    "cells": [
+     "2026-05-12 00:00:00",
+     "Samsung Galaxy A32 5G 64GB - 2 SIM SLOTS",
+     352317951243197,
+     57,
+     "BLACK",
+     "MHL",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-13 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 558,
+    "cells": [
+     "2026-05-12 00:00:00",
+     "Samsung Galaxy A32 5G 64GB - 2 SIM SLOTS",
+     350647481688855,
+     57,
+     "BLACK",
+     "MHL",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-13 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 559,
+    "cells": [
+     "2026-05-12 00:00:00",
+     "Samsung Galaxy A32 5G 64GB - 2 SIM SLOTS",
+     350647481673477,
+     57,
+     "BLACK",
+     "MHL",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-13 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 560,
+    "cells": [
+     "2026-05-12 00:00:00",
+     "Samsung Galaxy A32 5G 64GB - 2 SIM SLOTS",
+     352317951369943,
+     57,
+     "BLACK",
+     "MHL",
+     null,
+     null,
+     null,
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 561,
+    "cells": [
+     "2026-05-12 00:00:00",
+     "Samsung Galaxy A32 5G 64GB - 2 SIM SLOTS",
+     350647481846438,
+     57,
+     "BLACK",
+     "MHL",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-13 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 562,
+    "cells": [
+     "2026-05-12 00:00:00",
+     "Samsung Galaxy A32 5G 64GB - 2 SIM SLOTS",
+     350647481987935,
+     57,
+     "BLACK",
+     "MHL",
+     null,
+     null,
+     null,
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 563,
+    "cells": [
+     "2026-05-12 00:00:00",
+     "Samsung Galaxy A32 5G 64GB - 2 SIM SLOTS",
+     350647481979320,
+     57,
+     "BLACK",
+     "MHL",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-12 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 564,
+    "cells": [
+     "2026-05-12 00:00:00",
+     "Samsung Galaxy A32 5G 64GB - 2 SIM SLOTS",
+     350647481671612,
+     57,
+     "BLACK",
+     "MHL",
+     null,
+     null,
+     null,
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 565,
+    "cells": [
+     null,
+     "Samsung Galaxy A32 5G 64GB - 2 SIM SLOTS",
+     351554740230280,
+     52,
+     "BLACK",
+     "IMAX",
+     "LCD+BG",
+     null,
+     null,
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 566,
+    "cells": [
+     null,
+     "Samsung Galaxy A32 5G 64GB - 2 SIM SLOTS",
+     353427860391497,
+     52,
+     "BLACK",
+     "IMAX",
+     "LCD+BG",
+     null,
+     null,
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 567,
+    "cells": [
+     null,
+     "Samsung Galaxy A32 5G 64GB - 2 SIM SLOTS",
+     353427862179528,
+     52,
+     "BLACK",
+     "IMAX",
+     "LCD+BG",
+     null,
+     null,
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 568,
+    "cells": [
+     null,
+     "Samsung Galaxy A32 5G 64GB - 2 SIM SLOTS",
+     355808983379238,
+     52,
+     "BLACK",
+     "IMAX",
+     "LCD+BG",
+     null,
+     null,
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 569,
+    "cells": [
+     null,
+     "Samsung Galaxy A32 5G 64GB - 2 SIM SLOTS",
+     355808983378636,
+     52,
+     "BLACK",
+     "IMAX",
+     "LCD+BG",
+     null,
+     null,
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 570,
+    "cells": [
+     null,
+     "Samsung Galaxy A32 5G 64GB - 2 SIM SLOTS",
+     353427864129554,
+     52,
+     "BLACK",
+     "IMAX",
+     "LCD+BG",
+     null,
+     null,
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 571,
+    "cells": [
+     null,
+     "Samsung Galaxy A32 5G 64GB - 2 SIM SLOTS",
+     351554742957211,
+     52,
+     "BLACK",
+     "IMAX",
+     "LCD+BG",
+     null,
+     null,
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 572,
+    "cells": [
+     null,
+     "Samsung Galaxy A32 5G 64GB - 2 SIM SLOTS",
+     351554746191874,
+     52,
+     "BLACK",
+     "IMAX",
+     "LCD+BG",
+     null,
+     null,
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 573,
+    "cells": [
+     null,
+     "Samsung Galaxy A32 5G 64GB - 2 SIM SLOTS",
+     351554741524491,
+     52,
+     "BLACK",
+     "IMAX",
+     "LCD+BG",
+     null,
+     null,
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 574,
+    "cells": [
+     null,
+     "Samsung Galaxy A32 5G 64GB - 2 SIM SLOTS",
+     351554741524244,
+     52,
+     "BLACK",
+     "IMAX",
+     "LCD+BG",
+     null,
+     null,
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 575,
+    "cells": [
+     null,
+     "Samsung Galaxy A32 5G 64GB - 2 SIM SLOTS",
+     355808983347540,
+     52,
+     "BLACK",
+     "IMAX",
+     "LCD+BG",
+     null,
+     null,
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 576,
+    "cells": [
+     null,
+     "Samsung Galaxy A32 5G 64GB - 2 SIM SLOTS",
+     353427860458700,
+     52,
+     "BLACK",
+     "IMAX",
+     "LCD+BG",
+     null,
+     null,
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 577,
+    "cells": [
+     null,
+     "Samsung Galaxy A32 5G 64GB - 2 SIM SLOTS",
+     353427860399227,
+     52,
+     "BLACK",
+     "IMAX",
+     "LCD+BG",
+     null,
+     null,
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 578,
+    "cells": [
+     null,
+     "Samsung Galaxy A32 5G 64GB - 2 SIM SLOTS",
+     351554740224598,
+     52,
+     "BLACK",
+     "IMAX",
+     "LCD+BG",
+     null,
+     null,
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 579,
+    "cells": [
+     null,
+     "Samsung Galaxy A32 5G 64GB - 2 SIM SLOTS",
+     355808983372977,
+     52,
+     "BLACK",
+     "IMAX",
+     "LCD+BG",
+     "SOLD",
+     "Amazon",
+     "2026-05-06 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 580,
+    "cells": [
+     null,
+     "Samsung Galaxy A32 5G 64GB - 2 SIM SLOTS",
+     351554741511332,
+     52,
+     "BLACK",
+     "IMAX",
+     "LCD+BG",
+     null,
+     null,
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 581,
+    "cells": [
+     null,
+     "Samsung Galaxy A32 5G 64GB - 2 SIM SLOTS",
+     351554746794115,
+     52,
+     "BLACK",
+     "IMAX",
+     "LCD+BG",
+     null,
+     null,
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 582,
+    "cells": [
+     null,
+     "Samsung Galaxy A32 5G 64GB - 2 SIM SLOTS",
+     355808983409076,
+     52,
+     "BLACK",
+     "IMAX",
+     "LCD+BG",
+     "SOLD",
+     "Amazon",
+     "2026-05-12 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 583,
+    "cells": [
+     null,
+     "Samsung Galaxy A32 5G 64GB - 2 SIM SLOTS",
+     351554743141682,
+     52,
+     "BLACK",
+     "IMAX",
+     "LCD+BG",
+     null,
+     null,
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 584,
+    "cells": [
+     null,
+     "Samsung Galaxy A32 5G 64GB - 2 SIM SLOTS",
+     353427860397916,
+     52,
+     "BLACK",
+     "IMAX",
+     "LCD+BG",
+     null,
+     null,
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 585,
+    "cells": [
+     null,
+     "Samsung Galaxy A32 5G 64GB - 2 SIM SLOTS",
+     355808983377364,
+     52,
+     "BLACK",
+     "IMAX",
+     "LCD+BG",
+     null,
+     null,
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 586,
+    "cells": [
+     null,
+     "Samsung Galaxy A32 5G 64GB - 2 SIM SLOTS",
+     351554741938584,
+     52,
+     "BLACK",
+     "IMAX",
+     "LCD+BG",
+     null,
+     null,
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 587,
+    "cells": [
+     null,
+     "Samsung Galaxy A32 5G 64GB - 2 SIM SLOTS",
+     355808983380483,
+     52,
+     "BLACK",
+     "IMAX",
+     "LCD+BG",
+     null,
+     null,
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 588,
+    "cells": [
+     null,
+     "Samsung Galaxy A32 5G 64GB - 2 SIM SLOTS",
+     353427860404571,
+     52,
+     "BLACK",
+     "IMAX",
+     "LCD+BG",
+     null,
+     null,
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 589,
+    "cells": [
+     null,
+     "Samsung Galaxy A32 5G 64GB - 2 SIM SLOTS",
+     355808983355378,
+     52,
+     "BLACK",
+     "IMAX",
+     "LCD+BG",
+     null,
+     null,
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 590,
+    "cells": [
+     null,
+     "Samsung Galaxy A32 5G 64GB - 2 SIM SLOTS",
+     353427868236157,
+     52,
+     "BLACK",
+     "IMAX",
+     "LCD+BG",
+     null,
+     null,
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 591,
+    "cells": [
+     null,
+     "Samsung Galaxy A32 5G 64GB - 2 SIM SLOTS",
+     351554746897058,
+     52,
+     "BLACK",
+     "IMAX",
+     "LCD+BG",
+     null,
+     null,
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 592,
+    "cells": [
+     null,
+     "Samsung Galaxy A32 5G 64GB - 2 SIM SLOTS",
+     355808983408094,
+     52,
+     "BLACK",
+     "IMAX",
+     "LCD+BG",
+     null,
+     null,
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 593,
+    "cells": [
+     null,
+     "Samsung Galaxy A32 5G 64GB - 2 SIM SLOTS",
+     351554741518196,
+     52,
+     "BLACK",
+     "IMAX",
+     "LCD+BG",
+     null,
+     null,
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 594,
+    "cells": [
+     null,
+     "Samsung Galaxy A32 5G 64GB - 2 SIM SLOTS",
+     351554740931705,
+     52,
+     "BLACK",
+     "IMAX",
+     "GRADE B- / BG",
+     "SOLD",
+     "Amazon",
+     "2026-05-08 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 595,
+    "cells": [
+     null,
+     "Samsung Galaxy A32 5G 64GB - 2 SIM SLOTS",
+     355808983326023,
+     52,
+     "BLACK",
+     "IMAX",
+     "GRADE B- / BG",
+     "SOLD",
+     "Amazon",
+     "2026-05-08 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 596,
+    "cells": [
+     null,
+     "Samsung Galaxy A32 5G 64GB - 2 SIM SLOTS",
+     353427868468271,
+     52,
+     "BLACK",
+     "IMAX",
+     "GRADE B- / BG",
+     "SOLD",
+     "eBay",
+     "2026-05-08 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 597,
+    "cells": [
+     null,
+     "Samsung Galaxy A32 5G 64GB - 2 SIM SLOTS",
+     355808983364396,
+     52,
+     "BLACK",
+     "IMAX",
+     "GRADE B- / BG",
+     "SOLD",
+     "Amazon",
+     "2026-05-08 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 598,
+    "cells": [
+     null,
+     "Samsung Galaxy A32 5G 64GB - 2 SIM SLOTS",
+     353427861479689,
+     52,
+     "BLACK",
+     "IMAX",
+     "GRADE B- / BG",
+     null,
+     null,
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 599,
+    "cells": [
+     null,
+     "Samsung Galaxy A32 5G 64GB - 2 SIM SLOTS",
+     353427869724458,
+     52,
+     "BLACK",
+     "IMAX",
+     "GRADE B- / BG",
+     "SOLD",
+     "Amazon",
+     "2026-05-13 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 600,
+    "cells": [
+     null,
+     "Samsung Galaxy A32 5G 64GB - 2 SIM SLOTS",
+     353427869710564,
+     52,
+     "BLACK",
+     "IMAX",
+     "GRADE B- / BG",
+     "SOLD",
+     "Amazon",
+     "2026-05-13 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 601,
+    "cells": [
+     null,
+     "Samsung Galaxy A32 5G 64GB - 2 SIM SLOTS",
+     353427860391844,
+     52,
+     "BLACK",
+     "IMAX",
+     "GRADE B- / BG",
+     "SOLD",
+     "Back Market",
+     "2026-05-09 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 602,
+    "cells": [
+     null,
+     "Samsung Galaxy A32 5G 64GB - 2 SIM SLOTS",
+     351554741084033,
+     52,
+     "BLACK",
+     "IMAX",
+     "GRADE B- / BG",
+     "SOLD",
+     "Amazon",
+     "2026-05-07 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 603,
+    "cells": [
+     null,
+     "Samsung Galaxy A32 5G 64GB - 2 SIM SLOTS",
+     353427868111541,
+     52,
+     "BLACK",
+     "IMAX",
+     "GRADE B- / BG",
+     "SOLD",
+     "Amazon",
+     "2026-05-05 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 604,
+    "cells": [
+     null,
+     "Samsung Galaxy A32 5G 64GB - 2 SIM SLOTS",
+     351554746781468,
+     52,
+     "BLACK",
+     "IMAX",
+     "GRADE B- / BG",
+     "SOLD",
+     "Amazon",
+     "2026-05-05 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 605,
+    "cells": [
+     null,
+     "Samsung Galaxy A32 5G 64GB - 2 SIM SLOTS",
+     351554741082094,
+     52,
+     "BLACK",
+     "IMAX",
+     "GRADE B- / BG",
+     "SOLD",
+     "Amazon",
+     "2026-05-13 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 606,
+    "cells": [
+     null,
+     "Samsung Galaxy A32 5G 64GB - 2 SIM SLOTS",
+     351554741082094,
+     52,
+     "BLACK",
+     "IMAX",
+     "GRADE B- / BG",
+     null,
+     null,
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 607,
+    "cells": [
+     null,
+     "Samsung Galaxy A32 5G 64GB - 2 SIM SLOTS",
+     353427860874971,
+     52,
+     "BLACK",
+     "IMAX",
+     "GRADE B- / BG",
+     "SOLD",
+     "Amazon",
+     "2026-05-05 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 608,
+    "cells": [
+     null,
+     "Samsung Galaxy A32 5G 64GB - 2 SIM SLOTS",
+     355808983322469,
+     52,
+     "BLACK",
+     "IMAX",
+     "GRADE B- / BG",
+     "SOLD",
+     "Amazon",
+     "2026-05-10 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 609,
+    "cells": [
+     null,
+     "Samsung Galaxy A32 5G 64GB - 2 SIM SLOTS",
+     353427860408028,
+     52,
+     "BLACK",
+     "IMAX",
+     "GRADE B- / BG",
+     null,
+     null,
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 610,
+    "cells": [
+     null,
+     "Samsung Galaxy A32 5G 64GB - 2 SIM SLOTS",
+     355808983357242,
+     52,
+     "BLACK",
+     "IMAX",
+     "GRADE B- / BG",
+     null,
+     null,
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 611,
+    "cells": [
+     null,
+     "Samsung Galaxy A32 5G 64GB - 2 SIM SLOTS",
+     355808983407054,
+     52,
+     "BLACK",
+     "IMAX",
+     "GRADE B- / BG",
+     null,
+     null,
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 612,
+    "cells": [
+     null,
+     "Samsung Galaxy A32 5G 64GB - 2 SIM SLOTS",
+     351554741523865,
+     52,
+     "BLACK",
+     "IMAX",
+     "GRADE B- / BG",
+     "SOLD",
+     "Amazon",
+     "2026-05-12 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 613,
+    "cells": [
+     null,
+     "Samsung Galaxy A32 5G 64GB - 2 SIM SLOTS",
+     353427860481710,
+     52,
+     "BLACK",
+     "IMAX",
+     "GRADE B- / BG",
+     null,
+     null,
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 614,
+    "cells": [
+     null,
+     "Samsung Galaxy A32 5G 64GB - 2 SIM SLOTS",
+     351554747738681,
+     52,
+     "BLACK",
+     "IMAX",
+     "GRADE B- / BG",
+     "SOLD",
+     "Amazon",
+     "2026-05-09 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 615,
+    "cells": [
+     null,
+     "Samsung Galaxy A32 5G 64GB - 2 SIM SLOTS",
+     351554740237707,
+     52,
+     "BLACK",
+     "IMAX",
+     "GRADE B- / BG",
+     "SOLD",
+     "Amazon",
+     "2026-05-08 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 616,
+    "cells": [
+     null,
+     "Samsung Galaxy A32 5G 64GB - 2 SIM SLOTS",
+     351554741521828,
+     52,
+     "BLACK",
+     "IMAX",
+     "GRADE B- / BG",
+     "SOLD",
+     "Amazon",
+     "2026-05-10 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 617,
+    "cells": [
+     null,
+     "Samsung Galaxy A32 5G 64GB - 2 SIM SLOTS",
+     353427860395183,
+     52,
+     "BLACK",
+     "IMAX",
+     "GRADE B- / BG",
+     "SOLD",
+     "Amazon",
+     "2026-05-12 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 618,
+    "cells": [
+     null,
+     "Samsung Galaxy A32 5G 64GB - 2 SIM SLOTS",
+     353427860402989,
+     52,
+     "BLACK",
+     "IMAX",
+     "GRADE B- / BG",
+     null,
+     null,
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 619,
+    "cells": [
+     null,
+     "Samsung Galaxy A32 5G 64GB - 2 SIM SLOTS",
+     353427860826252,
+     52,
+     "BLACK",
+     "NANAK",
+     "BG",
+     "SOLD",
+     "Amazon",
+     "2026-05-05 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 620,
+    "cells": [
+     null,
+     "Samsung Galaxy A32 5G 64GB - 2 SIM SLOTS",
+     353427861203014,
+     52,
+     "BLACK",
+     "NANAK",
+     "BG",
+     null,
+     null,
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 621,
+    "cells": [
+     null,
+     "Samsung Galaxy A32 5G 64GB - 2 SIM SLOTS",
+     353427861203931,
+     52,
+     "BLACK",
+     "NANAK",
+     "BG",
+     null,
+     null,
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 622,
+    "cells": [
+     null,
+     "Samsung Galaxy A32 5G 64GB - 2 SIM SLOTS",
+     351554745149014,
+     52,
+     "BLACK",
+     "NANAK",
+     "BG",
+     null,
+     null,
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 623,
+    "cells": [
+     null,
+     "Samsung Galaxy A32 5G 64GB - 2 SIM SLOTS",
+     351554748566701,
+     52,
+     "BLACK",
+     "NANAK",
+     "BG",
+     null,
+     null,
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 624,
+    "cells": [
+     null,
+     "Samsung Galaxy A32 5G 64GB - 2 SIM SLOTS",
+     351554747095447,
+     52,
+     "BLACK",
+     "NANAK",
+     "BG",
+     "SOLD",
+     "Amazon",
+     "2026-05-08 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 625,
+    "cells": [
+     null,
+     "Samsung Galaxy A32 5G 64GB - 2 SIM SLOTS",
+     351554745150418,
+     52,
+     "BLACK",
+     "NANAK",
+     "BG",
+     null,
+     null,
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 626,
+    "cells": [
+     null,
+     "Samsung Galaxy A32 5G 64GB - 2 SIM SLOTS",
+     353427861194601,
+     52,
+     "BLACK",
+     "NANAK",
+     "BG",
+     null,
+     null,
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 627,
+    "cells": [
+     null,
+     "Samsung Galaxy A32 5G 64GB - 2 SIM SLOTS",
+     353427862065230,
+     52,
+     "BLACK",
+     "NANAK",
+     "BG",
+     null,
+     null,
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 628,
+    "cells": [
+     null,
+     "Samsung Galaxy A32 5G 64GB - 2 SIM SLOTS",
+     351554748525871,
+     52,
+     "BLACK",
+     "NANAK",
+     "BG",
+     "SOLD",
+     "Amazon",
+     "2026-05-05 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 629,
+    "cells": [
+     null,
+     "Samsung Galaxy A32 5G 64GB - 2 SIM SLOTS",
+     351554747088186,
+     55,
+     "BLACK",
+     "RR STOCK",
+     "GRADE B",
+     null,
+     null,
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 630,
+    "cells": [
+     "2026-05-07 00:00:00",
+     "Samsung Galaxy A32 5G 64GB - 2 SIM SLOTS",
+     351554748551513,
+     55,
+     "BLACK",
+     "FBA STOCK",
+     null,
+     "SOLD",
+     "Back Market",
+     "2026-05-09 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 631,
+    "cells": [
+     "2026-05-11 00:00:00",
+     "Samsung Galaxy A32 5G 64GB - 2 SIM SLOTS",
+     351554747216407,
+     55,
+     "BLACK",
+     "RR STOCK",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-11 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 632,
+    "cells": [
+     "2026-05-14 00:00:00",
+     "Samsung Galaxy A32 5G 64GB - 2 SIM SLOTS",
+     351554748620292,
+     55,
+     "BLACK",
+     "NANAK",
+     null,
+     null,
+     null,
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 633,
+    "cells": [
+     "2026-05-14 00:00:00",
+     "Samsung Galaxy A32 5G 64GB - 2 SIM SLOTS",
+     351554748636413,
+     55,
+     "BLACK",
+     "NANAK",
+     null,
+     null,
+     null,
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 634,
+    "cells": [
+     "2026-05-14 00:00:00",
+     "Samsung Galaxy A32 5G 64GB - 2 SIM SLOTS",
+     351554748385136,
+     55,
+     "BLACK",
+     "NANAK",
+     null,
+     null,
+     null,
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 635,
+    "cells": [
+     null,
+     "SAMSUNG A51 128GB",
+     350220433869237,
+     62,
+     "WHITE",
+     "IMAX",
+     null,
+     "SOLD",
+     "Back Market",
+     "2026-05-14 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 636,
+    "cells": [
+     null,
+     "SAMSUNG A52S 128GB",
+     356715373319394,
+     75,
+     "BLACK",
+     "NANAK",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-11 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 637,
+    "cells": [
+     null,
+     "SAMSUNG A52 128GB ",
+     353106521051514,
+     75,
+     "BLACK",
+     "MHL",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-11 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 638,
+    "cells": [
+     "2026-05-07 00:00:00",
+     "SAMSUNG A52 128GB ",
+     351364037730210,
+     75,
+     "WHITE",
+     "RR STOCK",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-09 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 639,
+    "cells": [
+     null,
+     "SAMSUNG A52 256GB ",
+     354550805611510,
+     75,
+     "BLACK",
+     "MHL",
+     null,
+     "SOLD",
+     "eBay",
+     "2026-05-05 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 640,
+    "cells": [
+     "2026-05-07 00:00:00",
+     "SAMSUNG A56 256GB ",
+     354390907835943,
+     null,
+     "GRAPHITE",
+     "MHL",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-08 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 641,
+    "cells": [
+     null,
+     "SAMSUNG X COVER 4 8GB ",
+     359108093264123,
+     30,
+     "BLACK",
+     "RR STOCK",
+     null,
+     null,
+     null,
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 642,
+    "cells": [
+     null,
+     "SAMSUNG X COVER 4S 8GB",
+     356789105401986,
+     30,
+     "BLACK",
+     "RR STOCK",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-06 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 643,
+    "cells": [
+     null,
+     "SAMSUNG X COVER PRO 64GB ",
+     352032113817685,
+     50,
+     "BLACK",
+     "MHL",
+     null,
+     null,
+     null,
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 644,
+    "cells": [
+     null,
+     "SAMSUNG X COVER PRO 64GB ",
+     352032114356642,
+     50,
+     "BLACK",
+     "MHL",
+     null,
+     null,
+     null,
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 645,
+    "cells": [
+     null,
+     "SAMSUNG X COVER PRO 64GB ",
+     352032114322032,
+     50,
+     "BLACK",
+     "MHL",
+     null,
+     null,
+     null,
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 646,
+    "cells": [
+     null,
+     "SAMSUNG X COVER 5 64GB",
+     351921584206702,
+     40,
+     "BLACK",
+     "IMAX",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-05 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 647,
+    "cells": [
+     null,
+     "SAMSUNG X COVER 5 64GB",
+     351921581909480,
+     40,
+     "BLACK",
+     "IMAX",
+     null,
+     "SOLD",
+     "Amazon",
+     "2026-05-05 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 648,
+    "cells": [
+     null,
+     null,
+     null,
+     null,
+     null,
+     null,
+     null,
+     null,
+     null,
+     null
+    ],
+    "classification": "blank"
+   },
+   {
+    "row": 649,
+    "cells": [
+     "2026-05-11 00:00:00",
+     "Samsung Galaxy A32 5G 64GB - 2 SIM SLOTS",
+     353427862099684,
+     55,
+     "BLACK",
+     "NANAK",
+     "GRADE B",
+     "SOLD",
+     "Amazon",
+     "2026-05-14 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 650,
+    "cells": [
+     null,
+     "Samsung Galaxy A32 5G 64GB - 2 SIM SLOTS",
+     351554747289628,
+     55,
+     "BLACK",
+     "NANAK",
+     "GRADE B",
+     null,
+     null,
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 651,
+    "cells": [
+     null,
+     "Samsung Galaxy A32 5G 64GB - 2 SIM SLOTS",
+     351554748483428,
+     55,
+     "BLACK",
+     "NANAK",
+     "GRADE B",
+     null,
+     null,
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 652,
+    "cells": [
+     null,
+     "Samsung Galaxy A32 5G 64GB - 2 SIM SLOTS",
+     353427863510861,
+     55,
+     "BLACK",
+     "NANAK",
+     "GRADE B",
+     "SOLD",
+     "Amazon",
+     "2026-05-14 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 653,
+    "cells": [
+     null,
+     "Samsung Galaxy A32 5G 64GB - 2 SIM SLOTS",
+     353427863652705,
+     55,
+     "BLACK",
+     "NANAK",
+     "GRADE B",
+     null,
+     null,
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 654,
+    "cells": [
+     null,
+     "Samsung Galaxy A32 5G 64GB - 2 SIM SLOTS",
+     355808982526219,
+     55,
+     "BLACK",
+     "NANAK",
+     "GRADE B",
+     null,
+     null,
+     null
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 655,
+    "cells": [
+     null,
+     "Samsung Galaxy A32 5G 64GB - 2 SIM SLOTS",
+     355808983356434,
+     55,
+     "BLACK",
+     "NANAK",
+     "GRADE B",
+     "SOLD",
+     "Amazon",
+     "2026-05-14 00:00:00"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 656,
+    "cells": [
+     null,
+     "Samsung Galaxy A32 5G 64GB - 2 SIM SLOTS",
+     353427868958581,
+     55,
+     "BLACK",
+     "NANAK",
+     "GRADE B",
+     null,
+     null,
+     null
+    ],
+    "classification": "none"
+   }
+  ]
+ },
+ "SUPPLIER WHATSAPP UPDATES": {
+  "headers": [
+   "MOBILE KIT SUPPLIER"
+  ],
+  "rows": [
+   {
+    "row": 2,
+    "cells": [
+     "Apple MacBook  Model Stock  Available"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 3,
+    "cells": [
+     "Apple MacBook Pro 9,1 13.3\u201d / 2.5 i5 / 4GB / 500GB  \u00a385"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 4,
+    "cells": [
+     "Apple MacBook Air 6,2 (A1466 Mid 2014) Core i5 1.4GHz / 4GB / 128GB SSD / 13\u201d"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 5,
+    "cells": [
+     "Apple MacBook Air 6,2 MBAIR 13.3/1.4/4/128FLASH  \u00a385"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 6,
+    "cells": [
+     "Apple MacBook Air 7,1 (A1465 Early 2015) Core i5 1.6GHz / 4GB / 128GB SSD / 11\u201d"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 7,
+    "cells": [
+     "Apple MacBook Air 7,1 (A1465 Early 2015) Core i5 1.6GHz / 4GB / 256GB SSD / 11\u201d"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 8,
+    "cells": [
+     "Apple MacBook Air 7,2 (A1466 Early 2015) Core i5 1.6GHz / 4GB / 128GB SSD / 13\u201d"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 9,
+    "cells": [
+     "Apple MacBook Air 7,2 (A1466 Early 2015) Core i5 1.6GHz / 8GB / 128GB SSD / 13\u201d"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 10,
+    "cells": [
+     "Apple MacBook Pro 10,2 (A1425 Retina Early 2013) Core i5 2.6GHz / 8GB / 256GB SSD / 13\u201d"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 11,
+    "cells": [
+     "Apple MacBook Pro 11,1 (A1502 Retina Mid 2014) Core i5 2.6GHz / 8GB / 256GB SSD / 13\u201d"
+    ],
+    "classification": "none"
+   },
+   {
+    "row": 12,
+    "cells": [
+     "Apple MacBook Pro 11,3 (A1398 Retina Mid 2014) Core i7 2.5GHz / 16GB / 512GB SSD / 15\u201d"
+    ],
+    "classification": "none"
+   }
+  ]
+ }
+}
