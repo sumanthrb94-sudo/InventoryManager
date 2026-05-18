@@ -23,7 +23,7 @@
  * sheets and writes src/data/walkthroughWorkbook.json. RED-row
  * commentary lives in src/data/walkthroughIssues.ts (hand-editable).
  */
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import {
   AlertCircle, CheckCircle2, Clock, Edit3, Download, FileText,
@@ -277,6 +277,49 @@ export default function ClientWalkthrough() {
       return next;
     });
   };
+
+  /** Once-only auto-resolver: for any red row where the ONLY
+   *  disagreement with the IMEI register is the supplier name, apply
+   *  the IMEI supplier and flip the row green automatically. Per the
+   *  client directive — these rows have all their stock confirmed
+   *  (name + qty + colours match), only the supplier label was stale,
+   *  so a name change is enough to clear them.
+   *
+   *  Runs once on mount only; the operator can still hit Mark red to
+   *  undo any row the auto-resolver touched. */
+  const [autoResolved, setAutoResolved] = useState<number[]>([]);
+  useEffect(() => {
+    const flips: number[] = [];
+    const supplierEdits: Record<string, string> = {};
+    const overrideEdits: Record<number, Classification> = {};
+    for (const r of SHEETS.INVENTORY.rows) {
+      if (r.classification !== 'red') continue;
+      const model    = asStr(r.cells[0]).trim();
+      const qty      = asStr(r.cells[2]).trim();
+      const colours  = asStr(r.cells[5]).trim();
+      const supplier = asStr(r.cells[6]).trim();
+      const d = imeiByModel.get(normalizeModel(model));
+      if (!d || d.suppliers.length === 0) continue;
+      const imeiSup = d.suppliers.join(' / ');
+      const imeiCol = formatColourMap(d.colourCount);
+      const imeiQty = String(d.qty);
+      const nameOk    = d.modelLabel.trim() === model;
+      const qtyOk     = imeiQty === qty;
+      const colourOk  = imeiCol === colours;
+      const supplierMismatch = imeiSup !== supplier;
+      if (nameOk && qtyOk && colourOk && supplierMismatch) {
+        supplierEdits[`INVENTORY|${r.row}|6`] = imeiSup;
+        overrideEdits[r.row] = 'green';
+        flips.push(r.row);
+      }
+    }
+    if (flips.length > 0) {
+      setEdits(prev => ({ ...prev, ...supplierEdits }));
+      setClassOverrides(prev => ({ ...prev, ...overrideEdits }));
+      setAutoResolved(flips);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   /** Pre-count the IMEI units we'll create so the toolbar button can
    *  show an honest preview ("Load to DB · 8 rows / 84 units"). Same
@@ -637,6 +680,23 @@ export default function ClientWalkthrough() {
             </button>
           </div>
         </div>
+
+        {/* Auto-resolved banner — surfaces what the mount-time
+            supplier-only resolver fixed, so the operator can see at
+            a glance which rows joined the green set without effort. */}
+        {autoResolved.length > 0 && (
+          <div className="mt-3 px-3 py-2 bg-emerald-50 border border-emerald-200 rounded-lg flex items-start gap-2">
+            <CheckCheck size={14} className="text-emerald-600 flex-shrink-0 mt-0.5" />
+            <div className="flex-1 text-[11px]">
+              <p className="font-bold text-emerald-900">
+                {autoResolved.length} row{autoResolved.length === 1 ? '' : 's'} auto-resolved (supplier-name-only mismatch)
+              </p>
+              <p className="text-emerald-700 mt-0.5 font-mono">
+                Rows {autoResolved.sort((a, b) => a - b).join(', ')} — supplier rewritten to match the IMEI register, flipped green. Mark red on any row to undo.
+              </p>
+            </div>
+          </div>
+        )}
 
         {/* Sheet tabs */}
         <div className="mt-4 flex gap-1 border-b border-slate-200">
