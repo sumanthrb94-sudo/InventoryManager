@@ -74,11 +74,12 @@ export const WALKTHROUGH_ISSUES: Record<number, RowIssue> = {
     ],
   },
   17: {
-    headline: 'Samsung S20 FE 5G — naming drift (long form vs short)',
+    headline: 'Samsung S20 FE 5G 128GB — resolved: naming + supplier reconciled',
     bullets: [
-      'IMEI sheet had 11 units filed as "SAMSUNG S20FE 128GB" — different from INV\'s long form.',
-      'Fixed in v2 rename pass — these now match.',
-      'Counts align at 11.',
+      'Both sheets now read "Samsung Galaxy S20 FE 5G 128GB" (trailing space stripped).',
+      'Supplier corrected MHL → NIHAL — all 11 available IMEIs are from NIHAL; the MHL label on the rollup was stale.',
+      'Colour breakdown re-keyed to match IMEI labels: BLUE 3, MINT 5, VIOLET 2, RED 1 (was LAVENDER, same physical Samsung "Cloud Lavender").',
+      'Row reclassified green — counts align at 11.',
     ],
   },
   18: {

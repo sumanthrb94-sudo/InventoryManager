@@ -224,16 +224,16 @@
    {
     "row": 17,
     "cells": [
-     "Samsung Galaxy S20 FE 5G 128GB ",
+     "Samsung Galaxy S20 FE 5G 128GB",
      105,
      11,
      "SALES FOCUS",
      "=B17*C17",
-     "BLUE 3 LAVENDER 2 MINT 5 RED 1",
-     "MHL",
+     "BLUE 3 MINT 5 VIOLET 2 RED 1",
+     "NIHAL",
      "SALES FOCUS"
     ],
-    "classification": "red"
+    "classification": "green"
    },
    {
     "row": 18,
