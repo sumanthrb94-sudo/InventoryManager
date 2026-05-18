@@ -24,11 +24,11 @@
  * commentary lives in src/data/walkthroughIssues.ts (hand-editable).
  */
 import React, { useState, useMemo } from 'react';
+import { createPortal } from 'react-dom';
 import {
   AlertCircle, CheckCircle2, Clock, Edit3, Download, FileText,
   Sparkles, Upload, Loader2, X, CheckCheck,
 } from 'lucide-react';
-import { motion, AnimatePresence } from 'motion/react';
 import ExcelJS from 'exceljs';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
@@ -671,7 +671,13 @@ function EditableCell({
   );
 }
 
-/** Confirm / progress / done modal for the Load-to-DB action. */
+/** Confirm / progress / done modal for the Load-to-DB action.
+ *
+ *  Rendered into document.body via a portal — the walkthrough table
+ *  sits inside scrolling/transformed ancestors, and `fixed` positioning
+ *  inside a transformed parent anchors to the parent, not the viewport.
+ *  Portal + no animation = the overlay appears instantly the moment
+ *  the user clicks "Load to DB". */
 function LoadToDbModal({
   state, onConfirm, onClose,
 }: {
@@ -685,75 +691,70 @@ function LoadToDbModal({
   onClose: () => void;
 }) {
   if (state.kind === 'idle') return null;
-  return (
-    <AnimatePresence>
-      <motion.div
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        exit={{ opacity: 0 }}
-        className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4"
-        onClick={state.kind === 'confirm' || state.kind === 'done' || state.kind === 'error' ? onClose : undefined}
+  const canClose = state.kind === 'confirm' || state.kind === 'done' || state.kind === 'error';
+  const body = (
+    <div
+      className="fixed inset-0 z-[200] bg-black/50 flex items-center justify-center p-4"
+      style={{ pointerEvents: 'auto' }}
+      onClick={canClose ? onClose : undefined}
+    >
+      <div
+        className="bg-white rounded-2xl shadow-2xl max-w-md w-full p-6"
+        onClick={e => e.stopPropagation()}
       >
-        <motion.div
-          initial={{ scale: 0.95, opacity: 0 }}
-          animate={{ scale: 1, opacity: 1 }}
-          exit={{ scale: 0.95, opacity: 0 }}
-          className="bg-white rounded-2xl shadow-2xl max-w-md w-full p-6"
-          onClick={e => e.stopPropagation()}
-        >
-          {state.kind === 'confirm' && (
-            <>
-              <div className="flex items-start justify-between gap-3 mb-3">
-                <div>
-                  <h3 className="text-base font-bold flex items-center gap-2">
-                    <Upload size={16} className="text-emerald-600" /> Load to inventory DB
-                  </h3>
-                  <p className="text-[11px] text-slate-500 mt-1 font-mono">
-                    Pushes {state.rows.length} corrected aggregate rows into Firestore.
-                  </p>
-                </div>
-                <button onClick={onClose} className="text-slate-400 hover:text-slate-700"><X size={16} /></button>
+        {state.kind === 'confirm' && (
+          <>
+            <div className="flex items-start justify-between gap-3 mb-3">
+              <div>
+                <h3 className="text-base font-bold flex items-center gap-2">
+                  <Upload size={16} className="text-emerald-600" /> Load to inventory DB
+                </h3>
+                <p className="text-[11px] text-slate-500 mt-1 font-mono">
+                  Pushes {state.rows.length} corrected aggregate rows into Firestore.
+                </p>
               </div>
-              <div className="bg-slate-50 border border-slate-200 rounded-lg p-3 mb-4 text-[11px] text-slate-600 space-y-1">
-                <p>• Creates one <code>inventoryAggregates</code> doc per visible row.</p>
-                <p>• Supplier names get matched to existing suppliers, or new docs created.</p>
-                <p>• Tagged with a fresh <code>importBatches</code> entry so this run is reversible.</p>
-                <p>• Per-cell edits in the walkthrough are included.</p>
-              </div>
-              <div className="flex gap-2 justify-end">
-                <button onClick={onClose} className="px-3 py-2 text-[10px] font-bold uppercase tracking-widest text-slate-600 hover:text-slate-900">Cancel</button>
-                <button onClick={onConfirm} className="px-3 py-2 bg-emerald-600 text-white rounded-xl text-[10px] font-bold uppercase tracking-widest hover:bg-emerald-700">Load {state.rows.length} rows</button>
-              </div>
-            </>
-          )}
-          {state.kind === 'loading' && (
-            <div className="text-center py-4">
-              <Loader2 size={28} className="mx-auto text-emerald-600 animate-spin" />
-              <p className="mt-3 text-[12px] font-bold">Writing {state.done} / {state.total}…</p>
-              <div className="mt-3 w-full bg-slate-100 rounded-full h-1.5">
-                <div className="bg-emerald-500 h-1.5 rounded-full transition-all" style={{ width: `${(state.done / Math.max(state.total, 1)) * 100}%` }} />
-              </div>
+              <button onClick={onClose} className="text-slate-400 hover:text-slate-700"><X size={16} /></button>
             </div>
-          )}
-          {state.kind === 'done' && (
-            <div className="text-center py-4">
-              <CheckCheck size={28} className="mx-auto text-emerald-600" />
-              <p className="mt-3 text-[13px] font-bold">Loaded {state.count} rows to inventory DB.</p>
-              <p className="mt-1 text-[11px] text-slate-500 font-mono">Visible in Admin → Overview and Master Data screens.</p>
-              <button onClick={onClose} className="mt-4 px-4 py-2 bg-slate-900 text-white rounded-xl text-[10px] font-bold uppercase tracking-widest">Close</button>
+            <div className="bg-slate-50 border border-slate-200 rounded-lg p-3 mb-4 text-[11px] text-slate-600 space-y-1">
+              <p>• Creates one <code>inventoryAggregates</code> doc per visible row.</p>
+              <p>• Supplier names get matched to existing suppliers, or new docs created.</p>
+              <p>• Tagged with a fresh <code>importBatches</code> entry so this run is reversible.</p>
+              <p>• Per-cell edits in the walkthrough are included.</p>
             </div>
-          )}
-          {state.kind === 'error' && (
-            <div className="py-2">
-              <h3 className="text-base font-bold text-rose-700 flex items-center gap-2">
-                <AlertCircle size={16} /> Load failed
-              </h3>
-              <p className="mt-2 text-[12px] text-slate-700 font-mono break-words">{state.msg}</p>
-              <button onClick={onClose} className="mt-4 px-4 py-2 bg-slate-900 text-white rounded-xl text-[10px] font-bold uppercase tracking-widest">Close</button>
+            <div className="flex gap-2 justify-end">
+              <button onClick={onClose} className="px-3 py-2 text-[10px] font-bold uppercase tracking-widest text-slate-600 hover:text-slate-900">Cancel</button>
+              <button onClick={onConfirm} className="px-3 py-2 bg-emerald-600 text-white rounded-xl text-[10px] font-bold uppercase tracking-widest hover:bg-emerald-700">Load {state.rows.length} rows</button>
             </div>
-          )}
-        </motion.div>
-      </motion.div>
-    </AnimatePresence>
+          </>
+        )}
+        {state.kind === 'loading' && (
+          <div className="text-center py-4">
+            <Loader2 size={28} className="mx-auto text-emerald-600 animate-spin" />
+            <p className="mt-3 text-[12px] font-bold">Writing {state.done} / {state.total}…</p>
+            <div className="mt-3 w-full bg-slate-100 rounded-full h-1.5">
+              <div className="bg-emerald-500 h-1.5 rounded-full transition-all" style={{ width: `${(state.done / Math.max(state.total, 1)) * 100}%` }} />
+            </div>
+          </div>
+        )}
+        {state.kind === 'done' && (
+          <div className="text-center py-4">
+            <CheckCheck size={28} className="mx-auto text-emerald-600" />
+            <p className="mt-3 text-[13px] font-bold">Loaded {state.count} rows to inventory DB.</p>
+            <p className="mt-1 text-[11px] text-slate-500 font-mono">Visible in Admin → Overview and Master Data screens.</p>
+            <button onClick={onClose} className="mt-4 px-4 py-2 bg-slate-900 text-white rounded-xl text-[10px] font-bold uppercase tracking-widest">Close</button>
+          </div>
+        )}
+        {state.kind === 'error' && (
+          <div className="py-2">
+            <h3 className="text-base font-bold text-rose-700 flex items-center gap-2">
+              <AlertCircle size={16} /> Load failed
+            </h3>
+            <p className="mt-2 text-[12px] text-slate-700 font-mono break-words">{state.msg}</p>
+            <button onClick={onClose} className="mt-4 px-4 py-2 bg-slate-900 text-white rounded-xl text-[10px] font-bold uppercase tracking-widest">Close</button>
+          </div>
+        )}
+      </div>
+    </div>
   );
+  return createPortal(body, document.body);
 }
