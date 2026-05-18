@@ -22,7 +22,7 @@ import {
 } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
 import { dbService } from '../lib/dbService';
-import { InventoryUnit, InventoryAggregate } from '../types';
+import { InventoryUnit, InventoryAggregate, Supplier } from '../types';
 import { useInventoryStore } from '../lib/inventoryStore';
 import { isValidImei, isAppleDevice } from '../lib/imeiValidation';
 import { shsAggregatesFrom } from '../lib/shsCount';
@@ -254,8 +254,15 @@ export default function BuySheet(_props: Props) {
   };
 
   // ── Inline cell save ──────────────────────────────────────────────────────
+  // Patches the unit doc directly. For 'supplierId' it pair-updates
+  // supplierName from the matching supplier doc so downstream reads
+  // (Excel report, Sales view) don't show a stale name.
   const saveCell = async (u: InventoryUnit, field: string, value: any) => {
     const patch: Record<string, any> = { [field]: value };
+    if (field === 'supplierId') {
+      const sup = suppliers.find(s => s.id === value);
+      patch.supplierName = sup?.name || '';
+    }
     try { await dbService.update('inventoryUnits', u.id, patch); } catch (err) { console.error(err); }
   };
 
@@ -468,6 +475,7 @@ export default function BuySheet(_props: Props) {
         sort={sort}
         onSort={setSort}
         supplierMap={supplierMap}
+        suppliers={suppliers}
         region={region}
         onSaveCell={saveCell}
       />
@@ -481,6 +489,7 @@ export default function BuySheet(_props: Props) {
             sort={sort}
             onSort={setSort}
             supplierMap={supplierMap}
+            suppliers={suppliers}
             shsAggregates={overlay === 'shs' ? shsAggs : []}
             region={region}
             onClose={() => setOverlay(null)}
@@ -752,12 +761,13 @@ function FilterChipsGroup({
 // chrome — this is the reading + sorting + inline-edit surface that lives on
 // the page so the operator never has to open an overlay just to view rows.
 function InlineSheet({
-  rows, sort, onSort, supplierMap, region, onSaveCell,
+  rows, sort, onSort, supplierMap, suppliers, region, onSaveCell,
 }: {
   rows: InventoryUnit[];
   sort: { key: SortKey; dir: SortDir };
   onSort: (s: { key: SortKey; dir: SortDir }) => void;
   supplierMap: Record<string, string>;
+  suppliers: Supplier[];
   region: 'uk' | 'india' | 'admin' | 'both';
   onSaveCell: (u: InventoryUnit, field: string, value: any) => Promise<void>;
 }) {
@@ -802,11 +812,28 @@ function InlineSheet({
               return (
                 <tr key={u.id} className={`${rowBg} transition-colors group`}>
                   <Td sticky leftPx={0} className={`${rowBg} border-r border-slate-200`}>
-                    <span className="text-slate-700">{fmtDateForUser(u.dateIn || '', region) || u.dateIn || '—'}</span>
+                    <InlineEditableCell
+                      editing={editingCell?.id === u.id && editingCell?.field === 'dateIn'}
+                      onActivate={() => setEditingCell({ id: u.id, field: 'dateIn' })}
+                      onCommit={async v => { await onSaveCell(u, 'dateIn', v); setEditingCell(null); }}
+                      onCancel={() => setEditingCell(null)}
+                      initialValue={u.dateIn || ''}
+                      type="date"
+                      display={<span className="text-slate-700">{fmtDateForUser(u.dateIn || '', region) || u.dateIn || '—'}</span>}
+                    />
                   </Td>
                   <Td>
-                    <div className="flex items-center gap-2">
-                      <span className="font-bold text-slate-900 truncate max-w-[220px]" title={u.model}>{u.model || '—'}</span>
+                    <div className="flex items-center gap-2 min-w-0">
+                      <div className="flex-1 min-w-0">
+                        <InlineEditableCell
+                          editing={editingCell?.id === u.id && editingCell?.field === 'model'}
+                          onActivate={() => setEditingCell({ id: u.id, field: 'model' })}
+                          onCommit={async v => { await onSaveCell(u, 'model', v); setEditingCell(null); }}
+                          onCancel={() => setEditingCell(null)}
+                          initialValue={u.model || ''}
+                          display={<span className="font-bold text-slate-900 truncate max-w-[220px] inline-block" title={u.model}>{u.model || '—'}</span>}
+                        />
+                      </div>
                       <span className={`inline-flex items-center gap-1 text-[8px] font-bold uppercase tracking-widest px-1.5 py-0.5 rounded border ${tone.bg} ${tone.text} flex-shrink-0`}>
                         <span className={`w-1.5 h-1.5 rounded-full ${tone.dot}`} />
                         {u.status}
@@ -814,15 +841,20 @@ function InlineSheet({
                     </div>
                   </Td>
                   <Td>
-                    {imeiValid ? (
-                      <CopyImei imei={u.imei} truncate={18} />
-                    ) : u.status === 'incoming' ? (
-                      <span className="text-[10px] font-mono text-slate-400 italic">Optional for SHS</span>
-                    ) : (
-                      <span className="inline-flex items-center gap-1 text-rose-600 text-[10px] font-mono">
-                        <AlertCircle size={10} /> {u.imei ? 'invalid' : 'missing'}
-                      </span>
-                    )}
+                    <InlineEditableCell
+                      editing={editingCell?.id === u.id && editingCell?.field === 'imei'}
+                      onActivate={() => setEditingCell({ id: u.id, field: 'imei' })}
+                      onCommit={async v => { await onSaveCell(u, 'imei', v.trim()); setEditingCell(null); }}
+                      onCancel={() => setEditingCell(null)}
+                      initialValue={u.imei || ''}
+                      display={
+                        imeiValid ? <CopyImei imei={u.imei} truncate={18} /> :
+                        u.status === 'incoming' ? <span className="text-[10px] font-mono text-slate-400 italic">Optional for SHS</span> :
+                        <span className="inline-flex items-center gap-1 text-rose-600 text-[10px] font-mono">
+                          <AlertCircle size={10} /> {u.imei ? 'invalid' : 'missing'}
+                        </span>
+                      }
+                    />
                   </Td>
                   <Td>
                     <InlineEditableSelect
@@ -848,8 +880,28 @@ function InlineSheet({
                       display={<span className="text-slate-600">{u.storage || <span className="text-slate-300">—</span>}</span>}
                     />
                   </Td>
-                  <Td><span className="text-slate-600 truncate">{u.colour || '—'}</span></Td>
-                  <Td><span className="text-slate-700 truncate" title={supplierName}>{supplierName}</span></Td>
+                  <Td>
+                    <InlineEditableCell
+                      editing={editingCell?.id === u.id && editingCell?.field === 'colour'}
+                      onActivate={() => setEditingCell({ id: u.id, field: 'colour' })}
+                      onCommit={async v => { await onSaveCell(u, 'colour', v); setEditingCell(null); }}
+                      onCancel={() => setEditingCell(null)}
+                      initialValue={u.colour || ''}
+                      display={<span className="text-slate-600 truncate">{u.colour || '—'}</span>}
+                    />
+                  </Td>
+                  <Td>
+                    <InlineEditableSelect
+                      editing={editingCell?.id === u.id && editingCell?.field === 'supplierId'}
+                      onActivate={() => setEditingCell({ id: u.id, field: 'supplierId' })}
+                      onCommit={async v => { await onSaveCell(u, 'supplierId', v); setEditingCell(null); }}
+                      onCancel={() => setEditingCell(null)}
+                      value={u.supplierId || ''}
+                      options={['', ...suppliers.map(s => s.id)]}
+                      formatLabel={v => v ? (suppliers.find(s => s.id === v)?.name || v) : '—'}
+                      display={<span className="text-slate-700 truncate" title={supplierName}>{supplierName}</span>}
+                    />
+                  </Td>
                   <Td align="right">
                     <InlineEditableCell
                       editing={editingCell?.id === u.id && editingCell?.field === 'buyPrice'}
@@ -887,13 +939,14 @@ function InlineSheet({
 
 // ── Excel overlay modal ─────────────────────────────────────────────────────
 function BuyExcelOverlay({
-  title, rows, sort, onSort, supplierMap, shsAggregates, region, onClose, onSaveCell,
+  title, rows, sort, onSort, supplierMap, suppliers, shsAggregates, region, onClose, onSaveCell,
 }: {
   title: string;
   rows: InventoryUnit[];
   sort: { key: SortKey; dir: SortDir };
   onSort: (s: { key: SortKey; dir: SortDir }) => void;
   supplierMap: Record<string, string>;
+  suppliers: Supplier[];
   shsAggregates: InventoryAggregate[];
   region: 'uk' | 'india' | 'admin' | 'both';
   onClose: () => void;
@@ -998,11 +1051,28 @@ function BuyExcelOverlay({
                   return (
                     <tr key={u.id} className={`${rowBg} transition-colors group`}>
                       <Td sticky leftPx={0} className={`${rowBg} border-r border-slate-200`}>
-                        <span className="text-slate-700">{fmtDateForUser(u.dateIn || '', region) || u.dateIn || '—'}</span>
+                        <InlineEditableCell
+                          editing={editingCell?.id === u.id && editingCell?.field === 'dateIn'}
+                          onActivate={() => setEditingCell({ id: u.id, field: 'dateIn' })}
+                          onCommit={async v => { await onSaveCell(u, 'dateIn', v); setEditingCell(null); }}
+                          onCancel={() => setEditingCell(null)}
+                          initialValue={u.dateIn || ''}
+                          type="date"
+                          display={<span className="text-slate-700">{fmtDateForUser(u.dateIn || '', region) || u.dateIn || '—'}</span>}
+                        />
                       </Td>
                       <Td>
-                        <div className="flex items-center gap-2">
-                          <span className="font-bold text-slate-900 truncate max-w-[220px]" title={u.model}>{u.model || '—'}</span>
+                        <div className="flex items-center gap-2 min-w-0">
+                          <div className="flex-1 min-w-0">
+                            <InlineEditableCell
+                              editing={editingCell?.id === u.id && editingCell?.field === 'model'}
+                              onActivate={() => setEditingCell({ id: u.id, field: 'model' })}
+                              onCommit={async v => { await onSaveCell(u, 'model', v); setEditingCell(null); }}
+                              onCancel={() => setEditingCell(null)}
+                              initialValue={u.model || ''}
+                              display={<span className="font-bold text-slate-900 truncate max-w-[220px] inline-block" title={u.model}>{u.model || '—'}</span>}
+                            />
+                          </div>
                           <span className={`inline-flex items-center gap-1 text-[8px] font-bold uppercase tracking-widest px-1.5 py-0.5 rounded border ${tone.bg} ${tone.text} flex-shrink-0`}>
                             <span className={`w-1.5 h-1.5 rounded-full ${tone.dot}`} />
                             {u.status}
@@ -1010,15 +1080,20 @@ function BuyExcelOverlay({
                         </div>
                       </Td>
                       <Td>
-                        {imeiValid ? (
-                          <CopyImei imei={u.imei} truncate={18} />
-                        ) : u.status === 'incoming' ? (
-                          <span className="text-[10px] font-mono text-slate-400 italic">Optional for SHS</span>
-                        ) : (
-                          <span className="inline-flex items-center gap-1 text-rose-600 text-[10px] font-mono">
-                            <AlertCircle size={10} /> {u.imei ? 'invalid' : 'missing'}
-                          </span>
-                        )}
+                        <InlineEditableCell
+                          editing={editingCell?.id === u.id && editingCell?.field === 'imei'}
+                          onActivate={() => setEditingCell({ id: u.id, field: 'imei' })}
+                          onCommit={async v => { await onSaveCell(u, 'imei', v.trim()); setEditingCell(null); }}
+                          onCancel={() => setEditingCell(null)}
+                          initialValue={u.imei || ''}
+                          display={
+                            imeiValid ? <CopyImei imei={u.imei} truncate={18} /> :
+                            u.status === 'incoming' ? <span className="text-[10px] font-mono text-slate-400 italic">Optional for SHS</span> :
+                            <span className="inline-flex items-center gap-1 text-rose-600 text-[10px] font-mono">
+                              <AlertCircle size={10} /> {u.imei ? 'invalid' : 'missing'}
+                            </span>
+                          }
+                        />
                       </Td>
                       <Td>
                         <InlineEditableSelect
@@ -1044,8 +1119,28 @@ function BuyExcelOverlay({
                           display={<span className="text-slate-600">{u.storage || <span className="text-slate-300">—</span>}</span>}
                         />
                       </Td>
-                      <Td><span className="text-slate-600 truncate">{u.colour || '—'}</span></Td>
-                      <Td><span className="text-slate-700 truncate" title={supplierName}>{supplierName}</span></Td>
+                      <Td>
+                        <InlineEditableCell
+                          editing={editingCell?.id === u.id && editingCell?.field === 'colour'}
+                          onActivate={() => setEditingCell({ id: u.id, field: 'colour' })}
+                          onCommit={async v => { await onSaveCell(u, 'colour', v); setEditingCell(null); }}
+                          onCancel={() => setEditingCell(null)}
+                          initialValue={u.colour || ''}
+                          display={<span className="text-slate-600 truncate">{u.colour || '—'}</span>}
+                        />
+                      </Td>
+                      <Td>
+                        <InlineEditableSelect
+                          editing={editingCell?.id === u.id && editingCell?.field === 'supplierId'}
+                          onActivate={() => setEditingCell({ id: u.id, field: 'supplierId' })}
+                          onCommit={async v => { await onSaveCell(u, 'supplierId', v); setEditingCell(null); }}
+                          onCancel={() => setEditingCell(null)}
+                          value={u.supplierId || ''}
+                          options={['', ...suppliers.map(s => s.id)]}
+                          formatLabel={v => v ? (suppliers.find(s => s.id === v)?.name || v) : '—'}
+                          display={<span className="text-slate-700 truncate" title={supplierName}>{supplierName}</span>}
+                        />
+                      </Td>
                       <Td align="right">
                         <InlineEditableCell
                           editing={editingCell?.id === u.id && editingCell?.field === 'buyPrice'}
@@ -1205,7 +1300,7 @@ function InlineEditableCell({
   initialValue: string;
   display: React.ReactNode;
   align?: 'left' | 'right';
-  type?: 'text' | 'number';
+  type?: 'text' | 'number' | 'date';
 }) {
   const [val, setVal] = useState(initialValue);
   const inputRef = useRef<HTMLInputElement>(null);
