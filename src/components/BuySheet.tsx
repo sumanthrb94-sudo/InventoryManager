@@ -18,7 +18,7 @@ import React, { useState, useMemo, useEffect, useRef } from 'react';
 import {
   Search, Plus, Truck, ChevronDown, ChevronUp, ChevronsUpDown,
   Filter, X, Download, AlertCircle, Trash2, Info, Sparkles, Eye,
-  PackageX, TrendingDown, AlertTriangle,
+  PackageX, TrendingDown, AlertTriangle, ChevronRight, Layers, List,
 } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
 import { dbService } from '../lib/dbService';
@@ -962,6 +962,54 @@ function BuyExcelOverlay({
     return () => document.removeEventListener('keydown', onKey);
   }, [onClose]);
 
+  /** Two display modes for the overlay table:
+   *    grouped  — one row per model with a quantity badge, expandable
+   *               to a colour breakdown. The default mobile-friendly
+   *               view that collapses the long flat list the client
+   *               saw on the whiteboard walkthrough.
+   *    detailed — original per-unit Excel grid, kept for the cases
+   *               where the operator needs to edit IMEIs / buy prices
+   *               row-by-row. */
+  const [viewMode, setViewMode] = useState<'grouped' | 'detailed'>('grouped');
+  const [expandedModels, setExpandedModels] = useState<Set<string>>(new Set());
+  const toggleExpand = (key: string) => setExpandedModels(prev => {
+    const next = new Set(prev);
+    next.has(key) ? next.delete(key) : next.add(key);
+    return next;
+  });
+
+  /** Rows grouped by model — total count + per-colour breakdown.
+   *  Sorted by total descending so the operator's heavy SKUs surface
+   *  first. SHS aggregates are folded in as their own pseudo-rows
+   *  (one per aggregate doc) since they don't have per-unit colour
+   *  records to break down. */
+  const grouped = useMemo(() => {
+    type G = { key: string; model: string; total: number; byColour: Map<string, number>; latestBp: number; };
+    const map = new Map<string, G>();
+    for (const u of rows) {
+      const model = (u.model || '').trim() || '—';
+      const key = `unit::${model.toLowerCase()}`;
+      let g = map.get(key);
+      if (!g) g = { key, model, total: 0, byColour: new Map(), latestBp: u.buyPrice || 0 };
+      g.total++;
+      const c = (u.colour || '').trim() || 'Unspecified';
+      g.byColour.set(c, (g.byColour.get(c) ?? 0) + 1);
+      if (u.buyPrice && u.buyPrice > 0) g.latestBp = u.buyPrice;
+      map.set(key, g);
+    }
+    for (const a of shsAggregates) {
+      const model = (a.model || '').trim() || '—';
+      const key = `shs::${a.id}`;
+      const qty = a.quantityNum ?? 0;
+      const byColour = new Map<string, number>();
+      const colsRaw = (a.coloursRaw || '').trim();
+      if (colsRaw) byColour.set(colsRaw, qty);
+      else byColour.set('Unspecified', qty);
+      map.set(key, { key, model: `${model} · SHS`, total: qty, byColour, latestBp: a.buyPrice || 0 });
+    }
+    return Array.from(map.values()).sort((a, b) => b.total - a.total || a.model.localeCompare(b.model));
+  }, [rows, shsAggregates]);
+
   const totalValue = useMemo(
     () => rows.reduce((s, u) => s + (u.buyPrice || 0), 0)
         + shsAggregates.reduce((s, a) => s + ((a.buyPrice || 0) * (a.quantityNum || 0)), 0),
@@ -984,16 +1032,34 @@ function BuyExcelOverlay({
         style={{ maxHeight: 'calc(100dvh - 24px)' }}
       >
         {/* Header */}
-        <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100 flex-shrink-0">
-          <div>
-            <h3 className="text-sm font-bold tracking-tight">{title}</h3>
+        <div className="flex items-center justify-between gap-3 px-5 py-4 border-b border-slate-100 flex-shrink-0">
+          <div className="min-w-0">
+            <h3 className="text-sm font-bold tracking-tight truncate">{title}</h3>
             <p className="text-[10px] font-mono text-slate-400 mt-0.5">
-              {totalCount.toLocaleString()} {totalCount === 1 ? 'unit' : 'units'} · £{totalValue.toLocaleString('en-GB', { maximumFractionDigits: 0 })}
+              {totalCount.toLocaleString()} {totalCount === 1 ? 'unit' : 'units'} · {grouped.length} {grouped.length === 1 ? 'model' : 'models'} · £{totalValue.toLocaleString('en-GB', { maximumFractionDigits: 0 })}
             </p>
           </div>
-          <button onClick={onClose} className="p-2 rounded-xl hover:bg-slate-100 text-slate-400">
-            <X size={16} />
-          </button>
+          <div className="flex items-center gap-1.5">
+            <div className="inline-flex rounded-xl bg-slate-100 p-0.5 text-[9px] font-bold uppercase tracking-widest">
+              <button
+                onClick={() => setViewMode('grouped')}
+                className={`inline-flex items-center gap-1 px-2 py-1 rounded-lg transition-all ${viewMode === 'grouped' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                title="Group rows by model"
+              >
+                <Layers size={10} /> Grouped
+              </button>
+              <button
+                onClick={() => setViewMode('detailed')}
+                className={`inline-flex items-center gap-1 px-2 py-1 rounded-lg transition-all ${viewMode === 'detailed' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                title="Show one row per unit"
+              >
+                <List size={10} /> Detailed
+              </button>
+            </div>
+            <button onClick={onClose} className="p-2 rounded-xl hover:bg-slate-100 text-slate-400">
+              <X size={16} />
+            </button>
+          </div>
         </div>
 
         {/* Excel-style table */}
@@ -1003,6 +1069,60 @@ function BuyExcelOverlay({
               <Sparkles size={28} />
               <p className="text-[11px] font-mono uppercase tracking-widest">No rows match the active filter</p>
             </div>
+          ) : viewMode === 'grouped' ? (
+            <ul className="divide-y divide-slate-100" style={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace' }}>
+              {grouped.map(g => {
+                const open = expandedModels.has(g.key);
+                const colours = Array.from(g.byColour.entries()).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+                return (
+                  <li key={g.key}>
+                    <button
+                      onClick={() => toggleExpand(g.key)}
+                      className="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-slate-50 transition-colors"
+                    >
+                      <span className={`flex-shrink-0 w-5 h-5 inline-flex items-center justify-center rounded-md text-slate-400 transition-transform ${open ? 'rotate-90 text-slate-700' : ''}`}>
+                        <ChevronRight size={13} />
+                      </span>
+                      <span className="flex-1 min-w-0">
+                        <span className="block font-bold text-slate-900 text-[12px] truncate">{g.model}</span>
+                        <span className="block text-[9px] font-mono text-slate-400 mt-0.5">
+                          {colours.length} {colours.length === 1 ? 'colour' : 'colours'}
+                          {g.latestBp > 0 && <> · £{g.latestBp} latest BP</>}
+                        </span>
+                      </span>
+                      <span className="flex-shrink-0 inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-widest bg-slate-900 text-white px-2 py-1 rounded-lg">
+                        × {g.total}
+                      </span>
+                    </button>
+                    <AnimatePresence initial={false}>
+                      {open && (
+                        <motion.div
+                          initial={{ height: 0, opacity: 0 }}
+                          animate={{ height: 'auto', opacity: 1 }}
+                          exit={{ height: 0, opacity: 0 }}
+                          transition={{ duration: 0.18 }}
+                          className="overflow-hidden bg-slate-50/60"
+                        >
+                          <ul className="pl-10 pr-4 py-2 divide-y divide-slate-200/70">
+                            {colours.map(([colour, qty]) => (
+                              <li key={colour} className="flex items-center justify-between py-1.5">
+                                <span className="flex items-center gap-2 min-w-0">
+                                  <ColourDot colour={colour} />
+                                  <span className="text-[11px] text-slate-700 truncate">{colour}</span>
+                                </span>
+                                <span className="inline-flex items-center text-[10px] font-mono font-bold text-slate-700 bg-white border border-slate-200 px-2 py-0.5 rounded">
+                                  × {qty}
+                                </span>
+                              </li>
+                            ))}
+                          </ul>
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
+                  </li>
+                );
+              })}
+            </ul>
           ) : (
             <table className="w-full text-[11px] border-separate border-spacing-0" style={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace' }}>
               <thead>
@@ -1235,6 +1355,28 @@ function SchemaHelpCard({ onClose }: { onClose: () => void }) {
       </div>
     </div>
   );
+}
+
+/** Small colour swatch for the grouped overlay. Maps the raw colour
+ *  string (BLACK / WHITE / PINK / "Space Grey") to a CSS background.
+ *  Falls back to a neutral grey for anything we don't recognise so the
+ *  layout stays stable even when suppliers spell new colours. */
+function ColourDot({ colour }: { colour: string }) {
+  const c = (colour || '').trim().toLowerCase();
+  const bg =
+    /(^|\s)(black|jet|midnight|graphite|carbon)/.test(c) ? '#1f2937' :
+    /(^|\s)(white|silver|starlight|chalk)/.test(c)        ? '#e5e7eb' :
+    /(^|\s)(gold|yellow|sand)/.test(c)                    ? '#f5d77a' :
+    /(^|\s)(pink|rose|coral)/.test(c)                     ? '#f9a8d4' :
+    /(^|\s)(red|cardinal|product\s*red)/.test(c)          ? '#dc2626' :
+    /(^|\s)(blue|navy|ocean|sierra|cobalt)/.test(c)       ? '#2563eb' :
+    /(^|\s)(green|olive|mint|sage|alpine)/.test(c)        ? '#10b981' :
+    /(^|\s)(purple|violet|lilac|deep\s*purple|orchid)/.test(c) ? '#7c3aed' :
+    /(^|\s)(grey|gray|grafite|space)/.test(c)             ? '#9ca3af' :
+    /(^|\s)(orange|amber|copper|sunset)/.test(c)          ? '#f59e0b' :
+    '#cbd5e1';
+  const ring = bg === '#e5e7eb' ? 'ring-1 ring-slate-300' : '';
+  return <span className={`inline-block w-2.5 h-2.5 rounded-full flex-shrink-0 ${ring}`} style={{ background: bg }} />;
 }
 
 // ── Table cells ──────────────────────────────────────────────────────────────
