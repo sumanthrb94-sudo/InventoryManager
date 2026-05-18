@@ -46,11 +46,11 @@ export const WALKTHROUGH_ISSUES: Record<number, RowIssue> = {
     ],
   },
   10: {
-    headline: 'iPhone XS — GREY vs BLACK',
+    headline: 'iPhone XS — resolved: colour is SPACE GREY',
     bullets: [
-      'INV says GREY × 1. IMEI shows 1 BLACK.',
-      'Apple sells the XS in "Space Grey" which the IMEI sheet writes as BLACK.',
-      'Same alias rule as the Tab A8 above.',
+      'Apple sells the iPhone XS in "Space Grey" — the IMEI sheet writes that as BLACK; same physical unit.',
+      'Rollup colour updated from "GREY 1" to "SPACE GREY 1" to match.',
+      'Row reclassified green — safe to load.',
     ],
   },
   13: {
