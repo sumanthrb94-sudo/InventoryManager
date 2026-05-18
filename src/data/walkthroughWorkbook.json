@@ -75,11 +75,11 @@
      16,
      "SALES FOCUS",
      "=B6*C6",
-     "GREY 16 SILVER 0",
+     "SPACE GREY 16 SILVER 0",
      "NANAK",
      "SALES FOCUS"
     ],
-    "classification": "red"
+    "classification": "green"
    },
    {
     "row": 7,

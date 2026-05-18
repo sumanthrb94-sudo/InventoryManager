@@ -30,13 +30,12 @@ export const WALKTHROUGH_ISSUES: Record<number, RowIssue> = {
     questions: ['Confirm rollup should read 12 not 10?'],
   },
   6: {
-    headline: 'Galaxy Tab A8 — colour disagreement (GREY vs BLACK)',
+    headline: 'Galaxy Tab A8 — resolved: colour is SPACE GREY',
     bullets: [
-      'INV says GREY × 16. IMEI sheet has 16 BLACK units.',
-      'Same supplier, same BP, same count — just one sheet uses GREY where the other uses BLACK.',
-      'Samsung sells the Tab A8 in "Dark Grey" which retailers sometimes list as Black. Same physical item.',
+      'Client confirmed all 16 units are SPACE GREY (Samsung\'s "Dark Grey" = BLACK label some retailers use).',
+      'Rollup colour updated to "SPACE GREY 16 SILVER 0" to match the IMEI sheet.',
+      'Row reclassified green — safe to load.',
     ],
-    questions: ['Should we call this colour GREY or BLACK in the app?'],
   },
   7: {
     headline: 'Galaxy Tab S9FE — naming + WiFi/cellular tag drift',
