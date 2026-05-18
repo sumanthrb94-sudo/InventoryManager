@@ -37,14 +37,6 @@ export const WALKTHROUGH_ISSUES: Record<number, RowIssue> = {
       'Row reclassified green — safe to load.',
     ],
   },
-  7: {
-    headline: 'Galaxy Tab S9FE — resolved: W/C means WiFi + Cellular',
-    bullets: [
-      'Client confirmed the W/C suffix in the IMEI sheet stands for "WiFi + Cellular" — same SKU as the rollup row.',
-      'Counts now match: 3 GREY units from IMAX in both sheets.',
-      'Row reclassified green — safe to load.',
-    ],
-  },
   9: {
     headline: 'iPhone SE 3rd — supplier drift',
     bullets: [
