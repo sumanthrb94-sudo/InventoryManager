@@ -38,11 +38,11 @@ export const WALKTHROUGH_ISSUES: Record<number, RowIssue> = {
     ],
   },
   7: {
-    headline: 'Galaxy Tab S9FE — naming + WiFi/cellular tag drift',
+    headline: 'Galaxy Tab S9FE — resolved: W/C means WiFi + Cellular',
     bullets: [
-      'IMEI sheet uses "W/C" suffix that the rollup doesn\'t.',
-      '3 units, same colour, same BP otherwise.',
-      'Cosmetic — fixed by the v2 rename pass.',
+      'Client confirmed the W/C suffix in the IMEI sheet stands for "WiFi + Cellular" — same SKU as the rollup row.',
+      'Counts now match: 3 GREY units from IMAX in both sheets.',
+      'Row reclassified green — safe to load.',
     ],
   },
   9: {
