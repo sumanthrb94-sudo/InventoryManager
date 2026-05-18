@@ -201,11 +201,11 @@
      1,
      null,
      "=B15*C15",
-     "BLACK 0 PURPLE 1",
+     "LILAC PURPLE 1",
      "MHL",
      "SHS - BLACK AND PURPLE"
     ],
-    "classification": "red"
+    "classification": "green"
    },
    {
     "row": 16,

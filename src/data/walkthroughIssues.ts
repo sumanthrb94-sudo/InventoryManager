@@ -66,11 +66,11 @@ export const WALKTHROUGH_ISSUES: Record<number, RowIssue> = {
     ],
   },
   15: {
-    headline: 'Samsung S9+ — PURPLE vs PINK',
+    headline: 'Samsung S9+ — resolved: colour is LILAC PURPLE',
     bullets: [
-      'INV says PURPLE × 1. IMEI shows PINK × 1.',
-      'Same supplier, same BP.',
-      'Likely just colour-name drift — Samsung sells the S9+ in "Lilac Purple" / "Rose Gold". Same unit, different label.',
+      'Samsung sells the S9+ in "Lilac Purple" — the IMEI sheet abbreviates it differently. Same physical unit.',
+      'Rollup colour updated to "LILAC PURPLE 1" (was "BLACK 0 PURPLE 1").',
+      'Row reclassified green — safe to load.',
     ],
   },
   17: {
