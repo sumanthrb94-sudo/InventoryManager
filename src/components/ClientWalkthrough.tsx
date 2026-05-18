@@ -95,9 +95,16 @@ function detectCategory(model: string): DeviceCategory {
 
 /** Normalise a model string so two minor formatting differences
  *  ("Galaxy Tab S9FE" vs "GALAXY TAB S9 FE") collide on the same key.
- *  Used to match INVENTORY rollup rows to their IMEI sheet rows. */
+ *  Used to match INVENTORY rollup rows to their IMEI sheet rows.
+ *
+ *  The `+` character is mapped to ` plus ` BEFORE the alphanumeric
+ *  squash so "Galaxy S9+" and "Galaxy S9" don't collapse to the same
+ *  key (otherwise an S9+ IMEI matches an S9 rollup row and the
+ *  unit-doc ID collision drops one of them on bulkCreate's merge). */
 function normalizeModel(s: string): string {
-  return String(s || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+  return String(s || '').toLowerCase()
+    .replace(/\+/g, ' plus ')
+    .replace(/[^a-z0-9]+/g, ' ').trim();
 }
 
 /** Best-effort colours-string → { COLOUR: count } map. Handles the
@@ -344,6 +351,31 @@ export default function ClientWalkthrough() {
     return total;
   }, [loadableInvRows, edits]);
 
+  /** Available IMEIs in the register that no INVENTORY row claims —
+   *  matching uses the same normaliser the loader does. The orphan
+   *  loader writes these as standalone units so they show up in
+   *  Dashboard / Inventory without needing a rollup row first. */
+  const orphanImeiRows = useMemo(() => {
+    const inv = SHEETS.INVENTORY;
+    const invKeys = new Set<string>();
+    for (const r of inv.rows) {
+      if (r.classification === 'divider' || r.classification === 'blank') continue;
+      const m = editValue('INVENTORY', r.row, 0, r.cells[0]).trim();
+      if (m) invKeys.add(normalizeModel(m));
+    }
+    const out: SheetRow[] = [];
+    for (const r of SHEETS['IMEI NUMBERS'].rows) {
+      if (r.classification === 'blank') continue;
+      const m = asStr(r.cells[1]).trim();
+      const status = asStr(r.cells[7]).trim().toUpperCase();
+      const imei = asStr(r.cells[2]).trim();
+      if (!m || !imei) continue;
+      if (status && status !== 'AVAILABLE') continue;
+      if (!invKeys.has(normalizeModel(m))) out.push(r);
+    }
+    return out;
+  }, [edits]);
+
   const handleDownloadXlsx = async () => {
     const wb = new ExcelJS.Workbook();
     const FILL: Record<Classification, string | null> = {
@@ -479,6 +511,108 @@ export default function ClientWalkthrough() {
     doc.save(`INVENTORY_REPORT_2026_issues_${new Date().toISOString().split('T')[0]}.pdf`);
   };
 
+  /** Sweep loader for the orphan IMEIs — available units in the IMEI
+   *  register that no INVENTORY row claims (15 in the current file:
+   *  X COVER PRO, X COVER 4, SE2, A05, etc.). Creates one
+   *  inventoryUnits doc per orphan IMEI so they appear in Dashboard
+   *  / Inventory without needing a rollup row first. No
+   *  inventoryAggregates docs are created since there's no rollup
+   *  context for them. */
+  const handleLoadOrphans = async () => {
+    if (orphanImeiRows.length === 0) return;
+    setLoadState({ kind: 'loading', done: 0, total: orphanImeiRows.length + 1 });
+    try {
+      const existingSuppliers = (await dbService.readAll('suppliers')) as Supplier[];
+      const byNormName = new Map<string, Supplier>();
+      for (const s of existingSuppliers) {
+        const n = (s.name || '').trim().toLowerCase();
+        if (n) byNormName.set(n, s);
+      }
+      const suppliersToCreate = new Map<string, Supplier>();
+      const resolveSupplier = (name: string): { id: string; name: string } => {
+        const clean = name.trim();
+        const norm = clean.toLowerCase();
+        const existing = byNormName.get(norm);
+        if (existing?.id) return { id: existing.id, name: existing.name || clean };
+        const id = slugify(clean);
+        if (!suppliersToCreate.has(id)) {
+          const supplier: Supplier = {
+            id, name: clean, portal: 'Wholesale', ownerId: 'shared',
+            createdAt: new Date().toISOString() as any,
+          };
+          suppliersToCreate.set(id, supplier);
+          byNormName.set(norm, supplier);
+        }
+        return { id, name: clean };
+      };
+
+      const importBatchId = await dbService.createImportBatch({
+        sourceFile: 'INVENTORY_REPORT_2026_annotated.xlsx',
+        sourceSheet: 'IMEI NUMBERS (orphans)',
+        rowCount: orphanImeiRows.length,
+        notes: 'Client walkthrough — orphan IMEIs (no rollup row)',
+      });
+      const importedAt = new Date().toISOString();
+      const today = importedAt.split('T')[0];
+
+      const docs: { collection: string; id: string; data: any }[] = [];
+      const seen = new Set<string>();
+      for (const ir of orphanImeiRows) {
+        const imeiVal = asStr(ir.cells[2]).trim();
+        if (!imeiVal || seen.has(imeiVal)) continue;
+        seen.add(imeiVal);
+        const model    = asStr(ir.cells[1]).trim();
+        const imeiBp   = parseFloat(asStr(ir.cells[3]));
+        const imeiCol  = asStr(ir.cells[4]).trim();
+        const supRaw   = asStr(ir.cells[5]).trim();
+        const supplier = supRaw ? resolveSupplier(supRaw) : null;
+        const notes    = asStr(ir.cells[6]).trim();
+        const dateInRaw = asStr(ir.cells[0]).trim();
+        const dateIn = dateInRaw && !Number.isNaN(Date.parse(dateInRaw))
+          ? new Date(dateInRaw).toISOString().split('T')[0]
+          : today;
+        const parsed = parseBrandModelStorage(model);
+        const unitId = `walkthrough_${importBatchId}_orphan_${imeiVal}`;
+        docs.push({
+          collection: 'inventoryUnits',
+          id: unitId,
+          data: {
+            id: unitId,
+            imei: imeiVal,
+            model,
+            brand:        parsed.brand,
+            category:     detectCategory(model),
+            colour:       imeiCol || 'Unspecified',
+            storage:      parsed.storage,
+            buyPrice:     Number.isFinite(imeiBp) ? imeiBp : 0,
+            dateIn,
+            supplierId:   supplier?.id ?? '',
+            supplierName: supplier?.name,
+            supplierIds:  supplier ? [supplier.id] : [],
+            status:       'available',
+            notes:        notes || undefined,
+            importBatchId,
+            sourceFile:   'INVENTORY_REPORT_2026_annotated.xlsx',
+            sourceRow:    ir.row,
+            importedAt,
+            ownerId:      'shared',
+          },
+        });
+      }
+      const supplierDocs: { collection: string; id: string; data: any }[] = [];
+      for (const s of suppliersToCreate.values()) {
+        supplierDocs.push({ collection: 'suppliers', id: s.id, data: s });
+      }
+      const finalDocs = [...supplierDocs, ...docs];
+      await dbService.bulkCreate(finalDocs, (done, total) =>
+        setLoadState({ kind: 'loading', done, total }),
+      );
+      setLoadState({ kind: 'done', count: 0, units: docs.length });
+    } catch (err: any) {
+      setLoadState({ kind: 'error', msg: err?.message || String(err) });
+    }
+  };
+
   /** Push the currently-filtered INVENTORY rows to Firestore. For each
    *  green row we create:
    *    - one InventoryAggregate doc (the rollup line for the master-data
@@ -546,6 +680,13 @@ export default function ClientWalkthrough() {
 
       const docs: { collection: string; id: string; data: any }[] = [];
       let unitsCreated = 0;
+      /** IMEIs already attributed to a unit doc this run. Two rollup
+       *  rows can legitimately match the same IMEI when their model
+       *  names normalise to the same key (e.g. "S9+" vs "S9" — fixed
+       *  by the normaliser, but other collisions could exist). Tracking
+       *  prevents the doc-ID collision that would silently overwrite
+       *  one of the conflicting units on bulkCreate's merge write. */
+      const seenImeis = new Set<string>();
 
       for (const r of loadableInvRows) {
         const model    = editValue('INVENTORY', r.row, 0, r.cells[0]).trim();
@@ -591,6 +732,8 @@ export default function ClientWalkthrough() {
         for (const ir of matchedImeis) {
           const imeiVal = asStr(ir.cells[2]).trim();
           if (!imeiVal) continue;
+          if (seenImeis.has(imeiVal)) continue;
+          seenImeis.add(imeiVal);
           const imeiBp  = parseFloat(asStr(ir.cells[3]));
           const imeiCol = asStr(ir.cells[4]).trim();
           const imeiSupRaw = asStr(ir.cells[5]).trim();
@@ -666,6 +809,15 @@ export default function ClientWalkthrough() {
             >
               <Upload size={11} /> Load to DB · {loadableInvRows.length} rows / {loadableUnitCount} units
             </button>
+            {orphanImeiRows.length > 0 && (
+              <button
+                onClick={handleLoadOrphans}
+                title="Available IMEIs that no INVENTORY row claims — load them as standalone units"
+                className="inline-flex items-center gap-1.5 bg-amber-500 text-white rounded-xl px-3 py-2 text-[10px] font-bold uppercase tracking-widest hover:bg-amber-600 transition-all"
+              >
+                <Upload size={11} /> Load {orphanImeiRows.length} orphans
+              </button>
+            )}
             <button
               onClick={handleDownloadXlsx}
               className="inline-flex items-center gap-1.5 bg-slate-900 text-white rounded-xl px-3 py-2 text-[10px] font-bold uppercase tracking-widest hover:bg-slate-700 transition-all"
