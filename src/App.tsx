@@ -6,7 +6,7 @@ import {
   PackagePlus, ShoppingCart, RefreshCw,
   LogOut, Plus, FileSpreadsheet, LayoutDashboard,
   TrendingUp, FileText, Users, Settings, Database,
-  ClipboardList, History, Menu, X,
+  ClipboardList, History, Menu, X, Sparkles,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import Dashboard, { NavAction } from './components/Dashboard';
@@ -20,6 +20,7 @@ import ReportingPage from './components/ReportingPage';
 import Suppliers from './components/Suppliers';
 import AnalyticsPage from './components/AnalyticsPage';
 import Sales from './components/Sales';
+import ClientWalkthrough from './components/ClientWalkthrough';
 import { useRealTimeNotifications } from './hooks/useRealTimeNotifications';
 import NotificationToast from './components/NotificationToast';
 import NotificationBell from './components/NotificationBell';
@@ -32,7 +33,7 @@ import ErrorBoundary from './components/ErrorBoundary';
 import type { ImportBatch, SupplierWhatsappUpdate } from './types';
 
 type Tab      = 'buy' | 'sell' | 'returns' | 'admin';
-type AdminSub = 'overview' | 'masterData' | 'salesHistory' | 'insights' | 'reports' | 'suppliers' | 'audit';
+type AdminSub = 'overview' | 'masterData' | 'walkthrough' | 'salesHistory' | 'insights' | 'reports' | 'suppliers' | 'audit';
 
 interface NavTab {
   id: Tab;
@@ -113,13 +114,14 @@ function LoadingScreen() {
 }
 
 const ADMIN_SUBS: { id: AdminSub; label: string; icon: React.ReactNode }[] = [
-  { id: 'overview',     label: 'Overview',      icon: <LayoutDashboard size={14} /> },
-  { id: 'masterData',   label: 'Master Data',   icon: <FileSpreadsheet size={14} /> },
-  { id: 'salesHistory', label: 'Sales History', icon: <ClipboardList size={14} /> },
-  { id: 'insights',     label: 'Insights',      icon: <TrendingUp size={14} /> },
-  { id: 'reports',      label: 'Reports',       icon: <FileText size={14} /> },
-  { id: 'suppliers',    label: 'Suppliers',     icon: <Users size={14} /> },
-  { id: 'audit',        label: 'Audit',         icon: <History size={14} /> },
+  { id: 'overview',     label: 'Overview',           icon: <LayoutDashboard size={14} /> },
+  { id: 'masterData',   label: 'Master Data',        icon: <FileSpreadsheet size={14} /> },
+  { id: 'walkthrough',  label: 'Client Walkthrough', icon: <Sparkles size={14} /> },
+  { id: 'salesHistory', label: 'Sales History',      icon: <ClipboardList size={14} /> },
+  { id: 'insights',     label: 'Insights',           icon: <TrendingUp size={14} /> },
+  { id: 'reports',      label: 'Reports',            icon: <FileText size={14} /> },
+  { id: 'suppliers',    label: 'Suppliers',          icon: <Users size={14} /> },
+  { id: 'audit',        label: 'Audit',              icon: <History size={14} /> },
 ];
 
 function AppShell({ user }: { user: User }) {
@@ -583,6 +585,7 @@ function AppShell({ user }: { user: User }) {
                     </button>
                   </div>
                 )}
+                {activeTab === 'admin' && userIsAdmin && adminSub === 'walkthrough'  && <ClientWalkthrough />}
                 {activeTab === 'admin' && userIsAdmin && adminSub === 'salesHistory' && <Sales />}
                 {activeTab === 'admin' && userIsAdmin && adminSub === 'insights'     && <AnalyticsPage />}
                 {activeTab === 'admin' && userIsAdmin && adminSub === 'reports'      && <ReportingPage />}
