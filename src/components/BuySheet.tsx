@@ -19,6 +19,7 @@ import {
   Search, Plus, Truck, ChevronDown, ChevronUp, ChevronsUpDown,
   Filter, X, Download, AlertCircle, Trash2, Info, Sparkles, Eye,
   PackageX, TrendingDown, AlertTriangle, ChevronRight, Layers, List,
+  FileSpreadsheet,
 } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
 import { dbService } from '../lib/dbService';
@@ -265,6 +266,32 @@ export default function BuySheet(_props: Props) {
     downloadCsv('buy_stock.csv', rows);
   };
 
+  // ── Inventory report — timestamped snapshot of the FULL buy inventory ─────
+  // Distinct from Export CSV (which respects the active filter panel and uses
+  // a static filename): this is the operator's daily report. Columns mirror
+  // the 9-column buy schema exactly — no listing / marketplace / sale fields
+  // here because those are captured in the Sell flow. The filename carries
+  // YYYY-MM-DD_HHMM so multiple pulls in the same day don't clobber each
+  // other and the file sorts chronologically in a folder.
+  const handleInventoryReport = () => {
+    const all = sortUnits(units, sort, supplierMap);
+    const rows = all.map(u => ({
+      'Stock In Date': u.dateIn || '',
+      'Model':         u.model || '',
+      'IMEI':          u.imei || '',
+      'Grade':         u.grade || '',
+      'Storage':       u.storage || '',
+      'Colour':        u.colour || '',
+      'Supplier':      supplierMap[u.supplierId] || u.supplierName || '',
+      'BP':            u.buyPrice ?? '',
+      'Notes':         u.notes || '',
+    }));
+    const now = new Date();
+    const pad = (n: number) => String(n).padStart(2, '0');
+    const stamp = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}_${pad(now.getHours())}${pad(now.getMinutes())}`;
+    downloadCsv(`inventory-report-${stamp}.csv`, rows);
+  };
+
   // ── Inline cell save ──────────────────────────────────────────────────────
   // Patches the unit doc directly. For 'supplierId' it pair-updates
   // supplierName from the matching supplier doc so downstream reads
@@ -306,6 +333,13 @@ export default function BuySheet(_props: Props) {
             }`}
           >
             <Info size={12} /> Schema
+          </button>
+          <button
+            onClick={handleInventoryReport}
+            title="Download a timestamped CSV of every unit (buy schema only)"
+            className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-emerald-600 text-white text-[10px] font-bold uppercase tracking-widest hover:bg-emerald-700 transition-all"
+          >
+            <FileSpreadsheet size={12} /> Inventory Report
           </button>
           <button
             onClick={handleExportCsv}
