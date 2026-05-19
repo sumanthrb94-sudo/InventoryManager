@@ -1123,18 +1123,31 @@ function BuyExcelOverlay({
    *  pseudo-rows (one per aggregate doc) since they don't have per-unit
    *  colour records to break down. */
   const grouped = useMemo(() => {
-    type G = { key: string; model: string; total: number; byColour: Map<string, number>; latestBp: number; totalValue: number };
+    type G = {
+      key: string;
+      model: string;
+      total: number;
+      byColour: Map<string, number>;
+      latestBp: number;
+      totalValue: number;
+      /** Distinct non-empty notes across every unit/aggregate in the group.
+       *  Set so the same operator note ("SS no E-sim", "RR STOCK") collapses
+       *  to one chip instead of repeating per-unit. */
+      notes: Set<string>;
+    };
     const map = new Map<string, G>();
     for (const u of rows) {
       const model = (u.model || '').trim() || '—';
       const key = `unit::${model.toLowerCase()}`;
       let g = map.get(key);
-      if (!g) g = { key, model, total: 0, byColour: new Map(), latestBp: u.buyPrice || 0, totalValue: 0 };
+      if (!g) g = { key, model, total: 0, byColour: new Map(), latestBp: u.buyPrice || 0, totalValue: 0, notes: new Set() };
       g.total++;
       g.totalValue += u.buyPrice || 0;
       const c = (u.colour || '').trim() || 'Unspecified';
       g.byColour.set(c, (g.byColour.get(c) ?? 0) + 1);
       if (u.buyPrice && u.buyPrice > 0) g.latestBp = u.buyPrice;
+      const n = (u.notes || '').trim();
+      if (n) g.notes.add(n);
       map.set(key, g);
     }
     for (const a of dedupedAggregates) {
@@ -1147,6 +1160,9 @@ function BuyExcelOverlay({
       const colsRaw = (a.coloursRaw || '').trim();
       if (colsRaw) byColour.set(colsRaw, qty);
       else byColour.set('Unspecified', qty);
+      const notes = new Set<string>();
+      const n = (a.notes || '').trim();
+      if (n) notes.add(n);
       map.set(key, {
         key,
         model: shs ? `${model} · SHS` : model,
@@ -1154,6 +1170,7 @@ function BuyExcelOverlay({
         byColour,
         latestBp: bp,
         totalValue: qty * bp,
+        notes,
       });
     }
     return Array.from(map.values()).sort((a, b) => b.total - a.total || a.model.localeCompare(b.model));
@@ -1245,6 +1262,25 @@ function BuyExcelOverlay({
                             <> · £{g.totalValue.toLocaleString('en-GB', { maximumFractionDigits: 0 })} total</>
                           )}
                         </span>
+                        {/* Operator notes rolled up across every unit in
+                            the group. Identical notes dedupe to one chip;
+                            distinct ones each render as their own chip
+                            (e.g. "SS no E-sim" + "RR STOCK"). Clicking the
+                            row still toggles the colour breakdown — the
+                            notes are read-only context, not a control. */}
+                        {g.notes.size > 0 && (
+                          <span className="flex flex-wrap gap-1 mt-1.5">
+                            {Array.from(g.notes).map(n => (
+                              <span
+                                key={n}
+                                className="inline-flex items-center gap-1 text-[9px] font-mono text-amber-800 bg-amber-50 border border-amber-200 rounded px-1.5 py-0.5 max-w-[260px] truncate"
+                                title={n}
+                              >
+                                <span className="uppercase tracking-widest text-[8px] font-bold text-amber-600">note</span> {n}
+                              </span>
+                            ))}
+                          </span>
+                        )}
                       </span>
                       <span className="flex-shrink-0 flex flex-col items-end gap-1">
                         <span className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-widest bg-slate-900 text-white px-2 py-1 rounded-lg">
