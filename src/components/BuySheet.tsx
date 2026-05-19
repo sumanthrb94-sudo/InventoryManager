@@ -1109,6 +1109,20 @@ function BuyExcelOverlay({
   const isShsAgg = (a: InventoryAggregate) => (a.quantityText || '').toUpperCase() === 'SHS';
   const toggleSort = (k: SortKey) => onSort({ key: k, dir: sort.key === k && sort.dir === 'desc' ? 'asc' : 'desc' });
 
+  /** Free-text search scoped to this overlay only — independent of the
+   *  always-on filter panel on the Buy page. Matches any of model, imei,
+   *  storage, colour, grade, supplier, notes, buy price. */
+  const [overlaySearch, setOverlaySearch] = useState('');
+
+  /** Sort selector for the grouped view. The detailed view already has
+   *  clickable column headers so it ignores this state.
+   *    qty   — most units first (default; matches the Math.max KPI)
+   *    value — highest rolled-up stock value first
+   *    model — A→Z by model name
+   *    bp    — highest latest BP first
+   */
+  const [groupedSort, setGroupedSort] = useState<'qty' | 'value' | 'model' | 'bp'>('qty');
+
   /** Drop aggregate rollups whose model is already represented by an IMEI
    *  row in `rows`. The KPI tile uses Math.max(rollupQty, imeiCount) — i.e.
    *  the two collections describe the SAME stock at different granularities.
@@ -1127,6 +1141,37 @@ function BuyExcelOverlay({
     }),
     [aggregates, modelsWithImei],
   );
+
+  /** Apply the overlay's free-text search to the unit + aggregate sets.
+   *  Empty query passes everything through. Match is case-insensitive
+   *  on a joined haystack of every operator-facing field so a search
+   *  for "PR STOCK" hits a unit whose note says "PR STOCK", a search
+   *  for "MINT" hits the colour, etc. */
+  const searchedRows = useMemo(() => {
+    const q = overlaySearch.trim().toLowerCase();
+    if (!q) return rows;
+    return rows.filter(u => {
+      const hay = [
+        u.model, u.imei, u.storage, u.colour, u.grade,
+        supplierMap[u.supplierId] || u.supplierName,
+        u.notes, String(u.buyPrice ?? ''), u.status,
+      ].filter(Boolean).join(' ').toLowerCase();
+      return hay.includes(q);
+    });
+  }, [rows, overlaySearch, supplierMap]);
+
+  const searchedAggregates = useMemo(() => {
+    const q = overlaySearch.trim().toLowerCase();
+    if (!q) return dedupedAggregates;
+    return dedupedAggregates.filter(a => {
+      const hay = [
+        a.model, a.storage, a.coloursRaw,
+        a.supplierIds?.[0] ? (supplierMap[a.supplierIds[0]] || a.supplierIds[0]) : '',
+        a.notes, String(a.buyPrice ?? ''), a.quantityText,
+      ].filter(Boolean).join(' ').toLowerCase();
+      return hay.includes(q);
+    });
+  }, [dedupedAggregates, overlaySearch, supplierMap]);
 
   // Esc closes the overlay.
   useEffect(() => {
@@ -1170,7 +1215,7 @@ function BuyExcelOverlay({
       notes: Set<string>;
     };
     const map = new Map<string, G>();
-    for (const u of rows) {
+    for (const u of searchedRows) {
       const model = (u.model || '').trim() || '—';
       const key = `unit::${model.toLowerCase()}`;
       let g = map.get(key);
@@ -1184,7 +1229,7 @@ function BuyExcelOverlay({
       if (n) g.notes.add(n);
       map.set(key, g);
     }
-    for (const a of dedupedAggregates) {
+    for (const a of searchedAggregates) {
       const model = (a.model || '').trim() || '—';
       const shs = isShsAgg(a);
       const key = `${shs ? 'shs' : 'agg'}::${a.id}`;
@@ -1207,16 +1252,33 @@ function BuyExcelOverlay({
         notes,
       });
     }
-    return Array.from(map.values()).sort((a, b) => b.total - a.total || a.model.localeCompare(b.model));
-  }, [rows, dedupedAggregates]);
+    const arr = Array.from(map.values());
+    // Apply the operator's chosen sort. All non-default modes break ties
+    // by model name ascending so the order is stable across re-renders.
+    switch (groupedSort) {
+      case 'value':
+        arr.sort((a, b) => b.totalValue - a.totalValue || a.model.localeCompare(b.model));
+        break;
+      case 'model':
+        arr.sort((a, b) => a.model.localeCompare(b.model));
+        break;
+      case 'bp':
+        arr.sort((a, b) => b.latestBp - a.latestBp || a.model.localeCompare(b.model));
+        break;
+      case 'qty':
+      default:
+        arr.sort((a, b) => b.total - a.total || a.model.localeCompare(b.model));
+    }
+    return arr;
+  }, [searchedRows, searchedAggregates, groupedSort]);
 
   const totalValue = useMemo(
-    () => rows.reduce((s, u) => s + (u.buyPrice || 0), 0)
-        + dedupedAggregates.reduce((s, a) => s + ((a.buyPrice || 0) * (a.quantityNum || 0)), 0),
-    [rows, dedupedAggregates],
+    () => searchedRows.reduce((s, u) => s + (u.buyPrice || 0), 0)
+        + searchedAggregates.reduce((s, a) => s + ((a.buyPrice || 0) * (a.quantityNum || 0)), 0),
+    [searchedRows, searchedAggregates],
   );
-  const totalCount = rows.length
-    + dedupedAggregates.reduce((s, a) => s + (a.quantityNum || 0), 0);
+  const totalCount = searchedRows.length
+    + searchedAggregates.reduce((s, a) => s + (a.quantityNum || 0), 0);
 
   return (
     <motion.div
@@ -1262,9 +1324,59 @@ function BuyExcelOverlay({
           </div>
         </div>
 
+        {/* Search + sort bar — operator's tool for slicing the overlay
+            without closing it. Search hits any unit / aggregate field; the
+            Sort selector only fires in grouped view (the detailed view has
+            clickable column headers already). */}
+        <div className="flex items-center gap-2 px-5 py-2.5 border-b border-slate-100 bg-slate-50/60 flex-shrink-0">
+          <div className="relative flex-1 min-w-0">
+            <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
+            <input
+              type="text"
+              value={overlaySearch}
+              onChange={e => setOverlaySearch(e.target.value)}
+              placeholder="Search model, IMEI, colour, supplier, note…"
+              className="w-full pl-8 pr-8 py-1.5 bg-white border border-slate-200 rounded-lg text-[11px] focus:outline-none focus:border-slate-900 transition-all"
+            />
+            {overlaySearch && (
+              <button
+                onClick={() => setOverlaySearch('')}
+                className="absolute right-1.5 top-1/2 -translate-y-1/2 p-1 rounded text-slate-400 hover:text-slate-700 hover:bg-slate-100"
+                title="Clear search"
+              >
+                <X size={11} />
+              </button>
+            )}
+          </div>
+          {viewMode === 'grouped' && (
+            <div className="flex items-center gap-1.5 flex-shrink-0">
+              <span className="text-[9px] font-mono uppercase tracking-widest text-slate-400">Sort</span>
+              <div className="inline-flex rounded-lg bg-slate-100 p-0.5 text-[9px] font-bold uppercase tracking-widest">
+                {(
+                  [
+                    { id: 'qty',   label: 'Qty'      },
+                    { id: 'value', label: 'Value'    },
+                    { id: 'bp',    label: 'Latest BP'},
+                    { id: 'model', label: 'A→Z'      },
+                  ] as const
+                ).map(opt => (
+                  <button
+                    key={opt.id}
+                    onClick={() => setGroupedSort(opt.id)}
+                    className={`px-2 py-1 rounded-md transition-all ${groupedSort === opt.id ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                    title={`Sort grouped rows by ${opt.label.toLowerCase()}`}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+
         {/* Excel-style table */}
         <div className="flex-1 overflow-auto">
-          {rows.length === 0 && dedupedAggregates.length === 0 ? (
+          {searchedRows.length === 0 && searchedAggregates.length === 0 ? (
             <div className="py-16 flex flex-col items-center gap-2 text-slate-400">
               <Sparkles size={28} />
               <p className="text-[11px] font-mono uppercase tracking-widest">No rows match the active filter</p>
@@ -1399,7 +1511,7 @@ function BuyExcelOverlay({
                     use the amber badge; office rollups use a blue badge so
                     the operator can tell at a glance which rows still need
                     IMEI capture. */}
-                {dedupedAggregates.map(a => {
+                {searchedAggregates.map(a => {
                   const shs = isShsAgg(a);
                   const rowBg     = shs ? 'bg-amber-50/40 hover:bg-amber-50/70' : 'bg-blue-50/40 hover:bg-blue-50/70';
                   const stickyBg  = shs ? 'bg-amber-50/40 border-r border-amber-100' : 'bg-blue-50/40 border-r border-blue-100';
@@ -1442,7 +1554,7 @@ function BuyExcelOverlay({
                     </tr>
                   );
                 })}
-                {rows.map((u, idx) => {
+                {searchedRows.map((u, idx) => {
                   const isAlt = idx % 2 === 1;
                   const rowBg = isAlt ? 'bg-slate-50/40 hover:bg-slate-100/60' : 'bg-white hover:bg-slate-50';
                   const apple = isAppleDevice(u.model);
