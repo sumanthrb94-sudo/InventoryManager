@@ -21,7 +21,7 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import {
   Search, ShoppingCart, ChevronDown, ChevronUp, ChevronsUpDown,
-  Filter, X, Download, AlertCircle, Plus, Info, Sparkles,
+  Filter, X, Download, AlertCircle, Plus, Info, Sparkles, FileSpreadsheet,
   TrendingUp, TrendingDown, PackageCheck, Truck,
 } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
@@ -374,6 +374,61 @@ export default function SellSheet(_props: Props) {
     downloadCsv('sell_sales.csv', rows);
   };
 
+  // ── Unified Sales Report — single sheet, buy schema + sale fields ─────────
+  // 22 columns: the 9-col Inventory master schema first, then the 13-col sale
+  // payload (date, marketplace, order, SKU, SP, payment, postage, SP-BP, tax,
+  // commission, GP, GP%, NP). One row per non-voided sale; voided sales are
+  // skipped because their numbers don't represent realised revenue.
+  // Marketplace is a column, not a separate sheet, so the 5-platform shape
+  // collapses into a single filterable table. Per-marketplace formulas are
+  // applied via recomputeSale so each row's GP / commission / tax reflect
+  // the current MARKETPLACE_FEES rather than whatever was stored at import
+  // time. Filename carries YYYY-MM-DD_HHMM so multiple pulls per day sort
+  // chronologically in a folder.
+  const handleSalesReport = () => {
+    const active = sales.filter(s => !s.voidedAt);
+    const sorted = [...active].sort((a, b) => (b.saleDate || '').localeCompare(a.saleDate || ''));
+    const rows = sorted.map(s => {
+      const u = s.unitId ? units.find(x => x.id === s.unitId) : undefined;
+      const r = recomputeSale(s);
+      // Per-marketplace commission flatten. eBay bundles ROF+FVF+VAT into
+      // T.COM; BM's commission column gets PayPal/Klarna added on top so the
+      // unified column always reads as "total fee paid to the platform".
+      const commission =
+        s.marketplace === 'EBAY' ? (r.totalCom ?? r.commission)
+        : s.marketplace === 'BM' ? (r.commission + (r.payPalKlarnaCom ?? 0))
+        : r.commission;
+      return {
+        'Stock In Date': u?.dateIn || '',
+        'Model':         u?.model || '',
+        'IMEI':          s.imei || u?.imei || '',
+        'Grade':         u?.grade || '',
+        'Storage':       u?.storage || '',
+        'Colour':        u?.colour || '',
+        'Supplier':      supplierMap[s.supplierId || ''] || s.supplierName || u?.supplierName || '',
+        'BP':            (s.buyPrice ?? 0).toFixed(2),
+        'Notes':         u?.notes || '',
+        'Sale Date':     s.saleDate || '',
+        'Marketplace':   s.marketplace,
+        'Order Number':  s.orderNumber || '',
+        'SKU':           s.sku || '',
+        'SP':            (s.salePrice ?? 0).toFixed(2),
+        'Payment Mode':  s.paymentMode || '',
+        'Postage':       (r.postage ?? 0).toFixed(2),
+        'SP - BP':       (r.spMinusBp ?? 0).toFixed(2),
+        'Tax':           ((r.marVat ?? r.marginalTax) ?? 0).toFixed(2),
+        'Commission':    (commission ?? 0).toFixed(2),
+        'GP':            (r.grossProfit ?? 0).toFixed(2),
+        'GP %':          (r.gpPercent ?? 0).toFixed(2),
+        'NP':            r.netProfit != null ? r.netProfit.toFixed(2) : '',
+      };
+    });
+    const now = new Date();
+    const pad = (n: number) => String(n).padStart(2, '0');
+    const stamp = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}_${pad(now.getHours())}${pad(now.getMinutes())}`;
+    downloadCsv(`sales-report-${stamp}.csv`, rows);
+  };
+
   // ── Inline cell save (re-recompute GP/comm/postage in the same patch) ─────
   const saveCell = async (s: Sale, field: string, value: any) => {
     const patch: Record<string, any> = { [field]: value };
@@ -415,6 +470,13 @@ export default function SellSheet(_props: Props) {
             }`}
           >
             <Info size={12} /> Schema
+          </button>
+          <button
+            onClick={handleSalesReport}
+            title="Download a unified Sales Report (buy schema + sale fields, one row per non-voided sale)"
+            className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-emerald-600 text-white text-[10px] font-bold uppercase tracking-widest hover:bg-emerald-700 transition-all"
+          >
+            <FileSpreadsheet size={12} /> Sales Report
           </button>
           <button
             onClick={handleExportCsv}
