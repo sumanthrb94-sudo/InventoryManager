@@ -501,7 +501,6 @@ export default function BuySheet(_props: Props) {
             sort={sort}
             onSort={setSort}
             supplierMap={supplierMap}
-            suppliers={suppliers}
             aggregates={
               overlay === 'shs'    ? shsAggs    :
               overlay === 'office' ? officeAggs :
@@ -509,7 +508,6 @@ export default function BuySheet(_props: Props) {
             }
             region={region}
             onClose={() => setOverlay(null)}
-            onSaveCell={saveCell}
           />
         )}
       </AnimatePresence>
@@ -954,26 +952,144 @@ function InlineSheet({
 }
 
 // ── Excel overlay modal ─────────────────────────────────────────────────────
+
+/** Full unit schema rendered in the overlay's detailed view. Read-only —
+ *  matches the SkuOverlayModal style so every "click to view" surface in
+ *  the app behaves the same way. Listed in the order the operator scans
+ *  during stock review: identity → physical attrs → status → financials
+ *  → sale → ops → listing → returns → notes. */
+const OVERLAY_COLUMNS: { key: string; label: string; width: number; align?: 'left' | 'right' }[] = [
+  { key: 'dateIn',         label: 'Stock In',       width: 100 },
+  { key: 'imei',           label: 'IMEI / Serial',  width: 180 },
+  { key: 'model',          label: 'Model',          width: 220 },
+  { key: 'brand',          label: 'Brand',          width: 90  },
+  { key: 'category',       label: 'Category',       width: 100 },
+  { key: 'storage',        label: 'Storage',        width: 80  },
+  { key: 'colour',         label: 'Colour',         width: 130 },
+  { key: 'grade',          label: 'Grade',          width: 70  },
+  { key: 'status',         label: 'Status',         width: 100 },
+  { key: 'supplierName',   label: 'Supplier',       width: 140 },
+  { key: 'buyPrice',       label: 'BP',             width: 80,  align: 'right' },
+  { key: 'salePrice',      label: 'Sale Price',     width: 90,  align: 'right' },
+  { key: 'saleDate',       label: 'Sale Date',      width: 100 },
+  { key: 'marketplace',    label: 'Marketplace',    width: 110 },
+  { key: 'customerName',   label: 'Customer',       width: 140 },
+  { key: 'saleOrderId',    label: 'Order ID',       width: 130 },
+  { key: 'postageCost',    label: 'Postage',        width: 80,  align: 'right' },
+  { key: 'batchNo',        label: 'Batch No',       width: 110 },
+  { key: 'stockLocation',  label: 'Location',       width: 110 },
+  { key: 'batteryHealth',  label: 'Battery',        width: 80,  align: 'right' },
+  { key: 'boxIncluded',    label: 'Box',            width: 60  },
+  { key: 'networkLock',    label: 'Net Lock',       width: 90  },
+  { key: 'activationLock', label: 'iCloud',         width: 80  },
+  { key: 'listingSites',   label: 'Listing Sites',  width: 160 },
+  { key: 'listingUrl',     label: 'Listing URL',    width: 180 },
+  { key: 'listingDate',    label: 'Listed On',      width: 100 },
+  { key: 'platformListed', label: 'Listed?',        width: 70  },
+  { key: 'returnType',     label: 'Return Type',    width: 110 },
+  { key: 'returnDate',     label: 'Return Date',    width: 100 },
+  { key: 'returnReason',   label: 'Return Reason',  width: 200 },
+  { key: 'stockOutDate',   label: 'Out On',         width: 100 },
+  { key: 'flags',          label: 'Flags',          width: 130 },
+  { key: 'sku',            label: 'SKU',            width: 130 },
+  { key: 'notes',          label: 'Notes',          width: 240 },
+];
+
+function fmtOverlayCell(
+  u: InventoryUnit,
+  key: string,
+  region: 'uk' | 'india' | 'admin' | 'both',
+  supplierMap: Record<string, string>,
+): string {
+  const v = (u as any)[key];
+  if (key === 'supplierName') {
+    return supplierMap[u.supplierId] || u.supplierName || '';
+  }
+  if (['dateIn', 'saleDate', 'returnDate', 'listingDate', 'stockOutDate'].includes(key)) {
+    return v ? (fmtDateForUser(String(v), region) || String(v)) : '';
+  }
+  if (key === 'buyPrice' || key === 'salePrice' || key === 'postageCost') {
+    return v != null && v !== '' ? `£${Number(v).toLocaleString('en-GB', { maximumFractionDigits: 2 })}` : '';
+  }
+  if (key === 'status') {
+    return v ? String(v).replace(/_/g, ' ').toUpperCase() : '';
+  }
+  if (key === 'marketplace') {
+    return String((u as any).marketplace ?? u.salePlatform ?? '').trim();
+  }
+  if (key === 'listingSites' || key === 'flags') {
+    return Array.isArray(v) ? v.filter(Boolean).join(', ') : (v ? String(v) : '');
+  }
+  if (key === 'boxIncluded' || key === 'platformListed') {
+    return v === true ? 'Yes' : v === false ? 'No' : '';
+  }
+  if (key === 'batteryHealth') {
+    return v != null && v !== '' ? `${Number(v)}%` : '';
+  }
+  if (v == null || v === '') return '';
+  return String(v);
+}
+
+/** Aggregate rollups carry only a subset of the full schema — fill what
+ *  we have, leave the rest blank, and use the IMEI column to surface the
+ *  rollup badge (OFFICE / SHS · qty). */
+function fmtAggregateCell(
+  a: InventoryAggregate,
+  key: string,
+  region: 'uk' | 'india' | 'admin' | 'both',
+  supplierMap: Record<string, string>,
+): string {
+  const shs = (a.quantityText || '').toUpperCase() === 'SHS';
+  switch (key) {
+    case 'model':        return a.model || '';
+    case 'storage':      return a.storage || '';
+    case 'colour':       return a.coloursRaw || '';
+    case 'supplierName': return a.supplierIds?.[0] ? (supplierMap[a.supplierIds[0]] || a.supplierIds[0]) : '';
+    case 'buyPrice':     return a.buyPrice != null ? `£${Number(a.buyPrice).toLocaleString('en-GB', { maximumFractionDigits: 2 })}` : '';
+    case 'status':       return shs ? 'INCOMING (SHS)' : 'ROLLUP';
+    case 'dateIn':       return a.updatedAt ? (fmtDateForUser(String(a.updatedAt).slice(0, 10), region) || '') : '';
+    case 'notes':        return a.notes || '';
+    case 'imei':         return `${shs ? 'SHS' : 'OFFICE'} · ${a.quantityNum ?? '?'}`;
+    default:             return '';
+  }
+}
+
 function BuyExcelOverlay({
-  title, rows, sort, onSort, supplierMap, suppliers, aggregates, region, onClose, onSaveCell,
+  title, rows, sort, onSort, supplierMap, aggregates, region, onClose,
 }: {
   title: string;
   rows: InventoryUnit[];
   sort: { key: SortKey; dir: SortDir };
   onSort: (s: { key: SortKey; dir: SortDir }) => void;
   supplierMap: Record<string, string>;
-  suppliers: Supplier[];
   /** Master-file rollup rows scoped to the open KPI. Each carries a quantity
    *  but no per-IMEI detail; rendered as pseudo-rows so the overlay total
    *  always agrees with the KPI tile that opened it. */
   aggregates: InventoryAggregate[];
   region: 'uk' | 'india' | 'admin' | 'both';
   onClose: () => void;
-  onSaveCell: (u: InventoryUnit, field: string, value: any) => Promise<void>;
 }) {
   const isShsAgg = (a: InventoryAggregate) => (a.quantityText || '').toUpperCase() === 'SHS';
-  const [editingCell, setEditingCell] = useState<{ id: string; field: string } | null>(null);
   const toggleSort = (k: SortKey) => onSort({ key: k, dir: sort.key === k && sort.dir === 'desc' ? 'asc' : 'desc' });
+
+  /** Drop aggregate rollups whose model is already represented by an IMEI
+   *  row in `rows`. The KPI tile uses Math.max(rollupQty, imeiCount) — i.e.
+   *  the two collections describe the SAME stock at different granularities.
+   *  Without this filter the overlay double-counted (50 IMEIs + 50-qty
+   *  rollup = a misleading "100 units"). Match is case-insensitive on
+   *  model, since SHS aggregates and IMEI units come from different import
+   *  paths and may differ in casing. */
+  const modelsWithImei = useMemo(
+    () => new Set(rows.map(r => (r.model || '').trim().toLowerCase()).filter(Boolean)),
+    [rows],
+  );
+  const dedupedAggregates = useMemo(
+    () => aggregates.filter(a => {
+      const m = (a.model || '').trim().toLowerCase();
+      return !m || !modelsWithImei.has(m);
+    }),
+    [aggregates, modelsWithImei],
+  );
 
   // Esc closes the overlay.
   useEffect(() => {
@@ -1017,7 +1133,7 @@ function BuyExcelOverlay({
       if (u.buyPrice && u.buyPrice > 0) g.latestBp = u.buyPrice;
       map.set(key, g);
     }
-    for (const a of aggregates) {
+    for (const a of dedupedAggregates) {
       const model = (a.model || '').trim() || '—';
       const shs = isShsAgg(a);
       const key = `${shs ? 'shs' : 'agg'}::${a.id}`;
@@ -1035,15 +1151,15 @@ function BuyExcelOverlay({
       });
     }
     return Array.from(map.values()).sort((a, b) => b.total - a.total || a.model.localeCompare(b.model));
-  }, [rows, aggregates]);
+  }, [rows, dedupedAggregates]);
 
   const totalValue = useMemo(
     () => rows.reduce((s, u) => s + (u.buyPrice || 0), 0)
-        + aggregates.reduce((s, a) => s + ((a.buyPrice || 0) * (a.quantityNum || 0)), 0),
-    [rows, aggregates],
+        + dedupedAggregates.reduce((s, a) => s + ((a.buyPrice || 0) * (a.quantityNum || 0)), 0),
+    [rows, dedupedAggregates],
   );
   const totalCount = rows.length
-    + aggregates.reduce((s, a) => s + (a.quantityNum || 0), 0);
+    + dedupedAggregates.reduce((s, a) => s + (a.quantityNum || 0), 0);
 
   return (
     <motion.div
@@ -1091,7 +1207,7 @@ function BuyExcelOverlay({
 
         {/* Excel-style table */}
         <div className="flex-1 overflow-auto">
-          {rows.length === 0 && aggregates.length === 0 ? (
+          {rows.length === 0 && dedupedAggregates.length === 0 ? (
             <div className="py-16 flex flex-col items-center gap-2 text-slate-400">
               <Sparkles size={28} />
               <p className="text-[11px] font-mono uppercase tracking-widest">No rows match the active filter</p>
@@ -1151,174 +1267,149 @@ function BuyExcelOverlay({
               })}
             </ul>
           ) : (
+            // Full-schema read-only Excel grid — every InventoryUnit field
+            // the operator might want to scan during stock review. Mirrors
+            // the SkuOverlayModal layout so every "click to view" surface in
+            // the app feels the same. The first column is sticky so the
+            // date stays visible while horizontally scrolling.
             <table className="w-full text-[11px] border-separate border-spacing-0" style={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace' }}>
               <thead>
                 <tr className="text-[9px] font-bold uppercase tracking-widest text-slate-500 bg-slate-50">
-                  <Th k="dateIn"   sort={sort} onSort={toggleSort} width="110px" sticky leftPx={0}>Stock In</Th>
-                  <Th k="model"    sort={sort} onSort={toggleSort} width="260px">Model</Th>
-                  <Th k=""         sort={sort} onSort={undefined} width="180px">IMEI / Serial</Th>
-                  <Th k="grade"    sort={sort} onSort={toggleSort} width="100px">Grade</Th>
-                  <Th k="storage"  sort={sort} onSort={toggleSort} width="80px">Storage</Th>
-                  <Th k="colour"   sort={sort} onSort={toggleSort} width="120px">Colour</Th>
-                  <Th k="supplier" sort={sort} onSort={toggleSort} width="130px">Supplier</Th>
-                  <Th k="buyPrice" sort={sort} onSort={toggleSort} width="80px" align="right">BP (£)</Th>
-                  <Th k=""         sort={sort} onSort={undefined} width="220px">Notes</Th>
+                  {OVERLAY_COLUMNS.map((c, i) => {
+                    const sortKey: SortKey | '' = (
+                      c.key === 'dateIn'       ? 'dateIn'   :
+                      c.key === 'model'        ? 'model'    :
+                      c.key === 'storage'      ? 'storage'  :
+                      c.key === 'colour'       ? 'colour'   :
+                      c.key === 'buyPrice'     ? 'buyPrice' :
+                      c.key === 'grade'        ? 'grade'    :
+                      c.key === 'supplierName' ? 'supplier' :
+                      ''
+                    );
+                    return (
+                      <React.Fragment key={c.key}>
+                        <Th
+                          k={sortKey}
+                          sort={sort}
+                          onSort={sortKey ? toggleSort : undefined}
+                          width={`${c.width}px`}
+                          align={c.align}
+                          sticky={i === 0}
+                          leftPx={i === 0 ? 0 : undefined}
+                        >
+                          {c.label}
+                        </Th>
+                      </React.Fragment>
+                    );
+                  })}
                 </tr>
               </thead>
               <tbody>
-                {/* Aggregate rollup rows render at the top — they carry a
-                    rollup quantity but no IMEIs. SHS aggregates use the amber
-                    "SHS" badge; office rollups use a blue "OFFICE" badge so
+                {/* Aggregate rollup rows render at the top. SHS aggregates
+                    use the amber badge; office rollups use a blue badge so
                     the operator can tell at a glance which rows still need
                     IMEI capture. */}
-                {aggregates.map(a => {
+                {dedupedAggregates.map(a => {
                   const shs = isShsAgg(a);
-                  const supplierName = a.supplierIds?.[0] ? (supplierMap[a.supplierIds[0]] || a.supplierIds[0]) : '—';
                   const rowBg     = shs ? 'bg-amber-50/40 hover:bg-amber-50/70' : 'bg-blue-50/40 hover:bg-blue-50/70';
                   const stickyBg  = shs ? 'bg-amber-50/40 border-r border-amber-100' : 'bg-blue-50/40 border-r border-blue-100';
-                  const badgeCls  = shs
-                    ? 'text-amber-700 bg-amber-100'
-                    : 'text-blue-700 bg-blue-100';
+                  const badgeCls  = shs ? 'text-amber-700 bg-amber-100' : 'text-blue-700 bg-blue-100';
                   return (
                     <tr key={`agg-${a.id}`} className={`${rowBg} transition-colors`}>
-                      <Td sticky leftPx={0} className={stickyBg}><span className="text-slate-400">—</span></Td>
-                      <Td><span className="font-bold text-slate-900">{a.model}</span></Td>
-                      <Td>
-                        <span className={`inline-flex items-center gap-1 text-[9px] font-bold ${badgeCls} px-1.5 py-0.5 rounded uppercase tracking-widest`}>
-                          <Truck size={9} /> {shs ? 'SHS' : 'OFFICE'} · {a.quantityNum ?? '?'}
-                        </span>
-                      </Td>
-                      <Td><span className="text-slate-400">—</span></Td>
-                      <Td><span className="text-slate-600">{a.storage || '—'}</span></Td>
-                      <Td><span className="text-slate-600 truncate">{a.coloursRaw || '—'}</span></Td>
-                      <Td><span className="text-slate-700">{supplierName}</span></Td>
-                      <Td align="right"><span className="font-bold text-slate-900">£{a.buyPrice ?? '—'}</span></Td>
-                      <Td><span className="text-slate-500 truncate" title={a.notes || ''}>{a.notes || ''}</span></Td>
+                      {OVERLAY_COLUMNS.map((c, i) => {
+                        if (c.key === 'imei') {
+                          return (
+                            <React.Fragment key={c.key}>
+                              <Td align={c.align}>
+                                <span className={`inline-flex items-center gap-1 text-[9px] font-bold ${badgeCls} px-1.5 py-0.5 rounded uppercase tracking-widest`}>
+                                  <Truck size={9} /> {shs ? 'SHS' : 'OFFICE'} · {a.quantityNum ?? '?'}
+                                </span>
+                              </Td>
+                            </React.Fragment>
+                          );
+                        }
+                        const val = fmtAggregateCell(a, c.key, region, supplierMap);
+                        const sticky = i === 0;
+                        return (
+                          <React.Fragment key={c.key}>
+                            <Td
+                              align={c.align}
+                              sticky={sticky}
+                              leftPx={sticky ? 0 : undefined}
+                              className={sticky ? stickyBg : undefined}
+                            >
+                              <span
+                                className={`block truncate ${val ? (c.key === 'model' || c.key === 'buyPrice' ? 'font-bold text-slate-900' : 'text-slate-600') : 'text-slate-300'}`}
+                                title={val || ''}
+                                style={{ maxWidth: c.width }}
+                              >
+                                {val || '—'}
+                              </span>
+                            </Td>
+                          </React.Fragment>
+                        );
+                      })}
                     </tr>
                   );
                 })}
                 {rows.map((u, idx) => {
                   const isAlt = idx % 2 === 1;
-                  const supplierName = supplierMap[u.supplierId] || u.supplierName || '—';
                   const rowBg = isAlt ? 'bg-slate-50/40 hover:bg-slate-100/60' : 'bg-white hover:bg-slate-50';
                   const apple = isAppleDevice(u.model);
                   const imeiValid = isValidImei(u.imei, { isAppleSerial: apple });
                   const tone = STATUS_TONE[u.status] || STATUS_TONE.available;
                   return (
                     <tr key={u.id} className={`${rowBg} transition-colors group`}>
-                      <Td sticky leftPx={0} className={`${rowBg} border-r border-slate-200`}>
-                        <InlineEditableCell
-                          editing={editingCell?.id === u.id && editingCell?.field === 'dateIn'}
-                          onActivate={() => setEditingCell({ id: u.id, field: 'dateIn' })}
-                          onCommit={async v => { await onSaveCell(u, 'dateIn', v); setEditingCell(null); }}
-                          onCancel={() => setEditingCell(null)}
-                          initialValue={u.dateIn || ''}
-                          type="date"
-                          display={<span className="text-slate-700">{fmtDateForUser(u.dateIn || '', region) || u.dateIn || '—'}</span>}
-                        />
-                      </Td>
-                      <Td>
-                        <div className="flex items-center gap-2 min-w-0">
-                          <div className="flex-1 min-w-0">
-                            <InlineEditableCell
-                              editing={editingCell?.id === u.id && editingCell?.field === 'model'}
-                              onActivate={() => setEditingCell({ id: u.id, field: 'model' })}
-                              onCommit={async v => { await onSaveCell(u, 'model', v); setEditingCell(null); }}
-                              onCancel={() => setEditingCell(null)}
-                              initialValue={u.model || ''}
-                              display={<span className="font-bold text-slate-900 truncate max-w-[220px] inline-block" title={u.model}>{u.model || '—'}</span>}
-                            />
-                          </div>
-                          <span className={`inline-flex items-center gap-1 text-[8px] font-bold uppercase tracking-widest px-1.5 py-0.5 rounded border ${tone.bg} ${tone.text} flex-shrink-0`}>
-                            <span className={`w-1.5 h-1.5 rounded-full ${tone.dot}`} />
-                            {u.status}
-                          </span>
-                        </div>
-                      </Td>
-                      <Td>
-                        <InlineEditableCell
-                          editing={editingCell?.id === u.id && editingCell?.field === 'imei'}
-                          onActivate={() => setEditingCell({ id: u.id, field: 'imei' })}
-                          onCommit={async v => { await onSaveCell(u, 'imei', v.trim()); setEditingCell(null); }}
-                          onCancel={() => setEditingCell(null)}
-                          initialValue={u.imei || ''}
-                          display={
-                            imeiValid ? <CopyImei imei={u.imei} truncate={18} /> :
-                            u.status === 'incoming' ? <span className="text-[10px] font-mono text-slate-400 italic">Optional for SHS</span> :
-                            <span className="inline-flex items-center gap-1 text-rose-600 text-[10px] font-mono">
-                              <AlertCircle size={10} /> {u.imei ? 'invalid' : 'missing'}
-                            </span>
-                          }
-                        />
-                      </Td>
-                      <Td>
-                        <InlineEditableSelect
-                          editing={editingCell?.id === u.id && editingCell?.field === 'grade'}
-                          onActivate={() => setEditingCell({ id: u.id, field: 'grade' })}
-                          onCommit={async v => { await onSaveCell(u, 'grade', v); setEditingCell(null); }}
-                          onCancel={() => setEditingCell(null)}
-                          value={u.grade || ''}
-                          options={['', 'A', 'B', 'C', 'ONU', 'Brand new']}
-                          formatLabel={v => v || '—'}
-                          display={<span className="text-slate-700">{u.grade || <span className="text-slate-300">—</span>}</span>}
-                        />
-                      </Td>
-                      <Td>
-                        <InlineEditableSelect
-                          editing={editingCell?.id === u.id && editingCell?.field === 'storage'}
-                          onActivate={() => setEditingCell({ id: u.id, field: 'storage' })}
-                          onCommit={async v => { await onSaveCell(u, 'storage', v); setEditingCell(null); }}
-                          onCancel={() => setEditingCell(null)}
-                          value={u.storage || ''}
-                          options={storageOptionsWith(u.storage)}
-                          formatLabel={v => v || '—'}
-                          display={<span className="text-slate-600">{u.storage || <span className="text-slate-300">—</span>}</span>}
-                        />
-                      </Td>
-                      <Td>
-                        <InlineEditableCell
-                          editing={editingCell?.id === u.id && editingCell?.field === 'colour'}
-                          onActivate={() => setEditingCell({ id: u.id, field: 'colour' })}
-                          onCommit={async v => { await onSaveCell(u, 'colour', v); setEditingCell(null); }}
-                          onCancel={() => setEditingCell(null)}
-                          initialValue={u.colour || ''}
-                          display={<span className="text-slate-600 truncate">{u.colour || '—'}</span>}
-                        />
-                      </Td>
-                      <Td>
-                        <InlineEditableSelect
-                          editing={editingCell?.id === u.id && editingCell?.field === 'supplierId'}
-                          onActivate={() => setEditingCell({ id: u.id, field: 'supplierId' })}
-                          onCommit={async v => { await onSaveCell(u, 'supplierId', v); setEditingCell(null); }}
-                          onCancel={() => setEditingCell(null)}
-                          value={u.supplierId || ''}
-                          options={['', ...suppliers.map(s => s.id)]}
-                          formatLabel={v => v ? (suppliers.find(s => s.id === v)?.name || v) : '—'}
-                          display={<span className="text-slate-700 truncate" title={supplierName}>{supplierName}</span>}
-                        />
-                      </Td>
-                      <Td align="right">
-                        <InlineEditableCell
-                          editing={editingCell?.id === u.id && editingCell?.field === 'buyPrice'}
-                          onActivate={() => setEditingCell({ id: u.id, field: 'buyPrice' })}
-                          onCommit={async v => { await onSaveCell(u, 'buyPrice', Number(v) || 0); setEditingCell(null); }}
-                          onCancel={() => setEditingCell(null)}
-                          initialValue={String(u.buyPrice ?? 0)}
-                          display={<span className="font-bold text-slate-900">£{u.buyPrice ?? 0}</span>}
-                          align="right"
-                          type="number"
-                        />
-                      </Td>
-                      <Td>
-                        <InlineEditableCell
-                          editing={editingCell?.id === u.id && editingCell?.field === 'notes'}
-                          onActivate={() => setEditingCell({ id: u.id, field: 'notes' })}
-                          onCommit={async v => { await onSaveCell(u, 'notes', v); setEditingCell(null); }}
-                          onCancel={() => setEditingCell(null)}
-                          initialValue={u.notes || ''}
-                          display={<span className="text-slate-500 truncate" title={u.notes || ''}>{u.notes || ''}</span>}
-                        />
-                      </Td>
+                      {OVERLAY_COLUMNS.map((c, i) => {
+                        const sticky = i === 0;
+                        const stickyCls = sticky ? `${rowBg} border-r border-slate-200` : undefined;
+                        if (c.key === 'imei') {
+                          return (
+                            <React.Fragment key={c.key}>
+                              <Td align={c.align}>
+                                {imeiValid ? <CopyImei imei={u.imei} truncate={20} /> :
+                                  u.status === 'incoming' ? <span className="text-[10px] font-mono text-slate-400 italic">Optional for SHS</span> :
+                                  <span className="inline-flex items-center gap-1 text-rose-600 text-[10px] font-mono">
+                                    <AlertCircle size={10} /> {u.imei ? 'invalid' : 'missing'}
+                                  </span>
+                                }
+                              </Td>
+                            </React.Fragment>
+                          );
+                        }
+                        if (c.key === 'status') {
+                          return (
+                            <React.Fragment key={c.key}>
+                              <Td align={c.align}>
+                                <span className={`inline-flex items-center gap-1 text-[8px] font-bold uppercase tracking-widest px-1.5 py-0.5 rounded border ${tone.bg} ${tone.text}`}>
+                                  <span className={`w-1.5 h-1.5 rounded-full ${tone.dot}`} />
+                                  {u.status}
+                                </span>
+                              </Td>
+                            </React.Fragment>
+                          );
+                        }
+                        const val = fmtOverlayCell(u, c.key, region, supplierMap);
+                        const strongCol = c.key === 'model' || c.key === 'buyPrice' || c.key === 'salePrice';
+                        return (
+                          <React.Fragment key={c.key}>
+                            <Td
+                              align={c.align}
+                              sticky={sticky}
+                              leftPx={sticky ? 0 : undefined}
+                              className={stickyCls}
+                            >
+                              <span
+                                className={`block truncate ${val ? (strongCol ? 'font-bold text-slate-900' : 'text-slate-700') : 'text-slate-300'}`}
+                                title={val || ''}
+                                style={{ maxWidth: c.width }}
+                              >
+                                {val || '—'}
+                              </span>
+                            </Td>
+                          </React.Fragment>
+                        );
+                      })}
                     </tr>
                   );
                 })}
@@ -1328,7 +1419,7 @@ function BuyExcelOverlay({
         </div>
 
         <div className="px-5 py-2 border-t border-slate-100 bg-slate-50/60 flex-shrink-0 text-[9px] font-mono uppercase tracking-widest text-slate-500 flex items-center justify-between">
-          <span>Double-click any cell to edit · ESC to close</span>
+          <span>Click column headers to sort · ESC to close</span>
           <button
             onClick={onClose}
             className="px-3 py-1.5 rounded-lg border border-slate-200 text-slate-600 text-[10px] font-bold uppercase tracking-widest hover:bg-white"
