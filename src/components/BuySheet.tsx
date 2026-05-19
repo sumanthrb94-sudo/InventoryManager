@@ -273,8 +273,13 @@ export default function BuySheet(_props: Props) {
   // here because those are captured in the Sell flow. The filename carries
   // YYYY-MM-DD_HHMM so multiple pulls in the same day don't clobber each
   // other and the file sorts chronologically in a folder.
+  //
+  // Sold units are soft-deleted from this report — once a unit ships, it's
+  // operator-tracked through the Sales report instead. Returned + incoming
+  // (SHS) units stay because they're still our inventory.
   const handleInventoryReport = () => {
-    const all = sortUnits(units, sort, supplierMap);
+    const inStock = units.filter(u => u.status !== 'sold');
+    const all = sortUnits(inStock, sort, supplierMap);
     const rows = all.map(u => ({
       'Stock In Date': u.dateIn || '',
       'Model':         u.model || '',
