@@ -3,7 +3,9 @@ import { AnimatePresence, motion } from 'motion/react';
 import { X } from 'lucide-react';
 import { InventoryUnit } from '../types';
 import { parseBrandModelStorage, type Series } from '../lib/modelStorage';
-import SkuOverlayModal from './SkuOverlayModal';
+import { useInventoryStore } from '../lib/inventoryStore';
+import { useUserRegion } from '../lib/userLocale';
+import StockOverlayModal from './StockOverlayModal';
 
 interface Props {
   units: InventoryUnit[];
@@ -348,11 +350,45 @@ export default function PeriodicInventory({ units, onNavigate }: Props) {
   const available = units.filter(u => u.status === 'available');
   const incoming  = units.filter(u => u.status === 'incoming');
 
+  // Pull supplier list locally so we can render supplier names in the overlay
+  // without forcing every PeriodicInventory caller to thread a supplierMap.
+  const { suppliers } = useInventoryStore();
+  const region = useUserRegion();
+  const supplierMap = useMemo(() => {
+    const m: Record<string, string> = {};
+    for (const s of suppliers) m[s.id] = s.name;
+    return m;
+  }, [suppliers]);
+
   const [popover, setPopover] = useState<PopoverState | null>(null);
   /** Excel-style overlay target — set when a block is clicked, null when closed. */
   const [overlay, setOverlay] = useState<{ seriesKey: string; model: string; storage?: string } | null>(null);
   // Refs for the hover grace-period timers
   const closeTimer  = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  /** Units matching the currently-selected element. Filter contract mirrors
+   *  SkuOverlayModal: substring match on model (case-insensitive, bidirectional
+   *  to handle both "iPhone 13" stored vs "iPhone 13 Pro" selected and the
+   *  reverse), exact match on storage when one is set. Sorted newest-first
+   *  by dateIn so the latest stock surfaces at the top of the overlay. */
+  const overlayRows = useMemo<InventoryUnit[]>(() => {
+    if (!overlay) return [];
+    const wantModel   = overlay.model.toLowerCase().trim();
+    const wantStorage = (overlay.storage || '').toUpperCase().trim();
+    return units.filter(u => {
+      const parsed = parseBrandModelStorage(u.model || '');
+      const model   = (u as any).model && (parsed.model || u.model);
+      const storage = (u.storage || parsed.storage || '').toUpperCase();
+      const modelOk = (model || '').toLowerCase().includes(wantModel) ||
+                      wantModel.includes((model || '').toLowerCase());
+      const storageOk = wantStorage === '' || storage === wantStorage;
+      return modelOk && storageOk;
+    }).sort((a, b) => {
+      const da = new Date(a.dateIn || 0).getTime();
+      const db = new Date(b.dateIn || 0).getTime();
+      return db - da;
+    });
+  }, [overlay, units]);
 
   const today = new Date().toISOString().split('T')[0];
   const todaySold     = units.filter(u => u.status === 'sold' && (u.saleDate || u.dateIn) === today);
@@ -662,12 +698,22 @@ export default function PeriodicInventory({ units, onNavigate }: Props) {
       </div>
       </div>
 
-      {/* Excel-style SKU overlay — replaces the old sidebar/bottom-sheet/view-all flow. */}
-      <SkuOverlayModal
-        selection={overlay}
-        units={units}
-        onClose={() => setOverlay(null)}
-      />
+      {/* Excel-style SKU overlay — same grouped + detailed surface as the
+          Buy-page KPI overlays so every "click a tile" surface looks identical.
+          Aggregates are empty here because the periodic table is built from
+          IMEI-tracked units only; no master-file rollups to fold in. */}
+      <AnimatePresence>
+        {overlay && (
+          <StockOverlayModal
+            title={overlay.seriesKey}
+            rows={overlayRows}
+            aggregates={[]}
+            supplierMap={supplierMap}
+            region={region}
+            onClose={() => setOverlay(null)}
+          />
+        )}
+      </AnimatePresence>
     </div>
   );
 }
