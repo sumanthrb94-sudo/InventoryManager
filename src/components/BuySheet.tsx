@@ -121,6 +121,18 @@ export default function BuySheet(_props: Props) {
   // creates exactly one placeholder unit), so the math holds in both worlds.
   const shsUnits = useMemo(() => units.filter(u => u.status === 'incoming'), [units]);
   const shsAggs = useMemo(() => shsAggregatesFrom(aggregates), [aggregates]);
+  // Master-file rollups that count toward office stock (qty > 0, not flagged
+  // SHS). These have no IMEIs yet — the import only captured a row-level total
+  // — but they belong in the All Office Stock overlay so the visible row count
+  // matches the KPI tile.
+  const officeAggs = useMemo(
+    () => aggregates.filter(a =>
+      (a.quantityText || '').toUpperCase() !== 'SHS'
+      && typeof a.quantityNum === 'number'
+      && a.quantityNum > 0
+    ),
+    [aggregates],
+  );
 
   // "Sold Today" — status='sold' with saleDate = today (falls back to updatedAt).
   const soldToday = useMemo(
@@ -490,7 +502,11 @@ export default function BuySheet(_props: Props) {
             onSort={setSort}
             supplierMap={supplierMap}
             suppliers={suppliers}
-            shsAggregates={overlay === 'shs' ? shsAggs : []}
+            aggregates={
+              overlay === 'shs'    ? shsAggs    :
+              overlay === 'office' ? officeAggs :
+              []
+            }
             region={region}
             onClose={() => setOverlay(null)}
             onSaveCell={saveCell}
@@ -939,7 +955,7 @@ function InlineSheet({
 
 // ── Excel overlay modal ─────────────────────────────────────────────────────
 function BuyExcelOverlay({
-  title, rows, sort, onSort, supplierMap, suppliers, shsAggregates, region, onClose, onSaveCell,
+  title, rows, sort, onSort, supplierMap, suppliers, aggregates, region, onClose, onSaveCell,
 }: {
   title: string;
   rows: InventoryUnit[];
@@ -947,11 +963,15 @@ function BuyExcelOverlay({
   onSort: (s: { key: SortKey; dir: SortDir }) => void;
   supplierMap: Record<string, string>;
   suppliers: Supplier[];
-  shsAggregates: InventoryAggregate[];
+  /** Master-file rollup rows scoped to the open KPI. Each carries a quantity
+   *  but no per-IMEI detail; rendered as pseudo-rows so the overlay total
+   *  always agrees with the KPI tile that opened it. */
+  aggregates: InventoryAggregate[];
   region: 'uk' | 'india' | 'admin' | 'both';
   onClose: () => void;
   onSaveCell: (u: InventoryUnit, field: string, value: any) => Promise<void>;
 }) {
+  const isShsAgg = (a: InventoryAggregate) => (a.quantityText || '').toUpperCase() === 'SHS';
   const [editingCell, setEditingCell] = useState<{ id: string; field: string } | null>(null);
   const toggleSort = (k: SortKey) => onSort({ key: k, dir: sort.key === k && sort.dir === 'desc' ? 'asc' : 'desc' });
 
@@ -980,9 +1000,9 @@ function BuyExcelOverlay({
 
   /** Rows grouped by model — total count + per-colour breakdown.
    *  Sorted by total descending so the operator's heavy SKUs surface
-   *  first. SHS aggregates are folded in as their own pseudo-rows
-   *  (one per aggregate doc) since they don't have per-unit colour
-   *  records to break down. */
+   *  first. Aggregate rollups (office + SHS) are folded in as their own
+   *  pseudo-rows (one per aggregate doc) since they don't have per-unit
+   *  colour records to break down. */
   const grouped = useMemo(() => {
     type G = { key: string; model: string; total: number; byColour: Map<string, number>; latestBp: number; };
     const map = new Map<string, G>();
@@ -997,26 +1017,33 @@ function BuyExcelOverlay({
       if (u.buyPrice && u.buyPrice > 0) g.latestBp = u.buyPrice;
       map.set(key, g);
     }
-    for (const a of shsAggregates) {
+    for (const a of aggregates) {
       const model = (a.model || '').trim() || '—';
-      const key = `shs::${a.id}`;
+      const shs = isShsAgg(a);
+      const key = `${shs ? 'shs' : 'agg'}::${a.id}`;
       const qty = a.quantityNum ?? 0;
       const byColour = new Map<string, number>();
       const colsRaw = (a.coloursRaw || '').trim();
       if (colsRaw) byColour.set(colsRaw, qty);
       else byColour.set('Unspecified', qty);
-      map.set(key, { key, model: `${model} · SHS`, total: qty, byColour, latestBp: a.buyPrice || 0 });
+      map.set(key, {
+        key,
+        model: shs ? `${model} · SHS` : model,
+        total: qty,
+        byColour,
+        latestBp: a.buyPrice || 0,
+      });
     }
     return Array.from(map.values()).sort((a, b) => b.total - a.total || a.model.localeCompare(b.model));
-  }, [rows, shsAggregates]);
+  }, [rows, aggregates]);
 
   const totalValue = useMemo(
     () => rows.reduce((s, u) => s + (u.buyPrice || 0), 0)
-        + shsAggregates.reduce((s, a) => s + ((a.buyPrice || 0) * (a.quantityNum || 0)), 0),
-    [rows, shsAggregates],
+        + aggregates.reduce((s, a) => s + ((a.buyPrice || 0) * (a.quantityNum || 0)), 0),
+    [rows, aggregates],
   );
   const totalCount = rows.length
-    + shsAggregates.reduce((s, a) => s + (a.quantityNum || 0), 0);
+    + aggregates.reduce((s, a) => s + (a.quantityNum || 0), 0);
 
   return (
     <motion.div
@@ -1064,7 +1091,7 @@ function BuyExcelOverlay({
 
         {/* Excel-style table */}
         <div className="flex-1 overflow-auto">
-          {rows.length === 0 && shsAggregates.length === 0 ? (
+          {rows.length === 0 && aggregates.length === 0 ? (
             <div className="py-16 flex flex-col items-center gap-2 text-slate-400">
               <Sparkles size={28} />
               <p className="text-[11px] font-mono uppercase tracking-widest">No rows match the active filter</p>
@@ -1139,17 +1166,26 @@ function BuyExcelOverlay({
                 </tr>
               </thead>
               <tbody>
-                {/* SHS aggregate rows render at the top — they don't have IMEIs but
-                    do appear in the SHS Stock overlay. */}
-                {shsAggregates.map(a => {
+                {/* Aggregate rollup rows render at the top — they carry a
+                    rollup quantity but no IMEIs. SHS aggregates use the amber
+                    "SHS" badge; office rollups use a blue "OFFICE" badge so
+                    the operator can tell at a glance which rows still need
+                    IMEI capture. */}
+                {aggregates.map(a => {
+                  const shs = isShsAgg(a);
                   const supplierName = a.supplierIds?.[0] ? (supplierMap[a.supplierIds[0]] || a.supplierIds[0]) : '—';
+                  const rowBg     = shs ? 'bg-amber-50/40 hover:bg-amber-50/70' : 'bg-blue-50/40 hover:bg-blue-50/70';
+                  const stickyBg  = shs ? 'bg-amber-50/40 border-r border-amber-100' : 'bg-blue-50/40 border-r border-blue-100';
+                  const badgeCls  = shs
+                    ? 'text-amber-700 bg-amber-100'
+                    : 'text-blue-700 bg-blue-100';
                   return (
-                    <tr key={`agg-${a.id}`} className="bg-amber-50/40 hover:bg-amber-50/70 transition-colors">
-                      <Td sticky leftPx={0} className="bg-amber-50/40 border-r border-amber-100"><span className="text-slate-400">—</span></Td>
+                    <tr key={`agg-${a.id}`} className={`${rowBg} transition-colors`}>
+                      <Td sticky leftPx={0} className={stickyBg}><span className="text-slate-400">—</span></Td>
                       <Td><span className="font-bold text-slate-900">{a.model}</span></Td>
                       <Td>
-                        <span className="inline-flex items-center gap-1 text-[9px] font-bold text-amber-700 bg-amber-100 px-1.5 py-0.5 rounded uppercase tracking-widest">
-                          <Truck size={9} /> SHS · {a.quantityNum ?? '?'}
+                        <span className={`inline-flex items-center gap-1 text-[9px] font-bold ${badgeCls} px-1.5 py-0.5 rounded uppercase tracking-widest`}>
+                          <Truck size={9} /> {shs ? 'SHS' : 'OFFICE'} · {a.quantityNum ?? '?'}
                         </span>
                       </Td>
                       <Td><span className="text-slate-400">—</span></Td>
