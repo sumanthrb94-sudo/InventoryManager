@@ -190,6 +190,22 @@ export function calcSaleFinancials(input: CalcSaleFinancialsInput): SaleFinancia
     eBayShippingTier ?? postageOverride ?? fee.postage,
   );
 
+  // GP% denominator differs by marketplace per the live master SALES_REPORT
+  // formulas in /xl/worksheets/sheet{1..5}.xml. Caveat: every marketplace
+  // writes the denominator as `G{row}`, but G is BP on AMAZON/BM/PROJECT
+  // (col G = BP) and SP on ONBUY (col G = SP — ONBUY has no Quantity column
+  // so headers shift one left). EBAY uses an explicit `H{row}` (col H = SP).
+  // Net result:
+  //   AMAZON / BM / PROJECT     GP% = GP / BP * 100   (margin-over-cost)
+  //   EBAY / ONBUY              GP% = GP / SP * 100   (gross-margin-over-revenue)
+  // Until 2026-05 the runtime divided by SP for every marketplace, which made
+  // the AMAZON/BM/PROJECT in-app GP% read about half what the operator's
+  // master file computes on open. Both conventions are valid business
+  // metrics — we match the operator's file so the screen + the workbook +
+  // reports all agree per-marketplace.
+  const gpPctByBp = (gp: number) => bp > 0 ? r2(gp / bp * 100) : 0;
+  const gpPctBySp = (gp: number) => sp > 0 ? r2(gp / sp * 100) : 0;
+
   switch (marketplace) {
     case 'AMAZON':
     case 'PROJECT': {
@@ -197,7 +213,7 @@ export function calcSaleFinancials(input: CalcSaleFinancialsInput): SaleFinancia
       const marginalTax = r2(spMinusBp / (fee.marginTaxDivisor ?? 6));
       const commission  = r2(sp * fee.commissionPct / 100);
       const grossProfit = r2(sp - bp - marginalTax - commission - postage);
-      const gpPercent   = sp > 0 ? r2(grossProfit / sp * 100) : 0;
+      const gpPercent   = gpPctByBp(grossProfit);
       return { spMinusBp, marginalTax, commission, postage, grossProfit, gpPercent };
     }
 
@@ -209,7 +225,7 @@ export function calcSaleFinancials(input: CalcSaleFinancialsInput): SaleFinancia
         : undefined;
       const ppk = payPalKlarnaCom ?? 0;
       const grossProfit = r2(sp - bp - marginalTax - commission - postage - ppk);
-      const gpPercent   = sp > 0 ? r2(grossProfit / sp * 100) : 0;
+      const gpPercent   = gpPctByBp(grossProfit);
       return { spMinusBp, marginalTax, commission, payPalKlarnaCom, postage, grossProfit, gpPercent };
     }
 
@@ -226,13 +242,18 @@ export function calcSaleFinancials(input: CalcSaleFinancialsInput): SaleFinancia
       const fvf = r2(fee.fixedFee ?? 0);                        // 0.40
 
       // `0.2` column (literal numeric header in the workbook) = 20% on the
-      // (COM + ROF + FVF) bundle. Use unrounded intermediates to avoid drift.
+      // (COM + ROF + FVF) bundle. The master sheet's formula
+      // `=(K+L+M)*20%` references the already-displayed (rounded) cells,
+      // so we use the rounded intermediates here too — drift would only
+      // appear if Excel were configured to use precision-as-displayed off,
+      // which the master workbook is not.
       const twentyPercent = r2((commission + rof + fvf) * ((fee.vatPct ?? 20) / 100));
       const totalCom      = r2(commission + rof + fvf + twentyPercent);
 
       // GP = I - J - O - P  → (SP-BP) - MAR TAX - T.COM - SHIPPING
       const grossProfit = r2(spMinusBp - marginalTax - totalCom - postage);
-      const gpPercent   = sp > 0 ? r2(grossProfit / sp * 100) : 0;
+      // EBAY is the only marketplace whose GP% master formula divides by SP.
+      const gpPercent   = gpPctBySp(grossProfit);
 
       // NP(incl. PROMOTION) = GP - SP*5%
       const netProfit = r2(grossProfit - sp * (fee.promoPct ?? 0) / 100);
@@ -250,7 +271,9 @@ export function calcSaleFinancials(input: CalcSaleFinancialsInput): SaleFinancia
       const commission = r2(sp * fee.commissionPct / 100);            // COM 7% = SP*7%
       const vat20    = r2(marVat * (fee.vatPct ?? 20) / 100);         // VAT 20% = MAR VAT * 20%
       const grossProfit = r2(sp - bp - commission - postage - marVat - vat20);
-      const gpPercent   = sp > 0 ? r2(grossProfit / sp * 100) : 0;
+      // ONBUY's master formula `=M/G*100` uses col G which is SP on this
+      // sheet (no Quantity column shifts the layout). Divide by SP, not BP.
+      const gpPercent   = gpPctBySp(grossProfit);
       return {
         spMinusBp,
         marginalTax: marVat,   // populate the generic field too
