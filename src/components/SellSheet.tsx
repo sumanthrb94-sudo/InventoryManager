@@ -299,10 +299,22 @@ export default function SellSheet(_props: Props) {
       if (d === today) { todayCount++; todayRevenue += s.salePrice ?? 0; todayGP += s.grossProfit ?? 0; }
       if (d >= monthStart && d <= today) { monthCount++; monthRevenue += s.salePrice ?? 0; monthGP += s.grossProfit ?? 0; }
     }
-    let todayReturned = 0, monthReturned = 0, allReturned = 0;
+    // Return chips count DISTINCT returned units, not voided sale events.
+    // A unit that's been sold→returned→re-sold→returned produces 2 voided
+    // sales but only 1 physical unit-with-returnType. The Returns page
+    // counts units, so the Sell chips align by deduping on unitId here.
+    // Date scoping uses the EARLIEST void-event date for each unit so a
+    // unit returned multiple times within a period still counts once.
+    const earliestVoidByUnit = new Map<string, string>();
     for (const v of voidedSales) {
-      allReturned++;
+      const key = v.sale.unitId || v.sale.id;
       const d = v.voidedAt.split('T')[0];
+      const prev = earliestVoidByUnit.get(key);
+      if (!prev || d < prev) earliestVoidByUnit.set(key, d);
+    }
+    let todayReturned = 0, monthReturned = 0, allReturned = 0;
+    for (const d of earliestVoidByUnit.values()) {
+      allReturned++;
       if (d === today) todayReturned++;
       if (d >= monthStart && d <= today) monthReturned++;
     }
