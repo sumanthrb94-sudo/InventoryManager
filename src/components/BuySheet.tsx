@@ -976,6 +976,10 @@ const OVERLAY_COLUMNS: { key: string; label: string; width: number; align?: 'lef
   { key: 'customerName',   label: 'Customer',       width: 140 },
   { key: 'saleOrderId',    label: 'Order ID',       width: 130 },
   { key: 'postageCost',    label: 'Postage',        width: 80,  align: 'right' },
+  // Notes lives in the middle of the schema so it stays visible without
+  // scrolling all the way to the right edge — most office-stock review is
+  // about reading the operator's note alongside the basic identity columns.
+  { key: 'notes',          label: 'Notes',          width: 240 },
   { key: 'batchNo',        label: 'Batch No',       width: 110 },
   { key: 'stockLocation',  label: 'Location',       width: 110 },
   { key: 'batteryHealth',  label: 'Battery',        width: 80,  align: 'right' },
@@ -992,7 +996,6 @@ const OVERLAY_COLUMNS: { key: string; label: string; width: number; align?: 'lef
   { key: 'stockOutDate',   label: 'Out On',         width: 100 },
   { key: 'flags',          label: 'Flags',          width: 130 },
   { key: 'sku',            label: 'SKU',            width: 130 },
-  { key: 'notes',          label: 'Notes',          width: 240 },
 ];
 
 function fmtOverlayCell(
@@ -1120,14 +1123,15 @@ function BuyExcelOverlay({
    *  pseudo-rows (one per aggregate doc) since they don't have per-unit
    *  colour records to break down. */
   const grouped = useMemo(() => {
-    type G = { key: string; model: string; total: number; byColour: Map<string, number>; latestBp: number; };
+    type G = { key: string; model: string; total: number; byColour: Map<string, number>; latestBp: number; totalValue: number };
     const map = new Map<string, G>();
     for (const u of rows) {
       const model = (u.model || '').trim() || '—';
       const key = `unit::${model.toLowerCase()}`;
       let g = map.get(key);
-      if (!g) g = { key, model, total: 0, byColour: new Map(), latestBp: u.buyPrice || 0 };
+      if (!g) g = { key, model, total: 0, byColour: new Map(), latestBp: u.buyPrice || 0, totalValue: 0 };
       g.total++;
+      g.totalValue += u.buyPrice || 0;
       const c = (u.colour || '').trim() || 'Unspecified';
       g.byColour.set(c, (g.byColour.get(c) ?? 0) + 1);
       if (u.buyPrice && u.buyPrice > 0) g.latestBp = u.buyPrice;
@@ -1138,6 +1142,7 @@ function BuyExcelOverlay({
       const shs = isShsAgg(a);
       const key = `${shs ? 'shs' : 'agg'}::${a.id}`;
       const qty = a.quantityNum ?? 0;
+      const bp = a.buyPrice || 0;
       const byColour = new Map<string, number>();
       const colsRaw = (a.coloursRaw || '').trim();
       if (colsRaw) byColour.set(colsRaw, qty);
@@ -1147,7 +1152,8 @@ function BuyExcelOverlay({
         model: shs ? `${model} · SHS` : model,
         total: qty,
         byColour,
-        latestBp: a.buyPrice || 0,
+        latestBp: bp,
+        totalValue: qty * bp,
       });
     }
     return Array.from(map.values()).sort((a, b) => b.total - a.total || a.model.localeCompare(b.model));
@@ -1230,11 +1236,25 @@ function BuyExcelOverlay({
                         <span className="block font-bold text-slate-900 text-[12px] truncate">{g.model}</span>
                         <span className="block text-[9px] font-mono text-slate-400 mt-0.5">
                           {colours.length} {colours.length === 1 ? 'colour' : 'colours'}
-                          {g.latestBp > 0 && <> · £{g.latestBp} latest BP</>}
+                          {g.latestBp > 0 && <> · £{g.latestBp.toLocaleString('en-GB', { maximumFractionDigits: 0 })} latest BP</>}
+                          {/* When there's more than one unit, surface the
+                              rolled-up stock value (Σ buyPrice) alongside
+                              the latest BP so the operator can read total
+                              capital tied up in this SKU at a glance. */}
+                          {g.total > 1 && g.totalValue > 0 && (
+                            <> · £{g.totalValue.toLocaleString('en-GB', { maximumFractionDigits: 0 })} total</>
+                          )}
                         </span>
                       </span>
-                      <span className="flex-shrink-0 inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-widest bg-slate-900 text-white px-2 py-1 rounded-lg">
-                        × {g.total}
+                      <span className="flex-shrink-0 flex flex-col items-end gap-1">
+                        <span className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-widest bg-slate-900 text-white px-2 py-1 rounded-lg">
+                          × {g.total}
+                        </span>
+                        {g.total > 1 && g.totalValue > 0 && (
+                          <span className="text-[9px] font-mono font-bold text-emerald-700">
+                            £{g.totalValue.toLocaleString('en-GB', { maximumFractionDigits: 0 })}
+                          </span>
+                        )}
                       </span>
                     </button>
                     <AnimatePresence initial={false}>
