@@ -518,12 +518,8 @@ export default function BuySheet(_props: Props) {
           default reading view. */}
       <InlineSheet
         rows={inlineRows}
-        sort={sort}
-        onSort={setSort}
+        aggregates={[...officeAggs, ...shsAggs]}
         supplierMap={supplierMap}
-        suppliers={suppliers}
-        region={region}
-        onSaveCell={saveCell}
       />
 
       {/* ── Excel overlay modal — opens when a KPI tile is clicked ────────── */}
@@ -804,25 +800,282 @@ function FilterChipsGroup({
   );
 }
 
-// ── Inline Excel sheet (always-on, below the filter panel) ──────────────────
-// Renders the same 9-column buy schema as the overlay but without modal
-// chrome — this is the reading + sorting + inline-edit surface that lives on
-// the page so the operator never has to open an overlay just to view rows.
+// ── Grouped-model helpers (shared by InlineSheet + BuyExcelOverlay) ─────────
+// One row per (model) bucket: total qty, per-colour breakdown, latest BP,
+// rolled-up stock value, distinct operator notes. Aggregate rollups are
+// folded in as their own pseudo-buckets (since they have no IMEIs) and
+// rendered alongside IMEI-tracked groups — both surfaces dedupe so a model
+// that has IMEIs doesn't also surface its rollup. The grouping is the
+// page's primary "what do we have on hand" lens.
+
+type GroupSortMode = 'qty' | 'value' | 'bp' | 'model';
+
+type GroupedModel = {
+  key: string;
+  model: string;
+  total: number;
+  byColour: Map<string, number>;
+  latestBp: number;
+  totalValue: number;
+  /** Distinct non-empty notes across every unit / aggregate in the group. */
+  notes: Set<string>;
+  /** True when this bucket originates from a master-file SHS aggregate. */
+  shs: boolean;
+};
+
+function buildGroupedModels(
+  rows: InventoryUnit[],
+  aggregates: InventoryAggregate[],
+): GroupedModel[] {
+  const map = new Map<string, GroupedModel>();
+  for (const u of rows) {
+    const model = (u.model || '').trim() || '—';
+    const key = `unit::${model.toLowerCase()}`;
+    let g = map.get(key);
+    if (!g) g = { key, model, total: 0, byColour: new Map(), latestBp: u.buyPrice || 0, totalValue: 0, notes: new Set(), shs: false };
+    g.total++;
+    g.totalValue += u.buyPrice || 0;
+    const c = (u.colour || '').trim() || 'Unspecified';
+    g.byColour.set(c, (g.byColour.get(c) ?? 0) + 1);
+    if (u.buyPrice && u.buyPrice > 0) g.latestBp = u.buyPrice;
+    const n = (u.notes || '').trim();
+    if (n) g.notes.add(n);
+    map.set(key, g);
+  }
+  for (const a of aggregates) {
+    const model = (a.model || '').trim() || '—';
+    const shs = (a.quantityText || '').toUpperCase() === 'SHS';
+    const key = `${shs ? 'shs' : 'agg'}::${a.id}`;
+    const qty = a.quantityNum ?? 0;
+    const bp = a.buyPrice || 0;
+    const byColour = new Map<string, number>();
+    const colsRaw = (a.coloursRaw || '').trim();
+    if (colsRaw) byColour.set(colsRaw, qty);
+    else byColour.set('Unspecified', qty);
+    const notes = new Set<string>();
+    const n = (a.notes || '').trim();
+    if (n) notes.add(n);
+    map.set(key, {
+      key,
+      model: shs ? `${model} · SHS` : model,
+      total: qty,
+      byColour,
+      latestBp: bp,
+      totalValue: qty * bp,
+      notes,
+      shs,
+    });
+  }
+  return Array.from(map.values());
+}
+
+function sortGroupedModels(groups: GroupedModel[], mode: GroupSortMode): GroupedModel[] {
+  const arr = [...groups];
+  switch (mode) {
+    case 'value':
+      arr.sort((a, b) => b.totalValue - a.totalValue || a.model.localeCompare(b.model));
+      break;
+    case 'model':
+      arr.sort((a, b) => a.model.localeCompare(b.model));
+      break;
+    case 'bp':
+      arr.sort((a, b) => b.latestBp - a.latestBp || a.model.localeCompare(b.model));
+      break;
+    case 'qty':
+    default:
+      arr.sort((a, b) => b.total - a.total || a.model.localeCompare(b.model));
+  }
+  return arr;
+}
+
+/** Tri-pill sort selector used on both the inline grouped view and the
+ *  KPI overlay. Kept tiny so it sits on the toolbar without forcing the
+ *  totals line to wrap. */
+function GroupSortPills({
+  mode, onChange,
+}: {
+  mode: GroupSortMode;
+  onChange: (m: GroupSortMode) => void;
+}) {
+  const opts: ReadonlyArray<{ id: GroupSortMode; label: string }> = [
+    { id: 'qty',   label: 'Qty'       },
+    { id: 'value', label: 'Value'     },
+    { id: 'bp',    label: 'Latest BP' },
+    { id: 'model', label: 'A→Z'       },
+  ];
+  return (
+    <div className="flex items-center gap-1.5">
+      <span className="text-[9px] font-mono uppercase tracking-widest text-slate-400">Sort</span>
+      <div className="inline-flex rounded-lg bg-slate-100 p-0.5 text-[9px] font-bold uppercase tracking-widest">
+        {opts.map(o => (
+          <button
+            key={o.id}
+            onClick={() => onChange(o.id)}
+            className={`px-2 py-1 rounded-md transition-all ${mode === o.id ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+            title={`Sort grouped rows by ${o.label.toLowerCase()}`}
+          >
+            {o.label}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/** Excel-style grouped table. One <tr> per model with chevron / model /
+ *  colours / qty / latest BP / total value / notes. Compact: each row is
+ *  a single line of ~32px (no stacked card content) — chosen to save
+ *  vertical space so the operator can scan many models at once. Click a
+ *  row to insert a second <tr> below it carrying the per-colour breakdown.
+ *  Used by both the inline page view and the KPI overlay so the operator
+ *  always sees the same affordances. */
+function GroupedExcelTable({
+  groups, expanded, onToggle,
+}: {
+  groups: GroupedModel[];
+  expanded: Set<string>;
+  onToggle: (key: string) => void;
+}) {
+  return (
+    <table className="w-full text-[11px] border-separate border-spacing-0" style={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace' }}>
+      <thead>
+        <tr className="text-[9px] font-bold uppercase tracking-widest text-slate-500 bg-slate-50">
+          <th className="text-left px-2 py-2 sticky top-0 z-10 bg-slate-50 border-b border-slate-200" style={{ width: 28 }}></th>
+          <th className="text-left px-3 py-2 sticky top-0 z-10 bg-slate-50 border-b border-slate-200" style={{ minWidth: 240 }}>Model</th>
+          <th className="text-left px-3 py-2 sticky top-0 z-10 bg-slate-50 border-b border-slate-200" style={{ width: 140 }}>Colours</th>
+          <th className="text-right px-3 py-2 sticky top-0 z-10 bg-slate-50 border-b border-slate-200" style={{ width: 70 }}>Qty</th>
+          <th className="text-right px-3 py-2 sticky top-0 z-10 bg-slate-50 border-b border-slate-200" style={{ width: 100 }}>Latest BP</th>
+          <th className="text-right px-3 py-2 sticky top-0 z-10 bg-slate-50 border-b border-slate-200" style={{ width: 110 }}>Total Value</th>
+          <th className="text-left px-3 py-2 sticky top-0 z-10 bg-slate-50 border-b border-slate-200" style={{ minWidth: 200 }}>Notes</th>
+        </tr>
+      </thead>
+      <tbody>
+        {groups.map((g, idx) => {
+          const open = expanded.has(g.key);
+          const colours = Array.from(g.byColour.entries()).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+          const rowBg = idx % 2 === 1 ? 'bg-slate-50/40 hover:bg-slate-100/60' : 'bg-white hover:bg-slate-50';
+          const tone = g.shs
+            ? 'bg-amber-100 text-amber-700'
+            : 'bg-slate-900 text-white';
+          const noteList = Array.from(g.notes);
+          return (
+            <React.Fragment key={g.key}>
+              <tr
+                className={`${rowBg} transition-colors cursor-pointer`}
+                onClick={() => onToggle(g.key)}
+              >
+                <td className="px-2 py-1.5 border-b border-slate-100 align-middle">
+                  <span className={`inline-flex w-5 h-5 items-center justify-center rounded-md text-slate-400 transition-transform ${open ? 'rotate-90 text-slate-700' : ''}`}>
+                    <ChevronRight size={12} />
+                  </span>
+                </td>
+                <td className="px-3 py-1.5 border-b border-slate-100 align-middle">
+                  <span className="font-bold text-slate-900 truncate block" title={g.model}>{g.model}</span>
+                </td>
+                <td className="px-3 py-1.5 border-b border-slate-100 align-middle text-slate-600">
+                  {colours.length === 1
+                    ? <span className="truncate block" title={colours[0][0]}>{colours[0][0]}</span>
+                    : <span>{colours.length} colours</span>
+                  }
+                </td>
+                <td className="px-3 py-1.5 border-b border-slate-100 align-middle text-right">
+                  <span className={`inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-widest px-2 py-0.5 rounded ${tone}`}>
+                    × {g.total}
+                  </span>
+                </td>
+                <td className="px-3 py-1.5 border-b border-slate-100 align-middle text-right text-slate-700">
+                  {g.latestBp > 0 ? `£${g.latestBp.toLocaleString('en-GB', { maximumFractionDigits: 0 })}` : <span className="text-slate-300">—</span>}
+                </td>
+                <td className="px-3 py-1.5 border-b border-slate-100 align-middle text-right">
+                  {g.totalValue > 0
+                    ? <span className="font-bold text-emerald-700">£{g.totalValue.toLocaleString('en-GB', { maximumFractionDigits: 0 })}</span>
+                    : <span className="text-slate-300">—</span>
+                  }
+                </td>
+                <td className="px-3 py-1.5 border-b border-slate-100 align-middle">
+                  {noteList.length === 0 ? (
+                    <span className="text-slate-300">—</span>
+                  ) : (
+                    <span className="flex flex-wrap gap-1">
+                      {noteList.slice(0, 2).map(n => (
+                        <span
+                          key={n}
+                          className="inline-flex items-center gap-1 text-[9px] font-mono text-amber-800 bg-amber-50 border border-amber-200 rounded px-1.5 py-0.5 max-w-[180px] truncate"
+                          title={n}
+                        >
+                          <span className="uppercase tracking-widest text-[8px] font-bold text-amber-600">note</span> {n}
+                        </span>
+                      ))}
+                      {noteList.length > 2 && (
+                        <span
+                          className="text-[9px] font-mono text-slate-400"
+                          title={noteList.slice(2).join(' · ')}
+                        >+{noteList.length - 2} more</span>
+                      )}
+                    </span>
+                  )}
+                </td>
+              </tr>
+              {open && (
+                <tr className="bg-slate-50/60">
+                  <td colSpan={7} className="px-0 py-0 border-b border-slate-100">
+                    <ul className="pl-10 pr-4 py-2 divide-y divide-slate-200/70">
+                      {colours.map(([colour, qty]) => (
+                        <li key={colour} className="flex items-center justify-between py-1.5">
+                          <span className="flex items-center gap-2 min-w-0">
+                            <ColourDot colour={colour} />
+                            <span className="text-[11px] text-slate-700 truncate">{colour}</span>
+                          </span>
+                          <span className="inline-flex items-center text-[10px] font-mono font-bold text-slate-700 bg-white border border-slate-200 px-2 py-0.5 rounded">
+                            × {qty}
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                  </td>
+                </tr>
+              )}
+            </React.Fragment>
+          );
+        })}
+      </tbody>
+    </table>
+  );
+}
+
+// ── Inline grouped view (always-on, below the filter panel) ─────────────────
+// The default Buy-page reading surface: one row per model with a qty badge,
+// per-colour expansion, rolled-up stock value when qty > 1, and operator
+// notes as chips. Per-IMEI editing moves to the KPI overlay's detailed view —
+// this surface is for fast inventory scanning, not row-by-row data entry.
 function InlineSheet({
-  rows, sort, onSort, supplierMap, suppliers, region, onSaveCell,
+  rows, aggregates, supplierMap,
 }: {
   rows: InventoryUnit[];
-  sort: { key: SortKey; dir: SortDir };
-  onSort: (s: { key: SortKey; dir: SortDir }) => void;
+  /** Master-file rollups. Already filtered to office/SHS upstream by the
+   *  parent; passed through so a fresh import (no IMEIs yet) still shows
+   *  rolled-up rows here. */
+  aggregates: InventoryAggregate[];
   supplierMap: Record<string, string>;
-  suppliers: Supplier[];
-  region: 'uk' | 'india' | 'admin' | 'both';
-  onSaveCell: (u: InventoryUnit, field: string, value: any) => Promise<void>;
 }) {
-  const [editingCell, setEditingCell] = useState<{ id: string; field: string } | null>(null);
-  const toggleSort = (k: SortKey) => onSort({ key: k, dir: sort.key === k && sort.dir === 'desc' ? 'asc' : 'desc' });
+  void supplierMap; // reserved for future per-supplier rollup; keeps prop stable
+  const [groupedSort, setGroupedSort] = useState<GroupSortMode>('qty');
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const toggle = (key: string) => setExpanded(prev => {
+    const next = new Set(prev);
+    next.has(key) ? next.delete(key) : next.add(key);
+    return next;
+  });
 
-  if (rows.length === 0) {
+  const grouped = useMemo(
+    () => sortGroupedModels(buildGroupedModels(rows, aggregates), groupedSort),
+    [rows, aggregates, groupedSort],
+  );
+
+  const totalUnits = grouped.reduce((s, g) => s + g.total, 0);
+  const totalValue = grouped.reduce((s, g) => s + g.totalValue, 0);
+
+  if (grouped.length === 0) {
     return (
       <div className="bg-white border border-slate-200 rounded-3xl p-12 text-center text-slate-400">
         <Sparkles size={28} className="mx-auto" />
@@ -834,152 +1087,19 @@ function InlineSheet({
 
   return (
     <div className="bg-white border border-slate-200 rounded-3xl shadow-sm overflow-hidden">
+      {/* Toolbar — totals on the left, sort pills on the right. Mirrors the
+          KPI overlay's controls so muscle memory carries over. */}
+      <div className="flex items-center justify-between gap-2 px-4 py-2.5 border-b border-slate-100 bg-slate-50/60 flex-wrap">
+        <p className="text-[10px] font-mono uppercase tracking-widest text-slate-500">
+          Stock by model · {grouped.length} {grouped.length === 1 ? 'model' : 'models'} · {totalUnits.toLocaleString()} {totalUnits === 1 ? 'unit' : 'units'} · £{totalValue.toLocaleString('en-GB', { maximumFractionDigits: 0 })}
+        </p>
+        <GroupSortPills mode={groupedSort} onChange={setGroupedSort} />
+      </div>
       <div className="overflow-auto max-h-[calc(100vh-380px)] custom-scrollbar">
-        <table className="w-full text-[11px] border-separate border-spacing-0" style={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace' }}>
-          <thead>
-            <tr className="text-[9px] font-bold uppercase tracking-widest text-slate-500 bg-slate-50">
-              <Th k="dateIn"   sort={sort} onSort={toggleSort} width="110px" sticky leftPx={0}>Stock In</Th>
-              <Th k="model"    sort={sort} onSort={toggleSort} width="260px">Model</Th>
-              <Th k=""         sort={sort} onSort={undefined} width="180px">IMEI / Serial</Th>
-              <Th k="grade"    sort={sort} onSort={toggleSort} width="100px">Grade</Th>
-              <Th k="storage"  sort={sort} onSort={toggleSort} width="80px">Storage</Th>
-              <Th k="colour"   sort={sort} onSort={toggleSort} width="120px">Colour</Th>
-              <Th k="supplier" sort={sort} onSort={toggleSort} width="130px">Supplier</Th>
-              <Th k="buyPrice" sort={sort} onSort={toggleSort} width="80px" align="right">BP (£)</Th>
-              <Th k=""         sort={sort} onSort={undefined} width="220px">Notes</Th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((u, idx) => {
-              const isAlt = idx % 2 === 1;
-              const supplierName = supplierMap[u.supplierId] || u.supplierName || '—';
-              const rowBg = isAlt ? 'bg-slate-50/40 hover:bg-slate-100/60' : 'bg-white hover:bg-slate-50';
-              const apple = isAppleDevice(u.model);
-              const imeiValid = isValidImei(u.imei, { isAppleSerial: apple });
-              const tone = STATUS_TONE[u.status] || STATUS_TONE.available;
-              return (
-                <tr key={u.id} className={`${rowBg} transition-colors group`}>
-                  <Td sticky leftPx={0} className={`${rowBg} border-r border-slate-200`}>
-                    <InlineEditableCell
-                      editing={editingCell?.id === u.id && editingCell?.field === 'dateIn'}
-                      onActivate={() => setEditingCell({ id: u.id, field: 'dateIn' })}
-                      onCommit={async v => { await onSaveCell(u, 'dateIn', v); setEditingCell(null); }}
-                      onCancel={() => setEditingCell(null)}
-                      initialValue={u.dateIn || ''}
-                      type="date"
-                      display={<span className="text-slate-700">{fmtDateForUser(u.dateIn || '', region) || u.dateIn || '—'}</span>}
-                    />
-                  </Td>
-                  <Td>
-                    <div className="flex items-center gap-2 min-w-0">
-                      <div className="flex-1 min-w-0">
-                        <InlineEditableCell
-                          editing={editingCell?.id === u.id && editingCell?.field === 'model'}
-                          onActivate={() => setEditingCell({ id: u.id, field: 'model' })}
-                          onCommit={async v => { await onSaveCell(u, 'model', v); setEditingCell(null); }}
-                          onCancel={() => setEditingCell(null)}
-                          initialValue={u.model || ''}
-                          display={<span className="font-bold text-slate-900 truncate max-w-[220px] inline-block" title={u.model}>{u.model || '—'}</span>}
-                        />
-                      </div>
-                      <span className={`inline-flex items-center gap-1 text-[8px] font-bold uppercase tracking-widest px-1.5 py-0.5 rounded border ${tone.bg} ${tone.text} flex-shrink-0`}>
-                        <span className={`w-1.5 h-1.5 rounded-full ${tone.dot}`} />
-                        {u.status}
-                      </span>
-                    </div>
-                  </Td>
-                  <Td>
-                    <InlineEditableCell
-                      editing={editingCell?.id === u.id && editingCell?.field === 'imei'}
-                      onActivate={() => setEditingCell({ id: u.id, field: 'imei' })}
-                      onCommit={async v => { await onSaveCell(u, 'imei', v.trim()); setEditingCell(null); }}
-                      onCancel={() => setEditingCell(null)}
-                      initialValue={u.imei || ''}
-                      display={
-                        imeiValid ? <CopyImei imei={u.imei} truncate={18} /> :
-                        u.status === 'incoming' ? <span className="text-[10px] font-mono text-slate-400 italic">Optional for SHS</span> :
-                        <span className="inline-flex items-center gap-1 text-rose-600 text-[10px] font-mono">
-                          <AlertCircle size={10} /> {u.imei ? 'invalid' : 'missing'}
-                        </span>
-                      }
-                    />
-                  </Td>
-                  <Td>
-                    <InlineEditableSelect
-                      editing={editingCell?.id === u.id && editingCell?.field === 'grade'}
-                      onActivate={() => setEditingCell({ id: u.id, field: 'grade' })}
-                      onCommit={async v => { await onSaveCell(u, 'grade', v); setEditingCell(null); }}
-                      onCancel={() => setEditingCell(null)}
-                      value={u.grade || ''}
-                      options={['', 'A', 'B', 'C', 'ONU', 'Brand new']}
-                      formatLabel={v => v || '—'}
-                      display={<span className="text-slate-700">{u.grade || <span className="text-slate-300">—</span>}</span>}
-                    />
-                  </Td>
-                  <Td>
-                    <InlineEditableSelect
-                      editing={editingCell?.id === u.id && editingCell?.field === 'storage'}
-                      onActivate={() => setEditingCell({ id: u.id, field: 'storage' })}
-                      onCommit={async v => { await onSaveCell(u, 'storage', v); setEditingCell(null); }}
-                      onCancel={() => setEditingCell(null)}
-                      value={u.storage || ''}
-                      options={storageOptionsWith(u.storage)}
-                      formatLabel={v => v || '—'}
-                      display={<span className="text-slate-600">{u.storage || <span className="text-slate-300">—</span>}</span>}
-                    />
-                  </Td>
-                  <Td>
-                    <InlineEditableCell
-                      editing={editingCell?.id === u.id && editingCell?.field === 'colour'}
-                      onActivate={() => setEditingCell({ id: u.id, field: 'colour' })}
-                      onCommit={async v => { await onSaveCell(u, 'colour', v); setEditingCell(null); }}
-                      onCancel={() => setEditingCell(null)}
-                      initialValue={u.colour || ''}
-                      display={<span className="text-slate-600 truncate">{u.colour || '—'}</span>}
-                    />
-                  </Td>
-                  <Td>
-                    <InlineEditableSelect
-                      editing={editingCell?.id === u.id && editingCell?.field === 'supplierId'}
-                      onActivate={() => setEditingCell({ id: u.id, field: 'supplierId' })}
-                      onCommit={async v => { await onSaveCell(u, 'supplierId', v); setEditingCell(null); }}
-                      onCancel={() => setEditingCell(null)}
-                      value={u.supplierId || ''}
-                      options={['', ...suppliers.map(s => s.id)]}
-                      formatLabel={v => v ? (suppliers.find(s => s.id === v)?.name || v) : '—'}
-                      display={<span className="text-slate-700 truncate" title={supplierName}>{supplierName}</span>}
-                    />
-                  </Td>
-                  <Td align="right">
-                    <InlineEditableCell
-                      editing={editingCell?.id === u.id && editingCell?.field === 'buyPrice'}
-                      onActivate={() => setEditingCell({ id: u.id, field: 'buyPrice' })}
-                      onCommit={async v => { await onSaveCell(u, 'buyPrice', Number(v) || 0); setEditingCell(null); }}
-                      onCancel={() => setEditingCell(null)}
-                      initialValue={String(u.buyPrice ?? 0)}
-                      display={<span className="font-bold text-slate-900">£{u.buyPrice ?? 0}</span>}
-                      align="right"
-                      type="number"
-                    />
-                  </Td>
-                  <Td>
-                    <InlineEditableCell
-                      editing={editingCell?.id === u.id && editingCell?.field === 'notes'}
-                      onActivate={() => setEditingCell({ id: u.id, field: 'notes' })}
-                      onCommit={async v => { await onSaveCell(u, 'notes', v); setEditingCell(null); }}
-                      onCancel={() => setEditingCell(null)}
-                      initialValue={u.notes || ''}
-                      display={<span className="text-slate-500 truncate" title={u.notes || ''}>{u.notes || ''}</span>}
-                    />
-                  </Td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
+        <GroupedExcelTable groups={grouped} expanded={expanded} onToggle={toggle} />
       </div>
       <div className="px-5 py-2 border-t border-slate-100 bg-slate-50/60 text-[9px] font-mono uppercase tracking-widest text-slate-500">
-        Click column headers to sort · double-click any cell to edit
+        Click a row to see colour breakdown · open a KPI tile above for per-IMEI detail
       </div>
     </div>
   );
@@ -1196,81 +1316,14 @@ function BuyExcelOverlay({
     return next;
   });
 
-  /** Rows grouped by model — total count + per-colour breakdown.
-   *  Sorted by total descending so the operator's heavy SKUs surface
-   *  first. Aggregate rollups (office + SHS) are folded in as their own
-   *  pseudo-rows (one per aggregate doc) since they don't have per-unit
-   *  colour records to break down. */
-  const grouped = useMemo(() => {
-    type G = {
-      key: string;
-      model: string;
-      total: number;
-      byColour: Map<string, number>;
-      latestBp: number;
-      totalValue: number;
-      /** Distinct non-empty notes across every unit/aggregate in the group.
-       *  Set so the same operator note ("SS no E-sim", "RR STOCK") collapses
-       *  to one chip instead of repeating per-unit. */
-      notes: Set<string>;
-    };
-    const map = new Map<string, G>();
-    for (const u of searchedRows) {
-      const model = (u.model || '').trim() || '—';
-      const key = `unit::${model.toLowerCase()}`;
-      let g = map.get(key);
-      if (!g) g = { key, model, total: 0, byColour: new Map(), latestBp: u.buyPrice || 0, totalValue: 0, notes: new Set() };
-      g.total++;
-      g.totalValue += u.buyPrice || 0;
-      const c = (u.colour || '').trim() || 'Unspecified';
-      g.byColour.set(c, (g.byColour.get(c) ?? 0) + 1);
-      if (u.buyPrice && u.buyPrice > 0) g.latestBp = u.buyPrice;
-      const n = (u.notes || '').trim();
-      if (n) g.notes.add(n);
-      map.set(key, g);
-    }
-    for (const a of searchedAggregates) {
-      const model = (a.model || '').trim() || '—';
-      const shs = isShsAgg(a);
-      const key = `${shs ? 'shs' : 'agg'}::${a.id}`;
-      const qty = a.quantityNum ?? 0;
-      const bp = a.buyPrice || 0;
-      const byColour = new Map<string, number>();
-      const colsRaw = (a.coloursRaw || '').trim();
-      if (colsRaw) byColour.set(colsRaw, qty);
-      else byColour.set('Unspecified', qty);
-      const notes = new Set<string>();
-      const n = (a.notes || '').trim();
-      if (n) notes.add(n);
-      map.set(key, {
-        key,
-        model: shs ? `${model} · SHS` : model,
-        total: qty,
-        byColour,
-        latestBp: bp,
-        totalValue: qty * bp,
-        notes,
-      });
-    }
-    const arr = Array.from(map.values());
-    // Apply the operator's chosen sort. All non-default modes break ties
-    // by model name ascending so the order is stable across re-renders.
-    switch (groupedSort) {
-      case 'value':
-        arr.sort((a, b) => b.totalValue - a.totalValue || a.model.localeCompare(b.model));
-        break;
-      case 'model':
-        arr.sort((a, b) => a.model.localeCompare(b.model));
-        break;
-      case 'bp':
-        arr.sort((a, b) => b.latestBp - a.latestBp || a.model.localeCompare(b.model));
-        break;
-      case 'qty':
-      default:
-        arr.sort((a, b) => b.total - a.total || a.model.localeCompare(b.model));
-    }
-    return arr;
-  }, [searchedRows, searchedAggregates, groupedSort]);
+  /** Rows grouped by model — shared with InlineSheet via buildGroupedModels.
+   *  Aggregate rollups (office + SHS) are folded in as their own pseudo-rows
+   *  (one per aggregate doc) since they don't have per-unit colour records
+   *  to break down. */
+  const grouped = useMemo(
+    () => sortGroupedModels(buildGroupedModels(searchedRows, searchedAggregates), groupedSort),
+    [searchedRows, searchedAggregates, groupedSort],
+  );
 
   const totalValue = useMemo(
     () => searchedRows.reduce((s, u) => s + (u.buyPrice || 0), 0)
@@ -1349,27 +1402,8 @@ function BuyExcelOverlay({
             )}
           </div>
           {viewMode === 'grouped' && (
-            <div className="flex items-center gap-1.5 flex-shrink-0">
-              <span className="text-[9px] font-mono uppercase tracking-widest text-slate-400">Sort</span>
-              <div className="inline-flex rounded-lg bg-slate-100 p-0.5 text-[9px] font-bold uppercase tracking-widest">
-                {(
-                  [
-                    { id: 'qty',   label: 'Qty'      },
-                    { id: 'value', label: 'Value'    },
-                    { id: 'bp',    label: 'Latest BP'},
-                    { id: 'model', label: 'A→Z'      },
-                  ] as const
-                ).map(opt => (
-                  <button
-                    key={opt.id}
-                    onClick={() => setGroupedSort(opt.id)}
-                    className={`px-2 py-1 rounded-md transition-all ${groupedSort === opt.id ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
-                    title={`Sort grouped rows by ${opt.label.toLowerCase()}`}
-                  >
-                    {opt.label}
-                  </button>
-                ))}
-              </div>
+            <div className="flex-shrink-0">
+              <GroupSortPills mode={groupedSort} onChange={setGroupedSort} />
             </div>
           )}
         </div>
@@ -1382,92 +1416,11 @@ function BuyExcelOverlay({
               <p className="text-[11px] font-mono uppercase tracking-widest">No rows match the active filter</p>
             </div>
           ) : viewMode === 'grouped' ? (
-            <ul className="divide-y divide-slate-100" style={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace' }}>
-              {grouped.map(g => {
-                const open = expandedModels.has(g.key);
-                const colours = Array.from(g.byColour.entries()).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
-                return (
-                  <li key={g.key}>
-                    <button
-                      onClick={() => toggleExpand(g.key)}
-                      className="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-slate-50 transition-colors"
-                    >
-                      <span className={`flex-shrink-0 w-5 h-5 inline-flex items-center justify-center rounded-md text-slate-400 transition-transform ${open ? 'rotate-90 text-slate-700' : ''}`}>
-                        <ChevronRight size={13} />
-                      </span>
-                      <span className="flex-1 min-w-0">
-                        <span className="block font-bold text-slate-900 text-[12px] truncate">{g.model}</span>
-                        <span className="block text-[9px] font-mono text-slate-400 mt-0.5">
-                          {colours.length} {colours.length === 1 ? 'colour' : 'colours'}
-                          {g.latestBp > 0 && <> · £{g.latestBp.toLocaleString('en-GB', { maximumFractionDigits: 0 })} latest BP</>}
-                          {/* When there's more than one unit, surface the
-                              rolled-up stock value (Σ buyPrice) alongside
-                              the latest BP so the operator can read total
-                              capital tied up in this SKU at a glance. */}
-                          {g.total > 1 && g.totalValue > 0 && (
-                            <> · £{g.totalValue.toLocaleString('en-GB', { maximumFractionDigits: 0 })} total</>
-                          )}
-                        </span>
-                        {/* Operator notes rolled up across every unit in
-                            the group. Identical notes dedupe to one chip;
-                            distinct ones each render as their own chip
-                            (e.g. "SS no E-sim" + "RR STOCK"). Clicking the
-                            row still toggles the colour breakdown — the
-                            notes are read-only context, not a control. */}
-                        {g.notes.size > 0 && (
-                          <span className="flex flex-wrap gap-1 mt-1.5">
-                            {Array.from(g.notes).map(n => (
-                              <span
-                                key={n}
-                                className="inline-flex items-center gap-1 text-[9px] font-mono text-amber-800 bg-amber-50 border border-amber-200 rounded px-1.5 py-0.5 max-w-[260px] truncate"
-                                title={n}
-                              >
-                                <span className="uppercase tracking-widest text-[8px] font-bold text-amber-600">note</span> {n}
-                              </span>
-                            ))}
-                          </span>
-                        )}
-                      </span>
-                      <span className="flex-shrink-0 flex flex-col items-end gap-1">
-                        <span className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-widest bg-slate-900 text-white px-2 py-1 rounded-lg">
-                          × {g.total}
-                        </span>
-                        {g.total > 1 && g.totalValue > 0 && (
-                          <span className="text-[9px] font-mono font-bold text-emerald-700">
-                            £{g.totalValue.toLocaleString('en-GB', { maximumFractionDigits: 0 })}
-                          </span>
-                        )}
-                      </span>
-                    </button>
-                    <AnimatePresence initial={false}>
-                      {open && (
-                        <motion.div
-                          initial={{ height: 0, opacity: 0 }}
-                          animate={{ height: 'auto', opacity: 1 }}
-                          exit={{ height: 0, opacity: 0 }}
-                          transition={{ duration: 0.18 }}
-                          className="overflow-hidden bg-slate-50/60"
-                        >
-                          <ul className="pl-10 pr-4 py-2 divide-y divide-slate-200/70">
-                            {colours.map(([colour, qty]) => (
-                              <li key={colour} className="flex items-center justify-between py-1.5">
-                                <span className="flex items-center gap-2 min-w-0">
-                                  <ColourDot colour={colour} />
-                                  <span className="text-[11px] text-slate-700 truncate">{colour}</span>
-                                </span>
-                                <span className="inline-flex items-center text-[10px] font-mono font-bold text-slate-700 bg-white border border-slate-200 px-2 py-0.5 rounded">
-                                  × {qty}
-                                </span>
-                              </li>
-                            ))}
-                          </ul>
-                        </motion.div>
-                      )}
-                    </AnimatePresence>
-                  </li>
-                );
-              })}
-            </ul>
+            <GroupedExcelTable
+              groups={grouped}
+              expanded={expandedModels}
+              onToggle={toggleExpand}
+            />
           ) : (
             // Full-schema read-only Excel grid — every InventoryUnit field
             // the operator might want to scan during stock review. Mirrors
