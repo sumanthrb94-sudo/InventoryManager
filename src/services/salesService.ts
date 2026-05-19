@@ -29,6 +29,9 @@ export interface RecordSaleInput {
   salePrice: number;
   /** ISO yyyy-mm-dd; defaults to today. */
   saleDate?: string;
+  /** Operator-typed SKU. Wins over the stored unit.sku so an in-app correction
+   *  takes effect on the sale row without a separate unit edit. */
+  sku?: string;
   /** BM only — preserves Paypal/Klarna/Clear Pay/Apple Pay casing for the
    *  PayPal/Klarna 2.5% commission switch in calcSaleFinancials. */
   paymentMode?: string;
@@ -122,11 +125,15 @@ export async function recordSale(input: RecordSaleInput): Promise<RecordSaleResu
   const saleDate = input.saleDate || today();
   const nowIso = new Date().toISOString();
 
+  // SKU: prefer the operator-typed value when present (an in-modal edit), fall
+  // back to whatever's stamped on the unit. Either may be undefined / empty.
+  const sku = (input.sku ?? '').trim() || unit.sku || '';
+
   const sale: Sale = {
     id: saleId,
     marketplace: input.marketplace,
     orderNumber,
-    sku: unit.sku,
+    sku,
     imei: unit.imei,
     unitId: unit.id,
     supplierId: unit.supplierId,
@@ -165,14 +172,20 @@ export async function recordSale(input: RecordSaleInput): Promise<RecordSaleResu
     await dbService.create('sales', saleId, sale);
 
     // 2. Flip the unit to 'sold' and link sale provenance back to the unit.
-    await dbService.update('inventoryUnits', unit.id, {
+    //    Persist the operator-typed SKU on the unit too if it differs from
+    //    what was stored — keeps both surfaces in sync without a separate edit.
+    const unitPatch: Record<string, any> = {
       status: 'sold',
       salePrice: sp,
       saleDate,
       salePlatform: input.marketplace,
       saleOrderId: orderNumber,
       postageCost: fin.postage,
-    });
+    };
+    if (input.sku && input.sku.trim() && input.sku.trim() !== (unit.sku || '')) {
+      unitPatch.sku = input.sku.trim();
+    }
+    await dbService.update('inventoryUnits', unit.id, unitPatch);
   } catch (err: any) {
     return { ok: false, error: 'write_failed', message: err?.message || 'Save failed.' };
   }
