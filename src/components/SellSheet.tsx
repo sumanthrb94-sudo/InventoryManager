@@ -299,22 +299,16 @@ export default function SellSheet(_props: Props) {
       if (d === today) { todayCount++; todayRevenue += s.salePrice ?? 0; todayGP += s.grossProfit ?? 0; }
       if (d >= monthStart && d <= today) { monthCount++; monthRevenue += s.salePrice ?? 0; monthGP += s.grossProfit ?? 0; }
     }
-    // Return chips count DISTINCT returned units, not voided sale events.
-    // A unit that's been sold→returned→re-sold→returned produces 2 voided
-    // sales but only 1 physical unit-with-returnType. The Returns page
-    // counts units, so the Sell chips align by deduping on unitId here.
-    // Date scoping uses the EARLIEST void-event date for each unit so a
-    // unit returned multiple times within a period still counts once.
-    const earliestVoidByUnit = new Map<string, string>();
-    for (const v of voidedSales) {
-      const key = v.sale.unitId || v.sale.id;
-      const d = v.voidedAt.split('T')[0];
-      const prev = earliestVoidByUnit.get(key);
-      if (!prev || d < prev) earliestVoidByUnit.set(key, d);
-    }
+    // Return chips count EVENTS — every return processed adds one, even if
+    // the same physical unit was returned twice. A unit cycled through
+    // sold → returned → re-sold → returned reads as 2 sales (both count in
+    // sold-today, both legitimately earned then unearned revenue) AND 2
+    // returns processed. Reflects the operator's actual workload, not a
+    // deduped unit-level snapshot (the Returns page already shows that).
     let todayReturned = 0, monthReturned = 0, allReturned = 0;
-    for (const d of earliestVoidByUnit.values()) {
+    for (const v of voidedSales) {
       allReturned++;
+      const d = v.voidedAt.split('T')[0];
       if (d === today) todayReturned++;
       if (d >= monthStart && d <= today) monthReturned++;
     }
@@ -474,7 +468,7 @@ export default function SellSheet(_props: Props) {
             value={kpis.todayCount}
             sub={fmtGBP(kpis.todayRevenue, 0)}
             footer={fmtGBP(kpis.todayGP, 0) + ' GP'}
-            returnChip={kpis.todayReturned > 0 ? `↻ ${kpis.todayReturned} returned today` : undefined}
+            returnChip={kpis.todayReturned > 0 ? `↻ ${kpis.todayReturned} ${kpis.todayReturned === 1 ? 'return' : 'returns'} processed today` : undefined}
             tone="emerald"
             onClick={() => setOverlay('today')}
           />
@@ -483,7 +477,7 @@ export default function SellSheet(_props: Props) {
             value={kpis.monthCount}
             sub={fmtGBP(kpis.monthRevenue, 0)}
             footer={fmtGBP(kpis.monthGP, 0) + ' GP'}
-            returnChip={kpis.monthReturned > 0 ? `↻ ${kpis.monthReturned} returned this month` : undefined}
+            returnChip={kpis.monthReturned > 0 ? `↻ ${kpis.monthReturned} ${kpis.monthReturned === 1 ? 'return' : 'returns'} processed this month` : undefined}
             tone="blue"
             onClick={() => setOverlay('month')}
           />
@@ -492,7 +486,7 @@ export default function SellSheet(_props: Props) {
             value={kpis.allCount}
             sub={fmtGBP(kpis.allGP, 0) + ' GP'}
             footer={kpis.lossCount > 0 ? `${kpis.lossCount} loss-making` : 'all profitable'}
-            returnChip={kpis.allReturned > 0 ? `↻ ${kpis.allReturned} returned lifetime` : undefined}
+            returnChip={kpis.allReturned > 0 ? `↻ ${kpis.allReturned} ${kpis.allReturned === 1 ? 'return' : 'returns'} processed lifetime` : undefined}
             tone="slate"
             onClick={() => setOverlay('all')}
           />
