@@ -74,6 +74,11 @@ interface Element {
   model: string;
   /** Storage capacity for this block, or undefined when the model has none. */
   storage?: string;
+  /** Connectivity / sim / radio tag (5G, WiFi+Cellular, Dual SIM, freeform).
+   *  Same value the periodic-table bucket key uses to keep "Galaxy S20" and
+   *  "Galaxy S20 5G" in separate cells — the overlay's filter needs this too
+   *  so a click on one bucket doesn't pull in units from the other. */
+  tag?: string;
   /** Big abbreviated label rendered inside the block tile. */
   symbol: string;
   count: number;
@@ -362,27 +367,37 @@ export default function PeriodicInventory({ units, onNavigate }: Props) {
 
   const [popover, setPopover] = useState<PopoverState | null>(null);
   /** Excel-style overlay target — set when a block is clicked, null when closed. */
-  const [overlay, setOverlay] = useState<{ seriesKey: string; model: string; storage?: string } | null>(null);
+  const [overlay, setOverlay] = useState<{ seriesKey: string; model: string; storage?: string; tag?: string } | null>(null);
   // Refs for the hover grace-period timers
   const closeTimer  = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   /** Units matching the currently-selected element. Filter contract mirrors
-   *  SkuOverlayModal: substring match on model (case-insensitive, bidirectional
-   *  to handle both "iPhone 13" stored vs "iPhone 13 Pro" selected and the
-   *  reverse), exact match on storage when one is set. Sorted newest-first
-   *  by dateIn so the latest stock surfaces at the top of the overlay. */
+   *  Filter: EXACT case-insensitive match on parsed.model, exact match on
+   *  storage, exact match on tag — same fields the periodic table buckets
+   *  by. Previously a bidirectional substring (`includes`) over-matched —
+   *  e.g. clicking "Galaxy S20 FE" pulled in "Galaxy S20" units because
+   *  "Galaxy S20" is a substring of "Galaxy S20 FE". Since both the bucket
+   *  key and the filter run on the same parsed fields, exact match keeps
+   *  what's-in-the-tile and what's-in-the-overlay one-to-one. Sorted
+   *  newest-first by dateIn so the latest stock surfaces at the top. */
   const overlayRows = useMemo<InventoryUnit[]>(() => {
     if (!overlay) return [];
     const wantModel   = overlay.model.toLowerCase().trim();
     const wantStorage = (overlay.storage || '').toUpperCase().trim();
+    const wantTag     = (overlay.tag || '').toLowerCase().trim();
     return units.filter(u => {
       const parsed = parseBrandModelStorage(u.model || '');
-      const model   = (u as any).model && (parsed.model || u.model);
-      const storage = (u.storage || parsed.storage || '').toUpperCase();
-      const modelOk = (model || '').toLowerCase().includes(wantModel) ||
-                      wantModel.includes((model || '').toLowerCase());
-      const storageOk = wantStorage === '' || storage === wantStorage;
-      return modelOk && storageOk;
+      const model   = (parsed.model || u.model || '').toLowerCase().trim();
+      const storage = (u.storage || parsed.storage || '').toUpperCase().trim();
+      const tag     = (parsed.tag || '').toLowerCase().trim();
+      // Exact match — same three keys the periodic-table bucket uses.
+      // Empty-string tag on the want side means "no tag bucket"; only
+      // accept units that also have no tag. Storage may be unset on either
+      // side (e.g. accessories), in which case match if both are empty.
+      if (model !== wantModel) return false;
+      if (wantStorage !== storage) return false;
+      if (wantTag !== tag) return false;
+      return true;
     }).sort((a, b) => {
       const da = new Date(a.dateIn || 0).getTime();
       const db = new Date(b.dateIn || 0).getTime();
@@ -474,6 +489,7 @@ export default function PeriodicInventory({ units, onNavigate }: Props) {
             seriesKey,
             model:       d.model,
             storage:     d.storage,
+            tag:         d.tag,
             symbol,
             count:       d.count,
             shsCount:    d.shsCount,
@@ -613,6 +629,7 @@ export default function PeriodicInventory({ units, onNavigate }: Props) {
                           seriesKey: el.seriesKey,
                           model: el.model,
                           storage: el.storage,
+                          tag: el.tag,
                         });
                       }}
                       title={el.seriesKey}
