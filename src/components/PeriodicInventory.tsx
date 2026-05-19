@@ -360,9 +360,9 @@ export default function PeriodicInventory({ units, onNavigate }: Props) {
 
   const groups = useMemo(() => {
     try {
-    // Parse every unit ONCE upfront. Cache the parsed brand/model/storage/series
-    // alongside the unit so we can bucket by series and then by model+storage.
-    type ParsedUnit = { unit: InventoryUnit; model: string; storage?: string; series: Series };
+    // Parse every unit ONCE upfront. Cache the parsed brand/model/storage/tag/series
+    // alongside the unit so we can bucket by series and then by model+storage+tag.
+    type ParsedUnit = { unit: InventoryUnit; model: string; storage?: string; tag?: string; series: Series };
     const parseUnit = (u: InventoryUnit): ParsedUnit => {
       const p = parseBrandModelStorage(u.model);
       // Prefer the unit's own storage field when present — covers the
@@ -373,7 +373,7 @@ export default function PeriodicInventory({ units, onNavigate }: Props) {
       // (buggy) `series='Other'` field get re-derived from the cleaned model
       // string at render time. See unitSeries doc-comment.
       const series: Series = unitSeries(u);
-      return { unit: u, model: p.model || u.model, storage, series };
+      return { unit: u, model: p.model || u.model, storage, tag: p.tag, series };
     };
 
     const parsedAvailable = available.map(parseUnit);
@@ -383,22 +383,24 @@ export default function PeriodicInventory({ units, onNavigate }: Props) {
       const groupUnits    = parsedAvailable.filter(p => p.series === group.id);
       const groupIncoming = parsedIncoming.filter(p => p.series === group.id);
 
-      // Key buckets by `model|storage` so 128GB and 256GB of the same model
-      // produce SEPARATE blocks. Each bucket carries the canonical model + storage
-      // so we can format the label without re-parsing.
+      // Key buckets by `model|storage|tag` so 128GB / 256GB / 5G / Wi-Fi
+      // variants each produce SEPARATE blocks. A 5G-tagged Galaxy A32 lives
+      // next to its non-5G sibling instead of merging into one cell.
       type Bucket = {
         model: string;
         storage?: string;
+        tag?: string;
         count: number; shsCount: number; value: number;
         variants: Record<string, number>; storages: Record<string, number>; prices: number[];
       };
       const buckets: Record<string, Bucket> = {};
-      const bucketKey = (model: string, storage?: string) => `${model}|${storage ?? ''}`;
+      const bucketKey = (model: string, storage?: string, tag?: string) =>
+        `${model}|${storage ?? ''}|${tag ?? ''}`;
 
       for (const p of groupUnits) {
-        const key = bucketKey(p.model, p.storage);
+        const key = bucketKey(p.model, p.storage, p.tag);
         if (!buckets[key]) {
-          buckets[key] = { model: p.model, storage: p.storage, count: 0, shsCount: 0, value: 0, variants: {}, storages: {}, prices: [] };
+          buckets[key] = { model: p.model, storage: p.storage, tag: p.tag, count: 0, shsCount: 0, value: 0, variants: {}, storages: {}, prices: [] };
         }
         const b = buckets[key];
         b.count++;
@@ -412,23 +414,26 @@ export default function PeriodicInventory({ units, onNavigate }: Props) {
       }
 
       for (const p of groupIncoming) {
-        const key = bucketKey(p.model, p.storage);
+        const key = bucketKey(p.model, p.storage, p.tag);
         if (!buckets[key]) {
-          buckets[key] = { model: p.model, storage: p.storage, count: 0, shsCount: 0, value: 0, variants: {}, storages: {}, prices: [] };
+          buckets[key] = { model: p.model, storage: p.storage, tag: p.tag, count: 0, shsCount: 0, value: 0, variants: {}, storages: {}, prices: [] };
         }
         buckets[key].shsCount++;
       }
 
       const elements: Element[] = Object.values(buckets)
         .map((d, i) => {
-          // Label: full model name + optional storage. The substring filter
-          // downstream (the Excel overlay) matches by model+storage with
-          // matching across model/storage/colour/imei, so we hand it the model
-          // alone — that reliably narrows to all units of this model. Storage
-          // is shown in the UI as a small caption so the user still sees
-          // separate blocks per (model, storage).
+          // Label: full model name + optional storage + tag (5G / Wi-Fi+Cellular
+          // / freeform). Tag is appended after storage so a 5G variant reads
+          // as "Galaxy A32 64GB · 5G" next to its non-5G sibling. The
+          // substring filter downstream (the Excel overlay) still matches by
+          // model alone — tag is purely a display refinement here.
           const symbol = shortCode(d.model);
-          const seriesKey = d.storage ? `${d.model} ${d.storage}` : d.model;
+          const seriesKey = [
+            d.model,
+            d.storage,
+            d.tag ? `· ${d.tag}` : '',
+          ].filter(Boolean).join(' ');
           return {
             seriesKey,
             model:       d.model,

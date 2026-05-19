@@ -140,12 +140,67 @@ export interface ParsedModel {
    *  PhoneX 64GB"). Per ops rule: the FIRST WORD of any model string is
    *  always the brand. */
   brand: Brand | string;
-  /** Brand-prefix stripped, storage stripped, whitespace-collapsed. */
+  /** Brand-prefix stripped, storage stripped, TAG stripped, whitespace-collapsed. */
   model: string;
   /** Normalised storage capacity ("32GB" / "1TB"); `undefined` if none found. */
   storage?: string;
   /** Short bucket used for periodic-table grouping; `undefined` for empty input. */
   series?: Series;
+  /** Tag metadata pulled off the model string (radio / sim / connectivity).
+   *  Multiple tags joined by ", " (e.g. "WiFi+Cellular, 5G"). `undefined`
+   *  when none present. Per ops convention "wifi/cellular is a tag for the
+   *  model" — these are display-only refinements on top of the canonical
+   *  brand+model+storage triple. Round-trip: tags stay glued to the stored
+   *  model string; the parser splits them for in-app display/grouping. */
+  tag?: string;
+}
+
+/** Tag patterns evaluated in order — earlier entries win, so the
+ *  combined "WiFi+Cellular" pattern matches before the bare "WiFi" form
+ *  and they don't both fire on the same input. Patterns are global so
+ *  every occurrence in the input gets stripped on replace. */
+const TAG_PATTERNS: ReadonlyArray<{ name: string; re: RegExp }> = [
+  {
+    name: 'WiFi+Cellular',
+    re: /\bw\s*[\/+]\s*c\b|\bwi-?fi\s*[\/+]\s*cell(?:ular)?\b|\bwifi\s+(?:and|&|\+)\s*cell(?:ular)?\b/gi,
+  },
+  {
+    name: 'WiFi',
+    re: /\bwi-?fi(?:\s*[-‐-―]?\s*only)?\b/gi,
+  },
+  {
+    name: '5G',
+    re: /\b5g\b/gi,
+  },
+  {
+    name: 'Dual SIM',
+    re: /\bdual[\s-]?sim\b/gi,
+  },
+  {
+    name: 'Single SIM',
+    re: /\bsingle[\s-]?sim\b/gi,
+  },
+];
+
+/** Pull tag metadata off a model string. Returns the tag-stripped string
+ *  plus the list of normalized tag names found. The strip uses a space
+ *  replacement (not empty) so adjacent tokens don't fuse together. */
+function extractTags(input: string): { stripped: string; tags: string[] } {
+  let working = input;
+  const tags: string[] = [];
+  for (const { name, re } of TAG_PATTERNS) {
+    // Reset lastIndex since we declared the regex /g.
+    re.lastIndex = 0;
+    if (re.test(working)) {
+      tags.push(name);
+      re.lastIndex = 0;
+      working = working.replace(re, ' ');
+    }
+  }
+  // Tidy up any orphan dash/colon/comma left behind by the strip, plus any
+  // dangling separator at either end of the string.
+  working = working.replace(/\s+[-:·,]\s+/g, ' ').replace(/^[\s\-:·,]+|[\s\-:·,]+$/g, '');
+  return { stripped: collapseWhitespace(working), tags };
 }
 
 /** Brand keyword → canonical Brand. Order matters (first match wins) so the
@@ -272,9 +327,34 @@ export function parseBrandModelStorage(raw: string | undefined | null): ParsedMo
     working = working.slice(firstToken.length).trimStart();
   }
 
-  // Pull storage out and clean whitespace.
-  const { model: modelWithoutStorage, storage } = extractStorage(working);
-  const model = collapseWhitespace(modelWithoutStorage);
+  // Pull KNOWN tags out first (5G, Dual SIM, Wi-Fi+Cellular, etc.) — these
+  // can appear anywhere in the string, even mid-model. The closed set
+  // covers the common radio / sim / connectivity metadata so it gets
+  // normalised consistently.
+  const { stripped: workingNoKnownTags, tags } = extractTags(working);
+
+  // Split storage out manually so we can also capture whatever the operator
+  // typed AFTER the storage as a freeform tag. Per ops convention the model
+  // string reads "<brand> <model> <storage> <tag>"; anything past the
+  // storage token is operator metadata (refurb grade, battery %, region —
+  // anything they want). When there's no storage we just collapse the
+  // remaining string into the model.
+  const m = workingNoKnownTags.match(STORAGE_REGEX);
+  let model: string;
+  let storage: string | undefined;
+  if (m) {
+    storage = m[1].replace(/\s+/g, '').toUpperCase();
+    const start = m.index ?? 0;
+    const end = start + m[0].length;
+    const before = stripOrphanSeparators(workingNoKnownTags.slice(0, start));
+    const after  = stripOrphanSeparators(workingNoKnownTags.slice(end));
+    model = collapseWhitespace(before);
+    const trailing = collapseWhitespace(after);
+    if (trailing) tags.push(trailing);
+  } else {
+    model = collapseWhitespace(workingNoKnownTags);
+    storage = undefined;
+  }
 
   // Series uses the ORIGINAL lower-cased string (so we still see "iPhone"
   // even if the leading brand word was stripped). detectSeries takes a
@@ -287,7 +367,20 @@ export function parseBrandModelStorage(raw: string | undefined | null): ParsedMo
     lower,
   );
 
-  return { brand, model, storage, series };
+  return {
+    brand,
+    model,
+    storage,
+    series,
+    ...(tags.length > 0 ? { tag: tags.join(', ') } : {}),
+  };
+}
+
+/** Strip leading and trailing separator runs (dash, bullet, comma, plus)
+ *  and collapse internal whitespace. Used to clean up the model + tag
+ *  pieces after splicing storage out of the middle of a string. */
+function stripOrphanSeparators(s: string): string {
+  return s.replace(/^[\s\-:·,+]+|[\s\-:·,+]+$/g, '');
 }
 
 // ---------------------------------------------------------------------------
@@ -348,13 +441,43 @@ if (import.meta.vitest) {
       });
     });
     it('handles IPAD with trailing W/C tag', () => {
+      // W/C is normalised to WiFi+Cellular and lifted out of the model.
       expect(parseBrandModelStorage('IPAD 7TH GEN 32GB W/C')).toEqual({
-        brand: 'Apple', model: 'IPAD 7TH GEN W/C', storage: '32GB', series: 'iPad',
+        brand: 'Apple', model: 'IPAD 7TH GEN', storage: '32GB', series: 'iPad', tag: 'WiFi+Cellular',
       });
     });
     it('handles Galaxy A32 5G + 64GB', () => {
+      // 5G is a radio tag — series detection still sees "a32" in the
+      // lower-cased original so the bucket stays Galaxy A.
       expect(parseBrandModelStorage('Galaxy A32 5G 64GB')).toEqual({
-        brand: 'Samsung', model: 'Galaxy A32 5G', storage: '64GB', series: 'Galaxy A',
+        brand: 'Samsung', model: 'Galaxy A32', storage: '64GB', series: 'Galaxy A', tag: '5G',
+      });
+    });
+    it('splits Apple iPhone 19 Pro Max with storage + Wifi/Cellular tag', () => {
+      expect(parseBrandModelStorage('Apple iPhone 19 Pro Max 128GB Wifi/Cellular')).toEqual({
+        brand: 'Apple', model: 'iPhone 19 Pro Max', storage: '128GB', series: 'iPhone', tag: 'WiFi+Cellular',
+      });
+    });
+    it('extracts dual sim tag from a phone model', () => {
+      expect(parseBrandModelStorage('Samsung Galaxy S22 Ultra 256GB Dual SIM 5G')).toEqual({
+        brand: 'Samsung', model: 'Galaxy S22 Ultra', storage: '256GB', series: 'Galaxy S', tag: '5G, Dual SIM',
+      });
+    });
+    it('emits no tag when nothing tag-shaped is present', () => {
+      const out = parseBrandModelStorage('Apple iPhone 13 128GB');
+      expect(out.tag).toBeUndefined();
+    });
+    it('captures freeform trailing text after storage as a tag', () => {
+      // Tags can be anything — operator-defined. The text after the storage
+      // token is captured verbatim (separators trimmed) so "Refurb Grade A"
+      // round-trips even though it's not in the closed pattern set.
+      expect(parseBrandModelStorage('iPhone 13 128GB - Refurb Grade A')).toEqual({
+        brand: 'Apple', model: 'iPhone 13', storage: '128GB', series: 'iPhone', tag: 'Refurb Grade A',
+      });
+    });
+    it('merges closed-set tags with freeform trailing text', () => {
+      expect(parseBrandModelStorage('Galaxy S22 5G 256GB Dual SIM Korean ROM')).toEqual({
+        brand: 'Samsung', model: 'Galaxy S22', storage: '256GB', series: 'Galaxy S', tag: '5G, Dual SIM, Korean ROM',
       });
     });
     it('handles Pixel 8 Pro', () => {
