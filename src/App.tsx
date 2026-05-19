@@ -11,7 +11,7 @@ import {
 import { motion, AnimatePresence } from 'motion/react';
 import Dashboard, { NavAction } from './components/Dashboard';
 import NewBatchModal from './components/NewBatchModal';
-import ImportModal from './components/ImportModal';
+import InventoryReportImport from './components/InventoryReportImport';
 import MasterDataLinkedImport from './components/MasterDataLinkedImport';
 import BuySheet from './components/BuySheet';
 import SellSheet from './components/SellSheet';
@@ -618,7 +618,7 @@ function AppShell({ user }: { user: User }) {
 
       <AnimatePresence>
         {isBatchModalOpen  && <NewBatchModal  onClose={() => setIsBatchModalOpen(false)} />}
-        {isImportModalOpen && <ImportModal    onClose={() => setIsImportModalOpen(false)} />}
+        {isImportModalOpen && <InventoryReportImport onClose={() => setIsImportModalOpen(false)} />}
         {isMasterDataOpen  && <MasterDataLinkedImport onClose={() => {
           setIsMasterDataOpen(false);
           if (adminSub === 'masterData') setAdminSub('overview');
