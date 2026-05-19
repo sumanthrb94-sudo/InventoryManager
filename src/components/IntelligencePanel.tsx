@@ -1,8 +1,15 @@
 import React, { useMemo } from 'react';
-import { InventoryUnit } from '../types';
+import { InventoryUnit, Sale } from '../types';
+import { recomputeSale } from '../lib/recomputeSale';
 
 interface Props {
   units: InventoryUnit[];
+  /** Sales doc collection. Margin Leaders (and any other GP-aware signal)
+   *  computes from recomputeSale(s).grossProfit so the numbers match the
+   *  master SALES_REPORT formulas per marketplace. When omitted the
+   *  margin signal falls back to a raw SP-BP-£8 estimate clearly labelled
+   *  "Margin" (not "Profit"). */
+  sales?: Sale[];
   mode: 'buy' | 'sell';
 }
 
@@ -19,7 +26,7 @@ function label(model: string, max = 17): string {
   return s.length > max ? s.slice(0, max - 1) + '…' : s;
 }
 
-function buildSignals(units: InventoryUnit[], mode: 'buy' | 'sell'): Signal[] {
+function buildSignals(units: InventoryUnit[], sales: Sale[] | undefined, mode: 'buy' | 'sell'): Signal[] {
   const now    = Date.now();
   const cut14  = now - 14 * MS;
   const cut7   = now - 7  * MS;
@@ -34,11 +41,22 @@ function buildSignals(units: InventoryUnit[], mode: 'buy' | 'sell'): Signal[] {
   for (const u of s14) vel14[u.model] = (vel14[u.model] || 0) + 1;
   for (const u of s7)  vel7[u.model]  = (vel7[u.model]  || 0) + 1;
 
-  // ── profit per model (sold 14d) ─────────────────────────────────────────────
+  // ── GP per model (sold 14d) — master-aligned via recomputeSale ─────────────
+  // Joins each sold unit to its Sale doc (by unitId) and pulls the
+  // marketplace-correct GP. When no Sale doc matches (legacy data) falls
+  // back to a coarse SP-BP-£8 estimate so the card still renders. The
+  // panel labels this "Margin Leaders" which reads correctly either way.
+  const salesByUnit = new Map<string, Sale>();
+  if (sales) for (const s of sales) {
+    if (!s.voidedAt && s.unitId) salesByUnit.set(s.unitId, s);
+  }
   const pAcc: Record<string, { profitSum: number; bpSum: number; n: number }> = {};
   for (const u of s14) {
     if (!u.salePrice) continue;
-    const p = u.salePrice - u.buyPrice - (u.postageCost ?? 8);
+    const linkedSale = salesByUnit.get(u.id);
+    const p = linkedSale
+      ? recomputeSale(linkedSale).grossProfit
+      : u.salePrice - u.buyPrice - (u.postageCost ?? 8);
     if (!pAcc[u.model]) pAcc[u.model] = { profitSum: 0, bpSum: 0, n: 0 };
     pAcc[u.model].profitSum += p;
     pAcc[u.model].bpSum     += u.buyPrice;
@@ -378,8 +396,8 @@ const SignalCard: React.FC<{ sig: Signal }> = ({ sig }) => {
 
 // ── Main component ─────────────────────────────────────────────────────────────
 
-export default function IntelligencePanel({ units, mode }: Props) {
-  const signals = useMemo(() => buildSignals(units, mode), [units, mode]);
+export default function IntelligencePanel({ units, sales, mode }: Props) {
+  const signals = useMemo(() => buildSignals(units, sales, mode), [units, sales, mode]);
 
   const hasAnyData = signals.some(s => s.rows.length > 0);
   if (!hasAnyData) return null;

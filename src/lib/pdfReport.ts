@@ -3,7 +3,32 @@ import jsPDF from 'jspdf';
 // @ts-ignore
 import autoTable from 'jspdf-autotable';
 import { InventoryUnit, Supplier } from '../types';
-import { calcNetProfit, platformTotalFee, DEFAULT_POSTAGE_COST, PLATFORM_LIST } from './platforms';
+import { calcSaleFinancials, marketplaceFromListingSite } from './platforms';
+
+// User-facing platform labels (eBay/Amazon/OnBuy/Backmarket) preserved for the
+// PDF's platform-breakdown section. Numbers are computed via calcSaleFinancials
+// so commissions match the operator's master SALES_REPORT (eBay 6.9% / Amazon
+// 7.14% / OnBuy 7% / BM 12%) rather than the deprecated legacy table.
+const PLATFORM_LABELS = ['eBay', 'Amazon', 'OnBuy', 'Backmarket'] as const;
+
+/** Net profit for a sold inventory unit, master-aligned. */
+function unitNetProfit(u: InventoryUnit): number {
+  const mp = marketplaceFromListingSite(u.salePlatform || '');
+  const sp = u.salePrice || 0;
+  if (!mp) {
+    // Unknown platform — fall back to SP - BP - postage (legacy £8 default).
+    const post = u.postageCost ?? 8;
+    return +(sp - u.buyPrice - post).toFixed(2);
+  }
+  const f = calcSaleFinancials({
+    marketplace: mp,
+    buyPrice: u.buyPrice,
+    salePrice: sp,
+    postageOverride: u.postageCost,
+  });
+  // eBay surfaces a promo-inclusive NP; everyone else uses GP.
+  return f.netProfit ?? f.grossProfit;
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Palette
@@ -191,8 +216,7 @@ export function generateInventoryReport(units: InventoryUnit[], suppliers: Suppl
 
   const totalRevenue  = sold.reduce((s, u) => s + (u.salePrice || 0), 0);
   const totalBuyValue = available.reduce((s, u) => s + u.buyPrice, 0);
-  const totalNetProfit = sold.reduce((s, u) =>
-    s + calcNetProfit(u.salePrice || 0, u.buyPrice, u.salePlatform || '', u.postageCost ?? DEFAULT_POSTAGE_COST), 0);
+  const totalNetProfit = sold.reduce((s, u) => s + unitNetProfit(u), 0);
 
   // ══════════════════════════════════════════════════════════════════════════
   // PAGE 1 — COVER
@@ -284,15 +308,15 @@ export function generateInventoryReport(units: InventoryUnit[], suppliers: Suppl
   label(doc, 'PLATFORM BREAKDOWN', ML, y, 7.5, C.gray700, true);
   y += 7;
 
-  const maxPlatCount = Math.max(...PLATFORM_LIST.map(p => sold.filter(u => u.salePlatform === p).length), 1);
-  const maxPlatRev   = Math.max(...PLATFORM_LIST.map(p => sold.filter(u => u.salePlatform === p).reduce((s, u) => s + (u.salePrice || 0), 0)), 1);
+  const maxPlatCount = Math.max(...PLATFORM_LABELS.map(p => sold.filter(u => u.salePlatform === p).length), 1);
+  const maxPlatRev   = Math.max(...PLATFORM_LABELS.map(p => sold.filter(u => u.salePlatform === p).reduce((s, u) => s + (u.salePrice || 0), 0)), 1);
 
   // Column headers
   label(doc, 'Units Sold →',   ML + 54, y - 1, 6, C.gray400);
   label(doc, 'Revenue →',      ML + CW / 2 + 54, y - 1, 6, C.gray400);
   y += 2;
 
-  PLATFORM_LIST.forEach(p => {
+  PLATFORM_LABELS.forEach(p => {
     const pSold = sold.filter(u => u.salePlatform === p);
     const pRev  = pSold.reduce((s, u) => s + (u.salePrice || 0), 0);
     const color = PLATFORM_RGB[p] ?? C.gray500;

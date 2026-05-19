@@ -412,10 +412,19 @@ export default function Suppliers() {
                               u.status === 'available' ? 'bg-emerald-50 text-emerald-700' :
                               u.status === 'returned'  ? 'bg-orange-50 text-orange-700' :
                               'bg-amber-50 text-amber-700';
-                            const gp =
-                              u.status === 'sold' && u.salePrice != null
-                                ? (u.salePrice - (u.buyPrice || 0))
-                                : null;
+                            // Master-aligned GP — pull from the matching Sale
+                            // doc (commission + tax + postage all deducted per
+                            // the marketplace's master formula). Fallback to
+                            // raw SP-BP only when the unit is sold but no Sale
+                            // doc links to it (legacy data).
+                            const linkedSale = u.status === 'sold'
+                              ? sales.find(s => !s.voidedAt && s.unitId === u.id)
+                              : undefined;
+                            const gp = linkedSale
+                              ? recomputeSale(linkedSale).grossProfit
+                              : (u.status === 'sold' && u.salePrice != null
+                                  ? u.salePrice - (u.buyPrice || 0)
+                                  : null);
                             return (
                               <div
                                 key={`sup-grid-${u.id}`}

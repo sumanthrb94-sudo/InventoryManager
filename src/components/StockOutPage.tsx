@@ -2,6 +2,7 @@ import React, { useState, useMemo } from 'react';
 import { PackageMinus, Search, CheckCircle2, Clock, DollarSign } from 'lucide-react';
 import { InventoryUnit } from '../types';
 import { useInventoryStore } from '../lib/inventoryStore';
+import { recomputeSale } from '../lib/recomputeSale';
 import CopyImei from './CopyImei';
 
 
@@ -10,7 +11,7 @@ interface Props {
 }
 
 export default function StockOutPage({ onOpenUnit }: Props) {
-  const { units }         = useInventoryStore();
+  const { units, sales }    = useInventoryStore();
   const [search, setSearch] = useState('');
 
   const today = new Date().toISOString().split('T')[0];
@@ -21,7 +22,25 @@ export default function StockOutPage({ onOpenUnit }: Props) {
   const todaySold = sold.filter(u => u.saleDate === today || (!u.saleDate && u.dateIn === today));
   const yesterdaySold = sold.filter(u => u.saleDate === yesterday);
   const todayRevenue = todaySold.reduce((s, u) => s + (u.salePrice || 0), 0);
-  const todayProfit = todaySold.reduce((s, u) => s + ((u.salePrice || 0) - u.buyPrice), 0);
+
+  // Master-aligned profit — for each sold unit pull the linked Sale doc's
+  // recomputed GP (commission + tax + postage deducted per the marketplace's
+  // master formula). Falls back to raw SP-BP for any sold unit with no Sale
+  // doc match (legacy data); same fallback the rest of the surfaces use.
+  const salesByUnit = useMemo(() => {
+    const m = new Map<string, typeof sales[number]>();
+    for (const s of sales) {
+      if (!s.voidedAt && s.unitId) m.set(s.unitId, s);
+    }
+    return m;
+  }, [sales]);
+  const todayProfit = todaySold.reduce((acc, u) => {
+    const linkedSale = salesByUnit.get(u.id);
+    const gp = linkedSale
+      ? recomputeSale(linkedSale).grossProfit
+      : (u.salePrice || 0) - u.buyPrice;
+    return acc + gp;
+  }, 0);
 
   const recentSold = useMemo(() => {
     return [...sold]
@@ -120,7 +139,11 @@ export default function StockOutPage({ onOpenUnit }: Props) {
         ) : (
           <div className="divide-y divide-gray-50">
             {filtered.map(u => {
-              const margin = ((u.salePrice || 0) - u.buyPrice);
+              // Same master-aligned GP path as the KPI tile above.
+              const linkedSale = salesByUnit.get(u.id);
+              const margin = linkedSale
+                ? recomputeSale(linkedSale).grossProfit
+                : (u.salePrice || 0) - u.buyPrice;
               return (
                 <div key={u.id} className="flex items-center gap-3 px-4 py-3">
                   <div className="w-8 h-8 rounded-lg bg-green-100 flex items-center justify-center flex-shrink-0">

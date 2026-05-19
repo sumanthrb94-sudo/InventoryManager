@@ -787,10 +787,11 @@ export default function Sales() {
                                   );
                                   break;
                                 case 'gpPercent': {
-                                  // GP% per spec: (grossProfit / buyPrice) * 100, 1dp.
-                                  const pct = s.buyPrice > 0
-                                    ? (s.grossProfit / s.buyPrice) * 100
-                                    : 0;
+                                  // Use the pre-computed gpPercent off the recomputed Sale doc
+                                  // so the denominator matches the master sheet per marketplace
+                                  // (AMAZON/BM/PROJECT divide by BP; EBAY/ONBUY by SP).
+                                  // Manually re-deriving GP/BP here broke eBay + OnBuy rows.
+                                  const pct = s.gpPercent ?? 0;
                                   display = (
                                     <span className={pct < 0 ? 'text-red-600 font-bold' : 'text-emerald-700 font-bold'}>
                                       {pct.toFixed(1)}%

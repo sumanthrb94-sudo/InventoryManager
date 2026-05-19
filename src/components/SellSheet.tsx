@@ -495,7 +495,7 @@ export default function SellSheet(_props: Props) {
       </div>
 
       {/* ── Sell Intelligence panel — Hot This Week / Top Earners / etc ─── */}
-      <IntelligencePanel units={units} mode="sell" />
+      <IntelligencePanel units={units} sales={sales} mode="sell" />
 
       {/* ── Periodic table — same component the dashboard uses, scoped to
           live inventory. First word of every model is treated as the brand

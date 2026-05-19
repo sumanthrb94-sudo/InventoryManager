@@ -69,7 +69,7 @@ function storageOptionsWith(current: string | undefined): string[] {
 // ── Component ────────────────────────────────────────────────────────────────
 
 export default function BuySheet(_props: Props) {
-  const { units, suppliers, aggregates } = useInventoryStore();
+  const { units, suppliers, aggregates, sales } = useInventoryStore();
   const region = useUserRegion();
   const userIsAdmin = isAdmin(auth.currentUser);
 
@@ -400,7 +400,7 @@ export default function BuySheet(_props: Props) {
 
       {/* ── Buy Intelligence panel — Fast Movers / Profit Drivers /
           Old Stock Alerts / This Week Trending Sold ──────────────────────── */}
-      <IntelligencePanel units={units} mode="buy" />
+      <IntelligencePanel units={units} sales={sales} mode="buy" />
 
       {/* ── Schema help card (toggled by the Schema button) ──────────────── */}
       <AnimatePresence>

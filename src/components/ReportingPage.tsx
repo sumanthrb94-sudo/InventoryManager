@@ -8,10 +8,83 @@ import CopyImei from './CopyImei';
 import PDFReportButton from './PDFReportButton';
 import ExcelReportButton from './ExcelReportButton';
 import {
-  PLATFORMS, PLATFORM_LIST,
-  platformCommission, platformTotalFee, calcNetProfit,
-  DEFAULT_POSTAGE_COST,
+  calcSaleFinancials, getMarketplaceFee, marketplaceFromListingSite,
+  DEFAULT_MARKETPLACE_FEES,
 } from '../lib/platforms';
+import type { Marketplace } from '../types';
+import { MARKETPLACES } from '../types';
+
+// ── Master-aligned helpers ────────────────────────────────────────────────
+// All previously-legacy `calcNetProfit`/`platformTotalFee`/`platformCommission`/
+// `PLATFORMS`/`PLATFORM_LIST`/`DEFAULT_POSTAGE_COST` callers now route through
+// `calcSaleFinancials` so commission rates match the operator's SALES_REPORT
+// master file (eBay 6.9% / Amazon 7.14% / OnBuy 7% / BM 12% — not the old
+// 12.8 / 8 / 9 / 10 numbers).
+type PlatformLabel = 'eBay' | 'Amazon' | 'OnBuy' | 'Backmarket';
+const PLATFORM_LABELS: readonly PlatformLabel[] = ['eBay', 'Amazon', 'OnBuy', 'Backmarket'];
+const PLATFORM_TO_MARKETPLACE: Record<PlatformLabel, Marketplace> = {
+  eBay: 'EBAY',
+  Amazon: 'AMAZON',
+  OnBuy: 'ONBUY',
+  Backmarket: 'BM',
+};
+const PLATFORM_BADGE: Record<PlatformLabel, string> = {
+  eBay:       'bg-yellow-100 text-yellow-800 border-yellow-200',
+  Amazon:     'bg-orange-100 text-orange-800 border-orange-200',
+  OnBuy:      'bg-blue-100 text-blue-800 border-blue-200',
+  Backmarket: 'bg-green-100 text-green-800 border-green-200',
+};
+
+/** Resolve a free-text platform string to a Marketplace enum value. */
+function resolveMarketplace(platform: string | undefined | null): Marketplace | undefined {
+  if (!platform) return undefined;
+  return marketplaceFromListingSite(platform);
+}
+
+/** Master-aligned platform fee for one sale (commission + fixed-fee bundle). */
+function platformFeeFor(platform: string | undefined, salePrice: number, buyPrice = 0): number {
+  const mp = resolveMarketplace(platform);
+  if (!mp) return 0;
+  const f = calcSaleFinancials({ marketplace: mp, buyPrice, salePrice });
+  // EBAY emits the full "T.COM" (com + ROF + FVF + 20% bundle); the others
+  // only have a flat commission. Pick whichever the marketplace populates.
+  return f.totalCom ?? f.commission ?? 0;
+}
+
+/** Master-aligned net profit for a sale row. */
+function netProfitFor(
+  platform: string | undefined,
+  salePrice: number,
+  buyPrice: number,
+  postageOverride?: number,
+): number {
+  const mp = resolveMarketplace(platform);
+  if (!mp) {
+    // Unknown platform — fall back to SP - BP - postage with the legacy £8 default.
+    const postage = postageOverride ?? 8;
+    return +(salePrice - buyPrice - postage).toFixed(2);
+  }
+  const f = calcSaleFinancials({
+    marketplace: mp,
+    buyPrice,
+    salePrice,
+    postageOverride,
+  });
+  // EBAY exposes `netProfit` (GP - 5% promo); others use `grossProfit`.
+  return f.netProfit ?? f.grossProfit;
+}
+
+/** Default postage for a row — marketplace-specific, with a generic £8 fallback. */
+function defaultPostageFor(platform: string | undefined): number {
+  const mp = resolveMarketplace(platform);
+  return mp ? getMarketplaceFee(mp).postage : 8;
+}
+
+/** Master commission % shown in the legacy fee tables (6.9 / 7.14 / 7 / 12). */
+function commissionPctFor(platform: string | undefined): number {
+  const mp = resolveMarketplace(platform);
+  return mp ? getMarketplaceFee(mp).commissionPct : 0;
+}
 
 type ReportTab = 'daily' | 'stock' | 'sales' | 'vat';
 
@@ -78,9 +151,10 @@ export default function ReportingPage() {
   }>(() => {
     const seen = new Set<string>();
     const rows: any[] = [];
-    // Map marketplace codes → friendly labels matched by the legacy fee tables
+    // Map marketplace codes → friendly labels resolved back into MARKETPLACES
+    // via marketplaceFromListingSite() when fees are calculated downstream.
     const mkToPlatform: Record<string, string> = {
-      EBAY: 'eBay', AMAZON: 'Amazon', BM: 'Backmarket', ONBUY: 'OnBuy', PROJECT: 'Other',
+      EBAY: 'eBay', AMAZON: 'Amazon', BM: 'Backmarket', ONBUY: 'OnBuy', PROJECT: 'Project',
     };
     const unitById = new Map<string, InventoryUnit>();
     for (const u of units) unitById.set(u.id, u);
@@ -95,7 +169,7 @@ export default function ReportingPage() {
         buyPrice:    s.buyPrice || 0,
         salePrice:   s.salePrice || 0,
         platform:    mkToPlatform[s.marketplace] || s.marketplace || '',
-        postageCost: s.postage ?? DEFAULT_POSTAGE_COST,
+        postageCost: s.postage ?? defaultPostageFor(mkToPlatform[s.marketplace]),
         grossProfit: s.grossProfit,
         _src: 'sale',
         _id:  s.id,
@@ -112,7 +186,7 @@ export default function ReportingPage() {
         buyPrice:    u.buyPrice,
         salePrice:   u.salePrice || 0,
         platform:    u.salePlatform || '',
-        postageCost: u.postageCost ?? DEFAULT_POSTAGE_COST,
+        postageCost: u.postageCost ?? defaultPostageFor(u.salePlatform),
         _src: 'unit',
         _id:  u.id,
       });
@@ -129,7 +203,7 @@ export default function ReportingPage() {
   const dailyRevenue = dailySales.reduce((s, r) => s + (r.salePrice || 0), 0);
   const dailyGrossProfit = dailySales.reduce((s, r) => s + ((r.salePrice || 0) - r.buyPrice), 0);
   const dailyNetProfit = dailySales.reduce((s, r) =>
-    s + (r.grossProfit ?? calcNetProfit(r.salePrice || 0, r.buyPrice, r.platform || '', r.postageCost ?? DEFAULT_POSTAGE_COST)), 0);
+    s + (r.grossProfit ?? netProfitFor(r.platform, r.salePrice || 0, r.buyPrice, r.postageCost)), 0);
 
   // ── VAT MARGIN SCHEME (UK Second-Hand Goods) ─────────────────────────────
   const now = Date.now();
@@ -155,7 +229,7 @@ export default function ReportingPage() {
         grossMargin += margin;
         eligibleSales++;
       }
-      const fee = platformTotalFee(r.platform || '', sp);
+      const fee = platformFeeFor(r.platform, sp, bp);
       const feeVAT = +(fee * 0.2 / 1.2).toFixed(2);
       platformFeesTotal += fee;
       inputVAT += feeVAT;
@@ -203,9 +277,8 @@ export default function ReportingPage() {
       map[u.model].soldCount++;
       map[u.model].revenue += (u.salePrice || 0);
       map[u.model].cogs += u.buyPrice;
-      map[u.model].netProfit += calcNetProfit(
-        u.salePrice || 0, u.buyPrice, u.salePlatform || '',
-        u.postageCost ?? DEFAULT_POSTAGE_COST,
+      map[u.model].netProfit += netProfitFor(
+        u.salePlatform, u.salePrice || 0, u.buyPrice, u.postageCost,
       );
     }
 
@@ -242,11 +315,11 @@ export default function ReportingPage() {
       'Buy Price £': r.buyPrice,
       'Sale Price £': r.salePrice || 0,
       'Gross Margin £': (r.salePrice || 0) - r.buyPrice,
-      'Platform Fee £': platformTotalFee(r.platform || '', r.salePrice || 0),
-      'Postage £': r.postageCost ?? DEFAULT_POSTAGE_COST,
-      'Net Profit £': r.grossProfit ?? calcNetProfit(r.salePrice || 0, r.buyPrice, r.platform || '', r.postageCost ?? DEFAULT_POSTAGE_COST),
+      'Platform Fee £': platformFeeFor(r.platform, r.salePrice || 0, r.buyPrice),
+      'Postage £': r.postageCost ?? defaultPostageFor(r.platform),
+      'Net Profit £': r.grossProfit ?? netProfitFor(r.platform, r.salePrice || 0, r.buyPrice, r.postageCost),
       Platform: r.platform || '',
-      'Commission %': platformCommission(r.platform || ''),
+      'Commission %': commissionPctFor(r.platform),
     }))
   );
 
@@ -274,11 +347,11 @@ export default function ReportingPage() {
         IMEI: r.imei,
         'Buy Price £': r.buyPrice,
         'Sale Price £': r.salePrice || 0,
-        'Platform Fee £': platformTotalFee(r.platform || '', r.salePrice || 0),
-        'Postage £': r.postageCost ?? DEFAULT_POSTAGE_COST,
-        'Net Profit £': r.grossProfit ?? calcNetProfit(r.salePrice || 0, r.buyPrice, r.platform || '', r.postageCost ?? DEFAULT_POSTAGE_COST),
+        'Platform Fee £': platformFeeFor(r.platform, r.salePrice || 0, r.buyPrice),
+        'Postage £': r.postageCost ?? defaultPostageFor(r.platform),
+        'Net Profit £': r.grossProfit ?? netProfitFor(r.platform, r.salePrice || 0, r.buyPrice, r.postageCost),
         Platform: r.platform || '',
-        'Commission %': platformCommission(r.platform || ''),
+        'Commission %': commissionPctFor(r.platform),
       }))
   );
 
@@ -288,7 +361,7 @@ export default function ReportingPage() {
       const bp = r.buyPrice || 0;
       const margin = sp - bp;
       const vatOnMargin = margin > 0 ? +(margin / 6).toFixed(2) : 0;
-      const fee = platformTotalFee(r.platform || '', sp);
+      const fee = platformFeeFor(r.platform, sp, bp);
       const feeVAT = +(fee * 0.2 / 1.2).toFixed(2);
       return {
         Date: r.date,
@@ -388,16 +461,19 @@ export default function ReportingPage() {
 
           {/* Platform commission breakdown */}
           <div className="grid grid-cols-2 gap-2">
-            {PLATFORM_LIST.map(p => {
-              const cfg = PLATFORMS[p];
+            {PLATFORM_LABELS.map(p => {
+              const mp = PLATFORM_TO_MARKETPLACE[p];
+              const fee = getMarketplaceFee(mp);
+              const badge = PLATFORM_BADGE[p];
               const pSales = dailySales.filter(r => r.platform === p);
               const rev = pSales.reduce((s, r) => s + (r.salePrice || 0), 0);
-              const totalFee = pSales.reduce((s, r) => s + platformTotalFee(p, r.salePrice || 0), 0);
+              const totalFee = pSales.reduce((s, r) => s + platformFeeFor(p, r.salePrice || 0, r.buyPrice), 0);
+              const fixedFeeLabel = fee.fixedFee ? ` + £${fee.fixedFee}` : '';
               return (
-                <div key={p} className={`flex items-center justify-between px-3 py-2.5 rounded-xl border ${cfg.badge}`}>
+                <div key={p} className={`flex items-center justify-between px-3 py-2.5 rounded-xl border ${badge}`}>
                   <div>
                     <p className="text-[10px] font-bold">{p}</p>
-                    <p className="text-[8px] font-mono opacity-70">{cfg.commission}%{cfg.fixedFee ? ` + £${cfg.fixedFee}` : ''} · {pSales.length} units</p>
+                    <p className="text-[8px] font-mono opacity-70">{fee.commissionPct}%{fixedFeeLabel} · {pSales.length} units</p>
                   </div>
                   <div className="text-right">
                     <p className="text-sm font-bold">£{rev.toLocaleString()}</p>
@@ -436,9 +512,9 @@ export default function ReportingPage() {
                   <tbody className="divide-y divide-gray-50">
                     {dailySales.map(r => {
                       const sp = r.salePrice || 0;
-                      const post = r.postageCost ?? DEFAULT_POSTAGE_COST;
-                      const fee = platformTotalFee(r.platform || '', sp);
-                      const net = r.grossProfit ?? calcNetProfit(sp, r.buyPrice, r.platform || '', post);
+                      const post = r.postageCost ?? defaultPostageFor(r.platform);
+                      const fee = platformFeeFor(r.platform, sp, r.buyPrice);
+                      const net = r.grossProfit ?? netProfitFor(r.platform, sp, r.buyPrice, r.postageCost);
                       return (
                         <tr key={r._id} className="hover:bg-gray-50">
                           <td className="px-4 py-2.5 font-semibold max-w-[120px] truncate">{r.model}</td>
@@ -585,9 +661,10 @@ export default function ReportingPage() {
                   .sort((a, b) => (b.date || '').localeCompare(a.date || ''))
                   .map(r => {
                     const sp = r.salePrice || 0;
-                    const post = r.postageCost ?? DEFAULT_POSTAGE_COST;
-                    const fee = platformTotalFee(r.platform || '', sp);
-                    const net = r.grossProfit ?? calcNetProfit(sp, r.buyPrice, r.platform || '', post);
+                    const post = r.postageCost ?? defaultPostageFor(r.platform);
+                    const fee = platformFeeFor(r.platform, sp, r.buyPrice);
+                    const net = r.grossProfit ?? netProfitFor(r.platform, sp, r.buyPrice, r.postageCost);
+                    const commPct = commissionPctFor(r.platform);
                     return (
                       <tr key={r._id} className="hover:bg-gray-50">
                         <td className="px-4 py-2 font-mono text-gray-500">{r.date}</td>
@@ -601,9 +678,7 @@ export default function ReportingPage() {
                         </td>
                         <td className="px-3 py-2 text-[10px]">{r.platform || '—'}</td>
                         <td className="px-3 py-2 text-right font-mono text-gray-500">
-                          {platformCommission(r.platform || '') > 0
-                            ? `${platformCommission(r.platform || '')}%`
-                            : '—'}
+                          {commPct > 0 ? `${commPct}%` : '—'}
                         </td>
                       </tr>
                     );
@@ -716,7 +791,7 @@ export default function ReportingPage() {
                     const bp = r.buyPrice || 0;
                     const margin = sp - bp;
                     const vatOnMargin = margin > 0 ? +(margin / 6).toFixed(2) : 0;
-                    const fee = platformTotalFee(r.platform || '', sp);
+                    const fee = platformFeeFor(r.platform, sp, bp);
                     const feeVAT = +(fee * 0.2 / 1.2).toFixed(2);
                     return (
                       <tr key={r._id} className="hover:bg-gray-50">
