@@ -450,7 +450,11 @@ function writeAllSheet(
       commission,
       r.grossProfit,
       r.gpPercent,
-      r.netProfit ?? null,
+      // NP = GP minus marketplace-specific promo. eBay deducts 5%; the
+      // other three platforms have no promo concept, so NP equals GP
+      // (calcSaleFinancials returns undefined for those — fallback here
+      // keeps the unified column populated end-to-end).
+      r.netProfit ?? r.grossProfit,
     ]);
 
     // Number formats: date columns (1, 10), IMEI as integer-ish (3),
