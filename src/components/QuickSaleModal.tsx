@@ -6,18 +6,15 @@ import { InventoryUnit, Marketplace, MARKETPLACES } from '../types';
 import { recordSale } from '../services';
 import { calcSaleFinancials } from '../lib/platforms';
 
-/** Operator-facing platform list. PROJECT is in the Marketplace enum for
- *  legacy data load but the operator only sells on these four. Mirrors
- *  SellOrderModal so the two surfaces stay in lockstep. */
-const ACTIVE_PLATFORMS: ReadonlyArray<Marketplace> = (MARKETPLACES as readonly Marketplace[])
-  .filter((m): m is Marketplace => m !== 'PROJECT');
+/** Operator-facing platform list — the 4 marketplaces the operator sells
+ *  on. Mirrors SellOrderModal so the two surfaces stay in lockstep. */
+const ACTIVE_PLATFORMS: ReadonlyArray<Marketplace> = MARKETPLACES;
 
 const PLATFORM_LABEL: Record<Marketplace, string> = {
   AMAZON:  'Amazon',
   BM:      'Back Market',
   EBAY:    'eBay',
   ONBUY:   'OnBuy',
-  PROJECT: 'Project',
 };
 
 interface Props {

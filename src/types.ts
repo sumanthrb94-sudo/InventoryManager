@@ -1,15 +1,15 @@
 export type DeviceCategory = 'iPhone' | 'iPad' | 'Apple Watch' | 'Tablet' | 'Samsung S Series' | 'Samsung A Series' | 'Other';
 
 export type DeviceStatus = 'available' | 'sold' | 'reserved' | 'returned' | 'lost' | 'incoming' | 'ready_to_ship' | 'fba';
-export type ListingSite = 'eBay' | 'Amazon' | 'OnBuy' | 'Backmarket' | 'Back Market' | 'FBA' | 'Project' | 'R T S' | 'Other';
+export type ListingSite = 'eBay' | 'Amazon' | 'OnBuy' | 'Backmarket' | 'Back Market' | 'FBA' | 'R T S' | 'Other';
 export type StockLocation = 'office';  // Single location — all stock is held at the office
 export type OperationalFlag = 'top10' | 'supplierHasStock' | 'stockSold';
 
 export type ReturnCategory = 'returned_to_inventory' | 'returned_to_supplier' | 'repair';
 
 // Canonical marketplace sheet names matching the SALES_REPORT workbook tabs
-export type Marketplace = 'AMAZON' | 'BM' | 'EBAY' | 'ONBUY' | 'PROJECT';
-export const MARKETPLACES: Marketplace[] = ['AMAZON', 'BM', 'EBAY', 'ONBUY', 'PROJECT'];
+export type Marketplace = 'AMAZON' | 'BM' | 'EBAY' | 'ONBUY';
+export const MARKETPLACES: Marketplace[] = ['AMAZON', 'BM', 'EBAY', 'ONBUY'];
 
 export interface Supplier {
   id: string;

@@ -77,7 +77,6 @@ const MARKETPLACE_BADGE: Record<Marketplace, string> = {
   BM:      'bg-emerald-100 text-emerald-800 border-emerald-200',
   EBAY:    'bg-blue-100   text-blue-800   border-blue-200',
   ONBUY:   'bg-purple-100 text-purple-800 border-purple-200',
-  PROJECT: 'bg-pink-100   text-pink-800   border-pink-200',
 };
 
 const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
@@ -789,7 +788,7 @@ export default function Sales() {
                                 case 'gpPercent': {
                                   // Use the pre-computed gpPercent off the recomputed Sale doc
                                   // so the denominator matches the master sheet per marketplace
-                                  // (AMAZON/BM/PROJECT divide by BP; EBAY/ONBUY by SP).
+                                  // (AMAZON/BM divide by BP; EBAY/ONBUY by SP).
                                   // Manually re-deriving GP/BP here broke eBay + OnBuy rows.
                                   const pct = s.gpPercent ?? 0;
                                   display = (

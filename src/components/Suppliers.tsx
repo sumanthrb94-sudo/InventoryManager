@@ -105,7 +105,7 @@ export default function Suppliers() {
 
     // Marketplace codes → friendly platform labels for the chip row
     const mkToPlatform: Record<string, string> = {
-      EBAY: 'eBay', AMAZON: 'Amazon', BM: 'Backmarket', ONBUY: 'OnBuy', PROJECT: 'Other',
+      EBAY: 'eBay', AMAZON: 'Amazon', BM: 'Backmarket', ONBUY: 'OnBuy',
     };
 
     // Sales-collection overlay — prefer over unit-derived sold/revenue.

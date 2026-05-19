@@ -1,57 +1,41 @@
 /**
  * calcSaleFinancials parity tests vs. the operator's master SALES_REPORT.
  *
- * These tests lock the runtime calculator (calcSaleFinancials) to the
- * EXACT per-cell formulas living in the live SALES_REPORT_2026.xlsx
- * (extracted from xl/worksheets/sheet{1..5}.xml). Each test case computes
- * the master formula in plain algebra here, then asserts our code produces
- * the same outputs within £0.02 (1p rounding-order drift max — Excel's
- * cell formulas use full-precision intermediates while r2() inside our
- * calculator uses rounded ones; the gap is bounded to 1p per derived
- * field on the operations the master sheet performs).
+ * Locks the runtime calculator to the EXACT per-cell formulas living in
+ * the live SALES_REPORT_2026.xlsx (extracted from
+ * xl/worksheets/sheet{1..5}.xml). Coverage: 12 real rows per platform
+ * (48 unit-level cases) drawn straight from the master file, plus
+ * cross-platform invariants and edge cases. Four platforms only —
+ * AMAZON / BM / EBAY / ONBUY. PROJECT is permanently retired.
  *
- * Inputs are drawn from real rows of the operator's uploaded master file:
- *   AMAZON row 2:  BP=88,   SP=111,    Postage=8
- *   BM     row 2:  BP=850,  SP=1300,   Postage=10, Pay='Google Pay' (no PPK)
- *   BM     row 3:  BP=105,  SP=154,    Postage=10, Pay='Klarna'     (PPK fires)
- *   EBAY   row 2:  BP=240,  SP=249.99, Shipping=£8 tier, FVF=£0.40
- *   ONBUY  row 2:  BP=150,  SP=189.99, Ship=8
- *   PROJECT row 2: BP=115,  SP=149.79, Postage=5.9
+ * Each fixture row pulls (BP, SP, Postage, [Payment Mode]) from a real
+ * sale in the operator's file, evenly sampled across the dataset. For
+ * each row we:
+ *   1. Re-derive every derived field straight from the master's
+ *      algebraic formula in plain JS (independent reimplementation —
+ *      NOT a re-call of calcSaleFinancials).
+ *   2. Call calcSaleFinancials with the same inputs.
+ *   3. Assert outputs match within £0.02 (1p rounding-order drift max).
  *
- * Per-marketplace master formulas (verified against
- * xl/worksheets/sheet{1..5}.xml of SALES_REPORT_2026.xlsx):
- *
- *   AMAZON   SP-BP=H-G   MarTax=I/6           Com=H/100*7.14
- *            GP=H-G-J-K-L                     GP%=M/G*100  (denom=BP)
- *
- *   BM       SP-BP=H-G   MarTax=J/6           PPK=H/100*2.5   Com=H/100*12
- *            GP=H-G-K-M-N-L                   GP%=O/G*100  (denom=BP)
- *
- *   EBAY     SP-BP=H-G   MarTax=I*16.6%
- *            Com=(H*6.9%)-(H*6.9%)*10%        ROF=H*0.35%   FVF=0.4
- *            VAT=(K+L+M)*20%                  TCom=K+L+M+N
- *            GP=I-J-O-P (P=Shipping)          GP%=Q/H*100  (denom=SP)
+ * Per-marketplace master formulas (verified against the raw XML):
+ *   AMAZON   SP-BP=H-G  MarTax=I/6           Com=H/100*7.14
+ *            GP=H-G-J-K-L                    GP%=M/G*100  (denom=BP)
+ *   BM       + PPK=H/100*2.5 when payment mode hits PayPal/Klarna set
+ *            Com=H/100*12                    GP%=O/G*100  (denom=BP)
+ *   EBAY     MarTax=I*16.6%
+ *            Com=(H*6.9%)-(H*6.9%)*10%       ROF=H*0.35%  FVF=0.4
+ *            VAT=(K+L+M)*20%                 TCom=K+L+M+N
+ *            GP=I-J-O-P                      GP%=Q/H*100  (denom=SP)
  *            NP=Q-H*5%
- *
- *   ONBUY    SP-BP=G-F   MarVat=H/6           Com=G*7%      Vat20=I*20%
- *            GP=G-F-J-K-L-I                   GP%=M/G*100  (denom=SP — col G is SP here)
- *
- *   PROJECT  same shape as AMAZON, postage=5.9.
+ *   ONBUY    MarVat=H/6      Com=G*7%        Vat20=I*20%
+ *            GP=G-F-J-K-L-I                  GP%=M/G*100  (denom=SP)
  */
 import { describe, it, expect } from 'vitest';
 import { calcSaleFinancials, getMarketplaceFee } from '../lib/platforms';
 import type { Marketplace } from '../types';
 
-// ── Helpers — replicate Excel's r2() display rounding so the manual
-// "master answer" we assert against matches the convention our code uses.
 const r2 = (n: number) => Math.round(n * 100) / 100;
-
-/** Tolerance in £ — rounding-order drift between Excel's full-precision
- *  intermediates and our r2()'d ones can land at most 1p per field on
- *  the typical price ranges the master sheet uses. We assert ≤2p so a
- *  drift in one field plus a downstream cumulative drift still passes. */
 const TOL = 0.02;
-
 function expectClose(actual: number, expected: number, label: string) {
   expect(
     Math.abs(actual - expected),
@@ -59,11 +43,76 @@ function expectClose(actual: number, expected: number, label: string) {
   ).toBeLessThanOrEqual(TOL);
 }
 
-// ── Master-formula reference implementations.
-// These intentionally re-derive each derived field straight from the
-// algebraic formula in the master sheet so the test isn't just calling our
-// own code twice. If calcSaleFinancials drifts from the master, ONE of
-// these assertions will fire.
+// ── Real fixtures sampled from /tmp/sales-report.xlsx ────────────────────
+// 12 rows per platform, evenly spread across the dataset so the suite
+// catches rounding edges (whole-pound BP/SP, awkward 0.99 endings,
+// mid-range and high-value rows).
+
+interface AmazonFixture { order: string; bp: number; sp: number; postage: number; }
+const AMAZON_ROWS: AmazonFixture[] = [
+  { order: '02-9088974-8481116',  bp: 88,  sp: 111,    postage: 8 },
+  { order: '026-5042444-6219517', bp: 55,  sp: 88,     postage: 8 },
+  { order: '202-0533321-2879548', bp: 135, sp: 152.89, postage: 8 },
+  { order: '202-6685090-0821122', bp: 122, sp: 145,    postage: 8 },
+  { order: '203-1338449-1458707', bp: 145, sp: 199.99, postage: 8 },
+  { order: '203-5198394-1322765', bp: 190, sp: 239.99, postage: 8 },
+  { order: '203-9677542-2532310', bp: 80,  sp: 99.99,  postage: 8 },
+  { order: '204-4678187-5185945', bp: 120, sp: 148.29, postage: 8 },
+  { order: '205-0022828-9601104', bp: 170, sp: 216.19, postage: 8 },
+  { order: '205-4327228-4070758', bp: 60,  sp: 79.98,  postage: 8 },
+  { order: '205-8651652-6907528', bp: 148, sp: 199,    postage: 8 },
+  { order: '206-4035535-7470762', bp: 120, sp: 149.99, postage: 8 },
+];
+
+interface BmFixture { order: string; bp: number; sp: number; postage: number; payment: string; }
+const BM_ROWS: BmFixture[] = [
+  { order: '79008748', bp: 850, sp: 1300, postage: 10, payment: 'Google Pay' },
+  { order: '79125567', bp: 105, sp: 145,  postage: 10, payment: ''           },
+  { order: '79226161', bp: 105, sp: 155,  postage: 10, payment: ''           },
+  { order: '79334781', bp: 105, sp: 151,  postage: 10, payment: ''           },
+  { order: '79388636', bp: 185, sp: 235,  postage: 10, payment: ''           },
+  { order: '79539666', bp: 140, sp: 158,  postage: 10, payment: ''           },
+  { order: '79814483', bp: 105, sp: 159,  postage: 10, payment: 'Klarna'     },
+  { order: '80011041', bp: 75,  sp: 131,  postage: 10, payment: 'Paypal'     },
+  { order: '80151597', bp: 75,  sp: 133,  postage: 10, payment: ''           },
+  { order: '80281800', bp: 105, sp: 164,  postage: 10, payment: ''           },
+  { order: '80390132', bp: 115, sp: 173,  postage: 10, payment: ''           },
+  { order: '80563335', bp: 215, sp: 307,  postage: 10, payment: 'Klarna'     },
+];
+
+interface EbayFixture { order: string; bp: number; sp: number; shipping: 1 | 2 | 8; }
+const EBAY_ROWS: EbayFixture[] = [
+  { order: '01-14475-65087', bp: 240, sp: 249.99, shipping: 8 },
+  { order: '02-14637-19986', bp: 153, sp: 199.99, shipping: 8 },
+  { order: '04-14562-24670', bp: 60,  sp: 89.99,  shipping: 8 },
+  { order: '06-14610-79610', bp: 52,  sp: 77.99,  shipping: 8 },
+  { order: '09-14554-73797', bp: 102, sp: 155.98, shipping: 8 },
+  { order: '12-14557-94698', bp: 62,  sp: 99.99,  shipping: 8 },
+  { order: '13-14633-17676', bp: 120, sp: 159.99, shipping: 8 },
+  { order: '16-14519-66313', bp: 125, sp: 159.99, shipping: 8 },
+  { order: '18-14498-91345', bp: 125, sp: 159.99, shipping: 8 },
+  { order: '20-14461-82871', bp: 70,  sp: 99.99,  shipping: 8 },
+  { order: '21-14516-98989', bp: 140, sp: 159.99, shipping: 8 },
+  { order: '22-14517-93084', bp: 75,  sp: 119.99, shipping: 8 },
+];
+
+interface OnbuyFixture { order: string; bp: number; sp: number; postage: number; }
+const ONBUY_ROWS: OnbuyFixture[] = [
+  { order: 'T6G29N2', bp: 150, sp: 189.99, postage: 8 },
+  { order: 'T6G59M5', bp: 70,  sp: 89.87,  postage: 8 },
+  { order: 'T6G8G6W', bp: 190, sp: 244.99, postage: 8 },
+  { order: 'T6GCFFG', bp: 145, sp: 184.99, postage: 8 },
+  { order: 'T6GCSC9', bp: 55,  sp: 79.99,  postage: 8 },
+  { order: 'T6GFMCP', bp: 140, sp: 184.99, postage: 8 },
+  { order: 'T6GHN68', bp: 125, sp: 154.99, postage: 8 },
+  { order: 'T6GN8TB', bp: 125, sp: 154.99, postage: 8 },
+  { order: 'T6GQF7R', bp: 115, sp: 154.99, postage: 8 },
+  { order: 'T6GTB9N', bp: 125, sp: 149.99, postage: 8 },
+  { order: 'T6H22DD', bp: 125, sp: 164.99, postage: 8 },
+  { order: 'T6H6PVN', bp: 145, sp: 184.99, postage: 8 },
+];
+
+// ── Master-formula reference implementations (NOT calling our code).
 
 function masterAmazon(bp: number, sp: number, postage: number) {
   const spMinusBp  = r2(sp - bp);
@@ -74,14 +123,19 @@ function masterAmazon(bp: number, sp: number, postage: number) {
   return { spMinusBp, marTax, commission, postage, grossProfit, gpPercent };
 }
 
-function masterBm(bp: number, sp: number, postage: number, hasPPK: boolean) {
+function isPPKMode(mode: string): boolean {
+  return /paypal|klarna|clearpay|clear pay|applepay|apple pay/i.test(mode);
+}
+
+function masterBm(bp: number, sp: number, postage: number, payment: string) {
+  const hasPPK     = isPPKMode(payment);
   const spMinusBp  = r2(sp - bp);
   const marTax     = r2(spMinusBp / 6);
   const commission = r2(sp * 12 / 100);
   const ppk        = hasPPK ? r2(sp * 2.5 / 100) : 0;
   const grossProfit = r2(sp - bp - marTax - commission - postage - ppk);
   const gpPercent   = bp > 0 ? r2(grossProfit / bp * 100) : 0;
-  return { spMinusBp, marTax, commission, ppk, postage, grossProfit, gpPercent };
+  return { spMinusBp, marTax, commission, ppk, postage, grossProfit, gpPercent, hasPPK };
 }
 
 function masterEbay(bp: number, sp: number, shipping: 1 | 2 | 8) {
@@ -91,8 +145,6 @@ function masterEbay(bp: number, sp: number, shipping: 1 | 2 | 8) {
   const commission = r2(comGross - comGross * 10 / 100);
   const rof        = r2(sp * 0.35 / 100);
   const fvf        = 0.4;
-  // Master sheet's `=(K+L+M)*20%` references the displayed cells, so use
-  // the rounded intermediates here too.
   const twenty     = r2((commission + rof + fvf) * 20 / 100);
   const totalCom   = r2(commission + rof + fvf + twenty);
   const grossProfit = r2(spMinusBp - marTax - totalCom - shipping);
@@ -107,177 +159,140 @@ function masterOnbuy(bp: number, sp: number, postage: number) {
   const commission = r2(sp * 7 / 100);
   const vat20      = r2(marVat * 20 / 100);
   const grossProfit = r2(sp - bp - commission - postage - marVat - vat20);
-  // ONBUY's `=M/G*100` divides by col G — which on this sheet is SP
-  // (no Quantity column shifts the layout).
   const gpPercent   = sp > 0 ? r2(grossProfit / sp * 100) : 0;
   return { spMinusBp, marVat, commission, vat20, postage, grossProfit, gpPercent };
 }
 
-function masterProject(bp: number, sp: number, postage: number) {
-  // Same shape as AMAZON; only postage default differs.
-  return masterAmazon(bp, sp, postage);
-}
+// ── AMAZON — 12 rows ────────────────────────────────────────────────────
 
-// ── Fixtures — real rows from SALES_REPORT_2026.xlsx ─────────────────────
-
-describe('calcSaleFinancials · AMAZON parity with master', () => {
-  it('row 2 from master (BP £88 · SP £111)', () => {
-    const m = masterAmazon(88, 111, 8);
-    const fin = calcSaleFinancials({ marketplace: 'AMAZON', buyPrice: 88, salePrice: 111 });
-    expectClose(fin.spMinusBp,    m.spMinusBp,   'spMinusBp');
-    expectClose(fin.marginalTax,  m.marTax,      'marginalTax');
-    expectClose(fin.commission,   m.commission,  'commission');
-    expectClose(fin.postage,      m.postage,     'postage');
-    expectClose(fin.grossProfit,  m.grossProfit, 'grossProfit');
-    expectClose(fin.gpPercent,    m.gpPercent,   'gpPercent');
+describe('calcSaleFinancials · AMAZON · 12 master rows', () => {
+  it.each(AMAZON_ROWS)('row $order (BP £$bp · SP £$sp)', (row) => {
+    const m = masterAmazon(row.bp, row.sp, row.postage);
+    const fin = calcSaleFinancials({
+      marketplace: 'AMAZON',
+      buyPrice: row.bp,
+      salePrice: row.sp,
+    });
+    expectClose(fin.spMinusBp,   m.spMinusBp,   `${row.order}.spMinusBp`);
+    expectClose(fin.marginalTax, m.marTax,      `${row.order}.marginalTax`);
+    expectClose(fin.commission,  m.commission,  `${row.order}.commission`);
+    expectClose(fin.postage,     m.postage,     `${row.order}.postage`);
+    expectClose(fin.grossProfit, m.grossProfit, `${row.order}.grossProfit`);
+    expectClose(fin.gpPercent,   m.gpPercent,   `${row.order}.gpPercent`);
   });
 
-  it('row 941 from master (BP £55 · SP £88)', () => {
-    const m = masterAmazon(55, 88, 8);
-    const fin = calcSaleFinancials({ marketplace: 'AMAZON', buyPrice: 55, salePrice: 88 });
-    expectClose(fin.grossProfit, m.grossProfit, 'grossProfit');
-    expectClose(fin.gpPercent,   m.gpPercent,   'gpPercent');
-  });
-
-  it('returns the master postage default (£8) when no override', () => {
+  it('postage default = £8 per master', () => {
     expect(getMarketplaceFee('AMAZON').postage).toBe(8);
   });
 });
 
-describe('calcSaleFinancials · BM parity with master', () => {
-  it('row 2 (BP £850 · SP £1300 · Google Pay — NO PayPal/Klarna fee)', () => {
-    // Google Pay does NOT match the master's PayPal/Klarna/Clear Pay/Apple
-    // Pay set; the 2.5% must be £0.
-    const m = masterBm(850, 1300, 10, false);
+// ── BM — 12 rows including PayPal/Klarna detection ──────────────────────
+
+describe('calcSaleFinancials · BM · 12 master rows', () => {
+  it.each(BM_ROWS)('row $order (BP £$bp · SP £$sp · pay=$payment)', (row) => {
+    const m = masterBm(row.bp, row.sp, row.postage, row.payment);
     const fin = calcSaleFinancials({
       marketplace: 'BM',
-      buyPrice: 850,
-      salePrice: 1300,
-      hasPayPalKlarna: false,
+      buyPrice: row.bp,
+      salePrice: row.sp,
+      hasPayPalKlarna: m.hasPPK,
     });
-    expectClose(fin.spMinusBp,   m.spMinusBp,   'spMinusBp');
-    expectClose(fin.marginalTax, m.marTax,      'marginalTax');
-    expectClose(fin.commission,  m.commission,  'commission');
-    expect(fin.payPalKlarnaCom ?? 0).toBe(0);
-    expectClose(fin.grossProfit, m.grossProfit, 'grossProfit');
-    expectClose(fin.gpPercent,   m.gpPercent,   'gpPercent');
+    expectClose(fin.spMinusBp,           m.spMinusBp,   `${row.order}.spMinusBp`);
+    expectClose(fin.marginalTax,         m.marTax,      `${row.order}.marginalTax`);
+    expectClose(fin.commission,          m.commission,  `${row.order}.commission`);
+    expectClose(fin.payPalKlarnaCom ?? 0, m.ppk,         `${row.order}.payPalKlarnaCom`);
+    expectClose(fin.postage,             m.postage,     `${row.order}.postage`);
+    expectClose(fin.grossProfit,         m.grossProfit, `${row.order}.grossProfit`);
+    expectClose(fin.gpPercent,           m.gpPercent,   `${row.order}.gpPercent`);
   });
 
-  it('row 3 (BP £105 · SP £154 · Klarna — PayPal/Klarna 2.5% fires)', () => {
-    const m = masterBm(105, 154, 10, true);
-    const fin = calcSaleFinancials({
-      marketplace: 'BM',
-      buyPrice: 105,
-      salePrice: 154,
-      hasPayPalKlarna: true,
-    });
-    expectClose(fin.payPalKlarnaCom ?? 0, m.ppk,         'payPalKlarnaCom');
-    expectClose(fin.grossProfit,          m.grossProfit, 'grossProfit');
-    expectClose(fin.gpPercent,            m.gpPercent,   'gpPercent');
+  it('PayPal/Klarna 2.5% fires for Klarna / PayPal / Clear Pay / Apple Pay only', () => {
+    const ppk = ['Klarna', 'PayPal', 'Paypal', 'Clear Pay', 'Apple Pay', 'ClearPay'];
+    const off = ['Google Pay', 'Card', '', 'Cash'];
+    for (const mode of ppk) expect(isPPKMode(mode), `PPK fires for "${mode}"`).toBe(true);
+    for (const mode of off) expect(isPPKMode(mode), `PPK silent for "${mode}"`).toBe(false);
   });
 
-  it('GP% denominator is BP per master `=O/G*100`', () => {
-    // BP=100, SP=200, no PPK → grossProfit = 200-100-100/6-200*12%-10 = 49.33
-    // master GP% = 49.33/100*100 = 49.33   (NOT 49.33/200*100 = 24.67)
-    const fin = calcSaleFinancials({ marketplace: 'BM', buyPrice: 100, salePrice: 200 });
-    expectClose(fin.gpPercent, 49.33, 'gpPercent /BP not /SP');
+  it('postage default = £10 per master', () => {
+    expect(getMarketplaceFee('BM').postage).toBe(10);
   });
 });
 
-describe('calcSaleFinancials · EBAY parity with master', () => {
-  it('row 2 (BP £240 · SP £249.99 · shipping £8 tier)', () => {
-    const m = masterEbay(240, 249.99, 8);
+// ── EBAY — 12 rows, full per-row breakdown ──────────────────────────────
+
+describe('calcSaleFinancials · EBAY · 12 master rows', () => {
+  it.each(EBAY_ROWS)('row $order (BP £$bp · SP £$sp · ship £$shipping)', (row) => {
+    const m = masterEbay(row.bp, row.sp, row.shipping);
     const fin = calcSaleFinancials({
       marketplace: 'EBAY',
-      buyPrice: 240,
-      salePrice: 249.99,
-      eBayShippingTier: 8,
+      buyPrice: row.bp,
+      salePrice: row.sp,
+      eBayShippingTier: row.shipping,
     });
-    expectClose(fin.spMinusBp,             m.spMinusBp,   'spMinusBp');
-    expectClose(fin.marginalTax,           m.marTax,      'marginalTax (16.6%)');
-    expectClose(fin.commission,            m.commission,  'commission (6.9% - 10%)');
-    expectClose(fin.rof ?? 0,              m.rof,         'rof (0.35%)');
-    expectClose(fin.fvf ?? 0,              m.fvf,         'fvf (0.40)');
-    expectClose(fin.twentyPercent ?? 0,    m.twenty,      '20% VAT bundle');
-    expectClose(fin.totalCom ?? 0,         m.totalCom,    'T.COM');
-    expectClose(fin.postage,               m.postage,     'shipping');
-    expectClose(fin.grossProfit,           m.grossProfit, 'grossProfit');
-    expectClose(fin.gpPercent,             m.gpPercent,   'gpPercent (/SP)');
-    expectClose(fin.netProfit ?? 0,        m.netProfit,   'netProfit (incl. 5% promo)');
+    expectClose(fin.spMinusBp,             m.spMinusBp,   `${row.order}.spMinusBp`);
+    expectClose(fin.marginalTax,           m.marTax,      `${row.order}.marginalTax (16.6%)`);
+    expectClose(fin.commission,            m.commission,  `${row.order}.commission`);
+    expectClose(fin.rof ?? 0,              m.rof,         `${row.order}.rof`);
+    expectClose(fin.fvf ?? 0,              m.fvf,         `${row.order}.fvf`);
+    expectClose(fin.twentyPercent ?? 0,    m.twenty,      `${row.order}.20% VAT bundle`);
+    expectClose(fin.totalCom ?? 0,         m.totalCom,    `${row.order}.T.COM`);
+    expectClose(fin.postage,               m.postage,     `${row.order}.shipping`);
+    expectClose(fin.grossProfit,           m.grossProfit, `${row.order}.grossProfit`);
+    expectClose(fin.gpPercent,             m.gpPercent,   `${row.order}.gpPercent (/SP)`);
+    expectClose(fin.netProfit ?? 0,        m.netProfit,   `${row.order}.netProfit (5% promo)`);
   });
 
-  it('GP% denominator is SP per master `=Q/H*100`', () => {
-    // BP=100, SP=200, tier=8 → GP ≈ 59.18 → GP% = 59.18/200*100 = 29.59
-    const fin = calcSaleFinancials({
-      marketplace: 'EBAY',
-      buyPrice: 100,
-      salePrice: 200,
-      eBayShippingTier: 8,
-    });
-    expectClose(fin.gpPercent, 29.59, 'gpPercent /SP not /BP');
-  });
-
-  it('shipping tier £1 routes through correctly', () => {
-    const m = masterEbay(100, 200, 1);
-    const fin = calcSaleFinancials({
-      marketplace: 'EBAY',
-      buyPrice: 100,
-      salePrice: 200,
-      eBayShippingTier: 1,
-    });
-    expectClose(fin.postage,     m.postage,     'shipping=1');
-    expectClose(fin.grossProfit, m.grossProfit, 'grossProfit with £1 shipping');
+  it('shipping tier £1 + £2 also pass through correctly', () => {
+    for (const tier of [1, 2] as const) {
+      const m = masterEbay(100, 200, tier);
+      const fin = calcSaleFinancials({
+        marketplace: 'EBAY',
+        buyPrice: 100,
+        salePrice: 200,
+        eBayShippingTier: tier,
+      });
+      expectClose(fin.postage,     m.postage,     `tier=${tier}.shipping`);
+      expectClose(fin.grossProfit, m.grossProfit, `tier=${tier}.grossProfit`);
+    }
   });
 });
 
-describe('calcSaleFinancials · ONBUY parity with master', () => {
-  it('row 2 (BP £150 · SP £189.99 · ship £8)', () => {
-    const m = masterOnbuy(150, 189.99, 8);
-    const fin = calcSaleFinancials({ marketplace: 'ONBUY', buyPrice: 150, salePrice: 189.99 });
-    expectClose(fin.spMinusBp,     m.spMinusBp,   'spMinusBp');
-    expectClose(fin.marVat ?? 0,   m.marVat,      'MAR VAT (/6)');
-    expectClose(fin.commission,    m.commission,  'commission (7%)');
-    expectClose(fin.vat20 ?? 0,    m.vat20,       'VAT 20%');
-    expectClose(fin.postage,       m.postage,     'shipping');
-    expectClose(fin.grossProfit,   m.grossProfit, 'grossProfit');
-    expectClose(fin.gpPercent,     m.gpPercent,   'gpPercent (/SP — col G is SP here)');
-  });
+// ── ONBUY — 12 rows ─────────────────────────────────────────────────────
 
-  it('GP% denominator is SP per master (ONBUY col G = SP, no Qty col)', () => {
-    // BP=100, SP=200 → GP=58 → GP%=58/200*100=29
-    const fin = calcSaleFinancials({ marketplace: 'ONBUY', buyPrice: 100, salePrice: 200 });
-    expectClose(fin.gpPercent, 29, 'gpPercent /SP not /BP');
+describe('calcSaleFinancials · ONBUY · 12 master rows', () => {
+  it.each(ONBUY_ROWS)('row $order (BP £$bp · SP £$sp)', (row) => {
+    const m = masterOnbuy(row.bp, row.sp, row.postage);
+    const fin = calcSaleFinancials({
+      marketplace: 'ONBUY',
+      buyPrice: row.bp,
+      salePrice: row.sp,
+    });
+    expectClose(fin.spMinusBp,    m.spMinusBp,   `${row.order}.spMinusBp`);
+    expectClose(fin.marVat ?? 0,  m.marVat,      `${row.order}.MAR VAT`);
+    expectClose(fin.commission,   m.commission,  `${row.order}.commission (7%)`);
+    expectClose(fin.vat20 ?? 0,   m.vat20,       `${row.order}.VAT 20%`);
+    expectClose(fin.postage,      m.postage,     `${row.order}.shipping`);
+    expectClose(fin.grossProfit,  m.grossProfit, `${row.order}.grossProfit`);
+    expectClose(fin.gpPercent,    m.gpPercent,   `${row.order}.gpPercent (/SP)`);
   });
 
   it('exposes both marginalTax and marVat (alias on the same value)', () => {
     const fin = calcSaleFinancials({ marketplace: 'ONBUY', buyPrice: 100, salePrice: 200 });
     expect(fin.marginalTax).toBeCloseTo(fin.marVat ?? 0, 2);
   });
-});
 
-describe('calcSaleFinancials · PROJECT parity with master', () => {
-  it('row 2 (BP £115 · SP £149.79 · postage £5.90)', () => {
-    const m = masterProject(115, 149.79, 5.9);
-    const fin = calcSaleFinancials({ marketplace: 'PROJECT', buyPrice: 115, salePrice: 149.79 });
-    expectClose(fin.spMinusBp,    m.spMinusBp,   'spMinusBp');
-    expectClose(fin.marginalTax,  m.marTax,      'marginalTax (/6)');
-    expectClose(fin.commission,   m.commission,  'commission (7.14%)');
-    expectClose(fin.postage,      m.postage,     'postage (5.90, not 8)');
-    expectClose(fin.grossProfit,  m.grossProfit, 'grossProfit');
-    expectClose(fin.gpPercent,    m.gpPercent,   'gpPercent (/BP)');
-  });
-
-  it('postage defaults to £5.90 not £8', () => {
-    expect(getMarketplaceFee('PROJECT').postage).toBe(5.9);
+  it('postage default = £8 per master', () => {
+    expect(getMarketplaceFee('ONBUY').postage).toBe(8);
   });
 });
 
-// ── Cross-marketplace invariants — protect against future regressions ────
+// ── Cross-marketplace invariants ────────────────────────────────────────
 
 describe('calcSaleFinancials · cross-marketplace invariants', () => {
-  it('every marketplace returns finite numbers for a happy-path sale', () => {
-    const markets: Marketplace[] = ['AMAZON', 'BM', 'EBAY', 'ONBUY', 'PROJECT'];
-    for (const m of markets) {
+  const ALL: Marketplace[] = ['AMAZON', 'BM', 'EBAY', 'ONBUY'];
+
+  it('all 4 marketplaces produce finite numbers on a happy path', () => {
+    for (const m of ALL) {
       const fin = calcSaleFinancials({
         marketplace: m,
         buyPrice: 100,
@@ -292,37 +307,33 @@ describe('calcSaleFinancials · cross-marketplace invariants', () => {
     }
   });
 
-  it('AMAZON / BM / PROJECT divide GP% by BP (margin-over-cost)', () => {
-    // GP / BP → expect a value ~2× what /SP would produce on a 2× sale.
-    const a = calcSaleFinancials({ marketplace: 'AMAZON',  buyPrice: 100, salePrice: 200 });
-    const b = calcSaleFinancials({ marketplace: 'BM',      buyPrice: 100, salePrice: 200 });
-    const p = calcSaleFinancials({ marketplace: 'PROJECT', buyPrice: 100, salePrice: 200 });
-    // Sanity: ratio of GP%/(GP / BP * 100) must be ~1 — i.e. they actually divide by BP.
-    for (const fin of [a, b, p]) {
-      const denom = fin.grossProfit / 100 * 100;
-      expectClose(fin.gpPercent, denom, '/BP');
+  it('AMAZON / BM divide GP% by BP (margin-over-cost)', () => {
+    for (const m of ['AMAZON', 'BM'] as const) {
+      const fin = calcSaleFinancials({ marketplace: m, buyPrice: 100, salePrice: 200 });
+      const denom = r2(fin.grossProfit / 100 * 100);
+      expectClose(fin.gpPercent, denom, `${m} GP% denom=BP`);
     }
   });
 
   it('EBAY / ONBUY divide GP% by SP (gross-margin-over-revenue)', () => {
-    const e = calcSaleFinancials({ marketplace: 'EBAY',  buyPrice: 100, salePrice: 200, eBayShippingTier: 8 });
-    const o = calcSaleFinancials({ marketplace: 'ONBUY', buyPrice: 100, salePrice: 200 });
-    for (const fin of [e, o]) {
-      const denom = fin.grossProfit / 200 * 100;
-      expectClose(fin.gpPercent, denom, '/SP');
+    for (const m of ['EBAY', 'ONBUY'] as const) {
+      const fin = calcSaleFinancials({
+        marketplace: m,
+        buyPrice: 100,
+        salePrice: 200,
+        eBayShippingTier: m === 'EBAY' ? 8 : undefined,
+      });
+      const denom = r2(fin.grossProfit / 200 * 100);
+      expectClose(fin.gpPercent, denom, `${m} GP% denom=SP`);
     }
   });
 
-  it('zero GP%-denominator collapses gpPercent to 0 instead of NaN/Infinity', () => {
-    // GP% denominator per master: BP on AMAZON/BM/PROJECT, SP on EBAY/ONBUY.
-    // Zero the *denominator* for each marketplace and assert the gpPercent
-    // safe-fallback fires (no NaN, no Infinity).
+  it('zero GP%-denominator collapses gpPercent to 0 (no NaN/Infinity)', () => {
     const cases: Array<{ m: Marketplace; bp: number; sp: number }> = [
-      { m: 'AMAZON',  bp: 0,   sp: 100 },                     // /BP → 0
-      { m: 'BM',      bp: 0,   sp: 100 },                     // /BP → 0
-      { m: 'PROJECT', bp: 0,   sp: 100 },                     // /BP → 0
-      { m: 'EBAY',    bp: 100, sp: 0   },                     // /SP → 0
-      { m: 'ONBUY',   bp: 100, sp: 0   },                     // /SP → 0
+      { m: 'AMAZON', bp: 0,   sp: 100 },     // /BP
+      { m: 'BM',     bp: 0,   sp: 100 },     // /BP
+      { m: 'EBAY',   bp: 100, sp: 0   },     // /SP
+      { m: 'ONBUY',  bp: 100, sp: 0   },     // /SP
     ];
     for (const c of cases) {
       const fin = calcSaleFinancials({
@@ -339,7 +350,6 @@ describe('calcSaleFinancials · cross-marketplace invariants', () => {
   it('SP = BP yields spMinusBp = 0 and a negative GP (only fees + postage left)', () => {
     const fin = calcSaleFinancials({ marketplace: 'AMAZON', buyPrice: 100, salePrice: 100 });
     expect(fin.spMinusBp).toBe(0);
-    // Net loss = MAR TAX 0 + commission (7.14% of 100) + postage 8 = -15.14
-    expectClose(fin.grossProfit, -15.14, 'grossProfit on break-even SP');
+    expectClose(fin.grossProfit, -15.14, 'AMAZON break-even GP = -(7.14 + 8)');
   });
 });

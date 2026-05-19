@@ -6,7 +6,7 @@
  * `calcSaleFinancials`, which mirrors the formulas in the operator's
  * SALES_REPORT_2026.xlsx (verified via xl/worksheets/sheet{1..5}.xml).
  *
- * The four supported platforms (PROJECT dropped per ops convention):
+ * The four supported platforms:
  *   AMAZON · BM · EBAY · ONBUY
  *
  * Each platform surfaces its own input set + a live P&L breakdown that
@@ -29,11 +29,9 @@ import {
 } from '../lib/imeiValidation';
 import { recordSale } from '../services';
 
-/** Operator-facing platform list. PROJECT is in the Marketplace enum for
- *  legacy data load but the operator only sells on these four. Order matches
- *  the master SALES_REPORT sheet order. */
-const ACTIVE_PLATFORMS: ReadonlyArray<Marketplace> = (MARKETPLACES as readonly Marketplace[])
-  .filter((m): m is Marketplace => m !== 'PROJECT');
+/** Operator-facing platform list — the 4 marketplaces the operator sells
+ *  on. Matches the master SALES_REPORT sheet order. */
+const ACTIVE_PLATFORMS: ReadonlyArray<Marketplace> = MARKETPLACES;
 
 /** Per-platform display palette + label. Matches the colour cues used on
  *  the Sell screen so the operator's eye recognises the platform instantly. */
@@ -42,7 +40,6 @@ const PLATFORM_META: Record<Marketplace, { label: string; tone: string; activeBg
   BM:      { label: 'Back Market',  tone: 'border-emerald-200 text-emerald-800 bg-emerald-50', activeBg: 'bg-emerald-600' },
   EBAY:    { label: 'eBay',         tone: 'border-yellow-200 text-yellow-800 bg-yellow-50',   activeBg: 'bg-yellow-600' },
   ONBUY:   { label: 'OnBuy',        tone: 'border-blue-200 text-blue-800 bg-blue-50',         activeBg: 'bg-blue-600' },
-  PROJECT: { label: 'Project',      tone: 'border-slate-200 text-slate-800 bg-slate-50',      activeBg: 'bg-slate-600' },
 };
 
 /** BM-only payment-mode options — these are the values the master file uses
@@ -453,7 +450,6 @@ function SalePLBreakdown({
 
   switch (marketplace) {
     case 'AMAZON':
-    case 'PROJECT':
       rows.push(
         { label: 'Marginal Tax',  value: `£${(breakdown.marginalTax ?? 0).toFixed(2)}`, sub: 'sub' },
         { label: 'Commission',    value: `£${(breakdown.commission ?? 0).toFixed(2)}`,  sub: 'sub' },

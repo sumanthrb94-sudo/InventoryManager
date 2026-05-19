@@ -27,13 +27,6 @@ import { MARKETPLACES } from '../types';
 import { excelFormulaFor } from './platforms';
 import { recomputeSale } from './recomputeSale';
 
-/** Marketplaces the operator actively sells on — sheet writers iterate
- *  this list, NOT the full MARKETPLACES enum. PROJECT is excluded:
- *  historical PROJECT sales still load read-only (the type stays in the
- *  Sale enum and the ALL sheet still surfaces them), but the workbook no
- *  longer carries a dedicated PROJECT sheet. */
-const ACTIVE_MARKETPLACES = ['AMAZON', 'BM', 'EBAY', 'ONBUY'] as const;
-
 /** Unified flat schema for the ALL sheet. 22 columns: buy schema (9)
  *  first, then sale fields (13). Marketplace is a column, not a tab. */
 const ALL_HEADERS = [
@@ -253,11 +246,6 @@ const SALES_HEADERS: Record<Marketplace, SalesHeaderRow> = {
     'BP', 'SP', 'SP-BP', 'MAR VAT', 'COM 7%', 'VAT 20%', 'SHIP',
     'GP=SP-BP-COM-SHIP-MARVAT', 'GP%', 'Comments',
   ],
-  PROJECT: [
-    'Date', 'Order Number', 'SKU', 'IMEI', 'Supplier', 'QUANT',
-    'BP', 'SP', 'SP-BP', 'MAR TAX', 'COMM', 'POST',
-    'GP = SP-BP-TAX-COM-AMZTAX-POS-P COM', 'GP %', 'Comments',
-  ],
 };
 
 const DATE_FMT = '[$-409]d\\-mmm\\-yyyy';
@@ -374,26 +362,6 @@ function writeSaleRow(
       return;
     }
 
-    case 'PROJECT': {
-      // Same layout as AMAZON.
-      const row = sheet.addRow([
-        date, sale.orderNumber, sale.sku ?? '', sale.imei ?? '',
-        sale.supplierName ?? '', qty,
-        sale.buyPrice, sale.salePrice,
-        null, null, null, null, null, null, sale.comments ?? '',
-      ]);
-      row.getCell(1).numFmt = DATE_FMT;
-      row.getCell(4).numFmt = IMEI_FMT;
-      row.getCell(7).numFmt = MONEY_FMT;
-      row.getCell(8).numFmt = MONEY_FMT;
-      row.getCell(9).value  = { formula: f.spMinusBp! };    row.getCell(9).numFmt  = MONEY_FMT;
-      row.getCell(10).value = { formula: f.marginalTax! };  row.getCell(10).numFmt = MONEY_FMT;
-      row.getCell(11).value = { formula: f.commission! };   row.getCell(11).numFmt = MONEY_FMT;
-      row.getCell(12).value = Number(f.postage);            row.getCell(12).numFmt = MONEY_FMT;
-      row.getCell(13).value = { formula: f.grossProfit! };  row.getCell(13).numFmt = MONEY_FMT;
-      row.getCell(14).value = { formula: f.gpPercent! };    row.getCell(14).numFmt = MONEY_FMT;
-      return;
-    }
   }
 }
 
@@ -417,7 +385,7 @@ export async function buildSalesWorkbookBuffer(input: BuildSalesWorkbookInput): 
   // Sheets 2-5: per-platform, mirroring the operator's master SALES_REPORT
   // shape exactly (headers + formulas via excelFormulaFor). PROJECT excluded
   // — we sell on 4 platforms only.
-  for (const m of ACTIVE_MARKETPLACES) {
+  for (const m of MARKETPLACES) {
     const sheet = wb.addWorksheet(m);
     sheet.addRow(SALES_HEADERS[m]);
 

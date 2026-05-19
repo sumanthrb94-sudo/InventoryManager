@@ -59,7 +59,6 @@ const MARKETPLACE_TONE: Record<Marketplace, string> = {
   BM:      'bg-emerald-100 text-emerald-700 border-emerald-200',
   EBAY:    'bg-yellow-100 text-yellow-700  border-yellow-200',
   ONBUY:   'bg-blue-100 text-blue-700      border-blue-200',
-  PROJECT: 'bg-violet-100 text-violet-700  border-violet-200',
 };
 
 const fmtGBP = (n: number | undefined | null, decimals = 2): string => {
@@ -379,7 +378,7 @@ export default function SellSheet(_props: Props) {
   // Sheet 1: ALL  → 22-column unified flat view (buy schema + sale fields).
   // Sheets 2-5:    AMAZON / BM / EBAY / ONBUY, each in the operator's
   //                exact master-file shape (headers + cell-level Excel
-  //                formulas via excelFormulaFor). PROJECT is dropped per
+  //                formulas via excelFormulaFor). Four platforms only per
   //                ops convention "we sell in 4 platforms only".
   // Voided sales are excluded — they don't represent realised revenue and
   // the void path keeps the original Sale doc for audit only.
@@ -1228,7 +1227,7 @@ function SchemaHelpCard({ onClose }: { onClose: () => void }) {
     { col: '6',  field: 'Supplier',   note: 'Read-only — from the linked unit',                                      tone: 'core'    },
     { col: '7',  field: 'BP',         note: 'Buy price snapshot at time of sale',                                    tone: 'core'    },
     { col: '8',  field: 'SP',         note: 'Sale price · double-click cell to edit',                                tone: 'edit'    },
-    { col: '9',  field: 'Platform',   note: 'AMAZON / BM / EBAY / ONBUY / PROJECT · double-click to change',         tone: 'edit'    },
+    { col: '9',  field: 'Platform',   note: 'AMAZON / BM / EBAY / ONBUY · double-click to change',                   tone: 'edit'    },
     { col: '10', field: 'Postage',    note: 'Override per row · default from platform fee schedule',                 tone: 'edit'    },
     { col: '11', field: 'Commission', note: 'Auto-computed from platform fee table on every SP/Platform change',     tone: 'derived' },
     { col: '12', field: 'GP',         note: 'Gross Profit = SP − BP − Commission − Postage − Marginal Tax',          tone: 'derived' },

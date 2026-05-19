@@ -76,7 +76,6 @@ describe('marketplaceFromListingSite', () => {
     expect(marketplaceFromListingSite('OnBuy')).toBe('ONBUY');
     expect(marketplaceFromListingSite('Back Market')).toBe('BM');
     expect(marketplaceFromListingSite('Backmarket')).toBe('BM'); // legacy
-    expect(marketplaceFromListingSite('Project')).toBe('PROJECT');
   });
 
   it('ALSO accepts canonical enums (the bug-fix path)', () => {
@@ -87,7 +86,6 @@ describe('marketplaceFromListingSite', () => {
     expect(marketplaceFromListingSite('AMAZON')).toBe('AMAZON');
     expect(marketplaceFromListingSite('BM')).toBe('BM');
     expect(marketplaceFromListingSite('ONBUY')).toBe('ONBUY');
-    expect(marketplaceFromListingSite('PROJECT')).toBe('PROJECT');
   });
 
   it('round-trips through listingSiteFromMarketplace for every Marketplace', () => {

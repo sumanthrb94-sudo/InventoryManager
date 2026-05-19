@@ -5,7 +5,7 @@
  * rates and were missing Project, eBay ROF/FVF/VAT/promo and BM PayPal/Klarna.
  *
  * The new authoritative table is `MARKETPLACE_FEES` (keyed by canonical
- * `Marketplace` sheet names: AMAZON / BM / EBAY / ONBUY / PROJECT). It powers:
+ * `Marketplace` sheet names: AMAZON / BM / EBAY / ONBUY). It powers:
  *   - `calcSaleFinancials()` — runtime GP/NP calculator for sales documents
  *   - `excelFormulaFor()`   — Excel formula strings for the SALES_REPORT writer
  *   - `getMarketplaceFee()` — Firestore loader hook (returns defaults today)
@@ -61,12 +61,6 @@ export const DEFAULT_MARKETPLACE_FEES: Record<Marketplace, MarketplaceFee> = {
     marginTaxDivisor: 6,
     vatPct: 20,
   },
-  PROJECT: {
-    marketplace: 'PROJECT',
-    commissionPct: 7.14,
-    postage: 5.90,
-    marginTaxDivisor: 6,
-  },
 };
 
 /**
@@ -88,14 +82,12 @@ export function getMarketplaceFee(m: Marketplace): MarketplaceFee {
  * verbatim from the client master file.
  *
  * - 'BM' canonicalises to 'Back Market' (with legacy 'Backmarket' also accepted).
- * - 'PROJECT' maps to 'Project' (previously missing from the enum — see B6).
  */
 const MARKETPLACE_TO_LISTING_SITE: Record<Marketplace, ListingSite> = {
   AMAZON: 'Amazon',
   BM: 'Back Market',
   EBAY: 'eBay',
   ONBUY: 'OnBuy',
-  PROJECT: 'Project',
 };
 
 const LISTING_SITE_TO_MARKETPLACE: Record<string, Marketplace> = {
@@ -105,7 +97,6 @@ const LISTING_SITE_TO_MARKETPLACE: Record<string, Marketplace> = {
   'Backmarket': 'BM',   // legacy
   'eBay':       'EBAY',
   'OnBuy':      'ONBUY',
-  'Project':    'PROJECT',
   // Canonical Marketplace enum values — recordSale writes salePlatform in
   // this form ('EBAY' / 'AMAZON' / …) so the reverse lookup also has to
   // accept it; without these entries, every non-eBay sale resolved to the
@@ -115,7 +106,6 @@ const LISTING_SITE_TO_MARKETPLACE: Record<string, Marketplace> = {
   'BM':      'BM',
   'EBAY':    'EBAY',
   'ONBUY':   'ONBUY',
-  'PROJECT': 'PROJECT',
 };
 
 export function listingSiteFromMarketplace(m: Marketplace): ListingSite {
@@ -207,9 +197,7 @@ export function calcSaleFinancials(input: CalcSaleFinancialsInput): SaleFinancia
   const gpPctBySp = (gp: number) => sp > 0 ? r2(gp / sp * 100) : 0;
 
   switch (marketplace) {
-    case 'AMAZON':
-    case 'PROJECT': {
-      // AMAZON / PROJECT share the same shape; only postage differs.
+    case 'AMAZON': {
       const marginalTax = r2(spMinusBp / (fee.marginTaxDivisor ?? 6));
       const commission  = r2(sp * fee.commissionPct / 100);
       const grossProfit = r2(sp - bp - marginalTax - commission - postage);
@@ -304,8 +292,7 @@ export function excelFormulaFor(marketplace: Marketplace, row: number): Record<s
   const fee = getMarketplaceFee(marketplace);
   const r = row;
   switch (marketplace) {
-    case 'AMAZON':
-    case 'PROJECT': {
+    case 'AMAZON': {
       // Headers: ... G=BP, H=SP, I=SP-BP, J=Marginal Tax, K=Commission, L=Postage, M=GP, N=GP%
       return {
         spMinusBp:   `H${r}-G${r}`,
@@ -376,7 +363,6 @@ export const LISTING_SITES: ListingSite[] = [
   'Backmarket',
   'Back Market',
   'FBA',
-  'Project',
   'R T S',
   'Other',
 ];

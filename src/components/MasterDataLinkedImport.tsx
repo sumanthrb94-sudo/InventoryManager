@@ -21,7 +21,7 @@ import { logInventoryEvent } from '../lib/inventoryEvents';
 interface Props { onClose: () => void; }
 
 // Sheet name signatures used to auto-route a dropped workbook into the right slot.
-const SALES_SHEETS = ['AMAZON', 'BM', 'EBAY', 'ONBUY', 'PROJECT'];
+const SALES_SHEETS = ['AMAZON', 'BM', 'EBAY', 'ONBUY'];
 const INVENTORY_SHEETS = ['INVENTORY', 'IMEI NUMBERS', 'OG STOCK DATA'];
 
 type SlotKind = 'inventory' | 'sales';
@@ -403,7 +403,7 @@ export default function MasterDataLinkedImport({ onClose }: Props) {
                 <SlotPanel
                   title="Sales Report"
                   emoji={<DollarSign size={18} strokeWidth={1.75} className="text-slate-500" />}
-                  hint="SALES_REPORT_*.xlsx · AMAZON / BM / EBAY / ONBUY / PROJECT"
+                  hint="SALES_REPORT_*.xlsx · AMAZON / BM / EBAY / ONBUY"
                   filled={!!salesSlot}
                   isParsing={stage.kind === 'parsing' && stage.slot === 'sales'}
                   isDragging={dragSlot === 'sales'}
@@ -621,7 +621,7 @@ function renderSalesStats(parsed: ParsedSales) {
   const c = parsed.perSheetCounts;
   return (
     <p className="text-[10px] text-slate-600 font-mono leading-relaxed">
-      {parsed.sales.length} sales across AMAZON {c.AMAZON}, BM {c.BM}, EBAY {c.EBAY}, ONBUY {c.ONBUY}, PROJECT {c.PROJECT}
+      {parsed.sales.length} sales across AMAZON {c.AMAZON}, BM {c.BM}, EBAY {c.EBAY}, ONBUY {c.ONBUY}
     </p>
   );
 }
