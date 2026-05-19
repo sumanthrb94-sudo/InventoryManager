@@ -1190,49 +1190,22 @@ function InlineSheet({
 
 // ── Excel overlay modal ─────────────────────────────────────────────────────
 
-/** Full unit schema rendered in the overlay's detailed view. Read-only —
- *  matches the SkuOverlayModal style so every "click to view" surface in
- *  the app behaves the same way. Listed in the order the operator scans
- *  during stock review: identity → physical attrs → status → financials
- *  → sale → ops → listing → returns → notes. */
+/** The detailed overlay schema mirrors the master Inventory Report
+ *  export (9 columns) plus a Status column so the operator can tell at
+ *  a glance whether a unit is available / sold / returned / incoming.
+ *  Order matches the master so the on-screen grid round-trips
+ *  byte-for-byte with the CSV. */
 const OVERLAY_COLUMNS: { key: string; label: string; width: number; align?: 'left' | 'right' }[] = [
-  { key: 'dateIn',         label: 'Stock In',       width: 100 },
-  { key: 'imei',           label: 'IMEI / Serial',  width: 180 },
-  { key: 'model',          label: 'Model',          width: 220 },
-  { key: 'brand',          label: 'Brand',          width: 90  },
-  { key: 'category',       label: 'Category',       width: 100 },
-  { key: 'storage',        label: 'Storage',        width: 80  },
-  { key: 'colour',         label: 'Colour',         width: 130 },
-  { key: 'grade',          label: 'Grade',          width: 70  },
-  { key: 'status',         label: 'Status',         width: 100 },
-  { key: 'supplierName',   label: 'Supplier',       width: 140 },
-  { key: 'buyPrice',       label: 'BP',             width: 80,  align: 'right' },
-  { key: 'salePrice',      label: 'Sale Price',     width: 90,  align: 'right' },
-  { key: 'saleDate',       label: 'Sale Date',      width: 100 },
-  { key: 'marketplace',    label: 'Marketplace',    width: 110 },
-  { key: 'customerName',   label: 'Customer',       width: 140 },
-  { key: 'saleOrderId',    label: 'Order ID',       width: 130 },
-  { key: 'postageCost',    label: 'Postage',        width: 80,  align: 'right' },
-  // Notes lives in the middle of the schema so it stays visible without
-  // scrolling all the way to the right edge — most office-stock review is
-  // about reading the operator's note alongside the basic identity columns.
-  { key: 'notes',          label: 'Notes',          width: 240 },
-  { key: 'batchNo',        label: 'Batch No',       width: 110 },
-  { key: 'stockLocation',  label: 'Location',       width: 110 },
-  { key: 'batteryHealth',  label: 'Battery',        width: 80,  align: 'right' },
-  { key: 'boxIncluded',    label: 'Box',            width: 60  },
-  { key: 'networkLock',    label: 'Net Lock',       width: 90  },
-  { key: 'activationLock', label: 'iCloud',         width: 80  },
-  { key: 'listingSites',   label: 'Listing Sites',  width: 160 },
-  { key: 'listingUrl',     label: 'Listing URL',    width: 180 },
-  { key: 'listingDate',    label: 'Listed On',      width: 100 },
-  { key: 'platformListed', label: 'Listed?',        width: 70  },
-  { key: 'returnType',     label: 'Return Type',    width: 110 },
-  { key: 'returnDate',     label: 'Return Date',    width: 100 },
-  { key: 'returnReason',   label: 'Return Reason',  width: 200 },
-  { key: 'stockOutDate',   label: 'Out On',         width: 100 },
-  { key: 'flags',          label: 'Flags',          width: 130 },
-  { key: 'sku',            label: 'SKU',            width: 130 },
+  { key: 'dateIn',       label: 'Stock In Date', width: 110 },
+  { key: 'model',        label: 'Model',         width: 240 },
+  { key: 'imei',         label: 'IMEI',          width: 180 },
+  { key: 'grade',        label: 'Grade',         width: 80  },
+  { key: 'storage',      label: 'Storage',       width: 90  },
+  { key: 'colour',       label: 'Colour',        width: 130 },
+  { key: 'supplierName', label: 'Supplier',      width: 150 },
+  { key: 'buyPrice',     label: 'BP',            width: 90,  align: 'right' },
+  { key: 'status',       label: 'Status',        width: 110 },
+  { key: 'notes',        label: 'Notes',         width: 260 },
 ];
 
 function fmtOverlayCell(
