@@ -520,6 +520,7 @@ export default function BuySheet(_props: Props) {
         rows={inlineRows}
         aggregates={[...officeAggs, ...shsAggs]}
         supplierMap={supplierMap}
+        region={region}
       />
 
       {/* ── Excel overlay modal — opens when a KPI tile is clicked ────────── */}
@@ -808,7 +809,7 @@ function FilterChipsGroup({
 // that has IMEIs doesn't also surface its rollup. The grouping is the
 // page's primary "what do we have on hand" lens.
 
-type GroupSortMode = 'qty' | 'value' | 'bp' | 'model';
+type GroupSortMode = 'qty' | 'value' | 'bp' | 'model' | 'stockIn';
 
 type GroupedModel = {
   key: string;
@@ -821,6 +822,10 @@ type GroupedModel = {
   notes: Set<string>;
   /** True when this bucket originates from a master-file SHS aggregate. */
   shs: boolean;
+  /** Most recent dateIn across the units in the group. Aggregate rollups
+   *  use their updatedAt timestamp since they don't carry per-unit dates.
+   *  Empty string when nothing was captured. */
+  latestDateIn: string;
 };
 
 function buildGroupedModels(
@@ -832,7 +837,7 @@ function buildGroupedModels(
     const model = (u.model || '').trim() || '—';
     const key = `unit::${model.toLowerCase()}`;
     let g = map.get(key);
-    if (!g) g = { key, model, total: 0, byColour: new Map(), latestBp: u.buyPrice || 0, totalValue: 0, notes: new Set(), shs: false };
+    if (!g) g = { key, model, total: 0, byColour: new Map(), latestBp: u.buyPrice || 0, totalValue: 0, notes: new Set(), shs: false, latestDateIn: '' };
     g.total++;
     g.totalValue += u.buyPrice || 0;
     const c = (u.colour || '').trim() || 'Unspecified';
@@ -840,6 +845,10 @@ function buildGroupedModels(
     if (u.buyPrice && u.buyPrice > 0) g.latestBp = u.buyPrice;
     const n = (u.notes || '').trim();
     if (n) g.notes.add(n);
+    const d = (u.dateIn || '').trim();
+    // dateIn comes in as ISO (YYYY-MM-DD) so a lexicographic max is the
+    // most-recent date — no Date parsing needed.
+    if (d && d > g.latestDateIn) g.latestDateIn = d;
     map.set(key, g);
   }
   for (const a of aggregates) {
@@ -855,6 +864,10 @@ function buildGroupedModels(
     const notes = new Set<string>();
     const n = (a.notes || '').trim();
     if (n) notes.add(n);
+    // Aggregates don't have a dateIn — fall back to updatedAt (or createdAt)
+    // sliced to YYYY-MM-DD so the column shows the rollup's last touch date.
+    const stamp = a.updatedAt || a.createdAt;
+    const latestDateIn = stamp ? String(stamp).slice(0, 10) : '';
     map.set(key, {
       key,
       model: shs ? `${model} · SHS` : model,
@@ -864,6 +877,7 @@ function buildGroupedModels(
       totalValue: qty * bp,
       notes,
       shs,
+      latestDateIn,
     });
   }
   return Array.from(map.values());
@@ -880,6 +894,14 @@ function sortGroupedModels(groups: GroupedModel[], mode: GroupSortMode): Grouped
       break;
     case 'bp':
       arr.sort((a, b) => b.latestBp - a.latestBp || a.model.localeCompare(b.model));
+      break;
+    case 'stockIn':
+      // Most recently received first. Rows with no dateIn sink to the
+      // bottom so they don't pollute the top of the list.
+      arr.sort((a, b) => {
+        if (!!b.latestDateIn !== !!a.latestDateIn) return b.latestDateIn ? 1 : -1;
+        return b.latestDateIn.localeCompare(a.latestDateIn) || a.model.localeCompare(b.model);
+      });
       break;
     case 'qty':
     default:
@@ -898,10 +920,11 @@ function GroupSortPills({
   onChange: (m: GroupSortMode) => void;
 }) {
   const opts: ReadonlyArray<{ id: GroupSortMode; label: string }> = [
-    { id: 'qty',   label: 'Qty'       },
-    { id: 'value', label: 'Value'     },
-    { id: 'bp',    label: 'Latest BP' },
-    { id: 'model', label: 'A→Z'       },
+    { id: 'qty',     label: 'Qty'        },
+    { id: 'value',   label: 'Value'      },
+    { id: 'bp',      label: 'Latest BP'  },
+    { id: 'stockIn', label: 'Stock In'   },
+    { id: 'model',   label: 'A→Z'        },
   ];
   return (
     <div className="flex items-center gap-1.5">
@@ -930,11 +953,13 @@ function GroupSortPills({
  *  Used by both the inline page view and the KPI overlay so the operator
  *  always sees the same affordances. */
 function GroupedExcelTable({
-  groups, expanded, onToggle,
+  groups, expanded, onToggle, region,
 }: {
   groups: GroupedModel[];
   expanded: Set<string>;
   onToggle: (key: string) => void;
+  /** Region for the locale-aware Stock In date formatter. */
+  region: 'uk' | 'india' | 'admin' | 'both';
 }) {
   return (
     <table className="w-full text-[11px] border-separate border-spacing-0" style={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace' }}>
@@ -942,6 +967,7 @@ function GroupedExcelTable({
         <tr className="text-[9px] font-bold uppercase tracking-widest text-slate-500 bg-slate-50">
           <th className="text-left px-2 py-2 sticky top-0 z-10 bg-slate-50 border-b border-slate-200" style={{ width: 28 }}></th>
           <th className="text-left px-3 py-2 sticky top-0 z-10 bg-slate-50 border-b border-slate-200" style={{ minWidth: 240 }}>Model</th>
+          <th className="text-left px-3 py-2 sticky top-0 z-10 bg-slate-50 border-b border-slate-200" style={{ width: 110 }}>Stock In</th>
           <th className="text-left px-3 py-2 sticky top-0 z-10 bg-slate-50 border-b border-slate-200" style={{ width: 140 }}>Colours</th>
           <th className="text-right px-3 py-2 sticky top-0 z-10 bg-slate-50 border-b border-slate-200" style={{ width: 70 }}>Qty</th>
           <th className="text-right px-3 py-2 sticky top-0 z-10 bg-slate-50 border-b border-slate-200" style={{ width: 100 }}>Latest BP</th>
@@ -971,6 +997,12 @@ function GroupedExcelTable({
                 </td>
                 <td className="px-3 py-1.5 border-b border-slate-100 align-middle">
                   <span className="font-bold text-slate-900 truncate block" title={g.model}>{g.model}</span>
+                </td>
+                <td className="px-3 py-1.5 border-b border-slate-100 align-middle text-slate-600">
+                  {g.latestDateIn
+                    ? <span title={g.latestDateIn}>{fmtDateForUser(g.latestDateIn, region) || g.latestDateIn}</span>
+                    : <span className="text-slate-300">—</span>
+                  }
                 </td>
                 <td className="px-3 py-1.5 border-b border-slate-100 align-middle text-slate-600">
                   {colours.length === 1
@@ -1018,7 +1050,7 @@ function GroupedExcelTable({
               </tr>
               {open && (
                 <tr className="bg-slate-50/60">
-                  <td colSpan={7} className="px-0 py-0 border-b border-slate-100">
+                  <td colSpan={8} className="px-0 py-0 border-b border-slate-100">
                     <ul className="pl-10 pr-4 py-2 divide-y divide-slate-200/70">
                       {colours.map(([colour, qty]) => (
                         <li key={colour} className="flex items-center justify-between py-1.5">
@@ -1049,7 +1081,7 @@ function GroupedExcelTable({
 // notes as chips. Per-IMEI editing moves to the KPI overlay's detailed view —
 // this surface is for fast inventory scanning, not row-by-row data entry.
 function InlineSheet({
-  rows, aggregates, supplierMap,
+  rows, aggregates, supplierMap, region,
 }: {
   rows: InventoryUnit[];
   /** Master-file rollups. Already filtered to office/SHS upstream by the
@@ -1057,6 +1089,7 @@ function InlineSheet({
    *  rolled-up rows here. */
   aggregates: InventoryAggregate[];
   supplierMap: Record<string, string>;
+  region: 'uk' | 'india' | 'admin' | 'both';
 }) {
   void supplierMap; // reserved for future per-supplier rollup; keeps prop stable
   const [groupedSort, setGroupedSort] = useState<GroupSortMode>('qty');
@@ -1096,7 +1129,7 @@ function InlineSheet({
         <GroupSortPills mode={groupedSort} onChange={setGroupedSort} />
       </div>
       <div className="overflow-auto max-h-[calc(100vh-380px)] custom-scrollbar">
-        <GroupedExcelTable groups={grouped} expanded={expanded} onToggle={toggle} />
+        <GroupedExcelTable groups={grouped} expanded={expanded} onToggle={toggle} region={region} />
       </div>
       <div className="px-5 py-2 border-t border-slate-100 bg-slate-50/60 text-[9px] font-mono uppercase tracking-widest text-slate-500">
         Click a row to see colour breakdown · open a KPI tile above for per-IMEI detail
@@ -1420,6 +1453,7 @@ function BuyExcelOverlay({
               groups={grouped}
               expanded={expandedModels}
               onToggle={toggleExpand}
+              region={region}
             />
           ) : (
             // Full-schema read-only Excel grid — every InventoryUnit field
