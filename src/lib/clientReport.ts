@@ -25,6 +25,26 @@ import type {
 } from '../types';
 import { MARKETPLACES } from '../types';
 import { excelFormulaFor } from './platforms';
+import { recomputeSale } from './recomputeSale';
+
+/** Marketplaces the operator actively sells on — sheet writers iterate
+ *  this list, NOT the full MARKETPLACES enum. PROJECT is excluded:
+ *  historical PROJECT sales still load read-only (the type stays in the
+ *  Sale enum and the ALL sheet still surfaces them), but the workbook no
+ *  longer carries a dedicated PROJECT sheet. */
+const ACTIVE_MARKETPLACES = ['AMAZON', 'BM', 'EBAY', 'ONBUY'] as const;
+
+/** Unified flat schema for the ALL sheet. 22 columns: buy schema (9)
+ *  first, then sale fields (13). Marketplace is a column, not a tab. */
+const ALL_HEADERS = [
+  // Buy side (9)
+  'Stock In Date', 'Model', 'IMEI', 'Grade', 'Storage', 'Colour',
+  'Supplier', 'BP', 'Notes',
+  // Sale side (13)
+  'Sale Date', 'Marketplace', 'Order Number', 'SKU', 'SP',
+  'Payment Mode', 'Postage', 'SP - BP', 'Tax', 'Commission',
+  'GP', 'GP %', 'NP',
+];
 
 // ---------------------------------------------------------------------------
 // Public surface
@@ -48,6 +68,13 @@ export interface BuildInventoryWorkbookInput {
 
 export interface BuildSalesWorkbookInput {
   sales: Sale[];
+  /** Inventory units used by the ALL sheet to join in buy-side columns
+   *  (Stock In Date, Model, Grade, Storage, Colour, Supplier, Notes). When
+   *  omitted those columns render blank but the ALL sheet still ships. */
+  units?: InventoryUnit[];
+  /** Resolves supplierId → supplier name on the ALL sheet. Falls back to
+   *  the Sale's stored supplierName when no map entry matches. */
+  supplierMap?: Record<string, string>;
   opts?: ClientReportOptions;
 }
 
@@ -371,7 +398,7 @@ function writeSaleRow(
 }
 
 export async function buildSalesWorkbookBuffer(input: BuildSalesWorkbookInput): Promise<ArrayBuffer> {
-  const { sales, opts } = input;
+  const { sales, units, supplierMap, opts } = input;
   const filtered = filterSalesByDate(sales, opts);
   const byMarketplace = new Map<Marketplace, Sale[]>();
   for (const m of MARKETPLACES) byMarketplace.set(m, []);
@@ -381,7 +408,16 @@ export async function buildSalesWorkbookBuffer(input: BuildSalesWorkbookInput): 
   }
 
   const wb = new ExcelJS.Workbook();
-  for (const m of MARKETPLACES) {
+
+  // Sheet 1: ALL — every (non-PROJECT-or-not) sale in one flat 22-col table,
+  // buy + sale data joined, computed values via recomputeSale. Filterable in
+  // Excel by Marketplace column.
+  writeAllSheet(wb.addWorksheet('ALL'), filtered, units ?? [], supplierMap ?? {});
+
+  // Sheets 2-5: per-platform, mirroring the operator's master SALES_REPORT
+  // shape exactly (headers + formulas via excelFormulaFor). PROJECT excluded
+  // — we sell on 4 platforms only.
+  for (const m of ACTIVE_MARKETPLACES) {
     const sheet = wb.addWorksheet(m);
     sheet.addRow(SALES_HEADERS[m]);
 
@@ -393,6 +429,72 @@ export async function buildSalesWorkbookBuffer(input: BuildSalesWorkbookInput): 
   }
 
   return wb.xlsx.writeBuffer() as Promise<ArrayBuffer>;
+}
+
+/** Write the ALL sheet — one row per sale, buy fields pulled from the
+ *  matched unit (by sale.unitId), financial fields recomputed live. */
+function writeAllSheet(
+  sheet: ExcelJS.Worksheet,
+  sales: Sale[],
+  units: InventoryUnit[],
+  supplierMap: Record<string, string>,
+): void {
+  sheet.addRow(ALL_HEADERS);
+  // Index units by id once so the per-sale lookup is O(1).
+  const unitsById = new Map<string, InventoryUnit>();
+  for (const u of units) unitsById.set(u.id, u);
+
+  // Newest sales first — matches the in-app default and means most-recent
+  // activity sits at the top of the sheet when the operator opens it.
+  const sorted = [...sales].sort((a, b) => (b.saleDate || '').localeCompare(a.saleDate || ''));
+
+  for (const s of sorted) {
+    const u = s.unitId ? unitsById.get(s.unitId) : undefined;
+    const r = recomputeSale(s);
+    // Per-marketplace commission flatten: eBay rolls ROF+FVF+VAT into T.COM;
+    // BM adds PayPal/Klarna on top. Unified column reads as "total fee
+    // paid to the platform" regardless of marketplace.
+    const commission =
+      s.marketplace === 'EBAY' ? (r.totalCom ?? r.commission)
+      : s.marketplace === 'BM' ? (r.commission + (r.payPalKlarnaCom ?? 0))
+      : r.commission;
+    const tax = r.marVat ?? r.marginalTax;
+
+    const row = sheet.addRow([
+      u?.dateIn ? toDate(u.dateIn) : null,
+      u?.model || '',
+      s.imei || u?.imei || '',
+      u?.grade || '',
+      u?.storage || '',
+      u?.colour || '',
+      supplierMap[s.supplierId || ''] || s.supplierName || u?.supplierName || '',
+      s.buyPrice,
+      u?.notes || '',
+      toDate(s.saleDate),
+      s.marketplace,
+      s.orderNumber || '',
+      s.sku || '',
+      s.salePrice,
+      s.paymentMode || '',
+      r.postage,
+      r.spMinusBp,
+      tax,
+      commission,
+      r.grossProfit,
+      r.gpPercent,
+      r.netProfit ?? null,
+    ]);
+
+    // Number formats: date columns (1, 10), IMEI as integer-ish (3),
+    // £ columns get 2dp. GP% gets 2dp too (it's a percentage, not money,
+    // but the master sheet uses the same display format).
+    row.getCell(1).numFmt = DATE_FMT;
+    row.getCell(3).numFmt = IMEI_FMT;
+    for (const col of [8, 14, 16, 17, 18, 19, 20, 21, 22]) {
+      row.getCell(col).numFmt = MONEY_FMT;
+    }
+    row.getCell(10).numFmt = DATE_FMT;
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -433,8 +535,28 @@ export async function downloadClientWorkbooks(input: DownloadClientWorkbooksInpu
       suppliers: input.suppliers,
       whatsappFeed: input.whatsappFeed,
     }),
-    buildSalesWorkbookBuffer({ sales: input.sales, opts: input.opts }),
+    buildSalesWorkbookBuffer({
+      sales: input.sales,
+      units: input.units,
+      supplierMap: Object.fromEntries(input.suppliers.map(s => [s.id, s.name])),
+      opts: input.opts,
+    }),
   ]);
   triggerBrowserDownload(invBuf, inventoryReportFilename(today));
   triggerBrowserDownload(salesBuf, salesReportFilename(today));
+}
+
+/**
+ * Download just the SALES_REPORT workbook (ALL + per-platform sheets).
+ * Used by the Sell-screen "Sales Report" button — single-click download
+ * with the same per-marketplace formulas the master file uses.
+ * Filename carries YYYY-MM-DD_HHMM so multiple pulls per day sort
+ * chronologically in a folder.
+ */
+export async function downloadSalesWorkbook(input: BuildSalesWorkbookInput): Promise<void> {
+  const buf = await buildSalesWorkbookBuffer(input);
+  const now = new Date();
+  const pad = (n: number) => String(n).padStart(2, '0');
+  const stamp = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}_${pad(now.getHours())}${pad(now.getMinutes())}`;
+  triggerBrowserDownload(buf, `sales-report-${stamp}.xlsx`);
 }
