@@ -809,7 +809,22 @@ function FilterChipsGroup({
 // that has IMEIs doesn't also surface its rollup. The grouping is the
 // page's primary "what do we have on hand" lens.
 
-type GroupSortMode = 'qty' | 'value' | 'bp' | 'model' | 'stockIn';
+type GroupSortKey = 'model' | 'stockIn' | 'colours' | 'qty' | 'bp' | 'value' | 'notes';
+type GroupSortDir = 'asc' | 'desc';
+interface GroupSort { key: GroupSortKey; dir: GroupSortDir; }
+const DEFAULT_GROUP_SORT: GroupSort = { key: 'qty', dir: 'desc' };
+
+/** Sensible default direction when a header is clicked for the first time.
+ *  Most columns are "biggest first" (qty, value, etc.); model is A→Z. */
+const GROUP_SORT_DEFAULT_DIR: Record<GroupSortKey, GroupSortDir> = {
+  model:   'asc',
+  stockIn: 'desc',
+  colours: 'desc',
+  qty:     'desc',
+  bp:      'desc',
+  value:   'desc',
+  notes:   'desc',
+};
 
 type GroupedModel = {
   key: string;
@@ -883,65 +898,92 @@ function buildGroupedModels(
   return Array.from(map.values());
 }
 
-function sortGroupedModels(groups: GroupedModel[], mode: GroupSortMode): GroupedModel[] {
+function sortGroupedModels(groups: GroupedModel[], sort: GroupSort): GroupedModel[] {
   const arr = [...groups];
-  switch (mode) {
-    case 'value':
-      arr.sort((a, b) => b.totalValue - a.totalValue || a.model.localeCompare(b.model));
-      break;
+  const mult = sort.dir === 'asc' ? 1 : -1;
+  const tieBreak = (a: GroupedModel, b: GroupedModel) => a.model.localeCompare(b.model);
+  switch (sort.key) {
     case 'model':
-      arr.sort((a, b) => a.model.localeCompare(b.model));
-      break;
-    case 'bp':
-      arr.sort((a, b) => b.latestBp - a.latestBp || a.model.localeCompare(b.model));
+      // Direction applies directly to the alphabetical comparison; no
+      // tie-break needed since model names are the primary key.
+      arr.sort((a, b) => a.model.localeCompare(b.model) * mult);
       break;
     case 'stockIn':
-      // Most recently received first. Rows with no dateIn sink to the
-      // bottom so they don't pollute the top of the list.
+      // Empty dateIn always sinks to the bottom regardless of direction —
+      // an "unknown date" is not the same as "very old" or "very new".
       arr.sort((a, b) => {
-        if (!!b.latestDateIn !== !!a.latestDateIn) return b.latestDateIn ? 1 : -1;
-        return b.latestDateIn.localeCompare(a.latestDateIn) || a.model.localeCompare(b.model);
+        if (!!a.latestDateIn !== !!b.latestDateIn) return a.latestDateIn ? -1 : 1;
+        return a.latestDateIn.localeCompare(b.latestDateIn) * mult || tieBreak(a, b);
       });
+      break;
+    case 'colours':
+      arr.sort((a, b) => (a.byColour.size - b.byColour.size) * mult || tieBreak(a, b));
+      break;
+    case 'bp':
+      arr.sort((a, b) => (a.latestBp - b.latestBp) * mult || tieBreak(a, b));
+      break;
+    case 'value':
+      arr.sort((a, b) => (a.totalValue - b.totalValue) * mult || tieBreak(a, b));
+      break;
+    case 'notes':
+      arr.sort((a, b) => (a.notes.size - b.notes.size) * mult || tieBreak(a, b));
       break;
     case 'qty':
     default:
-      arr.sort((a, b) => b.total - a.total || a.model.localeCompare(b.model));
+      arr.sort((a, b) => (a.total - b.total) * mult || tieBreak(a, b));
   }
   return arr;
 }
 
-/** Tri-pill sort selector used on both the inline grouped view and the
- *  KPI overlay. Kept tiny so it sits on the toolbar without forcing the
- *  totals line to wrap. */
-function GroupSortPills({
-  mode, onChange,
+/** Clickable column header for the grouped Excel grid. Click cycles
+ *  direction on the active column; clicking an inactive column switches
+ *  the sort and applies that column's sensible default direction
+ *  (qty/value/bp → desc; model → asc; etc.). The arrow icon shows the
+ *  current state: solid up/down on the active column, muted double-arrow
+ *  on the rest. Mirrors the affordance pattern of the detailed view's
+ *  Th component so the operator's muscle memory carries over. */
+function GroupTh({
+  sortKey, label, align, width, sort, onSort, children,
 }: {
-  mode: GroupSortMode;
-  onChange: (m: GroupSortMode) => void;
+  sortKey?: GroupSortKey;
+  label?: string;
+  align?: 'left' | 'right';
+  width?: number | string;
+  sort: GroupSort;
+  onSort: (next: GroupSort) => void;
+  children?: React.ReactNode;
 }) {
-  const opts: ReadonlyArray<{ id: GroupSortMode; label: string }> = [
-    { id: 'qty',     label: 'Qty'        },
-    { id: 'value',   label: 'Value'      },
-    { id: 'bp',      label: 'Latest BP'  },
-    { id: 'stockIn', label: 'Stock In'   },
-    { id: 'model',   label: 'A→Z'        },
-  ];
-  return (
-    <div className="flex items-center gap-1.5">
-      <span className="text-[9px] font-mono uppercase tracking-widest text-slate-400">Sort</span>
-      <div className="inline-flex rounded-lg bg-slate-100 p-0.5 text-[9px] font-bold uppercase tracking-widest">
-        {opts.map(o => (
-          <button
-            key={o.id}
-            onClick={() => onChange(o.id)}
-            className={`px-2 py-1 rounded-md transition-all ${mode === o.id ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
-            title={`Sort grouped rows by ${o.label.toLowerCase()}`}
-          >
-            {o.label}
-          </button>
-        ))}
-      </div>
-    </div>
+  const active = sortKey && sort.key === sortKey;
+  const wrap = (inner: React.ReactNode) => (
+    <th
+      className={`px-3 py-2 sticky top-0 z-10 bg-slate-50 border-b border-slate-200 text-${align ?? 'left'}`}
+      style={{ width, minWidth: typeof width === 'number' ? width : undefined }}
+    >
+      {inner}
+    </th>
+  );
+  if (!sortKey) {
+    return wrap(children ?? label ?? '');
+  }
+  const handleClick = () => {
+    if (active) {
+      onSort({ key: sortKey, dir: sort.dir === 'asc' ? 'desc' : 'asc' });
+    } else {
+      onSort({ key: sortKey, dir: GROUP_SORT_DEFAULT_DIR[sortKey] });
+    }
+  };
+  return wrap(
+    <button
+      onClick={handleClick}
+      className={`inline-flex items-center gap-1 transition-colors ${active ? 'text-slate-900' : 'hover:text-slate-900'} ${align === 'right' ? 'flex-row-reverse' : ''}`}
+      title={`Sort by ${label?.toLowerCase() ?? sortKey}`}
+    >
+      <span>{label}</span>
+      {active
+        ? (sort.dir === 'desc' ? <ChevronDown size={10} /> : <ChevronUp size={10} />)
+        : <ChevronsUpDown size={10} className="opacity-40" />
+      }
+    </button>
   );
 }
 
@@ -953,26 +995,28 @@ function GroupSortPills({
  *  Used by both the inline page view and the KPI overlay so the operator
  *  always sees the same affordances. */
 function GroupedExcelTable({
-  groups, expanded, onToggle, region,
+  groups, expanded, onToggle, region, sort, onSort,
 }: {
   groups: GroupedModel[];
   expanded: Set<string>;
   onToggle: (key: string) => void;
   /** Region for the locale-aware Stock In date formatter. */
   region: 'uk' | 'india' | 'admin' | 'both';
+  sort: GroupSort;
+  onSort: (next: GroupSort) => void;
 }) {
   return (
     <table className="w-full text-[11px] border-separate border-spacing-0" style={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace' }}>
       <thead>
         <tr className="text-[9px] font-bold uppercase tracking-widest text-slate-500 bg-slate-50">
-          <th className="text-left px-2 py-2 sticky top-0 z-10 bg-slate-50 border-b border-slate-200" style={{ width: 28 }}></th>
-          <th className="text-left px-3 py-2 sticky top-0 z-10 bg-slate-50 border-b border-slate-200" style={{ minWidth: 240 }}>Model</th>
-          <th className="text-left px-3 py-2 sticky top-0 z-10 bg-slate-50 border-b border-slate-200" style={{ width: 110 }}>Stock In</th>
-          <th className="text-left px-3 py-2 sticky top-0 z-10 bg-slate-50 border-b border-slate-200" style={{ width: 140 }}>Colours</th>
-          <th className="text-right px-3 py-2 sticky top-0 z-10 bg-slate-50 border-b border-slate-200" style={{ width: 70 }}>Qty</th>
-          <th className="text-right px-3 py-2 sticky top-0 z-10 bg-slate-50 border-b border-slate-200" style={{ width: 100 }}>Latest BP</th>
-          <th className="text-right px-3 py-2 sticky top-0 z-10 bg-slate-50 border-b border-slate-200" style={{ width: 110 }}>Total Value</th>
-          <th className="text-left px-3 py-2 sticky top-0 z-10 bg-slate-50 border-b border-slate-200" style={{ minWidth: 200 }}>Notes</th>
+          <GroupTh sort={sort} onSort={onSort} width={28}></GroupTh>
+          <GroupTh sort={sort} onSort={onSort} sortKey="model"   label="Model"       width={240} />
+          <GroupTh sort={sort} onSort={onSort} sortKey="stockIn" label="Stock In"    width={110} />
+          <GroupTh sort={sort} onSort={onSort} sortKey="colours" label="Colours"     width={140} />
+          <GroupTh sort={sort} onSort={onSort} sortKey="qty"     label="Qty"         width={70}  align="right" />
+          <GroupTh sort={sort} onSort={onSort} sortKey="bp"      label="Latest BP"   width={100} align="right" />
+          <GroupTh sort={sort} onSort={onSort} sortKey="value"   label="Total Value" width={110} align="right" />
+          <GroupTh sort={sort} onSort={onSort} sortKey="notes"   label="Notes"       width={200} />
         </tr>
       </thead>
       <tbody>
@@ -1092,7 +1136,7 @@ function InlineSheet({
   region: 'uk' | 'india' | 'admin' | 'both';
 }) {
   void supplierMap; // reserved for future per-supplier rollup; keeps prop stable
-  const [groupedSort, setGroupedSort] = useState<GroupSortMode>('qty');
+  const [groupedSort, setGroupedSort] = useState<GroupSort>(DEFAULT_GROUP_SORT);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const toggle = (key: string) => setExpanded(prev => {
     const next = new Set(prev);
@@ -1120,16 +1164,22 @@ function InlineSheet({
 
   return (
     <div className="bg-white border border-slate-200 rounded-3xl shadow-sm overflow-hidden">
-      {/* Toolbar — totals on the left, sort pills on the right. Mirrors the
-          KPI overlay's controls so muscle memory carries over. */}
-      <div className="flex items-center justify-between gap-2 px-4 py-2.5 border-b border-slate-100 bg-slate-50/60 flex-wrap">
+      {/* Compact toolbar — totals only. Sort lives in the column headers
+          to save horizontal space. */}
+      <div className="px-4 py-2.5 border-b border-slate-100 bg-slate-50/60">
         <p className="text-[10px] font-mono uppercase tracking-widest text-slate-500">
           Stock by model · {grouped.length} {grouped.length === 1 ? 'model' : 'models'} · {totalUnits.toLocaleString()} {totalUnits === 1 ? 'unit' : 'units'} · £{totalValue.toLocaleString('en-GB', { maximumFractionDigits: 0 })}
         </p>
-        <GroupSortPills mode={groupedSort} onChange={setGroupedSort} />
       </div>
       <div className="overflow-auto max-h-[calc(100vh-380px)] custom-scrollbar">
-        <GroupedExcelTable groups={grouped} expanded={expanded} onToggle={toggle} region={region} />
+        <GroupedExcelTable
+          groups={grouped}
+          expanded={expanded}
+          onToggle={toggle}
+          region={region}
+          sort={groupedSort}
+          onSort={setGroupedSort}
+        />
       </div>
       <div className="px-5 py-2 border-t border-slate-100 bg-slate-50/60 text-[9px] font-mono uppercase tracking-widest text-slate-500">
         Click a row to see colour breakdown · open a KPI tile above for per-IMEI detail
@@ -1274,7 +1324,7 @@ function BuyExcelOverlay({
    *    model — A→Z by model name
    *    bp    — highest latest BP first
    */
-  const [groupedSort, setGroupedSort] = useState<'qty' | 'value' | 'model' | 'bp'>('qty');
+  const [groupedSort, setGroupedSort] = useState<GroupSort>(DEFAULT_GROUP_SORT);
 
   /** Drop aggregate rollups whose model is already represented by an IMEI
    *  row in `rows`. The KPI tile uses Math.max(rollupQty, imeiCount) — i.e.
@@ -1434,11 +1484,6 @@ function BuyExcelOverlay({
               </button>
             )}
           </div>
-          {viewMode === 'grouped' && (
-            <div className="flex-shrink-0">
-              <GroupSortPills mode={groupedSort} onChange={setGroupedSort} />
-            </div>
-          )}
         </div>
 
         {/* Excel-style table */}
@@ -1454,6 +1499,8 @@ function BuyExcelOverlay({
               expanded={expandedModels}
               onToggle={toggleExpand}
               region={region}
+              sort={groupedSort}
+              onSort={setGroupedSort}
             />
           ) : (
             // Full-schema read-only Excel grid — every InventoryUnit field
