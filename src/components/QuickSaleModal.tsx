@@ -1,25 +1,39 @@
 import { useState, useMemo } from 'react';
-import { motion, AnimatePresence } from 'motion/react';
-import { X, ShoppingBag, RotateCcw, PackagePlus, CheckCircle2, ChevronRight, Smartphone } from 'lucide-react';
+import { motion } from 'motion/react';
+import { X, ShoppingBag, RotateCcw, PackagePlus, CheckCircle2, ChevronRight, Tag } from 'lucide-react';
 import { dbService } from '../lib/dbService';
-import { InventoryUnit } from '../types';
+import { InventoryUnit, Marketplace, MARKETPLACES } from '../types';
+import { recordSale } from '../services';
+import { calcSaleFinancials } from '../lib/platforms';
 
-const PLATFORMS = ['eBay', 'Amazon', 'OnBuy', 'Backmarket', 'Other'] as const;
+/** Operator-facing platform list. PROJECT is in the Marketplace enum for
+ *  legacy data load but the operator only sells on these four. Mirrors
+ *  SellOrderModal so the two surfaces stay in lockstep. */
+const ACTIVE_PLATFORMS: ReadonlyArray<Marketplace> = (MARKETPLACES as readonly Marketplace[])
+  .filter((m): m is Marketplace => m !== 'PROJECT');
 
-interface Props { 
-  unit?: InventoryUnit; 
+const PLATFORM_LABEL: Record<Marketplace, string> = {
+  AMAZON:  'Amazon',
+  BM:      'Back Market',
+  EBAY:    'eBay',
+  ONBUY:   'OnBuy',
+  PROJECT: 'Project',
+};
+
+interface Props {
+  unit?: InventoryUnit;
   availableUnits?: InventoryUnit[];
-  onClose: () => void; 
+  onClose: () => void;
 }
 
 export default function QuickSaleModal({ unit: initialUnit, availableUnits = [], onClose }: Props) {
   const [selectedUnit, setSelectedUnit] = useState<InventoryUnit | null>(initialUnit || null);
   const [imeiSearch, setImeiSearch] = useState('');
   const [action,    setAction]    = useState<'sold' | 'returned' | 'available'>('sold');
-  const [platform,  setPlatform]  = useState(initialUnit?.salePlatform || 'eBay');
+  const [platform,  setPlatform]  = useState<Marketplace>('EBAY');
   const [salePrice, setSalePrice] = useState(initialUnit?.salePrice?.toString() || '');
+  const [sku,       setSku]       = useState(initialUnit?.sku || '');
   const [saleOrderId, setSaleOrderId] = useState(initialUnit?.saleOrderId || '');
-  const [customerName, setCustomerName] = useState(initialUnit?.customerName || '');
   const [notes,     setNotes]     = useState(initialUnit?.notes || '');
   const [saving,    setSaving]    = useState(false);
   const [done,      setDone]      = useState(false);
@@ -30,45 +44,63 @@ export default function QuickSaleModal({ unit: initialUnit, availableUnits = [],
   const filteredUnits = useMemo(() => {
     if (!imeiSearch) return availableUnits;
     const s = imeiSearch.toLowerCase();
-    return availableUnits.filter(u => 
+    return availableUnits.filter(u =>
       (u.imei || '').toLowerCase().includes(s) ||
       u.colour.toLowerCase().includes(s)
     );
   }, [availableUnits, imeiSearch]);
+
+  // ── Live GP preview — same math the recordSale write path will run, so the
+  // operator sees the master-aligned answer before confirming. Uses each
+  // platform's default fee schedule (no postage override here — Quick modal
+  // stays lightweight; SellOrderModal is the full P&L surface). ──────────────
+  const spNum = Number(salePrice) || 0;
+  const gpPreview = useMemo(() => {
+    if (action !== 'sold' || !selectedUnit || spNum <= 0) return null;
+    try {
+      return calcSaleFinancials({
+        marketplace: platform,
+        buyPrice: selectedUnit.buyPrice,
+        salePrice: spNum,
+      });
+    } catch {
+      return null;
+    }
+  }, [action, selectedUnit, platform, spNum]);
 
   const save = async () => {
     if (!selectedUnit) return;
     setSaving(true);
     setSaveError('');
     try {
-      const updates: any = { status: action, updatedAt: new Date().toISOString() };
       if (action === 'sold') {
-        updates.saleDate      = today;
-        updates.salePlatform  = platform;
-        updates.salePrice     = parseFloat(salePrice) || 0;
-        updates.saleOrderId   = saleOrderId || undefined;
-        updates.customerName  = customerName || undefined;
-      } else if (action === 'returned') {
-        updates.platformListed = false;
+        // Route through recordSale so calcSaleFinancials, the sales-doc write,
+        // and the unit status flip all run from one place.
+        const res = await recordSale({
+          marketplace: platform,
+          orderNumber: saleOrderId.trim(),
+          unitId: selectedUnit.id,
+          buyPrice: selectedUnit.buyPrice,
+          salePrice: spNum,
+          saleDate: today,
+          sku: sku.trim() || undefined,
+          comments: notes || undefined,
+        });
+        if (!res.ok) {
+          setSaveError(res.message || 'Failed to save. Please try again.');
+          setSaving(false);
+          return;
+        }
       } else {
-        updates.platformListed = true;
-      }
-      if (notes) updates.notes = notes;
-
-      await dbService.update('inventoryUnits', selectedUnit.id, updates);
-
-      if (action === 'sold') {
-        try {
-          await dbService.create('dailyUpdates', `du_${Date.now()}`, {
-            date: today,
-            message: `${selectedUnit.model} (${selectedUnit.colour}) sold via ${platform} for £${updates.salePrice}${saleOrderId ? ' · Order: ' + saleOrderId : ''}`,
-            affectedUnitIds: [selectedUnit.id],
-            affectedModels: [selectedUnit.model],
-            type: 'stock_sold',
-            ownerId: 'shared',
-            createdAt: new Date().toISOString(),
-          });
-        } catch { /* non-critical */ }
+        // Returned + Available stay simple status patches — no financial
+        // change, no sales row. platformListed flips so listings UI updates.
+        const updates: Record<string, any> = {
+          status: action,
+          platformListed: action === 'available',
+          updatedAt: new Date().toISOString(),
+        };
+        if (notes) updates.notes = notes;
+        await dbService.update('inventoryUnits', selectedUnit.id, updates);
       }
 
       setDone(true);
@@ -78,7 +110,7 @@ export default function QuickSaleModal({ unit: initialUnit, availableUnits = [],
         ? 'Permission denied — check Firestore rules for your named database.'
         : (err?.message || 'Failed to save. Check your connection.');
       setSaveError(msg);
-      console.error('[QuickSaleModal] Firestore write failed:', err);
+      console.error('[QuickSaleModal] write failed:', err);
     } finally {
       setSaving(false);
     }
@@ -118,7 +150,7 @@ export default function QuickSaleModal({ unit: initialUnit, availableUnits = [],
           {!selectedUnit ? (
             <div className="space-y-3">
               <div className="relative">
-                <input 
+                <input
                   type="text"
                   placeholder="Search IMEI or colour..."
                   autoFocus
@@ -133,7 +165,10 @@ export default function QuickSaleModal({ unit: initialUnit, availableUnits = [],
                 ) : filteredUnits.map(u => (
                   <button
                     key={u.id}
-                    onClick={() => setSelectedUnit(u)}
+                    onClick={() => {
+                      setSelectedUnit(u);
+                      setSku(u.sku || '');
+                    }}
                     className="flex items-center justify-between p-3 border border-gray-100 rounded-xl hover:border-black hover:bg-gray-50 transition-all group"
                   >
                     <div className="text-left">
@@ -148,7 +183,7 @@ export default function QuickSaleModal({ unit: initialUnit, availableUnits = [],
           ) : (
             <>
               {availableUnits.length > 1 && !initialUnit && (
-                <button 
+                <button
                   onClick={() => setSelectedUnit(null)}
                   className="text-[9px] font-bold text-blue-600 uppercase tracking-widest flex items-center gap-1 hover:underline mb-2"
                 >
@@ -184,18 +219,43 @@ export default function QuickSaleModal({ unit: initialUnit, availableUnits = [],
                   </div>
                   <div className="col-span-2 md:col-span-1">
                     <label className="text-[9px] text-gray-400 font-mono uppercase">Platform</label>
-                    <select value={platform} onChange={e => setPlatform(e.target.value)}
+                    <select value={platform} onChange={e => setPlatform(e.target.value as Marketplace)}
                       className="w-full mt-1 bg-gray-50 border border-gray-200 rounded-xl px-3 py-2.5 text-sm font-mono focus:outline-none focus:border-black">
-                      {PLATFORMS.map(p => <option key={p}>{p}</option>)}
+                      {ACTIVE_PLATFORMS.map(p => <option key={p} value={p}>{PLATFORM_LABEL[p]}</option>)}
                     </select>
                   </div>
-                  <div className="col-span-2">
+                  <div className="col-span-2 md:col-span-1">
+                    <label className="text-[9px] text-gray-400 font-mono uppercase flex items-center gap-1">
+                      <Tag size={9} /> SKU
+                    </label>
+                    <input type="text" value={sku}
+                      onChange={e => setSku(e.target.value)} placeholder={selectedUnit.sku || 'e.g. ASI-IP-13-128-BK'}
+                      className="w-full mt-1 bg-gray-50 border border-gray-200 rounded-xl px-3 py-2.5 text-sm font-mono focus:outline-none focus:border-black"
+                    />
+                  </div>
+                  <div className="col-span-2 md:col-span-1">
                     <label className="text-[9px] text-gray-400 font-mono uppercase">Sale Order ID</label>
                     <input type="text" value={saleOrderId}
                       onChange={e => setSaleOrderId(e.target.value)} placeholder="e.g. 12-09873-12345"
                       className="w-full mt-1 bg-gray-50 border border-gray-200 rounded-xl px-3 py-2.5 text-sm font-mono focus:outline-none focus:border-black"
                     />
                   </div>
+
+                  {/* Inline GP preview — master-aligned via calcSaleFinancials.
+                      Uses the platform's default postage; SellOrderModal owns
+                      the full P&L surface for overrides + tiers. */}
+                  {gpPreview && (
+                    <div className={`col-span-2 rounded-lg px-3 py-2 text-[10px] font-mono flex items-center justify-between border ${
+                      gpPreview.grossProfit >= 0
+                        ? 'bg-emerald-50 border-emerald-200 text-emerald-800'
+                        : 'bg-rose-50 border-rose-200 text-rose-700'
+                    }`}>
+                      <span className="uppercase tracking-widest opacity-70">GP preview</span>
+                      <span className="font-bold">
+                        {gpPreview.grossProfit >= 0 ? '+' : ''}£{gpPreview.grossProfit.toFixed(2)} · {gpPreview.gpPercent.toFixed(2)}%
+                      </span>
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -209,7 +269,7 @@ export default function QuickSaleModal({ unit: initialUnit, availableUnits = [],
               </div>
 
               <button onClick={save}
-                disabled={saving || done || (action === 'sold' && !salePrice)}
+                disabled={saving || done || (action === 'sold' && (!salePrice || !saleOrderId.trim()))}
                 className="w-full py-3.5 bg-black text-white rounded-xl text-sm font-bold uppercase tracking-widest hover:bg-gray-800 transition-all active:scale-[0.98] disabled:opacity-50 flex items-center justify-center gap-2"
               >
                 {done ? <><CheckCircle2 size={16} /> Updated!</> :
