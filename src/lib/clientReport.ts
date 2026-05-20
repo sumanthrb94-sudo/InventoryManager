@@ -33,12 +33,28 @@ const ALL_HEADERS = [
   // Buy side (9)
   'Stock In Date', 'Model', 'IMEI', 'Grade', 'Storage', 'Colour',
   'Supplier', 'BP', 'Notes',
-  // Sale side (14 — Status added so the operator can tell at a glance
-  // whether a sale is active or returned; voided rows also fill red)
+  // STATUS sits right after the buy block so the operator sees it
+  // immediately on scroll — "Sold" / "Back to Stock" / "Repair" / "RTS"
+  // (return to supplier). Voided rows also fill red across the row.
+  'Status',
+  // Sale side (13)
   'Sale Date', 'Marketplace', 'Order Number', 'SKU', 'SP',
   'Payment Mode', 'Postage', 'SP - BP', 'Tax', 'Commission',
-  'GP', 'GP %', 'NP', 'Status',
+  'GP', 'GP %', 'NP',
 ];
+
+/** Map the unit's ReturnCategory to a short status label. Falls back to a
+ *  generic "Returned" when the sale is voided but the linked unit doesn't
+ *  carry a returnType (legacy data / orphan void). */
+function statusForSale(sale: Sale, unit?: InventoryUnit): string {
+  if (!sale.voidedAt) return 'Sold';
+  switch (unit?.returnType) {
+    case 'returned_to_inventory': return 'Back to Stock';
+    case 'repair':                return 'Repair';
+    case 'returned_to_supplier':  return 'RTS';
+    default:                      return 'Returned';
+  }
+}
 
 /** Light-red fill used on voided (returned) rows across every sheet of
  *  the Sales Report. Same colour everywhere so the operator's eye picks
@@ -451,6 +467,7 @@ function writeAllSheet(
     const tax = r.marVat ?? r.marginalTax;
 
     const row = sheet.addRow([
+      // Buy block (cols 1-9)
       u?.dateIn ? toDate(u.dateIn) : null,
       u?.model || '',
       s.imei || u?.imei || '',
@@ -460,6 +477,9 @@ function writeAllSheet(
       supplierMap[s.supplierId || ''] || s.supplierName || u?.supplierName || '',
       s.buyPrice,
       u?.notes || '',
+      // Status (col 10) — Sold / Back to Stock / Repair / RTS / Returned
+      statusForSale(s, u),
+      // Sale block (cols 11-23)
       toDate(s.saleDate),
       s.marketplace,
       s.orderNumber || '',
@@ -477,19 +497,15 @@ function writeAllSheet(
       // (calcSaleFinancials returns undefined for those — fallback here
       // keeps the unified column populated end-to-end).
       r.netProfit ?? r.grossProfit,
-      // Status — "Sold" when the sale stands, "Returned" when voided.
-      // Pairs with the row's red fill below; redundant on purpose so the
-      // operator can also see the state if the file is printed in mono or
-      // sorted/filtered by status in Excel.
-      s.voidedAt ? 'Returned' : 'Sold',
     ]);
 
-    // Number formats: date columns (1, 10), IMEI as integer-ish (3),
-    // £ columns get 2dp. GP% gets 2dp too (it's a percentage, not money,
-    // but the master sheet uses the same display format).
+    // Number formats — buy date (1), IMEI (3), BP (8); Status is col 10,
+    // sale date moves to col 11, and the £ columns slide one right.
     row.getCell(1).numFmt = DATE_FMT;
     row.getCell(3).numFmt = IMEI_FMT;
-    for (const col of [8, 14, 16, 17, 18, 19, 20, 21, 22]) {
+    row.getCell(8).numFmt = MONEY_FMT;
+    row.getCell(11).numFmt = DATE_FMT;
+    for (const col of [15, 17, 18, 19, 20, 21, 22, 23]) {
       row.getCell(col).numFmt = MONEY_FMT;
     }
     row.getCell(10).numFmt = DATE_FMT;
