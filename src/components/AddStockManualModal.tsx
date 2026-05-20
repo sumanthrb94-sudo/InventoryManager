@@ -36,6 +36,7 @@ import {
 import { parseBrandModelStorage } from '../lib/modelStorage';
 import { addUnitManual, ensureSupplier } from '../services';
 import type { InventoryUnit, ListingSite } from '../types';
+import DeviceComboBox from './DeviceComboBox';
 
 type Mode = 'office' | 'shs';
 
@@ -372,6 +373,7 @@ export default function AddStockManualModal({ onClose, initialMode = 'office' }:
                 validation={validation[i]}
                 mode={mode}
                 supplierNames={supplierNames}
+                units={units}
                 onChange={patch => updateRow(r.id, patch)}
                 onRemove={() => removeRow(r.id)}
                 canRemove={rows.length > 1}
@@ -447,7 +449,7 @@ function ModeTab({
 
 // ── One row in the entry grid ────────────────────────────────────────────────
 function Row({
-  row, index, validation, mode, supplierNames, onChange, onRemove, canRemove,
+  row, index, validation, mode, supplierNames, units, onChange, onRemove, canRemove,
 }: {
   key?: React.Key;
   row: StockRow;
@@ -455,6 +457,10 @@ function Row({
   validation: RowValidation;
   mode: Mode;
   supplierNames: string[];
+  /** Live inventory — feeds the model autocomplete so the operator can
+   *  scroll/select from existing models instead of retyping (which is
+   *  how copy-paste-near-misses end up in different grouped rows). */
+  units: InventoryUnit[];
   onChange: (patch: Partial<StockRow>) => void;
   onRemove: () => void;
   canRemove: boolean;
@@ -496,13 +502,26 @@ function Row({
       {/* Grid: Model · IMEI · Grade */}
       <div className="grid grid-cols-1 md:grid-cols-12 gap-2">
         <Cell label="Model *" colSpan={5}>
-          <input
-            value={row.model}
-            onChange={e => onChange({ model: e.target.value })}
-            placeholder="e.g. iPhone 13 128GB"
-            className={`w-full border rounded-lg px-2.5 py-1.5 text-[12px] focus:outline-none ${
-              row.model.trim() ? 'border-gray-200 focus:border-black' : 'border-gray-200 focus:border-black'
-            }`}
+          {/* Autocomplete from existing inventory model strings — picking a
+              suggestion guarantees this unit groups with its siblings in
+              the All Office Stock view. Free text still wins for brand-new
+              SKUs that don't exist in stock yet. */}
+          <DeviceComboBox
+            units={units}
+            brand=""
+            model={row.model}
+            onModelChange={(m) => onChange({ model: m })}
+            onPick={(entry) => {
+              // Use the catalog's exact model string so this unit buckets
+              // with siblings. Pre-fill storage / grade ONLY if those fields
+              // are still empty — never overwrite operator input.
+              const patch: Partial<StockRow> = { model: entry.model };
+              if (!row.storage && entry.storages[0]) patch.storage = entry.storages[0];
+              if (!row.grade && entry.topGrade)      patch.grade   = entry.topGrade;
+              onChange(patch);
+            }}
+            placeholder="Search existing models or type new — e.g. iPhone 13 128GB"
+            inputClassName="w-full border border-gray-200 rounded-lg px-2.5 py-1.5 text-[12px] focus:outline-none focus:border-black"
           />
         </Cell>
         <Cell
