@@ -20,6 +20,7 @@ import { motion } from 'motion/react';
 import type { InventoryUnit, InventoryAggregate } from '../types';
 import { fmtDateForUser } from '../lib/userLocale';
 import { isValidImei, isAppleDevice } from '../lib/imeiValidation';
+import { parseBrandModelStorage } from '../lib/modelStorage';
 import CopyImei from './CopyImei';
 
 // ── Detail-view sort types (used by the 10-column table headers) ────────────
@@ -75,16 +76,64 @@ export type GroupedModel = {
   latestDateIn: string;
 };
 
+/** Derive the canonical (model, storage, tag) triple for a unit, blending
+ *  the parser's view of `u.model` with the unit's own `u.storage` field.
+ *  Operators inconsistently type storage into the model string (e.g.
+ *  "iPhone 13 128GB") OR enter it via the separate Storage column. We
+ *  treat both as the same SKU by always preferring an explicit `u.storage`
+ *  when set, falling back to whatever the parser extracted from the model
+ *  string. Same for tag.
+ *
+ *  Display label re-glues storage + tag back onto the raw model only when
+ *  they aren't already inline, so "Apple iPhone 13 128GB" stays as-is but
+ *  "iPad Pro M3" with separate storage=256GB renders as "iPad Pro M3 256GB". */
+function canonicalize(u: InventoryUnit): {
+  /** Lowercase bucketing-only model — used in the Map key. */
+  keyModel: string;
+  /** Effective storage (operator field wins over parsed). */
+  storage: string;
+  /** Effective tag (5G, WiFi+Cellular, etc.) — pulled from the parser. */
+  tag: string;
+  /** Pretty label for display — raw u.model + any missing storage/tag
+   *  appended so two operators entering the same SKU in different formats
+   *  end up with the same human-readable string. */
+  label: string;
+} {
+  const raw = (u.model || '').trim();
+  const parsed = parseBrandModelStorage(raw);
+  const storage = (u.storage || parsed.storage || '').trim();
+  const tag = (parsed.tag || '').trim();
+  const keyModel = (parsed.model || raw).toLowerCase().trim();
+
+  // Check if the raw model already mentions the storage/tag — avoid
+  // double-printing "iPhone 13 128GB 128GB" or "Galaxy A32 5G · 5G".
+  const rawUpper = raw.toUpperCase();
+  const rawLower = raw.toLowerCase();
+  const hasStorage = storage && rawUpper.includes(storage.toUpperCase());
+  const hasTag = tag && tag.split(',').every(t =>
+    rawLower.includes(t.trim().toLowerCase())
+  );
+
+  let label = raw || '—';
+  if (storage && !hasStorage) label += ' ' + storage;
+  if (tag && !hasTag) label += ' · ' + tag;
+  return { keyModel, storage, tag, label };
+}
+
 export function buildGroupedModels(
   rows: InventoryUnit[],
   aggregates: InventoryAggregate[],
 ): GroupedModel[] {
   const map = new Map<string, GroupedModel>();
   for (const u of rows) {
-    const model = (u.model || '').trim() || '—';
-    const key = `unit::${model.toLowerCase()}`;
+    const { keyModel, storage, tag, label } = canonicalize(u);
+    // Bucket key includes storage + tag so different SKUs (iPad Pro M3
+    // 128GB vs 256GB; Galaxy A32 vs A32 5G) never collapse into one row,
+    // regardless of whether the operator typed storage into the model
+    // string or used the separate Storage field.
+    const key = `unit::${keyModel}|${storage.toUpperCase()}|${tag.toLowerCase()}`;
     let g = map.get(key);
-    if (!g) g = { key, model, total: 0, byColour: new Map(), latestBp: u.buyPrice || 0, totalValue: 0, notes: new Set(), shs: false, latestDateIn: '' };
+    if (!g) g = { key, model: label, total: 0, byColour: new Map(), latestBp: u.buyPrice || 0, totalValue: 0, notes: new Set(), shs: false, latestDateIn: '' };
     g.total++;
     g.totalValue += u.buyPrice || 0;
     const c = (u.colour || '').trim() || 'Unspecified';
@@ -93,8 +142,6 @@ export function buildGroupedModels(
     const n = (u.notes || '').trim();
     if (n) g.notes.add(n);
     const d = (u.dateIn || '').trim();
-    // dateIn comes in as ISO (YYYY-MM-DD) so a lexicographic max is the
-    // most-recent date — no Date parsing needed.
     if (d && d > g.latestDateIn) g.latestDateIn = d;
     map.set(key, g);
   }
