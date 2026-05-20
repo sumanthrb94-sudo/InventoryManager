@@ -59,11 +59,31 @@ export const GROUP_SORT_DEFAULT_DIR: Record<GroupSortKey, GroupSortDir> = {
   notes:   'desc',
 };
 
+/** Per-colour aggregate within a model group. Same colour can carry
+ *  multiple BPs (operator buys the same SKU from different suppliers at
+ *  different prices) — track qty + price range + rolled-up value so the
+ *  expanded colour row can surface them all. */
+export type GroupedColour = {
+  qty: number;
+  /** Latest BP captured for this colour. */
+  latestBp: number;
+  /** Lowest BP across units of this colour (0 if no priced units). */
+  minBp: number;
+  /** Highest BP across units of this colour. */
+  maxBp: number;
+  /** Σ buyPrice for this colour. */
+  totalValue: number;
+  /** Per-supplier qty/BP breakdown — surfaces the "two suppliers, same
+   *  colour, different prices" case the operator flagged. Keyed by
+   *  supplier display name. */
+  bySupplier: Map<string, { qty: number; latestBp: number; totalValue: number }>;
+};
+
 export type GroupedModel = {
   key: string;
   model: string;
   total: number;
-  byColour: Map<string, number>;
+  byColour: Map<string, GroupedColour>;
   latestBp: number;
   totalValue: number;
   /** Distinct non-empty notes across every unit / aggregate in the group. */
@@ -126,18 +146,35 @@ export function buildGroupedModels(
   const map = new Map<string, GroupedModel>();
   for (const u of rows) {
     const { keyModel, storage, tag, label } = canonicalize(u);
-    // Bucket key includes storage + tag so different SKUs (iPad Pro M3
-    // 128GB vs 256GB; Galaxy A32 vs A32 5G) never collapse into one row,
-    // regardless of whether the operator typed storage into the model
-    // string or used the separate Storage field.
     const key = `unit::${keyModel}|${storage.toUpperCase()}|${tag.toLowerCase()}`;
     let g = map.get(key);
     if (!g) g = { key, model: label, total: 0, byColour: new Map(), latestBp: u.buyPrice || 0, totalValue: 0, notes: new Set(), shs: false, latestDateIn: '' };
     g.total++;
     g.totalValue += u.buyPrice || 0;
-    const c = (u.colour || '').trim() || 'Unspecified';
-    g.byColour.set(c, (g.byColour.get(c) ?? 0) + 1);
     if (u.buyPrice && u.buyPrice > 0) g.latestBp = u.buyPrice;
+    // Per-colour aggregation — track qty + price range + supplier breakdown
+    // so the expanded row can surface "BLACK · NANAK 3×£105 · MHL 2×£100"
+    // when the same colour comes from multiple suppliers at different BPs.
+    const c = (u.colour || '').trim() || 'Unspecified';
+    const supplier = (u.supplierName || '').trim() || 'Unknown';
+    const bp = u.buyPrice || 0;
+    let col = g.byColour.get(c);
+    if (!col) {
+      col = { qty: 0, latestBp: bp, minBp: bp > 0 ? bp : 0, maxBp: bp, totalValue: 0, bySupplier: new Map() };
+      g.byColour.set(c, col);
+    }
+    col.qty++;
+    col.totalValue += bp;
+    if (bp > 0) {
+      col.latestBp = bp;
+      col.minBp = col.minBp > 0 ? Math.min(col.minBp, bp) : bp;
+      col.maxBp = Math.max(col.maxBp, bp);
+    }
+    let sup = col.bySupplier.get(supplier);
+    if (!sup) { sup = { qty: 0, latestBp: bp, totalValue: 0 }; col.bySupplier.set(supplier, sup); }
+    sup.qty++;
+    sup.totalValue += bp;
+    if (bp > 0) sup.latestBp = bp;
     const n = (u.notes || '').trim();
     if (n) g.notes.add(n);
     const d = (u.dateIn || '').trim();
@@ -150,10 +187,22 @@ export function buildGroupedModels(
     const key = `${shs ? 'shs' : 'agg'}::${a.id}`;
     const qty = a.quantityNum ?? 0;
     const bp = a.buyPrice || 0;
-    const byColour = new Map<string, number>();
+    const supplier = (a.supplierIds?.[0] || '').trim() || 'Unknown';
+    // Aggregate rollups have one rollup BP across however many colours the
+    // operator listed in coloursRaw — split the rollup qty evenly and
+    // attribute the rollup BP to every colour bucket.
     const colsRaw = (a.coloursRaw || '').trim();
-    if (colsRaw) byColour.set(colsRaw, qty);
-    else byColour.set('Unspecified', qty);
+    const byColour = new Map<string, GroupedColour>();
+    const makeCol = (q: number): GroupedColour => ({
+      qty: q,
+      latestBp: bp,
+      minBp: bp,
+      maxBp: bp,
+      totalValue: q * bp,
+      bySupplier: new Map([[supplier, { qty: q, latestBp: bp, totalValue: q * bp }]]),
+    });
+    if (colsRaw) byColour.set(colsRaw, makeCol(qty));
+    else byColour.set('Unspecified', makeCol(qty));
     const notes = new Set<string>();
     const n = (a.notes || '').trim();
     if (n) notes.add(n);
@@ -289,18 +338,23 @@ export function GroupedExcelTable({
         <tr className="text-[9px] font-bold uppercase tracking-widest text-slate-500 bg-slate-50">
           <GroupTh sort={sort} onSort={onSort} width={28}></GroupTh>
           <GroupTh sort={sort} onSort={onSort} sortKey="model"   label="Model"       width={240} />
-          <GroupTh sort={sort} onSort={onSort} sortKey="stockIn" label="Stock In"    width={110} />
+          {/* Colours / Qty / BP / Total grouped on the left so the operator's
+              eye lands on the trading numbers together — Stock In + Notes
+              pushed to the right since they're context not action. */}
           <GroupTh sort={sort} onSort={onSort} sortKey="colours" label="Colours"     width={140} />
           <GroupTh sort={sort} onSort={onSort} sortKey="qty"     label="Qty"         width={70}  align="right" />
           <GroupTh sort={sort} onSort={onSort} sortKey="bp"      label="Latest BP"   width={100} align="right" />
           <GroupTh sort={sort} onSort={onSort} sortKey="value"   label="Total Value" width={110} align="right" />
+          <GroupTh sort={sort} onSort={onSort} sortKey="stockIn" label="Stock In"    width={110} />
           <GroupTh sort={sort} onSort={onSort} sortKey="notes"   label="Notes"       width={200} />
         </tr>
       </thead>
       <tbody>
         {groups.map((g, idx) => {
           const open = expanded.has(g.key);
-          const colours = Array.from(g.byColour.entries()).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+          // Colour entries sorted by qty desc, name asc — same ordering used
+          // in the expanded sub-row so the eye finds the dominant colour first.
+          const colours = Array.from(g.byColour.entries()).sort((a, b) => b[1].qty - a[1].qty || a[0].localeCompare(b[0]));
           const rowBg = idx % 2 === 1 ? 'bg-slate-50/40 hover:bg-slate-100/60' : 'bg-white hover:bg-slate-50';
           const tone = g.shs
             ? 'bg-amber-100 text-amber-700'
@@ -321,12 +375,6 @@ export function GroupedExcelTable({
                   <span className="font-bold text-slate-900 truncate block" title={g.model}>{g.model}</span>
                 </td>
                 <td className="px-3 py-1.5 border-b border-slate-100 align-middle text-slate-600">
-                  {g.latestDateIn
-                    ? <span title={g.latestDateIn}>{fmtDateForUser(g.latestDateIn, region) || g.latestDateIn}</span>
-                    : <span className="text-slate-300">—</span>
-                  }
-                </td>
-                <td className="px-3 py-1.5 border-b border-slate-100 align-middle text-slate-600">
                   {colours.length === 1
                     ? <span className="truncate block" title={colours[0][0]}>{colours[0][0]}</span>
                     : <span>{colours.length} colours</span>
@@ -343,6 +391,12 @@ export function GroupedExcelTable({
                 <td className="px-3 py-1.5 border-b border-slate-100 align-middle text-right">
                   {g.totalValue > 0
                     ? <span className="font-bold text-emerald-700">£{g.totalValue.toLocaleString('en-GB', { maximumFractionDigits: 0 })}</span>
+                    : <span className="text-slate-300">—</span>
+                  }
+                </td>
+                <td className="px-3 py-1.5 border-b border-slate-100 align-middle text-slate-600">
+                  {g.latestDateIn
+                    ? <span title={g.latestDateIn}>{fmtDateForUser(g.latestDateIn, region) || g.latestDateIn}</span>
                     : <span className="text-slate-300">—</span>
                   }
                 </td>
@@ -374,17 +428,51 @@ export function GroupedExcelTable({
                 <tr className="bg-slate-50/60">
                   <td colSpan={8} className="px-0 py-0 border-b border-slate-100">
                     <ul className="pl-10 pr-4 py-2 divide-y divide-slate-200/70">
-                      {colours.map(([colour, qty]) => (
-                        <li key={colour} className="flex items-center justify-between py-1.5">
-                          <span className="flex items-center gap-2 min-w-0">
-                            <ColourDot colour={colour} />
-                            <span className="text-[11px] text-slate-700 truncate">{colour}</span>
-                          </span>
-                          <span className="inline-flex items-center text-[10px] font-mono font-bold text-slate-700 bg-white border border-slate-200 px-2 py-0.5 rounded">
-                            × {qty}
-                          </span>
-                        </li>
-                      ))}
+                      {colours.map(([colour, c]) => {
+                        // Suppliers ordered by qty desc — most-stocked first
+                        // so the operator sees "main supplier · count" at the
+                        // top, then any smaller alternate-price sources.
+                        const suppliers = Array.from(c.bySupplier.entries())
+                          .sort((a, b) => b[1].qty - a[1].qty || a[0].localeCompare(b[0]));
+                        const priceLabel = c.minBp === c.maxBp
+                          ? (c.latestBp > 0 ? `£${c.latestBp}` : '—')
+                          : `£${c.minBp}–£${c.maxBp}`;
+                        return (
+                          <li key={colour} className="py-1.5">
+                            <div className="flex items-center justify-between gap-3">
+                              <span className="flex items-center gap-2 min-w-0 flex-1">
+                                <ColourDot colour={colour} />
+                                <span className="text-[11px] text-slate-700 truncate">{colour}</span>
+                              </span>
+                              <span className="inline-flex items-center text-[10px] font-mono font-bold text-slate-700 bg-white border border-slate-200 px-2 py-0.5 rounded">
+                                × {c.qty}
+                              </span>
+                              <span className="text-[10px] font-mono text-slate-600 w-20 text-right" title={c.minBp === c.maxBp ? '' : `Latest BP £${c.latestBp}`}>
+                                {priceLabel}
+                              </span>
+                              <span className="text-[10px] font-mono font-bold text-emerald-700 w-20 text-right">
+                                £{c.totalValue.toLocaleString('en-GB', { maximumFractionDigits: 0 })}
+                              </span>
+                            </div>
+                            {/* Per-supplier breakdown — only renders when more
+                                than one supplier sold this colour (the "same
+                                colour, different prices, different sources"
+                                case the operator flagged). */}
+                            {suppliers.length > 1 && (
+                              <ul className="pl-7 mt-1 space-y-0.5">
+                                {suppliers.map(([supName, s]) => (
+                                  <li key={supName} className="flex items-center justify-between gap-3 text-[10px] font-mono text-slate-500">
+                                    <span className="flex-1 truncate">↳ {supName}</span>
+                                    <span className="w-12 text-right">× {s.qty}</span>
+                                    <span className="w-20 text-right">£{s.latestBp}</span>
+                                    <span className="w-20 text-right text-emerald-700">£{s.totalValue.toLocaleString('en-GB', { maximumFractionDigits: 0 })}</span>
+                                  </li>
+                                ))}
+                              </ul>
+                            )}
+                          </li>
+                        );
+                      })}
                     </ul>
                   </td>
                 </tr>
