@@ -76,17 +76,27 @@ export type GroupedModel = {
   latestDateIn: string;
 };
 
-/** Derive the canonical (model, storage, tag) triple for a unit, blending
- *  the parser's view of `u.model` with the unit's own `u.storage` field.
- *  Operators inconsistently type storage into the model string (e.g.
- *  "iPhone 13 128GB") OR enter it via the separate Storage column. We
- *  treat both as the same SKU by always preferring an explicit `u.storage`
- *  when set, falling back to whatever the parser extracted from the model
- *  string. Same for tag.
+/** Series-prefix detector — if the model name already starts with one of
+ *  these distinctive series tokens, the brand is implied and prepending
+ *  "Apple" / "Samsung" / "Google" would be redundant noise. Anything else
+ *  (e.g. "10" for OnePlus 10) gets the brand prefix re-added so the row
+ *  isn't ambiguous. */
+function brandImpliedByModel(model: string): boolean {
+  return /^(iphone|ipad|macbook|apple\s*watch|galaxy|pixel|redmi|poco)\b/i.test(model);
+}
+
+/** Derive a canonical SKU view of a unit by trusting the parser as the
+ *  source of truth. Operators inconsistently type storage / tag into the
+ *  model string (e.g. "iPhone 13 128GB" or "iPad Pro M3 256GB WiFi/Cellular")
+ *  OR enter them via the separate Storage column. We treat both as the
+ *  same SKU by always running `u.model` through parseBrandModelStorage and
+ *  blending the result with the unit's `u.storage` field — explicit
+ *  storage wins, parser-extracted storage is the fallback.
  *
- *  Display label re-glues storage + tag back onto the raw model only when
- *  they aren't already inline, so "Apple iPhone 13 128GB" stays as-is but
- *  "iPad Pro M3" with separate storage=256GB renders as "iPad Pro M3 256GB". */
+ *  The label is REBUILT from the canonical parts (`brand?` + model +
+ *  storage + tag) so all three render consistently regardless of how the
+ *  operator typed them. Differences in spacing, casing, and tag
+ *  punctuation no longer affect what shows up in the grouped row. */
 function canonicalize(u: InventoryUnit): {
   /** Lowercase bucketing-only model — used in the Map key. */
   keyModel: string;
@@ -94,29 +104,28 @@ function canonicalize(u: InventoryUnit): {
   storage: string;
   /** Effective tag (5G, WiFi+Cellular, etc.) — pulled from the parser. */
   tag: string;
-  /** Pretty label for display — raw u.model + any missing storage/tag
-   *  appended so two operators entering the same SKU in different formats
-   *  end up with the same human-readable string. */
+  /** Display label rebuilt from canonical parts. */
   label: string;
 } {
   const raw = (u.model || '').trim();
   const parsed = parseBrandModelStorage(raw);
+  const cleanModel = (parsed.model || raw).trim();
   const storage = (u.storage || parsed.storage || '').trim();
   const tag = (parsed.tag || '').trim();
-  const keyModel = (parsed.model || raw).toLowerCase().trim();
+  const keyModel = cleanModel.toLowerCase();
 
-  // Check if the raw model already mentions the storage/tag — avoid
-  // double-printing "iPhone 13 128GB 128GB" or "Galaxy A32 5G · 5G".
-  const rawUpper = raw.toUpperCase();
-  const rawLower = raw.toLowerCase();
-  const hasStorage = storage && rawUpper.includes(storage.toUpperCase());
-  const hasTag = tag && tag.split(',').every(t =>
-    rawLower.includes(t.trim().toLowerCase())
-  );
+  // Re-prepend the brand only when the model name doesn't already imply
+  // it (e.g. "iPhone 13" implies Apple, but "10" doesn't imply OnePlus).
+  let base = cleanModel || '—';
+  const brand = parsed.brand;
+  if (brand && brand !== 'Other' && !brandImpliedByModel(base)) {
+    base = `${brand} ${base}`;
+  }
 
-  let label = raw || '—';
-  if (storage && !hasStorage) label += ' ' + storage;
-  if (tag && !hasTag) label += ' · ' + tag;
+  const label = base
+    + (storage ? ' ' + storage : '')
+    + (tag ? ' · ' + tag : '');
+
   return { keyModel, storage, tag, label };
 }
 
