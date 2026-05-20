@@ -27,7 +27,7 @@ import {
 import { AnimatePresence, motion } from 'motion/react';
 import { dbService } from '../lib/dbService';
 import {
-  InventoryUnit, Sale, Marketplace,
+  InventoryUnit, Sale, Marketplace, ReturnCategory,
 } from '../types';
 import { useInventoryStore } from '../lib/inventoryStore';
 import { recomputeSale } from '../lib/recomputeSale';
@@ -61,6 +61,26 @@ const MARKETPLACE_TONE: Record<Marketplace, string> = {
   EBAY:    'bg-yellow-100 text-yellow-700  border-yellow-200',
   ONBUY:   'bg-blue-100 text-blue-700      border-blue-200',
 };
+
+// ── Return status badge styling for the Status column ────────────────────────
+// Any non-Sold key paints the row red so the operator's eye catches the
+// reversal at a scan — matches the rose-100 fill used by the Excel report.
+type SaleStatusKey = ReturnCategory | 'returned' | 'sold';
+const RETURN_BADGE: Record<SaleStatusKey, { label: string; style: string }> = {
+  returned_to_supplier:  { label: 'Returned to Supplier',  style: 'bg-red-100 text-red-700 border-red-300' },
+  returned_to_inventory: { label: 'Returned to Inventory', style: 'bg-red-100 text-red-700 border-red-300' },
+  repair:                { label: 'Return to Repair',      style: 'bg-red-100 text-red-700 border-red-300' },
+  returned:              { label: 'Returned',              style: 'bg-red-100 text-red-700 border-red-300' },
+  sold:                  { label: 'Sold',                  style: 'bg-slate-100 text-slate-600 border-slate-200' },
+};
+function deriveSaleStatus(sale: Sale, unit?: InventoryUnit): SaleStatusKey {
+  const rt = unit?.returnType;
+  if (rt === 'returned_to_supplier')  return 'returned_to_supplier';
+  if (rt === 'returned_to_inventory') return 'returned_to_inventory';
+  if (rt === 'repair')                return 'repair';
+  if (sale.voidedAt)                  return 'returned';
+  return 'sold';
+}
 
 const fmtGBP = (n: number | undefined | null, decimals = 2): string => {
   if (n == null || Number.isNaN(n)) return '—';
@@ -188,6 +208,46 @@ export default function SellSheet(_props: Props) {
     return merged;
   }, [sales, units]);
 
+  // Returned rows that we DO want surfaced in the table (red-tinted) but
+  // never counted in KPIs. Includes:
+  //   - any sale doc with voidedAt set (live ProcessReturnModal path)
+  //   - any sale linked to a unit whose returnType is set (legacy fallback)
+  //   - any legacy in-app unit with returnType + a sale-side payload
+  // Mirrors the Excel report's ALL-sheet behaviour: red fill on voided rows,
+  // status chip sourced from the linked unit's returnType.
+  const allReturned = useMemo<Sale[]>(() => {
+    const returnedUnits = new Set<string>();
+    for (const u of units) if (u.returnType) returnedUnits.add(u.id);
+
+    const out: Sale[] = [];
+    const seenIds = new Set<string>();
+    const seenUnitIds = new Set<string>();
+    for (const s of sales) {
+      const isReturned = !!s.voidedAt || (!!s.unitId && returnedUnits.has(s.unitId));
+      if (!isReturned) continue;
+      const fresh = recomputeSale(s);
+      out.push(fresh);
+      seenIds.add(s.id);
+      if (fresh.unitId) seenUnitIds.add(fresh.unitId);
+    }
+    // Legacy in-app units that were returned (no matching sale doc — earlier
+    // sell flow never created one).
+    for (const u of units) {
+      if (!u.returnType) continue;
+      if (u.salePrice == null && !u.saleDate && !u.saleOrderId) continue;
+      if (seenIds.has(u.id) || seenUnitIds.has(u.id)) continue;
+      out.push(recomputeSale(inventoryUnitToSale(u)));
+    }
+    return out;
+  }, [sales, units]);
+
+  // Display feed = active sales + returned (visible but tagged); KPI feed
+  // stays as `allSold` so revenue / GP / Avg GP% stay untouched.
+  const allRowsForDisplay = useMemo<Sale[]>(
+    () => [...allSold, ...allReturned],
+    [allSold, allReturned],
+  );
+
   // Separate stream of voided sales — used for the 'returned this period'
   // chip on each Sold tile (informational, never counted as sold).
   const voidedSales = useMemo<Array<{ voidedAt: string; sale: Sale }>>(() => {
@@ -211,19 +271,22 @@ export default function SellSheet(_props: Props) {
   }, [sales, units]);
 
   // ── Date-scoped subset ────────────────────────────────────────────────────
+  // Drives both the inline table and the KPI overlays. Includes returned
+  // rows so they remain visible (red-tinted, status badge) while the KPI
+  // tile counters above continue to pull from the clean `allSold` feed.
   const scopedSold = useMemo<Sale[]>(() => {
-    if (dateScope === 'all') return allSold;
+    if (dateScope === 'all') return allRowsForDisplay;
     const today = todayStr();
     const monthStart = (() => {
       const d = new Date(); return new Date(d.getFullYear(), d.getMonth(), 1).toISOString().split('T')[0];
     })();
     const weekAgo = new Date(Date.now() - 7 * 86_400_000).toISOString().split('T')[0];
     const lo = dateScope === 'today' ? today : dateScope === 'week' ? weekAgo : monthStart;
-    return allSold.filter(s => {
+    return allRowsForDisplay.filter(s => {
       const d = (s.saleDate || '').split('T')[0];
       return d >= lo && d <= today;
     });
-  }, [allSold, dateScope]);
+  }, [allRowsForDisplay, dateScope]);
 
   // ── Apply panel filters + sort to a list ──────────────────────────────────
   const applyFilters = (base: Sale[]): Sale[] => {
@@ -347,10 +410,10 @@ export default function SellSheet(_props: Props) {
     })();
     let base: Sale[];
     switch (overlay) {
-      case 'today':     base = allSold.filter(s => (s.saleDate || '').startsWith(today)); break;
-      case 'month':     base = allSold.filter(s => (s.saleDate || '') >= monthStart && (s.saleDate || '') <= today); break;
-      case 'all':       base = allSold; break;
-      case 'gpPct':     base = allSold; break; // sorted by GP% via gpSortOverride below
+      case 'today':     base = allRowsForDisplay.filter(s => (s.saleDate || '').startsWith(today)); break;
+      case 'month':     base = allRowsForDisplay.filter(s => (s.saleDate || '') >= monthStart && (s.saleDate || '') <= today); break;
+      case 'all':       base = allRowsForDisplay; break;
+      case 'gpPct':     base = allRowsForDisplay; break; // sorted by GP% via gpSortOverride below
       case 'awaiting':  base = []; break; // Awaiting IMEI surfaces units, not sales
       default:          base = [];
     }
@@ -363,7 +426,7 @@ export default function SellSheet(_props: Props) {
     }
     return sorted;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [overlay, allSold, search, marketplaceFilter, supplierFilter, supplierMap, sort, units]);
+  }, [overlay, allRowsForDisplay, search, marketplaceFilter, supplierFilter, supplierMap, sort, units]);
 
   // ── CSV export ────────────────────────────────────────────────────────────
   const handleExportCsv = () => {
@@ -985,6 +1048,7 @@ function SheetTable({
       <thead>
         <tr className="text-[9px] font-bold uppercase tracking-widest text-slate-500 bg-slate-50">
           <Th k="saleDate"   sort={sort} onSort={toggleSort} width="105px" sticky leftPx={0}>Sell Date</Th>
+          <Th k=""           sort={sort} onSort={undefined}  width="155px">Status</Th>
           <Th k=""           sort={sort} onSort={undefined}  width="160px">IMEI</Th>
           <Th k="model"      sort={sort} onSort={toggleSort} width="240px">Model</Th>
           <Th k="storage"    sort={sort} onSort={toggleSort} width="80px">Storage</Th>
@@ -1003,16 +1067,34 @@ function SheetTable({
         {rows.map((s, idx) => {
           const u = (s.unitId && units.find(x => x.id === s.unitId)) || undefined;
           const supplierName = supplierMap[s.supplierId || ''] || s.supplierName || '—';
+          const statusKey = deriveSaleStatus(s, u);
+          const isReturned = statusKey !== 'sold';
+          const statusBadge = RETURN_BADGE[statusKey];
           const isAlt = idx % 2 === 1;
-          const rowBg = isAlt ? 'bg-slate-50/40 hover:bg-slate-100/60' : 'bg-white hover:bg-slate-50';
+          // Returned rows wash the entire row red so the reversal stands out
+          // even when the operator is scanning the table at speed.
+          const rowBg = isReturned
+            ? 'bg-red-50 hover:bg-red-100/70'
+            : isAlt ? 'bg-slate-50/40 hover:bg-slate-100/60' : 'bg-white hover:bg-slate-50';
           const gp = s.grossProfit ?? 0;
           const gpTone = gp > 0 ? 'text-emerald-700' : gp < 0 ? 'text-rose-700' : 'text-slate-600';
           const mpTone = MARKETPLACE_TONE[s.marketplace] || 'bg-slate-100 text-slate-600 border-slate-200';
+          const rowTitle = isReturned
+            ? `${statusBadge.label}${s.voidReason ? ` — ${s.voidReason}` : (u?.returnReason ? ` — ${u.returnReason}` : '')}`
+            : undefined;
 
           return (
-            <tr key={s.id} className={`${rowBg} transition-colors group`}>
+            <tr key={s.id} className={`${rowBg} transition-colors group`} title={rowTitle}>
               <Td sticky leftPx={0} className={`${rowBg} border-r border-slate-200`}>
                 <span className="text-slate-700">{fmtDateForUser(s.saleDate || '', region) || s.saleDate || '—'}</span>
+              </Td>
+              <Td>
+                <span
+                  className={`inline-flex items-center text-[9px] font-bold uppercase tracking-widest px-1.5 py-0.5 rounded border whitespace-nowrap ${statusBadge.style}`}
+                  title={rowTitle || statusBadge.label}
+                >
+                  {statusBadge.label}
+                </span>
               </Td>
               <Td>
                 {s.imei
