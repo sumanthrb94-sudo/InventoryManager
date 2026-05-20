@@ -9,7 +9,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { dbService } from '../lib/dbService';
 import {
   InventoryUnit, OperationalFlag, ActiveListing,
-  Sale, Marketplace, MARKETPLACES,
+  Sale, Marketplace, MARKETPLACES, ReturnCategory,
 } from '../types';
 import { notificationService, Notification } from '../lib/notificationService';
 import { marketplaceFromListingSite } from '../lib/platforms';
@@ -42,7 +42,7 @@ const FLAG_CONFIG: Record<OperationalFlag, { label: string; icon: any; style: st
 // ----------------------------------------------------------------------------
 
 type SortKey =
-  | 'saleDate' | 'marketplace' | 'orderNumber' | 'sku' | 'imei'
+  | 'saleDate' | 'marketplace' | 'status' | 'orderNumber' | 'sku' | 'imei'
   | 'supplierName' | 'quantity' | 'buyPrice' | 'salePrice'
   | 'paymentMode' | 'postage' | 'commission' | 'grossProfit' | 'gpPercent'
   | 'comments';
@@ -57,6 +57,7 @@ interface ColDef {
 const COLUMNS: ColDef[] = [
   { key: 'saleDate',     label: 'Date',         width: 110 },
   { key: 'marketplace',  label: 'Marketplace',  width: 110 },
+  { key: 'status',       label: 'Status',       width: 150 },
   { key: 'orderNumber',  label: 'Order Number', width: 160 },
   { key: 'sku',          label: 'SKU',          width: 140 },
   { key: 'imei',         label: 'IMEI',         width: 160 },
@@ -78,6 +79,30 @@ const MARKETPLACE_BADGE: Record<Marketplace, string> = {
   EBAY:    'bg-blue-100   text-blue-800   border-blue-200',
   ONBUY:   'bg-purple-100 text-purple-800 border-purple-200',
 };
+
+// ── Return status badge styling for the Status column ────────────────────────
+// Sold rows render a neutral chip; returned rows surface in red regardless of
+// destination (supplier / inventory / repair) so the operator's eye picks out
+// reversals at a glance, matching the Excel export's rose-100 fill convention.
+const RETURN_BADGE: Record<ReturnCategory | 'returned' | 'sold', { label: string; style: string }> = {
+  returned_to_supplier:  { label: 'Returned to Supplier',  style: 'bg-red-100 text-red-700 border-red-300' },
+  returned_to_inventory: { label: 'Returned to Inventory', style: 'bg-red-100 text-red-700 border-red-300' },
+  repair:                { label: 'Return to Repair',      style: 'bg-red-100 text-red-700 border-red-300' },
+  returned:              { label: 'Returned',              style: 'bg-red-100 text-red-700 border-red-300' },
+  sold:                  { label: 'Sold',                  style: 'bg-gray-100 text-gray-600 border-gray-200' },
+};
+
+type SaleStatusKey = ReturnCategory | 'returned' | 'sold';
+
+function deriveSaleStatus(sale: Sale, unit?: InventoryUnit): SaleStatusKey {
+  const isVoided = !!sale.voidedAt;
+  const rt = unit?.returnType;
+  if (rt === 'returned_to_supplier')  return 'returned_to_supplier';
+  if (rt === 'returned_to_inventory') return 'returned_to_inventory';
+  if (rt === 'repair')                return 'repair';
+  if (isVoided)                       return 'returned';
+  return 'sold';
+}
 
 const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 
@@ -239,10 +264,27 @@ export default function Sales() {
     return rows;
   }, [scopedSales, marketFilter, soldSearch, units]);
 
+  // Sale → linked InventoryUnit lookup (returns flow stamps returnType on the
+  // unit itself; sale carries voidedAt). Joining gives us a per-row status for
+  // the new Status column + red highlight.
+  const unitsById = useMemo(() => {
+    const m = new Map<string, InventoryUnit>();
+    for (const u of units) m.set(u.id, u);
+    return m;
+  }, [units]);
+
+  const statusForSale = (s: Sale): SaleStatusKey =>
+    deriveSaleStatus(s, s.unitId ? unitsById.get(s.unitId) : undefined);
+
   const sortedSales = useMemo<Sale[]>(() => {
     const rows = [...filteredSales];
     const dir = sortDir === 'asc' ? 1 : -1;
     rows.sort((a, b) => {
+      if (sortKey === 'status') {
+        const av = RETURN_BADGE[statusForSale(a)].label;
+        const bv = RETURN_BADGE[statusForSale(b)].label;
+        return av.localeCompare(bv) * dir;
+      }
       const av = (a as any)[sortKey];
       const bv = (b as any)[sortKey];
       if (av == null && bv == null) return 0;
@@ -252,7 +294,8 @@ export default function Sales() {
       return String(av).localeCompare(String(bv)) * dir;
     });
     return rows;
-  }, [filteredSales, sortKey, sortDir]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filteredSales, sortKey, sortDir, unitsById]);
 
   const toggleSort = (k: SortKey) => {
     if (sortKey === k) {
@@ -715,16 +758,30 @@ export default function Sales() {
                     <tbody>
                       {sortedSales.map((s, i) => {
                         const isInApp = s.importBatchId === 'inapp';
+                        const statusKey = statusForSale(s);
+                        const isReturned = statusKey !== 'sold';
+                        const statusBadge = RETURN_BADGE[statusKey];
+                        // Returned rows trump the in-app blue tint with a red
+                        // wash so reversals stand out on a scan of the grid.
+                        const rowBg = isReturned
+                          ? 'bg-red-50 hover:bg-red-100/70'
+                          : isInApp
+                            ? 'bg-blue-50/30 hover:bg-emerald-50/60'
+                            : 'hover:bg-emerald-50/60';
+                        const stickyBg = isReturned
+                          ? 'bg-red-50 hover:bg-red-100/70'
+                          : 'bg-white hover:bg-emerald-50/60';
+                        const rowTitle = isReturned
+                          ? `${statusBadge.label}${s.voidReason ? ` — ${s.voidReason}` : ''}`
+                          : (isInApp ? 'Source: in-app sell flow (legacy unit)' : undefined);
                         return (
                           <tr
                             key={s.id}
-                            className={`hover:bg-emerald-50/60 transition-colors ${
-                              isInApp ? 'bg-blue-50/30' : ''
-                            }`}
-                            title={isInApp ? 'Source: in-app sell flow (legacy unit)' : undefined}
+                            className={`transition-colors ${rowBg}`}
+                            title={rowTitle}
                           >
                             <td
-                              className="sticky left-0 z-10 bg-white hover:bg-emerald-50/60 px-2 py-1.5 text-gray-400 border-b border-r border-gray-100 text-[10px]"
+                              className={`sticky left-0 z-10 ${stickyBg} px-2 py-1.5 text-gray-400 border-b border-r border-gray-100 text-[10px]`}
                               style={{ width: 40 }}
                             >
                               {i + 1}
@@ -745,6 +802,16 @@ export default function Sales() {
                                       }`}
                                     >
                                       {s.marketplace}
+                                    </span>
+                                  );
+                                  break;
+                                case 'status':
+                                  display = (
+                                    <span
+                                      className={`text-[9px] font-bold uppercase px-1.5 py-0.5 rounded border font-mono whitespace-nowrap ${statusBadge.style}`}
+                                      title={isReturned && s.voidReason ? `Reason: ${s.voidReason}` : statusBadge.label}
+                                    >
+                                      {statusBadge.label}
                                     </span>
                                   );
                                   break;
@@ -805,7 +872,9 @@ export default function Sales() {
                               const titleStr =
                                 c.key === 'marketplace'
                                   ? s.marketplace
-                                  : (typeof display === 'string' ? display : '');
+                                  : c.key === 'status'
+                                    ? (isReturned && s.voidReason ? `${statusBadge.label} — ${s.voidReason}` : statusBadge.label)
+                                    : (typeof display === 'string' ? display : '');
                               return (
                                 <td
                                   key={c.key}
@@ -830,7 +899,9 @@ export default function Sales() {
                 <p className="text-[9px] font-mono uppercase tracking-widest text-gray-500">
                   {kpi.count.toLocaleString('en-GB')} row{kpi.count === 1 ? '' : 's'}
                   <span className="text-gray-300 mx-2">·</span>
-                  <span className="text-blue-700">Blue rows = in-app sales</span>
+                  <span className="text-blue-700">Blue = in-app sales</span>
+                  <span className="text-gray-300 mx-2">·</span>
+                  <span className="text-red-700">Red = returned units</span>
                 </p>
                 <div className="flex items-center gap-4 text-[10px] font-mono">
                   <span className="text-gray-500 uppercase tracking-widest">
