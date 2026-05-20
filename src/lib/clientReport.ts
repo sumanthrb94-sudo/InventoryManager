@@ -33,11 +33,22 @@ const ALL_HEADERS = [
   // Buy side (9)
   'Stock In Date', 'Model', 'IMEI', 'Grade', 'Storage', 'Colour',
   'Supplier', 'BP', 'Notes',
-  // Sale side (13)
+  // Sale side (14 — Status added so the operator can tell at a glance
+  // whether a sale is active or returned; voided rows also fill red)
   'Sale Date', 'Marketplace', 'Order Number', 'SKU', 'SP',
   'Payment Mode', 'Postage', 'SP - BP', 'Tax', 'Commission',
-  'GP', 'GP %', 'NP',
+  'GP', 'GP %', 'NP', 'Status',
 ];
+
+/** Light-red fill used on voided (returned) rows across every sheet of
+ *  the Sales Report. Same colour everywhere so the operator's eye picks
+ *  out reversals at a glance, whether they're scanning the ALL sheet or
+ *  a per-marketplace tab. */
+const RETURNED_FILL: import('exceljs').FillPattern = {
+  type: 'pattern',
+  pattern: 'solid',
+  fgColor: { argb: 'FFFEE2E2' },   // tailwind rose-100
+};
 
 // ---------------------------------------------------------------------------
 // Public surface
@@ -390,9 +401,20 @@ export async function buildSalesWorkbookBuffer(input: BuildSalesWorkbookInput): 
     sheet.addRow(SALES_HEADERS[m]);
 
     const bucket = byMarketplace.get(m) ?? [];
+    const headerLen = (SALES_HEADERS[m] as unknown as unknown[]).length;
     for (let i = 0; i < bucket.length; i++) {
       const rowNumber = i + 2; // skip header
-      writeSaleRow(sheet, m, bucket[i], rowNumber);
+      const sale = bucket[i];
+      writeSaleRow(sheet, m, sale, rowNumber);
+      // Same red-fill visual signal as the ALL sheet — applied across
+      // every cell in the row so the highlight covers the full width
+      // even when the master schema includes blank/formula-only cells.
+      if (sale.voidedAt) {
+        const row = sheet.getRow(rowNumber);
+        for (let col = 1; col <= headerLen; col++) {
+          row.getCell(col).fill = RETURNED_FILL;
+        }
+      }
     }
   }
 
@@ -455,6 +477,11 @@ function writeAllSheet(
       // (calcSaleFinancials returns undefined for those — fallback here
       // keeps the unified column populated end-to-end).
       r.netProfit ?? r.grossProfit,
+      // Status — "Sold" when the sale stands, "Returned" when voided.
+      // Pairs with the row's red fill below; redundant on purpose so the
+      // operator can also see the state if the file is printed in mono or
+      // sorted/filtered by status in Excel.
+      s.voidedAt ? 'Returned' : 'Sold',
     ]);
 
     // Number formats: date columns (1, 10), IMEI as integer-ish (3),
@@ -466,6 +493,15 @@ function writeAllSheet(
       row.getCell(col).numFmt = MONEY_FMT;
     }
     row.getCell(10).numFmt = DATE_FMT;
+
+    // Highlight returned rows across the entire 23-col span. Applied to
+    // every cell (not the row) so Excel doesn't try to extend the fill
+    // to unused columns on the right edge.
+    if (s.voidedAt) {
+      for (let col = 1; col <= ALL_HEADERS.length; col++) {
+        row.getCell(col).fill = RETURNED_FILL;
+      }
+    }
   }
 }
 
