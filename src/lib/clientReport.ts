@@ -537,9 +537,12 @@ function returnTypeLabel(unit?: InventoryUnit, sale?: Sale): string {
   return sale?.voidedAt ? 'Returned' : '';
 }
 
-/** Write the Returns sheet — one row per reversal, sourced from any sale
- *  that's voided OR any unit that carries a returnType. Rows are coloured
- *  per return type and sorted newest-first by the return event date. */
+/** Write the Returns sheet — one row per returned unit, sourced from
+ *  `units.filter(u => u.returnType)` so the count matches the Returns page
+ *  exactly. For each returned unit we pick the most recent voided sale doc
+ *  as the row source; fall back to any linked sale, then to the unit
+ *  itself when no sale ever existed. Rows are coloured per return type
+ *  and sorted newest-first by the return event date. */
 function writeReturnsSheet(
   sheet: ExcelJS.Worksheet,
   sales: Sale[],
@@ -549,21 +552,29 @@ function writeReturnsSheet(
 ): void {
   sheet.addRow(RETURNS_HEADERS);
 
-  const unitsById = new Map<string, InventoryUnit>();
-  for (const u of units) unitsById.set(u.id, u);
-
-  // Source: every sale that's been returned (voided OR linked to a unit
-  // with returnType). One row per unique unit so a returned-resold-returned
-  // cycle doesn't double up — same dedupe rule the Returns page uses.
-  const seenUnitIds = new Set<string>();
-  const rows: Array<{ sale: Sale; unit?: InventoryUnit; eventDate: string }> = [];
+  // Build sales-by-unitId once for O(1) lookup per unit.
+  const salesByUnitId = new Map<string, Sale[]>();
   for (const s of sales) {
-    const u = s.unitId ? unitsById.get(s.unitId) : undefined;
-    if (!isReturnedRow(s, u)) continue;
-    if (s.unitId && seenUnitIds.has(s.unitId)) continue;
-    if (s.unitId) seenUnitIds.add(s.unitId);
-    const eventDate = (s.voidedAt || u?.returnDate || s.saleDate || '').split('T')[0];
-    rows.push({ sale: s, unit: u, eventDate });
+    if (!s.unitId) continue;
+    const list = salesByUnitId.get(s.unitId);
+    if (list) list.push(s);
+    else salesByUnitId.set(s.unitId, [s]);
+  }
+
+  const rows: Array<{ sale: Sale; unit: InventoryUnit; eventDate: string }> = [];
+  for (const u of units) {
+    if (!u.returnType) continue;
+    const linked = salesByUnitId.get(u.id) || [];
+    const voided = linked
+      .filter(s => s.voidedAt)
+      .sort((a, b) => (b.voidedAt || '').localeCompare(a.voidedAt || ''));
+    const pick = voided[0] || linked[0];
+    const sale: Sale = pick
+      ? pick
+      : (synthesizeReturnSales([u], []).at(0) ?? null as any);
+    if (!sale) continue;
+    const eventDate = (sale.voidedAt || u.returnDate || sale.saleDate || '').split('T')[0];
+    rows.push({ sale, unit: u, eventDate });
   }
 
   // Apply the date window to the return event itself (not the original

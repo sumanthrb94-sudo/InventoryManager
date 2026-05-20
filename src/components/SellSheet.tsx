@@ -229,41 +229,40 @@ export default function SellSheet(_props: Props) {
     return merged;
   }, [sales, units]);
 
-  // Returned rows that we DO want surfaced in the table (red-tinted) but
-  // never counted in KPIs. Includes:
-  //   - any sale doc with voidedAt set (live ProcessReturnModal path)
-  //   - any sale linked to a unit whose returnType is set (legacy fallback)
-  //   - any legacy in-app unit with returnType + a sale-side payload
-  // Mirrors the Excel report's ALL-sheet behaviour: red fill on voided rows,
-  // status chip sourced from the linked unit's returnType.
+  // Returned rows that we DO want surfaced in the table (status-tinted) but
+  // never counted in KPIs. UNIT-DRIVEN: one row per unique unit carrying a
+  // returnType, matching the Returns page exactly. Driving off the sales
+  // collection instead would double-count units that cycled through
+  // sold→returned→re-sold→returned with two different sale docs.
+  //
+  // For each returned unit we pick the most recent voided sale doc as the
+  // display source (so the row shows the latest reversal); fall back to any
+  // linked sale, then to a synthesised row from the unit itself if no sale
+  // ever existed.
   const allReturned = useMemo<Sale[]>(() => {
-    const returnedUnits = new Set<string>();
-    for (const u of units) if (u.returnType) returnedUnits.add(u.id);
+    const salesByUnitId = new Map<string, Sale[]>();
+    for (const s of sales) {
+      if (!s.unitId) continue;
+      const list = salesByUnitId.get(s.unitId);
+      if (list) list.push(s);
+      else salesByUnitId.set(s.unitId, [s]);
+    }
 
     const out: Sale[] = [];
-    const seenIds = new Set<string>();
-    // Dedupe by unitId so a unit that went sold→returned→re-sold→returned
-    // only appears ONCE in the returns view. Matches the Returns page,
-    // which counts unique units (not events) — keeps the two surfaces in
-    // sync so operators don't see "5 returns here / 7 returns there".
-    const seenUnitIds = new Set<string>();
-    for (const s of sales) {
-      const isReturned = !!s.voidedAt || (!!s.unitId && returnedUnits.has(s.unitId));
-      if (!isReturned) continue;
-      if (s.unitId && seenUnitIds.has(s.unitId)) continue;
-      const fresh = recomputeSale(s);
-      out.push(fresh);
-      seenIds.add(s.id);
-      if (fresh.unitId) seenUnitIds.add(fresh.unitId);
-    }
-    // Legacy in-app units that were returned (no matching sale doc — earlier
-    // sell flow never created one).
     for (const u of units) {
       if (!u.returnType) continue;
-      if (u.salePrice == null && !u.saleDate && !u.saleOrderId) continue;
-      if (seenIds.has(u.id) || seenUnitIds.has(u.id)) continue;
-      out.push(recomputeSale(inventoryUnitToSale(u)));
-      seenUnitIds.add(u.id);
+      const linked = salesByUnitId.get(u.id) || [];
+      const voided = linked
+        .filter(s => s.voidedAt)
+        .sort((a, b) => (b.voidedAt || '').localeCompare(a.voidedAt || ''));
+      const pick = voided[0] || linked[0];
+      if (pick) {
+        out.push(recomputeSale(pick));
+      } else if (u.salePrice != null || u.saleDate || u.saleOrderId) {
+        out.push(recomputeSale(inventoryUnitToSale(u)));
+      }
+      // Unit with returnType but zero sale-side payload → skip; nothing
+      // meaningful to render in a sales table row.
     }
     return out;
   }, [sales, units]);
@@ -275,35 +274,35 @@ export default function SellSheet(_props: Props) {
     [allSold, allReturned],
   );
 
-  // Separate stream of voided sales — used for the 'returned this period'
-  // chip on each Sold tile. Deduped by unitId so the count matches the
-  // Returns page (which counts unique units, not events). When a unit went
-  // through multiple sold→returned cycles we keep the MOST RECENT void
-  // event so the date buckets reflect the latest activity.
+  // KPI counter for the 'returned this period' chip on each Sold tile.
+  // UNIT-DRIVEN like allReturned above so this number, the inline table
+  // row count, and the Returns page all read the same. Drops orphan
+  // voided sales (no unitId / unit deleted) — those don't appear on the
+  // Returns page either, so including them here would over-report.
   const voidedSales = useMemo<Array<{ voidedAt: string; sale: Sale }>>(() => {
-    const byUnit = new Map<string, { voidedAt: string; sale: Sale }>();
-    const orphanByDocId = new Map<string, { voidedAt: string; sale: Sale }>();
-    const keep = (key: string, entry: { voidedAt: string; sale: Sale }, target: Map<string, typeof entry>) => {
-      const existing = target.get(key);
-      if (!existing || entry.voidedAt > existing.voidedAt) target.set(key, entry);
-    };
-
-    // Sales explicitly flagged voided on the doc
+    const salesByUnitId = new Map<string, Sale[]>();
     for (const s of sales) {
-      if (!s.voidedAt) continue;
-      const entry = { voidedAt: s.voidedAt, sale: s };
-      if (s.unitId) keep(s.unitId, entry, byUnit);
-      else          keep(s.id, entry, orphanByDocId);
+      if (!s.unitId) continue;
+      const list = salesByUnitId.get(s.unitId);
+      if (list) list.push(s);
+      else salesByUnitId.set(s.unitId, [s]);
     }
-    // Fallback for legacy returns: unit has returnType but the sale doc
-    // wasn't patched. Use unit.returnDate as the event date.
+    const out: Array<{ voidedAt: string; sale: Sale }> = [];
     for (const u of units) {
-      if (!u.returnType || !u.returnDate) continue;
-      if (byUnit.has(u.id)) continue;
-      const match = sales.find(s => s.unitId === u.id);
-      if (match) byUnit.set(u.id, { voidedAt: u.returnDate, sale: match });
+      if (!u.returnType) continue;
+      const linked = salesByUnitId.get(u.id) || [];
+      const voided = linked
+        .filter(s => s.voidedAt)
+        .sort((a, b) => (b.voidedAt || '').localeCompare(a.voidedAt || ''));
+      const pick = voided[0] || linked[0];
+      const eventDate = pick?.voidedAt || u.returnDate || '';
+      if (!eventDate) continue;
+      // Synthesise a Sale shell when no linked doc exists so the KPI
+      // counter always has a date to bucket against.
+      const sale = pick ?? inventoryUnitToSale(u);
+      out.push({ voidedAt: eventDate, sale });
     }
-    return [...byUnit.values(), ...orphanByDocId.values()];
+    return out;
   }, [sales, units]);
 
   // ── Date-scoped subset ────────────────────────────────────────────────────
