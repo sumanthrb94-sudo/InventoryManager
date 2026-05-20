@@ -454,14 +454,19 @@ export async function buildSalesWorkbookBuffer(input: BuildSalesWorkbookInput): 
   const allSales = [...sales, ...returnedUnitsWithoutSale];
   const filtered = filterSalesByDate(allSales, opts);
 
-  // ALL sheet excludes back-to-inventory rows — the unit is restored to
-  // sellable stock, so it doesn't belong in a "what we sold" view. Repair
-  // and supplier returns stay on ALL because they represent units that are
-  // no longer on the shelf (lost revenue). Every returned row also lives
-  // on the dedicated Returns sheet below with the full detail.
+  // ALL sheet shows only active sales + returned-to-supplier (the only
+  // return type that's truly "lost revenue with no unit on hand"). Every
+  // other return state — back-to-inventory, repair, generic void — lives
+  // exclusively on the Returns sheet at the end of the workbook. This
+  // keeps ALL as a clean "what we sold and what walked out the door"
+  // view without the noise of returns that are still resolvable.
   const filteredForAll = filtered.filter(s => {
     const u = lookupUnit(s);
-    return u?.returnType !== 'returned_to_inventory';
+    const rt = u?.returnType;
+    if (rt === 'returned_to_supplier') return true;            // keep
+    if (rt === 'returned_to_inventory' || rt === 'repair') return false; // strip
+    if (s.voidedAt) return false;                              // strip generic voids
+    return true;                                               // active sale
   });
 
   const byMarketplace = new Map<Marketplace, Sale[]>();
@@ -473,17 +478,11 @@ export async function buildSalesWorkbookBuffer(input: BuildSalesWorkbookInput): 
 
   const wb = new ExcelJS.Workbook();
 
-  // Sheet 1: ALL — every active sale + lost-revenue returns (supplier /
-  // repair / generic void). Filterable in Excel by Marketplace column.
+  // Sheet 1: ALL — active sales + returned-to-supplier only. Filterable
+  // in Excel by Marketplace column.
   writeAllSheet(wb.addWorksheet('ALL'), filteredForAll, allUnits, supplierMap ?? {});
 
-  // Sheet 2: Returns — every reversal (back-to-inventory / repair /
-  // supplier / generic) with the full return-side detail next to the
-  // original sale data. Coloured per return type so the outcome of each
-  // reversal is legible at a glance.
-  writeReturnsSheet(wb.addWorksheet('Returns'), allSales, allUnits, supplierMap ?? {}, opts);
-
-  // Sheets 3-6: per-platform, mirroring the operator's master SALES_REPORT
+  // Sheets 2-5: per-platform, mirroring the operator's master SALES_REPORT
   // shape exactly (headers + formulas via excelFormulaFor). PROJECT excluded
   // — we sell on 4 platforms only.
   for (const m of MARKETPLACES) {
@@ -511,6 +510,12 @@ export async function buildSalesWorkbookBuffer(input: BuildSalesWorkbookInput): 
       }
     }
   }
+
+  // Sheet 6 (last): Returns — every reversal (back-to-inventory / repair /
+  // supplier / generic) with the full return-side detail next to the
+  // original sale data. Coloured per return type so the outcome of each
+  // reversal is legible at a glance.
+  writeReturnsSheet(wb.addWorksheet('Returns'), allSales, allUnits, supplierMap ?? {}, opts);
 
   return wb.xlsx.writeBuffer() as Promise<ArrayBuffer>;
 }
