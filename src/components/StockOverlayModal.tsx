@@ -76,55 +76,45 @@ export type GroupedModel = {
   latestDateIn: string;
 };
 
-/** Series-prefix detector — if the model name already starts with one of
- *  these distinctive series tokens, the brand is implied and prepending
- *  "Apple" / "Samsung" / "Google" would be redundant noise. Anything else
- *  (e.g. "10" for OnePlus 10) gets the brand prefix re-added so the row
- *  isn't ambiguous. */
-function brandImpliedByModel(model: string): boolean {
-  return /^(iphone|ipad|macbook|apple\s*watch|galaxy|pixel|redmi|poco)\b/i.test(model);
-}
-
-/** Derive a canonical SKU view of a unit by trusting the parser as the
- *  source of truth. Operators inconsistently type storage / tag into the
- *  model string (e.g. "iPhone 13 128GB" or "iPad Pro M3 256GB WiFi/Cellular")
- *  OR enter them via the separate Storage column. We treat both as the
- *  same SKU by always running `u.model` through parseBrandModelStorage and
- *  blending the result with the unit's `u.storage` field — explicit
- *  storage wins, parser-extracted storage is the fallback.
+/** Derive a canonical bucket-key for a unit while preserving the
+ *  operator's exact typed model string for display. Two surfaces:
  *
- *  The label is REBUILT from the canonical parts (`brand?` + model +
- *  storage + tag) so all three render consistently regardless of how the
- *  operator typed them. Differences in spacing, casing, and tag
- *  punctuation no longer affect what shows up in the grouped row. */
+ *   - keyModel/storage/tag: canonical (parser-normalised) so two operators
+ *     entering the same SKU in different formats — "iPhone 13 128GB" with
+ *     storage inline vs "iPhone 13" + separate storage field — bucket to
+ *     the same row.
+ *
+ *   - label: the raw u.model VERBATIM, only augmented with storage from
+ *     the separate Storage field if it's not already in the model string.
+ *     The operator types "Apple iPad Pro 10.9 WiFi / Cellular" and that
+ *     text shows up unchanged on the grouped row. No silent normalisation,
+ *     no stripped brand prefix, no canonicalised tag punctuation.
+ */
 function canonicalize(u: InventoryUnit): {
-  /** Lowercase bucketing-only model — used in the Map key. */
+  /** Lowercase parser-cleaned model — used in the Map key. */
   keyModel: string;
   /** Effective storage (operator field wins over parsed). */
   storage: string;
-  /** Effective tag (5G, WiFi+Cellular, etc.) — pulled from the parser. */
+  /** Effective tag (5G, WiFi+Cellular, etc.) — for the bucket key only. */
   tag: string;
-  /** Display label rebuilt from canonical parts. */
+  /** Display label — operator's raw text, augmented only when storage was
+   *  entered separately and not yet in the model name. */
   label: string;
 } {
   const raw = (u.model || '').trim();
   const parsed = parseBrandModelStorage(raw);
-  const cleanModel = (parsed.model || raw).trim();
   const storage = (u.storage || parsed.storage || '').trim();
   const tag = (parsed.tag || '').trim();
-  const keyModel = cleanModel.toLowerCase();
+  const keyModel = ((parsed.model || raw).trim()).toLowerCase();
 
-  // Re-prepend the brand only when the model name doesn't already imply
-  // it (e.g. "iPhone 13" implies Apple, but "10" doesn't imply OnePlus).
-  let base = cleanModel || '—';
-  const brand = parsed.brand;
-  if (brand && brand !== 'Other' && !brandImpliedByModel(base)) {
-    base = `${brand} ${base}`;
-  }
-
-  const label = base
-    + (storage ? ' ' + storage : '')
-    + (tag ? ' · ' + tag : '');
+  // Show what the operator typed. Only append storage from the separate
+  // field if it isn't already inline in the model name. Tag is bucket-only:
+  // if the operator wanted the tag to appear in the row label, they should
+  // have typed it into the model field — we don't second-guess.
+  const rawUpper = raw.toUpperCase();
+  const storageAlreadyInRaw = storage && rawUpper.includes(storage.toUpperCase());
+  let label = raw || '—';
+  if (storage && !storageAlreadyInRaw) label += ' ' + storage;
 
   return { keyModel, storage, tag, label };
 }
