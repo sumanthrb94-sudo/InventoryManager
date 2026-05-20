@@ -454,6 +454,16 @@ export async function buildSalesWorkbookBuffer(input: BuildSalesWorkbookInput): 
   const allSales = [...sales, ...returnedUnitsWithoutSale];
   const filtered = filterSalesByDate(allSales, opts);
 
+  // ALL sheet excludes back-to-inventory rows — the unit is restored to
+  // sellable stock, so it doesn't belong in a "what we sold" view. Repair
+  // and supplier returns stay on ALL because they represent units that are
+  // no longer on the shelf (lost revenue). Every returned row also lives
+  // on the dedicated Returns sheet below with the full detail.
+  const filteredForAll = filtered.filter(s => {
+    const u = lookupUnit(s);
+    return u?.returnType !== 'returned_to_inventory';
+  });
+
   const byMarketplace = new Map<Marketplace, Sale[]>();
   for (const m of MARKETPLACES) byMarketplace.set(m, []);
   for (const sale of filtered) {
@@ -463,12 +473,17 @@ export async function buildSalesWorkbookBuffer(input: BuildSalesWorkbookInput): 
 
   const wb = new ExcelJS.Workbook();
 
-  // Sheet 1: ALL — every (non-PROJECT-or-not) sale in one flat 22-col table,
-  // buy + sale data joined, computed values via recomputeSale. Filterable in
-  // Excel by Marketplace column.
-  writeAllSheet(wb.addWorksheet('ALL'), filtered, allUnits, supplierMap ?? {});
+  // Sheet 1: ALL — every active sale + lost-revenue returns (supplier /
+  // repair / generic void). Filterable in Excel by Marketplace column.
+  writeAllSheet(wb.addWorksheet('ALL'), filteredForAll, allUnits, supplierMap ?? {});
 
-  // Sheets 2-5: per-platform, mirroring the operator's master SALES_REPORT
+  // Sheet 2: Returns — every reversal (back-to-inventory / repair /
+  // supplier / generic) with the full return-side detail next to the
+  // original sale data. Coloured per return type so the outcome of each
+  // reversal is legible at a glance.
+  writeReturnsSheet(wb.addWorksheet('Returns'), allSales, allUnits, supplierMap ?? {}, opts);
+
+  // Sheets 3-6: per-platform, mirroring the operator's master SALES_REPORT
   // shape exactly (headers + formulas via excelFormulaFor). PROJECT excluded
   // — we sell on 4 platforms only.
   for (const m of MARKETPLACES) {
@@ -498,6 +513,114 @@ export async function buildSalesWorkbookBuffer(input: BuildSalesWorkbookInput): 
   }
 
   return wb.xlsx.writeBuffer() as Promise<ArrayBuffer>;
+}
+
+// ---------------------------------------------------------------------------
+// Returns sheet — every reversal with full detail
+// ---------------------------------------------------------------------------
+
+const RETURNS_HEADERS = [
+  'Return Date', 'Return Type', 'Return Reason',
+  'Sold Date', 'Marketplace', 'Order Number', 'IMEI', 'SKU',
+  'Model', 'Storage', 'Colour', 'Grade', 'Supplier',
+  'BP', 'SP', 'GP', 'Notes',
+];
+
+/** Friendly label for the Returns sheet's Return Type column. Matches the
+ *  in-app convention so the workbook reads the same as every other surface. */
+function returnTypeLabel(unit?: InventoryUnit, sale?: Sale): string {
+  switch (unit?.returnType) {
+    case 'returned_to_inventory': return 'Returned to Inventory';
+    case 'repair':                return 'Return to Repair';
+    case 'returned_to_supplier':  return 'Returned to Supplier';
+  }
+  return sale?.voidedAt ? 'Returned' : '';
+}
+
+/** Write the Returns sheet — one row per reversal, sourced from any sale
+ *  that's voided OR any unit that carries a returnType. Rows are coloured
+ *  per return type and sorted newest-first by the return event date. */
+function writeReturnsSheet(
+  sheet: ExcelJS.Worksheet,
+  sales: Sale[],
+  units: InventoryUnit[],
+  supplierMap: Record<string, string>,
+  opts?: ClientReportOptions,
+): void {
+  sheet.addRow(RETURNS_HEADERS);
+
+  const unitsById = new Map<string, InventoryUnit>();
+  for (const u of units) unitsById.set(u.id, u);
+
+  // Source: every sale that's been returned (voided OR linked to a unit
+  // with returnType). One row per unique unit so a returned-resold-returned
+  // cycle doesn't double up — same dedupe rule the Returns page uses.
+  const seenUnitIds = new Set<string>();
+  const rows: Array<{ sale: Sale; unit?: InventoryUnit; eventDate: string }> = [];
+  for (const s of sales) {
+    const u = s.unitId ? unitsById.get(s.unitId) : undefined;
+    if (!isReturnedRow(s, u)) continue;
+    if (s.unitId && seenUnitIds.has(s.unitId)) continue;
+    if (s.unitId) seenUnitIds.add(s.unitId);
+    const eventDate = (s.voidedAt || u?.returnDate || s.saleDate || '').split('T')[0];
+    rows.push({ sale: s, unit: u, eventDate });
+  }
+
+  // Apply the date window to the return event itself (not the original
+  // sale date) so "this month's returns" reflects when reversals happened.
+  const from = opts?.from;
+  const to   = opts?.to;
+  const inWindow = (d: string) => (!from || d >= from) && (!to || d <= to);
+  const filteredRows = (from || to) ? rows.filter(r => inWindow(r.eventDate)) : rows;
+
+  // Newest first.
+  filteredRows.sort((a, b) => b.eventDate.localeCompare(a.eventDate));
+
+  for (const { sale: s, unit: u } of filteredRows) {
+    const r = recomputeSale(s);
+    const returnDateIso = s.voidedAt || u?.returnDate || '';
+    const returnReason  = s.voidReason || u?.returnReason || '';
+
+    const row = sheet.addRow([
+      toDate(returnDateIso),
+      returnTypeLabel(u, s),
+      returnReason,
+      toDate(s.saleDate),
+      s.marketplace,
+      s.orderNumber || '',
+      s.imei || u?.imei || '',
+      s.sku || '',
+      u?.model || '',
+      u?.storage || '',
+      u?.colour || '',
+      u?.grade || '',
+      supplierMap[s.supplierId || ''] || s.supplierName || u?.supplierName || '',
+      s.buyPrice,
+      s.salePrice,
+      r.grossProfit,
+      u?.notes || '',
+    ]);
+
+    // Number formats — return date (1), sold date (4), IMEI (7), money cols.
+    row.getCell(1).numFmt = DATE_FMT;
+    row.getCell(4).numFmt = DATE_FMT;
+    row.getCell(7).numFmt = IMEI_FMT;
+    for (const col of [14, 15, 16]) row.getCell(col).numFmt = MONEY_FMT;
+
+    // Colour the whole row by return outcome (green / blue / red).
+    const fill = fillForReturn(s, u);
+    if (fill) {
+      for (let col = 1; col <= RETURNS_HEADERS.length; col++) {
+        row.getCell(col).fill = fill;
+      }
+    }
+  }
+
+  // Bold the header row + reasonable column widths so the sheet opens
+  // legibly in Excel / Google Sheets without manual resizing.
+  sheet.getRow(1).font = { bold: true };
+  const widths = [12, 22, 32, 12, 12, 18, 18, 16, 28, 10, 14, 8, 18, 8, 8, 10, 36];
+  widths.forEach((w, i) => { sheet.getColumn(i + 1).width = w; });
 }
 
 /** Build Sale-shaped rows for any unit that has a returnType set but no
