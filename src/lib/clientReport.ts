@@ -542,12 +542,19 @@ function returnTypeLabel(unit?: InventoryUnit, sale?: Sale): string {
   return sale?.voidedAt ? 'Returned' : '';
 }
 
-/** Write the Returns sheet — one row per returned unit, sourced from
- *  `units.filter(u => u.returnType)` so the count matches the Returns page
- *  exactly. For each returned unit we pick the most recent voided sale doc
- *  as the row source; fall back to any linked sale, then to the unit
- *  itself when no sale ever existed. Rows are coloured per return type
- *  and sorted newest-first by the return event date. */
+/** Light-gray font used for the history sub-rows beneath each returned
+ *  unit's main row, so the unit's journey reads as a continuation rather
+ *  than a series of independent events. */
+const HISTORY_FONT: Partial<import('exceljs').Font> = {
+  italic: true,
+  color: { argb: 'FF64748B' }, // tailwind slate-500
+};
+
+/** Write the Returns sheet — one MAIN row per returned unit (latest state,
+ *  bold + status-coloured), followed by chronologically-ordered HISTORY
+ *  sub-rows tracing the product's full journey: initial stock-in, every
+ *  prior sale, and every prior return event. Lets the operator see the
+ *  whole story of a returned product without cross-referencing other tabs. */
 function writeReturnsSheet(
   sheet: ExcelJS.Worksheet,
   sales: Sale[],
@@ -566,20 +573,29 @@ function writeReturnsSheet(
     else salesByUnitId.set(s.unitId, [s]);
   }
 
-  const rows: Array<{ sale: Sale; unit: InventoryUnit; eventDate: string }> = [];
+  // Build the per-unit block: main sale (latest reversal) + ordered
+  // history of every prior event.
+  interface ReturnBlock {
+    unit: InventoryUnit;
+    mainSale: Sale;
+    eventDate: string;
+    history: Sale[]; // older linked sales (chronological), main excluded
+  }
+  const blocks: ReturnBlock[] = [];
   for (const u of units) {
     if (!u.returnType) continue;
-    const linked = salesByUnitId.get(u.id) || [];
+    const linked = (salesByUnitId.get(u.id) || []).slice().sort((a, b) =>
+      (a.saleDate || '').localeCompare(b.saleDate || '')
+    );
     const voided = linked
       .filter(s => s.voidedAt)
       .sort((a, b) => (b.voidedAt || '').localeCompare(a.voidedAt || ''));
-    const pick = voided[0] || linked[0];
-    const sale: Sale = pick
-      ? pick
-      : (synthesizeReturnSales([u], []).at(0) ?? null as any);
-    if (!sale) continue;
-    const eventDate = (sale.voidedAt || u.returnDate || sale.saleDate || '').split('T')[0];
-    rows.push({ sale, unit: u, eventDate });
+    const pick = voided[0] || linked[linked.length - 1];
+    const mainSale: Sale | null = pick ?? synthesizeReturnSales([u], []).at(0) ?? null;
+    if (!mainSale) continue;
+    const eventDate = (mainSale.voidedAt || u.returnDate || mainSale.saleDate || '').split('T')[0];
+    const history = linked.filter(s => s.id !== mainSale.id);
+    blocks.push({ unit: u, mainSale, eventDate, history });
   }
 
   // Apply the date window to the return event itself (not the original
@@ -587,55 +603,115 @@ function writeReturnsSheet(
   const from = opts?.from;
   const to   = opts?.to;
   const inWindow = (d: string) => (!from || d >= from) && (!to || d <= to);
-  const filteredRows = (from || to) ? rows.filter(r => inWindow(r.eventDate)) : rows;
+  const filteredBlocks = (from || to) ? blocks.filter(b => inWindow(b.eventDate)) : blocks;
+  filteredBlocks.sort((a, b) => b.eventDate.localeCompare(a.eventDate));
 
-  // Newest first.
-  filteredRows.sort((a, b) => b.eventDate.localeCompare(a.eventDate));
-
-  for (const { sale: s, unit: u } of filteredRows) {
+  for (const { unit: u, mainSale: s, history } of filteredBlocks) {
     const r = recomputeSale(s);
-    const returnDateIso = s.voidedAt || u?.returnDate || '';
-    const returnReason  = s.voidReason || u?.returnReason || '';
+    const supplierName = supplierMap[s.supplierId || ''] || s.supplierName || u.supplierName || '';
+    const returnDateIso = s.voidedAt || u.returnDate || '';
+    const returnReason  = s.voidReason || u.returnReason || '';
 
-    const row = sheet.addRow([
+    // ── MAIN row: latest return event in full detail ───────────────────
+    const mainRow = sheet.addRow([
       toDate(returnDateIso),
       returnTypeLabel(u, s),
       returnReason,
       toDate(s.saleDate),
       s.marketplace,
       s.orderNumber || '',
-      s.imei || u?.imei || '',
+      s.imei || u.imei || '',
       s.sku || '',
-      u?.model || '',
-      u?.storage || '',
-      u?.colour || '',
-      u?.grade || '',
-      supplierMap[s.supplierId || ''] || s.supplierName || u?.supplierName || '',
+      u.model || '',
+      u.storage || '',
+      u.colour || '',
+      u.grade || '',
+      supplierName,
       s.buyPrice,
       s.salePrice,
       r.grossProfit,
-      u?.notes || '',
+      u.notes || '',
     ]);
-
-    // Number formats — return date (1), sold date (4), IMEI (7), money cols.
-    row.getCell(1).numFmt = DATE_FMT;
-    row.getCell(4).numFmt = DATE_FMT;
-    row.getCell(7).numFmt = IMEI_FMT;
-    for (const col of [14, 15, 16]) row.getCell(col).numFmt = MONEY_FMT;
-
-    // Colour the whole row by return outcome (green / blue / red).
+    mainRow.getCell(1).numFmt = DATE_FMT;
+    mainRow.getCell(4).numFmt = DATE_FMT;
+    mainRow.getCell(7).numFmt = IMEI_FMT;
+    for (const col of [14, 15, 16]) mainRow.getCell(col).numFmt = MONEY_FMT;
+    mainRow.font = { bold: true };
     const fill = fillForReturn(s, u);
     if (fill) {
       for (let col = 1; col <= RETURNS_HEADERS.length; col++) {
-        row.getCell(col).fill = fill;
+        mainRow.getCell(col).fill = fill;
       }
+    }
+
+    // ── HISTORY sub-rows: stock-in + prior sale/return cycles ──────────
+    // Event shape kept uniform so they slot into the same column schema.
+    interface HistoryEvent {
+      date: string;
+      type: string;            // "Stock In" / "Sold" / "Returned ..."
+      reason: string;
+      sale?: Sale;             // present for Sold / Returned events
+    }
+    const events: HistoryEvent[] = [];
+
+    if (u.dateIn) {
+      events.push({
+        date: u.dateIn,
+        type: '↳ Stock In',
+        reason: `Initial intake @ £${u.buyPrice ?? 0}${supplierName ? ` from ${supplierName}` : ''}`,
+      });
+    }
+    for (const ls of history) {
+      if (ls.saleDate) events.push({
+        date: ls.saleDate,
+        type: '↳ Sold',
+        reason: ls.comments || '',
+        sale: ls,
+      });
+      if (ls.voidedAt) events.push({
+        date: ls.voidedAt,
+        type: '↳ Returned',
+        reason: ls.voidReason || '',
+        sale: ls,
+      });
+    }
+    // Chronological earliest-first so the timeline reads top-to-bottom.
+    events.sort((a, b) => (a.date || '').localeCompare(b.date || ''));
+
+    for (const ev of events) {
+      const ls = ev.sale;
+      const lsR = ls ? recomputeSale(ls) : null;
+      const histRow = sheet.addRow([
+        toDate(ev.date),
+        ev.type,
+        ev.reason,
+        ls ? toDate(ls.saleDate) : null,
+        ls?.marketplace || '',
+        ls?.orderNumber || '',
+        u.imei || '',
+        ls?.sku || '',
+        u.model || '',
+        u.storage || '',
+        u.colour || '',
+        u.grade || '',
+        supplierName,
+        ls?.buyPrice ?? null,
+        ls?.salePrice ?? null,
+        lsR?.grossProfit ?? null,
+        '',
+      ]);
+      histRow.getCell(1).numFmt = DATE_FMT;
+      if (ls) histRow.getCell(4).numFmt = DATE_FMT;
+      histRow.getCell(7).numFmt = IMEI_FMT;
+      for (const col of [14, 15, 16]) histRow.getCell(col).numFmt = MONEY_FMT;
+      histRow.font = HISTORY_FONT;
     }
   }
 
   // Bold the header row + reasonable column widths so the sheet opens
   // legibly in Excel / Google Sheets without manual resizing.
   sheet.getRow(1).font = { bold: true };
-  const widths = [12, 22, 32, 12, 12, 18, 18, 16, 28, 10, 14, 8, 18, 8, 8, 10, 36];
+  const widths = [12, 22, 36, 12, 12, 18, 18, 16, 28, 10, 14, 8, 18, 8, 8, 10, 36];
   widths.forEach((w, i) => { sheet.getColumn(i + 1).width = w; });
 }
 
