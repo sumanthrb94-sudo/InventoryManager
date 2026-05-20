@@ -469,20 +469,26 @@ export default function SellSheet(_props: Props) {
     const source = overlay ? overlayRows : inlineRows;
     const rows = source.map(s => {
       const u = (s.unitId && units.find(x => x.id === s.unitId)) || undefined;
+      const statusKey = deriveSaleStatus(s, u);
+      // CSV can't carry colour, so the Status + Return Reason columns are
+      // the only way the operator sees the reversal on the exported file.
       return {
-        'Sell Date':   s.saleDate || '',
-        'IMEI':        s.imei || '',
-        'Model':       u?.model || '',
-        'Storage':     u?.storage || '',
-        'Colour':      u?.colour || '',
-        'Supplier':    supplierMap[s.supplierId || ''] || s.supplierName || '',
-        'BP':          s.buyPrice ?? 0,
-        'SP':          s.salePrice ?? 0,
-        'Platform':    s.marketplace,
-        'Postage':     (s.postage ?? 0).toFixed(2),
-        'Commission':  (s.commission ?? 0).toFixed(2),
-        'GP':          (s.grossProfit ?? 0).toFixed(2),
-        'GP %':        (s.gpPercent ?? 0).toFixed(2),
+        'Sell Date':       s.saleDate || '',
+        'Status':          RETURN_BADGE[statusKey].label,
+        'IMEI':            s.imei || '',
+        'Model':           u?.model || '',
+        'Storage':         u?.storage || '',
+        'Colour':          u?.colour || '',
+        'Supplier':        supplierMap[s.supplierId || ''] || s.supplierName || '',
+        'BP':              s.buyPrice ?? 0,
+        'SP':              s.salePrice ?? 0,
+        'Platform':        s.marketplace,
+        'Postage':         (s.postage ?? 0).toFixed(2),
+        'Commission':      (s.commission ?? 0).toFixed(2),
+        'GP':              (s.grossProfit ?? 0).toFixed(2),
+        'GP %':            (s.gpPercent ?? 0).toFixed(2),
+        'Return Reason':   s.voidReason || u?.returnReason || '',
+        'Return Date':     s.voidedAt || u?.returnDate || '',
       };
     });
     downloadCsv('sell_sales.csv', rows);
@@ -494,11 +500,12 @@ export default function SellSheet(_props: Props) {
   //                exact master-file shape (headers + cell-level Excel
   //                formulas via excelFormulaFor). Four platforms only per
   //                ops convention "we sell in 4 platforms only".
-  // Voided sales are excluded — they don't represent realised revenue and
-  // the void path keeps the original Sale doc for audit only.
+  // Voided sales are INCLUDED so the workbook reflects every reversal —
+  // each one renders with the per-status fill (green / blue / red) and a
+  // status label in the ALL sheet so operators reading the xlsx in Google
+  // Sheets see the same picture as on screen.
   const handleSalesReport = () => {
-    const active = sales.filter(s => !s.voidedAt);
-    void downloadSalesWorkbook({ sales: active, units, supplierMap });
+    void downloadSalesWorkbook({ sales, units, supplierMap });
   };
 
   // ── Inline cell save (re-recompute GP/comm/postage in the same patch) ─────
