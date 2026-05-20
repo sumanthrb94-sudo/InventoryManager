@@ -352,7 +352,13 @@ function Popover({
 }
 
 export default function PeriodicInventory({ units, onNavigate }: Props) {
-  const available = units.filter(u => u.status === 'available');
+  // Sellable inventory — defensive widening matches Buy/Sell screens so a
+  // returned-to-inventory unit with a stuck status (write race / stale
+  // cache) still shows up on the periodic table for re-sale.
+  const available = units.filter(u =>
+    u.status === 'available' ||
+    (u.returnType === 'returned_to_inventory' && u.status !== 'sold')
+  );
   const incoming  = units.filter(u => u.status === 'incoming');
 
   // Pull supplier list locally so we can render supplier names in the overlay

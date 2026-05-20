@@ -114,7 +114,19 @@ export default function BuySheet(_props: Props) {
   // "All Office Stock" — status='available' (anywhere, any colour). Plus any
   // master-rollup quantity not yet IMEI-tracked is reflected in the count
   // (see kpiCounts below) but doesn't add visible rows.
-  const officeUnits = useMemo(() => units.filter(u => u.status === 'available'), [units]);
+  // "All Office Stock" — units sellable from the office. Strictly that's
+  // status='available', but a unit can get stuck on status='returned' even
+  // when ProcessReturn was run as "Back to Inventory" (write race / stale
+  // cache). The ProcessReturn flow sets returnType='returned_to_inventory'
+  // in the same patch as status='available' — if the second field gets
+  // lost in transit, the unit becomes invisible to Sell/Buy surfaces
+  // despite the operator marking it back in stock. Defensive: also accept
+  // units flagged returned_to_inventory that haven't been re-sold yet,
+  // so a stuck status doesn't trap inventory.
+  const officeUnits = useMemo(() => units.filter(u =>
+    u.status === 'available' ||
+    (u.returnType === 'returned_to_inventory' && u.status !== 'sold')
+  ), [units]);
 
   // "SHS Stock" — every unit with status='incoming'. This is robust to the
   // id-prefix bug that previously caused fresh SHS adds with 'shs_manual_'

@@ -124,7 +124,14 @@ export default function SellSheet(_props: Props) {
   const [salesImportOpen, setSalesImportOpen] = useState(false);
 
   // ── Indexes ───────────────────────────────────────────────────────────────
-  const inStock = useMemo(() => units.filter(u => u.status === 'available'), [units]);
+  // Sellable inventory — `status='available'` plus the defensive fallback
+  // for units that were processed as "Back to Inventory" but whose status
+  // didn't flip due to a write race / stale cache. Same widening as the
+  // Buy screen's office-stock filter — keeps the two surfaces consistent.
+  const inStock = useMemo(() => units.filter(u =>
+    u.status === 'available' ||
+    (u.returnType === 'returned_to_inventory' && u.status !== 'sold')
+  ), [units]);
   const manualShs = useMemo(() => manualShsUnitsFrom(units), [units]);
   const awaitingImei = useMemo(
     () => units.filter(u => u.status === 'sold' && !u.imei)
