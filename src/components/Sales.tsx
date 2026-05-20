@@ -80,19 +80,42 @@ const MARKETPLACE_BADGE: Record<Marketplace, string> = {
   ONBUY:   'bg-purple-100 text-purple-800 border-purple-200',
 };
 
-// ── Return status badge styling for the Status column ────────────────────────
-// Sold rows render a neutral chip; returned rows surface in red regardless of
-// destination (supplier / inventory / repair) so the operator's eye picks out
-// reversals at a glance, matching the Excel export's rose-100 fill convention.
-const RETURN_BADGE: Record<ReturnCategory | 'returned' | 'sold', { label: string; style: string }> = {
-  returned_to_supplier:  { label: 'Returned to Supplier',  style: 'bg-red-100 text-red-700 border-red-300' },
-  returned_to_inventory: { label: 'Returned to Inventory', style: 'bg-red-100 text-red-700 border-red-300' },
-  repair:                { label: 'Return to Repair',      style: 'bg-red-100 text-red-700 border-red-300' },
-  returned:              { label: 'Returned',              style: 'bg-red-100 text-red-700 border-red-300' },
-  sold:                  { label: 'Sold',                  style: 'bg-gray-100 text-gray-600 border-gray-200' },
-};
-
+// ── Return status badge + row tint per status ────────────────────────────────
+// Colour follows the Returns page convention so the operator's mental model
+// stays consistent across surfaces:
+//   - Back to Inventory → green   (unit is sellable again — a win)
+//   - In Repair         → blue    (in progress — neither win nor loss yet)
+//   - To Supplier       → red     (soft-deleted — money walked out the door)
+//   - Generic Returned  → red     (orphan void, treat as loss until proven)
+//   - Sold              → neutral
 type SaleStatusKey = ReturnCategory | 'returned' | 'sold';
+const RETURN_BADGE: Record<SaleStatusKey, { label: string; badge: string; rowBg: string }> = {
+  returned_to_inventory: {
+    label: 'Returned to Inventory',
+    badge: 'bg-emerald-100 text-emerald-700 border-emerald-300',
+    rowBg: 'bg-emerald-50 hover:bg-emerald-100/70',
+  },
+  repair: {
+    label: 'Return to Repair',
+    badge: 'bg-blue-100 text-blue-700 border-blue-300',
+    rowBg: 'bg-blue-50 hover:bg-blue-100/70',
+  },
+  returned_to_supplier: {
+    label: 'Returned to Supplier',
+    badge: 'bg-red-100 text-red-700 border-red-300',
+    rowBg: 'bg-red-50 hover:bg-red-100/70',
+  },
+  returned: {
+    label: 'Returned',
+    badge: 'bg-red-100 text-red-700 border-red-300',
+    rowBg: 'bg-red-50 hover:bg-red-100/70',
+  },
+  sold: {
+    label: 'Sold',
+    badge: 'bg-gray-100 text-gray-600 border-gray-200',
+    rowBg: '',
+  },
+};
 
 function deriveSaleStatus(sale: Sale, unit?: InventoryUnit): SaleStatusKey {
   const isVoided = !!sale.voidedAt;
@@ -761,15 +784,16 @@ export default function Sales() {
                         const statusKey = statusForSale(s);
                         const isReturned = statusKey !== 'sold';
                         const statusBadge = RETURN_BADGE[statusKey];
-                        // Returned rows trump the in-app blue tint with a red
-                        // wash so reversals stand out on a scan of the grid.
+                        // Per-status row tint trumps the in-app blue tint so
+                        // back-to-stock / repair / supplier-loss are each
+                        // immediately recognisable on a scan.
                         const rowBg = isReturned
-                          ? 'bg-red-50 hover:bg-red-100/70'
+                          ? statusBadge.rowBg
                           : isInApp
                             ? 'bg-blue-50/30 hover:bg-emerald-50/60'
                             : 'hover:bg-emerald-50/60';
                         const stickyBg = isReturned
-                          ? 'bg-red-50 hover:bg-red-100/70'
+                          ? statusBadge.rowBg
                           : 'bg-white hover:bg-emerald-50/60';
                         const rowTitle = isReturned
                           ? `${statusBadge.label}${s.voidReason ? ` — ${s.voidReason}` : ''}`
@@ -808,7 +832,7 @@ export default function Sales() {
                                 case 'status':
                                   display = (
                                     <span
-                                      className={`text-[9px] font-bold uppercase px-1.5 py-0.5 rounded border font-mono whitespace-nowrap ${statusBadge.style}`}
+                                      className={`text-[9px] font-bold uppercase px-1.5 py-0.5 rounded border font-mono whitespace-nowrap ${statusBadge.badge}`}
                                       title={isReturned && s.voidReason ? `Reason: ${s.voidReason}` : statusBadge.label}
                                     >
                                       {statusBadge.label}
@@ -899,9 +923,11 @@ export default function Sales() {
                 <p className="text-[9px] font-mono uppercase tracking-widest text-gray-500">
                   {kpi.count.toLocaleString('en-GB')} row{kpi.count === 1 ? '' : 's'}
                   <span className="text-gray-300 mx-2">·</span>
-                  <span className="text-blue-700">Blue = in-app sales</span>
+                  <span className="text-emerald-700">Green = back to inventory</span>
                   <span className="text-gray-300 mx-2">·</span>
-                  <span className="text-red-700">Red = returned units</span>
+                  <span className="text-blue-700">Blue = repair</span>
+                  <span className="text-gray-300 mx-2">·</span>
+                  <span className="text-red-700">Red = returned to supplier</span>
                 </p>
                 <div className="flex items-center gap-4 text-[10px] font-mono">
                   <span className="text-gray-500 uppercase tracking-widest">

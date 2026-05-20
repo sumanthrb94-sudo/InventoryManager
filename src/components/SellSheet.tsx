@@ -62,16 +62,37 @@ const MARKETPLACE_TONE: Record<Marketplace, string> = {
   ONBUY:   'bg-blue-100 text-blue-700      border-blue-200',
 };
 
-// ── Return status badge styling for the Status column ────────────────────────
-// Any non-Sold key paints the row red so the operator's eye catches the
-// reversal at a scan — matches the rose-100 fill used by the Excel report.
+// ── Return status badge + row tint per status ────────────────────────────────
+// Distinct colour per outcome so the operator can scan the grid and read
+// the story instantly: green = win (back in stock), blue = in-progress
+// (being repaired), red = loss (sent back to supplier / orphan void).
 type SaleStatusKey = ReturnCategory | 'returned' | 'sold';
-const RETURN_BADGE: Record<SaleStatusKey, { label: string; style: string }> = {
-  returned_to_supplier:  { label: 'Returned to Supplier',  style: 'bg-red-100 text-red-700 border-red-300' },
-  returned_to_inventory: { label: 'Returned to Inventory', style: 'bg-red-100 text-red-700 border-red-300' },
-  repair:                { label: 'Return to Repair',      style: 'bg-red-100 text-red-700 border-red-300' },
-  returned:              { label: 'Returned',              style: 'bg-red-100 text-red-700 border-red-300' },
-  sold:                  { label: 'Sold',                  style: 'bg-slate-100 text-slate-600 border-slate-200' },
+const RETURN_BADGE: Record<SaleStatusKey, { label: string; badge: string; rowBg: string }> = {
+  returned_to_inventory: {
+    label: 'Returned to Inventory',
+    badge: 'bg-emerald-100 text-emerald-700 border-emerald-300',
+    rowBg: 'bg-emerald-50 hover:bg-emerald-100/70',
+  },
+  repair: {
+    label: 'Return to Repair',
+    badge: 'bg-blue-100 text-blue-700 border-blue-300',
+    rowBg: 'bg-blue-50 hover:bg-blue-100/70',
+  },
+  returned_to_supplier: {
+    label: 'Returned to Supplier',
+    badge: 'bg-red-100 text-red-700 border-red-300',
+    rowBg: 'bg-red-50 hover:bg-red-100/70',
+  },
+  returned: {
+    label: 'Returned',
+    badge: 'bg-red-100 text-red-700 border-red-300',
+    rowBg: 'bg-red-50 hover:bg-red-100/70',
+  },
+  sold: {
+    label: 'Sold',
+    badge: 'bg-slate-100 text-slate-600 border-slate-200',
+    rowBg: '',
+  },
 };
 function deriveSaleStatus(sale: Sale, unit?: InventoryUnit): SaleStatusKey {
   const rt = unit?.returnType;
@@ -1086,10 +1107,11 @@ function SheetTable({
           const isReturned = statusKey !== 'sold';
           const statusBadge = RETURN_BADGE[statusKey];
           const isAlt = idx % 2 === 1;
-          // Returned rows wash the entire row red so the reversal stands out
-          // even when the operator is scanning the table at speed.
+          // Per-status row tint — green = back to inventory, blue = repair,
+          // red = supplier / orphan void. Falls through to the zebra default
+          // for active sales so the eye still groups rows on a long table.
           const rowBg = isReturned
-            ? 'bg-red-50 hover:bg-red-100/70'
+            ? statusBadge.rowBg
             : isAlt ? 'bg-slate-50/40 hover:bg-slate-100/60' : 'bg-white hover:bg-slate-50';
           const gp = s.grossProfit ?? 0;
           const gpTone = gp > 0 ? 'text-emerald-700' : gp < 0 ? 'text-rose-700' : 'text-slate-600';
@@ -1105,7 +1127,7 @@ function SheetTable({
               </Td>
               <Td>
                 <span
-                  className={`inline-flex items-center text-[9px] font-bold uppercase tracking-widest px-1.5 py-0.5 rounded border whitespace-nowrap ${statusBadge.style}`}
+                  className={`inline-flex items-center text-[9px] font-bold uppercase tracking-widest px-1.5 py-0.5 rounded border whitespace-nowrap ${statusBadge.badge}`}
                   title={rowTitle || statusBadge.label}
                 >
                   {statusBadge.label}

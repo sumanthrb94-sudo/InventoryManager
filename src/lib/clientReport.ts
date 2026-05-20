@@ -80,15 +80,31 @@ function buildCommentsCell(sale: Sale, unit?: InventoryUnit): string {
   return parts.join(' ');
 }
 
-/** Light-red fill used on voided (returned) rows across every sheet of
- *  the Sales Report. Same colour everywhere so the operator's eye picks
- *  out reversals at a glance, whether they're scanning the ALL sheet or
- *  a per-marketplace tab. */
-const RETURNED_FILL: import('exceljs').FillPattern = {
-  type: 'pattern',
-  pattern: 'solid',
-  fgColor: { argb: 'FFFEE2E2' },   // tailwind rose-100
+/** Per-return-type cell fills used across every sheet of the Sales Report.
+ *  Distinct colours so the operator can scan the workbook and read the
+ *  outcome of each return at a glance — same convention as the in-app
+ *  Returns / Sell / Daily-Update grids:
+ *    - Back to Inventory → green (win)
+ *    - In Repair         → blue  (in progress)
+ *    - To Supplier       → red   (loss)
+ *    - Generic Returned  → red   (orphan void fallback) */
+type FillPattern = import('exceljs').FillPattern;
+const makeFill = (argb: string): FillPattern => ({ type: 'pattern', pattern: 'solid', fgColor: { argb } });
+const RETURN_FILL_BY_TYPE: Record<'inventory' | 'repair' | 'supplier' | 'generic', FillPattern> = {
+  inventory: makeFill('FFD1FAE5'),   // tailwind emerald-100
+  repair:    makeFill('FFDBEAFE'),   // tailwind blue-100
+  supplier:  makeFill('FFFEE2E2'),   // tailwind rose-100
+  generic:   makeFill('FFFEE2E2'),   // tailwind rose-100
 };
+function fillForReturn(sale: Sale, unit?: InventoryUnit): FillPattern | undefined {
+  switch (unit?.returnType) {
+    case 'returned_to_inventory': return RETURN_FILL_BY_TYPE.inventory;
+    case 'repair':                return RETURN_FILL_BY_TYPE.repair;
+    case 'returned_to_supplier':  return RETURN_FILL_BY_TYPE.supplier;
+  }
+  if (sale.voidedAt) return RETURN_FILL_BY_TYPE.generic;
+  return undefined;
+}
 
 // ---------------------------------------------------------------------------
 // Public surface
@@ -466,13 +482,16 @@ export async function buildSalesWorkbookBuffer(input: BuildSalesWorkbookInput): 
       const sale = bucket[i];
       const unit = lookupUnit(sale);
       writeSaleRow(sheet, m, sale, rowNumber, unit);
-      // Red fill triggers on EITHER signal — sale doc voided OR linked unit
+      // Fill triggers on EITHER signal — sale doc voided OR linked unit
       // carries a returnType. Belt-and-braces because the two halves of the
       // join can drift (legacy returns, race conditions, hard-deleted sale).
-      if (isReturnedRow(sale, unit)) {
+      // Colour varies by return type (green / blue / red) so the operator
+      // can scan the tab and read the outcome of each reversal at a glance.
+      const fill = fillForReturn(sale, unit);
+      if (fill) {
         const row = sheet.getRow(rowNumber);
         for (let col = 1; col <= headerLen; col++) {
-          row.getCell(col).fill = RETURNED_FILL;
+          row.getCell(col).fill = fill;
         }
       }
     }
@@ -607,12 +626,13 @@ function writeAllSheet(
 
     // Highlight returned rows across the entire 23-col span. Applied to
     // every cell (not the row) so Excel doesn't try to extend the fill
-    // to unused columns on the right edge. Trigger off the unified helper
-    // — voidedAt alone misses rows where the sale doc lookup never stamped
-    // it but the unit clearly carries a returnType.
-    if (isReturnedRow(s, u)) {
+    // to unused columns on the right edge. Colour varies per return type
+    // (green / blue / red) so the outcome is legible without reading the
+    // Status column.
+    const fill = fillForReturn(s, u);
+    if (fill) {
       for (let col = 1; col <= ALL_HEADERS.length; col++) {
-        row.getCell(col).fill = RETURNED_FILL;
+        row.getCell(col).fill = fill;
       }
     }
   }
