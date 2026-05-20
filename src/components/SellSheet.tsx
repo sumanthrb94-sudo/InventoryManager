@@ -221,10 +221,15 @@ export default function SellSheet(_props: Props) {
 
     const out: Sale[] = [];
     const seenIds = new Set<string>();
+    // Dedupe by unitId so a unit that went sold→returned→re-sold→returned
+    // only appears ONCE in the returns view. Matches the Returns page,
+    // which counts unique units (not events) — keeps the two surfaces in
+    // sync so operators don't see "5 returns here / 7 returns there".
     const seenUnitIds = new Set<string>();
     for (const s of sales) {
       const isReturned = !!s.voidedAt || (!!s.unitId && returnedUnits.has(s.unitId));
       if (!isReturned) continue;
+      if (s.unitId && seenUnitIds.has(s.unitId)) continue;
       const fresh = recomputeSale(s);
       out.push(fresh);
       seenIds.add(s.id);
@@ -237,6 +242,7 @@ export default function SellSheet(_props: Props) {
       if (u.salePrice == null && !u.saleDate && !u.saleOrderId) continue;
       if (seenIds.has(u.id) || seenUnitIds.has(u.id)) continue;
       out.push(recomputeSale(inventoryUnitToSale(u)));
+      seenUnitIds.add(u.id);
     }
     return out;
   }, [sales, units]);
@@ -249,25 +255,34 @@ export default function SellSheet(_props: Props) {
   );
 
   // Separate stream of voided sales — used for the 'returned this period'
-  // chip on each Sold tile (informational, never counted as sold).
+  // chip on each Sold tile. Deduped by unitId so the count matches the
+  // Returns page (which counts unique units, not events). When a unit went
+  // through multiple sold→returned cycles we keep the MOST RECENT void
+  // event so the date buckets reflect the latest activity.
   const voidedSales = useMemo<Array<{ voidedAt: string; sale: Sale }>>(() => {
-    const out: Array<{ voidedAt: string; sale: Sale }> = [];
+    const byUnit = new Map<string, { voidedAt: string; sale: Sale }>();
+    const orphanByDocId = new Map<string, { voidedAt: string; sale: Sale }>();
+    const keep = (key: string, entry: { voidedAt: string; sale: Sale }, target: Map<string, typeof entry>) => {
+      const existing = target.get(key);
+      if (!existing || entry.voidedAt > existing.voidedAt) target.set(key, entry);
+    };
+
     // Sales explicitly flagged voided on the doc
     for (const s of sales) {
-      if (s.voidedAt) out.push({ voidedAt: s.voidedAt, sale: s });
+      if (!s.voidedAt) continue;
+      const entry = { voidedAt: s.voidedAt, sale: s };
+      if (s.unitId) keep(s.unitId, entry, byUnit);
+      else          keep(s.id, entry, orphanByDocId);
     }
     // Fallback for legacy returns: unit has returnType but the sale doc
     // wasn't patched. Use unit.returnDate as the event date.
-    const seen = new Set<string>(out.map(x => x.sale.id));
     for (const u of units) {
       if (!u.returnType || !u.returnDate) continue;
+      if (byUnit.has(u.id)) continue;
       const match = sales.find(s => s.unitId === u.id);
-      if (match && !seen.has(match.id)) {
-        out.push({ voidedAt: u.returnDate, sale: match });
-        seen.add(match.id);
-      }
+      if (match) byUnit.set(u.id, { voidedAt: u.returnDate, sale: match });
     }
-    return out;
+    return [...byUnit.values(), ...orphanByDocId.values()];
   }, [sales, units]);
 
   // ── Date-scoped subset ────────────────────────────────────────────────────

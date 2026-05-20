@@ -43,17 +43,41 @@ const ALL_HEADERS = [
   'GP', 'GP %', 'NP',
 ];
 
-/** Map the unit's ReturnCategory to a short status label. Falls back to a
- *  generic "Returned" when the sale is voided but the linked unit doesn't
- *  carry a returnType (legacy data / orphan void). */
+/** Map the unit's ReturnCategory to a human-readable status label. The unit's
+ *  `returnType` is the source of truth — when it's set, the unit has been
+ *  through the Returns flow even if the sale doc lookup failed to stamp
+ *  `voidedAt` (legacy data / orphan void / no matching sale). Falls back to a
+ *  generic "Returned" when only `voidedAt` is present (deleted unit). */
 function statusForSale(sale: Sale, unit?: InventoryUnit): string {
-  if (!sale.voidedAt) return 'Sold';
   switch (unit?.returnType) {
-    case 'returned_to_inventory': return 'Back to Stock';
-    case 'repair':                return 'Repair';
-    case 'returned_to_supplier':  return 'RTS';
-    default:                      return 'Returned';
+    case 'returned_to_inventory': return 'Returned to Inventory';
+    case 'repair':                return 'Return to Repair';
+    case 'returned_to_supplier':  return 'Returned to Supplier';
   }
+  if (sale.voidedAt) return 'Returned';
+  return 'Sold';
+}
+
+/** True when this sale row should be painted red across every Sales-Report
+ *  sheet. Either the sale doc was voided OR the linked unit carries a
+ *  returnType — we don't trust one half of the join alone. */
+function isReturnedRow(sale: Sale, unit?: InventoryUnit): boolean {
+  return !!sale.voidedAt || !!unit?.returnType;
+}
+
+/** Build the trailing comments string for a row. When the row is a return,
+ *  prepend the status + reason so the operator sees WHY the unit came back
+ *  without having to cross-reference another tab. */
+function buildCommentsCell(sale: Sale, unit?: InventoryUnit): string {
+  const baseComment = sale.comments || unit?.notes || '';
+  if (!isReturnedRow(sale, unit)) return baseComment;
+  const status = statusForSale(sale, unit);
+  const reason = sale.voidReason || unit?.returnReason || '';
+  const date   = sale.voidedAt || unit?.returnDate || '';
+  const parts  = [`[${status.toUpperCase()}${date ? ` ${date}` : ''}]`];
+  if (reason) parts.push(reason);
+  if (baseComment) parts.push(`| ${baseComment}`);
+  return parts.join(' ');
 }
 
 /** Light-red fill used on voided (returned) rows across every sheet of
@@ -282,16 +306,22 @@ const IMEI_FMT = '0';
 /**
  * Write one sale row into the given sheet with the correct base values,
  * formulas (sourced from `excelFormulaFor`) and per-cell number formats.
+ *
+ * When `unit` is provided we enrich the trailing Comments cell with the
+ * return status + reason so the per-platform sheets carry the same
+ * "why was this voided" detail the ALL sheet shows in its Status column.
  */
 function writeSaleRow(
   sheet: ExcelJS.Worksheet,
   marketplace: Marketplace,
   sale: Sale,
   rowNumber: number,
+  unit?: InventoryUnit,
 ): void {
   const f = excelFormulaFor(marketplace, rowNumber);
   const date = toDate(sale.saleDate);
   const qty = sale.quantity ?? 1;
+  const comments = buildCommentsCell(sale, unit);
 
   switch (marketplace) {
     case 'AMAZON': {
@@ -299,7 +329,7 @@ function writeSaleRow(
         date, sale.orderNumber, sale.sku ?? '', sale.imei ?? '',
         sale.supplierName ?? '', qty,
         sale.buyPrice, sale.salePrice,
-        null, null, null, null, null, null, sale.comments ?? '',
+        null, null, null, null, null, null, comments,
       ]);
       row.getCell(1).numFmt = DATE_FMT;
       row.getCell(4).numFmt = IMEI_FMT;
@@ -320,7 +350,7 @@ function writeSaleRow(
         sale.supplierName ?? '', qty,
         sale.buyPrice, sale.salePrice,
         sale.paymentMode ?? '',
-        null, null, null, null, null, null, null, sale.comments ?? '',
+        null, null, null, null, null, null, null, comments,
       ]);
       row.getCell(1).numFmt = DATE_FMT;
       row.getCell(4).numFmt = IMEI_FMT;
@@ -373,7 +403,7 @@ function writeSaleRow(
         date, sale.orderNumber, sale.sku ?? '', sale.imei ?? '',
         sale.supplierName ?? '',
         sale.buyPrice, sale.salePrice,
-        null, null, null, null, null, null, null, sale.comments ?? '',
+        null, null, null, null, null, null, null, comments,
       ]);
       row.getCell(1).numFmt = DATE_FMT;
       row.getCell(4).numFmt = IMEI_FMT;
@@ -394,7 +424,20 @@ function writeSaleRow(
 
 export async function buildSalesWorkbookBuffer(input: BuildSalesWorkbookInput): Promise<ArrayBuffer> {
   const { sales, units, supplierMap, opts } = input;
-  const filtered = filterSalesByDate(sales, opts);
+  const allUnits = units ?? [];
+  const unitsById = new Map<string, InventoryUnit>();
+  for (const u of allUnits) unitsById.set(u.id, u);
+  const lookupUnit = (sale: Sale): InventoryUnit | undefined =>
+    sale.unitId ? unitsById.get(sale.unitId) : undefined;
+
+  // Synthesize Sale-shaped rows for returned units that have NO linked sale
+  // doc (legacy data / hard-deleted sale / import never matched). Without
+  // this they'd vanish from the report entirely and the operator's
+  // "we returned 7 today" would never reconcile against what's on screen.
+  const returnedUnitsWithoutSale = synthesizeReturnSales(allUnits, sales);
+  const allSales = [...sales, ...returnedUnitsWithoutSale];
+  const filtered = filterSalesByDate(allSales, opts);
+
   const byMarketplace = new Map<Marketplace, Sale[]>();
   for (const m of MARKETPLACES) byMarketplace.set(m, []);
   for (const sale of filtered) {
@@ -407,7 +450,7 @@ export async function buildSalesWorkbookBuffer(input: BuildSalesWorkbookInput): 
   // Sheet 1: ALL — every (non-PROJECT-or-not) sale in one flat 22-col table,
   // buy + sale data joined, computed values via recomputeSale. Filterable in
   // Excel by Marketplace column.
-  writeAllSheet(wb.addWorksheet('ALL'), filtered, units ?? [], supplierMap ?? {});
+  writeAllSheet(wb.addWorksheet('ALL'), filtered, allUnits, supplierMap ?? {});
 
   // Sheets 2-5: per-platform, mirroring the operator's master SALES_REPORT
   // shape exactly (headers + formulas via excelFormulaFor). PROJECT excluded
@@ -421,11 +464,12 @@ export async function buildSalesWorkbookBuffer(input: BuildSalesWorkbookInput): 
     for (let i = 0; i < bucket.length; i++) {
       const rowNumber = i + 2; // skip header
       const sale = bucket[i];
-      writeSaleRow(sheet, m, sale, rowNumber);
-      // Same red-fill visual signal as the ALL sheet — applied across
-      // every cell in the row so the highlight covers the full width
-      // even when the master schema includes blank/formula-only cells.
-      if (sale.voidedAt) {
+      const unit = lookupUnit(sale);
+      writeSaleRow(sheet, m, sale, rowNumber, unit);
+      // Red fill triggers on EITHER signal — sale doc voided OR linked unit
+      // carries a returnType. Belt-and-braces because the two halves of the
+      // join can drift (legacy returns, race conditions, hard-deleted sale).
+      if (isReturnedRow(sale, unit)) {
         const row = sheet.getRow(rowNumber);
         for (let col = 1; col <= headerLen; col++) {
           row.getCell(col).fill = RETURNED_FILL;
@@ -435,6 +479,54 @@ export async function buildSalesWorkbookBuffer(input: BuildSalesWorkbookInput): 
   }
 
   return wb.xlsx.writeBuffer() as Promise<ArrayBuffer>;
+}
+
+/** Build Sale-shaped rows for any unit that has a returnType set but no
+ *  linked sale in the `sales` collection. Keeps returned units visible on
+ *  the report so the operator's return counter matches what's on screen. */
+function synthesizeReturnSales(units: InventoryUnit[], sales: Sale[]): Sale[] {
+  const salesByUnitId = new Set<string>();
+  for (const s of sales) if (s.unitId) salesByUnitId.add(s.unitId);
+
+  const out: Sale[] = [];
+  for (const u of units) {
+    if (!u.returnType) continue;
+    if (salesByUnitId.has(u.id)) continue;
+    // Only synthesize if we have at least a sale-side payload — otherwise
+    // there's nothing meaningful to display in a "sales" report row.
+    const hasSaleData = u.salePrice != null || u.saleDate || u.saleOrderId;
+    if (!hasSaleData) continue;
+    out.push({
+      id: `synth_${u.id}`,
+      marketplace: (typeof u.marketplace === 'string' && (MARKETPLACES as readonly string[]).includes(u.marketplace as Marketplace)
+        ? (u.marketplace as Marketplace)
+        : 'EBAY') as Marketplace,
+      orderNumber: u.saleOrderId || '',
+      sku: u.sku,
+      imei: u.imei,
+      unitId: u.id,
+      supplierId: u.supplierId,
+      supplierName: u.supplierName,
+      saleDate: u.saleDate || u.returnDate || '',
+      quantity: 1,
+      buyPrice: u.buyPrice ?? 0,
+      salePrice: u.salePrice ?? 0,
+      spMinusBp: 0, marginalTax: 0, commission: 0,
+      postage: u.postageCost ?? 0,
+      grossProfit: 0, gpPercent: 0,
+      comments: u.notes,
+      voidedAt: u.returnDate,
+      voidReason: u.returnReason,
+      importBatchId: 'synth-return',
+      sourceFile: 'synth-from-unit',
+      sourceRow: 0,
+      importedAt: u.updatedAt ?? u.createdAt,
+      createdAt: u.createdAt,
+      updatedAt: u.updatedAt,
+      ownerId: u.ownerId,
+    });
+  }
+  return out;
 }
 
 /** Write the ALL sheet — one row per sale, buy fields pulled from the
@@ -467,7 +559,9 @@ function writeAllSheet(
     const tax = r.marVat ?? r.marginalTax;
 
     const row = sheet.addRow([
-      // Buy block (cols 1-9)
+      // Buy block (cols 1-9). Notes carries the return reason inline when
+      // applicable so the operator sees "WHY was this voided" without
+      // scrolling to the per-platform tab.
       u?.dateIn ? toDate(u.dateIn) : null,
       u?.model || '',
       s.imei || u?.imei || '',
@@ -476,8 +570,9 @@ function writeAllSheet(
       u?.colour || '',
       supplierMap[s.supplierId || ''] || s.supplierName || u?.supplierName || '',
       s.buyPrice,
-      u?.notes || '',
-      // Status (col 10) — Sold / Back to Stock / Repair / RTS / Returned
+      buildCommentsCell(s, u),
+      // Status (col 10) — Sold / Returned to Inventory / Return to Repair /
+      // Returned to Supplier / Returned (orphan void fallback)
       statusForSale(s, u),
       // Sale block (cols 11-23)
       toDate(s.saleDate),
@@ -512,8 +607,10 @@ function writeAllSheet(
 
     // Highlight returned rows across the entire 23-col span. Applied to
     // every cell (not the row) so Excel doesn't try to extend the fill
-    // to unused columns on the right edge.
-    if (s.voidedAt) {
+    // to unused columns on the right edge. Trigger off the unified helper
+    // — voidedAt alone misses rows where the sale doc lookup never stamped
+    // it but the unit clearly carries a returnType.
+    if (isReturnedRow(s, u)) {
       for (let col = 1; col <= ALL_HEADERS.length; col++) {
         row.getCell(col).fill = RETURNED_FILL;
       }
