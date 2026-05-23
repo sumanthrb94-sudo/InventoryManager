@@ -24,7 +24,7 @@ import type {
   Marketplace,
 } from '../types';
 import { MARKETPLACES } from '../types';
-import { excelFormulaFor } from './platforms';
+import { excelFormulaFor, DEFAULT_MARKETPLACE_FEES } from './platforms';
 import { recomputeSale } from './recomputeSale';
 
 /** Unified flat schema for the ALL sheet. 22 columns: buy schema (9)
@@ -517,7 +517,144 @@ export async function buildSalesWorkbookBuffer(input: BuildSalesWorkbookInput): 
   // reversal is legible at a glance.
   writeReturnsSheet(wb.addWorksheet('Returns'), allSales, allUnits, supplierMap ?? {}, opts);
 
+  // Sheet 7: Formulas — single inline reference for every per-marketplace
+  // formula the workbook uses. Lives in the same file so the operator
+  // never has to leave the report to remember how GP / Commission / etc.
+  // are computed, and the rates stay in lock-step with the calculator
+  // because both read from DEFAULT_MARKETPLACE_FEES.
+  writeFormulasSheet(wb.addWorksheet('Formulas'));
+
   return wb.xlsx.writeBuffer() as Promise<ArrayBuffer>;
+}
+
+// ---------------------------------------------------------------------------
+// Formulas reference sheet
+// ---------------------------------------------------------------------------
+
+/** Build the Formulas reference sheet. Sourced from
+ *  DEFAULT_MARKETPLACE_FEES so the rate column always matches the live
+ *  calculator (no risk of the doc drifting from runtime). */
+function writeFormulasSheet(sheet: ExcelJS.Worksheet): void {
+  const fees = DEFAULT_MARKETPLACE_FEES;
+
+  // Local fill helpers so this section is self-contained.
+  const sectionFill: import('exceljs').FillPattern = {
+    type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1F2937' }, // slate-800
+  };
+  const ratesFill: import('exceljs').FillPattern = {
+    type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF1F5F9' }, // slate-100
+  };
+  const sectionFont = { bold: true, color: { argb: 'FFFFFFFF' }, size: 12 };
+  const labelFont   = { bold: true };
+
+  const writeBlank = (n = 1) => { for (let i = 0; i < n; i++) sheet.addRow([]); };
+  const writeSection = (title: string) => {
+    const row = sheet.addRow([title]);
+    row.getCell(1).font = sectionFont;
+    sheet.mergeCells(row.number, 1, row.number, 4);
+    row.getCell(1).fill = sectionFill;
+    row.getCell(1).alignment = { vertical: 'middle', indent: 1 };
+    row.height = 20;
+  };
+  const writeKeyVal = (label: string, value: string) => {
+    const row = sheet.addRow([label, value]);
+    row.getCell(1).font = labelFont;
+  };
+  const writeFormula = (label: string, formula: string) => {
+    const row = sheet.addRow([label, formula]);
+    row.getCell(1).font = labelFont;
+    row.getCell(2).font = { name: 'Consolas', color: { argb: 'FF0F172A' } };
+  };
+
+  // ─── Title ────────────────────────────────────────────────────────────
+  const titleRow = sheet.addRow(['SALES REPORT — Formula Reference']);
+  titleRow.getCell(1).font = { bold: true, size: 14 };
+  sheet.mergeCells(titleRow.number, 1, titleRow.number, 4);
+  sheet.addRow(['Single inline reference for every per-marketplace calculation.']).getCell(1).font = { italic: true, color: { argb: 'FF64748B' } };
+  sheet.mergeCells(2, 1, 2, 4);
+  writeBlank();
+
+  // ─── Fee rates table ──────────────────────────────────────────────────
+  writeSection('Fee Rates (active defaults)');
+  const headerRow = sheet.addRow(['', 'AMAZON', 'BM', 'EBAY', 'ONBUY']);
+  for (let c = 1; c <= 5; c++) {
+    headerRow.getCell(c).font = labelFont;
+    headerRow.getCell(c).fill = ratesFill;
+  }
+  const rateRows: Array<[string, (m: import('../types').MarketplaceFee) => string]> = [
+    ['Commission',          m => m.commissionPct != null ? `${m.commissionPct}%` : '—'],
+    ['Commission reduction',m => m.commissionReductionPct != null ? `${m.commissionReductionPct}%` : '—'],
+    ['Fixed fee (FVF)',     m => m.fixedFee != null ? `£${m.fixedFee.toFixed(2)}` : '—'],
+    ['Postage (default)',   m => `£${m.postage.toFixed(2)}`],
+    ['Margin Tax divisor',  m => m.marginTaxDivisor != null ? `÷ ${m.marginTaxDivisor}` : '—'],
+    ['PayPal/Klarna',       m => m.payPalKlarnaPct != null ? `${m.payPalKlarnaPct}%` : '—'],
+    ['ROF',                 m => m.rofPct != null ? `${m.rofPct}%` : '—'],
+    ['VAT',                 m => m.vatPct != null ? `${m.vatPct}%` : '—'],
+    ['Promo deduction (NP)',m => m.promoPct != null ? `${m.promoPct}%` : '—'],
+  ];
+  for (const [label, fn] of rateRows) {
+    const r = sheet.addRow([label, fn(fees.AMAZON), fn(fees.BM), fn(fees.EBAY), fn(fees.ONBUY)]);
+    r.getCell(1).font = labelFont;
+  }
+  writeBlank();
+
+  // ─── Per-marketplace formula blocks ──────────────────────────────────
+  writeSection('AMAZON');
+  writeFormula('SP − BP',       'SP − BP');
+  writeFormula('Marginal Tax',  `(SP − BP) / ${fees.AMAZON.marginTaxDivisor}`);
+  writeFormula('Commission',    `SP × ${fees.AMAZON.commissionPct}%`);
+  writeFormula('Postage',       `£${fees.AMAZON.postage.toFixed(2)}`);
+  writeFormula('GP',            'SP − BP − MarginalTax − Commission − Postage');
+  writeFormula('GP %',          'GP / BP × 100   (margin-over-cost)');
+  writeBlank();
+
+  writeSection('BM (Back Market)');
+  writeFormula('SP − BP',          'SP − BP');
+  writeFormula('Marginal Tax',     `(SP − BP) / ${fees.BM.marginTaxDivisor}`);
+  writeFormula('Commission',       `SP × ${fees.BM.commissionPct}%`);
+  writeFormula('PayPal/Klarna',    `SP × ${fees.BM.payPalKlarnaPct}%   (only when paymentMode = PayPal / Klarna / ClearPay / ApplePay)`);
+  writeFormula('Postage',          `£${fees.BM.postage.toFixed(2)}`);
+  writeFormula('GP',               'SP − BP − MarginalTax − Commission − Postage − PayPal/Klarna');
+  writeFormula('GP %',             'GP / BP × 100   (margin-over-cost)');
+  writeBlank();
+
+  writeSection('EBAY');
+  writeFormula('SP − BP',       'SP − BP');
+  writeFormula('MAR TAX',       '(SP − BP) × 16.6%');
+  writeFormula('COM',           `(SP × ${fees.EBAY.commissionPct}%) − (SP × ${fees.EBAY.commissionPct}% × ${fees.EBAY.commissionReductionPct}%)`);
+  writeFormula('ROF',           `SP × ${fees.EBAY.rofPct}%`);
+  writeFormula('FVF',           `£${(fees.EBAY.fixedFee ?? 0).toFixed(2)}   (fixed per-listing)`);
+  writeFormula('20% bundle',    `(COM + ROF + FVF) × ${fees.EBAY.vatPct}%`);
+  writeFormula('T.COM',         'COM + ROF + FVF + 20%bundle');
+  writeFormula('Shipping',      '£1 / £2 / £8 tiered (per sale doc)');
+  writeFormula('GP',            '(SP − BP) − MAR TAX − T.COM − Shipping');
+  writeFormula('GP %',          'GP / SP × 100   (gross-margin-over-revenue)');
+  writeFormula('NP (promo)',    `GP − SP × ${fees.EBAY.promoPct}%`);
+  writeBlank();
+
+  writeSection('ONBUY');
+  writeFormula('SP − BP',       'SP − BP');
+  writeFormula('MAR VAT',       `(SP − BP) / ${fees.ONBUY.marginTaxDivisor}`);
+  writeFormula('COM',           `SP × ${fees.ONBUY.commissionPct}%`);
+  writeFormula('VAT 20%',       `MAR VAT × ${fees.ONBUY.vatPct}%`);
+  writeFormula('Shipping',      `£${fees.ONBUY.postage.toFixed(2)}`);
+  writeFormula('GP',            'SP − BP − COM − Shipping − MAR VAT − VAT20%');
+  writeFormula('GP %',          'GP / SP × 100   (gross-margin-over-revenue)');
+  writeBlank();
+
+  // ─── Notes ────────────────────────────────────────────────────────────
+  writeSection('Notes');
+  writeKeyVal('GP% denominator', 'AMAZON / BM divide by BP (margin-over-cost). EBAY / ONBUY divide by SP (gross-margin-over-revenue) — matches the operator master file convention.');
+  writeKeyVal('Rounding',        'Every intermediate is rounded to 2 dp before flowing into the next step, so runtime values match Excel display-precision.');
+  writeKeyVal('Live formulas',   'AMAZON / BM / EBAY / ONBUY tabs carry live Excel formulas — edits to BP / SP recalculate in place. ALL + Returns tabs carry recomputed values (flattened cross-marketplace).');
+  writeKeyVal('Source of truth', 'src/lib/platforms.ts → DEFAULT_MARKETPLACE_FEES + calcSaleFinancials + excelFormulaFor.');
+
+  // ─── Column widths ────────────────────────────────────────────────────
+  sheet.getColumn(1).width = 26;
+  sheet.getColumn(2).width = 80;
+  sheet.getColumn(3).width = 14;
+  sheet.getColumn(4).width = 14;
+  sheet.getColumn(5).width = 14;
 }
 
 // ---------------------------------------------------------------------------
