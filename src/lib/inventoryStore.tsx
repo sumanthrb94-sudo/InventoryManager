@@ -7,7 +7,10 @@ import {
   InventoryAggregate,
   SupplierWhatsappUpdate,
   ImportBatch,
+  Marketplace,
+  MarketplaceFee,
 } from '../types';
+import { applyMarketplaceFeeOverrides, subscribeToMarketplaceFees, getAllMarketplaceFees } from './platforms';
 
 interface Store {
   loaded: boolean;
@@ -18,6 +21,12 @@ interface Store {
   aggregates: InventoryAggregate[];
   whatsappFeed: SupplierWhatsappUpdate[];
   importBatches: ImportBatch[];
+  // Bumps every time the marketplaceFees cache mutates. React-memoised
+  // pipelines that depend on getMarketplaceFee (recomputeSale, GP%, the
+  // Excel writer's Formulas tab) include this in their deps so they
+  // recompute after an edit without each component having to subscribe.
+  feesVersion: number;
+  fees: Record<Marketplace, MarketplaceFee>;
 }
 
 const Ctx = createContext<Store>({
@@ -28,6 +37,8 @@ const Ctx = createContext<Store>({
   aggregates: [],
   whatsappFeed: [],
   importBatches: [],
+  feesVersion: 0,
+  fees: getAllMarketplaceFees(),
 });
 
 export function InventoryStoreProvider({ children }: { children: React.ReactNode }) {
@@ -37,6 +48,8 @@ export function InventoryStoreProvider({ children }: { children: React.ReactNode
   const [aggregates, setAggregates]       = useState<InventoryAggregate[]>([]);
   const [whatsappFeed, setWhatsappFeed]   = useState<SupplierWhatsappUpdate[]>([]);
   const [importBatches, setImportBatches] = useState<ImportBatch[]>([]);
+  const [feesVersion, setFeesVersion]     = useState(0);
+  const [fees, setFees]                   = useState<Record<Marketplace, MarketplaceFee>>(() => getAllMarketplaceFees());
   const [loaded, setLoaded]               = useState(false);
 
   useEffect(() => {
@@ -73,6 +86,27 @@ export function InventoryStoreProvider({ children }: { children: React.ReactNode
     const ib = dbService.subscribeToCollection('importBatches', data => {
       setImportBatches(data);
     });
+    // Live marketplace-fee schedule. Each doc id is the Marketplace enum
+    // value ('AMAZON' / 'BM' / 'EBAY' / 'ONBUY'); fields mirror the
+    // MarketplaceFee shape. Missing docs fall back to defaults — the
+    // operator only needs to write the ones they actually override.
+    const mf = dbService.subscribeToCollection('marketplaceFees', data => {
+      const patch: Partial<Record<Marketplace, Partial<MarketplaceFee>>> = {};
+      for (const row of data) {
+        const id = (row.id || row.marketplace) as Marketplace;
+        if (!id) continue;
+        patch[id] = row;
+      }
+      applyMarketplaceFeeOverrides(patch);
+    });
+    // The cache subscription bumps the feesVersion counter + republishes
+    // the snapshot whenever applyMarketplaceFeeOverrides fires, so any
+    // memoised React pipeline that lists `feesVersion` or `fees` in its
+    // deps automatically re-fires.
+    const unsubFees = subscribeToMarketplaceFees(() => {
+      setFeesVersion(v => v + 1);
+      setFees(getAllMarketplaceFees());
+    });
 
     return () => {
       clearTimeout(timeout);
@@ -82,6 +116,8 @@ export function InventoryStoreProvider({ children }: { children: React.ReactNode
       ag();
       wa();
       ib();
+      mf();
+      unsubFees();
     };
   }, []);
 
@@ -95,6 +131,8 @@ export function InventoryStoreProvider({ children }: { children: React.ReactNode
         aggregates,
         whatsappFeed,
         importBatches,
+        feesVersion,
+        fees,
       }}
     >
       {children}

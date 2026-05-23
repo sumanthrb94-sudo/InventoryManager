@@ -22,7 +22,7 @@ import React, { useState, useMemo, useEffect, useRef } from 'react';
 import {
   Search, ShoppingCart, ChevronDown, ChevronUp, ChevronsUpDown,
   Filter, X, Download, Upload, AlertCircle, Plus, Info, Sparkles, FileSpreadsheet,
-  TrendingUp, TrendingDown, PackageCheck, Truck,
+  TrendingUp, TrendingDown, PackageCheck, Truck, Calculator,
 } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
 import { dbService } from '../lib/dbService';
@@ -43,6 +43,7 @@ import PeriodicInventory from './PeriodicInventory';
 import SellOrderModal from './SellOrderModal';
 import SalesReportImport from './SalesReportImport';
 import EnterImeiModal from './EnterImeiModal';
+import MarketplaceFeesModal from './MarketplaceFeesModal';
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -138,7 +139,7 @@ function inventoryUnitToSale(u: InventoryUnit): Sale {
 // ── Component ────────────────────────────────────────────────────────────────
 
 export default function SellSheet(_props: Props) {
-  const { units, suppliers, sales } = useInventoryStore();
+  const { units, suppliers, sales, feesVersion } = useInventoryStore();
   const region = useUserRegion();
 
   const supplierMap = useMemo(() => {
@@ -163,6 +164,7 @@ export default function SellSheet(_props: Props) {
   const [pickerOpen, setPickerOpen] = useState(false);
   const [showSchemaHelp, setShowSchemaHelp] = useState(false);
   const [salesImportOpen, setSalesImportOpen] = useState(false);
+  const [feesModalOpen, setFeesModalOpen] = useState(false);
 
   // ── Indexes ───────────────────────────────────────────────────────────────
   // Sellable inventory — `status='available'` plus the defensive fallback
@@ -227,7 +229,7 @@ export default function SellSheet(_props: Props) {
       merged.push(recomputeSale(candidate));
     }
     return merged;
-  }, [sales, units]);
+  }, [sales, units, feesVersion]);
 
   // Returned rows that we DO want surfaced in the table (status-tinted) but
   // never counted in KPIs. UNIT-DRIVEN: one row per unique unit carrying a
@@ -265,7 +267,7 @@ export default function SellSheet(_props: Props) {
       // meaningful to render in a sales table row.
     }
     return out;
-  }, [sales, units]);
+  }, [sales, units, feesVersion]);
 
   // Display feed = active sales + returned (visible but tagged); KPI feed
   // stays as `allSold` so revenue / GP / Avg GP% stay untouched.
@@ -303,7 +305,7 @@ export default function SellSheet(_props: Props) {
       out.push({ voidedAt: eventDate, sale });
     }
     return out;
-  }, [sales, units]);
+  }, [sales, units, feesVersion]);
 
   // ── Date-scoped subset ────────────────────────────────────────────────────
   // Drives both the inline table and the KPI overlays. Includes returned
@@ -548,6 +550,13 @@ export default function SellSheet(_props: Props) {
             }`}
           >
             <Info size={12} /> Schema
+          </button>
+          <button
+            onClick={() => setFeesModalOpen(true)}
+            title="Edit per-marketplace commission, postage, VAT and other fee schedule values used by every GP / NP calculation"
+            className="flex items-center gap-1.5 px-3 py-2 rounded-xl border border-slate-200 text-slate-700 text-[10px] font-bold uppercase tracking-widest hover:bg-slate-50 transition-all"
+          >
+            <Calculator size={12} /> Edit Fees
           </button>
           <button
             onClick={handleSalesReport}
@@ -805,6 +814,9 @@ export default function SellSheet(_props: Props) {
         )}
         {salesImportOpen && (
           <SalesReportImport onClose={() => setSalesImportOpen(false)} />
+        )}
+        {feesModalOpen && (
+          <MarketplaceFeesModal onClose={() => setFeesModalOpen(false)} />
         )}
         {enterImeiUnit && (
           <EnterImeiModal

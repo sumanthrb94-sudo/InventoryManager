@@ -64,12 +64,72 @@ export const DEFAULT_MARKETPLACE_FEES: Record<Marketplace, MarketplaceFee> = {
 };
 
 /**
- * Look up the fee schedule for a marketplace. Today this just returns the
- * baked-in defaults; the Firestore loader will mutate the cache behind this
- * helper so callers do not need to re-import anything when live fees change.
+ * Live (mutable) cache of the active fee schedule. Starts as a deep-clone
+ * of the defaults; `applyMarketplaceFeeOverrides` swaps entries in when the
+ * inventoryStore receives updates from the Firestore `marketplaceFees`
+ * collection. Every consumer (calcSaleFinancials, excelFormulaFor, the
+ * Excel writer, recomputeSale) reads through `getMarketplaceFee`, so a
+ * single mutation here propagates everywhere without re-imports.
+ */
+const currentFees: Record<Marketplace, MarketplaceFee> = JSON.parse(
+  JSON.stringify(DEFAULT_MARKETPLACE_FEES),
+);
+
+const feeListeners = new Set<() => void>();
+
+/**
+ * Look up the fee schedule for a marketplace. Reads from the live override
+ * cache so edits made through the in-app Fees editor (or any other
+ * Firestore writer) take effect immediately for every downstream calc.
  */
 export function getMarketplaceFee(m: Marketplace): MarketplaceFee {
-  return DEFAULT_MARKETPLACE_FEES[m];
+  return currentFees[m] ?? DEFAULT_MARKETPLACE_FEES[m];
+}
+
+/** Snapshot of every active fee schedule — used by the editor modal as the
+ *  initial form values, and by the Formulas Excel sheet for its rate table. */
+export function getAllMarketplaceFees(): Record<Marketplace, MarketplaceFee> {
+  return { ...currentFees };
+}
+
+/** Merge a partial fee schedule into the live cache. Fields not present on
+ *  the input are left untouched (so a Firestore doc only needs to carry the
+ *  values the operator actually edits). Notifies subscribers so React-side
+ *  memos can invalidate. */
+export function applyMarketplaceFeeOverrides(
+  overrides: Partial<Record<Marketplace, Partial<MarketplaceFee>>>,
+): void {
+  let changed = false;
+  for (const m of MARKETPLACES) {
+    const patch = overrides[m];
+    if (!patch) continue;
+    const next: MarketplaceFee = { ...currentFees[m], ...patch, marketplace: m };
+    // Cheap dirty check — avoid spurious notifications on no-op updates.
+    if (JSON.stringify(next) === JSON.stringify(currentFees[m])) continue;
+    currentFees[m] = next;
+    changed = true;
+  }
+  if (changed) for (const l of feeListeners) l();
+}
+
+/** Reset to defaults — used by the editor's 'Reset' action. */
+export function resetMarketplaceFees(): void {
+  let changed = false;
+  for (const m of MARKETPLACES) {
+    const def = DEFAULT_MARKETPLACE_FEES[m];
+    if (JSON.stringify(def) === JSON.stringify(currentFees[m])) continue;
+    currentFees[m] = JSON.parse(JSON.stringify(def));
+    changed = true;
+  }
+  if (changed) for (const l of feeListeners) l();
+}
+
+/** Subscribe to fee-cache changes. Returns the unsubscribe handle. The
+ *  inventoryStore uses this to bump a counter every time fees change, which
+ *  React memoised pipelines depend on so they re-fire after an edit. */
+export function subscribeToMarketplaceFees(cb: () => void): () => void {
+  feeListeners.add(cb);
+  return () => { feeListeners.delete(cb); };
 }
 
 // ---------------------------------------------------------------------------

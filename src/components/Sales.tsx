@@ -185,7 +185,7 @@ function inventoryUnitToSale(u: InventoryUnit): Sale {
 }
 
 export default function Sales() {
-  const { units, sales }                    = useInventoryStore();
+  const { units, sales, feesVersion }       = useInventoryStore();
   const region                              = useUserRegion();
   const [activeListings, setActiveListings] = useState<ActiveListing[]>([]);
   const [recentNotifications, setRecentNotifications] = useState<Notification[]>([]);
@@ -247,7 +247,7 @@ export default function Sales() {
       merged.push(recomputeSale(s));
     }
     return merged;
-  }, [sales, legacyInAppSales]);
+  }, [sales, legacyInAppSales, feesVersion]);
 
   // ────────────────────────────────────────────────────────────────────────
   // Apply scope → marketplace filter → search → sort
