@@ -16,8 +16,8 @@
  */
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import {
-  Search, Plus, Truck, ChevronDown, ChevronUp, ChevronsUpDown,
-  Filter, X, Download, Trash2, Info, Sparkles, Eye,
+  Search, Plus, ChevronDown, ChevronUp, ChevronsUpDown,
+  Filter, X, Trash2, Info, Sparkles, Eye,
   PackageX, TrendingDown, AlertTriangle,
   FileSpreadsheet,
 } from 'lucide-react';
@@ -240,52 +240,12 @@ export default function BuySheet(_props: Props) {
   // Sort the overlay rows.
   const sortedRows = useMemo(() => sortUnits(overlayRows, sort, supplierMap), [overlayRows, sort, supplierMap]);
 
-  // ── CSV export — exports whatever's currently filtered ────────────────────
-  const handleExportCsv = () => {
-    // No KPI = export all units that match the filter panel.
-    const base = overlay
-      ? sortedRows
-      : sortUnits(
-          units.filter(u => {
-            if (statusFilter !== 'all' && u.status !== statusFilter) return false;
-            if (supplierFilter.size > 0) {
-              const sname = supplierMap[u.supplierId] || u.supplierName || 'Unassigned';
-              if (!supplierFilter.has(sname)) return false;
-            }
-            if (search.trim()) {
-              const q = search.trim().toLowerCase();
-              const hay = [
-                u.imei, u.model, u.storage, u.colour, u.grade,
-                supplierMap[u.supplierId] || u.supplierName, u.notes, String(u.buyPrice ?? ''),
-              ].filter(Boolean).join(' ').toLowerCase();
-              if (!hay.includes(q)) return false;
-            }
-            return true;
-          }),
-          sort,
-          supplierMap,
-        );
-    const rows = base.map(u => ({
-      'Stock In Date': u.dateIn || '',
-      'Model':         u.model || '',
-      'IMEI':          u.imei || '',
-      'Grade':         u.grade || '',
-      'Storage':       u.storage || '',
-      'Colour':        u.colour || '',
-      'Supplier':      supplierMap[u.supplierId] || u.supplierName || '',
-      'BP':            u.buyPrice ?? '',
-      'Notes':         u.notes || '',
-    }));
-    downloadCsv('buy_stock.csv', rows);
-  };
-
   // ── Inventory report — timestamped snapshot of the FULL buy inventory ─────
-  // Distinct from Export CSV (which respects the active filter panel and uses
-  // a static filename): this is the operator's daily report. Columns mirror
-  // the 9-column buy schema exactly — no listing / marketplace / sale fields
-  // here because those are captured in the Sell flow. The filename carries
-  // YYYY-MM-DD_HHMM so multiple pulls in the same day don't clobber each
-  // other and the file sorts chronologically in a folder.
+  // Operator's daily report. Columns mirror the 9-column buy schema exactly —
+  // no listing / marketplace / sale fields here because those are captured in
+  // the Sell flow. The filename carries YYYY-MM-DD_HHMM so multiple pulls in
+  // the same day don't clobber each other and the file sorts chronologically
+  // in a folder.
   //
   // Sold units are soft-deleted from this report — once a unit ships, it's
   // operator-tracked through the Sales report instead. Returned + incoming
@@ -338,12 +298,6 @@ export default function BuySheet(_props: Props) {
             <Plus size={12} /> Add Stock
           </button>
           <button
-            onClick={() => setAddStockMode('shs')}
-            className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-amber-500 text-white text-[10px] font-bold uppercase tracking-widest hover:bg-amber-600 transition-all"
-          >
-            <Truck size={12} /> Add SHS
-          </button>
-          <button
             onClick={() => setShowSchemaHelp(s => !s)}
             title="Show required fields"
             className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-[10px] font-bold uppercase tracking-widest transition-all border ${
@@ -358,12 +312,6 @@ export default function BuySheet(_props: Props) {
             className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-emerald-600 text-white text-[10px] font-bold uppercase tracking-widest hover:bg-emerald-700 transition-all"
           >
             <FileSpreadsheet size={12} /> Inventory Report
-          </button>
-          <button
-            onClick={handleExportCsv}
-            className="flex items-center gap-1.5 px-3 py-2 rounded-xl border border-slate-200 text-slate-700 text-[10px] font-bold uppercase tracking-widest hover:bg-slate-50 transition-all"
-          >
-            <Download size={12} /> Export CSV
           </button>
           {userIsAdmin && (
             <button
