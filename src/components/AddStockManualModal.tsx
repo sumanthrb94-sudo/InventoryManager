@@ -91,6 +91,10 @@ interface RowValidation {
   dupeInDb: boolean;
   bpOk: boolean;
   supplierOk: boolean;
+  /** Storage is required so units don't split into separate buckets in the
+   *  grouped overlay (e.g. "iPhone SE 3 1TB" × 2 and "iPhone SE 3" × 1
+   *  rendering as two rows because one row's storage was left blank). */
+  storageOk: boolean;
   /** Whole-row green-light: all required fields satisfied. */
   complete: boolean;
 }
@@ -147,6 +151,10 @@ export default function AddStockManualModal({ onClose, initialMode = 'office' }:
     const supplierOk = r.supplierName.trim().length > 0;
     const bp         = parseFloat(r.buyPrice);
     const bpOk       = Number.isFinite(bp) && bp > 0;
+    // Storage may have arrived via the auto-sync from the Model field
+    // (parseBrandModelStorage pulls "1TB" out of "iPhone SE 3 1TB") OR
+    // via the dropdown. Either way the trimmed value must be non-empty.
+    const storageOk  = r.storage.trim().length > 0;
 
     const imeiOk =
       imeiRequired
@@ -155,8 +163,8 @@ export default function AddStockManualModal({ onClose, initialMode = 'office' }:
 
     return {
       modelOk, imeiOk, isApple, imeiRequired, imeiEmpty,
-      dupeInBatch, dupeInDb, bpOk, supplierOk,
-      complete: modelOk && imeiOk && bpOk && supplierOk,
+      dupeInBatch, dupeInDb, bpOk, supplierOk, storageOk,
+      complete: modelOk && imeiOk && bpOk && supplierOk && storageOk,
     };
   }), [rows, mode, existingImeis]);
 
@@ -591,11 +599,20 @@ function Row({
 
       {/* Grid: Storage · Colour · Supplier · BP */}
       <div className="grid grid-cols-1 md:grid-cols-12 gap-2 mt-2">
-        <Cell label="Storage" colSpan={2}>
+        <Cell
+          label="Storage *"
+          colSpan={2}
+          help={!validation.storageOk ? 'Required' : ''}
+          helpTone="error"
+        >
           <select
             value={row.storage}
             onChange={e => onChange({ storage: e.target.value })}
-            className="w-full border border-gray-200 rounded-lg px-2.5 py-1.5 text-[12px] font-mono bg-white focus:outline-none focus:border-black"
+            className={`w-full border rounded-lg px-2.5 py-1.5 text-[12px] font-mono focus:outline-none transition-all ${
+              !validation.storageOk
+                ? 'border-rose-300 bg-rose-50 focus:border-rose-500'
+                : 'border-emerald-300 bg-emerald-50/50 focus:border-emerald-500'
+            }`}
           >
             <option value="">—</option>
             {/* Surface any non-standard parsed value at the top so it's not lost. */}
