@@ -73,22 +73,22 @@ function emptyRow(supplierName = ''): StockRow {
 }
 
 /** Parse a single tab-separated row pasted from Excel / Google Sheets.
- *  Schema is the canonical Inventory Report buy block — same column
- *  order the "Inventory Report" button exports, the InventoryReportImport
- *  consumes, and the clientReport.ts ALL sheet header row uses, so the
- *  operator can copy any row out of any one of those surfaces and paste
- *  it back here without re-arranging columns:
+ *  The operator's source sheet (the one they keep day-to-day and copy rows
+ *  out of) places BP right after IMEI, NOT at the end of the buy block like
+ *  the canonical Inventory Report export does — the two schemas disagree
+ *  on BP position only. Per the operator: the paste-into-Add-Stock flow
+ *  has to match THEIR sheet, not the export, because that's where the
+ *  rows are coming from. Sample row:
  *
- *    Stock In Date · Model · IMEI · Grade · Storage · Colour · Supplier · BP · Notes
+ *    23-May-2026 · SAMSUNG TAB A8 LTE · 353255363682751 · 75 · A · 32GB · BLACK · NANAK
  *
  *  Three accepted shapes — anything outside falls through to the input's
- *  default paste so the operator doesn't get fields scrambled by a stray
- *  copy of a different schema.
+ *  default paste so a stray copy of unrelated text doesn't scramble the
+ *  form:
  *
- *    9 fields — full row (date + notes)
- *    8 fields — date OR notes (disambiguated by whether parts[0] parses
- *               as a date)
- *    7 fields — neither date nor notes
+ *    9 fields — full row: date · model · imei · bp · grade · storage · colour · supplier · notes
+ *    8 fields — date OR notes (disambiguated by whether parts[0] parses as a date)
+ *    7 fields — neither: model · imei · bp · grade · storage · colour · supplier
  */
 export function parsePastedStockRow(text: string):
   | { batchDate?: string; patch: Partial<StockRow> }
@@ -104,33 +104,33 @@ export function parsePastedStockRow(text: string):
   if (parts.length < 7 || parts.length > 9) return null;
 
   let batchDate: string | undefined;
-  let model = '', imei = '', grade = '', storage = '', colour = '', supplier = '', bp = '', notes = '';
+  let model = '', imei = '', bp = '', grade = '', storage = '', colour = '', supplier = '', notes = '';
 
   if (parts.length === 9) {
-    [, model, imei, grade, storage, colour, supplier, bp, notes] = parts;
+    [, model, imei, bp, grade, storage, colour, supplier, notes] = parts;
     batchDate = parseRowDate(parts[0]);
   } else if (parts.length === 8) {
     // 8 fields → either {date + 7 cols, no notes} or {7 cols + notes, no date}.
     // Disambiguate by parsing parts[0] as a date.
     const maybeDate = parseRowDate(parts[0]);
     if (maybeDate) {
-      [, model, imei, grade, storage, colour, supplier, bp] = parts;
+      [, model, imei, bp, grade, storage, colour, supplier] = parts;
       batchDate = maybeDate;
     } else {
-      [model, imei, grade, storage, colour, supplier, bp, notes] = parts;
+      [model, imei, bp, grade, storage, colour, supplier, notes] = parts;
     }
   } else {
     // 7 fields — no date, no notes.
-    [model, imei, grade, storage, colour, supplier, bp] = parts;
+    [model, imei, bp, grade, storage, colour, supplier] = parts;
   }
 
   const patch: Partial<StockRow> = {};
   if (model)    patch.model        = model;
   if (imei)     patch.imei         = imei;
+  if (bp)       patch.buyPrice     = bp;
   if (grade)    patch.grade        = grade;
   if (colour)   patch.colour       = colour;
   if (supplier) patch.supplierName = supplier;
-  if (bp)       patch.buyPrice     = bp;
   if (notes)    patch.notes        = notes;
   if (storage) {
     patch.storage = storage.toUpperCase().replace(/\s+/g, '');
@@ -581,7 +581,7 @@ export default function AddStockManualModal({ onClose, initialMode = 'office' }:
             )}
           </div>
           <p className="text-[9px] font-mono text-slate-400 mb-1.5">
-            Schema · Stock In Date · Model · IMEI · Grade · Storage · Colour · Supplier · BP · Notes
+            Schema · Date · Model · IMEI · BP · Grade · Storage · Colour · Supplier · Notes
           </p>
           <textarea
             value={pasteText}
@@ -618,7 +618,7 @@ export default function AddStockManualModal({ onClose, initialMode = 'office' }:
               setTimeout(() => setPasteFeedback(''), 2200);
             }}
             rows={2}
-            placeholder={'Paste tab-separated rows here — e.g.\n23-May-2026\tIPHONE SE 3\t352094702235513\tB\t128GB\tBLACK\tIMAX\t100\t'}
+            placeholder={'Paste tab-separated rows here — e.g.\n23-May-2026\tSAMSUNG TAB A8 LTE\t353255363682751\t75\tA\t32GB\tBLACK\tNANAK'}
             className="w-full border border-slate-200 rounded-lg px-2.5 py-1.5 text-[10px] font-mono focus:outline-none focus:border-slate-900 resize-none bg-white"
           />
         </div>
@@ -854,6 +854,12 @@ function Row({
             className="w-full border border-gray-200 rounded-lg px-2.5 py-1.5 text-[12px] focus:outline-none focus:border-black bg-white"
           >
             <option value="">—</option>
+            {/* Surface any non-standard pasted grade at the top so it's not
+                silently swallowed by the browser falling back to the
+                placeholder when the value doesn't match an option. */}
+            {row.grade && !GRADES.includes(row.grade) && (
+              <option value={row.grade}>{row.grade}</option>
+            )}
             {GRADES.map(g => <option key={g} value={g}>{g}</option>)}
           </select>
         </Cell>
