@@ -172,8 +172,30 @@ export default function AddStockManualModal({ onClose, initialMode = 'office' }:
     return { validUnits, value };
   }, [rows, validation]);
 
+  // Hard-block save when ANY row carries a duplicate-IMEI warning (either
+  // already in inventory or repeated within this batch). Other validation
+  // gaps — missing model / empty row / bad BP — keep the old silent-skip
+  // behaviour so the operator can leave blank rows around without them
+  // blocking the save. Duplicate IMEIs are the only thing the operator
+  // could mistake for a soft warning and lose data over.
+  const duplicateCount = useMemo(
+    () => validation.filter(v => v.dupeInDb || v.dupeInBatch).length,
+    [validation],
+  );
+  const hasDuplicates = duplicateCount > 0;
+
   // ── Save ───────────────────────────────────────────────────────────────────
   async function handleSave() {
+    // Defence-in-depth: even if the button somehow fires (race with the
+    // store listener, devtools, etc.) refuse to proceed when any row has
+    // a duplicate IMEI. Silent-skipping these previously closed the modal
+    // and made the operator think the dup row had been accepted.
+    if (hasDuplicates) {
+      setError(
+        `Resolve ${duplicateCount} duplicate IMEI row${duplicateCount === 1 ? '' : 's'} before saving.`,
+      );
+      return;
+    }
     const validIdxs: number[] = [];
     validation.forEach((v, i) => { if (v.complete) validIdxs.push(i); });
     if (!validIdxs.length) {
@@ -395,7 +417,12 @@ export default function AddStockManualModal({ onClose, initialMode = 'office' }:
           <div className="text-[10px] font-mono text-gray-500 truncate">
             {error
               ? <span className="text-rose-600 inline-flex items-center gap-1"><AlertCircle size={11} />{error}</span>
-              : `${totals.validUnits} unit${totals.validUnits === 1 ? '' : 's'} ready · £${totals.value.toFixed(0)}`}
+              : hasDuplicates
+                ? <span className="text-rose-600 inline-flex items-center gap-1">
+                    <AlertCircle size={11} />
+                    {duplicateCount} duplicate IMEI row{duplicateCount === 1 ? '' : 's'} — fix or remove to enable save
+                  </span>
+                : `${totals.validUnits} unit${totals.validUnits === 1 ? '' : 's'} ready · £${totals.value.toFixed(0)}`}
           </div>
           <div className="flex items-center gap-2 flex-shrink-0">
             <button onClick={onClose} type="button"
@@ -404,7 +431,10 @@ export default function AddStockManualModal({ onClose, initialMode = 'office' }:
             </button>
             <button
               onClick={handleSave}
-              disabled={!totals.validUnits || saving || saved}
+              disabled={!totals.validUnits || hasDuplicates || saving || saved}
+              title={hasDuplicates
+                ? `Resolve ${duplicateCount} duplicate IMEI row${duplicateCount === 1 ? '' : 's'} first`
+                : undefined}
               className={`px-4 py-2.5 text-white rounded-lg text-[10px] font-bold uppercase tracking-widest transition-all disabled:opacity-40 flex items-center gap-2
                 ${mode === 'shs' ? 'bg-amber-500 hover:bg-amber-600' : 'bg-slate-900 hover:bg-slate-800'}`}
             >
