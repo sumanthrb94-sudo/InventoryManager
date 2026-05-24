@@ -212,6 +212,13 @@ export default function InventoryReportImport({ onClose }: Props) {
   const [fileName, setFileName] = useState('');
   const [progress, setProgress] = useState<{ done: number; total: number }>({ done: 0, total: 0 });
   const [error, setError] = useState<string>('');
+  // Pre-write snapshot of the preview buckets. Captured at handleConfirm time
+  // so the Done screen shows what the import actually did — otherwise the
+  // memoised preview re-runs after Firestore listeners fire and reclassifies
+  // every just-written row, collapsing "5 suppliers added" to 0.
+  const [doneStats, setDoneStats] = useState<{
+    created: number; updated: number; suppliersAdded: number; skipped: number;
+  } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const preview = useMemo(
@@ -242,6 +249,14 @@ export default function InventoryReportImport({ onClose }: Props) {
 
   const handleConfirm = async () => {
     if (!preview) return;
+    // Freeze the pre-write counts; the post-write rerun of buildPreview will
+    // see the new docs in the store and zero out toCreate / newSuppliers.
+    const snapshot = {
+      created:        preview.toCreate.length,
+      updated:        preview.toUpdate.length,
+      suppliersAdded: preview.newSuppliers.length,
+      skipped:        preview.invalid.length,
+    };
     setPhase('loading');
     setProgress({ done: 0, total: preview.toCreate.length + preview.toUpdate.length });
 
@@ -302,6 +317,7 @@ export default function InventoryReportImport({ onClose }: Props) {
     try {
       if (supplierEntries.length > 0) await dbService.bulkCreate(supplierEntries);
       await dbService.bulkCreate(unitEntries, (done, total) => setProgress({ done, total }));
+      setDoneStats(snapshot);
       setPhase('done');
     } catch (e: any) {
       setError(e?.message || 'Import failed during write');
@@ -315,6 +331,7 @@ export default function InventoryReportImport({ onClose }: Props) {
     setFileName('');
     setError('');
     setProgress({ done: 0, total: 0 });
+    setDoneStats(null);
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
@@ -374,13 +391,13 @@ export default function InventoryReportImport({ onClose }: Props) {
           )}
 
           {/* ── Done phase ───────────────────────────────────────────────── */}
-          {phase === 'done' && preview && (
+          {phase === 'done' && doneStats && (
             <div className="py-8 flex flex-col items-center gap-3 text-center">
               <CheckCircle2 size={36} className="text-emerald-600" />
               <p className="text-sm font-bold text-slate-900">Import complete</p>
               <p className="text-[11px] font-mono text-slate-500">
-                {preview.toCreate.length} created · {preview.toUpdate.length} updated · {preview.newSuppliers.length} suppliers added
-                {preview.invalid.length > 0 && <> · {preview.invalid.length} skipped</>}
+                {doneStats.created} created · {doneStats.updated} updated · {doneStats.suppliersAdded} suppliers added
+                {doneStats.skipped > 0 && <> · {doneStats.skipped} skipped</>}
               </p>
             </div>
           )}
