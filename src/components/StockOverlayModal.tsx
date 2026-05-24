@@ -485,168 +485,6 @@ export function GroupedExcelTable({
   );
 }
 
-// ── Grouped-view (card layout) ───────────────────────────────────────────────
-
-/** Card alternative to GroupedExcelTable for the StockOverlayModal popup.
- *  Each model is its own rounded card; the header shows model + qty + total
- *  value with secondary meta (colour count, latest BP, stock-in date) on a
- *  second line. Click the header to reveal the per-colour / per-supplier
- *  breakdown — same content as the table's expanded sub-row, just stacked
- *  vertically inside the card body. Cards collapse all the way down to a
- *  single header row, so a long list scrolls in less vertical space than
- *  the table once a few entries get expanded.
- *
- *  BuySheet's inline page view still uses GroupedExcelTable — that surface
- *  has the horizontal room for the dense column layout. Cards are the
- *  modal-only treatment.
- */
-export function GroupedCardList({
-  groups, expanded, onToggle, region,
-}: {
-  groups: GroupedModel[];
-  expanded: Set<string>;
-  onToggle: (key: string) => void;
-  region: 'uk' | 'india' | 'admin' | 'both';
-}) {
-  return (
-    <ul className="px-3 md:px-4 py-3 space-y-2">
-      {groups.map(g => {
-        const open = expanded.has(g.key);
-        const colours = Array.from(g.byColour.entries())
-          .sort((a, b) => b[1].qty - a[1].qty || a[0].localeCompare(b[0]));
-        const tone = g.shs
-          ? 'bg-amber-100 text-amber-700'
-          : 'bg-slate-900 text-white';
-        const noteList = Array.from(g.notes);
-        const colourSummary = colours.length === 1
-          ? colours[0][0]
-          : `${colours.length} colour${colours.length === 1 ? '' : 's'}`;
-        const dateLabel = g.latestDateIn
-          ? (fmtDateForUser(g.latestDateIn, region) || g.latestDateIn)
-          : '';
-        return (
-          <li
-            key={g.key}
-            className="border border-slate-200 rounded-2xl bg-white shadow-sm overflow-hidden"
-          >
-            <button
-              type="button"
-              onClick={() => onToggle(g.key)}
-              className="w-full flex items-start gap-3 px-3 py-2.5 text-left hover:bg-slate-50 transition-colors"
-            >
-              <span className={`inline-flex w-5 h-5 mt-0.5 items-center justify-center rounded-md text-slate-400 transition-transform flex-shrink-0 ${open ? 'rotate-90 text-slate-700' : ''}`}>
-                <ChevronRight size={12} />
-              </span>
-              <span className="flex-1 min-w-0">
-                <span className="flex items-center justify-between gap-2">
-                  <span className="font-bold text-slate-900 truncate text-[12px]" title={g.model}>
-                    {g.model}
-                  </span>
-                  <span className="flex items-center gap-2 flex-shrink-0">
-                    <span className={`inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-widest px-2 py-0.5 rounded ${tone}`}>
-                      × {g.total}
-                    </span>
-                    {g.totalValue > 0 && (
-                      <span className="font-bold text-emerald-700 text-[11px] font-mono">
-                        £{g.totalValue.toLocaleString('en-GB', { maximumFractionDigits: 0 })}
-                      </span>
-                    )}
-                  </span>
-                </span>
-                <span className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[10px] font-mono text-slate-500">
-                  <span className="truncate" title={colourSummary}>{colourSummary}</span>
-                  {g.latestBp > 0 && (
-                    <>
-                      <span className="text-slate-300">·</span>
-                      <span>£{g.latestBp.toLocaleString('en-GB', { maximumFractionDigits: 0 })} BP</span>
-                    </>
-                  )}
-                  {dateLabel && (
-                    <>
-                      <span className="text-slate-300">·</span>
-                      <span>{dateLabel}</span>
-                    </>
-                  )}
-                  {noteList.length > 0 && (
-                    <>
-                      <span className="text-slate-300">·</span>
-                      <span className="inline-flex items-center gap-1">
-                        {noteList.slice(0, 2).map(n => (
-                          <span
-                            key={n}
-                            className="inline-flex items-center gap-1 text-[9px] text-amber-800 bg-amber-50 border border-amber-200 rounded px-1.5 py-0.5 max-w-[160px] truncate"
-                            title={n}
-                          >
-                            <span className="uppercase tracking-widest text-[8px] font-bold text-amber-600">note</span>
-                            {n}
-                          </span>
-                        ))}
-                        {noteList.length > 2 && (
-                          <span className="text-slate-400" title={noteList.slice(2).join(' · ')}>
-                            +{noteList.length - 2}
-                          </span>
-                        )}
-                      </span>
-                    </>
-                  )}
-                </span>
-              </span>
-            </button>
-
-            {open && (
-              <div className="border-t border-slate-100 bg-slate-50/60 px-3 py-2">
-                <ul className="divide-y divide-slate-200/70">
-                  {colours.map(([colour, c]) => {
-                    const suppliers = Array.from(c.bySupplier.entries())
-                      .sort((a, b) => b[1].qty - a[1].qty || a[0].localeCompare(b[0]));
-                    const priceLabel = c.minBp === c.maxBp
-                      ? (c.latestBp > 0 ? `£${c.latestBp}` : '—')
-                      : `£${c.minBp}–£${c.maxBp}`;
-                    return (
-                      <li key={colour} className="py-1.5">
-                        <div className="flex items-center justify-between gap-3">
-                          <span className="flex items-center gap-2 min-w-0 flex-1">
-                            <ColourDot colour={colour} />
-                            <span className="text-[11px] text-slate-700 truncate">{colour}</span>
-                          </span>
-                          <span className="inline-flex items-center text-[10px] font-mono font-bold text-slate-700 bg-white border border-slate-200 px-2 py-0.5 rounded">
-                            × {c.qty}
-                          </span>
-                          <span
-                            className="text-[10px] font-mono text-slate-600 w-20 text-right"
-                            title={c.minBp === c.maxBp ? '' : `Latest BP £${c.latestBp}`}
-                          >
-                            {priceLabel}
-                          </span>
-                          <span className="text-[10px] font-mono font-bold text-emerald-700 w-20 text-right">
-                            £{c.totalValue.toLocaleString('en-GB', { maximumFractionDigits: 0 })}
-                          </span>
-                        </div>
-                        {suppliers.length > 1 && (
-                          <ul className="pl-7 mt-1 space-y-0.5">
-                            {suppliers.map(([supName, s]) => (
-                              <li key={supName} className="flex items-center justify-between gap-3 text-[10px] font-mono text-slate-500">
-                                <span className="flex-1 truncate">↳ {supName}</span>
-                                <span className="w-12 text-right">× {s.qty}</span>
-                                <span className="w-20 text-right">£{s.latestBp}</span>
-                                <span className="w-20 text-right text-emerald-700">£{s.totalValue.toLocaleString('en-GB', { maximumFractionDigits: 0 })}</span>
-                              </li>
-                            ))}
-                          </ul>
-                        )}
-                      </li>
-                    );
-                  })}
-                </ul>
-              </div>
-            )}
-          </li>
-        );
-      })}
-    </ul>
-  );
-}
-
 // ── Detailed-view (10-column read-only schema) ──────────────────────────────
 
 /** The detailed overlay schema mirrors the master Inventory Report
@@ -928,30 +766,6 @@ export default function StockOverlayModal({
               </button>
             )}
           </div>
-          {/* Sort selector — only relevant in the grouped (card) view; the
-              detailed view's column headers carry their own sort affordance. */}
-          {viewMode === 'grouped' && (
-            <select
-              value={`${groupedSort.key}:${groupedSort.dir}`}
-              onChange={e => {
-                const [key, dir] = e.target.value.split(':') as [GroupSortKey, GroupSortDir];
-                setGroupedSort({ key, dir });
-              }}
-              className="text-[10px] font-mono bg-white border border-slate-200 rounded-lg px-2 py-1.5 focus:outline-none focus:border-slate-900 transition-all flex-shrink-0"
-              title="Sort grouped cards"
-            >
-              <option value="qty:desc">Qty (high → low)</option>
-              <option value="qty:asc">Qty (low → high)</option>
-              <option value="value:desc">Value (high → low)</option>
-              <option value="value:asc">Value (low → high)</option>
-              <option value="bp:desc">BP (high → low)</option>
-              <option value="bp:asc">BP (low → high)</option>
-              <option value="model:asc">Model (A → Z)</option>
-              <option value="model:desc">Model (Z → A)</option>
-              <option value="stockIn:desc">Stock In (newest)</option>
-              <option value="stockIn:asc">Stock In (oldest)</option>
-            </select>
-          )}
         </div>
 
         {/* Excel-style table */}
@@ -962,11 +776,13 @@ export default function StockOverlayModal({
               <p className="text-[11px] font-mono uppercase tracking-widest">No rows match the active filter</p>
             </div>
           ) : viewMode === 'grouped' ? (
-            <GroupedCardList
+            <GroupedExcelTable
               groups={grouped}
               expanded={expandedModels}
               onToggle={toggleExpand}
               region={region}
+              sort={groupedSort}
+              onSort={setGroupedSort}
             />
           ) : (
             // Full-schema read-only Excel grid — every InventoryUnit field

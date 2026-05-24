@@ -713,40 +713,53 @@ function AlertColumn({
   rows: Array<{ key: string; label: string; meta: string; tail: string; tailRight?: string; warn?: boolean }>;
   empty: string;
 }) {
+  // Default open so alerts stay visible on first render; the operator
+  // can collapse to save vertical space once they've triaged the list.
+  const [open, setOpen] = useState(true);
   const headerCls = tone === 'rose'
-    ? 'bg-rose-50/60 border-b border-rose-100 text-rose-800'
-    : 'bg-amber-50/60 border-b border-amber-100 text-amber-800';
+    ? 'bg-rose-50/60 border-b border-rose-100 text-rose-800 hover:bg-rose-50'
+    : 'bg-amber-50/60 border-b border-amber-100 text-amber-800 hover:bg-amber-50';
   const rowHover = tone === 'rose' ? 'hover:bg-rose-50/40' : 'hover:bg-amber-50/40';
   const dotTone = tone === 'rose' ? 'bg-rose-500' : 'bg-amber-500';
   return (
     <div className="min-w-0">
-      <div className={`px-4 py-2 flex items-center gap-2 ${headerCls}`}>
+      <button
+        type="button"
+        onClick={() => setOpen(o => !o)}
+        aria-expanded={open}
+        className={`w-full px-4 py-2 flex items-center gap-2 transition-colors text-left ${headerCls} ${open ? '' : 'border-b-transparent'}`}
+      >
         {icon}
         <div className="flex-1 min-w-0">
           <p className="text-[10px] font-bold uppercase tracking-widest">{title}</p>
           <p className="text-[8px] font-mono opacity-70">{hint}</p>
         </div>
         <span className="text-[9px] font-mono bg-white/70 px-1.5 py-0.5 rounded">{rows.length}</span>
-      </div>
-      {rows.length === 0 ? (
-        <p className="px-4 py-6 text-center text-[10px] font-mono text-slate-400">{empty}</p>
-      ) : (
-        <div className="divide-y divide-slate-100">
-          {rows.map(r => (
-            <div key={r.key} className={`flex items-center gap-3 px-4 py-2 transition-colors ${rowHover}`}>
-              <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${r.warn ? 'bg-rose-500' : dotTone}`} />
-              <div className="flex-1 min-w-0">
-                <p className="text-[11px] font-bold text-slate-900 truncate" title={r.label}>{r.label}</p>
-                <p className="text-[9px] font-mono text-slate-500 mt-0.5 truncate">
-                  {r.meta} · {r.tail}
-                </p>
+        <span className="opacity-60 flex-shrink-0">
+          {open ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
+        </span>
+      </button>
+      {open && (
+        rows.length === 0 ? (
+          <p className="px-4 py-6 text-center text-[10px] font-mono text-slate-400">{empty}</p>
+        ) : (
+          <div className="divide-y divide-slate-100">
+            {rows.map(r => (
+              <div key={r.key} className={`flex items-center gap-3 px-4 py-2 transition-colors ${rowHover}`}>
+                <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${r.warn ? 'bg-rose-500' : dotTone}`} />
+                <div className="flex-1 min-w-0">
+                  <p className="text-[11px] font-bold text-slate-900 truncate" title={r.label}>{r.label}</p>
+                  <p className="text-[9px] font-mono text-slate-500 mt-0.5 truncate">
+                    {r.meta} · {r.tail}
+                  </p>
+                </div>
+                {r.tailRight && (
+                  <span className="text-[10px] font-mono text-slate-600 flex-shrink-0 tabular-nums">{r.tailRight}</span>
+                )}
               </div>
-              {r.tailRight && (
-                <span className="text-[10px] font-mono text-slate-600 flex-shrink-0 tabular-nums">{r.tailRight}</span>
-              )}
-            </div>
-          ))}
-        </div>
+            ))}
+          </div>
+        )
       )}
     </div>
   );
