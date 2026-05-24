@@ -72,6 +72,86 @@ function emptyRow(supplierName = ''): StockRow {
   };
 }
 
+/** Parse a single tab-separated row pasted from Excel / Google Sheets.
+ *  Operator's canonical row format (from the Inventory Report export):
+ *
+ *    date · model · imei · bp · grade · storage · colour · supplier
+ *
+ *  e.g. "23-May-2026\tIPHONE SE 3\t352094702235513\t100\tB\t128GB\tBLACK\tIMAX"
+ *
+ *  Also accepts the 7-field variant without a leading date so a partial
+ *  paste still fills the row. Anything < 4 fields → null (fall back to
+ *  the input's default text paste, since it's probably not a row paste).
+ */
+export function parsePastedStockRow(text: string):
+  | { batchDate?: string; patch: Partial<StockRow> }
+  | null {
+  if (!text) return null;
+  // First non-empty line only — multi-row paste isn't supported yet.
+  const firstLine = text.replace(/\r/g, '').split('\n').find(l => l.trim().length > 0);
+  if (!firstLine) return null;
+  const parts = firstLine.split('\t').map(s => s.trim());
+  // Drop trailing empties (Excel pads short rows with extra tabs).
+  while (parts.length > 0 && parts[parts.length - 1] === '') parts.pop();
+  // Only recognise the two canonical row shapes — anything else likely
+  // isn't a row paste and should fall through to the input's default
+  // paste so the operator doesn't get fields scrambled.
+  if (parts.length !== 7 && parts.length !== 8) return null;
+
+  let batchDate: string | undefined;
+  let model: string, imei: string, bp: string, grade: string, storage: string, colour: string, supplier: string;
+
+  if (parts.length === 8) {
+    [, model, imei, bp, grade, storage, colour, supplier] = parts;
+    batchDate = parseRowDate(parts[0]);
+  } else {
+    // 7-field variant — no leading date.
+    [model, imei, bp, grade, storage, colour, supplier] = parts;
+  }
+
+  const patch: Partial<StockRow> = {};
+  if (model)    patch.model        = model;
+  if (imei)     patch.imei         = imei;
+  if (bp)       patch.buyPrice     = bp;
+  if (grade)    patch.grade        = grade;
+  if (colour)   patch.colour       = colour;
+  if (supplier) patch.supplierName = supplier;
+  if (storage) {
+    patch.storage = storage.toUpperCase().replace(/\s+/g, '');
+    // Mark storage as operator-touched so a later Model edit doesn't
+    // silently overwrite the explicit storage from the paste.
+    patch.storageTouched = true;
+  }
+  return { batchDate, patch };
+}
+
+/** Convert an operator-typed date string into the YYYY-MM-DD form the
+ *  <input type="date"> expects. Accepts "23-May-2026", "23/05/2026",
+ *  "2026-05-23", or anything `new Date()` can parse. Returns undefined
+ *  when none of those work. */
+function parseRowDate(raw: string): string | undefined {
+  const s = (raw || '').trim();
+  if (!s) return undefined;
+  // DD-MMM-YYYY (e.g. "23-May-2026")
+  const m1 = s.match(/^(\d{1,2})[\-\/\s]([A-Za-z]{3,})[\-\/\s](\d{4})$/);
+  if (m1) {
+    const months: Record<string, string> = {
+      jan: '01', feb: '02', mar: '03', apr: '04', may: '05', jun: '06',
+      jul: '07', aug: '08', sep: '09', oct: '10', nov: '11', dec: '12',
+    };
+    const mm = months[m1[2].slice(0, 3).toLowerCase()];
+    if (mm) return `${m1[3]}-${mm}-${m1[1].padStart(2, '0')}`;
+  }
+  // ISO already
+  if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0, 10);
+  // DD/MM/YYYY
+  const m2 = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if (m2) return `${m2[3]}-${m2[2].padStart(2, '0')}-${m2[1].padStart(2, '0')}`;
+  const d = new Date(s);
+  if (!isNaN(d.getTime())) return d.toISOString().slice(0, 10);
+  return undefined;
+}
+
 const GRADES = ['A', 'B', 'C', 'ONU', 'Brand new'];
 
 // Standard storage capacities. The model auto-parser returns values in this
@@ -391,6 +471,10 @@ export default function AddStockManualModal({ onClose, initialMode = 'office' }:
             {rows.length} row{rows.length === 1 ? '' : 's'} · {totals.validUnits} ready · £{totals.value.toFixed(0)}
           </p>
         </div>
+        <p className="px-5 -mt-1 mb-1 text-[9px] font-mono text-slate-400">
+          Tip · paste a tab-separated row anywhere in a row to auto-fill:
+          <span className="ml-1 text-slate-500">date · model · imei · bp · grade · storage · colour · supplier</span>
+        </p>
 
         {/* Rows */}
         <div className="flex-1 overflow-y-auto px-5 pb-3">
@@ -406,6 +490,13 @@ export default function AddStockManualModal({ onClose, initialMode = 'office' }:
                 units={units}
                 onChange={patch => updateRow(r.id, patch)}
                 onRemove={() => removeRow(r.id)}
+                onPasteRow={(text) => {
+                  const parsed = parsePastedStockRow(text);
+                  if (!parsed) return false;
+                  updateRow(r.id, parsed.patch);
+                  if (parsed.batchDate) setDate(parsed.batchDate);
+                  return true;
+                }}
                 canRemove={rows.length > 1}
               />
             ))}
@@ -487,7 +578,7 @@ function ModeTab({
 
 // ── One row in the entry grid ────────────────────────────────────────────────
 function Row({
-  row, index, validation, mode, supplierNames, units, onChange, onRemove, canRemove,
+  row, index, validation, mode, supplierNames, units, onChange, onRemove, onPasteRow, canRemove,
 }: {
   key?: React.Key;
   row: StockRow;
@@ -501,8 +592,22 @@ function Row({
   units: InventoryUnit[];
   onChange: (patch: Partial<StockRow>) => void;
   onRemove: () => void;
+  /** Paste handler — invoked when the operator pastes a tab-separated
+   *  row from Excel into Model or IMEI. Returns true when the paste was
+   *  consumed (the input should NOT receive the raw text), false when
+   *  it didn't look like a row paste (default behaviour wins). */
+  onPasteRow: (text: string) => boolean;
   canRemove: boolean;
 }) {
+  /** Paste anywhere inside the row: when the clipboard text is
+   *  tab-separated AND parses as a row, fill every column at once and
+   *  swallow the default paste. Falls through to the input's own paste
+   *  handler when the text isn't a row (e.g. just an IMEI on its own). */
+  const handleRowPaste = (e: React.ClipboardEvent<HTMLDivElement>) => {
+    const text = e.clipboardData.getData('text');
+    if (!text || !text.includes('\t')) return;
+    if (onPasteRow(text)) e.preventDefault();
+  };
   // ── IMEI helper text — shows what's wrong (or empty when fine) ─────────────
   const imeiHelp = (() => {
     if (mode === 'shs' && validation.imeiEmpty) return 'Optional for SHS';
@@ -516,7 +621,9 @@ function Row({
   })();
 
   return (
-    <div className={`border rounded-2xl p-3 transition-all ${
+    <div
+      onPaste={handleRowPaste}
+      className={`border rounded-2xl p-3 transition-all ${
       validation.complete
         ? 'border-emerald-200 bg-emerald-50/30'
         : 'border-slate-200 bg-slate-50/40'
