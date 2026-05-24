@@ -784,14 +784,33 @@ function Row({
         : 'border-slate-200 bg-slate-50/40'
     }`}>
       <div className="flex items-center gap-2 mb-2">
-        <span className="text-[9px] font-mono text-gray-400 w-6 text-center">#{index + 1}</span>
-        <div className="flex-1" />
-        {validation.complete && <CheckCircle2 size={13} className="text-emerald-500" />}
+        <span className="text-[9px] font-mono text-gray-400 w-6 text-center flex-shrink-0">#{index + 1}</span>
+        {/* Per-row paste shortcut — paste a single tab-separated row here
+            to autofill this specific row's fields. Distinct from the
+            bulk-paste textarea at the top of the modal (which adds new
+            rows); this one targets only this row, useful for filling row
+            #2 / #3 / etc after clicking Add Row. */}
+        <input
+          type="text"
+          placeholder="Paste row tab-separated to autofill this row"
+          onPaste={(e) => {
+            const text = e.clipboardData.getData('text');
+            if (!text || !text.includes('\t')) return;
+            if (onPasteRow(text)) {
+              e.preventDefault();
+              // Clear the input — the paste content goes into the row's
+              // real fields, no need to keep it visible here.
+              (e.currentTarget as HTMLInputElement).value = '';
+            }
+          }}
+          className="flex-1 min-w-0 text-[9px] font-mono text-slate-500 placeholder:text-slate-400 bg-white border border-slate-200 rounded px-2 py-1 focus:outline-none focus:border-slate-500 transition-colors"
+        />
+        {validation.complete && <CheckCircle2 size={13} className="text-emerald-500 flex-shrink-0" />}
         {canRemove && (
           <button
             type="button"
             onClick={onRemove}
-            className="p-1.5 text-gray-300 hover:text-rose-500 hover:bg-rose-50 rounded transition-all"
+            className="p-1.5 text-gray-300 hover:text-rose-500 hover:bg-rose-50 rounded transition-all flex-shrink-0"
             title="Remove row"
           >
             <Trash2 size={12} />
