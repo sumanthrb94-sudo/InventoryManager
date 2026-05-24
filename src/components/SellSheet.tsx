@@ -21,7 +21,7 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import {
   Search, ShoppingCart, ChevronDown, ChevronUp, ChevronsUpDown,
-  Filter, X, Download, Upload, AlertCircle, Plus, Info, Sparkles, FileSpreadsheet,
+  Filter, X, AlertCircle, Plus, Info, Sparkles, FileSpreadsheet,
   TrendingUp, TrendingDown, PackageCheck, Truck,
 } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
@@ -41,7 +41,6 @@ import CopyImei from './CopyImei';
 import IntelligencePanel from './IntelligencePanel';
 import PeriodicInventory from './PeriodicInventory';
 import SellOrderModal from './SellOrderModal';
-import SalesReportImport from './SalesReportImport';
 import EnterImeiModal from './EnterImeiModal';
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -121,8 +120,6 @@ export default function SellSheet(_props: Props) {
   const [enterImeiUnit, setEnterImeiUnit] = useState<InventoryUnit | null>(null);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [showSchemaHelp, setShowSchemaHelp] = useState(false);
-  const [salesImportOpen, setSalesImportOpen] = useState(false);
-
   // ── Indexes ───────────────────────────────────────────────────────────────
   // Sellable inventory — `status='available'` plus the defensive fallback
   // for units that were processed as "Back to Inventory" but whose status
@@ -365,30 +362,6 @@ export default function SellSheet(_props: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [overlay, allSold, search, marketplaceFilter, supplierFilter, supplierMap, sort, units]);
 
-  // ── CSV export ────────────────────────────────────────────────────────────
-  const handleExportCsv = () => {
-    const source = overlay ? overlayRows : inlineRows;
-    const rows = source.map(s => {
-      const u = (s.unitId && units.find(x => x.id === s.unitId)) || undefined;
-      return {
-        'Sell Date':   s.saleDate || '',
-        'IMEI':        s.imei || '',
-        'Model':       u?.model || '',
-        'Storage':     u?.storage || '',
-        'Colour':      u?.colour || '',
-        'Supplier':    supplierMap[s.supplierId || ''] || s.supplierName || '',
-        'BP':          s.buyPrice ?? 0,
-        'SP':          s.salePrice ?? 0,
-        'Platform':    s.marketplace,
-        'Postage':     (s.postage ?? 0).toFixed(2),
-        'Commission':  (s.commission ?? 0).toFixed(2),
-        'GP':          (s.grossProfit ?? 0).toFixed(2),
-        'GP %':        (s.gpPercent ?? 0).toFixed(2),
-      };
-    });
-    downloadCsv('sell_sales.csv', rows);
-  };
-
   // ── Sales Report — multi-sheet xlsx mirroring the master file ─────────────
   // Sheet 1: ALL  → 22-column unified flat view (buy schema + sale fields).
   // Sheets 2-5:    AMAZON / BM / EBAY / ONBUY, each in the operator's
@@ -450,19 +423,6 @@ export default function SellSheet(_props: Props) {
             className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-emerald-600 text-white text-[10px] font-bold uppercase tracking-widest hover:bg-emerald-700 transition-all"
           >
             <FileSpreadsheet size={12} /> Sales Report
-          </button>
-          <button
-            onClick={() => setSalesImportOpen(true)}
-            title="Import a SALES_REPORT xlsx — preview-then-confirm, master formulas applied on read"
-            className="flex items-center gap-1.5 px-3 py-2 rounded-xl border border-emerald-200 text-emerald-700 text-[10px] font-bold uppercase tracking-widest hover:bg-emerald-50 transition-all"
-          >
-            <Upload size={12} /> Import Sales
-          </button>
-          <button
-            onClick={handleExportCsv}
-            className="flex items-center gap-1.5 px-3 py-2 rounded-xl border border-slate-200 text-slate-700 text-[10px] font-bold uppercase tracking-widest hover:bg-slate-50 transition-all"
-          >
-            <Download size={12} /> Export CSV
           </button>
         </div>
 
@@ -697,9 +657,6 @@ export default function SellSheet(_props: Props) {
             onClose={() => { setSellOrderUnit(null); setSellOrderIsSHS(false); }}
             onSaved={() => { setSellOrderUnit(null); setSellOrderIsSHS(false); }}
           />
-        )}
-        {salesImportOpen && (
-          <SalesReportImport onClose={() => setSalesImportOpen(false)} />
         )}
         {enterImeiUnit && (
           <EnterImeiModal
@@ -1439,26 +1396,3 @@ function titleFor(kpi: KpiId): string {
   }
 }
 
-function downloadCsv(filename: string, rows: Array<Record<string, any>>) {
-  if (rows.length === 0) {
-    const blob = new Blob(['(no rows)\n'], { type: 'text/csv' });
-    triggerDownload(filename, blob);
-    return;
-  }
-  const headers = Object.keys(rows[0]);
-  const esc = (v: any) => {
-    const s = v == null ? '' : String(v);
-    if (/[",\n]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
-    return s;
-  };
-  const lines = [headers.join(','), ...rows.map(r => headers.map(h => esc(r[h])).join(','))];
-  const blob = new Blob([lines.join('\n')], { type: 'text/csv;charset=utf-8;' });
-  triggerDownload(filename, blob);
-}
-
-function triggerDownload(name: string, blob: Blob) {
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url; a.download = name; document.body.appendChild(a); a.click(); document.body.removeChild(a);
-  setTimeout(() => URL.revokeObjectURL(url), 0);
-}
