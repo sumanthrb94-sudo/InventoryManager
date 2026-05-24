@@ -210,6 +210,17 @@ interface RowValidation {
   imeiEmpty: boolean;
   dupeInBatch: boolean;
   dupeInDb: boolean;
+  /** When dupeInDb fires, capture identifying details of the matching unit
+   *  so the operator can see what's collided — model / dateIn / status /
+   *  supplier. Lets them rule out a stale import or a sold/returned unit
+   *  without leaving the modal. */
+  dupeInDbMatch?: {
+    id: string;
+    model: string;
+    dateIn: string;
+    status: string;
+    supplierName?: string;
+  };
   bpOk: boolean;
   supplierOk: boolean;
   /** Storage is required so units don't split into separate buckets in the
@@ -237,10 +248,25 @@ export default function AddStockManualModal({ onClose, initialMode = 'office' }:
   const [pasteText, setPasteText] = useState('');
 
   const supplierNames = useMemo(() => suppliers.map(s => s.name), [suppliers]);
-  const existingImeis = useMemo(() => {
-    const s = new Set<string>();
-    for (const u of units) if (u.imei) s.add(u.imei.trim().toUpperCase());
-    return s;
+  // Map (not Set) so we can surface the matching unit's details when a row
+  // flags as duplicate — operator's reported false positives in production
+  // where they swore the IMEI wasn't in DB; turned out to be a stale import
+  // or a returned/sold unit still living in inventoryUnits. Showing the
+  // existing row's model + dateIn + status + supplier makes that obvious.
+  const existingByImei = useMemo(() => {
+    const m = new Map<string, InventoryUnit>();
+    for (const u of units) {
+      if (!u.imei) continue;
+      // Strip zero-width / non-breaking whitespace too — Excel + WhatsApp
+      // copy/paste loves to embed those, and a single invisible character
+      // makes the exact-match dupe check miss a real collision.
+      const key = u.imei
+        .replace(/[​-‍﻿ ]/g, '')
+        .trim()
+        .toUpperCase();
+      if (key && !m.has(key)) m.set(key, u);
+    }
+    return m;
   }, [units]);
 
   // Carry the last typed supplier forward — saves re-typing across rows in
@@ -266,14 +292,30 @@ export default function AddStockManualModal({ onClose, initialMode = 'office' }:
 
   // ── Validation per row ─────────────────────────────────────────────────────
   const validation: RowValidation[] = useMemo(() => rows.map(r => {
-    const imei = r.imei.trim().toUpperCase();
+    // Strip invisible whitespace from the operator-typed IMEI to match the
+    // same normalisation done when we built existingByImei above. Without
+    // this an Excel-pasted IMEI with a trailing zero-width space would
+    // never match a clean DB record (or vice-versa).
+    const imei = r.imei
+      .replace(/[​-‍﻿ ]/g, '')
+      .trim()
+      .toUpperCase();
     const isApple = isAppleDevice(r.model);
     const imeiRequired = mode === 'office';
     const imeiEmpty = imei.length === 0;
     const imeiFormatOk = imei ? isValidImei(imei, { isAppleSerial: isApple }) : false;
 
-    const dupeInBatch = !!imei && rows.filter(x => x.imei.trim().toUpperCase() === imei).length > 1;
-    const dupeInDb    = !!imei && existingImeis.has(imei);
+    const dupeInBatch = !!imei && rows.filter(x => x.imei
+      .replace(/[​-‍﻿ ]/g, '').trim().toUpperCase() === imei).length > 1;
+    const existingUnit = imei ? existingByImei.get(imei) : undefined;
+    const dupeInDb    = !!existingUnit;
+    const dupeInDbMatch = existingUnit ? {
+      id:           existingUnit.id,
+      model:        (existingUnit.model || '').trim() || '?',
+      dateIn:       (existingUnit.dateIn || '').trim() || '?',
+      status:       existingUnit.status || '?',
+      supplierName: existingUnit.supplierName,
+    } : undefined;
 
     const modelOk    = r.model.trim().length > 0;
     const supplierOk = r.supplierName.trim().length > 0;
@@ -291,10 +333,10 @@ export default function AddStockManualModal({ onClose, initialMode = 'office' }:
 
     return {
       modelOk, imeiOk, isApple, imeiRequired, imeiEmpty,
-      dupeInBatch, dupeInDb, bpOk, supplierOk, storageOk,
+      dupeInBatch, dupeInDb, dupeInDbMatch, bpOk, supplierOk, storageOk,
       complete: modelOk && imeiOk && bpOk && supplierOk && storageOk,
     };
-  }), [rows, mode, existingImeis]);
+  }), [rows, mode, existingByImei]);
 
   // ── Totals strip ───────────────────────────────────────────────────────────
   const totals = useMemo(() => {
@@ -718,7 +760,15 @@ function Row({
     if (mode === 'shs' && validation.imeiEmpty) return 'Optional for SHS';
     if (validation.imeiEmpty && validation.imeiRequired) return 'Required';
     if (validation.dupeInBatch) return 'Duplicate in this batch';
-    if (validation.dupeInDb)    return 'Already in inventory';
+    if (validation.dupeInDb) {
+      // Surface the colliding unit's identifying fields so the operator can
+      // see WHY the IMEI is flagged (a sold/returned unit still in
+      // inventoryUnits, a stale import, etc) instead of having to leave the
+      // modal and grep the inventory list themselves.
+      const m = validation.dupeInDbMatch;
+      if (m) return `Already in inventory · ${m.model} · ${m.dateIn} · status ${m.status}${m.supplierName ? ' · ' + m.supplierName : ''}`;
+      return 'Already in inventory';
+    }
     if (!validation.imeiOk && !validation.imeiEmpty) {
       return validation.isApple ? IMEI_OR_APPLE_SERIAL_MESSAGE : IMEI_REQUIRED_MESSAGE;
     }
