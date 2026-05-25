@@ -19,7 +19,7 @@ import {
   Search, Plus, ChevronDown, ChevronUp, ChevronsUpDown,
   Filter, X, Trash2, Info, Sparkles, Eye,
   PackageX, TrendingDown, AlertTriangle,
-  FileSpreadsheet,
+  FileSpreadsheet, ScanLine,
 } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
 import { dbService } from '../lib/dbService';
@@ -30,6 +30,7 @@ import { fmtDateForUser, useUserRegion } from '../lib/userLocale';
 import { auth, isAdmin } from '../lib/firebase';
 import IntelligencePanel from './IntelligencePanel';
 import AddStockManualModal from './AddStockManualModal';
+import BulkOrderModal from './BulkOrderModal';
 import ResetDataModal from './ResetDataModal';
 import StockOverlayModal, {
   buildGroupedModels, sortGroupedModels, GroupedExcelTable,
@@ -92,6 +93,7 @@ export default function BuySheet(_props: Props) {
 
   // Modals
   const [addStockMode, setAddStockMode] = useState<'office' | 'shs' | null>(null);
+  const [bulkOrderOpen, setBulkOrderOpen] = useState(false);
   const [showSchemaHelp, setShowSchemaHelp] = useState(false);
   const [showResetData, setShowResetData] = useState(false);
 
@@ -296,6 +298,13 @@ export default function BuySheet(_props: Props) {
             className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-slate-900 text-white text-[10px] font-bold uppercase tracking-widest hover:bg-slate-700 transition-all"
           >
             <Plus size={12} /> Add Stock
+          </button>
+          <button
+            onClick={() => setBulkOrderOpen(true)}
+            title="Bulk order — set shared metadata, scan IMEIs per colour, review and save"
+            className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-indigo-600 text-white text-[10px] font-bold uppercase tracking-widest hover:bg-indigo-700 transition-all"
+          >
+            <ScanLine size={12} /> Bulk Order
           </button>
           <button
             onClick={() => setShowSchemaHelp(s => !s)}
@@ -511,6 +520,7 @@ export default function BuySheet(_props: Props) {
       <AnimatePresence>
         {showResetData && <ResetDataModal onClose={() => setShowResetData(false)} />}
         {addStockMode  && <AddStockManualModal initialMode={addStockMode} onClose={() => setAddStockMode(null)} />}
+        {bulkOrderOpen && <BulkOrderModal onClose={() => setBulkOrderOpen(false)} />}
       </AnimatePresence>
     </div>
   );
