@@ -43,6 +43,47 @@ import type { InventoryUnit, ListingSite } from '../types';
 type Mode = 'office' | 'shs';
 type Stage = 'setup' | 'scan' | 'review' | 'saving' | 'done';
 
+// ── WebHID shapes (Chrome only; not in lib.dom.d.ts) ─────────────────────────
+// We model only the surface we use so the rest of the file can stay strictly
+// typed without an `any` cast at every event handler.
+interface HidInputReportEvent { data: DataView; }
+interface HidDeviceLike {
+  opened: boolean;
+  productName?: string;
+  vendorId?: number;
+  productId?: number;
+  open(): Promise<void>;
+  close(): Promise<void>;
+  addEventListener(type: 'inputreport', listener: (e: HidInputReportEvent) => void): void;
+  removeEventListener(type: 'inputreport', listener: (e: HidInputReportEvent) => void): void;
+}
+interface HidLike {
+  requestDevice(opts: { filters: Array<{ vendorId?: number; productId?: number; usagePage?: number; usage?: number }> }):
+    Promise<HidDeviceLike[]>;
+}
+
+/** USB HID keyboard usage-code → ASCII char, with shift modifier for the
+ *  uppercase letters / shifted digits. Subset: A-Z, 0-9, Enter, Space,
+ *  Hyphen — covers every character a 15-digit IMEI or an alphanumeric
+ *  Apple serial can carry. Other usages return '' so unrelated keystrokes
+ *  (arrow keys, F-keys, modifiers themselves) get silently dropped. */
+function hidKeycodeToChar(code: number, shift: boolean): string {
+  // Letters: 0x04 (a) .. 0x1D (z)
+  if (code >= 0x04 && code <= 0x1D) {
+    const base = shift ? 0x41 : 0x61; // A or a — IMEIs use uppercase but our
+    // submit pipeline uppercases either way, so respecting the shift state
+    // here keeps round-tripping with serials that include lowercase chars.
+    return String.fromCharCode(base + (code - 0x04));
+  }
+  // Digits 1-9: 0x1E .. 0x26, 0 at 0x27.
+  if (code >= 0x1E && code <= 0x26) return String.fromCharCode(0x31 + (code - 0x1E));
+  if (code === 0x27) return '0';
+  if (code === 0x28) return '\n';        // Enter
+  if (code === 0x2C) return ' ';         // Space
+  if (code === 0x2D) return '-';         // Hyphen
+  return '';
+}
+
 interface ColourBucket {
   id: string;
   /** Either one of the four presets or operator-typed freeform text. */
@@ -100,6 +141,18 @@ export default function BulkOrderModal({ onClose, initialMode = 'office' }: Prop
   const [scanError, setScanError] = useState('');
   const [showCamera, setShowCamera] = useState(false);
   const [reviewEditing, setReviewEditing] = useState<string | null>(null);
+  // ── Scanner status ────────────────────────────────────────────────────────
+  // 'unsupported' — WebHID API not present in this browser (Safari, iOS,
+  //                 older Chrome). The keyboard/burst paths still work.
+  // 'idle'        — WebHID present, no device paired.
+  // 'connecting'  — picker dialog open / opening the device.
+  // 'connected'   — HID input-reports streaming straight into the buffer
+  //                 (works even when no input has focus).
+  // 'error'       — last connect attempt failed; user can retry.
+  const [hidStatus, setHidStatus] = useState<'unsupported' | 'idle' | 'connecting' | 'connected' | 'error'>('idle');
+  const [hidDeviceName, setHidDeviceName] = useState('');
+  const hidDeviceRef = useRef<HidDeviceLike | null>(null);
+  const [inputFocused, setInputFocused] = useState(false);
 
   // ── Save state ─────────────────────────────────────────────────────────────
   const [progress, setProgress] = useState({ done: 0, total: 0 });
@@ -253,6 +306,175 @@ export default function BulkOrderModal({ onClose, initialMode = 'office' }: Prop
       scanDebounceRef.current = null;
     }
   }, [stage]);
+
+  // ── Document-level keystroke buffer ───────────────────────────────────────
+  // Catches scanner output when focus is somewhere other than the scan input
+  // (operator taps a slot card to jump → focus moves to that button → next
+  // scan's keystrokes would otherwise vanish into the void). Differentiates
+  // a scanner burst from human typing by elapsed time: 6+ chars arriving
+  // in <500ms is hardware, anything slower is a person — and humans don't
+  // usually pump valid IMEIs into UI chrome anyway.
+  useEffect(() => {
+    if (stage !== 'scan') return;
+
+    let buffer = '';
+    let firstKeyTs = 0;
+    let lastKeyTs = 0;
+    let flushTimer: number | null = null;
+
+    const isAppleModel = isAppleDevice(model);
+
+    const flush = () => {
+      flushTimer = null;
+      if (buffer.length === 0) return;
+      const elapsed = lastKeyTs - firstKeyTs;
+      const isBurst = buffer.length >= 6 && elapsed < 500;
+      const captured = buffer;
+      buffer = '';
+      if (isBurst && isValidImei(captured, { isAppleSerial: isAppleModel })) {
+        handleScanSubmit(captured);
+      }
+    };
+
+    const handleKeydown = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement | null;
+      // Skip when the focus is on an input — that input's own handler
+      // owns the keystroke. Our scan <input> has its own auto-submit;
+      // unrelated inputs on the page (e.g. a different modal) shouldn't
+      // get hijacked.
+      const tag = target?.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || target?.isContentEditable) return;
+      // Don't capture modifier-combo shortcuts (browser/system).
+      if (e.ctrlKey || e.metaKey || e.altKey) return;
+
+      const now = Date.now();
+      if (buffer === '' || now - lastKeyTs > 100) {
+        buffer = '';
+        firstKeyTs = now;
+      }
+      lastKeyTs = now;
+
+      if (e.key === 'Enter') {
+        if (flushTimer !== null) window.clearTimeout(flushTimer);
+        flush();
+        return;
+      }
+      if (e.key.length === 1) buffer += e.key;
+      if (flushTimer !== null) window.clearTimeout(flushTimer);
+      flushTimer = window.setTimeout(flush, 100);
+    };
+
+    document.addEventListener('keydown', handleKeydown);
+    return () => {
+      document.removeEventListener('keydown', handleKeydown);
+      if (flushTimer !== null) window.clearTimeout(flushTimer);
+    };
+  }, [stage, model, handleScanSubmit]);
+
+  // ── Persistent focus on the scan input ────────────────────────────────────
+  // After a click anywhere in the document, if focus didn't land in a
+  // typing target or another scan control (Camera / Skip / HID button),
+  // pull it back to the scan input so the next scan goes where it should.
+  // 80ms delay so the user can interact with controls without focus
+  // snapping back mid-tap.
+  useEffect(() => {
+    if (stage !== 'scan' || showCamera) return;
+    const onClick = () => {
+      setTimeout(() => {
+        if (stage !== 'scan') return;
+        const active = document.activeElement as HTMLElement | null;
+        const inScanControl = !!active?.closest('[data-bulk-scan-control]');
+        const inForm = active?.tagName === 'INPUT' || active?.tagName === 'SELECT' || active?.tagName === 'TEXTAREA';
+        if (!inScanControl && !inForm) scanInputRef.current?.focus();
+      }, 80);
+    };
+    document.addEventListener('click', onClick);
+    return () => document.removeEventListener('click', onClick);
+  }, [stage, showCamera]);
+
+  // ── WebHID feature-detection ───────────────────────────────────────────────
+  useEffect(() => {
+    if (typeof navigator === 'undefined' || !('hid' in navigator)) {
+      setHidStatus('unsupported');
+    }
+  }, []);
+
+  // ── WebHID pairing + input-report listener ─────────────────────────────────
+  // For scanners configured as POS HID or any setup where the operator wants
+  // capture to work without keyboard focus on the tab. Permission is a
+  // user-gesture pick (Chrome's device chooser). We open the device, attach
+  // an inputreport listener, and translate keycodes → ASCII so the captured
+  // string flows through the same handleScanSubmit pipeline as everything else.
+  const connectHidScanner = useCallback(async () => {
+    const nav = navigator as unknown as { hid?: HidLike };
+    if (!nav.hid) {
+      setScanError('WebHID not supported in this browser — keep using the focused-input scanner');
+      return;
+    }
+    setHidStatus('connecting');
+    try {
+      const devices = await nav.hid.requestDevice({ filters: [] });
+      if (!devices.length) { setHidStatus('idle'); return; }
+      const device = devices[0];
+      if (!device.opened) await device.open();
+      hidDeviceRef.current = device;
+      setHidDeviceName(device.productName || `HID ${device.vendorId?.toString(16)}:${device.productId?.toString(16)}`);
+
+      let hidBuffer = '';
+      let hidTimer: number | null = null;
+      let shiftHeld = false;
+
+      const flushHidBuffer = () => {
+        hidTimer = null;
+        const val = hidBuffer;
+        hidBuffer = '';
+        if (val.length < 6) return;
+        const isAppleModel = isAppleDevice(model);
+        if (isValidImei(val, { isAppleSerial: isAppleModel })) handleScanSubmit(val);
+      };
+
+      const onReport = (event: HidInputReportEvent) => {
+        // HID keyboard input report: byte 0 = modifiers, byte 1 = reserved,
+        // bytes 2..N = up to N usage codes (typically 6). Some scanners ship
+        // single-byte reports with the keycode at byte 0 — accept either.
+        const data = event.data;
+        const offset = data.byteLength >= 8 ? 2 : 0;
+        if (offset === 2) shiftHeld = (data.getUint8(0) & 0x22) !== 0; // L/R shift bits
+        for (let i = offset; i < data.byteLength; i++) {
+          const code = data.getUint8(i);
+          if (code === 0) continue;
+          const ch = hidKeycodeToChar(code, shiftHeld);
+          if (ch === '\n') { if (hidTimer !== null) clearTimeout(hidTimer); flushHidBuffer(); continue; }
+          if (ch) hidBuffer += ch;
+        }
+        if (hidTimer !== null) clearTimeout(hidTimer);
+        hidTimer = window.setTimeout(flushHidBuffer, 120);
+      };
+
+      device.addEventListener('inputreport', onReport);
+      // Stash the cleanup on the device ref so disconnect can find it.
+      (device as HidDeviceLike & { __cleanup?: () => void }).__cleanup = () => {
+        device.removeEventListener('inputreport', onReport);
+        device.close().catch(() => {});
+        if (hidTimer !== null) clearTimeout(hidTimer);
+      };
+      setHidStatus('connected');
+    } catch (err) {
+      setHidStatus('error');
+      setScanError('HID connect failed — ' + (err instanceof Error ? err.message : 'unknown'));
+    }
+  }, [model, handleScanSubmit]);
+
+  const disconnectHidScanner = useCallback(() => {
+    const dev = hidDeviceRef.current as (HidDeviceLike & { __cleanup?: () => void }) | null;
+    dev?.__cleanup?.();
+    hidDeviceRef.current = null;
+    setHidDeviceName('');
+    setHidStatus(typeof navigator !== 'undefined' && 'hid' in navigator ? 'idle' : 'unsupported');
+  }, []);
+
+  // Cleanup on unmount.
+  useEffect(() => () => { disconnectHidScanner(); }, [disconnectHidScanner]);
 
   // ── Scan: skip current slot ────────────────────────────────────────────────
   const skipCurrentSlot = () => {
@@ -437,6 +659,12 @@ export default function BulkOrderModal({ onClose, initialMode = 'office' }: Prop
               onJump={jumpToSlot}
               showCamera={showCamera}
               setShowCamera={setShowCamera}
+              inputFocused={inputFocused}
+              setInputFocused={setInputFocused}
+              hidStatus={hidStatus}
+              hidDeviceName={hidDeviceName}
+              connectHidScanner={connectHidScanner}
+              disconnectHidScanner={disconnectHidScanner}
             />
           )}
           {stage === 'review' && (
@@ -475,9 +703,11 @@ export default function BulkOrderModal({ onClose, initialMode = 'office' }: Prop
           )}
         </div>
 
-        {/* Footer — navigation buttons */}
+        {/* Footer — navigation buttons. Stacks vertically on mobile so the
+            status line above the buttons doesn't collide with three CTAs
+            squeezed onto one row. */}
         {stage !== 'saving' && stage !== 'done' && (
-          <div className="px-5 py-3 border-t border-gray-100 flex items-center justify-between gap-3 flex-shrink-0 bg-slate-50/60">
+          <div className="px-4 md:px-5 py-3 border-t border-gray-100 flex flex-col md:flex-row md:items-center md:justify-between gap-2 md:gap-3 flex-shrink-0 bg-slate-50/60">
             <div className="text-[10px] font-mono text-slate-500 truncate">
               {stage === 'setup' && (
                 <span>
@@ -602,11 +832,12 @@ function SetupView({
 
   return (
     <div className="p-5 space-y-4">
-      {/* Mode tabs */}
-      <div className="grid grid-cols-2 gap-2">
+      {/* Mode tabs — stack vertically on mobile (each tab gets a full row),
+          two side-by-side on md+. py-3 on mobile for an easier tap target. */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
         <button
           type="button" onClick={() => setMode('office')}
-          className={`text-left rounded-xl border px-3 py-2 transition-all ${
+          className={`text-left rounded-xl border px-3 py-3 md:py-2 transition-all ${
             mode === 'office' ? 'bg-slate-900 text-white border-slate-900' : 'bg-white border-slate-200 text-slate-500 hover:border-slate-400'
           }`}
         >
@@ -615,7 +846,7 @@ function SetupView({
         </button>
         <button
           type="button" onClick={() => setMode('shs')}
-          className={`text-left rounded-xl border px-3 py-2 transition-all ${
+          className={`text-left rounded-xl border px-3 py-3 md:py-2 transition-all ${
             mode === 'shs' ? 'bg-amber-500 text-white border-amber-500' : 'bg-white border-slate-200 text-slate-500 hover:border-slate-400'
           }`}
         >
@@ -624,15 +855,18 @@ function SetupView({
         </button>
       </div>
 
-      {/* Shared metadata grid */}
-      <div className="grid grid-cols-12 gap-2">
-        <FieldCell label="Stock In Date *" span={3}>
+      {/* Shared metadata grid — mobile-first: 2-col on small screens (storage
+          + grade pair up, everything else takes a full row), 12-col grid on
+          md+ to keep the desktop dense layout. font-size bumps up on mobile
+          so dropdown text doesn't collapse to a single character. */}
+      <div className="grid grid-cols-2 md:grid-cols-12 gap-2">
+        <FieldCell label="Stock In Date *" className="col-span-2 md:col-span-3">
           <input
             type="date" value={date} onChange={e => setDate(e.target.value)}
-            className="w-full border border-gray-200 rounded-lg px-2.5 py-1.5 text-[12px] font-mono focus:outline-none focus:border-black"
+            className="w-full border border-gray-200 rounded-lg px-2.5 py-2 text-[13px] md:text-[12px] font-mono focus:outline-none focus:border-black"
           />
         </FieldCell>
-        <FieldCell label="Model *" span={5} error={!validation.modelOk}>
+        <FieldCell label="Model *" className="col-span-2 md:col-span-5" error={!validation.modelOk}>
           <DeviceComboBox
             units={units} brand=""
             model={model}
@@ -643,13 +877,13 @@ function SetupView({
               if (!grade && entry.topGrade) setGrade(entry.topGrade);
             }}
             placeholder="Search existing models or type new — e.g. iPhone 13 128GB"
-            inputClassName="w-full border border-gray-200 rounded-lg px-2.5 py-1.5 text-[12px] focus:outline-none focus:border-black"
+            inputClassName="w-full border border-gray-200 rounded-lg px-2.5 py-2 text-[13px] md:text-[12px] focus:outline-none focus:border-black"
           />
         </FieldCell>
-        <FieldCell label="Storage *" span={2} error={!validation.storageOk}>
+        <FieldCell label="Storage *" className="col-span-1 md:col-span-2" error={!validation.storageOk}>
           <select
             value={storage} onChange={e => setStorage(e.target.value)}
-            className={`w-full border rounded-lg px-2.5 py-1.5 text-[12px] font-mono bg-white focus:outline-none transition-colors ${
+            className={`w-full border rounded-lg px-2.5 py-2 text-[13px] md:text-[12px] font-mono bg-white focus:outline-none transition-colors ${
               !validation.storageOk ? 'border-rose-300 bg-rose-50' : 'border-gray-200 focus:border-black'
             }`}
           >
@@ -660,10 +894,10 @@ function SetupView({
             {STORAGE_OPTIONS.map(s => <option key={s} value={s}>{s}</option>)}
           </select>
         </FieldCell>
-        <FieldCell label="Grade" span={2}>
+        <FieldCell label="Grade" className="col-span-1 md:col-span-2">
           <select
             value={grade} onChange={e => setGrade(e.target.value)}
-            className="w-full border border-gray-200 rounded-lg px-2.5 py-1.5 text-[12px] focus:outline-none focus:border-black bg-white"
+            className="w-full border border-gray-200 rounded-lg px-2.5 py-2 text-[13px] md:text-[12px] focus:outline-none focus:border-black bg-white"
           >
             <option value="">—</option>
             {grade && !GRADES.includes(grade as any) && (
@@ -672,12 +906,12 @@ function SetupView({
             {GRADES.map(g => <option key={g} value={g}>{g}</option>)}
           </select>
         </FieldCell>
-        <FieldCell label="Supplier *" span={6} error={!validation.supplierOk}>
+        <FieldCell label="Supplier *" className="col-span-2 md:col-span-6" error={!validation.supplierOk}>
           <input
             list="bulk-supplier-names" value={supplierName}
             onChange={e => setSupplierName(e.target.value)}
             placeholder="Type or pick"
-            className={`w-full border rounded-lg px-2.5 py-1.5 text-[12px] focus:outline-none transition-colors ${
+            className={`w-full border rounded-lg px-2.5 py-2 text-[13px] md:text-[12px] focus:outline-none transition-colors ${
               !validation.supplierOk ? 'border-rose-300 bg-rose-50' : 'border-gray-200 focus:border-black'
             }`}
           />
@@ -685,12 +919,13 @@ function SetupView({
             {supplierNames.map(n => <option key={n} value={n} />)}
           </datalist>
         </FieldCell>
-        <FieldCell label="BP per unit (£) *" span={6} error={!validation.bpOk}>
+        <FieldCell label="BP per unit (£) *" className="col-span-2 md:col-span-6" error={!validation.bpOk}>
           <input
             type="number" min={0} step={0.01} value={bp}
             onChange={e => setBp(e.target.value)}
             placeholder="0.00"
-            className={`w-full border rounded-lg px-2.5 py-1.5 text-[12px] font-mono focus:outline-none transition-colors ${
+            inputMode="decimal"
+            className={`w-full border rounded-lg px-2.5 py-2 text-[13px] md:text-[12px] font-mono focus:outline-none transition-colors ${
               !validation.bpOk ? 'border-rose-300 bg-rose-50' : 'border-gray-200 focus:border-black'
             }`}
           />
@@ -715,27 +950,25 @@ function SetupView({
         </div>
         <div className="space-y-1.5">
           {colourBuckets.map(b => (
-            <div key={b.id} className="grid grid-cols-12 gap-2 items-center">
-              <div className="col-span-6">
+            <div key={b.id} className="flex items-start gap-2">
+              <div className="flex-1 min-w-0">
                 <ColourSelect
                   value={b.colour}
                   onChange={(colour) => updateBucket(b.id, { colour })}
                 />
               </div>
-              <div className="col-span-5">
-                <input
-                  type="number" min={0} step={1}
-                  value={b.quantity || ''}
-                  onChange={e => updateBucket(b.id, { quantity: Math.max(0, parseInt(e.target.value) || 0) })}
-                  placeholder="Qty"
-                  className="w-full border border-gray-200 rounded-lg px-2.5 py-1.5 text-[12px] font-mono focus:outline-none focus:border-black"
-                />
-              </div>
+              <input
+                type="number" min={0} step={1} inputMode="numeric"
+                value={b.quantity || ''}
+                onChange={e => updateBucket(b.id, { quantity: Math.max(0, parseInt(e.target.value) || 0) })}
+                placeholder="Qty"
+                className="w-20 md:w-24 flex-shrink-0 border border-gray-200 rounded-lg px-2.5 py-2 md:py-1.5 text-[13px] md:text-[12px] font-mono focus:outline-none focus:border-black"
+              />
               <button
                 type="button"
                 onClick={() => removeBucket(b.id)}
                 disabled={colourBuckets.length === 1}
-                className="col-span-1 p-1.5 text-slate-300 hover:text-rose-500 hover:bg-rose-50 rounded transition-all disabled:opacity-30 flex justify-center"
+                className="p-2 md:p-1.5 text-slate-300 hover:text-rose-500 hover:bg-rose-50 rounded transition-all disabled:opacity-30 flex-shrink-0"
                 title="Remove colour"
               >
                 <Trash2 size={12} />
@@ -752,6 +985,8 @@ function SetupView({
 function ScanView({
   mode, model, slots, activeSlotIdx, scanInput, onScanInputChange, scanInputRef,
   scanError, setScanError, onSubmit, onSkip, onJump, showCamera, setShowCamera,
+  inputFocused, setInputFocused,
+  hidStatus, hidDeviceName, connectHidScanner, disconnectHidScanner,
 }: {
   mode: Mode; model: string;
   slots: UnitSlot[]; activeSlotIdx: number;
@@ -760,7 +995,13 @@ function ScanView({
   scanError: string; setScanError: (s: string) => void;
   onSubmit: (raw: string) => void; onSkip: () => void; onJump: (idx: number) => void;
   showCamera: boolean; setShowCamera: (b: boolean) => void;
+  inputFocused: boolean; setInputFocused: (b: boolean) => void;
+  hidStatus: 'unsupported' | 'idle' | 'connecting' | 'connected' | 'error';
+  hidDeviceName: string;
+  connectHidScanner: () => Promise<void>;
+  disconnectHidScanner: () => void;
 }) {
+  void model; void setScanError; // suppress unused-prop warnings in this view
   // Group slots by colour for visual structure (operator sees Black ×30,
   // White ×20 sections rather than a flat 100-row list).
   const grouped = useMemo(() => {
@@ -777,23 +1018,41 @@ function ScanView({
   const totalFilled = slots.filter(s => s.imei).length;
 
   return (
-    <div className="p-5 space-y-4">
-      {/* Scan input — the throughput-critical control */}
-      <div className="border border-slate-200 rounded-2xl p-4 bg-white shadow-sm">
-        <div className="flex items-center gap-2 mb-2">
+    <div className="p-4 md:p-5 space-y-3 md:space-y-4">
+      {/* Scan input — the throughput-critical control. On mobile the scan
+          input gets its own row, the Camera + Skip buttons land below; on
+          desktop everything stays on one row. text-base on the input prevents
+          iOS Safari from auto-zooming when the field is tapped. */}
+      <div className="border border-slate-200 rounded-2xl p-3 md:p-4 bg-white shadow-sm">
+        <div className="flex items-center gap-2 mb-2 flex-wrap">
           <ScanLine size={14} className="text-slate-500" />
           <p className="text-[10px] font-bold uppercase tracking-widest text-slate-600">
-            Scanning slot #{activeSlotIdx + 1} — {activeSlot?.colour || '—'}
+            Slot #{activeSlotIdx + 1} — {activeSlot?.colour || '—'}
           </p>
+          {/* Scanner status chip — three signals at a glance:
+              - HID paired (blue dot, device name): scanner output streams in
+                regardless of focus
+              - Input focused (green dot): focused-input keystrokes captured
+              - Input unfocused (amber dot): tap the field to start scanning
+              Tap the chip to pair / unpair a HID device (Chrome only). */}
+          <ScannerStatusChip
+            inputFocused={inputFocused}
+            hidStatus={hidStatus}
+            hidDeviceName={hidDeviceName}
+            onConnect={connectHidScanner}
+            onDisconnect={disconnectHidScanner}
+          />
           <span className="ml-auto text-[10px] font-mono text-slate-500">
             {totalFilled}/{slots.length}
           </span>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-col md:flex-row md:items-center gap-2">
           <input
             ref={scanInputRef}
             value={scanInput}
             onChange={e => onScanInputChange(e.target.value)}
+            onFocus={() => setInputFocused(true)}
+            onBlur={() => setInputFocused(false)}
             onKeyDown={(e) => {
               if (e.key === 'Enter') {
                 e.preventDefault();
@@ -803,37 +1062,43 @@ function ScanView({
                 onSkip();
               }
             }}
-            placeholder={`Click here and scan — auto-advances when IMEI complete`}
+            placeholder="Tap here · scan IMEI"
             inputMode="text"
             autoFocus
-            className={`flex-1 border rounded-lg px-3 py-2 text-[13px] font-mono focus:outline-none transition-colors ${
+            data-bulk-scan-control
+            className={`flex-1 border rounded-lg px-3 py-3 md:py-2 text-[16px] md:text-[13px] font-mono focus:outline-none transition-colors ${
               scanError ? 'border-rose-300 bg-rose-50 focus:border-rose-500' : 'border-slate-300 focus:border-slate-900'
             }`}
           />
-          <button
-            type="button" onClick={() => setShowCamera(!showCamera)}
-            title="Toggle camera scanner"
-            className={`p-2.5 rounded-lg border transition-all ${
-              showCamera ? 'bg-slate-900 text-white border-slate-900' : 'bg-white text-slate-500 border-slate-200 hover:border-slate-400'
-            }`}
-          >
-            <Camera size={14} />
-          </button>
-          <button
-            type="button" onClick={onSkip}
-            className="px-3 py-2 rounded-lg border border-slate-200 text-slate-600 text-[10px] font-bold uppercase tracking-widest hover:bg-slate-50"
-            title="Mark slot as skipped (Esc)"
-          >
-            Skip
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              type="button" onClick={() => setShowCamera(!showCamera)}
+              data-bulk-scan-control
+              title="Toggle camera scanner"
+              className={`p-2.5 rounded-lg border transition-all flex-shrink-0 ${
+                showCamera ? 'bg-slate-900 text-white border-slate-900' : 'bg-white text-slate-500 border-slate-200 hover:border-slate-400'
+              }`}
+            >
+              <Camera size={14} />
+            </button>
+            <button
+              type="button" onClick={onSkip}
+              data-bulk-scan-control
+              className="flex-1 md:flex-initial px-3 py-2.5 md:py-2 rounded-lg border border-slate-200 text-slate-600 text-[10px] font-bold uppercase tracking-widest hover:bg-slate-50"
+              title="Mark slot as skipped (Esc)"
+            >
+              Skip
+            </button>
+          </div>
         </div>
         {scanError && (
-          <p className="text-[10px] font-mono text-rose-600 mt-1.5 inline-flex items-center gap-1">
+          <p className="text-[11px] md:text-[10px] font-mono text-rose-600 mt-1.5 inline-flex items-center gap-1">
             <AlertCircle size={10} /> {scanError}
           </p>
         )}
-        <p className="text-[9px] font-mono text-slate-400 mt-1.5">
-          Click the field, then scan — the IMEI auto-submits as soon as the value matches a valid IMEI length, no Enter needed. Manual entry: type IMEI · Enter to submit · Esc to skip.
+        <p className="text-[10px] md:text-[9px] font-mono text-slate-400 mt-1.5 leading-relaxed">
+          Tap the field once, then scan — IMEI auto-submits when complete, no Enter needed.
+          {' '}Manual entry: type · Enter to submit · Esc to skip.
         </p>
       </div>
 
@@ -1047,17 +1312,82 @@ function ReviewView({
   );
 }
 
-// ── Shared cell wrapper ──────────────────────────────────────────────────────
-function FieldCell({
-  label, span, error, children,
-}: { label: string; span: number; error?: boolean; children: React.ReactNode }) {
-  const spanCls = ({
-    1: 'col-span-1', 2: 'col-span-2', 3: 'col-span-3', 4: 'col-span-4',
-    5: 'col-span-5', 6: 'col-span-6', 7: 'col-span-7', 8: 'col-span-8',
-    9: 'col-span-9', 10: 'col-span-10', 11: 'col-span-11', 12: 'col-span-12',
-  } as Record<number, string>)[span] || 'col-span-12';
+// ── Scanner status chip ─────────────────────────────────────────────────────
+// Compact status pill rendered in the scan toolbar. Three states matter to
+// the operator:
+//
+//   - HID paired:    blue dot, device name, tap to disconnect — scanner
+//                    output streams via WebHID regardless of focus.
+//   - Input focused: green dot "Ready" — keyboard-emulation scanner output
+//                    lands in the focused field.
+//   - Input blurred: amber dot "Tap input" — the document keystroke fallback
+//                    will catch a burst from anywhere on the page but the
+//                    operator should refocus for the best experience.
+//
+// When WebHID is supported but no device is paired we show a "Pair" button.
+// On unsupported browsers (Safari, iOS) we hide the WebHID controls entirely
+// since the focused-input path is fully functional there.
+function ScannerStatusChip({
+  inputFocused, hidStatus, hidDeviceName, onConnect, onDisconnect,
+}: {
+  inputFocused: boolean;
+  hidStatus: 'unsupported' | 'idle' | 'connecting' | 'connected' | 'error';
+  hidDeviceName: string;
+  onConnect: () => Promise<void>;
+  onDisconnect: () => void;
+}) {
+  if (hidStatus === 'connected') {
+    return (
+      <button
+        type="button"
+        onClick={onDisconnect}
+        data-bulk-scan-control
+        title={`HID scanner paired: ${hidDeviceName} — click to disconnect`}
+        className="inline-flex items-center gap-1 text-[10px] font-mono px-2 py-0.5 rounded-full bg-blue-50 border border-blue-200 text-blue-700 hover:bg-blue-100"
+      >
+        <span className="w-1.5 h-1.5 rounded-full bg-blue-500" />
+        <span className="truncate max-w-[160px]">{hidDeviceName || 'HID scanner'}</span>
+      </button>
+    );
+  }
   return (
-    <div className={spanCls}>
+    <div className="inline-flex items-center gap-2">
+      <span
+        className={`inline-flex items-center gap-1 text-[10px] font-mono px-2 py-0.5 rounded-full border ${
+          inputFocused
+            ? 'bg-emerald-50 border-emerald-200 text-emerald-700'
+            : 'bg-amber-50 border-amber-200 text-amber-700'
+        }`}
+        title={inputFocused ? 'Scanner ready — keystrokes land in the focused input' : 'Tap the input field to start scanning'}
+      >
+        <span className={`w-1.5 h-1.5 rounded-full ${inputFocused ? 'bg-emerald-500' : 'bg-amber-500'}`} />
+        {inputFocused ? 'Ready' : 'Tap input'}
+      </span>
+      {hidStatus !== 'unsupported' && (
+        <button
+          type="button"
+          onClick={onConnect}
+          disabled={hidStatus === 'connecting'}
+          data-bulk-scan-control
+          title="Pair a USB HID barcode scanner directly — capture works without focus"
+          className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-white border border-slate-200 text-slate-600 hover:bg-slate-50 disabled:opacity-50"
+        >
+          {hidStatus === 'connecting' ? 'Pairing…' : hidStatus === 'error' ? 'Retry pair' : 'Pair USB'}
+        </button>
+      )}
+    </div>
+  );
+}
+
+// ── Shared cell wrapper ──────────────────────────────────────────────────────
+// Width is owned by the caller via `className` (mobile-first: pass
+// `col-span-2 md:col-span-3` to occupy the full mobile row but only 3 cols
+// of the desktop 12-col grid).
+function FieldCell({
+  label, className = '', error, children,
+}: { label: string; className?: string; error?: boolean; children: React.ReactNode }) {
+  return (
+    <div className={className}>
       <label className={`text-[9px] font-bold uppercase tracking-widest block mb-0.5 ${error ? 'text-rose-600' : 'text-slate-500'}`}>{label}</label>
       {children}
     </div>
