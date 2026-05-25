@@ -59,6 +59,31 @@ interface StockRow {
   /** When true the operator has manually edited Storage; we stop auto-syncing
    *  it from Model so their override sticks. */
   storageTouched?: boolean;
+  /** When true, the Colour dropdown is on "Other" and a freeform input is
+   *  rendered alongside it. Carried as form state so a pasted non-preset
+   *  colour (or a manually-typed one) survives a re-render without us
+   *  having to re-derive it from row.colour every time. */
+  colourOther?: boolean;
+}
+
+/** Closed set of colour presets shown in the Add Stock dropdown. Anything
+ *  outside this list lands the row on "Other" with a freeform input — same
+ *  pattern the operator uses on paper. Comparison is case-insensitive on
+ *  read; values written back to the row preserve the canonical casing
+ *  here (so two paste sources can't fork into "BLACK" vs "Black" buckets). */
+const COLOUR_PRESETS = ['Black', 'White', 'Grey', 'Blue'] as const;
+type ColourPreset = typeof COLOUR_PRESETS[number];
+
+/** True when `s` matches one of COLOUR_PRESETS case-insensitively. */
+function isPresetColour(s: string): boolean {
+  const lower = s.trim().toLowerCase();
+  return COLOUR_PRESETS.some(p => p.toLowerCase() === lower);
+}
+
+/** Return the canonical-cased preset that matches `s`, or undefined. */
+function canonicalColour(s: string): ColourPreset | undefined {
+  const lower = s.trim().toLowerCase();
+  return COLOUR_PRESETS.find(p => p.toLowerCase() === lower);
 }
 
 const uid = () => Math.random().toString(36).slice(2, 9);
@@ -129,7 +154,15 @@ export function parsePastedStockRow(text: string):
   if (imei)     patch.imei         = imei;
   if (bp)       patch.buyPrice     = bp;
   if (grade)    patch.grade        = grade;
-  if (colour)   patch.colour       = colour;
+  if (colour) {
+    // Canonicalise to the preset casing when it matches one (so paste
+    // "BLACK" and a dropdown pick of "Black" bucket to the same row);
+    // otherwise keep the operator's text verbatim and flip the row to
+    // the "Other" colour mode so the freeform input renders.
+    const canonical = canonicalColour(colour);
+    patch.colour      = canonical ?? colour;
+    patch.colourOther = !canonical;
+  }
   if (supplier) patch.supplierName = supplier;
   if (notes)    patch.notes        = notes;
   if (storage) {
@@ -910,12 +943,42 @@ function Row({
           </select>
         </Cell>
         <Cell label="Colour" colSpan={3}>
-          <input
-            value={row.colour}
-            onChange={e => onChange({ colour: e.target.value })}
-            placeholder="e.g. Space Grey"
-            className="w-full border border-gray-200 rounded-lg px-2.5 py-1.5 text-[12px] focus:outline-none focus:border-black"
-          />
+          {/* Dropdown of the four preset colours plus an "Other" escape
+              hatch that reveals a freeform input directly below. Operator
+              picks Black/White/Grey/Blue 95% of the time; the freeform
+              row stays out of the way until they need it. The colourOther
+              flag persists on the row so paste / re-render keeps the
+              freeform mode if that's what the operator chose. */}
+          <select
+            value={row.colourOther ? '__other__' : (canonicalColour(row.colour) ?? '')}
+            onChange={e => {
+              const v = e.target.value;
+              if (v === '__other__') {
+                // Stay on Other; preserve whatever's already typed (could
+                // be a non-preset value from paste or a stale preset that
+                // the operator wants to refine).
+                onChange({ colourOther: true });
+              } else if (v === '') {
+                onChange({ colour: '', colourOther: false });
+              } else {
+                onChange({ colour: v, colourOther: false });
+              }
+            }}
+            className="w-full border border-gray-200 rounded-lg px-2.5 py-1.5 text-[12px] focus:outline-none focus:border-black bg-white"
+          >
+            <option value="">—</option>
+            {COLOUR_PRESETS.map(c => <option key={c} value={c}>{c}</option>)}
+            <option value="__other__">Other</option>
+          </select>
+          {(row.colourOther || (row.colour !== '' && !isPresetColour(row.colour))) && (
+            <input
+              value={row.colour}
+              onChange={e => onChange({ colour: e.target.value, colourOther: true })}
+              placeholder="Type custom colour (e.g. Space Grey)"
+              autoFocus={row.colourOther && row.colour === ''}
+              className="mt-1 w-full border border-gray-200 rounded-lg px-2.5 py-1.5 text-[12px] focus:outline-none focus:border-black"
+            />
+          )}
         </Cell>
         <Cell label="Supplier *" colSpan={4}>
           <input
