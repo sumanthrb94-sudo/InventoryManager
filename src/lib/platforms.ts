@@ -72,10 +72,16 @@ export const DEFAULT_MARKETPLACE_FEES: Record<Marketplace, MarketplaceFee> = {
   },
   ONBUY: {
     marketplace: 'ONBUY',
-    commissionPct: 7.00,
-    postage: 8.00,
+    // 2026-05 operator schema: same per-line VAT shape as Amazon/eBay
+    // (line VAT on Commission + Postage VAT + flat Accessories), but no
+    // FVF / ROF / Marketing / DSF lines. Postage operator-entered; the
+    // .postage default below is just a fallback. GP% divides by BP
+    // (same convention as Amazon).
+    commissionPct: 7,
+    postage: 0,
     marginTaxDivisor: 6,
     vatPct: 20,
+    accessoryFee: 1,
   },
 };
 
@@ -284,7 +290,12 @@ export function calcSaleFinancials(input: CalcSaleFinancialsInput): SaleFinancia
       const commissionBaseVal = (fee.commissionBase ?? 'spMinusBp') === 'sp' ? sp : spMinusBp;
       const accessoryFeeVal = fee.accessoryFee ?? 0;
 
-      const marginalTaxRaw   = spMinusBp / (fee.marginTaxDivisor ?? 6);
+      // Marginal Tax uses the literal 16.67% rate (operator's reference
+      // sheet writes =C3*16.67% across Amazon / eBay / OnBuy — all three
+      // platforms agree on this formula, but the percent is hard-coded
+      // rather than 1/6 so the third-decimal drift between the two is
+      // preserved 1:1 with Excel).
+      const marginalTaxRaw   = spMinusBp * 16.67 / 100;
       const commissionRaw    = commissionBaseVal * fee.commissionPct / 100;
       const commissionVatRaw = commissionRaw * vatPctFrac;
       const dsfRaw           = commissionRaw * dsfPctFrac;
@@ -436,29 +447,64 @@ export function calcSaleFinancials(input: CalcSaleFinancialsInput): SaleFinancia
     }
 
     case 'ONBUY': {
-      // Full-precision intermediates, round only at return.
-      //   MAR VAT = (SP-BP) / 6
-      //   COM 7%  = SP * 7%
-      //   VAT 20% = MAR VAT * 20%
-      //   GP      = SP - BP - COM - SHIP - MAR VAT - VAT20
-      //   GP%     = GP / SP * 100   (ONBUY master uses col G which is
-      //                              SP on this sheet — no Qty column
-      //                              shifts the layout)
-      const marVatRaw     = spMinusBp / (fee.marginTaxDivisor ?? 6);
-      const commissionRaw = sp * fee.commissionPct / 100;
-      const vat20Raw      = marVatRaw * (fee.vatPct ?? 20) / 100;
-      const grossProfitRaw = sp - bp - commissionRaw - postage - marVatRaw - vat20Raw;
-      const gpPercentRaw   = sp > 0 ? grossProfitRaw / sp * 100 : 0;
-      const marVatRounded = r2(marVatRaw);
+      // 2026-05 operator schema, verified cell-by-cell against the
+      // reference Google Sheet (Formula Sheet-2 OnBuy tab). 13 operator
+      // cols (BP through Total VAT NTP):
+      //
+      //   A=BP, B=SP, C=SP-BP, D=Marginal Tax, E=Commission, F=VAT 20%,
+      //   G=Postage, H=P. VAT, I=Accessories, J=Total VAT, K=GP,
+      //   L=GP %, M=Total VAT NTP
+      //
+      // Formulas (full-precision intermediates, r2 only at return):
+      //
+      //   spMinusBp     = SP − BP
+      //   marginalTax   = (SP − BP) × 16.67%           =C3*16.67%
+      //   commission    = SP × 7%                       =B3*7%
+      //   vat20         = commission × 20%              =E3*20%
+      //                                                (NOTE: this is VAT
+      //                                                on the Commission line,
+      //                                                NOT on the margin —
+      //                                                distinct from the old
+      //                                                "MAR VAT × 20%" pattern.)
+      //   postage       = operator-entered
+      //   postageVat    = postage × 20%                 =G3*20%
+      //   accessoryFee  = 1 flat
+      //   totalVat      = vat20 + postageVat            =F3+H3
+      //   grossProfit   = (SP-BP) − marginalTax − commission − vat20
+      //                   − postage − postageVat − accessoryFee
+      //                                                =C3-D3-E3-F3-G3-H3-I3
+      //   totalVatNtp   = marginalTax − totalVat        =D3-J3
+      //   gpPercent     = GP / BP × 100                 =K3/A3*100
+      //                                                (Amazon convention,
+      //                                                distinct from eBay's
+      //                                                GP/SP).
+      const vatPctFrac = (fee.vatPct ?? 20) / 100;
+      const accessoryFeeVal = fee.accessoryFee ?? 0;
+
+      const marginalTaxRaw  = spMinusBp * 16.67 / 100;
+      const commissionRaw   = sp * fee.commissionPct / 100;
+      const vat20Raw        = commissionRaw * vatPctFrac;
+      const postageVatRaw   = postage * vatPctFrac;
+      const totalVatRaw     = vat20Raw + postageVatRaw;
+      const grossProfitRaw  = spMinusBp - marginalTaxRaw - commissionRaw - vat20Raw
+        - postage - postageVatRaw - accessoryFeeVal;
+      const totalVatNtpRaw  = marginalTaxRaw - totalVatRaw;
+      const gpPercentRaw    = bp > 0 ? grossProfitRaw / bp * 100 : 0;
+
+      const marginalTaxRounded = r2(marginalTaxRaw);
       return {
         spMinusBp,
-        marginalTax: marVatRounded,
-        marVat:      marVatRounded,
-        commission:  r2(commissionRaw),
-        vat20:       r2(vat20Raw),
+        marginalTax:  marginalTaxRounded,
+        marVat:       marginalTaxRounded,     // legacy alias
+        commission:   r2(commissionRaw),
+        vat20:        r2(vat20Raw),
         postage,
-        grossProfit: r2(grossProfitRaw),
-        gpPercent:   r2(gpPercentRaw),
+        postageVat:   r2(postageVatRaw),
+        accessoryFee: r2(accessoryFeeVal),
+        totalVat:     r2(totalVatRaw),
+        totalVatNtp:  r2(totalVatNtpRaw),
+        grossProfit:  r2(grossProfitRaw),
+        gpPercent:    r2(gpPercentRaw),
       };
     }
   }
@@ -491,7 +537,7 @@ export function excelFormulaFor(marketplace: Marketplace, row: number): Record<s
       const commissionBase = (fee.commissionBase ?? 'spMinusBp') === 'sp' ? `H${r}` : `I${r}`;
       return {
         spMinusBp:     `H${r}-G${r}`,
-        marginalTax:   `I${r}/${fee.marginTaxDivisor ?? 6}`,
+        marginalTax:   `I${r}*16.67%`,
         commission:    `${commissionBase}/100*${fee.commissionPct}`,
         commissionVat: `K${r}*${vatPct}%`,
         dsf:           `K${r}*${dsfPct}%`,
@@ -551,15 +597,23 @@ export function excelFormulaFor(marketplace: Marketplace, row: number): Record<s
       };
     }
     case 'ONBUY': {
-      // Headers: ... F=BP, G=SP, H=SP-BP, I=MAR VAT, J=COM 7%, K=VAT 20%, L=SHIP, M=GP, N=GP%
+      // 2026-05 schema. 19 export cols total:
+      //   A=Date, B=Order Number, C=SKU, D=IMEI, E=Supplier,
+      //   F=BP, G=SP, H=SP-BP, I=Marginal Tax, J=Commission, K=VAT 20%,
+      //   L=Postage, M=P. VAT, N=Accessories, O=Total VAT, P=GP,
+      //   Q=GP %, R=Total VAT NTP, S=Comments
+      const vatPct = fee.vatPct ?? 20;
       return {
-        spMinusBp:   `G${r}-F${r}`,
-        marVat:      `H${r}/${fee.marginTaxDivisor ?? 6}`,
-        commission:  `G${r}*${fee.commissionPct}%`,
-        vat20:       `I${r}*${fee.vatPct ?? 20}%`,
-        postage:     `${fee.postage}`,
-        grossProfit: `G${r}-F${r}-J${r}-K${r}-L${r}-I${r}`,
-        gpPercent:   `M${r}/G${r}*100`,
+        spMinusBp:    `G${r}-F${r}`,
+        marginalTax:  `H${r}*16.67%`,
+        commission:   `G${r}*${fee.commissionPct}%`,
+        vat20:        `J${r}*${vatPct}%`,
+        postageVat:   `L${r}*${vatPct}%`,
+        accessoryFee: `${fee.accessoryFee ?? 0}`,
+        totalVat:     `K${r}+M${r}`,
+        grossProfit:  `H${r}-I${r}-J${r}-K${r}-L${r}-M${r}-N${r}`,
+        gpPercent:    `P${r}/F${r}*100`,
+        totalVatNtp:  `I${r}-O${r}`,
       };
     }
   }
