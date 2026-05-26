@@ -33,14 +33,15 @@ import { MARKETPLACES } from '../types';
 export const DEFAULT_MARKETPLACE_FEES: Record<Marketplace, MarketplaceFee> = {
   AMAZON: {
     marketplace: 'AMAZON',
-    // Operator's 2026-05 schema move: Commission is 7% of (SP - BP), NOT
-    // 7.14% of SP as in the legacy spec. Plus a full VAT/DSF/accessory
-    // breakdown on every Amazon line. Postage is operator-entered per
-    // sale (the .postage default below is only used when the caller doesn't
-    // supply postageOverride). See calcSaleFinancials.AMAZON for the
-    // ordered formula chain.
+    // Operator's 2026-05 schema move: Commission is 7% of SP (standard
+    // Amazon marketplace fee on the sale price — was 7.14% × SP before).
+    // Every Amazon line carries a VAT/DSF/accessory breakdown derived
+    // from Commission, so changing the commission base shifts the whole
+    // chain (C.VAT = Com×20%, DSF = Com×2%, DSF VAT = DSF×20%) in lock-step.
+    // Postage is operator-entered per sale (.postage below is the fallback
+    // when the caller doesn't supply postageOverride).
     commissionPct: 7,
-    commissionBase: 'spMinusBp',
+    commissionBase: 'sp',
     postage: 0,
     marginTaxDivisor: 6,
     vatPct: 20,
@@ -221,7 +222,7 @@ export function calcSaleFinancials(input: CalcSaleFinancialsInput): SaleFinancia
       // operator's reference sheet):
       //   spMinusBp     = SP − BP
       //   marginalTax   = spMinusBp × (1 / 6)              ≈ 16.67% of margin
-      //   commission    = spMinusBp × commissionPct / 100  (7% of margin, NOT of SP)
+      //   commission    = SP × commissionPct / 100         (7% of SP — fee.commissionBase='sp')
       //   commissionVat = commission × vatPct / 100         (20% by default)
       //   dsf           = commission × dsfPct / 100         (2% by default)
       //   dsfVat        = dsf × vatPct / 100                (20%)
