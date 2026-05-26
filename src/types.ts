@@ -257,10 +257,15 @@ export interface Sale {
   commissionVat?: number;        // Amazon: Commission * 20%
   dsf?: number;                  // Amazon: Digital Services Fee = Commission * 2%
   dsfVat?: number;               // Amazon: DSF * 20%
-  postageVat?: number;           // Amazon: Postage * 20%
-  accessoryFee?: number;         // Amazon: flat £1 accessories charge
+  postageVat?: number;           // Amazon + eBay: Postage * 20%
+  accessoryFee?: number;         // Amazon + eBay: flat £1 accessories charge
   totalVat?: number;             // Amazon: Commission VAT + DSF VAT + Postage VAT
-  totalVatNtp?: number;          // Amazon: Marginal Tax − Total VAT (net tax payable)
+                                 // eBay: VAT + P. VAT + M. VAT (the eBay VAT bundle is the (Com+ROF+FVF)*20% one)
+  totalVatNtp?: number;          // Amazon + eBay: Marginal Tax − Total VAT (net tax payable)
+  // eBay-only: 2026-05 schema replaces the old "promo as % of SP" model with
+  // an operator-entered Marketing line + its own VAT.
+  marketing?: number;            // eBay: operator-entered marketing/promo £
+  marketingVat?: number;         // eBay: Marketing * 20%
   postage: number;
   grossProfit: number;
   gpPercent: number;

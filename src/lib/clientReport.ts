@@ -267,9 +267,10 @@ const SALES_HEADERS: Record<Marketplace, SalesHeaderRow> = {
     'GP = SP-BP-TAX-COM-POS-P COM', 'GP %', 'Comments',
   ],
   EBAY: [
-    'DATE', 'ORDER NUMBER', 'SKU', 'IMEI NUMBER', 'SUPPLIER', 'UNITS',
-    'BP', 'SP', 'SP-BP', 'MAR TAX', 'COM', 'ROF', 'FVF', 0.2,
-    'T.COM', 'SHIPPING', 'GP', 'GP%', 'NP(incl. PROMOTION)',
+    'Date', 'Order Number', 'SKU', 'IMEI', 'Supplier', 'Units',
+    'BP', 'SP', 'SP-BP', 'Marginal Tax', 'Commission', 'ROF', 'FVF', 'VAT',
+    'T.COM', 'Postage', 'P. VAT', 'Marketing', 'M. VAT', 'Accessories',
+    'Total VAT', 'GP', 'GP %', 'Total VAT NTP', 'Comments',
   ],
   ONBUY: [
     'DATE', 'Order Number', 'SKU', 'IMEI', 'Supplier',
@@ -360,31 +361,53 @@ function writeSaleRow(
     }
 
     case 'EBAY': {
-      // SHIPPING column is base value (1, 2 or 8). Default to fee.postage (8).
-      const shipping = sale.postage ?? 8;
+      // 2026-05 schema, 25 cols. Postage + Accessories carry literal values;
+      // Marketing defaults to a formula (operator's =B3*5% convention) so
+      // edits to SP cascade into Marketing without operator intervention,
+      // but if a caller passed an explicit `sale.marketing` we honour the
+      // literal value instead. Everything else computes via formulas so
+      // the operator can audit in Excel.
+      //   A=Date,B=OrderNo,C=SKU,D=IMEI,E=Supplier,F=Units,
+      //   G=BP,H=SP,I=SP-BP,J=MarTax,K=Com,L=ROF,M=FVF,N=VAT,O=T.COM,
+      //   P=Postage,Q=P.VAT,R=Marketing,S=M.VAT,T=Acc,U=TotVAT,V=GP,
+      //   W=GP%,X=TotVAT NTP,Y=Comments
+      const hasExplicitMarketing = typeof sale.marketing === 'number';
       const row = sheet.addRow([
         date, sale.orderNumber, sale.sku ?? '', sale.imei ?? '',
         sale.supplierName ?? '', qty,
         sale.buyPrice, sale.salePrice,
-        null, null, null, null, null, null, null,
-        shipping,
-        null, null, null,
+        null, null, null, null, null, null, null,    // SP-BP, MarTax, Com, ROF, FVF, VAT, T.COM
+        sale.postage ?? null,                        // Postage
+        null,                                        // P. VAT (formula)
+        hasExplicitMarketing ? sale.marketing : null, // Marketing — literal or formula
+        null,                                        // M. VAT (formula)
+        sale.accessoryFee ?? Number(f.accessoryFee ?? 1),  // Accessories
+        null, null, null, null,                      // Total VAT, GP, GP%, Total VAT NTP
+        sale.comments ?? '',
       ]);
       row.getCell(1).numFmt = DATE_FMT;
       row.getCell(4).numFmt = IMEI_FMT;
-      row.getCell(7).numFmt = MONEY_FMT;
-      row.getCell(8).numFmt = MONEY_FMT;
-      row.getCell(9).value  = { formula: f.spMinusBp! };     row.getCell(9).numFmt  = MONEY_FMT;
-      row.getCell(10).value = { formula: f.marTax! };        row.getCell(10).numFmt = MONEY_FMT;
-      row.getCell(11).value = { formula: f.commission! };    row.getCell(11).numFmt = MONEY_FMT;
-      row.getCell(12).value = { formula: f.rof! };           row.getCell(12).numFmt = MONEY_FMT;
-      row.getCell(13).value = Number(f.fvf);                 row.getCell(13).numFmt = MONEY_FMT;
-      row.getCell(14).value = { formula: f.twentyPercent! }; row.getCell(14).numFmt = MONEY_FMT;
-      row.getCell(15).value = { formula: f.totalCom! };      row.getCell(15).numFmt = MONEY_FMT;
-      row.getCell(16).numFmt = MONEY_FMT;                    // SHIPPING base value
-      row.getCell(17).value = { formula: f.grossProfit! };   row.getCell(17).numFmt = MONEY_FMT;
-      row.getCell(18).value = { formula: f.gpPercent! };     row.getCell(18).numFmt = MONEY_FMT;
-      row.getCell(19).value = { formula: f.netProfit! };     row.getCell(19).numFmt = MONEY_FMT;
+      row.getCell(7).numFmt = MONEY_FMT;            // BP
+      row.getCell(8).numFmt = MONEY_FMT;            // SP
+      row.getCell(9).value  = { formula: f.spMinusBp! };    row.getCell(9).numFmt  = MONEY_FMT;
+      row.getCell(10).value = { formula: f.marginalTax! };  row.getCell(10).numFmt = MONEY_FMT;
+      row.getCell(11).value = { formula: f.commission! };   row.getCell(11).numFmt = MONEY_FMT;
+      row.getCell(12).value = { formula: f.rof! };          row.getCell(12).numFmt = MONEY_FMT;
+      row.getCell(13).value = Number(f.fvf);                row.getCell(13).numFmt = MONEY_FMT;
+      row.getCell(14).value = { formula: f.vat20! };        row.getCell(14).numFmt = MONEY_FMT;
+      row.getCell(15).value = { formula: f.totalCom! };     row.getCell(15).numFmt = MONEY_FMT;
+      row.getCell(16).numFmt = MONEY_FMT;                   // Postage (literal above)
+      row.getCell(17).value = { formula: f.postageVat! };   row.getCell(17).numFmt = MONEY_FMT;
+      if (!hasExplicitMarketing) {
+        row.getCell(18).value = { formula: f.marketing! };
+      }
+      row.getCell(18).numFmt = MONEY_FMT;                   // Marketing
+      row.getCell(19).value = { formula: f.marketingVat! }; row.getCell(19).numFmt = MONEY_FMT;
+      row.getCell(20).numFmt = MONEY_FMT;                   // Accessories (literal above)
+      row.getCell(21).value = { formula: f.totalVat! };     row.getCell(21).numFmt = MONEY_FMT;
+      row.getCell(22).value = { formula: f.grossProfit! };  row.getCell(22).numFmt = MONEY_FMT;
+      row.getCell(23).value = { formula: f.gpPercent! };    row.getCell(23).numFmt = MONEY_FMT;
+      row.getCell(24).value = { formula: f.totalVatNtp! };  row.getCell(24).numFmt = MONEY_FMT;
       return;
     }
 

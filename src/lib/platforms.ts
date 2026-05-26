@@ -57,13 +57,18 @@ export const DEFAULT_MARKETPLACE_FEES: Record<Marketplace, MarketplaceFee> = {
   },
   EBAY: {
     marketplace: 'EBAY',
-    commissionPct: 6.90,
-    commissionReductionPct: 10,
+    // 2026-05 operator schema: commission is the post-reduction effective
+    // rate (6.21% = 6.9% − 10%) baked into a single percentage, and the
+    // old promo-as-%-of-SP convention is replaced by an operator-entered
+    // Marketing line carried on the Sale doc. Default postage is 0
+    // (operator-entered per sale like Amazon).
+    commissionPct: 6.21,
     fixedFee: 0.40,
-    postage: 8.00,
+    postage: 0,
+    marginTaxDivisor: 6,
     rofPct: 0.35,
     vatPct: 20,
-    promoPct: 5,
+    accessoryFee: 1,
   },
   ONBUY: {
     marketplace: 'ONBUY',
@@ -141,6 +146,10 @@ export interface CalcSaleFinancialsInput {
   eBayShippingTier?: 1 | 2 | 8;
   /** BM only — apply 2.5% PayPal/Klarna commission on top. */
   hasPayPalKlarna?: boolean;
+  /** eBay only — operator-entered marketing/promo £ for this sale.
+   *  Replaces the old `promoPct × SP` convention; the operator can spend
+   *  anything from £0 upwards per line. */
+  marketing?: number;
 }
 
 export interface SaleFinancials {
@@ -158,10 +167,13 @@ export interface SaleFinancials {
   commissionVat?: number;     // Amazon: Commission * vatPct
   dsf?: number;               // Amazon: Commission * dsfPct
   dsfVat?: number;            // Amazon: DSF * vatPct
-  postageVat?: number;        // Amazon: Postage * vatPct
-  accessoryFee?: number;      // Amazon: flat fee.accessoryFee
-  totalVat?: number;          // Amazon: CommissionVAT + DSF VAT + Postage VAT
-  totalVatNtp?: number;       // Amazon: Marginal Tax − Total VAT (net tax payable)
+  postageVat?: number;        // Amazon + eBay: Postage * vatPct
+  accessoryFee?: number;      // Amazon + eBay: flat fee.accessoryFee
+  totalVat?: number;          // Amazon: CVAT + DSF VAT + P VAT.  eBay: VAT + P VAT + M VAT.
+  totalVatNtp?: number;       // Amazon + eBay: Marginal Tax − Total VAT (net tax payable)
+  // eBay-only: 2026-05 marketing line + its VAT.
+  marketing?: number;         // eBay: operator-entered marketing £
+  marketingVat?: number;      // eBay: marketing * vatPct
   postage: number;
   grossProfit: number;
   gpPercent: number;
@@ -289,39 +301,99 @@ export function calcSaleFinancials(input: CalcSaleFinancialsInput): SaleFinancia
     }
 
     case 'EBAY': {
-      // MAR TAX uses the eBay-specific 16.6% rate (= 1/6 expressed as a %).
-      // Spec line: `MAR TAX = I*16.6%` where I = SP-BP.
-      const marginalTax = r2(spMinusBp * 16.6 / 100);
+      // 2026-05 operator schema, verified cell-by-cell against the operator's
+      // reference Google Sheet (Formula Sheet-2). 18-column master row
+      // (preceded by Date / OrderNo / SKU / IMEI / Supplier / Units on the
+      // export sheet):
+      //
+      //   A=BP, B=SP, C=SP-BP, D=Marginal Tax, E=Commission, F=ROF, G=FVF,
+      //   H=VAT, I=T.COM, J=Postage, K=P. VAT, L=Marketing, M=M. VAT,
+      //   N=Accessories, O=Total VAT, P=GP, Q=GP %, R=Total VAT NTP
+      //
+      // Formula chain — every intermediate raw, round only at return
+      // (same "Excel computes precise, displays rounded" reasoning as the
+      // AMAZON case fix):
+      //
+      //   spMinusBp     = SP − BP
+      //   marginalTax   = (SP − BP) × 16.67%           Operator's literal cell:
+      //                                                =C3*16.67%  (NOT /6 — the
+      //                                                two diverge at the 3rd
+      //                                                decimal and that drift
+      //                                                propagates into GP / NTP).
+      //   commission    = SP × 6.21%                    Operator's literal cell:
+      //                                                =(B3*6.9%)-(B3*6.9%)*10%
+      //                                                (we collapse to the
+      //                                                equivalent 6.21% rate
+      //                                                in the calc; the Excel
+      //                                                emitter still writes
+      //                                                the verbose form so the
+      //                                                operator's audit trail
+      //                                                shows the reduction).
+      //   rof           = SP × 0.35%
+      //   fvf           = 0.40                          flat
+      //   vat           = (commission + rof + fvf) × 20%
+      //   tCom          = commission + rof + fvf + vat
+      //   postageVat    = postage × 20%
+      //   marketing     = SP × 5%                       Operator's literal cell:
+      //                                                =B3*5%  (DERIVED from SP,
+      //                                                not operator-entered;
+      //                                                callers can still
+      //                                                override via
+      //                                                input.marketing for the
+      //                                                rare hand-set spends).
+      //   marketingVat  = marketing × 20%
+      //   totalVat      = vat + postageVat + marketingVat
+      //   grossProfit   = (SP-BP) − marginalTax − tCom − postage − postageVat
+      //                   − marketing − marketingVat − accessoryFee
+      //   totalVatNtp   = marginalTax − totalVat
+      //   gpPercent     = GP / SP × 100                 Operator's GP cell
+      //                                                divides by SP (col H), so
+      //                                                this is gross-margin-over-
+      //                                                revenue. Distinct from
+      //                                                Amazon's GP/BP convention.
+      const vatPctFrac = (fee.vatPct ?? 20) / 100;
+      const accessoryFeeVal = fee.accessoryFee ?? 0;
+      // Marketing defaults to 5% of SP (matches the operator's =B3*5% cell);
+      // callers can supply an explicit number to override for the rare
+      // hand-set spend.
+      const marketingVal = input.marketing ?? (sp * 0.05);
 
-      const comGross  = sp * fee.commissionPct / 100;            // SP*6.9%
-      const reduction = comGross * (fee.commissionReductionPct ?? 0) / 100;
-      const commission = r2(comGross - reduction);              // (SP*6.9%) - (SP*6.9%)*10%
+      const marginalTaxRaw   = spMinusBp * 16.67 / 100;
+      const commissionRaw    = sp * fee.commissionPct / 100;
+      const rofRaw           = sp * (fee.rofPct ?? 0) / 100;
+      const fvfRaw           = fee.fixedFee ?? 0;
+      const vatRaw           = (commissionRaw + rofRaw + fvfRaw) * vatPctFrac;
+      const tComRaw          = commissionRaw + rofRaw + fvfRaw + vatRaw;
+      const postageVatRaw    = postage * vatPctFrac;
+      const marketingVatRaw  = marketingVal * vatPctFrac;
+      const totalVatRaw      = vatRaw + postageVatRaw + marketingVatRaw;
+      const grossProfitRaw   = spMinusBp - marginalTaxRaw - tComRaw - postage - postageVatRaw
+        - marketingVal - marketingVatRaw - accessoryFeeVal;
+      const totalVatNtpRaw   = marginalTaxRaw - totalVatRaw;
+      const gpPercentRaw     = sp > 0 ? grossProfitRaw / sp * 100 : 0;
 
-      const rof = r2(sp * (fee.rofPct ?? 0) / 100);             // SP*0.35%
-      const fvf = r2(fee.fixedFee ?? 0);                        // 0.40
-
-      // `0.2` column (literal numeric header in the workbook) = 20% on the
-      // (COM + ROF + FVF) bundle. The master sheet's formula
-      // `=(K+L+M)*20%` references the already-displayed (rounded) cells,
-      // so we use the rounded intermediates here too — drift would only
-      // appear if Excel were configured to use precision-as-displayed off,
-      // which the master workbook is not.
-      const twentyPercent = r2((commission + rof + fvf) * ((fee.vatPct ?? 20) / 100));
-      const totalCom      = r2(commission + rof + fvf + twentyPercent);
-
-      // GP = I - J - O - P  → (SP-BP) - MAR TAX - T.COM - SHIPPING
-      const grossProfit = r2(spMinusBp - marginalTax - totalCom - postage);
-      // EBAY is the only marketplace whose GP% master formula divides by SP.
-      const gpPercent   = gpPctBySp(grossProfit);
-
-      // NP(incl. PROMOTION) = GP - SP*5%
-      const netProfit = r2(grossProfit - sp * (fee.promoPct ?? 0) / 100);
-
+      const vatRounded = r2(vatRaw);
       return {
-        spMinusBp, marginalTax, commission,
-        rof, fvf, twentyPercent, totalCom,
-        vat20: twentyPercent,
-        postage, grossProfit, gpPercent, netProfit,
+        spMinusBp,
+        marginalTax:   r2(marginalTaxRaw),
+        commission:    r2(commissionRaw),
+        rof:           r2(rofRaw),
+        fvf:           r2(fvfRaw),
+        // The eBay "VAT" column has historically been mirrored under both
+        // `vat20` (OnBuy-style alias) and `twentyPercent` (eBay-style alias)
+        // — keep both populated so existing UI surfaces don't go dark.
+        vat20:         vatRounded,
+        twentyPercent: vatRounded,
+        totalCom:      r2(tComRaw),
+        postage,
+        postageVat:    r2(postageVatRaw),
+        marketing:     r2(marketingVal),
+        marketingVat:  r2(marketingVatRaw),
+        accessoryFee:  r2(accessoryFeeVal),
+        totalVat:      r2(totalVatRaw),
+        totalVatNtp:   r2(totalVatNtpRaw),
+        grossProfit:   r2(grossProfitRaw),
+        gpPercent:     r2(gpPercentRaw),
       };
     }
 
@@ -405,19 +477,32 @@ export function excelFormulaFor(marketplace: Marketplace, row: number): Record<s
       };
     }
     case 'EBAY': {
-      // Headers: ... G=BP, H=SP, I=SP-BP, J=MAR TAX, K=COM, L=ROF, M=FVF,
-      //          N=0.2 (20% bundle), O=T.COM, P=SHIPPING, Q=GP, R=GP%, S=NP
+      // 2026-05 schema, formulas mirror the operator's reference sheet
+      // verbatim (Marginal Tax × 16.67%, Commission via the explicit
+      // 6.9% − 10% reduction so the audit trail shows the legacy fee
+      // structure, Marketing derived from SP × 5%, GP % divides by SP).
+      // 25 export columns total. Sale-line columns:
+      //   A=Date, B=OrderNo, C=SKU, D=IMEI, E=Supplier, F=Units,
+      //   G=BP, H=SP, I=SP-BP, J=Marginal Tax, K=Commission, L=ROF, M=FVF,
+      //   N=VAT, O=T.COM, P=Postage, Q=P. VAT, R=Marketing, S=M. VAT,
+      //   T=Accessories, U=Total VAT, V=GP, W=GP %, X=Total VAT NTP, Y=Comments
+      const vatPct = fee.vatPct ?? 20;
       return {
-        spMinusBp:     `H${r}-G${r}`,
-        marTax:        `I${r}*16.6%`,
-        commission:    `(H${r}*${fee.commissionPct}%)-(H${r}*${fee.commissionPct}%)*${fee.commissionReductionPct ?? 10}%`,
-        rof:           `H${r}*${fee.rofPct ?? 0.35}%`,
-        fvf:           `${fee.fixedFee ?? 0.4}`,
-        twentyPercent: `(K${r}+L${r}+M${r})*${fee.vatPct ?? 20}%`,
-        totalCom:      `K${r}+L${r}+M${r}+N${r}`,
-        grossProfit:   `I${r}-J${r}-O${r}-P${r}`,
-        gpPercent:     `Q${r}/H${r}*100`,
-        netProfit:     `Q${r}-H${r}*${fee.promoPct ?? 5}%`,
+        spMinusBp:    `H${r}-G${r}`,
+        marginalTax:  `I${r}*16.67%`,
+        commission:   `(H${r}*6.9%)-(H${r}*6.9%)*10%`,
+        rof:          `H${r}*${fee.rofPct ?? 0.35}%`,
+        fvf:          `${fee.fixedFee ?? 0.4}`,
+        vat20:        `(K${r}+L${r}+M${r})*${vatPct}%`,
+        totalCom:     `K${r}+L${r}+M${r}+N${r}`,
+        postageVat:   `P${r}*${vatPct}%`,
+        marketing:    `H${r}*5%`,
+        marketingVat: `R${r}*${vatPct}%`,
+        accessoryFee: `${fee.accessoryFee ?? 0}`,
+        totalVat:     `N${r}+Q${r}+S${r}`,
+        grossProfit:  `I${r}-J${r}-O${r}-P${r}-Q${r}-R${r}-S${r}-T${r}`,
+        gpPercent:    `V${r}/H${r}*100`,
+        totalVatNtp:  `J${r}-U${r}`,
       };
     }
     case 'ONBUY': {
