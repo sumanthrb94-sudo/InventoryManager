@@ -33,9 +33,19 @@ import { MARKETPLACES } from '../types';
 export const DEFAULT_MARKETPLACE_FEES: Record<Marketplace, MarketplaceFee> = {
   AMAZON: {
     marketplace: 'AMAZON',
-    commissionPct: 7.14,
-    postage: 8.00,
+    // Operator's 2026-05 schema move: Commission is 7% of (SP - BP), NOT
+    // 7.14% of SP as in the legacy spec. Plus a full VAT/DSF/accessory
+    // breakdown on every Amazon line. Postage is operator-entered per
+    // sale (the .postage default below is only used when the caller doesn't
+    // supply postageOverride). See calcSaleFinancials.AMAZON for the
+    // ordered formula chain.
+    commissionPct: 7,
+    commissionBase: 'spMinusBp',
+    postage: 0,
     marginTaxDivisor: 6,
+    vatPct: 20,
+    dsfPct: 2,
+    accessoryFee: 1,
   },
   BM: {
     marketplace: 'BM',
@@ -143,6 +153,14 @@ export interface SaleFinancials {
   totalCom?: number;          // eBay
   vat20?: number;             // OnBuy / eBay
   marVat?: number;            // OnBuy MAR VAT (alias for marginalTax on OnBuy)
+  // Amazon line-level VAT / DSF / accessory breakdown.
+  commissionVat?: number;     // Amazon: Commission * vatPct
+  dsf?: number;               // Amazon: Commission * dsfPct
+  dsfVat?: number;            // Amazon: DSF * vatPct
+  postageVat?: number;        // Amazon: Postage * vatPct
+  accessoryFee?: number;      // Amazon: flat fee.accessoryFee
+  totalVat?: number;          // Amazon: CommissionVAT + DSF VAT + Postage VAT
+  totalVatNtp?: number;       // Amazon: Marginal Tax − Total VAT (net tax payable)
   postage: number;
   grossProfit: number;
   gpPercent: number;
@@ -198,11 +216,44 @@ export function calcSaleFinancials(input: CalcSaleFinancialsInput): SaleFinancia
 
   switch (marketplace) {
     case 'AMAZON': {
-      const marginalTax = r2(spMinusBp / (fee.marginTaxDivisor ?? 6));
-      const commission  = r2(sp * fee.commissionPct / 100);
-      const grossProfit = r2(sp - bp - marginalTax - commission - postage);
-      const gpPercent   = gpPctByBp(grossProfit);
-      return { spMinusBp, marginalTax, commission, postage, grossProfit, gpPercent };
+      // 2026-05 operator schema: every Amazon line carries an explicit
+      // VAT / DSF / accessories breakdown. Formula chain (mirrors the
+      // operator's reference sheet):
+      //   spMinusBp     = SP − BP
+      //   marginalTax   = spMinusBp × (1 / 6)              ≈ 16.67% of margin
+      //   commission    = spMinusBp × commissionPct / 100  (7% of margin, NOT of SP)
+      //   commissionVat = commission × vatPct / 100         (20% by default)
+      //   dsf           = commission × dsfPct / 100         (2% by default)
+      //   dsfVat        = dsf × vatPct / 100                (20%)
+      //   postage       = operator-entered, default 0
+      //   postageVat    = postage × vatPct / 100            (20%)
+      //   accessoryFee  = flat (£1 default)
+      //   totalVat      = commissionVat + dsfVat + postageVat
+      //   grossProfit   = spMinusBp − marginalTax − commission − commissionVat
+      //                   − dsf − dsfVat − postage − postageVat − accessoryFee
+      //   totalVatNtp   = marginalTax − totalVat        (net tax payable bucket)
+      //   gpPercent     = GP / BP * 100                 (margin-over-cost)
+      const vatPct = fee.vatPct ?? 20;
+      const marginalTax  = r2(spMinusBp / (fee.marginTaxDivisor ?? 6));
+      const commissionBase = (fee.commissionBase ?? 'spMinusBp') === 'sp' ? sp : spMinusBp;
+      const commission   = r2(commissionBase * fee.commissionPct / 100);
+      const commissionVat = r2(commission * vatPct / 100);
+      const dsf           = r2(commission * (fee.dsfPct ?? 0) / 100);
+      const dsfVat        = r2(dsf * vatPct / 100);
+      const postageVat    = r2(postage * vatPct / 100);
+      const accessoryFee  = r2(fee.accessoryFee ?? 0);
+      const totalVat      = r2(commissionVat + dsfVat + postageVat);
+      const grossProfit   = r2(
+        spMinusBp - marginalTax - commission - commissionVat - dsf - dsfVat
+        - postage - postageVat - accessoryFee
+      );
+      const totalVatNtp   = r2(marginalTax - totalVat);
+      const gpPercent     = gpPctByBp(grossProfit);
+      return {
+        spMinusBp, marginalTax, commission,
+        commissionVat, dsf, dsfVat, postageVat, accessoryFee, totalVat, totalVatNtp,
+        postage, grossProfit, gpPercent,
+      };
     }
 
     case 'BM': {
@@ -293,14 +344,31 @@ export function excelFormulaFor(marketplace: Marketplace, row: number): Record<s
   const r = row;
   switch (marketplace) {
     case 'AMAZON': {
-      // Headers: ... G=BP, H=SP, I=SP-BP, J=Marginal Tax, K=Commission, L=Postage, M=GP, N=GP%
+      // 2026-05 schema. Columns (1-indexed):
+      //   A=Date, B=Order Number, C=SKU, D=IMEI, E=Supplier, F=Quantity,
+      //   G=BP, H=SP, I=SP-BP, J=Marginal Tax, K=Commission, L=C. VAT,
+      //   M=DSF, N=DSF VAT, O=Postage, P=P. VAT, Q=Accessories,
+      //   R=Total VAT, S=GP, T=GP %, U=Total VAT NTP, V=Comments
+      const vatPct = fee.vatPct ?? 20;
+      const dsfPct = fee.dsfPct ?? 0;
+      const commissionBase = (fee.commissionBase ?? 'spMinusBp') === 'sp' ? `H${r}` : `I${r}`;
       return {
-        spMinusBp:   `H${r}-G${r}`,
-        marginalTax: `I${r}/${fee.marginTaxDivisor ?? 6}`,
-        commission:  `H${r}/100*${fee.commissionPct}`,
-        postage:     `${fee.postage}`,
-        grossProfit: `H${r}-G${r}-J${r}-K${r}-L${r}`,
-        gpPercent:   `M${r}/G${r}*100`,
+        spMinusBp:     `H${r}-G${r}`,
+        marginalTax:   `I${r}/${fee.marginTaxDivisor ?? 6}`,
+        commission:    `${commissionBase}/100*${fee.commissionPct}`,
+        commissionVat: `K${r}*${vatPct}%`,
+        dsf:           `K${r}*${dsfPct}%`,
+        dsfVat:        `M${r}*${vatPct}%`,
+        // Postage is operator-entered per sale — emit a static default so the
+        // cell isn't empty on an unedited row; the writer overwrites with the
+        // sale's actual postage value before save.
+        postage:       `${fee.postage}`,
+        postageVat:    `O${r}*${vatPct}%`,
+        accessoryFee:  `${fee.accessoryFee ?? 0}`,
+        totalVat:      `L${r}+N${r}+P${r}`,
+        grossProfit:   `I${r}-J${r}-K${r}-L${r}-M${r}-N${r}-O${r}-P${r}-Q${r}`,
+        gpPercent:     `S${r}/G${r}*100`,
+        totalVatNtp:   `J${r}-R${r}`,
       };
     }
     case 'BM': {

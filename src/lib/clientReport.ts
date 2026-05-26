@@ -253,9 +253,12 @@ type SalesHeaderRow = Array<string | number>;
 
 const SALES_HEADERS: Record<Marketplace, SalesHeaderRow> = {
   AMAZON: [
-    'nw', 'Order Number', 'SKU', 'IMEI', 'Supplier', 'Quantity',
-    'BP', 'SP', 'SP-BP', 'Marginal Tax', 'Commission', 'Postage',
-    'GP = SP-BP-TAX-COM-AMZTAX-POS-P COM', 'GP %', 'Comments',
+    'Date', 'Order Number', 'SKU', 'IMEI', 'Supplier', 'Quantity',
+    'BP', 'SP', 'SP-BP', 'Marginal Tax', 'Commission',
+    'C. VAT', 'DSF', 'DSF. VAT',
+    'Postage', 'P. VAT', 'Accessories',
+    'Total VAT', 'GP', 'GP %', 'Total VAT NTP',
+    'Comments',
   ],
   BM: [
     'Date', 'Order No', 'SKU', 'IMEI', 'Supplier', 'Quantity',
@@ -295,22 +298,42 @@ function writeSaleRow(
 
   switch (marketplace) {
     case 'AMAZON': {
+      // 2026-05 schema. 22 columns — Date through Comments. Postage and
+      // Accessories carry literal values (operator may have overridden
+      // postage per sale, accessories is a flat default); every other
+      // computed cell is a formula so the operator can audit / re-derive
+      // in Excel without trusting our runtime output.
       const row = sheet.addRow([
         date, sale.orderNumber, sale.sku ?? '', sale.imei ?? '',
         sale.supplierName ?? '', qty,
         sale.buyPrice, sale.salePrice,
-        null, null, null, null, null, null, sale.comments ?? '',
+        // Formula-driven cells filled below: SP-BP, MarTax, Com, C.VAT,
+        // DSF, DSF.VAT, Postage (literal), P.VAT, Accessories (literal),
+        // Total VAT, GP, GP%, Total VAT NTP.
+        null, null, null, null, null, null,
+        sale.postage ?? null,
+        null,
+        sale.accessoryFee ?? Number(f.accessoryFee ?? 1),
+        null, null, null, null,
+        sale.comments ?? '',
       ]);
       row.getCell(1).numFmt = DATE_FMT;
       row.getCell(4).numFmt = IMEI_FMT;
       row.getCell(7).numFmt = MONEY_FMT;   // BP
       row.getCell(8).numFmt = MONEY_FMT;   // SP
-      row.getCell(9).value  = { formula: f.spMinusBp! };    row.getCell(9).numFmt  = MONEY_FMT;
-      row.getCell(10).value = { formula: f.marginalTax! };  row.getCell(10).numFmt = MONEY_FMT;
-      row.getCell(11).value = { formula: f.commission! };   row.getCell(11).numFmt = MONEY_FMT;
-      row.getCell(12).value = Number(f.postage);            row.getCell(12).numFmt = MONEY_FMT;
-      row.getCell(13).value = { formula: f.grossProfit! };  row.getCell(13).numFmt = MONEY_FMT;
-      row.getCell(14).value = { formula: f.gpPercent! };    row.getCell(14).numFmt = MONEY_FMT;
+      row.getCell(9).value  = { formula: f.spMinusBp! };     row.getCell(9).numFmt  = MONEY_FMT;
+      row.getCell(10).value = { formula: f.marginalTax! };   row.getCell(10).numFmt = MONEY_FMT;
+      row.getCell(11).value = { formula: f.commission! };    row.getCell(11).numFmt = MONEY_FMT;
+      row.getCell(12).value = { formula: f.commissionVat! }; row.getCell(12).numFmt = MONEY_FMT;
+      row.getCell(13).value = { formula: f.dsf! };           row.getCell(13).numFmt = MONEY_FMT;
+      row.getCell(14).value = { formula: f.dsfVat! };        row.getCell(14).numFmt = MONEY_FMT;
+      row.getCell(15).numFmt = MONEY_FMT; // Postage (literal value above)
+      row.getCell(16).value = { formula: f.postageVat! };    row.getCell(16).numFmt = MONEY_FMT;
+      row.getCell(17).numFmt = MONEY_FMT; // Accessories (literal value above)
+      row.getCell(18).value = { formula: f.totalVat! };      row.getCell(18).numFmt = MONEY_FMT;
+      row.getCell(19).value = { formula: f.grossProfit! };   row.getCell(19).numFmt = MONEY_FMT;
+      row.getCell(20).value = { formula: f.gpPercent! };     row.getCell(20).numFmt = MONEY_FMT;
+      row.getCell(21).value = { formula: f.totalVatNtp! };   row.getCell(21).numFmt = MONEY_FMT;
       return;
     }
 

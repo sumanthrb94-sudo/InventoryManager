@@ -251,6 +251,16 @@ export interface Sale {
   totalCom?: number;             // eBay
   vat20?: number;                // OnBuy / eBay
   marVat?: number;               // OnBuy
+  // Amazon-only VAT / DSF / accessory breakdown introduced when the operator
+  // moved Amazon to the explicit per-line VAT model. All optional so older
+  // sale docs round-trip without these fields populated.
+  commissionVat?: number;        // Amazon: Commission * 20%
+  dsf?: number;                  // Amazon: Digital Services Fee = Commission * 2%
+  dsfVat?: number;               // Amazon: DSF * 20%
+  postageVat?: number;           // Amazon: Postage * 20%
+  accessoryFee?: number;         // Amazon: flat £1 accessories charge
+  totalVat?: number;             // Amazon: Commission VAT + DSF VAT + Postage VAT
+  totalVatNtp?: number;          // Amazon: Marginal Tax − Total VAT (net tax payable)
   postage: number;
   grossProfit: number;
   gpPercent: number;
@@ -301,8 +311,14 @@ export interface MarketplaceFee {
   marginTaxDivisor?: number;         // 6 for Amazon/BM/OnBuy/Project
   payPalKlarnaPct?: number;          // BM 2.5
   rofPct?: number;                   // eBay 0.35
-  vatPct?: number;                   // 20 (OnBuy margin; eBay fees)
+  vatPct?: number;                   // 20 (OnBuy margin; eBay fees; Amazon VAT-on-fees)
   promoPct?: number;                 // eBay 5
+  // Amazon-only line-level VAT / DSF / accessory rates. Defaults baked in
+  // platforms.ts; broken out into the type so the Firestore loader can
+  // override them per-marketplace without touching the calculator.
+  commissionBase?: 'sp' | 'spMinusBp';  // 'spMinusBp' for Amazon (7% of margin); 'sp' for everyone else
+  dsfPct?: number;                   // Amazon DSF = Commission * 2%
+  accessoryFee?: number;             // Amazon flat £1
 }
 
 /**
