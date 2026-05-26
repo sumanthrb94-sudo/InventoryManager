@@ -234,26 +234,45 @@ export function calcSaleFinancials(input: CalcSaleFinancialsInput): SaleFinancia
       //                   − dsf − dsfVat − postage − postageVat − accessoryFee
       //   totalVatNtp   = marginalTax − totalVat        (net tax payable bucket)
       //   gpPercent     = GP / BP * 100                 (margin-over-cost)
-      const vatPct = fee.vatPct ?? 20;
-      const marginalTax  = r2(spMinusBp / (fee.marginTaxDivisor ?? 6));
-      const commissionBase = (fee.commissionBase ?? 'spMinusBp') === 'sp' ? sp : spMinusBp;
-      const commission   = r2(commissionBase * fee.commissionPct / 100);
-      const commissionVat = r2(commission * vatPct / 100);
-      const dsf           = r2(commission * (fee.dsfPct ?? 0) / 100);
-      const dsfVat        = r2(dsf * vatPct / 100);
-      const postageVat    = r2(postage * vatPct / 100);
-      const accessoryFee  = r2(fee.accessoryFee ?? 0);
-      const totalVat      = r2(commissionVat + dsfVat + postageVat);
-      const grossProfit   = r2(
-        spMinusBp - marginalTax - commission - commissionVat - dsf - dsfVat
-        - postage - postageVat - accessoryFee
-      );
-      const totalVatNtp   = r2(marginalTax - totalVat);
-      const gpPercent     = gpPctByBp(grossProfit);
+      //
+      // CRITICAL: compute every intermediate in full precision and round
+      // only at return. Operator's reference sheet uses Excel's default
+      // "compute precise, display rounded" model — rounding each step
+      // independently (as we did before 2026-05) compounded into a 1p
+      // drift on Total VAT / GP / GP% / NTP (e.g. for SP=99/BP=75/post=8
+      // we returned 3.02 / 0.91 / 1.21 / 0.98 vs Excel's 3.01 / 0.92 /
+      // 1.22 / 0.99). Keep raw values inline; r2 only on the way out.
+      const vatPctFrac = (fee.vatPct ?? 20) / 100;
+      const dsfPctFrac = (fee.dsfPct ?? 0) / 100;
+      const commissionBaseVal = (fee.commissionBase ?? 'spMinusBp') === 'sp' ? sp : spMinusBp;
+      const accessoryFeeVal = fee.accessoryFee ?? 0;
+
+      const marginalTaxRaw   = spMinusBp / (fee.marginTaxDivisor ?? 6);
+      const commissionRaw    = commissionBaseVal * fee.commissionPct / 100;
+      const commissionVatRaw = commissionRaw * vatPctFrac;
+      const dsfRaw           = commissionRaw * dsfPctFrac;
+      const dsfVatRaw        = dsfRaw * vatPctFrac;
+      const postageVatRaw    = postage * vatPctFrac;
+      const totalVatRaw      = commissionVatRaw + dsfVatRaw + postageVatRaw;
+      const grossProfitRaw   = spMinusBp - marginalTaxRaw - commissionRaw - commissionVatRaw
+        - dsfRaw - dsfVatRaw - postage - postageVatRaw - accessoryFeeVal;
+      const totalVatNtpRaw   = marginalTaxRaw - totalVatRaw;
+      const gpPercentRaw     = bp > 0 ? grossProfitRaw / bp * 100 : 0;
+
       return {
-        spMinusBp, marginalTax, commission,
-        commissionVat, dsf, dsfVat, postageVat, accessoryFee, totalVat, totalVatNtp,
-        postage, grossProfit, gpPercent,
+        spMinusBp,
+        marginalTax:   r2(marginalTaxRaw),
+        commission:    r2(commissionRaw),
+        commissionVat: r2(commissionVatRaw),
+        dsf:           r2(dsfRaw),
+        dsfVat:        r2(dsfVatRaw),
+        postageVat:    r2(postageVatRaw),
+        accessoryFee:  r2(accessoryFeeVal),
+        totalVat:      r2(totalVatRaw),
+        totalVatNtp:   r2(totalVatNtpRaw),
+        postage,
+        grossProfit:   r2(grossProfitRaw),
+        gpPercent:     r2(gpPercentRaw),
       };
     }
 
