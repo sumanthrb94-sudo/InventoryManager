@@ -180,7 +180,32 @@ export interface SaleFinancials {
   netProfit?: number;         // eBay incl. promo
 }
 
-const r2 = (n: number) => Math.round(n * 100) / 100;
+/**
+ * 2-decimal round that matches Excel's ROUND(...,2) to 1p across the
+ * full range of financial values this app deals with.
+ *
+ * The JS-native `Math.round(n * 100) / 100` has a documented edge case
+ * where IEEE 754 binary representation stores values like 1.005 as
+ * 1.00499999999999989… — multiplying by 100 keeps that error
+ * (100.49999…) and the round-half-up rule then drops it to 100 instead
+ * of bumping to 101. Excel's ROUND(1.005, 2) returns 1.01 because Excel
+ * internally nudges these representation errors upward before rounding.
+ *
+ * We do the same: add a tiny scale-aware epsilon (1e-9, ~1 picopenny on
+ * a normal sale price) before the round. The epsilon is large enough to
+ * overcome any IEEE 754 representation error on numbers up to several
+ * million, and small enough that no legitimate intermediate value gets
+ * mis-rounded — `1.0049999 + 1e-9 = 1.0049999001` still rounds down to
+ * 1.00, while `1.005 stored as 1.00499999999999989… + 1e-9` becomes
+ * 1.005000001… and correctly rounds up to 1.01.
+ *
+ * Sign-aware so negative values round half-away-from-zero, matching
+ * Excel's ROUND() behaviour (e.g. ROUND(-1.005, 2) = -1.01).
+ */
+const r2 = (n: number): number => {
+  const epsilon = n >= 0 ? 1e-9 : -1e-9;
+  return Math.round((n + epsilon) * 100) / 100;
+};
 
 /**
  * Compute every derived sale field for one marketplace transaction.
@@ -289,15 +314,28 @@ export function calcSaleFinancials(input: CalcSaleFinancialsInput): SaleFinancia
     }
 
     case 'BM': {
-      const marginalTax = r2(spMinusBp / (fee.marginTaxDivisor ?? 6));
-      const commission  = r2(sp * fee.commissionPct / 100);
-      const payPalKlarnaCom = hasPayPalKlarna && fee.payPalKlarnaPct != null
-        ? r2(sp * fee.payPalKlarnaPct / 100)
-        : undefined;
-      const ppk = payPalKlarnaCom ?? 0;
-      const grossProfit = r2(sp - bp - marginalTax - commission - postage - ppk);
-      const gpPercent   = gpPctByBp(grossProfit);
-      return { spMinusBp, marginalTax, commission, payPalKlarnaCom, postage, grossProfit, gpPercent };
+      // Full-precision intermediates, round only at return — same
+      // "compute precise, display rounded" model Excel uses. Pre-2026-05
+      // each step ran through r2() which compounded into a 1p drift on
+      // GP for some price points.
+      const marginalTaxRaw = spMinusBp / (fee.marginTaxDivisor ?? 6);
+      const commissionRaw  = sp * fee.commissionPct / 100;
+      const payPalKlarnaRaw = hasPayPalKlarna && fee.payPalKlarnaPct != null
+        ? sp * fee.payPalKlarnaPct / 100
+        : 0;
+      const grossProfitRaw = sp - bp - marginalTaxRaw - commissionRaw - postage - payPalKlarnaRaw;
+      const gpPercentRaw   = bp > 0 ? grossProfitRaw / bp * 100 : 0;
+      return {
+        spMinusBp,
+        marginalTax:    r2(marginalTaxRaw),
+        commission:     r2(commissionRaw),
+        payPalKlarnaCom: hasPayPalKlarna && fee.payPalKlarnaPct != null
+          ? r2(payPalKlarnaRaw)
+          : undefined,
+        postage,
+        grossProfit:    r2(grossProfitRaw),
+        gpPercent:      r2(gpPercentRaw),
+      };
     }
 
     case 'EBAY': {
@@ -398,22 +436,29 @@ export function calcSaleFinancials(input: CalcSaleFinancialsInput): SaleFinancia
     }
 
     case 'ONBUY': {
-      const marVat   = r2(spMinusBp / (fee.marginTaxDivisor ?? 6));   // MAR VAT = (SP-BP)/6
-      const commission = r2(sp * fee.commissionPct / 100);            // COM 7% = SP*7%
-      const vat20    = r2(marVat * (fee.vatPct ?? 20) / 100);         // VAT 20% = MAR VAT * 20%
-      const grossProfit = r2(sp - bp - commission - postage - marVat - vat20);
-      // ONBUY's master formula `=M/G*100` uses col G which is SP on this
-      // sheet (no Quantity column shifts the layout). Divide by SP, not BP.
-      const gpPercent   = gpPctBySp(grossProfit);
+      // Full-precision intermediates, round only at return.
+      //   MAR VAT = (SP-BP) / 6
+      //   COM 7%  = SP * 7%
+      //   VAT 20% = MAR VAT * 20%
+      //   GP      = SP - BP - COM - SHIP - MAR VAT - VAT20
+      //   GP%     = GP / SP * 100   (ONBUY master uses col G which is
+      //                              SP on this sheet — no Qty column
+      //                              shifts the layout)
+      const marVatRaw     = spMinusBp / (fee.marginTaxDivisor ?? 6);
+      const commissionRaw = sp * fee.commissionPct / 100;
+      const vat20Raw      = marVatRaw * (fee.vatPct ?? 20) / 100;
+      const grossProfitRaw = sp - bp - commissionRaw - postage - marVatRaw - vat20Raw;
+      const gpPercentRaw   = sp > 0 ? grossProfitRaw / sp * 100 : 0;
+      const marVatRounded = r2(marVatRaw);
       return {
         spMinusBp,
-        marginalTax: marVat,   // populate the generic field too
-        marVat,
-        commission,
-        vat20,
+        marginalTax: marVatRounded,
+        marVat:      marVatRounded,
+        commission:  r2(commissionRaw),
+        vat20:       r2(vat20Raw),
         postage,
-        grossProfit,
-        gpPercent,
+        grossProfit: r2(grossProfitRaw),
+        gpPercent:   r2(gpPercentRaw),
       };
     }
   }
