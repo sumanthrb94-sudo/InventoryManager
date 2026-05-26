@@ -261,10 +261,10 @@ const SALES_HEADERS: Record<Marketplace, SalesHeaderRow> = {
     'Comments',
   ],
   BM: [
-    'Date', 'Order No', 'SKU', 'IMEI', 'Supplier', 'Quantity',
-    'BP', 'SP', 'Payment Mode', 'SP-BP', 'Marginal Tax',
-    'PayPal/Klarna Com', 'Commission', 'Postage',
-    'GP = SP-BP-TAX-COM-POS-P COM', 'GP %', 'Comments',
+    'Date', 'Order Number', 'SKU', 'IMEI', 'Supplier', 'Quantity',
+    'BP', 'SP', 'SP-BP', 'Marginal Tax', 'Commission',
+    'Customer Care Fees', 'Postage', 'P. VAT', 'Accessories',
+    'GP', 'GP %', 'Total VAT NTP', 'Comments',
   ],
   EBAY: [
     'Date', 'Order Number', 'SKU', 'IMEI', 'Supplier', 'Units',
@@ -340,24 +340,38 @@ function writeSaleRow(
     }
 
     case 'BM': {
+      // 2026-05 schema. 19 cols. Customer Care Fees + Accessories are
+      // flat literals; Postage is operator-entered. Everything else is a
+      // formula so the operator can audit in Excel.
+      //   A=Date,B=OrderNo,C=SKU,D=IMEI,E=Supplier,F=Quantity,
+      //   G=BP,H=SP,I=SP-BP,J=MarTax,K=Com,L=CustomerCareFees,
+      //   M=Postage,N=P.VAT,O=Accessories,P=GP,Q=GP%,R=TotVAT NTP,S=Comments
       const row = sheet.addRow([
         date, sale.orderNumber, sale.sku ?? '', sale.imei ?? '',
         sale.supplierName ?? '', qty,
         sale.buyPrice, sale.salePrice,
-        sale.paymentMode ?? '',
-        null, null, null, null, null, null, null, sale.comments ?? '',
+        null, null, null,                              // SP-BP, MarTax, Com
+        sale.customerCareFees ?? Number(f.customerCareFees ?? 9.99),  // Customer Care Fees (literal)
+        sale.postage ?? null,                          // Postage (literal)
+        null,                                          // P. VAT (formula)
+        sale.accessoryFee ?? Number(f.accessoryFee ?? 1),  // Accessories (literal)
+        null, null, null,                              // GP, GP%, Total VAT NTP
+        sale.comments ?? '',
       ]);
       row.getCell(1).numFmt = DATE_FMT;
       row.getCell(4).numFmt = IMEI_FMT;
-      row.getCell(7).numFmt = MONEY_FMT;
-      row.getCell(8).numFmt = MONEY_FMT;
-      row.getCell(10).value = { formula: f.spMinusBp! };       row.getCell(10).numFmt = MONEY_FMT;
-      row.getCell(11).value = { formula: f.marginalTax! };     row.getCell(11).numFmt = MONEY_FMT;
-      row.getCell(12).value = { formula: f.payPalKlarnaCom! }; row.getCell(12).numFmt = MONEY_FMT;
-      row.getCell(13).value = { formula: f.commission! };      row.getCell(13).numFmt = MONEY_FMT;
-      row.getCell(14).value = Number(f.postage);               row.getCell(14).numFmt = MONEY_FMT;
-      row.getCell(15).value = { formula: f.grossProfit! };     row.getCell(15).numFmt = MONEY_FMT;
-      row.getCell(16).value = { formula: f.gpPercent! };       row.getCell(16).numFmt = MONEY_FMT;
+      row.getCell(7).numFmt = MONEY_FMT;       // BP
+      row.getCell(8).numFmt = MONEY_FMT;       // SP
+      row.getCell(9).value  = { formula: f.spMinusBp! };    row.getCell(9).numFmt  = MONEY_FMT;
+      row.getCell(10).value = { formula: f.marginalTax! };  row.getCell(10).numFmt = MONEY_FMT;
+      row.getCell(11).value = { formula: f.commission! };   row.getCell(11).numFmt = MONEY_FMT;
+      row.getCell(12).numFmt = MONEY_FMT;                   // Customer Care Fees (literal above)
+      row.getCell(13).numFmt = MONEY_FMT;                   // Postage (literal above)
+      row.getCell(14).value = { formula: f.postageVat! };   row.getCell(14).numFmt = MONEY_FMT;
+      row.getCell(15).numFmt = MONEY_FMT;                   // Accessories (literal above)
+      row.getCell(16).value = { formula: f.grossProfit! };  row.getCell(16).numFmt = MONEY_FMT;
+      row.getCell(17).value = { formula: f.gpPercent! };    row.getCell(17).numFmt = MONEY_FMT;
+      row.getCell(18).value = { formula: f.totalVatNtp! };  row.getCell(18).numFmt = MONEY_FMT;
       return;
     }
 

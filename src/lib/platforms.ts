@@ -50,10 +50,18 @@ export const DEFAULT_MARKETPLACE_FEES: Record<Marketplace, MarketplaceFee> = {
   },
   BM: {
     marketplace: 'BM',
-    commissionPct: 12.00,
-    postage: 10.00,
+    // 2026-05 operator schema: Commission rate is 11% of SP (was 12% in
+    // the legacy code), plus a flat Customer Care Fees line of £9.99 per
+    // sale. No PayPal/Klarna commission any more — drop the field. No
+    // separate Total VAT column either: BM's only VAT line is P. VAT,
+    // so totalVatNtp = MarTax − P. VAT directly. Postage operator-
+    // entered; .postage default is just a fallback.
+    commissionPct: 11,
+    postage: 0,
     marginTaxDivisor: 6,
-    payPalKlarnaPct: 2.5,
+    vatPct: 20,
+    accessoryFee: 1,
+    customerCareFees: 9.99,
   },
   EBAY: {
     marketplace: 'EBAY',
@@ -180,6 +188,8 @@ export interface SaleFinancials {
   // eBay-only: 2026-05 marketing line + its VAT.
   marketing?: number;         // eBay: operator-entered marketing £
   marketingVat?: number;      // eBay: marketing * vatPct
+  // BM-only: flat customer-care charge per sale.
+  customerCareFees?: number;  // BM: flat £9.99
   postage: number;
   grossProfit: number;
   gpPercent: number;
@@ -234,7 +244,7 @@ const r2 = (n: number): number => {
  *   PROJECT same as AMAZON but postage = £5.90
  */
 export function calcSaleFinancials(input: CalcSaleFinancialsInput): SaleFinancials {
-  const { marketplace, buyPrice: bp, salePrice: sp, postageOverride, eBayShippingTier, hasPayPalKlarna } = input;
+  const { marketplace, buyPrice: bp, salePrice: sp, postageOverride, eBayShippingTier } = input;
   const fee = getMarketplaceFee(marketplace);
 
   const spMinusBp = r2(sp - bp);
@@ -325,27 +335,65 @@ export function calcSaleFinancials(input: CalcSaleFinancialsInput): SaleFinancia
     }
 
     case 'BM': {
-      // Full-precision intermediates, round only at return — same
-      // "compute precise, display rounded" model Excel uses. Pre-2026-05
-      // each step ran through r2() which compounded into a 1p drift on
-      // GP for some price points.
-      const marginalTaxRaw = spMinusBp / (fee.marginTaxDivisor ?? 6);
-      const commissionRaw  = sp * fee.commissionPct / 100;
-      const payPalKlarnaRaw = hasPayPalKlarna && fee.payPalKlarnaPct != null
-        ? sp * fee.payPalKlarnaPct / 100
-        : 0;
-      const grossProfitRaw = sp - bp - marginalTaxRaw - commissionRaw - postage - payPalKlarnaRaw;
-      const gpPercentRaw   = bp > 0 ? grossProfitRaw / bp * 100 : 0;
+      // 2026-05 operator schema, verified cell-by-cell against the
+      // reference Google Sheet (Formula Sheet-2 Back Market tab).
+      // 12 operator cols (BP through Total VAT NTP):
+      //
+      //   A=BP, B=SP, C=SP-BP, D=Marginal Tax, E=Commission,
+      //   F=Customer Care Fees, G=Postage, H=P. VAT, I=Accessories,
+      //   J=GP, K=GP %, L=Total VAT NTP
+      //
+      // Formulas (taken from each cell's formula bar):
+      //
+      //   spMinusBp       = SP − BP
+      //   marginalTax     = (SP − BP) × 16.67%           =C3*16.67%
+      //   commission      = SP × 11%                     =B3/100*11
+      //                                                 (NOT 12% as in the
+      //                                                  legacy code, NOT
+      //                                                  on SP-BP)
+      //   customerCareFees = 9.99 flat                   (literal in F3)
+      //   postage         = operator-entered
+      //   postageVat      = postage × 20%                =G3*20%
+      //   accessoryFee    = 1 flat
+      //   grossProfit     = (SP-BP) − marginalTax − commission − customerCareFees
+      //                     − postage − postageVat − accessoryFee
+      //                                                  =C3-D3-E3-F3-G3-H3-I3
+      //   gpPercent       = GP / BP × 100                =J3/A3*100
+      //                                                  (Amazon convention)
+      //   totalVatNtp     = marginalTax − P. VAT         =D3-H3
+      //                                                  (BM has only ONE VAT
+      //                                                  line — postage VAT —
+      //                                                  so there's no
+      //                                                  separate Total VAT
+      //                                                  column; NTP subtracts
+      //                                                  postage VAT directly.)
+      const vatPctFrac = (fee.vatPct ?? 20) / 100;
+      const accessoryFeeVal = fee.accessoryFee ?? 0;
+      const customerCareFeesVal = fee.customerCareFees ?? 0;
+
+      const marginalTaxRaw      = spMinusBp * 16.67 / 100;
+      const commissionRaw       = sp * fee.commissionPct / 100;
+      const postageVatRaw       = postage * vatPctFrac;
+      const grossProfitRaw      = spMinusBp - marginalTaxRaw - commissionRaw - customerCareFeesVal
+        - postage - postageVatRaw - accessoryFeeVal;
+      const totalVatNtpRaw      = marginalTaxRaw - postageVatRaw;
+      const gpPercentRaw        = bp > 0 ? grossProfitRaw / bp * 100 : 0;
+
       return {
         spMinusBp,
-        marginalTax:    r2(marginalTaxRaw),
-        commission:     r2(commissionRaw),
-        payPalKlarnaCom: hasPayPalKlarna && fee.payPalKlarnaPct != null
-          ? r2(payPalKlarnaRaw)
-          : undefined,
+        marginalTax:      r2(marginalTaxRaw),
+        commission:       r2(commissionRaw),
+        customerCareFees: r2(customerCareFeesVal),
         postage,
-        grossProfit:    r2(grossProfitRaw),
-        gpPercent:      r2(gpPercentRaw),
+        postageVat:       r2(postageVatRaw),
+        accessoryFee:     r2(accessoryFeeVal),
+        // BM's single VAT line means totalVat = postageVat; expose both so
+        // generic consumers that look at `totalVat` see the right number
+        // and BM-aware consumers can still pull `postageVat` directly.
+        totalVat:         r2(postageVatRaw),
+        totalVatNtp:      r2(totalVatNtpRaw),
+        grossProfit:      r2(grossProfitRaw),
+        gpPercent:        r2(gpPercentRaw),
       };
     }
 
@@ -555,16 +603,24 @@ export function excelFormulaFor(marketplace: Marketplace, row: number): Record<s
       };
     }
     case 'BM': {
-      // Headers: ... G=BP, H=SP, I=Payment Mode, J=SP-BP, K=Marginal Tax,
-      //          L=PayPal/Klarna Com, M=Commission, N=Postage, O=GP, P=GP%
+      // 2026-05 schema. 17 export cols total:
+      //   A=Date, B=Order Number, C=SKU, D=IMEI, E=Supplier, F=Quantity,
+      //   G=BP, H=SP, I=SP-BP, J=Marginal Tax, K=Commission,
+      //   L=Customer Care Fees, M=Postage, N=P. VAT, O=Accessories,
+      //   P=GP, Q=GP %, R=Total VAT NTP, S=Comments
+      // No "Total VAT" column on BM — only one VAT line (P. VAT), so
+      // Total VAT NTP subtracts P. VAT (col N) directly from Marginal Tax.
+      const vatPct = fee.vatPct ?? 20;
       return {
         spMinusBp:        `H${r}-G${r}`,
-        marginalTax:      `J${r}/${fee.marginTaxDivisor ?? 6}`,
-        payPalKlarnaCom:  `H${r}/100*${fee.payPalKlarnaPct ?? 2.5}`,
+        marginalTax:      `I${r}*16.67%`,
         commission:       `H${r}/100*${fee.commissionPct}`,
-        postage:          `${fee.postage}`,
-        grossProfit:      `H${r}-G${r}-K${r}-M${r}-N${r}-L${r}`,
-        gpPercent:        `O${r}/G${r}*100`,
+        customerCareFees: `${fee.customerCareFees ?? 0}`,
+        postageVat:       `M${r}*${vatPct}%`,
+        accessoryFee:     `${fee.accessoryFee ?? 0}`,
+        grossProfit:      `I${r}-J${r}-K${r}-L${r}-M${r}-N${r}-O${r}`,
+        gpPercent:        `P${r}/G${r}*100`,
+        totalVatNtp:      `J${r}-N${r}`,
       };
     }
     case 'EBAY': {

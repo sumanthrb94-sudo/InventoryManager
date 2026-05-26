@@ -257,15 +257,19 @@ export interface Sale {
   commissionVat?: number;        // Amazon: Commission * 20%
   dsf?: number;                  // Amazon: Digital Services Fee = Commission * 2%
   dsfVat?: number;               // Amazon: DSF * 20%
-  postageVat?: number;           // Amazon + eBay: Postage * 20%
-  accessoryFee?: number;         // Amazon + eBay: flat £1 accessories charge
+  postageVat?: number;           // Amazon + eBay + OnBuy + BM: Postage * 20%
+  accessoryFee?: number;         // Amazon + eBay + OnBuy + BM: flat £1 accessories charge
   totalVat?: number;             // Amazon: Commission VAT + DSF VAT + Postage VAT
                                  // eBay: VAT + P. VAT + M. VAT (the eBay VAT bundle is the (Com+ROF+FVF)*20% one)
-  totalVatNtp?: number;          // Amazon + eBay: Marginal Tax − Total VAT (net tax payable)
+                                 // OnBuy: VAT 20% + P. VAT
+                                 // BM has only one VAT (P. VAT) so no separate Total VAT column
+  totalVatNtp?: number;          // Amazon + eBay + OnBuy + BM: Marginal Tax − Total VAT (net tax payable)
   // eBay-only: 2026-05 schema replaces the old "promo as % of SP" model with
   // an operator-entered Marketing line + its own VAT.
   marketing?: number;            // eBay: operator-entered marketing/promo £
   marketingVat?: number;         // eBay: Marketing * 20%
+  // BM-only: flat customer care fee per sale.
+  customerCareFees?: number;     // BM: flat £9.99
   postage: number;
   grossProfit: number;
   gpPercent: number;
@@ -323,7 +327,8 @@ export interface MarketplaceFee {
   // override them per-marketplace without touching the calculator.
   commissionBase?: 'sp' | 'spMinusBp';  // 'spMinusBp' for Amazon (7% of margin); 'sp' for everyone else
   dsfPct?: number;                   // Amazon DSF = Commission * 2%
-  accessoryFee?: number;             // Amazon flat £1
+  accessoryFee?: number;             // Amazon / eBay / OnBuy / BM flat £1
+  customerCareFees?: number;         // BM flat customer-care charge (£9.99)
 }
 
 /**
