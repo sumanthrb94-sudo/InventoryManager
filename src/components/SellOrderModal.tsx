@@ -52,6 +52,11 @@ const BM_PAYMENT_MODES = ['', 'Klarna', 'PayPal', 'Clear Pay', 'Apple Pay', 'Goo
  *  routes cleanly into the eBayShippingTier slot inside calcSaleFinancials. */
 const EBAY_SHIPPING_TIERS: ReadonlyArray<1 | 2 | 8> = [1, 2, 8];
 
+/** Operator's canonical postage tariffs for non-eBay marketplaces. Dropdown
+ *  preset values are these four numbers; "Other" reveals a freeform input
+ *  so a one-off carrier rate can still be typed. */
+const POSTAGE_PRESETS: ReadonlyArray<number> = [7.56, 16.35, 4.65, 6.75];
+
 const today = () => new Date().toISOString().split('T')[0];
 
 interface Props {
@@ -73,6 +78,11 @@ export default function SellOrderModal({ unit, onClose, onSaved, isSHS = false }
   const [sp, setSp]             = useState('');
   const [saleDate, setSaleDate] = useState(today());
   const [postageInput, setPostageInput] = useState<string>(''); // user-typed override
+  // When the operator explicitly picks "Other" from the postage dropdown the
+  // freeform input reveals even if postageInput is empty. Without this flag
+  // an empty Other-selection would snap the dropdown back to the placeholder
+  // and the operator couldn't tell whether they'd chosen Other yet.
+  const [postageOther, setPostageOther] = useState<boolean>(false);
   const [eBayTier, setEBayTier] = useState<1 | 2 | 8>(8);
   const [paymentMode, setPaymentMode] = useState('');           // BM only
   const [imeiInput, setImeiInput] = useState(existingImei);
@@ -83,6 +93,7 @@ export default function SellOrderModal({ unit, onClose, onSaved, isSHS = false }
   // the platform's fresh default instead of a stale eBay-tier carryover.
   useEffect(() => {
     setPostageInput('');
+    setPostageOther(false);
     setPaymentMode('');
   }, [marketplace]);
 
@@ -351,17 +362,62 @@ export default function SellOrderModal({ unit, onClose, onSaved, isSHS = false }
                     </button>
                   ))}
                 </div>
-              ) : (
-                <input
-                  type="number"
-                  value={postageInput}
-                  onChange={e => setPostageInput(e.target.value)}
-                  placeholder={`Default £${defaultPostage.toFixed(2)}`}
-                  min="0"
-                  step="0.01"
-                  className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm font-mono focus:outline-none focus:border-slate-900 transition-all"
-                />
-              )}
+              ) : (() => {
+                // Dropdown of the operator's canonical postage tariffs plus
+                // an "Other" escape hatch that reveals a freeform number
+                // input directly below. The dropdown value resolves from
+                // postageInput when its numeric form matches a preset, and
+                // falls back to "__other__" whenever the operator has
+                // explicitly picked Other OR a non-preset value is sitting
+                // in the field (e.g. from a paste / re-edit).
+                const postageNum = Number(postageInput);
+                const inputIsPreset = postageInput !== '' && !Number.isNaN(postageNum)
+                  && POSTAGE_PRESETS.includes(postageNum);
+                const showOtherInput = postageOther || (postageInput !== '' && !inputIsPreset);
+                const dropdownValue = inputIsPreset
+                  ? String(postageNum)
+                  : (showOtherInput ? '__other__' : '');
+                return (
+                  <div className="space-y-1.5">
+                    <select
+                      value={dropdownValue}
+                      onChange={e => {
+                        const v = e.target.value;
+                        if (v === '__other__') {
+                          setPostageOther(true);
+                          // Keep whatever's already typed (could be a stale
+                          // preset or a paste) so the operator can refine.
+                        } else if (v === '') {
+                          setPostageOther(false);
+                          setPostageInput('');
+                        } else {
+                          setPostageOther(false);
+                          setPostageInput(v);
+                        }
+                      }}
+                      className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm font-mono focus:outline-none focus:border-slate-900 bg-white transition-all"
+                    >
+                      <option value="">Default £{defaultPostage.toFixed(2)}</option>
+                      {POSTAGE_PRESETS.map(p => (
+                        <option key={p} value={String(p)}>£{p.toFixed(2)}</option>
+                      ))}
+                      <option value="__other__">Other…</option>
+                    </select>
+                    {showOtherInput && (
+                      <input
+                        type="number"
+                        value={postageInput}
+                        onChange={e => setPostageInput(e.target.value)}
+                        placeholder="Manual postage £"
+                        min="0"
+                        step="0.01"
+                        autoFocus={postageOther && postageInput === ''}
+                        className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm font-mono focus:outline-none focus:border-slate-900 transition-all"
+                      />
+                    )}
+                  </div>
+                );
+              })()}
             </div>
           </div>
 
