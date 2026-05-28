@@ -47,14 +47,10 @@ const PLATFORM_META: Record<Marketplace, { label: string; tone: string; activeBg
  *  detection regex in calcSaleFinancials triggers the 2.5% commission. */
 const BM_PAYMENT_MODES = ['', 'Klarna', 'PayPal', 'Clear Pay', 'Apple Pay', 'Google Pay', 'Card'] as const;
 
-/** eBay's three shipping tiers per the master sheet — surfaced as quick-pick
- *  buttons rather than a free-text postage field so the operator's input
- *  routes cleanly into the eBayShippingTier slot inside calcSaleFinancials. */
-const EBAY_SHIPPING_TIERS: ReadonlyArray<1 | 2 | 8> = [1, 2, 8];
-
-/** Operator's canonical postage tariffs for non-eBay marketplaces. Dropdown
- *  preset values are these four numbers; "Other" reveals a freeform input
- *  so a one-off carrier rate can still be typed. */
+/** Operator's canonical postage tariffs — same dropdown shared across every
+ *  marketplace (Amazon / eBay / OnBuy / BM). "Other" reveals a freeform
+ *  input so a one-off carrier rate can still be typed. Replaces the legacy
+ *  eBay-only £1 / £2 / £8 tier picker. */
 const POSTAGE_PRESETS: ReadonlyArray<number> = [7.56, 16.35, 4.65, 6.75];
 
 const today = () => new Date().toISOString().split('T')[0];
@@ -83,7 +79,6 @@ export default function SellOrderModal({ unit, onClose, onSaved, isSHS = false }
   // an empty Other-selection would snap the dropdown back to the placeholder
   // and the operator couldn't tell whether they'd chosen Other yet.
   const [postageOther, setPostageOther] = useState<boolean>(false);
-  const [eBayTier, setEBayTier] = useState<1 | 2 | 8>(8);
   const [paymentMode, setPaymentMode] = useState('');           // BM only
   const [imeiInput, setImeiInput] = useState(existingImei);
   const [saving, setSaving]   = useState(false);
@@ -97,13 +92,13 @@ export default function SellOrderModal({ unit, onClose, onSaved, isSHS = false }
     setPaymentMode('');
   }, [marketplace]);
 
-  // ── Resolve effective postage per platform ────────────────────────────────
-  // eBay uses tier buttons; everywhere else accepts a free-text override that
-  // falls back to the marketplace default fee schedule.
+  // ── Resolve effective postage ─────────────────────────────────────────────
+  // Same dropdown drives every marketplace (incl. eBay) now — operator picks
+  // one of POSTAGE_PRESETS, or types a value via "Other". When blank we fall
+  // back to the marketplace's default fee-table postage.
   const defaultPostage = getMarketplaceFee(marketplace).postage;
   const effectivePostage =
-    marketplace === 'EBAY' ? eBayTier
-    : postageInput.trim() !== '' ? Number(postageInput) || defaultPostage
+    postageInput.trim() !== '' ? Number(postageInput) || defaultPostage
     : defaultPostage;
 
   // ── Live P&L breakdown — master-aligned via calcSaleFinancials ────────────
@@ -114,12 +109,9 @@ export default function SellOrderModal({ unit, onClose, onSaved, isSHS = false }
       marketplace,
       buyPrice: unit.buyPrice,
       salePrice: spNum,
-      postageOverride: marketplace === 'EBAY' ? undefined : effectivePostage,
-      eBayShippingTier: marketplace === 'EBAY' ? eBayTier : undefined,
-      hasPayPalKlarna: marketplace === 'BM' &&
-        /paypal|klarna|clearpay|clear pay|applepay|apple pay/i.test(paymentMode),
+      postageOverride: effectivePostage,
     });
-  }, [marketplace, unit.buyPrice, spNum, effectivePostage, eBayTier, paymentMode]);
+  }, [marketplace, unit.buyPrice, spNum, effectivePostage]);
 
   const handleSave = async () => {
     if (!sp || spNum <= 0)    { setError('Please enter a valid sale price.'); return; }
@@ -160,7 +152,7 @@ export default function SellOrderModal({ unit, onClose, onSaved, isSHS = false }
         saleDate,
         sku: sku.trim() || undefined,
         paymentMode: marketplace === 'BM' ? (paymentMode || undefined) : undefined,
-        postageOverride: marketplace === 'EBAY' ? eBayTier : effectivePostage,
+        postageOverride: effectivePostage,
       });
       if (!res.ok) {
         setError(res.message || 'Failed to save. Please try again.');
@@ -346,23 +338,9 @@ export default function SellOrderModal({ unit, onClose, onSaved, isSHS = false }
             </div>
             <div>
               <label className="text-[9px] font-bold uppercase tracking-widest text-slate-400 block mb-1.5">
-                Postage (£) {marketplace === 'EBAY' && <span className="normal-case font-normal text-slate-500">· tier</span>}
+                Postage (£)
               </label>
-              {marketplace === 'EBAY' ? (
-                <div className="grid grid-cols-3 gap-1">
-                  {EBAY_SHIPPING_TIERS.map(t => (
-                    <button
-                      key={t}
-                      onClick={() => setEBayTier(t)}
-                      className={`py-2 rounded-lg text-[11px] font-bold font-mono transition-all border ${
-                        eBayTier === t ? 'bg-slate-900 text-white border-slate-900' : 'bg-white border-slate-200 text-slate-700 hover:border-slate-400'
-                      }`}
-                    >
-                      £{t}
-                    </button>
-                  ))}
-                </div>
-              ) : (() => {
+              {(() => {
                 // Dropdown of the operator's canonical postage tariffs plus
                 // an "Other" escape hatch that reveals a freeform number
                 // input directly below. The dropdown value resolves from
