@@ -38,6 +38,10 @@ export interface RecordSaleInput {
   /** Override the per-marketplace default postage (eBay £1/£2/£8 tiers,
    *  free-shipping promos). */
   postageOverride?: number;
+  /** Operator marked this sale's postage as VAT-exempt (zero-rated export,
+   *  etc). When true, P. VAT = 0 across all marketplaces and the downstream
+   *  Total VAT / GP / Total VAT NTP fields recompute accordingly. */
+  postageVatExempt?: boolean;
   comments?: string;
 }
 
@@ -118,6 +122,7 @@ export async function recordSale(input: RecordSaleInput): Promise<RecordSaleResu
     postageOverride: input.postageOverride,
     eBayShippingTier,
     hasPayPalKlarna,
+    postageVatExempt: input.postageVatExempt,
   });
 
   // ── Build the sale doc using the composite id idiom. ───────────────────
@@ -154,6 +159,8 @@ export async function recordSale(input: RecordSaleInput): Promise<RecordSaleResu
     vat20: fin.vat20,
     marVat: fin.marVat,
     postage: fin.postage,
+    postageVat: fin.postageVat,
+    postageVatExempt: input.postageVatExempt || undefined,
     grossProfit: fin.grossProfit,
     gpPercent: fin.gpPercent,
     netProfit: fin.netProfit,

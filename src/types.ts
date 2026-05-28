@@ -270,6 +270,12 @@ export interface Sale {
   marketingVat?: number;         // eBay: Marketing * 20%
   // BM-only: flat customer care fee per sale.
   customerCareFees?: number;     // BM: flat £9.99
+  // Operator-flagged: zero-rate this sale's postage VAT (e.g. zero-rated
+  // export / VAT-exempt shipping label). When true, P. VAT = 0 and every
+  // downstream field that depends on it (Total VAT, GP, Total VAT NTP)
+  // recomputes accordingly. Stored alongside `postageVat` so re-displays
+  // and re-exports preserve the operator's choice.
+  postageVatExempt?: boolean;
   postage: number;
   grossProfit: number;
   gpPercent: number;

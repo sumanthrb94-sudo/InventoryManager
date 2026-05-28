@@ -79,6 +79,10 @@ export default function SellOrderModal({ unit, onClose, onSaved, isSHS = false }
   // an empty Other-selection would snap the dropdown back to the placeholder
   // and the operator couldn't tell whether they'd chosen Other yet.
   const [postageOther, setPostageOther] = useState<boolean>(false);
+  // When checked, zero-rate the postage VAT for this sale. Defaults to
+  // false (VAT charged as usual). Used for zero-rated export shipping
+  // labels and any other VAT-exempt commercial invoice scenario.
+  const [postageVatExempt, setPostageVatExempt] = useState<boolean>(false);
   const [paymentMode, setPaymentMode] = useState('');           // BM only
   const [imeiInput, setImeiInput] = useState(existingImei);
   const [saving, setSaving]   = useState(false);
@@ -89,6 +93,7 @@ export default function SellOrderModal({ unit, onClose, onSaved, isSHS = false }
   useEffect(() => {
     setPostageInput('');
     setPostageOther(false);
+    setPostageVatExempt(false);
     setPaymentMode('');
   }, [marketplace]);
 
@@ -110,8 +115,9 @@ export default function SellOrderModal({ unit, onClose, onSaved, isSHS = false }
       buyPrice: unit.buyPrice,
       salePrice: spNum,
       postageOverride: effectivePostage,
+      postageVatExempt,
     });
-  }, [marketplace, unit.buyPrice, spNum, effectivePostage]);
+  }, [marketplace, unit.buyPrice, spNum, effectivePostage, postageVatExempt]);
 
   const handleSave = async () => {
     if (!sp || spNum <= 0)    { setError('Please enter a valid sale price.'); return; }
@@ -153,6 +159,7 @@ export default function SellOrderModal({ unit, onClose, onSaved, isSHS = false }
         sku: sku.trim() || undefined,
         paymentMode: marketplace === 'BM' ? (paymentMode || undefined) : undefined,
         postageOverride: effectivePostage,
+        postageVatExempt,
       });
       if (!res.ok) {
         setError(res.message || 'Failed to save. Please try again.');
@@ -337,9 +344,27 @@ export default function SellOrderModal({ unit, onClose, onSaved, isSHS = false }
               />
             </div>
             <div>
-              <label className="text-[9px] font-bold uppercase tracking-widest text-slate-400 block mb-1.5">
-                Postage (£)
-              </label>
+              <div className="flex items-center justify-between mb-1.5">
+                <label className="text-[9px] font-bold uppercase tracking-widest text-slate-400">
+                  Postage (£)
+                </label>
+                {/* Operator toggle — zero-rates P. VAT for this sale (zero-
+                    rated export, etc). When checked, postage VAT = 0 and
+                    every downstream field (Total VAT, GP, Total VAT NTP)
+                    recomputes accordingly across all marketplaces. */}
+                <label
+                  className="inline-flex items-center gap-1 text-[9px] font-mono text-slate-500 cursor-pointer select-none"
+                  title="Zero-rate postage VAT for this sale"
+                >
+                  <input
+                    type="checkbox"
+                    checked={postageVatExempt}
+                    onChange={e => setPostageVatExempt(e.target.checked)}
+                    className="h-3 w-3 rounded border-slate-300 text-slate-900 focus:ring-slate-900"
+                  />
+                  No P. VAT
+                </label>
+              </div>
               {(() => {
                 // Dropdown of the operator's canonical postage tariffs plus
                 // an "Other" escape hatch that reveals a freeform number

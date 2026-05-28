@@ -164,6 +164,10 @@ export interface CalcSaleFinancialsInput {
    *  Replaces the old `promoPct × SP` convention; the operator can spend
    *  anything from £0 upwards per line. */
   marketing?: number;
+  /** When true the postage VAT on this line is zero-rated regardless of
+   *  marketplace. Used for VAT-exempt shipping (zero-rated EU export,
+   *  etc). Defaults to false so existing behaviour is unchanged. */
+  postageVatExempt?: boolean;
 }
 
 export interface SaleFinancials {
@@ -310,7 +314,7 @@ export function calcSaleFinancials(input: CalcSaleFinancialsInput): SaleFinancia
       const commissionVatRaw = commissionRaw * vatPctFrac;
       const dsfRaw           = commissionRaw * dsfPctFrac;
       const dsfVatRaw        = dsfRaw * vatPctFrac;
-      const postageVatRaw    = postage * vatPctFrac;
+      const postageVatRaw    = input.postageVatExempt ? 0 : (postage * vatPctFrac);
       const totalVatRaw      = commissionVatRaw + dsfVatRaw + postageVatRaw;
       const grossProfitRaw   = spMinusBp - marginalTaxRaw - commissionRaw - commissionVatRaw
         - dsfRaw - dsfVatRaw - postage - postageVatRaw - accessoryFeeVal;
@@ -373,7 +377,7 @@ export function calcSaleFinancials(input: CalcSaleFinancialsInput): SaleFinancia
 
       const marginalTaxRaw      = spMinusBp * 16.67 / 100;
       const commissionRaw       = sp * fee.commissionPct / 100;
-      const postageVatRaw       = postage * vatPctFrac;
+      const postageVatRaw       = input.postageVatExempt ? 0 : (postage * vatPctFrac);
       const grossProfitRaw      = spMinusBp - marginalTaxRaw - commissionRaw - customerCareFeesVal
         - postage - postageVatRaw - accessoryFeeVal;
       const totalVatNtpRaw      = marginalTaxRaw - postageVatRaw;
@@ -461,7 +465,7 @@ export function calcSaleFinancials(input: CalcSaleFinancialsInput): SaleFinancia
       const fvfRaw           = fee.fixedFee ?? 0;
       const vatRaw           = (commissionRaw + rofRaw + fvfRaw) * vatPctFrac;
       const tComRaw          = commissionRaw + rofRaw + fvfRaw + vatRaw;
-      const postageVatRaw    = postage * vatPctFrac;
+      const postageVatRaw    = input.postageVatExempt ? 0 : (postage * vatPctFrac);
       const marketingVatRaw  = marketingVal * vatPctFrac;
       const totalVatRaw      = vatRaw + postageVatRaw + marketingVatRaw;
       const grossProfitRaw   = spMinusBp - marginalTaxRaw - tComRaw - postage - postageVatRaw
@@ -532,7 +536,7 @@ export function calcSaleFinancials(input: CalcSaleFinancialsInput): SaleFinancia
       const marginalTaxRaw  = spMinusBp * 16.67 / 100;
       const commissionRaw   = sp * fee.commissionPct / 100;
       const vat20Raw        = commissionRaw * vatPctFrac;
-      const postageVatRaw   = postage * vatPctFrac;
+      const postageVatRaw   = input.postageVatExempt ? 0 : (postage * vatPctFrac);
       const totalVatRaw     = vat20Raw + postageVatRaw;
       const grossProfitRaw  = spMinusBp - marginalTaxRaw - commissionRaw - vat20Raw
         - postage - postageVatRaw - accessoryFeeVal;
