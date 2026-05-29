@@ -11,6 +11,7 @@ import { useInventoryStore } from '../lib/inventoryStore';
 import { formatIMEI, validateIMEI } from '../lib/imeiUtils';
 import { logInventoryEvent } from '../lib/inventoryEvents';
 import { LISTING_SITES, listingSiteLabel } from '../lib/platforms';
+import { buildSaleFromUnit } from '../lib/saleFromUnit';
 
 const PLATFORMS = LISTING_SITES;
 type Platform = ListingSite;
@@ -106,6 +107,28 @@ export default function ScanPage() {
     if (notes) updates.notes = notes;
 
     await dbService.update('inventoryUnits', unit.id, updates);
+
+    // When marking sold via the scanner, also persist a Sale row so the
+    // SALES_REPORT export picks it up. Postage defaults to 6.30 (the scanner
+    // flow has no postage prompt); operator can edit via UnitDetailDrawer.
+    if (action === 'sold') {
+      const sale = buildSaleFromUnit({
+        unit,
+        listingSite: platform || '',
+        salePrice: updates.salePrice ?? 0,
+        saleDate: today,
+        saleOrderId,
+        customerName,
+      });
+      if (sale) {
+        try {
+          await dbService.bulkUpsertSales([sale]);
+        } catch (saleError) {
+          console.warn('Scanner sale persistence failed (unit still flagged sold).', saleError);
+        }
+      }
+    }
+
     try {
       await logInventoryEvent({
         type: action,

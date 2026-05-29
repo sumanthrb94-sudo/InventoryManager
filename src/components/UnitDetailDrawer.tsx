@@ -13,7 +13,8 @@ import { getWarrantyStatus } from '../lib/warrantyUtils';
 
 
 import { logInventoryEvent } from '../lib/inventoryEvents';
-import { LISTING_SITES, listingSiteLabel } from '../lib/platforms';
+import { LISTING_SITES, listingSiteLabel, marketplaceFromListingSite } from '../lib/platforms';
+import { buildSaleFromUnit } from '../lib/saleFromUnit';
 
 const PLATFORMS = LISTING_SITES;
 
@@ -39,6 +40,12 @@ export default function UnitDetailDrawer({ unit, supplierName, onClose }: Props)
   const [saleOrderId, setSaleOrderId] = useState<string>(unit.saleOrderId || '');
   const [customerName, setCustomerName] = useState<string>(unit.customerName || '');
   const [platform, setPlatform] = useState(unit.salePlatform || 'eBay');
+  // Postage is operator-entered per sale to match the client SALES_REPORT
+  // workbook (AMAZON uses 5 or 6.3; EBAY uses 0, 1.9, 4.65 or 6.3; BM / ONBUY
+  // use 6.3). Default 6.30 covers the dominant case; operator can edit.
+  const [postage, setPostage]   = useState<string>('6.30');
+  // BM-only — preserved verbatim in the SALES_REPORT (informational column G).
+  const [paymentMode, setPaymentMode] = useState<string>('');
   const [saving, setSaving]     = useState(false);
   const [saved, setSaved]       = useState(false);
   const [sourceDocs, setSourceDocs] = useState<SourceDocument[]>([]);
@@ -122,15 +129,41 @@ export default function UnitDetailDrawer({ unit, supplierName, onClose }: Props)
     if (!salePrice) return;
     setSaving(true);
     const salePriceNumber = parseFloat(salePrice) || 0;
+    const postageNumber = Number.isFinite(parseFloat(postage)) ? parseFloat(postage) : 6.30;
+    const saleDate = new Date().toISOString().split('T')[0];
+
+    // 1) Update the inventory unit (status / sale fields kept for backwards-compat UI).
     await dbService.update('inventoryUnits', unit.id, {
       status: 'sold',
       salePrice: salePriceNumber,
       salePlatform: platform,
-      saleDate: new Date().toISOString().split('T')[0],
+      saleDate,
       platformListed: false,
       saleOrderId: saleOrderId || undefined,
       customerName: customerName || undefined,
+      postageCost: postageNumber,
     });
+
+    // 2) Persist a Sale row so the SALES_REPORT export picks this up. The
+    //    helper returns null for off-platform sales (no SALES_REPORT tab) —
+    //    in which case the unit stays flagged sold but no Sale doc is written.
+    const sale = buildSaleFromUnit({
+      unit, listingSite: platform,
+      salePrice: salePriceNumber,
+      saleDate,
+      postage: postageNumber,
+      saleOrderId,
+      customerName,
+      paymentMode,
+    });
+    if (sale) {
+      try {
+        await dbService.bulkUpsertSales([sale]);
+      } catch (saleError) {
+        console.warn('Sale persistence failed (unit still flagged sold).', saleError);
+      }
+    }
+
     try {
       await logInventoryEvent({
         type: 'sold',
@@ -410,6 +443,29 @@ export default function UnitDetailDrawer({ unit, supplierName, onClose }: Props)
                         className="w-full mt-1 bg-white border border-gray-200 rounded-xl px-3 py-2 text-sm font-mono focus:outline-none focus:border-black"
                       />
                     </div>
+                    <div>
+                      <label className="text-[9px] text-gray-400 font-mono uppercase">Postage (£)</label>
+                      <input
+                        type="number"
+                        step="0.01"
+                        value={postage}
+                        onChange={e => setPostage(e.target.value)}
+                        placeholder="6.30"
+                        className="w-full mt-1 bg-white border border-gray-200 rounded-xl px-3 py-2 text-sm font-mono focus:outline-none focus:border-black"
+                      />
+                    </div>
+                    {marketplaceFromListingSite(platform) === 'BM' && (
+                      <div>
+                        <label className="text-[9px] text-gray-400 font-mono uppercase">Payment Mode (opt)</label>
+                        <input
+                          type="text"
+                          value={paymentMode}
+                          onChange={e => setPaymentMode(e.target.value)}
+                          placeholder="Google Pay / Klarna / ..."
+                          className="w-full mt-1 bg-white border border-gray-200 rounded-xl px-3 py-2 text-sm font-mono focus:outline-none focus:border-black"
+                        />
+                      </div>
+                    )}
                   </div>
                   <button
                     onClick={markSold}
