@@ -648,9 +648,14 @@ export default function ImportModal({ onClose }: ImportModalProps) {
 
         // Detect a SALES_REPORT-style workbook by sheet names. If any of the
         // four marketplace sheets are present, dispatch to the dedicated sales
-        // parser instead of the inventory parsers.
+        // parser instead of the inventory parsers. Matches both canonical
+        // ("AMAZON SALES") and bare ("AMAZON") sheet names.
+        const SALES_SHEET_NAMES = new Set([
+          'AMAZON', 'BM', 'EBAY', 'ONBUY',
+          'AMAZON SALES', 'BM SALES', 'EBAY SALES', 'ONBUY SALES',
+        ]);
         const salesSheets = wb.SheetNames.filter(n =>
-          ['AMAZON', 'BM', 'EBAY', 'ONBUY'].includes(n.toUpperCase())
+          SALES_SHEET_NAMES.has(n.trim().toUpperCase())
         );
         if (salesSheets.length > 0 && !isCsv) {
           const { parseSalesWorkbook } = await import('../lib/salesImport');

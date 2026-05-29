@@ -239,22 +239,30 @@ export interface Sale {
   quantity: number;
   buyPrice: number;
   salePrice: number;
-  paymentMode?: string;          // BM only; preserve original casing (Paypal/Klarna/Clear Pay/...)
-  // Computed financials
+  paymentMode?: string;          // BM only; preserve original casing (Google Pay/Klarna/...)
+  // Inputs that may override per-row defaults
+  postage: number;               // default 6.30; AMAZON sometimes 5, EBAY varies
+  accountingFee: number;         // default 1; AMAZON sometimes 0
+  // Computed financials (full precision, matching SALES_REPORT_*.xlsx cells)
   spMinusBp: number;
   marginalTax: number;
   commission: number;
-  payPalKlarnaCom?: number;      // BM
-  rof?: number;                  // eBay
-  fvf?: number;                  // eBay
-  twentyPercent?: number;        // eBay 20%-on-fees bundle
-  totalCom?: number;             // eBay
-  vat20?: number;                // OnBuy / eBay
-  marVat?: number;               // OnBuy
-  postage: number;
+  cVat?: number;                 // AMAZON
+  dsf?: number;                  // AMAZON
+  dsfVat?: number;               // AMAZON
+  customerCareFees?: number;     // BM (literal 8.99)
+  rof?: number;                  // EBAY
+  fvf?: number;                  // EBAY (literal 0.40)
+  vat?: number;                  // EBAY (Comm+ROF+FVF)*20%
+  totalCom?: number;             // EBAY
+  marketing?: number;            // EBAY
+  mVat?: number;                 // EBAY
+  vat20?: number;                // ONBUY (Commission*20%)
+  pVat: number;                  // Postage*20% (all sheets)
+  totalVat: number;              // sheet-specific Total VAT
+  totalVatNtp: number;           // MarginalTax − Total VAT (BM: MarginalTax − P.VAT)
   grossProfit: number;
-  gpPercent: number;
-  netProfit?: number;            // eBay incl. promo
+  gpPercent: number;             // EBAY divides by SP, others by BP
   comments?: string;
   // Provenance
   importBatchId: string;
@@ -287,15 +295,14 @@ export interface ImportBatch {
  */
 export interface MarketplaceFee {
   marketplace: Marketplace;
-  commissionPct: number;
+  commissionPct: number;             // AMAZON 7, BM 11, EBAY 6.9, ONBUY 7
   commissionReductionPct?: number;   // eBay 10
   fixedFee?: number;                 // eBay FVF 0.40
-  postage: number;                   // 8 / 10 / 8 / 5.90
-  marginTaxDivisor?: number;         // 6 for Amazon/BM/OnBuy/Project
-  payPalKlarnaPct?: number;          // BM 2.5
+  postage: number;                   // default per marketplace; overridable per sale (6.30)
+  marginTaxDivisor?: number;         // legacy; unused now that MarTax = 16.67% literal
   rofPct?: number;                   // eBay 0.35
-  vatPct?: number;                   // 20 (OnBuy margin; eBay fees)
-  promoPct?: number;                 // eBay 5
+  vatPct?: number;                   // 20 (eBay bundle VAT / OnBuy VAT 20%)
+  promoPct?: number;                 // eBay 5 (Marketing)
 }
 
 /**

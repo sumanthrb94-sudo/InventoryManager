@@ -21,7 +21,10 @@ import { logInventoryEvent } from '../lib/inventoryEvents';
 interface Props { onClose: () => void; }
 
 // Sheet name signatures used to auto-route a dropped workbook into the right slot.
-const SALES_SHEETS = ['AMAZON', 'BM', 'EBAY', 'ONBUY'];
+const SALES_SHEETS = [
+  'AMAZON', 'BM', 'EBAY', 'ONBUY',
+  'AMAZON SALES', 'BM SALES', 'EBAY SALES', 'ONBUY SALES',
+];
 const INVENTORY_SHEETS = ['INVENTORY', 'IMEI NUMBERS', 'OG STOCK DATA'];
 
 type SlotKind = 'inventory' | 'sales';

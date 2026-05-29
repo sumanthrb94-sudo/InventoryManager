@@ -123,8 +123,7 @@ export async function parseSalesWorkbook(
 type ColKey =
   | 'date' | 'orderNumber' | 'sku' | 'imei' | 'supplier'
   | 'quantity' | 'buyPrice' | 'salePrice'
-  | 'paymentMode' | 'shipping' | 'netProfit'
-  | 'postage' | 'comments';
+  | 'paymentMode' | 'postage' | 'accountingFee' | 'comments';
 
 interface SheetLayout {
   /** Header aliases per logical column (case-insensitive, whitespace-collapsed).
@@ -161,93 +160,99 @@ interface SheetLayout {
  * SP=£0 + POSTAGE=£0 + COMMISSION=£0 and `GP = 0 - buyPrice`).
  */
 const SHEET_LAYOUTS: Record<Marketplace, SheetLayout> = {
-  // AMAZON cols (15):  nw | Order Number | SKU | IMEI | Supplier | Quantity |
-  //                    BP | SP | SP-BP | Marginal Tax | Commission | Postage |
-  //                    GP | GP % | Comments
+  // AMAZON SALES cols (21): Date | Order Number | SKU | IMEI | Supplier |
+  //   Quantity | BP | SP | SP-BP | Marginal Tax | Commission | C. VAT | DSF |
+  //   DSF. VAT | Postage | P. VAT | Acc | Total VAT | GP | GP % | Total VAT NTP
   AMAZON: {
     columns: {
-      date:        ['nw', 'date'],
-      orderNumber: ['order number', 'order no'],
-      sku:         ['sku'],
-      imei:        ['imei', 'imei number'],
-      supplier:    ['supplier'],
-      quantity:    ['quantity', 'units', 'quant'],
-      buyPrice:    ['bp'],
-      salePrice:   ['sp'],
-      comments:    ['comments'],
+      date:          ['date', 'nw'],
+      orderNumber:   ['order number', 'order no'],
+      sku:           ['sku'],
+      imei:          ['imei', 'imei number'],
+      supplier:      ['supplier'],
+      quantity:      ['quantity', 'units', 'quant'],
+      buyPrice:      ['bp'],
+      salePrice:     ['sp'],
+      postage:       ['postage'],
+      accountingFee: ['acc'],
     },
     fallback: {
       date: 0, orderNumber: 1, sku: 2, imei: 3, supplier: 4,
-      quantity: 5, buyPrice: 6, salePrice: 7, comments: 14,
+      quantity: 5, buyPrice: 6, salePrice: 7,
+      postage: 14, accountingFee: 16,
     },
     required: ['date', 'orderNumber', 'buyPrice', 'salePrice'],
   },
-  // BM cols (17): Date | Order No | SKU | IMEI | Supplier | Quantity | BP | SP |
-  //               Payment Mode | SP-BP | Marginal Tax | PayPal/Klarna Com |
-  //               Commission | Postage | GP | GP % | Comments
+  // BM SALES cols (20): Date | Order No | SKU | IMEI | Supplier | Quantity |
+  //   Payment Mode | BP | SP | SP-BP | Marginal Tax | Commission |
+  //   Customer Care Fees | Postage | P. VAT | Acc | GP | GP % |
+  //   Total VAT NTP | Comments
   BM: {
     columns: {
-      date:        ['date'],
-      orderNumber: ['order no', 'order number'],
-      sku:         ['sku'],
-      imei:        ['imei', 'imei number'],
-      supplier:    ['supplier'],
-      quantity:    ['quantity', 'units', 'quant'],
-      buyPrice:    ['bp'],
-      salePrice:   ['sp'],
-      paymentMode: ['payment mode'],
-      comments:    ['comments'],
+      date:          ['date'],
+      orderNumber:   ['order no', 'order number'],
+      sku:           ['sku'],
+      imei:          ['imei', 'imei number'],
+      supplier:      ['supplier'],
+      quantity:      ['quantity', 'units', 'quant'],
+      paymentMode:   ['payment mode'],
+      buyPrice:      ['bp'],
+      salePrice:     ['sp'],
+      postage:       ['postage'],
+      accountingFee: ['acc'],
+      comments:      ['comments'],
     },
     fallback: {
       date: 0, orderNumber: 1, sku: 2, imei: 3, supplier: 4,
-      quantity: 5, buyPrice: 6, salePrice: 7, paymentMode: 8, comments: 16,
+      quantity: 5, paymentMode: 6, buyPrice: 7, salePrice: 8,
+      postage: 13, accountingFee: 15, comments: 19,
     },
     required: ['date', 'orderNumber', 'buyPrice', 'salePrice'],
   },
-  // EBAY cols (19): DATE | ORDER NUMBER | SKU | IMEI NUMBER | SUPPLIER | UNITS |
-  //                 BP | SP | SP-BP | MAR TAX | COM | ROF | FVF | 0.2 | T.COM |
-  //                 SHIPPING | GP | GP% | NP(incl. PROMOTION)
+  // EBAY SALES cols (24): DATE | ORDER NUMBER | SKU | IMEI NUMBER | SUPPLIER |
+  //   UNITS | BP | SP | SP-BP | Marginal Tax | Commission | ROF | FVF | VAT |
+  //   T.COM | Postage | P. VAT | Marketing | M. VAT | Acc | Total VAT | GP |
+  //   GP% | Total VAT NTP
   EBAY: {
     columns: {
-      date:        ['date'],
-      orderNumber: ['order number', 'order no'],
-      sku:         ['sku'],
-      imei:        ['imei number', 'imei'],
-      supplier:    ['supplier'],
-      quantity:    ['units', 'quantity', 'quant'],
-      buyPrice:    ['bp'],
-      salePrice:   ['sp'],
-      // SHIPPING column holds the £1 / £2 / £8 eBay tier the order shipped at.
-      shipping:    ['shipping'],
-      netProfit:   ['np(incl. promotion)', 'np incl. promotion', 'np'],
-      comments:    ['comments'],
+      date:          ['date'],
+      orderNumber:   ['order number', 'order no'],
+      sku:           ['sku'],
+      imei:          ['imei number', 'imei'],
+      supplier:      ['supplier'],
+      quantity:      ['units', 'quantity', 'quant'],
+      buyPrice:      ['bp'],
+      salePrice:     ['sp'],
+      postage:       ['postage', 'shipping'],
+      accountingFee: ['acc'],
     },
     fallback: {
       date: 0, orderNumber: 1, sku: 2, imei: 3, supplier: 4,
-      quantity: 5, buyPrice: 6, salePrice: 7, shipping: 15, netProfit: 18,
+      quantity: 5, buyPrice: 6, salePrice: 7,
+      postage: 15, accountingFee: 19,
     },
     required: ['date', 'orderNumber', 'buyPrice', 'salePrice'],
   },
-  // ONBUY cols (15): DATE | Order Number | SKU | IMEI | Supplier | BP | SP |
-  //                  SP-BP | MAR VAT | COM 7% | VAT 20% | SHIP |
-  //                  GP=SP-BP-COM-SHIP-MARVAT | GP% | Comments
-  // OnBuy has NO QUANT column — BP/SP shift LEFT by one vs other sheets.
+  // ONBUY SALES cols (18): DATE | Order Number | SKU | IMEI | Supplier | BP |
+  //   SP | SP-BP | Marginal Tax | Commission | VAT 20% | Postage | P. VAT |
+  //   Acc | Total VAT | GP | GP% | Total VAT NTP
+  // No Quantity column — BP/SP shift LEFT by one vs other sheets.
   ONBUY: {
     columns: {
-      date:        ['date'],
-      orderNumber: ['order number', 'order no'],
-      sku:         ['sku'],
-      imei:        ['imei', 'imei number'],
-      supplier:    ['supplier'],
-      buyPrice:    ['bp'],
-      salePrice:   ['sp'],
-      comments:    ['comments'],
+      date:          ['date'],
+      orderNumber:   ['order number', 'order no'],
+      sku:           ['sku'],
+      imei:          ['imei', 'imei number'],
+      supplier:      ['supplier'],
+      buyPrice:      ['bp'],
+      salePrice:     ['sp'],
+      postage:       ['postage'],
+      accountingFee: ['acc'],
     },
     fallback: {
       date: 0, orderNumber: 1, sku: 2, imei: 3, supplier: 4,
-      // NB: BP at 5, SP at 6 — one less than the other marketplaces because
-      // OnBuy has no Quantity column.
-      buyPrice: 5, salePrice: 6, comments: 14,
+      buyPrice: 5, salePrice: 6,
+      postage: 11, accountingFee: 13,
     },
     required: ['date', 'orderNumber', 'buyPrice', 'salePrice'],
   },
@@ -257,10 +262,16 @@ const SHEET_LAYOUTS: Record<Marketplace, SheetLayout> = {
 // Sheet / header resolution
 // ---------------------------------------------------------------------------
 
-/** Resolve a sheet name case-insensitively (workbook may have "Amazon", "AMAZON", "amazon"). */
+/**
+ * Resolve a sheet name case-insensitively. Accepts both the canonical
+ * "AMAZON SALES"/"BM SALES"/... names from the client master and the bare
+ * "AMAZON"/"BM"/... names emitted by older app exports.
+ */
 function findSheetName(wb: XLSX.WorkBook, marketplace: Marketplace): string | undefined {
-  const want = marketplace.toLowerCase();
-  return wb.SheetNames.find((n: string) => n.trim().toLowerCase() === want);
+  const candidates = [`${marketplace} sales`, marketplace.toLowerCase()];
+  return wb.SheetNames.find((n: string) =>
+    candidates.includes(n.trim().toLowerCase())
+  );
 }
 
 /** Normalise a header cell for comparison: cast → trim → lowercase → collapse spaces. */
@@ -370,31 +381,22 @@ function parseRow(
     errors.push({ sheet: sheetName, row: sourceRow, message: 'missing BP or SP' });
     return null;
   }
-  // Quantity defaults to 1 (mandatory for ONBUY which has no QUANT column,
+  // Quantity defaults to 1 (mandatory for ONBUY which has no Quantity column,
   // and for AMAZON/BM/EBAY rows where the cell is blank).
   const quantity = toNumber(get('quantity')) ?? 1;
 
   // ---- marketplace-specific extras --------------------------------------
   const paymentMode = marketplace === 'BM' ? toNonEmptyString(get('paymentMode')) : undefined;
-  const hasPayPalKlarna = marketplace === 'BM' && paymentMode
-    ? /paypal|klarna|clearpay|clear pay|applepay/i.test(paymentMode)
-    : false;
 
-  let eBayShippingTier: 1 | 2 | 8 | undefined;
-  if (marketplace === 'EBAY') {
-    const ship = toNumber(get('shipping'));
-    if (ship === 1 || ship === 2 || ship === 8) eBayShippingTier = ship;
-  }
-
-  // postageOverride: pass through only when the workbook carried an explicit
-  // non-default postage (other marketplaces don't expose postage as input;
-  // EBAY funnels through eBayShippingTier above, so leave undefined here).
-  const postageOverride: number | undefined = undefined;
+  // Per-row overrides for the literal Postage / Acc cells (AMAZON varies 5/6.3;
+  // EBAY varies 0/1.9/4.65/6.3; AMAZON Acc varies 0/1). Fall back to the
+  // marketplace defaults when the cell is blank.
+  const postage = toNumber(get('postage'));
+  const accountingFee = toNumber(get('accountingFee'));
 
   // ---- recompute every derived field ------------------------------------
   const fin = calcSaleFinancials({
-    marketplace, buyPrice, salePrice,
-    postageOverride, eBayShippingTier, hasPayPalKlarna,
+    marketplace, buyPrice, salePrice, postage, accountingFee,
   });
 
   const supplierName = toNonEmptyString(get('supplier'));
@@ -516,25 +518,24 @@ if (import.meta.vitest) {
     });
 
     it('parseSalesWorkbook builds canonical Sale rows for every marketplace', async () => {
-      // Synthesize a 5-sheet workbook in memory with one row per marketplace.
       const make = (rows: any[][]) => XLSX.utils.aoa_to_sheet(rows);
       const wb = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(wb, make([
-        ['nw', 'Order Number', 'SKU', 'IMEI', 'Supplier', 'Quantity', 'BP', 'SP'],
+        ['Date', 'Order Number', 'SKU', 'IMEI', 'Supplier', 'Quantity', 'BP', 'SP'],
         [new Date('2026-05-12T00:00:00Z'), 'AMZ-1', 'SKU1', '353209102768686', 'NIHAL', 1, 200, 300],
-      ]), 'AMAZON');
+      ]), 'AMAZON SALES');
       XLSX.utils.book_append_sheet(wb, make([
-        ['Date', 'Order No', 'SKU', 'IMEI', 'Supplier', 'Quantity', 'BP', 'SP', 'Payment Mode'],
-        [new Date('2026-05-12T00:00:00Z'), 'BM-1', 'SKU2', 'NL6CMQCYTD', 'MHL', 1, 150, 250, 'PayPal'],
-      ]), 'BM');
+        ['Date', 'Order No', 'SKU', 'IMEI', 'Supplier', 'Quantity', 'Payment Mode', 'BP', 'SP'],
+        [new Date('2026-05-12T00:00:00Z'), 'BM-1', 'SKU2', 'NL6CMQCYTD', 'MHL', 1, 'PayPal', 150, 250],
+      ]), 'BM SALES');
       XLSX.utils.book_append_sheet(wb, make([
-        ['DATE', 'ORDER NUMBER', 'SKU', 'IMEI NUMBER', 'SUPPLIER', 'UNITS', 'BP', 'SP', 'SHIPPING'],
-        [new Date('2026-05-12T00:00:00Z'), 'EB-1', 'SKU3', 'SKC9P3QVP6F', 'IMAX', 1, 100, 200, 2],
-      ]), 'EBAY');
+        ['DATE', 'ORDER NUMBER', 'SKU', 'IMEI NUMBER', 'SUPPLIER', 'UNITS', 'BP', 'SP'],
+        [new Date('2026-05-12T00:00:00Z'), 'EB-1', 'SKU3', 'SKC9P3QVP6F', 'IMAX', 1, 100, 200],
+      ]), 'EBAY SALES');
       XLSX.utils.book_append_sheet(wb, make([
         ['DATE', 'Order Number', 'SKU', 'IMEI', 'Supplier', 'BP', 'SP'],
         [new Date('2026-05-12T00:00:00Z'), 'OB-1', 'SKU4', '111222333444555', 'ABC', 90, 180],
-      ]), 'ONBUY');
+      ]), 'ONBUY SALES');
 
       const buf = XLSX.write(wb, { type: 'array', bookType: 'xlsx' }) as ArrayBuffer;
       const out = await parseSalesWorkbook(buf, 'fixture.xlsx');
@@ -542,16 +543,12 @@ if (import.meta.vitest) {
       expect(out.errors).toEqual([]);
       expect(out.perSheetCounts).toEqual({ AMAZON: 1, BM: 1, EBAY: 1, ONBUY: 1 });
       expect(out.sales).toHaveLength(4);
-      // BM PayPal path applied → payPalKlarnaCom must be populated.
       const bm = out.sales.find((s) => s.marketplace === 'BM')!;
       expect(bm.paymentMode).toBe('PayPal');
-      expect(bm.payPalKlarnaCom).toBeGreaterThan(0);
-      // ONBUY defaulted quantity to 1 even with no QUANT column.
+      expect(bm.customerCareFees).toBeCloseTo(8.99, 9);
       const ob = out.sales.find((s) => s.marketplace === 'ONBUY')!;
       expect(ob.quantity).toBe(1);
-      // OnBuy IMEI preserved as the full 15-digit string (no scientific form).
       expect(ob.imei).toBe('111222333444555');
-      // Doc id follows the natural-dedupe convention.
       expect(bm.id).toBe('BM__BM-1');
     });
   });

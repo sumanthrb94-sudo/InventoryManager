@@ -90,10 +90,14 @@ function inventoryUnitToSale(u: InventoryUnit): Sale {
     buyPrice: bp,
     salePrice: sp,
     paymentMode: undefined,
+    postage: u.postageCost ?? 6.30,
+    accountingFee: 1,
     spMinusBp: sp - bp,
     marginalTax: 0,
     commission: 0,
-    postage: u.postageCost ?? 0,
+    pVat: 0,
+    totalVat: 0,
+    totalVatNtp: 0,
     grossProfit: 0,
     gpPercent: 0,
     comments: u.notes || undefined,
@@ -1124,13 +1128,13 @@ export default function SellPage() {
                           </span>
                         );
                       } else if (s.marketplace === 'EBAY') {
-                        const np = s.netProfit ?? s.grossProfit;
+                        const gp = s.grossProfit;
                         detail = (
                           <span
-                            className={`text-[10px] font-bold ${np < 0 ? 'text-red-600' : 'text-emerald-700'}`}
-                            title={`ROF ${fmtGBP(s.rof)} · FVF ${fmtGBP(s.fvf)} · 20% ${fmtGBP(s.twentyPercent)} · Net ${fmtGBP(np)}`}
+                            className={`text-[10px] font-bold ${gp < 0 ? 'text-red-600' : 'text-emerald-700'}`}
+                            title={`ROF ${fmtGBP(s.rof)} · FVF ${fmtGBP(s.fvf)} · VAT ${fmtGBP(s.vat)} · Marketing ${fmtGBP(s.marketing)}`}
                           >
-                            Net {fmtGBP(np)}
+                            GP {fmtGBP(gp)}
                           </span>
                         );
                       }
