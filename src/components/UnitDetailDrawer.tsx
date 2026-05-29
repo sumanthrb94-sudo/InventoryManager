@@ -13,7 +13,8 @@ import { getWarrantyStatus } from '../lib/warrantyUtils';
 
 
 import { logInventoryEvent } from '../lib/inventoryEvents';
-import { LISTING_SITES, listingSiteLabel } from '../lib/platforms';
+import { LISTING_SITES, listingSiteLabel, marketplaceFromListingSite } from '../lib/platforms';
+import { recordSale } from '../services';
 
 const PLATFORMS = LISTING_SITES;
 
@@ -122,15 +123,49 @@ export default function UnitDetailDrawer({ unit, supplierName, onClose }: Props)
     if (!salePrice) return;
     setSaving(true);
     const salePriceNumber = parseFloat(salePrice) || 0;
-    await dbService.update('inventoryUnits', unit.id, {
-      status: 'sold',
-      salePrice: salePriceNumber,
-      salePlatform: platform,
-      saleDate: new Date().toISOString().split('T')[0],
-      platformListed: false,
-      saleOrderId: saleOrderId || undefined,
-      customerName: customerName || undefined,
-    });
+    const saleDate = new Date().toISOString().split('T')[0];
+
+    // When the platform maps to a SALES_REPORT marketplace, route through
+    // recordSale so the Sale doc lands in the sales collection (and the
+    // SALES_REPORT export picks it up). For off-platform sales (FBA / R T S /
+    // Other) we just flip the unit's status.
+    const marketplace = marketplaceFromListingSite(platform);
+    let routedThroughRecordSale = false;
+    if (marketplace) {
+      const res = await recordSale({
+        marketplace,
+        orderNumber: saleOrderId || `INAPP-${unit.id}`,
+        unitId: unit.id,
+        buyPrice: unit.buyPrice,
+        salePrice: salePriceNumber,
+        saleDate,
+        sku: unit.sku,
+        comments: customerName || undefined,
+      });
+      if (res.ok) routedThroughRecordSale = true;
+      else console.warn('UnitDetailDrawer recordSale failed:', res.message);
+    }
+
+    // Update the unit even when recordSale didn't run, so the UI still reflects
+    // the sold state (recordSale also flips status, but we want a safety net).
+    if (!routedThroughRecordSale) {
+      await dbService.update('inventoryUnits', unit.id, {
+        status: 'sold',
+        salePrice: salePriceNumber,
+        salePlatform: platform,
+        saleDate,
+        platformListed: false,
+        saleOrderId: saleOrderId || undefined,
+        customerName: customerName || undefined,
+      });
+    } else {
+      // recordSale handles the core fields; persist customerName separately
+      // since it's not a SALES_REPORT concern.
+      if (customerName) {
+        await dbService.update('inventoryUnits', unit.id, { customerName });
+      }
+    }
+
     try {
       await logInventoryEvent({
         type: 'sold',

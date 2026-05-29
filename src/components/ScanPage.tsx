@@ -10,7 +10,8 @@ import { InventoryUnit, ListingSite } from '../types';
 import { useInventoryStore } from '../lib/inventoryStore';
 import { formatIMEI, validateIMEI } from '../lib/imeiUtils';
 import { logInventoryEvent } from '../lib/inventoryEvents';
-import { LISTING_SITES, listingSiteLabel } from '../lib/platforms';
+import { LISTING_SITES, listingSiteLabel, marketplaceFromListingSite } from '../lib/platforms';
+import { recordSale } from '../services';
 
 const PLATFORMS = LISTING_SITES;
 type Platform = ListingSite;
@@ -105,7 +106,39 @@ export default function ScanPage() {
     }
     if (notes) updates.notes = notes;
 
-    await dbService.update('inventoryUnits', unit.id, updates);
+    // Sold flow goes through recordSale when the platform maps to a
+    // SALES_REPORT marketplace so the Sale doc lands in the sales collection
+    // and the SALES_REPORT export picks it up. Off-platform sales fall through
+    // to the plain unit-status update.
+    let routedThroughRecordSale = false;
+    if (action === 'sold') {
+      const marketplace = marketplaceFromListingSite(platform);
+      if (marketplace) {
+        const res = await recordSale({
+          marketplace,
+          orderNumber: saleOrderId || `INAPP-${unit.id}`,
+          unitId: unit.id,
+          buyPrice: unit.buyPrice,
+          salePrice: salePrice ?? 0,
+          saleDate: today,
+          sku: unit.sku,
+          comments: customerName || undefined,
+        });
+        if (res.ok) routedThroughRecordSale = true;
+        else console.warn('ScanPage recordSale failed:', res.message);
+      }
+    }
+
+    if (!routedThroughRecordSale) {
+      await dbService.update('inventoryUnits', unit.id, updates);
+    } else if (notes || customerName) {
+      // recordSale handles core sold fields; persist scanner-only extras.
+      await dbService.update('inventoryUnits', unit.id, {
+        ...(notes ? { notes } : {}),
+        ...(customerName ? { customerName } : {}),
+      });
+    }
+
     try {
       await logInventoryEvent({
         type: action,

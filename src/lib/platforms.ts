@@ -112,11 +112,21 @@ const MARKETPLACE_TO_LISTING_SITE: Record<Marketplace, ListingSite> = {
 };
 
 const LISTING_SITE_TO_MARKETPLACE: Record<string, Marketplace> = {
+  // Pretty / user-facing names
   'Amazon':     'AMAZON',
   'Back Market':'BM',
   'Backmarket': 'BM',   // legacy
   'eBay':       'EBAY',
   'OnBuy':      'ONBUY',
+  // Canonical Marketplace enum values — recordSale writes salePlatform in
+  // this form ('EBAY' / 'AMAZON' / …) so the reverse lookup also has to
+  // accept it; without these entries, every non-eBay sale resolved to the
+  // 'EBAY' fallback inside inventoryUnitToSale and double-counted on the
+  // Sell screen because the dedupe key `${mp}__${orderNumber}` didn't match.
+  'AMAZON':  'AMAZON',
+  'BM':      'BM',
+  'EBAY':    'EBAY',
+  'ONBUY':   'ONBUY',
 };
 
 export function listingSiteFromMarketplace(m: Marketplace): ListingSite {
