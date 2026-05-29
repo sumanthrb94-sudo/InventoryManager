@@ -48,10 +48,16 @@ export interface ParsedSales {
  *                    sale for provenance (e.g. "SALES_REPORT_2026.xlsx").
  */
 export async function parseSalesWorkbook(
-  file: File | ArrayBuffer,
+  file: File | ArrayBuffer | Uint8Array,
   sourceFile: string,
 ): Promise<ParsedSales> {
-  const buf: ArrayBuffer = file instanceof ArrayBuffer ? file : await file.arrayBuffer();
+  // ExcelJS / Node `Buffer` instances satisfy `Uint8Array` but not
+  // `ArrayBuffer` — accept both so the round-trip from buildSalesWorkbookBuffer
+  // works in Node test environments and the browser.
+  const buf: ArrayBuffer | Uint8Array =
+    file instanceof ArrayBuffer || file instanceof Uint8Array
+      ? file
+      : await file.arrayBuffer();
   const wb = XLSX.read(buf, { type: 'array', raw: true, cellText: true, cellDates: true });
 
   const sales: ParsedSales['sales'] = [];
@@ -268,9 +274,10 @@ const SHEET_LAYOUTS: Record<Marketplace, SheetLayout> = {
  * "AMAZON"/"BM"/... names emitted by older app exports.
  */
 function findSheetName(wb: XLSX.WorkBook, marketplace: Marketplace): string | undefined {
-  const candidates = [`${marketplace} sales`, marketplace.toLowerCase()];
+  const m = marketplace.toLowerCase();
+  const candidates = new Set([`${m} sales`, m]);
   return wb.SheetNames.find((n: string) =>
-    candidates.includes(n.trim().toLowerCase())
+    candidates.has(n.trim().toLowerCase())
   );
 }
 

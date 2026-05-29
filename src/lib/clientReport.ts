@@ -30,6 +30,9 @@ import { excelFormulaFor } from './platforms';
 // Public surface
 // ---------------------------------------------------------------------------
 
+/** Calendar quarter (Q1 = Jan–Mar … Q4 = Oct–Dec). */
+export type Quarter = 1 | 2 | 3 | 4;
+
 export interface ClientReportOptions {
   /** ISO date (yyyy-mm-dd) — lower bound filter for sales (inclusive). */
   from?: string;
@@ -37,6 +40,12 @@ export interface ClientReportOptions {
   to?: string;
   /** Override "today" — drives the filename (year/month). Defaults to new Date(). */
   today?: Date;
+  /**
+   * When set, the SALES_REPORT filename uses the quarterly pattern
+   * (`SALES_REPORT_${year}_Q${q}.xlsx`) regardless of `today`. Combine with
+   * `from`/`to` (use `quarterDateRange`) to filter the sales window.
+   */
+  quarter?: { year: number; quarter: Quarter };
 }
 
 export interface BuildInventoryWorkbookInput {
@@ -439,6 +448,34 @@ export function salesReportFilename(today: Date = new Date()): string {
   return `SALES_REPORT_${fyYear}_${fyMonth}.xlsx`;
 }
 
+/**
+ * Quarterly filename: SALES_REPORT_${year}_Q${q}.xlsx (e.g. 2026_Q2 = Apr-Jun).
+ * Mirrors the client master pattern with a `Q` prefix so the CA can tell
+ * monthly vs quarterly files apart at a glance.
+ */
+export function salesReportFilenameForQuarter(year: number, q: Quarter): string {
+  return `SALES_REPORT_${year}_Q${q}.xlsx`;
+}
+
+/**
+ * Inclusive ISO date range covering a calendar quarter.
+ *   Q1 → Jan 1 – Mar 31
+ *   Q2 → Apr 1 – Jun 30
+ *   Q3 → Jul 1 – Sep 30
+ *   Q4 → Oct 1 – Dec 31
+ */
+export function quarterDateRange(year: number, q: Quarter): { from: string; to: string } {
+  const startMonth = (q - 1) * 3;             // 0, 3, 6, 9
+  const lastDay    = new Date(Date.UTC(year, startMonth + 3, 0)).getUTCDate();
+  const pad = (n: number) => String(n).padStart(2, '0');
+  const fromMonth = pad(startMonth + 1);
+  const toMonth   = pad(startMonth + 3);
+  return {
+    from: `${year}-${fromMonth}-01`,
+    to:   `${year}-${toMonth}-${pad(lastDay)}`,
+  };
+}
+
 const XLSX_MIME = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
 
 function triggerBrowserDownload(buffer: ArrayBuffer, filename: string): void {
@@ -465,6 +502,9 @@ export async function downloadClientWorkbooks(input: DownloadClientWorkbooksInpu
     }),
     buildSalesWorkbookBuffer({ sales: input.sales, opts: input.opts }),
   ]);
+  const salesFilename = input.opts?.quarter
+    ? salesReportFilenameForQuarter(input.opts.quarter.year, input.opts.quarter.quarter)
+    : salesReportFilename(today);
   triggerBrowserDownload(invBuf, inventoryReportFilename(today));
-  triggerBrowserDownload(salesBuf, salesReportFilename(today));
+  triggerBrowserDownload(salesBuf, salesFilename);
 }

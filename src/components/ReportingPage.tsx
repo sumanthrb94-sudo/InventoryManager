@@ -7,6 +7,7 @@ import { recomputeSale } from '../lib/recomputeSale';
 import CopyImei from './CopyImei';
 import PDFReportButton from './PDFReportButton';
 import ExcelReportButton from './ExcelReportButton';
+import QuarterlyReportPicker from './QuarterlyReportPicker';
 import {
   PLATFORMS, PLATFORM_LIST,
   platformCommission, platformTotalFee, calcNetProfit,
@@ -319,8 +320,9 @@ export default function ReportingPage() {
             Daily Sales · Stock Value · VAT Returns · Margin Insights
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
           <ExcelReportButton units={units} suppliers={suppliers} variant="outline" />
+          <QuarterlyReportPicker units={units} suppliers={suppliers} />
           <PDFReportButton units={units} suppliers={suppliers} variant="outline" />
         </div>
       </div>
