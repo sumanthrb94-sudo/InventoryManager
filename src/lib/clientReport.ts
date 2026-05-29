@@ -226,11 +226,6 @@ const SALES_HEADERS: Record<Marketplace, SalesHeaderRow> = {
     'BP', 'SP', 'SP-BP', 'MAR VAT', 'COM 7%', 'VAT 20%', 'SHIP',
     'GP=SP-BP-COM-SHIP-MARVAT', 'GP%', 'Comments',
   ],
-  PROJECT: [
-    'Date', 'Order Number', 'SKU', 'IMEI', 'Supplier', 'QUANT',
-    'BP', 'SP', 'SP-BP', 'MAR TAX', 'COMM', 'POST',
-    'GP = SP-BP-TAX-COM-AMZTAX-POS-P COM', 'GP %', 'Comments',
-  ],
 };
 
 const DATE_FMT = '[$-409]d\\-mmm\\-yyyy';
@@ -341,27 +336,6 @@ function writeSaleRow(
       row.getCell(9).value  = { formula: f.marVat! };       row.getCell(9).numFmt  = MONEY_FMT;
       row.getCell(10).value = { formula: f.commission! };   row.getCell(10).numFmt = MONEY_FMT;
       row.getCell(11).value = { formula: f.vat20! };        row.getCell(11).numFmt = MONEY_FMT;
-      row.getCell(12).value = Number(f.postage);            row.getCell(12).numFmt = MONEY_FMT;
-      row.getCell(13).value = { formula: f.grossProfit! };  row.getCell(13).numFmt = MONEY_FMT;
-      row.getCell(14).value = { formula: f.gpPercent! };    row.getCell(14).numFmt = MONEY_FMT;
-      return;
-    }
-
-    case 'PROJECT': {
-      // Same layout as AMAZON.
-      const row = sheet.addRow([
-        date, sale.orderNumber, sale.sku ?? '', sale.imei ?? '',
-        sale.supplierName ?? '', qty,
-        sale.buyPrice, sale.salePrice,
-        null, null, null, null, null, null, sale.comments ?? '',
-      ]);
-      row.getCell(1).numFmt = DATE_FMT;
-      row.getCell(4).numFmt = IMEI_FMT;
-      row.getCell(7).numFmt = MONEY_FMT;
-      row.getCell(8).numFmt = MONEY_FMT;
-      row.getCell(9).value  = { formula: f.spMinusBp! };    row.getCell(9).numFmt  = MONEY_FMT;
-      row.getCell(10).value = { formula: f.marginalTax! };  row.getCell(10).numFmt = MONEY_FMT;
-      row.getCell(11).value = { formula: f.commission! };   row.getCell(11).numFmt = MONEY_FMT;
       row.getCell(12).value = Number(f.postage);            row.getCell(12).numFmt = MONEY_FMT;
       row.getCell(13).value = { formula: f.grossProfit! };  row.getCell(13).numFmt = MONEY_FMT;
       row.getCell(14).value = { formula: f.gpPercent! };    row.getCell(14).numFmt = MONEY_FMT;

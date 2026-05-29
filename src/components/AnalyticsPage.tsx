@@ -30,7 +30,6 @@ const MARKETPLACE_HEX: Record<Marketplace, string> = {
   BM:     '#10b981',
   EBAY:   '#f59e0b',
   ONBUY:  '#3b82f6',
-  PROJECT:'#6b7280',
 };
 
 export default function AnalyticsPage() {
@@ -315,7 +314,7 @@ export default function AnalyticsPage() {
   );
 
   // ── Per-Marketplace Margin Table ────────────────────────────────────────
-  // Rows: AMAZON / BM / EBAY / ONBUY / PROJECT.
+  // Rows: AMAZON / BM / EBAY / ONBUY.
   // count, total revenue, avg SP, avg BP, avg commission, avg GP, GP %.
   const marketplaceMargin = useMemo(() => {
     return MARKETPLACES.map(mk => {

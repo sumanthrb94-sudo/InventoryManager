@@ -80,7 +80,7 @@ export default function ReportingPage() {
     const rows: any[] = [];
     // Map marketplace codes → friendly labels matched by the legacy fee tables
     const mkToPlatform: Record<string, string> = {
-      EBAY: 'eBay', AMAZON: 'Amazon', BM: 'Backmarket', ONBUY: 'OnBuy', PROJECT: 'Other',
+      EBAY: 'eBay', AMAZON: 'Amazon', BM: 'Backmarket', ONBUY: 'OnBuy',
     };
     const unitById = new Map<string, InventoryUnit>();
     for (const u of units) unitById.set(u.id, u);

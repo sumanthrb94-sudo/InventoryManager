@@ -13,7 +13,7 @@
  *     dates arrive as JS `Date` objects, and we never have to parse the
  *     marketplace's cached formula text — we recompute every derived field via
  *     `calcSaleFinancials()` so the numbers always match `platforms.ts`.
- *   - Iterate `['AMAZON','BM','EBAY','ONBUY','PROJECT']` in order; a missing
+ *   - Iterate `['AMAZON','BM','EBAY','ONBUY']` in order; a missing
  *     sheet records an error and continues (the file might be partial).
  *   - Per-sheet column maps live in `SHEET_LAYOUTS` below — header-matched
  *     case-insensitive with whitespace collapsed. eBay's literal numeric `0.2`
@@ -57,12 +57,12 @@ export async function parseSalesWorkbook(
   const sales: ParsedSales['sales'] = [];
   const errors: ParsedSales['errors'] = [];
   const perSheetCounts: Record<Marketplace, number> = {
-    AMAZON: 0, BM: 0, EBAY: 0, ONBUY: 0, PROJECT: 0,
+    AMAZON: 0, BM: 0, EBAY: 0, ONBUY: 0,
   };
 
   // Track mean SP per marketplace — surfaces the SP=£0 column-detection bug
   // immediately at parse time instead of leaking into Firestore unnoticed.
-  const spSum: Record<Marketplace, number> = { AMAZON: 0, BM: 0, EBAY: 0, ONBUY: 0, PROJECT: 0 };
+  const spSum: Record<Marketplace, number> = { AMAZON: 0, BM: 0, EBAY: 0, ONBUY: 0 };
 
   for (const marketplace of MARKETPLACES) {
     const sheetName = findSheetName(wb, marketplace);
@@ -148,7 +148,7 @@ interface SheetLayout {
 }
 
 /**
- * Header aliases match the live AMAZON/BM/EBAY/ONBUY/PROJECT sheets verbatim
+ * Header aliases match the live AMAZON/BM/EBAY/ONBUY sheets verbatim
  * (see MASTER_FILES_SPEC.md §File 2). The matcher trims, lowercases and
  * collapses whitespace, so trailing spaces / case variations are tolerated.
  *
@@ -248,27 +248,6 @@ const SHEET_LAYOUTS: Record<Marketplace, SheetLayout> = {
       // NB: BP at 5, SP at 6 — one less than the other marketplaces because
       // OnBuy has no Quantity column.
       buyPrice: 5, salePrice: 6, comments: 14,
-    },
-    required: ['date', 'orderNumber', 'buyPrice', 'salePrice'],
-  },
-  // PROJECT cols (15): Date | Order Number | SKU | IMEI | Supplier | QUANT |
-  //                    BP | SP | SP-BP | MAR TAX | COMM | POST |
-  //                    GP | GP % | Comments
-  PROJECT: {
-    columns: {
-      date:        ['date'],
-      orderNumber: ['order number', 'order no'],
-      sku:         ['sku'],
-      imei:        ['imei', 'imei number'],
-      supplier:    ['supplier'],
-      quantity:    ['quant', 'quantity', 'units'],
-      buyPrice:    ['bp'],
-      salePrice:   ['sp'],
-      comments:    ['comments'],
-    },
-    fallback: {
-      date: 0, orderNumber: 1, sku: 2, imei: 3, supplier: 4,
-      quantity: 5, buyPrice: 6, salePrice: 7, comments: 14,
     },
     required: ['date', 'orderNumber', 'buyPrice', 'salePrice'],
   },
@@ -392,7 +371,7 @@ function parseRow(
     return null;
   }
   // Quantity defaults to 1 (mandatory for ONBUY which has no QUANT column,
-  // and for AMAZON/BM/EBAY/PROJECT rows where the cell is blank).
+  // and for AMAZON/BM/EBAY rows where the cell is blank).
   const quantity = toNumber(get('quantity')) ?? 1;
 
   // ---- marketplace-specific extras --------------------------------------
@@ -556,17 +535,13 @@ if (import.meta.vitest) {
         ['DATE', 'Order Number', 'SKU', 'IMEI', 'Supplier', 'BP', 'SP'],
         [new Date('2026-05-12T00:00:00Z'), 'OB-1', 'SKU4', '111222333444555', 'ABC', 90, 180],
       ]), 'ONBUY');
-      XLSX.utils.book_append_sheet(wb, make([
-        ['Date', 'Order Number', 'SKU', 'IMEI', 'Supplier', 'QUANT', 'BP', 'SP'],
-        [new Date('2026-05-12T00:00:00Z'), 'PR-1', 'SKU5', 'JKQXQYGPPF', 'NIHAL', 1, 80, 150],
-      ]), 'PROJECT');
 
       const buf = XLSX.write(wb, { type: 'array', bookType: 'xlsx' }) as ArrayBuffer;
       const out = await parseSalesWorkbook(buf, 'fixture.xlsx');
 
       expect(out.errors).toEqual([]);
-      expect(out.perSheetCounts).toEqual({ AMAZON: 1, BM: 1, EBAY: 1, ONBUY: 1, PROJECT: 1 });
-      expect(out.sales).toHaveLength(5);
+      expect(out.perSheetCounts).toEqual({ AMAZON: 1, BM: 1, EBAY: 1, ONBUY: 1 });
+      expect(out.sales).toHaveLength(4);
       // BM PayPal path applied → payPalKlarnaCom must be populated.
       const bm = out.sales.find((s) => s.marketplace === 'BM')!;
       expect(bm.paymentMode).toBe('PayPal');

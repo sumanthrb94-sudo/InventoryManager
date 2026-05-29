@@ -8,8 +8,8 @@ export type OperationalFlag = 'top10' | 'supplierHasStock' | 'stockSold';
 export type ReturnCategory = 'returned_to_inventory' | 'returned_to_supplier' | 'repair';
 
 // Canonical marketplace sheet names matching the SALES_REPORT workbook tabs
-export type Marketplace = 'AMAZON' | 'BM' | 'EBAY' | 'ONBUY' | 'PROJECT';
-export const MARKETPLACES: Marketplace[] = ['AMAZON', 'BM', 'EBAY', 'ONBUY', 'PROJECT'];
+export type Marketplace = 'AMAZON' | 'BM' | 'EBAY' | 'ONBUY';
+export const MARKETPLACES: Marketplace[] = ['AMAZON', 'BM', 'EBAY', 'ONBUY'];
 
 export interface Supplier {
   id: string;

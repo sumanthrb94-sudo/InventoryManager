@@ -647,10 +647,10 @@ export default function ImportModal({ onClose }: ImportModalProps) {
           : XLSX.read(new Uint8Array(e.target!.result as ArrayBuffer), { type: 'array', raw: true, cellText: true });
 
         // Detect a SALES_REPORT-style workbook by sheet names. If any of the
-        // five marketplace sheets are present, dispatch to the dedicated sales
+        // four marketplace sheets are present, dispatch to the dedicated sales
         // parser instead of the inventory parsers.
         const salesSheets = wb.SheetNames.filter(n =>
-          ['AMAZON', 'BM', 'EBAY', 'ONBUY', 'PROJECT'].includes(n.toUpperCase())
+          ['AMAZON', 'BM', 'EBAY', 'ONBUY'].includes(n.toUpperCase())
         );
         if (salesSheets.length > 0 && !isCsv) {
           const { parseSalesWorkbook } = await import('../lib/salesImport');
