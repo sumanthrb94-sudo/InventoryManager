@@ -7,6 +7,7 @@ import { recomputeSale } from '../lib/recomputeSale';
 import CopyImei from './CopyImei';
 import PDFReportButton from './PDFReportButton';
 import ExcelReportButton from './ExcelReportButton';
+import QuarterlyReportPicker from './QuarterlyReportPicker';
 import {
   calcSaleFinancials, getMarketplaceFee, marketplaceFromListingSite,
   DEFAULT_MARKETPLACE_FEES,
@@ -68,10 +69,9 @@ function netProfitFor(
     marketplace: mp,
     buyPrice,
     salePrice,
-    postageOverride,
+    postage: postageOverride,
   });
-  // EBAY exposes `netProfit` (GP - 5% promo); others use `grossProfit`.
-  return f.netProfit ?? f.grossProfit;
+  return f.grossProfit;
 }
 
 /** Default postage for a row — marketplace-specific, with a generic £8 fallback. */
@@ -392,8 +392,9 @@ export default function ReportingPage() {
             Daily Sales · Stock Value · VAT Returns · Margin Insights
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
           <ExcelReportButton units={units} suppliers={suppliers} variant="outline" />
+          <QuarterlyReportPicker units={units} suppliers={suppliers} />
           <PDFReportButton units={units} suppliers={suppliers} variant="outline" />
         </div>
       </div>

@@ -84,8 +84,10 @@ function inventoryUnitToSale(u: InventoryUnit): Sale {
     supplierId: u.supplierId, supplierName: u.supplierName,
     saleDate: (u.saleDate || u.updatedAt?.split?.('T')?.[0] || '') as string,
     quantity: 1, buyPrice: bp, salePrice: sp,
+    postage: u.postageCost ?? 6.30, accessories: 1,
     spMinusBp: sp - bp, marginalTax: 0, commission: 0,
-    postage: u.postageCost ?? 0, grossProfit: 0, gpPercent: 0,
+    pVat: 0, totalVat: 0, totalVatNtp: 0,
+    grossProfit: 0, gpPercent: 0,
     comments: u.notes || undefined,
     importBatchId: 'inapp', sourceFile: 'inapp-sell-flow', sourceRow: 0,
     importedAt: u.updatedAt ?? u.createdAt,
@@ -399,7 +401,7 @@ export default function SellSheet(_props: Props) {
   // the void path keeps the original Sale doc for audit only.
   const handleSalesReport = () => {
     const active = sales.filter(s => !s.voidedAt);
-    void downloadSalesWorkbook({ sales: active, units, supplierMap });
+    void downloadSalesWorkbook({ sales: active });
   };
 
   // ── Inline cell save (re-recompute GP/comm/postage in the same patch) ─────
@@ -413,10 +415,20 @@ export default function SellSheet(_props: Props) {
         commission: next.commission,
         grossProfit: next.grossProfit,
         gpPercent: next.gpPercent,
-        netProfit: next.netProfit,
         totalCom: next.totalCom,
         rof: next.rof,
         fvf: next.fvf,
+        cVat: next.cVat,
+        dsf: next.dsf,
+        dsfVat: next.dsfVat,
+        customerCareFees: next.customerCareFees,
+        vat: next.vat,
+        marketing: next.marketing,
+        mVat: next.mVat,
+        vat20: next.vat20,
+        pVat: next.pVat,
+        totalVat: next.totalVat,
+        totalVatNtp: next.totalVatNtp,
       });
     }
     try { await dbService.update('sales', s.id, patch); } catch (err) { console.error(err); }

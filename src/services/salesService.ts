@@ -35,9 +35,13 @@ export interface RecordSaleInput {
   /** BM only — preserves Paypal/Klarna/Clear Pay/Apple Pay casing for the
    *  PayPal/Klarna 2.5% commission switch in calcSaleFinancials. */
   paymentMode?: string;
-  /** Override the per-marketplace default postage (eBay £1/£2/£8 tiers,
-   *  free-shipping promos). */
+  /** Postage actually charged (default 6.30). AMAZON sometimes uses 5; EBAY
+   *  varies 0 / 1.9 / 4.65 / 6.30. */
   postageOverride?: number;
+  /** When true, P.VAT is forced to 0 (postage VAT-exempt). */
+  postageVatExempt?: boolean;
+  /** Acc column — accessory value in £; defaults to 1 (0 when no accessory). */
+  accessories?: number;
   comments?: string;
 }
 
@@ -103,21 +107,13 @@ export async function recordSale(input: RecordSaleInput): Promise<RecordSaleResu
   }
 
   // ── Compute derived financials in ONE place. ───────────────────────────
-  const hasPayPalKlarna = /paypal|klarna|clearpay|clear pay|applepay|apple pay/i
-    .test(input.paymentMode || '');
-  // eBay shipping tiers map literal £1/£2/£8 inputs to the helper's tier slot.
-  let eBayShippingTier: 1 | 2 | 8 | undefined;
-  if (input.marketplace === 'EBAY'
-      && (input.postageOverride === 1 || input.postageOverride === 2 || input.postageOverride === 8)) {
-    eBayShippingTier = input.postageOverride as 1 | 2 | 8;
-  }
   const fin = calcSaleFinancials({
     marketplace: input.marketplace,
     buyPrice: bp,
     salePrice: sp,
-    postageOverride: input.postageOverride,
-    eBayShippingTier,
-    hasPayPalKlarna,
+    postage: input.postageOverride,
+    postageVatExempt: input.postageVatExempt,
+    accessories: input.accessories,
   });
 
   // ── Build the sale doc using the composite id idiom. ───────────────────
@@ -143,20 +139,10 @@ export async function recordSale(input: RecordSaleInput): Promise<RecordSaleResu
     buyPrice: bp,
     salePrice: sp,
     paymentMode: input.paymentMode,
-    spMinusBp: fin.spMinusBp,
-    marginalTax: fin.marginalTax,
-    commission: fin.commission,
-    payPalKlarnaCom: fin.payPalKlarnaCom,
-    rof: fin.rof,
-    fvf: fin.fvf,
-    twentyPercent: fin.twentyPercent,
-    totalCom: fin.totalCom,
-    vat20: fin.vat20,
-    marVat: fin.marVat,
     postage: fin.postage,
-    grossProfit: fin.grossProfit,
-    gpPercent: fin.gpPercent,
-    netProfit: fin.netProfit,
+    postageVatExempt: input.postageVatExempt || undefined,
+    accessories: fin.accessories,
+    ...fin,
     comments: input.comments,
     importBatchId: 'inapp',
     sourceFile: 'inapp-sell-flow',

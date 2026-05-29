@@ -22,7 +22,7 @@ import { dbService } from '../lib/dbService';
 import type { InventoryUnit, Marketplace } from '../types';
 import { MARKETPLACES } from '../types';
 import { notificationService } from '../lib/notificationService';
-import { calcSaleFinancials, getMarketplaceFee } from '../lib/platforms';
+import { calcSaleFinancials } from '../lib/platforms';
 import {
   isValidImei, isAppleDevice,
   IMEI_REQUIRED_MESSAGE, IMEI_OR_APPLE_SERIAL_MESSAGE,
@@ -50,7 +50,6 @@ const BM_PAYMENT_MODES = ['', 'Klarna', 'PayPal', 'Clear Pay', 'Apple Pay', 'Goo
 /** eBay's three shipping tiers per the master sheet — surfaced as quick-pick
  *  buttons rather than a free-text postage field so the operator's input
  *  routes cleanly into the eBayShippingTier slot inside calcSaleFinancials. */
-const EBAY_SHIPPING_TIERS: ReadonlyArray<1 | 2 | 8> = [1, 2, 8];
 
 const today = () => new Date().toISOString().split('T')[0];
 
@@ -72,8 +71,15 @@ export default function SellOrderModal({ unit, onClose, onSaved, isSHS = false }
   const [sku, setSku]           = useState(unit.sku || '');
   const [sp, setSp]             = useState('');
   const [saleDate, setSaleDate] = useState(today());
-  const [postageInput, setPostageInput] = useState<string>(''); // user-typed override
-  const [eBayTier, setEBayTier] = useState<1 | 2 | 8>(8);
+  // Postage UX: dropdown of preset values (6.30 / 5 / 4.65 / 1.90 / 0) + "Other"
+  // which reveals a free-text £ field. Matches the variability seen across the
+  // client master (AMAZON: 5 or 6.3; EBAY: 0 / 1.9 / 4.65 / 6.3; BM/ONBUY: 6.3).
+  const [postagePreset, setPostagePreset] = useState<string>('6.30');
+  const [postageCustom, setPostageCustom] = useState<string>('');
+  // VAT-nullify toggle — when ON, P.VAT is written as literal 0 (not Postage*20%).
+  const [postageVatExempt, setPostageVatExempt] = useState<boolean>(false);
+  // Accessory toggle — defaults ON (£1 Acc column value). Uncheck for £0.
+  const [accessoriesIncluded, setAccessoriesIncluded] = useState<boolean>(true);
   const [paymentMode, setPaymentMode] = useState('');           // BM only
   const [imeiInput, setImeiInput] = useState(existingImei);
   const [saving, setSaving]   = useState(false);
@@ -82,18 +88,18 @@ export default function SellOrderModal({ unit, onClose, onSaved, isSHS = false }
   // Reset postage / payment-mode when switching platform so the user sees
   // the platform's fresh default instead of a stale eBay-tier carryover.
   useEffect(() => {
-    setPostageInput('');
+    setPostagePreset('6.30');
+    setPostageCustom('');
+    setPostageVatExempt(false);
     setPaymentMode('');
   }, [marketplace]);
 
-  // ── Resolve effective postage per platform ────────────────────────────────
-  // eBay uses tier buttons; everywhere else accepts a free-text override that
-  // falls back to the marketplace default fee schedule.
-  const defaultPostage = getMarketplaceFee(marketplace).postage;
-  const effectivePostage =
-    marketplace === 'EBAY' ? eBayTier
-    : postageInput.trim() !== '' ? Number(postageInput) || defaultPostage
-    : defaultPostage;
+  // ── Resolve effective postage from the dropdown + custom-text fallback ────
+  const effectivePostage = useMemo(() => {
+    const raw = postagePreset === 'other' ? postageCustom : postagePreset;
+    const n = Number.parseFloat(raw);
+    return Number.isFinite(n) ? n : 6.30;
+  }, [postagePreset, postageCustom]);
 
   // ── Live P&L breakdown — master-aligned via calcSaleFinancials ────────────
   const spNum = Number(sp) || 0;
@@ -103,12 +109,11 @@ export default function SellOrderModal({ unit, onClose, onSaved, isSHS = false }
       marketplace,
       buyPrice: unit.buyPrice,
       salePrice: spNum,
-      postageOverride: marketplace === 'EBAY' ? undefined : effectivePostage,
-      eBayShippingTier: marketplace === 'EBAY' ? eBayTier : undefined,
-      hasPayPalKlarna: marketplace === 'BM' &&
-        /paypal|klarna|clearpay|clear pay|applepay|apple pay/i.test(paymentMode),
+      postage: effectivePostage,
+      postageVatExempt,
+      accessories: accessoriesIncluded ? 1 : 0,
     });
-  }, [marketplace, unit.buyPrice, spNum, effectivePostage, eBayTier, paymentMode]);
+  }, [marketplace, unit.buyPrice, spNum, effectivePostage, postageVatExempt, accessoriesIncluded]);
 
   const handleSave = async () => {
     if (!sp || spNum <= 0)    { setError('Please enter a valid sale price.'); return; }
@@ -149,7 +154,9 @@ export default function SellOrderModal({ unit, onClose, onSaved, isSHS = false }
         saleDate,
         sku: sku.trim() || undefined,
         paymentMode: marketplace === 'BM' ? (paymentMode || undefined) : undefined,
-        postageOverride: marketplace === 'EBAY' ? eBayTier : effectivePostage,
+        postageOverride: effectivePostage,
+        postageVatExempt,
+        accessories: accessoriesIncluded ? 1 : 0,
       });
       if (!res.ok) {
         setError(res.message || 'Failed to save. Please try again.');
@@ -335,34 +342,54 @@ export default function SellOrderModal({ unit, onClose, onSaved, isSHS = false }
             </div>
             <div>
               <label className="text-[9px] font-bold uppercase tracking-widest text-slate-400 block mb-1.5">
-                Postage (£) {marketplace === 'EBAY' && <span className="normal-case font-normal text-slate-500">· tier</span>}
+                Postage (£)
               </label>
-              {marketplace === 'EBAY' ? (
-                <div className="grid grid-cols-3 gap-1">
-                  {EBAY_SHIPPING_TIERS.map(t => (
-                    <button
-                      key={t}
-                      onClick={() => setEBayTier(t)}
-                      className={`py-2 rounded-lg text-[11px] font-bold font-mono transition-all border ${
-                        eBayTier === t ? 'bg-slate-900 text-white border-slate-900' : 'bg-white border-slate-200 text-slate-700 hover:border-slate-400'
-                      }`}
-                    >
-                      £{t}
-                    </button>
-                  ))}
-                </div>
-              ) : (
+              <select
+                value={postagePreset}
+                onChange={e => setPostagePreset(e.target.value)}
+                className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm font-mono focus:outline-none focus:border-slate-900 transition-all"
+              >
+                <option value="6.30">£6.30</option>
+                <option value="5.00">£5.00</option>
+                <option value="4.65">£4.65</option>
+                <option value="1.90">£1.90</option>
+                <option value="0.00">£0.00</option>
+                <option value="other">Other…</option>
+              </select>
+              {postagePreset === 'other' && (
                 <input
                   type="number"
-                  value={postageInput}
-                  onChange={e => setPostageInput(e.target.value)}
-                  placeholder={`Default £${defaultPostage.toFixed(2)}`}
+                  value={postageCustom}
+                  onChange={e => setPostageCustom(e.target.value)}
+                  placeholder="Custom postage £"
                   min="0"
                   step="0.01"
-                  className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm font-mono focus:outline-none focus:border-slate-900 transition-all"
+                  className="w-full mt-2 border border-slate-200 rounded-xl px-3 py-2.5 text-sm font-mono focus:outline-none focus:border-slate-900 transition-all"
                 />
               )}
             </div>
+          </div>
+
+          {/* Postage VAT-exempt + Accessory toggles */}
+          <div className="flex flex-col gap-2">
+            <label className="flex items-center gap-2 text-[10px] font-mono uppercase tracking-widest text-slate-600 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={postageVatExempt}
+                onChange={e => setPostageVatExempt(e.target.checked)}
+                className="w-4 h-4 rounded border-slate-300"
+              />
+              Postage VAT-exempt (P.VAT = 0)
+            </label>
+            <label className="flex items-center gap-2 text-[10px] font-mono uppercase tracking-widest text-slate-600 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={accessoriesIncluded}
+                onChange={e => setAccessoriesIncluded(e.target.checked)}
+                className="w-4 h-4 rounded border-slate-300"
+              />
+              Accessory included (Acc = £1)
+            </label>
           </div>
 
           {/* Payment mode — BM only (drives the PayPal/Klarna 2.5% fee) */}
@@ -451,40 +478,51 @@ function SalePLBreakdown({
   switch (marketplace) {
     case 'AMAZON':
       rows.push(
-        { label: 'Marginal Tax',  value: `£${(breakdown.marginalTax ?? 0).toFixed(2)}`, sub: 'sub' },
-        { label: 'Commission',    value: `£${(breakdown.commission ?? 0).toFixed(2)}`,  sub: 'sub' },
-        { label: 'Postage',       value: `£${(breakdown.postage ?? 0).toFixed(2)}`,     sub: 'sub' },
+        { label: 'Marginal Tax 16.67%',  value: `£${(breakdown.marginalTax ?? 0).toFixed(2)}`, sub: 'sub' },
+        { label: 'Commission 7%',        value: `£${(breakdown.commission ?? 0).toFixed(2)}`,  sub: 'sub' },
+        { label: 'C. VAT 20%',           value: `£${(breakdown.cVat ?? 0).toFixed(2)}`,        sub: 'sub' },
+        { label: 'DSF 2%',               value: `£${(breakdown.dsf ?? 0).toFixed(2)}`,         sub: 'sub' },
+        { label: 'DSF. VAT 20%',         value: `£${(breakdown.dsfVat ?? 0).toFixed(2)}`,      sub: 'sub' },
+        { label: 'Postage',              value: `£${(breakdown.postage ?? 0).toFixed(2)}`,     sub: 'sub' },
+        { label: 'P. VAT',               value: `£${(breakdown.pVat ?? 0).toFixed(2)}`,        sub: 'sub' },
+        { label: 'Acc (accessories)',    value: `£${(breakdown.accessories ?? 0).toFixed(2)}`, sub: 'sub' },
       );
       break;
 
     case 'BM':
       rows.push(
-        { label: 'Marginal Tax',     value: `£${(breakdown.marginalTax ?? 0).toFixed(2)}`,     sub: 'sub' },
-        { label: 'Commission',       value: `£${(breakdown.commission ?? 0).toFixed(2)}`,      sub: 'sub' },
+        { label: 'Marginal Tax 16.67%',  value: `£${(breakdown.marginalTax ?? 0).toFixed(2)}`,     sub: 'sub' },
+        { label: 'Commission 11%',       value: `£${(breakdown.commission ?? 0).toFixed(2)}`,      sub: 'sub' },
+        { label: 'Customer Care Fees',   value: `£${(breakdown.customerCareFees ?? 0).toFixed(2)}`, sub: 'sub' },
+        { label: 'Postage',              value: `£${(breakdown.postage ?? 0).toFixed(2)}`,         sub: 'sub' },
+        { label: 'P. VAT',               value: `£${(breakdown.pVat ?? 0).toFixed(2)}`,            sub: 'sub' },
+        { label: 'Acc (accessories)',    value: `£${(breakdown.accessories ?? 0).toFixed(2)}`,     sub: 'sub' },
       );
-      if (breakdown.payPalKlarnaCom != null) {
-        rows.push({ label: 'PayPal/Klarna 2.5%', value: `£${breakdown.payPalKlarnaCom.toFixed(2)}`, sub: 'sub' });
-      }
-      rows.push({ label: 'Postage', value: `£${(breakdown.postage ?? 0).toFixed(2)}`, sub: 'sub' });
       break;
 
     case 'EBAY':
       rows.push(
-        { label: 'MAR TAX 16.6%', value: `£${(breakdown.marginalTax ?? 0).toFixed(2)}`,   sub: 'sub' },
-        { label: 'COM (6.9% − 10%)', value: `£${(breakdown.commission ?? 0).toFixed(2)}`, sub: 'sub' },
-        { label: 'ROF 0.35%',     value: `£${(breakdown.rof ?? 0).toFixed(2)}`,           sub: 'sub' },
-        { label: 'FVF',           value: `£${(breakdown.fvf ?? 0).toFixed(2)}`,           sub: 'sub' },
-        { label: '20% VAT',       value: `£${(breakdown.twentyPercent ?? 0).toFixed(2)}`, sub: 'sub' },
-        { label: 'Shipping',      value: `£${(breakdown.postage ?? 0).toFixed(2)}`,       sub: 'sub' },
+        { label: 'MAR TAX 16.67%',       value: `£${(breakdown.marginalTax ?? 0).toFixed(2)}`,   sub: 'sub' },
+        { label: 'COM (6.9% − 10%)',     value: `£${(breakdown.commission ?? 0).toFixed(2)}`,    sub: 'sub' },
+        { label: 'ROF 0.35%',            value: `£${(breakdown.rof ?? 0).toFixed(2)}`,           sub: 'sub' },
+        { label: 'FVF',                  value: `£${(breakdown.fvf ?? 0).toFixed(2)}`,           sub: 'sub' },
+        { label: 'VAT 20%',              value: `£${(breakdown.vat ?? 0).toFixed(2)}`,           sub: 'sub' },
+        { label: 'Postage',              value: `£${(breakdown.postage ?? 0).toFixed(2)}`,       sub: 'sub' },
+        { label: 'P. VAT',               value: `£${(breakdown.pVat ?? 0).toFixed(2)}`,          sub: 'sub' },
+        { label: 'Marketing 5%',         value: `£${(breakdown.marketing ?? 0).toFixed(2)}`,     sub: 'sub' },
+        { label: 'M. VAT',               value: `£${(breakdown.mVat ?? 0).toFixed(2)}`,          sub: 'sub' },
+        { label: 'Acc (accessories)',    value: `£${(breakdown.accessories ?? 0).toFixed(2)}`,   sub: 'sub' },
       );
       break;
 
     case 'ONBUY':
       rows.push(
-        { label: 'MAR VAT',   value: `£${(breakdown.marVat ?? 0).toFixed(2)}`,        sub: 'sub' },
-        { label: 'COM 7%',    value: `£${(breakdown.commission ?? 0).toFixed(2)}`,    sub: 'sub' },
-        { label: 'VAT 20%',   value: `£${(breakdown.vat20 ?? 0).toFixed(2)}`,         sub: 'sub' },
-        { label: 'Shipping',  value: `£${(breakdown.postage ?? 0).toFixed(2)}`,       sub: 'sub' },
+        { label: 'Marginal Tax 16.67%',  value: `£${(breakdown.marginalTax ?? 0).toFixed(2)}`,    sub: 'sub' },
+        { label: 'Commission 7%',        value: `£${(breakdown.commission ?? 0).toFixed(2)}`,    sub: 'sub' },
+        { label: 'VAT 20%',              value: `£${(breakdown.vat20 ?? 0).toFixed(2)}`,         sub: 'sub' },
+        { label: 'Postage',              value: `£${(breakdown.postage ?? 0).toFixed(2)}`,       sub: 'sub' },
+        { label: 'P. VAT',               value: `£${(breakdown.pVat ?? 0).toFixed(2)}`,          sub: 'sub' },
+        { label: 'Acc (accessories)',    value: `£${(breakdown.accessories ?? 0).toFixed(2)}`,   sub: 'sub' },
       );
       break;
   }
@@ -515,14 +553,6 @@ function SalePLBreakdown({
           {positive ? '+' : ''}£{breakdown.grossProfit.toFixed(2)} · {breakdown.gpPercent.toFixed(2)}%
         </span>
       </div>
-      {marketplace === 'EBAY' && breakdown.netProfit != null && (
-        <div className="flex items-center justify-between text-[10px] font-mono">
-          <span className="text-slate-500 uppercase tracking-widest">NP (incl. 5% promo)</span>
-          <span className={breakdown.netProfit >= 0 ? 'text-emerald-700 font-bold' : 'text-rose-600 font-bold'}>
-            {breakdown.netProfit >= 0 ? '+' : ''}£{breakdown.netProfit.toFixed(2)}
-          </span>
-        </div>
-      )}
     </div>
   );
 }

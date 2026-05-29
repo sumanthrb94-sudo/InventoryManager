@@ -24,10 +24,9 @@ function unitNetProfit(u: InventoryUnit): number {
     marketplace: mp,
     buyPrice: u.buyPrice,
     salePrice: sp,
-    postageOverride: u.postageCost,
+    postage: u.postageCost,
   });
-  // eBay surfaces a promo-inclusive NP; everyone else uses GP.
-  return f.netProfit ?? f.grossProfit;
+  return f.grossProfit;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

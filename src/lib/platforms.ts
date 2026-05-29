@@ -33,35 +33,56 @@ import { MARKETPLACES } from '../types';
 export const DEFAULT_MARKETPLACE_FEES: Record<Marketplace, MarketplaceFee> = {
   AMAZON: {
     marketplace: 'AMAZON',
-    commissionPct: 7.14,
-    postage: 8.00,
-    marginTaxDivisor: 6,
+    commissionPct: 7,           // H/100*7
+    postage: 6.30,              // most common; overridable per-row
+    marginTaxDivisor: 6,        // unused — superseded by 16.67% literal
   },
   BM: {
     marketplace: 'BM',
-    commissionPct: 12.00,
-    postage: 10.00,
+    commissionPct: 11,          // I/100*11
+    postage: 6.30,
     marginTaxDivisor: 6,
-    payPalKlarnaPct: 2.5,
   },
   EBAY: {
     marketplace: 'EBAY',
-    commissionPct: 6.90,
-    commissionReductionPct: 10,
-    fixedFee: 0.40,
-    postage: 8.00,
+    commissionPct: 6.90,        // SP * 6.9%
+    commissionReductionPct: 10, // less 10% of that
+    fixedFee: 0.40,             // FVF
+    postage: 6.30,              // overridable per-row (0 / 1.9 / 4.65 / 6.30)
     rofPct: 0.35,
     vatPct: 20,
-    promoPct: 5,
+    promoPct: 5,                // Marketing = SP * 5%
   },
   ONBUY: {
     marketplace: 'ONBUY',
-    commissionPct: 7.00,
-    postage: 8.00,
+    commissionPct: 7,           // G*7%
+    postage: 6.30,
     marginTaxDivisor: 6,
-    vatPct: 20,
+    vatPct: 20,                 // VAT 20% = Commission * 20%
   },
 };
+
+// ---------------------------------------------------------------------------
+// Literal constants from SALES_REPORT_2026_1.xlsx (verbatim from client cells)
+// ---------------------------------------------------------------------------
+/** Marginal Tax rate, applied to SP-BP. Literal 16.67% in every sheet. */
+const MARGIN_TAX_RATE = 0.1667;
+/** P.VAT = Postage * 20% (all sheets). */
+const POSTAGE_VAT_RATE = 0.20;
+/** Default postage when no per-row override. */
+export const DEFAULT_POSTAGE = 6.30;
+/** Default accessory value per order (Acc column = £1 when an accessory is bundled). */
+export const DEFAULT_ACCESSORIES = 1;
+/** Preset postage values seen in the client master, used by the sell-flow dropdown. */
+export const POSTAGE_PRESETS = [6.30, 5.00, 4.65, 1.90, 0.00] as const;
+/** AMAZON: C.VAT rate applied to Commission. */
+const AMZ_C_VAT_RATE = 0.20;
+/** AMAZON: DSF rate applied to Commission. */
+const AMZ_DSF_RATE = 0.02;
+/** AMAZON: DSF.VAT rate applied to DSF. */
+const AMZ_DSF_VAT_RATE = 0.20;
+/** BM: literal Customer Care Fees per order. */
+const BM_CUSTOMER_CARE_FEES = 8.99;
 
 /**
  * Look up the fee schedule for a marketplace. Today this just returns the
@@ -91,21 +112,11 @@ const MARKETPLACE_TO_LISTING_SITE: Record<Marketplace, ListingSite> = {
 };
 
 const LISTING_SITE_TO_MARKETPLACE: Record<string, Marketplace> = {
-  // Pretty / user-facing names
   'Amazon':     'AMAZON',
   'Back Market':'BM',
   'Backmarket': 'BM',   // legacy
   'eBay':       'EBAY',
   'OnBuy':      'ONBUY',
-  // Canonical Marketplace enum values — recordSale writes salePlatform in
-  // this form ('EBAY' / 'AMAZON' / …) so the reverse lookup also has to
-  // accept it; without these entries, every non-eBay sale resolved to the
-  // 'EBAY' fallback inside inventoryUnitToSale and double-counted on the
-  // Sell screen because the dedupe key `${mp}__${orderNumber}` didn't match.
-  'AMAZON':  'AMAZON',
-  'BM':      'BM',
-  'EBAY':    'EBAY',
-  'ONBUY':   'ONBUY',
 };
 
 export function listingSiteFromMarketplace(m: Marketplace): ListingSite {
@@ -124,153 +135,208 @@ export interface CalcSaleFinancialsInput {
   marketplace: Marketplace;
   buyPrice: number;
   salePrice: number;
-  /** Override the per-marketplace default postage (eBay tiers, free shipping…). */
-  postageOverride?: number;
-  /** eBay only — explicit shipping tier (£1, £2, £8). Trumps `postageOverride`. */
-  eBayShippingTier?: 1 | 2 | 8;
-  /** BM only — apply 2.5% PayPal/Klarna commission on top. */
-  hasPayPalKlarna?: boolean;
+  /**
+   * Postage actually charged on the order. Defaults to 6.30 (DEFAULT_POSTAGE).
+   * AMAZON sometimes uses 5; EBAY varies (0 / 1.9 / 4.65 / 6.30).
+   */
+  postage?: number;
+  /**
+   * When true, P.VAT is forced to 0 (postage is VAT-exempt). Default false.
+   * Mirrors the operator-side toggle in the sell-flow form.
+   */
+  postageVatExempt?: boolean;
+  /**
+   * "Acc" column = accessories value (£). Defaults to 1 (DEFAULT_ACCESSORIES).
+   * Set to 0 when no accessory is bundled with the unit.
+   */
+  accessories?: number;
 }
 
+/**
+ * Full computed financial breakdown for one sale row, matching the columns of
+ * the client's SALES_REPORT_2026_*.xlsx workbook tab-for-tab. Optional fields
+ * are present only on the marketplaces where the corresponding column exists.
+ *
+ * Values are NOT rounded — they preserve full precision so the JS values match
+ * Excel's evaluated cell values to within IEEE-754 noise (≤ 1e-9). Callers that
+ * render the figures should apply their own display rounding.
+ */
 export interface SaleFinancials {
   spMinusBp: number;
   marginalTax: number;
   commission: number;
-  payPalKlarnaCom?: number;   // BM
-  rof?: number;               // eBay
-  fvf?: number;               // eBay
-  twentyPercent?: number;     // eBay 20%-on-fees bundle
-  totalCom?: number;          // eBay
-  vat20?: number;             // OnBuy / eBay
-  marVat?: number;            // OnBuy MAR VAT (alias for marginalTax on OnBuy)
+  // AMAZON-only
+  cVat?: number;
+  dsf?: number;
+  dsfVat?: number;
+  // BM-only
+  customerCareFees?: number;
+  // EBAY-only
+  rof?: number;
+  fvf?: number;
+  vat?: number;                // (Comm + ROF + FVF) * 20%
+  totalCom?: number;
+  marketing?: number;
+  mVat?: number;
+  // ONBUY-only
+  vat20?: number;              // Commission * 20%
+  // Common to all four sheets
   postage: number;
+  pVat: number;                // Postage * 20%
+  accessories: number;
+  totalVat: number;            // sheet-specific sum of VAT components; BM has no Total VAT col so we return pVat
   grossProfit: number;
-  gpPercent: number;
-  netProfit?: number;         // eBay incl. promo
+  gpPercent: number;           // AMAZON/BM/ONBUY divide by BP; EBAY divides by SP
+  totalVatNtp: number;         // MarginalTax - TotalVAT (BM: MarginalTax - P.VAT)
 }
 
-const r2 = (n: number) => Math.round(n * 100) / 100;
-
 /**
- * Compute every derived sale field for one marketplace transaction.
+ * Compute every derived sale field for one marketplace transaction. Returned
+ * values are at full IEEE-754 precision (no rounding) so they match Excel's
+ * evaluated cell values verbatim. Formulas are verbatim from the columns of
+ * the client SALES_REPORT_2026_1.xlsx workbook — see header comment for the
+ * tab-by-tab spec.
  *
- * Formulas mirror MASTER_FILES_SPEC.md per-sheet definitions exactly:
- *   AMAZON  GP = SP - BP - (SP-BP)/6 - SP*7.14% - postage
- *   BM      GP = SP - BP - (SP-BP)/6 - SP*12%   - postage [- SP*2.5% if PayPal/Klarna]
- *   EBAY    COM      = (SP*6.9%) - (SP*6.9%)*10%
- *           ROF      = SP*0.35%
- *           FVF      = 0.40
- *           20%      = (COM + ROF + FVF) * 20%
- *           T.COM    = COM + ROF + FVF + 20%
- *           GP       = (SP-BP)*16.6%-shaped MAR TAX path → I - J - O - P
- *                    where I = SP-BP, J = MAR TAX, O = T.COM, P = SHIPPING
- *           NP(promo)= GP - SP*5%
- *   ONBUY   MAR VAT  = (SP-BP)/6
- *           COM 7%   = SP*7%
- *           VAT 20%  = MAR VAT * 20%
- *           GP       = SP - BP - COM - SHIP - MAR VAT - VAT20
- *   PROJECT same as AMAZON but postage = £5.90
+ *   AMAZON SALES (21 cols):
+ *     I=SP-BP = H-G
+ *     J=Marginal Tax = I*16.67%
+ *     K=Commission = H/100*7
+ *     L=C. VAT = K*20%
+ *     M=DSF = K*2%
+ *     N=DSF. VAT = M*20%
+ *     O=Postage (literal, default 6.30)
+ *     P=P. VAT = O*20%
+ *     Q=Acc (literal, default 1)
+ *     R=Total VAT = L+N+P
+ *     S=GP = I-J-K-L-M-N-O-P-Q
+ *     T=GP % = S/G*100              ← divide by BP
+ *     U=Total VAT NTP = J-R
+ *
+ *   BM SALES (20 cols, Payment Mode at col G is informational):
+ *     J=SP-BP = I-H
+ *     K=Marginal Tax = J*16.67%
+ *     L=Commission = I/100*11
+ *     M=Customer Care Fees (literal 8.99)
+ *     N=Postage (literal, default 6.30)
+ *     O=P. VAT = N*20%
+ *     P=Acc (literal, default 1)
+ *     Q=GP = J-K-L-M-N-O-P
+ *     R=GP % = Q/H*100              ← divide by BP
+ *     S=Total VAT NTP = K-O         ← MarTax - P.VAT (no Total VAT col)
+ *
+ *   EBAY SALES (24 cols):
+ *     I=SP-BP = H-G
+ *     J=Marginal Tax = I*16.67%
+ *     K=Commission = (H*6.9%) - (H*6.9%)*10%
+ *     L=ROF = H*0.35%
+ *     M=FVF (literal 0.4)
+ *     N=VAT = (K+L+M)*20%
+ *     O=T.COM = K+L+M+N
+ *     P=Postage (literal, varies)
+ *     Q=P. VAT = P*20%
+ *     R=Marketing = H*5%
+ *     S=M. VAT = R*20%
+ *     T=Acc (literal, default 1)
+ *     U=Total VAT = N+Q+S
+ *     V=GP = I-J-O-P-Q-R-S-T
+ *     W=GP% = V/H*100               ← divide by SP (NB: EBAY is the odd one)
+ *     X=Total VAT NTP = J-U
+ *
+ *   ONBUY SALES (18 cols, no Quantity column):
+ *     H=SP-BP = G-F
+ *     I=Marginal Tax = H*16.67%
+ *     J=Commission = G*7%
+ *     K=VAT 20% = J*20%             ← on Commission, NOT on MarTax
+ *     L=Postage (literal, default 6.30)
+ *     M=P. VAT = L*20%
+ *     N=Acc (literal, default 1)
+ *     O=Total VAT = K+M
+ *     P=GP = H-I-J-K-L-M-N
+ *     Q=GP% = P/F*100               ← divide by BP
+ *     R=Total VAT NTP = I-O
  */
 export function calcSaleFinancials(input: CalcSaleFinancialsInput): SaleFinancials {
-  const { marketplace, buyPrice: bp, salePrice: sp, postageOverride, eBayShippingTier, hasPayPalKlarna } = input;
+  const { marketplace, buyPrice: bp, salePrice: sp } = input;
+  const postage = input.postage ?? DEFAULT_POSTAGE;
+  const accessories = input.accessories ?? DEFAULT_ACCESSORIES;
   const fee = getMarketplaceFee(marketplace);
 
-  const spMinusBp = r2(sp - bp);
-  const postage = r2(
-    eBayShippingTier ?? postageOverride ?? fee.postage,
-  );
-
-  // GP% denominator differs by marketplace per the live master SALES_REPORT
-  // formulas in /xl/worksheets/sheet{1..5}.xml. Caveat: every marketplace
-  // writes the denominator as `G{row}`, but G is BP on AMAZON/BM/PROJECT
-  // (col G = BP) and SP on ONBUY (col G = SP — ONBUY has no Quantity column
-  // so headers shift one left). EBAY uses an explicit `H{row}` (col H = SP).
-  // Net result:
-  //   AMAZON / BM / PROJECT     GP% = GP / BP * 100   (margin-over-cost)
-  //   EBAY / ONBUY              GP% = GP / SP * 100   (gross-margin-over-revenue)
-  // Until 2026-05 the runtime divided by SP for every marketplace, which made
-  // the AMAZON/BM/PROJECT in-app GP% read about half what the operator's
-  // master file computes on open. Both conventions are valid business
-  // metrics — we match the operator's file so the screen + the workbook +
-  // reports all agree per-marketplace.
-  const gpPctByBp = (gp: number) => bp > 0 ? r2(gp / bp * 100) : 0;
-  const gpPctBySp = (gp: number) => sp > 0 ? r2(gp / sp * 100) : 0;
+  const spMinusBp = sp - bp;
+  const marginalTax = spMinusBp * MARGIN_TAX_RATE;
+  // Postage VAT can be zeroed when the postage line is VAT-exempt.
+  const pVat = input.postageVatExempt ? 0 : postage * POSTAGE_VAT_RATE;
 
   switch (marketplace) {
     case 'AMAZON': {
-      const marginalTax = r2(spMinusBp / (fee.marginTaxDivisor ?? 6));
-      const commission  = r2(sp * fee.commissionPct / 100);
-      const grossProfit = r2(sp - bp - marginalTax - commission - postage);
-      const gpPercent   = gpPctByBp(grossProfit);
-      return { spMinusBp, marginalTax, commission, postage, grossProfit, gpPercent };
+      const commission = sp / 100 * fee.commissionPct;          // H/100*7
+      const cVat = commission * AMZ_C_VAT_RATE;
+      const dsf = commission * AMZ_DSF_RATE;
+      const dsfVat = dsf * AMZ_DSF_VAT_RATE;
+      const totalVat = cVat + dsfVat + pVat;
+      const grossProfit =
+        spMinusBp - marginalTax - commission - cVat - dsf - dsfVat - postage - pVat - accessories;
+      const gpPercent = bp > 0 ? grossProfit / bp * 100 : 0;
+      const totalVatNtp = marginalTax - totalVat;
+      return {
+        spMinusBp, marginalTax, commission,
+        cVat, dsf, dsfVat,
+        postage, pVat, accessories, totalVat,
+        grossProfit, gpPercent, totalVatNtp,
+      };
     }
 
     case 'BM': {
-      const marginalTax = r2(spMinusBp / (fee.marginTaxDivisor ?? 6));
-      const commission  = r2(sp * fee.commissionPct / 100);
-      const payPalKlarnaCom = hasPayPalKlarna && fee.payPalKlarnaPct != null
-        ? r2(sp * fee.payPalKlarnaPct / 100)
-        : undefined;
-      const ppk = payPalKlarnaCom ?? 0;
-      const grossProfit = r2(sp - bp - marginalTax - commission - postage - ppk);
-      const gpPercent   = gpPctByBp(grossProfit);
-      return { spMinusBp, marginalTax, commission, payPalKlarnaCom, postage, grossProfit, gpPercent };
+      const commission = sp / 100 * fee.commissionPct;          // I/100*11
+      const customerCareFees = BM_CUSTOMER_CARE_FEES;
+      // BM has no Total VAT column — totalVatNtp uses P.VAT alone.
+      const totalVat = pVat;
+      const grossProfit =
+        spMinusBp - marginalTax - commission - customerCareFees - postage - pVat - accessories;
+      const gpPercent = bp > 0 ? grossProfit / bp * 100 : 0;
+      const totalVatNtp = marginalTax - pVat;
+      return {
+        spMinusBp, marginalTax, commission, customerCareFees,
+        postage, pVat, accessories, totalVat,
+        grossProfit, gpPercent, totalVatNtp,
+      };
     }
 
     case 'EBAY': {
-      // MAR TAX uses the eBay-specific 16.6% rate (= 1/6 expressed as a %).
-      // Spec line: `MAR TAX = I*16.6%` where I = SP-BP.
-      const marginalTax = r2(spMinusBp * 16.6 / 100);
-
-      const comGross  = sp * fee.commissionPct / 100;            // SP*6.9%
-      const reduction = comGross * (fee.commissionReductionPct ?? 0) / 100;
-      const commission = r2(comGross - reduction);              // (SP*6.9%) - (SP*6.9%)*10%
-
-      const rof = r2(sp * (fee.rofPct ?? 0) / 100);             // SP*0.35%
-      const fvf = r2(fee.fixedFee ?? 0);                        // 0.40
-
-      // `0.2` column (literal numeric header in the workbook) = 20% on the
-      // (COM + ROF + FVF) bundle. The master sheet's formula
-      // `=(K+L+M)*20%` references the already-displayed (rounded) cells,
-      // so we use the rounded intermediates here too — drift would only
-      // appear if Excel were configured to use precision-as-displayed off,
-      // which the master workbook is not.
-      const twentyPercent = r2((commission + rof + fvf) * ((fee.vatPct ?? 20) / 100));
-      const totalCom      = r2(commission + rof + fvf + twentyPercent);
-
-      // GP = I - J - O - P  → (SP-BP) - MAR TAX - T.COM - SHIPPING
-      const grossProfit = r2(spMinusBp - marginalTax - totalCom - postage);
-      // EBAY is the only marketplace whose GP% master formula divides by SP.
-      const gpPercent   = gpPctBySp(grossProfit);
-
-      // NP(incl. PROMOTION) = GP - SP*5%
-      const netProfit = r2(grossProfit - sp * (fee.promoPct ?? 0) / 100);
-
+      const comGross = sp * (fee.commissionPct / 100);                  // SP*6.9%
+      const reduction = comGross * ((fee.commissionReductionPct ?? 0) / 100);
+      const commission = comGross - reduction;                           // (SP*6.9%) - (SP*6.9%)*10%
+      const rof = sp * ((fee.rofPct ?? 0) / 100);                        // SP*0.35%
+      const fvf = fee.fixedFee ?? 0;                                     // 0.40
+      const vat = (commission + rof + fvf) * ((fee.vatPct ?? 20) / 100); // 20% on bundle
+      const totalCom = commission + rof + fvf + vat;
+      const marketing = sp * ((fee.promoPct ?? 0) / 100);                // SP*5%
+      const mVat = marketing * 0.20;
+      const totalVat = vat + pVat + mVat;
+      const grossProfit =
+        spMinusBp - marginalTax - totalCom - postage - pVat - marketing - mVat - accessories;
+      const gpPercent = sp > 0 ? grossProfit / sp * 100 : 0;             // EBAY uses SP not BP
+      const totalVatNtp = marginalTax - totalVat;
       return {
         spMinusBp, marginalTax, commission,
-        rof, fvf, twentyPercent, totalCom,
-        vat20: twentyPercent,
-        postage, grossProfit, gpPercent, netProfit,
+        rof, fvf, vat, totalCom,
+        marketing, mVat,
+        postage, pVat, accessories, totalVat,
+        grossProfit, gpPercent, totalVatNtp,
       };
     }
 
     case 'ONBUY': {
-      const marVat   = r2(spMinusBp / (fee.marginTaxDivisor ?? 6));   // MAR VAT = (SP-BP)/6
-      const commission = r2(sp * fee.commissionPct / 100);            // COM 7% = SP*7%
-      const vat20    = r2(marVat * (fee.vatPct ?? 20) / 100);         // VAT 20% = MAR VAT * 20%
-      const grossProfit = r2(sp - bp - commission - postage - marVat - vat20);
-      // ONBUY's master formula `=M/G*100` uses col G which is SP on this
-      // sheet (no Quantity column shifts the layout). Divide by SP, not BP.
-      const gpPercent   = gpPctBySp(grossProfit);
+      const commission = sp * (fee.commissionPct / 100);                 // G*7%
+      const vat20 = commission * ((fee.vatPct ?? 20) / 100);             // Commission * 20%
+      const totalVat = vat20 + pVat;
+      const grossProfit =
+        spMinusBp - marginalTax - commission - vat20 - postage - pVat - accessories;
+      const gpPercent = bp > 0 ? grossProfit / bp * 100 : 0;
+      const totalVatNtp = marginalTax - totalVat;
       return {
-        spMinusBp,
-        marginalTax: marVat,   // populate the generic field too
-        marVat,
-        commission,
-        vat20,
-        postage,
-        grossProfit,
-        gpPercent,
+        spMinusBp, marginalTax, commission, vat20,
+        postage, pVat, accessories, totalVat,
+        grossProfit, gpPercent, totalVatNtp,
       };
     }
   }
@@ -281,67 +347,81 @@ export function calcSaleFinancials(input: CalcSaleFinancialsInput): SaleFinancia
 // ---------------------------------------------------------------------------
 
 /**
- * Per-marketplace Excel formula generator. `row` is the 1-based spreadsheet row
- * number (typically the loop index + 2 to skip the header row). Returned
- * strings are bare formulas — the caller wraps them as
- * `cell.value = { formula: excelFormulaFor(...).spMinusBp }`.
+ * Per-marketplace Excel formula generator. `row` is the 1-based spreadsheet
+ * row number (typically `index + 2` to skip the header). Returned strings are
+ * bare formulas — the caller wraps them as
+ * `cell.value = { formula: excelFormulaFor(...).<field> }`.
  *
- * Column letters match the headers in MASTER_FILES_SPEC.md §AMAZON/BM/EBAY/ONBUY/PROJECT.
+ * Formulas are verbatim from the client SALES_REPORT_2026_1.xlsx workbook;
+ * column letters are listed in the header comment for `calcSaleFinancials`.
  */
 export function excelFormulaFor(marketplace: Marketplace, row: number): Record<string, string> {
-  const fee = getMarketplaceFee(marketplace);
   const r = row;
   switch (marketplace) {
     case 'AMAZON': {
-      // Headers: ... G=BP, H=SP, I=SP-BP, J=Marginal Tax, K=Commission, L=Postage, M=GP, N=GP%
+      // G=BP, H=SP, I=SP-BP, J=MarTax, K=Comm, L=C.VAT, M=DSF, N=DSF.VAT,
+      // O=Postage, P=P.VAT, Q=Acc, R=Total VAT, S=GP, T=GP%, U=Total VAT NTP
       return {
         spMinusBp:   `H${r}-G${r}`,
-        marginalTax: `I${r}/${fee.marginTaxDivisor ?? 6}`,
-        commission:  `H${r}/100*${fee.commissionPct}`,
-        postage:     `${fee.postage}`,
-        grossProfit: `H${r}-G${r}-J${r}-K${r}-L${r}`,
-        gpPercent:   `M${r}/G${r}*100`,
+        marginalTax: `I${r}*16.67%`,
+        commission:  `H${r}/100*7`,
+        cVat:        `K${r}*20%`,
+        dsf:         `K${r}*2%`,
+        dsfVat:      `M${r}*20%`,
+        pVat:        `O${r}*20%`,
+        totalVat:    `L${r}+N${r}+P${r}`,
+        grossProfit: `I${r}-J${r}-K${r}-L${r}-M${r}-N${r}-O${r}-P${r}-Q${r}`,
+        gpPercent:   `S${r}/G${r}*100`,
+        totalVatNtp: `J${r}-R${r}`,
       };
     }
     case 'BM': {
-      // Headers: ... G=BP, H=SP, I=Payment Mode, J=SP-BP, K=Marginal Tax,
-      //          L=PayPal/Klarna Com, M=Commission, N=Postage, O=GP, P=GP%
+      // G=Payment Mode, H=BP, I=SP, J=SP-BP, K=MarTax, L=Comm,
+      // M=Customer Care Fees, N=Postage, O=P.VAT, P=Acc, Q=GP, R=GP%,
+      // S=Total VAT NTP, T=Comments
       return {
-        spMinusBp:        `H${r}-G${r}`,
-        marginalTax:      `J${r}/${fee.marginTaxDivisor ?? 6}`,
-        payPalKlarnaCom:  `H${r}/100*${fee.payPalKlarnaPct ?? 2.5}`,
-        commission:       `H${r}/100*${fee.commissionPct}`,
-        postage:          `${fee.postage}`,
-        grossProfit:      `H${r}-G${r}-K${r}-M${r}-N${r}-L${r}`,
-        gpPercent:        `O${r}/G${r}*100`,
+        spMinusBp:   `I${r}-H${r}`,
+        marginalTax: `J${r}*16.67%`,
+        commission:  `I${r}/100*11`,
+        pVat:        `N${r}*20%`,
+        grossProfit: `J${r}-K${r}-L${r}-M${r}-N${r}-O${r}-P${r}`,
+        gpPercent:   `Q${r}/H${r}*100`,
+        totalVatNtp: `K${r}-O${r}`,
       };
     }
     case 'EBAY': {
-      // Headers: ... G=BP, H=SP, I=SP-BP, J=MAR TAX, K=COM, L=ROF, M=FVF,
-      //          N=0.2 (20% bundle), O=T.COM, P=SHIPPING, Q=GP, R=GP%, S=NP
+      // G=BP, H=SP, I=SP-BP, J=MarTax, K=Comm, L=ROF, M=FVF, N=VAT, O=T.COM,
+      // P=Postage, Q=P.VAT, R=Marketing, S=M.VAT, T=Acc, U=Total VAT, V=GP,
+      // W=GP%, X=Total VAT NTP
       return {
-        spMinusBp:     `H${r}-G${r}`,
-        marTax:        `I${r}*16.6%`,
-        commission:    `(H${r}*${fee.commissionPct}%)-(H${r}*${fee.commissionPct}%)*${fee.commissionReductionPct ?? 10}%`,
-        rof:           `H${r}*${fee.rofPct ?? 0.35}%`,
-        fvf:           `${fee.fixedFee ?? 0.4}`,
-        twentyPercent: `(K${r}+L${r}+M${r})*${fee.vatPct ?? 20}%`,
-        totalCom:      `K${r}+L${r}+M${r}+N${r}`,
-        grossProfit:   `I${r}-J${r}-O${r}-P${r}`,
-        gpPercent:     `Q${r}/H${r}*100`,
-        netProfit:     `Q${r}-H${r}*${fee.promoPct ?? 5}%`,
+        spMinusBp:   `H${r}-G${r}`,
+        marginalTax: `I${r}*16.67%`,
+        commission:  `(H${r}*6.9%)-(H${r}*6.9%)*10%`,
+        rof:         `H${r}*0.35%`,
+        vat:         `(K${r}+L${r}+M${r})*20%`,
+        totalCom:    `K${r}+L${r}+M${r}+N${r}`,
+        pVat:        `P${r}*20%`,
+        marketing:   `(H${r}*5%)`,
+        mVat:        `(H${r}*5%)*20%`,
+        totalVat:    `N${r}+Q${r}+S${r}`,
+        grossProfit: `I${r}-J${r}-O${r}-P${r}-Q${r}-R${r}-S${r}-T${r}`,
+        gpPercent:   `V${r}/H${r}*100`,
+        totalVatNtp: `J${r}-U${r}`,
       };
     }
     case 'ONBUY': {
-      // Headers: ... F=BP, G=SP, H=SP-BP, I=MAR VAT, J=COM 7%, K=VAT 20%, L=SHIP, M=GP, N=GP%
+      // F=BP, G=SP, H=SP-BP, I=MarTax, J=Comm, K=VAT 20%, L=Postage, M=P.VAT,
+      // N=Acc, O=Total VAT, P=GP, Q=GP%, R=Total VAT NTP
       return {
         spMinusBp:   `G${r}-F${r}`,
-        marVat:      `H${r}/${fee.marginTaxDivisor ?? 6}`,
-        commission:  `G${r}*${fee.commissionPct}%`,
-        vat20:       `I${r}*${fee.vatPct ?? 20}%`,
-        postage:     `${fee.postage}`,
-        grossProfit: `G${r}-F${r}-J${r}-K${r}-L${r}-I${r}`,
-        gpPercent:   `M${r}/G${r}*100`,
+        marginalTax: `H${r}*16.67%`,
+        commission:  `G${r}*7%`,
+        vat20:       `J${r}*20%`,
+        pVat:        `L${r}*20%`,
+        totalVat:    `K${r}+M${r}`,
+        grossProfit: `H${r}-I${r}-J${r}-K${r}-L${r}-M${r}-N${r}`,
+        gpPercent:   `P${r}/F${r}*100`,
+        totalVatNtp: `I${r}-O${r}`,
       };
     }
   }
@@ -388,3 +468,103 @@ export type { Marketplace, MarketplaceFee };
 // ---------------------------------------------------------------------------
 // Back-compat shims — derived from MARKETPLACE_FEES
 // ---------------------------------------------------------------------------
+// Existing callers (SellPage, ReportingPage, Sales, pdfReport, TodaySalesModal,
+// and the platforms.test.ts unit tests) still import the legacy `PLATFORMS`
+// table and `platform*` helpers. Until those call sites are migrated to the
+// marketplace-aware API, derive thin shims so they keep compiling. The values
+// reflect the OLD (pre-B5) constants used by the legacy UI — DO NOT change
+// them here; instead migrate the call sites to `calcSaleFinancials`.
+
+export const PLATFORM_LIST = ['eBay', 'Amazon', 'OnBuy', 'Backmarket'] as const;
+export type Platform = typeof PLATFORM_LIST[number];
+
+export interface PlatformConfig {
+  name: Platform;
+  /** Percentage commission on sale price (legacy — superseded by MARKETPLACE_FEES). */
+  commission: number;
+  /** Fixed per-order fee in £ (legacy). */
+  fixedFee: number;
+  badge: string;
+  accent: string;
+  hex: string;
+}
+
+/** Legacy default postage — kept at £8 to avoid breaking existing UI flows. */
+export const DEFAULT_POSTAGE_COST = 8;
+
+/**
+ * @deprecated Use `MARKETPLACE_FEES` / `calcSaleFinancials` instead. Retained
+ * solely as a back-compat shim — values match the pre-B5 constants so the
+ * legacy SellPage / ReportingPage / Sales UI keeps rendering. The
+ * authoritative fee schedule lives in `DEFAULT_MARKETPLACE_FEES`.
+ */
+export const PLATFORMS: Record<Platform, PlatformConfig> = {
+  eBay: {
+    name: 'eBay',
+    commission: 12.8,
+    fixedFee: 0.30,
+    badge: 'bg-yellow-100 text-yellow-800 border-yellow-200',
+    accent: 'border-yellow-400',
+    hex: '#f59e0b',
+  },
+  Amazon: {
+    name: 'Amazon',
+    commission: 8.0,
+    fixedFee: 0,
+    badge: 'bg-orange-100 text-orange-800 border-orange-200',
+    accent: 'border-orange-400',
+    hex: '#f97316',
+  },
+  OnBuy: {
+    name: 'OnBuy',
+    commission: 9.0,
+    fixedFee: 0,
+    badge: 'bg-blue-100 text-blue-800 border-blue-200',
+    accent: 'border-blue-400',
+    hex: '#3b82f6',
+  },
+  Backmarket: {
+    name: 'Backmarket',
+    commission: 10.0,
+    fixedFee: 0,
+    badge: 'bg-green-100 text-green-800 border-green-200',
+    accent: 'border-green-400',
+    hex: '#10b981',
+  },
+};
+
+export function platformBadge(name: string): string {
+  return PLATFORMS[name as Platform]?.badge ?? 'bg-gray-100 text-gray-600 border-gray-200';
+}
+
+export function platformCommission(name: string): number {
+  return PLATFORMS[name as Platform]?.commission ?? 0;
+}
+
+export function platformFixedFee(name: string): number {
+  return PLATFORMS[name as Platform]?.fixedFee ?? 0;
+}
+
+export function platformTotalFee(name: string, salePrice: number): number {
+  const pct = PLATFORMS[name as Platform]?.commission ?? 0;
+  const fixed = PLATFORMS[name as Platform]?.fixedFee ?? 0;
+  return +(salePrice * pct / 100 + fixed).toFixed(2);
+}
+
+export function platformCommissionAmt(name: string, salePrice: number): number {
+  return +(salePrice * platformCommission(name) / 100).toFixed(2);
+}
+
+/**
+ * @deprecated Use `calcSaleFinancials({ marketplace, buyPrice, salePrice }).grossProfit`.
+ * Legacy net profit: net = SP - BP - platform_fee(%) - fixed_fee - postage.
+ */
+export function calcNetProfit(
+  salePrice: number,
+  buyPrice: number,
+  platform: string,
+  postageCost: number = DEFAULT_POSTAGE_COST,
+): number {
+  const fee = platformTotalFee(platform, salePrice);
+  return +(salePrice - buyPrice - fee - postageCost).toFixed(2);
+}
