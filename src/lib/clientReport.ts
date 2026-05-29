@@ -270,7 +270,13 @@ function writeSaleRow(
   const date = toDate(sale.saleDate);
   const qty = sale.quantity ?? 1;
   const postage = sale.postage ?? 6.30;
-  const acc = sale.accountingFee ?? 1;
+  const acc = sale.accessories ?? 1;
+  // When postage VAT is exempt for this row, write P.VAT as literal 0 instead
+  // of the `=Postage*20%` formula. Total VAT / Total VAT NTP / GP formulas all
+  // reference the P.VAT cell so they auto-update from the literal.
+  const pVatCell: number | { formula: string } = sale.postageVatExempt
+    ? 0
+    : { formula: f.pVat! };
 
   switch (marketplace) {
     case 'AMAZON': {
@@ -291,7 +297,7 @@ function writeSaleRow(
       row.getCell(13).value = { formula: f.dsf! };         row.getCell(13).numFmt = MONEY_FMT;
       row.getCell(14).value = { formula: f.dsfVat! };      row.getCell(14).numFmt = MONEY_FMT;
       row.getCell(15).value = postage;
-      row.getCell(16).value = { formula: f.pVat! };        row.getCell(16).numFmt = MONEY_FMT;
+      row.getCell(16).value = pVatCell;        row.getCell(16).numFmt = MONEY_FMT;
       row.getCell(17).value = acc;
       row.getCell(18).value = { formula: f.totalVat! };    row.getCell(18).numFmt = MONEY_FMT;
       row.getCell(19).value = { formula: f.grossProfit! }; row.getCell(19).numFmt = MONEY_FMT;
@@ -318,7 +324,7 @@ function writeSaleRow(
       row.getCell(12).value = { formula: f.commission! };  row.getCell(12).numFmt = MONEY_FMT;
       row.getCell(13).value = BM_CUSTOMER_CARE_FEES_LITERAL;
       row.getCell(14).value = postage;
-      row.getCell(15).value = { formula: f.pVat! };        row.getCell(15).numFmt = MONEY_FMT;
+      row.getCell(15).value = pVatCell;        row.getCell(15).numFmt = MONEY_FMT;
       row.getCell(16).value = acc;
       row.getCell(17).value = { formula: f.grossProfit! }; row.getCell(17).numFmt = MONEY_FMT;
       row.getCell(18).value = { formula: f.gpPercent! };   row.getCell(18).numFmt = MONEY_FMT;
@@ -347,7 +353,7 @@ function writeSaleRow(
       row.getCell(14).value = { formula: f.vat! };         row.getCell(14).numFmt = '0.0';
       row.getCell(15).value = { formula: f.totalCom! };
       row.getCell(16).value = postage;
-      row.getCell(17).value = { formula: f.pVat! };        row.getCell(17).numFmt = MONEY_FMT;
+      row.getCell(17).value = pVatCell;        row.getCell(17).numFmt = MONEY_FMT;
       row.getCell(18).value = { formula: f.marketing! };   row.getCell(18).numFmt = MONEY_FMT;
       row.getCell(19).value = { formula: f.mVat! };        row.getCell(19).numFmt = MONEY_FMT;
       row.getCell(20).value = acc;
@@ -374,7 +380,7 @@ function writeSaleRow(
       row.getCell(10).value = { formula: f.commission! };  row.getCell(10).numFmt = MONEY_FMT;
       row.getCell(11).value = { formula: f.vat20! };       row.getCell(11).numFmt = MONEY_FMT;
       row.getCell(12).value = postage;
-      row.getCell(13).value = { formula: f.pVat! };        row.getCell(13).numFmt = MONEY_FMT;
+      row.getCell(13).value = pVatCell;        row.getCell(13).numFmt = MONEY_FMT;
       row.getCell(14).value = acc;
       row.getCell(15).value = { formula: f.totalVat! };    row.getCell(15).numFmt = MONEY_FMT;
       row.getCell(16).value = { formula: f.grossProfit! }; row.getCell(16).numFmt = MONEY_FMT;

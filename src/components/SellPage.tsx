@@ -91,7 +91,7 @@ function inventoryUnitToSale(u: InventoryUnit): Sale {
     salePrice: sp,
     paymentMode: undefined,
     postage: u.postageCost ?? 6.30,
-    accountingFee: 1,
+    accessories: 1,
     spMinusBp: sp - bp,
     marginalTax: 0,
     commission: 0,

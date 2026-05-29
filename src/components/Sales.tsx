@@ -120,7 +120,7 @@ function inventoryUnitToSale(u: InventoryUnit): Sale {
     paymentMode: undefined,
     // Derived fields are placeholders — recomputeSale() overwrites them.
     postage: u.postageCost ?? 6.30,
-    accountingFee: 1,
+    accessories: 1,
     spMinusBp: sp - bp,
     marginalTax: 0,
     commission: 0,

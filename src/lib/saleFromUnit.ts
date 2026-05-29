@@ -20,21 +20,24 @@ export interface BuildSaleInput {
   salePrice: number;
   saleDate: string;               // ISO yyyy-mm-dd
   postage?: number;               // £; defaults to 6.30 (matches client master)
-  accountingFee?: number;         // defaults to 1
+  /** When true, P.VAT is forced to 0 (postage is VAT-exempt). */
+  postageVatExempt?: boolean;
+  accessories?: number;           // £; defaults to 1 (0 when no accessory bundled)
   saleOrderId?: string;
   customerName?: string;
   paymentMode?: string;           // BM only
 }
 
 const DEFAULT_POSTAGE = 6.30;
-const DEFAULT_ACC = 1;
+const DEFAULT_ACCESSORIES = 1;
 
 export function buildSaleFromUnit(input: BuildSaleInput): Sale | null {
   const marketplace = marketplaceFromListingSite(input.listingSite);
   if (!marketplace) return null;
 
   const postage = input.postage ?? DEFAULT_POSTAGE;
-  const accountingFee = input.accountingFee ?? DEFAULT_ACC;
+  const accessories = input.accessories ?? DEFAULT_ACCESSORIES;
+  const postageVatExempt = input.postageVatExempt ?? false;
   const orderNumber = input.saleOrderId || `INAPP-${input.unit.id}`;
 
   const fin = calcSaleFinancials({
@@ -42,7 +45,8 @@ export function buildSaleFromUnit(input: BuildSaleInput): Sale | null {
     buyPrice: input.unit.buyPrice ?? 0,
     salePrice: input.salePrice,
     postage,
-    accountingFee,
+    postageVatExempt,
+    accessories,
   });
 
   const now = new Date();
@@ -60,6 +64,7 @@ export function buildSaleFromUnit(input: BuildSaleInput): Sale | null {
     buyPrice: input.unit.buyPrice ?? 0,
     salePrice: input.salePrice,
     paymentMode: marketplace === 'BM' ? (input.paymentMode || undefined) : undefined,
+    postageVatExempt: postageVatExempt || undefined,
     ...fin,
     comments: input.customerName || undefined,
     importBatchId: 'inapp',

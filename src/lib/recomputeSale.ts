@@ -17,7 +17,8 @@ export function recomputeSale(s: Sale): Sale {
     buyPrice: s.buyPrice,
     salePrice: s.salePrice,
     postage: s.postage,
-    accountingFee: s.accountingFee,
+    postageVatExempt: s.postageVatExempt,
+    accessories: s.accessories,
   });
   return { ...s, ...fresh };
 }

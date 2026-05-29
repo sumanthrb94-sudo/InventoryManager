@@ -71,8 +71,10 @@ const MARGIN_TAX_RATE = 0.1667;
 const POSTAGE_VAT_RATE = 0.20;
 /** Default postage when no per-row override. */
 export const DEFAULT_POSTAGE = 6.30;
-/** Default accounting fee per order (all sheets except AMAZON which may use 0). */
-export const DEFAULT_ACC = 1;
+/** Default accessory value per order (Acc column = £1 when an accessory is bundled). */
+export const DEFAULT_ACCESSORIES = 1;
+/** Preset postage values seen in the client master, used by the sell-flow dropdown. */
+export const POSTAGE_PRESETS = [6.30, 5.00, 4.65, 1.90, 0.00] as const;
 /** AMAZON: C.VAT rate applied to Commission. */
 const AMZ_C_VAT_RATE = 0.20;
 /** AMAZON: DSF rate applied to Commission. */
@@ -139,10 +141,15 @@ export interface CalcSaleFinancialsInput {
    */
   postage?: number;
   /**
-   * Accounting fee per order. Defaults to 1 (DEFAULT_ACC). AMAZON sometimes
-   * uses 0 (sales where the order was reconciled differently).
+   * When true, P.VAT is forced to 0 (postage is VAT-exempt). Default false.
+   * Mirrors the operator-side toggle in the sell-flow form.
    */
-  accountingFee?: number;
+  postageVatExempt?: boolean;
+  /**
+   * "Acc" column = accessories value (£). Defaults to 1 (DEFAULT_ACCESSORIES).
+   * Set to 0 when no accessory is bundled with the unit.
+   */
+  accessories?: number;
 }
 
 /**
@@ -176,7 +183,7 @@ export interface SaleFinancials {
   // Common to all four sheets
   postage: number;
   pVat: number;                // Postage * 20%
-  accountingFee: number;
+  accessories: number;
   totalVat: number;            // sheet-specific sum of VAT components; BM has no Total VAT col so we return pVat
   grossProfit: number;
   gpPercent: number;           // AMAZON/BM/ONBUY divide by BP; EBAY divides by SP
@@ -251,12 +258,13 @@ export interface SaleFinancials {
 export function calcSaleFinancials(input: CalcSaleFinancialsInput): SaleFinancials {
   const { marketplace, buyPrice: bp, salePrice: sp } = input;
   const postage = input.postage ?? DEFAULT_POSTAGE;
-  const accountingFee = input.accountingFee ?? DEFAULT_ACC;
+  const accessories = input.accessories ?? DEFAULT_ACCESSORIES;
   const fee = getMarketplaceFee(marketplace);
 
   const spMinusBp = sp - bp;
   const marginalTax = spMinusBp * MARGIN_TAX_RATE;
-  const pVat = postage * POSTAGE_VAT_RATE;
+  // Postage VAT can be zeroed when the postage line is VAT-exempt.
+  const pVat = input.postageVatExempt ? 0 : postage * POSTAGE_VAT_RATE;
 
   switch (marketplace) {
     case 'AMAZON': {
@@ -266,13 +274,13 @@ export function calcSaleFinancials(input: CalcSaleFinancialsInput): SaleFinancia
       const dsfVat = dsf * AMZ_DSF_VAT_RATE;
       const totalVat = cVat + dsfVat + pVat;
       const grossProfit =
-        spMinusBp - marginalTax - commission - cVat - dsf - dsfVat - postage - pVat - accountingFee;
+        spMinusBp - marginalTax - commission - cVat - dsf - dsfVat - postage - pVat - accessories;
       const gpPercent = bp > 0 ? grossProfit / bp * 100 : 0;
       const totalVatNtp = marginalTax - totalVat;
       return {
         spMinusBp, marginalTax, commission,
         cVat, dsf, dsfVat,
-        postage, pVat, accountingFee, totalVat,
+        postage, pVat, accessories, totalVat,
         grossProfit, gpPercent, totalVatNtp,
       };
     }
@@ -283,12 +291,12 @@ export function calcSaleFinancials(input: CalcSaleFinancialsInput): SaleFinancia
       // BM has no Total VAT column — totalVatNtp uses P.VAT alone.
       const totalVat = pVat;
       const grossProfit =
-        spMinusBp - marginalTax - commission - customerCareFees - postage - pVat - accountingFee;
+        spMinusBp - marginalTax - commission - customerCareFees - postage - pVat - accessories;
       const gpPercent = bp > 0 ? grossProfit / bp * 100 : 0;
       const totalVatNtp = marginalTax - pVat;
       return {
         spMinusBp, marginalTax, commission, customerCareFees,
-        postage, pVat, accountingFee, totalVat,
+        postage, pVat, accessories, totalVat,
         grossProfit, gpPercent, totalVatNtp,
       };
     }
@@ -305,14 +313,14 @@ export function calcSaleFinancials(input: CalcSaleFinancialsInput): SaleFinancia
       const mVat = marketing * 0.20;
       const totalVat = vat + pVat + mVat;
       const grossProfit =
-        spMinusBp - marginalTax - totalCom - postage - pVat - marketing - mVat - accountingFee;
+        spMinusBp - marginalTax - totalCom - postage - pVat - marketing - mVat - accessories;
       const gpPercent = sp > 0 ? grossProfit / sp * 100 : 0;             // EBAY uses SP not BP
       const totalVatNtp = marginalTax - totalVat;
       return {
         spMinusBp, marginalTax, commission,
         rof, fvf, vat, totalCom,
         marketing, mVat,
-        postage, pVat, accountingFee, totalVat,
+        postage, pVat, accessories, totalVat,
         grossProfit, gpPercent, totalVatNtp,
       };
     }
@@ -322,12 +330,12 @@ export function calcSaleFinancials(input: CalcSaleFinancialsInput): SaleFinancia
       const vat20 = commission * ((fee.vatPct ?? 20) / 100);             // Commission * 20%
       const totalVat = vat20 + pVat;
       const grossProfit =
-        spMinusBp - marginalTax - commission - vat20 - postage - pVat - accountingFee;
+        spMinusBp - marginalTax - commission - vat20 - postage - pVat - accessories;
       const gpPercent = bp > 0 ? grossProfit / bp * 100 : 0;
       const totalVatNtp = marginalTax - totalVat;
       return {
         spMinusBp, marginalTax, commission, vat20,
-        postage, pVat, accountingFee, totalVat,
+        postage, pVat, accessories, totalVat,
         grossProfit, gpPercent, totalVatNtp,
       };
     }

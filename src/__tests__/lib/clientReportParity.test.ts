@@ -65,7 +65,7 @@ describe('SALES_REPORT_2026_1.xlsx parity — calcSaleFinancials matches Excel c
         buyPrice: row.BP,
         salePrice: row.SP,
         postage: row.Postage,
-        accountingFee: row.Acc,
+        accessories: row.Acc,
       });
 
       // ── Universal fields ────────────────────────────────────────────────
@@ -74,7 +74,7 @@ describe('SALES_REPORT_2026_1.xlsx parity — calcSaleFinancials matches Excel c
       expect(fin.commission).toBeCloseTo(row.Commission, 3);
       expect(fin.postage).toBeCloseTo(row.Postage, 3);
       expect(fin.pVat).toBeCloseTo(row['P. VAT'], 3);
-      expect(fin.accountingFee).toBeCloseTo(row.Acc, 3);
+      expect(fin.accessories).toBeCloseTo(row.Acc, 3);
       expect(fin.grossProfit).toBeCloseTo(row.GP, 3);
       expect(fin.totalVatNtp).toBeCloseTo(row['Total VAT NTP'], 3);
       const gpPctExpected = getGpPct(row)!;
@@ -124,7 +124,7 @@ describe('SALES_REPORT_2026_1.xlsx parity — calcSaleFinancials matches Excel c
         buyPrice: row.BP,
         salePrice: row.SP,
         postage: row.Postage,
-        accountingFee: row.Acc,
+        accessories: row.Acc,
       });
       const check = (name: string, got: number | undefined, want: number | undefined) => {
         if (got == null || want == null) return;
@@ -138,7 +138,7 @@ describe('SALES_REPORT_2026_1.xlsx parity — calcSaleFinancials matches Excel c
       check('Commission', fin.commission, row.Commission);
       check('Postage', fin.postage, row.Postage);
       check('P.VAT', fin.pVat, row['P. VAT']);
-      check('Acc', fin.accountingFee, row.Acc);
+      check('Acc', fin.accessories, row.Acc);
       check('GP', fin.grossProfit, row.GP);
       check('GP%', fin.gpPercent, getGpPct(row));
       check('Total VAT NTP', fin.totalVatNtp, row['Total VAT NTP']);

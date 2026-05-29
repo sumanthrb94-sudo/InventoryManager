@@ -40,10 +40,14 @@ export default function UnitDetailDrawer({ unit, supplierName, onClose }: Props)
   const [saleOrderId, setSaleOrderId] = useState<string>(unit.saleOrderId || '');
   const [customerName, setCustomerName] = useState<string>(unit.customerName || '');
   const [platform, setPlatform] = useState(unit.salePlatform || 'eBay');
-  // Postage is operator-entered per sale to match the client SALES_REPORT
-  // workbook (AMAZON uses 5 or 6.3; EBAY uses 0, 1.9, 4.65 or 6.3; BM / ONBUY
-  // use 6.3). Default 6.30 covers the dominant case; operator can edit.
-  const [postage, setPostage]   = useState<string>('6.30');
+  // Postage: dropdown of presets matching the client master + "Other" for
+  // manual entry. Defaults to 6.30 (the dominant value across all sheets).
+  const [postagePreset, setPostagePreset] = useState<string>('6.30');
+  const [postageCustom, setPostageCustom] = useState<string>('');
+  // Toggle: when ON, P.VAT cell is written as literal 0 (postage VAT-exempt).
+  const [postageVatExempt, setPostageVatExempt] = useState<boolean>(false);
+  // Accessories: £1 default, toggle off to set 0 (no accessory bundled).
+  const [accessoriesIncluded, setAccessoriesIncluded] = useState<boolean>(true);
   // BM-only — preserved verbatim in the SALES_REPORT (informational column G).
   const [paymentMode, setPaymentMode] = useState<string>('');
   const [saving, setSaving]     = useState(false);
@@ -129,7 +133,10 @@ export default function UnitDetailDrawer({ unit, supplierName, onClose }: Props)
     if (!salePrice) return;
     setSaving(true);
     const salePriceNumber = parseFloat(salePrice) || 0;
-    const postageNumber = Number.isFinite(parseFloat(postage)) ? parseFloat(postage) : 6.30;
+    // Resolve postage: presets are literal numeric strings, "other" pulls from
+    // the free-text input. Falls back to 6.30 if either is unparseable.
+    const rawPostage = postagePreset === 'other' ? postageCustom : postagePreset;
+    const postageNumber = Number.isFinite(parseFloat(rawPostage)) ? parseFloat(rawPostage) : 6.30;
     const saleDate = new Date().toISOString().split('T')[0];
 
     // 1) Update the inventory unit (status / sale fields kept for backwards-compat UI).
@@ -152,6 +159,8 @@ export default function UnitDetailDrawer({ unit, supplierName, onClose }: Props)
       salePrice: salePriceNumber,
       saleDate,
       postage: postageNumber,
+      postageVatExempt,
+      accessories: accessoriesIncluded ? 1 : 0,
       saleOrderId,
       customerName,
       paymentMode,
@@ -445,14 +454,28 @@ export default function UnitDetailDrawer({ unit, supplierName, onClose }: Props)
                     </div>
                     <div>
                       <label className="text-[9px] text-gray-400 font-mono uppercase">Postage (£)</label>
-                      <input
-                        type="number"
-                        step="0.01"
-                        value={postage}
-                        onChange={e => setPostage(e.target.value)}
-                        placeholder="6.30"
+                      <select
+                        value={postagePreset}
+                        onChange={e => setPostagePreset(e.target.value)}
                         className="w-full mt-1 bg-white border border-gray-200 rounded-xl px-3 py-2 text-sm font-mono focus:outline-none focus:border-black"
-                      />
+                      >
+                        <option value="6.30">£6.30</option>
+                        <option value="5.00">£5.00</option>
+                        <option value="4.65">£4.65</option>
+                        <option value="1.90">£1.90</option>
+                        <option value="0.00">£0.00</option>
+                        <option value="other">Other…</option>
+                      </select>
+                      {postagePreset === 'other' && (
+                        <input
+                          type="number"
+                          step="0.01"
+                          value={postageCustom}
+                          onChange={e => setPostageCustom(e.target.value)}
+                          placeholder="Custom amount"
+                          className="w-full mt-2 bg-white border border-gray-200 rounded-xl px-3 py-2 text-sm font-mono focus:outline-none focus:border-black"
+                        />
+                      )}
                     </div>
                     {marketplaceFromListingSite(platform) === 'BM' && (
                       <div>
@@ -466,6 +489,27 @@ export default function UnitDetailDrawer({ unit, supplierName, onClose }: Props)
                         />
                       </div>
                     )}
+                  </div>
+                  {/* Boolean toggles: postage VAT exemption + accessories included */}
+                  <div className="flex flex-col gap-2 pt-1">
+                    <label className="flex items-center gap-2 text-[10px] font-mono uppercase tracking-widest text-gray-600 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={postageVatExempt}
+                        onChange={e => setPostageVatExempt(e.target.checked)}
+                        className="w-4 h-4 rounded border-gray-300"
+                      />
+                      Postage VAT-exempt (P.VAT = 0)
+                    </label>
+                    <label className="flex items-center gap-2 text-[10px] font-mono uppercase tracking-widest text-gray-600 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={accessoriesIncluded}
+                        onChange={e => setAccessoriesIncluded(e.target.checked)}
+                        className="w-4 h-4 rounded border-gray-300"
+                      />
+                      Accessory included (Acc = £1)
+                    </label>
                   </div>
                   <button
                     onClick={markSold}

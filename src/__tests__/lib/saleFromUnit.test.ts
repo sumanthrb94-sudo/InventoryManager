@@ -114,6 +114,51 @@ describe('buildSaleFromUnit', () => {
     expect(sale.id).toBe('AMAZON__INAPP-unit-XYZ');
   });
 
+  it('postageVatExempt=true forces P.VAT to 0 and increases GP by 1.26', () => {
+    const base = buildSaleFromUnit({
+      unit: mockUnit({ buyPrice: 100 }),
+      listingSite: 'Amazon',
+      salePrice: 130.03,
+      saleDate: '2026-04-01',
+      postage: 6.30,
+    })!;
+    const exempt = buildSaleFromUnit({
+      unit: mockUnit({ buyPrice: 100 }),
+      listingSite: 'Amazon',
+      salePrice: 130.03,
+      saleDate: '2026-04-01',
+      postage: 6.30,
+      postageVatExempt: true,
+    })!;
+    expect(base.pVat).toBeCloseTo(1.26, 9);
+    expect(exempt.pVat).toBe(0);
+    // GP rises by exactly the suppressed P.VAT.
+    expect(exempt.grossProfit - base.grossProfit).toBeCloseTo(1.26, 3);
+    // postageVatExempt flag stored on the Sale doc.
+    expect(exempt.postageVatExempt).toBe(true);
+    expect(base.postageVatExempt).toBeUndefined();
+  });
+
+  it('accessories=0 drops the Acc literal and bumps GP by £1', () => {
+    const withAcc = buildSaleFromUnit({
+      unit: mockUnit({ buyPrice: 100 }),
+      listingSite: 'Amazon',
+      salePrice: 130.03,
+      saleDate: '2026-04-01',
+      accessories: 1,
+    })!;
+    const noAcc = buildSaleFromUnit({
+      unit: mockUnit({ buyPrice: 100 }),
+      listingSite: 'Amazon',
+      salePrice: 130.03,
+      saleDate: '2026-04-01',
+      accessories: 0,
+    })!;
+    expect(withAcc.accessories).toBe(1);
+    expect(noAcc.accessories).toBe(0);
+    expect(noAcc.grossProfit - withAcc.grossProfit).toBeCloseTo(1, 3);
+  });
+
   it('legacy "Backmarket" listing site maps to BM marketplace', () => {
     const sale = buildSaleFromUnit({
       unit: mockUnit(),

@@ -242,7 +242,17 @@ export interface Sale {
   paymentMode?: string;          // BM only; preserve original casing (Google Pay/Klarna/...)
   // Inputs that may override per-row defaults
   postage: number;               // default 6.30; AMAZON sometimes 5, EBAY varies
-  accountingFee: number;         // default 1; AMAZON sometimes 0
+  /**
+   * When true, P.VAT is written as a literal 0 (not Postage*20%). Use for
+   * VAT-exempt postage entries. Default false (P.VAT = Postage*20%).
+   */
+  postageVatExempt?: boolean;
+  /**
+   * "Acc" column on the client master = value of accessories included with
+   * the unit at sale time (e.g. a £1 cable). Default 1; set 0 when no
+   * accessory is included.
+   */
+  accessories: number;
   // Computed financials (full precision, matching SALES_REPORT_*.xlsx cells)
   spMinusBp: number;
   marginalTax: number;
@@ -258,7 +268,7 @@ export interface Sale {
   marketing?: number;            // EBAY
   mVat?: number;                 // EBAY
   vat20?: number;                // ONBUY (Commission*20%)
-  pVat: number;                  // Postage*20% (all sheets)
+  pVat: number;                  // Postage*20% (all sheets); 0 when postageVatExempt
   totalVat: number;              // sheet-specific Total VAT
   totalVatNtp: number;           // MarginalTax − Total VAT (BM: MarginalTax − P.VAT)
   grossProfit: number;

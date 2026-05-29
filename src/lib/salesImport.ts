@@ -123,7 +123,7 @@ export async function parseSalesWorkbook(
 type ColKey =
   | 'date' | 'orderNumber' | 'sku' | 'imei' | 'supplier'
   | 'quantity' | 'buyPrice' | 'salePrice'
-  | 'paymentMode' | 'postage' | 'accountingFee' | 'comments';
+  | 'paymentMode' | 'postage' | 'accessories' | 'comments';
 
 interface SheetLayout {
   /** Header aliases per logical column (case-insensitive, whitespace-collapsed).
@@ -174,12 +174,12 @@ const SHEET_LAYOUTS: Record<Marketplace, SheetLayout> = {
       buyPrice:      ['bp'],
       salePrice:     ['sp'],
       postage:       ['postage'],
-      accountingFee: ['acc'],
+      accessories: ['acc'],
     },
     fallback: {
       date: 0, orderNumber: 1, sku: 2, imei: 3, supplier: 4,
       quantity: 5, buyPrice: 6, salePrice: 7,
-      postage: 14, accountingFee: 16,
+      postage: 14, accessories: 16,
     },
     required: ['date', 'orderNumber', 'buyPrice', 'salePrice'],
   },
@@ -199,13 +199,13 @@ const SHEET_LAYOUTS: Record<Marketplace, SheetLayout> = {
       buyPrice:      ['bp'],
       salePrice:     ['sp'],
       postage:       ['postage'],
-      accountingFee: ['acc'],
+      accessories: ['acc'],
       comments:      ['comments'],
     },
     fallback: {
       date: 0, orderNumber: 1, sku: 2, imei: 3, supplier: 4,
       quantity: 5, paymentMode: 6, buyPrice: 7, salePrice: 8,
-      postage: 13, accountingFee: 15, comments: 19,
+      postage: 13, accessories: 15, comments: 19,
     },
     required: ['date', 'orderNumber', 'buyPrice', 'salePrice'],
   },
@@ -224,12 +224,12 @@ const SHEET_LAYOUTS: Record<Marketplace, SheetLayout> = {
       buyPrice:      ['bp'],
       salePrice:     ['sp'],
       postage:       ['postage', 'shipping'],
-      accountingFee: ['acc'],
+      accessories: ['acc'],
     },
     fallback: {
       date: 0, orderNumber: 1, sku: 2, imei: 3, supplier: 4,
       quantity: 5, buyPrice: 6, salePrice: 7,
-      postage: 15, accountingFee: 19,
+      postage: 15, accessories: 19,
     },
     required: ['date', 'orderNumber', 'buyPrice', 'salePrice'],
   },
@@ -247,12 +247,12 @@ const SHEET_LAYOUTS: Record<Marketplace, SheetLayout> = {
       buyPrice:      ['bp'],
       salePrice:     ['sp'],
       postage:       ['postage'],
-      accountingFee: ['acc'],
+      accessories: ['acc'],
     },
     fallback: {
       date: 0, orderNumber: 1, sku: 2, imei: 3, supplier: 4,
       buyPrice: 5, salePrice: 6,
-      postage: 11, accountingFee: 13,
+      postage: 11, accessories: 13,
     },
     required: ['date', 'orderNumber', 'buyPrice', 'salePrice'],
   },
@@ -392,11 +392,11 @@ function parseRow(
   // EBAY varies 0/1.9/4.65/6.3; AMAZON Acc varies 0/1). Fall back to the
   // marketplace defaults when the cell is blank.
   const postage = toNumber(get('postage'));
-  const accountingFee = toNumber(get('accountingFee'));
+  const accessories = toNumber(get('accessories'));
 
   // ---- recompute every derived field ------------------------------------
   const fin = calcSaleFinancials({
-    marketplace, buyPrice, salePrice, postage, accountingFee,
+    marketplace, buyPrice, salePrice, postage, accessories,
   });
 
   const supplierName = toNonEmptyString(get('supplier'));
