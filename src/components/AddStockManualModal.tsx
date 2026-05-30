@@ -21,7 +21,7 @@
  * a 10–12 char alphanumeric serial in place of the 15-digit IMEI.
  */
 import React, { useState, useMemo, useCallback } from 'react';
-import { X, Plus, Trash2, CheckCircle2, PackagePlus, AlertCircle, Truck, ClipboardPaste } from 'lucide-react';
+import { X, Plus, Trash2, CheckCircle2, PackagePlus, AlertCircle, Truck } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useInventoryStore } from '../lib/inventoryStore';
 import { notificationService } from '../lib/notificationService';
@@ -97,135 +97,6 @@ function emptyRow(supplierName = ''): StockRow {
   };
 }
 
-/** Parse a single tab-separated row pasted from Excel / Google Sheets.
- *  The operator's source sheet (the one they keep day-to-day and copy rows
- *  out of) places BP right after IMEI, NOT at the end of the buy block like
- *  the canonical Inventory Report export does — the two schemas disagree
- *  on BP position only. Per the operator: the paste-into-Add-Stock flow
- *  has to match THEIR sheet, not the export, because that's where the
- *  rows are coming from. Sample row:
- *
- *    23-May-2026 · SAMSUNG TAB A8 LTE · 353255363682751 · 75 · A · 32GB · BLACK · NANAK
- *
- *  Three accepted shapes — anything outside falls through to the input's
- *  default paste so a stray copy of unrelated text doesn't scramble the
- *  form:
- *
- *    9 fields — full row: date · model · imei · bp · grade · storage · colour · supplier · notes
- *    8 fields — date OR notes (disambiguated by whether parts[0] parses as a date)
- *    7 fields — neither: model · imei · bp · grade · storage · colour · supplier
- */
-export function parsePastedStockRow(text: string):
-  | { batchDate?: string; patch: Partial<StockRow> }
-  | null {
-  if (!text) return null;
-  // First non-empty line only — multi-row paste goes through
-  // parsePastedStockRows below.
-  const firstLine = text.replace(/\r/g, '').split('\n').find(l => l.trim().length > 0);
-  if (!firstLine) return null;
-  const parts = firstLine.split('\t').map(s => s.trim());
-  // Drop trailing empties (Excel pads short rows with extra tabs).
-  while (parts.length > 0 && parts[parts.length - 1] === '') parts.pop();
-  if (parts.length < 7 || parts.length > 9) return null;
-
-  let batchDate: string | undefined;
-  let model = '', imei = '', bp = '', grade = '', storage = '', colour = '', supplier = '', notes = '';
-
-  if (parts.length === 9) {
-    [, model, imei, bp, grade, storage, colour, supplier, notes] = parts;
-    batchDate = parseRowDate(parts[0]);
-  } else if (parts.length === 8) {
-    // 8 fields → either {date + 7 cols, no notes} or {7 cols + notes, no date}.
-    // Disambiguate by parsing parts[0] as a date.
-    const maybeDate = parseRowDate(parts[0]);
-    if (maybeDate) {
-      [, model, imei, bp, grade, storage, colour, supplier] = parts;
-      batchDate = maybeDate;
-    } else {
-      [model, imei, bp, grade, storage, colour, supplier, notes] = parts;
-    }
-  } else {
-    // 7 fields — no date, no notes.
-    [model, imei, bp, grade, storage, colour, supplier] = parts;
-  }
-
-  const patch: Partial<StockRow> = {};
-  if (model)    patch.model        = model;
-  if (imei)     patch.imei         = imei;
-  if (bp)       patch.buyPrice     = bp;
-  if (grade)    patch.grade        = grade;
-  if (colour) {
-    // Canonicalise to the preset casing when it matches one (so paste
-    // "BLACK" and a dropdown pick of "Black" bucket to the same row);
-    // otherwise keep the operator's text verbatim and flip the row to
-    // the "Other" colour mode so the freeform input renders.
-    const canonical = canonicalColour(colour);
-    patch.colour      = canonical ?? colour;
-    patch.colourOther = !canonical;
-  }
-  if (supplier) patch.supplierName = supplier;
-  if (notes)    patch.notes        = notes;
-  if (storage) {
-    patch.storage = storage.toUpperCase().replace(/\s+/g, '');
-    // Mark storage as operator-touched so a later Model edit doesn't
-    // silently overwrite the explicit storage from the paste.
-    patch.storageTouched = true;
-  }
-  return { batchDate, patch };
-}
-
-/** Multi-row variant — split on newlines, parse each line via
- *  parsePastedStockRow, return the collected patches plus the first
- *  batch date encountered (so a multi-row paste only lifts the date
- *  once, from whichever row had it). */
-export function parsePastedStockRows(text: string): {
-  batchDate?: string;
-  rows: Partial<StockRow>[];
-} {
-  const lines = text
-    .replace(/\r/g, '')
-    .split('\n')
-    .map(l => l.trim())
-    .filter(Boolean);
-  const rows: Partial<StockRow>[] = [];
-  let batchDate: string | undefined;
-  for (const line of lines) {
-    const parsed = parsePastedStockRow(line);
-    if (parsed) {
-      if (!batchDate && parsed.batchDate) batchDate = parsed.batchDate;
-      rows.push(parsed.patch);
-    }
-  }
-  return { batchDate, rows };
-}
-
-/** Convert an operator-typed date string into the YYYY-MM-DD form the
- *  <input type="date"> expects. Accepts "23-May-2026", "23/05/2026",
- *  "2026-05-23", or anything `new Date()` can parse. Returns undefined
- *  when none of those work. */
-function parseRowDate(raw: string): string | undefined {
-  const s = (raw || '').trim();
-  if (!s) return undefined;
-  // DD-MMM-YYYY (e.g. "23-May-2026")
-  const m1 = s.match(/^(\d{1,2})[\-\/\s]([A-Za-z]{3,})[\-\/\s](\d{4})$/);
-  if (m1) {
-    const months: Record<string, string> = {
-      jan: '01', feb: '02', mar: '03', apr: '04', may: '05', jun: '06',
-      jul: '07', aug: '08', sep: '09', oct: '10', nov: '11', dec: '12',
-    };
-    const mm = months[m1[2].slice(0, 3).toLowerCase()];
-    if (mm) return `${m1[3]}-${mm}-${m1[1].padStart(2, '0')}`;
-  }
-  // ISO already
-  if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0, 10);
-  // DD/MM/YYYY
-  const m2 = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
-  if (m2) return `${m2[3]}-${m2[2].padStart(2, '0')}-${m2[1].padStart(2, '0')}`;
-  const d = new Date(s);
-  if (!isNaN(d.getTime())) return d.toISOString().slice(0, 10);
-  return undefined;
-}
-
 const GRADES = ['A', 'B', 'C', 'ONU', 'Brand new'];
 
 // Standard storage capacities. The model auto-parser returns values in this
@@ -272,13 +143,6 @@ export default function AddStockManualModal({ onClose, initialMode = 'office' }:
   const [saving, setSaving] = useState(false);
   const [saved, setSaved]   = useState(false);
   const [error, setError]   = useState('');
-  // Transient feedback shown next to the paste textarea after a parse —
-  // e.g. "Added 3 rows" / "No rows recognised". Cleared automatically.
-  const [pasteFeedback, setPasteFeedback] = useState('');
-  // Controlled textarea for the bulk-paste panel. We clear it explicitly
-  // after every paste so the operator can re-paste without manually
-  // selecting the previous content first.
-  const [pasteText, setPasteText] = useState('');
 
   const supplierNames = useMemo(() => suppliers.map(s => s.name), [suppliers]);
   // Map (not Set) so we can surface the matching unit's details when a row
@@ -595,67 +459,6 @@ export default function AddStockManualModal({ onClose, initialMode = 'office' }:
           </p>
         </div>
 
-        {/* Paste panel — operator pastes a tab-separated slice of the
-            Inventory Report export and each line becomes a row in the
-            form. Schema is the same one the Inventory Report button
-            exports, InventoryReportImport consumes, and clientReport's
-            ALL sheet uses, so a row copied out of any of those surfaces
-            round-trips through here without column re-ordering. */}
-        <div className="px-5 pt-2 pb-3 border-b border-slate-100 bg-slate-50/40 flex-shrink-0">
-          <div className="flex items-center gap-2 mb-1">
-            <ClipboardPaste size={11} className="text-slate-400" />
-            <p className="text-[10px] font-bold uppercase tracking-widest text-slate-600">
-              Paste rows from sheet
-            </p>
-            {pasteFeedback && (
-              <span className="text-[9px] font-mono text-emerald-600 ml-auto">
-                {pasteFeedback}
-              </span>
-            )}
-          </div>
-          <p className="text-[9px] font-mono text-slate-400 mb-1.5">
-            Schema · Date · Model · IMEI · BP · Grade · Storage · Colour · Supplier · Notes
-          </p>
-          <textarea
-            value={pasteText}
-            onChange={(e) => setPasteText(e.target.value)}
-            onPaste={(e) => {
-              // Reach into clipboardData synchronously — React's
-              // onChange wouldn't fire until after preventDefault.
-              const text = e.clipboardData.getData('text');
-              e.preventDefault();
-              const result = parsePastedStockRows(text);
-              if (result.rows.length === 0) {
-                setPasteText('');
-                setPasteFeedback('No rows recognised — check column order');
-                setTimeout(() => setPasteFeedback(''), 2200);
-                return;
-              }
-              setRows(prev => {
-                // Reuse rows that are completely empty so a fresh-open
-                // modal with one blank row absorbs the first paste line
-                // instead of leaving an empty row hanging above the paste.
-                const filled = prev.filter(r =>
-                  r.model.trim() || r.imei.trim() || r.buyPrice.trim() ||
-                  r.colour.trim() || r.storage.trim() || r.supplierName.trim() ||
-                  r.grade.trim() || r.notes.trim(),
-                );
-                const newRows = result.rows.map(patch =>
-                  ({ ...emptyRow(), ...patch }) as StockRow,
-                );
-                return [...filled, ...newRows];
-              });
-              if (result.batchDate) setDate(result.batchDate);
-              setPasteText('');
-              setPasteFeedback(`Added ${result.rows.length} row${result.rows.length === 1 ? '' : 's'}`);
-              setTimeout(() => setPasteFeedback(''), 2200);
-            }}
-            rows={2}
-            placeholder={'Paste tab-separated rows here — e.g.\n23-May-2026\tSAMSUNG TAB A8 LTE\t353255363682751\t75\tA\t32GB\tBLACK\tNANAK'}
-            className="w-full border border-slate-200 rounded-lg px-2.5 py-1.5 text-[10px] font-mono focus:outline-none focus:border-slate-900 resize-none bg-white"
-          />
-        </div>
-
         {/* Rows */}
         <div className="flex-1 overflow-y-auto px-5 pb-3">
           <div className="space-y-2">
@@ -670,13 +473,6 @@ export default function AddStockManualModal({ onClose, initialMode = 'office' }:
                 units={units}
                 onChange={patch => updateRow(r.id, patch)}
                 onRemove={() => removeRow(r.id)}
-                onPasteRow={(text) => {
-                  const parsed = parsePastedStockRow(text);
-                  if (!parsed) return false;
-                  updateRow(r.id, parsed.patch);
-                  if (parsed.batchDate) setDate(parsed.batchDate);
-                  return true;
-                }}
                 canRemove={rows.length > 1}
               />
             ))}
@@ -758,7 +554,7 @@ function ModeTab({
 
 // ── One row in the entry grid ────────────────────────────────────────────────
 function Row({
-  row, index, validation, mode, supplierNames, units, onChange, onRemove, onPasteRow, canRemove,
+  row, index, validation, mode, supplierNames, units, onChange, onRemove, canRemove,
 }: {
   key?: React.Key;
   row: StockRow;
@@ -772,22 +568,8 @@ function Row({
   units: InventoryUnit[];
   onChange: (patch: Partial<StockRow>) => void;
   onRemove: () => void;
-  /** Paste handler — invoked when the operator pastes a tab-separated
-   *  row from Excel into Model or IMEI. Returns true when the paste was
-   *  consumed (the input should NOT receive the raw text), false when
-   *  it didn't look like a row paste (default behaviour wins). */
-  onPasteRow: (text: string) => boolean;
   canRemove: boolean;
 }) {
-  /** Paste anywhere inside the row: when the clipboard text is
-   *  tab-separated AND parses as a row, fill every column at once and
-   *  swallow the default paste. Falls through to the input's own paste
-   *  handler when the text isn't a row (e.g. just an IMEI on its own). */
-  const handleRowPaste = (e: React.ClipboardEvent<HTMLDivElement>) => {
-    const text = e.clipboardData.getData('text');
-    if (!text || !text.includes('\t')) return;
-    if (onPasteRow(text)) e.preventDefault();
-  };
   // ── IMEI helper text — shows what's wrong (or empty when fine) ─────────────
   const imeiHelp = (() => {
     if (mode === 'shs' && validation.imeiEmpty) return 'Optional for SHS';
@@ -809,35 +591,14 @@ function Row({
   })();
 
   return (
-    <div
-      onPaste={handleRowPaste}
-      className={`border rounded-2xl p-3 transition-all ${
+    <div className={`border rounded-2xl p-3 transition-all ${
       validation.complete
         ? 'border-emerald-200 bg-emerald-50/30'
         : 'border-slate-200 bg-slate-50/40'
     }`}>
       <div className="flex items-center gap-2 mb-2">
         <span className="text-[9px] font-mono text-gray-400 w-6 text-center flex-shrink-0">#{index + 1}</span>
-        {/* Per-row paste shortcut — paste a single tab-separated row here
-            to autofill this specific row's fields. Distinct from the
-            bulk-paste textarea at the top of the modal (which adds new
-            rows); this one targets only this row, useful for filling row
-            #2 / #3 / etc after clicking Add Row. */}
-        <input
-          type="text"
-          placeholder="Paste row tab-separated to autofill this row"
-          onPaste={(e) => {
-            const text = e.clipboardData.getData('text');
-            if (!text || !text.includes('\t')) return;
-            if (onPasteRow(text)) {
-              e.preventDefault();
-              // Clear the input — the paste content goes into the row's
-              // real fields, no need to keep it visible here.
-              (e.currentTarget as HTMLInputElement).value = '';
-            }
-          }}
-          className="flex-1 min-w-0 text-[9px] font-mono text-slate-500 placeholder:text-slate-400 bg-white border border-slate-200 rounded px-2 py-1 focus:outline-none focus:border-slate-500 transition-colors"
-        />
+        <div className="flex-1" />
         {validation.complete && <CheckCircle2 size={13} className="text-emerald-500 flex-shrink-0" />}
         {canRemove && (
           <button
