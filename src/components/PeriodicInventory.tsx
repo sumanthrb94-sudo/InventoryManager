@@ -42,7 +42,7 @@ const SERIES_GROUPS: ReadonlyArray<SeriesGroupDef> = [
   { id: 'Galaxy XCover', label: 'Samsung XCover',    color: { bg: '#475569', light: '#e2e8f0', text: '#1e293b', border: '#94a3b8' } },
   { id: 'Galaxy Tab',    label: 'Samsung Tabs',      color: { bg: '#0891b2', light: '#cffafe', text: '#164e63', border: '#67e8f9' } },
   { id: 'Pixel',         label: 'Google Pixel',      color: { bg: '#ea580c', light: '#ffedd5', text: '#7c2d12', border: '#fdba74' } },
-  { id: 'Other',         label: 'Other',             color: { bg: '#475569', light: '#f1f5f9', text: '#334155', border: '#cbd5e1' } },
+  { id: 'Other',         label: 'Accessories',       color: { bg: '#475569', light: '#f1f5f9', text: '#334155', border: '#cbd5e1' } },
 ];
 
 /**
