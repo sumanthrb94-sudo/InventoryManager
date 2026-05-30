@@ -183,31 +183,49 @@ interface PopoverState {
 }
 
 // ── Shared SKU bucketing ──────────────────────────────────────────────────────
-// The three view modes (office stock / sales / out-of-stock) all render the
-// same series→SKU grid; only the unit sets + value function differ. Extracted
-// so each mode is one call rather than three copies of the bucketing loop.
+// All three view modes (office stock / by-supplier / out-of-stock) render the
+// same SKU grid; only the GROUPING dimension (brand series vs supplier), the
+// unit sets and the value function differ. One generic builder, one call per
+// mode — no duplicated bucketing loop.
 
-interface SeriesGroupVM extends SeriesGroupDef {
+/** Minimal row-group shape: id + label + colour theme. SERIES_GROUPS satisfies
+ *  this structurally (its id is the Series union, a string subtype); supplier
+ *  groups are built at runtime from the supplier list. */
+interface PtGroupDef {
+  id: string;
+  label: string;
+  color: { bg: string; light: string; text: string; border: string };
+}
+
+interface PtGroupVM extends PtGroupDef {
   elements: Element[];
   totalCount: number;
   totalValue: number;
 }
 
 /** Periodic-table view modes. */
-type ViewMode = 'office' | 'sales' | 'outofstock';
-/** Rolling sales windows for the Sales view. */
-type SalesWindow = 'daily' | 'weekly' | 'monthly';
+type ViewMode = 'office' | 'supplier' | 'outofstock';
 
 const VIEW_TABS: ReadonlyArray<{ id: ViewMode; label: string }> = [
   { id: 'office',     label: 'Office Stock' },
-  { id: 'sales',      label: 'Sales' },
+  { id: 'supplier',   label: 'By Supplier' },
   { id: 'outofstock', label: 'Out of Stock' },
 ];
 
-const SALES_WINDOWS: ReadonlyArray<{ id: SalesWindow; label: string; days: number }> = [
-  { id: 'daily',   label: 'Today',    days: 1 },
-  { id: 'weekly',  label: '7 Days',   days: 7 },
-  { id: 'monthly', label: '30 Days',  days: 30 },
+/** Colour palette cycled across supplier rows (the supplier dimension has no
+ *  fixed colour like the brand series do). Each entry mirrors the bg/light/
+ *  text/border shape the tiles expect. */
+const SUPPLIER_PALETTE: ReadonlyArray<PtGroupDef['color']> = [
+  { bg: '#1d4ed8', light: '#dbeafe', text: '#1e3a8a', border: '#93c5fd' },
+  { bg: '#7c3aed', light: '#ede9fe', text: '#4c1d95', border: '#c4b5fd' },
+  { bg: '#0f766e', light: '#ccfbf1', text: '#134e4a', border: '#5eead4' },
+  { bg: '#be185d', light: '#fce7f3', text: '#831843', border: '#f9a8d4' },
+  { bg: '#b45309', light: '#fef3c7', text: '#78350f', border: '#fcd34d' },
+  { bg: '#0891b2', light: '#cffafe', text: '#164e63', border: '#67e8f9' },
+  { bg: '#ea580c', light: '#ffedd5', text: '#7c2d12', border: '#fdba74' },
+  { bg: '#4338ca', light: '#e0e7ff', text: '#312e81', border: '#a5b4fc' },
+  { bg: '#15803d', light: '#dcfce7', text: '#14532d', border: '#86efac' },
+  { bg: '#475569', light: '#f1f5f9', text: '#334155', border: '#cbd5e1' },
 ];
 
 /** Canonical bucket key — keep 128GB / 256GB / 5G / Wi-Fi variants separate. */
@@ -215,39 +233,44 @@ const bucketKeyOf = (model: string, storage?: string, tag?: string) =>
   `${model}|${storage ?? ''}|${tag ?? ''}`;
 
 /**
- * buildSeriesGroups — bucket units into the periodic-table grid.
+ * buildGroups — bucket units into the periodic-table grid for an arbitrary
+ * grouping dimension.
  *
  *   primary    — units that drive the tile count + value + row totals.
- *   secondary  — units that drive the "+NS" supplier-held badge (office view
- *                passes incoming stock; the other views pass []).
- *   opts.valueOf     — per-unit £ for tile/row value (default buyPrice; sales
- *                      + out-of-stock pass salePrice to surface revenue).
+ *   secondary  — units that drive the "+NS" supplier-held badge (office /
+ *                by-supplier pass incoming stock; out-of-stock passes []).
+ *   groupDefs  — the rows to render (brand series, or runtime supplier list).
+ *   assign     — maps a unit to a groupDefs id. Units whose id isn't in
+ *                groupDefs are dropped (so a stray supplier doesn't appear).
+ *   opts.valueOf     — per-unit £ for tile/row value (default buyPrice;
+ *                      out-of-stock passes salePrice to surface revenue).
  *   opts.excludeKeys — model|storage|tag keys to drop. Out-of-stock passes the
- *                      set of SKUs that still have available stock so only
- *                      depleted ones remain.
+ *                      SKUs that still have available stock so only depleted
+ *                      ones remain.
  */
-function buildSeriesGroups(
+function buildGroups(
   primary: InventoryUnit[],
   secondary: InventoryUnit[],
+  groupDefs: ReadonlyArray<PtGroupDef>,
+  assign: (u: InventoryUnit) => string,
   opts?: { valueOf?: (u: InventoryUnit) => number; excludeKeys?: Set<string> },
-): SeriesGroupVM[] {
+): PtGroupVM[] {
   const valueOf = opts?.valueOf ?? ((u: InventoryUnit) => u.buyPrice || 0);
   const excludeKeys = opts?.excludeKeys;
   try {
-    type ParsedUnit = { unit: InventoryUnit; model: string; storage?: string; tag?: string; series: Series };
+    type ParsedUnit = { unit: InventoryUnit; model: string; storage?: string; tag?: string; groupId: string };
     const parseUnit = (u: InventoryUnit): ParsedUnit => {
       const p = parseBrandModelStorage(u.model);
       const storage = u.storage || p.storage;
-      const series: Series = unitSeries(u);
-      return { unit: u, model: p.model || u.model, storage, tag: p.tag, series };
+      return { unit: u, model: p.model || u.model, storage, tag: p.tag, groupId: assign(u) };
     };
 
     const parsedPrimary   = primary.map(parseUnit);
     const parsedSecondary = secondary.map(parseUnit);
 
-    return SERIES_GROUPS.map(group => {
-      const groupUnits     = parsedPrimary.filter(p => p.series === group.id);
-      const groupSecondary = parsedSecondary.filter(p => p.series === group.id);
+    return groupDefs.map(group => {
+      const groupUnits     = parsedPrimary.filter(p => p.groupId === group.id);
+      const groupSecondary = parsedSecondary.filter(p => p.groupId === group.id);
 
       type Bucket = {
         model: string; storage?: string; tag?: string;
@@ -310,7 +333,7 @@ function buildSeriesGroups(
       };
     }).filter(g => g.elements.length > 0);
   } catch (e) {
-    console.error('PeriodicInventory buildSeriesGroups error:', e);
+    console.error('PeriodicInventory buildGroups error:', e);
     return [];
   }
 }
@@ -501,27 +524,30 @@ export default function PeriodicInventory({ units, onNavigate }: Props) {
   // ── View controls ───────────────────────────────────────────────────────────
   const [viewMode, setViewMode] = useState<ViewMode>('office');
   const [supplierFilterId, setSupplierFilterId] = useState<string>('all');
-  const [salesWindow, setSalesWindow] = useState<SalesWindow>('weekly');
 
   const [popover, setPopover] = useState<PopoverState | null>(null);
-  /** Excel-style overlay target — set when a block is clicked, null when closed. */
-  const [overlay, setOverlay] = useState<{ seriesKey: string; model: string; storage?: string; tag?: string } | null>(null);
+  /** Excel-style overlay target — set when a block is clicked, null when closed.
+   *  `supplierId` is set only from the By-Supplier view so the overlay scopes
+   *  to that supplier's units of the SKU. */
+  const [overlay, setOverlay] = useState<{ seriesKey: string; model: string; storage?: string; tag?: string; supplierId?: string } | null>(null);
   // Refs for the hover grace-period timers
   const closeTimer  = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  /** True when a unit belongs to a supplier (primary id or any of supplierIds). */
+  const unitHasSupplier = (u: InventoryUnit, sid: string) =>
+    u.supplierId === sid || (u.supplierIds?.includes(sid) ?? false);
+
   // Supplier-scoped unit set — every view reads from this so the supplier
-  // dropdown filters the whole table (stock / sales / out-of-stock) at once.
-  // Matches either the primary supplierId or any entry in supplierIds (units
-  // imported from a multi-supplier master row carry several).
+  // dropdown filters the whole table at once. Matches either the primary
+  // supplierId or any entry in supplierIds (units imported from a multi-
+  // supplier master row carry several).
   const scopedUnits = useMemo(() => {
     if (supplierFilterId === 'all') return units;
-    return units.filter(u =>
-      u.supplierId === supplierFilterId ||
-      (u.supplierIds?.includes(supplierFilterId) ?? false)
-    );
+    return units.filter(u => unitHasSupplier(u, supplierFilterId));
   }, [units, supplierFilterId]);
 
-  // Suppliers that actually have units attached — drives the filter dropdown.
+  // Suppliers that actually have units attached — drives the filter dropdown
+  // AND the By-Supplier view's row definitions.
   const supplierOptions = useMemo(() => {
     const ids = new Set<string>();
     for (const u of units) {
@@ -540,17 +566,8 @@ export default function PeriodicInventory({ units, onNavigate }: Props) {
   ), [scopedUnits]);
   const incoming = useMemo(() => scopedUnits.filter(u => u.status === 'incoming'), [scopedUnits]);
 
-  // Sold units — all-time (out-of-stock view) and within the active rolling
-  // window (sales view). Window uses saleDate, falling back to dateIn.
+  // Sold units — lifetime, used by the out-of-stock view to surface demand.
   const soldAll = useMemo(() => scopedUnits.filter(u => u.status === 'sold'), [scopedUnits]);
-  const soldInWindow = useMemo(() => {
-    const days = SALES_WINDOWS.find(w => w.id === salesWindow)?.days ?? 7;
-    const cutoff = Date.now() - days * 24 * 60 * 60 * 1000;
-    return soldAll.filter(u => {
-      const t = new Date(u.saleDate || u.dateIn || 0).getTime();
-      return Number.isFinite(t) && t >= cutoff;
-    });
-  }, [soldAll, salesWindow]);
 
   const today = new Date().toISOString().split('T')[0];
   const todaySold     = scopedUnits.filter(u => u.status === 'sold' && (u.saleDate || u.dateIn) === today);
@@ -558,13 +575,35 @@ export default function PeriodicInventory({ units, onNavigate }: Props) {
 
   // ── Per-view groups ─────────────────────────────────────────────────────────
   const officeGroups = useMemo(
-    () => buildSeriesGroups(available, incoming),
+    () => buildGroups(available, incoming, SERIES_GROUPS, u => unitSeries(u)),
     [available, incoming],
   );
-  const salesGroups = useMemo(
-    () => buildSeriesGroups(soldInWindow, [], { valueOf: u => u.salePrice || 0 }),
-    [soldInWindow],
-  );
+
+  // By-Supplier: rows are suppliers (built from the live supplier list, scoped
+  // to those with available/incoming stock), colour-cycled. Each row buckets
+  // that supplier's office stock by SKU. A unit's primary supplierId drives the
+  // row; anything unrecognised lands in a synthetic "Unknown supplier" row.
+  const UNKNOWN_SUPPLIER_ID = '__unknown_supplier__';
+  const supplierGroups = useMemo(() => {
+    // Which suppliers have any office stock (available or incoming) right now.
+    const present = new Set<string>();
+    let hasUnknown = false;
+    for (const u of [...available, ...incoming]) {
+      const sid = u.supplierId && supplierMap[u.supplierId] ? u.supplierId : UNKNOWN_SUPPLIER_ID;
+      if (sid === UNKNOWN_SUPPLIER_ID) hasUnknown = true;
+      present.add(sid);
+    }
+    const defs: PtGroupDef[] = supplierOptions
+      .filter(o => present.has(o.id))
+      .map((o, i) => ({ id: o.id, label: o.name, color: SUPPLIER_PALETTE[i % SUPPLIER_PALETTE.length] }));
+    if (hasUnknown) {
+      defs.push({ id: UNKNOWN_SUPPLIER_ID, label: 'Unknown supplier', color: SUPPLIER_PALETTE[defs.length % SUPPLIER_PALETTE.length] });
+    }
+    const assign = (u: InventoryUnit) =>
+      (u.supplierId && supplierMap[u.supplierId]) ? u.supplierId : UNKNOWN_SUPPLIER_ID;
+    return buildGroups(available, incoming, defs, assign);
+  }, [available, incoming, supplierOptions, supplierMap]);
+
   const outOfStockGroups = useMemo(() => {
     // Exclude every SKU that still has available stock — only depleted ones
     // (sold lifetime, zero on hand now) survive into the out-of-stock grid.
@@ -574,32 +613,41 @@ export default function PeriodicInventory({ units, onNavigate }: Props) {
       inStock.add(bucketKeyOf(p.model || u.model, u.storage || p.storage, p.tag));
     }
     // Tile count = units sold lifetime (demand signal); value = revenue.
-    return buildSeriesGroups(soldAll, [], { valueOf: u => u.salePrice || 0, excludeKeys: inStock });
+    return buildGroups(soldAll, [], SERIES_GROUPS, u => unitSeries(u), {
+      valueOf: u => u.salePrice || 0, excludeKeys: inStock,
+    });
   }, [available, soldAll]);
 
-  const groups = viewMode === 'sales' ? salesGroups
+  const groups = viewMode === 'supplier' ? supplierGroups
     : viewMode === 'outofstock' ? outOfStockGroups
     : officeGroups;
 
-  // Overlay base set per view (already supplier-scoped via scopedUnits / sold
-  // sets), so clicking a tile in Sales shows the sold units, out-of-stock shows
-  // lifetime sold, and office shows everything matching the SKU.
+  // Overlay base set per view — out-of-stock shows lifetime sold; office and
+  // by-supplier show the scoped on-hand units (by-supplier additionally
+  // narrows to the clicked supplier via overlay.supplierId below).
   const overlayBase = useMemo<InventoryUnit[]>(() => {
-    if (viewMode === 'sales') return soldInWindow;
     if (viewMode === 'outofstock') return soldAll;
     return scopedUnits;
-  }, [viewMode, soldInWindow, soldAll, scopedUnits]);
+  }, [viewMode, soldAll, scopedUnits]);
 
   /** Units matching the currently-selected element. EXACT match on
    *  parsed.model / storage / tag — same three keys the periodic table buckets
    *  by, so what's-in-the-tile and what's-in-the-overlay stay one-to-one.
-   *  Sorted newest-first by dateIn. */
+   *  When the tile came from the By-Supplier view we also narrow to that
+   *  supplier. Sorted newest-first by dateIn. */
   const overlayRows = useMemo<InventoryUnit[]>(() => {
     if (!overlay) return [];
     const wantModel   = overlay.model.toLowerCase().trim();
     const wantStorage = (overlay.storage || '').toUpperCase().trim();
     const wantTag     = (overlay.tag || '').toLowerCase().trim();
+    const wantSup     = overlay.supplierId;
     return overlayBase.filter(u => {
+      if (wantSup) {
+        const ok = wantSup === UNKNOWN_SUPPLIER_ID
+          ? !(u.supplierId && supplierMap[u.supplierId])
+          : unitHasSupplier(u, wantSup);
+        if (!ok) return false;
+      }
       const parsed = parseBrandModelStorage(u.model || '');
       const model   = (parsed.model || u.model || '').toLowerCase().trim();
       const storage = (u.storage || parsed.storage || '').toUpperCase().trim();
@@ -613,7 +661,7 @@ export default function PeriodicInventory({ units, onNavigate }: Props) {
       const db = new Date(b.dateIn || 0).getTime();
       return db - da;
     });
-  }, [overlay, overlayBase]);
+  }, [overlay, overlayBase, supplierMap]);
 
   // ── Hover handlers with grace-period so cursor can reach the popover ─────────
   const cancelClose = useCallback(() => {
@@ -642,26 +690,23 @@ export default function PeriodicInventory({ units, onNavigate }: Props) {
   // the panel now that other views may have data.
   if (units.length === 0) return null;
 
-  const isOffice = viewMode === 'office';
   const viewTitle =
-    viewMode === 'sales'      ? 'Sales Velocity' :
+    viewMode === 'supplier'   ? 'Stock by Supplier' :
     viewMode === 'outofstock' ? 'Out of Stock' :
                                 'Office Stock Visibility';
   const headlineCount =
-    viewMode === 'sales'      ? soldInWindow.length :
+    viewMode === 'supplier'   ? available.length + incoming.length :
     viewMode === 'outofstock' ? groups.reduce((s, g) => s + g.elements.length, 0) :
                                 available.length;
   const headlineLabel =
-    viewMode === 'sales'      ? 'sold' :
-    viewMode === 'outofstock' ? 'SKUs' :
-                                'units';
+    viewMode === 'outofstock' ? 'SKUs' : 'units';
   const headlineSub =
-    viewMode === 'sales'      ? (SALES_WINDOWS.find(w => w.id === salesWindow)?.label ?? '') :
+    viewMode === 'supplier'   ? `${groups.length} supplier${groups.length === 1 ? '' : 's'}` :
     viewMode === 'outofstock' ? `${soldAll.length} sold lifetime` :
                                 (incoming.length > 0 ? `+ ${incoming.length} w/ supplier` : 'in office');
-  // Per-row total suffix: "£X stock" for office, "£X sold" for sales,
-  // "£X lifetime" for the out-of-stock revenue rollup.
-  const rowValueSuffix = isOffice ? 'stock' : viewMode === 'sales' ? 'sold' : 'lifetime';
+  // Per-row total suffix: "£X stock" for office + by-supplier, "£X lifetime"
+  // for the out-of-stock revenue rollup.
+  const rowValueSuffix = viewMode === 'outofstock' ? 'lifetime' : 'stock';
 
   const isMobile = typeof window !== 'undefined' && window.innerWidth < 768;
 
@@ -733,33 +778,6 @@ export default function PeriodicInventory({ units, onNavigate }: Props) {
                 <option key={o.id} value={o.id}>{o.name}</option>
               ))}
             </select>
-
-            {/* Sales window pills — only relevant in the Sales view. */}
-            {viewMode === 'sales' && (
-              <div style={{ display: 'inline-flex', background: '#f1f5f9', borderRadius: 8, padding: 2 }}>
-                {SALES_WINDOWS.map(w => {
-                  const active = salesWindow === w.id;
-                  return (
-                    <button
-                      key={w.id}
-                      type="button"
-                      onClick={() => { setSalesWindow(w.id); setOverlay(null); }}
-                      style={{
-                        border: 'none', cursor: 'pointer',
-                        padding: isMobile ? '5px 8px' : '5px 10px',
-                        borderRadius: 6,
-                        fontSize: isMobile ? 9 : 10, fontWeight: 700, fontFamily: 'monospace',
-                        background: active ? '#10b981' : 'transparent',
-                        color: active ? '#fff' : '#64748b',
-                        transition: 'background 0.12s, color 0.12s',
-                      }}
-                    >
-                      {w.label}
-                    </button>
-                  );
-                })}
-              </div>
-            )}
           </div>
 
           <div style={{ display: 'flex', gap: isMobile ? 6 : 8, flexWrap: 'wrap' }}>
@@ -790,8 +808,8 @@ export default function PeriodicInventory({ units, onNavigate }: Props) {
         {groups.length === 0 && (
           <div style={{ padding: '28px 12px', textAlign: 'center' }}>
             <p style={{ fontSize: 12, fontWeight: 700, color: '#475569' }}>
-              {viewMode === 'sales'
-                ? `No sales in the last ${SALES_WINDOWS.find(w => w.id === salesWindow)?.label?.toLowerCase()}`
+              {viewMode === 'supplier'
+                ? 'No stock attributed to a supplier'
                 : viewMode === 'outofstock'
                   ? 'Nothing out of stock — every sold SKU still has units on hand'
                   : 'No office stock to show'}
@@ -805,7 +823,9 @@ export default function PeriodicInventory({ units, onNavigate }: Props) {
           {groups.map(g => (
             <div key={g.id}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
-                <div style={{ fontSize: 13, fontFamily: 'system-ui', textTransform: 'capitalize', color: g.color.bg, fontWeight: 800, minWidth: 120, flexShrink: 0, letterSpacing: '-0.02em' }}>
+                {/* Preserve supplier-name casing (MHL, NIHAL); series labels
+                    keep the capitalize treatment. */}
+                <div style={{ fontSize: 13, fontFamily: 'system-ui', textTransform: viewMode === 'supplier' ? 'none' : 'capitalize', color: g.color.bg, fontWeight: 800, minWidth: 120, flexShrink: 0, letterSpacing: '-0.02em' }}>
                   {g.label}
                 </div>
                 <div style={{ flex: 1, height: 1, background: `${g.color.bg}30` }} />
@@ -829,10 +849,13 @@ export default function PeriodicInventory({ units, onNavigate }: Props) {
                         // Empty blocks (zero stock + zero SHS) are non-actionable.
                         if (el.count === 0 && el.shsCount === 0) return;
                         setOverlay({
-                          seriesKey: el.seriesKey,
+                          seriesKey: viewMode === 'supplier' ? `${g.label} · ${el.seriesKey}` : el.seriesKey,
                           model: el.model,
                           storage: el.storage,
                           tag: el.tag,
+                          // By-Supplier rows are keyed by supplier id — scope
+                          // the overlay to that supplier's units of the SKU.
+                          ...(viewMode === 'supplier' ? { supplierId: g.id } : {}),
                         });
                       }}
                       title={el.seriesKey}
@@ -909,7 +932,7 @@ export default function PeriodicInventory({ units, onNavigate }: Props) {
           ))}
         </div>
 
-        {isOffice && groups.some(g => g.elements.some(el => el.shsCount > 0)) && (
+        {viewMode !== 'outofstock' && groups.some(g => g.elements.some(el => el.shsCount > 0)) && (
           <div style={{ marginTop: 12, display: 'flex', alignItems: 'center', gap: 6 }}>
             <span style={{ fontSize: 9, color: '#fbbf24', fontFamily: 'monospace', fontWeight: 700 }}>+NS</span>
             <span style={{ fontSize: 8, color: '#475569', fontFamily: 'monospace' }}>= N units listed with supplier (hover for details)</span>
