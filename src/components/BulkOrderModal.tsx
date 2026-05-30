@@ -591,6 +591,30 @@ export default function BulkOrderModal({ onClose, initialMode = 'office' }: Prop
     }
   }, [canSave, supplierName, model, bp, slots, storage, grade, date, mode, onClose]);
 
+  /** Restart the flow at Setup for a follow-up batch — keep the device
+   *  details (date / model / storage / grade / BP / mode) so the operator
+   *  doesn't have to re-type them when the next delivery is the same SKU
+   *  but a different supplier or different colour split. Reset everything
+   *  downstream of supplier so the next setup starts clean.
+   *
+   *  Common use case: operator receives 2 units in Black from MHL, saves,
+   *  then realises another 10 are coming from NIHAL in a Black/White mix.
+   *  Click "+ Add Another Batch", swap supplier, dial in the new colour
+   *  quantities, scan, save again — all inside the same modal session. */
+  const startNewBatch = useCallback(() => {
+    setSupplierName('');
+    setColourBuckets([{ id: uid(), colour: 'Black', quantity: 0 }]);
+    setSlots([]);
+    setActiveSlotIdx(0);
+    setScanInput('');
+    setScanError('');
+    setReviewEditing(null);
+    setError('');
+    setProgress({ done: 0, total: 0 });
+    setSavedCount(0);
+    setStage('setup');
+  }, []);
+
   // ── Render ─────────────────────────────────────────────────────────────────
   return (
     <motion.div
@@ -738,24 +762,32 @@ export default function BulkOrderModal({ onClose, initialMode = 'office' }: Prop
                 ))}
               </div>
               <p className="text-[10px] font-mono text-slate-400 mt-2">
-                Click <span className="font-bold">Exit Bulk Order</span> when ready to close.
+                Add more units from the same delivery in a follow-up batch — or close when done.
               </p>
             </div>
           )}
         </div>
 
-        {/* Footer (done stage) — single Exit Bulk Order CTA. No auto-close
-            timer; operator dismisses on their own pace after reviewing
-            the post-save summary above. */}
+        {/* Footer (done stage) — two CTAs: stay in the modal for a
+            follow-up batch (same device, new supplier / colours), or
+            exit. No auto-close; operator chooses the path. */}
         {stage === 'done' && (
-          <div className="px-4 md:px-5 py-3 border-t border-gray-100 flex items-center justify-end gap-2 flex-shrink-0 bg-slate-50/60">
+          <div className="px-4 md:px-5 py-3 border-t border-gray-100 flex flex-col-reverse md:flex-row md:items-center md:justify-end gap-2 flex-shrink-0 bg-slate-50/60">
             <button
               type="button"
               onClick={onClose}
-              autoFocus
-              className="px-4 py-2 rounded-lg bg-emerald-600 text-white text-[10px] font-bold uppercase tracking-widest hover:bg-emerald-700 transition-all inline-flex items-center gap-1.5"
+              className="px-4 py-2.5 md:py-2 rounded-lg border border-slate-200 text-slate-700 text-[10px] font-bold uppercase tracking-widest hover:bg-white transition-all inline-flex items-center justify-center gap-1.5"
             >
-              <CheckCircle2 size={11} /> Exit Bulk Order
+              <X size={11} /> Exit Bulk Order
+            </button>
+            <button
+              type="button"
+              onClick={startNewBatch}
+              autoFocus
+              title="Reset supplier + colour quantities, keep date / model / storage / grade / BP — useful when the next delivery is the same SKU from a different supplier"
+              className="px-4 py-2.5 md:py-2 rounded-lg bg-emerald-600 text-white text-[10px] font-bold uppercase tracking-widest hover:bg-emerald-700 transition-all inline-flex items-center justify-center gap-1.5"
+            >
+              <Plus size={11} /> Add Another Batch
             </button>
           </div>
         )}
