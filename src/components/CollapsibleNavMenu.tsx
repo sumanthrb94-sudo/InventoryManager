@@ -25,7 +25,7 @@ const DEFAULT_ITEMS: NavItem[] = [
   },
   {
     id: 'sell',
-    label: 'Sell',
+    label: 'Sales',
     icon: <Tag size={20} />,
     onClick: () => {},
     section: 'main',

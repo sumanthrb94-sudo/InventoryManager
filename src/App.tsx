@@ -47,7 +47,7 @@ interface NavTab {
 function buildNavTabs(user: User): NavTab[] {
   const tabs: NavTab[] = [];
   if (canBuy(user))   tabs.push({ id: 'buy',     label: 'Stock Intake', icon: <PackagePlus size={20} /> });
-  if (canSell(user))  tabs.push({ id: 'sell',    label: 'Sell',    icon: <ShoppingCart size={20} /> });
+  if (canSell(user))  tabs.push({ id: 'sell',    label: 'Sales',   icon: <ShoppingCart size={20} /> });
   tabs.push({           id: 'returns', label: 'Returns', icon: <RefreshCw size={20} /> });
   if (isAdmin(user))  tabs.push({ id: 'admin',   label: 'Admin',   icon: <Settings size={20} /> });
   return tabs;

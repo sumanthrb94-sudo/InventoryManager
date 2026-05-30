@@ -195,8 +195,13 @@ export default function BulkOrderModal({ onClose, initialMode = 'office' }: Prop
     }
   }, [stage, activeSlotIdx, showCamera]);
 
-  // ── Setup → Scan: hydrate slots from buckets ───────────────────────────────
-  const goToScan = useCallback(() => {
+  // ── Setup → next stage: hydrate slots from buckets ────────────────────────
+  // Office mode goes to 'scan' so the operator can attach IMEIs to each
+  // empty slot. SHS mode skips Scan entirely — supplier-held units are
+  // placeholders by definition (no physical IMEI yet) so there's nothing
+  // to scan; jump straight to Review where the operator confirms the
+  // colour split and saves.
+  const goToNext = useCallback(() => {
     if (!setupValidation.complete) return;
     const built: UnitSlot[] = [];
     for (const b of colourBuckets) {
@@ -214,8 +219,8 @@ export default function BulkOrderModal({ onClose, initialMode = 'office' }: Prop
     setActiveSlotIdx(0);
     setScanInput('');
     setScanError('');
-    setStage('scan');
-  }, [colourBuckets, setupValidation.complete]);
+    setStage(mode === 'shs' ? 'review' : 'scan');
+  }, [colourBuckets, setupValidation.complete, mode]);
 
   // ── Scan submit handler — the throughput-critical path ─────────────────────
   // Called from three entry points:
@@ -654,7 +659,7 @@ export default function BulkOrderModal({ onClose, initialMode = 'office' }: Prop
               </p>
             </div>
           </div>
-          <StageDots stage={stage} />
+          <StageDots stage={stage} mode={mode} />
           <button onClick={onClose} className="p-2 hover:bg-gray-100 rounded-xl text-gray-400">
             <X size={15} />
           </button>
@@ -801,7 +806,7 @@ export default function BulkOrderModal({ onClose, initialMode = 'office' }: Prop
               {stage === 'setup' && (
                 <span>
                   {setupValidation.totalQty > 0
-                    ? `Ready to scan ${setupValidation.totalQty} unit${setupValidation.totalQty === 1 ? '' : 's'} · £${(setupValidation.totalQty * (parseFloat(bp) || 0)).toFixed(0)}`
+                    ? `Ready to ${mode === 'shs' ? 'register' : 'scan'} ${setupValidation.totalQty} unit${setupValidation.totalQty === 1 ? '' : 's'} · £${(setupValidation.totalQty * (parseFloat(bp) || 0)).toFixed(0)}`
                     : 'Add colour quantities to continue'}
                 </span>
               )}
@@ -825,7 +830,13 @@ export default function BulkOrderModal({ onClose, initialMode = 'office' }: Prop
               {stage !== 'setup' && (
                 <button
                   type="button"
-                  onClick={() => setStage(stage === 'scan' ? 'setup' : 'scan')}
+                  // Back from review skips over the scan stage in SHS mode
+                  // because that stage is never used there — going back
+                  // would land on an empty Scan screen with nothing to do.
+                  onClick={() => setStage(
+                    stage === 'scan' ? 'setup'
+                      : (mode === 'shs' ? 'setup' : 'scan')
+                  )}
                   className="px-3 py-2 rounded-lg border border-slate-200 text-slate-600 text-[10px] font-bold uppercase tracking-widest hover:bg-white inline-flex items-center gap-1"
                 >
                   <ArrowLeft size={11} /> Back
@@ -839,10 +850,10 @@ export default function BulkOrderModal({ onClose, initialMode = 'office' }: Prop
                 <button
                   type="button"
                   disabled={!setupValidation.complete}
-                  onClick={goToScan}
+                  onClick={goToNext}
                   className="px-4 py-2 rounded-lg bg-slate-900 text-white text-[10px] font-bold uppercase tracking-widest hover:bg-slate-700 transition-all disabled:opacity-40 inline-flex items-center gap-1.5"
                 >
-                  Start scanning <ChevronRight size={11} />
+                  {mode === 'shs' ? 'Continue to review' : 'Start scanning'} <ChevronRight size={11} />
                 </button>
               )}
               {stage === 'scan' && (
@@ -874,8 +885,11 @@ export default function BulkOrderModal({ onClose, initialMode = 'office' }: Prop
 }
 
 // ── Stage indicator dots ──────────────────────────────────────────────────────
-function StageDots({ stage }: { stage: Stage }) {
-  const order: Stage[] = ['setup', 'scan', 'review'];
+// SHS skips the scan stage entirely (supplier-held units have no IMEI to
+// attach yet), so the dot strip drops the middle one and shows only
+// Setup → Review for that mode.
+function StageDots({ stage, mode }: { stage: Stage; mode: Mode }) {
+  const order: Stage[] = mode === 'shs' ? ['setup', 'review'] : ['setup', 'scan', 'review'];
   const idx = order.indexOf(stage);
   // Saving/Done both visually count as "after review".
   const effective = stage === 'saving' || stage === 'done' ? order.length : idx;
