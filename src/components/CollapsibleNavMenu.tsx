@@ -18,7 +18,7 @@ interface Props {
 const DEFAULT_ITEMS: NavItem[] = [
   {
     id: 'buy',
-    label: 'Buy',
+    label: 'Stock Intake',
     icon: <ShoppingCart size={20} />,
     onClick: () => {},
     section: 'main',
