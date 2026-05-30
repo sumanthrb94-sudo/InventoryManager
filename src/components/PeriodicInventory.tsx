@@ -570,7 +570,7 @@ export default function PeriodicInventory({ units, onNavigate }: Props) {
                 Inventory Periodic Table
               </p>
               <p style={{ fontSize: 18, fontWeight: 800, color: '#1f2937', letterSpacing: '-0.03em', textTransform: 'uppercase' }}>
-                Stock Visibility
+                Office Stock Visibility
               </p>
             </div>
             <div style={{ textAlign: 'right' }}>
