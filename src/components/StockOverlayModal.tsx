@@ -42,7 +42,7 @@ const STATUS_TONE: Record<string, { bg: string; text: string; dot: string }> = {
 // that has IMEIs doesn't also surface its rollup. The grouping is the
 // page's primary "what do we have on hand" lens.
 
-export type GroupSortKey = 'model' | 'stockIn' | 'colours' | 'qty' | 'bp' | 'value' | 'notes';
+export type GroupSortKey = 'model' | 'stockIn' | 'age' | 'colours' | 'qty' | 'bp' | 'value' | 'notes';
 export type GroupSortDir = 'asc' | 'desc';
 export interface GroupSort { key: GroupSortKey; dir: GroupSortDir; }
 export const DEFAULT_GROUP_SORT: GroupSort = { key: 'qty', dir: 'desc' };
@@ -52,6 +52,10 @@ export const DEFAULT_GROUP_SORT: GroupSort = { key: 'qty', dir: 'desc' };
 export const GROUP_SORT_DEFAULT_DIR: Record<GroupSortKey, GroupSortDir> = {
   model:   'asc',
   stockIn: 'desc',
+  // Age defaults to descending — operator's primary use-case is "find the
+  // stalest SKU first", so clicking the Age header puts the oldest groups
+  // at the top.
+  age:     'desc',
   colours: 'desc',
   qty:     'desc',
   bp:      'desc',
@@ -94,7 +98,25 @@ export type GroupedModel = {
    *  use their updatedAt timestamp since they don't carry per-unit dates.
    *  Empty string when nothing was captured. */
   latestDateIn: string;
+  /** Earliest dateIn across the units in the group — used to derive the
+   *  Age column. When a SKU has units stocked on multiple dates we surface
+   *  the LONGEST age (oldest unit) because that's the reorder-stale
+   *  signal the operator cares about: "this SKU has stock sitting from
+   *  N days ago, not just from yesterday's batch". */
+  oldestDateIn: string;
 };
+
+/** Days between `isoDate` (YYYY-MM-DD or any ISO date string) and today.
+ *  Floor — so a unit stocked this morning reads 0, yesterday reads 1.
+ *  Empty / unparseable strings return null so callers can show "—". */
+export function ageInDays(isoDate: string): number | null {
+  if (!isoDate) return null;
+  const then = new Date(isoDate).getTime();
+  if (!Number.isFinite(then)) return null;
+  const diff = Date.now() - then;
+  if (diff < 0) return 0;
+  return Math.floor(diff / (24 * 60 * 60 * 1000));
+}
 
 /** Derive a canonical bucket-key for a unit while preserving the
  *  operator's exact typed model string for display. Two surfaces:
@@ -148,7 +170,7 @@ export function buildGroupedModels(
     const { keyModel, storage, tag, label } = canonicalize(u);
     const key = `unit::${keyModel}|${storage.toUpperCase()}|${tag.toLowerCase()}`;
     let g = map.get(key);
-    if (!g) g = { key, model: label, total: 0, byColour: new Map(), latestBp: u.buyPrice || 0, totalValue: 0, notes: new Set(), shs: false, latestDateIn: '' };
+    if (!g) g = { key, model: label, total: 0, byColour: new Map(), latestBp: u.buyPrice || 0, totalValue: 0, notes: new Set(), shs: false, latestDateIn: '', oldestDateIn: '' };
     g.total++;
     g.totalValue += u.buyPrice || 0;
     if (u.buyPrice && u.buyPrice > 0) g.latestBp = u.buyPrice;
@@ -178,7 +200,12 @@ export function buildGroupedModels(
     const n = (u.notes || '').trim();
     if (n) g.notes.add(n);
     const d = (u.dateIn || '').trim();
-    if (d && d > g.latestDateIn) g.latestDateIn = d;
+    if (d) {
+      if (d > g.latestDateIn) g.latestDateIn = d;
+      // Earliest dateIn wins: lexicographic comparison works because the
+      // strings are ISO YYYY-MM-DD (lower string = older calendar date).
+      if (!g.oldestDateIn || d < g.oldestDateIn) g.oldestDateIn = d;
+    }
     map.set(key, g);
   }
   for (const a of aggregates) {
@@ -220,6 +247,9 @@ export function buildGroupedModels(
       notes,
       shs,
       latestDateIn,
+      // Aggregates collapse to a single timestamp — use it for both
+      // bounds so the Age column reads from updatedAt without special-casing.
+      oldestDateIn: latestDateIn,
     });
   }
   return Array.from(map.values());
@@ -241,6 +271,19 @@ export function sortGroupedModels(groups: GroupedModel[], sort: GroupSort): Grou
       arr.sort((a, b) => {
         if (!!a.latestDateIn !== !!b.latestDateIn) return a.latestDateIn ? -1 : 1;
         return a.latestDateIn.localeCompare(b.latestDateIn) * mult || tieBreak(a, b);
+      });
+      break;
+    case 'age':
+      // Sort by oldestDateIn — the date that drives the Age column.
+      // Empty bounds sink to the bottom (same convention as stockIn).
+      // desc dir → oldest groups first (which is the most common use:
+      // "what's been sitting longest?").
+      arr.sort((a, b) => {
+        if (!!a.oldestDateIn !== !!b.oldestDateIn) return a.oldestDateIn ? -1 : 1;
+        // OLDER date = LONGER age, so for desc (oldest first) we want
+        // ascending date order — invert mult here so the header arrow
+        // direction matches the operator's expectation.
+        return a.oldestDateIn.localeCompare(b.oldestDateIn) * -mult || tieBreak(a, b);
       });
       break;
     case 'colours':
@@ -346,6 +389,7 @@ export function GroupedExcelTable({
           <GroupTh sort={sort} onSort={onSort} sortKey="bp"      label="Latest BP"   width={100} align="right" />
           <GroupTh sort={sort} onSort={onSort} sortKey="value"   label="Total Value" width={110} align="right" />
           <GroupTh sort={sort} onSort={onSort} sortKey="stockIn" label="Stock In"    width={110} />
+          <GroupTh sort={sort} onSort={onSort} sortKey="age"     label="Age"         width={80} align="right" />
           <GroupTh sort={sort} onSort={onSort} sortKey="notes"   label="Notes"       width={200} />
         </tr>
       </thead>
@@ -400,6 +444,32 @@ export function GroupedExcelTable({
                     : <span className="text-slate-300">—</span>
                   }
                 </td>
+                <td className="px-3 py-1.5 border-b border-slate-100 align-middle text-right tabular-nums">
+                  {/* Age = days since the oldest unit in the group landed.
+                      Drives reorder decisions: a SKU with stock from 30
+                      days ago is at risk of dust collection even if a
+                      fresher batch came in last week. Cell tooltip carries
+                      the exact ISO date so the operator can audit. */}
+                  {(() => {
+                    const days = ageInDays(g.oldestDateIn);
+                    if (days === null) return <span className="text-slate-300">—</span>;
+                    const tone =
+                      days >= 30 ? 'text-rose-600 font-semibold'
+                      : days >= 14 ? 'text-amber-700'
+                      : 'text-slate-600';
+                    return (
+                      <span
+                        className={`text-[11px] font-mono ${tone}`}
+                        title={`Oldest stock-in: ${g.oldestDateIn}${
+                          g.latestDateIn && g.latestDateIn !== g.oldestDateIn
+                            ? `\nNewest stock-in: ${g.latestDateIn}` : ''
+                        }`}
+                      >
+                        {days === 0 ? 'today' : `${days}d`}
+                      </span>
+                    );
+                  })()}
+                </td>
                 <td className="px-3 py-1.5 border-b border-slate-100 align-middle">
                   {noteList.length === 0 ? (
                     <span className="text-slate-300">—</span>
@@ -426,7 +496,7 @@ export function GroupedExcelTable({
               </tr>
               {open && (
                 <tr className="bg-slate-50/60">
-                  <td colSpan={8} className="px-0 py-0 border-b border-slate-100">
+                  <td colSpan={9} className="px-0 py-0 border-b border-slate-100">
                     <ul className="pl-10 pr-4 py-2 divide-y divide-slate-200/70">
                       {colours.map(([colour, c]) => {
                         // Suppliers ordered by qty desc — most-stocked first
