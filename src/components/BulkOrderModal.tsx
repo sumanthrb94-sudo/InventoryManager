@@ -582,7 +582,9 @@ export default function BulkOrderModal({ onClose, initialMode = 'office' }: Prop
 
       setSavedCount(docs.length);
       setStage('done');
-      setTimeout(onClose, 1600);
+      // No auto-close — the Done screen carries a richer summary the
+      // operator should be able to read in full before dismissing.
+      // Exit is via the explicit "Exit Bulk Order" button in the footer.
     } catch (e: any) {
       setError(e?.message || 'Save failed');
       setStage('review');
@@ -594,7 +596,15 @@ export default function BulkOrderModal({ onClose, initialMode = 'office' }: Prop
     <motion.div
       initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
       className="fixed inset-0 z-[60] flex items-end md:items-center justify-center bg-black/60 backdrop-blur-sm p-0 md:p-4"
-      onClick={onClose}
+      onClick={() => {
+        // Backdrop click only dismisses while the operator is still
+        // composing or scanning. Once the save is in flight or finished,
+        // exit goes through the explicit Cancel / Exit Bulk Order buttons
+        // so an accidental click outside the card doesn't lose the
+        // post-save summary or interrupt an active bulkCreate.
+        if (stage === 'saving' || stage === 'done') return;
+        onClose();
+      }}
     >
       <motion.div
         initial={{ y: 40, opacity: 0 }} animate={{ y: 0, opacity: 1 }} exit={{ y: 40, opacity: 0 }}
@@ -695,13 +705,60 @@ export default function BulkOrderModal({ onClose, initialMode = 'office' }: Prop
             </div>
           )}
           {stage === 'done' && (
-            <div className="py-16 flex flex-col items-center gap-3 text-center">
-              <CheckCircle2 size={36} className="text-emerald-600" />
-              <p className="text-sm font-bold text-slate-900">Saved {savedCount} units</p>
-              <p className="text-[11px] font-mono text-slate-500">Closing…</p>
+            <div className="py-10 md:py-16 flex flex-col items-center gap-4 text-center px-5">
+              <div className="w-14 h-14 rounded-full bg-emerald-50 border border-emerald-200 flex items-center justify-center">
+                <CheckCircle2 size={28} className="text-emerald-600" />
+              </div>
+              <div>
+                <p className="text-base font-bold text-slate-900">
+                  Saved {savedCount} unit{savedCount === 1 ? '' : 's'}
+                </p>
+                <p className="text-[11px] font-mono text-slate-500 mt-1">
+                  {mode === 'office' ? 'Office Stock' : 'SHS Supplier Stock'} ·{' '}
+                  {model.trim() || '—'}{storage ? ` · ${storage}` : ''}
+                </p>
+              </div>
+              {/* Per-colour breakdown so the operator can confirm the split
+                  matches their delivery before walking away. */}
+              <div className="w-full max-w-md grid grid-cols-2 gap-2">
+                {Array.from(
+                  slots.reduce((m, s) => {
+                    const k = s.colour || 'Unspecified';
+                    m.set(k, (m.get(k) ?? 0) + 1);
+                    return m;
+                  }, new Map<string, number>()).entries()
+                ).map(([colour, count]) => (
+                  <div
+                    key={colour}
+                    className="flex items-center justify-between gap-2 px-3 py-2 rounded-lg bg-slate-50 border border-slate-200"
+                  >
+                    <span className="text-[11px] font-mono text-slate-700 truncate">{colour}</span>
+                    <span className="text-[11px] font-mono font-bold text-slate-900">× {count}</span>
+                  </div>
+                ))}
+              </div>
+              <p className="text-[10px] font-mono text-slate-400 mt-2">
+                Click <span className="font-bold">Exit Bulk Order</span> when ready to close.
+              </p>
             </div>
           )}
         </div>
+
+        {/* Footer (done stage) — single Exit Bulk Order CTA. No auto-close
+            timer; operator dismisses on their own pace after reviewing
+            the post-save summary above. */}
+        {stage === 'done' && (
+          <div className="px-4 md:px-5 py-3 border-t border-gray-100 flex items-center justify-end gap-2 flex-shrink-0 bg-slate-50/60">
+            <button
+              type="button"
+              onClick={onClose}
+              autoFocus
+              className="px-4 py-2 rounded-lg bg-emerald-600 text-white text-[10px] font-bold uppercase tracking-widest hover:bg-emerald-700 transition-all inline-flex items-center gap-1.5"
+            >
+              <CheckCircle2 size={11} /> Exit Bulk Order
+            </button>
+          </div>
+        )}
 
         {/* Footer — navigation buttons. Stacks vertically on mobile so the
             status line above the buttons doesn't collide with three CTAs
