@@ -734,3 +734,273 @@ export function generateInventoryReport(units: InventoryUnit[], suppliers: Suppl
 
   doc.save(`MOBILEPHONEMARKET-Inventory-Report-${todayStr}.pdf`);
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Daily Stock Intake Report
+// ─────────────────────────────────────────────────────────────────────────────
+// A short, visualisation-led PDF answering "what came into stock today?" —
+// totals, per-supplier split, per-model split, plus the full IMEI-level table.
+// Shares the same visual language as generateInventoryReport so the CEO /
+// client sees one consistent brand across the two PDFs.
+
+/** True if a unit was stocked in on the calendar day matching `dayIso`. Uses
+ *  dateIn primarily, falling back to importedAt / createdAt timestamps for
+ *  rows imported without an explicit dateIn. */
+function isIntakeOnDay(u: InventoryUnit, dayIso: string): boolean {
+  const dateIn = (u.dateIn || '').slice(0, 10);
+  if (dateIn) return dateIn === dayIso;
+  const imp = u.importedAt;
+  if (imp) {
+    const s = typeof imp === 'string' ? imp : (imp.toDate?.()?.toISOString?.() ?? '');
+    if (s.slice(0, 10) === dayIso) return true;
+  }
+  const cre = (u as { createdAt?: string | { toDate?: () => Date } }).createdAt;
+  if (cre) {
+    const s = typeof cre === 'string' ? cre : (cre.toDate?.()?.toISOString?.() ?? '');
+    if (s.slice(0, 10) === dayIso) return true;
+  }
+  return false;
+}
+
+export function generateDailyIntakeReport(
+  units: InventoryUnit[],
+  suppliers: Supplier[],
+  /** Day to report on — defaults to today (YYYY-MM-DD). Exposed for the rare
+   *  case of regenerating yesterday's report. */
+  dayIso?: string,
+) {
+  const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+
+  const today = new Date();
+  const reportDay = dayIso || today.toISOString().split('T')[0];
+  const dayDate = new Date(reportDay + 'T00:00:00Z');
+  const dayLabel = dayDate.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+
+  const supplierMap: Record<string, string> = {};
+  for (const s of suppliers) supplierMap[s.id] = s.name;
+
+  // Day-scoped slices. Office = available-status arrivals; SHS = incoming
+  // placeholders booked today. Totals roll both together.
+  const intake = units.filter(u => isIntakeOnDay(u, reportDay));
+  const office = intake.filter(u => u.status === 'available');
+  const shs    = intake.filter(u => u.status === 'incoming');
+  const totalValue = intake.reduce((s, u) => s + (u.buyPrice || 0), 0);
+  const avgUnitCost = intake.length > 0 ? totalValue / intake.length : 0;
+
+  // ── Roll-ups ────────────────────────────────────────────────────────────────
+  type Row = { key: string; label: string; count: number; value: number };
+
+  const supplierAgg = new Map<string, Row>();
+  for (const u of intake) {
+    const id = u.supplierId || '__unknown__';
+    const name = supplierMap[id] || u.supplierName || 'Unknown';
+    const row = supplierAgg.get(id) ?? { key: id, label: name, count: 0, value: 0 };
+    row.count++;
+    row.value += u.buyPrice || 0;
+    supplierAgg.set(id, row);
+  }
+  const supplierRows = Array.from(supplierAgg.values()).sort((a, b) => b.count - a.count);
+
+  const modelAgg = new Map<string, Row & { storage?: string }>();
+  for (const u of intake) {
+    const key = `${(u.model || '').trim()}|${(u.storage || '').trim()}`;
+    const label = [(u.model || '').trim() || 'Unknown', u.storage || ''].filter(Boolean).join(' · ');
+    const row = modelAgg.get(key) ?? { key, label, storage: u.storage, count: 0, value: 0 };
+    row.count++;
+    row.value += u.buyPrice || 0;
+    modelAgg.set(key, row);
+  }
+  const modelRows = Array.from(modelAgg.values()).sort((a, b) => b.count - a.count);
+
+  // Colour aggregation across the day's intake — a CEO-readable signal for
+  // which colourways are flowing in.
+  const colourAgg = new Map<string, number>();
+  for (const u of intake) {
+    const c = (u.colour || '').trim() || 'Unspecified';
+    colourAgg.set(c, (colourAgg.get(c) ?? 0) + 1);
+  }
+  const colourRows = Array.from(colourAgg.entries())
+    .map(([colour, count]) => ({ colour, count }))
+    .sort((a, b) => b.count - a.count);
+
+  // ════════════════════════════════════════════════════════════════════════════
+  // PAGE 1 — COVER
+  // ════════════════════════════════════════════════════════════════════════════
+  fillRect(doc, 0, 0, PW, PH, C.gray900);
+  fillRect(doc, 0, 0, PW, 3, C.emerald);
+
+  label(doc, 'MOBILEPHONEMARKET', ML, 28, 22, C.white, true);
+  label(doc, 'DAILY STOCK INTAKE REPORT', ML, 37, 10, C.gray400);
+
+  setStroke(doc, C.gray700);
+  doc.setLineWidth(0.3);
+  doc.line(ML, 43, PW - MR, 43);
+
+  label(doc, dayLabel, ML, 51, 8, C.gray500);
+  label(doc, `${intake.length.toLocaleString()} unit${intake.length === 1 ? '' : 's'} booked into inventory`, ML, 57, 7, C.gray600);
+
+  // 4 KPI boxes (2×2)
+  const KW = 84, KH = 36, KGX = 10, KGY = 9, KY0 = 68;
+  [
+    { lbl: 'Units Intake',     val: intake.length.toLocaleString(),        sub: `${office.length} office · ${shs.length} SHS`,           accent: C.emerald },
+    { lbl: 'Stock Value',      val: `£${Math.round(totalValue).toLocaleString()}`, sub: 'At buy price',                                  accent: C.blue    },
+    { lbl: 'Avg Unit Cost',    val: `£${avgUnitCost.toFixed(2)}`,           sub: intake.length > 0 ? 'Per intake unit' : 'No intake',     accent: C.purple  },
+    { lbl: 'Suppliers',        val: supplierRows.length.toLocaleString(),  sub: `${modelRows.length} distinct SKU${modelRows.length === 1 ? '' : 's'}`, accent: C.amber },
+  ].forEach((k, i) => {
+    kpiBox(doc, ML + (i % 2) * (KW + KGX), KY0 + Math.floor(i / 2) * (KH + KGY), KW, KH, k.lbl, k.val, k.sub, k.accent);
+  });
+
+  const legY = 166;
+  setStroke(doc, C.gray700);
+  doc.setLineWidth(0.3);
+  doc.line(ML, legY, PW - MR, legY);
+  label(doc, 'REPORT CONTENTS', ML, legY + 7, 7, C.gray500, true);
+  [
+    'Intake Summary       ·   KPIs · Supplier and SKU breakdowns',
+    'Colour Mix           ·   Distribution across the day’s intake',
+    'Detailed Intake Log  ·   Every unit · IMEI · model · colour · supplier · BP',
+  ].forEach((s, i) => {
+    setFill(doc, C.emerald);
+    doc.circle(ML + 1.5, legY + 15 + i * 7.5 - 1, 1, 'F');
+    label(doc, s, ML + 5, legY + 15 + i * 7.5, 7.5, C.gray300);
+  });
+
+  fillRect(doc, 0, PH - 13, PW, 13, C.black);
+  label(doc, 'CONFIDENTIAL · INTERNAL USE ONLY · MOBILEPHONEMARKET INVENTORY MANAGER', PW / 2, PH - 5, 6.5, C.gray600, false, 'center');
+
+  // ════════════════════════════════════════════════════════════════════════════
+  // PAGE 2 — VISUAL BREAKDOWN
+  // ════════════════════════════════════════════════════════════════════════════
+  doc.addPage();
+  fillRect(doc, 0, 0, PW, PH, C.white);
+  let y = sectionHeader(doc, 'INTAKE BREAKDOWN', `Supplier · SKU · Colour mix · ${dayLabel}`, 14);
+
+  // Bail early on empty days — keep the cover page so the operator still has
+  // a dated artefact to file, but skip the empty charts.
+  if (intake.length === 0) {
+    label(doc, 'No units booked into stock on this date.', ML, y + 10, 10, C.gray500);
+    label(doc, 'When intake is recorded, this page lists the supplier, SKU and colour breakdowns', ML, y + 18, 7.5, C.gray400);
+    label(doc, 'with bar charts and the day’s value totals.', ML, y + 24, 7.5, C.gray400);
+  } else {
+    // ── Supplier breakdown ──
+    label(doc, 'BY SUPPLIER', ML, y, 7.5, C.gray700, true);
+    label(doc, `${supplierRows.length} supplier${supplierRows.length === 1 ? '' : 's'}`, PW - MR, y, 7, C.gray500, false, 'right');
+    y += 6;
+    const maxSupCount = Math.max(...supplierRows.map(r => r.count), 1);
+    const topSuppliers = supplierRows.slice(0, 8);
+    for (const r of topSuppliers) {
+      hBar(doc, r.label.length > 22 ? r.label.slice(0, 22) : r.label,
+        `${r.count} · £${Math.round(r.value).toLocaleString()}`,
+        r.count / maxSupCount, ML, y, CW, 6, C.emerald, 56);
+      y += 8.5;
+    }
+    if (supplierRows.length > 8) {
+      label(doc, `+ ${supplierRows.length - 8} more in the table on page 3`, ML, y + 1, 6.5, C.gray400);
+      y += 5;
+    }
+
+    // Divider
+    setStroke(doc, C.gray100);
+    doc.setLineWidth(0.3);
+    y += 3;
+    doc.line(ML, y, PW - MR, y);
+    y += 7;
+
+    // ── Model breakdown ──
+    label(doc, 'BY SKU', ML, y, 7.5, C.gray700, true);
+    label(doc, `${modelRows.length} SKU${modelRows.length === 1 ? '' : 's'}`, PW - MR, y, 7, C.gray500, false, 'right');
+    y += 6;
+    const maxModelCount = Math.max(...modelRows.map(r => r.count), 1);
+    const topModels = modelRows.slice(0, 10);
+    for (const r of topModels) {
+      const labelTxt = r.label.length > 28 ? r.label.slice(0, 28) + '…' : r.label;
+      hBar(doc, labelTxt,
+        `${r.count} · £${Math.round(r.value).toLocaleString()}`,
+        r.count / maxModelCount, ML, y, CW, 6, C.blue, 66);
+      y += 8.5;
+    }
+    if (modelRows.length > 10) {
+      label(doc, `+ ${modelRows.length - 10} more in the table on page 3`, ML, y + 1, 6.5, C.gray400);
+      y += 5;
+    }
+
+    setStroke(doc, C.gray100);
+    doc.setLineWidth(0.3);
+    y += 3;
+    doc.line(ML, y, PW - MR, y);
+    y += 7;
+
+    // ── Colour mix ──
+    label(doc, 'COLOUR MIX', ML, y, 7.5, C.gray700, true);
+    y += 6;
+    const maxColCount = Math.max(...colourRows.map(r => r.count), 1);
+    for (const r of colourRows.slice(0, 6)) {
+      hBar(doc, r.colour, `${r.count}`,
+        r.count / maxColCount, ML, y, CW, 6, C.purple, 46);
+      y += 8.5;
+    }
+  }
+
+  // ════════════════════════════════════════════════════════════════════════════
+  // PAGE 3+ — DETAILED INTAKE LOG (autoTable, paginates automatically)
+  // ════════════════════════════════════════════════════════════════════════════
+  doc.addPage();
+  fillRect(doc, 0, 0, PW, PH, C.white);
+  sectionHeader(doc, 'DETAILED INTAKE LOG', `Every unit booked on ${dayLabel}`, 14);
+
+  if (intake.length === 0) {
+    label(doc, 'No rows to show — no intake recorded.', ML, 50, 10, C.gray500);
+  } else {
+    const rows = intake.map(u => [
+      u.dateIn || '—',
+      u.model || '—',
+      u.imei || '—',
+      u.colour || '—',
+      u.storage || '—',
+      u.grade || '—',
+      supplierMap[u.supplierId] || u.supplierName || '—',
+      `£${(u.buyPrice || 0).toFixed(2)}`,
+      u.status === 'available' ? 'Office' : u.status === 'incoming' ? 'SHS' : (u.status || '—'),
+    ]);
+
+    autoTable(doc, {
+      startY: 35,
+      head: [['Date', 'Model', 'IMEI', 'Colour', 'Storage', 'Grade', 'Supplier', 'BP', 'Type']],
+      body: rows,
+      theme: 'striped',
+      headStyles: { fillColor: C.gray900 as [number, number, number], textColor: C.white as [number, number, number], fontStyle: 'bold', fontSize: 7.5 },
+      bodyStyles: { fontSize: 7.5, textColor: C.gray700 as [number, number, number] },
+      alternateRowStyles: { fillColor: C.gray50 as [number, number, number] },
+      columnStyles: {
+        0: { cellWidth: 18 },
+        1: { cellWidth: 32 },
+        2: { cellWidth: 26 },
+        3: { cellWidth: 18 },
+        4: { cellWidth: 16 },
+        5: { cellWidth: 12 },
+        6: { cellWidth: 26 },
+        7: { cellWidth: 14, halign: 'right' },
+        8: { cellWidth: 14 },
+      },
+      margin: { left: ML, right: MR },
+      didDrawPage: () => {
+        // Re-paint the white background on every paginated page so the
+        // gray-900 cover styling doesn't bleed through.
+        fillRect(doc, 0, 0, PW, PH, C.white);
+        // Re-add the section header on continuation pages.
+        if (doc.getCurrentPageInfo().pageNumber > 3) {
+          sectionHeader(doc, 'DETAILED INTAKE LOG (cont.)', `${dayLabel}`, 14);
+        }
+      },
+    });
+  }
+
+  // Footer on every content page.
+  const total = doc.getNumberOfPages();
+  for (let i = 2; i <= total; i++) {
+    doc.setPage(i);
+    pageFooter(doc, i - 1, total - 1);
+  }
+
+  doc.save(`MOBILEPHONEMARKET-Daily-Intake-${reportDay}.pdf`);
+}

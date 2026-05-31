@@ -28,6 +28,7 @@ import { useInventoryStore } from '../lib/inventoryStore';
 import { shsAggregatesFrom } from '../lib/shsCount';
 import { fmtDateForUser, useUserRegion } from '../lib/userLocale';
 import { auth, isAdmin } from '../lib/firebase';
+import { generateDailyIntakeReport } from '../lib/pdfReport';
 import IntelligencePanel from './IntelligencePanel';
 import AddStockManualModal from './AddStockManualModal';
 import BulkOrderModal from './BulkOrderModal';
@@ -272,6 +273,14 @@ export default function BuySheet(_props: Props) {
     downloadCsv(`inventory-report-${stamp}.csv`, rows);
   };
 
+  // ── Daily intake PDF — CEO-facing summary of what was booked in today ────
+  // Uses dateIn (falling back to importedAt / createdAt) so re-imports of the
+  // same delivery don't double-count. Pulls supplier docs directly from the
+  // store so names render without us threading a supplierMap.
+  const handleDailyIntakeReport = () => {
+    generateDailyIntakeReport(units, suppliers);
+  };
+
   // ── Inline cell save ──────────────────────────────────────────────────────
   // Patches the unit doc directly. For 'supplierId' it pair-updates
   // supplierName from the matching supplier doc so downstream reads
@@ -321,6 +330,13 @@ export default function BuySheet(_props: Props) {
             className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-emerald-600 text-white text-[10px] font-bold uppercase tracking-widest hover:bg-emerald-700 transition-all"
           >
             <FileSpreadsheet size={12} /> Inventory Report
+          </button>
+          <button
+            onClick={handleDailyIntakeReport}
+            title="Download a PDF analytical report of every unit booked into stock today"
+            className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-indigo-600 text-white text-[10px] font-bold uppercase tracking-widest hover:bg-indigo-700 transition-all"
+          >
+            <FileSpreadsheet size={12} /> Daily Intake PDF
           </button>
           {userIsAdmin && (
             <button
