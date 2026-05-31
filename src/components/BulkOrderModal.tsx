@@ -27,7 +27,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   X, Plus, Trash2, CheckCircle2, AlertCircle, ScanLine, ChevronRight,
-  Loader2, Truck, PackagePlus, Camera, ArrowLeft, Edit2,
+  Loader2, Truck, PackagePlus, Camera, ArrowLeft, Edit2, Printer,
 } from 'lucide-react';
 import { motion } from 'motion/react';
 import { useInventoryStore } from '../lib/inventoryStore';
@@ -36,6 +36,7 @@ import { isValidImei, isAppleDevice } from '../lib/imeiValidation';
 import { parseBrandModelStorage } from '../lib/modelStorage';
 import { ensureSupplier } from '../services';
 import { logInventoryEvent } from '../lib/inventoryEvents';
+import { generateBatchStickerSheet } from '../lib/stickerPdf';
 import DeviceComboBox from './DeviceComboBox';
 import IMEIScanner from './IMEIScanner';
 import type { InventoryUnit, ListingSite } from '../types';
@@ -158,6 +159,15 @@ export default function BulkOrderModal({ onClose, initialMode = 'office' }: Prop
   const [progress, setProgress] = useState({ done: 0, total: 0 });
   const [error, setError] = useState('');
   const [savedCount, setSavedCount] = useState(0);
+  // The unit data we just wrote — stashed so the Done screen's "Print
+  // Stickers" button can hand it to the PDF generator without re-reading
+  // from the store (the store will eventually reflect the write but only
+  // after the Firestore listener round-trips, which is racy).
+  const [savedUnits, setSavedUnits] = useState<Array<{
+    imei?: string; model: string; storage?: string; colour?: string;
+    grade?: string; buyPrice?: number; supplierName?: string;
+    dateIn?: string; batchId?: string; notes?: string;
+  }>>([]);
 
   // ── Derived: live IMEI dup-check cache ─────────────────────────────────────
   const existingByImei = useMemo(() => {
@@ -586,6 +596,18 @@ export default function BulkOrderModal({ onClose, initialMode = 'office' }: Prop
       });
 
       setSavedCount(docs.length);
+      setSavedUnits(docs.map(d => ({
+        imei:         d.data.imei || undefined,
+        model:        d.data.model || '',
+        storage:      d.data.storage || undefined,
+        colour:       d.data.colour || undefined,
+        grade:        d.data.grade || undefined,
+        buyPrice:     typeof d.data.buyPrice === 'number' ? d.data.buyPrice : undefined,
+        supplierName: d.data.supplierName || undefined,
+        dateIn:       d.data.dateIn || undefined,
+        batchId:      d.data.batchId || undefined,
+        notes:        d.data.notes || undefined,
+      })));
       setStage('done');
       // No auto-close — the Done screen carries a richer summary the
       // operator should be able to read in full before dismissing.
@@ -617,6 +639,7 @@ export default function BulkOrderModal({ onClose, initialMode = 'office' }: Prop
     setError('');
     setProgress({ done: 0, total: 0 });
     setSavedCount(0);
+    setSavedUnits([]);
     setStage('setup');
   }, []);
 
@@ -767,15 +790,16 @@ export default function BulkOrderModal({ onClose, initialMode = 'office' }: Prop
                 ))}
               </div>
               <p className="text-[10px] font-mono text-slate-400 mt-2">
-                Add more units from the same delivery in a follow-up batch — or close when done.
+                Print peel-off stickers for this batch, add another from the same delivery, or close when done.
               </p>
             </div>
           )}
         </div>
 
-        {/* Footer (done stage) — two CTAs: stay in the modal for a
-            follow-up batch (same device, new supplier / colours), or
-            exit. No auto-close; operator chooses the path. */}
+        {/* Footer (done stage) — three CTAs: print peel-off labels for
+            the just-saved batch, stay in the modal for a follow-up batch
+            (same device, new supplier / colours), or exit. No auto-close;
+            operator chooses the path. */}
         {stage === 'done' && (
           <div className="px-4 md:px-5 py-3 border-t border-gray-100 flex flex-col-reverse md:flex-row md:items-center md:justify-end gap-2 flex-shrink-0 bg-slate-50/60">
             <button
@@ -784,6 +808,15 @@ export default function BulkOrderModal({ onClose, initialMode = 'office' }: Prop
               className="px-4 py-2.5 md:py-2 rounded-lg border border-slate-200 text-slate-700 text-[10px] font-bold uppercase tracking-widest hover:bg-white transition-all inline-flex items-center justify-center gap-1.5"
             >
               <X size={11} /> Exit Bulk Order
+            </button>
+            <button
+              type="button"
+              onClick={() => generateBatchStickerSheet(savedUnits)}
+              disabled={savedUnits.length === 0}
+              title="Download a PDF of peel-off labels for every unit in this batch — sized for Avery L7160 (21 per A4 sheet, 63.5×38.1mm)"
+              className="px-4 py-2.5 md:py-2 rounded-lg border border-indigo-200 bg-white text-indigo-700 text-[10px] font-bold uppercase tracking-widest hover:bg-indigo-50 transition-all inline-flex items-center justify-center gap-1.5 disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              <Printer size={11} /> Print Stickers
             </button>
             <button
               type="button"
