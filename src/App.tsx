@@ -11,6 +11,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import Dashboard, { NavAction } from './components/Dashboard';
 import NewBatchModal from './components/NewBatchModal';
 import InventoryReportImport from './components/InventoryReportImport';
+import SalesReportImport from './components/SalesReportImport';
 import BuySheet from './components/BuySheet';
 import SellSheet from './components/SellSheet';
 import ReturnsPage from './components/ReturnsPage';
@@ -128,6 +129,12 @@ function AppShell({ user }: { user: User }) {
   const [adminSub, setAdminSub]                   = useState<AdminSub>('overview');
   const [isBatchModalOpen, setIsBatchModalOpen]   = useState(false);
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
+  const [isSalesImportOpen, setIsSalesImportOpen] = useState(false);
+  // Compact picker between "Import inventory" and "Import sales" — both are
+  // bulk xlsx import flows and they share the same Import button on the
+  // header. Anchored under the button with absolute positioning + outside-
+  // click dismiss, so it doesn't pull in a popover library for one menu.
+  const [importMenuOpen, setImportMenuOpen]       = useState(false);
   const [isLoadMockDataOpen, setIsLoadMockDataOpen] = useState(false);
   const [unreadCount, setUnreadCount]             = useState(0);
   const [syncConnected, setSyncConnected]         = useState(false);
@@ -509,11 +516,57 @@ function AppShell({ user }: { user: User }) {
               </button>
             )}
             {userIsAdmin && (
-              <button onClick={() => setIsImportModalOpen(true)}
-                className="flex items-center gap-1.5 px-3 py-2 bg-slate-900 text-white rounded-xl text-[10px] font-bold uppercase tracking-widest hover:bg-slate-700 transition-all">
-                <FileSpreadsheet size={12} />
-                <span className="hidden md:inline">Import</span>
-              </button>
+              <div className="relative">
+                <button
+                  onClick={() => setImportMenuOpen(o => !o)}
+                  className="flex items-center gap-1.5 px-3 py-2 bg-slate-900 text-white rounded-xl text-[10px] font-bold uppercase tracking-widest hover:bg-slate-700 transition-all"
+                  aria-haspopup="menu"
+                  aria-expanded={importMenuOpen}
+                >
+                  <FileSpreadsheet size={12} />
+                  <span className="hidden md:inline">Import</span>
+                </button>
+                {importMenuOpen && (
+                  <>
+                    {/* Click-outside dismiss — sits below the menu in
+                        z-order so the menu items still receive clicks. */}
+                    <div
+                      className="fixed inset-0 z-30"
+                      onClick={() => setImportMenuOpen(false)}
+                    />
+                    <div
+                      role="menu"
+                      className="absolute right-0 top-full mt-1.5 z-40 w-56 bg-white border border-slate-200 rounded-xl shadow-lg overflow-hidden"
+                    >
+                      <button
+                        type="button"
+                        role="menuitem"
+                        onClick={() => { setImportMenuOpen(false); setIsImportModalOpen(true); }}
+                        className="w-full flex items-start gap-2.5 px-3 py-2.5 hover:bg-slate-50 text-left transition-colors"
+                      >
+                        <FileSpreadsheet size={14} className="text-slate-700 mt-0.5 flex-shrink-0" />
+                        <span className="flex-1">
+                          <span className="block text-[11px] font-bold text-slate-900">Inventory Report</span>
+                          <span className="block text-[9px] font-mono text-slate-500 mt-0.5">Stock-in · 9-col schema · IMEI / model / supplier</span>
+                        </span>
+                      </button>
+                      <div className="border-t border-slate-100" />
+                      <button
+                        type="button"
+                        role="menuitem"
+                        onClick={() => { setImportMenuOpen(false); setIsSalesImportOpen(true); }}
+                        className="w-full flex items-start gap-2.5 px-3 py-2.5 hover:bg-slate-50 text-left transition-colors"
+                      >
+                        <FileSpreadsheet size={14} className="text-emerald-600 mt-0.5 flex-shrink-0" />
+                        <span className="flex-1">
+                          <span className="block text-[11px] font-bold text-slate-900">Sales Report</span>
+                          <span className="block text-[9px] font-mono text-slate-500 mt-0.5">Backfill historic sales · AMAZON / BM / EBAY / ONBUY sheets</span>
+                        </span>
+                      </button>
+                    </div>
+                  </>
+                )}
+              </div>
             )}
           </div>
         </header>
@@ -585,6 +638,7 @@ function AppShell({ user }: { user: User }) {
       <AnimatePresence>
         {isBatchModalOpen  && <NewBatchModal  onClose={() => setIsBatchModalOpen(false)} />}
         {isImportModalOpen && <InventoryReportImport onClose={() => setIsImportModalOpen(false)} />}
+        {isSalesImportOpen && <SalesReportImport onClose={() => setIsSalesImportOpen(false)} />}
         {isLoadMockDataOpen && <LoadMockDataModal onClose={() => setIsLoadMockDataOpen(false)} />}
       </AnimatePresence>
       <NotificationToast />
