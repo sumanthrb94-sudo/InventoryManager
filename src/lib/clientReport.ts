@@ -25,6 +25,46 @@ import type {
 } from '../types';
 import { MARKETPLACES } from '../types';
 import { excelFormulaFor } from './platforms';
+import { recomputeSale } from './recomputeSale';
+
+/** Unified flat schema for the ALL sheet. 22 columns: buy schema (9)
+ *  first, then sale fields (13). Marketplace is a column, not a tab. */
+const ALL_HEADERS = [
+  // Buy side (9)
+  'Stock In Date', 'Model', 'IMEI', 'Grade', 'Storage', 'Colour',
+  'Supplier', 'BP', 'Notes',
+  // STATUS sits right after the buy block so the operator sees it
+  // immediately on scroll — "Sold" / "Back to Stock" / "Repair" / "RTS"
+  // (return to supplier). Voided rows also fill red across the row.
+  'Status',
+  // Sale side (13)
+  'Sale Date', 'Marketplace', 'Order Number', 'SKU', 'SP',
+  'Payment Mode', 'Postage', 'SP - BP', 'Tax', 'Commission',
+  'GP', 'GP %', 'NP',
+];
+
+/** Map the unit's ReturnCategory to a short status label. Falls back to a
+ *  generic "Returned" when the sale is voided but the linked unit doesn't
+ *  carry a returnType (legacy data / orphan void). */
+function statusForSale(sale: Sale, unit?: InventoryUnit): string {
+  if (!sale.voidedAt) return 'Sold';
+  switch (unit?.returnType) {
+    case 'returned_to_inventory': return 'Back to Stock';
+    case 'repair':                return 'Repair';
+    case 'returned_to_supplier':  return 'RTS';
+    default:                      return 'Returned';
+  }
+}
+
+/** Light-red fill used on voided (returned) rows across every sheet of
+ *  the Sales Report. Same colour everywhere so the operator's eye picks
+ *  out reversals at a glance, whether they're scanning the ALL sheet or
+ *  a per-marketplace tab. */
+const RETURNED_FILL: import('exceljs').FillPattern = {
+  type: 'pattern',
+  pattern: 'solid',
+  fgColor: { argb: 'FFFEE2E2' },   // tailwind rose-100
+};
 
 // ---------------------------------------------------------------------------
 // Public surface
@@ -48,6 +88,13 @@ export interface BuildInventoryWorkbookInput {
 
 export interface BuildSalesWorkbookInput {
   sales: Sale[];
+  /** Inventory units used by the ALL sheet to join in buy-side columns
+   *  (Stock In Date, Model, Grade, Storage, Colour, Supplier, Notes). When
+   *  omitted those columns render blank but the ALL sheet still ships. */
+  units?: InventoryUnit[];
+  /** Resolves supplierId → supplier name on the ALL sheet. Falls back to
+   *  the Sale's stored supplierName when no map entry matches. */
+  supplierMap?: Record<string, string>;
   opts?: ClientReportOptions;
 }
 
@@ -206,30 +253,30 @@ type SalesHeaderRow = Array<string | number>;
 
 const SALES_HEADERS: Record<Marketplace, SalesHeaderRow> = {
   AMAZON: [
-    'nw', 'Order Number', 'SKU', 'IMEI', 'Supplier', 'Quantity',
-    'BP', 'SP', 'SP-BP', 'Marginal Tax', 'Commission', 'Postage',
-    'GP = SP-BP-TAX-COM-AMZTAX-POS-P COM', 'GP %', 'Comments',
+    'Date', 'Order Number', 'SKU', 'IMEI', 'Supplier', 'Quantity',
+    'BP', 'SP', 'SP-BP', 'Marginal Tax', 'Commission',
+    'C. VAT', 'DSF', 'DSF. VAT',
+    'Postage', 'P. VAT', 'Accessories',
+    'Total VAT', 'GP', 'GP %', 'Total VAT NTP',
+    'Comments',
   ],
   BM: [
-    'Date', 'Order No', 'SKU', 'IMEI', 'Supplier', 'Quantity',
-    'BP', 'SP', 'Payment Mode', 'SP-BP', 'Marginal Tax',
-    'PayPal/Klarna Com', 'Commission', 'Postage',
-    'GP = SP-BP-TAX-COM-POS-P COM', 'GP %', 'Comments',
+    'Date', 'Order Number', 'SKU', 'IMEI', 'Supplier', 'Quantity',
+    'BP', 'SP', 'SP-BP', 'Marginal Tax', 'Commission',
+    'Customer Care Fees', 'Postage', 'P. VAT', 'Accessories',
+    'GP', 'GP %', 'Total VAT NTP', 'Comments',
   ],
   EBAY: [
-    'DATE', 'ORDER NUMBER', 'SKU', 'IMEI NUMBER', 'SUPPLIER', 'UNITS',
-    'BP', 'SP', 'SP-BP', 'MAR TAX', 'COM', 'ROF', 'FVF', 0.2,
-    'T.COM', 'SHIPPING', 'GP', 'GP%', 'NP(incl. PROMOTION)',
+    'Date', 'Order Number', 'SKU', 'IMEI', 'Supplier', 'Units',
+    'BP', 'SP', 'SP-BP', 'Marginal Tax', 'Commission', 'ROF', 'FVF', 'VAT',
+    'T.COM', 'Postage', 'P. VAT', 'Marketing', 'M. VAT', 'Accessories',
+    'Total VAT', 'GP', 'GP %', 'Total VAT NTP', 'Comments',
   ],
   ONBUY: [
-    'DATE', 'Order Number', 'SKU', 'IMEI', 'Supplier',
-    'BP', 'SP', 'SP-BP', 'MAR VAT', 'COM 7%', 'VAT 20%', 'SHIP',
-    'GP=SP-BP-COM-SHIP-MARVAT', 'GP%', 'Comments',
-  ],
-  PROJECT: [
-    'Date', 'Order Number', 'SKU', 'IMEI', 'Supplier', 'QUANT',
-    'BP', 'SP', 'SP-BP', 'MAR TAX', 'COMM', 'POST',
-    'GP = SP-BP-TAX-COM-AMZTAX-POS-P COM', 'GP %', 'Comments',
+    'Date', 'Order Number', 'SKU', 'IMEI', 'Supplier',
+    'BP', 'SP', 'SP-BP', 'Marginal Tax', 'Commission', 'VAT 20%',
+    'Postage', 'P. VAT', 'Accessories',
+    'Total VAT', 'GP', 'GP %', 'Total VAT NTP', 'Comments',
   ],
 };
 
@@ -253,125 +300,172 @@ function writeSaleRow(
 
   switch (marketplace) {
     case 'AMAZON': {
+      // 2026-05 schema. 22 columns — Date through Comments. Postage and
+      // Accessories carry literal values (operator may have overridden
+      // postage per sale, accessories is a flat default); every other
+      // computed cell is a formula so the operator can audit / re-derive
+      // in Excel without trusting our runtime output.
       const row = sheet.addRow([
         date, sale.orderNumber, sale.sku ?? '', sale.imei ?? '',
         sale.supplierName ?? '', qty,
         sale.buyPrice, sale.salePrice,
-        null, null, null, null, null, null, sale.comments ?? '',
+        // Formula-driven cells filled below: SP-BP, MarTax, Com, C.VAT,
+        // DSF, DSF.VAT, Postage (literal), P.VAT, Accessories (literal),
+        // Total VAT, GP, GP%, Total VAT NTP.
+        null, null, null, null, null, null,
+        sale.postage ?? null,
+        null,
+        sale.accessoryFee ?? Number(f.accessoryFee ?? 1),
+        null, null, null, null,
+        sale.comments ?? '',
       ]);
       row.getCell(1).numFmt = DATE_FMT;
       row.getCell(4).numFmt = IMEI_FMT;
       row.getCell(7).numFmt = MONEY_FMT;   // BP
       row.getCell(8).numFmt = MONEY_FMT;   // SP
-      row.getCell(9).value  = { formula: f.spMinusBp! };    row.getCell(9).numFmt  = MONEY_FMT;
-      row.getCell(10).value = { formula: f.marginalTax! };  row.getCell(10).numFmt = MONEY_FMT;
-      row.getCell(11).value = { formula: f.commission! };   row.getCell(11).numFmt = MONEY_FMT;
-      row.getCell(12).value = Number(f.postage);            row.getCell(12).numFmt = MONEY_FMT;
-      row.getCell(13).value = { formula: f.grossProfit! };  row.getCell(13).numFmt = MONEY_FMT;
-      row.getCell(14).value = { formula: f.gpPercent! };    row.getCell(14).numFmt = MONEY_FMT;
+      row.getCell(9).value  = { formula: f.spMinusBp! };     row.getCell(9).numFmt  = MONEY_FMT;
+      row.getCell(10).value = { formula: f.marginalTax! };   row.getCell(10).numFmt = MONEY_FMT;
+      row.getCell(11).value = { formula: f.commission! };    row.getCell(11).numFmt = MONEY_FMT;
+      row.getCell(12).value = { formula: f.commissionVat! }; row.getCell(12).numFmt = MONEY_FMT;
+      row.getCell(13).value = { formula: f.dsf! };           row.getCell(13).numFmt = MONEY_FMT;
+      row.getCell(14).value = { formula: f.dsfVat! };        row.getCell(14).numFmt = MONEY_FMT;
+      row.getCell(15).numFmt = MONEY_FMT; // Postage (literal value above)
+      row.getCell(16).value = { formula: f.postageVat! };    row.getCell(16).numFmt = MONEY_FMT;
+      row.getCell(17).numFmt = MONEY_FMT; // Accessories (literal value above)
+      row.getCell(18).value = { formula: f.totalVat! };      row.getCell(18).numFmt = MONEY_FMT;
+      row.getCell(19).value = { formula: f.grossProfit! };   row.getCell(19).numFmt = MONEY_FMT;
+      row.getCell(20).value = { formula: f.gpPercent! };     row.getCell(20).numFmt = MONEY_FMT;
+      row.getCell(21).value = { formula: f.totalVatNtp! };   row.getCell(21).numFmt = MONEY_FMT;
       return;
     }
 
     case 'BM': {
+      // 2026-05 schema. 19 cols. Customer Care Fees + Accessories are
+      // flat literals; Postage is operator-entered. Everything else is a
+      // formula so the operator can audit in Excel.
+      //   A=Date,B=OrderNo,C=SKU,D=IMEI,E=Supplier,F=Quantity,
+      //   G=BP,H=SP,I=SP-BP,J=MarTax,K=Com,L=CustomerCareFees,
+      //   M=Postage,N=P.VAT,O=Accessories,P=GP,Q=GP%,R=TotVAT NTP,S=Comments
       const row = sheet.addRow([
         date, sale.orderNumber, sale.sku ?? '', sale.imei ?? '',
         sale.supplierName ?? '', qty,
         sale.buyPrice, sale.salePrice,
-        sale.paymentMode ?? '',
-        null, null, null, null, null, null, null, sale.comments ?? '',
+        null, null, null,                              // SP-BP, MarTax, Com
+        sale.customerCareFees ?? Number(f.customerCareFees ?? 9.99),  // Customer Care Fees (literal)
+        sale.postage ?? null,                          // Postage (literal)
+        null,                                          // P. VAT (formula)
+        sale.accessoryFee ?? Number(f.accessoryFee ?? 1),  // Accessories (literal)
+        null, null, null,                              // GP, GP%, Total VAT NTP
+        sale.comments ?? '',
       ]);
       row.getCell(1).numFmt = DATE_FMT;
       row.getCell(4).numFmt = IMEI_FMT;
-      row.getCell(7).numFmt = MONEY_FMT;
-      row.getCell(8).numFmt = MONEY_FMT;
-      row.getCell(10).value = { formula: f.spMinusBp! };       row.getCell(10).numFmt = MONEY_FMT;
-      row.getCell(11).value = { formula: f.marginalTax! };     row.getCell(11).numFmt = MONEY_FMT;
-      row.getCell(12).value = { formula: f.payPalKlarnaCom! }; row.getCell(12).numFmt = MONEY_FMT;
-      row.getCell(13).value = { formula: f.commission! };      row.getCell(13).numFmt = MONEY_FMT;
-      row.getCell(14).value = Number(f.postage);               row.getCell(14).numFmt = MONEY_FMT;
-      row.getCell(15).value = { formula: f.grossProfit! };     row.getCell(15).numFmt = MONEY_FMT;
-      row.getCell(16).value = { formula: f.gpPercent! };       row.getCell(16).numFmt = MONEY_FMT;
+      row.getCell(7).numFmt = MONEY_FMT;       // BP
+      row.getCell(8).numFmt = MONEY_FMT;       // SP
+      row.getCell(9).value  = { formula: f.spMinusBp! };    row.getCell(9).numFmt  = MONEY_FMT;
+      row.getCell(10).value = { formula: f.marginalTax! };  row.getCell(10).numFmt = MONEY_FMT;
+      row.getCell(11).value = { formula: f.commission! };   row.getCell(11).numFmt = MONEY_FMT;
+      row.getCell(12).numFmt = MONEY_FMT;                   // Customer Care Fees (literal above)
+      row.getCell(13).numFmt = MONEY_FMT;                   // Postage (literal above)
+      row.getCell(14).value = { formula: f.postageVat! };   row.getCell(14).numFmt = MONEY_FMT;
+      row.getCell(15).numFmt = MONEY_FMT;                   // Accessories (literal above)
+      row.getCell(16).value = { formula: f.grossProfit! };  row.getCell(16).numFmt = MONEY_FMT;
+      row.getCell(17).value = { formula: f.gpPercent! };    row.getCell(17).numFmt = MONEY_FMT;
+      row.getCell(18).value = { formula: f.totalVatNtp! };  row.getCell(18).numFmt = MONEY_FMT;
       return;
     }
 
     case 'EBAY': {
-      // SHIPPING column is base value (1, 2 or 8). Default to fee.postage (8).
-      const shipping = sale.postage ?? 8;
+      // 2026-05 schema, 25 cols. Postage + Accessories carry literal values;
+      // Marketing defaults to a formula (operator's =B3*5% convention) so
+      // edits to SP cascade into Marketing without operator intervention,
+      // but if a caller passed an explicit `sale.marketing` we honour the
+      // literal value instead. Everything else computes via formulas so
+      // the operator can audit in Excel.
+      //   A=Date,B=OrderNo,C=SKU,D=IMEI,E=Supplier,F=Units,
+      //   G=BP,H=SP,I=SP-BP,J=MarTax,K=Com,L=ROF,M=FVF,N=VAT,O=T.COM,
+      //   P=Postage,Q=P.VAT,R=Marketing,S=M.VAT,T=Acc,U=TotVAT,V=GP,
+      //   W=GP%,X=TotVAT NTP,Y=Comments
+      const hasExplicitMarketing = typeof sale.marketing === 'number';
       const row = sheet.addRow([
         date, sale.orderNumber, sale.sku ?? '', sale.imei ?? '',
         sale.supplierName ?? '', qty,
         sale.buyPrice, sale.salePrice,
-        null, null, null, null, null, null, null,
-        shipping,
-        null, null, null,
+        null, null, null, null, null, null, null,    // SP-BP, MarTax, Com, ROF, FVF, VAT, T.COM
+        sale.postage ?? null,                        // Postage
+        null,                                        // P. VAT (formula)
+        hasExplicitMarketing ? sale.marketing : null, // Marketing — literal or formula
+        null,                                        // M. VAT (formula)
+        sale.accessoryFee ?? Number(f.accessoryFee ?? 1),  // Accessories
+        null, null, null, null,                      // Total VAT, GP, GP%, Total VAT NTP
+        sale.comments ?? '',
       ]);
       row.getCell(1).numFmt = DATE_FMT;
       row.getCell(4).numFmt = IMEI_FMT;
-      row.getCell(7).numFmt = MONEY_FMT;
-      row.getCell(8).numFmt = MONEY_FMT;
-      row.getCell(9).value  = { formula: f.spMinusBp! };     row.getCell(9).numFmt  = MONEY_FMT;
-      row.getCell(10).value = { formula: f.marTax! };        row.getCell(10).numFmt = MONEY_FMT;
-      row.getCell(11).value = { formula: f.commission! };    row.getCell(11).numFmt = MONEY_FMT;
-      row.getCell(12).value = { formula: f.rof! };           row.getCell(12).numFmt = MONEY_FMT;
-      row.getCell(13).value = Number(f.fvf);                 row.getCell(13).numFmt = MONEY_FMT;
-      row.getCell(14).value = { formula: f.twentyPercent! }; row.getCell(14).numFmt = MONEY_FMT;
-      row.getCell(15).value = { formula: f.totalCom! };      row.getCell(15).numFmt = MONEY_FMT;
-      row.getCell(16).numFmt = MONEY_FMT;                    // SHIPPING base value
-      row.getCell(17).value = { formula: f.grossProfit! };   row.getCell(17).numFmt = MONEY_FMT;
-      row.getCell(18).value = { formula: f.gpPercent! };     row.getCell(18).numFmt = MONEY_FMT;
-      row.getCell(19).value = { formula: f.netProfit! };     row.getCell(19).numFmt = MONEY_FMT;
+      row.getCell(7).numFmt = MONEY_FMT;            // BP
+      row.getCell(8).numFmt = MONEY_FMT;            // SP
+      row.getCell(9).value  = { formula: f.spMinusBp! };    row.getCell(9).numFmt  = MONEY_FMT;
+      row.getCell(10).value = { formula: f.marginalTax! };  row.getCell(10).numFmt = MONEY_FMT;
+      row.getCell(11).value = { formula: f.commission! };   row.getCell(11).numFmt = MONEY_FMT;
+      row.getCell(12).value = { formula: f.rof! };          row.getCell(12).numFmt = MONEY_FMT;
+      row.getCell(13).value = Number(f.fvf);                row.getCell(13).numFmt = MONEY_FMT;
+      row.getCell(14).value = { formula: f.vat20! };        row.getCell(14).numFmt = MONEY_FMT;
+      row.getCell(15).value = { formula: f.totalCom! };     row.getCell(15).numFmt = MONEY_FMT;
+      row.getCell(16).numFmt = MONEY_FMT;                   // Postage (literal above)
+      row.getCell(17).value = { formula: f.postageVat! };   row.getCell(17).numFmt = MONEY_FMT;
+      if (!hasExplicitMarketing) {
+        row.getCell(18).value = { formula: f.marketing! };
+      }
+      row.getCell(18).numFmt = MONEY_FMT;                   // Marketing
+      row.getCell(19).value = { formula: f.marketingVat! }; row.getCell(19).numFmt = MONEY_FMT;
+      row.getCell(20).numFmt = MONEY_FMT;                   // Accessories (literal above)
+      row.getCell(21).value = { formula: f.totalVat! };     row.getCell(21).numFmt = MONEY_FMT;
+      row.getCell(22).value = { formula: f.grossProfit! };  row.getCell(22).numFmt = MONEY_FMT;
+      row.getCell(23).value = { formula: f.gpPercent! };    row.getCell(23).numFmt = MONEY_FMT;
+      row.getCell(24).value = { formula: f.totalVatNtp! };  row.getCell(24).numFmt = MONEY_FMT;
       return;
     }
 
     case 'ONBUY': {
-      // ONBUY layout has no quantity column. Columns:
-      // A=Date B=Order# C=SKU D=IMEI E=Supplier F=BP G=SP H=SP-BP I=MAR VAT
-      // J=COM 7% K=VAT 20% L=SHIP M=GP N=GP% O=Comments
+      // 2026-05 schema. 19 cols. No quantity column (OnBuy convention).
+      //   A=Date,B=OrderNo,C=SKU,D=IMEI,E=Supplier,
+      //   F=BP,G=SP,H=SP-BP,I=MarTax,J=Com,K=VAT20%,
+      //   L=Postage,M=P.VAT,N=Acc,O=TotVAT,P=GP,
+      //   Q=GP%,R=TotVAT NTP,S=Comments
       const row = sheet.addRow([
         date, sale.orderNumber, sale.sku ?? '', sale.imei ?? '',
         sale.supplierName ?? '',
         sale.buyPrice, sale.salePrice,
-        null, null, null, null, null, null, null, sale.comments ?? '',
+        null, null, null, null,                       // SP-BP, MarTax, Com, VAT20%
+        sale.postage ?? null,                         // Postage (literal)
+        null,                                         // P. VAT (formula)
+        sale.accessoryFee ?? Number(f.accessoryFee ?? 1),  // Accessories (literal)
+        null, null, null, null,                       // Total VAT, GP, GP%, Total VAT NTP
+        sale.comments ?? '',
       ]);
       row.getCell(1).numFmt = DATE_FMT;
       row.getCell(4).numFmt = IMEI_FMT;
       row.getCell(6).numFmt = MONEY_FMT;   // BP (F)
       row.getCell(7).numFmt = MONEY_FMT;   // SP (G)
       row.getCell(8).value  = { formula: f.spMinusBp! };    row.getCell(8).numFmt  = MONEY_FMT;
-      row.getCell(9).value  = { formula: f.marVat! };       row.getCell(9).numFmt  = MONEY_FMT;
+      row.getCell(9).value  = { formula: f.marginalTax! };  row.getCell(9).numFmt  = MONEY_FMT;
       row.getCell(10).value = { formula: f.commission! };   row.getCell(10).numFmt = MONEY_FMT;
       row.getCell(11).value = { formula: f.vat20! };        row.getCell(11).numFmt = MONEY_FMT;
-      row.getCell(12).value = Number(f.postage);            row.getCell(12).numFmt = MONEY_FMT;
-      row.getCell(13).value = { formula: f.grossProfit! };  row.getCell(13).numFmt = MONEY_FMT;
-      row.getCell(14).value = { formula: f.gpPercent! };    row.getCell(14).numFmt = MONEY_FMT;
+      row.getCell(12).numFmt = MONEY_FMT;                   // Postage (literal above)
+      row.getCell(13).value = { formula: f.postageVat! };   row.getCell(13).numFmt = MONEY_FMT;
+      row.getCell(14).numFmt = MONEY_FMT;                   // Accessories (literal above)
+      row.getCell(15).value = { formula: f.totalVat! };     row.getCell(15).numFmt = MONEY_FMT;
+      row.getCell(16).value = { formula: f.grossProfit! };  row.getCell(16).numFmt = MONEY_FMT;
+      row.getCell(17).value = { formula: f.gpPercent! };    row.getCell(17).numFmt = MONEY_FMT;
+      row.getCell(18).value = { formula: f.totalVatNtp! };  row.getCell(18).numFmt = MONEY_FMT;
       return;
     }
 
-    case 'PROJECT': {
-      // Same layout as AMAZON.
-      const row = sheet.addRow([
-        date, sale.orderNumber, sale.sku ?? '', sale.imei ?? '',
-        sale.supplierName ?? '', qty,
-        sale.buyPrice, sale.salePrice,
-        null, null, null, null, null, null, sale.comments ?? '',
-      ]);
-      row.getCell(1).numFmt = DATE_FMT;
-      row.getCell(4).numFmt = IMEI_FMT;
-      row.getCell(7).numFmt = MONEY_FMT;
-      row.getCell(8).numFmt = MONEY_FMT;
-      row.getCell(9).value  = { formula: f.spMinusBp! };    row.getCell(9).numFmt  = MONEY_FMT;
-      row.getCell(10).value = { formula: f.marginalTax! };  row.getCell(10).numFmt = MONEY_FMT;
-      row.getCell(11).value = { formula: f.commission! };   row.getCell(11).numFmt = MONEY_FMT;
-      row.getCell(12).value = Number(f.postage);            row.getCell(12).numFmt = MONEY_FMT;
-      row.getCell(13).value = { formula: f.grossProfit! };  row.getCell(13).numFmt = MONEY_FMT;
-      row.getCell(14).value = { formula: f.gpPercent! };    row.getCell(14).numFmt = MONEY_FMT;
-      return;
-    }
   }
 }
 
 export async function buildSalesWorkbookBuffer(input: BuildSalesWorkbookInput): Promise<ArrayBuffer> {
-  const { sales, opts } = input;
+  const { sales, units, supplierMap, opts } = input;
   const filtered = filterSalesByDate(sales, opts);
   const byMarketplace = new Map<Marketplace, Sale[]>();
   for (const m of MARKETPLACES) byMarketplace.set(m, []);
@@ -381,18 +475,122 @@ export async function buildSalesWorkbookBuffer(input: BuildSalesWorkbookInput): 
   }
 
   const wb = new ExcelJS.Workbook();
+
+  // Sheet 1: ALL — every (non-PROJECT-or-not) sale in one flat 22-col table,
+  // buy + sale data joined, computed values via recomputeSale. Filterable in
+  // Excel by Marketplace column.
+  writeAllSheet(wb.addWorksheet('ALL'), filtered, units ?? [], supplierMap ?? {});
+
+  // Sheets 2-5: per-platform, mirroring the operator's master SALES_REPORT
+  // shape exactly (headers + formulas via excelFormulaFor). PROJECT excluded
+  // — we sell on 4 platforms only.
   for (const m of MARKETPLACES) {
     const sheet = wb.addWorksheet(m);
     sheet.addRow(SALES_HEADERS[m]);
 
     const bucket = byMarketplace.get(m) ?? [];
+    const headerLen = (SALES_HEADERS[m] as unknown as unknown[]).length;
     for (let i = 0; i < bucket.length; i++) {
       const rowNumber = i + 2; // skip header
-      writeSaleRow(sheet, m, bucket[i], rowNumber);
+      const sale = bucket[i];
+      writeSaleRow(sheet, m, sale, rowNumber);
+      // Same red-fill visual signal as the ALL sheet — applied across
+      // every cell in the row so the highlight covers the full width
+      // even when the master schema includes blank/formula-only cells.
+      if (sale.voidedAt) {
+        const row = sheet.getRow(rowNumber);
+        for (let col = 1; col <= headerLen; col++) {
+          row.getCell(col).fill = RETURNED_FILL;
+        }
+      }
     }
   }
 
   return wb.xlsx.writeBuffer() as Promise<ArrayBuffer>;
+}
+
+/** Write the ALL sheet — one row per sale, buy fields pulled from the
+ *  matched unit (by sale.unitId), financial fields recomputed live. */
+function writeAllSheet(
+  sheet: ExcelJS.Worksheet,
+  sales: Sale[],
+  units: InventoryUnit[],
+  supplierMap: Record<string, string>,
+): void {
+  sheet.addRow(ALL_HEADERS);
+  // Index units by id once so the per-sale lookup is O(1).
+  const unitsById = new Map<string, InventoryUnit>();
+  for (const u of units) unitsById.set(u.id, u);
+
+  // Newest sales first — matches the in-app default and means most-recent
+  // activity sits at the top of the sheet when the operator opens it.
+  const sorted = [...sales].sort((a, b) => (b.saleDate || '').localeCompare(a.saleDate || ''));
+
+  for (const s of sorted) {
+    const u = s.unitId ? unitsById.get(s.unitId) : undefined;
+    const r = recomputeSale(s);
+    // Per-marketplace commission flatten: eBay rolls ROF+FVF+VAT into T.COM;
+    // BM adds PayPal/Klarna on top. Unified column reads as "total fee
+    // paid to the platform" regardless of marketplace.
+    const commission =
+      s.marketplace === 'EBAY' ? (r.totalCom ?? r.commission)
+      : s.marketplace === 'BM' ? (r.commission + (r.payPalKlarnaCom ?? 0))
+      : r.commission;
+    const tax = r.marVat ?? r.marginalTax;
+
+    const row = sheet.addRow([
+      // Buy block (cols 1-9)
+      u?.dateIn ? toDate(u.dateIn) : null,
+      u?.model || '',
+      s.imei || u?.imei || '',
+      u?.grade || '',
+      u?.storage || '',
+      u?.colour || '',
+      supplierMap[s.supplierId || ''] || s.supplierName || u?.supplierName || '',
+      s.buyPrice,
+      u?.notes || '',
+      // Status (col 10) — Sold / Back to Stock / Repair / RTS / Returned
+      statusForSale(s, u),
+      // Sale block (cols 11-23)
+      toDate(s.saleDate),
+      s.marketplace,
+      s.orderNumber || '',
+      s.sku || '',
+      s.salePrice,
+      s.paymentMode || '',
+      r.postage,
+      r.spMinusBp,
+      tax,
+      commission,
+      r.grossProfit,
+      r.gpPercent,
+      // NP = GP minus marketplace-specific promo. eBay deducts 5%; the
+      // other three platforms have no promo concept, so NP equals GP
+      // (calcSaleFinancials returns undefined for those — fallback here
+      // keeps the unified column populated end-to-end).
+      r.netProfit ?? r.grossProfit,
+    ]);
+
+    // Number formats — buy date (1), IMEI (3), BP (8); Status is col 10,
+    // sale date moves to col 11, and the £ columns slide one right.
+    row.getCell(1).numFmt = DATE_FMT;
+    row.getCell(3).numFmt = IMEI_FMT;
+    row.getCell(8).numFmt = MONEY_FMT;
+    row.getCell(11).numFmt = DATE_FMT;
+    for (const col of [15, 17, 18, 19, 20, 21, 22, 23]) {
+      row.getCell(col).numFmt = MONEY_FMT;
+    }
+    row.getCell(10).numFmt = DATE_FMT;
+
+    // Highlight returned rows across the entire 23-col span. Applied to
+    // every cell (not the row) so Excel doesn't try to extend the fill
+    // to unused columns on the right edge.
+    if (s.voidedAt) {
+      for (let col = 1; col <= ALL_HEADERS.length; col++) {
+        row.getCell(col).fill = RETURNED_FILL;
+      }
+    }
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -433,8 +631,28 @@ export async function downloadClientWorkbooks(input: DownloadClientWorkbooksInpu
       suppliers: input.suppliers,
       whatsappFeed: input.whatsappFeed,
     }),
-    buildSalesWorkbookBuffer({ sales: input.sales, opts: input.opts }),
+    buildSalesWorkbookBuffer({
+      sales: input.sales,
+      units: input.units,
+      supplierMap: Object.fromEntries(input.suppliers.map(s => [s.id, s.name])),
+      opts: input.opts,
+    }),
   ]);
   triggerBrowserDownload(invBuf, inventoryReportFilename(today));
   triggerBrowserDownload(salesBuf, salesReportFilename(today));
+}
+
+/**
+ * Download just the SALES_REPORT workbook (ALL + per-platform sheets).
+ * Used by the Sell-screen "Sales Report" button — single-click download
+ * with the same per-marketplace formulas the master file uses.
+ * Filename carries YYYY-MM-DD_HHMM so multiple pulls per day sort
+ * chronologically in a folder.
+ */
+export async function downloadSalesWorkbook(input: BuildSalesWorkbookInput): Promise<void> {
+  const buf = await buildSalesWorkbookBuffer(input);
+  const now = new Date();
+  const pad = (n: number) => String(n).padStart(2, '0');
+  const stamp = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}_${pad(now.getHours())}${pad(now.getMinutes())}`;
+  triggerBrowserDownload(buf, `sales-report-${stamp}.xlsx`);
 }

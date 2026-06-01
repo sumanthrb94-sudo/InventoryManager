@@ -36,6 +36,7 @@ import {
 import { parseBrandModelStorage } from '../lib/modelStorage';
 import { addUnitManual, ensureSupplier } from '../services';
 import type { InventoryUnit, ListingSite } from '../types';
+import DeviceComboBox from './DeviceComboBox';
 
 type Mode = 'office' | 'shs';
 
@@ -58,6 +59,31 @@ interface StockRow {
   /** When true the operator has manually edited Storage; we stop auto-syncing
    *  it from Model so their override sticks. */
   storageTouched?: boolean;
+  /** When true, the Colour dropdown is on "Other" and a freeform input is
+   *  rendered alongside it. Carried as form state so a pasted non-preset
+   *  colour (or a manually-typed one) survives a re-render without us
+   *  having to re-derive it from row.colour every time. */
+  colourOther?: boolean;
+}
+
+/** Closed set of colour presets shown in the Add Stock dropdown. Anything
+ *  outside this list lands the row on "Other" with a freeform input — same
+ *  pattern the operator uses on paper. Comparison is case-insensitive on
+ *  read; values written back to the row preserve the canonical casing
+ *  here (so two paste sources can't fork into "BLACK" vs "Black" buckets). */
+const COLOUR_PRESETS = ['Black', 'White', 'Grey', 'Blue'] as const;
+type ColourPreset = typeof COLOUR_PRESETS[number];
+
+/** True when `s` matches one of COLOUR_PRESETS case-insensitively. */
+function isPresetColour(s: string): boolean {
+  const lower = s.trim().toLowerCase();
+  return COLOUR_PRESETS.some(p => p.toLowerCase() === lower);
+}
+
+/** Return the canonical-cased preset that matches `s`, or undefined. */
+function canonicalColour(s: string): ColourPreset | undefined {
+  const lower = s.trim().toLowerCase();
+  return COLOUR_PRESETS.find(p => p.toLowerCase() === lower);
 }
 
 const uid = () => Math.random().toString(36).slice(2, 9);
@@ -88,8 +114,23 @@ interface RowValidation {
   imeiEmpty: boolean;
   dupeInBatch: boolean;
   dupeInDb: boolean;
+  /** When dupeInDb fires, capture identifying details of the matching unit
+   *  so the operator can see what's collided — model / dateIn / status /
+   *  supplier. Lets them rule out a stale import or a sold/returned unit
+   *  without leaving the modal. */
+  dupeInDbMatch?: {
+    id: string;
+    model: string;
+    dateIn: string;
+    status: string;
+    supplierName?: string;
+  };
   bpOk: boolean;
   supplierOk: boolean;
+  /** Storage is required so units don't split into separate buckets in the
+   *  grouped overlay (e.g. "iPhone SE 3 1TB" × 2 and "iPhone SE 3" × 1
+   *  rendering as two rows because one row's storage was left blank). */
+  storageOk: boolean;
   /** Whole-row green-light: all required fields satisfied. */
   complete: boolean;
 }
@@ -104,10 +145,25 @@ export default function AddStockManualModal({ onClose, initialMode = 'office' }:
   const [error, setError]   = useState('');
 
   const supplierNames = useMemo(() => suppliers.map(s => s.name), [suppliers]);
-  const existingImeis = useMemo(() => {
-    const s = new Set<string>();
-    for (const u of units) if (u.imei) s.add(u.imei.trim().toUpperCase());
-    return s;
+  // Map (not Set) so we can surface the matching unit's details when a row
+  // flags as duplicate — operator's reported false positives in production
+  // where they swore the IMEI wasn't in DB; turned out to be a stale import
+  // or a returned/sold unit still living in inventoryUnits. Showing the
+  // existing row's model + dateIn + status + supplier makes that obvious.
+  const existingByImei = useMemo(() => {
+    const m = new Map<string, InventoryUnit>();
+    for (const u of units) {
+      if (!u.imei) continue;
+      // Strip zero-width / non-breaking whitespace too — Excel + WhatsApp
+      // copy/paste loves to embed those, and a single invisible character
+      // makes the exact-match dupe check miss a real collision.
+      const key = u.imei
+        .replace(/[​-‍﻿ ]/g, '')
+        .trim()
+        .toUpperCase();
+      if (key && !m.has(key)) m.set(key, u);
+    }
+    return m;
   }, [units]);
 
   // Carry the last typed supplier forward — saves re-typing across rows in
@@ -133,19 +189,39 @@ export default function AddStockManualModal({ onClose, initialMode = 'office' }:
 
   // ── Validation per row ─────────────────────────────────────────────────────
   const validation: RowValidation[] = useMemo(() => rows.map(r => {
-    const imei = r.imei.trim().toUpperCase();
+    // Strip invisible whitespace from the operator-typed IMEI to match the
+    // same normalisation done when we built existingByImei above. Without
+    // this an Excel-pasted IMEI with a trailing zero-width space would
+    // never match a clean DB record (or vice-versa).
+    const imei = r.imei
+      .replace(/[​-‍﻿ ]/g, '')
+      .trim()
+      .toUpperCase();
     const isApple = isAppleDevice(r.model);
     const imeiRequired = mode === 'office';
     const imeiEmpty = imei.length === 0;
     const imeiFormatOk = imei ? isValidImei(imei, { isAppleSerial: isApple }) : false;
 
-    const dupeInBatch = !!imei && rows.filter(x => x.imei.trim().toUpperCase() === imei).length > 1;
-    const dupeInDb    = !!imei && existingImeis.has(imei);
+    const dupeInBatch = !!imei && rows.filter(x => x.imei
+      .replace(/[​-‍﻿ ]/g, '').trim().toUpperCase() === imei).length > 1;
+    const existingUnit = imei ? existingByImei.get(imei) : undefined;
+    const dupeInDb    = !!existingUnit;
+    const dupeInDbMatch = existingUnit ? {
+      id:           existingUnit.id,
+      model:        (existingUnit.model || '').trim() || '?',
+      dateIn:       (existingUnit.dateIn || '').trim() || '?',
+      status:       existingUnit.status || '?',
+      supplierName: existingUnit.supplierName,
+    } : undefined;
 
     const modelOk    = r.model.trim().length > 0;
     const supplierOk = r.supplierName.trim().length > 0;
     const bp         = parseFloat(r.buyPrice);
     const bpOk       = Number.isFinite(bp) && bp > 0;
+    // Storage may have arrived via the auto-sync from the Model field
+    // (parseBrandModelStorage pulls "1TB" out of "iPhone SE 3 1TB") OR
+    // via the dropdown. Either way the trimmed value must be non-empty.
+    const storageOk  = r.storage.trim().length > 0;
 
     const imeiOk =
       imeiRequired
@@ -154,10 +230,10 @@ export default function AddStockManualModal({ onClose, initialMode = 'office' }:
 
     return {
       modelOk, imeiOk, isApple, imeiRequired, imeiEmpty,
-      dupeInBatch, dupeInDb, bpOk, supplierOk,
-      complete: modelOk && imeiOk && bpOk && supplierOk,
+      dupeInBatch, dupeInDb, dupeInDbMatch, bpOk, supplierOk, storageOk,
+      complete: modelOk && imeiOk && bpOk && supplierOk && storageOk,
     };
-  }), [rows, mode, existingImeis]);
+  }), [rows, mode, existingByImei]);
 
   // ── Totals strip ───────────────────────────────────────────────────────────
   const totals = useMemo(() => {
@@ -171,8 +247,30 @@ export default function AddStockManualModal({ onClose, initialMode = 'office' }:
     return { validUnits, value };
   }, [rows, validation]);
 
+  // Hard-block save when ANY row carries a duplicate-IMEI warning (either
+  // already in inventory or repeated within this batch). Other validation
+  // gaps — missing model / empty row / bad BP — keep the old silent-skip
+  // behaviour so the operator can leave blank rows around without them
+  // blocking the save. Duplicate IMEIs are the only thing the operator
+  // could mistake for a soft warning and lose data over.
+  const duplicateCount = useMemo(
+    () => validation.filter(v => v.dupeInDb || v.dupeInBatch).length,
+    [validation],
+  );
+  const hasDuplicates = duplicateCount > 0;
+
   // ── Save ───────────────────────────────────────────────────────────────────
   async function handleSave() {
+    // Defence-in-depth: even if the button somehow fires (race with the
+    // store listener, devtools, etc.) refuse to proceed when any row has
+    // a duplicate IMEI. Silent-skipping these previously closed the modal
+    // and made the operator think the dup row had been accepted.
+    if (hasDuplicates) {
+      setError(
+        `Resolve ${duplicateCount} duplicate IMEI row${duplicateCount === 1 ? '' : 's'} before saving.`,
+      );
+      return;
+    }
     const validIdxs: number[] = [];
     validation.forEach((v, i) => { if (v.complete) validIdxs.push(i); });
     if (!validIdxs.length) {
@@ -372,6 +470,7 @@ export default function AddStockManualModal({ onClose, initialMode = 'office' }:
                 validation={validation[i]}
                 mode={mode}
                 supplierNames={supplierNames}
+                units={units}
                 onChange={patch => updateRow(r.id, patch)}
                 onRemove={() => removeRow(r.id)}
                 canRemove={rows.length > 1}
@@ -393,7 +492,12 @@ export default function AddStockManualModal({ onClose, initialMode = 'office' }:
           <div className="text-[10px] font-mono text-gray-500 truncate">
             {error
               ? <span className="text-rose-600 inline-flex items-center gap-1"><AlertCircle size={11} />{error}</span>
-              : `${totals.validUnits} unit${totals.validUnits === 1 ? '' : 's'} ready · £${totals.value.toFixed(0)}`}
+              : hasDuplicates
+                ? <span className="text-rose-600 inline-flex items-center gap-1">
+                    <AlertCircle size={11} />
+                    {duplicateCount} duplicate IMEI row{duplicateCount === 1 ? '' : 's'} — fix or remove to enable save
+                  </span>
+                : `${totals.validUnits} unit${totals.validUnits === 1 ? '' : 's'} ready · £${totals.value.toFixed(0)}`}
           </div>
           <div className="flex items-center gap-2 flex-shrink-0">
             <button onClick={onClose} type="button"
@@ -402,7 +506,10 @@ export default function AddStockManualModal({ onClose, initialMode = 'office' }:
             </button>
             <button
               onClick={handleSave}
-              disabled={!totals.validUnits || saving || saved}
+              disabled={!totals.validUnits || hasDuplicates || saving || saved}
+              title={hasDuplicates
+                ? `Resolve ${duplicateCount} duplicate IMEI row${duplicateCount === 1 ? '' : 's'} first`
+                : undefined}
               className={`px-4 py-2.5 text-white rounded-lg text-[10px] font-bold uppercase tracking-widest transition-all disabled:opacity-40 flex items-center gap-2
                 ${mode === 'shs' ? 'bg-amber-500 hover:bg-amber-600' : 'bg-slate-900 hover:bg-slate-800'}`}
             >
@@ -447,7 +554,7 @@ function ModeTab({
 
 // ── One row in the entry grid ────────────────────────────────────────────────
 function Row({
-  row, index, validation, mode, supplierNames, onChange, onRemove, canRemove,
+  row, index, validation, mode, supplierNames, units, onChange, onRemove, canRemove,
 }: {
   key?: React.Key;
   row: StockRow;
@@ -455,6 +562,10 @@ function Row({
   validation: RowValidation;
   mode: Mode;
   supplierNames: string[];
+  /** Live inventory — feeds the model autocomplete so the operator can
+   *  scroll/select from existing models instead of retyping (which is
+   *  how copy-paste-near-misses end up in different grouped rows). */
+  units: InventoryUnit[];
   onChange: (patch: Partial<StockRow>) => void;
   onRemove: () => void;
   canRemove: boolean;
@@ -464,7 +575,15 @@ function Row({
     if (mode === 'shs' && validation.imeiEmpty) return 'Optional for SHS';
     if (validation.imeiEmpty && validation.imeiRequired) return 'Required';
     if (validation.dupeInBatch) return 'Duplicate in this batch';
-    if (validation.dupeInDb)    return 'Already in inventory';
+    if (validation.dupeInDb) {
+      // Surface the colliding unit's identifying fields so the operator can
+      // see WHY the IMEI is flagged (a sold/returned unit still in
+      // inventoryUnits, a stale import, etc) instead of having to leave the
+      // modal and grep the inventory list themselves.
+      const m = validation.dupeInDbMatch;
+      if (m) return `Already in inventory · ${m.model} · ${m.dateIn} · status ${m.status}${m.supplierName ? ' · ' + m.supplierName : ''}`;
+      return 'Already in inventory';
+    }
     if (!validation.imeiOk && !validation.imeiEmpty) {
       return validation.isApple ? IMEI_OR_APPLE_SERIAL_MESSAGE : IMEI_REQUIRED_MESSAGE;
     }
@@ -478,14 +597,14 @@ function Row({
         : 'border-slate-200 bg-slate-50/40'
     }`}>
       <div className="flex items-center gap-2 mb-2">
-        <span className="text-[9px] font-mono text-gray-400 w-6 text-center">#{index + 1}</span>
+        <span className="text-[9px] font-mono text-gray-400 w-6 text-center flex-shrink-0">#{index + 1}</span>
         <div className="flex-1" />
-        {validation.complete && <CheckCircle2 size={13} className="text-emerald-500" />}
+        {validation.complete && <CheckCircle2 size={13} className="text-emerald-500 flex-shrink-0" />}
         {canRemove && (
           <button
             type="button"
             onClick={onRemove}
-            className="p-1.5 text-gray-300 hover:text-rose-500 hover:bg-rose-50 rounded transition-all"
+            className="p-1.5 text-gray-300 hover:text-rose-500 hover:bg-rose-50 rounded transition-all flex-shrink-0"
             title="Remove row"
           >
             <Trash2 size={12} />
@@ -496,13 +615,26 @@ function Row({
       {/* Grid: Model · IMEI · Grade */}
       <div className="grid grid-cols-1 md:grid-cols-12 gap-2">
         <Cell label="Model *" colSpan={5}>
-          <input
-            value={row.model}
-            onChange={e => onChange({ model: e.target.value })}
-            placeholder="e.g. iPhone 13 128GB"
-            className={`w-full border rounded-lg px-2.5 py-1.5 text-[12px] focus:outline-none ${
-              row.model.trim() ? 'border-gray-200 focus:border-black' : 'border-gray-200 focus:border-black'
-            }`}
+          {/* Autocomplete from existing inventory model strings — picking a
+              suggestion guarantees this unit groups with its siblings in
+              the All Office Stock view. Free text still wins for brand-new
+              SKUs that don't exist in stock yet. */}
+          <DeviceComboBox
+            units={units}
+            brand=""
+            model={row.model}
+            onModelChange={(m) => onChange({ model: m })}
+            onPick={(entry) => {
+              // Use the catalog's exact model string so this unit buckets
+              // with siblings. Pre-fill storage / grade ONLY if those fields
+              // are still empty — never overwrite operator input.
+              const patch: Partial<StockRow> = { model: entry.model };
+              if (!row.storage && entry.storages[0]) patch.storage = entry.storages[0];
+              if (!row.grade && entry.topGrade)      patch.grade   = entry.topGrade;
+              onChange(patch);
+            }}
+            placeholder="Search existing models or type new — e.g. iPhone 13 128GB"
+            inputClassName="w-full border border-gray-200 rounded-lg px-2.5 py-1.5 text-[12px] focus:outline-none focus:border-black"
           />
         </Cell>
         <Cell
@@ -535,6 +667,12 @@ function Row({
             className="w-full border border-gray-200 rounded-lg px-2.5 py-1.5 text-[12px] focus:outline-none focus:border-black bg-white"
           >
             <option value="">—</option>
+            {/* Surface any non-standard pasted grade at the top so it's not
+                silently swallowed by the browser falling back to the
+                placeholder when the value doesn't match an option. */}
+            {row.grade && !GRADES.includes(row.grade) && (
+              <option value={row.grade}>{row.grade}</option>
+            )}
             {GRADES.map(g => <option key={g} value={g}>{g}</option>)}
           </select>
         </Cell>
@@ -542,11 +680,20 @@ function Row({
 
       {/* Grid: Storage · Colour · Supplier · BP */}
       <div className="grid grid-cols-1 md:grid-cols-12 gap-2 mt-2">
-        <Cell label="Storage" colSpan={2}>
+        <Cell
+          label="Storage *"
+          colSpan={2}
+          help={!validation.storageOk ? 'Required' : ''}
+          helpTone="error"
+        >
           <select
             value={row.storage}
             onChange={e => onChange({ storage: e.target.value })}
-            className="w-full border border-gray-200 rounded-lg px-2.5 py-1.5 text-[12px] font-mono bg-white focus:outline-none focus:border-black"
+            className={`w-full border rounded-lg px-2.5 py-1.5 text-[12px] font-mono focus:outline-none transition-all ${
+              !validation.storageOk
+                ? 'border-rose-300 bg-rose-50 focus:border-rose-500'
+                : 'border-emerald-300 bg-emerald-50/50 focus:border-emerald-500'
+            }`}
           >
             <option value="">—</option>
             {/* Surface any non-standard parsed value at the top so it's not lost. */}
@@ -557,12 +704,42 @@ function Row({
           </select>
         </Cell>
         <Cell label="Colour" colSpan={3}>
-          <input
-            value={row.colour}
-            onChange={e => onChange({ colour: e.target.value })}
-            placeholder="e.g. Space Grey"
-            className="w-full border border-gray-200 rounded-lg px-2.5 py-1.5 text-[12px] focus:outline-none focus:border-black"
-          />
+          {/* Dropdown of the four preset colours plus an "Other" escape
+              hatch that reveals a freeform input directly below. Operator
+              picks Black/White/Grey/Blue 95% of the time; the freeform
+              row stays out of the way until they need it. The colourOther
+              flag persists on the row so paste / re-render keeps the
+              freeform mode if that's what the operator chose. */}
+          <select
+            value={row.colourOther ? '__other__' : (canonicalColour(row.colour) ?? '')}
+            onChange={e => {
+              const v = e.target.value;
+              if (v === '__other__') {
+                // Stay on Other; preserve whatever's already typed (could
+                // be a non-preset value from paste or a stale preset that
+                // the operator wants to refine).
+                onChange({ colourOther: true });
+              } else if (v === '') {
+                onChange({ colour: '', colourOther: false });
+              } else {
+                onChange({ colour: v, colourOther: false });
+              }
+            }}
+            className="w-full border border-gray-200 rounded-lg px-2.5 py-1.5 text-[12px] focus:outline-none focus:border-black bg-white"
+          >
+            <option value="">—</option>
+            {COLOUR_PRESETS.map(c => <option key={c} value={c}>{c}</option>)}
+            <option value="__other__">Other</option>
+          </select>
+          {(row.colourOther || (row.colour !== '' && !isPresetColour(row.colour))) && (
+            <input
+              value={row.colour}
+              onChange={e => onChange({ colour: e.target.value, colourOther: true })}
+              placeholder="Type custom colour (e.g. Space Grey)"
+              autoFocus={row.colourOther && row.colour === ''}
+              className="mt-1 w-full border border-gray-200 rounded-lg px-2.5 py-1.5 text-[12px] focus:outline-none focus:border-black"
+            />
+          )}
         </Cell>
         <Cell label="Supplier *" colSpan={4}>
           <input

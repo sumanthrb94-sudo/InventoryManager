@@ -21,7 +21,7 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import {
   Search, ShoppingCart, ChevronDown, ChevronUp, ChevronsUpDown,
-  Filter, X, Download, AlertCircle, Plus, Info, Sparkles,
+  Filter, X, AlertCircle, Plus, Info, Sparkles, FileSpreadsheet,
   TrendingUp, TrendingDown, PackageCheck, Truck,
 } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
@@ -31,6 +31,7 @@ import {
 } from '../types';
 import { useInventoryStore } from '../lib/inventoryStore';
 import { recomputeSale } from '../lib/recomputeSale';
+import { downloadSalesWorkbook } from '../lib/clientReport';
 import {
   marketplaceFromListingSite, MARKETPLACES,
 } from '../lib/platforms';
@@ -58,7 +59,6 @@ const MARKETPLACE_TONE: Record<Marketplace, string> = {
   BM:      'bg-emerald-100 text-emerald-700 border-emerald-200',
   EBAY:    'bg-yellow-100 text-yellow-700  border-yellow-200',
   ONBUY:   'bg-blue-100 text-blue-700      border-blue-200',
-  PROJECT: 'bg-violet-100 text-violet-700  border-violet-200',
 };
 
 const fmtGBP = (n: number | undefined | null, decimals = 2): string => {
@@ -120,9 +120,15 @@ export default function SellSheet(_props: Props) {
   const [enterImeiUnit, setEnterImeiUnit] = useState<InventoryUnit | null>(null);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [showSchemaHelp, setShowSchemaHelp] = useState(false);
-
   // ── Indexes ───────────────────────────────────────────────────────────────
-  const inStock = useMemo(() => units.filter(u => u.status === 'available'), [units]);
+  // Sellable inventory — `status='available'` plus the defensive fallback
+  // for units that were processed as "Back to Inventory" but whose status
+  // didn't flip due to a write race / stale cache. Same widening as the
+  // Buy screen's office-stock filter — keeps the two surfaces consistent.
+  const inStock = useMemo(() => units.filter(u =>
+    u.status === 'available' ||
+    (u.returnType === 'returned_to_inventory' && u.status !== 'sold')
+  ), [units]);
   const manualShs = useMemo(() => manualShsUnitsFrom(units), [units]);
   const awaitingImei = useMemo(
     () => units.filter(u => u.status === 'sold' && !u.imei)
@@ -297,6 +303,12 @@ export default function SellSheet(_props: Props) {
       if (d === today) { todayCount++; todayRevenue += s.salePrice ?? 0; todayGP += s.grossProfit ?? 0; }
       if (d >= monthStart && d <= today) { monthCount++; monthRevenue += s.salePrice ?? 0; monthGP += s.grossProfit ?? 0; }
     }
+    // Return chips count EVENTS — every return processed adds one, even if
+    // the same physical unit was returned twice. A unit cycled through
+    // sold → returned → re-sold → returned reads as 2 sales (both count in
+    // sold-today, both legitimately earned then unearned revenue) AND 2
+    // returns processed. Reflects the operator's actual workload, not a
+    // deduped unit-level snapshot (the Returns page already shows that).
     let todayReturned = 0, monthReturned = 0, allReturned = 0;
     for (const v of voidedSales) {
       allReturned++;
@@ -350,28 +362,17 @@ export default function SellSheet(_props: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [overlay, allSold, search, marketplaceFilter, supplierFilter, supplierMap, sort, units]);
 
-  // ── CSV export ────────────────────────────────────────────────────────────
-  const handleExportCsv = () => {
-    const source = overlay ? overlayRows : inlineRows;
-    const rows = source.map(s => {
-      const u = (s.unitId && units.find(x => x.id === s.unitId)) || undefined;
-      return {
-        'Sell Date':   s.saleDate || '',
-        'IMEI':        s.imei || '',
-        'Model':       u?.model || '',
-        'Storage':     u?.storage || '',
-        'Colour':      u?.colour || '',
-        'Supplier':    supplierMap[s.supplierId || ''] || s.supplierName || '',
-        'BP':          s.buyPrice ?? 0,
-        'SP':          s.salePrice ?? 0,
-        'Platform':    s.marketplace,
-        'Postage':     (s.postage ?? 0).toFixed(2),
-        'Commission':  (s.commission ?? 0).toFixed(2),
-        'GP':          (s.grossProfit ?? 0).toFixed(2),
-        'GP %':        (s.gpPercent ?? 0).toFixed(2),
-      };
-    });
-    downloadCsv('sell_sales.csv', rows);
+  // ── Sales Report — multi-sheet xlsx mirroring the master file ─────────────
+  // Sheet 1: ALL  → 22-column unified flat view (buy schema + sale fields).
+  // Sheets 2-5:    AMAZON / BM / EBAY / ONBUY, each in the operator's
+  //                exact master-file shape (headers + cell-level Excel
+  //                formulas via excelFormulaFor). Four platforms only per
+  //                ops convention "we sell in 4 platforms only".
+  // Voided sales are excluded — they don't represent realised revenue and
+  // the void path keeps the original Sale doc for audit only.
+  const handleSalesReport = () => {
+    const active = sales.filter(s => !s.voidedAt);
+    void downloadSalesWorkbook({ sales: active, units, supplierMap });
   };
 
   // ── Inline cell save (re-recompute GP/comm/postage in the same patch) ─────
@@ -417,10 +418,11 @@ export default function SellSheet(_props: Props) {
             <Info size={12} /> Schema
           </button>
           <button
-            onClick={handleExportCsv}
-            className="flex items-center gap-1.5 px-3 py-2 rounded-xl border border-slate-200 text-slate-700 text-[10px] font-bold uppercase tracking-widest hover:bg-slate-50 transition-all"
+            onClick={handleSalesReport}
+            title="Download a unified Sales Report (buy schema + sale fields, one row per non-voided sale)"
+            className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-emerald-600 text-white text-[10px] font-bold uppercase tracking-widest hover:bg-emerald-700 transition-all"
           >
-            <Download size={12} /> Export CSV
+            <FileSpreadsheet size={12} /> Sales Report
           </button>
         </div>
 
@@ -433,7 +435,7 @@ export default function SellSheet(_props: Props) {
             value={kpis.todayCount}
             sub={fmtGBP(kpis.todayRevenue, 0)}
             footer={fmtGBP(kpis.todayGP, 0) + ' GP'}
-            returnChip={kpis.todayReturned > 0 ? `↻ ${kpis.todayReturned} returned today` : undefined}
+            returnChip={kpis.todayReturned > 0 ? `↻ ${kpis.todayReturned} ${kpis.todayReturned === 1 ? 'return' : 'returns'} processed today` : undefined}
             tone="emerald"
             onClick={() => setOverlay('today')}
           />
@@ -442,7 +444,7 @@ export default function SellSheet(_props: Props) {
             value={kpis.monthCount}
             sub={fmtGBP(kpis.monthRevenue, 0)}
             footer={fmtGBP(kpis.monthGP, 0) + ' GP'}
-            returnChip={kpis.monthReturned > 0 ? `↻ ${kpis.monthReturned} returned this month` : undefined}
+            returnChip={kpis.monthReturned > 0 ? `↻ ${kpis.monthReturned} ${kpis.monthReturned === 1 ? 'return' : 'returns'} processed this month` : undefined}
             tone="blue"
             onClick={() => setOverlay('month')}
           />
@@ -451,7 +453,7 @@ export default function SellSheet(_props: Props) {
             value={kpis.allCount}
             sub={fmtGBP(kpis.allGP, 0) + ' GP'}
             footer={kpis.lossCount > 0 ? `${kpis.lossCount} loss-making` : 'all profitable'}
-            returnChip={kpis.allReturned > 0 ? `↻ ${kpis.allReturned} returned lifetime` : undefined}
+            returnChip={kpis.allReturned > 0 ? `↻ ${kpis.allReturned} ${kpis.allReturned === 1 ? 'return' : 'returns'} processed lifetime` : undefined}
             tone="slate"
             onClick={() => setOverlay('all')}
           />
@@ -474,7 +476,7 @@ export default function SellSheet(_props: Props) {
       </div>
 
       {/* ── Sell Intelligence panel — Hot This Week / Top Earners / etc ─── */}
-      <IntelligencePanel units={units} mode="sell" />
+      <IntelligencePanel units={units} sales={sales} mode="sell" />
 
       {/* ── Periodic table — same component the dashboard uses, scoped to
           live inventory. First word of every model is treated as the brand
@@ -959,15 +961,24 @@ function SheetTable({
           const u = (s.unitId && units.find(x => x.id === s.unitId)) || undefined;
           const supplierName = supplierMap[s.supplierId || ''] || s.supplierName || '—';
           const isAlt = idx % 2 === 1;
-          const rowBg = isAlt ? 'bg-slate-50/40 hover:bg-slate-100/60' : 'bg-white hover:bg-slate-50';
+          // Flagged sales (red rows from the operator's source workbook) win
+          // over the zebra stripe — the operator's signal is what matters.
+          const rowBg = s.flagged
+            ? 'bg-rose-50 hover:bg-rose-100/70'
+            : isAlt ? 'bg-slate-50/40 hover:bg-slate-100/60' : 'bg-white hover:bg-slate-50';
           const gp = s.grossProfit ?? 0;
           const gpTone = gp > 0 ? 'text-emerald-700' : gp < 0 ? 'text-rose-700' : 'text-slate-600';
           const mpTone = MARKETPLACE_TONE[s.marketplace] || 'bg-slate-100 text-slate-600 border-slate-200';
+          const dateTone = s.flagged ? 'text-rose-700 font-semibold' : 'text-slate-700';
 
           return (
-            <tr key={s.id} className={`${rowBg} transition-colors group`}>
+            <tr
+              key={s.id}
+              className={`${rowBg} transition-colors group`}
+              title={s.flagged ? 'Flagged on the source Sales Report (red row)' : undefined}
+            >
               <Td sticky leftPx={0} className={`${rowBg} border-r border-slate-200`}>
-                <span className="text-slate-700">{fmtDateForUser(s.saleDate || '', region) || s.saleDate || '—'}</span>
+                <span className={dateTone}>{fmtDateForUser(s.saleDate || '', region) || s.saleDate || '—'}</span>
               </Td>
               <Td>
                 {s.imei
@@ -1207,7 +1218,7 @@ function SchemaHelpCard({ onClose }: { onClose: () => void }) {
     { col: '6',  field: 'Supplier',   note: 'Read-only — from the linked unit',                                      tone: 'core'    },
     { col: '7',  field: 'BP',         note: 'Buy price snapshot at time of sale',                                    tone: 'core'    },
     { col: '8',  field: 'SP',         note: 'Sale price · double-click cell to edit',                                tone: 'edit'    },
-    { col: '9',  field: 'Platform',   note: 'AMAZON / BM / EBAY / ONBUY / PROJECT · double-click to change',         tone: 'edit'    },
+    { col: '9',  field: 'Platform',   note: 'AMAZON / BM / EBAY / ONBUY · double-click to change',                   tone: 'edit'    },
     { col: '10', field: 'Postage',    note: 'Override per row · default from platform fee schedule',                 tone: 'edit'    },
     { col: '11', field: 'Commission', note: 'Auto-computed from platform fee table on every SP/Platform change',     tone: 'derived' },
     { col: '12', field: 'GP',         note: 'Gross Profit = SP − BP − Commission − Postage − Marginal Tax',          tone: 'derived' },
@@ -1394,26 +1405,3 @@ function titleFor(kpi: KpiId): string {
   }
 }
 
-function downloadCsv(filename: string, rows: Array<Record<string, any>>) {
-  if (rows.length === 0) {
-    const blob = new Blob(['(no rows)\n'], { type: 'text/csv' });
-    triggerDownload(filename, blob);
-    return;
-  }
-  const headers = Object.keys(rows[0]);
-  const esc = (v: any) => {
-    const s = v == null ? '' : String(v);
-    if (/[",\n]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
-    return s;
-  };
-  const lines = [headers.join(','), ...rows.map(r => headers.map(h => esc(r[h])).join(','))];
-  const blob = new Blob([lines.join('\n')], { type: 'text/csv;charset=utf-8;' });
-  triggerDownload(filename, blob);
-}
-
-function triggerDownload(name: string, blob: Blob) {
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url; a.download = name; document.body.appendChild(a); a.click(); document.body.removeChild(a);
-  setTimeout(() => URL.revokeObjectURL(url), 0);
-}

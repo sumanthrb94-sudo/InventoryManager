@@ -59,16 +59,6 @@ export function skuKeyOf(unit: InventoryUnit): string {
   return `${brand}|${model}|${storage}|${colour}`.toUpperCase();
 }
 
-const SOUNDS = {
-  sold:              'https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3',  // Success chime
-  loss_sell:         'https://assets.mixkit.co/active_storage/sfx/2372/2372-preview.mp3',  // Alert/warning sound
-  new_stock:         'https://assets.mixkit.co/active_storage/sfx/2354/2354-preview.mp3',  // Notification
-  return_processed:  'https://assets.mixkit.co/active_storage/sfx/2811/2811-preview.mp3',  // Refresh/reload
-  shs_received:      'https://assets.mixkit.co/active_storage/sfx/2892/2892-preview.mp3',  // Notification chime
-  shs_removed:       'https://assets.mixkit.co/active_storage/sfx/2372/2372-preview.mp3',  // Alert/warning sound
-  unit_repaired:     'https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3',  // Success chime
-};
-
 const NOTIFS_KEY_PREFIX = 'nexus_notifs_';
 const FIRED_KEY_PREFIX  = 'nexus_notif_fired_';
 
@@ -76,7 +66,6 @@ class NotificationService {
   private listeners: ((notifications: Notification[]) => void)[] = [];
   private notifications: Notification[] = [];
   private userId = 'anon';
-  private playSoundTimeout: any = null;
   private batchBuffer: { type: NotificationType; unit: InventoryUnit; profitAmount?: number }[] = [];
   private batchTimeout: any = null;
   private readonly BATCH_WINDOW_MS = 500;
@@ -306,8 +295,6 @@ class NotificationService {
         this.notify();
         this.markFired(firedKey);
         console.log(`[Notification] Merged into existing same-SKU entry: ${skuKey} now ${newCount}×`);
-        // Don't replay the sound on every merged unit — keeps the import
-        // from sounding like a slot machine.
         return;
       }
     }
@@ -334,8 +321,6 @@ class NotificationService {
 
     // Mark this notification as fired so it won't trigger again on reload
     this.markFired(firedKey);
-
-    this.playSound(type);
   }
 
   private buildTitle(type: NotificationType, count: number): string {
@@ -408,20 +393,6 @@ class NotificationService {
     this.notifications = this.notifications.filter(n => n.id !== id);
     this.saveToStorage();
     this.notify();
-  }
-
-  private playSound(type: NotificationType) {
-    if (this.playSoundTimeout) {
-      console.warn('[Sound] Sound already playing, skipping');
-      return;
-    }
-    const soundUrl = SOUNDS[type];
-    console.log(`[Sound] Playing sound for ${type}: ${soundUrl}`);
-    const audio = new Audio(soundUrl);
-    audio.play()
-      .then(() => console.log(`[Sound] ${type} sound played successfully`))
-      .catch(e => console.warn(`[Sound] Audio playback failed for ${type}:`, e));
-    this.playSoundTimeout = setTimeout(() => { this.playSoundTimeout = null; }, 1000);
   }
 
   getUnreadCount() {

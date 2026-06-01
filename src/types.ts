@@ -1,15 +1,15 @@
 export type DeviceCategory = 'iPhone' | 'iPad' | 'Apple Watch' | 'Tablet' | 'Samsung S Series' | 'Samsung A Series' | 'Other';
 
 export type DeviceStatus = 'available' | 'sold' | 'reserved' | 'returned' | 'lost' | 'incoming' | 'ready_to_ship' | 'fba';
-export type ListingSite = 'eBay' | 'Amazon' | 'OnBuy' | 'Backmarket' | 'Back Market' | 'FBA' | 'Project' | 'R T S' | 'Other';
+export type ListingSite = 'eBay' | 'Amazon' | 'OnBuy' | 'Backmarket' | 'Back Market' | 'FBA' | 'R T S' | 'Other';
 export type StockLocation = 'office';  // Single location — all stock is held at the office
 export type OperationalFlag = 'top10' | 'supplierHasStock' | 'stockSold';
 
 export type ReturnCategory = 'returned_to_inventory' | 'returned_to_supplier' | 'repair';
 
 // Canonical marketplace sheet names matching the SALES_REPORT workbook tabs
-export type Marketplace = 'AMAZON' | 'BM' | 'EBAY' | 'ONBUY' | 'PROJECT';
-export const MARKETPLACES: Marketplace[] = ['AMAZON', 'BM', 'EBAY', 'ONBUY', 'PROJECT'];
+export type Marketplace = 'AMAZON' | 'BM' | 'EBAY' | 'ONBUY';
+export const MARKETPLACES: Marketplace[] = ['AMAZON', 'BM', 'EBAY', 'ONBUY'];
 
 export interface Supplier {
   id: string;
@@ -251,6 +251,31 @@ export interface Sale {
   totalCom?: number;             // eBay
   vat20?: number;                // OnBuy / eBay
   marVat?: number;               // OnBuy
+  // Amazon-only VAT / DSF / accessory breakdown introduced when the operator
+  // moved Amazon to the explicit per-line VAT model. All optional so older
+  // sale docs round-trip without these fields populated.
+  commissionVat?: number;        // Amazon: Commission * 20%
+  dsf?: number;                  // Amazon: Digital Services Fee = Commission * 2%
+  dsfVat?: number;               // Amazon: DSF * 20%
+  postageVat?: number;           // Amazon + eBay + OnBuy + BM: Postage * 20%
+  accessoryFee?: number;         // Amazon + eBay + OnBuy + BM: flat £1 accessories charge
+  totalVat?: number;             // Amazon: Commission VAT + DSF VAT + Postage VAT
+                                 // eBay: VAT + P. VAT + M. VAT (the eBay VAT bundle is the (Com+ROF+FVF)*20% one)
+                                 // OnBuy: VAT 20% + P. VAT
+                                 // BM has only one VAT (P. VAT) so no separate Total VAT column
+  totalVatNtp?: number;          // Amazon + eBay + OnBuy + BM: Marginal Tax − Total VAT (net tax payable)
+  // eBay-only: 2026-05 schema replaces the old "promo as % of SP" model with
+  // an operator-entered Marketing line + its own VAT.
+  marketing?: number;            // eBay: operator-entered marketing/promo £
+  marketingVat?: number;         // eBay: Marketing * 20%
+  // BM-only: flat customer care fee per sale.
+  customerCareFees?: number;     // BM: flat £9.99
+  // Operator-flagged: zero-rate this sale's postage VAT (e.g. zero-rated
+  // export / VAT-exempt shipping label). When true, P. VAT = 0 and every
+  // downstream field that depends on it (Total VAT, GP, Total VAT NTP)
+  // recomputes accordingly. Stored alongside `postageVat` so re-displays
+  // and re-exports preserve the operator's choice.
+  postageVatExempt?: boolean;
   postage: number;
   grossProfit: number;
   gpPercent: number;
@@ -263,6 +288,12 @@ export interface Sale {
   // this one stays voided in the audit trail.
   voidedAt?: string;     // ISO date when the sale was reversed
   voidReason?: string;   // From ProcessReturnModal (return reason)
+  // Operator's red-row flag from the source workbook — when the DATE / ORDER
+  // NUMBER cell was painted red on the operator's Sales Report sheet, that
+  // row carries an issue (return, refund, chargeback, dispute). Surfaced in
+  // every Sales view with a red highlight so the operator's signal is
+  // preserved through import → Firestore → UI.
+  flagged?: boolean;
   // Provenance
   importBatchId: string;
   sourceFile: string;
@@ -301,8 +332,15 @@ export interface MarketplaceFee {
   marginTaxDivisor?: number;         // 6 for Amazon/BM/OnBuy/Project
   payPalKlarnaPct?: number;          // BM 2.5
   rofPct?: number;                   // eBay 0.35
-  vatPct?: number;                   // 20 (OnBuy margin; eBay fees)
+  vatPct?: number;                   // 20 (OnBuy margin; eBay fees; Amazon VAT-on-fees)
   promoPct?: number;                 // eBay 5
+  // Amazon-only line-level VAT / DSF / accessory rates. Defaults baked in
+  // platforms.ts; broken out into the type so the Firestore loader can
+  // override them per-marketplace without touching the calculator.
+  commissionBase?: 'sp' | 'spMinusBp';  // 'spMinusBp' for Amazon (7% of margin); 'sp' for everyone else
+  dsfPct?: number;                   // Amazon DSF = Commission * 2%
+  accessoryFee?: number;             // Amazon / eBay / OnBuy / BM flat £1
+  customerCareFees?: number;         // BM flat customer-care charge (£9.99)
 }
 
 /**

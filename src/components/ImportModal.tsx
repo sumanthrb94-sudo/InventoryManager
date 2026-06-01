@@ -650,7 +650,7 @@ export default function ImportModal({ onClose }: ImportModalProps) {
         // five marketplace sheets are present, dispatch to the dedicated sales
         // parser instead of the inventory parsers.
         const salesSheets = wb.SheetNames.filter(n =>
-          ['AMAZON', 'BM', 'EBAY', 'ONBUY', 'PROJECT'].includes(n.toUpperCase())
+          ['AMAZON', 'BM', 'EBAY', 'ONBUY'].includes(n.toUpperCase())
         );
         if (salesSheets.length > 0 && !isCsv) {
           const { parseSalesWorkbook } = await import('../lib/salesImport');
