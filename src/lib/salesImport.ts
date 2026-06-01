@@ -217,8 +217,9 @@ const SHEET_LAYOUTS: Record<Marketplace, SheetLayout> = {
       quantity:    ['units', 'quantity', 'quant'],
       buyPrice:    ['bp'],
       salePrice:   ['sp'],
-      // SHIPPING column holds the £1 / £2 / £8 eBay tier the order shipped at.
-      shipping:    ['shipping'],
+      // eBay's Shipping IS the Postage fee — same field, two header names
+      // depending on which sheet version the operator exported.
+      shipping:    ['shipping', 'postage'],
       netProfit:   ['np(incl. promotion)', 'np incl. promotion', 'np'],
       comments:    ['comments'],
     },
