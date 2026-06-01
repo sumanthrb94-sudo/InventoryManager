@@ -24,6 +24,7 @@
  */
 
 import * as XLSX from 'xlsx';
+import ExcelJS from 'exceljs';
 import type { Marketplace, Sale } from '../types';
 import { MARKETPLACES } from '../types';
 import { calcSaleFinancials } from './platforms';
@@ -53,6 +54,13 @@ export async function parseSalesWorkbook(
 ): Promise<ParsedSales> {
   const buf: ArrayBuffer = file instanceof ArrayBuffer ? file : await file.arrayBuffer();
   const wb = XLSX.read(buf, { type: 'array', raw: true, cellText: true, cellDates: true });
+
+  // SheetJS strips font colours, so do a parallel ExcelJS pass on the same
+  // bytes to harvest red-row markers. The operator paints whole rows red on
+  // their Sales Report sheet to flag returns / refunds / chargebacks — we
+  // preserve that signal end-to-end so the import surfaces the same red rows
+  // in every downstream view.
+  const flaggedRowsBySheet = await detectFlaggedRows(buf);
 
   const sales: ParsedSales['sales'] = [];
   const errors: ParsedSales['errors'] = [];
@@ -85,12 +93,15 @@ export async function parseSalesWorkbook(
     const layout = SHEET_LAYOUTS[marketplace];
     const colIdx = resolveColumns(headerRow, layout, sheetName, errors);
 
+    const flaggedRows = flaggedRowsBySheet.get(sheetName.toLowerCase()) ?? new Set<number>();
+
     for (let r = 1; r < rows.length; r++) {
       const row = rows[r];
       // sourceRow is 1-based and accounts for the header row (matches xlsx UX)
       const sourceRow = r + 1;
       const parsed = parseRow(marketplace, row, colIdx, sheetName, sourceRow, sourceFile, errors);
       if (parsed) {
+        if (flaggedRows.has(sourceRow)) parsed.flagged = true;
         sales.push(parsed);
         perSheetCounts[marketplace]++;
         spSum[marketplace] += parsed.salePrice ?? 0;
@@ -253,6 +264,81 @@ const SHEET_LAYOUTS: Record<Marketplace, SheetLayout> = {
     required: ['date', 'orderNumber', 'buyPrice', 'salePrice'],
   },
 };
+
+// ---------------------------------------------------------------------------
+// Red-row detection (operator's flagged sales)
+// ---------------------------------------------------------------------------
+
+/**
+ * Walk every sheet via ExcelJS and return a map of sheetName(lowercase) → set
+ * of 1-based row numbers whose DATE / ORDER NUMBER / SKU cell carries a red
+ * font (or red solid fill).
+ *
+ * The operator's convention on the live Sales Report sheet is to paint a row
+ * red when the order needs attention (return / refund / chargeback / dispute).
+ * SheetJS doesn't surface font colour, so we run a parallel ExcelJS load over
+ * the same bytes to harvest the signal.
+ *
+ * Failure tolerant: if ExcelJS throws (corrupt styles, exotic theme colour)
+ * we return an empty map — the import still completes, just without the red
+ * highlight on the resulting Sales rows.
+ */
+async function detectFlaggedRows(buf: ArrayBuffer): Promise<Map<string, Set<number>>> {
+  const result = new Map<string, Set<number>>();
+  try {
+    const wb = new ExcelJS.Workbook();
+    await wb.xlsx.load(buf);
+    for (const ws of wb.worksheets) {
+      const key = ws.name.trim().toLowerCase();
+      const flagged = new Set<number>();
+      // Probe the first few columns — operators tend to paint the whole row
+      // red, but in practice the DATE/ORDER NUMBER columns are the most
+      // consistent carriers of the colour. Three columns is enough to catch
+      // partial paint-outs without false-positiving on a stray red comment.
+      ws.eachRow({ includeEmpty: false }, (row, rowNum) => {
+        if (rowNum === 1) return; // header
+        for (let c = 1; c <= 3; c++) {
+          const cell = row.getCell(c);
+          if (isRedishCell(cell)) {
+            flagged.add(rowNum);
+            return;
+          }
+        }
+      });
+      if (flagged.size > 0) result.set(key, flagged);
+    }
+  } catch (err) {
+    if (typeof console !== 'undefined' && console.warn) {
+      console.warn('[salesImport] red-row detection skipped:', (err as Error)?.message || err);
+    }
+  }
+  return result;
+}
+
+/** Heuristic: detect a "red" font or solid red fill on an ExcelJS cell. */
+function isRedishCell(cell: ExcelJS.Cell): boolean {
+  const fontArgb = (cell.font as any)?.color?.argb as string | undefined;
+  if (isRedishArgb(fontArgb)) return true;
+  const fill = cell.fill as any;
+  if (fill?.type === 'pattern' && fill.pattern === 'solid') {
+    const fgArgb = fill.fgColor?.argb as string | undefined;
+    if (isRedishArgb(fgArgb)) return true;
+  }
+  return false;
+}
+
+/** ARGB hex → is this clearly a red? Accepts 6-char (RRGGBB) or 8-char (AARRGGBB). */
+function isRedishArgb(argb: string | undefined): boolean {
+  if (!argb) return false;
+  const hex = argb.length === 8 ? argb.slice(2) : argb.length === 6 ? argb : '';
+  if (hex.length !== 6) return false;
+  const r = parseInt(hex.slice(0, 2), 16);
+  const g = parseInt(hex.slice(2, 4), 16);
+  const b = parseInt(hex.slice(4, 6), 16);
+  if (Number.isNaN(r) || Number.isNaN(g) || Number.isNaN(b)) return false;
+  // Dominant red: R clearly above G and B, and R itself isn't a dark grey.
+  return r >= 0xA0 && r >= g + 0x30 && r >= b + 0x30;
+}
 
 // ---------------------------------------------------------------------------
 // Sheet / header resolution

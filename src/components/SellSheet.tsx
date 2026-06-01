@@ -961,15 +961,24 @@ function SheetTable({
           const u = (s.unitId && units.find(x => x.id === s.unitId)) || undefined;
           const supplierName = supplierMap[s.supplierId || ''] || s.supplierName || '—';
           const isAlt = idx % 2 === 1;
-          const rowBg = isAlt ? 'bg-slate-50/40 hover:bg-slate-100/60' : 'bg-white hover:bg-slate-50';
+          // Flagged sales (red rows from the operator's source workbook) win
+          // over the zebra stripe — the operator's signal is what matters.
+          const rowBg = s.flagged
+            ? 'bg-rose-50 hover:bg-rose-100/70'
+            : isAlt ? 'bg-slate-50/40 hover:bg-slate-100/60' : 'bg-white hover:bg-slate-50';
           const gp = s.grossProfit ?? 0;
           const gpTone = gp > 0 ? 'text-emerald-700' : gp < 0 ? 'text-rose-700' : 'text-slate-600';
           const mpTone = MARKETPLACE_TONE[s.marketplace] || 'bg-slate-100 text-slate-600 border-slate-200';
+          const dateTone = s.flagged ? 'text-rose-700 font-semibold' : 'text-slate-700';
 
           return (
-            <tr key={s.id} className={`${rowBg} transition-colors group`}>
+            <tr
+              key={s.id}
+              className={`${rowBg} transition-colors group`}
+              title={s.flagged ? 'Flagged on the source Sales Report (red row)' : undefined}
+            >
               <Td sticky leftPx={0} className={`${rowBg} border-r border-slate-200`}>
-                <span className="text-slate-700">{fmtDateForUser(s.saleDate || '', region) || s.saleDate || '—'}</span>
+                <span className={dateTone}>{fmtDateForUser(s.saleDate || '', region) || s.saleDate || '—'}</span>
               </Td>
               <Td>
                 {s.imei

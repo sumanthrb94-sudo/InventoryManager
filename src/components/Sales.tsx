@@ -580,6 +580,17 @@ export default function Sales() {
             <span className="ml-2 bg-emerald-600 text-white text-[8px] px-1.5 py-0.5 rounded-full">
               {sortedSales.length.toLocaleString('en-GB')}
             </span>
+            {(() => {
+              const flaggedCount = sortedSales.filter(s => s.flagged).length;
+              return flaggedCount > 0 ? (
+                <span
+                  className="bg-rose-100 text-rose-700 border border-rose-200 text-[8px] px-1.5 py-0.5 rounded-full"
+                  title="Rows painted red on the source Sales Report (returns / refunds / disputes)"
+                >
+                  {flaggedCount.toLocaleString('en-GB')} flagged
+                </span>
+              ) : null;
+            })()}
           </h3>
           <ChevronDown size={14} className={`text-emerald-400 transition-transform duration-200 ${isSoldHistoryOpen ? 'rotate-180' : ''}`} />
         </button>
@@ -715,16 +726,30 @@ export default function Sales() {
                     <tbody>
                       {sortedSales.map((s, i) => {
                         const isInApp = s.importBatchId === 'inapp';
+                        // Operator's red-row flag from the source workbook
+                        // wins over the in-app blue tint — these rows need
+                        // attention (return / refund / chargeback).
+                        const rowTint = s.flagged
+                          ? 'bg-rose-50 hover:bg-rose-100/70'
+                          : isInApp
+                            ? 'bg-blue-50/30 hover:bg-emerald-50/60'
+                            : 'hover:bg-emerald-50/60';
+                        const indexBg = s.flagged
+                          ? 'bg-rose-50 hover:bg-rose-100/70'
+                          : 'bg-white hover:bg-emerald-50/60';
+                        const tooltip = s.flagged
+                          ? 'Flagged on the source Sales Report (red row)'
+                          : isInApp
+                            ? 'Source: in-app sell flow (legacy unit)'
+                            : undefined;
                         return (
                           <tr
                             key={s.id}
-                            className={`hover:bg-emerald-50/60 transition-colors ${
-                              isInApp ? 'bg-blue-50/30' : ''
-                            }`}
-                            title={isInApp ? 'Source: in-app sell flow (legacy unit)' : undefined}
+                            className={`${rowTint} transition-colors`}
+                            title={tooltip}
                           >
                             <td
-                              className="sticky left-0 z-10 bg-white hover:bg-emerald-50/60 px-2 py-1.5 text-gray-400 border-b border-r border-gray-100 text-[10px]"
+                              className={`sticky left-0 z-10 ${indexBg} px-2 py-1.5 text-gray-400 border-b border-r border-gray-100 text-[10px]`}
                               style={{ width: 40 }}
                             >
                               {i + 1}
@@ -749,7 +774,17 @@ export default function Sales() {
                                   );
                                   break;
                                 case 'orderNumber':
-                                  display = s.orderNumber || '—';
+                                  display = s.flagged ? (
+                                    <span className="inline-flex items-center gap-1">
+                                      <span className="text-rose-700 font-semibold">{s.orderNumber || '—'}</span>
+                                      <span
+                                        className="text-[8px] font-bold uppercase tracking-widest px-1 py-px rounded border bg-rose-100 text-rose-700 border-rose-200"
+                                        title="Flagged on the source Sales Report (red row)"
+                                      >
+                                        Flagged
+                                      </span>
+                                    </span>
+                                  ) : (s.orderNumber || '—');
                                   break;
                                 case 'sku':
                                   display = s.sku || '—';

@@ -288,6 +288,12 @@ export interface Sale {
   // this one stays voided in the audit trail.
   voidedAt?: string;     // ISO date when the sale was reversed
   voidReason?: string;   // From ProcessReturnModal (return reason)
+  // Operator's red-row flag from the source workbook — when the DATE / ORDER
+  // NUMBER cell was painted red on the operator's Sales Report sheet, that
+  // row carries an issue (return, refund, chargeback, dispute). Surfaced in
+  // every Sales view with a red highlight so the operator's signal is
+  // preserved through import → Firestore → UI.
+  flagged?: boolean;
   // Provenance
   importBatchId: string;
   sourceFile: string;
