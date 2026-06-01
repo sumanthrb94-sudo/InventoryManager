@@ -21,7 +21,7 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import {
   Search, ShoppingCart, ChevronDown, ChevronUp, ChevronsUpDown,
-  Filter, X, AlertCircle, Plus, Info, Sparkles, FileSpreadsheet,
+  Filter, X, AlertCircle, Plus, Info, Sparkles, FileSpreadsheet, Upload,
   TrendingUp, TrendingDown, PackageCheck, Truck,
 } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
@@ -42,6 +42,7 @@ import IntelligencePanel from './IntelligencePanel';
 import PeriodicInventory from './PeriodicInventory';
 import SellOrderModal from './SellOrderModal';
 import EnterImeiModal from './EnterImeiModal';
+import SalesReportImport from './SalesReportImport';
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -120,6 +121,7 @@ export default function SellSheet(_props: Props) {
   const [enterImeiUnit, setEnterImeiUnit] = useState<InventoryUnit | null>(null);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [showSchemaHelp, setShowSchemaHelp] = useState(false);
+  const [showSalesImport, setShowSalesImport] = useState(false);
   // ── Indexes ───────────────────────────────────────────────────────────────
   // Sellable inventory — `status='available'` plus the defensive fallback
   // for units that were processed as "Back to Inventory" but whose status
@@ -418,6 +420,13 @@ export default function SellSheet(_props: Props) {
             <Info size={12} /> Schema
           </button>
           <button
+            onClick={() => setShowSalesImport(true)}
+            title="Import a SALES_REPORT_*.xlsx — backfills historic sales across AMAZON / BM / EBAY / ONBUY"
+            className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-white text-emerald-700 border border-emerald-300 text-[10px] font-bold uppercase tracking-widest hover:bg-emerald-50 transition-all"
+          >
+            <Upload size={12} /> Import Sales
+          </button>
+          <button
             onClick={handleSalesReport}
             title="Download a unified Sales Report (buy schema + sale fields, one row per non-voided sale)"
             className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-emerald-600 text-white text-[10px] font-bold uppercase tracking-widest hover:bg-emerald-700 transition-all"
@@ -675,6 +684,10 @@ export default function SellSheet(_props: Props) {
           />
         )}
       </AnimatePresence>
+
+      {showSalesImport && (
+        <SalesReportImport onClose={() => setShowSalesImport(false)} />
+      )}
     </div>
   );
 }
