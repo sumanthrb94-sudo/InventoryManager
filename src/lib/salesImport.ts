@@ -505,9 +505,16 @@ function parseRow(
   const orderNumber = toNonEmptyString(get('orderNumber'));
   const imei = toNonEmptyString(get('imei'));
   if (!orderNumber && !imei) {
-    // A completely blank row is silently skipped (xlsx already strips most),
-    // but a row that has financials but no identifiers is a true error.
-    if (hasAnyValue(row)) {
+    // A row missing both identifiers is only a TRUE error when it carries
+    // real operator-entered data — BP, SP, supplier, or sku with a
+    // non-zero / non-blank value. Pure-zero / phantom-formula rows are
+    // SheetJS noise: when the operator's xlsx has shared formulas with a
+    // limited range (e.g. I2:I157), SheetJS extrapolates them BEYOND the
+    // ref and returns synthetic numbers (often zeros) for blank rows past
+    // the data section. Those rows are visually empty in Excel but the
+    // parser would otherwise flag them. `hasFinancialValue` ignores them
+    // by requiring meaningful identifier or money content.
+    if (hasFinancialValue(row, cols)) {
       errors.push({ sheet: sheetName, row: sourceRow, message: 'missing both orderNumber AND imei' });
     }
     return null;
@@ -627,6 +634,30 @@ function parseRow(
 
 function hasAnyValue(row: any[]): boolean {
   return row.some((v) => v !== null && v !== undefined && String(v).trim() !== '');
+}
+
+/**
+ * Stricter check used when deciding whether to emit a "missing both
+ * orderNumber AND imei" error. A row is considered to carry MEANINGFUL
+ * data only when an IDENTIFIER STRING (sku or supplier) is present.
+ *
+ * Money columns (BP / SP / commission / etc.) are deliberately NOT
+ * checked, because SheetJS fabricates phantom numeric values for
+ * cells past the operator's data section when the workbook defines
+ * shared formulas (e.g. K2:K157 = (H*6.9%)−(H*6.9%)*10%). For rows
+ * outside that range, the worksheet has zero real cell objects but
+ * `sheet_to_json` still synthesises BP, SP, computed columns, etc.
+ * Filtering on identifier strings ignores those phantom rows and only
+ * flags rows where the operator typed real text without an ID.
+ */
+function hasFinancialValue(row: any[], cols: Partial<Record<ColKey, number>>): boolean {
+  for (const k of ['sku', 'supplier'] as const) {
+    const i = cols[k];
+    if (i === undefined) continue;
+    const v = row[i];
+    if (typeof v === 'string' && v.trim() !== '') return true;
+  }
+  return false;
 }
 
 /** Stringify a cell, return undefined when blank. Numbers are preserved as
