@@ -589,6 +589,12 @@ function parseRow(
     salePrice,
     paymentMode,
     ...fin,
+    // Persist the operator's P. VAT zero-rate signal on the Sale doc so
+    // the exporter can write P. VAT as a literal 0 (not the postage×20%
+    // formula) and a re-import round-trips correctly. Without this, the
+    // exported P. VAT cell always reapplies 20% of postage, losing the
+    // operator's per-row VAT-exempt decision.
+    postageVatExempt: explicitVatExempt || undefined,
     comments,
     sourceFile,
     sourceRow,

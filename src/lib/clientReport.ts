@@ -300,7 +300,15 @@ function writeSaleRow(
       row.getCell(13).value = { formula: f.dsf! };           row.getCell(13).numFmt = MONEY_FMT;
       row.getCell(14).value = { formula: f.dsfVat! };        row.getCell(14).numFmt = MONEY_FMT;
       row.getCell(15).numFmt = MONEY_FMT; // Postage (literal value above)
-      row.getCell(16).value = { formula: f.postageVat! };    row.getCell(16).numFmt = MONEY_FMT;
+      // P. VAT: literal 0 when operator zero-rated the line; otherwise
+      // formula. Preserves the per-row VAT-exempt decision across export
+      // → re-import (the formula would always re-apply 20% × postage).
+      if (sale.postageVatExempt) {
+        row.getCell(16).value = 0;
+      } else {
+        row.getCell(16).value = { formula: f.postageVat! };
+      }
+      row.getCell(16).numFmt = MONEY_FMT;
       row.getCell(17).numFmt = MONEY_FMT; // Accessories (literal value above)
       row.getCell(18).value = { formula: f.totalVat! };      row.getCell(18).numFmt = MONEY_FMT;
       row.getCell(19).value = { formula: f.grossProfit! };   row.getCell(19).numFmt = MONEY_FMT;
@@ -337,7 +345,12 @@ function writeSaleRow(
       row.getCell(11).value = { formula: f.commission! };   row.getCell(11).numFmt = MONEY_FMT;
       row.getCell(12).numFmt = MONEY_FMT;                   // Customer Care Fees (literal above)
       row.getCell(13).numFmt = MONEY_FMT;                   // Postage (literal above)
-      row.getCell(14).value = { formula: f.postageVat! };   row.getCell(14).numFmt = MONEY_FMT;
+      if (sale.postageVatExempt) {
+        row.getCell(14).value = 0;
+      } else {
+        row.getCell(14).value = { formula: f.postageVat! };
+      }
+      row.getCell(14).numFmt = MONEY_FMT;
       row.getCell(15).numFmt = MONEY_FMT;                   // Accessories (literal above)
       row.getCell(16).value = { formula: f.grossProfit! };  row.getCell(16).numFmt = MONEY_FMT;
       row.getCell(17).value = { formula: f.gpPercent! };    row.getCell(17).numFmt = MONEY_FMT;
@@ -382,7 +395,12 @@ function writeSaleRow(
       row.getCell(14).value = { formula: f.vat20! };        row.getCell(14).numFmt = MONEY_FMT;
       row.getCell(15).value = { formula: f.totalCom! };     row.getCell(15).numFmt = MONEY_FMT;
       row.getCell(16).numFmt = MONEY_FMT;                   // Postage (literal above)
-      row.getCell(17).value = { formula: f.postageVat! };   row.getCell(17).numFmt = MONEY_FMT;
+      if (sale.postageVatExempt) {
+        row.getCell(17).value = 0;
+      } else {
+        row.getCell(17).value = { formula: f.postageVat! };
+      }
+      row.getCell(17).numFmt = MONEY_FMT;
       if (!hasExplicitMarketing) {
         row.getCell(18).value = { formula: f.marketing! };
       }
@@ -422,7 +440,12 @@ function writeSaleRow(
       row.getCell(10).value = { formula: f.commission! };   row.getCell(10).numFmt = MONEY_FMT;
       row.getCell(11).value = { formula: f.vat20! };        row.getCell(11).numFmt = MONEY_FMT;
       row.getCell(12).numFmt = MONEY_FMT;                   // Postage (literal above)
-      row.getCell(13).value = { formula: f.postageVat! };   row.getCell(13).numFmt = MONEY_FMT;
+      if (sale.postageVatExempt) {
+        row.getCell(13).value = 0;
+      } else {
+        row.getCell(13).value = { formula: f.postageVat! };
+      }
+      row.getCell(13).numFmt = MONEY_FMT;
       row.getCell(14).numFmt = MONEY_FMT;                   // Accessories (literal above)
       row.getCell(15).value = { formula: f.totalVat! };     row.getCell(15).numFmt = MONEY_FMT;
       row.getCell(16).value = { formula: f.grossProfit! };  row.getCell(16).numFmt = MONEY_FMT;
@@ -460,10 +483,12 @@ export async function buildSalesWorkbookBuffer(input: BuildSalesWorkbookInput): 
       const rowNumber = i + 2; // skip header
       const sale = bucket[i];
       writeSaleRow(sheet, m, sale, rowNumber);
-      // Red fill on voided rows — applied across every cell in the row
-      // so the highlight covers the full width even when the master
-      // schema includes blank/formula-only cells.
-      if (sale.voidedAt) {
+      // Red fill applied across every cell of any row the operator has
+      // marked as needing attention — either a soft-deleted void (voidedAt)
+      // or a red-row import flag carried from the source workbook. Same
+      // visual signal in both cases so the export looks identical to the
+      // operator's hand-painted Sales Report sheet.
+      if (sale.voidedAt || sale.flagged) {
         const row = sheet.getRow(rowNumber);
         for (let col = 1; col <= headerLen; col++) {
           row.getCell(col).fill = RETURNED_FILL;
