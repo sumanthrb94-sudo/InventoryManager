@@ -168,6 +168,11 @@ export interface CalcSaleFinancialsInput {
    *  marketplace. Used for VAT-exempt shipping (zero-rated EU export,
    *  etc). Defaults to false so existing behaviour is unchanged. */
   postageVatExempt?: boolean;
+  /** Operator-overridden accessory fee for this line — when supplied,
+   *  trumps the per-marketplace `fee.accessoryFee` default. Used when the
+   *  client's sheet zero-rates Acc on a row (e.g. generic charger SKU
+   *  that doesn't carry the £1 accessory bundle). */
+  accessoryFeeOverride?: number;
 }
 
 export interface SaleFinancials {
@@ -302,7 +307,7 @@ export function calcSaleFinancials(input: CalcSaleFinancialsInput): SaleFinancia
       const vatPctFrac = (fee.vatPct ?? 20) / 100;
       const dsfPctFrac = (fee.dsfPct ?? 0) / 100;
       const commissionBaseVal = (fee.commissionBase ?? 'spMinusBp') === 'sp' ? sp : spMinusBp;
-      const accessoryFeeVal = fee.accessoryFee ?? 0;
+      const accessoryFeeVal = input.accessoryFeeOverride ?? fee.accessoryFee ?? 0;
 
       // Marginal Tax uses the literal 16.67% rate (operator's reference
       // sheet writes =C3*16.67% across Amazon / eBay / OnBuy — all three
@@ -372,7 +377,7 @@ export function calcSaleFinancials(input: CalcSaleFinancialsInput): SaleFinancia
       //                                                  column; NTP subtracts
       //                                                  postage VAT directly.)
       const vatPctFrac = (fee.vatPct ?? 20) / 100;
-      const accessoryFeeVal = fee.accessoryFee ?? 0;
+      const accessoryFeeVal = input.accessoryFeeOverride ?? fee.accessoryFee ?? 0;
       const customerCareFeesVal = fee.customerCareFees ?? 0;
 
       const marginalTaxRaw      = spMinusBp * 16.67 / 100;
@@ -453,7 +458,7 @@ export function calcSaleFinancials(input: CalcSaleFinancialsInput): SaleFinancia
       //                                                revenue. Distinct from
       //                                                Amazon's GP/BP convention.
       const vatPctFrac = (fee.vatPct ?? 20) / 100;
-      const accessoryFeeVal = fee.accessoryFee ?? 0;
+      const accessoryFeeVal = input.accessoryFeeOverride ?? fee.accessoryFee ?? 0;
       // Marketing defaults to 5% of SP (matches the operator's =B3*5% cell);
       // callers can supply an explicit number to override for the rare
       // hand-set spend.
@@ -531,7 +536,7 @@ export function calcSaleFinancials(input: CalcSaleFinancialsInput): SaleFinancia
       //                                                distinct from eBay's
       //                                                GP/SP).
       const vatPctFrac = (fee.vatPct ?? 20) / 100;
-      const accessoryFeeVal = fee.accessoryFee ?? 0;
+      const accessoryFeeVal = input.accessoryFeeOverride ?? fee.accessoryFee ?? 0;
 
       const marginalTaxRaw  = spMinusBp * 16.67 / 100;
       const commissionRaw   = sp * fee.commissionPct / 100;

@@ -226,7 +226,7 @@ const SALES_HEADERS: Record<Marketplace, SalesHeaderRow> = {
     'Date', 'Order Number', 'SKU', 'IMEI', 'Supplier', 'Quantity',
     'BP', 'SP', 'SP-BP', 'Marginal Tax', 'Commission',
     'C. VAT', 'DSF', 'DSF. VAT',
-    'Postage', 'P. VAT', 'Accessories',
+    'Postage', 'P. VAT', 'Acc',
     'Total VAT', 'GP', 'GP %', 'Total VAT NTP',
     'Comments',
   ],

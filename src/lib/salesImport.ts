@@ -151,7 +151,7 @@ type ColKey =
   | 'date' | 'orderNumber' | 'sku' | 'imei' | 'supplier'
   | 'quantity' | 'buyPrice' | 'salePrice'
   | 'paymentMode' | 'shipping' | 'netProfit'
-  | 'postage' | 'marketing' | 'comments';
+  | 'postage' | 'pVat' | 'acc' | 'marketing' | 'comments';
 
 interface SheetLayout {
   /** Header aliases per logical column (case-insensitive, whitespace-collapsed).
@@ -214,11 +214,17 @@ const SHEET_LAYOUTS: Record<Marketplace, SheetLayout> = {
       buyPrice:    ['bp', 'buy price', 'buyprice'],
       salePrice:   ['sp', 'sale price', 'saleprice'],
       postage:     ['postage', 'ship', 'shipping', 'postage £', 'p.'],
+      pVat:        ['p. vat', 'p.vat', 'postage vat'],
+      acc:         ['acc', 'accessories', 'accessory', 'acc.'],
       comments:    ['comments', 'comment', 'notes'],
     },
+    // Fallbacks intentionally omit `comments` — operator's sheet leaves the
+    // Comments header blank (column 22), so leave it header-match-only and
+    // never positional-fallback (otherwise the legacy idx 14 would steal the
+    // DSF. VAT cell on the 2026-05 22-col schema).
     fallback: {
       date: 0, orderNumber: 1, sku: 2, imei: 3, supplier: 4,
-      quantity: 5, buyPrice: 6, salePrice: 7, postage: 11, comments: 14,
+      quantity: 5, buyPrice: 6, salePrice: 7,
     },
     required: ['date', 'orderNumber', 'buyPrice', 'salePrice'],
   },
@@ -237,11 +243,13 @@ const SHEET_LAYOUTS: Record<Marketplace, SheetLayout> = {
       salePrice:   ['sp', 'sale price', 'saleprice'],
       paymentMode: ['payment mode', 'payment', 'paymentmode'],
       postage:     ['postage', 'ship', 'shipping', 'postage £'],
+      pVat:        ['p. vat', 'p.vat', 'postage vat'],
+      acc:         ['acc', 'accessories', 'accessory', 'acc.'],
       comments:    ['comments', 'comment', 'notes'],
     },
     fallback: {
       date: 0, orderNumber: 1, sku: 2, imei: 3, supplier: 4,
-      quantity: 5, buyPrice: 6, salePrice: 7, paymentMode: 8, postage: 13, comments: 16,
+      quantity: 5, buyPrice: 6, salePrice: 7, paymentMode: 8,
     },
     required: ['date', 'orderNumber', 'buyPrice', 'salePrice'],
   },
@@ -261,16 +269,18 @@ const SHEET_LAYOUTS: Record<Marketplace, SheetLayout> = {
       // eBay's Shipping IS the Postage fee — same field, two header names
       // depending on which sheet version the operator exported.
       shipping:    ['shipping', 'postage'],
+      pVat:        ['p. vat', 'p.vat', 'postage vat'],
+      acc:         ['acc', 'accessories', 'accessory', 'acc.'],
       // 2026-05 schema introduced an operator-entered Marketing line that
       // replaced the implicit 5%-of-SP convention. Read it when present so
       // the recompute uses the file's actual marketing spend.
       marketing:   ['marketing', 'marketing £'],
       netProfit:   ['np(incl. promotion)', 'np incl. promotion', 'np'],
-      comments:    ['comments'],
+      comments:    ['comments', 'comment', 'notes'],
     },
     fallback: {
       date: 0, orderNumber: 1, sku: 2, imei: 3, supplier: 4,
-      quantity: 5, buyPrice: 6, salePrice: 7, shipping: 15, netProfit: 18,
+      quantity: 5, buyPrice: 6, salePrice: 7,
     },
     required: ['date', 'orderNumber', 'buyPrice', 'salePrice'],
   },
@@ -288,13 +298,15 @@ const SHEET_LAYOUTS: Record<Marketplace, SheetLayout> = {
       buyPrice:    ['bp', 'buy price', 'buyprice'],
       salePrice:   ['sp', 'sale price', 'saleprice'],
       postage:     ['ship', 'postage', 'shipping', 'postage £'],
+      pVat:        ['p. vat', 'p.vat', 'postage vat'],
+      acc:         ['acc', 'accessories', 'accessory', 'acc.'],
       comments:    ['comments', 'comment', 'notes'],
     },
     fallback: {
       date: 0, orderNumber: 1, sku: 2, imei: 3, supplier: 4,
       // NB: BP at 5, SP at 6 — one less than the other marketplaces because
-      // OnBuy has no Quantity column. Ship/postage sits at idx 11.
-      buyPrice: 5, salePrice: 6, postage: 11, comments: 14,
+      // OnBuy has no Quantity column.
+      buyPrice: 5, salePrice: 6,
     },
     required: ['date', 'orderNumber', 'buyPrice', 'salePrice'],
   },
@@ -432,6 +444,19 @@ function resolveColumns(
       }
     }
   }
+  // Comments-specific final fallback: the client's sheets routinely leave
+  // the Comments header blank in the last column (the operator types
+  // free-form notes into that column without a header). If `comments` is
+  // still unresolved AND the last column's header is empty AND that index
+  // isn't already claimed, treat it as Comments.
+  if (out.comments === undefined && headerRow.length > 0) {
+    const lastIdx = headerRow.length - 1;
+    const lastHeader = normalised[lastIdx];
+    const alreadyTaken = Object.values(out).includes(lastIdx);
+    if (!lastHeader && !alreadyTaken) {
+      out.comments = lastIdx;
+    }
+  }
   for (const req of layout.required) {
     if (out[req] === undefined) {
       errors.push({
@@ -520,11 +545,27 @@ function parseRow(
   // present so the recompute matches the operator's sheet penny-for-penny.
   const marketingFromFile = marketplace === 'EBAY' ? toNumber(get('marketing')) : undefined;
 
+  // Operator-overridden Acc cell (e.g. £0 for a generic accessory SKU
+  // that doesn't carry the £1 bundle). When present, trumps the per-
+  // marketplace `fee.accessoryFee` default in calcSaleFinancials.
+  const accFromFile = toNumber(get('acc'));
+
+  // Operator-zero-rated P. VAT — when the file's P. VAT cell is 0 but
+  // postage is > 0, the operator is explicitly zero-rating VAT on this
+  // line (VAT-exempt shipment / non-VATable accessory SKU). We translate
+  // that into the `postageVatExempt` flag so the recompute reproduces
+  // the operator's intent byte-for-byte.
+  const pVatFromFile = toNumber(get('pVat'));
+  const explicitVatExempt =
+    pVatFromFile === 0 && rawPostage != null && rawPostage > 0;
+
   // ---- recompute every derived field ------------------------------------
   const fin = calcSaleFinancials({
     marketplace, buyPrice, salePrice,
     postageOverride, eBayShippingTier, hasPayPalKlarna,
     marketing: marketingFromFile,
+    accessoryFeeOverride: accFromFile,
+    postageVatExempt: explicitVatExempt || undefined,
   });
 
   const supplierName = toNonEmptyString(get('supplier'));
