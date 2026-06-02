@@ -42,14 +42,19 @@ const PASSWORDS_PATH =
   process.env.TEAM_PASSWORDS ||
   path.join(__dirname, 'team-passwords.json');
 
-// Keep this list in sync with ALLOWED_USERS in src/lib/firebase.ts.
-// If you change one, change the other.
+// Keep this list in sync with the email allowlists in src/lib/firebase.ts.
+// UK team: admin@ + sai@ + bunty@. India team: mithun@ + sujatha@ + aravind@.
+// Admin is the only role with edit permission; non-admins are read-only
+// everywhere EXCEPT the Bulk Order review flow.
 const ALLOWED_USERS = [
-  { username: 'admin',   email: 'admin@mpm.local',   displayName: 'Admin' },
-  { username: 'sumanth', email: 'sumanth@mpm.local', displayName: 'Sumanth' },
-  { username: 'ram',     email: 'ram@mpm.local',     displayName: 'Ram' },
-  { username: 'ops1',    email: 'ops1@mpm.local',    displayName: 'Ops 1' },
-  { username: 'ops2',    email: 'ops2@mpm.local',    displayName: 'Ops 2' },
+  // UK team
+  { username: 'admin',   email: 'admin@inventorymanager.com',   displayName: 'Admin',   region: 'admin' },
+  { username: 'sai',     email: 'sai@inventorymanager.com',     displayName: 'Sai',     region: 'uk'    },
+  { username: 'bunty',   email: 'bunty@inventorymanager.com',   displayName: 'Bunty',   region: 'uk'    },
+  // India team
+  { username: 'mithun',  email: 'mithun@inventorymanager.com',  displayName: 'Mithun',  region: 'india' },
+  { username: 'sujatha', email: 'sujatha@inventorymanager.com', displayName: 'Sujatha', region: 'india' },
+  { username: 'aravind', email: 'aravind@inventorymanager.com', displayName: 'Aravind', region: 'india' },
 ];
 
 function bail(msg) {

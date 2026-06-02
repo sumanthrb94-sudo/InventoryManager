@@ -29,6 +29,9 @@ const COL: Record<string, string> = {
   inventoryAggregates:     'inventoryAggregates',
   marketplaceFees:         'marketplaceFees',
   supplierWhatsappUpdates: 'supplierWhatsappUpdates',
+  // Append-only audit trail of mutating ops — who/when/what/where.
+  // Admin-only viewer surfaces this; non-admins never read it.
+  auditLog:                'auditLog',
 };
 
 function colRef(name: string) {
@@ -112,6 +115,55 @@ function cleanForFirestore(obj: Record<string, any>): Record<string, any> {
   return out;
 }
 
+// ── Audit log ────────────────────────────────────────────────────────────────
+// Fire-and-forget writer recording who edited what. Every mutating method
+// (create / update / delete / bulkCreate / bulkDelete) calls this. Never
+// throws — audit failures must never block the original write. The admin
+// audit-log viewer reads from the `auditLog` collection.
+//
+// Schema:
+//   { id, actorUid, actorEmail, action, collection, docId?, count?, ts }
+// `action` is one of: create | update | delete | bulk_create | bulk_delete
+// `count` is only set for bulk_*, gives the number of affected docs.
+
+import { auth } from './firebase';
+
+export type AuditAction = 'create' | 'update' | 'delete' | 'bulk_create' | 'bulk_delete';
+
+function recordAudit(
+  action: AuditAction,
+  collectionName: string,
+  details: { docId?: string; count?: number } = {},
+): void {
+  const user = auth.currentUser;
+  // Skip self-referential audit writes — otherwise every audit entry
+  // would generate another audit entry in an infinite loop.
+  if (collectionName === 'auditLog' || collectionName === COL.auditLog) return;
+  // Skip pre-auth bootstrap writes (e.g. anonymous import seed).
+  if (!user) return;
+  const id = `aud-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+  const entry = {
+    id,
+    actorUid:   user.uid,
+    actorEmail: user.email ?? '(unknown)',
+    action,
+    collection: collectionName,
+    docId:      details.docId,
+    count:      details.count,
+    ts:         serverTimestamp(),
+  };
+  // Optimistic cache update so the admin viewer reflects the entry instantly.
+  const current = [entry, ...(cachedData['auditLog'] || [])].slice(0, 5000);
+  cachedData['auditLog'] = current;
+  emit('auditLog', current);
+  // Background write — failures get logged but never block the caller.
+  setDoc(docRef('auditLog', id), cleanForFirestore(entry)).catch((err: any) => {
+    if (typeof console !== 'undefined' && console.warn) {
+      console.warn('[audit] write failed:', err?.message || err);
+    }
+  });
+}
+
 // ── dbService ─────────────────────────────────────────────────────────────────
 export const dbService = {
 
@@ -130,6 +182,7 @@ export const dbService = {
     } catch (err: any) {
       console.warn(`Firestore create [${collectionName}/${id}]:`, err.message);
     }
+    recordAudit('create', collectionName, { docId: id });
   },
 
   async update(collectionName: string, id: string, data: any) {
@@ -149,6 +202,7 @@ export const dbService = {
     } catch (err: any) {
       console.warn(`Firestore update [${collectionName}/${id}]:`, err.message);
     }
+    recordAudit('update', collectionName, { docId: id });
   },
 
   async delete(collectionName: string, id: string) {
@@ -161,6 +215,7 @@ export const dbService = {
     } catch (err: any) {
       console.warn(`Firestore delete [${collectionName}/${id}]:`, err.message);
     }
+    recordAudit('delete', collectionName, { docId: id });
   },
 
   async bulkCreate(
@@ -217,6 +272,11 @@ export const dbService = {
     }
 
     onProgress?.(total, total);
+    // One audit entry per affected collection — chunking 1k+ rows into
+    // 1k+ audit entries would drown the viewer.
+    for (const [col, items] of Object.entries(byCollection)) {
+      recordAudit('bulk_create', col, { count: items.length });
+    }
   },
 
   /**
@@ -258,6 +318,7 @@ export const dbService = {
       await new Promise(r => setTimeout(r, 0));
     }
     onProgress?.(total, total);
+    recordAudit('bulk_delete', collectionName, { count: total });
     return total;
   },
 
