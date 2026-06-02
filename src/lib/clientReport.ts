@@ -27,39 +27,9 @@ import { MARKETPLACES } from '../types';
 import { excelFormulaFor } from './platforms';
 import { recomputeSale } from './recomputeSale';
 
-/** Unified flat schema for the ALL sheet. 22 columns: buy schema (9)
- *  first, then sale fields (13). Marketplace is a column, not a tab. */
-const ALL_HEADERS = [
-  // Buy side (9)
-  'Stock In Date', 'Model', 'IMEI', 'Grade', 'Storage', 'Colour',
-  'Supplier', 'BP', 'Notes',
-  // STATUS sits right after the buy block so the operator sees it
-  // immediately on scroll — "Sold" / "Back to Stock" / "Repair" / "RTS"
-  // (return to supplier). Voided rows also fill red across the row.
-  'Status',
-  // Sale side (13)
-  'Sale Date', 'Marketplace', 'Order Number', 'SKU', 'SP',
-  'Payment Mode', 'Postage', 'SP - BP', 'Tax', 'Commission',
-  'GP', 'GP %', 'NP',
-];
-
-/** Map the unit's ReturnCategory to a short status label. Falls back to a
- *  generic "Returned" when the sale is voided but the linked unit doesn't
- *  carry a returnType (legacy data / orphan void). */
-function statusForSale(sale: Sale, unit?: InventoryUnit): string {
-  if (!sale.voidedAt) return 'Sold';
-  switch (unit?.returnType) {
-    case 'returned_to_inventory': return 'Back to Stock';
-    case 'repair':                return 'Repair';
-    case 'returned_to_supplier':  return 'RTS';
-    default:                      return 'Returned';
-  }
-}
-
 /** Light-red fill used on voided (returned) rows across every sheet of
  *  the Sales Report. Same colour everywhere so the operator's eye picks
- *  out reversals at a glance, whether they're scanning the ALL sheet or
- *  a per-marketplace tab. */
+ *  out reversals at a glance across the four per-marketplace tabs. */
 const RETURNED_FILL: import('exceljs').FillPattern = {
   type: 'pattern',
   pattern: 'solid',
@@ -88,12 +58,12 @@ export interface BuildInventoryWorkbookInput {
 
 export interface BuildSalesWorkbookInput {
   sales: Sale[];
-  /** Inventory units used by the ALL sheet to join in buy-side columns
-   *  (Stock In Date, Model, Grade, Storage, Colour, Supplier, Notes). When
-   *  omitted those columns render blank but the ALL sheet still ships. */
+  /** Optional inventory units. Reserved for callers that want to surface
+   *  buy-side context in a future enhancement — the four per-marketplace
+   *  sheets don't need them today, so omitting is fine. */
   units?: InventoryUnit[];
-  /** Resolves supplierId → supplier name on the ALL sheet. Falls back to
-   *  the Sale's stored supplierName when no map entry matches. */
+  /** Resolves supplierId → supplier name when sales rows carry only an id.
+   *  Falls back to the Sale's stored supplierName when no map entry matches. */
   supplierMap?: Record<string, string>;
   opts?: ClientReportOptions;
 }
@@ -476,14 +446,10 @@ export async function buildSalesWorkbookBuffer(input: BuildSalesWorkbookInput): 
 
   const wb = new ExcelJS.Workbook();
 
-  // Sheet 1: ALL — every (non-PROJECT-or-not) sale in one flat 22-col table,
-  // buy + sale data joined, computed values via recomputeSale. Filterable in
-  // Excel by Marketplace column.
-  writeAllSheet(wb.addWorksheet('ALL'), filtered, units ?? [], supplierMap ?? {});
-
-  // Sheets 2-5: per-platform, mirroring the operator's master SALES_REPORT
-  // shape exactly (headers + formulas via excelFormulaFor). PROJECT excluded
-  // — we sell on 4 platforms only.
+  // Per-marketplace sheets ONLY — the client's Sales Report has exactly four
+  // tabs (AMAZON / BM / EBAY / ONBUY). No combined 'ALL' sheet; the operator
+  // doesn't generate or hand over an all-in-one view, only the four
+  // marketplace-shaped sheets. PROJECT excluded — we sell on 4 platforms.
   for (const m of MARKETPLACES) {
     const sheet = wb.addWorksheet(m);
     sheet.addRow(SALES_HEADERS[m]);
@@ -494,9 +460,9 @@ export async function buildSalesWorkbookBuffer(input: BuildSalesWorkbookInput): 
       const rowNumber = i + 2; // skip header
       const sale = bucket[i];
       writeSaleRow(sheet, m, sale, rowNumber);
-      // Same red-fill visual signal as the ALL sheet — applied across
-      // every cell in the row so the highlight covers the full width
-      // even when the master schema includes blank/formula-only cells.
+      // Red fill on voided rows — applied across every cell in the row
+      // so the highlight covers the full width even when the master
+      // schema includes blank/formula-only cells.
       if (sale.voidedAt) {
         const row = sheet.getRow(rowNumber);
         for (let col = 1; col <= headerLen; col++) {
@@ -507,90 +473,6 @@ export async function buildSalesWorkbookBuffer(input: BuildSalesWorkbookInput): 
   }
 
   return wb.xlsx.writeBuffer() as Promise<ArrayBuffer>;
-}
-
-/** Write the ALL sheet — one row per sale, buy fields pulled from the
- *  matched unit (by sale.unitId), financial fields recomputed live. */
-function writeAllSheet(
-  sheet: ExcelJS.Worksheet,
-  sales: Sale[],
-  units: InventoryUnit[],
-  supplierMap: Record<string, string>,
-): void {
-  sheet.addRow(ALL_HEADERS);
-  // Index units by id once so the per-sale lookup is O(1).
-  const unitsById = new Map<string, InventoryUnit>();
-  for (const u of units) unitsById.set(u.id, u);
-
-  // Newest sales first — matches the in-app default and means most-recent
-  // activity sits at the top of the sheet when the operator opens it.
-  const sorted = [...sales].sort((a, b) => (b.saleDate || '').localeCompare(a.saleDate || ''));
-
-  for (const s of sorted) {
-    const u = s.unitId ? unitsById.get(s.unitId) : undefined;
-    const r = recomputeSale(s);
-    // Per-marketplace commission flatten: eBay rolls ROF+FVF+VAT into T.COM;
-    // BM adds PayPal/Klarna on top. Unified column reads as "total fee
-    // paid to the platform" regardless of marketplace.
-    const commission =
-      s.marketplace === 'EBAY' ? (r.totalCom ?? r.commission)
-      : s.marketplace === 'BM' ? (r.commission + (r.payPalKlarnaCom ?? 0))
-      : r.commission;
-    const tax = r.marVat ?? r.marginalTax;
-
-    const row = sheet.addRow([
-      // Buy block (cols 1-9)
-      u?.dateIn ? toDate(u.dateIn) : null,
-      u?.model || '',
-      s.imei || u?.imei || '',
-      u?.grade || '',
-      u?.storage || '',
-      u?.colour || '',
-      supplierMap[s.supplierId || ''] || s.supplierName || u?.supplierName || '',
-      s.buyPrice,
-      u?.notes || '',
-      // Status (col 10) — Sold / Back to Stock / Repair / RTS / Returned
-      statusForSale(s, u),
-      // Sale block (cols 11-23)
-      toDate(s.saleDate),
-      s.marketplace,
-      s.orderNumber || '',
-      s.sku || '',
-      s.salePrice,
-      s.paymentMode || '',
-      r.postage,
-      r.spMinusBp,
-      tax,
-      commission,
-      r.grossProfit,
-      r.gpPercent,
-      // NP = GP minus marketplace-specific promo. eBay deducts 5%; the
-      // other three platforms have no promo concept, so NP equals GP
-      // (calcSaleFinancials returns undefined for those — fallback here
-      // keeps the unified column populated end-to-end).
-      r.netProfit ?? r.grossProfit,
-    ]);
-
-    // Number formats — buy date (1), IMEI (3), BP (8); Status is col 10,
-    // sale date moves to col 11, and the £ columns slide one right.
-    row.getCell(1).numFmt = DATE_FMT;
-    row.getCell(3).numFmt = IMEI_FMT;
-    row.getCell(8).numFmt = MONEY_FMT;
-    row.getCell(11).numFmt = DATE_FMT;
-    for (const col of [15, 17, 18, 19, 20, 21, 22, 23]) {
-      row.getCell(col).numFmt = MONEY_FMT;
-    }
-    row.getCell(10).numFmt = DATE_FMT;
-
-    // Highlight returned rows across the entire 23-col span. Applied to
-    // every cell (not the row) so Excel doesn't try to extend the fill
-    // to unused columns on the right edge.
-    if (s.voidedAt) {
-      for (let col = 1; col <= ALL_HEADERS.length; col++) {
-        row.getCell(col).fill = RETURNED_FILL;
-      }
-    }
-  }
 }
 
 // ---------------------------------------------------------------------------
@@ -643,7 +525,8 @@ export async function downloadClientWorkbooks(input: DownloadClientWorkbooksInpu
 }
 
 /**
- * Download just the SALES_REPORT workbook (ALL + per-platform sheets).
+ * Download just the SALES_REPORT workbook — exactly four per-marketplace
+ * sheets (AMAZON / BM / EBAY / ONBUY) mirroring the client's source format.
  * Used by the Sell-screen "Sales Report" button — single-click download
  * with the same per-marketplace formulas the master file uses.
  * Filename carries YYYY-MM-DD_HHMM so multiple pulls per day sort
