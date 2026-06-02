@@ -49,7 +49,8 @@ import SalesReportImport from './SalesReportImport';
 type KpiId = 'today' | 'month' | 'all' | 'gpPct' | 'awaiting';
 type DateScope = 'today' | 'week' | 'month' | 'all';
 type SortKey =
-  | 'saleDate' | 'sku' | 'model' | 'storage' | 'colour' | 'buyPrice' | 'salePrice'
+  | 'saleDate' | 'orderNumber' | 'sku' | 'model' | 'storage' | 'colour'
+  | 'buyPrice' | 'salePrice' | 'spMinusBp' | 'marginalTax'
   | 'grossProfit' | 'gpPercent' | 'marketplace' | 'supplier' | 'postage' | 'commission';
 type SortDir = 'asc' | 'desc';
 
@@ -432,12 +433,15 @@ export default function SellSheet(_props: Props) {
       const skuX = extractFromSku(s.sku);
       switch (sort.key) {
         case 'saleDate':    return s.saleDate || '';
+        case 'orderNumber': return (s.orderNumber || '').toLowerCase();
         case 'sku':         return (s.sku || '').toLowerCase();
         case 'model':       return (u?.model || s.sku || '').toLowerCase();
         case 'storage':     return (u?.storage || skuX.storage || '').toLowerCase();
         case 'colour':      return (u?.colour || skuX.colour || '').toLowerCase();
         case 'buyPrice':    return s.buyPrice ?? 0;
         case 'salePrice':   return s.salePrice ?? 0;
+        case 'spMinusBp':   return s.spMinusBp ?? 0;
+        case 'marginalTax': return s.marginalTax ?? 0;
         case 'grossProfit': return s.grossProfit ?? 0;
         case 'gpPercent':   return s.gpPercent ?? 0;
         case 'marketplace': return s.marketplace;
@@ -1310,21 +1314,26 @@ function SheetTable({
     <table className="w-full text-[11px] border-separate border-spacing-0" style={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace' }}>
       <thead>
         <tr className="text-[9px] font-bold uppercase tracking-widest text-slate-500 bg-slate-50">
+          {/* Column order mirrors the client's Sales Report sheet so the
+              app is a faithful 1:1 replica + the operator-only Return
+              Window pill they need for refund decisions. */}
           <Th k="saleDate"   sort={sort} onSort={toggleSort} width="105px" sticky leftPx={0}>Sell Date</Th>
           <Th k=""           sort={sort} onSort={undefined}  width="95px"  align="center">Return Window</Th>
+          <Th k="orderNumber"sort={sort} onSort={toggleSort} width="155px">Order Number</Th>
+          <Th k="sku"        sort={sort} onSort={toggleSort} width="200px">SKU</Th>
           <Th k=""           sort={sort} onSort={undefined}  width="160px">IMEI</Th>
-          <Th k="sku"        sort={sort} onSort={toggleSort} width="220px">SKU</Th>
-          <Th k="model"      sort={sort} onSort={toggleSort} width="220px">Model</Th>
-          <Th k="storage"    sort={sort} onSort={toggleSort} width="80px">Storage</Th>
-          <Th k="colour"     sort={sort} onSort={toggleSort} width="110px">Colour</Th>
-          <Th k="supplier"   sort={sort} onSort={toggleSort} width="120px">Supplier</Th>
+          <Th k="supplier"   sort={sort} onSort={toggleSort} width="110px">Supplier</Th>
+          <Th k="storage"    sort={sort} onSort={toggleSort} width="75px">Storage</Th>
+          <Th k="colour"     sort={sort} onSort={toggleSort} width="100px">Colour</Th>
           <Th k="buyPrice"   sort={sort} onSort={toggleSort} width="70px"  align="right">BP</Th>
           <Th k="salePrice"  sort={sort} onSort={toggleSort} width="75px"  align="right">SP</Th>
-          <Th k="marketplace"sort={sort} onSort={toggleSort} width="105px">Platform</Th>
-          <Th k="postage"    sort={sort} onSort={toggleSort} width="75px"  align="right">Postage</Th>
+          <Th k="spMinusBp"  sort={sort} onSort={toggleSort} width="75px"  align="right">SP-BP</Th>
+          <Th k="marginalTax"sort={sort} onSort={toggleSort} width="80px"  align="right">Mar Tax</Th>
           <Th k="commission" sort={sort} onSort={toggleSort} width="80px"  align="right">Comm.</Th>
+          <Th k="postage"    sort={sort} onSort={toggleSort} width="75px"  align="right">Postage</Th>
           <Th k="grossProfit"sort={sort} onSort={toggleSort} width="80px"  align="right">GP</Th>
-          <Th k="gpPercent"  sort={sort} onSort={toggleSort} width="70px"  align="right">GP %</Th>
+          <Th k="gpPercent"  sort={sort} onSort={toggleSort} width="65px"  align="right">GP %</Th>
+          <Th k="marketplace"sort={sort} onSort={toggleSort} width="95px">Platform</Th>
         </tr>
       </thead>
       <tbody>
@@ -1355,6 +1364,7 @@ function SheetTable({
               className={`${rowBg} transition-colors group`}
               title={s.flagged ? 'Flagged on the source Sales Report (red row)' : undefined}
             >
+              {/* Cells in the exact order of the client's Sales Report sheet. */}
               <Td sticky leftPx={0} className={`${rowBg} border-r border-slate-200`}>
                 <span className={dateTone}>{fmtDateForUser(s.saleDate || '', region) || s.saleDate || '—'}</span>
               </Td>
@@ -1374,6 +1384,16 @@ function SheetTable({
                 })()}
               </Td>
               <Td>
+                <span className="text-slate-800 font-mono text-[10px] truncate max-w-[140px]" title={s.orderNumber || ''}>
+                  {s.orderNumber || '—'}
+                </span>
+              </Td>
+              <Td>
+                <span className="text-slate-700 font-mono truncate max-w-[180px]" title={s.sku || ''}>
+                  {s.sku || '—'}
+                </span>
+              </Td>
+              <Td>
                 {s.imei
                   ? <CopyImei imei={s.imei} truncate={15} />
                   : <span className="inline-flex items-center gap-1 text-amber-600 text-[9px] font-mono">
@@ -1381,19 +1401,9 @@ function SheetTable({
                     </span>
                 }
               </Td>
-              <Td>
-                <span className="text-slate-700 font-mono truncate max-w-[200px]" title={s.sku || ''}>
-                  {s.sku || '—'}
-                </span>
-              </Td>
-              <Td>
-                <span className="font-bold text-slate-900 truncate max-w-[200px]" title={u?.model || s.sku || ''}>
-                  {u?.model || s.sku || '—'}
-                </span>
-              </Td>
+              <Td><span className="text-slate-700 truncate font-semibold" title={supplierName}>{supplierName}</span></Td>
               <Td><span className="text-slate-600">{displayStorage}</span></Td>
               <Td><span className="text-slate-600 truncate">{displayColour}</span></Td>
-              <Td><span className="text-slate-700 truncate" title={supplierName}>{supplierName}</span></Td>
               <Td align="right"><span className="text-slate-700">£{(s.buyPrice ?? 0).toFixed(0)}</span></Td>
               <Td align="right">
                 <InlineEditableCell
@@ -1406,6 +1416,27 @@ function SheetTable({
                   align="right" type="number"
                 />
               </Td>
+              <Td align="right"><span className="text-slate-500 tabular-nums">{fmtGBP(s.spMinusBp ?? 0)}</span></Td>
+              <Td align="right"><span className="text-slate-500 tabular-nums">{fmtGBP(s.marginalTax ?? 0)}</span></Td>
+              <Td align="right"><span className="text-slate-500 tabular-nums">{fmtGBP(s.commission ?? 0)}</span></Td>
+              <Td align="right">
+                <InlineEditableCell
+                  editing={editingCell?.id === s.id && editingCell?.field === 'postage'}
+                  onActivate={() => setEditingCell({ id: s.id, field: 'postage' })}
+                  onCommit={async v => { await onSaveCell(s, 'postage', Number(v) || 0); setEditingCell(null); }}
+                  onCancel={() => setEditingCell(null)}
+                  initialValue={String(s.postage ?? 0)}
+                  display={<span className="text-slate-500 tabular-nums">{fmtGBP(s.postage ?? 0)}</span>}
+                  align="right" type="number"
+                />
+              </Td>
+              <Td align="right">
+                <span className={`font-bold tabular-nums ${gpTone} inline-flex items-center gap-1 justify-end`}>
+                  {gp > 0 ? <TrendingUp size={9} /> : gp < 0 ? <TrendingDown size={9} /> : null}
+                  {fmtGBP(gp)}
+                </span>
+              </Td>
+              <Td align="right"><span className={`tabular-nums ${gpTone}`}>{(s.gpPercent ?? 0).toFixed(1)}%</span></Td>
               <Td>
                 <InlineEditableSelect
                   editing={editingCell?.id === s.id && editingCell?.field === 'marketplace'}
@@ -1421,25 +1452,6 @@ function SheetTable({
                   }
                 />
               </Td>
-              <Td align="right">
-                <InlineEditableCell
-                  editing={editingCell?.id === s.id && editingCell?.field === 'postage'}
-                  onActivate={() => setEditingCell({ id: s.id, field: 'postage' })}
-                  onCommit={async v => { await onSaveCell(s, 'postage', Number(v) || 0); setEditingCell(null); }}
-                  onCancel={() => setEditingCell(null)}
-                  initialValue={String(s.postage ?? 0)}
-                  display={<span className="text-slate-500">{fmtGBP(s.postage ?? 0)}</span>}
-                  align="right" type="number"
-                />
-              </Td>
-              <Td align="right"><span className="text-slate-500">{fmtGBP(s.commission ?? 0)}</span></Td>
-              <Td align="right">
-                <span className={`font-bold ${gpTone} inline-flex items-center gap-1 justify-end`}>
-                  {gp > 0 ? <TrendingUp size={9} /> : gp < 0 ? <TrendingDown size={9} /> : null}
-                  {fmtGBP(gp)}
-                </span>
-              </Td>
-              <Td align="right"><span className={gpTone}>{(s.gpPercent ?? 0).toFixed(1)}%</span></Td>
             </tr>
           );
         })}
