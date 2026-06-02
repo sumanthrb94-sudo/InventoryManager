@@ -468,46 +468,60 @@ export default function SellSheet(_props: Props) {
     try { await dbService.update('sales', s.id, patch); } catch (err) { console.error(err); }
   };
 
-  // ── Undo Last Import — deletes every sale row that shares the most
-  //    recent importBatchId. The importBatchId is stamped as `inv-${ms}`
-  //    at upload time, so the largest one is always the latest batch.
-  //    In-app sales carry batchId 'inapp' and are excluded.
-  const lastImportBatch = useMemo<{ id: string; count: number; sourceFile?: string; whenIso?: string } | null>(() => {
+  // ── Undo imported sales — deletes every sale row whose importBatchId is
+  //    not 'inapp' (i.e. every row that came from a Sales Report upload).
+  //    Covers the multi-re-import case where some rows kept an older
+  //    batchId and others were rewritten with a newer one. In-app sales
+  //    (Record Sale flow) are never touched.
+  const lastImportBatch = useMemo<{ count: number; sourceFile?: string; latestWhen?: string; batchCount: number } | null>(() => {
     if (!sales.length) return null;
-    let best: { id: string; importedAt?: any; sourceFile?: string } | null = null;
-    for (const s of sales) {
-      const id = s.importBatchId;
-      if (!id || id === 'inapp') continue;
-      if (!best || id > best.id) best = { id, importedAt: s.importedAt, sourceFile: s.sourceFile };
+    const imported = sales.filter(s => s.importBatchId && s.importBatchId !== 'inapp');
+    if (imported.length === 0) return null;
+    let latestIso: string | undefined;
+    let latestSourceFile: string | undefined;
+    const batchIds = new Set<string>();
+    for (const s of imported) {
+      batchIds.add(s.importBatchId);
+      const iso = typeof s.importedAt === 'string' ? s.importedAt : undefined;
+      if (iso && (!latestIso || iso > latestIso)) {
+        latestIso = iso;
+        latestSourceFile = s.sourceFile;
+      }
     }
-    if (!best) return null;
-    const count = sales.filter(s => s.importBatchId === best!.id).length;
-    const whenIso = typeof best.importedAt === 'string' ? best.importedAt : undefined;
-    return { id: best.id, count, sourceFile: best.sourceFile, whenIso };
+    return {
+      count: imported.length,
+      sourceFile: latestSourceFile,
+      latestWhen: latestIso,
+      batchCount: batchIds.size,
+    };
   }, [sales]);
 
   const [undoingImport, setUndoingImport] = useState(false);
   const undoLastImport = async () => {
     if (!lastImportBatch) return;
-    const when = lastImportBatch.whenIso
-      ? new Date(lastImportBatch.whenIso).toLocaleString('en-GB', { dateStyle: 'medium', timeStyle: 'short' })
+    const when = lastImportBatch.latestWhen
+      ? new Date(lastImportBatch.latestWhen).toLocaleString('en-GB', { dateStyle: 'medium', timeStyle: 'short' })
       : 'unknown time';
     const ok = window.confirm(
-      `Undo last import?\n\n` +
-      `Batch: ${lastImportBatch.id}\n` +
-      `File: ${lastImportBatch.sourceFile || '—'}\n` +
-      `When: ${when}\n` +
-      `Rows: ${lastImportBatch.count.toLocaleString('en-GB')}\n\n` +
-      `This permanently deletes those ${lastImportBatch.count} sale rows. In-app sales are never touched.`,
+      `Delete every imported sale?\n\n` +
+      `Rows: ${lastImportBatch.count.toLocaleString('en-GB')}\n` +
+      `Across ${lastImportBatch.batchCount} import ${lastImportBatch.batchCount === 1 ? 'batch' : 'batches'}\n` +
+      `Latest file: ${lastImportBatch.sourceFile || '—'}\n` +
+      `Latest upload: ${when}\n\n` +
+      `This permanently deletes every Sales Report row currently in the DB. ` +
+      `In-app sales (Record Sale flow) are never touched. ` +
+      `Use this when you want to re-upload the workbook fresh.`,
     );
     if (!ok) return;
     setUndoingImport(true);
     try {
-      const ids = sales.filter(s => s.importBatchId === lastImportBatch.id).map(s => s.id);
+      const ids = sales
+        .filter(s => s.importBatchId && s.importBatchId !== 'inapp')
+        .map(s => s.id);
       await dbService.bulkDelete('sales', ids);
     } catch (err) {
       console.error(err);
-      window.alert('Undo failed — check the console for details.');
+      window.alert('Delete failed — check the console for details.');
     } finally {
       setUndoingImport(false);
     }
@@ -549,6 +563,21 @@ export default function SellSheet(_props: Props) {
           >
             <FileSpreadsheet size={12} /> Sales Report
           </button>
+          {lastImportBatch && (
+            <button
+              onClick={undoLastImport}
+              disabled={undoingImport}
+              title={`Permanently delete the ${lastImportBatch.count} imported sale rows across ${lastImportBatch.batchCount} batch${lastImportBatch.batchCount === 1 ? '' : 'es'}. In-app sales are untouched. Use this before re-importing the workbook fresh.`}
+              className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-[10px] font-bold uppercase tracking-widest border transition-all ${
+                undoingImport
+                  ? 'bg-rose-100 text-rose-400 border-rose-200 cursor-wait'
+                  : 'bg-rose-600 text-white border-rose-600 hover:bg-rose-700'
+              }`}
+            >
+              <Trash2 size={12} />
+              {undoingImport ? 'Deleting…' : `Delete Imported Sales (${lastImportBatch.count.toLocaleString('en-GB')})`}
+            </button>
+          )}
         </div>
 
         <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
@@ -769,21 +798,6 @@ export default function SellSheet(_props: Props) {
             );
           })}
         </div>
-        {lastImportBatch && (
-          <button
-            onClick={undoLastImport}
-            disabled={undoingImport}
-            title={`Undo the last sales import — deletes the ${lastImportBatch.count} rows from batch ${lastImportBatch.id}${lastImportBatch.sourceFile ? ` (${lastImportBatch.sourceFile})` : ''}. In-app sales are never touched.`}
-            className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-[10px] font-bold uppercase tracking-widest border transition-all ${
-              undoingImport
-                ? 'bg-rose-100 text-rose-400 border-rose-200 cursor-wait'
-                : 'bg-white text-rose-700 border-rose-300 hover:bg-rose-50'
-            }`}
-          >
-            <Trash2 size={12} />
-            {undoingImport ? 'Undoing…' : `Undo last import (${lastImportBatch.count.toLocaleString('en-GB')})`}
-          </button>
-        )}
       </div>
 
       {/* ── Always-on inline Excel sheet ──────────────────────────────────── */}
