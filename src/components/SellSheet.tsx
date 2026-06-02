@@ -1200,6 +1200,24 @@ function SellExcelOverlay({
   const [editingCell, setEditingCell] = useState<{ id: string; field: string } | null>(null);
   const toggleSort = (k: SortKey) => onSort({ key: k, dir: sort.key === k && sort.dir === 'desc' ? 'asc' : 'desc' });
 
+  // Pagination — 50 rows per page. Without this the overlay tried to mount
+  // 1,600+ rows in one shot on the Avg GP% view and the browser tab went
+  // unresponsive (Chrome's "Page Unresponsive" dialog appeared). 50 matches
+  // the InlineSheet's default page size for the main grid.
+  const PAGE_SIZE = 50;
+  const [page, setPage] = useState(0);
+  const pageCount = Math.max(1, Math.ceil(rows.length / PAGE_SIZE));
+  // Reset to the first page whenever the underlying row set or sort changes.
+  useEffect(() => { setPage(0); }, [rows.length, sort.key, sort.dir]);
+  // Clamp if the row count shrinks below the current page index.
+  useEffect(() => { if (page >= pageCount) setPage(0); }, [pageCount, page]);
+  const pagedRows = useMemo(
+    () => rows.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE),
+    [rows, page],
+  );
+  const pageFrom = rows.length === 0 ? 0 : page * PAGE_SIZE + 1;
+  const pageTo   = Math.min((page + 1) * PAGE_SIZE, rows.length);
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
     document.addEventListener('keydown', onKey);
@@ -1207,6 +1225,8 @@ function SellExcelOverlay({
   }, [onClose]);
 
   const totals = useMemo(() => {
+    // Totals always span the FULL filtered set — pagination only affects
+    // what's mounted in the DOM, not what's counted in the header.
     const revenue = rows.reduce((s, x) => s + (x.salePrice ?? 0), 0);
     const gp      = rows.reduce((s, x) => s + (x.grossProfit ?? 0), 0);
     return { revenue, gp };
@@ -1268,7 +1288,7 @@ function SellExcelOverlay({
             </div>
           ) : (
             <SheetTable
-              rows={rows}
+              rows={pagedRows}
               supplierMap={supplierMap}
               resolveSupplier={resolveSupplier}
               units={units}
@@ -1282,12 +1302,54 @@ function SellExcelOverlay({
           )}
         </div>
 
-        <div className="px-5 py-2 border-t border-slate-100 bg-slate-50/60 flex-shrink-0 text-[9px] font-mono uppercase tracking-widest text-slate-500 flex items-center justify-between">
-          <span>Double-click cells to edit · ESC to close</span>
-          <button
-            onClick={onClose}
-            className="px-3 py-1.5 rounded-lg border border-slate-200 text-slate-600 text-[10px] font-bold uppercase tracking-widest hover:bg-white"
-          >Close</button>
+        <div className="px-5 py-2 border-t border-slate-100 bg-slate-50/60 flex-shrink-0 text-[9px] font-mono uppercase tracking-widest text-slate-500 flex items-center justify-between flex-wrap gap-2">
+          {rows.length > 0 ? (
+            <>
+              <span>
+                Showing <span className="text-slate-900 font-bold">{pageFrom.toLocaleString()}–{pageTo.toLocaleString()}</span>
+                {' '}of <span className="text-slate-900 font-bold">{rows.length.toLocaleString()}</span>
+                {' '}· Page <span className="text-slate-900 font-bold">{page + 1}</span> / {pageCount}
+              </span>
+              <div className="flex items-center gap-1">
+                <button
+                  onClick={() => setPage(0)}
+                  disabled={page === 0}
+                  className="px-2 py-1 rounded border border-slate-200 text-slate-600 font-bold disabled:opacity-40 disabled:cursor-not-allowed hover:bg-white"
+                  title="First page"
+                >«</button>
+                <button
+                  onClick={() => setPage(p => Math.max(0, p - 1))}
+                  disabled={page === 0}
+                  className="px-2 py-1 rounded border border-slate-200 text-slate-600 font-bold disabled:opacity-40 disabled:cursor-not-allowed hover:bg-white"
+                  title="Previous page"
+                >‹ Prev</button>
+                <button
+                  onClick={() => setPage(p => Math.min(pageCount - 1, p + 1))}
+                  disabled={page >= pageCount - 1}
+                  className="px-2 py-1 rounded border border-slate-200 text-slate-600 font-bold disabled:opacity-40 disabled:cursor-not-allowed hover:bg-white"
+                  title="Next page"
+                >Next ›</button>
+                <button
+                  onClick={() => setPage(pageCount - 1)}
+                  disabled={page >= pageCount - 1}
+                  className="px-2 py-1 rounded border border-slate-200 text-slate-600 font-bold disabled:opacity-40 disabled:cursor-not-allowed hover:bg-white"
+                  title="Last page"
+                >»</button>
+                <button
+                  onClick={onClose}
+                  className="ml-2 px-3 py-1 rounded-lg border border-slate-200 text-slate-600 font-bold hover:bg-white"
+                >Close</button>
+              </div>
+            </>
+          ) : (
+            <>
+              <span>ESC to close</span>
+              <button
+                onClick={onClose}
+                className="px-3 py-1.5 rounded-lg border border-slate-200 text-slate-600 text-[10px] font-bold uppercase tracking-widest hover:bg-white"
+              >Close</button>
+            </>
+          )}
         </div>
       </motion.div>
     </motion.div>
