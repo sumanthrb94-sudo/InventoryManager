@@ -35,7 +35,7 @@ import { downloadSalesWorkbook } from '../lib/clientReport';
 import {
   marketplaceFromListingSite, MARKETPLACES,
 } from '../lib/platforms';
-import { fmtDateForUser, useUserRegion } from '../lib/userLocale';
+import { fmtDateForUser, parseSaleDate, useUserRegion } from '../lib/userLocale';
 import { manualShsUnitsFrom } from '../lib/shsCount';
 import CopyImei from './CopyImei';
 import IntelligencePanel from './IntelligencePanel';
@@ -313,7 +313,10 @@ export default function SellSheet(_props: Props) {
   const manualShs = useMemo(() => manualShsUnitsFrom(units), [units]);
   const awaitingImei = useMemo(
     () => units.filter(u => u.status === 'sold' && !u.imei)
-      .sort((a, b) => (b.saleDate || '').localeCompare(a.saleDate || '')),
+      // Newest first by chronological saleDate — parseSaleDate handles
+      // any input shape (ISO / DMY / Date / Timestamp) so mixed formats
+      // still sort by actual date, not lexicographically by string.
+      .sort((a, b) => parseSaleDate(b.saleDate) - parseSaleDate(a.saleDate)),
     [units],
   );
 
@@ -432,7 +435,7 @@ export default function SellSheet(_props: Props) {
       const u = (s.unitId && units.find(x => x.id === s.unitId)) || undefined;
       const skuX = extractFromSku(s.sku);
       switch (sort.key) {
-        case 'saleDate':    return s.saleDate || '';
+        case 'saleDate':    return parseSaleDate(s.saleDate);
         case 'orderNumber': return (s.orderNumber || '').toLowerCase();
         case 'sku':         return (s.sku || '').toLowerCase();
         case 'model':       return (u?.model || s.sku || '').toLowerCase();

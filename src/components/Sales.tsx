@@ -14,7 +14,7 @@ import {
 import { notificationService, Notification } from '../lib/notificationService';
 import { marketplaceFromListingSite } from '../lib/platforms';
 import { recomputeSale } from '../lib/recomputeSale';
-import { fmtDateForUser, useUserRegion } from '../lib/userLocale';
+import { fmtDateForUser, parseSaleDate, useUserRegion } from '../lib/userLocale';
 
 const FLAG_CONFIG: Record<OperationalFlag, { label: string; icon: any; style: string; action: string }> = {
   top10: {
@@ -240,15 +240,24 @@ export default function Sales() {
     return rows;
   }, [scopedSales, marketFilter, soldSearch, units]);
 
+  // Date-bearing sort keys go through parseSaleDate so a mix of ISO
+  // 'yyyy-mm-dd' and DMY 'dd-Mon-yyyy' strings still sort chronologically.
+  // Without this, a string compare puts "29-Mar-2026" AFTER "1-Apr-2026"
+  // because lexicographically '2' > '1' — the operator-reported bug.
+  const DATE_KEYS: Partial<Record<SortKey, true>> = {
+    saleDate: true,
+  };
   const sortedSales = useMemo<Sale[]>(() => {
     const rows = [...filteredSales];
     const dir = sortDir === 'asc' ? 1 : -1;
+    const isDate = !!DATE_KEYS[sortKey];
     rows.sort((a, b) => {
       const av = (a as any)[sortKey];
       const bv = (b as any)[sortKey];
       if (av == null && bv == null) return 0;
       if (av == null) return  1;   // nulls last
       if (bv == null) return -1;
+      if (isDate) return (parseSaleDate(av) - parseSaleDate(bv)) * dir;
       if (typeof av === 'number' && typeof bv === 'number') return (av - bv) * dir;
       return String(av).localeCompare(String(bv)) * dir;
     });
