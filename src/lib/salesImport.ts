@@ -135,7 +135,7 @@ type ColKey =
   | 'date' | 'orderNumber' | 'sku' | 'imei' | 'supplier'
   | 'quantity' | 'buyPrice' | 'salePrice'
   | 'paymentMode' | 'shipping' | 'netProfit'
-  | 'postage' | 'comments';
+  | 'postage' | 'marketing' | 'comments';
 
 interface SheetLayout {
   /** Header aliases per logical column (case-insensitive, whitespace-collapsed).
@@ -185,11 +185,12 @@ const SHEET_LAYOUTS: Record<Marketplace, SheetLayout> = {
       quantity:    ['quantity', 'units', 'quant'],
       buyPrice:    ['bp'],
       salePrice:   ['sp'],
+      postage:     ['postage', 'ship', 'shipping'],
       comments:    ['comments'],
     },
     fallback: {
       date: 0, orderNumber: 1, sku: 2, imei: 3, supplier: 4,
-      quantity: 5, buyPrice: 6, salePrice: 7, comments: 14,
+      quantity: 5, buyPrice: 6, salePrice: 7, postage: 11, comments: 14,
     },
     required: ['date', 'orderNumber', 'buyPrice', 'salePrice'],
   },
@@ -207,11 +208,12 @@ const SHEET_LAYOUTS: Record<Marketplace, SheetLayout> = {
       buyPrice:    ['bp'],
       salePrice:   ['sp'],
       paymentMode: ['payment mode'],
+      postage:     ['postage', 'ship', 'shipping'],
       comments:    ['comments'],
     },
     fallback: {
       date: 0, orderNumber: 1, sku: 2, imei: 3, supplier: 4,
-      quantity: 5, buyPrice: 6, salePrice: 7, paymentMode: 8, comments: 16,
+      quantity: 5, buyPrice: 6, salePrice: 7, paymentMode: 8, postage: 13, comments: 16,
     },
     required: ['date', 'orderNumber', 'buyPrice', 'salePrice'],
   },
@@ -231,6 +233,10 @@ const SHEET_LAYOUTS: Record<Marketplace, SheetLayout> = {
       // eBay's Shipping IS the Postage fee — same field, two header names
       // depending on which sheet version the operator exported.
       shipping:    ['shipping', 'postage'],
+      // 2026-05 schema introduced an operator-entered Marketing line that
+      // replaced the implicit 5%-of-SP convention. Read it when present so
+      // the recompute uses the file's actual marketing spend.
+      marketing:   ['marketing', 'marketing £'],
       netProfit:   ['np(incl. promotion)', 'np incl. promotion', 'np'],
       comments:    ['comments'],
     },
@@ -253,13 +259,14 @@ const SHEET_LAYOUTS: Record<Marketplace, SheetLayout> = {
       supplier:    ['supplier'],
       buyPrice:    ['bp'],
       salePrice:   ['sp'],
+      postage:     ['ship', 'postage', 'shipping'],
       comments:    ['comments'],
     },
     fallback: {
       date: 0, orderNumber: 1, sku: 2, imei: 3, supplier: 4,
       // NB: BP at 5, SP at 6 — one less than the other marketplaces because
-      // OnBuy has no Quantity column.
-      buyPrice: 5, salePrice: 6, comments: 14,
+      // OnBuy has no Quantity column. Ship/postage sits at idx 11.
+      buyPrice: 5, salePrice: 6, postage: 11, comments: 14,
     },
     required: ['date', 'orderNumber', 'buyPrice', 'salePrice'],
   },
@@ -467,21 +474,29 @@ function parseRow(
     ? /paypal|klarna|clearpay|clear pay|applepay/i.test(paymentMode)
     : false;
 
+  // Read postage from every marketplace's sheet — the file's value wins
+  // over the marketplace default. eBay's legacy £1/£2/£8 tier model still
+  // routes through `eBayShippingTier`; any other numeric value (including
+  // the 2026-05 schema's free-form Postage column) is treated as a generic
+  // `postageOverride` for calcSaleFinancials.
+  const rawPostage = toNumber(get('postage')) ?? toNumber(get('shipping'));
   let eBayShippingTier: 1 | 2 | 8 | undefined;
-  if (marketplace === 'EBAY') {
-    const ship = toNumber(get('shipping'));
-    if (ship === 1 || ship === 2 || ship === 8) eBayShippingTier = ship;
+  let postageOverride: number | undefined;
+  if (marketplace === 'EBAY' && (rawPostage === 1 || rawPostage === 2 || rawPostage === 8)) {
+    eBayShippingTier = rawPostage as 1 | 2 | 8;
+  } else if (rawPostage != null && rawPostage >= 0) {
+    postageOverride = rawPostage;
   }
 
-  // postageOverride: pass through only when the workbook carried an explicit
-  // non-default postage (other marketplaces don't expose postage as input;
-  // EBAY funnels through eBayShippingTier above, so leave undefined here).
-  const postageOverride: number | undefined = undefined;
+  // Marketing — eBay 2026-05 schema only. Pass the file's value when
+  // present so the recompute matches the operator's sheet penny-for-penny.
+  const marketingFromFile = marketplace === 'EBAY' ? toNumber(get('marketing')) : undefined;
 
   // ---- recompute every derived field ------------------------------------
   const fin = calcSaleFinancials({
     marketplace, buyPrice, salePrice,
     postageOverride, eBayShippingTier, hasPayPalKlarna,
+    marketing: marketingFromFile,
   });
 
   const supplierName = toNonEmptyString(get('supplier'));
