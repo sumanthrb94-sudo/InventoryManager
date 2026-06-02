@@ -66,7 +66,7 @@ export function appToDb(obj: Record<string, any>): Record<string, any> {
   if (!obj || typeof obj !== 'object') return {};
   return Object.fromEntries(
     Object.entries(obj)
-      .filter(([k, v]) => v !== undefined && k !== 'supplierName')
+      .filter(([, v]) => v !== undefined)
       .map(([k, v]) => [toSnake(k), v]),
   );
 }
@@ -106,7 +106,7 @@ const SERVER_TS_FIELDS = new Set([
 function cleanForFirestore(obj: Record<string, any>): Record<string, any> {
   const out: Record<string, any> = {};
   for (const [k, v] of Object.entries(obj)) {
-    if (v === undefined || k === 'supplierName') continue;
+    if (v === undefined) continue;
     out[k] = SERVER_TS_FIELDS.has(k) && typeof v === 'string' ? serverTimestamp() : v;
   }
   return out;

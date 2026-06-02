@@ -49,7 +49,7 @@ import SalesReportImport from './SalesReportImport';
 type KpiId = 'today' | 'month' | 'all' | 'gpPct' | 'awaiting';
 type DateScope = 'today' | 'week' | 'month' | 'all';
 type SortKey =
-  | 'saleDate' | 'model' | 'storage' | 'colour' | 'buyPrice' | 'salePrice'
+  | 'saleDate' | 'sku' | 'model' | 'storage' | 'colour' | 'buyPrice' | 'salePrice'
   | 'grossProfit' | 'gpPercent' | 'marketplace' | 'supplier' | 'postage' | 'commission';
 type SortDir = 'asc' | 'desc';
 
@@ -69,6 +69,42 @@ const fmtGBP = (n: number | undefined | null, decimals = 2): string => {
 };
 
 const todayStr = () => new Date().toISOString().split('T')[0];
+
+// SKU-to-attributes decoder — the operator's Sales Report sheet has Storage
+// and Colour encoded inside the SKU (e.g. ASI-IPAD-10.2-9THGEN-64GB-WIFI-SG-EX
+// → 64GB / Space Grey). Used as a display-time fallback when the sale has
+// no linked inventoryUnit to pull canonical storage/colour from.
+const COLOUR_CODE: Record<string, string> = {
+  BK: 'Black', BLK: 'Black', WH: 'White', WHT: 'White', SG: 'Space Grey',
+  SV: 'Silver', SL: 'Silver', GD: 'Gold', GR: 'Graphite', GRY: 'Grey',
+  GRP: 'Graphite', PE: 'Peach', BL: 'Blue', BLU: 'Blue', RD: 'Red',
+  LN: 'Lavender', MT: 'Mint', MD: 'Midnight', GN: 'Green', GRN: 'Green',
+  YL: 'Yellow', PK: 'Pink', PR: 'Purple', PRP: 'Purple', RG: 'Rose Gold',
+  CB: 'Coral Blue', TI: 'Titanium', NT: 'Natural Titanium',
+  BT: 'Blue Titanium', WT: 'White Titanium', BLT: 'Black Titanium',
+  CR: 'Cream', LV: 'Lavender', OR: 'Orange', ST: 'Starlight',
+};
+
+function extractFromSku(sku: string | undefined): { storage?: string; colour?: string } {
+  if (!sku) return {};
+  const parts = sku.toUpperCase().split(/[-_\s]+/).filter(Boolean);
+  let storage: string | undefined;
+  let colour: string | undefined;
+  for (const p of parts) {
+    if (!storage) {
+      const m = p.match(/^(\d+)(GB|TB)?$/);
+      if (m) {
+        const n = parseInt(m[1], 10);
+        // GB-tagged values always win. Untagged numerics must be >= 32 to
+        // avoid mistaking a model number ("12", "13") for storage.
+        if (m[2]) storage = `${n}${m[2]}`;
+        else if (n >= 32 && n <= 4096) storage = `${n}GB`;
+      }
+    }
+    if (!colour && COLOUR_CODE[p]) colour = COLOUR_CODE[p];
+  }
+  return { storage, colour };
+}
 
 /** Synthesise a Sale row from a legacy in-app sold unit so it can live in
  *  the same merged list as docs from the sales collection. */
@@ -113,6 +149,17 @@ export default function SellSheet(_props: Props) {
   const [supplierFilter, setSupplierFilter] = useState<Set<string>>(new Set());
   const [showFilterDrawer, setShowFilterDrawer] = useState(false);
   const [sort, setSort] = useState<{ key: SortKey; dir: SortDir }>({ key: 'saleDate', dir: 'desc' });
+
+  // Per-marketplace tab + page size for the inline sales grid. ALL = show
+  // every marketplace; otherwise the grid is filtered to a single one. The
+  // displayLimit keeps the table light on the DOM (1,000+ Amazon rows would
+  // otherwise mount in one shot).
+  const [activeMarketplaceTab, setActiveMarketplaceTab] = useState<Marketplace | 'ALL'>('ALL');
+  const [displayLimit, setDisplayLimit] = useState<number>(50);
+  // Reset the page window whenever the tab or scope changes — otherwise the
+  // operator can land on tab AMAZON with displayLimit=500 carried over from
+  // a previous all-rows scroll, surprising them with a heavy first paint.
+  useEffect(() => { setDisplayLimit(50); }, [activeMarketplaceTab, dateScope, marketplaceFilter, supplierFilter, search]);
 
   // ── Modals + overlay ──────────────────────────────────────────────────────
   const [overlay, setOverlay] = useState<KpiId | null>(null);
@@ -249,11 +296,13 @@ export default function SellSheet(_props: Props) {
     const mult = sort.dir === 'asc' ? 1 : -1;
     const get = (s: Sale): string | number => {
       const u = (s.unitId && units.find(x => x.id === s.unitId)) || undefined;
+      const skuX = extractFromSku(s.sku);
       switch (sort.key) {
         case 'saleDate':    return s.saleDate || '';
-        case 'model':       return (u?.model || '').toLowerCase();
-        case 'storage':     return (u?.storage || '').toLowerCase();
-        case 'colour':      return (u?.colour || '').toLowerCase();
+        case 'sku':         return (s.sku || '').toLowerCase();
+        case 'model':       return (u?.model || s.sku || '').toLowerCase();
+        case 'storage':     return (u?.storage || skuX.storage || '').toLowerCase();
+        case 'colour':      return (u?.colour || skuX.colour || '').toLowerCase();
         case 'buyPrice':    return s.buyPrice ?? 0;
         case 'salePrice':   return s.salePrice ?? 0;
         case 'grossProfit': return s.grossProfit ?? 0;
@@ -274,10 +323,32 @@ export default function SellSheet(_props: Props) {
   };
 
   // ── Inline rows = scoped + panel-filtered + sorted ────────────────────────
-  const inlineRows = useMemo(
+  const inlineRowsFull = useMemo(
     () => sortSales(applyFilters(scopedSold)),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [scopedSold, search, marketplaceFilter, supplierFilter, supplierMap, sort, units],
+  );
+
+  // Per-marketplace row counts for the tab badges. Computed off the
+  // pre-tab filter set so the badges show "how many sales are in each
+  // marketplace bucket within the current scope/search/filter", not "how
+  // many are visible on this tab" (which would always equal the page size).
+  const tabCounts = useMemo<Record<Marketplace | 'ALL', number>>(() => {
+    const counts: Record<Marketplace | 'ALL', number> = { ALL: inlineRowsFull.length, AMAZON: 0, BM: 0, EBAY: 0, ONBUY: 0 };
+    for (const s of inlineRowsFull) counts[s.marketplace]++;
+    return counts;
+  }, [inlineRowsFull]);
+
+  // After tab filter — this is the working set the grid paginates.
+  const tabFilteredRows = useMemo(() => {
+    if (activeMarketplaceTab === 'ALL') return inlineRowsFull;
+    return inlineRowsFull.filter(s => s.marketplace === activeMarketplaceTab);
+  }, [inlineRowsFull, activeMarketplaceTab]);
+
+  // Sliced rows the grid actually renders.
+  const inlineRows = useMemo(
+    () => tabFilteredRows.slice(0, displayLimit),
+    [tabFilteredRows, displayLimit],
   );
 
   // ── KPIs ──────────────────────────────────────────────────────────────────
@@ -627,6 +698,32 @@ export default function SellSheet(_props: Props) {
         </div>
       </div>
 
+      {/* ── Marketplace tabs ──────────────────────────────────────────────── */}
+      <div className="flex items-center gap-2 flex-wrap">
+        {(['ALL', 'AMAZON', 'BM', 'EBAY', 'ONBUY'] as Array<Marketplace | 'ALL'>).map(tab => {
+          const isActive = activeMarketplaceTab === tab;
+          const count = tabCounts[tab];
+          const tone =
+            tab === 'ALL' ? (isActive ? 'bg-slate-900 text-white border-slate-900' : 'bg-white text-slate-700 border-slate-200 hover:border-slate-400')
+            : tab === 'AMAZON' ? (isActive ? 'bg-amber-600 text-white border-amber-600' : 'bg-white text-amber-700 border-amber-200 hover:border-amber-400')
+            : tab === 'BM'     ? (isActive ? 'bg-sky-700 text-white border-sky-700'     : 'bg-white text-sky-700 border-sky-200 hover:border-sky-400')
+            : tab === 'EBAY'   ? (isActive ? 'bg-emerald-700 text-white border-emerald-700' : 'bg-white text-emerald-700 border-emerald-200 hover:border-emerald-400')
+            :                     (isActive ? 'bg-violet-700 text-white border-violet-700' : 'bg-white text-violet-700 border-violet-200 hover:border-violet-400');
+          return (
+            <button
+              key={tab}
+              onClick={() => setActiveMarketplaceTab(tab)}
+              className={`flex items-center gap-2 px-3 py-2 rounded-xl text-[10px] font-bold uppercase tracking-widest border transition-all ${tone}`}
+            >
+              <span>{tab}</span>
+              <span className={`px-1.5 py-0.5 rounded text-[9px] tabular-nums ${isActive ? 'bg-white/20' : 'bg-slate-100 text-slate-600'}`}>
+                {count.toLocaleString('en-GB')}
+              </span>
+            </button>
+          );
+        })}
+      </div>
+
       {/* ── Always-on inline Excel sheet ──────────────────────────────────── */}
       <InlineSheet
         rows={inlineRows}
@@ -637,6 +734,49 @@ export default function SellSheet(_props: Props) {
         region={region}
         onSaveCell={saveCell}
       />
+
+      {/* ── Pagination — Load more / page-size picker ─────────────────────── */}
+      {tabFilteredRows.length > 0 && (
+        <div className="flex items-center justify-between flex-wrap gap-2 px-2 py-1 text-[10px] font-mono uppercase tracking-widest text-slate-500">
+          <span>
+            Showing <span className="text-slate-900 font-bold">{Math.min(displayLimit, tabFilteredRows.length).toLocaleString('en-GB')}</span>
+            {' '}of <span className="text-slate-900 font-bold">{tabFilteredRows.length.toLocaleString('en-GB')}</span>
+            {' '}sales{activeMarketplaceTab !== 'ALL' ? ` · ${activeMarketplaceTab}` : ''}
+          </span>
+          <div className="flex items-center gap-2">
+            {displayLimit < tabFilteredRows.length && (
+              <>
+                <button
+                  onClick={() => setDisplayLimit(d => d + 50)}
+                  className="px-3 py-1.5 rounded-lg bg-white border border-slate-200 hover:border-slate-400 text-slate-700 font-bold transition-all"
+                >
+                  +50
+                </button>
+                <button
+                  onClick={() => setDisplayLimit(d => d + 100)}
+                  className="px-3 py-1.5 rounded-lg bg-white border border-slate-200 hover:border-slate-400 text-slate-700 font-bold transition-all"
+                >
+                  +100
+                </button>
+                <button
+                  onClick={() => setDisplayLimit(tabFilteredRows.length)}
+                  className="px-3 py-1.5 rounded-lg bg-slate-900 text-white font-bold transition-all hover:bg-slate-700"
+                >
+                  Show all
+                </button>
+              </>
+            )}
+            {displayLimit > 50 && (
+              <button
+                onClick={() => setDisplayLimit(50)}
+                className="px-3 py-1.5 rounded-lg bg-white border border-slate-200 hover:border-slate-400 text-slate-500 font-bold transition-all"
+              >
+                Reset
+              </button>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* ── KPI overlay modal ─────────────────────────────────────────────── */}
       <AnimatePresence>
@@ -956,7 +1096,8 @@ function SheetTable({
         <tr className="text-[9px] font-bold uppercase tracking-widest text-slate-500 bg-slate-50">
           <Th k="saleDate"   sort={sort} onSort={toggleSort} width="105px" sticky leftPx={0}>Sell Date</Th>
           <Th k=""           sort={sort} onSort={undefined}  width="160px">IMEI</Th>
-          <Th k="model"      sort={sort} onSort={toggleSort} width="240px">Model</Th>
+          <Th k="sku"        sort={sort} onSort={toggleSort} width="220px">SKU</Th>
+          <Th k="model"      sort={sort} onSort={toggleSort} width="220px">Model</Th>
           <Th k="storage"    sort={sort} onSort={toggleSort} width="80px">Storage</Th>
           <Th k="colour"     sort={sort} onSort={toggleSort} width="110px">Colour</Th>
           <Th k="supplier"   sort={sort} onSort={toggleSort} width="120px">Supplier</Th>
@@ -973,6 +1114,11 @@ function SheetTable({
         {rows.map((s, idx) => {
           const u = (s.unitId && units.find(x => x.id === s.unitId)) || undefined;
           const supplierName = supplierMap[s.supplierId || ''] || s.supplierName || '—';
+          // For imported sales there's no linked InventoryUnit, so storage /
+          // colour fall back to whatever's encoded in the SKU.
+          const skuExtracted = extractFromSku(s.sku);
+          const displayStorage = u?.storage || skuExtracted.storage || '—';
+          const displayColour = u?.colour || skuExtracted.colour || '—';
           const isAlt = idx % 2 === 1;
           // Flagged sales (red rows from the operator's source workbook) win
           // over the zebra stripe — the operator's signal is what matters.
@@ -1002,12 +1148,17 @@ function SheetTable({
                 }
               </Td>
               <Td>
-                <span className="font-bold text-slate-900 truncate max-w-[210px]" title={u?.model || ''}>
+                <span className="text-slate-700 font-mono truncate max-w-[200px]" title={s.sku || ''}>
+                  {s.sku || '—'}
+                </span>
+              </Td>
+              <Td>
+                <span className="font-bold text-slate-900 truncate max-w-[200px]" title={u?.model || s.sku || ''}>
                   {u?.model || s.sku || '—'}
                 </span>
               </Td>
-              <Td><span className="text-slate-600">{u?.storage || '—'}</span></Td>
-              <Td><span className="text-slate-600 truncate">{u?.colour || '—'}</span></Td>
+              <Td><span className="text-slate-600">{displayStorage}</span></Td>
+              <Td><span className="text-slate-600 truncate">{displayColour}</span></Td>
               <Td><span className="text-slate-700 truncate" title={supplierName}>{supplierName}</span></Td>
               <Td align="right"><span className="text-slate-700">£{(s.buyPrice ?? 0).toFixed(0)}</span></Td>
               <Td align="right">
