@@ -1,6 +1,12 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { describe as describeBase, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { dbService } from '../../lib/dbService';
 import { notificationService } from '../../lib/notificationService';
+
+// These E2E tests require a live Firestore emulator + an app instance.
+// Skipped unless `RUN_E2E_TESTS=1` is set. Use:
+//   firebase emulators:start --only firestore
+//   RUN_E2E_TESTS=1 npx vitest run src/__tests__/integration/
+const describe = process.env.RUN_E2E_TESTS === '1' ? describeBase : describeBase.skip;
 import { InventoryUnit } from '../../types';
 
 /**
