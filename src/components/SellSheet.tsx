@@ -22,7 +22,7 @@ import React, { useState, useMemo, useEffect, useRef } from 'react';
 import {
   Search, ShoppingCart, ChevronDown, ChevronUp, ChevronsUpDown,
   Filter, X, AlertCircle, Plus, Info, Sparkles, FileSpreadsheet, Upload,
-  TrendingUp, TrendingDown, PackageCheck, Truck,
+  TrendingUp, TrendingDown, PackageCheck, Truck, Trash2,
 } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
 import { dbService } from '../lib/dbService';
@@ -468,6 +468,40 @@ export default function SellSheet(_props: Props) {
     try { await dbService.update('sales', s.id, patch); } catch (err) { console.error(err); }
   };
 
+  // ── Single-row delete (hard delete; for soft-delete the operator already
+  //    has the Returns flow which stamps `voidedAt` instead). Used to
+  //    purge a row that was imported with wrong data or genuinely never
+  //    happened. Confirmation lives at the call site.
+  const deleteSale = async (s: Sale) => {
+    try { await dbService.delete('sales', s.id); } catch (err) { console.error(err); }
+  };
+
+  // ── Bulk delete — scope hits whatever the operator currently sees on
+  //    the active tab (so they can clear AMAZON only, EBAY only, etc.).
+  //    For 'ALL' it nukes every sale doc in Firestore. Double-confirm.
+  const [bulkDeleting, setBulkDeleting] = useState(false);
+  const deleteVisibleSales = async () => {
+    const ids = tabFilteredRows.map(r => r.id);
+    if (ids.length === 0) return;
+    const scope = activeMarketplaceTab === 'ALL' ? 'EVERY' : activeMarketplaceTab;
+    const ok = window.confirm(
+      `Delete ${ids.length.toLocaleString('en-GB')} ${scope} sale row${ids.length === 1 ? '' : 's'} from the database?\n\n` +
+      `This is permanent. Use Returns instead if a sale was reversed — that preserves the audit trail.`,
+    );
+    if (!ok) return;
+    const ok2 = window.confirm(`Last warning — really delete ${ids.length.toLocaleString('en-GB')} ${scope} sales?`);
+    if (!ok2) return;
+    setBulkDeleting(true);
+    try {
+      await dbService.bulkDelete('sales', ids);
+    } catch (err) {
+      console.error(err);
+      window.alert('Bulk delete failed — check the console for details.');
+    } finally {
+      setBulkDeleting(false);
+    }
+  };
+
   // ── Render ────────────────────────────────────────────────────────────────
   return (
     <div className="space-y-4">
@@ -699,29 +733,46 @@ export default function SellSheet(_props: Props) {
       </div>
 
       {/* ── Marketplace tabs ──────────────────────────────────────────────── */}
-      <div className="flex items-center gap-2 flex-wrap">
-        {(['ALL', 'AMAZON', 'BM', 'EBAY', 'ONBUY'] as Array<Marketplace | 'ALL'>).map(tab => {
-          const isActive = activeMarketplaceTab === tab;
-          const count = tabCounts[tab];
-          const tone =
-            tab === 'ALL' ? (isActive ? 'bg-slate-900 text-white border-slate-900' : 'bg-white text-slate-700 border-slate-200 hover:border-slate-400')
-            : tab === 'AMAZON' ? (isActive ? 'bg-amber-600 text-white border-amber-600' : 'bg-white text-amber-700 border-amber-200 hover:border-amber-400')
-            : tab === 'BM'     ? (isActive ? 'bg-sky-700 text-white border-sky-700'     : 'bg-white text-sky-700 border-sky-200 hover:border-sky-400')
-            : tab === 'EBAY'   ? (isActive ? 'bg-emerald-700 text-white border-emerald-700' : 'bg-white text-emerald-700 border-emerald-200 hover:border-emerald-400')
-            :                     (isActive ? 'bg-violet-700 text-white border-violet-700' : 'bg-white text-violet-700 border-violet-200 hover:border-violet-400');
-          return (
-            <button
-              key={tab}
-              onClick={() => setActiveMarketplaceTab(tab)}
-              className={`flex items-center gap-2 px-3 py-2 rounded-xl text-[10px] font-bold uppercase tracking-widest border transition-all ${tone}`}
-            >
-              <span>{tab}</span>
-              <span className={`px-1.5 py-0.5 rounded text-[9px] tabular-nums ${isActive ? 'bg-white/20' : 'bg-slate-100 text-slate-600'}`}>
-                {count.toLocaleString('en-GB')}
-              </span>
-            </button>
-          );
-        })}
+      <div className="flex items-center gap-2 flex-wrap justify-between">
+        <div className="flex items-center gap-2 flex-wrap">
+          {(['ALL', 'AMAZON', 'BM', 'EBAY', 'ONBUY'] as Array<Marketplace | 'ALL'>).map(tab => {
+            const isActive = activeMarketplaceTab === tab;
+            const count = tabCounts[tab];
+            const tone =
+              tab === 'ALL' ? (isActive ? 'bg-slate-900 text-white border-slate-900' : 'bg-white text-slate-700 border-slate-200 hover:border-slate-400')
+              : tab === 'AMAZON' ? (isActive ? 'bg-amber-600 text-white border-amber-600' : 'bg-white text-amber-700 border-amber-200 hover:border-amber-400')
+              : tab === 'BM'     ? (isActive ? 'bg-sky-700 text-white border-sky-700'     : 'bg-white text-sky-700 border-sky-200 hover:border-sky-400')
+              : tab === 'EBAY'   ? (isActive ? 'bg-emerald-700 text-white border-emerald-700' : 'bg-white text-emerald-700 border-emerald-200 hover:border-emerald-400')
+              :                     (isActive ? 'bg-violet-700 text-white border-violet-700' : 'bg-white text-violet-700 border-violet-200 hover:border-violet-400');
+            return (
+              <button
+                key={tab}
+                onClick={() => setActiveMarketplaceTab(tab)}
+                className={`flex items-center gap-2 px-3 py-2 rounded-xl text-[10px] font-bold uppercase tracking-widest border transition-all ${tone}`}
+              >
+                <span>{tab}</span>
+                <span className={`px-1.5 py-0.5 rounded text-[9px] tabular-nums ${isActive ? 'bg-white/20' : 'bg-slate-100 text-slate-600'}`}>
+                  {count.toLocaleString('en-GB')}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+        {tabFilteredRows.length > 0 && (
+          <button
+            onClick={deleteVisibleSales}
+            disabled={bulkDeleting}
+            title={`Permanently delete every ${activeMarketplaceTab === 'ALL' ? '' : activeMarketplaceTab + ' '}sale row currently visible (${tabFilteredRows.length}). Returns flow is the soft-delete path; this is the hard one.`}
+            className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-[10px] font-bold uppercase tracking-widest border transition-all ${
+              bulkDeleting
+                ? 'bg-rose-100 text-rose-400 border-rose-200 cursor-wait'
+                : 'bg-white text-rose-700 border-rose-300 hover:bg-rose-50'
+            }`}
+          >
+            <Trash2 size={12} />
+            {bulkDeleting ? 'Deleting…' : `Delete ${activeMarketplaceTab === 'ALL' ? 'all' : activeMarketplaceTab} (${tabFilteredRows.length.toLocaleString('en-GB')})`}
+          </button>
+        )}
       </div>
 
       {/* ── Always-on inline Excel sheet ──────────────────────────────────── */}
@@ -733,6 +784,7 @@ export default function SellSheet(_props: Props) {
         units={units}
         region={region}
         onSaveCell={saveCell}
+        onDelete={deleteSale}
       />
 
       {/* ── Pagination — Load more / page-size picker ─────────────────────── */}
@@ -792,6 +844,7 @@ export default function SellSheet(_props: Props) {
             region={region}
             onClose={() => setOverlay(null)}
             onSaveCell={saveCell}
+            onDelete={deleteSale}
             onBackfillImei={u => { setOverlay(null); setEnterImeiUnit(u); }}
           />
         )}
@@ -917,7 +970,7 @@ function FilterChipsGroup({
 
 // ── Inline Excel sheet (always-on) ───────────────────────────────────────────
 function InlineSheet({
-  rows, sort, onSort, supplierMap, units, region, onSaveCell,
+  rows, sort, onSort, supplierMap, units, region, onSaveCell, onDelete,
 }: {
   rows: Sale[];
   sort: { key: SortKey; dir: SortDir };
@@ -926,6 +979,7 @@ function InlineSheet({
   units: InventoryUnit[];
   region: 'uk' | 'india' | 'admin' | 'both';
   onSaveCell: (s: Sale, field: string, value: any) => Promise<void>;
+  onDelete?: (s: Sale) => Promise<void>;
 }) {
   const [editingCell, setEditingCell] = useState<{ id: string; field: string } | null>(null);
   const toggleSort = (k: SortKey) => onSort({ key: k, dir: sort.key === k && sort.dir === 'desc' ? 'asc' : 'desc' });
@@ -953,10 +1007,11 @@ function InlineSheet({
           editingCell={editingCell}
           setEditingCell={setEditingCell}
           onSaveCell={onSaveCell}
+          onDelete={onDelete}
         />
       </div>
       <div className="px-5 py-2 border-t border-slate-100 bg-slate-50/60 text-[9px] font-mono uppercase tracking-widest text-slate-500">
-        Click column headers to sort · double-click SP / Platform / Postage to edit · GP / Commission recompute live
+        Click column headers to sort · double-click SP / Platform / Postage to edit · GP / Commission recompute live · Trash icon hard-deletes the row
       </div>
     </div>
   );
@@ -965,7 +1020,7 @@ function InlineSheet({
 // ── KPI overlay modal ───────────────────────────────────────────────────────
 function SellExcelOverlay({
   title, rows, awaitingUnits, sort, onSort, supplierMap, units, region,
-  onClose, onSaveCell, onBackfillImei,
+  onClose, onSaveCell, onDelete, onBackfillImei,
 }: {
   title: string;
   rows: Sale[];
@@ -977,6 +1032,7 @@ function SellExcelOverlay({
   region: 'uk' | 'india' | 'admin' | 'both';
   onClose: () => void;
   onSaveCell: (s: Sale, field: string, value: any) => Promise<void>;
+  onDelete?: (s: Sale) => Promise<void>;
   onBackfillImei: (u: InventoryUnit) => void;
 }) {
   const [editingCell, setEditingCell] = useState<{ id: string; field: string } | null>(null);
@@ -1059,6 +1115,7 @@ function SellExcelOverlay({
               editingCell={editingCell}
               setEditingCell={setEditingCell}
               onSaveCell={onSaveCell}
+              onDelete={onDelete}
             />
           )}
         </div>
@@ -1078,7 +1135,7 @@ function SellExcelOverlay({
 // ── Sheet table (shared by InlineSheet + SellExcelOverlay) ──────────────────
 function SheetTable({
   rows, supplierMap, units, region, sort, toggleSort,
-  editingCell, setEditingCell, onSaveCell,
+  editingCell, setEditingCell, onSaveCell, onDelete,
 }: {
   rows: Sale[];
   supplierMap: Record<string, string>;
@@ -1089,6 +1146,7 @@ function SheetTable({
   editingCell: { id: string; field: string } | null;
   setEditingCell: (c: { id: string; field: string } | null) => void;
   onSaveCell: (s: Sale, field: string, value: any) => Promise<void>;
+  onDelete?: (s: Sale) => Promise<void>;
 }) {
   return (
     <table className="w-full text-[11px] border-separate border-spacing-0" style={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace' }}>
@@ -1108,6 +1166,9 @@ function SheetTable({
           <Th k="commission" sort={sort} onSort={toggleSort} width="80px"  align="right">Comm.</Th>
           <Th k="grossProfit"sort={sort} onSort={toggleSort} width="80px"  align="right">GP</Th>
           <Th k="gpPercent"  sort={sort} onSort={toggleSort} width="70px"  align="right">GP %</Th>
+          {onDelete && (
+            <Th k=""           sort={sort} onSort={undefined}  width="40px"  align="center">·</Th>
+          )}
         </tr>
       </thead>
       <tbody>
@@ -1206,6 +1267,26 @@ function SheetTable({
                 </span>
               </Td>
               <Td align="right"><span className={gpTone}>{(s.gpPercent ?? 0).toFixed(1)}%</span></Td>
+              {onDelete && (
+                <Td align="center">
+                  <button
+                    onClick={async () => {
+                      const ok = window.confirm(
+                        `Delete sale ${s.orderNumber || s.id}?\n\n` +
+                        `Marketplace: ${s.marketplace}\n` +
+                        `Sale date: ${s.saleDate || '—'}\n` +
+                        `SP: £${(s.salePrice ?? 0).toFixed(2)} · GP: £${(s.grossProfit ?? 0).toFixed(2)}\n\n` +
+                        `This is a hard delete. Use Returns for soft-delete (preserves audit trail).`,
+                      );
+                      if (ok) await onDelete(s);
+                    }}
+                    title="Permanently delete this sale row"
+                    className="p-1 rounded text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-all opacity-0 group-hover:opacity-100"
+                  >
+                    <Trash2 size={12} />
+                  </button>
+                </Td>
+              )}
             </tr>
           );
         })}
@@ -1440,7 +1521,7 @@ function Th({
   sticky?: boolean;
   leftPx?: number;
   width?: string;
-  align?: 'left' | 'right';
+  align?: 'left' | 'right' | 'center';
 }) {
   const active = k && sort.key === k;
   const cls = `text-${align ?? 'left'} px-3 py-2.5 sticky top-0 z-10 bg-slate-50 border-b border-slate-200 font-bold ${
@@ -1468,7 +1549,7 @@ function Td({
   children: React.ReactNode;
   sticky?: boolean;
   leftPx?: number;
-  align?: 'left' | 'right';
+  align?: 'left' | 'right' | 'center';
   className?: string;
 }) {
   const style: React.CSSProperties = sticky ? { left: `${leftPx ?? 0}px`, position: 'sticky' as const, zIndex: 5 } : {};
@@ -1491,7 +1572,7 @@ function InlineEditableCell({
   onCancel: () => void;
   initialValue: string;
   display: React.ReactNode;
-  align?: 'left' | 'right';
+  align?: 'left' | 'right' | 'center';
   type?: 'text' | 'number';
 }) {
   const [val, setVal] = useState(initialValue);
