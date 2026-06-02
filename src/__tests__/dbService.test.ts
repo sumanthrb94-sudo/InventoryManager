@@ -108,9 +108,13 @@ describe('appToDb', () => {
     expect(result.return_reason).toBe('Changed mind');
   });
 
-  it('strips supplierName from output (derived field, not a DB column)', () => {
+  it('preserves supplierName in output (file-imported sales carry it as primary signal)', () => {
+    // The earlier strip was a hangover from the pre-import era when
+    // supplierName was always derivable from supplierId. Imported Sale
+    // docs only have supplierName (no supplierId resolution available),
+    // so it must round-trip to Firestore.
     const result = appToDb({ model: 'iPhone', supplierName: 'TestCo' });
-    expect(result).not.toHaveProperty('supplier_name');
+    expect(result).toHaveProperty('supplier_name', 'TestCo');
     expect(result).toHaveProperty('model', 'iPhone');
   });
 

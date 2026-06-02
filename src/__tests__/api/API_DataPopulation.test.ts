@@ -370,7 +370,7 @@ describe('API Data Population & Integration Tests', () => {
       }
     });
 
-    it('should trigger notification for new stock', () => {
+    it('should trigger notification for new stock', async () => {
       const available = mockDb.getUnits({ status: 'available', limit: 1 });
       if (available.length > 0) {
         const unit = available[0];
@@ -379,6 +379,10 @@ describe('API Data Population & Integration Tests', () => {
           model: unit.model,
           imei: unit.imei,
         } as any);
+
+        // new_stock is batched on a 500ms window — wait for the buffer
+        // to flush before checking the count.
+        await new Promise(r => setTimeout(r, 600));
 
         const unreadCount = notificationService.getUnreadCount();
         expect(unreadCount).toBeGreaterThan(0);
