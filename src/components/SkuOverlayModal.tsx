@@ -17,6 +17,7 @@ interface Props {
 
 const COLUMNS: { key: string; label: string; width: number; align?: 'left' | 'right' }[] = [
   { key: 'dateIn',       label: 'Date In',       width: 100 },
+  { key: 'age',          label: 'Age',           width: 70,  align: 'right' },
   { key: 'imei',         label: 'IMEI',          width: 170 },
   { key: 'model',        label: 'Model',         width: 220 },
   { key: 'storage',      label: 'Storage',       width: 80  },
@@ -30,7 +31,27 @@ const COLUMNS: { key: string; label: string; width: number; align?: 'left' | 'ri
   { key: 'notes',        label: 'Notes',         width: 220 },
 ];
 
+/** Days since the unit landed in stock — drives the Age pill against the
+ *  operator's 30-day supplier-return window. */
+function daysSinceDateIn(iso: string | undefined, now: Date = new Date()): number | undefined {
+  if (!iso) return undefined;
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return undefined;
+  const days = Math.floor((now.getTime() - d.getTime()) / 86400000);
+  return days < 0 ? 0 : days;
+}
+
+function ageBucket(days: number): 'within' | 'ageing' | 'cold' {
+  if (days <= 30) return 'within';
+  if (days <= 60) return 'ageing';
+  return 'cold';
+}
+
 function format(u: InventoryUnit, key: string): string {
+  if (key === 'age') {
+    const d = daysSinceDateIn(u.dateIn);
+    return d == null ? '' : `${d}d`;
+  }
   const v = (u as any)[key];
   if (v == null || v === '') return '';
   if (key === 'buyPrice' || key === 'salePrice') {
@@ -190,6 +211,39 @@ export default function SkuOverlayModal({ selection, units, onClose }: Props) {
                         </td>
                         {COLUMNS.map(c => {
                           const val = format(u, c.key);
+                          if (c.key === 'age') {
+                            const d = daysSinceDateIn(u.dateIn);
+                            if (d == null) {
+                              return (
+                                <td
+                                  key={c.key}
+                                  className="px-3 py-1.5 border-b border-r border-gray-100 text-gray-300"
+                                  style={{ maxWidth: c.width, textAlign: c.align ?? 'left' }}
+                                >—</td>
+                              );
+                            }
+                            const bucket = ageBucket(d);
+                            const pillTone =
+                              bucket === 'within' ? 'bg-emerald-100 text-emerald-700' :
+                              bucket === 'ageing' ? 'bg-amber-100 text-amber-700'    :
+                                                    'bg-gray-100 text-gray-600';
+                            const tip =
+                              bucket === 'within' ? `${d} days — within 30-day supplier return window` :
+                              bucket === 'ageing' ? `${d} days — past 30-day window, ageing`           :
+                                                    `${d} days — old stock`;
+                            return (
+                              <td
+                                key={c.key}
+                                className="px-3 py-1.5 border-b border-r border-gray-100"
+                                style={{ maxWidth: c.width, textAlign: c.align ?? 'left' }}
+                                title={tip}
+                              >
+                                <span className={`inline-flex items-center text-[10px] font-bold tabular-nums px-1.5 py-0.5 rounded ${pillTone}`}>
+                                  {d}d
+                                </span>
+                              </td>
+                            );
+                          }
                           const tone =
                             c.key === 'status' && /sold/i.test(val) ? 'text-rose-600' :
                             c.key === 'status' && /(available|fba|ready)/i.test(val) ? 'text-emerald-700' :

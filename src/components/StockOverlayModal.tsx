@@ -564,6 +564,7 @@ export function GroupedExcelTable({
  *  byte-for-byte with the CSV. */
 const OVERLAY_COLUMNS: { key: string; label: string; width: number; align?: 'left' | 'right' }[] = [
   { key: 'dateIn',       label: 'Stock In Date', width: 110 },
+  { key: 'age',          label: 'Age',           width: 80,  align: 'right' },
   { key: 'model',        label: 'Model',         width: 240 },
   { key: 'imei',         label: 'IMEI',          width: 180 },
   { key: 'grade',        label: 'Grade',         width: 80  },
@@ -574,6 +575,32 @@ const OVERLAY_COLUMNS: { key: string; label: string; width: number; align?: 'lef
   { key: 'status',       label: 'Status',        width: 110 },
   { key: 'notes',        label: 'Notes',         width: 260 },
 ];
+
+/**
+ * Days since the unit landed in stock (today − dateIn). Returns undefined
+ * when dateIn is missing or unparseable. Used by the Age column and the
+ * 30-day-return-window colour buckets.
+ *
+ * 30-day return policy means anything with age ≤ 30 is still within the
+ * supplier return window. The operator scans this column to spot ageing
+ * stock that's about to fall out of the window.
+ */
+function daysSinceDateIn(iso: string | undefined, now: Date = new Date()): number | undefined {
+  if (!iso) return undefined;
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return undefined;
+  // Floor to whole-day buckets so the badge doesn't flip mid-day.
+  const days = Math.floor((now.getTime() - d.getTime()) / 86400000);
+  return days < 0 ? 0 : days;
+}
+
+/** Colour tone for the Age pill — three buckets matching the 30-day return
+ *  policy: ≤30d safe, 31-60d ageing, >60d cold. */
+function ageTone(days: number): { bg: string; text: string; label: string } {
+  if (days <= 30)  return { bg: 'bg-emerald-100 text-emerald-700', text: 'text-emerald-700', label: 'within 30d return window' };
+  if (days <= 60)  return { bg: 'bg-amber-100 text-amber-700',     text: 'text-amber-700',   label: 'past 30d — ageing' };
+  return { bg: 'bg-slate-100 text-slate-600',                       text: 'text-slate-600',   label: 'old stock — past supplier return window' };
+}
 
 function fmtOverlayCell(
   u: InventoryUnit,
@@ -866,6 +893,10 @@ export default function StockOverlayModal({
                   {OVERLAY_COLUMNS.map((c, i) => {
                     const sortKey: SortKey | '' = (
                       c.key === 'dateIn'       ? 'dateIn'   :
+                      // Age sorts on the same axis as Stock In Date (oldest
+                      // = biggest age) — clicking the Age header reuses the
+                      // dateIn comparator under the hood.
+                      c.key === 'age'          ? 'dateIn'   :
                       c.key === 'model'        ? 'model'    :
                       c.key === 'storage'      ? 'storage'  :
                       c.key === 'colour'       ? 'colour'   :
@@ -905,6 +936,17 @@ export default function StockOverlayModal({
                   return (
                     <tr key={`agg-${a.id}`} className={`${rowBg} transition-colors`}>
                       {OVERLAY_COLUMNS.map((c, i) => {
+                        if (c.key === 'age') {
+                          // Aggregate rollups don't carry a per-IMEI dateIn —
+                          // the rollup is a collapsed quantity, not an
+                          // individual unit, so the 30-day-window check
+                          // doesn't apply. Render as blank rather than zero.
+                          return (
+                            <React.Fragment key={c.key}>
+                              <Td align={c.align}><span className="text-slate-300">—</span></Td>
+                            </React.Fragment>
+                          );
+                        }
                         if (c.key === 'imei') {
                           return (
                             <React.Fragment key={c.key}>
@@ -946,11 +988,34 @@ export default function StockOverlayModal({
                   const apple = isAppleDevice(u.model);
                   const imeiValid = isValidImei(u.imei, { isAppleSerial: apple });
                   const tone = STATUS_TONE[u.status] || STATUS_TONE.available;
+                  const ageDays = daysSinceDateIn(u.dateIn);
                   return (
                     <tr key={u.id} className={`${rowBg} transition-colors group`}>
                       {OVERLAY_COLUMNS.map((c, i) => {
                         const sticky = i === 0;
                         const stickyCls = sticky ? `${rowBg} border-r border-slate-200` : undefined;
+                        if (c.key === 'age') {
+                          if (ageDays == null) {
+                            return (
+                              <React.Fragment key={c.key}>
+                                <Td align={c.align}><span className="text-slate-300">—</span></Td>
+                              </React.Fragment>
+                            );
+                          }
+                          const at = ageTone(ageDays);
+                          return (
+                            <React.Fragment key={c.key}>
+                              <Td align={c.align}>
+                                <span
+                                  className={`inline-flex items-center gap-1 text-[9px] font-bold ${at.bg} px-1.5 py-0.5 rounded tabular-nums`}
+                                  title={`${ageDays} days since stock-in · ${at.label}`}
+                                >
+                                  {ageDays}d
+                                </span>
+                              </Td>
+                            </React.Fragment>
+                          );
+                        }
                         if (c.key === 'imei') {
                           return (
                             <React.Fragment key={c.key}>
