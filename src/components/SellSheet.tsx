@@ -182,6 +182,59 @@ export default function SellSheet(_props: Props) {
     return m;
   }, [suppliers]);
 
+  // Cross-marketplace supplier fallback index — keyed by IMEI (preferred) and
+  // SKU (fallback). Sourced from every sale that DOES carry a supplierName
+  // and every InventoryUnit that has one. When a sale's own supplier slot
+  // is blank (e.g. because it was uploaded under an older sheet version
+  // where the column was missing), the display layer falls back to whichever
+  // matching record across marketplaces / inventory does have it filled in.
+  const supplierByIdentity = useMemo(() => {
+    const byImei = new Map<string, string>();
+    const bySku = new Map<string, string>();
+    const recordImei = (imei: string | undefined, name: string | undefined) => {
+      if (!imei || !name) return;
+      const k = imei.trim();
+      if (!k || byImei.has(k)) return;
+      byImei.set(k, name);
+    };
+    const recordSku = (sku: string | undefined, name: string | undefined) => {
+      if (!sku || !name) return;
+      const k = sku.trim().toUpperCase();
+      if (!k || bySku.has(k)) return;
+      bySku.set(k, name);
+    };
+    for (const s of sales) {
+      const name = supplierMap[s.supplierId || ''] || s.supplierName;
+      recordImei(s.imei, name);
+      recordSku(s.sku, name);
+    }
+    for (const u of units) {
+      const name = supplierMap[u.supplierId || ''] || u.supplierName;
+      recordImei(u.imei, name);
+      recordSku(u.sku, name);
+    }
+    return { byImei, bySku };
+  }, [sales, units, supplierMap]);
+
+  // Resolve a sale's supplier with the full fallback chain. Used by every
+  // display surface so the operator never sees an em-dash when ANY record
+  // in the DB knows the supplier for the same IMEI / SKU.
+  const resolveSupplier = useMemo(() => {
+    return (s: Sale): string => {
+      const direct = supplierMap[s.supplierId || ''] || s.supplierName;
+      if (direct) return direct;
+      if (s.imei) {
+        const hit = supplierByIdentity.byImei.get(s.imei.trim());
+        if (hit) return hit;
+      }
+      if (s.sku) {
+        const hit = supplierByIdentity.bySku.get(s.sku.trim().toUpperCase());
+        if (hit) return hit;
+      }
+      return '—';
+    };
+  }, [supplierMap, supplierByIdentity]);
+
   // ── Filters / sort ────────────────────────────────────────────────────────
   const [search, setSearch] = useState('');
   const [dateScope, setDateScope] = useState<DateScope>('month');
@@ -317,15 +370,17 @@ export default function SellSheet(_props: Props) {
     return base.filter(s => {
       if (marketplaceFilter.size > 0 && !marketplaceFilter.has(s.marketplace)) return false;
       if (supplierFilter.size > 0) {
-        const sn = supplierMap[s.supplierId || ''] || s.supplierName || 'Unassigned';
-        if (!supplierFilter.has(sn)) return false;
+        const sn = resolveSupplier(s);
+        if (!supplierFilter.has(sn === '—' ? 'Unassigned' : sn)) return false;
       }
       if (q) {
         const u = (s.unitId && units.find(x => x.id === s.unitId)) || undefined;
+        const fallbackSupplier = resolveSupplier(s);
         const hay = [
           s.imei, s.orderNumber, s.sku, s.marketplace, s.supplierName,
           u?.model, u?.colour, u?.storage,
           supplierMap[s.supplierId || ''],
+          fallbackSupplier !== '—' ? fallbackSupplier : undefined,
         ].filter(Boolean).join(' ').toLowerCase();
         if (!hay.includes(q)) return false;
       }
@@ -348,7 +403,7 @@ export default function SellSheet(_props: Props) {
         case 'grossProfit': return s.grossProfit ?? 0;
         case 'gpPercent':   return s.gpPercent ?? 0;
         case 'marketplace': return s.marketplace;
-        case 'supplier':    return (supplierMap[s.supplierId || ''] || s.supplierName || '').toLowerCase();
+        case 'supplier':    { const r = resolveSupplier(s); return (r === '—' ? '' : r).toLowerCase(); }
         case 'postage':     return s.postage ?? 0;
         case 'commission':  return s.commission ?? 0;
         default:            return '';
@@ -442,11 +497,11 @@ export default function SellSheet(_props: Props) {
   const supplierOptions = useMemo(() => {
     const set = new Set<string>();
     for (const s of allSold) {
-      const sn = supplierMap[s.supplierId || ''] || s.supplierName || 'Unassigned';
-      set.add(sn);
+      const sn = resolveSupplier(s);
+      set.add(sn === '—' ? 'Unassigned' : sn);
     }
     return Array.from(set).sort();
-  }, [allSold, supplierMap]);
+  }, [allSold, resolveSupplier]);
 
   // ── Overlay rows when a KPI tile is opened ────────────────────────────────
   const overlayRows = useMemo<Sale[]>(() => {
@@ -846,6 +901,7 @@ export default function SellSheet(_props: Props) {
         sort={sort}
         onSort={setSort}
         supplierMap={supplierMap}
+        resolveSupplier={resolveSupplier}
         units={units}
         region={region}
         onSaveCell={saveCell}
@@ -904,6 +960,7 @@ export default function SellSheet(_props: Props) {
             sort={sort}
             onSort={setSort}
             supplierMap={supplierMap}
+            resolveSupplier={resolveSupplier}
             units={units}
             region={region}
             onClose={() => setOverlay(null)}
@@ -1033,12 +1090,13 @@ function FilterChipsGroup({
 
 // ── Inline Excel sheet (always-on) ───────────────────────────────────────────
 function InlineSheet({
-  rows, sort, onSort, supplierMap, units, region, onSaveCell,
+  rows, sort, onSort, supplierMap, resolveSupplier, units, region, onSaveCell,
 }: {
   rows: Sale[];
   sort: { key: SortKey; dir: SortDir };
   onSort: (s: { key: SortKey; dir: SortDir }) => void;
   supplierMap: Record<string, string>;
+  resolveSupplier: (s: Sale) => string;
   units: InventoryUnit[];
   region: 'uk' | 'india' | 'admin' | 'both';
   onSaveCell: (s: Sale, field: string, value: any) => Promise<void>;
@@ -1062,6 +1120,7 @@ function InlineSheet({
         <SheetTable
           rows={rows}
           supplierMap={supplierMap}
+          resolveSupplier={resolveSupplier}
           units={units}
           region={region}
           sort={sort}
@@ -1080,7 +1139,7 @@ function InlineSheet({
 
 // ── KPI overlay modal ───────────────────────────────────────────────────────
 function SellExcelOverlay({
-  title, rows, awaitingUnits, sort, onSort, supplierMap, units, region,
+  title, rows, awaitingUnits, sort, onSort, supplierMap, resolveSupplier, units, region,
   onClose, onSaveCell, onBackfillImei,
 }: {
   title: string;
@@ -1089,6 +1148,7 @@ function SellExcelOverlay({
   sort: { key: SortKey; dir: SortDir };
   onSort: (s: { key: SortKey; dir: SortDir }) => void;
   supplierMap: Record<string, string>;
+  resolveSupplier: (s: Sale) => string;
   units: InventoryUnit[];
   region: 'uk' | 'india' | 'admin' | 'both';
   onClose: () => void;
@@ -1168,6 +1228,7 @@ function SellExcelOverlay({
             <SheetTable
               rows={rows}
               supplierMap={supplierMap}
+              resolveSupplier={resolveSupplier}
               units={units}
               region={region}
               sort={sort}
@@ -1193,11 +1254,12 @@ function SellExcelOverlay({
 
 // ── Sheet table (shared by InlineSheet + SellExcelOverlay) ──────────────────
 function SheetTable({
-  rows, supplierMap, units, region, sort, toggleSort,
+  rows, supplierMap, resolveSupplier, units, region, sort, toggleSort,
   editingCell, setEditingCell, onSaveCell,
 }: {
   rows: Sale[];
   supplierMap: Record<string, string>;
+  resolveSupplier?: (s: Sale) => string;
   units: InventoryUnit[];
   region: 'uk' | 'india' | 'admin' | 'both';
   sort: { key: SortKey; dir: SortDir };
@@ -1229,7 +1291,9 @@ function SheetTable({
       <tbody>
         {rows.map((s, idx) => {
           const u = (s.unitId && units.find(x => x.id === s.unitId)) || undefined;
-          const supplierName = supplierMap[s.supplierId || ''] || s.supplierName || '—';
+          const supplierName = resolveSupplier
+            ? resolveSupplier(s)
+            : (supplierMap[s.supplierId || ''] || s.supplierName || '—');
           // For imported sales there's no linked InventoryUnit, so storage /
           // colour fall back to whatever's encoded in the SKU.
           const skuExtracted = extractFromSku(s.sku);
