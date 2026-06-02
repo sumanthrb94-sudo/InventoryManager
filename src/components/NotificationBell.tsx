@@ -194,7 +194,7 @@ export default function NotificationBell({ unreadCount }: { unreadCount: number 
                         };
                         const config = typeConfig[n.type] || typeConfig.new_stock;
                         return (
-                        <div key={n.id} className={`flex items-start gap-3 px-4 py-3 transition-colors ${n.read ? 'opacity-60' : 'bg-white'}`}>
+                        <div key={n.id} className={`group flex items-start gap-3 px-4 py-3 transition-colors ${n.read ? 'opacity-60 bg-gray-50/40' : 'bg-white'}`}>
                           <div className={`w-8 h-8 rounded-xl flex items-center justify-center flex-shrink-0 ${config.bg}`}>
                             {config.icon}
                           </div>
@@ -206,6 +206,9 @@ export default function NotificationBell({ unreadCount }: { unreadCount: number 
                                   ×{n.quantity}
                                 </span>
                               )}
+                              {!n.read && (
+                                <span className="w-1.5 h-1.5 rounded-full bg-blue-500 flex-shrink-0" title="Unread" />
+                              )}
                             </div>
                             <p className="text-[9px] font-mono text-gray-400 mt-0.5 leading-relaxed">
                               {config.label} · {n.message}
@@ -216,9 +219,18 @@ export default function NotificationBell({ unreadCount }: { unreadCount: number 
                               </p>
                             )}
                           </div>
-                          <span className="text-[8px] font-mono text-gray-300 flex-shrink-0 mt-0.5">
-                            {timeAgo(n.timestamp)}
-                          </span>
+                          <div className="flex flex-col items-end gap-1 flex-shrink-0">
+                            <span className="text-[8px] font-mono text-gray-300 mt-0.5">
+                              {timeAgo(n.timestamp)}
+                            </span>
+                            <button
+                              onClick={() => notificationService.dismissFromPanel(n.id)}
+                              className="opacity-0 group-hover:opacity-100 p-0.5 text-gray-300 hover:text-rose-500 hover:bg-rose-50 rounded transition-all"
+                              title="Remove from panel"
+                            >
+                              <X size={11} />
+                            </button>
+                          </div>
                         </div>
                       );
                       })}

@@ -1,203 +1,403 @@
+/**
+ * AddStockManualModal — manual stock-in entry, follows the client's spec:
+ *
+ *   Office Stock: IMEI mandatory · status=available · counts as office stock
+ *   SHS Supplier Stock: IMEI optional · status=incoming · NOT in office stock
+ *
+ * Both tabs use the same schema (per client whiteboard, 17-May):
+ *   1. Stock In Date    (batch-level — top of modal)
+ *   2. Model            (per row)
+ *   3. IMEI / Serial    (per row — required for Office, optional for SHS)
+ *   4. Grade            (per row — A / B / C / Refurbished)
+ *   5. Storage          (per row — auto-parsed from Model, overridable)
+ *   6. Colour           (per row)
+ *   7. Supplier         (per row — autocomplete from existing suppliers)
+ *   8. Buying Price     (per row — must be > 0)
+ *   9. Notes            (per row — optional)
+ *
+ * Priority-1 rule: IMEI duplication is rejected. The service layer
+ * (addUnitManual) checks the live inventoryUnits collection; the UI
+ * also runs an in-batch dedupe for instant feedback. Apple devices accept
+ * a 10–12 char alphanumeric serial in place of the 15-digit IMEI.
+ */
 import React, { useState, useMemo, useCallback } from 'react';
-import { X, Plus, Trash2, CheckCircle2, PackagePlus, AlertCircle } from 'lucide-react';
+import { X, Plus, Trash2, CheckCircle2, PackagePlus, AlertCircle, Truck } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { dbService } from '../lib/dbService';
-import { DeviceCategory, InventoryUnit } from '../types';
 import { useInventoryStore } from '../lib/inventoryStore';
 import { notificationService } from '../lib/notificationService';
-import { StorageSelectCompact, GradeSelectCompact } from './FormSelects';
 import { logInventoryEvent } from '../lib/inventoryEvents';
-import { isValidImei, IMEI_REQUIRED_MESSAGE } from '../lib/imeiValidation';
+import { dbService } from '../lib/dbService';
+import {
+  isValidImei,
+  isAppleDevice,
+  IMEI_REQUIRED_MESSAGE,
+  IMEI_OR_APPLE_SERIAL_MESSAGE,
+} from '../lib/imeiValidation';
 import { parseBrandModelStorage } from '../lib/modelStorage';
+import { addUnitManual, ensureSupplier } from '../services';
+import type { InventoryUnit, ListingSite } from '../types';
+import DeviceComboBox from './DeviceComboBox';
 
-interface Props { onClose: () => void; }
+type Mode = 'office' | 'shs';
 
-/**
- * AddStockManualModal — physical stock arrived in office, operator enters
- * each unit manually. Mirrors AddSHSModal's row-per-SKU layout but every
- * row requires a real IMEI / Apple serial. The unit is created with
- * status='available' and shows up in Sell / Inventory immediately.
- *
- * Use this when there's no barcode scanner / no master file — pure
- * manual entry. The legacy StockIntakeFlow camera/OCR flow is hidden
- * for now per ops feedback ("use this manual only for now").
- */
+interface Props {
+  onClose: () => void;
+  /** Initial tab. 'office' = default. The 'SHS Order' button on Buy passes 'shs'. */
+  initialMode?: Mode;
+}
 
 interface StockRow {
-  id: string;          // local row id
-  imei: string;        // REQUIRED — IMEI or Apple serial
+  id: string;
   model: string;
-  buyPrice: string;
+  imei: string;          // required for Office; optional for SHS
+  grade: string;         // A / B / C / Refurbished
+  storage: string;       // auto-parsed but editable
   colour: string;
-  storage: string;
-  grade: string;
   supplierName: string;
+  buyPrice: string;
   notes: string;
+  /** When true the operator has manually edited Storage; we stop auto-syncing
+   *  it from Model so their override sticks. */
+  storageTouched?: boolean;
+  /** When true, the Colour dropdown is on "Other" and a freeform input is
+   *  rendered alongside it. Carried as form state so a pasted non-preset
+   *  colour (or a manually-typed one) survives a re-render without us
+   *  having to re-derive it from row.colour every time. */
+  colourOther?: boolean;
+}
+
+/** Closed set of colour presets shown in the Add Stock dropdown. Anything
+ *  outside this list lands the row on "Other" with a freeform input — same
+ *  pattern the operator uses on paper. Comparison is case-insensitive on
+ *  read; values written back to the row preserve the canonical casing
+ *  here (so two paste sources can't fork into "BLACK" vs "Black" buckets). */
+const COLOUR_PRESETS = ['Black', 'White', 'Grey', 'Blue'] as const;
+type ColourPreset = typeof COLOUR_PRESETS[number];
+
+/** True when `s` matches one of COLOUR_PRESETS case-insensitively. */
+function isPresetColour(s: string): boolean {
+  const lower = s.trim().toLowerCase();
+  return COLOUR_PRESETS.some(p => p.toLowerCase() === lower);
+}
+
+/** Return the canonical-cased preset that matches `s`, or undefined. */
+function canonicalColour(s: string): ColourPreset | undefined {
+  const lower = s.trim().toLowerCase();
+  return COLOUR_PRESETS.find(p => p.toLowerCase() === lower);
 }
 
 const uid = () => Math.random().toString(36).slice(2, 9);
 const today = () => new Date().toISOString().split('T')[0];
 
 function emptyRow(supplierName = ''): StockRow {
-  return { id: uid(), imei: '', model: '', buyPrice: '', colour: '', storage: '', grade: '', supplierName, notes: '' };
+  return {
+    id: uid(),
+    model: '', imei: '', grade: '', storage: '', colour: '',
+    supplierName, buyPrice: '', notes: '',
+  };
 }
 
-function detectCategory(model: string): DeviceCategory {
-  const m = (model || '').toUpperCase();
-  if (m.includes('IPAD')) return 'iPad';
-  if (/APPLE WATCH|WATCH ULTRA|WATCH SE/.test(m)) return 'Apple Watch';
-  if (m.includes('IPHONE')) return 'iPhone';
-  if (/GALAXY TAB|TAB A\d|TAB S\d/.test(m)) return 'Tablet';
-  if (m.includes('SAMSUNG') || m.includes('GALAXY'))
-    return /\bA\d{2,3}\b|GALAXY A/.test(m) ? 'Samsung A Series' : 'Samsung S Series';
-  return 'Other';
+const GRADES = ['A', 'B', 'C', 'ONU', 'Brand new'];
+
+// Standard storage capacities. The model auto-parser returns values in this
+// exact format (e.g. "128GB", "1TB"), so the dropdown's selected value will
+// pre-populate cleanly after Model is typed. Anything outside this set keeps
+// whatever the parser returned and surfaces as an extra option at the top
+// of the list so the operator can see it and re-pick if they want.
+const STORAGE_OPTIONS = ['32GB', '64GB', '128GB', '256GB', '512GB', '1TB'];
+
+interface RowValidation {
+  modelOk: boolean;
+  imeiOk: boolean;        // true when IMEI is valid OR mode=shs and IMEI is empty
+  isApple: boolean;
+  imeiRequired: boolean;
+  imeiEmpty: boolean;
+  dupeInBatch: boolean;
+  dupeInDb: boolean;
+  /** When dupeInDb fires, capture identifying details of the matching unit
+   *  so the operator can see what's collided — model / dateIn / status /
+   *  supplier. Lets them rule out a stale import or a sold/returned unit
+   *  without leaving the modal. */
+  dupeInDbMatch?: {
+    id: string;
+    model: string;
+    dateIn: string;
+    status: string;
+    supplierName?: string;
+  };
+  bpOk: boolean;
+  supplierOk: boolean;
+  /** Storage is required so units don't split into separate buckets in the
+   *  grouped overlay (e.g. "iPhone SE 3 1TB" × 2 and "iPhone SE 3" × 1
+   *  rendering as two rows because one row's storage was left blank). */
+  storageOk: boolean;
+  /** Whole-row green-light: all required fields satisfied. */
+  complete: boolean;
 }
 
-export default function AddStockManualModal({ onClose }: Props) {
+export default function AddStockManualModal({ onClose, initialMode = 'office' }: Props) {
   const { suppliers, units } = useInventoryStore();
+  const [mode, setMode]     = useState<Mode>(initialMode);
   const [date, setDate]     = useState(today());
   const [rows, setRows]     = useState<StockRow[]>([emptyRow()]);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved]   = useState(false);
   const [error, setError]   = useState('');
 
-  const knownNames = useMemo(() => suppliers.map(s => s.name), [suppliers]);
-  const supplierByName = useMemo(() => {
-    const m: Record<string, string> = {};
-    for (const s of suppliers) m[s.name.toUpperCase()] = s.id;
+  const supplierNames = useMemo(() => suppliers.map(s => s.name), [suppliers]);
+  // Map (not Set) so we can surface the matching unit's details when a row
+  // flags as duplicate — operator's reported false positives in production
+  // where they swore the IMEI wasn't in DB; turned out to be a stale import
+  // or a returned/sold unit still living in inventoryUnits. Showing the
+  // existing row's model + dateIn + status + supplier makes that obvious.
+  const existingByImei = useMemo(() => {
+    const m = new Map<string, InventoryUnit>();
+    for (const u of units) {
+      if (!u.imei) continue;
+      // Strip zero-width / non-breaking whitespace too — Excel + WhatsApp
+      // copy/paste loves to embed those, and a single invisible character
+      // makes the exact-match dupe check miss a real collision.
+      const key = u.imei
+        .replace(/[​-‍﻿ ]/g, '')
+        .trim()
+        .toUpperCase();
+      if (key && !m.has(key)) m.set(key, u);
+    }
     return m;
-  }, [suppliers]);
-  const existingImeis = useMemo(() => {
-    const s = new Set<string>();
-    for (const u of units) if (u.imei) s.add(u.imei.trim().toUpperCase());
-    return s;
   }, [units]);
 
-  const lastSupplierName = rows.filter(r => r.supplierName).at(-1)?.supplierName ?? '';
+  // Carry the last typed supplier forward — saves re-typing across rows in
+  // the same delivery from one source.
+  const lastSupplier = rows.filter(r => r.supplierName).at(-1)?.supplierName ?? '';
 
-  const updateRow = useCallback((id: string, patch: Partial<StockRow>) =>
-    setRows(rs => rs.map(r => r.id === id ? { ...r, ...patch } : r)), []);
-  const removeRow = (id: string) => setRows(rs => rs.filter(r => r.id !== id));
-  const addRow    = () => setRows(rs => [...rs, emptyRow(lastSupplierName)]);
+  const updateRow = useCallback((id: string, patch: Partial<StockRow>) => {
+    setRows(rs => rs.map(r => {
+      if (r.id !== id) return r;
+      const next: StockRow = { ...r, ...patch };
+      // Auto-sync Storage from Model unless the operator has touched it.
+      if ('model' in patch && !next.storageTouched) {
+        const parsed = parseBrandModelStorage(next.model);
+        next.storage = parsed.storage || '';
+      }
+      if ('storage' in patch) next.storageTouched = true;
+      return next;
+    }));
+  }, []);
 
-  // Per-row validation summary, used for the bottom CTA + inline highlight.
-  const rowValidation = useMemo(() => rows.map(r => {
-    const imeiTrim = r.imei.trim().toUpperCase();
-    const imeiOk   = isValidImei(r.imei);
-    const dupeInRow = imeiTrim && rows.filter(x => x.imei.trim().toUpperCase() === imeiTrim).length > 1;
-    const dupeExisting = imeiTrim && existingImeis.has(imeiTrim);
-    const modelOk  = r.model.trim().length > 0;
+  const removeRow = (id: string) => setRows(rs => rs.length > 1 ? rs.filter(r => r.id !== id) : rs);
+  const addRow    = () => setRows(rs => [...rs, emptyRow(lastSupplier)]);
+
+  // ── Validation per row ─────────────────────────────────────────────────────
+  const validation: RowValidation[] = useMemo(() => rows.map(r => {
+    // Strip invisible whitespace from the operator-typed IMEI to match the
+    // same normalisation done when we built existingByImei above. Without
+    // this an Excel-pasted IMEI with a trailing zero-width space would
+    // never match a clean DB record (or vice-versa).
+    const imei = r.imei
+      .replace(/[​-‍﻿ ]/g, '')
+      .trim()
+      .toUpperCase();
+    const isApple = isAppleDevice(r.model);
+    const imeiRequired = mode === 'office';
+    const imeiEmpty = imei.length === 0;
+    const imeiFormatOk = imei ? isValidImei(imei, { isAppleSerial: isApple }) : false;
+
+    const dupeInBatch = !!imei && rows.filter(x => x.imei
+      .replace(/[​-‍﻿ ]/g, '').trim().toUpperCase() === imei).length > 1;
+    const existingUnit = imei ? existingByImei.get(imei) : undefined;
+    const dupeInDb    = !!existingUnit;
+    const dupeInDbMatch = existingUnit ? {
+      id:           existingUnit.id,
+      model:        (existingUnit.model || '').trim() || '?',
+      dateIn:       (existingUnit.dateIn || '').trim() || '?',
+      status:       existingUnit.status || '?',
+      supplierName: existingUnit.supplierName,
+    } : undefined;
+
+    const modelOk    = r.model.trim().length > 0;
     const supplierOk = r.supplierName.trim().length > 0;
-    return {
-      imeiOk: !!imeiOk,
-      dupeInRow: !!dupeInRow,
-      dupeExisting: !!dupeExisting,
-      modelOk,
-      supplierOk,
-      complete: !!imeiOk && !dupeInRow && !dupeExisting && modelOk && supplierOk,
-    };
-  }), [rows, existingImeis]);
+    const bp         = parseFloat(r.buyPrice);
+    const bpOk       = Number.isFinite(bp) && bp > 0;
+    // Storage may have arrived via the auto-sync from the Model field
+    // (parseBrandModelStorage pulls "1TB" out of "iPhone SE 3 1TB") OR
+    // via the dropdown. Either way the trimmed value must be non-empty.
+    const storageOk  = r.storage.trim().length > 0;
 
+    const imeiOk =
+      imeiRequired
+        ? imeiFormatOk && !dupeInBatch && !dupeInDb
+        : (imeiEmpty || (imeiFormatOk && !dupeInBatch && !dupeInDb));
+
+    return {
+      modelOk, imeiOk, isApple, imeiRequired, imeiEmpty,
+      dupeInBatch, dupeInDb, dupeInDbMatch, bpOk, supplierOk, storageOk,
+      complete: modelOk && imeiOk && bpOk && supplierOk && storageOk,
+    };
+  }), [rows, mode, existingByImei]);
+
+  // ── Totals strip ───────────────────────────────────────────────────────────
   const totals = useMemo(() => {
-    let units = 0, value = 0;
+    let validUnits = 0, value = 0;
     rows.forEach((r, i) => {
-      if (rowValidation[i].complete) {
-        units++;
+      if (validation[i].complete) {
+        validUnits++;
         value += parseFloat(r.buyPrice) || 0;
       }
     });
-    return { units, value };
-  }, [rows, rowValidation]);
+    return { validUnits, value };
+  }, [rows, validation]);
 
-  const ensureSupplier = async (name: string): Promise<string> => {
-    const key = name.trim().toUpperCase();
-    if (!key) return '';
-    const existing = supplierByName[key];
-    if (existing) return existing;
-    const newId = `sup_${Date.now()}_${uid()}`;
-    await dbService.create('suppliers', newId, {
-      name: name.trim(), portal: 'Wholesale', ownerId: 'shared',
-      createdAt: new Date().toISOString(),
-    });
-    return newId;
-  };
+  // Hard-block save when ANY row carries a duplicate-IMEI warning (either
+  // already in inventory or repeated within this batch). Other validation
+  // gaps — missing model / empty row / bad BP — keep the old silent-skip
+  // behaviour so the operator can leave blank rows around without them
+  // blocking the save. Duplicate IMEIs are the only thing the operator
+  // could mistake for a soft warning and lose data over.
+  const duplicateCount = useMemo(
+    () => validation.filter(v => v.dupeInDb || v.dupeInBatch).length,
+    [validation],
+  );
+  const hasDuplicates = duplicateCount > 0;
 
-  const handleSave = async () => {
-    const validIdxs: number[] = [];
-    rowValidation.forEach((v, i) => { if (v.complete) validIdxs.push(i); });
-    if (!validIdxs.length) {
-      setError('Add at least one row with a valid IMEI, model and supplier.');
+  // ── Save ───────────────────────────────────────────────────────────────────
+  async function handleSave() {
+    // Defence-in-depth: even if the button somehow fires (race with the
+    // store listener, devtools, etc.) refuse to proceed when any row has
+    // a duplicate IMEI. Silent-skipping these previously closed the modal
+    // and made the operator think the dup row had been accepted.
+    if (hasDuplicates) {
+      setError(
+        `Resolve ${duplicateCount} duplicate IMEI row${duplicateCount === 1 ? '' : 's'} before saving.`,
+      );
       return;
     }
-
+    const validIdxs: number[] = [];
+    validation.forEach((v, i) => { if (v.complete) validIdxs.push(i); });
+    if (!validIdxs.length) {
+      setError('Add at least one row with all required fields filled in.');
+      return;
+    }
     setSaving(true);
     setError('');
     try {
-      const batchId = `manual_bat_${Date.now()}`;
-      const supCache: Record<string, string> = {};
-      for (const i of validIdxs) {
-        const key = rows[i].supplierName.trim().toUpperCase();
-        if (key && !supCache[key]) supCache[key] = await ensureSupplier(rows[i].supplierName);
-      }
+      const batchId = mode === 'office'
+        ? `manual_bat_${Date.now()}`
+        : `shs_bat_${Date.now()}`;
 
-      let totalUnits = 0;
+      let total = 0;
+      const failures: string[] = [];
+
+      // SHS mode caches supplier ids by name so we only ensureSupplier once
+      // per name per batch. Office mode uses the service-side ensureSupplier
+      // via addUnitManual.
+      const supplierIdCache: Record<string, string> = {};
+
       for (const i of validIdxs) {
         const r = rows[i];
-        const supplierId = supCache[r.supplierName.trim().toUpperCase()] || '';
-        const imei       = r.imei.trim().toUpperCase();
-        const category   = detectCategory(r.model);
-        // Use the shared brand/series detector so the new unit lands in the
-        // right Periodic Table bucket and respects naming conventions.
-        const parsed     = parseBrandModelStorage(r.model);
-        const brand      = parsed.brand !== 'Other' ? parsed.brand
-                            : (['iPhone', 'iPad', 'Apple Watch'].includes(category) ? 'Apple'
-                                : (['Samsung S Series', 'Samsung A Series', 'Tablet'].includes(category) ? 'Samsung' : 'Other'));
-        const cleanModel = parsed.model || r.model.trim();
-        const storage    = r.storage.trim() || parsed.storage;
-        const bp         = parseFloat(r.buyPrice) || 0;
-        const newUnit: InventoryUnit = {
-          id:             imei,        // doc id = IMEI for upsert semantics
-          imei,
-          model:          cleanModel,
-          brand,
-          category,
-          colour:         r.colour.trim() || 'Unknown',
-          ...(storage      ? { storage }                : {}),
-          ...(parsed.series ? { series: parsed.series } : {}),
-          ...(r.grade.trim() ? { grade: r.grade.trim() } : {}),
-          buyPrice:       bp,
-          dateIn:         date,
-          supplierId,
-          batchId,
-          status:         'available',
-          flags:          [],
-          notes:          r.notes.trim(),
-          platformListed: false,
-          listingSites:   [],
-          ownerId:        'shared',
-          createdAt:      new Date().toISOString(),
-        };
-        await dbService.create('inventoryUnits', imei, newUnit);
-        // Single dedup-aware notification per unit; notificationService
-        // already groups identical SKUs within its 10-min window.
-        notificationService.addNotification('new_stock', newUnit);
-        totalUnits++;
+        try {
+          if (mode === 'office') {
+            const res = await addUnitManual({
+              imei: r.imei,
+              model: r.model,
+              buyPrice: parseFloat(r.buyPrice) || 0,
+              supplierName: r.supplierName,
+              colour: r.colour,
+              storage: r.storage,
+              grade: r.grade,
+              notes: r.notes,
+              dateIn: date,
+              batchId,
+            });
+            if (!res.ok) {
+              failures.push(`${r.imei.trim().toUpperCase() || '(no imei)'}: ${res.message ?? res.error}`);
+              continue;
+            }
+            notificationService.addNotification('new_stock', {
+              id: res.id!, imei: res.id!, model: r.model,
+              colour: r.colour, buyPrice: parseFloat(r.buyPrice) || 0,
+            } as any);
+            total++;
+          } else {
+            // SHS path — IMEI optional. Create the unit directly with
+            // status='incoming' so it shows up in the SHS section of BuySheet.
+            const supplierName = r.supplierName.trim();
+            const supKey = supplierName.toUpperCase();
+            if (!supplierIdCache[supKey]) {
+              supplierIdCache[supKey] = await ensureSupplier(supplierName);
+            }
+            const supplierId = supplierIdCache[supKey];
+            const parsed = parseBrandModelStorage(r.model);
+            const cleanModel = parsed.model || r.model.trim();
+            const storage = r.storage.trim() || parsed.storage || '';
+            const brand = parsed.brand !== 'Other' ? parsed.brand : 'Other';
+            // Apple serials surface as IMEI too; uppercase + trim.
+            const imei = r.imei.trim().toUpperCase();
+            // id prefix is critical: isManualShsUnit() classifies anything
+            // status='incoming' whose id starts with 'shs_' as a synthesised
+            // placeholder (not a manual SHS), which would hide this row from
+            // the SHS KPI. Prefix with 'manual_shs_' so it's counted.
+            const id = imei || `manual_shs_${Date.now()}_${i}`;
+            const newUnit: InventoryUnit = {
+              id,
+              imei,
+              model: cleanModel,
+              brand,
+              category: detectCategory(r.model),
+              colour: r.colour.trim() || 'Unknown',
+              ...(storage ? { storage } : {}),
+              ...(r.grade.trim() ? { grade: r.grade.trim() } : {}),
+              buyPrice: parseFloat(r.buyPrice) || 0,
+              dateIn: date,
+              supplierId,
+              supplierName,
+              batchId,
+              status: 'incoming',
+              statusRaw: 'SHS — Manual',
+              flags: [],
+              notes: r.notes.trim() || 'SHS — Awaiting delivery',
+              platformListed: false,
+              listingSites: [] as ListingSite[],
+              ownerId: 'shared',
+              createdAt: new Date().toISOString(),
+            };
+            await dbService.create('inventoryUnits', id, newUnit);
+            if (i === validIdxs[0]) {
+              notificationService.addNotification('shs_received', newUnit);
+            }
+            total++;
+          }
+        } catch (err: any) {
+          failures.push(`row ${i + 1}: ${err?.message || 'save failed'}`);
+        }
       }
 
-      await logInventoryEvent({
-        type:    'batch_created',
-        message: `Manual add: ${totalUnits} unit${totalUnits !== 1 ? 's' : ''} added by IMEI`,
-        batchId,
-      });
+      if (total > 0) {
+        await logInventoryEvent({
+          type: 'batch_created',
+          message: mode === 'office'
+            ? `Manual add: ${total} unit${total === 1 ? '' : 's'} added (IMEI-tracked)`
+            : `Manual SHS: ${total} unit${total === 1 ? '' : 's'} flagged supplier-held`,
+          batchId,
+        });
+      }
 
+      if (failures.length && total === 0) {
+        setError(failures[0]);
+        setSaving(false);
+        return;
+      }
+      if (failures.length) {
+        setError(`${total} saved · ${failures.length} rejected: ${failures[0]}`);
+      }
       setSaved(true);
       setTimeout(onClose, 900);
     } catch (err: any) {
       setError(err?.message || 'Save failed. Check connection.');
       setSaving(false);
     }
-  };
+  }
 
+  // ── Render ─────────────────────────────────────────────────────────────────
   return (
     <motion.div
       initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
@@ -208,292 +408,414 @@ export default function AddStockManualModal({ onClose }: Props) {
         initial={{ y: 40, opacity: 0 }} animate={{ y: 0, opacity: 1 }}
         exit={{ y: 40, opacity: 0 }} transition={{ type: 'spring', damping: 28, stiffness: 300 }}
         onClick={e => e.stopPropagation()}
-        className="bg-white w-full md:max-w-3xl rounded-t-3xl md:rounded-3xl shadow-2xl flex flex-col overflow-hidden"
+        className="bg-white w-full md:max-w-4xl rounded-t-3xl md:rounded-3xl shadow-2xl flex flex-col overflow-hidden"
         style={{ maxHeight: 'calc(100dvh - 16px)' }}
       >
-        {/* Header */}
-        <div className="flex items-center justify-between px-5 py-4 border-b border-emerald-100 bg-emerald-50 flex-shrink-0">
+        {/* Header + mode tabs */}
+        <div className="flex items-center justify-between px-5 py-3 border-b border-gray-100 flex-shrink-0">
           <div className="flex items-center gap-3">
-            <div className="w-9 h-9 bg-emerald-600 text-white rounded-xl flex items-center justify-center">
-              <PackagePlus size={17} />
+            <div className={`w-8 h-8 rounded-xl flex items-center justify-center text-white ${mode === 'shs' ? 'bg-amber-500' : 'bg-slate-900'}`}>
+              {mode === 'shs' ? <Truck size={15} /> : <PackagePlus size={15} />}
             </div>
             <div>
-              <p className="text-sm font-bold uppercase tracking-tight">Add Stock — Manual</p>
-              <p className="text-[9px] text-emerald-700 font-mono uppercase tracking-widest">
-                Physical units in office · IMEI required · Goes straight to Sell
+              <h3 className="text-sm font-bold">Add Stock</h3>
+              <p className="text-[9px] text-gray-400 font-mono">
+                Stock-In Page · {mode === 'office' ? 'Office Stock' : 'SHS Supplier Stock'}
               </p>
             </div>
           </div>
-          <button onClick={onClose} className="p-2 hover:bg-emerald-100 rounded-xl transition-all text-emerald-500">
-            <X size={16} />
+          <button onClick={onClose} className="p-2 hover:bg-gray-100 rounded-xl text-gray-400">
+            <X size={15} />
           </button>
         </div>
 
-        {/* Date */}
-        <div className="px-5 py-3 border-b border-gray-100 bg-gray-50 flex-shrink-0">
-          <div className="flex items-center gap-4 flex-wrap">
-            <div>
-              <label className="text-[8px] font-bold uppercase tracking-widest text-gray-400">Stock In Date</label>
-              <input type="date" value={date} onChange={e => setDate(e.target.value)}
-                className="block mt-1 border border-gray-200 rounded-xl px-3 py-2 text-xs font-mono focus:outline-none focus:border-black bg-white transition-all" />
-            </div>
-            <div className="flex-1 min-w-[200px] bg-emerald-50 border border-emerald-200 rounded-xl px-4 py-2.5 text-[9px] text-emerald-800 font-mono leading-relaxed">
-              IMEI is required for every row. Apple alphanumeric serials accepted
-              (e.g. <code>NL6CMQCYTD</code>). Duplicates against existing inventory are blocked.
-            </div>
-          </div>
+        {/* Mode tabs */}
+        <div className="px-5 pt-3 pb-2 flex-shrink-0 flex items-center gap-2">
+          <ModeTab
+            label="Office Stock"
+            sub="IMEI mandatory · counts as office stock"
+            active={mode === 'office'}
+            onClick={() => setMode('office')}
+            tone="emerald"
+          />
+          <ModeTab
+            label="SHS Supplier Stock"
+            sub="IMEI optional · supplier-held, not office stock"
+            active={mode === 'shs'}
+            onClick={() => setMode('shs')}
+            tone="amber"
+          />
         </div>
 
-        {/* Column headers (desktop) */}
-        <div className="hidden md:grid grid-cols-12 gap-1 px-5 pt-3 pb-1 flex-shrink-0">
-          {[
-            ['col-span-3', 'IMEI / SERIAL *'],
-            ['col-span-3', 'MODEL *'],
-            ['col-span-1', 'BP (£)'],
-            ['col-span-1', 'COLOUR'],
-            ['col-span-1', 'GRADE'],
-            ['col-span-1', 'STORAGE'],
-            ['col-span-2', 'SUPPLIER *'],
-          ].map(([cls, label]) => (
-            <div key={label} className={`${cls} text-[7px] font-bold uppercase tracking-widest text-gray-400`}>{label}</div>
-          ))}
+        {/* Top-level Stock In Date */}
+        <div className="px-5 pb-2 flex items-center gap-3 flex-shrink-0">
+          <label className="text-[10px] font-bold uppercase tracking-widest text-gray-500">Stock In Date</label>
+          <input
+            type="date" value={date} onChange={e => setDate(e.target.value)}
+            className="border border-gray-200 rounded-lg px-3 py-1.5 text-[12px] font-mono focus:outline-none focus:border-black"
+          />
+          <p className="text-[9px] font-mono text-gray-400 ml-auto">
+            {rows.length} row{rows.length === 1 ? '' : 's'} · {totals.validUnits} ready · £{totals.value.toFixed(0)}
+          </p>
         </div>
 
         {/* Rows */}
-        <div className="flex-1 overflow-y-auto">
-          <div className="px-4 md:px-5 py-3 space-y-2">
-            <AnimatePresence initial={false}>
-              {rows.map((row, idx) => (
-                <StockRowCard
-                  key={row.id}
-                  row={row}
-                  index={idx}
-                  validation={rowValidation[idx]}
-                  knownSuppliers={knownNames}
-                  onChange={patch => updateRow(row.id, patch)}
-                  onRemove={() => removeRow(row.id)}
-                  canRemove={rows.length > 1}
-                />
-              ))}
-            </AnimatePresence>
-            <button
-              onClick={addRow}
-              className="w-full py-3 border-2 border-dashed border-emerald-200 rounded-xl text-[10px] font-bold uppercase tracking-widest text-emerald-500 hover:border-emerald-600 hover:text-emerald-700 transition-all flex items-center justify-center gap-2"
-            >
-              <Plus size={13} /> Add Another IMEI
-            </button>
+        <div className="flex-1 overflow-y-auto px-5 pb-3">
+          <div className="space-y-2">
+            {rows.map((r, i) => (
+              <Row
+                key={r.id}
+                row={r}
+                index={i}
+                validation={validation[i]}
+                mode={mode}
+                supplierNames={supplierNames}
+                units={units}
+                onChange={patch => updateRow(r.id, patch)}
+                onRemove={() => removeRow(r.id)}
+                canRemove={rows.length > 1}
+              />
+            ))}
           </div>
+
+          <button
+            type="button"
+            onClick={addRow}
+            className="mt-3 w-full flex items-center justify-center gap-2 py-2 border-2 border-dashed border-gray-200 rounded-xl text-[10px] font-bold uppercase tracking-widest text-gray-500 hover:border-gray-400 hover:text-gray-700 transition-all"
+          >
+            <Plus size={12} /> Add Row
+          </button>
         </div>
 
         {/* Footer */}
-        <div className="border-t border-gray-100 px-5 py-4 bg-gray-50 flex-shrink-0 space-y-3">
-          <div className="flex items-center justify-between text-xs">
-            <div className="flex items-center gap-3">
-              <span className="font-bold">{totals.units} unit{totals.units !== 1 ? 's' : ''} ready</span>
-              {totals.value > 0 && (
-                <span className="text-gray-400 font-mono">£{totals.value.toLocaleString()} committed</span>
-              )}
-              {rows.length > totals.units && (
-                <span className="text-[8px] bg-rose-100 text-rose-700 font-bold px-2 py-0.5 rounded-full uppercase">
-                  {rows.length - totals.units} row{(rows.length - totals.units) !== 1 ? 's' : ''} need fixing
-                </span>
-              )}
-            </div>
+        <div className="px-5 py-3 border-t border-gray-100 flex items-center justify-between gap-3 flex-shrink-0">
+          <div className="text-[10px] font-mono text-gray-500 truncate">
+            {error
+              ? <span className="text-rose-600 inline-flex items-center gap-1"><AlertCircle size={11} />{error}</span>
+              : hasDuplicates
+                ? <span className="text-rose-600 inline-flex items-center gap-1">
+                    <AlertCircle size={11} />
+                    {duplicateCount} duplicate IMEI row{duplicateCount === 1 ? '' : 's'} — fix or remove to enable save
+                  </span>
+                : `${totals.validUnits} unit${totals.validUnits === 1 ? '' : 's'} ready · £${totals.value.toFixed(0)}`}
           </div>
-
-          {error && <p className="text-[10px] text-red-500 font-mono">{error}</p>}
-
-          <button
-            onClick={handleSave}
-            disabled={saving || saved || totals.units === 0}
-            className="w-full py-3.5 bg-emerald-600 text-white rounded-xl text-[11px] font-bold uppercase tracking-widest hover:bg-emerald-700 transition-all disabled:opacity-50 flex items-center justify-center gap-2"
-          >
-            {saved
-              ? <><CheckCircle2 size={15} /> Stock Added!</>
-              : saving
-                ? <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                : <><PackagePlus size={15} /> Add {totals.units} Unit{totals.units !== 1 ? 's' : ''} to Stock</>
-            }
-          </button>
+          <div className="flex items-center gap-2 flex-shrink-0">
+            <button onClick={onClose} type="button"
+              className="px-4 py-2 text-[10px] font-bold uppercase tracking-widest text-gray-600 hover:bg-gray-100 rounded-lg transition-all">
+              Cancel
+            </button>
+            <button
+              onClick={handleSave}
+              disabled={!totals.validUnits || hasDuplicates || saving || saved}
+              title={hasDuplicates
+                ? `Resolve ${duplicateCount} duplicate IMEI row${duplicateCount === 1 ? '' : 's'} first`
+                : undefined}
+              className={`px-4 py-2.5 text-white rounded-lg text-[10px] font-bold uppercase tracking-widest transition-all disabled:opacity-40 flex items-center gap-2
+                ${mode === 'shs' ? 'bg-amber-500 hover:bg-amber-600' : 'bg-slate-900 hover:bg-slate-800'}`}
+            >
+              {saved
+                ? <><CheckCircle2 size={12} /> Saved!</>
+                : saving
+                  ? <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                  : <>Save {totals.validUnits} {mode === 'shs' ? 'SHS' : ''} unit{totals.validUnits === 1 ? '' : 's'}</>}
+            </button>
+          </div>
         </div>
       </motion.div>
     </motion.div>
   );
 }
 
-// ── Row card ──────────────────────────────────────────────────────────────────
-
-interface RowValidation {
-  imeiOk: boolean;
-  dupeInRow: boolean;
-  dupeExisting: boolean;
-  modelOk: boolean;
-  supplierOk: boolean;
-  complete: boolean;
+// ── Mode tab pill ────────────────────────────────────────────────────────────
+function ModeTab({
+  label, sub, active, onClick, tone,
+}: {
+  label: string;
+  sub: string;
+  active: boolean;
+  onClick: () => void;
+  tone: 'emerald' | 'amber';
+}) {
+  const activeCls = tone === 'amber'
+    ? 'bg-amber-50 border-amber-300 text-amber-900'
+    : 'bg-emerald-50 border-emerald-300 text-emerald-900';
+  return (
+    <button
+      onClick={onClick}
+      className={`flex-1 text-left rounded-xl border px-3 py-2 transition-all ${
+        active ? activeCls : 'bg-white border-slate-200 text-slate-500 hover:border-slate-400'
+      }`}
+    >
+      <p className="text-[11px] font-bold uppercase tracking-widest leading-tight">{label}</p>
+      <p className="text-[9px] font-mono opacity-70 mt-0.5">{sub}</p>
+    </button>
+  );
 }
 
-interface RowProps {
+// ── One row in the entry grid ────────────────────────────────────────────────
+function Row({
+  row, index, validation, mode, supplierNames, units, onChange, onRemove, canRemove,
+}: {
   key?: React.Key;
   row: StockRow;
   index: number;
   validation: RowValidation;
-  knownSuppliers: string[];
+  mode: Mode;
+  supplierNames: string[];
+  /** Live inventory — feeds the model autocomplete so the operator can
+   *  scroll/select from existing models instead of retyping (which is
+   *  how copy-paste-near-misses end up in different grouped rows). */
+  units: InventoryUnit[];
   onChange: (patch: Partial<StockRow>) => void;
   onRemove: () => void;
   canRemove: boolean;
-}
-
-function StockRowCard({ row, index, validation, knownSuppliers, onChange, onRemove, canRemove }: RowProps) {
-  const imeiClass = (() => {
-    if (!row.imei.trim()) return 'border-gray-200 focus:border-emerald-500 bg-white';
-    if (validation.dupeInRow || validation.dupeExisting) return 'border-rose-400 bg-rose-50 focus:border-rose-500';
-    if (!validation.imeiOk) return 'border-rose-300 bg-rose-50 focus:border-rose-500';
-    return 'border-emerald-300 bg-emerald-50/40 focus:border-emerald-500';
-  })();
-  const imeiError = (() => {
-    if (!row.imei.trim()) return '';
-    if (validation.dupeInRow)    return 'Duplicate IMEI in this batch';
-    if (validation.dupeExisting) return 'IMEI already in inventory';
-    if (!validation.imeiOk)      return IMEI_REQUIRED_MESSAGE;
+}) {
+  // ── IMEI helper text — shows what's wrong (or empty when fine) ─────────────
+  const imeiHelp = (() => {
+    if (mode === 'shs' && validation.imeiEmpty) return 'Optional for SHS';
+    if (validation.imeiEmpty && validation.imeiRequired) return 'Required';
+    if (validation.dupeInBatch) return 'Duplicate in this batch';
+    if (validation.dupeInDb) {
+      // Surface the colliding unit's identifying fields so the operator can
+      // see WHY the IMEI is flagged (a sold/returned unit still in
+      // inventoryUnits, a stale import, etc) instead of having to leave the
+      // modal and grep the inventory list themselves.
+      const m = validation.dupeInDbMatch;
+      if (m) return `Already in inventory · ${m.model} · ${m.dateIn} · status ${m.status}${m.supplierName ? ' · ' + m.supplierName : ''}`;
+      return 'Already in inventory';
+    }
+    if (!validation.imeiOk && !validation.imeiEmpty) {
+      return validation.isApple ? IMEI_OR_APPLE_SERIAL_MESSAGE : IMEI_REQUIRED_MESSAGE;
+    }
     return '';
   })();
 
   return (
-    <motion.div
-      layout
-      initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, height: 0 }}
-      className={`border rounded-xl overflow-hidden ${validation.complete ? 'border-emerald-200 bg-emerald-50/30' : 'border-gray-200 bg-white'}`}
-    >
-      {/* Desktop grid */}
-      <div className="hidden md:grid grid-cols-12 gap-1 px-3 py-2 items-start">
-        <div className="col-span-3">
-          <input
-            value={row.imei}
-            onChange={e => onChange({ imei: e.target.value })}
-            placeholder="IMEI or serial"
-            className={`w-full border rounded-lg px-2.5 py-2 text-xs font-mono focus:outline-none transition-all ${imeiClass}`}
-          />
-          {imeiError && <p className="text-[8px] text-rose-600 font-mono mt-1">{imeiError}</p>}
-        </div>
-        <div className="col-span-3">
-          <input value={row.model} onChange={e => onChange({ model: e.target.value })}
-            placeholder="iPhone 16 Pro 256GB"
-            className="w-full border border-gray-200 rounded-lg px-2.5 py-2 text-xs focus:outline-none focus:border-emerald-500 bg-white transition-all" />
-        </div>
-        <div className="col-span-1">
-          <input type="number" min={0} value={row.buyPrice} onChange={e => onChange({ buyPrice: e.target.value })}
-            placeholder="0"
-            className="w-full border border-gray-200 rounded-lg px-2.5 py-2 text-xs font-mono text-right focus:outline-none focus:border-emerald-500 bg-white transition-all" />
-        </div>
-        <div className="col-span-1">
-          <input value={row.colour} onChange={e => onChange({ colour: e.target.value })}
-            placeholder="Black"
-            className="w-full border border-gray-200 rounded-lg px-2.5 py-2 text-xs focus:outline-none focus:border-emerald-500 bg-white transition-all" />
-        </div>
-        <div className="col-span-1">
-          <GradeSelectCompact value={row.grade} onChange={e => onChange({ grade: e })} className="w-full border border-gray-200 rounded-lg px-2.5 py-2 text-xs font-mono focus:outline-none focus:border-emerald-500 bg-white transition-all" />
-        </div>
-        <div className="col-span-1">
-          <StorageSelectCompact value={row.storage} onChange={e => onChange({ storage: e })} className="w-full border border-gray-200 rounded-lg px-2.5 py-2 text-xs font-mono focus:outline-none focus:border-emerald-500 bg-white transition-all" />
-        </div>
-        <div className="col-span-2 flex items-start gap-1">
-          <div className="flex-1">
-            <input list={`stock-sup-${row.id}`} value={row.supplierName}
-              onChange={e => onChange({ supplierName: e.target.value })}
-              placeholder="MHL"
-              className="w-full border border-gray-200 rounded-lg px-2.5 py-2 text-xs focus:outline-none focus:border-emerald-500 bg-white transition-all" />
-            <datalist id={`stock-sup-${row.id}`}>
-              {knownSuppliers.map(s => <option key={s} value={s} />)}
-            </datalist>
-          </div>
-          {canRemove && (
-            <button onClick={onRemove}
-              className="p-1.5 hover:bg-red-50 hover:text-red-500 text-gray-300 rounded-lg transition-all flex-shrink-0 mt-0.5">
-              <Trash2 size={12} />
-            </button>
-          )}
-        </div>
+    <div className={`border rounded-2xl p-3 transition-all ${
+      validation.complete
+        ? 'border-emerald-200 bg-emerald-50/30'
+        : 'border-slate-200 bg-slate-50/40'
+    }`}>
+      <div className="flex items-center gap-2 mb-2">
+        <span className="text-[9px] font-mono text-gray-400 w-6 text-center flex-shrink-0">#{index + 1}</span>
+        <div className="flex-1" />
+        {validation.complete && <CheckCircle2 size={13} className="text-emerald-500 flex-shrink-0" />}
+        {canRemove && (
+          <button
+            type="button"
+            onClick={onRemove}
+            className="p-1.5 text-gray-300 hover:text-rose-500 hover:bg-rose-50 rounded transition-all flex-shrink-0"
+            title="Remove row"
+          >
+            <Trash2 size={12} />
+          </button>
+        )}
       </div>
 
-      {/* Mobile fields */}
-      <div className="md:hidden px-3 py-3 space-y-2">
-        <div className="flex items-center justify-between mb-1">
-          <span className={`text-[8px] font-bold uppercase tracking-widest ${validation.complete ? 'text-emerald-600' : 'text-gray-400'}`}>
-            #{index + 1}{validation.complete ? ' · OK' : ''}
-          </span>
-          {canRemove && (
-            <button onClick={onRemove} className="text-[8px] text-red-400 hover:text-red-600 font-bold uppercase flex items-center gap-1">
-              <Trash2 size={10} /> Remove
-            </button>
-          )}
-        </div>
-        <div>
-          <label className="text-[8px] font-bold uppercase tracking-widest text-gray-400 flex items-center gap-1">
-            IMEI / Serial <span className="text-rose-500">*</span>
-          </label>
+      {/* Grid: Model · IMEI · Grade */}
+      <div className="grid grid-cols-1 md:grid-cols-12 gap-2">
+        <Cell label="Model *" colSpan={5}>
+          {/* Autocomplete from existing inventory model strings — picking a
+              suggestion guarantees this unit groups with its siblings in
+              the All Office Stock view. Free text still wins for brand-new
+              SKUs that don't exist in stock yet. */}
+          <DeviceComboBox
+            units={units}
+            brand=""
+            model={row.model}
+            onModelChange={(m) => onChange({ model: m })}
+            onPick={(entry) => {
+              // Use the catalog's exact model string so this unit buckets
+              // with siblings. Pre-fill storage / grade ONLY if those fields
+              // are still empty — never overwrite operator input.
+              const patch: Partial<StockRow> = { model: entry.model };
+              if (!row.storage && entry.storages[0]) patch.storage = entry.storages[0];
+              if (!row.grade && entry.topGrade)      patch.grade   = entry.topGrade;
+              onChange(patch);
+            }}
+            placeholder="Search existing models or type new — e.g. iPhone 13 128GB"
+            inputClassName="w-full border border-gray-200 rounded-lg px-2.5 py-1.5 text-[12px] focus:outline-none focus:border-black"
+          />
+        </Cell>
+        <Cell
+          label={mode === 'office' ? 'IMEI / Serial *' : 'IMEI / Serial'}
+          colSpan={4}
+          help={imeiHelp}
+          helpTone={validation.imeiEmpty && !validation.imeiRequired ? 'muted' : 'error'}
+        >
           <input
             value={row.imei}
             onChange={e => onChange({ imei: e.target.value })}
-            placeholder="e.g. 351554741082094 or NL6CMQCYTD"
-            className={`w-full mt-1 border rounded-lg px-3 py-2 text-xs font-mono focus:outline-none transition-all ${imeiClass}`}
+            placeholder={validation.isApple
+              ? '15-digit IMEI or 10-12 char Apple serial'
+              : '15-digit IMEI (digits only)'}
+            inputMode={validation.isApple ? 'text' : 'numeric'}
+            maxLength={validation.isApple ? 16 : 15}
+            className={`w-full border rounded-lg px-2.5 py-1.5 text-[12px] font-mono focus:outline-none transition-all ${
+              imeiHelp && !(validation.imeiEmpty && !validation.imeiRequired)
+                ? 'border-rose-300 bg-rose-50 focus:border-rose-500'
+                : row.imei.trim()
+                  ? 'border-emerald-300 bg-emerald-50/50 focus:border-emerald-500'
+                  : 'border-gray-200 focus:border-black bg-white'
+            }`}
           />
-          {imeiError && (
-            <p className="text-[8px] text-rose-600 font-mono mt-1 flex items-center gap-1">
-              <AlertCircle size={9} /> {imeiError}
-            </p>
-          )}
-        </div>
-        <div>
-          <label className="text-[8px] font-bold uppercase tracking-widest text-gray-400 flex items-center gap-1">
-            Model <span className="text-rose-500">*</span>
-          </label>
-          <input value={row.model} onChange={e => onChange({ model: e.target.value })}
-            placeholder="iPhone 16 Pro 256GB"
-            className="w-full mt-1 border border-gray-200 rounded-lg px-3 py-2 text-xs focus:outline-none focus:border-emerald-500 bg-white" />
-        </div>
-        <div className="grid grid-cols-3 gap-2">
-          <div>
-            <label className="text-[8px] font-bold uppercase tracking-widest text-gray-400">Buy Price (£)</label>
-            <input type="number" min={0} value={row.buyPrice} onChange={e => onChange({ buyPrice: e.target.value })}
-              placeholder="0"
-              className="w-full mt-1 border border-gray-200 rounded-lg px-3 py-2 text-xs font-mono focus:outline-none focus:border-emerald-500 bg-white" />
-          </div>
-          <div>
-            <label className="text-[8px] font-bold uppercase tracking-widest text-gray-400">Storage</label>
-            <StorageSelectCompact value={row.storage} onChange={e => onChange({ storage: e })} className="w-full mt-1 border border-gray-200 rounded-lg px-3 py-2 text-xs font-mono focus:outline-none focus:border-emerald-500 bg-white" />
-          </div>
-          <div>
-            <label className="text-[8px] font-bold uppercase tracking-widest text-gray-400">Grade</label>
-            <GradeSelectCompact value={row.grade} onChange={e => onChange({ grade: e })} className="w-full mt-1 border border-gray-200 rounded-lg px-3 py-2 text-xs font-mono focus:outline-none focus:border-emerald-500 bg-white" />
-          </div>
-        </div>
-        <div className="grid grid-cols-2 gap-2">
-          <div>
-            <label className="text-[8px] font-bold uppercase tracking-widest text-gray-400">Colour</label>
-            <input value={row.colour} onChange={e => onChange({ colour: e.target.value })}
-              placeholder="Black Titanium"
-              className="w-full mt-1 border border-gray-200 rounded-lg px-3 py-2 text-xs focus:outline-none focus:border-emerald-500 bg-white" />
-          </div>
-          <div>
-            <label className="text-[8px] font-bold uppercase tracking-widest text-gray-400 flex items-center gap-1">
-              Supplier <span className="text-rose-500">*</span>
-            </label>
-            <input list={`stock-sup-m-${row.id}`} value={row.supplierName}
-              onChange={e => onChange({ supplierName: e.target.value })}
-              placeholder="MHL"
-              className="w-full mt-1 border border-gray-200 rounded-lg px-3 py-2 text-xs focus:outline-none focus:border-emerald-500 bg-white" />
-            <datalist id={`stock-sup-m-${row.id}`}>
-              {knownSuppliers.map(s => <option key={s} value={s} />)}
-            </datalist>
-          </div>
-        </div>
-        <div>
-          <label className="text-[8px] font-bold uppercase tracking-widest text-gray-400">Notes</label>
-          <input value={row.notes} onChange={e => onChange({ notes: e.target.value })}
-            placeholder="Grade A · Box included · …"
-            className="w-full mt-1 border border-gray-200 rounded-lg px-3 py-2 text-xs focus:outline-none focus:border-emerald-500 bg-white" />
-        </div>
+        </Cell>
+        <Cell label="Grade" colSpan={3}>
+          <select
+            value={row.grade}
+            onChange={e => onChange({ grade: e.target.value })}
+            className="w-full border border-gray-200 rounded-lg px-2.5 py-1.5 text-[12px] focus:outline-none focus:border-black bg-white"
+          >
+            <option value="">—</option>
+            {/* Surface any non-standard pasted grade at the top so it's not
+                silently swallowed by the browser falling back to the
+                placeholder when the value doesn't match an option. */}
+            {row.grade && !GRADES.includes(row.grade) && (
+              <option value={row.grade}>{row.grade}</option>
+            )}
+            {GRADES.map(g => <option key={g} value={g}>{g}</option>)}
+          </select>
+        </Cell>
       </div>
-    </motion.div>
+
+      {/* Grid: Storage · Colour · Supplier · BP */}
+      <div className="grid grid-cols-1 md:grid-cols-12 gap-2 mt-2">
+        <Cell
+          label="Storage *"
+          colSpan={2}
+          help={!validation.storageOk ? 'Required' : ''}
+          helpTone="error"
+        >
+          <select
+            value={row.storage}
+            onChange={e => onChange({ storage: e.target.value })}
+            className={`w-full border rounded-lg px-2.5 py-1.5 text-[12px] font-mono focus:outline-none transition-all ${
+              !validation.storageOk
+                ? 'border-rose-300 bg-rose-50 focus:border-rose-500'
+                : 'border-emerald-300 bg-emerald-50/50 focus:border-emerald-500'
+            }`}
+          >
+            <option value="">—</option>
+            {/* Surface any non-standard parsed value at the top so it's not lost. */}
+            {row.storage && !STORAGE_OPTIONS.includes(row.storage) && (
+              <option value={row.storage}>{row.storage}</option>
+            )}
+            {STORAGE_OPTIONS.map(s => <option key={s} value={s}>{s}</option>)}
+          </select>
+        </Cell>
+        <Cell label="Colour" colSpan={3}>
+          {/* Dropdown of the four preset colours plus an "Other" escape
+              hatch that reveals a freeform input directly below. Operator
+              picks Black/White/Grey/Blue 95% of the time; the freeform
+              row stays out of the way until they need it. The colourOther
+              flag persists on the row so paste / re-render keeps the
+              freeform mode if that's what the operator chose. */}
+          <select
+            value={row.colourOther ? '__other__' : (canonicalColour(row.colour) ?? '')}
+            onChange={e => {
+              const v = e.target.value;
+              if (v === '__other__') {
+                // Stay on Other; preserve whatever's already typed (could
+                // be a non-preset value from paste or a stale preset that
+                // the operator wants to refine).
+                onChange({ colourOther: true });
+              } else if (v === '') {
+                onChange({ colour: '', colourOther: false });
+              } else {
+                onChange({ colour: v, colourOther: false });
+              }
+            }}
+            className="w-full border border-gray-200 rounded-lg px-2.5 py-1.5 text-[12px] focus:outline-none focus:border-black bg-white"
+          >
+            <option value="">—</option>
+            {COLOUR_PRESETS.map(c => <option key={c} value={c}>{c}</option>)}
+            <option value="__other__">Other</option>
+          </select>
+          {(row.colourOther || (row.colour !== '' && !isPresetColour(row.colour))) && (
+            <input
+              value={row.colour}
+              onChange={e => onChange({ colour: e.target.value, colourOther: true })}
+              placeholder="Type custom colour (e.g. Space Grey)"
+              autoFocus={row.colourOther && row.colour === ''}
+              className="mt-1 w-full border border-gray-200 rounded-lg px-2.5 py-1.5 text-[12px] focus:outline-none focus:border-black"
+            />
+          )}
+        </Cell>
+        <Cell label="Supplier *" colSpan={4}>
+          <input
+            list="add-stock-supplier-names"
+            value={row.supplierName}
+            onChange={e => onChange({ supplierName: e.target.value })}
+            placeholder="Type or pick"
+            className="w-full border border-gray-200 rounded-lg px-2.5 py-1.5 text-[12px] focus:outline-none focus:border-black"
+          />
+          <datalist id="add-stock-supplier-names">
+            {supplierNames.map(n => <option key={n} value={n} />)}
+          </datalist>
+        </Cell>
+        <Cell label="BP (£) *" colSpan={3} help={!validation.bpOk && row.buyPrice ? 'Must be > 0' : ''} helpTone="error">
+          <input
+            type="number" min="0" step="0.01"
+            value={row.buyPrice}
+            onChange={e => onChange({ buyPrice: e.target.value })}
+            placeholder="0.00"
+            className={`w-full border rounded-lg px-2.5 py-1.5 text-[12px] font-mono focus:outline-none ${
+              row.buyPrice && !validation.bpOk
+                ? 'border-rose-300 bg-rose-50'
+                : 'border-gray-200 focus:border-black'
+            }`}
+          />
+        </Cell>
+      </div>
+
+      {/* Notes (full width) */}
+      <Cell label="Notes" colSpan={12} className="mt-2">
+        <input
+          value={row.notes}
+          onChange={e => onChange({ notes: e.target.value })}
+          placeholder="Optional — condition, lock state, etc."
+          className="w-full border border-gray-200 rounded-lg px-2.5 py-1.5 text-[12px] focus:outline-none focus:border-black"
+        />
+      </Cell>
+    </div>
   );
+}
+
+function Cell({
+  label, children, colSpan, help, helpTone, className,
+}: {
+  label: string;
+  children: React.ReactNode;
+  colSpan: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12;
+  help?: string;
+  helpTone?: 'muted' | 'error';
+  className?: string;
+}) {
+  const spanCls = {
+    1: 'md:col-span-1', 2: 'md:col-span-2', 3: 'md:col-span-3', 4: 'md:col-span-4',
+    5: 'md:col-span-5', 6: 'md:col-span-6', 7: 'md:col-span-7', 8: 'md:col-span-8',
+    9: 'md:col-span-9', 10: 'md:col-span-10', 11: 'md:col-span-11', 12: 'md:col-span-12',
+  }[colSpan];
+  const helpCls = helpTone === 'muted' ? 'text-slate-400' : 'text-rose-600';
+  return (
+    <div className={`${spanCls} ${className ?? ''}`}>
+      <label className="text-[9px] font-bold uppercase tracking-widest text-gray-500 block mb-0.5">{label}</label>
+      {children}
+      {help && <p className={`text-[9px] font-mono mt-0.5 ${helpCls}`}>{help}</p>}
+    </div>
+  );
+}
+
+// ── Category helper (local — avoids importing the heavy detectCategory) ─────
+// The service does the real categorisation on the office-stock path; for the
+// SHS direct-create path we just need a sensible default.
+function detectCategory(model: string): InventoryUnit['category'] {
+  const s = String(model || '').toLowerCase();
+  if (s.includes('iphone'))       return 'iPhone';
+  if (s.includes('ipad'))         return 'iPad';
+  if (s.includes('apple watch'))  return 'Apple Watch';
+  if (s.includes('galaxy s'))     return 'Samsung S Series';
+  if (s.includes('galaxy a'))     return 'Samsung A Series';
+  if (s.includes('tab') || s.includes('tablet')) return 'Tablet';
+  return 'Other';
 }

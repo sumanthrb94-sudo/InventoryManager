@@ -24,6 +24,7 @@
  */
 
 import * as XLSX from 'xlsx';
+import ExcelJS from 'exceljs';
 import type { Marketplace, Sale } from '../types';
 import { MARKETPLACES } from '../types';
 import { calcSaleFinancials } from './platforms';
@@ -54,15 +55,22 @@ export async function parseSalesWorkbook(
   const buf: ArrayBuffer = file instanceof ArrayBuffer ? file : await file.arrayBuffer();
   const wb = XLSX.read(buf, { type: 'array', raw: true, cellText: true, cellDates: true });
 
+  // SheetJS strips font colours, so do a parallel ExcelJS pass on the same
+  // bytes to harvest red-row markers. The operator paints whole rows red on
+  // their Sales Report sheet to flag returns / refunds / chargebacks — we
+  // preserve that signal end-to-end so the import surfaces the same red rows
+  // in every downstream view.
+  const flaggedRowsBySheet = await detectFlaggedRows(buf);
+
   const sales: ParsedSales['sales'] = [];
   const errors: ParsedSales['errors'] = [];
   const perSheetCounts: Record<Marketplace, number> = {
-    AMAZON: 0, BM: 0, EBAY: 0, ONBUY: 0, PROJECT: 0,
+    AMAZON: 0, BM: 0, EBAY: 0, ONBUY: 0,
   };
 
   // Track mean SP per marketplace — surfaces the SP=£0 column-detection bug
   // immediately at parse time instead of leaking into Firestore unnoticed.
-  const spSum: Record<Marketplace, number> = { AMAZON: 0, BM: 0, EBAY: 0, ONBUY: 0, PROJECT: 0 };
+  const spSum: Record<Marketplace, number> = { AMAZON: 0, BM: 0, EBAY: 0, ONBUY: 0 };
 
   for (const marketplace of MARKETPLACES) {
     const sheetName = findSheetName(wb, marketplace);
@@ -85,12 +93,31 @@ export async function parseSalesWorkbook(
     const layout = SHEET_LAYOUTS[marketplace];
     const colIdx = resolveColumns(headerRow, layout, sheetName, errors);
 
+    // Operator-facing diagnostic — every re-import logs which header text
+    // each logical key resolved to (or '⚠ fallback' if positional). Lets
+    // the operator catch a header rename / column shift the moment they
+    // re-upload, instead of finding it later through silent empty cells.
+    try {
+      if (typeof console !== 'undefined' && console.info) {
+        const summary: string[] = [];
+        for (const [key, idx] of Object.entries(colIdx)) {
+          if (idx == null) continue;
+          const headerText = String(headerRow[idx] ?? '').trim() || '(blank)';
+          summary.push(`${key}→[${idx}] "${headerText}"`);
+        }
+        console.info(`[salesImport][${sheetName}] columns: ${summary.join(', ')}`);
+      }
+    } catch { /* non-critical */ }
+
+    const flaggedRows = flaggedRowsBySheet.get(sheetName.toLowerCase()) ?? new Set<number>();
+
     for (let r = 1; r < rows.length; r++) {
       const row = rows[r];
       // sourceRow is 1-based and accounts for the header row (matches xlsx UX)
       const sourceRow = r + 1;
       const parsed = parseRow(marketplace, row, colIdx, sheetName, sourceRow, sourceFile, errors);
       if (parsed) {
+        if (flaggedRows.has(sourceRow)) parsed.flagged = true;
         sales.push(parsed);
         perSheetCounts[marketplace]++;
         spSum[marketplace] += parsed.salePrice ?? 0;
@@ -124,7 +151,7 @@ type ColKey =
   | 'date' | 'orderNumber' | 'sku' | 'imei' | 'supplier'
   | 'quantity' | 'buyPrice' | 'salePrice'
   | 'paymentMode' | 'shipping' | 'netProfit'
-  | 'postage' | 'comments';
+  | 'postage' | 'pVat' | 'acc' | 'customerCareFees' | 'marketing' | 'comments';
 
 interface SheetLayout {
   /** Header aliases per logical column (case-insensitive, whitespace-collapsed).
@@ -164,21 +191,39 @@ const SHEET_LAYOUTS: Record<Marketplace, SheetLayout> = {
   // AMAZON cols (15):  nw | Order Number | SKU | IMEI | Supplier | Quantity |
   //                    BP | SP | SP-BP | Marginal Tax | Commission | Postage |
   //                    GP | GP % | Comments
+  // AMAZON has two schemas in the wild:
+  //   - Legacy 15-col: Date|OrderNo|SKU|IMEI|Supplier|Qty|BP|SP|SP-BP|MarTax|
+  //                    Commission|Postage|GP|GP%|Comments     (Postage = idx 11)
+  //   - 2026-05 22-col: Date|OrderNo|SKU|IMEI|Supplier|Qty|BP|SP|SP-BP|MarTax|
+  //                    Commission|C.VAT|DSF|DSF.VAT|Postage|P.VAT|Acc|TotVAT|
+  //                    GP|GP%|TotVATNtp|Comments                (Postage = idx 14)
+  // Both layouts share the same Date..SP columns, so identifiers + money
+  // come through regardless. Postage is what shifts. The parser relies on
+  // header match first (which always wins when the file has a `Postage`
+  // header text) and only falls back to a positional index when the header
+  // is missing. The fallback below targets the legacy schema; the 2026-05
+  // schema gets resolved by header.
   AMAZON: {
     columns: {
       date:        ['nw', 'date'],
       orderNumber: ['order number', 'order no'],
       sku:         ['sku'],
-      imei:        ['imei', 'imei number'],
-      supplier:    ['supplier'],
-      quantity:    ['quantity', 'units', 'quant'],
-      buyPrice:    ['bp'],
-      salePrice:   ['sp'],
-      comments:    ['comments'],
+      imei:        ['imei', 'imei number', 'serial', 'serial number', 'sn'],
+      supplier:    ['supplier', 'suppliers', 'supp.', 'vendor'],
+      quantity:    ['quantity', 'units', 'quant', 'qty'],
+      buyPrice:    ['bp', 'buy price', 'buyprice'],
+      salePrice:   ['sp', 'sale price', 'saleprice'],
+      postage:     ['postage', 'ship', 'shipping', 'postage £', 'p.'],
+      pVat:        ['p. vat', 'p.vat', 'postage vat'],
+      acc:         ['acc', 'accessories', 'accessory', 'acc.'],
+      // The live AMAZON sheet has the trailing column literally titled
+      // 'RETURN' (the operator puts return-reason text in it). Treat as
+      // free-form notes — same downstream handling as Comments.
+      comments:    ['comments', 'comment', 'notes', 'return'],
     },
     fallback: {
       date: 0, orderNumber: 1, sku: 2, imei: 3, supplier: 4,
-      quantity: 5, buyPrice: 6, salePrice: 7, comments: 14,
+      quantity: 5, buyPrice: 6, salePrice: 7,
     },
     required: ['date', 'orderNumber', 'buyPrice', 'salePrice'],
   },
@@ -190,17 +235,23 @@ const SHEET_LAYOUTS: Record<Marketplace, SheetLayout> = {
       date:        ['date'],
       orderNumber: ['order no', 'order number'],
       sku:         ['sku'],
-      imei:        ['imei', 'imei number'],
-      supplier:    ['supplier'],
-      quantity:    ['quantity', 'units', 'quant'],
-      buyPrice:    ['bp'],
-      salePrice:   ['sp'],
-      paymentMode: ['payment mode'],
-      comments:    ['comments'],
+      imei:        ['imei', 'imei number', 'serial', 'serial number', 'sn'],
+      supplier:    ['supplier', 'suppliers', 'supp.', 'vendor'],
+      quantity:    ['quantity', 'units', 'quant', 'qty'],
+      paymentMode: ['payment mode', 'payment', 'paymentmode'],
+      buyPrice:    ['bp', 'buy price', 'buyprice'],
+      salePrice:   ['sp', 'sale price', 'saleprice'],
+      customerCareFees: ['customer care fees', 'customer care', 'ccf', 'cc fees'],
+      postage:     ['postage', 'ship', 'shipping', 'postage £'],
+      pVat:        ['p. vat', 'p.vat', 'postage vat'],
+      acc:         ['acc', 'accessories', 'accessory', 'acc.'],
+      comments:    ['comments', 'comment', 'notes'],
     },
     fallback: {
+      // Live BM sheet (20 cols): Date, Order No, SKU, IMEI, Supplier,
+      // Quantity, Payment Mode, BP, SP, ...
       date: 0, orderNumber: 1, sku: 2, imei: 3, supplier: 4,
-      quantity: 5, buyPrice: 6, salePrice: 7, paymentMode: 8, comments: 16,
+      quantity: 5, paymentMode: 6, buyPrice: 7, salePrice: 8,
     },
     required: ['date', 'orderNumber', 'buyPrice', 'salePrice'],
   },
@@ -212,19 +263,26 @@ const SHEET_LAYOUTS: Record<Marketplace, SheetLayout> = {
       date:        ['date'],
       orderNumber: ['order number', 'order no'],
       sku:         ['sku'],
-      imei:        ['imei number', 'imei'],
-      supplier:    ['supplier'],
-      quantity:    ['units', 'quantity', 'quant'],
-      buyPrice:    ['bp'],
-      salePrice:   ['sp'],
-      // SHIPPING column holds the £1 / £2 / £8 eBay tier the order shipped at.
-      shipping:    ['shipping'],
+      imei:        ['imei number', 'imei', 'serial', 'serial number', 'sn'],
+      supplier:    ['supplier', 'suppliers', 'supp.', 'vendor'],
+      quantity:    ['units', 'quantity', 'quant', 'qty'],
+      buyPrice:    ['bp', 'buy price', 'buyprice'],
+      salePrice:   ['sp', 'sale price', 'saleprice'],
+      // eBay's Shipping IS the Postage fee — same field, two header names
+      // depending on which sheet version the operator exported.
+      shipping:    ['shipping', 'postage'],
+      pVat:        ['p. vat', 'p.vat', 'postage vat'],
+      acc:         ['acc', 'accessories', 'accessory', 'acc.'],
+      // 2026-05 schema introduced an operator-entered Marketing line that
+      // replaced the implicit 5%-of-SP convention. Read it when present so
+      // the recompute uses the file's actual marketing spend.
+      marketing:   ['marketing', 'marketing £'],
       netProfit:   ['np(incl. promotion)', 'np incl. promotion', 'np'],
-      comments:    ['comments'],
+      comments:    ['comments', 'comment', 'notes'],
     },
     fallback: {
       date: 0, orderNumber: 1, sku: 2, imei: 3, supplier: 4,
-      quantity: 5, buyPrice: 6, salePrice: 7, shipping: 15, netProfit: 18,
+      quantity: 5, buyPrice: 6, salePrice: 7,
     },
     required: ['date', 'orderNumber', 'buyPrice', 'salePrice'],
   },
@@ -237,51 +295,120 @@ const SHEET_LAYOUTS: Record<Marketplace, SheetLayout> = {
       date:        ['date'],
       orderNumber: ['order number', 'order no'],
       sku:         ['sku'],
-      imei:        ['imei', 'imei number'],
-      supplier:    ['supplier'],
-      buyPrice:    ['bp'],
-      salePrice:   ['sp'],
-      comments:    ['comments'],
+      imei:        ['imei', 'imei number', 'serial', 'serial number', 'sn'],
+      supplier:    ['supplier', 'suppliers', 'supp.', 'vendor'],
+      buyPrice:    ['bp', 'buy price', 'buyprice'],
+      salePrice:   ['sp', 'sale price', 'saleprice'],
+      postage:     ['ship', 'postage', 'shipping', 'postage £'],
+      pVat:        ['p. vat', 'p.vat', 'postage vat'],
+      acc:         ['acc', 'accessories', 'accessory', 'acc.'],
+      comments:    ['comments', 'comment', 'notes'],
     },
     fallback: {
       date: 0, orderNumber: 1, sku: 2, imei: 3, supplier: 4,
       // NB: BP at 5, SP at 6 — one less than the other marketplaces because
       // OnBuy has no Quantity column.
-      buyPrice: 5, salePrice: 6, comments: 14,
-    },
-    required: ['date', 'orderNumber', 'buyPrice', 'salePrice'],
-  },
-  // PROJECT cols (15): Date | Order Number | SKU | IMEI | Supplier | QUANT |
-  //                    BP | SP | SP-BP | MAR TAX | COMM | POST |
-  //                    GP | GP % | Comments
-  PROJECT: {
-    columns: {
-      date:        ['date'],
-      orderNumber: ['order number', 'order no'],
-      sku:         ['sku'],
-      imei:        ['imei', 'imei number'],
-      supplier:    ['supplier'],
-      quantity:    ['quant', 'quantity', 'units'],
-      buyPrice:    ['bp'],
-      salePrice:   ['sp'],
-      comments:    ['comments'],
-    },
-    fallback: {
-      date: 0, orderNumber: 1, sku: 2, imei: 3, supplier: 4,
-      quantity: 5, buyPrice: 6, salePrice: 7, comments: 14,
+      buyPrice: 5, salePrice: 6,
     },
     required: ['date', 'orderNumber', 'buyPrice', 'salePrice'],
   },
 };
 
 // ---------------------------------------------------------------------------
+// Red-row detection (operator's flagged sales)
+// ---------------------------------------------------------------------------
+
+/**
+ * Walk every sheet via ExcelJS and return a map of sheetName(lowercase) → set
+ * of 1-based row numbers whose DATE / ORDER NUMBER / SKU cell carries a red
+ * font (or red solid fill).
+ *
+ * The operator's convention on the live Sales Report sheet is to paint a row
+ * red when the order needs attention (return / refund / chargeback / dispute).
+ * SheetJS doesn't surface font colour, so we run a parallel ExcelJS load over
+ * the same bytes to harvest the signal.
+ *
+ * Failure tolerant: if ExcelJS throws (corrupt styles, exotic theme colour)
+ * we return an empty map — the import still completes, just without the red
+ * highlight on the resulting Sales rows.
+ */
+async function detectFlaggedRows(buf: ArrayBuffer): Promise<Map<string, Set<number>>> {
+  const result = new Map<string, Set<number>>();
+  try {
+    const wb = new ExcelJS.Workbook();
+    await wb.xlsx.load(buf);
+    for (const ws of wb.worksheets) {
+      const key = ws.name.trim().toLowerCase();
+      const flagged = new Set<number>();
+      // Probe the first few columns — operators tend to paint the whole row
+      // red, but in practice the DATE/ORDER NUMBER columns are the most
+      // consistent carriers of the colour. Three columns is enough to catch
+      // partial paint-outs without false-positiving on a stray red comment.
+      ws.eachRow({ includeEmpty: false }, (row, rowNum) => {
+        if (rowNum === 1) return; // header
+        for (let c = 1; c <= 3; c++) {
+          const cell = row.getCell(c);
+          if (isRedishCell(cell)) {
+            flagged.add(rowNum);
+            return;
+          }
+        }
+      });
+      if (flagged.size > 0) result.set(key, flagged);
+    }
+  } catch (err) {
+    if (typeof console !== 'undefined' && console.warn) {
+      console.warn('[salesImport] red-row detection skipped:', (err as Error)?.message || err);
+    }
+  }
+  return result;
+}
+
+/** Heuristic: detect a "red" font or solid red fill on an ExcelJS cell. */
+function isRedishCell(cell: ExcelJS.Cell): boolean {
+  const fontArgb = (cell.font as any)?.color?.argb as string | undefined;
+  if (isRedishArgb(fontArgb)) return true;
+  const fill = cell.fill as any;
+  if (fill?.type === 'pattern' && fill.pattern === 'solid') {
+    const fgArgb = fill.fgColor?.argb as string | undefined;
+    if (isRedishArgb(fgArgb)) return true;
+  }
+  return false;
+}
+
+/** ARGB hex → is this clearly a red? Accepts 6-char (RRGGBB) or 8-char (AARRGGBB). */
+function isRedishArgb(argb: string | undefined): boolean {
+  if (!argb) return false;
+  const hex = argb.length === 8 ? argb.slice(2) : argb.length === 6 ? argb : '';
+  if (hex.length !== 6) return false;
+  const r = parseInt(hex.slice(0, 2), 16);
+  const g = parseInt(hex.slice(2, 4), 16);
+  const b = parseInt(hex.slice(4, 6), 16);
+  if (Number.isNaN(r) || Number.isNaN(g) || Number.isNaN(b)) return false;
+  // Dominant red: R clearly above G and B, and R itself isn't a dark grey.
+  return r >= 0xA0 && r >= g + 0x30 && r >= b + 0x30;
+}
+
+// ---------------------------------------------------------------------------
 // Sheet / header resolution
 // ---------------------------------------------------------------------------
 
 /** Resolve a sheet name case-insensitively (workbook may have "Amazon", "AMAZON", "amazon"). */
+/**
+ * Resolve a sheet name to a Marketplace. Matches:
+ *   - exact name (case-insensitive): "AMAZON" / "amazon"
+ *   - "<marketplace> SALES" suffix: "AMAZON SALES" / "Bm Sales"  ← live file
+ *   - any sheet whose first whitespace-delimited token equals the marketplace
+ * Returns the first sheet whose first token matches `marketplace`.
+ */
 function findSheetName(wb: XLSX.WorkBook, marketplace: Marketplace): string | undefined {
   const want = marketplace.toLowerCase();
-  return wb.SheetNames.find((n: string) => n.trim().toLowerCase() === want);
+  return wb.SheetNames.find((n: string) => {
+    const norm = n.trim().toLowerCase().replace(/\s+/g, ' ');
+    if (norm === want) return true;
+    const firstToken = norm.split(' ')[0];
+    return firstToken === want;
+  });
 }
 
 /** Normalise a header cell for comparison: cast → trim → lowercase → collapse spaces. */
@@ -329,6 +456,19 @@ function resolveColumns(
       if (!alreadyTaken) {
         out[key] = fallbackIdx;
       }
+    }
+  }
+  // Comments-specific final fallback: the client's sheets routinely leave
+  // the Comments header blank in the last column (the operator types
+  // free-form notes into that column without a header). If `comments` is
+  // still unresolved AND the last column's header is empty AND that index
+  // isn't already claimed, treat it as Comments.
+  if (out.comments === undefined && headerRow.length > 0) {
+    const lastIdx = headerRow.length - 1;
+    const lastHeader = normalised[lastIdx];
+    const alreadyTaken = Object.values(out).includes(lastIdx);
+    if (!lastHeader && !alreadyTaken) {
+      out.comments = lastIdx;
     }
   }
   for (const req of layout.required) {
@@ -401,21 +541,51 @@ function parseRow(
     ? /paypal|klarna|clearpay|clear pay|applepay/i.test(paymentMode)
     : false;
 
+  // Read postage from every marketplace's sheet — the file's value wins
+  // over the marketplace default. eBay's legacy £1/£2/£8 tier model still
+  // routes through `eBayShippingTier`; any other numeric value (including
+  // the 2026-05 schema's free-form Postage column) is treated as a generic
+  // `postageOverride` for calcSaleFinancials.
+  const rawPostage = toNumber(get('postage')) ?? toNumber(get('shipping'));
   let eBayShippingTier: 1 | 2 | 8 | undefined;
-  if (marketplace === 'EBAY') {
-    const ship = toNumber(get('shipping'));
-    if (ship === 1 || ship === 2 || ship === 8) eBayShippingTier = ship;
+  let postageOverride: number | undefined;
+  if (marketplace === 'EBAY' && (rawPostage === 1 || rawPostage === 2 || rawPostage === 8)) {
+    eBayShippingTier = rawPostage as 1 | 2 | 8;
+  } else if (rawPostage != null && rawPostage >= 0) {
+    postageOverride = rawPostage;
   }
 
-  // postageOverride: pass through only when the workbook carried an explicit
-  // non-default postage (other marketplaces don't expose postage as input;
-  // EBAY funnels through eBayShippingTier above, so leave undefined here).
-  const postageOverride: number | undefined = undefined;
+  // Marketing — eBay 2026-05 schema only. Pass the file's value when
+  // present so the recompute matches the operator's sheet penny-for-penny.
+  const marketingFromFile = marketplace === 'EBAY' ? toNumber(get('marketing')) : undefined;
+
+  // Operator-overridden Acc cell (e.g. £0 for a generic accessory SKU
+  // that doesn't carry the £1 bundle). When present, trumps the per-
+  // marketplace `fee.accessoryFee` default in calcSaleFinancials.
+  const accFromFile = toNumber(get('acc'));
+
+  // BM-only: Customer Care Fees is operator-entered per line (live file
+  // shows £8.99 on some rows where the legacy default was £9.99). Read
+  // and override so the recompute matches the file penny-for-penny.
+  const ccfFromFile = marketplace === 'BM' ? toNumber(get('customerCareFees')) : undefined;
+
+  // Operator-zero-rated P. VAT — when the file's P. VAT cell is 0 but
+  // postage is > 0, the operator is explicitly zero-rating VAT on this
+  // line (VAT-exempt shipment / non-VATable accessory SKU). We translate
+  // that into the `postageVatExempt` flag so the recompute reproduces
+  // the operator's intent byte-for-byte.
+  const pVatFromFile = toNumber(get('pVat'));
+  const explicitVatExempt =
+    pVatFromFile === 0 && rawPostage != null && rawPostage > 0;
 
   // ---- recompute every derived field ------------------------------------
   const fin = calcSaleFinancials({
     marketplace, buyPrice, salePrice,
     postageOverride, eBayShippingTier, hasPayPalKlarna,
+    marketing: marketingFromFile,
+    accessoryFeeOverride: accFromFile,
+    customerCareFeesOverride: ccfFromFile,
+    postageVatExempt: explicitVatExempt || undefined,
   });
 
   const supplierName = toNonEmptyString(get('supplier'));
@@ -439,6 +609,12 @@ function parseRow(
     salePrice,
     paymentMode,
     ...fin,
+    // Persist the operator's P. VAT zero-rate signal on the Sale doc so
+    // the exporter can write P. VAT as a literal 0 (not the postage×20%
+    // formula) and a re-import round-trips correctly. Without this, the
+    // exported P. VAT cell always reapplies 20% of postage, losing the
+    // operator's per-row VAT-exempt decision.
+    postageVatExempt: explicitVatExempt || undefined,
     comments,
     sourceFile,
     sourceRow,
@@ -556,17 +732,12 @@ if (import.meta.vitest) {
         ['DATE', 'Order Number', 'SKU', 'IMEI', 'Supplier', 'BP', 'SP'],
         [new Date('2026-05-12T00:00:00Z'), 'OB-1', 'SKU4', '111222333444555', 'ABC', 90, 180],
       ]), 'ONBUY');
-      XLSX.utils.book_append_sheet(wb, make([
-        ['Date', 'Order Number', 'SKU', 'IMEI', 'Supplier', 'QUANT', 'BP', 'SP'],
-        [new Date('2026-05-12T00:00:00Z'), 'PR-1', 'SKU5', 'JKQXQYGPPF', 'NIHAL', 1, 80, 150],
-      ]), 'PROJECT');
-
       const buf = XLSX.write(wb, { type: 'array', bookType: 'xlsx' }) as ArrayBuffer;
       const out = await parseSalesWorkbook(buf, 'fixture.xlsx');
 
       expect(out.errors).toEqual([]);
-      expect(out.perSheetCounts).toEqual({ AMAZON: 1, BM: 1, EBAY: 1, ONBUY: 1, PROJECT: 1 });
-      expect(out.sales).toHaveLength(5);
+      expect(out.perSheetCounts).toEqual({ AMAZON: 1, BM: 1, EBAY: 1, ONBUY: 1 });
+      expect(out.sales).toHaveLength(4);
       // BM PayPal path applied → payPalKlarnaCom must be populated.
       const bm = out.sales.find((s) => s.marketplace === 'BM')!;
       expect(bm.paymentMode).toBe('PayPal');

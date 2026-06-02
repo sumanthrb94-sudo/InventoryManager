@@ -103,7 +103,7 @@ export default function ScanInModal({ onClose }: Props) {
     // serial (e.g. "NL6CMQCYTD" is 10 chars). Use the shared validator so
     // we never reject legitimate Apple serials with a length-14 gate.
     const scanned = digits.length >= 14 ? digits : value.trim();
-    if (isValidImei(scanned)) {
+    if (isValidImei(scanned, { isAppleSerial: true })) {
       setImei(scanned);
       setStage('form');
       setError('');
@@ -129,7 +129,7 @@ export default function ScanInModal({ onClose }: Props) {
 
   const handleSave = async () => {
     // IMEI is required on every non-SHS form. This page never creates SHS.
-    if (!isValidImei(imei)) { setError(IMEI_REQUIRED_MESSAGE); return; }
+    if (!isValidImei(imei, { isAppleSerial: true })) { setError(IMEI_REQUIRED_MESSAGE); return; }
     if (!model.trim()) { setError('Model is required'); return; }
     if (!buyPrice || isNaN(parseFloat(buyPrice))) { setError('Buy price is required'); return; }
     if (!colour) { setError('Colour is required'); return; }
@@ -269,13 +269,13 @@ export default function ScanInModal({ onClose }: Props) {
                     />
                     <button
                       onClick={() => handleScan(imei)}
-                      disabled={!isValidImei(imei)}
+                      disabled={!isValidImei(imei, { isAppleSerial: true })}
                       className="bg-black text-white px-5 rounded-xl text-[10px] font-bold uppercase tracking-widest hover:bg-gray-800 transition-all disabled:opacity-40"
                     >
                       Next
                     </button>
                   </div>
-                  {!isValidImei(imei) && imei.trim().length > 0 && (
+                  {!isValidImei(imei, { isAppleSerial: true }) && imei.trim().length > 0 && (
                     <p className="text-[9px] text-red-500 font-mono">
                       {IMEI_REQUIRED_MESSAGE} — at least 5 chars, IMEI digits, or Apple serial.
                     </p>
@@ -398,12 +398,12 @@ export default function ScanInModal({ onClose }: Props) {
         {/* Footer */}
         {stage === 'form' && (
           <div className="border-t border-gray-100 px-5 py-4 bg-gray-50 flex-shrink-0 space-y-2">
-            {!isValidImei(imei) && (
+            {!isValidImei(imei, { isAppleSerial: true }) && (
               <p className="text-[9px] text-red-500 font-mono text-center">{IMEI_REQUIRED_MESSAGE}</p>
             )}
             <button
               onClick={handleSave}
-              disabled={saving || saved || !isValidImei(imei)}
+              disabled={saving || saved || !isValidImei(imei, { isAppleSerial: true })}
               className="w-full py-3.5 bg-emerald-600 text-white rounded-xl text-[11px] font-bold uppercase tracking-widest hover:bg-emerald-700 transition-all disabled:opacity-50 flex items-center justify-center gap-2"
             >
               {saved ? (

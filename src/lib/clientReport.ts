@@ -25,6 +25,16 @@ import type {
 } from '../types';
 import { MARKETPLACES } from '../types';
 import { excelFormulaFor } from './platforms';
+import { recomputeSale } from './recomputeSale';
+
+/** Light-red fill used on voided (returned) rows across every sheet of
+ *  the Sales Report. Same colour everywhere so the operator's eye picks
+ *  out reversals at a glance across the four per-marketplace tabs. */
+const RETURNED_FILL: import('exceljs').FillPattern = {
+  type: 'pattern',
+  pattern: 'solid',
+  fgColor: { argb: 'FFFEE2E2' },   // tailwind rose-100
+};
 
 // ---------------------------------------------------------------------------
 // Public surface
@@ -48,6 +58,13 @@ export interface BuildInventoryWorkbookInput {
 
 export interface BuildSalesWorkbookInput {
   sales: Sale[];
+  /** Optional inventory units. Reserved for callers that want to surface
+   *  buy-side context in a future enhancement — the four per-marketplace
+   *  sheets don't need them today, so omitting is fine. */
+  units?: InventoryUnit[];
+  /** Resolves supplierId → supplier name when sales rows carry only an id.
+   *  Falls back to the Sale's stored supplierName when no map entry matches. */
+  supplierMap?: Record<string, string>;
   opts?: ClientReportOptions;
 }
 
@@ -206,30 +223,41 @@ type SalesHeaderRow = Array<string | number>;
 
 const SALES_HEADERS: Record<Marketplace, SalesHeaderRow> = {
   AMAZON: [
-    'nw', 'Order Number', 'SKU', 'IMEI', 'Supplier', 'Quantity',
-    'BP', 'SP', 'SP-BP', 'Marginal Tax', 'Commission', 'Postage',
-    'GP = SP-BP-TAX-COM-AMZTAX-POS-P COM', 'GP %', 'Comments',
+    'Date', 'Order Number', 'SKU', 'IMEI', 'Supplier', 'Quantity',
+    'BP', 'SP', 'SP-BP', 'Marginal Tax', 'Commission',
+    'C. VAT', 'DSF', 'DSF. VAT',
+    'Postage', 'P. VAT', 'Acc',
+    'Total VAT', 'GP', 'GP %', 'Total VAT NTP',
+    'RETURN',
   ],
   BM: [
+    // Live BM sheet (20 cols): Payment Mode sits between Quantity (F) and
+    // BP (H). This shifts every monetary column letter by +1 vs the legacy
+    // 19-col schema — Excel formulas in excelFormulaFor('BM') reflect the
+    // new positions.
     'Date', 'Order No', 'SKU', 'IMEI', 'Supplier', 'Quantity',
-    'BP', 'SP', 'Payment Mode', 'SP-BP', 'Marginal Tax',
-    'PayPal/Klarna Com', 'Commission', 'Postage',
-    'GP = SP-BP-TAX-COM-POS-P COM', 'GP %', 'Comments',
+    'Payment Mode', 'BP', 'SP',
+    'SP-BP', 'Marginal Tax', 'Commission',
+    'Customer Care Fees', 'Postage', 'P. VAT', 'Acc',
+    'GP', 'GP %', 'Total VAT NTP', 'Comments',
   ],
   EBAY: [
+    // Live EBAY sheet — 24 cols, no Comments. Headers reproduced verbatim
+    // including the operator's literal text: 'IMEI NUMBER' (not 'IMEI'),
+    // 'UNITS' (not 'Quantity'), 'Total VAT ' (trailing space), 'GP%' (no
+    // space). Excel formulas in excelFormulaFor('EBAY') reference the
+    // same column letters regardless.
     'DATE', 'ORDER NUMBER', 'SKU', 'IMEI NUMBER', 'SUPPLIER', 'UNITS',
-    'BP', 'SP', 'SP-BP', 'MAR TAX', 'COM', 'ROF', 'FVF', 0.2,
-    'T.COM', 'SHIPPING', 'GP', 'GP%', 'NP(incl. PROMOTION)',
+    'BP', 'SP', 'SP-BP', 'Marginal Tax', 'Commission', 'ROF', 'FVF', 'VAT',
+    'T.COM', 'Postage', 'P. VAT', 'Marketing', 'M. VAT', 'Acc',
+    'Total VAT ', 'GP', 'GP%', 'Total VAT NTP',
   ],
   ONBUY: [
+    // Live ONBUY sheet — 18 cols, no Comments, no Quantity (no UNITS).
     'DATE', 'Order Number', 'SKU', 'IMEI', 'Supplier',
-    'BP', 'SP', 'SP-BP', 'MAR VAT', 'COM 7%', 'VAT 20%', 'SHIP',
-    'GP=SP-BP-COM-SHIP-MARVAT', 'GP%', 'Comments',
-  ],
-  PROJECT: [
-    'Date', 'Order Number', 'SKU', 'IMEI', 'Supplier', 'QUANT',
-    'BP', 'SP', 'SP-BP', 'MAR TAX', 'COMM', 'POST',
-    'GP = SP-BP-TAX-COM-AMZTAX-POS-P COM', 'GP %', 'Comments',
+    'BP', 'SP', 'SP-BP', 'Marginal Tax', 'Commission', 'VAT 20%',
+    'Postage', 'P. VAT', 'Acc',
+    'Total VAT ', 'GP', 'GP%', 'Total VAT NTP',
   ],
 };
 
@@ -253,125 +281,189 @@ function writeSaleRow(
 
   switch (marketplace) {
     case 'AMAZON': {
+      // 2026-05 schema. 22 columns — Date through Comments. Postage and
+      // Accessories carry literal values (operator may have overridden
+      // postage per sale, accessories is a flat default); every other
+      // computed cell is a formula so the operator can audit / re-derive
+      // in Excel without trusting our runtime output.
       const row = sheet.addRow([
         date, sale.orderNumber, sale.sku ?? '', sale.imei ?? '',
         sale.supplierName ?? '', qty,
         sale.buyPrice, sale.salePrice,
-        null, null, null, null, null, null, sale.comments ?? '',
+        // Formula-driven cells filled below: SP-BP, MarTax, Com, C.VAT,
+        // DSF, DSF.VAT, Postage (literal), P.VAT, Accessories (literal),
+        // Total VAT, GP, GP%, Total VAT NTP.
+        null, null, null, null, null, null,
+        sale.postage ?? null,
+        null,
+        sale.accessoryFee ?? Number(f.accessoryFee ?? 1),
+        null, null, null, null,
+        sale.comments ?? '',
       ]);
       row.getCell(1).numFmt = DATE_FMT;
       row.getCell(4).numFmt = IMEI_FMT;
       row.getCell(7).numFmt = MONEY_FMT;   // BP
       row.getCell(8).numFmt = MONEY_FMT;   // SP
-      row.getCell(9).value  = { formula: f.spMinusBp! };    row.getCell(9).numFmt  = MONEY_FMT;
-      row.getCell(10).value = { formula: f.marginalTax! };  row.getCell(10).numFmt = MONEY_FMT;
-      row.getCell(11).value = { formula: f.commission! };   row.getCell(11).numFmt = MONEY_FMT;
-      row.getCell(12).value = Number(f.postage);            row.getCell(12).numFmt = MONEY_FMT;
-      row.getCell(13).value = { formula: f.grossProfit! };  row.getCell(13).numFmt = MONEY_FMT;
-      row.getCell(14).value = { formula: f.gpPercent! };    row.getCell(14).numFmt = MONEY_FMT;
+      row.getCell(9).value  = { formula: f.spMinusBp! };     row.getCell(9).numFmt  = MONEY_FMT;
+      row.getCell(10).value = { formula: f.marginalTax! };   row.getCell(10).numFmt = MONEY_FMT;
+      row.getCell(11).value = { formula: f.commission! };    row.getCell(11).numFmt = MONEY_FMT;
+      row.getCell(12).value = { formula: f.commissionVat! }; row.getCell(12).numFmt = MONEY_FMT;
+      row.getCell(13).value = { formula: f.dsf! };           row.getCell(13).numFmt = MONEY_FMT;
+      row.getCell(14).value = { formula: f.dsfVat! };        row.getCell(14).numFmt = MONEY_FMT;
+      row.getCell(15).numFmt = MONEY_FMT; // Postage (literal value above)
+      // P. VAT: literal 0 when operator zero-rated the line; otherwise
+      // formula. Preserves the per-row VAT-exempt decision across export
+      // → re-import (the formula would always re-apply 20% × postage).
+      if (sale.postageVatExempt) {
+        row.getCell(16).value = 0;
+      } else {
+        row.getCell(16).value = { formula: f.postageVat! };
+      }
+      row.getCell(16).numFmt = MONEY_FMT;
+      row.getCell(17).numFmt = MONEY_FMT; // Accessories (literal value above)
+      row.getCell(18).value = { formula: f.totalVat! };      row.getCell(18).numFmt = MONEY_FMT;
+      row.getCell(19).value = { formula: f.grossProfit! };   row.getCell(19).numFmt = MONEY_FMT;
+      row.getCell(20).value = { formula: f.gpPercent! };     row.getCell(20).numFmt = MONEY_FMT;
+      row.getCell(21).value = { formula: f.totalVatNtp! };   row.getCell(21).numFmt = MONEY_FMT;
       return;
     }
 
     case 'BM': {
+      // Live BM sheet — 20 cols. Payment Mode sits between Quantity (F) and
+      // BP (H), so every monetary column slides +1 vs the prior layout.
+      //   A=Date,B=OrderNo,C=SKU,D=IMEI,E=Supplier,F=Quantity,
+      //   G=PaymentMode,H=BP,I=SP,J=SP-BP,K=MarTax,L=Com,
+      //   M=CustomerCareFees,N=Postage,O=P.VAT,P=Acc,
+      //   Q=GP,R=GP%,S=TotVAT NTP,T=Comments
       const row = sheet.addRow([
         date, sale.orderNumber, sale.sku ?? '', sale.imei ?? '',
         sale.supplierName ?? '', qty,
+        sale.paymentMode ?? '',                        // Payment Mode (literal)
         sale.buyPrice, sale.salePrice,
-        sale.paymentMode ?? '',
-        null, null, null, null, null, null, null, sale.comments ?? '',
+        null, null, null,                              // SP-BP, MarTax, Com
+        sale.customerCareFees ?? Number(f.customerCareFees ?? 9.99),  // Customer Care Fees (literal)
+        sale.postage ?? null,                          // Postage (literal)
+        null,                                          // P. VAT (formula)
+        sale.accessoryFee ?? Number(f.accessoryFee ?? 1),  // Acc (literal)
+        null, null, null,                              // GP, GP%, Total VAT NTP
+        sale.comments ?? '',
       ]);
       row.getCell(1).numFmt = DATE_FMT;
       row.getCell(4).numFmt = IMEI_FMT;
-      row.getCell(7).numFmt = MONEY_FMT;
-      row.getCell(8).numFmt = MONEY_FMT;
-      row.getCell(10).value = { formula: f.spMinusBp! };       row.getCell(10).numFmt = MONEY_FMT;
-      row.getCell(11).value = { formula: f.marginalTax! };     row.getCell(11).numFmt = MONEY_FMT;
-      row.getCell(12).value = { formula: f.payPalKlarnaCom! }; row.getCell(12).numFmt = MONEY_FMT;
-      row.getCell(13).value = { formula: f.commission! };      row.getCell(13).numFmt = MONEY_FMT;
-      row.getCell(14).value = Number(f.postage);               row.getCell(14).numFmt = MONEY_FMT;
-      row.getCell(15).value = { formula: f.grossProfit! };     row.getCell(15).numFmt = MONEY_FMT;
-      row.getCell(16).value = { formula: f.gpPercent! };       row.getCell(16).numFmt = MONEY_FMT;
+      row.getCell(8).numFmt = MONEY_FMT;       // BP
+      row.getCell(9).numFmt = MONEY_FMT;       // SP
+      row.getCell(10).value = { formula: f.spMinusBp! };    row.getCell(10).numFmt = MONEY_FMT;
+      row.getCell(11).value = { formula: f.marginalTax! };  row.getCell(11).numFmt = MONEY_FMT;
+      row.getCell(12).value = { formula: f.commission! };   row.getCell(12).numFmt = MONEY_FMT;
+      row.getCell(13).numFmt = MONEY_FMT;                   // Customer Care Fees (literal above)
+      row.getCell(14).numFmt = MONEY_FMT;                   // Postage (literal above)
+      if (sale.postageVatExempt) {
+        row.getCell(15).value = 0;
+      } else {
+        row.getCell(15).value = { formula: f.postageVat! };
+      }
+      row.getCell(15).numFmt = MONEY_FMT;
+      row.getCell(16).numFmt = MONEY_FMT;                   // Acc (literal above)
+      row.getCell(17).value = { formula: f.grossProfit! };  row.getCell(17).numFmt = MONEY_FMT;
+      row.getCell(18).value = { formula: f.gpPercent! };    row.getCell(18).numFmt = MONEY_FMT;
+      row.getCell(19).value = { formula: f.totalVatNtp! };  row.getCell(19).numFmt = MONEY_FMT;
       return;
     }
 
     case 'EBAY': {
-      // SHIPPING column is base value (1, 2 or 8). Default to fee.postage (8).
-      const shipping = sale.postage ?? 8;
+      // Live EBAY sheet — 24 cols, NO Comments column. Same column letter
+      // layout as before except the trailing Comments cell is dropped.
+      //   A=Date,B=OrderNo,C=SKU,D=IMEI,E=Supplier,F=Units,
+      //   G=BP,H=SP,I=SP-BP,J=MarTax,K=Com,L=ROF,M=FVF,N=VAT,O=T.COM,
+      //   P=Postage,Q=P.VAT,R=Marketing,S=M.VAT,T=Acc,U=TotVAT,V=GP,
+      //   W=GP%,X=TotVAT NTP
+      const hasExplicitMarketing = typeof sale.marketing === 'number';
       const row = sheet.addRow([
         date, sale.orderNumber, sale.sku ?? '', sale.imei ?? '',
         sale.supplierName ?? '', qty,
         sale.buyPrice, sale.salePrice,
-        null, null, null, null, null, null, null,
-        shipping,
-        null, null, null,
+        null, null, null, null, null, null, null,    // SP-BP, MarTax, Com, ROF, FVF, VAT, T.COM
+        sale.postage ?? null,                        // Postage
+        null,                                        // P. VAT (formula)
+        hasExplicitMarketing ? sale.marketing : null, // Marketing — literal or formula
+        null,                                        // M. VAT (formula)
+        sale.accessoryFee ?? Number(f.accessoryFee ?? 1),  // Acc
+        null, null, null, null,                      // Total VAT, GP, GP%, Total VAT NTP
       ]);
       row.getCell(1).numFmt = DATE_FMT;
       row.getCell(4).numFmt = IMEI_FMT;
-      row.getCell(7).numFmt = MONEY_FMT;
-      row.getCell(8).numFmt = MONEY_FMT;
-      row.getCell(9).value  = { formula: f.spMinusBp! };     row.getCell(9).numFmt  = MONEY_FMT;
-      row.getCell(10).value = { formula: f.marTax! };        row.getCell(10).numFmt = MONEY_FMT;
-      row.getCell(11).value = { formula: f.commission! };    row.getCell(11).numFmt = MONEY_FMT;
-      row.getCell(12).value = { formula: f.rof! };           row.getCell(12).numFmt = MONEY_FMT;
-      row.getCell(13).value = Number(f.fvf);                 row.getCell(13).numFmt = MONEY_FMT;
-      row.getCell(14).value = { formula: f.twentyPercent! }; row.getCell(14).numFmt = MONEY_FMT;
-      row.getCell(15).value = { formula: f.totalCom! };      row.getCell(15).numFmt = MONEY_FMT;
-      row.getCell(16).numFmt = MONEY_FMT;                    // SHIPPING base value
-      row.getCell(17).value = { formula: f.grossProfit! };   row.getCell(17).numFmt = MONEY_FMT;
-      row.getCell(18).value = { formula: f.gpPercent! };     row.getCell(18).numFmt = MONEY_FMT;
-      row.getCell(19).value = { formula: f.netProfit! };     row.getCell(19).numFmt = MONEY_FMT;
+      row.getCell(7).numFmt = MONEY_FMT;            // BP
+      row.getCell(8).numFmt = MONEY_FMT;            // SP
+      row.getCell(9).value  = { formula: f.spMinusBp! };    row.getCell(9).numFmt  = MONEY_FMT;
+      row.getCell(10).value = { formula: f.marginalTax! };  row.getCell(10).numFmt = MONEY_FMT;
+      row.getCell(11).value = { formula: f.commission! };   row.getCell(11).numFmt = MONEY_FMT;
+      row.getCell(12).value = { formula: f.rof! };          row.getCell(12).numFmt = MONEY_FMT;
+      row.getCell(13).value = Number(f.fvf);                row.getCell(13).numFmt = MONEY_FMT;
+      row.getCell(14).value = { formula: f.vat20! };        row.getCell(14).numFmt = MONEY_FMT;
+      row.getCell(15).value = { formula: f.totalCom! };     row.getCell(15).numFmt = MONEY_FMT;
+      row.getCell(16).numFmt = MONEY_FMT;                   // Postage (literal above)
+      if (sale.postageVatExempt) {
+        row.getCell(17).value = 0;
+      } else {
+        row.getCell(17).value = { formula: f.postageVat! };
+      }
+      row.getCell(17).numFmt = MONEY_FMT;
+      if (!hasExplicitMarketing) {
+        row.getCell(18).value = { formula: f.marketing! };
+      }
+      row.getCell(18).numFmt = MONEY_FMT;                   // Marketing
+      row.getCell(19).value = { formula: f.marketingVat! }; row.getCell(19).numFmt = MONEY_FMT;
+      row.getCell(20).numFmt = MONEY_FMT;                   // Accessories (literal above)
+      row.getCell(21).value = { formula: f.totalVat! };     row.getCell(21).numFmt = MONEY_FMT;
+      row.getCell(22).value = { formula: f.grossProfit! };  row.getCell(22).numFmt = MONEY_FMT;
+      row.getCell(23).value = { formula: f.gpPercent! };    row.getCell(23).numFmt = MONEY_FMT;
+      row.getCell(24).value = { formula: f.totalVatNtp! };  row.getCell(24).numFmt = MONEY_FMT;
       return;
     }
 
     case 'ONBUY': {
-      // ONBUY layout has no quantity column. Columns:
-      // A=Date B=Order# C=SKU D=IMEI E=Supplier F=BP G=SP H=SP-BP I=MAR VAT
-      // J=COM 7% K=VAT 20% L=SHIP M=GP N=GP% O=Comments
+      // Live ONBUY sheet — 18 cols. No Quantity, no Comments.
+      //   A=Date,B=OrderNo,C=SKU,D=IMEI,E=Supplier,
+      //   F=BP,G=SP,H=SP-BP,I=MarTax,J=Com,K=VAT20%,
+      //   L=Postage,M=P.VAT,N=Acc,O=TotVAT,P=GP,Q=GP%,R=TotVAT NTP
       const row = sheet.addRow([
         date, sale.orderNumber, sale.sku ?? '', sale.imei ?? '',
         sale.supplierName ?? '',
         sale.buyPrice, sale.salePrice,
-        null, null, null, null, null, null, null, sale.comments ?? '',
+        null, null, null, null,                       // SP-BP, MarTax, Com, VAT20%
+        sale.postage ?? null,                         // Postage (literal)
+        null,                                         // P. VAT (formula)
+        sale.accessoryFee ?? Number(f.accessoryFee ?? 1),  // Acc (literal)
+        null, null, null, null,                       // Total VAT, GP, GP%, Total VAT NTP
       ]);
       row.getCell(1).numFmt = DATE_FMT;
       row.getCell(4).numFmt = IMEI_FMT;
       row.getCell(6).numFmt = MONEY_FMT;   // BP (F)
       row.getCell(7).numFmt = MONEY_FMT;   // SP (G)
       row.getCell(8).value  = { formula: f.spMinusBp! };    row.getCell(8).numFmt  = MONEY_FMT;
-      row.getCell(9).value  = { formula: f.marVat! };       row.getCell(9).numFmt  = MONEY_FMT;
+      row.getCell(9).value  = { formula: f.marginalTax! };  row.getCell(9).numFmt  = MONEY_FMT;
       row.getCell(10).value = { formula: f.commission! };   row.getCell(10).numFmt = MONEY_FMT;
       row.getCell(11).value = { formula: f.vat20! };        row.getCell(11).numFmt = MONEY_FMT;
-      row.getCell(12).value = Number(f.postage);            row.getCell(12).numFmt = MONEY_FMT;
-      row.getCell(13).value = { formula: f.grossProfit! };  row.getCell(13).numFmt = MONEY_FMT;
-      row.getCell(14).value = { formula: f.gpPercent! };    row.getCell(14).numFmt = MONEY_FMT;
+      row.getCell(12).numFmt = MONEY_FMT;                   // Postage (literal above)
+      if (sale.postageVatExempt) {
+        row.getCell(13).value = 0;
+      } else {
+        row.getCell(13).value = { formula: f.postageVat! };
+      }
+      row.getCell(13).numFmt = MONEY_FMT;
+      row.getCell(14).numFmt = MONEY_FMT;                   // Accessories (literal above)
+      row.getCell(15).value = { formula: f.totalVat! };     row.getCell(15).numFmt = MONEY_FMT;
+      row.getCell(16).value = { formula: f.grossProfit! };  row.getCell(16).numFmt = MONEY_FMT;
+      row.getCell(17).value = { formula: f.gpPercent! };    row.getCell(17).numFmt = MONEY_FMT;
+      row.getCell(18).value = { formula: f.totalVatNtp! };  row.getCell(18).numFmt = MONEY_FMT;
       return;
     }
 
-    case 'PROJECT': {
-      // Same layout as AMAZON.
-      const row = sheet.addRow([
-        date, sale.orderNumber, sale.sku ?? '', sale.imei ?? '',
-        sale.supplierName ?? '', qty,
-        sale.buyPrice, sale.salePrice,
-        null, null, null, null, null, null, sale.comments ?? '',
-      ]);
-      row.getCell(1).numFmt = DATE_FMT;
-      row.getCell(4).numFmt = IMEI_FMT;
-      row.getCell(7).numFmt = MONEY_FMT;
-      row.getCell(8).numFmt = MONEY_FMT;
-      row.getCell(9).value  = { formula: f.spMinusBp! };    row.getCell(9).numFmt  = MONEY_FMT;
-      row.getCell(10).value = { formula: f.marginalTax! };  row.getCell(10).numFmt = MONEY_FMT;
-      row.getCell(11).value = { formula: f.commission! };   row.getCell(11).numFmt = MONEY_FMT;
-      row.getCell(12).value = Number(f.postage);            row.getCell(12).numFmt = MONEY_FMT;
-      row.getCell(13).value = { formula: f.grossProfit! };  row.getCell(13).numFmt = MONEY_FMT;
-      row.getCell(14).value = { formula: f.gpPercent! };    row.getCell(14).numFmt = MONEY_FMT;
-      return;
-    }
   }
 }
 
 export async function buildSalesWorkbookBuffer(input: BuildSalesWorkbookInput): Promise<ArrayBuffer> {
-  const { sales, opts } = input;
+  const { sales, units, supplierMap, opts } = input;
   const filtered = filterSalesByDate(sales, opts);
   const byMarketplace = new Map<Marketplace, Sale[]>();
   for (const m of MARKETPLACES) byMarketplace.set(m, []);
@@ -381,14 +473,32 @@ export async function buildSalesWorkbookBuffer(input: BuildSalesWorkbookInput): 
   }
 
   const wb = new ExcelJS.Workbook();
+
+  // Per-marketplace sheets ONLY — the client's Sales Report has exactly four
+  // tabs (AMAZON / BM / EBAY / ONBUY). No combined 'ALL' sheet; the operator
+  // doesn't generate or hand over an all-in-one view, only the four
+  // marketplace-shaped sheets. PROJECT excluded — we sell on 4 platforms.
   for (const m of MARKETPLACES) {
     const sheet = wb.addWorksheet(m);
     sheet.addRow(SALES_HEADERS[m]);
 
     const bucket = byMarketplace.get(m) ?? [];
+    const headerLen = (SALES_HEADERS[m] as unknown as unknown[]).length;
     for (let i = 0; i < bucket.length; i++) {
       const rowNumber = i + 2; // skip header
-      writeSaleRow(sheet, m, bucket[i], rowNumber);
+      const sale = bucket[i];
+      writeSaleRow(sheet, m, sale, rowNumber);
+      // Red fill applied across every cell of any row the operator has
+      // marked as needing attention — either a soft-deleted void (voidedAt)
+      // or a red-row import flag carried from the source workbook. Same
+      // visual signal in both cases so the export looks identical to the
+      // operator's hand-painted Sales Report sheet.
+      if (sale.voidedAt || sale.flagged) {
+        const row = sheet.getRow(rowNumber);
+        for (let col = 1; col <= headerLen; col++) {
+          row.getCell(col).fill = RETURNED_FILL;
+        }
+      }
     }
   }
 
@@ -433,8 +543,29 @@ export async function downloadClientWorkbooks(input: DownloadClientWorkbooksInpu
       suppliers: input.suppliers,
       whatsappFeed: input.whatsappFeed,
     }),
-    buildSalesWorkbookBuffer({ sales: input.sales, opts: input.opts }),
+    buildSalesWorkbookBuffer({
+      sales: input.sales,
+      units: input.units,
+      supplierMap: Object.fromEntries(input.suppliers.map(s => [s.id, s.name])),
+      opts: input.opts,
+    }),
   ]);
   triggerBrowserDownload(invBuf, inventoryReportFilename(today));
   triggerBrowserDownload(salesBuf, salesReportFilename(today));
+}
+
+/**
+ * Download just the SALES_REPORT workbook — exactly four per-marketplace
+ * sheets (AMAZON / BM / EBAY / ONBUY) mirroring the client's source format.
+ * Used by the Sell-screen "Sales Report" button — single-click download
+ * with the same per-marketplace formulas the master file uses.
+ * Filename carries YYYY-MM-DD_HHMM so multiple pulls per day sort
+ * chronologically in a folder.
+ */
+export async function downloadSalesWorkbook(input: BuildSalesWorkbookInput): Promise<void> {
+  const buf = await buildSalesWorkbookBuffer(input);
+  const now = new Date();
+  const pad = (n: number) => String(n).padStart(2, '0');
+  const stamp = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}_${pad(now.getHours())}${pad(now.getMinutes())}`;
+  triggerBrowserDownload(buf, `sales-report-${stamp}.xlsx`);
 }

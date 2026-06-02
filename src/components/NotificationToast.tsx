@@ -3,7 +3,11 @@ import { motion, AnimatePresence } from 'motion/react';
 import { ShoppingBag, Package, X, AlertCircle, RefreshCw, Truck, ChevronLeft, ChevronRight } from 'lucide-react';
 import { notificationService, Notification } from '../lib/notificationService';
 
-const DISPLAY_MS = 5000; // Auto-dismiss after 5 seconds
+// Banner auto-dismiss window. Short by design: 2 seconds is enough for the
+// operator to register the event without the banner blocking the screen.
+// The panel (Bell dropdown) keeps a 24-hour retention so dismissing the
+// banner here doesn't lose the notification — markAsRead just flags read.
+const DISPLAY_MS = 2000;
 
 export default function NotificationToast() {
   const [queue, setQueue]     = useState<Notification[]>([]);
@@ -26,15 +30,17 @@ export default function NotificationToast() {
     });
   }, []);
 
-  // Auto-dismiss current notification if multiple exist
+  // Auto-dismiss the current banner after DISPLAY_MS. Runs for every
+  // notification — including a lone one — because the panel's 24h
+  // retention means dismissing the toast no longer loses the entry.
+  // Without this, a single banner stayed on screen until the user
+  // clicked the X, blocking content.
   useEffect(() => {
-    if (!autoHide || queue.length <= 1) return;
-
+    if (!autoHide || queue.length === 0) return;
     if (dismissTimeoutRef.current) clearTimeout(dismissTimeoutRef.current);
     dismissTimeoutRef.current = setTimeout(() => {
       nextNotification();
     }, DISPLAY_MS);
-
     return () => {
       if (dismissTimeoutRef.current) clearTimeout(dismissTimeoutRef.current);
     };
@@ -44,7 +50,9 @@ export default function NotificationToast() {
     if (currentIndex < queue.length - 1) {
       setCurrentIndex(prev => prev + 1);
     } else {
-      // Dismiss all when reaching end
+      // Reached the end of the queue — flag every banner as read (keeps
+      // them in the panel for the 24h retention) and clear the local
+      // toast queue so the banner UI goes away.
       dismissAll();
     }
   };

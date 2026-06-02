@@ -66,7 +66,7 @@ export function appToDb(obj: Record<string, any>): Record<string, any> {
   if (!obj || typeof obj !== 'object') return {};
   return Object.fromEntries(
     Object.entries(obj)
-      .filter(([k, v]) => v !== undefined && k !== 'supplierName')
+      .filter(([, v]) => v !== undefined)
       .map(([k, v]) => [toSnake(k), v]),
   );
 }
@@ -106,7 +106,7 @@ const SERVER_TS_FIELDS = new Set([
 function cleanForFirestore(obj: Record<string, any>): Record<string, any> {
   const out: Record<string, any> = {};
   for (const [k, v] of Object.entries(obj)) {
-    if (v === undefined || k === 'supplierName') continue;
+    if (v === undefined) continue;
     out[k] = SERVER_TS_FIELDS.has(k) && typeof v === 'string' ? serverTimestamp() : v;
   }
   return out;
@@ -217,6 +217,48 @@ export const dbService = {
     }
 
     onProgress?.(total, total);
+  },
+
+  /**
+   * Delete a batch of docs from a single collection. Uses writeBatch under
+   * the 500-write Firestore limit and mirrors the optimistic in-memory
+   * removal that single-doc `delete` does.
+   *
+   * @param onProgress  Called per-chunk with (done, total). Optional.
+   * @returns           Number of docs actually deleted (== ids.length).
+   */
+  async bulkDelete(
+    collectionName: string,
+    ids: string[],
+    onProgress?: (done: number, total: number) => void,
+  ): Promise<number> {
+    if (ids.length === 0) return 0;
+    const total = ids.length;
+
+    // Optimistic in-memory update — strip every targeted id from the cache
+    // and emit so subscribers refresh before the network round-trip.
+    const idSet = new Set(ids);
+    const remaining = (cachedData[collectionName] || []).filter(x => !idSet.has(x.id));
+    cachedData[collectionName] = remaining;
+    emit(collectionName, remaining);
+
+    const BATCH_SIZE = 400;
+    let done = 0;
+    for (let i = 0; i < ids.length; i += BATCH_SIZE) {
+      const chunk = ids.slice(i, i + BATCH_SIZE);
+      const batch = writeBatch(db);
+      for (const id of chunk) batch.delete(docRef(collectionName, id));
+      try {
+        await batch.commit();
+      } catch (err: any) {
+        console.warn(`Firestore bulkDelete [${collectionName}] chunk ${i}:`, err.message);
+      }
+      done += chunk.length;
+      onProgress?.(done, total);
+      await new Promise(r => setTimeout(r, 0));
+    }
+    onProgress?.(total, total);
+    return total;
   },
 
   subscribeToCollection(collectionName: string, callback: (data: any[]) => void) {

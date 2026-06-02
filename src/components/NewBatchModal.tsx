@@ -171,7 +171,7 @@ export default function NewBatchModal({ onClose }: Props) {
     // (14-17 digits) and alphanumeric Apple serials (e.g. NL6CMQCYTD, 10
     // chars) via the shared validator. The only IMEI-optional path is SHS.
     for (const r of validRows.filter(r => !r.isSHS)) {
-      if (!isValidImei(r.imei)) {
+      if (!isValidImei(r.imei, { isAppleSerial: true })) {
         setError(`"${r.model}" — ${IMEI_REQUIRED_MESSAGE}`);
         return;
       }
@@ -453,7 +453,7 @@ export default function NewBatchModal({ onClose }: Props) {
           {/* Block submit while any non-SHS row is missing an IMEI / serial.
               SHS rows are the only IMEI-optional path. */}
           {(() => {
-            const missing = rows.filter(r => !r.isSHS && r.model.trim() && !isValidImei(r.imei)).length;
+            const missing = rows.filter(r => !r.isSHS && r.model.trim() && !isValidImei(r.imei, { isAppleSerial: true })).length;
             return missing > 0 ? (
               <p className="text-[10px] text-red-500 font-mono">
                 {missing} row{missing !== 1 ? 's' : ''} missing IMEI — {IMEI_REQUIRED_MESSAGE.toLowerCase()}.
@@ -468,7 +468,7 @@ export default function NewBatchModal({ onClose }: Props) {
             disabled={
               saving || saved || totals.units + totals.shs === 0 ||
               // Every non-SHS row with a model must have a valid IMEI/serial.
-              rows.some(r => !r.isSHS && r.model.trim() && !isValidImei(r.imei))
+              rows.some(r => !r.isSHS && r.model.trim() && !isValidImei(r.imei, { isAppleSerial: true }))
             }
             className="w-full py-3.5 bg-emerald-600 text-white rounded-xl text-[11px] font-bold uppercase tracking-widest hover:bg-emerald-700 transition-all disabled:opacity-50 flex items-center justify-center gap-2"
           >
@@ -547,7 +547,7 @@ function BatchRowCard({ row, index, knownSuppliers, onChange, onRemove, canRemov
   const [expanded, setExpanded] = useState(true);
   // SHS rows skip the IMEI check (no IMEI yet); every other row requires
   // an IMEI or Apple-style serial per the shared validator.
-  const imeiOk = row.isSHS || isValidImei(row.imei);
+  const imeiOk = row.isSHS || isValidImei(row.imei, { isAppleSerial: true });
 
   return (
     <motion.div

@@ -59,16 +59,6 @@ export function skuKeyOf(unit: InventoryUnit): string {
   return `${brand}|${model}|${storage}|${colour}`.toUpperCase();
 }
 
-const SOUNDS = {
-  sold:              'https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3',  // Success chime
-  loss_sell:         'https://assets.mixkit.co/active_storage/sfx/2372/2372-preview.mp3',  // Alert/warning sound
-  new_stock:         'https://assets.mixkit.co/active_storage/sfx/2354/2354-preview.mp3',  // Notification
-  return_processed:  'https://assets.mixkit.co/active_storage/sfx/2811/2811-preview.mp3',  // Refresh/reload
-  shs_received:      'https://assets.mixkit.co/active_storage/sfx/2892/2892-preview.mp3',  // Notification chime
-  shs_removed:       'https://assets.mixkit.co/active_storage/sfx/2372/2372-preview.mp3',  // Alert/warning sound
-  unit_repaired:     'https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3',  // Success chime
-};
-
 const NOTIFS_KEY_PREFIX = 'nexus_notifs_';
 const FIRED_KEY_PREFIX  = 'nexus_notif_fired_';
 
@@ -76,10 +66,40 @@ class NotificationService {
   private listeners: ((notifications: Notification[]) => void)[] = [];
   private notifications: Notification[] = [];
   private userId = 'anon';
-  private playSoundTimeout: any = null;
   private batchBuffer: { type: NotificationType; unit: InventoryUnit; profitAmount?: number }[] = [];
   private batchTimeout: any = null;
   private readonly BATCH_WINDOW_MS = 500;
+  // Panel retention window: notifications older than this drop off
+  // automatically. Loaded once on construction so the interval ticks even
+  // if no one is interacting with the bell.
+  private readonly RETENTION_HOURS = 24;
+  private cleanupInterval: any = null;
+
+  constructor() {
+    // Browser-only: every 5 minutes prune anything older than the
+    // retention window. saveToStorage + notify only run when something
+    // actually changes, so this is cheap when there's nothing to drop.
+    if (typeof window !== 'undefined') {
+      this.cleanupInterval = setInterval(() => {
+        this.pruneExpired();
+      }, 5 * 60 * 1000);
+    }
+  }
+
+  /** Drop notifications older than RETENTION_HOURS. Idempotent — only
+   *  saves + notifies when something actually got removed. */
+  private pruneExpired() {
+    const cutoff = Date.now() - this.RETENTION_HOURS * 60 * 60 * 1000;
+    const before = this.notifications.length;
+    this.notifications = this.notifications.filter(n => {
+      const t = new Date(n.timestamp).getTime();
+      return Number.isFinite(t) && t > cutoff;
+    });
+    if (this.notifications.length !== before) {
+      this.saveToStorage();
+      this.notify();
+    }
+  }
 
   // Called once login is confirmed — loads persisted notifications for this user
   setUser(uid: string) {
@@ -100,8 +120,15 @@ class NotificationService {
         return;
       }
       const loaded = JSON.parse(raw);
-      // Only load unread notifications (older read ones are discarded on reload)
-      this.notifications = loaded.filter((n: Notification) => !n.read);
+      // Keep everything from the last 24h, read or unread. The banner toast
+      // surfaces the unread ones briefly, but the panel keeps both for the
+      // full 24h retention window. Older entries are pruned here on load
+      // (and periodically by the cleanup interval below).
+      const cutoff = Date.now() - 24 * 60 * 60 * 1000;
+      this.notifications = loaded.filter((n: Notification) => {
+        const t = new Date(n.timestamp).getTime();
+        return Number.isFinite(t) && t > cutoff;
+      });
     } catch { this.notifications = []; }
   }
 
@@ -268,8 +295,6 @@ class NotificationService {
         this.notify();
         this.markFired(firedKey);
         console.log(`[Notification] Merged into existing same-SKU entry: ${skuKey} now ${newCount}×`);
-        // Don't replay the sound on every merged unit — keeps the import
-        // from sounding like a slot machine.
         return;
       }
     }
@@ -296,8 +321,6 @@ class NotificationService {
 
     // Mark this notification as fired so it won't trigger again on reload
     this.markFired(firedKey);
-
-    this.playSound(type);
   }
 
   private buildTitle(type: NotificationType, count: number): string {
@@ -326,37 +349,50 @@ class NotificationService {
     }
   }
 
+  /** Flag a notification as 'banner seen' / 'read' without removing it from
+   *  the panel. Dismissing the toast (auto-hide or X button) calls this —
+   *  the unread badge clears, but the entry stays in the panel for the
+   *  full 24h retention window. To remove from the panel entirely, use
+   *  dismissFromPanel(id). */
   markAsRead(id: string) {
-    this.notifications = this.notifications.filter(n => n.id !== id);
-    this.saveToStorage();
-    this.notify();
+    let changed = false;
+    this.notifications = this.notifications.map(n => {
+      if (n.id === id && !n.read) { changed = true; return { ...n, read: true }; }
+      return n;
+    });
+    if (changed) {
+      this.saveToStorage();
+      this.notify();
+    }
   }
 
+  /** Mark every notification as read (kills the unread badge) but keeps
+   *  them in the panel until the 24h cleanup or an explicit dismiss. */
   markAllAsRead() {
-    this.notifications = [];
-    // Also drain any pending batch buffer so an in-flight 500ms flush
-    // can't resurrect a notification the user just cleared.
+    let changed = false;
+    this.notifications = this.notifications.map(n => {
+      if (!n.read) { changed = true; return { ...n, read: true }; }
+      return n;
+    });
+    // Drain any pending batch buffer so an in-flight 500ms flush can't
+    // resurrect a notification the user just acknowledged.
     this.batchBuffer = [];
     if (this.batchTimeout) {
       clearTimeout(this.batchTimeout);
       this.batchTimeout = null;
     }
-    this.saveToStorage();
-    this.notify();
+    if (changed) {
+      this.saveToStorage();
+      this.notify();
+    }
   }
 
-  private playSound(type: NotificationType) {
-    if (this.playSoundTimeout) {
-      console.warn('[Sound] Sound already playing, skipping');
-      return;
-    }
-    const soundUrl = SOUNDS[type];
-    console.log(`[Sound] Playing sound for ${type}: ${soundUrl}`);
-    const audio = new Audio(soundUrl);
-    audio.play()
-      .then(() => console.log(`[Sound] ${type} sound played successfully`))
-      .catch(e => console.warn(`[Sound] Audio playback failed for ${type}:`, e));
-    this.playSoundTimeout = setTimeout(() => { this.playSoundTimeout = null; }, 1000);
+  /** Remove a single notification from the panel entirely. Use for per-row
+   *  dismiss in the bell dropdown; banner dismissals should use markAsRead. */
+  dismissFromPanel(id: string) {
+    this.notifications = this.notifications.filter(n => n.id !== id);
+    this.saveToStorage();
+    this.notify();
   }
 
   getUnreadCount() {

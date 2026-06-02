@@ -3,7 +3,9 @@ import { AnimatePresence, motion } from 'motion/react';
 import { X } from 'lucide-react';
 import { InventoryUnit } from '../types';
 import { parseBrandModelStorage, type Series } from '../lib/modelStorage';
-import SkuOverlayModal from './SkuOverlayModal';
+import { useInventoryStore } from '../lib/inventoryStore';
+import { useUserRegion } from '../lib/userLocale';
+import StockOverlayModal from './StockOverlayModal';
 
 interface Props {
   units: InventoryUnit[];
@@ -40,7 +42,7 @@ const SERIES_GROUPS: ReadonlyArray<SeriesGroupDef> = [
   { id: 'Galaxy XCover', label: 'Samsung XCover',    color: { bg: '#475569', light: '#e2e8f0', text: '#1e293b', border: '#94a3b8' } },
   { id: 'Galaxy Tab',    label: 'Samsung Tabs',      color: { bg: '#0891b2', light: '#cffafe', text: '#164e63', border: '#67e8f9' } },
   { id: 'Pixel',         label: 'Google Pixel',      color: { bg: '#ea580c', light: '#ffedd5', text: '#7c2d12', border: '#fdba74' } },
-  { id: 'Other',         label: 'Other',             color: { bg: '#475569', light: '#f1f5f9', text: '#334155', border: '#cbd5e1' } },
+  { id: 'Other',         label: 'Accessories',       color: { bg: '#475569', light: '#f1f5f9', text: '#334155', border: '#cbd5e1' } },
 ];
 
 /**
@@ -72,6 +74,11 @@ interface Element {
   model: string;
   /** Storage capacity for this block, or undefined when the model has none. */
   storage?: string;
+  /** Connectivity / sim / radio tag (5G, WiFi+Cellular, Dual SIM, freeform).
+   *  Same value the periodic-table bucket key uses to keep "Galaxy S20" and
+   *  "Galaxy S20 5G" in separate cells — the overlay's filter needs this too
+   *  so a click on one bucket doesn't pull in units from the other. */
+  tag?: string;
   /** Big abbreviated label rendered inside the block tile. */
   symbol: string;
   count: number;
@@ -173,6 +180,162 @@ interface PopoverState {
   el: Element;
   color: { bg: string; light: string; text: string; border: string };
   rect: DOMRect;
+}
+
+// ── Shared SKU bucketing ──────────────────────────────────────────────────────
+// All three view modes (office stock / by-supplier / out-of-stock) render the
+// same SKU grid; only the GROUPING dimension (brand series vs supplier), the
+// unit sets and the value function differ. One generic builder, one call per
+// mode — no duplicated bucketing loop.
+
+/** Minimal row-group shape: id + label + colour theme. SERIES_GROUPS satisfies
+ *  this structurally (its id is the Series union, a string subtype); supplier
+ *  groups are built at runtime from the supplier list. */
+interface PtGroupDef {
+  id: string;
+  label: string;
+  color: { bg: string; light: string; text: string; border: string };
+}
+
+interface PtGroupVM extends PtGroupDef {
+  elements: Element[];
+  totalCount: number;
+  totalValue: number;
+}
+
+/** Periodic-table view modes. */
+type ViewMode = 'office' | 'supplier' | 'outofstock';
+
+const VIEW_TABS: ReadonlyArray<{ id: ViewMode; label: string }> = [
+  { id: 'office',     label: 'Office Stock' },
+  { id: 'supplier',   label: 'By Supplier' },
+  { id: 'outofstock', label: 'Out of Stock' },
+];
+
+/** Colour palette cycled across supplier rows (the supplier dimension has no
+ *  fixed colour like the brand series do). Each entry mirrors the bg/light/
+ *  text/border shape the tiles expect. */
+const SUPPLIER_PALETTE: ReadonlyArray<PtGroupDef['color']> = [
+  { bg: '#1d4ed8', light: '#dbeafe', text: '#1e3a8a', border: '#93c5fd' },
+  { bg: '#7c3aed', light: '#ede9fe', text: '#4c1d95', border: '#c4b5fd' },
+  { bg: '#0f766e', light: '#ccfbf1', text: '#134e4a', border: '#5eead4' },
+  { bg: '#be185d', light: '#fce7f3', text: '#831843', border: '#f9a8d4' },
+  { bg: '#b45309', light: '#fef3c7', text: '#78350f', border: '#fcd34d' },
+  { bg: '#0891b2', light: '#cffafe', text: '#164e63', border: '#67e8f9' },
+  { bg: '#ea580c', light: '#ffedd5', text: '#7c2d12', border: '#fdba74' },
+  { bg: '#4338ca', light: '#e0e7ff', text: '#312e81', border: '#a5b4fc' },
+  { bg: '#15803d', light: '#dcfce7', text: '#14532d', border: '#86efac' },
+  { bg: '#475569', light: '#f1f5f9', text: '#334155', border: '#cbd5e1' },
+];
+
+/** Canonical bucket key — keep 128GB / 256GB / 5G / Wi-Fi variants separate. */
+const bucketKeyOf = (model: string, storage?: string, tag?: string) =>
+  `${model}|${storage ?? ''}|${tag ?? ''}`;
+
+/**
+ * buildGroups — bucket units into the periodic-table grid for an arbitrary
+ * grouping dimension.
+ *
+ *   primary    — units that drive the tile count + value + row totals.
+ *   secondary  — units that drive the "+NS" supplier-held badge (office /
+ *                by-supplier pass incoming stock; out-of-stock passes []).
+ *   groupDefs  — the rows to render (brand series, or runtime supplier list).
+ *   assign     — maps a unit to a groupDefs id. Units whose id isn't in
+ *                groupDefs are dropped (so a stray supplier doesn't appear).
+ *   opts.valueOf     — per-unit £ for tile/row value (default buyPrice;
+ *                      out-of-stock passes salePrice to surface revenue).
+ *   opts.excludeKeys — model|storage|tag keys to drop. Out-of-stock passes the
+ *                      SKUs that still have available stock so only depleted
+ *                      ones remain.
+ */
+function buildGroups(
+  primary: InventoryUnit[],
+  secondary: InventoryUnit[],
+  groupDefs: ReadonlyArray<PtGroupDef>,
+  assign: (u: InventoryUnit) => string,
+  opts?: { valueOf?: (u: InventoryUnit) => number; excludeKeys?: Set<string> },
+): PtGroupVM[] {
+  const valueOf = opts?.valueOf ?? ((u: InventoryUnit) => u.buyPrice || 0);
+  const excludeKeys = opts?.excludeKeys;
+  try {
+    type ParsedUnit = { unit: InventoryUnit; model: string; storage?: string; tag?: string; groupId: string };
+    const parseUnit = (u: InventoryUnit): ParsedUnit => {
+      const p = parseBrandModelStorage(u.model);
+      const storage = u.storage || p.storage;
+      return { unit: u, model: p.model || u.model, storage, tag: p.tag, groupId: assign(u) };
+    };
+
+    const parsedPrimary   = primary.map(parseUnit);
+    const parsedSecondary = secondary.map(parseUnit);
+
+    return groupDefs.map(group => {
+      const groupUnits     = parsedPrimary.filter(p => p.groupId === group.id);
+      const groupSecondary = parsedSecondary.filter(p => p.groupId === group.id);
+
+      type Bucket = {
+        model: string; storage?: string; tag?: string;
+        count: number; shsCount: number; value: number;
+        variants: Record<string, number>; storages: Record<string, number>; prices: number[];
+      };
+      const buckets: Record<string, Bucket> = {};
+      const ensure = (p: ParsedUnit): Bucket | null => {
+        const key = bucketKeyOf(p.model, p.storage, p.tag);
+        if (excludeKeys?.has(key)) return null;
+        if (!buckets[key]) {
+          buckets[key] = { model: p.model, storage: p.storage, tag: p.tag, count: 0, shsCount: 0, value: 0, variants: {}, storages: {}, prices: [] };
+        }
+        return buckets[key];
+      };
+
+      for (const p of groupUnits) {
+        const b = ensure(p);
+        if (!b) continue;
+        b.count++;
+        b.value += valueOf(p.unit);
+        b.prices.push(p.unit.buyPrice || 0);
+        const col = p.unit.colour || 'Unknown';
+        b.variants[col] = (b.variants[col] || 0) + 1;
+        if (p.storage) b.storages[p.storage] = (b.storages[p.storage] || 0) + 1;
+      }
+
+      for (const p of groupSecondary) {
+        const b = ensure(p);
+        if (b) b.shsCount++;
+      }
+
+      const elements: Element[] = Object.values(buckets)
+        .map((d, i) => {
+          const symbol = shortCode(d.model);
+          const seriesKey = [d.model, d.storage, d.tag ? `· ${d.tag}` : ''].filter(Boolean).join(' ');
+          return {
+            seriesKey, model: d.model, storage: d.storage, tag: d.tag, symbol,
+            count: d.count, shsCount: d.shsCount, value: d.value,
+            searchTerm: d.model, ordinal: i + 1,
+            variants: Object.entries(d.variants || {})
+              .sort(([, a], [, b]) => b - a).map(([colour, count]) => ({ colour, count })),
+            storageVariants: Object.entries(d.storages || {})
+              .sort(([a], [b]) => storageGb(a) - storageGb(b)).map(([storage, count]) => ({ storage, count })),
+            priceRange: d.prices.length ? { min: Math.min(...d.prices), max: Math.max(...d.prices) } : { min: 0, max: 0 },
+          };
+        })
+        .sort((a, b) => {
+          const na = parseInt(a.model.match(/\d+/)?.[0] || '0');
+          const nb = parseInt(b.model.match(/\d+/)?.[0] || '0');
+          if (nb !== na) return nb - na;
+          return storageGb(a.storage || '') - storageGb(b.storage || '');
+        })
+        .map((el, i) => ({ ...el, ordinal: i + 1 }));
+
+      return {
+        ...group, elements,
+        totalCount: groupUnits.length,
+        totalValue: groupUnits.reduce((s, p) => s + valueOf(p.unit), 0),
+      };
+    }).filter(g => g.elements.length > 0);
+  } catch (e) {
+    console.error('PeriodicInventory buildGroups error:', e);
+    return [];
+  }
 }
 
 // accent colour for variant count badge — derived from group light colour
@@ -345,132 +508,160 @@ function Popover({
 }
 
 export default function PeriodicInventory({ units, onNavigate }: Props) {
-  const available = units.filter(u => u.status === 'available');
-  const incoming  = units.filter(u => u.status === 'incoming');
+  // Sellable inventory — defensive widening matches Buy/Sell screens so a
+  // returned-to-inventory unit with a stuck status (write race / stale
+  // cache) still shows up on the periodic table for re-sale.
+  // Pull supplier list locally so we can render supplier names in the overlay
+  // without forcing every PeriodicInventory caller to thread a supplierMap.
+  const { suppliers } = useInventoryStore();
+  const region = useUserRegion();
+  const supplierMap = useMemo(() => {
+    const m: Record<string, string> = {};
+    for (const s of suppliers) m[s.id] = s.name;
+    return m;
+  }, [suppliers]);
+
+  // ── View controls ───────────────────────────────────────────────────────────
+  const [viewMode, setViewMode] = useState<ViewMode>('office');
+  const [supplierFilterId, setSupplierFilterId] = useState<string>('all');
 
   const [popover, setPopover] = useState<PopoverState | null>(null);
-  /** Excel-style overlay target — set when a block is clicked, null when closed. */
-  const [overlay, setOverlay] = useState<{ seriesKey: string; model: string; storage?: string } | null>(null);
+  /** Excel-style overlay target — set when a block is clicked, null when closed.
+   *  `supplierId` is set only from the By-Supplier view so the overlay scopes
+   *  to that supplier's units of the SKU. */
+  const [overlay, setOverlay] = useState<{ seriesKey: string; model: string; storage?: string; tag?: string; supplierId?: string } | null>(null);
   // Refs for the hover grace-period timers
   const closeTimer  = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const today = new Date().toISOString().split('T')[0];
-  const todaySold     = units.filter(u => u.status === 'sold' && (u.saleDate || u.dateIn) === today);
-  const todayReturned = units.filter(u => u.status === 'returned' && u.returnDate === today);
+  /** True when a unit belongs to a supplier (primary id or any of supplierIds). */
+  const unitHasSupplier = (u: InventoryUnit, sid: string) =>
+    u.supplierId === sid || (u.supplierIds?.includes(sid) ?? false);
 
-  const groups = useMemo(() => {
-    try {
-    // Parse every unit ONCE upfront. Cache the parsed brand/model/storage/series
-    // alongside the unit so we can bucket by series and then by model+storage.
-    type ParsedUnit = { unit: InventoryUnit; model: string; storage?: string; series: Series };
-    const parseUnit = (u: InventoryUnit): ParsedUnit => {
-      const p = parseBrandModelStorage(u.model);
-      // Prefer the unit's own storage field when present — covers the
-      // tablet-RAM-ambiguity case (parser returns 6GB RAM for some tabs) and
-      // any docs that already have storage broken out at import time.
-      const storage = u.storage || p.storage;
-      // Series goes through unitSeries() so legacy docs stamped with the old
-      // (buggy) `series='Other'` field get re-derived from the cleaned model
-      // string at render time. See unitSeries doc-comment.
-      const series: Series = unitSeries(u);
-      return { unit: u, model: p.model || u.model, storage, series };
-    };
+  // Supplier-scoped unit set — every view reads from this so the supplier
+  // dropdown filters the whole table at once. Matches either the primary
+  // supplierId or any entry in supplierIds (units imported from a multi-
+  // supplier master row carry several).
+  const scopedUnits = useMemo(() => {
+    if (supplierFilterId === 'all') return units;
+    return units.filter(u => unitHasSupplier(u, supplierFilterId));
+  }, [units, supplierFilterId]);
 
-    const parsedAvailable = available.map(parseUnit);
-    const parsedIncoming  = incoming.map(parseUnit);
-
-    return SERIES_GROUPS.map(group => {
-      const groupUnits    = parsedAvailable.filter(p => p.series === group.id);
-      const groupIncoming = parsedIncoming.filter(p => p.series === group.id);
-
-      // Key buckets by `model|storage` so 128GB and 256GB of the same model
-      // produce SEPARATE blocks. Each bucket carries the canonical model + storage
-      // so we can format the label without re-parsing.
-      type Bucket = {
-        model: string;
-        storage?: string;
-        count: number; shsCount: number; value: number;
-        variants: Record<string, number>; storages: Record<string, number>; prices: number[];
-      };
-      const buckets: Record<string, Bucket> = {};
-      const bucketKey = (model: string, storage?: string) => `${model}|${storage ?? ''}`;
-
-      for (const p of groupUnits) {
-        const key = bucketKey(p.model, p.storage);
-        if (!buckets[key]) {
-          buckets[key] = { model: p.model, storage: p.storage, count: 0, shsCount: 0, value: 0, variants: {}, storages: {}, prices: [] };
-        }
-        const b = buckets[key];
-        b.count++;
-        b.value += p.unit.buyPrice;
-        b.prices.push(p.unit.buyPrice);
-        const col = p.unit.colour || 'Unknown';
-        b.variants[col] = (b.variants[col] || 0) + 1;
-        if (p.storage) {
-          b.storages[p.storage] = (b.storages[p.storage] || 0) + 1;
-        }
-      }
-
-      for (const p of groupIncoming) {
-        const key = bucketKey(p.model, p.storage);
-        if (!buckets[key]) {
-          buckets[key] = { model: p.model, storage: p.storage, count: 0, shsCount: 0, value: 0, variants: {}, storages: {}, prices: [] };
-        }
-        buckets[key].shsCount++;
-      }
-
-      const elements: Element[] = Object.values(buckets)
-        .map((d, i) => {
-          // Label: full model name + optional storage. The substring filter
-          // downstream (the Excel overlay) matches by model+storage with
-          // matching across model/storage/colour/imei, so we hand it the model
-          // alone — that reliably narrows to all units of this model. Storage
-          // is shown in the UI as a small caption so the user still sees
-          // separate blocks per (model, storage).
-          const symbol = shortCode(d.model);
-          const seriesKey = d.storage ? `${d.model} ${d.storage}` : d.model;
-          return {
-            seriesKey,
-            model:       d.model,
-            storage:     d.storage,
-            symbol,
-            count:       d.count,
-            shsCount:    d.shsCount,
-            value:       d.value,
-            searchTerm:  d.model,
-            ordinal:     i + 1,
-            variants: Object.entries(d.variants || {})
-              .sort(([, a], [, b]) => b - a)
-              .map(([colour, count]) => ({ colour, count })),
-            storageVariants: Object.entries(d.storages || {})
-              .sort(([a], [b]) => storageGb(a) - storageGb(b))
-              .map(([storage, count]) => ({ storage, count })),
-            priceRange: d.prices.length
-              ? { min: Math.min(...d.prices), max: Math.max(...d.prices) }
-              : { min: 0, max: 0 },
-          };
-        })
-        // Sort by model number descending (newest model first), tie-break by
-        // storage ascending so a "S22 128GB" sits left of "S22 256GB".
-        .sort((a, b) => {
-          const na = parseInt(a.model.match(/\d+/)?.[0] || '0');
-          const nb = parseInt(b.model.match(/\d+/)?.[0] || '0');
-          if (nb !== na) return nb - na;
-          return storageGb(a.storage || '') - storageGb(b.storage || '');
-        })
-        .map((el, i) => ({ ...el, ordinal: i + 1 }));
-
-      return {
-        ...group, elements,
-        totalCount: groupUnits.length,
-        totalValue: groupUnits.reduce((s, p) => s + p.unit.buyPrice, 0),
-      };
-    }).filter(g => g.elements.length > 0);
-    } catch (e) {
-      console.error('PeriodicInventory groups error:', e);
-      return [];
+  // Suppliers that actually have units attached — drives the filter dropdown
+  // AND the By-Supplier view's row definitions.
+  const supplierOptions = useMemo(() => {
+    const ids = new Set<string>();
+    for (const u of units) {
+      if (u.supplierId) ids.add(u.supplierId);
+      for (const sid of u.supplierIds ?? []) ids.add(sid);
     }
-  }, [available, incoming]);
+    return Array.from(ids)
+      .map(id => ({ id, name: supplierMap[id] || id }))
+      .filter(o => o.name)
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }, [units, supplierMap]);
+
+  const available = useMemo(() => scopedUnits.filter(u =>
+    u.status === 'available' ||
+    (u.returnType === 'returned_to_inventory' && u.status !== 'sold')
+  ), [scopedUnits]);
+  const incoming = useMemo(() => scopedUnits.filter(u => u.status === 'incoming'), [scopedUnits]);
+
+  // Sold units — lifetime, used by the out-of-stock view to surface demand.
+  const soldAll = useMemo(() => scopedUnits.filter(u => u.status === 'sold'), [scopedUnits]);
+
+  const today = new Date().toISOString().split('T')[0];
+  const todaySold     = scopedUnits.filter(u => u.status === 'sold' && (u.saleDate || u.dateIn) === today);
+  const todayReturned = scopedUnits.filter(u => u.status === 'returned' && u.returnDate === today);
+
+  // ── Per-view groups ─────────────────────────────────────────────────────────
+  const officeGroups = useMemo(
+    () => buildGroups(available, incoming, SERIES_GROUPS, u => unitSeries(u)),
+    [available, incoming],
+  );
+
+  // By-Supplier: rows are suppliers (built from the live supplier list, scoped
+  // to those with available/incoming stock), colour-cycled. Each row buckets
+  // that supplier's office stock by SKU. A unit's primary supplierId drives the
+  // row; anything unrecognised lands in a synthetic "Unknown supplier" row.
+  const UNKNOWN_SUPPLIER_ID = '__unknown_supplier__';
+  const supplierGroups = useMemo(() => {
+    // Which suppliers have any office stock (available or incoming) right now.
+    const present = new Set<string>();
+    let hasUnknown = false;
+    for (const u of [...available, ...incoming]) {
+      const sid = u.supplierId && supplierMap[u.supplierId] ? u.supplierId : UNKNOWN_SUPPLIER_ID;
+      if (sid === UNKNOWN_SUPPLIER_ID) hasUnknown = true;
+      present.add(sid);
+    }
+    const defs: PtGroupDef[] = supplierOptions
+      .filter(o => present.has(o.id))
+      .map((o, i) => ({ id: o.id, label: o.name, color: SUPPLIER_PALETTE[i % SUPPLIER_PALETTE.length] }));
+    if (hasUnknown) {
+      defs.push({ id: UNKNOWN_SUPPLIER_ID, label: 'Unknown supplier', color: SUPPLIER_PALETTE[defs.length % SUPPLIER_PALETTE.length] });
+    }
+    const assign = (u: InventoryUnit) =>
+      (u.supplierId && supplierMap[u.supplierId]) ? u.supplierId : UNKNOWN_SUPPLIER_ID;
+    return buildGroups(available, incoming, defs, assign);
+  }, [available, incoming, supplierOptions, supplierMap]);
+
+  const outOfStockGroups = useMemo(() => {
+    // Exclude every SKU that still has available stock — only depleted ones
+    // (sold lifetime, zero on hand now) survive into the out-of-stock grid.
+    const inStock = new Set<string>();
+    for (const u of available) {
+      const p = parseBrandModelStorage(u.model);
+      inStock.add(bucketKeyOf(p.model || u.model, u.storage || p.storage, p.tag));
+    }
+    // Tile count = units sold lifetime (demand signal); value = revenue.
+    return buildGroups(soldAll, [], SERIES_GROUPS, u => unitSeries(u), {
+      valueOf: u => u.salePrice || 0, excludeKeys: inStock,
+    });
+  }, [available, soldAll]);
+
+  const groups = viewMode === 'supplier' ? supplierGroups
+    : viewMode === 'outofstock' ? outOfStockGroups
+    : officeGroups;
+
+  // Overlay base set per view — out-of-stock shows lifetime sold; office and
+  // by-supplier show the scoped on-hand units (by-supplier additionally
+  // narrows to the clicked supplier via overlay.supplierId below).
+  const overlayBase = useMemo<InventoryUnit[]>(() => {
+    if (viewMode === 'outofstock') return soldAll;
+    return scopedUnits;
+  }, [viewMode, soldAll, scopedUnits]);
+
+  /** Units matching the currently-selected element. EXACT match on
+   *  parsed.model / storage / tag — same three keys the periodic table buckets
+   *  by, so what's-in-the-tile and what's-in-the-overlay stay one-to-one.
+   *  When the tile came from the By-Supplier view we also narrow to that
+   *  supplier. Sorted newest-first by dateIn. */
+  const overlayRows = useMemo<InventoryUnit[]>(() => {
+    if (!overlay) return [];
+    const wantModel   = overlay.model.toLowerCase().trim();
+    const wantStorage = (overlay.storage || '').toUpperCase().trim();
+    const wantTag     = (overlay.tag || '').toLowerCase().trim();
+    const wantSup     = overlay.supplierId;
+    return overlayBase.filter(u => {
+      if (wantSup) {
+        const ok = wantSup === UNKNOWN_SUPPLIER_ID
+          ? !(u.supplierId && supplierMap[u.supplierId])
+          : unitHasSupplier(u, wantSup);
+        if (!ok) return false;
+      }
+      const parsed = parseBrandModelStorage(u.model || '');
+      const model   = (parsed.model || u.model || '').toLowerCase().trim();
+      const storage = (u.storage || parsed.storage || '').toUpperCase().trim();
+      const tag     = (parsed.tag || '').toLowerCase().trim();
+      if (model !== wantModel) return false;
+      if (wantStorage !== storage) return false;
+      if (wantTag !== tag) return false;
+      return true;
+    }).sort((a, b) => {
+      const da = new Date(a.dateIn || 0).getTime();
+      const db = new Date(b.dateIn || 0).getTime();
+      return db - da;
+    });
+  }, [overlay, overlayBase, supplierMap]);
 
   // ── Hover handlers with grace-period so cursor can reach the popover ─────────
   const cancelClose = useCallback(() => {
@@ -493,7 +684,31 @@ export default function PeriodicInventory({ units, onNavigate }: Props) {
     setPopover({ el, color, rect });
   }, [cancelClose]);
 
-  if (groups.length === 0) return null;
+  // Hide the whole component only when there's genuinely no data anywhere —
+  // a sub-view (Sales / Out of Stock) with no rows still renders the shell so
+  // the operator can switch tabs. An office-only emptiness no longer blanks
+  // the panel now that other views may have data.
+  if (units.length === 0) return null;
+
+  const viewTitle =
+    viewMode === 'supplier'   ? 'Stock by Supplier' :
+    viewMode === 'outofstock' ? 'Out of Stock' :
+                                'Office Stock Visibility';
+  const headlineCount =
+    viewMode === 'supplier'   ? available.length + incoming.length :
+    viewMode === 'outofstock' ? groups.reduce((s, g) => s + g.elements.length, 0) :
+                                available.length;
+  const headlineLabel =
+    viewMode === 'outofstock' ? 'SKUs' : 'units';
+  const headlineSub =
+    viewMode === 'supplier'   ? `${groups.length} supplier${groups.length === 1 ? '' : 's'}` :
+    viewMode === 'outofstock' ? `${soldAll.length} sold lifetime` :
+                                (incoming.length > 0 ? `+ ${incoming.length} w/ supplier` : 'in office');
+  // Per-row total suffix: "£X stock" for office + by-supplier, "£X lifetime"
+  // for the out-of-stock revenue rollup.
+  const rowValueSuffix = viewMode === 'outofstock' ? 'lifetime' : 'stock';
+
+  const isMobile = typeof window !== 'undefined' && window.innerWidth < 768;
 
   return (
     <div className="h-full lg:h-auto">
@@ -503,21 +718,69 @@ export default function PeriodicInventory({ units, onNavigate }: Props) {
         <div style={{ marginBottom: 12 }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
             <div>
-              <p style={{ fontSize: typeof window !== 'undefined' && window.innerWidth < 768 ? 8 : 10, fontFamily: 'monospace', textTransform: 'uppercase', letterSpacing: '0.15em', color: '#64748b', marginBottom: 2 }}>
+              <p style={{ fontSize: isMobile ? 8 : 10, fontFamily: 'monospace', textTransform: 'uppercase', letterSpacing: '0.15em', color: '#64748b', marginBottom: 2 }}>
                 Inventory Periodic Table
               </p>
               <p style={{ fontSize: 18, fontWeight: 800, color: '#1f2937', letterSpacing: '-0.03em', textTransform: 'uppercase' }}>
-                Stock Visibility
+                {viewTitle}
               </p>
             </div>
             <div style={{ textAlign: 'right' }}>
-              <p style={{ fontSize: typeof window !== 'undefined' && window.innerWidth < 768 ? 9 : 11, fontFamily: 'monospace', color: '#94a3b8' }}>{available.length} units</p>
+              <p style={{ fontSize: isMobile ? 9 : 11, fontFamily: 'monospace', color: '#94a3b8' }}>{headlineCount} {headlineLabel}</p>
               <p style={{ fontSize: 10, fontFamily: 'monospace', color: '#475569' }}>
-                {incoming.length > 0 ? `+ ${incoming.length} w/ supplier` : 'in office'}
+                {headlineSub}
               </p>
             </div>
           </div>
-          <div style={{ display: 'flex', gap: typeof window !== 'undefined' && window.innerWidth < 768 ? 6 : 8, flexWrap: 'wrap' }}>
+
+          {/* View tabs + supplier filter */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 10 }}>
+            <div style={{ display: 'inline-flex', background: '#f1f5f9', borderRadius: 8, padding: 2 }}>
+              {VIEW_TABS.map(t => {
+                const active = viewMode === t.id;
+                return (
+                  <button
+                    key={t.id}
+                    type="button"
+                    onClick={() => { setViewMode(t.id); setOverlay(null); setPopover(null); }}
+                    style={{
+                      border: 'none', cursor: 'pointer',
+                      padding: isMobile ? '5px 8px' : '5px 12px',
+                      borderRadius: 6,
+                      fontSize: isMobile ? 9 : 10, fontWeight: 700, fontFamily: 'system-ui',
+                      textTransform: 'uppercase', letterSpacing: '0.05em',
+                      background: active ? '#0f172a' : 'transparent',
+                      color: active ? '#fff' : '#64748b',
+                      transition: 'background 0.12s, color 0.12s',
+                    }}
+                  >
+                    {t.label}
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* Supplier filter — scopes every view to one supplier. */}
+            <select
+              value={supplierFilterId}
+              onChange={e => { setSupplierFilterId(e.target.value); setOverlay(null); }}
+              title="Filter by supplier"
+              style={{
+                border: '1px solid #e2e8f0', borderRadius: 8,
+                padding: isMobile ? '5px 8px' : '6px 10px',
+                fontSize: isMobile ? 9 : 10, fontFamily: 'monospace',
+                color: '#334155', background: '#fff', cursor: 'pointer',
+                maxWidth: 180,
+              }}
+            >
+              <option value="all">All suppliers</option>
+              {supplierOptions.map(o => (
+                <option key={o.id} value={o.id}>{o.name}</option>
+              ))}
+            </select>
+          </div>
+
+          <div style={{ display: 'flex', gap: isMobile ? 6 : 8, flexWrap: 'wrap' }}>
             <div style={{ flex: 1, minWidth: 120, background: '#1e293b', borderRadius: 8, padding: typeof window !== 'undefined' && window.innerWidth < 768 ? '6px 8px' : '8px 10px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
               <span style={{ fontSize: typeof window !== 'undefined' && window.innerWidth < 768 ? 7 : 9, fontFamily: 'monospace', textTransform: 'uppercase', letterSpacing: '0.1em', color: '#94a3b8' }}>Sold Today</span>
               <span style={{ fontSize: typeof window !== 'undefined' && window.innerWidth < 768 ? 11 : 13, fontWeight: 800, fontFamily: 'monospace', color: '#34d399' }}>{todaySold.length}</span>
@@ -540,16 +803,33 @@ export default function PeriodicInventory({ units, onNavigate }: Props) {
           ))}
         </div>
 
+        {/* Per-view empty state — the shell + tabs stay visible so the
+            operator can switch back without the panel vanishing. */}
+        {groups.length === 0 && (
+          <div style={{ padding: '28px 12px', textAlign: 'center' }}>
+            <p style={{ fontSize: 12, fontWeight: 700, color: '#475569' }}>
+              {viewMode === 'supplier'
+                ? 'No stock attributed to a supplier'
+                : viewMode === 'outofstock'
+                  ? 'Nothing out of stock — every sold SKU still has units on hand'
+                  : 'No office stock to show'}
+              {supplierFilterId !== 'all' && ' for this supplier'}
+            </p>
+          </div>
+        )}
+
         {/* Periodic rows */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
           {groups.map(g => (
             <div key={g.id}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
-                <div style={{ fontSize: 13, fontFamily: 'system-ui', textTransform: 'capitalize', color: g.color.bg, fontWeight: 800, minWidth: 120, flexShrink: 0, letterSpacing: '-0.02em' }}>
+                {/* Preserve supplier-name casing (MHL, NIHAL); series labels
+                    keep the capitalize treatment. */}
+                <div style={{ fontSize: 13, fontFamily: 'system-ui', textTransform: viewMode === 'supplier' ? 'none' : 'capitalize', color: g.color.bg, fontWeight: 800, minWidth: 120, flexShrink: 0, letterSpacing: '-0.02em' }}>
                   {g.label}
                 </div>
                 <div style={{ flex: 1, height: 1, background: `${g.color.bg}30` }} />
-                <span style={{ fontSize: 8, fontFamily: 'monospace', color: '#475569' }}>£{g.totalValue.toLocaleString()} stock</span>
+                <span style={{ fontSize: 8, fontFamily: 'monospace', color: '#475569' }}>£{Math.round(g.totalValue).toLocaleString()} {rowValueSuffix}</span>
               </div>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
                 {g.elements.map(el => {
@@ -569,9 +849,13 @@ export default function PeriodicInventory({ units, onNavigate }: Props) {
                         // Empty blocks (zero stock + zero SHS) are non-actionable.
                         if (el.count === 0 && el.shsCount === 0) return;
                         setOverlay({
-                          seriesKey: el.seriesKey,
+                          seriesKey: viewMode === 'supplier' ? `${g.label} · ${el.seriesKey}` : el.seriesKey,
                           model: el.model,
                           storage: el.storage,
+                          tag: el.tag,
+                          // By-Supplier rows are keyed by supplier id — scope
+                          // the overlay to that supplier's units of the SKU.
+                          ...(viewMode === 'supplier' ? { supplierId: g.id } : {}),
                         });
                       }}
                       title={el.seriesKey}
@@ -648,7 +932,7 @@ export default function PeriodicInventory({ units, onNavigate }: Props) {
           ))}
         </div>
 
-        {groups.some(g => g.elements.some(el => el.shsCount > 0)) && (
+        {viewMode !== 'outofstock' && groups.some(g => g.elements.some(el => el.shsCount > 0)) && (
           <div style={{ marginTop: 12, display: 'flex', alignItems: 'center', gap: 6 }}>
             <span style={{ fontSize: 9, color: '#fbbf24', fontFamily: 'monospace', fontWeight: 700 }}>+NS</span>
             <span style={{ fontSize: 8, color: '#475569', fontFamily: 'monospace' }}>= N units listed with supplier (hover for details)</span>
@@ -657,12 +941,22 @@ export default function PeriodicInventory({ units, onNavigate }: Props) {
       </div>
       </div>
 
-      {/* Excel-style SKU overlay — replaces the old sidebar/bottom-sheet/view-all flow. */}
-      <SkuOverlayModal
-        selection={overlay}
-        units={units}
-        onClose={() => setOverlay(null)}
-      />
+      {/* Excel-style SKU overlay — same grouped + detailed surface as the
+          Buy-page KPI overlays so every "click a tile" surface looks identical.
+          Aggregates are empty here because the periodic table is built from
+          IMEI-tracked units only; no master-file rollups to fold in. */}
+      <AnimatePresence>
+        {overlay && (
+          <StockOverlayModal
+            title={overlay.seriesKey}
+            rows={overlayRows}
+            aggregates={[]}
+            supplierMap={supplierMap}
+            region={region}
+            onClose={() => setOverlay(null)}
+          />
+        )}
+      </AnimatePresence>
     </div>
   );
 }

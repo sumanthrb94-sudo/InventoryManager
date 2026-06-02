@@ -51,16 +51,21 @@
     "vite": "^6.2.3"
   },
   "devDependencies": {
+    "@testing-library/dom": "^10.4.1",
+    "@testing-library/react": "^16.3.2",
+    "@testing-library/user-event": "^14.6.1",
     "@types/d3": "^7.4.3",
     "@types/node": "^22.14.0",
-    "@vitest/coverage-v8": "^4.1.5",
+    "@vitest/coverage-v8": "^4.1.6",
     "autoprefixer": "^10.4.21",
     "firebase-admin": "^13.9.0",
+    "jsdom": "^29.1.1",
     "pdf-parse": "^2.4.5",
     "tailwindcss": "^4.1.14",
     "tsx": "^4.21.0",
     "typescript": "~5.8.2",
     "vite": "^6.2.3",
+    "vitest": "^4.1.6",
     "xlsx": "^0.18.5"
   }
 }

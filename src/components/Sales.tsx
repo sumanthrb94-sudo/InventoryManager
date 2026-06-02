@@ -54,6 +54,8 @@ interface ColDef {
   align?: 'left' | 'right' | 'center';
 }
 
+// Qty intentionally omitted — every sale on the Sales Report is a single
+// unit, so the column is dead space. Reads/writes still default to 1.
 const COLUMNS: ColDef[] = [
   { key: 'saleDate',     label: 'Date',         width: 110 },
   { key: 'marketplace',  label: 'Marketplace',  width: 110 },
@@ -61,7 +63,6 @@ const COLUMNS: ColDef[] = [
   { key: 'sku',          label: 'SKU',          width: 140 },
   { key: 'imei',         label: 'IMEI',         width: 160 },
   { key: 'supplierName', label: 'Supplier',     width: 130 },
-  { key: 'quantity',     label: 'Qty',          width: 50,  align: 'right' },
   { key: 'buyPrice',     label: 'BP',           width: 80,  align: 'right' },
   { key: 'salePrice',    label: 'SP',           width: 80,  align: 'right' },
   { key: 'paymentMode',  label: 'Payment Mode', width: 110 },
@@ -77,7 +78,6 @@ const MARKETPLACE_BADGE: Record<Marketplace, string> = {
   BM:      'bg-emerald-100 text-emerald-800 border-emerald-200',
   EBAY:    'bg-blue-100   text-blue-800   border-blue-200',
   ONBUY:   'bg-purple-100 text-purple-800 border-purple-200',
-  PROJECT: 'bg-pink-100   text-pink-800   border-pink-200',
 };
 
 const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
@@ -581,6 +581,17 @@ export default function Sales() {
             <span className="ml-2 bg-emerald-600 text-white text-[8px] px-1.5 py-0.5 rounded-full">
               {sortedSales.length.toLocaleString('en-GB')}
             </span>
+            {(() => {
+              const flaggedCount = sortedSales.filter(s => s.flagged).length;
+              return flaggedCount > 0 ? (
+                <span
+                  className="bg-rose-100 text-rose-700 border border-rose-200 text-[8px] px-1.5 py-0.5 rounded-full"
+                  title="Rows painted red on the source Sales Report (returns / refunds / disputes)"
+                >
+                  {flaggedCount.toLocaleString('en-GB')} flagged
+                </span>
+              ) : null;
+            })()}
           </h3>
           <ChevronDown size={14} className={`text-emerald-400 transition-transform duration-200 ${isSoldHistoryOpen ? 'rotate-180' : ''}`} />
         </button>
@@ -665,8 +676,18 @@ export default function Sales() {
               {/* Excel-style grid */}
               <div className="max-h-[640px] overflow-auto custom-scrollbar">
                 {sortedSales.length === 0 ? (
-                  <div className="px-6 py-16 text-center text-gray-400 font-mono text-[11px]">
-                    No sales match the current filters.
+                  <div className="px-6 py-16 flex flex-col items-center gap-3 text-gray-300">
+                    <ShoppingBag size={36} />
+                    <p className="text-[11px] font-mono text-gray-500">
+                      {allSales.length === 0
+                        ? 'No sales recorded yet'
+                        : 'No sales match the current filters'}
+                    </p>
+                    {allSales.length === 0 && (
+                      <p className="text-[10px] font-mono text-gray-400 max-w-xs text-center">
+                        Record a sale on the Sell page, or import a sales master file from Master Data.
+                      </p>
+                    )}
                   </div>
                 ) : (
                   <table
@@ -706,16 +727,30 @@ export default function Sales() {
                     <tbody>
                       {sortedSales.map((s, i) => {
                         const isInApp = s.importBatchId === 'inapp';
+                        // Operator's red-row flag from the source workbook
+                        // wins over the in-app blue tint — these rows need
+                        // attention (return / refund / chargeback).
+                        const rowTint = s.flagged
+                          ? 'bg-rose-50 hover:bg-rose-100/70'
+                          : isInApp
+                            ? 'bg-blue-50/30 hover:bg-emerald-50/60'
+                            : 'hover:bg-emerald-50/60';
+                        const indexBg = s.flagged
+                          ? 'bg-rose-50 hover:bg-rose-100/70'
+                          : 'bg-white hover:bg-emerald-50/60';
+                        const tooltip = s.flagged
+                          ? 'Flagged on the source Sales Report (red row)'
+                          : isInApp
+                            ? 'Source: in-app sell flow (legacy unit)'
+                            : undefined;
                         return (
                           <tr
                             key={s.id}
-                            className={`hover:bg-emerald-50/60 transition-colors ${
-                              isInApp ? 'bg-blue-50/30' : ''
-                            }`}
-                            title={isInApp ? 'Source: in-app sell flow (legacy unit)' : undefined}
+                            className={`${rowTint} transition-colors`}
+                            title={tooltip}
                           >
                             <td
-                              className="sticky left-0 z-10 bg-white hover:bg-emerald-50/60 px-2 py-1.5 text-gray-400 border-b border-r border-gray-100 text-[10px]"
+                              className={`sticky left-0 z-10 ${indexBg} px-2 py-1.5 text-gray-400 border-b border-r border-gray-100 text-[10px]`}
                               style={{ width: 40 }}
                             >
                               {i + 1}
@@ -740,7 +775,17 @@ export default function Sales() {
                                   );
                                   break;
                                 case 'orderNumber':
-                                  display = s.orderNumber || '—';
+                                  display = s.flagged ? (
+                                    <span className="inline-flex items-center gap-1">
+                                      <span className="text-rose-700 font-semibold">{s.orderNumber || '—'}</span>
+                                      <span
+                                        className="text-[8px] font-bold uppercase tracking-widest px-1 py-px rounded border bg-rose-100 text-rose-700 border-rose-200"
+                                        title="Flagged on the source Sales Report (red row)"
+                                      >
+                                        Flagged
+                                      </span>
+                                    </span>
+                                  ) : (s.orderNumber || '—');
                                   break;
                                 case 'sku':
                                   display = s.sku || '—';
@@ -777,10 +822,11 @@ export default function Sales() {
                                   );
                                   break;
                                 case 'gpPercent': {
-                                  // GP% per spec: (grossProfit / buyPrice) * 100, 1dp.
-                                  const pct = s.buyPrice > 0
-                                    ? (s.grossProfit / s.buyPrice) * 100
-                                    : 0;
+                                  // Use the pre-computed gpPercent off the recomputed Sale doc
+                                  // so the denominator matches the master sheet per marketplace
+                                  // (AMAZON/BM divide by BP; EBAY/ONBUY by SP).
+                                  // Manually re-deriving GP/BP here broke eBay + OnBuy rows.
+                                  const pct = s.gpPercent ?? 0;
                                   display = (
                                     <span className={pct < 0 ? 'text-red-600 font-bold' : 'text-emerald-700 font-bold'}>
                                       {pct.toFixed(1)}%

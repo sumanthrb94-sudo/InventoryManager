@@ -5,7 +5,6 @@ import { InventoryUnit } from '../types';
 import { useInventoryStore } from '../lib/inventoryStore';
 import { dbService } from '../lib/dbService';
 import CopyImei from './CopyImei';
-import { PLATFORM_LIST } from '../lib/platforms';
 
 interface Props {
   units: InventoryUnit[];

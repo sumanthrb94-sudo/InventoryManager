@@ -1,20 +1,19 @@
 import React, { useState, useEffect } from 'react';
 import { onAuthStateChanged, User } from 'firebase/auth';
 import { auth, signInWithEmail, signOut, isAdmin, userRegion, canBuy, canSell } from './lib/firebase';
-import { fmtDateTimeForUser, useUserRegion } from './lib/userLocale';
 import {
   PackagePlus, ShoppingCart, RefreshCw,
   LogOut, Plus, FileSpreadsheet, LayoutDashboard,
   TrendingUp, FileText, Users, Settings, Database,
-  ClipboardList, History,
+  ClipboardList, Menu, X,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import Dashboard, { NavAction } from './components/Dashboard';
 import NewBatchModal from './components/NewBatchModal';
-import ImportModal from './components/ImportModal';
-import MasterDataLinkedImport from './components/MasterDataLinkedImport';
-import StockInPage from './components/StockInPage';
-import SellPage from './components/SellPage';
+import InventoryReportImport from './components/InventoryReportImport';
+import SalesReportImport from './components/SalesReportImport';
+import BuySheet from './components/BuySheet';
+import SellSheet from './components/SellSheet';
 import ReturnsPage from './components/ReturnsPage';
 import ReportingPage from './components/ReportingPage';
 import Suppliers from './components/Suppliers';
@@ -23,17 +22,16 @@ import Sales from './components/Sales';
 import { useRealTimeNotifications } from './hooks/useRealTimeNotifications';
 import NotificationToast from './components/NotificationToast';
 import NotificationBell from './components/NotificationBell';
-import StockTickerBoard from './components/StockTickerBoard';
 import { notificationService } from './lib/notificationService';
 import { subscribeToSyncStatus } from './lib/dbService';
 import { InventoryStoreProvider, useInventoryStore } from './lib/inventoryStore';
 import DataSeedPage from './components/DataSeedPage';
 import LoadMockDataModal from './components/LoadMockDataModal';
 import ErrorBoundary from './components/ErrorBoundary';
-import type { ImportBatch, SupplierWhatsappUpdate } from './types';
+import type { SupplierWhatsappUpdate } from './types';
 
 type Tab      = 'buy' | 'sell' | 'returns' | 'admin';
-type AdminSub = 'overview' | 'masterData' | 'salesHistory' | 'insights' | 'reports' | 'suppliers' | 'audit';
+type AdminSub = 'overview' | 'salesHistory' | 'insights' | 'reports' | 'suppliers';
 
 interface NavTab {
   id: Tab;
@@ -49,8 +47,8 @@ interface NavTab {
  */
 function buildNavTabs(user: User): NavTab[] {
   const tabs: NavTab[] = [];
-  if (canBuy(user))   tabs.push({ id: 'buy',     label: 'Buy',     icon: <PackagePlus size={20} /> });
-  if (canSell(user))  tabs.push({ id: 'sell',    label: 'Sell',    icon: <ShoppingCart size={20} /> });
+  if (canBuy(user))   tabs.push({ id: 'buy',     label: 'Stock Intake', icon: <PackagePlus size={20} /> });
+  if (canSell(user))  tabs.push({ id: 'sell',    label: 'Sales',   icon: <ShoppingCart size={20} /> });
   tabs.push({           id: 'returns', label: 'Returns', icon: <RefreshCw size={20} /> });
   if (isAdmin(user))  tabs.push({ id: 'admin',   label: 'Admin',   icon: <Settings size={20} /> });
   return tabs;
@@ -114,17 +112,15 @@ function LoadingScreen() {
 }
 
 const ADMIN_SUBS: { id: AdminSub; label: string; icon: React.ReactNode }[] = [
-  { id: 'overview',     label: 'Overview',      icon: <LayoutDashboard size={14} /> },
-  { id: 'masterData',   label: 'Master Data',   icon: <FileSpreadsheet size={14} /> },
-  { id: 'salesHistory', label: 'Sales History', icon: <ClipboardList size={14} /> },
-  { id: 'insights',     label: 'Insights',      icon: <TrendingUp size={14} /> },
-  { id: 'reports',      label: 'Reports',       icon: <FileText size={14} /> },
-  { id: 'suppliers',    label: 'Suppliers',     icon: <Users size={14} /> },
-  { id: 'audit',        label: 'Audit',         icon: <History size={14} /> },
+  { id: 'overview',     label: 'Overview',           icon: <LayoutDashboard size={14} /> },
+  { id: 'salesHistory', label: 'Sales History',      icon: <ClipboardList size={14} /> },
+  { id: 'insights',     label: 'Insights',           icon: <TrendingUp size={14} /> },
+  { id: 'reports',      label: 'Reports',            icon: <FileText size={14} /> },
+  { id: 'suppliers',    label: 'Suppliers',          icon: <Users size={14} /> },
 ];
 
 function AppShell({ user }: { user: User }) {
-  const { loaded, units, whatsappFeed, importBatches } = useInventoryStore();
+  const { loaded, units, whatsappFeed } = useInventoryStore();
   const userIsAdmin                               = isAdmin(user);
   // Hide the "Sample Data" entrypoints once real master data is in the DB.
   // Devs can still reach the modal by loading the app with an empty DB.
@@ -133,24 +129,33 @@ function AppShell({ user }: { user: User }) {
   const [adminSub, setAdminSub]                   = useState<AdminSub>('overview');
   const [isBatchModalOpen, setIsBatchModalOpen]   = useState(false);
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
-  const [isMasterDataOpen, setIsMasterDataOpen]   = useState(false);
+  const [isSalesImportOpen, setIsSalesImportOpen] = useState(false);
+  // Compact picker between "Import inventory" and "Import sales" — both are
+  // bulk xlsx import flows and they share the same Import button on the
+  // header. Anchored under the button with absolute positioning + outside-
+  // click dismiss, so it doesn't pull in a popover library for one menu.
+  const [importMenuOpen, setImportMenuOpen]       = useState(false);
   const [isLoadMockDataOpen, setIsLoadMockDataOpen] = useState(false);
   const [unreadCount, setUnreadCount]             = useState(0);
   const [syncConnected, setSyncConnected]         = useState(false);
   const [isAlertsExpanded, setIsAlertsExpanded]   = useState(false);
+  /** Hamburger drawer for desktop nav. Mobile keeps its bottom-tab bar
+   *  (better thumb reach), so this only controls the slide-out on md+. */
+  const [sidebarOpen, setSidebarOpen]             = useState(false);
+
+  // Esc closes the drawer; navigating to a new tab also closes it so
+  // operators don't have to dismiss manually after picking.
+  useEffect(() => {
+    if (!sidebarOpen) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setSidebarOpen(false); };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [sidebarOpen]);
 
   useRealTimeNotifications();
   useEffect(() => { notificationService.setUser(user.uid); }, [user.uid]);
   useEffect(() => notificationService.subscribe(() => setUnreadCount(notificationService.getUnreadCount())), []);
   useEffect(() => subscribeToSyncStatus(setSyncConnected), []);
-
-  // Folding the Master Data sidebar entry into Admin: when the sub-tab is
-  // 'masterData', open the modal. Closing it returns the user to Overview.
-  useEffect(() => {
-    if (activeTab === 'admin' && adminSub === 'masterData' && userIsAdmin) {
-      setIsMasterDataOpen(true);
-    }
-  }, [activeTab, adminSub, userIsAdmin]);
 
   const handleNavigate = (action: NavAction) => {
     if (!userIsAdmin) return;
@@ -185,12 +190,39 @@ function AppShell({ user }: { user: User }) {
 
       <AnimatePresence>{!loaded && <LoadingScreen />}</AnimatePresence>
 
-      {/* ── Desktop Sidebar ── */}
-      <aside className="hidden md:flex w-56 lg:w-64 flex-shrink-0 bg-white border-r border-slate-200 flex-col overflow-hidden">
+      {/* ── Hamburger drawer (was the fixed desktop sidebar). Opens via the
+              menu button in the header. Slides in from the left, dims the
+              content with a backdrop, dismisses on outside-click or Esc.
+              Mobile still uses the bottom tab bar — better thumb reach. ── */}
+      <AnimatePresence>
+        {sidebarOpen && (
+          <motion.div
+            key="sidebar-backdrop"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.18 }}
+            className="fixed inset-0 z-40 bg-black/40 backdrop-blur-sm"
+            onClick={() => setSidebarOpen(false)}
+          />
+        )}
+      </AnimatePresence>
+      <AnimatePresence>
+        {sidebarOpen && (
+      <motion.aside
+        key="sidebar-drawer"
+        initial={{ x: '-100%' }}
+        animate={{ x: 0 }}
+        exit={{ x: '-100%' }}
+        transition={{ type: 'spring', damping: 28, stiffness: 320 }}
+        className="fixed inset-y-0 left-0 z-50 flex w-64 bg-white border-r border-slate-200 flex-col overflow-hidden shadow-2xl"
+        onClick={e => e.stopPropagation()}>
 
-        {/* Brand strip — same height as header */}
-        <div className="h-16 flex-shrink-0 flex items-center px-5 border-b border-slate-100">
-          <button onClick={() => setActiveTab(NAV_TABS[0]?.id ?? 'returns')} className="text-left group active:scale-95 transition-transform">
+        {/* Brand strip — same height as header. The X button mirrors the
+            hamburger in the page header so the open ↔ close gesture is
+            symmetric. */}
+        <div className="h-16 flex-shrink-0 flex items-center justify-between px-5 border-b border-slate-100">
+          <button onClick={() => { setActiveTab(NAV_TABS[0]?.id ?? 'returns'); setSidebarOpen(false); }} className="text-left group active:scale-95 transition-transform min-w-0">
             <h1 className="text-[13px] font-black tracking-tighter uppercase font-display text-slate-900 leading-none">
               {APP_NAME}
             </h1>
@@ -204,12 +236,20 @@ function AppShell({ user }: { user: User }) {
               )}
             </p>
           </button>
+          <button
+            onClick={() => setSidebarOpen(false)}
+            aria-label="Close menu"
+            className="p-2 hover:bg-slate-100 rounded-lg text-slate-400 hover:text-slate-900 transition-all"
+          >
+            <X size={16} />
+          </button>
         </div>
 
         {/* Nav items */}
         <nav className="p-3 space-y-0.5">
           {NAV_TABS.map(t => (
-            <button key={t.id} onClick={() => setActiveTab(t.id)}
+            <button key={t.id}
+              onClick={() => { setActiveTab(t.id); setSidebarOpen(false); }}
               className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all
                 ${activeTab === t.id
                   ? 'bg-slate-900 text-white'
@@ -224,7 +264,8 @@ function AppShell({ user }: { user: User }) {
           {userIsAdmin && activeTab === 'admin' && (
             <div className="ml-3 mt-1 space-y-0.5 border-l-2 border-slate-100 pl-3">
               {ADMIN_SUBS.map(s => (
-                <button key={s.id} onClick={() => setAdminSub(s.id)}
+                <button key={s.id}
+                  onClick={() => { setAdminSub(s.id); setSidebarOpen(false); }}
                   className={`w-full flex items-center gap-2 px-3 py-2 rounded-lg transition-all
                     ${adminSub === s.id
                       ? 'text-slate-900 bg-slate-100 font-bold'
@@ -403,7 +444,9 @@ function AppShell({ user }: { user: User }) {
             </button>
           )}
         </div>
-      </aside>
+      </motion.aside>
+        )}
+      </AnimatePresence>
 
       {/* ── Right column (header + scrollable content) ── */}
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
@@ -411,10 +454,22 @@ function AppShell({ user }: { user: User }) {
         {/* Top header */}
         <header className="flex-shrink-0 h-14 md:h-16 bg-white border-b border-slate-200 flex items-center px-4 md:px-6 gap-3 z-20">
 
-          {/* Mobile: brand */}
-          <button onClick={() => setActiveTab(NAV_TABS[0]?.id ?? 'returns')} className="md:hidden mr-auto active:scale-95 transition-transform">
-            <h1 className="text-base font-black tracking-tighter uppercase font-display text-slate-900 leading-none">{APP_NAME}</h1>
-            <p className="text-[7px] text-slate-400 font-mono uppercase tracking-[0.35em] mt-0.5">
+          {/* Hamburger — primary nav trigger across all viewports. The drawer
+              holds the full sidebar (brand strip + nav tabs + Admin sub-nav +
+              stock alerts + user footer). Mobile still has the bottom tab
+              bar as a thumb-reach fallback for the 4 top-level tabs. */}
+          <button
+            onClick={() => setSidebarOpen(true)}
+            aria-label="Open menu"
+            className="flex items-center justify-center w-10 h-10 rounded-xl hover:bg-slate-100 active:scale-95 transition-all text-slate-700"
+          >
+            <Menu size={20} strokeWidth={2.25} />
+          </button>
+
+          {/* Brand + region badge — always visible next to the hamburger. */}
+          <button onClick={() => setActiveTab(NAV_TABS[0]?.id ?? 'returns')} className="active:scale-95 transition-transform min-w-0 mr-auto md:mr-0">
+            <h1 className="text-sm md:text-base font-black tracking-tighter uppercase font-display text-slate-900 leading-none truncate">{APP_NAME}</h1>
+            <p className="text-[7px] text-slate-400 font-mono uppercase tracking-[0.35em] mt-0.5 truncate">
               {APP_TAGLINE}
               {regionBadge && (
                 <>
@@ -426,7 +481,7 @@ function AppShell({ user }: { user: User }) {
           </button>
 
           {/* Desktop: section breadcrumb */}
-          <div className="hidden md:flex items-center gap-2 min-w-0">
+          <div className="hidden md:flex items-center gap-2 min-w-0 ml-4">
             <span className="text-[11px] font-bold uppercase tracking-widest text-slate-400 truncate">
               {NAV_TABS.find(t => t.id === activeTab)?.label}
             </span>
@@ -461,17 +516,60 @@ function AppShell({ user }: { user: User }) {
               </button>
             )}
             {userIsAdmin && (
-              <button onClick={() => setIsImportModalOpen(true)}
-                className="flex items-center gap-1.5 px-3 py-2 bg-slate-900 text-white rounded-xl text-[10px] font-bold uppercase tracking-widest hover:bg-slate-700 transition-all">
-                <FileSpreadsheet size={12} />
-                <span className="hidden md:inline">Import</span>
-              </button>
+              <div className="relative">
+                <button
+                  onClick={() => setImportMenuOpen(o => !o)}
+                  className="flex items-center gap-1.5 px-3 py-2 bg-slate-900 text-white rounded-xl text-[10px] font-bold uppercase tracking-widest hover:bg-slate-700 transition-all"
+                  aria-haspopup="menu"
+                  aria-expanded={importMenuOpen}
+                >
+                  <FileSpreadsheet size={12} />
+                  <span className="hidden md:inline">Import</span>
+                </button>
+                {importMenuOpen && (
+                  <>
+                    {/* Click-outside dismiss — sits below the menu in
+                        z-order so the menu items still receive clicks. */}
+                    <div
+                      className="fixed inset-0 z-30"
+                      onClick={() => setImportMenuOpen(false)}
+                    />
+                    <div
+                      role="menu"
+                      className="absolute right-0 top-full mt-1.5 z-40 w-56 bg-white border border-slate-200 rounded-xl shadow-lg overflow-hidden"
+                    >
+                      <button
+                        type="button"
+                        role="menuitem"
+                        onClick={() => { setImportMenuOpen(false); setIsImportModalOpen(true); }}
+                        className="w-full flex items-start gap-2.5 px-3 py-2.5 hover:bg-slate-50 text-left transition-colors"
+                      >
+                        <FileSpreadsheet size={14} className="text-slate-700 mt-0.5 flex-shrink-0" />
+                        <span className="flex-1">
+                          <span className="block text-[11px] font-bold text-slate-900">Inventory Report</span>
+                          <span className="block text-[9px] font-mono text-slate-500 mt-0.5">Stock-in · 9-col schema · IMEI / model / supplier</span>
+                        </span>
+                      </button>
+                      <div className="border-t border-slate-100" />
+                      <button
+                        type="button"
+                        role="menuitem"
+                        onClick={() => { setImportMenuOpen(false); setIsSalesImportOpen(true); }}
+                        className="w-full flex items-start gap-2.5 px-3 py-2.5 hover:bg-slate-50 text-left transition-colors"
+                      >
+                        <FileSpreadsheet size={14} className="text-emerald-600 mt-0.5 flex-shrink-0" />
+                        <span className="flex-1">
+                          <span className="block text-[11px] font-bold text-slate-900">Sales Report</span>
+                          <span className="block text-[9px] font-mono text-slate-500 mt-0.5">Backfill historic sales · AMAZON / BM / EBAY / ONBUY sheets</span>
+                        </span>
+                      </button>
+                    </div>
+                  </>
+                )}
+              </div>
             )}
           </div>
         </header>
-
-        {/* Stock Ticker Board */}
-        <StockTickerBoard />
 
         {/* Scrollable page content */}
         <main className="flex-1 overflow-y-auto custom-scrollbar">
@@ -498,32 +596,15 @@ function AppShell({ user }: { user: User }) {
               <motion.div key={activeTab === 'admin' ? `admin-${adminSub}` : activeTab}
                 initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: -8 }} transition={{ duration: 0.18 }}>
-                {activeTab === 'buy'     && <StockInPage onOpenBatch={() => setIsBatchModalOpen(true)} onOpenImport={() => setIsImportModalOpen(true)} />}
-                {activeTab === 'sell'    && <SellPage />}
+                {activeTab === 'buy'     && <BuySheet onOpenBatch={() => setIsBatchModalOpen(true)} onOpenImport={() => setIsImportModalOpen(true)} />}
+                {activeTab === 'sell'    && <SellSheet />}
                 {activeTab === 'returns' && <ReturnsPage />}
                 {activeTab === 'admin' && userIsAdmin && adminSub === 'overview'     && (
                   <Dashboard
                     user={user}
                     onNavigate={handleNavigate}
                     onOpenImport={() => setIsImportModalOpen(true)}
-                    onOpenMasterData={() => setAdminSub('masterData')}
                   />
-                )}
-                {activeTab === 'admin' && userIsAdmin && adminSub === 'masterData'   && (
-                  <div className="bg-white border border-slate-200 rounded-3xl p-8 shadow-sm text-center">
-                    <FileSpreadsheet size={28} className="mx-auto text-slate-400" />
-                    <h3 className="mt-3 text-base font-bold tracking-tight">Master Data Importer</h3>
-                    <p className="mt-1 text-[11px] text-slate-500 font-mono">
-                      The importer is open in a dialog. Close it to return here.
-                    </p>
-                    <button
-                      type="button"
-                      onClick={() => setIsMasterDataOpen(true)}
-                      className="mt-4 inline-flex items-center gap-2 bg-slate-900 text-white rounded-xl px-3.5 py-2 text-[10px] font-bold uppercase tracking-widest hover:bg-slate-700 transition-all"
-                    >
-                      <FileSpreadsheet size={11} /> Re-open Importer
-                    </button>
-                  </div>
                 )}
                 {activeTab === 'admin' && userIsAdmin && adminSub === 'salesHistory' && <Sales />}
                 {activeTab === 'admin' && userIsAdmin && adminSub === 'insights'     && <AnalyticsPage />}
@@ -534,7 +615,6 @@ function AppShell({ user }: { user: User }) {
                     <SupplierWhatsappPanel feed={whatsappFeed} />
                   </div>
                 )}
-                {activeTab === 'admin' && userIsAdmin && adminSub === 'audit'        && <AuditPane batches={importBatches} />}
               </motion.div>
             </AnimatePresence>
           </div>
@@ -557,11 +637,8 @@ function AppShell({ user }: { user: User }) {
 
       <AnimatePresence>
         {isBatchModalOpen  && <NewBatchModal  onClose={() => setIsBatchModalOpen(false)} />}
-        {isImportModalOpen && <ImportModal    onClose={() => setIsImportModalOpen(false)} />}
-        {isMasterDataOpen  && <MasterDataLinkedImport onClose={() => {
-          setIsMasterDataOpen(false);
-          if (adminSub === 'masterData') setAdminSub('overview');
-        }} />}
+        {isImportModalOpen && <InventoryReportImport onClose={() => setIsImportModalOpen(false)} />}
+        {isSalesImportOpen && <SalesReportImport onClose={() => setIsSalesImportOpen(false)} />}
         {isLoadMockDataOpen && <LoadMockDataModal onClose={() => setIsLoadMockDataOpen(false)} />}
       </AnimatePresence>
       <NotificationToast />
@@ -734,73 +811,3 @@ function SupplierWhatsappPanel({ feed }: { feed: SupplierWhatsappUpdate[] }) {
 }
 
 
-// ── Admin → Audit (import batches, newest-first) ──────────────────────────────
-// Read-only provenance table. Sticky header, no actions.
-function AuditPane({ batches }: { batches: ImportBatch[] }) {
-  const region = useUserRegion();
-  const toMillis = (v: any): number => {
-    if (!v) return 0;
-    if (typeof v === 'string') return new Date(v).getTime() || 0;
-    if (typeof v?.toMillis === 'function') return v.toMillis();
-    if (typeof v?.seconds === 'number') return v.seconds * 1000;
-    return 0;
-  };
-  const fmtWhen = (v: any): string => {
-    const ms = toMillis(v);
-    if (!ms) return '—';
-    return fmtDateTimeForUser(new Date(ms), region) || '—';
-  };
-  const rows = [...(batches ?? [])].sort((a, b) => toMillis(b.importedAt) - toMillis(a.importedAt));
-
-  const copyId = (id: string) => {
-    try { navigator.clipboard.writeText(id); } catch { /* clipboard may be blocked */ }
-  };
-
-  return (
-    <div className="bg-white border border-gray-100 rounded-3xl shadow-sm overflow-hidden">
-      <div className="flex items-center justify-between px-5 py-3 border-b border-slate-100">
-        <div>
-          <h3 className="text-sm font-bold tracking-tight">Import Audit</h3>
-          <p className="text-[10px] text-slate-500 font-mono">Provenance log · {rows.length} batches</p>
-        </div>
-      </div>
-      {rows.length === 0 ? (
-        <p className="px-5 py-8 text-center text-[11px] text-slate-500 font-mono">No import batches recorded yet.</p>
-      ) : (
-        <div className="max-h-[70vh] overflow-y-auto">
-          <table className="w-full text-left text-[11px]">
-            <thead className="sticky top-0 bg-slate-50 border-b border-slate-200">
-              <tr className="text-[9px] font-bold uppercase tracking-widest text-slate-500">
-                <th className="px-4 py-2.5 font-bold">When</th>
-                <th className="px-4 py-2.5 font-bold">Source File</th>
-                <th className="px-4 py-2.5 font-bold text-right">Rows</th>
-                <th className="px-4 py-2.5 font-bold">Notes</th>
-                <th className="px-4 py-2.5 font-bold">Batch ID</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100">
-              {rows.map(b => (
-                <tr key={b.id} className="hover:bg-slate-50/60">
-                  <td className="px-4 py-2 font-mono text-slate-700 whitespace-nowrap">{fmtWhen(b.importedAt)}</td>
-                  <td className="px-4 py-2 text-slate-900 truncate max-w-[280px]" title={b.sourceFile}>{b.sourceFile}</td>
-                  <td className="px-4 py-2 font-mono text-right tabular-nums text-slate-700">{(b.rowCount ?? 0).toLocaleString()}</td>
-                  <td className="px-4 py-2 text-slate-600 truncate max-w-[260px]" title={b.notes || ''}>{b.notes || '—'}</td>
-                  <td className="px-4 py-2">
-                    <button
-                      type="button"
-                      onClick={() => copyId(b.id)}
-                      title={`Copy ${b.id}`}
-                      className="font-mono text-[10px] text-slate-500 hover:text-slate-900 hover:bg-slate-100 rounded px-1.5 py-0.5 transition-all"
-                    >
-                      {b.id.slice(0, 8)}
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
-    </div>
-  );
-}

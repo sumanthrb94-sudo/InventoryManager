@@ -18,8 +18,9 @@ import { AnimatePresence, motion } from 'motion/react';
 import { CheckCircle2, Tag, X } from 'lucide-react';
 import type { InventoryUnit, ListingSite } from '../types';
 import { LISTING_SITES, listingSiteLabel } from '../lib/platforms';
-import { dbService } from '../lib/dbService';
-import { logInventoryEvent } from '../lib/inventoryEvents';
+// Service layer — wraps dbService.setSkuListingSites + audit-log emission so
+// every listing change goes through the same code path.
+import { setSkuListings } from '../services';
 
 interface Props {
   /** Pretty label for the header — e.g. "Samsung A32 5G 64GB Black". */
@@ -67,19 +68,16 @@ export default function SkuListingEditor({ skuLabel, units, current, onClose, on
     setSaving(true);
     setError('');
     try {
-      await dbService.setSkuListingSites(availableUnits, selected);
-
-      // Audit-feed entry — the existing 'listed' inventoryEvent type already
-      // covers this surface; message follows the convention used in
-      // BulkListingModal's downstream notification ("Listed X on Y, Z (N units)").
-      const verb = selected.length === 0 ? 'Delisted' : 'Listed';
-      const sitesText = selected.length === 0
-        ? '(no marketplaces)'
-        : `on ${selected.map(listingSiteLabel).join(', ')}`;
-      await logInventoryEvent({
-        type: selected.length === 0 ? 'delisted' : 'listed',
-        message: `${verb} ${skuLabel} ${sitesText} (${availableCount} unit${availableCount === 1 ? '' : 's'})`,
+      const res = await setSkuListings({
+        units: availableUnits,
+        listingSites: selected,
+        skuLabel,
       });
+      if (!res.ok) {
+        setError(res.message || 'Save failed — please try again.');
+        setSaving(false);
+        return;
+      }
 
       setSavedFlag(true);
       // Brief confirmation flash, then hand control back to the parent which
@@ -165,7 +163,10 @@ export default function SkuListingEditor({ skuLabel, units, current, onClose, on
             </div>
 
             {error && (
-              <p className="mt-4 text-[10px] text-rose-600 font-mono">{error}</p>
+              <div className="mt-4 flex items-center gap-2 text-[10px] text-rose-600 font-mono bg-rose-50 border border-rose-100 rounded-lg px-3 py-2">
+                <span className="inline-block w-1.5 h-1.5 rounded-full bg-rose-500" />
+                {error}
+              </div>
             )}
           </div>
 
