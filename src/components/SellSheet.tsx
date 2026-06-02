@@ -70,6 +70,44 @@ const fmtGBP = (n: number | undefined | null, decimals = 2): string => {
 
 const todayStr = () => new Date().toISOString().split('T')[0];
 
+// Days since the unit was sold — drives the Return Window pill against the
+// operator's 30-day refund policy. When a return arrives, the IMEI maps to
+// exactly one sale, and the days-since-sale immediately answers "is this
+// still within the refund window?" without the operator having to do the
+// mental subtraction (which is error-prone when there are multiple
+// same-colour units in play).
+function daysSinceSale(iso: string | undefined, now: Date = new Date()): number | undefined {
+  if (!iso) return undefined;
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return undefined;
+  const days = Math.floor((now.getTime() - d.getTime()) / 86400000);
+  return days < 0 ? 0 : days;
+}
+
+/** Return-window status with the operator's 30-day refund threshold. */
+function returnWindowStatus(days: number): { tone: string; label: string; remaining: string } {
+  if (days <= 30) {
+    const remaining = 30 - days;
+    return {
+      tone: 'bg-emerald-100 text-emerald-700 border-emerald-200',
+      label: `${days}d`,
+      remaining: `${remaining} day${remaining === 1 ? '' : 's'} left in 30-day return window`,
+    };
+  }
+  if (days <= 60) {
+    return {
+      tone: 'bg-amber-100 text-amber-700 border-amber-200',
+      label: `${days}d`,
+      remaining: `Expired ${days - 30} day${days - 30 === 1 ? '' : 's'} ago — out of 30-day return window`,
+    };
+  }
+  return {
+    tone: 'bg-slate-200 text-slate-600 border-slate-300',
+    label: `${days}d`,
+    remaining: `Expired ${days - 30} days ago — well past return window`,
+  };
+}
+
 // SKU-to-attributes decoder — the operator's Sales Report sheet has Storage
 // and Colour encoded inside the SKU (e.g. ASI-SG-A32-5G-64GB-BK-EX → 64GB /
 // Black). Used as a display-time fallback when the sale has no linked
@@ -766,7 +804,7 @@ export default function SellSheet(_props: Props) {
                 type="text"
                 value={search}
                 onChange={e => setSearch(e.target.value)}
-                placeholder="Search IMEI, order #, model, supplier…"
+                placeholder="Scan / paste IMEI to check return window…"
                 className="w-full pl-9 pr-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-[12px] focus:outline-none focus:border-slate-900 focus:bg-white transition-all"
               />
             </div>
@@ -1273,6 +1311,7 @@ function SheetTable({
       <thead>
         <tr className="text-[9px] font-bold uppercase tracking-widest text-slate-500 bg-slate-50">
           <Th k="saleDate"   sort={sort} onSort={toggleSort} width="105px" sticky leftPx={0}>Sell Date</Th>
+          <Th k=""           sort={sort} onSort={undefined}  width="95px"  align="center">Return Window</Th>
           <Th k=""           sort={sort} onSort={undefined}  width="160px">IMEI</Th>
           <Th k="sku"        sort={sort} onSort={toggleSort} width="220px">SKU</Th>
           <Th k="model"      sort={sort} onSort={toggleSort} width="220px">Model</Th>
@@ -1318,6 +1357,21 @@ function SheetTable({
             >
               <Td sticky leftPx={0} className={`${rowBg} border-r border-slate-200`}>
                 <span className={dateTone}>{fmtDateForUser(s.saleDate || '', region) || s.saleDate || '—'}</span>
+              </Td>
+              <Td align="center">
+                {(() => {
+                  const d = daysSinceSale(s.saleDate);
+                  if (d == null) return <span className="text-slate-300">—</span>;
+                  const w = returnWindowStatus(d);
+                  return (
+                    <span
+                      className={`inline-flex items-center text-[10px] font-bold tabular-nums px-1.5 py-0.5 rounded border ${w.tone}`}
+                      title={w.remaining}
+                    >
+                      {w.label}
+                    </span>
+                  );
+                })()}
               </Td>
               <Td>
                 {s.imei
