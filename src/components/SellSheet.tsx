@@ -71,37 +71,77 @@ const fmtGBP = (n: number | undefined | null, decimals = 2): string => {
 const todayStr = () => new Date().toISOString().split('T')[0];
 
 // SKU-to-attributes decoder — the operator's Sales Report sheet has Storage
-// and Colour encoded inside the SKU (e.g. ASI-IPAD-10.2-9THGEN-64GB-WIFI-SG-EX
-// → 64GB / Space Grey). Used as a display-time fallback when the sale has
-// no linked inventoryUnit to pull canonical storage/colour from.
+// and Colour encoded inside the SKU (e.g. ASI-SG-A32-5G-64GB-BK-EX → 64GB /
+// Black). Used as a display-time fallback when the sale has no linked
+// inventoryUnit to pull canonical storage/colour from.
+//
+// IMPORTANT: the operator's SKUs use brand-prefix codes that COLLIDE with
+// standard colour shorthand (SG = Samsung not Space Grey, IP = iPhone, ASI
+// = a vendor prefix). The parser handles this by:
+//   1. Only matching colour AFTER the storage segment (brand prefixes sit
+//      at the start of the SKU; colour sits after storage).
+//   2. The colour map below excludes any code that doubles as a brand or
+//      network/connectivity tag (no SG, IP, DS, 5G, WIFI, EX, EX1).
 const COLOUR_CODE: Record<string, string> = {
-  BK: 'Black', BLK: 'Black', WH: 'White', WHT: 'White', SG: 'Space Grey',
-  SV: 'Silver', SL: 'Silver', GD: 'Gold', GR: 'Graphite', GRY: 'Grey',
-  GRP: 'Graphite', PE: 'Peach', BL: 'Blue', BLU: 'Blue', RD: 'Red',
-  LN: 'Lavender', MT: 'Mint', MD: 'Midnight', GN: 'Green', GRN: 'Green',
-  YL: 'Yellow', PK: 'Pink', PR: 'Purple', PRP: 'Purple', RG: 'Rose Gold',
-  CB: 'Coral Blue', TI: 'Titanium', NT: 'Natural Titanium',
+  BK: 'Black', BLK: 'Black',
+  WH: 'White', WHT: 'White',
+  SV: 'Silver', SL: 'Silver',
+  GD: 'Gold',
+  GR: 'Grey', GRY: 'Grey', GRP: 'Graphite',
+  PE: 'Peach',
+  BL: 'Blue', BLU: 'Blue',
+  RD: 'Red',
+  LN: 'Lavender', LV: 'Lavender',
+  MT: 'Mint',
+  MD: 'Midnight',
+  GN: 'Green', GRN: 'Green',
+  YL: 'Yellow',
+  PK: 'Pink',
+  PR: 'Purple', PRP: 'Purple',
+  RG: 'Rose Gold',
+  CB: 'Coral Blue',
+  TI: 'Titanium', NT: 'Natural Titanium',
   BT: 'Blue Titanium', WT: 'White Titanium', BLT: 'Black Titanium',
-  CR: 'Cream', LV: 'Lavender', OR: 'Orange', ST: 'Starlight',
+  CR: 'Coral',
+  OR: 'Orange',
+  ST: 'Starlight', SRL: 'Starlight',
+  AVT: 'Awesome Violet',
 };
 
 function extractFromSku(sku: string | undefined): { storage?: string; colour?: string } {
   if (!sku) return {};
   const parts = sku.toUpperCase().split(/[-_\s]+/).filter(Boolean);
+
+  // Find storage first — first segment matching N(GB|TB)? where N >= 32
+  // (untagged) or any value with explicit GB/TB tag. Stash the index so
+  // colour-scanning can start AFTER storage.
+  let storageIdx = -1;
   let storage: string | undefined;
-  let colour: string | undefined;
-  for (const p of parts) {
-    if (!storage) {
-      const m = p.match(/^(\d+)(GB|TB)?$/);
-      if (m) {
-        const n = parseInt(m[1], 10);
-        // GB-tagged values always win. Untagged numerics must be >= 32 to
-        // avoid mistaking a model number ("12", "13") for storage.
-        if (m[2]) storage = `${n}${m[2]}`;
-        else if (n >= 32 && n <= 4096) storage = `${n}GB`;
-      }
+  for (let i = 0; i < parts.length; i++) {
+    const m = parts[i].match(/^(\d+)(GB|TB)?$/);
+    if (!m) continue;
+    const n = parseInt(m[1], 10);
+    if (m[2]) {
+      storage = `${n}${m[2]}`;
+      storageIdx = i;
+      break;
     }
-    if (!colour && COLOUR_CODE[p]) colour = COLOUR_CODE[p];
+    if (n >= 32 && n <= 4096) {
+      storage = `${n}GB`;
+      storageIdx = i;
+      break;
+    }
+  }
+
+  // Find colour AFTER storage — this avoids matching SG=Samsung in
+  // `ASI-SG-A32-5G-64GB-BK-EX` as Space Grey. If storage wasn't found
+  // (rare), scan the whole SKU but skip the first two segments (the
+  // vendor + brand prefix slots).
+  let colour: string | undefined;
+  const startScan = storageIdx >= 0 ? storageIdx + 1 : Math.min(parts.length, 2);
+  for (let i = startScan; i < parts.length; i++) {
+    const c = COLOUR_CODE[parts[i]];
+    if (c) { colour = c; break; }
   }
   return { storage, colour };
 }

@@ -93,6 +93,22 @@ export async function parseSalesWorkbook(
     const layout = SHEET_LAYOUTS[marketplace];
     const colIdx = resolveColumns(headerRow, layout, sheetName, errors);
 
+    // Operator-facing diagnostic — every re-import logs which header text
+    // each logical key resolved to (or '⚠ fallback' if positional). Lets
+    // the operator catch a header rename / column shift the moment they
+    // re-upload, instead of finding it later through silent empty cells.
+    try {
+      if (typeof console !== 'undefined' && console.info) {
+        const summary: string[] = [];
+        for (const [key, idx] of Object.entries(colIdx)) {
+          if (idx == null) continue;
+          const headerText = String(headerRow[idx] ?? '').trim() || '(blank)';
+          summary.push(`${key}→[${idx}] "${headerText}"`);
+        }
+        console.info(`[salesImport][${sheetName}] columns: ${summary.join(', ')}`);
+      }
+    } catch { /* non-critical */ }
+
     const flaggedRows = flaggedRowsBySheet.get(sheetName.toLowerCase()) ?? new Set<number>();
 
     for (let r = 1; r < rows.length; r++) {
@@ -175,18 +191,30 @@ const SHEET_LAYOUTS: Record<Marketplace, SheetLayout> = {
   // AMAZON cols (15):  nw | Order Number | SKU | IMEI | Supplier | Quantity |
   //                    BP | SP | SP-BP | Marginal Tax | Commission | Postage |
   //                    GP | GP % | Comments
+  // AMAZON has two schemas in the wild:
+  //   - Legacy 15-col: Date|OrderNo|SKU|IMEI|Supplier|Qty|BP|SP|SP-BP|MarTax|
+  //                    Commission|Postage|GP|GP%|Comments     (Postage = idx 11)
+  //   - 2026-05 22-col: Date|OrderNo|SKU|IMEI|Supplier|Qty|BP|SP|SP-BP|MarTax|
+  //                    Commission|C.VAT|DSF|DSF.VAT|Postage|P.VAT|Acc|TotVAT|
+  //                    GP|GP%|TotVATNtp|Comments                (Postage = idx 14)
+  // Both layouts share the same Date..SP columns, so identifiers + money
+  // come through regardless. Postage is what shifts. The parser relies on
+  // header match first (which always wins when the file has a `Postage`
+  // header text) and only falls back to a positional index when the header
+  // is missing. The fallback below targets the legacy schema; the 2026-05
+  // schema gets resolved by header.
   AMAZON: {
     columns: {
       date:        ['nw', 'date'],
       orderNumber: ['order number', 'order no'],
       sku:         ['sku'],
-      imei:        ['imei', 'imei number'],
-      supplier:    ['supplier'],
-      quantity:    ['quantity', 'units', 'quant'],
-      buyPrice:    ['bp'],
-      salePrice:   ['sp'],
-      postage:     ['postage', 'ship', 'shipping'],
-      comments:    ['comments'],
+      imei:        ['imei', 'imei number', 'serial', 'serial number', 'sn'],
+      supplier:    ['supplier', 'suppliers', 'supp.', 'vendor'],
+      quantity:    ['quantity', 'units', 'quant', 'qty'],
+      buyPrice:    ['bp', 'buy price', 'buyprice'],
+      salePrice:   ['sp', 'sale price', 'saleprice'],
+      postage:     ['postage', 'ship', 'shipping', 'postage £', 'p.'],
+      comments:    ['comments', 'comment', 'notes'],
     },
     fallback: {
       date: 0, orderNumber: 1, sku: 2, imei: 3, supplier: 4,
@@ -202,14 +230,14 @@ const SHEET_LAYOUTS: Record<Marketplace, SheetLayout> = {
       date:        ['date'],
       orderNumber: ['order no', 'order number'],
       sku:         ['sku'],
-      imei:        ['imei', 'imei number'],
-      supplier:    ['supplier'],
-      quantity:    ['quantity', 'units', 'quant'],
-      buyPrice:    ['bp'],
-      salePrice:   ['sp'],
-      paymentMode: ['payment mode'],
-      postage:     ['postage', 'ship', 'shipping'],
-      comments:    ['comments'],
+      imei:        ['imei', 'imei number', 'serial', 'serial number', 'sn'],
+      supplier:    ['supplier', 'suppliers', 'supp.', 'vendor'],
+      quantity:    ['quantity', 'units', 'quant', 'qty'],
+      buyPrice:    ['bp', 'buy price', 'buyprice'],
+      salePrice:   ['sp', 'sale price', 'saleprice'],
+      paymentMode: ['payment mode', 'payment', 'paymentmode'],
+      postage:     ['postage', 'ship', 'shipping', 'postage £'],
+      comments:    ['comments', 'comment', 'notes'],
     },
     fallback: {
       date: 0, orderNumber: 1, sku: 2, imei: 3, supplier: 4,
@@ -225,11 +253,11 @@ const SHEET_LAYOUTS: Record<Marketplace, SheetLayout> = {
       date:        ['date'],
       orderNumber: ['order number', 'order no'],
       sku:         ['sku'],
-      imei:        ['imei number', 'imei'],
-      supplier:    ['supplier'],
-      quantity:    ['units', 'quantity', 'quant'],
-      buyPrice:    ['bp'],
-      salePrice:   ['sp'],
+      imei:        ['imei number', 'imei', 'serial', 'serial number', 'sn'],
+      supplier:    ['supplier', 'suppliers', 'supp.', 'vendor'],
+      quantity:    ['units', 'quantity', 'quant', 'qty'],
+      buyPrice:    ['bp', 'buy price', 'buyprice'],
+      salePrice:   ['sp', 'sale price', 'saleprice'],
       // eBay's Shipping IS the Postage fee — same field, two header names
       // depending on which sheet version the operator exported.
       shipping:    ['shipping', 'postage'],
@@ -255,12 +283,12 @@ const SHEET_LAYOUTS: Record<Marketplace, SheetLayout> = {
       date:        ['date'],
       orderNumber: ['order number', 'order no'],
       sku:         ['sku'],
-      imei:        ['imei', 'imei number'],
-      supplier:    ['supplier'],
-      buyPrice:    ['bp'],
-      salePrice:   ['sp'],
-      postage:     ['ship', 'postage', 'shipping'],
-      comments:    ['comments'],
+      imei:        ['imei', 'imei number', 'serial', 'serial number', 'sn'],
+      supplier:    ['supplier', 'suppliers', 'supp.', 'vendor'],
+      buyPrice:    ['bp', 'buy price', 'buyprice'],
+      salePrice:   ['sp', 'sale price', 'saleprice'],
+      postage:     ['ship', 'postage', 'shipping', 'postage £'],
+      comments:    ['comments', 'comment', 'notes'],
     },
     fallback: {
       date: 0, orderNumber: 1, sku: 2, imei: 3, supplier: 4,
