@@ -228,25 +228,36 @@ const SALES_HEADERS: Record<Marketplace, SalesHeaderRow> = {
     'C. VAT', 'DSF', 'DSF. VAT',
     'Postage', 'P. VAT', 'Acc',
     'Total VAT', 'GP', 'GP %', 'Total VAT NTP',
-    'Comments',
+    'RETURN',
   ],
   BM: [
-    'Date', 'Order Number', 'SKU', 'IMEI', 'Supplier', 'Quantity',
-    'BP', 'SP', 'SP-BP', 'Marginal Tax', 'Commission',
-    'Customer Care Fees', 'Postage', 'P. VAT', 'Accessories',
+    // Live BM sheet (20 cols): Payment Mode sits between Quantity (F) and
+    // BP (H). This shifts every monetary column letter by +1 vs the legacy
+    // 19-col schema — Excel formulas in excelFormulaFor('BM') reflect the
+    // new positions.
+    'Date', 'Order No', 'SKU', 'IMEI', 'Supplier', 'Quantity',
+    'Payment Mode', 'BP', 'SP',
+    'SP-BP', 'Marginal Tax', 'Commission',
+    'Customer Care Fees', 'Postage', 'P. VAT', 'Acc',
     'GP', 'GP %', 'Total VAT NTP', 'Comments',
   ],
   EBAY: [
-    'Date', 'Order Number', 'SKU', 'IMEI', 'Supplier', 'Units',
+    // Live EBAY sheet — 24 cols, no Comments. Headers reproduced verbatim
+    // including the operator's literal text: 'IMEI NUMBER' (not 'IMEI'),
+    // 'UNITS' (not 'Quantity'), 'Total VAT ' (trailing space), 'GP%' (no
+    // space). Excel formulas in excelFormulaFor('EBAY') reference the
+    // same column letters regardless.
+    'DATE', 'ORDER NUMBER', 'SKU', 'IMEI NUMBER', 'SUPPLIER', 'UNITS',
     'BP', 'SP', 'SP-BP', 'Marginal Tax', 'Commission', 'ROF', 'FVF', 'VAT',
-    'T.COM', 'Postage', 'P. VAT', 'Marketing', 'M. VAT', 'Accessories',
-    'Total VAT', 'GP', 'GP %', 'Total VAT NTP', 'Comments',
+    'T.COM', 'Postage', 'P. VAT', 'Marketing', 'M. VAT', 'Acc',
+    'Total VAT ', 'GP', 'GP%', 'Total VAT NTP',
   ],
   ONBUY: [
-    'Date', 'Order Number', 'SKU', 'IMEI', 'Supplier',
+    // Live ONBUY sheet — 18 cols, no Comments, no Quantity (no UNITS).
+    'DATE', 'Order Number', 'SKU', 'IMEI', 'Supplier',
     'BP', 'SP', 'SP-BP', 'Marginal Tax', 'Commission', 'VAT 20%',
-    'Postage', 'P. VAT', 'Accessories',
-    'Total VAT', 'GP', 'GP %', 'Total VAT NTP', 'Comments',
+    'Postage', 'P. VAT', 'Acc',
+    'Total VAT ', 'GP', 'GP%', 'Total VAT NTP',
   ],
 };
 
@@ -318,57 +329,54 @@ function writeSaleRow(
     }
 
     case 'BM': {
-      // 2026-05 schema. 19 cols. Customer Care Fees + Accessories are
-      // flat literals; Postage is operator-entered. Everything else is a
-      // formula so the operator can audit in Excel.
+      // Live BM sheet — 20 cols. Payment Mode sits between Quantity (F) and
+      // BP (H), so every monetary column slides +1 vs the prior layout.
       //   A=Date,B=OrderNo,C=SKU,D=IMEI,E=Supplier,F=Quantity,
-      //   G=BP,H=SP,I=SP-BP,J=MarTax,K=Com,L=CustomerCareFees,
-      //   M=Postage,N=P.VAT,O=Accessories,P=GP,Q=GP%,R=TotVAT NTP,S=Comments
+      //   G=PaymentMode,H=BP,I=SP,J=SP-BP,K=MarTax,L=Com,
+      //   M=CustomerCareFees,N=Postage,O=P.VAT,P=Acc,
+      //   Q=GP,R=GP%,S=TotVAT NTP,T=Comments
       const row = sheet.addRow([
         date, sale.orderNumber, sale.sku ?? '', sale.imei ?? '',
         sale.supplierName ?? '', qty,
+        sale.paymentMode ?? '',                        // Payment Mode (literal)
         sale.buyPrice, sale.salePrice,
         null, null, null,                              // SP-BP, MarTax, Com
         sale.customerCareFees ?? Number(f.customerCareFees ?? 9.99),  // Customer Care Fees (literal)
         sale.postage ?? null,                          // Postage (literal)
         null,                                          // P. VAT (formula)
-        sale.accessoryFee ?? Number(f.accessoryFee ?? 1),  // Accessories (literal)
+        sale.accessoryFee ?? Number(f.accessoryFee ?? 1),  // Acc (literal)
         null, null, null,                              // GP, GP%, Total VAT NTP
         sale.comments ?? '',
       ]);
       row.getCell(1).numFmt = DATE_FMT;
       row.getCell(4).numFmt = IMEI_FMT;
-      row.getCell(7).numFmt = MONEY_FMT;       // BP
-      row.getCell(8).numFmt = MONEY_FMT;       // SP
-      row.getCell(9).value  = { formula: f.spMinusBp! };    row.getCell(9).numFmt  = MONEY_FMT;
-      row.getCell(10).value = { formula: f.marginalTax! };  row.getCell(10).numFmt = MONEY_FMT;
-      row.getCell(11).value = { formula: f.commission! };   row.getCell(11).numFmt = MONEY_FMT;
-      row.getCell(12).numFmt = MONEY_FMT;                   // Customer Care Fees (literal above)
-      row.getCell(13).numFmt = MONEY_FMT;                   // Postage (literal above)
+      row.getCell(8).numFmt = MONEY_FMT;       // BP
+      row.getCell(9).numFmt = MONEY_FMT;       // SP
+      row.getCell(10).value = { formula: f.spMinusBp! };    row.getCell(10).numFmt = MONEY_FMT;
+      row.getCell(11).value = { formula: f.marginalTax! };  row.getCell(11).numFmt = MONEY_FMT;
+      row.getCell(12).value = { formula: f.commission! };   row.getCell(12).numFmt = MONEY_FMT;
+      row.getCell(13).numFmt = MONEY_FMT;                   // Customer Care Fees (literal above)
+      row.getCell(14).numFmt = MONEY_FMT;                   // Postage (literal above)
       if (sale.postageVatExempt) {
-        row.getCell(14).value = 0;
+        row.getCell(15).value = 0;
       } else {
-        row.getCell(14).value = { formula: f.postageVat! };
+        row.getCell(15).value = { formula: f.postageVat! };
       }
-      row.getCell(14).numFmt = MONEY_FMT;
-      row.getCell(15).numFmt = MONEY_FMT;                   // Accessories (literal above)
-      row.getCell(16).value = { formula: f.grossProfit! };  row.getCell(16).numFmt = MONEY_FMT;
-      row.getCell(17).value = { formula: f.gpPercent! };    row.getCell(17).numFmt = MONEY_FMT;
-      row.getCell(18).value = { formula: f.totalVatNtp! };  row.getCell(18).numFmt = MONEY_FMT;
+      row.getCell(15).numFmt = MONEY_FMT;
+      row.getCell(16).numFmt = MONEY_FMT;                   // Acc (literal above)
+      row.getCell(17).value = { formula: f.grossProfit! };  row.getCell(17).numFmt = MONEY_FMT;
+      row.getCell(18).value = { formula: f.gpPercent! };    row.getCell(18).numFmt = MONEY_FMT;
+      row.getCell(19).value = { formula: f.totalVatNtp! };  row.getCell(19).numFmt = MONEY_FMT;
       return;
     }
 
     case 'EBAY': {
-      // 2026-05 schema, 25 cols. Postage + Accessories carry literal values;
-      // Marketing defaults to a formula (operator's =B3*5% convention) so
-      // edits to SP cascade into Marketing without operator intervention,
-      // but if a caller passed an explicit `sale.marketing` we honour the
-      // literal value instead. Everything else computes via formulas so
-      // the operator can audit in Excel.
+      // Live EBAY sheet — 24 cols, NO Comments column. Same column letter
+      // layout as before except the trailing Comments cell is dropped.
       //   A=Date,B=OrderNo,C=SKU,D=IMEI,E=Supplier,F=Units,
       //   G=BP,H=SP,I=SP-BP,J=MarTax,K=Com,L=ROF,M=FVF,N=VAT,O=T.COM,
       //   P=Postage,Q=P.VAT,R=Marketing,S=M.VAT,T=Acc,U=TotVAT,V=GP,
-      //   W=GP%,X=TotVAT NTP,Y=Comments
+      //   W=GP%,X=TotVAT NTP
       const hasExplicitMarketing = typeof sale.marketing === 'number';
       const row = sheet.addRow([
         date, sale.orderNumber, sale.sku ?? '', sale.imei ?? '',
@@ -379,9 +387,8 @@ function writeSaleRow(
         null,                                        // P. VAT (formula)
         hasExplicitMarketing ? sale.marketing : null, // Marketing — literal or formula
         null,                                        // M. VAT (formula)
-        sale.accessoryFee ?? Number(f.accessoryFee ?? 1),  // Accessories
+        sale.accessoryFee ?? Number(f.accessoryFee ?? 1),  // Acc
         null, null, null, null,                      // Total VAT, GP, GP%, Total VAT NTP
-        sale.comments ?? '',
       ]);
       row.getCell(1).numFmt = DATE_FMT;
       row.getCell(4).numFmt = IMEI_FMT;
@@ -415,11 +422,10 @@ function writeSaleRow(
     }
 
     case 'ONBUY': {
-      // 2026-05 schema. 19 cols. No quantity column (OnBuy convention).
+      // Live ONBUY sheet — 18 cols. No Quantity, no Comments.
       //   A=Date,B=OrderNo,C=SKU,D=IMEI,E=Supplier,
       //   F=BP,G=SP,H=SP-BP,I=MarTax,J=Com,K=VAT20%,
-      //   L=Postage,M=P.VAT,N=Acc,O=TotVAT,P=GP,
-      //   Q=GP%,R=TotVAT NTP,S=Comments
+      //   L=Postage,M=P.VAT,N=Acc,O=TotVAT,P=GP,Q=GP%,R=TotVAT NTP
       const row = sheet.addRow([
         date, sale.orderNumber, sale.sku ?? '', sale.imei ?? '',
         sale.supplierName ?? '',
@@ -427,9 +433,8 @@ function writeSaleRow(
         null, null, null, null,                       // SP-BP, MarTax, Com, VAT20%
         sale.postage ?? null,                         // Postage (literal)
         null,                                         // P. VAT (formula)
-        sale.accessoryFee ?? Number(f.accessoryFee ?? 1),  // Accessories (literal)
+        sale.accessoryFee ?? Number(f.accessoryFee ?? 1),  // Acc (literal)
         null, null, null, null,                       // Total VAT, GP, GP%, Total VAT NTP
-        sale.comments ?? '',
       ]);
       row.getCell(1).numFmt = DATE_FMT;
       row.getCell(4).numFmt = IMEI_FMT;

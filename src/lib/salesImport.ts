@@ -151,7 +151,7 @@ type ColKey =
   | 'date' | 'orderNumber' | 'sku' | 'imei' | 'supplier'
   | 'quantity' | 'buyPrice' | 'salePrice'
   | 'paymentMode' | 'shipping' | 'netProfit'
-  | 'postage' | 'pVat' | 'acc' | 'marketing' | 'comments';
+  | 'postage' | 'pVat' | 'acc' | 'customerCareFees' | 'marketing' | 'comments';
 
 interface SheetLayout {
   /** Header aliases per logical column (case-insensitive, whitespace-collapsed).
@@ -216,12 +216,11 @@ const SHEET_LAYOUTS: Record<Marketplace, SheetLayout> = {
       postage:     ['postage', 'ship', 'shipping', 'postage £', 'p.'],
       pVat:        ['p. vat', 'p.vat', 'postage vat'],
       acc:         ['acc', 'accessories', 'accessory', 'acc.'],
-      comments:    ['comments', 'comment', 'notes'],
+      // The live AMAZON sheet has the trailing column literally titled
+      // 'RETURN' (the operator puts return-reason text in it). Treat as
+      // free-form notes — same downstream handling as Comments.
+      comments:    ['comments', 'comment', 'notes', 'return'],
     },
-    // Fallbacks intentionally omit `comments` — operator's sheet leaves the
-    // Comments header blank (column 22), so leave it header-match-only and
-    // never positional-fallback (otherwise the legacy idx 14 would steal the
-    // DSF. VAT cell on the 2026-05 22-col schema).
     fallback: {
       date: 0, orderNumber: 1, sku: 2, imei: 3, supplier: 4,
       quantity: 5, buyPrice: 6, salePrice: 7,
@@ -239,17 +238,20 @@ const SHEET_LAYOUTS: Record<Marketplace, SheetLayout> = {
       imei:        ['imei', 'imei number', 'serial', 'serial number', 'sn'],
       supplier:    ['supplier', 'suppliers', 'supp.', 'vendor'],
       quantity:    ['quantity', 'units', 'quant', 'qty'],
+      paymentMode: ['payment mode', 'payment', 'paymentmode'],
       buyPrice:    ['bp', 'buy price', 'buyprice'],
       salePrice:   ['sp', 'sale price', 'saleprice'],
-      paymentMode: ['payment mode', 'payment', 'paymentmode'],
+      customerCareFees: ['customer care fees', 'customer care', 'ccf', 'cc fees'],
       postage:     ['postage', 'ship', 'shipping', 'postage £'],
       pVat:        ['p. vat', 'p.vat', 'postage vat'],
       acc:         ['acc', 'accessories', 'accessory', 'acc.'],
       comments:    ['comments', 'comment', 'notes'],
     },
     fallback: {
+      // Live BM sheet (20 cols): Date, Order No, SKU, IMEI, Supplier,
+      // Quantity, Payment Mode, BP, SP, ...
       date: 0, orderNumber: 1, sku: 2, imei: 3, supplier: 4,
-      quantity: 5, buyPrice: 6, salePrice: 7, paymentMode: 8,
+      quantity: 5, paymentMode: 6, buyPrice: 7, salePrice: 8,
     },
     required: ['date', 'orderNumber', 'buyPrice', 'salePrice'],
   },
@@ -392,9 +394,21 @@ function isRedishArgb(argb: string | undefined): boolean {
 // ---------------------------------------------------------------------------
 
 /** Resolve a sheet name case-insensitively (workbook may have "Amazon", "AMAZON", "amazon"). */
+/**
+ * Resolve a sheet name to a Marketplace. Matches:
+ *   - exact name (case-insensitive): "AMAZON" / "amazon"
+ *   - "<marketplace> SALES" suffix: "AMAZON SALES" / "Bm Sales"  ← live file
+ *   - any sheet whose first whitespace-delimited token equals the marketplace
+ * Returns the first sheet whose first token matches `marketplace`.
+ */
 function findSheetName(wb: XLSX.WorkBook, marketplace: Marketplace): string | undefined {
   const want = marketplace.toLowerCase();
-  return wb.SheetNames.find((n: string) => n.trim().toLowerCase() === want);
+  return wb.SheetNames.find((n: string) => {
+    const norm = n.trim().toLowerCase().replace(/\s+/g, ' ');
+    if (norm === want) return true;
+    const firstToken = norm.split(' ')[0];
+    return firstToken === want;
+  });
 }
 
 /** Normalise a header cell for comparison: cast → trim → lowercase → collapse spaces. */
@@ -550,6 +564,11 @@ function parseRow(
   // marketplace `fee.accessoryFee` default in calcSaleFinancials.
   const accFromFile = toNumber(get('acc'));
 
+  // BM-only: Customer Care Fees is operator-entered per line (live file
+  // shows £8.99 on some rows where the legacy default was £9.99). Read
+  // and override so the recompute matches the file penny-for-penny.
+  const ccfFromFile = marketplace === 'BM' ? toNumber(get('customerCareFees')) : undefined;
+
   // Operator-zero-rated P. VAT — when the file's P. VAT cell is 0 but
   // postage is > 0, the operator is explicitly zero-rating VAT on this
   // line (VAT-exempt shipment / non-VATable accessory SKU). We translate
@@ -565,6 +584,7 @@ function parseRow(
     postageOverride, eBayShippingTier, hasPayPalKlarna,
     marketing: marketingFromFile,
     accessoryFeeOverride: accFromFile,
+    customerCareFeesOverride: ccfFromFile,
     postageVatExempt: explicitVatExempt || undefined,
   });
 

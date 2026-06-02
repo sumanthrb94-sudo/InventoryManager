@@ -173,6 +173,10 @@ export interface CalcSaleFinancialsInput {
    *  client's sheet zero-rates Acc on a row (e.g. generic charger SKU
    *  that doesn't carry the £1 accessory bundle). */
   accessoryFeeOverride?: number;
+  /** BM only — operator-overridden Customer Care Fees per line. Live BM
+   *  sheet shows £8.99 on some rows where the previous default was £9.99,
+   *  so we read the file's literal value rather than baking a constant. */
+  customerCareFeesOverride?: number;
 }
 
 export interface SaleFinancials {
@@ -378,7 +382,7 @@ export function calcSaleFinancials(input: CalcSaleFinancialsInput): SaleFinancia
       //                                                  postage VAT directly.)
       const vatPctFrac = (fee.vatPct ?? 20) / 100;
       const accessoryFeeVal = input.accessoryFeeOverride ?? fee.accessoryFee ?? 0;
-      const customerCareFeesVal = fee.customerCareFees ?? 0;
+      const customerCareFeesVal = input.customerCareFeesOverride ?? fee.customerCareFees ?? 0;
 
       const marginalTaxRaw      = spMinusBp * 16.67 / 100;
       const commissionRaw       = sp * fee.commissionPct / 100;
@@ -612,24 +616,24 @@ export function excelFormulaFor(marketplace: Marketplace, row: number): Record<s
       };
     }
     case 'BM': {
-      // 2026-05 schema. 17 export cols total:
-      //   A=Date, B=Order Number, C=SKU, D=IMEI, E=Supplier, F=Quantity,
-      //   G=BP, H=SP, I=SP-BP, J=Marginal Tax, K=Commission,
-      //   L=Customer Care Fees, M=Postage, N=P. VAT, O=Accessories,
-      //   P=GP, Q=GP %, R=Total VAT NTP, S=Comments
-      // No "Total VAT" column on BM — only one VAT line (P. VAT), so
-      // Total VAT NTP subtracts P. VAT (col N) directly from Marginal Tax.
+      // Live BM sheet — 20 cols (Payment Mode at G shifts money cols by +1):
+      //   A=Date, B=Order No, C=SKU, D=IMEI, E=Supplier, F=Quantity,
+      //   G=Payment Mode, H=BP, I=SP, J=SP-BP, K=Marginal Tax, L=Commission,
+      //   M=Customer Care Fees, N=Postage, O=P. VAT, P=Acc,
+      //   Q=GP, R=GP %, S=Total VAT NTP, T=Comments
+      // No "Total VAT" column on BM — Total VAT NTP subtracts P. VAT
+      // (col O) directly from Marginal Tax (col K).
       const vatPct = fee.vatPct ?? 20;
       return {
-        spMinusBp:        `H${r}-G${r}`,
-        marginalTax:      `I${r}*16.67%`,
-        commission:       `H${r}/100*${fee.commissionPct}`,
+        spMinusBp:        `I${r}-H${r}`,
+        marginalTax:      `J${r}*16.67%`,
+        commission:       `I${r}/100*${fee.commissionPct}`,
         customerCareFees: `${fee.customerCareFees ?? 0}`,
-        postageVat:       `M${r}*${vatPct}%`,
+        postageVat:       `N${r}*${vatPct}%`,
         accessoryFee:     `${fee.accessoryFee ?? 0}`,
-        grossProfit:      `I${r}-J${r}-K${r}-L${r}-M${r}-N${r}-O${r}`,
-        gpPercent:        `P${r}/G${r}*100`,
-        totalVatNtp:      `J${r}-N${r}`,
+        grossProfit:      `J${r}-K${r}-L${r}-M${r}-N${r}-O${r}-P${r}`,
+        gpPercent:        `Q${r}/H${r}*100`,
+        totalVatNtp:      `K${r}-O${r}`,
       };
     }
     case 'EBAY': {
