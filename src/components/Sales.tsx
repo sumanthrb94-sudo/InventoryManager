@@ -54,6 +54,8 @@ interface ColDef {
   align?: 'left' | 'right' | 'center';
 }
 
+// Qty intentionally omitted — every sale on the Sales Report is a single
+// unit, so the column is dead space. Reads/writes still default to 1.
 const COLUMNS: ColDef[] = [
   { key: 'saleDate',     label: 'Date',         width: 110 },
   { key: 'marketplace',  label: 'Marketplace',  width: 110 },
@@ -61,7 +63,6 @@ const COLUMNS: ColDef[] = [
   { key: 'sku',          label: 'SKU',          width: 140 },
   { key: 'imei',         label: 'IMEI',         width: 160 },
   { key: 'supplierName', label: 'Supplier',     width: 130 },
-  { key: 'quantity',     label: 'Qty',          width: 50,  align: 'right' },
   { key: 'buyPrice',     label: 'BP',           width: 80,  align: 'right' },
   { key: 'salePrice',    label: 'SP',           width: 80,  align: 'right' },
   { key: 'paymentMode',  label: 'Payment Mode', width: 110 },
