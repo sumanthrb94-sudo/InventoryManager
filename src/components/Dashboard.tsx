@@ -422,6 +422,11 @@ export default function Dashboard({ user, onNavigate, onOpenImport, onOpenMaster
               <Database size={11} /> Inspect Units
             </button>
           </div>
+
+          {/* Audit log — most-recent 25 mutating ops across the system.
+              Every create / update / delete / bulk_* by every signed-in user
+              lands here. Admin sees a roll-up of "who edited what when". */}
+          <AuditLogPreview />
         </section>
       )}
 
@@ -894,6 +899,72 @@ function AdminKpi({ label, value, sub }: {
         {value}
       </p>
       {sub && <p className="text-[9px] text-slate-400 font-mono mt-0.5 truncate" title={sub}>{sub}</p>}
+    </div>
+  );
+}
+
+// ── Audit log preview ─────────────────────────────────────────────────────────
+//
+// Subscribes to the auditLog Firestore collection (admin-only via the
+// Dashboard panel that wraps it) and shows the most-recent 25 mutating
+// ops with actor email, action verb, target collection, and timestamp.
+// One-pixel-high source of truth for "who edited what when".
+function AuditLogPreview() {
+  const [entries, setEntries] = useState<any[]>([]);
+
+  useEffect(() => {
+    const unsub = dbService.subscribeToCollection('auditLog', (rows) => {
+      // Newest first. Firestore serverTimestamp() resolves async so we
+      // sort defensively on each emit.
+      const sorted = [...rows].sort((a: any, b: any) => {
+        const ta = (a.ts?.toMillis?.() ?? new Date(a.ts || 0).getTime()) || 0;
+        const tb = (b.ts?.toMillis?.() ?? new Date(b.ts || 0).getTime()) || 0;
+        return tb - ta;
+      });
+      setEntries(sorted.slice(0, 25));
+    });
+    return () => unsub();
+  }, []);
+
+  const actionTone: Record<string, string> = {
+    create:       'text-emerald-300',
+    update:       'text-amber-300',
+    delete:       'text-rose-400',
+    bulk_create:  'text-emerald-300',
+    bulk_delete:  'text-rose-400',
+  };
+
+  return (
+    <div className="mt-5 bg-white/5 border border-white/10 rounded-2xl p-4">
+      <p className="text-[9px] md:text-[10px] font-mono uppercase tracking-[0.3em] text-emerald-300/90 mb-3">
+        Audit Log · last {Math.min(entries.length, 25)} edits
+      </p>
+      {entries.length === 0 ? (
+        <p className="text-[10px] font-mono text-slate-400">No mutating ops recorded yet.</p>
+      ) : (
+        <div className="space-y-1 max-h-64 overflow-auto custom-scrollbar pr-1">
+          {entries.map((e: any) => {
+            const ts = e.ts?.toDate?.() ?? (e.ts ? new Date(e.ts) : null);
+            const when = ts ? ts.toLocaleString('en-GB', { dateStyle: 'short', timeStyle: 'medium' }) : '—';
+            const tone = actionTone[e.action] || 'text-slate-300';
+            const target = e.docId
+              ? `${e.collection}/${e.docId.length > 24 ? e.docId.slice(0, 21) + '…' : e.docId}`
+              : `${e.collection} (×${e.count ?? '?'})`;
+            return (
+              <div
+                key={e.id}
+                className="grid grid-cols-[120px_72px_1fr_auto] items-center gap-2 text-[10px] font-mono leading-tight"
+                title={`${e.actorEmail} · ${e.action} · ${e.collection}${e.docId ? '/' + e.docId : ''} (${e.count ? '×' + e.count : '1'}) at ${when}`}
+              >
+                <span className="truncate text-white/90">{e.actorEmail}</span>
+                <span className={`${tone} font-bold uppercase tracking-widest`}>{e.action.replace('_', ' ')}</span>
+                <span className="truncate text-slate-300">{target}</span>
+                <span className="text-slate-500 text-[9px]">{when}</span>
+              </div>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }

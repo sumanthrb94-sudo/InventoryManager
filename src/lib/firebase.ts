@@ -74,9 +74,9 @@ export const ensureAnonymousAuth = ensureAuthReady;
 
 // ── Role gating (UX only) ────────────────────────────────────────────────────
 //
-// Single-admin allowlist. UX gate only — this is NOT a server-side rule.
-// Firestore rules are the actual security boundary. Expand the list if/when
-// more admins are needed.
+// Admin allowlist (single account today). UX gate only — this is NOT a
+// server-side rule. Firestore Security Rules are the actual security
+// boundary; this gate hides write controls from non-admins in the UI.
 const ADMIN_EMAILS = new Set<string>([
   'admin@inventorymanager.com',
 ]);
@@ -90,23 +90,23 @@ export function isAdmin(user: User | null | undefined): boolean {
 
 // ── Regional role gating (UX only) ───────────────────────────────────────────
 //
-// Splits the (non-admin) team into UK warehouse ops (buy + returns) vs
-// India sell-ops (sell + returns). Admin → Users sub-tab will manage these
-// allowlists in a follow-up; for the MVP they are empty and every gmail user
-// falls through to 'both' (current default — Buy + Sell + Returns).
+// Splits the non-admin team into UK warehouse ops (buy / stock intake /
+// returns) vs India sell-ops (sell / returns).
 //
 // Emails must be lowercase + trimmed. The 'admin' region is derived from
 // `isAdmin()` — do NOT duplicate admin emails into these sets.
 
 export type UserRegion = 'uk' | 'india' | 'both' | 'admin';
 
-// eslint-disable-next-line @typescript-eslint/no-inferrable-types
 const UK_OPS_EMAILS: ReadonlySet<string> = new Set<string>([
-  // TODO: admin to fill in UK warehouse ops gmail addresses
+  'sai@inventorymanager.com',
+  'bunty@inventorymanager.com',
 ]);
 
 const INDIA_OPS_EMAILS: ReadonlySet<string> = new Set<string>([
-  // TODO: admin to fill in India sell-ops gmail addresses
+  'mithun@inventorymanager.com',
+  'sujatha@inventorymanager.com',
+  'aravind@inventorymanager.com',
 ]);
 
 /**
@@ -132,4 +132,27 @@ export function canBuy(user: User | null | undefined): boolean {
 export function canSell(user: User | null | undefined): boolean {
   const r = userRegion(user);
   return r === 'india' || r === 'both' || r === 'admin';
+}
+
+// ── Edit-permission gate ─────────────────────────────────────────────────────
+//
+// Admin is the only role with general edit access. Non-admins are
+// read-only EVERYWHERE except the Bulk Order review flow (their daily
+// operational task — adding incoming stock as it lands at the warehouse).
+//
+// Components that mutate state should hide their edit controls when
+// `canEdit(user)` is false. The Bulk Order modal is the one surface that
+// bypasses this gate via `canBulkOrder(user)` below.
+
+/** True when this user is allowed to edit / mutate anything other than
+ *  the Bulk Order flow. Today: admin-only. */
+export function canEdit(user: User | null | undefined): boolean {
+  return isAdmin(user);
+}
+
+/** True when this user is allowed to run the Bulk Order intake flow.
+ *  All signed-in users qualify — bulk-order is the operational task the
+ *  whole team handles daily. */
+export function canBulkOrder(user: User | null | undefined): boolean {
+  return !!user?.email;
 }
