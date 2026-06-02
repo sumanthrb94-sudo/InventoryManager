@@ -525,6 +525,33 @@ export default function PeriodicInventory({ units, onNavigate }: Props) {
   const [viewMode, setViewMode] = useState<ViewMode>('office');
   const [supplierFilterId, setSupplierFilterId] = useState<string>('all');
 
+  // Date-scope filter for the Sold / Returned tiles. 'today' = ISO today,
+  // 'week' = trailing 7 days, 'month' = trailing 30 days, 'custom' = the
+  // dateRange below. Calendar pickers below let the operator pin an
+  // explicit window when the presets don't match their reporting period.
+  type DateScope = 'today' | 'week' | 'month' | 'custom';
+  const [dateScope, setDateScope] = useState<DateScope>('today');
+  const todayIso = new Date().toISOString().split('T')[0];
+  const [customFrom, setCustomFrom] = useState<string>(todayIso);
+  const [customTo, setCustomTo] = useState<string>(todayIso);
+
+  // Resolve current scope to [fromIso, toIso] inclusive bounds.
+  const [scopeFromIso, scopeToIso] = useMemo<[string, string]>(() => {
+    if (dateScope === 'custom') return [customFrom, customTo];
+    const today = new Date();
+    const toIso = today.toISOString().split('T')[0];
+    if (dateScope === 'today') return [toIso, toIso];
+    const back = dateScope === 'week' ? 6 : 29;  // inclusive count
+    const from = new Date(today);
+    from.setDate(today.getDate() - back);
+    return [from.toISOString().split('T')[0], toIso];
+  }, [dateScope, customFrom, customTo]);
+
+  const scopeLabel = dateScope === 'today' ? 'Today'
+    : dateScope === 'week' ? 'Last 7 d'
+    : dateScope === 'month' ? 'Last 30 d'
+    : 'Custom';
+
   const [popover, setPopover] = useState<PopoverState | null>(null);
   /** Excel-style overlay target — set when a block is clicked, null when closed.
    *  `supplierId` is set only from the By-Supplier view so the overlay scopes
@@ -569,9 +596,16 @@ export default function PeriodicInventory({ units, onNavigate }: Props) {
   // Sold units — lifetime, used by the out-of-stock view to surface demand.
   const soldAll = useMemo(() => scopedUnits.filter(u => u.status === 'sold'), [scopedUnits]);
 
-  const today = new Date().toISOString().split('T')[0];
-  const todaySold     = scopedUnits.filter(u => u.status === 'sold' && (u.saleDate || u.dateIn) === today);
-  const todayReturned = scopedUnits.filter(u => u.status === 'returned' && u.returnDate === today);
+  // Sold / Returned counts within the operator-selected date scope (defaults
+  // to today; week / month / custom-calendar widen the window). Both filters
+  // use inclusive [from, to] bounds against the stored ISO date strings.
+  const inScope = (iso: string | undefined): boolean => {
+    if (!iso) return false;
+    const d = iso.split('T')[0];
+    return d >= scopeFromIso && d <= scopeToIso;
+  };
+  const todaySold     = scopedUnits.filter(u => u.status === 'sold' && inScope(u.saleDate || u.dateIn));
+  const todayReturned = scopedUnits.filter(u => u.status === 'returned' && inScope(u.returnDate));
 
   // ── Per-view groups ─────────────────────────────────────────────────────────
   const officeGroups = useMemo(
@@ -742,7 +776,15 @@ export default function PeriodicInventory({ units, onNavigate }: Props) {
                   <button
                     key={t.id}
                     type="button"
-                    onClick={() => { setViewMode(t.id); setOverlay(null); setPopover(null); }}
+                    onClick={() => {
+                      setViewMode(t.id);
+                      // Supplier filter is only meaningful on the By Supplier
+                      // view — reset to 'all' when leaving so the other views
+                      // don't get silently scoped to one supplier.
+                      if (t.id !== 'supplier') setSupplierFilterId('all');
+                      setOverlay(null);
+                      setPopover(null);
+                    }}
                     style={{
                       border: 'none', cursor: 'pointer',
                       padding: isMobile ? '5px 8px' : '5px 12px',
@@ -760,33 +802,87 @@ export default function PeriodicInventory({ units, onNavigate }: Props) {
               })}
             </div>
 
-            {/* Supplier filter — scopes every view to one supplier. */}
-            <select
-              value={supplierFilterId}
-              onChange={e => { setSupplierFilterId(e.target.value); setOverlay(null); }}
-              title="Filter by supplier"
-              style={{
-                border: '1px solid #e2e8f0', borderRadius: 8,
-                padding: isMobile ? '5px 8px' : '6px 10px',
-                fontSize: isMobile ? 9 : 10, fontFamily: 'monospace',
-                color: '#334155', background: '#fff', cursor: 'pointer',
-                maxWidth: 180,
-              }}
-            >
-              <option value="all">All suppliers</option>
-              {supplierOptions.map(o => (
-                <option key={o.id} value={o.id}>{o.name}</option>
-              ))}
-            </select>
+            {/* Supplier filter — only meaningful on the By Supplier view where
+                a single row corresponds to a single supplier. On Office Stock
+                and Out of Stock the rows are SKU series, so the supplier
+                dimension doesn't apply and the dropdown is hidden. */}
+            {viewMode === 'supplier' && (
+              <select
+                value={supplierFilterId}
+                onChange={e => { setSupplierFilterId(e.target.value); setOverlay(null); }}
+                title="Show only one supplier's stock, or all suppliers"
+                style={{
+                  border: '1px solid #e2e8f0', borderRadius: 8,
+                  padding: isMobile ? '5px 8px' : '6px 10px',
+                  fontSize: isMobile ? 9 : 10, fontFamily: 'monospace',
+                  color: '#334155', background: '#fff', cursor: 'pointer',
+                  maxWidth: 180,
+                }}
+              >
+                <option value="all">All suppliers</option>
+                {supplierOptions.map(o => (
+                  <option key={o.id} value={o.id}>{o.name}</option>
+                ))}
+              </select>
+            )}
+
+            {/* Date scope picker — drives the Sold / Returned tile counts.
+                Today / Week / Month are presets; Custom reveals from/to
+                calendar inputs so the operator can pin an explicit window. */}
+            <div style={{ display: 'inline-flex', background: '#f1f5f9', borderRadius: 8, padding: 2 }}>
+              {(['today', 'week', 'month', 'custom'] as DateScope[]).map(s => {
+                const active = dateScope === s;
+                const label = s === 'today' ? 'Today' : s === 'week' ? 'Week' : s === 'month' ? 'Month' : 'Custom';
+                return (
+                  <button
+                    key={s}
+                    type="button"
+                    onClick={() => setDateScope(s)}
+                    style={{
+                      border: 'none', cursor: 'pointer',
+                      padding: isMobile ? '5px 7px' : '5px 10px',
+                      borderRadius: 6,
+                      fontSize: isMobile ? 9 : 10, fontWeight: 700, fontFamily: 'system-ui',
+                      textTransform: 'uppercase', letterSpacing: '0.05em',
+                      background: active ? '#0f172a' : 'transparent',
+                      color: active ? '#fff' : '#64748b',
+                      transition: 'background 0.12s, color 0.12s',
+                    }}
+                  >
+                    {label}
+                  </button>
+                );
+              })}
+            </div>
+            {dateScope === 'custom' && (
+              <div style={{ display: 'inline-flex', gap: 4, alignItems: 'center', fontSize: 9, fontFamily: 'monospace', color: '#64748b' }}>
+                <input
+                  type="date"
+                  value={customFrom}
+                  max={customTo}
+                  onChange={e => setCustomFrom(e.target.value)}
+                  style={{ border: '1px solid #e2e8f0', borderRadius: 6, padding: '4px 6px', fontSize: 10, fontFamily: 'monospace' }}
+                />
+                <span>→</span>
+                <input
+                  type="date"
+                  value={customTo}
+                  min={customFrom}
+                  max={todayIso}
+                  onChange={e => setCustomTo(e.target.value)}
+                  style={{ border: '1px solid #e2e8f0', borderRadius: 6, padding: '4px 6px', fontSize: 10, fontFamily: 'monospace' }}
+                />
+              </div>
+            )}
           </div>
 
           <div style={{ display: 'flex', gap: isMobile ? 6 : 8, flexWrap: 'wrap' }}>
             <div style={{ flex: 1, minWidth: 120, background: '#1e293b', borderRadius: 8, padding: typeof window !== 'undefined' && window.innerWidth < 768 ? '6px 8px' : '8px 10px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-              <span style={{ fontSize: typeof window !== 'undefined' && window.innerWidth < 768 ? 7 : 9, fontFamily: 'monospace', textTransform: 'uppercase', letterSpacing: '0.1em', color: '#94a3b8' }}>Sold Today</span>
+              <span style={{ fontSize: typeof window !== 'undefined' && window.innerWidth < 768 ? 7 : 9, fontFamily: 'monospace', textTransform: 'uppercase', letterSpacing: '0.1em', color: '#94a3b8' }}>Sold · {scopeLabel}</span>
               <span style={{ fontSize: typeof window !== 'undefined' && window.innerWidth < 768 ? 11 : 13, fontWeight: 800, fontFamily: 'monospace', color: '#34d399' }}>{todaySold.length}</span>
             </div>
             <div style={{ flex: 1, minWidth: 140, background: '#1e293b', borderRadius: 8, padding: typeof window !== 'undefined' && window.innerWidth < 768 ? '6px 8px' : '8px 10px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-              <span style={{ fontSize: typeof window !== 'undefined' && window.innerWidth < 768 ? 7 : 9, fontFamily: 'monospace', textTransform: 'uppercase', letterSpacing: '0.1em', color: '#94a3b8' }}>Returned Today</span>
+              <span style={{ fontSize: typeof window !== 'undefined' && window.innerWidth < 768 ? 7 : 9, fontFamily: 'monospace', textTransform: 'uppercase', letterSpacing: '0.1em', color: '#94a3b8' }}>Returned · {scopeLabel}</span>
               <span style={{ fontSize: typeof window !== 'undefined' && window.innerWidth < 768 ? 11 : 13, fontWeight: 800, fontFamily: 'monospace', color: '#fbbf24' }}>{todayReturned.length}</span>
             </div>
           </div>
