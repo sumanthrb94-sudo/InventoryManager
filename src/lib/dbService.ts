@@ -32,6 +32,11 @@ const COL: Record<string, string> = {
   // Append-only audit trail of mutating ops — who/when/what/where.
   // Admin-only viewer surfaces this; non-admins never read it.
   auditLog:                'auditLog',
+  // Per-IMEI lifecycle of returns — every return action lands here so
+  // the operator can answer "have we returned this IMEI before?" on
+  // re-intake and audit the full chain of custody. See `ReturnEvent` in
+  // types.ts for the lifecycle vocabulary.
+  returnEvents:            'returnEvents',
 };
 
 function colRef(name: string) {
@@ -697,6 +702,43 @@ export const dbService = {
   // ── Master-files audit (Wave 2) ───────────────────────────────────────────
   // Specialised writers/readers for the new collections introduced to support
   // round-tripping the client's INVENTORY_REPORT and SALES_REPORT workbooks.
+
+  /**
+   * Log one event to the per-IMEI return lifecycle. Caller passes the
+   * core fields (imei, type, date, comment) and we fill the actor,
+   * timestamp, and id. Soft-fails on auth-less callers (returns null).
+   */
+  async createReturnEvent(input: {
+    imei: string;
+    type: import('../types').ReturnEventType;
+    date: string;
+    unitId?: string;
+    comment?: string;
+    supplierId?: string;
+    supplierName?: string;
+  }): Promise<string | null> {
+    assertCanEdit('record return event');
+    const user = auth.currentUser;
+    if (!user) return null;
+    const id = `ret-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+    const ts = nowIso();
+    const entry = {
+      id,
+      imei: input.imei.trim().toUpperCase(),
+      unitId: input.unitId,
+      type: input.type,
+      date: input.date,
+      comment: input.comment?.trim() || undefined,
+      supplierId: input.supplierId,
+      supplierName: input.supplierName,
+      actorUid: user.uid,
+      actorEmail: user.email ?? '(unknown)',
+      ownerId: 'shared',
+      createdAt: ts,
+    };
+    await this.create('returnEvents', id, entry);
+    return id;
+  },
 
   /**
    * Create a single importBatches row and return its id.
