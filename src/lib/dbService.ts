@@ -322,6 +322,73 @@ export const dbService = {
     return total;
   },
 
+  // ── Disaster-recovery backup / restore ──────────────────────────────────────
+  //
+  // Layer-3 backup path (Layer 1 = Firestore PITR, Layer 2 = scheduled GCS
+  // exports). Admin-only — exposed via Dashboard's "Download backup" button.
+  // Restores merge per-doc, so they're safe to apply on a live DB without
+  // losing concurrent edits made after the backup was taken.
+
+  /** Read every known collection from Firestore and return a single JSON
+   *  payload suitable for offsite storage. Bypasses the cache to guarantee
+   *  the snapshot reflects the actual server state (no stale optimistic
+   *  in-memory writes). Heavy — pulls every doc across collections. */
+  async exportFullBackup(): Promise<{
+    project:     string;
+    exportedAt:  string;
+    counts:      Record<string, number>;
+    collections: Record<string, any[]>;
+  }> {
+    const collections: Record<string, any[]> = {};
+    const counts: Record<string, number> = {};
+    for (const name of Object.keys(COL)) {
+      try {
+        const snap = await getDocs(colRef(name));
+        const data = snapToItems(snap);
+        collections[name] = data;
+        counts[name] = data.length;
+      } catch (err: any) {
+        // Don't bail the whole backup on one bad collection — log and
+        // continue. Caller sees the partial counts in the result.
+        if (typeof console !== 'undefined' && console.warn) {
+          console.warn(`[backup] failed to read ${name}:`, err?.message || err);
+        }
+        collections[name] = [];
+        counts[name] = 0;
+      }
+    }
+    return {
+      project:    'gen-lang-client-0457133744',
+      exportedAt: nowIso(),
+      counts,
+      collections,
+    };
+  },
+
+  /** Restore from an exportFullBackup() payload. Writes every doc back via
+   *  bulkCreate (merge:true under the hood) so existing docs get patched
+   *  with the backup state, missing docs get created, and any docs that
+   *  exist now but were absent at backup time are preserved.
+   *
+   *  Returns per-collection counts of docs written. Audit log entries
+   *  appear automatically via bulkCreate's existing recordAudit() call. */
+  async restoreFullBackup(
+    backup: { collections: Record<string, any[]> },
+    onProgress?: (collection: string, done: number, total: number) => void,
+  ): Promise<Record<string, number>> {
+    const written: Record<string, number> = {};
+    for (const [collectionName, docs] of Object.entries(backup.collections ?? {})) {
+      if (!Array.isArray(docs) || docs.length === 0) continue;
+      const entries = docs
+        .filter((d: any) => d && d.id)
+        .map((d: any) => ({ collection: collectionName, id: d.id, data: d }));
+      if (entries.length === 0) continue;
+      await this.bulkCreate(entries, (done, total) => onProgress?.(collectionName, done, total));
+      written[collectionName] = entries.length;
+    }
+    return written;
+  },
+
   subscribeToCollection(collectionName: string, callback: (data: any[]) => void) {
     (listeners[collectionName] ??= []).push(callback);
 

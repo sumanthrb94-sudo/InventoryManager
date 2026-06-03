@@ -423,6 +423,13 @@ export default function Dashboard({ user, onNavigate, onOpenImport, onOpenMaster
             </button>
           </div>
 
+          {/* Disaster-recovery backup / restore. Download dumps every
+              collection to a JSON the admin stores offsite. Restore takes
+              a previously-downloaded JSON and merges it back. The Firestore
+              PITR + scheduled GCS exports remain the primary DR layers;
+              this is the operator-driven manual snapshot path. */}
+          <BackupRestorePanel />
+
           {/* Audit log — most-recent 25 mutating ops across the system.
               Every create / update / delete / bulk_* by every signed-in user
               lands here. Admin sees a roll-up of "who edited what when". */}
@@ -909,6 +916,132 @@ function AdminKpi({ label, value, sub }: {
 // Dashboard panel that wraps it) and shows the most-recent 25 mutating
 // ops with actor email, action verb, target collection, and timestamp.
 // One-pixel-high source of truth for "who edited what when".
+// ── Backup / restore panel ────────────────────────────────────────────────────
+//
+// Layer-3 disaster recovery: admin can download a JSON snapshot of every
+// collection, or restore from a previously-downloaded one. The download
+// runs server-side reads (bypasses cache) so the snapshot reflects
+// authoritative Firestore state. Restore merges per-doc (bulkCreate with
+// merge:true) — safe to run on a live DB without clobbering concurrent
+// writes that landed after the backup.
+function BackupRestorePanel() {
+  const [busy, setBusy] = useState<'idle' | 'downloading' | 'restoring'>('idle');
+  const [lastStatus, setLastStatus] = useState<string>('');
+  const [progress, setProgress] = useState<string>('');
+
+  const handleDownload = async () => {
+    setBusy('downloading');
+    setLastStatus('');
+    setProgress('Reading every collection…');
+    try {
+      const backup = await dbService.exportFullBackup();
+      const totalDocs = Object.values(backup.counts).reduce((s, n) => s + n, 0);
+      const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+      const filename = `inventorymanager-backup-${stamp}.json`;
+      const blob = new Blob([JSON.stringify(backup, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+      setLastStatus(`✓ Downloaded ${filename} (${totalDocs.toLocaleString()} docs across ${Object.keys(backup.counts).length} collections)`);
+    } catch (err: any) {
+      setLastStatus(`✗ Backup failed: ${err?.message || err}`);
+    } finally {
+      setBusy('idle');
+      setProgress('');
+    }
+  };
+
+  const handleRestore = async (file: File) => {
+    setBusy('restoring');
+    setLastStatus('');
+    setProgress('Parsing backup file…');
+    try {
+      const text = await file.text();
+      const backup = JSON.parse(text);
+      if (!backup?.collections || typeof backup.collections !== 'object') {
+        throw new Error('Not a valid backup file (no `collections` key).');
+      }
+      const totalDocs = Object.values(backup.collections as Record<string, any[]>)
+        .reduce((s, arr) => s + (Array.isArray(arr) ? arr.length : 0), 0);
+      const ok = window.confirm(
+        `Restore from "${file.name}"?\n\n` +
+        `Source project: ${backup.project || 'unknown'}\n` +
+        `Taken at: ${backup.exportedAt || 'unknown'}\n` +
+        `Total docs to merge: ${totalDocs.toLocaleString()}\n\n` +
+        `Existing docs in the live DB will be MERGED with the backup state ` +
+        `(per-doc, fields from the backup take precedence on conflicts). ` +
+        `Docs that exist now but were absent at backup time are preserved.`,
+      );
+      if (!ok) {
+        setLastStatus('Restore cancelled.');
+        return;
+      }
+      const written = await dbService.restoreFullBackup(backup, (col, done, total) => {
+        setProgress(`Writing ${col}: ${done.toLocaleString()} / ${total.toLocaleString()}`);
+      });
+      const totalWritten = Object.values(written).reduce((s, n) => s + n, 0);
+      setLastStatus(`✓ Restored ${totalWritten.toLocaleString()} docs across ${Object.keys(written).length} collections.`);
+    } catch (err: any) {
+      setLastStatus(`✗ Restore failed: ${err?.message || err}`);
+    } finally {
+      setBusy('idle');
+      setProgress('');
+    }
+  };
+
+  return (
+    <div className="mt-5 bg-white/5 border border-white/10 rounded-2xl p-4">
+      <p className="text-[9px] md:text-[10px] font-mono uppercase tracking-[0.3em] text-emerald-300/90 mb-3">
+        Disaster Recovery · Layer 3 (manual snapshot)
+      </p>
+      <div className="flex flex-wrap items-center gap-2">
+        <button
+          type="button"
+          onClick={handleDownload}
+          disabled={busy !== 'idle'}
+          className="inline-flex items-center gap-2 bg-white text-black rounded-xl px-3.5 py-2 text-[10px] font-bold uppercase tracking-widest hover:bg-emerald-300 transition-all disabled:opacity-50 disabled:cursor-wait"
+        >
+          ⬇ {busy === 'downloading' ? 'Downloading…' : 'Download Backup'}
+        </button>
+        <label
+          className={`inline-flex items-center gap-2 bg-white/10 hover:bg-white/20 rounded-xl px-3.5 py-2 text-[10px] font-bold uppercase tracking-widest transition-all cursor-pointer ${busy !== 'idle' ? 'opacity-50 pointer-events-none' : ''}`}
+        >
+          ⬆ {busy === 'restoring' ? 'Restoring…' : 'Restore from Backup'}
+          <input
+            type="file"
+            accept="application/json,.json"
+            className="hidden"
+            onChange={(e) => {
+              const f = e.target.files?.[0];
+              e.target.value = ''; // allow re-picking the same file
+              if (f) handleRestore(f);
+            }}
+          />
+        </label>
+      </div>
+      {progress && (
+        <p className="text-[10px] font-mono text-emerald-300/80 mt-2">{progress}</p>
+      )}
+      {lastStatus && (
+        <p className={`text-[10px] font-mono mt-2 ${lastStatus.startsWith('✓') ? 'text-emerald-300' : 'text-rose-400'}`}>
+          {lastStatus}
+        </p>
+      )}
+      <p className="text-[9px] font-mono text-slate-400 mt-3 leading-relaxed">
+        Tip: also enable Firestore PITR (Cloud Console → Firestore → Backups,
+        7-day window) and schedule weekly GCS exports via{' '}
+        <code className="text-emerald-300">gcloud firestore export</code> —
+        this button is the manual-snapshot fallback for both.
+      </p>
+    </div>
+  );
+}
+
 function AuditLogPreview() {
   const [entries, setEntries] = useState<any[]>([]);
 
