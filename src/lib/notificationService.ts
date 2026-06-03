@@ -62,6 +62,18 @@ export function skuKeyOf(unit: InventoryUnit): string {
 const NOTIFS_KEY_PREFIX = 'nexus_notifs_';
 const FIRED_KEY_PREFIX  = 'nexus_notif_fired_';
 
+/** Cross-reload de-dup window. A given (unit, type) event is suppressed only
+ *  if an identical one fired within this window — long enough to absorb a
+ *  fast page remount / React StrictMode double-invoke, but short enough that
+ *  a unit legitimately processed again later (sold → returned → sold again,
+ *  or returned 10× across a day) still fires every time. The previous
+ *  implementation suppressed for the WHOLE day, which silently dropped every
+ *  repeat event after the first — the "notifications only fire once" bug. */
+const RECENT_FIRE_WINDOW_MS = 8 * 1000;
+/** Hard cap on how long fired-markers live in storage (pruned on each write).
+ *  Only needs to outlive RECENT_FIRE_WINDOW_MS across a reload. */
+const FIRED_MARKER_TTL_MS = 60 * 1000;
+
 class NotificationService {
   private listeners: ((notifications: Notification[]) => void)[] = [];
   private notifications: Notification[] = [];
@@ -138,34 +150,40 @@ class NotificationService {
     } catch { /* storage quota */ }
   }
 
-  // Returns the set of already-fired event keys (survives reloads)
-  private getFiredSet(): Set<string> {
+  /** Read the recently-fired markers, pruning anything past the TTL. Stored as
+   *  `{ key, ts }[]` where ts is epoch-ms of the last fire for that key. */
+  private getFiredEntries(): { key: string; ts: number }[] {
     try {
       const raw = localStorage.getItem(this.firedKey());
-      if (!raw) return new Set();
-      const entries: { key: string; date: string }[] = JSON.parse(raw);
-      // Only keep last 7 days
-      const cutoff = new Date();
-      cutoff.setDate(cutoff.getDate() - 7);
-      const cutoffStr = cutoff.toISOString().split('T')[0];
-      return new Set(entries.filter(e => e.date >= cutoffStr).map(e => e.key));
-    } catch { return new Set(); }
+      if (!raw) return [];
+      const parsed = JSON.parse(raw);
+      if (!Array.isArray(parsed)) return [];
+      const cutoff = Date.now() - FIRED_MARKER_TTL_MS;
+      // Tolerate the legacy `{ key, date }` shape — those carry no usable
+      // millisecond timestamp, so they're simply dropped (treated as expired),
+      // which is correct: a marker from a previous day must never suppress a
+      // fresh event.
+      return parsed
+        .filter((e: any) => e && typeof e.ts === 'number' && e.ts > cutoff)
+        .map((e: any) => ({ key: e.key, ts: e.ts }));
+    } catch { return []; }
   }
 
-  // Marks a notification event as fired so it won't re-trigger on reload
+  /** True when an identical (unit, type) event fired within the de-dup window.
+   *  Survives a page reload, so a fast remount can't double-fire — but a
+   *  genuine repeat after the window fires normally. */
+  private recentlyFired(key: string): boolean {
+    const now = Date.now();
+    return this.getFiredEntries().some(e => e.key === key && now - e.ts < RECENT_FIRE_WINDOW_MS);
+  }
+
+  /** Stamp a notification event as just-fired (epoch-ms), pruning expired
+   *  markers so the store stays bounded. */
   private markFired(key: string) {
     try {
-      const raw = localStorage.getItem(this.firedKey());
-      const entries: { key: string; date: string }[] = raw ? JSON.parse(raw) : [];
-      const today = new Date().toISOString().split('T')[0];
-      if (!entries.some(e => e.key === key)) {
-        entries.push({ key, date: today });
-      }
-      // Prune entries older than 7 days
-      const cutoff = new Date();
-      cutoff.setDate(cutoff.getDate() - 7);
-      const cutoffStr = cutoff.toISOString().split('T')[0];
-      localStorage.setItem(this.firedKey(), JSON.stringify(entries.filter(e => e.date >= cutoffStr)));
+      const entries = this.getFiredEntries().filter(e => e.key !== key);
+      entries.push({ key, ts: Date.now() });
+      localStorage.setItem(this.firedKey(), JSON.stringify(entries));
     } catch { /* ignore */ }
   }
 
@@ -225,30 +243,26 @@ class NotificationService {
   }
 
   private addNotificationDirect(type: NotificationType, unit: InventoryUnit, profitAmount?: number, count?: number) {
-    // Check if this notification was already fired (persisted across page reloads)
+    // Short cross-reload de-dup: suppress only an IDENTICAL (unit, type) event
+    // that fired in the last few seconds (covers a fast remount / StrictMode
+    // double-invoke). Repeats after the window — a unit returned again, sold
+    // again, etc. — fire normally. (This replaces the old per-DAY guard that
+    // dropped every repeat after the first.)
     const firedKey = `${unit.id}:${type}`;
-    try {
-      const raw = localStorage.getItem(this.firedKey());
-      const entries: { key: string; date: string }[] = raw ? JSON.parse(raw) : [];
-      const today = new Date().toISOString().split('T')[0];
+    if (this.recentlyFired(firedKey)) {
+      console.log(`[Notification] Suppressed identical event within ${RECENT_FIRE_WINDOW_MS}ms: ${firedKey}`);
+      return;
+    }
 
-      // Check if this specific unit+type was already fired today
-      if (entries.some(e => e.key === firedKey && e.date === today)) {
-        console.log(`[Notification] Already fired today: ${firedKey}`);
-        return;
-      }
-    } catch { /* ignore */ }
-
-    // In-memory guard for rapid duplicates within the same session (< 5s)
-    // This prevents notification spam if the same action fires multiple times
+    // In-memory guard for rapid duplicates within the same session.
     const now = new Date();
     const isDuplicate = this.notifications.some(n =>
       n.unitId === unit.id &&
       n.type === type &&
-      now.getTime() - new Date(n.timestamp).getTime() < 5000,
+      now.getTime() - new Date(n.timestamp).getTime() < RECENT_FIRE_WINDOW_MS,
     );
     if (isDuplicate) {
-      console.log(`[Notification] Duplicate prevented: ${unit.id} ${type} (< 5s ago)`);
+      console.log(`[Notification] Duplicate prevented: ${unit.id} ${type} (recent)`);
       return;
     }
 

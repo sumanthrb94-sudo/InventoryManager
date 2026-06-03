@@ -138,6 +138,49 @@ describe('NotificationService', () => {
       expect(secondNotif).toBe(firstNotif);
     });
 
+    it('fires AGAIN for the same unit+type once the dedup window passes — no reset needed (regression: "notifications only fire once")', () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date('2026-06-03T10:00:00Z'));
+      try {
+        const notifications: any[] = [];
+        notificationService.subscribe((notifs) => {
+          notifications.length = 0; notifications.push(...notifs);
+        });
+
+        // First sale of this unit.
+        notificationService.addNotification('sold', mockUnit, 500);
+        const afterFirst = notifications.length;
+        expect(afterFirst).toBeGreaterThan(0);
+
+        // Same unit sold again later the SAME day (e.g. sold → returned →
+        // resold). The old per-day guard swallowed this; it must now fire.
+        vi.setSystemTime(new Date('2026-06-03T10:00:30Z'));
+        notificationService.addNotification('sold', mockUnit, 500);
+        expect(notifications.length).toBe(afterFirst + 1);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('still suppresses an identical event fired within the dedup window', () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date('2026-06-03T10:00:00Z'));
+      try {
+        const notifications: any[] = [];
+        notificationService.subscribe((notifs) => {
+          notifications.length = 0; notifications.push(...notifs);
+        });
+        notificationService.addNotification('sold', mockUnit, 500);
+        const afterFirst = notifications.length;
+        // 2 seconds later — inside the window → suppressed.
+        vi.setSystemTime(new Date('2026-06-03T10:00:02Z'));
+        notificationService.addNotification('sold', mockUnit, 500);
+        expect(notifications.length).toBe(afterFirst);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
     it('should allow duplicate notifications on different days', () => {
       const notifications: any[] = [];
       notificationService.subscribe((notifs) => {

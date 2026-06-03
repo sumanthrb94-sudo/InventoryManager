@@ -33,12 +33,12 @@ import {
 } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
 import { dbService } from '../lib/dbService';
-import { InventoryUnit, ReturnCategory } from '../types';
+import { InventoryUnit, ReturnCategory, Sale } from '../types';
 import { useInventoryStore } from '../lib/inventoryStore';
 import { notificationService } from '../lib/notificationService';
 import { fmtDateForUser, useUserRegion } from '../lib/userLocale';
 import { getWarrantyStatus } from '../lib/warrantyUtils';
-import { groupReturnEventsByImei } from '../lib/returnsLifecycle';
+import { groupReturnEventsByImei, normalizeImei, summarizeUnitLife, type LifeState } from '../lib/returnsLifecycle';
 import CopyImei from './CopyImei';
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -434,7 +434,7 @@ export default function ReturnsPage() {
       </AnimatePresence>
 
       {/* ── Per-IMEI lifecycle history (Returns Report) ─────────────────── */}
-      <ReturnsReport />
+      <ReturnsReport units={units} sales={sales} />
 
       {/* ── Modals ────────────────────────────────────────────────────────── */}
       <AnimatePresence>
@@ -1333,6 +1333,26 @@ function QuickRepairModal({
         salePrice: null, saleDate: null, salePlatform: null, saleOrderId: null, postageCost: null,
         platformListed: false, listingSites: [],
       });
+
+      // Lifecycle log — record the repair dispatch so the per-IMEI history
+      // (and Returns Report) captures this leg of the journey, not just the
+      // main Process-Return flow.
+      if (unit.imei) {
+        try {
+          await dbService.createReturnEvent({
+            imei:         unit.imei,
+            unitId:       unit.id,
+            type:         'sent_to_repair',
+            date:         todayStr(),
+            comment:      unit.returnReason || 'Unit sent for repair',
+            supplierId:   unit.supplierId,
+            supplierName: unit.supplierName,
+          });
+        } catch (err) {
+          console.warn('Failed to record repair event for unit', unit.id, err);
+        }
+      }
+
       notificationService.addNotification('return_processed', unit);
       onSaved();
       onClose();
@@ -1399,6 +1419,24 @@ function ReadyToShipModal({
         repairedAt: todayStr(),
         flags: [...(unit.flags || []), 'repaired_unit'],
       });
+
+      // Lifecycle log — repair complete, unit back to resaleable stock.
+      if (unit.imei) {
+        try {
+          await dbService.createReturnEvent({
+            imei:         unit.imei,
+            unitId:       unit.id,
+            type:         'repair_complete',
+            date:         todayStr(),
+            comment:      'Repaired — restored to available stock',
+            supplierId:   unit.supplierId,
+            supplierName: unit.supplierName,
+          });
+        } catch (err) {
+          console.warn('Failed to record repair-complete event for unit', unit.id, err);
+        }
+      }
+
       notificationService.addNotification('unit_repaired', unit);
       onSaved();
       onClose();
@@ -1545,12 +1583,32 @@ function triggerDownload(name: string, blob: Blob) {
 // Full lifecycle log across every IMEI we've ever processed a return on.
 // Subscribes to the `returnEvents` collection live and groups by IMEI so
 // the operator sees the round-trip story: returned → sent_to_supplier →
-// received_again, with each step's date + comment + actor.
+// received_again, with each step's date + comment + actor — joined to the
+// unit's CURRENT life state (available / sold + when) and its sale figures so
+// the report doubles as the data foundation for a later returns P&L.
 //
 // Filters: date range, type, free-text search (IMEI / comment / actor /
 // supplier). Download dumps the filtered set to a CSV the operator
 // can hand off for accounting or supplier reconciliation.
-function ReturnsReport() {
+
+/** Human label per life state — shared by the badge and the CSV. */
+const LIFE_LABEL: Record<LifeState, string> = {
+  sold:        'Sold',
+  available:   'Available',
+  in_repair:   'In Repair',
+  to_supplier: 'To Supplier',
+  unknown:     'Unknown',
+};
+/** Badge tone per life state. */
+const LIFE_TONE: Record<LifeState, string> = {
+  sold:        'bg-slate-900 text-white border-slate-900',
+  available:   'bg-emerald-100 text-emerald-700 border-emerald-200',
+  in_repair:   'bg-sky-100 text-sky-700 border-sky-200',
+  to_supplier: 'bg-amber-100 text-amber-700 border-amber-200',
+  unknown:     'bg-slate-100 text-slate-500 border-slate-200',
+};
+
+function ReturnsReport({ units, sales }: { units: InventoryUnit[]; sales: Sale[] }) {
   const [events, setEvents] = useState<import('../types').ReturnEvent[]>([]);
   const [search, setSearch] = useState('');
   const [typeFilter, setTypeFilter] = useState<'all' | import('../types').ReturnEventType>('all');
@@ -1564,6 +1622,32 @@ function ReturnsReport() {
     });
     return () => unsub();
   }, []);
+
+  // Index the current inventory doc + every linked sale (active AND voided)
+  // by normalized IMEI, so each per-IMEI lifecycle can be joined to "where is
+  // this unit now and how did its money move" — the life-history + P&L join.
+  const unitByImei = useMemo(() => {
+    const m = new Map<string, InventoryUnit>();
+    for (const u of units) if (u.imei) m.set(normalizeImei(u.imei), u);
+    return m;
+  }, [units]);
+  const salesByImei = useMemo(() => {
+    const m = new Map<string, Sale[]>();
+    const unitIdToImei = new Map<string, string>();
+    for (const u of units) if (u.imei) unitIdToImei.set(u.id, normalizeImei(u.imei));
+    for (const s of sales) {
+      const key = s.imei ? normalizeImei(s.imei) : (s.unitId ? unitIdToImei.get(s.unitId) : undefined);
+      if (!key) continue;
+      const bucket = m.get(key);
+      if (bucket) bucket.push(s); else m.set(key, [s]);
+    }
+    return m;
+  }, [units, sales]);
+
+  // Resolve a per-IMEI life summary (current state, sold date/price, times
+  // sold/returned, gross margin) via the pure, unit-tested helper.
+  const lifeFor = (imei: string) =>
+    summarizeUnitLife(unitByImei.get(normalizeImei(imei)), salesByImei.get(normalizeImei(imei)) || []);
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -1596,10 +1680,25 @@ function ReturnsReport() {
   };
 
   const downloadCsv = () => {
-    const header = ['IMEI', 'Type', 'Date', 'Comment', 'Supplier', 'Actor', 'UnitId'];
-    const rows = filtered.map(e => [
-      e.imei, e.type, e.date, e.comment || '', e.supplierName || '', e.actorEmail, e.unitId || '',
-    ]);
+    // One row per return event, each enriched with the unit's current life
+    // state + sale figures. That gives accounting a single sheet to build the
+    // returns P&L on later: the event chain (what happened, with comments) plus
+    // where the unit landed (sold/available) and the money (sale − buy − postage).
+    const header = [
+      'IMEI', 'Model', 'EventType', 'EventDate', 'Comment', 'Supplier', 'Actor', 'UnitId',
+      'CurrentState', 'SoldDate', 'SalePrice', 'BuyPrice', 'PostageCost', 'GrossMargin',
+      'TimesSold', 'TimesReturned',
+    ];
+    const num = (n: number | undefined) => (n == null ? '' : n.toFixed(2));
+    const rows = filtered.map(e => {
+      const life = lifeFor(e.imei);
+      const unit = unitByImei.get(normalizeImei(e.imei));
+      return [
+        e.imei, unit?.model || '', e.type, e.date, e.comment || '', e.supplierName || '', e.actorEmail, e.unitId || '',
+        LIFE_LABEL[life.state], life.soldDate || '', num(life.salePrice), num(life.buyPrice),
+        num(life.postageCost), num(life.grossMargin), String(life.timesSold), String(life.timesReturned),
+      ];
+    });
     const esc = (v: any) => {
       const s = String(v ?? '');
       return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
@@ -1683,7 +1782,12 @@ function ReturnsReport() {
         <div className="space-y-2 max-h-[480px] overflow-auto custom-scrollbar pr-1">
           {byImei.slice(0, 100).map(([imei, evts]) => {
             const open = expandedImei === imei;
-            const latest = evts[0];
+            const life = lifeFor(imei);
+            const unit = unitByImei.get(normalizeImei(imei));
+            const returnsCount = evts.filter(e =>
+              e.type === 'returned' || e.type === 'restocked' ||
+              e.type === 'sent_to_supplier' || e.type === 'sent_to_repair',
+            ).length;
             return (
               <div key={imei} className="border border-slate-200 rounded-xl overflow-hidden">
                 <button
@@ -1692,18 +1796,34 @@ function ReturnsReport() {
                   className="w-full flex items-center justify-between gap-3 px-3 py-2 bg-slate-50 hover:bg-slate-100 transition-colors text-left"
                 >
                   <div className="flex items-center gap-2 min-w-0">
-                    <span className="text-[11px] font-mono font-bold text-slate-900 truncate">{imei}</span>
-                    <span className={`text-[9px] font-bold uppercase tracking-widest border rounded px-1.5 py-0.5 ${TYPE_TONE[latest.type] || 'bg-slate-100 text-slate-600 border-slate-200'}`}>
-                      {latest.type.replace(/_/g, ' ')}
+                    {/* Current life state — "is it available or sold, and when" */}
+                    <span className={`text-[9px] font-bold uppercase tracking-widest border rounded px-1.5 py-0.5 ${LIFE_TONE[life.state]}`}>
+                      {LIFE_LABEL[life.state]}
                     </span>
-                    <span className="text-[10px] font-mono text-slate-500">{latest.date}</span>
+                    <span className="text-[11px] font-mono font-bold text-slate-900 truncate">{imei}</span>
+                    {unit?.model && <span className="text-[10px] font-mono text-slate-500 truncate hidden sm:inline">{unit.model}</span>}
+                    {life.state === 'sold' && life.soldDate && (
+                      <span className="text-[10px] font-mono text-slate-500">
+                        sold {life.soldDate}{life.salePrice != null ? ` · £${life.salePrice.toFixed(0)}` : ''}
+                      </span>
+                    )}
                   </div>
-                  <span className="text-[9px] font-mono text-slate-400">
-                    {evts.length} event{evts.length === 1 ? '' : 's'} · {open ? '▲' : '▼'}
+                  <span className="text-[9px] font-mono text-slate-400 whitespace-nowrap">
+                    {returnsCount} return{returnsCount === 1 ? '' : 's'} · {evts.length} event{evts.length === 1 ? '' : 's'} · {open ? '▲' : '▼'}
                   </span>
                 </button>
                 {open && (
                   <div className="divide-y divide-slate-100">
+                    {/* Life + money summary — the P&L foundation for this IMEI. */}
+                    <div className="px-3 py-2 flex flex-wrap items-center gap-x-4 gap-y-1 bg-white text-[10px] font-mono text-slate-600">
+                      <span>Sold <span className="font-bold text-slate-900">{life.timesSold}×</span></span>
+                      <span>Returned <span className="font-bold text-slate-900">{life.timesReturned}×</span></span>
+                      {life.buyPrice != null && <span>BP <span className="text-slate-900">£{life.buyPrice.toFixed(2)}</span></span>}
+                      {life.salePrice != null && <span>SP <span className="text-slate-900">£{life.salePrice.toFixed(2)}</span></span>}
+                      {life.grossMargin != null && (
+                        <span>Margin <span className={life.grossMargin < 0 ? 'text-rose-600 font-bold' : 'text-emerald-700 font-bold'}>£{life.grossMargin.toFixed(2)}</span></span>
+                      )}
+                    </div>
                     {evts.map(e => (
                       <div key={e.id} className="px-3 py-2 grid grid-cols-[100px_120px_1fr_140px] items-center gap-2 text-[10px] font-mono">
                         <span className="text-slate-500">{e.date}</span>
