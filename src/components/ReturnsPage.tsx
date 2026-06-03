@@ -432,6 +432,9 @@ export default function ReturnsPage() {
         )}
       </AnimatePresence>
 
+      {/* ── Per-IMEI lifecycle history (Returns Report) ─────────────────── */}
+      <ReturnsReport />
+
       {/* ── Modals ────────────────────────────────────────────────────────── */}
       <AnimatePresence>
         {pickerOpen && (
@@ -1168,6 +1171,31 @@ function ProcessReturnModal({
         console.warn('Failed to void linked sales for unit', unit.id, err);
       }
 
+      // Lifecycle log — one event per return action so the per-IMEI
+      // timeline (and the Returns Report) shows the full chain. Maps
+      // the operator's category choice to the lifecycle event type.
+      const eventType: import('../types').ReturnEventType =
+        returnType === 'returned_to_inventory' ? 'restocked'
+        : returnType === 'returned_to_supplier' ? 'sent_to_supplier'
+        : 'sent_to_repair';
+      if (unit.imei) {
+        try {
+          await dbService.createReturnEvent({
+            imei:         unit.imei,
+            unitId:       unit.id,
+            type:         eventType,
+            date:         returnDate,
+            comment:      reason.trim(),
+            supplierId:   unit.supplierId,
+            supplierName: unit.supplierName,
+          });
+        } catch (err) {
+          // Best-effort — the unit-side returnType still drives every
+          // existing view if the event write fails.
+          console.warn('Failed to record return event for unit', unit.id, err);
+        }
+      }
+
       notificationService.addNotification('return_processed', unit);
       onSaved();
       onClose();
@@ -1509,4 +1537,209 @@ function triggerDownload(name: string, blob: Blob) {
   const a = document.createElement('a');
   a.href = url; a.download = name; document.body.appendChild(a); a.click(); document.body.removeChild(a);
   setTimeout(() => URL.revokeObjectURL(url), 0);
+}
+
+// ── Returns Report ───────────────────────────────────────────────────────────
+//
+// Full lifecycle log across every IMEI we've ever processed a return on.
+// Subscribes to the `returnEvents` collection live and groups by IMEI so
+// the operator sees the round-trip story: returned → sent_to_supplier →
+// received_again, with each step's date + comment + actor.
+//
+// Filters: date range, type, free-text search (IMEI / comment / actor /
+// supplier). Download dumps the filtered set to a CSV the operator
+// can hand off for accounting or supplier reconciliation.
+function ReturnsReport() {
+  const [events, setEvents] = useState<import('../types').ReturnEvent[]>([]);
+  const [search, setSearch] = useState('');
+  const [typeFilter, setTypeFilter] = useState<'all' | import('../types').ReturnEventType>('all');
+  const [fromIso, setFromIso] = useState<string>('');
+  const [toIso, setToIso] = useState<string>('');
+  const [expandedImei, setExpandedImei] = useState<string | null>(null);
+
+  useEffect(() => {
+    const unsub = dbService.subscribeToCollection('returnEvents', (rows: any[]) => {
+      setEvents(rows as import('../types').ReturnEvent[]);
+    });
+    return () => unsub();
+  }, []);
+
+  const filtered = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return events.filter(e => {
+      if (typeFilter !== 'all' && e.type !== typeFilter) return false;
+      if (fromIso && e.date && e.date < fromIso) return false;
+      if (toIso && e.date && e.date > toIso) return false;
+      if (q) {
+        const hay = [e.imei, e.comment, e.actorEmail, e.supplierName].filter(Boolean).join(' ').toLowerCase();
+        if (!hay.includes(q)) return false;
+      }
+      return true;
+    });
+  }, [events, typeFilter, fromIso, toIso, search]);
+
+  // Group filtered events by IMEI for the timeline view.
+  const byImei = useMemo(() => {
+    const m = new Map<string, import('../types').ReturnEvent[]>();
+    for (const e of filtered) {
+      const k = (e.imei || '(no-imei)').toUpperCase();
+      if (!m.has(k)) m.set(k, []);
+      m.get(k)!.push(e);
+    }
+    // Within each IMEI bucket, newest first.
+    for (const arr of m.values()) {
+      arr.sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+    }
+    // Return as [imei, events][] sorted by most-recent-event-date desc.
+    return Array.from(m.entries()).sort((a, b) => (b[1][0]?.date || '').localeCompare(a[1][0]?.date || ''));
+  }, [filtered]);
+
+  const TYPE_TONE: Record<string, string> = {
+    returned:         'bg-rose-100 text-rose-700 border-rose-200',
+    restocked:        'bg-emerald-100 text-emerald-700 border-emerald-200',
+    sent_to_supplier: 'bg-amber-100 text-amber-700 border-amber-200',
+    sent_to_repair:   'bg-sky-100 text-sky-700 border-sky-200',
+    repair_complete:  'bg-emerald-100 text-emerald-700 border-emerald-200',
+    refunded:         'bg-violet-100 text-violet-700 border-violet-200',
+    received_again:   'bg-orange-100 text-orange-700 border-orange-200',
+    note:             'bg-slate-100 text-slate-600 border-slate-200',
+  };
+
+  const downloadCsv = () => {
+    const header = ['IMEI', 'Type', 'Date', 'Comment', 'Supplier', 'Actor', 'UnitId'];
+    const rows = filtered.map(e => [
+      e.imei, e.type, e.date, e.comment || '', e.supplierName || '', e.actorEmail, e.unitId || '',
+    ]);
+    const esc = (v: any) => {
+      const s = String(v ?? '');
+      return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+    };
+    const csv = [header, ...rows].map(r => r.map(esc).join(',')).join('\n');
+    const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+    triggerDownload(`returns-report-${stamp}.csv`, new Blob([csv], { type: 'text/csv' }));
+  };
+
+  return (
+    <section className="mt-6 bg-white border border-slate-200 rounded-3xl p-5 shadow-sm">
+      <div className="flex items-center justify-between flex-wrap gap-3 mb-4">
+        <div>
+          <h3 className="text-sm font-bold tracking-tight">Returns Report · per-IMEI lifecycle</h3>
+          <p className="text-[10px] font-mono text-slate-400 mt-0.5">
+            {filtered.length.toLocaleString()} event{filtered.length === 1 ? '' : 's'} across {byImei.length.toLocaleString()} IMEI{byImei.length === 1 ? '' : 's'}
+          </p>
+        </div>
+        <button
+          onClick={downloadCsv}
+          disabled={filtered.length === 0}
+          className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-slate-900 text-white text-[10px] font-bold uppercase tracking-widest hover:bg-slate-700 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
+        >
+          Download CSV
+        </button>
+      </div>
+
+      <div className="flex items-center gap-2 flex-wrap mb-4">
+        <input
+          type="text"
+          value={search}
+          onChange={e => setSearch(e.target.value)}
+          placeholder="Search IMEI · comment · supplier · actor…"
+          className="flex-1 min-w-[180px] px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-[11px] focus:outline-none focus:border-slate-900 focus:bg-white"
+        />
+        <select
+          value={typeFilter}
+          onChange={e => setTypeFilter(e.target.value as any)}
+          className="px-3 py-2 border border-slate-200 rounded-xl text-[10px] font-mono bg-white"
+        >
+          <option value="all">All types</option>
+          <option value="returned">Returned</option>
+          <option value="restocked">Restocked</option>
+          <option value="sent_to_supplier">Sent to supplier</option>
+          <option value="sent_to_repair">Sent to repair</option>
+          <option value="repair_complete">Repair complete</option>
+          <option value="refunded">Refunded</option>
+          <option value="received_again">Received again</option>
+          <option value="note">Note</option>
+        </select>
+        <input
+          type="date"
+          value={fromIso}
+          onChange={e => setFromIso(e.target.value)}
+          title="From date"
+          className="px-2 py-2 border border-slate-200 rounded-xl text-[10px] font-mono"
+        />
+        <span className="text-[10px] font-mono text-slate-400">→</span>
+        <input
+          type="date"
+          value={toIso}
+          onChange={e => setToIso(e.target.value)}
+          title="To date"
+          className="px-2 py-2 border border-slate-200 rounded-xl text-[10px] font-mono"
+        />
+        {(search || typeFilter !== 'all' || fromIso || toIso) && (
+          <button
+            onClick={() => { setSearch(''); setTypeFilter('all'); setFromIso(''); setToIso(''); }}
+            className="px-2 py-1 text-[10px] font-bold uppercase tracking-widest text-slate-500 hover:text-slate-900"
+          >
+            Clear
+          </button>
+        )}
+      </div>
+
+      {byImei.length === 0 ? (
+        <p className="text-[11px] font-mono text-slate-400 text-center py-8">
+          No return events match the current filters.
+        </p>
+      ) : (
+        <div className="space-y-2 max-h-[480px] overflow-auto custom-scrollbar pr-1">
+          {byImei.slice(0, 100).map(([imei, evts]) => {
+            const open = expandedImei === imei;
+            const latest = evts[0];
+            return (
+              <div key={imei} className="border border-slate-200 rounded-xl overflow-hidden">
+                <button
+                  type="button"
+                  onClick={() => setExpandedImei(open ? null : imei)}
+                  className="w-full flex items-center justify-between gap-3 px-3 py-2 bg-slate-50 hover:bg-slate-100 transition-colors text-left"
+                >
+                  <div className="flex items-center gap-2 min-w-0">
+                    <span className="text-[11px] font-mono font-bold text-slate-900 truncate">{imei}</span>
+                    <span className={`text-[9px] font-bold uppercase tracking-widest border rounded px-1.5 py-0.5 ${TYPE_TONE[latest.type] || 'bg-slate-100 text-slate-600 border-slate-200'}`}>
+                      {latest.type.replace(/_/g, ' ')}
+                    </span>
+                    <span className="text-[10px] font-mono text-slate-500">{latest.date}</span>
+                  </div>
+                  <span className="text-[9px] font-mono text-slate-400">
+                    {evts.length} event{evts.length === 1 ? '' : 's'} · {open ? '▲' : '▼'}
+                  </span>
+                </button>
+                {open && (
+                  <div className="divide-y divide-slate-100">
+                    {evts.map(e => (
+                      <div key={e.id} className="px-3 py-2 grid grid-cols-[100px_120px_1fr_140px] items-center gap-2 text-[10px] font-mono">
+                        <span className="text-slate-500">{e.date}</span>
+                        <span className={`text-[9px] font-bold uppercase tracking-widest border rounded px-1.5 py-0.5 ${TYPE_TONE[e.type] || 'bg-slate-100 text-slate-600 border-slate-200'}`}>
+                          {e.type.replace(/_/g, ' ')}
+                        </span>
+                        <span className="text-slate-700 truncate" title={e.comment || ''}>
+                          {e.comment || <span className="text-slate-300">— no comment —</span>}
+                        </span>
+                        <span className="text-slate-400 truncate text-right" title={`${e.actorEmail} · ${e.supplierName || ''}`}>
+                          {e.actorEmail}{e.supplierName ? ` · ${e.supplierName}` : ''}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+          {byImei.length > 100 && (
+            <p className="text-[10px] font-mono text-slate-400 text-center py-2">
+              Showing 100 of {byImei.length.toLocaleString()} — narrow the filters to see more.
+            </p>
+          )}
+        </div>
+      )}
+    </section>
+  );
 }

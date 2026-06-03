@@ -140,6 +140,9 @@ export default function BulkOrderModal({ onClose, initialMode = 'office' }: Prop
   const scanInputRef = useRef<HTMLInputElement>(null);
   const scanDebounceRef = useRef<number | null>(null);
   const [scanError, setScanError] = useState('');
+  // Non-blocking advisory shown next to scanError — set when the scanned
+  // IMEI has a prior `sent_to_supplier` event. Cleared on the next scan.
+  const [scanWarning, setScanWarning] = useState('');
   const [showCamera, setShowCamera] = useState(false);
   const [reviewEditing, setReviewEditing] = useState<string | null>(null);
   // ── Scanner status ────────────────────────────────────────────────────────
@@ -179,6 +182,30 @@ export default function BulkOrderModal({ onClose, initialMode = 'office' }: Prop
     }
     return m;
   }, [units]);
+
+  // ── Returns history: IMEIs we've previously sent back to a supplier.
+  // Subscribed live so the operator gets the warning the moment a
+  // matching scan comes in. The check is non-blocking — operator can
+  // still add the unit, just sees a banner so they don't re-stock a
+  // unit we already RTS'd to the supplier without realising.
+  const [rtsImeiHistory, setRtsImeiHistory] = useState<Map<string, { date: string; comment?: string; supplierName?: string }>>(new Map());
+  useEffect(() => {
+    const unsub = dbService.subscribeToCollection('returnEvents', (rows) => {
+      const m = new Map<string, { date: string; comment?: string; supplierName?: string }>();
+      // Keep the MOST RECENT sent_to_supplier event per IMEI so the
+      // warning shows the latest context.
+      for (const r of rows) {
+        if (r.type !== 'sent_to_supplier' || !r.imei) continue;
+        const key = String(r.imei).trim().toUpperCase();
+        const existing = m.get(key);
+        if (!existing || (r.date && r.date > existing.date)) {
+          m.set(key, { date: r.date, comment: r.comment, supplierName: r.supplierName });
+        }
+      }
+      setRtsImeiHistory(m);
+    });
+    return () => unsub();
+  }, []);
 
   const supplierNames = useMemo(() => suppliers.map(s => s.name), [suppliers]);
 
@@ -260,6 +287,22 @@ export default function BulkOrderModal({ onClose, initialMode = 'office' }: Prop
       setScanError(`IMEI ${imei} already in inventory · ${dbMatch.model || '?'} · ${dbMatch.dateIn || '?'} · ${dbMatch.status}`);
       return;
     }
+    // Re-intake warning — surface (don't block) when this IMEI was
+    // previously sent back to a supplier. The operator can still add
+    // the unit, but they'll see a banner that includes the prior
+    // supplier name + return date + comment so they don't accidentally
+    // re-stock something we already RTS'd.
+    const priorRts = rtsImeiHistory.get(imei);
+    if (priorRts) {
+      const ctx = [
+        priorRts.supplierName && `to ${priorRts.supplierName}`,
+        priorRts.date && `on ${priorRts.date}`,
+        priorRts.comment && `· ${priorRts.comment}`,
+      ].filter(Boolean).join(' ');
+      setScanWarning(`⚠ IMEI ${imei} was previously returned to supplier ${ctx}. Confirm before adding.`);
+    } else {
+      setScanWarning('');
+    }
     // Apply + advance.
     setSlots(prev => {
       const next = [...prev];
@@ -269,7 +312,7 @@ export default function BulkOrderModal({ onClose, initialMode = 'office' }: Prop
     setScanError('');
     setScanInput('');
     advanceToNextEmptySlot();
-  }, [model, slots, activeSlotIdx, existingByImei]);
+  }, [model, slots, activeSlotIdx, existingByImei, rtsImeiHistory]);
 
   /** Walk forward from the current slot to find the next empty (or skipped)
    *  one. If none is found, wrap around to find any empty slot. If still
@@ -589,6 +632,29 @@ export default function BulkOrderModal({ onClose, initialMode = 'office' }: Prop
       setProgress({ done: 0, total: docs.length });
       await dbService.bulkCreate(docs, (done, total) => setProgress({ done, total }));
 
+      // Lifecycle log — for every IMEI in this batch that has a prior
+      // sent_to_supplier event, record a `received_again` event so the
+      // per-IMEI timeline shows the round-trip. Best-effort; failures
+      // don't roll back the bulkCreate.
+      for (const d of docs) {
+        const imei = String(d.data?.imei || '').trim().toUpperCase();
+        if (!imei) continue;
+        if (!rtsImeiHistory.get(imei)) continue;
+        try {
+          await dbService.createReturnEvent({
+            imei,
+            unitId: d.id,
+            type: 'received_again',
+            date: d.data.dateIn || new Date().toISOString().slice(0, 10),
+            comment: `Re-stocked via Bulk Order — previously returned to supplier`,
+            supplierId:   d.data.supplierId,
+            supplierName: d.data.supplierName,
+          });
+        } catch (err) {
+          console.warn('Failed to record received_again for IMEI', imei, err);
+        }
+      }
+
       await logInventoryEvent({
         type: 'batch_created',
         message: `Bulk ${mode === 'office' ? 'Office' : 'SHS'}: ${docs.length} units added (${cleanModel}${storage ? ' ' + storage : ''})`,
@@ -716,6 +782,7 @@ export default function BulkOrderModal({ onClose, initialMode = 'office' }: Prop
               scanInputRef={scanInputRef}
               scanError={scanError}
               setScanError={setScanError}
+              scanWarning={scanWarning}
               onSubmit={handleScanSubmit}
               onSkip={skipCurrentSlot}
               onJump={jumpToSlot}
@@ -1120,7 +1187,7 @@ function SetupView({
 // ── Scan view ────────────────────────────────────────────────────────────────
 function ScanView({
   mode, model, slots, activeSlotIdx, scanInput, onScanInputChange, scanInputRef,
-  scanError, setScanError, onSubmit, onSkip, onJump, showCamera, setShowCamera,
+  scanError, setScanError, scanWarning, onSubmit, onSkip, onJump, showCamera, setShowCamera,
   inputFocused, setInputFocused,
   hidStatus, hidDeviceName, connectHidScanner, disconnectHidScanner,
 }: {
@@ -1129,6 +1196,7 @@ function ScanView({
   scanInput: string; onScanInputChange: (s: string) => void;
   scanInputRef: React.RefObject<HTMLInputElement | null>;
   scanError: string; setScanError: (s: string) => void;
+  scanWarning: string;
   onSubmit: (raw: string) => void; onSkip: () => void; onJump: (idx: number) => void;
   showCamera: boolean; setShowCamera: (b: boolean) => void;
   inputFocused: boolean; setInputFocused: (b: boolean) => void;
@@ -1230,6 +1298,11 @@ function ScanView({
         {scanError && (
           <p className="text-[11px] md:text-[10px] font-mono text-rose-600 mt-1.5 inline-flex items-center gap-1">
             <AlertCircle size={10} /> {scanError}
+          </p>
+        )}
+        {scanWarning && !scanError && (
+          <p className="text-[11px] md:text-[10px] font-mono text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-2 py-1.5 mt-1.5 inline-flex items-center gap-1 leading-snug">
+            {scanWarning}
           </p>
         )}
         <p className="text-[10px] md:text-[9px] font-mono text-slate-400 mt-1.5 leading-relaxed">

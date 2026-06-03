@@ -146,6 +146,48 @@ export interface InventoryEvent {
 }
 
 /**
+ * One row per return lifecycle event for a given IMEI. The collection is
+ * keyed by IMEI (not unitId) so that re-intakes of a previously-returned
+ * unit can find their own history — when the operator scans a barcode in
+ * Bulk Order that we previously shipped back to the supplier, this
+ * collection answers "have we seen this IMEI in a return before?".
+ *
+ * Lifecycle types:
+ *   returned          — customer return landed at our office (first transition)
+ *   restocked         — went back to available inventory
+ *   sent_to_supplier  — shipped back to supplier (the one we re-detect on intake)
+ *   sent_to_repair    — sent out for repair
+ *   repair_complete   — repair done, ready to restock
+ *   refunded          — refund issued to customer
+ *   received_again    — IMEI re-stocked via Bulk Order after a prior return
+ *   note              — free-form operator annotation
+ */
+export type ReturnEventType =
+  | 'returned'
+  | 'restocked'
+  | 'sent_to_supplier'
+  | 'sent_to_repair'
+  | 'repair_complete'
+  | 'refunded'
+  | 'received_again'
+  | 'note';
+
+export interface ReturnEvent {
+  id: string;
+  imei: string;
+  unitId?: string;
+  type: ReturnEventType;
+  date: string;                  // ISO yyyy-mm-dd
+  comment?: string;
+  supplierId?: string;
+  supplierName?: string;
+  actorUid: string;
+  actorEmail: string;
+  createdAt: any;
+  ownerId: string;
+}
+
+/**
  * DailyUpdate — a date-stamped operational update from the ops team.
  */
 export interface DailyUpdate {
