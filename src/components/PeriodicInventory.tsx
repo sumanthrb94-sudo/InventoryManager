@@ -525,29 +525,35 @@ export default function PeriodicInventory({ units, onNavigate }: Props) {
   const [viewMode, setViewMode] = useState<ViewMode>('office');
   const [supplierFilterId, setSupplierFilterId] = useState<string>('all');
 
-  // Date-scope filter for the Sold / Returned tiles. 'today' = ISO today,
-  // 'week' = trailing 7 days, 'month' = trailing 30 days, 'custom' = the
-  // dateRange below. Calendar pickers below let the operator pin an
-  // explicit window when the presets don't match their reporting period.
-  type DateScope = 'today' | 'week' | 'month' | 'custom';
-  const [dateScope, setDateScope] = useState<DateScope>('today');
+  // Date-scope filter for the Sold / Returned tiles AND the periodic-table
+  // dateIn axis. 'all' = no filter (default — shows every unit and every
+  // lifetime sale/return). 'today' = ISO today, 'week' = trailing 7 days,
+  // 'month' = trailing 30 days, 'custom' = the dateRange below. Picking
+  // anything other than 'all' filters scopedUnits down to units whose
+  // dateIn falls in the window AND scopes the Sold/Returned tile counts
+  // to the same window.
+  type DateScope = 'all' | 'today' | 'week' | 'month' | 'custom';
+  const [dateScope, setDateScope] = useState<DateScope>('all');
   const todayIso = new Date().toISOString().split('T')[0];
   const [customFrom, setCustomFrom] = useState<string>(todayIso);
   const [customTo, setCustomTo] = useState<string>(todayIso);
 
-  // Resolve current scope to [fromIso, toIso] inclusive bounds.
-  const [scopeFromIso, scopeToIso] = useMemo<[string, string]>(() => {
-    if (dateScope === 'custom') return [customFrom, customTo];
+  // Resolve current scope to [fromIso, toIso] inclusive bounds, or null
+  // when scope === 'all' (no filter).
+  const scopeRange = useMemo<{ from: string; to: string } | null>(() => {
+    if (dateScope === 'all') return null;
+    if (dateScope === 'custom') return { from: customFrom, to: customTo };
     const today = new Date();
-    const toIso = today.toISOString().split('T')[0];
-    if (dateScope === 'today') return [toIso, toIso];
+    const to = today.toISOString().split('T')[0];
+    if (dateScope === 'today') return { from: to, to };
     const back = dateScope === 'week' ? 6 : 29;  // inclusive count
     const from = new Date(today);
     from.setDate(today.getDate() - back);
-    return [from.toISOString().split('T')[0], toIso];
+    return { from: from.toISOString().split('T')[0], to };
   }, [dateScope, customFrom, customTo]);
 
-  const scopeLabel = dateScope === 'today' ? 'Today'
+  const scopeLabel = dateScope === 'all' ? 'All time'
+    : dateScope === 'today' ? 'Today'
     : dateScope === 'week' ? 'Last 7 d'
     : dateScope === 'month' ? 'Last 30 d'
     : 'Custom';
@@ -564,14 +570,26 @@ export default function PeriodicInventory({ units, onNavigate }: Props) {
   const unitHasSupplier = (u: InventoryUnit, sid: string) =>
     u.supplierId === sid || (u.supplierIds?.includes(sid) ?? false);
 
-  // Supplier-scoped unit set — every view reads from this so the supplier
-  // dropdown filters the whole table at once. Matches either the primary
-  // supplierId or any entry in supplierIds (units imported from a multi-
-  // supplier master row carry several).
+  // Supplier-scoped + date-scoped unit set — every view reads from this
+  // so the supplier dropdown AND the date-scope picker filter the whole
+  // table at once. Date filter uses `dateIn` (when stock arrived in the
+  // office), so picking 'Today' shows only units that came in today,
+  // 'Last 7 d' only those from the trailing week, etc. 'All' skips the
+  // date filter entirely (default).
   const scopedUnits = useMemo(() => {
-    if (supplierFilterId === 'all') return units;
-    return units.filter(u => unitHasSupplier(u, supplierFilterId));
-  }, [units, supplierFilterId]);
+    let pool = units;
+    if (supplierFilterId !== 'all') {
+      pool = pool.filter(u => unitHasSupplier(u, supplierFilterId));
+    }
+    if (scopeRange) {
+      const { from, to } = scopeRange;
+      pool = pool.filter(u => {
+        const d = (u.dateIn || '').split('T')[0];
+        return d && d >= from && d <= to;
+      });
+    }
+    return pool;
+  }, [units, supplierFilterId, scopeRange]);
 
   // Suppliers that actually have units attached — drives the filter dropdown
   // AND the By-Supplier view's row definitions.
@@ -599,10 +617,12 @@ export default function PeriodicInventory({ units, onNavigate }: Props) {
   // Sold / Returned counts within the operator-selected date scope (defaults
   // to today; week / month / custom-calendar widen the window). Both filters
   // use inclusive [from, to] bounds against the stored ISO date strings.
+  // 'All' scope (scopeRange === null) passes every date — lifetime view.
   const inScope = (iso: string | undefined): boolean => {
+    if (!scopeRange) return !!iso;
     if (!iso) return false;
     const d = iso.split('T')[0];
-    return d >= scopeFromIso && d <= scopeToIso;
+    return d >= scopeRange.from && d <= scopeRange.to;
   };
   const todaySold     = scopedUnits.filter(u => u.status === 'sold' && inScope(u.saleDate || u.dateIn));
   const todayReturned = scopedUnits.filter(u => u.status === 'returned' && inScope(u.returnDate));
@@ -826,13 +846,15 @@ export default function PeriodicInventory({ units, onNavigate }: Props) {
               </select>
             )}
 
-            {/* Date scope picker — drives the Sold / Returned tile counts.
-                Today / Week / Month are presets; Custom reveals from/to
-                calendar inputs so the operator can pin an explicit window. */}
+            {/* Date scope picker — drives the periodic-table dateIn filter
+                AND the Sold / Returned tile counts in lock-step. 'All' is
+                the default (lifetime view). Today / Week / Month are
+                presets matching the operator's stock-in cadence; Custom
+                reveals from/to calendar inputs for an explicit window. */}
             <div style={{ display: 'inline-flex', background: '#f1f5f9', borderRadius: 8, padding: 2 }}>
-              {(['today', 'week', 'month', 'custom'] as DateScope[]).map(s => {
+              {(['all', 'today', 'week', 'month', 'custom'] as DateScope[]).map(s => {
                 const active = dateScope === s;
-                const label = s === 'today' ? 'Today' : s === 'week' ? 'Week' : s === 'month' ? 'Month' : 'Custom';
+                const label = s === 'all' ? 'All' : s === 'today' ? 'Today' : s === 'week' ? 'Week' : s === 'month' ? 'Month' : 'Custom';
                 return (
                   <button
                     key={s}
@@ -910,7 +932,13 @@ export default function PeriodicInventory({ units, onNavigate }: Props) {
                   ? 'Nothing out of stock — every sold SKU still has units on hand'
                   : 'No office stock to show'}
               {supplierFilterId !== 'all' && ' for this supplier'}
+              {scopeRange && ` (stock-in ${scopeRange.from} → ${scopeRange.to})`}
             </p>
+            {scopeRange && (
+              <p style={{ fontSize: 10, fontFamily: 'monospace', color: '#94a3b8', marginTop: 6 }}>
+                Switch to "All" above to see every unit regardless of stock-in date.
+              </p>
+            )}
           </div>
         )}
 
