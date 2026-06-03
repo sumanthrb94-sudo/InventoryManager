@@ -391,7 +391,8 @@ export async function receiveShsAggregate(input: ReceiveShsInput): Promise<Recei
     || (aggregate.supplierIds && aggregate.supplierIds[0])
     || '';
   const placeholderId = `shs_${slugify(aggregate.model)}_${slugify(supplierName)}_${aggregate.sourceRow}`;
-  await dbService.delete('inventoryUnits', placeholderId).catch(() => {});
+  // Part of the SHS receive — allowed for the whole team via { as: 'shs' }.
+  await dbService.delete('inventoryUnits', placeholderId, { as: 'shs' }).catch(() => {});
 
   // Decrement aggregate quantity — fully received vs partial. Also subtract
   // per-colour counts from coloursMap so subsequent receives show only the

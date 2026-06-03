@@ -228,8 +228,9 @@ export default function ReceiveSHSModal({ unit, onClose }: Props) {
         }
       }
 
-      // Delete the original SHS pending unit
-      await dbService.delete('inventoryUnits', unit.id);
+      // Delete the original SHS pending unit — part of the SHS receive, so
+      // it's permitted for the whole team via { as: 'shs' }.
+      await dbService.delete('inventoryUnits', unit.id, { as: 'shs' });
 
       // Add all new units
       await Promise.all(unitsToAdd.map(u => dbService.create('inventoryUnits', u.id, u)));

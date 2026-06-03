@@ -131,39 +131,60 @@ function cleanForFirestore(obj: Record<string, any>): Record<string, any> {
 // `action` is one of: create | update | delete | bulk_create | bulk_delete
 // `count` is only set for bulk_*, gives the number of affected docs.
 
-import { auth, isAdmin, canSell } from './firebase';
+import { auth, isAdmin, canTeamWrite } from './firebase';
 
 // ── Write-permission guard ───────────────────────────────────────────────────
-// Every mutating dbService method calls this BEFORE any cache emit or
-// Firestore write. Throws when the signed-in user isn't admin so the
-// app surfaces a clear "Read-only role" error instead of silently
-// dropping changes or producing inconsistent state between the cache
-// and Firestore (which would happen if only the Firestore write
-// failed via Security Rules — local cache would still be patched).
+// Every mutating dbService method calls one of these guards BEFORE any cache
+// emit or Firestore write. Throwing here (rather than relying only on
+// Security Rules) keeps the local cache and Firestore consistent — a denied
+// write never leaves the optimistic cache patched ahead of a server reject.
+//
+// Two tiers:
+//   • assertCanWrite — OPERATIONAL writes (stock intake, selling, processing
+//     returns). These reduce to create / update / bulk-create and are the
+//     team's everyday workflows, so any signed-in team member may perform
+//     them (see canTeamWrite in firebase.ts).
+//   • assertCanEdit  — DESTRUCTIVE / admin operations (delete, bulk-delete,
+//     restore, purge, database reset, backup restore). Admin-only.
 class ReadOnlyRoleError extends Error {
   constructor(action: string) {
-    super(`Read-only role — only admin can ${action}. Ask the admin to make this change.`);
+    super(`Read-only role — you don't have permission to ${action}. Ask the admin to make this change.`);
     this.name = 'ReadOnlyRoleError';
   }
 }
 
+/** Admin-only gate — used by destructive / admin operations. */
 function assertCanEdit(action: string): void {
   if (!isAdmin(auth.currentUser)) throw new ReadOnlyRoleError(action);
 }
 
-// Selling is permitted for non-admin team members (see canSell in firebase.ts),
-// unlike general edits which stay admin-only. The record-sale and mark-sold
-// write paths pass { as: 'sell' } so any signed-in seller can move a unit to
-// 'sold' and write the sales row, without unlocking other mutations.
-function assertCanSell(action: string): void {
-  if (isAdmin(auth.currentUser) || canSell(auth.currentUser)) return;
+/** Operational-write gate — stock intake (office + SHS), selling, and
+ *  processing returns are day-to-day team workflows, so any signed-in team
+ *  member may perform the create / update / bulk-create writes they produce.
+ *  Destructive and admin-only operations keep using assertCanEdit instead. */
+function assertCanWrite(action: string): void {
+  if (isAdmin(auth.currentUser) || canTeamWrite(auth.currentUser)) return;
   throw new ReadOnlyRoleError(action);
 }
 
-type WriteOpts = { as?: 'edit' | 'sell' };
-function assertWrite(opts: WriteOpts | undefined, editAction: string, sellAction: string): void {
-  if (opts?.as === 'sell') assertCanSell(sellAction);
-  else assertCanEdit(editAction);
+// `as` is retained for call-site self-documentation (e.g. the sell / return /
+// shs write paths). All operational writes resolve to the same team-level
+// permission; plain destructive ops call assertCanEdit directly.
+type WriteOpts = { as?: 'edit' | 'sell' | 'return' | 'shs' };
+function assertWrite(opts: WriteOpts | undefined, editAction: string, _sellAction: string): void {
+  void opts;
+  assertCanWrite(editAction);
+}
+
+// Deletes are destructive and admin-only by default. The ONE exception is
+// receiving SHS ("supplier has stock") into inventory: that flow swaps a
+// synthetic SHS placeholder unit for the real received units, so the
+// placeholder cleanup is part of an operational intake the whole team does.
+// Those call sites pass { as: 'shs' } to opt that single delete into the
+// team-level permission, without unlocking general deletes.
+function assertDelete(opts: WriteOpts | undefined, action: string): void {
+  if (opts?.as === 'shs') assertCanWrite(action);
+  else assertCanEdit(action);
 }
 
 export type AuditAction = 'create' | 'update' | 'delete' | 'bulk_create' | 'bulk_delete';
@@ -265,8 +286,9 @@ export const dbService = {
    *
    *  Audit log entries are immutable — calls targeting the auditLog
    *  collection are a no-op so the trail can't be tampered with. */
-  async delete(collectionName: string, id: string) {
-    assertCanEdit('delete records');
+  async delete(collectionName: string, id: string, opts?: WriteOpts) {
+    // Admin-only, except the SHS-receive placeholder cleanup (see assertDelete).
+    assertDelete(opts, 'delete records');
     if (collectionName === 'auditLog' || collectionName === COL.auditLog) {
       if (typeof console !== 'undefined' && console.warn) {
         console.warn('[soft-delete] auditLog is append-only — delete refused');
@@ -299,7 +321,9 @@ export const dbService = {
     entries: Array<{ collection: string; id: string; data: any }>,
     onProgress?: (done: number, total: number) => void,
   ) {
-    assertCanEdit('bulk-create records');
+    // Operational write — bulk stock intake / sale + return imports run
+    // through here, so the whole team may perform it.
+    assertCanWrite('bulk-create records');
     const timestamp = nowIso();
     const total = entries.length;
     let done = 0;
@@ -703,7 +727,8 @@ export const dbService = {
   },
 
   async updateByImei(imei: string, data: any) {
-    assertCanEdit('edit unit by IMEI');
+    // Operational write — IMEI backfill during stock intake routes here.
+    assertCanWrite('edit unit by IMEI');
     const timestamp = nowIso();
     const current = [...(cachedData['inventoryUnits'] || [])];
     const idx = current.findIndex((x: any) => x.imei === imei);
@@ -744,7 +769,9 @@ export const dbService = {
     supplierId?: string;
     supplierName?: string;
   }): Promise<string | null> {
-    assertCanEdit('record return event');
+    // Operational write — logging a return event is part of processing a
+    // return, which the whole team may do.
+    assertCanWrite('record return event');
     const user = auth.currentUser;
     if (!user) return null;
     const id = `ret-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
@@ -780,7 +807,8 @@ export const dbService = {
     importedBy?: string;
     notes?: string;
   }): Promise<string> {
-    assertCanEdit('create import batch');
+    // Operational write — stock-intake imports open a batch through here.
+    assertCanWrite('create import batch');
     const ref = doc(colRef('importBatches'));
     const id = ref.id;
     const payload: any = {

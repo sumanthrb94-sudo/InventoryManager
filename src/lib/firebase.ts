@@ -144,20 +144,31 @@ export function canSeeReturns(user: User | null | undefined): boolean {
   return !!user?.email;
 }
 
-// ── Edit-permission gate ─────────────────────────────────────────────────────
-//
-// Admin is the only role that can mutate state. Non-admins are strictly
-// read-only across every surface — Stock Intake, Sales, Returns, Bulk
-// Order, all of it. The UI surfaces below `canEdit(user)` should hide
-// every edit / record / delete / restore control when this returns false.
-//
-// Server-side enforcement (Firestore Security Rules) is the actual
-// boundary; this helper is a UX gate that keeps the read-only state
-// visible and intentional.
+/** Whether the user may perform day-to-day OPERATIONAL writes:
+ *  stock intake (adding / receiving stock), selling, and processing
+ *  returns. These are the workflows the whole team runs every day, so any
+ *  signed-in team member is allowed — they all reduce to create / update /
+ *  bulk-create writes at the data layer (see assertCanWrite in dbService).
+ *
+ *  This intentionally does NOT cover destructive / admin operations
+ *  (delete, bulk-delete, restore, purge, database reset, backup restore),
+ *  which stay admin-only. */
+export function canTeamWrite(user: User | null | undefined): boolean {
+  return !!user?.email;
+}
 
-/** True when this user is allowed to edit / mutate anything in the app.
- *  Today: admin-only. The entire team can READ everywhere; only admin
- *  can WRITE. */
+// ── Admin-only gate ──────────────────────────────────────────────────────────
+//
+// The whole team can READ everywhere, and can WRITE the day-to-day
+// operational workflows — Stock Intake, Sales, and Returns — see
+// `canTeamWrite()` above. `canEdit()` is the narrower ADMIN-ONLY gate,
+// reserved for sensitive / destructive controls (delete, bulk-delete,
+// restore, purge, database reset, backup restore, bulk-order intake). UI
+// surfaces should hide those admin-only controls when this returns false.
+
+/** True when this user is an admin — allowed to perform the destructive /
+ *  admin-only operations. Operational writes (intake / sell / return) are
+ *  gated by `canTeamWrite()` instead and open to the whole team. */
 export function canEdit(user: User | null | undefined): boolean {
   return isAdmin(user);
 }
