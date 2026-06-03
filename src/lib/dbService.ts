@@ -158,22 +158,33 @@ function assertCanEdit(action: string): void {
   if (!isAdmin(auth.currentUser)) throw new ReadOnlyRoleError(action);
 }
 
-/** Operational-write gate — stock intake, selling, and processing returns
- *  are day-to-day team workflows, so any signed-in team member may perform
- *  the create / update / bulk-create writes they produce. Destructive and
- *  admin-only operations keep using assertCanEdit instead. */
+/** Operational-write gate — stock intake (office + SHS), selling, and
+ *  processing returns are day-to-day team workflows, so any signed-in team
+ *  member may perform the create / update / bulk-create writes they produce.
+ *  Destructive and admin-only operations keep using assertCanEdit instead. */
 function assertCanWrite(action: string): void {
   if (isAdmin(auth.currentUser) || canTeamWrite(auth.currentUser)) return;
   throw new ReadOnlyRoleError(action);
 }
 
-// `as` is retained for call-site self-documentation (e.g. the sell/return
-// write paths). All operational writes resolve to the same team-level
-// permission; destructive ops call assertCanEdit directly and are unaffected.
-type WriteOpts = { as?: 'edit' | 'sell' | 'return' };
+// `as` is retained for call-site self-documentation (e.g. the sell / return /
+// shs write paths). All operational writes resolve to the same team-level
+// permission; plain destructive ops call assertCanEdit directly.
+type WriteOpts = { as?: 'edit' | 'sell' | 'return' | 'shs' };
 function assertWrite(opts: WriteOpts | undefined, editAction: string, _sellAction: string): void {
   void opts;
   assertCanWrite(editAction);
+}
+
+// Deletes are destructive and admin-only by default. The ONE exception is
+// receiving SHS ("supplier has stock") into inventory: that flow swaps a
+// synthetic SHS placeholder unit for the real received units, so the
+// placeholder cleanup is part of an operational intake the whole team does.
+// Those call sites pass { as: 'shs' } to opt that single delete into the
+// team-level permission, without unlocking general deletes.
+function assertDelete(opts: WriteOpts | undefined, action: string): void {
+  if (opts?.as === 'shs') assertCanWrite(action);
+  else assertCanEdit(action);
 }
 
 export type AuditAction = 'create' | 'update' | 'delete' | 'bulk_create' | 'bulk_delete';
@@ -275,8 +286,9 @@ export const dbService = {
    *
    *  Audit log entries are immutable — calls targeting the auditLog
    *  collection are a no-op so the trail can't be tampered with. */
-  async delete(collectionName: string, id: string) {
-    assertCanEdit('delete records');
+  async delete(collectionName: string, id: string, opts?: WriteOpts) {
+    // Admin-only, except the SHS-receive placeholder cleanup (see assertDelete).
+    assertDelete(opts, 'delete records');
     if (collectionName === 'auditLog' || collectionName === COL.auditLog) {
       if (typeof console !== 'undefined' && console.warn) {
         console.warn('[soft-delete] auditLog is append-only — delete refused');
