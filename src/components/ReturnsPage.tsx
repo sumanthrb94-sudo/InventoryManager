@@ -38,6 +38,7 @@ import { useInventoryStore } from '../lib/inventoryStore';
 import { notificationService } from '../lib/notificationService';
 import { fmtDateForUser, useUserRegion } from '../lib/userLocale';
 import { getWarrantyStatus } from '../lib/warrantyUtils';
+import { groupReturnEventsByImei } from '../lib/returnsLifecycle';
 import CopyImei from './CopyImei';
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -1209,7 +1210,7 @@ function ProcessReturnModal({
   const OPTION_LABELS: Record<ReturnCategory, { label: string; desc: string; color: string }> = {
     returned_to_inventory: { label: 'Back to Inventory', desc: 'Unit is resaleable — restore to available stock',                  color: 'border-emerald-300 bg-emerald-50 text-emerald-800' },
     repair:                { label: 'Send for Repair',   desc: 'Unit needs repair before resale',                                  color: 'border-blue-300 bg-blue-50 text-blue-800' },
-    returned_to_supplier:  { label: 'Return to Supplier', desc: 'Soft-delete · keeps the row in returns history for audit',        color: 'border-amber-300 bg-amber-50 text-amber-800' },
+    returned_to_supplier:  { label: 'Return to Supplier', desc: 'Removed from office stock · kept in returns history for audit',  color: 'border-amber-300 bg-amber-50 text-amber-800' },
   };
   const order: ReturnCategory[] = ['returned_to_inventory', 'repair', 'returned_to_supplier'];
 
@@ -1578,21 +1579,10 @@ function ReturnsReport() {
     });
   }, [events, typeFilter, fromIso, toIso, search]);
 
-  // Group filtered events by IMEI for the timeline view.
-  const byImei = useMemo(() => {
-    const m = new Map<string, import('../types').ReturnEvent[]>();
-    for (const e of filtered) {
-      const k = (e.imei || '(no-imei)').toUpperCase();
-      if (!m.has(k)) m.set(k, []);
-      m.get(k)!.push(e);
-    }
-    // Within each IMEI bucket, newest first.
-    for (const arr of m.values()) {
-      arr.sort((a, b) => (b.date || '').localeCompare(a.date || ''));
-    }
-    // Return as [imei, events][] sorted by most-recent-event-date desc.
-    return Array.from(m.entries()).sort((a, b) => (b[1][0]?.date || '').localeCompare(a[1][0]?.date || ''));
-  }, [filtered]);
+  // Group filtered events by IMEI for the timeline view. Backed by the pure,
+  // unit-tested helper in lib/returnsLifecycle so the on-screen per-IMEI
+  // lifecycle (incl. units returned multiple times) matches verified behaviour.
+  const byImei = useMemo(() => groupReturnEventsByImei(filtered), [filtered]);
 
   const TYPE_TONE: Record<string, string> = {
     returned:         'bg-rose-100 text-rose-700 border-rose-200',

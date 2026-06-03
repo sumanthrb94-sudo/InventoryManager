@@ -4,6 +4,7 @@ import { dbService } from '../lib/dbService';
 import { InventoryUnit, Supplier, Sale } from '../types';
 import { useInventoryStore } from '../lib/inventoryStore';
 import { recomputeSale } from '../lib/recomputeSale';
+import { toCsv } from '../lib/csv';
 import CopyImei from './CopyImei';
 import PDFReportButton from './PDFReportButton';
 import ExcelReportButton from './ExcelReportButton';
@@ -89,21 +90,18 @@ function commissionPctFor(platform: string | undefined): number {
 type ReportTab = 'daily' | 'stock' | 'sales' | 'vat';
 
 // ── CSV export helper ─────────────────────────────────────────────────────────
-function exportCSV(filename: string, rows: Record<string, string | number | undefined>[]) {
-  if (!rows.length) return;
-  const headers = Object.keys(rows[0]);
-  const lines = [
-    headers.join(','),
-    ...rows.map(r =>
-      headers.map(h => {
-        const v = r[h] ?? '';
-        return typeof v === 'string' && (v.includes(',') || v.includes('"'))
-          ? `"${v.replace(/"/g, '""')}"`
-          : v;
-      }).join(',')
-    ),
-  ];
-  const blob = new Blob([lines.join('\n')], { type: 'text/csv;charset=utf-8;' });
+// Header-safe: when `headers` are supplied the export still downloads a
+// header-only file for an empty period instead of silently doing nothing
+// (E2E finding #8). Serialisation is delegated to the pure, unit-tested
+// toCsv() so the escaping logic lives in one place.
+function exportCSV(
+  filename: string,
+  rows: Record<string, string | number | undefined>[],
+  headers?: string[],
+) {
+  const cols = headers ?? (rows.length ? Object.keys(rows[0]) : []);
+  if (cols.length === 0) return; // truly nothing to describe
+  const blob = new Blob([toCsv(rows, cols)], { type: 'text/csv;charset=utf-8;' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
@@ -111,6 +109,12 @@ function exportCSV(filename: string, rows: Record<string, string | number | unde
   a.click();
   URL.revokeObjectURL(url);
 }
+
+const DAILY_SALES_HEADERS = [
+  'Date', 'Model', 'IMEI', 'Order Number', 'Buy Price £', 'Sale Price £',
+  'Gross Margin £', 'Platform Fee £', 'Postage £', 'Net Profit £',
+  'Platform', 'Commission %',
+];
 
 export default function ReportingPage() {
   const { units, suppliers, sales } = useInventoryStore();
@@ -320,7 +324,9 @@ export default function ReportingPage() {
       'Net Profit £': r.grossProfit ?? netProfitFor(r.platform, r.salePrice || 0, r.buyPrice, r.postageCost),
       Platform: r.platform || '',
       'Commission %': commissionPctFor(r.platform),
-    }))
+    })),
+    // Explicit headers → an empty day still exports a header row, not nothing.
+    DAILY_SALES_HEADERS,
   );
 
   const exportStockReport = () => exportCSV(`stock-report-${new Date().toISOString().split('T')[0]}.csv`,

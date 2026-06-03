@@ -126,6 +126,76 @@ function filterSalesByDate(sales: Sale[], opts?: ClientReportOptions): Sale[] {
   return sales.filter(s => s.saleDate >= from && s.saleDate <= to);
 }
 
+/**
+ * Derive a per-model INVENTORY summary from raw units when the caller has no
+ * pre-computed `aggregates`. This is the common case: units imported/added
+ * IMEI-by-IMEI never create `inventoryAggregates` docs, so without this
+ * fallback the INVENTORY sheet would export with only its header row (the bug
+ * found in E2E: "No aggregates" → empty summary tab while the IMEI NUMBERS
+ * sheet was fully populated).
+ *
+ * Grouping rule: one row per distinct `model`, counting only office stock
+ * (`status === 'available'` and not soft-deleted) so the totals match the
+ * "All Office Stock" tile. Buy price is the most-recently-stocked unit's BP
+ * ("latest BP"); colours and suppliers are aggregated across the group.
+ */
+export function deriveInventoryAggregates(units: InventoryUnit[]): InventoryAggregate[] {
+  const groups = new Map<string, InventoryUnit[]>();
+  for (const u of units) {
+    if (u.status !== 'available') continue;
+    if ((u as { deletedAt?: unknown }).deletedAt) continue;   // skip tombstones
+    const key = (u.model ?? '').trim();
+    const bucket = groups.get(key);
+    if (bucket) bucket.push(u); else groups.set(key, [u]);
+  }
+
+  const aggregates: InventoryAggregate[] = [];
+  for (const [model, groupUnits] of groups) {
+    // Latest BP = buyPrice of the unit with the most recent dateIn.
+    const latest = groupUnits
+      .slice()
+      .sort((a, b) => (b.dateIn || '').localeCompare(a.dateIn || ''))[0];
+
+    // Colour counts, preserving first-seen order.
+    const coloursMap: { [colour: string]: number } = {};
+    for (const u of groupUnits) {
+      const c = (u.colour ?? '').trim() || '—';
+      coloursMap[c] = (coloursMap[c] ?? 0) + 1;
+    }
+
+    // Unique supplier ids and unique notes (both order-preserving).
+    const supplierIds: string[] = [];
+    const seenSup = new Set<string>();
+    const notesParts: string[] = [];
+    const seenNote = new Set<string>();
+    for (const u of groupUnits) {
+      const sid = u.supplierId;
+      if (sid && !seenSup.has(sid)) { seenSup.add(sid); supplierIds.push(sid); }
+      const note = (u.notes ?? '').trim();
+      if (note && !seenNote.has(note)) { seenNote.add(note); notesParts.push(note); }
+    }
+
+    aggregates.push({
+      id: `agg-derived-${model || 'unknown'}`,
+      model,
+      storage: latest?.storage,
+      buyPrice: latest?.buyPrice,
+      quantityNum: groupUnits.length,
+      coloursMap,
+      coloursRaw: buildColourString(coloursMap),
+      supplierIds,
+      notes: notesParts.length ? notesParts.join('; ') : undefined,
+      ownerId: 'shared',
+      createdAt: null,
+      updatedAt: null,
+    });
+  }
+
+  // Stable, human-friendly order: model A→Z.
+  aggregates.sort((a, b) => a.model.localeCompare(b.model));
+  return aggregates;
+}
+
 // ---------------------------------------------------------------------------
 // INVENTORY workbook
 // ---------------------------------------------------------------------------
@@ -152,8 +222,14 @@ export async function buildInventoryWorkbookBuffer(input: BuildInventoryWorkbook
   // Use addRow so we keep literal nulls (header row D is intentionally empty).
   invSheet.addRow(INVENTORY_HEADERS);
 
-  for (let i = 0; i < aggregates.length; i++) {
-    const agg = aggregates[i];
+  // Fall back to a per-model summary derived from units when no aggregate
+  // docs exist — otherwise this sheet exports header-only (E2E finding #1).
+  const effectiveAggregates = aggregates.length > 0
+    ? aggregates
+    : deriveInventoryAggregates(units);
+
+  for (let i = 0; i < effectiveAggregates.length; i++) {
+    const agg = effectiveAggregates[i];
     const r = i + 2; // 1-based, +1 for header
 
     const row = invSheet.addRow([
@@ -182,10 +258,15 @@ export async function buildInventoryWorkbookBuffer(input: BuildInventoryWorkbook
       ?? joinSupplierNames(unit.supplierIds, suppliers)
       ?? '';
 
+    // IMEI written as an exact string so a 15-digit value is preserved
+    // verbatim (no float rounding / scientific notation) and Apple serials
+    // survive untouched. numFmt '0' below only affects numeric cells.
+    const imeiExact = unit.imei != null ? String(unit.imei) : '';
+
     const row = imeiSheet.addRow([
       stockInDate,
       unit.model ?? '',
-      unit.imei ?? '',
+      imeiExact,
       unit.buyPrice ?? null,
       unit.colour ?? '',
       supplierName,

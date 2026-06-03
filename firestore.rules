@@ -46,6 +46,21 @@ service cloud.firestore {
       allow read, write: if isSignedIn();
     }
 
+    // Per-IMEI return lifecycle (returned → restocked → sent_to_supplier →
+    // received_again …). Without this rule the catch-all below denied every
+    // read/write, so the timeline only lived in the in-memory cache and
+    // vanished on reload — the per-IMEI date-wise history never persisted.
+    match /returnEvents/{eventId} {
+      allow read, write: if isSignedIn();
+    }
+
+    // Append-only admin audit trail (who created/updated/deleted what).
+    // Previously denied by the catch-all, so the Admin "Audit Log" panel
+    // always read empty after a reload even though writes were attempted.
+    match /auditLog/{entryId} {
+      allow read, write: if isSignedIn();
+    }
+
     match /{document=**} {
       allow read, write: if false;
     }
