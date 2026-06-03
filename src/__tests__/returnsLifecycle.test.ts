@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import type { ReturnEvent, ReturnEventType } from '../types';
+import type { InventoryUnit, Sale } from '../types';
 import {
   normalizeImei,
   compareEventsNewestFirst,
@@ -9,6 +10,7 @@ import {
   countEventsOfType,
   backToInventoryCount,
   dispositionCounts,
+  summarizeUnitLife,
 } from '../lib/returnsLifecycle';
 
 // ── Factory ─────────────────────────────────────────────────────────────────
@@ -148,5 +150,62 @@ describe('edge cases', () => {
     expect(latestReturnEvent([], 'NOPE')).toBeNull();
     expect(backToInventoryCount([], 'NOPE')).toBe(0);
     expect(groupReturnEventsByImei([])).toEqual([]);
+  });
+});
+
+// ── summarizeUnitLife — life history + P&L foundation ──────────────────────────
+function makeUnit(o: Partial<InventoryUnit> = {}): InventoryUnit {
+  return {
+    id: 'unit-1', imei: '353209102768686', model: 'iPhone 12', brand: 'Apple',
+    category: 'iPhone', colour: 'Black', buyPrice: 200, dateIn: '2026-01-01',
+    supplierId: 'sup-1', status: 'available', flags: [], notes: '',
+    platformListed: false, listingSites: [], ownerId: 'shared',
+    createdAt: '2026-01-01T00:00:00.000Z', ...o,
+  } as InventoryUnit;
+}
+function makeSale(o: Partial<Sale> = {}): Sale {
+  return {
+    id: o.id ?? 'sale-1', unitId: 'unit-1', imei: '353209102768686',
+    saleDate: o.saleDate ?? '2026-02-01', quantity: 1, buyPrice: 200, salePrice: 320,
+    spMinusBp: 120, marginalTax: 0, commission: 0, marketplace: 'eBay',
+    orderNumber: o.id ?? 'ord-1', ...o,
+  } as Sale;
+}
+
+describe('summarizeUnitLife', () => {
+  it('marks a currently-sold unit with its sale date, price and margin', () => {
+    const unit = makeUnit({ status: 'sold', saleDate: '2026-02-01', salePrice: 320, postageCost: 8 });
+    const life = summarizeUnitLife(unit, [makeSale({ saleDate: '2026-02-01', salePrice: 320 })]);
+    expect(life.state).toBe('sold');
+    expect(life.soldDate).toBe('2026-02-01');
+    expect(life.salePrice).toBe(320);
+    expect(life.buyPrice).toBe(200);
+    expect(life.grossMargin).toBe(112); // 320 − 200 − 8
+    expect(life.timesSold).toBe(1);
+    expect(life.timesReturned).toBe(0);
+  });
+
+  it('counts every sell→return round-trip: returned 10×, sold the 11th time', () => {
+    // 10 prior sales that were each returned (voided) + 1 current active sale.
+    const voided: Sale[] = Array.from({ length: 10 }, (_, i) =>
+      makeSale({ id: `s${i}`, saleDate: `2026-03-0${(i % 9) + 1}`, voidedAt: `2026-03-1${i % 9}` }),
+    );
+    const active = makeSale({ id: 's-final', saleDate: '2026-05-01', salePrice: 350 });
+    const unit = makeUnit({ status: 'sold', saleDate: '2026-05-01', salePrice: 350 });
+    const life = summarizeUnitLife(unit, [...voided, active]);
+    expect(life.timesReturned).toBe(10);
+    expect(life.timesSold).toBe(11);
+    expect(life.state).toBe('sold');
+    expect(life.soldDate).toBe('2026-05-01');
+  });
+
+  it('reports available / in-repair / to-supplier states from the unit doc', () => {
+    expect(summarizeUnitLife(makeUnit({ status: 'available' }), []).state).toBe('available');
+    expect(summarizeUnitLife(makeUnit({ status: 'returned', returnType: 'repair' }), []).state).toBe('in_repair');
+    expect(summarizeUnitLife(makeUnit({ status: 'returned', returnType: 'returned_to_supplier' }), []).state).toBe('to_supplier');
+  });
+
+  it('treats a missing unit doc (soft-deleted to supplier) as to_supplier', () => {
+    expect(summarizeUnitLife(null, []).state).toBe('to_supplier');
   });
 });
