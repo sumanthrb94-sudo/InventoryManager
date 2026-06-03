@@ -573,6 +573,20 @@ function AppShell({ user }: { user: User }) {
 
         {/* Scrollable page content */}
         <main className="flex-1 overflow-y-auto custom-scrollbar">
+          {/* Read-only banner — admins see no banner; everyone else gets
+              a permanent reminder that edits go through the admin. The
+              data layer also throws ReadOnlyRoleError if any UI control
+              somehow bypasses the hide, so the banner is the explicit
+              "this is intentional" signal. */}
+          {!userIsAdmin && (
+            <div className="bg-amber-50 border-b border-amber-200 px-4 md:px-8 py-2">
+              <p className="text-[11px] font-mono text-amber-800">
+                <span className="font-bold uppercase tracking-widest">Read-only</span>
+                <span className="mx-2 text-amber-400">·</span>
+                You can view Stock Intake, Sales and Returns. Edits, imports and deletes are admin-only — ask the admin to make changes.
+              </p>
+            </div>
+          )}
           <div className="p-4 md:p-8 pb-24 md:pb-8">
 
             {/* Admin sub-nav strip (mobile shows it inline; desktop also gets a

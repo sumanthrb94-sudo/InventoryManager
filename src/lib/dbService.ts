@@ -126,7 +126,25 @@ function cleanForFirestore(obj: Record<string, any>): Record<string, any> {
 // `action` is one of: create | update | delete | bulk_create | bulk_delete
 // `count` is only set for bulk_*, gives the number of affected docs.
 
-import { auth } from './firebase';
+import { auth, isAdmin } from './firebase';
+
+// ── Write-permission guard ───────────────────────────────────────────────────
+// Every mutating dbService method calls this BEFORE any cache emit or
+// Firestore write. Throws when the signed-in user isn't admin so the
+// app surfaces a clear "Read-only role" error instead of silently
+// dropping changes or producing inconsistent state between the cache
+// and Firestore (which would happen if only the Firestore write
+// failed via Security Rules — local cache would still be patched).
+class ReadOnlyRoleError extends Error {
+  constructor(action: string) {
+    super(`Read-only role — only admin can ${action}. Ask the admin to make this change.`);
+    this.name = 'ReadOnlyRoleError';
+  }
+}
+
+function assertCanEdit(action: string): void {
+  if (!isAdmin(auth.currentUser)) throw new ReadOnlyRoleError(action);
+}
 
 export type AuditAction = 'create' | 'update' | 'delete' | 'bulk_create' | 'bulk_delete';
 
@@ -168,6 +186,7 @@ function recordAudit(
 export const dbService = {
 
   async create(collectionName: string, id: string, data: any) {
+    assertCanEdit('create records');
     const timestamp = nowIso();
     // `create` semantics = full insert / overwrite. If a previously
     // soft-deleted doc exists at this id, this call brings it back —
@@ -198,6 +217,7 @@ export const dbService = {
   },
 
   async update(collectionName: string, id: string, data: any) {
+    assertCanEdit('edit records');
     const timestamp = nowIso();
     const current = [...(cachedData[collectionName] || [])];
     const idx = current.findIndex(x => x.id === id);
@@ -226,6 +246,7 @@ export const dbService = {
    *  Audit log entries are immutable — calls targeting the auditLog
    *  collection are a no-op so the trail can't be tampered with. */
   async delete(collectionName: string, id: string) {
+    assertCanEdit('delete records');
     if (collectionName === 'auditLog' || collectionName === COL.auditLog) {
       if (typeof console !== 'undefined' && console.warn) {
         console.warn('[soft-delete] auditLog is append-only — delete refused');
@@ -258,6 +279,7 @@ export const dbService = {
     entries: Array<{ collection: string; id: string; data: any }>,
     onProgress?: (done: number, total: number) => void,
   ) {
+    assertCanEdit('bulk-create records');
     const timestamp = nowIso();
     const total = entries.length;
     let done = 0;
@@ -342,6 +364,7 @@ export const dbService = {
     ids: string[],
     onProgress?: (done: number, total: number) => void,
   ): Promise<number> {
+    assertCanEdit('bulk-delete records');
     if (ids.length === 0) return 0;
     if (collectionName === 'auditLog' || collectionName === COL.auditLog) {
       if (typeof console !== 'undefined' && console.warn) {
@@ -401,6 +424,7 @@ export const dbService = {
 
   /** Clear the soft-delete tombstone on a single doc. */
   async restore(collectionName: string, id: string): Promise<void> {
+    assertCanEdit('restore records');
     if (collectionName === 'auditLog' || collectionName === COL.auditLog) return;
     const ts = nowIso();
     const patch = { id, deletedAt: null as any, deletedBy: null as any, deletedByEmail: null as any, updatedAt: ts };
@@ -423,6 +447,7 @@ export const dbService = {
 
   /** Bulk-restore variant for the recycle-bin "Restore N" action. */
   async bulkRestore(collectionName: string, ids: string[]): Promise<number> {
+    assertCanEdit('bulk-restore records');
     if (ids.length === 0) return 0;
     if (collectionName === 'auditLog' || collectionName === COL.auditLog) return 0;
     const ts = nowIso();
@@ -462,6 +487,7 @@ export const dbService = {
    *  action — frees Firestore quota once an operator-set retention window
    *  has passed. */
   async purgeSoftDeleted(collectionName: string, olderThanDays: number = 30): Promise<number> {
+    assertCanEdit('purge records');
     const cutoff = Date.now() - olderThanDays * 86400000;
     const all = (cachedData[collectionName] || []);
     const targets = all
@@ -645,6 +671,7 @@ export const dbService = {
   },
 
   async updateByImei(imei: string, data: any) {
+    assertCanEdit('edit unit by IMEI');
     const timestamp = nowIso();
     const current = [...(cachedData['inventoryUnits'] || [])];
     const idx = current.findIndex((x: any) => x.imei === imei);
@@ -684,6 +711,7 @@ export const dbService = {
     importedBy?: string;
     notes?: string;
   }): Promise<string> {
+    assertCanEdit('create import batch');
     const ref = doc(colRef('importBatches'));
     const id = ref.id;
     const payload: any = {

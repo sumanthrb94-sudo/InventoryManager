@@ -36,6 +36,7 @@ import {
   marketplaceFromListingSite, MARKETPLACES,
 } from '../lib/platforms';
 import { fmtDateForUser, parseSaleDate, useUserRegion } from '../lib/userLocale';
+import { auth, canEdit } from '../lib/firebase';
 import { manualShsUnitsFrom } from '../lib/shsCount';
 import CopyImei from './CopyImei';
 import IntelligencePanel from './IntelligencePanel';
@@ -214,6 +215,7 @@ function inventoryUnitToSale(u: InventoryUnit): Sale {
 export default function SellSheet(_props: Props) {
   const { units, suppliers, sales } = useInventoryStore();
   const region = useUserRegion();
+  const userCanEdit = canEdit(auth.currentUser);
 
   const supplierMap = useMemo(() => {
     const m: Record<string, string> = {};
@@ -674,12 +676,14 @@ export default function SellSheet(_props: Props) {
       {/* ── Header card: action row + KPI tiles ───────────────────────────── */}
       <div className="bg-white border border-slate-200 rounded-3xl p-5 shadow-sm">
         <div className="flex items-center gap-2 flex-wrap justify-end mb-4">
-          <button
-            onClick={() => setPickerOpen(true)}
-            className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-slate-900 text-white text-[10px] font-bold uppercase tracking-widest hover:bg-slate-700 transition-all"
-          >
-            <Plus size={12} /> Record Sale
-          </button>
+          {userCanEdit && (
+            <button
+              onClick={() => setPickerOpen(true)}
+              className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-slate-900 text-white text-[10px] font-bold uppercase tracking-widest hover:bg-slate-700 transition-all"
+            >
+              <Plus size={12} /> Record Sale
+            </button>
+          )}
           <button
             onClick={() => setShowSchemaHelp(s => !s)}
             title="Sell schema reference"
@@ -689,13 +693,15 @@ export default function SellSheet(_props: Props) {
           >
             <Info size={12} /> Schema
           </button>
-          <button
-            onClick={() => setShowSalesImport(true)}
-            title="Import a SALES_REPORT_*.xlsx — backfills historic sales across AMAZON / BM / EBAY / ONBUY"
-            className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-white text-emerald-700 border border-emerald-300 text-[10px] font-bold uppercase tracking-widest hover:bg-emerald-50 transition-all"
-          >
-            <Upload size={12} /> Import Sales
-          </button>
+          {userCanEdit && (
+            <button
+              onClick={() => setShowSalesImport(true)}
+              title="Import a SALES_REPORT_*.xlsx — backfills historic sales across AMAZON / BM / EBAY / ONBUY"
+              className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-white text-emerald-700 border border-emerald-300 text-[10px] font-bold uppercase tracking-widest hover:bg-emerald-50 transition-all"
+            >
+              <Upload size={12} /> Import Sales
+            </button>
+          )}
           <button
             onClick={handleSalesReport}
             title="Download a unified Sales Report (buy schema + sale fields, one row per non-voided sale)"
@@ -703,7 +709,7 @@ export default function SellSheet(_props: Props) {
           >
             <FileSpreadsheet size={12} /> Sales Report
           </button>
-          {lastImportBatch && (
+          {userCanEdit && lastImportBatch && (
             <button
               onClick={undoLastImport}
               disabled={undoingImport}

@@ -122,37 +122,48 @@ export function userRegion(user: User | null | undefined): UserRegion {
   return 'both'; // default — non-allowlisted users see both Buy and Sell
 }
 
-/** Whether the user should see the Buy tab. */
+/** Whether the user should see the Buy / Stock Intake tab.
+ *  Every signed-in user can VIEW it regardless of region — the read views
+ *  are open to the whole team. Edit controls inside the tab are still
+ *  gated by `canEdit()`. */
 export function canBuy(user: User | null | undefined): boolean {
-  const r = userRegion(user);
-  return r === 'uk' || r === 'both' || r === 'admin';
+  return !!user?.email;
 }
 
-/** Whether the user should see the Sell tab. */
+/** Whether the user should see the Sell / Sales tab.
+ *  Every signed-in user can VIEW it regardless of region — same rule as
+ *  the Buy tab. Edit controls inside are gated by `canEdit()`. */
 export function canSell(user: User | null | undefined): boolean {
-  const r = userRegion(user);
-  return r === 'india' || r === 'both' || r === 'admin';
+  return !!user?.email;
+}
+
+/** Whether the user should see the Returns tab.
+ *  Every signed-in user can VIEW it. Edit controls inside are gated by
+ *  `canEdit()`. */
+export function canSeeReturns(user: User | null | undefined): boolean {
+  return !!user?.email;
 }
 
 // ── Edit-permission gate ─────────────────────────────────────────────────────
 //
-// Admin is the only role with general edit access. Non-admins are
-// read-only EVERYWHERE except the Bulk Order review flow (their daily
-// operational task — adding incoming stock as it lands at the warehouse).
+// Admin is the only role that can mutate state. Non-admins are strictly
+// read-only across every surface — Stock Intake, Sales, Returns, Bulk
+// Order, all of it. The UI surfaces below `canEdit(user)` should hide
+// every edit / record / delete / restore control when this returns false.
 //
-// Components that mutate state should hide their edit controls when
-// `canEdit(user)` is false. The Bulk Order modal is the one surface that
-// bypasses this gate via `canBulkOrder(user)` below.
+// Server-side enforcement (Firestore Security Rules) is the actual
+// boundary; this helper is a UX gate that keeps the read-only state
+// visible and intentional.
 
-/** True when this user is allowed to edit / mutate anything other than
- *  the Bulk Order flow. Today: admin-only. */
+/** True when this user is allowed to edit / mutate anything in the app.
+ *  Today: admin-only. The entire team can READ everywhere; only admin
+ *  can WRITE. */
 export function canEdit(user: User | null | undefined): boolean {
   return isAdmin(user);
 }
 
-/** True when this user is allowed to run the Bulk Order intake flow.
- *  All signed-in users qualify — bulk-order is the operational task the
- *  whole team handles daily. */
+/** Bulk Order intake — admin-only now. Previously open to the whole team;
+ *  collapsed back into the general read-only-except-admin rule. */
 export function canBulkOrder(user: User | null | undefined): boolean {
-  return !!user?.email;
+  return isAdmin(user);
 }
