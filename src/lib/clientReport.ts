@@ -55,6 +55,10 @@ export interface BuildInventoryWorkbookInput {
   aggregates: InventoryAggregate[];
   suppliers: Supplier[];
   whatsappFeed: SupplierWhatsappUpdate[];
+  /** Sales rows — used to build the per-unit "UNIT HISTORY" sheet (every
+   *  resale + return cycle of an IMEI, with dates, reasons and postage loss).
+   *  Optional so existing callers keep working; omit → sheet shows header only. */
+  sales?: Sale[];
 }
 
 export interface BuildSalesWorkbookInput {
@@ -212,8 +216,116 @@ const IMEI_HEADERS = [
 
 const WHATSAPP_HEADERS: Array<string | null> = ['MOBILE KIT SUPPLIER', null];
 
+// ---------------------------------------------------------------------------
+// UNIT HISTORY — per-IMEI life story across every resale + return cycle.
+// ---------------------------------------------------------------------------
+
+export const UNIT_HISTORY_HEADERS = [
+  'IMEI', 'MODEL', 'EVENT', 'DATE', 'SALE PRICE', 'POSTAGE', 'ORDER #',
+  'MARKETPLACE', 'REASON / COMMENT', 'BUY PRICE', 'TIMES SOLD',
+  'TIMES RETURNED', 'POSTAGE LOST', 'STATUS',
+] as const;
+
+export interface UnitHistoryRow {
+  IMEI: string;
+  MODEL: string;
+  EVENT: 'STOCK IN' | 'SOLD' | 'RETURNED' | 'SUMMARY';
+  DATE: string;                 // ISO yyyy-mm-dd (or '')
+  'SALE PRICE': number | '';
+  POSTAGE: number | '';
+  'ORDER #': string;
+  MARKETPLACE: string;
+  'REASON / COMMENT': string;
+  'BUY PRICE': number | '';
+  'TIMES SOLD': number;
+  'TIMES RETURNED': number;
+  'POSTAGE LOST': number;
+  STATUS: string;
+}
+
+const normImei = (s: string | null | undefined) => (s ?? '').trim().toUpperCase();
+const round2 = (n: number) => Math.round(n * 100) / 100;
+
+/**
+ * Build the per-unit resale/return history. One IMEI can be sold and returned
+ * many times; each resale is a Sale row and each return voids that row with
+ * `voidedAt` (return date) + `voidReason` (comment). We reconstruct the full
+ * chronological story per IMEI so the operator can SEE every cycle and total
+ * the loss (postage on returned sales is the recurring sunk cost).
+ *
+ * Only IMEIs that have at least one sale appear (units never sold have no
+ * cycle history). Units are ordered most-returned-first so the biggest
+ * loss-makers surface at the top. Returns a flat, denormalised row list
+ * (unit-level totals repeat on every row) suitable for an Excel sheet or CSV.
+ */
+export function buildUnitHistoryRows(units: InventoryUnit[], sales: Sale[]): UnitHistoryRow[] {
+  const unitByImei = new Map<string, InventoryUnit>();
+  for (const u of units) {
+    const k = normImei(u.imei);
+    if (k && !unitByImei.has(k)) unitByImei.set(k, u);
+  }
+
+  const salesByImei = new Map<string, Sale[]>();
+  for (const s of sales) {
+    const k = normImei(s.imei);
+    if (!k) continue;
+    (salesByImei.get(k) ?? salesByImei.set(k, []).get(k)!).push(s);
+  }
+
+  const summaries = [...salesByImei.entries()].map(([imei, imeiSales]) => {
+    const unit = unitByImei.get(imei);
+    const sorted = imeiSales.slice().sort((a, b) =>
+      (a.saleDate || '').localeCompare(b.saleDate || '') || (a.voidedAt || '').localeCompare(b.voidedAt || ''));
+    const timesSold = sorted.length;
+    const returnedSales = sorted.filter(s => s.voidedAt);
+    const timesReturned = returnedSales.length;
+    const postageLost = round2(returnedSales.reduce((t, s) => t + (s.postage || 0), 0));
+    const status = unit?.status
+      ?? (sorted.some(s => !s.voidedAt) ? 'sold' : 'returned');
+    const model = unit?.model || sorted[0]?.sku || '—';
+    return { imei, unit, sorted, timesSold, timesReturned, postageLost, status, model };
+  });
+
+  // Most-returned (biggest loss) first; tie-break by IMEI for stable output.
+  summaries.sort((a, b) => b.timesReturned - a.timesReturned || a.imei.localeCompare(b.imei));
+
+  const rows: UnitHistoryRow[] = [];
+  for (const s of summaries) {
+    const base = {
+      IMEI: s.imei, MODEL: s.model,
+      'BUY PRICE': s.unit?.buyPrice ?? '' as number | '',
+      'TIMES SOLD': s.timesSold, 'TIMES RETURNED': s.timesReturned,
+      'POSTAGE LOST': s.postageLost, STATUS: s.status,
+    };
+    const blank = { 'SALE PRICE': '' as const, POSTAGE: '' as const, 'ORDER #': '', MARKETPLACE: '', 'REASON / COMMENT': '' };
+
+    // 1) Stock-in
+    rows.push({ ...base, ...blank, EVENT: 'STOCK IN', DATE: s.unit?.dateIn ?? '',
+      'REASON / COMMENT': s.unit?.supplierName ? `Supplier: ${s.unit.supplierName}` : '' });
+
+    // 2) Each sell → (optional) return cycle, in order
+    for (const sale of s.sorted) {
+      rows.push({ ...base, ...blank, EVENT: 'SOLD', DATE: sale.saleDate || '',
+        'SALE PRICE': sale.salePrice ?? '', POSTAGE: sale.postage ?? '',
+        'ORDER #': sale.orderNumber || '', MARKETPLACE: sale.marketplace || '' });
+      if (sale.voidedAt) {
+        rows.push({ ...base, ...blank, EVENT: 'RETURNED', DATE: sale.voidedAt,
+          POSTAGE: sale.postage ?? '',                       // postage lost this cycle
+          'ORDER #': sale.orderNumber || '', MARKETPLACE: sale.marketplace || '',
+          'REASON / COMMENT': sale.voidReason || '(no reason recorded)' });
+      }
+    }
+
+    // 3) Per-unit summary line
+    rows.push({ ...base, ...blank, EVENT: 'SUMMARY', DATE: '',
+      'POSTAGE LOST': s.postageLost,
+      'REASON / COMMENT': `Sold ${s.timesSold}× · Returned ${s.timesReturned}× · Postage lost £${s.postageLost.toFixed(2)} · now ${s.status}` });
+  }
+  return rows;
+}
+
 export async function buildInventoryWorkbookBuffer(input: BuildInventoryWorkbookInput): Promise<ArrayBuffer> {
-  const { units, aggregates, suppliers, whatsappFeed } = input;
+  const { units, aggregates, suppliers, whatsappFeed, sales } = input;
   const wb = new ExcelJS.Workbook();
 
   // ---------------- Sheet 1: INVENTORY ----------------
@@ -292,6 +404,28 @@ export async function buildInventoryWorkbookBuffer(input: BuildInventoryWorkbook
   waSheet.addRow(WHATSAPP_HEADERS);
   for (const u of whatsappFeed) {
     waSheet.addRow([u.rawText ?? '', u.priceText ?? null]);
+  }
+
+  // ---------------- Sheet 4: UNIT HISTORY ----------------
+  // Per-IMEI life story: stock-in → each sale → each return (with reason) →
+  // a summary line (times sold/returned + postage lost). Lets the operator
+  // total the loss when a single unit is resold/returned multiple times.
+  const histSheet = wb.addWorksheet('UNIT HISTORY');
+  histSheet.columns = [18, 26, 11, 12, 10, 9, 16, 14, 42, 9, 11, 14, 12, 12]
+    .map(w => ({ width: w }));
+  histSheet.addRow([...UNIT_HISTORY_HEADERS]);
+  for (const r of buildUnitHistoryRows(units, sales ?? [])) {
+    const row = histSheet.addRow(UNIT_HISTORY_HEADERS.map(h => {
+      const v = (r as Record<string, unknown>)[h];
+      if (h === 'DATE') return toDate(v as string) ?? '';
+      return v === '' ? null : v;
+    }));
+    row.getCell(4).numFmt = 'mm/dd/yyyy';   // DATE
+    row.getCell(5).numFmt = '0.00';          // SALE PRICE
+    row.getCell(6).numFmt = '0.00';          // POSTAGE
+    row.getCell(10).numFmt = '0.00';         // BUY PRICE
+    row.getCell(13).numFmt = '0.00';         // POSTAGE LOST
+    if (r.EVENT === 'SUMMARY') row.font = { bold: true };
   }
 
   return wb.xlsx.writeBuffer() as Promise<ArrayBuffer>;
@@ -632,6 +766,7 @@ export async function downloadClientWorkbooks(input: DownloadClientWorkbooksInpu
       aggregates: input.aggregates,
       suppliers: input.suppliers,
       whatsappFeed: input.whatsappFeed,
+      sales: input.sales,   // powers the per-unit UNIT HISTORY sheet
     }),
     buildSalesWorkbookBuffer({
       sales: input.sales,

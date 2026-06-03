@@ -1,10 +1,20 @@
 import { describe, it, expect } from 'vitest';
 import ExcelJS from 'exceljs';
-import type { InventoryUnit, InventoryAggregate, Supplier } from '../types';
+import type { InventoryUnit, InventoryAggregate, Supplier, Sale } from '../types';
 import {
   deriveInventoryAggregates,
   buildInventoryWorkbookBuffer,
+  buildUnitHistoryRows,
 } from '../lib/clientReport';
+
+function makeSale(overrides: Partial<Sale> = {}): Sale {
+  return {
+    id: 'sale-x', marketplace: 'EBAY', orderNumber: 'ORD-1', imei: '999000000000050',
+    saleDate: '2026-01-15', quantity: 1, buyPrice: 111, salePrice: 150,
+    spMinusBp: 39, marginalTax: 0, commission: 0, postage: 8,
+    ...overrides,
+  } as Sale;
+}
 
 // ── Factories ─────────────────────────────────────────────────────────────────
 function makeUnit(overrides: Partial<InventoryUnit> = {}): InventoryUnit {
@@ -144,5 +154,73 @@ describe('buildInventoryWorkbookBuffer', () => {
     const buf = await buildInventoryWorkbookBuffer({ units, aggregates: [], suppliers: SUPPLIERS, whatsappFeed: [] });
     const imeiSheet = (await loadBuffer(buf)).getWorksheet('IMEI NUMBERS')!;
     expect(imeiSheet.actualRowCount).toBe(units.length + 1); // header + every unit incl. sold
+  });
+});
+
+// ── UNIT HISTORY: a single unit's full resale/return story + loss ─────────────
+describe('buildUnitHistoryRows', () => {
+  const IMEI = '999000000000050';
+  const unit = makeUnit({ id: 'u', imei: IMEI, model: 'ZZTEST PHONE 128GB', dateIn: '2026-01-01', buyPrice: 111, supplierName: 'ACME', status: 'available' });
+  // Sold & returned 5 times, on 5 dates, supplied out of order, £8 postage each.
+  const dates = ['2026-05-15', '2026-01-15', '2026-04-15', '2026-02-15', '2026-03-15'];
+  const sales = dates.map((d, i) => makeSale({
+    id: `s${i}`, imei: IMEI, saleDate: d, postage: 8, salePrice: 150,
+    orderNumber: `ORD-${i + 1}`, voidedAt: d, voidReason: `return reason ${i + 1}`,
+  }));
+
+  it('counts cycles and totals the postage loss for a 5x-returned unit', () => {
+    const rows = buildUnitHistoryRows([unit], sales);
+    const summary = rows.find(r => r.EVENT === 'SUMMARY')!;
+    expect(summary['TIMES SOLD']).toBe(5);
+    expect(summary['TIMES RETURNED']).toBe(5);
+    expect(summary['POSTAGE LOST']).toBe(40); // 5 × £8
+    expect(summary['REASON / COMMENT']).toContain('Sold 5× · Returned 5× · Postage lost £40.00');
+  });
+
+  it('emits a chronological stock-in → sold → returned timeline with reasons', () => {
+    const rows = buildUnitHistoryRows([unit], sales);
+    expect(rows[0].EVENT).toBe('STOCK IN');
+    expect(rows[0].DATE).toBe('2026-01-01');
+    const events = rows.filter(r => r.EVENT === 'SOLD' || r.EVENT === 'RETURNED');
+    // 5 SOLD + 5 RETURNED, interleaved, ordered by sale date ascending
+    expect(events.map(e => e.EVENT)).toEqual(
+      ['SOLD','RETURNED','SOLD','RETURNED','SOLD','RETURNED','SOLD','RETURNED','SOLD','RETURNED']);
+    const soldDates = rows.filter(r => r.EVENT === 'SOLD').map(r => r.DATE);
+    expect(soldDates).toEqual(['2026-01-15','2026-02-15','2026-03-15','2026-04-15','2026-05-15']);
+    // each return carries its comment
+    const returns = rows.filter(r => r.EVENT === 'RETURNED');
+    expect(returns.every(r => /return reason \d/.test(r['REASON / COMMENT']))).toBe(true);
+  });
+
+  it('handles a unit sold once and never returned (zero loss)', () => {
+    const rows = buildUnitHistoryRows([unit], [makeSale({ id: 'ok', imei: IMEI, voidedAt: undefined, voidReason: undefined })]);
+    const summary = rows.find(r => r.EVENT === 'SUMMARY')!;
+    expect(summary['TIMES SOLD']).toBe(1);
+    expect(summary['TIMES RETURNED']).toBe(0);
+    expect(summary['POSTAGE LOST']).toBe(0);
+    expect(rows.some(r => r.EVENT === 'RETURNED')).toBe(false);
+  });
+
+  it('orders units most-returned-first', () => {
+    const u2 = makeUnit({ id: 'u2', imei: '111', model: 'OTHER' });
+    const oneReturn = [makeSale({ id: 'a', imei: '111', voidedAt: '2026-02-01', voidReason: 'x' })];
+    const rows = buildUnitHistoryRows([unit, u2], [...sales, ...oneReturn]);
+    // First IMEI block should be the 5x-returned one
+    expect(rows[0].IMEI).toBe(IMEI);
+  });
+
+  it('excludes units that were never sold', () => {
+    const rows = buildUnitHistoryRows([unit], []);
+    expect(rows).toEqual([]);
+  });
+
+  it('UNIT HISTORY sheet is written into the workbook', async () => {
+    const buf = await buildInventoryWorkbookBuffer({ units: [unit], aggregates: [], suppliers: SUPPLIERS, whatsappFeed: [], sales });
+    const wb = await loadBuffer(buf);
+    const sheet = wb.getWorksheet('UNIT HISTORY')!;
+    expect(sheet).toBeTruthy();
+    // header + (stock-in + 5×(sold+returned) + summary) = 1 + 12 = 13 rows
+    expect(sheet.actualRowCount).toBe(13);
+    expect(sheet.getRow(1).getCell(1).value).toBe('IMEI');
   });
 });
