@@ -26,6 +26,7 @@ import type {
 import { MARKETPLACES } from '../types';
 import { excelFormulaFor } from './platforms';
 import { recomputeSale } from './recomputeSale';
+import { parseSaleDate } from './userLocale';
 
 /** Light-red fill used on voided (returned) rows across every sheet of
  *  the Sales Report. Same colour everywhere so the operator's eye picks
@@ -482,7 +483,15 @@ export async function buildSalesWorkbookBuffer(input: BuildSalesWorkbookInput): 
     const sheet = wb.addWorksheet(m);
     sheet.addRow(SALES_HEADERS[m]);
 
-    const bucket = byMarketplace.get(m) ?? [];
+    // Sort each sheet newest-first by saleDate so the operator opens the
+    // workbook to today's sales at the top — same chronological compare
+    // (via parseSaleDate) the on-screen Sales grid uses, so the export
+    // order matches the UI exactly. Tombstoned / voided rows stay in
+    // place chronologically rather than clustering — they keep their red
+    // fill so the operator can still spot them at a glance.
+    const bucket = (byMarketplace.get(m) ?? [])
+      .slice()
+      .sort((a, b) => parseSaleDate(b.saleDate) - parseSaleDate(a.saleDate));
     const headerLen = (SALES_HEADERS[m] as unknown as unknown[]).length;
     for (let i = 0; i < bucket.length; i++) {
       const rowNumber = i + 2; // skip header
