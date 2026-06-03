@@ -36,7 +36,7 @@ import {
   marketplaceFromListingSite, MARKETPLACES,
 } from '../lib/platforms';
 import { fmtDateForUser, parseSaleDate, useUserRegion } from '../lib/userLocale';
-import { auth, canEdit } from '../lib/firebase';
+import { auth, canEdit, canSell } from '../lib/firebase';
 import { manualShsUnitsFrom } from '../lib/shsCount';
 import CopyImei from './CopyImei';
 import IntelligencePanel from './IntelligencePanel';
@@ -216,6 +216,7 @@ export default function SellSheet(_props: Props) {
   const { units, suppliers, sales } = useInventoryStore();
   const region = useUserRegion();
   const userCanEdit = canEdit(auth.currentUser);
+  const userCanSell = canSell(auth.currentUser);   // selling is open to the whole team, not just admin
 
   const supplierMap = useMemo(() => {
     const m: Record<string, string> = {};
@@ -676,7 +677,7 @@ export default function SellSheet(_props: Props) {
       {/* ── Header card: action row + KPI tiles ───────────────────────────── */}
       <div className="bg-white border border-slate-200 rounded-3xl p-5 shadow-sm">
         <div className="flex items-center gap-2 flex-wrap justify-end mb-4">
-          {userCanEdit && (
+          {userCanSell && (
             <button
               onClick={() => setPickerOpen(true)}
               className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-slate-900 text-white text-[10px] font-bold uppercase tracking-widest hover:bg-slate-700 transition-all"

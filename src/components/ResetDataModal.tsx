@@ -3,6 +3,7 @@ import { X, Trash2, AlertTriangle, CheckCircle2, RefreshCw } from 'lucide-react'
 import { motion } from 'motion/react';
 import { collection, getDocs, writeBatch } from 'firebase/firestore';
 import { db } from '../lib/firebase';
+import { dbService } from '../lib/dbService';
 import { notificationService } from '../lib/notificationService';
 
 interface Props { onClose: () => void; }
@@ -56,6 +57,10 @@ export default function ResetDataModal({ onClose }: Props) {
         addLog(`  ↳ deleted ${snap.size} documents`);
       }
       addLog('All collections cleared.');
+      // Drop the in-memory caches too — the deletes above went straight to
+      // Firestore, so without this the live `units` cache stays populated and
+      // the Add Stock duplicate-IMEI check keeps flagging a now-empty DB.
+      dbService.clearLocalCache();
       notificationService.clearAll();
       setDone(true);
     } catch (err: any) {

@@ -176,7 +176,8 @@ export async function recordSale(input: RecordSaleInput): Promise<RecordSaleResu
 
   try {
     // 1. Write the sale row (composite id → natural dedupe).
-    await dbService.create('sales', saleId, sale);
+    //    { as: 'sell' } → permitted for non-admin sellers, not just admins.
+    await dbService.create('sales', saleId, sale, { as: 'sell' });
 
     // 2. Flip the unit to 'sold' and link sale provenance back to the unit.
     //    Persist the operator-typed SKU on the unit too if it differs from
@@ -192,20 +193,26 @@ export async function recordSale(input: RecordSaleInput): Promise<RecordSaleResu
     if (input.sku && input.sku.trim() && input.sku.trim() !== (unit.sku || '')) {
       unitPatch.sku = input.sku.trim();
     }
-    await dbService.update('inventoryUnits', unit.id, unitPatch);
+    await dbService.update('inventoryUnits', unit.id, unitPatch, { as: 'sell' });
   } catch (err: any) {
     return { ok: false, error: 'write_failed', message: err?.message || 'Save failed.' };
   }
 
-  // 3. Audit log.
-  await logInventoryEvent({
-    type: 'sold',
-    message: `Sold ${unit.model || unit.imei} on ${input.marketplace} · order ${orderNumber} · £${sp}`,
-    unitId: unit.id,
-    platform: input.marketplace,
-    salePrice: sp,
-    buyPrice: bp,
-  });
+  // 3. Audit log — best-effort. Never fail a completed sale on this: a
+  //    non-admin seller can't write the inventoryEvents collection, and the
+  //    sale + unit update above have already succeeded.
+  try {
+    await logInventoryEvent({
+      type: 'sold',
+      message: `Sold ${unit.model || unit.imei} on ${input.marketplace} · order ${orderNumber} · £${sp}`,
+      unitId: unit.id,
+      platform: input.marketplace,
+      salePrice: sp,
+      buyPrice: bp,
+    });
+  } catch (e: any) {
+    console.warn('Sale recorded; inventory-event log skipped:', e?.message || e);
+  }
 
   return { ok: true, saleId };
 }

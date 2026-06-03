@@ -130,7 +130,7 @@ export default function UnitDetailDrawer({ unit, supplierName, onClose }: Props)
       platformListed: false,
       saleOrderId: saleOrderId || undefined,
       customerName: customerName || undefined,
-    });
+    }, { as: 'sell' });   // selling is allowed for non-admin team members
     try {
       await logInventoryEvent({
         type: 'sold',

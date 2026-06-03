@@ -131,7 +131,7 @@ function cleanForFirestore(obj: Record<string, any>): Record<string, any> {
 // `action` is one of: create | update | delete | bulk_create | bulk_delete
 // `count` is only set for bulk_*, gives the number of affected docs.
 
-import { auth, isAdmin } from './firebase';
+import { auth, isAdmin, canSell } from './firebase';
 
 // ── Write-permission guard ───────────────────────────────────────────────────
 // Every mutating dbService method calls this BEFORE any cache emit or
@@ -149,6 +149,21 @@ class ReadOnlyRoleError extends Error {
 
 function assertCanEdit(action: string): void {
   if (!isAdmin(auth.currentUser)) throw new ReadOnlyRoleError(action);
+}
+
+// Selling is permitted for non-admin team members (see canSell in firebase.ts),
+// unlike general edits which stay admin-only. The record-sale and mark-sold
+// write paths pass { as: 'sell' } so any signed-in seller can move a unit to
+// 'sold' and write the sales row, without unlocking other mutations.
+function assertCanSell(action: string): void {
+  if (isAdmin(auth.currentUser) || canSell(auth.currentUser)) return;
+  throw new ReadOnlyRoleError(action);
+}
+
+type WriteOpts = { as?: 'edit' | 'sell' };
+function assertWrite(opts: WriteOpts | undefined, editAction: string, sellAction: string): void {
+  if (opts?.as === 'sell') assertCanSell(sellAction);
+  else assertCanEdit(editAction);
 }
 
 export type AuditAction = 'create' | 'update' | 'delete' | 'bulk_create' | 'bulk_delete';
@@ -190,8 +205,8 @@ function recordAudit(
 // ── dbService ─────────────────────────────────────────────────────────────────
 export const dbService = {
 
-  async create(collectionName: string, id: string, data: any) {
-    assertCanEdit('create records');
+  async create(collectionName: string, id: string, data: any, opts?: WriteOpts) {
+    assertWrite(opts, 'create records', 'record sales');
     const timestamp = nowIso();
     // `create` semantics = full insert / overwrite. If a previously
     // soft-deleted doc exists at this id, this call brings it back —
@@ -221,8 +236,8 @@ export const dbService = {
     recordAudit('create', collectionName, { docId: id });
   },
 
-  async update(collectionName: string, id: string, data: any) {
-    assertCanEdit('edit records');
+  async update(collectionName: string, id: string, data: any, opts?: WriteOpts) {
+    assertWrite(opts, 'edit records', 'record sales');
     const timestamp = nowIso();
     const current = [...(cachedData[collectionName] || [])];
     const idx = current.findIndex(x => x.id === id);
@@ -653,6 +668,18 @@ export const dbService = {
   async resetDatabase() {
     Object.keys(cachedData).forEach(k => delete cachedData[k]);
     window.location.href = window.location.origin + '?reset=' + Date.now();
+  },
+
+  /** Empty every in-memory cache and notify all live listeners with [].
+   *  Called right after a full wipe (ResetDataModal deletes Firestore docs
+   *  directly, bypassing this cache) so the live UI — notably the Add Stock
+   *  duplicate-IMEI check, which matches against cached `units` — immediately
+   *  reflects the now-empty database instead of flagging false "IMEI exists". */
+  clearLocalCache() {
+    for (const k of Object.keys(cachedData)) {
+      cachedData[k] = [];
+      emit(k, []);
+    }
   },
 
   // Accept any non-empty IMEI/serial verbatim — client data includes alphanumeric Apple
