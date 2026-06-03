@@ -643,14 +643,14 @@ export default function SellSheet(_props: Props) {
       ? new Date(lastImportBatch.latestWhen).toLocaleString('en-GB', { dateStyle: 'medium', timeStyle: 'short' })
       : 'unknown time';
     const ok = window.confirm(
-      `Delete every imported sale?\n\n` +
+      `Soft-delete every imported sale?\n\n` +
       `Rows: ${lastImportBatch.count.toLocaleString('en-GB')}\n` +
       `Across ${lastImportBatch.batchCount} import ${lastImportBatch.batchCount === 1 ? 'batch' : 'batches'}\n` +
       `Latest file: ${lastImportBatch.sourceFile || '—'}\n` +
       `Latest upload: ${when}\n\n` +
-      `This permanently deletes every Sales Report row currently in the DB. ` +
-      `In-app sales (Record Sale flow) are never touched. ` +
-      `Use this when you want to re-upload the workbook fresh.`,
+      `These rows are TOMBSTONED, not permanently removed — they hide from every Sales view but ` +
+      `the data persists in Firestore. Restore from the admin Recycle Bin, or re-importing the same ` +
+      `workbook will bring them back automatically. In-app sales (Record Sale flow) are never touched.`,
     );
     if (!ok) return;
     setUndoingImport(true);

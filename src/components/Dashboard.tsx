@@ -430,6 +430,12 @@ export default function Dashboard({ user, onNavigate, onOpenImport, onOpenMaster
               this is the operator-driven manual snapshot path. */}
           <BackupRestorePanel />
 
+          {/* Recycle Bin — soft-deleted docs across every collection.
+              Admin can restore individual rows or purge the whole bin
+              (true hard-delete) once docs have aged past the retention
+              window. */}
+          <RecycleBinPanel />
+
           {/* Audit log — most-recent 25 mutating ops across the system.
               Every create / update / delete / bulk_* by every signed-in user
               lands here. Admin sees a roll-up of "who edited what when". */}
@@ -1038,6 +1044,137 @@ function BackupRestorePanel() {
         <code className="text-emerald-300">gcloud firestore export</code> —
         this button is the manual-snapshot fallback for both.
       </p>
+    </div>
+  );
+}
+
+// ── Recycle Bin ────────────────────────────────────────────────────────────────
+//
+// Admin-only viewer for soft-deleted docs across every collection.
+// Subscribes to every COL.* with {includeSoftDeleted:true}, filters
+// down to docs carrying a `deletedAt` timestamp, groups by collection.
+// Each row shows what / when / by whom and offers a Restore button.
+function RecycleBinPanel() {
+  const [byCollection, setByCollection] = useState<Record<string, any[]>>({});
+  const [busy, setBusy] = useState(false);
+  const [status, setStatus] = useState('');
+
+  // Collections to watch — mirrors the COL map in dbService.
+  // Omit auditLog (append-only, never tombstoned).
+  const COLLECTIONS = useMemo<string[]>(() => [
+    'inventoryUnits', 'suppliers', 'inventoryEvents', 'dailyUpdates',
+    'activeListings', 'sourceDocuments', 'importBatches', 'sales',
+    'inventoryAggregates', 'marketplaceFees', 'supplierWhatsappUpdates',
+  ], []);
+
+  useEffect(() => {
+    const unsubs: Array<() => void> = [];
+    for (const name of COLLECTIONS) {
+      const u = dbService.subscribeToSoftDeleted(name, (rows) => {
+        setByCollection(prev => ({ ...prev, [name]: rows }));
+      });
+      unsubs.push(u);
+    }
+    return () => { for (const u of unsubs) u(); };
+  }, [COLLECTIONS]);
+
+  const totalTombstones = Object.values(byCollection).reduce<number>((s, arr) => s + (arr as any[]).length, 0);
+
+  const handleRestore = async (collection: string, id: string) => {
+    setBusy(true);
+    setStatus(`Restoring ${collection}/${id.slice(0, 12)}…`);
+    try {
+      await dbService.restore(collection, id);
+      setStatus(`✓ Restored.`);
+    } catch (err: any) {
+      setStatus(`✗ Restore failed: ${err?.message || err}`);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handlePurge = async (collection: string) => {
+    const days = 30;
+    const ok = window.confirm(
+      `Permanently DELETE every "${collection}" doc that was soft-deleted more than ${days} days ago?\n\n` +
+      `This is a real hard-delete — Firestore PITR is the only way back after this.`,
+    );
+    if (!ok) return;
+    setBusy(true);
+    setStatus(`Purging ${collection}…`);
+    try {
+      const n = await dbService.purgeSoftDeleted(collection, days);
+      setStatus(`✓ Purged ${n} ${collection} docs aged past ${days}d.`);
+    } catch (err: any) {
+      setStatus(`✗ Purge failed: ${err?.message || err}`);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="mt-5 bg-white/5 border border-white/10 rounded-2xl p-4">
+      <div className="flex items-center justify-between gap-3 mb-3 flex-wrap">
+        <p className="text-[9px] md:text-[10px] font-mono uppercase tracking-[0.3em] text-emerald-300/90">
+          Recycle Bin · {totalTombstones.toLocaleString()} soft-deleted doc{totalTombstones === 1 ? '' : 's'}
+        </p>
+        {status && (
+          <p className={`text-[10px] font-mono ${status.startsWith('✓') ? 'text-emerald-300' : status.startsWith('✗') ? 'text-rose-400' : 'text-slate-300'}`}>
+            {status}
+          </p>
+        )}
+      </div>
+      {totalTombstones === 0 ? (
+        <p className="text-[10px] font-mono text-slate-400">Nothing in the bin — every doc is live.</p>
+      ) : (
+        <div className="space-y-2 max-h-72 overflow-auto custom-scrollbar pr-1">
+          {(Object.entries(byCollection) as Array<[string, any[]]>)
+            .filter(([, rows]) => rows.length > 0)
+            .map(([col, rows]) => (
+              <div key={col} className="bg-black/30 border border-white/10 rounded-xl p-3">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-[10px] font-mono uppercase tracking-widest text-emerald-300/80">
+                    {col} · {rows.length} doc{rows.length === 1 ? '' : 's'}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => handlePurge(col)}
+                    disabled={busy}
+                    className="text-[9px] font-bold uppercase tracking-widest text-rose-400 hover:text-rose-300 disabled:opacity-40"
+                    title={`Permanently delete this collection's tombstones older than 30 days`}
+                  >
+                    Purge &gt;30d
+                  </button>
+                </div>
+                <div className="space-y-1">
+                  {rows.slice(0, 50).map((row: any) => {
+                    const when = row.deletedAt ? new Date(row.deletedAt).toLocaleString('en-GB', { dateStyle: 'short', timeStyle: 'short' }) : '—';
+                    return (
+                      <div key={row.id} className="grid grid-cols-[1fr_140px_90px_auto] items-center gap-2 text-[10px] font-mono leading-tight">
+                        <span className="truncate text-slate-300" title={row.id}>{row.id}</span>
+                        <span className="truncate text-slate-400" title={row.deletedByEmail || row.deletedBy || '—'}>
+                          {row.deletedByEmail || row.deletedBy || '—'}
+                        </span>
+                        <span className="text-slate-500 text-[9px]">{when}</span>
+                        <button
+                          type="button"
+                          onClick={() => handleRestore(col, row.id)}
+                          disabled={busy}
+                          className="text-[9px] font-bold uppercase tracking-widest text-emerald-300 hover:text-emerald-200 disabled:opacity-40"
+                        >
+                          Restore
+                        </button>
+                      </div>
+                    );
+                  })}
+                  {rows.length > 50 && (
+                    <p className="text-[9px] font-mono text-slate-500 mt-1">+ {rows.length - 50} more — purge old ones to make space</p>
+                  )}
+                </div>
+              </div>
+            ))}
+        </div>
+      )}
     </div>
   );
 }

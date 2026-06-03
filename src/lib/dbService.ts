@@ -169,7 +169,19 @@ export const dbService = {
 
   async create(collectionName: string, id: string, data: any) {
     const timestamp = nowIso();
-    const item = { ...data, id, createdAt: data.createdAt ?? timestamp, updatedAt: timestamp };
+    // `create` semantics = full insert / overwrite. If a previously
+    // soft-deleted doc exists at this id, this call brings it back —
+    // explicitly null `deletedAt` / `deletedBy` so the tombstone fields
+    // get CLEARED on Firestore (merge:true would otherwise preserve them).
+    const item = {
+      ...data,
+      id,
+      deletedAt: data.deletedAt ?? null,
+      deletedBy: data.deletedBy ?? null,
+      deletedByEmail: data.deletedByEmail ?? null,
+      createdAt: data.createdAt ?? timestamp,
+      updatedAt: timestamp,
+    };
 
     const current = [...(cachedData[collectionName] || [])];
     const idx = current.findIndex(x => x.id === id);
@@ -205,15 +217,39 @@ export const dbService = {
     recordAudit('update', collectionName, { docId: id });
   },
 
+  /** Soft-delete a doc — tombstones it with `{ deletedAt, deletedBy }`
+   *  instead of removing it from Firestore. All read paths
+   *  (subscribeToCollection, readAll) filter tombstoned docs out by
+   *  default. Use restore() to undelete, or purgeSoftDeleted() to
+   *  permanently remove after a retention window.
+   *
+   *  Audit log entries are immutable — calls targeting the auditLog
+   *  collection are a no-op so the trail can't be tampered with. */
   async delete(collectionName: string, id: string) {
-    const current = (cachedData[collectionName] || []).filter(x => x.id !== id);
+    if (collectionName === 'auditLog' || collectionName === COL.auditLog) {
+      if (typeof console !== 'undefined' && console.warn) {
+        console.warn('[soft-delete] auditLog is append-only — delete refused');
+      }
+      return;
+    }
+    const ts = nowIso();
+    const actorUid   = auth.currentUser?.uid   ?? null;
+    const actorEmail = auth.currentUser?.email ?? null;
+    const tombstone = { id, deletedAt: ts, deletedBy: actorUid, deletedByEmail: actorEmail, updatedAt: ts };
+
+    // Optimistic local: stamp the doc in place so views that DO read
+    // tombstones (admin recycle bin) keep the data, but the default
+    // filtering at emit time strips it from regular views.
+    const current = [...(cachedData[collectionName] || [])];
+    const idx = current.findIndex(x => x.id === id);
+    if (idx >= 0) current[idx] = { ...current[idx], ...tombstone };
     cachedData[collectionName] = current;
     emit(collectionName, current);
 
     try {
-      await deleteDoc(docRef(collectionName, id));
+      await setDoc(docRef(collectionName, id), cleanForFirestore(tombstone), { merge: true });
     } catch (err: any) {
-      console.warn(`Firestore delete [${collectionName}/${id}]:`, err.message);
+      console.warn(`Firestore soft-delete [${collectionName}/${id}]:`, err.message);
     }
     recordAudit('delete', collectionName, { docId: id });
   },
@@ -229,9 +265,15 @@ export const dbService = {
     // Build per-collection items
     const byCollection: Record<string, any[]> = {};
     for (const entry of entries) {
+      // Same semantics as the single-doc create — bulk-create explicitly
+      // clears any prior tombstone unless the entry itself carries one.
+      // Re-importing a sale that was previously soft-deleted brings it back.
       const item = {
         ...entry.data,
         id: entry.id,
+        deletedAt: entry.data?.deletedAt ?? null,
+        deletedBy: entry.data?.deletedBy ?? null,
+        deletedByEmail: entry.data?.deletedByEmail ?? null,
         ownerId: entry.data.ownerId || 'shared',
         createdAt: entry.data.createdAt ?? timestamp,
         updatedAt: timestamp,
@@ -260,6 +302,12 @@ export const dbService = {
           ...entry.data,
           id: entry.id,
           ownerId: entry.data.ownerId || 'shared',
+          // Explicit nulls clear any prior soft-delete tombstone on
+          // re-import. Without these, merge:true would leave a previously-
+          // tombstoned doc invisible after re-creation.
+          deletedAt:      entry.data.deletedAt ?? null,
+          deletedBy:      entry.data.deletedBy ?? null,
+          deletedByEmail: entry.data.deletedByEmail ?? null,
           createdAt: entry.data.createdAt ?? timestamp,
           updatedAt: timestamp,
         });
@@ -280,12 +328,14 @@ export const dbService = {
   },
 
   /**
-   * Delete a batch of docs from a single collection. Uses writeBatch under
-   * the 500-write Firestore limit and mirrors the optimistic in-memory
-   * removal that single-doc `delete` does.
+   * Soft-delete a batch of docs from a single collection. Tombstones each
+   * doc with `{ deletedAt, deletedBy }` instead of removing it from
+   * Firestore. Uses writeBatch under the 500-write limit. Audit-log
+   * deletes are refused (the collection is append-only).
    *
    * @param onProgress  Called per-chunk with (done, total). Optional.
-   * @returns           Number of docs actually deleted (== ids.length).
+   * @returns           Number of docs soft-deleted (== ids.length when the
+   *                    collection isn't auditLog, 0 otherwise).
    */
   async bulkDelete(
     collectionName: string,
@@ -293,25 +343,45 @@ export const dbService = {
     onProgress?: (done: number, total: number) => void,
   ): Promise<number> {
     if (ids.length === 0) return 0;
+    if (collectionName === 'auditLog' || collectionName === COL.auditLog) {
+      if (typeof console !== 'undefined' && console.warn) {
+        console.warn('[soft-delete] auditLog is append-only — bulkDelete refused');
+      }
+      return 0;
+    }
     const total = ids.length;
+    const ts = nowIso();
+    const actorUid   = auth.currentUser?.uid   ?? null;
+    const actorEmail = auth.currentUser?.email ?? null;
 
-    // Optimistic in-memory update — strip every targeted id from the cache
-    // and emit so subscribers refresh before the network round-trip.
+    // Optimistic local: stamp every targeted doc with the tombstone in the
+    // cache and emit so subscribers refresh before the network round-trip.
     const idSet = new Set(ids);
-    const remaining = (cachedData[collectionName] || []).filter(x => !idSet.has(x.id));
-    cachedData[collectionName] = remaining;
-    emit(collectionName, remaining);
+    const current = [...(cachedData[collectionName] || [])];
+    for (let i = 0; i < current.length; i++) {
+      if (idSet.has(current[i].id)) {
+        current[i] = { ...current[i], deletedAt: ts, deletedBy: actorUid, deletedByEmail: actorEmail, updatedAt: ts };
+      }
+    }
+    cachedData[collectionName] = current;
+    emit(collectionName, current);
 
     const BATCH_SIZE = 400;
     let done = 0;
     for (let i = 0; i < ids.length; i += BATCH_SIZE) {
       const chunk = ids.slice(i, i + BATCH_SIZE);
       const batch = writeBatch(db);
-      for (const id of chunk) batch.delete(docRef(collectionName, id));
+      for (const id of chunk) {
+        batch.set(
+          docRef(collectionName, id),
+          cleanForFirestore({ id, deletedAt: ts, deletedBy: actorUid, deletedByEmail: actorEmail, updatedAt: ts }),
+          { merge: true },
+        );
+      }
       try {
         await batch.commit();
       } catch (err: any) {
-        console.warn(`Firestore bulkDelete [${collectionName}] chunk ${i}:`, err.message);
+        console.warn(`Firestore bulk soft-delete [${collectionName}] chunk ${i}:`, err.message);
       }
       done += chunk.length;
       onProgress?.(done, total);
@@ -320,6 +390,99 @@ export const dbService = {
     onProgress?.(total, total);
     recordAudit('bulk_delete', collectionName, { count: total });
     return total;
+  },
+
+  // ── Restore + permanent purge ────────────────────────────────────────────────
+  //
+  // Restore = clear `deletedAt` / `deletedBy` so the doc shows up in
+  // default views again. Bulk variants for the recycle-bin "Restore N"
+  // button. Permanent purge = the actual hard-delete, gated on admin
+  // intent (operator runs it deliberately on rows that have aged out).
+
+  /** Clear the soft-delete tombstone on a single doc. */
+  async restore(collectionName: string, id: string): Promise<void> {
+    if (collectionName === 'auditLog' || collectionName === COL.auditLog) return;
+    const ts = nowIso();
+    const patch = { id, deletedAt: null as any, deletedBy: null as any, deletedByEmail: null as any, updatedAt: ts };
+
+    const current = [...(cachedData[collectionName] || [])];
+    const idx = current.findIndex(x => x.id === id);
+    if (idx >= 0) {
+      const { deletedAt: _da, deletedBy: _db, deletedByEmail: _dbe, ...rest } = current[idx];
+      current[idx] = { ...rest, updatedAt: ts };
+      cachedData[collectionName] = current;
+      emit(collectionName, current);
+    }
+    try {
+      await setDoc(docRef(collectionName, id), patch, { merge: true });
+    } catch (err: any) {
+      console.warn(`Firestore restore [${collectionName}/${id}]:`, err.message);
+    }
+    recordAudit('update', collectionName, { docId: id });
+  },
+
+  /** Bulk-restore variant for the recycle-bin "Restore N" action. */
+  async bulkRestore(collectionName: string, ids: string[]): Promise<number> {
+    if (ids.length === 0) return 0;
+    if (collectionName === 'auditLog' || collectionName === COL.auditLog) return 0;
+    const ts = nowIso();
+    const idSet = new Set(ids);
+
+    const current = [...(cachedData[collectionName] || [])];
+    for (let i = 0; i < current.length; i++) {
+      if (idSet.has(current[i].id)) {
+        const { deletedAt: _da, deletedBy: _db, deletedByEmail: _dbe, ...rest } = current[i];
+        current[i] = { ...rest, updatedAt: ts };
+      }
+    }
+    cachedData[collectionName] = current;
+    emit(collectionName, current);
+
+    const BATCH_SIZE = 400;
+    for (let i = 0; i < ids.length; i += BATCH_SIZE) {
+      const chunk = ids.slice(i, i + BATCH_SIZE);
+      const batch = writeBatch(db);
+      for (const id of chunk) {
+        batch.set(
+          docRef(collectionName, id),
+          { id, deletedAt: null, deletedBy: null, deletedByEmail: null, updatedAt: ts },
+          { merge: true },
+        );
+      }
+      try { await batch.commit(); } catch (err: any) {
+        console.warn(`Firestore bulkRestore [${collectionName}] chunk ${i}:`, err.message);
+      }
+      await new Promise(r => setTimeout(r, 0));
+    }
+    return ids.length;
+  },
+
+  /** Permanently hard-delete docs that were already soft-deleted at least
+   *  `olderThanDays` days ago. Intended for an admin "purge recycle bin"
+   *  action — frees Firestore quota once an operator-set retention window
+   *  has passed. */
+  async purgeSoftDeleted(collectionName: string, olderThanDays: number = 30): Promise<number> {
+    const cutoff = Date.now() - olderThanDays * 86400000;
+    const all = (cachedData[collectionName] || []);
+    const targets = all
+      .filter((d: any) => d.deletedAt && new Date(d.deletedAt).getTime() < cutoff)
+      .map((d: any) => d.id);
+    if (targets.length === 0) return 0;
+    // True hard-delete here — these have aged out of the soft-delete window.
+    const BATCH_SIZE = 400;
+    for (let i = 0; i < targets.length; i += BATCH_SIZE) {
+      const chunk = targets.slice(i, i + BATCH_SIZE);
+      const batch = writeBatch(db);
+      for (const id of chunk) batch.delete(docRef(collectionName, id));
+      try { await batch.commit(); } catch (err: any) {
+        console.warn(`Firestore purge [${collectionName}] chunk ${i}:`, err.message);
+      }
+    }
+    const idSet = new Set(targets);
+    cachedData[collectionName] = all.filter((d: any) => !idSet.has(d.id));
+    emit(collectionName, cachedData[collectionName]);
+    recordAudit('bulk_delete', collectionName, { count: targets.length });
+    return targets.length;
   },
 
   // ── Disaster-recovery backup / restore ──────────────────────────────────────
@@ -389,12 +552,27 @@ export const dbService = {
     return written;
   },
 
-  subscribeToCollection(collectionName: string, callback: (data: any[]) => void) {
-    (listeners[collectionName] ??= []).push(callback);
+  /**
+   * Subscribe to a collection. By default, soft-deleted docs (those with
+   * a `deletedAt` timestamp) are filtered out — the caller never sees
+   * tombstones. The admin recycle-bin viewer opts in with
+   * `subscribeToCollection(name, cb, { includeSoftDeleted: true })`.
+   */
+  subscribeToCollection(
+    collectionName: string,
+    callback: (data: any[]) => void,
+    opts?: { includeSoftDeleted?: boolean },
+  ) {
+    const filterFn = opts?.includeSoftDeleted
+      ? (rows: any[]) => rows
+      : (rows: any[]) => rows.filter(r => !r.deletedAt);
+
+    const wrapped = (rows: any[]) => callback(filterFn(rows));
+    (listeners[collectionName] ??= []).push(wrapped);
 
     // Serve in-memory cache immediately
     if (cachedData[collectionName]?.length) {
-      callback([...cachedData[collectionName]]);
+      wrapped([...cachedData[collectionName]]);
     }
 
     const unsub = onSnapshot(
@@ -413,16 +591,32 @@ export const dbService = {
 
     return () => {
       unsub();
-      listeners[collectionName] = (listeners[collectionName] || []).filter(cb => cb !== callback);
+      listeners[collectionName] = (listeners[collectionName] || []).filter(cb => cb !== wrapped);
     };
   },
 
-  async readAll(collectionName: string) {
-    if (cachedData[collectionName]?.length) return cachedData[collectionName];
+  /** One-shot read. Soft-deleted docs are filtered out by default; pass
+   *  `{ includeSoftDeleted: true }` to see tombstoned docs too. */
+  async readAll(collectionName: string, opts?: { includeSoftDeleted?: boolean }) {
+    if (cachedData[collectionName]?.length) {
+      return opts?.includeSoftDeleted
+        ? cachedData[collectionName]
+        : cachedData[collectionName].filter((d: any) => !d.deletedAt);
+    }
     const snap = await getDocs(colRef(collectionName));
     const data = snapToItems(snap);
     cachedData[collectionName] = data;
-    return data;
+    return opts?.includeSoftDeleted ? data : data.filter((d: any) => !d.deletedAt);
+  },
+
+  /** Subscribe to only the SOFT-DELETED docs in a collection — powers the
+   *  admin Recycle Bin. Convenience wrapper around subscribeToCollection. */
+  subscribeToSoftDeleted(collectionName: string, callback: (data: any[]) => void) {
+    return this.subscribeToCollection(
+      collectionName,
+      (rows) => callback(rows.filter(r => r.deletedAt)),
+      { includeSoftDeleted: true },
+    );
   },
 
   async resetDatabase() {
