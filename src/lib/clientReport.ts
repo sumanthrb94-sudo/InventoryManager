@@ -108,9 +108,19 @@ function joinSupplierNames(supplierIds: string[] | undefined, suppliers: Supplie
   return supplierIds.map(id => byId.get(id) ?? id).join(' / ');
 }
 
-/** Parse an ISO date string into a Date suitable for ExcelJS. Returns null on missing/invalid. */
+/** Parse an ISO date string into a Date suitable for ExcelJS. Returns null on
+ *  missing/invalid.
+ *
+ *  Builds the date at UTC NOON from the yyyy-mm-dd parts rather than
+ *  `new Date(iso)` (which parses a date-only string as UTC midnight, and is then
+ *  serialised by ExcelJS so that a viewer behind UTC — or any value carrying a
+ *  local-midnight time — renders the PREVIOUS day). Noon is far from both
+ *  midnight boundaries, so the calendar day survives in every timezone:
+ *  1-Apr in → 1-Apr out, with no day drift. */
 function toDate(iso: string | undefined | null): Date | null {
   if (!iso) return null;
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(iso));
+  if (m) return new Date(Date.UTC(+m[1], +m[2] - 1, +m[3], 12, 0, 0));
   const d = new Date(iso);
   return Number.isNaN(d.getTime()) ? null : d;
 }
@@ -444,7 +454,7 @@ const SALES_HEADERS: Record<Marketplace, SalesHeaderRow> = {
     'C. VAT', 'DSF', 'DSF. VAT',
     'Postage', 'P. VAT', 'Acc',
     'Total VAT', 'GP', 'GP %', 'Total VAT NTP',
-    'RETURN',
+    'Comments', 'RETURNED', 'RETURN REASON',
   ],
   BM: [
     // Live BM sheet (20 cols): Payment Mode sits between Quantity (F) and
@@ -455,7 +465,7 @@ const SALES_HEADERS: Record<Marketplace, SalesHeaderRow> = {
     'Payment Mode', 'BP', 'SP',
     'SP-BP', 'Marginal Tax', 'Commission',
     'Customer Care Fees', 'Postage', 'P. VAT', 'Acc',
-    'GP', 'GP %', 'Total VAT NTP', 'Comments',
+    'GP', 'GP %', 'Total VAT NTP', 'Comments', 'RETURNED', 'RETURN REASON',
   ],
   EBAY: [
     // Live EBAY sheet — 24 cols, no Comments. Headers reproduced verbatim
@@ -466,14 +476,14 @@ const SALES_HEADERS: Record<Marketplace, SalesHeaderRow> = {
     'DATE', 'ORDER NUMBER', 'SKU', 'IMEI NUMBER', 'SUPPLIER', 'UNITS',
     'BP', 'SP', 'SP-BP', 'Marginal Tax', 'Commission', 'ROF', 'FVF', 'VAT',
     'T.COM', 'Postage', 'P. VAT', 'Marketing', 'M. VAT', 'Acc',
-    'Total VAT ', 'GP', 'GP%', 'Total VAT NTP',
+    'Total VAT ', 'GP', 'GP%', 'Total VAT NTP', 'RETURNED', 'RETURN REASON',
   ],
   ONBUY: [
     // Live ONBUY sheet — 18 cols, no Comments, no Quantity (no UNITS).
     'DATE', 'Order Number', 'SKU', 'IMEI', 'Supplier',
     'BP', 'SP', 'SP-BP', 'Marginal Tax', 'Commission', 'VAT 20%',
     'Postage', 'P. VAT', 'Acc',
-    'Total VAT ', 'GP', 'GP%', 'Total VAT NTP',
+    'Total VAT ', 'GP', 'GP%', 'Total VAT NTP', 'RETURNED', 'RETURN REASON',
   ],
 };
 
@@ -494,6 +504,13 @@ function writeSaleRow(
   const f = excelFormulaFor(marketplace, rowNumber);
   const date = toDate(sale.saleDate);
   const qty = sale.quantity ?? 1;
+  // Return status + reason, appended as the last two columns on every sheet so
+  // a returned sale shows WHY it came back (voidReason set at return time), not
+  // just a red highlight. Falls back to the import comment when no reason given.
+  const returnedCells: SalesHeaderRow = [
+    sale.voidedAt ? 'Yes' : 'No',
+    (sale as any).voidReason ?? sale.comments ?? '',
+  ];
 
   switch (marketplace) {
     case 'AMAZON': {
@@ -515,6 +532,7 @@ function writeSaleRow(
         sale.accessoryFee ?? Number(f.accessoryFee ?? 1),
         null, null, null, null,
         sale.comments ?? '',
+        ...returnedCells,
       ]);
       row.getCell(1).numFmt = DATE_FMT;
       row.getCell(4).numFmt = IMEI_FMT;
@@ -563,6 +581,7 @@ function writeSaleRow(
         sale.accessoryFee ?? Number(f.accessoryFee ?? 1),  // Acc (literal)
         null, null, null,                              // GP, GP%, Total VAT NTP
         sale.comments ?? '',
+        ...returnedCells,
       ]);
       row.getCell(1).numFmt = DATE_FMT;
       row.getCell(4).numFmt = IMEI_FMT;
@@ -605,6 +624,7 @@ function writeSaleRow(
         null,                                        // M. VAT (formula)
         sale.accessoryFee ?? Number(f.accessoryFee ?? 1),  // Acc
         null, null, null, null,                      // Total VAT, GP, GP%, Total VAT NTP
+        ...returnedCells,
       ]);
       row.getCell(1).numFmt = DATE_FMT;
       row.getCell(4).numFmt = IMEI_FMT;
@@ -651,6 +671,7 @@ function writeSaleRow(
         null,                                         // P. VAT (formula)
         sale.accessoryFee ?? Number(f.accessoryFee ?? 1),  // Acc (literal)
         null, null, null, null,                       // Total VAT, GP, GP%, Total VAT NTP
+        ...returnedCells,
       ]);
       row.getCell(1).numFmt = DATE_FMT;
       row.getCell(4).numFmt = IMEI_FMT;
