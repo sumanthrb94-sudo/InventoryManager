@@ -589,15 +589,11 @@ function Row({
     if (mode === 'shs' && validation.imeiEmpty) return 'Optional for SHS';
     if (validation.imeiEmpty && validation.imeiRequired) return 'Required';
     if (validation.dupeInBatch) return 'Duplicate in this batch';
-    if (validation.dupeInDb) {
-      // Surface the colliding unit's identifying fields so the operator can
-      // see WHY the IMEI is flagged (a sold/returned unit still in
-      // inventoryUnits, a stale import, etc) instead of having to leave the
-      // modal and grep the inventory list themselves.
-      const m = validation.dupeInDbMatch;
-      if (m) return `Already in inventory · ${m.model} · ${m.dateIn} · status ${m.status}${m.supplierName ? ' · ' + m.supplierName : ''}`;
-      return 'Already in inventory';
-    }
+    // NOTE: a match against existing inventory is intentionally NOT surfaced here.
+    // The cached list it compares against can be stale (or already contain the
+    // unit you just saved), which produced bogus "Already in inventory" warnings.
+    // The SAVE re-checks the database authoritatively and rejects only a genuine,
+    // currently-active duplicate with a clear message — so this stays quiet.
     if (!validation.imeiOk && !validation.imeiEmpty) {
       return validation.isApple ? IMEI_OR_APPLE_SERIAL_MESSAGE : IMEI_REQUIRED_MESSAGE;
     }
