@@ -728,13 +728,16 @@ export const dbService = {
     const INACTIVE = new Set(['sold', 'returned', 'lost']);
     const isLive = (u: any) =>
       !u?.deletedAt && (!opts?.activeOnly || !INACTIVE.has(u?.status));
-    // Exclude soft-deleted (tombstoned) units — a recycled/wiped unit must NOT
-    // block re-adding its IMEI. Filtered both in the cache lookup AND on the
-    // Firestore result (client-side, so docs that predate the deletedAt field
-    // still count correctly — a server `where('deletedAt','==',null)` would
-    // silently drop those).
-    const cached = (cachedData['inventoryUnits'] || []).find((u: any) => u.imei === imei && isLive(u));
-    if (cached) return true;
+    // For stock intake (activeOnly) be AUTHORITATIVE — read Firestore directly.
+    // The local cache can hold a stale/optimistic record that no longer exists
+    // in the database (e.g. left over from an earlier session or a wipe that
+    // hadn't propagated), and trusting it here is what produced the bogus
+    // "IMEI already in inventory" for units that aren't really there. Only the
+    // non-intake collision checks keep the cache fast-path.
+    if (!opts?.activeOnly) {
+      const cached = (cachedData['inventoryUnits'] || []).find((u: any) => u.imei === imei && isLive(u));
+      if (cached) return true;
+    }
     const snap = await getDocs(query(colRef('inventoryUnits'), where('imei', '==', imei)));
     return snap.docs.some(d => isLive(d.data()));
   },
