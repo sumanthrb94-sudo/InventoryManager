@@ -111,7 +111,27 @@ export default function UnitHistoryTimeline({
       {steps.length === 0 ? (
         <p className="text-[10px] font-mono text-slate-400 py-4 text-center">No history recorded yet.</p>
       ) : (
-        <div className="space-y-0">
+        <>
+          {/* Current state — the unit's LATEST cycle, pinned up top so a unit
+              returned N times and finally sent to supplier reads as "Returned
+              to supplier" at a glance, not buried under earlier cycles. */}
+          {(() => {
+            const latest = steps[steps.length - 1];
+            return (
+              <div className={`mb-3 flex items-center gap-2 rounded-xl border px-3 py-2 ${KIND_TONE[latest.kind]}`}>
+                <span className="w-6 h-6 rounded-full border border-current/30 flex items-center justify-center flex-shrink-0">
+                  {KIND_ICON[latest.kind]}
+                </span>
+                <div className="min-w-0">
+                  <p className="text-[8px] font-bold uppercase tracking-widest opacity-70">Current state</p>
+                  <p className="text-[11px] font-bold truncate">
+                    {latest.label}{latest.date ? ` · ${latest.date}` : ''}
+                  </p>
+                </div>
+              </div>
+            );
+          })()}
+          <div className="space-y-0">
           {steps.map((step, i) => (
             <div key={i} className="flex gap-3">
               {/* Rail: icon dot + connector */}
@@ -139,7 +159,8 @@ export default function UnitHistoryTimeline({
               </div>
             </div>
           ))}
-        </div>
+          </div>
+        </>
       )}
     </div>
   );
