@@ -21,12 +21,13 @@
  *   - KPI overlay modal for focused subset views
  *
  * The modal flows that already worked are kept — picker → ProcessReturnModal
- * for new returns, QuickRepairModal to flag a sold unit straight into
- * repair, and ReadyToShipModal to flip a repaired unit back to available.
+ * for new returns, and ReadyToShipModal to flip a repaired unit back to
+ * available stock (surfaced via the inline 'Back to Stock' button on
+ * in-repair rows).
  */
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import {
-  Search, ChevronDown, ChevronUp, ChevronsUpDown, MoreHorizontal,
+  Search, ChevronDown, ChevronUp, ChevronsUpDown,
   Filter, X, Download, AlertCircle, Plus, Info, Sparkles, Eye,
   PackageCheck, ArrowUpRight, Wrench, ShieldAlert, ShieldCheck, CheckCircle2,
   Truck, RefreshCw, RotateCcw,
@@ -78,7 +79,6 @@ export default function ReturnsPage() {
   // ── Modals + overlay ──────────────────────────────────────────────────────
   const [overlay, setOverlay] = useState<KpiId | null>(null);
   const [processingUnit, setProcessingUnit] = useState<InventoryUnit | null>(null);
-  const [repairUnit, setRepairUnit] = useState<InventoryUnit | null>(null);
   const [readyShipUnit, setReadyShipUnit] = useState<InventoryUnit | null>(null);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [showSchemaHelp, setShowSchemaHelp] = useState(false);
@@ -397,9 +397,7 @@ export default function ReturnsPage() {
         onSort={setSort}
         supplierMap={supplierMap}
         region={region}
-        onRepair={u => setRepairUnit(u)}
         onReadyShip={u => setReadyShipUnit(u)}
-        onReprocess={u => setProcessingUnit(u)}
       />
 
       {/* ── Activity history at the bottom ────────────────────────────────
@@ -426,9 +424,7 @@ export default function ReturnsPage() {
             supplierMap={supplierMap}
             region={region}
             onClose={() => setOverlay(null)}
-            onRepair={u => setRepairUnit(u)}
             onReadyShip={u => setReadyShipUnit(u)}
-            onReprocess={u => setProcessingUnit(u)}
           />
         )}
       </AnimatePresence>
@@ -451,13 +447,6 @@ export default function ReturnsPage() {
             unit={processingUnit}
             onClose={() => setProcessingUnit(null)}
             onSaved={() => setProcessingUnit(null)}
-          />
-        )}
-        {repairUnit && (
-          <QuickRepairModal
-            unit={repairUnit}
-            onClose={() => setRepairUnit(null)}
-            onSaved={() => setRepairUnit(null)}
           />
         )}
         {readyShipUnit && (
@@ -549,16 +538,14 @@ function FilterChipsGroup({
 
 // ── Inline Excel sheet ──────────────────────────────────────────────────────
 function InlineSheet({
-  rows, sort, onSort, supplierMap, region, onRepair, onReadyShip, onReprocess,
+  rows, sort, onSort, supplierMap, region, onReadyShip,
 }: {
   rows: InventoryUnit[];
   sort: { key: SortKey; dir: SortDir };
   onSort: (s: { key: SortKey; dir: SortDir }) => void;
   supplierMap: Record<string, string>;
   region: 'uk' | 'india' | 'admin' | 'both';
-  onRepair: (u: InventoryUnit) => void;
   onReadyShip: (u: InventoryUnit) => void;
-  onReprocess: (u: InventoryUnit) => void;
 }) {
   const toggleSort = (k: SortKey) => onSort({ key: k, dir: sort.key === k && sort.dir === 'desc' ? 'asc' : 'desc' });
 
@@ -581,13 +568,11 @@ function InlineSheet({
           region={region}
           sort={sort}
           toggleSort={toggleSort}
-          onRepair={onRepair}
           onReadyShip={onReadyShip}
-          onReprocess={onReprocess}
         />
       </div>
       <div className="px-5 py-2 border-t border-slate-100 bg-slate-50/60 text-[9px] font-mono uppercase tracking-widest text-slate-500">
-        Click column headers to sort · In Repair rows have a "Ready to Ship" action
+        Click column headers to sort · In Repair rows have a "Back to Stock" action
       </div>
     </div>
   );
@@ -595,7 +580,7 @@ function InlineSheet({
 
 // ── KPI overlay modal ───────────────────────────────────────────────────────
 function ReturnsExcelOverlay({
-  title, rows, sort, onSort, supplierMap, region, onClose, onRepair, onReadyShip, onReprocess,
+  title, rows, sort, onSort, supplierMap, region, onClose, onReadyShip,
 }: {
   title: string;
   rows: InventoryUnit[];
@@ -604,9 +589,7 @@ function ReturnsExcelOverlay({
   supplierMap: Record<string, string>;
   region: 'uk' | 'india' | 'admin' | 'both';
   onClose: () => void;
-  onRepair: (u: InventoryUnit) => void;
   onReadyShip: (u: InventoryUnit) => void;
-  onReprocess: (u: InventoryUnit) => void;
 }) {
   const toggleSort = (k: SortKey) => onSort({ key: k, dir: sort.key === k && sort.dir === 'desc' ? 'asc' : 'desc' });
   useEffect(() => {
@@ -651,9 +634,7 @@ function ReturnsExcelOverlay({
               region={region}
               sort={sort}
               toggleSort={toggleSort}
-              onRepair={onRepair}
               onReadyShip={onReadyShip}
-              onReprocess={onReprocess}
             />
           )}
         </div>
@@ -671,25 +652,15 @@ function ReturnsExcelOverlay({
 
 // ── Sheet table (shared) ─────────────────────────────────────────────────────
 function SheetTable({
-  rows, supplierMap, region, sort, toggleSort, onRepair, onReadyShip, onReprocess,
+  rows, supplierMap, region, sort, toggleSort, onReadyShip,
 }: {
   rows: InventoryUnit[];
   supplierMap: Record<string, string>;
   region: 'uk' | 'india' | 'admin' | 'both';
   sort: { key: SortKey; dir: SortDir };
   toggleSort: (k: SortKey) => void;
-  onRepair: (u: InventoryUnit) => void;
   onReadyShip: (u: InventoryUnit) => void;
-  onReprocess: (u: InventoryUnit) => void;
 }) {
-  const [menuId, setMenuId] = useState<string | null>(null);
-  useEffect(() => {
-    if (!menuId) return;
-    const close = () => setMenuId(null);
-    document.addEventListener('click', close);
-    return () => document.removeEventListener('click', close);
-  }, [menuId]);
-
   return (
     <table className="w-full text-[11px] border-separate border-spacing-0" style={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace' }}>
       <thead>
@@ -740,9 +711,8 @@ function SheetTable({
               <Td><span className="text-slate-500 truncate" title={u.returnReason || ''}>{u.returnReason || ''}</span></Td>
               <Td>
                 <div className="flex items-center gap-1.5 justify-end" onClick={e => e.stopPropagation()}>
-                  {/* In-Repair rows get a primary 'Back to Stock' button
-                      surfaced inline so the operator never has to hunt for
-                      it. The 3-dot menu below carries secondary actions. */}
+                  {/* In-Repair rows keep a primary 'Back to Stock' button to
+                      flip the repaired unit back to available stock. */}
                   {inRepair && (
                     <button
                       onClick={() => onReadyShip(u)}
@@ -752,39 +722,6 @@ function SheetTable({
                       <Truck size={10} /> Back to Stock
                     </button>
                   )}
-                  <div className="relative">
-                    <button
-                      onClick={() => setMenuId(menuId === u.id ? null : u.id)}
-                      className="opacity-40 group-hover:opacity-100 p-1 rounded hover:bg-slate-200 text-slate-600 transition-all"
-                      title="More actions"
-                    >
-                      <MoreHorizontal size={13} />
-                    </button>
-                    {menuId === u.id && (
-                      <div className="absolute right-0 mt-1 w-48 bg-white border border-slate-200 rounded-lg shadow-xl z-20 py-1">
-                        {inRepair && (
-                          <button
-                            onClick={() => { setMenuId(null); onReadyShip(u); }}
-                            className="w-full flex items-center gap-2 px-3 py-1.5 text-[10px] text-emerald-700 hover:bg-emerald-50"
-                          >
-                            <Truck size={11} /> Ready to Ship · Back to Stock
-                          </button>
-                        )}
-                        <button
-                          onClick={() => { setMenuId(null); onRepair(u); }}
-                          className="w-full flex items-center gap-2 px-3 py-1.5 text-[10px] text-blue-700 hover:bg-blue-50"
-                        >
-                          <Wrench size={11} /> Send to Repair
-                      </button>
-                      <button
-                        onClick={() => { setMenuId(null); onReprocess(u); }}
-                        className="w-full flex items-center gap-2 px-3 py-1.5 text-[10px] text-slate-700 hover:bg-slate-50"
-                      >
-                        <RotateCcw size={11} /> Re-process return
-                      </button>
-                      </div>
-                    )}
-                  </div>
                 </div>
               </Td>
             </tr>
@@ -1305,94 +1242,6 @@ function ProcessReturnModal({
           <button onClick={handleSave} disabled={saving}
             className="flex-1 py-3 bg-black text-white rounded-xl text-[10px] font-bold uppercase tracking-widest hover:bg-gray-800 transition-all disabled:opacity-50 flex items-center justify-center gap-2">
             {saving ? 'Saving…' : <><CheckCircle2 size={13} /> Confirm Return</>}
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// ── QuickRepairModal ─────────────────────────────────────────────────────────
-function QuickRepairModal({
-  unit, onClose, onSaved,
-}: {
-  unit: InventoryUnit;
-  onClose: () => void;
-  onSaved: () => void;
-}) {
-  const [saving, setSaving] = useState(false);
-  const [error, setError]   = useState('');
-  const handleSend = async () => {
-    setSaving(true);
-    try {
-      await dbService.update('inventoryUnits', unit.id, {
-        status: 'returned',
-        returnType: 'repair',
-        returnDate: todayStr(),
-        returnReason: unit.returnReason || 'Unit sent for repair',
-        salePrice: null, saleDate: null, salePlatform: null, saleOrderId: null, postageCost: null,
-        platformListed: false, listingSites: [],
-      });
-
-      // Lifecycle log — record the repair dispatch so the per-IMEI history
-      // (and Returns Report) captures this leg of the journey, not just the
-      // main Process-Return flow.
-      if (unit.imei) {
-        try {
-          await dbService.createReturnEvent({
-            imei:         unit.imei,
-            unitId:       unit.id,
-            type:         'sent_to_repair',
-            date:         todayStr(),
-            comment:      unit.returnReason || 'Unit sent for repair',
-            supplierId:   unit.supplierId,
-            supplierName: unit.supplierName,
-          });
-        } catch (err) {
-          console.warn('Failed to record repair event for unit', unit.id, err);
-        }
-      }
-
-      notificationService.addNotification('return_processed', unit);
-      onSaved();
-      onClose();
-    } catch {
-      setError('Failed to save. Please try again.');
-      setSaving(false);
-    }
-  };
-  return (
-    <div className="fixed inset-0 z-[70] flex items-center justify-center p-3 md:p-4 bg-black/40 backdrop-blur-sm">
-      <div className="bg-white rounded-3xl overflow-hidden w-full max-w-sm shadow-2xl flex flex-col">
-        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
-          <div>
-            <p className="text-[9px] font-mono uppercase tracking-widest text-gray-400">Send for Repair</p>
-            <h3 className="text-sm font-bold truncate mt-0.5 max-w-[240px]">{unit.model}</h3>
-          </div>
-          <button onClick={onClose} className="p-2 hover:bg-gray-100 rounded-xl"><X size={16} /></button>
-        </div>
-        <div className="px-6 py-4 space-y-3">
-          <div className="flex items-start gap-3 bg-blue-50 border border-blue-200 rounded-xl p-4">
-            <Wrench size={16} className="text-blue-600 flex-shrink-0 mt-0.5" />
-            <p className="text-[10px] text-blue-800 font-mono leading-relaxed">
-              Unit moves to <strong>In Repair</strong>. Mark it as <strong>Ready to Ship</strong> later to restore to stock.
-            </p>
-          </div>
-          {error && (
-            <div className="flex items-center gap-2 text-red-600 bg-red-50 border border-red-200 rounded-xl px-4 py-3">
-              <AlertCircle size={14} />
-              <p className="text-xs font-mono">{error}</p>
-            </div>
-          )}
-        </div>
-        <div className="px-6 py-4 border-t border-gray-100 flex gap-3">
-          <button onClick={onClose}
-            className="flex-1 py-3 border border-gray-200 rounded-xl text-[10px] font-bold uppercase tracking-widest text-gray-500 hover:bg-gray-50">
-            Cancel
-          </button>
-          <button onClick={handleSend} disabled={saving}
-            className="flex-1 py-3 bg-blue-600 text-white rounded-xl text-[10px] font-bold uppercase tracking-widest hover:bg-blue-700 disabled:opacity-50 flex items-center justify-center gap-2">
-            {saving ? 'Saving…' : <><Wrench size={13} /> Send to Repair</>}
           </button>
         </div>
       </div>
