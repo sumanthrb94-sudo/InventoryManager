@@ -3,24 +3,15 @@ import { X, Trash2, AlertTriangle, CheckCircle2, RefreshCw } from 'lucide-react'
 import { motion } from 'motion/react';
 import { collection, getDocs, writeBatch } from 'firebase/firestore';
 import { db } from '../lib/firebase';
-import { dbService } from '../lib/dbService';
+import { dbService, ALL_COLLECTION_NAMES } from '../lib/dbService';
 import { notificationService } from '../lib/notificationService';
 
 interface Props { onClose: () => void; }
 
-const COLLECTIONS = [
-  'inventoryUnits',
-  'inventoryAggregates',
-  'sales',
-  'suppliers',
-  'inventoryEvents',
-  'activeListings',
-  'dailyUpdates',
-  'sourceDocuments',
-  'importBatches',
-  'supplierWhatsappUpdates',
-  'marketplaceFees',
-];
+// Drive the wipe from the canonical collection list in dbService so it can
+// never drift and leave stale data behind (returnEvents / batches / auditLog
+// were previously missing here — return-cycle history survived a "Wipe DB").
+const COLLECTIONS = ALL_COLLECTION_NAMES;
 
 export default function ResetDataModal({ onClose }: Props) {
   const [confirmed, setConfirmed] = useState(false);

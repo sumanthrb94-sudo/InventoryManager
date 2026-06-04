@@ -19,6 +19,7 @@ const cachedData: Record<string, any[]> = {};
 const COL: Record<string, string> = {
   inventoryUnits:          'inventoryUnits',
   suppliers:               'suppliers',
+  batches:                 'batches',
   inventoryEvents:         'inventoryEvents',
   dailyUpdates:            'dailyUpdates',
   activeListings:          'activeListings',
@@ -38,6 +39,11 @@ const COL: Record<string, string> = {
   // types.ts for the lifecycle vocabulary.
   returnEvents:            'returnEvents',
 };
+
+/** Every Firestore collection the app owns — the single source of truth used
+ *  by full backup, restore, AND the Wipe-DB reset, so none can drift and leave
+ *  stale data behind (e.g. returnEvents lingering after a wipe). */
+export const ALL_COLLECTION_NAMES: string[] = Object.values(COL);
 
 function colRef(name: string) {
   return collection(db, COL[name] ?? name);
