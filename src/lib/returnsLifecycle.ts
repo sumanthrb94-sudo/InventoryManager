@@ -225,6 +225,28 @@ const KIND_RANK: Record<UnitHistoryKind, number> = {
   restocked: 5, repair_complete: 5, note: 6,
 };
 
+/** Normalize a `createdAt`-style value to an ISO string. Crucially, Firestore
+ *  stores these fields as serverTimestamp(), so they read back as Timestamp
+ *  objects ({ seconds, nanoseconds } / .toDate()), NOT ISO strings — doing
+ *  String() on one yields "Timestamp(seconds=…)", which `new Date()` can't
+ *  parse (that's why the time of day never rendered). Handles Timestamp,
+ *  Date, epoch-ms, and ISO strings; returns undefined when unusable. */
+function toIso(v: any): string | undefined {
+  if (v == null) return undefined;
+  if (typeof v === 'object') {
+    if (typeof v.toDate === 'function') {
+      const d = v.toDate();
+      return isNaN(d.getTime()) ? undefined : d.toISOString();
+    }
+    if (typeof v.seconds === 'number') {
+      return new Date(v.seconds * 1000 + (typeof v.nanoseconds === 'number' ? v.nanoseconds / 1e6 : 0)).toISOString();
+    }
+    return undefined;
+  }
+  const d = new Date(typeof v === 'number' ? v : String(v));
+  return isNaN(d.getTime()) ? undefined : d.toISOString();
+}
+
 /**
  * Build the ordered (oldest → newest) life story for one unit. `events` and
  * `sales` should already be scoped to this unit/IMEI by the caller.
@@ -243,7 +265,7 @@ export function buildUnitHistory(
     if (unit.dateIn) {
       rows.push({
         date: unit.dateIn, kind: 'intake', label: 'Received into stock',
-        at: unit.createdAt ? String(unit.createdAt) : undefined,
+        at: toIso(unit.createdAt),
         detail: [unit.supplierName, unit.buyPrice != null ? `BP £${unit.buyPrice}` : '']
           .filter(Boolean).join(' · ') || undefined,
         _ts: '',
@@ -261,26 +283,26 @@ export function buildUnitHistory(
   // Each sale row — active or later-voided — is a "sold" step.
   for (const s of sales) {
     if (!s.saleDate) continue;
-    const at = s.createdAt ? String(s.createdAt) : '';
+    const at = toIso(s.createdAt);
     rows.push({
-      date: s.saleDate, kind: 'sold', at: at || undefined,
+      date: s.saleDate, kind: 'sold', at,
       label: s.voidedAt ? 'Sold (later returned)' : 'Sold',
       detail: [s.salePrice != null ? `£${s.salePrice}` : '', (s as any).marketplace || (s as any).salePlatform || '']
         .filter(Boolean).join(' · ') || undefined,
-      _ts: at,
+      _ts: at ?? '',
     });
   }
 
   // Each return lifecycle event is a step, carrying its comment + actor.
   for (const e of events) {
-    const at = e.createdAt ? String(e.createdAt) : '';
+    const at = toIso(e.createdAt);
     rows.push({
-      date: e.date, kind: e.type, at: at || undefined,
+      date: e.date, kind: e.type, at,
       label: RETURN_STEP_LABEL[e.type] ?? e.type.replace(/_/g, ' '),
       detail: e.supplierName || undefined,
       comment: e.comment,
       actor: e.actorEmail,
-      _ts: at,
+      _ts: at ?? '',
     });
   }
 

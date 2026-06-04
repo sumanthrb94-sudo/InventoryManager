@@ -40,4 +40,12 @@ describe('toCsv', () => {
     expect(toCsv([{ a: null, b: undefined, c: 0 }], ['a', 'b', 'c']))
       .toBe('a,b,c\n,,0');
   });
+
+  it('forces IMEI/serial columns to Excel text so long IMEIs are not scientific notation', () => {
+    const csv = toCsv([{ IMEI: '359108096724237', Model: 'iPhone 12' }], ['IMEI', 'Model']);
+    // Header stays plain; the IMEI data cell is wrapped as an Excel text formula.
+    expect(csv).toBe('IMEI,Model\n="359108096724237",iPhone 12');
+    // A blank IMEI stays blank (no stray ="").
+    expect(toCsv([{ IMEI: '', Model: 'x' }], ['IMEI', 'Model'])).toBe('IMEI,Model\n,x');
+  });
 });
