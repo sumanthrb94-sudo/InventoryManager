@@ -11,6 +11,7 @@ import {
   backToInventoryCount,
   dispositionCounts,
   summarizeUnitLife,
+  buildUnitHistory,
 } from '../lib/returnsLifecycle';
 
 // ── Factory ─────────────────────────────────────────────────────────────────
@@ -207,5 +208,65 @@ describe('summarizeUnitLife', () => {
 
   it('treats a missing unit doc (soft-deleted to supplier) as to_supplier', () => {
     expect(summarizeUnitLife(null, []).state).toBe('to_supplier');
+  });
+});
+
+describe('buildUnitHistory', () => {
+  it('weaves intake, sales and return events into one chronological story', () => {
+    const unit = makeUnit({ dateIn: '2026-01-01', listingDate: '2026-01-05', status: 'sold', saleDate: '2026-04-01' });
+    const sales: Sale[] = [
+      makeSale({ id: 's1', saleDate: '2026-02-01', salePrice: 300, voidedAt: '2026-02-10', createdAt: '2026-02-01T00:00:00Z' }),
+      makeSale({ id: 's2', saleDate: '2026-04-01', salePrice: 330, createdAt: '2026-04-01T00:00:00Z' }),
+    ];
+    const events: ReturnEvent[] = [
+      makeEvent({ type: 'restocked', date: '2026-02-10', comment: 'Customer changed mind', createdAt: '2026-02-10T00:00:00Z' }),
+    ];
+    const steps = buildUnitHistory(unit, events, sales);
+    expect(steps.map(s => s.kind)).toEqual(['intake', 'listed', 'sold', 'restocked', 'sold']);
+    // The return step keeps its comment so "a comment for each return" shows.
+    expect(steps[3].comment).toBe('Customer changed mind');
+    // The first sale is flagged as later-returned.
+    expect(steps[2].label).toContain('later returned');
+  });
+
+  it('orders same-day intake → sold → returned deterministically', () => {
+    const unit = makeUnit({ dateIn: '2026-03-01' });
+    const steps = buildUnitHistory(
+      unit,
+      [makeEvent({ type: 'returned', date: '2026-03-01', createdAt: '2026-03-01T12:00:00Z' })],
+      [makeSale({ saleDate: '2026-03-01', createdAt: '2026-03-01T09:00:00Z' })],
+    );
+    expect(steps.map(s => s.kind)).toEqual(['intake', 'sold', 'returned']);
+  });
+
+  it('returns an empty story when there is nothing to show', () => {
+    expect(buildUnitHistory(null, [], [])).toEqual([]);
+  });
+
+  it('synthesizes the current disposition when no event logged it (imported / legacy)', () => {
+    // Unit is To Supplier, but the only logged events are older restocks —
+    // the timeline must still show "returned to supplier", not just inventory.
+    const unit = makeUnit({
+      status: 'returned', returnType: 'returned_to_supplier',
+      returnDate: '2026-03-10', returnReason: 'Faulty — back to MHL', supplierName: 'MHL',
+    });
+    const events: ReturnEvent[] = [
+      makeEvent({ type: 'restocked', date: '2026-01-05', comment: 'cycle 1' }),
+      makeEvent({ type: 'restocked', date: '2026-02-05', comment: 'cycle 2' }),
+    ];
+    const steps = buildUnitHistory(unit, events, []);
+    const last = steps[steps.length - 1];
+    expect(last.kind).toBe('sent_to_supplier');
+    expect(last.label).toContain('supplier');
+    expect(last.comment).toBe('Faulty — back to MHL');
+  });
+
+  it('does NOT duplicate the disposition when a matching event already exists', () => {
+    const unit = makeUnit({ status: 'returned', returnType: 'returned_to_supplier', returnDate: '2026-03-10' });
+    const events: ReturnEvent[] = [
+      makeEvent({ type: 'sent_to_supplier', date: '2026-03-10', comment: 'logged properly' }),
+    ];
+    const steps = buildUnitHistory(unit, events, []);
+    expect(steps.filter(s => s.kind === 'sent_to_supplier')).toHaveLength(1);
   });
 });
