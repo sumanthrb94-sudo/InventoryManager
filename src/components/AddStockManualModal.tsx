@@ -231,10 +231,14 @@ export default function AddStockManualModal({ onClose, initialMode = 'office' }:
     // via the dropdown. Either way the trimmed value must be non-empty.
     const storageOk  = r.storage.trim().length > 0;
 
+    // Note: dupeInDb does NOT make a row incomplete — a match against (possibly
+    // stale) cached inventory is just a warning; the save re-checks the database
+    // authoritatively. Only a same-batch duplicate (dupeInBatch) invalidates the
+    // row. Otherwise a bogus cache hit would zero out validUnits and disable Save.
     const imeiOk =
       imeiRequired
-        ? imeiFormatOk && !dupeInBatch && !dupeInDb
-        : (imeiEmpty || (imeiFormatOk && !dupeInBatch && !dupeInDb));
+        ? imeiFormatOk && !dupeInBatch
+        : (imeiEmpty || (imeiFormatOk && !dupeInBatch));
 
     return {
       modelOk, imeiOk, isApple, imeiRequired, imeiEmpty,
@@ -255,17 +259,19 @@ export default function AddStockManualModal({ onClose, initialMode = 'office' }:
     return { validUnits, value };
   }, [rows, validation]);
 
-  // Hard-block save when ANY row carries a duplicate-IMEI warning (either
-  // already in inventory or repeated within this batch). Other validation
-  // gaps — missing model / empty row / bad BP — keep the old silent-skip
-  // behaviour so the operator can leave blank rows around without them
-  // blocking the save. Duplicate IMEIs are the only thing the operator
-  // could mistake for a soft warning and lose data over.
-  const duplicateCount = useMemo(
-    () => validation.filter(v => v.dupeInDb || v.dupeInBatch).length,
+  // Only a duplicate WITHIN this batch (same IMEI typed on two rows) hard-blocks
+  // the save — that's an unambiguous input error. A match against existing
+  // inventory (dupeInDb) is now only an inline warning and does NOT block: the
+  // cached inventory it's compared against can be stale, so the SAVE re-checks
+  // the database authoritatively (addUnitManual → imeiExists) and rejects only
+  // genuine, currently-active duplicates. This is the fix for the bogus
+  // "IMEI already in inventory" on units that aren't really there.
+  const batchDuplicateCount = useMemo(
+    () => validation.filter(v => v.dupeInBatch).length,
     [validation],
   );
-  const hasDuplicates = duplicateCount > 0;
+  const hasDuplicates = batchDuplicateCount > 0;
+  const duplicateCount = batchDuplicateCount;
 
   // ── Save ───────────────────────────────────────────────────────────────────
   async function handleSave() {
