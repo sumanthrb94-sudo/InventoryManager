@@ -599,9 +599,14 @@ function parseRow(
   const sku = toNonEmptyString(get('sku'));
   const comments = toNonEmptyString(get('comments'));
 
-  // doc id convention from MASTER_FILES_AUDIT.md §5 — natural dedupe on
-  // (marketplace, orderNumber). dbService.bulkUpsertSales relies on this.
-  const id = `${marketplace}__${orderNumber}`;
+  // Doc id = marketplace + orderNumber + line key. A single order can contain
+  // multiple phones/SKUs (one order number, several IMEIs), so the id MUST be
+  // unique per line — keying only on (marketplace, orderNumber) collapsed those
+  // line items into one and dropped all but the last. The IMEI (else SKU) is the
+  // natural per-line key; it also keeps dedupe idempotent across re-imports.
+  // Orders with neither imei nor sku fall back to marketplace__orderNumber.
+  const lineKey = imei || sku || '';
+  const id = lineKey ? `${marketplace}__${orderNumber}__${lineKey}` : `${marketplace}__${orderNumber}`;
 
   return {
     id,
@@ -778,8 +783,9 @@ if (import.meta.vitest) {
       expect(ob.quantity).toBe(1);
       // OnBuy IMEI preserved as the full 15-digit string (no scientific form).
       expect(ob.imei).toBe('111222333444555');
-      // Doc id follows the natural-dedupe convention.
-      expect(bm.id).toBe('BM__BM-1');
+      // Doc id is line-unique: marketplace__orderNumber__<imei|sku>, so a single
+      // order with multiple SKUs/IMEIs no longer collapses to one row.
+      expect(bm.id).toBe('BM__BM-1__NL6CMQCYTD');
     });
   });
 }
