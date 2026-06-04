@@ -273,6 +273,41 @@ export function buildUnitHistory(
     });
   }
 
+  // Current disposition from the unit doc itself. A unit can carry a
+  // returnType (To Supplier / In Repair / Back to Inventory) WITHOUT a matching
+  // returnEvent — e.g. it was set by a master-file import, a seed, legacy data,
+  // or a return whose best-effort event write failed. Without this, the
+  // timeline would show only the older logged events (often a 'restocked') and
+  // a "returned to supplier" unit would wrongly read as "back to inventory".
+  // Synthesize the disposition step, but only when no logged event already
+  // covers it (dedupe by type + returnDate) so we never double-count.
+  if (unit?.returnType) {
+    const mapped: ReturnEventType | null =
+      unit.returnType === 'returned_to_inventory' ? 'restocked'
+      : unit.returnType === 'returned_to_supplier' ? 'sent_to_supplier'
+      : unit.returnType === 'repair' ? 'sent_to_repair'
+      : null;
+    if (mapped) {
+      const alreadyLogged = unit.returnDate
+        ? events.some(e => e.type === mapped && e.date === unit.returnDate)
+        : events.some(e => e.type === mapped);
+      if (!alreadyLogged) {
+        // When the unit carries no returnDate, fall back to the latest known
+        // date so the current state still sorts at the end of the story.
+        const fallbackDate = rows.reduce((m, r) => (r.date > m ? r.date : m), '');
+        rows.push({
+          date: unit.returnDate || fallbackDate,
+          kind: mapped,
+          label: RETURN_STEP_LABEL[mapped],
+          detail: unit.supplierName || undefined,
+          comment: unit.returnReason || undefined,
+          // Sort after any same-date logged events — it's the latest state.
+          _seq: '~~~',
+        });
+      }
+    }
+  }
+
   rows.sort((a, b) =>
     cmpStr(a.date, b.date) ||
     ((KIND_RANK[a.kind] ?? 9) - (KIND_RANK[b.kind] ?? 9)) ||

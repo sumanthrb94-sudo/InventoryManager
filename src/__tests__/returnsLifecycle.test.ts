@@ -242,4 +242,31 @@ describe('buildUnitHistory', () => {
   it('returns an empty story when there is nothing to show', () => {
     expect(buildUnitHistory(null, [], [])).toEqual([]);
   });
+
+  it('synthesizes the current disposition when no event logged it (imported / legacy)', () => {
+    // Unit is To Supplier, but the only logged events are older restocks —
+    // the timeline must still show "returned to supplier", not just inventory.
+    const unit = makeUnit({
+      status: 'returned', returnType: 'returned_to_supplier',
+      returnDate: '2026-03-10', returnReason: 'Faulty — back to MHL', supplierName: 'MHL',
+    });
+    const events: ReturnEvent[] = [
+      makeEvent({ type: 'restocked', date: '2026-01-05', comment: 'cycle 1' }),
+      makeEvent({ type: 'restocked', date: '2026-02-05', comment: 'cycle 2' }),
+    ];
+    const steps = buildUnitHistory(unit, events, []);
+    const last = steps[steps.length - 1];
+    expect(last.kind).toBe('sent_to_supplier');
+    expect(last.label).toContain('supplier');
+    expect(last.comment).toBe('Faulty — back to MHL');
+  });
+
+  it('does NOT duplicate the disposition when a matching event already exists', () => {
+    const unit = makeUnit({ status: 'returned', returnType: 'returned_to_supplier', returnDate: '2026-03-10' });
+    const events: ReturnEvent[] = [
+      makeEvent({ type: 'sent_to_supplier', date: '2026-03-10', comment: 'logged properly' }),
+    ];
+    const steps = buildUnitHistory(unit, events, []);
+    expect(steps.filter(s => s.kind === 'sent_to_supplier')).toHaveLength(1);
+  });
 });
