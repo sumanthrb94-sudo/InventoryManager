@@ -714,18 +714,29 @@ export const dbService = {
 
   // Accept any non-empty IMEI/serial verbatim — client data includes alphanumeric Apple
   // serials (e.g. "NL6CMQCYTD", "SKC9P3QVP6F") that are shorter than 14 chars.
-  async imeiExists(imei: string): Promise<boolean> {
+  //
+  // `activeOnly` (used by stock-intake paths) counts ONLY units that are still
+  // live stock (status available/reserved). A previously sold / returned / lost
+  // unit then does NOT count as a duplicate, so it can be re-intaken — its sale
+  // and return history live in the `sales` / `returnEvents` collections keyed by
+  // IMEI, so overwriting the unit doc loses nothing. Without this the inline
+  // Add-Stock check (which already ignores sold/returned) and the save-path
+  // check disagreed: the row looked fine but the save threw `duplicate_imei`.
+  async imeiExists(imei: string, opts?: { activeOnly?: boolean }): Promise<boolean> {
     if (!imei) return false;
+    // "Inactive" = the unit has left live stock and its IMEI is free to re-use.
+    const INACTIVE = new Set(['sold', 'returned', 'lost']);
+    const isLive = (u: any) =>
+      !u?.deletedAt && (!opts?.activeOnly || !INACTIVE.has(u?.status));
     // Exclude soft-deleted (tombstoned) units — a recycled/wiped unit must NOT
     // block re-adding its IMEI. Filtered both in the cache lookup AND on the
     // Firestore result (client-side, so docs that predate the deletedAt field
     // still count correctly — a server `where('deletedAt','==',null)` would
-    // silently drop those). Without this, the duplicate check falsely reports
-    // "IMEI already in inventory" for units that no longer exist.
-    const cached = (cachedData['inventoryUnits'] || []).find((u: any) => u.imei === imei && !u.deletedAt);
+    // silently drop those).
+    const cached = (cachedData['inventoryUnits'] || []).find((u: any) => u.imei === imei && isLive(u));
     if (cached) return true;
     const snap = await getDocs(query(colRef('inventoryUnits'), where('imei', '==', imei)));
-    return snap.docs.some(d => !(d.data() as any)?.deletedAt);
+    return snap.docs.some(d => isLive(d.data()));
   },
 
   // Accept any non-empty IMEI/serial verbatim — see imeiExists() comment above.
