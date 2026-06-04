@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import {
-  X, Cpu, Package, Truck, ShoppingBag, Tag,
+  X, Cpu, Truck, ShoppingBag, Tag,
   Star, MapPin, CheckCircle2, AlertCircle,
   Edit3, Save, ShieldCheck, ExternalLink, ShieldAlert
 } from 'lucide-react';
@@ -9,6 +9,7 @@ import { InventoryUnit, OperationalFlag, SourceDocument } from '../types';
 import { dbService } from '../lib/dbService';
 import { validateIMEI, formatIMEI } from '../lib/imeiUtils';
 import CopyImei from './CopyImei';
+import UnitHistoryTimeline from './UnitHistoryTimeline';
 import { getWarrantyStatus } from '../lib/warrantyUtils';
 
 
@@ -61,37 +62,6 @@ export default function UnitDetailDrawer({ unit, supplierName, onClose }: Props)
   const imeiDigits = (unit.imei || '').replace(/\D/g, '');
   const imeiValid  = imeiDigits.length === 15 ? validateIMEI(unit.imei) : null;
   const statusCfg  = STATUS_CONFIG[unit.status] || STATUS_CONFIG.available;
-
-  const timeline = [
-    {
-      icon: <Truck size={14} />,
-      label: 'Received from Supplier',
-      value: `${supplierName} → Office Stock`,
-      date: unit.dateIn,
-      done: true,
-    },
-    {
-      icon: <Package size={14} />,
-      label: 'In Office Stock',
-      value: `Buy Price: £${unit.buyPrice}`,
-      date: unit.dateIn,
-      done: true,
-    },
-    {
-      icon: <ShoppingBag size={14} />,
-      label: 'Listed on Platform',
-      value: hasListingSites ? listingSites.join(' / ') : (unit.platformListed ? 'Listed' : 'Not yet listed'),
-      date: unit.listingDate || null,
-      done: isListed,
-    },
-    {
-      icon: <CheckCircle2 size={14} />,
-      label: 'Sold → Dispatched via Courier',
-      value: unit.salePrice ? `£${unit.salePrice} via ${unit.salePlatform}${unit.saleOrderId ? ' · ' + unit.saleOrderId : ''}` : 'Pending',
-      date: unit.saleDate || (unit.status === 'sold' ? unit.dateIn : null),
-      done: unit.status === 'sold',
-    },
-  ];
 
   const toggleFlag = async (flag: OperationalFlag) => {
     const flags = unit.flags.includes(flag)
@@ -246,31 +216,10 @@ export default function UnitDetailDrawer({ unit, supplierName, onClose }: Props)
         <div className="flex-1 overflow-y-auto">
           {tab === 'detail' && (
             <div className="p-6 space-y-6">
-              {/* Timeline */}
-              <div className="space-y-0">
-                {timeline.map((step, i) => (
-                  <div key={i} className="flex gap-4 relative">
-                    {/* Connector line */}
-                    {i < timeline.length - 1 && (
-                      <div className={`absolute left-5 top-10 w-px h-8 ${step.done ? 'bg-black' : 'bg-gray-200'}`} />
-                    )}
-                    <div className={`w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0 mt-0.5 ${
-                      step.done ? 'bg-black text-white' : 'bg-gray-100 text-gray-400'
-                    }`}>
-                      {step.icon}
-                    </div>
-                    <div className="flex-1 pb-8">
-                      <p className={`text-xs font-bold ${step.done ? 'text-black' : 'text-gray-400'}`}>{step.label}</p>
-                      <p className="text-[10px] text-gray-500 font-mono mt-0.5">{step.value}</p>
-                      {step.date && (
-                        <p className="text-[9px] text-gray-400 font-mono mt-0.5">
-                          {new Date(step.date).toLocaleDateString('en-GB', { day:'numeric', month:'short', year:'numeric' })}
-                        </p>
-                      )}
-                    </div>
-                  </div>
-                ))}
-              </div>
+              {/* Full unit history — one shared template (intake → listed →
+                  sold → returned w/ comments → repair → back to stock → resold).
+                  Self-subscribes to returnEvents + sales. */}
+              <UnitHistoryTimeline unit={unit} />
 
               {/* Key details grid */}
               <div className="grid grid-cols-2 md:grid-cols-3 gap-3">

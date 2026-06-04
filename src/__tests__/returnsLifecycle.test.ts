@@ -11,6 +11,7 @@ import {
   backToInventoryCount,
   dispositionCounts,
   summarizeUnitLife,
+  buildUnitHistory,
 } from '../lib/returnsLifecycle';
 
 // ── Factory ─────────────────────────────────────────────────────────────────
@@ -207,5 +208,38 @@ describe('summarizeUnitLife', () => {
 
   it('treats a missing unit doc (soft-deleted to supplier) as to_supplier', () => {
     expect(summarizeUnitLife(null, []).state).toBe('to_supplier');
+  });
+});
+
+describe('buildUnitHistory', () => {
+  it('weaves intake, sales and return events into one chronological story', () => {
+    const unit = makeUnit({ dateIn: '2026-01-01', listingDate: '2026-01-05', status: 'sold', saleDate: '2026-04-01' });
+    const sales: Sale[] = [
+      makeSale({ id: 's1', saleDate: '2026-02-01', salePrice: 300, voidedAt: '2026-02-10', createdAt: '2026-02-01T00:00:00Z' }),
+      makeSale({ id: 's2', saleDate: '2026-04-01', salePrice: 330, createdAt: '2026-04-01T00:00:00Z' }),
+    ];
+    const events: ReturnEvent[] = [
+      makeEvent({ type: 'restocked', date: '2026-02-10', comment: 'Customer changed mind', createdAt: '2026-02-10T00:00:00Z' }),
+    ];
+    const steps = buildUnitHistory(unit, events, sales);
+    expect(steps.map(s => s.kind)).toEqual(['intake', 'listed', 'sold', 'restocked', 'sold']);
+    // The return step keeps its comment so "a comment for each return" shows.
+    expect(steps[3].comment).toBe('Customer changed mind');
+    // The first sale is flagged as later-returned.
+    expect(steps[2].label).toContain('later returned');
+  });
+
+  it('orders same-day intake → sold → returned deterministically', () => {
+    const unit = makeUnit({ dateIn: '2026-03-01' });
+    const steps = buildUnitHistory(
+      unit,
+      [makeEvent({ type: 'returned', date: '2026-03-01', createdAt: '2026-03-01T12:00:00Z' })],
+      [makeSale({ saleDate: '2026-03-01', createdAt: '2026-03-01T09:00:00Z' })],
+    );
+    expect(steps.map(s => s.kind)).toEqual(['intake', 'sold', 'returned']);
+  });
+
+  it('returns an empty story when there is nothing to show', () => {
+    expect(buildUnitHistory(null, [], [])).toEqual([]);
   });
 });

@@ -41,6 +41,7 @@ import { fmtDateForUser, useUserRegion } from '../lib/userLocale';
 import { getWarrantyStatus } from '../lib/warrantyUtils';
 import { groupReturnEventsByImei, normalizeImei, summarizeUnitLife, type LifeState } from '../lib/returnsLifecycle';
 import CopyImei from './CopyImei';
+import UnitHistoryTimeline from './UnitHistoryTimeline';
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -1517,17 +1518,6 @@ function ReturnsReport({ units, sales }: { units: InventoryUnit[]; sales: Sale[]
   // lifecycle (incl. units returned multiple times) matches verified behaviour.
   const byImei = useMemo(() => groupReturnEventsByImei(filtered), [filtered]);
 
-  const TYPE_TONE: Record<string, string> = {
-    returned:         'bg-rose-100 text-rose-700 border-rose-200',
-    restocked:        'bg-emerald-100 text-emerald-700 border-emerald-200',
-    sent_to_supplier: 'bg-amber-100 text-amber-700 border-amber-200',
-    sent_to_repair:   'bg-sky-100 text-sky-700 border-sky-200',
-    repair_complete:  'bg-emerald-100 text-emerald-700 border-emerald-200',
-    refunded:         'bg-violet-100 text-violet-700 border-violet-200',
-    received_again:   'bg-orange-100 text-orange-700 border-orange-200',
-    note:             'bg-slate-100 text-slate-600 border-slate-200',
-  };
-
   const downloadCsv = () => {
     // One row per return event, each enriched with the unit's current life
     // state + sale figures. That gives accounting a single sheet to build the
@@ -1673,20 +1663,10 @@ function ReturnsReport({ units, sales }: { units: InventoryUnit[]; sales: Sale[]
                         <span>Margin <span className={life.grossMargin < 0 ? 'text-rose-600 font-bold' : 'text-emerald-700 font-bold'}>£{life.grossMargin.toFixed(2)}</span></span>
                       )}
                     </div>
-                    {evts.map(e => (
-                      <div key={e.id} className="px-3 py-2 grid grid-cols-[100px_120px_1fr_140px] items-center gap-2 text-[10px] font-mono">
-                        <span className="text-slate-500">{e.date}</span>
-                        <span className={`text-[9px] font-bold uppercase tracking-widest border rounded px-1.5 py-0.5 ${TYPE_TONE[e.type] || 'bg-slate-100 text-slate-600 border-slate-200'}`}>
-                          {e.type.replace(/_/g, ' ')}
-                        </span>
-                        <span className="text-slate-700 truncate" title={e.comment || ''}>
-                          {e.comment || <span className="text-slate-300">— no comment —</span>}
-                        </span>
-                        <span className="text-slate-400 truncate text-right" title={`${e.actorEmail} · ${e.supplierName || ''}`}>
-                          {e.actorEmail}{e.supplierName ? ` · ${e.supplierName}` : ''}
-                        </span>
-                      </div>
-                    ))}
+                    {/* Full woven story — same template as the unit drawer. */}
+                    <div className="px-3 py-3">
+                      <UnitHistoryTimeline unit={unit ?? null} imei={imei} events={events} sales={sales} title="" />
+                    </div>
                   </div>
                 )}
               </div>

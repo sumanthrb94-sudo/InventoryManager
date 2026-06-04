@@ -175,3 +175,108 @@ export function summarizeUnitLife(
     timesReturned: voided.length,
   };
 }
+
+// ── Single unit-history template ──────────────────────────────────────────────
+// One chronological story per unit, woven from three sources: the inventory
+// doc (intake / listing), every sale row (active + voided), and every return
+// lifecycle event. Pure + testable so the unit drawer and the Returns Report
+// render the SAME history from one builder.
+
+export type UnitHistoryKind =
+  | 'intake' | 'listed' | 'sold'
+  | ReturnEventType;
+
+export interface UnitHistoryStep {
+  /** ISO yyyy-mm-dd; '' when the source carried no date. */
+  date: string;
+  kind: UnitHistoryKind;
+  /** Human one-liner for the step. */
+  label: string;
+  /** Supporting detail (price · platform, supplier, etc.). */
+  detail?: string;
+  /** Operator comment — present on returns so "a comment for each return" shows. */
+  comment?: string;
+  /** Who performed it (return events only). */
+  actor?: string;
+}
+
+/** Friendly labels for each return lifecycle event in the unit story. */
+const RETURN_STEP_LABEL: Record<ReturnEventType, string> = {
+  returned:         'Returned by customer',
+  restocked:        'Returned → back to inventory',
+  sent_to_supplier: 'Returned to supplier (soft-deleted)',
+  sent_to_repair:   'Sent for repair',
+  repair_complete:  'Repaired → back to inventory',
+  refunded:         'Refund issued',
+  received_again:   'Re-received via bulk order',
+  note:             'Note',
+};
+
+/** Same-day ordering: keep the natural intake → listed → sold → return order
+ *  when several steps share a date (and no finer timestamp is available). */
+const KIND_RANK: Record<UnitHistoryKind, number> = {
+  intake: 0, listed: 1, received_again: 1, sold: 2,
+  returned: 3, refunded: 3, sent_to_supplier: 4, sent_to_repair: 4,
+  restocked: 5, repair_complete: 5, note: 6,
+};
+
+/**
+ * Build the ordered (oldest → newest) life story for one unit. `events` and
+ * `sales` should already be scoped to this unit/IMEI by the caller.
+ */
+export function buildUnitHistory(
+  unit: InventoryUnit | null | undefined,
+  events: ReturnEvent[],
+  sales: Sale[],
+): UnitHistoryStep[] {
+  const rows: Array<UnitHistoryStep & { _seq: string }> = [];
+
+  if (unit) {
+    if (unit.dateIn) {
+      rows.push({
+        date: unit.dateIn, kind: 'intake', label: 'Received into stock',
+        detail: [unit.supplierName, unit.buyPrice != null ? `BP £${unit.buyPrice}` : '']
+          .filter(Boolean).join(' · ') || undefined,
+        _seq: '',
+      });
+    }
+    if (unit.listingDate) {
+      rows.push({
+        date: unit.listingDate, kind: 'listed', label: 'Listed for sale',
+        detail: (unit.listingSites && unit.listingSites.length) ? unit.listingSites.join(' / ') : undefined,
+        _seq: '',
+      });
+    }
+  }
+
+  // Each sale row — active or later-voided — is a "sold" step.
+  for (const s of sales) {
+    if (!s.saleDate) continue;
+    rows.push({
+      date: s.saleDate, kind: 'sold',
+      label: s.voidedAt ? 'Sold (later returned)' : 'Sold',
+      detail: [s.salePrice != null ? `£${s.salePrice}` : '', (s as any).marketplace || (s as any).salePlatform || '']
+        .filter(Boolean).join(' · ') || undefined,
+      _seq: String(s.createdAt ?? ''),
+    });
+  }
+
+  // Each return lifecycle event is a step, carrying its comment + actor.
+  for (const e of events) {
+    rows.push({
+      date: e.date, kind: e.type,
+      label: RETURN_STEP_LABEL[e.type] ?? e.type.replace(/_/g, ' '),
+      detail: e.supplierName || undefined,
+      comment: e.comment,
+      actor: e.actorEmail,
+      _seq: String(e.createdAt ?? ''),
+    });
+  }
+
+  rows.sort((a, b) =>
+    cmpStr(a.date, b.date) ||
+    ((KIND_RANK[a.kind] ?? 9) - (KIND_RANK[b.kind] ?? 9)) ||
+    cmpStr(a._seq, b._seq),
+  );
+  return rows.map(({ _seq, ...rest }) => rest);
+}
