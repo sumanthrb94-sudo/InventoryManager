@@ -20,7 +20,7 @@
  * also runs an in-batch dedupe for instant feedback. Apple devices accept
  * a 10–12 char alphanumeric serial in place of the 15-digit IMEI.
  */
-import React, { useState, useMemo, useCallback } from 'react';
+import React, { useState, useMemo, useCallback, useEffect } from 'react';
 import { X, Plus, Trash2, CheckCircle2, PackagePlus, AlertCircle, Truck } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useInventoryStore } from '../lib/inventoryStore';
@@ -89,6 +89,13 @@ function canonicalColour(s: string): ColourPreset | undefined {
 const uid = () => Math.random().toString(36).slice(2, 9);
 const today = () => new Date().toISOString().split('T')[0];
 
+// Normalise an operator-typed IMEI/serial: strip zero-width / non-breaking
+// whitespace (Excel + WhatsApp copy/paste love to embed those), trim, uppercase.
+const ZERO_WIDTH = /[​‌‍﻿ ]/g;
+function normImei(s: string): string {
+  return (s || '').replace(ZERO_WIDTH, '').trim().toUpperCase();
+}
+
 function emptyRow(supplierName = ''): StockRow {
   return {
     id: uid(),
@@ -145,34 +152,39 @@ export default function AddStockManualModal({ onClose, initialMode = 'office' }:
   const [error, setError]   = useState('');
 
   const supplierNames = useMemo(() => suppliers.map(s => s.name), [suppliers]);
-  // Map (not Set) so we can surface the matching unit's details when a row
-  // flags as duplicate — operator's reported false positives in production
-  // where they swore the IMEI wasn't in DB; turned out to be a stale import
-  // or a returned/sold unit still living in inventoryUnits. Showing the
-  // existing row's model + dateIn + status + supplier makes that obvious.
-  const existingByImei = useMemo(() => {
-    const m = new Map<string, InventoryUnit>();
-    for (const u of units) {
-      if (!u.imei) continue;
-      // Only ACTIVE inventory blocks re-adding. A previously sold / returned /
-      // lost unit must be re-intakeable (a device comes back / is re-acquired) —
-      // its sale + return history live in the `sales` / `returnEvents` collections
-      // keyed by IMEI, so re-adding the unit doc loses nothing. Tombstoned docs
-      // (deletedAt) never block either. Fixes the recurring false "Already in
-      // inventory" when adding stock manually.
-      if ((u as any).deletedAt) continue;
-      if (u.status === 'sold' || u.status === 'returned' || u.status === 'lost') continue;
-      // Strip zero-width / non-breaking whitespace too — Excel + WhatsApp
-      // copy/paste loves to embed those, and a single invisible character
-      // makes the exact-match dupe check miss a real collision.
-      const key = u.imei
-        .replace(/[​-‍﻿ ]/g, '')
-        .trim()
-        .toUpperCase();
-      if (key && !m.has(key)) m.set(key, u);
+  // Authoritative duplicate detection: query the DATABASE (debounced) per row so
+  // the inline "Already in inventory" warning reflects REAL current inventory —
+  // never a stale / phantom / optimistic cache entry, which is what kept
+  // producing the bogus warning on IMEIs that aren't actually there. Keyed by
+  // row id -> { imei that was checked, the matching active unit (or null) }.
+  const [dbMatches, setDbMatches] = useState<Record<string, { imei: string; match: NonNullable<RowValidation['dupeInDbMatch']> | null }>>({});
+
+  useEffect(() => {
+    const timers: ReturnType<typeof setTimeout>[] = [];
+    for (const r of rows) {
+      const imei = normImei(r.imei);
+      const isApple = isAppleDevice(r.model);
+      // Only check well-formed IMEIs/serials; otherwise record "no match" so a
+      // half-typed value never shows a duplicate warning.
+      if (!imei || !isValidImei(imei, { isAppleSerial: isApple })) {
+        setDbMatches(prev => (prev[r.id] && prev[r.id].imei === imei && prev[r.id].match === null ? prev : { ...prev, [r.id]: { imei, match: null } }));
+        continue;
+      }
+      const t = setTimeout(async () => {
+        try {
+          const found = await dbService.findActiveByImei(imei);
+          const match = found
+            ? { id: found.id, model: (found.model || '').trim() || '?', dateIn: (found.dateIn || '').trim() || '?', status: found.status || '?', supplierName: found.supplierName }
+            : null;
+          setDbMatches(prev => ({ ...prev, [r.id]: { imei, match } }));
+        } catch {
+          // Network hiccup - leave unflagged; the save re-checks the DB authoritatively.
+        }
+      }, 350);
+      timers.push(t);
     }
-    return m;
-  }, [units]);
+    return () => timers.forEach(clearTimeout);
+  }, [rows]);
 
   // Carry the last typed supplier forward — saves re-typing across rows in
   // the same delivery from one source.
@@ -197,30 +209,20 @@ export default function AddStockManualModal({ onClose, initialMode = 'office' }:
 
   // ── Validation per row ─────────────────────────────────────────────────────
   const validation: RowValidation[] = useMemo(() => rows.map(r => {
-    // Strip invisible whitespace from the operator-typed IMEI to match the
-    // same normalisation done when we built existingByImei above. Without
-    // this an Excel-pasted IMEI with a trailing zero-width space would
-    // never match a clean DB record (or vice-versa).
-    const imei = r.imei
-      .replace(/[​-‍﻿ ]/g, '')
-      .trim()
-      .toUpperCase();
+    const imei = normImei(r.imei);
     const isApple = isAppleDevice(r.model);
     const imeiRequired = mode === 'office';
     const imeiEmpty = imei.length === 0;
     const imeiFormatOk = imei ? isValidImei(imei, { isAppleSerial: isApple }) : false;
 
-    const dupeInBatch = !!imei && rows.filter(x => x.imei
-      .replace(/[​-‍﻿ ]/g, '').trim().toUpperCase() === imei).length > 1;
-    const existingUnit = imei ? existingByImei.get(imei) : undefined;
-    const dupeInDb    = !!existingUnit;
-    const dupeInDbMatch = existingUnit ? {
-      id:           existingUnit.id,
-      model:        (existingUnit.model || '').trim() || '?',
-      dateIn:       (existingUnit.dateIn || '').trim() || '?',
-      status:       existingUnit.status || '?',
-      supplierName: existingUnit.supplierName,
-    } : undefined;
+    const dupeInBatch = !!imei && rows.filter(x => normImei(x.imei) === imei).length > 1;
+    // dupeInDb comes from the DEBOUNCED, DATABASE-authoritative lookup above, and
+    // only applies when the checked imei still equals what's typed (guards against
+    // a stale in-flight result). So the warning reflects REAL current inventory,
+    // not a phantom/stale cache entry.
+    const dbEntry = dbMatches[r.id];
+    const dupeInDb = !!(dbEntry && dbEntry.imei === imei && dbEntry.match);
+    const dupeInDbMatch = dupeInDb && dbEntry && dbEntry.match ? dbEntry.match : undefined;
 
     const modelOk    = r.model.trim().length > 0;
     const supplierOk = r.supplierName.trim().length > 0;
@@ -231,10 +233,10 @@ export default function AddStockManualModal({ onClose, initialMode = 'office' }:
     // via the dropdown. Either way the trimmed value must be non-empty.
     const storageOk  = r.storage.trim().length > 0;
 
-    // A duplicate invalidates the row so it can't be saved. dupeInDb is matched
-    // against ACTIVE inventory only (existingByImei excludes sold/returned/lost
-    // and tombstoned units), so it flags genuine live duplicates while typing —
-    // not the bogus/stale ones that caused earlier false positives.
+    // A duplicate invalidates the row so it can't be saved. dupeInDb comes from
+    // the debounced, DATABASE-authoritative lookup (active units only), so it
+    // flags genuine live duplicates while typing — not the phantom/stale cache
+    // hits that caused the recurring false positives.
     const imeiOk =
       imeiRequired
         ? imeiFormatOk && !dupeInBatch && !dupeInDb
@@ -245,7 +247,7 @@ export default function AddStockManualModal({ onClose, initialMode = 'office' }:
       dupeInBatch, dupeInDb, dupeInDbMatch, bpOk, supplierOk, storageOk,
       complete: modelOk && imeiOk && bpOk && supplierOk && storageOk,
     };
-  }), [rows, mode, existingByImei]);
+  }), [rows, mode, dbMatches]);
 
   // ── Totals strip ───────────────────────────────────────────────────────────
   const totals = useMemo(() => {
@@ -260,8 +262,8 @@ export default function AddStockManualModal({ onClose, initialMode = 'office' }:
   }, [rows, validation]);
 
   // Block save on duplicate IMEIs — both within this batch AND against ACTIVE
-  // inventory (existingByImei is active-only, so only genuine live duplicates
-  // count). The save ALSO re-checks the database authoritatively as a backstop.
+  // inventory (resolved via the debounced DB lookup, so only genuine live
+  // duplicates count). The save ALSO re-checks the database as a backstop.
   const duplicateCount = useMemo(
     () => validation.filter(v => v.dupeInDb || v.dupeInBatch).length,
     [validation],

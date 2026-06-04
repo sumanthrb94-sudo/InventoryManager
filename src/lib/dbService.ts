@@ -742,6 +742,25 @@ export const dbService = {
     return snap.docs.some(d => isLive(d.data()));
   },
 
+  /** Authoritative (Firestore-direct) lookup of an ACTIVE unit by IMEI, with the
+   *  identifying details for a duplicate warning. Returns null when no live unit
+   *  carries that IMEI — used by Add Stock so the inline duplicate warning
+   *  reflects the real database, never a stale/phantom cache entry. IMEI is
+   *  upper-cased to match how intake stores it. */
+  async findActiveByImei(imei: string): Promise<{ id: string; model: string; status: string; supplierName?: string; dateIn: string } | null> {
+    const key = (imei || '').trim().toUpperCase();
+    if (!key) return null;
+    const INACTIVE = new Set(['sold', 'returned', 'lost']);
+    const snap = await getDocs(query(colRef('inventoryUnits'), where('imei', '==', key)));
+    for (const d of snap.docs) {
+      const u: any = d.data();
+      if (u?.deletedAt) continue;
+      if (INACTIVE.has(u?.status)) continue;
+      return { id: d.id, model: u.model || '?', status: u.status || '?', supplierName: u.supplierName, dateIn: u.dateIn || '?' };
+    }
+    return null;
+  },
+
   // Accept any non-empty IMEI/serial verbatim — see imeiExists() comment above.
   async getByImei(imei: string): Promise<any | null> {
     if (!imei) return null;
