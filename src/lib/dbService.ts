@@ -333,6 +333,11 @@ export const dbService = {
     const timestamp = nowIso();
     const total = entries.length;
     let done = 0;
+    // Firestore doc ids cannot contain '/'. Sanitise defensively so a single bad
+    // id (e.g. a sales row whose IMEI cell pasted "imeiA / imeiB") can never make
+    // the entire import throw "document reference must have an even number of
+    // segments". Applied to both the cache and the Firestore write.
+    const safeId = (id: string) => id.replace(/\//g, '-');
 
     // Build per-collection items
     const byCollection: Record<string, any[]> = {};
@@ -342,7 +347,7 @@ export const dbService = {
       // Re-importing a sale that was previously soft-deleted brings it back.
       const item = {
         ...entry.data,
-        id: entry.id,
+        id: safeId(entry.id),
         deletedAt: entry.data?.deletedAt ?? null,
         deletedBy: entry.data?.deletedBy ?? null,
         deletedByEmail: entry.data?.deletedByEmail ?? null,
@@ -372,7 +377,7 @@ export const dbService = {
       for (const entry of chunk) {
         const item = cleanForFirestore({
           ...entry.data,
-          id: entry.id,
+          id: safeId(entry.id),
           ownerId: entry.data.ownerId || 'shared',
           // Explicit nulls clear any prior soft-delete tombstone on
           // re-import. Without these, merge:true would leave a previously-
@@ -383,7 +388,7 @@ export const dbService = {
           createdAt: entry.data.createdAt ?? timestamp,
           updatedAt: timestamp,
         });
-        batch.set(docRef(entry.collection, entry.id), item, { merge: true });
+        batch.set(docRef(entry.collection, safeId(entry.id)), item, { merge: true });
       }
       await batch.commit();
       done += chunk.length;

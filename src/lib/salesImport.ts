@@ -606,7 +606,11 @@ function parseRow(
   // natural per-line key; it also keeps dedupe idempotent across re-imports.
   // Orders with neither imei nor sku fall back to marketplace__orderNumber.
   const lineKey = imei || sku || '';
-  const id = lineKey ? `${marketplace}__${orderNumber}__${lineKey}` : `${marketplace}__${orderNumber}`;
+  const rawId = lineKey ? `${marketplace}__${orderNumber}__${lineKey}` : `${marketplace}__${orderNumber}`;
+  // Firestore doc ids cannot contain '/'. A multi-unit order can paste two IMEIs
+  // into one cell ("imeiA / imeiB"); collapse those (and any stray slash) to a
+  // hyphen so the id stays a single valid path segment.
+  const id = rawId.replace(/\s*\/\s*/g, '-').replace(/\//g, '-');
 
   return {
     id,
@@ -786,6 +790,22 @@ if (import.meta.vitest) {
       // Doc id is line-unique: marketplace__orderNumber__<imei|sku>, so a single
       // order with multiple SKUs/IMEIs no longer collapses to one row.
       expect(bm.id).toBe('BM__BM-1__NL6CMQCYTD');
+    });
+
+    it('builds a slash-free doc id when a cell pastes two IMEIs', async () => {
+      const make = (rows: any[][]) => XLSX.utils.aoa_to_sheet(rows);
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, make([
+        ['nw', 'Order Number', 'SKU', 'IMEI', 'Supplier', 'Quantity', 'BP', 'SP'],
+        [new Date('2026-05-12T00:00:00Z'), '206-5248339-8852336', 'SKU9', '350019159355722 / 350019153943622', 'NIHAL', 2, 200, 600],
+      ]), 'AMAZON');
+      const buf = XLSX.write(wb, { type: 'array', bookType: 'xlsx' }) as ArrayBuffer;
+      const out = await parseSalesWorkbook(buf, 'fixture.xlsx');
+      const s = out.sales[0];
+      // Firestore doc ids can't contain '/': the two-IMEI cell must collapse to a
+      // single, valid path segment (else the whole import throws).
+      expect(s.id).not.toContain('/');
+      expect(s.id).toBe('AMAZON__206-5248339-8852336__350019159355722-350019153943622');
     });
   });
 }
