@@ -231,14 +231,14 @@ export default function AddStockManualModal({ onClose, initialMode = 'office' }:
     // via the dropdown. Either way the trimmed value must be non-empty.
     const storageOk  = r.storage.trim().length > 0;
 
-    // Note: dupeInDb does NOT make a row incomplete — a match against (possibly
-    // stale) cached inventory is just a warning; the save re-checks the database
-    // authoritatively. Only a same-batch duplicate (dupeInBatch) invalidates the
-    // row. Otherwise a bogus cache hit would zero out validUnits and disable Save.
+    // A duplicate invalidates the row so it can't be saved. dupeInDb is matched
+    // against ACTIVE inventory only (existingByImei excludes sold/returned/lost
+    // and tombstoned units), so it flags genuine live duplicates while typing —
+    // not the bogus/stale ones that caused earlier false positives.
     const imeiOk =
       imeiRequired
-        ? imeiFormatOk && !dupeInBatch
-        : (imeiEmpty || (imeiFormatOk && !dupeInBatch));
+        ? imeiFormatOk && !dupeInBatch && !dupeInDb
+        : (imeiEmpty || (imeiFormatOk && !dupeInBatch && !dupeInDb));
 
     return {
       modelOk, imeiOk, isApple, imeiRequired, imeiEmpty,
@@ -259,19 +259,14 @@ export default function AddStockManualModal({ onClose, initialMode = 'office' }:
     return { validUnits, value };
   }, [rows, validation]);
 
-  // Only a duplicate WITHIN this batch (same IMEI typed on two rows) hard-blocks
-  // the save — that's an unambiguous input error. A match against existing
-  // inventory (dupeInDb) is now only an inline warning and does NOT block: the
-  // cached inventory it's compared against can be stale, so the SAVE re-checks
-  // the database authoritatively (addUnitManual → imeiExists) and rejects only
-  // genuine, currently-active duplicates. This is the fix for the bogus
-  // "IMEI already in inventory" on units that aren't really there.
-  const batchDuplicateCount = useMemo(
-    () => validation.filter(v => v.dupeInBatch).length,
+  // Block save on duplicate IMEIs — both within this batch AND against ACTIVE
+  // inventory (existingByImei is active-only, so only genuine live duplicates
+  // count). The save ALSO re-checks the database authoritatively as a backstop.
+  const duplicateCount = useMemo(
+    () => validation.filter(v => v.dupeInDb || v.dupeInBatch).length,
     [validation],
   );
-  const hasDuplicates = batchDuplicateCount > 0;
-  const duplicateCount = batchDuplicateCount;
+  const hasDuplicates = duplicateCount > 0;
 
   // ── Save ───────────────────────────────────────────────────────────────────
   async function handleSave() {
@@ -402,6 +397,10 @@ export default function AddStockManualModal({ onClose, initialMode = 'office' }:
       }
       if (failures.length) {
         setError(`${total} saved · ${failures.length} rejected: ${failures[0]}`);
+      } else {
+        // Full success — clear the rows so the just-saved IMEIs don't linger in
+        // the form and flash a "now already in inventory" warning before close.
+        setRows([emptyRow('')]);
       }
       setSaved(true);
       setTimeout(onClose, 900);
@@ -589,11 +588,15 @@ function Row({
     if (mode === 'shs' && validation.imeiEmpty) return 'Optional for SHS';
     if (validation.imeiEmpty && validation.imeiRequired) return 'Required';
     if (validation.dupeInBatch) return 'Duplicate in this batch';
-    // NOTE: a match against existing inventory is intentionally NOT surfaced here.
-    // The cached list it compares against can be stale (or already contain the
-    // unit you just saved), which produced bogus "Already in inventory" warnings.
-    // The SAVE re-checks the database authoritatively and rejects only a genuine,
-    // currently-active duplicate with a clear message — so this stays quiet.
+    if (validation.dupeInDb) {
+      // Live duplicate warning while typing — matched against ACTIVE inventory
+      // only (sold/returned/lost + tombstoned excluded), so it flags genuine
+      // collisions, not phantoms. The just-saved unit can't flash here because
+      // the row is cleared on a successful save.
+      const m = validation.dupeInDbMatch;
+      if (m) return `Already in inventory · ${m.model} · ${m.dateIn} · status ${m.status}${m.supplierName ? ' · ' + m.supplierName : ''}`;
+      return 'Already in inventory';
+    }
     if (!validation.imeiOk && !validation.imeiEmpty) {
       return validation.isApple ? IMEI_OR_APPLE_SERIAL_MESSAGE : IMEI_REQUIRED_MESSAGE;
     }
