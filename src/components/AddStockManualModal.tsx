@@ -154,6 +154,14 @@ export default function AddStockManualModal({ onClose, initialMode = 'office' }:
     const m = new Map<string, InventoryUnit>();
     for (const u of units) {
       if (!u.imei) continue;
+      // Only ACTIVE inventory blocks re-adding. A previously sold / returned /
+      // lost unit must be re-intakeable (a device comes back / is re-acquired) —
+      // its sale + return history live in the `sales` / `returnEvents` collections
+      // keyed by IMEI, so re-adding the unit doc loses nothing. Tombstoned docs
+      // (deletedAt) never block either. Fixes the recurring false "Already in
+      // inventory" when adding stock manually.
+      if ((u as any).deletedAt) continue;
+      if (u.status !== 'available' && u.status !== 'reserved') continue;
       // Strip zero-width / non-breaking whitespace too — Excel + WhatsApp
       // copy/paste loves to embed those, and a single invisible character
       // makes the exact-match dupe check miss a real collision.

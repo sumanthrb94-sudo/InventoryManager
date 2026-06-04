@@ -47,27 +47,35 @@ async function downloadPreWipeBackup(log: (m: string) => void): Promise<void> {
   const total = Object.values(backup.counts).reduce((a, b) => a + b, 0);
   log(`  ↳ JSON backup (${total} records across ${Object.keys(backup.counts).length} collections)`);
 
-  const c = backup.collections;
-  const { buildInventoryWorkbookBuffer, buildSalesWorkbookBuffer } = await import('../lib/clientReport');
-  const XLSX_MIME = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+  // The JSON above is the critical, restorable backup — if it succeeded the wipe
+  // is safe to proceed. The human-readable Excel reports are a bonus: build them
+  // best-effort so a report-generation hiccup can NEVER abort the wipe (which
+  // would silently leave old data — and stale IMEIs — behind).
+  try {
+    const c = backup.collections;
+    const { buildInventoryWorkbookBuffer, buildSalesWorkbookBuffer } = await import('../lib/clientReport');
+    const XLSX_MIME = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
 
-  const invBuf = await buildInventoryWorkbookBuffer({
-    units:        (c.inventoryUnits as any) || [],
-    aggregates:   (c.inventoryAggregates as any) || [],
-    suppliers:    (c.suppliers as any) || [],
-    whatsappFeed: (c.supplierWhatsappUpdates as any) || [],
-    sales:        (c.sales as any) || [],
-  });
-  downloadBlob(new Blob([invBuf], { type: XLSX_MIME }), `INVENTORY_REPORT-${stamp}.xlsx`);
-  log('  ↳ Inventory report (incl. unit/return history)');
+    const invBuf = await buildInventoryWorkbookBuffer({
+      units:        (c.inventoryUnits as any) || [],
+      aggregates:   (c.inventoryAggregates as any) || [],
+      suppliers:    (c.suppliers as any) || [],
+      whatsappFeed: (c.supplierWhatsappUpdates as any) || [],
+      sales:        (c.sales as any) || [],
+    });
+    downloadBlob(new Blob([invBuf], { type: XLSX_MIME }), `INVENTORY_REPORT-${stamp}.xlsx`);
+    log('  ↳ Inventory report (incl. unit/return history)');
 
-  const salesBuf = await buildSalesWorkbookBuffer({
-    sales: (c.sales as any) || [],
-    units: (c.inventoryUnits as any) || [],
-    opts:  { today: new Date() },
-  });
-  downloadBlob(new Blob([salesBuf], { type: XLSX_MIME }), `SALES_REPORT-${stamp}.xlsx`);
-  log('  ↳ Sales report');
+    const salesBuf = await buildSalesWorkbookBuffer({
+      sales: (c.sales as any) || [],
+      units: (c.inventoryUnits as any) || [],
+      opts:  { today: new Date() },
+    });
+    downloadBlob(new Blob([salesBuf], { type: XLSX_MIME }), `SALES_REPORT-${stamp}.xlsx`);
+    log('  ↳ Sales report');
+  } catch (reportErr: any) {
+    log(`  ↳ (Excel reports skipped: ${reportErr?.message ?? reportErr} — JSON backup is safe)`);
+  }
 }
 
 export default function ResetDataModal({ onClose }: Props) {
