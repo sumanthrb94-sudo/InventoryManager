@@ -100,6 +100,16 @@ export default function UnitHistoryTimeline({
     return buildUnitHistory(unit ?? null, myEvents, mySales);
   }, [allEvents, allSales, key, unit]);
 
+  // "yyyy-mm-dd · HH:MM" — appends the local time of day when a createdAt
+  // timestamp is available, so same-day steps are distinguishable.
+  const fmtWhen = (step: { date: string; at?: string }): string => {
+    const d = step.date || '—';
+    if (!step.at) return d;
+    const t = new Date(step.at);
+    if (isNaN(t.getTime())) return d;
+    return `${d} · ${t.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
+  };
+
   return (
     <div className={className}>
       {title && (
@@ -125,7 +135,7 @@ export default function UnitHistoryTimeline({
                 <div className="min-w-0">
                   <p className="text-[8px] font-bold uppercase tracking-widest opacity-70">Current state</p>
                   <p className="text-[11px] font-bold truncate">
-                    {latest.label}{latest.date ? ` · ${latest.date}` : ''}
+                    {latest.label} · {fmtWhen(latest)}
                   </p>
                 </div>
               </div>
@@ -145,7 +155,7 @@ export default function UnitHistoryTimeline({
               <div className="pb-4 min-w-0 flex-1">
                 <div className="flex items-baseline justify-between gap-2">
                   <p className="text-[11px] font-bold text-slate-900">{step.label}</p>
-                  <span className="text-[9px] font-mono text-slate-400 whitespace-nowrap">{step.date || '—'}</span>
+                  <span className="text-[9px] font-mono text-slate-400 whitespace-nowrap">{fmtWhen(step)}</span>
                 </div>
                 {step.detail && (
                   <p className="text-[10px] font-mono text-slate-500 mt-0.5 truncate" title={step.detail}>{step.detail}</p>

@@ -261,6 +261,37 @@ describe('buildUnitHistory', () => {
     expect(last.comment).toBe('Faulty — back to MHL');
   });
 
+  it('orders same-day cycles by real timestamp, not grouped by type', () => {
+    // All on one day (operator testing). createdAt encodes the true sequence:
+    // sold → repair → repaired-back → resold → returned-to-supplier.
+    const unit = makeUnit({ dateIn: '2026-06-04', status: 'returned', returnType: 'returned_to_supplier', returnDate: '2026-06-04' });
+    const sales: Sale[] = [
+      makeSale({ id: 'a', saleDate: '2026-06-04', voidedAt: '2026-06-04', createdAt: '2026-06-04T09:00:00Z' }),
+      makeSale({ id: 'b', saleDate: '2026-06-04', voidedAt: '2026-06-04', createdAt: '2026-06-04T12:00:00Z' }),
+    ];
+    const events: ReturnEvent[] = [
+      makeEvent({ type: 'sent_to_repair',   date: '2026-06-04', createdAt: '2026-06-04T10:00:00Z' }),
+      makeEvent({ type: 'repair_complete',  date: '2026-06-04', createdAt: '2026-06-04T11:00:00Z' }),
+      makeEvent({ type: 'sent_to_supplier', date: '2026-06-04', createdAt: '2026-06-04T13:00:00Z' }),
+    ];
+    const steps = buildUnitHistory(unit, events, sales);
+    // intake first, then strict createdAt order — NOT all 'sold' grouped together.
+    expect(steps.map(s => s.kind)).toEqual([
+      'intake', 'sold', 'sent_to_repair', 'repair_complete', 'sold', 'sent_to_supplier',
+    ]);
+  });
+
+  it('carries the createdAt timestamp through so the UI can show the time', () => {
+    const unit = makeUnit({ dateIn: '2026-06-04' });
+    const steps = buildUnitHistory(
+      unit,
+      [makeEvent({ type: 'restocked', date: '2026-06-04', createdAt: '2026-06-04T14:30:00Z' })],
+      [],
+    );
+    const restock = steps.find(s => s.kind === 'restocked')!;
+    expect(restock.at).toBe('2026-06-04T14:30:00Z');
+  });
+
   it('does NOT duplicate the disposition when a matching event already exists', () => {
     const unit = makeUnit({ status: 'returned', returnType: 'returned_to_supplier', returnDate: '2026-03-10' });
     const events: ReturnEvent[] = [
