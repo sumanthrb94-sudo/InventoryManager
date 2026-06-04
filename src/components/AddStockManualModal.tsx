@@ -161,7 +161,7 @@ export default function AddStockManualModal({ onClose, initialMode = 'office' }:
       // (deletedAt) never block either. Fixes the recurring false "Already in
       // inventory" when adding stock manually.
       if ((u as any).deletedAt) continue;
-      if (u.status !== 'available' && u.status !== 'reserved') continue;
+      if (u.status === 'sold' || u.status === 'returned' || u.status === 'lost') continue;
       // Strip zero-width / non-breaking whitespace too — Excel + WhatsApp
       // copy/paste loves to embed those, and a single invisible character
       // makes the exact-match dupe check miss a real collision.

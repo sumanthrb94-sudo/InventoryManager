@@ -189,12 +189,14 @@ export async function addUnitManual(input: AddUnitInput): Promise<AddUnitResult>
     return { ok: false, error: 'missing_supplier', message: 'Supplier is required.' };
   }
 
-  // 5. Duplicate check against in-DB units.
-  if (await dbService.imeiExists(rawImei)) {
+  // 5. Duplicate check against in-DB units — only ACTIVE stock blocks a re-add;
+  //    a previously sold / returned unit can be re-intaken (matches the inline
+  //    Add-Stock check, so the row and the save agree).
+  if (await dbService.imeiExists(rawImei, { activeOnly: true })) {
     return {
       ok: false,
       error: 'duplicate_imei',
-      message: `IMEI ${rawImei} is already in inventory.`,
+      message: `IMEI ${rawImei} is already in active inventory.`,
     };
   }
 
@@ -321,7 +323,7 @@ export async function receiveShsAggregate(input: ReceiveShsInput): Promise<Recei
       errors.push({ imei, reason: 'duplicate_in_batch' });
       continue;
     }
-    if (await dbService.imeiExists(imei)) {
+    if (await dbService.imeiExists(imei, { activeOnly: true })) {
       errors.push({ imei, reason: 'duplicate_imei' });
       continue;
     }
