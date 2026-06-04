@@ -286,8 +286,8 @@ function UploadPhase({
           <li><strong>ONBUY</strong> · 15 cols (BP/SP shifted left — no Quantity column)</li>
         </ul>
         <p className="text-[10px] text-slate-500">
-          Sales are matched by composite ID <span className="font-mono">marketplace__orderNumber</span>.
-          Rows matching an existing ID will UPDATE; new rows will CREATE. Nothing writes until you
+          Sales are matched by composite ID <span className="font-mono">marketplace__orderNumber__imei</span>
+          {' '}(so one order can hold multiple phones/SKUs). Rows matching an existing ID will UPDATE; new rows will CREATE. Nothing writes until you
           confirm the preview. Every derived field (Tax, Commission, GP, NP) is recomputed via
           the master formulas — the file's derived columns are ignored on read.
         </p>

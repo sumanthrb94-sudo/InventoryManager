@@ -870,9 +870,12 @@ export const dbService = {
     sales: Array<any & { marketplace: string; orderNumber: string }>,
     onProgress?: (done: number, total: number) => void,
   ): Promise<void> {
+    // Prefer the parser's line-unique id (marketplace__orderNumber__<imei|sku>)
+    // so a single order with multiple phones/SKUs creates one row PER line. Fall
+    // back to the legacy (marketplace, orderNumber) key only when no id is set.
     const entries = sales.map(s => ({
       collection: 'sales',
-      id: `${s.marketplace}__${s.orderNumber}`,
+      id: (s as any).id || `${s.marketplace}__${s.orderNumber}`,
       data: s,
     }));
     await this.bulkCreate(entries, onProgress);
