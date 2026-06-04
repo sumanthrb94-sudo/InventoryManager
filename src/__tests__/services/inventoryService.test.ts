@@ -135,17 +135,27 @@ describe('addUnitManual', () => {
     expect(collections['inventoryUnits']?.size ?? 0).toBe(0);
   });
 
-  it('rejects invalid IMEI for a non-Apple device (alphanumeric serial)', async () => {
-    // Non-Apple model — Apple-serial form is not unlocked.
+  it('rejects a genuinely invalid identifier (gibberish word, no digit)', async () => {
     const r = await addUnitManual({
-      imei: 'NL6CMQCYTD',
+      imei: 'HELLOHELLO',          // 10 letters, no digit → not an IMEI or serial
       model: 'Samsung Galaxy S22',
       buyPrice: 250,
       supplierName: 'MHL',
     });
     expect(r.ok).toBe(false);
     expect(r.error).toBe('invalid_imei');
-    expect(r.message).toMatch(/15-digit IMEI/i);
+  });
+
+  it('accepts an Apple-style serial (Watch/iPad) — serials are not 15-digit IMEIs', async () => {
+    // Serial shape (8-12 alphanumeric, letter + digit) is accepted regardless of
+    // whether the model text tripped Apple detection, so accessories can be added.
+    const r = await addUnitManual({
+      imei: 'NL6CMQCYTD',
+      model: 'Watch Ultra 2',
+      buyPrice: 250,
+      supplierName: 'MHL',
+    });
+    expect(r.ok).toBe(true);
   });
 
   it('rejects buy price <= 0', async () => {
