@@ -189,6 +189,9 @@ export type UnitHistoryKind =
 export interface UnitHistoryStep {
   /** ISO yyyy-mm-dd; '' when the source carried no date. */
   date: string;
+  /** Full ISO timestamp of when the record was created (`createdAt`), when
+   *  available — lets the UI show the time of day and order same-day steps. */
+  at?: string;
   kind: UnitHistoryKind;
   /** Human one-liner for the step. */
   label: string;
@@ -212,8 +215,10 @@ const RETURN_STEP_LABEL: Record<ReturnEventType, string> = {
   note:             'Note',
 };
 
-/** Same-day ordering: keep the natural intake → listed → sold → return order
- *  when several steps share a date (and no finer timestamp is available). */
+/** LAST-RESORT same-day ordering: only used when two steps share a date AND
+ *  have no distinguishing timestamp. Real chronology comes from `createdAt`
+ *  (see the sort below) so cycles read in the true order they happened —
+ *  sold → repair → back to inventory → resold — rather than grouped by type. */
 const KIND_RANK: Record<UnitHistoryKind, number> = {
   intake: 0, listed: 1, received_again: 1, sold: 2,
   returned: 3, refunded: 3, sent_to_supplier: 4, sent_to_repair: 4,
@@ -229,22 +234,26 @@ export function buildUnitHistory(
   events: ReturnEvent[],
   sales: Sale[],
 ): UnitHistoryStep[] {
-  const rows: Array<UnitHistoryStep & { _seq: string }> = [];
+  // `_ts` is the within-date sort key — the real creation time. Intake/listed
+  // carry '' so they sort first on their date (then by KIND_RANK), since they
+  // have no meaningful clock time relative to same-day sales/returns.
+  const rows: Array<UnitHistoryStep & { _ts: string }> = [];
 
   if (unit) {
     if (unit.dateIn) {
       rows.push({
         date: unit.dateIn, kind: 'intake', label: 'Received into stock',
+        at: unit.createdAt ? String(unit.createdAt) : undefined,
         detail: [unit.supplierName, unit.buyPrice != null ? `BP £${unit.buyPrice}` : '']
           .filter(Boolean).join(' · ') || undefined,
-        _seq: '',
+        _ts: '',
       });
     }
     if (unit.listingDate) {
       rows.push({
         date: unit.listingDate, kind: 'listed', label: 'Listed for sale',
         detail: (unit.listingSites && unit.listingSites.length) ? unit.listingSites.join(' / ') : undefined,
-        _seq: '',
+        _ts: '',
       });
     }
   }
@@ -252,24 +261,26 @@ export function buildUnitHistory(
   // Each sale row — active or later-voided — is a "sold" step.
   for (const s of sales) {
     if (!s.saleDate) continue;
+    const at = s.createdAt ? String(s.createdAt) : '';
     rows.push({
-      date: s.saleDate, kind: 'sold',
+      date: s.saleDate, kind: 'sold', at: at || undefined,
       label: s.voidedAt ? 'Sold (later returned)' : 'Sold',
       detail: [s.salePrice != null ? `£${s.salePrice}` : '', (s as any).marketplace || (s as any).salePlatform || '']
         .filter(Boolean).join(' · ') || undefined,
-      _seq: String(s.createdAt ?? ''),
+      _ts: at,
     });
   }
 
   // Each return lifecycle event is a step, carrying its comment + actor.
   for (const e of events) {
+    const at = e.createdAt ? String(e.createdAt) : '';
     rows.push({
-      date: e.date, kind: e.type,
+      date: e.date, kind: e.type, at: at || undefined,
       label: RETURN_STEP_LABEL[e.type] ?? e.type.replace(/_/g, ' '),
       detail: e.supplierName || undefined,
       comment: e.comment,
       actor: e.actorEmail,
-      _seq: String(e.createdAt ?? ''),
+      _ts: at,
     });
   }
 
@@ -301,17 +312,20 @@ export function buildUnitHistory(
           label: RETURN_STEP_LABEL[mapped],
           detail: unit.supplierName || undefined,
           comment: unit.returnReason || undefined,
-          // Sort after any same-date logged events — it's the latest state.
-          _seq: '~~~',
+          // Sort after any same-date step — it's the latest, current state.
+          _ts: '￿',
         });
       }
     }
   }
 
+  // True chronology: business date first (handles back-dated rows), then the
+  // real creation timestamp within a date so multiple cycles in one day read
+  // in the exact order they happened. KIND_RANK is only a final tie-break.
   rows.sort((a, b) =>
     cmpStr(a.date, b.date) ||
-    ((KIND_RANK[a.kind] ?? 9) - (KIND_RANK[b.kind] ?? 9)) ||
-    cmpStr(a._seq, b._seq),
+    cmpStr(a._ts, b._ts) ||
+    ((KIND_RANK[a.kind] ?? 9) - (KIND_RANK[b.kind] ?? 9)),
   );
-  return rows.map(({ _seq, ...rest }) => rest);
+  return rows.map(({ _ts, ...rest }) => rest);
 }
