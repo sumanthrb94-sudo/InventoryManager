@@ -42,6 +42,7 @@ import { getWarrantyStatus } from '../lib/warrantyUtils';
 import { groupReturnEventsByImei, normalizeImei, summarizeUnitLife, type LifeState } from '../lib/returnsLifecycle';
 import CopyImei from './CopyImei';
 import UnitHistoryTimeline from './UnitHistoryTimeline';
+import { CSV_BOM, excelTextCell, isImeiHeader } from '../lib/csv';
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -1416,8 +1417,9 @@ function downloadCsv(filename: string, rows: Array<Record<string, any>>) {
     if (/[",\n]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
     return s;
   };
-  const lines = [headers.join(','), ...rows.map(r => headers.map(h => esc(r[h])).join(','))];
-  const blob = new Blob([lines.join('\n')], { type: 'text/csv;charset=utf-8;' });
+  const cell = (h: string, v: any) => (isImeiHeader(h) ? excelTextCell(v) : esc(v));
+  const lines = [headers.join(','), ...rows.map(r => headers.map(h => cell(h, r[h])).join(','))];
+  const blob = new Blob([CSV_BOM + lines.join('\n')], { type: 'text/csv;charset=utf-8;' });
   triggerDownload(filename, blob);
 }
 
@@ -1542,9 +1544,14 @@ function ReturnsReport({ units, sales }: { units: InventoryUnit[]; sales: Sale[]
       const s = String(v ?? '');
       return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
     };
-    const csv = [header, ...rows].map(r => r.map(esc).join(',')).join('\n');
+    // IMEI (col 0) and UnitId (col 7) are long IDs Excel would turn into
+    // scientific notation — force them to text.
+    const isIdCol = (i: number) => i === 0 || i === 7;
+    const headerLine = header.map(esc).join(',');
+    const dataLines = rows.map(r => r.map((cell, i) => (isIdCol(i) ? excelTextCell(cell) : esc(cell))).join(','));
+    const csv = CSV_BOM + [headerLine, ...dataLines].join('\n');
     const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
-    triggerDownload(`returns-report-${stamp}.csv`, new Blob([csv], { type: 'text/csv' }));
+    triggerDownload(`returns-report-${stamp}.csv`, new Blob([csv], { type: 'text/csv;charset=utf-8;' }));
   };
 
   return (

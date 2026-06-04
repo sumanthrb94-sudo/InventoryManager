@@ -4,7 +4,7 @@ import { dbService } from '../lib/dbService';
 import { InventoryUnit, Supplier, Sale } from '../types';
 import { useInventoryStore } from '../lib/inventoryStore';
 import { recomputeSale } from '../lib/recomputeSale';
-import { toCsv } from '../lib/csv';
+import { toCsv, CSV_BOM } from '../lib/csv';
 import CopyImei from './CopyImei';
 import PDFReportButton from './PDFReportButton';
 import ExcelReportButton from './ExcelReportButton';
@@ -101,7 +101,7 @@ function exportCSV(
 ) {
   const cols = headers ?? (rows.length ? Object.keys(rows[0]) : []);
   if (cols.length === 0) return; // truly nothing to describe
-  const blob = new Blob([toCsv(rows, cols)], { type: 'text/csv;charset=utf-8;' });
+  const blob = new Blob([CSV_BOM + toCsv(rows, cols)], { type: 'text/csv;charset=utf-8;' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;

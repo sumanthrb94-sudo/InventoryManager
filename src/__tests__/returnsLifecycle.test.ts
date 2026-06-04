@@ -281,7 +281,7 @@ describe('buildUnitHistory', () => {
     ]);
   });
 
-  it('carries the createdAt timestamp through so the UI can show the time', () => {
+  it('carries the createdAt timestamp through (ISO) so the UI can show the time', () => {
     const unit = makeUnit({ dateIn: '2026-06-04' });
     const steps = buildUnitHistory(
       unit,
@@ -289,7 +289,23 @@ describe('buildUnitHistory', () => {
       [],
     );
     const restock = steps.find(s => s.kind === 'restocked')!;
-    expect(restock.at).toBe('2026-06-04T14:30:00Z');
+    expect(restock.at).toBe('2026-06-04T14:30:00.000Z');
+  });
+
+  it('normalizes Firestore Timestamp createdAt (serverTimestamp) to ISO', () => {
+    // Firestore stores createdAt as serverTimestamp → reads back as a Timestamp
+    // object, not a string. Both shapes must yield a parseable ISO so the time
+    // of day renders (String(timestamp) used to produce an unparseable value).
+    const unit = makeUnit({ dateIn: '2026-06-04' });
+    const tsObj = { seconds: Math.floor(Date.parse('2026-06-04T14:30:00Z') / 1000), nanoseconds: 0 };
+    const steps = buildUnitHistory(
+      unit,
+      [makeEvent({ type: 'restocked', date: '2026-06-04', createdAt: tsObj as any })],
+      [],
+    );
+    const restock = steps.find(s => s.kind === 'restocked')!;
+    expect(restock.at).toBe('2026-06-04T14:30:00.000Z');
+    expect(Number.isNaN(new Date(restock.at!).getTime())).toBe(false);
   });
 
   it('does NOT duplicate the disposition when a matching event already exists', () => {
