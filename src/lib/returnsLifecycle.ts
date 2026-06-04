@@ -13,6 +13,7 @@
  * testable.
  */
 import type { InventoryUnit, ReturnEvent, ReturnEventType, Sale } from '../types';
+import { CSV_BOM, excelTextCell } from './csv';
 
 /** Canonical key for an IMEI: trimmed + upper-cased, with a stable sentinel
  *  for missing IMEIs so eventless/serial-less rows still group deterministically. */
@@ -350,4 +351,68 @@ export function buildUnitHistory(
     ((KIND_RANK[a.kind] ?? 9) - (KIND_RANK[b.kind] ?? 9)),
   );
   return rows.map(({ _ts, ...rest }) => rest);
+}
+
+// ── Returns Report CSV (shared by the Returns page download + the wipe backup) ──
+
+/** Human label for each life state in CSV exports. */
+export const LIFE_STATE_LABEL: Record<LifeState, string> = {
+  sold:        'Sold',
+  available:   'Available',
+  in_repair:   'In Repair',
+  to_supplier: 'To Supplier',
+  unknown:     'Unknown',
+};
+
+/**
+ * Build the per-IMEI Returns Report CSV: one row per return event, enriched with
+ * the unit's current life state + sale figures (the P&L foundation). IMEI / unit
+ * id are forced to Excel text so long IMEIs don't render as scientific notation,
+ * and a UTF-8 BOM is prepended so accents/£ don't mojibake. Pure + shared so the
+ * on-screen "Download CSV" and the pre-wipe backup produce identical files.
+ */
+export function buildReturnsReportCsv(
+  events: ReturnEvent[],
+  units: InventoryUnit[],
+  sales: Sale[],
+): string {
+  const unitByImei = new Map<string, InventoryUnit>();
+  const unitIdToImei = new Map<string, string>();
+  for (const u of units) {
+    if (!u.imei) continue;
+    const k = normalizeImei(u.imei);
+    unitByImei.set(k, u);
+    unitIdToImei.set(u.id, k);
+  }
+  const salesByImei = new Map<string, Sale[]>();
+  for (const s of sales) {
+    const k = s.imei ? normalizeImei(s.imei) : (s.unitId ? unitIdToImei.get(s.unitId) : undefined);
+    if (!k) continue;
+    const bucket = salesByImei.get(k);
+    if (bucket) bucket.push(s); else salesByImei.set(k, [s]);
+  }
+
+  const header = [
+    'IMEI', 'Model', 'EventType', 'EventDate', 'Comment', 'Supplier', 'Actor', 'UnitId',
+    'CurrentState', 'SoldDate', 'SalePrice', 'BuyPrice', 'PostageCost', 'GrossMargin',
+    'TimesSold', 'TimesReturned',
+  ];
+  const num = (n: number | undefined) => (n == null ? '' : n.toFixed(2));
+  const esc = (v: any) => {
+    const s = String(v ?? '');
+    return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+  };
+  const lines = [header.join(',')];
+  for (const e of events) {
+    const k = normalizeImei(e.imei);
+    const unit = unitByImei.get(k) ?? null;
+    const life = summarizeUnitLife(unit, salesByImei.get(k) || []);
+    lines.push([
+      excelTextCell(e.imei), esc(unit?.model || ''), esc(e.type), esc(e.date), esc(e.comment || ''),
+      esc(e.supplierName || ''), esc(e.actorEmail || ''), excelTextCell(e.unitId || ''),
+      esc(LIFE_STATE_LABEL[life.state]), esc(life.soldDate || ''), num(life.salePrice), num(life.buyPrice),
+      num(life.postageCost), num(life.grossMargin), String(life.timesSold), String(life.timesReturned),
+    ].join(','));
+  }
+  return CSV_BOM + lines.join('\n');
 }

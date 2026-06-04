@@ -39,7 +39,7 @@ import { useInventoryStore } from '../lib/inventoryStore';
 import { notificationService } from '../lib/notificationService';
 import { fmtDateForUser, useUserRegion } from '../lib/userLocale';
 import { getWarrantyStatus } from '../lib/warrantyUtils';
-import { groupReturnEventsByImei, normalizeImei, summarizeUnitLife, type LifeState } from '../lib/returnsLifecycle';
+import { groupReturnEventsByImei, normalizeImei, summarizeUnitLife, buildReturnsReportCsv, type LifeState } from '../lib/returnsLifecycle';
 import CopyImei from './CopyImei';
 import UnitHistoryTimeline from './UnitHistoryTimeline';
 import { CSV_BOM, excelTextCell, isImeiHeader } from '../lib/csv';
@@ -1521,35 +1521,9 @@ function ReturnsReport({ units, sales }: { units: InventoryUnit[]; sales: Sale[]
   const byImei = useMemo(() => groupReturnEventsByImei(filtered), [filtered]);
 
   const downloadCsv = () => {
-    // One row per return event, each enriched with the unit's current life
-    // state + sale figures. That gives accounting a single sheet to build the
-    // returns P&L on later: the event chain (what happened, with comments) plus
-    // where the unit landed (sold/available) and the money (sale − buy − postage).
-    const header = [
-      'IMEI', 'Model', 'EventType', 'EventDate', 'Comment', 'Supplier', 'Actor', 'UnitId',
-      'CurrentState', 'SoldDate', 'SalePrice', 'BuyPrice', 'PostageCost', 'GrossMargin',
-      'TimesSold', 'TimesReturned',
-    ];
-    const num = (n: number | undefined) => (n == null ? '' : n.toFixed(2));
-    const rows = filtered.map(e => {
-      const life = lifeFor(e.imei);
-      const unit = unitByImei.get(normalizeImei(e.imei));
-      return [
-        e.imei, unit?.model || '', e.type, e.date, e.comment || '', e.supplierName || '', e.actorEmail, e.unitId || '',
-        LIFE_LABEL[life.state], life.soldDate || '', num(life.salePrice), num(life.buyPrice),
-        num(life.postageCost), num(life.grossMargin), String(life.timesSold), String(life.timesReturned),
-      ];
-    });
-    const esc = (v: any) => {
-      const s = String(v ?? '');
-      return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
-    };
-    // IMEI (col 0) and UnitId (col 7) are long IDs Excel would turn into
-    // scientific notation — force them to text.
-    const isIdCol = (i: number) => i === 0 || i === 7;
-    const headerLine = header.map(esc).join(',');
-    const dataLines = rows.map(r => r.map((cell, i) => (isIdCol(i) ? excelTextCell(cell) : esc(cell))).join(','));
-    const csv = CSV_BOM + [headerLine, ...dataLines].join('\n');
+    // Shared builder so this download and the pre-wipe backup's RETURNS_REPORT
+    // are byte-identical (per-event rows + life/P&L columns, IMEI as Excel text).
+    const csv = buildReturnsReportCsv(filtered, units, sales);
     const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
     triggerDownload(`returns-report-${stamp}.csv`, new Blob([csv], { type: 'text/csv;charset=utf-8;' }));
   };
