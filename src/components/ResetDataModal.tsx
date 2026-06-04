@@ -54,6 +54,12 @@ export default function ResetDataModal({ onClose }: Props) {
       dbService.clearLocalCache();
       notificationService.clearAll();
       setDone(true);
+      // Hard reload after a short beat so the user sees the success state, then
+      // the app re-initialises from the now-empty DB. This tears down the live
+      // onSnapshot listeners + in-memory cache that otherwise survive the wipe
+      // and can re-surface stale units (the false "IMEI already in inventory").
+      addLog('Reloading with a clean slate…');
+      setTimeout(handleReload, 1200);
     } catch (err: any) {
       setError(err?.message || 'Reset failed — check Firestore connection');
       setRunning(false);
