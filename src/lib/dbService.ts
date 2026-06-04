@@ -716,10 +716,16 @@ export const dbService = {
   // serials (e.g. "NL6CMQCYTD", "SKC9P3QVP6F") that are shorter than 14 chars.
   async imeiExists(imei: string): Promise<boolean> {
     if (!imei) return false;
-    const cached = (cachedData['inventoryUnits'] || []).find((u: any) => u.imei === imei);
+    // Exclude soft-deleted (tombstoned) units — a recycled/wiped unit must NOT
+    // block re-adding its IMEI. Filtered both in the cache lookup AND on the
+    // Firestore result (client-side, so docs that predate the deletedAt field
+    // still count correctly — a server `where('deletedAt','==',null)` would
+    // silently drop those). Without this, the duplicate check falsely reports
+    // "IMEI already in inventory" for units that no longer exist.
+    const cached = (cachedData['inventoryUnits'] || []).find((u: any) => u.imei === imei && !u.deletedAt);
     if (cached) return true;
     const snap = await getDocs(query(colRef('inventoryUnits'), where('imei', '==', imei)));
-    return !snap.empty;
+    return snap.docs.some(d => !(d.data() as any)?.deletedAt);
   },
 
   // Accept any non-empty IMEI/serial verbatim — see imeiExists() comment above.
