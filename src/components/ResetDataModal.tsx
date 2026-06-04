@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { X, Trash2, AlertTriangle, CheckCircle2, RefreshCw } from 'lucide-react';
 import { motion } from 'motion/react';
 import { collection, getDocs, writeBatch } from 'firebase/firestore';
+import { zipSync, strToU8 } from 'fflate';
 import { db } from '../lib/firebase';
 import { dbService, ALL_COLLECTION_NAMES } from '../lib/dbService';
 import { notificationService } from '../lib/notificationService';
@@ -28,54 +29,57 @@ function downloadBlob(blob: Blob, filename: string) {
 }
 
 /**
- * Download a full, timestamped safety backup BEFORE wiping — so a wipe can
- * never lose data. Produces three files:
- *   • <stamp>.json   — every collection, restorable via the JSON backup tool
+ * Build + download ONE timestamped .zip of all reports in their native formats
+ * BEFORE wiping — so a wipe can never lose data, and the backup is usable
+ * (Excel / CSV) rather than a raw JSON dump. The zip contains:
  *   • INVENTORY_REPORT-<stamp>.xlsx — incl. the per-IMEI UNIT HISTORY (returns)
  *   • SALES_REPORT-<stamp>.xlsx
+ *   • RETURNS_REPORT-<stamp>.csv   — per-IMEI return lifecycle + P&L columns
+ *   • full-backup-<stamp>.json     — kept inside for one-click RESTORE only
  * Throws on failure so the caller aborts the wipe (never delete without a backup).
  */
 async function downloadPreWipeBackup(log: (m: string) => void): Promise<void> {
   const stamp = backupStamp();
   log('Backing up before wipe…');
 
+  // The full snapshot is the critical, restorable part — if this fails we abort.
   const backup = await dbService.exportFullBackup();
-  downloadBlob(
-    new Blob([JSON.stringify(backup, null, 2)], { type: 'application/json' }),
-    `MOBILEPHONEMARKET-backup-${stamp}.json`,
-  );
+  const c = backup.collections;
   const total = Object.values(backup.counts).reduce((a, b) => a + b, 0);
-  log(`  ↳ JSON backup (${total} records across ${Object.keys(backup.counts).length} collections)`);
 
-  // The JSON above is the critical, restorable backup — if it succeeded the wipe
-  // is safe to proceed. The human-readable Excel reports are a bonus: build them
-  // best-effort so a report-generation hiccup can NEVER abort the wipe (which
-  // would silently leave old data — and stale IMEIs — behind).
+  const files: Record<string, Uint8Array> = {};
+  // Restore copy lives inside the zip (not a loose JSON download).
+  files[`full-backup-${stamp}.json`] = strToU8(JSON.stringify(backup, null, 2));
+
+  // Reports in their native formats — best-effort, so a report hiccup can never
+  // abort the wipe (the JSON inside the zip already guarantees a safe restore).
   try {
-    const c = backup.collections;
     const { buildInventoryWorkbookBuffer, buildSalesWorkbookBuffer } = await import('../lib/clientReport');
-    const XLSX_MIME = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+    const { buildReturnsReportCsv } = await import('../lib/returnsLifecycle');
 
     const invBuf = await buildInventoryWorkbookBuffer({
-      units:        (c.inventoryUnits as any) || [],
-      aggregates:   (c.inventoryAggregates as any) || [],
-      suppliers:    (c.suppliers as any) || [],
-      whatsappFeed: (c.supplierWhatsappUpdates as any) || [],
-      sales:        (c.sales as any) || [],
+      units: (c.inventoryUnits as any) || [], aggregates: (c.inventoryAggregates as any) || [],
+      suppliers: (c.suppliers as any) || [], whatsappFeed: (c.supplierWhatsappUpdates as any) || [],
+      sales: (c.sales as any) || [],
     });
-    downloadBlob(new Blob([invBuf], { type: XLSX_MIME }), `INVENTORY_REPORT-${stamp}.xlsx`);
-    log('  ↳ Inventory report (incl. unit/return history)');
+    files[`INVENTORY_REPORT-${stamp}.xlsx`] = new Uint8Array(invBuf);
 
     const salesBuf = await buildSalesWorkbookBuffer({
-      sales: (c.sales as any) || [],
-      units: (c.inventoryUnits as any) || [],
-      opts:  { today: new Date() },
+      sales: (c.sales as any) || [], units: (c.inventoryUnits as any) || [], opts: { today: new Date() },
     });
-    downloadBlob(new Blob([salesBuf], { type: XLSX_MIME }), `SALES_REPORT-${stamp}.xlsx`);
-    log('  ↳ Sales report');
+    files[`SALES_REPORT-${stamp}.xlsx`] = new Uint8Array(salesBuf);
+
+    files[`RETURNS_REPORT-${stamp}.csv`] = strToU8(
+      buildReturnsReportCsv((c.returnEvents as any) || [], (c.inventoryUnits as any) || [], (c.sales as any) || []),
+    );
+    log(`  ↳ Inventory + Sales (xlsx) + Returns (csv) reports built`);
   } catch (reportErr: any) {
-    log(`  ↳ (Excel reports skipped: ${reportErr?.message ?? reportErr} — JSON backup is safe)`);
+    log(`  ↳ (some reports skipped: ${reportErr?.message ?? reportErr} — restore JSON still bundled)`);
   }
+
+  const zipped = zipSync(files, { level: 6 });
+  downloadBlob(new Blob([zipped as BlobPart], { type: 'application/zip' }), `MOBILEPHONEMARKET-backup-${stamp}.zip`);
+  log(`  ↳ Bundled ${Object.keys(files).length} files (${total} records) into MOBILEPHONEMARKET-backup-${stamp}.zip`);
 }
 
 export default function ResetDataModal({ onClose }: Props) {

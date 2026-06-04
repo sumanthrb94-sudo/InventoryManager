@@ -12,6 +12,7 @@ import {
   dispositionCounts,
   summarizeUnitLife,
   buildUnitHistory,
+  buildReturnsReportCsv,
 } from '../lib/returnsLifecycle';
 
 // ── Factory ─────────────────────────────────────────────────────────────────
@@ -315,5 +316,25 @@ describe('buildUnitHistory', () => {
     ];
     const steps = buildUnitHistory(unit, events, []);
     expect(steps.filter(s => s.kind === 'sent_to_supplier')).toHaveLength(1);
+  });
+});
+
+describe('buildReturnsReportCsv', () => {
+  it('emits a header + one row per event, IMEI as Excel text, with a BOM', () => {
+    const unit = makeUnit({ imei: '353209102768686', model: 'iPhone 12', status: 'available' });
+    const events = [makeEvent({ imei: '353209102768686', type: 'restocked', date: '2026-03-01', comment: 'back', actorEmail: 'a@b.com' })];
+    const csv = buildReturnsReportCsv(events, [unit], []);
+    expect(csv.startsWith('﻿')).toBe(true);                 // UTF-8 BOM
+    const lines = csv.replace(/^﻿/, '').split('\n');
+    expect(lines[0]).toContain('IMEI,Model,EventType');         // header
+    expect(lines).toHaveLength(2);                              // header + 1 event
+    expect(lines[1]).toContain('="353209102768686"');           // IMEI forced to text
+    expect(lines[1]).toContain('iPhone 12');
+    expect(lines[1]).toContain('Available');                    // current life state
+  });
+
+  it('returns just the header when there are no events', () => {
+    const csv = buildReturnsReportCsv([], [], []).replace(/^﻿/, '');
+    expect(csv.split('\n')).toHaveLength(1);
   });
 });
