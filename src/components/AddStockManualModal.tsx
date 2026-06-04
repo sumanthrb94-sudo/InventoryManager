@@ -647,10 +647,10 @@ function Row({
             value={row.imei}
             onChange={e => onChange({ imei: e.target.value })}
             placeholder={validation.isApple
-              ? '15-digit IMEI or 10-12 char Apple serial'
-              : '15-digit IMEI (digits only)'}
-            inputMode={validation.isApple ? 'text' : 'numeric'}
-            maxLength={validation.isApple ? 16 : 15}
+              ? '15-digit IMEI or Apple serial (Watch/iPad)'
+              : '15-digit IMEI or device serial'}
+            inputMode="text"
+            maxLength={16}
             className={`w-full border rounded-lg px-2.5 py-1.5 text-[12px] font-mono focus:outline-none transition-all ${
               imeiHelp && !(validation.imeiEmpty && !validation.imeiRequired)
                 ? 'border-rose-300 bg-rose-50 focus:border-rose-500'
