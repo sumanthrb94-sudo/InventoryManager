@@ -13,6 +13,63 @@ interface Props { onClose: () => void; }
 // were previously missing here — return-cycle history survived a "Wipe DB").
 const COLLECTIONS = ALL_COLLECTION_NAMES;
 
+/** Timestamp for backup filenames: YYYY-MM-DD_HH-MM-SS (local). */
+function backupStamp(d: Date = new Date()): string {
+  const p = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}_${p(d.getHours())}-${p(d.getMinutes())}-${p(d.getSeconds())}`;
+}
+
+function downloadBlob(blob: Blob, filename: string) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = filename;
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 0);
+}
+
+/**
+ * Download a full, timestamped safety backup BEFORE wiping — so a wipe can
+ * never lose data. Produces three files:
+ *   • <stamp>.json   — every collection, restorable via the JSON backup tool
+ *   • INVENTORY_REPORT-<stamp>.xlsx — incl. the per-IMEI UNIT HISTORY (returns)
+ *   • SALES_REPORT-<stamp>.xlsx
+ * Throws on failure so the caller aborts the wipe (never delete without a backup).
+ */
+async function downloadPreWipeBackup(log: (m: string) => void): Promise<void> {
+  const stamp = backupStamp();
+  log('Backing up before wipe…');
+
+  const backup = await dbService.exportFullBackup();
+  downloadBlob(
+    new Blob([JSON.stringify(backup, null, 2)], { type: 'application/json' }),
+    `MOBILEPHONEMARKET-backup-${stamp}.json`,
+  );
+  const total = Object.values(backup.counts).reduce((a, b) => a + b, 0);
+  log(`  ↳ JSON backup (${total} records across ${Object.keys(backup.counts).length} collections)`);
+
+  const c = backup.collections;
+  const { buildInventoryWorkbookBuffer, buildSalesWorkbookBuffer } = await import('../lib/clientReport');
+  const XLSX_MIME = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+
+  const invBuf = await buildInventoryWorkbookBuffer({
+    units:        (c.inventoryUnits as any) || [],
+    aggregates:   (c.inventoryAggregates as any) || [],
+    suppliers:    (c.suppliers as any) || [],
+    whatsappFeed: (c.supplierWhatsappUpdates as any) || [],
+    sales:        (c.sales as any) || [],
+  });
+  downloadBlob(new Blob([invBuf], { type: XLSX_MIME }), `INVENTORY_REPORT-${stamp}.xlsx`);
+  log('  ↳ Inventory report (incl. unit/return history)');
+
+  const salesBuf = await buildSalesWorkbookBuffer({
+    sales: (c.sales as any) || [],
+    units: (c.inventoryUnits as any) || [],
+    opts:  { today: new Date() },
+  });
+  downloadBlob(new Blob([salesBuf], { type: XLSX_MIME }), `SALES_REPORT-${stamp}.xlsx`);
+  log('  ↳ Sales report');
+}
+
 export default function ResetDataModal({ onClose }: Props) {
   const [confirmed, setConfirmed] = useState(false);
   const [running,   setRunning]   = useState(false);
@@ -26,6 +83,16 @@ export default function ResetDataModal({ onClose }: Props) {
     setRunning(true);
     setError('');
     try {
+      // ALWAYS take a timestamped backup first. If it fails we abort the wipe —
+      // never delete without a safety copy on disk.
+      try {
+        await downloadPreWipeBackup(addLog);
+      } catch (backupErr: any) {
+        setError(`Backup failed — wipe aborted to protect your data: ${backupErr?.message ?? backupErr}`);
+        setRunning(false);
+        return;
+      }
+
       for (const col of COLLECTIONS) {
         addLog(`Clearing ${col}…`);
         const snap = await getDocs(collection(db, col));
