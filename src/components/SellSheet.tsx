@@ -22,7 +22,7 @@ import React, { useState, useMemo, useEffect, useRef } from 'react';
 import {
   Search, ShoppingCart, ChevronDown, ChevronUp, ChevronsUpDown,
   Filter, X, AlertCircle, Plus, Info, Sparkles, FileSpreadsheet,
-  TrendingUp, TrendingDown, PackageCheck, Truck,
+  TrendingUp, TrendingDown, PackageCheck, Truck, ChevronRight, Layers, List,
 } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
 import { dbService } from '../lib/dbService';
@@ -53,6 +53,16 @@ type SortKey =
 type SortDir = 'asc' | 'desc';
 
 interface Props {}
+
+type MarketplaceGroupModel = { label: string; units: number; revenue: number; gp: number };
+type MarketplaceGroup = {
+  mp: Marketplace;
+  orders: number;
+  units: number;
+  revenue: number;
+  gp: number;
+  byModel: Map<string, MarketplaceGroupModel>;
+};
 
 const MARKETPLACE_TONE: Record<Marketplace, string> = {
   AMAZON:  'bg-orange-100 text-orange-700  border-orange-200',
@@ -835,11 +845,62 @@ function SellExcelOverlay({
     return () => document.removeEventListener('keydown', onKey);
   }, [onClose]);
 
+  /** View modes:
+   *    grouped  — rows collapsed by marketplace (AMAZON / BM / EBAY /
+   *               ONBUY / PROJECT). Default per the client's request:
+   *               sales-by-channel is the read they actually want, the
+   *               1,778-row flat list is for editing. Each marketplace
+   *               row expands to a top-models breakdown.
+   *    detailed — original per-sale grid, kept for cell-by-cell edits. */
+  const [viewMode, setViewMode] = useState<'grouped' | 'detailed'>('grouped');
+  const [expandedMps, setExpandedMps] = useState<Set<string>>(new Set());
+  const toggleExpand = (mp: string) => setExpandedMps(prev => {
+    const next = new Set(prev);
+    next.has(mp) ? next.delete(mp) : next.add(mp);
+    return next;
+  });
+
   const totals = useMemo(() => {
     const revenue = rows.reduce((s, x) => s + (x.salePrice ?? 0), 0);
     const gp      = rows.reduce((s, x) => s + (x.grossProfit ?? 0), 0);
     return { revenue, gp };
   }, [rows]);
+
+  /** Sales rolled up per marketplace. Within each marketplace we also
+   *  break down by model — the operator's most natural drill ("what
+   *  sells on Amazon vs eBay?"). Models are resolved from the linked
+   *  inventoryUnit when present, falling back to the SKU string so a
+   *  sale doc with no IMEI match still shows up. */
+  const unitById = useMemo(() => {
+    const m = new Map<string, InventoryUnit>();
+    for (const u of units) if (u.id) m.set(u.id, u);
+    return m;
+  }, [units]);
+
+  const grouped = useMemo<MarketplaceGroup[]>(() => {
+    const map = new Map<Marketplace, MarketplaceGroup>();
+    for (const s of rows) {
+      const mp = s.marketplace;
+      let g = map.get(mp);
+      if (!g) {
+        g = { mp, orders: 0, units: 0, revenue: 0, gp: 0, byModel: new Map() };
+        map.set(mp, g);
+      }
+      g.orders++;
+      g.units += s.quantity || 1;
+      g.revenue += s.salePrice || 0;
+      g.gp += s.grossProfit || 0;
+      const linked = s.unitId ? unitById.get(s.unitId) : undefined;
+      const modelLabel = (linked?.model || s.sku || '—').trim() || '—';
+      let row = g.byModel.get(modelLabel);
+      if (!row) row = { label: modelLabel, units: 0, revenue: 0, gp: 0 };
+      row.units += s.quantity || 1;
+      row.revenue += s.salePrice || 0;
+      row.gp += s.grossProfit || 0;
+      g.byModel.set(modelLabel, row);
+    }
+    return Array.from(map.values()).sort((a, b) => b.revenue - a.revenue);
+  }, [rows, unitById]);
 
   return (
     <motion.div
@@ -854,19 +915,39 @@ function SellExcelOverlay({
         className="bg-white w-full md:max-w-6xl rounded-t-3xl md:rounded-3xl shadow-2xl flex flex-col overflow-hidden"
         style={{ maxHeight: 'calc(100dvh - 24px)' }}
       >
-        <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100 flex-shrink-0">
-          <div>
-            <h3 className="text-sm font-bold tracking-tight">{title}</h3>
+        <div className="flex items-center justify-between gap-3 px-5 py-4 border-b border-slate-100 flex-shrink-0">
+          <div className="min-w-0">
+            <h3 className="text-sm font-bold tracking-tight truncate">{title}</h3>
             <p className="text-[10px] font-mono text-slate-400 mt-0.5">
               {(rows.length + awaitingUnits.length).toLocaleString()} {rows.length + awaitingUnits.length === 1 ? 'row' : 'rows'}
               {rows.length > 0 && (
-                <> · Revenue {fmtGBP(totals.revenue, 0)} · GP <span className={totals.gp >= 0 ? 'text-emerald-700' : 'text-rose-700'}>{fmtGBP(totals.gp, 0)}</span></>
+                <> · {grouped.length} {grouped.length === 1 ? 'channel' : 'channels'} · Revenue {fmtGBP(totals.revenue, 0)} · GP <span className={totals.gp >= 0 ? 'text-emerald-700' : 'text-rose-700'}>{fmtGBP(totals.gp, 0)}</span></>
               )}
             </p>
           </div>
-          <button onClick={onClose} className="p-2 rounded-xl hover:bg-slate-100 text-slate-400">
-            <X size={16} />
-          </button>
+          <div className="flex items-center gap-1.5">
+            {rows.length > 0 && awaitingUnits.length === 0 && (
+              <div className="inline-flex rounded-xl bg-slate-100 p-0.5 text-[9px] font-bold uppercase tracking-widest">
+                <button
+                  onClick={() => setViewMode('grouped')}
+                  className={`inline-flex items-center gap-1 px-2 py-1 rounded-lg transition-all ${viewMode === 'grouped' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                  title="Group sales by marketplace"
+                >
+                  <Layers size={10} /> Grouped
+                </button>
+                <button
+                  onClick={() => setViewMode('detailed')}
+                  className={`inline-flex items-center gap-1 px-2 py-1 rounded-lg transition-all ${viewMode === 'detailed' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                  title="Show one row per sale"
+                >
+                  <List size={10} /> Detailed
+                </button>
+              </div>
+            )}
+            <button onClick={onClose} className="p-2 rounded-xl hover:bg-slate-100 text-slate-400">
+              <X size={16} />
+            </button>
+          </div>
         </div>
 
         <div className="flex-1 overflow-auto">
@@ -895,6 +976,82 @@ function SellExcelOverlay({
               <Sparkles size={28} />
               <p className="text-[11px] font-mono uppercase tracking-widest">No sales in this view</p>
             </div>
+          ) : viewMode === 'grouped' ? (
+            <ul className="divide-y divide-slate-100" style={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace' }}>
+              {grouped.map(g => {
+                const open = expandedMps.has(g.mp);
+                const tone = MARKETPLACE_TONE[g.mp];
+                const models = (Array.from(g.byModel.values()) as MarketplaceGroupModel[])
+                  .sort((a, b) => b.revenue - a.revenue || b.units - a.units);
+                return (
+                  <li key={g.mp}>
+                    <button
+                      onClick={() => toggleExpand(g.mp)}
+                      className="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-slate-50 transition-colors"
+                    >
+                      <span className={`flex-shrink-0 w-5 h-5 inline-flex items-center justify-center rounded-md text-slate-400 transition-transform ${open ? 'rotate-90 text-slate-700' : ''}`}>
+                        <ChevronRight size={13} />
+                      </span>
+                      <span className="flex-1 min-w-0">
+                        <span className="flex items-center gap-2">
+                          <span className={`inline-flex items-center text-[9px] font-bold uppercase tracking-widest px-2 py-0.5 rounded border ${tone}`}>
+                            {g.mp}
+                          </span>
+                          <span className="text-[10px] font-mono text-slate-400 truncate">
+                            {models.length} {models.length === 1 ? 'model' : 'models'}
+                          </span>
+                        </span>
+                        <span className="block text-[9px] font-mono text-slate-500 mt-1">
+                          {g.orders.toLocaleString()} {g.orders === 1 ? 'order' : 'orders'}
+                          {' · '}
+                          {g.units.toLocaleString()} units
+                          {' · GP '}
+                          <span className={g.gp >= 0 ? 'text-emerald-700 font-bold' : 'text-rose-700 font-bold'}>{fmtGBP(g.gp, 0)}</span>
+                        </span>
+                      </span>
+                      <span className="flex-shrink-0 text-right">
+                        <span className="block text-[12px] font-bold text-slate-900">{fmtGBP(g.revenue, 0)}</span>
+                        <span className="block text-[8px] font-mono uppercase tracking-widest text-slate-400 mt-0.5">Revenue</span>
+                      </span>
+                    </button>
+                    <AnimatePresence initial={false}>
+                      {open && (
+                        <motion.div
+                          initial={{ height: 0, opacity: 0 }}
+                          animate={{ height: 'auto', opacity: 1 }}
+                          exit={{ height: 0, opacity: 0 }}
+                          transition={{ duration: 0.18 }}
+                          className="overflow-hidden bg-slate-50/60"
+                        >
+                          <table className="w-full text-[10px]">
+                            <thead className="text-[8px] font-bold uppercase tracking-widest text-slate-400">
+                              <tr>
+                                <th className="text-left pl-10 pr-2 py-1.5">Model · SKU</th>
+                                <th className="text-right px-2 py-1.5 w-16">Units</th>
+                                <th className="text-right px-2 py-1.5 w-24">Revenue</th>
+                                <th className="text-right pr-4 pl-2 py-1.5 w-24">GP</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-slate-200/70">
+                              {models.map(m => (
+                                <tr key={m.label} className="hover:bg-white/60">
+                                  <td className="pl-10 pr-2 py-1.5 truncate max-w-0">
+                                    <span className="text-slate-700 truncate block" title={m.label}>{m.label}</span>
+                                  </td>
+                                  <td className="text-right px-2 py-1.5 font-mono text-slate-700">{m.units}</td>
+                                  <td className="text-right px-2 py-1.5 font-mono text-slate-900 font-bold">{fmtGBP(m.revenue, 0)}</td>
+                                  <td className={`text-right pr-4 pl-2 py-1.5 font-mono font-bold ${m.gp >= 0 ? 'text-emerald-700' : 'text-rose-700'}`}>{fmtGBP(m.gp, 0)}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
+                  </li>
+                );
+              })}
+            </ul>
           ) : (
             <SheetTable
               rows={rows}
