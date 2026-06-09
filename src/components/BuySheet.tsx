@@ -3,7 +3,7 @@
  *
  * Per the client's whiteboard (17-May), this page has exactly:
  *   - 4 clickable KPI tiles (each opens an Excel-style overlay):
- *       1. Added Last 72h
+ *       1. Stock Added In Last 72 Hours
  *       2. All Office Stock
  *       3. SHS Stock
  *       4. Sold Today
@@ -377,7 +377,7 @@ export default function BuySheet(_props: Props) {
         {/* 4 clickable KPI tiles — each opens the Excel overlay scoped to that KPI */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
           <BigKpiTile
-            label="Added Last 72h"
+            label="Stock Added In Last 72 Hours"
             value={kpiCounts.recent}
             tone="emerald"
             onClick={() => setOverlay('recent')}
@@ -1034,7 +1034,7 @@ function InlineEditableSelect({
 
 function titleFor(kpi: KpiId): string {
   switch (kpi) {
-    case 'recent':     return 'Stock Added · Last 72h';
+    case 'recent':     return 'Stock Added In Last 72 Hours';
     case 'office':     return 'All Office Stock';
     case 'shs':        return 'SHS Stock';
     case 'sold_today': return 'Sold Today';
