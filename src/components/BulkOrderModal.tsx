@@ -168,17 +168,42 @@ export default function BulkOrderModal({ onClose, initialMode = 'office' }: Prop
     grade?: string; buyPrice?: number; supplierName?: string;
     dateIn?: string; batchId?: string; notes?: string;
   }>>([]);
+  /** Normalised IMEIs we wrote during *this* modal session. The store
+   *  is a live onSnapshot subscription, so a unit doc we just created
+   *  via bulkCreate arrives back in `units` within a second or two — and
+   *  in the bulk flow the operator typically lingers on the Done screen
+   *  reviewing the per-colour breakdown / printing stickers, so the echo
+   *  has plenty of time to land before they dismiss. Without this
+   *  exclusion `existingByImei` rebuilds with the freshly-created docs
+   *  and `dbMatch` in the still-mounted Review row flags the IMEI as
+   *  "in DB" — using the doc this modal just wrote (doc id == IMEI in
+   *  Office mode, so the colliding row points at itself). Naturally
+   *  cleared on unmount. */
+  const [writtenImeis, setWrittenImeis] = useState<Set<string>>(() => new Set());
 
   // ── Derived: live IMEI dup-check cache ─────────────────────────────────────
   const existingByImei = useMemo(() => {
     const m = new Map<string, InventoryUnit>();
     for (const u of units) {
       if (!u.imei) continue;
-      const key = u.imei.trim().toUpperCase();
-      if (key && !m.has(key)) m.set(key, u);
+      // Strip zero-width / non-breaking whitespace too — Excel + WhatsApp
+      // copy/paste loves to embed those, and a single invisible character
+      // makes the exact-match dupe check miss a real collision. Keep the
+      // exact same regex on both sides (here + the justWritten push in
+      // handleSave) so the post-save echo lookup collides correctly.
+      const key = u.imei
+        .replace(/[​-‍﻿ ]/g, '')
+        .trim()
+        .toUpperCase();
+      if (!key || m.has(key)) continue;
+      // Don't let units we just created in this modal session count
+      // as "already in inventory" — they're the post-save echo from
+      // the live store listener, not a pre-existing conflict.
+      if (writtenImeis.has(key)) continue;
+      m.set(key, u);
     }
     return m;
-  }, [units]);
+  }, [units, writtenImeis]);
 
   const supplierNames = useMemo(() => suppliers.map(s => s.name), [suppliers]);
 
@@ -551,6 +576,10 @@ export default function BulkOrderModal({ onClose, initialMode = 'office' }: Prop
 
       // Build doc payloads.
       const docs: { collection: string; id: string; data: any }[] = [];
+      // Normalised IMEIs we're about to write — flushed into writtenImeis
+      // after bulkCreate resolves so the post-save Firestore echo doesn't
+      // re-flag the still-mounted Review rows as "in DB".
+      const justWritten: string[] = [];
       for (const s of slots) {
         const hasImei = s.imei.trim().length > 0;
         const finalImei = hasImei ? s.imei.trim().toUpperCase() : '';
@@ -584,10 +613,30 @@ export default function BulkOrderModal({ onClose, initialMode = 'office' }: Prop
           createdAt,
         };
         docs.push({ collection: 'inventoryUnits', id, data });
+        // Normalise with the same regex existingByImei uses so the
+        // post-save echo lookup against the live store collides.
+        if (finalImei) {
+          const writtenKey = finalImei
+            .replace(/[​-‍﻿ ]/g, '')
+            .trim()
+            .toUpperCase();
+          if (writtenKey) justWritten.push(writtenKey);
+        }
       }
 
       setProgress({ done: 0, total: docs.length });
       await dbService.bulkCreate(docs, (done, total) => setProgress({ done, total }));
+
+      // Exclude the just-written IMEIs from existingByImei until the
+      // modal unmounts so the Review/Done rows don't flag themselves
+      // when the onSnapshot listener delivers them back.
+      if (justWritten.length) {
+        setWrittenImeis(prev => {
+          const next = new Set(prev);
+          for (const k of justWritten) next.add(k);
+          return next;
+        });
+      }
 
       await logInventoryEvent({
         type: 'batch_created',

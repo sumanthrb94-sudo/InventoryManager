@@ -153,11 +153,22 @@ function parseSheet(rows: any[][]): ParsedRow[] {
   return result;
 }
 
-function buildPreview(parsed: ParsedRow[], existingUnits: InventoryUnit[], existingSuppliers: Supplier[]): PreviewBuckets {
+function buildPreview(
+  parsed: ParsedRow[],
+  existingUnits: InventoryUnit[],
+  existingSuppliers: Supplier[],
+  writtenImeis: Set<string>,
+): PreviewBuckets {
   const imeiToUnit = new Map<string, InventoryUnit>();
   for (const u of existingUnits) {
     const k = (u.imei || '').trim().toUpperCase();
-    if (k) imeiToUnit.set(k, u);
+    if (!k) continue;
+    // Skip units we just wrote in this modal session — the live-store
+    // listener replays them back into `units` after a successful import,
+    // which would otherwise reclassify our just-created rows as "already
+    // in inventory" on the next preview rebuild.
+    if (writtenImeis.has(k)) continue;
+    imeiToUnit.set(k, u);
   }
   const supplierNames = new Set(existingSuppliers.map(s => s.name.trim().toLowerCase()));
 
@@ -219,13 +230,18 @@ export default function InventoryReportImport({ onClose }: Props) {
   const [doneStats, setDoneStats] = useState<{
     created: number; updated: number; suppliersAdded: number; skipped: number;
   } | null>(null);
+  // IMEIs successfully written during this modal session. Filtered out of the
+  // dupe-check in buildPreview so the Firestore onSnapshot echo doesn't
+  // reclassify our just-created rows as "already in inventory" on rerun.
+  // Naturally cleared on unmount.
+  const [writtenImeis, setWrittenImeis] = useState<Set<string>>(() => new Set());
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const preview = useMemo(
     () => phase === 'preview' || phase === 'loading' || phase === 'done'
-      ? buildPreview(parsedRows, units, suppliers)
+      ? buildPreview(parsedRows, units, suppliers, writtenImeis)
       : null,
-    [parsedRows, units, suppliers, phase],
+    [parsedRows, units, suppliers, phase, writtenImeis],
   );
 
   const handleFile = async (file: File) => {
@@ -314,9 +330,26 @@ export default function InventoryReportImport({ onClose }: Props) {
     for (const r of preview.toCreate) unitEntries.push(toRow(r));
     for (const r of preview.toUpdate) unitEntries.push(toRow(r, existingByImei.get(r.imei)));
 
+    // Collect normalised IMEIs from the prepared payloads. We flush these
+    // into writtenImeis AFTER bulkCreate resolves successfully so a failed
+    // write doesn't poison the dupe-check on a retry.
+    const justWritten: string[] = [];
+    for (const e of unitEntries) {
+      const k = String(e.data?.imei || '').trim().toUpperCase();
+      if (k) justWritten.push(k);
+    }
+
     try {
       if (supplierEntries.length > 0) await dbService.bulkCreate(supplierEntries);
       await dbService.bulkCreate(unitEntries, (done, total) => setProgress({ done, total }));
+      // Excluded from the dupe-check until the modal unmounts.
+      if (justWritten.length) {
+        setWrittenImeis(prev => {
+          const next = new Set(prev);
+          for (const k of justWritten) next.add(k);
+          return next;
+        });
+      }
       setDoneStats(snapshot);
       setPhase('done');
     } catch (e: any) {

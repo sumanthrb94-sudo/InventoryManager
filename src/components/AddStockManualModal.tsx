@@ -260,20 +260,26 @@ export default function AddStockManualModal({ onClose, initialMode = 'office' }:
     // (gone to a customer; legitimate re-stock when they bring it
     // back for buyback). Defensive: 'returned' with no returnType
     // also blocks — assume in-system until proven otherwise.
-    const status = existingUnit?.status;
-    const existingActive = !!existingUnit && (
-      status === 'available' ||
-      status === 'incoming'  ||
-      status === 'returned'  // any returnType = expected back / in-office
-    );
-    // Operator override demotes a hard block to the soft re-stock
-    // path — the new doc still gets created (no merge / replace),
-    // and `forceDupeOverride` gets stamped on its notes so the
-    // duplication is auditable.
-    const dupeInDb         = existingActive && !r.forceDupeOverride;
+    const status     = existingUnit?.status;
+    const returnType = existingUnit?.returnType;
+    // The dupe gate now blocks ONLY the two unambiguous "still
+    // tracked elsewhere, expected back" cases the operator confirmed
+    // are worth a hard stop:
+    //   - returned to supplier — at supplier awaiting credit /
+    //                            replacement, same device coming back
+    //   - repair               — out at repair shop, coming back
+    // Every other match (available / incoming / sold /
+    // returned-to-inventory / returned-with-no-type) falls through
+    // to `priorHistoryInDb` so the operator sees the colliding doc
+    // in an amber hint but is never silently blocked. A
+    // genuinely-new IMEI (no existingUnit) saves with no UI noise.
+    const blockedReturnType =
+      returnType === 'returned_to_supplier' || returnType === 'repair';
+    const dupeInDb = !!existingUnit && status === 'returned' && blockedReturnType
+      && !r.forceDupeOverride;
     const priorHistoryInDb =
-      (!!existingUnit && status === 'sold')
-      || (existingActive && !!r.forceDupeOverride);
+      (!!existingUnit && !(status === 'returned' && blockedReturnType))
+      || ((!!existingUnit && status === 'returned' && blockedReturnType) && !!r.forceDupeOverride);
     const dupeInDbMatch = existingUnit ? {
       id:           existingUnit.id,
       model:        (existingUnit.model || '').trim() || '?',
@@ -674,27 +680,29 @@ function Row({
     if (validation.imeiEmpty && validation.imeiRequired) return 'Required';
     if (validation.dupeInBatch) return 'Duplicate in this batch';
     if (validation.dupeInDb) {
-      // Hard block — the existing unit is in active stock or
-      // expected back. Surface the colliding doc's id + identifying
-      // fields so the operator can find and inspect it without
-      // leaving the modal. The id is the last token so it can be
-      // copy-pasted into the URL bar / Firestore console.
+      // Hard block — only fires for returned-to-supplier / repair.
+      // The device is tracked elsewhere and expected back, so a
+      // second intake would corrupt the return / repair flow.
       const m = validation.dupeInDbMatch;
       if (m) {
-        const statusLabel = m.returnType
-          ? `${m.status} → ${m.returnType.replace(/_/g, ' ')}`
-          : m.status;
-        return `Already in inventory · ${m.model} · ${m.dateIn} · ${statusLabel}${m.supplierName ? ' · ' + m.supplierName : ''} · id ${m.id}`;
+        const rt = (m.returnType || '').replace(/_/g, ' ');
+        return `Blocked · this IMEI is currently ${rt} · ${m.model} · ${m.dateIn}${m.supplierName ? ' · ' + m.supplierName : ''} · id ${m.id}`;
       }
-      return 'Already in inventory';
+      return 'Blocked · IMEI is currently out at supplier / repair';
     }
     if (validation.priorHistoryInDb) {
-      // Soft hint — the matching unit is sold (gone to customer).
-      // Re-acquiring (return-buyback, customer repurchase) is
-      // legitimate; save proceeds.
+      // Soft amber hint — the IMEI matches an existing doc but in a
+      // state the operator can legitimately re-stock from (sold,
+      // available-but-stale, incoming, returned-to-inventory, etc).
+      // Save proceeds; the hint exists purely for operator awareness.
       const m = validation.dupeInDbMatch;
-      if (m) return `Re-stocking · was sold · ${m.model} · ${m.dateIn}${m.supplierName ? ' · ' + m.supplierName : ''}`;
-      return 'Re-stocking previously sold IMEI';
+      if (m) {
+        const stateLabel = m.returnType
+          ? `${m.status} → ${m.returnType.replace(/_/g, ' ')}`
+          : m.status;
+        return `Re-stocking · existing record was ${stateLabel} · ${m.model} · ${m.dateIn}${m.supplierName ? ' · ' + m.supplierName : ''}`;
+      }
+      return 'Re-stocking · matching record found';
     }
     if (!validation.imeiOk && !validation.imeiEmpty) {
       return validation.isApple ? IMEI_OR_APPLE_SERIAL_MESSAGE : IMEI_REQUIRED_MESSAGE;
