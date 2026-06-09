@@ -287,17 +287,33 @@ export default function BuySheet(_props: Props) {
   const handleInventoryReport = () => {
     const inStock = units.filter(u => u.status !== 'sold');
     const all = sortUnits(inStock, sort, supplierMap);
-    const rows = all.map(u => ({
-      'Stock In Date': u.dateIn || '',
-      'Model':         u.model || '',
-      'IMEI':          u.imei || '',
-      'Grade':         u.grade || '',
-      'Storage':       u.storage || '',
-      'Colour':        u.colour || '',
-      'Supplier':      supplierMap[u.supplierId] || u.supplierName || '',
-      'BP':            u.buyPrice ?? '',
-      'Notes':         u.notes || '',
-    }));
+    const MS_PER_DAY = 86_400_000;
+    const nowMs = Date.now();
+    const rows = all.map(u => {
+      // Computed at export time — matches the AGE column on the
+      // master Excel IMEI NUMBERS sheet (see clientReport.ts:174).
+      // Today minus dateIn, clamped at 0. Blank when dateIn is
+      // missing rather than NaN.
+      const dt = u.dateIn ? new Date(u.dateIn).getTime() : NaN;
+      const age = Number.isFinite(dt)
+        ? Math.max(0, Math.floor((nowMs - dt) / MS_PER_DAY))
+        : '';
+      return {
+        'Stock In Date': u.dateIn || '',
+        'Model':         u.model || '',
+        'IMEI':          u.imei || '',
+        'Grade':         u.grade || '',
+        'Storage':       u.storage || '',
+        'Colour':        u.colour || '',
+        'Supplier':      supplierMap[u.supplierId] || u.supplierName || '',
+        'BP':            u.buyPrice ?? '',
+        'Notes':         u.notes || '',
+        // Export-only — the BuySheet CSV is download-only and isn't
+        // re-ingested by InventoryReportImport, so adding a column
+        // here is purely a presentation change.
+        'Age (days)':    age,
+      };
+    });
     const now = new Date();
     const pad = (n: number) => String(n).padStart(2, '0');
     const stamp = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}_${pad(now.getHours())}${pad(now.getMinutes())}`;
