@@ -3,7 +3,7 @@
  *
  * Per the client's whiteboard (17-May), this page has exactly:
  *   - 4 clickable KPI tiles (each opens an Excel-style overlay):
- *       1. Stock Added Today
+ *       1. Added Last 72h
  *       2. All Office Stock
  *       3. SHS Stock
  *       4. Sold Today
@@ -41,7 +41,7 @@ import StockOverlayModal, {
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
-type KpiId = 'today' | 'office' | 'shs' | 'sold_today';
+type KpiId = 'recent' | 'office' | 'shs' | 'sold_today';
 type StatusFilter = 'all' | 'available' | 'sold' | 'incoming' | 'returned';
 
 interface Props {
@@ -101,17 +101,42 @@ export default function BuySheet(_props: Props) {
   // ── Derived sets per KPI ──────────────────────────────────────────────────
   const today = new Date().toISOString().split('T')[0];
 
-  // "Stock Added Today" — every unit (office + SHS) added today. Both manual
-  // and import paths stamp `dateIn`; we only exclude parser-synth placeholders
-  // (they get a dateIn of the import date which would inflate the today count
-  // after every re-import). isManualShsUnit + status='available' covers the
-  // real adds.
-  const todayUnits = useMemo(
-    () => units.filter(u =>
-      u.dateIn === today &&
-      !((u.id || '').startsWith('shs_') && u.status === 'incoming') // skip synth placeholders
-    ),
-    [units, today],
+  /** Re-evaluated every 5 minutes so the 72h rolling window slides without
+   *  a page refresh. Cheaper than re-running the filter on every tick and
+   *  the operator never notices a 5-minute lag at the boundary. */
+  const [nowMs, setNowMs] = useState(() => Date.now());
+  useEffect(() => {
+    const id = window.setInterval(() => setNowMs(Date.now()), 5 * 60 * 1000);
+    return () => window.clearInterval(id);
+  }, []);
+
+  /** Coerce Firestore timestamps to millis — handles the three shapes the
+   *  SDK returns (Timestamp instance, plain {seconds,nanos}, ISO string)
+   *  plus the local `new Date().toISOString()` we stamp in seedData. */
+  const toMs = (v: any): number => {
+    if (!v) return 0;
+    if (typeof v === 'string') return new Date(v).getTime() || 0;
+    if (typeof v?.toMillis === 'function') return v.toMillis();
+    if (typeof v?.seconds === 'number') return v.seconds * 1000;
+    return 0;
+  };
+
+  // "Stock Added · Last 72h" — every unit (office + SHS) whose Firestore
+  // createdAt or importedAt timestamp falls within the rolling 72-hour
+  // window. We deliberately use the timestamp, not `dateIn`, because
+  // dateIn can be backdated by the operator ("this arrived 5 days ago")
+  // and the KPI is meant to surface what was *added to the system*
+  // recently. Parser-synth SHS placeholders are excluded — they inherit
+  // the import time and would otherwise spike the count on every
+  // re-import without representing real new stock.
+  const cutoffMs = nowMs - 72 * 60 * 60 * 1000;
+  const recentUnits = useMemo(
+    () => units.filter(u => {
+      if ((u.id || '').startsWith('shs_') && u.status === 'incoming') return false;
+      const ts = Math.max(toMs(u.createdAt), toMs(u.importedAt));
+      return ts > 0 && ts >= cutoffMs;
+    }),
+    [units, cutoffMs],
   );
 
   // "All Office Stock" — status='available' (anywhere, any colour). Plus any
@@ -178,12 +203,12 @@ export default function BuySheet(_props: Props) {
     // Office tile shows max(aggregate count, IMEI count) — works for both
     // master-imported and manually-entered scenarios.
     return {
-      today: todayUnits.length,
+      recent: recentUnits.length,
       office: Math.max(aggOffice, officeUnits.length),
       shs: shsCount,
       soldToday: soldToday.length,
     };
-  }, [aggregates, todayUnits.length, officeUnits.length, shsAggs.length, shsUnits.length, soldToday.length]);
+  }, [aggregates, recentUnits.length, officeUnits.length, shsAggs.length, shsUnits.length, soldToday.length]);
 
   // ── Supplier options for the filter chip drawer ───────────────────────────
   const supplierOptions = useMemo(() => {
@@ -223,7 +248,7 @@ export default function BuySheet(_props: Props) {
     if (!overlay) return [];
     let base: InventoryUnit[];
     switch (overlay) {
-      case 'today':      base = todayUnits; break;
+      case 'recent':     base = recentUnits; break;
       case 'office':     base = officeUnits; break;
       case 'shs':        base = shsUnits; break;
       case 'sold_today': base = soldToday; break;
@@ -231,7 +256,7 @@ export default function BuySheet(_props: Props) {
     }
     return applyPanelFilters(base);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [overlay, todayUnits, officeUnits, shsUnits, soldToday, units, search, statusFilter, supplierFilter, supplierMap]);
+  }, [overlay, recentUnits, officeUnits, shsUnits, soldToday, units, search, statusFilter, supplierFilter, supplierMap]);
 
   // Rows for the always-on inline table (every unit, panel-filtered).
   const inlineRows = useMemo<InventoryUnit[]>(
@@ -352,10 +377,10 @@ export default function BuySheet(_props: Props) {
         {/* 4 clickable KPI tiles — each opens the Excel overlay scoped to that KPI */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
           <BigKpiTile
-            label="Stock Added Today"
-            value={kpiCounts.today}
+            label="Added Last 72h"
+            value={kpiCounts.recent}
             tone="emerald"
-            onClick={() => setOverlay('today')}
+            onClick={() => setOverlay('recent')}
           />
           <BigKpiTile
             label="All Office Stock"
@@ -1009,7 +1034,7 @@ function InlineEditableSelect({
 
 function titleFor(kpi: KpiId): string {
   switch (kpi) {
-    case 'today':      return 'Stock Added Today';
+    case 'recent':     return 'Stock Added · Last 72h';
     case 'office':     return 'All Office Stock';
     case 'shs':        return 'SHS Stock';
     case 'sold_today': return 'Sold Today';
