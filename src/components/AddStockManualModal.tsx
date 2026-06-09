@@ -64,6 +64,12 @@ interface StockRow {
    *  colour (or a manually-typed one) survives a re-render without us
    *  having to re-derive it from row.colour every time. */
   colourOther?: boolean;
+  /** Operator-confirmed override of a hard duplicate IMEI block.
+   *  Set by clicking "Save anyway" on the row when the operator has
+   *  inspected the colliding doc and decided the new unit is
+   *  legitimate. The override stamps the existing doc id into the
+   *  new unit's notes so the duplication is traceable post-hoc. */
+  forceDupeOverride?: boolean;
 }
 
 /** Closed set of colour presets shown in the Add Stock dropdown. Anything
@@ -190,6 +196,12 @@ export default function AddStockManualModal({ onClose, initialMode = 'office' }:
         next.storage = parsed.storage || '';
       }
       if ('storage' in patch) next.storageTouched = true;
+      // Editing the IMEI clears any previous dup-override — the operator's
+      // confirmation was for a specific colliding doc; once the value
+      // changes that confirmation no longer applies. The override field
+      // itself coming in via the patch (the "Save anyway" click) is
+      // exempted so we don't immediately un-set it.
+      if ('imei' in patch && !('forceDupeOverride' in patch)) next.forceDupeOverride = false;
       return next;
     }));
   }, []);
@@ -240,8 +252,14 @@ export default function AddStockManualModal({ onClose, initialMode = 'office' }:
       status === 'incoming'  ||
       status === 'returned'  // any returnType = expected back / in-office
     );
-    const dupeInDb         = existingActive;
-    const priorHistoryInDb = !!existingUnit && status === 'sold';
+    // Operator override demotes a hard block to the soft re-stock
+    // path — the new doc still gets created (no merge / replace),
+    // and `forceDupeOverride` gets stamped on its notes so the
+    // duplication is auditable.
+    const dupeInDb         = existingActive && !r.forceDupeOverride;
+    const priorHistoryInDb =
+      (!!existingUnit && status === 'sold')
+      || (existingActive && !!r.forceDupeOverride);
     const dupeInDbMatch = existingUnit ? {
       id:           existingUnit.id,
       model:        (existingUnit.model || '').trim() || '?',
@@ -332,6 +350,15 @@ export default function AddStockManualModal({ onClose, initialMode = 'office' }:
 
       for (const i of validIdxs) {
         const r = rows[i];
+        const v = validation[i];
+        // Stamp the colliding-doc id on the notes when the operator
+        // used "Save anyway" to push past an active-stock dupe block.
+        // Lets us audit any genuine duplicates post-hoc without
+        // mining the import batch.
+        const overrideTag = (r.forceDupeOverride && v.dupeInDbMatch)
+          ? `[DUP-OVERRIDE existing=${v.dupeInDbMatch.id}]`
+          : '';
+        const composedNotes = [r.notes.trim(), overrideTag].filter(Boolean).join(' ');
         try {
           if (mode === 'office') {
             const res = await addUnitManual({
@@ -342,7 +369,7 @@ export default function AddStockManualModal({ onClose, initialMode = 'office' }:
               colour: r.colour,
               storage: r.storage,
               grade: r.grade,
-              notes: r.notes,
+              notes: composedNotes,
               dateIn: date,
               batchId,
             });
@@ -392,7 +419,7 @@ export default function AddStockManualModal({ onClose, initialMode = 'office' }:
               status: 'incoming',
               statusRaw: 'SHS — Manual',
               flags: [],
-              notes: r.notes.trim() || 'SHS — Awaiting delivery',
+              notes: composedNotes || 'SHS — Awaiting delivery',
               platformListed: false,
               listingSites: [] as ListingSite[],
               ownerId: 'shared',
@@ -719,6 +746,16 @@ function Row({
                     : 'border-gray-200 focus:border-black bg-white'
             }`}
           />
+          {validation.dupeInDb && validation.dupeInDbMatch && (
+            <button
+              type="button"
+              onClick={() => onChange({ forceDupeOverride: true })}
+              className="mt-1 inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-widest text-amber-700 hover:text-amber-900 underline decoration-dotted"
+              title={`Bypass the dupe check. New unit's notes will be tagged [DUP-OVERRIDE existing=${validation.dupeInDbMatch.id}] for audit.`}
+            >
+              Save anyway · override block
+            </button>
+          )}
         </Cell>
         <Cell label="Grade" colSpan={3}>
           <select
