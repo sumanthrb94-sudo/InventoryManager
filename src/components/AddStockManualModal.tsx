@@ -159,6 +159,15 @@ export default function AddStockManualModal({ onClose, initialMode = 'office' }:
   const [saving, setSaving] = useState(false);
   const [saved, setSaved]   = useState(false);
   const [error, setError]   = useState('');
+  /** Normalised IMEIs we wrote during *this* modal session. The store
+   *  is a live onSnapshot subscription, so the unit doc we just
+   *  created arrives back in `units` within a second or two — long
+   *  before the 900ms auto-close fires. Without this exclusion the
+   *  validation re-runs against its own freshly-created docs and
+   *  flags the still-rendered row as "Already in inventory · id <imei>",
+   *  even though the operator just typed that exact IMEI for the
+   *  first time. Naturally wiped on unmount. */
+  const [writtenImeis, setWrittenImeis] = useState<Set<string>>(() => new Set());
 
   const supplierNames = useMemo(() => suppliers.map(s => s.name), [suppliers]);
   // Map (not Set) so we can surface the matching unit's details when a row
@@ -177,10 +186,15 @@ export default function AddStockManualModal({ onClose, initialMode = 'office' }:
         .replace(/[​-‍﻿ ]/g, '')
         .trim()
         .toUpperCase();
-      if (key && !m.has(key)) m.set(key, u);
+      if (!key || m.has(key)) continue;
+      // Don't let units we just created in this modal session count
+      // as "already in inventory" — they're the post-save echo from
+      // the live store listener, not a pre-existing conflict.
+      if (writtenImeis.has(key)) continue;
+      m.set(key, u);
     }
     return m;
-  }, [units]);
+  }, [units, writtenImeis]);
 
   // Carry the last typed supplier forward — saves re-typing across rows in
   // the same delivery from one source.
@@ -342,6 +356,10 @@ export default function AddStockManualModal({ onClose, initialMode = 'office' }:
 
       let total = 0;
       const failures: string[] = [];
+      // Normalised IMEIs we successfully wrote in this run. Pushed into
+      // the writtenImeis set after the loop so the validation excludes
+      // them when the live-store listener delivers them back.
+      const justWritten: string[] = [];
 
       // SHS mode caches supplier ids by name so we only ensureSupplier once
       // per name per batch. Office mode uses the service-side ensureSupplier
@@ -381,6 +399,8 @@ export default function AddStockManualModal({ onClose, initialMode = 'office' }:
               id: res.id!, imei: res.id!, model: r.model,
               colour: r.colour, buyPrice: parseFloat(r.buyPrice) || 0,
             } as any);
+            const writtenKey = r.imei.replace(/[​-‍﻿ ]/g, '').trim().toUpperCase();
+            if (writtenKey) justWritten.push(writtenKey);
             total++;
           } else {
             // SHS path — IMEI optional. Create the unit directly with
@@ -429,6 +449,7 @@ export default function AddStockManualModal({ onClose, initialMode = 'office' }:
             if (i === validIdxs[0]) {
               notificationService.addNotification('shs_received', newUnit);
             }
+            if (imei) justWritten.push(imei);
             total++;
           }
         } catch (err: any) {
@@ -453,6 +474,14 @@ export default function AddStockManualModal({ onClose, initialMode = 'office' }:
       }
       if (failures.length) {
         setError(`${total} saved · ${failures.length} rejected: ${failures[0]}`);
+      }
+      // Excluded from `existingByImei` until the modal unmounts.
+      if (justWritten.length) {
+        setWrittenImeis(prev => {
+          const next = new Set(prev);
+          for (const k of justWritten) next.add(k);
+          return next;
+        });
       }
       setSaved(true);
       setTimeout(onClose, 900);
@@ -555,9 +584,13 @@ export default function AddStockManualModal({ onClose, initialMode = 'office' }:
         {/* Footer */}
         <div className="px-5 py-3 border-t border-gray-100 flex items-center justify-between gap-3 flex-shrink-0">
           <div className="text-[10px] font-mono text-gray-500 truncate">
+            {/* Once `saved` is true the modal is in its 900ms close-out
+                window. Skip the dupe banner here in case the writtenImeis
+                guard misses a row — operator should never see an error
+                state while the success toast + SAVED! button are visible. */}
             {error
               ? <span className="text-rose-600 inline-flex items-center gap-1"><AlertCircle size={11} />{error}</span>
-              : hasDuplicates
+              : hasDuplicates && !saved
                 ? <span className="text-rose-600 inline-flex items-center gap-1">
                     <AlertCircle size={11} />
                     {duplicateCount} duplicate IMEI row{duplicateCount === 1 ? '' : 's'} — fix or remove to enable save
