@@ -287,81 +287,90 @@ function buildSignals(units: InventoryUnit[], sales: Sale[] | undefined, mode: '
 
 // ── Sub-components ─────────────────────────────────────────────────────────────
 
-const SignalCard: React.FC<{ sig: Signal }> = ({ sig }) => {
-  // Map signal colors to light backgrounds
-  const bgMap: Record<string, string> = {
-    '#ef4444': 'rgba(254, 242, 242, 0.8)', // red-50
-    '#10b981': 'rgba(240, 253, 250, 0.8)', // emerald-50
-    '#8b5cf6': 'rgba(250, 245, 255, 0.8)', // purple-50
-    '#f59e0b': 'rgba(255, 251, 235, 0.8)', // amber-50
-    '#38bdf8': 'rgba(240, 249, 255, 0.8)', // blue-50
-  };
+/** Solid colour palette per signal. The original card design used
+ *  semi-transparent rgba pastels keyed off the same hex used as the
+ *  accent — operator reported the result was washed-out and hard to
+ *  read in office lighting. Replaced with fully-opaque Tailwind-100
+ *  tints + 300-level borders + 700-level header text so each card is
+ *  unmistakeably its own colour at a glance and the typography is at
+ *  comfortable reading sizes. */
+type Palette = { bg: string; border: string; header: string; accent: string };
+const PALETTE: Record<string, Palette> = {
+  '#ef4444': { bg: '#fee2e2', border: '#fca5a5', header: '#b91c1c', accent: '#dc2626' }, // red
+  '#10b981': { bg: '#d1fae5', border: '#6ee7b7', header: '#047857', accent: '#059669' }, // emerald
+  '#8b5cf6': { bg: '#ede9fe', border: '#c4b5fd', header: '#6d28d9', accent: '#7c3aed' }, // violet
+  '#f59e0b': { bg: '#fef3c7', border: '#fcd34d', header: '#b45309', accent: '#d97706' }, // amber
+  '#38bdf8': { bg: '#e0f2fe', border: '#7dd3fc', header: '#0369a1', accent: '#0284c7' }, // sky
+};
+const FALLBACK_PALETTE: Palette = { bg: '#f1f5f9', border: '#cbd5e1', header: '#334155', accent: '#475569' };
 
-  const textColorMap: Record<string, string> = {
-    '#ef4444': '#dc2626',
-    '#10b981': '#059669',
-    '#8b5cf6': '#7c3aed',
-    '#f59e0b': '#d97706',
-    '#38bdf8': '#0284c7',
-  };
+const SignalCard: React.FC<{ sig: Signal }> = ({ sig }) => {
+  const p = PALETTE[sig.color] || FALLBACK_PALETTE;
 
   return (
     <div style={{
-      background: bgMap[sig.color] || 'rgba(240, 245, 250, 0.8)',
-      borderRadius: 16,
-      borderTop: `2px solid ${sig.color}`,
-      padding: '10px 10px 8px',
+      background: p.bg,
+      borderRadius: 14,
+      border: `1px solid ${p.border}`,
+      borderTop: `4px solid ${sig.color}`,
+      padding: '14px 14px 12px',
       display: 'flex',
       flexDirection: 'column',
       gap: 0,
       minWidth: 0,
     }}>
       {/* Header */}
-      <div style={{ marginBottom: 8 }}>
+      <div style={{ marginBottom: 10 }}>
         <p style={{
-          fontSize: 9, fontWeight: 800, letterSpacing: '0.1em',
-          color: sig.color, fontFamily: 'monospace', textTransform: 'uppercase',
-          lineHeight: 1,
+          fontSize: 13, fontWeight: 800, letterSpacing: '0.08em',
+          color: p.header, fontFamily: 'ui-sans-serif, system-ui, sans-serif',
+          textTransform: 'uppercase', lineHeight: 1.1,
         }}>
           {sig.label}
         </p>
-        <p style={{ fontSize: 7, color: '#64748b', fontFamily: 'monospace', marginTop: 2 }}>
+        <p style={{
+          fontSize: 11, color: p.accent, fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
+          marginTop: 4, opacity: 0.9,
+        }}>
           {sig.hint}
         </p>
       </div>
 
-      {/* Divider */}
-      <div style={{ height: 1, background: 'rgba(0,0,0,0.05)', marginBottom: 7 }} />
+      {/* Divider — solid colour from the palette, not a generic grey */}
+      <div style={{ height: 1, background: p.border, marginBottom: 10, opacity: 0.7 }} />
 
       {/* Rows */}
       {sig.rows.length === 0 ? (
-        <p style={{ fontSize: 8, color: '#64748b', fontFamily: 'monospace', fontStyle: 'italic', lineHeight: 1.4 }}>
+        <p style={{
+          fontSize: 12, color: p.accent, fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
+          fontStyle: 'italic', lineHeight: 1.4, opacity: 0.7,
+        }}>
           {sig.empty}
         </p>
       ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
           {sig.rows.map((row, i) => (
             <div key={i} style={{
               display: 'flex',
               alignItems: 'flex-start',
               justifyContent: 'space-between',
-              gap: 8,
-              paddingBottom: 8,
-              borderBottom: i < sig.rows.length - 1 ? '1px solid rgba(0,0,0,0.05)' : 'none',
+              gap: 10,
+              paddingBottom: 10,
+              borderBottom: i < sig.rows.length - 1 ? `1px solid ${p.border}` : 'none',
             }}>
               <div style={{ flex: 1, minWidth: 0 }}>
                 <p style={{
-                  fontSize: 10, fontWeight: 700, color: '#1e293b',
-                  lineHeight: 1.3, marginBottom: 3,
+                  fontSize: 13, fontWeight: 700, color: '#0f172a',
+                  lineHeight: 1.3, marginBottom: 4,
                   overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'normal',
                   wordBreak: 'break-word',
                 }}>
                   {row.name}
                 </p>
                 <p style={{
-                  fontSize: 8,
-                  color: '#64748b',
-                  fontFamily: 'monospace',
+                  fontSize: 11,
+                  color: '#475569',
+                  fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
                   lineHeight: 1.4,
                   overflow: 'hidden',
                   textOverflow: 'ellipsis',
@@ -376,12 +385,14 @@ const SignalCard: React.FC<{ sig: Signal }> = ({ sig }) => {
                 marginLeft: 8,
               }}>
                 <p style={{
-                  fontSize: 10, fontWeight: 900, fontFamily: 'monospace',
-                  color: row.alert ? '#dc2626' : sig.color,
+                  fontSize: 13, fontWeight: 900, fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
+                  color: row.alert ? '#b91c1c' : p.header,
                   lineHeight: 1.2,
-                  padding: '4px 8px',
-                  backgroundColor: row.alert ? 'rgba(220, 38, 38, 0.1)' : 'transparent',
+                  padding: '5px 10px',
+                  backgroundColor: row.alert ? '#fecaca' : 'rgba(255,255,255,0.7)',
+                  border: `1px solid ${row.alert ? '#fca5a5' : p.border}`,
                   borderRadius: 8,
+                  whiteSpace: 'nowrap',
                 }}>
                   {row.primary}
                 </p>
@@ -407,25 +418,31 @@ export default function IntelligencePanel({ units, sales, mode }: Props) {
     : 'Sell Intelligence · Demand & Margin Signals';
 
   return (
-    <div style={{ background: '#ffffff', borderRadius: 16, padding: '12px 12px 10px', overflow: 'hidden', border: '1px solid #e2e8f0' }}>
+    <div style={{ background: '#ffffff', borderRadius: 16, padding: '14px 14px 12px', overflow: 'hidden', border: '1px solid #e2e8f0' }}>
       {/* Panel header */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
         <p style={{
-          fontSize: 8, fontWeight: 700, letterSpacing: '0.18em',
-          color: '#64748b', fontFamily: 'monospace', textTransform: 'uppercase',
+          fontSize: 11, fontWeight: 800, letterSpacing: '0.14em',
+          color: '#334155', fontFamily: 'ui-sans-serif, system-ui, sans-serif',
+          textTransform: 'uppercase',
         }}>
           {title}
         </p>
-        <p style={{ fontSize: 7, color: '#94a3b8', fontFamily: 'monospace', flexShrink: 0 }}>
+        <p style={{
+          fontSize: 10, color: '#64748b',
+          fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
+          flexShrink: 0,
+        }}>
           14-day window
         </p>
       </div>
 
-      {/* Signal cards — horizontal scroll on mobile */}
+      {/* Signal cards — wider min so the bigger type breathes; stays
+          horizontally scrollable on narrow screens. */}
       <div style={{
         display: 'grid',
-        gridTemplateColumns: 'repeat(4, minmax(140px, 1fr))',
-        gap: 8,
+        gridTemplateColumns: 'repeat(4, minmax(190px, 1fr))',
+        gap: 10,
         overflowX: 'auto',
       }}>
         {signals.map(sig => (
