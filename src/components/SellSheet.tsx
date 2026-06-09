@@ -64,6 +64,95 @@ type MarketplaceGroup = {
   byModel: Map<string, MarketplaceGroupModel>;
 };
 
+/** Sortable column keys for the Excel-style grouped sales table — one
+ *  per visible column (excluding the chevron). Mirrors the buy-side
+ *  GroupSortKey in StockOverlayModal so the two overlays read the same. */
+type SalesGroupSortKey =
+  | 'model' | 'channels' | 'sold' | 'avgSp' | 'revenue' | 'gp' | 'latestSale' | 'comments';
+type SalesGroupSort = { key: SalesGroupSortKey; dir: SortDir };
+const DEFAULT_SALES_GROUP_SORT: SalesGroupSort = { key: 'revenue', dir: 'desc' };
+const SALES_GROUP_SORT_DEFAULT_DIR: Record<SalesGroupSortKey, SortDir> = {
+  model: 'asc', channels: 'desc', sold: 'desc', avgSp: 'desc',
+  revenue: 'desc', gp: 'desc', latestSale: 'desc', comments: 'desc',
+};
+
+/** One row of the grouped sales table — one bucket per (model + storage)
+ *  pair. Storage falls back to '' so sales with no linked unit (no
+ *  storage hint) still bucket consistently by model alone. */
+interface SalesGroup {
+  key: string;
+  model: string;                        // Display label including storage when present
+  units: number;                        // Σ Sale.quantity
+  revenue: number;                      // Σ Sale.salePrice
+  gp: number;                           // Σ Sale.grossProfit
+  avgSp: number;                        // revenue / units (computed after the loop)
+  latestSaleDate: string;               // Latest ISO YYYY-MM-DD; '' if none
+  byMarketplace: Map<Marketplace, number>; // Marketplace → unit count
+  comments: Set<string>;                // Distinct non-empty Sale.comments
+  sales: Sale[];                        // Raw sales for the drill-down
+}
+
+function buildSalesGroups(rows: Sale[], unitById: Map<string, InventoryUnit>): SalesGroup[] {
+  const map = new Map<string, SalesGroup>();
+  for (const s of rows) {
+    const linked = s.unitId ? unitById.get(s.unitId) : undefined;
+    const modelTxt = (linked?.model || s.sku || '—').trim() || '—';
+    const storage  = ((linked?.storage as string) || '').trim();
+    const key   = `${modelTxt.toLowerCase()}|${storage.toLowerCase()}`;
+    const label = storage && !modelTxt.toUpperCase().includes(storage.toUpperCase())
+      ? `${modelTxt} ${storage}` : modelTxt;
+    let g = map.get(key);
+    if (!g) {
+      g = {
+        key, model: label,
+        units: 0, revenue: 0, gp: 0, avgSp: 0,
+        latestSaleDate: '',
+        byMarketplace: new Map(), comments: new Set(), sales: [],
+      };
+      map.set(key, g);
+    }
+    const qty = s.quantity || 1;
+    g.units   += qty;
+    g.revenue += s.salePrice   || 0;
+    g.gp      += s.grossProfit || 0;
+    g.byMarketplace.set(s.marketplace, (g.byMarketplace.get(s.marketplace) || 0) + qty);
+    if (s.saleDate && s.saleDate > g.latestSaleDate) g.latestSaleDate = s.saleDate;
+    const c = (s.comments || '').trim();
+    if (c) g.comments.add(c);
+    g.sales.push(s);
+  }
+  for (const g of map.values()) g.avgSp = g.units > 0 ? g.revenue / g.units : 0;
+  return Array.from(map.values());
+}
+
+function sortSalesGroups(groups: SalesGroup[], sort: SalesGroupSort): SalesGroup[] {
+  const dir = sort.dir === 'asc' ? 1 : -1;
+  const out = [...groups];
+  out.sort((a, b) => {
+    let cmp = 0;
+    switch (sort.key) {
+      case 'model':    cmp = a.model.localeCompare(b.model); break;
+      case 'channels': cmp = a.byMarketplace.size - b.byMarketplace.size; break;
+      case 'sold':     cmp = a.units - b.units; break;
+      case 'avgSp':    cmp = a.avgSp - b.avgSp; break;
+      case 'revenue':  cmp = a.revenue - b.revenue; break;
+      case 'gp':       cmp = a.gp - b.gp; break;
+      case 'latestSale':
+        // Empty dates sink to the bottom regardless of direction —
+        // same convention buy-side `sortGroupedModels` uses.
+        if (!a.latestSaleDate && !b.latestSaleDate) cmp = 0;
+        else if (!a.latestSaleDate) return 1;
+        else if (!b.latestSaleDate) return -1;
+        else cmp = a.latestSaleDate.localeCompare(b.latestSaleDate);
+        break;
+      case 'comments': cmp = a.comments.size - b.comments.size; break;
+    }
+    if (cmp === 0) cmp = a.model.localeCompare(b.model);
+    return cmp * dir;
+  });
+  return out;
+}
+
 const MARKETPLACE_TONE: Record<Marketplace, string> = {
   AMAZON:  'bg-orange-100 text-orange-700  border-orange-200',
   BM:      'bg-emerald-100 text-emerald-700 border-emerald-200',
@@ -846,19 +935,19 @@ function SellExcelOverlay({
   }, [onClose]);
 
   /** View modes:
-   *    grouped  — rows collapsed by marketplace (AMAZON / BM / EBAY /
-   *               ONBUY / PROJECT). Default per the client's request:
-   *               sales-by-channel is the read they actually want, the
-   *               1,778-row flat list is for editing. Each marketplace
-   *               row expands to a top-models breakdown.
+   *    grouped  — one row per (model + storage), expandable to per-sale
+   *               detail. Excel-style sortable columns mirror the
+   *               buy-side StockOverlayModal so the two dashboards
+   *               read the same.
    *    detailed — original per-sale grid, kept for cell-by-cell edits. */
   const [viewMode, setViewMode] = useState<'grouped' | 'detailed'>('grouped');
-  const [expandedMps, setExpandedMps] = useState<Set<string>>(new Set());
-  const toggleExpand = (mp: string) => setExpandedMps(prev => {
+  const [expandedKeys, setExpandedKeys] = useState<Set<string>>(new Set());
+  const toggleExpand = (key: string) => setExpandedKeys(prev => {
     const next = new Set(prev);
-    next.has(mp) ? next.delete(mp) : next.add(mp);
+    next.has(key) ? next.delete(key) : next.add(key);
     return next;
   });
+  const [groupSort, setGroupSort] = useState<SalesGroupSort>(DEFAULT_SALES_GROUP_SORT);
 
   const totals = useMemo(() => {
     const revenue = rows.reduce((s, x) => s + (x.salePrice ?? 0), 0);
@@ -866,17 +955,26 @@ function SellExcelOverlay({
     return { revenue, gp };
   }, [rows]);
 
-  /** Sales rolled up per marketplace. Within each marketplace we also
-   *  break down by model — the operator's most natural drill ("what
-   *  sells on Amazon vs eBay?"). Models are resolved from the linked
-   *  inventoryUnit when present, falling back to the SKU string so a
-   *  sale doc with no IMEI match still shows up. */
+  /** Models are resolved from the linked inventoryUnit when present,
+   *  falling back to the SKU string so a sale doc with no IMEI match
+   *  still shows up. */
   const unitById = useMemo(() => {
     const m = new Map<string, InventoryUnit>();
     for (const u of units) if (u.id) m.set(u.id, u);
     return m;
   }, [units]);
 
+  /** One bucket per (model + storage). Sorted client-side by `groupSort`
+   *  using the same default-direction rule as the buy-side
+   *  GroupedExcelTable. */
+  const salesGroups = useMemo(
+    () => sortSalesGroups(buildSalesGroups(rows, unitById), groupSort),
+    [rows, unitById, groupSort],
+  );
+
+  // Legacy marketplace-pill builder kept only for the header subtitle's
+  // "N channels" count — could be simplified to a single Set lookup but
+  // the rest of the build is dead-cheap and the diff is smaller this way.
   const grouped = useMemo<MarketplaceGroup[]>(() => {
     const map = new Map<Marketplace, MarketplaceGroup>();
     for (const s of rows) {
@@ -921,7 +1019,7 @@ function SellExcelOverlay({
             <p className="text-[10px] font-mono text-slate-400 mt-0.5">
               {(rows.length + awaitingUnits.length).toLocaleString()} {rows.length + awaitingUnits.length === 1 ? 'row' : 'rows'}
               {rows.length > 0 && (
-                <> · {grouped.length} {grouped.length === 1 ? 'channel' : 'channels'} · Revenue {fmtGBP(totals.revenue, 0)} · GP <span className={totals.gp >= 0 ? 'text-emerald-700' : 'text-rose-700'}>{fmtGBP(totals.gp, 0)}</span></>
+                <> · {salesGroups.length} {salesGroups.length === 1 ? 'model' : 'models'} · {grouped.length} {grouped.length === 1 ? 'channel' : 'channels'} · Revenue {fmtGBP(totals.revenue, 0)} · GP <span className={totals.gp >= 0 ? 'text-emerald-700' : 'text-rose-700'}>{fmtGBP(totals.gp, 0)}</span></>
               )}
             </p>
           </div>
@@ -977,81 +1075,13 @@ function SellExcelOverlay({
               <p className="text-[11px] font-mono uppercase tracking-widest">No sales in this view</p>
             </div>
           ) : viewMode === 'grouped' ? (
-            <ul className="divide-y divide-slate-100" style={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace' }}>
-              {grouped.map(g => {
-                const open = expandedMps.has(g.mp);
-                const tone = MARKETPLACE_TONE[g.mp];
-                const models = (Array.from(g.byModel.values()) as MarketplaceGroupModel[])
-                  .sort((a, b) => b.revenue - a.revenue || b.units - a.units);
-                return (
-                  <li key={g.mp}>
-                    <button
-                      onClick={() => toggleExpand(g.mp)}
-                      className="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-slate-50 transition-colors"
-                    >
-                      <span className={`flex-shrink-0 w-5 h-5 inline-flex items-center justify-center rounded-md text-slate-400 transition-transform ${open ? 'rotate-90 text-slate-700' : ''}`}>
-                        <ChevronRight size={13} />
-                      </span>
-                      <span className="flex-1 min-w-0">
-                        <span className="flex items-center gap-2">
-                          <span className={`inline-flex items-center text-[9px] font-bold uppercase tracking-widest px-2 py-0.5 rounded border ${tone}`}>
-                            {g.mp}
-                          </span>
-                          <span className="text-[10px] font-mono text-slate-400 truncate">
-                            {models.length} {models.length === 1 ? 'model' : 'models'}
-                          </span>
-                        </span>
-                        <span className="block text-[9px] font-mono text-slate-500 mt-1">
-                          {g.orders.toLocaleString()} {g.orders === 1 ? 'order' : 'orders'}
-                          {' · '}
-                          {g.units.toLocaleString()} units
-                          {' · GP '}
-                          <span className={g.gp >= 0 ? 'text-emerald-700 font-bold' : 'text-rose-700 font-bold'}>{fmtGBP(g.gp, 0)}</span>
-                        </span>
-                      </span>
-                      <span className="flex-shrink-0 text-right">
-                        <span className="block text-[12px] font-bold text-slate-900">{fmtGBP(g.revenue, 0)}</span>
-                        <span className="block text-[8px] font-mono uppercase tracking-widest text-slate-400 mt-0.5">Revenue</span>
-                      </span>
-                    </button>
-                    <AnimatePresence initial={false}>
-                      {open && (
-                        <motion.div
-                          initial={{ height: 0, opacity: 0 }}
-                          animate={{ height: 'auto', opacity: 1 }}
-                          exit={{ height: 0, opacity: 0 }}
-                          transition={{ duration: 0.18 }}
-                          className="overflow-hidden bg-slate-50/60"
-                        >
-                          <table className="w-full text-[10px]">
-                            <thead className="text-[8px] font-bold uppercase tracking-widest text-slate-400">
-                              <tr>
-                                <th className="text-left pl-10 pr-2 py-1.5">Model · SKU</th>
-                                <th className="text-right px-2 py-1.5 w-16">Units</th>
-                                <th className="text-right px-2 py-1.5 w-24">Revenue</th>
-                                <th className="text-right pr-4 pl-2 py-1.5 w-24">GP</th>
-                              </tr>
-                            </thead>
-                            <tbody className="divide-y divide-slate-200/70">
-                              {models.map(m => (
-                                <tr key={m.label} className="hover:bg-white/60">
-                                  <td className="pl-10 pr-2 py-1.5 truncate max-w-0">
-                                    <span className="text-slate-700 truncate block" title={m.label}>{m.label}</span>
-                                  </td>
-                                  <td className="text-right px-2 py-1.5 font-mono text-slate-700">{m.units}</td>
-                                  <td className="text-right px-2 py-1.5 font-mono text-slate-900 font-bold">{fmtGBP(m.revenue, 0)}</td>
-                                  <td className={`text-right pr-4 pl-2 py-1.5 font-mono font-bold ${m.gp >= 0 ? 'text-emerald-700' : 'text-rose-700'}`}>{fmtGBP(m.gp, 0)}</td>
-                                </tr>
-                              ))}
-                            </tbody>
-                          </table>
-                        </motion.div>
-                      )}
-                    </AnimatePresence>
-                  </li>
-                );
-              })}
-            </ul>
+            <GroupedSalesTable
+              groups={salesGroups}
+              expanded={expandedKeys}
+              onToggle={toggleExpand}
+              sort={groupSort}
+              onSort={setGroupSort}
+            />
           ) : (
             <SheetTable
               rows={rows}
@@ -1076,6 +1106,161 @@ function SellExcelOverlay({
         </div>
       </motion.div>
     </motion.div>
+  );
+}
+
+// ── Grouped sales Excel-style table ─────────────────────────────────────────
+// One row per (model + storage) bucket; expandable to per-sale detail rows.
+// Mirrors the buy-side GroupedExcelTable in StockOverlayModal column-for-column
+// so the operator sees the same shape on both the Stock Intake and Sales
+// dashboards. Columns: Model · Channels · Sold · Avg SP · Revenue · GP ·
+// Latest Sale · Comments — eight visible plus the expand chevron.
+function GroupedSalesTable({
+  groups, expanded, onToggle, sort, onSort,
+}: {
+  groups: SalesGroup[];
+  expanded: Set<string>;
+  onToggle: (key: string) => void;
+  sort: SalesGroupSort;
+  onSort: (s: SalesGroupSort) => void;
+}) {
+  const clickHeader = (key: SalesGroupSortKey) => {
+    if (sort.key === key) onSort({ key, dir: sort.dir === 'asc' ? 'desc' : 'asc' });
+    else                  onSort({ key, dir: SALES_GROUP_SORT_DEFAULT_DIR[key] });
+  };
+  const arrow = (key: SalesGroupSortKey) =>
+    sort.key !== key ? <ChevronsUpDown size={9} className="opacity-40" />
+      : sort.dir === 'asc' ? <ChevronUp size={9} /> : <ChevronDown size={9} />;
+  const dateFmt = (iso: string) => {
+    if (!iso) return '—';
+    const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso);
+    return m ? `${m[3]}/${m[2]}/${m[1].slice(2)}` : iso;
+  };
+  return (
+    <table className="w-full text-[11px] border-separate border-spacing-0" style={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace' }}>
+      <thead>
+        <tr className="text-[9px] font-bold uppercase tracking-widest text-slate-500 bg-slate-50">
+          <th className="px-2 py-2 w-7 border-b border-slate-200" />
+          <SalesGroupTh label="Model"       k="model"      sort={sort} onClick={clickHeader} arrow={arrow} width="240px" />
+          <SalesGroupTh label="Channels"    k="channels"   sort={sort} onClick={clickHeader} arrow={arrow} width="170px" />
+          <SalesGroupTh label="Sold"        k="sold"       sort={sort} onClick={clickHeader} arrow={arrow} width="80px"  align="right" />
+          <SalesGroupTh label="Avg SP"      k="avgSp"      sort={sort} onClick={clickHeader} arrow={arrow} width="90px"  align="right" />
+          <SalesGroupTh label="Revenue"     k="revenue"    sort={sort} onClick={clickHeader} arrow={arrow} width="110px" align="right" />
+          <SalesGroupTh label="GP"          k="gp"         sort={sort} onClick={clickHeader} arrow={arrow} width="100px" align="right" />
+          <SalesGroupTh label="Latest Sale" k="latestSale" sort={sort} onClick={clickHeader} arrow={arrow} width="100px" />
+          <SalesGroupTh label="Comments"    k="comments"   sort={sort} onClick={clickHeader} arrow={arrow} width="180px" />
+        </tr>
+      </thead>
+      <tbody>
+        {groups.map((g, idx) => {
+          const open = expanded.has(g.key);
+          const isAlt = idx % 2 === 1;
+          const rowBg = isAlt ? 'bg-slate-50/40 hover:bg-slate-100/60' : 'bg-white hover:bg-slate-50';
+          const channels: [Marketplace, number][] = Array.from(g.byMarketplace.entries())
+            .sort((a, b) => b[1] - a[1]);
+          const commentsArr = Array.from(g.comments);
+          return (
+            <React.Fragment key={g.key}>
+              <tr className={`${rowBg} cursor-pointer transition-colors`} onClick={() => onToggle(g.key)}>
+                <td className="px-2 py-1.5 align-middle border-b border-slate-100 text-center">
+                  <ChevronRight size={12} className={`text-slate-400 transition-transform ${open ? 'rotate-90 text-slate-700' : ''}`} />
+                </td>
+                <td className="px-3 py-1.5 align-middle border-b border-slate-100">
+                  <span className="font-bold text-slate-900 truncate block max-w-[230px]" title={g.model}>{g.model}</span>
+                </td>
+                <td className="px-3 py-1.5 align-middle border-b border-slate-100">
+                  <div className="flex items-center gap-1 flex-wrap">
+                    {channels.slice(0, 2).map(([mp, n]) => (
+                      <span key={mp} className={`inline-flex items-center gap-1 text-[8px] font-bold uppercase tracking-widest px-1.5 py-0.5 rounded border ${MARKETPLACE_TONE[mp]}`}>
+                        {mp} <span className="opacity-70">× {n}</span>
+                      </span>
+                    ))}
+                    {channels.length > 2 && (
+                      <span className="text-[9px] font-mono text-slate-400" title={channels.slice(2).map(([mp, n]) => `${mp} × ${n}`).join(' · ')}>
+                        +{channels.length - 2}
+                      </span>
+                    )}
+                  </div>
+                </td>
+                <td className="px-3 py-1.5 align-middle border-b border-slate-100 text-right">
+                  <span className="inline-flex items-center text-[10px] font-bold uppercase tracking-widest bg-slate-900 text-white px-2 py-0.5 rounded">
+                    × {g.units}
+                  </span>
+                </td>
+                <td className="px-3 py-1.5 align-middle border-b border-slate-100 text-right font-mono text-slate-700">{fmtGBP(g.avgSp, 0)}</td>
+                <td className="px-3 py-1.5 align-middle border-b border-slate-100 text-right font-mono font-bold text-slate-900">{fmtGBP(g.revenue, 0)}</td>
+                <td className={`px-3 py-1.5 align-middle border-b border-slate-100 text-right font-mono font-bold ${g.gp >= 0 ? 'text-emerald-700' : 'text-rose-700'}`}>{fmtGBP(g.gp, 0)}</td>
+                <td className="px-3 py-1.5 align-middle border-b border-slate-100 text-slate-600 text-[10px]">{dateFmt(g.latestSaleDate)}</td>
+                <td className="px-3 py-1.5 align-middle border-b border-slate-100 text-[10px] text-slate-500 truncate max-w-[170px]">
+                  {commentsArr.length === 0 ? <span className="text-slate-300">—</span>
+                    : commentsArr.length === 1 ? <span title={commentsArr[0]}>{commentsArr[0]}</span>
+                      : <span title={commentsArr.join(' · ')}>{commentsArr[0]} <span className="text-slate-400">+{commentsArr.length - 1}</span></span>}
+                </td>
+              </tr>
+              {open && (
+                <tr className="bg-slate-50/60">
+                  <td colSpan={9} className="px-0 py-0 border-b border-slate-200">
+                    <table className="w-full text-[10px]">
+                      <thead className="text-[8px] font-bold uppercase tracking-widest text-slate-400">
+                        <tr>
+                          <th className="text-left pl-10 pr-2 py-1.5">Date</th>
+                          <th className="text-left px-2 py-1.5">Channel</th>
+                          <th className="text-left px-2 py-1.5">Order</th>
+                          <th className="text-right px-2 py-1.5 w-20">SP</th>
+                          <th className="text-right px-2 py-1.5 w-20">GP</th>
+                          <th className="text-left px-2 py-1.5">Comments</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-200/70">
+                        {g.sales.slice().sort((a, b) => (b.saleDate || '').localeCompare(a.saleDate || '')).map(s => (
+                          <tr key={s.id} className="hover:bg-white/60">
+                            <td className="pl-10 pr-2 py-1 font-mono text-slate-600">{dateFmt(s.saleDate || '')}</td>
+                            <td className="px-2 py-1">
+                              <span className={`inline-flex items-center text-[8px] font-bold uppercase tracking-widest px-1.5 py-0.5 rounded border ${MARKETPLACE_TONE[s.marketplace]}`}>
+                                {s.marketplace}
+                              </span>
+                            </td>
+                            <td className="px-2 py-1 font-mono text-slate-600 truncate max-w-[180px]" title={s.orderNumber}>{s.orderNumber || '—'}</td>
+                            <td className="px-2 py-1 font-mono text-right text-slate-900 font-bold">{fmtGBP(s.salePrice, 0)}</td>
+                            <td className={`px-2 py-1 font-mono text-right font-bold ${(s.grossProfit ?? 0) >= 0 ? 'text-emerald-700' : 'text-rose-700'}`}>{fmtGBP(s.grossProfit, 0)}</td>
+                            <td className="px-2 py-1 text-slate-500 truncate max-w-[200px]" title={s.comments || ''}>{s.comments || ''}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </td>
+                </tr>
+              )}
+            </React.Fragment>
+          );
+        })}
+      </tbody>
+    </table>
+  );
+}
+
+function SalesGroupTh({
+  label, k, sort, onClick, arrow, width, align,
+}: {
+  label: string;
+  k: SalesGroupSortKey;
+  sort: SalesGroupSort;
+  onClick: (k: SalesGroupSortKey) => void;
+  arrow: (k: SalesGroupSortKey) => React.ReactNode;
+  width: string;
+  align?: 'left' | 'right';
+}) {
+  const active = sort.key === k;
+  return (
+    <th style={{ width }} className={`px-3 py-2 border-b border-slate-200 ${align === 'right' ? 'text-right' : 'text-left'}`}>
+      <button
+        onClick={() => onClick(k)}
+        className={`inline-flex items-center gap-1 hover:text-slate-900 transition-colors ${active ? 'text-slate-900' : ''}`}
+      >
+        {label}
+        {arrow(k)}
+      </button>
+    </th>
   );
 }
 
