@@ -22,7 +22,7 @@ import React, { useState, useMemo, useEffect, useRef } from 'react';
 import {
   Search, ShoppingCart, ChevronDown, ChevronUp, ChevronsUpDown,
   Filter, X, AlertCircle, Plus, Info, Sparkles, FileSpreadsheet,
-  TrendingUp, TrendingDown, PackageCheck, Truck, ChevronRight, Layers, List,
+  TrendingUp, TrendingDown, PackageCheck, Truck, ChevronRight, Layers, List, Tag,
 } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
 import { dbService } from '../lib/dbService';
@@ -740,6 +740,10 @@ export default function SellSheet(_props: Props) {
             supplierMap={supplierMap}
             units={units}
             region={region}
+            // Sold Today opens on the marketplace breakdown — the operator's
+            // first-of-the-day read is "what's selling where". Every other
+            // sales KPI opens on the Excel-style model table.
+            defaultView={overlay === 'today' ? 'channel' : 'model'}
             onClose={() => setOverlay(null)}
             onSaveCell={saveCell}
             onBackfillImei={u => { setOverlay(null); setEnterImeiUnit(u); }}
@@ -909,8 +913,11 @@ function InlineSheet({
 }
 
 // ── KPI overlay modal ───────────────────────────────────────────────────────
+type OverlayView = 'model' | 'channel' | 'detailed';
+
 function SellExcelOverlay({
   title, rows, awaitingUnits, sort, onSort, supplierMap, units, region,
+  defaultView,
   onClose, onSaveCell, onBackfillImei,
 }: {
   title: string;
@@ -921,6 +928,11 @@ function SellExcelOverlay({
   supplierMap: Record<string, string>;
   units: InventoryUnit[];
   region: 'uk' | 'india' | 'admin' | 'both';
+  /** Initial view for the grouped/detailed toggle. Sold Today wants
+   *  'channel' (marketplace breakdown) since the operator's first
+   *  read of the day is "what's selling where"; all other KPIs
+   *  default to 'model' (the Excel-style sortable model table). */
+  defaultView: OverlayView;
   onClose: () => void;
   onSaveCell: (s: Sale, field: string, value: any) => Promise<void>;
   onBackfillImei: (u: InventoryUnit) => void;
@@ -935,12 +947,13 @@ function SellExcelOverlay({
   }, [onClose]);
 
   /** View modes:
-   *    grouped  — one row per (model + storage), expandable to per-sale
-   *               detail. Excel-style sortable columns mirror the
-   *               buy-side StockOverlayModal so the two dashboards
-   *               read the same.
-   *    detailed — original per-sale grid, kept for cell-by-cell edits. */
-  const [viewMode, setViewMode] = useState<'grouped' | 'detailed'>('grouped');
+   *    model    — Excel-style sortable table grouped by (model + storage),
+   *               expandable to per-sale detail. Default for most KPIs.
+   *    channel  — Marketplace-grouped list (AMAZON / BM / EBAY / ONBUY),
+   *               each marketplace expanding to a per-model breakdown.
+   *               Default for Sold Today per operator request.
+   *    detailed — Original per-sale grid, kept for cell-by-cell edits. */
+  const [viewMode, setViewMode] = useState<OverlayView>(defaultView);
   const [expandedKeys, setExpandedKeys] = useState<Set<string>>(new Set());
   const toggleExpand = (key: string) => setExpandedKeys(prev => {
     const next = new Set(prev);
@@ -1027,11 +1040,18 @@ function SellExcelOverlay({
             {rows.length > 0 && awaitingUnits.length === 0 && (
               <div className="inline-flex rounded-xl bg-slate-100 p-0.5 text-[9px] font-bold uppercase tracking-widest">
                 <button
-                  onClick={() => setViewMode('grouped')}
-                  className={`inline-flex items-center gap-1 px-2 py-1 rounded-lg transition-all ${viewMode === 'grouped' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
-                  title="Group sales by marketplace"
+                  onClick={() => setViewMode('model')}
+                  className={`inline-flex items-center gap-1 px-2 py-1 rounded-lg transition-all ${viewMode === 'model' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                  title="Group by model (sortable Excel-style table)"
                 >
-                  <Layers size={10} /> Grouped
+                  <Layers size={10} /> Model
+                </button>
+                <button
+                  onClick={() => setViewMode('channel')}
+                  className={`inline-flex items-center gap-1 px-2 py-1 rounded-lg transition-all ${viewMode === 'channel' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                  title="Group by marketplace channel"
+                >
+                  <Tag size={10} /> Channel
                 </button>
                 <button
                   onClick={() => setViewMode('detailed')}
@@ -1074,7 +1094,7 @@ function SellExcelOverlay({
               <Sparkles size={28} />
               <p className="text-[11px] font-mono uppercase tracking-widest">No sales in this view</p>
             </div>
-          ) : viewMode === 'grouped' ? (
+          ) : viewMode === 'model' ? (
             <GroupedSalesTable
               groups={salesGroups}
               expanded={expandedKeys}
@@ -1082,6 +1102,82 @@ function SellExcelOverlay({
               sort={groupSort}
               onSort={setGroupSort}
             />
+          ) : viewMode === 'channel' ? (
+            <ul className="divide-y divide-slate-100" style={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace' }}>
+              {grouped.map(g => {
+                const open = expandedKeys.has(`mp::${g.mp}`);
+                const tone = MARKETPLACE_TONE[g.mp];
+                const models = (Array.from(g.byModel.values()) as MarketplaceGroupModel[])
+                  .sort((a, b) => b.revenue - a.revenue || b.units - a.units);
+                return (
+                  <li key={g.mp}>
+                    <button
+                      onClick={() => toggleExpand(`mp::${g.mp}`)}
+                      className="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-slate-50 transition-colors"
+                    >
+                      <span className={`flex-shrink-0 w-5 h-5 inline-flex items-center justify-center rounded-md text-slate-400 transition-transform ${open ? 'rotate-90 text-slate-700' : ''}`}>
+                        <ChevronRight size={13} />
+                      </span>
+                      <span className="flex-1 min-w-0">
+                        <span className="flex items-center gap-2">
+                          <span className={`inline-flex items-center text-[9px] font-bold uppercase tracking-widest px-2 py-0.5 rounded border ${tone}`}>
+                            {g.mp}
+                          </span>
+                          <span className="text-[10px] font-mono text-slate-400 truncate">
+                            {models.length} {models.length === 1 ? 'model' : 'models'}
+                          </span>
+                        </span>
+                        <span className="block text-[9px] font-mono text-slate-500 mt-1">
+                          {g.orders.toLocaleString()} {g.orders === 1 ? 'order' : 'orders'}
+                          {' · '}
+                          {g.units.toLocaleString()} units
+                          {' · GP '}
+                          <span className={g.gp >= 0 ? 'text-emerald-700 font-bold' : 'text-rose-700 font-bold'}>{fmtGBP(g.gp, 0)}</span>
+                        </span>
+                      </span>
+                      <span className="flex-shrink-0 text-right">
+                        <span className="block text-[12px] font-bold text-slate-900">{fmtGBP(g.revenue, 0)}</span>
+                        <span className="block text-[8px] font-mono uppercase tracking-widest text-slate-400 mt-0.5">Revenue</span>
+                      </span>
+                    </button>
+                    <AnimatePresence initial={false}>
+                      {open && (
+                        <motion.div
+                          initial={{ height: 0, opacity: 0 }}
+                          animate={{ height: 'auto', opacity: 1 }}
+                          exit={{ height: 0, opacity: 0 }}
+                          transition={{ duration: 0.18 }}
+                          className="overflow-hidden bg-slate-50/60"
+                        >
+                          <table className="w-full text-[10px]">
+                            <thead className="text-[8px] font-bold uppercase tracking-widest text-slate-400">
+                              <tr>
+                                <th className="text-left pl-10 pr-2 py-1.5">Model · SKU</th>
+                                <th className="text-right px-2 py-1.5 w-16">Units</th>
+                                <th className="text-right px-2 py-1.5 w-24">Revenue</th>
+                                <th className="text-right pr-4 pl-2 py-1.5 w-24">GP</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-slate-200/70">
+                              {models.map(m => (
+                                <tr key={m.label} className="hover:bg-white/60">
+                                  <td className="pl-10 pr-2 py-1.5 truncate max-w-0">
+                                    <span className="text-slate-700 truncate block" title={m.label}>{m.label}</span>
+                                  </td>
+                                  <td className="text-right px-2 py-1.5 font-mono text-slate-700">{m.units}</td>
+                                  <td className="text-right px-2 py-1.5 font-mono text-slate-900 font-bold">{fmtGBP(m.revenue, 0)}</td>
+                                  <td className={`text-right pr-4 pl-2 py-1.5 font-mono font-bold ${m.gp >= 0 ? 'text-emerald-700' : 'text-rose-700'}`}>{fmtGBP(m.gp, 0)}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
+                  </li>
+                );
+              })}
+            </ul>
           ) : (
             <SheetTable
               rows={rows}
