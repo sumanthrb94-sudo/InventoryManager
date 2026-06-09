@@ -167,6 +167,12 @@ const INVENTORY_COLUMN_WIDTHS = [50, 6, 12, 30, 10, 40, 20, 30];
 const IMEI_HEADERS = [
   'STOCK IN DATE', 'MODEL', 'IMEI NUMBER', 'BP', 'COLOURS',
   'SUPPLIER', 'NOTES', 'STATUS', 'MARKETPLACE', 'STOCK OUT DATE',
+  // Export-only column. The import parser keys off HEADER_ALIASES in
+  // InventoryReportImport.tsx and silently drops unknown headers, so
+  // adding "AGE (DAYS)" here does not affect re-import — the round-trip
+  // (download → edit → upload) still reads back the same shape it
+  // always did. Don't add an alias to the parser for this header.
+  'AGE (DAYS)',
 ];
 
 const WHATSAPP_HEADERS: Array<string | null> = ['MOBILE KIT SUPPLIER', null];
@@ -204,12 +210,23 @@ export async function buildInventoryWorkbookBuffer(input: BuildInventoryWorkbook
   const imeiSheet = wb.addWorksheet('IMEI NUMBERS');
   imeiSheet.addRow(IMEI_HEADERS);
 
+  const MS_PER_DAY = 86_400_000;
+  const nowMs = Date.now();
   for (const unit of units) {
     const stockInDate = toDate(unit.dateIn);
     const stockOutDate = toDate(unit.stockOutDate ?? unit.saleDate);
     const supplierName = unit.supplierName
       ?? joinSupplierNames(unit.supplierIds, suppliers)
       ?? '';
+
+    // Days since the unit arrived in the office. For sold units that's
+    // a useful "did this take long to move?" read; for available stock
+    // it's the live office-age. Operator wanted Age as a downloadable
+    // signal — computed at export time, not stored, so it's always
+    // current as of the moment the workbook was generated.
+    const ageDays = stockInDate
+      ? Math.max(0, Math.floor((nowMs - stockInDate.getTime()) / MS_PER_DAY))
+      : null;
 
     const row = imeiSheet.addRow([
       stockInDate,
@@ -222,6 +239,7 @@ export async function buildInventoryWorkbookBuffer(input: BuildInventoryWorkbook
       unit.statusRaw ?? unit.status ?? '',
       unit.marketplace ?? unit.salePlatform ?? '',
       stockOutDate,
+      ageDays,
     ]);
 
     // A: STOCK IN DATE — mm/dd/yyyy
@@ -233,6 +251,8 @@ export async function buildInventoryWorkbookBuffer(input: BuildInventoryWorkbook
     row.getCell(4).numFmt = '0.00';
     // J: STOCK OUT DATE — mm/dd/yyyy
     row.getCell(10).numFmt = 'mm/dd/yyyy';
+    // K: AGE (DAYS) — integer
+    row.getCell(11).numFmt = '0';
   }
 
   // ---------------- Sheet 3: SUPPLIER WHATSAPP UPDATES ----------------
