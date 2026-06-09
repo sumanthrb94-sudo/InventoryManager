@@ -110,30 +110,36 @@ export default function BuySheet(_props: Props) {
     return () => window.clearInterval(id);
   }, []);
 
-  /** Coerce Firestore timestamps to millis — handles the three shapes the
-   *  SDK returns (Timestamp instance, plain {seconds,nanos}, ISO string)
-   *  plus the local `new Date().toISOString()` we stamp in seedData. */
-  const toMs = (v: any): number => {
-    if (!v) return 0;
-    if (typeof v === 'string') return new Date(v).getTime() || 0;
-    if (typeof v?.toMillis === 'function') return v.toMillis();
-    if (typeof v?.seconds === 'number') return v.seconds * 1000;
-    return 0;
+  /** Coerce a "YYYY-MM-DD" Stock In string to local midnight millis.
+   *  Operators think in local days, so we parse in the local TZ rather
+   *  than UTC — a unit stocked in on the 6th of June reads as
+   *  "06:00 of the 6th" in London during BST, not "07:00 the day
+   *  before" the way `new Date('2026-06-06')` would give you. */
+  const parseStockInDate = (s: string | undefined): number => {
+    if (!s) return 0;
+    const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(s);
+    if (!m) {
+      const t = new Date(s).getTime();
+      return Number.isFinite(t) ? t : 0;
+    }
+    return new Date(+m[1], +m[2] - 1, +m[3]).getTime();
   };
 
-  // "Stock Added · Last 72h" — every unit (office + SHS) whose Firestore
-  // createdAt or importedAt timestamp falls within the rolling 72-hour
-  // window. We deliberately use the timestamp, not `dateIn`, because
-  // dateIn can be backdated by the operator ("this arrived 5 days ago")
-  // and the KPI is meant to surface what was *added to the system*
-  // recently. Parser-synth SHS placeholders are excluded — they inherit
-  // the import time and would otherwise spike the count on every
-  // re-import without representing real new stock.
+  // "Stock Added In Last 72 Hours" — every unit whose Stock In date
+  // falls inside the rolling 72-hour window. We key off `dateIn` (the
+  // operator-visible "Stock In" column) so the KPI always reconciles
+  // with the row: if you see a unit dated 6 Jun on the sheet, the
+  // tile counts it iff that date is < 72h ago. dateIn is a date-only
+  // string, so it's interpreted as 00:00 local — that's the most
+  // precise window the field can give us, and it matches the
+  // operator's mental model better than the Firestore timestamp
+  // (which spikes after an import even though no new stock arrived).
+  // Parser-synth SHS placeholders stay excluded.
   const cutoffMs = nowMs - 72 * 60 * 60 * 1000;
   const recentUnits = useMemo(
     () => units.filter(u => {
       if ((u.id || '').startsWith('shs_') && u.status === 'incoming') return false;
-      const ts = Math.max(toMs(u.createdAt), toMs(u.importedAt));
+      const ts = parseStockInDate(u.dateIn);
       return ts > 0 && ts >= cutoffMs;
     }),
     [units, cutoffMs],
