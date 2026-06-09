@@ -113,11 +113,20 @@ interface RowValidation {
   imeiRequired: boolean;
   imeiEmpty: boolean;
   dupeInBatch: boolean;
+  /** True only when the colliding DB unit is in *active* stock
+   *  (status `available` or `incoming`). Sold / returned units carry
+   *  the same IMEI as a historical record but no longer occupy the
+   *  slot, so re-acquiring the same device (return-buyback, repurchase
+   *  from customer) shouldn't block — they surface via
+   *  `priorHistoryInDb` instead and the save proceeds. */
   dupeInDb: boolean;
-  /** When dupeInDb fires, capture identifying details of the matching unit
-   *  so the operator can see what's collided — model / dateIn / status /
-   *  supplier. Lets them rule out a stale import or a sold/returned unit
-   *  without leaving the modal. */
+  /** True when an IMEI matches a sold/returned unit. Informational —
+   *  shown as a non-blocking hint so the operator confirms it really
+   *  is a re-stock of the same physical device. */
+  priorHistoryInDb: boolean;
+  /** When dupeInDb OR priorHistoryInDb fires, capture identifying
+   *  details of the matching unit so the operator can see what's
+   *  collided — model / dateIn / status / supplier. */
   dupeInDbMatch?: {
     id: string;
     model: string;
@@ -205,7 +214,16 @@ export default function AddStockManualModal({ onClose, initialMode = 'office' }:
     const dupeInBatch = !!imei && rows.filter(x => x.imei
       .replace(/[​-‍﻿ ]/g, '').trim().toUpperCase() === imei).length > 1;
     const existingUnit = imei ? existingByImei.get(imei) : undefined;
-    const dupeInDb    = !!existingUnit;
+    // An existing unit only BLOCKS the save when it's still occupying
+    // active stock (available / incoming). Sold or returned units are
+    // historical records — the physical device left the office, so
+    // re-acquiring it (return-buyback, repurchase from customer) must
+    // not be blocked by its old doc. The hint still surfaces via
+    // priorHistoryInDb so the operator can confirm intent.
+    const existingActive = !!existingUnit &&
+      (existingUnit.status === 'available' || existingUnit.status === 'incoming');
+    const dupeInDb         = existingActive;
+    const priorHistoryInDb = !!existingUnit && !existingActive;
     const dupeInDbMatch = existingUnit ? {
       id:           existingUnit.id,
       model:        (existingUnit.model || '').trim() || '?',
@@ -230,7 +248,8 @@ export default function AddStockManualModal({ onClose, initialMode = 'office' }:
 
     return {
       modelOk, imeiOk, isApple, imeiRequired, imeiEmpty,
-      dupeInBatch, dupeInDb, dupeInDbMatch, bpOk, supplierOk, storageOk,
+      dupeInBatch, dupeInDb, priorHistoryInDb, dupeInDbMatch,
+      bpOk, supplierOk, storageOk,
       complete: modelOk && imeiOk && bpOk && supplierOk && storageOk,
     };
   }), [rows, mode, existingByImei]);
@@ -576,13 +595,22 @@ function Row({
     if (validation.imeiEmpty && validation.imeiRequired) return 'Required';
     if (validation.dupeInBatch) return 'Duplicate in this batch';
     if (validation.dupeInDb) {
-      // Surface the colliding unit's identifying fields so the operator can
-      // see WHY the IMEI is flagged (a sold/returned unit still in
-      // inventoryUnits, a stale import, etc) instead of having to leave the
-      // modal and grep the inventory list themselves.
+      // Hard block — the existing unit is in active stock
+      // (available / incoming). Surface the colliding unit's
+      // identifying fields so the operator can rule out a stale
+      // record without leaving the modal.
       const m = validation.dupeInDbMatch;
       if (m) return `Already in inventory · ${m.model} · ${m.dateIn} · status ${m.status}${m.supplierName ? ' · ' + m.supplierName : ''}`;
       return 'Already in inventory';
+    }
+    if (validation.priorHistoryInDb) {
+      // Soft hint — the matching unit is sold or returned, so the
+      // physical device left the office. We let the save proceed
+      // (re-stock of the same IMEI is legitimate) but show the
+      // history so the operator confirms intent.
+      const m = validation.dupeInDbMatch;
+      if (m) return `Re-stocking · was ${m.status} · ${m.model} · ${m.dateIn}${m.supplierName ? ' · ' + m.supplierName : ''}`;
+      return 'Re-stocking previously sold/returned IMEI';
     }
     if (!validation.imeiOk && !validation.imeiEmpty) {
       return validation.isApple ? IMEI_OR_APPLE_SERIAL_MESSAGE : IMEI_REQUIRED_MESSAGE;
@@ -641,7 +669,13 @@ function Row({
           label={mode === 'office' ? 'IMEI / Serial *' : 'IMEI / Serial'}
           colSpan={4}
           help={imeiHelp}
-          helpTone={validation.imeiEmpty && !validation.imeiRequired ? 'muted' : 'error'}
+          helpTone={
+            validation.imeiEmpty && !validation.imeiRequired ? 'muted' :
+            // Soft amber hint when the IMEI matches a sold/returned
+            // unit but is otherwise valid — re-stocking is allowed.
+            validation.priorHistoryInDb && validation.imeiOk      ? 'info'  :
+            'error'
+          }
         >
           <input
             value={row.imei}
@@ -652,11 +686,13 @@ function Row({
             inputMode={validation.isApple ? 'text' : 'numeric'}
             maxLength={validation.isApple ? 16 : 15}
             className={`w-full border rounded-lg px-2.5 py-1.5 text-[12px] font-mono focus:outline-none transition-all ${
-              imeiHelp && !(validation.imeiEmpty && !validation.imeiRequired)
-                ? 'border-rose-300 bg-rose-50 focus:border-rose-500'
-                : row.imei.trim()
-                  ? 'border-emerald-300 bg-emerald-50/50 focus:border-emerald-500'
-                  : 'border-gray-200 focus:border-black bg-white'
+              validation.priorHistoryInDb && validation.imeiOk
+                ? 'border-amber-300 bg-amber-50 focus:border-amber-500'
+                : imeiHelp && !(validation.imeiEmpty && !validation.imeiRequired)
+                  ? 'border-rose-300 bg-rose-50 focus:border-rose-500'
+                  : row.imei.trim()
+                    ? 'border-emerald-300 bg-emerald-50/50 focus:border-emerald-500'
+                    : 'border-gray-200 focus:border-black bg-white'
             }`}
           />
         </Cell>
@@ -788,7 +824,7 @@ function Cell({
   children: React.ReactNode;
   colSpan: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12;
   help?: string;
-  helpTone?: 'muted' | 'error';
+  helpTone?: 'muted' | 'error' | 'info';
   className?: string;
 }) {
   const spanCls = {
@@ -796,7 +832,10 @@ function Cell({
     5: 'md:col-span-5', 6: 'md:col-span-6', 7: 'md:col-span-7', 8: 'md:col-span-8',
     9: 'md:col-span-9', 10: 'md:col-span-10', 11: 'md:col-span-11', 12: 'md:col-span-12',
   }[colSpan];
-  const helpCls = helpTone === 'muted' ? 'text-slate-400' : 'text-rose-600';
+  const helpCls =
+    helpTone === 'muted' ? 'text-slate-400' :
+    helpTone === 'info'  ? 'text-amber-700' :
+    'text-rose-600';
   return (
     <div className={`${spanCls} ${className ?? ''}`}>
       <label className="text-[9px] font-bold uppercase tracking-widest text-gray-500 block mb-0.5">{label}</label>
