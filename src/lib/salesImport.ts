@@ -345,9 +345,25 @@ function isRedishArgb(argb: string | undefined): boolean {
 // ---------------------------------------------------------------------------
 
 /** Resolve a sheet name case-insensitively (workbook may have "Amazon", "AMAZON", "amazon"). */
+/** Resolve the workbook tab that holds rows for `marketplace`.
+ *  The client's working files name the tabs in two styles:
+ *    1. Strict canonical — "AMAZON", "BM", "EBAY", "ONBUY".
+ *    2. Suffixed         — "AMAZON SALES", "BM SALES", etc.
+ *  Older operator copies use style 1; the live tracker now uses
+ *  style 2. We accept either: try exact (case-insensitive, trimmed)
+ *  first, then fall back to a token-match that treats the sheet
+ *  name as words split on non-letters. "AMAZON SALES" tokenises to
+ *  ["AMAZON","SALES"] which includes "AMAZON" → match. "AMAZONIA"
+ *  tokenises to ["AMAZONIA"] which doesn't include "AMAZON" → no
+ *  false positive. */
 function findSheetName(wb: XLSX.WorkBook, marketplace: Marketplace): string | undefined {
-  const want = marketplace.toLowerCase();
-  return wb.SheetNames.find((n: string) => n.trim().toLowerCase() === want);
+  const want = marketplace.toUpperCase();
+  const exact = wb.SheetNames.find((n: string) => n.trim().toUpperCase() === want);
+  if (exact) return exact;
+  return wb.SheetNames.find((n: string) => {
+    const tokens = n.toUpperCase().split(/[^A-Z]+/).filter(Boolean);
+    return tokens.includes(want);
+  });
 }
 
 /** Normalise a header cell for comparison: cast → trim → lowercase → collapse spaces. */
@@ -392,7 +408,18 @@ function resolveColumns(
     const fallbackIdx = layout.fallback[key];
     if (fallbackIdx !== undefined && fallbackIdx < headerRow.length) {
       const alreadyTaken = Object.values(out).includes(fallbackIdx);
-      if (!alreadyTaken) {
+      // Skip when there's clearly a *different* labelled column at the
+      // fallback position — the operator's workbook genuinely doesn't
+      // have this field, and the slot now holds someone else's data
+      // (e.g. AMAZON_LAYOUT's fallback for `comments` is index 14, but
+      // the live SALES_REPORT now has `Postage` at index 14, so taking
+      // the fallback would import postage values into the Sale.comments
+      // string field). The fallback is meant for header-less / corrupted
+      // header rows, not for legitimately-renamed-or-removed columns.
+      const positionalHeader = normalised[fallbackIdx];
+      const headerMatchesAlias = aliases.includes(positionalHeader);
+      const headerEmpty = !positionalHeader;
+      if (!alreadyTaken && (headerEmpty || headerMatchesAlias)) {
         out[key] = fallbackIdx;
       }
     }
