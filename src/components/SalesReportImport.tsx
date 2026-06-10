@@ -26,6 +26,7 @@ import { useInventoryStore } from '../lib/inventoryStore';
 import type { Sale, Marketplace } from '../types';
 import { MARKETPLACES } from '../types';
 import { parseSalesWorkbook, type ParsedSales } from '../lib/salesImport';
+import { buildPostImportSyncPatches } from '../services/salesService';
 import { auth } from '../lib/firebase';
 
 interface Props { onClose: () => void; }
@@ -83,12 +84,16 @@ function buildPreview(
 }
 
 export default function SalesReportImport({ onClose }: Props) {
-  const { sales } = useInventoryStore();
+  const { sales, units } = useInventoryStore();
   const [phase, setPhase] = useState<Phase>('upload');
   const [parsed, setParsed] = useState<ParsedSales | null>(null);
   const [fileName, setFileName] = useState('');
   const [progress, setProgress] = useState<{ done: number; total: number }>({ done: 0, total: 0 });
   const [error, setError] = useState('');
+  /** Counts populated after a successful import. `unitsMarkedSold` is
+   *  the side-effect from the import → inventory sync (Bug B); shown
+   *  on the Done screen so the operator sees the buy-side reconciled. */
+  const [syncStats, setSyncStats] = useState<{ unitsMarkedSold: number; salesLinked: number }>({ unitsMarkedSold: 0, salesLinked: 0 });
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const preview = useMemo(
@@ -130,6 +135,17 @@ export default function SalesReportImport({ onClose }: Props) {
     setProgress({ done: 0, total: entries.length });
     try {
       await dbService.bulkCreate(entries, (done, total) => setProgress({ done, total }));
+      // Bug B sync — after sales land in Firestore, mark every matching
+      // InventoryUnit as sold and link sale.unitId. Operator no longer
+      // has to manually flip statuses to reconcile inventory with
+      // imported sales. Skipped sales (voided, no-imei, returned/incoming
+      // unit) are silently ignored, see buildPostImportSyncPatches docs.
+      const allImported = [...preview.toCreate, ...preview.toUpdate];
+      const { unitPatches, salePatches } = buildPostImportSyncPatches(allImported, units);
+      if (unitPatches.length || salePatches.length) {
+        await dbService.bulkCreate([...unitPatches, ...salePatches]);
+      }
+      setSyncStats({ unitsMarkedSold: unitPatches.length, salesLinked: salePatches.length });
       setPhase('done');
     } catch (e: any) {
       setError(e?.message || 'Import failed during write');
@@ -204,6 +220,14 @@ export default function SalesReportImport({ onClose }: Props) {
                 {preview.toCreate.length} created · {preview.toUpdate.length} updated
                 {preview.invalid.length > 0 && <> · {preview.invalid.length} skipped</>}
               </p>
+              {(syncStats.unitsMarkedSold > 0 || syncStats.salesLinked > 0) && (
+                <p className="text-[10px] font-mono text-emerald-700 mt-1">
+                  Inventory synced ·{' '}
+                  {syncStats.unitsMarkedSold > 0 && <>{syncStats.unitsMarkedSold} unit{syncStats.unitsMarkedSold === 1 ? '' : 's'} marked sold</>}
+                  {syncStats.unitsMarkedSold > 0 && syncStats.salesLinked > 0 && ' · '}
+                  {syncStats.salesLinked > 0 && <>{syncStats.salesLinked} sale{syncStats.salesLinked === 1 ? '' : 's'} linked</>}
+                </p>
+              )}
             </div>
           )}
         </div>

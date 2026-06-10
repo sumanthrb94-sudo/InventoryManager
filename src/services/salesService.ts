@@ -260,3 +260,85 @@ export async function voidSale(saleId: string, reason: string): Promise<{ ok: bo
     return { ok: false, message: err?.message || 'Void failed.' };
   }
 }
+
+/**
+ * Bug B from the architectural review: when sales are imported from the
+ * master workbook, the InventoryUnit on the buy side never gets flipped
+ * to `status='sold'` (the import path writes Sale docs only; only the
+ * in-app `recordSale` dual-writes). Result: Inventory still shows the
+ * IMEI as in-stock even though the import says it sold.
+ *
+ * This helper inspects the freshly-imported sales against the live units
+ * store, and returns the patch entries needed to bring both collections
+ * in sync:
+ *   - SET `sale.unitId` so the Sales Report ALL sheet's join works
+ *     (clientReport.ts:550 keys off s.unitId)
+ *   - SET `unit.status='sold'`, salePrice, saleDate, salePlatform,
+ *     saleOrderId, postageCost from the matching Sale
+ *
+ * Matching is by IMEI (uppercased + trimmed). Skipped:
+ *   - voided sales (sale.voidedAt set)
+ *   - sales with no IMEI (orphan rows)
+ *   - units whose status is `returned` or `incoming` (those lifecycle
+ *     states encode operator-driven workflow we mustn't trample)
+ *
+ * Both patch arrays use the same shape dbService.bulkCreate consumes
+ * with merge:true semantics, so callers can concatenate and write in
+ * one batch.
+ */
+export function buildPostImportSyncPatches(
+  sales: Sale[],
+  units: InventoryUnit[],
+): {
+  unitPatches: Array<{ collection: 'inventoryUnits'; id: string; data: Record<string, any> }>;
+  salePatches: Array<{ collection: 'sales'; id: string; data: Record<string, any> }>;
+} {
+  const unitsByImei = new Map<string, InventoryUnit>();
+  for (const u of units) {
+    const k = (u.imei || '').trim().toUpperCase();
+    if (k && !unitsByImei.has(k)) unitsByImei.set(k, u);
+  }
+
+  const unitPatches: Array<{ collection: 'inventoryUnits'; id: string; data: Record<string, any> }> = [];
+  const salePatches: Array<{ collection: 'sales'; id: string; data: Record<string, any> }> = [];
+
+  for (const s of sales) {
+    if (s.voidedAt) continue;
+    const imeiKey = (s.imei || '').trim().toUpperCase();
+    if (!imeiKey) continue;
+    const u = unitsByImei.get(imeiKey);
+    if (!u) continue;
+    if (u.status === 'returned' || u.status === 'incoming') continue;
+
+    // Sale → unit linkage. Only patch when unitId is missing or wrong;
+    // a no-op write would still bump the doc's updatedAt timestamp
+    // unnecessarily.
+    if (!s.unitId || s.unitId !== u.id) {
+      salePatches.push({ collection: 'sales', id: s.id, data: { unitId: u.id } });
+    }
+
+    // Unit's sold-state fields. Same idempotency check — skip when
+    // already matching so re-imports don't churn updatedAt.
+    const needsUnitPatch =
+      u.status !== 'sold'
+      || u.salePrice !== s.salePrice
+      || u.saleDate !== s.saleDate
+      || u.salePlatform !== s.marketplace
+      || u.saleOrderId !== s.orderNumber;
+    if (needsUnitPatch) {
+      unitPatches.push({
+        collection: 'inventoryUnits',
+        id: u.id,
+        data: {
+          status: 'sold',
+          salePrice: s.salePrice,
+          saleDate: s.saleDate,
+          salePlatform: s.marketplace,
+          saleOrderId: s.orderNumber,
+          postageCost: s.postage,
+        },
+      });
+    }
+  }
+  return { unitPatches, salePatches };
+}
