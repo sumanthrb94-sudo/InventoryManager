@@ -210,6 +210,23 @@ function buildSignals(units: InventoryUnit[], sales: Sale[] | undefined, mode: '
       sub:     `${n} sold`,
     }));
 
+  // 6. STOCK DEPTH — most-stocked models in the office, sorted by
+  //    available count desc. Sub-line carries the BP cash tied up
+  //    in each bucket so the operator sees "high count + high
+  //    capital lock" at a glance. Same per-model depth + buyPrice
+  //    sum that StockOverlayModal's grouped table aggregates, just
+  //    surfaced at the dashboard level.
+  const bpByModel: Record<string, number> = {};
+  for (const u of avail) bpByModel[u.model] = (bpByModel[u.model] || 0) + (u.buyPrice || 0);
+  const depthRows: Row[] = Object.entries(depth)
+    .sort(([, a], [, b]) => b - a)
+    .slice(0, 6)
+    .map(([m, count]) => ({
+      name:    label(m),
+      primary: `× ${count}`,
+      sub:     `£${Math.round(bpByModel[m] || 0).toLocaleString()} BP value`,
+    }));
+
   // ── assemble per mode ────────────────────────────────────────────────────────
 
   if (mode === 'buy') {
@@ -245,6 +262,14 @@ function buildSignals(units: InventoryUnit[], sales: Sale[] | undefined, mode: '
         color: '#ef4444',
         rows:  trendingRows,
         empty: 'No sales this week yet',
+      },
+      {
+        key:   'depth',
+        label: 'Stock Depth',
+        hint:  'By quantity · highest first',
+        color: '#6366f1',
+        rows:  depthRows,
+        empty: 'No office stock',
       },
     ];
   }
@@ -282,6 +307,14 @@ function buildSignals(units: InventoryUnit[], sales: Sale[] | undefined, mode: '
       rows:  platRows,
       empty: 'No platform data',
     },
+    {
+      key:   'depth',
+      label: 'Stock Depth',
+      hint:  'By quantity · highest first',
+      color: '#6366f1',
+      rows:  depthRows,
+      empty: 'No office stock',
+    },
   ];
 }
 
@@ -301,6 +334,7 @@ const PALETTE: Record<string, Palette> = {
   '#8b5cf6': { bg: '#ede9fe', border: '#c4b5fd', header: '#6d28d9', accent: '#7c3aed' }, // violet
   '#f59e0b': { bg: '#fef3c7', border: '#fcd34d', header: '#b45309', accent: '#d97706' }, // amber
   '#38bdf8': { bg: '#e0f2fe', border: '#7dd3fc', header: '#0369a1', accent: '#0284c7' }, // sky
+  '#6366f1': { bg: '#e0e7ff', border: '#a5b4fc', header: '#4338ca', accent: '#4f46e5' }, // indigo
 };
 const FALLBACK_PALETTE: Palette = { bg: '#f1f5f9', border: '#cbd5e1', header: '#334155', accent: '#475569' };
 
@@ -437,13 +471,13 @@ export default function IntelligencePanel({ units, sales, mode }: Props) {
         </p>
       </div>
 
-      {/* Signal cards — wider min so the bigger type breathes; stays
-          horizontally scrollable on narrow screens. */}
+      {/* Signal cards — auto-fit means the panel scales from 5 cards
+          on desktop (each gets a generous min-width of 190px) down to
+          1-2 cards per row on a phone without horizontal scrolling. */}
       <div style={{
         display: 'grid',
-        gridTemplateColumns: 'repeat(4, minmax(190px, 1fr))',
+        gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))',
         gap: 10,
-        overflowX: 'auto',
       }}>
         {signals.map(sig => (
           <SignalCard key={sig.key} sig={sig} />
