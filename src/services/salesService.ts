@@ -1,7 +1,10 @@
 /**
  * Sales write surface — record / void marketplace sales. Owns:
  *   - calcSaleFinancials math (no UI re-computes)
- *   - composite doc id `${marketplace}__${orderNumber}` for natural dedupe
+ *   - composite doc id `${marketplace}__${orderNumber}__${imei|sku|'inapp'}`
+ *     for natural dedupe (matches src/lib/salesImport.ts so the in-app
+ *     and master-file write paths produce the same composite for the
+ *     same sale)
  *   - inventoryUnit status flip to 'sold' + sale linkage
  *   - serverTimestamp on createdAt/updatedAt (via dbService cleanForFirestore)
  *
@@ -68,8 +71,9 @@ const today = () => new Date().toISOString().split('T')[0];
  * fee schedule. Flips the linked inventoryUnit to status='sold' and stamps
  * sale provenance (`saleOrderId`, `salePrice`, `saleDate`, `salePlatform`).
  *
- * Doc id is composite (`${marketplace}__${orderNumber}`) so re-running the
- * same sale (e.g. by re-import) is a natural upsert.
+ * Doc id is composite (`${marketplace}__${orderNumber}__${imei|sku|'inapp'}`)
+ * so re-running the same sale (e.g. by re-import) is a natural upsert,
+ * while multiple phones shipped on the same order get their own docs.
  */
 export async function recordSale(input: RecordSaleInput): Promise<RecordSaleResult> {
   // ── Input validation ────────────────────────────────────────────────────
@@ -125,14 +129,23 @@ export async function recordSale(input: RecordSaleInput): Promise<RecordSaleResu
     postageVatExempt: input.postageVatExempt,
   });
 
-  // ── Build the sale doc using the composite id idiom. ───────────────────
-  const saleId = `${input.marketplace}__${orderNumber}`;
   const saleDate = input.saleDate || today();
   const nowIso = new Date().toISOString();
 
   // SKU: prefer the operator-typed value when present (an in-modal edit), fall
   // back to whatever's stamped on the unit. Either may be undefined / empty.
   const sku = (input.sku ?? '').trim() || unit.sku || '';
+
+  // ── Build the sale doc using the composite id idiom. ───────────────────
+  // Doc id = marketplace__orderNumber__discriminator (IMEI, then SKU,
+  // then 'inapp'). MUST match the scheme in src/lib/salesImport.ts:
+  // when the operator records a sale in-app and later re-imports the
+  // same data from the master workbook, both paths produce the same
+  // composite so bulkUpsertSales dedupes correctly instead of writing
+  // a second copy. The in-app flow always has a unit (and therefore an
+  // IMEI), so the first fallback path is the common case here.
+  const idDiscriminator = (unit.imei || '').trim() || sku || 'inapp';
+  const saleId = `${input.marketplace}__${orderNumber}__${idDiscriminator}`;
 
   const sale: Sale = {
     id: saleId,
