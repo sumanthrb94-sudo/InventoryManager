@@ -961,6 +961,15 @@ function SellExcelOverlay({
     return next;
   });
   const [groupSort, setGroupSort] = useState<SalesGroupSort>(DEFAULT_SALES_GROUP_SORT);
+  /** Marketplace tab inside the Detailed view — null = "All", else
+   *  filters the per-sale grid to that marketplace so the operator
+   *  can flip between AMAZON / BM / EBAY / ONBUY the same way they'd
+   *  switch sheets in the master workbook. */
+  const [detailMarketplace, setDetailMarketplace] = useState<Marketplace | null>(null);
+  const detailedRows = useMemo(
+    () => detailMarketplace ? rows.filter(s => s.marketplace === detailMarketplace) : rows,
+    [rows, detailMarketplace],
+  );
 
   const totals = useMemo(() => {
     const revenue = rows.reduce((s, x) => s + (x.salePrice ?? 0), 0);
@@ -1179,17 +1188,51 @@ function SellExcelOverlay({
               })}
             </ul>
           ) : (
-            <SheetTable
-              rows={rows}
-              supplierMap={supplierMap}
-              units={units}
-              region={region}
-              sort={sort}
-              toggleSort={toggleSort}
-              editingCell={editingCell}
-              setEditingCell={setEditingCell}
-              onSaveCell={onSaveCell}
-            />
+            <div className="flex flex-col">
+              {/* Marketplace tab strip — mirrors the operator's master
+                  workbook tabs so they can flip between AMAZON / BM /
+                  EBAY / ONBUY without leaving the overlay. "All"
+                  shows the unfiltered grid. */}
+              <div className="sticky top-0 z-10 bg-white border-b border-slate-100 px-3 py-2 flex items-center gap-1.5 overflow-x-auto">
+                {(['ALL', ...MARKETPLACES] as const).map(tab => {
+                  const isAll = tab === 'ALL';
+                  const active = isAll ? detailMarketplace === null : detailMarketplace === tab;
+                  const tone = !isAll ? MARKETPLACE_TONE[tab as Marketplace] : '';
+                  const count = isAll ? rows.length : rows.filter(s => s.marketplace === tab).length;
+                  return (
+                    <button
+                      key={tab}
+                      onClick={() => setDetailMarketplace(isAll ? null : (tab as Marketplace))}
+                      className={`flex-shrink-0 inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[9px] font-bold uppercase tracking-widest border transition-all ${
+                        active
+                          ? (isAll
+                            ? 'bg-slate-900 text-white border-slate-900'
+                            : `${tone} ring-2 ring-offset-1 ring-slate-300`)
+                          : (isAll
+                            ? 'bg-white text-slate-700 border-slate-200 hover:border-slate-400'
+                            : `${tone} opacity-70 hover:opacity-100`)
+                      }`}
+                    >
+                      {isAll ? 'All' : tab}
+                      <span className={`text-[8px] font-mono px-1 rounded ${active && isAll ? 'bg-white/20' : 'bg-white/40'}`}>
+                        {count.toLocaleString()}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+              <SheetTable
+                rows={detailedRows}
+                supplierMap={supplierMap}
+                units={units}
+                region={region}
+                sort={sort}
+                toggleSort={toggleSort}
+                editingCell={editingCell}
+                setEditingCell={setEditingCell}
+                onSaveCell={onSaveCell}
+              />
+            </div>
           )}
         </div>
 
@@ -1375,6 +1418,23 @@ function SheetTable({
   setEditingCell: (c: { id: string; field: string } | null) => void;
   onSaveCell: (s: Sale, field: string, value: any) => Promise<void>;
 }) {
+  // Pre-index units twice: by id for explicit linkage, by uppercased
+  // IMEI for the fallback path that hydrates Storage / Colour on
+  // imported sales whose unitId is still empty. Memo keyed on units
+  // so the maps rebuild only when the live store fires.
+  const unitsById = useMemo(() => {
+    const m = new Map<string, InventoryUnit>();
+    for (const u of units) if (u.id) m.set(u.id, u);
+    return m;
+  }, [units]);
+  const unitsByImei = useMemo(() => {
+    const m = new Map<string, InventoryUnit>();
+    for (const u of units) {
+      const k = (u.imei || '').trim().toUpperCase();
+      if (k && !m.has(k)) m.set(k, u);
+    }
+    return m;
+  }, [units]);
   return (
     <table className="w-full text-[11px] border-separate border-spacing-0" style={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace' }}>
       <thead>
@@ -1396,7 +1456,16 @@ function SheetTable({
       </thead>
       <tbody>
         {rows.map((s, idx) => {
-          const u = (s.unitId && units.find(x => x.id === s.unitId)) || undefined;
+          // Prefer the explicit unitId link; otherwise fall back to
+          // matching by IMEI (imported sales don't carry unitId yet,
+          // but most still have a real IMEI in the cell — that
+          // hydrates Storage / Colour for the row instead of
+          // rendering "—" everywhere).
+          const imeiKey = (s.imei || '').trim().toUpperCase();
+          const u =
+            (s.unitId && unitsById.get(s.unitId))
+            || (imeiKey && unitsByImei.get(imeiKey))
+            || undefined;
           const supplierName = supplierMap[s.supplierId || ''] || s.supplierName || '—';
           const isAlt = idx % 2 === 1;
           // Flagged sales (red rows from the operator's source workbook) win
