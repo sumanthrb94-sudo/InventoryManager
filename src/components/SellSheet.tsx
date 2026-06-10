@@ -1077,6 +1077,44 @@ function SellExcelOverlay({
           </div>
         </div>
 
+        {/* Marketplace tab strip — only in Detailed view, placed
+            OUTSIDE the scroll container so it's always visible.
+            (Earlier sticky-inside attempt got covered by the
+            SheetTable's own sticky <th> headers, both pinning to
+            top-0 of the same scroll area — fight z-order, the
+            later-in-DOM table headers won.) */}
+        {viewMode === 'detailed' && rows.length > 0 && awaitingUnits.length === 0 && (
+          <div className="flex-shrink-0 bg-white border-b border-slate-100 px-3 py-2 flex items-center gap-1.5 overflow-x-auto">
+            <span className="text-[9px] font-mono uppercase tracking-widest text-slate-400 flex-shrink-0 mr-1">Filter</span>
+            {(['ALL', ...MARKETPLACES] as const).map(tab => {
+              const isAll = tab === 'ALL';
+              const active = isAll ? detailMarketplace === null : detailMarketplace === tab;
+              const tone = !isAll ? MARKETPLACE_TONE[tab as Marketplace] : '';
+              const count = isAll ? rows.length : rows.filter(s => s.marketplace === tab).length;
+              return (
+                <button
+                  key={tab}
+                  onClick={() => setDetailMarketplace(isAll ? null : (tab as Marketplace))}
+                  className={`flex-shrink-0 inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[9px] font-bold uppercase tracking-widest border transition-all ${
+                    active
+                      ? (isAll
+                        ? 'bg-slate-900 text-white border-slate-900'
+                        : `${tone} ring-2 ring-offset-1 ring-slate-300`)
+                      : (isAll
+                        ? 'bg-white text-slate-700 border-slate-200 hover:border-slate-400'
+                        : `${tone} opacity-70 hover:opacity-100`)
+                  }`}
+                >
+                  {isAll ? 'All' : tab}
+                  <span className={`text-[8px] font-mono px-1 rounded ${active && isAll ? 'bg-white/20' : 'bg-white/40'}`}>
+                    {count.toLocaleString()}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        )}
+
         <div className="flex-1 overflow-auto">
           {awaitingUnits.length > 0 ? (
             <div className="divide-y divide-amber-100">
@@ -1188,51 +1226,17 @@ function SellExcelOverlay({
               })}
             </ul>
           ) : (
-            <div className="flex flex-col">
-              {/* Marketplace tab strip — mirrors the operator's master
-                  workbook tabs so they can flip between AMAZON / BM /
-                  EBAY / ONBUY without leaving the overlay. "All"
-                  shows the unfiltered grid. */}
-              <div className="sticky top-0 z-10 bg-white border-b border-slate-100 px-3 py-2 flex items-center gap-1.5 overflow-x-auto">
-                {(['ALL', ...MARKETPLACES] as const).map(tab => {
-                  const isAll = tab === 'ALL';
-                  const active = isAll ? detailMarketplace === null : detailMarketplace === tab;
-                  const tone = !isAll ? MARKETPLACE_TONE[tab as Marketplace] : '';
-                  const count = isAll ? rows.length : rows.filter(s => s.marketplace === tab).length;
-                  return (
-                    <button
-                      key={tab}
-                      onClick={() => setDetailMarketplace(isAll ? null : (tab as Marketplace))}
-                      className={`flex-shrink-0 inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[9px] font-bold uppercase tracking-widest border transition-all ${
-                        active
-                          ? (isAll
-                            ? 'bg-slate-900 text-white border-slate-900'
-                            : `${tone} ring-2 ring-offset-1 ring-slate-300`)
-                          : (isAll
-                            ? 'bg-white text-slate-700 border-slate-200 hover:border-slate-400'
-                            : `${tone} opacity-70 hover:opacity-100`)
-                      }`}
-                    >
-                      {isAll ? 'All' : tab}
-                      <span className={`text-[8px] font-mono px-1 rounded ${active && isAll ? 'bg-white/20' : 'bg-white/40'}`}>
-                        {count.toLocaleString()}
-                      </span>
-                    </button>
-                  );
-                })}
-              </div>
-              <SheetTable
-                rows={detailedRows}
-                supplierMap={supplierMap}
-                units={units}
-                region={region}
-                sort={sort}
-                toggleSort={toggleSort}
-                editingCell={editingCell}
-                setEditingCell={setEditingCell}
-                onSaveCell={onSaveCell}
-              />
-            </div>
+            <SheetTable
+              rows={detailedRows}
+              supplierMap={supplierMap}
+              units={units}
+              region={region}
+              sort={sort}
+              toggleSort={toggleSort}
+              editingCell={editingCell}
+              setEditingCell={setEditingCell}
+              onSaveCell={onSaveCell}
+            />
           )}
         </div>
 
