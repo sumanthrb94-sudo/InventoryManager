@@ -313,6 +313,12 @@ function writeSaleRow(
   marketplace: Marketplace,
   sale: Sale,
   rowNumber: number,
+  /** Pre-resolved supplier display name from the caller. Threads the
+   *  supplierMap + unitsById lookup that lives at the workbook level
+   *  through so each per-marketplace row writes the canonical
+   *  supplier instead of an empty cell when `sale.supplierName` is
+   *  itself missing. */
+  resolvedSupplier: string = '',
 ): void {
   const f = excelFormulaFor(marketplace, rowNumber);
   const date = toDate(sale.saleDate);
@@ -327,7 +333,7 @@ function writeSaleRow(
       // in Excel without trusting our runtime output.
       const row = sheet.addRow([
         date, sale.orderNumber, sale.sku ?? '', sale.imei ?? '',
-        sale.supplierName ?? '', qty,
+        resolvedSupplier, qty,
         sale.buyPrice, sale.salePrice,
         // Formula-driven cells filled below: SP-BP, MarTax, Com, C.VAT,
         // DSF, DSF.VAT, Postage (literal), P.VAT, Accessories (literal),
@@ -368,7 +374,7 @@ function writeSaleRow(
       //   M=Postage,N=P.VAT,O=Accessories,P=GP,Q=GP%,R=TotVAT NTP,S=Comments
       const row = sheet.addRow([
         date, sale.orderNumber, sale.sku ?? '', sale.imei ?? '',
-        sale.supplierName ?? '', qty,
+        resolvedSupplier, qty,
         sale.buyPrice, sale.salePrice,
         null, null, null,                              // SP-BP, MarTax, Com
         sale.customerCareFees ?? Number(f.customerCareFees ?? 9.99),  // Customer Care Fees (literal)
@@ -409,7 +415,7 @@ function writeSaleRow(
       const hasExplicitMarketing = typeof sale.marketing === 'number';
       const row = sheet.addRow([
         date, sale.orderNumber, sale.sku ?? '', sale.imei ?? '',
-        sale.supplierName ?? '', qty,
+        resolvedSupplier, qty,
         sale.buyPrice, sale.salePrice,
         null, null, null, null, null, null, null,    // SP-BP, MarTax, Com, ROF, FVF, VAT, T.COM
         sale.postage ?? null,                        // Postage
@@ -454,7 +460,7 @@ function writeSaleRow(
       //   Q=GP%,R=TotVAT NTP,S=Comments
       const row = sheet.addRow([
         date, sale.orderNumber, sale.sku ?? '', sale.imei ?? '',
-        sale.supplierName ?? '',
+        resolvedSupplier,
         sale.buyPrice, sale.salePrice,
         null, null, null, null,                       // SP-BP, MarTax, Com, VAT20%
         sale.postage ?? null,                         // Postage (literal)
@@ -494,16 +500,17 @@ export async function buildSalesWorkbookBuffer(input: BuildSalesWorkbookInput): 
     if (bucket) bucket.push(sale);
   }
 
+  // Pre-index units by id for the supplier-name fallback lookup
+  // (sale.unitId → unit.supplierName when the sale's own field is empty).
+  const unitsById = new Map<string, InventoryUnit>();
+  for (const u of units ?? []) if (u.id) unitsById.set(u.id, u);
+
   const wb = new ExcelJS.Workbook();
 
-  // Sheet 1: ALL — every (non-PROJECT-or-not) sale in one flat 22-col table,
-  // buy + sale data joined, computed values via recomputeSale. Filterable in
-  // Excel by Marketplace column.
-  writeAllSheet(wb.addWorksheet('ALL'), filtered, units ?? [], supplierMap ?? {});
-
-  // Sheets 2-5: per-platform, mirroring the operator's master SALES_REPORT
-  // shape exactly (headers + formulas via excelFormulaFor). PROJECT excluded
-  // — we sell on 4 platforms only.
+  // Per-platform sheets only — the client's master SALES_REPORT carries
+  // exactly four tabs (AMAZON SALES, BM SALES, EBAY SALES, ONBUY SALES);
+  // the earlier ALL sheet was a Mobile Inventory invention the operator
+  // never wanted. PROJECT excluded — we sell on 4 platforms only.
   for (const m of MARKETPLACES) {
     const sheet = wb.addWorksheet(m);
     sheet.addRow(SALES_HEADERS[m]);
@@ -513,7 +520,18 @@ export async function buildSalesWorkbookBuffer(input: BuildSalesWorkbookInput): 
     for (let i = 0; i < bucket.length; i++) {
       const rowNumber = i + 2; // skip header
       const sale = bucket[i];
-      writeSaleRow(sheet, m, sale, rowNumber);
+      // Resolve supplier name through the full fallback chain. The
+      // sale doc's own supplierName is the first choice (operator
+      // entered it on the spreadsheet); supplierMap is the canonical
+      // suppliers collection (catches sale docs that only carry
+      // supplierId); the linked unit is the last resort for in-app
+      // sales that lost the supplier field for whatever reason.
+      const resolvedSupplier =
+        (sale.supplierName && sale.supplierName.trim())
+        || (sale.supplierId && supplierMap?.[sale.supplierId])
+        || (sale.unitId && unitsById.get(sale.unitId)?.supplierName)
+        || '';
+      writeSaleRow(sheet, m, sale, rowNumber, resolvedSupplier);
       // Same red-fill visual signal as the ALL sheet — applied across
       // every cell in the row so the highlight covers the full width
       // even when the master schema includes blank/formula-only cells.

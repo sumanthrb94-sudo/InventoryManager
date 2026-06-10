@@ -961,14 +961,39 @@ function SellExcelOverlay({
     return next;
   });
   const [groupSort, setGroupSort] = useState<SalesGroupSort>(DEFAULT_SALES_GROUP_SORT);
-  /** Marketplace tab inside the Detailed view — null = "All", else
-   *  filters the per-sale grid to that marketplace so the operator
-   *  can flip between AMAZON / BM / EBAY / ONBUY the same way they'd
-   *  switch sheets in the master workbook. */
-  const [detailMarketplace, setDetailMarketplace] = useState<Marketplace | null>(null);
+  /** Marketplace tab inside the Detailed view — exactly one of the
+   *  four marketplaces is always selected. No "All" option: the
+   *  client's master SALES_REPORT carries four sheets (AMAZON SALES
+   *  / BM SALES / EBAY SALES / ONBUY SALES) and they want the
+   *  in-app detailed view to mirror that exactly. Defaults to the
+   *  marketplace with the most rows so the operator opens on the
+   *  busiest channel. */
+  const initialMp: Marketplace = useMemo(() => {
+    let best: Marketplace = MARKETPLACES[0];
+    let bestCount = -1;
+    for (const m of MARKETPLACES) {
+      const c = rows.filter(s => s.marketplace === m).length;
+      if (c > bestCount) { best = m; bestCount = c; }
+    }
+    return best;
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  const [detailMarketplace, setDetailMarketplace] = useState<Marketplace>(initialMp);
   const detailedRows = useMemo(
-    () => detailMarketplace ? rows.filter(s => s.marketplace === detailMarketplace) : rows,
+    () => rows.filter(s => s.marketplace === detailMarketplace),
     [rows, detailMarketplace],
+  );
+  /** Page state for the Detailed grid — 100 rows / page with
+   *  prev/next nav. The full sales import lands as 1857 rows, which
+   *  is unreadable as a single scroll. Resets whenever the
+   *  marketplace tab changes. */
+  const ROWS_PER_PAGE = 100;
+  const [detailPage, setDetailPage] = useState(1);
+  useEffect(() => { setDetailPage(1); }, [detailMarketplace]);
+  const totalPages = Math.max(1, Math.ceil(detailedRows.length / ROWS_PER_PAGE));
+  const pagedRows = useMemo(
+    () => detailedRows.slice((detailPage - 1) * ROWS_PER_PAGE, detailPage * ROWS_PER_PAGE),
+    [detailedRows, detailPage],
   );
 
   const totals = useMemo(() => {
@@ -1085,28 +1110,23 @@ function SellExcelOverlay({
             later-in-DOM table headers won.) */}
         {viewMode === 'detailed' && rows.length > 0 && awaitingUnits.length === 0 && (
           <div className="flex-shrink-0 bg-white border-b border-slate-100 px-3 py-2 flex items-center gap-1.5 overflow-x-auto">
-            <span className="text-[9px] font-mono uppercase tracking-widest text-slate-400 flex-shrink-0 mr-1">Filter</span>
-            {(['ALL', ...MARKETPLACES] as const).map(tab => {
-              const isAll = tab === 'ALL';
-              const active = isAll ? detailMarketplace === null : detailMarketplace === tab;
-              const tone = !isAll ? MARKETPLACE_TONE[tab as Marketplace] : '';
-              const count = isAll ? rows.length : rows.filter(s => s.marketplace === tab).length;
+            <span className="text-[9px] font-mono uppercase tracking-widest text-slate-400 flex-shrink-0 mr-1">Sheet</span>
+            {MARKETPLACES.map(tab => {
+              const active = detailMarketplace === tab;
+              const tone = MARKETPLACE_TONE[tab];
+              const count = rows.filter(s => s.marketplace === tab).length;
               return (
                 <button
                   key={tab}
-                  onClick={() => setDetailMarketplace(isAll ? null : (tab as Marketplace))}
+                  onClick={() => setDetailMarketplace(tab)}
                   className={`flex-shrink-0 inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[9px] font-bold uppercase tracking-widest border transition-all ${
                     active
-                      ? (isAll
-                        ? 'bg-slate-900 text-white border-slate-900'
-                        : `${tone} ring-2 ring-offset-1 ring-slate-300`)
-                      : (isAll
-                        ? 'bg-white text-slate-700 border-slate-200 hover:border-slate-400'
-                        : `${tone} opacity-70 hover:opacity-100`)
+                      ? `${tone} ring-2 ring-offset-1 ring-slate-400`
+                      : `${tone} opacity-60 hover:opacity-100`
                   }`}
                 >
-                  {isAll ? 'All' : tab}
-                  <span className={`text-[8px] font-mono px-1 rounded ${active && isAll ? 'bg-white/20' : 'bg-white/40'}`}>
+                  {tab}
+                  <span className="text-[8px] font-mono px-1 rounded bg-white/40">
                     {count.toLocaleString()}
                   </span>
                 </button>
@@ -1227,7 +1247,7 @@ function SellExcelOverlay({
             </ul>
           ) : (
             <SheetTable
-              rows={detailedRows}
+              rows={pagedRows}
               supplierMap={supplierMap}
               units={units}
               region={region}
@@ -1239,6 +1259,52 @@ function SellExcelOverlay({
             />
           )}
         </div>
+
+        {/* Pagination — only in Detailed view. The full sales import
+            (~1857 rows) is unreadable as a single scroll, so cap at
+            ROWS_PER_PAGE (100) and surface prev/next nav. Shows the
+            current window + total so the operator knows where they
+            are. Hidden when there's only one page. */}
+        {viewMode === 'detailed' && rows.length > 0 && awaitingUnits.length === 0 && totalPages > 1 && (
+          <div className="flex-shrink-0 px-5 py-2 border-t border-slate-100 bg-white flex items-center justify-between gap-3">
+            <span className="text-[10px] font-mono text-slate-500">
+              {((detailPage - 1) * ROWS_PER_PAGE + 1).toLocaleString()}
+              –{Math.min(detailPage * ROWS_PER_PAGE, detailedRows.length).toLocaleString()}
+              {' of '}{detailedRows.length.toLocaleString()}
+              {' · page '}{detailPage}/{totalPages}
+            </span>
+            <div className="flex items-center gap-1.5">
+              <button
+                onClick={() => setDetailPage(1)}
+                disabled={detailPage === 1}
+                className="px-2 py-1 rounded-lg border border-slate-200 text-slate-600 text-[10px] font-bold uppercase tracking-widest hover:bg-slate-100 transition-all disabled:opacity-30 disabled:cursor-not-allowed"
+              >
+                « First
+              </button>
+              <button
+                onClick={() => setDetailPage(p => Math.max(1, p - 1))}
+                disabled={detailPage === 1}
+                className="px-2 py-1 rounded-lg border border-slate-200 text-slate-600 text-[10px] font-bold uppercase tracking-widest hover:bg-slate-100 transition-all disabled:opacity-30 disabled:cursor-not-allowed"
+              >
+                ‹ Prev
+              </button>
+              <button
+                onClick={() => setDetailPage(p => Math.min(totalPages, p + 1))}
+                disabled={detailPage >= totalPages}
+                className="px-2 py-1 rounded-lg border border-slate-200 text-slate-600 text-[10px] font-bold uppercase tracking-widest hover:bg-slate-100 transition-all disabled:opacity-30 disabled:cursor-not-allowed"
+              >
+                Next ›
+              </button>
+              <button
+                onClick={() => setDetailPage(totalPages)}
+                disabled={detailPage >= totalPages}
+                className="px-2 py-1 rounded-lg border border-slate-200 text-slate-600 text-[10px] font-bold uppercase tracking-widest hover:bg-slate-100 transition-all disabled:opacity-30 disabled:cursor-not-allowed"
+              >
+                Last »
+              </button>
+            </div>
+          </div>
+        )}
 
         <div className="px-5 py-2 border-t border-slate-100 bg-slate-50/60 flex-shrink-0 text-[9px] font-mono uppercase tracking-widest text-slate-500 flex items-center justify-between">
           <span>Double-click cells to edit · ESC to close</span>
