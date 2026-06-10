@@ -19,6 +19,7 @@ import { dbService } from '../lib/dbService';
 import type { InventoryUnit, Marketplace, Sale } from '../types';
 import { calcSaleFinancials } from '../lib/platforms';
 import { logInventoryEvent } from '../lib/inventoryEvents';
+import { sanitiseFsIdSegment } from '../lib/salesImport';
 
 export interface RecordSaleInput {
   marketplace: Marketplace;
@@ -144,8 +145,11 @@ export async function recordSale(input: RecordSaleInput): Promise<RecordSaleResu
   // composite so bulkUpsertSales dedupes correctly instead of writing
   // a second copy. The in-app flow always has a unit (and therefore an
   // IMEI), so the first fallback path is the common case here.
-  const idDiscriminator = (unit.imei || '').trim() || sku || 'inapp';
-  const saleId = `${input.marketplace}__${orderNumber}__${idDiscriminator}`;
+  // sanitiseFsIdSegment scrubs Firestore-illegal chars (notably `/` —
+  // some operator IMEI cells hold "IMEI1 / IMEI2" for multi-phone
+  // orders, which would split the doc path).
+  const idDiscriminator = sanitiseFsIdSegment((unit.imei || '').trim() || sku || 'inapp');
+  const saleId = `${input.marketplace}__${sanitiseFsIdSegment(orderNumber)}__${idDiscriminator}`;
 
   const sale: Sale = {
     id: saleId,

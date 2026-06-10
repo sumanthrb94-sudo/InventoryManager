@@ -549,8 +549,15 @@ function parseRow(
   // collection to reconcile, or leave the orphans — they don't break
   // any read path, just slightly inflate the "All Sales" count until
   // cleaned up.
-  const idDiscriminator = imei || sku || `r${sourceRow}`;
-  const id = `${marketplace}__${orderNumber}__${idDiscriminator}`;
+  // Firestore doc ids can't contain forward slashes (`/` is the
+  // path-segment separator), and operator IMEI cells in the live
+  // workbook sometimes hold two IMEIs separated by " / " for the
+  // same order. Sanitise both the order number and the
+  // discriminator so the composite stays a single valid segment.
+  // Backslashes are also illegal; control characters are scrubbed
+  // defensively. Trailing/leading whitespace removed.
+  const idDiscriminator = sanitiseFsIdSegment(imei || sku || `r${sourceRow}`);
+  const id = `${marketplace}__${sanitiseFsIdSegment(orderNumber)}__${idDiscriminator}`;
 
   return {
     id,
@@ -577,6 +584,24 @@ function parseRow(
 
 function hasAnyValue(row: any[]): boolean {
   return row.some((v) => v !== null && v !== undefined && String(v).trim() !== '');
+}
+
+/** Sanitise a string for use as a Firestore document-id segment.
+ *  Forward slashes turn into underscores (Firestore treats `/` as a
+ *  path separator, so leaving it in would split one id into multiple
+ *  segments and trigger "Invalid document reference. Document
+ *  references must have an even number of segments"). Backslashes
+ *  and ASCII control chars are also scrubbed for parity. Used by
+ *  both `parseRow` in this file and `recordSale` in
+ *  src/services/salesService.ts so the in-app + import write paths
+ *  produce identical composite ids for the same sale. */
+export function sanitiseFsIdSegment(s: string): string {
+  // Replace forbidden chars with `_`. Forward slash is the path
+  // separator in Firestore; backslash + ASCII control chars (0x00-0x1F
+  // and 0x7F DEL) are scrubbed defensively. Hyphens / dots / colons
+  // stay intact so hyphenated order numbers (`206-5248339-8852336`)
+  // survive.
+  return String(s ?? '').replace(/[/\\\u0000-\u001f\u007f]/g, '_').trim();
 }
 
 /** Stringify a cell, return undefined when blank. Numbers are preserved as
