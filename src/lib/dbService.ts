@@ -352,12 +352,20 @@ export const dbService = {
    * (Firestore has no UNIQUE constraint — composite ids are the idiom).
    */
   async bulkUpsertSales(
-    sales: Array<any & { marketplace: string; orderNumber: string }>,
+    sales: Array<any & { id: string; marketplace: string; orderNumber: string }>,
     onProgress?: (done: number, total: number) => void,
   ): Promise<void> {
+    // Use the composite id the parser already set on each row
+    // (`marketplace__orderNumber__imei|sku|row`). Don't re-derive
+    // from marketplace + orderNumber here — the old 2-part form
+    // collapsed multi-phone orders into a single doc, silently
+    // overwriting N-1 of the N rows on every import. See
+    // src/lib/salesImport.ts and src/services/salesService.ts for
+    // the canonical scheme; both paths set s.id, so we just trust
+    // it here.
     const entries = sales.map(s => ({
       collection: 'sales',
-      id: `${s.marketplace}__${s.orderNumber}`,
+      id: s.id,
       data: s,
     }));
     await this.bulkCreate(entries, onProgress);
