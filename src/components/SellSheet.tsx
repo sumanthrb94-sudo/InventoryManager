@@ -204,6 +204,17 @@ export default function SellSheet(_props: Props) {
     return m;
   }, [suppliers]);
 
+  /** Units indexed by id for O(1) lookup inside applyFilters and
+   *  sortSales (search + sort hot paths). Replaces the per-row
+   *  `units.find(x => x.id === s.unitId)` linear scan that was
+   *  burning O(n*m) on a 1857-sale × ~200-unit dataset and showing
+   *  up in the operator's "feels laggy" report. */
+  const unitsByIdMain = useMemo(() => {
+    const m = new Map<string, InventoryUnit>();
+    for (const u of units) if (u.id) m.set(u.id, u);
+    return m;
+  }, [units]);
+
   // ── Filters / sort ────────────────────────────────────────────────────────
   const [search, setSearch] = useState('');
   const [dateScope, setDateScope] = useState<DateScope>('month');
@@ -331,7 +342,7 @@ export default function SellSheet(_props: Props) {
         if (!supplierFilter.has(sn)) return false;
       }
       if (q) {
-        const u = (s.unitId && units.find(x => x.id === s.unitId)) || undefined;
+        const u = (s.unitId && unitsByIdMain.get(s.unitId)) || undefined;
         const hay = [
           s.imei, s.orderNumber, s.sku, s.marketplace, s.supplierName,
           u?.model, u?.colour, u?.storage,
@@ -345,7 +356,7 @@ export default function SellSheet(_props: Props) {
   const sortSales = (list: Sale[]): Sale[] => {
     const mult = sort.dir === 'asc' ? 1 : -1;
     const get = (s: Sale): string | number => {
-      const u = (s.unitId && units.find(x => x.id === s.unitId)) || undefined;
+      const u = (s.unitId && unitsByIdMain.get(s.unitId)) || undefined;
       switch (sort.key) {
         case 'saleDate':    return s.saleDate || '';
         case 'model':       return (u?.model || '').toLowerCase();
@@ -979,18 +990,24 @@ function SellExcelOverlay({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   const [detailMarketplace, setDetailMarketplace] = useState<Marketplace>(initialMp);
-  const detailedRows = useMemo(
+  /** Rows scoped to the active marketplace tab. Both Model and
+   *  Detailed views read off this — switching marketplaces re-shapes
+   *  the grouped table AND the per-sale grid in one step. */
+  const marketplaceRows = useMemo(
     () => rows.filter(s => s.marketplace === detailMarketplace),
     [rows, detailMarketplace],
   );
-  /** Page state for the Detailed grid — 100 rows / page with
-   *  prev/next nav. The full sales import lands as 1857 rows, which
-   *  is unreadable as a single scroll. Resets whenever the
-   *  marketplace tab changes. */
+  /** Pagination — 100 entries per page, shared between views.
+   *  detailPage is the per-sale page (Detailed view), groupedPage is
+   *  the per-model page (Model view). Both reset to 1 whenever the
+   *  marketplace tab changes so the operator opens the new tab from
+   *  the top. */
   const ROWS_PER_PAGE = 100;
   const [detailPage, setDetailPage] = useState(1);
-  useEffect(() => { setDetailPage(1); }, [detailMarketplace]);
-  const totalPages = Math.max(1, Math.ceil(detailedRows.length / ROWS_PER_PAGE));
+  const [groupedPage, setGroupedPage] = useState(1);
+  useEffect(() => { setDetailPage(1); setGroupedPage(1); }, [detailMarketplace]);
+  const detailedRows = marketplaceRows;
+  const totalDetailPages = Math.max(1, Math.ceil(detailedRows.length / ROWS_PER_PAGE));
   const pagedRows = useMemo(
     () => detailedRows.slice((detailPage - 1) * ROWS_PER_PAGE, detailPage * ROWS_PER_PAGE),
     [detailedRows, detailPage],
@@ -1011,12 +1028,25 @@ function SellExcelOverlay({
     return m;
   }, [units]);
 
-  /** One bucket per (model + storage). Sorted client-side by `groupSort`
-   *  using the same default-direction rule as the buy-side
-   *  GroupedExcelTable. */
+  /** One bucket per (model + storage), built from the marketplace-
+   *  filtered rows so the Model view shows only the active channel's
+   *  SKUs. Build + sort are decoupled into two memos — when the
+   *  operator clicks a column header the heavy buildSalesGroups
+   *  doesn't have to re-aggregate 1857 rows just to flip a sort
+   *  direction (the build runs only when marketplaceRows / unitById
+   *  change, the sort runs only when groupSort changes). */
+  const rawSalesGroups = useMemo(
+    () => buildSalesGroups(marketplaceRows, unitById),
+    [marketplaceRows, unitById],
+  );
   const salesGroups = useMemo(
-    () => sortSalesGroups(buildSalesGroups(rows, unitById), groupSort),
-    [rows, unitById, groupSort],
+    () => sortSalesGroups(rawSalesGroups, groupSort),
+    [rawSalesGroups, groupSort],
+  );
+  const totalGroupPages = Math.max(1, Math.ceil(salesGroups.length / ROWS_PER_PAGE));
+  const pagedGroups = useMemo(
+    () => salesGroups.slice((groupedPage - 1) * ROWS_PER_PAGE, groupedPage * ROWS_PER_PAGE),
+    [salesGroups, groupedPage],
   );
 
   // Legacy marketplace-pill builder kept only for the header subtitle's
@@ -1108,7 +1138,13 @@ function SellExcelOverlay({
             SheetTable's own sticky <th> headers, both pinning to
             top-0 of the same scroll area — fight z-order, the
             later-in-DOM table headers won.) */}
-        {viewMode === 'detailed' && rows.length > 0 && awaitingUnits.length === 0 && (
+        {/* Marketplace tab strip — shown in Model + Detailed views
+            (skipped for Channel because Channel IS a marketplace
+            breakdown). One tab always selected; switching scopes
+            the entire grid + grouped-model build. Counts shown per
+            marketplace from the unfiltered `rows` so the badges
+            stay stable as the operator flips channels. */}
+        {(viewMode === 'model' || viewMode === 'detailed') && rows.length > 0 && awaitingUnits.length === 0 && (
           <div className="flex-shrink-0 bg-white border-b border-slate-100 px-3 py-2 flex items-center gap-1.5 overflow-x-auto">
             <span className="text-[9px] font-mono uppercase tracking-widest text-slate-400 flex-shrink-0 mr-1">Sheet</span>
             {MARKETPLACES.map(tab => {
@@ -1163,7 +1199,7 @@ function SellExcelOverlay({
             </div>
           ) : viewMode === 'model' ? (
             <GroupedSalesTable
-              groups={salesGroups}
+              groups={pagedGroups}
               expanded={expandedKeys}
               onToggle={toggleExpand}
               sort={groupSort}
@@ -1260,51 +1296,64 @@ function SellExcelOverlay({
           )}
         </div>
 
-        {/* Pagination — only in Detailed view. The full sales import
-            (~1857 rows) is unreadable as a single scroll, so cap at
-            ROWS_PER_PAGE (100) and surface prev/next nav. Shows the
-            current window + total so the operator knows where they
-            are. Hidden when there's only one page. */}
-        {viewMode === 'detailed' && rows.length > 0 && awaitingUnits.length === 0 && totalPages > 1 && (
-          <div className="flex-shrink-0 px-5 py-2 border-t border-slate-100 bg-white flex items-center justify-between gap-3">
+        {/* Pagination — Detailed view paginates sales rows, Model
+            view paginates grouped-by-model rows. Both share the
+            same ROWS_PER_PAGE (100) and nav widget; only the page
+            state + total count differ. The full sales import lands
+            as 1857 rows / 367 models, both of which are unreadable
+            as a single scroll and were the source of the laggy
+            feel the operator flagged. */}
+        {(() => {
+          if (viewMode !== 'model' && viewMode !== 'detailed') return null;
+          if (rows.length === 0 || awaitingUnits.length > 0) return null;
+          const isModel = viewMode === 'model';
+          const page = isModel ? groupedPage : detailPage;
+          const setPage = isModel ? setGroupedPage : setDetailPage;
+          const totalPages = isModel ? totalGroupPages : totalDetailPages;
+          const totalItems = isModel ? salesGroups.length : detailedRows.length;
+          const itemLabel = isModel ? 'models' : 'rows';
+          if (totalPages <= 1) return null;
+          return (
+            <div className="flex-shrink-0 px-5 py-2 border-t border-slate-100 bg-white flex items-center justify-between gap-3">
             <span className="text-[10px] font-mono text-slate-500">
-              {((detailPage - 1) * ROWS_PER_PAGE + 1).toLocaleString()}
-              –{Math.min(detailPage * ROWS_PER_PAGE, detailedRows.length).toLocaleString()}
-              {' of '}{detailedRows.length.toLocaleString()}
-              {' · page '}{detailPage}/{totalPages}
+              {((page - 1) * ROWS_PER_PAGE + 1).toLocaleString()}
+              –{Math.min(page * ROWS_PER_PAGE, totalItems).toLocaleString()}
+              {' of '}{totalItems.toLocaleString()}{' '}{itemLabel}
+              {' · page '}{page}/{totalPages}
             </span>
             <div className="flex items-center gap-1.5">
               <button
-                onClick={() => setDetailPage(1)}
-                disabled={detailPage === 1}
+                onClick={() => setPage(1)}
+                disabled={page === 1}
                 className="px-2 py-1 rounded-lg border border-slate-200 text-slate-600 text-[10px] font-bold uppercase tracking-widest hover:bg-slate-100 transition-all disabled:opacity-30 disabled:cursor-not-allowed"
               >
                 « First
               </button>
               <button
-                onClick={() => setDetailPage(p => Math.max(1, p - 1))}
-                disabled={detailPage === 1}
+                onClick={() => setPage(p => Math.max(1, p - 1))}
+                disabled={page === 1}
                 className="px-2 py-1 rounded-lg border border-slate-200 text-slate-600 text-[10px] font-bold uppercase tracking-widest hover:bg-slate-100 transition-all disabled:opacity-30 disabled:cursor-not-allowed"
               >
                 ‹ Prev
               </button>
               <button
-                onClick={() => setDetailPage(p => Math.min(totalPages, p + 1))}
-                disabled={detailPage >= totalPages}
+                onClick={() => setPage(p => Math.min(totalPages, p + 1))}
+                disabled={page >= totalPages}
                 className="px-2 py-1 rounded-lg border border-slate-200 text-slate-600 text-[10px] font-bold uppercase tracking-widest hover:bg-slate-100 transition-all disabled:opacity-30 disabled:cursor-not-allowed"
               >
                 Next ›
               </button>
               <button
-                onClick={() => setDetailPage(totalPages)}
-                disabled={detailPage >= totalPages}
+                onClick={() => setPage(totalPages)}
+                disabled={page >= totalPages}
                 className="px-2 py-1 rounded-lg border border-slate-200 text-slate-600 text-[10px] font-bold uppercase tracking-widest hover:bg-slate-100 transition-all disabled:opacity-30 disabled:cursor-not-allowed"
               >
                 Last »
               </button>
             </div>
           </div>
-        )}
+          );
+        })()}
 
         <div className="px-5 py-2 border-t border-slate-100 bg-slate-50/60 flex-shrink-0 text-[9px] font-mono uppercase tracking-widest text-slate-500 flex items-center justify-between">
           <span>Double-click cells to edit · ESC to close</span>
