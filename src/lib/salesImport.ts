@@ -104,15 +104,17 @@ export async function parseSalesWorkbook(
       if (parsed) {
         if (flaggedRows.has(sourceRow)) {
           parsed.flagged = true;
-          // Operator marked the row red — treat as a refund/return for
-          // revenue purposes. voidedAt stamps it as reversed so the
-          // sale drops out of GP/revenue rollups; voidReason carries
-          // the operator's free-text annotation when one was found
-          // (e.g. "Refund Done", "RETURN FOR REFUND"), otherwise a
-          // generic label so the audit trail still has context.
+          // Per operator: red highlighting is a VISUAL SIGNAL ONLY —
+          // the row stays in revenue / GP rollups. Don't flip voidedAt
+          // or assume it's a refund. We DO capture any free-text
+          // annotation the operator typed ("Refund Done",
+          // "RETURN FOR REFUND", etc.) into the comments field so the
+          // note is preserved alongside the sale — but only when the
+          // row didn't already carry a comment from the schema.
           const annotation = annotations.get(sourceRow);
-          parsed.voidedAt = parsed.saleDate;
-          parsed.voidReason = annotation || 'Marked red on source workbook';
+          if (annotation && !parsed.comments) {
+            parsed.comments = annotation;
+          }
         }
         sales.push(parsed);
         perSheetCounts[marketplace]++;

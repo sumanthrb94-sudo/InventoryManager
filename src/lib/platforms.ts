@@ -38,11 +38,12 @@ export const DEFAULT_MARKETPLACE_FEES: Record<Marketplace, MarketplaceFee> = {
     // Every Amazon line carries a VAT/DSF/accessory breakdown derived
     // from Commission, so changing the commission base shifts the whole
     // chain (C.VAT = Com×20%, DSF = Com×2%, DSF VAT = DSF×20%) in lock-step.
-    // Postage is operator-entered per sale (.postage below is the fallback
-    // when the caller doesn't supply postageOverride).
+    // Postage default £6.30 — derived from the client's master SALES_REPORT
+    // where 1,320 of 1,427 Amazon rows (92.5%) ship at £6.30. Operator
+    // can still override per-sale via postageOverride.
     commissionPct: 7,
     commissionBase: 'sp',
-    postage: 0,
+    postage: 6.30,
     marginTaxDivisor: 6,
     vatPct: 20,
     dsfPct: 2,
@@ -54,10 +55,10 @@ export const DEFAULT_MARKETPLACE_FEES: Record<Marketplace, MarketplaceFee> = {
     // the legacy code), plus a flat Customer Care Fees line of £9.99 per
     // sale. No PayPal/Klarna commission any more — drop the field. No
     // separate Total VAT column either: BM's only VAT line is P. VAT,
-    // so totalVatNtp = MarTax − P. VAT directly. Postage operator-
-    // entered; .postage default is just a fallback.
+    // so totalVatNtp = MarTax − P. VAT directly. Postage default £6.30
+    // — 100% of BM rows in the client's master ship at this rate.
     commissionPct: 11,
-    postage: 0,
+    postage: 6.30,
     marginTaxDivisor: 6,
     vatPct: 20,
     accessoryFee: 1,
@@ -68,8 +69,10 @@ export const DEFAULT_MARKETPLACE_FEES: Record<Marketplace, MarketplaceFee> = {
     // 2026-05 operator schema: commission is the post-reduction effective
     // rate (6.21% = 6.9% − 10%) baked into a single percentage, and the
     // old promo-as-%-of-SP convention is replaced by an operator-entered
-    // Marketing line carried on the Sale doc. Default postage is 0
-    // (operator-entered per sale like Amazon).
+    // Marketing line carried on the Sale doc. Postage stays 0 here — eBay
+    // uses the explicit shipping-tier picker (£1/£2/£8), and any
+    // non-tier value flows in via postageOverride. Default tier in the
+    // SellOrderModal handles the new-sale case.
     commissionPct: 6.21,
     fixedFee: 0.40,
     postage: 0,
@@ -82,11 +85,11 @@ export const DEFAULT_MARKETPLACE_FEES: Record<Marketplace, MarketplaceFee> = {
     marketplace: 'ONBUY',
     // 2026-05 operator schema: same per-line VAT shape as Amazon/eBay
     // (line VAT on Commission + Postage VAT + flat Accessories), but no
-    // FVF / ROF / Marketing / DSF lines. Postage operator-entered; the
-    // .postage default below is just a fallback. GP% divides by BP
-    // (same convention as Amazon).
+    // FVF / ROF / Marketing / DSF lines. Postage default £6.30 — 100% of
+    // OnBuy rows in the client's master ship at this rate. GP% divides
+    // by BP (same convention as Amazon).
     commissionPct: 7,
-    postage: 0,
+    postage: 6.30,
     marginTaxDivisor: 6,
     vatPct: 20,
     accessoryFee: 1,
