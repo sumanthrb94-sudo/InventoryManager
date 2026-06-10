@@ -454,15 +454,33 @@ function parseRow(
     return i === undefined ? undefined : row[i];
   };
 
-  // ---- identifiers ------------------------------------------------------
+  // ---- empty / template-residue gate -----------------------------------
+  // Operator working sheets often have formulas (=H180-G180, =I180*16.67%,
+  // etc.) dragged down past the last real sale. The formulas evaluate
+  // against blank inputs and produce non-null numeric results — so the
+  // row has values in BP/SP/SP-BP/Commission columns but null in
+  // date/orderNumber/imei/sku. Without this gate hasAnyValue() returned
+  // true on those rows and the parser surfaced "missing both
+  // orderNumber AND imei" as a hard error, even though there's no
+  // actual sale there. The new rule: a row is only a real attempt at
+  // a sale when at least one of the three identifying columns
+  // (date / orderNumber / imei) has a value. Otherwise silently skip.
   const orderNumber = toNonEmptyString(get('orderNumber'));
   const imei = toNonEmptyString(get('imei'));
+  const dateRaw = get('date');
+  const hasDate =
+    dateRaw instanceof Date
+    || (typeof dateRaw === 'number' && Number.isFinite(dateRaw) && dateRaw > 0)
+    || (typeof dateRaw === 'string' && dateRaw.trim() !== '');
+  if (!orderNumber && !imei && !hasDate) {
+    return null;
+  }
+
+  // ---- identifiers ------------------------------------------------------
   if (!orderNumber && !imei) {
-    // A completely blank row is silently skipped (xlsx already strips most),
-    // but a row that has financials but no identifiers is a true error.
-    if (hasAnyValue(row)) {
-      errors.push({ sheet: sheetName, row: sourceRow, message: 'missing both orderNumber AND imei' });
-    }
+    // Row has a date but neither an orderNumber nor an IMEI — a real
+    // data entry mistake, surface to the operator.
+    errors.push({ sheet: sheetName, row: sourceRow, message: 'missing both orderNumber AND imei' });
     return null;
   }
   if (!orderNumber) {
