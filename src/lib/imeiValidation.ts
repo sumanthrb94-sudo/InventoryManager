@@ -1,35 +1,53 @@
 /**
- * Shared IMEI / Apple serial validation.
+ * Shared IMEI / alphanumeric-serial validation.
  *
- * Per ops rule (tightened 2026-05-17):
- *   - Non-Apple devices  → MUST be 15 digits, numeric only. No letters,
- *                          no punctuation, no spaces. (14 and 16-17 digit
- *                          edge cases are no longer accepted — they were
- *                          letting random strings through.)
- *   - Apple devices      → 15-digit IMEI OR Apple alphanumeric serial
- *                          (10-12 chars, uppercase A-Z + digits only).
+ * Per ops rule (tightened 2026-05-17, broadened 2026-06-10):
+ *   - Strict cellular phones → MUST be 15 digits, numeric only. No
+ *                              letters, no punctuation, no spaces.
+ *   - Device families that commonly use alphanumeric serials
+ *     (Apple anything, Samsung Galaxy Tab / Watch / Buds, laptops, etc)
+ *                            → 15-digit IMEI OR alphanumeric serial
+ *                              (10-12 chars, uppercase A-Z + digits).
  *
- * Callers MUST pass `{ isAppleSerial: true }` when the unit is known to be
- * an Apple device (iPhone / iPad / MacBook / Apple Watch). Use the
- * {@link isAppleDevice} helper to derive it from a model or brand string.
+ * Callers pass `{ isAppleSerial: true }` when the model is known to be
+ * one of those serial-using device families. Use {@link isAppleDevice}
+ * to derive it from the model/brand string.
+ *
+ * Function names retain the historical "Apple" framing for caller
+ * compatibility — the semantic was always "accepts alphanumeric serial"
+ * even when only Apple devices fell into that bucket.
  *
  * Historical context: the previous validator had a final
  * `return s.length >= 5` escape hatch that accepted ANYTHING ≥5 chars.
- * The user reported gibberish like "Hzhsjshjsjsjsj" being accepted; that
- * escape hatch is removed.
+ * Gibberish like "Hzhsjshjsjsjsj" got through; that hatch is removed.
  */
 
 export interface ImeiContext {
-  /** True when the unit is an Apple device — unlocks the 10-12 char serial
-   *  format alongside the 15-digit IMEI form. Default false (IMEI-only). */
+  /** True when the unit's model is one of the serial-friendly device
+   *  families — unlocks the 10-12 char alphanumeric serial format
+   *  alongside the 15-digit IMEI form. Default false (IMEI-only). */
   isAppleSerial?: boolean;
 }
 
-/** True when the given model/brand string indicates an Apple device. */
+/** True when the given model/brand string indicates a device family
+ *  that commonly identifies units by an alphanumeric serial (10-12
+ *  chars, uppercase A-Z + digits) instead of — or in addition to —
+ *  a 15-digit IMEI. Covers:
+ *    - Apple anything (iPhone / iPad / MacBook / Apple Watch / iMac / AirPods)
+ *    - Samsung Galaxy Tab (both WiFi and LTE variants — Samsung
+ *      issues alphanumeric serials like R8YWA0ALDFT alongside the
+ *      IMEI on cellular models, and WiFi-only tablets have no IMEI
+ *      at all so the serial is the only identifier)
+ *    - Tablets generally — anything TAB / TABLET / SLATE
+ *    - Smartwatches (any WATCH — Samsung Galaxy Watch LTE etc) and
+ *      wireless earbuds (BUDS / PODS).
+ *    - Laptops (anything BOOK — MacBook, ZBook, IdeaBook, etc).
+ *  The function name is historical; the semantic is "device that
+ *  legitimately uses an alphanumeric serial as a primary ID". */
 export function isAppleDevice(modelOrBrand: string | undefined | null): boolean {
   const s = (modelOrBrand ?? '').toUpperCase();
   if (!s) return false;
-  return /\b(APPLE|IPHONE|IPAD|MACBOOK|APPLE WATCH|IMAC|AIRPODS)\b/.test(s);
+  return /\b(APPLE|IPHONE|IPAD|MACBOOK|IMAC|AIRPODS|TAB|TABLET|SLATE|WATCH|BUDS|PODS|BOOK)\b/.test(s);
 }
 
 /**
@@ -71,4 +89,4 @@ export function imeiKind(raw: string): 'imei' | 'serial' | 'unknown' {
  */
 export const IMEI_REQUIRED_MESSAGE = 'Enter a valid 15-digit IMEI';
 export const IMEI_OR_APPLE_SERIAL_MESSAGE =
-  'Enter a valid 15-digit IMEI or 10-12 char Apple serial';
+  'Enter a valid 15-digit IMEI or 10-12 char alphanumeric serial';

@@ -143,7 +143,7 @@ function parseSheet(rows: any[][]): ParsedRow[] {
     if (!imei)      errors.push('IMEI is required');
     else {
       const apple = isAppleDevice(model);
-      if (!isValidImei(imei, { isAppleSerial: apple })) errors.push('IMEI not valid (15 digits, or 10-12 char Apple serial)');
+      if (!isValidImei(imei, { isAppleSerial: apple })) errors.push('IMEI not valid (15 digits, or 10-12 char alphanumeric serial)');
     }
     if (!supplier)  errors.push('Supplier is required');
     if (buyPrice <= 0) errors.push('BP must be greater than 0');
