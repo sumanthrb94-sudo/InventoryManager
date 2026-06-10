@@ -60,7 +60,7 @@ export async function parseSalesWorkbook(
   // their Sales Report sheet to flag returns / refunds / chargebacks — we
   // preserve that signal end-to-end so the import surfaces the same red rows
   // in every downstream view.
-  const flaggedRowsBySheet = await detectFlaggedRows(buf);
+  const { flagged: flaggedRowsBySheet, annotations: annotationsBySheet } = await detectFlaggedRows(buf);
 
   const sales: ParsedSales['sales'] = [];
   const errors: ParsedSales['errors'] = [];
@@ -94,6 +94,7 @@ export async function parseSalesWorkbook(
     const colIdx = resolveColumns(headerRow, layout, sheetName, errors);
 
     const flaggedRows = flaggedRowsBySheet.get(sheetName.toLowerCase()) ?? new Set<number>();
+    const annotations = annotationsBySheet.get(sheetName.toLowerCase()) ?? new Map<number, string>();
 
     for (let r = 1; r < rows.length; r++) {
       const row = rows[r];
@@ -101,7 +102,18 @@ export async function parseSalesWorkbook(
       const sourceRow = r + 1;
       const parsed = parseRow(marketplace, row, colIdx, sheetName, sourceRow, sourceFile, errors);
       if (parsed) {
-        if (flaggedRows.has(sourceRow)) parsed.flagged = true;
+        if (flaggedRows.has(sourceRow)) {
+          parsed.flagged = true;
+          // Operator marked the row red — treat as a refund/return for
+          // revenue purposes. voidedAt stamps it as reversed so the
+          // sale drops out of GP/revenue rollups; voidReason carries
+          // the operator's free-text annotation when one was found
+          // (e.g. "Refund Done", "RETURN FOR REFUND"), otherwise a
+          // generic label so the audit trail still has context.
+          const annotation = annotations.get(sourceRow);
+          parsed.voidedAt = parsed.saleDate;
+          parsed.voidReason = annotation || 'Marked red on source workbook';
+        }
         sales.push(parsed);
         perSheetCounts[marketplace]++;
         spSum[marketplace] += parsed.salePrice ?? 0;
@@ -185,11 +197,12 @@ const SHEET_LAYOUTS: Record<Marketplace, SheetLayout> = {
       quantity:    ['quantity', 'units', 'quant'],
       buyPrice:    ['bp'],
       salePrice:   ['sp'],
+      postage:     ['postage'],
       comments:    ['comments'],
     },
     fallback: {
       date: 0, orderNumber: 1, sku: 2, imei: 3, supplier: 4,
-      quantity: 5, buyPrice: 6, salePrice: 7, comments: 14,
+      quantity: 5, buyPrice: 6, salePrice: 7, postage: 14, comments: 14,
     },
     required: ['date', 'orderNumber', 'buyPrice', 'salePrice'],
   },
@@ -207,11 +220,12 @@ const SHEET_LAYOUTS: Record<Marketplace, SheetLayout> = {
       buyPrice:    ['bp'],
       salePrice:   ['sp'],
       paymentMode: ['payment mode'],
+      postage:     ['postage'],
       comments:    ['comments'],
     },
     fallback: {
       date: 0, orderNumber: 1, sku: 2, imei: 3, supplier: 4,
-      quantity: 5, buyPrice: 6, salePrice: 7, paymentMode: 8, comments: 16,
+      quantity: 5, buyPrice: 6, salePrice: 7, paymentMode: 8, postage: 13, comments: 16,
     },
     required: ['date', 'orderNumber', 'buyPrice', 'salePrice'],
   },
@@ -253,13 +267,14 @@ const SHEET_LAYOUTS: Record<Marketplace, SheetLayout> = {
       supplier:    ['supplier'],
       buyPrice:    ['bp'],
       salePrice:   ['sp'],
+      postage:     ['postage'],
       comments:    ['comments'],
     },
     fallback: {
       date: 0, orderNumber: 1, sku: 2, imei: 3, supplier: 4,
       // NB: BP at 5, SP at 6 — one less than the other marketplaces because
       // OnBuy has no Quantity column.
-      buyPrice: 5, salePrice: 6, comments: 14,
+      buyPrice: 5, salePrice: 6, postage: 11, comments: 14,
     },
     required: ['date', 'orderNumber', 'buyPrice', 'salePrice'],
   },
@@ -283,36 +298,56 @@ const SHEET_LAYOUTS: Record<Marketplace, SheetLayout> = {
  * we return an empty map — the import still completes, just without the red
  * highlight on the resulting Sales rows.
  */
-async function detectFlaggedRows(buf: ArrayBuffer): Promise<Map<string, Set<number>>> {
-  const result = new Map<string, Set<number>>();
+async function detectFlaggedRows(buf: ArrayBuffer): Promise<{
+  flagged: Map<string, Set<number>>;
+  annotations: Map<string, Map<number, string>>;
+}> {
+  const flaggedResult = new Map<string, Set<number>>();
+  const annotResult = new Map<string, Map<number, string>>();
   try {
     const wb = new ExcelJS.Workbook();
     await wb.xlsx.load(buf);
     for (const ws of wb.worksheets) {
       const key = ws.name.trim().toLowerCase();
       const flagged = new Set<number>();
-      // Probe the first few columns — operators tend to paint the whole row
-      // red, but in practice the DATE/ORDER NUMBER columns are the most
-      // consistent carriers of the colour. Three columns is enough to catch
-      // partial paint-outs without false-positiving on a stray red comment.
+      const annot = new Map<number, string>();
       ws.eachRow({ includeEmpty: false }, (row, rowNum) => {
         if (rowNum === 1) return; // header
-        for (let c = 1; c <= 3; c++) {
+        const colCount = (row as any).cellCount || 30;
+        // Scan EVERY cell in the row. Operators paint the row red in
+        // different places depending on the marketplace sheet — some
+        // colour the DATE/ORDER cells, others highlight just the
+        // GP/GP%/Total VAT NTP cells (cols V/W/X). Earlier 3-column
+        // probe missed the GP-only paint pattern in the operator's
+        // live workbook. Performance-wise this is still ~30 cell
+        // reads per row, dwarfed by the parse work downstream.
+        for (let c = 1; c <= colCount; c++) {
           const cell = row.getCell(c);
-          if (isRedishCell(cell)) {
-            flagged.add(rowNum);
-            return;
+          if (isRedishCell(cell)) flagged.add(rowNum);
+          // Capture any free-text refund annotation the operator typed
+          // in a column past the documented schema ("Refund Done",
+          // "RETURN FOR REFUND", "Chargeback", etc.). Used as the
+          // Sale.voidReason so the in-app Returns trail surfaces the
+          // operator's note instead of a generic "voided" label.
+          const v = (cell.value as any);
+          if (typeof v === 'string') {
+            const lo = v.trim().toLowerCase();
+            if (lo && (lo.includes('refund') || lo.includes('return') || lo.includes('chargeback') || lo.includes('dispute'))) {
+              if (!annot.has(rowNum)) annot.set(rowNum, v.trim());
+              flagged.add(rowNum);
+            }
           }
         }
       });
-      if (flagged.size > 0) result.set(key, flagged);
+      if (flagged.size > 0) flaggedResult.set(key, flagged);
+      if (annot.size > 0) annotResult.set(key, annot);
     }
   } catch (err) {
     if (typeof console !== 'undefined' && console.warn) {
       console.warn('[salesImport] red-row detection skipped:', (err as Error)?.message || err);
     }
   }
-  return result;
+  return { flagged: flaggedResult, annotations: annotResult };
 }
 
 /** Heuristic: detect a "red" font or solid red fill on an ExcelJS cell. */
@@ -518,10 +553,20 @@ function parseRow(
     if (ship === 1 || ship === 2 || ship === 8) eBayShippingTier = ship;
   }
 
-  // postageOverride: pass through only when the workbook carried an explicit
-  // non-default postage (other marketplaces don't expose postage as input;
-  // EBAY funnels through eBayShippingTier above, so leave undefined here).
-  const postageOverride: number | undefined = undefined;
+  // Postage from the workbook — operator-entered per row. Used as the
+  // postageOverride into calcSaleFinancials so the import preserves
+  // whatever the operator typed instead of falling back to the
+  // marketplace's 0 default. For eBay we already prefer
+  // eBayShippingTier (when the row's shipping value is one of the
+  // documented tiers 1/2/8), but anything else (e.g. £6.30) still
+  // flows through postageOverride.
+  const postageFromSheet = toNumber(
+    marketplace === 'EBAY' ? get('shipping') : get('postage'),
+  );
+  const postageOverride: number | undefined =
+    postageFromSheet > 0 && postageFromSheet !== eBayShippingTier
+      ? postageFromSheet
+      : undefined;
 
   // ---- recompute every derived field ------------------------------------
   const fin = calcSaleFinancials({
