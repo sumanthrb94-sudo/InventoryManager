@@ -10,8 +10,10 @@
  * routes everything through `calcSaleFinancials` for the derived
  * financial fields. The ALL sheet our exporter writes (and any extra
  * sheets in the workbook) are silently ignored — only the 4 platform
- * sheets are consumed. Composite Sale ID (`${marketplace}__${orderNumber}`)
- * gives natural upsert semantics so re-importing the same file is safe.
+ * sheets are consumed. Composite Sale ID
+ * (`${marketplace}__${orderNumber}__${imei|sku|row}`) gives natural
+ * upsert semantics so re-importing the same file is safe, while
+ * keeping multiple phones on the same order as distinct docs.
  */
 import React, { useState, useMemo, useRef } from 'react';
 import {
@@ -286,8 +288,9 @@ function UploadPhase({
           <li><strong>ONBUY</strong> · 15 cols (BP/SP shifted left — no Quantity column)</li>
         </ul>
         <p className="text-[10px] text-slate-500">
-          Sales are matched by composite ID <span className="font-mono">marketplace__orderNumber</span>.
-          Rows matching an existing ID will UPDATE; new rows will CREATE. Nothing writes until you
+          Sales are matched by composite ID <span className="font-mono">marketplace__orderNumber__imei</span> (falls
+          back to SKU then row number when IMEI is missing) — one order can legitimately ship multiple phones,
+          so each line gets its own ID. Rows matching an existing ID will UPDATE; new rows will CREATE. Nothing writes until you
           confirm the preview. Every derived field (Tax, Commission, GP, NP) is recomputed via
           the master formulas — the file's derived columns are ignored on read.
         </p>

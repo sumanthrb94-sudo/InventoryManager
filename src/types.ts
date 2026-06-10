@@ -224,7 +224,10 @@ export interface ActiveListing {
 
 /**
  * Sale — one marketplace transaction. Replaces sale_* fields on InventoryUnit.
- * Doc id convention: `${marketplace}__${orderNumber}` for natural dedupe on re-import.
+ * Doc id convention: `${marketplace}__${orderNumber}__${imei|sku|row}` —
+ * the IMEI (or SKU / sheet row as fallbacks) discriminates multiple
+ * phones shipped on the same order so bulkUpsertSales doesn't collapse
+ * them. Stays deterministic across re-imports of the same file.
  */
 export interface Sale {
   id: string;

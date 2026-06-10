@@ -533,9 +533,24 @@ function parseRow(
   const sku = toNonEmptyString(get('sku'));
   const comments = toNonEmptyString(get('comments'));
 
-  // doc id convention from MASTER_FILES_AUDIT.md §5 — natural dedupe on
-  // (marketplace, orderNumber). dbService.bulkUpsertSales relies on this.
-  const id = `${marketplace}__${orderNumber}`;
+  // Doc id = marketplace__orderNumber__discriminator. The discriminator
+  // is the IMEI when present, else the SKU, else the sheet row index.
+  // Rationale: one customer / wholesale order can legitimately ship
+  // multiple phones (e.g. an Amazon order with 3 line items, one per
+  // IMEI). The previous `marketplace__orderNumber` format collided
+  // those rows and dbService.bulkUpsertSales then overwrote N-1 of
+  // them on the way to Firestore, silently dropping real sales. The
+  // composite below stays deterministic across re-imports of the same
+  // file (so dedupe still works) while distinguishing per-phone rows
+  // sharing a single order number.
+  //
+  // Backwards compat: any historical sale docs written under the old
+  // shorter ID format become orphans. Wipe + re-import the Sales
+  // collection to reconcile, or leave the orphans — they don't break
+  // any read path, just slightly inflate the "All Sales" count until
+  // cleaned up.
+  const idDiscriminator = imei || sku || `r${sourceRow}`;
+  const id = `${marketplace}__${orderNumber}__${idDiscriminator}`;
 
   return {
     id,
