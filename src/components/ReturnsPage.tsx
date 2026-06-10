@@ -38,6 +38,7 @@ import { useInventoryStore } from '../lib/inventoryStore';
 import { notificationService } from '../lib/notificationService';
 import { fmtDateForUser, useUserRegion } from '../lib/userLocale';
 import { getWarrantyStatus } from '../lib/warrantyUtils';
+import { auth, isAdmin } from '../lib/firebase';
 import CopyImei from './CopyImei';
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -60,6 +61,10 @@ const todayStr = () => new Date().toISOString().split('T')[0];
 export default function ReturnsPage() {
   const { units, suppliers, sales } = useInventoryStore();
   const region = useUserRegion();
+  // Admin-only inline-edit access for Reason / Notes lives inside
+  // the SheetTable component itself (src/components/ReturnsPage.tsx
+  // — see the `userIsAdmin = isAdmin(auth.currentUser)` block there).
+  // The rest of the team sees the same columns read-only.
 
   const supplierMap = useMemo(() => {
     const m: Record<string, string> = {};
@@ -686,6 +691,21 @@ function SheetTable({
     return () => document.removeEventListener('click', close);
   }, [menuId]);
 
+  /** Admin-only inline edit state for the Reason and Notes columns.
+   *  Same allowlist gate as the rest of the app (src/lib/firebase.ts). */
+  const userIsAdmin = isAdmin(auth.currentUser);
+  const [editingCell, setEditingCell] = useState<{ id: string; field: 'returnReason' | 'notes' } | null>(null);
+  const saveField = async (u: InventoryUnit, field: 'returnReason' | 'notes', value: string) => {
+    const v = value.trim();
+    if ((u[field] || '') === v) return;
+    try {
+      await dbService.update('inventoryUnits', u.id, { [field]: v });
+    } catch (err) {
+      console.error('[ReturnsPage] inline save failed:', err);
+      alert(`Save failed: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  };
+
   return (
     <table className="w-full text-[11px] border-separate border-spacing-0" style={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace' }}>
       <thead>
@@ -698,7 +718,14 @@ function SheetTable({
           <Th k="supplier"   sort={sort} onSort={toggleSort} width="120px">Supplier</Th>
           <Th k="buyPrice"   sort={sort} onSort={toggleSort} width="80px" align="right">BP</Th>
           <Th k="returnType" sort={sort} onSort={toggleSort} width="120px">Type</Th>
-          <Th k=""           sort={sort} onSort={undefined}  width="200px">Reason</Th>
+          <Th k=""           sort={sort} onSort={undefined}  width="200px">
+            Reason
+            {userIsAdmin && <span className="ml-1 text-[8px] font-mono text-emerald-600 normal-case tracking-normal">· editable</span>}
+          </Th>
+          <Th k=""           sort={sort} onSort={undefined}  width="200px">
+            Notes
+            {userIsAdmin && <span className="ml-1 text-[8px] font-mono text-emerald-600 normal-case tracking-normal">· editable</span>}
+          </Th>
           <Th k=""           sort={sort} onSort={undefined}  width="180px"><span className="sr-only">Actions</span></Th>
         </tr>
       </thead>
@@ -733,7 +760,28 @@ function SheetTable({
                   {tone.label}
                 </span>
               </Td>
-              <Td><span className="text-slate-500 truncate" title={u.returnReason || ''}>{u.returnReason || ''}</span></Td>
+              <Td>
+                <EditableTextCell
+                  value={u.returnReason || ''}
+                  editable={userIsAdmin}
+                  editing={editingCell?.id === u.id && editingCell?.field === 'returnReason'}
+                  placeholder="—"
+                  onActivate={() => setEditingCell({ id: u.id, field: 'returnReason' })}
+                  onCommit={async v => { await saveField(u, 'returnReason', v); setEditingCell(null); }}
+                  onCancel={() => setEditingCell(null)}
+                />
+              </Td>
+              <Td>
+                <EditableTextCell
+                  value={u.notes || ''}
+                  editable={userIsAdmin}
+                  editing={editingCell?.id === u.id && editingCell?.field === 'notes'}
+                  placeholder="—"
+                  onActivate={() => setEditingCell({ id: u.id, field: 'notes' })}
+                  onCommit={async v => { await saveField(u, 'notes', v); setEditingCell(null); }}
+                  onCancel={() => setEditingCell(null)}
+                />
+              </Td>
               <Td>
                 <div className="flex items-center gap-1.5 justify-end" onClick={e => e.stopPropagation()}>
                   {/* In-Repair rows get a primary 'Back to Stock' button
@@ -788,6 +836,56 @@ function SheetTable({
         })}
       </tbody>
     </table>
+  );
+}
+
+/** Single-line text cell that is read-only by default and turns into
+ *  a focused input when `editable` AND `editing` are both true. Used
+ *  in the returns table for admin-only inline edits of Reason and
+ *  Notes — same click-to-edit / Enter-commit / Esc-cancel rhythm the
+ *  BuySheet inline cells use, without pulling the heavier
+ *  InlineEditableCell out of BuySheet.tsx for one extra call site. */
+function EditableTextCell({
+  value, editable, editing, placeholder, onActivate, onCommit, onCancel,
+}: {
+  value: string;
+  editable: boolean;
+  editing: boolean;
+  placeholder?: string;
+  onActivate: () => void;
+  onCommit: (next: string) => void;
+  onCancel: () => void;
+}) {
+  const [draft, setDraft] = useState(value);
+  const inputRef = useRef<HTMLInputElement | null>(null);
+  useEffect(() => { if (editing) { setDraft(value); setTimeout(() => inputRef.current?.focus(), 0); } }, [editing, value]);
+
+  if (!editable) {
+    return <span className="text-slate-500 truncate block max-w-[200px]" title={value}>{value || placeholder || ''}</span>;
+  }
+  if (!editing) {
+    return (
+      <button
+        onClick={onActivate}
+        title={value ? `${value} · click to edit` : 'Click to edit'}
+        className="text-left text-slate-500 truncate block max-w-[200px] hover:text-emerald-700 hover:bg-emerald-50 rounded px-1 -mx-1 transition-colors"
+      >
+        {value || <span className="text-slate-300 italic">{placeholder || 'Add…'}</span>}
+      </button>
+    );
+  }
+  return (
+    <input
+      ref={inputRef}
+      value={draft}
+      onChange={e => setDraft(e.target.value)}
+      onBlur={() => onCommit(draft)}
+      onKeyDown={e => {
+        if (e.key === 'Enter') { e.preventDefault(); onCommit(draft); }
+        else if (e.key === 'Escape') { e.preventDefault(); onCancel(); }
+      }}
+      className="w-full max-w-[200px] border border-emerald-300 bg-white rounded px-1.5 py-0.5 text-[11px] text-slate-700 focus:outline-none focus:border-emerald-500"
+    />
   );
 }
 
