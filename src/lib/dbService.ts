@@ -106,7 +106,14 @@ const SERVER_TS_FIELDS = new Set([
 function cleanForFirestore(obj: Record<string, any>): Record<string, any> {
   const out: Record<string, any> = {};
   for (const [k, v] of Object.entries(obj)) {
-    if (v === undefined || k === 'supplierName') continue;
+    // Drop undefined fields (Firestore writes treat them as deletes
+    // under merge:true). Everything else passes through — earlier
+    // versions also stripped `supplierName` here, which was the
+    // root cause of empty Supplier cells in every downloaded Sales
+    // Report and every inline overlay row. The Sale and
+    // InventoryUnit types both legitimately carry supplierName as
+    // a denormalised display field; preserve it.
+    if (v === undefined) continue;
     out[k] = SERVER_TS_FIELDS.has(k) && typeof v === 'string' ? serverTimestamp() : v;
   }
   return out;
