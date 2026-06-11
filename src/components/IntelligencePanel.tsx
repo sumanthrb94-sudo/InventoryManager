@@ -32,8 +32,20 @@ function buildSignals(units: InventoryUnit[], sales: Sale[] | undefined, mode: '
   const cut7   = now - 7  * MS;
 
   const avail  = units.filter(u => u.status === 'available');
-  const s14    = units.filter(u => u.status === 'sold' && u.saleDate && new Date(u.saleDate).getTime() >= cut14);
-  const s7     = units.filter(u => u.status === 'sold' && u.saleDate && new Date(u.saleDate).getTime() >= cut7);
+  // Sold-unit window for velocity / margin signals. Filter out units
+  // whose currently-set returnDate is on/after the sale date — those
+  // units belong to a returned cycle, not a fresh sale, even though
+  // their unit-side status='sold' may have been re-flipped by a
+  // subsequent record-sale that didn't clear returnType. Without this
+  // a unit that went sold → returned → re-sold appears twice in the
+  // 14-day window if both sale dates land in it.
+  const isReturnedCycle = (u: InventoryUnit, saleDateIso?: string): boolean => {
+    if (!u.returnType || !u.returnDate) return false;
+    if (!saleDateIso) return true;
+    return u.returnDate >= saleDateIso;
+  };
+  const s14    = units.filter(u => u.status === 'sold' && u.saleDate && !isReturnedCycle(u, u.saleDate) && new Date(u.saleDate).getTime() >= cut14);
+  const s7     = units.filter(u => u.status === 'sold' && u.saleDate && !isReturnedCycle(u, u.saleDate) && new Date(u.saleDate).getTime() >= cut7);
 
   // ── velocity: sold count per model ─────────────────────────────────────────
   const vel14: Record<string, number> = {};

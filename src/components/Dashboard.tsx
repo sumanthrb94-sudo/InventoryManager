@@ -258,9 +258,13 @@ export default function Dashboard({ user, onNavigate, onOpenImport, onOpenMaster
   };
 
   // ── Master-data KPIs (sourced from sales / aggregates / importBatches) ────
-  // Live-recompute every sale so GP figures reflect current MARKETPLACE_FEES,
-  // not whatever was stored at import time.
-  const liveSales = useMemo(() => sales.map(recomputeSale), [sales]);
+  // Live-recompute every active sale so GP figures reflect current
+  // MARKETPLACE_FEES, not whatever was stored at import time. Voided
+  // sales are filtered out here — they shouldn't inflate the
+  // dashboard's "Sold This Month" KPI or revenue/GP totals (Sell
+  // screen's allSold does the same; see SellSheet.tsx for the matching
+  // convention).
+  const liveSales = useMemo(() => sales.filter(s => !s.voidedAt).map(recomputeSale), [sales]);
 
   // Stock-on-Hand: available units, summed at buy price; week-over-week delta
   // approximated by comparing units that arrived (dateIn) before "a week ago"

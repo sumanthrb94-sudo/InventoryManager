@@ -97,8 +97,22 @@ export default function ReturnsPage() {
   // A "return" is any unit that has been processed through a return — its
   // returnType field is set. Status may now be 'returned' (in repair / to
   // supplier soft-delete) OR 'available' (back to inventory).
+  //
+  // Multi-cycle guard: a unit that was returned-to-inventory and then
+  // RE-SOLD still carries returnType on its doc (recordSale doesn't
+  // clear it on re-sale). Without the saleDate > returnDate check the
+  // same unit double-appears in Returns AND on the Sell sheet, and an
+  // operator may re-process the same return. Compare dates so only
+  // CURRENTLY-returned cycles show in the returns ledger.
   const allReturns = useMemo<InventoryUnit[]>(
-    () => units.filter(u => !!u.returnType),
+    () => units.filter(u => {
+      if (!u.returnType) return false;
+      // Once re-sold (status='sold' after a later sale), the return
+      // belongs to a closed cycle. Drop it from the returns view.
+      if (u.status === 'sold' && u.saleDate && u.returnDate
+          && u.saleDate > u.returnDate) return false;
+      return true;
+    }),
     [units],
   );
   const backToInventory = useMemo(() => allReturns.filter(u => u.returnType === 'returned_to_inventory'), [allReturns]);
