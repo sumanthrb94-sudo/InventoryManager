@@ -39,6 +39,7 @@ import StockOverlayModal, {
   type SortKey, type SortDir, type GroupSort, type GroupedModel,
 } from './StockOverlayModal';
 import PaginationBar, { usePagedRows } from './PaginationBar';
+import ReportRangeMenu from './ReportRangeMenu';
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -285,8 +286,15 @@ export default function BuySheet(_props: Props) {
   // Sold units are soft-deleted from this report — once a unit ships, it's
   // operator-tracked through the Sales report instead. Returned + incoming
   // (SHS) units stay because they're still our inventory.
-  const handleInventoryReport = () => {
-    const inStock = units.filter(u => u.status !== 'sold');
+  const handleInventoryReport = async (range: { from?: string; to?: string; label: string }) => {
+    // Scope by Stock In date when a range is selected; without a range
+    // (All Time preset) the report is the full snapshot like before.
+    const inStock = units.filter(u => {
+      if (u.status === 'sold') return false;
+      if (range.from && (u.dateIn || '') < range.from) return false;
+      if (range.to && (u.dateIn || '') > range.to) return false;
+      return true;
+    });
     const all = sortUnits(inStock, sort, supplierMap);
     const MS_PER_DAY = 86_400_000;
     const nowMs = Date.now();
@@ -318,7 +326,7 @@ export default function BuySheet(_props: Props) {
     const now = new Date();
     const pad = (n: number) => String(n).padStart(2, '0');
     const stamp = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}_${pad(now.getHours())}${pad(now.getMinutes())}`;
-    downloadCsv(`inventory-report-${stamp}.csv`, rows);
+    downloadCsv(`inventory-report-${range.label}-${stamp}.csv`, rows);
   };
 
   // ── Daily intake PDF — CEO-facing summary of what was booked in today ────
@@ -372,13 +380,12 @@ export default function BuySheet(_props: Props) {
           >
             <Info size={12} /> Schema
           </button>
-          <button
-            onClick={handleInventoryReport}
-            title="Download a timestamped CSV of every unit (buy schema only)"
-            className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-emerald-600 text-white text-[10px] font-bold uppercase tracking-widest hover:bg-emerald-700 transition-all"
-          >
-            <FileSpreadsheet size={12} /> Inventory Report
-          </button>
+          <ReportRangeMenu
+            label="Inventory Report"
+            icon={<FileSpreadsheet size={12} />}
+            tone="emerald"
+            onDownload={handleInventoryReport}
+          />
           <button
             onClick={handleDailyIntakeReport}
             title="Download a PDF analytical report of every unit booked into stock today"

@@ -39,6 +39,7 @@ import { fmtDateForUser, useUserRegion } from '../lib/userLocale';
 import { manualShsUnitsFrom } from '../lib/shsCount';
 import CopyImei from './CopyImei';
 import PaginationBar, { usePagedRows } from './PaginationBar';
+import ReportRangeMenu from './ReportRangeMenu';
 import IntelligencePanel from './IntelligencePanel';
 import PeriodicInventory from './PeriodicInventory';
 import SellOrderModal from './SellOrderModal';
@@ -481,9 +482,14 @@ export default function SellSheet(_props: Props) {
   //                ops convention "we sell in 4 platforms only".
   // Voided sales are excluded — they don't represent realised revenue and
   // the void path keeps the original Sale doc for audit only.
-  const handleSalesReport = () => {
+  const handleSalesReport = async (range: { from?: string; to?: string; label: string }) => {
     const active = sales.filter(s => !s.voidedAt);
-    void downloadSalesWorkbook({ sales: active, units, supplierMap });
+    await downloadSalesWorkbook({
+      sales: active,
+      units,
+      supplierMap,
+      opts: { from: range.from, to: range.to, today: new Date() },
+    });
   };
   // CEO-facing daily PDF — mirrors the Stock Intake button on BuySheet
   // (handleDailyIntakeReport). Uses dynamic import so the jsPDF chunk
@@ -535,13 +541,12 @@ export default function SellSheet(_props: Props) {
           >
             <Info size={12} /> Schema
           </button>
-          <button
-            onClick={handleSalesReport}
-            title="Download a unified Sales Report (buy schema + sale fields, one row per non-voided sale)"
-            className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-emerald-600 text-white text-[10px] font-bold uppercase tracking-widest hover:bg-emerald-700 transition-all"
-          >
-            <FileSpreadsheet size={12} /> Sales Report
-          </button>
+          <ReportRangeMenu
+            label="Sales Report"
+            icon={<FileSpreadsheet size={12} />}
+            tone="emerald"
+            onDownload={handleSalesReport}
+          />
           <button
             onClick={handleDailySalesReport}
             title="Generate the CEO-facing Daily Sales PDF — KPIs, channel + SKU + supplier breakdowns, and the full per-sale log for today"
