@@ -27,13 +27,13 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import {
   Search, ChevronDown, ChevronUp, ChevronsUpDown, MoreHorizontal,
-  Filter, X, Download, AlertCircle, Plus, Info, Sparkles, Eye,
+  Filter, X, Download, AlertCircle, Plus, Info, Sparkles, Eye, TrendingDown,
   PackageCheck, ArrowUpRight, Wrench, ShieldAlert, ShieldCheck, CheckCircle2,
   Truck, RefreshCw, RotateCcw,
 } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
 import { dbService } from '../lib/dbService';
-import { InventoryUnit, ReturnCategory } from '../types';
+import { InventoryUnit, ReturnCategory, Sale } from '../types';
 import { useInventoryStore } from '../lib/inventoryStore';
 import { notificationService } from '../lib/notificationService';
 import { fmtDateForUser, useUserRegion } from '../lib/userLocale';
@@ -406,6 +406,13 @@ export default function ReturnsPage() {
         onReadyShip={u => setReadyShipUnit(u)}
         onReprocess={u => setProcessingUnit(u)}
       />
+
+      {/* ── Return losses · unified lifecycle sheet ───────────────────────
+          Postage-loss accounting per return: refund = 2 shipping legs
+          (outbound + inbound), replacement = 3 (plus the replacement
+          outbound). Leg cost = postage + P.VAT snapshotted from the
+          voided sale at Process Return time. */}
+      <ReturnLossSection units={allReturns} sales={sales} region={region} />
 
       {/* ── Activity history at the bottom ────────────────────────────────
           Visual timeline of return events, grouped by date bucket. Shows
@@ -901,6 +908,188 @@ function EditableTextCell({
 // ended up (back to inventory / in repair / soft-deleted to supplier).
 // Units that completed the repair-and-return-to-stock loop carry a green
 // 'Back to Stock' chip so the operator sees the wins.
+// ── Return losses · unified lifecycle sheet ─────────────────────────────────
+// One row per returned unit with the postage-loss math the operator
+// specified: every sale ships once (1 leg), every return ships back
+// (2 legs), a replacement ships out again (3 legs). Leg cost =
+// postage + P.VAT. Refund ⇒ 2 × leg, Replacement ⇒ 3 × leg.
+// Leg cost comes from the snapshot taken at Process Return time
+// (unit.returnLegCost); legacy rows processed before the snapshot
+// existed fall back to the voided Sale doc linked by unitId.
+function ReturnLossSection({
+  units, sales, region,
+}: {
+  units: InventoryUnit[];
+  sales: Sale[];
+  region: 'uk' | 'india' | 'admin' | 'both';
+}) {
+  const [open, setOpen] = useState(true);
+
+  type LossRow = {
+    unit: InventoryUnit;
+    outcome: 'refund' | 'replacement' | null;
+    legCost: number;
+    legs: number;
+    loss: number;
+  };
+  const rows = useMemo<LossRow[]>(() => {
+    // Latest voided sale per unit — legacy fallback for legCost.
+    const voidedByUnit = new Map<string, Sale>();
+    for (const s of sales) {
+      if (!s.voidedAt || !s.unitId) continue;
+      const prev = voidedByUnit.get(s.unitId);
+      if (!prev || (s.voidedAt > (prev.voidedAt || ''))) voidedByUnit.set(s.unitId, s);
+    }
+    return units
+      .filter(u => u.returnType && u.returnDate)
+      .map(u => {
+        let legCost = u.returnLegCost ?? 0;
+        if (!legCost) {
+          const s = voidedByUnit.get(u.id);
+          if (s) {
+            const postage = Number(s.postage) || 0;
+            const pVat = s.postageVatExempt ? 0 : (Number(s.postageVat) || postage * 0.2);
+            legCost = postage + pVat;
+          }
+        }
+        // Legacy rows have no outcome — assume refund (2 legs), the
+        // conservative floor: any completed return costs at least the
+        // outbound + inbound legs.
+        const outcome = u.returnOutcome ?? null;
+        const legs = outcome === 'replacement' ? 3 : 2;
+        return {
+          unit: u,
+          outcome,
+          legCost,
+          legs,
+          loss: legCost * legs,
+        };
+      })
+      .sort((a, b) => (b.unit.returnDate || '').localeCompare(a.unit.returnDate || ''));
+  }, [units, sales]);
+
+  const totalLoss = rows.reduce((t, r) => t + r.loss, 0);
+  const refunds = rows.filter(r => r.outcome !== 'replacement').length;
+  const replacements = rows.filter(r => r.outcome === 'replacement').length;
+
+  const { page, setPage, totalPages, paged, total } = usePagedRows<LossRow>(rows);
+
+  const exportCsv = () => {
+    downloadCsv(`return-losses-${todayStr()}.csv`, rows.map(r => ({
+      'Return Date':        r.unit.returnDate || '',
+      'Model':              r.unit.model || '',
+      'IMEI':               r.unit.imei || '',
+      'Destination':        r.unit.returnType || '',
+      'Outcome':            r.outcome || 'refund (assumed)',
+      'Reason':             r.unit.returnReason || '',
+      'Comments':           r.unit.returnComments || '',
+      'Leg Cost (£)':       r.legCost.toFixed(2),
+      'Shipping Legs':      r.legs,
+      'Postage Loss (£)':   r.loss.toFixed(2),
+    })));
+  };
+
+  if (rows.length === 0) return null;
+
+  return (
+    <div className="bg-white border border-slate-200 rounded-3xl shadow-sm overflow-hidden">
+      <button
+        type="button"
+        onClick={() => setOpen(o => !o)}
+        className="w-full flex items-center gap-3 px-5 py-3 border-b border-slate-100 text-left hover:bg-slate-50 transition-colors"
+      >
+        <div className="w-7 h-7 rounded-lg bg-rose-100 text-rose-700 flex items-center justify-center flex-shrink-0">
+          <TrendingDown size={14} />
+        </div>
+        <div className="flex-1 min-w-0">
+          <p className="text-[11px] font-bold uppercase tracking-widest text-slate-900">Return Losses · Lifecycle</p>
+          <p className="text-[9px] font-mono text-slate-500 mt-0.5">
+            {refunds} refund{refunds === 1 ? '' : 's'} (2× legs) · {replacements} replacement{replacements === 1 ? '' : 's'} (3× legs) · leg = postage + P.VAT
+          </p>
+        </div>
+        <span className="text-[11px] font-mono font-bold text-rose-700 bg-rose-50 border border-rose-200 px-2 py-1 rounded-lg flex-shrink-0">
+          −£{totalLoss.toFixed(2)}
+        </span>
+        <span className="opacity-60 flex-shrink-0">
+          {open ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
+        </span>
+      </button>
+
+      {open && (
+        <>
+          <div className="overflow-auto max-h-[420px] custom-scrollbar">
+            <table className="w-full text-[11px] border-separate border-spacing-0" style={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace' }}>
+              <thead>
+                <tr className="text-[9px] font-bold uppercase tracking-widest text-slate-500 bg-slate-50">
+                  <th className="text-left px-3 py-2 border-b border-slate-200" style={{ width: 100 }}>Return Date</th>
+                  <th className="text-left px-3 py-2 border-b border-slate-200" style={{ width: 200 }}>Model</th>
+                  <th className="text-left px-3 py-2 border-b border-slate-200" style={{ width: 140 }}>IMEI</th>
+                  <th className="text-left px-3 py-2 border-b border-slate-200" style={{ width: 110 }}>Outcome</th>
+                  <th className="text-right px-3 py-2 border-b border-slate-200" style={{ width: 90 }}>Leg £</th>
+                  <th className="text-right px-3 py-2 border-b border-slate-200" style={{ width: 60 }}>Legs</th>
+                  <th className="text-right px-3 py-2 border-b border-slate-200" style={{ width: 90 }}>Loss £</th>
+                  <th className="text-left px-3 py-2 border-b border-slate-200">Reason · Comments</th>
+                </tr>
+              </thead>
+              <tbody>
+                {paged.map((r, idx) => {
+                  const isAlt = idx % 2 === 1;
+                  const rowBg = isAlt ? 'bg-slate-50/40' : 'bg-white';
+                  return (
+                    <tr key={r.unit.id} className={`${rowBg} hover:bg-rose-50/30 transition-colors`}>
+                      <td className="px-3 py-1.5 border-b border-slate-100 text-slate-700">
+                        {fmtDateForUser(r.unit.returnDate || '', region) || r.unit.returnDate || '—'}
+                      </td>
+                      <td className="px-3 py-1.5 border-b border-slate-100">
+                        <span className="font-bold text-slate-900 truncate block max-w-[190px]" title={r.unit.model}>{r.unit.model || '—'}</span>
+                      </td>
+                      <td className="px-3 py-1.5 border-b border-slate-100 text-slate-500">{r.unit.imei || '—'}</td>
+                      <td className="px-3 py-1.5 border-b border-slate-100">
+                        {r.outcome === 'replacement' ? (
+                          <span className="inline-flex items-center text-[9px] font-bold uppercase tracking-widest px-1.5 py-0.5 rounded border bg-violet-50 border-violet-200 text-violet-700">Replacement</span>
+                        ) : r.outcome === 'refund' ? (
+                          <span className="inline-flex items-center text-[9px] font-bold uppercase tracking-widest px-1.5 py-0.5 rounded border bg-rose-50 border-rose-200 text-rose-700">Refund</span>
+                        ) : (
+                          <span className="inline-flex items-center text-[9px] font-bold uppercase tracking-widest px-1.5 py-0.5 rounded border bg-slate-50 border-slate-200 text-slate-500" title="Processed before outcome tracking — assumed refund (2 legs)">Refund*</span>
+                        )}
+                      </td>
+                      <td className="px-3 py-1.5 border-b border-slate-100 text-right text-slate-700">
+                        {r.legCost > 0 ? `£${r.legCost.toFixed(2)}` : <span className="text-slate-300">—</span>}
+                      </td>
+                      <td className="px-3 py-1.5 border-b border-slate-100 text-right text-slate-700">× {r.legs}</td>
+                      <td className="px-3 py-1.5 border-b border-slate-100 text-right font-bold text-rose-700">
+                        {r.loss > 0 ? `−£${r.loss.toFixed(2)}` : <span className="text-slate-300">—</span>}
+                      </td>
+                      <td className="px-3 py-1.5 border-b border-slate-100 text-slate-500">
+                        <span className="truncate block max-w-[300px]" title={[r.unit.returnReason, r.unit.returnComments].filter(Boolean).join(' · ')}>
+                          {r.unit.returnReason || '—'}
+                          {r.unit.returnComments && <span className="text-slate-400"> · {r.unit.returnComments}</span>}
+                        </span>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+          <PaginationBar page={page} totalPages={totalPages} total={total} onPage={setPage} itemLabel="returns" />
+          <div className="px-5 py-2 border-t border-slate-100 bg-slate-50/60 flex items-center justify-between">
+            <span className="text-[9px] font-mono uppercase tracking-widest text-slate-500">
+              Refund = outbound + return legs · Replacement adds the replacement outbound · * = pre-tracking row, refund assumed
+            </span>
+            <button
+              onClick={exportCsv}
+              className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-slate-200 text-slate-600 text-[10px] font-bold uppercase tracking-widest hover:bg-white transition-all"
+            >
+              <Download size={11} /> Export CSV
+            </button>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
 function ReturnHistorySection({
   units, everSoldUnitIds, supplierMap, region, onReadyShip,
 }: {
@@ -1218,7 +1407,9 @@ function ProcessReturnModal({
   onSaved: () => void;
 }) {
   const [returnType, setReturnType] = useState<ReturnCategory>('returned_to_inventory');
+  const [outcome, setOutcome]       = useState<'refund' | 'replacement'>('refund');
   const [reason, setReason]         = useState('');
+  const [comments, setComments]     = useState('');
   const [returnDate, setReturnDate] = useState(todayStr());
   const [saving, setSaving]         = useState(false);
   const [error, setError]           = useState('');
@@ -1228,6 +1419,30 @@ function ProcessReturnModal({
     if (!reason.trim()) { setError('Please enter a return reason.'); return; }
     setSaving(true);
     try {
+      // Read the linked sale(s) BEFORE clearing the unit's sale fields —
+      // we snapshot one shipping leg's cost (postage + P.VAT) onto the
+      // unit so the loss sheet can compute 2×/3× postage losses later
+      // even though the sale doc gets voided and the unit's own postage
+      // field is nulled below.
+      let legCost = 0;
+      let linked: any[] = [];
+      try {
+        const all = await dbService.readAll('sales');
+        linked = all.filter((s: any) => s.unitId === unit.id && !s.voidedAt);
+        const src = linked[linked.length - 1];
+        if (src) {
+          const postage = Number(src.postage) || 0;
+          const pVat = src.postageVatExempt ? 0 : (Number(src.postageVat) || postage * 0.2);
+          legCost = postage + pVat;
+        } else if (unit.postageCost) {
+          // No sale doc (legacy / unlinked) — unit-level postage is the
+          // next best signal; assume standard-rated VAT on it.
+          legCost = unit.postageCost * 1.2;
+        }
+      } catch (err) {
+        console.warn('Could not derive return leg cost for unit', unit.id, err);
+      }
+
       // SOFT-DELETE policy for supplier returns (per client spec): keep the
       // unit doc with status='returned' + returnType='returned_to_supplier'
       // so it stays visible in the returns sheet + audit. Old code did a
@@ -1238,6 +1453,9 @@ function ProcessReturnModal({
         returnType,
         returnDate,
         returnReason: reason.trim(),
+        returnOutcome: outcome,
+        returnComments: comments.trim() || null,
+        returnLegCost: legCost || null,
         // Always clear sale data on any return — prevents ghost sale records.
         salePrice: null,
         saleDate: null,
@@ -1255,12 +1473,10 @@ function ProcessReturnModal({
       // flagged with voidedAt + voidReason. If the unit is re-sold later,
       // recordSale creates a NEW Sale doc and this one stays voided.
       try {
-        const all = await dbService.readAll('sales');
-        const linked = all.filter((s: any) => s.unitId === unit.id && !s.voidedAt);
         for (const s of linked) {
           await dbService.update('sales', s.id, {
             voidedAt: returnDate,
-            voidReason: reason.trim(),
+            voidReason: `${outcome === 'replacement' ? 'Replacement' : 'Refund'} — ${reason.trim()}`,
           });
         }
       } catch (err) {
@@ -1325,6 +1541,26 @@ function ProcessReturnModal({
           </div>
 
           <div>
+            <label className="text-[9px] font-bold uppercase tracking-widest text-gray-400 block mb-2">Customer Outcome *</label>
+            <div className="grid grid-cols-2 gap-2">
+              <button onClick={() => setOutcome('refund')}
+                className={`px-3 py-3 rounded-xl border-2 transition-all text-left ${
+                  outcome === 'refund' ? 'border-rose-400 bg-rose-50 text-rose-800' : 'border-gray-200 hover:border-gray-300'
+                }`}>
+                <p className="text-xs font-bold">Refund</p>
+                <p className="text-[9px] font-mono text-gray-500 mt-0.5">Money back · 2× postage + P.VAT lost</p>
+              </button>
+              <button onClick={() => setOutcome('replacement')}
+                className={`px-3 py-3 rounded-xl border-2 transition-all text-left ${
+                  outcome === 'replacement' ? 'border-violet-400 bg-violet-50 text-violet-800' : 'border-gray-200 hover:border-gray-300'
+                }`}>
+                <p className="text-xs font-bold">Replacement</p>
+                <p className="text-[9px] font-mono text-gray-500 mt-0.5">Ship another unit · 3× postage + P.VAT lost</p>
+              </button>
+            </div>
+          </div>
+
+          <div>
             <label className="text-[9px] font-bold uppercase tracking-widest text-gray-400 block mb-1.5">Return Date</label>
             <input type="date" value={returnDate} onChange={e => setReturnDate(e.target.value)}
               className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm font-mono focus:outline-none focus:border-black transition-all" />
@@ -1335,6 +1571,13 @@ function ProcessReturnModal({
             <input value={reason} onChange={e => { setReason(e.target.value); setError(''); }}
               placeholder="e.g. Customer changed mind, Faulty screen, Wrong item sent"
               className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-black transition-all" />
+          </div>
+
+          <div>
+            <label className="text-[9px] font-bold uppercase tracking-widest text-gray-400 block mb-1.5">Comments</label>
+            <textarea value={comments} onChange={e => setComments(e.target.value)} rows={2}
+              placeholder="Optional — condition notes, courier reference, anything the next person should know"
+              className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-black transition-all resize-none" />
           </div>
 
           {returnType === 'returned_to_inventory' && (

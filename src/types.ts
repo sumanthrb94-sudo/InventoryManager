@@ -100,6 +100,20 @@ export interface InventoryUnit {
   returnType?: ReturnCategory;
   returnDate?: string;
   returnReason?: string;
+  /** Customer-facing outcome of the return: 'refund' (money back) or
+   *  'replacement' (we ship another unit). Drives the postage-loss
+   *  multiplier in the Returns loss sheet — refund = 2 shipping legs
+   *  (outbound + inbound), replacement = 3 (outbound + inbound +
+   *  replacement outbound). */
+  returnOutcome?: 'refund' | 'replacement';
+  /** Operator's free-text comments captured at Process Return time —
+   *  separate from returnReason so the structured reason stays short. */
+  returnComments?: string;
+  /** Snapshot of one shipping leg's cost (postage + P.VAT) taken from
+   *  the linked Sale at Process Return time. Snapshotted because the
+   *  unit's own sale fields are cleared on return; loss = this ×
+   *  (returnOutcome === 'replacement' ? 3 : 2). */
+  returnLegCost?: number;
   attachments?: string[];
   imageUrl?: string;        // Cloud image URL for the device (imgbb)
   ownerId: string;
