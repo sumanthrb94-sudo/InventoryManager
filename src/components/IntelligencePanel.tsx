@@ -130,7 +130,7 @@ function buildSignals(units: InventoryUnit[], sales: Sale[] | undefined, mode: '
       // Then by lowest stock, then by velocity
       return depthA - depthB || vb - va;
     })
-    .slice(0, 6)
+    .slice(0, 12)
     .map(([m, v]) => {
       const stock = depth[m] || 0;
       const st = sellThrough[m] || { pct: 0, avgDays: 0, totalCount: 0 };
@@ -148,7 +148,7 @@ function buildSignals(units: InventoryUnit[], sales: Sale[] | undefined, mode: '
   //    'Fast Movers' card. Sell-mode reuses this as 'Hot This Week' below.
   const velRows: Row[] = Object.entries(mode === 'sell' ? vel7 : vel14)
     .sort(([, a], [, b]) => b - a)
-    .slice(0, 4)
+    .slice(0, 12)
     .map(([m, v]) => ({
       name:    label(m),
       primary: `${v} sold`,
@@ -160,7 +160,7 @@ function buildSignals(units: InventoryUnit[], sales: Sale[] | undefined, mode: '
   //     long-view fast movers (14d) and the short-view trending (7d).
   const trendingRows: Row[] = Object.entries(vel7)
     .sort(([, a], [, b]) => b - a)
-    .slice(0, 4)
+    .slice(0, 12)
     .map(([m, v]) => ({
       name:    label(m),
       primary: `${v} sold`,
@@ -175,7 +175,7 @@ function buildSignals(units: InventoryUnit[], sales: Sale[] | undefined, mode: '
       pct:   Math.round((profitSum / bpSum) * 100),
     }))
     .sort((a, b) => b.avg - a.avg)
-    .slice(0, 4)
+    .slice(0, 12)
     .map(({ model, avg, pct }) => ({
       name:    label(model),
       primary: `£${avg}`,
@@ -192,7 +192,7 @@ function buildSignals(units: InventoryUnit[], sales: Sale[] | undefined, mode: '
     }))
     .filter(x => x.avg >= 14)
     .sort((a, b) => b.avg - a.avg)
-    .slice(0, 4)
+    .slice(0, 12)
     .map(({ model, avg, n }) => ({
       name:    label(model),
       primary: `${avg}d avg`,
@@ -203,7 +203,7 @@ function buildSignals(units: InventoryUnit[], sales: Sale[] | undefined, mode: '
   // 5. PLATFORM REVENUE
   const platRows: Row[] = Object.entries(platRev)
     .sort(([, a], [, b]) => b.rev - a.rev)
-    .slice(0, 4)
+    .slice(0, 12)
     .map(([plat, { rev, n }]) => ({
       name:    plat,
       primary: `£${rev.toLocaleString()}`,
@@ -220,7 +220,7 @@ function buildSignals(units: InventoryUnit[], sales: Sale[] | undefined, mode: '
   for (const u of avail) bpByModel[u.model] = (bpByModel[u.model] || 0) + (u.buyPrice || 0);
   const depthRows: Row[] = Object.entries(depth)
     .sort(([, a], [, b]) => b - a)
-    .slice(0, 6)
+    .slice(0, 12)
     .map(([m, count]) => ({
       name:    label(m),
       primary: `× ${count}`,
@@ -382,7 +382,16 @@ const SignalCard: React.FC<{ sig: Signal }> = ({ sig }) => {
           {sig.empty}
         </p>
       ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+        // Fixed 4-row viewport per card — each row is ~46px (13px name
+        // + 11px sub + 10px padding) plus 10px gap, so 218px shows four
+        // rows cleanly. Anything beyond scrolls inside the card, same
+        // pattern as the Stock Alerts columns. Keeps all five cards
+        // the same height regardless of how deep each signal's list
+        // runs.
+        <div style={{
+          display: 'flex', flexDirection: 'column', gap: 10,
+          maxHeight: 218, overflowY: 'auto', paddingRight: 2,
+        }}>
           {sig.rows.map((row, i) => (
             <div key={i} style={{
               display: 'flex',
