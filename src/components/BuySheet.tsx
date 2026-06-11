@@ -764,7 +764,14 @@ function AlertColumn({
         rows.length === 0 ? (
           <p className="px-4 py-6 text-center text-[10px] font-mono text-slate-400">{empty}</p>
         ) : (
-          <div className="divide-y divide-slate-100">
+          // Cap at ~5 rows visible (each row is ~49px including the
+          // divide-y border); anything beyond scrolls internally so
+          // SOLD OUT and RUNNING LOW columns stay the same height in
+          // the side-by-side layout. Operator screenshot showed
+          // RUNNING LOW with ~12 entries vs SOLD OUT with 2 — the
+          // page stretched vertically to fit the longer column,
+          // pushing the Stock Visibility chart way off screen.
+          <div className="max-h-[245px] overflow-y-auto divide-y divide-slate-100">
             {rows.map(r => (
               <div key={r.key} className={`flex items-center gap-3 px-4 py-2 transition-colors ${rowHover}`}>
                 <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${r.warn ? 'bg-rose-500' : dotTone}`} />
