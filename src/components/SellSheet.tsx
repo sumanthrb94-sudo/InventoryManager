@@ -265,8 +265,19 @@ export default function SellSheet(_props: Props) {
     // suppress legacy data where the sale doc itself wasn't voided. Going
     // forward ProcessReturnModal stamps voidedAt on the sale, but old
     // returns processed before that wiring still need to be excluded.
-    const returnedUnits = new Set<string>();
-    for (const u of units) if (u.returnType) returnedUnits.add(u.id);
+    // Map each unit's latest returnDate (when set) so we can decide
+    // per-sale whether the return belongs to THIS sale or to a stale
+    // earlier cycle. Without this guard a unit that was sold →
+    // returned-to-inventory → re-sold has the new sale silently
+    // dropped from every Sell-side surface because the unit still
+    // carries returnType from the old cycle. The Stock-Intake "Sold
+    // Today" tile counts this sale (unit-status based) while the Sell
+    // tile drops it (Sale-doc based) → the two screens disagree on
+    // today's count. Compare dates instead.
+    const returnDateByUnit = new Map<string, string>();
+    for (const u of units) {
+      if (u.returnType && u.returnDate) returnDateByUnit.set(u.id, u.returnDate);
+    }
 
     const merged: Sale[] = [];
     const seenIds = new Set<string>();
@@ -277,7 +288,14 @@ export default function SellSheet(_props: Props) {
       // anything, so it's hidden from every Sell-side surface (revenue,
       // GP, Avg GP%, row count). Voided sales live in Returns instead.
       if (s.voidedAt) continue;
-      if (s.unitId && returnedUnits.has(s.unitId)) continue;
+      if (s.unitId) {
+        const rd = returnDateByUnit.get(s.unitId);
+        // Only suppress when the unit's CURRENT return is on/after the
+        // sale's saleDate — i.e. this sale was the one that got returned.
+        // Earlier returns (where the unit was later re-sold) leave
+        // returnType set on the unit but the new sale stands.
+        if (rd && s.saleDate && rd >= s.saleDate) continue;
+      }
       const fresh = recomputeSale(s);
       merged.push(fresh);
       seenIds.add(s.id);
