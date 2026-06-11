@@ -279,30 +279,57 @@ const SALES_HEADERS: Record<Marketplace, SalesHeaderRow> = {
     'Postage', 'P. VAT', 'Accessories',
     'Total VAT', 'GP', 'GP %', 'Total VAT NTP',
     'Comments',
+    // Return-loss column — voided sales carry (postage + P.VAT) × legs
+    // (2 for a refund, 3 for a replacement). Empty for active sales.
+    // Lets the CA total the column for the period's postage exposure.
+    'Postage Loss',
   ],
   BM: [
     'Date', 'Order Number', 'SKU', 'IMEI', 'Supplier', 'Quantity',
     'BP', 'SP', 'SP-BP', 'Marginal Tax', 'Commission',
     'Customer Care Fees', 'Postage', 'P. VAT', 'Accessories',
-    'GP', 'GP %', 'Total VAT NTP', 'Comments',
+    'GP', 'GP %', 'Total VAT NTP', 'Comments', 'Postage Loss',
   ],
   EBAY: [
     'Date', 'Order Number', 'SKU', 'IMEI', 'Supplier', 'Units',
     'BP', 'SP', 'SP-BP', 'Marginal Tax', 'Commission', 'ROF', 'FVF', 'VAT',
     'T.COM', 'Postage', 'P. VAT', 'Marketing', 'M. VAT', 'Accessories',
-    'Total VAT', 'GP', 'GP %', 'Total VAT NTP', 'Comments',
+    'Total VAT', 'GP', 'GP %', 'Total VAT NTP', 'Comments', 'Postage Loss',
   ],
   ONBUY: [
     'Date', 'Order Number', 'SKU', 'IMEI', 'Supplier',
     'BP', 'SP', 'SP-BP', 'Marginal Tax', 'Commission', 'VAT 20%',
     'Postage', 'P. VAT', 'Accessories',
-    'Total VAT', 'GP', 'GP %', 'Total VAT NTP', 'Comments',
+    'Total VAT', 'GP', 'GP %', 'Total VAT NTP', 'Comments', 'Postage Loss',
   ],
 };
 
 const DATE_FMT = '[$-409]d\\-mmm\\-yyyy';
 const MONEY_FMT = '0.00';
 const IMEI_FMT = '0';
+
+/** Per-sale postage loss (£). 0 for active sales; for voided sales
+ *  it's (postage + P.VAT) × shipping legs, where refund = 2 legs and
+ *  replacement = 3. Used as the trailing Postage Loss column on every
+ *  marketplace sheet so the CA can tally the period's exposure. */
+function postageLossFor(sale: Sale): number {
+  if (!sale.voidedAt) return 0;
+  const postage = Number(sale.postage) || 0;
+  const pvat = sale.postageVatExempt ? 0 : (Number(sale.postageVat) || postage * 0.2);
+  const legs = sale.voidOutcome === 'replacement' ? 3 : 2;
+  return (postage + pvat) * legs;
+}
+
+/** Write the Postage Loss cell on the trailing column of the current
+ *  marketplace's row. No-op when the sale isn't voided so active rows
+ *  stay clean (Excel filters / sums on the column treat blanks as 0). */
+function writePostageLoss(row: ExcelJS.Row, marketplace: Marketplace, sale: Sale): void {
+  const loss = postageLossFor(sale);
+  if (loss <= 0) return;
+  const col = SALES_HEADERS[marketplace].length;
+  row.getCell(col).value = loss;
+  row.getCell(col).numFmt = MONEY_FMT;
+}
 
 /**
  * Write one sale row into the given sheet with the correct base values,
@@ -362,6 +389,7 @@ function writeSaleRow(
       row.getCell(19).value = { formula: f.grossProfit! };   row.getCell(19).numFmt = MONEY_FMT;
       row.getCell(20).value = { formula: f.gpPercent! };     row.getCell(20).numFmt = MONEY_FMT;
       row.getCell(21).value = { formula: f.totalVatNtp! };   row.getCell(21).numFmt = MONEY_FMT;
+      writePostageLoss(row, marketplace, sale);
       return;
     }
 
@@ -398,6 +426,7 @@ function writeSaleRow(
       row.getCell(16).value = { formula: f.grossProfit! };  row.getCell(16).numFmt = MONEY_FMT;
       row.getCell(17).value = { formula: f.gpPercent! };    row.getCell(17).numFmt = MONEY_FMT;
       row.getCell(18).value = { formula: f.totalVatNtp! };  row.getCell(18).numFmt = MONEY_FMT;
+      writePostageLoss(row, marketplace, sale);
       return;
     }
 
@@ -449,6 +478,7 @@ function writeSaleRow(
       row.getCell(22).value = { formula: f.grossProfit! };  row.getCell(22).numFmt = MONEY_FMT;
       row.getCell(23).value = { formula: f.gpPercent! };    row.getCell(23).numFmt = MONEY_FMT;
       row.getCell(24).value = { formula: f.totalVatNtp! };  row.getCell(24).numFmt = MONEY_FMT;
+      writePostageLoss(row, marketplace, sale);
       return;
     }
 
@@ -484,6 +514,7 @@ function writeSaleRow(
       row.getCell(16).value = { formula: f.grossProfit! };  row.getCell(16).numFmt = MONEY_FMT;
       row.getCell(17).value = { formula: f.gpPercent! };    row.getCell(17).numFmt = MONEY_FMT;
       row.getCell(18).value = { formula: f.totalVatNtp! };  row.getCell(18).numFmt = MONEY_FMT;
+      writePostageLoss(row, marketplace, sale);
       return;
     }
 

@@ -483,9 +483,12 @@ export default function SellSheet(_props: Props) {
   // Voided sales are excluded — they don't represent realised revenue and
   // the void path keeps the original Sale doc for audit only.
   const handleSalesReport = async (range: { from?: string; to?: string; label: string }) => {
-    const active = sales.filter(s => !s.voidedAt);
+    // Include voided sales in the download — they're highlighted red on
+    // the per-marketplace sheets and carry their Postage Loss in the
+    // last column so the CA sees the full picture (revenue side from
+    // active rows, exposure side from voided rows).
     await downloadSalesWorkbook({
-      sales: active,
+      sales,
       units,
       supplierMap,
       opts: { from: range.from, to: range.to, today: new Date() },

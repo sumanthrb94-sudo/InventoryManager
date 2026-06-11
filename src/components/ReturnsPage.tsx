@@ -1477,6 +1477,11 @@ function ProcessReturnModal({
           await dbService.update('sales', s.id, {
             voidedAt: returnDate,
             voidReason: `${outcome === 'replacement' ? 'Replacement' : 'Refund'} — ${reason.trim()}`,
+            // Snapshotted onto the Sale doc so the SALES_REPORT's
+            // Postage Loss column knows whether to charge 2× or 3× legs
+            // without having to chase back to the unit (which only
+            // remembers the latest cycle's outcome).
+            voidOutcome: outcome,
           });
         }
       } catch (err) {

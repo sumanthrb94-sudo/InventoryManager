@@ -305,6 +305,11 @@ export interface Sale {
   // this one stays voided in the audit trail.
   voidedAt?: string;     // ISO date when the sale was reversed
   voidReason?: string;   // From ProcessReturnModal (return reason)
+  /** Customer-facing outcome snapshotted at void time. Drives the
+   *  per-sale Postage Loss column on the downloaded SALES_REPORT:
+   *  'refund' = 2 shipping legs lost, 'replacement' = 3. Defaults to
+   *  refund (2) for legacy voids missing the field. */
+  voidOutcome?: 'refund' | 'replacement';
   // Operator's red-row flag from the source workbook — when the DATE / ORDER
   // NUMBER cell was painted red on the operator's Sales Report sheet, that
   // row carries an issue (return, refund, chargeback, dispute). Surfaced in
