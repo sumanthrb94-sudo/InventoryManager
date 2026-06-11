@@ -374,11 +374,14 @@ describe('API Data Population & Integration Tests', () => {
       const available = mockDb.getUnits({ status: 'available', limit: 1 });
       if (available.length > 0) {
         const unit = available[0];
+        // new_stock is batched (500 ms setTimeout) when called without a
+        // count; pass count=1 to take the synchronous path so the unread
+        // tally reflects this call before the assertion runs.
         notificationService.addNotification('new_stock', {
           id: unit.id,
           model: unit.model,
           imei: unit.imei,
-        } as any);
+        } as any, undefined, 1);
 
         const unreadCount = notificationService.getUnreadCount();
         expect(unreadCount).toBeGreaterThan(0);

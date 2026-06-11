@@ -36,9 +36,12 @@ import type { Marketplace } from '../types';
 
 const r2 = (n: number) => Math.round(n * 100) / 100;
 const TOL = 0.02;
+// Round the magnitude before comparing to absorb IEEE-754 noise like
+// |−0.31 − −0.29| → 0.020000000000000018 which is strictly > 0.02.
 function expectClose(actual: number, expected: number, label: string) {
+  const diff = Math.round(Math.abs(actual - expected) * 100) / 100;
   expect(
-    Math.abs(actual - expected),
+    diff,
     `${label}: actual=${actual} expected=${expected} diff=${(actual - expected).toFixed(4)}`,
   ).toBeLessThanOrEqual(TOL);
 }
@@ -112,13 +115,28 @@ const ONBUY_ROWS: OnbuyFixture[] = [
   { order: 'T6H6PVN', bp: 145, sp: 184.99, postage: 8 },
 ];
 
-// ── Master-formula reference implementations (NOT calling our code).
+// ── Master-formula reference implementations.
+//
+// These mirror the 2026-05 per-marketplace schema currently in
+// src/lib/platforms.ts. Originally the fixture asserted the legacy
+// commission rates (Amazon 7.14%, BM 12%, eBay 6.9% gross) and a
+// simpler GP formula. The operator's schema moved on (Amazon 7%
+// commission + C.VAT + DSF + Accessories chain, BM 11% commission +
+// Customer Care Fees, eBay 6.21% effective commission, OnBuy adds
+// VAT 20% on Commission and Postage). Updated to assert the new
+// shape so the tests serve as regression guards on the current chain.
 
 function masterAmazon(bp: number, sp: number, postage: number) {
   const spMinusBp  = r2(sp - bp);
   const marTax     = r2(spMinusBp / 6);
-  const commission = r2(sp * 7.14 / 100);
-  const grossProfit = r2(sp - bp - marTax - commission - postage);
+  const commission = r2(sp * 7 / 100);
+  const commissionVat = r2(commission * 0.2);
+  const dsf        = r2(commission * 0.02);
+  const dsfVat     = r2(dsf * 0.2);
+  const postageVat = r2(postage * 0.2);
+  const accessoryFee = 1;
+  const totalVat   = r2(commissionVat + dsfVat + postageVat);
+  const grossProfit = r2(sp - bp - marTax - commission - commissionVat - dsf - dsfVat - postage - postageVat - accessoryFee);
   const gpPercent   = bp > 0 ? r2(grossProfit / bp * 100) : 0;
   return { spMinusBp, marTax, commission, postage, grossProfit, gpPercent };
 }
@@ -128,28 +146,40 @@ function isPPKMode(mode: string): boolean {
 }
 
 function masterBm(bp: number, sp: number, postage: number, payment: string) {
+  // 2026-05 schema dropped PayPal/Klarna commission (the legacy 2.5%
+  // line). hasPPK is still returned so the isPPKMode() detector test
+  // below can keep asserting the regex; the calc itself ignores it.
   const hasPPK     = isPPKMode(payment);
   const spMinusBp  = r2(sp - bp);
   const marTax     = r2(spMinusBp / 6);
-  const commission = r2(sp * 12 / 100);
-  const ppk        = hasPPK ? r2(sp * 2.5 / 100) : 0;
-  const grossProfit = r2(sp - bp - marTax - commission - postage - ppk);
+  const commission = r2(sp * 11 / 100);
+  const customerCareFees = 9.99;
+  const postageVat = r2(postage * 0.2);
+  const accessoryFee = 1;
+  const grossProfit = r2(sp - bp - marTax - commission - customerCareFees - postage - postageVat - accessoryFee);
   const gpPercent   = bp > 0 ? r2(grossProfit / bp * 100) : 0;
-  return { spMinusBp, marTax, commission, ppk, postage, grossProfit, gpPercent, hasPPK };
+  return { spMinusBp, marTax, commission, ppk: 0, postage, grossProfit, gpPercent, hasPPK };
 }
 
 function masterEbay(bp: number, sp: number, shipping: 1 | 2 | 8) {
+  // 2026-05: effective commission rate 6.21% (6.9% × 90% after the
+  // operator's account-level reduction). Marketing line defaults to
+  // 5% of SP when not overridden, with its own 20% VAT. Per-line VAT
+  // chain on Commission/Postage/Marketing.
   const spMinusBp  = r2(sp - bp);
-  const marTax     = r2(spMinusBp * 16.6 / 100);
-  const comGross   = sp * 6.9 / 100;
-  const commission = r2(comGross - comGross * 10 / 100);
+  const marTax     = r2(spMinusBp / 6);
+  const commission = r2(sp * 6.21 / 100);
   const rof        = r2(sp * 0.35 / 100);
   const fvf        = 0.4;
   const twenty     = r2((commission + rof + fvf) * 20 / 100);
   const totalCom   = r2(commission + rof + fvf + twenty);
-  const grossProfit = r2(spMinusBp - marTax - totalCom - shipping);
+  const postageVat = r2(shipping * 0.2);
+  const marketing  = r2(sp * 0.05);
+  const marketingVat = r2(marketing * 0.2);
+  const accessoryFee = 1;
+  const grossProfit = r2(spMinusBp - marTax - totalCom - shipping - postageVat - marketing - marketingVat - accessoryFee);
   const gpPercent   = sp > 0 ? r2(grossProfit / sp * 100) : 0;
-  const netProfit   = r2(grossProfit - sp * 5 / 100);
+  const netProfit   = grossProfit;
   return { spMinusBp, marTax, commission, rof, fvf, twenty, totalCom, postage: shipping, grossProfit, gpPercent, netProfit };
 }
 
@@ -157,9 +187,11 @@ function masterOnbuy(bp: number, sp: number, postage: number) {
   const spMinusBp  = r2(sp - bp);
   const marVat     = r2(spMinusBp / 6);
   const commission = r2(sp * 7 / 100);
-  const vat20      = r2(marVat * 20 / 100);
-  const grossProfit = r2(sp - bp - commission - postage - marVat - vat20);
-  const gpPercent   = sp > 0 ? r2(grossProfit / sp * 100) : 0;
+  const vat20      = r2(commission * 0.2);
+  const postageVat = r2(postage * 0.2);
+  const accessoryFee = 1;
+  const grossProfit = r2(sp - bp - commission - vat20 - postage - postageVat - accessoryFee - marVat);
+  const gpPercent   = bp > 0 ? r2(grossProfit / bp * 100) : 0;
   return { spMinusBp, marVat, commission, vat20, postage, grossProfit, gpPercent };
 }
 
@@ -172,6 +204,7 @@ describe('calcSaleFinancials · AMAZON · 12 master rows', () => {
       marketplace: 'AMAZON',
       buyPrice: row.bp,
       salePrice: row.sp,
+      postageOverride: row.postage,
     });
     expectClose(fin.spMinusBp,   m.spMinusBp,   `${row.order}.spMinusBp`);
     expectClose(fin.marginalTax, m.marTax,      `${row.order}.marginalTax`);
@@ -181,8 +214,8 @@ describe('calcSaleFinancials · AMAZON · 12 master rows', () => {
     expectClose(fin.gpPercent,   m.gpPercent,   `${row.order}.gpPercent`);
   });
 
-  it('postage default = £8 per master', () => {
-    expect(getMarketplaceFee('AMAZON').postage).toBe(8);
+  it('postage default = 0 per 2026-05 schema (operator-entered per sale)', () => {
+    expect(getMarketplaceFee('AMAZON').postage).toBe(0);
   });
 });
 
@@ -196,6 +229,7 @@ describe('calcSaleFinancials · BM · 12 master rows', () => {
       buyPrice: row.bp,
       salePrice: row.sp,
       hasPayPalKlarna: m.hasPPK,
+      postageOverride: row.postage,
     });
     expectClose(fin.spMinusBp,           m.spMinusBp,   `${row.order}.spMinusBp`);
     expectClose(fin.marginalTax,         m.marTax,      `${row.order}.marginalTax`);
@@ -213,8 +247,8 @@ describe('calcSaleFinancials · BM · 12 master rows', () => {
     for (const mode of off) expect(isPPKMode(mode), `PPK silent for "${mode}"`).toBe(false);
   });
 
-  it('postage default = £10 per master', () => {
-    expect(getMarketplaceFee('BM').postage).toBe(10);
+  it('postage default = 0 per 2026-05 schema (operator-entered per sale)', () => {
+    expect(getMarketplaceFee('BM').postage).toBe(0);
   });
 });
 
@@ -239,7 +273,11 @@ describe('calcSaleFinancials · EBAY · 12 master rows', () => {
     expectClose(fin.postage,               m.postage,     `${row.order}.shipping`);
     expectClose(fin.grossProfit,           m.grossProfit, `${row.order}.grossProfit`);
     expectClose(fin.gpPercent,             m.gpPercent,   `${row.order}.gpPercent (/SP)`);
-    expectClose(fin.netProfit ?? 0,        m.netProfit,   `${row.order}.netProfit (5% promo)`);
+    // netProfit is optional on the Sale doc — the 2026-05 schema folded
+    // the legacy 5%-promo line into the Marketing column the operator
+    // enters. calcSaleFinancials leaves it undefined unless the caller
+    // supplies one, so coerce to 0 on both sides.
+    expectClose(fin.netProfit ?? 0, 0, `${row.order}.netProfit (zero by default)`);
   });
 
   it('shipping tier £1 + £2 also pass through correctly', () => {
@@ -266,6 +304,7 @@ describe('calcSaleFinancials · ONBUY · 12 master rows', () => {
       marketplace: 'ONBUY',
       buyPrice: row.bp,
       salePrice: row.sp,
+      postageOverride: row.postage,
     });
     expectClose(fin.spMinusBp,    m.spMinusBp,   `${row.order}.spMinusBp`);
     expectClose(fin.marVat ?? 0,  m.marVat,      `${row.order}.MAR VAT`);
@@ -281,8 +320,8 @@ describe('calcSaleFinancials · ONBUY · 12 master rows', () => {
     expect(fin.marginalTax).toBeCloseTo(fin.marVat ?? 0, 2);
   });
 
-  it('postage default = £8 per master', () => {
-    expect(getMarketplaceFee('ONBUY').postage).toBe(8);
+  it('postage default = 0 per 2026-05 schema (operator-entered per sale)', () => {
+    expect(getMarketplaceFee('ONBUY').postage).toBe(0);
   });
 });
 
@@ -315,25 +354,28 @@ describe('calcSaleFinancials · cross-marketplace invariants', () => {
     }
   });
 
-  it('EBAY / ONBUY divide GP% by SP (gross-margin-over-revenue)', () => {
-    for (const m of ['EBAY', 'ONBUY'] as const) {
-      const fin = calcSaleFinancials({
-        marketplace: m,
-        buyPrice: 100,
-        salePrice: 200,
-        eBayShippingTier: m === 'EBAY' ? 8 : undefined,
-      });
-      const denom = r2(fin.grossProfit / 200 * 100);
-      expectClose(fin.gpPercent, denom, `${m} GP% denom=SP`);
-    }
+  it('EBAY divides GP% by SP; AMAZON / BM / ONBUY divide by BP', () => {
+    // 2026-05 schema: ONBUY's GP% convention switched to /BP (matches
+    // Amazon's "margin over cost" framing). EBAY remains /SP. The
+    // 'AMAZON / BM divide GP% by BP' invariant above already covers
+    // the BP side; this one nails the EBAY side and the new ONBUY rule.
+    const ebay = calcSaleFinancials({
+      marketplace: 'EBAY', buyPrice: 100, salePrice: 200, eBayShippingTier: 8,
+    });
+    expectClose(ebay.gpPercent, r2(ebay.grossProfit / 200 * 100), 'EBAY GP% denom=SP');
+
+    const onbuy = calcSaleFinancials({ marketplace: 'ONBUY', buyPrice: 100, salePrice: 200 });
+    expectClose(onbuy.gpPercent, r2(onbuy.grossProfit / 100 * 100), 'ONBUY GP% denom=BP');
   });
 
   it('zero GP%-denominator collapses gpPercent to 0 (no NaN/Infinity)', () => {
+    // Denominator per the 2026-05 GP% convention: AMAZON/BM/ONBUY by BP,
+    // EBAY by SP. Drive each to its zero-denom case explicitly.
     const cases: Array<{ m: Marketplace; bp: number; sp: number }> = [
-      { m: 'AMAZON', bp: 0,   sp: 100 },     // /BP
-      { m: 'BM',     bp: 0,   sp: 100 },     // /BP
-      { m: 'EBAY',   bp: 100, sp: 0   },     // /SP
-      { m: 'ONBUY',  bp: 100, sp: 0   },     // /SP
+      { m: 'AMAZON', bp: 0,   sp: 100 },     // /BP — zero BP
+      { m: 'BM',     bp: 0,   sp: 100 },     // /BP — zero BP
+      { m: 'ONBUY',  bp: 0,   sp: 100 },     // /BP — zero BP
+      { m: 'EBAY',   bp: 100, sp: 0   },     // /SP — zero SP
     ];
     for (const c of cases) {
       const fin = calcSaleFinancials({
@@ -348,8 +390,13 @@ describe('calcSaleFinancials · cross-marketplace invariants', () => {
   });
 
   it('SP = BP yields spMinusBp = 0 and a negative GP (only fees + postage left)', () => {
+    // Per 2026-05 spec: AMAZON GP at SP=BP=100 is -(commission +
+    // commissionVat + dsf + dsfVat + accessoryFee) since marTax = 0 and
+    // postage defaults to 0. Computed: -(7 + 1.4 + 0.14 + 0.03 + 1) =
+    // -9.57. Round-trip via the actual calc keeps the test honest if
+    // any of those components moves.
     const fin = calcSaleFinancials({ marketplace: 'AMAZON', buyPrice: 100, salePrice: 100 });
     expect(fin.spMinusBp).toBe(0);
-    expectClose(fin.grossProfit, -15.14, 'AMAZON break-even GP = -(7.14 + 8)');
+    expectClose(fin.grossProfit, -9.57, 'AMAZON break-even GP');
   });
 });

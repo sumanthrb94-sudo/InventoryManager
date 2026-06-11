@@ -1,6 +1,18 @@
 import { describe, it, expect, beforeAll } from 'vitest';
 
-const BASE_URL = process.env.BASE_URL || 'http://localhost:3000';
+// HTTP integration suite — exercises a REST surface (`/api/suppliers`,
+// `/api/inventory`, `/api/shs`, `/api/analytics`) that this codebase does not
+// expose: the app talks directly to Firestore through `src/lib/dbService.ts`
+// and ships no Node server. To run this file against a separate REST backend,
+// set `API_INTEGRATION_BASE_URL` (we avoid `BASE_URL` because Vite already
+// injects that name as the public-path base). It is skipped by default so
+// `npm test` stays green in environments without one.
+//
+// Equivalent in-memory coverage of these workflows lives in:
+//   - src/__tests__/api/API_DataPopulation.test.ts (MockDB-backed)
+//   - src/__tests__/integration/E2E_Workflows.test.ts (dbService-mocked)
+const BASE_URL = process.env.API_INTEGRATION_BASE_URL || '';
+const REST_API_AVAILABLE = !!BASE_URL;
 
 interface Unit {
   id: string;
@@ -33,7 +45,7 @@ interface Analytics {
   topModels: Array<{ model: string; count: number }>;
 }
 
-describe('API Integration Tests - All Components', () => {
+describe.skipIf(!REST_API_AVAILABLE)('API Integration Tests - All Components', () => {
   let testSupplierId: string;
   let testUnitId: string;
   let testShsId: string;

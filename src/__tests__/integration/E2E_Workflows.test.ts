@@ -1,4 +1,66 @@
+// @vitest-environment jsdom
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+
+// In-memory dbService mock. The real service is a thin shell around Firestore
+// and exposes `create / update / readAll / subscribeToCollection`. These
+// workflows want a single-doc reader (`read(coll, id)`) too, so the mock adds
+// that — it's only ever consumed from this test file.
+//
+// Mirrors the same pattern used in src/__tests__/services/salesService.test.ts.
+
+const collections: Record<string, Map<string, any>> = {};
+
+function col(name: string): Map<string, any> {
+  return (collections[name] ??= new Map());
+}
+
+function clearAllCollections() {
+  for (const name of Object.keys(collections)) collections[name].clear();
+}
+
+vi.mock('../../lib/dbService', () => {
+  const dbService = {
+    async create(collectionName: string, id: string, data: any) {
+      col(collectionName).set(id, { ...data, id });
+    },
+    async update(collectionName: string, id: string, data: any) {
+      const existing = col(collectionName).get(id);
+      const merged: any = { ...(existing ?? {}), ...data, id };
+      // Mirror Firestore's "undefined ⇒ delete field" semantics so callers
+      // that pass `salePrice: undefined` actually clear the field.
+      for (const [k, v] of Object.entries(data)) {
+        if (v === undefined) delete merged[k];
+      }
+      col(collectionName).set(id, merged);
+    },
+    async delete(collectionName: string, id: string) {
+      col(collectionName).delete(id);
+    },
+    async read(collectionName: string, id: string) {
+      return col(collectionName).get(id) ?? null;
+    },
+    async readAll(collectionName: string) {
+      return Array.from(col(collectionName).values());
+    },
+    async imeiExists(imei: string): Promise<boolean> {
+      if (!imei) return false;
+      for (const u of col('inventoryUnits').values()) {
+        if (u.imei === imei) return true;
+      }
+      return false;
+    },
+    async getByImei(imei: string): Promise<any | null> {
+      if (!imei) return null;
+      for (const u of col('inventoryUnits').values()) {
+        if (u.imei === imei) return u;
+      }
+      return null;
+    },
+  };
+  return { dbService };
+});
+
+// Imports AFTER the mock is registered.
 import { dbService } from '../../lib/dbService';
 import { notificationService } from '../../lib/notificationService';
 import { InventoryUnit } from '../../types';
@@ -10,6 +72,13 @@ import { InventoryUnit } from '../../types';
  */
 
 describe('E2E Workflows - Complete User Journeys', () => {
+
+  beforeEach(() => {
+    // Workflows reuse imei ids across describe blocks (e.g. Workflow 2 + 4
+    // both touch '355066101247506'); a clean slate per test keeps them
+    // independent.
+    clearAllCollections();
+  });
 
   // ─── WORKFLOW 1: SHS (Supplier Direct Sales) ───────────────────────────────
   describe('Workflow 1: SHS Unit → Add IMEI → Mark Sold → Verify History', () => {

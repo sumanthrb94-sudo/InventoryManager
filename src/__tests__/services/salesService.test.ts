@@ -114,10 +114,10 @@ describe('recordSale', () => {
     });
 
     expect(r.ok).toBe(true);
-    expect(r.saleId).toBe('EBAY__ORD-001');
+    expect(r.saleId).toBe(`EBAY__ORD-001__${goodImei}`);
 
     // Sale doc was written.
-    const sale = col('sales').get('EBAY__ORD-001');
+    const sale = col('sales').get(`EBAY__ORD-001__${goodImei}`);
     expect(sale).toBeDefined();
     expect(sale.marketplace).toBe('EBAY');
     expect(sale.orderNumber).toBe('ORD-001');
@@ -144,8 +144,8 @@ describe('recordSale', () => {
       salePrice: 250,
     });
     expect(r.ok).toBe(true);
-    expect(r.saleId).toBe('AMAZON__A-12345');
-    expect(col('sales').get('AMAZON__A-12345')).toBeDefined();
+    expect(r.saleId).toBe(`AMAZON__A-12345__${goodImei}`);
+    expect(col('sales').get(`AMAZON__A-12345__${goodImei}`)).toBeDefined();
   });
 
   it('rejects when orderNumber is empty / whitespace-only', async () => {
@@ -220,7 +220,7 @@ describe('recordSale', () => {
       hasPayPalKlarna: false,
     });
 
-    const sale = col('sales').get('AMAZON__A-FIN');
+    const sale = col('sales').get(`AMAZON__A-FIN__${goodImei}`);
     expect(sale.spMinusBp).toBe(expected.spMinusBp);
     expect(sale.marginalTax).toBe(expected.marginalTax);
     expect(sale.commission).toBe(expected.commission);

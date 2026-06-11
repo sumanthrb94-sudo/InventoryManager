@@ -46,9 +46,9 @@ describe('clientSeedData.json', () => {
       }
     });
 
-    it('every supplier has owner_id "shared" (multi-device sync)', () => {
+    it('every supplier has ownerId "shared" (multi-device sync)', () => {
       for (const s of rawSuppliers) {
-        expect(s.owner_id).toBe('shared');
+        expect(s.ownerId).toBe('shared');
       }
     });
   });
@@ -61,31 +61,34 @@ describe('clientSeedData.json', () => {
       }
     });
 
-    it('every unit has a status of available, sold, or incoming', () => {
-      const allowed = new Set(['available', 'sold', 'incoming']);
+    it('every unit has a status of available, sold, incoming, or returned', () => {
+      // 'returned' was added when the Returns lifecycle landed; supplier
+      // returns + repairs flip the status to 'returned' alongside
+      // returnType. The seed file mirrors live data shapes.
+      const allowed = new Set(['available', 'sold', 'incoming', 'returned']);
       for (const u of rawUnits) {
         expect(allowed.has(u.status)).toBe(true);
       }
     });
 
-    it('every unit has a positive buy_price (or null for SHS)', () => {
+    it('every unit has a positive buyPrice (or null for SHS)', () => {
       for (const u of rawUnits) {
-        if (u.buy_price !== null && u.buy_price !== undefined) {
-          expect(u.buy_price).toBeGreaterThanOrEqual(0);
+        if (u.buyPrice !== null && u.buyPrice !== undefined) {
+          expect(u.buyPrice).toBeGreaterThanOrEqual(0);
         }
       }
     });
 
-    it('every unit references a supplier_id that exists', () => {
+    it('every unit references a supplierId that exists', () => {
       const supplierIds = new Set(rawSuppliers.map(s => s.id));
       for (const u of rawUnits) {
-        expect(supplierIds.has(u.supplier_id)).toBe(true);
+        expect(supplierIds.has(u.supplierId)).toBe(true);
       }
     });
 
-    it('every unit has owner_id "shared"', () => {
+    it('every unit has ownerId "shared"', () => {
       for (const u of rawUnits) {
-        expect(u.owner_id).toBe('shared');
+        expect(u.ownerId).toBe('shared');
       }
     });
 
@@ -94,9 +97,9 @@ describe('clientSeedData.json', () => {
       expect(new Set(ids).size).toBe(ids.length);
     });
 
-    it('every unit has a date_in field formatted as ISO date', () => {
+    it('every unit has a dateIn field formatted as ISO date', () => {
       for (const u of rawUnits) {
-        expect(u.date_in).toMatch(/^\d{4}-\d{2}-\d{2}/);
+        expect(u.dateIn).toMatch(/^\d{4}-\d{2}-\d{2}/);
       }
     });
 
@@ -106,9 +109,9 @@ describe('clientSeedData.json', () => {
       }
     });
 
-    it('every unit has listing_sites as an array', () => {
+    it('every unit has listingSites as an array', () => {
       for (const u of rawUnits) {
-        expect(Array.isArray(u.listing_sites)).toBe(true);
+        expect(Array.isArray(u.listingSites)).toBe(true);
       }
     });
   });
@@ -156,7 +159,8 @@ describe('clientSeedData.json', () => {
       const available = rawUnits.filter(u => u.status === 'available').length;
       const incoming  = rawUnits.filter(u => u.status === 'incoming').length;
       const sold      = rawUnits.filter(u => u.status === 'sold').length;
-      expect(available + incoming + sold).toBe(rawUnits.length);
+      const returned  = rawUnits.filter(u => u.status === 'returned').length;
+      expect(available + incoming + sold + returned).toBe(rawUnits.length);
     });
 
     it('contains at least one available unit (otherwise UI would look broken)', () => {
