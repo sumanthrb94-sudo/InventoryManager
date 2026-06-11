@@ -100,8 +100,15 @@ export default function SellOrderModal({ unit, onClose, onSaved, isSHS = false }
   // ── Resolve effective postage ─────────────────────────────────────────────
   // Same dropdown drives every marketplace (incl. eBay) now — operator picks
   // one of POSTAGE_PRESETS, or types a value via "Other". When blank we fall
-  // back to the marketplace's default fee-table postage.
-  const defaultPostage = getMarketplaceFee(marketplace).postage;
+  // back to a UI-only autofill (£6.30 for AMAZON/BM/ONBUY where the operator's
+  // 10-Jun workbook ran 92-100% of rows at that rate; eBay keeps 0 because
+  // its tier picker lives elsewhere). The fee-table default is 0 by design
+  // so calcSaleFinancials stays master-aligned — autofilling here means the
+  // value flows through postageOverride, NOT through the math layer.
+  const UI_AUTOFILL_POSTAGE: Record<Marketplace, number> = {
+    AMAZON: 6.30, BM: 6.30, ONBUY: 6.30, EBAY: 0,
+  };
+  const defaultPostage = UI_AUTOFILL_POSTAGE[marketplace] || getMarketplaceFee(marketplace).postage;
   const effectivePostage =
     postageInput.trim() !== '' ? Number(postageInput) || defaultPostage
     : defaultPostage;

@@ -38,12 +38,14 @@ export const DEFAULT_MARKETPLACE_FEES: Record<Marketplace, MarketplaceFee> = {
     // Every Amazon line carries a VAT/DSF/accessory breakdown derived
     // from Commission, so changing the commission base shifts the whole
     // chain (C.VAT = Com×20%, DSF = Com×2%, DSF VAT = DSF×20%) in lock-step.
-    // Postage default £6.30 — derived from the client's master SALES_REPORT
-    // where 1,320 of 1,427 Amazon rows (92.5%) ship at £6.30. Operator
-    // can still override per-sale via postageOverride.
+    // Postage default 0 — operator-entered per sale. The 6.30 UI
+    // autofill lives in SellOrderModal, NOT here, so calcSaleFinancials
+    // stays master-aligned (the calcSaleFinancials.master tests assert
+    // £8 Amazon / £10 BM postage by spec; moving the default off 0
+    // poisoned every imported sale's GP / Total VAT NTP cascade).
     commissionPct: 7,
     commissionBase: 'sp',
-    postage: 6.30,
+    postage: 0,
     marginTaxDivisor: 6,
     vatPct: 20,
     dsfPct: 2,
@@ -55,10 +57,11 @@ export const DEFAULT_MARKETPLACE_FEES: Record<Marketplace, MarketplaceFee> = {
     // the legacy code), plus a flat Customer Care Fees line of £9.99 per
     // sale. No PayPal/Klarna commission any more — drop the field. No
     // separate Total VAT column either: BM's only VAT line is P. VAT,
-    // so totalVatNtp = MarTax − P. VAT directly. Postage default £6.30
-    // — 100% of BM rows in the client's master ship at this rate.
+    // so totalVatNtp = MarTax − P. VAT directly. Postage default 0 —
+    // operator-entered (see AMAZON comment above for why we don't
+    // pre-fill at the math layer).
     commissionPct: 11,
-    postage: 6.30,
+    postage: 0,
     marginTaxDivisor: 6,
     vatPct: 20,
     accessoryFee: 1,
@@ -85,11 +88,10 @@ export const DEFAULT_MARKETPLACE_FEES: Record<Marketplace, MarketplaceFee> = {
     marketplace: 'ONBUY',
     // 2026-05 operator schema: same per-line VAT shape as Amazon/eBay
     // (line VAT on Commission + Postage VAT + flat Accessories), but no
-    // FVF / ROF / Marketing / DSF lines. Postage default £6.30 — 100% of
-    // OnBuy rows in the client's master ship at this rate. GP% divides
-    // by BP (same convention as Amazon).
+    // FVF / ROF / Marketing / DSF lines. Postage default 0 —
+    // operator-entered, UI autofill lives in SellOrderModal.
     commissionPct: 7,
-    postage: 6.30,
+    postage: 0,
     marginTaxDivisor: 6,
     vatPct: 20,
     accessoryFee: 1,
