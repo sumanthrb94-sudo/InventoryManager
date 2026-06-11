@@ -205,6 +205,21 @@ export async function recordSale(input: RecordSaleInput): Promise<RecordSaleResu
       salePlatform: input.marketplace,
       saleOrderId: orderNumber,
       postageCost: fin.postage,
+      // Clear stale return state — this unit is starting a fresh sale
+      // cycle. Without these nulls the unit doc carries returnType /
+      // returnDate / returnOutcome from a previous return-then-resale,
+      // which then leaks into every downstream filter (Returns KPIs
+      // counting it twice, SellSheet allSold dropping it, loss sheet
+      // mis-attributing the old leg cost). Each *cycle's* historical
+      // loss is preserved on the corresponding Sale doc's voidedAt +
+      // voidOutcome, so wiping the unit-side fields here is non-
+      // destructive — the audit trail lives on the sales collection.
+      returnType: null,
+      returnDate: null,
+      returnReason: null,
+      returnOutcome: null,
+      returnLegCost: null,
+      returnComments: null,
     };
     if (input.sku && input.sku.trim() && input.sku.trim() !== (unit.sku || '')) {
       unitPatch.sku = input.sku.trim();
@@ -318,13 +333,19 @@ export function buildPostImportSyncPatches(
     }
 
     // Unit's sold-state fields. Same idempotency check — skip when
-    // already matching so re-imports don't churn updatedAt.
+    // already matching so re-imports don't churn updatedAt. Stale
+    // returnType also forces a patch even if the sale fields match,
+    // because letting the old return state ride forward into a new
+    // sale cycle leaks into every downstream surface (Returns count,
+    // SellSheet filter, loss sheet attribution).
+    const hasStaleReturn = !!u.returnType || !!u.returnDate;
     const needsUnitPatch =
       u.status !== 'sold'
       || u.salePrice !== s.salePrice
       || u.saleDate !== s.saleDate
       || u.salePlatform !== s.marketplace
-      || u.saleOrderId !== s.orderNumber;
+      || u.saleOrderId !== s.orderNumber
+      || hasStaleReturn;
     if (needsUnitPatch) {
       unitPatches.push({
         collection: 'inventoryUnits',
@@ -336,6 +357,15 @@ export function buildPostImportSyncPatches(
           salePlatform: s.marketplace,
           saleOrderId: s.orderNumber,
           postageCost: s.postage,
+          // Clear stale return fields on re-sale — historical cycle
+          // data lives on the voided Sale docs (voidedAt + voidOutcome
+          // per cycle) so wiping the unit-side copy is non-destructive.
+          returnType: null,
+          returnDate: null,
+          returnReason: null,
+          returnOutcome: null,
+          returnLegCost: null,
+          returnComments: null,
         },
       });
     }

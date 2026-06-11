@@ -974,45 +974,89 @@ function ReturnLossSection({
 
   type LossRow = {
     unit: InventoryUnit;
+    /** The voided sale this loss row corresponds to, when one exists.
+     *  Null only for legacy returns whose Sale doc was never voided. */
+    sale: Sale | null;
+    /** Per-cycle return date — voidedAt when sale-derived, falls back
+     *  to unit.returnDate for legacy rows. Drives sort + filename
+     *  scoping. */
+    cycleDate: string;
     outcome: 'refund' | 'replacement' | null;
     legCost: number;
     legs: number;
     loss: number;
   };
+
   const rows = useMemo<LossRow[]>(() => {
-    // Latest voided sale per unit — legacy fallback for legCost.
-    const voidedByUnit = new Map<string, Sale>();
-    for (const s of sales) {
-      if (!s.voidedAt || !s.unitId) continue;
-      const prev = voidedByUnit.get(s.unitId);
-      if (!prev || (s.voidedAt > (prev.voidedAt || ''))) voidedByUnit.set(s.unitId, s);
+    // Build one row PER return cycle (per voided Sale doc), not one
+    // row per unit. Multi-cycle units (sold → returned → resold →
+    // returned again) now show every cycle with its own outcome and
+    // leg cost; previously this section aggregated only the LATEST
+    // cycle, dropping prior losses from the ledger.
+    const unitById = new Map<string, InventoryUnit>();
+    const unitsByImei = new Map<string, InventoryUnit>();
+    for (const u of units) {
+      if (u.id) unitById.set(u.id, u);
+      const k = (u.imei || '').trim().toUpperCase();
+      if (k && !unitsByImei.has(k)) unitsByImei.set(k, u);
     }
-    return units
-      .filter(u => u.returnType && u.returnDate)
-      .map(u => {
-        let legCost = u.returnLegCost ?? 0;
-        if (!legCost) {
-          const s = voidedByUnit.get(u.id);
-          if (s) {
-            const postage = Number(s.postage) || 0;
-            const pVat = s.postageVatExempt ? 0 : (Number(s.postageVat) || postage * 0.2);
-            legCost = postage + pVat;
-          }
-        }
-        // Legacy rows have no outcome — assume refund (2 legs), the
-        // conservative floor: any completed return costs at least the
-        // outbound + inbound legs.
-        const outcome = u.returnOutcome ?? null;
-        const legs = outcome === 'replacement' ? 3 : 2;
-        return {
-          unit: u,
-          outcome,
-          legCost,
-          legs,
-          loss: legCost * legs,
-        };
-      })
-      .sort((a, b) => (b.unit.returnDate || '').localeCompare(a.unit.returnDate || ''));
+    const resolveUnit = (s: Sale): InventoryUnit | undefined => {
+      if (s.unitId) {
+        const u = unitById.get(s.unitId);
+        if (u) return u;
+      }
+      const k = (s.imei || '').trim().toUpperCase();
+      return k ? unitsByImei.get(k) : undefined;
+    };
+
+    const out: LossRow[] = [];
+    const unitsCoveredBySale = new Set<string>();
+
+    // 1) One row per voided Sale — accurate per-cycle accounting.
+    for (const s of sales) {
+      if (!s.voidedAt) continue;
+      const u = resolveUnit(s);
+      if (!u) continue;
+      const postage = Number(s.postage) || 0;
+      const pVat = s.postageVatExempt ? 0 : (Number(s.postageVat) || postage * 0.2);
+      const legCost = postage + pVat;
+      const outcome = (s.voidOutcome === 'replacement' ? 'replacement' : 'refund') as 'refund' | 'replacement';
+      const legs = outcome === 'replacement' ? 3 : 2;
+      out.push({
+        unit: u,
+        sale: s,
+        cycleDate: s.voidedAt,
+        outcome,
+        legCost,
+        legs,
+        loss: legCost * legs,
+      });
+      unitsCoveredBySale.add(u.id);
+    }
+
+    // 2) Legacy fallback — units with a return on file but NO voided
+    //    Sale doc to back it. These predate the Sale-side void wiring;
+    //    use the unit's own returnLegCost snapshot (or null when even
+    //    that's missing). One row per unit since per-cycle data
+    //    doesn't exist for them.
+    for (const u of units) {
+      if (!u.returnType || !u.returnDate) continue;
+      if (unitsCoveredBySale.has(u.id)) continue;
+      const legCost = u.returnLegCost ?? 0;
+      const outcome = u.returnOutcome ?? null;
+      const legs = outcome === 'replacement' ? 3 : 2;
+      out.push({
+        unit: u,
+        sale: null,
+        cycleDate: u.returnDate,
+        outcome,
+        legCost,
+        legs,
+        loss: legCost * legs,
+      });
+    }
+
+    return out.sort((a, b) => (b.cycleDate || '').localeCompare(a.cycleDate || ''));
   }, [units, sales]);
 
   const totalLoss = rows.reduce((t, r) => t + r.loss, 0);
@@ -1023,12 +1067,12 @@ function ReturnLossSection({
 
   const exportCsv = () => {
     downloadCsv(`return-losses-${todayStr()}.csv`, rows.map(r => ({
-      'Return Date':        r.unit.returnDate || '',
+      'Return Date':        r.cycleDate || '',
       'Model':              r.unit.model || '',
       'IMEI':               r.unit.imei || '',
       'Destination':        r.unit.returnType || '',
       'Outcome':            r.outcome || 'refund (assumed)',
-      'Reason':             r.unit.returnReason || '',
+      'Reason':             (r.sale?.voidReason) || r.unit.returnReason || '',
       'Comments':           r.unit.returnComments || '',
       'Leg Cost (£)':       r.legCost.toFixed(2),
       'Shipping Legs':      r.legs,
@@ -1085,7 +1129,7 @@ function ReturnLossSection({
                   return (
                     <tr key={r.unit.id} className={`${rowBg} hover:bg-rose-50/30 transition-colors`}>
                       <td className="px-3 py-1.5 border-b border-slate-100 text-slate-700">
-                        {fmtDateForUser(r.unit.returnDate || '', region) || r.unit.returnDate || '—'}
+                        {fmtDateForUser(r.cycleDate || '', region) || r.cycleDate || '—'}
                       </td>
                       <td className="px-3 py-1.5 border-b border-slate-100">
                         <span className="font-bold text-slate-900 truncate block max-w-[190px]" title={r.unit.model}>{r.unit.model || '—'}</span>
@@ -1108,8 +1152,8 @@ function ReturnLossSection({
                         {r.loss > 0 ? `−£${r.loss.toFixed(2)}` : <span className="text-slate-300">—</span>}
                       </td>
                       <td className="px-3 py-1.5 border-b border-slate-100 text-slate-500">
-                        <span className="truncate block max-w-[300px]" title={[r.unit.returnReason, r.unit.returnComments].filter(Boolean).join(' · ')}>
-                          {r.unit.returnReason || '—'}
+                        <span className="truncate block max-w-[300px]" title={[r.sale?.voidReason || r.unit.returnReason, r.unit.returnComments].filter(Boolean).join(' · ')}>
+                          {(r.sale?.voidReason) || r.unit.returnReason || '—'}
                           {r.unit.returnComments && <span className="text-slate-400"> · {r.unit.returnComments}</span>}
                         </span>
                       </td>
