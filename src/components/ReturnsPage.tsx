@@ -29,8 +29,9 @@ import {
   Search, ChevronDown, ChevronUp, ChevronsUpDown, MoreHorizontal,
   Filter, X, Download, AlertCircle, Plus, Info, Sparkles, Eye, TrendingDown,
   PackageCheck, ArrowUpRight, Wrench, ShieldAlert, ShieldCheck, CheckCircle2,
-  Truck, RefreshCw, RotateCcw,
+  Truck, RefreshCw, RotateCcw, FileSpreadsheet,
 } from 'lucide-react';
+import ReportRangeMenu from './ReportRangeMenu';
 import { AnimatePresence, motion } from 'motion/react';
 import { dbService } from '../lib/dbService';
 import { InventoryUnit, ReturnCategory, Sale } from '../types';
@@ -85,6 +86,10 @@ export default function ReturnsPage() {
   const [processingUnit, setProcessingUnit] = useState<InventoryUnit | null>(null);
   const [repairUnit, setRepairUnit] = useState<InventoryUnit | null>(null);
   const [readyShipUnit, setReadyShipUnit] = useState<InventoryUnit | null>(null);
+  /** Unit whose full lifecycle timeline is open (intake → sale cycles
+   *  → returns/replacements with comments). Set by clicking any card
+   *  in the Return Activity History or the Lifecycle sheet. */
+  const [historyUnit, setHistoryUnit] = useState<InventoryUnit | null>(null);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [showSchemaHelp, setShowSchemaHelp] = useState(false);
 
@@ -222,6 +227,18 @@ export default function ReturnsPage() {
     downloadCsv('returns.csv', rows);
   };
 
+  // Range-aware multi-sheet Returns Report (Summary + Returns Detail +
+  // Unit Histories). Range applies to the return date so the operator
+  // picks "This Month" to scope the loss ledger to that period; each
+  // included unit's full lifecycle ships in Sheet 3 regardless.
+  const handleReturnsReport = async (range: { from?: string; to?: string; label: string }) => {
+    const { downloadReturnsWorkbook } = await import('../lib/clientReport');
+    await downloadReturnsWorkbook({
+      units, sales, supplierMap,
+      opts: { from: range.from, to: range.to, today: new Date() },
+    });
+  };
+
   // ── Render ────────────────────────────────────────────────────────────────
   return (
     <div className="space-y-4">
@@ -250,6 +267,12 @@ export default function ReturnsPage() {
           >
             <Download size={12} /> Export CSV
           </button>
+          <ReportRangeMenu
+            label="Returns Report"
+            icon={<FileSpreadsheet size={12} />}
+            tone="emerald"
+            onDownload={handleReturnsReport}
+          />
         </div>
 
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
@@ -425,6 +448,7 @@ export default function ReturnsPage() {
         supplierMap={supplierMap}
         region={region}
         onReadyShip={u => setReadyShipUnit(u)}
+        onOpenHistory={u => setHistoryUnit(u)}
       />
 
       {/* ── KPI overlay modal ─────────────────────────────────────────────── */}
@@ -474,6 +498,15 @@ export default function ReturnsPage() {
             unit={readyShipUnit}
             onClose={() => setReadyShipUnit(null)}
             onSaved={() => setReadyShipUnit(null)}
+          />
+        )}
+        {historyUnit && (
+          <UnitHistoryModal
+            unit={historyUnit}
+            sales={sales}
+            supplierMap={supplierMap}
+            region={region}
+            onClose={() => setHistoryUnit(null)}
           />
         )}
       </AnimatePresence>
@@ -1091,16 +1124,15 @@ function ReturnLossSection({
 }
 
 function ReturnHistorySection({
-  units, everSoldUnitIds, supplierMap, region, onReadyShip,
+  units, everSoldUnitIds, supplierMap, region, onReadyShip, onOpenHistory,
 }: {
   units: InventoryUnit[];
-  /** Set of unitIds that have any Sale doc against them (active or voided).
-   *  Used to render the 'Sold' chip on the unit's journey even when the
-   *  sale fields on the unit doc were cleared during the return flow. */
   everSoldUnitIds: Set<string>;
   supplierMap: Record<string, string>;
   region: 'uk' | 'india' | 'admin' | 'both';
   onReadyShip: (u: InventoryUnit) => void;
+  /** Click any event card to open the unit's full lifecycle timeline. */
+  onOpenHistory: (u: InventoryUnit) => void;
 }) {
   // The most recent event per unit drives its position in the timeline.
   // repairedAt > returnDate so a flipped-back unit floats above an
@@ -1190,7 +1222,13 @@ function ReturnHistorySection({
                         — paint the card amber + dashed border so the
                         operator's eye can sweep the timeline and spot the
                         write-offs vs the back-to-stock wins. */}
-                    <div className={`flex-1 min-w-0 border rounded-xl px-3 py-2 transition-colors ${
+                    <div
+                      role="button"
+                      tabIndex={0}
+                      onClick={() => onOpenHistory(u)}
+                      onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onOpenHistory(u); } }}
+                      title="View full lifecycle timeline"
+                      className={`flex-1 min-w-0 border rounded-xl px-3 py-2 transition-colors cursor-pointer focus:outline-none focus:ring-2 focus:ring-slate-300 ${
                       isSupplierReturn
                         ? 'bg-amber-50/60 hover:bg-amber-100/60 border-amber-200 border-dashed'
                         : 'bg-slate-50/50 hover:bg-slate-100/60 border-slate-100'
@@ -1245,7 +1283,7 @@ function ReturnHistorySection({
                       {u.returnType === 'repair' && !wasRepaired && (
                         <div className="mt-2 flex justify-end">
                           <button
-                            onClick={() => onReadyShip(u)}
+                            onClick={e => { e.stopPropagation(); onReadyShip(u); }}
                             className="flex items-center gap-1 px-2 py-1 rounded-md text-[9px] font-bold uppercase tracking-widest bg-emerald-600 text-white hover:bg-emerald-700 transition-all"
                           >
                             <PackageCheck size={10} /> Mark Repaired · Back to Stock
@@ -1395,6 +1433,223 @@ function ReturnUnitPicker({
         </div>
       </motion.div>
     </div>
+  );
+}
+
+// ── UnitHistoryModal ─────────────────────────────────────────────────────────
+// Full lifecycle timeline for a single unit: intake → every sale → every
+// return/replacement → current status. Reconstructs cycles by joining the
+// unit to its Sale docs (by unitId first, then IMEI for imports that were
+// never back-linked). The cycle data lives on the Sale docs (voidedAt,
+// voidOutcome, voidReason) so multi-cycle units (sold → returned → sold →
+// returned again) show every cycle with its own outcome + reason +
+// postage loss.
+function UnitHistoryModal({
+  unit, sales, supplierMap, region, onClose,
+}: {
+  unit: InventoryUnit;
+  sales: Sale[];
+  supplierMap: Record<string, string>;
+  region: 'uk' | 'india' | 'admin' | 'both';
+  onClose: () => void;
+}) {
+  type Event =
+    | { kind: 'intake';  date: string; title: string; detail: string; amount?: number }
+    | { kind: 'sale';    date: string; title: string; detail: string; amount?: number; comments?: string }
+    | { kind: 'return';  date: string; title: string; detail: string; loss: number; reason?: string; comments?: string; outcome: 'refund' | 'replacement' }
+    | { kind: 'status';  date: string; title: string; detail: string };
+
+  const events = useMemo<Event[]>(() => {
+    const imeiKey = (unit.imei || '').trim().toUpperCase();
+    const linked = sales.filter(s =>
+      (unit.id && s.unitId === unit.id)
+      || (imeiKey && (s.imei || '').trim().toUpperCase() === imeiKey)
+    ).sort((a, b) => (a.saleDate || '').localeCompare(b.saleDate || ''));
+
+    const out: Event[] = [];
+
+    // 1) Stock In
+    const supplierName = supplierMap[unit.supplierId] || unit.supplierName || '—';
+    out.push({
+      kind: 'intake',
+      date: unit.dateIn || '',
+      title: 'Stock In',
+      detail: `${supplierName}${unit.batchId ? ` · batch ${unit.batchId}` : ''}`,
+      amount: unit.buyPrice,
+    });
+
+    // 2) Each Sale (and its void, if any)
+    for (const s of linked) {
+      out.push({
+        kind: 'sale',
+        date: s.saleDate || '',
+        title: 'Sold',
+        detail: `${s.marketplace}${s.orderNumber ? ` · ${s.orderNumber}` : ''}${s.sku ? ` · ${s.sku}` : ''}`,
+        amount: s.salePrice,
+        comments: s.comments,
+      });
+      if (s.voidedAt) {
+        const postage = Number(s.postage) || 0;
+        const pvat = s.postageVatExempt ? 0 : (Number(s.postageVat) || postage * 0.2);
+        const outcome = (s.voidOutcome === 'replacement' ? 'replacement' : 'refund') as 'refund' | 'replacement';
+        const legs = outcome === 'replacement' ? 3 : 2;
+        const loss = (postage + pvat) * legs;
+        out.push({
+          kind: 'return',
+          date: s.voidedAt,
+          title: outcome === 'replacement' ? 'Replacement' : 'Refund',
+          detail: `${legs} shipping legs × £${(postage + pvat).toFixed(2)}`,
+          loss,
+          reason: s.voidReason,
+          comments: undefined,
+          outcome,
+        });
+      }
+    }
+
+    // 3) Latest unit-side return — surfaces legacy returns that never wrote
+    //    voidedAt onto a Sale doc. Only added if no return event already
+    //    sits at the same date so we don't double-up.
+    if (unit.returnDate && unit.returnType) {
+      const alreadyShown = out.some(e => e.kind === 'return' && e.date === unit.returnDate);
+      if (!alreadyShown) {
+        const legCost = unit.returnLegCost ?? 0;
+        const outcome = (unit.returnOutcome === 'replacement' ? 'replacement' : 'refund') as 'refund' | 'replacement';
+        const legs = outcome === 'replacement' ? 3 : 2;
+        out.push({
+          kind: 'return',
+          date: unit.returnDate,
+          title: outcome === 'replacement' ? 'Replacement' : 'Refund',
+          detail: `${legs} shipping legs${legCost > 0 ? ` × £${legCost.toFixed(2)}` : ''}`,
+          loss: legCost * legs,
+          reason: unit.returnReason,
+          comments: unit.returnComments,
+          outcome,
+        });
+      } else {
+        // Attach unit-side comments to the matching Sale-side return row.
+        const idx = out.findIndex(e => e.kind === 'return' && e.date === unit.returnDate);
+        if (idx >= 0 && unit.returnComments) {
+          (out[idx] as Extract<Event, { kind: 'return' }>).comments = unit.returnComments;
+        }
+      }
+    }
+
+    // 4) Current status snapshot for at-a-glance
+    out.push({
+      kind: 'status',
+      date: '',
+      title: 'Current Status',
+      detail: unit.status === 'available' ? 'In stock · available'
+        : unit.status === 'sold' ? 'Sold (open Sale doc)'
+        : unit.status === 'incoming' ? 'SHS · awaiting delivery'
+        : unit.returnType === 'returned_to_inventory' ? 'Back in inventory'
+        : unit.returnType === 'repair' ? 'In repair'
+        : unit.returnType === 'returned_to_supplier' ? 'Returned to supplier (soft-deleted)'
+        : unit.status,
+    });
+
+    return out;
+  }, [unit, sales, supplierMap]);
+
+  const totalLoss = events.reduce((t, e) => t + (e.kind === 'return' ? e.loss : 0), 0);
+  const cycles = events.filter(e => e.kind === 'return').length;
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [onClose]);
+
+  return (
+    <motion.div
+      initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+      className="fixed inset-0 z-[60] flex items-end md:items-center justify-center bg-black/50 backdrop-blur-sm p-0 md:p-4"
+      onClick={onClose}
+    >
+      <motion.div
+        initial={{ y: 30, opacity: 0 }} animate={{ y: 0, opacity: 1 }}
+        exit={{ y: 30, opacity: 0 }} transition={{ type: 'spring', damping: 28, stiffness: 300 }}
+        onClick={e => e.stopPropagation()}
+        className="bg-white w-full md:max-w-2xl rounded-t-3xl md:rounded-3xl shadow-2xl flex flex-col overflow-hidden"
+        style={{ maxHeight: 'calc(100dvh - 24px)' }}
+      >
+        <div className="flex items-start justify-between gap-3 px-5 py-4 border-b border-slate-100 flex-shrink-0">
+          <div className="min-w-0">
+            <p className="text-[9px] font-mono uppercase tracking-widest text-slate-400">Unit Lifecycle</p>
+            <h3 className="text-sm font-bold tracking-tight truncate mt-0.5">{unit.model || '—'}</h3>
+            <p className="text-[10px] font-mono text-slate-500 mt-0.5 truncate">
+              {unit.imei || '(no IMEI)'}
+              {unit.storage ? ` · ${unit.storage}` : ''}
+              {unit.colour ? ` · ${unit.colour}` : ''}
+            </p>
+            <p className="text-[10px] font-mono text-slate-500 mt-1">
+              {cycles} return cycle{cycles === 1 ? '' : 's'}
+              {totalLoss > 0 && <> · <span className="text-rose-700 font-bold">−£{totalLoss.toFixed(2)} postage loss</span></>}
+            </p>
+          </div>
+          <button onClick={onClose} className="p-2 rounded-xl hover:bg-slate-100 text-slate-400 flex-shrink-0">
+            <X size={16} />
+          </button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto p-5 space-y-0">
+          <ol className="relative border-l-2 border-slate-200 ml-2 pl-5 space-y-4">
+            {events.map((e, i) => {
+              const dot =
+                e.kind === 'intake' ? 'bg-slate-700' :
+                e.kind === 'sale'   ? 'bg-emerald-500' :
+                e.kind === 'return' ? (e.outcome === 'replacement' ? 'bg-violet-500' : 'bg-rose-500') :
+                'bg-blue-500';
+              return (
+                <li key={i} className="relative">
+                  <span className={`absolute -left-[27px] top-1.5 w-3 h-3 rounded-full ring-2 ring-white ${dot}`} />
+                  <div className="flex items-baseline justify-between gap-3">
+                    <p className="text-[11px] font-bold uppercase tracking-widest text-slate-900">{e.title}</p>
+                    <p className="text-[10px] font-mono text-slate-500 flex-shrink-0">
+                      {e.date ? (fmtDateForUser(e.date, region) || e.date) : '—'}
+                    </p>
+                  </div>
+                  <p className="text-[11px] text-slate-700 mt-0.5">{e.detail}</p>
+                  {e.kind === 'sale' && e.amount != null && (
+                    <p className="text-[10px] font-mono text-emerald-700 font-bold mt-0.5">+£{e.amount.toFixed(2)}</p>
+                  )}
+                  {e.kind === 'intake' && e.amount != null && (
+                    <p className="text-[10px] font-mono text-slate-600 mt-0.5">BP £{e.amount.toFixed(2)}</p>
+                  )}
+                  {e.kind === 'return' && (
+                    <>
+                      {e.loss > 0 && (
+                        <p className="text-[10px] font-mono text-rose-700 font-bold mt-0.5">−£{e.loss.toFixed(2)} postage loss</p>
+                      )}
+                      {e.reason && (
+                        <p className="text-[10px] text-slate-600 mt-1 italic">"{e.reason}"</p>
+                      )}
+                      {e.comments && (
+                        <p className="text-[10px] text-slate-500 mt-0.5 bg-slate-50 border border-slate-200 rounded px-2 py-1">
+                          <span className="font-bold uppercase tracking-widest text-[9px] text-slate-400 mr-1">Note</span>
+                          {e.comments}
+                        </p>
+                      )}
+                    </>
+                  )}
+                </li>
+              );
+            })}
+          </ol>
+        </div>
+
+        <div className="px-5 py-3 border-t border-slate-100 bg-slate-50/60 flex-shrink-0 flex items-center justify-between gap-3">
+          <span className="text-[9px] font-mono uppercase tracking-widest text-slate-500">
+            ESC or tap outside to close
+          </span>
+          <button
+            onClick={onClose}
+            className="px-3 py-1.5 rounded-lg border border-slate-200 text-slate-600 text-[10px] font-bold uppercase tracking-widest hover:bg-white"
+          >Close</button>
+        </div>
+      </motion.div>
+    </motion.div>
   );
 }
 

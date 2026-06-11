@@ -760,3 +760,421 @@ export async function downloadSalesWorkbook(input: BuildSalesWorkbookInput): Pro
   const stamp = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}_${pad(now.getHours())}${pad(now.getMinutes())}`;
   triggerBrowserDownload(buf, `sales-report-${stamp}.xlsx`);
 }
+
+// ---------------------------------------------------------------------------
+// RETURNS workbook
+// ---------------------------------------------------------------------------
+
+export interface BuildReturnsWorkbookInput {
+  /** Every returned unit (and currently-in-stock units that have a sales
+   *  history). The caller filters down to what's relevant — typically
+   *  every unit with `returnType` set plus anything that's been sold. */
+  units: InventoryUnit[];
+  /** ALL sales — needed to reconstruct each unit's sale cycles for the
+   *  Unit Histories sheet. We index by unitId and IMEI. */
+  sales: Sale[];
+  /** Resolves supplierId → supplier name. Falls back to the unit's
+   *  stored supplierName when no map entry matches. */
+  supplierMap?: Record<string, string>;
+  /** from/to filter applied to RETURN dates on Sheet 2 + drives the
+   *  period label on Sheet 1. Sheet 3 (unit histories) always shows
+   *  the full timeline for whichever units land in the report. */
+  opts?: ClientReportOptions;
+}
+
+/** Human-readable label for the unit's return type — same wording the
+ *  Returns page uses on the KPI tiles and overlay headers. */
+function returnTypeLabel(rt: InventoryUnit['returnType']): string {
+  switch (rt) {
+    case 'returned_to_inventory': return 'Back to Inventory';
+    case 'repair':                return 'In Repair';
+    case 'returned_to_supplier':  return 'To Supplier';
+    default:                      return '';
+  }
+}
+
+/** Default outcome when the unit doc doesn't carry one (legacy rows
+ *  processed before outcome tracking landed). Conservative floor:
+ *  refund = 2 shipping legs. */
+function outcomeFor(u: InventoryUnit): 'refund' | 'replacement' {
+  return u.returnOutcome ?? 'refund';
+}
+
+/** Postage-leg cost in £ for a return: the operator's snapshot first,
+ *  otherwise derived from the linked voided Sale's (postage + P.VAT).
+ *  Returns 0 when neither source is available. */
+function legCostFor(u: InventoryUnit, linkedVoidedSale: Sale | undefined): number {
+  if (typeof u.returnLegCost === 'number' && u.returnLegCost > 0) return u.returnLegCost;
+  if (linkedVoidedSale) {
+    const postage = Number(linkedVoidedSale.postage) || 0;
+    const pVat = linkedVoidedSale.postageVatExempt
+      ? 0
+      : (Number(linkedVoidedSale.postageVat) || postage * 0.2);
+    return postage + pVat;
+  }
+  return 0;
+}
+
+/** Total postage loss in £ for a unit: leg cost × number of shipping legs
+ *  (refund = 2, replacement = 3). Mirrors `postageLossFor` for sales but
+ *  reads off the unit-side fields with the voided-sale fallback baked in. */
+function unitPostageLoss(u: InventoryUnit, linkedVoidedSale: Sale | undefined): number {
+  const leg = legCostFor(u, linkedVoidedSale);
+  if (leg <= 0) return 0;
+  const legs = outcomeFor(u) === 'replacement' ? 3 : 2;
+  return leg * legs;
+}
+
+/** Period label for the Summary sheet — matches the ReportRangeMenu
+ *  conventions ("All Time", "Day · 2026-01-15", "Custom · 2026-01-01 → 2026-01-31"). */
+function periodLabel(opts?: ClientReportOptions): string {
+  if (!opts || (!opts.from && !opts.to)) return 'All Time';
+  if (opts.from && opts.to && opts.from === opts.to) return `Day · ${opts.from}`;
+  if (opts.from && opts.to) return `${opts.from} → ${opts.to}`;
+  if (opts.from) return `From ${opts.from}`;
+  if (opts.to) return `Through ${opts.to}`;
+  return 'All Time';
+}
+
+export async function buildReturnsWorkbookBuffer(input: BuildReturnsWorkbookInput): Promise<ArrayBuffer> {
+  const { units, sales, supplierMap, opts } = input;
+
+  // Index sales for the unit ↔ sale match — unitId first, then IMEI
+  // (uppercased + trimmed) so legacy imports that never back-linked the
+  // sale doc still match. Mirrors the lookup convention used in
+  // buildSalesWorkbookBuffer above.
+  const salesByUnitId = new Map<string, Sale[]>();
+  const salesByImei = new Map<string, Sale[]>();
+  for (const s of sales) {
+    if (s.unitId) {
+      const arr = salesByUnitId.get(s.unitId) ?? [];
+      arr.push(s);
+      salesByUnitId.set(s.unitId, arr);
+    }
+    const k = (s.imei || '').trim().toUpperCase();
+    if (k) {
+      const arr = salesByImei.get(k) ?? [];
+      arr.push(s);
+      salesByImei.set(k, arr);
+    }
+  }
+
+  /** All sales linked to a given unit — dedup'd across both indexes. */
+  const salesForUnit = (u: InventoryUnit): Sale[] => {
+    const byId = salesByUnitId.get(u.id) ?? [];
+    const k = (u.imei || '').trim().toUpperCase();
+    const byImei = k ? (salesByImei.get(k) ?? []) : [];
+    if (byId.length === 0) return byImei;
+    if (byImei.length === 0) return byId;
+    const seen = new Set<string>();
+    const merged: Sale[] = [];
+    for (const s of [...byId, ...byImei]) {
+      if (seen.has(s.id)) continue;
+      seen.add(s.id);
+      merged.push(s);
+    }
+    return merged;
+  };
+
+  /** Most recent voided sale linked to this unit. Used for Sheet 2's
+   *  "Original Sale Date / Sale Price / Marketplace" columns. */
+  const latestVoidedSale = (u: InventoryUnit): Sale | undefined => {
+    let best: Sale | undefined;
+    for (const s of salesForUnit(u)) {
+      if (!s.voidedAt) continue;
+      if (!best || (s.voidedAt > (best.voidedAt || ''))) best = s;
+    }
+    return best;
+  };
+
+  const resolveSupplier = (u: InventoryUnit): string =>
+    (u.supplierId && supplierMap?.[u.supplierId])
+    || u.supplierName
+    || '';
+
+  const wb = new ExcelJS.Workbook();
+
+  // -------- Sheet 1: Summary --------
+  // Units with a return on file (returnDate set) that fall in the range.
+  // The Summary headline figures come from this same subset so Sheet 1
+  // and Sheet 2 stay in lock-step.
+  const from = opts?.from ?? '0000-01-01';
+  const to   = opts?.to   ?? '9999-12-31';
+  const returnedInRange = units.filter(u =>
+    u.returnType && u.returnDate && u.returnDate >= from && u.returnDate <= to,
+  );
+
+  let refundsCount = 0;
+  let replacementsCount = 0;
+  let totalLoss = 0;
+  const lossByMarketplace = new Map<string, { count: number; loss: number }>();
+  for (const u of returnedInRange) {
+    const voided = latestVoidedSale(u);
+    const loss = unitPostageLoss(u, voided);
+    totalLoss += loss;
+    if (outcomeFor(u) === 'replacement') replacementsCount++;
+    else refundsCount++;
+    const mp = voided?.marketplace || '—';
+    const cur = lossByMarketplace.get(mp) ?? { count: 0, loss: 0 };
+    cur.count++;
+    cur.loss += loss;
+    lossByMarketplace.set(mp, cur);
+  }
+  const totalReturns = returnedInRange.length;
+  const avgLoss = totalReturns > 0 ? totalLoss / totalReturns : 0;
+
+  const summary = wb.addWorksheet('Summary');
+  summary.columns = [{ width: 28 }, { width: 24 }];
+  const writeSummaryRow = (label: string, value: string | number, isMoney = false): void => {
+    const row = summary.addRow([label, value]);
+    row.getCell(1).font = { bold: true };
+    if (isMoney && typeof value === 'number') row.getCell(2).numFmt = MONEY_FMT;
+  };
+  writeSummaryRow('Period', periodLabel(opts));
+  writeSummaryRow('Total Returns', totalReturns);
+  writeSummaryRow('Refunds', refundsCount);
+  writeSummaryRow('Replacements', replacementsCount);
+  writeSummaryRow('Total Postage Loss £', Number(totalLoss.toFixed(2)), true);
+  writeSummaryRow('Avg Loss per Return £', Number(avgLoss.toFixed(2)), true);
+  // Marketplace breakdown — section header + one row per marketplace.
+  // Sorted by loss desc so the most expensive surface floats to the top.
+  if (lossByMarketplace.size > 0) {
+    summary.addRow([]);
+    const header = summary.addRow(['By Marketplace', 'Returns · Loss £']);
+    header.getCell(1).font = { bold: true };
+    header.getCell(2).font = { bold: true };
+    const sortedMp = Array.from(lossByMarketplace.entries())
+      .sort((a, b) => b[1].loss - a[1].loss);
+    for (const [mp, agg] of sortedMp) {
+      const row = summary.addRow([mp, `${agg.count} · £${agg.loss.toFixed(2)}`]);
+      row.getCell(1).font = { bold: true };
+    }
+  }
+
+  // -------- Sheet 2: Returns Detail --------
+  const detail = wb.addWorksheet('Returns Detail');
+  const DETAIL_HEADERS = [
+    'Return Date', 'Unit IMEI', 'Model', 'Storage', 'Colour', 'Supplier',
+    'Original Sale Date', 'Original Sale Price', 'Marketplace',
+    'Return Type', 'Outcome', 'Reason', 'Comments',
+    'Leg Cost £', 'Shipping Legs', 'Postage Loss £',
+  ];
+  detail.addRow(DETAIL_HEADERS);
+
+  // Sort by Return Date desc — newest first, matches the in-app default.
+  const detailSorted = [...returnedInRange].sort(
+    (a, b) => (b.returnDate || '').localeCompare(a.returnDate || ''),
+  );
+
+  for (const u of detailSorted) {
+    const voided = latestVoidedSale(u);
+    const outcome = outcomeFor(u);
+    const legs = outcome === 'replacement' ? 3 : 2;
+    const leg = legCostFor(u, voided);
+    const loss = leg > 0 ? leg * legs : 0;
+
+    const row = detail.addRow([
+      toDate(u.returnDate),
+      u.imei || '',
+      u.model || '',
+      u.storage || '',
+      u.colour || '',
+      resolveSupplier(u),
+      voided?.saleDate ? toDate(voided.saleDate) : null,
+      voided?.salePrice ?? null,
+      voided?.marketplace ?? '',
+      returnTypeLabel(u.returnType),
+      outcome === 'replacement' ? 'Replacement' : 'Refund',
+      u.returnReason || '',
+      u.returnComments || '',
+      leg > 0 ? leg : null,
+      legs,
+      loss > 0 ? loss : null,
+    ]);
+    row.getCell(1).numFmt = DATE_FMT;     // Return Date
+    row.getCell(2).numFmt = IMEI_FMT;     // IMEI
+    row.getCell(7).numFmt = DATE_FMT;     // Original Sale Date
+    row.getCell(8).numFmt = MONEY_FMT;    // Sale Price
+    row.getCell(14).numFmt = MONEY_FMT;   // Leg Cost £
+    row.getCell(16).numFmt = MONEY_FMT;   // Postage Loss £
+
+    // Voided / returned rows get the same rose fill the Sales workbook
+    // uses on every voided line — operator's eye picks them out at a
+    // glance. Applied across every cell so the fill covers the row.
+    for (let col = 1; col <= DETAIL_HEADERS.length; col++) {
+      row.getCell(col).fill = RETURNED_FILL;
+    }
+  }
+
+  // -------- Sheet 3: Unit Histories --------
+  // One row per lifecycle event, grouped visually by sorting on Unit
+  // IMEI then event date. Range filter does NOT apply here — once a
+  // unit's in the report, its complete timeline ships.
+  const histories = wb.addWorksheet('Unit Histories');
+  const HISTORY_HEADERS = [
+    'Unit IMEI', 'Model', 'Event Date', 'Event', 'Detail', 'Amount £', 'Comments',
+  ];
+  histories.addRow(HISTORY_HEADERS);
+
+  type HistRow = {
+    imei: string;
+    model: string;
+    eventDate: string;
+    event: 'STOCK IN' | 'SOLD' | 'RETURNED' | 'STATUS';
+    detail: string;
+    amount: number | null;
+    comments: string;
+  };
+
+  // Same universe as Sheet 2 — only units with a return on file. The
+  // sales-cycle history we emit below covers all linked sales, even
+  // ones that fell outside the range filter.
+  const historyUnits = units.filter(u => u.returnType && u.returnDate);
+
+  const allEvents: HistRow[] = [];
+  for (const u of historyUnits) {
+    const imei = u.imei || '';
+    const model = u.model || '';
+    const supplier = resolveSupplier(u);
+
+    // STOCK IN — anchored to dateIn.
+    allEvents.push({
+      imei, model,
+      eventDate: u.dateIn || '',
+      event: 'STOCK IN',
+      detail: supplier,
+      amount: typeof u.buyPrice === 'number' ? u.buyPrice : null,
+      comments: '',
+    });
+
+    // Per-sale events. Sort linked sales by date asc so a unit's
+    // sell→return→re-sell cycles read top-to-bottom in chronological
+    // order under each IMEI group.
+    const linked = salesForUnit(u)
+      .slice()
+      .sort((a, b) => (a.saleDate || '').localeCompare(b.saleDate || ''));
+
+    // Latest voided sale id — used to scope the unit-level
+    // returnComments to one row (the most-recent return) so we don't
+    // smear the same comment across older cycles.
+    const latestVoid = latestVoidedSale(u);
+    const latestVoidId = latestVoid?.id;
+
+    let matchedLatestReturnFromSale = false;
+    for (const s of linked) {
+      allEvents.push({
+        imei, model,
+        eventDate: s.saleDate || '',
+        event: 'SOLD',
+        detail: `${s.marketplace} · ${s.orderNumber || ''}`.replace(/ · $/, ''),
+        amount: typeof s.salePrice === 'number' ? s.salePrice : null,
+        comments: s.comments || '',
+      });
+      if (s.voidedAt) {
+        const out = (s.voidOutcome ?? outcomeFor(u));
+        const postage = Number(s.postage) || 0;
+        const pVat = s.postageVatExempt ? 0 : (Number(s.postageVat) || postage * 0.2);
+        const legs = out === 'replacement' ? 3 : 2;
+        const loss = (postage + pVat) * legs;
+        const reason = s.voidReason || u.returnReason || '';
+        const detailParts = [out === 'replacement' ? 'Replacement' : 'Refund', reason].filter(Boolean);
+        allEvents.push({
+          imei, model,
+          eventDate: s.voidedAt,
+          event: 'RETURNED',
+          detail: detailParts.join(' · '),
+          amount: loss > 0 ? -loss : null,
+          // Only the most-recent return row carries the unit-level
+          // returnComments (avoids duplicating the same comment across
+          // every cycle in this unit's history).
+          comments: s.id === latestVoidId ? (u.returnComments || '') : '',
+        });
+        if (s.id === latestVoidId) matchedLatestReturnFromSale = true;
+      }
+    }
+
+    // Legacy fallback — return on the unit doc but no matching voided
+    // Sale surfaced above for the latest cycle. Surface a RETURNED row
+    // from the unit-side fields so legacy returns still appear.
+    if (u.returnType && !matchedLatestReturnFromSale) {
+      const out = outcomeFor(u);
+      const leg = legCostFor(u, undefined);
+      const legs = out === 'replacement' ? 3 : 2;
+      const loss = leg > 0 ? leg * legs : 0;
+      const reason = u.returnReason || '';
+      const detailParts = [out === 'replacement' ? 'Replacement' : 'Refund', reason].filter(Boolean);
+      allEvents.push({
+        imei, model,
+        eventDate: u.returnDate || '',
+        event: 'RETURNED',
+        detail: detailParts.join(' · '),
+        amount: loss > 0 ? -loss : null,
+        comments: u.returnComments || '',
+      });
+    }
+
+    // STATUS — only emitted while the unit is still in the returns flow
+    // (i.e. status === 'returned'). Acts as a "current state" anchor at
+    // the tail of the unit's timeline.
+    if (u.status === 'returned') {
+      allEvents.push({
+        imei, model,
+        eventDate: u.returnDate || '',
+        event: 'STATUS',
+        detail: returnTypeLabel(u.returnType),
+        amount: null,
+        comments: '',
+      });
+    }
+  }
+
+  // Group visually by IMEI, then chronological within each unit's block.
+  // STATUS rows always sit at the tail of their unit's block.
+  const eventOrder: Record<HistRow['event'], number> = {
+    'STOCK IN': 0,
+    'SOLD':     1,
+    'RETURNED': 2,
+    'STATUS':   3,
+  };
+  allEvents.sort((a, b) => {
+    if (a.imei !== b.imei) return a.imei.localeCompare(b.imei);
+    if (a.eventDate !== b.eventDate) return a.eventDate.localeCompare(b.eventDate);
+    return eventOrder[a.event] - eventOrder[b.event];
+  });
+
+  for (const e of allEvents) {
+    const row = histories.addRow([
+      e.imei,
+      e.model,
+      e.eventDate ? toDate(e.eventDate) : null,
+      e.event,
+      e.detail,
+      e.amount,
+      e.comments,
+    ]);
+    row.getCell(1).numFmt = IMEI_FMT;
+    row.getCell(3).numFmt = DATE_FMT;
+    row.getCell(6).numFmt = MONEY_FMT;
+    if (e.event === 'RETURNED') {
+      for (let col = 1; col <= HISTORY_HEADERS.length; col++) {
+        row.getCell(col).fill = RETURNED_FILL;
+      }
+    }
+  }
+
+  return wb.xlsx.writeBuffer() as Promise<ArrayBuffer>;
+}
+
+/**
+ * Download the RETURNS report workbook (Summary + Returns Detail +
+ * Unit Histories). Used by the Returns-screen "Returns Report" button.
+ * Filename carries YYYY-MM-DD_HHMM so multiple pulls per day sort
+ * chronologically — matches downloadSalesWorkbook's convention.
+ */
+export async function downloadReturnsWorkbook(input: BuildReturnsWorkbookInput): Promise<void> {
+  const buf = await buildReturnsWorkbookBuffer(input);
+  const now = new Date();
+  const pad = (n: number) => String(n).padStart(2, '0');
+  const stamp = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}_${pad(now.getHours())}${pad(now.getMinutes())}`;
+  triggerBrowserDownload(buf, `returns-report-${stamp}.xlsx`);
+}
