@@ -2,8 +2,9 @@
 import jsPDF from 'jspdf';
 // @ts-ignore
 import autoTable from 'jspdf-autotable';
-import { InventoryUnit, Supplier } from '../types';
+import { InventoryUnit, Sale, Supplier, Marketplace } from '../types';
 import { calcSaleFinancials, marketplaceFromListingSite } from './platforms';
+import { recomputeSale } from './recomputeSale';
 
 // User-facing platform labels (eBay/Amazon/OnBuy/Backmarket) preserved for the
 // PDF's platform-breakdown section. Numbers are computed via calcSaleFinancials
@@ -1003,4 +1004,294 @@ export function generateDailyIntakeReport(
   }
 
   doc.save(`MOBILEPHONEMARKET-Daily-Intake-${reportDay}.pdf`);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Daily Sales report — operator-facing PDF
+// ─────────────────────────────────────────────────────────────────────────────
+// Mirror of generateDailyIntakeReport but for the sell side. Answers
+// "what sold today?" — totals, per-marketplace split, per-SKU split,
+// per-supplier split (which supplier the sold IMEIs originally came
+// from), plus the full per-sale table. Reads from the Sale collection
+// (the source of truth for marketplace fees & GP per
+// the per-marketplace recomputeSale math), joining each Sale to its
+// InventoryUnit by unitId / IMEI so the buy-side context (model /
+// colour / storage / grade) flows through.
+
+const MARKETPLACE_COLOURS: Record<Marketplace, [number, number, number]> = {
+  AMAZON: [251, 146, 60],   // orange-400
+  BM:     [16, 185, 129],   // emerald-500
+  EBAY:   [250, 204, 21],   // yellow-400
+  ONBUY:  [59, 130, 246],   // blue-500
+};
+
+function isSaleOnDay(s: Sale, dayIso: string): boolean {
+  return (s.saleDate || '').slice(0, 10) === dayIso;
+}
+
+export function generateDailySalesReport(
+  sales: Sale[],
+  units: InventoryUnit[],
+  suppliers: Supplier[],
+  /** Day to report on — defaults to today (YYYY-MM-DD). Exposed for the rare
+   *  case of regenerating yesterday's report. */
+  dayIso?: string,
+) {
+  const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+
+  const today = new Date();
+  const reportDay = dayIso || today.toISOString().split('T')[0];
+  const dayDate = new Date(reportDay + 'T00:00:00Z');
+  const dayLabel = dayDate.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+
+  const supplierMap: Record<string, string> = {};
+  for (const s of suppliers) supplierMap[s.id] = s.name;
+
+  // Pre-index units twice for the buy-side join below — preferred by
+  // unitId (explicit linkage), fallback by IMEI for imported sales
+  // whose unitId is still empty.
+  const unitsById = new Map<string, InventoryUnit>();
+  const unitsByImei = new Map<string, InventoryUnit>();
+  for (const u of units) {
+    if (u.id) unitsById.set(u.id, u);
+    const k = (u.imei || '').trim().toUpperCase();
+    if (k && !unitsByImei.has(k)) unitsByImei.set(k, u);
+  }
+  const linkedUnit = (s: Sale): InventoryUnit | undefined => {
+    if (s.unitId) { const u = unitsById.get(s.unitId); if (u) return u; }
+    const k = (s.imei || '').trim().toUpperCase();
+    return k ? unitsByImei.get(k) : undefined;
+  };
+
+  // Day-scoped, non-voided slice. Voided sales stay in the audit log
+  // but never inflate today's revenue / GP totals.
+  const daySales = sales.filter(s => !s.voidedAt && isSaleOnDay(s, reportDay));
+  const revenue = daySales.reduce((t, s) => t + (s.salePrice || 0), 0);
+  // GP via the same recomputeSale path the sales overlays use so the
+  // PDF totals match what the operator sees on screen.
+  const gp = daySales.reduce((t, s) => t + (recomputeSale(s).grossProfit || 0), 0);
+  const gpPct = revenue > 0 ? (gp / revenue) * 100 : 0;
+  const avgSp = daySales.length > 0 ? revenue / daySales.length : 0;
+
+  // ── Roll-ups ────────────────────────────────────────────────────────────────
+  type Row = { key: string; label: string; count: number; revenue: number; gp: number };
+
+  const mpAgg = new Map<Marketplace, Row>();
+  for (const s of daySales) {
+    const row = mpAgg.get(s.marketplace) ?? { key: s.marketplace, label: s.marketplace, count: 0, revenue: 0, gp: 0 };
+    row.count++;
+    row.revenue += s.salePrice || 0;
+    row.gp += recomputeSale(s).grossProfit || 0;
+    mpAgg.set(s.marketplace, row);
+  }
+  const mpRows = Array.from(mpAgg.values()).sort((a, b) => b.revenue - a.revenue);
+
+  const modelAgg = new Map<string, Row & { storage?: string }>();
+  for (const s of daySales) {
+    const u = linkedUnit(s);
+    const label = u
+      ? [(u.model || '').trim() || s.sku || 'Unknown', u.storage || ''].filter(Boolean).join(' · ')
+      : (s.sku || 'Unknown SKU');
+    const key = label.toLowerCase();
+    const row = modelAgg.get(key) ?? { key, label, storage: u?.storage, count: 0, revenue: 0, gp: 0 };
+    row.count++;
+    row.revenue += s.salePrice || 0;
+    row.gp += recomputeSale(s).grossProfit || 0;
+    modelAgg.set(key, row);
+  }
+  const modelRows = Array.from(modelAgg.values()).sort((a, b) => b.count - a.count);
+
+  const supplierAgg = new Map<string, Row>();
+  for (const s of daySales) {
+    const u = linkedUnit(s);
+    const id = (s.supplierId || u?.supplierId || '__unknown__');
+    const name = supplierMap[id] || s.supplierName || u?.supplierName || 'Unknown';
+    const row = supplierAgg.get(id) ?? { key: id, label: name, count: 0, revenue: 0, gp: 0 };
+    row.count++;
+    row.revenue += s.salePrice || 0;
+    row.gp += recomputeSale(s).grossProfit || 0;
+    supplierAgg.set(id, row);
+  }
+  const supplierRows = Array.from(supplierAgg.values()).sort((a, b) => b.count - a.count);
+
+  // ════════════════════════════════════════════════════════════════════════════
+  // PAGE 1 — COVER
+  // ════════════════════════════════════════════════════════════════════════════
+  fillRect(doc, 0, 0, PW, PH, C.gray900);
+  fillRect(doc, 0, 0, PW, 3, C.blue);
+
+  label(doc, 'MOBILEPHONEMARKET', ML, 28, 22, C.white, true);
+  label(doc, 'DAILY SALES REPORT', ML, 37, 10, C.gray400);
+
+  setStroke(doc, C.gray700);
+  doc.setLineWidth(0.3);
+  doc.line(ML, 43, PW - MR, 43);
+
+  label(doc, dayLabel, ML, 51, 8, C.gray500);
+  label(doc, `${daySales.length.toLocaleString()} sale${daySales.length === 1 ? '' : 's'} recorded`, ML, 57, 7, C.gray600);
+
+  // 4 KPI boxes (2×2)
+  const KW = 84, KH = 36, KGX = 10, KGY = 9, KY0 = 68;
+  [
+    { lbl: 'Units Sold',  val: daySales.length.toLocaleString(),                    sub: `${mpRows.length} channel${mpRows.length === 1 ? '' : 's'}`,                accent: C.blue    },
+    { lbl: 'Revenue',     val: `£${Math.round(revenue).toLocaleString()}`,           sub: `Avg £${avgSp.toFixed(2)} per sale`,                                       accent: C.emerald },
+    { lbl: 'Gross Profit',val: `£${Math.round(gp).toLocaleString()}`,                sub: `${gpPct.toFixed(1)}% margin`,                                             accent: C.purple  },
+    { lbl: 'Suppliers',   val: supplierRows.length.toLocaleString(),                 sub: `${modelRows.length} distinct SKU${modelRows.length === 1 ? '' : 's'}`,   accent: C.amber   },
+  ].forEach((k, i) => {
+    kpiBox(doc, ML + (i % 2) * (KW + KGX), KY0 + Math.floor(i / 2) * (KH + KGY), KW, KH, k.lbl, k.val, k.sub, k.accent);
+  });
+
+  const legY = 166;
+  setStroke(doc, C.gray700);
+  doc.setLineWidth(0.3);
+  doc.line(ML, legY, PW - MR, legY);
+  label(doc, 'REPORT CONTENTS', ML, legY + 7, 7, C.gray500, true);
+  [
+    'Sales Summary       ·   KPIs · Channel and SKU breakdowns',
+    'Supplier Split      ·   Which supplier the day’s sales sourced from',
+    'Detailed Sales Log  ·   Every sale · Order# · IMEI · marketplace · SP · GP',
+  ].forEach((s, i) => {
+    setFill(doc, C.blue);
+    doc.circle(ML + 1.5, legY + 15 + i * 7.5 - 1, 1, 'F');
+    label(doc, s, ML + 5, legY + 15 + i * 7.5, 7.5, C.gray300);
+  });
+
+  fillRect(doc, 0, PH - 13, PW, 13, C.black);
+  label(doc, 'CONFIDENTIAL · INTERNAL USE ONLY · MOBILEPHONEMARKET INVENTORY MANAGER', PW / 2, PH - 5, 6.5, C.gray600, false, 'center');
+
+  // ════════════════════════════════════════════════════════════════════════════
+  // PAGE 2 — VISUAL BREAKDOWN
+  // ════════════════════════════════════════════════════════════════════════════
+  doc.addPage();
+  fillRect(doc, 0, 0, PW, PH, C.white);
+  let y = sectionHeader(doc, 'SALES BREAKDOWN', `Channel · SKU · Supplier · ${dayLabel}`, 14);
+
+  if (daySales.length === 0) {
+    label(doc, 'No sales recorded on this date.', ML, y + 10, 10, C.gray500);
+    label(doc, 'When sales are recorded, this page lists the channel, SKU and supplier breakdowns', ML, y + 18, 7.5, C.gray400);
+    label(doc, 'with bar charts and the day’s revenue and GP totals.', ML, y + 24, 7.5, C.gray400);
+  } else {
+    // ── Channel breakdown ──
+    label(doc, 'BY MARKETPLACE', ML, y, 7.5, C.gray700, true);
+    label(doc, `${mpRows.length} channel${mpRows.length === 1 ? '' : 's'}`, PW - MR, y, 7, C.gray500, false, 'right');
+    y += 6;
+    const maxMpRev = Math.max(...mpRows.map(r => r.revenue), 1);
+    for (const r of mpRows) {
+      const tint = MARKETPLACE_COLOURS[r.key as Marketplace] || C.blue;
+      hBar(doc, r.label,
+        `${r.count} sold · £${Math.round(r.revenue).toLocaleString()} · GP £${Math.round(r.gp).toLocaleString()}`,
+        r.revenue / maxMpRev, ML, y, CW, 6, tint, 56);
+      y += 8.5;
+    }
+
+    setStroke(doc, C.gray100);
+    doc.setLineWidth(0.3);
+    y += 3;
+    doc.line(ML, y, PW - MR, y);
+    y += 7;
+
+    // ── SKU breakdown ──
+    label(doc, 'TOP SKUs', ML, y, 7.5, C.gray700, true);
+    label(doc, `${modelRows.length} SKU${modelRows.length === 1 ? '' : 's'}`, PW - MR, y, 7, C.gray500, false, 'right');
+    y += 6;
+    const maxModelCount = Math.max(...modelRows.map(r => r.count), 1);
+    const topModels = modelRows.slice(0, 8);
+    for (const r of topModels) {
+      const labelTxt = r.label.length > 28 ? r.label.slice(0, 28) + '…' : r.label;
+      hBar(doc, labelTxt,
+        `${r.count} · £${Math.round(r.revenue).toLocaleString()}`,
+        r.count / maxModelCount, ML, y, CW, 6, C.emerald, 66);
+      y += 8.5;
+    }
+    if (modelRows.length > 8) {
+      label(doc, `+ ${modelRows.length - 8} more in the table on page 3`, ML, y + 1, 6.5, C.gray400);
+      y += 5;
+    }
+
+    setStroke(doc, C.gray100);
+    doc.setLineWidth(0.3);
+    y += 3;
+    doc.line(ML, y, PW - MR, y);
+    y += 7;
+
+    // ── Supplier breakdown ──
+    label(doc, 'BY SUPPLIER (SOURCE)', ML, y, 7.5, C.gray700, true);
+    label(doc, `${supplierRows.length} supplier${supplierRows.length === 1 ? '' : 's'}`, PW - MR, y, 7, C.gray500, false, 'right');
+    y += 6;
+    const maxSupCount = Math.max(...supplierRows.map(r => r.count), 1);
+    for (const r of supplierRows.slice(0, 6)) {
+      hBar(doc, r.label.length > 22 ? r.label.slice(0, 22) : r.label,
+        `${r.count} sold · £${Math.round(r.revenue).toLocaleString()}`,
+        r.count / maxSupCount, ML, y, CW, 6, C.purple, 56);
+      y += 8.5;
+    }
+  }
+
+  // ════════════════════════════════════════════════════════════════════════════
+  // PAGE 3+ — DETAILED SALES LOG (autoTable, paginates automatically)
+  // ════════════════════════════════════════════════════════════════════════════
+  doc.addPage();
+  fillRect(doc, 0, 0, PW, PH, C.white);
+  sectionHeader(doc, 'DETAILED SALES LOG', `Every sale on ${dayLabel}`, 14);
+
+  if (daySales.length === 0) {
+    label(doc, 'No rows to show — no sales recorded.', ML, 50, 10, C.gray500);
+  } else {
+    const tableRows = daySales
+      .slice()
+      .sort((a, b) => (b.saleDate || '').localeCompare(a.saleDate || ''))
+      .map(s => {
+        const u = linkedUnit(s);
+        const fin = recomputeSale(s);
+        const modelTxt = u ? (u.model || '').trim() || s.sku || '—' : (s.sku || '—');
+        const supName = supplierMap[s.supplierId || ''] || s.supplierName
+          || (u ? (u.supplierName || '') : '') || '—';
+        return [
+          s.saleDate || '—',
+          s.marketplace,
+          s.orderNumber || '—',
+          modelTxt,
+          s.imei || u?.imei || '—',
+          supName,
+          `£${(s.salePrice || 0).toFixed(2)}`,
+          `£${(fin.grossProfit || 0).toFixed(2)}`,
+        ];
+      });
+
+    autoTable(doc, {
+      startY: 35,
+      head: [['Date', 'Channel', 'Order #', 'Model', 'IMEI', 'Supplier', 'SP', 'GP']],
+      body: tableRows,
+      theme: 'striped',
+      headStyles: { fillColor: C.gray900 as [number, number, number], textColor: C.white as [number, number, number], fontStyle: 'bold', fontSize: 7.5 },
+      bodyStyles: { fontSize: 7.5, textColor: C.gray700 as [number, number, number] },
+      alternateRowStyles: { fillColor: C.gray50 as [number, number, number] },
+      columnStyles: {
+        0: { cellWidth: 18 },
+        1: { cellWidth: 16 },
+        2: { cellWidth: 30 },
+        3: { cellWidth: 30 },
+        4: { cellWidth: 26 },
+        5: { cellWidth: 22 },
+        6: { cellWidth: 14, halign: 'right' },
+        7: { cellWidth: 14, halign: 'right' },
+      },
+      margin: { left: ML, right: MR },
+      didDrawPage: () => {
+        fillRect(doc, 0, 0, PW, PH, C.white);
+        if (doc.getCurrentPageInfo().pageNumber > 3) {
+          sectionHeader(doc, 'DETAILED SALES LOG (cont.)', `${dayLabel}`, 14);
+        }
+      },
+    });
+  }
+
+  // Footer on every content page.
+  const total = doc.getNumberOfPages();
+  for (let i = 2; i <= total; i++) {
+    doc.setPage(i);
+    pageFooter(doc, i - 1, total - 1);
+  }
+
+  doc.save(`MOBILEPHONEMARKET-Daily-Sales-${reportDay}.pdf`);
 }

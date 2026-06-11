@@ -21,7 +21,7 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import {
   Search, ShoppingCart, ChevronDown, ChevronUp, ChevronsUpDown,
-  Filter, X, AlertCircle, Plus, Info, Sparkles, FileSpreadsheet,
+  Filter, X, AlertCircle, Plus, Info, Sparkles, FileSpreadsheet, FileText,
   TrendingUp, TrendingDown, PackageCheck, Truck, ChevronRight, Layers, List, Tag,
 } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
@@ -485,6 +485,13 @@ export default function SellSheet(_props: Props) {
     const active = sales.filter(s => !s.voidedAt);
     void downloadSalesWorkbook({ sales: active, units, supplierMap });
   };
+  // CEO-facing daily PDF — mirrors the Stock Intake button on BuySheet
+  // (handleDailyIntakeReport). Uses dynamic import so the jsPDF chunk
+  // doesn't load until the operator clicks.
+  const handleDailySalesReport = async () => {
+    const { generateDailySalesReport } = await import('../lib/pdfReport');
+    generateDailySalesReport(sales, units, suppliers);
+  };
 
   // ── Inline cell save (re-recompute GP/comm/postage in the same patch) ─────
   const saveCell = async (s: Sale, field: string, value: any) => {
@@ -534,6 +541,13 @@ export default function SellSheet(_props: Props) {
             className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-emerald-600 text-white text-[10px] font-bold uppercase tracking-widest hover:bg-emerald-700 transition-all"
           >
             <FileSpreadsheet size={12} /> Sales Report
+          </button>
+          <button
+            onClick={handleDailySalesReport}
+            title="Generate the CEO-facing Daily Sales PDF — KPIs, channel + SKU + supplier breakdowns, and the full per-sale log for today"
+            className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-blue-600 text-white text-[10px] font-bold uppercase tracking-widest hover:bg-blue-700 transition-all"
+          >
+            <FileText size={12} /> Daily Sales PDF
           </button>
         </div>
 
