@@ -22,6 +22,7 @@ import { fmtDateForUser } from '../lib/userLocale';
 import { isValidImei, isAppleDevice } from '../lib/imeiValidation';
 import { parseBrandModelStorage } from '../lib/modelStorage';
 import CopyImei from './CopyImei';
+import PaginationBar, { usePagedRows } from './PaginationBar';
 
 // ── Detail-view sort types (used by the 10-column table headers) ────────────
 export type SortKey = 'dateIn' | 'model' | 'storage' | 'colour' | 'buyPrice' | 'supplier' | 'grade';
@@ -759,6 +760,10 @@ export default function StockOverlayModal({
     () => sortGroupedModels(buildGroupedModels(searchedRows, searchedAggregates), groupedSort),
     [searchedRows, searchedAggregates, groupedSort],
   );
+  // 100-per-page on both views — operator perf rule: any surface that
+  // can exceed 100 rows pages instead of rendering the whole set.
+  const groupedPager = usePagedRows<GroupedModel>(grouped);
+  const detailPager = usePagedRows<InventoryUnit>(sortedDetailRows);
 
   const totalValue = useMemo(
     () => searchedRows.reduce((s, u) => s + (u.buyPrice || 0), 0)
@@ -847,7 +852,7 @@ export default function StockOverlayModal({
             </div>
           ) : viewMode === 'grouped' ? (
             <GroupedExcelTable
-              groups={grouped}
+              groups={groupedPager.paged}
               expanded={expandedModels}
               onToggle={toggleExpand}
               region={region}
@@ -940,7 +945,7 @@ export default function StockOverlayModal({
                     </tr>
                   );
                 })}
-                {sortedDetailRows.map((u, idx) => {
+                {detailPager.paged.map((u, idx) => {
                   const isAlt = idx % 2 === 1;
                   const rowBg = isAlt ? 'bg-slate-50/40 hover:bg-slate-100/60' : 'bg-white hover:bg-slate-50';
                   const apple = isAppleDevice(u.model);
@@ -1005,6 +1010,18 @@ export default function StockOverlayModal({
             </table>
           )}
         </div>
+
+        {viewMode === 'grouped' ? (
+          <PaginationBar
+            page={groupedPager.page} totalPages={groupedPager.totalPages}
+            total={groupedPager.total} onPage={groupedPager.setPage} itemLabel="models"
+          />
+        ) : (
+          <PaginationBar
+            page={detailPager.page} totalPages={detailPager.totalPages}
+            total={detailPager.total} onPage={detailPager.setPage} itemLabel="units"
+          />
+        )}
 
         <div className="px-5 py-2 border-t border-slate-100 bg-slate-50/60 flex-shrink-0 text-[9px] font-mono uppercase tracking-widest text-slate-500 flex items-center justify-between">
           <span>Click column headers to sort · ESC to close</span>

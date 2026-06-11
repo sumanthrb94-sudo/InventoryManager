@@ -40,6 +40,7 @@ import { fmtDateForUser, useUserRegion } from '../lib/userLocale';
 import { getWarrantyStatus } from '../lib/warrantyUtils';
 import { auth, isAdmin } from '../lib/firebase';
 import CopyImei from './CopyImei';
+import PaginationBar, { usePagedRows } from './PaginationBar';
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -562,6 +563,8 @@ function InlineSheet({
   onReprocess: (u: InventoryUnit) => void;
 }) {
   const toggleSort = (k: SortKey) => onSort({ key: k, dir: sort.key === k && sort.dir === 'desc' ? 'asc' : 'desc' });
+  // 100 returns per page — same perf rule as Sell/Buy inline sheets.
+  const { page, setPage, totalPages, paged, total } = usePagedRows(rows);
 
   if (rows.length === 0) {
     return (
@@ -577,7 +580,7 @@ function InlineSheet({
     <div className="bg-white border border-slate-200 rounded-3xl shadow-sm overflow-hidden">
       <div className="overflow-auto max-h-[calc(100vh-440px)] custom-scrollbar">
         <SheetTable
-          rows={rows}
+          rows={paged}
           supplierMap={supplierMap}
           region={region}
           sort={sort}
@@ -587,6 +590,7 @@ function InlineSheet({
           onReprocess={onReprocess}
         />
       </div>
+      <PaginationBar page={page} totalPages={totalPages} total={total} onPage={setPage} itemLabel="returns" />
       <div className="px-5 py-2 border-t border-slate-100 bg-slate-50/60 text-[9px] font-mono uppercase tracking-widest text-slate-500">
         Click column headers to sort · In Repair rows have a "Ready to Ship" action
       </div>

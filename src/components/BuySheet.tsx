@@ -36,8 +36,9 @@ import ResetDataModal from './ResetDataModal';
 import StockOverlayModal, {
   buildGroupedModels, sortGroupedModels, GroupedExcelTable,
   DEFAULT_GROUP_SORT, sortUnits,
-  type SortKey, type SortDir, type GroupSort,
+  type SortKey, type SortDir, type GroupSort, type GroupedModel,
 } from './StockOverlayModal';
+import PaginationBar, { usePagedRows } from './PaginationBar';
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -892,6 +893,10 @@ function InlineSheet({
   const totalUnits = grouped.reduce((s, g) => s + g.total, 0);
   const totalValue = grouped.reduce((s, g) => s + g.totalValue, 0);
 
+  // 100 model-groups per page — big imports can land hundreds of models
+  // and the operator's perf rule is "anything over 100 rows pages".
+  const { page, setPage, totalPages, paged, total } = usePagedRows<GroupedModel>(grouped);
+
   if (grouped.length === 0) {
     return (
       <div className="bg-white border border-slate-200 rounded-3xl p-12 text-center text-slate-400">
@@ -913,7 +918,7 @@ function InlineSheet({
       </div>
       <div className="overflow-auto max-h-[calc(100vh-380px)] custom-scrollbar">
         <GroupedExcelTable
-          groups={grouped}
+          groups={paged}
           expanded={expanded}
           onToggle={toggle}
           region={region}
@@ -921,6 +926,7 @@ function InlineSheet({
           onSort={setGroupedSort}
         />
       </div>
+      <PaginationBar page={page} totalPages={totalPages} total={total} onPage={setPage} itemLabel="models" />
       <div className="px-5 py-2 border-t border-slate-100 bg-slate-50/60 text-[9px] font-mono uppercase tracking-widest text-slate-500">
         Click a row to see colour breakdown · open a KPI tile above for per-IMEI detail
       </div>
