@@ -523,18 +523,53 @@ function writeSaleRow(
 
 export async function buildSalesWorkbookBuffer(input: BuildSalesWorkbookInput): Promise<ArrayBuffer> {
   const { sales, units, supplierMap, opts } = input;
-  const filtered = filterSalesByDate(sales, opts);
+
+  // Pre-index units twice for the buy-side join + the legacy-return
+  // enrichment below. unitsByImei catches sales that import never
+  // back-linked (unitId still empty).
+  const unitsById = new Map<string, InventoryUnit>();
+  const unitsByImei = new Map<string, InventoryUnit>();
+  for (const u of units ?? []) {
+    if (u.id) unitsById.set(u.id, u);
+    const k = (u.imei || '').trim().toUpperCase();
+    if (k && !unitsByImei.has(k)) unitsByImei.set(k, u);
+  }
+
+  // Legacy-return enrichment: returns processed before the Sale-doc
+  // void-fix landed only wrote returnType/returnDate on the unit
+  // doc — the linked Sale stayed active, so its row in the report
+  // came out white instead of red and the Postage Loss column stayed
+  // blank. Synthesise voidedAt + voidOutcome at workbook-build time
+  // from the linked unit when its status indicates a return AND the
+  // Sale doc itself hasn't been voided. Doesn't touch Firestore;
+  // the synthetic copy lives only inside this in-memory `enriched`
+  // array for the current download.
+  const enriched: Sale[] = sales.map(s => {
+    if (s.voidedAt) return s;
+    const k = (s.imei || '').trim().toUpperCase();
+    const u = (s.unitId && unitsById.get(s.unitId)) || (k && unitsByImei.get(k)) || undefined;
+    if (!u) return s;
+    const looksReturned = u.status === 'returned'
+      || u.returnType === 'returned_to_supplier'
+      || u.returnType === 'returned_to_inventory'
+      || u.returnType === 'repair';
+    if (!looksReturned || !u.returnDate) return s;
+    return {
+      ...s,
+      voidedAt: u.returnDate,
+      voidReason: s.voidReason || u.returnReason
+        || `${u.returnOutcome === 'replacement' ? 'Replacement' : 'Refund'}`,
+      voidOutcome: s.voidOutcome || u.returnOutcome || 'refund',
+    } as Sale;
+  });
+
+  const filtered = filterSalesByDate(enriched, opts);
   const byMarketplace = new Map<Marketplace, Sale[]>();
   for (const m of MARKETPLACES) byMarketplace.set(m, []);
   for (const sale of filtered) {
     const bucket = byMarketplace.get(sale.marketplace);
     if (bucket) bucket.push(sale);
   }
-
-  // Pre-index units by id for the supplier-name fallback lookup
-  // (sale.unitId → unit.supplierName when the sale's own field is empty).
-  const unitsById = new Map<string, InventoryUnit>();
-  for (const u of units ?? []) if (u.id) unitsById.set(u.id, u);
 
   const wb = new ExcelJS.Workbook();
 

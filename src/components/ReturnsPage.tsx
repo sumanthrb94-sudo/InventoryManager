@@ -1428,7 +1428,19 @@ function ProcessReturnModal({
       let linked: any[] = [];
       try {
         const all = await dbService.readAll('sales');
-        linked = all.filter((s: any) => s.unitId === unit.id && !s.voidedAt);
+        // Match linked sales by unitId first, fall back to IMEI when
+        // the import path never backlinked (imported sales arrive with
+        // empty unitId). Without this fallback voids on imported sales
+        // silently no-op'd — the unit-side returnType got written but
+        // the Sale doc stayed active, so the SALES_REPORT never painted
+        // the row red or computed its postage loss.
+        const imeiKey = (unit.imei || '').trim().toUpperCase();
+        linked = all.filter((s: any) => {
+          if (s.voidedAt) return false;
+          if (unit.id && s.unitId === unit.id) return true;
+          if (!imeiKey) return false;
+          return (s.imei || '').trim().toUpperCase() === imeiKey;
+        });
         const src = linked[linked.length - 1];
         if (src) {
           const postage = Number(src.postage) || 0;
