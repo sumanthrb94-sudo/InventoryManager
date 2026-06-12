@@ -43,44 +43,57 @@ export default function ReportViewerModal({
         className="w-full max-w-[96vw] h-[92vh] bg-white rounded-2xl shadow-2xl flex flex-col overflow-hidden"
         onClick={e => e.stopPropagation()}
       >
-        {/* ── Header: title + sheet tabs + actions ── */}
-        <div className="flex-shrink-0 px-4 py-3 border-b border-slate-200 flex items-center gap-3 flex-wrap">
-          <div className="flex items-center gap-2 min-w-0">
-            <FileSpreadsheet size={16} className="text-emerald-700 flex-shrink-0" />
-            <h3 className="text-sm font-bold text-slate-900 truncate">{model.title}</h3>
-          </div>
-          {/* Sheet tabs — Excel-style */}
-          <div className="flex items-center gap-1 overflow-x-auto flex-1 min-w-0">
+        {/* ── Header row 1: title + actions ───────────────────────────────
+            Compact title row that always reserves space for Download +
+            Close on the right. Title truncates with ellipsis on narrow
+            screens instead of pushing the sheet tabs off-screen (the bug
+            in the round-5 mobile screenshots — only "RET" was visible).  */}
+        <div className="flex-shrink-0 px-3 py-2.5 border-b border-slate-100 flex items-center gap-2">
+          <FileSpreadsheet size={16} className="text-emerald-700 flex-shrink-0" />
+          <h3 className="text-sm font-bold text-slate-900 truncate flex-1 min-w-0">{model.title}</h3>
+          {onDownload && (
+            <button
+              onClick={handleDownload}
+              disabled={downloading}
+              className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-emerald-600 text-white text-xs font-bold uppercase tracking-widest hover:bg-emerald-700 transition-all disabled:opacity-50 flex-shrink-0"
+            >
+              <Download size={13} /> <span className="hidden sm:inline">{downloading ? 'Saving…' : 'Download'}</span>
+            </button>
+          )}
+          <button
+            onClick={onClose}
+            className="p-2 rounded-xl hover:bg-slate-100 text-slate-700 flex-shrink-0"
+            title="Close preview"
+          >
+            <X size={16} />
+          </button>
+        </div>
+
+        {/* ── Header row 2: sheet tabs (Excel-style) ──────────────────────
+            Own row so all tabs sit on the full modal width and stay
+            tappable on mobile. Horizontal scroll for many tabs;
+            min-h-11 (44px) keeps each tab at the iOS/Android touch-target
+            minimum so they don't ghost-tap on small phones. */}
+        <div
+          className="flex-shrink-0 border-b border-slate-200 bg-slate-50/60 overflow-x-auto"
+          style={{ WebkitOverflowScrolling: 'touch' }}
+        >
+          <div className="flex items-stretch gap-1.5 px-3 py-2 min-w-max">
             {model.sheets.map((s, i) => (
               <button
                 key={s.name}
+                type="button"
                 onClick={() => setActive(i)}
-                className={`px-3 py-1.5 rounded-lg text-xs font-bold uppercase tracking-wide border transition-all flex-shrink-0
+                className={`min-h-11 px-4 py-2 rounded-lg text-xs font-bold uppercase tracking-wide border transition-all flex-shrink-0
                   ${i === active
-                    ? 'bg-slate-900 text-white border-slate-900'
-                    : 'bg-white text-slate-900 border-slate-300 hover:border-slate-500'}`}
+                    ? 'bg-slate-900 text-white border-slate-900 shadow-sm'
+                    : 'bg-white text-slate-900 border-slate-300 hover:border-slate-500 active:bg-slate-100'}`}
+                style={{ touchAction: 'manipulation' }}
+                aria-pressed={i === active}
               >
                 {s.name}
               </button>
             ))}
-          </div>
-          <div className="flex items-center gap-2 flex-shrink-0">
-            {onDownload && (
-              <button
-                onClick={handleDownload}
-                disabled={downloading}
-                className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-emerald-600 text-white text-xs font-bold uppercase tracking-widest hover:bg-emerald-700 transition-all disabled:opacity-50"
-              >
-                <Download size={13} /> {downloading ? 'Saving…' : 'Download'}
-              </button>
-            )}
-            <button
-              onClick={onClose}
-              className="p-2 rounded-xl hover:bg-slate-100 text-slate-700"
-              title="Close preview"
-            >
-              <X size={16} />
-            </button>
           </div>
         </div>
 
