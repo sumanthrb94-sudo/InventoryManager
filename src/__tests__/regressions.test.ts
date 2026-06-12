@@ -99,6 +99,21 @@ describe('marketplaceFromListingSite', () => {
     expect(marketplaceFromListingSite('Vinted')).toBeUndefined();
     expect(marketplaceFromListingSite('')).toBeUndefined();
   });
+
+  // UnitDetailDrawer's "Mark as Sold" dropdown is built from
+  // MARKETPLACES.map(listingSiteFromMarketplace) and the save handler routes
+  // through recordSale, which needs a real Marketplace. Lock the invariant
+  // that every offered option maps back to a defined marketplace — otherwise
+  // a future LISTING_SITES edit could reintroduce a dead option (FBA / R T S /
+  // Other) that recordSale rejects.
+  it('every "Mark as Sold" dropdown option maps back to a marketplace', () => {
+    const dropdownOptions = MARKETPLACES.map(listingSiteFromMarketplace);
+    for (const opt of dropdownOptions) {
+      expect(marketplaceFromListingSite(opt)).toBeDefined();
+    }
+    // And the default the drawer falls back to ('eBay') is sellable.
+    expect(marketplaceFromListingSite('eBay')).toBe('EBAY');
+  });
 });
 
 // ── parseBrandModelStorage (first-word-as-brand rule) ────────────────────────

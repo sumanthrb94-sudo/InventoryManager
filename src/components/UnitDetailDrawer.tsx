@@ -5,7 +5,7 @@ import {
   Star, MapPin, CheckCircle2, AlertCircle,
   Edit3, Save, ShieldCheck, ExternalLink, ShieldAlert
 } from 'lucide-react';
-import { InventoryUnit, OperationalFlag, SourceDocument } from '../types';
+import { InventoryUnit, OperationalFlag, SourceDocument, MARKETPLACES } from '../types';
 import { dbService } from '../lib/dbService';
 import { validateIMEI, formatIMEI } from '../lib/imeiUtils';
 import CopyImei from './CopyImei';
@@ -13,9 +13,16 @@ import { getWarrantyStatus } from '../lib/warrantyUtils';
 
 
 import { logInventoryEvent } from '../lib/inventoryEvents';
-import { LISTING_SITES, listingSiteLabel } from '../lib/platforms';
+import { listingSiteLabel, listingSiteFromMarketplace, marketplaceFromListingSite } from '../lib/platforms';
+import { recordSale } from '../services';
 
-const PLATFORMS = LISTING_SITES;
+// "Mark as Sold" routes through recordSale, which writes a row to the `sales`
+// collection keyed on a real Marketplace. Only the 4 sellable platforms
+// (AMAZON / BM / EBAY / ONBUY) map — the broader LISTING_SITES list also
+// carries FBA / R T S / Other, which aren't sales destinations and would be
+// rejected by recordSale. Drive the dropdown off MARKETPLACES so every option
+// maps cleanly.
+const PLATFORMS = MARKETPLACES.map(listingSiteFromMarketplace);
 
 const STATUS_CONFIG: Record<string, { label: string; color: string; bg: string }> = {
   available: { label: 'Available',  color: 'text-emerald-700', bg: 'bg-emerald-50 border-emerald-200' },
@@ -41,6 +48,7 @@ export default function UnitDetailDrawer({ unit, supplierName, onClose }: Props)
   const [platform, setPlatform] = useState(unit.salePlatform || 'eBay');
   const [saving, setSaving]     = useState(false);
   const [saved, setSaved]       = useState(false);
+  const [saleError, setSaleError] = useState('');
   const [sourceDocs, setSourceDocs] = useState<SourceDocument[]>([]);
 
   const warranty = useMemo(() => getWarrantyStatus(unit.saleDate), [unit.saleDate]);
@@ -119,31 +127,58 @@ export default function UnitDetailDrawer({ unit, supplierName, onClose }: Props)
   };
 
   const markSold = async () => {
-    if (!salePrice) return;
-    setSaving(true);
-    const salePriceNumber = parseFloat(salePrice) || 0;
-    await dbService.update('inventoryUnits', unit.id, {
-      status: 'sold',
-      salePrice: salePriceNumber,
-      salePlatform: platform,
-      saleDate: new Date().toISOString().split('T')[0],
-      platformListed: false,
-      saleOrderId: saleOrderId || undefined,
-      customerName: customerName || undefined,
-    });
-    try {
-      await logInventoryEvent({
-        type: 'sold',
-        message: `Sold via ${platform}`,
-        unitId: unit.id,
-        salePrice: salePriceNumber,
-        platform,
-      });
-    } catch (eventError) {
-      console.warn('Inventory event logging failed for sold update.', eventError);
+    // Route through recordSale (same path as the Record Sale modal + Quick
+    // Sale) instead of writing status='sold' directly. This was previously a
+    // direct dbService.update that (a) accepted £0 / blank prices via
+    // `parseFloat(salePrice) || 0`, and (b) never wrote a row to the `sales`
+    // collection — so a unit "sold" from this drawer was invisible to the
+    // Sales Report. recordSale fixes both: it rejects salePrice <= 0,
+    // computes the financials via calcSaleFinancials, and writes the sale doc.
+    const sp = parseFloat(salePrice);
+    if (!Number.isFinite(sp) || sp <= 0) {
+      setSaleError('Enter a sale price greater than £0.');
+      return;
     }
-    setSaving(false);
-    setSaved(true);
+    // recordSale keys the sale doc on marketplace__orderNumber__imei, so the
+    // order number is required here (it used to be optional on this drawer).
+    if (!saleOrderId.trim()) {
+      setSaleError('Enter the order number from the platform.');
+      return;
+    }
+    const marketplace = marketplaceFromListingSite(platform);
+    if (!marketplace) {
+      setSaleError(`Couldn't map platform "${platform}" to a marketplace.`);
+      return;
+    }
+
+    setSaving(true);
+    setSaleError('');
+    try {
+      const res = await recordSale({
+        marketplace,
+        orderNumber: saleOrderId.trim(),
+        unitId: unit.id,
+        buyPrice: unit.buyPrice,
+        salePrice: sp,
+        sku: unit.sku || undefined,
+        comments: customerName.trim() ? `Customer: ${customerName.trim()}` : undefined,
+      });
+      if (!res.ok) {
+        setSaleError(res.message || 'Failed to save. Please try again.');
+        setSaving(false);
+        return;
+      }
+      // recordSale doesn't carry customerName — preserve the drawer's field on
+      // the unit doc with a follow-up patch so the existing behaviour holds.
+      if (customerName.trim()) {
+        await dbService.update('inventoryUnits', unit.id, { customerName: customerName.trim() });
+      }
+      setSaving(false);
+      setSaved(true);
+    } catch (err: any) {
+      setSaleError(err?.message || 'Failed to save. Check your connection.');
+      setSaving(false);
+    }
   };
 
   const saveNotes = async () => {
@@ -374,8 +409,10 @@ export default function UnitDetailDrawer({ unit, supplierName, onClose }: Props)
                       <label className="text-[9px] text-gray-400 font-mono uppercase">Sale Price (£)</label>
                       <input
                         type="number"
+                        min="0.01"
+                        step="0.01"
                         value={salePrice}
-                        onChange={e => setSalePrice(e.target.value)}
+                        onChange={e => { setSalePrice(e.target.value); if (saleError) setSaleError(''); }}
                         placeholder="0.00"
                         className="w-full mt-1 bg-white border border-gray-200 rounded-xl px-3 py-2 text-sm font-mono focus:outline-none focus:border-black"
                       />
@@ -391,11 +428,11 @@ export default function UnitDetailDrawer({ unit, supplierName, onClose }: Props)
                       </select>
                     </div>
                     <div>
-                      <label className="text-[9px] text-gray-400 font-mono uppercase">Sale Order ID (opt)</label>
+                      <label className="text-[9px] text-gray-400 font-mono uppercase">Sale Order ID</label>
                       <input
                         type="text"
                         value={saleOrderId}
-                        onChange={e => setSaleOrderId(e.target.value)}
+                        onChange={e => { setSaleOrderId(e.target.value); if (saleError) setSaleError(''); }}
                         placeholder="e.g. 12-09873-12345"
                         className="w-full mt-1 bg-white border border-gray-200 rounded-xl px-3 py-2 text-sm font-mono focus:outline-none focus:border-black"
                       />
@@ -411,9 +448,14 @@ export default function UnitDetailDrawer({ unit, supplierName, onClose }: Props)
                       />
                     </div>
                   </div>
+                  {saleError && (
+                    <p className="flex items-center gap-1.5 text-[11px] font-semibold text-rose-600">
+                      <AlertCircle size={13} /> {saleError}
+                    </p>
+                  )}
                   <button
                     onClick={markSold}
-                    disabled={saving || !salePrice || saved}
+                    disabled={saving || !salePrice || parseFloat(salePrice) <= 0 || !saleOrderId.trim() || saved}
                     className="w-full py-2.5 bg-black text-white rounded-xl text-[11px] font-bold uppercase tracking-widest hover:bg-gray-800 transition-all disabled:opacity-50 flex items-center justify-center gap-2"
                   >
                     {saved ? <><CheckCircle2 size={14} /> Marked Sold!</> : saving ? 'Saving...' : <><ShoppingBag size={14} /> Mark as Sold</>}

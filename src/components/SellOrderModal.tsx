@@ -333,7 +333,7 @@ export default function SellOrderModal({ unit, onClose, onSaved, isSHS = false }
               value={sp}
               onChange={e => { setSp(e.target.value); setError(''); }}
               placeholder="0.00"
-              min="0"
+              min="0.01"
               step="0.01"
               className="w-full border border-slate-200 rounded-xl px-4 py-3 text-lg font-bold font-mono focus:outline-none focus:border-slate-900 transition-all"
             />
@@ -478,7 +478,7 @@ export default function SellOrderModal({ unit, onClose, onSaved, isSHS = false }
           </button>
           <button
             onClick={handleSave}
-            disabled={saving || !isValidImei((isSHS ? imeiInput : unit.imei || '').trim().toUpperCase(), { isAppleSerial: apple })}
+            disabled={saving || spNum <= 0 || !orderId.trim() || !isValidImei((isSHS ? imeiInput : unit.imei || '').trim().toUpperCase(), { isAppleSerial: apple })}
             className={`flex-1 py-3 text-white rounded-xl text-[10px] font-bold uppercase tracking-widest transition-all disabled:opacity-50 flex items-center justify-center gap-2 ${
               isSHS ? 'bg-amber-500 hover:bg-amber-600' : 'bg-emerald-600 hover:bg-emerald-700'
             }`}

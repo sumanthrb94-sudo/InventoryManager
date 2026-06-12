@@ -209,7 +209,7 @@ export default function QuickSaleModal({ unit: initialUnit, availableUnits = [],
                 <div className="grid grid-cols-2 gap-3">
                   <div className="col-span-2 md:col-span-1">
                     <label className="text-[9px] text-gray-400 font-mono uppercase">Sale Price (£)</label>
-                    <input type="number" value={salePrice}
+                    <input type="number" min="0.01" step="0.01" value={salePrice}
                       onChange={e => setSalePrice(e.target.value)} placeholder="0.00"
                       className="w-full mt-1 bg-gray-50 border border-gray-200 rounded-xl px-3 py-2.5 text-sm font-mono focus:outline-none focus:border-black"
                     />
@@ -266,7 +266,7 @@ export default function QuickSaleModal({ unit: initialUnit, availableUnits = [],
               </div>
 
               <button onClick={save}
-                disabled={saving || done || (action === 'sold' && (!salePrice || !saleOrderId.trim()))}
+                disabled={saving || done || (action === 'sold' && (spNum <= 0 || !saleOrderId.trim()))}
                 className="w-full py-3.5 bg-black text-white rounded-xl text-sm font-bold uppercase tracking-widest hover:bg-gray-800 transition-all active:scale-[0.98] disabled:opacity-50 flex items-center justify-center gap-2"
               >
                 {done ? <><CheckCircle2 size={16} /> Updated!</> :
