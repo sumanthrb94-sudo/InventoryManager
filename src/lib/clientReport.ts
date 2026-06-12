@@ -282,6 +282,8 @@ const SALES_HEADERS: Record<Marketplace, SalesHeaderRow> = {
     // Return-loss column — voided sales carry (postage + P.VAT) × legs
     // (2 for a refund, 3 for a replacement). Empty for active sales.
     // Lets the CA total the column for the period's postage exposure.
+    // Also subtracted from GP inside the GP % cell so the per-row %
+    // shows the true net margin after the return hit.
     'Postage Loss',
   ],
   BM: [
