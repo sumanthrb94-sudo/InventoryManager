@@ -28,6 +28,7 @@ import { useInventoryStore } from '../lib/inventoryStore';
 import { shsAggregatesFrom } from '../lib/shsCount';
 import { fmtDateForUser, useUserRegion } from '../lib/userLocale';
 import { auth, isAdmin } from '../lib/firebase';
+import { isStockOnHand } from '../lib/inventoryFilters';
 import IntelligencePanel from './IntelligencePanel';
 import AddStockManualModal from './AddStockManualModal';
 import BulkOrderModal from './BulkOrderModal';
@@ -290,8 +291,11 @@ export default function BuySheet(_props: Props) {
   const buildInventoryReportRows = (range: { from?: string; to?: string; label: string }) => {
     // Scope by Stock In date when a range is selected; without a range
     // (All Time preset) the report is the full snapshot like before.
+    // `isStockOnHand` is the single source of truth shared with the
+    // All-Office-Stock KPI tile — keeps the report and the tile in lockstep
+    // even when a soft-deleted unit is on the books.
     const inStock = units.filter(u => {
-      if (u.status === 'sold') return false;
+      if (!isStockOnHand(u)) return false;
       if (range.from && (u.dateIn || '') < range.from) return false;
       if (range.to && (u.dateIn || '') > range.to) return false;
       return true;

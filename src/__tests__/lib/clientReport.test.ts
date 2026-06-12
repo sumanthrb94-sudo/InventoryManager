@@ -27,6 +27,7 @@ import {
   shippingLegsFor,
   colLetter,
   buildSalesWorkbookBuffer,
+  buildReturnsWorkbookBuffer,
 } from '../../lib/clientReport';
 
 // ── In-memory dbService mock for the lifecycle test ────────────────────────
@@ -560,5 +561,228 @@ describe('return / replacement / re-sell lifecycle', () => {
     const ebayRow = summary.getRow(7);          // EBAY
     expect(ebayRow.getCell(2).value).toBe(1);   // Sales
     expect(ebayRow.getCell(3).value).toBe(1);   // Refunds
+  });
+});
+
+// ───────────────────────────────────────────────────────────────────────────
+// BUG-LR-001 — Original Sale Price picks the most-recent voided sale
+// ───────────────────────────────────────────────────────────────────────────
+
+describe('Returns Detail picks the most-recent voided sale (BUG-LR-001)', () => {
+  it('breaks the voidedAt tie via saleDate + createdAt for same-day cycles', async () => {
+    // A unit cycled sold → returned → re-sold → re-returned three times on
+    // the same calendar day. All three Sale docs share voidedAt='2026-06-12'
+    // — the old code's `s.voidedAt > best.voidedAt` resolved every pair to
+    // false, so the FIRST iterated sale won. Tiebreaker now uses saleDate +
+    // createdAt so the latest cycle (the one that actually triggered THIS
+    // return) lands in Sheet 2's Original Sale Price / Date / Marketplace.
+    const sameImei = '358138281139564';
+    const unit: InventoryUnit = {
+      id: sameImei, imei: sameImei,
+      model: 'iPhone SE 3 128GB', brand: 'Apple', category: 'iPhone', colour: 'Black',
+      buyPrice: 100, dateIn: '2026-06-01',
+      supplierId: 'sup_imax', supplierName: 'IMAX',
+      status: 'returned',
+      returnType: 'returned_to_supplier',
+      returnDate: '2026-06-12',
+      returnReason: 'Faulty unit - DOA',
+      returnLegCost: 7.56,
+      flags: [], notes: '', platformListed: false, listingSites: [],
+      ownerId: 'shared', createdAt: '2026-06-01T00:00:00Z',
+    };
+    const sales: Sale[] = [
+      // Earliest cycle — saleDate same, but createdAt earliest.
+      baseSale({ id: 'AMAZON__TC-003__X', marketplace: 'AMAZON',
+        orderNumber: 'TC-003', imei: sameImei, unitId: sameImei,
+        saleDate: '2026-06-12', salePrice: 145, buyPrice: 100,
+        voidedAt: '2026-06-12', voidOutcome: 'refund', voidReason: 'cycle 1',
+        createdAt: '2026-06-12T09:00:00.000Z', updatedAt: '2026-06-12T09:05:00.000Z' }),
+      // Middle cycle.
+      baseSale({ id: 'EBAY__TC-005__X', marketplace: 'EBAY',
+        orderNumber: 'TC-005', imei: sameImei, unitId: sameImei,
+        saleDate: '2026-06-12', salePrice: 140, buyPrice: 100,
+        voidedAt: '2026-06-12', voidOutcome: 'refund', voidReason: 'cycle 2',
+        createdAt: '2026-06-12T11:00:00.000Z', updatedAt: '2026-06-12T11:05:00.000Z' }),
+      // Latest cycle — the one that actually triggered the supplier return.
+      baseSale({ id: 'AMAZON__TC-019__X', marketplace: 'AMAZON',
+        orderNumber: 'TC-019', imei: sameImei, unitId: sameImei,
+        saleDate: '2026-06-12', salePrice: 125, buyPrice: 100,
+        voidedAt: '2026-06-12', voidOutcome: 'refund', voidReason: 'cycle 10 — supplier',
+        createdAt: '2026-06-12T15:30:00.000Z', updatedAt: '2026-06-12T15:35:00.000Z' }),
+    ];
+
+    const buf = await buildReturnsWorkbookBuffer({ units: [unit], sales });
+    const wb = new ExcelJS.Workbook();
+    await wb.xlsx.load(buf);
+    const detail = wb.getWorksheet('Returns Detail')!;
+    // Row 1 = headers, row 2 = our one returned unit.
+    const row = detail.getRow(2);
+    // Original Sale Price (col 8) — must be the LATEST cycle (£125), not
+    // the iteration-first £145.
+    expect(row.getCell(8).value).toBe(125);
+    // Marketplace (col 9) — should match the latest sale.
+    expect(row.getCell(9).value).toBe('AMAZON');
+  });
+});
+
+// ───────────────────────────────────────────────────────────────────────────
+// OBS-LR-001 — Returns Summary counts every voided sale (per-event)
+// ───────────────────────────────────────────────────────────────────────────
+
+describe('Returns Summary counts return EVENTS not unique units (OBS-LR-001)', () => {
+  it('totals 10 returns + £143.64 loss for one IMEI cycled 10× on the same day', async () => {
+    // Same scenario as the QA report: 1 unit, 10 cycles in one day —
+    // 1 replacement (£22.68), 8 refunds (£15.12 each), 1 final
+    // refund (£15.12 — the supplier return). Old code totalled 1
+    // return × £15.12 because it iterated unique units; new code
+    // iterates voided sales so it surfaces all 10 events.
+    const imei = '358138281139564';
+    const unit: InventoryUnit = {
+      id: imei, imei,
+      model: 'iPhone SE 3 128GB', brand: 'Apple', category: 'iPhone', colour: 'Black',
+      buyPrice: 100, dateIn: '2026-06-01',
+      supplierId: 'sup_imax', supplierName: 'IMAX',
+      status: 'returned',
+      returnType: 'returned_to_supplier',
+      returnDate: '2026-06-12',
+      returnReason: 'Faulty unit - DOA',
+      returnLegCost: 7.56,
+      flags: [], notes: '', platformListed: false, listingSites: [],
+      ownerId: 'shared', createdAt: '2026-06-01T00:00:00Z',
+    };
+    const cycle = (n: number, outcome: 'refund' | 'replacement'): Sale =>
+      baseSale({
+        id: `EBAY__C${n}__${imei}`, marketplace: 'EBAY',
+        orderNumber: `C${n}`, imei, unitId: imei,
+        saleDate: '2026-06-12', salePrice: 150, buyPrice: 100,
+        postage: 6.30, postageVat: 1.26,
+        voidedAt: '2026-06-12', voidOutcome: outcome, voidReason: `cycle ${n}`,
+        createdAt: `2026-06-12T${String(8 + n).padStart(2, '0')}:00:00.000Z`,
+      });
+    const sales: Sale[] = [
+      cycle(1, 'replacement'),
+      ...Array.from({ length: 9 }, (_, i) => cycle(i + 2, 'refund')),
+    ];
+
+    const buf = await buildReturnsWorkbookBuffer({ units: [unit], sales });
+    const wb = new ExcelJS.Workbook();
+    await wb.xlsx.load(buf);
+    const summary = wb.getWorksheet('Summary')!;
+    // Sheet shape (writeSummaryRow): r1=Period, r2=Total Returns,
+    // r3=Refunds, r4=Replacements, r5=Total Postage Loss, r6=Avg.
+    expect(summary.getRow(2).getCell(2).value).toBe(10);   // Total Returns
+    expect(summary.getRow(3).getCell(2).value).toBe(9);    // Refunds
+    expect(summary.getRow(4).getCell(2).value).toBe(1);    // Replacements
+    // 9 refunds × £15.12 + 1 replacement × £22.68 = £158.76
+    expect(summary.getRow(5).getCell(2).value).toBeCloseTo(158.76, 1);
+  });
+});
+
+// ───────────────────────────────────────────────────────────────────────────
+// BUG-002 — repair-route returns labelled "In Repair", not "Refund"
+// ───────────────────────────────────────────────────────────────────────────
+
+describe('repair-route returns surface "In Repair" everywhere (BUG-002)', () => {
+  const sameImei = '359000000000111';
+  const repairUnit: InventoryUnit = {
+    id: sameImei, imei: sameImei,
+    model: 'iPhone SE 3 128GB', brand: 'Apple', category: 'iPhone', colour: 'Black',
+    buyPrice: 100, dateIn: '2026-06-01',
+    supplierId: 'sup_imax', supplierName: 'IMAX',
+    status: 'returned',
+    returnType: 'repair',
+    returnDate: '2026-06-12',
+    returnReason: 'Cracked screen',
+    returnLegCost: 7.56,  // even with a snapshot we should NOT charge legs
+    flags: [], notes: '', platformListed: false, listingSites: [],
+    ownerId: 'shared', createdAt: '2026-06-01T00:00:00Z',
+  };
+  const repairSale: Sale = baseSale({
+    id: 'EBAY__REP-1__X', marketplace: 'EBAY',
+    orderNumber: 'REP-1', imei: sameImei, unitId: sameImei,
+    saleDate: '2026-06-12', salePrice: 140, buyPrice: 100,
+    postage: 6.30, postageVat: 1.26,
+    voidedAt: '2026-06-12',
+    // voidOutcome deliberately undefined — repair flow doesn't capture one
+    voidReason: 'Sent for repair — cracked screen',
+  });
+
+  it('Sales Report row shows Outcome="In Repair" + blank Legs + blank Postage Loss', async () => {
+    const buf = await buildSalesWorkbookBuffer({
+      sales: [repairSale], units: [repairUnit],
+    });
+    const wb = new ExcelJS.Workbook();
+    await wb.xlsx.load(buf);
+    const ebay = wb.getWorksheet('EBAY')!;
+    const row = ebay.getRow(2);
+    expect(row.getCell(27).value).toBe('In Repair');   // Outcome (AA)
+    expect(row.getCell(29).value).toBeNull();          // Shipping Legs (AC) blank
+    expect(row.getCell(30).value).toBeNull();          // Postage Loss (AD) blank
+  });
+
+  it('Sales Summary excludes the repair void from refund/replacement counters and loss', async () => {
+    const buf = await buildSalesWorkbookBuffer({
+      sales: [
+        repairSale,
+        baseSale({ id: 'EBAY__R1__Y', marketplace: 'EBAY', orderNumber: 'R1',
+          buyPrice: 100, salePrice: 200, postage: 8, postageVat: 1.6,
+          voidedAt: '2026-06-13', voidOutcome: 'refund', voidReason: 'plain refund' }),
+      ],
+      units: [repairUnit],
+    });
+    const wb = new ExcelJS.Workbook();
+    await wb.xlsx.load(buf);
+    const summary = wb.getWorksheet('Summary')!;
+    const ebayRow = summary.getRow(7);
+    expect(ebayRow.getCell(2).value).toBe(2);          // Sales (both counted)
+    expect(ebayRow.getCell(3).value).toBe(1);          // Refunds — repair excluded
+    expect(ebayRow.getCell(4).value).toBe(0);          // Replacements
+    // Postage Loss = ONLY the £19.20 from the plain refund.
+    expect(ebayRow.getCell(6).value).toBeCloseTo(19.2, 1);
+  });
+
+  it('Returns Detail shows "In Repair" + blank Shipping Legs', async () => {
+    const buf = await buildReturnsWorkbookBuffer({
+      units: [repairUnit], sales: [repairSale],
+    });
+    const wb = new ExcelJS.Workbook();
+    await wb.xlsx.load(buf);
+    const detail = wb.getWorksheet('Returns Detail')!;
+    const row = detail.getRow(2);
+    expect(row.getCell(11).value).toBe('In Repair');   // Outcome col 11
+    expect(row.getCell(15).value).toBeNull();          // Shipping Legs blank
+    expect(row.getCell(16).value).toBeNull();          // Postage Loss £ blank
+  });
+
+  it('Returns Summary excludes the repair from refund + loss totals', async () => {
+    const buf = await buildReturnsWorkbookBuffer({
+      units: [repairUnit], sales: [repairSale],
+    });
+    const wb = new ExcelJS.Workbook();
+    await wb.xlsx.load(buf);
+    const summary = wb.getWorksheet('Summary')!;
+    expect(summary.getRow(2).getCell(2).value).toBe(0);      // Total Returns
+    expect(summary.getRow(3).getCell(2).value).toBe(0);      // Refunds
+    expect(summary.getRow(5).getCell(2).value).toBe(0);      // Postage Loss
+  });
+
+  it('Unit Histories RETURNED event reads "In Repair · reason" with zero loss', async () => {
+    const buf = await buildReturnsWorkbookBuffer({
+      units: [repairUnit], sales: [repairSale],
+    });
+    const wb = new ExcelJS.Workbook();
+    await wb.xlsx.load(buf);
+    const hist = wb.getWorksheet('Unit Histories')!;
+    // Find the RETURNED row in the timeline (cols: IMEI, Model, EventDate,
+    // Event, Detail, Amount £, Comments).
+    for (let r = 2; r <= hist.rowCount; r++) {
+      const ev = hist.getRow(r).getCell(4).value;
+      if (ev !== 'RETURNED') continue;
+      const detail = String(hist.getRow(r).getCell(5).value || '');
+      expect(detail.startsWith('In Repair')).toBe(true);
+      expect(hist.getRow(r).getCell(6).value).toBeNull(); // Amount blank
+      return;
+    }
+    throw new Error('No RETURNED row emitted for the repair-route unit');
   });
 });

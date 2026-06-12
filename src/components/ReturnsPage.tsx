@@ -1042,7 +1042,7 @@ function ReturnLossSection({
      *  to unit.returnDate for legacy rows. Drives sort + filename
      *  scoping. */
     cycleDate: string;
-    outcome: 'refund' | 'replacement' | null;
+    outcome: 'refund' | 'replacement' | 'repair' | null;
     legCost: number;
     legs: number;
     loss: number;
@@ -1078,11 +1078,19 @@ function ReturnLossSection({
       if (!s.voidedAt) continue;
       const u = resolveUnit(s);
       if (!u) continue;
+      // Repair-route voids carry no customer outcome (we kept the unit
+      // and fixed it) — surface 'repair' so the table reads "In Repair"
+      // instead of mislabelling as 'Refund', and zero out leg / loss.
+      const isRepair = u.returnType === 'repair' && !s.voidOutcome;
+      const outcome = (isRepair
+        ? 'repair'
+        : s.voidOutcome === 'replacement'
+        ? 'replacement'
+        : 'refund') as 'refund' | 'replacement' | 'repair';
       const postage = Number(s.postage) || 0;
       const pVat = s.postageVatExempt ? 0 : (Number(s.postageVat) || postage * 0.2);
-      const legCost = postage + pVat;
-      const outcome = (s.voidOutcome === 'replacement' ? 'replacement' : 'refund') as 'refund' | 'replacement';
-      const legs = outcome === 'replacement' ? 3 : 2;
+      const legCost = isRepair ? 0 : postage + pVat;
+      const legs = outcome === 'replacement' ? 3 : outcome === 'refund' ? 2 : 0;
       out.push({
         unit: u,
         sale: s,
@@ -1103,9 +1111,12 @@ function ReturnLossSection({
     for (const u of units) {
       if (!u.returnType || !u.returnDate) continue;
       if (unitsCoveredBySale.has(u.id)) continue;
-      const legCost = u.returnLegCost ?? 0;
-      const outcome = u.returnOutcome ?? null;
-      const legs = outcome === 'replacement' ? 3 : 2;
+      const isRepair = u.returnType === 'repair';
+      const legCost = isRepair ? 0 : u.returnLegCost ?? 0;
+      const outcome: 'refund' | 'replacement' | 'repair' | null = isRepair
+        ? 'repair'
+        : u.returnOutcome ?? null;
+      const legs = outcome === 'replacement' ? 3 : outcome === 'refund' ? 2 : 0;
       out.push({
         unit: u,
         sale: null,
@@ -1201,6 +1212,8 @@ function ReturnLossSection({
                           <span className="inline-flex items-center text-[9px] font-bold uppercase tracking-widest px-1.5 py-0.5 rounded border bg-violet-50 border-violet-200 text-violet-700">Replacement</span>
                         ) : r.outcome === 'refund' ? (
                           <span className="inline-flex items-center text-[9px] font-bold uppercase tracking-widest px-1.5 py-0.5 rounded border bg-rose-50 border-rose-200 text-rose-700">Refund</span>
+                        ) : r.outcome === 'repair' ? (
+                          <span className="inline-flex items-center text-[9px] font-bold uppercase tracking-widest px-1.5 py-0.5 rounded border bg-blue-50 border-blue-200 text-blue-700" title="Sent for repair — no customer outcome, no shipping legs lost">In Repair</span>
                         ) : (
                           <span className="inline-flex items-center text-[9px] font-bold uppercase tracking-widest px-1.5 py-0.5 rounded border bg-slate-50 border-slate-200 text-slate-500" title="Processed before outcome tracking — assumed refund (2 legs)">Refund*</span>
                         )}

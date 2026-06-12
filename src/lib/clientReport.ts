@@ -376,22 +376,35 @@ function returnBlockOffsets(marketplace: Marketplace): {
 }
 
 /** Title-case the void outcome for the auditor-facing Outcome cell.
- *  Empty for active sales (no void recorded). */
-function outcomeLabel(sale: Sale): string {
+ *  Empty for active sales (no void recorded). A unit returned via the
+ *  Send-for-Repair route carries no customer outcome (we're keeping the
+ *  unit and fixing it); when the caller knows it's a repair-route Sale
+ *  via the linked unit's returnType, it should pass `repairRoute` so we
+ *  surface "In Repair" instead of defaulting to "Refund". */
+function outcomeLabel(sale: Sale, repairRoute = false): string {
   if (!sale.voidedAt) return '';
+  if (repairRoute) return 'In Repair';
   return sale.voidOutcome === 'replacement' ? 'Replacement' : 'Refund';
 }
 
 /** Write the trailing return-linkage block (Return Date, Outcome, Reason,
  *  Shipping Legs) plus the Postage Loss cell. No-op for active sales so
- *  column SUM / COUNTIF over the period treats blanks as 0 / no-match. */
-function writeReturnBlock(row: ExcelJS.Row, marketplace: Marketplace, sale: Sale): void {
+ *  column SUM / COUNTIF over the period treats blanks as 0 / no-match.
+ *
+ *  When the linked unit's returnType is 'repair' the sale was voided via
+ *  the Send-for-Repair route — there's no customer outcome (we kept the
+ *  unit), no shipping legs eaten, and no postage loss. Surface "In Repair"
+ *  on the Outcome cell and leave Legs / Postage Loss blank so the column
+ *  totals don't pick up phantom legs the operator never paid. */
+function writeReturnBlock(row: ExcelJS.Row, marketplace: Marketplace, sale: Sale, unit?: InventoryUnit): void {
   if (!sale.voidedAt) return;
+  const repairRoute = unit?.returnType === 'repair';
   const o = returnBlockOffsets(marketplace);
   row.getCell(o.returnDateCol).value  = toDate(sale.voidedAt);
   row.getCell(o.returnDateCol).numFmt = DATE_FMT;
-  row.getCell(o.outcomeCol).value     = outcomeLabel(sale);
+  row.getCell(o.outcomeCol).value     = outcomeLabel(sale, repairRoute);
   row.getCell(o.reasonCol).value      = sale.voidReason ?? '';
+  if (repairRoute) return;
   row.getCell(o.legsCol).value        = shippingLegsFor(sale);
   const loss = postageLossFor(sale);
   if (loss > 0) {
@@ -415,6 +428,10 @@ function writeSaleRow(
    *  supplier instead of an empty cell when `sale.supplierName` is
    *  itself missing. */
   resolvedSupplier: string = '',
+  /** Linked inventory unit (if joinable by sale.unitId / imei). Threaded
+   *  through to writeReturnBlock so it can distinguish a Send-for-Repair
+   *  void from a customer refund/replacement (unit.returnType === 'repair'). */
+  unit?: InventoryUnit,
 ): void {
   const f = excelFormulaFor(marketplace, rowNumber);
   const date = toDate(sale.saleDate);
@@ -458,7 +475,7 @@ function writeSaleRow(
       row.getCell(19).value = { formula: f.grossProfit! };   row.getCell(19).numFmt = MONEY_FMT;
       row.getCell(20).value = { formula: f.gpPercent! };     row.getCell(20).numFmt = MONEY_FMT;
       row.getCell(21).value = { formula: f.totalVatNtp! };   row.getCell(21).numFmt = MONEY_FMT;
-      writeReturnBlock(row, marketplace, sale);
+      writeReturnBlock(row, marketplace, sale, unit);
       return;
     }
 
@@ -495,7 +512,7 @@ function writeSaleRow(
       row.getCell(16).value = { formula: f.grossProfit! };  row.getCell(16).numFmt = MONEY_FMT;
       row.getCell(17).value = { formula: f.gpPercent! };    row.getCell(17).numFmt = MONEY_FMT;
       row.getCell(18).value = { formula: f.totalVatNtp! };  row.getCell(18).numFmt = MONEY_FMT;
-      writeReturnBlock(row, marketplace, sale);
+      writeReturnBlock(row, marketplace, sale, unit);
       return;
     }
 
@@ -547,7 +564,7 @@ function writeSaleRow(
       row.getCell(22).value = { formula: f.grossProfit! };  row.getCell(22).numFmt = MONEY_FMT;
       row.getCell(23).value = { formula: f.gpPercent! };    row.getCell(23).numFmt = MONEY_FMT;
       row.getCell(24).value = { formula: f.totalVatNtp! };  row.getCell(24).numFmt = MONEY_FMT;
-      writeReturnBlock(row, marketplace, sale);
+      writeReturnBlock(row, marketplace, sale, unit);
       return;
     }
 
@@ -583,7 +600,7 @@ function writeSaleRow(
       row.getCell(16).value = { formula: f.grossProfit! };  row.getCell(16).numFmt = MONEY_FMT;
       row.getCell(17).value = { formula: f.gpPercent! };    row.getCell(17).numFmt = MONEY_FMT;
       row.getCell(18).value = { formula: f.totalVatNtp! };  row.getCell(18).numFmt = MONEY_FMT;
-      writeReturnBlock(row, marketplace, sale);
+      writeReturnBlock(row, marketplace, sale, unit);
       return;
     }
 
@@ -623,12 +640,22 @@ export async function buildSalesWorkbookBuffer(input: BuildSalesWorkbookInput): 
       || u.returnType === 'returned_to_inventory'
       || u.returnType === 'repair';
     if (!looksReturned || !u.returnDate) return s;
+    // Don't synthesise a refund/replacement voidOutcome for the repair
+    // route — the unit was kept and fixed (no customer outcome). Leaving
+    // voidOutcome undefined lets writeReturnBlock read the linked unit's
+    // returnType and surface "In Repair" instead of "Refund".
+    const isRepair = u.returnType === 'repair';
+    const fallbackReason = u.returnOutcome === 'replacement'
+      ? 'Replacement'
+      : isRepair
+      ? 'In Repair'
+      : 'Refund';
     return {
       ...s,
       voidedAt: u.returnDate,
-      voidReason: s.voidReason || u.returnReason
-        || `${u.returnOutcome === 'replacement' ? 'Replacement' : 'Refund'}`,
-      voidOutcome: s.voidOutcome || u.returnOutcome || 'refund',
+      voidReason: s.voidReason || u.returnReason || fallbackReason,
+      voidOutcome: s.voidOutcome
+        || (isRepair ? undefined : u.returnOutcome ?? 'refund'),
     } as Sale;
   });
 
@@ -646,7 +673,7 @@ export async function buildSalesWorkbookBuffer(input: BuildSalesWorkbookInput): 
   // per-marketplace breakdown, refund vs replacement counts, gross + net GP
   // including postage-loss adjustment). Built before the marketplace sheets
   // so it lands as the leftmost tab.
-  writeSalesSummarySheet(wb, byMarketplace, opts);
+  writeSalesSummarySheet(wb, byMarketplace, opts, unitsById, unitsByImei);
 
   // Per-platform sheets — the client's master SALES_REPORT carries exactly
   // four tabs (AMAZON SALES, BM SALES, EBAY SALES, ONBUY SALES); PROJECT
@@ -666,12 +693,15 @@ export async function buildSalesWorkbookBuffer(input: BuildSalesWorkbookInput): 
       // suppliers collection (catches sale docs that only carry
       // supplierId); the linked unit is the last resort for in-app
       // sales that lost the supplier field for whatever reason.
+      const linkedUnit = (sale.unitId && unitsById.get(sale.unitId))
+        || (sale.imei && unitsByImei.get((sale.imei || '').trim().toUpperCase()))
+        || undefined;
       const resolvedSupplier =
         (sale.supplierName && sale.supplierName.trim())
         || (sale.supplierId && supplierMap?.[sale.supplierId])
-        || (sale.unitId && unitsById.get(sale.unitId)?.supplierName)
+        || linkedUnit?.supplierName
         || '';
-      writeSaleRow(sheet, m, sale, rowNumber, resolvedSupplier);
+      writeSaleRow(sheet, m, sale, rowNumber, resolvedSupplier, linkedUnit);
       // Same red-fill visual signal as the ALL sheet — applied across
       // every cell in the row so the highlight covers the full width
       // even when the master schema includes blank/formula-only cells.
@@ -791,7 +821,18 @@ function writeSalesSummarySheet(
   wb: ExcelJS.Workbook,
   byMarketplace: Map<Marketplace, Sale[]>,
   opts?: ClientReportOptions,
+  /** Sales linked to a unit with returnType === 'repair' don't carry a
+   *  customer outcome — they're excluded from the Refund / Replacement
+   *  counters and from the Postage Loss column (we kept the unit). */
+  unitsById?: Map<string, InventoryUnit>,
+  unitsByImei?: Map<string, InventoryUnit>,
 ): void {
+  const repairLinked = (s: Sale): boolean => {
+    const u = (s.unitId && unitsById?.get(s.unitId))
+      || (s.imei && unitsByImei?.get((s.imei || '').trim().toUpperCase()))
+      || undefined;
+    return u?.returnType === 'repair';
+  };
   const sheet = wb.addWorksheet('Summary');
   sheet.columns = [
     { width: 18 }, { width: 10 }, { width: 11 }, { width: 14 },
@@ -839,9 +880,16 @@ function writeSalesSummarySheet(
       gp += sale.grossProfit ?? 0;
       bp += s.buyPrice ?? 0;
       if (s.voidedAt) {
-        if (s.voidOutcome === 'replacement') replaceCount++;
-        else                                  refundCount++;
-        loss += postageLossFor(s);
+        if (repairLinked(s)) {
+          // Repair route — counted as a sale, but not a refund or
+          // replacement, and no postage loss (we kept the unit).
+        } else if (s.voidOutcome === 'replacement') {
+          replaceCount++;
+          loss += postageLossFor(s);
+        } else {
+          refundCount++;
+          loss += postageLossFor(s);
+        }
       }
     }
     const netGp = gp - loss;
@@ -1069,11 +1117,24 @@ function returnTypeLabel(rt: InventoryUnit['returnType']): string {
   }
 }
 
-/** Default outcome when the unit doc doesn't carry one (legacy rows
- *  processed before outcome tracking landed). Conservative floor:
- *  refund = 2 shipping legs. */
-function outcomeFor(u: InventoryUnit): 'refund' | 'replacement' {
+/** Customer outcome for a returned unit:
+ *   - Send-for-Repair route carries no customer outcome (we're keeping the
+ *     unit and fixing it), so surface 'repair' for the auditor instead of
+ *     defaulting to 'refund'.
+ *   - Otherwise fall back to the stored returnOutcome, defaulting to
+ *     'refund' for legacy rows processed before outcome tracking landed. */
+function outcomeFor(u: InventoryUnit): 'refund' | 'replacement' | 'repair' {
+  if (u.returnType === 'repair') return 'repair';
   return u.returnOutcome ?? 'refund';
+}
+
+/** Title-case the outcome for the auditor-facing Outcome cell. */
+function outcomeText(outcome: 'refund' | 'replacement' | 'repair'): string {
+  switch (outcome) {
+    case 'replacement': return 'Replacement';
+    case 'repair':      return 'In Repair';
+    default:            return 'Refund';
+  }
 }
 
 /** Postage-leg cost in £ for a return: the operator's snapshot first,
@@ -1093,11 +1154,16 @@ function legCostFor(u: InventoryUnit, linkedVoidedSale: Sale | undefined): numbe
 
 /** Total postage loss in £ for a unit: leg cost × number of shipping legs
  *  (refund = 2, replacement = 3). Mirrors `postageLossFor` for sales but
- *  reads off the unit-side fields with the voided-sale fallback baked in. */
+ *  reads off the unit-side fields with the voided-sale fallback baked in.
+ *
+ *  Repair-route returns eat no shipping legs (we kept the unit) — returns 0
+ *  even if ProcessReturnModal happened to snapshot a returnLegCost. */
 function unitPostageLoss(u: InventoryUnit, linkedVoidedSale: Sale | undefined): number {
+  const outcome = outcomeFor(u);
+  if (outcome === 'repair') return 0;
   const leg = legCostFor(u, linkedVoidedSale);
   if (leg <= 0) return 0;
-  const legs = outcomeFor(u) === 'replacement' ? 3 : 2;
+  const legs = outcome === 'replacement' ? 3 : 2;
   return leg * legs;
 }
 
@@ -1135,6 +1201,22 @@ export async function buildReturnsWorkbookBuffer(input: BuildReturnsWorkbookInpu
     }
   }
 
+  // Symmetric unit index — used by the per-event Summary to detect
+  // repair-route voids (no customer outcome → not a refund / replacement).
+  const unitsByIdRet = new Map<string, InventoryUnit>();
+  const unitsByImeiRet = new Map<string, InventoryUnit>();
+  for (const u of units) {
+    if (u.id) unitsByIdRet.set(u.id, u);
+    const k = (u.imei || '').trim().toUpperCase();
+    if (k && !unitsByImeiRet.has(k)) unitsByImeiRet.set(k, u);
+  }
+  const isRepairLinkedSale = (s: Sale): boolean => {
+    const u = (s.unitId && unitsByIdRet.get(s.unitId))
+      || (s.imei && unitsByImeiRet.get((s.imei || '').trim().toUpperCase()))
+      || undefined;
+    return u?.returnType === 'repair';
+  };
+
   /** All sales linked to a given unit — dedup'd across both indexes. */
   const salesForUnit = (u: InventoryUnit): Sale[] => {
     const byId = salesByUnitId.get(u.id) ?? [];
@@ -1153,12 +1235,32 @@ export async function buildReturnsWorkbookBuffer(input: BuildReturnsWorkbookInpu
   };
 
   /** Most recent voided sale linked to this unit. Used for Sheet 2's
-   *  "Original Sale Date / Sale Price / Marketplace" columns. */
+   *  "Original Sale Date / Sale Price / Marketplace" columns.
+   *
+   *  voidedAt is set from a date-only `YYYY-MM-DD` input (see ReturnsPage
+   *  ProcessReturnModal), so for a unit cycled sold → returned → re-sold
+   *  → re-returned on the same day, every voidedAt string compares equal
+   *  and a naive `s.voidedAt > best.voidedAt` picks the first match
+   *  (typically the EARLIEST cycle) instead of the one that triggered the
+   *  CURRENT return. Compose a sort key with saleDate then the ISO
+   *  createdAt / updatedAt timestamps as tiebreakers — recordSale writes
+   *  these as full ISO strings (`nowIso`), so they resolve to ms precision. */
   const latestVoidedSale = (u: InventoryUnit): Sale | undefined => {
+    const tsString = (v: unknown): string => {
+      if (typeof v === 'string') return v;
+      if (v && typeof (v as { toDate?: () => Date }).toDate === 'function') {
+        try { return (v as { toDate: () => Date }).toDate().toISOString(); } catch { return ''; }
+      }
+      return '';
+    };
+    const sortKey = (s: Sale): string =>
+      `${s.voidedAt || ''}__${s.saleDate || ''}__${tsString(s.updatedAt)}__${tsString(s.createdAt)}`;
     let best: Sale | undefined;
+    let bestKey = '';
     for (const s of salesForUnit(u)) {
       if (!s.voidedAt) continue;
-      if (!best || (s.voidedAt > (best.voidedAt || ''))) best = s;
+      const key = sortKey(s);
+      if (!best || key > bestKey) { best = s; bestKey = key; }
     }
     return best;
   };
@@ -1171,33 +1273,79 @@ export async function buildReturnsWorkbookBuffer(input: BuildReturnsWorkbookInpu
   const wb = new ExcelJS.Workbook();
 
   // -------- Sheet 1: Summary --------
-  // Units with a return on file (returnDate set) that fall in the range.
-  // The Summary headline figures come from this same subset so Sheet 1
-  // and Sheet 2 stay in lock-step.
+  // Per-EVENT counts and loss across the period — iterate the voided sales
+  // rather than unique units, so a unit cycled sold → returned 10 times
+  // contributes 10 refund events at the per-cycle leg cost (matching the
+  // Sales Report Summary's Postage Loss figure and the Unit Histories tab).
+  // The pre-2026-05 path counted unique units which under-reported by a
+  // factor of N for a repeat-cycled IMEI.
   const from = opts?.from ?? '0000-01-01';
   const to   = opts?.to   ?? '9999-12-31';
-  const returnedInRange = units.filter(u =>
-    u.returnType && u.returnDate && u.returnDate >= from && u.returnDate <= to,
-  );
 
+  // Index voided sales by unit so the per-unit Detail sheet (Sheet 2) and
+  // the per-event Summary (Sheet 1) read from the same source.
+  const voidedSalesInRange = sales.filter(s =>
+    s.voidedAt && s.voidedAt >= from && s.voidedAt <= to,
+  );
+  // Track which units already got an event from a linked voided Sale so the
+  // legacy fallback below doesn't double-count them.
+  const seenUnitIds = new Set<string>();
   let refundsCount = 0;
   let replacementsCount = 0;
   let totalLoss = 0;
   const lossByMarketplace = new Map<string, { count: number; loss: number }>();
-  for (const u of returnedInRange) {
-    const voided = latestVoidedSale(u);
-    const loss = unitPostageLoss(u, voided);
-    totalLoss += loss;
-    if (outcomeFor(u) === 'replacement') replacementsCount++;
-    else refundsCount++;
-    const mp = voided?.marketplace || '—';
+  const bump = (mp: string, loss: number) => {
     const cur = lossByMarketplace.get(mp) ?? { count: 0, loss: 0 };
     cur.count++;
     cur.loss += loss;
     lossByMarketplace.set(mp, cur);
+  };
+
+  for (const s of voidedSalesInRange) {
+    if (s.unitId) seenUnitIds.add(s.unitId);
+    // Repair-route voids carry no customer outcome and eat no shipping
+    // legs (we kept the unit). Skip the counters + loss entirely so the
+    // Summary headline numbers reconcile with the Sales Report.
+    if (isRepairLinkedSale(s)) continue;
+    const loss = postageLossFor(s);
+    totalLoss += loss;
+    if (s.voidOutcome === 'replacement') replacementsCount++;
+    else                                  refundsCount++;
+    bump(s.marketplace || '—', loss);
   }
-  const totalReturns = returnedInRange.length;
+
+  // Legacy fallback: pre-void-fix returns wrote returnType/returnDate on the
+  // unit only, with no linked voided Sale. Count those units once each at
+  // the unit-side leg cost so the period total isn't silently missing them.
+  const legacyReturnedUnits = units.filter(u =>
+    !!u.returnType && !!u.returnDate
+      && u.returnDate >= from && u.returnDate <= to
+      && !seenUnitIds.has(u.id),
+  );
+  for (const u of legacyReturnedUnits) {
+    const voided = latestVoidedSale(u);
+    if (voided && voided.voidedAt && voided.voidedAt >= from && voided.voidedAt <= to) continue;
+    const outcome = outcomeFor(u);
+    if (outcome === 'repair') continue;            // not a customer outcome — skip
+    const loss = unitPostageLoss(u, voided);
+    totalLoss += loss;
+    if (outcome === 'replacement') replacementsCount++;
+    else                            refundsCount++;
+    bump(voided?.marketplace || '—', loss);
+  }
+
+  const totalReturns = refundsCount + replacementsCount;
   const avgLoss = totalReturns > 0 ? totalLoss / totalReturns : 0;
+
+  // Sheet 2 keeps the per-unit lifetime view (one row per IMEI showing the
+  // latest cycle), so the summary period filter still needs the unique-unit
+  // set the old code computed. Kept separate from the per-event Summary
+  // numbers above so the two sheets answer different audit questions:
+  //   Sheet 1 → "how many return events / how much loss this period?"
+  //   Sheet 2 → "which units have a return on file this period?"
+  const returnedInRange = units.filter(u =>
+    !!u.returnType && !!u.returnDate && u.returnDate >= from && u.returnDate <= to,
+  );
 
   const summary = wb.addWorksheet('Summary');
   summary.columns = [{ width: 28 }, { width: 24 }];
@@ -1245,8 +1393,12 @@ export async function buildReturnsWorkbookBuffer(input: BuildReturnsWorkbookInpu
   for (const u of detailSorted) {
     const voided = latestVoidedSale(u);
     const outcome = outcomeFor(u);
-    const legs = outcome === 'replacement' ? 3 : 2;
-    const leg = legCostFor(u, voided);
+    // Repair-route returns eat no legs (we kept the unit and fixed it), so
+    // Shipping Legs / Postage Loss stay blank for them. Customer-facing
+    // refund and replacement keep the 2 / 3 leg multipliers.
+    const isRepair = outcome === 'repair';
+    const legs = isRepair ? 0 : outcome === 'replacement' ? 3 : 2;
+    const leg = isRepair ? 0 : legCostFor(u, voided);
     const loss = leg > 0 ? leg * legs : 0;
 
     const row = detail.addRow([
@@ -1260,11 +1412,11 @@ export async function buildReturnsWorkbookBuffer(input: BuildReturnsWorkbookInpu
       voided?.salePrice ?? null,
       voided?.marketplace ?? '',
       returnTypeLabel(u.returnType),
-      outcome === 'replacement' ? 'Replacement' : 'Refund',
+      outcomeText(outcome),
       u.returnReason || '',
       u.returnComments || '',
       leg > 0 ? leg : null,
-      legs,
+      isRepair ? null : legs,
       loss > 0 ? loss : null,
     ]);
     row.getCell(1).numFmt = DATE_FMT;     // Return Date
@@ -1347,13 +1499,17 @@ export async function buildReturnsWorkbookBuffer(input: BuildReturnsWorkbookInpu
         comments: s.comments || '',
       });
       if (s.voidedAt) {
-        const out = (s.voidOutcome ?? outcomeFor(u));
+        // Repair-route voids don't eat shipping legs (we kept the unit).
+        const isRepair = u.returnType === 'repair' && !s.voidOutcome;
+        const out: 'refund' | 'replacement' | 'repair' = isRepair
+          ? 'repair'
+          : (s.voidOutcome ?? outcomeFor(u)) === 'replacement' ? 'replacement' : 'refund';
         const postage = Number(s.postage) || 0;
         const pVat = s.postageVatExempt ? 0 : (Number(s.postageVat) || postage * 0.2);
-        const legs = out === 'replacement' ? 3 : 2;
-        const loss = (postage + pVat) * legs;
+        const legs = out === 'replacement' ? 3 : out === 'refund' ? 2 : 0;
+        const loss = legs > 0 ? (postage + pVat) * legs : 0;
         const reason = s.voidReason || u.returnReason || '';
-        const detailParts = [out === 'replacement' ? 'Replacement' : 'Refund', reason].filter(Boolean);
+        const detailParts = [outcomeText(out), reason].filter(Boolean);
         allEvents.push({
           imei, model,
           eventDate: s.voidedAt,
@@ -1374,11 +1530,11 @@ export async function buildReturnsWorkbookBuffer(input: BuildReturnsWorkbookInpu
     // from the unit-side fields so legacy returns still appear.
     if (u.returnType && !matchedLatestReturnFromSale) {
       const out = outcomeFor(u);
-      const leg = legCostFor(u, undefined);
-      const legs = out === 'replacement' ? 3 : 2;
-      const loss = leg > 0 ? leg * legs : 0;
+      const leg = out === 'repair' ? 0 : legCostFor(u, undefined);
+      const legs = out === 'replacement' ? 3 : out === 'refund' ? 2 : 0;
+      const loss = legs > 0 && leg > 0 ? leg * legs : 0;
       const reason = u.returnReason || '';
-      const detailParts = [out === 'replacement' ? 'Replacement' : 'Refund', reason].filter(Boolean);
+      const detailParts = [outcomeText(out), reason].filter(Boolean);
       allEvents.push({
         imei, model,
         eventDate: u.returnDate || '',
