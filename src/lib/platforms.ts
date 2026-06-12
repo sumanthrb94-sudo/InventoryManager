@@ -589,7 +589,8 @@ export function excelFormulaFor(marketplace: Marketplace, row: number): Record<s
       //   G=BP, H=SP, I=SP-BP, J=Marginal Tax, K=Commission, L=C. VAT,
       //   M=DSF, N=DSF VAT, O=Postage, P=P. VAT, Q=Accessories,
       //   R=Total VAT, S=GP, T=GP %, U=Total VAT NTP, V=Comments,
-      //   W=Postage Loss (voided sales only — refund=2 legs, replacement=3).
+      //   W=Return Date, X=Outcome, Y=Return Reason, Z=Shipping Legs,
+      //   AA=Postage Loss (voided sales only — refund=2 legs, replacement=3).
       // GP % is NET: subtracts the Postage Loss cell from GP so a refunded
       // or replaced unit reads as actually lost margin. Active rows leave
       // Postage Loss blank, which Excel coerces to 0 — formula collapses to
@@ -612,19 +613,21 @@ export function excelFormulaFor(marketplace: Marketplace, row: number): Record<s
         accessoryFee:  `${fee.accessoryFee ?? 0}`,
         totalVat:      `L${r}+N${r}+P${r}`,
         grossProfit:   `I${r}-J${r}-K${r}-L${r}-M${r}-N${r}-O${r}-P${r}-Q${r}`,
-        gpPercent:     `(S${r}-W${r})/G${r}*100`,
+        gpPercent:     `(S${r}-AA${r})/G${r}*100`,
         totalVatNtp:   `J${r}-R${r}`,
       };
     }
     case 'BM': {
-      // 2026-05 schema. 17 export cols total + Postage Loss trailing col:
+      // 2026-05 schema. 19 sale cols + return-info block + Postage Loss:
       //   A=Date, B=Order Number, C=SKU, D=IMEI, E=Supplier, F=Quantity,
       //   G=BP, H=SP, I=SP-BP, J=Marginal Tax, K=Commission,
       //   L=Customer Care Fees, M=Postage, N=P. VAT, O=Accessories,
-      //   P=GP, Q=GP %, R=Total VAT NTP, S=Comments, T=Postage Loss
+      //   P=GP, Q=GP %, R=Total VAT NTP, S=Comments,
+      //   T=Return Date, U=Outcome, V=Return Reason, W=Shipping Legs,
+      //   X=Postage Loss
       // No "Total VAT" column on BM — only one VAT line (P. VAT), so
       // Total VAT NTP subtracts P. VAT (col N) directly from Marginal Tax.
-      // GP % is NET of Postage Loss (col T) — see AMAZON case for rationale.
+      // GP % is NET of Postage Loss (col X) — see AMAZON case for rationale.
       const vatPct = fee.vatPct ?? 20;
       return {
         spMinusBp:        `H${r}-G${r}`,
@@ -634,7 +637,7 @@ export function excelFormulaFor(marketplace: Marketplace, row: number): Record<s
         postageVat:       `M${r}*${vatPct}%`,
         accessoryFee:     `${fee.accessoryFee ?? 0}`,
         grossProfit:      `I${r}-J${r}-K${r}-L${r}-M${r}-N${r}-O${r}`,
-        gpPercent:        `(P${r}-T${r})/G${r}*100`,
+        gpPercent:        `(P${r}-X${r})/G${r}*100`,
         totalVatNtp:      `J${r}-N${r}`,
       };
     }
@@ -643,13 +646,15 @@ export function excelFormulaFor(marketplace: Marketplace, row: number): Record<s
       // verbatim (Marginal Tax × 16.67%, Commission via the explicit
       // 6.9% − 10% reduction so the audit trail shows the legacy fee
       // structure, Marketing derived from SP × 5%, GP % divides by SP).
-      // 25 export columns total + Postage Loss trailing col:
+      // 25 sale cols + return-info block + Postage Loss = 30 cols total:
       //   A=Date, B=OrderNo, C=SKU, D=IMEI, E=Supplier, F=Units,
       //   G=BP, H=SP, I=SP-BP, J=Marginal Tax, K=Commission, L=ROF, M=FVF,
       //   N=VAT, O=T.COM, P=Postage, Q=P. VAT, R=Marketing, S=M. VAT,
       //   T=Accessories, U=Total VAT, V=GP, W=GP %, X=Total VAT NTP,
-      //   Y=Comments, Z=Postage Loss
-      // GP % is NET of Postage Loss (col Z) — see AMAZON case for rationale.
+      //   Y=Comments,
+      //   Z=Return Date, AA=Outcome, AB=Return Reason, AC=Shipping Legs,
+      //   AD=Postage Loss
+      // GP % is NET of Postage Loss (col AD) — see AMAZON for rationale.
       const vatPct = fee.vatPct ?? 20;
       return {
         spMinusBp:    `H${r}-G${r}`,
@@ -665,17 +670,19 @@ export function excelFormulaFor(marketplace: Marketplace, row: number): Record<s
         accessoryFee: `${fee.accessoryFee ?? 0}`,
         totalVat:     `N${r}+Q${r}+S${r}`,
         grossProfit:  `I${r}-J${r}-O${r}-P${r}-Q${r}-R${r}-S${r}-T${r}`,
-        gpPercent:    `(V${r}-Z${r})/H${r}*100`,
+        gpPercent:    `(V${r}-AD${r})/H${r}*100`,
         totalVatNtp:  `J${r}-U${r}`,
       };
     }
     case 'ONBUY': {
-      // 2026-05 schema. 19 export cols total + Postage Loss trailing col:
+      // 2026-05 schema. 19 sale cols + return-info block + Postage Loss:
       //   A=Date, B=Order Number, C=SKU, D=IMEI, E=Supplier,
       //   F=BP, G=SP, H=SP-BP, I=Marginal Tax, J=Commission, K=VAT 20%,
       //   L=Postage, M=P. VAT, N=Accessories, O=Total VAT, P=GP,
-      //   Q=GP %, R=Total VAT NTP, S=Comments, T=Postage Loss
-      // GP % is NET of Postage Loss (col T) — see AMAZON case for rationale.
+      //   Q=GP %, R=Total VAT NTP, S=Comments,
+      //   T=Return Date, U=Outcome, V=Return Reason, W=Shipping Legs,
+      //   X=Postage Loss
+      // GP % is NET of Postage Loss (col X) — see AMAZON for rationale.
       const vatPct = fee.vatPct ?? 20;
       return {
         spMinusBp:    `G${r}-F${r}`,
@@ -686,7 +693,7 @@ export function excelFormulaFor(marketplace: Marketplace, row: number): Record<s
         accessoryFee: `${fee.accessoryFee ?? 0}`,
         totalVat:     `K${r}+M${r}`,
         grossProfit:  `H${r}-I${r}-J${r}-K${r}-L${r}-M${r}-N${r}`,
-        gpPercent:    `(P${r}-T${r})/F${r}*100`,
+        gpPercent:    `(P${r}-X${r})/F${r}*100`,
         totalVatNtp:  `I${r}-O${r}`,
       };
     }

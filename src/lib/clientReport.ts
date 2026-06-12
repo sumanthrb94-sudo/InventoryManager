@@ -279,6 +279,12 @@ const SALES_HEADERS: Record<Marketplace, SalesHeaderRow> = {
     'Postage', 'P. VAT', 'Accessories',
     'Total VAT', 'GP', 'GP %', 'Total VAT NTP',
     'Comments',
+    // ── Return-linkage block ────────────────────────────────────────────
+    // Auditor needs to see WHY a row is red without reverse-engineering
+    // the Postage Loss multiplier. Each block is populated only when the
+    // sale is voided (refund / replacement); active sales leave the
+    // cells blank so column SUM / COUNTIF over the period works cleanly.
+    'Return Date', 'Outcome', 'Return Reason', 'Shipping Legs',
     // Return-loss column — voided sales carry (postage + P.VAT) × legs
     // (2 for a refund, 3 for a replacement). Empty for active sales.
     // Lets the CA total the column for the period's postage exposure.
@@ -290,19 +296,25 @@ const SALES_HEADERS: Record<Marketplace, SalesHeaderRow> = {
     'Date', 'Order Number', 'SKU', 'IMEI', 'Supplier', 'Quantity',
     'BP', 'SP', 'SP-BP', 'Marginal Tax', 'Commission',
     'Customer Care Fees', 'Postage', 'P. VAT', 'Accessories',
-    'GP', 'GP %', 'Total VAT NTP', 'Comments', 'Postage Loss',
+    'GP', 'GP %', 'Total VAT NTP', 'Comments',
+    'Return Date', 'Outcome', 'Return Reason', 'Shipping Legs',
+    'Postage Loss',
   ],
   EBAY: [
     'Date', 'Order Number', 'SKU', 'IMEI', 'Supplier', 'Units',
     'BP', 'SP', 'SP-BP', 'Marginal Tax', 'Commission', 'ROF', 'FVF', 'VAT',
     'T.COM', 'Postage', 'P. VAT', 'Marketing', 'M. VAT', 'Accessories',
-    'Total VAT', 'GP', 'GP %', 'Total VAT NTP', 'Comments', 'Postage Loss',
+    'Total VAT', 'GP', 'GP %', 'Total VAT NTP', 'Comments',
+    'Return Date', 'Outcome', 'Return Reason', 'Shipping Legs',
+    'Postage Loss',
   ],
   ONBUY: [
     'Date', 'Order Number', 'SKU', 'IMEI', 'Supplier',
     'BP', 'SP', 'SP-BP', 'Marginal Tax', 'Commission', 'VAT 20%',
     'Postage', 'P. VAT', 'Accessories',
-    'Total VAT', 'GP', 'GP %', 'Total VAT NTP', 'Comments', 'Postage Loss',
+    'Total VAT', 'GP', 'GP %', 'Total VAT NTP', 'Comments',
+    'Return Date', 'Outcome', 'Return Reason', 'Shipping Legs',
+    'Postage Loss',
   ],
 };
 
@@ -314,7 +326,7 @@ const IMEI_FMT = '0';
  *  it's (postage + P.VAT) × shipping legs, where refund = 2 legs and
  *  replacement = 3. Used as the trailing Postage Loss column on every
  *  marketplace sheet so the CA can tally the period's exposure. */
-function postageLossFor(sale: Sale): number {
+export function postageLossFor(sale: Sale): number {
   if (!sale.voidedAt) return 0;
   const postage = Number(sale.postage) || 0;
   const pvat = sale.postageVatExempt ? 0 : (Number(sale.postageVat) || postage * 0.2);
@@ -322,15 +334,70 @@ function postageLossFor(sale: Sale): number {
   return (postage + pvat) * legs;
 }
 
-/** Write the Postage Loss cell on the trailing column of the current
- *  marketplace's row. No-op when the sale isn't voided so active rows
- *  stay clean (Excel filters / sums on the column treat blanks as 0). */
-function writePostageLoss(row: ExcelJS.Row, marketplace: Marketplace, sale: Sale): void {
+/** Number of shipping legs eaten by a void. Refund = 2 (outbound +
+ *  inbound), replacement = 3 (plus the replacement outbound). */
+export function shippingLegsFor(sale: Sale): number {
+  if (!sale.voidedAt) return 0;
+  return sale.voidOutcome === 'replacement' ? 3 : 2;
+}
+
+/** Convert a 1-indexed column number to an Excel letter (1=A, 26=Z, 27=AA, etc).
+ *  The Sales Report's wider sheets (EBAY at 30 cols) cross the Z boundary, so
+ *  the GP % formula needs this to reference the trailing Postage Loss cell. */
+export function colLetter(n: number): string {
+  let s = '';
+  let x = n;
+  while (x > 0) {
+    const m = (x - 1) % 26;
+    s = String.fromCharCode(65 + m) + s;
+    x = Math.floor((x - 1) / 26);
+  }
+  return s;
+}
+
+/** Cap of the marketplace-specific return-info block (Return Date, Outcome,
+ *  Return Reason, Shipping Legs) — the 4 columns sitting between Comments
+ *  and the trailing Postage Loss cell. Letters land beyond Z on EBAY. */
+function returnBlockOffsets(marketplace: Marketplace): {
+  returnDateCol: number;
+  outcomeCol: number;
+  reasonCol: number;
+  legsCol: number;
+  postageLossCol: number;
+} {
+  const last = SALES_HEADERS[marketplace].length;
+  return {
+    returnDateCol: last - 4,
+    outcomeCol:    last - 3,
+    reasonCol:     last - 2,
+    legsCol:       last - 1,
+    postageLossCol: last,
+  };
+}
+
+/** Title-case the void outcome for the auditor-facing Outcome cell.
+ *  Empty for active sales (no void recorded). */
+function outcomeLabel(sale: Sale): string {
+  if (!sale.voidedAt) return '';
+  return sale.voidOutcome === 'replacement' ? 'Replacement' : 'Refund';
+}
+
+/** Write the trailing return-linkage block (Return Date, Outcome, Reason,
+ *  Shipping Legs) plus the Postage Loss cell. No-op for active sales so
+ *  column SUM / COUNTIF over the period treats blanks as 0 / no-match. */
+function writeReturnBlock(row: ExcelJS.Row, marketplace: Marketplace, sale: Sale): void {
+  if (!sale.voidedAt) return;
+  const o = returnBlockOffsets(marketplace);
+  row.getCell(o.returnDateCol).value  = toDate(sale.voidedAt);
+  row.getCell(o.returnDateCol).numFmt = DATE_FMT;
+  row.getCell(o.outcomeCol).value     = outcomeLabel(sale);
+  row.getCell(o.reasonCol).value      = sale.voidReason ?? '';
+  row.getCell(o.legsCol).value        = shippingLegsFor(sale);
   const loss = postageLossFor(sale);
-  if (loss <= 0) return;
-  const col = SALES_HEADERS[marketplace].length;
-  row.getCell(col).value = loss;
-  row.getCell(col).numFmt = MONEY_FMT;
+  if (loss > 0) {
+    row.getCell(o.postageLossCol).value  = loss;
+    row.getCell(o.postageLossCol).numFmt = MONEY_FMT;
+  }
 }
 
 /**
@@ -391,7 +458,7 @@ function writeSaleRow(
       row.getCell(19).value = { formula: f.grossProfit! };   row.getCell(19).numFmt = MONEY_FMT;
       row.getCell(20).value = { formula: f.gpPercent! };     row.getCell(20).numFmt = MONEY_FMT;
       row.getCell(21).value = { formula: f.totalVatNtp! };   row.getCell(21).numFmt = MONEY_FMT;
-      writePostageLoss(row, marketplace, sale);
+      writeReturnBlock(row, marketplace, sale);
       return;
     }
 
@@ -428,7 +495,7 @@ function writeSaleRow(
       row.getCell(16).value = { formula: f.grossProfit! };  row.getCell(16).numFmt = MONEY_FMT;
       row.getCell(17).value = { formula: f.gpPercent! };    row.getCell(17).numFmt = MONEY_FMT;
       row.getCell(18).value = { formula: f.totalVatNtp! };  row.getCell(18).numFmt = MONEY_FMT;
-      writePostageLoss(row, marketplace, sale);
+      writeReturnBlock(row, marketplace, sale);
       return;
     }
 
@@ -480,7 +547,7 @@ function writeSaleRow(
       row.getCell(22).value = { formula: f.grossProfit! };  row.getCell(22).numFmt = MONEY_FMT;
       row.getCell(23).value = { formula: f.gpPercent! };    row.getCell(23).numFmt = MONEY_FMT;
       row.getCell(24).value = { formula: f.totalVatNtp! };  row.getCell(24).numFmt = MONEY_FMT;
-      writePostageLoss(row, marketplace, sale);
+      writeReturnBlock(row, marketplace, sale);
       return;
     }
 
@@ -516,7 +583,7 @@ function writeSaleRow(
       row.getCell(16).value = { formula: f.grossProfit! };  row.getCell(16).numFmt = MONEY_FMT;
       row.getCell(17).value = { formula: f.gpPercent! };    row.getCell(17).numFmt = MONEY_FMT;
       row.getCell(18).value = { formula: f.totalVatNtp! };  row.getCell(18).numFmt = MONEY_FMT;
-      writePostageLoss(row, marketplace, sale);
+      writeReturnBlock(row, marketplace, sale);
       return;
     }
 
@@ -575,10 +642,15 @@ export async function buildSalesWorkbookBuffer(input: BuildSalesWorkbookInput): 
 
   const wb = new ExcelJS.Workbook();
 
-  // Per-platform sheets only — the client's master SALES_REPORT carries
-  // exactly four tabs (AMAZON SALES, BM SALES, EBAY SALES, ONBUY SALES);
-  // the earlier ALL sheet was a Mobile Inventory invention the operator
-  // never wanted. PROJECT excluded — we sell on 4 platforms only.
+  // Sheet 1: Summary — auditor-facing roll-up of the period (period label,
+  // per-marketplace breakdown, refund vs replacement counts, gross + net GP
+  // including postage-loss adjustment). Built before the marketplace sheets
+  // so it lands as the leftmost tab.
+  writeSalesSummarySheet(wb, byMarketplace, opts);
+
+  // Per-platform sheets — the client's master SALES_REPORT carries exactly
+  // four tabs (AMAZON SALES, BM SALES, EBAY SALES, ONBUY SALES); PROJECT
+  // excluded — we sell on 4 platforms only.
   for (const m of MARKETPLACES) {
     const sheet = wb.addWorksheet(m);
     sheet.addRow(SALES_HEADERS[m]);
@@ -610,9 +682,211 @@ export async function buildSalesWorkbookBuffer(input: BuildSalesWorkbookInput): 
         }
       }
     }
+
+    // Totals row immediately below the data so the auditor can read the
+    // sum without scrolling. SUM formulas only — Excel handles re-totalling
+    // if the operator edits an individual cell.
+    if (bucket.length > 0) {
+      writeMarketplaceTotalsRow(sheet, m, bucket.length);
+    }
   }
 
   return wb.xlsx.writeBuffer() as Promise<ArrayBuffer>;
+}
+
+/** Numeric columns to SUM per marketplace in the trailing TOTAL row. Stored
+ *  as 1-indexed column numbers so the writer can read the matching value
+ *  cell back for the cross-marketplace summary roll-up. */
+const TOTAL_SUM_COLS: Record<Marketplace, { label: number; numericCols: number[]; gpCol: number; gpPctCol: number; postageLossCol: number; denominatorCol: number }> = {
+  // AMAZON: 27 cols. BP=7(G), SP=8(H), GP=19(S), GP%=20(T), Postage Loss=27(AA).
+  // SUM cols: quantity F=6, BP G=7, SP H=8, SP-BP I=9, MarTax J=10, Com K=11,
+  //   C.VAT L=12, DSF M=13, DSF.VAT N=14, Postage O=15, P.VAT P=16, Acc Q=17,
+  //   Total VAT R=18, GP S=19, Total VAT NTP U=21, Postage Loss AA=27.
+  AMAZON: {
+    label: 1,
+    numericCols: [6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 21, 27],
+    gpCol: 19, gpPctCol: 20, postageLossCol: 27, denominatorCol: 7,
+  },
+  // BM: 24 cols. GP=16(P), GP%=17(Q), Postage Loss=24(X), denominator=BP G=7.
+  BM: {
+    label: 1,
+    numericCols: [6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 18, 24],
+    gpCol: 16, gpPctCol: 17, postageLossCol: 24, denominatorCol: 7,
+  },
+  // EBAY: 30 cols. GP=22(V), GP%=23(W), Postage Loss=30(AD), denominator=SP H=8.
+  EBAY: {
+    label: 1,
+    numericCols: [6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 24, 30],
+    gpCol: 22, gpPctCol: 23, postageLossCol: 30, denominatorCol: 8,
+  },
+  // ONBUY: 24 cols. GP=16(P), GP%=17(Q), Postage Loss=24(X), denominator=BP F=6.
+  ONBUY: {
+    label: 1,
+    numericCols: [6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 18, 24],
+    gpCol: 16, gpPctCol: 17, postageLossCol: 24, denominatorCol: 6,
+  },
+};
+
+/** Append a bold "TOTAL" row with SUM(...) formulas across the numeric
+ *  columns. The GP % cell uses the same net-of-postage-loss math as the
+ *  per-row formula so the column reconciles top-to-bottom. */
+function writeMarketplaceTotalsRow(
+  sheet: ExcelJS.Worksheet,
+  marketplace: Marketplace,
+  dataRowCount: number,
+): void {
+  const cfg = TOTAL_SUM_COLS[marketplace];
+  const firstDataRow = 2;
+  const lastDataRow = firstDataRow + dataRowCount - 1;
+  const totalRow = lastDataRow + 1;
+  const blankRow: Array<string | number | null> = Array(SALES_HEADERS[marketplace].length).fill(null);
+  blankRow[cfg.label - 1] = 'TOTAL';
+  const row = sheet.addRow(blankRow);
+  for (const col of cfg.numericCols) {
+    const letter = colLetter(col);
+    row.getCell(col).value  = { formula: `SUM(${letter}${firstDataRow}:${letter}${lastDataRow})` };
+    row.getCell(col).numFmt = MONEY_FMT;
+  }
+  // Net GP % across the totalled rows = (Total GP − Total Postage Loss) / Total Denominator × 100.
+  const gpL    = colLetter(cfg.gpCol);
+  const lossL  = colLetter(cfg.postageLossCol);
+  const denomL = colLetter(cfg.denominatorCol);
+  row.getCell(cfg.gpPctCol).value  = {
+    formula: `IFERROR((${gpL}${totalRow}-${lossL}${totalRow})/${denomL}${totalRow}*100,0)`,
+  };
+  row.getCell(cfg.gpPctCol).numFmt = MONEY_FMT;
+  // Bold the TOTAL label + the SUM cells so the row reads as a footer.
+  row.font = { bold: true };
+  row.getCell(cfg.label).fill = {
+    type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF1F5F9' },  // slate-100
+  };
+}
+
+/** Per-marketplace cell positions used by the Summary roll-up. Mirrors
+ *  TOTAL_SUM_COLS but adds a few extras the writer needs to display: the
+ *  shipping-legs column (so we can COUNT refunds vs replacements) and the
+ *  outcome column (text matched by COUNTIF). */
+interface SummaryColRefs {
+  bp: string; sp: string; gp: string; loss: string; outcome: string;
+}
+function summaryColRefs(m: Marketplace): SummaryColRefs {
+  const offsets = returnBlockOffsets(m);
+  const cfg = TOTAL_SUM_COLS[m];
+  return {
+    bp:      colLetter(m === 'ONBUY' ? 6 : 7),    // ONBUY: BP=F, others: BP=G
+    sp:      colLetter(m === 'ONBUY' ? 7 : 8),    // ONBUY: SP=G, others: SP=H
+    gp:      colLetter(cfg.gpCol),
+    loss:    colLetter(cfg.postageLossCol),
+    outcome: colLetter(offsets.outcomeCol),
+  };
+}
+
+/** Sheet 1: cross-marketplace summary roll-up. Period label + a 6-column
+ *  breakdown table (Marketplace / Sales / Refunds / Replacements / Gross
+ *  GP / Postage Loss / Net GP / Net GP %) followed by a grand-total row.
+ *  Numbers are SUM-formula references back to the per-marketplace sheets
+ *  so any later edit in a sale row cascades into the Summary without a
+ *  manual refresh. */
+function writeSalesSummarySheet(
+  wb: ExcelJS.Workbook,
+  byMarketplace: Map<Marketplace, Sale[]>,
+  opts?: ClientReportOptions,
+): void {
+  const sheet = wb.addWorksheet('Summary');
+  sheet.columns = [
+    { width: 18 }, { width: 10 }, { width: 11 }, { width: 14 },
+    { width: 13 }, { width: 14 }, { width: 13 }, { width: 11 },
+  ];
+
+  // Title block.
+  const title = sheet.addRow(['Sales Report — Audit Summary', '', '', '', '', '', '', '']);
+  title.getCell(1).font = { bold: true, size: 13 };
+  sheet.addRow([`Period: ${periodLabel(opts)}`]);
+  sheet.addRow([]);
+
+  // Header row for the breakdown table.
+  const header = sheet.addRow([
+    'Marketplace', 'Sales', 'Refunds', 'Replacements',
+    'Gross GP £', 'Postage Loss £', 'Net GP £', 'Net GP %',
+  ]);
+  header.font = { bold: true };
+  header.fill = {
+    type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF1F5F9' },  // slate-100
+  };
+
+  // One row per marketplace.
+  const grand: { sales: number; refunds: number; replacements: number; gp: number; loss: number; netGp: number; bp: number } = {
+    sales: 0, refunds: 0, replacements: 0, gp: 0, loss: 0, netGp: 0, bp: 0,
+  };
+  for (const m of MARKETPLACES) {
+    const bucket = byMarketplace.get(m) ?? [];
+    if (bucket.length === 0) {
+      const row = sheet.addRow([m, 0, 0, 0, 0, 0, 0, 0]);
+      row.getCell(5).numFmt = MONEY_FMT;
+      row.getCell(6).numFmt = MONEY_FMT;
+      row.getCell(7).numFmt = MONEY_FMT;
+      row.getCell(8).numFmt = MONEY_FMT;
+      continue;
+    }
+    // Compute raw figures in JS (rather than cross-sheet formulas) so the
+    // Summary tab reads correctly even before the operator clicks into a
+    // marketplace tab to trigger ExcelJS lazy evaluation.
+    let salesCount = 0, refundCount = 0, replaceCount = 0;
+    let gp = 0, loss = 0, bp = 0;
+    for (const s of bucket) {
+      salesCount++;
+      const sale = recomputeSale(s);
+      gp += sale.grossProfit ?? 0;
+      bp += s.buyPrice ?? 0;
+      if (s.voidedAt) {
+        if (s.voidOutcome === 'replacement') replaceCount++;
+        else                                  refundCount++;
+        loss += postageLossFor(s);
+      }
+    }
+    const netGp = gp - loss;
+    const netGpPct = bp > 0 ? netGp / bp * 100 : 0;
+    const row = sheet.addRow([m, salesCount, refundCount, replaceCount,
+      Number(gp.toFixed(2)), Number(loss.toFixed(2)),
+      Number(netGp.toFixed(2)), Number(netGpPct.toFixed(2))]);
+    row.getCell(5).numFmt = MONEY_FMT;
+    row.getCell(6).numFmt = MONEY_FMT;
+    row.getCell(7).numFmt = MONEY_FMT;
+    row.getCell(8).numFmt = MONEY_FMT;
+
+    grand.sales        += salesCount;
+    grand.refunds      += refundCount;
+    grand.replacements += replaceCount;
+    grand.gp           += gp;
+    grand.loss         += loss;
+    grand.netGp        += netGp;
+    grand.bp           += bp;
+  }
+
+  // Grand total.
+  const grandNetGpPct = grand.bp > 0 ? grand.netGp / grand.bp * 100 : 0;
+  const totalRow = sheet.addRow([
+    'TOTAL', grand.sales, grand.refunds, grand.replacements,
+    Number(grand.gp.toFixed(2)), Number(grand.loss.toFixed(2)),
+    Number(grand.netGp.toFixed(2)), Number(grandNetGpPct.toFixed(2)),
+  ]);
+  totalRow.font = { bold: true };
+  totalRow.fill = {
+    type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE2E8F0' },  // slate-200
+  };
+  totalRow.getCell(5).numFmt = MONEY_FMT;
+  totalRow.getCell(6).numFmt = MONEY_FMT;
+  totalRow.getCell(7).numFmt = MONEY_FMT;
+  totalRow.getCell(8).numFmt = MONEY_FMT;
+
+  // Notes block — explains why GP % differs from Gross GP / BP.
+  sheet.addRow([]);
+  const notesHeader = sheet.addRow(['Notes']);
+  notesHeader.font = { bold: true };
+  sheet.addRow(['• Refunds eat 2 shipping legs (outbound + inbound). Replacements eat 3 (plus replacement outbound).']);
+  sheet.addRow(['• Postage Loss = (postage + P.VAT) × legs, snapshotted at Process Return time.']);
+  sheet.addRow(['• Net GP = Gross GP − Postage Loss. Net GP % = Net GP ÷ BP (× 100). eBay rows divide by SP per platform convention.']);
+  sheet.addRow(['• Per-marketplace sheets carry a TOTAL row at the bottom with the same maths reconciled via SUM formulas.']);
 }
 
 /** Write the ALL sheet — one row per sale, buy fields pulled from the
