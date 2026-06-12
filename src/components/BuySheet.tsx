@@ -285,7 +285,9 @@ export default function BuySheet(_props: Props) {
   // Sold units are soft-deleted from this report — once a unit ships, it's
   // operator-tracked through the Sales report instead. Returned + incoming
   // (SHS) units stay because they're still our inventory.
-  const handleInventoryReport = async (range: { from?: string; to?: string; label: string }) => {
+  // Shared row builder — the CSV download and the in-browser View render the
+  // exact same row objects, so what the tester previews IS what downloads.
+  const buildInventoryReportRows = (range: { from?: string; to?: string; label: string }) => {
     // Scope by Stock In date when a range is selected; without a range
     // (All Time preset) the report is the full snapshot like before.
     const inStock = units.filter(u => {
@@ -297,7 +299,7 @@ export default function BuySheet(_props: Props) {
     const all = sortUnits(inStock, sort, supplierMap);
     const MS_PER_DAY = 86_400_000;
     const nowMs = Date.now();
-    const rows = all.map(u => {
+    return all.map(u => {
       // Computed at export time — matches the AGE column on the
       // master Excel IMEI NUMBERS sheet (see clientReport.ts:174).
       // Today minus dateIn, clamped at 0. Blank when dateIn is
@@ -322,10 +324,20 @@ export default function BuySheet(_props: Props) {
         'Age (days)':    age,
       };
     });
+  };
+
+  const handleInventoryReport = async (range: { from?: string; to?: string; label: string }) => {
+    const rows = buildInventoryReportRows(range);
     const now = new Date();
     const pad = (n: number) => String(n).padStart(2, '0');
     const stamp = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}_${pad(now.getHours())}${pad(now.getMinutes())}`;
     downloadCsv(`inventory-report-${range.label}-${stamp}.csv`, rows);
+  };
+
+  // In-browser preview of the same rows the CSV serialises.
+  const handleInventoryReportView = async (range: { from?: string; to?: string; label: string }) => {
+    const { viewModelFromRows } = await import('../lib/reportView');
+    return viewModelFromRows(`Inventory Report · ${range.label}`, 'INVENTORY', buildInventoryReportRows(range));
   };
 
   // ── Inline cell save ──────────────────────────────────────────────────────
@@ -376,6 +388,7 @@ export default function BuySheet(_props: Props) {
             icon={<FileSpreadsheet size={12} />}
             tone="emerald"
             onDownload={handleInventoryReport}
+            onView={handleInventoryReportView}
           />
           {userIsAdmin && (
             <button

@@ -512,6 +512,22 @@ export default function SellSheet(_props: Props) {
       opts: { from: range.from, to: range.to, today: new Date() },
     });
   };
+  // In-browser preview — builds the SAME workbook buffer as the download,
+  // then parses it back into a grid model (formulas computed, voided-row
+  // fills + TOTAL rows preserved) so the tester verifies without saving.
+  const handleSalesReportView = async (range: { from?: string; to?: string; label: string }) => {
+    const [{ buildSalesWorkbookBuffer }, { viewModelFromXlsxBuffer }] = await Promise.all([
+      import('../lib/clientReport'),
+      import('../lib/reportView'),
+    ]);
+    const buf = await buildSalesWorkbookBuffer({
+      sales,
+      units,
+      supplierMap,
+      opts: { from: range.from, to: range.to, today: new Date() },
+    });
+    return viewModelFromXlsxBuffer(buf, `Sales Report · ${range.label}`);
+  };
   // ── Inline cell save (re-recompute GP/comm/postage in the same patch) ─────
   const saveCell = async (s: Sale, field: string, value: any) => {
     const patch: Record<string, any> = { [field]: value };
@@ -559,6 +575,7 @@ export default function SellSheet(_props: Props) {
             icon={<FileSpreadsheet size={12} />}
             tone="emerald"
             onDownload={handleSalesReport}
+            onView={handleSalesReportView}
           />
         </div>
 

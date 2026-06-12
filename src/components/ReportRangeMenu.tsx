@@ -11,7 +11,9 @@
  * Report) so the operator picks the same way for both.
  */
 import React, { useState, useRef, useEffect } from 'react';
-import { ChevronDown, Calendar } from 'lucide-react';
+import { ChevronDown, Calendar, Eye } from 'lucide-react';
+import ReportViewerModal from './ReportViewerModal';
+import type { ReportViewModel } from '../lib/reportView';
 
 export type PeriodPreset = 'today' | 'week' | 'month' | 'custom' | 'all';
 
@@ -60,12 +62,18 @@ export function resolvePeriod(
 }
 
 export default function ReportRangeMenu({
-  label, icon, tone = 'emerald', onDownload, disabled,
+  label, icon, tone = 'emerald', onDownload, onView, disabled,
 }: {
   label: string;
   icon: React.ReactNode;
   tone?: 'emerald' | 'slate';
   onDownload: (range: { from?: string; to?: string; label: string }) => Promise<void> | void;
+  /** Optional in-browser preview: builds the SAME report for the picked range
+   *  and returns a view model (see src/lib/reportView.ts). When provided,
+   *  every preset row grows an eye button and the custom panel a View
+   *  button — the preview opens in ReportViewerModal with a Download
+   *  pass-through for the identical range. */
+  onView?: (range: { from?: string; to?: string; label: string }) => Promise<ReportViewModel>;
   disabled?: boolean;
 }) {
   const [open, setOpen] = useState(false);
@@ -74,6 +82,8 @@ export default function ReportRangeMenu({
   const [from, setFrom] = useState<string>(today);
   const [to, setTo] = useState<string>(today);
   const [busy, setBusy] = useState(false);
+  const [viewModel, setViewModel] = useState<ReportViewModel | null>(null);
+  const [viewRange, setViewRange] = useState<{ from?: string; to?: string; label: string } | null>(null);
   const ref = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
@@ -115,6 +125,24 @@ export default function ReportRangeMenu({
     }
   };
 
+  // Build the in-browser preview for a preset / the custom range and open
+  // the viewer. Keeps the resolved range so the modal's Download button can
+  // save exactly what was previewed.
+  const pickView = async (preset: PeriodPreset) => {
+    if (!onView) return;
+    setBusy(true);
+    try {
+      const range = resolvePeriod(preset, preset === 'custom' ? { from, to } : undefined);
+      const model = await onView(range);
+      setViewRange(range);
+      setViewModel(model);
+      setOpen(false);
+      setCustomOpen(false);
+    } finally {
+      setBusy(false);
+    }
+  };
+
   return (
     <div className="relative" ref={ref}>
       <button
@@ -130,17 +158,29 @@ export default function ReportRangeMenu({
       </button>
 
       {open && (
-        <div className="absolute right-0 top-full mt-1 z-30 min-w-[200px] bg-white border border-slate-200 rounded-xl shadow-lg overflow-hidden">
+        <div className="absolute right-0 top-full mt-1 z-30 min-w-[220px] bg-white border border-slate-200 rounded-xl shadow-lg overflow-hidden">
           {(['today', 'week', 'month'] as PeriodPreset[]).map(p => (
-            <button
-              key={p}
-              type="button"
-              onClick={() => pick(p)}
-              disabled={busy}
-              className="w-full text-left px-3 py-2 text-[11px] font-bold text-slate-700 hover:bg-slate-50 transition-colors disabled:opacity-50"
-            >
-              {PRESET_LABELS[p]}
-            </button>
+            <div key={p} className="flex items-stretch">
+              <button
+                type="button"
+                onClick={() => pick(p)}
+                disabled={busy}
+                className="flex-1 text-left px-3 py-2 text-[11px] font-bold text-slate-700 hover:bg-slate-50 transition-colors disabled:opacity-50"
+              >
+                {PRESET_LABELS[p]}
+              </button>
+              {onView && (
+                <button
+                  type="button"
+                  onClick={() => pickView(p)}
+                  disabled={busy}
+                  title={`View ${PRESET_LABELS[p]} in browser`}
+                  className="px-2.5 border-l border-slate-100 text-slate-700 hover:bg-slate-100 hover:text-slate-900 transition-colors disabled:opacity-50"
+                >
+                  <Eye size={13} />
+                </button>
+              )}
+            </div>
           ))}
           <button
             type="button"
@@ -173,25 +213,60 @@ export default function ReportRangeMenu({
                   className="mt-0.5 w-full px-2 py-1 border border-slate-200 rounded text-[11px] font-mono"
                 />
               </label>
-              <button
-                type="button"
-                onClick={downloadCustom}
-                disabled={busy || !from || !to}
-                className="w-full px-2 py-1.5 rounded-lg bg-slate-900 text-white text-[10px] font-bold uppercase tracking-widest hover:bg-slate-700 transition-all disabled:opacity-40"
-              >
-                {busy ? 'Building…' : 'Download'}
-              </button>
+              <div className="flex gap-1.5">
+                <button
+                  type="button"
+                  onClick={downloadCustom}
+                  disabled={busy || !from || !to}
+                  className="flex-1 px-2 py-1.5 rounded-lg bg-slate-900 text-white text-[10px] font-bold uppercase tracking-widest hover:bg-slate-700 transition-all disabled:opacity-40"
+                >
+                  {busy ? 'Building…' : 'Download'}
+                </button>
+                {onView && (
+                  <button
+                    type="button"
+                    onClick={() => pickView('custom')}
+                    disabled={busy || !from || !to}
+                    title="View this range in browser"
+                    className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-slate-300 text-slate-900 text-[10px] font-bold uppercase tracking-widest hover:bg-slate-100 transition-all disabled:opacity-40"
+                  >
+                    <Eye size={12} /> View
+                  </button>
+                )}
+              </div>
             </div>
           )}
-          <button
-            type="button"
-            onClick={() => pick('all')}
-            disabled={busy}
-            className="w-full text-left px-3 py-2 text-[11px] font-bold text-slate-700 hover:bg-slate-50 transition-colors border-t border-slate-100 disabled:opacity-50"
-          >
-            {PRESET_LABELS.all}
-          </button>
+          <div className="flex items-stretch border-t border-slate-100">
+            <button
+              type="button"
+              onClick={() => pick('all')}
+              disabled={busy}
+              className="flex-1 text-left px-3 py-2 text-[11px] font-bold text-slate-700 hover:bg-slate-50 transition-colors disabled:opacity-50"
+            >
+              {PRESET_LABELS.all}
+            </button>
+            {onView && (
+              <button
+                type="button"
+                onClick={() => pickView('all')}
+                disabled={busy}
+                title="View All Time in browser"
+                className="px-2.5 border-l border-slate-100 text-slate-700 hover:bg-slate-100 hover:text-slate-900 transition-colors disabled:opacity-50"
+              >
+                <Eye size={13} />
+              </button>
+            )}
+          </div>
         </div>
+      )}
+
+      {/* In-browser preview of the exact workbook the download produces. */}
+      {viewModel && (
+        <ReportViewerModal
+          model={viewModel}
+          onClose={() => { setViewModel(null); setViewRange(null); }}
+          onDownload={viewRange ? () => onDownload(viewRange) : undefined}
+        />
       )}
     </div>
   );

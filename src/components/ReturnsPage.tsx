@@ -274,6 +274,19 @@ export default function ReturnsPage() {
       opts: { from: range.from, to: range.to, today: new Date() },
     });
   };
+  // In-browser preview — same builder as the download (Summary / Returns
+  // Detail / Unit Histories sheets), parsed back into a grid for the tester.
+  const handleReturnsReportView = async (range: { from?: string; to?: string; label: string }) => {
+    const [{ buildReturnsWorkbookBuffer }, { viewModelFromXlsxBuffer }] = await Promise.all([
+      import('../lib/clientReport'),
+      import('../lib/reportView'),
+    ]);
+    const buf = await buildReturnsWorkbookBuffer({
+      units, sales, supplierMap,
+      opts: { from: range.from, to: range.to, today: new Date() },
+    });
+    return viewModelFromXlsxBuffer(buf, `Returns Report · ${range.label}`);
+  };
 
   // ── Render ────────────────────────────────────────────────────────────────
   return (
@@ -308,6 +321,7 @@ export default function ReturnsPage() {
             icon={<FileSpreadsheet size={12} />}
             tone="emerald"
             onDownload={handleReturnsReport}
+            onView={handleReturnsReportView}
           />
         </div>
 
