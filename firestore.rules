@@ -1,51 +1,148 @@
 rules_version = '2';
+
+// ─────────────────────────────────────────────────────────────────────────────
+// MOBILEPHONEMARKET — Firestore security rules
+//
+// Auth model: shared team ownership. Every record carries
+// `ownerId: 'shared'` so the whole team reads/writes one dataset. These
+// rules tighten the previously-loose `if isSignedIn()` policy by:
+//
+//   1. Validating ownerId='shared' on every create/update — prevents a
+//      signed-in user from spraying records with a poisoned ownerId.
+//   2. Hard-blocking deletes on AUDIT-ONLY collections (sales,
+//      inventoryEvents, importBatches, sourceDocuments). The void / soft-
+//      delete paths use UPDATE instead of DELETE by design, so a real
+//      delete is a bug or an attack.
+//   3. Gating writes to reference / admin-managed collections
+//      (marketplaceFees) to the admin email only.
+//   4. Final catch-all `match /{document=**}` denies everything not
+//      explicitly listed above so an accidentally-created collection
+//      can't be reached without a rules update.
+//
+// Anything that needs per-user ownership later (e.g. a user-specific
+// settings collection) should grow its own rule block — don't loosen
+// the shared rule to accommodate it.
+// ─────────────────────────────────────────────────────────────────────────────
 service cloud.firestore {
   match /databases/{database}/documents {
+
+    // ── Shared helpers ─────────────────────────────────────────────────────
     function isSignedIn() {
       return request.auth != null;
     }
 
+    // Admin allowlist — single source of truth. Keep in sync with
+    // ADMIN_EMAILS in src/lib/firebase.ts (UX gate). The rules layer is
+    // the real boundary; the UX gate is just a hint.
+    function isAdmin() {
+      return isSignedIn()
+        && request.auth.token.email_verified == true
+        && request.auth.token.email == 'admin@inventorymanager.com';
+    }
+
+    // Treat 'shared' as the only valid ownerId value the team writes. The
+    // matching check accepts either a freshly-written 'shared' or the
+    // doc keeping its existing 'shared' value through an update.
+    function ownsShared() {
+      return request.resource.data.ownerId == 'shared';
+    }
+
+    // For updates we also tolerate the doc not carrying ownerId at all
+    // (some legacy imports skipped it) — but the new state must still
+    // resolve to 'shared'.
+    function staysShared() {
+      return !('ownerId' in request.resource.data)
+        || request.resource.data.ownerId == 'shared';
+    }
+
+    // ── Inventory + buy side ───────────────────────────────────────────────
     match /suppliers/{supplierId} {
-      allow read, write: if isSignedIn();
+      allow read:   if isSignedIn();
+      allow create: if isSignedIn() && ownsShared();
+      allow update: if isSignedIn() && staysShared();
+      allow delete: if isAdmin();
     }
     match /batches/{batchId} {
-      allow read, write: if isSignedIn();
+      allow read:   if isSignedIn();
+      allow create: if isSignedIn() && ownsShared();
+      allow update: if isSignedIn() && staysShared();
+      allow delete: if isAdmin();
     }
     match /inventoryUnits/{unitId} {
-      allow read, write: if isSignedIn();
-    }
-    match /inventoryEvents/{eventId} {
-      allow read, write: if isSignedIn();
-    }
-    match /dailyUpdates/{updateId} {
-      allow read, write: if isSignedIn();
+      allow read:   if isSignedIn();
+      allow create: if isSignedIn() && ownsShared();
+      allow update: if isSignedIn() && staysShared();
+      // Delete normally happens via supplier-return SOFT-DELETE (status
+      // flip + returnType), not hard delete. Restrict hard deletes to
+      // admin so a stray service-side bug can't wipe a unit doc.
+      allow delete: if isAdmin();
     }
     match /activeListings/{listingId} {
-      allow read, write: if isSignedIn();
+      allow read:   if isSignedIn();
+      allow create: if isSignedIn() && ownsShared();
+      allow update: if isSignedIn() && staysShared();
+      allow delete: if isSignedIn();
+    }
+    match /dailyUpdates/{updateId} {
+      allow read:   if isSignedIn();
+      allow create: if isSignedIn() && ownsShared();
+      allow update: if isSignedIn() && staysShared();
+      allow delete: if isAdmin();
+    }
+
+    // ── Sales + audit collections ──────────────────────────────────────────
+    // sales: voided sales must persist for audit. The void path UPDATES
+    // (voidedAt + voidOutcome). A delete is a bug — block everywhere except
+    // admin maintenance.
+    match /sales/{saleId} {
+      allow read:   if isSignedIn();
+      allow create: if isSignedIn() && ownsShared();
+      allow update: if isSignedIn() && staysShared();
+      allow delete: if isAdmin();
+    }
+    match /inventoryEvents/{eventId} {
+      allow read:   if isSignedIn();
+      allow create: if isSignedIn() && ownsShared();
+      // The audit log is append-and-correct only. No client edits / deletes.
+      allow update: if isAdmin();
+      allow delete: if isAdmin();
+    }
+    match /importBatches/{batchId} {
+      allow read:   if isSignedIn();
+      allow create: if isSignedIn() && ownsShared();
+      allow update: if isSignedIn() && staysShared();
+      allow delete: if isAdmin();
     }
     match /sourceDocuments/{docId} {
-      allow read, write: if isSignedIn();
-    }
-
-    // ── Master-files audit collections ─────────────────────────────────────
-    match /importBatches/{batchId} {
-      allow read, write: if isSignedIn();
-    }
-    match /sales/{saleId} {
-      allow read, write: if isSignedIn();
+      allow read:   if isSignedIn();
+      allow create: if isSignedIn() && ownsShared();
+      allow update: if isSignedIn() && staysShared();
+      // Source documents are the audit trail of imports — admin only.
+      allow delete: if isAdmin();
     }
     match /inventoryAggregates/{aggregateId} {
-      allow read, write: if isSignedIn();
-    }
-    match /marketplaceFees/{marketplace} {
-      allow read: if isSignedIn();
-      // Reference data — also writable by signed-in admins to seed/update.
-      allow write: if isSignedIn();
+      allow read:   if isSignedIn();
+      allow create: if isSignedIn() && ownsShared();
+      allow update: if isSignedIn() && staysShared();
+      allow delete: if isAdmin();
     }
     match /supplierWhatsappUpdates/{updateId} {
-      allow read, write: if isSignedIn();
+      allow read:   if isSignedIn();
+      allow create: if isSignedIn() && ownsShared();
+      allow update: if isSignedIn() && staysShared();
+      allow delete: if isSignedIn();
     }
 
+    // ── Reference / admin-managed collections ──────────────────────────────
+    // marketplaceFees: commission rates, postage defaults, VAT tier — the
+    // operator should never edit these from a client device. Reads open
+    // to all signed-in users; writes admin-only.
+    match /marketplaceFees/{marketplace} {
+      allow read:   if isSignedIn();
+      allow write:  if isAdmin();
+    }
+
+    // ── Default deny — every unlisted collection is blocked. ───────────────
     match /{document=**} {
       allow read, write: if false;
     }

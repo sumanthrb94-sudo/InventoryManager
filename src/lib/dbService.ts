@@ -124,7 +124,18 @@ export const dbService = {
 
   async create(collectionName: string, id: string, data: any) {
     const timestamp = nowIso();
-    const item = { ...data, id, createdAt: data.createdAt ?? timestamp, updatedAt: timestamp };
+    // Auto-stamp ownerId='shared' when the caller forgot — the tightened
+    // firestore.rules block writes whose ownerId isn't 'shared', and a
+    // handful of legacy client call sites omit it (NewBatchModal,
+    // ScanInModal, etc). Same behaviour as bulkCreate. Callers that pass
+    // an explicit ownerId still win.
+    const item = {
+      ...data,
+      id,
+      ownerId: data.ownerId || 'shared',
+      createdAt: data.createdAt ?? timestamp,
+      updatedAt: timestamp,
+    };
 
     const current = [...(cachedData[collectionName] || [])];
     const idx = current.findIndex(x => x.id === id);
