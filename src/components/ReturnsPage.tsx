@@ -47,6 +47,7 @@ import PaginationBar, { usePagedRows } from './PaginationBar';
 
 type KpiId = 'back_to_inventory' | 'in_repair' | 'to_supplier' | 'all';
 type ReturnFilter = 'all' | ReturnCategory;
+type DateScope = 'today' | 'week' | 'month' | 'all';
 type SortKey = 'returnDate' | 'model' | 'storage' | 'colour' | 'buyPrice' | 'supplier' | 'returnType';
 type SortDir = 'asc' | 'desc';
 
@@ -77,6 +78,10 @@ export default function ReturnsPage() {
   // ── Filters / sort ────────────────────────────────────────────────────────
   const [search, setSearch] = useState('');
   const [typeFilter, setTypeFilter] = useState<ReturnFilter>('all');
+  // Date scope mirrors the Sales tab's Today / Last 7d / This Month / All Time
+  // pills so the team has a consistent vocabulary across Sales + Returns.
+  // Scoping is on returnDate (the day the unit was processed back).
+  const [dateScope, setDateScope] = useState<DateScope>('all');
   const [supplierFilter, setSupplierFilter] = useState<Set<string>>(new Set());
   const [showFilterDrawer, setShowFilterDrawer] = useState(false);
   const [sort, setSort] = useState<{ key: SortKey; dir: SortDir }>({ key: 'returnDate', dir: 'desc' });
@@ -140,13 +145,19 @@ export default function ReturnsPage() {
   // ── KPIs ──────────────────────────────────────────────────────────────────
   const kpis = useMemo(() => {
     const today = todayStr();
+    const weekAgo = new Date(Date.now() - 7 * 86_400_000).toISOString().split('T')[0];
+    const monthStart = today.slice(0, 7) + '-01';
     const todayCount = allReturns.filter(u => u.returnDate === today).length;
+    const weekCount  = allReturns.filter(u => (u.returnDate || '') >= weekAgo).length;
+    const monthCount = allReturns.filter(u => (u.returnDate || '') >= monthStart).length;
     return {
       backToInventory: backToInventory.length,
       inRepair: inRepair.length,
       toSupplier: toSupplier.length,
       all: allReturns.length,
       todayCount,
+      weekCount,
+      monthCount,
     };
   }, [allReturns, backToInventory.length, inRepair.length, toSupplier.length]);
 
@@ -163,8 +174,19 @@ export default function ReturnsPage() {
   // ── Filter + sort helpers ─────────────────────────────────────────────────
   const applyFilters = (base: InventoryUnit[]): InventoryUnit[] => {
     const q = search.trim().toLowerCase();
+    const today = todayStr();
+    const weekAgo = new Date(Date.now() - 7 * 86_400_000).toISOString().split('T')[0];
+    const monthStart = today.slice(0, 7) + '-01';
+    const lo = dateScope === 'today' ? today
+             : dateScope === 'week'  ? weekAgo
+             : dateScope === 'month' ? monthStart
+             : '';
     return base.filter(u => {
       if (typeFilter !== 'all' && u.returnType !== typeFilter) return false;
+      if (lo) {
+        const rd = u.returnDate || '';
+        if (!rd || rd < lo || rd > today) return false;
+      }
       if (supplierFilter.size > 0) {
         const sn = supplierMap[u.supplierId] || u.supplierName || 'Unassigned';
         if (!supplierFilter.has(sn)) return false;
@@ -205,7 +227,7 @@ export default function ReturnsPage() {
   const inlineRows = useMemo(
     () => sortUnits(applyFilters(allReturns)),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [allReturns, search, typeFilter, supplierFilter, supplierMap, sort],
+    [allReturns, search, typeFilter, dateScope, supplierFilter, supplierMap, sort],
   );
 
   // ── Overlay rows ──────────────────────────────────────────────────────────
@@ -221,7 +243,7 @@ export default function ReturnsPage() {
     }
     return sortUnits(applyFilters(base));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [overlay, allReturns, backToInventory, inRepair, toSupplier, search, typeFilter, supplierFilter, supplierMap, sort]);
+  }, [overlay, allReturns, backToInventory, inRepair, toSupplier, search, typeFilter, dateScope, supplierFilter, supplierMap, sort]);
 
   // ── CSV export ────────────────────────────────────────────────────────────
   const handleExportCsv = () => {
@@ -340,29 +362,54 @@ export default function ReturnsPage() {
         <div className="flex flex-col gap-2 p-3">
           <div className="flex items-center gap-2">
             <div className="relative flex-1 min-w-0">
-              <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+              <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-700" />
               <input
                 type="text"
                 value={search}
                 onChange={e => setSearch(e.target.value)}
                 placeholder="Search IMEI, model, supplier, reason…"
-                className="w-full pl-9 pr-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-[12px] focus:outline-none focus:border-slate-900 focus:bg-white transition-all"
+                className="w-full pl-10 pr-3 py-2.5 bg-white border border-slate-300 rounded-xl text-sm font-medium text-slate-900 placeholder:text-slate-600 focus:outline-none focus:border-slate-900 focus:ring-2 focus:ring-slate-200 transition-all"
               />
             </div>
             <button
               onClick={() => setShowFilterDrawer(s => !s)}
-              className={`flex items-center gap-1.5 px-3 py-2.5 rounded-xl text-[10px] font-bold uppercase tracking-widest transition-all border
+              className={`flex items-center gap-1.5 px-3 py-2.5 rounded-xl text-xs font-bold uppercase tracking-widest transition-all border
                 ${supplierFilter.size > 0
                   ? 'bg-slate-900 text-white border-slate-900'
-                  : 'bg-white text-slate-700 border-slate-200 hover:border-slate-400'}`}
+                  : 'bg-white text-slate-900 border-slate-300 hover:border-slate-500'}`}
             >
-              <Filter size={12} /> Filters
+              <Filter size={13} /> Filters
               {supplierFilter.size > 0 && (
-                <span className="ml-1 px-1.5 py-0.5 rounded-full bg-white/20 text-[9px]">
+                <span className="ml-1 px-1.5 py-0.5 rounded-full bg-white/20 text-[10px]">
                   {supplierFilter.size}
                 </span>
               )}
             </button>
+          </div>
+
+          {/* Date-scope pills (Today / Last 7d / This Month / All) — mirrors
+              the Sales tab so the team has one vocabulary across surfaces. */}
+          <div className="flex items-center gap-1.5 overflow-x-auto pb-0.5">
+            {([
+              ['today', 'Today',      kpis.todayCount],
+              ['week',  'Last 7d',    kpis.weekCount],
+              ['month', 'This Month', kpis.monthCount],
+              ['all',   'All Time',   kpis.all],
+            ] as Array<[DateScope, string, number]>).map(([id, label, n]) => (
+              <button
+                key={id}
+                onClick={() => setDateScope(id)}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold uppercase tracking-widest border transition-all flex-shrink-0
+                  ${dateScope === id
+                    ? 'bg-slate-900 text-white border-slate-900'
+                    : 'bg-white text-slate-900 border-slate-300 hover:border-slate-500'}`}
+              >
+                {label}
+                <span className={`text-[10px] font-mono px-1.5 rounded ${dateScope === id ? 'bg-white/20' : 'bg-slate-100 text-slate-900 font-bold'}`}>
+                  {n}
+                </span>
+              </button>
+            ))}
           </div>
 
           {/* Type pills */}
@@ -376,23 +423,23 @@ export default function ReturnsPage() {
               <button
                 key={id}
                 onClick={() => setTypeFilter(id)}
-                className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-widest border transition-all flex-shrink-0
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold uppercase tracking-widest border transition-all flex-shrink-0
                   ${typeFilter === id
                     ? 'bg-slate-900 text-white border-slate-900'
-                    : 'bg-white text-slate-600 border-slate-200 hover:border-slate-400'}`}
+                    : 'bg-white text-slate-900 border-slate-300 hover:border-slate-500'}`}
               >
                 {label}
-                <span className={`text-[9px] font-mono px-1 rounded ${typeFilter === id ? 'bg-white/20' : 'bg-slate-100 text-slate-500'}`}>
+                <span className={`text-[10px] font-mono px-1.5 rounded ${typeFilter === id ? 'bg-white/20' : 'bg-slate-100 text-slate-900 font-bold'}`}>
                   {n}
                 </span>
               </button>
             ))}
-            {(typeFilter !== 'all' || supplierFilter.size > 0 || search) && (
+            {(typeFilter !== 'all' || dateScope !== 'all' || supplierFilter.size > 0 || search) && (
               <button
-                onClick={() => { setTypeFilter('all'); setSupplierFilter(new Set()); setSearch(''); }}
-                className="flex items-center gap-1 px-2 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-widest text-slate-500 hover:text-rose-600 transition-all flex-shrink-0"
+                onClick={() => { setTypeFilter('all'); setDateScope('all'); setSupplierFilter(new Set()); setSearch(''); }}
+                className="flex items-center gap-1 px-2 py-1.5 rounded-lg text-xs font-bold uppercase tracking-widest text-slate-900 hover:text-rose-600 transition-all flex-shrink-0"
               >
-                <X size={11} /> Reset
+                <X size={12} /> Reset
               </button>
             )}
           </div>
@@ -422,12 +469,12 @@ export default function ReturnsPage() {
           </AnimatePresence>
         </div>
 
-        <div className="px-4 py-1.5 border-t border-slate-100 bg-slate-50/50 text-[9px] font-mono uppercase tracking-widest text-slate-500 flex items-center justify-between">
+        <div className="px-4 py-2 border-t border-slate-200 bg-slate-50 text-[11px] font-mono uppercase tracking-widest text-slate-900 flex items-center justify-between">
           <span>
-            Showing <span className="text-slate-900 font-bold">{inlineRows.length.toLocaleString()}</span> of {allReturns.length.toLocaleString()} returns
+            Showing <span className="font-bold">{inlineRows.length.toLocaleString()}</span> of <span className="font-bold">{allReturns.length.toLocaleString()}</span> returns
           </span>
           <span className="hidden sm:inline">
-            Sort: <span className="text-slate-900 font-bold">{sort.key}</span> {sort.dir === 'asc' ? '↑' : '↓'}
+            Sort: <span className="font-bold">{sort.key}</span> {sort.dir === 'asc' ? '↑' : '↓'}
           </span>
         </div>
       </div>
