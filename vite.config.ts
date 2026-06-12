@@ -23,10 +23,19 @@ export default defineConfig(({ mode }) => {
       rollupOptions: {
         output: {
           manualChunks: {
+            // Core UI vendors — needed on every page, ship in the entry.
             'vendor-react':    ['react', 'react-dom', 'motion/react'],
-            'vendor-charts':   ['recharts'],
             'vendor-firebase': ['firebase/app', 'firebase/auth', 'firebase/firestore'],
             'vendor-icons':    ['lucide-react'],
+            // Heavy report/scanner libs — only used behind a click, so
+            // splitting them keeps the entry small. The matching dynamic
+            // imports live in: ReportRangeMenu (reportView/clientReport),
+            // SellSheet/BuySheet/ReturnsPage (clientReport workbook
+            // builders), pdfReport.ts users, and IMEIScanner.
+            'vendor-charts':    ['recharts'],
+            'vendor-exceljs':   ['exceljs'],
+            'vendor-jspdf':     ['jspdf', 'jspdf-autotable'],
+            'vendor-scanner':   ['html5-qrcode'],
           },
         },
       },

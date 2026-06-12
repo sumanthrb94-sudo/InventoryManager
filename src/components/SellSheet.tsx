@@ -31,7 +31,8 @@ import {
 } from '../types';
 import { useInventoryStore } from '../lib/inventoryStore';
 import { recomputeSale } from '../lib/recomputeSale';
-import { downloadSalesWorkbook } from '../lib/clientReport';
+// clientReport is dynamic-imported below — it pulls in ExcelJS (~160 KB
+// gzipped) which we don't want in the entry bundle.
 import {
   marketplaceFromListingSite, MARKETPLACES,
 } from '../lib/platforms';
@@ -505,6 +506,7 @@ export default function SellSheet(_props: Props) {
     // the per-marketplace sheets and carry their Postage Loss in the
     // last column so the CA sees the full picture (revenue side from
     // active rows, exposure side from voided rows).
+    const { downloadSalesWorkbook } = await import('../lib/clientReport');
     await downloadSalesWorkbook({
       sales,
       units,

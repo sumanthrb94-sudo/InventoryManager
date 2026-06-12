@@ -10,10 +10,16 @@
  * Used by both SellSheet (Sales Report) and BuySheet (Inventory
  * Report) so the operator picks the same way for both.
  */
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, lazy, Suspense } from 'react';
 import { ChevronDown, Calendar, Eye } from 'lucide-react';
-import ReportViewerModal from './ReportViewerModal';
 import type { ReportViewModel } from '../lib/reportView';
+
+// Lazy: ReportViewerModal imports numToCol from reportView.ts, which in
+// turn pulls in ExcelJS for parsing the .xlsx buffer back into the grid.
+// Defer that ~160 KB-gzipped chunk until the operator actually clicks
+// the eye icon — keeps the entry bundle slim for the 90% of sessions
+// that never preview a report.
+const ReportViewerModal = lazy(() => import('./ReportViewerModal'));
 
 export type PeriodPreset = 'today' | 'week' | 'month' | 'custom' | 'all';
 
@@ -262,11 +268,13 @@ export default function ReportRangeMenu({
 
       {/* In-browser preview of the exact workbook the download produces. */}
       {viewModel && (
-        <ReportViewerModal
-          model={viewModel}
-          onClose={() => { setViewModel(null); setViewRange(null); }}
-          onDownload={viewRange ? () => onDownload(viewRange) : undefined}
-        />
+        <Suspense fallback={null}>
+          <ReportViewerModal
+            model={viewModel}
+            onClose={() => { setViewModel(null); setViewRange(null); }}
+            onDownload={viewRange ? () => onDownload(viewRange) : undefined}
+          />
+        </Suspense>
       )}
     </div>
   );

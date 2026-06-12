@@ -1,0 +1,4 @@
+# MOBILEPHONEMARKET Inventory Manager — authenticated app.
+# No public content; block all crawlers from indexing any path.
+User-agent: *
+Disallow: /
