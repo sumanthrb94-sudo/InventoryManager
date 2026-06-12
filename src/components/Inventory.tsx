@@ -29,6 +29,7 @@ const FLAG_CONFIG: Record<OperationalFlag, { label: string; icon: any; style: st
   top10:           { label:'Top 10',       icon:Star,        style:'bg-yellow-50 text-yellow-800 border-yellow-200' },
   supplierHasStock:{ label:'Supplier Stock',icon:Truck,      style:'bg-green-50 text-green-800 border-green-200' },
   stockSold:       { label:'Sold',          icon:CheckCircle2,style:'bg-gray-50 text-gray-600 border-gray-200' },
+  repaired_unit:   { label:'Repaired',      icon:CheckCircle2,style:'bg-blue-50 text-blue-800 border-blue-200' },
 };
 const STATUS_OPTS = ['All','available','sold','returned','reserved','incoming','ready_to_ship','fba'];
 const STATUS_LABELS: Record<string, string> = {

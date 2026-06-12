@@ -42,6 +42,7 @@ import { getWarrantyStatus } from '../lib/warrantyUtils';
 import { auth, isAdmin } from '../lib/firebase';
 import CopyImei from './CopyImei';
 import PaginationBar, { usePagedRows } from './PaginationBar';
+import { processReturnSalePatch } from '../lib/processReturnSalePatch';
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -1907,25 +1908,18 @@ function ProcessReturnModal({
       // survives ReadyToShipModal flipping the unit's returnType back to
       // 'returned_to_inventory' at completion (QA round 3 BUG-RP-002:
       // before this, the linked Sale silently re-classified as a refund
-      // and injected phantom postage loss into every total).
-      const saleVoidOutcome: 'refund' | 'replacement' | 'repair' =
-        returnType === 'repair' ? 'repair' : outcome;
-      const reasonPrefix =
-        saleVoidOutcome === 'repair'      ? 'In Repair'
-        : saleVoidOutcome === 'replacement' ? 'Replacement'
-        :                                     'Refund';
+      // at completion and the report jumped from £173.88 → £189). Patch
+      // computed via `processReturnSalePatch` so the contract is unit-
+      // testable in src/__tests__/lib/processReturnSalePatch.test.ts.
+      const salePatch = processReturnSalePatch({
+        returnType,
+        outcome,
+        returnDate,
+        reason: reason.trim(),
+      });
       try {
         for (const s of linked) {
-          await dbService.update('sales', s.id, {
-            voidedAt: returnDate,
-            voidReason: `${reasonPrefix} — ${reason.trim()}`,
-            // Snapshotted onto the Sale doc so the SALES_REPORT's
-            // Postage Loss column knows whether to charge 2× / 3× / 0
-            // legs without having to chase back to the unit (which only
-            // remembers the latest cycle's outcome — and gets overwritten
-            // by repair completion).
-            voidOutcome: saleVoidOutcome,
-          });
+          await dbService.update('sales', s.id, salePatch);
         }
       } catch (err) {
         // Best-effort; if it fails the unit-side returnType + returnDate
