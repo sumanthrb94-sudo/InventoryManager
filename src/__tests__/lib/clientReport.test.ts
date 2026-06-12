@@ -207,10 +207,71 @@ async function loadWorkbook(buffer: ArrayBuffer): Promise<ExcelJS.Workbook> {
 }
 
 describe('buildSalesWorkbookBuffer — auditor-grade structure', () => {
-  it('produces 5 sheets — Summary + AMAZON / BM / EBAY / ONBUY', async () => {
+  it('produces 6 sheets — Summary + Returns + AMAZON / BM / EBAY / ONBUY', async () => {
     const buffer = await buildSalesWorkbookBuffer({ sales: [] });
     const wb = await loadWorkbook(buffer);
-    expect(wb.worksheets.map(w => w.name)).toEqual(['Summary', 'AMAZON', 'BM', 'EBAY', 'ONBUY']);
+    // Returns sits between Summary and the marketplace tabs so the
+    // auditor sees return data immediately, without scrolling past
+    // 20+ sale columns on each marketplace tab.
+    expect(wb.worksheets.map(w => w.name)).toEqual(['Summary', 'Returns', 'AMAZON', 'BM', 'EBAY', 'ONBUY']);
+  });
+
+  it('Returns tab — headers carry the return-info columns up front', async () => {
+    const buffer = await buildSalesWorkbookBuffer({ sales: [] });
+    const wb = await loadWorkbook(buffer);
+    const returns = wb.getWorksheet('Returns')!;
+    const header = returns.getRow(1);
+    expect(String(header.getCell(1).value)).toBe('Sale Date');
+    expect(String(header.getCell(2).value)).toBe('Return Date');
+    expect(String(header.getCell(3).value)).toBe('Marketplace');
+    expect(String(header.getCell(8).value)).toBe('Outcome');
+    expect(String(header.getCell(10).value)).toBe('Shipping Legs');
+    expect(String(header.getCell(11).value)).toBe('Postage Loss £');
+    // Empty period gets a "No returns" hint, not a TOTAL row.
+    const row2 = returns.getRow(2);
+    expect(String(row2.getCell(1).value)).toBe('No returns recorded for this period.');
+  });
+
+  it('Returns tab — one row per voided sale across all marketplaces + TOTAL row', async () => {
+    const sales: Sale[] = [
+      // 1 active EBAY sale (must NOT appear on the Returns tab).
+      baseSale({ id: 'EBAY__A__I1', orderNumber: 'A', marketplace: 'EBAY' }),
+      // 2 returns on different marketplaces.
+      baseSale({
+        id: 'EBAY__B__I2', orderNumber: 'B', marketplace: 'EBAY',
+        imei: '350000000000002',
+        voidedAt: '2026-06-13', voidOutcome: 'refund', voidReason: 'wrong colour',
+        postage: 8, postageVat: 1.6,
+      }),
+      baseSale({
+        id: 'AMAZON__C__I3', orderNumber: 'C', marketplace: 'AMAZON',
+        imei: '350000000000003',
+        voidedAt: '2026-06-12', voidOutcome: 'replacement', voidReason: 'faulty',
+        postage: 6.30, postageVat: 1.26,
+      }),
+    ];
+    const buffer = await buildSalesWorkbookBuffer({ sales });
+    const wb = await loadWorkbook(buffer);
+    const returns = wb.getWorksheet('Returns')!;
+    // Row 1 = header, then 2 voided rows newest-first, then TOTAL row.
+    expect(returns.rowCount).toBe(4);
+    // Newest void (EBAY refund) lands on row 2.
+    const r2 = returns.getRow(2);
+    expect(r2.getCell(3).value).toBe('EBAY');
+    expect(r2.getCell(4).value).toBe('B');
+    expect(r2.getCell(8).value).toBe('Refund');
+    expect(r2.getCell(10).value).toBe(2);
+    expect(r2.getCell(11).value).toBeCloseTo(19.2, 2);
+    // Replacement row.
+    const r3 = returns.getRow(3);
+    expect(r3.getCell(3).value).toBe('AMAZON');
+    expect(r3.getCell(8).value).toBe('Replacement');
+    expect(r3.getCell(10).value).toBe(3);
+    expect(r3.getCell(11).value).toBeCloseTo(22.68, 2);
+    // TOTAL row carries the summed postage loss (19.2 + 22.68 = 41.88).
+    const tot = returns.getRow(4);
+    expect(tot.getCell(1).value).toBe('TOTAL');
+    expect(tot.getCell(11).value).toBeCloseTo(41.88, 2);
   });
 
   it('Summary header row reads Marketplace / Sales / Refunds / Replacements / Gross GP / Postage Loss / Net GP / Net GP %', async () => {

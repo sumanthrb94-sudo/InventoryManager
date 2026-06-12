@@ -697,6 +697,14 @@ export async function buildSalesWorkbookBuffer(input: BuildSalesWorkbookInput): 
   // so it lands as the leftmost tab.
   writeSalesSummarySheet(wb, byMarketplace, opts);
 
+  // Sheet 2: Returns — single consolidated view of every voided sale in
+  // the period, cross-marketplace, with the return-info columns up front
+  // (Return Date / Outcome / Reason / Legs / Postage Loss) so the auditor
+  // doesn't have to scroll past 20 sale columns on each marketplace tab to
+  // find them. Filtered from the same date-scoped pool the marketplace
+  // tabs draw from, so row counts reconcile with the Summary.
+  writeSalesReturnsSheet(wb, byMarketplace);
+
   // Per-platform sheets — the client's master SALES_REPORT carries exactly
   // four tabs (AMAZON SALES, BM SALES, EBAY SALES, ONBUY SALES); PROJECT
   // excluded — we sell on 4 platforms only.
@@ -947,6 +955,119 @@ function writeSalesSummarySheet(
   sheet.addRow(['• Postage Loss = (postage + P.VAT) × legs, snapshotted at Process Return time.']);
   sheet.addRow(['• Net GP = Gross GP − Postage Loss. Net GP % = Net GP ÷ BP (× 100). eBay rows divide by SP per platform convention.']);
   sheet.addRow(['• Per-marketplace sheets carry a TOTAL row at the bottom with the same maths reconciled via SUM formulas.']);
+}
+
+/** Schema for the consolidated Returns tab on the Sales Report. The
+ *  return-info columns come BEFORE GP so the auditor doesn't have to
+ *  hunt past 20 sale columns to find Outcome / Legs / Postage Loss —
+ *  the QA complaint that opened round 5 was exactly "the sales report
+ *  doesn't have the returns info here", because the per-marketplace
+ *  tabs bury those columns at positions 23-30. */
+const RETURNS_TAB_HEADERS: Array<string> = [
+  'Sale Date', 'Return Date',
+  'Marketplace', 'Order Number', 'SKU', 'IMEI', 'Supplier',
+  'Outcome', 'Return Reason', 'Shipping Legs', 'Postage Loss £',
+  'BP', 'SP', 'SP-BP', 'Postage', 'Comments',
+];
+
+/** Sheet 2 of the Sales Report — every voided sale in the date-scoped
+ *  pool the marketplace tabs draw from, one row each, with return-info
+ *  columns up front. Row count and Postage Loss total reconcile with
+ *  the Sales Summary. Active sales are excluded.
+ *
+ *  Filter alignment: same date scope as the marketplace tabs (saleDate
+ *  range), so a sale returned in the period but made earlier still won't
+ *  appear here — matches the Summary Refunds/Replacements counters by
+ *  construction. That keeps the workbook internally consistent. The
+ *  Returns Report workbook (different file) is the surface for
+ *  "returns processed in this period regardless of when the sale was
+ *  made". */
+function writeSalesReturnsSheet(
+  wb: ExcelJS.Workbook,
+  byMarketplace: Map<Marketplace, Sale[]>,
+): void {
+  const sheet = wb.addWorksheet('Returns');
+  sheet.columns = [
+    { width: 12 }, { width: 12 },                              // dates
+    { width: 11 }, { width: 18 }, { width: 16 }, { width: 17 }, { width: 18 },
+    { width: 13 }, { width: 30 }, { width: 9 }, { width: 13 },
+    { width: 8 }, { width: 8 }, { width: 9 }, { width: 9 }, { width: 24 },
+  ];
+  const header = sheet.addRow(RETURNS_TAB_HEADERS);
+  header.font = { bold: true };
+  header.fill = {
+    type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF1F5F9' },  // slate-100
+  };
+
+  // Collect every voided sale across all four marketplaces. Stable order:
+  // by voidedAt desc (newest first) — matches the in-app default and the
+  // operator's typical "what just got returned?" question.
+  const voided: Sale[] = [];
+  for (const m of MARKETPLACES) {
+    for (const s of byMarketplace.get(m) ?? []) {
+      if (s.voidedAt) voided.push(s);
+    }
+  }
+  voided.sort((a, b) => (b.voidedAt || '').localeCompare(a.voidedAt || ''));
+
+  let totalLoss = 0;
+  for (const s of voided) {
+    const loss = postageLossFor(s);
+    totalLoss += loss;
+    const row = sheet.addRow([
+      toDate(s.saleDate),
+      toDate(s.voidedAt),
+      s.marketplace,
+      s.orderNumber || '',
+      s.sku ?? '',
+      s.imei ?? '',
+      s.supplierName || '',
+      outcomeLabel(s),
+      s.voidReason ?? '',
+      shippingLegsFor(s) || null,        // blank for repair (0 legs)
+      loss > 0 ? loss : null,            // blank for repair / £0
+      s.buyPrice ?? null,
+      s.salePrice ?? null,
+      typeof s.buyPrice === 'number' && typeof s.salePrice === 'number'
+        ? Number((s.salePrice - s.buyPrice).toFixed(2))
+        : null,
+      s.postage ?? null,
+      s.comments ?? '',
+    ]);
+    row.getCell(1).numFmt = DATE_FMT;
+    row.getCell(2).numFmt = DATE_FMT;
+    row.getCell(6).numFmt = IMEI_FMT;
+    row.getCell(11).numFmt = MONEY_FMT;
+    row.getCell(12).numFmt = MONEY_FMT;
+    row.getCell(13).numFmt = MONEY_FMT;
+    row.getCell(14).numFmt = MONEY_FMT;
+    row.getCell(15).numFmt = MONEY_FMT;
+    // Every row is a return — paint the same rose-100 fill the
+    // marketplace tabs use on voided rows so the visual stays consistent.
+    for (let c = 1; c <= RETURNS_TAB_HEADERS.length; c++) {
+      row.getCell(c).fill = RETURNED_FILL;
+    }
+  }
+
+  // TOTAL row — sums Postage Loss so the auditor reads the period's
+  // exposure without scrolling.
+  if (voided.length > 0) {
+    const totalRow = sheet.addRow([
+      'TOTAL', '', '', '', '', '', '', '', '', '',
+      Number(totalLoss.toFixed(2)),
+      '', '', '', '', '',
+    ]);
+    totalRow.font = { bold: true };
+    totalRow.fill = {
+      type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE2E8F0' },  // slate-200
+    };
+    totalRow.getCell(11).numFmt = MONEY_FMT;
+  } else {
+    // Empty-state hint so an auditor opening a no-returns period knows
+    // the tab is intentionally empty (vs a missing/broken sheet).
+    const row = sheet.addRow(['No returns recorded for this period.']);
+    row.getCell(1).font = { italic: true, color: { argb: 'FF64748B' } };  // slate-500
+  }
 }
 
 /** Write the ALL sheet — one row per sale, buy fields pulled from the
