@@ -322,12 +322,14 @@ const DATE_FMT = '[$-409]d\\-mmm\\-yyyy';
 const MONEY_FMT = '0.00';
 const IMEI_FMT = '0';
 
-/** Per-sale postage loss (£). 0 for active sales; for voided sales
- *  it's (postage + P.VAT) × shipping legs, where refund = 2 legs and
- *  replacement = 3. Used as the trailing Postage Loss column on every
- *  marketplace sheet so the CA can tally the period's exposure. */
+/** Per-sale postage loss (£). 0 for active sales AND for repair-route
+ *  voids (we kept the unit and fixed it). For refund / replacement voids
+ *  it's (postage + P.VAT) × shipping legs (2 / 3). Used as the trailing
+ *  Postage Loss column on every marketplace sheet so the CA can tally
+ *  the period's exposure. */
 export function postageLossFor(sale: Sale): number {
   if (!sale.voidedAt) return 0;
+  if (sale.voidOutcome === 'repair') return 0;
   const postage = Number(sale.postage) || 0;
   const pvat = sale.postageVatExempt ? 0 : (Number(sale.postageVat) || postage * 0.2);
   const legs = sale.voidOutcome === 'replacement' ? 3 : 2;
@@ -335,9 +337,11 @@ export function postageLossFor(sale: Sale): number {
 }
 
 /** Number of shipping legs eaten by a void. Refund = 2 (outbound +
- *  inbound), replacement = 3 (plus the replacement outbound). */
+ *  inbound), replacement = 3 (plus the replacement outbound), repair = 0
+ *  (we kept the unit). */
 export function shippingLegsFor(sale: Sale): number {
   if (!sale.voidedAt) return 0;
+  if (sale.voidOutcome === 'repair') return 0;
   return sale.voidOutcome === 'replacement' ? 3 : 2;
 }
 
@@ -376,35 +380,34 @@ function returnBlockOffsets(marketplace: Marketplace): {
 }
 
 /** Title-case the void outcome for the auditor-facing Outcome cell.
- *  Empty for active sales (no void recorded). A unit returned via the
- *  Send-for-Repair route carries no customer outcome (we're keeping the
- *  unit and fixing it); when the caller knows it's a repair-route Sale
- *  via the linked unit's returnType, it should pass `repairRoute` so we
- *  surface "In Repair" instead of defaulting to "Refund". */
-function outcomeLabel(sale: Sale, repairRoute = false): string {
+ *  Empty for active sales (no void recorded). Reads the canonical
+ *  Sale.voidOutcome — the legacy enrichment in build*WorkbookBuffer
+ *  back-fills 'repair' on old voids whose linked unit shows repair
+ *  markers, so this stays a pure Sale-side lookup. */
+function outcomeLabel(sale: Sale): string {
   if (!sale.voidedAt) return '';
-  if (repairRoute) return 'In Repair';
-  return sale.voidOutcome === 'replacement' ? 'Replacement' : 'Refund';
+  switch (sale.voidOutcome) {
+    case 'replacement': return 'Replacement';
+    case 'repair':      return 'In Repair';
+    default:            return 'Refund';
+  }
 }
 
 /** Write the trailing return-linkage block (Return Date, Outcome, Reason,
  *  Shipping Legs) plus the Postage Loss cell. No-op for active sales so
  *  column SUM / COUNTIF over the period treats blanks as 0 / no-match.
  *
- *  When the linked unit's returnType is 'repair' the sale was voided via
- *  the Send-for-Repair route — there's no customer outcome (we kept the
- *  unit), no shipping legs eaten, and no postage loss. Surface "In Repair"
- *  on the Outcome cell and leave Legs / Postage Loss blank so the column
- *  totals don't pick up phantom legs the operator never paid. */
-function writeReturnBlock(row: ExcelJS.Row, marketplace: Marketplace, sale: Sale, unit?: InventoryUnit): void {
+ *  Repair-route voids (Sale.voidOutcome === 'repair') eat no shipping
+ *  legs and carry no postage loss — Legs / Postage Loss stay blank so
+ *  column totals don't pick up phantom legs the operator never paid. */
+function writeReturnBlock(row: ExcelJS.Row, marketplace: Marketplace, sale: Sale): void {
   if (!sale.voidedAt) return;
-  const repairRoute = unit?.returnType === 'repair';
   const o = returnBlockOffsets(marketplace);
   row.getCell(o.returnDateCol).value  = toDate(sale.voidedAt);
   row.getCell(o.returnDateCol).numFmt = DATE_FMT;
-  row.getCell(o.outcomeCol).value     = outcomeLabel(sale, repairRoute);
+  row.getCell(o.outcomeCol).value     = outcomeLabel(sale);
   row.getCell(o.reasonCol).value      = sale.voidReason ?? '';
-  if (repairRoute) return;
+  if (sale.voidOutcome === 'repair') return;
   row.getCell(o.legsCol).value        = shippingLegsFor(sale);
   const loss = postageLossFor(sale);
   if (loss > 0) {
@@ -428,10 +431,6 @@ function writeSaleRow(
    *  supplier instead of an empty cell when `sale.supplierName` is
    *  itself missing. */
   resolvedSupplier: string = '',
-  /** Linked inventory unit (if joinable by sale.unitId / imei). Threaded
-   *  through to writeReturnBlock so it can distinguish a Send-for-Repair
-   *  void from a customer refund/replacement (unit.returnType === 'repair'). */
-  unit?: InventoryUnit,
 ): void {
   const f = excelFormulaFor(marketplace, rowNumber);
   const date = toDate(sale.saleDate);
@@ -475,7 +474,7 @@ function writeSaleRow(
       row.getCell(19).value = { formula: f.grossProfit! };   row.getCell(19).numFmt = MONEY_FMT;
       row.getCell(20).value = { formula: f.gpPercent! };     row.getCell(20).numFmt = MONEY_FMT;
       row.getCell(21).value = { formula: f.totalVatNtp! };   row.getCell(21).numFmt = MONEY_FMT;
-      writeReturnBlock(row, marketplace, sale, unit);
+      writeReturnBlock(row, marketplace, sale);
       return;
     }
 
@@ -512,7 +511,7 @@ function writeSaleRow(
       row.getCell(16).value = { formula: f.grossProfit! };  row.getCell(16).numFmt = MONEY_FMT;
       row.getCell(17).value = { formula: f.gpPercent! };    row.getCell(17).numFmt = MONEY_FMT;
       row.getCell(18).value = { formula: f.totalVatNtp! };  row.getCell(18).numFmt = MONEY_FMT;
-      writeReturnBlock(row, marketplace, sale, unit);
+      writeReturnBlock(row, marketplace, sale);
       return;
     }
 
@@ -564,7 +563,7 @@ function writeSaleRow(
       row.getCell(22).value = { formula: f.grossProfit! };  row.getCell(22).numFmt = MONEY_FMT;
       row.getCell(23).value = { formula: f.gpPercent! };    row.getCell(23).numFmt = MONEY_FMT;
       row.getCell(24).value = { formula: f.totalVatNtp! };  row.getCell(24).numFmt = MONEY_FMT;
-      writeReturnBlock(row, marketplace, sale, unit);
+      writeReturnBlock(row, marketplace, sale);
       return;
     }
 
@@ -600,7 +599,7 @@ function writeSaleRow(
       row.getCell(16).value = { formula: f.grossProfit! };  row.getCell(16).numFmt = MONEY_FMT;
       row.getCell(17).value = { formula: f.gpPercent! };    row.getCell(17).numFmt = MONEY_FMT;
       row.getCell(18).value = { formula: f.totalVatNtp! };  row.getCell(18).numFmt = MONEY_FMT;
-      writeReturnBlock(row, marketplace, sale, unit);
+      writeReturnBlock(row, marketplace, sale);
       return;
     }
 
@@ -621,41 +620,64 @@ export async function buildSalesWorkbookBuffer(input: BuildSalesWorkbookInput): 
     if (k && !unitsByImei.has(k)) unitsByImei.set(k, u);
   }
 
-  // Legacy-return enrichment: returns processed before the Sale-doc
-  // void-fix landed only wrote returnType/returnDate on the unit
-  // doc — the linked Sale stayed active, so its row in the report
-  // came out white instead of red and the Postage Loss column stayed
-  // blank. Synthesise voidedAt + voidOutcome at workbook-build time
-  // from the linked unit when its status indicates a return AND the
-  // Sale doc itself hasn't been voided. Doesn't touch Firestore;
-  // the synthetic copy lives only inside this in-memory `enriched`
-  // array for the current download.
+  // Heuristic: was THIS unit ever a repair-route return? Looks for the
+  // current returnType OR ReadyToShipModal's post-completion markers
+  // (repairedAt set, or the 'repaired_unit' flag). Used by the legacy
+  // backfill below to recognise old voids that pre-date the canonical
+  // Sale.voidOutcome='repair' stamp introduced in this round.
+  const wasRepairRoute = (u: InventoryUnit | undefined): boolean => {
+    if (!u) return false;
+    if (u.returnType === 'repair') return true;
+    if (u.repairedAt) return true;
+    return Array.isArray(u.flags) && u.flags.includes('repaired_unit');
+  };
+
+  // Two enrichment paths, both in-memory only (don't touch Firestore):
+  //
+  // 1) Sales with voidedAt set but voidOutcome MISSING (pre-canonical voids):
+  //    backfill voidOutcome to 'repair' when the linked unit shows repair
+  //    markers. Catches voids written before this round started stamping
+  //    'repair' on the Sale doc — without this they'd default to 'refund'
+  //    in every renderer and inject phantom postage loss (QA round 3
+  //    BUG-RP-002 reproduction).
+  //
+  // 2) Sales with no voidedAt at all but the linked unit IS marked
+  //    returned (pre-2026-05 legacy where the void only landed on the unit):
+  //    synthesise voidedAt + voidOutcome from the unit so the row paints
+  //    red and the Postage Loss column populates. Same enrichment as
+  //    before — repair-route still maps to voidOutcome='repair'.
   const enriched: Sale[] = sales.map(s => {
-    if (s.voidedAt) return s;
     const k = (s.imei || '').trim().toUpperCase();
     const u = (s.unitId && unitsById.get(s.unitId)) || (k && unitsByImei.get(k)) || undefined;
+
+    if (s.voidedAt) {
+      // Path 1 — already voided, but maybe missing the canonical outcome.
+      if (s.voidOutcome) return s;
+      if (wasRepairRoute(u)) return { ...s, voidOutcome: 'repair' } as Sale;
+      return s;
+    }
+
     if (!u) return s;
     const looksReturned = u.status === 'returned'
       || u.returnType === 'returned_to_supplier'
       || u.returnType === 'returned_to_inventory'
       || u.returnType === 'repair';
     if (!looksReturned || !u.returnDate) return s;
-    // Don't synthesise a refund/replacement voidOutcome for the repair
-    // route — the unit was kept and fixed (no customer outcome). Leaving
-    // voidOutcome undefined lets writeReturnBlock read the linked unit's
-    // returnType and surface "In Repair" instead of "Refund".
-    const isRepair = u.returnType === 'repair';
-    const fallbackReason = u.returnOutcome === 'replacement'
+    // Path 2 — synthesise voidedAt + outcome from the unit.
+    const isRepair = wasRepairRoute(u);
+    const synthOutcome: 'refund' | 'replacement' | 'repair' = isRepair
+      ? 'repair'
+      : u.returnOutcome ?? 'refund';
+    const fallbackReason = synthOutcome === 'replacement'
       ? 'Replacement'
-      : isRepair
+      : synthOutcome === 'repair'
       ? 'In Repair'
       : 'Refund';
     return {
       ...s,
       voidedAt: u.returnDate,
       voidReason: s.voidReason || u.returnReason || fallbackReason,
-      voidOutcome: s.voidOutcome
-        || (isRepair ? undefined : u.returnOutcome ?? 'refund'),
+      voidOutcome: synthOutcome,
     } as Sale;
   });
 
@@ -673,7 +695,7 @@ export async function buildSalesWorkbookBuffer(input: BuildSalesWorkbookInput): 
   // per-marketplace breakdown, refund vs replacement counts, gross + net GP
   // including postage-loss adjustment). Built before the marketplace sheets
   // so it lands as the leftmost tab.
-  writeSalesSummarySheet(wb, byMarketplace, opts, unitsById, unitsByImei);
+  writeSalesSummarySheet(wb, byMarketplace, opts);
 
   // Per-platform sheets — the client's master SALES_REPORT carries exactly
   // four tabs (AMAZON SALES, BM SALES, EBAY SALES, ONBUY SALES); PROJECT
@@ -693,15 +715,13 @@ export async function buildSalesWorkbookBuffer(input: BuildSalesWorkbookInput): 
       // suppliers collection (catches sale docs that only carry
       // supplierId); the linked unit is the last resort for in-app
       // sales that lost the supplier field for whatever reason.
-      const linkedUnit = (sale.unitId && unitsById.get(sale.unitId))
-        || (sale.imei && unitsByImei.get((sale.imei || '').trim().toUpperCase()))
-        || undefined;
       const resolvedSupplier =
         (sale.supplierName && sale.supplierName.trim())
         || (sale.supplierId && supplierMap?.[sale.supplierId])
-        || linkedUnit?.supplierName
+        || (sale.unitId && unitsById.get(sale.unitId)?.supplierName)
+        || (sale.imei && unitsByImei.get((sale.imei || '').trim().toUpperCase())?.supplierName)
         || '';
-      writeSaleRow(sheet, m, sale, rowNumber, resolvedSupplier, linkedUnit);
+      writeSaleRow(sheet, m, sale, rowNumber, resolvedSupplier);
       // Same red-fill visual signal as the ALL sheet — applied across
       // every cell in the row so the highlight covers the full width
       // even when the master schema includes blank/formula-only cells.
@@ -821,18 +841,7 @@ function writeSalesSummarySheet(
   wb: ExcelJS.Workbook,
   byMarketplace: Map<Marketplace, Sale[]>,
   opts?: ClientReportOptions,
-  /** Sales linked to a unit with returnType === 'repair' don't carry a
-   *  customer outcome — they're excluded from the Refund / Replacement
-   *  counters and from the Postage Loss column (we kept the unit). */
-  unitsById?: Map<string, InventoryUnit>,
-  unitsByImei?: Map<string, InventoryUnit>,
 ): void {
-  const repairLinked = (s: Sale): boolean => {
-    const u = (s.unitId && unitsById?.get(s.unitId))
-      || (s.imei && unitsByImei?.get((s.imei || '').trim().toUpperCase()))
-      || undefined;
-    return u?.returnType === 'repair';
-  };
   const sheet = wb.addWorksheet('Summary');
   sheet.columns = [
     { width: 18 }, { width: 10 }, { width: 11 }, { width: 14 },
@@ -880,9 +889,12 @@ function writeSalesSummarySheet(
       gp += sale.grossProfit ?? 0;
       bp += s.buyPrice ?? 0;
       if (s.voidedAt) {
-        if (repairLinked(s)) {
-          // Repair route — counted as a sale, but not a refund or
-          // replacement, and no postage loss (we kept the unit).
+        // The build-time enrichment in buildSalesWorkbookBuffer backfills
+        // voidOutcome='repair' on legacy repair-route voids that pre-date
+        // the canonical stamp, so this check is the only one needed.
+        if (s.voidOutcome === 'repair') {
+          // Counted as a sale, but not as a refund / replacement, and no
+          // postage loss — we kept the unit and fixed it.
         } else if (s.voidOutcome === 'replacement') {
           replaceCount++;
           loss += postageLossFor(s);
@@ -1117,15 +1129,21 @@ function returnTypeLabel(rt: InventoryUnit['returnType']): string {
   }
 }
 
-/** Customer outcome for a returned unit:
- *   - Send-for-Repair route carries no customer outcome (we're keeping the
- *     unit and fixing it), so surface 'repair' for the auditor instead of
- *     defaulting to 'refund'.
- *   - Otherwise fall back to the stored returnOutcome, defaulting to
- *     'refund' for legacy rows processed before outcome tracking landed. */
+/** Customer outcome for a returned unit. Priority:
+ *   1. returnType === 'repair' (mid-cycle, before ReadyToShipModal flips it)
+ *   2. Explicit returnOutcome from the current cycle (refund / replacement)
+ *   3. Post-completion repair markers: repairedAt set, or 'repaired_unit'
+ *      flag. After ReadyToShipModal flips returnType to 'returned_to_inventory'
+ *      this is the only way to tell it WAS a repair — without it the unit
+ *      reads as 'refund' and the report double-counts the cycle (QA round 3
+ *      BUG-RP-002 reproduction).
+ *   4. Default to 'refund' for legacy rows processed before outcome tracking. */
 function outcomeFor(u: InventoryUnit): 'refund' | 'replacement' | 'repair' {
   if (u.returnType === 'repair') return 'repair';
-  return u.returnOutcome ?? 'refund';
+  if (u.returnOutcome) return u.returnOutcome;
+  if (u.repairedAt) return 'repair';
+  if (Array.isArray(u.flags) && u.flags.includes('repaired_unit')) return 'repair';
+  return 'refund';
 }
 
 /** Title-case the outcome for the auditor-facing Outcome cell. */
@@ -1156,10 +1174,13 @@ function legCostFor(u: InventoryUnit, linkedVoidedSale: Sale | undefined): numbe
  *  (refund = 2, replacement = 3). Mirrors `postageLossFor` for sales but
  *  reads off the unit-side fields with the voided-sale fallback baked in.
  *
- *  Repair-route returns eat no shipping legs (we kept the unit) — returns 0
- *  even if ProcessReturnModal happened to snapshot a returnLegCost. */
+ *  Prefers the canonical Sale.voidOutcome over the unit-side outcomeFor —
+ *  the Sale doc is immutable after voiding, whereas the unit's returnType
+ *  is overwritten by ReadyToShipModal at repair completion. Repair-route
+ *  returns eat no shipping legs (we kept the unit). */
 function unitPostageLoss(u: InventoryUnit, linkedVoidedSale: Sale | undefined): number {
-  const outcome = outcomeFor(u);
+  if (linkedVoidedSale?.voidOutcome === 'repair') return 0;
+  const outcome = linkedVoidedSale?.voidOutcome ?? outcomeFor(u);
   if (outcome === 'repair') return 0;
   const leg = legCostFor(u, linkedVoidedSale);
   if (leg <= 0) return 0;
@@ -1210,11 +1231,22 @@ export async function buildReturnsWorkbookBuffer(input: BuildReturnsWorkbookInpu
     const k = (u.imei || '').trim().toUpperCase();
     if (k && !unitsByImeiRet.has(k)) unitsByImeiRet.set(k, u);
   }
+  // A repair-route void either carries the canonical Sale.voidOutcome
+  // ('repair') OR — for pre-canonical legacy data — the linked unit
+  // still shows repair markers (returnType==='repair', repairedAt set,
+  // or the 'repaired_unit' flag). After ReadyToShipModal flips returnType
+  // to 'returned_to_inventory' at completion, the Sale-side signal is the
+  // only one that stays accurate, which is why we prefer it.
   const isRepairLinkedSale = (s: Sale): boolean => {
+    if (s.voidOutcome === 'repair') return true;
+    if (s.voidOutcome) return false;
     const u = (s.unitId && unitsByIdRet.get(s.unitId))
       || (s.imei && unitsByImeiRet.get((s.imei || '').trim().toUpperCase()))
       || undefined;
-    return u?.returnType === 'repair';
+    if (!u) return false;
+    if (u.returnType === 'repair') return true;
+    if (u.repairedAt) return true;
+    return Array.isArray(u.flags) && u.flags.includes('repaired_unit');
   };
 
   /** All sales linked to a given unit — dedup'd across both indexes. */
@@ -1392,10 +1424,10 @@ export async function buildReturnsWorkbookBuffer(input: BuildReturnsWorkbookInpu
 
   for (const u of detailSorted) {
     const voided = latestVoidedSale(u);
-    const outcome = outcomeFor(u);
-    // Repair-route returns eat no legs (we kept the unit and fixed it), so
-    // Shipping Legs / Postage Loss stay blank for them. Customer-facing
-    // refund and replacement keep the 2 / 3 leg multipliers.
+    // Sale.voidOutcome is the canonical signal (survives ReadyToShipModal
+    // mutating the unit at repair completion); fall back to unit-side
+    // detection for legacy rows with no linked voided Sale.
+    const outcome = voided?.voidOutcome ?? outcomeFor(u);
     const isRepair = outcome === 'repair';
     const legs = isRepair ? 0 : outcome === 'replacement' ? 3 : 2;
     const leg = isRepair ? 0 : legCostFor(u, voided);
@@ -1499,11 +1531,12 @@ export async function buildReturnsWorkbookBuffer(input: BuildReturnsWorkbookInpu
         comments: s.comments || '',
       });
       if (s.voidedAt) {
-        // Repair-route voids don't eat shipping legs (we kept the unit).
-        const isRepair = u.returnType === 'repair' && !s.voidOutcome;
-        const out: 'refund' | 'replacement' | 'repair' = isRepair
-          ? 'repair'
-          : (s.voidOutcome ?? outcomeFor(u)) === 'replacement' ? 'replacement' : 'refund';
+        // Canonical: Sale.voidOutcome. Fall back to outcomeFor(u) only for
+        // legacy voids that pre-date the 'repair' stamp (the workbook-build
+        // enrichment above backfills those at read time, so this fallback
+        // is just belt-and-braces).
+        const out: 'refund' | 'replacement' | 'repair' =
+          s.voidOutcome ?? outcomeFor(u);
         const postage = Number(s.postage) || 0;
         const pVat = s.postageVatExempt ? 0 : (Number(s.postageVat) || postage * 0.2);
         const legs = out === 'replacement' ? 3 : out === 'refund' ? 2 : 0;

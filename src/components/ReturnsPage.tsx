@@ -1074,14 +1074,27 @@ function ReturnLossSection({
     const unitsCoveredBySale = new Set<string>();
 
     // 1) One row per voided Sale — accurate per-cycle accounting.
+    //
+    // Source of truth for outcome: Sale.voidOutcome. ProcessReturnModal
+    // stamps 'repair' on the Sale at void time so post-completion
+    // (when ReadyToShipModal flips the unit's returnType to
+    // 'returned_to_inventory') the historical cycle still reads "In
+    // Repair" with no phantom legs / loss (QA round 3 BUG-RP-001 /
+    // BUG-RP-002). Legacy voids written before that stamp landed are
+    // detected via the unit's post-completion markers (repairedAt,
+    // 'repaired_unit' flag).
+    const isRepairCycle = (u: InventoryUnit, s: Sale): boolean => {
+      if (s.voidOutcome === 'repair') return true;
+      if (s.voidOutcome) return false;
+      if (u.returnType === 'repair') return true;
+      if (u.repairedAt) return true;
+      return Array.isArray(u.flags) && u.flags.includes('repaired_unit');
+    };
     for (const s of sales) {
       if (!s.voidedAt) continue;
       const u = resolveUnit(s);
       if (!u) continue;
-      // Repair-route voids carry no customer outcome (we kept the unit
-      // and fixed it) — surface 'repair' so the table reads "In Repair"
-      // instead of mislabelling as 'Refund', and zero out leg / loss.
-      const isRepair = u.returnType === 'repair' && !s.voidOutcome;
+      const isRepair = isRepairCycle(u, s);
       const outcome = (isRepair
         ? 'repair'
         : s.voidOutcome === 'replacement'
@@ -1111,7 +1124,12 @@ function ReturnLossSection({
     for (const u of units) {
       if (!u.returnType || !u.returnDate) continue;
       if (unitsCoveredBySale.has(u.id)) continue;
-      const isRepair = u.returnType === 'repair';
+      // Legacy unit-only fallback: same post-completion markers as the
+      // sale-driven loop above — a unit with no live linked void but
+      // showing repairedAt / 'repaired_unit' was a repair cycle.
+      const isRepair = u.returnType === 'repair'
+        || !!u.repairedAt
+        || (Array.isArray(u.flags) && u.flags.includes('repaired_unit'));
       const legCost = isRepair ? 0 : u.returnLegCost ?? 0;
       const outcome: 'refund' | 'replacement' | 'repair' | null = isRepair
         ? 'repair'
@@ -1132,8 +1150,14 @@ function ReturnLossSection({
   }, [units, sales]);
 
   const totalLoss = rows.reduce((t, r) => t + r.loss, 0);
-  const refunds = rows.filter(r => r.outcome !== 'replacement').length;
+  // Before the repair-route fix landed, `refunds` counted everything that
+  // wasn't a replacement — which swept repairs into the refund tally and
+  // left the header label stale at the pre-completion value (QA round 3
+  // OBS-2). Count each outcome bucket explicitly so the header stays in
+  // sync with the per-row total.
+  const refunds = rows.filter(r => r.outcome === 'refund' || r.outcome === null).length;
   const replacements = rows.filter(r => r.outcome === 'replacement').length;
+  const repairs = rows.filter(r => r.outcome === 'repair').length;
 
   const { page, setPage, totalPages, paged, total } = usePagedRows<LossRow>(rows);
 
@@ -1167,7 +1191,7 @@ function ReturnLossSection({
         <div className="flex-1 min-w-0">
           <p className="text-[11px] font-bold uppercase tracking-widest text-slate-900">Return Losses · Lifecycle</p>
           <p className="text-[9px] font-mono text-slate-500 mt-0.5">
-            {refunds} refund{refunds === 1 ? '' : 's'} (2× legs) · {replacements} replacement{replacements === 1 ? '' : 's'} (3× legs) · leg = postage + P.VAT
+            {refunds} refund{refunds === 1 ? '' : 's'} (2× legs) · {replacements} replacement{replacements === 1 ? '' : 's'} (3× legs){repairs > 0 ? ` · ${repairs} in repair (0 legs)` : ''} · leg = postage + P.VAT
           </p>
         </div>
         <span className="text-[11px] font-mono font-bold text-rose-700 bg-rose-50 border border-rose-200 px-2 py-1 rounded-lg flex-shrink-0">
@@ -1852,9 +1876,14 @@ function ProcessReturnModal({
         returnType,
         returnDate,
         returnReason: reason.trim(),
-        returnOutcome: outcome,
+        // No customer outcome on the Send-for-Repair route — we kept the
+        // unit and fixed it. Writing the default 'refund' here used to
+        // poison outcomeFor() after ReadyToShipModal flipped returnType
+        // to 'returned_to_inventory' at completion: the unit then looked
+        // like a refund and the report counted £15.12 phantom loss.
+        returnOutcome: returnType === 'repair' ? null : outcome,
         returnComments: comments.trim() || null,
-        returnLegCost: legCost || null,
+        returnLegCost: returnType === 'repair' ? null : (legCost || null),
         // Always clear sale data on any return — prevents ghost sale records.
         salePrice: null,
         saleDate: null,
@@ -1871,16 +1900,31 @@ function ProcessReturnModal({
       // dashboard. The Sale doc stays in the collection for audit, just
       // flagged with voidedAt + voidReason. If the unit is re-sold later,
       // recordSale creates a NEW Sale doc and this one stays voided.
+      //
+      // For the Send-for-Repair route there's no customer outcome — we
+      // kept the unit and fixed it. Stamp `voidOutcome: 'repair'` on the
+      // Sale doc so downstream reports have a canonical signal that
+      // survives ReadyToShipModal flipping the unit's returnType back to
+      // 'returned_to_inventory' at completion (QA round 3 BUG-RP-002:
+      // before this, the linked Sale silently re-classified as a refund
+      // and injected phantom postage loss into every total).
+      const saleVoidOutcome: 'refund' | 'replacement' | 'repair' =
+        returnType === 'repair' ? 'repair' : outcome;
+      const reasonPrefix =
+        saleVoidOutcome === 'repair'      ? 'In Repair'
+        : saleVoidOutcome === 'replacement' ? 'Replacement'
+        :                                     'Refund';
       try {
         for (const s of linked) {
           await dbService.update('sales', s.id, {
             voidedAt: returnDate,
-            voidReason: `${outcome === 'replacement' ? 'Replacement' : 'Refund'} — ${reason.trim()}`,
+            voidReason: `${reasonPrefix} — ${reason.trim()}`,
             // Snapshotted onto the Sale doc so the SALES_REPORT's
-            // Postage Loss column knows whether to charge 2× or 3× legs
-            // without having to chase back to the unit (which only
-            // remembers the latest cycle's outcome).
-            voidOutcome: outcome,
+            // Postage Loss column knows whether to charge 2× / 3× / 0
+            // legs without having to chase back to the unit (which only
+            // remembers the latest cycle's outcome — and gets overwritten
+            // by repair completion).
+            voidOutcome: saleVoidOutcome,
           });
         }
       } catch (err) {

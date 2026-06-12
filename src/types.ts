@@ -3,7 +3,7 @@ export type DeviceCategory = 'iPhone' | 'iPad' | 'Apple Watch' | 'Tablet' | 'Sam
 export type DeviceStatus = 'available' | 'sold' | 'reserved' | 'returned' | 'lost' | 'incoming' | 'ready_to_ship' | 'fba';
 export type ListingSite = 'eBay' | 'Amazon' | 'OnBuy' | 'Backmarket' | 'Back Market' | 'FBA' | 'R T S' | 'Other';
 export type StockLocation = 'office';  // Single location — all stock is held at the office
-export type OperationalFlag = 'top10' | 'supplierHasStock' | 'stockSold';
+export type OperationalFlag = 'top10' | 'supplierHasStock' | 'stockSold' | 'repaired_unit';
 
 export type ReturnCategory = 'returned_to_inventory' | 'returned_to_supplier' | 'repair';
 
@@ -106,6 +106,12 @@ export interface InventoryUnit {
    *  (outbound + inbound), replacement = 3 (outbound + inbound +
    *  replacement outbound). */
   returnOutcome?: 'refund' | 'replacement';
+  /** Set by ReadyToShipModal when a repair-route unit is marked complete
+   *  and put back on the shelf. Acts as a post-completion repair marker —
+   *  outcomeFor() and the Lifecycle table read it to keep classifying the
+   *  historical cycle as "In Repair" even after returnType has been
+   *  flipped to 'returned_to_inventory' (QA round 3 BUG-RP-002). */
+  repairedAt?: string;
   /** Operator's free-text comments captured at Process Return time —
    *  separate from returnReason so the structured reason stays short. */
   returnComments?: string;
@@ -305,11 +311,18 @@ export interface Sale {
   // this one stays voided in the audit trail.
   voidedAt?: string;     // ISO date when the sale was reversed
   voidReason?: string;   // From ProcessReturnModal (return reason)
-  /** Customer-facing outcome snapshotted at void time. Drives the
-   *  per-sale Postage Loss column on the downloaded SALES_REPORT:
-   *  'refund' = 2 shipping legs lost, 'replacement' = 3. Defaults to
-   *  refund (2) for legacy voids missing the field. */
-  voidOutcome?: 'refund' | 'replacement';
+  /** Customer-facing outcome snapshotted at void time. Canonical signal
+   *  for "what kind of return was this?" — lives on the immutable Sale
+   *  doc so downstream surfaces don't have to chase the unit's mutable
+   *  returnType (which ReadyToShipModal overwrites at repair completion,
+   *  silently re-classifying historical voids as refunds — see QA round 3
+   *  BUG-RP-002). Drives the Postage Loss column on the downloaded
+   *  SALES_REPORT:
+   *    'refund'      → 2 shipping legs lost
+   *    'replacement' → 3 shipping legs lost
+   *    'repair'      → 0 shipping legs lost (we kept the unit)
+   *  Defaults to refund (2) for legacy voids missing the field. */
+  voidOutcome?: 'refund' | 'replacement' | 'repair';
   // Operator's red-row flag from the source workbook — when the DATE / ORDER
   // NUMBER cell was painted red on the operator's Sales Report sheet, that
   // row carries an issue (return, refund, chargeback, dispute). Surfaced in
