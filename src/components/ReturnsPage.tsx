@@ -1842,10 +1842,64 @@ function ProcessReturnModal({
   const [returnDate, setReturnDate] = useState(todayStr());
   const [saving, setSaving]         = useState(false);
   const [error, setError]           = useState('');
+  // Replacement-route requirement: when the outcome is "Replacement" the
+  // operator MUST pick the actual stock unit being shipped to the customer
+  // in place of the returning one. Matched on brand + model + storage —
+  // colour doesn't have to match (operator's call). Cleared on outcome
+  // change so a leftover selection from a prior interaction can't slip
+  // through validation.
+  const [replacementUnitId, setReplacementUnitId] = useState<string>('');
+  const [replacementSearch, setReplacementSearch] = useState('');
+  useEffect(() => { setReplacementUnitId(''); setReplacementSearch(''); }, [outcome]);
+  const { units: allUnits } = useInventoryStore();
+  const eligibleReplacements = useMemo(() => {
+    if (outcome !== 'replacement') return [] as InventoryUnit[];
+    const targetBrand   = (unit.brand   || '').trim().toLowerCase();
+    const targetModel   = (unit.model   || '').trim().toLowerCase();
+    const targetStorage = (unit.storage || '').trim().toLowerCase();
+    const targetColour  = (unit.colour  || '').trim().toLowerCase();
+    const q = replacementSearch.trim().toLowerCase();
+    return allUnits
+      .filter(u => u.id !== unit.id)
+      .filter(u => u.status === 'available')
+      .filter(u => (u.brand   || '').trim().toLowerCase() === targetBrand)
+      .filter(u => (u.model   || '').trim().toLowerCase() === targetModel)
+      .filter(u => (u.storage || '').trim().toLowerCase() === targetStorage)
+      .filter(u => !q
+        || (u.imei  || '').toLowerCase().includes(q)
+        || (u.colour|| '').toLowerCase().includes(q))
+      // Same-colour first (most likely the right choice), then by oldest
+      // dateIn so the operator clears slow-moving stock first.
+      .sort((a, b) => {
+        const ac = (a.colour || '').trim().toLowerCase() === targetColour ? 0 : 1;
+        const bc = (b.colour || '').trim().toLowerCase() === targetColour ? 0 : 1;
+        if (ac !== bc) return ac - bc;
+        return (a.dateIn || '').localeCompare(b.dateIn || '');
+      });
+  }, [outcome, allUnits, unit, replacementSearch]);
   const warranty = useMemo(() => getWarrantyStatus(unit.saleDate), [unit.saleDate]);
 
   const handleSave = async () => {
     if (!reason.trim()) { setError('Please enter a return reason.'); return; }
+    // Replacement-route requirement: an actual replacement unit must be
+    // picked from stock (matching brand + model + storage) before the
+    // void can land. Without this the operator's audit trail had no
+    // record of which unit was actually shipped to the customer — and
+    // the inventory KPI silently overstated stock by 1.
+    const needsReplacementUnit = outcome === 'replacement' && returnType !== 'repair';
+    const replacementUnit = needsReplacementUnit
+      ? allUnits.find(u => u.id === replacementUnitId)
+      : undefined;
+    if (needsReplacementUnit) {
+      if (!replacementUnit) {
+        setError('Select the replacement unit being shipped to the customer.');
+        return;
+      }
+      if (replacementUnit.status !== 'available') {
+        setError('The chosen replacement unit is no longer available. Pick another.');
+        return;
+      }
+    }
     setSaving(true);
     try {
       // Read the linked sale(s) BEFORE clearing the unit's sale fields —
@@ -1915,7 +1969,35 @@ function ProcessReturnModal({
         ...(returnType === 'returned_to_inventory'
           ? { platformListed: false, listingSites: [] }
           : {}),
+        // Audit link to the replacement we're shipping in this unit's
+        // place (set below for replacement-route saves).
+        ...(replacementUnit ? { replacedByUnitId: replacementUnit.id } : {}),
       });
+
+      // Replacement: flip the chosen stock unit to SOLD, inheriting the
+      // original sale's marketplace / order / SP / postage so it's
+      // accounted for as the unit that actually shipped. Cross-links
+      // (replacedByUnitId / replacementForUnitId) make the swap
+      // traversable from either side in the audit trail.
+      //
+      // We don't create a new Sale doc here — the original Sale doc
+      // already carries the financials and is what the Sales Report
+      // attributes the line to. The unit flip is what keeps inventory
+      // honest: A came back, B went out.
+      if (replacementUnit) {
+        const src = linked[linked.length - 1];
+        await dbService.update('inventoryUnits', replacementUnit.id, {
+          status: 'sold',
+          salePrice: src?.salePrice ?? unit.salePrice ?? null,
+          saleDate: src?.saleDate ?? unit.saleDate ?? returnDate,
+          salePlatform: src?.marketplace ?? unit.salePlatform ?? null,
+          saleOrderId: src?.orderNumber ?? unit.saleOrderId ?? null,
+          postageCost: src?.postage ?? unit.postageCost ?? null,
+          platformListed: false,
+          listingSites: [],
+          replacementForUnitId: unit.id,
+        });
+      }
 
       // Void the linked Sale doc(s) — a returned sale is treated as if it
       // never happened: zero revenue, zero GP, doesn't count in the Sell
@@ -2003,25 +2085,104 @@ function ProcessReturnModal({
             </div>
           </div>
 
-          <div>
-            <label className="text-[9px] font-bold uppercase tracking-widest text-gray-400 block mb-2">Customer Outcome *</label>
-            <div className="grid grid-cols-2 gap-2">
-              <button onClick={() => setOutcome('refund')}
-                className={`px-3 py-3 rounded-xl border-2 transition-all text-left ${
-                  outcome === 'refund' ? 'border-rose-400 bg-rose-50 text-rose-800' : 'border-gray-200 hover:border-gray-300'
-                }`}>
-                <p className="text-xs font-bold">Refund</p>
-                <p className="text-[9px] font-mono text-gray-500 mt-0.5">Money back · 2× postage + P.VAT lost</p>
-              </button>
-              <button onClick={() => setOutcome('replacement')}
-                className={`px-3 py-3 rounded-xl border-2 transition-all text-left ${
-                  outcome === 'replacement' ? 'border-violet-400 bg-violet-50 text-violet-800' : 'border-gray-200 hover:border-gray-300'
-                }`}>
-                <p className="text-xs font-bold">Replacement</p>
-                <p className="text-[9px] font-mono text-gray-500 mt-0.5">Ship another unit · 3× postage + P.VAT lost</p>
-              </button>
+          {returnType !== 'repair' && (
+            <div>
+              <label className="text-[9px] font-bold uppercase tracking-widest text-gray-400 block mb-2">Customer Outcome *</label>
+              <div className="grid grid-cols-2 gap-2">
+                <button onClick={() => setOutcome('refund')}
+                  className={`px-3 py-3 rounded-xl border-2 transition-all text-left ${
+                    outcome === 'refund' ? 'border-rose-400 bg-rose-50 text-rose-800' : 'border-gray-200 hover:border-gray-300'
+                  }`}>
+                  <p className="text-xs font-bold">Refund</p>
+                  <p className="text-[9px] font-mono text-gray-500 mt-0.5">Money back · 2× postage + P.VAT lost</p>
+                </button>
+                <button onClick={() => setOutcome('replacement')}
+                  className={`px-3 py-3 rounded-xl border-2 transition-all text-left ${
+                    outcome === 'replacement' ? 'border-violet-400 bg-violet-50 text-violet-800' : 'border-gray-200 hover:border-gray-300'
+                  }`}>
+                  <p className="text-xs font-bold">Replacement</p>
+                  <p className="text-[9px] font-mono text-gray-500 mt-0.5">Ship another unit · 3× postage + P.VAT lost</p>
+                </button>
+              </div>
             </div>
-          </div>
+          )}
+
+          {returnType !== 'repair' && outcome === 'replacement' && (
+            <div className="space-y-2">
+              <div className="flex items-baseline justify-between gap-2">
+                <label className="text-[9px] font-bold uppercase tracking-widest text-gray-400">
+                  Replacement Unit *
+                </label>
+                <span className="text-[9px] font-mono text-gray-500">
+                  same brand · model · storage
+                </span>
+              </div>
+              <div className="text-[10px] font-mono text-gray-600 px-3 py-2 bg-violet-50 border border-violet-200 rounded-xl">
+                <span className="font-bold text-violet-900">Target:</span>{' '}
+                {[unit.brand, unit.model, unit.storage].filter(Boolean).join(' · ') || unit.model || '—'}
+                {unit.colour ? <> · <span className="text-violet-700">colour</span> {unit.colour}</> : null}
+              </div>
+              <input
+                type="text"
+                value={replacementSearch}
+                onChange={e => setReplacementSearch(e.target.value)}
+                placeholder={eligibleReplacements.length > 0 ? 'Filter by IMEI or colour…' : 'No matching stock — see below'}
+                className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm font-mono focus:outline-none focus:border-violet-500 transition-all"
+              />
+              {eligibleReplacements.length === 0 ? (
+                <div className="px-3 py-3 rounded-xl border border-rose-200 bg-rose-50 text-[11px] text-rose-700">
+                  <p className="font-bold mb-1">No replacement units in stock that match</p>
+                  <p className="font-mono text-[10px] text-rose-600">
+                    Need an available unit with brand="{unit.brand || '—'}", model="{unit.model || '—'}",
+                    storage="{unit.storage || '—'}". Choose Refund instead, or process this unit after
+                    matching stock is added.
+                  </p>
+                </div>
+              ) : (
+                <div className="max-h-44 overflow-y-auto border border-gray-200 rounded-xl divide-y divide-gray-100">
+                  {eligibleReplacements.slice(0, 50).map(u => {
+                    const isSelected = u.id === replacementUnitId;
+                    const sameColour = (u.colour || '').trim().toLowerCase() === (unit.colour || '').trim().toLowerCase();
+                    return (
+                      <button
+                        key={u.id}
+                        type="button"
+                        onClick={() => setReplacementUnitId(isSelected ? '' : u.id)}
+                        className={`w-full flex items-center justify-between gap-2 px-3 py-2 text-left transition-colors ${
+                          isSelected ? 'bg-violet-100' : 'hover:bg-gray-50'
+                        }`}
+                      >
+                        <div className="min-w-0 flex-1">
+                          <p className="text-[12px] font-mono font-bold text-slate-900 truncate">
+                            {u.imei || '— no IMEI —'}
+                          </p>
+                          <p className="text-[10px] font-mono text-slate-600 truncate">
+                            {u.colour || '—'}
+                            {sameColour ? ' · same colour' : ''}
+                            {u.grade ? ` · grade ${u.grade}` : ''}
+                            {' · BP £'}{u.buyPrice}
+                            {u.dateIn ? ` · in ${u.dateIn}` : ''}
+                          </p>
+                        </div>
+                        {isSelected && <CheckCircle2 size={16} className="text-violet-700 flex-shrink-0" />}
+                      </button>
+                    );
+                  })}
+                  {eligibleReplacements.length > 50 && (
+                    <p className="px-3 py-1.5 text-[10px] font-mono text-gray-500">
+                      +{eligibleReplacements.length - 50} more · refine search
+                    </p>
+                  )}
+                </div>
+              )}
+              {replacementUnitId && (
+                <p className="text-[10px] font-mono text-violet-700">
+                  ✓ On confirm, this unit will be marked SOLD and linked back to the
+                  returning unit for audit.
+                </p>
+              )}
+            </div>
+          )}
 
           <div>
             <label className="text-[9px] font-bold uppercase tracking-widest text-gray-400 block mb-1.5">Return Date</label>

@@ -120,6 +120,15 @@ export interface InventoryUnit {
    *  unit's own sale fields are cleared on return; loss = this ×
    *  (returnOutcome === 'replacement' ? 3 : 2). */
   returnLegCost?: number;
+  /** Replacement audit link — when this unit was returned as a
+   *  Replacement, points at the inventory unit that was actually shipped
+   *  to the customer in its place. Mirrors `replacementForUnitId` on the
+   *  shipped unit so the link is traversable from either side. */
+  replacedByUnitId?: string;
+  /** Replacement audit link — when this unit was shipped as the
+   *  replacement for an earlier return, points back at the unit it
+   *  replaced. Set on the OUTBOUND (now-sold) unit. */
+  replacementForUnitId?: string;
   attachments?: string[];
   imageUrl?: string;        // Cloud image URL for the device (imgbb)
   ownerId: string;
