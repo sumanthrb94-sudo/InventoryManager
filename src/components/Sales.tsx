@@ -1000,6 +1000,7 @@ export default function Sales() {
                             <div className="flex flex-wrap gap-1">
                               {item.flags.map(flag => {
                                 const cfg = FLAG_CONFIG[flag];
+                                if (!cfg) return null;
                                 const Icon = cfg.icon;
                                 return (
                                   <span key={flag} className={`text-[8px] font-bold uppercase px-1.5 py-0.5 border font-mono flex items-center gap-1 ${cfg.style}`}>
@@ -1060,6 +1061,7 @@ export default function Sales() {
                       <div className="flex flex-wrap gap-1">
                         {item.flags.map(flag => {
                           const cfg = FLAG_CONFIG[flag];
+                          if (!cfg) return null;
                           const Icon = cfg.icon;
                           return (
                             <span key={flag} className={`text-[8px] font-bold uppercase px-2 py-1 border font-mono flex items-center gap-1 ${cfg.style}`}>
