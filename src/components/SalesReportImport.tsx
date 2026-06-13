@@ -33,18 +33,33 @@ interface Props { onClose: () => void; }
 
 type Phase = 'upload' | 'preview' | 'loading' | 'done';
 
-interface PreviewBuckets {
+export interface PreviewBuckets {
   total: number;
   perSheet: Record<Marketplace, number>;
   toCreate: ParsedSales['sales'];   // composite ID not seen in DB
   toUpdate: ParsedSales['sales'];   // composite ID already in DB
   invalid:  ParsedSales['errors'];  // parser-side validation failures
   duplicatesInFile: { id: string; rows: number[] }[];
+  /** Inventory-side side effect of confirming this import: for every
+   *  non-voided sale whose IMEI matches a currently-in-stock unit, that
+   *  unit will be flipped to `status: 'sold'` by buildPostImportSyncPatches.
+   *  Surface this BEFORE the write so the operator sees the impact
+   *  (round-5 follow-up: a 215 → 198 stock drop was confusing because
+   *  the side effect was buried in code). */
+  inventoryFlips: Array<{
+    unitId: string;
+    imei: string;
+    model: string;
+    saleOrderId: string;
+    marketplace: Marketplace;
+    salePrice: number;
+  }>;
 }
 
-function buildPreview(
+export function buildPreview(
   parsed: ParsedSales,
   existingSales: Sale[],
+  units: ReturnType<typeof useInventoryStore>['units'],
 ): PreviewBuckets {
   const existingIds = new Set(existingSales.map(s => s.id));
   const toCreate: ParsedSales['sales'] = [];
@@ -73,6 +88,38 @@ function buildPreview(
     else                       toCreate.push(s);
   }
 
+  // Inventory-flip dry run — mirror buildPostImportSyncPatches' filter
+  // (non-voided + matching IMEI + unit not already sold/returned/incoming)
+  // so what the preview shows is exactly what the post-import sync will
+  // do. Keep the formula in one place by replicating the gate literally
+  // here; a regression test pins them in sync.
+  const unitsByImei = new Map<string, typeof units[number]>();
+  for (const u of units) {
+    const k = (u.imei || '').trim().toUpperCase();
+    if (k && !unitsByImei.has(k)) unitsByImei.set(k, u);
+  }
+  const inventoryFlips: PreviewBuckets['inventoryFlips'] = [];
+  const seenUnitIds = new Set<string>();
+  for (const s of [...toCreate, ...toUpdate]) {
+    if (s.voidedAt) continue;
+    const imeiKey = (s.imei || '').trim().toUpperCase();
+    if (!imeiKey) continue;
+    const u = unitsByImei.get(imeiKey);
+    if (!u) continue;
+    if (u.status === 'returned' || u.status === 'incoming') continue;
+    if (u.status === 'sold') continue;     // already sold — not a flip
+    if (seenUnitIds.has(u.id)) continue;   // one row per unit
+    seenUnitIds.add(u.id);
+    inventoryFlips.push({
+      unitId: u.id,
+      imei: u.imei || '',
+      model: u.model || '—',
+      saleOrderId: s.orderNumber || '',
+      marketplace: s.marketplace,
+      salePrice: s.salePrice ?? 0,
+    });
+  }
+
   return {
     total: parsed.sales.length,
     perSheet: parsed.perSheetCounts,
@@ -80,6 +127,7 @@ function buildPreview(
     toUpdate,
     invalid: parsed.errors,
     duplicatesInFile: dupes,
+    inventoryFlips,
   };
 }
 
@@ -98,10 +146,16 @@ export default function SalesReportImport({ onClose }: Props) {
 
   const preview = useMemo(
     () => phase === 'preview' || phase === 'loading' || phase === 'done'
-      ? (parsed ? buildPreview(parsed, sales) : null)
+      ? (parsed ? buildPreview(parsed, sales, units) : null)
       : null,
-    [parsed, sales, phase],
+    [parsed, sales, units, phase],
   );
+  // Acknowledgement gate — when the import would flip in-stock units to
+  // 'sold' as a side effect, force the operator to tick a checkbox before
+  // the Confirm button enables. Resets every time a new file is parsed
+  // (the IMEI list changes) or the operator goes back to the upload step.
+  const [flipsAcked, setFlipsAcked] = useState(false);
+  React.useEffect(() => { setFlipsAcked(false); }, [parsed]);
 
   const handleFile = async (file: File) => {
     setError('');
@@ -194,7 +248,13 @@ export default function SalesReportImport({ onClose }: Props) {
           )}
 
           {phase === 'preview' && preview && (
-            <PreviewPhase preview={preview} fileName={fileName} error={error} />
+            <PreviewPhase
+              preview={preview}
+              fileName={fileName}
+              error={error}
+              flipsAcked={flipsAcked}
+              onAckChange={setFlipsAcked}
+            />
           )}
 
           {phase === 'loading' && (
@@ -250,7 +310,15 @@ export default function SalesReportImport({ onClose }: Props) {
               </button>
               <button
                 onClick={handleConfirm}
-                disabled={preview.toCreate.length + preview.toUpdate.length === 0}
+                disabled={
+                  preview.toCreate.length + preview.toUpdate.length === 0
+                  || (preview.inventoryFlips.length > 0 && !flipsAcked)
+                }
+                title={
+                  preview.inventoryFlips.length > 0 && !flipsAcked
+                    ? `Tick the acknowledgement to confirm ${preview.inventoryFlips.length} in-stock unit${preview.inventoryFlips.length === 1 ? '' : 's'} will be flipped to sold.`
+                    : undefined
+                }
                 className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 text-white text-[10px] font-bold uppercase tracking-widest hover:bg-emerald-700 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
               >
                 <CheckCircle2 size={12} /> Load {(preview.toCreate.length + preview.toUpdate.length).toLocaleString()} sales
@@ -331,11 +399,13 @@ function UploadPhase({
 
 // ── Phase: preview ──────────────────────────────────────────────────────────
 function PreviewPhase({
-  preview, fileName, error,
+  preview, fileName, error, flipsAcked, onAckChange,
 }: {
   preview: PreviewBuckets;
   fileName: string;
   error: string;
+  flipsAcked: boolean;
+  onAckChange: (v: boolean) => void;
 }) {
   return (
     <div className="space-y-3">
@@ -377,6 +447,65 @@ function PreviewPhase({
           </div>
         ))}
       </div>
+
+      {/* ── Inventory impact gate ────────────────────────────────────────
+          When the import would flip in-stock units to status='sold' as a
+          side effect, surface the impact AND require an explicit
+          acknowledgement before Confirm enables. Loaded the eye-icon
+          prompt from QA round 5 ("when I add inventory stock it's 215
+          but when I load sales report it's showing 198 — why"). */}
+      {preview.inventoryFlips.length > 0 && (
+        <div className="border-2 border-amber-300 bg-amber-50 rounded-2xl p-3 space-y-2.5">
+          <div className="flex items-start gap-2">
+            <AlertTriangle size={18} className="text-amber-600 flex-shrink-0 mt-0.5" />
+            <div className="flex-1 min-w-0">
+              <p className="text-[12px] font-bold text-amber-900">
+                {preview.inventoryFlips.length} in-stock unit{preview.inventoryFlips.length === 1 ? '' : 's'} will be flipped to SOLD
+              </p>
+              <p className="text-[11px] text-amber-800 mt-0.5">
+                These units have IMEIs that match sales in the file. Confirming the
+                import will mark them as sold and remove them from "All Office Stock"
+                (e.g. 215 → {215 - preview.inventoryFlips.length}). If any IMEI is
+                wrong, fix the sales sheet first or void the sale after import to
+                restore the unit.
+              </p>
+            </div>
+          </div>
+
+          <div className="bg-white border border-amber-200 rounded-xl overflow-hidden">
+            <div className="px-3 py-1.5 border-b border-amber-100 text-[9px] font-mono uppercase tracking-widest text-amber-900 bg-amber-50/60">
+              Units that will flip
+            </div>
+            <ul className="max-h-48 overflow-auto divide-y divide-amber-50 text-[11px]">
+              {preview.inventoryFlips.slice(0, 50).map(f => (
+                <li key={f.unitId} className="px-3 py-1.5 flex items-center justify-between gap-3">
+                  <span className="font-mono text-slate-700 truncate" title={`${f.imei} — ${f.model}`}>
+                    {f.imei || '—'} <span className="text-slate-400">·</span> <span className="text-slate-500">{f.model}</span>
+                  </span>
+                  <span className="flex-shrink-0 text-[10px] font-mono text-slate-600">
+                    {f.marketplace} · {f.saleOrderId} · £{Number(f.salePrice).toFixed(2)}
+                  </span>
+                </li>
+              ))}
+              {preview.inventoryFlips.length > 50 && (
+                <li className="px-3 py-1.5 text-amber-700 text-[10px] font-mono">
+                  +{preview.inventoryFlips.length - 50} more not shown
+                </li>
+              )}
+            </ul>
+          </div>
+
+          <label className="flex items-start gap-2 cursor-pointer select-none text-[11px] font-semibold text-amber-900">
+            <input
+              type="checkbox"
+              checked={flipsAcked}
+              onChange={e => onAckChange(e.target.checked)}
+              className="mt-0.5 w-4 h-4 accent-amber-600 cursor-pointer"
+            />
+            I've reviewed the list — flip the {preview.inventoryFlips.length} unit{preview.inventoryFlips.length === 1 ? '' : 's'} to sold.
+          </label>
+        </div>
+      )}
 
       {preview.duplicatesInFile.length > 0 && (
         <DetailPanel title={`Duplicate IDs in file · ${preview.duplicatesInFile.length}`} tone="rose">
