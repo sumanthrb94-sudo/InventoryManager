@@ -149,6 +149,8 @@ export default function ReportingPage() {
       platform: string;        // human-readable platform label (eBay/Amazon/...)
       postageCost: number;
       grossProfit?: number;    // present for sales-collection rows (live recompute)
+      voided: boolean;         // true once the sale has been returned (voidedAt set)
+      voidReason?: string;     // return reason/comment, shown on returned rows
       _src: 'sale' | 'unit';
       _id: string;
     }>;
@@ -175,6 +177,8 @@ export default function ReportingPage() {
         platform:    mkToPlatform[s.marketplace] || s.marketplace || '',
         postageCost: s.postage ?? defaultPostageFor(mkToPlatform[s.marketplace]),
         grossProfit: s.grossProfit,
+        voided:      !!s.voidedAt,
+        voidReason:  (s as any).voidReason ?? undefined,
         _src: 'sale',
         _id:  s.id,
       });
@@ -191,6 +195,8 @@ export default function ReportingPage() {
         salePrice:   u.salePrice || 0,
         platform:    u.salePlatform || '',
         postageCost: u.postageCost ?? defaultPostageFor(u.salePlatform),
+        voided:      !!u.returnType,
+        voidReason:  u.returnReason ?? undefined,
         _src: 'unit',
         _id:  u.id,
       });
@@ -358,6 +364,8 @@ export default function ReportingPage() {
         'Net Profit £': r.grossProfit ?? netProfitFor(r.platform, r.salePrice || 0, r.buyPrice, r.postageCost),
         Platform: r.platform || '',
         'Commission %': commissionPctFor(r.platform),
+        Returned: r.voided ? 'Yes' : 'No',
+        'Return Reason': r.voided ? (r.voidReason || '') : '',
       }))
   );
 
@@ -672,9 +680,18 @@ export default function ReportingPage() {
                     const net = r.grossProfit ?? netProfitFor(r.platform, sp, r.buyPrice, r.postageCost);
                     const commPct = commissionPctFor(r.platform);
                     return (
-                      <tr key={r._id} className="hover:bg-gray-50">
+                      <tr key={r._id} className={r.voided ? 'bg-red-50 hover:bg-red-100' : 'hover:bg-gray-50'}>
                         <td className="px-4 py-2 font-mono text-gray-500">{r.date}</td>
-                        <td className="px-3 py-2 font-semibold max-w-[110px] truncate">{r.model}</td>
+                        <td className="px-3 py-2 font-semibold max-w-[110px] truncate">
+                          {r.model}
+                          {r.voided && (
+                            <span
+                              title={r.voidReason || 'Returned'}
+                              className="ml-1.5 inline-block align-middle text-[8px] font-bold uppercase tracking-wide text-red-600 bg-red-100 border border-red-200 px-1.5 py-0.5 rounded">
+                              ↩ Returned
+                            </span>
+                          )}
+                        </td>
                         <td className="px-3 py-2"><CopyImei imei={r.imei} truncate={9} /></td>
                         <td className="px-3 py-2 font-mono text-gray-500 text-[9px]">{r.orderNumber || '—'}</td>
                         <td className="px-3 py-2 text-right font-mono font-bold">£{sp}</td>

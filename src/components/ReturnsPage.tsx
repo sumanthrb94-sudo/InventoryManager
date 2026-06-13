@@ -1097,7 +1097,17 @@ function ProcessReturnModal({
       // recordSale creates a NEW Sale doc and this one stays voided.
       try {
         const all = await dbService.readAll('sales');
-        const linked = all.filter((s: any) => s.unitId === unit.id && !s.voidedAt);
+        // Match the live sale(s) for this unit by unitId OR by IMEI. Imported
+        // sales (from the client's SALES_REPORT workbook) carry an IMEI but no
+        // unitId, so a unitId-only match silently skipped them — leaving the
+        // returned sale un-voided and therefore never flagged red/RETURNED in
+        // the Sales Report. Matching on the normalised IMEI as well closes that
+        // gap so every return propagates to the sales surfaces.
+        const unitImei = unit.imei ? normalizeImei(unit.imei) : '';
+        const linked = all.filter((s: any) =>
+          !s.voidedAt &&
+          (s.unitId === unit.id || (!!unitImei && normalizeImei(s.imei) === unitImei)),
+        );
         for (const s of linked) {
           await dbService.update('sales', s.id, {
             voidedAt: returnDate,
