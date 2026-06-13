@@ -284,10 +284,11 @@ describe('buildSalesWorkbookBuffer — auditor-grade structure', () => {
     expect(String(header.getCell(2).value)).toBe('Sales');
     expect(String(header.getCell(3).value)).toBe('Refunds');
     expect(String(header.getCell(4).value)).toBe('Replacements');
-    expect(String(header.getCell(5).value)).toBe('Gross GP £');
-    expect(String(header.getCell(6).value)).toBe('Postage Loss £');
-    expect(String(header.getCell(7).value)).toBe('Net GP £');
-    expect(String(header.getCell(8).value)).toBe('Net GP %');
+    expect(String(header.getCell(5).value)).toBe('Repairs');
+    expect(String(header.getCell(6).value)).toBe('Gross GP £');
+    expect(String(header.getCell(7).value)).toBe('Postage Loss £');
+    expect(String(header.getCell(8).value)).toBe('Net GP £');
+    expect(String(header.getCell(9).value)).toBe('Net GP %');
   });
 
   it('AMAZON sheet headers include the return-info block before Postage Loss', async () => {
@@ -425,8 +426,9 @@ describe('buildSalesWorkbookBuffer — auditor-grade structure', () => {
     expect(ebayRow.getCell(2).value).toBe(3);        // Sales count
     expect(ebayRow.getCell(3).value).toBe(1);        // Refunds
     expect(ebayRow.getCell(4).value).toBe(1);        // Replacements
-    // Postage Loss = 19.2 (refund) + 28.8 (replacement) = 48
-    expect(ebayRow.getCell(6).value).toBeCloseTo(48, 1);
+    expect(ebayRow.getCell(5).value).toBe(0);        // Repairs
+    // Postage Loss (col 7 now) = 19.2 (refund) + 28.8 (replacement) = 48
+    expect(ebayRow.getCell(7).value).toBeCloseTo(48, 1);
   });
 });
 
@@ -730,20 +732,23 @@ describe('Returns Summary counts return EVENTS not unique units (OBS-LR-001)', (
     await wb.xlsx.load(buf);
     const summary = wb.getWorksheet('Summary')!;
     // Sheet shape (writeSummaryRow): r1=Period, r2=Total Returns,
-    // r3=Refunds, r4=Replacements, r5=Total Postage Loss, r6=Avg.
+    // r3=Refunds, r4=Replacements, r5=Repairs, r6=Total Postage Loss, r7=Avg.
     expect(summary.getRow(2).getCell(2).value).toBe(10);   // Total Returns
     expect(summary.getRow(3).getCell(2).value).toBe(9);    // Refunds
     expect(summary.getRow(4).getCell(2).value).toBe(1);    // Replacements
+    expect(summary.getRow(5).getCell(2).value).toBe(0);    // Repairs
     // 9 refunds × £15.12 + 1 replacement × £22.68 = £158.76
-    expect(summary.getRow(5).getCell(2).value).toBeCloseTo(158.76, 1);
+    expect(summary.getRow(6).getCell(2).value).toBeCloseTo(158.76, 1);
   });
 });
 
 // ───────────────────────────────────────────────────────────────────────────
-// BUG-002 — repair-route returns labelled "In Repair", not "Refund"
+// Repair-route returns: labelled "In Repair" (not "Refund") AND carry the
+// 2-leg carriage loss (operator policy 2026-06: outbound + faulty unit
+// shipped back; the unit returns to stock but both legs were paid).
 // ───────────────────────────────────────────────────────────────────────────
 
-describe('repair-route returns surface "In Repair" everywhere (BUG-002)', () => {
+describe('repair-route returns: "In Repair" label + 2-leg carriage loss', () => {
   const sameImei = '359000000000111';
   const repairUnit: InventoryUnit = {
     id: sameImei, imei: sameImei,
@@ -754,7 +759,7 @@ describe('repair-route returns surface "In Repair" everywhere (BUG-002)', () => 
     returnType: 'repair',
     returnDate: '2026-06-12',
     returnReason: 'Cracked screen',
-    returnLegCost: 7.56,  // even with a snapshot we should NOT charge legs
+    returnLegCost: 7.56,
     flags: [], notes: '', platformListed: false, listingSites: [],
     ownerId: 'shared', createdAt: '2026-06-01T00:00:00Z',
   };
@@ -764,11 +769,12 @@ describe('repair-route returns surface "In Repair" everywhere (BUG-002)', () => 
     saleDate: '2026-06-12', salePrice: 140, buyPrice: 100,
     postage: 6.30, postageVat: 1.26,
     voidedAt: '2026-06-12',
-    // voidOutcome deliberately undefined — repair flow doesn't capture one
-    voidReason: 'Sent for repair — cracked screen',
+    // voidOutcome deliberately undefined — repair flow doesn't capture a
+    // customer outcome; the unit's returnType='repair' is the signal.
+    voidReason: 'In Repair — cracked screen',
   });
 
-  it('Sales Report row shows Outcome="In Repair" + blank Legs + blank Postage Loss', async () => {
+  it('Sales Report row: Outcome="In Repair", Legs=2, Postage Loss=£15.12', async () => {
     const buf = await buildSalesWorkbookBuffer({
       sales: [repairSale], units: [repairUnit],
     });
@@ -776,12 +782,12 @@ describe('repair-route returns surface "In Repair" everywhere (BUG-002)', () => 
     await wb.xlsx.load(buf);
     const ebay = wb.getWorksheet('EBAY')!;
     const row = ebay.getRow(2);
-    expect(row.getCell(27).value).toBe('In Repair');   // Outcome (AA)
-    expect(row.getCell(29).value).toBeNull();          // Shipping Legs (AC) blank
-    expect(row.getCell(30).value).toBeNull();          // Postage Loss (AD) blank
+    expect(row.getCell(27).value).toBe('In Repair');         // Outcome (AA)
+    expect(row.getCell(29).value).toBe(2);                   // Shipping Legs (AC)
+    expect(row.getCell(30).value).toBeCloseTo(15.12, 2);     // Postage Loss (AD) = 7.56×2
   });
 
-  it('Sales Summary excludes the repair void from refund/replacement counters and loss', async () => {
+  it('Sales Summary counts the repair in its own column + includes its loss', async () => {
     const buf = await buildSalesWorkbookBuffer({
       sales: [
         repairSale,
@@ -796,13 +802,14 @@ describe('repair-route returns surface "In Repair" everywhere (BUG-002)', () => 
     const summary = wb.getWorksheet('Summary')!;
     const ebayRow = summary.getRow(7);
     expect(ebayRow.getCell(2).value).toBe(2);          // Sales (both counted)
-    expect(ebayRow.getCell(3).value).toBe(1);          // Refunds — repair excluded
+    expect(ebayRow.getCell(3).value).toBe(1);          // Refunds (R1 only)
     expect(ebayRow.getCell(4).value).toBe(0);          // Replacements
-    // Postage Loss = ONLY the £19.20 from the plain refund.
-    expect(ebayRow.getCell(6).value).toBeCloseTo(19.2, 1);
+    expect(ebayRow.getCell(5).value).toBe(1);          // Repairs (the repair void)
+    // Postage Loss (col 7) = repair 15.12 + refund 19.2 = 34.32.
+    expect(ebayRow.getCell(7).value).toBeCloseTo(34.32, 1);
   });
 
-  it('Returns Detail shows "In Repair" + blank Shipping Legs', async () => {
+  it('Returns Detail: "In Repair", Legs=2, Postage Loss=£15.12', async () => {
     const buf = await buildReturnsWorkbookBuffer({
       units: [repairUnit], sales: [repairSale],
     });
@@ -811,37 +818,37 @@ describe('repair-route returns surface "In Repair" everywhere (BUG-002)', () => 
     const detail = wb.getWorksheet('Returns Detail')!;
     const row = detail.getRow(2);
     expect(row.getCell(11).value).toBe('In Repair');   // Outcome col 11
-    expect(row.getCell(15).value).toBeNull();          // Shipping Legs blank
-    expect(row.getCell(16).value).toBeNull();          // Postage Loss £ blank
+    expect(row.getCell(15).value).toBe(2);             // Shipping Legs
+    expect(row.getCell(16).value).toBeCloseTo(15.12, 2); // Postage Loss £
   });
 
-  it('Returns Summary excludes the repair from refund + loss totals', async () => {
+  it('Returns Summary counts the repair + includes its loss', async () => {
     const buf = await buildReturnsWorkbookBuffer({
       units: [repairUnit], sales: [repairSale],
     });
     const wb = new ExcelJS.Workbook();
     await wb.xlsx.load(buf);
     const summary = wb.getWorksheet('Summary')!;
-    expect(summary.getRow(2).getCell(2).value).toBe(0);      // Total Returns
-    expect(summary.getRow(3).getCell(2).value).toBe(0);      // Refunds
-    expect(summary.getRow(5).getCell(2).value).toBe(0);      // Postage Loss
+    // r2 Total Returns, r3 Refunds, r4 Replacements, r5 Repairs, r6 Postage Loss
+    expect(summary.getRow(2).getCell(2).value).toBe(1);          // Total Returns
+    expect(summary.getRow(3).getCell(2).value).toBe(0);          // Refunds
+    expect(summary.getRow(5).getCell(2).value).toBe(1);          // Repairs
+    expect(summary.getRow(6).getCell(2).value).toBeCloseTo(15.12, 2);  // Postage Loss
   });
 
-  it('Unit Histories RETURNED event reads "In Repair · reason" with zero loss', async () => {
+  it('Unit Histories RETURNED event reads "In Repair · reason" with the 2-leg loss', async () => {
     const buf = await buildReturnsWorkbookBuffer({
       units: [repairUnit], sales: [repairSale],
     });
     const wb = new ExcelJS.Workbook();
     await wb.xlsx.load(buf);
     const hist = wb.getWorksheet('Unit Histories')!;
-    // Find the RETURNED row in the timeline (cols: IMEI, Model, EventDate,
-    // Event, Detail, Amount £, Comments).
     for (let r = 2; r <= hist.rowCount; r++) {
       const ev = hist.getRow(r).getCell(4).value;
       if (ev !== 'RETURNED') continue;
       const detail = String(hist.getRow(r).getCell(5).value || '');
       expect(detail.startsWith('In Repair')).toBe(true);
-      expect(hist.getRow(r).getCell(6).value).toBeNull(); // Amount blank
+      expect(hist.getRow(r).getCell(6).value).toBeCloseTo(-15.12, 2); // Amount = −loss
       return;
     }
     throw new Error('No RETURNED row emitted for the repair-route unit');
@@ -854,11 +861,12 @@ describe('repair-route returns surface "In Repair" everywhere (BUG-002)', () => 
 
 describe('post-repair-completion invariant (BUG-RP-002)', () => {
   // The QA scenario: a unit is sold, sent for repair, then marked
-  // repaired & back-to-stock. Before the fix, ReadyToShipModal flipped
-  // returnType to 'returned_to_inventory' on the unit, and every reporter
-  // re-classified the historical void as a refund — silently injecting
-  // £15.12 of phantom postage loss into Sales Summary, Returns Summary,
-  // and Lifecycle totals. The Sale doc itself never moved.
+  // repaired & back-to-stock. ReadyToShipModal flips returnType to
+  // 'returned_to_inventory' on the unit. The invariant: completion must
+  // NOT re-classify the historical void as a customer refund — it stays
+  // labelled "In Repair". (It DOES carry the 2-leg carriage loss per the
+  // 2026-06 policy; the point of this block is that completion doesn't
+  // CHANGE the classification or the figure, in either direction.)
   //
   // Fix: ProcessReturnModal stamps `voidOutcome: 'repair'` on the linked
   // Sale at void time (canonical), and ReadyToShipModal adds repairedAt +
@@ -893,7 +901,7 @@ describe('post-repair-completion invariant (BUG-RP-002)', () => {
     voidReason: 'In Repair — QA repair label check',
   });
 
-  it('Sales Report row still shows "In Repair" after completion (no refund relabel)', async () => {
+  it('Sales Report row stays "In Repair" + 2 legs + £15.12 after completion (no refund relabel)', async () => {
     const buf = await buildSalesWorkbookBuffer({
       sales: [completedRepairSale], units: [completedRepairUnit],
     });
@@ -901,12 +909,12 @@ describe('post-repair-completion invariant (BUG-RP-002)', () => {
     await wb.xlsx.load(buf);
     const ebay = wb.getWorksheet('EBAY')!;
     const row = ebay.getRow(2);
-    expect(row.getCell(27).value).toBe('In Repair');
-    expect(row.getCell(29).value).toBeNull();          // Legs blank
-    expect(row.getCell(30).value).toBeNull();          // Postage Loss blank
+    expect(row.getCell(27).value).toBe('In Repair');         // NOT relabelled to Refund
+    expect(row.getCell(29).value).toBe(2);                   // Legs unchanged
+    expect(row.getCell(30).value).toBeCloseTo(15.12, 2);     // Postage Loss unchanged
   });
 
-  it('Sales Summary does not bump Refunds or Postage Loss after completion', async () => {
+  it('Sales Summary keeps the repair in the Repairs column after completion', async () => {
     const buf = await buildSalesWorkbookBuffer({
       sales: [completedRepairSale], units: [completedRepairUnit],
     });
@@ -915,12 +923,13 @@ describe('post-repair-completion invariant (BUG-RP-002)', () => {
     const summary = wb.getWorksheet('Summary')!;
     const ebayRow = summary.getRow(7);
     expect(ebayRow.getCell(2).value).toBe(1);          // Sales: 1
-    expect(ebayRow.getCell(3).value).toBe(0);          // Refunds: 0
+    expect(ebayRow.getCell(3).value).toBe(0);          // Refunds: 0 (NOT bumped)
     expect(ebayRow.getCell(4).value).toBe(0);          // Replacements: 0
-    expect(ebayRow.getCell(6).value).toBe(0);          // Postage Loss: 0
+    expect(ebayRow.getCell(5).value).toBe(1);          // Repairs: 1
+    expect(ebayRow.getCell(7).value).toBeCloseTo(15.12, 2);  // Postage Loss
   });
 
-  it('Returns Detail keeps Outcome "In Repair" + blank legs/loss after completion', async () => {
+  it('Returns Detail keeps Outcome "In Repair" + 2 legs + £15.12 after completion', async () => {
     const buf = await buildReturnsWorkbookBuffer({
       units: [completedRepairUnit], sales: [completedRepairSale],
     });
@@ -929,27 +938,29 @@ describe('post-repair-completion invariant (BUG-RP-002)', () => {
     const detail = wb.getWorksheet('Returns Detail')!;
     const row = detail.getRow(2);
     expect(row.getCell(11).value).toBe('In Repair');
-    expect(row.getCell(15).value).toBeNull();
-    expect(row.getCell(16).value).toBeNull();
+    expect(row.getCell(15).value).toBe(2);
+    expect(row.getCell(16).value).toBeCloseTo(15.12, 2);
   });
 
-  it('Returns Summary excludes the completed repair from totals', async () => {
+  it('Returns Summary keeps the completed repair in the Repairs total', async () => {
     const buf = await buildReturnsWorkbookBuffer({
       units: [completedRepairUnit], sales: [completedRepairSale],
     });
     const wb = new ExcelJS.Workbook();
     await wb.xlsx.load(buf);
     const summary = wb.getWorksheet('Summary')!;
-    expect(summary.getRow(2).getCell(2).value).toBe(0);  // Total Returns
-    expect(summary.getRow(3).getCell(2).value).toBe(0);  // Refunds
-    expect(summary.getRow(5).getCell(2).value).toBe(0);  // Postage Loss
+    expect(summary.getRow(2).getCell(2).value).toBe(1);  // Total Returns
+    expect(summary.getRow(3).getCell(2).value).toBe(0);  // Refunds (NOT bumped)
+    expect(summary.getRow(5).getCell(2).value).toBe(1);  // Repairs
+    expect(summary.getRow(6).getCell(2).value).toBeCloseTo(15.12, 2);  // Postage Loss
   });
 
   it('legacy backfill: pre-canonical void (no voidOutcome) + post-completion unit ⇒ still "In Repair"', async () => {
     // Old deploy wrote voidedAt but no voidOutcome. After ReadyToShipModal
     // changed returnType, the ONLY signal that this was a repair is the
     // unit's repairedAt / 'repaired_unit' flag. The build-time enrichment
-    // must backfill the Sale to voidOutcome='repair' so renderers behave.
+    // must backfill the Sale to voidOutcome='repair' so renderers behave —
+    // including carrying the 2-leg loss (it's still a real return).
     const legacySale: Sale = baseSale({
       id: 'EBAY__LEG__X', marketplace: 'EBAY',
       orderNumber: 'LEG', imei, unitId: imei,
@@ -966,23 +977,22 @@ describe('post-repair-completion invariant (BUG-RP-002)', () => {
     await wb.xlsx.load(buf);
     const ebay = wb.getWorksheet('EBAY')!;
     const row = ebay.getRow(2);
-    expect(row.getCell(27).value).toBe('In Repair');
-    expect(row.getCell(29).value).toBeNull();          // Legs blank
-    expect(row.getCell(30).value).toBeNull();          // Postage Loss blank
-    // And the Summary doesn't bump the refund counter either.
+    expect(row.getCell(27).value).toBe('In Repair');         // backfilled, NOT Refund
+    expect(row.getCell(29).value).toBe(2);                   // 2 legs
+    expect(row.getCell(30).value).toBeCloseTo(15.12, 2);     // loss carried
+    // And the Summary classifies it as a Repair, not a Refund.
     const summary = wb.getWorksheet('Summary')!;
     const ebayRow = summary.getRow(7);
     expect(ebayRow.getCell(3).value).toBe(0);          // Refunds: 0
-    expect(ebayRow.getCell(6).value).toBe(0);          // Postage Loss: 0
+    expect(ebayRow.getCell(5).value).toBe(1);          // Repairs: 1
+    expect(ebayRow.getCell(7).value).toBeCloseTo(15.12, 2);  // Postage Loss
   });
 
-  it('A second non-repair refund on the same repaired unit IS counted normally', async () => {
+  it('A second non-repair refund on the same repaired unit IS counted as a refund', async () => {
     // A repaired unit can be re-sold and refunded. Its OLD repair cycle
-    // should stay "In Repair" while the NEW refund cycle counts as a
-    // refund. The unit still carries repairedAt + 'repaired_unit' from
-    // cycle 1, so the wasRepairRoute fallback could over-trigger on the
-    // new sale — guard against that by only firing when voidOutcome is
-    // absent (the new refund has voidOutcome='refund' explicitly).
+    // stays a Repair while the NEW refund cycle counts as a Refund — the
+    // explicit voidOutcome='refund' on the new sale wins over the unit's
+    // lingering repairedAt / 'repaired_unit' markers.
     const reSaleRefund: Sale = baseSale({
       id: 'EBAY__RE-1__X', marketplace: 'EBAY',
       orderNumber: 'RE-1', imei, unitId: imei,
@@ -1002,7 +1012,8 @@ describe('post-repair-completion invariant (BUG-RP-002)', () => {
     const ebayRow = summary.getRow(7);
     expect(ebayRow.getCell(2).value).toBe(2);          // 2 sales
     expect(ebayRow.getCell(3).value).toBe(1);          // 1 refund (the new one)
-    // Loss = (6.30 + 1.26) × 2 = 15.12 — repair adds nothing.
-    expect(ebayRow.getCell(6).value).toBeCloseTo(15.12, 2);
+    expect(ebayRow.getCell(5).value).toBe(1);          // 1 repair (the old one)
+    // Loss = repair 15.12 + refund 15.12 = 30.24 (both carry 2 legs now).
+    expect(ebayRow.getCell(7).value).toBeCloseTo(30.24, 2);
   });
 });

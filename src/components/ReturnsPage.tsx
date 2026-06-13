@@ -1113,8 +1113,11 @@ function ReturnLossSection({
         : 'refund') as 'refund' | 'replacement' | 'repair';
       const postage = Number(s.postage) || 0;
       const pVat = s.postageVatExempt ? 0 : (Number(s.postageVat) || postage * 0.2);
-      const legCost = isRepair ? 0 : postage + pVat;
-      const legs = outcome === 'replacement' ? 3 : outcome === 'refund' ? 2 : 0;
+      // Repair carries a real 2-leg carriage loss now (outbound + faulty
+      // unit shipped back), same as a refund / a supplier return. Only a
+      // replacement is 3 legs.
+      const legCost = postage + pVat;
+      const legs = outcome === 'replacement' ? 3 : 2;
       out.push({
         unit: u,
         sale: s,
@@ -1141,11 +1144,15 @@ function ReturnLossSection({
       const isRepair = u.returnType === 'repair'
         || !!u.repairedAt
         || (Array.isArray(u.flags) && u.flags.includes('repaired_unit'));
-      const legCost = isRepair ? 0 : u.returnLegCost ?? 0;
+      // Repair carries its snapshotted leg cost now (2 legs). Legacy
+      // repairs processed before this policy have returnLegCost=null →
+      // legCost 0 → £0, which is the pre-tracking case the Returns Report
+      // cutoff note discloses.
+      const legCost = u.returnLegCost ?? 0;
       const outcome: 'refund' | 'replacement' | 'repair' | null = isRepair
         ? 'repair'
         : u.returnOutcome ?? null;
-      const legs = outcome === 'replacement' ? 3 : outcome === 'refund' ? 2 : 0;
+      const legs = outcome === 'replacement' ? 3 : 2;  // refund + repair + supplier all = 2
       out.push({
         unit: u,
         sale: null,
@@ -1202,7 +1209,7 @@ function ReturnLossSection({
         <div className="flex-1 min-w-0">
           <p className="text-[11px] font-bold uppercase tracking-widest text-slate-900">Return Losses · Lifecycle</p>
           <p className="text-[9px] font-mono text-slate-500 mt-0.5">
-            {refunds} refund{refunds === 1 ? '' : 's'} (2× legs) · {replacements} replacement{replacements === 1 ? '' : 's'} (3× legs){repairs > 0 ? ` · ${repairs} in repair (0 legs)` : ''} · leg = postage + P.VAT
+            {refunds} refund{refunds === 1 ? '' : 's'} (2× legs) · {replacements} replacement{replacements === 1 ? '' : 's'} (3× legs){repairs > 0 ? ` · ${repairs} in repair (2× legs)` : ''} · leg = postage + P.VAT
           </p>
         </div>
         <span className="text-[11px] font-mono font-bold text-rose-700 bg-rose-50 border border-rose-200 px-2 py-1 rounded-lg flex-shrink-0">
@@ -1248,7 +1255,7 @@ function ReturnLossSection({
                         ) : r.outcome === 'refund' ? (
                           <span className="inline-flex items-center text-[9px] font-bold uppercase tracking-widest px-1.5 py-0.5 rounded border bg-rose-50 border-rose-200 text-rose-700">Refund</span>
                         ) : r.outcome === 'repair' ? (
-                          <span className="inline-flex items-center text-[9px] font-bold uppercase tracking-widest px-1.5 py-0.5 rounded border bg-blue-50 border-blue-200 text-blue-700" title="Sent for repair — no customer outcome, no shipping legs lost">In Repair</span>
+                          <span className="inline-flex items-center text-[9px] font-bold uppercase tracking-widest px-1.5 py-0.5 rounded border bg-blue-50 border-blue-200 text-blue-700" title="Sent for repair — unit returns to stock, but 2 carriage legs (outbound + faulty unit back) were still paid">In Repair</span>
                         ) : (
                           <span className="inline-flex items-center text-[9px] font-bold uppercase tracking-widest px-1.5 py-0.5 rounded border bg-slate-50 border-slate-200 text-slate-500" title="Processed before outcome tracking — assumed refund (2 legs)">Refund*</span>
                         )}
@@ -1275,7 +1282,7 @@ function ReturnLossSection({
           <PaginationBar page={page} totalPages={totalPages} total={total} onPage={setPage} itemLabel="returns" />
           <div className="px-5 py-2 border-t border-slate-100 bg-slate-50/60 flex items-center justify-between">
             <span className="text-[9px] font-mono uppercase tracking-widest text-slate-500">
-              Refund = outbound + return legs · Replacement adds the replacement outbound · * = pre-tracking row, refund assumed
+              Refund / Repair / To-Supplier = 2 legs (outbound + inbound) · Replacement = 3 (adds the replacement outbound) · * = pre-tracking row, refund assumed
             </span>
             <button
               onClick={exportCsv}
@@ -1894,7 +1901,11 @@ function ProcessReturnModal({
         // like a refund and the report counted £15.12 phantom loss.
         returnOutcome: returnType === 'repair' ? null : outcome,
         returnComments: comments.trim() || null,
-        returnLegCost: returnType === 'repair' ? null : (legCost || null),
+        // Snapshot the leg cost on EVERY route now — repair carries a real
+        // 2-leg carriage loss too (outbound + faulty unit shipped back),
+        // same as a refund and a supplier return. Only the customer-outcome
+        // label differs; the carriage is paid regardless.
+        returnLegCost: legCost || null,
         // Always clear sale data on any return — prevents ghost sale records.
         salePrice: null,
         saleDate: null,

@@ -323,25 +323,25 @@ const MONEY_FMT = '0.00';
 const IMEI_FMT = '0';
 
 /** Per-sale postage loss (£). 0 for active sales AND for repair-route
- *  voids (we kept the unit and fixed it). For refund / replacement voids
- *  it's (postage + P.VAT) × shipping legs (2 / 3). Used as the trailing
- *  Postage Loss column on every marketplace sheet so the CA can tally
- *  the period's exposure. */
+ *  it's (postage + P.VAT) × shipping legs. Refund = 2 legs (outbound +
+ *  inbound), replacement = 3 (plus the replacement outbound), repair = 2
+ *  (outbound to the customer + the faulty unit shipped back to us — the
+ *  unit then goes back to stock, but both carriage legs are a real loss).
+ *  Used as the trailing Postage Loss column on every marketplace sheet so
+ *  the CA can tally the period's exposure. */
 export function postageLossFor(sale: Sale): number {
   if (!sale.voidedAt) return 0;
-  if (sale.voidOutcome === 'repair') return 0;
   const postage = Number(sale.postage) || 0;
   const pvat = sale.postageVatExempt ? 0 : (Number(sale.postageVat) || postage * 0.2);
-  const legs = sale.voidOutcome === 'replacement' ? 3 : 2;
+  const legs = sale.voidOutcome === 'replacement' ? 3 : 2;  // refund + repair both eat 2
   return (postage + pvat) * legs;
 }
 
 /** Number of shipping legs eaten by a void. Refund = 2 (outbound +
- *  inbound), replacement = 3 (plus the replacement outbound), repair = 0
- *  (we kept the unit). */
+ *  inbound), replacement = 3 (plus the replacement outbound), repair = 2
+ *  (outbound + inbound — the unit comes back, but both legs were paid). */
 export function shippingLegsFor(sale: Sale): number {
   if (!sale.voidedAt) return 0;
-  if (sale.voidOutcome === 'repair') return 0;
   return sale.voidOutcome === 'replacement' ? 3 : 2;
 }
 
@@ -397,9 +397,10 @@ function outcomeLabel(sale: Sale): string {
  *  Shipping Legs) plus the Postage Loss cell. No-op for active sales so
  *  column SUM / COUNTIF over the period treats blanks as 0 / no-match.
  *
- *  Repair-route voids (Sale.voidOutcome === 'repair') eat no shipping
- *  legs and carry no postage loss — Legs / Postage Loss stay blank so
- *  column totals don't pick up phantom legs the operator never paid. */
+ *  Repair-route voids (Sale.voidOutcome === 'repair') keep their "In
+ *  Repair" outcome label but DO carry 2 legs of postage loss (outbound +
+ *  inbound) per the operator's accounting policy — the unit comes back to
+ *  stock, but both carriage legs were paid. */
 function writeReturnBlock(row: ExcelJS.Row, marketplace: Marketplace, sale: Sale): void {
   if (!sale.voidedAt) return;
   const o = returnBlockOffsets(marketplace);
@@ -407,7 +408,6 @@ function writeReturnBlock(row: ExcelJS.Row, marketplace: Marketplace, sale: Sale
   row.getCell(o.returnDateCol).numFmt = DATE_FMT;
   row.getCell(o.outcomeCol).value     = outcomeLabel(sale);
   row.getCell(o.reasonCol).value      = sale.voidReason ?? '';
-  if (sale.voidOutcome === 'repair') return;
   row.getCell(o.legsCol).value        = shippingLegsFor(sale);
   const loss = postageLossFor(sale);
   if (loss > 0) {
@@ -862,34 +862,30 @@ function writeSalesSummarySheet(
   sheet.addRow([`Period: ${periodLabel(opts)}`]);
   sheet.addRow([]);
 
-  // Header row for the breakdown table.
+  // Header row for the breakdown table. Money cols are 6-9.
   const header = sheet.addRow([
-    'Marketplace', 'Sales', 'Refunds', 'Replacements',
+    'Marketplace', 'Sales', 'Refunds', 'Replacements', 'Repairs',
     'Gross GP £', 'Postage Loss £', 'Net GP £', 'Net GP %',
   ]);
   header.font = { bold: true };
   header.fill = {
     type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF1F5F9' },  // slate-100
   };
+  const moneyCols = [6, 7, 8, 9];
 
   // One row per marketplace.
-  const grand: { sales: number; refunds: number; replacements: number; gp: number; loss: number; netGp: number; bp: number } = {
-    sales: 0, refunds: 0, replacements: 0, gp: 0, loss: 0, netGp: 0, bp: 0,
-  };
+  const grand = { sales: 0, refunds: 0, replacements: 0, repairs: 0, gp: 0, loss: 0, netGp: 0, bp: 0 };
   for (const m of MARKETPLACES) {
     const bucket = byMarketplace.get(m) ?? [];
     if (bucket.length === 0) {
-      const row = sheet.addRow([m, 0, 0, 0, 0, 0, 0, 0]);
-      row.getCell(5).numFmt = MONEY_FMT;
-      row.getCell(6).numFmt = MONEY_FMT;
-      row.getCell(7).numFmt = MONEY_FMT;
-      row.getCell(8).numFmt = MONEY_FMT;
+      const row = sheet.addRow([m, 0, 0, 0, 0, 0, 0, 0, 0]);
+      for (const c of moneyCols) row.getCell(c).numFmt = MONEY_FMT;
       continue;
     }
     // Compute raw figures in JS (rather than cross-sheet formulas) so the
     // Summary tab reads correctly even before the operator clicks into a
     // marketplace tab to trigger ExcelJS lazy evaluation.
-    let salesCount = 0, refundCount = 0, replaceCount = 0;
+    let salesCount = 0, refundCount = 0, replaceCount = 0, repairCount = 0;
     let gp = 0, loss = 0, bp = 0;
     for (const s of bucket) {
       salesCount++;
@@ -897,34 +893,28 @@ function writeSalesSummarySheet(
       gp += sale.grossProfit ?? 0;
       bp += s.buyPrice ?? 0;
       if (s.voidedAt) {
-        // The build-time enrichment in buildSalesWorkbookBuffer backfills
-        // voidOutcome='repair' on legacy repair-route voids that pre-date
-        // the canonical stamp, so this check is the only one needed.
-        if (s.voidOutcome === 'repair') {
-          // Counted as a sale, but not as a refund / replacement, and no
-          // postage loss — we kept the unit and fixed it.
-        } else if (s.voidOutcome === 'replacement') {
-          replaceCount++;
-          loss += postageLossFor(s);
-        } else {
-          refundCount++;
-          loss += postageLossFor(s);
-        }
+        // All three outcomes carry postage loss now (repair = 2 legs per
+        // the operator's policy — outbound + faulty unit shipped back).
+        // Repair keeps its own count so it's not conflated with customer
+        // refunds. The build-time enrichment backfills voidOutcome='repair'
+        // on legacy repair voids before this runs.
+        loss += postageLossFor(s);
+        if (s.voidOutcome === 'repair')             repairCount++;
+        else if (s.voidOutcome === 'replacement')   replaceCount++;
+        else                                        refundCount++;
       }
     }
     const netGp = gp - loss;
     const netGpPct = bp > 0 ? netGp / bp * 100 : 0;
-    const row = sheet.addRow([m, salesCount, refundCount, replaceCount,
+    const row = sheet.addRow([m, salesCount, refundCount, replaceCount, repairCount,
       Number(gp.toFixed(2)), Number(loss.toFixed(2)),
       Number(netGp.toFixed(2)), Number(netGpPct.toFixed(2))]);
-    row.getCell(5).numFmt = MONEY_FMT;
-    row.getCell(6).numFmt = MONEY_FMT;
-    row.getCell(7).numFmt = MONEY_FMT;
-    row.getCell(8).numFmt = MONEY_FMT;
+    for (const c of moneyCols) row.getCell(c).numFmt = MONEY_FMT;
 
     grand.sales        += salesCount;
     grand.refunds      += refundCount;
     grand.replacements += replaceCount;
+    grand.repairs      += repairCount;
     grand.gp           += gp;
     grand.loss         += loss;
     grand.netGp        += netGp;
@@ -934,7 +924,7 @@ function writeSalesSummarySheet(
   // Grand total.
   const grandNetGpPct = grand.bp > 0 ? grand.netGp / grand.bp * 100 : 0;
   const totalRow = sheet.addRow([
-    'TOTAL', grand.sales, grand.refunds, grand.replacements,
+    'TOTAL', grand.sales, grand.refunds, grand.replacements, grand.repairs,
     Number(grand.gp.toFixed(2)), Number(grand.loss.toFixed(2)),
     Number(grand.netGp.toFixed(2)), Number(grandNetGpPct.toFixed(2)),
   ]);
@@ -942,16 +932,14 @@ function writeSalesSummarySheet(
   totalRow.fill = {
     type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE2E8F0' },  // slate-200
   };
-  totalRow.getCell(5).numFmt = MONEY_FMT;
-  totalRow.getCell(6).numFmt = MONEY_FMT;
-  totalRow.getCell(7).numFmt = MONEY_FMT;
-  totalRow.getCell(8).numFmt = MONEY_FMT;
+  for (const c of moneyCols) totalRow.getCell(c).numFmt = MONEY_FMT;
 
-  // Notes block — explains why GP % differs from Gross GP / BP.
+  // Notes block — explains the leg model + why GP % differs from Gross GP / BP.
   sheet.addRow([]);
   const notesHeader = sheet.addRow(['Notes']);
   notesHeader.font = { bold: true };
-  sheet.addRow(['• Refunds eat 2 shipping legs (outbound + inbound). Replacements eat 3 (plus replacement outbound).']);
+  sheet.addRow(['• Refunds + Repairs + Return-to-Supplier each eat 2 shipping legs (outbound + inbound). Replacements eat 3 (plus the replacement outbound).']);
+  sheet.addRow(['• Repair: the unit comes back to stock, but both carriage legs were still paid — so it carries the same 2-leg loss as a refund.']);
   sheet.addRow(['• Postage Loss = (postage + P.VAT) × legs, snapshotted at Process Return time.']);
   sheet.addRow(['• Net GP = Gross GP − Postage Loss. Net GP % = Net GP ÷ BP (× 100). eBay rows divide by SP per platform convention.']);
   sheet.addRow(['• Per-marketplace sheets carry a TOTAL row at the bottom with the same maths reconciled via SUM formulas.']);
@@ -1292,20 +1280,19 @@ function legCostFor(u: InventoryUnit, linkedVoidedSale: Sale | undefined): numbe
 }
 
 /** Total postage loss in £ for a unit: leg cost × number of shipping legs
- *  (refund = 2, replacement = 3). Mirrors `postageLossFor` for sales but
- *  reads off the unit-side fields with the voided-sale fallback baked in.
+ *  (refund = 2, replacement = 3, repair = 2). Mirrors `postageLossFor` for
+ *  sales but reads off the unit-side fields with the voided-sale fallback
+ *  baked in.
  *
  *  Prefers the canonical Sale.voidOutcome over the unit-side outcomeFor —
  *  the Sale doc is immutable after voiding, whereas the unit's returnType
- *  is overwritten by ReadyToShipModal at repair completion. Repair-route
- *  returns eat no shipping legs (we kept the unit). */
+ *  is overwritten by ReadyToShipModal at repair completion. Repair carries
+ *  2 legs (outbound + the faulty unit shipped back), same as a refund. */
 function unitPostageLoss(u: InventoryUnit, linkedVoidedSale: Sale | undefined): number {
-  if (linkedVoidedSale?.voidOutcome === 'repair') return 0;
   const outcome = linkedVoidedSale?.voidOutcome ?? outcomeFor(u);
-  if (outcome === 'repair') return 0;
   const leg = legCostFor(u, linkedVoidedSale);
   if (leg <= 0) return 0;
-  const legs = outcome === 'replacement' ? 3 : 2;
+  const legs = outcome === 'replacement' ? 3 : 2;  // refund + repair both = 2
   return leg * legs;
 }
 
@@ -1445,6 +1432,7 @@ export async function buildReturnsWorkbookBuffer(input: BuildReturnsWorkbookInpu
   const seenUnitIds = new Set<string>();
   let refundsCount = 0;
   let replacementsCount = 0;
+  let repairsCount = 0;
   let totalLoss = 0;
   const lossByMarketplace = new Map<string, { count: number; loss: number }>();
   const bump = (mp: string, loss: number) => {
@@ -1454,17 +1442,34 @@ export async function buildReturnsWorkbookBuffer(input: BuildReturnsWorkbookInpu
     lossByMarketplace.set(mp, cur);
   };
 
+  // Cutoff disclosure: return carriage is only costed from the point the
+  // operator started snapshotting leg cost. Returns before that show £0
+  // (no postage data was captured). Track how many returns are uncosted
+  // and the earliest date a real cost appears so the Summary can state
+  // "lifetime loss is fully costed from {date}; {n} earlier returns are
+  // uncosted (pre-tracking)".
+  let uncostedCount = 0;
+  let earliestCostedDate: string | null = null;
+  const noteCosted = (loss: number, date: string | undefined) => {
+    if (loss > 0) {
+      if (date && (!earliestCostedDate || date < earliestCostedDate)) earliestCostedDate = date;
+    } else {
+      uncostedCount++;
+    }
+  };
+
   for (const s of voidedSalesInRange) {
     if (s.unitId) seenUnitIds.add(s.unitId);
-    // Repair-route voids carry no customer outcome and eat no shipping
-    // legs (we kept the unit). Skip the counters + loss entirely so the
-    // Summary headline numbers reconcile with the Sales Report.
-    if (isRepairLinkedSale(s)) continue;
+    // All three outcomes carry postage loss now (repair = 2 legs per the
+    // operator's policy — outbound + the faulty unit shipped back). Repair
+    // keeps its own category so it's not conflated with customer refunds.
     const loss = postageLossFor(s);
     totalLoss += loss;
-    if (s.voidOutcome === 'replacement') replacementsCount++;
-    else                                  refundsCount++;
+    if (isRepairLinkedSale(s))                 repairsCount++;
+    else if (s.voidOutcome === 'replacement')  replacementsCount++;
+    else                                       refundsCount++;
     bump(s.marketplace || '—', loss);
+    noteCosted(loss, s.voidedAt);
   }
 
   // Legacy fallback: pre-void-fix returns wrote returnType/returnDate on the
@@ -1479,15 +1484,16 @@ export async function buildReturnsWorkbookBuffer(input: BuildReturnsWorkbookInpu
     const voided = latestVoidedSale(u);
     if (voided && voided.voidedAt && voided.voidedAt >= from && voided.voidedAt <= to) continue;
     const outcome = outcomeFor(u);
-    if (outcome === 'repair') continue;            // not a customer outcome — skip
     const loss = unitPostageLoss(u, voided);
     totalLoss += loss;
-    if (outcome === 'replacement') replacementsCount++;
-    else                            refundsCount++;
+    if (outcome === 'repair')            repairsCount++;
+    else if (outcome === 'replacement')  replacementsCount++;
+    else                                 refundsCount++;
     bump(voided?.marketplace || '—', loss);
+    noteCosted(loss, u.returnDate);
   }
 
-  const totalReturns = refundsCount + replacementsCount;
+  const totalReturns = refundsCount + replacementsCount + repairsCount;
   const avgLoss = totalReturns > 0 ? totalLoss / totalReturns : 0;
 
   // Sheet 2 keeps the per-unit lifetime view (one row per IMEI showing the
@@ -1511,6 +1517,7 @@ export async function buildReturnsWorkbookBuffer(input: BuildReturnsWorkbookInpu
   writeSummaryRow('Total Returns', totalReturns);
   writeSummaryRow('Refunds', refundsCount);
   writeSummaryRow('Replacements', replacementsCount);
+  writeSummaryRow('Repairs', repairsCount);
   writeSummaryRow('Total Postage Loss £', Number(totalLoss.toFixed(2)), true);
   writeSummaryRow('Avg Loss per Return £', Number(avgLoss.toFixed(2)), true);
   // Marketplace breakdown — section header + one row per marketplace.
@@ -1526,6 +1533,35 @@ export async function buildReturnsWorkbookBuffer(input: BuildReturnsWorkbookInpu
       const row = summary.addRow([mp, `${agg.count} · £${agg.loss.toFixed(2)}`]);
       row.getCell(1).font = { bold: true };
     }
+  }
+
+  // -------- Carriage cost policy + pre-tracking cutoff disclosure --------
+  // Auditor-facing notes: (1) how each return type is costed, and (2) the
+  // hard truth that lifetime loss is only complete from the date carriage
+  // tracking began — earlier returns are uncosted (£0) and the lifetime
+  // total understates them.
+  summary.addRow([]);
+  const policyHeader = summary.addRow(['Carriage cost policy', '']);
+  policyHeader.getCell(1).font = { bold: true };
+  summary.addRow(['Refund / Repair / To-Supplier', '2 legs (outbound + inbound)']);
+  summary.addRow(['Replacement', '3 legs (+ replacement outbound)']);
+  summary.addRow(['Leg cost', 'postage + P.VAT, snapshotted at return time']);
+
+  summary.addRow([]);
+  const cutoffHeader = summary.addRow(['Pre-tracking cutoff', '']);
+  cutoffHeader.getCell(1).font = { bold: true };
+  if (earliestCostedDate) {
+    summary.addRow(['Carriage costed from', earliestCostedDate]);
+  } else {
+    summary.addRow(['Carriage costed from', 'no costed returns in this period']);
+  }
+  const uncostedRow = summary.addRow(['Uncosted (pre-tracking) returns', uncostedCount]);
+  if (uncostedCount > 0) {
+    uncostedRow.getCell(2).font = { bold: true, color: { argb: 'FFB45309' } };  // amber-700
+    summary.addRow([
+      'Note',
+      `${uncostedCount} return${uncostedCount === 1 ? '' : 's'} predate carriage tracking and contribute £0 — lifetime loss understates these.`,
+    ]);
   }
 
   // -------- Sheet 2: Returns Detail --------
@@ -1549,9 +1585,10 @@ export async function buildReturnsWorkbookBuffer(input: BuildReturnsWorkbookInpu
     // mutating the unit at repair completion); fall back to unit-side
     // detection for legacy rows with no linked voided Sale.
     const outcome = voided?.voidOutcome ?? outcomeFor(u);
-    const isRepair = outcome === 'repair';
-    const legs = isRepair ? 0 : outcome === 'replacement' ? 3 : 2;
-    const leg = isRepair ? 0 : legCostFor(u, voided);
+    // refund + repair = 2 legs, replacement = 3. Repair carries carriage
+    // loss now (outbound + faulty unit shipped back) — same as a refund.
+    const legs = outcome === 'replacement' ? 3 : 2;
+    const leg = legCostFor(u, voided);
     const loss = leg > 0 ? leg * legs : 0;
 
     const row = detail.addRow([
@@ -1569,7 +1606,7 @@ export async function buildReturnsWorkbookBuffer(input: BuildReturnsWorkbookInpu
       u.returnReason || '',
       u.returnComments || '',
       leg > 0 ? leg : null,
-      isRepair ? null : legs,
+      leg > 0 ? legs : null,
       loss > 0 ? loss : null,
     ]);
     row.getCell(1).numFmt = DATE_FMT;     // Return Date
@@ -1660,7 +1697,7 @@ export async function buildReturnsWorkbookBuffer(input: BuildReturnsWorkbookInpu
           s.voidOutcome ?? outcomeFor(u);
         const postage = Number(s.postage) || 0;
         const pVat = s.postageVatExempt ? 0 : (Number(s.postageVat) || postage * 0.2);
-        const legs = out === 'replacement' ? 3 : out === 'refund' ? 2 : 0;
+        const legs = out === 'replacement' ? 3 : 2;  // refund + repair both = 2
         const loss = legs > 0 ? (postage + pVat) * legs : 0;
         const reason = s.voidReason || u.returnReason || '';
         const detailParts = [outcomeText(out), reason].filter(Boolean);
@@ -1684,8 +1721,8 @@ export async function buildReturnsWorkbookBuffer(input: BuildReturnsWorkbookInpu
     // from the unit-side fields so legacy returns still appear.
     if (u.returnType && !matchedLatestReturnFromSale) {
       const out = outcomeFor(u);
-      const leg = out === 'repair' ? 0 : legCostFor(u, undefined);
-      const legs = out === 'replacement' ? 3 : out === 'refund' ? 2 : 0;
+      const leg = legCostFor(u, undefined);
+      const legs = out === 'replacement' ? 3 : 2;  // refund + repair both = 2
       const loss = legs > 0 && leg > 0 ? leg * legs : 0;
       const reason = u.returnReason || '';
       const detailParts = [outcomeText(out), reason].filter(Boolean);
