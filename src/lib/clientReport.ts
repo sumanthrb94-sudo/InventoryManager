@@ -688,6 +688,25 @@ export async function buildSalesWorkbookBuffer(input: BuildSalesWorkbookInput): 
     const bucket = byMarketplace.get(sale.marketplace);
     if (bucket) bucket.push(sale);
   }
+  // Sort each marketplace tab by saleDate desc — same convention as the
+  // Returns tab + ALL sheet writers. Important when one IMEI has been
+  // cycled (sold → returned → re-sold) multiple times: the operator sees
+  // the cycles in chronological order interleaved with other sales,
+  // rather than whatever order Firestore happened to return.
+  // Composite createdAt is the tie-breaker so two same-day cycles on the
+  // same IMEI still resolve deterministically (latest cycle on top).
+  const cycleSortKey = (s: Sale): string => {
+    const ts = typeof s.createdAt === 'string'
+      ? s.createdAt
+      : (s.createdAt && typeof (s.createdAt as { toDate?: () => Date }).toDate === 'function'
+          ? (s.createdAt as { toDate: () => Date }).toDate().toISOString()
+          : '');
+    return `${s.saleDate || ''}__${ts}`;
+  };
+  for (const m of MARKETPLACES) {
+    const bucket = byMarketplace.get(m);
+    if (bucket) bucket.sort((a, b) => cycleSortKey(b).localeCompare(cycleSortKey(a)));
+  }
 
   const wb = new ExcelJS.Workbook();
 

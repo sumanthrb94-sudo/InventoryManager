@@ -631,6 +631,77 @@ describe('return / replacement / re-sell lifecycle', () => {
 // BUG-LR-001 — Original Sale Price picks the most-recent voided sale
 // ───────────────────────────────────────────────────────────────────────────
 
+// ───────────────────────────────────────────────────────────────────────────
+// Per-marketplace tabs sort cycles newest-first by saleDate (+ createdAt
+// tiebreaker), so an IMEI cycled multiple times reads in chronological
+// order interleaved with other sales — not in arbitrary store/Firestore
+// order. Pinned because the in-app SellSheet and the Returns tab + ALL
+// sheet writers all use the same convention; the per-marketplace tabs
+// must agree or the operator sees inconsistent ordering across surfaces.
+// ───────────────────────────────────────────────────────────────────────────
+describe('marketplace tabs sort cycles newest-first by saleDate', () => {
+  it('one IMEI cycled 3× same day → rows appear in newest-first order', async () => {
+    const imei = '350000000000007';
+    const sale = (over: Partial<Sale>): Sale => baseSale({
+      id: over.id!, marketplace: 'EBAY', orderNumber: over.orderNumber!,
+      imei, unitId: imei,
+      saleDate: '2026-06-13', salePrice: 200, buyPrice: 100,
+      postage: 8, postageVat: 1.6,
+      ...over,
+    });
+    // Voided cycles created earlier in the day; the active third cycle
+    // landed in the afternoon. Pushed in a non-monotonic order to prove
+    // the sort isn't relying on input order.
+    const sales: Sale[] = [
+      // cycle 2 — mid-day
+      sale({
+        id: 'EBAY__O2__7', orderNumber: 'O2',
+        createdAt: '2026-06-13T13:00:00.000Z',
+        voidedAt: '2026-06-13', voidOutcome: 'refund', voidReason: 'cycle 2',
+      }),
+      // cycle 1 — early
+      sale({
+        id: 'EBAY__O1__7', orderNumber: 'O1',
+        createdAt: '2026-06-13T09:00:00.000Z',
+        voidedAt: '2026-06-13', voidOutcome: 'refund', voidReason: 'cycle 1',
+      }),
+      // cycle 3 — latest, still active (the re-sell after cycle 2)
+      sale({
+        id: 'EBAY__O3__7', orderNumber: 'O3',
+        createdAt: '2026-06-13T16:00:00.000Z',
+      }),
+    ];
+
+    const buf = await buildSalesWorkbookBuffer({ sales });
+    const wb = await loadWorkbook(buf);
+    const ebay = wb.getWorksheet('EBAY')!;
+    // Row 2 = latest (cycle 3, active), row 3 = cycle 2, row 4 = cycle 1.
+    expect(ebay.getRow(2).getCell(2).value).toBe('O3');   // Order Number col
+    expect(ebay.getRow(3).getCell(2).value).toBe('O2');
+    expect(ebay.getRow(4).getCell(2).value).toBe('O1');
+  });
+
+  it('different IMEIs on the same tab also sort newest-first by saleDate', async () => {
+    const sales: Sale[] = [
+      baseSale({ id: 'EBAY__A__1', orderNumber: 'A',
+        imei: '350000000000001', saleDate: '2026-06-11',
+        createdAt: '2026-06-11T10:00:00.000Z' }),
+      baseSale({ id: 'EBAY__B__2', orderNumber: 'B',
+        imei: '350000000000002', saleDate: '2026-06-13',
+        createdAt: '2026-06-13T10:00:00.000Z' }),
+      baseSale({ id: 'EBAY__C__3', orderNumber: 'C',
+        imei: '350000000000003', saleDate: '2026-06-12',
+        createdAt: '2026-06-12T10:00:00.000Z' }),
+    ];
+    const buf = await buildSalesWorkbookBuffer({ sales });
+    const wb = await loadWorkbook(buf);
+    const ebay = wb.getWorksheet('EBAY')!;
+    expect(ebay.getRow(2).getCell(2).value).toBe('B');  // 2026-06-13
+    expect(ebay.getRow(3).getCell(2).value).toBe('C');  // 2026-06-12
+    expect(ebay.getRow(4).getCell(2).value).toBe('A');  // 2026-06-11
+  });
+});
+
 describe('Returns Detail picks the most-recent voided sale (BUG-LR-001)', () => {
   it('breaks the voidedAt tie via saleDate + createdAt for same-day cycles', async () => {
     // A unit cycled sold → returned → re-sold → re-returned three times on
