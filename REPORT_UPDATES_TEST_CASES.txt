@@ -1,0 +1,171 @@
+================================================================================
+MANUAL BROWSER TEST CASES — RECENT REPORT UPDATES
+Build branch: claude/cool-cori-v6opv0
+Date: 2026-06-13
+Covers commits:
+  6673453  Fix Admin -> Sales History crash on unknown operational flags
+  6f04c68  Returns now propagate to the in-app Sales log and to imported sales
+================================================================================
+
+WHAT CHANGED (read first)
+--------------------------------------------------------------------------------
+1. Admin -> Sales History no longer crashes when a unit carries an operational
+   flag that has no display config (e.g. a repaired unit gets a 'repaired_unit'
+   flag). Unknown flags are now skipped instead of throwing.
+
+2. Processing a return now flags the linked sale by IMEI as well as unitId.
+   Imported sales (from the SALES_REPORT workbook) have an IMEI but no unitId,
+   so previously they were never marked as returned. They now are.
+
+3. The in-app Reporting -> Sales tab ("Full Sales Log") is now return-aware:
+   returned rows are tinted red with a "Returned" badge (hover shows the
+   reason), and the CSV export has new "Returned" / "Return Reason" columns.
+
+--------------------------------------------------------------------------------
+PRE-FLIGHT
+--------------------------------------------------------------------------------
+[ ] Open the deployed build, log in as an ADMIN user.
+[ ] Hard refresh / clear cache so you are on the latest deploy.
+[ ] Open the browser DevTools Console and keep it visible for the whole run.
+[ ] Note your baseline numbers before you start (you will compare against them):
+        - Office Stock KPI:            __________
+        - Sales Report TOTAL Postage Loss: __________
+        - Returns Report total count:  __________
+
+
+================================================================================
+TC-1  Admin -> Sales History no longer crashes  (commit 6673453)
+================================================================================
+Goal: the tab opens with zero uncaught console errors.
+
+Steps:
+  1. Clear the DevTools Console.
+  2. Go to Admin -> Sales History tab.
+
+Expected:
+  [ ] The tab renders (sales log / content shows). No "Something went wrong /
+      Reload App" ErrorBoundary screen.
+  [ ] Console shows ZERO uncaught errors (no "Cannot read properties of
+      undefined (reading 'icon')").
+  [ ] Other Admin tabs (Overview, Insights, Reports, Suppliers) still work.
+
+Strong repro (the case that used to crash):
+  3. Sell a unit, return it "Send for Repair", then in the Returns tab use
+     "Back to Stock" to mark it repaired (this stamps the 'repaired_unit' flag).
+  4. Re-open Admin -> Sales History.
+Expected:
+  [ ] Still renders, still zero console errors (the repaired-unit flag is
+      skipped gracefully, not crashing).
+
+
+================================================================================
+TC-2  Returned IN-APP sale shows in the in-app Sales log  (commit 6f04c68)
+================================================================================
+Goal: a return processed in-app turns the sales-log row red + "Returned".
+
+Steps:
+  1. Record a NEW sale in-app (Sell tab):
+        Model: any in-stock unit   Platform: eBay
+        Sale Price: 150            Order Number: TC2-RET-1
+     Note the IMEI: __________________
+  2. Go to Reporting -> Sales tab ("Full Sales Log").
+     [ ] The sale row appears as a NORMAL row (white, no badge).
+  3. Go to Returns tab -> Process Return -> pick that unit ->
+     "Back to Inventory", reason "TC2 customer changed mind" -> Confirm.
+  4. Go back to Reporting -> Sales tab.
+
+Expected:
+  [ ] The row for IMEI above is now tinted RED.
+  [ ] A small "Returned" badge shows next to the model.
+  [ ] Hovering the badge shows the reason ("TC2 customer changed mind").
+  [ ] Record count text ("Full Sales Log . N records") is unchanged — the row
+      is flagged, not deleted.
+
+
+================================================================================
+TC-3  Returned IMPORTED sale shows in the Sales Report  (commit 6f04c68)
+       *** This is the main fix — imported sales have no unitId ***
+================================================================================
+Goal: returning a unit also flags an IMPORTED sale that shares its IMEI.
+
+Setup (need an imported sale + an inventory unit with the SAME IMEI):
+  1. Import (or confirm there exists) a sale from the SALES_REPORT workbook
+     whose IMEI also exists as an inventory unit. Record the IMEI: __________
+     (Imported sales are the ones that did NOT originate from the in-app Sell
+      flow — they have no linked unitId.)
+  2. Confirm the unit for that IMEI is currently sold / returnable.
+
+Steps:
+  3. Returns tab -> Process Return on that unit -> any type (e.g. Back to
+     Inventory), reason "TC3 imported-sale return" -> Confirm.
+  4. Download / open the Sales Report (.xlsx) OR view the in-app Sales Report
+     preview for the marketplace of that sale.
+
+Expected:
+  [ ] The imported sale row for that IMEI is now RED (voided).
+  [ ] Its "RETURNED" column = "Yes".
+  [ ] Its "RETURN REASON" column = "TC3 imported-sale return".
+  [ ] In Reporting -> Sales tab, the same row shows the red "Returned" badge.
+
+Regression check (the OLD broken behaviour, must NOT happen):
+  [ ] The imported sale is NOT left looking like a normal completed sale.
+
+
+================================================================================
+TC-4  Returned sale appears in the Returns report  (no regression)
+================================================================================
+Steps:
+  1. After TC-2 / TC-3, go to the Returns tab.
+Expected:
+  [ ] Each returned unit appears in the Returns list with the correct Type
+      (Back to Inventory / In Repair / To Supplier) and reason.
+  [ ] The "All Returns" KPI count increased by the number of returns you made.
+  [ ] Type filter pills and supplier chips still filter the list correctly.
+
+
+================================================================================
+TC-5  CSV export of the Sales log carries return status  (commit 6f04c68)
+================================================================================
+Steps:
+  1. Reporting -> Sales tab -> "Export CSV".
+  2. Open the downloaded sales-log-YYYY-MM-DD.csv.
+
+Expected:
+  [ ] There is a "Returned" column (Yes/No).
+  [ ] There is a "Return Reason" column.
+  [ ] Rows you returned in TC-2 / TC-3 show Returned = Yes with the reason.
+  [ ] Non-returned rows show Returned = No and a blank reason.
+
+
+================================================================================
+TC-6  Penny reconciliation still holds  (money-safety regression)
+================================================================================
+Goal: the display changes did NOT move any money totals.
+
+Steps:
+  1. Compare these four loss figures after the run — they must all be EQUAL:
+        a) Sales Report -> Summary -> TOTAL Postage Loss:  __________
+        b) Returns Report -> Summary -> Total Postage Loss: __________
+        c) Lifecycle panel header:                          __________
+        d) Lifecycle sum of marketplace rows:               __________
+
+Expected:
+  [ ] (a) == (b) == (c) == (d) to the penny.
+  [ ] A returned sale still contributes ZERO revenue / GP (voided), only its
+      postage loss.
+
+
+--------------------------------------------------------------------------------
+SIGN-OFF
+--------------------------------------------------------------------------------
+[ ] TC-1  Sales History opens, no console errors
+[ ] TC-2  In-app return -> red "Returned" row in Sales log
+[ ] TC-3  Imported sale flagged returned in Sales Report (main fix)
+[ ] TC-4  Returns report unaffected
+[ ] TC-5  CSV export carries Returned / Return Reason
+[ ] TC-6  Four loss figures reconcile to the penny
+
+Notes / defects found:
+________________________________________________________________________________
+________________________________________________________________________________
+================================================================================
