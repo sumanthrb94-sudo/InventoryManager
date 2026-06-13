@@ -11,22 +11,45 @@
  * Deliberately heavy-import-free: all ExcelJS work happens in reportView.ts
  * (dynamic-imported by the screens); this component only paints the model.
  */
-import React, { useState } from 'react';
-import { X, Download, FileSpreadsheet } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { X, Download, FileSpreadsheet, RefreshCw } from 'lucide-react';
 import type { ReportViewModel } from '../lib/reportView';
 import { numToCol } from '../lib/reportView';
 
 export default function ReportViewerModal({
-  model, onClose, onDownload,
+  model, onClose, onDownload, refreshing = false, lastRefreshedAt = null,
 }: {
   model: ReportViewModel;
   onClose: () => void;
   /** Saves the same range the preview shows (wired to the menu's download). */
   onDownload?: () => Promise<void> | void;
+  /** True while the parent is rebuilding the model from fresh data. */
+  refreshing?: boolean;
+  /** ms epoch of the last successful refresh — drives the "Updated Xs ago"
+   *  pill in the header so the operator knows the preview is live. */
+  lastRefreshedAt?: number | null;
 }) {
   const [active, setActive] = useState(0);
   const [downloading, setDownloading] = useState(false);
   const sheet = model.sheets[active] ?? model.sheets[0];
+  // Tick once a second so the "Updated 12s ago" label stays current
+  // without forcing the whole grid to re-render.
+  const [, setTick] = useState(0);
+  useEffect(() => {
+    if (lastRefreshedAt === null) return;
+    const id = setInterval(() => setTick(t => t + 1), 1000);
+    return () => clearInterval(id);
+  }, [lastRefreshedAt]);
+
+  const refreshLabel = (() => {
+    if (refreshing) return 'Updating…';
+    if (lastRefreshedAt === null) return null;
+    const secs = Math.max(0, Math.round((Date.now() - lastRefreshedAt) / 1000));
+    if (secs < 5) return 'Updated just now';
+    if (secs < 60) return `Updated ${secs}s ago`;
+    const m = Math.floor(secs / 60);
+    return `Updated ${m}m ago`;
+  })();
 
   const handleDownload = async () => {
     if (!onDownload || downloading) return;
@@ -51,6 +74,18 @@ export default function ReportViewerModal({
         <div className="flex-shrink-0 px-3 py-2.5 border-b border-slate-100 flex items-center gap-2">
           <FileSpreadsheet size={16} className="text-emerald-700 flex-shrink-0" />
           <h3 className="text-sm font-bold text-slate-900 truncate flex-1 min-w-0">{model.title}</h3>
+          {refreshLabel && (
+            <span
+              className={`hidden sm:inline-flex items-center gap-1 px-2 py-1 rounded-full text-[10px] font-bold uppercase tracking-widest flex-shrink-0
+                ${refreshing
+                  ? 'bg-blue-50 text-blue-800 border border-blue-200'
+                  : 'bg-emerald-50 text-emerald-800 border border-emerald-200'}`}
+              title="The preview auto-refreshes whenever the underlying data changes"
+            >
+              <RefreshCw size={10} className={refreshing ? 'animate-spin' : ''} />
+              {refreshLabel}
+            </span>
+          )}
           {onDownload && (
             <button
               onClick={handleDownload}

@@ -68,7 +68,7 @@ export function resolvePeriod(
 }
 
 export default function ReportRangeMenu({
-  label, icon, tone = 'emerald', onDownload, onView, disabled,
+  label, icon, tone = 'emerald', onDownload, onView, reportDataKey, disabled,
 }: {
   label: string;
   icon: React.ReactNode;
@@ -80,6 +80,13 @@ export default function ReportRangeMenu({
    *  button — the preview opens in ReportViewerModal with a Download
    *  pass-through for the identical range. */
   onView?: (range: { from?: string; to?: string; label: string }) => Promise<ReportViewModel>;
+  /** Bump this whenever the underlying data the report reads from changes
+   *  (sales / units / suppliers length + voided/sold counts is a good
+   *  recipe). The menu watches it: while a preview is open and the key
+   *  changes, the model is rebuilt in-place so the operator sees fresh
+   *  numbers without closing + re-opening. Live-update was the QA round-5
+   *  ask — "now the reports should also be updated right instantly". */
+  reportDataKey?: string | number;
   disabled?: boolean;
 }) {
   const [open, setOpen] = useState(false);
@@ -90,6 +97,9 @@ export default function ReportRangeMenu({
   const [busy, setBusy] = useState(false);
   const [viewModel, setViewModel] = useState<ReportViewModel | null>(null);
   const [viewRange, setViewRange] = useState<{ from?: string; to?: string; label: string } | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
+  /** ms epoch of the last successful refresh — modal shows "Updated Xs ago". */
+  const [lastRefreshedAt, setLastRefreshedAt] = useState<number | null>(null);
   const ref = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
@@ -100,6 +110,36 @@ export default function ReportRangeMenu({
     document.addEventListener('mousedown', close);
     return () => document.removeEventListener('mousedown', close);
   }, [open]);
+
+  // Live-refresh: while the modal is open and the parent's data key
+  // changes (a new sale lands / an import commits / a return is processed
+  // — anything the parent decides to flag), rebuild the model with the
+  // SAME range so the operator never reads stale numbers. Cancels on
+  // unmount or rapid successive changes so we don't paint over a newer
+  // refresh with an older response.
+  useEffect(() => {
+    if (!viewModel || !viewRange || !onView) return;
+    if (reportDataKey === undefined) return;
+    let cancelled = false;
+    setRefreshing(true);
+    (async () => {
+      try {
+        const fresh = await onView(viewRange);
+        if (cancelled) return;
+        setViewModel(fresh);
+        setLastRefreshedAt(Date.now());
+      } catch {
+        // Silent — stale preview is better than blanking the modal. The
+        // next data update tries again.
+      } finally {
+        if (!cancelled) setRefreshing(false);
+      }
+    })();
+    return () => { cancelled = true; };
+    // viewModel intentionally OUT of deps — we re-run only when the
+    // parent's data key changes, not when our own setViewModel fires.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [reportDataKey]);
 
   const btnBg = tone === 'emerald'
     ? 'bg-emerald-600 hover:bg-emerald-700'
@@ -271,7 +311,9 @@ export default function ReportRangeMenu({
         <Suspense fallback={null}>
           <ReportViewerModal
             model={viewModel}
-            onClose={() => { setViewModel(null); setViewRange(null); }}
+            refreshing={refreshing}
+            lastRefreshedAt={lastRefreshedAt}
+            onClose={() => { setViewModel(null); setViewRange(null); setLastRefreshedAt(null); }}
             onDownload={viewRange ? () => onDownload(viewRange) : undefined}
           />
         </Suspense>

@@ -207,6 +207,15 @@ export default function SellSheet(_props: Props) {
     return m;
   }, [suppliers]);
 
+  // Live-refresh key for the Sales Report preview (passed to
+  // ReportRangeMenu via reportDataKey). Bumps when any input the
+  // sales workbook reads from changes — voided/sold counts are tracked
+  // separately so a refund or a unit flip-to-sold triggers a refresh
+  // even when the underlying array lengths don't move.
+  const voidedCount = useMemo(() => sales.filter(s => !!s.voidedAt).length, [sales]);
+  const soldUnitCount = useMemo(() => units.filter(u => u.status === 'sold').length, [units]);
+  const supplierKey = suppliers.length;
+
   /** Units indexed by id for O(1) lookup inside applyFilters and
    *  sortSales (search + sort hot paths). Replaces the per-row
    *  `units.find(x => x.id === s.unitId)` linear scan that was
@@ -578,6 +587,11 @@ export default function SellSheet(_props: Props) {
             tone="emerald"
             onDownload={handleSalesReport}
             onView={handleSalesReportView}
+            // Live-refresh key — bumps when any of the inputs the sales
+            // workbook reads from change. Counting voided sales separately
+            // catches a refund/replacement landing without the array length
+            // shifting; same trick for sold-unit counts on the unit side.
+            reportDataKey={`${sales.length}|${voidedCount}|${units.length}|${soldUnitCount}|${supplierKey}`}
           />
         </div>
 

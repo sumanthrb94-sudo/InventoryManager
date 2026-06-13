@@ -76,6 +76,15 @@ export default function ReturnsPage() {
     return m;
   }, [suppliers]);
 
+  // Live-refresh key for the Returns Report preview. Track voided sales
+  // (every return is a voided sale) + unit returnType-set counts +
+  // repair completions so the preview reflects new returns / repair
+  // completes the instant they land.
+  const voidedSalesCount = useMemo(() => sales.filter(s => !!s.voidedAt).length, [sales]);
+  const returnedUnitCount = useMemo(() => units.filter(u => !!u.returnType).length, [units]);
+  const repairedAtCount = useMemo(() => units.filter(u => !!u.repairedAt).length, [units]);
+  const reportDataKey = `${sales.length}|${voidedSalesCount}|${units.length}|${returnedUnitCount}|${repairedAtCount}|${suppliers.length}`;
+
   // ── Filters / sort ────────────────────────────────────────────────────────
   const [search, setSearch] = useState('');
   const [typeFilter, setTypeFilter] = useState<ReturnFilter>('all');
@@ -323,6 +332,7 @@ export default function ReturnsPage() {
             tone="emerald"
             onDownload={handleReturnsReport}
             onView={handleReturnsReportView}
+            reportDataKey={reportDataKey}
           />
         </div>
 

@@ -393,6 +393,9 @@ export default function BuySheet(_props: Props) {
             tone="emerald"
             onDownload={handleInventoryReport}
             onView={handleInventoryReportView}
+            // Live-refresh: every status flip (sold / returned / soft-
+            // delete) changes the report row count via isStockOnHand.
+            reportDataKey={`${units.length}|${units.filter(u => u.status === 'sold').length}|${units.filter(u => u.returnType === 'returned_to_supplier').length}|${suppliers.length}`}
           />
           {userIsAdmin && (
             <button
