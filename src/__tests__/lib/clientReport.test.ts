@@ -1315,41 +1315,61 @@ describe('post-repair-completion invariant (BUG-RP-002)', () => {
 });
 
 // ───────────────────────────────────────────────────────────────────────────
-// Replacement-out marker: sales whose linked unit was the chosen replacement
-// in a ProcessReturn cycle (unit.replacementForUnitId set) must be flagged
-// on the marketplace tab so an auditor can see which lines are replacement
-// shipments without cross-referencing the Returns sheet.
+// Replacement-swap audit marker. When a sale is voided with outcome
+// 'replacement', the replacement unit shipped in its place has NO Sale
+// doc — ReturnsPage flips the unit but never writes a Sale (the original
+// stays canonical for revenue, no double-counting). The auditor signal
+// lives on the ORIGINAL voided row as a Comments prefix that names the
+// IMEI that fulfilled the order.
 // ───────────────────────────────────────────────────────────────────────────
 
-describe('Sales Report — replacement-out marker on marketplace tabs', () => {
-  it('marks the sale row whose linked unit has replacementForUnitId', async () => {
+describe('Sales Report — replacement-swap marker on the original voided row', () => {
+  it('prefixes Comments with [REPLACED BY IMEI <x>] using the unit.replacedByUnitId link', async () => {
+    // RETURNING is the customer-side unit that came back; it carries
+    // replacedByUnitId pointing to the stock unit (REPL) shipped in its
+    // place. REPL itself has replacementForUnitId but no Sale doc.
+    const returningUnit: InventoryUnit = {
+      id: 'u-returning', imei: '351554741524244',
+      model: 'Samsung A32 5G', brand: 'Samsung', category: 'Android', colour: 'Black',
+      storage: '64GB',
+      buyPrice: 80, dateIn: '2026-06-01',
+      supplierId: 'sup-1', supplierName: 'MHL',
+      status: 'returned',
+      returnType: 'returned_to_inventory',
+      returnDate: '2026-06-12',
+      returnOutcome: 'replacement',
+      replacedByUnitId: 'u-repl',
+      flags: [], notes: '', platformListed: false, listingSites: [],
+      ownerId: 'shared', createdAt: '2026-06-01T00:00:00Z',
+    };
     const replacementUnit: InventoryUnit = {
-      id: 'u-repl', imei: '359000000000999',
-      model: 'iPhone 15', brand: 'Apple', category: 'iPhone', colour: 'Silver',
-      storage: '256GB',
-      buyPrice: 600, dateIn: '2026-06-10',
+      id: 'u-repl', imei: '353427864129554',
+      model: 'Samsung A32 5G', brand: 'Samsung', category: 'Android', colour: 'Black',
+      storage: '64GB',
+      buyPrice: 85, dateIn: '2026-06-05',
       supplierId: 'sup-1', supplierName: 'MHL',
       status: 'sold',
-      // This is what ReturnsPage:1991 stamps on the chosen replacement unit
-      // — it's the canonical signal the reporting layer keys off.
-      replacementForUnitId: 'u-returned',
+      replacementForUnitId: 'u-returning',
       flags: [], notes: '', platformListed: false, listingSites: [],
-      ownerId: 'shared', createdAt: '2026-06-10T00:00:00Z',
+      ownerId: 'shared', createdAt: '2026-06-05T00:00:00Z',
     };
     const plainUnit: InventoryUnit = {
       id: 'u-plain', imei: '359000000000111',
-      model: 'iPhone 15', brand: 'Apple', category: 'iPhone', colour: 'Black',
-      storage: '256GB',
-      buyPrice: 600, dateIn: '2026-06-10',
+      model: 'Samsung A32 5G', brand: 'Samsung', category: 'Android', colour: 'Black',
+      storage: '64GB',
+      buyPrice: 80, dateIn: '2026-06-01',
       supplierId: 'sup-1', supplierName: 'MHL',
       status: 'sold',
       flags: [], notes: '', platformListed: false, listingSites: [],
-      ownerId: 'shared', createdAt: '2026-06-10T00:00:00Z',
+      ownerId: 'shared', createdAt: '2026-06-01T00:00:00Z',
     };
-    const replacementSale: Sale = baseSale({
-      id: 'EBAY__REPL-1__359000000000999', marketplace: 'EBAY',
-      orderNumber: 'REPL-1', imei: '359000000000999', unitId: 'u-repl',
-      saleDate: '2026-06-12', comments: 'std order',
+    // Original sale for RETURNING — voided with outcome='replacement'.
+    // This is the row the marker should fire on.
+    const replacementVoidedSale: Sale = baseSale({
+      id: 'EBAY__ORD-1__351554741524244', marketplace: 'EBAY',
+      orderNumber: 'ORD-1', imei: '351554741524244', unitId: 'u-returning',
+      saleDate: '2026-06-10', comments: 'std order',
+      voidedAt: '2026-06-12', voidOutcome: 'replacement', voidReason: 'screen issue',
     });
     const plainSale: Sale = baseSale({
       id: 'EBAY__PLAIN-1__359000000000111', marketplace: 'EBAY',
@@ -1358,35 +1378,38 @@ describe('Sales Report — replacement-out marker on marketplace tabs', () => {
     });
 
     const buf = await buildSalesWorkbookBuffer({
-      sales: [replacementSale, plainSale],
-      units: [replacementUnit, plainUnit],
+      sales: [replacementVoidedSale, plainSale],
+      units: [returningUnit, replacementUnit, plainUnit],
     });
     const wb = new ExcelJS.Workbook();
     await wb.xlsx.load(buf);
     const ebay = wb.getWorksheet('EBAY')!;
-    // Row 2 = replacementSale, row 3 = plainSale (insertion order).
-    // EBAY layout: Date | Order | SKU | IMEI(col 4) | ... | Comments(col 25)
-    // | Return Date | Outcome | Return Reason | Shipping Legs | Postage Loss
-    // | Net GP £ (col 31). The marker writes to the IMEI fill + Comments
-    // column — NOT the trailing return-info / Net GP cells.
     const headerRow = ebay.getRow(1);
     let commentsCol = -1;
+    let imeiCol = -1;
     for (let c = 1; c <= headerRow.cellCount; c++) {
-      if (headerRow.getCell(c).value === 'Comments') { commentsCol = c; break; }
+      const v = headerRow.getCell(c).value;
+      if (v === 'Comments') commentsCol = c;
+      if (v === 'IMEI') imeiCol = c;
     }
     expect(commentsCol).toBeGreaterThan(0);
+    expect(imeiCol).toBeGreaterThan(0);
 
-    const replacementRow = ebay.getRow(2);
-    const plainRow = ebay.getRow(3);
-    // Replacement row: IMEI cell carries the violet fill + Comments has
-    // the [REPLACEMENT-OUT] prefix.
-    const imeiFill = replacementRow.getCell(4).fill as { fgColor?: { argb?: string } } | undefined;
-    expect(imeiFill?.fgColor?.argb).toBe('FFEDE9FE');  // violet-100
-    const commentsValue = String(replacementRow.getCell(commentsCol).value || '');
-    expect(commentsValue.startsWith('[REPLACEMENT-OUT]')).toBe(true);
-    // Plain row: no violet fill on the IMEI cell, no prefix.
-    const plainImeiFill = plainRow.getCell(4).fill as { fgColor?: { argb?: string } } | undefined;
-    expect(plainImeiFill?.fgColor?.argb).toBeUndefined();
-    expect(String(plainRow.getCell(commentsCol).value || '')).toBe('std order');
+    // Rows are sorted by saleDate desc — find by IMEI rather than index
+    // so the assertion survives any future re-ordering.
+    const findRowByImei = (imei: string): ExcelJS.Row | undefined => {
+      for (let r = 2; r <= ebay.rowCount; r++) {
+        const row = ebay.getRow(r);
+        if (String(row.getCell(imeiCol).value || '') === imei) return row;
+      }
+      return undefined;
+    };
+    const voidedRow = findRowByImei('351554741524244');
+    const plainRow = findRowByImei('359000000000111');
+    expect(voidedRow).toBeDefined();
+    expect(plainRow).toBeDefined();
+    const voidedComments = String(voidedRow!.getCell(commentsCol).value || '');
+    expect(voidedComments).toBe('[REPLACED BY IMEI 353427864129554] std order');
+    expect(String(plainRow!.getCell(commentsCol).value || '')).toBe('std order');
   });
 });
