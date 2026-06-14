@@ -1682,6 +1682,14 @@ function SheetTable({
                 <span className="font-bold text-slate-900 truncate max-w-[210px]" title={u?.model || ''}>
                   {u?.model || s.sku || '—'}
                 </span>
+                {u?.replacementForUnitId && (
+                  <span
+                    className="ml-1.5 inline-flex items-center text-[8px] font-bold uppercase tracking-widest px-1 py-0.5 rounded border bg-violet-50 text-violet-700 border-violet-200 align-middle"
+                    title="Shipped as a replacement for another returned unit"
+                  >
+                    Replacement
+                  </span>
+                )}
               </Td>
               <Td><span className="text-slate-600">{u?.storage || '—'}</span></Td>
               <Td><span className="text-slate-600 truncate">{u?.colour || '—'}</span></Td>

@@ -1313,3 +1313,80 @@ describe('post-repair-completion invariant (BUG-RP-002)', () => {
     expect(ebayRow.getCell(7).value).toBeCloseTo(30.24, 2);
   });
 });
+
+// ───────────────────────────────────────────────────────────────────────────
+// Replacement-out marker: sales whose linked unit was the chosen replacement
+// in a ProcessReturn cycle (unit.replacementForUnitId set) must be flagged
+// on the marketplace tab so an auditor can see which lines are replacement
+// shipments without cross-referencing the Returns sheet.
+// ───────────────────────────────────────────────────────────────────────────
+
+describe('Sales Report — replacement-out marker on marketplace tabs', () => {
+  it('marks the sale row whose linked unit has replacementForUnitId', async () => {
+    const replacementUnit: InventoryUnit = {
+      id: 'u-repl', imei: '359000000000999',
+      model: 'iPhone 15', brand: 'Apple', category: 'iPhone', colour: 'Silver',
+      storage: '256GB',
+      buyPrice: 600, dateIn: '2026-06-10',
+      supplierId: 'sup-1', supplierName: 'MHL',
+      status: 'sold',
+      // This is what ReturnsPage:1991 stamps on the chosen replacement unit
+      // — it's the canonical signal the reporting layer keys off.
+      replacementForUnitId: 'u-returned',
+      flags: [], notes: '', platformListed: false, listingSites: [],
+      ownerId: 'shared', createdAt: '2026-06-10T00:00:00Z',
+    };
+    const plainUnit: InventoryUnit = {
+      id: 'u-plain', imei: '359000000000111',
+      model: 'iPhone 15', brand: 'Apple', category: 'iPhone', colour: 'Black',
+      storage: '256GB',
+      buyPrice: 600, dateIn: '2026-06-10',
+      supplierId: 'sup-1', supplierName: 'MHL',
+      status: 'sold',
+      flags: [], notes: '', platformListed: false, listingSites: [],
+      ownerId: 'shared', createdAt: '2026-06-10T00:00:00Z',
+    };
+    const replacementSale: Sale = baseSale({
+      id: 'EBAY__REPL-1__359000000000999', marketplace: 'EBAY',
+      orderNumber: 'REPL-1', imei: '359000000000999', unitId: 'u-repl',
+      saleDate: '2026-06-12', comments: 'std order',
+    });
+    const plainSale: Sale = baseSale({
+      id: 'EBAY__PLAIN-1__359000000000111', marketplace: 'EBAY',
+      orderNumber: 'PLAIN-1', imei: '359000000000111', unitId: 'u-plain',
+      saleDate: '2026-06-11', comments: 'std order',
+    });
+
+    const buf = await buildSalesWorkbookBuffer({
+      sales: [replacementSale, plainSale],
+      units: [replacementUnit, plainUnit],
+    });
+    const wb = new ExcelJS.Workbook();
+    await wb.xlsx.load(buf);
+    const ebay = wb.getWorksheet('EBAY')!;
+    // Row 2 = replacementSale, row 3 = plainSale (insertion order).
+    // EBAY layout: Date | Order | SKU | IMEI(col 4) | ... | Comments(col 25)
+    // | Return Date | Outcome | Return Reason | Shipping Legs | Postage Loss
+    // | Net GP £ (col 31). The marker writes to the IMEI fill + Comments
+    // column — NOT the trailing return-info / Net GP cells.
+    const headerRow = ebay.getRow(1);
+    let commentsCol = -1;
+    for (let c = 1; c <= headerRow.cellCount; c++) {
+      if (headerRow.getCell(c).value === 'Comments') { commentsCol = c; break; }
+    }
+    expect(commentsCol).toBeGreaterThan(0);
+
+    const replacementRow = ebay.getRow(2);
+    const plainRow = ebay.getRow(3);
+    // Replacement row: IMEI cell carries the violet fill + Comments has
+    // the [REPLACEMENT-OUT] prefix.
+    const imeiFill = replacementRow.getCell(4).fill as { fgColor?: { argb?: string } } | undefined;
+    expect(imeiFill?.fgColor?.argb).toBe('FFEDE9FE');  // violet-100
+    const commentsValue = String(replacementRow.getCell(commentsCol).value || '');
+    expect(commentsValue.startsWith('[REPLACEMENT-OUT]')).toBe(true);
+    // Plain row: no violet fill on the IMEI cell, no prefix.
+    const plainImeiFill = plainRow.getCell(4).fill as { fgColor?: { argb?: string } } | undefined;
+    expect(plainImeiFill?.fgColor?.argb).toBeUndefined();
+    expect(String(plainRow.getCell(commentsCol).value || '')).toBe('std order');
+  });
+});

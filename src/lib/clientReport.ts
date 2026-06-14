@@ -66,6 +66,17 @@ const RETURNED_FILL: import('exceljs').FillPattern = {
   fgColor: { argb: 'FFFEE2E2' },   // tailwind rose-100
 };
 
+/** Light-violet tint applied to the IMEI cell of a sale whose linked
+ *  inventory unit is the replacement-out side of a ProcessReturn cycle
+ *  (unit.replacementForUnitId set). Distinct from the rose RETURNED fill
+ *  — auditors can scan the sheet and see at a glance which rows are
+ *  customer-side voids vs replacement shipments. */
+const REPLACEMENT_FILL: import('exceljs').FillPattern = {
+  type: 'pattern',
+  pattern: 'solid',
+  fgColor: { argb: 'FFEDE9FE' },   // tailwind violet-100
+};
+
 // ---------------------------------------------------------------------------
 // Public surface
 // ---------------------------------------------------------------------------
@@ -779,6 +790,27 @@ export async function buildSalesWorkbookBuffer(input: BuildSalesWorkbookInput): 
         const row = sheet.getRow(rowNumber);
         for (let col = 1; col <= headerLen; col++) {
           row.getCell(col).fill = RETURNED_FILL;
+        }
+      }
+      // Replacement-out flag: when the linked unit is the one chosen as
+      // the replacement-out side of a ProcessReturn cycle, mark it so the
+      // auditor can spot a replacement shipment without cross-referencing
+      // the Returns sheet. Violet fill on the IMEI cell (col 4 on every
+      // marketplace) + a "REPLACEMENT-OUT" prefix on the Comments column
+      // (which sits BEFORE the trailing return-info block — find it by
+      // header name, not by last-column position).
+      const linkedUnit =
+        (sale.unitId && unitsById.get(sale.unitId))
+        || (sale.imei && unitsByImei.get((sale.imei || '').trim().toUpperCase()))
+        || undefined;
+      if (linkedUnit?.replacementForUnitId) {
+        const row = sheet.getRow(rowNumber);
+        row.getCell(4).fill = REPLACEMENT_FILL;
+        const commentsIdx = (SALES_HEADERS[m] as readonly string[]).indexOf('Comments') + 1;
+        if (commentsIdx > 0) {
+          const commentsCell = row.getCell(commentsIdx);
+          const existing = typeof commentsCell.value === 'string' ? commentsCell.value : '';
+          commentsCell.value = existing ? `[REPLACEMENT-OUT] ${existing}` : '[REPLACEMENT-OUT]';
         }
       }
     }

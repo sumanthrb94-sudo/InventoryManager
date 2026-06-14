@@ -726,6 +726,17 @@ export default function Sales() {
                     <tbody>
                       {sortedSales.map((s, i) => {
                         const isInApp = s.importBatchId === 'inapp';
+                        // Resolve linked unit so the row can flag "Replacement"
+                        // — set on units chosen as the replacement-out side of
+                        // a ProcessReturn cycle (ReturnsPage:1991). Prefer the
+                        // explicit unitId; fall back to IMEI for imported sales
+                        // that never back-linked.
+                        const imeiKey = (s.imei || '').trim().toUpperCase();
+                        const linkedUnit =
+                          (s.unitId && units.find(x => x.id === s.unitId))
+                          || (imeiKey && units.find(x => (x.imei || '').trim().toUpperCase() === imeiKey))
+                          || undefined;
+                        const isReplacement = !!linkedUnit?.replacementForUnitId;
                         // Operator's red-row flag from the source workbook
                         // wins over the in-app blue tint — these rows need
                         // attention (return / refund / chargeback).
@@ -790,7 +801,17 @@ export default function Sales() {
                                   display = s.sku || '—';
                                   break;
                                 case 'imei':
-                                  display = s.imei || '—';
+                                  display = isReplacement ? (
+                                    <span className="inline-flex items-center gap-1">
+                                      <span>{s.imei || '—'}</span>
+                                      <span
+                                        className="text-[8px] font-bold uppercase tracking-widest px-1 py-px rounded border bg-violet-50 text-violet-700 border-violet-200"
+                                        title="Shipped as a replacement for another returned unit"
+                                      >
+                                        Replacement
+                                      </span>
+                                    </span>
+                                  ) : (s.imei || '—');
                                   break;
                                 case 'supplierName':
                                   display = s.supplierName || '—';
