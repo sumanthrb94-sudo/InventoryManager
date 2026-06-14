@@ -930,12 +930,13 @@ describe('Returns Detail picks the most-recent voided sale (BUG-LR-001)', () => 
 // ───────────────────────────────────────────────────────────────────────────
 
 describe('Returns Summary counts return EVENTS not unique units (OBS-LR-001)', () => {
-  it('totals 10 returns + £143.64 loss for one IMEI cycled 10× on the same day', async () => {
-    // Same scenario as the QA report: 1 unit, 10 cycles in one day —
-    // 1 replacement (£22.68), 8 refunds (£15.12 each), 1 final
-    // refund (£15.12 — the supplier return). Old code totalled 1
-    // return × £15.12 because it iterated unique units; new code
-    // iterates voided sales so it surfaces all 10 events.
+  it('totals 10 returns + £143.64 loss for one IMEI cycled 10× across 10 days', async () => {
+    // 1 unit, 10 cycles spanning 10 different days — 1 replacement
+    // (£22.68), 9 refunds (£15.12 each). Old code totalled 1 return ×
+    // £15.12 because it iterated unique units; new code iterates voided
+    // sales so it surfaces all 10 events. (Same-day cycles collapse — see
+    // the next describe block for the dedupe contract; spreading the
+    // cycles across days here is the realistic multi-cycle case.)
     const imei = '358138281139564';
     const unit: InventoryUnit = {
       id: imei, imei,
@@ -954,10 +955,11 @@ describe('Returns Summary counts return EVENTS not unique units (OBS-LR-001)', (
       baseSale({
         id: `EBAY__C${n}__${imei}`, marketplace: 'EBAY',
         orderNumber: `C${n}`, imei, unitId: imei,
-        saleDate: '2026-06-12', salePrice: 150, buyPrice: 100,
+        saleDate: `2026-06-${String(n).padStart(2, '0')}`, salePrice: 150, buyPrice: 100,
         postage: 6.30, postageVat: 1.26,
-        voidedAt: '2026-06-12', voidOutcome: outcome, voidReason: `cycle ${n}`,
-        createdAt: `2026-06-12T${String(8 + n).padStart(2, '0')}:00:00.000Z`,
+        voidedAt: `2026-06-${String(n).padStart(2, '0')}`,
+        voidOutcome: outcome, voidReason: `cycle ${n}`,
+        createdAt: `2026-06-${String(n).padStart(2, '0')}T08:00:00.000Z`,
       });
     const sales: Sale[] = [
       cycle(1, 'replacement'),
@@ -976,6 +978,63 @@ describe('Returns Summary counts return EVENTS not unique units (OBS-LR-001)', (
     expect(summary.getRow(5).getCell(2).value).toBe(0);    // Repairs
     // 9 refunds × £15.12 + 1 replacement × £22.68 = £158.76
     expect(summary.getRow(6).getCell(2).value).toBeCloseTo(158.76, 1);
+  });
+
+  it('dedupes voided sub-records: one Process-Return click that voids N linked sales = 1 event', async () => {
+    // QA observation 2026-06-14: today's summary showed Total Returns = 8
+    // (Refunds 4, Replacements 2, Repairs 2) while the Detail sheet
+    // correctly showed 5 distinct returns. Root cause: when a unit had
+    // multiple ACTIVE sales at return time (replacement-unit inheriting,
+    // import + in-app sale duplicates, historical sales never cleaned up
+    // from earlier cycles), ProcessReturnModal voided all of them in one
+    // click — each became a "sub-record" that the per-event counter
+    // promoted to a separate return event. Fix: dedupe by (unitId,
+    // voidedAt) so one click = one event. Different return DATES on the
+    // same unit remain distinct events (covered by the test above).
+    const imei = '359111222333444';
+    const unit: InventoryUnit = {
+      id: 'u-rts', imei,
+      model: 'iPhone 15', brand: 'Apple', category: 'iPhone', colour: 'Black',
+      buyPrice: 600, dateIn: '2026-06-01',
+      supplierId: 'sup', supplierName: 'MHL',
+      status: 'returned',
+      returnType: 'returned_to_supplier',
+      returnDate: '2026-06-14',
+      returnReason: 'DOA',
+      flags: [], notes: '', platformListed: false, listingSites: [],
+      ownerId: 'shared', createdAt: '2026-06-01T00:00:00Z',
+    };
+    // Three voided Sale docs for the SAME unit, all voided in the SAME
+    // ProcessReturnModal call (same voidedAt). This is what a single RTS
+    // click looks like on a unit with leftover historical active sales.
+    const linkedVoid = (n: number): Sale => baseSale({
+      id: `EBAY__O${n}__${imei}`, marketplace: 'EBAY',
+      orderNumber: `O${n}`, imei, unitId: 'u-rts',
+      saleDate: `2026-06-${String(10 + n).padStart(2, '0')}`,
+      salePrice: 800, buyPrice: 600,
+      // Only one sub-record carries the postage snapshot — typical of
+      // historical imports — so total loss stays correct under dedupe.
+      postage: n === 1 ? 6.30 : 0,
+      postageVat: n === 1 ? 1.26 : 0,
+      voidedAt: '2026-06-14', voidOutcome: 'refund', voidReason: 'RTS',
+      createdAt: `2026-06-14T0${n}:00:00.000Z`,
+    });
+    const sales: Sale[] = [linkedVoid(1), linkedVoid(2), linkedVoid(3)];
+
+    const buf = await buildReturnsWorkbookBuffer({
+      units: [unit], sales, opts: { from: '2026-06-14', to: '2026-06-14' },
+    });
+    const wb = new ExcelJS.Workbook();
+    await wb.xlsx.load(buf);
+    const summary = wb.getWorksheet('Summary')!;
+    // 3 voided sales → 1 event (the operator's single click). The Detail
+    // sheet keys off the unique unit, so it also reports 1 row.
+    expect(summary.getRow(2).getCell(2).value).toBe(1);  // Total Returns
+    expect(summary.getRow(3).getCell(2).value).toBe(1);  // Refunds (RTS rolls up here)
+    expect(summary.getRow(4).getCell(2).value).toBe(0);  // Replacements
+    expect(summary.getRow(5).getCell(2).value).toBe(0);  // Repairs
+    // Loss = one leg-cost snapshot × 2 legs = (6.30 + 1.26) × 2 = £15.12.
+    expect(summary.getRow(6).getCell(2).value).toBeCloseTo(15.12, 2);
   });
 });
 

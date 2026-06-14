@@ -1502,8 +1502,28 @@ export async function buildReturnsWorkbookBuffer(input: BuildReturnsWorkbookInpu
     }
   };
 
+  // Dedupe key for a return EVENT — one Process-Return click is one event,
+  // even when it voids multiple linked Sale docs. ProcessReturnModal voids
+  // every active sale linked to the unit at the moment the operator confirms,
+  // and replacement units inherit the original sale's financials which means
+  // a single click frequently lands voidedAt on 2+ sales (the replacement
+  // sub-record on Replacement, the imported + in-app duplicate on RTS, etc.).
+  // Without dedupe the Summary headcount over-reports by the number of those
+  // sub-records — Refunds/Replacements/Repairs each inflate while the Detail
+  // sheet (one row per unit) stays correct. Key by unitId (preferred) or IMEI
+  // fallback, plus voidedAt (day-granularity), so a true multi-cycle return
+  // on DIFFERENT dates still counts as N events.
+  const eventKey = (s: Sale): string => {
+    const u = (s.unitId || '').trim() || (s.imei || '').trim().toUpperCase();
+    return `${u}__${s.voidedAt || ''}`;
+  };
+  const seenEventKeys = new Set<string>();
+
   for (const s of voidedSalesInRange) {
     if (s.unitId) seenUnitIds.add(s.unitId);
+    const key = eventKey(s);
+    if (seenEventKeys.has(key)) continue;  // sub-record of an already-counted event
+    seenEventKeys.add(key);
     // All three outcomes carry postage loss now (repair = 2 legs per the
     // operator's policy — outbound + the faulty unit shipped back). Repair
     // keeps its own category so it's not conflated with customer refunds.
