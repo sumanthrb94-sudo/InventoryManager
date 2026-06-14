@@ -291,6 +291,12 @@ const SALES_HEADERS: Record<Marketplace, SalesHeaderRow> = {
     // Also subtracted from GP inside the GP % cell so the per-row %
     // shows the true net margin after the return hit.
     'Postage Loss',
+    // Net GP £ = GP − Postage Loss. Active rows leave Postage Loss blank
+    // (Excel treats blank as 0) so the cell collapses to Gross GP; voided
+    // rows show the true bottom-line margin in £ without the auditor
+    // having to subtract by eye. TOTAL row at the bottom of the tab
+    // carries the SUM. Same column appears on BM / EBAY / ONBUY.
+    'Net GP £',
   ],
   BM: [
     'Date', 'Order Number', 'SKU', 'IMEI', 'Supplier', 'Quantity',
@@ -298,7 +304,7 @@ const SALES_HEADERS: Record<Marketplace, SalesHeaderRow> = {
     'Customer Care Fees', 'Postage', 'P. VAT', 'Accessories',
     'GP', 'GP %', 'Total VAT NTP', 'Comments',
     'Return Date', 'Outcome', 'Return Reason', 'Shipping Legs',
-    'Postage Loss',
+    'Postage Loss', 'Net GP £',
   ],
   EBAY: [
     'Date', 'Order Number', 'SKU', 'IMEI', 'Supplier', 'Units',
@@ -306,7 +312,7 @@ const SALES_HEADERS: Record<Marketplace, SalesHeaderRow> = {
     'T.COM', 'Postage', 'P. VAT', 'Marketing', 'M. VAT', 'Accessories',
     'Total VAT', 'GP', 'GP %', 'Total VAT NTP', 'Comments',
     'Return Date', 'Outcome', 'Return Reason', 'Shipping Legs',
-    'Postage Loss',
+    'Postage Loss', 'Net GP £',
   ],
   ONBUY: [
     'Date', 'Order Number', 'SKU', 'IMEI', 'Supplier',
@@ -314,7 +320,7 @@ const SALES_HEADERS: Record<Marketplace, SalesHeaderRow> = {
     'Postage', 'P. VAT', 'Accessories',
     'Total VAT', 'GP', 'GP %', 'Total VAT NTP', 'Comments',
     'Return Date', 'Outcome', 'Return Reason', 'Shipping Legs',
-    'Postage Loss',
+    'Postage Loss', 'Net GP £',
   ],
 };
 
@@ -368,14 +374,16 @@ function returnBlockOffsets(marketplace: Marketplace): {
   reasonCol: number;
   legsCol: number;
   postageLossCol: number;
+  netGpCol: number;
 } {
   const last = SALES_HEADERS[marketplace].length;
   return {
-    returnDateCol: last - 4,
-    outcomeCol:    last - 3,
-    reasonCol:     last - 2,
-    legsCol:       last - 1,
-    postageLossCol: last,
+    returnDateCol:  last - 5,
+    outcomeCol:     last - 4,
+    reasonCol:      last - 3,
+    legsCol:        last - 2,
+    postageLossCol: last - 1,
+    netGpCol:       last,
   };
 }
 
@@ -401,9 +409,21 @@ function outcomeLabel(sale: Sale): string {
  *  Repair" outcome label but DO carry 2 legs of postage loss (outbound +
  *  inbound) per the operator's accounting policy — the unit comes back to
  *  stock, but both carriage legs were paid. */
-function writeReturnBlock(row: ExcelJS.Row, marketplace: Marketplace, sale: Sale): void {
-  if (!sale.voidedAt) return;
+function writeReturnBlock(row: ExcelJS.Row, marketplace: Marketplace, sale: Sale, rowNumber: number): void {
   const o = returnBlockOffsets(marketplace);
+  // Net GP £ is written on EVERY row (active + voided) as a formula
+  // referencing this row's GP cell and Postage Loss cell. Active rows
+  // leave Postage Loss blank → Excel treats blank as 0 → Net GP = Gross
+  // GP for them, which is the correct semantics. Voided rows subtract
+  // the real loss → Net GP = bottom-line margin in £.
+  const cfg = TOTAL_SUM_COLS[marketplace];
+  const gpL   = colLetter(cfg.gpCol);
+  const lossL = colLetter(o.postageLossCol);
+  row.getCell(o.netGpCol).value  = { formula: `${gpL}${rowNumber}-${lossL}${rowNumber}` };
+  row.getCell(o.netGpCol).numFmt = MONEY_FMT;
+
+  // Return-info block + Postage Loss only on voided rows.
+  if (!sale.voidedAt) return;
   row.getCell(o.returnDateCol).value  = toDate(sale.voidedAt);
   row.getCell(o.returnDateCol).numFmt = DATE_FMT;
   row.getCell(o.outcomeCol).value     = outcomeLabel(sale);
@@ -474,7 +494,7 @@ function writeSaleRow(
       row.getCell(19).value = { formula: f.grossProfit! };   row.getCell(19).numFmt = MONEY_FMT;
       row.getCell(20).value = { formula: f.gpPercent! };     row.getCell(20).numFmt = MONEY_FMT;
       row.getCell(21).value = { formula: f.totalVatNtp! };   row.getCell(21).numFmt = MONEY_FMT;
-      writeReturnBlock(row, marketplace, sale);
+      writeReturnBlock(row, marketplace, sale, rowNumber);
       return;
     }
 
@@ -511,7 +531,7 @@ function writeSaleRow(
       row.getCell(16).value = { formula: f.grossProfit! };  row.getCell(16).numFmt = MONEY_FMT;
       row.getCell(17).value = { formula: f.gpPercent! };    row.getCell(17).numFmt = MONEY_FMT;
       row.getCell(18).value = { formula: f.totalVatNtp! };  row.getCell(18).numFmt = MONEY_FMT;
-      writeReturnBlock(row, marketplace, sale);
+      writeReturnBlock(row, marketplace, sale, rowNumber);
       return;
     }
 
@@ -563,7 +583,7 @@ function writeSaleRow(
       row.getCell(22).value = { formula: f.grossProfit! };  row.getCell(22).numFmt = MONEY_FMT;
       row.getCell(23).value = { formula: f.gpPercent! };    row.getCell(23).numFmt = MONEY_FMT;
       row.getCell(24).value = { formula: f.totalVatNtp! };  row.getCell(24).numFmt = MONEY_FMT;
-      writeReturnBlock(row, marketplace, sale);
+      writeReturnBlock(row, marketplace, sale, rowNumber);
       return;
     }
 
@@ -599,7 +619,7 @@ function writeSaleRow(
       row.getCell(16).value = { formula: f.grossProfit! };  row.getCell(16).numFmt = MONEY_FMT;
       row.getCell(17).value = { formula: f.gpPercent! };    row.getCell(17).numFmt = MONEY_FMT;
       row.getCell(18).value = { formula: f.totalVatNtp! };  row.getCell(18).numFmt = MONEY_FMT;
-      writeReturnBlock(row, marketplace, sale);
+      writeReturnBlock(row, marketplace, sale, rowNumber);
       return;
     }
 
@@ -777,33 +797,30 @@ export async function buildSalesWorkbookBuffer(input: BuildSalesWorkbookInput): 
 /** Numeric columns to SUM per marketplace in the trailing TOTAL row. Stored
  *  as 1-indexed column numbers so the writer can read the matching value
  *  cell back for the cross-marketplace summary roll-up. */
-const TOTAL_SUM_COLS: Record<Marketplace, { label: number; numericCols: number[]; gpCol: number; gpPctCol: number; postageLossCol: number; denominatorCol: number }> = {
-  // AMAZON: 27 cols. BP=7(G), SP=8(H), GP=19(S), GP%=20(T), Postage Loss=27(AA).
-  // SUM cols: quantity F=6, BP G=7, SP H=8, SP-BP I=9, MarTax J=10, Com K=11,
-  //   C.VAT L=12, DSF M=13, DSF.VAT N=14, Postage O=15, P.VAT P=16, Acc Q=17,
-  //   Total VAT R=18, GP S=19, Total VAT NTP U=21, Postage Loss AA=27.
+const TOTAL_SUM_COLS: Record<Marketplace, { label: number; numericCols: number[]; gpCol: number; gpPctCol: number; postageLossCol: number; netGpCol: number; denominatorCol: number }> = {
+  // AMAZON: 28 cols. GP=19(S), GP%=20(T), Postage Loss=27(AA), Net GP £=28(AB).
   AMAZON: {
     label: 1,
-    numericCols: [6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 21, 27],
-    gpCol: 19, gpPctCol: 20, postageLossCol: 27, denominatorCol: 7,
+    numericCols: [6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 21, 27, 28],
+    gpCol: 19, gpPctCol: 20, postageLossCol: 27, netGpCol: 28, denominatorCol: 7,
   },
-  // BM: 24 cols. GP=16(P), GP%=17(Q), Postage Loss=24(X), denominator=BP G=7.
+  // BM: 25 cols. GP=16(P), GP%=17(Q), Postage Loss=24(X), Net GP £=25(Y).
   BM: {
     label: 1,
-    numericCols: [6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 18, 24],
-    gpCol: 16, gpPctCol: 17, postageLossCol: 24, denominatorCol: 7,
+    numericCols: [6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 18, 24, 25],
+    gpCol: 16, gpPctCol: 17, postageLossCol: 24, netGpCol: 25, denominatorCol: 7,
   },
-  // EBAY: 30 cols. GP=22(V), GP%=23(W), Postage Loss=30(AD), denominator=SP H=8.
+  // EBAY: 31 cols. GP=22(V), GP%=23(W), Postage Loss=30(AD), Net GP £=31(AE).
   EBAY: {
     label: 1,
-    numericCols: [6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 24, 30],
-    gpCol: 22, gpPctCol: 23, postageLossCol: 30, denominatorCol: 8,
+    numericCols: [6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 24, 30, 31],
+    gpCol: 22, gpPctCol: 23, postageLossCol: 30, netGpCol: 31, denominatorCol: 8,
   },
-  // ONBUY: 24 cols. GP=16(P), GP%=17(Q), Postage Loss=24(X), denominator=BP F=6.
+  // ONBUY: 25 cols. GP=16(P), GP%=17(Q), Postage Loss=24(X), Net GP £=25(Y).
   ONBUY: {
     label: 1,
-    numericCols: [6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 18, 24],
-    gpCol: 16, gpPctCol: 17, postageLossCol: 24, denominatorCol: 6,
+    numericCols: [6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 18, 24, 25],
+    gpCol: 16, gpPctCol: 17, postageLossCol: 24, netGpCol: 25, denominatorCol: 6,
   },
 };
 

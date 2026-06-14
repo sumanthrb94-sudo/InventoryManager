@@ -19,6 +19,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import ExcelJS from 'exceljs';
 import type { Sale, InventoryUnit } from '../../types';
+import { viewModelFromXlsxBuffer } from '../../lib/reportView';
 
 // ── Helper imports (don't touch dbService) ─────────────────────────────────
 
@@ -646,6 +647,108 @@ describe('return / replacement / re-sell lifecycle', () => {
 // for Today/Week because the saleDate-filtered set excluded the original
 // sale, taking the void with it.
 // ───────────────────────────────────────────────────────────────────────────
+// ───────────────────────────────────────────────────────────────────────────
+// Net GP £ column on every per-marketplace row. Active rows: equals Gross
+// GP (Postage Loss is blank → Excel treats as 0 → formula = GP). Voided
+// rows: equals Gross GP − Postage Loss. TOTAL row sums it. Auditor reads
+// the bottom-line £ directly instead of subtracting by eye.
+// ───────────────────────────────────────────────────────────────────────────
+describe('Net GP £ per-row cell on the marketplace tabs', () => {
+  // ExcelJS round-trips formulas as { formula: '...' } objects (no cached
+  // result). The reportView in-browser evaluator computes the value. So
+  // these tests inspect both: the formula contract on every row, and the
+  // computed value via viewModelFromXlsxBuffer.
+
+  it('active EBAY row: formula references this row, computes to Gross GP', async () => {
+    const sales = [
+      baseSale({ id: 'EBAY__A1__1', marketplace: 'EBAY', orderNumber: 'A1',
+        buyPrice: 100, salePrice: 200, postage: 8, postageVat: 1.6 }),
+    ];
+    const buf = await buildSalesWorkbookBuffer({ sales });
+    const wb = await loadWorkbook(buf);
+    const ebay = wb.getWorksheet('EBAY')!;
+    // EBAY col 31 = Net GP £. Formula = V2 − AD2 (GP − Postage Loss).
+    const cell = ebay.getRow(2).getCell(31).value as { formula?: string };
+    expect(cell.formula).toBe('V2-AD2');
+
+    // Compute it via reportView — active row → Postage Loss is blank →
+    // Net GP £ = Gross GP = 44.51.
+    const model = await viewModelFromXlsxBuffer(buf, 't');
+    const ebayView = model.sheets.find(s => s.name === 'EBAY')!;
+    expect(ebayView.rows[1][21].display).toBe('44.51');  // Gross GP (col 22)
+    expect(ebayView.rows[1][30].display).toBe('44.51');  // Net GP £ (col 31)
+  });
+
+  it('refunded EBAY row: Net GP £ computes to 44.51 − 19.20 = 25.31', async () => {
+    const sales = [
+      baseSale({ id: 'EBAY__R1__1', marketplace: 'EBAY', orderNumber: 'R1',
+        buyPrice: 100, salePrice: 200, postage: 8, postageVat: 1.6,
+        voidedAt: '2026-06-13', voidOutcome: 'refund', voidReason: 'changed mind' }),
+    ];
+    const buf = await buildSalesWorkbookBuffer({ sales });
+    const wb = await loadWorkbook(buf);
+    const ebay = wb.getWorksheet('EBAY')!;
+    // Postage Loss at col 30, Net GP £ at col 31.
+    expect(ebay.getRow(2).getCell(30).value).toBeCloseTo(19.2, 2);
+    // Formula round-trips correctly.
+    const cell = ebay.getRow(2).getCell(31).value as { formula?: string };
+    expect(cell.formula).toBe('V2-AD2');
+    // Computed via reportView.
+    const model = await viewModelFromXlsxBuffer(buf, 't');
+    const ebayView = model.sheets.find(s => s.name === 'EBAY')!;
+    expect(ebayView.rows[1][30].display).toBe('25.31');
+  });
+
+  it('replacement AMAZON row: Net GP £ = Gross GP − 22.68 (3 legs)', async () => {
+    const sale = baseSale({
+      id: 'AMAZON__RP__1', marketplace: 'AMAZON', orderNumber: 'RP',
+      buyPrice: 100, salePrice: 200, postage: 6.30, postageVat: 1.26,
+      voidedAt: '2026-06-13', voidOutcome: 'replacement', voidReason: 'faulty',
+    });
+    const buf = await buildSalesWorkbookBuffer({ sales: [sale] });
+    const wb = await loadWorkbook(buf);
+    const amazon = wb.getWorksheet('AMAZON')!;
+    expect(amazon.getRow(2).getCell(27).value).toBeCloseTo(22.68, 2);  // Postage Loss
+    const cell = amazon.getRow(2).getCell(28).value as { formula?: string };
+    expect(cell.formula).toBe('S2-AA2');                                // Net GP £
+
+    const model = await viewModelFromXlsxBuffer(buf, 't');
+    const amazonView = model.sheets.find(s => s.name === 'AMAZON')!;
+    const gross = parseFloat(amazonView.rows[1][18].display);   // GP col 19
+    const net   = parseFloat(amazonView.rows[1][27].display);   // Net GP £ col 28
+    expect(Number.isFinite(gross)).toBe(true);
+    expect(gross - net).toBeCloseTo(22.68, 2);
+  });
+
+  it('TOTAL row sums Net GP £ across all rows: 44.51 + 25.31 = 69.82', async () => {
+    const sales = [
+      baseSale({ id: 'EBAY__O1__1', marketplace: 'EBAY', orderNumber: 'O1',
+        buyPrice: 100, salePrice: 200, postage: 8, postageVat: 1.6 }),
+      baseSale({ id: 'EBAY__O2__2', marketplace: 'EBAY', orderNumber: 'O2',
+        buyPrice: 100, salePrice: 200, postage: 8, postageVat: 1.6,
+        voidedAt: '2026-06-13', voidOutcome: 'refund', voidReason: 'r2' }),
+    ];
+    const buf = await buildSalesWorkbookBuffer({ sales });
+    const wb = await loadWorkbook(buf);
+    const ebay = wb.getWorksheet('EBAY')!;
+    // 2 data rows + 1 TOTAL = row 4.
+    const total = ebay.getRow(4);
+    expect(String(total.getCell(1).value)).toBe('TOTAL');
+    // TOTAL row's Net GP cell holds SUM(AE2:AE3) — the per-row formula
+    // means each AE cell is V − AD, so SUM = Σ(V) − Σ(AD).
+    const cell = total.getCell(31).value as { formula?: string };
+    expect(cell.formula).toBe('SUM(AE2:AE3)');
+    // Compute via reportView. Sum chains through 12+ formula cells per
+    // row × 2 rows, so 1p rounding drift (.81 vs .82) is normal; closeness
+    // is the correct assertion shape.
+    const model = await viewModelFromXlsxBuffer(buf, 't');
+    const ebayView = model.sheets.find(s => s.name === 'EBAY')!;
+    const totalDisplay = parseFloat(ebayView.rows[3][30].display);
+    expect(totalDisplay).toBeGreaterThan(69.79);
+    expect(totalDisplay).toBeLessThan(69.83);
+  });
+});
+
 describe('Sales Report Returns tab filters by voidedAt', () => {
   it('includes a void whose voidedAt is in-range even when saleDate is out-of-range', async () => {
     const sales: Sale[] = [
