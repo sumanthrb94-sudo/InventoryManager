@@ -1,0 +1,849 @@
+==============================================================================
+  Inventory Manager — Vitest Suite Report
+  Generated 2026-06-14 14:29:16 UTC
+  Branch: claude/map-imei-inventory-DZ8Hi
+==============================================================================
+
+SUMMARY
+------------------------------------------------------------------------------
+  Total tests collected   : 478
+  Test files              : 23
+  Last full run           : 478 passed · 33 skipped · 0 failed
+  Vitest version          : 4.1.6
+
+FILES
+------------------------------------------------------------------------------
+    41  src/__tests__/api/API_DataPopulation.test.ts
+    59  src/__tests__/calcSaleFinancials.master.test.ts
+    21  src/__tests__/clientSeedData.test.ts
+     7  src/__tests__/components/resolvePeriod.test.ts
+     3  src/__tests__/components/salesReportImportPreview.test.ts
+    20  src/__tests__/dbService.test.ts
+    27  src/__tests__/imeiUtils.test.ts
+    30  src/__tests__/integration/E2E_Workflows.mock.test.ts
+    19  src/__tests__/integration/E2E_Workflows.test.ts
+    15  src/__tests__/inventoryMaintenance.test.ts
+    35  src/__tests__/inventorySummary.test.ts
+    49  src/__tests__/lib/clientReport.test.ts
+    19  src/__tests__/lib/cloudinaryStorageService.test.ts
+     9  src/__tests__/lib/fixRepairVoidOutcomes.test.ts
+     6  src/__tests__/lib/inventoryFilters.test.ts
+    14  src/__tests__/lib/notificationService.test.ts
+     5  src/__tests__/lib/processReturnSalePatch.test.ts
+    11  src/__tests__/lib/replacementUnitFilter.test.ts
+    16  src/__tests__/lib/reportView.test.ts
+    28  src/__tests__/regressions.test.ts
+    23  src/__tests__/services/inventoryService.test.ts
+     9  src/__tests__/services/salesService.test.ts
+    12  src/__tests__/warrantyUtils.test.ts
+
+==============================================================================
+  src/__tests__/api/API_DataPopulation.test.ts
+  41 tests
+==============================================================================
+
+  [API Data Population & Integration Tests > Suppliers Component]
+     1. should have suppliers loaded with correct structure
+     2. should allow creating new suppliers
+     3. should retrieve supplier by ID
+
+  [API Data Population & Integration Tests > Inventory - Available Units]
+     4. should load 200 units with 120 available
+     5. should have available units with all required fields
+     6. should support filtering by model
+     7. should support pagination
+     8. should support retrieval by ID
+     9. should create new available units
+
+  [API Data Population & Integration Tests > Inventory - Sold Units]
+    10. should have 60 sold units
+    11. should have sold units with financial data
+    12. should have correct profit calculations for sold units
+    13. should have realistic profit margin distribution
+    14. should calculate platform fees correctly
+
+  [API Data Population & Integration Tests > Inventory - Returned Units]
+    15. should have 16 returned units
+    16. should have returned units with return metadata
+
+  [API Data Population & Integration Tests > SHS (Incoming) Units]
+    17. should have 4 SHS/incoming units
+    18. should have SHS units with empty IMEIs
+    19. should allow adding IMEI to SHS unit to mark as available
+    20. should create new SHS units
+
+  [API Data Population & Integration Tests > Analytics & Reporting]
+    21. should calculate total revenue from sold units
+    22. should calculate total cost from all units
+    23. should calculate stock value correctly
+    24. should calculate gross profit correctly
+    25. should have unit distribution statistics
+    26. should provide top models breakdown
+
+  [API Data Population & Integration Tests > Data Integrity Checks]
+    27. should have no duplicate IMEIs in available units
+    28. should have all units with valid status
+    29. should have realistic date distribution
+    30. should have diverse models in inventory
+    31. should have suppliers assigned to all units
+
+  [API Data Population & Integration Tests > Search & Filter Operations]
+    32. should filter units by status
+    33. should filter units by model with partial matching
+    34. should support complex filters combining status and model
+
+  [API Data Population & Integration Tests > Notification System Integration]
+    35. should trigger notification when unit is sold
+    36. should trigger notification for loss sales
+    37. should trigger notification for new stock
+
+  [API Data Population & Integration Tests > Bulk Operations]
+    38. should handle batch unit updates
+    39. should support concurrent operations
+
+  [API Data Population & Integration Tests > Performance Metrics]
+    40. should retrieve 100 units in reasonable time
+    41. should calculate analytics in reasonable time
+
+==============================================================================
+  src/__tests__/calcSaleFinancials.master.test.ts
+  59 tests
+==============================================================================
+
+  [calcSaleFinancials · AMAZON · 12 master rows]
+    42. row '02-9088974-8481116' (BP £88 · SP £111)
+    43. row '026-5042444-6219517' (BP £55 · SP £88)
+    44. row '202-0533321-2879548' (BP £135 · SP £152.89)
+    45. row '202-6685090-0821122' (BP £122 · SP £145)
+    46. row '203-1338449-1458707' (BP £145 · SP £199.99)
+    47. row '203-5198394-1322765' (BP £190 · SP £239.99)
+    48. row '203-9677542-2532310' (BP £80 · SP £99.99)
+    49. row '204-4678187-5185945' (BP £120 · SP £148.29)
+    50. row '205-0022828-9601104' (BP £170 · SP £216.19)
+    51. row '205-4327228-4070758' (BP £60 · SP £79.98)
+    52. row '205-8651652-6907528' (BP £148 · SP £199)
+    53. row '206-4035535-7470762' (BP £120 · SP £149.99)
+    54. postage default = 0 per 2026-05 schema (operator-entered per sale)
+
+  [calcSaleFinancials · BM · 12 master rows]
+    55. row '79008748' (BP £850 · SP £1300 · pay='Google Pay')
+    56. row '79125567' (BP £105 · SP £145 · pay='')
+    57. row '79226161' (BP £105 · SP £155 · pay='')
+    58. row '79334781' (BP £105 · SP £151 · pay='')
+    59. row '79388636' (BP £185 · SP £235 · pay='')
+    60. row '79539666' (BP £140 · SP £158 · pay='')
+    61. row '79814483' (BP £105 · SP £159 · pay='Klarna')
+    62. row '80011041' (BP £75 · SP £131 · pay='Paypal')
+    63. row '80151597' (BP £75 · SP £133 · pay='')
+    64. row '80281800' (BP £105 · SP £164 · pay='')
+    65. row '80390132' (BP £115 · SP £173 · pay='')
+    66. row '80563335' (BP £215 · SP £307 · pay='Klarna')
+    67. PayPal/Klarna 2.5% fires for Klarna / PayPal / Clear Pay / Apple Pay only
+    68. postage default = 0 per 2026-05 schema (operator-entered per sale)
+
+  [calcSaleFinancials · EBAY · 12 master rows]
+    69. row '01-14475-65087' (BP £240 · SP £249.99 · ship £8)
+    70. row '02-14637-19986' (BP £153 · SP £199.99 · ship £8)
+    71. row '04-14562-24670' (BP £60 · SP £89.99 · ship £8)
+    72. row '06-14610-79610' (BP £52 · SP £77.99 · ship £8)
+    73. row '09-14554-73797' (BP £102 · SP £155.98 · ship £8)
+    74. row '12-14557-94698' (BP £62 · SP £99.99 · ship £8)
+    75. row '13-14633-17676' (BP £120 · SP £159.99 · ship £8)
+    76. row '16-14519-66313' (BP £125 · SP £159.99 · ship £8)
+    77. row '18-14498-91345' (BP £125 · SP £159.99 · ship £8)
+    78. row '20-14461-82871' (BP £70 · SP £99.99 · ship £8)
+    79. row '21-14516-98989' (BP £140 · SP £159.99 · ship £8)
+    80. row '22-14517-93084' (BP £75 · SP £119.99 · ship £8)
+    81. shipping tier £1 + £2 also pass through correctly
+
+  [calcSaleFinancials · ONBUY · 12 master rows]
+    82. row 'T6G29N2' (BP £150 · SP £189.99)
+    83. row 'T6G59M5' (BP £70 · SP £89.87)
+    84. row 'T6G8G6W' (BP £190 · SP £244.99)
+    85. row 'T6GCFFG' (BP £145 · SP £184.99)
+    86. row 'T6GCSC9' (BP £55 · SP £79.99)
+    87. row 'T6GFMCP' (BP £140 · SP £184.99)
+    88. row 'T6GHN68' (BP £125 · SP £154.99)
+    89. row 'T6GN8TB' (BP £125 · SP £154.99)
+    90. row 'T6GQF7R' (BP £115 · SP £154.99)
+    91. row 'T6GTB9N' (BP £125 · SP £149.99)
+    92. row 'T6H22DD' (BP £125 · SP £164.99)
+    93. row 'T6H6PVN' (BP £145 · SP £184.99)
+    94. exposes both marginalTax and marVat (alias on the same value)
+    95. postage default = 0 per 2026-05 schema (operator-entered per sale)
+
+  [calcSaleFinancials · cross-marketplace invariants]
+    96. all 4 marketplaces produce finite numbers on a happy path
+    97. AMAZON / BM divide GP% by BP (margin-over-cost)
+    98. EBAY divides GP% by SP; AMAZON / BM / ONBUY divide by BP
+    99. zero GP%-denominator collapses gpPercent to 0 (no NaN/Infinity)
+   100. SP = BP yields spMinusBp = 0 and a negative GP (only fees + postage left)
+
+==============================================================================
+  src/__tests__/clientSeedData.test.ts
+  21 tests
+==============================================================================
+
+  [clientSeedData.json > top-level structure]
+   101. contains both suppliers and units arrays
+   102. contains at least one supplier
+   103. contains at least one unit
+
+  [clientSeedData.json > suppliers]
+   104. every supplier has a unique id
+   105. every supplier has a non-empty name
+   106. every supplier has ownerId "shared" (multi-device sync)
+
+  [clientSeedData.json > units]
+   107. every unit has a non-empty id
+   108. every unit has a status of available, sold, incoming, or returned
+   109. every unit has a positive buyPrice (or null for SHS)
+   110. every unit references a supplierId that exists
+   111. every unit has ownerId "shared"
+   112. all unit ids are unique
+   113. every unit has a dateIn field formatted as ISO date
+   114. every unit has flags as an array
+   115. every unit has listingSites as an array
+
+  [clientSeedData.json > camelCase conversion (matches LoadMockDataModal)]
+   116. converts buy_price → buyPrice
+   117. converts every supplier without losing any fields
+   118. converts every unit and produces expected camelCase fields
+   119. preserves status values through conversion
+
+  [clientSeedData.json > inventory mix (visible in LoadMockDataModal stats)]
+   120. reports counts that sum to the total unit count
+   121. contains at least one available unit (otherwise UI would look broken)
+
+==============================================================================
+  src/__tests__/components/resolvePeriod.test.ts
+  7 tests
+==============================================================================
+
+  [resolvePeriod > today]
+   122. from = to = today; label includes today
+
+  [resolvePeriod > week (rolling 7 days)]
+   123. on Sunday: window spans the previous 6 days + today (7 calendar days)
+
+  [resolvePeriod > week (mid-week)]
+   124. on Wednesday: still a true 7-day window, not "since Sunday"
+
+  [resolvePeriod > week (mid-week, month boundary)]
+   125. crosses month boundary cleanly
+
+  [resolvePeriod > month]
+   126. starts on the 1st of the current month
+
+  [resolvePeriod > all]
+   127. returns no bounds + label "all-time"
+
+  [resolvePeriod > custom]
+   128. passes through the operator-typed bounds
+
+==============================================================================
+  src/__tests__/components/salesReportImportPreview.test.ts
+  3 tests
+==============================================================================
+
+  [SalesReportImport preview ↔ buildPostImportSyncPatches parity]
+   129. inventoryFlips list matches the units the post-import sync would flip
+   130. returns an empty inventoryFlips list when nothing would change
+   131. dedupes per unit even when multiple sales target the same IMEI
+
+==============================================================================
+  src/__tests__/dbService.test.ts
+  20 tests
+==============================================================================
+
+  [toSnake]
+   132. converts camelCase to snake_case
+   133. leaves already-snake strings unchanged
+   134. handles listing-related fields
+
+  [toCamel]
+   135. converts snake_case to camelCase
+   136. leaves already-camel strings unchanged
+
+  [dbToApp]
+   137. converts all snake_case keys to camelCase
+   138. converts return-related fields
+   139. sets flags to [] when field is null
+   140. sets flags to [] when field is undefined (missing from DB row)
+   141. preserves existing array values
+   142. passes null imei through unchanged (SHS units have null imei in DB)
+   143. passes empty-string imei through unchanged
+   144. does not crash on empty object
+
+  [appToDb]
+   145. converts all camelCase keys to snake_case
+   146. converts return-related fields
+   147. strips supplierName from output (derived field, not a DB column)
+   148. strips undefined values
+   149. preserves null values (explicit null = clear the field in Firestore)
+   150. preserves null sale fields (clearing sale data on return)
+   151. round-trips through snake and camel correctly
+
+==============================================================================
+  src/__tests__/imeiUtils.test.ts
+  27 tests
+==============================================================================
+
+  [validateIMEI]
+   152. returns true for a known-valid 15-digit IMEI
+   153. returns true for a second known-valid IMEI
+   154. returns false when Luhn check fails (tampered last digit)
+   155. returns false for a 14-digit number (too short)
+   156. returns false for a 16-digit number (too long)
+   157. returns false for an empty string
+   158. strips spaces and dashes before validating (formatted IMEI input)
+   159. returns false for an all-zeros IMEI (Luhn passes but not a real IMEI)
+   160. returns false for alphabetic tablet serials (not 15 digits after stripping)
+   161. returns false for alphanumeric serial even if long enough
+
+  [formatIMEI]
+   162. formats a 15-digit IMEI as XX-XXXXXX-XXXXXX-X
+   163. formats the second valid IMEI correctly
+   164. returns the original string unchanged if not exactly 15 numeric digits
+   165. strips spaces then formats (space-formatted IMEI input)
+   166. returns short input unchanged
+
+  [maskIMEI]
+   167. shows only the last 4 digits of a numeric IMEI, masks the rest with bullets
+   168. masks a tablet serial (alphanumeric) correctly — works on raw string, not stripped digits
+   169. returns input unchanged if shorter than 4 characters
+   170. returns input unchanged if exactly 3 characters (boundary)
+   171. masks a 4-character input leaving 0 bullets
+   172. masks a 5-character input correctly
+   173. mask length equals input length
+
+  [getTAC]
+   174. returns the first 8 digits — the Type Allocation Code
+   175. returns TAC from a second valid IMEI
+   176. returns empty string for an empty input
+   177. strips non-digit chars before extracting TAC
+   178. returns fewer than 8 chars if input has fewer than 8 digits
+
+==============================================================================
+  src/__tests__/integration/E2E_Workflows.mock.test.ts
+  30 tests
+==============================================================================
+
+  [E2E Workflows (Mocked) - Real Logic Testing > Workflow 1: SHS Unit → Add IMEI → Mark Sold → Verify History]
+   179. should create SHS unit with status=incoming and empty IMEI
+   180. should add IMEI to SHS unit before selling
+   181. should NOT clear existing IMEI when selling without modal input
+   182. should appear in Sold History with full financial details
+
+  [E2E Workflows (Mocked) - Real Logic Testing > Workflow 2: Batch Import → Filter → Sell → Verify Totals]
+   183. should import all units correctly
+   184. should filter units by category
+   185. should sell units independently and verify totals
+
+  [E2E Workflows (Mocked) - Real Logic Testing > Workflow 3: Sold Unit → Return → Status Update]
+   186. should process return and restore availability
+   187. should track return to supplier separately
+
+  [E2E Workflows (Mocked) - Real Logic Testing > Workflow 4: Dashboard Data Accuracy & Latest Updates at Top]
+   188. should calculate dashboard totals correctly
+   189. should show oldest available units first
+   190. should display latest sales at top (most recent first)
+   191. should update dashboard when unit status changes
+   192. should calculate profit/loss accurately for each sale
+   193. should show profit vs loss sales with different styling
+
+  [E2E Workflows (Mocked) - Real Logic Testing > Seed Data: 200 Unit Dataset]
+   194. should load 200 units from seed data
+   195. should have correct distribution: 60% available, 30% sold, 8% returned, 2% incoming
+   196. should have valid historical dates (no future dates)
+   197. should generate realistic buy prices (£100-£500)
+   198. should have valid IMEIs for all units except incoming SHS
+   199. should have SHS units with empty IMEI
+   200. should calculate realistic revenue from sold units
+   201. should have profit calculation for sold units
+   202. should have realistic average buy price around £200-£300
+   203. should assign units to realistic batches
+   204. should distribute units across multiple suppliers
+   205. should maintain data integrity after operations on seed data
+   206. should handle concurrent operations on seed data
+   207. should verify profit/loss distribution in seed data
+   208. should verify returned units have correct return info
+
+==============================================================================
+  src/__tests__/integration/E2E_Workflows.test.ts
+  19 tests
+==============================================================================
+
+  [E2E Workflows - Complete User Journeys > Workflow 1: SHS Unit → Add IMEI → Mark Sold → Verify History]
+   209. should create SHS unit with status=incoming and no IMEI
+   210. should add IMEI to SHS unit before selling
+   211. should record sale with existing IMEI (not clearing it)
+   212. should appear in Sold History with full financial details
+   213. should trigger sold notification with correct profit
+
+  [E2E Workflows - Complete User Journeys > Workflow 2: Batch Import → Filter → Sell → Verify Totals]
+   214. should import all 3 units with correct data
+   215. should filter units by model and status
+   216. should sell 2 units and update statuses independently
+   217. should calculate batch totals correctly
+
+  [E2E Workflows - Complete User Journeys > Workflow 3: Barcode Scan → Auto-populate Details → Sell]
+   218. should create unit from barcode scan with auto-populated data
+   219. should sell scanned unit and trigger notification
+
+  [E2E Workflows - Complete User Journeys > Workflow 4: Sold Unit → Return → Update Status → Verify Dashboard]
+   220. should process return and change status to available
+   221. should track return to supplier separately
+   222. should trigger return notification with correct type
+
+  [E2E Workflows - Complete User Journeys > Workflow 5: Dashboard Data Accuracy with Real-time Updates]
+   223. should calculate dashboard totals correctly
+   224. should show oldest units first on dashboard
+   225. should display today's sales with latest at top
+   226. should update dashboard when unit status changes
+   227. should calculate profit/loss for dashboard summary
+
+==============================================================================
+  src/__tests__/inventoryMaintenance.test.ts
+  15 tests
+==============================================================================
+
+  [buildStableUnitId > with valid IMEI]
+   228. returns unit_<imei> when IMEI is 15 digits
+   229. strips non-digit characters from IMEI
+   230. accepts shorter IMEIs (≥ 8 digits) for older devices/serials
+   231. produces same ID regardless of other fields when IMEI is present
+
+  [buildStableUnitId > without IMEI (fallback slug)]
+   232. builds slug from model + dateIn + supplierId + buyPrice + status
+   233. produces identical IDs for identical input (idempotent)
+   234. produces different IDs for different models (no collision)
+   235. falls back to imported when no fields are provided
+   236. triggers slug fallback when IMEI has fewer than 8 digits
+   237. lowercases and replaces non-alphanumerics with underscores
+   238. trims trailing underscores from the slug
+   239. handles undefined fields gracefully
+
+  [buildStableUnitId > IMEI edge cases]
+   240. falls back to slug when IMEI is empty string
+   241. falls back to slug when IMEI is only non-digits
+   242. uses IMEI when undefined fields exist alongside it
+
+==============================================================================
+  src/__tests__/inventorySummary.test.ts
+  35 tests
+==============================================================================
+
+  [unit factory]
+   243. creates a valid unit with defaults
+   244. overrides work correctly
+   245. SHS unit has incoming status with null imei
+   246. SHS unit has incoming status with empty imei string
+
+  [status filtering]
+   247. filters available units
+   248. filters sold units
+   249. filters SHS/incoming units
+   250. filters returned units
+   251. supplier-returned units are absent from the list (they are deleted from stock)
+
+  [inventory aggregations]
+   252. calculates total stock value from available units only
+   253. groups available units by model
+   254. calculates gross profit (revenue - cost - postage)
+   255. excludes incoming/SHS units from available stock value
+
+  [null IMEI safety]
+   256. search with null imei does not crash
+   257. search with empty imei does not crash
+   258. null imei does not match a real IMEI search query
+   259. valid imei matches correctly after guard
+   260. filter over mixed null and valid imeis does not crash
+   261. slice on imei with guard does not crash for null
+
+  [SHS concept invariants]
+   262. SHS unit has status incoming
+   263. SHS unit may have null IMEI — supplier holds the unit, no serial yet
+   264. receiving an SHS unit sets status to available and assigns IMEI
+   265. SHS units are excluded from in-office stock value
+
+  [returns flow business logic]
+   266. returned_to_inventory: status restored to available, sale fields cleared
+   267. repair: status set to returned, unit stays in the system
+   268. returned_to_supplier: unit is deleted from stock (not present in array)
+   269. returned_to_inventory unit appears in returns history filter
+   270. repair unit appears in returns list (status=returned)
+
+  [periodic inventory element grouping]
+   271. only available units contribute to in-office element count
+   272. only incoming units contribute to SHS/supplier element count
+   273. sold units do not appear in either count
+   274. colour variants derived only from available units
+   275. stock value calculated from available units buy prices
+   276. price range from available units
+   277. colour variant percentage sums to 100% across all available units for the series
+
+==============================================================================
+  src/__tests__/lib/clientReport.test.ts
+  49 tests
+==============================================================================
+
+  [postageLossFor]
+   278. returns 0 for an active sale (no voidedAt)
+   279. returns (postage + P.VAT) × 2 for a refund
+   280. returns (postage + P.VAT) × 3 for a replacement
+   281. defaults to refund (2 legs) when voidOutcome is missing
+   282. derives P.VAT from postage when postageVat is undefined
+   283. zeroes P.VAT when postageVatExempt is set
+   284. returns 0 when postage is missing on a voided sale
+
+  [shippingLegsFor]
+   285. returns 0 for an active sale
+   286. returns 2 for a refund
+   287. returns 3 for a replacement
+
+  [colLetter]
+   288. converts 1-indexed col numbers to letters
+
+  [buildSalesWorkbookBuffer — auditor-grade structure]
+   289. produces 6 sheets — Summary + Returns + AMAZON / BM / EBAY / ONBUY
+   290. Returns tab — headers carry the return-info columns up front
+   291. Returns tab — one row per voided sale across all marketplaces + TOTAL row
+   292. Summary header row reads Marketplace / Sales / Refunds / Replacements / Gross GP / Postage Loss / Net GP / Net GP %
+   293. AMAZON sheet headers include the return-info block before Postage Loss
+   294. EBAY sheet headers carry 30 cols ending in the return-info block + Postage Loss
+   295. writes the return-info block + Postage Loss for a voided refund sale
+   296. writes 3 legs + the bigger loss for a replacement sale
+   297. leaves the return-info block + Postage Loss blank for active sales
+   298. appends a bold TOTAL row with SUM formulas across the data range
+   299. Summary row for a marketplace carries the right counts + Net GP
+
+  [return / replacement / re-sell lifecycle]
+   300. refund flow: sale gets voidedAt + voidOutcome=refund; unit holds returnType
+   301. replacement flow stores voidOutcome=replacement so postageLossFor multiplies by 3
+   302. multi-cycle: sell → refund → re-sell — unit clears returnType but voided sale survives
+   303. Sales Report builds correctly across a multi-cycle unit (voided row + active row)
+
+  [Net GP £ per-row cell on the marketplace tabs]
+   304. active EBAY row: formula references this row, computes to Gross GP
+   305. refunded EBAY row: Net GP £ computes to 44.51 − 19.20 = 25.31
+   306. replacement AMAZON row: Net GP £ = Gross GP − 22.68 (3 legs)
+   307. TOTAL row sums Net GP £ across all rows: 44.51 + 25.31 = 69.82
+
+  [Sales Report Returns tab filters by voidedAt]
+   308. includes a void whose voidedAt is in-range even when saleDate is out-of-range
+   309. EXCLUDES a void whose voidedAt is OUT-of-range even if saleDate is in-range
+
+  [marketplace tabs sort cycles newest-first by saleDate]
+   310. one IMEI cycled 3× same day → rows appear in newest-first order
+   311. different IMEIs on the same tab also sort newest-first by saleDate
+
+  [Returns Detail picks the most-recent voided sale (BUG-LR-001)]
+   312. breaks the voidedAt tie via saleDate + createdAt for same-day cycles
+
+  [Returns Summary counts return EVENTS not unique units (OBS-LR-001)]
+   313. totals 10 returns + £143.64 loss for one IMEI cycled 10× across 10 days
+   314. dedupes voided sub-records: one Process-Return click that voids N linked sales = 1 event
+
+  [repair-route returns: "In Repair" label + 2-leg carriage loss]
+   315. Sales Report row: Outcome="In Repair", Legs=2, Postage Loss=£15.12
+   316. Sales Summary counts the repair in its own column + includes its loss
+   317. Returns Detail: "In Repair", Legs=2, Postage Loss=£15.12
+   318. Returns Summary counts the repair + includes its loss
+   319. Unit Histories RETURNED event reads "In Repair · reason" with the 2-leg loss
+
+  [post-repair-completion invariant (BUG-RP-002)]
+   320. Sales Report row stays "In Repair" + 2 legs + £15.12 after completion (no refund relabel)
+   321. Sales Summary keeps the repair in the Repairs column after completion
+   322. Returns Detail keeps Outcome "In Repair" + 2 legs + £15.12 after completion
+   323. Returns Summary keeps the completed repair in the Repairs total
+   324. legacy backfill: pre-canonical void (no voidOutcome) + post-completion unit ⇒ still "In Repair"
+   325. A second non-repair refund on the same repaired unit IS counted as a refund
+
+  [Sales Report — replacement-swap marker on the original voided row]
+   326. prefixes Comments with [REPLACED BY IMEI <x>] using the unit.replacedByUnitId link
+
+==============================================================================
+  src/__tests__/lib/cloudinaryStorageService.test.ts
+  19 tests
+==============================================================================
+
+  [CloudinaryStorageService > getInstance]
+   327. should return singleton instance
+
+  [CloudinaryStorageService > uploadImage]
+   328. should reject with error for invalid file
+   329. should log upload start with filename
+   330. should call onProgress callback during upload
+   331. should use custom storage path
+   332. should log error on upload failure
+
+  [CloudinaryStorageService > batchUploadImages]
+   333. should handle empty file array
+   334. should log batch start with file count
+   335. should call progress callback for each file
+   336. should generate correct storage paths
+   337. should log batch completion
+
+  [CloudinaryStorageService > deleteImage]
+   338. should log deletion with public ID
+
+  [CloudinaryStorageService > getStats]
+   339. should return service statistics
+   340. should have correct cloud name
+   341. should indicate free tier
+
+  [CloudinaryStorageService > uploadImage - Integration scenarios]
+   342. should handle FormData construction for unsigned upload
+   343. should preserve file metadata in upload
+
+  [CloudinaryStorageService > batchUploadImages - Failure handling]
+   344. should track failed uploads separately
+   345. should continue batch upload after individual failure
+
+==============================================================================
+  src/__tests__/lib/fixRepairVoidOutcomes.test.ts
+  9 tests
+==============================================================================
+
+  [findCorruptedRepairVoids]
+   346. detects mid-cycle repair void wrongly stamped refund (returnType=repair)
+   347. detects post-completion corruption via repairedAt + repaired_unit flag
+   348. does NOT touch a legitimate stored "replacement"
+   349. does NOT touch an unmatched Sale (no linked unit)
+   350. does NOT touch a refund on a unit with no repair markers
+   351. safety: multi-cycle units with a repair marker go to manualReview, not auto-fix
+   352. joins by IMEI when unitId is missing on the Sale
+
+  [fixCorruptedRepairVoids]
+   353. writes one update per item and reports per-item success
+   354. reports per-item errors without aborting the batch
+
+==============================================================================
+  src/__tests__/lib/inventoryFilters.test.ts
+  6 tests
+==============================================================================
+
+  [isStockOnHand — Inventory Report row inclusion]
+   355. includes regular available stock
+   356. includes incoming SHS units (already ours, awaiting receive)
+   357. includes units returned to inventory (re-stocked after a refund)
+   358. includes units in repair (broken phones we still own)
+   359. excludes sold units (left the building)
+   360. excludes soft-deleted returned-to-supplier units — BUG-LR-002
+
+==============================================================================
+  src/__tests__/lib/notificationService.test.ts
+  14 tests
+==============================================================================
+
+  [NotificationService > Notification Creation]
+   361. should create a profit notification for positive profit
+   362. should create a loss notification for negative profit
+
+  [NotificationService > Notification Types]
+   363. should handle new_stock notification
+   364. should handle return_processed notification
+   365. should handle shs_received notification
+
+  [NotificationService > Deduplication]
+   366. should not fire duplicate notifications on same day for same unit
+   367. should allow duplicate notifications on different days
+
+  [NotificationService > Subscription Management]
+   368. should notify all subscribers of new notification
+   369. should unsubscribe listeners
+
+  [NotificationService > Mark as Read]
+   370. should mark notification as read
+   371. should mark all as read
+
+  [NotificationService > Unread Count]
+   372. should return correct unread count
+   373. should decrease unread count when marking as read
+
+  [NotificationService > User Switching]
+   374. should handle user changes
+
+==============================================================================
+  src/__tests__/lib/processReturnSalePatch.test.ts
+  5 tests
+==============================================================================
+
+  [processReturnSalePatch — write contract]
+   375. Send-for-Repair always writes voidOutcome=repair regardless of the radio default
+   376. Send-for-Repair stays repair even if outcome was somehow set to replacement
+   377. Back-to-Inventory + refund → voidOutcome=refund + "Refund —" prefix
+   378. Back-to-Inventory + replacement → voidOutcome=replacement + "Replacement —" prefix
+   379. Return-to-Supplier honours the chosen outcome (not forced to repair)
+
+==============================================================================
+  src/__tests__/lib/replacementUnitFilter.test.ts
+  11 tests
+==============================================================================
+
+  [eligibleReplacements — Process Return → Replacement picker]
+   380. includes available units with the SAME brand + model + storage
+   381. excludes the returning unit itself (defensive — it is status sold but the guard backs that up)
+   382. excludes units of a DIFFERENT model
+   383. excludes units of a DIFFERENT storage
+   384. excludes units of a DIFFERENT brand
+   385. excludes non-available units (sold / returned / incoming)
+   386. matches case-insensitively and trims whitespace
+   387. sorts same-colour units first, then oldest dateIn
+   388. search box filters by IMEI substring
+   389. search box filters by colour substring
+   390. returns [] when no stock matches — operator must pick Refund or wait
+
+==============================================================================
+  src/__tests__/lib/reportView.test.ts
+  16 tests
+==============================================================================
+
+  [evaluateFormula]
+   391. basic arithmetic with cell refs
+   392. percent literals divide by 100 (Excel semantics)
+   393. eBay's reduced-commission chain matches the master sheet
+   394. multi-letter column refs (past Z) resolve
+   395. SUM over a range
+   396. IFERROR catches division by zero
+   397. unary minus and nested parens
+   398. throws on unsupported functions (caller falls back to raw text)
+
+  [column letter helpers]
+   399. round-trips through the AA boundary
+
+  [viewModelFromXlsxBuffer — exact Excel view of the Sales Report]
+   400. renders sheet tabs in workbook order
+   401. computes the EBAY GP and net GP% cells exactly as Excel would
+   402. voided rows carry the red fill + return block; net GP% subtracts the loss
+   403. TOTAL row SUMs compute and render bold
+   404. Summary tab carries the per-marketplace roll-up
+
+  [viewModelFromRows — Inventory Report preview]
+   405. renders header + typed cells from the same row objects the CSV saves
+   406. handles an empty report without blowing up
+
+==============================================================================
+  src/__tests__/regressions.test.ts
+  28 tests
+==============================================================================
+
+  [marketplaceFromListingSite]
+   407. maps pretty marketplace names to canonical enums
+   408. ALSO accepts canonical enums (the bug-fix path)
+   409. round-trips through listingSiteFromMarketplace for every Marketplace
+   410. returns undefined for unknown inputs
+   411. every "Mark as Sold" dropdown option maps back to a marketplace
+
+  [parseBrandModelStorage]
+   412. uses the first word as brand for known names (Apple)
+   413. uses the first word as brand for SAMSUNG (case-insensitive)
+   414. takes unknown first-word as the brand verbatim (capitalised)
+   415. infers brand from device-series keywords when no explicit brand prefix
+   416. parses storage from the trailing GB / TB token
+   417. returns Other / empty for blank input
+
+  [shsCount classifiers]
+   418. isShsPlaceholder catches ids starting with "shs_" (parser-synthesised)
+   419. isManualShsUnit catches ids NOT starting with "shs_" (manual add)
+   420. neither classifier matches available / sold units
+   421. manualShsUnitsFrom returns only manual SHS, newest first
+   422. shsAggregatesFrom keeps only SHS-tagged aggregates
+   423. totalShsRecords sums aggregates + manual units
+
+  [fingerprintModel]
+   424. collapses 9th gen / 9 GEN / 9TH GEN to "9"
+   425. collapses cellular synonyms (W/C, WiFi+4G, 5G, LTE) to "cell"
+   426. treats wifi-only and cellular variants as different
+   427. normalises storage so "64 GB" / "64GB" / "64 gb" all match
+   428. strips parenthetical asides like "(2021)"
+
+  [mapUnit]
+   429. auto-matches a known-good unit to its aggregate
+   430. matches the cellular-vs-wifi mismatch correctly
+   431. returns "manual" when inventoryAggregateId override is set
+   432. returns "orphan" when the orphan sentinel is set
+   433. returns "shs" without scoring for incoming units
+   434. returns suggestions when unmapped, sorted by score desc
+
+==============================================================================
+  src/__tests__/services/inventoryService.test.ts
+  23 tests
+==============================================================================
+
+  [addUnitManual]
+   435. happy path — creates a unit with default status / ownerId / dateIn
+   436. rejects when model is missing
+   437. rejects invalid IMEI for a non-Apple device (alphanumeric serial)
+   438. rejects buy price <= 0
+   439. rejects when supplier is missing
+   440. rejects duplicate IMEI (already in inventoryUnits)
+   441. auto-creates a supplier via ensureSupplier when the name is new
+   442. parses brand / model / storage correctly for "Apple iPhone XS 64GB"
+   443. accepts an Apple alphanumeric serial when the model is Apple
+
+  [ensureSupplier]
+   444. returns existing supplier id (case-insensitive match)
+   445. creates a new supplier when no match exists
+   446. returns empty string when name is blank
+
+  [receiveShsAggregate]
+   447. happy path — receives 2 valid IMEIs against a 2-quantity aggregate
+   448. hard-caps at expectedQty — extra scans return { reason: "cap" }
+   449. rejects invalid IMEIs with reason "invalid_imei"
+   450. rejects duplicates within the batch AND against existing inventoryUnits
+   451. decrements quantityNum and coloursMap on partial receive
+   452. sets quantityText="RECEIVED" when fully received
+   453. deletes the synthetic SHS placeholder unit (id starts with "shs_")
+
+  [receiveShsAggregate > handles coloursMap sum]
+   454. quantityNum (4 colours, qty=undefined → expects 4)
+
+  [backfillImei]
+   455. writes the IMEI to the existing unit
+   456. rejects when the IMEI is already on another unit
+   457. rejects an invalid IMEI for a non-Apple device
+
+==============================================================================
+  src/__tests__/services/salesService.test.ts
+  9 tests
+==============================================================================
+
+  [recordSale]
+   458. happy path — writes the sale doc and flips the unit to sold + stamps sale fields
+   459. uses composite doc id `${marketplace}__${orderNumber}` as natural dedupe key
+   460. rejects when orderNumber is empty / whitespace-only
+   461. rejects sale price <= 0
+   462. rejects when the inventory unit cannot be found
+   463. runs calcSaleFinancials and stores derived GP / commission
+   464. looks the unit up via unitId when no imei is supplied
+
+  [voidSale]
+   465. deletes the sale row and reverts the unit back to available
+   466. returns ok=false when the sale id is missing or unknown
+
+==============================================================================
+  src/__tests__/warrantyUtils.test.ts
+  12 tests
+==============================================================================
+
+  [getWarrantyStatus > without sale date]
+   467. returns no-warranty result when saleDate is undefined
+   468. returns no-warranty result when saleDate is null
+   469. returns no-warranty result when saleDate is empty string
+
+  [getWarrantyStatus > with sale date]
+   470. marks unit as having warranty
+   471. computes warranty end as exactly 1 year after sale date
+   472. returns positive daysLeft when warranty is still active
+   473. returns negative daysLeft when warranty has expired
+   474. returns approximately 365 daysLeft when sold today
+   475. returns daysLeft just shy of 365 when sold yesterday
+   476. isExpired is false on the exact expiry day (boundary)
+   477. returns daysLeft of -1 when warranty expired one day ago
+   478. handles leap-year February correctly
+
+==============================================================================
+  End of report · 478 tests across 23 files
+==============================================================================
