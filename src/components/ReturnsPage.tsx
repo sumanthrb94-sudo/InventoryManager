@@ -944,18 +944,22 @@ function SheetTable({
                             <Truck size={11} /> Ready to Ship · Back to Stock
                           </button>
                         )}
-                        <button
-                          onClick={() => { setMenuId(null); onRepair(u); }}
-                          className="w-full flex items-center gap-2 px-3 py-1.5 text-[10px] text-blue-700 hover:bg-blue-50"
-                        >
-                          <Wrench size={11} /> Send to Repair
-                      </button>
-                      <button
-                        onClick={() => { setMenuId(null); onReprocess(u); }}
-                        className="w-full flex items-center gap-2 px-3 py-1.5 text-[10px] text-slate-700 hover:bg-slate-50"
-                      >
-                        <RotateCcw size={11} /> Re-process return
-                      </button>
+                        {!inRepair && (
+                          <>
+                            <button
+                              onClick={() => { setMenuId(null); onRepair(u); }}
+                              className="w-full flex items-center gap-2 px-3 py-1.5 text-[10px] text-blue-700 hover:bg-blue-50"
+                            >
+                              <Wrench size={11} /> Send to Repair
+                            </button>
+                            <button
+                              onClick={() => { setMenuId(null); onReprocess(u); }}
+                              className="w-full flex items-center gap-2 px-3 py-1.5 text-[10px] text-slate-700 hover:bg-slate-50"
+                            >
+                              <RotateCcw size={11} /> Re-process return
+                            </button>
+                          </>
+                        )}
                       </div>
                     )}
                   </div>
