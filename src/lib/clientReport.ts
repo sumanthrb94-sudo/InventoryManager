@@ -926,12 +926,25 @@ function writeSalesSummarySheet(
     // marketplace tab to trigger ExcelJS lazy evaluation.
     let salesCount = 0, refundCount = 0, replaceCount = 0, repairCount = 0;
     let gp = 0, loss = 0, bp = 0;
+    // Dedupe key for a return event so a single Process-Return click that
+    // voided multiple linked Sale docs counts as ONE return event in this
+    // marketplace's column, not N. Same logic as buildReturnsWorkbookBuffer's
+    // Summary — keeps the Sales Report's marketplace tally consistent with
+    // the Returns Report's headcount + Detail sheet's unique-unit rows.
+    const seenVoidEvents = new Set<string>();
+    const voidEventKey = (s: Sale): string => {
+      const u = (s.unitId || '').trim() || (s.imei || '').trim().toUpperCase();
+      return `${u}__${s.voidedAt || ''}`;
+    };
     for (const s of bucket) {
       salesCount++;
       const sale = recomputeSale(s);
       gp += sale.grossProfit ?? 0;
       bp += s.buyPrice ?? 0;
       if (s.voidedAt) {
+        const key = voidEventKey(s);
+        if (seenVoidEvents.has(key)) continue;  // sub-record of already-counted event
+        seenVoidEvents.add(key);
         // All three outcomes carry postage loss now (repair = 2 legs per
         // the operator's policy — outbound + faulty unit shipped back).
         // Repair keeps its own count so it's not conflated with customer
