@@ -716,13 +716,16 @@ export async function buildSalesWorkbookBuffer(input: BuildSalesWorkbookInput): 
   // so it lands as the leftmost tab.
   writeSalesSummarySheet(wb, byMarketplace, opts);
 
-  // Sheet 2: Returns — single consolidated view of every voided sale in
-  // the period, cross-marketplace, with the return-info columns up front
-  // (Return Date / Outcome / Reason / Legs / Postage Loss) so the auditor
-  // doesn't have to scroll past 20 sale columns on each marketplace tab to
-  // find them. Filtered from the same date-scoped pool the marketplace
-  // tabs draw from, so row counts reconcile with the Summary.
-  writeSalesReturnsSheet(wb, byMarketplace);
+  // Sheet 2: Returns — every voided sale whose RETURN happened in the
+  // period (voidedAt in range), cross-marketplace, with the return-info
+  // columns up front. Filters by voidedAt — not saleDate — so a sale
+  // made last month and returned this week shows up under "This Week".
+  // That matches the standalone Returns Report's behaviour and answers
+  // the operator's question "what got returned this period?" rather
+  // than "which of THIS period's sales were voided?". The marketplace
+  // tabs keep their saleDate filter so the Summary's revenue / GP
+  // numbers stay self-consistent with the rows that produced them.
+  writeSalesReturnsSheet(wb, enriched, opts);
 
   // Per-platform sheets — the client's master SALES_REPORT carries exactly
   // four tabs (AMAZON SALES, BM SALES, EBAY SALES, ONBUY SALES); PROJECT
@@ -991,7 +994,12 @@ const RETURNS_TAB_HEADERS: Array<string> = [
  *  made". */
 function writeSalesReturnsSheet(
   wb: ExcelJS.Workbook,
-  byMarketplace: Map<Marketplace, Sale[]>,
+  /** Enriched sales — NOT saleDate-filtered. The Returns tab gates on
+   *  voidedAt, which can fall in the period even when the underlying
+   *  sale's saleDate is older. Reading from the saleDate-filtered set
+   *  was the cause of "Returns tab empty on Today/Week" (2026-06-14). */
+  enrichedSales: Sale[],
+  opts?: ClientReportOptions,
 ): void {
   const sheet = wb.addWorksheet('Returns');
   sheet.columns = [
@@ -1006,15 +1014,15 @@ function writeSalesReturnsSheet(
     type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF1F5F9' },  // slate-100
   };
 
-  // Collect every voided sale across all four marketplaces. Stable order:
-  // by voidedAt desc (newest first) — matches the in-app default and the
-  // operator's typical "what just got returned?" question.
-  const voided: Sale[] = [];
-  for (const m of MARKETPLACES) {
-    for (const s of byMarketplace.get(m) ?? []) {
-      if (s.voidedAt) voided.push(s);
-    }
-  }
+  // Filter by voidedAt window — match the Returns Report's filter (line
+  // ~1446: voidedSalesInRange). Sales with no voidedAt are skipped;
+  // voided sales whose RETURN landed in [from,to] are included regardless
+  // of when the original sale was made.
+  const from = opts?.from ?? '0000-01-01';
+  const to   = opts?.to   ?? '9999-12-31';
+  const voided: Sale[] = enrichedSales.filter(s =>
+    !!s.voidedAt && s.voidedAt >= from && s.voidedAt <= to,
+  );
   voided.sort((a, b) => (b.voidedAt || '').localeCompare(a.voidedAt || ''));
 
   let totalLoss = 0;

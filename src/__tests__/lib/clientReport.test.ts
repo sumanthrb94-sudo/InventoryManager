@@ -639,6 +639,69 @@ describe('return / replacement / re-sell lifecycle', () => {
 // sheet writers all use the same convention; the per-marketplace tabs
 // must agree or the operator sees inconsistent ordering across surfaces.
 // ───────────────────────────────────────────────────────────────────────────
+// ───────────────────────────────────────────────────────────────────────────
+// Returns tab filters by voidedAt — NOT by the parent saleDate bucket.
+// A sale made last month and returned today must show up under "Today"
+// or "This Week" filters. Bug surfaced 2026-06-14: returns tab was empty
+// for Today/Week because the saleDate-filtered set excluded the original
+// sale, taking the void with it.
+// ───────────────────────────────────────────────────────────────────────────
+describe('Sales Report Returns tab filters by voidedAt', () => {
+  it('includes a void whose voidedAt is in-range even when saleDate is out-of-range', async () => {
+    const sales: Sale[] = [
+      baseSale({
+        id: 'EBAY__OLD__1',
+        orderNumber: 'OLD',
+        // saleDate falls OUTSIDE the window — would've been dropped by
+        // the old saleDate-only filter on the Returns tab.
+        saleDate: '2026-05-01',
+        // …but the void landed INSIDE the window. The operator processed
+        // a return today on a sale from a month ago.
+        voidedAt: '2026-06-14', voidOutcome: 'refund', voidReason: 'today refund',
+        postage: 8, postageVat: 1.6,
+      }),
+    ];
+    const buf = await buildSalesWorkbookBuffer({
+      sales,
+      opts: { from: '2026-06-14', to: '2026-06-14' },  // "Today" window
+    });
+    const wb = await loadWorkbook(buf);
+    const returns = wb.getWorksheet('Returns')!;
+    // Header + the one voided row (whose saleDate is out-of-range but
+    // voidedAt is in) + TOTAL row = 3 rows.
+    expect(returns.rowCount).toBe(3);
+    expect(returns.getRow(2).getCell(8).value).toBe('Refund');
+    expect(returns.getRow(2).getCell(11).value).toBeCloseTo(19.2, 2);
+    // TOTAL = single row's loss.
+    expect(returns.getRow(3).getCell(1).value).toBe('TOTAL');
+    expect(returns.getRow(3).getCell(11).value).toBeCloseTo(19.2, 2);
+  });
+
+  it('EXCLUDES a void whose voidedAt is OUT-of-range even if saleDate is in-range', async () => {
+    const sales: Sale[] = [
+      baseSale({
+        id: 'EBAY__NEW__1',
+        orderNumber: 'NEW',
+        // saleDate inside the window, but voidedAt outside — the void
+        // happened in the future-ish bucket.
+        saleDate: '2026-06-14',
+        voidedAt: '2026-06-20',     // outside the Today=2026-06-14 window
+        voidOutcome: 'refund', voidReason: 'later refund',
+      }),
+    ];
+    const buf = await buildSalesWorkbookBuffer({
+      sales,
+      opts: { from: '2026-06-14', to: '2026-06-14' },
+    });
+    const wb = await loadWorkbook(buf);
+    const returns = wb.getWorksheet('Returns')!;
+    // Just the header + "No returns recorded for this period." row.
+    expect(returns.rowCount).toBe(2);
+    expect(String(returns.getRow(2).getCell(1).value))
+      .toBe('No returns recorded for this period.');
+  });
+});
+
 describe('marketplace tabs sort cycles newest-first by saleDate', () => {
   it('one IMEI cycled 3× same day → rows appear in newest-first order', async () => {
     const imei = '350000000000007';

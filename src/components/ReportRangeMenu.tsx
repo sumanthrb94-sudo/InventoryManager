@@ -47,9 +47,15 @@ export function resolvePeriod(
     case 'today':
       return { from: todayIso, to: todayIso, label: `today-${todayIso}` };
     case 'week': {
-      const sunday = new Date(today);
-      sunday.setDate(today.getDate() - today.getDay());
-      return { from: iso(sunday), to: todayIso, label: `week-${iso(sunday)}-to-${todayIso}` };
+      // Rolling 7-day window — today and the six calendar days before it,
+      // inclusive on both ends. Matches the SellSheet "Last 7d" pill
+      // (Date.now() − 7 × 86_400_000). The previous implementation used
+      // `today.getDay()` to find the most recent Sunday, which collapsed
+      // to a single day when today IS Sunday (getDay() === 0) — every
+      // Sunday's "Week" export silently became a 1-day export.
+      const start = new Date(today);
+      start.setDate(today.getDate() - 6);
+      return { from: iso(start), to: todayIso, label: `week-${iso(start)}-to-${todayIso}` };
     }
     case 'month': {
       const first = new Date(today.getFullYear(), today.getMonth(), 1);
