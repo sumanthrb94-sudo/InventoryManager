@@ -1916,7 +1916,6 @@ function ProcessReturnModal({
   );
   const [outcome, setOutcome]       = useState<'refund' | 'replacement'>('refund');
   const [reason, setReason]         = useState(unit.returnReason ?? '');
-  const [comments, setComments]     = useState(unit.returnComments ?? '');
   const [returnDate, setReturnDate] = useState(unit.returnDate ?? todayStr());
   // Step-1 fields: customer's complaint as logged at intake, then the
   // tech's QC findings. Both required to advance to the CRM queue.
@@ -2083,7 +2082,19 @@ function ProcessReturnModal({
         // to 'returned_to_inventory' at completion: the unit then looked
         // like a refund and the report counted £15.12 phantom loss.
         returnOutcome: returnType === 'repair' ? null : outcome,
-        returnComments: comments.trim() || null,
+        // returnComments was a free-text field collected in step 2; we
+        // removed that input because step 1 already captures the same
+        // information across two structured fields (customer vs tech).
+        // Derive a single combined string so the existing Excel export +
+        // returns-table "Comments" column keep rendering meaningful text.
+        returnComments: (() => {
+          const parts: string[] = [];
+          const cc = (unit.customerComments || '').trim();
+          const tc = (unit.technicianComments || '').trim();
+          if (cc) parts.push(`Customer: ${cc}`);
+          if (tc) parts.push(`Tech QC: ${tc}`);
+          return parts.length ? parts.join(' · ') : null;
+        })(),
         // Snapshot the leg cost on EVERY route now — repair carries a real
         // 2-leg carriage loss too (outbound + faulty unit shipped back),
         // same as a refund and a supplier return. Only the customer-outcome
@@ -2378,15 +2389,21 @@ function ProcessReturnModal({
             </div>
           )}
 
-          <div>
-            <label className="text-[9px] font-bold uppercase tracking-widest text-gray-400 block mb-1.5">Return Date</label>
-            <input type="date" value={returnDate} onChange={e => setReturnDate(e.target.value)}
-              className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm font-mono focus:outline-none focus:border-black transition-all" />
-          </div>
+          {/* Return Date is captured at Tech-QC intake — read-only in CRM
+              step. The step-2 form re-collected it before, which was
+              confusing (intake date can't change). */}
+          {step === 'qc' && (
+            <div>
+              <label className="text-[9px] font-bold uppercase tracking-widest text-gray-400 block mb-1.5">Return Date</label>
+              <input type="date" value={returnDate} onChange={e => setReturnDate(e.target.value)}
+                className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm font-mono focus:outline-none focus:border-black transition-all" />
+            </div>
+          )}
 
-          {/* Return Reason + free-text comments + destination info banners
-              are CRM-step decisions — Tech-QC only logs customer + tech
-              comments + date above. */}
+          {/* CRM step only adds the Return Reason categorical label +
+              destination info banner. The customer + technician comments
+              already live in the read-only echo block at the top of the
+              modal, and the date came from Tech-QC — no duplicate inputs. */}
           {step === 'crm' && (
             <>
               <div>
@@ -2394,13 +2411,6 @@ function ProcessReturnModal({
                 <input value={reason} onChange={e => { setReason(e.target.value); setError(''); }}
                   placeholder="e.g. Customer changed mind, Faulty screen, Wrong item sent"
                   className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-black transition-all" />
-              </div>
-
-              <div>
-                <label className="text-[9px] font-bold uppercase tracking-widest text-gray-400 block mb-1.5">Comments</label>
-                <textarea value={comments} onChange={e => setComments(e.target.value)} rows={2}
-                  placeholder="Optional — condition notes, courier reference, anything the next person should know"
-                  className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-black transition-all resize-none" />
               </div>
 
               {returnType === 'returned_to_inventory' && (
