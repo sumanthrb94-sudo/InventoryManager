@@ -29,7 +29,7 @@ import {
   Search, ChevronDown, ChevronUp, ChevronsUpDown, MoreHorizontal,
   Filter, X, Download, AlertCircle, Plus, Info, Sparkles, Eye, TrendingDown,
   PackageCheck, ArrowUpRight, Wrench, ShieldAlert, ShieldCheck, CheckCircle2,
-  Truck, RefreshCw, RotateCcw, FileSpreadsheet,
+  Truck, RefreshCw, RotateCcw, FileSpreadsheet, ClipboardList, ArrowRight,
 } from 'lucide-react';
 import ReportRangeMenu from './ReportRangeMenu';
 import { AnimatePresence, motion } from 'motion/react';
@@ -137,6 +137,18 @@ export default function ReturnsPage() {
   // Sold units eligible to be returned (have a sale record + still sold)
   const eligibleForReturn = useMemo(
     () => units.filter(u => u.status === 'sold' && !!u.salePrice),
+    [units],
+  );
+
+  // Step-1 has stamped these (customer + tech comments captured, gate
+  // raised) but step-2 hasn't finalised the outcome yet. The CRM queue
+  // section + nav badge surface them; ProcessReturnModal opens these
+  // directly at step 2. Oldest QC-stamp first so CRM clears the queue
+  // in age order — the morning operator sees the longest-waiting first.
+  const pendingCrm = useMemo(
+    () => units
+      .filter(u => u.pendingCrmReview === true)
+      .sort((a, b) => (a.returnQcAt || '').localeCompare(b.returnQcAt || '')),
     [units],
   );
 
@@ -301,6 +313,57 @@ export default function ReturnsPage() {
   // ── Render ────────────────────────────────────────────────────────────────
   return (
     <div className="space-y-4">
+
+      {/* ── Pending CRM Review queue ──────────────────────────────────────
+          Step-1 (Tech-QC) has logged customer + technician comments and
+          flagged the unit for CRM action. This pinned card shows oldest
+          first so the morning operator clears the queue in age order.
+          Hidden when empty (no perma-clutter when nothing's pending). */}
+      {pendingCrm.length > 0 && (
+        <div className="bg-gradient-to-br from-violet-50/80 to-violet-100/40 border border-violet-200 rounded-3xl shadow-sm overflow-hidden">
+          <div className="flex items-center gap-3 px-5 py-4 border-b border-violet-100/80">
+            <div className="w-9 h-9 rounded-xl bg-violet-200 text-violet-700 flex items-center justify-center flex-shrink-0">
+              <ClipboardList size={16} />
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-[11px] font-bold uppercase tracking-widest text-violet-900">Pending CRM Review</p>
+              <p className="text-[9px] font-mono text-violet-700/70 mt-0.5">
+                Tech-QC logged · awaiting Refund / Replacement / Repair / RTS decision
+              </p>
+            </div>
+            <span className="text-[12px] font-bold bg-violet-700 text-white px-2.5 py-1 rounded-full">
+              {pendingCrm.length}
+            </span>
+          </div>
+          <div className="divide-y divide-violet-100/60 bg-white/40 max-h-72 overflow-y-auto">
+            {pendingCrm.map(u => {
+              const ageMs = u.returnQcAt ? Date.now() - new Date(u.returnQcAt).getTime() : 0;
+              const ageHrs = Math.floor(ageMs / 3600_000);
+              const ageLabel = ageHrs < 1 ? 'just now' : ageHrs < 24 ? `${ageHrs}h ago` : `${Math.floor(ageHrs / 24)}d ago`;
+              return (
+                <div key={u.id} className="flex items-center gap-3 px-5 py-3 hover:bg-violet-50/40 transition-colors">
+                  <div className="flex-1 min-w-0">
+                    <p className="text-[12px] font-bold text-slate-900 truncate">{u.model || u.imei || '—'}</p>
+                    <p className="text-[9px] font-mono text-slate-500 mt-0.5 truncate">
+                      {u.imei || '—'}
+                      {u.colour ? ` · ${u.colour}` : ''}
+                      {u.storage ? ` · ${u.storage}` : ''}
+                      {u.customerComments ? ` · ${u.customerComments.slice(0, 60)}${u.customerComments.length > 60 ? '…' : ''}` : ''}
+                    </p>
+                  </div>
+                  <span className="text-[9px] font-mono text-violet-700/80 flex-shrink-0">{ageLabel}</span>
+                  <button
+                    onClick={() => setProcessingUnit(u)}
+                    className="flex items-center gap-1 px-3 py-1.5 bg-violet-700 text-white text-[9px] font-bold uppercase tracking-widest rounded-lg hover:bg-violet-800 transition-all flex-shrink-0"
+                  >
+                    <ArrowRight size={10} /> Finalise
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       {/* ── Header card: action row + KPI tiles ───────────────────────────── */}
       <div className="bg-white border border-slate-200 rounded-3xl p-5 shadow-sm">
@@ -1839,11 +1902,24 @@ function ProcessReturnModal({
   onClose: () => void;
   onSaved: () => void;
 }) {
-  const [returnType, setReturnType] = useState<ReturnCategory>('returned_to_inventory');
+  // Two-step return workflow (Tech-QC → CRM handoff). Step is gated by
+  // the unit's pendingCrmReview flag — Tech opens step 1 to log customer
+  // + QC comments and stamp the unit for the CRM queue; the same modal
+  // reopens at step 2 when CRM picks it up later. Both writes go through
+  // the SAME ProcessReturnModal so the audit log carries a single chain
+  // (no fork into a separate "CRM-only" modal).
+  const step: 'qc' | 'crm' = unit.pendingCrmReview ? 'crm' : 'qc';
+  const [returnType, setReturnType] = useState<ReturnCategory>(
+    (unit.returnType as ReturnCategory | undefined) ?? 'returned_to_inventory',
+  );
   const [outcome, setOutcome]       = useState<'refund' | 'replacement'>('refund');
-  const [reason, setReason]         = useState('');
-  const [comments, setComments]     = useState('');
-  const [returnDate, setReturnDate] = useState(todayStr());
+  const [reason, setReason]         = useState(unit.returnReason ?? '');
+  const [comments, setComments]     = useState(unit.returnComments ?? '');
+  const [returnDate, setReturnDate] = useState(unit.returnDate ?? todayStr());
+  // Step-1 fields: customer's complaint as logged at intake, then the
+  // tech's QC findings. Both required to advance to the CRM queue.
+  const [customerComments, setCustomerComments] = useState(unit.customerComments ?? '');
+  const [technicianComments, setTechnicianComments] = useState(unit.technicianComments ?? '');
   const [saving, setSaving]         = useState(false);
   const [error, setError]           = useState('');
   // Replacement-route requirement: when the outcome is "Replacement" the
@@ -1882,6 +1958,47 @@ function ProcessReturnModal({
       });
   }, [outcome, allUnits, unit, replacementSearch]);
   const warranty = useMemo(() => getWarrantyStatus(unit.saleDate), [unit.saleDate]);
+
+  /** Step-1 save (Tech-QC). Lands customer + technician comments on the
+   *  unit doc plus the tentative return destination + reason, and raises
+   *  pendingCrmReview so the unit shows in the CRM queue + the nav badge.
+   *  Crucially does NOT touch unit status or void any sales — the linked
+   *  sale stays active, revenue stays counted, until CRM finalises in
+   *  step 2. The unit is still status='sold' physically returned but
+   *  awaiting outcome decision; the queue + badge surface it for action. */
+  const handleQcSave = async () => {
+    if (!customerComments.trim()) {
+      setError('Customer comments are required before sending to CRM.');
+      return;
+    }
+    if (!technicianComments.trim()) {
+      setError('Technician QC comments are required before sending to CRM.');
+      return;
+    }
+    if (!reason.trim()) {
+      setError('Enter a short return reason.');
+      return;
+    }
+    setSaving(true);
+    try {
+      await dbService.update('inventoryUnits', unit.id, {
+        // Tentative metadata — CRM can override returnType in step 2.
+        returnType,
+        returnDate,
+        returnReason: reason.trim(),
+        customerComments: customerComments.trim(),
+        technicianComments: technicianComments.trim(),
+        returnQcAt: new Date().toISOString(),
+        pendingCrmReview: true,
+      });
+      onSaved();
+      onClose();
+    } catch {
+      setError('Failed to save QC step. Please try again.');
+    } finally {
+      setSaving(false);
+    }
+  };
 
   const handleSave = async () => {
     if (!reason.trim()) { setError('Please enter a return reason.'); return; }
@@ -1952,6 +2069,14 @@ function ProcessReturnModal({
         returnType,
         returnDate,
         returnReason: reason.trim(),
+        // Step-1 fields (set by Tech-QC) are preserved on the unit so the
+        // returns sheet + reports keep the original customer / technician
+        // notes alongside the final outcome. New step-2 comments go into
+        // returnComments below.
+        ...(customerComments.trim() ? { customerComments: customerComments.trim() } : {}),
+        ...(technicianComments.trim() ? { technicianComments: technicianComments.trim() } : {}),
+        // Clear the CRM gate — this unit is fully processed.
+        pendingCrmReview: false,
         // No customer outcome on the Send-for-Repair route — we kept the
         // unit and fixed it. Writing the default 'refund' here used to
         // poison outcomeFor() after ReadyToShipModal flipped returnType
@@ -2056,19 +2181,82 @@ function ProcessReturnModal({
     <div className="fixed inset-0 z-[70] flex items-center justify-center p-3 md:p-4 bg-black/40 backdrop-blur-sm">
       <div className="bg-white rounded-3xl overflow-hidden w-full max-w-sm shadow-2xl flex flex-col" style={{ maxHeight: 'calc(100dvh - 24px)' }}>
         <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100 flex-shrink-0">
-          <div>
-            <p className="text-[9px] font-mono uppercase tracking-widest text-gray-400">Process Return</p>
+          <div className="min-w-0">
+            <p className="text-[9px] font-mono uppercase tracking-widest text-gray-400">
+              {step === 'qc' ? 'Process Return · Step 1 · Tech-QC Intake' : 'Process Return · Step 2 · CRM Finalise'}
+            </p>
             <h3 className="text-sm font-bold truncate mt-0.5 max-w-[240px]">{unit.model}</h3>
           </div>
           <button onClick={onClose} className="p-2 hover:bg-gray-100 rounded-xl transition-all"><X size={16} /></button>
         </div>
 
         <div className="flex-1 overflow-y-auto px-6 py-4 space-y-3">
+          {/* Step-1 banner — orient the Tech operator. */}
+          {step === 'qc' && (
+            <div className="flex items-start gap-2 bg-violet-50 border border-violet-200 rounded-xl p-3">
+              <ClipboardList size={14} className="text-violet-700 flex-shrink-0 mt-0.5" />
+              <p className="text-[10px] text-violet-800 font-mono leading-relaxed">
+                Log the customer's complaint + your QC findings. The unit goes into the
+                <strong> CRM queue</strong> after Save — CRM decides Refund / Replacement / Repair / RTS in Step 2.
+              </p>
+            </div>
+          )}
+          {/* Step-2 read-only echo of step-1 inputs so CRM sees the full
+              context before picking an outcome. */}
+          {step === 'crm' && (unit.customerComments || unit.technicianComments) && (
+            <div className="space-y-2 p-3 rounded-xl border border-slate-200 bg-slate-50">
+              <p className="text-[9px] font-bold uppercase tracking-widest text-slate-500">From Tech-QC</p>
+              {unit.customerComments && (
+                <div>
+                  <p className="text-[9px] font-mono text-slate-500 uppercase tracking-widest">Customer said</p>
+                  <p className="text-[11px] text-slate-800 leading-relaxed">{unit.customerComments}</p>
+                </div>
+              )}
+              {unit.technicianComments && (
+                <div>
+                  <p className="text-[9px] font-mono text-slate-500 uppercase tracking-widest">Technician QC</p>
+                  <p className="text-[11px] text-slate-800 leading-relaxed">{unit.technicianComments}</p>
+                </div>
+              )}
+              {unit.returnQcAt && (
+                <p className="text-[9px] font-mono text-slate-400">
+                  Logged {new Date(unit.returnQcAt).toLocaleString()}
+                </p>
+              )}
+            </div>
+          )}
           {unit.saleDate && (
             <div className={`flex items-center gap-2 p-2 rounded-lg border text-[9px] ${warranty.isExpired ? 'bg-red-50 border-red-200 text-red-700' : 'bg-emerald-50 border-emerald-200 text-emerald-700'}`}>
               {warranty.isExpired ? <ShieldAlert size={14} className="flex-shrink-0" /> : <ShieldCheck size={14} className="flex-shrink-0" />}
               <span className="font-bold">{warranty.isExpired ? 'Warranty Expired' : 'Warranty Active'} • {warranty.isExpired ? `${Math.abs(warranty.daysLeft)}d ago` : `${warranty.daysLeft}d left`}</span>
             </div>
+          )}
+
+          {/* Step-1 collects customer + technician comments. Step-2 hides
+              them (already echoed above in read-only form). */}
+          {step === 'qc' && (
+            <>
+              <div>
+                <label className="text-[9px] font-bold uppercase tracking-widest text-gray-400 block mb-1.5">Customer Comments *</label>
+                <textarea
+                  value={customerComments}
+                  onChange={e => { setCustomerComments(e.target.value); setError(''); }}
+                  rows={2}
+                  placeholder="What did the customer report? (their words, verbatim if possible)"
+                  className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-violet-500 transition-all resize-none"
+                />
+              </div>
+              <div>
+                <label className="text-[9px] font-bold uppercase tracking-widest text-gray-400 block mb-1.5">Technician QC Comments *</label>
+                <textarea
+                  value={technicianComments}
+                  onChange={e => { setTechnicianComments(e.target.value); setError(''); }}
+                  rows={3}
+                  placeholder="Physical inspection findings — screen, battery, IMEI match, accessories, packaging condition"
+                  className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-violet-500 transition-all resize-none"
+                />
+              </div>
+            </>
           )}
 
           <div>
@@ -2089,7 +2277,7 @@ function ProcessReturnModal({
             </div>
           </div>
 
-          {returnType !== 'repair' && (
+          {step === 'crm' && returnType !== 'repair' && (
             <div>
               <label className="text-[9px] font-bold uppercase tracking-widest text-gray-400 block mb-2">Customer Outcome *</label>
               <div className="grid grid-cols-2 gap-2">
@@ -2111,7 +2299,7 @@ function ProcessReturnModal({
             </div>
           )}
 
-          {returnType !== 'repair' && outcome === 'replacement' && (
+          {step === 'crm' && returnType !== 'repair' && outcome === 'replacement' && (
             <div className="space-y-2">
               <div className="flex items-baseline justify-between gap-2">
                 <label className="text-[9px] font-bold uppercase tracking-widest text-gray-400">
@@ -2246,9 +2434,13 @@ function ProcessReturnModal({
             className="flex-1 py-3 border border-gray-200 rounded-xl text-[10px] font-bold uppercase tracking-widest text-gray-500 hover:bg-gray-50 transition-all">
             Cancel
           </button>
-          <button onClick={handleSave} disabled={saving}
+          <button onClick={step === 'qc' ? handleQcSave : handleSave} disabled={saving}
             className="flex-1 py-3 bg-black text-white rounded-xl text-[10px] font-bold uppercase tracking-widest hover:bg-gray-800 transition-all disabled:opacity-50 flex items-center justify-center gap-2">
-            {saving ? 'Saving…' : <><CheckCircle2 size={13} /> Confirm Return</>}
+            {saving
+              ? 'Saving…'
+              : step === 'qc'
+                ? <><ArrowRight size={13} /> Send to CRM Queue</>
+                : <><CheckCircle2 size={13} /> Finalise Return</>}
           </button>
         </div>
       </div>

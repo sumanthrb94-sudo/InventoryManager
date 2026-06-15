@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { onAuthStateChanged, User } from 'firebase/auth';
 import { auth, signInWithEmail, signOut, isAdmin, userRegion, canBuy, canSell } from './lib/firebase';
 import {
@@ -122,6 +122,14 @@ const ADMIN_SUBS: { id: AdminSub; label: string; icon: React.ReactNode }[] = [
 function AppShell({ user }: { user: User }) {
   const { loaded, units, whatsappFeed } = useInventoryStore();
   const userIsAdmin                               = isAdmin(user);
+  // Count of units in the Tech-QC → CRM hand-off limbo. Drives the
+  // Returns-tab badge on both sidebar and mobile nav so the morning CRM
+  // operator sees the backlog at a glance. Computed here (not in
+  // ReturnsPage) because the badge needs to render on every page.
+  const pendingCrmCount = useMemo(
+    () => units.reduce((n, u) => n + (u.pendingCrmReview === true ? 1 : 0), 0),
+    [units],
+  );
   // Hide the "Sample Data" entrypoints once real master data is in the DB.
   // Devs can still reach the modal by loading the app with an empty DB.
   const showSampleDataButton                      = units.length <= 100;
@@ -254,7 +262,17 @@ function AppShell({ user }: { user: User }) {
                 ${activeTab === t.id
                   ? 'bg-slate-900 text-white'
                   : 'text-slate-500 hover:text-slate-900 hover:bg-slate-100'}`}>
-              <span className="flex-shrink-0">{t.icon}</span>
+              <span className="flex-shrink-0 relative">
+                {t.icon}
+                {t.id === 'returns' && pendingCrmCount > 0 && (
+                  <span
+                    title={`${pendingCrmCount} ${pendingCrmCount === 1 ? 'unit' : 'units'} pending CRM review`}
+                    className="absolute -top-1.5 -right-2 min-w-[16px] h-[16px] px-1 rounded-full bg-violet-600 text-white text-[9px] font-bold flex items-center justify-center"
+                  >
+                    {pendingCrmCount > 99 ? '99+' : pendingCrmCount}
+                  </span>
+                )}
+              </span>
               <span className="text-[11px] font-bold uppercase tracking-widest">{t.label}</span>
             </button>
           ))}
@@ -627,8 +645,15 @@ function AppShell({ user }: { user: User }) {
           <button key={t.id} onClick={() => setActiveTab(t.id)}
             className={`flex-1 flex flex-col items-center justify-center py-2 gap-0.5 transition-all
               ${activeTab === t.id ? 'text-slate-900' : 'text-slate-400'}`}>
-            <div className={`p-1.5 rounded-xl transition-all ${activeTab === t.id ? 'bg-slate-900 text-white' : ''}`}>
+            <div className={`relative p-1.5 rounded-xl transition-all ${activeTab === t.id ? 'bg-slate-900 text-white' : ''}`}>
               {t.icon}
+              {t.id === 'returns' && pendingCrmCount > 0 && (
+                <span
+                  className="absolute -top-1 -right-1 min-w-[15px] h-[15px] px-1 rounded-full bg-violet-600 text-white text-[8px] font-bold flex items-center justify-center"
+                >
+                  {pendingCrmCount > 99 ? '99+' : pendingCrmCount}
+                </span>
+              )}
             </div>
             <span className="text-[9px] font-bold uppercase tracking-wide">{t.label}</span>
           </button>

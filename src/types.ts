@@ -129,6 +129,22 @@ export interface InventoryUnit {
    *  replacement for an earlier return, points back at the unit it
    *  replaced. Set on the OUTBOUND (now-sold) unit. */
   replacementForUnitId?: string;
+
+  // ─── Two-step return workflow (Tech-QC → CRM handoff) ───────────────────
+  /** Step-1 (Tech/QC): customer's complaint as logged at intake time.
+   *  Captured before the CRM team decides the outcome — they read this
+   *  to understand what the customer reported. */
+  customerComments?: string;
+  /** Step-1 (Tech/QC): inspection findings after physical QC of the unit.
+   *  CRM reads this alongside customerComments to pick the right outcome
+   *  (Refund / Replacement / Repair / RTS). */
+  technicianComments?: string;
+  /** ISO timestamp when step-1 (Tech-QC) was completed. Sets the wall
+   *  clock the CRM team's "n units pending" timer reads against. */
+  returnQcAt?: string;
+  /** Gate flag for the CRM queue. true between step-1 (Tech logs the
+   *  unit) and step-2 (CRM finalises). The nav badge counts these. */
+  pendingCrmReview?: boolean;
   attachments?: string[];
   imageUrl?: string;        // Cloud image URL for the device (imgbb)
   ownerId: string;
