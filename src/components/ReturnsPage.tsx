@@ -134,9 +134,11 @@ export default function ReturnsPage() {
   const inRepair        = useMemo(() => allReturns.filter(u => u.returnType === 'repair'), [allReturns]);
   const toSupplier      = useMemo(() => allReturns.filter(u => u.returnType === 'returned_to_supplier'), [allReturns]);
 
-  // Sold units eligible to be returned (have a sale record + still sold)
+  // Sold units eligible to START a return (step-1 Tech-QC). Excludes
+  // units already in the CRM queue — those are finalised from the
+  // pending-review card, not re-logged through the picker.
   const eligibleForReturn = useMemo(
-    () => units.filter(u => u.status === 'sold' && !!u.salePrice),
+    () => units.filter(u => u.status === 'sold' && !!u.salePrice && !u.pendingCrmReview),
     [units],
   );
 
@@ -1975,17 +1977,15 @@ function ProcessReturnModal({
       setError('Technician QC comments are required before sending to CRM.');
       return;
     }
-    if (!reason.trim()) {
-      setError('Enter a short return reason.');
-      return;
-    }
     setSaving(true);
     try {
+      // Step-1 records ONLY the intake facts: customer complaint, tech QC
+      // findings and the date the unit came back. No returnType / outcome
+      // / reason yet — those are CRM's call in step 2. The unit stays
+      // status='sold' (linked sale still active) until CRM finalises;
+      // pendingCrmReview gates it into the queue + nav badge meanwhile.
       await dbService.update('inventoryUnits', unit.id, {
-        // Tentative metadata — CRM can override returnType in step 2.
-        returnType,
         returnDate,
-        returnReason: reason.trim(),
         customerComments: customerComments.trim(),
         technicianComments: technicianComments.trim(),
         returnQcAt: new Date().toISOString(),
@@ -2259,23 +2259,25 @@ function ProcessReturnModal({
             </>
           )}
 
-          <div>
-            <label className="text-[9px] font-bold uppercase tracking-widest text-gray-400 block mb-2">Return Destination *</label>
-            <div className="space-y-2">
-              {order.map(key => (
-                <button key={key} onClick={() => setReturnType(key)}
-                  className={`w-full flex items-center justify-between px-4 py-3 rounded-xl border-2 transition-all text-left ${
-                    returnType === key ? OPTION_LABELS[key].color + ' border-current' : 'border-gray-200 hover:border-gray-300'
-                  }`}>
-                  <div>
-                    <p className="text-xs font-bold">{OPTION_LABELS[key].label}</p>
-                    <p className="text-[9px] font-mono text-gray-500 mt-0.5">{OPTION_LABELS[key].desc}</p>
-                  </div>
-                  {returnType === key && <CheckCircle2 size={16} />}
-                </button>
-              ))}
+          {step === 'crm' && (
+            <div>
+              <label className="text-[9px] font-bold uppercase tracking-widest text-gray-400 block mb-2">Return Destination *</label>
+              <div className="space-y-2">
+                {order.map(key => (
+                  <button key={key} onClick={() => setReturnType(key)}
+                    className={`w-full flex items-center justify-between px-4 py-3 rounded-xl border-2 transition-all text-left ${
+                      returnType === key ? OPTION_LABELS[key].color + ' border-current' : 'border-gray-200 hover:border-gray-300'
+                    }`}>
+                    <div>
+                      <p className="text-xs font-bold">{OPTION_LABELS[key].label}</p>
+                      <p className="text-[9px] font-mono text-gray-500 mt-0.5">{OPTION_LABELS[key].desc}</p>
+                    </div>
+                    {returnType === key && <CheckCircle2 size={16} />}
+                  </button>
+                ))}
+              </div>
             </div>
-          </div>
+          )}
 
           {step === 'crm' && returnType !== 'repair' && (
             <div>
@@ -2382,43 +2384,50 @@ function ProcessReturnModal({
               className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm font-mono focus:outline-none focus:border-black transition-all" />
           </div>
 
-          <div>
-            <label className="text-[9px] font-bold uppercase tracking-widest text-gray-400 block mb-1.5">Return Reason *</label>
-            <input value={reason} onChange={e => { setReason(e.target.value); setError(''); }}
-              placeholder="e.g. Customer changed mind, Faulty screen, Wrong item sent"
-              className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-black transition-all" />
-          </div>
+          {/* Return Reason + free-text comments + destination info banners
+              are CRM-step decisions — Tech-QC only logs customer + tech
+              comments + date above. */}
+          {step === 'crm' && (
+            <>
+              <div>
+                <label className="text-[9px] font-bold uppercase tracking-widest text-gray-400 block mb-1.5">Return Reason *</label>
+                <input value={reason} onChange={e => { setReason(e.target.value); setError(''); }}
+                  placeholder="e.g. Customer changed mind, Faulty screen, Wrong item sent"
+                  className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-black transition-all" />
+              </div>
 
-          <div>
-            <label className="text-[9px] font-bold uppercase tracking-widest text-gray-400 block mb-1.5">Comments</label>
-            <textarea value={comments} onChange={e => setComments(e.target.value)} rows={2}
-              placeholder="Optional — condition notes, courier reference, anything the next person should know"
-              className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-black transition-all resize-none" />
-          </div>
+              <div>
+                <label className="text-[9px] font-bold uppercase tracking-widest text-gray-400 block mb-1.5">Comments</label>
+                <textarea value={comments} onChange={e => setComments(e.target.value)} rows={2}
+                  placeholder="Optional — condition notes, courier reference, anything the next person should know"
+                  className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-black transition-all resize-none" />
+              </div>
 
-          {returnType === 'returned_to_inventory' && (
-            <div className="flex items-start gap-2 bg-emerald-50 border border-emerald-200 rounded-xl p-3">
-              <PackageCheck size={13} className="text-emerald-600 flex-shrink-0 mt-0.5" />
-              <p className="text-[9px] text-emerald-700 font-mono leading-relaxed">
-                Unit will be restored to <strong>available</strong> stock and sale data cleared. Inspect condition before relisting.
-              </p>
-            </div>
-          )}
-          {returnType === 'repair' && (
-            <div className="flex items-start gap-2 bg-blue-50 border border-blue-200 rounded-xl p-3">
-              <Wrench size={13} className="text-blue-600 flex-shrink-0 mt-0.5" />
-              <p className="text-[9px] text-blue-700 font-mono leading-relaxed">
-                Unit moves to <strong>In Repair</strong>. Use 'Ready to Ship · Back to Stock' once repaired to flip it back to available inventory.
-              </p>
-            </div>
-          )}
-          {returnType === 'returned_to_supplier' && (
-            <div className="flex items-start gap-2 bg-amber-50 border border-amber-200 rounded-xl p-3">
-              <ArrowUpRight size={13} className="text-amber-600 flex-shrink-0 mt-0.5" />
-              <p className="text-[9px] text-amber-700 font-mono leading-relaxed">
-                Unit is <strong>soft-deleted</strong> — won't count in office stock but stays in the returns sheet for audit. The doc is preserved (not deleted).
-              </p>
-            </div>
+              {returnType === 'returned_to_inventory' && (
+                <div className="flex items-start gap-2 bg-emerald-50 border border-emerald-200 rounded-xl p-3">
+                  <PackageCheck size={13} className="text-emerald-600 flex-shrink-0 mt-0.5" />
+                  <p className="text-[9px] text-emerald-700 font-mono leading-relaxed">
+                    Unit will be restored to <strong>available</strong> stock and sale data cleared. Inspect condition before relisting.
+                  </p>
+                </div>
+              )}
+              {returnType === 'repair' && (
+                <div className="flex items-start gap-2 bg-blue-50 border border-blue-200 rounded-xl p-3">
+                  <Wrench size={13} className="text-blue-600 flex-shrink-0 mt-0.5" />
+                  <p className="text-[9px] text-blue-700 font-mono leading-relaxed">
+                    Unit moves to <strong>In Repair</strong>. Use 'Ready to Ship · Back to Stock' once repaired to flip it back to available inventory.
+                  </p>
+                </div>
+              )}
+              {returnType === 'returned_to_supplier' && (
+                <div className="flex items-start gap-2 bg-amber-50 border border-amber-200 rounded-xl p-3">
+                  <ArrowUpRight size={13} className="text-amber-600 flex-shrink-0 mt-0.5" />
+                  <p className="text-[9px] text-amber-700 font-mono leading-relaxed">
+                    Unit is <strong>soft-deleted</strong> — won't count in office stock but stays in the returns sheet for audit. The doc is preserved (not deleted).
+                  </p>
+                </div>
+              )}
+            </>
           )}
 
           {error && (
