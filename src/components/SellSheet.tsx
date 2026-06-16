@@ -45,6 +45,7 @@ import IntelligencePanel from './IntelligencePanel';
 import PeriodicInventory from './PeriodicInventory';
 import SellOrderModal from './SellOrderModal';
 import EnterImeiModal from './EnterImeiModal';
+import AddSoldUnitModal from './AddSoldUnitModal';
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -240,6 +241,7 @@ export default function SellSheet(_props: Props) {
   const [sellOrderUnit, setSellOrderUnit] = useState<InventoryUnit | null>(null);
   const [sellOrderIsSHS, setSellOrderIsSHS] = useState(false);
   const [enterImeiUnit, setEnterImeiUnit] = useState<InventoryUnit | null>(null);
+  const [addSoldUnitSale, setAddSoldUnitSale] = useState<Sale | null>(null);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [showSchemaHelp, setShowSchemaHelp] = useState(false);
   // ── Indexes ───────────────────────────────────────────────────────────────
@@ -796,6 +798,7 @@ export default function SellSheet(_props: Props) {
         units={units}
         region={region}
         onSaveCell={saveCell}
+        onAddSoldUnit={s => setAddSoldUnitSale(s)}
       />
 
       {/* ── KPI overlay modal ─────────────────────────────────────────────── */}
@@ -817,6 +820,7 @@ export default function SellSheet(_props: Props) {
             onClose={() => setOverlay(null)}
             onSaveCell={saveCell}
             onBackfillImei={u => { setOverlay(null); setEnterImeiUnit(u); }}
+            onAddSoldUnit={s => { setOverlay(null); setAddSoldUnitSale(s); }}
           />
         )}
       </AnimatePresence>
@@ -836,6 +840,13 @@ export default function SellSheet(_props: Props) {
             unit={enterImeiUnit}
             onClose={() => setEnterImeiUnit(null)}
             onSaved={() => setEnterImeiUnit(null)}
+          />
+        )}
+        {addSoldUnitSale && (
+          <AddSoldUnitModal
+            sale={addSoldUnitSale}
+            onClose={() => setAddSoldUnitSale(null)}
+            onSaved={() => setAddSoldUnitSale(null)}
           />
         )}
         {pickerOpen && (
@@ -937,7 +948,7 @@ function FilterChipsGroup({
 
 // ── Inline Excel sheet (always-on) ───────────────────────────────────────────
 function InlineSheet({
-  rows, sort, onSort, supplierMap, units, region, onSaveCell,
+  rows, sort, onSort, supplierMap, units, region, onSaveCell, onAddSoldUnit,
 }: {
   rows: Sale[];
   sort: { key: SortKey; dir: SortDir };
@@ -946,6 +957,7 @@ function InlineSheet({
   units: InventoryUnit[];
   region: 'uk' | 'india' | 'admin' | 'both';
   onSaveCell: (s: Sale, field: string, value: any) => Promise<void>;
+  onAddSoldUnit?: (s: Sale) => void;
 }) {
   const [editingCell, setEditingCell] = useState<{ id: string; field: string } | null>(null);
   const toggleSort = (k: SortKey) => onSort({ key: k, dir: sort.key === k && sort.dir === 'desc' ? 'asc' : 'desc' });
@@ -977,6 +989,7 @@ function InlineSheet({
           editingCell={editingCell}
           setEditingCell={setEditingCell}
           onSaveCell={onSaveCell}
+          onAddSoldUnit={onAddSoldUnit}
         />
       </div>
       <PaginationBar page={page} totalPages={totalPages} total={total} onPage={setPage} itemLabel="sales" />
@@ -993,7 +1006,7 @@ type OverlayView = 'model' | 'channel' | 'detailed';
 function SellExcelOverlay({
   title, rows, awaitingUnits, sort, onSort, supplierMap, units, region,
   defaultView,
-  onClose, onSaveCell, onBackfillImei,
+  onClose, onSaveCell, onBackfillImei, onAddSoldUnit,
 }: {
   title: string;
   rows: Sale[];
@@ -1011,6 +1024,7 @@ function SellExcelOverlay({
   onClose: () => void;
   onSaveCell: (s: Sale, field: string, value: any) => Promise<void>;
   onBackfillImei: (u: InventoryUnit) => void;
+  onAddSoldUnit?: (s: Sale) => void;
 }) {
   const [editingCell, setEditingCell] = useState<{ id: string; field: string } | null>(null);
   const toggleSort = (k: SortKey) => onSort({ key: k, dir: sort.key === k && sort.dir === 'desc' ? 'asc' : 'desc' });
@@ -1356,6 +1370,7 @@ function SellExcelOverlay({
               editingCell={editingCell}
               setEditingCell={setEditingCell}
               onSaveCell={onSaveCell}
+              onAddSoldUnit={onAddSoldUnit}
             />
           )}
         </div>
@@ -1589,7 +1604,7 @@ function SalesGroupTh({
 // ── Sheet table (shared by InlineSheet + SellExcelOverlay) ──────────────────
 function SheetTable({
   rows, supplierMap, units, region, sort, toggleSort,
-  editingCell, setEditingCell, onSaveCell,
+  editingCell, setEditingCell, onSaveCell, onAddSoldUnit,
 }: {
   rows: Sale[];
   supplierMap: Record<string, string>;
@@ -1600,6 +1615,7 @@ function SheetTable({
   editingCell: { id: string; field: string } | null;
   setEditingCell: (c: { id: string; field: string } | null) => void;
   onSaveCell: (s: Sale, field: string, value: any) => Promise<void>;
+  onAddSoldUnit?: (s: Sale) => void;
 }) {
   // Pre-index units twice: by id for explicit linkage, by uppercased
   // IMEI for the fallback path that hydrates Storage / Colour on
@@ -1687,12 +1703,23 @@ function SheetTable({
                     </span>
                   )}
                   {s.imei && !u && (
-                    <span
-                      className="inline-flex items-center gap-0.5 text-[8px] font-bold uppercase tracking-widest px-1 py-0.5 rounded border bg-amber-50 text-amber-700 border-amber-300"
-                      title="No inventory unit found for this IMEI. Add the unit as fresh stock — it will be automatically linked and marked as sold."
-                    >
-                      <AlertCircle size={8} /> No Inventory
-                    </span>
+                    onAddSoldUnit ? (
+                      <button
+                        type="button"
+                        onClick={() => onAddSoldUnit(s)}
+                        className="inline-flex items-center gap-0.5 text-[8px] font-bold uppercase tracking-widest px-1 py-0.5 rounded border bg-amber-50 text-amber-700 border-amber-300 hover:bg-amber-100 cursor-pointer transition-colors"
+                        title="No inventory unit for this IMEI. Click to add it as fresh stock — it will be created already sold and linked to this sale."
+                      >
+                        <AlertCircle size={8} /> No Inventory
+                      </button>
+                    ) : (
+                      <span
+                        className="inline-flex items-center gap-0.5 text-[8px] font-bold uppercase tracking-widest px-1 py-0.5 rounded border bg-amber-50 text-amber-700 border-amber-300"
+                        title="No inventory unit found for this IMEI. Add the unit as fresh stock — it will be automatically linked and marked as sold."
+                      >
+                        <AlertCircle size={8} /> No Inventory
+                      </span>
+                    )
                   )}
                 </span>
               </Td>

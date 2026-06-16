@@ -21,7 +21,7 @@
  */
 
 import { dbService } from '../lib/dbService';
-import type { DeviceCategory, InventoryAggregate, InventoryUnit, ListingSite } from '../types';
+import type { DeviceCategory, InventoryAggregate, InventoryUnit, ListingSite, Sale } from '../types';
 import { isAppleDevice, isValidImei } from '../lib/imeiValidation';
 import { parseBrandModelStorage } from '../lib/modelStorage';
 import { logInventoryEvent } from '../lib/inventoryEvents';
@@ -497,4 +497,142 @@ export async function backfillImei(unitId: string, imei: string): Promise<AddUni
   });
 
   return { ok: true, id: unitId };
+}
+
+// ---------------------------------------------------------------------------
+// addSoldUnitFromSale — create a fresh-stock unit directly in SOLD state
+// ---------------------------------------------------------------------------
+
+export interface AddSoldUnitFromSaleInput {
+  /** The orphan Sale that has no matching inventory unit. Provides the
+   *  sale provenance (SP / marketplace / order / date / postage) and the
+   *  default BP, supplier, model and IMEI. */
+  sale: Sale;
+  /** Confirmed / filled IMEI or serial. Defaults to the sale's own IMEI
+   *  when the operator doesn't change it. */
+  imei: string;
+  /** Human-readable model. Defaults to the sale's SKU when blank. */
+  model: string;
+  /** Defaults to the sale's buyPrice. Must be > 0. */
+  buyPrice?: number;
+  /** Defaults to the sale's supplierName. */
+  supplierName?: string;
+  colour?: string;
+  storage?: string;
+}
+
+/**
+ * Create an inventory unit that is already SOLD, derived from an imported
+ * Sale that had no matching unit (e.g. a bulk order whose IMEIs were
+ * combined in one cell, or a tablet sold under an Amazon serial). The unit
+ * is written with the sale's provenance (status='sold', salePrice, saleDate,
+ * salePlatform, saleOrderId, postageCost) and the Sale doc is back-linked
+ * via `unitId`. After this runs the unit appears in "Sold" surfaces and the
+ * "No Inventory IMEI" flag clears on the next report/render.
+ *
+ * Reuses the same validation + supplier-resolution + model-split rules as
+ * addUnitManual so a unit born here is indistinguishable from a normally
+ * received-then-sold unit.
+ */
+export async function addSoldUnitFromSale(
+  input: AddSoldUnitFromSaleInput,
+): Promise<AddUnitResult> {
+  const { sale } = input;
+
+  // 1. Model present (default to the sale's SKU so the operator at least
+  //    has something to confirm/edit).
+  const model = (input.model ?? '').trim() || (sale.sku ?? '').trim();
+  if (!model) {
+    return { ok: false, error: 'missing_model', message: 'Model is required.' };
+  }
+
+  // 2. IMEI strict — model-aware (tablets / Apple unlock the serial form).
+  const rawImei = (input.imei ?? sale.imei ?? '').trim().toUpperCase();
+  const apple = isAppleDevice(model);
+  if (!isValidImei(rawImei, { isAppleSerial: apple })) {
+    return {
+      ok: false,
+      error: 'invalid_imei',
+      message: apple
+        ? 'Enter a valid 15-digit IMEI or 10-12 char serial.'
+        : 'Enter a valid 15-digit IMEI (digits only — no letters).',
+    };
+  }
+
+  // 3. Buy price strictly > 0 (default to the sale's BP).
+  const bp = Number(input.buyPrice ?? sale.buyPrice);
+  if (!Number.isFinite(bp) || bp <= 0) {
+    return { ok: false, error: 'missing_buy_price', message: 'Buy price must be greater than £0.' };
+  }
+
+  // 4. Supplier required (default to the sale's supplier).
+  const supplierName = (input.supplierName ?? sale.supplierName ?? '').trim();
+  if (!supplierName) {
+    return { ok: false, error: 'missing_supplier', message: 'Supplier is required.' };
+  }
+
+  // 5. Duplicate check — the whole point is that no unit exists yet, but a
+  //    concurrent add or a typo could collide.
+  if (await dbService.imeiExists(rawImei)) {
+    return { ok: false, error: 'duplicate_imei', message: `IMEI ${rawImei} is already in inventory.` };
+  }
+
+  // 6. Resolve / create supplier + split brand/model/storage.
+  const supplierId = await ensureSupplier(supplierName);
+  const parsed = parseBrandModelStorage(model);
+  const category = detectCategory(model);
+  const brand = parsed.brand !== 'Other'
+    ? parsed.brand
+    : (['iPhone', 'iPad', 'Apple Watch'].includes(category)
+        ? 'Apple'
+        : (['Samsung S Series', 'Samsung A Series', 'Tablet'].includes(category) ? 'Samsung' : 'Other'));
+  const cleanModel = parsed.model || model;
+  const storage = (input.storage ?? '').trim() || parsed.storage;
+  const createdAt = new Date().toISOString();
+
+  const newUnit: InventoryUnit = {
+    id: rawImei,
+    imei: rawImei,
+    model: cleanModel,
+    brand,
+    category,
+    colour: (input.colour ?? '').trim() || 'Unknown',
+    ...(storage ? { storage } : {}),
+    ...(parsed.series ? ({ series: parsed.series } as any) : {}),
+    ...(sale.sku ? { sku: sale.sku } : {}),
+    buyPrice: bp,
+    dateIn: sale.saleDate || today(),
+    supplierId,
+    supplierName: supplierName || undefined,
+    status: 'sold',
+    flags: [],
+    notes: '',
+    platformListed: true,
+    listingSites: [] as ListingSite[],
+    // Sale provenance — mirrors buildPostImportSyncPatches' sold-unit shape.
+    salePrice: sale.salePrice,
+    saleDate: sale.saleDate,
+    salePlatform: sale.marketplace,
+    saleOrderId: sale.orderNumber,
+    ...(sale.postage != null ? { postageCost: sale.postage } : {}),
+    ownerId: 'shared',
+    createdAt,
+  };
+
+  try {
+    await dbService.create('inventoryUnits', rawImei, newUnit);
+    // Back-link the sale so the Sales Report ALL-sheet join + the
+    // "No Inventory IMEI" flag both resolve to this unit.
+    await dbService.update('sales', sale.id, { unitId: rawImei });
+  } catch (err: any) {
+    return { ok: false, error: 'write_failed', message: err?.message || 'Save failed. Check connection.' };
+  }
+
+  await logInventoryEvent({
+    type: 'sold',
+    message: `Unit ${rawImei} added from sale ${sale.marketplace} ${sale.orderNumber || ''} — marked sold (${cleanModel}${storage ? ' ' + storage : ''})`,
+    unitId: rawImei,
+  });
+
+  return { ok: true, id: rawImei };
 }

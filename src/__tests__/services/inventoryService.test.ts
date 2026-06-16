@@ -65,7 +65,9 @@ import {
   ensureSupplier,
   receiveShsAggregate,
   backfillImei,
+  addSoldUnitFromSale,
 } from '../../services/inventoryService';
+import type { Sale } from '../../types';
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 
@@ -519,5 +521,101 @@ describe('backfillImei', () => {
     const r = await backfillImei(unitId, 'NOTAVALIDIMEI');
     expect(r.ok).toBe(false);
     expect(r.error).toBe('invalid_imei');
+  });
+});
+
+// ───────────────────────────────────────────────────────────────────────────
+// addSoldUnitFromSale
+// ───────────────────────────────────────────────────────────────────────────
+
+const orphanSale = (over: Partial<Sale> = {}): Sale => ({
+  id: 'AMAZON__O-1__350000000000111',
+  marketplace: 'AMAZON',
+  orderNumber: 'O-1',
+  imei: '350000000000111',
+  unitId: '',
+  supplierId: '',
+  supplierName: 'NIHAL',
+  saleDate: '2026-06-14',
+  quantity: 1,
+  buyPrice: 120,
+  salePrice: 169.99,
+  postage: 6.3,
+  sku: 'ASI-SG-A32-5G-64-BK-EX',
+  importBatchId: 't', sourceFile: 't', sourceRow: 1, ownerId: 'shared',
+  createdAt: '2026-06-14T00:00:00Z', updatedAt: '2026-06-14T00:00:00Z',
+  ...over,
+});
+
+describe('addSoldUnitFromSale', () => {
+  it('creates a SOLD unit from the sale and back-links sale.unitId', async () => {
+    const sale = orphanSale();
+    col('sales').set(sale.id, { ...sale });
+
+    const r = await addSoldUnitFromSale({
+      sale,
+      imei: sale.imei,
+      model: 'Samsung Galaxy A32 5G',
+    });
+    expect(r.ok).toBe(true);
+    expect(r.id).toBe('350000000000111');
+
+    const unit = collections['inventoryUnits'].get('350000000000111');
+    expect(unit).toBeDefined();
+    expect(unit.status).toBe('sold');
+    // Sale provenance carried onto the unit.
+    expect(unit.salePrice).toBe(169.99);
+    expect(unit.saleDate).toBe('2026-06-14');
+    expect(unit.salePlatform).toBe('AMAZON');
+    expect(unit.saleOrderId).toBe('O-1');
+    expect(unit.postageCost).toBe(6.3);
+    // Defaults pulled from the sale.
+    expect(unit.buyPrice).toBe(120);
+    expect(unit.supplierName).toBe('NIHAL');
+    expect(unit.sku).toBe('ASI-SG-A32-5G-64-BK-EX');
+
+    // The sale is back-linked so the report join resolves + flag clears.
+    expect(collections['sales'].get(sale.id).unitId).toBe('350000000000111');
+  });
+
+  it('accepts an alphanumeric serial when the model is a tablet', async () => {
+    const sale = orphanSale({
+      id: 'AMAZON__O-TAB__r8ywa0aldft',
+      imei: 'r8ywa0aldft',
+      sku: 'ASI-SG-TABA8-32GB-BK-EX',
+    });
+    col('sales').set(sale.id, { ...sale });
+
+    const r = await addSoldUnitFromSale({
+      sale,
+      imei: 'r8ywa0aldft',
+      model: 'Samsung Galaxy Tab A8 32GB',
+    });
+    expect(r.ok).toBe(true);
+    // Serial upper-cased for the doc id.
+    expect(r.id).toBe('R8YWA0ALDFT');
+    expect(collections['inventoryUnits'].get('R8YWA0ALDFT')?.status).toBe('sold');
+  });
+
+  it('rejects a non-IMEI serial when the model is a plain phone', async () => {
+    const sale = orphanSale({ imei: 'notanimei' });
+    const r = await addSoldUnitFromSale({ sale, imei: 'notanimei', model: 'Samsung A32' });
+    expect(r.ok).toBe(false);
+    expect(r.error).toBe('invalid_imei');
+  });
+
+  it('rejects when the IMEI already exists in inventory', async () => {
+    col('inventoryUnits').set('350000000000111', { id: '350000000000111', imei: '350000000000111' });
+    const sale = orphanSale();
+    const r = await addSoldUnitFromSale({ sale, imei: sale.imei, model: 'Samsung A32 5G' });
+    expect(r.ok).toBe(false);
+    expect(r.error).toBe('duplicate_imei');
+  });
+
+  it('rejects a zero buy price', async () => {
+    const sale = orphanSale({ buyPrice: 0 });
+    const r = await addSoldUnitFromSale({ sale, imei: sale.imei, model: 'Samsung A32 5G', buyPrice: 0 });
+    expect(r.ok).toBe(false);
+    expect(r.error).toBe('missing_buy_price');
   });
 });

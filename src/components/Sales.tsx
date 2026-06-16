@@ -15,6 +15,7 @@ import { notificationService, Notification } from '../lib/notificationService';
 import { marketplaceFromListingSite } from '../lib/platforms';
 import { recomputeSale } from '../lib/recomputeSale';
 import { fmtDateForUser, useUserRegion } from '../lib/userLocale';
+import AddSoldUnitModal from './AddSoldUnitModal';
 
 const FLAG_CONFIG: Record<OperationalFlag, { label: string; icon: any; style: string; action: string }> = {
   top10: {
@@ -141,6 +142,7 @@ export default function Sales() {
   const region                              = useUserRegion();
   const [activeListings, setActiveListings] = useState<ActiveListing[]>([]);
   const [recentNotifications, setRecentNotifications] = useState<Notification[]>([]);
+  const [addSoldUnitSale, setAddSoldUnitSale] = useState<Sale | null>(null);
 
   useEffect(() => {
     const unsub3 = dbService.subscribeToCollection('activeListings', setActiveListings);
@@ -814,12 +816,14 @@ export default function Sales() {
                                         </span>
                                       )}
                                       {noInventory && (
-                                        <span
-                                          className="text-[8px] font-bold uppercase tracking-widest px-1 py-px rounded border bg-amber-50 text-amber-700 border-amber-300"
-                                          title="No inventory unit found for this IMEI. Add the unit as fresh stock — it will be automatically linked and marked as sold."
+                                        <button
+                                          type="button"
+                                          onClick={() => setAddSoldUnitSale(s)}
+                                          className="text-[8px] font-bold uppercase tracking-widest px-1 py-px rounded border bg-amber-50 text-amber-700 border-amber-300 hover:bg-amber-100 cursor-pointer transition-colors"
+                                          title="No inventory unit for this IMEI. Click to add it as fresh stock — it will be created already sold and linked to this sale."
                                         >
                                           No Inventory
-                                        </span>
+                                        </button>
                                       )}
                                     </span>
                                   ) : (s.imei || '—');
@@ -1110,6 +1114,16 @@ export default function Sales() {
           )}
         </AnimatePresence>
       </div>
+
+      <AnimatePresence>
+        {addSoldUnitSale && (
+          <AddSoldUnitModal
+            sale={addSoldUnitSale}
+            onClose={() => setAddSoldUnitSale(null)}
+            onSaved={() => setAddSoldUnitSale(null)}
+          />
+        )}
+      </AnimatePresence>
     </div>
   );
 }
