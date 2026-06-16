@@ -186,6 +186,46 @@ describe('SalesReportImport preview — stale combined multi-IMEI cleanup', () =
     );
   });
 
+  it('flags sales whose IMEI has no matching inventory unit (orphan list)', () => {
+    // Two sales: one IMEI matches a unit, the other doesn't. Only the
+    // orphan should appear in noInventory; voided sales never do.
+    const units = [unit({ id: 'u1', imei: '111', status: 'available' })];
+    const split: Sale[] = [
+      sale({ id: 'EBAY__O-OK__111',  marketplace: 'EBAY',  orderNumber: 'O-OK',  imei: '111' }),
+      sale({ id: 'AMAZON__O-NO__222', marketplace: 'AMAZON', orderNumber: 'O-NO', imei: '222' }),
+      // Voided + orphan — expected to be skipped, the unit might have been returned out.
+      sale({ id: 'EBAY__O-V__333', marketplace: 'EBAY', orderNumber: 'O-V', imei: '333', voidedAt: '2026-06-13', voidOutcome: 'refund' }),
+      // No IMEI at all — can't be auto-added, skip.
+      sale({ id: 'EBAY__O-X__inapp', marketplace: 'EBAY', orderNumber: 'O-X', imei: '' }),
+    ];
+    const preview = buildPreview(
+      { sales: split, perSheetCounts: { AMAZON: 1, BM: 0, EBAY: 3, ONBUY: 0 }, errors: [] },
+      [],
+      units,
+    );
+    expect(preview.noInventory).toHaveLength(1);
+    expect(preview.noInventory[0].imei).toBe('222');
+    expect(preview.noInventory[0].orderNumber).toBe('O-NO');
+    expect(preview.noInventory[0].marketplace).toBe('AMAZON');
+  });
+
+  it('returns an empty orphan list when every IMEI matches a unit', () => {
+    const units = [
+      unit({ id: 'u1', imei: '111', status: 'available' }),
+      unit({ id: 'u2', imei: '222', status: 'sold' }),
+    ];
+    const split: Sale[] = [
+      sale({ id: 'EBAY__O1__111', marketplace: 'EBAY', orderNumber: 'O1', imei: '111' }),
+      sale({ id: 'EBAY__O2__222', marketplace: 'EBAY', orderNumber: 'O2', imei: '222' }),
+    ];
+    const preview = buildPreview(
+      { sales: split, perSheetCounts: { AMAZON: 0, BM: 0, EBAY: 2, ONBUY: 0 }, errors: [] },
+      [],
+      units,
+    );
+    expect(preview.noInventory).toEqual([]);
+  });
+
   it('never touches single-IMEI docs or orders absent from the upload', () => {
     const existing: Sale[] = [
       // Single-IMEI doc — no "/", must be left alone even if order matches.

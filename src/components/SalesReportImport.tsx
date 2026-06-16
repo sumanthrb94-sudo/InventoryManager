@@ -27,6 +27,7 @@ import type { Sale, Marketplace } from '../types';
 import { MARKETPLACES } from '../types';
 import { parseSalesWorkbook, type ParsedSales } from '../lib/salesImport';
 import { buildPostImportSyncPatches } from '../services/salesService';
+import { addSoldUnitFromSale } from '../services/inventoryService';
 import { auth } from '../lib/firebase';
 
 interface Props { onClose: () => void; }
@@ -63,6 +64,22 @@ export interface PreviewBuckets {
    *  1-2 rows). We delete them on confirm so re-importing the same report is
    *  idempotent and self-healing. */
   staleCombined: Array<{ id: string; orderNumber: string; imei: string; salePrice: number }>;
+  /** Sales whose IMEI has no matching inventory unit. Surfaced in the
+   *  preview so the operator can opt into auto-creating fresh-stock units
+   *  for them at confirm time (status='sold', defaults pulled from each
+   *  sale). Without this, those sales land but no inventory unit exists
+   *  for them — the post-import sync has nothing to flip and the row stays
+   *  flagged "No Inventory IMEI" on every downstream surface. */
+  noInventory: Array<{
+    saleId: string;
+    imei: string;
+    sku: string;
+    orderNumber: string;
+    marketplace: Marketplace;
+    salePrice: number;
+    buyPrice: number;
+    supplierName: string;
+  }>;
 }
 
 export function buildPreview(
@@ -158,6 +175,31 @@ export function buildPreview(
     });
   }
 
+  // Orphan-IMEI detection. Walk the full import set (not just createable
+  // rows); skip voided sales — a missing unit there is expected. Anything
+  // active with an IMEI that doesn't resolve to an inventory unit is a
+  // candidate for the bulk add-to-inventory flow at confirm time.
+  const noInventory: PreviewBuckets['noInventory'] = [];
+  const seenOrphanImei = new Set<string>();
+  for (const s of [...toCreate, ...toUpdate]) {
+    if (s.voidedAt) continue;
+    const imeiKey = (s.imei || '').trim().toUpperCase();
+    if (!imeiKey) continue;
+    if (unitsByImei.has(imeiKey)) continue;
+    if (seenOrphanImei.has(imeiKey)) continue;   // dedupe (file shouldn't, but be safe)
+    seenOrphanImei.add(imeiKey);
+    noInventory.push({
+      saleId: s.id,
+      imei: (s.imei || '').trim(),
+      sku: s.sku || '',
+      orderNumber: s.orderNumber || '',
+      marketplace: s.marketplace,
+      salePrice: s.salePrice ?? 0,
+      buyPrice: s.buyPrice ?? 0,
+      supplierName: s.supplierName || '',
+    });
+  }
+
   return {
     total: parsed.sales.length,
     perSheet: parsed.perSheetCounts,
@@ -167,6 +209,7 @@ export function buildPreview(
     duplicatesInFile: dupes,
     inventoryFlips,
     staleCombined,
+    noInventory,
   };
 }
 
@@ -179,9 +222,21 @@ export default function SalesReportImport({ onClose }: Props) {
   const [error, setError] = useState('');
   /** Counts populated after a successful import. `unitsMarkedSold` is
    *  the side-effect from the import → inventory sync (Bug B); shown
-   *  on the Done screen so the operator sees the buy-side reconciled. */
-  const [syncStats, setSyncStats] = useState<{ unitsMarkedSold: number; salesLinked: number }>({ unitsMarkedSold: 0, salesLinked: 0 });
+   *  on the Done screen so the operator sees the buy-side reconciled.
+   *  `unitsAddedFromOrphanSales` counts the inventory rows the operator
+   *  opted to auto-create from sales that had no matching IMEI. */
+  const [syncStats, setSyncStats] = useState<{
+    unitsMarkedSold: number;
+    salesLinked: number;
+    unitsAddedFromOrphanSales: number;
+    unitsAddFailed: number;
+  }>({ unitsMarkedSold: 0, salesLinked: 0, unitsAddedFromOrphanSales: 0, unitsAddFailed: 0 });
   const fileInputRef = useRef<HTMLInputElement>(null);
+  /** Operator's choice for the bulk "auto-add orphan-IMEI sales to
+   *  inventory as sold stock" toggle. Default true — the whole point of
+   *  surfacing the count is to let the operator one-click reconcile. */
+  const [autoAddOrphans, setAutoAddOrphans] = useState(true);
+  React.useEffect(() => { setAutoAddOrphans(true); }, [parsed]);
 
   const preview = useMemo(
     () => phase === 'preview' || phase === 'loading' || phase === 'done'
@@ -238,17 +293,54 @@ export default function SalesReportImport({ onClose }: Props) {
           preview.staleCombined.map(s => ({ collection: 'sales', id: s.id })),
         );
       }
+
+      // Auto-create inventory units for orphan-IMEI sales. The whole point
+      // of surfacing the orphan count in the preview is to let the operator
+      // one-click reconcile — every flagged sale becomes a fresh-stock unit
+      // born in status='sold' carrying that sale's provenance, and
+      // sale.unitId is back-linked. Per-row failures (duplicate IMEI,
+      // invalid serial on a plain phone) are tallied but don't abort the
+      // import; the operator can still fix them from the per-row badge.
+      let unitsAddedFromOrphanSales = 0;
+      let unitsAddFailed = 0;
+      if (autoAddOrphans && preview.noInventory.length > 0) {
+        const allImportedSales = [...preview.toCreate, ...preview.toUpdate];
+        const saleById = new Map(allImportedSales.map(s => [s.id, s]));
+        for (const orphan of preview.noInventory) {
+          const sale = saleById.get(orphan.saleId);
+          if (!sale) { unitsAddFailed++; continue; }
+          const res = await addSoldUnitFromSale({
+            sale: sale as Sale,
+            imei: orphan.imei,
+            model: orphan.sku || orphan.imei,
+            supplierName: orphan.supplierName,
+            buyPrice: orphan.buyPrice,
+          });
+          if (res.ok) unitsAddedFromOrphanSales++;
+          else        unitsAddFailed++;
+        }
+      }
+
       // Bug B sync — after sales land in Firestore, mark every matching
       // InventoryUnit as sold and link sale.unitId. Operator no longer
       // has to manually flip statuses to reconcile inventory with
       // imported sales. Skipped sales (voided, no-imei, returned/incoming
       // unit) are silently ignored, see buildPostImportSyncPatches docs.
+      // The just-added orphan units are picked up here too — their sale
+      // is already back-linked + status='sold', so the patch is a no-op
+      // for them and the count below stays accurate to the in-stock
+      // units that genuinely flipped.
       const allImported = [...preview.toCreate, ...preview.toUpdate];
       const { unitPatches, salePatches } = buildPostImportSyncPatches(allImported, units);
       if (unitPatches.length || salePatches.length) {
         await dbService.bulkCreate([...unitPatches, ...salePatches]);
       }
-      setSyncStats({ unitsMarkedSold: unitPatches.length, salesLinked: salePatches.length });
+      setSyncStats({
+        unitsMarkedSold: unitPatches.length,
+        salesLinked: salePatches.length,
+        unitsAddedFromOrphanSales,
+        unitsAddFailed,
+      });
       setPhase('done');
     } catch (e: any) {
       setError(e?.message || 'Import failed during write');
@@ -303,6 +395,8 @@ export default function SalesReportImport({ onClose }: Props) {
               error={error}
               flipsAcked={flipsAcked}
               onAckChange={setFlipsAcked}
+              autoAddOrphans={autoAddOrphans}
+              onAutoAddChange={setAutoAddOrphans}
             />
           )}
 
@@ -336,6 +430,14 @@ export default function SalesReportImport({ onClose }: Props) {
                   {syncStats.unitsMarkedSold > 0 && <>{syncStats.unitsMarkedSold} unit{syncStats.unitsMarkedSold === 1 ? '' : 's'} marked sold</>}
                   {syncStats.unitsMarkedSold > 0 && syncStats.salesLinked > 0 && ' · '}
                   {syncStats.salesLinked > 0 && <>{syncStats.salesLinked} sale{syncStats.salesLinked === 1 ? '' : 's'} linked</>}
+                </p>
+              )}
+              {(syncStats.unitsAddedFromOrphanSales > 0 || syncStats.unitsAddFailed > 0) && (
+                <p className="text-[10px] font-mono text-orange-700 mt-1">
+                  Orphan-IMEI sales ·{' '}
+                  {syncStats.unitsAddedFromOrphanSales > 0 && <>{syncStats.unitsAddedFromOrphanSales} unit{syncStats.unitsAddedFromOrphanSales === 1 ? '' : 's'} added to inventory as sold</>}
+                  {syncStats.unitsAddedFromOrphanSales > 0 && syncStats.unitsAddFailed > 0 && ' · '}
+                  {syncStats.unitsAddFailed > 0 && <span className="text-amber-700">{syncStats.unitsAddFailed} could not be auto-added (click the badge on those sales to fix)</span>}
                 </p>
               )}
             </div>
@@ -450,12 +552,15 @@ function UploadPhase({
 // ── Phase: preview ──────────────────────────────────────────────────────────
 function PreviewPhase({
   preview, fileName, error, flipsAcked, onAckChange,
+  autoAddOrphans, onAutoAddChange,
 }: {
   preview: PreviewBuckets;
   fileName: string;
   error: string;
   flipsAcked: boolean;
   onAckChange: (v: boolean) => void;
+  autoAddOrphans: boolean;
+  onAutoAddChange: (v: boolean) => void;
 }) {
   return (
     <div className="space-y-3">
@@ -553,6 +658,68 @@ function PreviewPhase({
               className="mt-0.5 w-4 h-4 accent-amber-600 cursor-pointer"
             />
             I've reviewed the list — flip the {preview.inventoryFlips.length} unit{preview.inventoryFlips.length === 1 ? '' : 's'} to sold.
+          </label>
+        </div>
+      )}
+
+      {/* No-inventory-IMEI panel — sales in this file whose IMEI doesn't
+          match any inventory unit. Default action is to auto-create those
+          units as fresh-stock + status='sold' at confirm time, defaults
+          pulled from each sale. Operator can untick to skip the bulk add
+          and handle them one-by-one via the per-row badge after import. */}
+      {preview.noInventory.length > 0 && (
+        <div className="border-2 border-orange-300 bg-orange-50 rounded-2xl p-3 space-y-2.5">
+          <div className="flex items-start gap-2">
+            <AlertTriangle size={18} className="text-orange-600 flex-shrink-0 mt-0.5" />
+            <div className="flex-1 min-w-0">
+              <p className="text-[12px] font-bold text-orange-900">
+                {preview.noInventory.length} sale{preview.noInventory.length === 1 ? '' : 's'} have no matching inventory IMEI
+              </p>
+              <p className="text-[11px] text-orange-800 mt-0.5">
+                These IMEIs were sold but aren't in inventory. With the toggle
+                below ticked, the import will add each one as a fresh-stock
+                unit already marked SOLD, carrying that sale's SP / order /
+                marketplace / date and your BP + supplier from the file.
+                Sales then link to their units automatically — the
+                "No Inventory IMEI" flag clears on the next view.
+              </p>
+            </div>
+          </div>
+
+          <div className="bg-white border border-orange-200 rounded-xl overflow-hidden">
+            <div className="px-3 py-1.5 border-b border-orange-100 text-[9px] font-mono uppercase tracking-widest text-orange-900 bg-orange-50/60">
+              Sales without an inventory unit
+            </div>
+            <ul className="max-h-48 overflow-auto divide-y divide-orange-50 text-[11px]">
+              {preview.noInventory.slice(0, 50).map(o => (
+                <li key={o.saleId} className="px-3 py-1.5 flex items-center justify-between gap-3">
+                  <span className="font-mono text-slate-700 truncate" title={`${o.imei} — ${o.sku}`}>
+                    {o.imei || '—'} <span className="text-slate-400">·</span> <span className="text-slate-500">{o.sku || '—'}</span>
+                  </span>
+                  <span className="flex-shrink-0 text-[10px] font-mono text-slate-600">
+                    {o.marketplace} · {o.orderNumber} · BP £{Number(o.buyPrice).toFixed(0)} · SP £{Number(o.salePrice).toFixed(2)}
+                  </span>
+                </li>
+              ))}
+              {preview.noInventory.length > 50 && (
+                <li className="px-3 py-1.5 text-orange-700 text-[10px] font-mono">
+                  +{preview.noInventory.length - 50} more not shown
+                </li>
+              )}
+            </ul>
+          </div>
+
+          <label className="flex items-start gap-2 cursor-pointer select-none text-[11px] font-semibold text-orange-900">
+            <input
+              type="checkbox"
+              checked={autoAddOrphans}
+              onChange={e => onAutoAddChange(e.target.checked)}
+              className="mt-0.5 w-4 h-4 accent-orange-600 cursor-pointer"
+            />
+            Add these {preview.noInventory.length} unit{preview.noInventory.length === 1 ? '' : 's'} to inventory as SOLD when I confirm.
+            <span className="block text-[10px] font-mono font-normal text-orange-700 mt-0.5">
+              Tablets / non-IMEI serials may fail validation — those stay flagged for one-click fix from the per-sale badge.
+            </span>
           </label>
         </div>
       )}
