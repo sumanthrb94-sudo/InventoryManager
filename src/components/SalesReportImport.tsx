@@ -415,33 +415,60 @@ export default function SalesReportImport({ onClose }: Props) {
             </div>
           )}
 
-          {phase === 'done' && preview && (
-            <div className="py-8 flex flex-col items-center gap-3 text-center">
-              <CheckCircle2 size={36} className="text-emerald-600" />
-              <p className="text-sm font-bold text-slate-900">Import complete</p>
-              <p className="text-[11px] font-mono text-slate-500">
-                {preview.toCreate.length} created · {preview.toUpdate.length} updated
-                {preview.invalid.length > 0 && <> · {preview.invalid.length} skipped</>}
-                {preview.staleCombined.length > 0 && <> · {preview.staleCombined.length} stale rows cleaned</>}
-              </p>
-              {(syncStats.unitsMarkedSold > 0 || syncStats.salesLinked > 0) && (
-                <p className="text-[10px] font-mono text-emerald-700 mt-1">
-                  Inventory synced ·{' '}
-                  {syncStats.unitsMarkedSold > 0 && <>{syncStats.unitsMarkedSold} unit{syncStats.unitsMarkedSold === 1 ? '' : 's'} marked sold</>}
-                  {syncStats.unitsMarkedSold > 0 && syncStats.salesLinked > 0 && ' · '}
-                  {syncStats.salesLinked > 0 && <>{syncStats.salesLinked} sale{syncStats.salesLinked === 1 ? '' : 's'} linked</>}
+          {phase === 'done' && preview && (() => {
+            // Same "nothing actually changed" detection as the preview's
+            // allReconciled panel, but also gated on the post-confirm sync
+            // having been a no-op (no flips, no sales linked, no orphans
+            // added). When every signal is zero, surface a clear "no
+            // changes were needed" message instead of "0 created · N
+            // updated", which always confuses on re-uploads.
+            const noChanges =
+              preview.toCreate.length === 0
+              && preview.staleCombined.length === 0
+              && syncStats.unitsMarkedSold === 0
+              && syncStats.salesLinked === 0
+              && syncStats.unitsAddedFromOrphanSales === 0
+              && syncStats.unitsAddFailed === 0;
+            if (noChanges) {
+              return (
+                <div className="py-8 flex flex-col items-center gap-3 text-center">
+                  <CheckCircle2 size={36} className="text-emerald-600" />
+                  <p className="text-sm font-bold text-slate-900">No changes needed</p>
+                  <p className="text-[11px] font-mono text-slate-500 max-w-sm">
+                    All {preview.toUpdate.length.toLocaleString()} {preview.toUpdate.length === 1 ? 'sale was' : 'sales were'} already in the database,
+                    and no inventory units needed updating — every IMEI in this file already resolves to an existing unit.
+                  </p>
+                </div>
+              );
+            }
+            return (
+              <div className="py-8 flex flex-col items-center gap-3 text-center">
+                <CheckCircle2 size={36} className="text-emerald-600" />
+                <p className="text-sm font-bold text-slate-900">Import complete</p>
+                <p className="text-[11px] font-mono text-slate-500">
+                  {preview.toCreate.length} created · {preview.toUpdate.length} updated
+                  {preview.invalid.length > 0 && <> · {preview.invalid.length} skipped</>}
+                  {preview.staleCombined.length > 0 && <> · {preview.staleCombined.length} stale rows cleaned</>}
                 </p>
-              )}
-              {(syncStats.unitsAddedFromOrphanSales > 0 || syncStats.unitsAddFailed > 0) && (
-                <p className="text-[10px] font-mono text-orange-700 mt-1">
-                  Orphan-IMEI sales ·{' '}
-                  {syncStats.unitsAddedFromOrphanSales > 0 && <>{syncStats.unitsAddedFromOrphanSales} unit{syncStats.unitsAddedFromOrphanSales === 1 ? '' : 's'} added to inventory as sold</>}
-                  {syncStats.unitsAddedFromOrphanSales > 0 && syncStats.unitsAddFailed > 0 && ' · '}
-                  {syncStats.unitsAddFailed > 0 && <span className="text-amber-700">{syncStats.unitsAddFailed} could not be auto-added (click the badge on those sales to fix)</span>}
-                </p>
-              )}
-            </div>
-          )}
+                {(syncStats.unitsMarkedSold > 0 || syncStats.salesLinked > 0) && (
+                  <p className="text-[10px] font-mono text-emerald-700 mt-1">
+                    Inventory synced ·{' '}
+                    {syncStats.unitsMarkedSold > 0 && <>{syncStats.unitsMarkedSold} unit{syncStats.unitsMarkedSold === 1 ? '' : 's'} marked sold</>}
+                    {syncStats.unitsMarkedSold > 0 && syncStats.salesLinked > 0 && ' · '}
+                    {syncStats.salesLinked > 0 && <>{syncStats.salesLinked} sale{syncStats.salesLinked === 1 ? '' : 's'} linked</>}
+                  </p>
+                )}
+                {(syncStats.unitsAddedFromOrphanSales > 0 || syncStats.unitsAddFailed > 0) && (
+                  <p className="text-[10px] font-mono text-orange-700 mt-1">
+                    Orphan-IMEI sales ·{' '}
+                    {syncStats.unitsAddedFromOrphanSales > 0 && <>{syncStats.unitsAddedFromOrphanSales} unit{syncStats.unitsAddedFromOrphanSales === 1 ? '' : 's'} added to inventory as sold</>}
+                    {syncStats.unitsAddedFromOrphanSales > 0 && syncStats.unitsAddFailed > 0 && ' · '}
+                    {syncStats.unitsAddFailed > 0 && <span className="text-amber-700">{syncStats.unitsAddFailed} could not be auto-added (click the badge on those sales to fix)</span>}
+                  </p>
+                )}
+              </div>
+            );
+          })()}
         </div>
 
         {/* Footer */}
@@ -473,7 +500,13 @@ export default function SalesReportImport({ onClose }: Props) {
                 }
                 className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 text-white text-[10px] font-bold uppercase tracking-widest hover:bg-emerald-700 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
               >
-                <CheckCircle2 size={12} /> Load {(preview.toCreate.length + preview.toUpdate.length).toLocaleString()} sales
+                <CheckCircle2 size={12} />
+                {preview.toCreate.length === 0
+                  && preview.noInventory.length === 0
+                  && preview.inventoryFlips.length === 0
+                  && preview.staleCombined.length === 0
+                  ? <>Re-confirm {preview.toUpdate.length.toLocaleString()} sales</>
+                  : <>Load {(preview.toCreate.length + preview.toUpdate.length).toLocaleString()} sales</>}
               </button>
             </>
           )}
@@ -562,6 +595,19 @@ function PreviewPhase({
   autoAddOrphans: boolean;
   onAutoAddChange: (v: boolean) => void;
 }) {
+  // Clean re-import = nothing to create, nothing to flip, no orphan IMEIs,
+  // no stale combined docs to purge. The file has already been imported and
+  // every IMEI in it already resolves to an inventory unit — surface this
+  // loudly so the operator doesn't second-guess a "nothing happened" press
+  // of Confirm. Errors / duplicate-in-file rows still get their own panels;
+  // we don't hide those even when reconciled, because they need attention.
+  const allReconciled =
+    preview.toCreate.length === 0
+    && preview.noInventory.length === 0
+    && preview.inventoryFlips.length === 0
+    && preview.staleCombined.length === 0
+    && preview.toUpdate.length > 0;
+
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between gap-3 text-[11px] font-mono text-slate-500">
@@ -570,6 +616,22 @@ function PreviewPhase({
           {fileName} · {preview.total.toLocaleString()} {preview.total === 1 ? 'row' : 'rows'}
         </span>
       </div>
+
+      {allReconciled && (
+        <div className="border-2 border-emerald-300 bg-emerald-50 rounded-2xl p-3 flex items-start gap-2.5">
+          <CheckCircle2 size={20} className="text-emerald-600 flex-shrink-0 mt-0.5" />
+          <div className="flex-1 min-w-0">
+            <p className="text-[12px] font-bold text-emerald-900">
+              Already up to date — nothing to change
+            </p>
+            <p className="text-[11px] text-emerald-800 mt-0.5">
+              All {preview.toUpdate.length.toLocaleString()} {preview.toUpdate.length === 1 ? 'sale is' : 'sales are'} already in the database.
+              No inventory units need updating — every IMEI in this file already resolves to an existing unit.
+              You can close this dialog, or confirm to refresh the import timestamps and source-file provenance.
+            </p>
+          </div>
+        </div>
+      )}
 
       {/* Summary tiles */}
       <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
@@ -659,6 +721,17 @@ function PreviewPhase({
             />
             I've reviewed the list — flip the {preview.inventoryFlips.length} unit{preview.inventoryFlips.length === 1 ? '' : 's'} to sold.
           </label>
+        </div>
+      )}
+
+      {/* Positive confirmation that every sale IMEI resolved to a unit.
+          Suppressed when allReconciled fires (the bigger panel above
+          already conveys this) and when there's literally nothing in the
+          file to evaluate (total=0). */}
+      {!allReconciled && preview.noInventory.length === 0 && (preview.toCreate.length + preview.toUpdate.length) > 0 && (
+        <div className="border border-emerald-200 bg-emerald-50/60 rounded-xl px-3 py-2 flex items-center gap-2 text-[11px] text-emerald-800">
+          <CheckCircle2 size={12} className="text-emerald-600 flex-shrink-0" />
+          <span>All sale IMEIs match inventory units — nothing to add.</span>
         </div>
       )}
 
