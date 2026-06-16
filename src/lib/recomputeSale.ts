@@ -42,24 +42,29 @@ export function recomputeSale(s: Sale): Sale {
     hasPayPalKlarna,
   });
 
+  // Guard: calcSaleFinancials should always return a value now that a default
+  // case exists, but keep this safety net for any edge case (e.g. a future
+  // TypeScript narrowing change or a mocked environment in tests).
+  if (!fresh) return s;
+
   // Replace all derived fields on the returned Sale with the freshly
   // computed ones. Identity / provenance / metadata are untouched.
   return {
     ...s,
-    spMinusBp:       fresh.spMinusBp,
-    marginalTax:     fresh.marginalTax,
-    commission:      fresh.commission,
+    spMinusBp: fresh.spMinusBp,
+    marginalTax: fresh.marginalTax,
+    commission: fresh.commission,
     payPalKlarnaCom: fresh.payPalKlarnaCom,
-    rof:             fresh.rof,
-    fvf:             fresh.fvf,
-    twentyPercent:   fresh.twentyPercent,
-    totalCom:        fresh.totalCom,
-    vat20:           fresh.vat20,
-    marVat:          fresh.marVat,
-    postage:         fresh.postage,
-    grossProfit:     fresh.grossProfit,
-    gpPercent:       fresh.gpPercent,
-    netProfit:       fresh.netProfit,
+    rof: fresh.rof,
+    fvf: fresh.fvf,
+    twentyPercent: fresh.twentyPercent,
+    totalCom: fresh.totalCom,
+    vat20: fresh.vat20,
+    marVat: fresh.marVat,
+    postage: fresh.postage,
+    grossProfit: fresh.grossProfit,
+    gpPercent: fresh.gpPercent,
+    netProfit: fresh.netProfit,
   };
 }
 
