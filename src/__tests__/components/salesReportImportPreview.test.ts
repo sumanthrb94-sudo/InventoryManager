@@ -243,4 +243,47 @@ describe('SalesReportImport preview — stale combined multi-IMEI cleanup', () =
     );
     expect(preview.staleCombined).toEqual([]);
   });
+
+  it('purges blank-IMEI legacy duplicates when the upload provides per-IMEI replacements', () => {
+    // Field scenario: order 026-6081380-8104355 + 204-0877891-0211532 sit in
+    // the DB as N rows with blank IMEI (from an earlier import where the
+    // bulk-order IMEI cell arrived empty). The new upload now carries
+    // proper per-IMEI rows for the same orders — the blank dupes must be
+    // purged so the per-IMEI rows are the only docs that survive.
+    const existing: Sale[] = [
+      sale({ id: 'AMAZON__O-BULK__r28', marketplace: 'AMAZON', orderNumber: 'O-BULK', imei: '' }),
+      sale({ id: 'AMAZON__O-BULK__r29', marketplace: 'AMAZON', orderNumber: 'O-BULK', imei: '' }),
+    ];
+    const split: Sale[] = [
+      sale({ id: 'AMAZON__O-BULK__111111111111111', marketplace: 'AMAZON', orderNumber: 'O-BULK', imei: '111111111111111' }),
+      sale({ id: 'AMAZON__O-BULK__222222222222222', marketplace: 'AMAZON', orderNumber: 'O-BULK', imei: '222222222222222' }),
+    ];
+    const preview = buildPreview(
+      { sales: split, perSheetCounts: { AMAZON: 2, BM: 0, EBAY: 0, ONBUY: 0 }, errors: [] },
+      existing,
+      [],
+    );
+    expect(preview.staleCombined.map(s => s.id).sort()).toEqual(
+      ['AMAZON__O-BULK__r28', 'AMAZON__O-BULK__r29'],
+    );
+  });
+
+  it('keeps a blank-IMEI legacy row when the upload has no per-IMEI replacement for that order', () => {
+    // Safety net: if the upload's row for this order ALSO has a blank IMEI
+    // (e.g. operator still missing the data), don't delete the only surviving
+    // record — the operator can fill it in later.
+    const existing: Sale[] = [
+      sale({ id: 'AMAZON__O-PEND__r28', marketplace: 'AMAZON', orderNumber: 'O-PEND', imei: '' }),
+    ];
+    const upload: Sale[] = [
+      // New row also blank — no per-IMEI replacement available.
+      sale({ id: 'AMAZON__O-PEND__r28', marketplace: 'AMAZON', orderNumber: 'O-PEND', imei: '' }),
+    ];
+    const preview = buildPreview(
+      { sales: upload, perSheetCounts: { AMAZON: 1, BM: 0, EBAY: 0, ONBUY: 0 }, errors: [] },
+      existing,
+      [],
+    );
+    expect(preview.staleCombined).toEqual([]);
+  });
 });

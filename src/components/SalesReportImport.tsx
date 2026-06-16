@@ -153,24 +153,51 @@ export function buildPreview(
   // present in THIS upload, and only docs whose stored IMEI actually contains
   // a "/" (the unmistakable signature of the legacy combined form) — single-
   // IMEI sales are never touched.
+  // Stale legacy docs to purge. Two stale shapes are targeted:
+  //  (a) IMEI contains "/" — the original combined form from the pre-splitter
+  //      parser (one doc holding all IMEIs of a bulk order separated by " / ").
+  //  (b) IMEI is blank — duplicates created by an earlier import attempt where
+  //      a bulk-order row arrived with the IMEI cell missing (the parser
+  //      fell back to a source-row discriminator, producing N indistinguishable
+  //      docs per order). Confirmed in the field: orders 026-6081380-8104355
+  //      with 2 rows and 204-0877891-0211532 with 4 rows, all blank-IMEI.
+  //
+  // Either way: when the same order has per-IMEI rows in the NEW upload, the
+  // legacy ones are stale. Restrict deletion to orders covered by this
+  // upload, never delete a doc we're rewriting, and skip orphan blank rows
+  // when the new upload has nothing better for that order (otherwise the
+  // operator would lose a partial record).
   const importedOrderKeys = new Set(
     parsed.sales
       .filter(s => s.orderNumber)
       .map(s => `${s.marketplace}__${(s.orderNumber || '').trim()}`),
   );
+  // For the blank-IMEI gate: only purge a legacy blank-IMEI doc when the
+  // upload provides at least one DIFFERENT (per-IMEI) replacement for that
+  // order. Built from the upload set; sale.imei here is the per-IMEI form
+  // emitted by the splitter, so a non-empty IMEI means "real replacement".
+  const ordersWithReplacements = new Set<string>();
+  for (const s of parsed.sales) {
+    if ((s.imei || '').trim()) {
+      ordersWithReplacements.add(`${s.marketplace}__${(s.orderNumber || '').trim()}`);
+    }
+  }
   // IDs we're about to (re)write — never delete a doc we're also writing.
   const writingIds = new Set([...toCreate, ...toUpdate].map(s => s.id));
   const staleCombined: PreviewBuckets['staleCombined'] = [];
   for (const ex of existingSales) {
     const imei = (ex.imei || '').trim();
-    if (!imei.includes('/')) continue;                       // not a combined doc
+    const isCombined = imei.includes('/');
+    const isBlank = imei === '';
+    if (!isCombined && !isBlank) continue;                   // single-IMEI doc — never touch
     const key = `${ex.marketplace}__${(ex.orderNumber || '').trim()}`;
     if (!importedOrderKeys.has(key)) continue;               // order not in this upload
     if (writingIds.has(ex.id)) continue;                     // being rewritten, keep
+    if (isBlank && !ordersWithReplacements.has(key)) continue; // no per-IMEI replacement → keep
     staleCombined.push({
       id: ex.id,
       orderNumber: ex.orderNumber || '',
-      imei,
+      imei: imei || '(blank)',
       salePrice: ex.salePrice ?? 0,
     });
   }
@@ -811,12 +838,14 @@ function PreviewPhase({
       )}
 
       {preview.staleCombined.length > 0 && (
-        <DetailPanel title={`Stale combined rows to clean up · ${preview.staleCombined.length}`} tone="amber">
+        <DetailPanel title={`Stale legacy rows to clean up · ${preview.staleCombined.length}`} tone="amber">
           <p className="text-[10px] text-amber-800 mb-1.5">
-            These bulk orders were previously stored as one row holding every
-            IMEI. This upload splits them into one row per IMEI, so the old
-            combined rows below are deleted on confirm (fixes double-counted
-            revenue and 4-unit orders showing as 1-2 rows).
+            These rows are duplicates of bulk orders the new upload supersedes
+            — either an old "all IMEIs in one cell" combined doc, or a blank-
+            IMEI row created when the import previously couldn't extract the
+            IMEI. The per-IMEI rows from this upload replace them, so the old
+            ones below are deleted on confirm (fixes double-counted revenue,
+            blank-IMEI dupes, and 4-unit orders rendering as 1-2 rows).
           </p>
           <ul className="space-y-1 text-[10px] font-mono text-amber-700">
             {preview.staleCombined.slice(0, 15).map(s => (
