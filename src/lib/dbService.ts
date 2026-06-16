@@ -202,12 +202,25 @@ export const dbService = {
       (byCollection[entry.collection] ??= []).push(item);
     }
 
-    // Optimistic in-memory update
+    // Optimistic in-memory update. MERGE into the existing cached row when
+    // one is present — never replace. The Firestore write below uses
+    // `{ merge: true }` so the server doc keeps every field that's not in
+    // this payload; the local cache must mirror that or readers see a
+    // stubbed doc until the snapshot listener round-trips.
+    //
+    // Concrete reproduction: post-import sync writes a partial salePatch
+    // like `{ unitId: 'IMEI' }` for each orphan-added row. The OLD code
+    // replaced the cached sale with just {unitId, id, ownerId, createdAt,
+    // updatedAt} — every other field (imei, marketplace, orderNumber, BP,
+    // SP, …) vanished from the cache until Firestore's snapshot listener
+    // refilled it. During that window, IMEI search on the Sell tab missed
+    // the row because cache.imei was undefined.
     for (const [col, items] of Object.entries(byCollection)) {
       const existing = [...(cachedData[col] || [])];
       for (const item of items) {
         const idx = existing.findIndex(e => e.id === item.id);
-        if (idx >= 0) existing[idx] = item; else existing.push(item);
+        if (idx >= 0) existing[idx] = { ...existing[idx], ...item };
+        else          existing.push(item);
       }
       cachedData[col] = existing;
       emit(col, existing);
@@ -239,11 +252,21 @@ export const dbService = {
 
   /** Delete many docs in batches (mirrors bulkCreate's 400-per-batch chunking).
    *  Used by the sales importer to purge stale combined multi-IMEI docs that
-   *  the per-IMEI split rows supersede. */
+   *  the per-IMEI split rows supersede.
+   *
+   *  Returns the count of docs that were actually deleted by Firestore.
+   *  When a batch fails (e.g. firestore.rules denies `sales` delete to
+   *  non-admin users), the affected IDs are NOT counted. The caller can
+   *  surface a "deleted N of M" tally instead of falsely claiming all M
+   *  were cleaned. Errors are still logged to the console for debugging.
+   *
+   *  Note on optimistic cache: removed entries reappear on the next
+   *  Firestore snapshot when the delete was denied server-side. This is
+   *  intentional — the live store stays consistent with Firestore. */
   async bulkDelete(
     entries: Array<{ collection: string; id: string }>,
-  ): Promise<void> {
-    if (entries.length === 0) return;
+  ): Promise<{ deleted: number; failed: number }> {
+    if (entries.length === 0) return { deleted: 0, failed: 0 };
 
     // Optimistic in-memory removal
     const byCollection: Record<string, Set<string>> = {};
@@ -255,17 +278,22 @@ export const dbService = {
     }
 
     const BATCH_SIZE = 400;
+    let deleted = 0;
+    let failed = 0;
     for (let i = 0; i < entries.length; i += BATCH_SIZE) {
       const chunk = entries.slice(i, i + BATCH_SIZE);
       const batch = writeBatch(db);
       for (const entry of chunk) batch.delete(docRef(entry.collection, entry.id));
       try {
         await batch.commit();
+        deleted += chunk.length;
       } catch (err: any) {
         console.warn(`Firestore bulkDelete:`, err.message);
+        failed += chunk.length;
       }
       await new Promise(r => setTimeout(r, 0));
     }
+    return { deleted, failed };
   },
 
   subscribeToCollection(collectionName: string, callback: (data: any[]) => void) {

@@ -251,13 +251,18 @@ export default function SalesReportImport({ onClose }: Props) {
    *  the side-effect from the import → inventory sync (Bug B); shown
    *  on the Done screen so the operator sees the buy-side reconciled.
    *  `unitsAddedFromOrphanSales` counts the inventory rows the operator
-   *  opted to auto-create from sales that had no matching IMEI. */
+   *  opted to auto-create from sales that had no matching IMEI.
+   *  `staleDeleteFailed` counts stale-combined deletions that Firestore
+   *  rules denied (e.g. non-admin user trying to delete sales) — surfaced
+   *  to the operator so the Done screen doesn't lie about the cleanup. */
   const [syncStats, setSyncStats] = useState<{
     unitsMarkedSold: number;
     salesLinked: number;
     unitsAddedFromOrphanSales: number;
     unitsAddFailed: number;
-  }>({ unitsMarkedSold: 0, salesLinked: 0, unitsAddedFromOrphanSales: 0, unitsAddFailed: 0 });
+    staleDeleted: number;
+    staleDeleteFailed: number;
+  }>({ unitsMarkedSold: 0, salesLinked: 0, unitsAddedFromOrphanSales: 0, unitsAddFailed: 0, staleDeleted: 0, staleDeleteFailed: 0 });
   const fileInputRef = useRef<HTMLInputElement>(null);
   /** Operator's choice for the bulk "auto-add orphan-IMEI sales to
    *  inventory as sold stock" toggle. Default true — the whole point of
@@ -315,10 +320,19 @@ export default function SalesReportImport({ onClose }: Props) {
       // orders were previously stored as one combined doc leaves orphans
       // (double-counted revenue + a 4-unit order rendering as 1-2 rows).
       // Deleting after the new rows land keeps the order's sales intact.
+      //
+      // firestore.rules grants `sales` delete to admin only — if the
+      // importer isn't admin, the bulkDelete batches fail server-side.
+      // bulkDelete reports the actual deleted/failed split so the Done
+      // screen can show "N of M cleaned · K denied (admin required)".
+      let staleDeleted = 0;
+      let staleFailed = 0;
       if (preview.staleCombined.length) {
-        await dbService.bulkDelete(
+        const res = await dbService.bulkDelete(
           preview.staleCombined.map(s => ({ collection: 'sales', id: s.id })),
         );
+        staleDeleted = res.deleted;
+        staleFailed = res.failed;
       }
 
       // Auto-create inventory units for orphan-IMEI sales. The whole point
@@ -367,6 +381,8 @@ export default function SalesReportImport({ onClose }: Props) {
         salesLinked: salePatches.length,
         unitsAddedFromOrphanSales,
         unitsAddFailed,
+        staleDeleted,
+        staleDeleteFailed: staleFailed,
       });
       setPhase('done');
     } catch (e: any) {
@@ -451,7 +467,7 @@ export default function SalesReportImport({ onClose }: Props) {
             // updated", which always confuses on re-uploads.
             const noChanges =
               preview.toCreate.length === 0
-              && preview.staleCombined.length === 0
+              && syncStats.staleDeleted === 0
               && syncStats.unitsMarkedSold === 0
               && syncStats.salesLinked === 0
               && syncStats.unitsAddedFromOrphanSales === 0
@@ -475,8 +491,13 @@ export default function SalesReportImport({ onClose }: Props) {
                 <p className="text-[11px] font-mono text-slate-500">
                   {preview.toCreate.length} created · {preview.toUpdate.length} updated
                   {preview.invalid.length > 0 && <> · {preview.invalid.length} skipped</>}
-                  {preview.staleCombined.length > 0 && <> · {preview.staleCombined.length} stale rows cleaned</>}
+                  {syncStats.staleDeleted > 0 && <> · {syncStats.staleDeleted} stale rows cleaned</>}
                 </p>
+                {syncStats.staleDeleteFailed > 0 && (
+                  <p className="text-[10px] font-mono text-rose-700 mt-1">
+                    ⚠ {syncStats.staleDeleteFailed} stale row{syncStats.staleDeleteFailed === 1 ? '' : 's'} could not be deleted (Firestore rules require admin for sales delete). They'll reappear on the next snapshot.
+                  </p>
+                )}
                 {(syncStats.unitsMarkedSold > 0 || syncStats.salesLinked > 0) && (
                   <p className="text-[10px] font-mono text-emerald-700 mt-1">
                     Inventory synced ·{' '}
