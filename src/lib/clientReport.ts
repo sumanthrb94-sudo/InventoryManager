@@ -66,6 +66,15 @@ const RETURNED_FILL: import('exceljs').FillPattern = {
   fgColor: { argb: 'FFFEE2E2' },   // tailwind rose-100
 };
 
+/** Amber fill for sales rows whose IMEI has no matching inventory unit.
+ *  Distinct from the rose return fill so an auditor can tell a genuine
+ *  reversal apart from a "sold a phone that was never in stock" row. */
+const NO_INVENTORY_FILL: import('exceljs').FillPattern = {
+  type: 'pattern',
+  pattern: 'solid',
+  fgColor: { argb: 'FFFEF3C7' },   // tailwind amber-100
+};
+
 // ---------------------------------------------------------------------------
 // Public surface
 // ---------------------------------------------------------------------------
@@ -734,7 +743,7 @@ export async function buildSalesWorkbookBuffer(input: BuildSalesWorkbookInput): 
   // per-marketplace breakdown, refund vs replacement counts, gross + net GP
   // including postage-loss adjustment). Built before the marketplace sheets
   // so it lands as the leftmost tab.
-  writeSalesSummarySheet(wb, byMarketplace, opts);
+  writeSalesSummarySheet(wb, byMarketplace, opts, unitsById, unitsByImei);
 
   // Sheet 2: Returns — every voided sale whose RETURN happened in the
   // period (voidedAt in range), cross-marketplace, with the return-info
@@ -806,6 +815,30 @@ export async function buildSalesWorkbookBuffer(input: BuildSalesWorkbookInput): 
           const existing = typeof commentsCell.value === 'string' ? commentsCell.value : '';
           const tag = `[REPLACED BY IMEI ${replacementImei}]`;
           commentsCell.value = existing ? `${tag} ${existing}` : tag;
+        }
+      }
+      // No-inventory-match audit marker. The sale carries an IMEI but no
+      // inventory unit exists for it (neither by unitId nor by IMEI). This
+      // means the sold phone was never in stock — typically a bulk order
+      // whose IMEIs were combined in one cell, or a serial that isn't a
+      // real IMEI (tablet/accessory). Flag the Comments column + tint the
+      // row amber so the operator can add the unit as fresh stock (the
+      // import sync will then link + mark it sold). Skip voided rows —
+      // they're already rose-filled and a missing unit there is expected
+      // (the unit may have been returned out of inventory).
+      const hasUnitData = unitsById.size > 0 || unitsByImei.size > 0;
+      const saleImei = (sale.imei || '').trim();
+      if (hasUnitData && saleImei && !linkedUnit && !sale.voidedAt) {
+        const row = sheet.getRow(rowNumber);
+        const commentsIdx = (SALES_HEADERS[m] as readonly string[]).indexOf('Comments') + 1;
+        if (commentsIdx > 0) {
+          const commentsCell = row.getCell(commentsIdx);
+          const existing = typeof commentsCell.value === 'string' ? commentsCell.value : '';
+          const tag = '[NO INVENTORY IMEI]';
+          commentsCell.value = existing ? `${tag} ${existing}` : tag;
+        }
+        for (let col = 1; col <= headerLen; col++) {
+          row.getCell(col).fill = NO_INVENTORY_FILL;
         }
       }
     }
@@ -915,6 +948,8 @@ function writeSalesSummarySheet(
   wb: ExcelJS.Workbook,
   byMarketplace: Map<Marketplace, Sale[]>,
   opts?: ClientReportOptions,
+  unitsById?: Map<string, InventoryUnit>,
+  unitsByImei?: Map<string, InventoryUnit>,
 ): void {
   const sheet = wb.addWorksheet('Summary');
   sheet.columns = [
@@ -938,6 +973,18 @@ function writeSalesSummarySheet(
     type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF1F5F9' },  // slate-100
   };
   const moneyCols = [6, 7, 8, 9];
+
+  // Track sales whose IMEI has no matching inventory unit, per marketplace,
+  // so the audit summary can call out "sold a phone that was never in stock".
+  // Only meaningful when the builder was given inventory data — otherwise we
+  // can't tell a missing unit from "no units loaded".
+  const hasUnitData = (unitsById?.size ?? 0) > 0 || (unitsByImei?.size ?? 0) > 0;
+  const noInvByMarket = new Map<Marketplace, Array<{ imei: string; order: string }>>();
+  const hasUnitMatch = (s: Sale): boolean => {
+    if (s.unitId && unitsById?.has(s.unitId)) return true;
+    const k = (s.imei || '').trim().toUpperCase();
+    return !!(k && unitsByImei?.has(k));
+  };
 
   // One row per marketplace.
   const grand = { sales: 0, refunds: 0, replacements: 0, repairs: 0, gp: 0, loss: 0, netGp: 0, bp: 0 };
@@ -968,6 +1015,15 @@ function writeSalesSummarySheet(
       const sale = recomputeSale(s);
       gp += sale.grossProfit ?? 0;
       bp += s.buyPrice ?? 0;
+      // Flag active sales whose IMEI isn't in inventory (only when unit
+      // data was actually supplied to the builder). Voided rows are skipped
+      // — a missing unit there is expected (it may have been returned out).
+      const saleImei = (s.imei || '').trim();
+      if (saleImei && !s.voidedAt && hasUnitData && !hasUnitMatch(s)) {
+        const list = noInvByMarket.get(m) ?? [];
+        list.push({ imei: saleImei, order: s.orderNumber || '' });
+        noInvByMarket.set(m, list);
+      }
       if (s.voidedAt) {
         const key = voidEventKey(s);
         if (seenVoidEvents.has(key)) continue;  // sub-record of already-counted event
@@ -1012,6 +1068,30 @@ function writeSalesSummarySheet(
     type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE2E8F0' },  // slate-200
   };
   for (const c of moneyCols) totalRow.getCell(c).numFmt = MONEY_FMT;
+
+  // No-inventory-match callout — sales whose IMEI isn't in the inventory
+  // collection. Surfaced prominently so the auditor/operator sees that some
+  // sold units were never in stock (combined-IMEI bulk orders, tablet
+  // serials, or units cleared in a wipe). Each is also amber-tinted +
+  // tagged "[NO INVENTORY IMEI]" on its marketplace tab.
+  const totalNoInv = [...noInvByMarket.values()].reduce((t, l) => t + l.length, 0);
+  if (hasUnitData && totalNoInv > 0) {
+    sheet.addRow([]);
+    const calloutHeader = sheet.addRow([`⚠ Sales with no matching inventory IMEI: ${totalNoInv}`]);
+    calloutHeader.font = { bold: true, color: { argb: 'FF92400E' } };  // amber-800
+    calloutHeader.getCell(1).fill = {
+      type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFEF3C7' },  // amber-100
+    };
+    sheet.addRow(['These IMEIs were sold but have no inventory unit. Add them as fresh stock — the import sync will then link + mark them sold. Rows are tagged "[NO INVENTORY IMEI]" and tinted amber on the marketplace tabs.']);
+    const subHeader = sheet.addRow(['Marketplace', 'IMEI', 'Order Number']);
+    subHeader.font = { bold: true };
+    for (const m of MARKETPLACES) {
+      const list = noInvByMarket.get(m) ?? [];
+      for (const item of list) {
+        sheet.addRow([m, item.imei, item.order]);
+      }
+    }
+  }
 
   // Notes block — explains the leg model + why GP % differs from Gross GP / BP.
   sheet.addRow([]);

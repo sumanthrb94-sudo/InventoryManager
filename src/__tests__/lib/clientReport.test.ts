@@ -362,6 +362,77 @@ describe('buildSalesWorkbookBuffer — auditor-grade structure', () => {
     expect(row.getCell(27).value).toBeCloseTo(22.68, 2);
   });
 
+  it('tags + amber-tints a sale whose IMEI has no matching inventory unit', async () => {
+    const inStock = baseSale({
+      id: 'AMAZON__O-OK__350000000000111', marketplace: 'AMAZON', orderNumber: 'O-OK',
+      imei: '350000000000111', unitId: '',
+    });
+    const orphan = baseSale({
+      id: 'AMAZON__O-MISS__350000000000222', marketplace: 'AMAZON', orderNumber: 'O-MISS',
+      imei: '350000000000222', unitId: '',
+    });
+    // Only the first IMEI exists in inventory.
+    const units: InventoryUnit[] = [{
+      id: 'u-ok', imei: '350000000000111', model: 'iPhone 13', brand: 'Apple',
+      category: 'iPhone', colour: 'Black', buyPrice: 200, dateIn: '2026-05-01',
+      supplierId: 's', supplierName: 'MHL', status: 'sold',
+      flags: [], notes: '', platformListed: false, listingSites: [],
+      ownerId: 'shared', createdAt: '2026-05-01T00:00:00Z',
+    } as InventoryUnit];
+
+    const buffer = await buildSalesWorkbookBuffer({ sales: [inStock, orphan], units });
+    const wb = await loadWorkbook(buffer);
+    const sheet = wb.getWorksheet('AMAZON')!;
+    const header = sheet.getRow(1);
+    let commentsCol = -1;
+    header.eachCell((c, i) => { if (String(c.value) === 'Comments') commentsCol = i; });
+    expect(commentsCol).toBeGreaterThan(0);
+
+    // Locate each row by its IMEI (sort-order agnostic).
+    let okRow = -1, missRow = -1;
+    const imeiCol = (() => { let n = -1; header.eachCell((c, i) => { if (String(c.value) === 'IMEI') n = i; }); return n; })();
+    sheet.eachRow((row, rn) => {
+      if (rn === 1) return;
+      const v = String(row.getCell(imeiCol).value ?? '');
+      if (v === '350000000000111') okRow = rn;
+      if (v === '350000000000222') missRow = rn;
+    });
+    expect(okRow).toBeGreaterThan(0);
+    expect(missRow).toBeGreaterThan(0);
+
+    // The orphan row carries the marker + amber fill; the in-stock row does not.
+    expect(String(sheet.getRow(missRow).getCell(commentsCol).value ?? '')).toContain('[NO INVENTORY IMEI]');
+    expect((sheet.getRow(missRow).getCell(1).fill as any)?.fgColor?.argb).toBe('FFFEF3C7');
+    expect(String(sheet.getRow(okRow).getCell(commentsCol).value ?? '')).not.toContain('[NO INVENTORY IMEI]');
+
+    // Summary sheet carries the prominent callout with the count + detail row.
+    const summary = wb.getWorksheet('Summary')!;
+    let calloutSeen = false, detailSeen = false;
+    summary.eachRow((row) => {
+      const a = String(row.getCell(1).value ?? '');
+      if (a.includes('Sales with no matching inventory IMEI: 1')) calloutSeen = true;
+      if (a === 'AMAZON' && String(row.getCell(2).value ?? '') === '350000000000222') detailSeen = true;
+    });
+    expect(calloutSeen).toBe(true);
+    expect(detailSeen).toBe(true);
+  });
+
+  it('does NOT flag no-inventory when the builder is given no unit data', async () => {
+    const orphan = baseSale({
+      id: 'AMAZON__O-NU__350000000000333', marketplace: 'AMAZON', orderNumber: 'O-NU',
+      imei: '350000000000333', unitId: '',
+    });
+    // No units passed — the report can't know the IMEI is missing, so it
+    // must NOT mislabel every row.
+    const buffer = await buildSalesWorkbookBuffer({ sales: [orphan] });
+    const wb = await loadWorkbook(buffer);
+    const sheet = wb.getWorksheet('AMAZON')!;
+    const header = sheet.getRow(1);
+    let commentsCol = -1;
+    header.eachCell((c, i) => { if (String(c.value) === 'Comments') commentsCol = i; });
+    expect(String(sheet.getRow(2).getCell(commentsCol).value ?? '')).not.toContain('[NO INVENTORY IMEI]');
+  });
+
   it('leaves the return-info block + Postage Loss blank for active sales', async () => {
     const active = baseSale({
       id: 'EBAY__ORD-A1__IMEI-3',
