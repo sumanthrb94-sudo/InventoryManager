@@ -1686,6 +1686,14 @@ function SheetTable({
                       Replacement
                     </span>
                   )}
+                  {s.imei && !u && (
+                    <span
+                      className="inline-flex items-center gap-0.5 text-[8px] font-bold uppercase tracking-widest px-1 py-0.5 rounded border bg-amber-50 text-amber-700 border-amber-300"
+                      title="No inventory unit found for this IMEI. Add the unit as fresh stock — it will be automatically linked and marked as sold."
+                    >
+                      <AlertCircle size={8} /> No Inventory
+                    </span>
+                  )}
                 </span>
               </Td>
               <Td>

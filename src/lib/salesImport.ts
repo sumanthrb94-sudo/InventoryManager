@@ -116,9 +116,16 @@ export async function parseSalesWorkbook(
             parsed.comments = annotation;
           }
         }
-        sales.push(parsed);
-        perSheetCounts[marketplace]++;
-        spSum[marketplace] += parsed.salePrice ?? 0;
+        // Expand multi-IMEI cells (e.g. "351554748581221 / 351554746670497")
+        // into individual Sale rows, one per IMEI, with proportionally split
+        // BP and SP. This covers bulk Amazon orders where the operator puts
+        // all IMEIs for a multi-unit shipment into a single cell.
+        const expandedRows = expandMultiImei(parsed);
+        for (const expanded of expandedRows) {
+          sales.push(expanded);
+          perSheetCounts[marketplace]++;
+          spSum[marketplace] += expanded.salePrice ?? 0;
+        }
       }
     }
   }
@@ -631,6 +638,39 @@ function parseRow(
 
 function hasAnyValue(row: any[]): boolean {
   return row.some((v) => v !== null && v !== undefined && String(v).trim() !== '');
+}
+
+/**
+ * Expand a parsed row whose `imei` field contains multiple IMEIs separated
+ * by " / " (e.g. "351554748581221 / 351554746670497") into individual rows,
+ * one per IMEI. BP and SP are divided evenly across the split rows so the
+ * total revenue stays the same. Rows without a multi-IMEI value are returned
+ * as-is in a single-element array.
+ */
+function expandMultiImei(
+  parsed: ParsedSales['sales'][number],
+): ParsedSales['sales'][number][] {
+  if (!parsed.imei) return [parsed];
+
+  // Split on " / " or "/" with optional surrounding whitespace.
+  const parts = parsed.imei.split(/\s*\/\s*/).map((s) => s.trim()).filter(Boolean);
+  // Only expand when every part looks like a valid 14-15 digit IMEI.
+  const allDigit = parts.every((p) => /^\d{14,15}$/.test(p));
+  if (parts.length <= 1 || !allDigit) return [parsed];
+
+  const n = parts.length;
+  return parts.map((singleImei) => {
+    const idDisc = sanitiseFsIdSegment(singleImei);
+    const id = `${parsed.marketplace}__${sanitiseFsIdSegment(parsed.orderNumber ?? '')}__${idDisc}`;
+    return {
+      ...parsed,
+      id,
+      imei: singleImei,
+      quantity: 1,
+      buyPrice: parsed.buyPrice != null ? Math.round((parsed.buyPrice / n) * 100) / 100 : parsed.buyPrice,
+      salePrice: parsed.salePrice != null ? Math.round((parsed.salePrice / n) * 100) / 100 : parsed.salePrice,
+    };
+  });
 }
 
 /** Sanitise a string for use as a Firestore document-id segment.

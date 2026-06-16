@@ -800,19 +800,31 @@ export default function Sales() {
                                 case 'sku':
                                   display = s.sku || '—';
                                   break;
-                                case 'imei':
-                                  display = isReplacement ? (
+                                case 'imei': {
+                                  const noInventory = !!s.imei && !linkedUnit;
+                                  display = (isReplacement || noInventory) ? (
                                     <span className="inline-flex items-center gap-1">
                                       <span>{s.imei || '—'}</span>
-                                      <span
-                                        className="text-[8px] font-bold uppercase tracking-widest px-1 py-px rounded border bg-violet-50 text-violet-700 border-violet-200"
-                                        title="Shipped as a replacement for another returned unit"
-                                      >
-                                        Replacement
-                                      </span>
+                                      {isReplacement && (
+                                        <span
+                                          className="text-[8px] font-bold uppercase tracking-widest px-1 py-px rounded border bg-violet-50 text-violet-700 border-violet-200"
+                                          title="Shipped as a replacement for another returned unit"
+                                        >
+                                          Replacement
+                                        </span>
+                                      )}
+                                      {noInventory && (
+                                        <span
+                                          className="text-[8px] font-bold uppercase tracking-widest px-1 py-px rounded border bg-amber-50 text-amber-700 border-amber-300"
+                                          title="No inventory unit found for this IMEI. Add the unit as fresh stock — it will be automatically linked and marked as sold."
+                                        >
+                                          No Inventory
+                                        </span>
+                                      )}
                                     </span>
                                   ) : (s.imei || '—');
                                   break;
+                                }
                                 case 'supplierName':
                                   display = s.supplierName || '—';
                                   break;
