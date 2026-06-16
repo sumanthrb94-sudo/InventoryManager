@@ -237,6 +237,37 @@ export const dbService = {
     onProgress?.(total, total);
   },
 
+  /** Delete many docs in batches (mirrors bulkCreate's 400-per-batch chunking).
+   *  Used by the sales importer to purge stale combined multi-IMEI docs that
+   *  the per-IMEI split rows supersede. */
+  async bulkDelete(
+    entries: Array<{ collection: string; id: string }>,
+  ): Promise<void> {
+    if (entries.length === 0) return;
+
+    // Optimistic in-memory removal
+    const byCollection: Record<string, Set<string>> = {};
+    for (const e of entries) (byCollection[e.collection] ??= new Set()).add(e.id);
+    for (const [col, ids] of Object.entries(byCollection)) {
+      const next = (cachedData[col] || []).filter(x => !ids.has(x.id));
+      cachedData[col] = next;
+      emit(col, next);
+    }
+
+    const BATCH_SIZE = 400;
+    for (let i = 0; i < entries.length; i += BATCH_SIZE) {
+      const chunk = entries.slice(i, i + BATCH_SIZE);
+      const batch = writeBatch(db);
+      for (const entry of chunk) batch.delete(docRef(entry.collection, entry.id));
+      try {
+        await batch.commit();
+      } catch (err: any) {
+        console.warn(`Firestore bulkDelete:`, err.message);
+      }
+      await new Promise(r => setTimeout(r, 0));
+    }
+  },
+
   subscribeToCollection(collectionName: string, callback: (data: any[]) => void) {
     (listeners[collectionName] ??= []).push(callback);
 

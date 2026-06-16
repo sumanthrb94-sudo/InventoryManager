@@ -137,3 +137,70 @@ describe('SalesReportImport preview ↔ buildPostImportSyncPatches parity', () =
     expect(preview.inventoryFlips[0].unitId).toBe('u1');
   });
 });
+
+describe('SalesReportImport preview — stale combined multi-IMEI cleanup', () => {
+  it('flags existing combined docs for the imported order as stale', () => {
+    // DB already holds a combined doc (imei = "A / B") for order O-BULK,
+    // written by the old parser. The new upload splits it into two per-IMEI
+    // rows. The combined doc must be queued for deletion.
+    const existing: Sale[] = [
+      sale({
+        id: 'AMAZON__O-BULK__A_B', marketplace: 'AMAZON', orderNumber: 'O-BULK',
+        imei: '351554748581221 / 351554746670497', salePrice: 169.78,
+      }),
+    ];
+    const split: Sale[] = [
+      sale({ id: 'AMAZON__O-BULK__351554748581221', marketplace: 'AMAZON', orderNumber: 'O-BULK', imei: '351554748581221', salePrice: 84.89 }),
+      sale({ id: 'AMAZON__O-BULK__351554746670497', marketplace: 'AMAZON', orderNumber: 'O-BULK', imei: '351554746670497', salePrice: 84.89 }),
+    ];
+    const preview = buildPreview(
+      { sales: split, perSheetCounts: { AMAZON: 2, BM: 0, EBAY: 0, ONBUY: 0 }, errors: [] },
+      existing,
+      [],
+    );
+    expect(preview.staleCombined).toHaveLength(1);
+    expect(preview.staleCombined[0].id).toBe('AMAZON__O-BULK__A_B');
+    // The split rows are brand-new ids → toCreate, not toUpdate.
+    expect(preview.toCreate).toHaveLength(2);
+  });
+
+  it('collapses duplicate combined docs (two import dates) for the same order', () => {
+    // Same bulk order imported twice with slightly different IMEI-cell text →
+    // two combined docs under different ids. Both must be purged.
+    const existing: Sale[] = [
+      sale({ id: 'AMAZON__O-DUP__A_B_14', marketplace: 'AMAZON', orderNumber: 'O-DUP', imei: '111111111111111 / 222222222222222', saleDate: '2026-06-14', salePrice: 539.96 }),
+      sale({ id: 'AMAZON__O-DUP__A_B_15', marketplace: 'AMAZON', orderNumber: 'O-DUP', imei: '111111111111111 / 222222222222222 / 333333333333333', saleDate: '2026-06-15', salePrice: 539.96 }),
+    ];
+    const split: Sale[] = [
+      sale({ id: 'AMAZON__O-DUP__111111111111111', marketplace: 'AMAZON', orderNumber: 'O-DUP', imei: '111111111111111' }),
+      sale({ id: 'AMAZON__O-DUP__222222222222222', marketplace: 'AMAZON', orderNumber: 'O-DUP', imei: '222222222222222' }),
+      sale({ id: 'AMAZON__O-DUP__333333333333333', marketplace: 'AMAZON', orderNumber: 'O-DUP', imei: '333333333333333' }),
+    ];
+    const preview = buildPreview(
+      { sales: split, perSheetCounts: { AMAZON: 3, BM: 0, EBAY: 0, ONBUY: 0 }, errors: [] },
+      existing,
+      [],
+    );
+    expect(preview.staleCombined.map(s => s.id).sort()).toEqual(
+      ['AMAZON__O-DUP__A_B_14', 'AMAZON__O-DUP__A_B_15'],
+    );
+  });
+
+  it('never touches single-IMEI docs or orders absent from the upload', () => {
+    const existing: Sale[] = [
+      // Single-IMEI doc — no "/", must be left alone even if order matches.
+      sale({ id: 'EBAY__O1__1', marketplace: 'EBAY', orderNumber: 'O1', imei: '1' }),
+      // Combined doc for an order NOT in this upload — must be left alone.
+      sale({ id: 'EBAY__OTHER__A_B', marketplace: 'EBAY', orderNumber: 'OTHER', imei: '111 / 222' }),
+    ];
+    const split: Sale[] = [
+      sale({ id: 'EBAY__O1__1', marketplace: 'EBAY', orderNumber: 'O1', imei: '1' }),
+    ];
+    const preview = buildPreview(
+      { sales: split, perSheetCounts: { AMAZON: 0, BM: 0, EBAY: 1, ONBUY: 0 }, errors: [] },
+      existing,
+      [],
+    );
+    expect(preview.staleCombined).toEqual([]);
+  });
+});

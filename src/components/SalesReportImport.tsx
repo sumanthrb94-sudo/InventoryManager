@@ -54,6 +54,15 @@ export interface PreviewBuckets {
     marketplace: Marketplace;
     salePrice: number;
   }>;
+  /** Stale combined multi-IMEI docs already in the DB that the per-IMEI split
+   *  rows in this upload supersede. The old parser stored every IMEI of a
+   *  bulk order in ONE doc (imei field = "IMEI1 / IMEI2 / ..."); the new
+   *  parser emits one doc per IMEI. Those combined docs share the order
+   *  number with the split rows but have a different composite ID, so they'd
+   *  linger as orphans (double-counting revenue + showing a 4-unit order as
+   *  1-2 rows). We delete them on confirm so re-importing the same report is
+   *  idempotent and self-healing. */
+  staleCombined: Array<{ id: string; orderNumber: string; imei: string; salePrice: number }>;
 }
 
 export function buildPreview(
@@ -120,6 +129,35 @@ export function buildPreview(
     });
   }
 
+  // Stale combined multi-IMEI docs to purge. The new parser splits a bulk
+  // order's IMEI cell into one doc per IMEI, but any combined doc written by
+  // the OLD parser (imei field still holds "IMEI1 / IMEI2 / ...") keeps a
+  // different composite ID and would linger as an orphan. Target only orders
+  // present in THIS upload, and only docs whose stored IMEI actually contains
+  // a "/" (the unmistakable signature of the legacy combined form) — single-
+  // IMEI sales are never touched.
+  const importedOrderKeys = new Set(
+    parsed.sales
+      .filter(s => s.orderNumber)
+      .map(s => `${s.marketplace}__${(s.orderNumber || '').trim()}`),
+  );
+  // IDs we're about to (re)write — never delete a doc we're also writing.
+  const writingIds = new Set([...toCreate, ...toUpdate].map(s => s.id));
+  const staleCombined: PreviewBuckets['staleCombined'] = [];
+  for (const ex of existingSales) {
+    const imei = (ex.imei || '').trim();
+    if (!imei.includes('/')) continue;                       // not a combined doc
+    const key = `${ex.marketplace}__${(ex.orderNumber || '').trim()}`;
+    if (!importedOrderKeys.has(key)) continue;               // order not in this upload
+    if (writingIds.has(ex.id)) continue;                     // being rewritten, keep
+    staleCombined.push({
+      id: ex.id,
+      orderNumber: ex.orderNumber || '',
+      imei,
+      salePrice: ex.salePrice ?? 0,
+    });
+  }
+
   return {
     total: parsed.sales.length,
     perSheet: parsed.perSheetCounts,
@@ -128,6 +166,7 @@ export function buildPreview(
     invalid: parsed.errors,
     duplicatesInFile: dupes,
     inventoryFlips,
+    staleCombined,
   };
 }
 
@@ -189,6 +228,16 @@ export default function SalesReportImport({ onClose }: Props) {
     setProgress({ done: 0, total: entries.length });
     try {
       await dbService.bulkCreate(entries, (done, total) => setProgress({ done, total }));
+      // Purge stale combined multi-IMEI docs that the per-IMEI split rows
+      // above supersede. Without this, re-importing a report whose bulk
+      // orders were previously stored as one combined doc leaves orphans
+      // (double-counted revenue + a 4-unit order rendering as 1-2 rows).
+      // Deleting after the new rows land keeps the order's sales intact.
+      if (preview.staleCombined.length) {
+        await dbService.bulkDelete(
+          preview.staleCombined.map(s => ({ collection: 'sales', id: s.id })),
+        );
+      }
       // Bug B sync — after sales land in Firestore, mark every matching
       // InventoryUnit as sold and link sale.unitId. Operator no longer
       // has to manually flip statuses to reconcile inventory with
@@ -279,6 +328,7 @@ export default function SalesReportImport({ onClose }: Props) {
               <p className="text-[11px] font-mono text-slate-500">
                 {preview.toCreate.length} created · {preview.toUpdate.length} updated
                 {preview.invalid.length > 0 && <> · {preview.invalid.length} skipped</>}
+                {preview.staleCombined.length > 0 && <> · {preview.staleCombined.length} stale rows cleaned</>}
               </p>
               {(syncStats.unitsMarkedSold > 0 || syncStats.salesLinked > 0) && (
                 <p className="text-[10px] font-mono text-emerald-700 mt-1">
@@ -520,6 +570,27 @@ function PreviewPhase({
         </DetailPanel>
       )}
 
+      {preview.staleCombined.length > 0 && (
+        <DetailPanel title={`Stale combined rows to clean up · ${preview.staleCombined.length}`} tone="amber">
+          <p className="text-[10px] text-amber-800 mb-1.5">
+            These bulk orders were previously stored as one row holding every
+            IMEI. This upload splits them into one row per IMEI, so the old
+            combined rows below are deleted on confirm (fixes double-counted
+            revenue and 4-unit orders showing as 1-2 rows).
+          </p>
+          <ul className="space-y-1 text-[10px] font-mono text-amber-700">
+            {preview.staleCombined.slice(0, 15).map(s => (
+              <li key={s.id} className="truncate" title={s.imei}>
+                {s.orderNumber} · £{Number(s.salePrice).toFixed(2)} · {s.imei}
+              </li>
+            ))}
+            {preview.staleCombined.length > 15 && (
+              <li className="text-amber-500">+{preview.staleCombined.length - 15} more</li>
+            )}
+          </ul>
+        </DetailPanel>
+      )}
+
       {preview.invalid.length > 0 && (
         <DetailPanel title={`Parser errors · ${preview.invalid.length}`} tone="rose">
           <ul className="space-y-1 text-[10px] font-mono">
@@ -585,12 +656,13 @@ function DetailPanel({
   title, tone, children,
 }: {
   title: string;
-  tone: 'rose' | 'blue';
+  tone: 'rose' | 'blue' | 'amber';
   children: React.ReactNode;
 }) {
   const toneCls = (
-    tone === 'rose' ? 'bg-rose-50/60 border-rose-200' :
-                      'bg-blue-50/60 border-blue-200'
+    tone === 'rose'  ? 'bg-rose-50/60 border-rose-200' :
+    tone === 'amber' ? 'bg-amber-50/60 border-amber-200' :
+                       'bg-blue-50/60 border-blue-200'
   );
   return (
     <div className={`${toneCls} border rounded-xl p-3 space-y-1.5`}>
