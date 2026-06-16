@@ -104,7 +104,12 @@ export const DEFAULT_MARKETPLACE_FEES: Record<Marketplace, MarketplaceFee> = {
  * helper so callers do not need to re-import anything when live fees change.
  */
 export function getMarketplaceFee(m: Marketplace): MarketplaceFee {
-  return DEFAULT_MARKETPLACE_FEES[m];
+  // Safety net: a Firestore Sale doc with a missing / corrupt / legacy
+  // marketplace value (e.g. an old "PROJECT" or empty string) would
+  // otherwise return undefined here and crash every downstream `.postage`
+  // access. Fall back to AMAZON's fee schedule so the UI degrades
+  // gracefully instead of the whole sold-history pane error-bounding out.
+  return DEFAULT_MARKETPLACE_FEES[m] ?? DEFAULT_MARKETPLACE_FEES.AMAZON;
 }
 
 // ---------------------------------------------------------------------------
@@ -562,6 +567,22 @@ export function calcSaleFinancials(input: CalcSaleFinancialsInput): SaleFinancia
         totalVatNtp:  r2(totalVatNtpRaw),
         grossProfit:  r2(grossProfitRaw),
         gpPercent:    r2(gpPercentRaw),
+      };
+    }
+
+    default: {
+      // Safety net: an unknown / undefined marketplace (e.g. a Firestore doc
+      // with a missing or corrupt `marketplace` field) would cause the switch
+      // to return `undefined`, crashing every caller that accesses `.postage`.
+      // Return a minimal valid SaleFinancials so the UI degrades gracefully.
+      const grossProfitRaw = r2(sp - bp - postage);
+      return {
+        spMinusBp,
+        marginalTax:  0,
+        commission:   0,
+        postage,
+        grossProfit:  grossProfitRaw,
+        gpPercent:    bp > 0 ? r2(grossProfitRaw / bp * 100) : 0,
       };
     }
   }
