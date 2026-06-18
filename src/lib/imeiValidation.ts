@@ -83,6 +83,35 @@ export function isValidImei(
   return false;
 }
 
+/**
+ * Permissive identifier validation for the orphan-add path (auto-create
+ * inventory from a sale that already exists). Accepts a 15-digit IMEI OR
+ * a 10-12 char alphanumeric serial unconditionally — no model-family
+ * detection required. The justification: by the time this runs, the
+ * marketplace has already accepted the order and exchanged money. We
+ * trust the identifier the marketplace gave us instead of re-applying
+ * the strict "device must be Tab/iPad/Watch" gate that exists to catch
+ * operator typos during manual stock entry.
+ *
+ * Use ONLY in addSoldUnitFromSale and similar auto-reconciliation paths.
+ * The manual stock-add flow (`addUnitManual`) keeps the strict
+ * `isValidImei` gate so a fat-finger doesn't sneak garbage into inventory.
+ *
+ * Field-confirmed regression this fixes: tablet SKUs with fused-token
+ * model strings (e.g. TABA8 — no boundary between TAB and A8) failed
+ * isAppleDevice, the alphanumeric-serial unlock never fired, and one
+ * tablet per import landed on the orange No-Inventory badge instead of
+ * auto-adding. Future SKU patterns (new device families, new operator
+ * conventions) won't break this path either.
+ */
+export function isValidImeiOrSerial(raw: string | undefined | null): boolean {
+  const s = (raw ?? '').trim().toUpperCase();
+  if (!s) return false;
+  if (/^\d{15}$/.test(s)) return true;
+  if (/^[A-Z0-9]{10,12}$/.test(s)) return true;
+  return false;
+}
+
 /** Classify what flavour of identifier the operator typed. */
 export function imeiKind(raw: string): 'imei' | 'serial' | 'unknown' {
   const s = (raw ?? '').trim().toUpperCase();

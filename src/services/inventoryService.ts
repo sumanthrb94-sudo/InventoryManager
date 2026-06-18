@@ -22,7 +22,7 @@
 
 import { dbService } from '../lib/dbService';
 import type { DeviceCategory, InventoryAggregate, InventoryUnit, ListingSite, Sale } from '../types';
-import { isAppleDevice, isValidImei } from '../lib/imeiValidation';
+import { isAppleDevice, isValidImei, isValidImeiOrSerial } from '../lib/imeiValidation';
 import { parseBrandModelStorage } from '../lib/modelStorage';
 import { logInventoryEvent } from '../lib/inventoryEvents';
 
@@ -546,16 +546,20 @@ export async function addSoldUnitFromSale(
     return { ok: false, error: 'missing_model', message: 'Model is required.' };
   }
 
-  // 2. IMEI strict — model-aware (tablets / Apple unlock the serial form).
+  // 2. IMEI / serial — permissive on this path. We accept anything that
+  //    looks like a real device identifier (15-digit IMEI or 10-12 char
+  //    alphanumeric serial) without re-applying the device-family gate.
+  //    The marketplace has already accepted this sale; trusting their
+  //    identifier is safer than rejecting because the SKU happens to use
+  //    a fused-token convention this app's regex doesn't recognise yet.
+  //    Manual stock add (`addUnitManual`) keeps the strict device-aware
+  //    gate so fat-fingers can't sneak garbage in there.
   const rawImei = (input.imei ?? sale.imei ?? '').trim().toUpperCase();
-  const apple = isAppleDevice(model);
-  if (!isValidImei(rawImei, { isAppleSerial: apple })) {
+  if (!isValidImeiOrSerial(rawImei)) {
     return {
       ok: false,
       error: 'invalid_imei',
-      message: apple
-        ? 'Enter a valid 15-digit IMEI or 10-12 char serial.'
-        : 'Enter a valid 15-digit IMEI (digits only — no letters).',
+      message: 'Enter a 15-digit IMEI or 10-12 char alphanumeric serial.',
     };
   }
 

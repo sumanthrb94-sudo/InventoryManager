@@ -630,6 +630,44 @@ describe('addSoldUnitFromSale', () => {
     expect(r.error).toBe('invalid_imei');
   });
 
+  it('accepts a 10-12 char serial regardless of model (permissive orphan-add path)', async () => {
+    // Future-proofing: the orphan-add path no longer depends on the SKU
+    // matching one of the known tablet/Apple device-family tokens. If the
+    // marketplace gave us an 11-char alphanumeric serial, we trust it
+    // and create the unit — the strict device-family gate only applies
+    // to manual stock entry (addUnitManual).
+    const sale = orphanSale({
+      id: 'AMAZON__O-UNKNOWN__abc12def345',
+      imei: 'abc12def345',
+      sku: 'SOMETHING-WE-HAVENT-SEEN-BEFORE',
+    });
+    col('sales').set(sale.id, { ...sale });
+
+    // Pass a model that explicitly DOESN'T contain any of the known
+    // tablet/Apple/Watch keywords — addUnitManual would reject this,
+    // but addSoldUnitFromSale must accept because the sale is real.
+    const r = await addSoldUnitFromSale({
+      sale,
+      imei: 'abc12def345',
+      model: 'NoFamilyKeywordsHere',
+    });
+    expect(r.ok).toBe(true);
+    expect(r.id).toBe('ABC12DEF345');
+  });
+
+  it('still rejects garbage that isn\'t IMEI-like or serial-like', async () => {
+    // 9 chars — too short for either format. The permissive path still
+    // applies a sanity floor (10-12 alphanumeric OR 15 digits).
+    const sale = orphanSale({ imei: 'too-short' });
+    const r = await addSoldUnitFromSale({
+      sale,
+      imei: 'too-short',
+      model: 'AnyModel',
+    });
+    expect(r.ok).toBe(false);
+    expect(r.error).toBe('invalid_imei');
+  });
+
   it('rejects when the IMEI already exists in inventory', async () => {
     col('inventoryUnits').set('350000000000111', { id: '350000000000111', imei: '350000000000111' });
     const sale = orphanSale();

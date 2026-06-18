@@ -260,9 +260,13 @@ export default function SalesReportImport({ onClose }: Props) {
     salesLinked: number;
     unitsAddedFromOrphanSales: number;
     unitsAddFailed: number;
+    /** Specific IMEI + reason for each orphan that couldn't be auto-added.
+     *  Surfaced on the Done screen so the operator knows exactly which
+     *  sale needs a manual badge-click instead of seeing a vague count. */
+    unitsAddFailedDetails: Array<{ imei: string; orderNumber: string; reason: string }>;
     staleDeleted: number;
     staleDeleteFailed: number;
-  }>({ unitsMarkedSold: 0, salesLinked: 0, unitsAddedFromOrphanSales: 0, unitsAddFailed: 0, staleDeleted: 0, staleDeleteFailed: 0 });
+  }>({ unitsMarkedSold: 0, salesLinked: 0, unitsAddedFromOrphanSales: 0, unitsAddFailed: 0, unitsAddFailedDetails: [], staleDeleted: 0, staleDeleteFailed: 0 });
   const fileInputRef = useRef<HTMLInputElement>(null);
   /** Operator's choice for the bulk "auto-add orphan-IMEI sales to
    *  inventory as sold stock" toggle. Default true — the whole point of
@@ -344,12 +348,21 @@ export default function SalesReportImport({ onClose }: Props) {
       // import; the operator can still fix them from the per-row badge.
       let unitsAddedFromOrphanSales = 0;
       let unitsAddFailed = 0;
+      const unitsAddFailedDetails: Array<{ imei: string; orderNumber: string; reason: string }> = [];
       if (autoAddOrphans && preview.noInventory.length > 0) {
         const allImportedSales = [...preview.toCreate, ...preview.toUpdate];
         const saleById = new Map(allImportedSales.map(s => [s.id, s]));
         for (const orphan of preview.noInventory) {
           const sale = saleById.get(orphan.saleId);
-          if (!sale) { unitsAddFailed++; continue; }
+          if (!sale) {
+            unitsAddFailed++;
+            unitsAddFailedDetails.push({
+              imei: orphan.imei,
+              orderNumber: orphan.orderNumber,
+              reason: 'sale lookup failed (id missing)',
+            });
+            continue;
+          }
           const res = await addSoldUnitFromSale({
             sale: sale as Sale,
             imei: orphan.imei,
@@ -357,8 +370,16 @@ export default function SalesReportImport({ onClose }: Props) {
             supplierName: orphan.supplierName,
             buyPrice: orphan.buyPrice,
           });
-          if (res.ok) unitsAddedFromOrphanSales++;
-          else        unitsAddFailed++;
+          if (res.ok) {
+            unitsAddedFromOrphanSales++;
+          } else {
+            unitsAddFailed++;
+            unitsAddFailedDetails.push({
+              imei: orphan.imei,
+              orderNumber: orphan.orderNumber,
+              reason: res.message || res.error || 'unknown',
+            });
+          }
         }
       }
 
@@ -381,6 +402,7 @@ export default function SalesReportImport({ onClose }: Props) {
         salesLinked: salePatches.length,
         unitsAddedFromOrphanSales,
         unitsAddFailed,
+        unitsAddFailedDetails,
         staleDeleted,
         staleDeleteFailed: staleFailed,
       });
@@ -513,6 +535,21 @@ export default function SalesReportImport({ onClose }: Props) {
                     {syncStats.unitsAddedFromOrphanSales > 0 && syncStats.unitsAddFailed > 0 && ' · '}
                     {syncStats.unitsAddFailed > 0 && <span className="text-amber-700">{syncStats.unitsAddFailed} could not be auto-added (click the badge on those sales to fix)</span>}
                   </p>
+                )}
+                {syncStats.unitsAddFailedDetails.length > 0 && (
+                  <div className="mt-2 w-full max-w-md bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 text-left">
+                    <p className="text-[9px] font-bold uppercase tracking-widest text-amber-900 mb-1">Sales needing manual fix</p>
+                    <ul className="space-y-0.5 text-[10px] font-mono text-amber-800">
+                      {syncStats.unitsAddFailedDetails.slice(0, 10).map((f, i) => (
+                        <li key={`${f.imei}-${i}`} className="truncate" title={`${f.imei} — ${f.orderNumber} — ${f.reason}`}>
+                          {f.imei || '(blank)'} · {f.orderNumber} · <span className="text-amber-600">{f.reason}</span>
+                        </li>
+                      ))}
+                      {syncStats.unitsAddFailedDetails.length > 10 && (
+                        <li className="text-amber-500">+{syncStats.unitsAddFailedDetails.length - 10} more — see Sell tab for orange "No Inventory" badges</li>
+                      )}
+                    </ul>
+                  </div>
                 )}
               </div>
             );
