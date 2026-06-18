@@ -597,6 +597,32 @@ describe('addSoldUnitFromSale', () => {
     expect(collections['inventoryUnits'].get('R8YWA0ALDFT')?.status).toBe('sold');
   });
 
+  it('accepts a Tab SKU as the model (TABA8 word fused with series digit)', async () => {
+    // Field-confirmed regression: the orphan-add loop defaults model to
+    // the sale's SKU (`ASI-SG-TABA8-32GB-BK-EX`). The old isAppleDevice
+    // regex used \bTAB\b which didn't match TABA8 (no boundary between
+    // TAB and A8), so the Amazon serial `r8ywa0aldft` got rejected and
+    // exactly one tablet per import landed on the No-Inventory badge.
+    const sale = orphanSale({
+      id: 'AMAZON__O-TAB2__r9ty70b985b',
+      imei: 'r9ty70b985b',
+      sku: 'ASI-SG-TABA9+-128GB-GR-EX',
+    });
+    col('sales').set(sale.id, { ...sale });
+
+    // Pass the SKU directly as model (mirrors the orphan-add default).
+    const r = await addSoldUnitFromSale({
+      sale,
+      imei: 'r9ty70b985b',
+      model: 'ASI-SG-TABA9+-128GB-GR-EX',
+    });
+    expect(r.ok).toBe(true);
+    expect(r.id).toBe('R9TY70B985B');
+    const unit = collections['inventoryUnits'].get('R9TY70B985B');
+    expect(unit?.status).toBe('sold');
+    expect(unit?.category).toBe('Tablet');
+  });
+
   it('rejects a non-IMEI serial when the model is a plain phone', async () => {
     const sale = orphanSale({ imei: 'notanimei' });
     const r = await addSoldUnitFromSale({ sale, imei: 'notanimei', model: 'Samsung A32' });

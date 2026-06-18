@@ -94,7 +94,7 @@ function detectCategory(model: string): DeviceCategory {
   if (m.includes('IPAD')) return 'iPad';
   if (/APPLE WATCH|WATCH ULTRA|WATCH SE/.test(m)) return 'Apple Watch';
   if (m.includes('IPHONE')) return 'iPhone';
-  if (/GALAXY TAB|TAB A\d|TAB S\d/.test(m)) return 'Tablet';
+  if (/GALAXY TAB|TAB A\d|TAB S\d|TABA\d|TABS\d/.test(m)) return 'Tablet';
   if (m.includes('SAMSUNG') || m.includes('GALAXY'))
     return /\bA\d{2,3}\b|GALAXY A/.test(m) ? 'Samsung A Series' : 'Samsung S Series';
   return 'Other';

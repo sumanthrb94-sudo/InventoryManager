@@ -47,7 +47,16 @@ export interface ImeiContext {
 export function isAppleDevice(modelOrBrand: string | undefined | null): boolean {
   const s = (modelOrBrand ?? '').toUpperCase();
   if (!s) return false;
-  return /\b(APPLE|IPHONE|IPAD|MACBOOK|IMAC|AIRPODS|TAB|TABLET|SLATE|WATCH|BUDS|PODS|BOOK)\b/.test(s);
+  // The TAB alternative is intentionally NOT anchored at the end so it
+  // also matches operator SKU strings where Tab + series + digit are one
+  // unbroken word (e.g. `ASI-SG-TABA8-32GB-BK-EX`, `ASI-SG-TABS9-256-EX`).
+  // Without this, the orphan-add flow's SKU-derived model `TABA8` failed
+  // the alphanumeric-serial unlock and rejected Amazon serials like
+  // `r8ywa0aldft` — one tablet per import landing on the No-Inventory
+  // badge instead of auto-adding. Other alternatives keep their trailing
+  // word boundary so short fragments (e.g. WATCH inside WATCHED) still
+  // don't false-positive.
+  return /\b(APPLE|IPHONE|IPAD|MACBOOK|IMAC|AIRPODS|TABLET|SLATE|WATCH|BUDS|PODS|BOOK)\b|\bTAB[A-Z0-9]*\b/.test(s);
 }
 
 /**
