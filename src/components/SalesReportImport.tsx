@@ -34,6 +34,24 @@ interface Props { onClose: () => void; }
 
 type Phase = 'upload' | 'preview' | 'loading' | 'done';
 
+/** One row in the review-and-fill orphan-IMEI editor. Pre-populated from
+ *  the sale (model = SKU, supplier + BP from the sale); operator edits
+ *  inline before confirming. Module-scope so both the parent
+ *  (SalesReportImport) state hook and PreviewPhase props can share the
+ *  exact shape. */
+export interface OrphanEditRow {
+  saleId: string;
+  imei: string;
+  orderNumber: string;
+  marketplace: Marketplace;
+  salePrice: number;
+  model: string;
+  colour: string;
+  storage: string;
+  supplierName: string;
+  buyPrice: number;
+}
+
 export interface PreviewBuckets {
   total: number;
   perSheet: Record<Marketplace, number>;
@@ -268,11 +286,7 @@ export default function SalesReportImport({ onClose }: Props) {
     staleDeleteFailed: number;
   }>({ unitsMarkedSold: 0, salesLinked: 0, unitsAddedFromOrphanSales: 0, unitsAddFailed: 0, unitsAddFailedDetails: [], staleDeleted: 0, staleDeleteFailed: 0 });
   const fileInputRef = useRef<HTMLInputElement>(null);
-  /** Operator's choice for the bulk "auto-add orphan-IMEI sales to
-   *  inventory as sold stock" toggle. Default true — the whole point of
-   *  surfacing the count is to let the operator one-click reconcile. */
-  const [autoAddOrphans, setAutoAddOrphans] = useState(true);
-  React.useEffect(() => { setAutoAddOrphans(true); }, [parsed]);
+  const [orphanEdits, setOrphanEdits] = useState<OrphanEditRow[]>([]);
 
   const preview = useMemo(
     () => phase === 'preview' || phase === 'loading' || phase === 'done'
@@ -286,6 +300,36 @@ export default function SalesReportImport({ onClose }: Props) {
   // (the IMEI list changes) or the operator goes back to the upload step.
   const [flipsAcked, setFlipsAcked] = useState(false);
   React.useEffect(() => { setFlipsAcked(false); }, [parsed]);
+
+  // Seed orphan-edit rows whenever the preview's no-inventory list changes
+  // (parsed a different file, or live sales/units state shifted). Each row
+  // starts with sale-derived defaults that the operator can refine inline.
+  // Tracked by saleId so a partial state survives re-renders.
+  const noInvJsonKey = preview?.noInventory.map(o => o.saleId).sort().join('|') ?? '';
+  React.useEffect(() => {
+    if (!preview) { setOrphanEdits([]); return; }
+    setOrphanEdits(prev => {
+      const prevById = new Map(prev.map(p => [p.saleId, p]));
+      return preview.noInventory.map(o => {
+        const existing = prevById.get(o.saleId);
+        if (existing) return existing;
+        return {
+          saleId: o.saleId,
+          imei: o.imei,
+          orderNumber: o.orderNumber,
+          marketplace: o.marketplace,
+          salePrice: o.salePrice,
+          // Defaults from the sale — operator can override anything.
+          model: o.sku || '',
+          colour: '',
+          storage: '',
+          supplierName: o.supplierName,
+          buyPrice: o.buyPrice,
+        };
+      });
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [noInvJsonKey]);
 
   const handleFile = async (file: File) => {
     setError('');
@@ -339,19 +383,21 @@ export default function SalesReportImport({ onClose }: Props) {
         staleFailed = res.failed;
       }
 
-      // Auto-create inventory units for orphan-IMEI sales. The whole point
-      // of surfacing the orphan count in the preview is to let the operator
-      // one-click reconcile — every flagged sale becomes a fresh-stock unit
-      // born in status='sold' carrying that sale's provenance, and
-      // sale.unitId is back-linked. Per-row failures (duplicate IMEI,
-      // invalid serial on a plain phone) are tallied but don't abort the
-      // import; the operator can still fix them from the per-row badge.
+      // Create inventory units for orphan-IMEI sales using the OPERATOR'S
+      // REVIEWED VALUES (orphanEdits state), not raw sale defaults. The
+      // operator filled in / confirmed model + colour + storage + supplier
+      // + BP in the preview's review panel; we honour those values here.
+      //
+      // Rows that didn't pass the operator's review (model blank, supplier
+      // blank, or BP <= 0) are skipped with a clear reason on the Done
+      // screen so the operator can finish them via the per-row badge.
       let unitsAddedFromOrphanSales = 0;
       let unitsAddFailed = 0;
       const unitsAddFailedDetails: Array<{ imei: string; orderNumber: string; reason: string }> = [];
-      if (autoAddOrphans && preview.noInventory.length > 0) {
+      if (preview.noInventory.length > 0) {
         const allImportedSales = [...preview.toCreate, ...preview.toUpdate];
         const saleById = new Map(allImportedSales.map(s => [s.id, s]));
+        const editById = new Map<string, OrphanEditRow>(orphanEdits.map(o => [o.saleId, o]));
         for (const orphan of preview.noInventory) {
           const sale = saleById.get(orphan.saleId);
           if (!sale) {
@@ -363,12 +409,37 @@ export default function SalesReportImport({ onClose }: Props) {
             });
             continue;
           }
+          const edit = editById.get(orphan.saleId);
+          if (!edit) {
+            // Shouldn't happen — orphanEdits is synced with preview.noInventory.
+            unitsAddFailed++;
+            unitsAddFailedDetails.push({
+              imei: orphan.imei,
+              orderNumber: orphan.orderNumber,
+              reason: 'review row missing — re-open the import',
+            });
+            continue;
+          }
+          // Operator-side gate: require a non-blank model and supplier and
+          // a positive BP. If anything is missing, skip and flag — don't
+          // silently substitute defaults that bypass the review intent.
+          if (!edit.model.trim() || !edit.supplierName.trim() || edit.buyPrice <= 0) {
+            unitsAddFailed++;
+            unitsAddFailedDetails.push({
+              imei: orphan.imei,
+              orderNumber: orphan.orderNumber,
+              reason: 'review incomplete (model / supplier / BP)',
+            });
+            continue;
+          }
           const res = await addSoldUnitFromSale({
             sale: sale as Sale,
             imei: orphan.imei,
-            model: orphan.sku || orphan.imei,
-            supplierName: orphan.supplierName,
-            buyPrice: orphan.buyPrice,
+            model: edit.model.trim(),
+            colour: edit.colour.trim() || undefined,
+            storage: edit.storage.trim() || undefined,
+            supplierName: edit.supplierName.trim(),
+            buyPrice: edit.buyPrice,
           });
           if (res.ok) {
             unitsAddedFromOrphanSales++;
@@ -460,8 +531,10 @@ export default function SalesReportImport({ onClose }: Props) {
               error={error}
               flipsAcked={flipsAcked}
               onAckChange={setFlipsAcked}
-              autoAddOrphans={autoAddOrphans}
-              onAutoAddChange={setAutoAddOrphans}
+              orphanEdits={orphanEdits}
+              onOrphanEdit={(saleId, patch) => {
+                setOrphanEdits(prev => prev.map(o => o.saleId === saleId ? { ...o, ...patch } : o));
+              }}
             />
           )}
 
@@ -670,15 +743,15 @@ function UploadPhase({
 // ── Phase: preview ──────────────────────────────────────────────────────────
 function PreviewPhase({
   preview, fileName, error, flipsAcked, onAckChange,
-  autoAddOrphans, onAutoAddChange,
+  orphanEdits, onOrphanEdit,
 }: {
   preview: PreviewBuckets;
   fileName: string;
   error: string;
   flipsAcked: boolean;
   onAckChange: (v: boolean) => void;
-  autoAddOrphans: boolean;
-  onAutoAddChange: (v: boolean) => void;
+  orphanEdits: OrphanEditRow[];
+  onOrphanEdit: (saleId: string, patch: Partial<OrphanEditRow>) => void;
 }) {
   // Clean re-import = nothing to create, nothing to flip, no orphan IMEIs,
   // no stale combined docs to purge. The file has already been imported and
@@ -825,62 +898,94 @@ function PreviewPhase({
           units as fresh-stock + status='sold' at confirm time, defaults
           pulled from each sale. Operator can untick to skip the bulk add
           and handle them one-by-one via the per-row badge after import. */}
-      {preview.noInventory.length > 0 && (
+      {preview.noInventory.length > 0 && (() => {
+        const incomplete = orphanEdits.filter(o => !o.model.trim() || !o.supplierName.trim() || o.buyPrice <= 0).length;
+        const ready = orphanEdits.length - incomplete;
+        return (
         <div className="border-2 border-orange-300 bg-orange-50 rounded-2xl p-3 space-y-2.5">
           <div className="flex items-start gap-2">
             <AlertTriangle size={18} className="text-orange-600 flex-shrink-0 mt-0.5" />
             <div className="flex-1 min-w-0">
               <p className="text-[12px] font-bold text-orange-900">
-                {preview.noInventory.length} sale{preview.noInventory.length === 1 ? '' : 's'} have no matching inventory IMEI
+                {preview.noInventory.length} sale{preview.noInventory.length === 1 ? '' : 's'} have no matching inventory IMEI — review &amp; fill details
               </p>
               <p className="text-[11px] text-orange-800 mt-0.5">
-                These IMEIs were sold but aren't in inventory. With the toggle
-                below ticked, the import will add each one as a fresh-stock
-                unit already marked SOLD, carrying that sale's SP / order /
-                marketplace / date and your BP + supplier from the file.
-                Sales then link to their units automatically — the
-                "No Inventory IMEI" flag clears on the next view.
+                Each row below will be added as fresh stock and marked SOLD when you confirm. Fields are pre-filled from the sale — review and edit any incorrect values. Rows with missing model / supplier / BP will be skipped (you can finish them via the per-sale badge after import).
+              </p>
+              <p className="text-[10px] font-mono text-orange-900 mt-1">
+                <span className="font-bold">{ready}</span> of {orphanEdits.length} ready · <span className="font-bold">{incomplete}</span> needs attention
               </p>
             </div>
           </div>
 
           <div className="bg-white border border-orange-200 rounded-xl overflow-hidden">
-            <div className="px-3 py-1.5 border-b border-orange-100 text-[9px] font-mono uppercase tracking-widest text-orange-900 bg-orange-50/60">
-              Sales without an inventory unit
+            <div className="px-3 py-1.5 border-b border-orange-100 text-[9px] font-mono uppercase tracking-widest text-orange-900 bg-orange-50/60 grid grid-cols-12 gap-2">
+              <span className="col-span-3">IMEI · Marketplace · Order</span>
+              <span className="col-span-3">Model</span>
+              <span className="col-span-1">Colour</span>
+              <span className="col-span-1">Storage</span>
+              <span className="col-span-2">Supplier</span>
+              <span className="col-span-1 text-right">BP £</span>
+              <span className="col-span-1 text-right">SP £</span>
             </div>
-            <ul className="max-h-48 overflow-auto divide-y divide-orange-50 text-[11px]">
-              {preview.noInventory.slice(0, 50).map(o => (
-                <li key={o.saleId} className="px-3 py-1.5 flex items-center justify-between gap-3">
-                  <span className="font-mono text-slate-700 truncate" title={`${o.imei} — ${o.sku}`}>
-                    {o.imei || '—'} <span className="text-slate-400">·</span> <span className="text-slate-500">{o.sku || '—'}</span>
-                  </span>
-                  <span className="flex-shrink-0 text-[10px] font-mono text-slate-600">
-                    {o.marketplace} · {o.orderNumber} · BP £{Number(o.buyPrice).toFixed(0)} · SP £{Number(o.salePrice).toFixed(2)}
-                  </span>
-                </li>
-              ))}
-              {preview.noInventory.length > 50 && (
-                <li className="px-3 py-1.5 text-orange-700 text-[10px] font-mono">
-                  +{preview.noInventory.length - 50} more not shown
-                </li>
-              )}
+            <ul className="max-h-72 overflow-auto divide-y divide-orange-50 text-[11px]">
+              {orphanEdits.map(o => {
+                const rowIncomplete = !o.model.trim() || !o.supplierName.trim() || o.buyPrice <= 0;
+                return (
+                  <li
+                    key={o.saleId}
+                    className={`px-3 py-1.5 grid grid-cols-12 gap-2 items-center ${rowIncomplete ? 'bg-amber-50/70' : ''}`}
+                  >
+                    <span className="col-span-3 min-w-0">
+                      <span className="block font-mono text-slate-700 truncate" title={o.imei}>{o.imei || '(blank)'}</span>
+                      <span className="block text-[9px] font-mono text-slate-500 truncate">{o.marketplace} · {o.orderNumber}</span>
+                    </span>
+                    <input
+                      className={`col-span-3 border rounded px-1.5 py-1 text-[10px] focus:outline-none focus:border-orange-500 ${!o.model.trim() ? 'border-amber-400 bg-amber-50' : 'border-slate-200'}`}
+                      value={o.model}
+                      placeholder="Required"
+                      onChange={e => onOrphanEdit(o.saleId, { model: e.target.value })}
+                    />
+                    <input
+                      className="col-span-1 border border-slate-200 rounded px-1.5 py-1 text-[10px] focus:outline-none focus:border-orange-500"
+                      value={o.colour}
+                      placeholder="—"
+                      onChange={e => onOrphanEdit(o.saleId, { colour: e.target.value })}
+                    />
+                    <input
+                      className="col-span-1 border border-slate-200 rounded px-1.5 py-1 text-[10px] focus:outline-none focus:border-orange-500"
+                      value={o.storage}
+                      placeholder="—"
+                      onChange={e => onOrphanEdit(o.saleId, { storage: e.target.value })}
+                    />
+                    <input
+                      className={`col-span-2 border rounded px-1.5 py-1 text-[10px] focus:outline-none focus:border-orange-500 ${!o.supplierName.trim() ? 'border-amber-400 bg-amber-50' : 'border-slate-200'}`}
+                      value={o.supplierName}
+                      placeholder="Required"
+                      onChange={e => onOrphanEdit(o.saleId, { supplierName: e.target.value })}
+                    />
+                    <input
+                      type="number"
+                      step="0.01"
+                      className={`col-span-1 border rounded px-1.5 py-1 text-[10px] font-mono text-right focus:outline-none focus:border-orange-500 ${o.buyPrice <= 0 ? 'border-amber-400 bg-amber-50' : 'border-slate-200'}`}
+                      value={o.buyPrice}
+                      onChange={e => onOrphanEdit(o.saleId, { buyPrice: Number(e.target.value) || 0 })}
+                    />
+                    <span className="col-span-1 text-right font-mono text-slate-500 text-[10px]">
+                      £{Number(o.salePrice).toFixed(2)}
+                    </span>
+                  </li>
+                );
+              })}
             </ul>
           </div>
 
-          <label className="flex items-start gap-2 cursor-pointer select-none text-[11px] font-semibold text-orange-900">
-            <input
-              type="checkbox"
-              checked={autoAddOrphans}
-              onChange={e => onAutoAddChange(e.target.checked)}
-              className="mt-0.5 w-4 h-4 accent-orange-600 cursor-pointer"
-            />
-            Add these {preview.noInventory.length} unit{preview.noInventory.length === 1 ? '' : 's'} to inventory as SOLD when I confirm.
-            <span className="block text-[10px] font-mono font-normal text-orange-700 mt-0.5">
-              Tablets / non-IMEI serials may fail validation — those stay flagged for one-click fix from the per-sale badge.
-            </span>
-          </label>
+          <p className="text-[10px] font-mono text-orange-700">
+            Rows with amber-tinted inputs are missing required values. They'll be skipped on confirm — you can complete them later via the per-sale "No Inventory" badge.
+          </p>
         </div>
-      )}
+        );
+      })()}
 
       {preview.duplicatesInFile.length > 0 && (
         <DetailPanel title={`Duplicate IDs in file · ${preview.duplicatesInFile.length}`} tone="rose">
