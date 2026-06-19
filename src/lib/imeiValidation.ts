@@ -56,7 +56,12 @@ export function isAppleDevice(modelOrBrand: string | undefined | null): boolean 
   // badge instead of auto-adding. Other alternatives keep their trailing
   // word boundary so short fragments (e.g. WATCH inside WATCHED) still
   // don't false-positive.
-  return /\b(APPLE|IPHONE|IPAD|MACBOOK|IMAC|AIRPODS|TABLET|SLATE|WATCH|BUDS|PODS|BOOK)\b|\bTAB[A-Z0-9]*\b/.test(s);
+  //
+  // WIFI / WI-FI is a positive signal too: WiFi-only devices have no
+  // cellular radio and therefore no 15-digit IMEI — only a serial. This
+  // catches "Galaxy A11 Plus WiFi" and similar tablet variants the
+  // operator labels by their radio config rather than by a TAB keyword.
+  return /\b(APPLE|IPHONE|IPAD|MACBOOK|IMAC|AIRPODS|TABLET|SLATE|WATCH|BUDS|PODS|BOOK|WIFI|WI-FI)\b|\bTAB[A-Z0-9]*\b/.test(s);
 }
 
 /**
