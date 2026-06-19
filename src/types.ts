@@ -79,6 +79,14 @@ export interface InventoryUnit {
   sku?: string;
   stockLocation?: StockLocation;
   status: DeviceStatus;
+  /** Fulfilment source of the unit — whether it was held in our office
+   *  ('office') or supplier-held / SHS ('shs'). Distinct from the mutable
+   *  `status`: it PERSISTS through the sold flip so a sold unit still records
+   *  whether it was an office sale or an SHS sale, letting reports and the
+   *  periodic table filter SHS as its own component even after it's sold.
+   *  While in stock it tracks status (incoming → 'shs', available → 'office');
+   *  captured explicitly per-unit when a sale is reconciled at import. */
+  stockSource?: 'office' | 'shs';
   // Operational flags for daily updates
   flags: OperationalFlag[];
   // Free-text note for this unit (e.g. "Screen crack", "Box missing")

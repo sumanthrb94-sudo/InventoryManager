@@ -519,6 +519,9 @@ export interface AddSoldUnitFromSaleInput {
   supplierName?: string;
   colour?: string;
   storage?: string;
+  /** Fulfilment source — office stock or SHS (supplier-held). Defaults to
+   *  'office'. Persisted so the sold unit stays filterable as SHS. */
+  stockSource?: 'office' | 'shs';
 }
 
 /**
@@ -609,6 +612,7 @@ export async function addSoldUnitFromSale(
     supplierId,
     supplierName: supplierName || undefined,
     status: 'sold',
+    stockSource: input.stockSource ?? 'office',
     flags: [],
     notes: '',
     platformListed: true,
@@ -655,6 +659,8 @@ export interface CompleteUnitBuyInfoInput {
   buyPrice: number;
   colour?: string;
   storage?: string;
+  /** Fulfilment source — office stock or SHS. Persisted on the unit. */
+  stockSource?: 'office' | 'shs';
 }
 
 /**
@@ -703,6 +709,7 @@ export async function completeUnitBuyInfo(
       ...(input.colour?.trim() ? { colour: input.colour.trim() } : {}),
       ...(storage ? { storage } : {}),
       ...(parsed.series ? ({ series: parsed.series } as any) : {}),
+      ...(input.stockSource ? { stockSource: input.stockSource } : {}),
       supplierId,
       supplierName,
       buyPrice: bp,

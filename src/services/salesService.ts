@@ -361,6 +361,10 @@ export function buildPostImportSyncPatches(
         id: u.id,
         data: {
           status: 'sold',
+          // Record the fulfilment source BEFORE the flip erases the
+          // distinction: an SHS/incoming unit becomes an SHS sale, an
+          // available unit an office sale. Preserve an already-set value.
+          stockSource: u.stockSource ?? (u.status === 'incoming' ? 'shs' : 'office'),
           salePrice: s.salePrice,
           saleDate: s.saleDate,
           salePlatform: s.marketplace,

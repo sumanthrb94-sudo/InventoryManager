@@ -733,3 +733,41 @@ describe('completeUnitBuyInfo', () => {
     expect(r.error).toBe('write_failed');
   });
 });
+
+describe('stockSource capture (office vs SHS)', () => {
+  const orphanSaleSrc = (over: Partial<Sale> = {}): Sale => ({
+    id: 'AMAZON__O-SRC__350000000000222',
+    marketplace: 'AMAZON', orderNumber: 'O-SRC', imei: '350000000000222', unitId: '',
+    supplierId: '', supplierName: 'NANAK', saleDate: '2026-06-14', quantity: 1,
+    buyPrice: 57, salePrice: 84.99, sku: 'SG-A32', importBatchId: 't', sourceFile: 't',
+    sourceRow: 1, ownerId: 'shared', createdAt: '2026-06-14T00:00:00Z', updatedAt: '2026-06-14T00:00:00Z',
+    ...over,
+  });
+
+  it('addSoldUnitFromSale persists stockSource=shs', async () => {
+    const sale = orphanSaleSrc();
+    col('sales').set(sale.id, { ...sale });
+    const r = await addSoldUnitFromSale({ sale, imei: sale.imei!, model: 'Samsung Galaxy A32 5G', stockSource: 'shs' });
+    expect(r.ok).toBe(true);
+    expect(collections['inventoryUnits'].get('350000000000222').stockSource).toBe('shs');
+  });
+
+  it('addSoldUnitFromSale defaults stockSource=office', async () => {
+    const sale = orphanSaleSrc({ id: 'AMAZON__O-OFF__350000000000223', imei: '350000000000223' });
+    col('sales').set(sale.id, { ...sale });
+    const r = await addSoldUnitFromSale({ sale, imei: sale.imei!, model: 'Samsung Galaxy A32 5G' });
+    expect(r.ok).toBe(true);
+    expect(collections['inventoryUnits'].get('350000000000223').stockSource).toBe('office');
+  });
+
+  it('completeUnitBuyInfo persists stockSource when provided', async () => {
+    col('inventoryUnits').set('u-src', {
+      id: 'u-src', imei: '1', model: 'X', brand: 'Other', category: 'Other',
+      colour: 'Unknown', buyPrice: 0, supplierName: '', status: 'available',
+      flags: [], notes: '', platformListed: false, listingSites: [], ownerId: 'shared', createdAt: 'x',
+    });
+    const r = await completeUnitBuyInfo({ unitId: 'u-src', model: 'Galaxy A32', supplierName: 'NANAK', buyPrice: 57, stockSource: 'shs' });
+    expect(r.ok).toBe(true);
+    expect(collections['inventoryUnits'].get('u-src').stockSource).toBe('shs');
+  });
+});

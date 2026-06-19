@@ -30,6 +30,7 @@ export default function AddSoldUnitModal({ sale, onClose, onSaved }: Props) {
   const [buyPrice, setBuyPrice]       = useState(String(sale.buyPrice ?? ''));
   const [colour, setColour]           = useState('');
   const [storage, setStorage]         = useState('');
+  const [stockSource, setStockSource] = useState<'office' | 'shs'>('office');
   const [saving, setSaving]           = useState(false);
   const [saved, setSaved]             = useState(false);
   const [error, setError]             = useState('');
@@ -59,6 +60,7 @@ export default function AddSoldUnitModal({ sale, onClose, onSaved }: Props) {
       buyPrice: Number(buyPrice),
       colour: colour.trim(),
       storage: storage.trim(),
+      stockSource,
     });
     if (res.ok) {
       setSaved(true);
@@ -130,6 +132,26 @@ export default function AddSoldUnitModal({ sale, onClose, onSaved }: Props) {
               <input value={buyPrice} onChange={e => setBuyPrice(e.target.value)} type="number" placeholder="0"
                 className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm font-mono focus:outline-none focus:border-black" /></Field>
           </div>
+
+          <Field label="Stock Source">
+            <div className="inline-flex rounded-xl border border-slate-200 overflow-hidden">
+              {(['office', 'shs'] as const).map(src => (
+                <button
+                  key={src}
+                  type="button"
+                  onClick={() => setStockSource(src)}
+                  className={`px-4 py-2 text-[11px] font-bold uppercase tracking-widest transition-colors ${
+                    stockSource === src
+                      ? (src === 'shs' ? 'bg-teal-600 text-white' : 'bg-slate-800 text-white')
+                      : 'bg-white text-slate-500 hover:bg-slate-50'
+                  }`}
+                  title={src === 'shs' ? 'Supplier-held (SHS) stock' : 'Office stock'}
+                >
+                  {src === 'shs' ? 'SHS' : 'Office Stock'}
+                </button>
+              ))}
+            </div>
+          </Field>
 
           {error && (
             <div className="flex items-center gap-2 bg-red-50 border border-red-100 rounded-xl px-3 py-2">

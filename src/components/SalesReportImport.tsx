@@ -99,6 +99,9 @@ export interface AuditCompletionRow {
   storage: string;
   supplierName: string;
   buyPrice: number;
+  /** Per-unit fulfilment source — operator picks Office Stock or SHS so the
+   *  sold unit is classified and SHS stays filterable as its own component. */
+  stockSource: 'office' | 'shs';
   /** Sale-level facts the panel can't edit (must be fixed in the sheet);
    *  used to show un-editable blockers. */
   saleDate: string;
@@ -306,6 +309,9 @@ export function buildPreview(
       storage,
       supplierName,
       buyPrice,
+      // Default the source from a matched unit's state (incoming → SHS),
+      // else office; operator can flip it per row.
+      stockSource: matched?.stockSource ?? (matched?.status === 'incoming' ? 'shs' : 'office'),
       saleDate: s.saleDate || '',
     });
   }
@@ -477,6 +483,7 @@ export default function SalesReportImport({ onClose }: Props) {
               storage: row.storage.trim() || undefined,
               supplierName: row.supplierName.trim(),
               buyPrice: row.buyPrice,
+              stockSource: row.stockSource,
             });
           } else {
             // CREATE a sold unit from the sale + reviewed values. When the
@@ -492,6 +499,7 @@ export default function SalesReportImport({ onClose }: Props) {
               storage: row.storage.trim() || undefined,
               supplierName: row.supplierName.trim(),
               buyPrice: row.buyPrice,
+              stockSource: row.stockSource,
             });
           }
           if (res.ok) {
@@ -1021,6 +1029,24 @@ function PreviewPhase({
                         )}
                       </span>
                       <span className="block text-[9px] font-mono text-slate-500 truncate mt-0.5">{o.marketplace} · {o.orderNumber}</span>
+                      {/* Per-unit fulfilment source toggle */}
+                      <span className="inline-flex mt-1 rounded border border-slate-200 overflow-hidden">
+                        {(['office', 'shs'] as const).map(src => (
+                          <button
+                            key={src}
+                            type="button"
+                            onClick={() => onAuditEdit(o.saleId, { stockSource: src })}
+                            className={`text-[8px] font-bold uppercase tracking-wide px-1.5 py-0.5 ${
+                              o.stockSource === src
+                                ? (src === 'shs' ? 'bg-teal-600 text-white' : 'bg-slate-700 text-white')
+                                : 'bg-white text-slate-500 hover:bg-slate-50'
+                            }`}
+                            title={src === 'shs' ? 'Supplier-held (SHS) stock' : 'Office stock'}
+                          >
+                            {src === 'shs' ? 'SHS' : 'Office'}
+                          </button>
+                        ))}
+                      </span>
                     </span>
                     <input
                       className={`col-span-3 border rounded px-1.5 py-1 text-[10px] focus:outline-none focus:border-orange-500 ${!o.model.trim() ? 'border-rose-400 bg-rose-50' : 'border-slate-200'}`}

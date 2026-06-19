@@ -333,3 +333,20 @@ describe('auditRowMissing — audit completeness gate', () => {
     expect(missing).toHaveLength(3);
   });
 });
+
+describe('buildPostImportSyncPatches — stockSource stamping', () => {
+  it('stamps office for available units and shs for incoming units on flip', () => {
+    const units: InventoryUnit[] = [
+      unit({ id: 'u-office', imei: '111', status: 'available' }),
+      unit({ id: 'u-shs',    imei: '222', status: 'incoming' }),
+    ];
+    const sales: Sale[] = [
+      sale({ id: 'EBAY__O1__111', marketplace: 'EBAY', orderNumber: 'O1', imei: '111' }),
+      sale({ id: 'EBAY__O2__222', marketplace: 'EBAY', orderNumber: 'O2', imei: '222' }),
+    ];
+    const { unitPatches } = buildPostImportSyncPatches(sales, units);
+    const byId = new Map(unitPatches.map(p => [p.id, p.data]));
+    expect(byId.get('u-office')?.stockSource).toBe('office');
+    expect(byId.get('u-shs')?.stockSource).toBe('shs');
+  });
+});
