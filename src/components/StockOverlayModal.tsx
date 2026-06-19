@@ -16,14 +16,15 @@ import {
   Search, ChevronDown, ChevronUp, ChevronsUpDown, X,
   AlertCircle, Truck, ChevronRight, Layers, List, Sparkles,
 } from 'lucide-react';
-import { motion, AnimatePresence } from 'motion/react';
+import { motion } from 'motion/react';
 import type { InventoryUnit, InventoryAggregate } from '../types';
 import { fmtDateForUser } from '../lib/userLocale';
 import { isValidImei, isAppleDevice } from '../lib/imeiValidation';
 import { parseBrandModelStorage } from '../lib/modelStorage';
 import CopyImei from './CopyImei';
 import PaginationBar, { usePagedRows } from './PaginationBar';
-import UnitDetailDrawer from './UnitDetailDrawer';
+import EditableCell from './EditableCell';
+import { dbService } from '../lib/dbService';
 
 // ── Detail-view sort types (used by the 10-column table headers) ────────────
 export type SortKey = 'dateIn' | 'model' | 'storage' | 'colour' | 'buyPrice' | 'supplier' | 'grade';
@@ -636,6 +637,13 @@ function fmtAggregateCell(
   }
 }
 
+// ── Editable column keys (Detailed view) ───────────────────────────────────
+// OVERLAY_COLUMNS keys are typed as plain strings, so call sites cast
+// `c.key as any` when checking membership. dateIn / imei / status stay
+// read-only — they're rendered by dedicated branches above the default.
+const EDITABLE_TEXT_KEYS    = ['model', 'grade', 'storage', 'colour', 'supplierName', 'notes'] as const;
+const EDITABLE_NUMERIC_KEYS = ['buyPrice'] as const;
+
 // ── Component ────────────────────────────────────────────────────────────────
 
 export default function StockOverlayModal({
@@ -747,7 +755,6 @@ export default function StockOverlayModal({
    *               row-by-row. */
   const [viewMode, setViewMode] = useState<'grouped' | 'detailed'>('grouped');
   const [expandedModels, setExpandedModels] = useState<Set<string>>(new Set());
-  const [selectedUnit, setSelectedUnit] = useState<InventoryUnit | null>(null);
   const toggleExpand = (key: string) => setExpandedModels(prev => {
     const next = new Set(prev);
     next.has(key) ? next.delete(key) : next.add(key);
@@ -776,7 +783,6 @@ export default function StockOverlayModal({
     + searchedAggregates.reduce((s, a) => s + (a.quantityNum || 0), 0);
 
   return (
-    <>
     <motion.div
       initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
       className="fixed inset-0 z-[60] flex items-end md:items-center justify-center bg-black/60 backdrop-blur-sm p-0 md:p-4"
@@ -955,7 +961,7 @@ export default function StockOverlayModal({
                   const imeiValid = isValidImei(u.imei, { isAppleSerial: apple });
                   const tone = STATUS_TONE[u.status] || STATUS_TONE.available;
                   return (
-                    <tr key={u.id} className={`${rowBg} transition-colors group cursor-pointer`} onClick={() => setSelectedUnit(u)}>
+                    <tr key={u.id} className={`${rowBg} transition-colors group`}>
                       {OVERLAY_COLUMNS.map((c, i) => {
                         const sticky = i === 0;
                         const stickyCls = sticky ? `${rowBg} border-r border-slate-200` : undefined;
@@ -981,6 +987,34 @@ export default function StockOverlayModal({
                                   <span className={`w-1.5 h-1.5 rounded-full ${tone.dot}`} />
                                   {u.status}
                                 </span>
+                              </Td>
+                            </React.Fragment>
+                          );
+                        }
+                        if (EDITABLE_TEXT_KEYS.includes(c.key as any) || EDITABLE_NUMERIC_KEYS.includes(c.key as any)) {
+                          const val = fmtOverlayCell(u, c.key, region, supplierMap);
+                          const raw = (u as any)[c.key];
+                          const isNum = EDITABLE_NUMERIC_KEYS.includes(c.key as any);
+                          return (
+                            <React.Fragment key={c.key}>
+                              <Td
+                                align={c.align}
+                                sticky={sticky}
+                                leftPx={sticky ? 0 : undefined}
+                                className={stickyCls}
+                              >
+                                <EditableCell
+                                  value={raw ?? ''}
+                                  display={val || '—'}
+                                  type={isNum ? 'number' : 'text'}
+                                  className="block truncate font-mono text-slate-700"
+                                  style={{ maxWidth: c.width, display: 'inline-block' }}
+                                  onSave={async (next) => {
+                                    const patch: any = {};
+                                    patch[c.key] = isNum ? (next === '' ? null : Number(next)) : next;
+                                    await dbService.update('inventoryUnits', u.id, patch);
+                                  }}
+                                />
                               </Td>
                             </React.Fragment>
                           );
@@ -1027,7 +1061,7 @@ export default function StockOverlayModal({
         )}
 
         <div className="px-5 py-2 border-t border-slate-100 bg-slate-50/60 flex-shrink-0 text-[9px] font-mono uppercase tracking-widest text-slate-500 flex items-center justify-between">
-          <span>Click row to edit · Click headers to sort · ESC to close</span>
+          <span>Double-click a cell to edit · Click headers to sort · ESC to close</span>
           <button
             onClick={onClose}
             className="px-3 py-1.5 rounded-lg border border-slate-200 text-slate-600 text-[10px] font-bold uppercase tracking-widest hover:bg-white"
@@ -1035,17 +1069,6 @@ export default function StockOverlayModal({
         </div>
       </motion.div>
     </motion.div>
-
-    <AnimatePresence>
-      {selectedUnit && (
-        <UnitDetailDrawer
-          unit={selectedUnit}
-          supplierName={supplierMap[selectedUnit.supplierId] || selectedUnit.supplierName || '—'}
-          onClose={() => setSelectedUnit(null)}
-        />
-      )}
-    </AnimatePresence>
-    </>
   );
 }
 

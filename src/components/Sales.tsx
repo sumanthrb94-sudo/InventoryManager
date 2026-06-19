@@ -16,6 +16,7 @@ import { marketplaceFromListingSite } from '../lib/platforms';
 import { recomputeSale } from '../lib/recomputeSale';
 import { fmtDateForUser, useUserRegion } from '../lib/userLocale';
 import AddSoldUnitModal from './AddSoldUnitModal';
+import EditableCell from './EditableCell';
 import { useIsAdmin } from '../lib/useIsAdmin';
 
 const FLAG_CONFIG: Record<OperationalFlag, { label: string; icon: any; style: string; action: string }> = {
@@ -792,7 +793,13 @@ export default function Sales() {
                                 case 'orderNumber':
                                   display = s.flagged ? (
                                     <span className="inline-flex items-center gap-1">
-                                      <span className="text-rose-700 font-semibold">{s.orderNumber || '—'}</span>
+                                      <EditableCell
+                                        value={s.orderNumber ?? ''}
+                                        display={<span className="text-rose-700 font-semibold">{s.orderNumber || '—'}</span>}
+                                        onSave={async (v) => {
+                                          await dbService.update('sales', s.id, { orderNumber: v });
+                                        }}
+                                      />
                                       <span
                                         className="text-[8px] font-bold uppercase tracking-widest px-1 py-px rounded border bg-rose-100 text-rose-700 border-rose-200"
                                         title="Flagged on the source Sales Report (red row)"
@@ -800,10 +807,26 @@ export default function Sales() {
                                         Flagged
                                       </span>
                                     </span>
-                                  ) : (s.orderNumber || '—');
+                                  ) : (
+                                    <EditableCell
+                                      value={s.orderNumber ?? ''}
+                                      display={s.orderNumber || '—'}
+                                      onSave={async (v) => {
+                                        await dbService.update('sales', s.id, { orderNumber: v });
+                                      }}
+                                    />
+                                  );
                                   break;
                                 case 'sku':
-                                  display = s.sku || '—';
+                                  display = (
+                                    <EditableCell
+                                      value={s.sku ?? ''}
+                                      display={s.sku || '—'}
+                                      onSave={async (v) => {
+                                        await dbService.update('sales', s.id, { sku: v });
+                                      }}
+                                    />
+                                  );
                                   break;
                                 case 'imei': {
                                   const noInventory = !!s.imei && !linkedUnit;
@@ -839,22 +862,74 @@ export default function Sales() {
                                   break;
                                 }
                                 case 'supplierName':
-                                  display = s.supplierName || '—';
+                                  display = (
+                                    <EditableCell
+                                      value={s.supplierName ?? ''}
+                                      display={s.supplierName || '—'}
+                                      onSave={async (v) => {
+                                        await dbService.update('sales', s.id, { supplierName: v });
+                                      }}
+                                    />
+                                  );
                                   break;
                                 case 'quantity':
-                                  display = String(s.quantity ?? 1);
+                                  display = (
+                                    <EditableCell
+                                      value={s.quantity ?? ''}
+                                      display={String(s.quantity ?? 1)}
+                                      type="number"
+                                      onSave={async (v) => {
+                                        await dbService.update('sales', s.id, { quantity: v === '' ? null : Number(v) });
+                                      }}
+                                    />
+                                  );
                                   break;
                                 case 'buyPrice':
-                                  display = fmtGBP(s.buyPrice);
+                                  display = (
+                                    <EditableCell
+                                      value={s.buyPrice ?? ''}
+                                      display={fmtGBP(s.buyPrice)}
+                                      type="number"
+                                      onSave={async (v) => {
+                                        await dbService.update('sales', s.id, { buyPrice: v === '' ? null : Number(v) });
+                                      }}
+                                    />
+                                  );
                                   break;
                                 case 'salePrice':
-                                  display = fmtGBP(s.salePrice);
+                                  display = (
+                                    <EditableCell
+                                      value={s.salePrice ?? ''}
+                                      display={fmtGBP(s.salePrice)}
+                                      type="number"
+                                      onSave={async (v) => {
+                                        await dbService.update('sales', s.id, { salePrice: v === '' ? null : Number(v) });
+                                      }}
+                                    />
+                                  );
                                   break;
                                 case 'paymentMode':
-                                  display = s.marketplace === 'BM' ? (s.paymentMode || '—') : '—';
+                                  display = (
+                                    <EditableCell
+                                      value={s.paymentMode ?? ''}
+                                      display={s.marketplace === 'BM' ? (s.paymentMode || '—') : '—'}
+                                      onSave={async (v) => {
+                                        await dbService.update('sales', s.id, { paymentMode: v });
+                                      }}
+                                    />
+                                  );
                                   break;
                                 case 'postage':
-                                  display = fmtGBP(s.postage);
+                                  display = (
+                                    <EditableCell
+                                      value={s.postage ?? ''}
+                                      display={fmtGBP(s.postage)}
+                                      type="number"
+                                      onSave={async (v) => {
+                                        await dbService.update('sales', s.id, { postage: v === '' ? null : Number(v) });
+                                      }}
+                                    />
+                                  );
                                   break;
                                 case 'commission':
                                   display = fmtGBP(s.commission);
@@ -880,7 +955,15 @@ export default function Sales() {
                                   break;
                                 }
                                 case 'comments':
-                                  display = s.comments || '';
+                                  display = (
+                                    <EditableCell
+                                      value={s.comments ?? ''}
+                                      display={s.comments || ''}
+                                      onSave={async (v) => {
+                                        await dbService.update('sales', s.id, { comments: v });
+                                      }}
+                                    />
+                                  );
                                   break;
                               }
                               const titleStr =
