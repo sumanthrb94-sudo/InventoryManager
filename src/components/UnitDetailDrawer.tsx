@@ -207,6 +207,7 @@ export default function UnitDetailDrawer({ unit, supplierName, onClose }: Props)
   };
 
   return (
+    <>
     <motion.div
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
@@ -559,5 +560,6 @@ export default function UnitDetailDrawer({ unit, supplierName, onClose }: Props)
         <EditUnitModal unit={unit} onClose={() => setShowEditModal(false)} />
       )}
     </AnimatePresence>
+    </>
   );
 }

@@ -776,6 +776,7 @@ export default function StockOverlayModal({
     + searchedAggregates.reduce((s, a) => s + (a.quantityNum || 0), 0);
 
   return (
+    <>
     <motion.div
       initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
       className="fixed inset-0 z-[60] flex items-end md:items-center justify-center bg-black/60 backdrop-blur-sm p-0 md:p-4"
@@ -1044,6 +1045,7 @@ export default function StockOverlayModal({
         />
       )}
     </AnimatePresence>
+    </>
   );
 }
 
