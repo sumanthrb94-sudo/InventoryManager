@@ -98,12 +98,9 @@ describe('SalesReportImport preview ↔ buildPostImportSyncPatches parity', () =
     const ids = new Set(preview.inventoryFlips.map(f => f.unitId));
     expect(ids.has('u-flip-1')).toBe(true);
     expect(ids.has('u-flip-2')).toBe(true);
-    expect(ids.has('u-shs')).toBe(true);      // SHS unit fulfils on sale
+    expect(ids.has('u-shs')).toBe(true);      // incoming unit fulfils on sale
     expect(ids.has('u-sold')).toBe(false);
     expect(ids.has('u-ret')).toBe(false);
-    // The SHS flip is tagged as such; office flips are not.
-    expect(preview.inventoryFlips.find(f => f.unitId === 'u-shs')?.fromShs).toBe(true);
-    expect(preview.inventoryFlips.find(f => f.unitId === 'u-flip-1')?.fromShs).toBe(false);
 
     // Preview surfaces the marketplace + order + price so the operator can
     // sanity-check the row that's about to flip.
@@ -335,10 +332,10 @@ describe('auditRowMissing — audit completeness gate', () => {
 });
 
 describe('buildPostImportSyncPatches — stockSource stamping', () => {
-  it('stamps office for available units and shs for incoming units on flip', () => {
+  it('stamps office for any matched unit (IMEI in inventory = office stock)', () => {
     const units: InventoryUnit[] = [
       unit({ id: 'u-office', imei: '111', status: 'available' }),
-      unit({ id: 'u-shs',    imei: '222', status: 'incoming' }),
+      unit({ id: 'u-inc',    imei: '222', status: 'incoming' }),
     ];
     const sales: Sale[] = [
       sale({ id: 'EBAY__O1__111', marketplace: 'EBAY', orderNumber: 'O1', imei: '111' }),
@@ -346,7 +343,17 @@ describe('buildPostImportSyncPatches — stockSource stamping', () => {
     ];
     const { unitPatches } = buildPostImportSyncPatches(sales, units);
     const byId = new Map(unitPatches.map(p => [p.id, p.data]));
+    // IMEI exists in inventory → office, regardless of prior status.
     expect(byId.get('u-office')?.stockSource).toBe('office');
-    expect(byId.get('u-shs')?.stockSource).toBe('shs');
+    expect(byId.get('u-inc')?.stockSource).toBe('office');
+  });
+
+  it('preserves an explicitly-set shs source on a matched unit', () => {
+    const units: InventoryUnit[] = [
+      unit({ id: 'u-shs', imei: '333', status: 'available', stockSource: 'shs' }),
+    ];
+    const sales: Sale[] = [sale({ id: 'EBAY__O3__333', marketplace: 'EBAY', orderNumber: 'O3', imei: '333' })];
+    const { unitPatches } = buildPostImportSyncPatches(sales, units);
+    expect(unitPatches.find(p => p.id === 'u-shs')?.data.stockSource).toBe('shs');
   });
 });

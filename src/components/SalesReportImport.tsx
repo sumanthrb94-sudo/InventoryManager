@@ -54,11 +54,6 @@ export interface PreviewBuckets {
     saleOrderId: string;
     marketplace: Marketplace;
     salePrice: number;
-    /** True when the matched unit was SHS / supplier-held (status
-     *  'incoming') — selling it fulfils from the supplier rather than
-     *  drawing down office stock. Surfaced so the operator can see the
-     *  fulfilment source at a glance. */
-    fromShs: boolean;
   }>;
   /** Stale combined multi-IMEI docs already in the DB that the per-IMEI split
    *  rows in this upload supersede. The old parser stored every IMEI of a
@@ -195,7 +190,6 @@ export function buildPreview(
       saleOrderId: s.orderNumber || '',
       marketplace: s.marketplace,
       salePrice: s.salePrice ?? 0,
-      fromShs: u.status === 'incoming',
     });
   }
 
@@ -309,9 +303,11 @@ export function buildPreview(
       storage,
       supplierName,
       buyPrice,
-      // Default the source from a matched unit's state (incoming → SHS),
-      // else office; operator can flip it per row.
-      stockSource: matched?.stockSource ?? (matched?.status === 'incoming' ? 'shs' : 'office'),
+      // Matched units (IMEI already in inventory) are office stock by
+      // definition — auto, no operator input. Orphans default to office but
+      // the operator can flip to SHS in the panel (supplier-held unit never
+      // tracked in our system).
+      stockSource: matched?.stockSource ?? 'office',
       saleDate: s.saleDate || '',
     });
   }
@@ -892,23 +888,19 @@ function PreviewPhase({
           acknowledgement before Confirm enables. Loaded the eye-icon
           prompt from QA round 5 ("when I add inventory stock it's 215
           but when I load sales report it's showing 198 — why"). */}
-      {preview.inventoryFlips.length > 0 && (() => {
-        const officeFlips = preview.inventoryFlips.filter(f => !f.fromShs).length;
-        const shsFlips = preview.inventoryFlips.filter(f => f.fromShs).length;
-        return (
+      {preview.inventoryFlips.length > 0 && (
         <div className="border-2 border-amber-300 bg-amber-50 rounded-2xl p-3 space-y-2.5">
           <div className="flex items-start gap-2">
             <AlertTriangle size={18} className="text-amber-600 flex-shrink-0 mt-0.5" />
             <div className="flex-1 min-w-0">
               <p className="text-[12px] font-bold text-amber-900">
-                {preview.inventoryFlips.length} unit{preview.inventoryFlips.length === 1 ? '' : 's'} will be fulfilled &amp; marked SOLD
+                {preview.inventoryFlips.length} office-stock unit{preview.inventoryFlips.length === 1 ? '' : 's'} will be fulfilled &amp; marked SOLD
               </p>
               <p className="text-[11px] text-amber-800 mt-0.5">
-                These IMEIs match units already tracked in inventory, so each sale
-                is fulfilled from its real unit (full model / supplier / BP intact).
-                {officeFlips > 0 && <> {officeFlips} draw{officeFlips === 1 ? 's' : ''} down office stock.</>}
-                {shsFlips > 0 && <> {shsFlips} fulfil{shsFlips === 1 ? 's' : ''} from SHS (supplier-held) stock.</>}
-                {' '}If any IMEI is wrong, fix the sheet first or void the sale after import.
+                These IMEIs match units already in inventory (office stock), so each
+                sale is fulfilled from its real unit — full model / supplier / BP
+                intact. If any IMEI is wrong, fix the sheet first or void the sale
+                after import.
               </p>
             </div>
           </div>
@@ -920,11 +912,8 @@ function PreviewPhase({
             <ul className="max-h-48 overflow-auto divide-y divide-amber-50 text-[11px]">
               {preview.inventoryFlips.slice(0, 50).map(f => (
                 <li key={f.unitId} className="px-3 py-1.5 flex items-center justify-between gap-3">
-                  <span className="font-mono text-slate-700 truncate flex items-center gap-1.5" title={`${f.imei} — ${f.model}`}>
-                    {f.fromShs && (
-                      <span className="flex-shrink-0 text-[8px] font-bold uppercase tracking-widest px-1 py-px rounded border bg-teal-50 text-teal-700 border-teal-200">SHS</span>
-                    )}
-                    <span className="truncate">{f.imei || '—'} <span className="text-slate-400">·</span> <span className="text-slate-500">{f.model}</span></span>
+                  <span className="font-mono text-slate-700 truncate" title={`${f.imei} — ${f.model}`}>
+                    {f.imei || '—'} <span className="text-slate-400">·</span> <span className="text-slate-500">{f.model}</span>
                   </span>
                   <span className="flex-shrink-0 text-[10px] font-mono text-slate-600">
                     {f.marketplace} · {f.saleOrderId} · £{Number(f.salePrice).toFixed(2)}
@@ -949,8 +938,7 @@ function PreviewPhase({
             I've reviewed the list — fulfil &amp; mark the {preview.inventoryFlips.length} unit{preview.inventoryFlips.length === 1 ? '' : 's'} sold.
           </label>
         </div>
-        );
-      })()}
+      )}
 
       {/* Positive confirmation that every sale IMEI resolved to a unit.
           Suppressed when allReconciled fires (the bigger panel above
@@ -1029,24 +1017,30 @@ function PreviewPhase({
                         )}
                       </span>
                       <span className="block text-[9px] font-mono text-slate-500 truncate mt-0.5">{o.marketplace} · {o.orderNumber}</span>
-                      {/* Per-unit fulfilment source toggle */}
-                      <span className="inline-flex mt-1 rounded border border-slate-200 overflow-hidden">
-                        {(['office', 'shs'] as const).map(src => (
-                          <button
-                            key={src}
-                            type="button"
-                            onClick={() => onAuditEdit(o.saleId, { stockSource: src })}
-                            className={`text-[8px] font-bold uppercase tracking-wide px-1.5 py-0.5 ${
-                              o.stockSource === src
-                                ? (src === 'shs' ? 'bg-teal-600 text-white' : 'bg-slate-700 text-white')
-                                : 'bg-white text-slate-500 hover:bg-slate-50'
-                            }`}
-                            title={src === 'shs' ? 'Supplier-held (SHS) stock' : 'Office stock'}
-                          >
-                            {src === 'shs' ? 'SHS' : 'Office'}
-                          </button>
-                        ))}
-                      </span>
+                      {/* Per-unit fulfilment source. Matched units (IMEI in
+                          inventory) are office stock automatically — only
+                          orphans (NEW) need the operator to pick office/SHS. */}
+                      {o.existingUnitId ? (
+                        <span className="block text-[8px] font-bold uppercase tracking-wide text-slate-400 mt-1">Office (auto)</span>
+                      ) : (
+                        <span className="inline-flex mt-1 rounded border border-slate-200 overflow-hidden">
+                          {(['office', 'shs'] as const).map(src => (
+                            <button
+                              key={src}
+                              type="button"
+                              onClick={() => onAuditEdit(o.saleId, { stockSource: src })}
+                              className={`text-[8px] font-bold uppercase tracking-wide px-1.5 py-0.5 ${
+                                o.stockSource === src
+                                  ? (src === 'shs' ? 'bg-teal-600 text-white' : 'bg-slate-700 text-white')
+                                  : 'bg-white text-slate-500 hover:bg-slate-50'
+                              }`}
+                              title={src === 'shs' ? 'Supplier-held (SHS) stock' : 'Office stock'}
+                            >
+                              {src === 'shs' ? 'SHS' : 'Office'}
+                            </button>
+                          ))}
+                        </span>
+                      )}
                     </span>
                     <input
                       className={`col-span-3 border rounded px-1.5 py-1 text-[10px] focus:outline-none focus:border-orange-500 ${!o.model.trim() ? 'border-rose-400 bg-rose-50' : 'border-slate-200'}`}

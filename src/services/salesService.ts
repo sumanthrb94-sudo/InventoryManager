@@ -361,10 +361,11 @@ export function buildPostImportSyncPatches(
         id: u.id,
         data: {
           status: 'sold',
-          // Record the fulfilment source BEFORE the flip erases the
-          // distinction: an SHS/incoming unit becomes an SHS sale, an
-          // available unit an office sale. Preserve an already-set value.
-          stockSource: u.stockSource ?? (u.status === 'incoming' ? 'shs' : 'office'),
+          // A matched IMEI means the unit was already in OUR inventory →
+          // office stock. SHS classification is reserved for orphan sales
+          // (supplier-held units never tracked in our system), set by the
+          // operator at completion time. Preserve an explicitly-set value.
+          stockSource: u.stockSource ?? 'office',
           salePrice: s.salePrice,
           saleDate: s.saleDate,
           salePlatform: s.marketplace,
