@@ -27,30 +27,12 @@ import type { Sale, Marketplace } from '../types';
 import { MARKETPLACES } from '../types';
 import { parseSalesWorkbook, type ParsedSales } from '../lib/salesImport';
 import { buildPostImportSyncPatches } from '../services/salesService';
-import { addSoldUnitFromSale } from '../services/inventoryService';
+import { addSoldUnitFromSale, completeUnitBuyInfo } from '../services/inventoryService';
 import { auth } from '../lib/firebase';
 
 interface Props { onClose: () => void; }
 
 type Phase = 'upload' | 'preview' | 'loading' | 'done';
-
-/** One row in the review-and-fill orphan-IMEI editor. Pre-populated from
- *  the sale (model = SKU, supplier + BP from the sale); operator edits
- *  inline before confirming. Module-scope so both the parent
- *  (SalesReportImport) state hook and PreviewPhase props can share the
- *  exact shape. */
-export interface OrphanEditRow {
-  saleId: string;
-  imei: string;
-  orderNumber: string;
-  marketplace: Marketplace;
-  salePrice: number;
-  model: string;
-  colour: string;
-  storage: string;
-  supplierName: string;
-  buyPrice: number;
-}
 
 export interface PreviewBuckets {
   total: number;
@@ -87,22 +69,63 @@ export interface PreviewBuckets {
    *  1-2 rows). We delete them on confirm so re-importing the same report is
    *  idempotent and self-healing. */
   staleCombined: Array<{ id: string; orderNumber: string; imei: string; salePrice: number }>;
-  /** Sales whose IMEI has no matching inventory unit. Surfaced in the
-   *  preview so the operator can opt into auto-creating fresh-stock units
-   *  for them at confirm time (status='sold', defaults pulled from each
-   *  sale). Without this, those sales land but no inventory unit exists
-   *  for them — the post-import sync has nothing to flip and the row stays
-   *  flagged "No Inventory IMEI" on every downstream surface. */
-  noInventory: Array<{
-    saleId: string;
-    imei: string;
-    sku: string;
-    orderNumber: string;
-    marketplace: Marketplace;
-    salePrice: number;
-    buyPrice: number;
-    supplierName: string;
-  }>;
+  /** Sold records that aren't yet audit-complete and must be finished before
+   *  the import can confirm. Two kinds:
+   *    - orphan (existingUnitId undefined): the sale's IMEI has no inventory
+   *      unit; one will be CREATED from the row's values.
+   *    - matched-incomplete (existingUnitId set): a unit matches the IMEI but
+   *      is missing audit fields (model / supplier / BP); it will be PATCHED.
+   *  Each row is editable in the preview; Confirm is hard-blocked until every
+   *  row's required fields are present (see auditRowMissing). */
+  recordsToComplete: Array<AuditCompletionRow>;
+}
+
+/** Editable row in the audit-completeness panel. */
+export interface AuditCompletionRow {
+  saleId: string;
+  orderNumber: string;
+  marketplace: Marketplace;
+  salePrice: number;
+  /** Set when an inventory unit already matches the IMEI (PATCH path);
+   *  undefined for orphan sales (CREATE path). */
+  existingUnitId?: string;
+  /** IMEI/serial. Editable only for no-IMEI sales (imeiReadOnly=false);
+   *  for everything else it's fixed from the sale. */
+  imei: string;
+  imeiReadOnly: boolean;
+  sku: string;
+  model: string;
+  colour: string;
+  storage: string;
+  supplierName: string;
+  buyPrice: number;
+  /** Sale-level facts the panel can't edit (must be fixed in the sheet);
+   *  used to show un-editable blockers. */
+  saleDate: string;
+}
+
+/** Required-field audit check for a sold record. Returns the list of missing
+ *  field labels — empty array means audit-complete. The single source of
+ *  truth for both the preview's blocker list and the live Confirm gate. */
+export function auditRowMissing(r: {
+  imei: string; model: string; supplierName: string;
+  buyPrice: number; salePrice: number; saleDate: string;
+  marketplace: string; orderNumber: string;
+}): string[] {
+  const missing: string[] = [];
+  // The gate checks PRESENCE of required audit fields. Strict IMEI/serial
+  // FORMAT validation happens at unit creation/patch time (addSoldUnitFromSale
+  // / completeUnitBuyInfo), which reject a malformed identifier with a clear
+  // message — surfaced as a confirm-time failure if one slips through.
+  if (!(r.imei || '').trim()) missing.push('IMEI');
+  if (!(r.model || '').trim()) missing.push('model');
+  if (!(r.supplierName || '').trim()) missing.push('supplier');
+  if (!(Number(r.buyPrice) > 0)) missing.push('buy price');
+  if (!(Number(r.salePrice) > 0)) missing.push('sale price');
+  if (!(r.saleDate || '').trim()) missing.push('sale date');
+  if (!(r.marketplace || '').trim()) missing.push('marketplace');
+  if (!(r.orderNumber || '').trim()) missing.push('order number');
+  return missing;
 }
 
 export function buildPreview(
@@ -229,28 +252,61 @@ export function buildPreview(
     });
   }
 
-  // Orphan-IMEI detection. Walk the full import set (not just createable
-  // rows); skip voided sales — a missing unit there is expected. Anything
-  // active with an IMEI that doesn't resolve to an inventory unit is a
-  // candidate for the bulk add-to-inventory flow at confirm time.
-  const noInventory: PreviewBuckets['noInventory'] = [];
-  const seenOrphanImei = new Set<string>();
+  // Audit-completeness scan. Every NON-VOIDED sale that will be marked sold
+  // must produce a record carrying the full audit schema (IMEI, model,
+  // supplier, BP, SP, date, marketplace, order, linked unit). Two kinds of
+  // record need completion before confirm:
+  //   - orphan: the IMEI has no inventory unit → CREATE one from the row.
+  //   - matched-incomplete: a unit matches but is missing model / supplier /
+  //     BP → PATCH it.
+  // Matched units that are already complete just flip (inventoryFlips) and
+  // don't appear here. Deduped by IMEI. Scoped to DEVICE sales — a sale with
+  // no IMEI (accessory / data not yet entered) isn't a unit-tracked record,
+  // so it's out of the audit gate; only IMEI-bearing sales must resolve to a
+  // complete inventory unit.
+  const recordsToComplete: AuditCompletionRow[] = [];
+  const seenAuditKey = new Set<string>();
   for (const s of [...toCreate, ...toUpdate]) {
     if (s.voidedAt) continue;
     const imeiKey = (s.imei || '').trim().toUpperCase();
-    if (!imeiKey) continue;
-    if (unitsByImei.has(imeiKey)) continue;
-    if (seenOrphanImei.has(imeiKey)) continue;   // dedupe (file shouldn't, but be safe)
-    seenOrphanImei.add(imeiKey);
-    noInventory.push({
+    if (!imeiKey) continue;                    // non-device sale — out of scope
+    if (seenAuditKey.has(imeiKey)) continue;
+
+    const matched = unitsByImei.get(imeiKey);
+    // Defaults: a matched unit's own buy-side data, falling back to the sale.
+    const model = (matched?.model || s.sku || '').trim();
+    const supplierName = (matched?.supplierName || s.supplierName || '').trim();
+    const buyPrice = matched?.buyPrice ?? s.buyPrice ?? 0;
+    const colour = matched?.colour && matched.colour !== 'Unknown' ? matched.colour : '';
+    const storage = matched?.storage || '';
+
+    const missing = auditRowMissing({
+      imei: s.imei || '', model, supplierName, buyPrice,
+      salePrice: s.salePrice ?? 0, saleDate: s.saleDate || '',
+      marketplace: s.marketplace, orderNumber: s.orderNumber || '',
+    });
+
+    // A matched, already-complete unit needs no completion row — it just
+    // flips. Only surface matched units when something's missing. Orphans
+    // (no matched unit) ALWAYS need a row (a unit must be created).
+    if (matched && missing.length === 0) continue;
+
+    seenAuditKey.add(imeiKey);
+    recordsToComplete.push({
       saleId: s.id,
-      imei: (s.imei || '').trim(),
-      sku: s.sku || '',
       orderNumber: s.orderNumber || '',
       marketplace: s.marketplace,
       salePrice: s.salePrice ?? 0,
-      buyPrice: s.buyPrice ?? 0,
-      supplierName: s.supplierName || '',
+      existingUnitId: matched?.id,
+      imei: (s.imei || '').trim(),
+      imeiReadOnly: true,              // device sales always carry an IMEI here
+      sku: s.sku || '',
+      model,
+      colour,
+      storage,
+      supplierName,
+      buyPrice,
+      saleDate: s.saleDate || '',
     });
   }
 
@@ -263,7 +319,7 @@ export function buildPreview(
     duplicatesInFile: dupes,
     inventoryFlips,
     staleCombined,
-    noInventory,
+    recordsToComplete,
   };
 }
 
@@ -295,7 +351,7 @@ export default function SalesReportImport({ onClose }: Props) {
     staleDeleteFailed: number;
   }>({ unitsMarkedSold: 0, salesLinked: 0, unitsAddedFromOrphanSales: 0, unitsAddFailed: 0, unitsAddFailedDetails: [], staleDeleted: 0, staleDeleteFailed: 0 });
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const [orphanEdits, setOrphanEdits] = useState<OrphanEditRow[]>([]);
+  const [auditEdits, setAuditEdits] = useState<AuditCompletionRow[]>([]);
 
   const preview = useMemo(
     () => phase === 'preview' || phase === 'loading' || phase === 'done'
@@ -310,35 +366,24 @@ export default function SalesReportImport({ onClose }: Props) {
   const [flipsAcked, setFlipsAcked] = useState(false);
   React.useEffect(() => { setFlipsAcked(false); }, [parsed]);
 
-  // Seed orphan-edit rows whenever the preview's no-inventory list changes
-  // (parsed a different file, or live sales/units state shifted). Each row
-  // starts with sale-derived defaults that the operator can refine inline.
-  // Tracked by saleId so a partial state survives re-renders.
-  const noInvJsonKey = preview?.noInventory.map(o => o.saleId).sort().join('|') ?? '';
+  // Seed audit-completion rows whenever the preview's recordsToComplete list
+  // changes (parsed a different file, or live sales/units state shifted). Each
+  // row starts pre-filled from the matched unit (or the sale, for orphans) and
+  // the operator completes the missing fields inline. Tracked by saleId so a
+  // partial edit survives re-renders.
+  const auditKey = preview?.recordsToComplete.map(o => o.saleId).sort().join('|') ?? '';
   React.useEffect(() => {
-    if (!preview) { setOrphanEdits([]); return; }
-    setOrphanEdits(prev => {
+    if (!preview) { setAuditEdits([]); return; }
+    setAuditEdits(prev => {
       const prevById = new Map(prev.map(p => [p.saleId, p]));
-      return preview.noInventory.map(o => {
-        const existing = prevById.get(o.saleId);
-        if (existing) return existing;
-        return {
-          saleId: o.saleId,
-          imei: o.imei,
-          orderNumber: o.orderNumber,
-          marketplace: o.marketplace,
-          salePrice: o.salePrice,
-          // Defaults from the sale — operator can override anything.
-          model: o.sku || '',
-          colour: '',
-          storage: '',
-          supplierName: o.supplierName,
-          buyPrice: o.buyPrice,
-        };
-      });
+      return preview.recordsToComplete.map(o => prevById.get(o.saleId) ?? { ...o });
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [noInvJsonKey]);
+  }, [auditKey]);
+
+  // Hard-block gate: any audit-completion row still missing a required field
+  // disables Confirm. Recomputed live from the operator's inline edits.
+  const auditBlockers = auditEdits.filter(r => auditRowMissing(r).length > 0).length;
 
   const handleFile = async (file: File) => {
     setError('');
@@ -392,73 +437,68 @@ export default function SalesReportImport({ onClose }: Props) {
         staleFailed = res.failed;
       }
 
-      // Create inventory units for orphan-IMEI sales using the OPERATOR'S
-      // REVIEWED VALUES (orphanEdits state), not raw sale defaults. The
-      // operator filled in / confirmed model + colour + storage + supplier
-      // + BP in the preview's review panel; we honour those values here.
-      //
-      // Rows that didn't pass the operator's review (model blank, supplier
-      // blank, or BP <= 0) are skipped with a clear reason on the Done
-      // screen so the operator can finish them via the per-row badge.
+      // Audit completion — make every incomplete sold record whole using the
+      // OPERATOR'S REVIEWED VALUES (auditEdits). Confirm is hard-blocked until
+      // all rows are complete, so these should all succeed; failures are still
+      // tallied defensively. Two paths:
+      //   - existingUnitId set → PATCH the matched unit's buy-side fields
+      //     (completeUnitBuyInfo); the sync below applies the sale fields.
+      //   - existingUnitId unset → CREATE the unit from the sale + row
+      //     (addSoldUnitFromSale), which also marks it sold + links the sale.
+      // For a no-IMEI sale the operator typed an IMEI in the row; we patch the
+      // sale's imei too so its audit record carries the device id.
       let unitsAddedFromOrphanSales = 0;
       let unitsAddFailed = 0;
       const unitsAddFailedDetails: Array<{ imei: string; orderNumber: string; reason: string }> = [];
-      if (preview.noInventory.length > 0) {
+      if (preview.recordsToComplete.length > 0) {
         const allImportedSales = [...preview.toCreate, ...preview.toUpdate];
         const saleById = new Map(allImportedSales.map(s => [s.id, s]));
-        const editById = new Map<string, OrphanEditRow>(orphanEdits.map(o => [o.saleId, o]));
-        for (const orphan of preview.noInventory) {
-          const sale = saleById.get(orphan.saleId);
+        for (const row of auditEdits) {
+          const sale = saleById.get(row.saleId);
           if (!sale) {
             unitsAddFailed++;
-            unitsAddFailedDetails.push({
-              imei: orphan.imei,
-              orderNumber: orphan.orderNumber,
-              reason: 'sale lookup failed (id missing)',
-            });
+            unitsAddFailedDetails.push({ imei: row.imei, orderNumber: row.orderNumber, reason: 'sale lookup failed (id missing)' });
             continue;
           }
-          const edit = editById.get(orphan.saleId);
-          if (!edit) {
-            // Shouldn't happen — orphanEdits is synced with preview.noInventory.
+          const stillMissing = auditRowMissing(row);
+          if (stillMissing.length > 0) {
             unitsAddFailed++;
-            unitsAddFailedDetails.push({
-              imei: orphan.imei,
-              orderNumber: orphan.orderNumber,
-              reason: 'review row missing — re-open the import',
-            });
+            unitsAddFailedDetails.push({ imei: row.imei, orderNumber: row.orderNumber, reason: `missing ${stillMissing.join(', ')}` });
             continue;
           }
-          // Operator-side gate: require a non-blank model and supplier and
-          // a positive BP. If anything is missing, skip and flag — don't
-          // silently substitute defaults that bypass the review intent.
-          if (!edit.model.trim() || !edit.supplierName.trim() || edit.buyPrice <= 0) {
-            unitsAddFailed++;
-            unitsAddFailedDetails.push({
-              imei: orphan.imei,
-              orderNumber: orphan.orderNumber,
-              reason: 'review incomplete (model / supplier / BP)',
+          const imei = row.imei.trim();
+          let res;
+          if (row.existingUnitId) {
+            // PATCH the matched unit's buy-side info for audit completeness.
+            res = await completeUnitBuyInfo({
+              unitId: row.existingUnitId,
+              model: row.model.trim(),
+              colour: row.colour.trim() || undefined,
+              storage: row.storage.trim() || undefined,
+              supplierName: row.supplierName.trim(),
+              buyPrice: row.buyPrice,
             });
-            continue;
+          } else {
+            // CREATE a sold unit from the sale + reviewed values. When the
+            // sale had no IMEI, back-fill it onto the sale doc too.
+            if (!row.imeiReadOnly && (sale.imei || '').trim() !== imei) {
+              await dbService.update('sales', sale.id, { imei });
+            }
+            res = await addSoldUnitFromSale({
+              sale: { ...(sale as Sale), imei },
+              imei,
+              model: row.model.trim(),
+              colour: row.colour.trim() || undefined,
+              storage: row.storage.trim() || undefined,
+              supplierName: row.supplierName.trim(),
+              buyPrice: row.buyPrice,
+            });
           }
-          const res = await addSoldUnitFromSale({
-            sale: sale as Sale,
-            imei: orphan.imei,
-            model: edit.model.trim(),
-            colour: edit.colour.trim() || undefined,
-            storage: edit.storage.trim() || undefined,
-            supplierName: edit.supplierName.trim(),
-            buyPrice: edit.buyPrice,
-          });
           if (res.ok) {
             unitsAddedFromOrphanSales++;
           } else {
             unitsAddFailed++;
-            unitsAddFailedDetails.push({
-              imei: orphan.imei,
-              orderNumber: orphan.orderNumber,
-              reason: res.message || res.error || 'unknown',
-            });
+            unitsAddFailedDetails.push({ imei: row.imei, orderNumber: row.orderNumber, reason: res.message || res.error || 'unknown' });
           }
         }
       }
@@ -540,9 +580,9 @@ export default function SalesReportImport({ onClose }: Props) {
               error={error}
               flipsAcked={flipsAcked}
               onAckChange={setFlipsAcked}
-              orphanEdits={orphanEdits}
-              onOrphanEdit={(saleId, patch) => {
-                setOrphanEdits(prev => prev.map(o => o.saleId === saleId ? { ...o, ...patch } : o));
+              auditEdits={auditEdits}
+              onAuditEdit={(saleId, patch) => {
+                setAuditEdits(prev => prev.map(o => o.saleId === saleId ? { ...o, ...patch } : o));
               }}
             />
           )}
@@ -612,10 +652,10 @@ export default function SalesReportImport({ onClose }: Props) {
                 )}
                 {(syncStats.unitsAddedFromOrphanSales > 0 || syncStats.unitsAddFailed > 0) && (
                   <p className="text-[10px] font-mono text-orange-700 mt-1">
-                    Orphan-IMEI sales ·{' '}
-                    {syncStats.unitsAddedFromOrphanSales > 0 && <>{syncStats.unitsAddedFromOrphanSales} unit{syncStats.unitsAddedFromOrphanSales === 1 ? '' : 's'} added to inventory as sold</>}
+                    Audit records completed ·{' '}
+                    {syncStats.unitsAddedFromOrphanSales > 0 && <>{syncStats.unitsAddedFromOrphanSales} unit{syncStats.unitsAddedFromOrphanSales === 1 ? '' : 's'} created / patched &amp; marked sold</>}
                     {syncStats.unitsAddedFromOrphanSales > 0 && syncStats.unitsAddFailed > 0 && ' · '}
-                    {syncStats.unitsAddFailed > 0 && <span className="text-amber-700">{syncStats.unitsAddFailed} could not be auto-added (click the badge on those sales to fix)</span>}
+                    {syncStats.unitsAddFailed > 0 && <span className="text-rose-700">{syncStats.unitsAddFailed} failed (see below)</span>}
                   </p>
                 )}
                 {syncStats.unitsAddFailedDetails.length > 0 && (
@@ -630,6 +670,7 @@ export default function SalesReportImport({ onClose }: Props) {
                       {syncStats.unitsAddFailedDetails.length > 10 && (
                         <li className="text-amber-500">+{syncStats.unitsAddFailedDetails.length - 10} more — see Sell tab for orange "No Inventory" badges</li>
                       )}
+                      {/* With the hard-block gate these should be zero; shown defensively. */}
                     </ul>
                   </div>
                 )}
@@ -659,21 +700,26 @@ export default function SalesReportImport({ onClose }: Props) {
                 disabled={
                   preview.toCreate.length + preview.toUpdate.length === 0
                   || (preview.inventoryFlips.length > 0 && !flipsAcked)
+                  || auditBlockers > 0
                 }
                 title={
-                  preview.inventoryFlips.length > 0 && !flipsAcked
-                    ? `Tick the acknowledgement to confirm ${preview.inventoryFlips.length} in-stock unit${preview.inventoryFlips.length === 1 ? '' : 's'} will be flipped to sold.`
-                    : undefined
+                  auditBlockers > 0
+                    ? `Complete ${auditBlockers} sold record${auditBlockers === 1 ? '' : 's'} (model / supplier / BP / IMEI) before confirming — required for the audit trail.`
+                    : preview.inventoryFlips.length > 0 && !flipsAcked
+                      ? `Tick the acknowledgement to confirm ${preview.inventoryFlips.length} in-stock unit${preview.inventoryFlips.length === 1 ? '' : 's'} will be flipped to sold.`
+                      : undefined
                 }
                 className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 text-white text-[10px] font-bold uppercase tracking-widest hover:bg-emerald-700 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
               >
                 <CheckCircle2 size={12} />
-                {preview.toCreate.length === 0
-                  && preview.noInventory.length === 0
-                  && preview.inventoryFlips.length === 0
-                  && preview.staleCombined.length === 0
-                  ? <>Re-confirm {preview.toUpdate.length.toLocaleString()} sales</>
-                  : <>Load {(preview.toCreate.length + preview.toUpdate.length).toLocaleString()} sales</>}
+                {auditBlockers > 0
+                  ? <>Complete {auditBlockers} record{auditBlockers === 1 ? '' : 's'} to continue</>
+                  : preview.toCreate.length === 0
+                    && preview.recordsToComplete.length === 0
+                    && preview.inventoryFlips.length === 0
+                    && preview.staleCombined.length === 0
+                    ? <>Re-confirm {preview.toUpdate.length.toLocaleString()} sales</>
+                    : <>Load {(preview.toCreate.length + preview.toUpdate.length).toLocaleString()} sales</>}
               </button>
             </>
           )}
@@ -752,15 +798,15 @@ function UploadPhase({
 // ── Phase: preview ──────────────────────────────────────────────────────────
 function PreviewPhase({
   preview, fileName, error, flipsAcked, onAckChange,
-  orphanEdits, onOrphanEdit,
+  auditEdits, onAuditEdit,
 }: {
   preview: PreviewBuckets;
   fileName: string;
   error: string;
   flipsAcked: boolean;
   onAckChange: (v: boolean) => void;
-  orphanEdits: OrphanEditRow[];
-  onOrphanEdit: (saleId: string, patch: Partial<OrphanEditRow>) => void;
+  auditEdits: AuditCompletionRow[];
+  onAuditEdit: (saleId: string, patch: Partial<AuditCompletionRow>) => void;
 }) {
   // Clean re-import = nothing to create, nothing to flip, no orphan IMEIs,
   // no stale combined docs to purge. The file has already been imported and
@@ -770,7 +816,7 @@ function PreviewPhase({
   // we don't hide those even when reconciled, because they need attention.
   const allReconciled =
     preview.toCreate.length === 0
-    && preview.noInventory.length === 0
+    && preview.recordsToComplete.length === 0
     && preview.inventoryFlips.length === 0
     && preview.staleCombined.length === 0
     && preview.toUpdate.length > 0;
@@ -902,41 +948,45 @@ function PreviewPhase({
           Suppressed when allReconciled fires (the bigger panel above
           already conveys this) and when there's literally nothing in the
           file to evaluate (total=0). */}
-      {!allReconciled && preview.noInventory.length === 0 && (preview.toCreate.length + preview.toUpdate.length) > 0 && (
+      {!allReconciled && preview.recordsToComplete.length === 0 && (preview.toCreate.length + preview.toUpdate.length) > 0 && (
         <div className="border border-emerald-200 bg-emerald-50/60 rounded-xl px-3 py-2 flex items-center gap-2 text-[11px] text-emerald-800">
           <CheckCircle2 size={12} className="text-emerald-600 flex-shrink-0" />
-          <span>All sale IMEIs match inventory units — nothing to add.</span>
+          <span>Every sold record is audit-complete — model, supplier, BP, IMEI all present.</span>
         </div>
       )}
 
-      {/* No-inventory-IMEI panel — sales in this file whose IMEI doesn't
-          match any inventory unit. Default action is to auto-create those
-          units as fresh-stock + status='sold' at confirm time, defaults
-          pulled from each sale. Operator can untick to skip the bulk add
-          and handle them one-by-one via the per-row badge after import. */}
-      {preview.noInventory.length > 0 && (() => {
-        const incomplete = orphanEdits.filter(o => !o.model.trim() || !o.supplierName.trim() || o.buyPrice <= 0).length;
-        const ready = orphanEdits.length - incomplete;
+      {/* Audit-completeness panel — sold records missing required fields.
+          HARD-BLOCKS Confirm until every row is complete (model, supplier,
+          BP, IMEI). Two kinds: orphans (NEW — no unit yet, will be created)
+          and matched-incomplete (IN STOCK — unit exists but missing audit
+          data, will be patched). */}
+      {preview.recordsToComplete.length > 0 && (() => {
+        const incomplete = auditEdits.filter(o => auditRowMissing(o).length > 0).length;
+        const ready = auditEdits.length - incomplete;
         return (
         <div className="border-2 border-orange-300 bg-orange-50 rounded-2xl p-3 space-y-2.5">
           <div className="flex items-start gap-2">
             <AlertTriangle size={18} className="text-orange-600 flex-shrink-0 mt-0.5" />
             <div className="flex-1 min-w-0">
               <p className="text-[12px] font-bold text-orange-900">
-                {preview.noInventory.length} sale{preview.noInventory.length === 1 ? '' : 's'} have no matching inventory IMEI — review &amp; fill details
+                {preview.recordsToComplete.length} sold record{preview.recordsToComplete.length === 1 ? '' : 's'} need completing for the audit trail
               </p>
               <p className="text-[11px] text-orange-800 mt-0.5">
-                Each row below will be added as fresh stock and marked SOLD when you confirm. Fields are pre-filled from the sale — review and edit any incorrect values. Rows with missing model / supplier / BP will be skipped (you can finish them via the per-sale badge after import).
+                Every unit marked sold must carry full audit data — IMEI, model,
+                supplier, buy price. Rows tagged <span className="font-bold">NEW</span> get
+                created as fresh stock; <span className="font-bold">IN&nbsp;STOCK</span> rows
+                patch an existing unit that was missing data. Confirm stays
+                locked until all rows are complete.
               </p>
               <p className="text-[10px] font-mono text-orange-900 mt-1">
-                <span className="font-bold">{ready}</span> of {orphanEdits.length} ready · <span className="font-bold">{incomplete}</span> needs attention
+                <span className="font-bold">{ready}</span> of {auditEdits.length} complete · <span className={`font-bold ${incomplete > 0 ? 'text-rose-700' : ''}`}>{incomplete}</span> still blocking
               </p>
             </div>
           </div>
 
           <div className="bg-white border border-orange-200 rounded-xl overflow-hidden">
             <div className="px-3 py-1.5 border-b border-orange-100 text-[9px] font-mono uppercase tracking-widest text-orange-900 bg-orange-50/60 grid grid-cols-12 gap-2">
-              <span className="col-span-3">IMEI · Marketplace · Order</span>
+              <span className="col-span-3">IMEI · Source · Order</span>
               <span className="col-span-3">Model</span>
               <span className="col-span-1">Colour</span>
               <span className="col-span-1">Storage</span>
@@ -945,49 +995,65 @@ function PreviewPhase({
               <span className="col-span-1 text-right">SP £</span>
             </div>
             <ul className="max-h-72 overflow-auto divide-y divide-orange-50 text-[11px]">
-              {orphanEdits.map(o => {
-                const rowIncomplete = !o.model.trim() || !o.supplierName.trim() || o.buyPrice <= 0;
+              {auditEdits.map(o => {
+                const missing = auditRowMissing(o);
+                const rowIncomplete = missing.length > 0;
+                const needImei = !/^\d{15}$/.test((o.imei || '').trim().toUpperCase()) && !/^[A-Z0-9]{10,12}$/.test((o.imei || '').trim().toUpperCase());
                 return (
                   <li
                     key={o.saleId}
-                    className={`px-3 py-1.5 grid grid-cols-12 gap-2 items-center ${rowIncomplete ? 'bg-amber-50/70' : ''}`}
+                    className={`px-3 py-1.5 grid grid-cols-12 gap-2 items-center ${rowIncomplete ? 'bg-rose-50/70' : ''}`}
                   >
                     <span className="col-span-3 min-w-0">
-                      <span className="block font-mono text-slate-700 truncate" title={o.imei}>{o.imei || '(blank)'}</span>
-                      <span className="block text-[9px] font-mono text-slate-500 truncate">{o.marketplace} · {o.orderNumber}</span>
+                      <span className="flex items-center gap-1">
+                        <span className={`flex-shrink-0 text-[7px] font-bold uppercase tracking-widest px-1 py-px rounded border ${o.existingUnitId ? 'bg-blue-50 text-blue-700 border-blue-200' : 'bg-emerald-50 text-emerald-700 border-emerald-200'}`}>
+                          {o.existingUnitId ? 'In stock' : 'New'}
+                        </span>
+                        {o.imeiReadOnly ? (
+                          <span className="block font-mono text-slate-700 truncate" title={o.imei}>{o.imei}</span>
+                        ) : (
+                          <input
+                            className={`flex-1 min-w-0 border rounded px-1.5 py-1 text-[10px] font-mono focus:outline-none focus:border-orange-500 ${needImei ? 'border-rose-400 bg-rose-50' : 'border-slate-200'}`}
+                            value={o.imei}
+                            placeholder="IMEI required"
+                            onChange={e => onAuditEdit(o.saleId, { imei: e.target.value })}
+                          />
+                        )}
+                      </span>
+                      <span className="block text-[9px] font-mono text-slate-500 truncate mt-0.5">{o.marketplace} · {o.orderNumber}</span>
                     </span>
                     <input
-                      className={`col-span-3 border rounded px-1.5 py-1 text-[10px] focus:outline-none focus:border-orange-500 ${!o.model.trim() ? 'border-amber-400 bg-amber-50' : 'border-slate-200'}`}
+                      className={`col-span-3 border rounded px-1.5 py-1 text-[10px] focus:outline-none focus:border-orange-500 ${!o.model.trim() ? 'border-rose-400 bg-rose-50' : 'border-slate-200'}`}
                       value={o.model}
-                      placeholder="Required"
-                      onChange={e => onOrphanEdit(o.saleId, { model: e.target.value })}
+                      placeholder="Model required"
+                      onChange={e => onAuditEdit(o.saleId, { model: e.target.value })}
                     />
                     <input
                       className="col-span-1 border border-slate-200 rounded px-1.5 py-1 text-[10px] focus:outline-none focus:border-orange-500"
                       value={o.colour}
                       placeholder="—"
-                      onChange={e => onOrphanEdit(o.saleId, { colour: e.target.value })}
+                      onChange={e => onAuditEdit(o.saleId, { colour: e.target.value })}
                     />
                     <input
                       className="col-span-1 border border-slate-200 rounded px-1.5 py-1 text-[10px] focus:outline-none focus:border-orange-500"
                       value={o.storage}
                       placeholder="—"
-                      onChange={e => onOrphanEdit(o.saleId, { storage: e.target.value })}
+                      onChange={e => onAuditEdit(o.saleId, { storage: e.target.value })}
                     />
                     <input
-                      className={`col-span-2 border rounded px-1.5 py-1 text-[10px] focus:outline-none focus:border-orange-500 ${!o.supplierName.trim() ? 'border-amber-400 bg-amber-50' : 'border-slate-200'}`}
+                      className={`col-span-2 border rounded px-1.5 py-1 text-[10px] focus:outline-none focus:border-orange-500 ${!o.supplierName.trim() ? 'border-rose-400 bg-rose-50' : 'border-slate-200'}`}
                       value={o.supplierName}
-                      placeholder="Required"
-                      onChange={e => onOrphanEdit(o.saleId, { supplierName: e.target.value })}
+                      placeholder="Supplier required"
+                      onChange={e => onAuditEdit(o.saleId, { supplierName: e.target.value })}
                     />
                     <input
                       type="number"
                       step="0.01"
-                      className={`col-span-1 border rounded px-1.5 py-1 text-[10px] font-mono text-right focus:outline-none focus:border-orange-500 ${o.buyPrice <= 0 ? 'border-amber-400 bg-amber-50' : 'border-slate-200'}`}
+                      className={`col-span-1 border rounded px-1.5 py-1 text-[10px] font-mono text-right focus:outline-none focus:border-orange-500 ${o.buyPrice <= 0 ? 'border-rose-400 bg-rose-50' : 'border-slate-200'}`}
                       value={o.buyPrice}
-                      onChange={e => onOrphanEdit(o.saleId, { buyPrice: Number(e.target.value) || 0 })}
+                      onChange={e => onAuditEdit(o.saleId, { buyPrice: Number(e.target.value) || 0 })}
                     />
-                    <span className="col-span-1 text-right font-mono text-slate-500 text-[10px]">
+                    <span className={`col-span-1 text-right font-mono text-[10px] ${o.salePrice > 0 ? 'text-slate-500' : 'text-rose-600 font-bold'}`}>
                       £{Number(o.salePrice).toFixed(2)}
                     </span>
                   </li>
@@ -997,7 +1063,9 @@ function PreviewPhase({
           </div>
 
           <p className="text-[10px] font-mono text-orange-700">
-            Rows with amber-tinted inputs are missing required values. They'll be skipped on confirm — you can complete them later via the per-sale "No Inventory" badge.
+            Rose-tinted inputs are missing a required audit field. Confirm unlocks
+            only when all {auditEdits.length} record{auditEdits.length === 1 ? ' is' : 's are'} complete. A £0.00 sale price
+            must be fixed in the sheet and re-uploaded.
           </p>
         </div>
         );

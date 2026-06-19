@@ -9,7 +9,7 @@
  */
 // @vitest-environment jsdom
 import { describe, it, expect } from 'vitest';
-import { buildPreview } from '../../components/SalesReportImport';
+import { buildPreview, auditRowMissing } from '../../components/SalesReportImport';
 import { buildPostImportSyncPatches } from '../../services/salesService';
 import type { Sale, InventoryUnit, Marketplace } from '../../types';
 
@@ -189,16 +189,15 @@ describe('SalesReportImport preview — stale combined multi-IMEI cleanup', () =
     );
   });
 
-  it('flags sales whose IMEI has no matching inventory unit (orphan list)', () => {
-    // Two sales: one IMEI matches a unit, the other doesn't. Only the
-    // orphan should appear in noInventory; voided sales never do.
+  it('flags an orphan device sale as a record to complete (CREATE path)', () => {
+    // u1 is complete (model/supplier/BP from the unit() helper) → it just
+    // flips, NOT a completion row. 222 has no unit → orphan completion row.
+    // Voided + no-IMEI sales are out of scope.
     const units = [unit({ id: 'u1', imei: '111', status: 'available' })];
     const split: Sale[] = [
       sale({ id: 'EBAY__O-OK__111',  marketplace: 'EBAY',  orderNumber: 'O-OK',  imei: '111' }),
       sale({ id: 'AMAZON__O-NO__222', marketplace: 'AMAZON', orderNumber: 'O-NO', imei: '222' }),
-      // Voided + orphan — expected to be skipped, the unit might have been returned out.
       sale({ id: 'EBAY__O-V__333', marketplace: 'EBAY', orderNumber: 'O-V', imei: '333', voidedAt: '2026-06-13', voidOutcome: 'refund' }),
-      // No IMEI at all — can't be auto-added, skip.
       sale({ id: 'EBAY__O-X__inapp', marketplace: 'EBAY', orderNumber: 'O-X', imei: '' }),
     ];
     const preview = buildPreview(
@@ -206,13 +205,31 @@ describe('SalesReportImport preview — stale combined multi-IMEI cleanup', () =
       [],
       units,
     );
-    expect(preview.noInventory).toHaveLength(1);
-    expect(preview.noInventory[0].imei).toBe('222');
-    expect(preview.noInventory[0].orderNumber).toBe('O-NO');
-    expect(preview.noInventory[0].marketplace).toBe('AMAZON');
+    expect(preview.recordsToComplete).toHaveLength(1);
+    const row = preview.recordsToComplete[0];
+    expect(row.imei).toBe('222');
+    expect(row.orderNumber).toBe('O-NO');
+    expect(row.marketplace).toBe('AMAZON');
+    expect(row.existingUnitId).toBeUndefined();   // CREATE path
   });
 
-  it('returns an empty orphan list when every IMEI matches a unit', () => {
+  it('flags a matched-but-incomplete unit as a record to complete (PATCH path)', () => {
+    // Unit exists for IMEI 111 but has BP=0 and a blank supplier — selling it
+    // would write an audit-incomplete sold record, so it must be completed.
+    const units = [unit({ id: 'u1', imei: '111', status: 'available', buyPrice: 0, supplierName: '' })];
+    const split: Sale[] = [
+      sale({ id: 'EBAY__O1__111', marketplace: 'EBAY', orderNumber: 'O1', imei: '111' }),
+    ];
+    const preview = buildPreview(
+      { sales: split, perSheetCounts: { AMAZON: 0, BM: 0, EBAY: 1, ONBUY: 0 }, errors: [] },
+      [],
+      units,
+    );
+    expect(preview.recordsToComplete).toHaveLength(1);
+    expect(preview.recordsToComplete[0].existingUnitId).toBe('u1');  // PATCH path
+  });
+
+  it('returns an empty completion list when every sold record is audit-complete', () => {
     const units = [
       unit({ id: 'u1', imei: '111', status: 'available' }),
       unit({ id: 'u2', imei: '222', status: 'sold' }),
@@ -226,7 +243,7 @@ describe('SalesReportImport preview — stale combined multi-IMEI cleanup', () =
       [],
       units,
     );
-    expect(preview.noInventory).toEqual([]);
+    expect(preview.recordsToComplete).toEqual([]);
   });
 
   it('never touches single-IMEI docs or orders absent from the upload', () => {
@@ -288,5 +305,31 @@ describe('SalesReportImport preview — stale combined multi-IMEI cleanup', () =
       [],
     );
     expect(preview.staleCombined).toEqual([]);
+  });
+});
+
+describe('auditRowMissing — audit completeness gate', () => {
+  const base = {
+    imei: '350000000000111', model: 'Galaxy S20', supplierName: 'NANAK',
+    buyPrice: 57, salePrice: 84.99, saleDate: '2026-06-14',
+    marketplace: 'AMAZON', orderNumber: 'O-1',
+  };
+  it('returns [] when every required field is present', () => {
+    expect(auditRowMissing(base)).toEqual([]);
+  });
+  it('flags each missing field by name', () => {
+    expect(auditRowMissing({ ...base, imei: '' })).toContain('IMEI');
+    expect(auditRowMissing({ ...base, model: '  ' })).toContain('model');
+    expect(auditRowMissing({ ...base, supplierName: '' })).toContain('supplier');
+    expect(auditRowMissing({ ...base, buyPrice: 0 })).toContain('buy price');
+    expect(auditRowMissing({ ...base, salePrice: 0 })).toContain('sale price');
+    expect(auditRowMissing({ ...base, saleDate: '' })).toContain('sale date');
+    expect(auditRowMissing({ ...base, marketplace: '' })).toContain('marketplace');
+    expect(auditRowMissing({ ...base, orderNumber: '' })).toContain('order number');
+  });
+  it('accumulates multiple missing fields', () => {
+    const missing = auditRowMissing({ ...base, model: '', supplierName: '', buyPrice: 0 });
+    expect(missing).toEqual(expect.arrayContaining(['model', 'supplier', 'buy price']));
+    expect(missing).toHaveLength(3);
   });
 });

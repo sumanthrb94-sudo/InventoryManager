@@ -66,6 +66,7 @@ import {
   receiveShsAggregate,
   backfillImei,
   addSoldUnitFromSale,
+  completeUnitBuyInfo,
 } from '../../services/inventoryService';
 import type { Sale } from '../../types';
 
@@ -681,5 +682,54 @@ describe('addSoldUnitFromSale', () => {
     const r = await addSoldUnitFromSale({ sale, imei: sale.imei, model: 'Samsung A32 5G', buyPrice: 0 });
     expect(r.ok).toBe(false);
     expect(r.error).toBe('missing_buy_price');
+  });
+});
+
+// ───────────────────────────────────────────────────────────────────────────
+// completeUnitBuyInfo
+// ───────────────────────────────────────────────────────────────────────────
+
+describe('completeUnitBuyInfo', () => {
+  it('patches an existing unit\'s buy-side fields for audit completeness', async () => {
+    // Unit exists but is missing audit data: BP=0, blank supplier, SKU model.
+    col('inventoryUnits').set('355808981119999', {
+      id: '355808981119999', imei: '355808981119999',
+      model: 'ASI-SG-A32-64-5G-DS-BK-DD2', brand: 'Other', category: 'Other',
+      colour: 'Unknown', buyPrice: 0, dateIn: '2026-06-15',
+      supplierId: '', supplierName: '', status: 'available',
+      flags: [], notes: '', platformListed: false, listingSites: [],
+      ownerId: 'shared', createdAt: '2026-06-15T00:00:00Z',
+    });
+
+    const r = await completeUnitBuyInfo({
+      unitId: '355808981119999',
+      model: 'Samsung Galaxy A32 5G',
+      supplierName: 'NANAK',
+      buyPrice: 57,
+      colour: 'Black',
+    });
+    expect(r.ok).toBe(true);
+
+    const u = collections['inventoryUnits'].get('355808981119999');
+    expect(u.buyPrice).toBe(57);
+    expect(u.supplierName).toBe('NANAK');
+    expect(u.model).toBe('Galaxy A32');       // parseBrandModelStorage cleans it
+    expect(u.category).toBe('Samsung A Series');
+    expect(u.colour).toBe('Black');
+    // Status untouched — completeUnitBuyInfo only fixes buy-side data.
+    expect(u.status).toBe('available');
+  });
+
+  it('rejects when model / supplier / BP are missing', async () => {
+    col('inventoryUnits').set('u-x', { id: 'u-x', imei: '1', model: 'X', status: 'available' });
+    expect((await completeUnitBuyInfo({ unitId: 'u-x', model: '', supplierName: 'A', buyPrice: 5 })).error).toBe('missing_model');
+    expect((await completeUnitBuyInfo({ unitId: 'u-x', model: 'M', supplierName: '', buyPrice: 5 })).error).toBe('missing_supplier');
+    expect((await completeUnitBuyInfo({ unitId: 'u-x', model: 'M', supplierName: 'A', buyPrice: 0 })).error).toBe('missing_buy_price');
+  });
+
+  it('rejects when the unit does not exist', async () => {
+    const r = await completeUnitBuyInfo({ unitId: 'nope', model: 'M', supplierName: 'A', buyPrice: 5 });
+    expect(r.ok).toBe(false);
+    expect(r.error).toBe('write_failed');
   });
 });

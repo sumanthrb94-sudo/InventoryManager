@@ -640,3 +640,82 @@ export async function addSoldUnitFromSale(
 
   return { ok: true, id: rawImei };
 }
+
+// ---------------------------------------------------------------------------
+// completeUnitBuyInfo — fill missing buy-side fields on an EXISTING unit
+// ---------------------------------------------------------------------------
+
+export interface CompleteUnitBuyInfoInput {
+  unitId: string;
+  /** Required, non-blank. Re-split via parseBrandModelStorage. */
+  model: string;
+  /** Required, non-blank. ensureSupplier-d. */
+  supplierName: string;
+  /** Required, > 0. */
+  buyPrice: number;
+  colour?: string;
+  storage?: string;
+}
+
+/**
+ * Patch an EXISTING inventory unit's buy-side / audit fields (model, brand,
+ * category, colour, storage, supplier, buyPrice). Used by the import's
+ * audit-completeness gate to fix a matched unit whose record was missing the
+ * data required to mark it sold for internal audit (e.g. BP=£0, blank
+ * supplier, raw-SKU model). Does NOT touch sale fields — the post-import sync
+ * applies status/SP/date/order. Same validation as addUnitManual so a
+ * completed unit is indistinguishable from a properly-received one.
+ */
+export async function completeUnitBuyInfo(
+  input: CompleteUnitBuyInfoInput,
+): Promise<AddUnitResult> {
+  const model = (input.model ?? '').trim();
+  if (!model) return { ok: false, error: 'missing_model', message: 'Model is required.' };
+
+  const bp = Number(input.buyPrice);
+  if (!Number.isFinite(bp) || bp <= 0) {
+    return { ok: false, error: 'missing_buy_price', message: 'Buy price must be greater than £0.' };
+  }
+
+  const supplierName = (input.supplierName ?? '').trim();
+  if (!supplierName) return { ok: false, error: 'missing_supplier', message: 'Supplier is required.' };
+
+  const cached = await dbService.readAll('inventoryUnits');
+  const unit = cached.find((u: any) => u.id === input.unitId) as InventoryUnit | undefined;
+  if (!unit) return { ok: false, error: 'write_failed', message: `Unit ${input.unitId} not found.` };
+
+  const supplierId = await ensureSupplier(supplierName);
+  const parsed = parseBrandModelStorage(model);
+  const category = detectCategory(model);
+  const brand = parsed.brand !== 'Other'
+    ? parsed.brand
+    : (['iPhone', 'iPad', 'Apple Watch'].includes(category)
+        ? 'Apple'
+        : (['Samsung S Series', 'Samsung A Series', 'Tablet'].includes(category) ? 'Samsung' : 'Other'));
+  const cleanModel = parsed.model || model;
+  const storage = (input.storage ?? '').trim() || parsed.storage;
+
+  try {
+    await dbService.update('inventoryUnits', input.unitId, {
+      model: cleanModel,
+      brand,
+      category,
+      ...(input.colour?.trim() ? { colour: input.colour.trim() } : {}),
+      ...(storage ? { storage } : {}),
+      ...(parsed.series ? ({ series: parsed.series } as any) : {}),
+      supplierId,
+      supplierName,
+      buyPrice: bp,
+    });
+  } catch (err: any) {
+    return { ok: false, error: 'write_failed', message: err?.message || 'Save failed. Check connection.' };
+  }
+
+  await logInventoryEvent({
+    type: 'notes_updated',
+    message: `Unit ${input.unitId} buy-side info completed for audit (${cleanModel}${storage ? ' ' + storage : ''}, ${supplierName}, £${bp})`,
+    unitId: input.unitId,
+  });
+
+  return { ok: true, id: input.unitId };
+}
