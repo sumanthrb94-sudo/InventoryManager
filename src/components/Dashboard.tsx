@@ -556,11 +556,23 @@ export default function Dashboard({ user, onNavigate, onOpenImport, onOpenMaster
         </button>
       )}
 
-      {/* Periodic Inventory Table */}
-      <PeriodicInventory
-        units={units}
-        onNavigate={(search) => onNavigate({ tab: 'inventory', filters: { search, status: 'available' } })}
-      />
+      {/* Periodic Inventory Table — Office Stock + SHS dashboards mounted
+          side-by-side so the operator can compare both at once. Each
+          instance has its own view tabs (Stock / By Supplier / Out of
+          Stock), its own supplier filter, and independent click state. On
+          narrow viewports the SHS panel stacks below office. */}
+      <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+        <PeriodicInventory
+          units={units}
+          scope="office"
+          onNavigate={(search) => onNavigate({ tab: 'inventory', filters: { search, status: 'available' } })}
+        />
+        <PeriodicInventory
+          units={units}
+          scope="shs"
+          onNavigate={(search) => onNavigate({ tab: 'inventory', filters: { search, status: 'incoming' } })}
+        />
+      </div>
 
       {/* KPI Cards — ALL CLICKABLE */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-3">

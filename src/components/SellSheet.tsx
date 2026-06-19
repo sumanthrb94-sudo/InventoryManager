@@ -652,8 +652,12 @@ export default function SellSheet(_props: Props) {
       {/* ── Periodic table — same component the dashboard uses, scoped to
           live inventory. First word of every model is treated as the brand
           (Apple / Samsung / Acme), middle words as the model name, the
-          trailing GB / TB token as storage. */}
-      <PeriodicInventory units={units} />
+          trailing GB / TB token as storage. Side-by-side dashboards — one
+          for office stock, one for SHS — with independent filter state. */}
+      <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+        <PeriodicInventory units={units} scope="office" />
+        <PeriodicInventory units={units} scope="shs" />
+      </div>
 
       {/* ── Awaiting IMEI pinned section ─────────────────────────────────── */}
       {awaitingImei.length > 0 && (
