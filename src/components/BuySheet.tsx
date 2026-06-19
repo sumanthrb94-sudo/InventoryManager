@@ -349,6 +349,7 @@ export default function BuySheet(_props: Props) {
   // supplierName from the matching supplier doc so downstream reads
   // (Excel report, Sales view) don't show a stale name.
   const saveCell = async (u: InventoryUnit, field: string, value: any) => {
+    if (!userIsAdmin) return;       // UI gate — non-admin can't edit anything
     const patch: Record<string, any> = { [field]: value };
     if (field === 'supplierId') {
       const sup = suppliers.find(s => s.id === value);
@@ -365,19 +366,23 @@ export default function BuySheet(_props: Props) {
       <div className="bg-white border border-slate-200 rounded-3xl p-5 shadow-sm">
         {/* Action row */}
         <div className="flex items-center gap-2 flex-wrap justify-end mb-4">
-          <button
-            onClick={() => setAddStockMode('office')}
-            className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-slate-900 text-white text-[10px] font-bold uppercase tracking-widest hover:bg-slate-700 transition-all"
-          >
-            <Plus size={12} /> Add Stock
-          </button>
-          <button
-            onClick={() => setBulkOrderOpen(true)}
-            title="Bulk order — set shared metadata, scan IMEIs per colour, review and save"
-            className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-indigo-600 text-white text-[10px] font-bold uppercase tracking-widest hover:bg-indigo-700 transition-all"
-          >
-            <ScanLine size={12} /> Bulk Order
-          </button>
+          {userIsAdmin && (
+            <button
+              onClick={() => setAddStockMode('office')}
+              className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-slate-900 text-white text-[10px] font-bold uppercase tracking-widest hover:bg-slate-700 transition-all"
+            >
+              <Plus size={12} /> Add Stock
+            </button>
+          )}
+          {userIsAdmin && (
+            <button
+              onClick={() => setBulkOrderOpen(true)}
+              title="Bulk order — set shared metadata, scan IMEIs per colour, review and save"
+              className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-indigo-600 text-white text-[10px] font-bold uppercase tracking-widest hover:bg-indigo-700 transition-all"
+            >
+              <ScanLine size={12} /> Bulk Order
+            </button>
+          )}
           <button
             onClick={() => setShowSchemaHelp(s => !s)}
             title="Show required fields"

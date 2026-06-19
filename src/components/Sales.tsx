@@ -16,6 +16,7 @@ import { marketplaceFromListingSite } from '../lib/platforms';
 import { recomputeSale } from '../lib/recomputeSale';
 import { fmtDateForUser, useUserRegion } from '../lib/userLocale';
 import AddSoldUnitModal from './AddSoldUnitModal';
+import { useIsAdmin } from '../lib/useIsAdmin';
 
 const FLAG_CONFIG: Record<OperationalFlag, { label: string; icon: any; style: string; action: string }> = {
   top10: {
@@ -140,6 +141,7 @@ function inventoryUnitToSale(u: InventoryUnit): Sale {
 export default function Sales() {
   const { units, sales }                    = useInventoryStore();
   const region                              = useUserRegion();
+  const isAdminUser                         = useIsAdmin();
   const [activeListings, setActiveListings] = useState<ActiveListing[]>([]);
   const [recentNotifications, setRecentNotifications] = useState<Notification[]>([]);
   const [addSoldUnitSale, setAddSoldUnitSale] = useState<Sale | null>(null);
@@ -391,6 +393,7 @@ export default function Sales() {
   }, [units, activeListings]);
 
   const handleUpdateListing = async (model: string, platform: string, quantity: number) => {
+    if (!isAdminUser) return;       // UI gate — non-admin can't change listings
     const listingId = `list_${model.replace(/\s+/g, '_').toLowerCase()}_${platform.toLowerCase()}`;
     if (quantity <= 0) {
       await dbService.delete('activeListings', listingId);
@@ -816,14 +819,20 @@ export default function Sales() {
                                         </span>
                                       )}
                                       {noInventory && (
-                                        <button
-                                          type="button"
-                                          onClick={() => setAddSoldUnitSale(s)}
-                                          className="text-[8px] font-bold uppercase tracking-widest px-1 py-px rounded border bg-amber-50 text-amber-700 border-amber-300 hover:bg-amber-100 cursor-pointer transition-colors"
-                                          title="No inventory unit for this IMEI. Click to add it as fresh stock — it will be created already sold and linked to this sale."
-                                        >
-                                          No Inventory
-                                        </button>
+                                        isAdminUser ? (
+                                          <button
+                                            type="button"
+                                            onClick={() => setAddSoldUnitSale(s)}
+                                            className="text-[8px] font-bold uppercase tracking-widest px-1 py-px rounded border bg-amber-50 text-amber-700 border-amber-300 hover:bg-amber-100 cursor-pointer transition-colors"
+                                            title="No inventory unit for this IMEI. Click to add it as fresh stock — it will be created already sold and linked to this sale."
+                                          >
+                                            No Inventory
+                                          </button>
+                                        ) : (
+                                          <span className="text-[8px] font-bold uppercase tracking-widest px-1 py-px rounded border bg-amber-50 text-amber-700 border-amber-300">
+                                            No Inventory
+                                          </span>
+                                        )
                                       )}
                                     </span>
                                   ) : (s.imei || '—');

@@ -46,6 +46,7 @@ import PeriodicInventory from './PeriodicInventory';
 import SellOrderModal from './SellOrderModal';
 import EnterImeiModal from './EnterImeiModal';
 import AddSoldUnitModal from './AddSoldUnitModal';
+import { useIsAdmin } from '../lib/useIsAdmin';
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -201,6 +202,7 @@ function inventoryUnitToSale(u: InventoryUnit): Sale {
 export default function SellSheet(_props: Props) {
   const { units, suppliers, sales } = useInventoryStore();
   const region = useUserRegion();
+  const isAdminUser = useIsAdmin();
 
   const supplierMap = useMemo(() => {
     const m: Record<string, string> = {};
@@ -543,6 +545,7 @@ export default function SellSheet(_props: Props) {
   };
   // ── Inline cell save (re-recompute GP/comm/postage in the same patch) ─────
   const saveCell = async (s: Sale, field: string, value: any) => {
+    if (!isAdminUser) return;     // UI gate — non-admin can't edit anything
     const patch: Record<string, any> = { [field]: value };
     if (field === 'salePrice' || field === 'buyPrice' || field === 'marketplace' || field === 'postage') {
       const next = recomputeSale({ ...s, ...patch });
@@ -568,12 +571,14 @@ export default function SellSheet(_props: Props) {
       {/* ── Header card: action row + KPI tiles ───────────────────────────── */}
       <div className="bg-white border border-slate-200 rounded-3xl p-5 shadow-sm">
         <div className="flex items-center gap-2 flex-wrap justify-end mb-4">
-          <button
-            onClick={() => setPickerOpen(true)}
-            className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-slate-900 text-white text-[10px] font-bold uppercase tracking-widest hover:bg-slate-700 transition-all"
-          >
-            <Plus size={12} /> Record Sale
-          </button>
+          {isAdminUser && (
+            <button
+              onClick={() => setPickerOpen(true)}
+              className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-slate-900 text-white text-[10px] font-bold uppercase tracking-widest hover:bg-slate-700 transition-all"
+            >
+              <Plus size={12} /> Record Sale
+            </button>
+          )}
           <button
             onClick={() => setShowSchemaHelp(s => !s)}
             title="Sell schema reference"
@@ -661,7 +666,7 @@ export default function SellSheet(_props: Props) {
         <AwaitingImeiSection
           units={awaitingImei}
           supplierMap={supplierMap}
-          onBackfill={u => setEnterImeiUnit(u)}
+          onBackfill={isAdminUser ? (u => setEnterImeiUnit(u)) : undefined}
         />
       )}
 
@@ -799,7 +804,7 @@ export default function SellSheet(_props: Props) {
         units={units}
         region={region}
         onSaveCell={saveCell}
-        onAddSoldUnit={s => setAddSoldUnitSale(s)}
+        onAddSoldUnit={isAdminUser ? (s => setAddSoldUnitSale(s)) : undefined}
       />
 
       {/* ── KPI overlay modal ─────────────────────────────────────────────── */}
@@ -820,8 +825,8 @@ export default function SellSheet(_props: Props) {
             defaultView={overlay === 'today' ? 'channel' : 'model'}
             onClose={() => setOverlay(null)}
             onSaveCell={saveCell}
-            onBackfillImei={u => { setOverlay(null); setEnterImeiUnit(u); }}
-            onAddSoldUnit={s => { setOverlay(null); setAddSoldUnitSale(s); }}
+            onBackfillImei={isAdminUser ? (u => { setOverlay(null); setEnterImeiUnit(u); }) : undefined}
+            onAddSoldUnit={isAdminUser ? (s => { setOverlay(null); setAddSoldUnitSale(s); }) : undefined}
           />
         )}
       </AnimatePresence>

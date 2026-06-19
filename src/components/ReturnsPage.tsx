@@ -85,6 +85,11 @@ export default function ReturnsPage() {
   const repairedAtCount = useMemo(() => units.filter(u => !!u.repairedAt).length, [units]);
   const reportDataKey = `${sales.length}|${voidedSalesCount}|${units.length}|${returnedUnitCount}|${repairedAtCount}|${suppliers.length}`;
 
+  // UI admin gate — non-admins see the page read-only; every write button
+  // (Finalise, Process Return, Pick, Mark Repaired, Ready to Ship, inline
+  // edits) is hidden or wired to a no-op.
+  const userIsAdminTop = isAdmin(auth.currentUser);
+
   // ── Filters / sort ────────────────────────────────────────────────────────
   const [search, setSearch] = useState('');
   const [typeFilter, setTypeFilter] = useState<ReturnFilter>('all');
@@ -354,12 +359,14 @@ export default function ReturnsPage() {
                     </p>
                   </div>
                   <span className="text-[9px] font-mono text-violet-700/80 flex-shrink-0">{ageLabel}</span>
-                  <button
-                    onClick={() => setProcessingUnit(u)}
-                    className="flex items-center gap-1 px-3 py-1.5 bg-violet-700 text-white text-[9px] font-bold uppercase tracking-widest rounded-lg hover:bg-violet-800 transition-all flex-shrink-0"
-                  >
-                    <ArrowRight size={10} /> Finalise
-                  </button>
+                  {userIsAdminTop && (
+                    <button
+                      onClick={() => setProcessingUnit(u)}
+                      className="flex items-center gap-1 px-3 py-1.5 bg-violet-700 text-white text-[9px] font-bold uppercase tracking-widest rounded-lg hover:bg-violet-800 transition-all flex-shrink-0"
+                    >
+                      <ArrowRight size={10} /> Finalise
+                    </button>
+                  )}
                 </div>
               );
             })}
@@ -370,12 +377,14 @@ export default function ReturnsPage() {
       {/* ── Header card: action row + KPI tiles ───────────────────────────── */}
       <div className="bg-white border border-slate-200 rounded-3xl p-5 shadow-sm">
         <div className="flex items-center gap-2 flex-wrap justify-end mb-4">
-          <button
-            onClick={() => setPickerOpen(true)}
-            className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-slate-900 text-white text-[10px] font-bold uppercase tracking-widest hover:bg-slate-700 transition-all"
-          >
-            <Plus size={12} /> Process Return
-          </button>
+          {userIsAdminTop && (
+            <button
+              onClick={() => setPickerOpen(true)}
+              className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-slate-900 text-white text-[10px] font-bold uppercase tracking-widest hover:bg-slate-700 transition-all"
+            >
+              <Plus size={12} /> Process Return
+            </button>
+          )}
           <button
             onClick={() => setShowSchemaHelp(s => !s)}
             title="Returns schema reference"
@@ -576,9 +585,9 @@ export default function ReturnsPage() {
         onSort={setSort}
         supplierMap={supplierMap}
         region={region}
-        onRepair={u => setRepairUnit(u)}
-        onReadyShip={u => setReadyShipUnit(u)}
-        onReprocess={u => setProcessingUnit(u)}
+        onRepair={userIsAdminTop ? (u => setRepairUnit(u)) : undefined}
+        onReadyShip={userIsAdminTop ? (u => setReadyShipUnit(u)) : undefined}
+        onReprocess={userIsAdminTop ? (u => setProcessingUnit(u)) : undefined}
       />
 
       {/* ── Return losses · unified lifecycle sheet ───────────────────────
@@ -598,7 +607,7 @@ export default function ReturnsPage() {
         everSoldUnitIds={everSoldUnitIds}
         supplierMap={supplierMap}
         region={region}
-        onReadyShip={u => setReadyShipUnit(u)}
+        onReadyShip={userIsAdminTop ? (u => setReadyShipUnit(u)) : undefined}
         onOpenHistory={u => setHistoryUnit(u)}
       />
 
@@ -613,9 +622,9 @@ export default function ReturnsPage() {
             supplierMap={supplierMap}
             region={region}
             onClose={() => setOverlay(null)}
-            onRepair={u => setRepairUnit(u)}
-            onReadyShip={u => setReadyShipUnit(u)}
-            onReprocess={u => setProcessingUnit(u)}
+            onRepair={userIsAdminTop ? (u => setRepairUnit(u)) : undefined}
+            onReadyShip={userIsAdminTop ? (u => setReadyShipUnit(u)) : undefined}
+            onReprocess={userIsAdminTop ? (u => setProcessingUnit(u)) : undefined}
           />
         )}
       </AnimatePresence>
@@ -891,6 +900,7 @@ function SheetTable({
   const userIsAdmin = isAdmin(auth.currentUser);
   const [editingCell, setEditingCell] = useState<{ id: string; field: 'returnReason' | 'notes' } | null>(null);
   const saveField = async (u: InventoryUnit, field: 'returnReason' | 'notes', value: string) => {
+    if (!userIsAdmin) return;       // UI gate — non-admin can't edit anything
     const v = value.trim();
     if ((u[field] || '') === v) return;
     try {

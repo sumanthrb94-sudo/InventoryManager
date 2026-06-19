@@ -15,6 +15,7 @@ import { getWarrantyStatus } from '../lib/warrantyUtils';
 import { logInventoryEvent } from '../lib/inventoryEvents';
 import { listingSiteLabel, listingSiteFromMarketplace, marketplaceFromListingSite } from '../lib/platforms';
 import { recordSale } from '../services';
+import { useIsAdmin } from '../lib/useIsAdmin';
 
 // "Mark as Sold" routes through recordSale, which writes a row to the `sales`
 // collection keyed on a real Marketplace. Only the 4 sellable platforms
@@ -39,6 +40,7 @@ interface Props {
 }
 
 export default function UnitDetailDrawer({ unit, supplierName, onClose }: Props) {
+  const isAdminUser             = useIsAdmin();
   const [tab, setTab]           = useState<'detail' | 'actions'>('detail');
   const [notes, setNotes]       = useState(unit.notes || '');
   const [listingSites, setListingSites] = useState<string[]>(unit.listingSites || []);
@@ -102,6 +104,7 @@ export default function UnitDetailDrawer({ unit, supplierName, onClose }: Props)
   ];
 
   const toggleFlag = async (flag: OperationalFlag) => {
+    if (!isAdminUser) return;       // UI gate — non-admin can't toggle flags
     const flags = unit.flags.includes(flag)
       ? unit.flags.filter(f => f !== flag)
       : [...unit.flags, flag];
@@ -109,6 +112,7 @@ export default function UnitDetailDrawer({ unit, supplierName, onClose }: Props)
   };
 
   const updateListingSites = async (nextSites: string[]) => {
+    if (!isAdminUser) return;       // UI gate — non-admin can't change listings
     setListingSites(nextSites);
     await dbService.update('inventoryUnits', unit.id, {
       listingSites: nextSites,
@@ -127,6 +131,7 @@ export default function UnitDetailDrawer({ unit, supplierName, onClose }: Props)
   };
 
   const markSold = async () => {
+    if (!isAdminUser) return;       // UI gate — non-admin can't mark sold
     // Route through recordSale (same path as the Record Sale modal + Quick
     // Sale) instead of writing status='sold' directly. This was previously a
     // direct dbService.update that (a) accepted £0 / blank prices via
@@ -182,6 +187,7 @@ export default function UnitDetailDrawer({ unit, supplierName, onClose }: Props)
   };
 
   const saveNotes = async () => {
+    if (!isAdminUser) return;       // UI gate — non-admin can't edit notes
     setSaving(true);
     await dbService.update('inventoryUnits', unit.id, { notes });
     try {
@@ -262,9 +268,9 @@ export default function UnitDetailDrawer({ unit, supplierName, onClose }: Props)
           </div>
         </div>
 
-        {/* Tabs */}
+        {/* Tabs — Quick Actions hidden for non-admin (entire tab is writes). */}
         <div className="flex border-b border-gray-100 px-6">
-          {(['detail', 'actions'] as const).map(t => (
+          {(['detail', 'actions'] as const).filter(t => t === 'detail' || isAdminUser).map(t => (
             <button
               key={t}
               onClick={() => setTab(t)}

@@ -8,6 +8,7 @@ import { recomputeSale } from '../lib/recomputeSale';
 import { formatIMEI } from '../lib/imeiUtils';
 import { parseBrandModelStorage } from '../lib/modelStorage';
 import CopyImei from './CopyImei';
+import { useIsAdmin } from '../lib/useIsAdmin';
 
 /** Mirror of the deriveSku helper in StockInPage — prefer pre-split fields,
  *  fall back to parsing legacy single-string `model` at runtime. */
@@ -33,6 +34,7 @@ const PLATFORM_COLORS: Record<string, string> = {
 
 export default function Suppliers() {
   const { units, suppliers, sales } = useInventoryStore();
+  const isAdminUser               = useIsAdmin();
   const [selected, setSelected]   = useState<string | null>(null);
   const [isAdding, setIsAdding]   = useState(false);
   const [newSupplier, setNewSupplier] = useState({
@@ -199,12 +201,14 @@ export default function Suppliers() {
           <h2 className="text-2xl font-bold tracking-tighter uppercase font-display">Suppliers</h2>
           <p className="text-[10px] text-gray-400 font-mono uppercase tracking-widest mt-0.5">{suppliers.length} partners</p>
         </div>
+        {isAdminUser && (
         <button
           onClick={() => setIsAdding(true)}
           className="flex items-center gap-2 px-4 py-2.5 bg-black text-white rounded-xl text-[10px] font-bold uppercase tracking-widest hover:bg-gray-800 transition-all"
         >
           <Plus size={14} strokeWidth={3} />Add
         </button>
+        )}
       </div>
 
       {/* Add supplier form */}
