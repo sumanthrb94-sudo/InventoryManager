@@ -284,14 +284,100 @@ function detectSeries(brand: Brand, lower: string): Series | undefined {
  * smaller RAM number wins. Acceptable per spec; documented here so callers
  * aren't surprised.
  */
+/** Operator SKU brand-code → canonical brand + product line. The operator's
+ *  SKU convention is "[ASI-]<BRAND>-<MODEL>-<STORAGE>-<COLOUR>-<SUFFIX>".
+ *  Only these known codes are normalised; anything else is left untouched. */
+const SKU_BRAND_CODE: Record<string, { brand: string; line: string }> = {
+  SG:  { brand: 'Samsung', line: 'Galaxy' },
+  SS:  { brand: 'Samsung', line: 'Galaxy' },
+  IP:  { brand: 'Apple',   line: 'iPhone' },
+  IPH: { brand: 'Apple',   line: 'iPhone' },
+  IPD: { brand: 'Apple',   line: 'iPad' },
+  GP:  { brand: 'Google',  line: 'Pixel' },
+  OP:  { brand: 'OnePlus', line: '' },
+  XI:  { brand: 'Xiaomi',  line: '' },
+};
+
+/**
+ * Convert an operator SKU code into a clean "<Brand> <Line> <Model> [5G]
+ * <Storage>" string, or return null when the input isn't a recognised SKU.
+ *
+ * Tightly guarded so it never mangles a real model name:
+ *   - rejects anything containing whitespace (real names have spaces;
+ *     SKU codes don't),
+ *   - rejects anything without a dash,
+ *   - rejects unless the first segment (after an optional "ASI-" vendor
+ *     prefix) is a known brand code.
+ *
+ * Examples:
+ *   ASI-SG-S20-128-CN-EX        → "Samsung Galaxy S20 128GB"
+ *   ASI-SG-A32-5G-64-BK-EX      → "Samsung Galaxy A32 5G 64GB"
+ *   SG-A14-128-VT               → "Samsung Galaxy A14 128GB"
+ *   SG-S21FE-128-GR-EX          → "Samsung Galaxy S21 FE 128GB"
+ *   ASI-SG-TABA8-32GB-BK-EX     → "Samsung Galaxy Tab A8 32GB"
+ *   ASI-IP-SE3-128-MN-GD        → "Apple iPhone SE3 128GB"
+ */
+export function normalizeOperatorSku(raw: string | undefined | null): string | null {
+  const s0 = (raw ?? '').trim();
+  if (!s0 || /\s/.test(s0)) return null;          // real names carry spaces
+  const U = s0.toUpperCase();
+  if (!U.includes('-')) return null;              // SKUs are dash-delimited
+  const body = U.replace(/^ASI-/, '');            // drop vendor prefix
+  const segs = body.split('-').filter(Boolean);
+  if (segs.length < 2) return null;
+  const code = SKU_BRAND_CODE[segs[0]];
+  if (!code) return null;                         // unknown brand code → leave as-is
+
+  let line = code.line;
+  let modelTok = segs[1];
+
+  // Samsung tablet codes: TABA8 → Tab A8, TABS9 → Tab S9.
+  const tabM = modelTok.match(/^TAB([A-Z]?\d+\+?)$/);
+  if (tabM && code.brand === 'Samsung') {
+    line = 'Galaxy Tab';
+    modelTok = tabM[1];
+  }
+
+  // Split a fused suffix off the model token: S21FE → "S21 FE".
+  modelTok = modelTok.replace(/^([A-Z]?\d+)(FE|PLUS|ULTRA|PRO)$/, '$1 $2');
+
+  // Storage + 5G scan across the segments AFTER the model token (start at
+  // index 2). Starting at the model token would let a numeric model like
+  // iPhone "13" be misread as "13GB" of storage.
+  let storage: string | undefined;
+  let has5g = false;
+  for (let i = 2; i < segs.length; i++) {
+    if (segs[i] === '5G') { has5g = true; continue; }
+    if (storage === undefined) {
+      const sm = segs[i].match(/^(\d{2,4})(GB|TB)?$/);
+      if (sm) storage = sm[1] + (sm[2] || 'GB');
+    }
+  }
+
+  return [code.brand, line, modelTok, has5g ? '5G' : '', storage]
+    .filter(Boolean)
+    .join(' ');
+}
+
 export function parseBrandModelStorage(raw: string | undefined | null): ParsedModel {
   const input = (raw ?? '').toString();
-  const trimmed = input.trim();
+  const rawTrimmed = input.trim();
 
   // Empty input short-circuits — preserve current `extractStorage` contract.
-  if (!trimmed) {
+  if (!rawTrimmed) {
     return { brand: 'Other', model: '', storage: undefined, series: undefined };
   }
+
+  // Operator SKU codes (e.g. "ASI-SG-S20-128-CN-EX", "SG-A14-128-VT") arrive
+  // as the model on units auto-created from sales whose IMEI had no inventory
+  // match. Left raw, they render as truncated SKU symbols ("ASI-SG-S") on the
+  // periodic table and bucket separately from clean "Galaxy S20" units.
+  // Normalise them up-front into a clean "<Brand> <Line> <Model> [5G]
+  // <Storage>" string so every downstream surface (periodic table, reports,
+  // sell sheet) shows a real model name and buckets consistently. Only fires
+  // on the unmistakable code shape (no spaces, known brand-code prefix); real
+  // model names like "Samsung Galaxy S20 128GB" carry spaces and pass through.
+  const trimmed = normalizeOperatorSku(rawTrimmed) ?? rawTrimmed;
 
   const lower = trimmed.toLowerCase();
   const detected = detectBrand(lower);

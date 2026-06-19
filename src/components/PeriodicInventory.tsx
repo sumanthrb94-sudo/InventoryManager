@@ -98,6 +98,42 @@ function storageGb(s: string): number {
   return parseInt(m[1]) * (m[2].toUpperCase() === 'TB' ? 1024 : 1);
 }
 
+/** Minimal tile shape the display comparator needs. */
+export interface TileSortShape {
+  symbol: string;
+  model: string;
+  storage?: string;
+}
+
+/** The series number an operator reads off a tile. Prefers the digit run in
+ *  the DISPLAYED symbol (e.g. "S24U" → 24); falls back to the first digit run
+ *  in the underlying model string when the symbol was truncated past its
+ *  number (e.g. raw SKU "ASI-SG-S20-128-CN-EX" → symbol "ASI-SG-S", no digit
+ *  → model gives 20). Returns -1 when nothing numeric exists, sinking the
+ *  tile to the end of its row. */
+export function tileSeriesNumber(e: TileSortShape): number {
+  const fromSymbol = e.symbol.match(/\d+/);
+  if (fromSymbol) return parseInt(fromSymbol[0], 10);
+  const fromModel = e.model.match(/\d+/);
+  return fromModel ? parseInt(fromModel[0], 10) : -1;
+}
+
+/** Display order for periodic-table tiles within a row:
+ *    1. series number DESCENDING (S24 before S22 before S20),
+ *    2. storage ASCENDING tiebreak (64GB before 128GB; unknown sinks last),
+ *    3. symbol alphabetic so equal entries don't reshuffle across renders.
+ *  Exported + pure so it's unit-tested in isolation (the visible-order bug
+ *  was invisible to the component because it only manifests on real data). */
+export function compareTilesDescending(a: TileSortShape, b: TileSortShape): number {
+  const na = tileSeriesNumber(a);
+  const nb = tileSeriesNumber(b);
+  if (nb !== na) return nb - na;
+  const sa = storageGb(a.storage || '');
+  const sb = storageGb(b.storage || '');
+  if (sa !== sb) return sa - sb;
+  return a.symbol.localeCompare(b.symbol);
+}
+
 /**
  * Build a compact display code for a model name. Strips redundant series
  * prefixes ("iPhone", "Galaxy", "iPad") and applies the standard
@@ -322,41 +358,19 @@ function buildGroups(
             priceRange: d.prices.length ? { min: Math.min(...d.prices), max: Math.max(...d.prices) } : { min: 0, max: 0 },
           };
         })
-        .sort((a, b) => {
-          // Sort tiles DESCENDING by the series number the operator sees on
-          // the displayed symbol (S24 > S23 > S22 > S20). Falls back to the
-          // first digit run in the underlying model string when the symbol
-          // has been truncated past its number (e.g. raw SKU
-          // `ASI-SG-S20-128-CN-EX` → symbol `ASI-SG-S` with no digit).
-          // Tiles with no extractable number sink to the end of the row.
-          //
-          // Tiebreakers (in order):
-          //   1. Storage ASCENDING (64GB before 128GB before 256GB within
-          //      the same series). Unknown storage (storageGb returns
-          //      9999) naturally sinks to the end of the series.
-          //   2. Symbol alphabetic so two same-series same-storage entries
-          //      stay deterministic across renders (avoids the "tiles
-          //      reshuffle on every Firestore snapshot" feel).
-          const seriesNum = (e: Element): number => {
-            const fromSymbol = e.symbol.match(/\d+/);
-            if (fromSymbol) return parseInt(fromSymbol[0], 10);
-            const fromModel = e.model.match(/\d+/);
-            return fromModel ? parseInt(fromModel[0], 10) : -1;
-          };
-          const na = seriesNum(a);
-          const nb = seriesNum(b);
-          if (nb !== na) return nb - na;
-          const sa = storageGb(a.storage || '');
-          const sb = storageGb(b.storage || '');
-          if (sa !== sb) return sa - sb;
-          return a.symbol.localeCompare(b.symbol);
-        })
+        .sort(compareTilesDescending)
         .map((el, i) => ({ ...el, ordinal: i + 1 }));
 
       return {
         ...group, elements,
-        totalCount: groupUnits.length,
-        totalValue: groupUnits.reduce((s, p) => s + valueOf(p.unit), 0),
+        // Roll the legend/header count up from the DISPLAYED tiles, not from
+        // the pre-exclusion group set. Out-of-stock drops SKUs that still have
+        // available stock via excludeKeys — counting groupUnits there made the
+        // legend ("Galaxy S (44)") exceed the sum of visible tiles, which read
+        // as "units missing". For office / supplier / shs (no exclusion) this
+        // is identical to the old count.
+        totalCount: elements.reduce((s, el) => s + el.count, 0),
+        totalValue: elements.reduce((s, el) => s + el.value, 0),
       };
     }).filter(g => g.elements.length > 0);
   } catch (e) {
