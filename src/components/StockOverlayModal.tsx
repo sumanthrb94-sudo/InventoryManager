@@ -16,13 +16,14 @@ import {
   Search, ChevronDown, ChevronUp, ChevronsUpDown, X,
   AlertCircle, Truck, ChevronRight, Layers, List, Sparkles,
 } from 'lucide-react';
-import { motion } from 'motion/react';
+import { motion, AnimatePresence } from 'motion/react';
 import type { InventoryUnit, InventoryAggregate } from '../types';
 import { fmtDateForUser } from '../lib/userLocale';
 import { isValidImei, isAppleDevice } from '../lib/imeiValidation';
 import { parseBrandModelStorage } from '../lib/modelStorage';
 import CopyImei from './CopyImei';
 import PaginationBar, { usePagedRows } from './PaginationBar';
+import UnitDetailDrawer from './UnitDetailDrawer';
 
 // ── Detail-view sort types (used by the 10-column table headers) ────────────
 export type SortKey = 'dateIn' | 'model' | 'storage' | 'colour' | 'buyPrice' | 'supplier' | 'grade';
@@ -746,6 +747,7 @@ export default function StockOverlayModal({
    *               row-by-row. */
   const [viewMode, setViewMode] = useState<'grouped' | 'detailed'>('grouped');
   const [expandedModels, setExpandedModels] = useState<Set<string>>(new Set());
+  const [selectedUnit, setSelectedUnit] = useState<InventoryUnit | null>(null);
   const toggleExpand = (key: string) => setExpandedModels(prev => {
     const next = new Set(prev);
     next.has(key) ? next.delete(key) : next.add(key);
@@ -952,7 +954,7 @@ export default function StockOverlayModal({
                   const imeiValid = isValidImei(u.imei, { isAppleSerial: apple });
                   const tone = STATUS_TONE[u.status] || STATUS_TONE.available;
                   return (
-                    <tr key={u.id} className={`${rowBg} transition-colors group`}>
+                    <tr key={u.id} className={`${rowBg} transition-colors group cursor-pointer`} onClick={() => setSelectedUnit(u)}>
                       {OVERLAY_COLUMNS.map((c, i) => {
                         const sticky = i === 0;
                         const stickyCls = sticky ? `${rowBg} border-r border-slate-200` : undefined;
@@ -1024,7 +1026,7 @@ export default function StockOverlayModal({
         )}
 
         <div className="px-5 py-2 border-t border-slate-100 bg-slate-50/60 flex-shrink-0 text-[9px] font-mono uppercase tracking-widest text-slate-500 flex items-center justify-between">
-          <span>Click column headers to sort · ESC to close</span>
+          <span>Click row to edit · Click headers to sort · ESC to close</span>
           <button
             onClick={onClose}
             className="px-3 py-1.5 rounded-lg border border-slate-200 text-slate-600 text-[10px] font-bold uppercase tracking-widest hover:bg-white"
@@ -1032,6 +1034,16 @@ export default function StockOverlayModal({
         </div>
       </motion.div>
     </motion.div>
+
+    <AnimatePresence>
+      {selectedUnit && (
+        <UnitDetailDrawer
+          unit={selectedUnit}
+          supplierName={supplierMap[selectedUnit.supplierId] || selectedUnit.supplierName || '—'}
+          onClose={() => setSelectedUnit(null)}
+        />
+      )}
+    </AnimatePresence>
   );
 }
 
