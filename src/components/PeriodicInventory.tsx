@@ -13,12 +13,6 @@ interface Props {
    *  filter. The periodic table no longer drives this on click; the
    *  Excel-style overlay is the new click target. */
   onNavigate?: (search: string) => void;
-  /** Which stock segment this instance owns. 'office' (default) shows the
-   *  Office Stock / By Supplier / Out of Stock tabs over on-hand units;
-   *  'shs' shows a parallel set of views over supplier-held (incoming)
-   *  units. The two are mounted SIDE-BY-SIDE so the operator can see both
-   *  dashboards at once with independent filters per scope. */
-  scope?: 'office' | 'shs';
 }
 
 /** Per-series visual theme + display label for the periodic table. */
@@ -80,11 +74,6 @@ interface Element {
   model: string;
   /** Storage capacity for this block, or undefined when the model has none. */
   storage?: string;
-  /** Connectivity / sim / radio tag (5G, WiFi+Cellular, Dual SIM, freeform).
-   *  Same value the periodic-table bucket key uses to keep "Galaxy S20" and
-   *  "Galaxy S20 5G" in separate cells — the overlay's filter needs this too
-   *  so a click on one bucket doesn't pull in units from the other. */
-  tag?: string;
   /** Big abbreviated label rendered inside the block tile. */
   symbol: string;
   count: number;
@@ -94,6 +83,10 @@ interface Element {
   ordinal: number;
   variants: { colour: string; count: number }[];
   storageVariants: { storage: string; count: number }[];
+  /** Connectivity / sim / radio breakdown across this tile's units
+   *  ('5G', 'Dual SIM', 'Wi-Fi+Cellular', etc.). Surfaced in the popover
+   *  because the tile no longer splits per-tag. */
+  tagVariants: { tag: string; count: number }[];
   priceRange: { min: number; max: number };
 }
 
@@ -328,14 +321,25 @@ function buildGroups(
       type Bucket = {
         model: string; storage?: string; tag?: string;
         count: number; shsCount: number; value: number;
-        variants: Record<string, number>; storages: Record<string, number>; prices: number[];
+        variants: Record<string, number>; storages: Record<string, number>;
+        /** Per-tag count breakdown ('5G', 'Dual SIM', etc.). Lets the
+         *  popover surface the connectivity/sim mix without splitting the
+         *  visible tile — see why below. */
+        tags: Record<string, number>;
+        prices: number[];
       };
       const buckets: Record<string, Bucket> = {};
       const ensure = (p: ParsedUnit): Bucket | null => {
-        const key = bucketKeyOf(p.model, p.storage, p.tag);
+        // Bucket by model+storage ONLY (no tag). Operators were seeing
+        // visually-identical tiles (`S22 128GB` appearing 2-3 times) because
+        // units carry different connectivity/sim tags ('5G', 'Dual SIM',
+        // E-SIM, untagged) — the symbol strips those, so the tiles look
+        // duplicated even though the bucket key differed. Now same-symbol
+        // tiles aggregate; the popover breaks the count down by tag.
+        const key = bucketKeyOf(p.model, p.storage);
         if (excludeKeys?.has(key)) return null;
         if (!buckets[key]) {
-          buckets[key] = { model: p.model, storage: p.storage, tag: p.tag, count: 0, shsCount: 0, value: 0, variants: {}, storages: {}, prices: [] };
+          buckets[key] = { model: p.model, storage: p.storage, count: 0, shsCount: 0, value: 0, variants: {}, storages: {}, tags: {}, prices: [] };
         }
         return buckets[key];
       };
@@ -345,6 +349,7 @@ function buildGroups(
         if (!b) continue;
         b.count++;
         b.value += valueOf(p.unit);
+        if (p.tag) b.tags[p.tag] = (b.tags[p.tag] || 0) + 1;
         b.prices.push(p.unit.buyPrice || 0);
         const col = p.unit.colour || 'Unknown';
         b.variants[col] = (b.variants[col] || 0) + 1;
@@ -359,15 +364,20 @@ function buildGroups(
       const elements: Element[] = Object.values(buckets)
         .map((d) => {
           const symbol = shortCode(d.model);
-          const seriesKey = [d.model, d.storage, d.tag ? `· ${d.tag}` : ''].filter(Boolean).join(' ');
+          const seriesKey = [d.model, d.storage].filter(Boolean).join(' ');
           return {
-            seriesKey, model: d.model, storage: d.storage, tag: d.tag, symbol,
+            seriesKey, model: d.model, storage: d.storage, symbol,
             count: d.count, shsCount: d.shsCount, value: d.value,
             searchTerm: d.model, ordinal: 0,
             variants: Object.entries(d.variants || {})
               .sort(([, a], [, b]) => b - a).map(([colour, count]) => ({ colour, count })),
             storageVariants: Object.entries(d.storages || {})
               .sort(([a], [b]) => storageGb(a) - storageGb(b)).map(([storage, count]) => ({ storage, count })),
+            // Per-tag mix (connectivity / sim / radio). Surfaced in the
+            // popover so the operator can still see the breakdown even
+            // though the tiles don't split on tag anymore.
+            tagVariants: Object.entries(d.tags || {})
+              .sort(([, a], [, b]) => b - a).map(([tag, count]) => ({ tag, count })),
             priceRange: d.prices.length ? { min: Math.min(...d.prices), max: Math.max(...d.prices) } : { min: 0, max: 0 },
           };
         })
@@ -523,6 +533,34 @@ function Popover({
         </div>
       )}
 
+      {/* Connectivity / sim / radio tag breakdown — shows the mix that
+          used to split tiles (5G, Dual SIM, E-SIM, Wi-Fi+Cellular…) but
+          now aggregates into the single tile. Skipped when there's no
+          tag info at all. */}
+      {el.tagVariants.length > 0 && (
+        <div style={{ padding: '7px 12px 5px', borderTop: '1px solid #1e293b' }}>
+          <div style={{ fontSize: 8, fontFamily: 'monospace', textTransform: 'uppercase', letterSpacing: '0.12em', color: '#475569', marginBottom: 6 }}>
+            Connectivity / SIM — {el.tagVariants.reduce((s, v) => s + v.count, 0)} units
+          </div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5 }}>
+            {el.tagVariants.map(v => {
+              const pct = Math.round((v.count / el.count) * 100);
+              return (
+                <div key={v.tag} style={{
+                  background: '#1e293b', borderRadius: 12, padding: '4px 8px',
+                  display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 1,
+                  minWidth: 56,
+                }}>
+                  <span style={{ fontSize: 11, fontWeight: 800, fontFamily: 'monospace', color: '#f1f5f9', lineHeight: 1 }}>{v.count}</span>
+                  <span style={{ fontSize: 8, fontFamily: 'monospace', color: accent, letterSpacing: '0.04em', textAlign: 'center' }}>{v.tag}</span>
+                  <span style={{ fontSize: 7, fontFamily: 'monospace', color: '#475569' }}>{pct}%</span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
       {/* CTA */}
       {el.count > 0 && (
         <div style={{ padding: '6px 12px 10px' }}>
@@ -543,7 +581,7 @@ function Popover({
   );
 }
 
-export default function PeriodicInventory({ units, onNavigate, scope = 'office' }: Props) {
+export default function PeriodicInventory({ units, onNavigate }: Props) {
   // Sellable inventory — defensive widening matches Buy/Sell screens so a
   // returned-to-inventory unit with a stuck status (write race / stale
   // cache) still shows up on the periodic table for re-sale.
@@ -556,21 +594,32 @@ export default function PeriodicInventory({ units, onNavigate, scope = 'office' 
     for (const s of suppliers) m[s.id] = s.name;
     return m;
   }, [suppliers]);
+  // ── Scope toggle (Office Stock vs SHS) ─────────────────────────────────────
+  // Top-right selector. Each scope owns its OWN view mode and supplier filter
+  // (separate useState below) so flipping between Office and SHS preserves
+  // whatever filters the operator had set on each side independently.
+  const [scope, setScope] = useState<'office' | 'shs'>('office');
   const isShs = scope === 'shs';
   const VIEW_TABS = isShs ? SHS_VIEW_TABS : OFFICE_VIEW_TABS;
 
-  // ── View controls ───────────────────────────────────────────────────────────
-  // Each scope owns its OWN view mode and supplier filter so the two
-  // side-by-side panels filter independently. 'stock' is the scope's default
-  // landing view (Office Stock for office scope, SHS Stock for SHS scope).
-  const [viewMode, setViewMode] = useState<ViewMode>('stock');
-  const [supplierFilterId, setSupplierFilterId] = useState<string>('all');
+  // ── View controls (per-scope) ───────────────────────────────────────────────
+  // Each scope keeps its OWN view-mode + supplier filter so flipping the
+  // scope toggle doesn't blow away the operator's filter state on the other
+  // side. Reads the current scope's values.
+  const [officeViewMode, setOfficeViewMode] = useState<ViewMode>('stock');
+  const [shsViewMode, setShsViewMode] = useState<ViewMode>('stock');
+  const [officeSupplier, setOfficeSupplier] = useState<string>('all');
+  const [shsSupplier, setShsSupplier] = useState<string>('all');
+  const viewMode = isShs ? shsViewMode : officeViewMode;
+  const setViewMode = isShs ? setShsViewMode : setOfficeViewMode;
+  const supplierFilterId = isShs ? shsSupplier : officeSupplier;
+  const setSupplierFilterId = isShs ? setShsSupplier : setOfficeSupplier;
 
   const [popover, setPopover] = useState<PopoverState | null>(null);
   /** Excel-style overlay target — set when a block is clicked, null when closed.
    *  `supplierId` is set only from the By-Supplier view so the overlay scopes
    *  to that supplier's units of the SKU. */
-  const [overlay, setOverlay] = useState<{ seriesKey: string; model: string; storage?: string; tag?: string; supplierId?: string } | null>(null);
+  const [overlay, setOverlay] = useState<{ seriesKey: string; model: string; storage?: string; supplierId?: string } | null>(null);
   // Refs for the hover grace-period timers
   const closeTimer  = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -672,7 +721,7 @@ export default function PeriodicInventory({ units, onNavigate, scope = 'office' 
     const inStock = new Set<string>();
     for (const u of scopePrimary) {
       const p = parseBrandModelStorage(u.model);
-      inStock.add(bucketKeyOf(p.model || u.model, u.storage || p.storage, p.tag));
+      inStock.add(bucketKeyOf(p.model || u.model, u.storage || p.storage));
     }
     // Tile count = units sold lifetime within this scope (demand signal);
     // value = revenue. soldAll is already scope-filtered above.
@@ -703,8 +752,10 @@ export default function PeriodicInventory({ units, onNavigate, scope = 'office' 
     if (!overlay) return [];
     const wantModel   = overlay.model.toLowerCase().trim();
     const wantStorage = (overlay.storage || '').toUpperCase().trim();
-    const wantTag     = (overlay.tag || '').toLowerCase().trim();
     const wantSup     = overlay.supplierId;
+    // Tiles bucket by model+storage only (tag variants merge into one
+    // tile), so the overlay must match all tag variants too — don't filter
+    // by tag here.
     return overlayBase.filter(u => {
       if (wantSup) {
         const ok = wantSup === UNKNOWN_SUPPLIER_ID
@@ -715,10 +766,8 @@ export default function PeriodicInventory({ units, onNavigate, scope = 'office' 
       const parsed = parseBrandModelStorage(u.model || '');
       const model   = (parsed.model || u.model || '').toLowerCase().trim();
       const storage = (u.storage || parsed.storage || '').toUpperCase().trim();
-      const tag     = (parsed.tag || '').toLowerCase().trim();
       if (model !== wantModel) return false;
       if (wantStorage !== storage) return false;
-      if (wantTag !== tag) return false;
       return true;
     }).sort((a, b) => {
       const da = new Date(a.dateIn || 0).getTime();
@@ -785,28 +834,51 @@ export default function PeriodicInventory({ units, onNavigate, scope = 'office' 
         <div style={{ background: '#ffffff', borderRadius: 20, padding: '12px 10px', overflow: 'hidden' }}>
         {/* Header */}
         <div style={{ marginBottom: 12 }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <span style={{
-                fontSize: 9, fontFamily: 'monospace', fontWeight: 800,
-                textTransform: 'uppercase', letterSpacing: '0.12em',
-                padding: '3px 7px', borderRadius: 6,
-                background: isShs ? '#0f766e' : '#1e293b', color: '#fff',
-              }}>{isShs ? 'SHS' : 'Office'}</span>
-              <div>
-                <p style={{ fontSize: isMobile ? 8 : 10, fontFamily: 'monospace', textTransform: 'uppercase', letterSpacing: '0.15em', color: '#64748b', marginBottom: 2 }}>
-                  Inventory Periodic Table
-                </p>
-                <p style={{ fontSize: 18, fontWeight: 800, color: '#1f2937', letterSpacing: '-0.03em', textTransform: 'uppercase' }}>
-                  {viewTitle}
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10, gap: 12, flexWrap: 'wrap' }}>
+            <div>
+              <p style={{ fontSize: isMobile ? 8 : 10, fontFamily: 'monospace', textTransform: 'uppercase', letterSpacing: '0.15em', color: '#64748b', marginBottom: 2 }}>
+                Inventory Periodic Table
+              </p>
+              <p style={{ fontSize: 18, fontWeight: 800, color: '#1f2937', letterSpacing: '-0.03em', textTransform: 'uppercase' }}>
+                {viewTitle}
+              </p>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+              <div style={{ textAlign: 'right' }}>
+                <p style={{ fontSize: isMobile ? 9 : 11, fontFamily: 'monospace', color: '#94a3b8' }}>{headlineCount} {headlineLabel}</p>
+                <p style={{ fontSize: 10, fontFamily: 'monospace', color: '#475569' }}>
+                  {headlineSub}
                 </p>
               </div>
-            </div>
-            <div style={{ textAlign: 'right' }}>
-              <p style={{ fontSize: isMobile ? 9 : 11, fontFamily: 'monospace', color: '#94a3b8' }}>{headlineCount} {headlineLabel}</p>
-              <p style={{ fontSize: 10, fontFamily: 'monospace', color: '#475569' }}>
-                {headlineSub}
-              </p>
+              {/* Scope toggle — Office Stock vs SHS at the top-right. Same
+                  level as the view tabs below, but lifted into the header
+                  so it's the FIRST decision the operator makes when
+                  scanning the panel. */}
+              <div style={{ display: 'inline-flex', background: '#0f172a', borderRadius: 10, padding: 3, gap: 2 }}>
+                {(['office', 'shs'] as const).map(s => {
+                  const active = scope === s;
+                  return (
+                    <button
+                      key={s}
+                      type="button"
+                      onClick={() => { setScope(s); setOverlay(null); setPopover(null); }}
+                      style={{
+                        border: 'none', cursor: 'pointer',
+                        padding: isMobile ? '5px 10px' : '6px 14px',
+                        borderRadius: 8,
+                        fontSize: isMobile ? 10 : 11, fontWeight: 800, fontFamily: 'system-ui',
+                        textTransform: 'uppercase', letterSpacing: '0.08em',
+                        background: active ? (s === 'shs' ? '#0d9488' : '#fff') : 'transparent',
+                        color: active ? (s === 'shs' ? '#fff' : '#0f172a') : '#94a3b8',
+                        transition: 'background 0.12s, color 0.12s',
+                      }}
+                      title={s === 'shs' ? 'Supplier-held (SHS) stock' : 'Office stock'}
+                    >
+                      {s === 'shs' ? 'SHS' : 'Office Stock'}
+                    </button>
+                  );
+                })}
+              </div>
             </div>
           </div>
 
@@ -932,7 +1004,6 @@ export default function PeriodicInventory({ units, onNavigate, scope = 'office' 
                           seriesKey: viewMode === 'supplier' ? `${g.label} · ${el.seriesKey}` : el.seriesKey,
                           model: el.model,
                           storage: el.storage,
-                          tag: el.tag,
                           // By-Supplier rows are keyed by supplier id — scope
                           // the overlay to that supplier's units of the SKU.
                           ...(viewMode === 'supplier' ? { supplierId: g.id } : {}),
