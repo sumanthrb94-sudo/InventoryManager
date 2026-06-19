@@ -3,8 +3,9 @@ import { motion, AnimatePresence } from 'motion/react';
 import {
   X, Cpu, Package, Truck, ShoppingBag, Tag,
   Star, MapPin, CheckCircle2, AlertCircle,
-  Edit3, Save, ShieldCheck, ExternalLink, ShieldAlert
+  Edit3, Save, ShieldCheck, ExternalLink, ShieldAlert, Pencil
 } from 'lucide-react';
+import EditUnitModal from './EditUnitModal';
 import { InventoryUnit, OperationalFlag, SourceDocument, MARKETPLACES } from '../types';
 import { dbService } from '../lib/dbService';
 import { validateIMEI, formatIMEI } from '../lib/imeiUtils';
@@ -42,6 +43,7 @@ interface Props {
 export default function UnitDetailDrawer({ unit, supplierName, onClose }: Props) {
   const isAdminUser             = useIsAdmin();
   const [tab, setTab]           = useState<'detail' | 'actions'>('detail');
+  const [showEditModal, setShowEditModal] = useState(false);
   const [notes, setNotes]       = useState(unit.notes || '');
   const [listingSites, setListingSites] = useState<string[]>(unit.listingSites || []);
   const [salePrice, setSalePrice] = useState<string>(unit.salePrice?.toString() || '');
@@ -469,6 +471,17 @@ export default function UnitDetailDrawer({ unit, supplierName, onClose }: Props)
                 </div>
               )}
 
+              {/* Edit Unit — full field editor */}
+              <div className="bg-gray-50 rounded-3xl p-4">
+                <p className="text-[10px] font-bold uppercase tracking-widest text-gray-500 mb-3">Edit Unit</p>
+                <button
+                  onClick={() => setShowEditModal(true)}
+                  className="w-full flex items-center justify-center gap-2 py-2.5 bg-black text-white rounded-xl text-[11px] font-bold uppercase tracking-widest hover:bg-gray-800 transition-all"
+                >
+                  <Pencil size={13} /> Edit All Fields
+                </button>
+              </div>
+
               {/* Flags */}
               <div className="bg-gray-50 rounded-3xl p-4 space-y-3">
                 <p className="text-[10px] font-bold uppercase tracking-widest text-gray-500">Operational Flags</p>
@@ -540,5 +553,11 @@ export default function UnitDetailDrawer({ unit, supplierName, onClose }: Props)
         </div>
       </motion.div>
     </motion.div>
+
+    <AnimatePresence>
+      {showEditModal && (
+        <EditUnitModal unit={unit} onClose={() => setShowEditModal(false)} />
+      )}
+    </AnimatePresence>
   );
 }

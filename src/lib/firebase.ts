@@ -79,6 +79,7 @@ export const ensureAnonymousAuth = ensureAuthReady;
 // more admins are needed.
 const ADMIN_EMAILS = new Set<string>([
   'admin@inventorymanager.com',
+  'sumanthbolla97@gmail.com',
 ]);
 
 /** Returns true when the signed-in user is the inventory admin. */
