@@ -533,6 +533,10 @@ export default function PeriodicInventory({ units, onNavigate }: Props) {
   // ── View controls ───────────────────────────────────────────────────────────
   const [viewMode, setViewMode] = useState<ViewMode>('office');
   const [supplierFilterId, setSupplierFilterId] = useState<string>('all');
+  /** SHS-view-only slice dimension: 'model' (series rows, default) or
+   *  'supplier' (one row per supplier). Mirrors the supplier dimension
+   *  office stock gets via its By-Supplier tab. */
+  const [shsGroupBy, setShsGroupBy] = useState<'model' | 'supplier'>('model');
 
   const [popover, setPopover] = useState<PopoverState | null>(null);
   /** Excel-style overlay target — set when a block is clicked, null when closed.
@@ -592,17 +596,18 @@ export default function PeriodicInventory({ units, onNavigate }: Props) {
     [available],
   );
 
-  // By-Supplier: rows are suppliers (built from the live supplier list, scoped
-  // to those with available/incoming stock), colour-cycled. Each row buckets
-  // that supplier's office stock by SKU. A unit's primary supplierId drives the
-  // row; anything unrecognised lands in a synthetic "Unknown supplier" row.
-  // Like Office Stock, SHS units are excluded from the tile badge here.
+  // Supplier-grouped layout builder — rows are suppliers (built from the live
+  // supplier list, scoped to those that actually hold the passed-in unit set),
+  // colour-cycled. Each row buckets that supplier's units by SKU. A unit's
+  // primary supplierId drives the row; anything unrecognised lands in a
+  // synthetic "Unknown supplier" row. Reused by both the By-Supplier office
+  // view (primary = available) and the SHS "By Supplier" grouping
+  // (primary = incoming).
   const UNKNOWN_SUPPLIER_ID = '__unknown_supplier__';
-  const supplierGroups = useMemo(() => {
-    // Which suppliers have any office stock (available or incoming) right now.
+  const buildSupplierGroups = useCallback((primary: InventoryUnit[]): PtGroupVM[] => {
     const present = new Set<string>();
     let hasUnknown = false;
-    for (const u of [...available, ...incoming]) {
+    for (const u of primary) {
       const sid = u.supplierId && supplierMap[u.supplierId] ? u.supplierId : UNKNOWN_SUPPLIER_ID;
       if (sid === UNKNOWN_SUPPLIER_ID) hasUnknown = true;
       present.add(sid);
@@ -615,17 +620,24 @@ export default function PeriodicInventory({ units, onNavigate }: Props) {
     }
     const assign = (u: InventoryUnit) =>
       (u.supplierId && supplierMap[u.supplierId]) ? u.supplierId : UNKNOWN_SUPPLIER_ID;
-    return buildGroups(available, [], defs, assign);
-  }, [available, supplierOptions, supplierMap]);
+    return buildGroups(primary, [], defs, assign);
+  }, [supplierOptions, supplierMap]);
+
+  const supplierGroups = useMemo(() => buildSupplierGroups(available), [buildSupplierGroups, available]);
 
   // SHS Stock — dedicated view for supplier-held (incoming) units. These are
   // the units a supplier holds against our listings but that haven't arrived
   // in the office yet. Here they're the PRIMARY tile count (not a badge), so
   // the operator gets a clean periodic table of exactly what's on order.
-  const shsGroups = useMemo(
+  // Sliceable two ways via the in-view toggle: by model (series rows) or by
+  // supplier (one row per supplier) — same supplier dimension office stock
+  // gets through its By-Supplier tab.
+  const shsModelGroups = useMemo(
     () => buildGroups(incoming, [], SERIES_GROUPS, u => unitSeries(u)),
     [incoming],
   );
+  const shsSupplierGroups = useMemo(() => buildSupplierGroups(incoming), [buildSupplierGroups, incoming]);
+  const shsGroups = shsGroupBy === 'supplier' ? shsSupplierGroups : shsModelGroups;
 
   const outOfStockGroups = useMemo(() => {
     // Exclude every SKU that still has available stock — only depleted ones
@@ -734,7 +746,7 @@ export default function PeriodicInventory({ units, onNavigate }: Props) {
     viewMode === 'outofstock' ? 'SKUs' : 'units';
   const headlineSub =
     viewMode === 'supplier'   ? `${groups.length} supplier${groups.length === 1 ? '' : 's'}` :
-    viewMode === 'shs'        ? 'held by suppliers · order to fulfil' :
+    viewMode === 'shs'        ? (shsGroupBy === 'supplier' ? `${groups.length} supplier${groups.length === 1 ? '' : 's'} holding` : 'held by suppliers · order to fulfil') :
     viewMode === 'outofstock' ? `${soldAll.length} sold lifetime` :
                                 'in office';
   // Per-row total suffix: "£X stock" for office + by-supplier, "£X lifetime"
@@ -811,6 +823,35 @@ export default function PeriodicInventory({ units, onNavigate }: Props) {
                 <option key={o.id} value={o.id}>{o.name}</option>
               ))}
             </select>
+
+            {/* SHS-only: slice the supplier-held grid by model or by supplier
+                — the same supplier dimension office stock gets via By Supplier. */}
+            {viewMode === 'shs' && (
+              <div style={{ display: 'inline-flex', background: '#f1f5f9', borderRadius: 8, padding: 2 }}>
+                {([['model', 'By Model'], ['supplier', 'By Supplier']] as const).map(([id, label]) => {
+                  const active = shsGroupBy === id;
+                  return (
+                    <button
+                      key={id}
+                      type="button"
+                      onClick={() => { setShsGroupBy(id); setOverlay(null); setPopover(null); }}
+                      style={{
+                        border: 'none', cursor: 'pointer',
+                        padding: isMobile ? '5px 8px' : '5px 10px',
+                        borderRadius: 6,
+                        fontSize: isMobile ? 9 : 10, fontWeight: 700, fontFamily: 'system-ui',
+                        textTransform: 'uppercase', letterSpacing: '0.05em',
+                        background: active ? '#0f766e' : 'transparent',
+                        color: active ? '#fff' : '#64748b',
+                        transition: 'background 0.12s, color 0.12s',
+                      }}
+                    >
+                      {label}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
           </div>
 
           <div style={{ display: 'flex', gap: isMobile ? 6 : 8, flexWrap: 'wrap' }}>
@@ -860,7 +901,7 @@ export default function PeriodicInventory({ units, onNavigate }: Props) {
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
                 {/* Preserve supplier-name casing (MHL, NIHAL); series labels
                     keep the capitalize treatment. */}
-                <div style={{ fontSize: 13, fontFamily: 'system-ui', textTransform: viewMode === 'supplier' ? 'none' : 'capitalize', color: g.color.bg, fontWeight: 800, minWidth: 120, flexShrink: 0, letterSpacing: '-0.02em' }}>
+                <div style={{ fontSize: 13, fontFamily: 'system-ui', textTransform: (viewMode === 'supplier' || (viewMode === 'shs' && shsGroupBy === 'supplier')) ? 'none' : 'capitalize', color: g.color.bg, fontWeight: 800, minWidth: 120, flexShrink: 0, letterSpacing: '-0.02em' }}>
                   {g.label}
                 </div>
                 <div style={{ flex: 1, height: 1, background: `${g.color.bg}30` }} />
