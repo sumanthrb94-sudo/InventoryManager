@@ -11,6 +11,7 @@
  * then clears on the next render/report.
  */
 import { useState, type ReactNode } from 'react';
+import { useIsAdmin } from '../lib/useIsAdmin';
 import { X, PackagePlus, CheckCircle2, AlertTriangle } from 'lucide-react';
 import { motion } from 'motion/react';
 import { addSoldUnitFromSale } from '../services/inventoryService';
@@ -24,6 +25,7 @@ interface Props {
 }
 
 export default function AddSoldUnitModal({ sale, onClose, onSaved }: Props) {
+  const isAdminUser                   = useIsAdmin();
   const [imei, setImei]               = useState((sale.imei || '').trim());
   const [model, setModel]             = useState((sale.sku || '').trim());
   const [supplier, setSupplier]       = useState((sale.supplierName || '').trim());
@@ -49,6 +51,7 @@ export default function AddSoldUnitModal({ sale, onClose, onSaved }: Props) {
   const formOk      = imeiOk && bpOk && modelOk && supplierOk;
 
   const handleSave = async () => {
+    if (!isAdminUser) { setError('Admin only.'); return; }
     if (!formOk) { setError('Fill IMEI, model, supplier and a buy price > £0.'); return; }
     setSaving(true);
     setError('');

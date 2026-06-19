@@ -4,6 +4,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { dbService } from '../lib/dbService';
 import { DeviceCategory, InventoryUnit } from '../types';
 import { useInventoryStore } from '../lib/inventoryStore';
+import { useIsAdmin } from '../lib/useIsAdmin';
 import { notificationService } from '../lib/notificationService';
 import { GRADE_OPTIONS, STORAGE_OPTIONS } from '../lib/unitConstants';
 import { GradeSelect, StorageSelect } from './FormSelects';
@@ -65,6 +66,7 @@ function parseBarcode(text: string): { model?: string; grade?: string; storage?:
 }
 
 export default function ScanInModal({ onClose }: Props) {
+  const isAdminUser   = useIsAdmin();
   const { suppliers } = useInventoryStore();
 
   const [stage, setStage] = useState<'scan' | 'form'>('scan');
@@ -128,6 +130,7 @@ export default function ScanInModal({ onClose }: Props) {
   };
 
   const handleSave = async () => {
+    if (!isAdminUser) return;       // UI gate — non-admin can't scan in stock
     // IMEI is required on every non-SHS form. This page never creates SHS.
     if (!isValidImei(imei, { isAppleSerial: true })) { setError(IMEI_REQUIRED_MESSAGE); return; }
     if (!model.trim()) { setError('Model is required'); return; }

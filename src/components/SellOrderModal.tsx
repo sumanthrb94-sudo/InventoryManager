@@ -22,6 +22,7 @@ import { dbService } from '../lib/dbService';
 import type { InventoryUnit, Marketplace } from '../types';
 import { MARKETPLACES } from '../types';
 import { notificationService } from '../lib/notificationService';
+import { useIsAdmin } from '../lib/useIsAdmin';
 import { calcSaleFinancials, getMarketplaceFee } from '../lib/platforms';
 import {
   isValidImei, isAppleDevice,
@@ -63,6 +64,7 @@ interface Props {
 }
 
 export default function SellOrderModal({ unit, onClose, onSaved, isSHS = false }: Props) {
+  const isAdminUser = useIsAdmin();
   const apple = isAppleDevice(unit.model);
   const existingImei = (unit.imei || '').trim().toUpperCase();
   const hasValidExistingImei = !!existingImei && isValidImei(existingImei, { isAppleSerial: apple });
@@ -127,6 +129,7 @@ export default function SellOrderModal({ unit, onClose, onSaved, isSHS = false }
   }, [marketplace, unit.buyPrice, spNum, effectivePostage, postageVatExempt]);
 
   const handleSave = async () => {
+    if (!isAdminUser)         { setError('Admin only.'); return; }
     if (!sp || spNum <= 0)    { setError('Please enter a valid sale price.'); return; }
     if (!orderId.trim())      { setError('Please enter the order number from the platform.'); return; }
 

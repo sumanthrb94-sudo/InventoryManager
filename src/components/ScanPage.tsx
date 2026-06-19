@@ -11,6 +11,7 @@ import { useInventoryStore } from '../lib/inventoryStore';
 import { formatIMEI, validateIMEI } from '../lib/imeiUtils';
 import { logInventoryEvent } from '../lib/inventoryEvents';
 import { LISTING_SITES, listingSiteLabel } from '../lib/platforms';
+import { useIsAdmin } from '../lib/useIsAdmin';
 
 const PLATFORMS = LISTING_SITES;
 type Platform = ListingSite;
@@ -30,6 +31,7 @@ interface QuickAction {
 // ─────────────────────────────────────────────────────────────────────────────
 export default function ScanPage() {
   const { units }                 = useInventoryStore();
+  const isAdminUser               = useIsAdmin();
   const [scanMode, setScanMode]   = useState(false);
   const [manualImei, setManualImei] = useState('');
   const [foundUnit, setFoundUnit] = useState<InventoryUnit | null>(null);
@@ -80,6 +82,7 @@ export default function ScanPage() {
   };
 
   const commitAction = async () => {
+    if (!isAdminUser) return;       // UI gate — non-admin can't change unit status
     if (!pendingAction) return;
     setSaving(true);
     const { unit, action, platform, salePrice, saleOrderId, customerName, notes } = pendingAction;
@@ -296,7 +299,8 @@ export default function ScanPage() {
               </button>
             </div>
 
-            {/* Action form */}
+            {/* Action form — admin only. Non-admins see only the unit info. */}
+            {isAdminUser && (
             <div className="p-5 space-y-4">
               {/* Action type */}
               <div>
@@ -394,6 +398,7 @@ export default function ScanPage() {
                 )}
               </button>
             </div>
+            )}
           </motion.div>
         )}
       </AnimatePresence>

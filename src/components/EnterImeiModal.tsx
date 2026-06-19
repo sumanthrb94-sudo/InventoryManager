@@ -11,6 +11,7 @@ import { X, PackageCheck, CheckCircle2, AlertTriangle } from 'lucide-react';
 import { motion } from 'motion/react';
 import { dbService } from '../lib/dbService';
 import type { InventoryUnit } from '../types';
+import { useIsAdmin } from '../lib/useIsAdmin';
 
 const PLATFORM_STYLE: Record<string, string> = {
   eBay:       'bg-yellow-50 text-yellow-800 border-yellow-200',
@@ -26,6 +27,7 @@ interface Props {
 }
 
 export default function EnterImeiModal({ unit, onClose, onSaved }: Props) {
+  const isAdminUser         = useIsAdmin();
   const [imei, setImei]     = useState('');
   const [saving, setSaving] = useState(false);
   const [saved, setSaved]   = useState(false);
@@ -39,6 +41,7 @@ export default function EnterImeiModal({ unit, onClose, onSaved }: Props) {
   const finalImei  = alphaOk ? imei.trim().toUpperCase() : clean;
 
   const handleSave = async () => {
+    if (!isAdminUser) { setError('Admin only.'); return; }
     if (!inputOk) { setError('Enter a valid 14–15 digit IMEI or device serial (≥8 chars)'); return; }
     setSaving(true);
     try {
