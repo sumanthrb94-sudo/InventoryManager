@@ -180,6 +180,9 @@ interface PopoverState {
   el: Element;
   color: { bg: string; light: string; text: string; border: string };
   rect: DOMRect;
+  /** Caption under the big count in the popover header — varies by view
+   *  ("in office", "on order" for SHS, "sold" for out-of-stock). */
+  countLabel: string;
 }
 
 // ── Shared SKU bucketing ──────────────────────────────────────────────────────
@@ -204,11 +207,12 @@ interface PtGroupVM extends PtGroupDef {
 }
 
 /** Periodic-table view modes. */
-type ViewMode = 'office' | 'supplier' | 'outofstock';
+type ViewMode = 'office' | 'supplier' | 'shs' | 'outofstock';
 
 const VIEW_TABS: ReadonlyArray<{ id: ViewMode; label: string }> = [
   { id: 'office',     label: 'Office Stock' },
   { id: 'supplier',   label: 'By Supplier' },
+  { id: 'shs',        label: 'SHS Stock' },
   { id: 'outofstock', label: 'Out of Stock' },
 ];
 
@@ -384,7 +388,7 @@ function Popover({
   onMouseEnter: () => void;
   onMouseLeave: () => void;
 }) {
-  const { el, color, rect } = state;
+  const { el, color, rect, countLabel } = state;
 
   const spaceBelow = window.innerHeight - rect.bottom;
   const showAbove  = spaceBelow < 310;
@@ -428,18 +432,12 @@ function Popover({
               </div>
             )}
           </div>
-          {/* Stock counts */}
+          {/* Stock count */}
           <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexShrink: 0 }}>
             <div style={{ textAlign: 'center', background: 'rgba(0,0,0,0.2)', borderRadius: 12, padding: '4px 8px', minWidth: 36 }}>
               <div style={{ fontSize: 18, fontWeight: 900, color: '#fff', lineHeight: 1 }}>{el.count}</div>
-              <div style={{ fontSize: 7, color: 'rgba(255,255,255,0.65)', textTransform: 'uppercase', letterSpacing: '0.08em', marginTop: 1 }}>in office</div>
+              <div style={{ fontSize: 7, color: 'rgba(255,255,255,0.65)', textTransform: 'uppercase', letterSpacing: '0.08em', marginTop: 1 }}>{countLabel}</div>
             </div>
-            {el.shsCount > 0 && (
-              <div style={{ textAlign: 'center', background: 'rgba(255,255,255,0.12)', borderRadius: 12, padding: '4px 8px', minWidth: 36, border: '1px solid rgba(253,230,138,0.4)' }}>
-                <div style={{ fontSize: 16, fontWeight: 800, color: '#fde68a', lineHeight: 1 }}>{el.shsCount}</div>
-                <div style={{ fontSize: 7, color: 'rgba(255,255,255,0.65)', textTransform: 'uppercase', letterSpacing: '0.08em', marginTop: 1 }}>supplier</div>
-              </div>
-            )}
           </div>
         </div>
       </div>
@@ -494,18 +492,6 @@ function Popover({
                 </div>
               );
             })}
-          </div>
-        </div>
-      )}
-
-      {/* SHS note */}
-      {el.shsCount > 0 && (
-        <div style={{ margin: '0 12px 6px', padding: '6px 8px', background: 'rgba(253,230,138,0.08)', borderRadius: 12, border: '1px solid rgba(253,230,138,0.15)' }}>
-          <div style={{ fontSize: 8, fontFamily: 'monospace', color: '#fde68a', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 2 }}>
-            SHS — Listed with Supplier
-          </div>
-          <div style={{ fontSize: 9, color: '#94a3b8', fontFamily: 'monospace' }}>
-            {el.shsCount} unit{el.shsCount > 1 ? 's' : ''} held by supplier · order to fulfil
           </div>
         </div>
       )}
@@ -597,15 +583,20 @@ export default function PeriodicInventory({ units, onNavigate }: Props) {
   const todayReturned = scopedUnits.filter(u => u.status === 'returned' && u.returnDate === today);
 
   // ── Per-view groups ─────────────────────────────────────────────────────────
+  // Office Stock = on-hand units only. SHS (supplier-held / incoming) units are
+  // NO LONGER folded in as a "+NS" badge here — they now have their own SHS
+  // Stock view so the office grid reads as a clean on-hand count with no
+  // mixed-signal badges. Pass [] as the secondary set.
   const officeGroups = useMemo(
-    () => buildGroups(available, incoming, SERIES_GROUPS, u => unitSeries(u)),
-    [available, incoming],
+    () => buildGroups(available, [], SERIES_GROUPS, u => unitSeries(u)),
+    [available],
   );
 
   // By-Supplier: rows are suppliers (built from the live supplier list, scoped
   // to those with available/incoming stock), colour-cycled. Each row buckets
   // that supplier's office stock by SKU. A unit's primary supplierId drives the
   // row; anything unrecognised lands in a synthetic "Unknown supplier" row.
+  // Like Office Stock, SHS units are excluded from the tile badge here.
   const UNKNOWN_SUPPLIER_ID = '__unknown_supplier__';
   const supplierGroups = useMemo(() => {
     // Which suppliers have any office stock (available or incoming) right now.
@@ -624,8 +615,17 @@ export default function PeriodicInventory({ units, onNavigate }: Props) {
     }
     const assign = (u: InventoryUnit) =>
       (u.supplierId && supplierMap[u.supplierId]) ? u.supplierId : UNKNOWN_SUPPLIER_ID;
-    return buildGroups(available, incoming, defs, assign);
-  }, [available, incoming, supplierOptions, supplierMap]);
+    return buildGroups(available, [], defs, assign);
+  }, [available, supplierOptions, supplierMap]);
+
+  // SHS Stock — dedicated view for supplier-held (incoming) units. These are
+  // the units a supplier holds against our listings but that haven't arrived
+  // in the office yet. Here they're the PRIMARY tile count (not a badge), so
+  // the operator gets a clean periodic table of exactly what's on order.
+  const shsGroups = useMemo(
+    () => buildGroups(incoming, [], SERIES_GROUPS, u => unitSeries(u)),
+    [incoming],
+  );
 
   const outOfStockGroups = useMemo(() => {
     // Exclude every SKU that still has available stock — only depleted ones
@@ -642,16 +642,19 @@ export default function PeriodicInventory({ units, onNavigate }: Props) {
   }, [available, soldAll]);
 
   const groups = viewMode === 'supplier' ? supplierGroups
+    : viewMode === 'shs' ? shsGroups
     : viewMode === 'outofstock' ? outOfStockGroups
     : officeGroups;
 
-  // Overlay base set per view — out-of-stock shows lifetime sold; office and
-  // by-supplier show the scoped on-hand units (by-supplier additionally
-  // narrows to the clicked supplier via overlay.supplierId below).
+  // Overlay base set per view — out-of-stock shows lifetime sold; SHS shows
+  // the supplier-held (incoming) units; office and by-supplier show the
+  // scoped on-hand units (by-supplier additionally narrows to the clicked
+  // supplier via overlay.supplierId below).
   const overlayBase = useMemo<InventoryUnit[]>(() => {
     if (viewMode === 'outofstock') return soldAll;
+    if (viewMode === 'shs') return incoming;
     return scopedUnits;
-  }, [viewMode, soldAll, scopedUnits]);
+  }, [viewMode, soldAll, incoming, scopedUnits]);
 
   /** Units matching the currently-selected element. EXACT match on
    *  parsed.model / storage / tag — same three keys the periodic table buckets
@@ -704,8 +707,12 @@ export default function PeriodicInventory({ units, onNavigate }: Props) {
     cancelClose();
     if (el.count === 0 && el.shsCount === 0) return;
     const rect = (e.currentTarget as HTMLButtonElement).getBoundingClientRect();
-    setPopover({ el, color, rect });
-  }, [cancelClose]);
+    const countLabel =
+      viewMode === 'shs' ? 'on order' :
+      viewMode === 'outofstock' ? 'sold' :
+      'in office';
+    setPopover({ el, color, rect, countLabel });
+  }, [cancelClose, viewMode]);
 
   // Hide the whole component only when there's genuinely no data anywhere —
   // a sub-view (Sales / Out of Stock) with no rows still renders the shell so
@@ -715,18 +722,21 @@ export default function PeriodicInventory({ units, onNavigate }: Props) {
 
   const viewTitle =
     viewMode === 'supplier'   ? 'Stock by Supplier' :
+    viewMode === 'shs'        ? 'SHS — Supplier Held Stock' :
     viewMode === 'outofstock' ? 'Out of Stock' :
                                 'Office Stock Visibility';
   const headlineCount =
-    viewMode === 'supplier'   ? available.length + incoming.length :
+    viewMode === 'supplier'   ? available.length :
+    viewMode === 'shs'        ? incoming.length :
     viewMode === 'outofstock' ? groups.reduce((s, g) => s + g.elements.length, 0) :
                                 available.length;
   const headlineLabel =
     viewMode === 'outofstock' ? 'SKUs' : 'units';
   const headlineSub =
     viewMode === 'supplier'   ? `${groups.length} supplier${groups.length === 1 ? '' : 's'}` :
+    viewMode === 'shs'        ? 'held by suppliers · order to fulfil' :
     viewMode === 'outofstock' ? `${soldAll.length} sold lifetime` :
-                                (incoming.length > 0 ? `+ ${incoming.length} w/ supplier` : 'in office');
+                                'in office';
   // Per-row total suffix: "£X stock" for office + by-supplier, "£X lifetime"
   // for the out-of-stock revenue rollup.
   const rowValueSuffix = viewMode === 'outofstock' ? 'lifetime' : 'stock';
@@ -833,9 +843,11 @@ export default function PeriodicInventory({ units, onNavigate }: Props) {
             <p style={{ fontSize: 12, fontWeight: 700, color: '#475569' }}>
               {viewMode === 'supplier'
                 ? 'No stock attributed to a supplier'
-                : viewMode === 'outofstock'
-                  ? 'Nothing out of stock — every sold SKU still has units on hand'
-                  : 'No office stock to show'}
+                : viewMode === 'shs'
+                  ? 'No supplier-held (SHS) stock on order'
+                  : viewMode === 'outofstock'
+                    ? 'Nothing out of stock — every sold SKU still has units on hand'
+                    : 'No office stock to show'}
               {supplierFilterId !== 'all' && ' for this supplier'}
             </p>
           </div>
@@ -901,16 +913,13 @@ export default function PeriodicInventory({ units, onNavigate }: Props) {
                         opacity: 1,
                       }}
                     >
-                      {/* Count (top-right corner) */}
+                      {/* Count (top-right corner). SHS units are no longer
+                          badged here — they live in the dedicated SHS Stock
+                          view, so every tile shows a single unambiguous count. */}
                       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 1 }}>
                         <span style={{ fontSize: 9, fontFamily: 'monospace', fontWeight: 800, color: isHovered ? '#fff' : g.color.text }}>
                           {el.count}
                         </span>
-                        {el.shsCount > 0 && (
-                          <span style={{ fontSize: 7, fontFamily: 'monospace', fontWeight: 700, color: '#fbbf24', lineHeight: 1 }}>
-                            +{el.shsCount}S
-                          </span>
-                        )}
                       </div>
 
                       {/* Big symbol (shortCode of the model) — font-size
@@ -955,10 +964,10 @@ export default function PeriodicInventory({ units, onNavigate }: Props) {
           ))}
         </div>
 
-        {viewMode !== 'outofstock' && groups.some(g => g.elements.some(el => el.shsCount > 0)) && (
+        {viewMode === 'shs' && groups.length > 0 && (
           <div style={{ marginTop: 12, display: 'flex', alignItems: 'center', gap: 6 }}>
-            <span style={{ fontSize: 9, color: '#fbbf24', fontFamily: 'monospace', fontWeight: 700 }}>+NS</span>
-            <span style={{ fontSize: 8, color: '#475569', fontFamily: 'monospace' }}>= N units listed with supplier (hover for details)</span>
+            <span style={{ fontSize: 9, color: '#fbbf24', fontFamily: 'monospace', fontWeight: 700 }}>SHS</span>
+            <span style={{ fontSize: 8, color: '#475569', fontFamily: 'monospace' }}>= supplier-held stock on order — not yet received into the office</span>
           </div>
         )}
       </div>
