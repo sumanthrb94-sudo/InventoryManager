@@ -323,7 +323,16 @@ export function buildPostImportSyncPatches(
     if (!imeiKey) continue;
     const u = unitsByImei.get(imeiKey);
     if (!u) continue;
-    if (u.status === 'returned' || u.status === 'incoming') continue;
+    // A SALE record is proof of fulfilment. When the matched unit is SHS /
+    // supplier-held (status==='incoming'), the sale means the supplier
+    // shipped it — so we fulfil from THAT unit (flip incoming → sold),
+    // carrying its full buy-side info (model, supplier, BP). Previously
+    // incoming units were skipped, which left them stuck "on order" forever
+    // even though they'd sold, and produced sold rows with no fulfilment
+    // state. Returned units stay skipped: re-selling a returned unit is a
+    // distinct re-listing cycle handled elsewhere (date-compare in
+    // SellSheet.allSold), not a fresh fulfilment.
+    if (u.status === 'returned') continue;
 
     // Sale → unit linkage. Only patch when unitId is missing or wrong;
     // a no-op write would still bump the doc's updatedAt timestamp

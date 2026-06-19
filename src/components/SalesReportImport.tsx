@@ -72,6 +72,11 @@ export interface PreviewBuckets {
     saleOrderId: string;
     marketplace: Marketplace;
     salePrice: number;
+    /** True when the matched unit was SHS / supplier-held (status
+     *  'incoming') — selling it fulfils from the supplier rather than
+     *  drawing down office stock. Surfaced so the operator can see the
+     *  fulfilment source at a glance. */
+    fromShs: boolean;
   }>;
   /** Stale combined multi-IMEI docs already in the DB that the per-IMEI split
    *  rows in this upload supersede. The old parser stored every IMEI of a
@@ -150,7 +155,10 @@ export function buildPreview(
     if (!imeiKey) continue;
     const u = unitsByImei.get(imeiKey);
     if (!u) continue;
-    if (u.status === 'returned' || u.status === 'incoming') continue;
+    // Mirror buildPostImportSyncPatches exactly: returned units are skipped
+    // (re-sale cycle), already-sold units are no-ops, but SHS / incoming
+    // units DO flip — selling supplier-held stock fulfils it.
+    if (u.status === 'returned') continue;
     if (u.status === 'sold') continue;     // already sold — not a flip
     if (seenUnitIds.has(u.id)) continue;   // one row per unit
     seenUnitIds.add(u.id);
@@ -161,6 +169,7 @@ export function buildPreview(
       saleOrderId: s.orderNumber || '',
       marketplace: s.marketplace,
       salePrice: s.salePrice ?? 0,
+      fromShs: u.status === 'incoming',
     });
   }
 
@@ -829,33 +838,39 @@ function PreviewPhase({
           acknowledgement before Confirm enables. Loaded the eye-icon
           prompt from QA round 5 ("when I add inventory stock it's 215
           but when I load sales report it's showing 198 — why"). */}
-      {preview.inventoryFlips.length > 0 && (
+      {preview.inventoryFlips.length > 0 && (() => {
+        const officeFlips = preview.inventoryFlips.filter(f => !f.fromShs).length;
+        const shsFlips = preview.inventoryFlips.filter(f => f.fromShs).length;
+        return (
         <div className="border-2 border-amber-300 bg-amber-50 rounded-2xl p-3 space-y-2.5">
           <div className="flex items-start gap-2">
             <AlertTriangle size={18} className="text-amber-600 flex-shrink-0 mt-0.5" />
             <div className="flex-1 min-w-0">
               <p className="text-[12px] font-bold text-amber-900">
-                {preview.inventoryFlips.length} in-stock unit{preview.inventoryFlips.length === 1 ? '' : 's'} will be flipped to SOLD
+                {preview.inventoryFlips.length} unit{preview.inventoryFlips.length === 1 ? '' : 's'} will be fulfilled &amp; marked SOLD
               </p>
               <p className="text-[11px] text-amber-800 mt-0.5">
-                These units have IMEIs that match sales in the file. Confirming the
-                import will mark them as sold and remove them from "All Office Stock"
-                (e.g. 215 → {215 - preview.inventoryFlips.length}). If any IMEI is
-                wrong, fix the sales sheet first or void the sale after import to
-                restore the unit.
+                These IMEIs match units already tracked in inventory, so each sale
+                is fulfilled from its real unit (full model / supplier / BP intact).
+                {officeFlips > 0 && <> {officeFlips} draw{officeFlips === 1 ? 's' : ''} down office stock.</>}
+                {shsFlips > 0 && <> {shsFlips} fulfil{shsFlips === 1 ? 's' : ''} from SHS (supplier-held) stock.</>}
+                {' '}If any IMEI is wrong, fix the sheet first or void the sale after import.
               </p>
             </div>
           </div>
 
           <div className="bg-white border border-amber-200 rounded-xl overflow-hidden">
             <div className="px-3 py-1.5 border-b border-amber-100 text-[9px] font-mono uppercase tracking-widest text-amber-900 bg-amber-50/60">
-              Units that will flip
+              Units that will be fulfilled
             </div>
             <ul className="max-h-48 overflow-auto divide-y divide-amber-50 text-[11px]">
               {preview.inventoryFlips.slice(0, 50).map(f => (
                 <li key={f.unitId} className="px-3 py-1.5 flex items-center justify-between gap-3">
-                  <span className="font-mono text-slate-700 truncate" title={`${f.imei} — ${f.model}`}>
-                    {f.imei || '—'} <span className="text-slate-400">·</span> <span className="text-slate-500">{f.model}</span>
+                  <span className="font-mono text-slate-700 truncate flex items-center gap-1.5" title={`${f.imei} — ${f.model}`}>
+                    {f.fromShs && (
+                      <span className="flex-shrink-0 text-[8px] font-bold uppercase tracking-widest px-1 py-px rounded border bg-teal-50 text-teal-700 border-teal-200">SHS</span>
+                    )}
+                    <span className="truncate">{f.imei || '—'} <span className="text-slate-400">·</span> <span className="text-slate-500">{f.model}</span></span>
                   </span>
                   <span className="flex-shrink-0 text-[10px] font-mono text-slate-600">
                     {f.marketplace} · {f.saleOrderId} · £{Number(f.salePrice).toFixed(2)}
@@ -877,10 +892,11 @@ function PreviewPhase({
               onChange={e => onAckChange(e.target.checked)}
               className="mt-0.5 w-4 h-4 accent-amber-600 cursor-pointer"
             />
-            I've reviewed the list — flip the {preview.inventoryFlips.length} unit{preview.inventoryFlips.length === 1 ? '' : 's'} to sold.
+            I've reviewed the list — fulfil &amp; mark the {preview.inventoryFlips.length} unit{preview.inventoryFlips.length === 1 ? '' : 's'} sold.
           </label>
         </div>
-      )}
+        );
+      })()}
 
       {/* Positive confirmation that every sale IMEI resolved to a unit.
           Suppressed when allReconciled fires (the bigger panel above

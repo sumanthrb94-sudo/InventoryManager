@@ -48,9 +48,9 @@ describe('SalesReportImport preview ↔ buildPostImportSyncPatches parity', () =
       unit({ id: 'u-flip-2', imei: '222', status: 'available', model: 'iPhone 12' }),
       // Already-sold unit — sync no-ops, preview must NOT flag it.
       unit({ id: 'u-sold',   imei: '333', status: 'sold' }),
-      // Incoming SHS — sync skips, preview must NOT flag it.
+      // Incoming SHS — selling it FULFILS from the supplier, so it DOES flip.
       unit({ id: 'u-shs',    imei: '444', status: 'incoming' }),
-      // Returned unit — sync skips, preview must NOT flag it.
+      // Returned unit — re-sale cycle, sync skips, preview must NOT flag it.
       unit({ id: 'u-ret',    imei: '555', status: 'returned' }),
     ];
 
@@ -93,14 +93,17 @@ describe('SalesReportImport preview ↔ buildPostImportSyncPatches parity', () =
       expect(u?.status, `sync patched ${p.id} but it wasn't previewed — only sold-unit backfills are allowed`).toBe('sold');
     }
 
-    // Specific assertions on what landed.
-    expect(preview.inventoryFlips).toHaveLength(2);
+    // Specific assertions on what landed: 2 office + 1 SHS = 3 fulfilments.
+    expect(preview.inventoryFlips).toHaveLength(3);
     const ids = new Set(preview.inventoryFlips.map(f => f.unitId));
     expect(ids.has('u-flip-1')).toBe(true);
     expect(ids.has('u-flip-2')).toBe(true);
+    expect(ids.has('u-shs')).toBe(true);      // SHS unit fulfils on sale
     expect(ids.has('u-sold')).toBe(false);
-    expect(ids.has('u-shs')).toBe(false);
     expect(ids.has('u-ret')).toBe(false);
+    // The SHS flip is tagged as such; office flips are not.
+    expect(preview.inventoryFlips.find(f => f.unitId === 'u-shs')?.fromShs).toBe(true);
+    expect(preview.inventoryFlips.find(f => f.unitId === 'u-flip-1')?.fromShs).toBe(false);
 
     // Preview surfaces the marketplace + order + price so the operator can
     // sanity-check the row that's about to flip.
