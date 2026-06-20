@@ -87,6 +87,12 @@ interface Element {
    *  ('5G', 'Dual SIM', 'Wi-Fi+Cellular', etc.). Surfaced in the popover
    *  because the tile no longer splits per-tag. */
   tagVariants: { tag: string; count: number }[];
+  /** Dominant cellular radio across the bucket's units, or undefined for
+   *  WiFi-only / no-tag buckets. Rendered inline with the storage caption
+   *  on the tile so the operator can see at a glance whether the SKU has
+   *  cellular without opening the popover. Picks "5G" first, then any
+   *  4G/LTE/Cellular variant. */
+  connectivity?: string;
   priceRange: { min: number; max: number };
 }
 
@@ -394,6 +400,15 @@ function buildGroups(
         .map((d) => {
           const symbol = shortCode(d.model);
           const seriesKey = [d.model, d.storage].filter(Boolean).join(' ');
+          // Pick the dominant cellular tag for the tile caption. 5G wins
+          // over any 4G/LTE/Cellular variant; pure WiFi tags don't count.
+          // Looks at the raw tag keys (e.g. "5G, Dual SIM") so a phone
+          // marked "5G, Dual SIM" still surfaces "5G" on the tile.
+          const tagKeys = Object.keys(d.tags || {});
+          const cellularTag =
+            tagKeys.find(t => /\b5G\b/i.test(t)) ? '5G' :
+            tagKeys.some(t => /\b(4G|LTE|Cellular)\b/i.test(t)) ? 'Cellular' :
+            undefined;
           return {
             seriesKey, model: d.model, storage: d.storage, symbol,
             count: d.count, shsCount: d.shsCount, value: d.value,
@@ -407,6 +422,7 @@ function buildGroups(
             // though the tiles don't split on tag anymore.
             tagVariants: Object.entries(d.tags || {})
               .sort(([, a], [, b]) => b - a).map(([tag, count]) => ({ tag, count })),
+            connectivity: cellularTag,
             priceRange: d.prices.length ? { min: Math.min(...d.prices), max: Math.max(...d.prices) } : { min: 0, max: 0 },
           };
         })
@@ -1019,7 +1035,12 @@ export default function PeriodicInventory({ units, onNavigate }: Props) {
                   const isHovered = hoverKey === blockKey;
                   const isEmpty   = el.count === 0 && el.shsCount === 0;
                   // Caption: storage if present, otherwise fall back to the full model name.
-                  const caption   = el.storage || el.model;
+                  // Append the cellular radio (5G / Cellular) inline so the
+                  // operator can see the connectivity at a glance — needed
+                  // for tablets (WiFi vs WiFi+Cellular) and useful for
+                  // phones (e.g. flagging 5G stock).
+                  const baseCaption = el.storage || el.model;
+                  const caption   = el.connectivity ? `${baseCaption} · ${el.connectivity}` : baseCaption;
                   return (
                     <button
                       key={blockKey}
