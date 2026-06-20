@@ -46,7 +46,7 @@ import PeriodicInventory from './PeriodicInventory';
 import SellOrderModal from './SellOrderModal';
 import EnterImeiModal from './EnterImeiModal';
 import AddSoldUnitModal from './AddSoldUnitModal';
-import OrphansModal, { isOrphanUnit, isOrphanSoldUnit } from './OrphanUnitsModal';
+import OrphansModal, { isOrphanSale } from './OrphanUnitsModal';
 import { useIsAdmin } from '../lib/useIsAdmin';
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -245,16 +245,20 @@ export default function SellSheet(_props: Props) {
   const [sellOrderIsSHS, setSellOrderIsSHS] = useState(false);
   const [enterImeiUnit, setEnterImeiUnit] = useState<InventoryUnit | null>(null);
   const [orphanModalOpen, setOrphanModalOpen] = useState(false);
-  // Reconciliation pill — counts BOTH live units missing supplier/
-  // price/stockSource AND sold units with no IMEI on the inventory
-  // record (post-2026-06-09 only; older data is legacy). See
-  // isOrphanUnit + isOrphanSoldUnit. Sales WITH IMEIs auto-resolve via
-  // buildPostImportSyncPatches at import + reconcileOrphanSaleForImei
-  // when the unit is manually added, so they never show up here.
-  const orphanCount = useMemo(
-    () => units.filter(isOrphanUnit).length + units.filter(isOrphanSoldUnit).length,
-    [units],
-  );
+  // Reconciliation pill — counts sales (post-2026-06-09) that have no
+  // matching inventory unit by unitId or IMEI. Per operator's final
+  // criterion: "sales uploaded from sales report marked as sold
+  // without any existence in the inventory units". See isOrphanSale.
+  const orphanCount = useMemo(() => {
+    const unitsById = new Map<string, InventoryUnit>();
+    const unitsByImei = new Map<string, InventoryUnit>();
+    for (const u of units) {
+      if (u.id) unitsById.set(u.id, u);
+      const k = (u.imei || '').trim().toUpperCase();
+      if (k) unitsByImei.set(k, u);
+    }
+    return sales.filter(s => isOrphanSale(s, unitsById, unitsByImei)).length;
+  }, [units, sales]);
   const [addSoldUnitSale, setAddSoldUnitSale] = useState<Sale | null>(null);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [showSchemaHelp, setShowSchemaHelp] = useState(false);
@@ -872,6 +876,7 @@ export default function SellSheet(_props: Props) {
         {orphanModalOpen && (
           <OrphansModal
             units={units}
+            sales={sales}
             onClose={() => setOrphanModalOpen(false)}
           />
         )}
