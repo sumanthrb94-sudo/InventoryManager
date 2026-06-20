@@ -40,12 +40,7 @@ export default function Dashboard({ user, onNavigate, onOpenImport, onOpenMaster
   // (Admin → Master Data sub-tab) and falls back to the legacy import modal.
   const handleOpenMasterData = () => (onOpenMasterData ?? onOpenImport)?.();
   const { units, suppliers, sales, aggregates, importBatches } = useInventoryStore();
-  // Unified view: every signed-in user lands on the same Dashboard with
-  // the same KPI panel. Previously gated to `isAdmin(user)` so non-admins
-  // saw a shorter version — the operator team complained about that
-  // asymmetry. The panel reads the same Firestore counts the rest of the
-  // store already reads, so there's no extra data exposure.
-  const showAdminPanel = true;
+  const showAdminPanel = isAdmin(user);
   const region = useUserRegion();
 
   // Sales aren't in the store — pull them directly so we can detect a

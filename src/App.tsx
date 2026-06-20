@@ -31,7 +31,7 @@ import ErrorBoundary from './components/ErrorBoundary';
 import { useBuildVersionCheck } from './lib/useBuildVersionCheck';
 import type { SupplierWhatsappUpdate } from './types';
 
-type Tab      = 'overview' | 'buy' | 'sell' | 'returns' | 'admin';
+type Tab      = 'buy' | 'sell' | 'returns' | 'admin';
 type AdminSub = 'overview' | 'salesHistory' | 'insights' | 'reports' | 'suppliers';
 
 interface NavTab {
@@ -48,9 +48,6 @@ interface NavTab {
  */
 function buildNavTabs(user: User): NavTab[] {
   const tabs: NavTab[] = [];
-  // Overview lands first for every user — same Dashboard, same data,
-  // regardless of role. Keeps admin and ops on a single shared surface.
-  tabs.push({           id: 'overview', label: 'Overview', icon: <LayoutDashboard size={20} /> });
   if (canBuy(user))   tabs.push({ id: 'buy',     label: 'Stock Intake', icon: <PackagePlus size={20} /> });
   if (canSell(user))  tabs.push({ id: 'sell',    label: 'Sales',   icon: <ShoppingCart size={20} /> });
   tabs.push({           id: 'returns', label: 'Returns', icon: <RefreshCw size={20} /> });
@@ -635,13 +632,6 @@ function AppShell({ user }: { user: User }) {
               <motion.div key={activeTab === 'admin' ? `admin-${adminSub}` : activeTab}
                 initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: -8 }} transition={{ duration: 0.18 }}>
-                {activeTab === 'overview' && (
-                  <Dashboard
-                    user={user}
-                    onNavigate={handleNavigate}
-                    onOpenImport={() => setIsImportModalOpen(true)}
-                  />
-                )}
                 {activeTab === 'buy'     && <BuySheet onOpenBatch={() => setIsBatchModalOpen(true)} onOpenImport={() => setIsImportModalOpen(true)} />}
                 {activeTab === 'sell'    && <SellSheet />}
                 {activeTab === 'returns' && <ReturnsPage />}
