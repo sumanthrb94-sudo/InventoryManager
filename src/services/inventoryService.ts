@@ -263,7 +263,65 @@ export async function addUnitManual(input: AddUnitInput): Promise<AddUnitResult>
     buyPrice: bp,
   });
 
+  // 9. Post-create reconcile — close the loop in the reverse direction
+  //    from the import-time sync. If a sales report landed BEFORE this
+  //    unit was added, the matching sale is sitting orphaned with this
+  //    IMEI on it. Auto-link now so the operator doesn't have to make a
+  //    second trip through the Orphans modal. Mirrors the rules
+  //    buildPostImportSyncPatches applies at import:
+  //      - skip voided sales
+  //      - skip sales already linked to a different unit
+  //      - on match: sale.unitId = unit.id, unit.status = 'sold' with
+  //        sale provenance (price, date, platform, order #)
+  //    Wrapped in try/catch — the unit create already succeeded; a
+  //    reconcile failure shouldn't fail the whole call. Operator can
+  //    still resolve via the Orphans modal manually.
+  try {
+    const reconciledSaleId = await reconcileOrphanSaleForImei(rawImei);
+    if (reconciledSaleId) {
+      await logInventoryEvent({
+        type: 'sold',
+        message: `Unit ${rawImei} auto-linked to orphan sale ${reconciledSaleId}`,
+        unitId: rawImei,
+      });
+    }
+  } catch (e) {
+    console.warn('addUnitManual post-create reconcile failed', e);
+  }
+
   return { ok: true, id: rawImei };
+}
+
+/** Look up any orphan sale (non-voided, no unitId, IMEI matches) and
+ *  link it to the just-added unit. Picks the most recent sale when
+ *  several match (refurb/restock cycles can produce >1; the latest
+ *  best represents the current state). Returns the saleId that got
+ *  linked, or null if nothing matched. */
+async function reconcileOrphanSaleForImei(rawImei: string): Promise<string | null> {
+  const allSales = await dbService.readAll('sales');
+  const candidates = (allSales as Sale[]).filter(s =>
+    !s.voidedAt
+    && !s.unitId
+    && (s.imei || '').trim().toUpperCase() === rawImei
+  );
+  if (candidates.length === 0) return null;
+  candidates.sort((a, b) => (b.saleDate || '').localeCompare(a.saleDate || ''));
+  const sale = candidates[0];
+  await Promise.all([
+    dbService.update('sales', sale.id, {
+      unitId: rawImei,
+      stockSource: sale.stockSource ?? 'office',
+    }),
+    dbService.update('inventoryUnits', rawImei, {
+      status: 'sold',
+      saleDate: sale.saleDate,
+      salePrice: sale.salePrice,
+      salePlatform: sale.marketplace,
+      saleOrderId: sale.orderNumber,
+      stockSource: 'office',
+    }),
+  ]);
+  return sale.id;
 }
 
 // ---------------------------------------------------------------------------
