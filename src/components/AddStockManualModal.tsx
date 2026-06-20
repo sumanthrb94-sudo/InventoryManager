@@ -35,7 +35,6 @@ import {
 } from '../lib/imeiValidation';
 import { parseBrandModelStorage } from '../lib/modelStorage';
 import { addUnitManual, ensureSupplier } from '../services';
-import { useIsAdmin } from '../lib/useIsAdmin';
 import type { InventoryUnit, ListingSite } from '../types';
 import DeviceComboBox from './DeviceComboBox';
 
@@ -147,7 +146,10 @@ interface RowValidation {
 }
 
 export default function AddStockManualModal({ onClose, initialMode = 'office' }: Props) {
-  const isAdminUser         = useIsAdmin();
+  // Add Stock is open to all signed-in employees (operator decision
+  // 2026-06-20). Firestore rules permit any signed-in user to create
+  // an inventoryUnits doc with ownerId='shared', so no server-side gate
+  // either. Wipe DB / delete paths remain admin-only.
   const { suppliers, units } = useInventoryStore();
   const [mode, setMode]     = useState<Mode>(initialMode);
   const [date, setDate]     = useState(today());
@@ -324,7 +326,6 @@ export default function AddStockManualModal({ onClose, initialMode = 'office' }:
 
   // ── Save ───────────────────────────────────────────────────────────────────
   async function handleSave() {
-    if (!isAdminUser) return;       // UI gate — non-admin can't add stock
     // Defence-in-depth: even if the button somehow fires (race with the
     // store listener, devtools, etc.) refuse to proceed when any row has
     // a duplicate IMEI. Silent-skipping these previously closed the modal
