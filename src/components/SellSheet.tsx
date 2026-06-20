@@ -46,7 +46,7 @@ import PeriodicInventory from './PeriodicInventory';
 import SellOrderModal from './SellOrderModal';
 import EnterImeiModal from './EnterImeiModal';
 import AddSoldUnitModal from './AddSoldUnitModal';
-import OrphansModal, { isOrphanUnit, isOrphanSale } from './OrphanUnitsModal';
+import OrphansModal, { isOrphanUnit, isOrphanSoldUnit } from './OrphanUnitsModal';
 import { useIsAdmin } from '../lib/useIsAdmin';
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -245,14 +245,15 @@ export default function SellSheet(_props: Props) {
   const [sellOrderIsSHS, setSellOrderIsSHS] = useState(false);
   const [enterImeiUnit, setEnterImeiUnit] = useState<InventoryUnit | null>(null);
   const [orphanModalOpen, setOrphanModalOpen] = useState(false);
-  // Reconciliation pill — counts BOTH live units missing supplier/price/
-  // stockSource AND sales captured without an IMEI (post-Apr-1 only).
-  // See isOrphanUnit + isOrphanSale; the latter intentionally excludes
-  // legacy + IMEI-bearing sales (those auto-resolve via the import-time
-  // / manual-add reconcile path, no human touch needed).
+  // Reconciliation pill — counts BOTH live units missing supplier/
+  // price/stockSource AND sold units with no IMEI on the inventory
+  // record (post-2026-06-09 only; older data is legacy). See
+  // isOrphanUnit + isOrphanSoldUnit. Sales WITH IMEIs auto-resolve via
+  // buildPostImportSyncPatches at import + reconcileOrphanSaleForImei
+  // when the unit is manually added, so they never show up here.
   const orphanCount = useMemo(
-    () => units.filter(isOrphanUnit).length + sales.filter(isOrphanSale).length,
-    [units, sales],
+    () => units.filter(isOrphanUnit).length + units.filter(isOrphanSoldUnit).length,
+    [units],
   );
   const [addSoldUnitSale, setAddSoldUnitSale] = useState<Sale | null>(null);
   const [pickerOpen, setPickerOpen] = useState(false);
@@ -871,7 +872,6 @@ export default function SellSheet(_props: Props) {
         {orphanModalOpen && (
           <OrphansModal
             units={units}
-            sales={sales}
             onClose={() => setOrphanModalOpen(false)}
           />
         )}

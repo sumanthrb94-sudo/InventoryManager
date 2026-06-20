@@ -23,17 +23,16 @@
  * caller has gated visibility.
  */
 import React, { useMemo, useState } from 'react';
-import { X, MapPin, Edit3, AlertCircle, CheckCircle2, Link2, Plus, Search } from 'lucide-react';
+import { X, MapPin, Edit3, AlertCircle, CheckCircle2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { InventoryUnit, Sale } from '../types';
+import { InventoryUnit } from '../types';
 import { dbService } from '../lib/dbService';
 import { reconcileOrphanSaleForImei } from '../services/inventoryService';
 import EditUnitModal from './EditUnitModal';
-import AddSoldUnitModal from './AddSoldUnitModal';
+import EnterImeiModal from './EnterImeiModal';
 
 interface Props {
   units: InventoryUnit[];
-  sales: Sale[];
   onClose: () => void;
 }
 
@@ -43,28 +42,28 @@ export function isOrphanUnit(u: InventoryUnit): boolean {
   return !u.supplierId || !(u.buyPrice && u.buyPrice > 0) || !u.stockSource;
 }
 
-/** Cut-off for the orphan-sales view. Sales dated before this are
- *  legacy data from the pre-workflow-change era — the operator
- *  explicitly told us to ignore them; they're not actionable and don't
- *  belong in the reconciliation pill. */
-export const ORPHAN_SALE_CUTOFF = '2026-04-01';
+/** Cut-off for the orphan-sold-unit view. Anything sold before this
+ *  is legacy data from the pre-workflow-change era — operator told us
+ *  to ignore them; they're not actionable and shouldn't crowd the pill. */
+export const ORPHAN_DATE_CUTOFF = '2026-06-09';
 
-/** Orphan sale predicate.
+/** Orphan-sold-unit predicate.
  *
- *  Per operator (2026-06-20 audit): an orphan is a sale captured WITHOUT
- *  an IMEI on the report. Those are the rows that need manual mapping
- *  because there's no key to auto-match against an inventory unit.
- *  Sales WITH IMEIs are handled by the import-time auto-link path
- *  (buildPostImportSyncPatches) and the addUnitManual post-create
- *  reconcile — both fire automatically the moment the matching unit
- *  exists, so they never need a human touch and shouldn't crowd this
- *  surface.
+ *  Per operator (2026-06-20 audit): an orphan is a UNIT that was marked
+ *  sold without an IMEI on the inventory record. Those need the IMEI
+ *  backfilled so the rest of the app's join logic (Sales Report ALL
+ *  sheet, periodic table out-of-stock, post-import sync) can attach.
+ *  Sales WITH IMEIs are handled by the auto-link path
+ *  (buildPostImportSyncPatches at import time +
+ *  reconcileOrphanSaleForImei when a unit is added manually after),
+ *  so the orphan surface only needs to expose the no-IMEI-yet rows.
  *
- *  Pre-April-1 sales are excluded as legacy regardless of IMEI state. */
-export function isOrphanSale(s: Sale): boolean {
-  if (s.voidedAt) return false;
-  if ((s.saleDate || '') < ORPHAN_SALE_CUTOFF) return false;
-  return !((s.imei || '').trim());
+ *  Pre-cutoff sold units are excluded as legacy. */
+export function isOrphanSoldUnit(u: InventoryUnit): boolean {
+  if (u.status !== 'sold') return false;
+  if ((u.imei || '').trim()) return false;
+  if ((u.saleDate || '') < ORPHAN_DATE_CUTOFF) return false;
+  return true;
 }
 
 function missingFields(u: InventoryUnit): string[] {
@@ -75,27 +74,17 @@ function missingFields(u: InventoryUnit): string[] {
   return out;
 }
 
-export default function OrphansModal({ units, sales, onClose }: Props) {
+export default function OrphansModal({ units, onClose }: Props) {
   const [editingUnit, setEditingUnit] = useState<InventoryUnit | null>(null);
-  const [addSoldSale, setAddSoldSale] = useState<Sale | null>(null);
+  const [backfillUnit, setBackfillUnit] = useState<InventoryUnit | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
-  /** Which orphan-sale row is showing its link-to-unit picker. */
-  const [pickingFor, setPickingFor] = useState<string | null>(null);
-  const [pickerQuery, setPickerQuery] = useState('');
-  const [tab, setTab] = useState<'units' | 'sales'>('units');
+  const [tab, setTab] = useState<'units' | 'sold-no-imei'>('units');
 
   const orphanUnits = useMemo(() => units.filter(isOrphanUnit), [units]);
 
-  const orphanSales = useMemo(
-    () => sales.filter(isOrphanSale)
+  const orphanSoldUnits = useMemo(
+    () => units.filter(isOrphanSoldUnit)
       .sort((a, b) => (b.saleDate || '').localeCompare(a.saleDate || '')),
-    [sales],
-  );
-
-  /** Pool of units a sale could legitimately be linked TO — available
-   *  (not sold) and not already orphaned itself. */
-  const linkableUnits = useMemo(
-    () => units.filter(u => u.status === 'available' || u.status === 'incoming'),
     [units],
   );
 
@@ -106,13 +95,9 @@ export default function OrphansModal({ units, sales, onClose }: Props) {
         stockSource: segment,
         status: segment === 'office' ? 'available' : 'incoming',
       });
-      // Operator rule: a unit only auto-flips to 'sold' when every
-      // schema field is filled. Setting stockSource here might have
-      // completed the schema — re-run the reconcile so any orphan sale
-      // sitting on the same IMEI now closes the loop without forcing
-      // the operator to do a second manual link in the Orphan Sales
-      // tab. Skips silently when no matching sale exists or the unit
-      // is still incomplete (e.g. no supplier).
+      // If the unit's IMEI happens to match a sitting orphan sale, the
+      // newly-completed schema lets the auto-flip path close the loop.
+      // Skips silently when there's no IMEI or no matching sale.
       const imei = (u.imei || '').trim().toUpperCase();
       if (imei) {
         try {
@@ -126,63 +111,7 @@ export default function OrphansModal({ units, sales, onClose }: Props) {
     }
   };
 
-  const mapSaleToShs = async (s: Sale) => {
-    setBusyId(s.id);
-    try {
-      // SHS-fulfilled sale carries no unit linkage — supplier shipped
-      // direct. Setting stockSource is enough to route the demand signal
-      // to the SHS Out-of-Stock view per the existing soldAll filter.
-      await dbService.update('sales', s.id, { stockSource: 'shs' });
-    } finally {
-      setBusyId(null);
-    }
-  };
-
-  const linkSaleToUnit = async (s: Sale, u: InventoryUnit) => {
-    setBusyId(s.id);
-    try {
-      // Two-sided write: sale gets unit pointer, unit gets sale provenance
-      // and flips to sold. Keep both in lockstep so a refresh anywhere
-      // re-renders consistently.
-      await Promise.all([
-        dbService.update('sales', s.id, {
-          unitId: u.id,
-          stockSource: s.stockSource ?? 'office',
-        }),
-        dbService.update('inventoryUnits', u.id, {
-          status: 'sold',
-          saleDate: s.saleDate || u.saleDate,
-          salePrice: s.salePrice ?? u.salePrice,
-          salePlatform: s.marketplace || u.salePlatform,
-          saleOrderId: s.orderNumber || u.saleOrderId,
-          stockSource: u.stockSource ?? 'office',
-        }),
-      ]);
-      setPickingFor(null);
-      setPickerQuery('');
-    } finally {
-      setBusyId(null);
-    }
-  };
-
-  /** Best-effort filter for the inline picker: substring match against
-   *  model / IMEI / supplier. Caps results so the row stays compact. */
-  const filteredLinkable = useMemo(() => {
-    if (!pickingFor) return [];
-    const sale = orphanSales.find(s => s.id === pickingFor);
-    const q = pickerQuery.trim().toLowerCase()
-      || (sale?.sku || '').toLowerCase()
-      || (sale?.imei || '').toLowerCase();
-    if (!q) return linkableUnits.slice(0, 10);
-    return linkableUnits
-      .filter(u => {
-        const hay = `${u.model} ${u.imei || ''} ${u.supplierName || ''} ${u.storage || ''}`.toLowerCase();
-        return hay.includes(q);
-      })
-      .slice(0, 10);
-  }, [pickingFor, pickerQuery, orphanSales, linkableUnits]);
-
-  const totalCount = orphanUnits.length + orphanSales.length;
+  const totalCount = orphanUnits.length + orphanSoldUnits.length;
 
   return (
     <>
@@ -204,8 +133,8 @@ export default function OrphansModal({ units, sales, onClose }: Props) {
               <h3 className="text-sm font-bold tracking-tight">Orphans</h3>
               <p className="text-[10px] font-mono text-slate-400 mt-0.5">
                 {totalCount === 0
-                  ? 'Nothing to reconcile — every unit and sale is mapped'
-                  : `${orphanUnits.length} live units missing data · ${orphanSales.length} sales without an inventory match`}
+                  ? 'Nothing to reconcile — every unit has a complete schema and every sold unit has an IMEI'
+                  : `${orphanUnits.length} live units missing data · ${orphanSoldUnits.length} sold units missing IMEI (from ${ORPHAN_DATE_CUTOFF})`}
               </p>
             </div>
             <button onClick={onClose} className="p-2 rounded-xl hover:bg-slate-100 text-slate-400">
@@ -213,8 +142,8 @@ export default function OrphansModal({ units, sales, onClose }: Props) {
             </button>
           </div>
           <div className="flex border-b border-slate-100 px-5 flex-shrink-0">
-            {(['units', 'sales'] as const).map(t => {
-              const n = t === 'units' ? orphanUnits.length : orphanSales.length;
+            {(['units', 'sold-no-imei'] as const).map(t => {
+              const n = t === 'units' ? orphanUnits.length : orphanSoldUnits.length;
               return (
                 <button
                   key={t}
@@ -223,7 +152,7 @@ export default function OrphansModal({ units, sales, onClose }: Props) {
                     tab === t ? 'border-black text-black' : 'border-transparent text-gray-400 hover:text-gray-600'
                   }`}
                 >
-                  {t === 'units' ? 'Live Units' : 'Orphan Sales'} · {n}
+                  {t === 'units' ? 'Live Units' : 'Sold · No IMEI'} · {n}
                 </button>
               );
             })}
@@ -293,116 +222,51 @@ export default function OrphansModal({ units, sales, onClose }: Props) {
                   })}
                 </div>
               )
-            ) : orphanSales.length === 0 ? (
-              <EmptyState label="No unmatched sales" />
+            ) : orphanSoldUnits.length === 0 ? (
+              <EmptyState label="No sold units missing IMEI" />
             ) : (
               <div className="divide-y divide-slate-100">
-                {orphanSales.map(s => {
-                  const busy = busyId === s.id;
-                  const picking = pickingFor === s.id;
-                  return (
-                    <div key={s.id} className="px-5 py-3 hover:bg-slate-50">
-                      <div className="flex items-start justify-between gap-3">
-                        <div className="min-w-0 flex-1">
-                          <div className="flex items-center gap-2 flex-wrap">
-                            <span className="text-[8px] font-bold uppercase px-1.5 py-0.5 rounded border bg-slate-100 text-slate-700 border-slate-200">
-                              {s.marketplace}
-                            </span>
-                            <span className="font-mono font-bold text-[12px] truncate">{s.sku || s.orderNumber || '—'}</span>
-                            <span className="text-[10px] font-mono text-slate-500">£{s.salePrice ?? 0}</span>
-                          </div>
-                          <div className="mt-1 flex items-center gap-2 flex-wrap">
-                            <span className="text-[10px] font-mono text-slate-400">
-                              {s.saleDate || '—'} · {s.orderNumber || '—'}
-                              {s.imei ? ` · imei ${s.imei}` : ' · no imei'}
-                            </span>
-                            <span className="inline-flex items-center gap-1 text-[9px] font-bold uppercase tracking-widest text-amber-700">
-                              <AlertCircle size={10} />
-                              no inventory match
-                            </span>
-                          </div>
-                        </div>
-                        <div className="flex items-center gap-1.5 flex-shrink-0">
-                          <button
-                            type="button"
-                            onClick={() => mapSaleToShs(s)}
-                            disabled={busy}
-                            className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[9px] font-bold uppercase tracking-widest border bg-amber-50 text-amber-700 border-amber-200 hover:bg-amber-100 disabled:opacity-50"
-                            title="Mark as SHS-fulfilled — supplier shipped direct, no unit needed"
-                          >
-                            <MapPin size={10} /> SHS
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => { setPickingFor(picking ? null : s.id); setPickerQuery(''); }}
-                            disabled={busy}
-                            className={`inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[9px] font-bold uppercase tracking-widest border disabled:opacity-50 ${
-                              picking
-                                ? 'bg-emerald-700 text-white border-emerald-700'
-                                : 'bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100'
-                            }`}
-                            title="Pick an existing available/incoming unit to link this sale to"
-                          >
-                            <Link2 size={10} /> {picking ? 'Cancel' : 'Link Unit'}
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => setAddSoldSale(s)}
-                            disabled={busy}
-                            className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[9px] font-bold uppercase tracking-widest border bg-slate-900 text-white border-slate-900 hover:bg-slate-700 disabled:opacity-50"
-                            title="Create a fresh inventory unit already in SOLD state, back-linked to this sale"
-                          >
-                            <Plus size={10} /> Add Stock
-                          </button>
-                        </div>
+                {orphanSoldUnits.map(u => (
+                  <div key={u.id} className="px-5 py-3 flex items-start justify-between gap-3 hover:bg-slate-50">
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="font-mono font-bold text-[12px] truncate">{u.model || '—'}</span>
+                        {u.storage && <span className="text-[10px] font-mono text-slate-500">{u.storage}</span>}
+                        {u.colour && <span className="text-[10px] font-mono text-slate-400">· {u.colour}</span>}
+                        <span className="text-[8px] font-bold uppercase px-1.5 py-0.5 rounded border bg-slate-100 text-slate-700 border-slate-200">
+                          {u.salePlatform || '—'}
+                        </span>
                       </div>
-
-                      {/* Inline link-to-unit picker. Pre-filters by SKU/IMEI;
-                          operator can refine with the search box. Up to 10 hits. */}
-                      {picking && (
-                        <div className="mt-3 ml-1 pl-3 border-l-2 border-emerald-300">
-                          <div className="relative mb-2">
-                            <Search size={11} className="absolute left-2 top-1/2 -translate-y-1/2 text-slate-400" />
-                            <input
-                              autoFocus
-                              value={pickerQuery}
-                              onChange={e => setPickerQuery(e.target.value)}
-                              placeholder="Search by model / IMEI / supplier…"
-                              className="w-full pl-7 pr-2 py-1.5 bg-white border border-slate-200 rounded-lg text-[11px] focus:outline-none focus:border-slate-900"
-                            />
-                          </div>
-                          {filteredLinkable.length === 0 ? (
-                            <p className="text-[10px] font-mono text-slate-400 italic px-1 py-2">
-                              No matching available units. Try a different search or use "Add Stock" to create one.
-                            </p>
-                          ) : (
-                            <div className="space-y-1 max-h-48 overflow-y-auto">
-                              {filteredLinkable.map(u => (
-                                <button
-                                  key={u.id}
-                                  type="button"
-                                  onClick={() => linkSaleToUnit(s, u)}
-                                  disabled={busy}
-                                  className="w-full text-left flex items-center justify-between gap-2 px-2 py-1.5 rounded-lg border border-slate-200 hover:bg-emerald-50 hover:border-emerald-300 disabled:opacity-50"
-                                >
-                                  <div className="min-w-0 flex-1">
-                                    <p className="text-[11px] font-bold truncate">{u.model}</p>
-                                    <p className="text-[9px] font-mono text-slate-400 truncate">
-                                      {u.imei || '—'} · {u.storage || '—'} · {u.supplierName || '—'} · £{u.buyPrice}
-                                    </p>
-                                  </div>
-                                  <span className="text-[8px] font-bold uppercase tracking-widest px-1.5 py-0.5 rounded border bg-slate-50 text-slate-600 border-slate-200">
-                                    {u.status}
-                                  </span>
-                                </button>
-                              ))}
-                            </div>
-                          )}
-                        </div>
-                      )}
+                      <div className="mt-1 flex items-center gap-2 flex-wrap">
+                        <span className="text-[10px] font-mono text-slate-400 truncate">
+                          {u.saleDate || '—'} · {u.saleOrderId || '—'} · £{u.salePrice ?? 0}
+                        </span>
+                        <span className="inline-flex items-center gap-1 text-[9px] font-bold uppercase tracking-widest text-amber-700">
+                          <AlertCircle size={10} />
+                          no IMEI on record
+                        </span>
+                      </div>
                     </div>
-                  );
-                })}
+                    <div className="flex items-center gap-1.5 flex-shrink-0">
+                      <button
+                        type="button"
+                        onClick={() => setBackfillUnit(u)}
+                        className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[9px] font-bold uppercase tracking-widest border bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100"
+                        title="Enter the IMEI from the box / device"
+                      >
+                        <Edit3 size={10} /> Backfill IMEI
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setEditingUnit(u)}
+                        className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[9px] font-bold uppercase tracking-widest border bg-slate-900 text-white border-slate-900 hover:bg-slate-700"
+                        title="Open the full edit modal to revise every field"
+                      >
+                        <Edit3 size={10} /> Details
+                      </button>
+                    </div>
+                  </div>
+                ))}
               </div>
             )}
           </div>
@@ -413,11 +277,11 @@ export default function OrphansModal({ units, sales, onClose }: Props) {
         {editingUnit && (
           <EditUnitModal unit={editingUnit} onClose={() => setEditingUnit(null)} />
         )}
-        {addSoldSale && (
-          <AddSoldUnitModal
-            sale={addSoldSale}
-            onClose={() => setAddSoldSale(null)}
-            onSaved={() => setAddSoldSale(null)}
+        {backfillUnit && (
+          <EnterImeiModal
+            unit={backfillUnit}
+            onClose={() => setBackfillUnit(null)}
+            onSaved={() => setBackfillUnit(null)}
           />
         )}
       </AnimatePresence>
