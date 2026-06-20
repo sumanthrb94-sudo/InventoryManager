@@ -61,14 +61,16 @@ describe('normalizeBucketModel — false-duplicate audit', () => {
 });
 
 describe('shortCode — XCover label disambiguation', () => {
-  it('compresses "X COVER" → "XC" so the variant suffix surfaces without colliding with the tile count', () => {
-    // Bare digit "5" was misread by the operator as the unit count
-    // (corner badge of the tile is also a number). "XC5" reads as a
-    // model code: mixed letters + digits + no leading space.
-    expect(shortCode('X COVER 5')).toBe('XC5');
-    expect(shortCode('X Cover 5')).toBe('XC5');
-    expect(shortCode('X COVER PRO 4G')).toBe('XCPRO 4G');
-    expect(shortCode('X Cover Pro 4G')).toBe('XCPro 4G');
+  it('compresses "X COVER" → "Cover" so the variant surfaces as a readable model name', () => {
+    // The "Cover" word anchors the label as a model line — a bare digit
+    // suffix can't be mistaken for the unit count badge in the corner.
+    // 12-char cap accommodates "Cover Pro 4G" without truncation.
+    expect(shortCode('X COVER 5')).toBe('Cover 5');
+    expect(shortCode('X Cover 5')).toBe('Cover 5');
+    // shortCode preserves the casing of the variant suffix as the
+    // operator typed it — only the "X COVER" prefix is normalised.
+    expect(shortCode('X COVER PRO 4G')).toBe('Cover PRO 4G');
+    expect(shortCode('X Cover Pro 4G')).toBe('Cover Pro 4G');
   });
 
   it('still strips Galaxy / Samsung / iPhone / Tab prefixes (regression guard)', () => {

@@ -191,15 +191,13 @@ export function shortCode(model: string): string {
   s = s.replace(/(\d+)(st|nd|rd|th)\s*Gen\b/i, '$1');
   s = s.replace(/\((\d+)(st|nd|rd|th)\s*Gen\)/i, '$1');
   s = s.replace(/^Tab\s+/i, ''); // "Tab A9+" → "A9+"
-  // XCover variants share the "X Cover" prefix; the section title already
-  // says "Samsung XCover" so the prefix is redundant + steals the 8-char
-  // budget that the variant suffix needs. Compress to "XC" (NOT empty)
-  // so "X COVER 5" reads as "XC5" instead of bare "5" — the bare digit
-  // visually collides with the tile's unit-count corner badge, and the
-  // operator reported reading "5" as "5 units" when it actually meant
-  // the X Cover 5 model. "XC5" and "XCPRO 4G" are unambiguously model
-  // codes (mixed letters + digits, no leading space).
-  s = s.replace(/^X\s*COVER\s+/i, 'XC');
+  // XCover variants — compress "X COVER" → "Cover" (one word, no internal
+  // space) so the variant suffix surfaces cleanly: "X COVER 5" → "Cover 5",
+  // "X COVER PRO 4G" → "Cover Pro 4G". The word "Cover" anchors the label
+  // as a model line so a bare digit suffix can't be misread as the unit
+  // count. Pairs with the 12-char cap below so "Cover Pro 4G" survives
+  // without truncation.
+  s = s.replace(/^X\s*COVER\b/i, 'Cover');
 
   // 4. Standard abbreviations. Order: longer match first.
   s = s.replace(/\bPro Max\b/gi, 'PM');
@@ -214,8 +212,12 @@ export function shortCode(model: string): string {
   // Collapse whitespace + dashes left behind by the strip passes.
   s = s.replace(/\s+/g, ' ').replace(/\s*-\s*$/, '').trim();
 
-  // 5. Hard cap at 8 chars to guarantee box fit.
-  if (s.length > 8) s = s.slice(0, 8).trim();
+  // 5. Hard cap at 12 chars. Raised from 8 to make room for descriptive
+  //    variant names like "Cover Pro 4G" (12 chars) that the operator
+  //    needs to distinguish XCover variants from one another. The
+  //    block-render side scales font-size down with length so longer
+  //    labels still fit the 60px tile width.
+  if (s.length > 12) s = s.slice(0, 12).trim();
 
   return s || '?';
 }
@@ -1071,11 +1073,13 @@ export default function PeriodicInventory({ units, onNavigate }: Props) {
                       <div style={{ textAlign: 'center', lineHeight: 1, width: '100%', overflow: 'hidden' }}>
                         <span style={{
                           fontSize:
-                            el.symbol.length > 7 ? 9  :
-                            el.symbol.length > 6 ? 10 :
-                            el.symbol.length > 5 ? 11 :
-                            el.symbol.length > 4 ? 13 :
-                                                   17,
+                            el.symbol.length > 11 ? 7  :
+                            el.symbol.length > 9  ? 8  :
+                            el.symbol.length > 7  ? 9  :
+                            el.symbol.length > 6  ? 10 :
+                            el.symbol.length > 5  ? 11 :
+                            el.symbol.length > 4  ? 13 :
+                                                    17,
                           fontWeight: 900,
                           color: isHovered ? '#fff' : g.color.text,
                           fontFamily: 'system-ui, sans-serif',
