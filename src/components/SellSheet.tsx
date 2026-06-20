@@ -46,7 +46,7 @@ import PeriodicInventory from './PeriodicInventory';
 import SellOrderModal from './SellOrderModal';
 import EnterImeiModal from './EnterImeiModal';
 import AddSoldUnitModal from './AddSoldUnitModal';
-import OrphanUnitsModal, { isOrphanUnit } from './OrphanUnitsModal';
+import OrphansModal, { isOrphanUnit, isOrphanSale } from './OrphanUnitsModal';
 import { useIsAdmin } from '../lib/useIsAdmin';
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -245,11 +245,22 @@ export default function SellSheet(_props: Props) {
   const [sellOrderIsSHS, setSellOrderIsSHS] = useState(false);
   const [enterImeiUnit, setEnterImeiUnit] = useState<InventoryUnit | null>(null);
   const [orphanModalOpen, setOrphanModalOpen] = useState(false);
-  // Live count of inventory units missing supplier / buy price / stock
-  // segment — surfaced as a pinned action button next to Record Sale so
-  // the admin can backfill them without hunting through the periodic
-  // table. See isOrphanUnit for the predicate.
-  const orphanUnitCount = useMemo(() => units.filter(isOrphanUnit).length, [units]);
+  // Reconciliation pill — counts BOTH live units missing supplier/price/
+  // stockSource AND sales without an inventory match. Surfaced as a
+  // single action button next to Record Sale so the admin's morning
+  // backlog lives in one place. See isOrphanUnit + isOrphanSale.
+  const orphanCount = useMemo(() => {
+    const unitOrphans = units.filter(isOrphanUnit).length;
+    const unitsByImei = new Map<string, InventoryUnit>();
+    const unitsById = new Map<string, InventoryUnit>();
+    for (const u of units) {
+      const k = (u.imei || '').trim().toUpperCase();
+      if (k) unitsByImei.set(k, u);
+      if (u.id) unitsById.set(u.id, u);
+    }
+    const saleOrphans = sales.filter(s => isOrphanSale(s, unitsByImei, unitsById)).length;
+    return unitOrphans + saleOrphans;
+  }, [units, sales]);
   const [addSoldUnitSale, setAddSoldUnitSale] = useState<Sale | null>(null);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [showSchemaHelp, setShowSchemaHelp] = useState(false);
@@ -586,13 +597,13 @@ export default function SellSheet(_props: Props) {
               <Plus size={12} /> Record Sale
             </button>
           )}
-          {isAdminUser && orphanUnitCount > 0 && (
+          {isAdminUser && orphanCount > 0 && (
             <button
               onClick={() => setOrphanModalOpen(true)}
-              title="Inventory units missing supplier / buy price / office or SHS assignment — click to map them"
+              title="Live units missing data + sales without inventory match — map to Office/SHS, link to a unit, or add fresh stock"
               className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-amber-100 text-amber-800 border border-amber-300 text-[10px] font-bold uppercase tracking-widest hover:bg-amber-200 transition-all"
             >
-              Orphan Units · {orphanUnitCount}
+              Orphans · {orphanCount}
             </button>
           )}
           <button
@@ -865,8 +876,9 @@ export default function SellSheet(_props: Props) {
           />
         )}
         {orphanModalOpen && (
-          <OrphanUnitsModal
+          <OrphansModal
             units={units}
+            sales={sales}
             onClose={() => setOrphanModalOpen(false)}
           />
         )}
