@@ -159,7 +159,7 @@ export function compareTilesDescending(a: TileSortShape, b: TileSortShape): numb
  *   5. Hard cap at 8 characters; truncate with no ellipsis (ellipsis
  *      itself eats one of the precious 8 characters).
  */
-function shortCode(model: string): string {
+export function shortCode(model: string): string {
   if (!model) return '?';
   let s = model.trim();
 
@@ -191,6 +191,14 @@ function shortCode(model: string): string {
   s = s.replace(/(\d+)(st|nd|rd|th)\s*Gen\b/i, '$1');
   s = s.replace(/\((\d+)(st|nd|rd|th)\s*Gen\)/i, '$1');
   s = s.replace(/^Tab\s+/i, ''); // "Tab A9+" → "A9+"
+  // XCover variants share the "X Cover" prefix; the section title already
+  // says "Samsung XCover" so the prefix is redundant + steals the 8-char
+  // budget that the variant suffix needs. Strip it so "X COVER 5" → "5"
+  // and "X COVER PRO 4G" → "PRO 4G" — two genuinely different phones now
+  // render as visually distinct tiles instead of two identical "X COVER"
+  // blocks (operator's 2026-06-20 audit flagged this pair as a false-
+  // duplicate; same model line, distinct hardware).
+  s = s.replace(/^X\s*COVER\s+/i, '');
 
   // 4. Standard abbreviations. Order: longer match first.
   s = s.replace(/\bPro Max\b/gi, 'PM');
@@ -274,9 +282,27 @@ const SUPPLIER_PALETTE: ReadonlyArray<PtGroupDef['color']> = [
   { bg: '#475569', light: '#f1f5f9', text: '#334155', border: '#cbd5e1' },
 ];
 
-/** Canonical bucket key — keep 128GB / 256GB / 5G / Wi-Fi variants separate. */
+/** Canonical bucket key — keep 128GB / 256GB / 5G / Wi-Fi variants separate.
+ *
+ *  Normalises the model token before keying so prefix + case variants of the
+ *  SAME product collapse into one bucket. Without this, the parser preserves
+ *  raw operator strings ("GALAXY S23" vs "S23", "Galaxy A15" vs "GALAXY A15")
+ *  and the periodic table shows two tiles for what is physically the same
+ *  SKU. Audited 2026-06-20 against the operator's screenshot — 4 false-
+ *  duplicate pairs (S23, A32, A16, A15) all stemmed from this. The
+ *  normaliser only strips brand/series PREFIXES — variant suffixes like
+ *  "Pro 4G" / "5" / "FE" / "Ultra" are preserved, so genuinely different
+ *  hardware (XCover 5 vs XCover Pro 4G) stays in its own bucket. */
+export function normalizeBucketModel(m: string): string {
+  return (m ?? '')
+    .replace(/^\s*(samsung\s+galaxy|galaxy|samsung|apple)\s+/i, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toLowerCase();
+}
+
 const bucketKeyOf = (model: string, storage?: string, tag?: string) =>
-  `${model}|${storage ?? ''}|${tag ?? ''}`;
+  `${normalizeBucketModel(model)}|${storage ?? ''}|${tag ?? ''}`;
 
 /**
  * buildGroups — bucket units into the periodic-table grid for an arbitrary
