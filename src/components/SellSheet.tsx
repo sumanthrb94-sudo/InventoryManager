@@ -46,7 +46,7 @@ import PeriodicInventory from './PeriodicInventory';
 import SellOrderModal from './SellOrderModal';
 import EnterImeiModal from './EnterImeiModal';
 import AddSoldUnitModal from './AddSoldUnitModal';
-import OrphansModal, { isOrphanSale } from './OrphanUnitsModal';
+import OrphansModal, { isOrphanSoldUnit } from './OrphanUnitsModal';
 import { useIsAdmin } from '../lib/useIsAdmin';
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -245,20 +245,15 @@ export default function SellSheet(_props: Props) {
   const [sellOrderIsSHS, setSellOrderIsSHS] = useState(false);
   const [enterImeiUnit, setEnterImeiUnit] = useState<InventoryUnit | null>(null);
   const [orphanModalOpen, setOrphanModalOpen] = useState(false);
-  // Reconciliation pill — counts sales (post-2026-06-09) that have no
-  // matching inventory unit by unitId or IMEI. Per operator's final
-  // criterion: "sales uploaded from sales report marked as sold
-  // without any existence in the inventory units". See isOrphanSale.
-  const orphanCount = useMemo(() => {
-    const unitsById = new Map<string, InventoryUnit>();
-    const unitsByImei = new Map<string, InventoryUnit>();
-    for (const u of units) {
-      if (u.id) unitsById.set(u.id, u);
-      const k = (u.imei || '').trim().toUpperCase();
-      if (k) unitsByImei.set(k, u);
-    }
-    return sales.filter(s => isOrphanSale(s, unitsById, unitsByImei)).length;
-  }, [units, sales]);
+  // Reconciliation pill — counts SOLD inventory units (post-2026-06-09)
+  // with degenerate data: raw operator-SKU model, or storage + colour
+  // both missing/Unknown. The unit in the operator's screenshot
+  // (ASI-SG-A32--64-BK-EX, storage empty, colour Unknown) is exactly
+  // this. See isOrphanSoldUnit.
+  const orphanCount = useMemo(
+    () => units.filter(isOrphanSoldUnit).length,
+    [units],
+  );
   const [addSoldUnitSale, setAddSoldUnitSale] = useState<Sale | null>(null);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [showSchemaHelp, setShowSchemaHelp] = useState(false);
@@ -876,7 +871,6 @@ export default function SellSheet(_props: Props) {
         {orphanModalOpen && (
           <OrphansModal
             units={units}
-            sales={sales}
             onClose={() => setOrphanModalOpen(false)}
           />
         )}
