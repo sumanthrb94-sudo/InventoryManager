@@ -842,7 +842,7 @@ export default function SellSheet(_props: Props) {
             // Sold Today opens on the marketplace breakdown — the operator's
             // first-of-the-day read is "what's selling where". Every other
             // sales KPI opens on the Excel-style model table.
-            defaultView={overlay === 'today' ? 'channel' : 'model'}
+            defaultView="model"
             onClose={() => setOverlay(null)}
             onSaveCell={saveCell}
             onBackfillImei={isAdminUser ? (u => { setOverlay(null); setEnterImeiUnit(u); }) : undefined}
@@ -1040,7 +1040,7 @@ function InlineSheet({
 }
 
 // ── KPI overlay modal ───────────────────────────────────────────────────────
-type OverlayView = 'model' | 'channel' | 'detailed';
+type OverlayView = 'model' | 'detailed';
 
 function SellExcelOverlay({
   title, rows, awaitingUnits, sort, onSort, supplierMap, units, region,
@@ -1089,40 +1089,19 @@ function SellExcelOverlay({
     return next;
   });
   const [groupSort, setGroupSort] = useState<SalesGroupSort>(DEFAULT_SALES_GROUP_SORT);
-  /** Marketplace tab inside the Detailed view — exactly one of the
-   *  four marketplaces is always selected. No "All" option: the
-   *  client's master SALES_REPORT carries four sheets (AMAZON SALES
-   *  / BM SALES / EBAY SALES / ONBUY SALES) and they want the
-   *  in-app detailed view to mirror that exactly. Defaults to the
-   *  marketplace with the most rows so the operator opens on the
-   *  busiest channel. */
-  const initialMp: Marketplace = useMemo(() => {
-    let best: Marketplace = MARKETPLACES[0];
-    let bestCount = -1;
-    for (const m of MARKETPLACES) {
-      const c = rows.filter(s => s.marketplace === m).length;
-      if (c > bestCount) { best = m; bestCount = c; }
-    }
-    return best;
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-  const [detailMarketplace, setDetailMarketplace] = useState<Marketplace>(initialMp);
-  /** Rows scoped to the active marketplace tab. Both Model and
-   *  Detailed views read off this — switching marketplaces re-shapes
-   *  the grouped table AND the per-sale grid in one step. */
-  const marketplaceRows = useMemo(
-    () => rows.filter(s => s.marketplace === detailMarketplace),
-    [rows, detailMarketplace],
-  );
+  /** Both Model and Detailed views read every sale in `rows`. The
+   *  per-marketplace sheet tabs were removed 2026-06-20 (operator: the
+   *  Model view already shows per-channel counts in its Channels column
+   *  and the Detailed view shows the marketplace badge on every row, so
+   *  the filter was redundant). Marketplace scoping now happens only
+   *  via the main Filters drawer when the operator wants it. */
+  const marketplaceRows = rows;
   /** Pagination — 100 entries per page, shared between views.
    *  detailPage is the per-sale page (Detailed view), groupedPage is
-   *  the per-model page (Model view). Both reset to 1 whenever the
-   *  marketplace tab changes so the operator opens the new tab from
-   *  the top. */
+   *  the per-model page (Model view). */
   const ROWS_PER_PAGE = 100;
   const [detailPage, setDetailPage] = useState(1);
   const [groupedPage, setGroupedPage] = useState(1);
-  useEffect(() => { setDetailPage(1); setGroupedPage(1); }, [detailMarketplace]);
   const detailedRows = marketplaceRows;
   const totalDetailPages = Math.max(1, Math.ceil(detailedRows.length / ROWS_PER_PAGE));
   const pagedRows = useMemo(
@@ -1228,13 +1207,6 @@ function SellExcelOverlay({
                   <Layers size={10} /> Model
                 </button>
                 <button
-                  onClick={() => setViewMode('channel')}
-                  className={`inline-flex items-center gap-1 px-2 py-1 rounded-lg transition-all ${viewMode === 'channel' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
-                  title="Group by marketplace channel"
-                >
-                  <Tag size={10} /> Channel
-                </button>
-                <button
                   onClick={() => setViewMode('detailed')}
                   className={`inline-flex items-center gap-1 px-2 py-1 rounded-lg transition-all ${viewMode === 'detailed' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
                   title="Show one row per sale"
@@ -1255,38 +1227,12 @@ function SellExcelOverlay({
             SheetTable's own sticky <th> headers, both pinning to
             top-0 of the same scroll area — fight z-order, the
             later-in-DOM table headers won.) */}
-        {/* Marketplace tab strip — shown in Model + Detailed views
-            (skipped for Channel because Channel IS a marketplace
-            breakdown). One tab always selected; switching scopes
-            the entire grid + grouped-model build. Counts shown per
-            marketplace from the unfiltered `rows` so the badges
-            stay stable as the operator flips channels. */}
-        {(viewMode === 'model' || viewMode === 'detailed') && rows.length > 0 && awaitingUnits.length === 0 && (
-          <div className="flex-shrink-0 bg-white border-b border-slate-100 px-3 py-2 flex items-center gap-1.5 overflow-x-auto">
-            <span className="text-[9px] font-mono uppercase tracking-widest text-slate-400 flex-shrink-0 mr-1">Sheet</span>
-            {MARKETPLACES.map(tab => {
-              const active = detailMarketplace === tab;
-              const tone = MARKETPLACE_TONE[tab];
-              const count = rows.filter(s => s.marketplace === tab).length;
-              return (
-                <button
-                  key={tab}
-                  onClick={() => setDetailMarketplace(tab)}
-                  className={`flex-shrink-0 inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[9px] font-bold uppercase tracking-widest border transition-all ${
-                    active
-                      ? `${tone} ring-2 ring-offset-1 ring-slate-400`
-                      : `${tone} opacity-60 hover:opacity-100`
-                  }`}
-                >
-                  {tab}
-                  <span className="text-[8px] font-mono px-1 rounded bg-white/40">
-                    {count.toLocaleString()}
-                  </span>
-                </button>
-              );
-            })}
-          </div>
-        )}
+        {/* Marketplace tab strip removed 2026-06-20 per operator: the
+            Model view already shows per-channel counts in the Channels
+            column, and the Detailed view shows the marketplace badge on
+            every row, so the per-sheet filter was redundant. Existing
+            Filters drawer still lets the operator scope by marketplace
+            when they want. */}
 
         <div className="flex-1 overflow-auto">
           {awaitingUnits.length > 0 ? (
@@ -1322,82 +1268,6 @@ function SellExcelOverlay({
               sort={groupSort}
               onSort={setGroupSort}
             />
-          ) : viewMode === 'channel' ? (
-            <ul className="divide-y divide-slate-100" style={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace' }}>
-              {grouped.map(g => {
-                const open = expandedKeys.has(`mp::${g.mp}`);
-                const tone = MARKETPLACE_TONE[g.mp];
-                const models = (Array.from(g.byModel.values()) as MarketplaceGroupModel[])
-                  .sort((a, b) => b.revenue - a.revenue || b.units - a.units);
-                return (
-                  <li key={g.mp}>
-                    <button
-                      onClick={() => toggleExpand(`mp::${g.mp}`)}
-                      className="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-slate-50 transition-colors"
-                    >
-                      <span className={`flex-shrink-0 w-5 h-5 inline-flex items-center justify-center rounded-md text-slate-400 transition-transform ${open ? 'rotate-90 text-slate-700' : ''}`}>
-                        <ChevronRight size={13} />
-                      </span>
-                      <span className="flex-1 min-w-0">
-                        <span className="flex items-center gap-2">
-                          <span className={`inline-flex items-center text-[9px] font-bold uppercase tracking-widest px-2 py-0.5 rounded border ${tone}`}>
-                            {g.mp}
-                          </span>
-                          <span className="text-[10px] font-mono text-slate-400 truncate">
-                            {models.length} {models.length === 1 ? 'model' : 'models'}
-                          </span>
-                        </span>
-                        <span className="block text-[9px] font-mono text-slate-500 mt-1">
-                          {g.orders.toLocaleString()} {g.orders === 1 ? 'order' : 'orders'}
-                          {' · '}
-                          {g.units.toLocaleString()} units
-                          {' · GP '}
-                          <span className={g.gp >= 0 ? 'text-emerald-700 font-bold' : 'text-rose-700 font-bold'}>{fmtGBP(g.gp, 0)}</span>
-                        </span>
-                      </span>
-                      <span className="flex-shrink-0 text-right">
-                        <span className="block text-[12px] font-bold text-slate-900">{fmtGBP(g.revenue, 0)}</span>
-                        <span className="block text-[8px] font-mono uppercase tracking-widest text-slate-400 mt-0.5">Revenue</span>
-                      </span>
-                    </button>
-                    <AnimatePresence initial={false}>
-                      {open && (
-                        <motion.div
-                          initial={{ height: 0, opacity: 0 }}
-                          animate={{ height: 'auto', opacity: 1 }}
-                          exit={{ height: 0, opacity: 0 }}
-                          transition={{ duration: 0.18 }}
-                          className="overflow-hidden bg-slate-50/60"
-                        >
-                          <table className="w-full text-[10px]">
-                            <thead className="text-[8px] font-bold uppercase tracking-widest text-slate-400">
-                              <tr>
-                                <th className="text-left pl-10 pr-2 py-1.5">Model · SKU</th>
-                                <th className="text-right px-2 py-1.5 w-16">Units</th>
-                                <th className="text-right px-2 py-1.5 w-24">Revenue</th>
-                                <th className="text-right pr-4 pl-2 py-1.5 w-24">GP</th>
-                              </tr>
-                            </thead>
-                            <tbody className="divide-y divide-slate-200/70">
-                              {models.map(m => (
-                                <tr key={m.label} className="hover:bg-white/60">
-                                  <td className="pl-10 pr-2 py-1.5 truncate max-w-0">
-                                    <span className="text-slate-700 truncate block" title={m.label}>{m.label}</span>
-                                  </td>
-                                  <td className="text-right px-2 py-1.5 font-mono text-slate-700">{m.units}</td>
-                                  <td className="text-right px-2 py-1.5 font-mono text-slate-900 font-bold">{fmtGBP(m.revenue, 0)}</td>
-                                  <td className={`text-right pr-4 pl-2 py-1.5 font-mono font-bold ${m.gp >= 0 ? 'text-emerald-700' : 'text-rose-700'}`}>{fmtGBP(m.gp, 0)}</td>
-                                </tr>
-                              ))}
-                            </tbody>
-                          </table>
-                        </motion.div>
-                      )}
-                    </AnimatePresence>
-                  </li>
-                );
-              })}
-            </ul>
           ) : (
             <SheetTable
               rows={pagedRows}
