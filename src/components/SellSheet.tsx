@@ -1016,7 +1016,14 @@ function InlineSheet({
 
   return (
     <div className="bg-white border border-slate-200 rounded-3xl shadow-sm overflow-hidden">
-      <div className="overflow-auto max-h-[calc(100vh-440px)] custom-scrollbar">
+      {/* Table scroll area — sized generously so a full 100-row page is
+          comfortably scrollable without crushing the table to 2-3 rows.
+          min-h floors the height even on tiny viewports; max-h lets it
+          grow to nearly the full viewport so the operator sees a long
+          list at a glance instead of a window-of-three. Sticky <th>
+          headers (set on SheetTable's thead) pin to the top of THIS
+          scroll container as the operator scrolls deep into the page. */}
+      <div className="overflow-auto min-h-[500px] max-h-[calc(100dvh-160px)] custom-scrollbar">
         <SheetTable
           rows={paged}
           supplierMap={supplierMap}

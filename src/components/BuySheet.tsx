@@ -932,7 +932,11 @@ function InlineSheet({
           Stock by model · {grouped.length} {grouped.length === 1 ? 'model' : 'models'} · {totalUnits.toLocaleString()} {totalUnits === 1 ? 'unit' : 'units'} · £{totalValue.toLocaleString('en-GB', { maximumFractionDigits: 0 })}
         </p>
       </div>
-      <div className="overflow-auto max-h-[calc(100vh-380px)] custom-scrollbar">
+      {/* Same generous sizing as the Inventory inline sheet — see comment
+          there. Floors at 500px so even a small viewport shows ~15 rows
+          before any inner scroll; grows to nearly the full viewport on
+          a desktop monitor so the operator scans 100 rows fast. */}
+      <div className="overflow-auto min-h-[500px] max-h-[calc(100dvh-160px)] custom-scrollbar">
         <GroupedExcelTable
           groups={paged}
           expanded={expanded}
