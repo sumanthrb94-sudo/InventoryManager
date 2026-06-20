@@ -74,12 +74,12 @@ type MarketplaceGroup = {
  *  per visible column (excluding the chevron). Mirrors the buy-side
  *  GroupSortKey in StockOverlayModal so the two overlays read the same. */
 type SalesGroupSortKey =
-  | 'model' | 'channels' | 'sold' | 'avgSp' | 'revenue' | 'gp' | 'latestSale' | 'comments';
+  | 'model' | 'channels' | 'sold' | 'avgSp' | 'revenue' | 'gp' | 'latestSale' | 'latestStockIn' | 'comments';
 type SalesGroupSort = { key: SalesGroupSortKey; dir: SortDir };
 const DEFAULT_SALES_GROUP_SORT: SalesGroupSort = { key: 'revenue', dir: 'desc' };
 const SALES_GROUP_SORT_DEFAULT_DIR: Record<SalesGroupSortKey, SortDir> = {
   model: 'asc', channels: 'desc', sold: 'desc', avgSp: 'desc',
-  revenue: 'desc', gp: 'desc', latestSale: 'desc', comments: 'desc',
+  revenue: 'desc', gp: 'desc', latestSale: 'desc', latestStockIn: 'desc', comments: 'desc',
 };
 
 /** One row of the grouped sales table — one bucket per (model + storage)
@@ -93,6 +93,12 @@ interface SalesGroup {
   gp: number;                           // Σ Sale.grossProfit
   avgSp: number;                        // revenue / units (computed after the loop)
   latestSaleDate: string;               // Latest ISO YYYY-MM-DD; '' if none
+  /** Latest dateIn across the units backing the sales in this group.
+   *  Reads from the matched InventoryUnit's dateIn — '' when no sale
+   *  in the group has a unit match (orphan SKU). Surfaced as a column
+   *  alongside Latest Sale so the operator can compare "when did the
+   *  newest unit arrive" against "when did it last sell". */
+  latestStockInDate: string;
   byMarketplace: Map<Marketplace, number>; // Marketplace → unit count
   comments: Set<string>;                // Distinct non-empty Sale.comments
   sales: Sale[];                        // Raw sales for the drill-down
@@ -112,7 +118,7 @@ function buildSalesGroups(rows: Sale[], unitById: Map<string, InventoryUnit>): S
       g = {
         key, model: label,
         units: 0, revenue: 0, gp: 0, avgSp: 0,
-        latestSaleDate: '',
+        latestSaleDate: '', latestStockInDate: '',
         byMarketplace: new Map(), comments: new Set(), sales: [],
       };
       map.set(key, g);
@@ -123,6 +129,8 @@ function buildSalesGroups(rows: Sale[], unitById: Map<string, InventoryUnit>): S
     g.gp      += s.grossProfit || 0;
     g.byMarketplace.set(s.marketplace, (g.byMarketplace.get(s.marketplace) || 0) + qty);
     if (s.saleDate && s.saleDate > g.latestSaleDate) g.latestSaleDate = s.saleDate;
+    const di = (linked?.dateIn || '').trim();
+    if (di && di > g.latestStockInDate) g.latestStockInDate = di;
     const c = (s.comments || '').trim();
     if (c) g.comments.add(c);
     g.sales.push(s);
@@ -150,6 +158,12 @@ function sortSalesGroups(groups: SalesGroup[], sort: SalesGroupSort): SalesGroup
         else if (!a.latestSaleDate) return 1;
         else if (!b.latestSaleDate) return -1;
         else cmp = a.latestSaleDate.localeCompare(b.latestSaleDate);
+        break;
+      case 'latestStockIn':
+        if (!a.latestStockInDate && !b.latestStockInDate) cmp = 0;
+        else if (!a.latestStockInDate) return 1;
+        else if (!b.latestStockInDate) return -1;
+        else cmp = a.latestStockInDate.localeCompare(b.latestStockInDate);
         break;
       case 'comments': cmp = a.comments.size - b.comments.size; break;
     }
@@ -1392,9 +1406,14 @@ function GroupedSalesTable({
           <SalesGroupTh label="Sold"        k="sold"       sort={sort} onClick={clickHeader} arrow={arrow} width="80px"  align="right" />
           <SalesGroupTh label="Avg SP"      k="avgSp"      sort={sort} onClick={clickHeader} arrow={arrow} width="90px"  align="right" />
           <SalesGroupTh label="Revenue"     k="revenue"    sort={sort} onClick={clickHeader} arrow={arrow} width="110px" align="right" />
-          <SalesGroupTh label="GP"          k="gp"         sort={sort} onClick={clickHeader} arrow={arrow} width="100px" align="right" />
-          <SalesGroupTh label="Latest Sale" k="latestSale" sort={sort} onClick={clickHeader} arrow={arrow} width="100px" />
-          <SalesGroupTh label="Comments"    k="comments"   sort={sort} onClick={clickHeader} arrow={arrow} width="180px" />
+          <SalesGroupTh label="GP"            k="gp"            sort={sort} onClick={clickHeader} arrow={arrow} width="100px" align="right" />
+          <SalesGroupTh label="Latest Sale"   k="latestSale"    sort={sort} onClick={clickHeader} arrow={arrow} width="100px" />
+          {/* Latest Stock In sits next to Latest Sale so the operator
+              can see at a glance when the newest unit in the group
+              arrived vs. when the SKU last sold. Empty when no sale in
+              the group has a matched inventory unit. */}
+          <SalesGroupTh label="Latest Stock In" k="latestStockIn" sort={sort} onClick={clickHeader} arrow={arrow} width="110px" />
+          <SalesGroupTh label="Comments"      k="comments"      sort={sort} onClick={clickHeader} arrow={arrow} width="180px" />
         </tr>
       </thead>
       <tbody>
@@ -1437,6 +1456,7 @@ function GroupedSalesTable({
                 <td className="px-3 py-1.5 align-middle border-b border-slate-100 text-right font-mono font-bold text-slate-900">{fmtGBP(g.revenue, 0)}</td>
                 <td className={`px-3 py-1.5 align-middle border-b border-slate-100 text-right font-mono font-bold ${g.gp >= 0 ? 'text-emerald-700' : 'text-rose-700'}`}>{fmtGBP(g.gp, 0)}</td>
                 <td className="px-3 py-1.5 align-middle border-b border-slate-100 text-slate-600 text-[10px]">{dateFmt(g.latestSaleDate)}</td>
+                <td className="px-3 py-1.5 align-middle border-b border-slate-100 text-slate-600 text-[10px]">{dateFmt(g.latestStockInDate)}</td>
                 <td className="px-3 py-1.5 align-middle border-b border-slate-100 text-[10px] text-slate-500 truncate max-w-[170px]">
                   {commentsArr.length === 0 ? <span className="text-slate-300">—</span>
                     : commentsArr.length === 1 ? <span title={commentsArr[0]}>{commentsArr[0]}</span>
@@ -1445,7 +1465,11 @@ function GroupedSalesTable({
               </tr>
               {open && (
                 <tr className="bg-slate-50/60">
-                  <td colSpan={9} className="px-0 py-0 border-b border-slate-200">
+                  {/* colSpan = 1 chevron + 9 visible columns. Stays in sync
+                      with the header row above (Model · Channels · Sold ·
+                      Avg SP · Revenue · GP · Latest Sale · Latest Stock
+                      In · Comments). */}
+                  <td colSpan={10} className="px-0 py-0 border-b border-slate-200">
                     <table className="w-full text-[10px]">
                       <thead className="text-[8px] font-bold uppercase tracking-widest text-slate-400">
                         <tr>
@@ -1548,6 +1572,11 @@ function SheetTable({
       <thead>
         <tr className="text-[9px] font-bold uppercase tracking-widest text-slate-500 bg-slate-50">
           <Th k="saleDate"   sort={sort} onSort={toggleSort} width="105px" sticky leftPx={0}>Sell Date</Th>
+          {/* Stock In Date sits next to Sell Date so the operator can
+              see at a glance how long the unit sat in inventory before
+              selling. Reads from the matched unit's dateIn; "—" when no
+              unit match yet (awaiting IMEI / orphan sale). */}
+          <Th k=""           sort={sort} onSort={undefined}  width="105px">Stock In</Th>
           <Th k=""           sort={sort} onSort={undefined}  width="160px">IMEI</Th>
           <Th k="model"      sort={sort} onSort={toggleSort} width="240px">Model</Th>
           <Th k="storage"    sort={sort} onSort={toggleSort} width="80px">Storage</Th>
@@ -1594,6 +1623,12 @@ function SheetTable({
             >
               <Td sticky leftPx={0} className={`${rowBg} border-r border-slate-200`}>
                 <span className={dateTone}>{fmtDateForUser(s.saleDate || '', region) || s.saleDate || '—'}</span>
+              </Td>
+              <Td>
+                {u?.dateIn
+                  ? <span className="text-slate-600">{fmtDateForUser(u.dateIn, region) || u.dateIn}</span>
+                  : <span className="text-slate-300">—</span>
+                }
               </Td>
               <Td>
                 <span className="inline-flex items-center gap-1.5">
