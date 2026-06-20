@@ -718,9 +718,20 @@ export default function PeriodicInventory({ units, onNavigate }: Props) {
     return isShs ? src === 'shs' : src === 'office';
   }), [scopedUnits, isShs]);
 
-  const today = new Date().toISOString().split('T')[0];
-  const todaySold     = scopedUnits.filter(u => u.status === 'sold' && (u.saleDate || u.dateIn) === today);
-  const todayReturned = scopedUnits.filter(u => u.status === 'returned' && u.returnDate === today);
+  // Rolling 24-hour windows (NOT UTC-midnight calendar). UTC-bucket
+  // comparison was dropping evening-local sales because the operator
+  // works in IST and the date string flipped before midnight local.
+  // Use updatedAt (timestamp of the status flip) and fall back to
+  // saleDate / returnDate when the doc predates updatedAt tracking.
+  const _last24h = Date.now() - 24 * 60 * 60 * 1000;
+  const _withinLast24h = (iso: string | undefined, fallbackDate: string | undefined) => {
+    const t = iso ? new Date(iso).getTime()
+            : fallbackDate ? new Date(fallbackDate + 'T12:00:00').getTime()
+            : 0;
+    return Number.isFinite(t) && t >= _last24h;
+  };
+  const todaySold     = scopedUnits.filter(u => u.status === 'sold'     && _withinLast24h(u.updatedAt as string | undefined, u.saleDate || u.dateIn));
+  const todayReturned = scopedUnits.filter(u => u.status === 'returned' && _withinLast24h(u.updatedAt as string | undefined, u.returnDate));
 
   // ── Per-view groups ─────────────────────────────────────────────────────────
   // 'stock' view = primary on-hand units for this scope (Office=available,

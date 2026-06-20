@@ -184,15 +184,24 @@ export default function BuySheet(_props: Props) {
     [aggregates],
   );
 
-  // "Sold Today" — status='sold' with saleDate = today (falls back to updatedAt).
-  const soldToday = useMemo(
-    () => units.filter(u => {
+  // "Sold Today" — true rolling 24 hours, not a UTC-midnight calendar
+  // bucket. The previous implementation compared saleDate to the UTC
+  // 'today' string, which dropped any sale made earlier the same day in
+  // a non-UTC timezone (operator in IST recording a sale at 11pm local
+  // landed it on the previous UTC date and never appeared). Now we look
+  // at the doc's updatedAt timestamp (when the status flip actually
+  // happened) and accept anything within the last 24 hours; fall back
+  // to a parsed saleDate when updatedAt is missing on older docs.
+  const soldToday = useMemo(() => {
+    const cutoff = Date.now() - 24 * 60 * 60 * 1000;
+    return units.filter(u => {
       if (u.status !== 'sold') return false;
-      const d = u.saleDate || (u.updatedAt ? String(u.updatedAt).slice(0, 10) : '');
-      return d === today;
-    }),
-    [units, today],
-  );
+      const t = u.updatedAt
+        ? new Date(u.updatedAt).getTime()
+        : (u.saleDate ? new Date(u.saleDate + 'T12:00:00').getTime() : 0);
+      return Number.isFinite(t) && t >= cutoff;
+    });
+  }, [units]);
 
   // ── KPI counts ────────────────────────────────────────────────────────────
   const kpiCounts = useMemo(() => {
