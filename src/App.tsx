@@ -28,6 +28,7 @@ import { InventoryStoreProvider, useInventoryStore } from './lib/inventoryStore'
 import DataSeedPage from './components/DataSeedPage';
 import LoadMockDataModal from './components/LoadMockDataModal';
 import ErrorBoundary from './components/ErrorBoundary';
+import { useBuildVersionCheck } from './lib/useBuildVersionCheck';
 import type { SupplierWhatsappUpdate } from './types';
 
 type Tab      = 'overview' | 'buy' | 'sell' | 'returns' | 'admin';
@@ -125,6 +126,7 @@ const ADMIN_SUBS: { id: AdminSub; label: string; icon: React.ReactNode }[] = [
 function AppShell({ user }: { user: User }) {
   const { loaded, units, whatsappFeed } = useInventoryStore();
   const userIsAdmin                               = isAdmin(user);
+  const buildVersion                              = useBuildVersionCheck();
   // Count of units in the Tech-QC → CRM hand-off limbo. Drives the
   // Returns-tab badge on both sidebar and mobile nav so the morning CRM
   // operator sees the backlog at a glance. Computed here (not in
@@ -200,6 +202,22 @@ function AppShell({ user }: { user: User }) {
     <div className="h-[100dvh] bg-slate-50 text-slate-900 flex overflow-hidden">
 
       <AnimatePresence>{!loaded && <LoadingScreen />}</AnimatePresence>
+
+      {/* Stale-bundle banner — surfaces when this tab's compiled BUILD_ID
+          stops matching the live /index.html. Clicking reloads to pick up
+          the new bundle. Eliminates the "one user sees a different
+          periodic table" class of stale-cache bug. */}
+      {buildVersion.stale && (
+        <div className="fixed top-0 inset-x-0 z-[100] flex items-center justify-center gap-3 bg-amber-500 text-black text-xs font-bold px-4 py-2 shadow-lg">
+          <span className="uppercase tracking-widest">New version available</span>
+          <button
+            onClick={buildVersion.reload}
+            className="px-3 py-1 bg-black text-amber-300 rounded-full text-[10px] uppercase tracking-widest hover:bg-gray-900"
+          >
+            Reload
+          </button>
+        </div>
+      )}
 
       {/* ── Hamburger drawer (was the fixed desktop sidebar). Opens via the
               menu button in the header. Slides in from the left, dims the

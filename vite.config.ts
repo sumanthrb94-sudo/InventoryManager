@@ -1,14 +1,45 @@
 import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
 import path from 'path';
+import { execSync } from 'child_process';
 import { defineConfig, loadEnv } from 'vite';
+
+// Stable per-build identifier. Prefer the git SHA (cheap, deterministic,
+// matches `git log`); fall back to a timestamp so builds outside a git
+// worktree (Docker layers, CI artefacts) still produce something unique.
+// Surfaced as:
+//   - `__BUILD_ID__` constant inside the JS bundle (compile-time replace)
+//   - `<meta name="build-id">` tag in index.html (HTML-time replace)
+// useBuildVersionCheck compares the two and prompts a reload on mismatch.
+function resolveBuildId(): string {
+  try {
+    return execSync('git rev-parse --short HEAD', { encoding: 'utf8' }).trim();
+  } catch {
+    return `t${Date.now().toString(36)}`;
+  }
+}
+const BUILD_ID = resolveBuildId();
 
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, '.', '');
   return {
-    plugins: [react(), tailwindcss()],
+    plugins: [
+      react(),
+      tailwindcss(),
+      {
+        name: 'inject-build-id-meta',
+        transformIndexHtml() {
+          return [{
+            tag: 'meta',
+            attrs: { name: 'build-id', content: BUILD_ID },
+            injectTo: 'head',
+          }];
+        },
+      },
+    ],
     define: {
       'process.env.GEMINI_API_KEY': JSON.stringify(env.GEMINI_API_KEY),
+      __BUILD_ID__: JSON.stringify(BUILD_ID),
     },
     resolve: {
       alias: {
