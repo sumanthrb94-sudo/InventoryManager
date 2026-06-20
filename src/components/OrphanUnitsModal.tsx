@@ -43,15 +43,28 @@ export function isOrphanUnit(u: InventoryUnit): boolean {
   return !u.supplierId || !(u.buyPrice && u.buyPrice > 0) || !u.stockSource;
 }
 
-/** Orphan sale predicate — voided sales drop out (the void path owns the
- *  reconciliation already). A sale is orphan when it has neither an
- *  explicit unitId nor an IMEI that matches a current unit. */
-export function isOrphanSale(s: Sale, unitsByImei: Map<string, InventoryUnit>, unitsById: Map<string, InventoryUnit>): boolean {
+/** Cut-off for the orphan-sales view. Sales dated before this are
+ *  legacy data from the pre-workflow-change era — the operator
+ *  explicitly told us to ignore them; they're not actionable and don't
+ *  belong in the reconciliation pill. */
+export const ORPHAN_SALE_CUTOFF = '2026-04-01';
+
+/** Orphan sale predicate.
+ *
+ *  Per operator (2026-06-20 audit): an orphan is a sale captured WITHOUT
+ *  an IMEI on the report. Those are the rows that need manual mapping
+ *  because there's no key to auto-match against an inventory unit.
+ *  Sales WITH IMEIs are handled by the import-time auto-link path
+ *  (buildPostImportSyncPatches) and the addUnitManual post-create
+ *  reconcile — both fire automatically the moment the matching unit
+ *  exists, so they never need a human touch and shouldn't crowd this
+ *  surface.
+ *
+ *  Pre-April-1 sales are excluded as legacy regardless of IMEI state. */
+export function isOrphanSale(s: Sale): boolean {
   if (s.voidedAt) return false;
-  if (s.unitId && unitsById.has(s.unitId)) return false;
-  const imei = (s.imei || '').trim().toUpperCase();
-  if (imei && unitsByImei.has(imei)) return false;
-  return true;
+  if ((s.saleDate || '') < ORPHAN_SALE_CUTOFF) return false;
+  return !((s.imei || '').trim());
 }
 
 function missingFields(u: InventoryUnit): string[] {
@@ -73,24 +86,10 @@ export default function OrphansModal({ units, sales, onClose }: Props) {
 
   const orphanUnits = useMemo(() => units.filter(isOrphanUnit), [units]);
 
-  const unitsByImei = useMemo(() => {
-    const m = new Map<string, InventoryUnit>();
-    for (const u of units) {
-      const k = (u.imei || '').trim().toUpperCase();
-      if (k) m.set(k, u);
-    }
-    return m;
-  }, [units]);
-  const unitsById = useMemo(() => {
-    const m = new Map<string, InventoryUnit>();
-    for (const u of units) if (u.id) m.set(u.id, u);
-    return m;
-  }, [units]);
-
   const orphanSales = useMemo(
-    () => sales.filter(s => isOrphanSale(s, unitsByImei, unitsById))
+    () => sales.filter(isOrphanSale)
       .sort((a, b) => (b.saleDate || '').localeCompare(a.saleDate || '')),
-    [sales, unitsByImei, unitsById],
+    [sales],
   );
 
   /** Pool of units a sale could legitimately be linked TO — available

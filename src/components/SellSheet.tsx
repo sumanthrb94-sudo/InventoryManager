@@ -246,21 +246,14 @@ export default function SellSheet(_props: Props) {
   const [enterImeiUnit, setEnterImeiUnit] = useState<InventoryUnit | null>(null);
   const [orphanModalOpen, setOrphanModalOpen] = useState(false);
   // Reconciliation pill — counts BOTH live units missing supplier/price/
-  // stockSource AND sales without an inventory match. Surfaced as a
-  // single action button next to Record Sale so the admin's morning
-  // backlog lives in one place. See isOrphanUnit + isOrphanSale.
-  const orphanCount = useMemo(() => {
-    const unitOrphans = units.filter(isOrphanUnit).length;
-    const unitsByImei = new Map<string, InventoryUnit>();
-    const unitsById = new Map<string, InventoryUnit>();
-    for (const u of units) {
-      const k = (u.imei || '').trim().toUpperCase();
-      if (k) unitsByImei.set(k, u);
-      if (u.id) unitsById.set(u.id, u);
-    }
-    const saleOrphans = sales.filter(s => isOrphanSale(s, unitsByImei, unitsById)).length;
-    return unitOrphans + saleOrphans;
-  }, [units, sales]);
+  // stockSource AND sales captured without an IMEI (post-Apr-1 only).
+  // See isOrphanUnit + isOrphanSale; the latter intentionally excludes
+  // legacy + IMEI-bearing sales (those auto-resolve via the import-time
+  // / manual-add reconcile path, no human touch needed).
+  const orphanCount = useMemo(
+    () => units.filter(isOrphanUnit).length + sales.filter(isOrphanSale).length,
+    [units, sales],
+  );
   const [addSoldUnitSale, setAddSoldUnitSale] = useState<Sale | null>(null);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [showSchemaHelp, setShowSchemaHelp] = useState(false);
