@@ -193,12 +193,13 @@ export function shortCode(model: string): string {
   s = s.replace(/^Tab\s+/i, ''); // "Tab A9+" → "A9+"
   // XCover variants share the "X Cover" prefix; the section title already
   // says "Samsung XCover" so the prefix is redundant + steals the 8-char
-  // budget that the variant suffix needs. Strip it so "X COVER 5" → "5"
-  // and "X COVER PRO 4G" → "PRO 4G" — two genuinely different phones now
-  // render as visually distinct tiles instead of two identical "X COVER"
-  // blocks (operator's 2026-06-20 audit flagged this pair as a false-
-  // duplicate; same model line, distinct hardware).
-  s = s.replace(/^X\s*COVER\s+/i, '');
+  // budget that the variant suffix needs. Compress to "XC" (NOT empty)
+  // so "X COVER 5" reads as "XC5" instead of bare "5" — the bare digit
+  // visually collides with the tile's unit-count corner badge, and the
+  // operator reported reading "5" as "5 units" when it actually meant
+  // the X Cover 5 model. "XC5" and "XCPRO 4G" are unambiguously model
+  // codes (mixed letters + digits, no leading space).
+  s = s.replace(/^X\s*COVER\s+/i, 'XC');
 
   // 4. Standard abbreviations. Order: longer match first.
   s = s.replace(/\bPro Max\b/gi, 'PM');
