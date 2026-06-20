@@ -23,7 +23,7 @@
 import { dbService } from '../lib/dbService';
 import type { DeviceCategory, InventoryAggregate, InventoryUnit, ListingSite, Sale } from '../types';
 import { isAppleDevice, isValidImei, isValidImeiOrSerial } from '../lib/imeiValidation';
-import { parseBrandModelStorage, normalizeOperatorSku } from '../lib/modelStorage';
+import { parseBrandModelStorage } from '../lib/modelStorage';
 import { logInventoryEvent } from '../lib/inventoryEvents';
 
 // ---------------------------------------------------------------------------
@@ -56,7 +56,6 @@ export type AddUnitErrorCode =
   | 'missing_model'
   | 'missing_buy_price'
   | 'missing_supplier'
-  | 'orphan_shape'
   | 'write_failed';
 
 export interface AddUnitResult {
@@ -658,23 +657,6 @@ export async function addSoldUnitFromSale(
         : (['Samsung S Series', 'Samsung A Series', 'Tablet'].includes(category) ? 'Samsung' : 'Other'));
   const cleanModel = parsed.model || model;
   const storage = (input.storage ?? '').trim() || parsed.storage;
-
-  // 6a. Orphan-shape gate — operator rule (2026-06-20): going forward,
-  // do not let degenerate units land in inventory. If the model is still
-  // a raw operator SKU code that parseBrandModelStorage couldn't
-  // translate into a clean product name, reject the write. The orphan
-  // SALE stays in place; the operator must add the unit manually with a
-  // proper model. Existing orphan units already in the DB are untouched
-  // (still visible in the Orphans modal + every report) — this rule
-  // only blocks NEW writes from this auto-create path.
-  if (normalizeOperatorSku(cleanModel) !== null) {
-    return {
-      ok: false,
-      error: 'orphan_shape',
-      message: `Cannot auto-create unit — model "${model}" is still a raw operator SKU. Add this unit manually with a clean model name.`,
-    };
-  }
-
   const createdAt = new Date().toISOString();
 
   const newUnit: InventoryUnit = {
