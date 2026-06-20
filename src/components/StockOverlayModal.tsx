@@ -45,7 +45,7 @@ const STATUS_TONE: Record<string, { bg: string; text: string; dot: string }> = {
 // that has IMEIs doesn't also surface its rollup. The grouping is the
 // page's primary "what do we have on hand" lens.
 
-export type GroupSortKey = 'model' | 'stockIn' | 'age' | 'colours' | 'qty' | 'bp' | 'value' | 'notes';
+export type GroupSortKey = 'model' | 'stockIn' | 'age' | 'colours' | 'qty' | 'bp' | 'value' | 'notes' | 'sold' | 'lastSold';
 export type GroupSortDir = 'asc' | 'desc';
 export interface GroupSort { key: GroupSortKey; dir: GroupSortDir; }
 export const DEFAULT_GROUP_SORT: GroupSort = { key: 'qty', dir: 'desc' };
@@ -64,6 +64,8 @@ export const GROUP_SORT_DEFAULT_DIR: Record<GroupSortKey, GroupSortDir> = {
   bp:      'desc',
   value:   'desc',
   notes:   'desc',
+  sold:    'desc',
+  lastSold:'desc',
 };
 
 /** Per-colour aggregate within a model group. Same colour can carry
@@ -107,6 +109,14 @@ export type GroupedModel = {
    *  signal the operator cares about: "this SKU has stock sitting from
    *  N days ago, not just from yesterday's batch". */
   oldestDateIn: string;
+  /** Count of units in the group with status='sold'. Surfaced as the
+   *  "Sold" column so an operator scanning the grouped overlay can see
+   *  fulfilment volume per SKU without expanding the row. */
+  soldCount: number;
+  /** Latest saleDate across the sold units in the group (ISO YYYY-MM-DD),
+   *  '' if no unit in the group has sold. Surfaced as the "Last Sold"
+   *  column. */
+  latestSoldDate: string;
 };
 
 /** Days between `isoDate` (YYYY-MM-DD or any ISO date string) and today.
@@ -173,10 +183,15 @@ export function buildGroupedModels(
     const { keyModel, storage, tag, label } = canonicalize(u);
     const key = `unit::${keyModel}|${storage.toUpperCase()}|${tag.toLowerCase()}`;
     let g = map.get(key);
-    if (!g) g = { key, model: label, total: 0, byColour: new Map(), latestBp: u.buyPrice || 0, totalValue: 0, notes: new Set(), shs: false, latestDateIn: '', oldestDateIn: '' };
+    if (!g) g = { key, model: label, total: 0, byColour: new Map(), latestBp: u.buyPrice || 0, totalValue: 0, notes: new Set(), shs: false, latestDateIn: '', oldestDateIn: '', soldCount: 0, latestSoldDate: '' };
     g.total++;
     g.totalValue += u.buyPrice || 0;
     if (u.buyPrice && u.buyPrice > 0) g.latestBp = u.buyPrice;
+    if (u.status === 'sold') {
+      g.soldCount++;
+      const sd = (u.saleDate || '').trim();
+      if (sd && sd > g.latestSoldDate) g.latestSoldDate = sd;
+    }
     // Per-colour aggregation — track qty + price range + supplier breakdown
     // so the expanded row can surface "BLACK · NANAK 3×£105 · MHL 2×£100"
     // when the same colour comes from multiple suppliers at different BPs.
@@ -253,6 +268,9 @@ export function buildGroupedModels(
       // Aggregates collapse to a single timestamp — use it for both
       // bounds so the Age column reads from updatedAt without special-casing.
       oldestDateIn: latestDateIn,
+      // Aggregates don't carry per-unit sale state; leave zero.
+      soldCount: 0,
+      latestSoldDate: '',
     });
   }
   return Array.from(map.values());
@@ -300,6 +318,18 @@ export function sortGroupedModels(groups: GroupedModel[], sort: GroupSort): Grou
       break;
     case 'notes':
       arr.sort((a, b) => (a.notes.size - b.notes.size) * mult || tieBreak(a, b));
+      break;
+    case 'sold':
+      arr.sort((a, b) => (a.soldCount - b.soldCount) * mult || tieBreak(a, b));
+      break;
+    case 'lastSold':
+      // Empty latestSoldDate sinks to the bottom regardless of direction —
+      // a group with no sold units isn't "older" or "newer" than one
+      // that's just had a recent sale.
+      arr.sort((a, b) => {
+        if (!!a.latestSoldDate !== !!b.latestSoldDate) return a.latestSoldDate ? -1 : 1;
+        return a.latestSoldDate.localeCompare(b.latestSoldDate) * mult || tieBreak(a, b);
+      });
       break;
     case 'qty':
     default:
@@ -368,7 +398,7 @@ function GroupTh({
  *  Used by both the inline page view and the KPI overlay so the operator
  *  always sees the same affordances. */
 export function GroupedExcelTable({
-  groups, expanded, onToggle, region, sort, onSort,
+  groups, expanded, onToggle, region, sort, onSort, showSold = true,
 }: {
   groups: GroupedModel[];
   expanded: Set<string>;
@@ -377,6 +407,10 @@ export function GroupedExcelTable({
   region: 'uk' | 'india' | 'admin' | 'both';
   sort: GroupSort;
   onSort: (next: GroupSort) => void;
+  /** Render the Sold count + Last Sold date columns. Defaults true.
+   *  Set false from Stock Intake — operator's rule: sold info doesn't
+   *  belong on the buy-side intake screen. */
+  showSold?: boolean;
 }) {
   return (
     <table className="w-full text-[11px] border-separate border-spacing-0" style={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace' }}>
@@ -391,9 +425,19 @@ export function GroupedExcelTable({
           <GroupTh sort={sort} onSort={onSort} sortKey="qty"     label="Qty"         width={70}  align="right" />
           <GroupTh sort={sort} onSort={onSort} sortKey="bp"      label="Latest BP"   width={100} align="right" />
           <GroupTh sort={sort} onSort={onSort} sortKey="value"   label="Total Value" width={110} align="right" />
-          <GroupTh sort={sort} onSort={onSort} sortKey="stockIn" label="Stock In"    width={110} />
-          <GroupTh sort={sort} onSort={onSort} sortKey="age"     label="Age"         width={80} align="right" />
-          <GroupTh sort={sort} onSort={onSort} sortKey="notes"   label="Notes"       width={200} />
+          <GroupTh sort={sort} onSort={onSort} sortKey="stockIn"  label="Stock In"  width={110} />
+          <GroupTh sort={sort} onSort={onSort} sortKey="age"      label="Age"       width={80}  align="right" />
+          {/* Sold count + latest sale date — operator request so a sold
+              SKU's fulfilment activity shows up next to its stock numbers
+              without expanding the row. Stock Intake hides them via the
+              showSold prop. */}
+          {showSold && (
+            <>
+              <GroupTh sort={sort} onSort={onSort} sortKey="sold"     label="Sold"      width={80}  align="right" />
+              <GroupTh sort={sort} onSort={onSort} sortKey="lastSold" label="Last Sold" width={110} />
+            </>
+          )}
+          <GroupTh sort={sort} onSort={onSort} sortKey="notes"    label="Notes"     width={200} />
         </tr>
       </thead>
       <tbody>
@@ -473,6 +517,27 @@ export function GroupedExcelTable({
                     );
                   })()}
                 </td>
+                {/* Sold count + last sold date — only render numbers when
+                    the group actually has sold units; otherwise show em-dashes
+                    so empty rows don't look like noisy zeros. Mirrored by the
+                    showSold prop on the header so Stock Intake renders neither
+                    column nor cell. */}
+                {showSold && (
+                  <>
+                    <td className="px-3 py-1.5 border-b border-slate-100 align-middle text-right tabular-nums">
+                      {g.soldCount > 0
+                        ? <span className="text-[11px] font-mono font-bold text-slate-700">{g.soldCount}</span>
+                        : <span className="text-slate-300">—</span>
+                      }
+                    </td>
+                    <td className="px-3 py-1.5 border-b border-slate-100 align-middle text-slate-600">
+                      {g.latestSoldDate
+                        ? <span title={g.latestSoldDate}>{fmtDateForUser(g.latestSoldDate, region) || g.latestSoldDate}</span>
+                        : <span className="text-slate-300">—</span>
+                      }
+                    </td>
+                  </>
+                )}
                 <td className="px-3 py-1.5 border-b border-slate-100 align-middle">
                   {noteList.length === 0 ? (
                     <span className="text-slate-300">—</span>
@@ -499,7 +564,10 @@ export function GroupedExcelTable({
               </tr>
               {open && (
                 <tr className="bg-slate-50/60">
-                  <td colSpan={9} className="px-0 py-0 border-b border-slate-100">
+                  {/* colSpan stays in sync with the visible column count
+                      above: 9 base columns + 2 (Sold / Last Sold) when
+                      showSold is on. */}
+                  <td colSpan={showSold ? 11 : 9} className="px-0 py-0 border-b border-slate-100">
                     <ul className="pl-10 pr-4 py-2 divide-y divide-slate-200/70">
                       {colours.map(([colour, c]) => {
                         // Suppliers ordered by qty desc — most-stocked first
@@ -575,6 +643,10 @@ const OVERLAY_COLUMNS: { key: string; label: string; width: number; align?: 'lef
   { key: 'supplierName', label: 'Supplier',      width: 150 },
   { key: 'buyPrice',     label: 'BP',            width: 90,  align: 'right' },
   { key: 'status',       label: 'Status',        width: 110 },
+  // Operator request (2026-06-20): show sale date alongside status in
+  // the inventory views so a sold unit's fulfilment timestamp is
+  // visible without opening the unit drawer. Blank for non-sold rows.
+  { key: 'saleDate',     label: 'Sold Date',     width: 110 },
   { key: 'notes',        label: 'Notes',         width: 260 },
 ];
 

@@ -955,6 +955,9 @@ function InlineSheet({
           region={region}
           sort={groupedSort}
           onSort={setGroupedSort}
+          // Stock Intake is the buy-side screen; sold info belongs to
+          // the Inventory tab per operator rule (2026-06-20).
+          showSold={false}
         />
       </div>
       <PaginationBar page={page} totalPages={totalPages} total={total} onPage={setPage} itemLabel="models" />
