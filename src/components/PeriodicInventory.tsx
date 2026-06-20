@@ -1086,10 +1086,15 @@ export default function PeriodicInventory({ units, onNavigate }: Props) {
                     >
                       {/* Count (top-right corner). SHS units are no longer
                           badged here — they live in the dedicated SHS Stock
-                          view, so every tile shows a single unambiguous count. */}
+                          view, so every tile shows a single unambiguous count.
+                          In OUT-OF-STOCK mode the corner always reads 0:
+                          the lifetime-sold figure (el.count) is the demand
+                          signal but operator read it as "current stock"
+                          and got confused. Demand info stays available on
+                          hover / overlay click. */}
                       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 1 }}>
                         <span style={{ fontSize: 10, fontFamily: 'monospace', fontWeight: 800, color: isHovered ? '#fff' : g.color.text }}>
-                          {el.count}
+                          {viewMode === 'outofstock' ? 0 : el.count}
                         </span>
                       </div>
 
