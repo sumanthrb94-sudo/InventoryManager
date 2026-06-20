@@ -292,41 +292,15 @@ export async function addUnitManual(input: AddUnitInput): Promise<AddUnitResult>
   return { ok: true, id: rawImei };
 }
 
-/** True when a unit has every operational field the rest of the app
- *  expects: model + IMEI + supplier + buyPrice>0 + stockSource. Used by
- *  the post-create reconcile to refuse to auto-flip a unit to 'sold'
- *  before its schema is filled — operator rule, prevents half-baked
- *  units sliding straight into the sales journal. */
-function isUnitSchemaComplete(u: InventoryUnit | undefined | null): boolean {
-  if (!u) return false;
-  if (!u.model || !String(u.model).trim()) return false;
-  if (!u.imei  || !String(u.imei).trim())  return false;
-  if (!u.supplierId)                         return false;
-  if (!u.buyPrice || u.buyPrice <= 0)        return false;
-  if (!u.stockSource)                        return false;
-  return true;
-}
-
 /** Look up any orphan sale (non-voided, no unitId, IMEI matches) and
- *  link it to the just-added unit. Picks the most recent sale when
- *  several match (refurb/restock cycles can produce >1; the latest
- *  best represents the current state). Returns the saleId that got
- *  linked, or null if nothing matched OR the unit is still orphan
- *  (missing supplier / price / stockSource) — operator rule: no
- *  auto-flip until every schema field is filled.
- *
- *  Exported so the Orphans modal can re-trigger reconcile after the
- *  operator completes a unit's schema (Map to Office/SHS, fill via
- *  the edit modal). When the schema completes AFTER an orphan sale
- *  already exists with this IMEI, the flip happens then.
- */
+ *  link it to the just-added unit. IMEI match is the authoritative
+ *  signal — auto-flip always happens here, regardless of whether the
+ *  unit's other fields are filled (supplier / stockSource / buyPrice
+ *  may still be missing and that's fine; the operator can complete
+ *  them via the unit detail editor afterwards). Returns the saleId
+ *  that got linked, or null if nothing matched. Picks the most recent
+ *  sale when several match (refurb/restock cycles can produce >1). */
 export async function reconcileOrphanSaleForImei(rawImei: string): Promise<string | null> {
-  // Refuse to auto-flip a half-baked unit. The matching orphan sale
-  // stays orphan; it'll resolve the next time this helper runs (e.g.
-  // after the operator completes the schema in the Orphans modal).
-  const unit = await dbService.getByImei(rawImei) as InventoryUnit | null;
-  if (!isUnitSchemaComplete(unit)) return null;
-
   const allSales = await dbService.readAll('sales');
   const candidates = (allSales as Sale[]).filter(s =>
     !s.voidedAt
@@ -336,10 +310,11 @@ export async function reconcileOrphanSaleForImei(rawImei: string): Promise<strin
   if (candidates.length === 0) return null;
   candidates.sort((a, b) => (b.saleDate || '').localeCompare(a.saleDate || ''));
   const sale = candidates[0];
+  const unit = await dbService.getByImei(rawImei) as InventoryUnit | null;
   await Promise.all([
     dbService.update('sales', sale.id, {
       unitId: rawImei,
-      stockSource: sale.stockSource ?? unit!.stockSource ?? 'office',
+      stockSource: sale.stockSource ?? unit?.stockSource ?? 'office',
     }),
     dbService.update('inventoryUnits', rawImei, {
       status: 'sold',
@@ -347,6 +322,7 @@ export async function reconcileOrphanSaleForImei(rawImei: string): Promise<strin
       salePrice: sale.salePrice,
       salePlatform: sale.marketplace,
       saleOrderId: sale.orderNumber,
+      stockSource: unit?.stockSource ?? 'office',
     }),
   ]);
   return sale.id;
