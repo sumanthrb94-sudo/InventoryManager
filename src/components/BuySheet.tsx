@@ -497,12 +497,14 @@ export default function BuySheet(_props: Props) {
             </button>
           </div>
 
-          {/* Status pills */}
+          {/* Status pills — Stock Intake is for buy-side state (in stock /
+              incoming / returned). 'Sold' was removed at operator request:
+              sold units belong to the Inventory tab's sales view, not the
+              intake screen. */}
           <div className="flex items-center gap-1.5 overflow-x-auto pb-0.5">
             {([
               ['all',       'All',       units.length],
               ['available', 'In Stock',  officeUnits.length],
-              ['sold',      'Sold',      units.filter(u => u.status === 'sold').length],
               ['incoming',  'Incoming',  units.filter(u => u.status === 'incoming').length],
               ['returned',  'Returned',  units.filter(u => u.status === 'returned').length],
             ] as Array<[StatusFilter, string, number]>).map(([id, label, n]) => (
