@@ -1061,7 +1061,12 @@ export default function PeriodicInventory({ units, onNavigate }: Props) {
                       }}
                       title={el.seriesKey}
                       style={{
-                        width: 60, height: 60,
+                        // Tile +10% (60→66) and child fonts +10% so the
+                        // periodic table is readable from across the
+                        // warehouse. Storage caption gets a separate +50%
+                        // bump with bold weight — it's the field the
+                        // employees lean in to read.
+                        width: 66, height: 66,
                         background: isEmpty ? '#1e293b' : isHovered ? g.color.bg : g.color.light,
                         border: `1.5px solid ${isEmpty ? '#334155' : isHovered ? g.color.bg : g.color.border}`,
                         borderRadius: 8,
@@ -1083,24 +1088,26 @@ export default function PeriodicInventory({ units, onNavigate }: Props) {
                           badged here — they live in the dedicated SHS Stock
                           view, so every tile shows a single unambiguous count. */}
                       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 1 }}>
-                        <span style={{ fontSize: 9, fontFamily: 'monospace', fontWeight: 800, color: isHovered ? '#fff' : g.color.text }}>
+                        <span style={{ fontSize: 10, fontFamily: 'monospace', fontWeight: 800, color: isHovered ? '#fff' : g.color.text }}>
                           {el.count}
                         </span>
                       </div>
 
                       {/* Big symbol (shortCode of the model) — font-size
-                          scales down by length so even an 8-char label
-                          fits inside the fixed 60px width. */}
+                          scales down by length so even a 12-char label
+                          fits inside the 66px tile width. All sizes are
+                          +10% vs the pre-2026-06-20 baseline (60px tile)
+                          per operator legibility request. */}
                       <div style={{ textAlign: 'center', lineHeight: 1, width: '100%', overflow: 'hidden' }}>
                         <span style={{
                           fontSize:
-                            el.symbol.length > 11 ? 7  :
-                            el.symbol.length > 9  ? 8  :
-                            el.symbol.length > 7  ? 9  :
-                            el.symbol.length > 6  ? 10 :
-                            el.symbol.length > 5  ? 11 :
-                            el.symbol.length > 4  ? 13 :
-                                                    17,
+                            el.symbol.length > 11 ? 8  :
+                            el.symbol.length > 9  ? 9  :
+                            el.symbol.length > 7  ? 10 :
+                            el.symbol.length > 6  ? 11 :
+                            el.symbol.length > 5  ? 12 :
+                            el.symbol.length > 4  ? 14 :
+                                                    19,
                           fontWeight: 900,
                           color: isHovered ? '#fff' : g.color.text,
                           fontFamily: 'system-ui, sans-serif',
@@ -1113,12 +1120,16 @@ export default function PeriodicInventory({ units, onNavigate }: Props) {
                         </span>
                       </div>
 
-                      {/* Small caption: storage if present, otherwise full model name */}
+                      {/* Storage caption — +50% size + bold weight per
+                          operator request. This is the field employees
+                          peep in to read across the floor; bumped from
+                          6.5px to 10px with fontWeight 800 + full opacity
+                          so it reads from a meter away. */}
                       <div style={{ width: '100%', textAlign: 'center' }}>
                         <span style={{
-                          fontSize: 6.5, fontFamily: 'monospace',
-                          color: isHovered ? 'rgba(255,255,255,0.8)' : g.color.text,
-                          opacity: 0.75, lineHeight: 1.2, display: 'block',
+                          fontSize: 10, fontFamily: 'monospace', fontWeight: 800,
+                          color: isHovered ? '#fff' : g.color.text,
+                          opacity: 1, lineHeight: 1.2, display: 'block',
                           overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
                         }}>
                           {caption}
