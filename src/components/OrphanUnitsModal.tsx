@@ -27,6 +27,7 @@ import { X, MapPin, Edit3, AlertCircle, CheckCircle2, Link2, Plus, Search } from
 import { motion, AnimatePresence } from 'motion/react';
 import { InventoryUnit, Sale } from '../types';
 import { dbService } from '../lib/dbService';
+import { reconcileOrphanSaleForImei } from '../services/inventoryService';
 import EditUnitModal from './EditUnitModal';
 import AddSoldUnitModal from './AddSoldUnitModal';
 
@@ -106,6 +107,21 @@ export default function OrphansModal({ units, sales, onClose }: Props) {
         stockSource: segment,
         status: segment === 'office' ? 'available' : 'incoming',
       });
+      // Operator rule: a unit only auto-flips to 'sold' when every
+      // schema field is filled. Setting stockSource here might have
+      // completed the schema — re-run the reconcile so any orphan sale
+      // sitting on the same IMEI now closes the loop without forcing
+      // the operator to do a second manual link in the Orphan Sales
+      // tab. Skips silently when no matching sale exists or the unit
+      // is still incomplete (e.g. no supplier).
+      const imei = (u.imei || '').trim().toUpperCase();
+      if (imei) {
+        try {
+          await reconcileOrphanSaleForImei(imei);
+        } catch (e) {
+          console.warn('post-map reconcile failed', e);
+        }
+      }
     } finally {
       setBusyId(null);
     }
