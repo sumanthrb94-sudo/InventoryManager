@@ -16,6 +16,7 @@ import BuySheet from './components/BuySheet';
 import SellSheet from './components/SellSheet';
 import ReturnsPage from './components/ReturnsPage';
 import NoticeBoard from './components/NoticeBoard';
+import { useUnseenNoticesCount } from './hooks/useUnseenNoticesCount';
 import ReportingPage from './components/ReportingPage';
 import Suppliers from './components/Suppliers';
 import AnalyticsPage from './components/AnalyticsPage';
@@ -134,6 +135,10 @@ function AppShell({ user }: { user: User }) {
   // Returns-tab badge on both sidebar and mobile nav so the morning CRM
   // operator sees the backlog at a glance. Computed here (not in
   // ReturnsPage) because the badge needs to render on every page.
+  // Unseen-notices badge — counts notices with createdAt newer than this
+  // browser's last-seen timestamp. markAllSeen fires the moment the
+  // operator opens the Notices tab so the badge clears on view.
+  const { count: unseenNoticeCount, markAllSeen: markNoticesSeen } = useUnseenNoticesCount();
   const pendingCrmCount = useMemo(
     () => units.reduce((n, u) => n + (u.pendingCrmReview === true ? 1 : 0), 0),
     [units],
@@ -195,6 +200,14 @@ function AppShell({ user }: { user: User }) {
   // see (e.g. activeTab='buy' but they're India-only), fall back to the
   // first tab in their allowed set. Returns is in every region's list so
   // there's always at least one tab.
+  // Clear the unseen-notices badge the moment the operator opens the
+  // Notices tab. Runs as a side-effect of activeTab change so both nav
+  // surfaces (sidebar + mobile bottom bar) trigger it without per-site
+  // wiring. Uses the lastSeen timestamp persisted in localStorage.
+  useEffect(() => {
+    if (activeTab === 'notices') markNoticesSeen();
+  }, [activeTab, markNoticesSeen]);
+
   useEffect(() => {
     if (!NAV_TABS.some(t => t.id === activeTab)) {
       setActiveTab(NAV_TABS[0].id);
@@ -294,6 +307,14 @@ function AppShell({ user }: { user: User }) {
                     className="absolute -top-1.5 -right-2 min-w-[16px] h-[16px] px-1 rounded-full bg-violet-600 text-white text-[9px] font-bold flex items-center justify-center"
                   >
                     {pendingCrmCount > 99 ? '99+' : pendingCrmCount}
+                  </span>
+                )}
+                {t.id === 'notices' && unseenNoticeCount > 0 && (
+                  <span
+                    title={`${unseenNoticeCount} new ${unseenNoticeCount === 1 ? 'notice' : 'notices'} since you last looked`}
+                    className="absolute -top-1.5 -right-2 min-w-[16px] h-[16px] px-1 rounded-full bg-amber-500 text-black text-[9px] font-bold flex items-center justify-center"
+                  >
+                    {unseenNoticeCount > 99 ? '99+' : unseenNoticeCount}
                   </span>
                 )}
               </span>
@@ -677,6 +698,13 @@ function AppShell({ user }: { user: User }) {
                   className="absolute -top-1 -right-1 min-w-[15px] h-[15px] px-1 rounded-full bg-violet-600 text-white text-[8px] font-bold flex items-center justify-center"
                 >
                   {pendingCrmCount > 99 ? '99+' : pendingCrmCount}
+                </span>
+              )}
+              {t.id === 'notices' && unseenNoticeCount > 0 && (
+                <span
+                  className="absolute -top-1 -right-1 min-w-[15px] h-[15px] px-1 rounded-full bg-amber-500 text-black text-[8px] font-bold flex items-center justify-center"
+                >
+                  {unseenNoticeCount > 99 ? '99+' : unseenNoticeCount}
                 </span>
               )}
             </div>

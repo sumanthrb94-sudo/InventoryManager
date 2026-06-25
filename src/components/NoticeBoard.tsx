@@ -208,11 +208,15 @@ export default function NoticeBoard() {
                               edited
                             </span>
                           )}
-                          {n.createdBy && (
-                            <span className="text-[9px] font-mono text-slate-400 truncate" title={n.createdBy}>
-                              · {n.createdBy}
-                            </span>
-                          )}
+                          {/* Author always reads as "Admin" — operator
+                              decision (2026-06-21): the team should see
+                              a single team-broadcast voice, not the
+                              individual admin email. The createdBy field
+                              is still persisted on the doc as audit
+                              trail and shown in the tooltip. */}
+                          <span className="text-[9px] font-mono text-slate-400" title={n.createdBy || 'admin'}>
+                            · Admin
+                          </span>
                         </div>
                         {editing ? (
                           <textarea
