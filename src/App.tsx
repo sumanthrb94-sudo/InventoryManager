@@ -5,7 +5,7 @@ import {
   PackagePlus, Package, RefreshCw,
   LogOut, Plus, FileSpreadsheet, LayoutDashboard,
   TrendingUp, FileText, Users, Settings, Database,
-  ClipboardList, Menu, X, Megaphone,
+  ClipboardList, Menu, X, Megaphone, SlidersHorizontal,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import Dashboard, { NavAction } from './components/Dashboard';
@@ -17,9 +17,9 @@ import SellSheet from './components/SellSheet';
 import ReturnsPage from './components/ReturnsPage';
 import NoticeBoard from './components/NoticeBoard';
 import ModelReconciliation from './components/ModelReconciliation';
+import ConfigurationPanel from './components/ConfigurationPanel';
 import { useUnseenNoticesCount } from './hooks/useUnseenNoticesCount';
 import ReportingPage from './components/ReportingPage';
-import Suppliers from './components/Suppliers';
 import AnalyticsPage from './components/AnalyticsPage';
 import Sales from './components/Sales';
 import { useRealTimeNotifications } from './hooks/useRealTimeNotifications';
@@ -35,7 +35,7 @@ import { useBuildVersionCheck } from './lib/useBuildVersionCheck';
 import type { SupplierWhatsappUpdate } from './types';
 
 type Tab      = 'notices' | 'buy' | 'sell' | 'returns' | 'admin';
-type AdminSub = 'overview' | 'salesHistory' | 'insights' | 'reports' | 'suppliers' | 'models';
+type AdminSub = 'overview' | 'salesHistory' | 'insights' | 'reports' | 'configuration' | 'models';
 
 interface NavTab {
   id: Tab;
@@ -121,12 +121,18 @@ function LoadingScreen() {
 }
 
 const ADMIN_SUBS: { id: AdminSub; label: string; icon: React.ReactNode }[] = [
-  { id: 'overview',     label: 'Overview',           icon: <LayoutDashboard size={14} /> },
-  { id: 'salesHistory', label: 'Sales History',      icon: <ClipboardList size={14} /> },
-  { id: 'insights',     label: 'Insights',           icon: <TrendingUp size={14} /> },
-  { id: 'reports',      label: 'Reports',            icon: <FileText size={14} /> },
-  { id: 'suppliers',    label: 'Suppliers',          icon: <Users size={14} /> },
-  { id: 'models',       label: 'Models',             icon: <Database size={14} /> },
+  { id: 'overview',      label: 'Overview',           icon: <LayoutDashboard size={14} /> },
+  { id: 'salesHistory',  label: 'Sales History',      icon: <ClipboardList size={14} /> },
+  { id: 'insights',      label: 'Insights',           icon: <TrendingUp size={14} /> },
+  { id: 'reports',       label: 'Reports',            icon: <FileText size={14} /> },
+  // Configuration is the single home for editable admin data —
+  // models catalog (what employees can pick in Add Stock + Bulk
+  // Order) and suppliers (with the WhatsApp feed). Stand-alone
+  // Suppliers sub-tab merged into here so admin edits one screen.
+  { id: 'configuration', label: 'Configuration',      icon: <SlidersHorizontal size={14} /> },
+  // 'Models' kept as the data-cleanup tool (ModelReconciliation) —
+  // distinct concern from the catalog editor under Configuration.
+  { id: 'models',        label: 'Reconcile Models',   icon: <Database size={14} /> },
 ];
 
 function AppShell({ user }: { user: User }) {
@@ -186,8 +192,9 @@ function AppShell({ user }: { user: User }) {
       setActiveTab('admin');
       setAdminSub('overview');
     } else if (action.tab === 'suppliers') {
+      // Suppliers is now under the unified Configuration sub-tab.
       setActiveTab('admin');
-      setAdminSub('suppliers');
+      setAdminSub('configuration');
     } else if (action.tab === 'calendar') {
       setActiveTab('admin');
       setAdminSub('insights');
@@ -675,13 +682,8 @@ function AppShell({ user }: { user: User }) {
                 {activeTab === 'admin' && userIsAdmin && adminSub === 'salesHistory' && <Sales />}
                 {activeTab === 'admin' && userIsAdmin && adminSub === 'insights'     && <AnalyticsPage />}
                 {activeTab === 'admin' && userIsAdmin && adminSub === 'reports'      && <ReportingPage />}
-                {activeTab === 'admin' && userIsAdmin && adminSub === 'suppliers'    && (
-                  <div className="space-y-6">
-                    <Suppliers />
-                    <SupplierWhatsappPanel feed={whatsappFeed} />
-                  </div>
-                )}
-                {activeTab === 'admin' && userIsAdmin && adminSub === 'models'       && <ModelReconciliation />}
+                {activeTab === 'admin' && userIsAdmin && adminSub === 'configuration' && <ConfigurationPanel />}
+                {activeTab === 'admin' && userIsAdmin && adminSub === 'models'        && <ModelReconciliation />}
               </motion.div>
             </AnimatePresence>
           </div>

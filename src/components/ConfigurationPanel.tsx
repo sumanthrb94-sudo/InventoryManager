@@ -1,0 +1,288 @@
+/**
+ * ConfigurationPanel — admin-only Configuration sub-tab under Admin.
+ *
+ * One screen consolidating the editable admin data the operator
+ * (2026-06-21) asked for:
+ *
+ *   1. Models catalog (writes to the `models` Firestore collection) —
+ *      brand, model, series, SKU, default storage. Powers the
+ *      strict DeviceComboBox picker in Add Stock + Bulk Order; admin
+ *      can seed catalog entries even when no stock for that model
+ *      exists yet. List + add + delete inline.
+ *   2. Suppliers — embeds the existing <Suppliers /> + supplier
+ *      WhatsApp feed so the operator manages suppliers from the same
+ *      place instead of a separate sub-tab.
+ *
+ * Doesn't replace the standalone "Models" reconciliation tool — that
+ * stays as its own cleanup surface. This page is for ongoing catalog
+ * maintenance, not retroactive dedup.
+ */
+import React, { useEffect, useMemo, useState } from 'react';
+import { motion, AnimatePresence } from 'motion/react';
+import { SlidersHorizontal, Plus, Trash2, AlertCircle, CheckCircle2, Database, Users } from 'lucide-react';
+import { dbService } from '../lib/dbService';
+import { useIsAdmin } from '../lib/useIsAdmin';
+import Suppliers from './Suppliers';
+
+interface ModelDoc {
+  id: string;
+  brand: string;
+  model: string;
+  series?: string;
+  sku?: string;
+  defaultStorage?: string;
+  createdAt: string;
+  createdBy?: string;
+  ownerId: 'shared';
+}
+
+export default function ConfigurationPanel() {
+  const isAdmin = useIsAdmin();
+
+  // ── Models catalog ─────────────────────────────────────────────────────────
+  const [models, setModels] = useState<ModelDoc[]>([]);
+  const [draft, setDraft] = useState<{ brand: string; model: string; series: string; sku: string; defaultStorage: string }>({
+    brand: '', model: '', series: '', sku: '', defaultStorage: '',
+  });
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+  const [savedFlash, setSavedFlash] = useState(false);
+
+  useEffect(() => {
+    return dbService.subscribeToCollection('models', (data: ModelDoc[]) => setModels(data));
+  }, []);
+
+  const sortedModels = useMemo(
+    () => [...models].sort((a, b) => {
+      const c = (a.brand || '').localeCompare(b.brand || '');
+      return c !== 0 ? c : (a.model || '').localeCompare(b.model || '');
+    }),
+    [models],
+  );
+
+  const addModel = async () => {
+    if (!isAdmin || saving) return;
+    const brand = draft.brand.trim();
+    const model = draft.model.trim();
+    if (!brand)  { setError('Brand is required'); return; }
+    if (!model)  { setError('Model is required'); return; }
+    // Cheap client-side dupe guard — case-insensitive on (brand, model).
+    const dupe = models.find(m =>
+      (m.brand || '').toLowerCase() === brand.toLowerCase() &&
+      (m.model || '').toLowerCase() === model.toLowerCase()
+    );
+    if (dupe) { setError(`"${brand} ${model}" is already in the catalog`); return; }
+
+    setSaving(true);
+    setError('');
+    try {
+      const id = `mdl_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+      const doc: Omit<ModelDoc, 'id'> = {
+        brand, model,
+        series: draft.series.trim() || undefined,
+        sku: draft.sku.trim() || undefined,
+        defaultStorage: draft.defaultStorage.trim() || undefined,
+        createdAt: new Date().toISOString(),
+        ownerId: 'shared',
+      };
+      await dbService.create('models', id, doc);
+      setDraft({ brand: '', model: '', series: '', sku: '', defaultStorage: '' });
+      setSavedFlash(true);
+      window.setTimeout(() => setSavedFlash(false), 1500);
+    } catch (e: any) {
+      setError(e?.message || 'Save failed');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const removeModel = async (m: ModelDoc) => {
+    if (!isAdmin) return;
+    const sure = window.confirm(`Remove "${m.brand} ${m.model}" from the catalog?\n\nExisting inventory units are not affected; this only removes the catalog entry employees pick from in Add Stock / Bulk Order.`);
+    if (!sure) return;
+    await dbService.delete('models', m.id);
+  };
+
+  if (!isAdmin) {
+    return (
+      <div className="bg-white border border-slate-200 rounded-3xl p-12 text-center">
+        <AlertCircle size={28} className="mx-auto text-amber-500" />
+        <p className="text-[11px] font-mono uppercase tracking-widest text-slate-500 mt-2">Admin only</p>
+        <p className="text-[10px] font-mono text-slate-400 mt-1">Configuration is restricted to the admin account.</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-6">
+      {/* ── Section header ───────────────────────────────────────────────── */}
+      <div className="bg-white border border-slate-200 rounded-3xl p-5 shadow-sm">
+        <div className="flex items-center gap-3">
+          <div className="w-9 h-9 rounded-2xl bg-indigo-100 text-indigo-700 flex items-center justify-center">
+            <SlidersHorizontal size={16} />
+          </div>
+          <div className="min-w-0">
+            <h2 className="text-sm font-bold tracking-tight">Configuration</h2>
+            <p className="text-[10px] font-mono uppercase tracking-widest text-slate-400">
+              Editable admin data · Models catalog · Suppliers
+            </p>
+          </div>
+        </div>
+      </div>
+
+      {/* ── Models catalog ───────────────────────────────────────────────── */}
+      <div className="bg-white border border-slate-200 rounded-3xl shadow-sm overflow-hidden">
+        <div className="flex items-center justify-between gap-3 px-5 py-4 border-b border-slate-100">
+          <div className="flex items-center gap-3 min-w-0">
+            <div className="w-8 h-8 rounded-xl bg-emerald-100 text-emerald-700 flex items-center justify-center">
+              <Database size={14} />
+            </div>
+            <div className="min-w-0">
+              <h3 className="text-[13px] font-bold tracking-tight">Models Catalog</h3>
+              <p className="text-[10px] font-mono text-slate-400">
+                {sortedModels.length} {sortedModels.length === 1 ? 'model' : 'models'} · employees pick from this list
+              </p>
+            </div>
+          </div>
+        </div>
+
+        {/* Add new model — five compact inputs in one row */}
+        <div className="px-5 py-4 border-b border-slate-100 bg-slate-50/60">
+          <div className="grid grid-cols-1 md:grid-cols-12 gap-2">
+            <div className="md:col-span-2">
+              <label className="text-[9px] font-bold uppercase tracking-widest text-slate-500 block mb-1">Brand *</label>
+              <input
+                value={draft.brand}
+                onChange={e => setDraft(d => ({ ...d, brand: e.target.value }))}
+                placeholder="Samsung"
+                className="w-full border border-slate-200 rounded-lg px-2.5 py-1.5 text-[12px] focus:outline-none focus:border-slate-900 bg-white"
+              />
+            </div>
+            <div className="md:col-span-3">
+              <label className="text-[9px] font-bold uppercase tracking-widest text-slate-500 block mb-1">Model *</label>
+              <input
+                value={draft.model}
+                onChange={e => setDraft(d => ({ ...d, model: e.target.value }))}
+                placeholder="Galaxy S24 Ultra"
+                className="w-full border border-slate-200 rounded-lg px-2.5 py-1.5 text-[12px] focus:outline-none focus:border-slate-900 bg-white"
+              />
+            </div>
+            <div className="md:col-span-2">
+              <label className="text-[9px] font-bold uppercase tracking-widest text-slate-500 block mb-1">Series</label>
+              <input
+                value={draft.series}
+                onChange={e => setDraft(d => ({ ...d, series: e.target.value }))}
+                placeholder="Galaxy S"
+                className="w-full border border-slate-200 rounded-lg px-2.5 py-1.5 text-[12px] focus:outline-none focus:border-slate-900 bg-white"
+              />
+            </div>
+            <div className="md:col-span-2">
+              <label className="text-[9px] font-bold uppercase tracking-widest text-slate-500 block mb-1">SKU</label>
+              <input
+                value={draft.sku}
+                onChange={e => setDraft(d => ({ ...d, sku: e.target.value }))}
+                placeholder="ASI-SG-S24U"
+                className="w-full border border-slate-200 rounded-lg px-2.5 py-1.5 text-[12px] font-mono focus:outline-none focus:border-slate-900 bg-white"
+              />
+            </div>
+            <div className="md:col-span-2">
+              <label className="text-[9px] font-bold uppercase tracking-widest text-slate-500 block mb-1">Storage</label>
+              <input
+                value={draft.defaultStorage}
+                onChange={e => setDraft(d => ({ ...d, defaultStorage: e.target.value }))}
+                placeholder="256GB"
+                className="w-full border border-slate-200 rounded-lg px-2.5 py-1.5 text-[12px] font-mono focus:outline-none focus:border-slate-900 bg-white"
+              />
+            </div>
+            <div className="md:col-span-1 flex md:items-end">
+              <button
+                onClick={addModel}
+                disabled={saving}
+                className="w-full md:w-auto inline-flex items-center justify-center gap-1.5 px-3 py-1.5 mt-1 md:mt-0 rounded-lg bg-emerald-600 text-white text-[10px] font-bold uppercase tracking-widest hover:bg-emerald-700 disabled:opacity-40"
+              >
+                <Plus size={11} /> Add
+              </button>
+            </div>
+          </div>
+          {error && (
+            <p className="mt-2 inline-flex items-center gap-1 text-[10px] font-mono text-rose-600">
+              <AlertCircle size={11} /> {error}
+            </p>
+          )}
+          {savedFlash && (
+            <p className="mt-2 inline-flex items-center gap-1 text-[10px] font-mono text-emerald-700">
+              <CheckCircle2 size={11} /> Added to catalog
+            </p>
+          )}
+        </div>
+
+        {/* Existing catalog list */}
+        {sortedModels.length === 0 ? (
+          <div className="py-12 flex flex-col items-center gap-2 text-slate-400">
+            <Database size={24} />
+            <p className="text-[11px] font-mono uppercase tracking-widest">Catalog is empty</p>
+            <p className="text-[10px] font-mono text-slate-400">Add the first model above. Employees will pick from this list in Add Stock.</p>
+          </div>
+        ) : (
+          <table className="w-full text-[11px]" style={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace' }}>
+            <thead>
+              <tr className="text-[9px] font-bold uppercase tracking-widest text-slate-500 bg-slate-50">
+                <th className="text-left px-4 py-2 border-b border-slate-200">Brand</th>
+                <th className="text-left px-4 py-2 border-b border-slate-200">Model</th>
+                <th className="text-left px-4 py-2 border-b border-slate-200">Series</th>
+                <th className="text-left px-4 py-2 border-b border-slate-200">SKU</th>
+                <th className="text-left px-4 py-2 border-b border-slate-200">Storage</th>
+                <th className="text-right px-4 py-2 border-b border-slate-200 w-16"></th>
+              </tr>
+            </thead>
+            <tbody>
+              <AnimatePresence initial={false}>
+                {sortedModels.map(m => (
+                  <motion.tr
+                    key={m.id}
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    exit={{ opacity: 0 }}
+                    className="hover:bg-slate-50 border-b border-slate-100"
+                  >
+                    <td className="px-4 py-2 text-slate-700">{m.brand}</td>
+                    <td className="px-4 py-2 font-bold text-slate-900">{m.model}</td>
+                    <td className="px-4 py-2 text-slate-600">{m.series || <span className="text-slate-300">—</span>}</td>
+                    <td className="px-4 py-2 text-slate-600">{m.sku || <span className="text-slate-300">—</span>}</td>
+                    <td className="px-4 py-2 text-slate-600">{m.defaultStorage || <span className="text-slate-300">—</span>}</td>
+                    <td className="px-4 py-2 text-right">
+                      <button
+                        type="button"
+                        onClick={() => removeModel(m)}
+                        className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-[9px] font-bold uppercase tracking-widest border bg-white text-rose-600 border-rose-200 hover:bg-rose-50"
+                        title="Remove from catalog"
+                      >
+                        <Trash2 size={10} />
+                      </button>
+                    </td>
+                  </motion.tr>
+                ))}
+              </AnimatePresence>
+            </tbody>
+          </table>
+        )}
+      </div>
+
+      {/* ── Suppliers (embedded existing components) ─────────────────────── */}
+      <div className="bg-white border border-slate-200 rounded-3xl shadow-sm overflow-hidden">
+        <div className="flex items-center gap-3 px-5 py-4 border-b border-slate-100">
+          <div className="w-8 h-8 rounded-xl bg-amber-100 text-amber-700 flex items-center justify-center">
+            <Users size={14} />
+          </div>
+          <div className="min-w-0">
+            <h3 className="text-[13px] font-bold tracking-tight">Suppliers</h3>
+            <p className="text-[10px] font-mono text-slate-400">Add suppliers, manage portals, track payment terms</p>
+          </div>
+        </div>
+        <div className="px-5 py-4">
+          <Suppliers />
+        </div>
+      </div>
+    </div>
+  );
+}
