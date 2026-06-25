@@ -37,7 +37,10 @@ service cloud.firestore {
     function isAdmin() {
       return isSignedIn()
         && request.auth.token.email_verified == true
-        && request.auth.token.email == 'admin@inventorymanager.com';
+        && request.auth.token.email in [
+          'admin@inventorymanager.com',
+          'sumanthbolla97@gmail.com',
+        ];
     }
 
     // Treat 'shared' as the only valid ownerId value the team writes. The
