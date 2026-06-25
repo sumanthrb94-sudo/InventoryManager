@@ -13,6 +13,7 @@
 //   - catalogEntryFor(catalog, brand, model): exact lookup for cross-reference
 
 import type { InventoryUnit } from '../types';
+import { normalizeBucketModel } from './modelStorage';
 
 export interface DeviceCatalogEntry {
   brand: string;
@@ -29,13 +30,21 @@ export interface DeviceCatalogEntry {
   topGrade?: string;
   // Median buy price across stocked units — useful as a starting suggestion.
   medianBuyPrice?: number;
+  /** Origin of this entry — 'inventory' = at least one matching unit
+   *  exists in stock; 'seed' = admin-added via the models collection
+   *  but no stock yet. Lets the picker tag seed-only entries with a
+   *  visual hint and lets reconciliation skip them. */
+  source: 'inventory' | 'seed';
 }
 
-function normaliseModelKey(s: string): string {
-  return (s || '')
-    .toLowerCase()
-    .replace(/\s+/g, ' ')
-    .trim();
+/** Admin-curated catalog seed — one doc per row in the `models` Firestore
+ *  collection. Lets the admin onboard a new SKU before any stock exists,
+ *  so the picker can offer it to employees on the first add. */
+export interface ModelSeed {
+  id: string;
+  brand: string;
+  model: string;
+  series?: string;
 }
 
 function sortByFrequency(map: Map<string, number>): string[] {
@@ -44,38 +53,71 @@ function sortByFrequency(map: Map<string, number>): string[] {
     .map(([k]) => k);
 }
 
-export function buildDeviceCatalog(units: InventoryUnit[]): DeviceCatalogEntry[] {
+export function buildDeviceCatalog(
+  units: InventoryUnit[],
+  seeds: ModelSeed[] = [],
+): DeviceCatalogEntry[] {
   type Bucket = {
+    /** Per-raw-variant tally so we can pick the canonical display label
+     *  per bucket — most-frequent variant wins. Without this the very
+     *  first unit's raw string would dictate the label, which produces
+     *  "GALAXY S23" tiles when the majority of units carry the cleaner
+     *  "Galaxy S23". */
+    variants: Map<string, number>;
     brand: string;
-    model: string;
     count: number;
     latestDateIn: string;
     storages: Map<string, number>;
     colours: Map<string, number>;
     grades: Map<string, number>;
     buyPrices: number[];
+    fromInventory: boolean;
   };
   const buckets = new Map<string, Bucket>();
 
-  for (const u of units) {
-    const brand = (u.brand || '').trim();
-    const model = (u.model || '').trim();
-    if (!brand && !model) continue;
-    const key = `${brand}||${normaliseModelKey(model)}`;
+  /** Bucket key spans both inventory units and admin-curated seeds so a
+   *  newly-seeded model collapses into the matching inventory cluster
+   *  the moment stock arrives — no duplicate "seed-only" pill next to
+   *  the real entry. Normalised model is the deduping field;
+   *  normaliseBucketModel strips Samsung/Galaxy/Apple prefix + lowercases
+   *  so "GALAXY S23" / "S23" / "Galaxy S23" all hit the same key. */
+  const keyOf = (brand: string, model: string) =>
+    `${(brand || '').toLowerCase().trim()}||${normalizeBucketModel(model)}`;
+
+  const ensureBucket = (brand: string, model: string, dateIn = ''): Bucket | null => {
+    if (!brand && !model) return null;
+    const key = keyOf(brand, model);
     let b = buckets.get(key);
     if (!b) {
       b = {
+        variants: new Map(),
         brand,
-        model,
         count: 0,
-        latestDateIn: u.dateIn || '',
+        latestDateIn: dateIn,
         storages: new Map(),
         colours: new Map(),
         grades: new Map(),
         buyPrices: [],
+        fromInventory: false,
       };
       buckets.set(key, b);
     }
+    // Brand stays the FIRST non-empty we see — keeps consistent display
+    // regardless of merge order. The variants map captures every raw
+    // model string we've encountered so canonical selection runs over
+    // the full set at the end.
+    if (!b.brand && brand) b.brand = brand;
+    const m = (model || '').trim();
+    if (m) b.variants.set(m, (b.variants.get(m) ?? 0) + 1);
+    return b;
+  };
+
+  for (const u of units) {
+    const brand = (u.brand || '').trim();
+    const model = (u.model || '').trim();
+    const b = ensureBucket(brand, model, u.dateIn || '');
+    if (!b) continue;
+    b.fromInventory = true;
     b.count++;
     if ((u.dateIn || '') > b.latestDateIn) b.latestDateIn = u.dateIn || '';
     if (u.storage) b.storages.set(u.storage, (b.storages.get(u.storage) ?? 0) + 1);
@@ -86,24 +128,41 @@ export function buildDeviceCatalog(units: InventoryUnit[]): DeviceCatalogEntry[]
     }
   }
 
+  // Seed-only entries — admin-curated models that have no stock yet.
+  // ensureBucket merges with the inventory bucket if one exists for the
+  // same (brand, normalised model), so an admin seeding "Galaxy S26"
+  // before any stock lands and then the first unit being added later
+  // both end up in one tile.
+  for (const s of seeds) {
+    ensureBucket((s.brand || '').trim(), (s.model || '').trim());
+  }
+
   const out: DeviceCatalogEntry[] = [];
   for (const b of buckets.values()) {
     const sortedPrices = [...b.buyPrices].sort((x, y) => x - y);
     const median = sortedPrices.length
       ? sortedPrices[Math.floor(sortedPrices.length / 2)]
       : undefined;
+    // Canonical display label = most-frequent raw variant in the bucket;
+    // tie-breakers: longest string (more info), then alpha for stability.
+    const canonical = Array.from(b.variants.entries())
+      .sort((a, c) => c[1] - a[1] || c[0].length - a[0].length || a[0].localeCompare(c[0]))[0]?.[0]
+      ?? '';
     out.push({
       brand: b.brand,
-      model: b.model,
+      model: canonical,
       count: b.count,
       latestDateIn: b.latestDateIn,
       storages: sortByFrequency(b.storages),
       colours: sortByFrequency(b.colours),
       topGrade: sortByFrequency(b.grades)[0],
       medianBuyPrice: median,
+      source: b.fromInventory ? 'inventory' : 'seed',
     });
   }
   // Default ordering: most-stocked first, then most-recent for ties.
+  // Seed-only entries sink to the bottom (count=0) so they don't crowd
+  // out real catalog hits when the operator's typing matches both.
   out.sort((a, b) =>
     b.count - a.count ||
     (b.latestDateIn || '').localeCompare(a.latestDateIn || ''),
@@ -141,9 +200,9 @@ export function catalogEntryFor(
   brand: string,
   model: string,
 ): DeviceCatalogEntry | undefined {
-  const b = (brand || '').trim();
-  const m = normaliseModelKey(model);
+  const b = (brand || '').toLowerCase().trim();
+  const m = normalizeBucketModel(model);
   return catalog.find(
-    e => e.brand === b && normaliseModelKey(e.model) === m,
+    e => (e.brand || '').toLowerCase().trim() === b && normalizeBucketModel(e.model) === m,
   );
 }

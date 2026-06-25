@@ -291,24 +291,10 @@ const SUPPLIER_PALETTE: ReadonlyArray<PtGroupDef['color']> = [
   { bg: '#475569', light: '#f1f5f9', text: '#334155', border: '#cbd5e1' },
 ];
 
-/** Canonical bucket key — keep 128GB / 256GB / 5G / Wi-Fi variants separate.
- *
- *  Normalises the model token before keying so prefix + case variants of the
- *  SAME product collapse into one bucket. Without this, the parser preserves
- *  raw operator strings ("GALAXY S23" vs "S23", "Galaxy A15" vs "GALAXY A15")
- *  and the periodic table shows two tiles for what is physically the same
- *  SKU. Audited 2026-06-20 against the operator's screenshot — 4 false-
- *  duplicate pairs (S23, A32, A16, A15) all stemmed from this. The
- *  normaliser only strips brand/series PREFIXES — variant suffixes like
- *  "Pro 4G" / "5" / "FE" / "Ultra" are preserved, so genuinely different
- *  hardware (XCover 5 vs XCover Pro 4G) stays in its own bucket. */
-export function normalizeBucketModel(m: string): string {
-  return (m ?? '')
-    .replace(/^\s*(samsung\s+galaxy|galaxy|samsung|apple)\s+/i, '')
-    .replace(/\s+/g, ' ')
-    .trim()
-    .toLowerCase();
-}
+// normalizeBucketModel was promoted to src/lib/modelStorage.ts on 2026-06-21
+// so DeviceComboBox + admin reconciliation can share the same key derivation
+// the periodic table uses. Re-exported here for the existing test imports.
+export { normalizeBucketModel } from '../lib/modelStorage';
 
 const bucketKeyOf = (model: string, storage?: string, tag?: string) =>
   `${normalizeBucketModel(model)}|${storage ?? ''}|${tag ?? ''}`;

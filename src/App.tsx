@@ -16,6 +16,7 @@ import BuySheet from './components/BuySheet';
 import SellSheet from './components/SellSheet';
 import ReturnsPage from './components/ReturnsPage';
 import NoticeBoard from './components/NoticeBoard';
+import ModelReconciliation from './components/ModelReconciliation';
 import { useUnseenNoticesCount } from './hooks/useUnseenNoticesCount';
 import ReportingPage from './components/ReportingPage';
 import Suppliers from './components/Suppliers';
@@ -34,7 +35,7 @@ import { useBuildVersionCheck } from './lib/useBuildVersionCheck';
 import type { SupplierWhatsappUpdate } from './types';
 
 type Tab      = 'notices' | 'buy' | 'sell' | 'returns' | 'admin';
-type AdminSub = 'overview' | 'salesHistory' | 'insights' | 'reports' | 'suppliers';
+type AdminSub = 'overview' | 'salesHistory' | 'insights' | 'reports' | 'suppliers' | 'models';
 
 interface NavTab {
   id: Tab;
@@ -125,6 +126,7 @@ const ADMIN_SUBS: { id: AdminSub; label: string; icon: React.ReactNode }[] = [
   { id: 'insights',     label: 'Insights',           icon: <TrendingUp size={14} /> },
   { id: 'reports',      label: 'Reports',            icon: <FileText size={14} /> },
   { id: 'suppliers',    label: 'Suppliers',          icon: <Users size={14} /> },
+  { id: 'models',       label: 'Models',             icon: <Database size={14} /> },
 ];
 
 function AppShell({ user }: { user: User }) {
@@ -679,6 +681,7 @@ function AppShell({ user }: { user: User }) {
                     <SupplierWhatsappPanel feed={whatsappFeed} />
                   </div>
                 )}
+                {activeTab === 'admin' && userIsAdmin && adminSub === 'models'       && <ModelReconciliation />}
               </motion.div>
             </AnimatePresence>
           </div>

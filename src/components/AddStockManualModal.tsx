@@ -27,6 +27,8 @@ import { useInventoryStore } from '../lib/inventoryStore';
 import { notificationService } from '../lib/notificationService';
 import { logInventoryEvent } from '../lib/inventoryEvents';
 import { dbService } from '../lib/dbService';
+import { auth, isAdmin } from '../lib/firebase';
+import type { ModelSeed } from '../lib/deviceCatalog';
 import {
   isValidImei,
   isAppleDevice,
@@ -150,7 +152,10 @@ export default function AddStockManualModal({ onClose, initialMode = 'office' }:
   // 2026-06-20). Firestore rules permit any signed-in user to create
   // an inventoryUnits doc with ownerId='shared', so no server-side gate
   // either. Wipe DB / delete paths remain admin-only.
-  const { suppliers, units } = useInventoryStore();
+  const { suppliers, units, models } = useInventoryStore();
+  // Admin gate for the model-picker "+ Add new" affordance — employees
+  // can only PICK existing models, only admin can extend the catalog.
+  const userIsAdmin = isAdmin(auth.currentUser);
   const [mode, setMode]     = useState<Mode>(initialMode);
   const [date, setDate]     = useState(today());
   const [rows, setRows]     = useState<StockRow[]>([emptyRow()]);
@@ -551,6 +556,8 @@ export default function AddStockManualModal({ onClose, initialMode = 'office' }:
                 mode={mode}
                 supplierNames={supplierNames}
                 units={units}
+                models={models}
+                isAdmin={userIsAdmin}
                 onChange={patch => updateRow(r.id, patch)}
                 onRemove={() => removeRow(r.id)}
                 canRemove={rows.length > 1}
@@ -638,7 +645,7 @@ function ModeTab({
 
 // ── One row in the entry grid ────────────────────────────────────────────────
 function Row({
-  row, index, validation, mode, supplierNames, units, onChange, onRemove, canRemove,
+  row, index, validation, mode, supplierNames, units, models, isAdmin, onChange, onRemove, canRemove,
 }: {
   key?: React.Key;
   row: StockRow;
@@ -650,6 +657,11 @@ function Row({
    *  scroll/select from existing models instead of retyping (which is
    *  how copy-paste-near-misses end up in different grouped rows). */
   units: InventoryUnit[];
+  /** Admin-curated catalog seeds — surfaces new SKUs the admin has
+   *  registered before any stock exists. */
+  models: ModelSeed[];
+  /** Admin gate for the picker's "+ Add new" affordance. */
+  isAdmin: boolean;
   onChange: (patch: Partial<StockRow>) => void;
   onRemove: () => void;
   canRemove: boolean;
@@ -715,25 +727,48 @@ function Row({
       {/* Grid: Model · IMEI · Grade */}
       <div className="grid grid-cols-1 md:grid-cols-12 gap-2">
         <Cell label="Model *" colSpan={5}>
-          {/* Autocomplete from existing inventory model strings — picking a
-              suggestion guarantees this unit groups with its siblings in
-              the All Office Stock view. Free text still wins for brand-new
-              SKUs that don't exist in stock yet. */}
+          {/* Strict picker — employees can only PICK from the unified
+              catalog (inventory + admin-curated seeds). Free-text adds
+              were the source of "Galaxy S23" / "GALAXY S23" / "S23"
+              fragmentation; the picker now collapses prefix variants
+              and the strict gate keeps new typos out. Admin sees a
+              "+ Add 'query'" pill that writes a doc to the models
+              collection so the new SKU is immediately pickable. */}
           <DeviceComboBox
             units={units}
+            seeds={models}
+            strict
+            isAdmin={isAdmin}
             brand=""
             model={row.model}
             onModelChange={(m) => onChange({ model: m })}
             onPick={(entry) => {
-              // Use the catalog's exact model string so this unit buckets
-              // with siblings. Pre-fill storage / grade ONLY if those fields
-              // are still empty — never overwrite operator input.
               const patch: Partial<StockRow> = { model: entry.model };
               if (!row.storage && entry.storages[0]) patch.storage = entry.storages[0];
               if (!row.grade && entry.topGrade)      patch.grade   = entry.topGrade;
               onChange(patch);
             }}
-            placeholder="Search existing models or type new — e.g. iPhone 13 128GB"
+            onCreateModel={isAdmin ? async (draft) => {
+              const id = `model_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+              await dbService.create('models', id, {
+                brand: draft.brand,
+                model: draft.model,
+                ownerId: 'shared',
+                createdAt: new Date().toISOString(),
+                createdBy: auth.currentUser?.email || 'admin',
+              });
+              // Return a catalog-shape entry the picker can auto-select.
+              return {
+                brand: draft.brand,
+                model: draft.model,
+                count: 0,
+                latestDateIn: '',
+                storages: [],
+                colours: [],
+                source: 'seed' as const,
+              };
+            } : undefined}
+            placeholder="Search the catalog — e.g. iPhone 13 128GB"
             inputClassName="w-full border border-gray-200 rounded-lg px-2.5 py-1.5 text-[12px] focus:outline-none focus:border-black"
           />
         </Cell>

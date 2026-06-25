@@ -359,6 +359,21 @@ export function normalizeOperatorSku(raw: string | undefined | null): string | n
     .join(' ');
 }
 
+/** Strip optional brand/series prefix + lowercase so casing and prefix
+ *  variants ("GALAXY A15" / "Galaxy A15" / "A15") collapse to the same
+ *  normalised key. Preserves the model token order otherwise so distinct
+ *  variants ("X Cover 5" vs "X Cover Pro 4G") stay in separate buckets.
+ *  Used for bucket KEYS only — display labels keep their original casing.
+ *  Shared source of truth: PeriodicInventory dedup, DeviceComboBox catalog
+ *  build, and the admin ModelReconciliation tool all read from this. */
+export function normalizeBucketModel(m: string): string {
+  return (m ?? '')
+    .replace(/^\s*(samsung\s+galaxy|galaxy|samsung|apple)\s+/i, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toLowerCase();
+}
+
 export function parseBrandModelStorage(raw: string | undefined | null): ParsedModel {
   const input = (raw ?? '').toString();
   const rawTrimmed = input.trim();

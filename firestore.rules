@@ -157,6 +157,19 @@ service cloud.firestore {
       allow delete: if isAdmin();
     }
 
+    // Models: admin-curated catalog of (brand, model) pairs. Employees
+    // can only PICK from this list in Add Stock / Bulk Order (the
+    // strict DeviceComboBox + isAdmin gate enforces this client-side).
+    // Reads open to every signed-in user so the picker can render the
+    // dropdown; writes (incl. new-model add from the "+ Add" pill) are
+    // admin-only.
+    match /models/{modelId} {
+      allow read:   if isSignedIn();
+      allow create: if isAdmin() && ownsShared();
+      allow update: if isAdmin() && staysShared();
+      allow delete: if isAdmin();
+    }
+
     // ── Default deny — every unlisted collection is blocked. ───────────────
     match /{document=**} {
       allow read, write: if false;

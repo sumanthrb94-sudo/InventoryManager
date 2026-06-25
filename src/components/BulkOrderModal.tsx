@@ -32,6 +32,7 @@ import {
 import { motion } from 'motion/react';
 import { useInventoryStore } from '../lib/inventoryStore';
 import { dbService } from '../lib/dbService';
+import { auth, isAdmin } from '../lib/firebase';
 import { isValidImei, isAppleDevice } from '../lib/imeiValidation';
 import { parseBrandModelStorage } from '../lib/modelStorage';
 import { ensureSupplier } from '../services';
@@ -39,6 +40,7 @@ import { logInventoryEvent } from '../lib/inventoryEvents';
 import { generateBatchStickerSheet } from '../lib/stickerPdf';
 import DeviceComboBox from './DeviceComboBox';
 import IMEIScanner from './IMEIScanner';
+import type { ModelSeed } from '../lib/deviceCatalog';
 import type { InventoryUnit, ListingSite } from '../types';
 
 type Mode = 'office' | 'shs';
@@ -118,7 +120,10 @@ const today = () => new Date().toISOString().split('T')[0];
 interface Props { onClose: () => void; initialMode?: Mode; }
 
 export default function BulkOrderModal({ onClose, initialMode = 'office' }: Props) {
-  const { units, suppliers } = useInventoryStore();
+  const { units, suppliers, models } = useInventoryStore();
+  // Admin gate for the model-picker "+ Add new" affordance. Employees
+  // can pick from the catalog but cannot extend it.
+  const userIsAdmin = isAdmin(auth.currentUser);
 
   // ── Stage + shared form state ──────────────────────────────────────────────
   const [stage, setStage] = useState<Stage>('setup');
@@ -750,6 +755,8 @@ export default function BulkOrderModal({ onClose, initialMode = 'office' }: Prop
               supplierName={supplierName} setSupplierName={setSupplierName}
               supplierNames={supplierNames}
               units={units}
+              models={models}
+              isAdmin={userIsAdmin}
               colourBuckets={colourBuckets} setColourBuckets={setColourBuckets}
               validation={setupValidation}
             />
@@ -995,7 +1002,7 @@ interface SetupValidation {
 function SetupView({
   mode, setMode, date, setDate, model, setModel, storage, setStorage,
   grade, setGrade, bp, setBp, supplierName, setSupplierName, supplierNames,
-  units, colourBuckets, setColourBuckets, validation,
+  units, models, isAdmin, colourBuckets, setColourBuckets, validation,
 }: {
   mode: Mode; setMode: (m: Mode) => void;
   date: string; setDate: (d: string) => void;
@@ -1006,6 +1013,11 @@ function SetupView({
   supplierName: string; setSupplierName: (s: string) => void;
   supplierNames: string[];
   units: InventoryUnit[];
+  /** Admin-curated catalog seeds piped through from the live store so
+   *  the picker shows brand-new SKUs even before any stock arrives. */
+  models: ModelSeed[];
+  /** Gates the "+ Add new" affordance on the model picker. */
+  isAdmin: boolean;
   colourBuckets: ColourBucket[]; setColourBuckets: React.Dispatch<React.SetStateAction<ColourBucket[]>>;
   validation: SetupValidation;
 }) {
@@ -1052,8 +1064,17 @@ function SetupView({
           />
         </FieldCell>
         <FieldCell label="Model *" className="col-span-2 md:col-span-5" error={!validation.modelOk}>
+          {/* Strict picker — employees PICK from the unified catalog
+              (inventory + admin seeds). Free-text was the source of
+              dupe-model fragmentation; the strict gate keeps it out.
+              Admin sees a "+ Add" pill that writes a new doc to the
+              models collection for unknown queries. */}
           <DeviceComboBox
-            units={units} brand=""
+            units={units}
+            seeds={models}
+            strict
+            isAdmin={isAdmin}
+            brand=""
             model={model}
             onModelChange={setModel}
             onPick={(entry) => {
@@ -1061,7 +1082,26 @@ function SetupView({
               if (!storage && entry.storages[0]) setStorage(entry.storages[0]);
               if (!grade && entry.topGrade) setGrade(entry.topGrade);
             }}
-            placeholder="Search existing models or type new — e.g. iPhone 13 128GB"
+            onCreateModel={isAdmin ? async (draft) => {
+              const id = `model_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+              await dbService.create('models', id, {
+                brand: draft.brand,
+                model: draft.model,
+                ownerId: 'shared',
+                createdAt: new Date().toISOString(),
+                createdBy: auth.currentUser?.email || 'admin',
+              });
+              return {
+                brand: draft.brand,
+                model: draft.model,
+                count: 0,
+                latestDateIn: '',
+                storages: [],
+                colours: [],
+                source: 'seed' as const,
+              };
+            } : undefined}
+            placeholder="Search the catalog — e.g. iPhone 13 128GB"
             inputClassName="w-full border border-gray-200 rounded-lg px-2.5 py-2 text-[13px] md:text-[12px] focus:outline-none focus:border-black"
           />
         </FieldCell>

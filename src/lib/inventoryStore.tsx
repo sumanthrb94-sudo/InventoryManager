@@ -8,6 +8,7 @@ import {
   SupplierWhatsappUpdate,
   ImportBatch,
 } from '../types';
+import type { ModelSeed } from './deviceCatalog';
 
 interface Store {
   loaded: boolean;
@@ -18,6 +19,11 @@ interface Store {
   aggregates: InventoryAggregate[];
   whatsappFeed: SupplierWhatsappUpdate[];
   importBatches: ImportBatch[];
+  /** Admin-curated model catalog seeds — one doc per row in the
+   *  `models` Firestore collection. Surfaced here so DeviceComboBox in
+   *  Add Stock + Bulk Order + the admin Reconciliation tool all read
+   *  from one live source instead of each subscribing independently. */
+  models: ModelSeed[];
 }
 
 const Ctx = createContext<Store>({
@@ -28,6 +34,7 @@ const Ctx = createContext<Store>({
   aggregates: [],
   whatsappFeed: [],
   importBatches: [],
+  models: [],
 });
 
 export function InventoryStoreProvider({ children }: { children: React.ReactNode }) {
@@ -37,6 +44,7 @@ export function InventoryStoreProvider({ children }: { children: React.ReactNode
   const [aggregates, setAggregates]       = useState<InventoryAggregate[]>([]);
   const [whatsappFeed, setWhatsappFeed]   = useState<SupplierWhatsappUpdate[]>([]);
   const [importBatches, setImportBatches] = useState<ImportBatch[]>([]);
+  const [models, setModels]               = useState<ModelSeed[]>([]);
   const [loaded, setLoaded]               = useState(false);
 
   useEffect(() => {
@@ -73,6 +81,9 @@ export function InventoryStoreProvider({ children }: { children: React.ReactNode
     const ib = dbService.subscribeToCollection('importBatches', data => {
       setImportBatches(data);
     });
+    const md = dbService.subscribeToCollection('models', data => {
+      setModels(data as ModelSeed[]);
+    });
 
     return () => {
       clearTimeout(timeout);
@@ -82,6 +93,7 @@ export function InventoryStoreProvider({ children }: { children: React.ReactNode
       ag();
       wa();
       ib();
+      md();
     };
   }, []);
 
@@ -95,6 +107,7 @@ export function InventoryStoreProvider({ children }: { children: React.ReactNode
         aggregates,
         whatsappFeed,
         importBatches,
+        models,
       }}
     >
       {children}
