@@ -2,7 +2,7 @@ import React, { useMemo, useState, useRef, useCallback } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
 import { X } from 'lucide-react';
 import { InventoryUnit } from '../types';
-import { parseBrandModelStorage, type Series } from '../lib/modelStorage';
+import { parseBrandModelStorage, normalizeBucketModel, type Series } from '../lib/modelStorage';
 import { useInventoryStore } from '../lib/inventoryStore';
 import { useUserRegion } from '../lib/userLocale';
 import StockOverlayModal from './StockOverlayModal';
@@ -293,8 +293,13 @@ const SUPPLIER_PALETTE: ReadonlyArray<PtGroupDef['color']> = [
 
 // normalizeBucketModel was promoted to src/lib/modelStorage.ts on 2026-06-21
 // so DeviceComboBox + admin reconciliation can share the same key derivation
-// the periodic table uses. Re-exported here for the existing test imports.
-export { normalizeBucketModel } from '../lib/modelStorage';
+// the periodic table uses. Re-exported here for back-compat with existing
+// test imports. NOTE the export re-statement DOES NOT create a local
+// binding — `normalizeBucketModel` is brought into scope via the named
+// import at the top of the file. A bare `export { x } from '...'` is a
+// re-export only; referencing `x` locally would throw ReferenceError
+// at runtime (it built clean, then crashed on Admin tab open).
+export { normalizeBucketModel };
 
 const bucketKeyOf = (model: string, storage?: string, tag?: string) =>
   `${normalizeBucketModel(model)}|${storage ?? ''}|${tag ?? ''}`;
