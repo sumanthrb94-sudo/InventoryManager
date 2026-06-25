@@ -7,6 +7,12 @@ import { notificationService } from '../lib/notificationService';
 
 interface Props { onClose: () => void; }
 
+// Collections explicitly kept out of the wipe — they're persistent
+// admin-curated team data, not operational records. Adding a new
+// collection? Default to PROTECTED unless wiping it on a reset is
+// clearly the right behaviour.
+const PROTECTED_COLLECTIONS = ['notices', 'models'] as const;
+
 const COLLECTIONS = [
   'inventoryUnits',
   'inventoryAggregates',
@@ -19,7 +25,7 @@ const COLLECTIONS = [
   'importBatches',
   'supplierWhatsappUpdates',
   'marketplaceFees',
-];
+].filter(c => !(PROTECTED_COLLECTIONS as readonly string[]).includes(c));
 
 export default function ResetDataModal({ onClose }: Props) {
   const [confirmed, setConfirmed] = useState(false);
