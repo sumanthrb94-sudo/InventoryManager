@@ -5,7 +5,7 @@ import {
   PackagePlus, Package, RefreshCw,
   LogOut, Plus, FileSpreadsheet, LayoutDashboard,
   TrendingUp, FileText, Users, Settings, Database,
-  ClipboardList, Menu, X,
+  ClipboardList, Menu, X, Megaphone,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import Dashboard, { NavAction } from './components/Dashboard';
@@ -15,6 +15,7 @@ import SalesReportImport from './components/SalesReportImport';
 import BuySheet from './components/BuySheet';
 import SellSheet from './components/SellSheet';
 import ReturnsPage from './components/ReturnsPage';
+import NoticeBoard from './components/NoticeBoard';
 import ReportingPage from './components/ReportingPage';
 import Suppliers from './components/Suppliers';
 import AnalyticsPage from './components/AnalyticsPage';
@@ -31,7 +32,7 @@ import ErrorBoundary from './components/ErrorBoundary';
 import { useBuildVersionCheck } from './lib/useBuildVersionCheck';
 import type { SupplierWhatsappUpdate } from './types';
 
-type Tab      = 'buy' | 'sell' | 'returns' | 'admin';
+type Tab      = 'notices' | 'buy' | 'sell' | 'returns' | 'admin';
 type AdminSub = 'overview' | 'salesHistory' | 'insights' | 'reports' | 'suppliers';
 
 interface NavTab {
@@ -48,6 +49,11 @@ interface NavTab {
  */
 function buildNavTabs(user: User): NavTab[] {
   const tabs: NavTab[] = [];
+  // Notices comes first — admin-authored team board read by every
+  // signed-in employee. Placed above Stock Intake per operator
+  // request (2026-06-20) so the day's note is the first thing the
+  // team sees when they open the app.
+  tabs.push({           id: 'notices', label: 'Notices', icon: <Megaphone size={20} /> });
   if (canBuy(user))   tabs.push({ id: 'buy',     label: 'Stock Intake', icon: <PackagePlus size={20} /> });
   if (canSell(user))  tabs.push({ id: 'sell',    label: 'Inventory',   icon: <Package size={20} /> });
   tabs.push({           id: 'returns', label: 'Returns', icon: <RefreshCw size={20} /> });
@@ -632,6 +638,7 @@ function AppShell({ user }: { user: User }) {
               <motion.div key={activeTab === 'admin' ? `admin-${adminSub}` : activeTab}
                 initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: -8 }} transition={{ duration: 0.18 }}>
+                {activeTab === 'notices' && <NoticeBoard />}
                 {activeTab === 'buy'     && <BuySheet onOpenBatch={() => setIsBatchModalOpen(true)} onOpenImport={() => setIsImportModalOpen(true)} />}
                 {activeTab === 'sell'    && <SellSheet />}
                 {activeTab === 'returns' && <ReturnsPage />}

@@ -142,6 +142,18 @@ service cloud.firestore {
       allow write:  if isAdmin();
     }
 
+    // Notices: admin-authored team broadcast board (date-stamped posts
+    // visible to every signed-in employee). Treat like marketplaceFees:
+    // everyone reads, only the admin email writes. Per-doc ownerId still
+    // resolves to 'shared' so create/update share the same shape as the
+    // rest of the dataset.
+    match /notices/{noticeId} {
+      allow read:   if isSignedIn();
+      allow create: if isAdmin() && ownsShared();
+      allow update: if isAdmin() && staysShared();
+      allow delete: if isAdmin();
+    }
+
     // ── Default deny — every unlisted collection is blocked. ───────────────
     match /{document=**} {
       allow read, write: if false;
