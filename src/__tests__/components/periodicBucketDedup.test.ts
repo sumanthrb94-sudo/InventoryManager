@@ -26,10 +26,8 @@
  *     Tab / iPhone, so the variant suffix surfaces on the tile
  */
 import { describe, it, expect } from 'vitest';
-import {
-  normalizeBucketModel,
-  shortCode,
-} from '../../components/PeriodicInventory';
+import { normalizeBucketModel } from '../../lib/modelStorage';
+import { shortCode } from '../../components/PeriodicInventory';
 
 describe('normalizeBucketModel — false-duplicate audit', () => {
   it('collapses Galaxy/SAMSUNG/casing variants of the SAME product', () => {

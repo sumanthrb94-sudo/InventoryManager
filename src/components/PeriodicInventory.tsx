@@ -291,16 +291,12 @@ const SUPPLIER_PALETTE: ReadonlyArray<PtGroupDef['color']> = [
   { bg: '#475569', light: '#f1f5f9', text: '#334155', border: '#cbd5e1' },
 ];
 
-// normalizeBucketModel was promoted to src/lib/modelStorage.ts on 2026-06-21
-// so DeviceComboBox + admin reconciliation can share the same key derivation
-// the periodic table uses. Re-exported here for back-compat with existing
-// test imports. NOTE the export re-statement DOES NOT create a local
-// binding — `normalizeBucketModel` is brought into scope via the named
-// import at the top of the file. A bare `export { x } from '...'` is a
-// re-export only; referencing `x` locally would throw ReferenceError
-// at runtime (it built clean, then crashed on Admin tab open).
-export { normalizeBucketModel };
-
+// normalizeBucketModel lives in src/lib/modelStorage.ts since 2026-06-21
+// (shared by DeviceComboBox catalog + admin reconciliation + periodic
+// table bucket keys). It's imported at the top of this file (line 5).
+// No re-export here — earlier `export { normalizeBucketModel };` form
+// caused a confusing ReferenceError loop on certain bundler output;
+// test imports moved to the canonical modelStorage path instead.
 const bucketKeyOf = (model: string, storage?: string, tag?: string) =>
   `${normalizeBucketModel(model)}|${storage ?? ''}|${tag ?? ''}`;
 
