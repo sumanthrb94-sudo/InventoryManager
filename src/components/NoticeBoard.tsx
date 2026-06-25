@@ -61,10 +61,25 @@ export default function NoticeBoard() {
   const [editDraft, setEditDraft] = useState('');
 
   useEffect(() => {
-    return dbService.subscribeToCollection('notices', (data: Notice[]) => {
+    // Belt-and-braces loaded flag: dbService.subscribeToCollection's
+    // onSnapshot only fires `loaded` on a SUCCESSFUL read. When the
+    // Firestore rule for `notices` hasn't been deployed yet (or any
+    // permissions failure), the error handler just logs + bumps the
+    // sync-status indicator to "offline" — the callback never runs and
+    // the UI hangs in the loading skeleton forever. A 4-second timeout
+    // flips `loaded` so the empty-state renders, the operator sees the
+    // compose box (when admin), and the page is usable instead of
+    // perpetually spinning.
+    const timeout = window.setTimeout(() => setLoaded(true), 4000);
+    const unsub = dbService.subscribeToCollection('notices', (data: Notice[]) => {
       setNotices(data);
       setLoaded(true);
+      window.clearTimeout(timeout);
     });
+    return () => {
+      window.clearTimeout(timeout);
+      unsub();
+    };
   }, []);
 
   /** Newest first — the chat-history convention. */
