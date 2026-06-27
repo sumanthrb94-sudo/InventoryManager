@@ -413,7 +413,13 @@ export default function SalesReportImport({ onClose }: Props) {
         importBatchId: `inv-${Date.now()}`,
         sourceFile: fileName,
         importedAt: new Date().toISOString(),
-        ownerId: auth.currentUser?.uid || 'shared',
+        // MUST be the literal 'shared' — firestore.rules gates every
+        // sales create/update on ownsShared() (ownerId == 'shared').
+        // Writing the user's UID here (the old value) made every import
+        // write fail with "Missing or insufficient permissions". The
+        // whole dataset is shared-team-owned; there is no per-user
+        // ownership for sales.
+        ownerId: 'shared',
       },
     }));
     setProgress({ done: 0, total: entries.length });

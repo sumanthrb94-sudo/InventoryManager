@@ -278,7 +278,11 @@ export default function InventoryReportImport({ onClose }: Props) {
 
     // Build supplier entries for any new names. We mint synthetic ids prefixed
     // sup_imp_ so they're easy to spot in the data later.
-    const ownerId = auth.currentUser?.uid || 'shared';
+    // Every record is shared-team-owned. firestore.rules gates
+    // suppliers + inventoryUnits create/update on ownsShared()
+    // (ownerId == 'shared'); writing the user's UID here made every
+    // inventory import fail with "Missing or insufficient permissions".
+    const ownerId = 'shared';
     const supplierByName = new Map<string, string>();
     for (const s of suppliers) supplierByName.set(s.name.trim().toLowerCase(), s.id);
 
