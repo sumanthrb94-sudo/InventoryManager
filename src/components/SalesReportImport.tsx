@@ -28,9 +28,17 @@ import { MARKETPLACES } from '../types';
 import { parseSalesWorkbook, type ParsedSales } from '../lib/salesImport';
 import { buildPostImportSyncPatches } from '../services/salesService';
 import { addSoldUnitFromSale, completeUnitBuyInfo } from '../services/inventoryService';
-import { auth } from '../lib/firebase';
+import { normalizeOperatorSku } from '../lib/modelStorage';
+import { auth, isAdmin } from '../lib/firebase';
+import DeviceComboBox from './DeviceComboBox';
 
 interface Props { onClose: () => void; }
+
+// Shared with Add Stock / Bulk Order — keep the audit-completion row's
+// colour + storage dropdowns on the same option set so a unit created
+// here is indistinguishable from a normally-received one.
+const COLOUR_PRESETS = ['Black', 'White', 'Grey', 'Blue', 'Gold', 'Green', 'Purple', 'Red', 'Cream', 'Silver'];
+const STORAGE_OPTIONS = ['32GB', '64GB', '128GB', '256GB', '512GB', '1TB'];
 
 type Phase = 'upload' | 'preview' | 'loading' | 'done';
 
@@ -271,7 +279,12 @@ export function buildPreview(
 
     const matched = unitsByImei.get(imeiKey);
     // Defaults: a matched unit's own buy-side data, falling back to the sale.
-    const model = (matched?.model || s.sku || '').trim();
+    // Model NEVER defaults to the raw SKU — the operator picks a clean model
+    // from the catalog in the preview. If the SKU normalises to a known
+    // clean name we seed that (likely matches a catalog entry); otherwise
+    // leave it blank so the strict picker forces a deliberate selection.
+    // The raw SKU is still preserved separately on `sku` for provenance.
+    const model = (matched?.model || normalizeOperatorSku(s.sku || '') || '').trim();
     const supplierName = (matched?.supplierName || s.supplierName || '').trim();
     const buyPrice = matched?.buyPrice ?? s.buyPrice ?? 0;
     const colour = matched?.colour && matched.colour !== 'Unknown' ? matched.colour : '';
@@ -326,7 +339,8 @@ export function buildPreview(
 }
 
 export default function SalesReportImport({ onClose }: Props) {
-  const { sales, units } = useInventoryStore();
+  const { sales, units, models } = useInventoryStore();
+  const userIsAdmin = isAdmin(auth.currentUser);
   const [phase, setPhase] = useState<Phase>('upload');
   const [parsed, setParsed] = useState<ParsedSales | null>(null);
   const [fileName, setFileName] = useState('');
@@ -594,6 +608,9 @@ export default function SalesReportImport({ onClose }: Props) {
               onAuditEdit={(saleId, patch) => {
                 setAuditEdits(prev => prev.map(o => o.saleId === saleId ? { ...o, ...patch } : o));
               }}
+              units={units}
+              models={models}
+              isAdmin={userIsAdmin}
             />
           )}
 
@@ -808,7 +825,7 @@ function UploadPhase({
 // ── Phase: preview ──────────────────────────────────────────────────────────
 function PreviewPhase({
   preview, fileName, error, flipsAcked, onAckChange,
-  auditEdits, onAuditEdit,
+  auditEdits, onAuditEdit, units, models, isAdmin,
 }: {
   preview: PreviewBuckets;
   fileName: string;
@@ -817,6 +834,9 @@ function PreviewPhase({
   onAckChange: (v: boolean) => void;
   auditEdits: AuditCompletionRow[];
   onAuditEdit: (saleId: string, patch: Partial<AuditCompletionRow>) => void;
+  units: import('../types').InventoryUnit[];
+  models: import('../lib/deviceCatalog').ModelSeed[];
+  isAdmin: boolean;
 }) {
   // Clean re-import = nothing to create, nothing to flip, no orphan IMEIs,
   // no stale combined docs to purge. The file has already been imported and
@@ -1048,24 +1068,70 @@ function PreviewPhase({
                         </span>
                       )}
                     </span>
-                    <input
-                      className={`col-span-3 border rounded px-1.5 py-1 text-[10px] focus:outline-none focus:border-orange-500 ${!o.model.trim() ? 'border-rose-400 bg-rose-50' : 'border-slate-200'}`}
-                      value={o.model}
-                      placeholder="Model required"
-                      onChange={e => onAuditEdit(o.saleId, { model: e.target.value })}
-                    />
-                    <input
-                      className="col-span-1 border border-slate-200 rounded px-1.5 py-1 text-[10px] focus:outline-none focus:border-orange-500"
+                    {/* Model — searchable catalog picker, NOT free text.
+                        The raw SKU is preserved on o.sku; the operator
+                        selects a clean model by searching the unified
+                        catalog (live units + admin-curated `models`).
+                        Strict mode blocks free text; admins get the
+                        "+ Add" affordance for genuinely new models. On
+                        pick we also pre-fill storage from the catalog
+                        entry's dominant value when the row's storage is
+                        still blank. */}
+                    <div className={`col-span-3 ${!o.model.trim() ? 'rounded ring-1 ring-rose-400 bg-rose-50' : ''}`}>
+                      <DeviceComboBox
+                        units={units}
+                        seeds={models}
+                        strict
+                        isAdmin={isAdmin}
+                        brand=""
+                        model={o.model}
+                        onModelChange={m => onAuditEdit(o.saleId, { model: m })}
+                        onPick={entry => onAuditEdit(o.saleId, {
+                          model: entry.model,
+                          ...(!o.storage && entry.storages?.[0] ? { storage: entry.storages[0] } : {}),
+                          ...((!o.colour || o.colour === 'Unknown') && entry.colours?.[0] ? { colour: entry.colours[0] } : {}),
+                        })}
+                        onCreateModel={isAdmin ? async draft => {
+                          const id = `model_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+                          await dbService.create('models', id, {
+                            brand: draft.brand,
+                            model: draft.model,
+                            ownerId: 'shared',
+                            createdAt: new Date().toISOString(),
+                            createdBy: auth.currentUser?.email || 'admin',
+                          });
+                          return { brand: draft.brand, model: draft.model, count: 0, latestDateIn: '', storages: [], colours: [], source: 'seed' as const };
+                        } : undefined}
+                        placeholder="Search model…"
+                        inputClassName="w-full border border-slate-200 rounded px-1.5 py-1 text-[10px] focus:outline-none focus:border-orange-500"
+                      />
+                    </div>
+                    {/* Colour — dropdown. Preserve any non-preset value
+                        the matched unit already carried by surfacing it as
+                        the first option so it isn't silently dropped. */}
+                    <select
+                      className="col-span-1 border border-slate-200 rounded px-1 py-1 text-[10px] focus:outline-none focus:border-orange-500 bg-white"
                       value={o.colour}
-                      placeholder="—"
                       onChange={e => onAuditEdit(o.saleId, { colour: e.target.value })}
-                    />
-                    <input
-                      className="col-span-1 border border-slate-200 rounded px-1.5 py-1 text-[10px] focus:outline-none focus:border-orange-500"
+                    >
+                      <option value="">—</option>
+                      {o.colour && !COLOUR_PRESETS.some(c => c.toLowerCase() === o.colour.toLowerCase()) && (
+                        <option value={o.colour}>{o.colour}</option>
+                      )}
+                      {COLOUR_PRESETS.map(c => <option key={c} value={c}>{c}</option>)}
+                    </select>
+                    {/* Storage — dropdown. Same non-preset preservation. */}
+                    <select
+                      className="col-span-1 border border-slate-200 rounded px-1 py-1 text-[10px] focus:outline-none focus:border-orange-500 bg-white"
                       value={o.storage}
-                      placeholder="—"
                       onChange={e => onAuditEdit(o.saleId, { storage: e.target.value })}
-                    />
+                    >
+                      <option value="">—</option>
+                      {o.storage && !STORAGE_OPTIONS.includes(o.storage) && (
+                        <option value={o.storage}>{o.storage}</option>
+                      )}
+                      {STORAGE_OPTIONS.map(s => <option key={s} value={s}>{s}</option>)}
+                    </select>
                     <input
                       className={`col-span-2 border rounded px-1.5 py-1 text-[10px] focus:outline-none focus:border-orange-500 ${!o.supplierName.trim() ? 'border-rose-400 bg-rose-50' : 'border-slate-200'}`}
                       value={o.supplierName}
