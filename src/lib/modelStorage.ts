@@ -215,7 +215,7 @@ const BRAND_RULES: ReadonlyArray<{ brand: Brand; keywords: string[] }> = [
 
 /** Words that, when they appear as the very first token, should be dropped
  *  from the cleaned model string (so "Apple iPhone 17" → "iPhone 17"). */
-const LEADING_BRAND_TOKENS = new Set(['apple', 'samsung', 'google', 'xiaomi', 'oneplus']);
+const LEADING_BRAND_TOKENS = new Set(['apple', 'samsung', 'galaxy', 'google', 'xiaomi', 'oneplus']);
 
 function detectBrand(lower: string): Brand {
   for (const rule of BRAND_RULES) {
@@ -447,10 +447,11 @@ if (import.meta.vitest) {
       });
     });
     it('handles Galaxy A32 5G + 64GB', () => {
-      // 5G is a radio tag — series detection still sees "a32" in the
-      // lower-cased original so the bucket stays Galaxy A.
+      // 'galaxy' is now a LEADING_BRAND_TOKEN so "Galaxy" is stripped just like
+      // "Samsung" — both "Galaxy A32 5G 64GB" and "Samsung A32 5G 64GB" now
+      // produce the same bucket key (A32|64GB|5G).
       expect(parseBrandModelStorage('Galaxy A32 5G 64GB')).toEqual({
-        brand: 'Samsung', model: 'Galaxy A32', storage: '64GB', series: 'Galaxy A', tag: '5G',
+        brand: 'Samsung', model: 'A32', storage: '64GB', series: 'Galaxy A', tag: '5G',
       });
     });
     it('splits Apple iPhone 19 Pro Max with storage + Wifi/Cellular tag', () => {

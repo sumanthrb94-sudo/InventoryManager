@@ -89,6 +89,12 @@ interface Element {
   variants: { colour: string; count: number }[];
   storageVariants: { storage: string; count: number }[];
   priceRange: { min: number; max: number };
+  /** The exact bucket key (model|storage|tag) this tile was built from.
+   *  Stored here so the overlay can filter by the identical key instead of
+   *  re-parsing u.model independently — preventing divergence when the same
+   *  physical SKU exists under different raw model strings (e.g.
+   *  "GALAXY A32 64GB" vs "SAMSUNG A32 64GB"). */
+  bucketKey: string;
 }
 
 // sort 64GB < 128GB < 256GB < 512GB < 1TB
@@ -311,6 +317,9 @@ function buildGroups(
             seriesKey, model: d.model, storage: d.storage, tag: d.tag, symbol,
             count: d.count, shsCount: d.shsCount, value: d.value,
             searchTerm: d.model, ordinal: i + 1,
+            // Store the exact key this bucket was built with so the overlay
+            // can match units using the same key — not a re-derived one.
+            bucketKey: bucketKeyOf(d.model, d.storage, d.tag),
             variants: Object.entries(d.variants || {})
               .sort(([, a], [, b]) => b - a).map(([colour, count]) => ({ colour, count })),
             storageVariants: Object.entries(d.storages || {})
@@ -562,7 +571,12 @@ export default function PeriodicInventory({ units, onNavigate }: Props) {
   /** Excel-style overlay target — set when a block is clicked, null when closed.
    *  `supplierId` is set only from the By-Supplier view so the overlay scopes
    *  to that supplier's units of the SKU. */
-  const [overlay, setOverlay] = useState<{ seriesKey: string; model: string; storage?: string; tag?: string; supplierId?: string } | null>(null);
+  const [overlay, setOverlay] = useState<{
+    seriesKey: string; model: string; storage?: string; tag?: string;
+    supplierId?: string;
+    /** Exact bucket key this tile was built with — used by overlayRows for precise matching. */
+    bucketKey: string;
+  } | null>(null);
   // Refs for the hover grace-period timers
   const closeTimer  = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -684,17 +698,23 @@ export default function PeriodicInventory({ units, onNavigate }: Props) {
     return scopedUnits;
   }, [viewMode, soldAll, scopedUnits]);
 
-  /** Units matching the currently-selected element. EXACT match on
-   *  parsed.model / storage / tag — same three keys the periodic table buckets
-   *  by, so what's-in-the-tile and what's-in-the-overlay stay one-to-one.
-   *  When the tile came from the By-Supplier view we also narrow to that
-   *  supplier. Sorted newest-first by dateIn. */
+  /** Units matching the currently-selected element.
+   *
+   *  Filtering is done by comparing each unit's computed bucket key against the
+   *  key that was used to BUILD the tile (`overlay.bucketKey`). This is the only
+   *  correct approach: the tile was built by `buildGroups` which calls
+   *  `parseBrandModelStorage` once per unit at build time; re-parsing here
+   *  independently could produce a different key if the same SKU exists in
+   *  Firestore under multiple raw model-string spellings (e.g. "GALAXY A32 64GB"
+   *  vs "SAMSUNG A32 64GB"). Using the stored key guarantees the overlay count
+   *  equals the tile count — always.
+   *
+   *  When the tile came from the By-Supplier view we also narrow to that supplier.
+   *  Sorted newest-first by dateIn. */
   const overlayRows = useMemo<InventoryUnit[]>(() => {
     if (!overlay) return [];
-    const wantModel   = overlay.model.toLowerCase().trim();
-    const wantStorage = (overlay.storage || '').toUpperCase().trim();
-    const wantTag     = (overlay.tag || '').toLowerCase().trim();
-    const wantSup     = overlay.supplierId;
+    const wantKey = overlay.bucketKey;
+    const wantSup = overlay.supplierId;
     return overlayBase.filter(u => {
       if (wantSup) {
         const ok = wantSup === UNKNOWN_SUPPLIER_ID
@@ -702,14 +722,12 @@ export default function PeriodicInventory({ units, onNavigate }: Props) {
           : unitHasSupplier(u, wantSup);
         if (!ok) return false;
       }
-      const parsed = parseBrandModelStorage(u.model || '');
-      const model   = (parsed.model || u.model || '').toLowerCase().trim();
+      // Compute this unit's bucket key using the same parser and field-priority
+      // order that buildGroups used, then compare to the tile's stored key.
+      const parsed  = parseBrandModelStorage(u.model || '');
       const storage = (u.storage || parsed.storage || '').toUpperCase().trim();
-      const tag     = (parsed.tag || '').toLowerCase().trim();
-      if (model !== wantModel) return false;
-      if (wantStorage !== storage) return false;
-      if (wantTag !== tag) return false;
-      return true;
+      const unitKey = bucketKeyOf(parsed.model || u.model || '', storage, parsed.tag);
+      return unitKey === wantKey;
     }).sort((a, b) => {
       const da = new Date(a.dateIn || 0).getTime();
       const db = new Date(b.dateIn || 0).getTime();
@@ -977,6 +995,9 @@ export default function PeriodicInventory({ units, onNavigate }: Props) {
                           model: el.model,
                           storage: el.storage,
                           tag: el.tag,
+                          // The exact key this tile was built from — overlayRows
+                          // uses it to match units without re-deriving the key.
+                          bucketKey: el.bucketKey,
                           // By-Supplier rows are keyed by supplier id — scope
                           // the overlay to that supplier's units of the SKU.
                           ...(viewMode === 'supplier' ? { supplierId: g.id } : {}),
