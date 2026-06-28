@@ -94,6 +94,10 @@ interface Element {
    *  4G/LTE/Cellular variant. */
   connectivity?: string;
   priceRange: { min: number; max: number };
+  /** The exact bucket key (model|storage) this tile was built from.
+   *  Stored here so the overlay can filter by the identical key instead of
+   *  re-parsing u.model independently. */
+  bucketKey: string;
 }
 
 // sort 64GB < 128GB < 256GB < 512GB < 1TB
@@ -384,7 +388,7 @@ function buildGroups(
       }
 
       const elements: Element[] = Object.values(buckets)
-        .map((d) => {
+        .map((d, i) => {
           const symbol = shortCode(d.model);
           const seriesKey = [d.model, d.storage].filter(Boolean).join(' ');
           // Pick the dominant cellular tag for the tile caption. 5G wins
@@ -399,7 +403,8 @@ function buildGroups(
           return {
             seriesKey, model: d.model, storage: d.storage, symbol,
             count: d.count, shsCount: d.shsCount, value: d.value,
-            searchTerm: d.model, ordinal: 0,
+            searchTerm: d.model, ordinal: i + 1,
+            bucketKey: bucketKeyOf(d.model, d.storage),
             variants: Object.entries(d.variants || {})
               .sort(([, a], [, b]) => b - a).map(([colour, count]) => ({ colour, count })),
             storageVariants: Object.entries(d.storages || {})
@@ -651,7 +656,11 @@ export default function PeriodicInventory({ units, onNavigate }: Props) {
   /** Excel-style overlay target — set when a block is clicked, null when closed.
    *  `supplierId` is set only from the By-Supplier view so the overlay scopes
    *  to that supplier's units of the SKU. */
-  const [overlay, setOverlay] = useState<{ seriesKey: string; model: string; storage?: string; supplierId?: string } | null>(null);
+  const [overlay, setOverlay] = useState<{
+    seriesKey: string; model: string; storage?: string; supplierId?: string;
+    /** Exact bucket key this tile was built with — used by overlayRows for precise matching. */
+    bucketKey: string;
+  } | null>(null);
   // Refs for the hover grace-period timers
   const closeTimer  = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -793,12 +802,8 @@ export default function PeriodicInventory({ units, onNavigate }: Props) {
    *  supplier. Sorted newest-first by dateIn. */
   const overlayRows = useMemo<InventoryUnit[]>(() => {
     if (!overlay) return [];
-    const wantModel   = overlay.model.toLowerCase().trim();
-    const wantStorage = (overlay.storage || '').toUpperCase().trim();
-    const wantSup     = overlay.supplierId;
-    // Tiles bucket by model+storage only (tag variants merge into one
-    // tile), so the overlay must match all tag variants too — don't filter
-    // by tag here.
+    const wantKey = overlay.bucketKey;
+    const wantSup = overlay.supplierId;
     return overlayBase.filter(u => {
       if (wantSup) {
         const ok = wantSup === UNKNOWN_SUPPLIER_ID
@@ -807,11 +812,9 @@ export default function PeriodicInventory({ units, onNavigate }: Props) {
         if (!ok) return false;
       }
       const parsed = parseBrandModelStorage(u.model || '');
-      const model   = (parsed.model || u.model || '').toLowerCase().trim();
       const storage = (u.storage || parsed.storage || '').toUpperCase().trim();
-      if (model !== wantModel) return false;
-      if (wantStorage !== storage) return false;
-      return true;
+      const unitKey = bucketKeyOf(parsed.model || u.model || '', storage);
+      return unitKey === wantKey;
     }).sort((a, b) => {
       const da = new Date(a.dateIn || 0).getTime();
       const db = new Date(b.dateIn || 0).getTime();
@@ -1052,6 +1055,7 @@ export default function PeriodicInventory({ units, onNavigate }: Props) {
                           seriesKey: viewMode === 'supplier' ? `${g.label} · ${el.seriesKey}` : el.seriesKey,
                           model: el.model,
                           storage: el.storage,
+                          bucketKey: el.bucketKey,
                           // By-Supplier rows are keyed by supplier id — scope
                           // the overlay to that supplier's units of the SKU.
                           ...(viewMode === 'supplier' ? { supplierId: g.id } : {}),
