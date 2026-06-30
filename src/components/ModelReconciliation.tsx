@@ -202,8 +202,17 @@ export default function ModelReconciliation() {
                           );
                         })}
                       </div>
+                      <div className="mt-3 flex items-center gap-2">
+                        <input
+                          type="text"
+                          value={c.canonical}
+                          onChange={e => setOverrides(prev => ({ ...prev, [c.key]: e.target.value }))}
+                          placeholder="Or type a custom unified name..."
+                          className="flex-1 px-3 py-1.5 text-xs font-mono border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-emerald-500 focus:border-emerald-500 bg-white"
+                        />
+                      </div>
                       <p className="text-[10px] font-mono text-slate-400 italic mt-2">
-                        Click a variant to make it the canonical for this cluster. Apply rewrites every other variant to that string.
+                        Click a variant to make it the canonical for this cluster, or type a custom name. Apply rewrites every variant to that string.
                       </p>
                     </div>
                   )}
