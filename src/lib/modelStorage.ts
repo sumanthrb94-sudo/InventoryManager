@@ -435,6 +435,17 @@ export function parseBrandModelStorage(raw: string | undefined | null): ParsedMo
     working = working.slice(firstToken.length).replace(/^[\s\-]+/, '');
   }
 
+  // A brand word can be prepended to an operator SKU in the sale import
+  // (e.g. "Samsung ASI-SG-A32--64-BK-EX"). The top-level SKU normaliser
+  // rejects whitespace, so after stripping the brand prefix try again on
+  // the remainder. If it is a SKU, restart parsing from the clean string
+  // so brand/model/storage all stay consistent and SKU codes don't leak
+  // into stock-alert labels.
+  const skuNormalized = normalizeOperatorSku(working);
+  if (skuNormalized) {
+    return parseBrandModelStorage(skuNormalized);
+  }
+
   // Pull KNOWN tags out first (5G, Dual SIM, Wi-Fi+Cellular, etc.) — these
   // can appear anywhere in the string, even mid-model. The closed set
   // covers the common radio / sim / connectivity metadata so it gets

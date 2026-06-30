@@ -67,4 +67,17 @@ describe('parseBrandModelStorage — SKU integration', () => {
     expect(parseBrandModelStorage('ASI-SG-TABA8-32GB-BK-EX').series).toBe('Galaxy Tab');
     expect(parseBrandModelStorage('ASI-IP-SE3-128-MN-GD').series).toBe('iPhone');
   });
+
+  it('normalises brand-prefixed SKUs so they bucket with clean models', () => {
+    // Sale imports sometimes prepend the brand word to the SKU.
+    // Without this path the raw SKU code leaks into stock-alert labels.
+    const prefixed = parseBrandModelStorage('Samsung ASI-SG-A32--64-BK-EX');
+    const clean    = parseBrandModelStorage('Samsung Galaxy A32 64GB');
+    expect(prefixed.brand).toBe(clean.brand);
+    expect(prefixed.model).toBe(clean.model);
+    expect(prefixed.storage).toBe(clean.storage);
+    expect(prefixed.series).toBe(clean.series);
+
+    expect(parseBrandModelStorage('Apple ASI-IP-SE3-128-MN-GD').model).toBe('iPhone SE3');
+  });
 });
