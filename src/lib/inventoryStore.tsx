@@ -64,8 +64,19 @@ export function InventoryStoreProvider({ children }: { children: React.ReactNode
     const u = dbService.subscribeToCollection('inventoryUnits', (data: any[]) => {
       const unified = data.map(item => {
         if (!item.model) return item;
-        const expectedSku = [item.brand, item.model, item.storage].filter(Boolean).join(' ');
-        return expectedSku && item.sku !== expectedSku ? { ...item, sku: expectedSku } : item;
+        const parsed = parseBrandModelStorage(item.model);
+        const cleanModel = parsed.model || item.model;
+        const cleanBrand = (item.brand && item.brand !== 'Other') ? item.brand : (parsed.brand !== 'Other' ? parsed.brand : '');
+        const cleanStorage = item.storage || parsed.storage;
+        const expectedSku = [cleanBrand, cleanModel, cleanStorage].filter(Boolean).join(' ');
+        
+        return {
+          ...item,
+          model: cleanModel,
+          brand: cleanBrand,
+          storage: cleanStorage,
+          sku: expectedSku || item.sku
+        };
       });
       setUnits(unified);
       if (!unitsReady) { unitsReady = true; markLoaded(); }
@@ -75,11 +86,18 @@ export function InventoryStoreProvider({ children }: { children: React.ReactNode
     });
     const sl = dbService.subscribeToCollection('sales', (data: any[]) => {
       const unified = data.map(item => {
-        if (!item.model) return item;
-        const parsed = parseBrandModelStorage(item.model);
+        const rawModel = item.model || item.sku;
+        if (!rawModel) return item;
+        const parsed = parseBrandModelStorage(rawModel);
+        const cleanModel = parsed.model || rawModel;
         const brand = parsed.brand !== 'Other' ? parsed.brand : '';
-        const expectedSku = [brand, item.model, parsed.storage].filter(Boolean).join(' ');
-        return expectedSku && item.sku !== expectedSku ? { ...item, sku: expectedSku } : item;
+        const expectedSku = [brand, cleanModel, parsed.storage].filter(Boolean).join(' ');
+        
+        return {
+          ...item,
+          model: cleanModel,
+          sku: expectedSku || item.sku
+        };
       });
       setSales(unified);
       if (!salesReady) { salesReady = true; markLoaded(); }
