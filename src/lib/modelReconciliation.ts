@@ -21,16 +21,18 @@
  * a single dbService.bulkCreate (which does `{ merge: true }` writes,
  * so passing only `{ model }` patches every existing field intact).
  */
-import type { InventoryUnit } from '../types';
-import { normalizeBucketModel } from './modelStorage';
+import type { InventoryUnit, InventoryAggregate, Sale } from '../types';
+import { normalizeBucketModel, parseBrandModelStorage } from './modelStorage';
 
 export interface ModelClusterVariant {
   /** Raw model string verbatim — exactly what the unit doc carries. */
   rawModel: string;
-  /** Number of units currently using this raw string. */
+  /** Number of items currently using this raw string. */
   count: number;
   /** Doc ids of those units — bulk-update targets. */
   unitIds: string[];
+  aggregateIds: string[];
+  saleIds: string[];
 }
 
 export interface ModelCluster {
@@ -53,40 +55,75 @@ export interface ModelCluster {
   totalUnits: number;
 }
 
-export function buildReconciliationClusters(units: InventoryUnit[]): ModelCluster[] {
+export function buildReconciliationClusters(
+  units: InventoryUnit[],
+  aggregates: InventoryAggregate[],
+  sales: Sale[]
+): ModelCluster[] {
   type Bucket = {
     key: string;
     brand: string;
-    /** rawModel → { count, unitIds } */
-    variants: Map<string, { count: number; unitIds: string[] }>;
+    /** rawModel → { count, unitIds, aggregateIds, saleIds } */
+    variants: Map<string, { count: number; unitIds: string[]; aggregateIds: string[]; saleIds: string[] }>;
   };
   const map = new Map<string, Bucket>();
 
-  for (const u of units) {
-    const brand = (u.brand || '').trim();
-    const raw = (u.model || '').trim();
-    if (!brand && !raw) continue;
-    const key = `${brand.toLowerCase()}||${normalizeBucketModel(raw)}`;
+  const processItem = (
+    id: string,
+    brand: string,
+    rawModel: string,
+    type: 'unit' | 'aggregate' | 'sale'
+  ) => {
+    brand = brand.trim();
+    rawModel = rawModel.trim();
+    if (!brand && !rawModel) return;
+    if (!brand) {
+      brand = parseBrandModelStorage(rawModel).brand || '';
+    }
+    const key = `${brand.toLowerCase()}||${normalizeBucketModel(rawModel)}`;
     let b = map.get(key);
     if (!b) {
       b = { key, brand, variants: new Map() };
       map.set(key, b);
     }
     if (!b.brand && brand) b.brand = brand;
-    let v = b.variants.get(raw);
+    let v = b.variants.get(rawModel);
     if (!v) {
-      v = { count: 0, unitIds: [] };
-      b.variants.set(raw, v);
+      v = { count: 0, unitIds: [], aggregateIds: [], saleIds: [] };
+      b.variants.set(rawModel, v);
     }
     v.count++;
-    if (u.id) v.unitIds.push(u.id);
+    if (id) {
+      if (type === 'unit') v.unitIds.push(id);
+      else if (type === 'aggregate') v.aggregateIds.push(id);
+      else if (type === 'sale') v.saleIds.push(id);
+    }
+  };
+
+  for (const u of units) {
+    processItem(u.id, u.brand || '', u.model || '', 'unit');
+  }
+  for (const a of aggregates) {
+    processItem(a.id, '', a.model || '', 'aggregate');
+  }
+  for (const s of sales) {
+    // Only reconcile unlinked sales
+    if (s.unitId) continue;
+    const raw = s.model || s.sku || '';
+    if (raw) processItem(s.id, '', raw, 'sale');
   }
 
   const out: ModelCluster[] = [];
   for (const b of map.values()) {
     if (b.variants.size < 2) continue;
     const variants: ModelClusterVariant[] = Array.from(b.variants.entries())
-      .map(([rawModel, v]) => ({ rawModel, count: v.count, unitIds: [...v.unitIds] }))
+      .map(([rawModel, v]) => ({ 
+        rawModel, 
+        count: v.count, 
+        unitIds: [...v.unitIds],
+        aggregateIds: [...v.aggregateIds],
+        saleIds: [...v.saleIds]
+      }))
       .sort((a, c) =>
         c.count - a.count
         || c.rawModel.length - a.rawModel.length
@@ -107,16 +144,15 @@ export function buildReconciliationClusters(units: InventoryUnit[]): ModelCluste
   return out;
 }
 
-/** Build the list of per-unit patches the admin Apply button will dispatch.
- *  Skips units already at the canonical value so the write batch only
- *  carries real updates (no-op writes still bump updatedAt — wasteful). */
-export function buildReconciliationPatches(cluster: ModelCluster): Array<{ id: string; model: string }> {
-  const out: Array<{ id: string; model: string }> = [];
+export type PatchTarget = { collection: 'inventoryUnits' | 'inventoryAggregates' | 'sales'; id: string; model: string };
+
+export function buildReconciliationPatches(cluster: ModelCluster): PatchTarget[] {
+  const out: PatchTarget[] = [];
   for (const v of cluster.variants) {
     if (v.rawModel === cluster.canonical) continue;
-    for (const id of v.unitIds) {
-      out.push({ id, model: cluster.canonical });
-    }
+    for (const id of v.unitIds) out.push({ collection: 'inventoryUnits', id, model: cluster.canonical });
+    for (const id of v.aggregateIds) out.push({ collection: 'inventoryAggregates', id, model: cluster.canonical });
+    for (const id of v.saleIds) out.push({ collection: 'sales', id, model: cluster.canonical });
   }
   return out;
 }

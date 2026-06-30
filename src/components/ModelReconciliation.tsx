@@ -48,14 +48,14 @@ function detectCategory(model: string): DeviceCategory {
 }
 
 export default function ModelReconciliation() {
-  const { units } = useInventoryStore();
+  const { units, aggregates, sales } = useInventoryStore();
   const isAdmin = useIsAdmin();
 
   /** Cluster list from the live store + per-cluster overrides. We seed
    *  the override map lazily — only when the admin actually changes the
    *  canonical — so the default canonical stays in sync with the live
    *  data and doesn't go stale across re-renders. */
-  const baseClusters = useMemo(() => buildReconciliationClusters(units), [units]);
+  const baseClusters = useMemo(() => buildReconciliationClusters(units, aggregates, sales), [units, aggregates, sales]);
   const [overrides, setOverrides] = useState<Record<string, string>>({});
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [applying, setApplying] = useState(false);
@@ -87,14 +87,19 @@ export default function ModelReconciliation() {
               (['Samsung S Series', 'Samsung A Series', 'Tablet'].includes(category) ? 'Samsung' : 'Other'));
           
           const patchData: Record<string, any> = { 
-            model: parsed.model || p.model,
-            brand,
-            category
+            model: parsed.model || p.model
           };
-          if (parsed.storage) patchData.storage = parsed.storage;
-          if (parsed.series) patchData.series = parsed.series;
+          
+          // Only inventoryUnits and inventoryAggregates have brand and category fields,
+          // Sales only needs the model field updated.
+          if (p.collection !== 'sales') {
+            patchData.brand = brand;
+            patchData.category = category;
+            if (parsed.storage) patchData.storage = parsed.storage;
+            if (parsed.series && p.collection === 'inventoryUnits') patchData.series = parsed.series;
+          }
 
-          entries.push({ collection: 'inventoryUnits', id: p.id, data: patchData });
+          entries.push({ collection: p.collection, id: p.id, data: patchData });
         }
       }
       if (entries.length === 0) {

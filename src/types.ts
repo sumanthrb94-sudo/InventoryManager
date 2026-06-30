@@ -287,6 +287,7 @@ export interface Sale {
   marketplace: Marketplace;
   orderNumber: string;
   sku?: string;
+  model?: string;                // manually reconciled model name for unlinked sales
   imei?: string;                 // alphanumeric allowed, may be empty
   unitId?: string;               // link to inventoryUnits when matched
   supplierId?: string;

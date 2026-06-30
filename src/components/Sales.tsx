@@ -231,7 +231,7 @@ export default function Sales() {
     if (q) {
       rows = rows.filter(s => {
         const u = s.unitId ? units.find(x => x.id === s.unitId) : undefined;
-        const model = (u?.model || '').toLowerCase();
+        const model = (u?.model || s.model || '').toLowerCase();
         return (
           (s.orderNumber  || '').toLowerCase().includes(q) ||
           (s.imei         || '').toLowerCase().includes(q) ||
