@@ -186,7 +186,13 @@ const fmtGBP = (n: number | undefined | null, decimals = 2): string => {
   return `${sign}£${Math.abs(n).toFixed(decimals)}`;
 };
 
-const todayStr = () => new Date().toISOString().split('T')[0];
+/** Local-calendar yyyy-mm-dd. Using `toISOString()` returned UTC midnight,
+ *  which in timezones ahead of UTC (e.g. IST) could be the previous day and
+ *  made "This Month" / "Today" KPIs drop to zero at month boundaries. */
+const todayStr = () => {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+};
 
 /** Synthesise a Sale row from a legacy in-app sold unit so it can live in
  *  the same merged list as docs from the sales collection. */

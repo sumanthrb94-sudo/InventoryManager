@@ -53,7 +53,12 @@ export async function parseSalesWorkbook(
   sourceFile: string,
 ): Promise<ParsedSales> {
   const buf: ArrayBuffer = file instanceof ArrayBuffer ? file : await file.arrayBuffer();
-  const wb = XLSX.read(buf, { type: 'array', raw: true, cellText: true, cellDates: true });
+  // NOTE: no `cellDates` — we want date cells as raw Excel SERIALS (numbers), so
+  // toIsoDate() resolves the calendar day via XLSX.SSF (timezone-independent).
+  // With cellDates SheetJS hands back a Date pinned to LOCAL midnight, which in
+  // an ahead-of-UTC zone (e.g. IST) falls on the PREVIOUS UTC day — that was the
+  // off-by-one that turned 1-Apr into 31-Mar (and cascaded to 29-Mar on re-import).
+  const wb = XLSX.read(buf, { type: 'array', raw: true, cellText: true });
 
   // SheetJS strips font colours, so do a parallel ExcelJS pass on the same
   // bytes to harvest red-row markers. The operator paints whole rows red on
@@ -727,15 +732,20 @@ function toIsoDate(v: unknown): string | undefined {
   }
   const s = String(v).trim();
   if (!s) return undefined;
+  // Already ISO yyyy-mm-dd → take it verbatim (no Date round-trip = no tz shift).
+  const iso = /^(\d{4})-(\d{2})-(\d{2})/.exec(s);
+  if (iso) return `${iso[1]}-${iso[2]}-${iso[3]}`;
   const parsed = new Date(s);
   if (!Number.isNaN(parsed.getTime())) return formatIsoDate(parsed);
   return undefined;
 }
 
 function formatIsoDate(d: Date): string {
-  // Use UTC accessors so a Date created from "2026-05-12" in any tz still
-  // renders as 2026-05-12 (xlsx with cellDates: true produces UTC midnight).
-  return `${pad4(d.getUTCFullYear())}-${pad2(d.getUTCMonth() + 1)}-${pad2(d.getUTCDate())}`;
+  // LOCAL accessors: a date STRING like "1-Apr-2026" is parsed by JS as local
+  // midnight, so local getters read back the same calendar day. (Real Excel date
+  // cells never reach here — they arrive as numeric serials and resolve via
+  // XLSX.SSF above, which is timezone-independent.)
+  return `${pad4(d.getFullYear())}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
 }
 
 function pad2(n: number): string { return n < 10 ? `0${n}` : String(n); }

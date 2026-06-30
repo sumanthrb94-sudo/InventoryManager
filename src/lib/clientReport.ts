@@ -142,9 +142,19 @@ function joinSupplierNames(supplierIds: string[] | undefined, suppliers: Supplie
   return supplierIds.map(id => byId.get(id) ?? id).join(' / ');
 }
 
-/** Parse an ISO date string into a Date suitable for ExcelJS. Returns null on missing/invalid. */
+/** Parse an ISO date string into a Date suitable for ExcelJS. Returns null on
+ *  missing/invalid.
+ *
+ *  Builds the date at UTC NOON from the yyyy-mm-dd parts rather than
+ *  `new Date(iso)` (which parses a date-only string as UTC midnight, and is then
+ *  serialised by ExcelJS so that a viewer behind UTC — or any value carrying a
+ *  local-midnight time — renders the PREVIOUS day). Noon is far from both
+ *  midnight boundaries, so the calendar day survives in every timezone:
+ *  1-Apr in → 1-Apr out, with no day drift. */
 function toDate(iso: string | undefined | null): Date | null {
   if (!iso) return null;
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(iso));
+  if (m) return new Date(Date.UTC(+m[1], +m[2] - 1, +m[3], 12, 0, 0));
   const d = new Date(iso);
   return Number.isNaN(d.getTime()) ? null : d;
 }
