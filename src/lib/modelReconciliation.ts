@@ -56,9 +56,9 @@ export interface ModelCluster {
 }
 
 export function buildReconciliationClusters(
-  units: InventoryUnit[],
-  aggregates: InventoryAggregate[],
-  sales: Sale[]
+  units: InventoryUnit[] = [],
+  aggregates: InventoryAggregate[] = [],
+  sales: Sale[] = []
 ): ModelCluster[] {
   type Bucket = {
     key: string;
@@ -70,27 +70,29 @@ export function buildReconciliationClusters(
 
   const processItem = (
     id: string,
-    brand: string,
-    rawModel: string,
+    brand: any,
+    rawModel: any,
     type: 'unit' | 'aggregate' | 'sale'
   ) => {
-    brand = brand.trim();
-    rawModel = rawModel.trim();
-    if (!brand && !rawModel) return;
-    if (!brand) {
-      brand = parseBrandModelStorage(rawModel).brand || '';
+    const safeBrand = String(brand || '').trim();
+    const safeRawModel = String(rawModel || '').trim();
+    if (!safeBrand && !safeRawModel) return;
+    
+    let resolvedBrand = safeBrand;
+    if (!resolvedBrand) {
+      resolvedBrand = parseBrandModelStorage(safeRawModel).brand || '';
     }
-    const key = `${brand.toLowerCase()}||${normalizeBucketModel(rawModel)}`;
+    const key = `${resolvedBrand.toLowerCase()}||${normalizeBucketModel(safeRawModel)}`;
     let b = map.get(key);
     if (!b) {
-      b = { key, brand, variants: new Map() };
+      b = { key, brand: resolvedBrand, variants: new Map() };
       map.set(key, b);
     }
-    if (!b.brand && brand) b.brand = brand;
-    let v = b.variants.get(rawModel);
+    if (!b.brand && resolvedBrand) b.brand = resolvedBrand;
+    let v = b.variants.get(safeRawModel);
     if (!v) {
       v = { count: 0, unitIds: [], aggregateIds: [], saleIds: [] };
-      b.variants.set(rawModel, v);
+      b.variants.set(safeRawModel, v);
     }
     v.count++;
     if (id) {
@@ -150,9 +152,9 @@ export function buildReconciliationPatches(cluster: ModelCluster): PatchTarget[]
   const out: PatchTarget[] = [];
   for (const v of cluster.variants) {
     if (v.rawModel === cluster.canonical) continue;
-    for (const id of v.unitIds) out.push({ collection: 'inventoryUnits', id, model: cluster.canonical });
-    for (const id of v.aggregateIds) out.push({ collection: 'inventoryAggregates', id, model: cluster.canonical });
-    for (const id of v.saleIds) out.push({ collection: 'sales', id, model: cluster.canonical });
+    for (const id of (v.unitIds || [])) out.push({ collection: 'inventoryUnits', id, model: cluster.canonical });
+    for (const id of (v.aggregateIds || [])) out.push({ collection: 'inventoryAggregates', id, model: cluster.canonical });
+    for (const id of (v.saleIds || [])) out.push({ collection: 'sales', id, model: cluster.canonical });
   }
   return out;
 }
