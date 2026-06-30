@@ -44,7 +44,7 @@ import ReportRangeMenu from './ReportRangeMenu';
 // ── Types ────────────────────────────────────────────────────────────────────
 
 type KpiId = 'recent' | 'office' | 'shs' | 'sold_today';
-type StatusFilter = 'all' | 'available' | 'sold' | 'incoming' | 'returned';
+type StatusFilter = 'available' | 'incoming' | 'returned';
 
 interface Props {
   onOpenBatch?: () => void;
@@ -201,7 +201,7 @@ export default function BuySheet(_props: Props) {
 
   // ── State ─────────────────────────────────────────────────────────────────
   const [search, setSearch] = useState('');
-  const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>('available');
   const [supplierFilter, setSupplierFilter] = useState<Set<string>>(new Set());
   const [showFilterDrawer, setShowFilterDrawer] = useState(false);
   const [sort, setSort] = useState<{ key: SortKey; dir: SortDir }>({ key: 'dateIn', dir: 'desc' });
@@ -359,7 +359,7 @@ export default function BuySheet(_props: Props) {
   const applyPanelFilters = (base: InventoryUnit[]): InventoryUnit[] => {
     const q = search.trim().toLowerCase();
     return base.filter(u => {
-      if (statusFilter !== 'all' && u.status !== statusFilter) return false;
+      if (u.status !== statusFilter) return false;
       if (supplierFilter.size > 0) {
         const sname = supplierMap[u.supplierId] || u.supplierName || 'Unassigned';
         if (!supplierFilter.has(sname)) return false;
@@ -620,13 +620,12 @@ export default function BuySheet(_props: Props) {
             </button>
           </div>
 
-          {/* Status pills — Stock Intake is for buy-side state (in stock /
-              incoming / returned). 'Sold' was removed at operator request:
-              sold units belong to the Inventory tab's sales view, not the
-              intake screen. */}
+          {/* Status pills — In Stock / Incoming / Returned only.
+              'All' was removed at operator request — the three status
+              filters are now the only way to scope the list. Default
+              on load is 'available' (In Stock). */}
           <div className="flex items-center gap-1.5 overflow-x-auto pb-0.5">
             {([
-              ['all',       'All',       units.length],
               ['available', 'In Stock',  officeUnits.length],
               ['incoming',  'Incoming',  units.filter(u => u.status === 'incoming').length],
               ['returned',  'Returned',  units.filter(u => u.status === 'returned').length],
@@ -645,9 +644,9 @@ export default function BuySheet(_props: Props) {
                 </span>
               </button>
             ))}
-            {(statusFilter !== 'all' || supplierFilter.size > 0 || search) && (
+            {(supplierFilter.size > 0 || search) && (
               <button
-                onClick={() => { setStatusFilter('all'); setSupplierFilter(new Set()); setSearch(''); }}
+                onClick={() => { setStatusFilter('available'); setSupplierFilter(new Set()); setSearch(''); }}
                 className="flex items-center gap-1 px-2 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-widest text-slate-500 hover:text-rose-600 transition-all flex-shrink-0"
               >
                 <X size={11} /> Reset
