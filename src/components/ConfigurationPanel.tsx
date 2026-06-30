@@ -19,9 +19,10 @@
  */
 import React, { useEffect, useMemo, useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { SlidersHorizontal, Plus, Trash2, AlertCircle, CheckCircle2, Database, Users } from 'lucide-react';
+import { SlidersHorizontal, Plus, Trash2, Edit3, X, AlertCircle, CheckCircle2, Database, Users } from 'lucide-react';
 import { dbService } from '../lib/dbService';
 import { useIsAdmin } from '../lib/useIsAdmin';
+import { auth } from '../lib/firebase';
 import Suppliers from './Suppliers';
 
 interface ModelDoc {
@@ -29,6 +30,9 @@ interface ModelDoc {
   brand: string;
   model: string;
   series?: string;
+  // sku / defaultStorage are legacy fields some old docs may still carry;
+  // we no longer write or display them. Storage is captured per-unit at
+  // Add-Stock time, not on the catalog entry.
   sku?: string;
   defaultStorage?: string;
   createdAt: string;
@@ -40,13 +44,21 @@ export default function ConfigurationPanel() {
   const isAdmin = useIsAdmin();
 
   // ── Models catalog ─────────────────────────────────────────────────────────
+  // Catalog entries need only brand + model + series. Storage / colour /
+  // grade are captured per-unit while adding stock — a catalog entry is a
+  // "what models exist" list, not a per-variant spec.
   const [models, setModels] = useState<ModelDoc[]>([]);
-  const [draft, setDraft] = useState<{ brand: string; model: string; series: string; sku: string; defaultStorage: string }>({
-    brand: '', model: '', series: '', sku: '', defaultStorage: '',
+  const [draft, setDraft] = useState<{ brand: string; model: string; series: string }>({
+    brand: '', model: '', series: '',
   });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [savedFlash, setSavedFlash] = useState(false);
+  // Inline edit state — which row is being edited + the working values.
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editDraft, setEditDraft] = useState<{ brand: string; model: string; series: string }>({
+    brand: '', model: '', series: '',
+  });
 
   useEffect(() => {
     return dbService.subscribeToCollection('models', (data: ModelDoc[]) => setModels(data));
@@ -60,33 +72,39 @@ export default function ConfigurationPanel() {
     [models],
   );
 
+  /** True when (brand, model) already exists, optionally ignoring one doc
+   *  id (so an edit doesn't collide with the row being edited). */
+  const isDuplicate = (brand: string, model: string, ignoreId?: string) =>
+    models.some(m =>
+      m.id !== ignoreId &&
+      (m.brand || '').toLowerCase() === brand.toLowerCase() &&
+      (m.model || '').toLowerCase() === model.toLowerCase()
+    );
+
   const addModel = async () => {
     if (!isAdmin || saving) return;
     const brand = draft.brand.trim();
     const model = draft.model.trim();
     if (!brand)  { setError('Brand is required'); return; }
     if (!model)  { setError('Model is required'); return; }
-    // Cheap client-side dupe guard — case-insensitive on (brand, model).
-    const dupe = models.find(m =>
-      (m.brand || '').toLowerCase() === brand.toLowerCase() &&
-      (m.model || '').toLowerCase() === model.toLowerCase()
-    );
-    if (dupe) { setError(`"${brand} ${model}" is already in the catalog`); return; }
+    if (isDuplicate(brand, model)) { setError(`"${brand} ${model}" is already in the catalog`); return; }
 
     setSaving(true);
     setError('');
     try {
       const id = `mdl_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-      const doc: Omit<ModelDoc, 'id'> = {
+      // dbService.create updates the shared in-memory cache and emits to
+      // every live subscriber — including the inventoryStore listener the
+      // Add-Stock / Bulk-Order pickers read from — so a new model appears
+      // in those pickers immediately, no refresh.
+      await dbService.create('models', id, {
         brand, model,
         series: draft.series.trim() || undefined,
-        sku: draft.sku.trim() || undefined,
-        defaultStorage: draft.defaultStorage.trim() || undefined,
         createdAt: new Date().toISOString(),
+        createdBy: auth.currentUser?.email || 'admin',
         ownerId: 'shared',
-      };
-      await dbService.create('models', id, doc);
-      setDraft({ brand: '', model: '', series: '', sku: '', defaultStorage: '' });
+      });
+      setDraft({ brand: '', model: '', series: '' });
       setSavedFlash(true);
       window.setTimeout(() => setSavedFlash(false), 1500);
     } catch (e: any) {
@@ -94,6 +112,27 @@ export default function ConfigurationPanel() {
     } finally {
       setSaving(false);
     }
+  };
+
+  const startEdit = (m: ModelDoc) => {
+    setEditingId(m.id);
+    setEditDraft({ brand: m.brand || '', model: m.model || '', series: m.series || '' });
+    setError('');
+  };
+
+  const saveEdit = async () => {
+    if (!isAdmin || !editingId) return;
+    const brand = editDraft.brand.trim();
+    const model = editDraft.model.trim();
+    if (!brand || !model) { setError('Brand and model are required'); return; }
+    if (isDuplicate(brand, model, editingId)) { setError(`"${brand} ${model}" already exists`); return; }
+    await dbService.update('models', editingId, {
+      brand, model,
+      series: editDraft.series.trim() || null,
+      ownerId: 'shared',
+    });
+    setEditingId(null);
+    setError('');
   };
 
   const removeModel = async (m: ModelDoc) => {
@@ -146,52 +185,38 @@ export default function ConfigurationPanel() {
           </div>
         </div>
 
-        {/* Add new model — five compact inputs in one row */}
+        {/* Add new model — brand + model + series only. Storage / colour /
+            grade are captured per-unit at Add-Stock time, not here. */}
         <div className="px-5 py-4 border-b border-slate-100 bg-slate-50/60">
           <div className="grid grid-cols-1 md:grid-cols-12 gap-2">
-            <div className="md:col-span-2">
+            <div className="md:col-span-3">
               <label className="text-[9px] font-bold uppercase tracking-widest text-slate-500 block mb-1">Brand *</label>
               <input
                 value={draft.brand}
                 onChange={e => setDraft(d => ({ ...d, brand: e.target.value }))}
+                onKeyDown={e => { if (e.key === 'Enter') addModel(); }}
                 placeholder="Samsung"
                 className="w-full border border-slate-200 rounded-lg px-2.5 py-1.5 text-[12px] focus:outline-none focus:border-slate-900 bg-white"
               />
             </div>
-            <div className="md:col-span-3">
+            <div className="md:col-span-5">
               <label className="text-[9px] font-bold uppercase tracking-widest text-slate-500 block mb-1">Model *</label>
               <input
                 value={draft.model}
                 onChange={e => setDraft(d => ({ ...d, model: e.target.value }))}
+                onKeyDown={e => { if (e.key === 'Enter') addModel(); }}
                 placeholder="Galaxy S24 Ultra"
                 className="w-full border border-slate-200 rounded-lg px-2.5 py-1.5 text-[12px] focus:outline-none focus:border-slate-900 bg-white"
               />
             </div>
-            <div className="md:col-span-2">
+            <div className="md:col-span-3">
               <label className="text-[9px] font-bold uppercase tracking-widest text-slate-500 block mb-1">Series</label>
               <input
                 value={draft.series}
                 onChange={e => setDraft(d => ({ ...d, series: e.target.value }))}
+                onKeyDown={e => { if (e.key === 'Enter') addModel(); }}
                 placeholder="Galaxy S"
                 className="w-full border border-slate-200 rounded-lg px-2.5 py-1.5 text-[12px] focus:outline-none focus:border-slate-900 bg-white"
-              />
-            </div>
-            <div className="md:col-span-2">
-              <label className="text-[9px] font-bold uppercase tracking-widest text-slate-500 block mb-1">SKU</label>
-              <input
-                value={draft.sku}
-                onChange={e => setDraft(d => ({ ...d, sku: e.target.value }))}
-                placeholder="ASI-SG-S24U"
-                className="w-full border border-slate-200 rounded-lg px-2.5 py-1.5 text-[12px] font-mono focus:outline-none focus:border-slate-900 bg-white"
-              />
-            </div>
-            <div className="md:col-span-2">
-              <label className="text-[9px] font-bold uppercase tracking-widest text-slate-500 block mb-1">Storage</label>
-              <input
-                value={draft.defaultStorage}
-                onChange={e => setDraft(d => ({ ...d, defaultStorage: e.target.value }))}
-                placeholder="256GB"
-                className="w-full border border-slate-200 rounded-lg px-2.5 py-1.5 text-[12px] font-mono focus:outline-none focus:border-slate-900 bg-white"
               />
             </div>
             <div className="md:col-span-1 flex md:items-end">
@@ -211,12 +236,12 @@ export default function ConfigurationPanel() {
           )}
           {savedFlash && (
             <p className="mt-2 inline-flex items-center gap-1 text-[10px] font-mono text-emerald-700">
-              <CheckCircle2 size={11} /> Added to catalog
+              <CheckCircle2 size={11} /> Added to catalog · live in Add Stock now
             </p>
           )}
         </div>
 
-        {/* Existing catalog list */}
+        {/* Existing catalog list — edit / delete per row */}
         {sortedModels.length === 0 ? (
           <div className="py-12 flex flex-col items-center gap-2 text-slate-400">
             <Database size={24} />
@@ -230,38 +255,92 @@ export default function ConfigurationPanel() {
                 <th className="text-left px-4 py-2 border-b border-slate-200">Brand</th>
                 <th className="text-left px-4 py-2 border-b border-slate-200">Model</th>
                 <th className="text-left px-4 py-2 border-b border-slate-200">Series</th>
-                <th className="text-left px-4 py-2 border-b border-slate-200">SKU</th>
-                <th className="text-left px-4 py-2 border-b border-slate-200">Storage</th>
-                <th className="text-right px-4 py-2 border-b border-slate-200 w-16"></th>
+                <th className="text-right px-4 py-2 border-b border-slate-200 w-28"></th>
               </tr>
             </thead>
             <tbody>
               <AnimatePresence initial={false}>
-                {sortedModels.map(m => (
-                  <motion.tr
-                    key={m.id}
-                    initial={{ opacity: 0 }}
-                    animate={{ opacity: 1 }}
-                    exit={{ opacity: 0 }}
-                    className="hover:bg-slate-50 border-b border-slate-100"
-                  >
-                    <td className="px-4 py-2 text-slate-700">{m.brand}</td>
-                    <td className="px-4 py-2 font-bold text-slate-900">{m.model}</td>
-                    <td className="px-4 py-2 text-slate-600">{m.series || <span className="text-slate-300">—</span>}</td>
-                    <td className="px-4 py-2 text-slate-600">{m.sku || <span className="text-slate-300">—</span>}</td>
-                    <td className="px-4 py-2 text-slate-600">{m.defaultStorage || <span className="text-slate-300">—</span>}</td>
-                    <td className="px-4 py-2 text-right">
-                      <button
-                        type="button"
-                        onClick={() => removeModel(m)}
-                        className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-[9px] font-bold uppercase tracking-widest border bg-white text-rose-600 border-rose-200 hover:bg-rose-50"
-                        title="Remove from catalog"
-                      >
-                        <Trash2 size={10} />
-                      </button>
-                    </td>
-                  </motion.tr>
-                ))}
+                {sortedModels.map(m => {
+                  const editing = editingId === m.id;
+                  return (
+                    <motion.tr
+                      key={m.id}
+                      initial={{ opacity: 0 }}
+                      animate={{ opacity: 1 }}
+                      exit={{ opacity: 0 }}
+                      className="hover:bg-slate-50 border-b border-slate-100"
+                    >
+                      {editing ? (
+                        <>
+                          <td className="px-3 py-1.5">
+                            <input
+                              value={editDraft.brand}
+                              onChange={e => setEditDraft(d => ({ ...d, brand: e.target.value }))}
+                              className="w-full border border-amber-400 rounded px-1.5 py-1 text-[11px] focus:outline-none focus:border-black bg-white"
+                            />
+                          </td>
+                          <td className="px-3 py-1.5">
+                            <input
+                              value={editDraft.model}
+                              onChange={e => setEditDraft(d => ({ ...d, model: e.target.value }))}
+                              className="w-full border border-amber-400 rounded px-1.5 py-1 text-[11px] focus:outline-none focus:border-black bg-white"
+                            />
+                          </td>
+                          <td className="px-3 py-1.5">
+                            <input
+                              value={editDraft.series}
+                              onChange={e => setEditDraft(d => ({ ...d, series: e.target.value }))}
+                              placeholder="—"
+                              className="w-full border border-amber-400 rounded px-1.5 py-1 text-[11px] focus:outline-none focus:border-black bg-white"
+                            />
+                          </td>
+                          <td className="px-4 py-1.5 text-right whitespace-nowrap">
+                            <button
+                              type="button"
+                              onClick={saveEdit}
+                              className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-[9px] font-bold uppercase tracking-widest border bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100 mr-1"
+                              title="Save"
+                            >
+                              <CheckCircle2 size={10} /> Save
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => { setEditingId(null); setError(''); }}
+                              className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-[9px] font-bold uppercase tracking-widest border bg-white text-slate-500 border-slate-200 hover:bg-slate-50"
+                              title="Cancel"
+                            >
+                              <X size={10} />
+                            </button>
+                          </td>
+                        </>
+                      ) : (
+                        <>
+                          <td className="px-4 py-2 text-slate-700">{m.brand}</td>
+                          <td className="px-4 py-2 font-bold text-slate-900">{m.model}</td>
+                          <td className="px-4 py-2 text-slate-600">{m.series || <span className="text-slate-300">—</span>}</td>
+                          <td className="px-4 py-2 text-right whitespace-nowrap">
+                            <button
+                              type="button"
+                              onClick={() => startEdit(m)}
+                              className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-[9px] font-bold uppercase tracking-widest border bg-white text-slate-600 border-slate-200 hover:bg-slate-50 mr-1"
+                              title="Edit"
+                            >
+                              <Edit3 size={10} /> Edit
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => removeModel(m)}
+                              className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-[9px] font-bold uppercase tracking-widest border bg-white text-rose-600 border-rose-200 hover:bg-rose-50"
+                              title="Remove from catalog"
+                            >
+                              <Trash2 size={10} />
+                            </button>
+                          </td>
+                        </>
+                      )}
+                    </motion.tr>
+                  );
+                })}
               </AnimatePresence>
             </tbody>
           </table>
