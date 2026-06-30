@@ -45,8 +45,8 @@ const FLAG_CONFIG: Record<OperationalFlag, { label: string; icon: any; style: st
 // ----------------------------------------------------------------------------
 
 type SortKey =
-  | 'saleDate' | 'marketplace' | 'orderNumber' | 'sku' | 'imei'
-  | 'supplierName' | 'quantity' | 'buyPrice' | 'salePrice'
+  | 'saleDate' | 'marketplace' | 'orderNumber' | 'model' | 'sku' | 'imei' | 'supplierName'
+  | 'quantity' | 'buyPrice' | 'salePrice'
   | 'paymentMode' | 'postage' | 'commission' | 'grossProfit' | 'gpPercent'
   | 'comments';
 
@@ -61,6 +61,7 @@ const COLUMNS: ColDef[] = [
   { key: 'saleDate',     label: 'Date',         width: 110 },
   { key: 'marketplace',  label: 'Marketplace',  width: 110 },
   { key: 'orderNumber',  label: 'Order Number', width: 160 },
+  { key: 'model',        label: 'Model',        width: 180 },
   { key: 'sku',          label: 'SKU',          width: 140 },
   { key: 'imei',         label: 'IMEI',         width: 160 },
   { key: 'supplierName', label: 'Supplier',     width: 130 },
@@ -817,6 +818,14 @@ export default function Sales() {
                                     />
                                   );
                                   break;
+                                case 'model': {
+                                  const u = s.unitId ? units.find(x => x.id === s.unitId) : undefined;
+                                  const displayModel = u?.model || s.model || s.sku || '—';
+                                  display = (
+                                    <span className="font-bold text-gray-900">{displayModel}</span>
+                                  );
+                                  break;
+                                }
                                 case 'sku':
                                   display = (
                                     <EditableCell

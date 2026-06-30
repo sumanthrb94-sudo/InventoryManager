@@ -27,7 +27,7 @@ interface Props {
 export default function AddSoldUnitModal({ sale, onClose, onSaved }: Props) {
   const isAdminUser                   = useIsAdmin();
   const [imei, setImei]               = useState((sale.imei || '').trim());
-  const [model, setModel]             = useState((sale.sku || '').trim());
+  const [model, setModel]             = useState((sale.model || sale.sku || '').trim());
   const [supplier, setSupplier]       = useState((sale.supplierName || '').trim());
   const [buyPrice, setBuyPrice]       = useState(String(sale.buyPrice ?? ''));
   const [colour, setColour]           = useState('');
@@ -86,7 +86,7 @@ export default function AddSoldUnitModal({ sale, onClose, onSaved }: Props) {
             <div className="w-8 h-8 bg-amber-500 text-white rounded-xl flex items-center justify-center"><PackagePlus size={15} /></div>
             <div>
               <p className="text-[9px] font-mono uppercase tracking-widest text-amber-600">Add to Inventory &amp; Mark Sold</p>
-              <h3 className="text-sm font-bold truncate max-w-[260px]">{sale.sku || sale.orderNumber || 'Sale'}</h3>
+              <h3 className="text-sm font-bold truncate max-w-[260px]">{sale.model || sale.sku || sale.orderNumber || 'Sale'}</h3>
             </div>
           </div>
           <button onClick={onClose} className="p-2 hover:bg-amber-100 rounded-xl text-amber-400"><X size={15} /></button>
