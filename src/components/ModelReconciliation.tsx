@@ -90,13 +90,14 @@ export default function ModelReconciliation() {
             model: parsed.model || p.model
           };
           
-          // Only inventoryUnits and inventoryAggregates have brand and category fields,
-          // Sales only needs the model field updated.
           if (p.collection !== 'sales') {
             patchData.brand = brand;
             patchData.category = category;
             if (parsed.storage) patchData.storage = parsed.storage;
             if (parsed.series && p.collection === 'inventoryUnits') patchData.series = parsed.series;
+            patchData.sku = [brand, patchData.model, patchData.storage].filter(Boolean).join(' ');
+          } else {
+            patchData.sku = [brand, patchData.model, parsed.storage].filter(Boolean).join(' ');
           }
 
           entries.push({ collection: p.collection, id: p.id, data: patchData });

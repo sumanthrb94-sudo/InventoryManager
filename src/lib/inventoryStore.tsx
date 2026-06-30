@@ -9,6 +9,7 @@ import {
   ImportBatch,
 } from '../types';
 import type { ModelSeed } from './deviceCatalog';
+import { parseBrandModelStorage } from './modelStorage';
 
 interface Store {
   loaded: boolean;
@@ -60,18 +61,30 @@ export function InventoryStoreProvider({ children }: { children: React.ReactNode
     // forever if a master-file collection happens to be empty/offline.
     const timeout = setTimeout(() => setLoaded(true), 15000);
 
-    const u = dbService.subscribeToCollection('inventoryUnits', data => {
-      setUnits(data);
+    const u = dbService.subscribeToCollection('inventoryUnits', (data: any[]) => {
+      const unified = data.map(item => {
+        if (!item.model) return item;
+        const expectedSku = [item.brand, item.model, item.storage].filter(Boolean).join(' ');
+        return expectedSku && item.sku !== expectedSku ? { ...item, sku: expectedSku } : item;
+      });
+      setUnits(unified);
       if (!unitsReady) { unitsReady = true; markLoaded(); }
     });
     const s = dbService.subscribeToCollection('suppliers', data => {
       setSuppliers(data);
     });
-    const sl = dbService.subscribeToCollection('sales', data => {
-      setSales(data);
+    const sl = dbService.subscribeToCollection('sales', (data: any[]) => {
+      const unified = data.map(item => {
+        if (!item.model) return item;
+        const parsed = parseBrandModelStorage(item.model);
+        const brand = parsed.brand !== 'Other' ? parsed.brand : '';
+        const expectedSku = [brand, item.model, parsed.storage].filter(Boolean).join(' ');
+        return expectedSku && item.sku !== expectedSku ? { ...item, sku: expectedSku } : item;
+      });
+      setSales(unified);
       if (!salesReady) { salesReady = true; markLoaded(); }
     });
-    const ag = dbService.subscribeToCollection('inventoryAggregates', data => {
+    const ag = dbService.subscribeToCollection('inventoryAggregates', (data: any[]) => {
       setAggregates(data);
       if (!aggregatesReady) { aggregatesReady = true; markLoaded(); }
     });
