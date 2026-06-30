@@ -48,6 +48,10 @@ export interface InventoryUnit {
   id: string;
   imei: string;           // IMEI or serial number
   model: string;          // e.g. "iPhone 15 Pro Max 256GB"
+  /** Original model string as it sits in Firestore, before any runtime
+   *  normalisation. Used by admin reconciliation screens to spot units
+   *  whose persisted model is still a raw operator SKU. */
+  rawModel?: string;
   brand: string;          // e.g. "Apple", "Samsung"
   category: DeviceCategory;
   colour: string;         // e.g. "Natural Titanium", "Phantom Black"

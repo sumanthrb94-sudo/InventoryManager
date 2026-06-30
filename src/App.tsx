@@ -5,7 +5,7 @@ import {
   PackagePlus, Package, RefreshCw,
   LogOut, Plus, FileSpreadsheet, LayoutDashboard,
   TrendingUp, FileText, Users, Settings, Database,
-  ClipboardList, Menu, X, Megaphone, SlidersHorizontal,
+  ClipboardList, Menu, X, Megaphone, SlidersHorizontal, Tag,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import Dashboard, { NavAction } from './components/Dashboard';
@@ -17,6 +17,7 @@ import SellSheet from './components/SellSheet';
 import ReturnsPage from './components/ReturnsPage';
 import NoticeBoard from './components/NoticeBoard';
 import ModelReconciliation from './components/ModelReconciliation';
+import SkuReconciliation from './components/SkuReconciliation';
 import ConfigurationPanel from './components/ConfigurationPanel';
 import { useUnseenNoticesCount } from './hooks/useUnseenNoticesCount';
 import ReportingPage from './components/ReportingPage';
@@ -35,7 +36,7 @@ import { useBuildVersionCheck } from './lib/useBuildVersionCheck';
 import type { SupplierWhatsappUpdate } from './types';
 
 type Tab      = 'notices' | 'buy' | 'sell' | 'returns' | 'admin';
-type AdminSub = 'overview' | 'salesHistory' | 'insights' | 'reports' | 'configuration' | 'models';
+type AdminSub = 'overview' | 'salesHistory' | 'insights' | 'reports' | 'configuration' | 'models' | 'skus';
 
 interface NavTab {
   id: Tab;
@@ -133,6 +134,9 @@ const ADMIN_SUBS: { id: AdminSub; label: string; icon: React.ReactNode }[] = [
   // 'Models' kept as the data-cleanup tool (ModelReconciliation) —
   // distinct concern from the catalog editor under Configuration.
   { id: 'models',        label: 'Reconcile Models',   icon: <Database size={14} /> },
+  // 'SKUs' surfaces inventory units whose persisted model is still a raw
+  // operator SKU code so an admin can clean them up manually or auto-fix.
+  { id: 'skus',          label: 'Reconcile SKUs',     icon: <Tag size={14} /> },
 ];
 
 function AppShell({ user }: { user: User }) {
@@ -684,6 +688,7 @@ function AppShell({ user }: { user: User }) {
                 {activeTab === 'admin' && userIsAdmin && adminSub === 'reports'      && <ReportingPage />}
                 {activeTab === 'admin' && userIsAdmin && adminSub === 'configuration' && <ConfigurationPanel />}
                 {activeTab === 'admin' && userIsAdmin && adminSub === 'models'        && <ModelReconciliation />}
+                {activeTab === 'admin' && userIsAdmin && adminSub === 'skus'          && <SkuReconciliation />}
               </motion.div>
             </AnimatePresence>
           </div>

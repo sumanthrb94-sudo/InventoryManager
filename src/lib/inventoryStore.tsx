@@ -64,15 +64,17 @@ export function InventoryStoreProvider({ children }: { children: React.ReactNode
     const u = dbService.subscribeToCollection('inventoryUnits', (data: any[]) => {
       const unified = data.map(item => {
         if (!item.model) return item;
-        const parsed = parseBrandModelStorage(item.model);
-        const cleanModel = parsed.model || item.model;
+        const rawModel = item.model;
+        const parsed = parseBrandModelStorage(rawModel);
+        const cleanModel = parsed.model || rawModel;
         const cleanBrand = (item.brand && item.brand !== 'Other') ? item.brand : (parsed.brand !== 'Other' ? parsed.brand : '');
         const cleanStorage = item.storage || parsed.storage;
         const expectedSku = [cleanBrand, cleanModel, cleanStorage].filter(Boolean).join(' ');
-        
+
         return {
           ...item,
           model: cleanModel,
+          rawModel,
           brand: cleanBrand,
           storage: cleanStorage,
           sku: expectedSku || item.sku
