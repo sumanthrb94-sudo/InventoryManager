@@ -28,11 +28,24 @@ import { useInventoryStore } from '../lib/inventoryStore';
 import { dbService } from '../lib/dbService';
 import { useIsAdmin } from '../lib/useIsAdmin';
 import { logInventoryEvent } from '../lib/inventoryEvents';
+import { parseBrandModelStorage } from '../lib/modelStorage';
+import type { DeviceCategory } from '../types';
 import {
   buildReconciliationClusters,
   buildReconciliationPatches,
   type ModelCluster,
 } from '../lib/modelReconciliation';
+
+function detectCategory(model: string): DeviceCategory {
+  const m = (model || '').toUpperCase();
+  if (m.includes('IPAD')) return 'iPad';
+  if (/APPLE WATCH|WATCH ULTRA|WATCH SE/.test(m)) return 'Apple Watch';
+  if (m.includes('IPHONE')) return 'iPhone';
+  if (/GALAXY TAB|TAB A\d|TAB S\d|TABA\d|TABS\d/.test(m)) return 'Tablet';
+  if (m.includes('SAMSUNG') || m.includes('GALAXY'))
+    return /\bA\d{2,3}\b|GALAXY A/.test(m) ? 'Samsung A Series' : 'Samsung S Series';
+  return 'Other';
+}
 
 export default function ModelReconciliation() {
   const { units } = useInventoryStore();
@@ -66,7 +79,22 @@ export default function ModelReconciliation() {
       const entries: Array<{ collection: string; id: string; data: Record<string, any> }> = [];
       for (const c of clusters) {
         for (const p of buildReconciliationPatches(c)) {
-          entries.push({ collection: 'inventoryUnits', id: p.id, data: { model: p.model } });
+          const parsed = parseBrandModelStorage(p.model);
+          const category = detectCategory(p.model);
+          const brand = parsed.brand !== 'Other'
+            ? parsed.brand
+            : (['iPhone', 'iPad', 'Apple Watch'].includes(category) ? 'Apple' :
+              (['Samsung S Series', 'Samsung A Series', 'Tablet'].includes(category) ? 'Samsung' : 'Other'));
+          
+          const patchData: Record<string, any> = { 
+            model: parsed.model || p.model,
+            brand,
+            category
+          };
+          if (parsed.storage) patchData.storage = parsed.storage;
+          if (parsed.series) patchData.series = parsed.series;
+
+          entries.push({ collection: 'inventoryUnits', id: p.id, data: patchData });
         }
       }
       if (entries.length === 0) {
