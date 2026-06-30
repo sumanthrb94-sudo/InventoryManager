@@ -79,10 +79,20 @@ export function buildReconciliationClusters(
     if (!safeBrand && !safeRawModel) return;
     
     let resolvedBrand = safeBrand;
+    let baseModelForBucket = safeRawModel;
+
+    // For sales without a model (where we pass SKU as rawModel), we must parse 
+    // the SKU to get a clean model for bucketing, so it groups with inventory units.
+    if (type === 'sale' && !brand) {
+      const parsed = parseBrandModelStorage(safeRawModel);
+      resolvedBrand = parsed.brand !== 'Other' ? parsed.brand : '';
+      if (parsed.model) baseModelForBucket = parsed.model;
+    }
+
     if (!resolvedBrand) {
       resolvedBrand = parseBrandModelStorage(safeRawModel).brand || '';
     }
-    const key = `${resolvedBrand.toLowerCase()}||${normalizeBucketModel(safeRawModel)}`;
+    const key = `${resolvedBrand.toLowerCase()}||${normalizeBucketModel(baseModelForBucket)}`;
     let b = map.get(key);
     if (!b) {
       b = { key, brand: resolvedBrand, variants: new Map() };

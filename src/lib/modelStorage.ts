@@ -375,7 +375,7 @@ export function normalizeOperatorSku(raw: string | undefined | null): string | n
  *  build, and the admin ModelReconciliation tool all read from this. */
 export function normalizeBucketModel(m: string): string {
   return (m ?? '')
-    .replace(/^\s*(samsung\s+galaxy|galaxy|samsung|apple)\s+/i, '')
+    .replace(/^\s*(samsung\s+galaxy|galaxy|samsung|apple)[\s\-]+/i, '')
     .replace(/\s+/g, ' ')
     .trim()
     .toLowerCase();
@@ -414,7 +414,7 @@ export function parseBrandModelStorage(raw: string | undefined | null): ParsedMo
   //     where the user dropped the brand prefix), strip it and use it
   //     literally as the brand.
   //   - Otherwise keep the detected brand (often 'Other') and don't strip.
-  const words = trimmed.split(/\s+/);
+  const words = trimmed.split(/[\s\-]+/);
   const firstToken = words[0] || '';
   const firstLower = firstToken.toLowerCase();
   const isKnownLeading = LEADING_BRAND_TOKENS.has(firstLower);
@@ -428,11 +428,11 @@ export function parseBrandModelStorage(raw: string | undefined | null): ParsedMo
   let working = trimmed;
   if (isKnownLeading) {
     // Known-brand prefix — strip + use canonical Brand enum value.
-    working = working.slice(firstToken.length).trimStart();
+    working = working.slice(firstToken.length).replace(/^[\s\-]+/, '');
   } else if (detected === 'Other' && looksLikeBrandLabel) {
     // Unknown brand label — use the first word verbatim (capitalised).
     brand = firstToken.charAt(0).toUpperCase() + firstToken.slice(1);
-    working = working.slice(firstToken.length).trimStart();
+    working = working.slice(firstToken.length).replace(/^[\s\-]+/, '');
   }
 
   // Pull KNOWN tags out first (5G, Dual SIM, Wi-Fi+Cellular, etc.) — these
