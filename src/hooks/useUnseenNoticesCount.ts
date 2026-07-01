@@ -39,7 +39,11 @@ export function useUnseenNoticesCount(): { count: number; markAllSeen: () => voi
 
   const count = useMemo(() => {
     if (!notices.length) return 0;
-    return notices.reduce((n, x) => n + ((x.createdAt || '') > lastSeen ? 1 : 0), 0);
+    return notices.reduce((n, x) => {
+      const ts = typeof x.createdAt === 'string' ? x.createdAt
+        : (x.createdAt as any)?.toDate?.().toISOString() || String(x.createdAt || '');
+      return n + (ts > lastSeen ? 1 : 0);
+    }, 0);
   }, [notices, lastSeen]);
 
   const markAllSeen = useCallback(() => {

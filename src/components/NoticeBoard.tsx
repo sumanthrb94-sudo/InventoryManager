@@ -30,12 +30,19 @@ import type { Notice } from '../types';
 
 const DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
+/** Normalise a Firestore Timestamp or string to an ISO string. */
+function timestampToIso(v: any): string {
+  if (typeof v === 'string') return v;
+  if (v && typeof v.toDate === 'function') return v.toDate().toISOString();
+  return String(v || '');
+}
+
 /** "Wed · 25 Jun 2026 · 14:32" — full date + day-of-week + time so the
  *  feed reads like a chat history without needing a tooltip to know
  *  which weekday a post landed on. */
 function fmtTimestamp(iso: string): string {
   const d = new Date(iso);
-  if (!Number.isFinite(d.getTime())) return iso;
+  if (!Number.isFinite(d.getTime())) return String(iso);
   const day = DAY_NAMES[d.getDay()];
   const date = d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
   const time = d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', hour12: false });
@@ -76,7 +83,7 @@ export default function NoticeBoard() {
 
   /** Newest first — the chat-history convention. */
   const sorted = useMemo(
-    () => [...notices].sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || '')),
+    () => [...notices].sort((a, b) => timestampToIso(b.createdAt).localeCompare(timestampToIso(a.createdAt))),
     [notices],
   );
 
@@ -208,10 +215,10 @@ export default function NoticeBoard() {
                       <div className="min-w-0 flex-1">
                         <div className="flex items-center gap-2 flex-wrap">
                           <span className="text-[10px] font-mono uppercase tracking-widest text-slate-500">
-                            {fmtTimestamp(n.createdAt || '')}
+                            {fmtTimestamp(timestampToIso(n.createdAt))}
                           </span>
                           {n.updatedAt && n.updatedAt !== n.createdAt && (
-                            <span className="text-[8px] font-mono uppercase tracking-widest text-slate-400 italic" title={`Edited ${fmtTimestamp(n.updatedAt)}`}>
+                            <span className="text-[8px] font-mono uppercase tracking-widest text-slate-400 italic" title={`Edited ${fmtTimestamp(timestampToIso(n.updatedAt))}`}>
                               edited
                             </span>
                           )}
