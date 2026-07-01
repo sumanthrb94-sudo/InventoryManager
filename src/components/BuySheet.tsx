@@ -45,7 +45,7 @@ import ReportRangeMenu from './ReportRangeMenu';
 // ── Types ────────────────────────────────────────────────────────────────────
 
 type KpiId = 'recent' | 'office' | 'shs' | 'sold_today' | 'out_of_stock';
-type StatusFilter = 'all' | 'available' | 'sold' | 'incoming' | 'returned';
+type StatusFilter = 'available' | 'incoming' | 'returned';
 
 interface Props {
   onOpenBatch?: () => void;
@@ -72,6 +72,121 @@ function storageOptionsWith(current: string | undefined): string[] {
   return out;
 }
 
+// ── SKU → readable model helper ─────────────────────────────────────────────
+
+/** Parsed result from a SKU-formatted model string. */
+interface SkuParseResult {
+  cleanModel: string;   // human-readable model name (e.g. "Galaxy A32")
+  storage: string;      // extracted storage (e.g. "64GB") or ""
+  color: string;        // extracted colour (e.g. "Black") or ""
+  grade: string;        // extracted grade (e.g. "Grade EX") or ""
+}
+
+/** Known SKU tokens that appear as prefixes or segment codes. */
+const SKU_PREFIXES = new Set([
+  'ASI', 'APL', 'SS', 'SG', 'SP', 'RM', 'UK', 'EU', 'GL', 'GEN',
+  'NEW', 'REF', 'OEM', 'BLK', 'BOX',
+]);
+
+const COLOR_MAP: Record<string, string> = {
+  BK: 'Black', BL: 'Blue', WH: 'White', GD: 'Gold', GR: 'Grey',
+  GY: 'Grey', SL: 'Silver', RD: 'Red', GN: 'Green', PK: 'Pink',
+  PL: 'Purple', OR: 'Orange', YE: 'Yellow', CL: 'Clear',
+  SG: 'Space Grey', MG: 'Midnight Green', PB: 'Pacific Blue',
+  SB: 'Sierra Blue', AL: 'Alpine Green', TB: 'Titanium',
+};
+
+const GRADE_MAP: Record<string, string> = {
+  EX: 'Grade EX', A: 'Grade A', B: 'Grade B', C: 'Grade C',
+  ONU: 'Open Never Used', BN: 'Brand New', NEW: 'Brand New',
+};
+
+const STORAGE_SUFFIX_MAP: Record<string, string> = {
+  '64': '64GB', '128': '128GB', '256': '256GB', '512': '512GB', '1': '1TB',
+};
+
+/** Detects whether a string looks like a SKU (dash-delimited code segments). */
+function looksLikeSku(str: string): boolean {
+  const segments = str.split(/[-\s]+/).filter(Boolean);
+  return segments.length >= 3 && segments.some(s => SKU_PREFIXES.has(s.toUpperCase()));
+}
+
+/** Parse a SKU-formatted model string into readable components.
+ *  Falls back to returning the raw string as the model if it doesn't look like a SKU. */
+function parseSkuModel(raw: string): SkuParseResult {
+  const result: SkuParseResult = { cleanModel: raw, storage: '', color: '', grade: '' };
+  if (!looksLikeSku(raw)) return result;
+
+  const segments = raw.split(/[-\s]+/).filter(Boolean);
+  const used = new Set<number>();
+
+  // Pass 1: identify and strip known prefix tokens
+  for (let i = 0; i < segments.length; i++) {
+    const up = segments[i].toUpperCase();
+    if (SKU_PREFIXES.has(up)) used.add(i);
+  }
+
+  // Pass 2: identify colour codes (2-letter, known)
+  for (let i = 0; i < segments.length; i++) {
+    if (used.has(i)) continue;
+    const up = segments[i].toUpperCase();
+    if (up.length === 2 && COLOR_MAP[up]) {
+      result.color = COLOR_MAP[up];
+      used.add(i);
+    }
+  }
+
+  // Pass 3: identify grade codes
+  for (let i = 0; i < segments.length; i++) {
+    if (used.has(i)) continue;
+    const up = segments[i].toUpperCase();
+    if (GRADE_MAP[up]) {
+      result.grade = GRADE_MAP[up];
+      used.add(i);
+    }
+  }
+
+  // Pass 4: identify storage (numeric 1-3 digits)
+  for (let i = 0; i < segments.length; i++) {
+    if (used.has(i)) continue;
+    const s = segments[i];
+    if (/^\d{1,3}$/.test(s)) {
+      result.storage = STORAGE_SUFFIX_MAP[s] || `${s}GB`;
+      used.add(i);
+    }
+  }
+
+  // Pass 5: remaining segments are the model core
+  const modelSegments = segments.filter((_, i) => !used.has(i));
+  if (modelSegments.length > 0) {
+    result.cleanModel = modelSegments.join(' ');
+  }
+
+  return result;
+}
+
+/** Build a display label from brand + raw-model + storage.
+ *  If the model looks like a SKU, parse it and return the clean model name.
+ *  The parsed extras (color, grade) are surfaced in the meta line instead. */
+function buildAlertLabel(brand: string, rawModel: string, storage: string): { label: string; extras: string } {
+  const parsed = parseSkuModel(rawModel);
+  const parts: string[] = [];
+  if (brand) parts.push(brand);
+  if (parsed.cleanModel) parts.push(parsed.cleanModel);
+  // Only append storage if it wasn't already extracted from the SKU
+  if (storage && !parsed.storage) parts.push(storage);
+
+  const extrasParts: string[] = [];
+  if (parsed.storage) extrasParts.push(parsed.storage);
+  if (parsed.color) extrasParts.push(parsed.color);
+  if (parsed.grade) extrasParts.push(parsed.grade);
+
+  return {
+    label: parts.filter(Boolean).join(' ') || rawModel,
+    extras: extrasParts.join(' · '),
+  };
+}
+
 // ── Component ────────────────────────────────────────────────────────────────
 
 export default function BuySheet(_props: Props) {
@@ -87,7 +202,7 @@ export default function BuySheet(_props: Props) {
 
   // ── State ─────────────────────────────────────────────────────────────────
   const [search, setSearch] = useState('');
-  const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>('available');
   const [supplierFilter, setSupplierFilter] = useState<Set<string>>(new Set());
   const [showFilterDrawer, setShowFilterDrawer] = useState(false);
   const [sort, setSort] = useState<{ key: SortKey; dir: SortDir }>({ key: 'dateIn', dir: 'desc' });
@@ -120,12 +235,12 @@ export default function BuySheet(_props: Props) {
    *  before" the way `new Date('2026-06-06')` would give you. */
   const parseStockInDate = (s: string | undefined): number => {
     if (!s) return 0;
-    const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(s);
+    const m = /^\d{4}-\d{2}-\d{2}/.exec(s);
     if (!m) {
       const t = new Date(s).getTime();
       return Number.isFinite(t) ? t : 0;
     }
-    return new Date(+m[1], +m[2] - 1, +m[3]).getTime();
+    return new Date(s).getTime();
   };
 
   // "Stock Added In Last 72 Hours" — every unit whose Stock In date
@@ -260,7 +375,7 @@ export default function BuySheet(_props: Props) {
   const applyPanelFilters = (base: InventoryUnit[]): InventoryUnit[] => {
     const q = search.trim().toLowerCase();
     return base.filter(u => {
-      if (statusFilter !== 'all' && u.status !== statusFilter) return false;
+      if (u.status !== statusFilter) return false;
       if (supplierFilter.size > 0) {
         const sname = supplierMap[u.supplierId] || u.supplierName || 'Unassigned';
         if (!supplierFilter.has(sname)) return false;
@@ -527,13 +642,12 @@ export default function BuySheet(_props: Props) {
             </button>
           </div>
 
-          {/* Status pills — Stock Intake is for buy-side state (in stock /
-              incoming / returned). 'Sold' was removed at operator request:
-              sold units belong to the Inventory tab's sales view, not the
-              intake screen. */}
+          {/* Status pills — In Stock / Incoming / Returned only.
+              'All' was removed at operator request — the three status
+              filters are now the only way to scope the list. Default
+              on load is 'available' (In Stock). */}
           <div className="flex items-center gap-1.5 overflow-x-auto pb-0.5">
             {([
-              ['all',       'All',       units.length],
               ['available', 'In Stock',  officeUnits.length],
               ['incoming',  'Incoming',  units.filter(u => u.status === 'incoming').length],
               ['returned',  'Returned',  units.filter(u => u.status === 'returned').length],
@@ -552,9 +666,9 @@ export default function BuySheet(_props: Props) {
                 </span>
               </button>
             ))}
-            {(statusFilter !== 'all' || supplierFilter.size > 0 || search) && (
+            {(supplierFilter.size > 0 || search) && (
               <button
-                onClick={() => { setStatusFilter('all'); setSupplierFilter(new Set()); setSearch(''); }}
+                onClick={() => { setStatusFilter('available'); setSupplierFilter(new Set()); setSearch(''); }}
                 className="flex items-center gap-1 px-2 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-widest text-slate-500 hover:text-rose-600 transition-all flex-shrink-0"
               >
                 <X size={11} /> Reset
@@ -658,9 +772,50 @@ function StockAlerts({
   units: InventoryUnit[];
   supplierMap: Record<string, string>;
 }) {
-  type Bucket = OutOfStockBucket;
+  type Bucket = {
+    key: string;
+    label: string;        // human-readable display label (SKU-cleaned)
+    extras: string;       // extracted colour / storage / grade from SKU
+    suppliers: Set<string>;
+    available: number;
+    sold: number;
+    lastSold: string;     // ISO date of latest sale (for context)
+    latestBp: number;     // most recent buy price seen (rough cost guide)
+  };
 
-  const buckets = useMemo(() => buildOutOfStockBuckets(units, supplierMap), [units, supplierMap]);
+  const buckets = useMemo(() => {
+    const map = new Map<string, Bucket>();
+    for (const u of units) {
+      const brand = (u.brand || '').trim();
+      const model = (u.model || '').trim();
+      const storage = (u.storage || '').trim();
+      const key = `${brand}|${model}|${storage}`.toLowerCase();
+      if (!key.trim()) continue;
+      let b = map.get(key);
+      if (!b) {
+        const { label, extras } = buildAlertLabel(brand, model, storage);
+        b = {
+          key,
+          label,
+          extras,
+          suppliers: new Set<string>(),
+          available: 0, sold: 0, lastSold: '',
+          latestBp: u.buyPrice || 0,
+        };
+        map.set(key, b);
+      }
+      const sname = supplierMap[u.supplierId] || u.supplierName || '';
+      if (sname) b.suppliers.add(sname);
+      if (u.status === 'available') b.available++;
+      else if (u.status === 'sold') {
+        b.sold++;
+        const d = (u.saleDate || '').split('T')[0];
+        if (d && d > b.lastSold) b.lastSold = d;
+      }
+      if (u.buyPrice && u.buyPrice > 0) b.latestBp = u.buyPrice;
+    }
+    return Array.from(map.values());
+  }, [units, supplierMap]);
 
   const soldOut = useMemo(
     () => buckets
@@ -700,7 +855,7 @@ function StockAlerts({
         <div className="py-8 flex flex-col items-center gap-2 text-emerald-600">
           <Sparkles size={22} />
           <p className="text-[11px] font-mono uppercase tracking-widest">All stock levels healthy</p>
-          <p className="text-[10px] font-mono text-slate-500">Nothing sold out · no SKU below 3 units</p>
+          <p className="text-[10px] font-mono text-slate-500">Nothing sold out · no model below 3 units</p>
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 divide-y md:divide-y-0 md:divide-x divide-slate-100">
@@ -713,6 +868,7 @@ function StockAlerts({
             rows={soldOut.map(b => ({
               key: b.key,
               label: b.label,
+              extras: b.extras,
               meta: `${b.sold} sold${b.lastSold ? ` · last ${b.lastSold}` : ''}`,
               tail: [...b.suppliers].slice(0, 2).join(' / ') || '—',
               tailRight: b.latestBp ? `£${b.latestBp}` : '',
@@ -728,6 +884,7 @@ function StockAlerts({
             rows={lowStock.map(b => ({
               key: b.key,
               label: b.label,
+              extras: b.extras,
               meta: `${b.available} left${b.sold > 0 ? ` · ${b.sold} sold` : ''}`,
               tail: [...b.suppliers].slice(0, 2).join(' / ') || '—',
               tailRight: b.latestBp ? `£${b.latestBp}` : '',
@@ -748,7 +905,7 @@ function AlertColumn({
   icon: React.ReactNode;
   title: string;
   hint: string;
-  rows: Array<{ key: string; label: string; meta: string; tail: string; tailRight?: string; warn?: boolean }>;
+  rows: Array<{ key: string; label: string; extras?: string; meta: string; tail: string; tailRight?: string; warn?: boolean }>;
   empty: string;
 }) {
   // Default open so alerts stay visible on first render; the operator
@@ -797,6 +954,11 @@ function AlertColumn({
                   <p className="text-[9px] font-mono text-slate-500 mt-0.5 truncate">
                     {r.meta} · {r.tail}
                   </p>
+                  {r.extras && (
+                    <p className="text-[8px] font-mono text-slate-400 mt-0.5 truncate">
+                      {r.extras}
+                    </p>
+                  )}
                 </div>
                 {r.tailRight && (
                   <span className="text-[10px] font-mono text-slate-600 flex-shrink-0 tabular-nums">{r.tailRight}</span>
