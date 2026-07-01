@@ -280,7 +280,7 @@ function AppShell({ user }: { user: User }) {
             hamburger in the page header so the open ↔ close gesture is
             symmetric. */}
         <div className="h-16 flex-shrink-0 flex items-center justify-between px-5 border-b border-slate-100">
-          <button onClick={() => { setActiveTab(NAV_TABS[0]?.id ?? 'returns'); setSidebarOpen(false); }} className="text-left group active:scale-95 transition-transform min-w-0">
+          <button onClick={() => { setActiveTab('buy'); setSidebarOpen(false); }} className="text-left group active:scale-95 transition-transform min-w-0">
             <h1 className="text-[13px] font-black tracking-tighter uppercase font-display text-slate-900 leading-none">
               {APP_NAME}
             </h1>
@@ -543,7 +543,7 @@ function AppShell({ user }: { user: User }) {
           </button>
 
           {/* Brand + region badge — always visible next to the hamburger. */}
-          <button onClick={() => setActiveTab(NAV_TABS[0]?.id ?? 'returns')} className="active:scale-95 transition-transform min-w-0 mr-auto md:mr-0">
+          <button onClick={() => setActiveTab('buy')} className="active:scale-95 transition-transform min-w-0 mr-auto md:mr-0">
             <h1 className="text-sm md:text-base font-black tracking-tighter uppercase font-display text-slate-900 leading-none truncate">{APP_NAME}</h1>
             <p className="text-[7px] text-slate-400 font-mono uppercase tracking-[0.35em] mt-0.5 truncate">
               {APP_TAGLINE}
