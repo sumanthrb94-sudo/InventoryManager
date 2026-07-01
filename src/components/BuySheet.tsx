@@ -38,12 +38,13 @@ import StockOverlayModal, {
   DEFAULT_GROUP_SORT, sortUnits,
   type SortKey, type SortDir, type GroupSort, type GroupedModel,
 } from './StockOverlayModal';
+import OutOfStockOverlay, { type OutOfStockBucket } from './OutOfStockOverlay';
 import PaginationBar, { usePagedRows } from './PaginationBar';
 import ReportRangeMenu from './ReportRangeMenu';
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
-type KpiId = 'recent' | 'office' | 'shs' | 'sold_today';
+type KpiId = 'recent' | 'office' | 'shs' | 'sold_today' | 'out_of_stock';
 type StatusFilter = 'all' | 'available' | 'sold' | 'incoming' | 'returned';
 
 interface Props {
@@ -203,6 +204,20 @@ export default function BuySheet(_props: Props) {
     });
   }, [units]);
 
+  // "Out of Stock · Last 72 Hours" — SKU buckets with 0 available and at least
+  // one sale, whose latest sale happened within the rolling 72-hour window.
+  // Because the app does not store the exact moment a SKU hit zero stock,
+  // lastSold is the closest available proxy.
+  const outOfStock72h = useMemo(() => {
+    const cutoff = Date.now() - 72 * 60 * 60 * 1000;
+    return buildOutOfStockBuckets(units, supplierMap).filter(b => {
+      if (b.available !== 0 || b.sold === 0) return false;
+      if (!b.lastSold) return false;
+      const t = new Date(b.lastSold + 'T12:00:00').getTime();
+      return Number.isFinite(t) && t >= cutoff;
+    }).sort((a, b) => (b.lastSold || '').localeCompare(a.lastSold || ''));
+  }, [units, supplierMap, nowMs]);
+
   // ── KPI counts ────────────────────────────────────────────────────────────
   const kpiCounts = useMemo(() => {
     // Office count = aggregate rollup + unmapped available units, so a wiped
@@ -224,8 +239,9 @@ export default function BuySheet(_props: Props) {
       office: Math.max(aggOffice, officeUnits.length),
       shs: shsCount,
       soldToday: soldToday.length,
+      outOfStock: outOfStock72h.length,
     };
-  }, [aggregates, recentUnits.length, officeUnits.length, shsAggs.length, shsUnits.length, soldToday.length]);
+  }, [aggregates, recentUnits.length, officeUnits.length, shsAggs.length, shsUnits.length, soldToday.length, outOfStock72h.length]);
 
   // ── Supplier options for the filter chip drawer ───────────────────────────
   const supplierOptions = useMemo(() => {
@@ -421,8 +437,8 @@ export default function BuySheet(_props: Props) {
           )}
         </div>
 
-        {/* 4 clickable KPI tiles — each opens the Excel overlay scoped to that KPI */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        {/* 5 clickable KPI tiles — each opens the Excel overlay scoped to that KPI */}
+        <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
           <BigKpiTile
             label="Stock Added In Last 72 Hours"
             value={kpiCounts.recent}
@@ -446,6 +462,12 @@ export default function BuySheet(_props: Props) {
             value={kpiCounts.soldToday}
             tone="slate"
             onClick={() => setOverlay('sold_today')}
+          />
+          <BigKpiTile
+            label="Out of Stock · 72h"
+            value={kpiCounts.outOfStock}
+            tone="rose"
+            onClick={() => setOverlay('out_of_stock')}
           />
         </div>
       </div>
@@ -590,7 +612,7 @@ export default function BuySheet(_props: Props) {
 
       {/* ── Excel overlay modal — opens when a KPI tile is clicked ────────── */}
       <AnimatePresence>
-        {overlay && (
+        {overlay && overlay !== 'out_of_stock' && (
           <StockOverlayModal
             title={titleFor(overlay)}
             rows={sortedRows}
@@ -601,6 +623,12 @@ export default function BuySheet(_props: Props) {
               []
             }
             region={region}
+            onClose={() => setOverlay(null)}
+          />
+        )}
+        {overlay === 'out_of_stock' && (
+          <OutOfStockOverlay
+            buckets={outOfStock72h}
             onClose={() => setOverlay(null)}
           />
         )}
@@ -630,47 +658,9 @@ function StockAlerts({
   units: InventoryUnit[];
   supplierMap: Record<string, string>;
 }) {
-  type Bucket = {
-    key: string;
-    label: string;
-    suppliers: Set<string>;
-    available: number;
-    sold: number;
-    lastSold: string;     // ISO date of latest sale (for context)
-    latestBp: number;     // most recent buy price seen (rough cost guide)
-  };
+  type Bucket = OutOfStockBucket;
 
-  const buckets = useMemo(() => {
-    const map = new Map<string, Bucket>();
-    for (const u of units) {
-      const brand = (u.brand || '').trim();
-      const model = (u.model || '').trim();
-      const storage = (u.storage || '').trim();
-      const key = `${brand}|${model}|${storage}`.toLowerCase();
-      if (!key.trim()) continue;
-      let b = map.get(key);
-      if (!b) {
-        b = {
-          key,
-          label: [brand, model, storage].filter(Boolean).join(' '),
-          suppliers: new Set<string>(),
-          available: 0, sold: 0, lastSold: '',
-          latestBp: u.buyPrice || 0,
-        };
-        map.set(key, b);
-      }
-      const sname = supplierMap[u.supplierId] || u.supplierName || '';
-      if (sname) b.suppliers.add(sname);
-      if (u.status === 'available') b.available++;
-      else if (u.status === 'sold') {
-        b.sold++;
-        const d = (u.saleDate || '').split('T')[0];
-        if (d && d > b.lastSold) b.lastSold = d;
-      }
-      if (u.buyPrice && u.buyPrice > 0) b.latestBp = u.buyPrice;
-    }
-    return Array.from(map.values());
-  }, [units, supplierMap]);
+  const buckets = useMemo(() => buildOutOfStockBuckets(units, supplierMap), [units, supplierMap]);
 
   const soldOut = useMemo(
     () => buckets
@@ -826,7 +816,7 @@ function BigKpiTile({
 }: {
   label: string;
   value: string | number;
-  tone: 'emerald' | 'blue' | 'amber' | 'slate';
+  tone: 'emerald' | 'blue' | 'amber' | 'slate' | 'rose';
   onClick: () => void;
 }) {
   const tones: Record<string, string> = {
@@ -834,6 +824,7 @@ function BigKpiTile({
     blue:    'bg-gradient-to-br from-blue-50 to-blue-100/50 border-blue-200 text-blue-800 hover:from-blue-100 hover:to-blue-100',
     amber:   'bg-gradient-to-br from-amber-50 to-amber-100/50 border-amber-200 text-amber-800 hover:from-amber-100 hover:to-amber-100',
     slate:   'bg-gradient-to-br from-slate-50 to-slate-100/50 border-slate-200 text-slate-800 hover:from-slate-100 hover:to-slate-100',
+    rose:    'bg-gradient-to-br from-rose-50 to-rose-100/50 border-rose-200 text-rose-800 hover:from-rose-100 hover:to-rose-100',
   };
   return (
     <button
@@ -1098,14 +1089,51 @@ function InlineEditableSelect({
   );
 }
 
+// ── Out-of-stock bucket builder (shared by StockAlerts and the KPI tile) ────
+
+function buildOutOfStockBuckets(
+  units: InventoryUnit[],
+  supplierMap: Record<string, string>,
+): OutOfStockBucket[] {
+  const map = new Map<string, OutOfStockBucket>();
+  for (const u of units) {
+    const brand = (u.brand || '').trim();
+    const model = (u.model || '').trim();
+    const storage = (u.storage || '').trim();
+    const key = `${brand}|${model}|${storage}`.toLowerCase();
+    if (!key.trim()) continue;
+    let b = map.get(key);
+    if (!b) {
+      b = {
+        key,
+        label: [brand, model, storage].filter(Boolean).join(' '),
+        suppliers: new Set<string>(),
+        available: 0, sold: 0, lastSold: '', latestBp: u.buyPrice || 0,
+      };
+      map.set(key, b);
+    }
+    const sname = supplierMap[u.supplierId] || u.supplierName || '';
+    if (sname) b.suppliers.add(sname);
+    if (u.status === 'available') b.available++;
+    else if (u.status === 'sold') {
+      b.sold++;
+      const d = (u.saleDate || '').split('T')[0];
+      if (d && d > b.lastSold) b.lastSold = d;
+    }
+    if (u.buyPrice && u.buyPrice > 0) b.latestBp = u.buyPrice;
+  }
+  return Array.from(map.values());
+}
+
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
 function titleFor(kpi: KpiId): string {
   switch (kpi) {
-    case 'recent':     return 'Stock Added In Last 72 Hours';
-    case 'office':     return 'All Office Stock';
-    case 'shs':        return 'SHS Stock';
-    case 'sold_today': return 'Sold Today';
+    case 'recent':       return 'Stock Added In Last 72 Hours';
+    case 'office':       return 'All Office Stock';
+    case 'shs':          return 'SHS Stock';
+    case 'sold_today':   return 'Sold Today';
+    case 'out_of_stock': return 'Out of Stock · Last 72 Hours';
   }
 }
 
