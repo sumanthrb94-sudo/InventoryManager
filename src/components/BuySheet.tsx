@@ -375,7 +375,9 @@ export default function BuySheet(_props: Props) {
   const applyPanelFilters = (base: InventoryUnit[]): InventoryUnit[] => {
     const q = search.trim().toLowerCase();
     return base.filter(u => {
-      if (u.status !== statusFilter) return false;
+      // KPI tiles already scope by status (SHS = incoming, Sold Today = sold,
+      // etc.). The status pills only apply to the always-on inline table.
+      if (!overlay && u.status !== statusFilter) return false;
       if (supplierFilter.size > 0) {
         const sname = supplierMap[u.supplierId] || u.supplierName || 'Unassigned';
         if (!supplierFilter.has(sname)) return false;
