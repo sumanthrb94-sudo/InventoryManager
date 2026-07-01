@@ -47,6 +47,7 @@ export default function ReviewScreen({ units, batchId, onSubmit, onBack, error }
               <th className="px-2 sm:px-4 py-2 sm:py-3 text-left font-bold text-gray-700">Colour</th>
               <th className="hidden sm:table-cell px-4 py-3 text-left font-bold text-gray-700">Storage</th>
               <th className="hidden sm:table-cell px-4 py-3 text-left font-bold text-gray-700">Grade</th>
+              <th className="hidden sm:table-cell px-4 py-3 text-left font-bold text-gray-700">SIM Type</th>
               <th className="px-2 sm:px-4 py-2 sm:py-3 text-right font-bold text-gray-700">Price</th>
             </tr>
           </thead>
@@ -59,6 +60,7 @@ export default function ReviewScreen({ units, batchId, onSubmit, onBack, error }
                 <td className="px-2 sm:px-4 py-2 sm:py-3 text-gray-700 text-xs sm:text-sm">{unit.colour}</td>
                 <td className="hidden sm:table-cell px-4 py-3 text-gray-600 text-xs">{unit.storage || '-'}</td>
                 <td className="hidden sm:table-cell px-4 py-3 text-gray-600 font-semibold text-xs">{unit.grade || '-'}</td>
+                <td className="hidden sm:table-cell px-4 py-3 text-gray-600 text-xs">{unit.simType || '-'}</td>
                 <td className="px-2 sm:px-4 py-2 sm:py-3 text-right font-mono font-semibold text-gray-900 text-xs sm:text-sm">£{unit.buyPrice.toFixed(2)}</td>
               </tr>
             ))}

@@ -44,6 +44,7 @@ export interface AddUnitInput {
   colour?: string;
   storage?: string;
   grade?: string;
+  simType?: string;
   notes?: string;
   /** ISO yyyy-mm-dd; defaults to today. */
   dateIn?: string;
@@ -227,6 +228,7 @@ export async function addUnitManual(input: AddUnitInput): Promise<AddUnitResult>
     ...(storage ? { storage } : {}),
     ...(parsed.series ? ({ series: parsed.series } as any) : {}),
     ...(input.grade?.trim() ? { grade: input.grade.trim() } : {}),
+    ...(input.simType?.trim() ? { simType: input.simType.trim() } : {}),
     buyPrice: bp,
     dateIn,
     supplierId,
@@ -415,6 +417,7 @@ export async function receiveShsAggregate(input: ReceiveShsInput): Promise<Recei
     category,
     storage: aggregate.storage,
     colour: colour || 'Unknown',
+    ...((aggregate as any).simType ? { simType: (aggregate as any).simType } : {}),
     buyPrice: aggregate.buyPrice ?? 0,
     dateIn,
     supplierId,

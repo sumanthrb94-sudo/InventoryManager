@@ -4,7 +4,7 @@ import { motion } from 'motion/react';
 import { dbService } from '../lib/dbService';
 import { InventoryUnit, DeviceCategory, DeviceStatus } from '../types';
 import { useInventoryStore } from '../lib/inventoryStore';
-import { GradeSelect, StorageSelect } from './FormSelects';
+import { GradeSelect, StorageSelect, SimTypeSelect } from './FormSelects';
 
 interface Props {
   unit: InventoryUnit;
@@ -42,6 +42,7 @@ export default function EditUnitModal({ unit, onClose }: Props) {
   const [colour,   setColour]   = useState(unit.colour || '');
   const [grade,    setGrade]    = useState(unit.grade || '');
   const [storage,  setStorage]  = useState(unit.storage || '');
+  const [simType,  setSimType]  = useState(unit.simType || '');
   const [boxIncluded,   setBoxIncluded]   = useState(!!unit.boxIncluded);
   const [batteryHealth, setBatteryHealth] = useState(unit.batteryHealth?.toString() || '');
   const [networkLock,   setNetworkLock]   = useState(unit.networkLock || '');
@@ -81,6 +82,7 @@ export default function EditUnitModal({ unit, onClose }: Props) {
         colour:         colour.trim() || 'Unknown',
         grade:          grade || undefined,
         storage:        storage || undefined,
+        simType:        simType || undefined,
         boxIncluded,
         batteryHealth:  bh,
         networkLock:    networkLock.trim() || undefined,
@@ -215,6 +217,9 @@ export default function EditUnitModal({ unit, onClose }: Props) {
             <FieldRow cols={2}>
               <GradeSelect value={grade} onChange={setGrade} />
               <StorageSelect value={storage} onChange={setStorage} />
+            </FieldRow>
+            <FieldRow>
+              <SimTypeSelect value={simType} onChange={setSimType} />
             </FieldRow>
             <FieldRow cols={2}>
               <Field label="Battery Health (%)">

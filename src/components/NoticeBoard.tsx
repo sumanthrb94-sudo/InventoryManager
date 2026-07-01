@@ -26,15 +26,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { dbService } from '../lib/dbService';
 import { useIsAdmin } from '../lib/useIsAdmin';
 import { auth } from '../lib/firebase';
-
-interface Notice {
-  id: string;
-  content: string;
-  createdAt: string;     // ISO timestamp set on first write
-  updatedAt?: string;    // bumped when admin edits a row
-  createdBy?: string;    // email
-  ownerId: 'shared';
-}
+import type { Notice } from '../types';
 
 const DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 

@@ -184,7 +184,7 @@ const INVENTORY_HEADERS: Array<string | null> = [
 const INVENTORY_COLUMN_WIDTHS = [50, 6, 12, 30, 10, 40, 20, 30];
 
 const IMEI_HEADERS = [
-  'STOCK IN DATE', 'MODEL', 'IMEI NUMBER', 'BP', 'COLOURS',
+  'STOCK IN DATE', 'MODEL', 'IMEI NUMBER', 'BP', 'COLOURS', 'SIM TYPE',
   'SUPPLIER', 'NOTES', 'STATUS', 'MARKETPLACE', 'STOCK OUT DATE',
   // Export-only column. The import parser keys off HEADER_ALIASES in
   // InventoryReportImport.tsx and silently drops unknown headers, so
@@ -253,6 +253,7 @@ export async function buildInventoryWorkbookBuffer(input: BuildInventoryWorkbook
       unit.imei ?? '',
       unit.buyPrice ?? null,
       unit.colour ?? '',
+      unit.simType ?? '',
       supplierName,
       unit.notes ?? null,
       unit.statusRaw ?? unit.status ?? '',

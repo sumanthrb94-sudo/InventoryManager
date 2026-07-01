@@ -7,7 +7,7 @@ import { useInventoryStore } from '../lib/inventoryStore';
 import { useIsAdmin } from '../lib/useIsAdmin';
 import { notificationService } from '../lib/notificationService';
 import { GRADE_OPTIONS, STORAGE_OPTIONS } from '../lib/unitConstants';
-import { GradeSelect, StorageSelect } from './FormSelects';
+import { GradeSelect, StorageSelect, SimTypeSelect } from './FormSelects';
 import IMEIScanner from './IMEIScanner';
 import { isValidImei, IMEI_REQUIRED_MESSAGE } from '../lib/imeiValidation';
 
@@ -76,6 +76,7 @@ export default function ScanInModal({ onClose }: Props) {
   const [colour, setColour] = useState('');
   const [storage, setStorage] = useState('');
   const [grade, setGrade] = useState('A');
+  const [simType, setSimType] = useState('');
   const [supplierName, setSupplierName] = useState('');
   const [notes, setNotes] = useState('');
   const [saving, setSaving] = useState(false);
@@ -163,6 +164,7 @@ export default function ScanInModal({ onClose }: Props) {
         colour,
         storage: storage || undefined,
         grade: grade || undefined,
+        ...(simType.trim() ? { simType: simType.trim() } : {}),
         buyPrice: bp,
         dateIn: today(),
         supplierId,
@@ -191,6 +193,7 @@ export default function ScanInModal({ onClose }: Props) {
         setColour('');
         setStorage('');
         setGrade('A');
+        setSimType('');
         setSupplierName('');
         setNotes('');
       }, 1200);
@@ -330,6 +333,9 @@ export default function ScanInModal({ onClose }: Props) {
 
                 {/* Grade */}
                 <GradeSelect value={grade} onChange={e => { setGrade(e); setError(''); }} />
+
+                {/* SIM Type */}
+                <SimTypeSelect value={simType} onChange={e => { setSimType(e); setError(''); }} />
 
                 {/* Buy Price */}
                 <div>

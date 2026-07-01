@@ -219,6 +219,7 @@ export function parseClientBulkSheet(rows: any[][]): ParsedData {
   const bpIdx       = col(['BP', 'BUY PRICE', 'PRICE', 'COST']);
   const qtyIdx      = col(['QUANTITY', 'QTY']);
   const colourIdx   = col(['COLOUR', 'COLOR']);
+  const simTypeIdx  = col(['SIM TYPE', 'SIMTYPE', 'SIM']);
   const supplierIdx = col(['SUPPLIER', 'SOURCE']);
   const notesIdx    = col(['NOTES', 'NOTE', 'REMARK']);
   // Master INVENTORY sheet has an unlabeled column D between QUANTITY and
@@ -286,6 +287,7 @@ export function parseClientBulkSheet(rows: any[][]): ParsedData {
       : undefined;
     const qtyParsed  = parseQuantityCell(qtyRawCell);
     const colours    = colourIdx >= 0 ? String(r[colourIdx] || '').trim() : '';
+    const simType    = simTypeIdx >= 0 && r[simTypeIdx] ? String(r[simTypeIdx]).trim() : '';
     const supplierCell = supplierIdx >= 0 ? r[supplierIdx] : '';
     const supParsed  = parseSupplierCell(supplierCell);
     const notes      = notesIdx >= 0 ? String(r[notesIdx] || '').trim() : '';
@@ -314,6 +316,7 @@ export function parseClientBulkSheet(rows: any[][]): ParsedData {
         quantityText: rawQtyText,
         ...(notesFlag ? { notesFlag } : {}),
         ...(colours ? { coloursRaw: colours } : {}),
+        ...(simType ? { simType } : {}),
         supplierIds: supParsed.allNames.map(supplierIdFor),
         supplierNames: supParsed.allNames,
         ...(notes ? { notes } : {}),
@@ -355,6 +358,7 @@ export function parseClientBulkSheet(rows: any[][]): ParsedData {
       ...(notesFlag ? { notesFlag } : {}),
       ...(Object.keys(coloursMap).length ? { coloursMap } : {}),
       ...(colours ? { coloursRaw: colours } : {}),
+      ...(simType ? { simType } : {}),
       supplierIds,
       supplierNames: supParsed.allNames,
       ...(notes ? { notes } : {}),
@@ -377,6 +381,7 @@ export function parseClientBulkSheet(rows: any[][]): ParsedData {
         model, brand, category, colour: primaryColour, buyPrice: bp,
         ...(storage ? { storage } : {}),
         ...(parsedSeries ? { series: parsedSeries } : {}),
+        ...(simType ? { simType } : {}),
         dateIn, supplierId, supplierIds, supplierName: primaryName,
         status: 'incoming',
         statusRaw: 'SHS',
@@ -403,6 +408,7 @@ export function parseClientBulkSheet(rows: any[][]): ParsedData {
           model, brand, category, colour, buyPrice: bp,
           ...(storage ? { storage } : {}),
           ...(parsedSeries ? { series: parsedSeries } : {}),
+          ...(simType ? { simType } : {}),
           dateIn, supplierId, supplierIds, supplierName: primaryName, status: 'available',
           flags: [], notes: notes || '',
           platformListed: false, listingSites: [], ownerId: 'shared',
@@ -453,6 +459,7 @@ export function parseOGStockSheet(rows: any[][]): ParsedData {
   const statusIdx    = pickCol(['Status', 'State'], 5);
   // Optional columns — -1 if absent
   const colourIdx      = findCol(['Colour', 'Color']);
+  const simTypeIdx     = findCol(['Sim Type', 'SIM Type', 'SIMTYPE', 'SIM']);
   const storageIdx     = findCol(['Storage', 'Capacity']);
   const platformIdx    = findCol(['Sale Platform', 'Platform', 'Listed']);
   // Master file IMEI NUMBERS sheet has a dedicated MARKETPLACE column
@@ -511,6 +518,7 @@ export function parseOGStockSheet(rows: any[][]): ParsedData {
     // we just extracted out of the MODEL string.
     const explicitStorage = storageIdx >= 0 && r[storageIdx] ? r[storageIdx].toString().trim() : undefined;
     const storage      = explicitStorage || modelStorage;
+    const simType      = simTypeIdx >= 0 && r[simTypeIdx] ? r[simTypeIdx].toString().trim() : '';
     const notes        = notesIdx >= 0 && r[notesIdx] ? r[notesIdx].toString().trim() : '';
 
     // Preserve the raw STATUS string verbatim ("R T S", "FBA", "SOLD", etc.)
@@ -570,6 +578,7 @@ export function parseOGStockSheet(rows: any[][]): ParsedData {
       flags: [], notes,
       ...(storage      ? { storage }      : {}),
       ...(parsedSeries ? { series: parsedSeries } : {}),
+      ...(simType      ? { simType }      : {}),
       ...(postageCost  !== undefined ? { postageCost } : {}),
       // Gap fixes — preserve the master file's verbatim values
       // (B6 follow-up: status verbatim, marketplace, stock-out date).

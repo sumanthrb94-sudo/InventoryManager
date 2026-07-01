@@ -3,7 +3,7 @@ import { ChevronLeft, Lock, AlertTriangle, Minus, Plus } from 'lucide-react';
 import { motion } from 'motion/react';
 import { useInventoryStore } from '../../lib/inventoryStore';
 import { GRADE_OPTIONS, STORAGE_OPTIONS } from '../../lib/unitConstants';
-import { GradeSelect, StorageSelect } from '../FormSelects';
+import { GradeSelect, StorageSelect, SimTypeSelect } from '../FormSelects';
 import ConfidenceBadge from '../OCR/ConfidenceBadge';
 import DeviceComboBox from '../DeviceComboBox';
 import type { OCRResult } from '../../lib/ocr/ocrEngine';
@@ -41,6 +41,8 @@ interface Props {
   setStorage: (v: string) => void;
   grade: string;
   setGrade: (v: string) => void;
+  simType: string;
+  setSimType: (v: string) => void;
   buyPrice: string;
   setBuyPrice: (v: string) => void;
   supplierId: string;
@@ -73,6 +75,8 @@ export default function DetailForm({
   setStorage,
   grade,
   setGrade,
+  simType,
+  setSimType,
   buyPrice,
   setBuyPrice,
   supplierId,
@@ -351,6 +355,9 @@ export default function DetailForm({
           </div>
           <GradeSelect value={grade} onChange={setGrade} />
         </div>
+
+        {/* SIM Type */}
+        <SimTypeSelect value={simType} onChange={setSimType} />
 
         {/* Colour */}
         <div className="col-span-2">

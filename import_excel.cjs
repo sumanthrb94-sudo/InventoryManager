@@ -485,6 +485,7 @@ function parseWorksheet(ws, verbose) {
     const saleDate     = rawSaleDate ? excelDateToISO(rawSaleDate) : dateIn;
     const rawColour    = getCell(r, cols.colour);
     const rawStorage   = getCell(r, cols.storage);
+    const rawSimType   = getCell(r, cols.simType);
     const rawCondition = getCell(r, cols.condition);
     const rawNotes     = getCell(r, cols.notes);
     const rawOrderNum  = getCell(r, cols.orderNum);
@@ -538,6 +539,7 @@ function parseWorksheet(ws, verbose) {
       category,
       colour,
       storage,
+      ...(rawSimType ? { simType: rawSimType } : {}),
       conditionGrade: rawCondition || undefined,
       buyPrice,
       dateIn,

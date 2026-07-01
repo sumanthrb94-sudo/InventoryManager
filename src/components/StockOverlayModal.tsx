@@ -11,10 +11,11 @@
  * the grouped/detailed toggle. Mounted from an <AnimatePresence> by the
  * caller so the enter/exit transition is owned upstream.
  */
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Search, ChevronDown, ChevronUp, ChevronsUpDown, X,
   AlertCircle, Truck, ChevronRight, Layers, List, Sparkles,
+  Trash2,
 } from 'lucide-react';
 import { motion } from 'motion/react';
 import type { InventoryUnit, InventoryAggregate } from '../types';
@@ -25,6 +26,9 @@ import CopyImei from './CopyImei';
 import PaginationBar, { usePagedRows } from './PaginationBar';
 import EditableCell from './EditableCell';
 import { dbService } from '../lib/dbService';
+import { useIsAdmin } from '../lib/useIsAdmin';
+import { deleteShsUnit, deleteShsAggregate } from '../services/shsService';
+import type { DeleteShsResult } from '../services/shsService';
 
 // ── Detail-view sort types (used by the 10-column table headers) ────────────
 export type SortKey = 'dateIn' | 'model' | 'storage' | 'colour' | 'buyPrice' | 'supplier' | 'grade';
@@ -36,6 +40,36 @@ const STATUS_TONE: Record<string, { bg: string; text: string; dot: string }> = {
   incoming:  { bg: 'bg-amber-50 border-amber-200',    text: 'text-amber-700',   dot: 'bg-amber-500'  },
   returned:  { bg: 'bg-rose-50 border-rose-200',      text: 'text-rose-700',    dot: 'bg-rose-500'   },
 };
+
+/** Admin-only delete button for SHS rows. Confirms, calls the service, and
+ *  surfaces any error via alert() so the operator knows if Firestore rules
+ *  rejected the delete. */
+function ShsDeleteButton({ onDelete, title }: { onDelete: () => Promise<DeleteShsResult>; title?: string }) {
+  const [busy, setBusy] = useState(false);
+  const handleClick = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!window.confirm(title || 'Delete this SHS stock? The supplier has confirmed no stock.')) return;
+    setBusy(true);
+    try {
+      const res = await onDelete();
+      if (!res.ok) alert(res.message || 'Delete failed');
+    } catch (err: any) {
+      alert(err?.message || 'Delete failed');
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <button
+      onClick={handleClick}
+      disabled={busy}
+      title={title || 'Delete SHS stock'}
+      className="p-1 rounded-md text-rose-400 hover:text-rose-700 hover:bg-rose-50 transition-colors disabled:opacity-40"
+    >
+      <Trash2 size={14} />
+    </button>
+  );
+}
 
 // ── Grouped-model helpers (shared with InlineSheet in BuySheet.tsx) ─────────
 // One row per (model) bucket: total qty, per-colour breakdown, latest BP,
@@ -399,6 +433,7 @@ function GroupTh({
  *  always sees the same affordances. */
 export function GroupedExcelTable({
   groups, expanded, onToggle, region, sort, onSort, showSold = true,
+  onDeleteShsGroup,
 }: {
   groups: GroupedModel[];
   expanded: Set<string>;
@@ -411,6 +446,10 @@ export function GroupedExcelTable({
    *  Set false from Stock Intake — operator's rule: sold info doesn't
    *  belong on the buy-side intake screen. */
   showSold?: boolean;
+  /** Optional admin-only SHS delete handler. When provided, SHS rows show
+   *  a trash icon so an admin can delete supplier-held stock that the
+   *  supplier has confirmed they no longer have. */
+  onDeleteShsGroup?: (key: string) => Promise<DeleteShsResult>;
 }) {
   return (
     <table className="w-full text-[11px] border-separate border-spacing-0" style={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace' }}>
@@ -463,7 +502,15 @@ export function GroupedExcelTable({
                   </span>
                 </td>
                 <td className="px-3 py-1.5 border-b border-slate-100 align-middle">
-                  <span className="font-bold text-slate-900 truncate block" title={g.model}>{g.model}</span>
+                  <span className="flex items-center justify-between gap-2">
+                    <span className="font-bold text-slate-900 truncate" title={g.model}>{g.model}</span>
+                    {g.shs && onDeleteShsGroup && (
+                      <ShsDeleteButton
+                        onDelete={() => onDeleteShsGroup(g.key)}
+                        title={`Delete SHS stock for ${g.model.replace(' · SHS', '').trim()} — supplier has no stock`}
+                      />
+                    )}
+                  </span>
                 </td>
                 <td className="px-3 py-1.5 border-b border-slate-100 align-middle text-slate-600">
                   {colours.length === 1
@@ -738,6 +785,26 @@ export default function StockOverlayModal({
     setSort(s => ({ key: k, dir: s.key === k && s.dir === 'desc' ? 'asc' : 'desc' }));
 
   const isShsAgg = (a: InventoryAggregate) => (a.quantityText || '').toUpperCase() === 'SHS';
+  const userIsAdmin = useIsAdmin();
+  // Actions appear whenever the overlay contains SHS stock (incoming units or
+  // SHS aggregates) and the current user is an admin. This covers both the
+  // SHS KPI tile and any other view that happens to list incoming stock.
+  const showActions = userIsAdmin && (
+    aggregates.some(isShsAgg) || rows.some(u => u.status === 'incoming')
+  );
+
+  // Map grouped SHS keys back to the aggregate doc so the grouped view can
+  // delegate deletes to the shared service without threading the whole list.
+  const shsAggByKey = useMemo(() => {
+    const map = new Map<string, InventoryAggregate>();
+    for (const a of aggregates) if (isShsAgg(a)) map.set(`shs::${a.id}`, a);
+    return map;
+  }, [aggregates]);
+  const handleDeleteShsGroup = useCallback(async (key: string): Promise<DeleteShsResult> => {
+    const agg = shsAggByKey.get(key);
+    if (!agg) return { ok: false, message: 'SHS aggregate not found' };
+    return deleteShsAggregate(agg);
+  }, [shsAggByKey]);
 
   /** Free-text search scoped to this overlay only — independent of the
    *  always-on filter panel on the Buy page. Matches any of model, imei,
@@ -939,6 +1006,7 @@ export default function StockOverlayModal({
               region={region}
               sort={groupedSort}
               onSort={setGroupedSort}
+              onDeleteShsGroup={showActions ? handleDeleteShsGroup : undefined}
             />
           ) : (
             // Full-schema read-only Excel grid — every InventoryUnit field
@@ -995,8 +1063,16 @@ export default function StockOverlayModal({
                           return (
                             <React.Fragment key={c.key}>
                               <Td align={c.align}>
-                                <span className={`inline-flex items-center gap-1 text-[9px] font-bold ${badgeCls} px-1.5 py-0.5 rounded uppercase tracking-widest`}>
-                                  <Truck size={9} /> {shs ? 'SHS' : 'OFFICE'} · {a.quantityNum ?? '?'}
+                                <span className="inline-flex items-center gap-2">
+                                  <span className={`inline-flex items-center gap-1 text-[9px] font-bold ${badgeCls} px-1.5 py-0.5 rounded uppercase tracking-widest`}>
+                                    <Truck size={9} /> {shs ? 'SHS' : 'OFFICE'} · {a.quantityNum ?? '?'}
+                                  </span>
+                                  {shs && showActions && (
+                                    <ShsDeleteButton
+                                      onDelete={() => deleteShsAggregate(a)}
+                                      title={`Delete SHS stock for ${a.model || 'this model'} — supplier has no stock`}
+                                    />
+                                  )}
                                 </span>
                               </Td>
                             </React.Fragment>
@@ -1041,12 +1117,22 @@ export default function StockOverlayModal({
                           return (
                             <React.Fragment key={c.key}>
                               <Td align={c.align}>
-                                {imeiValid ? <CopyImei imei={u.imei} truncate={20} /> :
-                                  u.status === 'incoming' ? <span className="text-[10px] font-mono text-slate-400 italic">Optional for SHS</span> :
-                                  <span className="inline-flex items-center gap-1 text-rose-600 text-[10px] font-mono">
-                                    <AlertCircle size={10} /> {u.imei ? 'invalid' : 'missing'}
-                                  </span>
-                                }
+                                <span className="inline-flex items-center gap-2 w-full">
+                                  {imeiValid ? <CopyImei imei={u.imei} truncate={20} /> :
+                                    u.status === 'incoming' ? <span className="text-[10px] font-mono text-slate-400 italic">Optional for SHS</span> :
+                                    <span className="inline-flex items-center gap-1 text-rose-600 text-[10px] font-mono">
+                                      <AlertCircle size={10} /> {u.imei ? 'invalid' : 'missing'}
+                                    </span>
+                                  }
+                                  {u.status === 'incoming' && showActions && (
+                                    <span className="ml-auto">
+                                      <ShsDeleteButton
+                                        onDelete={() => deleteShsUnit(u)}
+                                        title={`Delete SHS unit for ${u.model || 'this unit'} — supplier has no stock`}
+                                      />
+                                    </span>
+                                  )}
+                                </span>
                               </Td>
                             </React.Fragment>
                           );

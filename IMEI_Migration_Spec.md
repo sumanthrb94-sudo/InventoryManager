@@ -43,7 +43,7 @@ CHECK (
 );
 ```
 
-**⚠️ WARNING:** Before applying constraints, clean existing data:
+**WARNING:** Before applying constraints, clean existing data:
 
 ```sql
 -- Remove fake IMEIs first

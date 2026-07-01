@@ -57,6 +57,7 @@ export interface InventoryUnit {
   colour: string;         // e.g. "Natural Titanium", "Phantom Black"
   storage?: string;
   grade?: string;         // e.g. "A", "B", "C", "Refurbished"
+  simType?: string;       // e.g. "Physical SIM", "eSIM", "Dual SIM"
   batchNo?: string;       // e.g. "INV-2061", custom batch identifier
   boxIncluded?: boolean;
   batteryHealth?: number;
@@ -214,6 +215,19 @@ export interface DailyUpdate {
   type: 'stock_in' | 'stock_sold' | 'price_change' | 'platform_update' | 'general';
   ownerId: string;
   createdAt: any;
+}
+
+/**
+ * Notice — admin-authored team broadcast posted to the notice board.
+ * Persisted in Firestore; create/update/delete are admin-gated in rules.
+ */
+export interface Notice {
+  id: string;
+  content: string;
+  createdAt: string;      // ISO timestamp
+  updatedAt?: string;     // bumped on admin edit
+  createdBy?: string;     // admin email
+  ownerId: string;
 }
 
 /**

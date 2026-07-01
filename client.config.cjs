@@ -82,6 +82,7 @@ const MASTER_EXCEL = {
     saleDate:  ['Sale Date', 'Date Sold', 'Sold Date'],
     colour:    ['Colour', 'Color', 'Colour/Color'],
     storage:   ['Storage', 'Capacity', 'GB'],
+    simType:   ['SIM Type', 'Sim Type', 'SIMTYPE', 'SIM'],
     condition: ['Condition', 'Grade', 'Condition Grade'],
     notes:     ['Notes', 'Note', 'Comments', 'Remarks'],
     orderNum:  ['Order Number', 'Order No', 'Order #', 'Order ID'],

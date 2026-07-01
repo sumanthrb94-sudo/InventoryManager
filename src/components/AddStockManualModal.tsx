@@ -35,6 +35,7 @@ import {
   IMEI_REQUIRED_MESSAGE,
   IMEI_OR_APPLE_SERIAL_MESSAGE,
 } from '../lib/imeiValidation';
+import { SimTypeSelectCompact } from './FormSelects';
 import { parseBrandModelStorage } from '../lib/modelStorage';
 import { addUnitManual, ensureSupplier } from '../services';
 import type { InventoryUnit, ListingSite } from '../types';
@@ -54,6 +55,7 @@ interface StockRow {
   imei: string;          // required for Office; optional for SHS
   grade: string;         // A / B / C / Refurbished
   storage: string;       // auto-parsed but editable
+  simType: string;       // Physical SIM / eSIM / Dual SIM / Not Applicable
   colour: string;
   supplierName: string;
   buyPrice: string;
@@ -94,7 +96,7 @@ const today = () => new Date().toISOString().split('T')[0];
 function emptyRow(supplierName = ''): StockRow {
   return {
     id: uid(),
-    model: '', imei: '', grade: '', storage: '', colour: '',
+    model: '', imei: '', grade: '', storage: '', simType: '', colour: '',
     supplierName, buyPrice: '', notes: '',
   };
 }
@@ -378,6 +380,7 @@ export default function AddStockManualModal({ onClose, initialMode = 'office' }:
               colour: r.colour,
               storage: r.storage,
               grade: r.grade,
+              simType: r.simType,
               notes: r.notes.trim(),
               dateIn: date,
               batchId,
@@ -422,6 +425,7 @@ export default function AddStockManualModal({ onClose, initialMode = 'office' }:
               colour: r.colour.trim() || 'Unknown',
               ...(storage ? { storage } : {}),
               ...(r.grade.trim() ? { grade: r.grade.trim() } : {}),
+              ...(r.simType.trim() ? { simType: r.simType.trim() } : {}),
               buyPrice: parseFloat(r.buyPrice) || 0,
               dateIn: date,
               supplierId,
@@ -821,7 +825,7 @@ function Row({
         </Cell>
       </div>
 
-      {/* Grid: Storage · Colour · Supplier · BP */}
+      {/* Grid: Storage · SIM Type · Colour · Supplier · BP */}
       <div className="grid grid-cols-1 md:grid-cols-12 gap-2 mt-2">
         <Cell
           label="Storage *"
@@ -846,7 +850,10 @@ function Row({
             {STORAGE_OPTIONS.map(s => <option key={s} value={s}>{s}</option>)}
           </select>
         </Cell>
-        <Cell label="Colour" colSpan={3}>
+        <Cell label="SIM Type" colSpan={2}>
+          <SimTypeSelectCompact value={row.simType} onChange={v => onChange({ simType: v })} />
+        </Cell>
+        <Cell label="Colour" colSpan={2}>
           {/* Dropdown of the four preset colours plus an "Other" escape
               hatch that reveals a freeform input directly below. Operator
               picks Black/White/Grey/Blue 95% of the time; the freeform
@@ -884,7 +891,7 @@ function Row({
             />
           )}
         </Cell>
-        <Cell label="Supplier *" colSpan={4}>
+        <Cell label="Supplier *" colSpan={3}>
           <input
             list="add-stock-supplier-names"
             value={row.supplierName}

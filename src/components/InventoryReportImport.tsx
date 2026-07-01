@@ -37,6 +37,7 @@ interface ParsedRow {
   imei: string;            // trimmed, uppercased
   grade: string;
   storage: string;
+  simType: string;         // Physical SIM / eSIM / Dual SIM / Not Applicable
   colour: string;
   supplier: string;        // raw supplier name string
   buyPrice: number;        // parsed numeric; 0 if missing
@@ -70,6 +71,9 @@ const HEADER_ALIASES: Record<string, keyof Omit<ParsedRow, 'rowNum' | 'errors'>>
   'imei / serial': 'imei',
   'grade':         'grade',
   'storage':       'storage',
+  'sim type':      'simType',
+  'simtype':       'simType',
+  'sim':           'simType',
   'colour':        'colour',
   'color':         'colour',
   'supplier':      'supplier',
@@ -133,6 +137,7 @@ function parseSheet(rows: any[][]): ParsedRow[] {
     const imei     = String(get('imei') ?? '').trim().toUpperCase();
     const grade    = String(get('grade') ?? '').trim();
     const storage  = String(get('storage') ?? '').trim();
+    const simType  = String(get('simType') ?? '').trim();
     const colour   = String(get('colour') ?? '').trim();
     const supplier = String(get('supplier') ?? '').trim();
     const buyPrice = parseNumber(get('buyPrice'));
@@ -148,7 +153,7 @@ function parseSheet(rows: any[][]): ParsedRow[] {
     if (!supplier)  errors.push('Supplier is required');
     if (buyPrice <= 0) errors.push('BP must be greater than 0');
 
-    result.push({ rowNum: i + 1, dateIn, model, imei, grade, storage, colour, supplier, buyPrice, notes, errors });
+    result.push({ rowNum: i + 1, dateIn, model, imei, grade, storage, simType, colour, supplier, buyPrice, notes, errors });
   }
   return result;
 }
@@ -315,6 +320,7 @@ export default function InventoryReportImport({ onClose }: Props) {
           colour: r.colour || existing?.colour || '',
           storage: r.storage || parsed.storage || existing?.storage || '',
           grade: r.grade || existing?.grade || '',
+          ...(r.simType ? { simType: r.simType } : {}),
           supplierId,
           supplierName: r.supplier,
           buyPrice: r.buyPrice,
@@ -512,7 +518,7 @@ function UploadPhase({
           <FileSpreadsheet size={11} /> Expected columns
         </p>
         <p className="text-[11px] font-mono text-slate-600 leading-relaxed">
-          Stock In Date · Model · IMEI · Grade · Storage · Colour · Supplier · BP · Notes
+          Stock In Date · Model · IMEI · Grade · Storage · SIM Type · Colour · Supplier · BP · Notes
         </p>
         <p className="text-[10px] text-slate-500">
           Match the headers exactly as in the "Inventory Report" export.

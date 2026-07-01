@@ -5,7 +5,8 @@ import { dbService } from '../lib/dbService';
 import { DeviceCategory, InventoryUnit } from '../types';
 import { useInventoryStore } from '../lib/inventoryStore';
 import { logInventoryEvent } from '../lib/inventoryEvents';
-import { GradeSelectCompact, StorageSelectCompact } from './FormSelects';
+import { GradeSelectCompact, StorageSelectCompact, SimTypeSelectCompact } from './FormSelects';
+import { SIM_TYPE_OPTIONS } from '../lib/unitConstants';
 import { generateBatchId, formatBatchId } from '../lib/batchUtils';
 import ScanInModal from './ScanInModal';
 import { buildDeviceCatalog } from '../lib/deviceCatalog';
@@ -20,6 +21,7 @@ interface BatchRow {
   buyPrice: string;
   colour: string;
   storage: string;
+  simType: string;
   supplierName: string;
   grade: string;
   batchNo: string;
@@ -33,7 +35,7 @@ const today = () => new Date().toISOString().split('T')[0];
 const QUICK_NOTES = ['CLEARANCE', 'ONU', 'BOXED', 'NO BOX'];
 
 function emptyRow(supplierName = ''): BatchRow {
-  return { id: uid(), model: '', imei: '', buyPrice: '', colour: '', storage: '', supplierName, grade: '', batchNo: '', notes: '', isSHS: false, quantity: 1 };
+  return { id: uid(), model: '', imei: '', buyPrice: '', colour: '', storage: '', simType: '', supplierName, grade: '', batchNo: '', notes: '', isSHS: false, quantity: 1 };
 }
 
 function detectCategory(model: string): DeviceCategory {
@@ -58,7 +60,19 @@ function parsePastedCSV(text: string, fallbackSupplier: string): BatchRow[] {
   for (const raw of text.trim().split('\n')) {
     const parts = raw.split(',').map(p => p.trim());
     if (parts.length < 2) continue;
-    const [model, imei, grade, bp, colour, batch, supplier, notes, qty] = parts;
+    // CSV format: MODEL, IMEI, GRADE, BP, COLOUR, [SIM TYPE], BATCH, SUPPLIER, NOTES, [QTY]
+    // SIM TYPE is optional; if omitted we expect ≤9 parts and keep the legacy
+    // positional mapping (MODEL, IMEI, GRADE, BP, COLOUR, BATCH, SUPPLIER, NOTES, QTY).
+    const hasSimType = parts.length >= 10 || (parts.length === 9 && SIM_TYPE_OPTIONS.some(
+      opt => opt.toLowerCase() === (parts[5] ?? '').trim().toLowerCase()
+    ));
+    const [model, imei, grade, bp, colour, simTypeOrBatch, batchOrSupplier, supplierOrNotes, notesOrQty, qtyExtra] = parts;
+    const simType = hasSimType ? (simTypeOrBatch ?? '').trim() : '';
+    const batch = hasSimType ? (batchOrSupplier ?? '').trim() : (simTypeOrBatch ?? '').trim();
+    const supplier = hasSimType ? (supplierOrNotes ?? '').trim() : (batchOrSupplier ?? '').trim();
+    const notes = hasSimType ? (notesOrQty ?? '').trim() : (supplierOrNotes ?? '').trim();
+    const qty = hasSimType ? (qtyExtra ?? '') : (notesOrQty ?? '');
+
     if (!model || model.toLowerCase() === 'model') continue;
     const isSHS = (imei ?? '').toUpperCase() === 'SHS';
     if (!isSHS && isNaN(parseFloat(bp))) continue;
@@ -72,8 +86,9 @@ function parsePastedCSV(text: string, fallbackSupplier: string): BatchRow[] {
       buyPrice: isSHS ? (bp ?? '') : (bp ?? ''),
       colour: (colour ?? '').trim(),
       storage: '',
+      simType: (simType ?? '').trim(),
       grade: (grade ?? '').trim(),
-      batchNo: (batch ?? '').trim(),
+      batchNo: batch,
       supplierName: ((supplier ?? '').split('/')[0]).trim() || fallbackSupplier,
       notes: (notes ?? '').trim(),
       isSHS,
@@ -253,6 +268,7 @@ export default function NewBatchModal({ onClose }: Props) {
               colour: r.colour.trim() || 'Unknown',
               storage: r.storage.trim() || undefined,
               grade: r.grade.trim() || undefined,
+              ...(r.simType.trim() ? { simType: r.simType.trim() } : {}),
               batchNo: r.batchNo.trim() || undefined,
               buyPrice: bp, dateIn: date,
               supplierId, batchId,
@@ -278,6 +294,7 @@ export default function NewBatchModal({ onClose }: Props) {
               colour: r.colour || 'Unknown',
               storage: r.storage.trim() || undefined,
               grade: r.grade.trim() || undefined,
+              ...(r.simType.trim() ? { simType: r.simType.trim() } : {}),
               batchNo: r.batchNo.trim() || undefined,
               buyPrice: bp, dateIn: date,
               supplierId, batchId,
@@ -394,9 +411,10 @@ export default function NewBatchModal({ onClose }: Props) {
             ['col-span-2', 'IMEI / SERIAL *'],
             ['col-span-1', 'GRADE'],
             ['col-span-1', 'BP (£)'],
+            ['col-span-1', 'SIM TYPE'],
             ['col-span-1', 'COLOUR'],
-            ['col-span-2', 'BATCH #'],
-            ['col-span-1', 'SUPPLIER'],
+            ['col-span-1', 'BATCH #'],
+            ['col-span-2', 'SUPPLIER'],
             ['col-span-1', 'QTY'],
             ['col-span-1', ''],
           ].map(([cls, label]) => (
@@ -503,8 +521,8 @@ export default function NewBatchModal({ onClose }: Props) {
               </div>
               <div className="p-5 space-y-3">
                 <div className="bg-gray-50 rounded-xl p-3 text-[9px] font-mono text-gray-500 leading-relaxed">
-                  <p className="font-bold text-gray-700 mb-1">Format: MODEL, IMEI, GRADE, BP, COLOUR, BATCH, SUPPLIER, NOTES</p>
-                  <p>Apple iPhone 14 128GB, 359108096724237, A, 255, Black, INV-2061, MHL,</p>
+                  <p className="font-bold text-gray-700 mb-1">Format: MODEL, IMEI, GRADE, BP, COLOUR, [SIM TYPE], BATCH, SUPPLIER, NOTES, [QTY]</p>
+                  <p>Apple iPhone 14 128GB, 359108096724237, A, 255, Black, eSIM, INV-2061, MHL,</p>
                   <p>Samsung Galaxy S21 128GB, 350220437101229, B, 120, Grey, INV-2061, NIHAL,</p>
                   <p>Apple iPhone SE 2nd, SHS, , 60, , INV-2061, NANAK,</p>
                 </div>
@@ -608,16 +626,19 @@ function BatchRowCard({ row, index, knownSuppliers, onChange, onRemove, canRemov
                   className="w-full border border-gray-200 rounded-lg px-2.5 py-2 text-xs font-mono focus:outline-none focus:border-black bg-white text-right transition-all" />
               </div>
               <div className="col-span-1">
+                <SimTypeSelectCompact value={row.simType} onChange={v => onChange({ simType: v })} />
+              </div>
+              <div className="col-span-1">
                 <input value={row.colour} onChange={e => onChange({ colour: e.target.value })}
                   placeholder="Black"
                   className="w-full border border-gray-200 rounded-lg px-2.5 py-2 text-xs focus:outline-none focus:border-black bg-white transition-all" />
               </div>
-              <div className="col-span-2">
+              <div className="col-span-1">
                 <input value={row.batchNo} onChange={e => onChange({ batchNo: e.target.value })}
                   placeholder="e.g. INV-2061"
                   className="w-full border border-gray-200 rounded-lg px-2.5 py-2 text-xs font-mono focus:outline-none focus:border-black bg-white transition-all" />
               </div>
-              <div className="col-span-1">
+              <div className="col-span-2">
                 <input list={`sup-list-${row.id}`} value={row.supplierName}
                   onChange={e => onChange({ supplierName: e.target.value })}
                   placeholder="MHL"
@@ -695,7 +716,7 @@ function BatchRowCard({ row, index, knownSuppliers, onChange, onRemove, canRemov
                   )}
                 </div>
               )}
-              <div className="grid grid-cols-3 gap-2">
+              <div className="grid grid-cols-4 gap-2">
                 <div>
                   <label className="text-[8px] font-bold uppercase tracking-widest text-gray-400">Grade</label>
                   <GradeSelectCompact value={row.grade} onChange={e => onChange({ grade: e })} className="w-full mt-1 border border-gray-200 rounded-lg px-3 py-2 text-xs font-mono focus:outline-none focus:border-black bg-white" />
@@ -705,6 +726,10 @@ function BatchRowCard({ row, index, knownSuppliers, onChange, onRemove, canRemov
                   <input type="number" min={0} value={row.buyPrice} onChange={e => onChange({ buyPrice: e.target.value })}
                     placeholder="0"
                     className="w-full mt-1 border border-gray-200 rounded-lg px-3 py-2 text-xs font-mono focus:outline-none focus:border-black bg-white" />
+                </div>
+                <div>
+                  <label className="text-[8px] font-bold uppercase tracking-widest text-gray-400">SIM Type</label>
+                  <SimTypeSelectCompact value={row.simType} onChange={v => onChange({ simType: v })} className="w-full mt-1 border border-gray-200 rounded-lg px-3 py-2 text-xs font-mono focus:outline-none focus:border-black bg-white" />
                 </div>
                 <div>
                   <label className="text-[8px] font-bold uppercase tracking-widest text-gray-400">Colour</label>

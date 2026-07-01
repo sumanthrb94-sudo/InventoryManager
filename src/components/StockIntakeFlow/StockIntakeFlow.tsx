@@ -49,6 +49,7 @@ export default function StockIntakeFlow({ onClose }: Props) {
   const [colour, setColour] = useState('');
   const [storage, setStorage] = useState('');
   const [grade, setGrade] = useState('A');
+  const [simType, setSimType] = useState('');
   const [buyPrice, setBuyPrice] = useState('');
   const [supplierId, setSupplierId] = useState('');
   const [notes, setNotes] = useState('');
@@ -222,6 +223,7 @@ export default function StockIntakeFlow({ onClose }: Props) {
         colour,
         storage: storage || undefined,
         grade: grade || undefined,
+        ...(simType.trim() ? { simType: simType.trim() } : {}),
         batchId: bid,
         buyPrice: bp,
         dateIn: today,
@@ -260,6 +262,7 @@ export default function StockIntakeFlow({ onClose }: Props) {
             colour: color.name,
             storage: storage || undefined,
             grade: grade || undefined,
+            ...(simType.trim() ? { simType: simType.trim() } : {}),
             batchId: bid,
             buyPrice: bp,
             dateIn: today,
@@ -473,6 +476,8 @@ export default function StockIntakeFlow({ onClose }: Props) {
                   setStorage={setStorage}
                   grade={grade}
                   setGrade={setGrade}
+                  simType={simType}
+                  setSimType={setSimType}
                   buyPrice={buyPrice}
                   setBuyPrice={setBuyPrice}
                   supplierId={supplierId}
