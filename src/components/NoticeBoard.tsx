@@ -21,7 +21,7 @@
  * and a quiet line so an empty board doesn't feel broken.
  */
 import React, { useEffect, useMemo, useState } from 'react';
-import { Megaphone, Send, Edit3, CheckCircle2, X } from 'lucide-react';
+import { Megaphone, Send, Edit3, CheckCircle2, X, Trash2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { dbService } from '../lib/dbService';
 import { useIsAdmin } from '../lib/useIsAdmin';
@@ -124,10 +124,10 @@ export default function NoticeBoard() {
     setEditDraft('');
   };
 
-  // Per-row delete removed 2026-06-21. Operator's rule: the notice
-  // board is persistent — never auto-deleted, never one-click-deleted.
-  // If a notice has a typo, use Edit (below) to correct it. An accidental
-  // post can be edited to an empty/struck-through line.
+  const deleteNotice = async (n: Notice) => {
+    if (!window.confirm('Delete this notice permanently?')) return;
+    await dbService.delete('notices', n.id);
+  };
 
   return (
     <div className="space-y-4">
@@ -276,6 +276,14 @@ export default function NoticeBoard() {
                                 title="Edit this notice"
                               >
                                 <Edit3 size={10} /> Edit
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => deleteNotice(n)}
+                                className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[9px] font-bold uppercase tracking-widest border bg-rose-50 text-rose-600 border-rose-200 hover:bg-rose-100"
+                                title="Delete this notice permanently"
+                              >
+                                <Trash2 size={10} /> Delete
                               </button>
                             </>
                           )}
