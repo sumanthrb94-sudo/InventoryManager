@@ -45,7 +45,7 @@ export function useRealTimeNotifications() {
       const p = prev.get(unit.id);
       if (!p) {
         // New unit — only notify if it arrived today (ignore historical data)
-        const isToday = unit.dateIn === today || unit.createdAt?.startsWith(today);
+        const isToday = unit.dateIn === today || String(unit.createdAt || '').startsWith(today);
         const isSessionUnit = sessionCreatedUnits.has(unit.id);
 
         if (isToday && !isSessionUnit) {

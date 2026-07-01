@@ -272,7 +272,7 @@ class NotificationService {
         const existing = this.notifications[i];
         if (existing.type !== type) continue;
         if (existing.skuKey !== skuKey) continue;
-        if (!existing.timestamp.startsWith(todayIso)) continue;
+        if (!String(existing.timestamp || '').startsWith(todayIso)) continue;
         const age = now.getTime() - new Date(existing.timestamp).getTime();
         if (age > DEDUP_WINDOW_MS) continue;
 
