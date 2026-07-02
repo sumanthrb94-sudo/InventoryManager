@@ -83,6 +83,7 @@ export default function DeviceComboBox({
   const updateRect = useCallback(() => {
     if (!inputRef.current) return;
     const r = inputRef.current.getBoundingClientRect();
+    // position:fixed is relative to the viewport, so no scrollY offset needed.
     setDropdownRect({ top: r.bottom, left: r.left, width: r.width });
   }, []);
 
@@ -199,8 +200,10 @@ export default function DeviceComboBox({
       </div>
 
       {/* Fixed-position dropdown — escapes overflow-hidden/overflow-y-auto
-          ancestors. The rect is anchored to the input's screen position and
-          updated on scroll/resize so it stays visually attached. */}
+          ancestors (the StockIntakeFlow modal clips absolute children).
+          onMouseDown + onClick stopPropagation prevents the modal backdrop's
+          onClick handler from firing and closing the flow when the user
+          clicks a seed or inventory option. */}
       {open && (suggestions.length > 0 || strict) && dropdownRect.width > 0 && (
         <div
           style={{
@@ -209,6 +212,8 @@ export default function DeviceComboBox({
             left: dropdownRect.left,
             width: dropdownRect.width,
           }}
+          onMouseDown={e => e.stopPropagation()}
+          onClick={e => e.stopPropagation()}
           className="z-[9999] mt-1 bg-white border border-gray-200 rounded-lg shadow-lg max-h-72 overflow-auto"
         >
           <div className="flex items-center gap-2 px-3 py-1.5 border-b border-gray-100 text-[10px] uppercase tracking-widest text-gray-500 font-mono">
