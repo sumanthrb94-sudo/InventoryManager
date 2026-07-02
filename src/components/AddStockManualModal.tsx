@@ -37,6 +37,7 @@ import {
 } from '../lib/imeiValidation';
 import { SimTypeSelectCompact } from './FormSelects';
 import { parseBrandModelStorage } from '../lib/modelStorage';
+import { STORAGE_OPTIONS } from '../lib/unitConstants';
 import { addUnitManual, ensureSupplier } from '../services';
 import type { InventoryUnit, ListingSite } from '../types';
 import DeviceComboBox from './DeviceComboBox';
@@ -103,12 +104,8 @@ function emptyRow(supplierName = ''): StockRow {
 
 const GRADES = ['A', 'B', 'C', 'ONU', 'Brand new'];
 
-// Standard storage capacities. The model auto-parser returns values in this
-// exact format (e.g. "128GB", "1TB"), so the dropdown's selected value will
-// pre-populate cleanly after Model is typed. Anything outside this set keeps
-// whatever the parser returned and surfaces as an extra option at the top
-// of the list so the operator can see it and re-pick if they want.
-const STORAGE_OPTIONS = ['32GB', '64GB', '128GB', '256GB', '512GB', '1TB'];
+// Standard storage capacities sourced from unitConstants so this list
+// stays in sync with StockIntakeFlow and the OCR pipeline automatically.
 
 interface RowValidation {
   modelOk: boolean;

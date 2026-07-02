@@ -202,7 +202,10 @@ export function catalogEntryFor(
 ): DeviceCatalogEntry | undefined {
   const b = (brand || '').toLowerCase().trim();
   const m = normalizeBucketModel(model);
-  return catalog.find(
-    e => (e.brand || '').toLowerCase().trim() === b && normalizeBucketModel(e.model) === m,
+  // When the caller doesn't track brand (brand=""), match on model alone
+  // so strict-mode onBlur doesn't falsely revert a just-picked entry.
+  return catalog.find(e =>
+    normalizeBucketModel(e.model) === m &&
+    (!b || (e.brand || '').toLowerCase().trim() === b),
   );
 }
