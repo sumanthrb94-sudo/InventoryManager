@@ -65,6 +65,10 @@ export default function DeviceComboBox({
   const [dropdownRect, setDropdownRect] = useState({ top: 0, left: 0, width: 0 });
   const rootRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  // Set to true inside pick() before calling inputRef.current?.blur() so
+  // the onBlur validator knows the blur was programmatic (post-pick) and
+  // must not run the stale-closure revert. Cleared immediately in onBlur.
+  const justPickedRef = useRef(false);
 
   const catalog = useMemo(() => buildDeviceCatalog(units, seeds), [units, seeds]);
 
@@ -111,6 +115,7 @@ export default function DeviceComboBox({
 
   const pick = (entry: DeviceCatalogEntry) => {
     setInvalid(false);
+    justPickedRef.current = true;  // tell onBlur to skip: this blur is from pick()
     onPick(entry);
     setOpen(false);
     inputRef.current?.blur();
@@ -119,9 +124,22 @@ export default function DeviceComboBox({
   /** Strict-mode blur validator. Deferred ~150ms so a suggestion click
    *  fires (its mouseup writes the state) BEFORE this runs — if we
    *  cleared the field synchronously the click's resulting onPick would
-   *  be racing the revert. */
+   *  be racing the revert.
+   *
+   *  IMPORTANT: `model` here is from the closure (last render value —
+   *  i.e. the search text the user typed). After pick() fires onPick(),
+   *  React batches the parent state update so `model` is still the OLD
+   *  typed text when this closure runs. We use justPickedRef to skip
+   *  validation entirely for pick-triggered blurs — the picked value is
+   *  already correct; no revert needed. */
   const onBlur = () => {
     if (!strict) return;
+    // Pick just happened — blur was programmatic, not a real focus-loss.
+    // Skip validation entirely; justPickedRef is already cleared.
+    if (justPickedRef.current) {
+      justPickedRef.current = false;
+      return;
+    }
     window.setTimeout(() => {
       // Don't fight a successful pick (or a still-open dropdown waiting
       // for one). If the input picked up a real catalog match by name in
