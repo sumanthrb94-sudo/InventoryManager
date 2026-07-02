@@ -841,6 +841,7 @@ export async function adminUpdateUnit(
       const allEvents = await dbService.readAll('inventoryEvents');
       const allUpdates = await dbService.readAll('dailyUpdates');
       const allUnits = await dbService.readAll('inventoryUnits');
+      const allDocs = await dbService.readAll('sourceDocuments');
 
       const bulkUpdates: Array<{ collection: string; id: string; data: any }> = [];
       const bulkDeletes: Array<{ collection: string; id: string }> = [];
@@ -917,6 +918,21 @@ export async function adminUpdateUnit(
             data: {
               ...u,
               ...uPatch,
+              updatedAt: new Date().toISOString(),
+            },
+          });
+        }
+      }
+
+      // Update linked sourceDocuments
+      for (const doc of allDocs) {
+        if (doc.linkedId === unit.id) {
+          bulkUpdates.push({
+            collection: 'sourceDocuments',
+            id: doc.id,
+            data: {
+              ...doc,
+              linkedId: nextImei,
               updatedAt: new Date().toISOString(),
             },
           });

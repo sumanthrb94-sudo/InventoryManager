@@ -97,6 +97,20 @@ export default function EditableCell({
   };
 
   if (!editing) {
+    const renderedDisplay = (React.isValidElement(display) && display.type !== React.Fragment)
+      ? React.cloneElement(display as React.ReactElement<any>, {
+          onDoubleClick: (e: React.MouseEvent) => {
+            const childProps = (display as React.ReactElement<any>).props;
+            if (childProps && typeof childProps.onDoubleClick === 'function') {
+              childProps.onDoubleClick(e);
+            }
+            if (editable) {
+              setEditing(true);
+            }
+          }
+        })
+      : display;
+
     return (
       <span
         onDoubleClick={editable ? () => setEditing(true) : undefined}
@@ -104,7 +118,7 @@ export default function EditableCell({
         style={style}
         title={editable ? (title || 'Double-click to edit') : title}
       >
-        {display ?? (value ?? '—')}
+        {renderedDisplay ?? (value ?? '—')}
       </span>
     );
   }

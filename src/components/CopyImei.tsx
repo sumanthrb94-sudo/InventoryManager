@@ -9,9 +9,10 @@ interface Props {
   className?: string;
   /** truncate the displayed IMEI to N chars (only if showText) */
   truncate?: number;
+  onDoubleClick?: React.MouseEventHandler;
 }
 
-export default function CopyImei({ imei, showText = true, className = '', truncate }: Props) {
+export default function CopyImei({ imei, showText = true, className = '', truncate, onDoubleClick }: Props) {
   const [copied, setCopied] = useState(false);
 
   if (!imei) return null;
@@ -40,6 +41,7 @@ export default function CopyImei({ imei, showText = true, className = '', trunca
   return (
     <button
       onClick={handleCopy}
+      onDoubleClick={onDoubleClick}
       title={`Copy IMEI: ${imei}`}
       className={`inline-flex items-center gap-1 font-mono group transition-colors ${className}`}
     >
