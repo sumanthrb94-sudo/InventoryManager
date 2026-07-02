@@ -112,7 +112,7 @@ interface UnitSlot {
 
 const COLOUR_PRESETS = ['Black', 'White', 'Grey', 'Blue'] as const;
 const GRADES = ['A', 'B', 'C', 'ONU', 'Brand new'] as const;
-const STORAGE_OPTIONS = ['32GB', '64GB', '128GB', '256GB', '512GB', '1TB'] as const;
+const STORAGE_OPTIONS = ['16GB', '32GB', '64GB', '128GB', '256GB', '512GB', '1TB', 'Not Applicable'] as const;
 
 const uid = () => Math.random().toString(36).slice(2, 9);
 const today = () => new Date().toISOString().split('T')[0];

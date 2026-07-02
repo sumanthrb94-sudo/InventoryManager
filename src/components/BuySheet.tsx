@@ -61,7 +61,7 @@ const STATUS_TONE: Record<string, { bg: string; text: string; dot: string }> = {
 
 // Standard storage capacities used across Add Stock + inline edit. The unit
 // parser already returns values in this exact format (e.g. "128GB", "1TB").
-const STORAGE_OPTIONS = ['32GB', '64GB', '128GB', '256GB', '512GB', '1TB'];
+const STORAGE_OPTIONS = ['16GB', '32GB', '64GB', '128GB', '256GB', '512GB', '1TB', 'Not Applicable'];
 
 /** Return the standard options plus an empty entry plus the unit's current
  *  storage if it's non-standard (so we never drop a legacy value). */

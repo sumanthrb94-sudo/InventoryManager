@@ -1,5 +1,5 @@
 export const GRADE_OPTIONS = ['A', 'B', 'C', 'Brand New', 'ONU'] as const;
-export const STORAGE_OPTIONS = ['16GB', '32GB', '64GB', '128GB', '256GB', '512GB', '1TB'] as const;
+export const STORAGE_OPTIONS = ['16GB', '32GB', '64GB', '128GB', '256GB', '512GB', '1TB', 'Not Applicable'] as const;
 
 // SimType options — placeholder until the client confirms the canonical
 // dropdown list. The UI surfaces this on every stock-intake path.

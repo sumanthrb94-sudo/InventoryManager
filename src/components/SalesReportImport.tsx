@@ -38,7 +38,7 @@ interface Props { onClose: () => void; }
 // colour + storage dropdowns on the same option set so a unit created
 // here is indistinguishable from a normally-received one.
 const COLOUR_PRESETS = ['Black', 'White', 'Grey', 'Blue', 'Gold', 'Green', 'Purple', 'Red', 'Cream', 'Silver'];
-const STORAGE_OPTIONS = ['32GB', '64GB', '128GB', '256GB', '512GB', '1TB'];
+const STORAGE_OPTIONS = ['16GB', '32GB', '64GB', '128GB', '256GB', '512GB', '1TB', 'Not Applicable'];
 
 type Phase = 'upload' | 'preview' | 'loading' | 'done';
 

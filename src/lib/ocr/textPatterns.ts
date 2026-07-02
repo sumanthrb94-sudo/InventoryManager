@@ -102,7 +102,7 @@ export const GRADE_MAPPING: Record<string, string> = {
   'onu': 'C',
 };
 
-export const STORAGE_OPTIONS = ['16GB', '32GB', '64GB', '128GB', '256GB', '512GB', '1TB'];
+export const STORAGE_OPTIONS = ['16GB', '32GB', '64GB', '128GB', '256GB', '512GB', '1TB', 'Not Applicable'];
 
 // Canonical list of model designators we consider valid output for the
 // auto-fill. Used by the extractor to snap noisy OCR candidates (e.g.
