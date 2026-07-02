@@ -461,6 +461,7 @@ export default function BuySheet(_props: Props) {
         'Grade':         u.grade || '',
         'Storage':       u.storage || '',
         'Colour':        u.colour || '',
+        'SIM Type':      u.simType || '',
         'Supplier':      supplierMap[u.supplierId] || u.supplierName || '',
         'BP':            u.buyPrice ?? '',
         'Notes':         u.notes || '',
