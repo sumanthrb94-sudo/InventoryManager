@@ -164,6 +164,10 @@ export type GroupedModel = {
   model: string;
   total: number;
   byColour: Map<string, GroupedColour>;
+  /** Per-SIM-type qty breakdown. Keyed by simType value (e.g. 'Physical SIM',
+   *  'Dual Physical SIM'). 'Unspecified' catch-all for units added before
+   *  the simType field existed or when the operator left it blank. */
+  bySimType: Map<string, number>;
   latestBp: number;
   totalValue: number;
   /** Distinct non-empty notes across every unit / aggregate in the group. */
@@ -254,7 +258,7 @@ export function buildGroupedModels(
     const { keyModel, storage, tag, label } = canonicalize(u);
     const key = `unit::${keyModel}|${storage.toUpperCase()}|${tag.toLowerCase()}`;
     let g = map.get(key);
-    if (!g) g = { key, model: label, total: 0, byColour: new Map(), latestBp: u.buyPrice || 0, totalValue: 0, notes: new Set(), shs: false, latestDateIn: '', oldestDateIn: '', soldCount: 0, latestSoldDate: '' };
+    if (!g) g = { key, model: label, total: 0, byColour: new Map(), bySimType: new Map(), latestBp: u.buyPrice || 0, totalValue: 0, notes: new Set(), shs: false, latestDateIn: '', oldestDateIn: '', soldCount: 0, latestSoldDate: '' };
     g.total++;
     g.totalValue += u.buyPrice || 0;
     if (u.buyPrice && u.buyPrice > 0) g.latestBp = u.buyPrice;
@@ -286,6 +290,9 @@ export function buildGroupedModels(
     sup.qty++;
     sup.totalValue += bp;
     if (bp > 0) sup.latestBp = bp;
+    // Track SIM type distribution per group
+    const simType = (u.simType || '').trim() || 'Unspecified';
+    g.bySimType.set(simType, (g.bySimType.get(simType) || 0) + 1);
     const n = (u.notes || '').trim();
     if (n) g.notes.add(n);
     const d = (u.dateIn || '').trim();
@@ -326,11 +333,15 @@ export function buildGroupedModels(
     // sliced to YYYY-MM-DD so the column shows the rollup's last touch date.
     const stamp = a.updatedAt || a.createdAt;
     const latestDateIn = stamp ? String(stamp).slice(0, 10) : '';
+    // Aggregates don't carry per-unit simType — leave the map empty so the
+    // SIM column shows "—" for pure rollup rows (operator fills simType
+    // later on the detailed view when IMEIs are captured).
     map.set(key, {
       key,
       model: shs ? `${model} · SHS` : model,
       total: qty,
       byColour,
+      bySimType: new Map(),
       latestBp: bp,
       totalValue: qty * bp,
       notes,
@@ -493,27 +504,31 @@ export function GroupedExcelTable({
       <thead>
         <tr className="text-[9px] font-bold uppercase tracking-widest text-slate-500 bg-slate-50">
           <GroupTh sort={sort} onSort={onSort} width={28}></GroupTh>
-          <GroupTh sort={sort} onSort={onSort} sortKey="model"   label="Model"       width={240} />
+          <GroupTh sort={sort} onSort={onSort} sortKey="model"   label="Model"       width={220} />
           {/* Colours / Qty / BP / Total grouped on the left so the operator's
               eye lands on the trading numbers together — Stock In + Notes
               pushed to the right since they're context not action. */}
-          <GroupTh sort={sort} onSort={onSort} sortKey="colours" label="Colours"     width={140} />
-          <GroupTh sort={sort} onSort={onSort} sortKey="qty"     label="Qty"         width={70}  align="right" />
-          <GroupTh sort={sort} onSort={onSort} sortKey="bp"      label="Latest BP"   width={100} align="right" />
-          <GroupTh sort={sort} onSort={onSort} sortKey="value"   label="Total Value" width={110} align="right" />
-          <GroupTh sort={sort} onSort={onSort} sortKey="stockIn"  label="Stock In"  width={110} />
-          <GroupTh sort={sort} onSort={onSort} sortKey="age"      label="Age"       width={80}  align="right" />
+          <GroupTh sort={sort} onSort={onSort} sortKey="colours" label="Colours"     width={120} />
+          <GroupTh sort={sort} onSort={onSort} sortKey="qty"     label="Qty"         width={60}  align="right" />
+          <GroupTh sort={sort} onSort={onSort} sortKey="bp"      label="Latest BP"   width={90} align="right" />
+          <GroupTh sort={sort} onSort={onSort} sortKey="value"   label="Total Value" width={100} align="right" />
+          {/* SIM Type column — shows the dominant SIM type for this model
+              group so the operator can tell at a glance whether stock is
+              Physical SIM, eSIM-capable, or dual-SIM without expanding. */}
+          <GroupTh sort={sort} onSort={onSort}                 label="SIM"         width={90} />
+          <GroupTh sort={sort} onSort={onSort} sortKey="stockIn"  label="Stock In"  width={100} />
+          <GroupTh sort={sort} onSort={onSort} sortKey="age"      label="Age"       width={70}  align="right" />
           {/* Sold count + latest sale date — operator request so a sold
               SKU's fulfilment activity shows up next to its stock numbers
               without expanding the row. Stock Intake hides them via the
               showSold prop. */}
           {showSold && (
             <>
-              <GroupTh sort={sort} onSort={onSort} sortKey="sold"     label="Sold"      width={80}  align="right" />
-              <GroupTh sort={sort} onSort={onSort} sortKey="lastSold" label="Last Sold" width={110} />
+              <GroupTh sort={sort} onSort={onSort} sortKey="sold"     label="Sold"      width={70}  align="right" />
+              <GroupTh sort={sort} onSort={onSort} sortKey="lastSold" label="Last Sold" width={100} />
             </>
           )}
-          <GroupTh sort={sort} onSort={onSort} sortKey="notes"    label="Notes"     width={200} />
+          <GroupTh sort={sort} onSort={onSort} sortKey="notes"    label="Notes"     width={180} />
         </tr>
       </thead>
       <tbody>
@@ -522,6 +537,11 @@ export function GroupedExcelTable({
           // Colour entries sorted by qty desc, name asc — same ordering used
           // in the expanded sub-row so the eye finds the dominant colour first.
           const colours = Array.from(g.byColour.entries()).sort((a, b) => b[1].qty - a[1].qty || a[0].localeCompare(b[0]));
+          // Dominant SIM type = the one with the highest count in the group.
+          // Aggregates (which have an empty bySimType) show "—".
+          const dominantSimType = g.bySimType.size > 0
+            ? Array.from(g.bySimType.entries()).sort((a, b) => b[1] - a[1])[0][0]
+            : '';
           const rowBg = idx % 2 === 1 ? 'bg-slate-50/40 hover:bg-slate-100/60' : 'bg-white hover:bg-slate-50';
           const tone = g.shs
             ? 'bg-amber-100 text-amber-700'
@@ -568,6 +588,23 @@ export function GroupedExcelTable({
                     ? <span className="font-bold text-emerald-700">£{g.totalValue.toLocaleString('en-GB', { maximumFractionDigits: 0 })}</span>
                     : <span className="text-slate-300">—</span>
                   }
+                </td>
+                {/* SIM Type badge — dominant type or "—" for aggregates. */}
+                <td className="px-3 py-1.5 border-b border-slate-100 align-middle">
+                  {dominantSimType ? (
+                    <span
+                      className={`inline-flex items-center gap-1 text-[9px] font-bold uppercase tracking-widest px-1.5 py-0.5 rounded border ${
+                        dominantSimType === 'Unspecified'
+                          ? 'bg-slate-100 border-slate-200 text-slate-500'
+                          : 'bg-indigo-50 border-indigo-200 text-indigo-700'
+                      }`}
+                      title={Array.from(g.bySimType.entries()).map(([st, n]) => `${st}: ${n}`).join(' · ')}
+                    >
+                      {dominantSimType === 'Unspecified' ? '—' : dominantSimType}
+                    </span>
+                  ) : (
+                    <span className="text-slate-300">—</span>
+                  )}
                 </td>
                 <td className="px-3 py-1.5 border-b border-slate-100 align-middle text-slate-600">
                   {g.latestDateIn
@@ -649,9 +686,9 @@ export function GroupedExcelTable({
               {open && (
                 <tr className="bg-slate-50/60">
                   {/* colSpan stays in sync with the visible column count
-                      above: 9 base columns + 2 (Sold / Last Sold) when
+                      above: 10 base columns + 2 (Sold / Last Sold) when
                       showSold is on. */}
-                  <td colSpan={showSold ? 11 : 9} className="px-0 py-0 border-b border-slate-100">
+                  <td colSpan={showSold ? 12 : 10} className="px-0 py-0 border-b border-slate-100">
                     <ul className="pl-10 pr-4 py-2 divide-y divide-slate-200/70">
                       {colours.map(([colour, c]) => {
                         // Suppliers ordered by qty desc — most-stocked first
@@ -719,19 +756,20 @@ export function GroupedExcelTable({
  *  byte-for-byte with the CSV. */
 const OVERLAY_COLUMNS: { key: string; label: string; width: number; align?: 'left' | 'right' }[] = [
   { key: 'dateIn',       label: 'Stock In Date', width: 110 },
-  { key: 'model',        label: 'Model',         width: 240 },
-  { key: 'imei',         label: 'IMEI',          width: 180 },
-  { key: 'grade',        label: 'Grade',         width: 80  },
-  { key: 'storage',      label: 'Storage',       width: 90  },
-  { key: 'colour',       label: 'Colour',        width: 130 },
-  { key: 'supplierName', label: 'Supplier',      width: 150 },
-  { key: 'buyPrice',     label: 'BP',            width: 90,  align: 'right' },
-  { key: 'status',       label: 'Status',        width: 110 },
+  { key: 'model',        label: 'Model',         width: 220 },
+  { key: 'imei',         label: 'IMEI',          width: 170 },
+  { key: 'grade',        label: 'Grade',         width: 70  },
+  { key: 'storage',      label: 'Storage',       width: 80  },
+  { key: 'colour',       label: 'Colour',        width: 110 },
+  { key: 'simType',      label: 'SIM',           width: 90  },
+  { key: 'supplierName', label: 'Supplier',      width: 140 },
+  { key: 'buyPrice',     label: 'BP',            width: 80,  align: 'right' },
+  { key: 'status',       label: 'Status',        width: 100 },
   // Operator request (2026-06-20): show sale date alongside status in
   // the inventory views so a sold unit's fulfilment timestamp is
   // visible without opening the unit drawer. Blank for non-sold rows.
-  { key: 'saleDate',     label: 'Sold Date',     width: 110 },
-  { key: 'notes',        label: 'Notes',         width: 260 },
+  { key: 'saleDate',     label: 'Sold Date',     width: 100 },
+  { key: 'notes',        label: 'Notes',         width: 240 },
 ];
 
 function fmtOverlayCell(
@@ -743,6 +781,9 @@ function fmtOverlayCell(
   const v = (u as any)[key];
   if (key === 'supplierName') {
     return supplierMap[u.supplierId] || u.supplierName || '';
+  }
+  if (key === 'simType') {
+    return v ? String(v) : '';
   }
   if (['dateIn', 'saleDate', 'returnDate', 'listingDate', 'stockOutDate'].includes(key)) {
     return v ? (fmtDateForUser(String(v), region) || String(v)) : '';
@@ -783,6 +824,7 @@ function fmtAggregateCell(
     case 'model':        return a.model || '';
     case 'storage':      return a.storage || '';
     case 'colour':       return a.coloursRaw || '';
+    case 'simType':      return ''; // Aggregates don't carry per-unit simType
     case 'supplierName': return a.supplierIds?.[0] ? (supplierMap[a.supplierIds[0]] || a.supplierIds[0]) : '';
     case 'buyPrice':     return a.buyPrice != null ? `£${Number(a.buyPrice).toLocaleString('en-GB', { maximumFractionDigits: 2 })}` : '';
     case 'status':       return shs ? 'INCOMING (SHS)' : 'ROLLUP';
@@ -797,7 +839,7 @@ function fmtAggregateCell(
 // OVERLAY_COLUMNS keys are typed as plain strings, so call sites cast
 // `c.key as any` when checking membership. dateIn / imei / status stay
 // read-only — they're rendered by dedicated branches above the default.
-const EDITABLE_TEXT_KEYS    = ['model', 'grade', 'storage', 'colour', 'supplierName', 'notes'] as const;
+const EDITABLE_TEXT_KEYS    = ['model', 'grade', 'storage', 'colour', 'simType', 'supplierName', 'notes'] as const;
 const EDITABLE_NUMERIC_KEYS = ['buyPrice'] as const;
 
 // ── Component ────────────────────────────────────────────────────────────────
