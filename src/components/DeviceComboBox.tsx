@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ChevronDown, Search, Plus, Lock } from 'lucide-react';
 import {
   buildDeviceCatalog,
@@ -59,6 +59,10 @@ export default function DeviceComboBox({
   const [highlight, setHighlight] = useState(0);
   const [invalid, setInvalid] = useState(false);
   const [creating, setCreating] = useState(false);
+  // Track the input's screen rect so the fixed-position dropdown can
+  // stay visually attached even inside overflow-hidden / overflow-y-auto
+  // ancestors (the StockIntakeFlow modal clips absolute children).
+  const [dropdownRect, setDropdownRect] = useState({ top: 0, left: 0, width: 0 });
   const rootRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -72,6 +76,27 @@ export default function DeviceComboBox({
     () => searchDeviceCatalog(catalog, query, 8),
     [catalog, query],
   );
+
+  /** Recalculate the anchor rect from the input element's current screen
+   *  position. Called on open, scroll, and resize so the fixed dropdown
+   *  tracks the input even when the modal scrolls. */
+  const updateRect = useCallback(() => {
+    if (!inputRef.current) return;
+    const r = inputRef.current.getBoundingClientRect();
+    setDropdownRect({ top: r.bottom, left: r.left, width: r.width });
+  }, []);
+
+  // Reposition on scroll / resize while open.
+  useEffect(() => {
+    if (!open) return;
+    updateRect();
+    window.addEventListener('scroll', updateRect, true);
+    window.addEventListener('resize', updateRect);
+    return () => {
+      window.removeEventListener('scroll', updateRect, true);
+      window.removeEventListener('resize', updateRect);
+    };
+  }, [open, updateRect]);
 
   // Close on outside click.
   useEffect(() => {
@@ -153,7 +178,7 @@ export default function DeviceComboBox({
           type="text"
           value={model}
           onChange={e => { onModelChange(e.target.value); setOpen(true); setHighlight(0); setInvalid(false); }}
-          onFocus={() => setOpen(true)}
+          onFocus={() => { updateRect(); setOpen(true); }}
           onBlur={onBlur}
           onKeyDown={onKeyDown}
           placeholder={placeholder}
@@ -165,7 +190,7 @@ export default function DeviceComboBox({
         />
         <button
           type="button"
-          onClick={() => { setOpen(o => !o); inputRef.current?.focus(); }}
+          onClick={() => { updateRect(); setOpen(o => !o); inputRef.current?.focus(); }}
           className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
           aria-label="Show known devices"
         >
@@ -173,8 +198,19 @@ export default function DeviceComboBox({
         </button>
       </div>
 
-      {open && (suggestions.length > 0 || strict) && (
-        <div className="absolute z-30 left-0 right-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-lg max-h-72 overflow-auto">
+      {/* Fixed-position dropdown — escapes overflow-hidden/overflow-y-auto
+          ancestors. The rect is anchored to the input's screen position and
+          updated on scroll/resize so it stays visually attached. */}
+      {open && (suggestions.length > 0 || strict) && dropdownRect.width > 0 && (
+        <div
+          style={{
+            position: 'fixed',
+            top: dropdownRect.top,
+            left: dropdownRect.left,
+            width: dropdownRect.width,
+          }}
+          className="z-[9999] mt-1 bg-white border border-gray-200 rounded-lg shadow-lg max-h-72 overflow-auto"
+        >
           <div className="flex items-center gap-2 px-3 py-1.5 border-b border-gray-100 text-[10px] uppercase tracking-widest text-gray-500 font-mono">
             <Search size={11} />
             Known devices ({catalog.length})
@@ -186,6 +222,7 @@ export default function DeviceComboBox({
                 key={`${s.brand}|${s.model}`}
                 type="button"
                 onMouseEnter={() => setHighlight(i)}
+                onMouseDown={e => e.preventDefault()}
                 onClick={() => pick(s)}
                 className={`w-full text-left px-3 py-2 flex items-center justify-between gap-3 ${
                   isActive ? 'bg-blue-50' : 'hover:bg-gray-50'
@@ -224,6 +261,7 @@ export default function DeviceComboBox({
               {isAdmin && onCreateModel ? (
                 <button
                   type="button"
+                  onMouseDown={e => e.preventDefault()}
                   onClick={handleCreate}
                   disabled={creating}
                   className="w-full flex items-center gap-2 px-3 py-2.5 text-left text-[12px] font-bold text-emerald-700 hover:bg-emerald-50 disabled:opacity-50"
