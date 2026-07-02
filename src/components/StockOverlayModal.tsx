@@ -29,6 +29,7 @@ import { dbService } from '../lib/dbService';
 import { useIsAdmin } from '../lib/useIsAdmin';
 import { deleteShsUnit, deleteShsAggregate } from '../services/shsService';
 import type { DeleteShsResult } from '../services/shsService';
+import { deleteOfficeUnit } from '../services/inventoryService';
 
 // ── Detail-view sort types (used by the 10-column table headers) ────────────
 export type SortKey = 'dateIn' | 'model' | 'storage' | 'colour' | 'buyPrice' | 'supplier' | 'grade';
@@ -64,6 +65,42 @@ function ShsDeleteButton({ onDelete, title }: { onDelete: () => Promise<DeleteSh
       onClick={handleClick}
       disabled={busy}
       title={title || 'Delete SHS stock'}
+      className="p-1 rounded-md text-rose-400 hover:text-rose-700 hover:bg-rose-50 transition-colors disabled:opacity-40"
+    >
+      <Trash2 size={14} />
+    </button>
+  );
+}
+
+function OfficeDeleteButton({ unit }: { unit: InventoryUnit }) {
+  const [busy, setBusy] = useState(false);
+  const handleClick = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (unit.status === 'sold') {
+      alert('Cannot delete a sold unit. Void the sale first.');
+      return;
+    }
+    const reason = window.prompt(`Delete office unit ${unit.model}? Enter reason:`);
+    if (reason === null) return; // cancelled
+    if (!reason.trim()) {
+      alert('A reason is required to delete the unit.');
+      return;
+    }
+    setBusy(true);
+    try {
+      const res = await deleteOfficeUnit(unit, reason.trim());
+      if (!res.ok) alert(res.message || 'Delete failed');
+    } catch (err: any) {
+      alert(err?.message || 'Delete failed');
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <button
+      onClick={handleClick}
+      disabled={busy}
+      title="Delete office unit"
       className="p-1 rounded-md text-rose-400 hover:text-rose-700 hover:bg-rose-50 transition-colors disabled:opacity-40"
     >
       <Trash2 size={14} />
@@ -1130,6 +1167,11 @@ export default function StockOverlayModal({
                                         onDelete={() => deleteShsUnit(u)}
                                         title={`Delete SHS unit for ${u.model || 'this unit'} — supplier has no stock`}
                                       />
+                                    </span>
+                                  )}
+                                  {u.status !== 'incoming' && u.status !== 'sold' && userIsAdmin && (
+                                    <span className="ml-auto">
+                                      <OfficeDeleteButton unit={u} />
                                     </span>
                                   )}
                                 </span>

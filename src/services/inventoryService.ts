@@ -21,10 +21,11 @@
  */
 
 import { dbService } from '../lib/dbService';
-import type { DeviceCategory, InventoryAggregate, InventoryUnit, ListingSite, Sale } from '../types';
+import type { DeviceCategory, InventoryAggregate, InventoryUnit, ListingSite, Sale, Notice } from '../types';
 import { isAppleDevice, isValidImei, isValidImeiOrSerial } from '../lib/imeiValidation';
 import { parseBrandModelStorage } from '../lib/modelStorage';
 import { logInventoryEvent } from '../lib/inventoryEvents';
+import { auth, isAdmin } from '../lib/firebase';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -316,7 +317,7 @@ export async function reconcileOrphanSaleForImei(rawImei: string): Promise<strin
   await Promise.all([
     dbService.update('sales', sale.id, {
       unitId: rawImei,
-      stockSource: sale.stockSource ?? unit?.stockSource ?? 'office',
+      stockSource: (sale as any).stockSource ?? unit?.stockSource ?? 'office',
     }),
     dbService.update('inventoryUnits', rawImei, {
       status: 'sold',
@@ -791,3 +792,221 @@ export async function completeUnitBuyInfo(
 
   return { ok: true, id: input.unitId };
 }
+
+/**
+ * Update an inventory unit as Admin.
+ * Handles swapping the unit ID if the IMEI changes, which is necessary since
+ * the document ID in Firestore is the unit's IMEI.
+ * Swapping the ID requires deleting the old document and creating a new one,
+ * plus updating all foreign keys in sales, events, dailyUpdates, etc.
+ */
+export async function adminUpdateUnit(
+  unit: InventoryUnit,
+  patch: Partial<InventoryUnit>
+): Promise<AddUnitResult> {
+  if (!isAdmin(auth.currentUser)) {
+    return { ok: false, error: 'write_failed', message: 'Admin access required.' };
+  }
+
+  const nextImei = patch.imei ? patch.imei.trim().toUpperCase() : '';
+  const currentImei = (unit.imei || '').trim().toUpperCase();
+  const idChanged = nextImei && nextImei !== currentImei;
+
+  if (idChanged) {
+    const apple = isAppleDevice(patch.model || unit.model);
+    if (!isValidImei(nextImei, { isAppleSerial: apple })) {
+      return {
+        ok: false,
+        error: 'invalid_imei',
+        message: apple
+          ? 'Enter a valid 15-digit IMEI or 10-12 char Apple serial.'
+          : 'Enter a valid 15-digit IMEI (digits only — no letters).',
+      };
+    }
+
+    // Check collision in DB
+    const cached = await dbService.readAll('inventoryUnits');
+    const collision = cached.find((u: any) => u.id !== unit.id && u.imei === nextImei);
+    if (collision) {
+      return {
+        ok: false,
+        error: 'duplicate_imei',
+        message: `IMEI ${nextImei} is already in use by another unit.`,
+      };
+    }
+
+    try {
+      // 1. Fetch all associated collections to update
+      const allSales = await dbService.readAll('sales');
+      const allEvents = await dbService.readAll('inventoryEvents');
+      const allUpdates = await dbService.readAll('dailyUpdates');
+      const allUnits = await dbService.readAll('inventoryUnits');
+
+      const bulkUpdates: Array<{ collection: string; id: string; data: any }> = [];
+      const bulkDeletes: Array<{ collection: string; id: string }> = [];
+
+      // Create new unit doc (with new IMEI as ID)
+      const newUnit = {
+        ...unit,
+        ...patch,
+        id: nextImei,
+        imei: nextImei,
+        updatedAt: new Date().toISOString(),
+      };
+      bulkUpdates.push({ collection: 'inventoryUnits', id: nextImei, data: newUnit });
+
+      // Delete old unit doc
+      bulkDeletes.push({ collection: 'inventoryUnits', id: unit.id });
+
+      // Update linked sales
+      for (const s of allSales) {
+        if (s.unitId === unit.id || s.imei === currentImei) {
+          bulkUpdates.push({
+            collection: 'sales',
+            id: s.id,
+            data: {
+              ...s,
+              unitId: nextImei,
+              imei: nextImei,
+              updatedAt: new Date().toISOString(),
+            },
+          });
+        }
+      }
+
+      // Update linked inventoryEvents
+      for (const ev of allEvents) {
+        if (ev.unitId === unit.id) {
+          bulkUpdates.push({
+            collection: 'inventoryEvents',
+            id: ev.id,
+            data: {
+              ...ev,
+              unitId: nextImei,
+              updatedAt: new Date().toISOString(),
+            },
+          });
+        }
+      }
+
+      // Update dailyUpdates
+      for (const du of allUpdates) {
+        if (du.affectedUnitIds?.includes(unit.id)) {
+          const nextIds = du.affectedUnitIds.map((id: string) => id === unit.id ? nextImei : id);
+          bulkUpdates.push({
+            collection: 'dailyUpdates',
+            id: du.id,
+            data: {
+              ...du,
+              affectedUnitIds: nextIds,
+              updatedAt: new Date().toISOString(),
+            },
+          });
+        }
+      }
+
+      // Update replacement references in other units
+      for (const u of allUnits) {
+        if (u.id !== unit.id && (u.replacedByUnitId === unit.id || u.replacementForUnitId === unit.id)) {
+          const uPatch: any = {};
+          if (u.replacedByUnitId === unit.id) uPatch.replacedByUnitId = nextImei;
+          if (u.replacementForUnitId === unit.id) uPatch.replacementForUnitId = nextImei;
+          bulkUpdates.push({
+            collection: 'inventoryUnits',
+            id: u.id,
+            data: {
+              ...u,
+              ...uPatch,
+              updatedAt: new Date().toISOString(),
+            },
+          });
+        }
+      }
+
+      // Execute Firestore writes
+      await dbService.bulkCreate(bulkUpdates);
+      await dbService.bulkDelete(bulkDeletes);
+
+      await logInventoryEvent({
+        type: 'stock_adjusted',
+        message: `IMEI changed by admin: ${currentImei} → ${nextImei}`,
+        unitId: nextImei,
+      });
+
+      return { ok: true, id: nextImei };
+    } catch (err: any) {
+      return { ok: false, error: 'write_failed', message: err?.message || 'Failed to update IMEI.' };
+    }
+  } else {
+    // Normal non-ID update
+    try {
+      await dbService.update('inventoryUnits', unit.id, patch);
+      await logInventoryEvent({
+        type: 'stock_adjusted',
+        message: `Unit ${unit.id} updated by admin`,
+        unitId: unit.id,
+      });
+      return { ok: true, id: unit.id };
+    } catch (err: any) {
+      return { ok: false, error: 'write_failed', message: err?.message || 'Update failed' };
+    }
+  }
+}
+
+/**
+ * Delete an office (in-stock / non-sold) inventory unit as Admin.
+ * Same audit trail + notice board posting behavior as shsService.deleteShsUnit.
+ */
+export async function deleteOfficeUnit(
+  unit: InventoryUnit,
+  reason: string
+): Promise<AddUnitResult> {
+  if (!isAdmin(auth.currentUser)) {
+    return { ok: false, error: 'write_failed', message: 'Admin access required.' };
+  }
+
+  if (unit.status === 'sold') {
+    return { ok: false, error: 'write_failed', message: 'Cannot delete a sold unit. Void the sale first.' };
+  }
+
+  try {
+    // Delete the unit doc
+    await dbService.delete('inventoryUnits', unit.id);
+
+    const now = new Date().toISOString();
+    const adminEmail = auth.currentUser?.email || 'admin';
+    const parts = [
+      'Office stock deleted',
+      unit.model,
+      unit.colour,
+      unit.storage,
+      unit.supplierName ? `supplier: ${unit.supplierName}` : undefined,
+      `— ${reason}`,
+      `(by ${adminEmail} · ${now.slice(0, 10)})`,
+    ].filter(Boolean);
+
+    const noticeId = `notice_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    const notice: Omit<Notice, 'id'> & { id: string } = {
+      id: noticeId,
+      content: parts.join(' · '),
+      createdAt: now,
+      createdBy: adminEmail,
+      ownerId: 'shared',
+    };
+
+    await Promise.all([
+      dbService.create('notices', noticeId, notice),
+      logInventoryEvent({
+        type: 'stock_adjusted',
+        message: `Office unit deleted · ${unit.model}${unit.storage ? ' ' + unit.storage : ''}${unit.colour ? ' · ' + unit.colour : ''} · supplier: ${unit.supplierName} — ${reason}`,
+        unitId: unit.id,
+        buyPrice: unit.buyPrice,
+      }),
+    ]);
+
+    return { ok: true, id: unit.id };
+  } catch (err: any) {
+    return { ok: false, error: 'write_failed', message: err?.message || 'Delete failed.' };
+  }
+}
+

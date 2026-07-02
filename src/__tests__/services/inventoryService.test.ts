@@ -546,7 +546,7 @@ const orphanSale = (over: Partial<Sale> = {}): Sale => ({
   importBatchId: 't', sourceFile: 't', sourceRow: 1, ownerId: 'shared',
   createdAt: '2026-06-14T00:00:00Z', updatedAt: '2026-06-14T00:00:00Z',
   ...over,
-});
+} as any as Sale);
 
 describe('addSoldUnitFromSale', () => {
   it('creates a SOLD unit from the sale and back-links sale.unitId', async () => {
@@ -742,7 +742,7 @@ describe('stockSource capture (office vs SHS)', () => {
     buyPrice: 57, salePrice: 84.99, sku: 'SG-A32', importBatchId: 't', sourceFile: 't',
     sourceRow: 1, ownerId: 'shared', createdAt: '2026-06-14T00:00:00Z', updatedAt: '2026-06-14T00:00:00Z',
     ...over,
-  });
+  } as any as Sale);
 
   it('addSoldUnitFromSale persists stockSource=shs', async () => {
     const sale = orphanSaleSrc();

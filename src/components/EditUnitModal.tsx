@@ -1,10 +1,11 @@
 import React, { useState } from 'react';
-import { X, CheckCircle2, Edit3 } from 'lucide-react';
+import { X, CheckCircle2, Edit3, Trash2 } from 'lucide-react';
 import { motion } from 'motion/react';
 import { dbService } from '../lib/dbService';
 import { InventoryUnit, DeviceCategory, DeviceStatus } from '../types';
 import { useInventoryStore } from '../lib/inventoryStore';
 import { GradeSelect, StorageSelect, SimTypeSelect } from './FormSelects';
+import { adminUpdateUnit, deleteOfficeUnit } from '../services';
 
 interface Props {
   unit: InventoryUnit;
@@ -60,6 +61,36 @@ export default function EditUnitModal({ unit, onClose }: Props) {
   const [saved,    setSaved]    = useState(false);
   const [error,    setError]    = useState('');
 
+  const [deleting, setDeleting] = useState(false);
+
+  const handleDelete = async () => {
+    if (unit.status === 'sold') {
+      alert('Cannot delete a sold unit. Void the sale first.');
+      return;
+    }
+    const reason = window.prompt('Enter reason for deleting this unit:');
+    if (reason === null) return; // cancelled
+    if (!reason.trim()) {
+      alert('A reason is required to delete the unit.');
+      return;
+    }
+
+    setDeleting(true);
+    setError('');
+    try {
+      const res = await deleteOfficeUnit(unit, reason.trim());
+      if (res.ok) {
+        onClose();
+      } else {
+        setError(res.message || 'Failed to delete unit');
+        setDeleting(false);
+      }
+    } catch (err: any) {
+      setError(err?.message || 'Delete failed');
+      setDeleting(false);
+    }
+  };
+
   const handleSave = async () => {
     if (!model.trim()) { setError('Model is required'); return; }
     const bp = parseFloat(buyPrice);
@@ -73,7 +104,7 @@ export default function EditUnitModal({ unit, onClose }: Props) {
     setError('');
     try {
       const supplier = suppliers.find(s => s.id === suppId);
-      await dbService.update('inventoryUnits', unit.id, {
+      const res = await adminUpdateUnit(unit, {
         imei:           imei.trim(),
         model:          model.trim(),
         brand:          brand.trim() || unit.brand,
@@ -95,8 +126,13 @@ export default function EditUnitModal({ unit, onClose }: Props) {
         marketplace:    marketplace.trim() || undefined,
         notes:          notes.trim(),
       });
-      setSaved(true);
-      setTimeout(onClose, 800);
+      if (res.ok) {
+        setSaved(true);
+        setTimeout(onClose, 800);
+      } else {
+        setError(res.message || 'Save failed');
+        setSaving(false);
+      }
     } catch (err: any) {
       setError(err?.message || 'Save failed');
       setSaving(false);
@@ -268,11 +304,27 @@ export default function EditUnitModal({ unit, onClose }: Props) {
         </div>
 
         {/* Footer */}
-        <div className="px-5 py-4 border-t border-gray-100 flex-shrink-0">
+        <div className="px-5 py-4 border-t border-gray-100 flex-shrink-0 flex items-center gap-3">
+          {unit.status !== 'sold' && (
+            <button
+              type="button"
+              onClick={handleDelete}
+              disabled={saving || saved || deleting}
+              className="px-4 py-3.5 bg-rose-50 border border-rose-200 text-rose-700 rounded-xl text-[11px] font-bold uppercase tracking-widest hover:bg-rose-100/70 transition-all disabled:opacity-50 flex items-center justify-center gap-2"
+              title="Delete Unit"
+            >
+              {deleting ? (
+                <div className="w-4 h-4 border-2 border-rose-700 border-t-transparent rounded-full animate-spin" />
+              ) : (
+                <Trash2 size={14} />
+              )}
+              Delete
+            </button>
+          )}
           <button
             onClick={handleSave}
-            disabled={saving || saved}
-            className="w-full py-3.5 bg-black text-white rounded-xl text-[11px] font-bold uppercase tracking-widest hover:bg-gray-800 transition-all disabled:opacity-50 flex items-center justify-center gap-2"
+            disabled={saving || saved || deleting}
+            className="flex-1 py-3.5 bg-black text-white rounded-xl text-[11px] font-bold uppercase tracking-widest hover:bg-gray-800 transition-all disabled:opacity-50 flex items-center justify-center gap-2"
           >
             {saved   ? <><CheckCircle2 size={14} /> Saved!</> :
              saving  ? <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" /> :
