@@ -29,7 +29,7 @@ import { dbService } from '../lib/dbService';
 import { useIsAdmin } from '../lib/useIsAdmin';
 import { deleteShsUnit, deleteShsAggregate } from '../services/shsService';
 import type { DeleteShsResult } from '../services/shsService';
-import { deleteOfficeUnit } from '../services/inventoryService';
+import { deleteOfficeUnit, adminUpdateUnit } from '../services/inventoryService';
 
 // ── Detail-view sort types (used by the 10-column table headers) ────────────
 export type SortKey = 'dateIn' | 'model' | 'storage' | 'colour' | 'buyPrice' | 'supplier' | 'grade';
@@ -1155,12 +1155,31 @@ export default function StockOverlayModal({
                             <React.Fragment key={c.key}>
                               <Td align={c.align}>
                                 <span className="inline-flex items-center gap-2 w-full">
-                                  {imeiValid ? <CopyImei imei={u.imei} truncate={20} /> :
+                                  {userIsAdmin ? (
+                                    <EditableCell
+                                      value={u.imei ?? ''}
+                                      display={
+                                        imeiValid ? <CopyImei imei={u.imei} truncate={20} /> :
+                                        u.status === 'incoming' ? <span className="text-[10px] font-mono text-slate-400 italic">Optional for SHS</span> :
+                                        <span className="inline-flex items-center gap-1 text-rose-600 text-[10px] font-mono">
+                                          <AlertCircle size={10} /> {u.imei ? 'invalid' : 'missing'}
+                                        </span>
+                                      }
+                                      type="text"
+                                      className="block truncate font-mono text-slate-700"
+                                      style={{ maxWidth: c.width, display: 'inline-block' }}
+                                      onSave={async (next) => {
+                                        const res = await adminUpdateUnit(u, { imei: next });
+                                        if (!res.ok) alert(res.message || 'Failed to update IMEI');
+                                      }}
+                                    />
+                                  ) : (
+                                    imeiValid ? <CopyImei imei={u.imei} truncate={20} /> :
                                     u.status === 'incoming' ? <span className="text-[10px] font-mono text-slate-400 italic">Optional for SHS</span> :
                                     <span className="inline-flex items-center gap-1 text-rose-600 text-[10px] font-mono">
                                       <AlertCircle size={10} /> {u.imei ? 'invalid' : 'missing'}
                                     </span>
-                                  }
+                                  )}
                                   {u.status === 'incoming' && showActions && (
                                     <span className="ml-auto">
                                       <ShsDeleteButton
