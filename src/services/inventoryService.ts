@@ -499,6 +499,13 @@ export async function receiveShsAggregate(input: ReceiveShsInput): Promise<Recei
     batchId: aggregate.importBatchId,
   });
 
+  // Reverse reconcile — link any orphan sales to the newly received units.
+  for (const { imei } of accepted) {
+    try {
+      await reconcileOrphanSaleForImei(imei);
+    } catch { /* non-critical */ }
+  }
+
   return {
     ok: true,
     receivedCount: accepted.length,
@@ -602,6 +609,11 @@ export interface AddSoldUnitFromSaleInput {
  * Reuses the same validation + supplier-resolution + model-split rules as
  * addUnitManual so a unit born here is indistinguishable from a normally
  * received-then-sold unit.
+ *
+ * GAP FIX — SHS Phantom Cleanup: When stockSource='shs', after creating
+ * the sold unit we search for and delete the original SHS placeholder
+ * (shs_* synthetic doc) and update/decrement the matching aggregate so
+ * the SHS KPI tile doesn't carry phantom stock.
  */
 export async function addSoldUnitFromSale(
   input: AddSoldUnitFromSaleInput,
@@ -700,6 +712,59 @@ export async function addSoldUnitFromSale(
     await dbService.update('sales', sale.id, { unitId: rawImei });
   } catch (err: any) {
     return { ok: false, error: 'write_failed', message: err?.message || 'Save failed. Check connection.' };
+  }
+
+  // ── GAP FIX 1: SHS Phantom Cleanup ────────────────────────────────────
+  // When a unit is created from an SHS sale (sold before receive), the
+  // original shs_* placeholder and aggregate still exist. Clean them up
+  // so the SHS KPI tile doesn't carry phantom stock.
+  if (input.stockSource === 'shs') {
+    try {
+      const allUnits = await dbService.readAll('inventoryUnits');
+      const allAggs = await dbService.readAll('inventoryAggregates');
+      const modelSlug = slugify(cleanModel);
+      const supplierSlug = slugify(supplierName);
+
+      // Find and delete matching SHS placeholder units.
+      const placeholders = allUnits.filter((u: any) => {
+        const uid = String(u.id || '');
+        return uid.startsWith('shs_')
+          && slugify(u.model || '') === modelSlug
+          && (slugify(u.supplierName || '') === supplierSlug
+              || (u.supplierIds || []).some((sid: string) => slugify(sid) === supplierSlug));
+      });
+      for (const ph of placeholders) {
+        await dbService.delete('inventoryUnits', ph.id).catch(() => {});
+        await logInventoryEvent({
+          type: 'stock_adjusted',
+          message: `SHS placeholder ${ph.id} cleaned up after direct sale of ${rawImei}`,
+          unitId: rawImei,
+        });
+      }
+
+      // Find and update matching SHS aggregates.
+      for (const agg of allAggs) {
+        const aggSupplierMatch = (agg.supplierIds || []).some((sid: string) => {
+          const sname = (sid || '').toLowerCase();
+          return sname.includes(supplierSlug) || slugify(sname) === supplierSlug;
+        });
+        if (slugify(agg.model || '') === modelSlug
+            && aggSupplierMatch
+            && (agg.quantityText || '').toUpperCase() === 'SHS') {
+          const newQty = Math.max(0, (agg.quantityNum ?? 1) - 1);
+          await dbService.update('inventoryAggregates', agg.id, {
+            quantityNum: newQty,
+            ...(newQty === 0 ? { quantityText: 'RECEIVED' } : {}),
+          });
+          await logInventoryEvent({
+            type: 'stock_adjusted',
+            message: `SHS aggregate ${agg.id} decremented (${agg.quantityNum} → ${newQty}) after direct sale`,
+          });
+        }
+      }
+    } catch (e) {
+      console.warn('SHS phantom cleanup failed (non-critical)', e);
+    }
   }
 
   await logInventoryEvent({
@@ -1025,4 +1090,3 @@ export async function deleteOfficeUnit(
     return { ok: false, error: 'write_failed', message: err?.message || 'Delete failed.' };
   }
 }
-
