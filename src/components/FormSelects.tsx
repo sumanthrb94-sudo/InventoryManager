@@ -86,14 +86,30 @@ export function StorageSelectCompact({ value, onChange, className }: SelectProps
 }
 
 export function SimTypeSelect({ value, onChange, className }: SelectProps) {
+  const isPreset = !value || SIM_TYPE_OPTIONS.includes(value as any);
+  const [isOther, setIsOther] = React.useState(!isPreset);
+
+  React.useEffect(() => {
+    setIsOther(!isPreset);
+  }, [value, isPreset]);
+
   return (
     <div>
       <label className="text-[9px] font-bold uppercase tracking-widest text-gray-400 block mb-1.5">
         SIM Type
       </label>
       <select
-        value={value}
-        onChange={e => onChange(e.target.value)}
+        value={isOther ? '__other__' : value}
+        onChange={e => {
+          const v = e.target.value;
+          if (v === '__other__') {
+            setIsOther(true);
+            onChange('');
+          } else {
+            setIsOther(false);
+            onChange(v);
+          }
+        }}
         className={className || "w-full border border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-black transition-all bg-white"}
       >
         <option value="">Select SIM type...</option>
@@ -102,24 +118,62 @@ export function SimTypeSelect({ value, onChange, className }: SelectProps) {
             {t}
           </option>
         ))}
+        <option value="__other__">Other</option>
       </select>
+      {isOther && (
+        <input
+          type="text"
+          value={value}
+          onChange={e => onChange(e.target.value)}
+          placeholder="Type custom SIM type..."
+          className="mt-1 w-full border border-gray-200 rounded-lg px-2.5 py-1.5 text-xs focus:outline-none focus:border-black bg-white"
+        />
+      )}
     </div>
   );
 }
 
 export function SimTypeSelectCompact({ value, onChange, className }: SelectProps) {
+  const isPreset = !value || SIM_TYPE_OPTIONS.includes(value as any);
+  const [isOther, setIsOther] = React.useState(!isPreset);
+
+  React.useEffect(() => {
+    setIsOther(!isPreset);
+  }, [value, isPreset]);
+
   return (
-    <select
-      value={value}
-      onChange={e => onChange(e.target.value)}
-      className={className || "w-full border border-gray-200 rounded-lg px-2.5 py-2 text-xs font-mono focus:outline-none focus:border-black bg-white transition-all"}
-    >
-      <option value=""></option>
-      {SIM_TYPE_OPTIONS.map(t => (
-        <option key={t} value={t}>
-          {t}
-        </option>
-      ))}
-    </select>
+    <div className="flex flex-col gap-1 w-full">
+      <select
+        value={isOther ? '__other__' : value}
+        onChange={e => {
+          const v = e.target.value;
+          if (v === '__other__') {
+            setIsOther(true);
+            onChange('');
+          } else {
+            setIsOther(false);
+            onChange(v);
+          }
+        }}
+        className={className || "w-full border border-gray-200 rounded-lg px-2.5 py-2 text-xs font-mono focus:outline-none focus:border-black bg-white transition-all"}
+      >
+        <option value=""></option>
+        {SIM_TYPE_OPTIONS.map(t => (
+          <option key={t} value={t}>
+            {t}
+          </option>
+        ))}
+        <option value="__other__">Other</option>
+      </select>
+      {isOther && (
+        <input
+          type="text"
+          value={value}
+          onChange={e => onChange(e.target.value)}
+          placeholder="Custom..."
+          className="w-full border border-gray-200 rounded-lg px-2.5 py-1 text-[11px] focus:outline-none focus:border-black font-mono bg-white"
+        />
+      )}
+    </div>
   );
 }
