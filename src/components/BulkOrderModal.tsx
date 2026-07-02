@@ -38,6 +38,7 @@ import { parseBrandModelStorage } from '../lib/modelStorage';
 import { ensureSupplier } from '../services';
 import { logInventoryEvent } from '../lib/inventoryEvents';
 import { generateBatchStickerSheet } from '../lib/stickerPdf';
+import { SIM_TYPE_OPTIONS } from '../lib/unitConstants';
 import DeviceComboBox from './DeviceComboBox';
 import IMEIScanner from './IMEIScanner';
 import type { ModelSeed } from '../lib/deviceCatalog';
@@ -134,6 +135,7 @@ export default function BulkOrderModal({ onClose, initialMode = 'office' }: Prop
   const [grade, setGrade] = useState('');
   const [bp, setBp] = useState('');
   const [supplierName, setSupplierName] = useState('');
+  const [simType, setSimType] = useState('');
   const [colourBuckets, setColourBuckets] = useState<ColourBucket[]>([
     { id: uid(), colour: 'Black', quantity: 0 },
   ]);
@@ -171,7 +173,7 @@ export default function BulkOrderModal({ onClose, initialMode = 'office' }: Prop
   const [savedUnits, setSavedUnits] = useState<Array<{
     imei?: string; model: string; storage?: string; colour?: string;
     grade?: string; buyPrice?: number; supplierName?: string;
-    dateIn?: string; batchId?: string; notes?: string;
+    dateIn?: string; batchId?: string; notes?: string; simType?: string;
   }>>([]);
   /** Normalised IMEIs we wrote during *this* modal session. The store
    *  is a live onSnapshot subscription, so a unit doc we just created
@@ -603,6 +605,7 @@ export default function BulkOrderModal({ onClose, initialMode = 'office' }: Prop
           ...(storage ? { storage } : {}),
           ...(series ? { series } : {}),
           ...(grade ? { grade } : {}),
+          ...(simType ? { simType } : {}),
           buyPrice: slotBp,
           dateIn: date,
           supplierId,
@@ -656,6 +659,7 @@ export default function BulkOrderModal({ onClose, initialMode = 'office' }: Prop
         storage:      d.data.storage || undefined,
         colour:       d.data.colour || undefined,
         grade:        d.data.grade || undefined,
+        simType:      d.data.simType || undefined,
         buyPrice:     typeof d.data.buyPrice === 'number' ? d.data.buyPrice : undefined,
         supplierName: d.data.supplierName || undefined,
         dateIn:       d.data.dateIn || undefined,
@@ -670,7 +674,7 @@ export default function BulkOrderModal({ onClose, initialMode = 'office' }: Prop
       setError(e?.message || 'Save failed');
       setStage('review');
     }
-  }, [canSave, supplierName, model, bp, slots, storage, grade, date, mode, onClose]);
+  }, [canSave, supplierName, model, bp, slots, storage, grade, simType, date, mode, onClose]);
 
   /** Restart the flow at Setup for a follow-up batch — keep the device
    *  details (date / model / storage / grade / BP / mode) so the operator
@@ -684,6 +688,7 @@ export default function BulkOrderModal({ onClose, initialMode = 'office' }: Prop
    *  quantities, scan, save again — all inside the same modal session. */
   const startNewBatch = useCallback(() => {
     setSupplierName('');
+    setSimType('');
     setColourBuckets([{ id: uid(), colour: 'Black', quantity: 0 }]);
     setSlots([]);
     setActiveSlotIdx(0);
@@ -753,6 +758,7 @@ export default function BulkOrderModal({ onClose, initialMode = 'office' }: Prop
               grade={grade} setGrade={setGrade}
               bp={bp} setBp={setBp}
               supplierName={supplierName} setSupplierName={setSupplierName}
+              simType={simType} setSimType={setSimType}
               supplierNames={supplierNames}
               units={units}
               models={models}
@@ -1001,8 +1007,8 @@ interface SetupValidation {
 }
 function SetupView({
   mode, setMode, date, setDate, model, setModel, storage, setStorage,
-  grade, setGrade, bp, setBp, supplierName, setSupplierName, supplierNames,
-  units, models, isAdmin, colourBuckets, setColourBuckets, validation,
+  grade, setGrade, bp, setBp, supplierName, setSupplierName, simType, setSimType,
+  supplierNames, units, models, isAdmin, colourBuckets, setColourBuckets, validation,
 }: {
   mode: Mode; setMode: (m: Mode) => void;
   date: string; setDate: (d: string) => void;
@@ -1011,6 +1017,7 @@ function SetupView({
   grade: string; setGrade: (g: string) => void;
   bp: string; setBp: (b: string) => void;
   supplierName: string; setSupplierName: (s: string) => void;
+  simType: string; setSimType: (s: string) => void;
   supplierNames: string[];
   units: InventoryUnit[];
   /** Admin-curated catalog seeds piped through from the live store so
@@ -1144,7 +1151,16 @@ function SetupView({
             {supplierNames.map(n => <option key={n} value={n} />)}
           </datalist>
         </FieldCell>
-        <FieldCell label="BP per unit (£) *" className="col-span-2 md:col-span-6" error={!validation.bpOk}>
+        <FieldCell label="SIM Type" className="col-span-2 md:col-span-3">
+          <select
+            value={simType} onChange={e => setSimType(e.target.value)}
+            className="w-full border border-gray-200 rounded-lg px-2.5 py-2 text-[13px] md:text-[12px] focus:outline-none focus:border-black bg-white"
+          >
+            <option value="">—</option>
+            {SIM_TYPE_OPTIONS.map(st => <option key={st} value={st}>{st}</option>)}
+          </select>
+        </FieldCell>
+        <FieldCell label="BP per unit (£) *" className="col-span-2 md:col-span-3" error={!validation.bpOk}>
           <input
             type="number" min={0} step={0.01} value={bp}
             onChange={e => setBp(e.target.value)}
@@ -1662,4 +1678,3 @@ function detectCategory(model: string): InventoryUnit['category'] {
   if (s.includes('samsung'))      return 'Samsung S Series';
   return 'Other';
 }
-
