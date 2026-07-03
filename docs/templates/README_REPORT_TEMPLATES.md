@@ -32,12 +32,6 @@ InventoryManager expects. Use these as starting points for imports and exports.
 | NOTES | J | Free text | Any additional notes. |
 | BATCH ID | K | Any string | Groups units from same bulk order. |
 
-### Auto-Derived Fields (do NOT include in upload)
-
-- `brand` — detected from model ("iPhone" → "Apple")
-- `category` — detected from model ("iPad" → "iPad", "Galaxy S" → "Samsung S Series")
-- `id` — set to uppercase IMEI
-
 ### Key Rules
 
 1. **IMEI must be unique** — duplicates are rejected with error.
@@ -52,13 +46,19 @@ InventoryManager expects. Use these as starting points for imports and exports.
 **Used by:** Sales Report Import (Sell tab)
 **Format:** 4 marketplace sheets — AMAZON, BM, EBAY, ONBUY
 
+### CRITICAL: Model is NOT in the sales report
+
+Marketplace sales reports (Amazon, BM, eBay, OnBuy) do **not** contain a Model column.
+They contain **SKU** and **IMEI**. The model is resolved automatically or by the operator
+in the audit completion step (see "How Model Mapping Works" below).
+
 ### Universal Mandatory Fields (all sheets)
 
 | Field | Format | Notes |
 |-------|--------|-------|
 | **Date** | YYYY-MM-DD or Excel date | Sale date. |
 | **Order Number** | String | Marketplace order ID. |
-| **SKU** | String | Product SKU code. |
+| **SKU** | String | Product SKU code (e.g. "ASI-IP14-128-BK-A"). |
 | **IMEI** | 15-digit numeric | Links sale to inventory unit. |
 | **Supplier** | String | For GP attribution. |
 | **BP** | Number > 0 | Buying price. |
@@ -67,7 +67,7 @@ InventoryManager expects. Use these as starting points for imports and exports.
 ### Per-Sheet Differences
 
 #### AMAZON Sheet (15 columns)
-Standard layout. Columns: Date, Order Number, SKU, IMEI, Supplier, Quantity, BP, SP, SP-BP, Marginal Tax, Commission, Postage, GP, GP%, Comments.
+Date, Order Number, SKU, IMEI, Supplier, Quantity, BP, SP, SP-BP, Marginal Tax, Commission, Postage, GP, GP%, Comments
 
 #### BM Sheet (17 columns)
 + **Payment Mode** — PayPal / Klarna / Clear Pay
@@ -82,21 +82,45 @@ Standard layout. Columns: Date, Order Number, SKU, IMEI, Supplier, Quantity, BP,
 + **NP** — Net Profit (computed)
 
 #### ONBUY Sheet (15 columns)
-**NO Quantity column.** BP is at position 5, SP at position 6. Quantity defaults to 1.
+**NO Quantity column.** BP at position 5, SP at position 6. Quantity defaults to 1.
 
-### Derived Fields (RECOMPUTED — file values ignored)
+### How Model Mapping Works (No Model Column in Sales Report)
 
-SP-BP, Marginal Tax, Commission, GP, GP%, Net Profit
+```
+SALES REPORT (has IMEI + SKU, does NOT have MODEL)
+        |
+        |---> IMEI found in inventory? ----> YES: Model auto-pulled from unit
+        |                                          Unit flipped to 'sold'
+        |
+        |---> IMEI NOT in inventory? ------> NO: Orphan sale
+        |                                                  |
+        |                                                  v
+        |                                           AUDIT COMPLETION PANEL
+        |                                           Operator MUST fill:
+        |                                           - Model (searchable DeviceComboBox)
+        |                                           - Supplier
+        |                                           - BP
+        |                                           - Colour (optional)
+        |                                           - Storage (optional)
+        |                                           - Office vs SHS
+        |                                                  |
+        |                                                  v
+        |                                           addSoldUnitFromSale() creates
+        |                                           new inventory unit + marks sold
+        |
+        |---> SKU hint: "ASI-IP14-128-BK-A" --> normalizeOperatorSku() --> "iPhone 14 128GB"
+              (seeds the DeviceComboBox search, but operator MUST confirm)
+```
 
-The importer recalculates ALL derived fields using `calcSaleFinancials()`. File values are for reference only.
+**The audit panel enforces strict mode** — no free text. The operator must pick a model from the searchable device catalog. Confirm is **hard-blocked** until every orphan row has model + supplier + BP filled. This ensures no SKU codes leak into the inventory database.
 
 ### Orphan Prevention (3-Layer Gate)
 
 | Layer | What Happens |
 |-------|-------------|
-| **Layer 1: Parser** | Invalid rows logged and skipped. Multi-IMEI cells expanded. |
-| **Layer 2: Audit Block** | Confirm disabled until ALL orphan rows have model + supplier + BP filled. |
-| **Layer 3: Post-Import Sync** | Matching units flipped to 'sold'. Sale docs linked. |
+| **Layer 1: Parser** | Invalid rows skipped, multi-IMEI cells expanded to separate Sale docs |
+| **Layer 2: Audit Block** | Confirm disabled until ALL orphan rows have model + supplier + BP filled |
+| **Layer 3: Post-Import Sync** | Matching units flipped to 'sold'. Sale docs linked. Stale combined docs deleted. |
 
 ### Composite Sale ID Format
 
@@ -135,9 +159,9 @@ One doc per physical unit. Prevents 3-phone orders from collapsing into 1 sale d
 
 | Type | What Happens | Postage Loss |
 |------|-------------|-------------|
-| **To Inventory** | Unit restored to available stock. Can re-sell. | 2 legs (outbound + inbound) |
-| **In Repair** | Unit sent for repair. Use "Ready to Ship" to restore. | 2 legs (outbound + faulty back) |
-| **To Supplier** | Soft-delete. Doc preserved for audit. | 2 legs (outbound + inbound) |
+| **To Inventory** | Unit restored to available stock. Can re-sell. | 2 legs |
+| **In Repair** | Unit sent for repair. Use "Ready to Ship" to restore. | 2 legs |
+| **To Supplier** | Soft-delete. Doc preserved for audit. | 2 legs |
 
 ### Replacement Route
 
@@ -155,10 +179,10 @@ If outcome = "Replacement":
 | Flow | IMEI | Model | BP | Supplier | Date | Order# | SKU | SP |
 |------|------|-------|-----|----------|------|--------|-----|-----|
 | Inventory Import | Yes | Yes | Yes | Yes | Yes | — | — | — |
-| Sales Import | Yes | — | Yes | Yes | Yes | Yes | Yes | Yes |
+| Sales Import | Yes | **Audit** | Yes | Yes | Yes | Yes | Yes | Yes |
 | Returns (UI) | Yes | — | — | — | Yes | — | — | — |
 
-Yes = Mandatory  ·  — = Not applicable
+Yes = Mandatory  ·  **Audit** = Filled in audit panel (not in upload file)  ·  — = Not applicable
 
 ---
 
@@ -177,9 +201,13 @@ BP column        --------> buyPrice     --------> BP column
 SUPPLIER column  --------> supplierName --------> Supplier column
 DATE column      --------> dateIn       --------> Stock In Date column
 NOTES column     --------> notes        --------> Notes column
-```
 
-The same field names and formats are used for upload, storage, and download — ensuring seamless round-trip data integrity.
+SALES IMPORT:
+  - Model is NOT in the upload file
+  - Auto-pulled from inventory unit (IMEI match), OR
+  - Filled by operator in audit panel (DeviceComboBox picker)
+  - SKU gives a hint via normalizeOperatorSku() but MUST be confirmed
+```
 
 ---
 
