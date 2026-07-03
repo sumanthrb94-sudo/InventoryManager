@@ -1,5 +1,4 @@
 # Report Templates — Final Schema Reference
-
 **Date:** 2026-07-03  
 **Branch:** claude/map-imei-inventory-DZ8Hi  
 
@@ -46,54 +45,92 @@
 
 Marketplace reports only have SKU + IMEI. Model is auto-pulled from inventory (IMEI match) or filled by operator in the audit panel.
 
-### AMAZON Sheet (15 columns)
+### AMAZON Sheet (22 columns) — LIVE Formulas
 
-| # | Column | Required | Notes |
-|---|--------|----------|-------|
-| 1 | **Date** | MANDATORY | YYYY-MM-DD |
-| 2 | **Order Number** | MANDATORY | Marketplace order ID |
-| 3 | **SKU** | MANDATORY | e.g. "ASI-IP14-128-BK-A" |
-| 4 | **IMEI** | MANDATORY | 15-digit numeric |
-| 5 | **Supplier** | MANDATORY | For GP attribution |
-| 6 | **Quantity** | MANDATORY | Defaults to 1 |
-| 7 | **BP** | MANDATORY | Buying price > 0 |
-| 8 | **SP** | MANDATORY | Selling price > 0 |
-| 9 | SP-BP | Derived | Recomputed on import |
-| 10 | Marginal Tax | Derived | Recomputed on import |
-| 11 | Commission | Derived | Recomputed on import |
-| 12 | Postage | Input | Operator-entered |
-| 13 | GP | Derived | Recomputed on import |
-| 14 | GP% | Derived | Recomputed on import |
-| 15 | Comments | Optional | Free text |
+| # | Column | Required | Formula / Notes |
+|---|--------|----------|-----------------|
+| 1 | **Date** | Yes | YYYY-MM-DD |
+| 2 | **Order Number** | Yes | Marketplace order ID |
+| 3 | **SKU** | Yes | e.g. "ASI-IP14-128-BK-A" |
+| 4 | **IMEI** | Yes | 15-digit numeric |
+| 5 | **Supplier** | Yes | For GP attribution |
+| 6 | **Quantity** | Yes | Defaults to 1 |
+| 7 | **BP** | Yes | Buying price > 0 |
+| 8 | **SP** | Yes | Selling price > 0 |
+| 9 | **SP-BP** | Derived | `=SP-BP` |
+| 10 | **Marginal Tax** | Derived | `=SP-BP*16.67%` |
+| 11 | **Commission** | Derived | `=SP/100*7` (7% of SP) |
+| 12 | **C. VAT** | Derived | `=Commission*20%` |
+| 13 | **DSF** | Derived | `=Commission*2%` |
+| 14 | **DSF VAT** | Derived | `=DSF*20%` |
+| 15 | **Postage** | Input | Operator-entered |
+| 16 | **P. VAT** | Derived | `=Postage*20%` |
+| 17 | **Accessories** | Input | Default £1 |
+| 18 | **Total VAT** | Derived | `=C.VAT+DSF.VAT+P.VAT` |
+| 19 | **GP** | Derived | `=SP-BP-MarginalTax-Commission-C.VAT-DSF-DSF.VAT-Postage-P.VAT-Accessories` |
+| 20 | **GP %** | Derived | `=GP/BP*100` |
+| 21 | **Total VAT NTP** | Derived | `=MarginalTax-TotalVAT` |
+| 22 | Comments | Optional | Free text |
 
-### BM Sheet (17 columns)
-Same as Amazon +:
-| 9 | **Payment Mode** | MANDATORY | PayPal / Klarna / Clear Pay |
-| 10 | **PayPal/Klarna Com** | MANDATORY | Platform fee amount |
-| 11-17 | (shifted right by 2) | | SP-BP, Tax, Com, Postage, GP, GP%, Comments |
+### BM Sheet (19 columns) — LIVE Formulas
 
-### EBAY Sheet (19 columns)
-Same as Amazon +:
-| 9 | **ROF** | MANDATORY | Reserve Out Fee |
-| 10 | **FVF** | MANDATORY | Final Value Fee |
-| 11 | **0.2** | MANDATORY | eBay commission rate |
-| 12 | **T.COM** | MANDATORY | Trend Commission |
-| 13 | **Shipping** | MANDATORY | Shipping tier 1/2/8 |
-| 14-19 | (shifted right by 5) | | SP-BP, Tax, Com, Postage, GP, NP |
+| # | Column | Required | Formula / Notes |
+|---|--------|----------|-----------------|
+| 1-8 | Same as Amazon | | Date through SP |
+| 9 | **SP-BP** | Derived | `=SP-BP` |
+| 10 | **Marginal Tax** | Derived | `=SP-BP*16.67%` |
+| 11 | **Commission** | Derived | `=SP/100*11` (11% of SP) |
+| 12 | **Customer Care Fees** | Fixed | £9.99 |
+| 13 | **Postage** | Input | Operator-entered |
+| 14 | **P. VAT** | Derived | `=Postage*20%` |
+| 15 | **Accessories** | Input | Default £1 |
+| 16 | **GP** | Derived | `=SP-BP-MarginalTax-Commission-CareFees-Postage-P.VAT-Accessories` |
+| 17 | **GP %** | Derived | `=GP/BP*100` |
+| 18 | **Total VAT NTP** | Derived | `=MarginalTax-P.VAT` |
+| 19 | Comments | Optional | |
 
-### ONBUY Sheet (15 columns)
-**NO Quantity column.** BP at position 5, SP at position 6.
-| 1-4 | Same as Amazon | | |
-| 5 | **BP** | MANDATORY | (shifted left, no Quantity) |
-| 6 | **SP** | MANDATORY | (shifted left, no Quantity) |
-| 7 | SP-BP | Derived | |
-| 8 | MAR VAT | Derived | |
-| 9 | COM 7% | Derived | |
-| 10 | VAT 20% | Derived | |
-| 11 | Ship | Input | |
-| 12 | GP | Derived | |
-| 13 | GP% | Derived | |
-| 14-15 | Comments | Optional | |
+### EBAY Sheet (25 columns) — LIVE Formulas
+
+| # | Column | Required | Formula / Notes |
+|---|--------|----------|-----------------|
+| 1-8 | Same as Amazon | | Date through SP |
+| 9 | **SP-BP** | Derived | `=SP-BP` |
+| 10 | **Marginal Tax** | Derived | `=SP-BP*16.67%` |
+| 11 | **Commission** | Derived | `=(SP*6.9%)-(SP*6.9%)*10%` |
+| 12 | **ROF** | Derived | `=SP*0.35%` |
+| 13 | **FVF** | Fixed | £0.40 |
+| 14 | **VAT** | Derived | `=(Commission+ROF+FVF)*20%` |
+| 15 | **T.COM** | Derived | `=SP*5%` |
+| 16 | **Postage** | Input | Operator-entered |
+| 17 | **P. VAT** | Derived | `=Postage*20%` |
+| 18 | **Marketing** | Derived | `=SP*5%` |
+| 19 | **M. VAT** | Derived | `=Marketing*20%` |
+| 20 | **Accessories** | Input | Default £1 |
+| 21 | **Total VAT** | Derived | `=VAT+P.VAT+M.VAT` |
+| 22 | **GP** | Derived | `=SP-BP-MarginalTax-T.COM-Postage-P.VAT-Marketing-M.VAT-Accessories` |
+| 23 | **GP %** | Derived | `=GP/SP*100` |
+| 24 | **Total VAT NTP** | Derived | `=MarginalTax-TotalVAT` |
+| 25 | Comments | Optional | |
+
+### ONBUY Sheet (19 columns) — LIVE Formulas
+
+| # | Column | Required | Formula / Notes |
+|---|--------|----------|-----------------|
+| 1-5 | Date, Order#, SKU, IMEI, Supplier | | |
+| 6 | **BP** | Yes | No Quantity column |
+| 7 | **SP** | Yes | |
+| 8 | **SP-BP** | Derived | `=SP-BP` |
+| 9 | **MAR VAT** | Derived | `=SP-BP*16.67%` |
+| 10 | **COM 7%** | Derived | `=SP*7%` |
+| 11 | **VAT 20%** | Derived | `=COM*20%` |
+| 12 | **Postage** | Input | |
+| 13 | **P. VAT** | Derived | `=Postage*20%` |
+| 14 | **Accessories** | Input | Default £1 |
+| 15 | **Total VAT** | Derived | `=VAT+P.VAT` |
+| 16 | **GP** | Derived | `=SP-BP-MAR.VAT-COM-VAT-Postage-P.VAT-Accessories` |
+| 17 | **GP %** | Derived | `=GP/BP*100` |
+| 18 | **Total VAT NTP** | Derived | `=MAR.VAT-TotalVAT` |
+| 19 | Comments | Optional | |
 
 ### Round-Trip Rule
 Any report generated by the app contains the same columns as the upload template. Download → re-upload works seamlessly. Derived fields are recomputed; input fields are preserved.
@@ -110,24 +147,24 @@ Any report generated by the app contains the same columns as the upload template
 
 | # | Column | Required | Source | Editable |
 |---|--------|----------|--------|----------|
-| 1 | **Return Date** | MANDATORY | Set on Process Return | No |
-| 2 | **IMEI** | MANDATORY | Inventory unit | No |
-| 3 | **Model** | MANDATORY | Inventory unit | No |
-| 4 | **Storage** | MANDATORY | Inventory unit | No |
-| 5 | **Colour** | MANDATORY | Inventory unit | No |
-| 6 | **Supplier** | MANDATORY | Inventory unit | No |
-| 7 | **BP** | MANDATORY | buyPrice snapshot | No |
-| 8 | **Type** | MANDATORY | To Inventory / In Repair / To Supplier | No |
-| 9 | Reason | Optional | returnReason | Admin |
-| 10 | Notes | Optional | returnComments | Admin |
+| 1 | **Return Date** | Yes | Set on Process Return | No |
+| 2 | **IMEI** | Yes | Inventory unit | No |
+| 3 | **Model** | Yes | Inventory unit | No |
+| 4 | **Storage** | Yes | Inventory unit | No |
+| 5 | **Colour** | Yes | Inventory unit | No |
+| 6 | **Supplier** | Yes | Inventory unit | No |
+| 7 | **BP** | Yes | buyPrice snapshot | No |
+| 8 | **Type** | Yes | Back to Inventory / Repair / Return to Supplier | No |
+| 9 | Reason | No | returnReason | Admin |
+| 10 | Notes | No | returnComments | Admin |
 
 ### Return Types
 
 | Type | Result | Postage Loss |
 |------|--------|-------------|
-| **To Inventory** | status='available', can re-sell | 2 legs |
-| **In Repair** | status='returned', ReadyToShip restores | 2 legs |
-| **To Supplier** | Soft-delete, doc preserved | 2 legs |
+| **Back to Inventory** | status='available', can re-sell | 2 legs |
+| **Repair** | status='returned', ReadyToShip restores | 2 legs |
+| **Return to Supplier** | Soft-delete, doc preserved | 2 legs |
 
 ---
 
@@ -143,51 +180,21 @@ Any report generated by the app contains the same columns as the upload template
 
 ---
 
-## Schema Alignment: Import → App → Export
+## Live Formula Summary by Platform
 
-```
-INVENTORY REPORT          APP FIELD              INVENTORY REPORT
------------------         ---------              ----------------
-IMEI             --------> id / imei    --------> IMEI
-MODEL            --------> model        --------> Model
-COLOUR           --------> colour       --------> Colour
-GRADE            --------> grade        --------> Grade
-STORAGE          --------> storage      --------> Storage
-SIM TYPE         --------> simType      --------> SIM Type
-BP               --------> buyPrice     --------> BP
-SUPPLIER         --------> supplierName --------> Supplier
-DATE             --------> dateIn       --------> Stock In Date
-NOTES            --------> notes        --------> Notes
-
-SALES REPORT              APP FIELD
---------------            ---------
-Order Number     --------> saleOrderId
-SKU              --------> sku
-IMEI             --------> imei
-BP               --------> buyPrice
-SP               --------> salePrice
-Date             --------> saleDate
-Postage          --------> postageOverride
-Payment Mode     --------> paymentMode  (BM only)
-Shipping         --------> eBayShippingTier (eBay only)
-
-MODEL is NOT in the sales upload. Resolved via:
-  - IMEI match → auto-pulled from inventory unit, OR
-  - Orphan → operator picks via DeviceComboBox (strict mode)
-
-RETURNS REPORT            APP FIELD              RETURNS REPORT
---------------            ---------              --------------
-Return Date      --------> returnDate   --------> Return Date
-IMEI             --------> imei         --------> IMEI
-Model            --------> model        --------> Model
-Storage          --------> storage      --------> Storage
-Colour           --------> colour       --------> Colour
-Supplier         --------> supplierName --------> Supplier
-BP               --------> buyPrice     --------> BP
-Type             --------> returnType   --------> Type
-Reason           --------> returnReason --------> Reason
-Notes            --------> returnComments > Notes
-```
+| Fee | Amazon | BM | eBay | OnBuy |
+|-----|--------|-----|------|-------|
+| Commission | SP * 7% | SP * 11% | (SP*6.9%)-(SP*6.9%)*10% | SP * 7% |
+| Care Fees | — | £9.99 | — | — |
+| ROF | — | — | SP * 0.35% | — |
+| FVF | — | — | £0.40 | — |
+| T.COM | — | — | SP * 5% | — |
+| Marketing | — | — | SP * 5% | — |
+| DSF | Commission * 2% | — | — | — |
+| Marginal Tax | SP-BP * 16.67% | SP-BP * 16.67% | SP-BP * 16.67% | SP-BP * 16.67% |
+| Postage VAT | Postage * 20% | Postage * 20% | Postage * 20% | Postage * 20% |
+| Accessories | £1 | £1 | £1 | £1 |
+| GP Formula | SP-BP-Tax-Com-CVAT-DSF-DSFVAT-Post-PVAT-Acc | SP-BP-Tax-Com-Care-Post-PVAT-Acc | SP-BP-Tax-TCOM-Post-PVAT-Mkt-MVAT-Acc | SP-BP-Tax-Com-VAT-Post-PVAT-Acc |
 
 ---
 
