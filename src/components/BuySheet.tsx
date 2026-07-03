@@ -22,6 +22,7 @@ import {
   FileSpreadsheet, ScanLine,
 } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
+import ExcelJS from 'exceljs';
 import { dbService } from '../lib/dbService';
 import { InventoryUnit, InventoryAggregate, Supplier } from '../types';
 import { useInventoryStore } from '../lib/inventoryStore';
@@ -183,7 +184,7 @@ function buildAlertLabel(brand: string, rawModel: string, storage: string): { la
 
   return {
     label: parts.filter(Boolean).join(' ') || rawModel,
-    extras: extrasParts.join(' · '),
+    extras: extrasParts.join(' \u00b7 '),
   };
 }
 
@@ -418,73 +419,112 @@ export default function BuySheet(_props: Props) {
   // Sort the overlay rows.
   const sortedRows = useMemo(() => sortUnits(overlayRows, sort, supplierMap), [overlayRows, sort, supplierMap]);
 
-  // ── Inventory report — timestamped snapshot of the FULL buy inventory ─────
-  // Operator's daily report. Columns mirror the 9-column buy schema exactly —
-  // no listing / marketplace / sale fields here because those are captured in
-  // the Sell flow. The filename carries YYYY-MM-DD_HHMM so multiple pulls in
-  // the same day don't clobber each other and the file sorts chronologically
-  // in a folder.
-  //
-  // Sold units are soft-deleted from this report — once a unit ships, it's
-  // operator-tracked through the Sales report instead. Returned + incoming
-  // (SHS) units stay because they're still our inventory.
-  // Shared row builder — the CSV download and the in-browser View render the
-  // exact same row objects, so what the tester previews IS what downloads.
-  const buildInventoryReportRows = (range: { from?: string; to?: string; label: string }) => {
-    // Scope by Stock In date when a range is selected; without a range
-    // (All Time preset) the report is the full snapshot like before.
-    // `isStockOnHand` is the single source of truth shared with the
-    // All-Office-Stock KPI tile — keeps the report and the tile in lockstep
-    // even when a soft-deleted unit is on the books.
+  // ── Row builder shared by Office and SHS sheets ───────────────────────────
+  const INVENTORY_REPORT_COLUMNS = [
+    'Stock In Date', 'Model', 'IMEI', 'Grade', 'Storage', 'Colour', 'SIM Type', 'Supplier', 'BP', 'Notes', 'Age (days)',
+  ];
+
+  const buildReportRow = (u: InventoryUnit): Record<string, any> => {
+    const MS_PER_DAY = 86_400_000;
+    const nowMs = Date.now();
+    const dt = u.dateIn ? new Date(u.dateIn).getTime() : NaN;
+    const age = Number.isFinite(dt)
+      ? Math.max(0, Math.floor((nowMs - dt) / MS_PER_DAY))
+      : '';
+    return {
+      'Stock In Date': u.dateIn || '',
+      'Model':         u.model || '',
+      'IMEI':          u.imei || '',
+      'Grade':         u.grade || '',
+      'Storage':       u.storage || '',
+      'Colour':        u.colour || '',
+      'SIM Type':      u.simType || '',
+      'Supplier':      supplierMap[u.supplierId] || u.supplierName || '',
+      'BP':            u.buyPrice ?? '',
+      'Notes':         u.notes || '',
+      'Age (days)':    age,
+    };
+  };
+
+  /** Build rows for the Office Stock sheet.
+   *  Includes: available units + returned-to-inventory units. */
+  const buildOfficeReportRows = (range: { from?: string; to?: string; label: string }) => {
     const inStock = units.filter(u => {
-      if (!isStockOnHand(u)) return false;
+      if (u.status !== 'available' && u.returnType !== 'returned_to_inventory') return false;
+      if (u.status === 'sold') return false;
+      if (u.returnType === 'returned_to_supplier') return false;
       if (range.from && (u.dateIn || '') < range.from) return false;
       if (range.to && (u.dateIn || '') > range.to) return false;
       return true;
     });
-    const all = sortUnits(inStock, sort, supplierMap);
-    const MS_PER_DAY = 86_400_000;
-    const nowMs = Date.now();
-    return all.map(u => {
-      // Computed at export time — matches the AGE column on the
-      // master Excel IMEI NUMBERS sheet (see clientReport.ts:174).
-      // Today minus dateIn, clamped at 0. Blank when dateIn is
-      // missing rather than NaN.
-      const dt = u.dateIn ? new Date(u.dateIn).getTime() : NaN;
-      const age = Number.isFinite(dt)
-        ? Math.max(0, Math.floor((nowMs - dt) / MS_PER_DAY))
-        : '';
-      return {
-        'Stock In Date': u.dateIn || '',
-        'Model':         u.model || '',
-        'IMEI':          u.imei || '',
-        'Grade':         u.grade || '',
-        'Storage':       u.storage || '',
-        'Colour':        u.colour || '',
-        'SIM Type':      u.simType || '',
-        'Supplier':      supplierMap[u.supplierId] || u.supplierName || '',
-        'BP':            u.buyPrice ?? '',
-        'Notes':         u.notes || '',
-        // Export-only — the BuySheet CSV is download-only and isn't
-        // re-ingested by InventoryReportImport, so adding a column
-        // here is purely a presentation change.
-        'Age (days)':    age,
-      };
-    });
+    return sortUnits(inStock, sort, supplierMap).map(buildReportRow);
   };
 
+  /** Build rows for the SHS Stock sheet.
+   *  Includes: incoming units (SHS placeholders awaiting physical receive). */
+  const buildShsReportRows = (range: { from?: string; to?: string; label: string }) => {
+    const inStock = units.filter(u => {
+      if (u.status !== 'incoming') return false;
+      if (range.from && (u.dateIn || '') < range.from) return false;
+      if (range.to && (u.dateIn || '') > range.to) return false;
+      return true;
+    });
+    return sortUnits(inStock, sort, supplierMap).map(buildReportRow);
+  };
+
+  // ── Inventory report export — Excel (.xlsx) with two sheets ──────────────
+  // Sheet 1: Office Stock  — all available + returned-to-inventory units
+  // Sheet 2: SHS Stock     — all incoming (SHS placeholder) units
   const handleInventoryReport = async (range: { from?: string; to?: string; label: string }) => {
-    const rows = buildInventoryReportRows(range);
+    const officeRows = buildOfficeReportRows(range);
+    const shsRows    = buildShsReportRows(range);
+
+    const workbook = new ExcelJS.Workbook();
+    workbook.creator = 'InventoryManager';
+    workbook.created = new Date();
+
+    // ── Sheet 1: Office Stock ──
+    const officeSheet = workbook.addWorksheet('Office Stock');
+    officeSheet.columns = INVENTORY_REPORT_COLUMNS.map(h => ({ header: h, key: h, width: h === 'Notes' ? 30 : h === 'Model' ? 28 : h === 'Stock In Date' ? 14 : 14 }));
+    // Header styling
+    officeSheet.getRow(1).eachCell(cell => {
+      cell.font = { bold: true, color: { argb: 'FFFFFFFF' } };
+      cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF0F172A' } };
+      cell.alignment = { horizontal: 'center' };
+    });
+    officeSheet.addRows(officeRows);
+    // Auto-filter on header row
+    officeSheet.autoFilter = { from: { row: 1, column: 1 }, to: { row: 1, column: INVENTORY_REPORT_COLUMNS.length } };
+    // Freeze header
+    officeSheet.views = [{ state: 'frozen', ySplit: 1 }];
+
+    // ── Sheet 2: SHS Stock ──
+    const shsSheet = workbook.addWorksheet('SHS Stock');
+    shsSheet.columns = INVENTORY_REPORT_COLUMNS.map(h => ({ header: h, key: h, width: h === 'Notes' ? 30 : h === 'Model' ? 28 : h === 'Stock In Date' ? 14 : 14 }));
+    shsSheet.getRow(1).eachCell(cell => {
+      cell.font = { bold: true, color: { argb: 'FFFFFFFF' } };
+      cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFB45309' } }; // amber-800
+      cell.alignment = { horizontal: 'center' };
+    });
+    shsSheet.addRows(shsRows);
+    shsSheet.autoFilter = { from: { row: 1, column: 1 }, to: { row: 1, column: INVENTORY_REPORT_COLUMNS.length } };
+    shsSheet.views = [{ state: 'frozen', ySplit: 1 }];
+
+    // ── Download ──
+    const buf = await workbook.xlsx.writeBuffer();
+    const blob = new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
     const now = new Date();
     const pad = (n: number) => String(n).padStart(2, '0');
     const stamp = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}_${pad(now.getHours())}${pad(now.getMinutes())}`;
-    downloadCsv(`inventory-report-${range.label}-${stamp}.csv`, rows);
+    triggerDownload(`inventory-report-${range.label}-${stamp}.xlsx`, blob);
   };
 
-  // In-browser preview of the same rows the CSV serialises.
+  // In-browser preview — falls back to a single combined view for simplicity.
   const handleInventoryReportView = async (range: { from?: string; to?: string; label: string }) => {
     const { viewModelFromRows } = await import('../lib/reportView');
-    return viewModelFromRows(`Inventory Report · ${range.label}`, 'INVENTORY', buildInventoryReportRows(range));
+    // Preview shows combined (office + SHS) so the tester sees everything
+    const combined = [...buildOfficeReportRows(range), ...buildShsReportRows(range)];
+    return viewModelFromRows(`Inventory Report \u00b7 ${range.label}`, 'INVENTORY', combined);
   };
 
   // ── Inline cell save ──────────────────────────────────────────────────────
@@ -710,7 +750,7 @@ export default function BuySheet(_props: Props) {
             Showing <span className="text-slate-900 font-bold">{inlineRows.length.toLocaleString()}</span> of {units.length.toLocaleString()} units
           </span>
           <span className="hidden sm:inline">
-            Sort: <span className="text-slate-900 font-bold">{sort.key}</span> {sort.dir === 'asc' ? '↑' : '↓'}
+            Sort: <span className="text-slate-900 font-bold">{sort.key}</span> {sort.dir === 'asc' ? '\u2191' : '\u2193'}
           </span>
         </div>
       </div>
@@ -1298,25 +1338,8 @@ function titleFor(kpi: KpiId): string {
     case 'office':       return 'All Office Stock';
     case 'shs':          return 'SHS Stock';
     case 'sold_today':   return 'Sold Today';
-    case 'out_of_stock': return 'Out of Stock · Last 72 Hours';
+    case 'out_of_stock': return 'Out of Stock \u00b7 Last 72 Hours';
   }
-}
-
-function downloadCsv(filename: string, rows: Array<Record<string, any>>) {
-  if (rows.length === 0) {
-    const blob = new Blob(['(no rows)\n'], { type: 'text/csv' });
-    triggerDownload(filename, blob);
-    return;
-  }
-  const headers = Object.keys(rows[0]);
-  const esc = (v: any) => {
-    const s = v == null ? '' : String(v);
-    if (/[",\n]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
-    return s;
-  };
-  const lines = [headers.join(','), ...rows.map(r => headers.map(h => esc(r[h])).join(','))];
-  const blob = new Blob([lines.join('\n')], { type: 'text/csv;charset=utf-8;' });
-  triggerDownload(filename, blob);
 }
 
 function triggerDownload(name: string, blob: Blob) {
