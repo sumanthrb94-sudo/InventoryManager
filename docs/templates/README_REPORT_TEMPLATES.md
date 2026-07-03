@@ -1,215 +1,194 @@
-# Report Templates — Schema Reference
+# Report Templates — Final Schema Reference
 
-This folder contains sample upload/download templates with the exact schemas
-InventoryManager expects. Use these as starting points for imports and exports.
-
----
-
-## 1. INVENTORY REPORT IMPORT
-
-**File:** `INVENTORY_REPORT_IMPORT_TEMPLATE.xlsx` (or `.csv`)
-**Used by:** Master Data Import (Buy Sheet → Import)
-**Format:** One row = one physical unit
-
-### Mandatory Fields (upload will fail without these)
-
-| Field | Column | Format | Notes |
-|-------|--------|--------|-------|
-| **IMEI** | A | 15-digit numeric or 10-12 char Apple serial | Primary key. Becomes Firestore doc ID. |
-| **MODEL** | B | e.g. "iPhone 14 128GB" | Storage auto-parses from model string. |
-| **COLOUR** | C | Black / White / Blue / etc. | Defaults to "Unknown" if blank. |
-| **BP** | G | Number > 0 | Buying price. Must be greater than zero. |
-| **SUPPLIER** | H | e.g. MHL / NANAK / RB | Name resolved against existing suppliers. |
-| **DATE** | I | YYYY-MM-DD | Stock in date. Parsed as local midnight. |
-
-### Optional Fields
-
-| Field | Column | Format | Notes |
-|-------|--------|--------|-------|
-| GRADE | D | A / B / C / ONU / Brand New | Condition grade. |
-| STORAGE | E | 64GB / 128GB / 256GB / 512GB / 1TB | Auto-extracted from MODEL if blank. |
-| SIM TYPE | F | Single SIM / Dual SIM / eSIM / Dual Physical SIM | Now visible throughout app. |
-| NOTES | J | Free text | Any additional notes. |
-| BATCH ID | K | Any string | Groups units from same bulk order. |
-
-### Key Rules
-
-1. **IMEI must be unique** — duplicates are rejected with error.
-2. **BP must be > 0** — zero or negative rejected.
-3. **After upload:** Gap Fix 2 (Reverse Reconcile) auto-links imported units to any pre-existing orphan sales.
+**Date:** 2026-07-03  
+**Branch:** claude/map-imei-inventory-DZ8Hi  
 
 ---
 
-## 2. SALES REPORT IMPORT
+## 1. INVENTORY REPORT
 
-**File:** `SALES_REPORT_IMPORT_TEMPLATE.xlsx`
+**File:** `INVENTORY_REPORT.xlsx`  
+**Sheet:** INVENTORY  
+**Used by:** Master Data Import (Buy Sheet)
+
+### Columns (10 total)
+
+| # | Column | Required | Format / Valid Values |
+|---|--------|----------|----------------------|
+| 1 | **IMEI** | MANDATORY | 15-digit numeric or 10-12 char Apple serial |
+| 2 | **MODEL** | MANDATORY | e.g. "iPhone 14 128GB" — storage auto-parses |
+| 3 | **COLOUR** | MANDATORY | Black / White / Blue / Gold / Purple / etc. |
+| 4 | GRADE | Optional | A / B / C / ONU / Brand New |
+| 5 | **STORAGE** | MANDATORY | 16GB / 32GB / 64GB / 128GB / 256GB / 512GB / 1TB / **Not Applicable** |
+| 6 | SIM TYPE | Optional | Single SIM / Dual SIM / eSIM / Dual Physical SIM |
+| 7 | **BP** | MANDATORY | Number > 0 (buying price) |
+| 8 | **SUPPLIER** | MANDATORY | e.g. MHL / NANAK / RB / SKYMO |
+| 9 | **DATE** | MANDATORY | YYYY-MM-DD (stock in date) |
+| 10 | NOTES | Optional | Free text |
+
+### Removed
+- ~~BATCH ID~~ — not needed
+
+### Auto-Derived (do not include)
+- `brand` — from model ("iPhone" → "Apple")
+- `category` — from model ("iPad" → "iPad")
+- `id` — uppercase IMEI
+
+---
+
+## 2. SALES REPORT
+
+**File:** `SALES_REPORT.xlsx`  
+**Sheets:** AMAZON, BM, EBAY, ONBUY  
 **Used by:** Sales Report Import (Sell tab)
-**Format:** 4 marketplace sheets — AMAZON, BM, EBAY, ONBUY
 
 ### CRITICAL: Model is NOT in the sales report
 
-Marketplace sales reports (Amazon, BM, eBay, OnBuy) do **not** contain a Model column.
-They contain **SKU** and **IMEI**. The model is resolved automatically or by the operator
-in the audit completion step (see "How Model Mapping Works" below).
+Marketplace reports only have SKU + IMEI. Model is auto-pulled from inventory (IMEI match) or filled by operator in the audit panel.
 
-### Universal Mandatory Fields (all sheets)
+### AMAZON Sheet (15 columns)
 
-| Field | Format | Notes |
-|-------|--------|-------|
-| **Date** | YYYY-MM-DD or Excel date | Sale date. |
-| **Order Number** | String | Marketplace order ID. |
-| **SKU** | String | Product SKU code (e.g. "ASI-IP14-128-BK-A"). |
-| **IMEI** | 15-digit numeric | Links sale to inventory unit. |
-| **Supplier** | String | For GP attribution. |
-| **BP** | Number > 0 | Buying price. |
-| **SP** | Number > 0 | Selling price. |
+| # | Column | Required | Notes |
+|---|--------|----------|-------|
+| 1 | **Date** | MANDATORY | YYYY-MM-DD |
+| 2 | **Order Number** | MANDATORY | Marketplace order ID |
+| 3 | **SKU** | MANDATORY | e.g. "ASI-IP14-128-BK-A" |
+| 4 | **IMEI** | MANDATORY | 15-digit numeric |
+| 5 | **Supplier** | MANDATORY | For GP attribution |
+| 6 | **Quantity** | MANDATORY | Defaults to 1 |
+| 7 | **BP** | MANDATORY | Buying price > 0 |
+| 8 | **SP** | MANDATORY | Selling price > 0 |
+| 9 | SP-BP | Derived | Recomputed on import |
+| 10 | Marginal Tax | Derived | Recomputed on import |
+| 11 | Commission | Derived | Recomputed on import |
+| 12 | Postage | Input | Operator-entered |
+| 13 | GP | Derived | Recomputed on import |
+| 14 | GP% | Derived | Recomputed on import |
+| 15 | Comments | Optional | Free text |
 
-### Per-Sheet Differences
+### BM Sheet (17 columns)
+Same as Amazon +:
+| 9 | **Payment Mode** | MANDATORY | PayPal / Klarna / Clear Pay |
+| 10 | **PayPal/Klarna Com** | MANDATORY | Platform fee amount |
+| 11-17 | (shifted right by 2) | | SP-BP, Tax, Com, Postage, GP, GP%, Comments |
 
-#### AMAZON Sheet (15 columns)
-Date, Order Number, SKU, IMEI, Supplier, Quantity, BP, SP, SP-BP, Marginal Tax, Commission, Postage, GP, GP%, Comments
+### EBAY Sheet (19 columns)
+Same as Amazon +:
+| 9 | **ROF** | MANDATORY | Reserve Out Fee |
+| 10 | **FVF** | MANDATORY | Final Value Fee |
+| 11 | **0.2** | MANDATORY | eBay commission rate |
+| 12 | **T.COM** | MANDATORY | Trend Commission |
+| 13 | **Shipping** | MANDATORY | Shipping tier 1/2/8 |
+| 14-19 | (shifted right by 5) | | SP-BP, Tax, Com, Postage, GP, NP |
 
-#### BM Sheet (17 columns)
-+ **Payment Mode** — PayPal / Klarna / Clear Pay
-+ **PayPal/Klarna Com** — Platform fee amount
+### ONBUY Sheet (15 columns)
+**NO Quantity column.** BP at position 5, SP at position 6.
+| 1-4 | Same as Amazon | | |
+| 5 | **BP** | MANDATORY | (shifted left, no Quantity) |
+| 6 | **SP** | MANDATORY | (shifted left, no Quantity) |
+| 7 | SP-BP | Derived | |
+| 8 | MAR VAT | Derived | |
+| 9 | COM 7% | Derived | |
+| 10 | VAT 20% | Derived | |
+| 11 | Ship | Input | |
+| 12 | GP | Derived | |
+| 13 | GP% | Derived | |
+| 14-15 | Comments | Optional | |
 
-#### EBAY Sheet (19 columns)
-+ **ROF** — Reserve Out Fee
-+ **FVF** — Final Value Fee
-+ **0.2** — eBay commission rate
-+ **T.COM** — Trend Commission
-+ **Shipping** — Shipping tier (1 / 2 / 8)
-+ **NP** — Net Profit (computed)
-
-#### ONBUY Sheet (15 columns)
-**NO Quantity column.** BP at position 5, SP at position 6. Quantity defaults to 1.
-
-### How Model Mapping Works (No Model Column in Sales Report)
-
-```
-SALES REPORT (has IMEI + SKU, does NOT have MODEL)
-        |
-        |---> IMEI found in inventory? ----> YES: Model auto-pulled from unit
-        |                                          Unit flipped to 'sold'
-        |
-        |---> IMEI NOT in inventory? ------> NO: Orphan sale
-        |                                                  |
-        |                                                  v
-        |                                           AUDIT COMPLETION PANEL
-        |                                           Operator MUST fill:
-        |                                           - Model (searchable DeviceComboBox)
-        |                                           - Supplier
-        |                                           - BP
-        |                                           - Colour (optional)
-        |                                           - Storage (optional)
-        |                                           - Office vs SHS
-        |                                                  |
-        |                                                  v
-        |                                           addSoldUnitFromSale() creates
-        |                                           new inventory unit + marks sold
-        |
-        |---> SKU hint: "ASI-IP14-128-BK-A" --> normalizeOperatorSku() --> "iPhone 14 128GB"
-              (seeds the DeviceComboBox search, but operator MUST confirm)
-```
-
-**The audit panel enforces strict mode** — no free text. The operator must pick a model from the searchable device catalog. Confirm is **hard-blocked** until every orphan row has model + supplier + BP filled. This ensures no SKU codes leak into the inventory database.
-
-### Orphan Prevention (3-Layer Gate)
-
-| Layer | What Happens |
-|-------|-------------|
-| **Layer 1: Parser** | Invalid rows skipped, multi-IMEI cells expanded to separate Sale docs |
-| **Layer 2: Audit Block** | Confirm disabled until ALL orphan rows have model + supplier + BP filled |
-| **Layer 3: Post-Import Sync** | Matching units flipped to 'sold'. Sale docs linked. Stale combined docs deleted. |
-
-### Composite Sale ID Format
-
-```
-AMAZON__026-6081380-8104355__351554748581221
-^^^^^^^^  ^^^^^^^^^^^^^^^^^^^  ^^^^^^^^^^^^^^^
-market    order number         IMEI (discriminator)
-```
-
-One doc per physical unit. Prevents 3-phone orders from collapsing into 1 sale doc.
+### Round-Trip Rule
+Any report generated by the app contains the same columns as the upload template. Download → re-upload works seamlessly. Derived fields are recomputed; input fields are preserved.
 
 ---
 
 ## 3. RETURNS REPORT
 
-**File:** `RETURNS_REPORT_TEMPLATE.xlsx` (or `.csv`)
-**Used by:** Returns Page (export download)
-**Format:** One row = one processed return
+**File:** `RETURNS_REPORT.xlsx`  
+**Sheet:** RETURNS  
+**Used by:** Returns Page (export)
 
-### All Fields (10 columns)
+### Columns (10 total)
 
-| # | Field | Source | Editable |
-|---|-------|--------|----------|
-| 1 | Return Date | Set on Process Return | No |
-| 2 | IMEI | Inventory unit | No |
-| 3 | Model | Inventory unit | No |
-| 4 | Storage | Inventory unit | No |
-| 5 | Colour | Inventory unit | No |
-| 6 | Supplier | Inventory unit | No |
-| 7 | BP | buyPrice snapshot | No |
-| 8 | Type | returnType field | No |
-| 9 | Reason | returnReason | Admin only |
-| 10 | Notes | returnComments | Admin only |
+| # | Column | Required | Source | Editable |
+|---|--------|----------|--------|----------|
+| 1 | **Return Date** | MANDATORY | Set on Process Return | No |
+| 2 | **IMEI** | MANDATORY | Inventory unit | No |
+| 3 | **Model** | MANDATORY | Inventory unit | No |
+| 4 | **Storage** | MANDATORY | Inventory unit | No |
+| 5 | **Colour** | MANDATORY | Inventory unit | No |
+| 6 | **Supplier** | MANDATORY | Inventory unit | No |
+| 7 | **BP** | MANDATORY | buyPrice snapshot | No |
+| 8 | **Type** | MANDATORY | To Inventory / In Repair / To Supplier | No |
+| 9 | Reason | Optional | returnReason | Admin |
+| 10 | Notes | Optional | returnComments | Admin |
 
-### Return Type Values
+### Return Types
 
-| Type | What Happens | Postage Loss |
-|------|-------------|-------------|
-| **To Inventory** | Unit restored to available stock. Can re-sell. | 2 legs |
-| **In Repair** | Unit sent for repair. Use "Ready to Ship" to restore. | 2 legs |
-| **To Supplier** | Soft-delete. Doc preserved for audit. | 2 legs |
-
-### Replacement Route
-
-If outcome = "Replacement":
-1. Operator picks replacement unit from available stock (same brand + model + storage)
-2. Original unit: returned
-3. Replacement unit: marked as sold, inherits sale data
-4. Cross-linked: `replacedByUnitId` / `replacementForUnitId`
-5. Postage loss: **3 legs** (outbound + inbound + replacement outbound)
+| Type | Result | Postage Loss |
+|------|--------|-------------|
+| **To Inventory** | status='available', can re-sell | 2 legs |
+| **In Repair** | status='returned', ReadyToShip restores | 2 legs |
+| **To Supplier** | Soft-delete, doc preserved | 2 legs |
 
 ---
 
-## Quick Reference: Mandatory Field Matrix
+## Mandatory Field Matrix
 
-| Flow | IMEI | Model | BP | Supplier | Date | Order# | SKU | SP |
-|------|------|-------|-----|----------|------|--------|-----|-----|
-| Inventory Import | Yes | Yes | Yes | Yes | Yes | — | — | — |
-| Sales Import | Yes | **Audit** | Yes | Yes | Yes | Yes | Yes | Yes |
-| Returns (UI) | Yes | — | — | — | Yes | — | — | — |
+| Flow | IMEI | Model | Storage | BP | Supplier | Date | Order# | SKU | SP |
+|------|------|-------|---------|-----|----------|------|--------|-----|-----|
+| Inventory Import | Yes | Yes | Yes | Yes | Yes | Yes | — | — | — |
+| Sales Import | Yes | Audit* | — | Yes | Yes | Yes | Yes | Yes | Yes |
+| Returns Export | Yes | Yes | Yes | — | Yes | Yes | — | — | — |
 
-Yes = Mandatory  ·  **Audit** = Filled in audit panel (not in upload file)  ·  — = Not applicable
+*Audit = Filled in audit completion panel (DeviceComboBox), not in upload file
 
 ---
 
 ## Schema Alignment: Import → App → Export
 
 ```
-INVENTORY IMPORT          APP FIELD              INVENTORY REPORT EXPORT
------------------         ---------              -----------------------
-IMEI column      --------> id / imei    --------> IMEI column
-MODEL column     --------> model        --------> Model column
-COLOUR column    --------> colour       --------> Colour column
-GRADE column     --------> grade        --------> Grade column
-STORAGE column   --------> storage      --------> Storage column
-SIM TYPE column  --------> simType      --------> SIM Type column  (NEW)
-BP column        --------> buyPrice     --------> BP column
-SUPPLIER column  --------> supplierName --------> Supplier column
-DATE column      --------> dateIn       --------> Stock In Date column
-NOTES column     --------> notes        --------> Notes column
+INVENTORY REPORT          APP FIELD              INVENTORY REPORT
+-----------------         ---------              ----------------
+IMEI             --------> id / imei    --------> IMEI
+MODEL            --------> model        --------> Model
+COLOUR           --------> colour       --------> Colour
+GRADE            --------> grade        --------> Grade
+STORAGE          --------> storage      --------> Storage
+SIM TYPE         --------> simType      --------> SIM Type
+BP               --------> buyPrice     --------> BP
+SUPPLIER         --------> supplierName --------> Supplier
+DATE             --------> dateIn       --------> Stock In Date
+NOTES            --------> notes        --------> Notes
 
-SALES IMPORT:
-  - Model is NOT in the upload file
-  - Auto-pulled from inventory unit (IMEI match), OR
-  - Filled by operator in audit panel (DeviceComboBox picker)
-  - SKU gives a hint via normalizeOperatorSku() but MUST be confirmed
+SALES REPORT              APP FIELD
+--------------            ---------
+Order Number     --------> saleOrderId
+SKU              --------> sku
+IMEI             --------> imei
+BP               --------> buyPrice
+SP               --------> salePrice
+Date             --------> saleDate
+Postage          --------> postageOverride
+Payment Mode     --------> paymentMode  (BM only)
+Shipping         --------> eBayShippingTier (eBay only)
+
+MODEL is NOT in the sales upload. Resolved via:
+  - IMEI match → auto-pulled from inventory unit, OR
+  - Orphan → operator picks via DeviceComboBox (strict mode)
+
+RETURNS REPORT            APP FIELD              RETURNS REPORT
+--------------            ---------              --------------
+Return Date      --------> returnDate   --------> Return Date
+IMEI             --------> imei         --------> IMEI
+Model            --------> model        --------> Model
+Storage          --------> storage      --------> Storage
+Colour           --------> colour       --------> Colour
+Supplier         --------> supplierName --------> Supplier
+BP               --------> buyPrice     --------> BP
+Type             --------> returnType   --------> Type
+Reason           --------> returnReason --------> Reason
+Notes            --------> returnComments > Notes
 ```
 
 ---
 
-*Templates generated: 2026-07-03*
-*Branch: claude/map-imei-inventory-DZ8Hi*
+*Finalized: 2026-07-03*
