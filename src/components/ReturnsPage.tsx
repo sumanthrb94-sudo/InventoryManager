@@ -1320,7 +1320,7 @@ function ReturnLossSection({
                   const isAlt = idx % 2 === 1;
                   const rowBg = isAlt ? 'bg-slate-50/40' : 'bg-white';
                   return (
-                    <tr key={r.unit.id} className={`${rowBg} hover:bg-rose-50/30 transition-colors`}>
+                    <tr key={`${r.unit.id}-${r.cycleDate}-${r.sale?.id ?? 'legacy'}`} className={`${rowBg} hover:bg-rose-50/30 transition-colors`}>
                       <td className="px-3 py-1.5 border-b border-slate-100 text-slate-700">
                         {fmtDateForUser(r.cycleDate || '', region) || r.cycleDate || '—'}
                       </td>
@@ -1709,7 +1709,7 @@ function UnitHistoryModal({
   type Event =
     | { kind: 'intake';  date: string; title: string; detail: string; amount?: number }
     | { kind: 'sale';    date: string; title: string; detail: string; amount?: number; comments?: string }
-    | { kind: 'return';  date: string; title: string; detail: string; loss: number; reason?: string; comments?: string; outcome: 'refund' | 'replacement' }
+    | { kind: 'return';  date: string; title: string; detail: string; loss: number; reason?: string; comments?: string; outcome: 'refund' | 'replacement' | 'repair' }
     | { kind: 'status';  date: string; title: string; detail: string };
 
   const events = useMemo<Event[]>(() => {
@@ -1744,13 +1744,20 @@ function UnitHistoryModal({
       if (s.voidedAt) {
         const postage = Number(s.postage) || 0;
         const pvat = s.postageVatExempt ? 0 : (Number(s.postageVat) || postage * 0.2);
-        const outcome = (s.voidOutcome === 'replacement' ? 'replacement' : 'refund') as 'refund' | 'replacement';
+        const outcome: 'refund' | 'replacement' | 'repair' =
+          s.voidOutcome === 'replacement' ? 'replacement'
+          : s.voidOutcome === 'repair' ? 'repair'
+          : 'refund';
         const legs = outcome === 'replacement' ? 3 : 2;
         const loss = (postage + pvat) * legs;
+        const title =
+          outcome === 'replacement' ? 'Replacement'
+          : outcome === 'repair' ? 'Repair'
+          : 'Refund';
         out.push({
           kind: 'return',
           date: s.voidedAt,
-          title: outcome === 'replacement' ? 'Replacement' : 'Refund',
+          title,
           detail: `${legs} shipping legs × £${(postage + pvat).toFixed(2)}`,
           loss,
           reason: s.voidReason,
@@ -1767,12 +1774,19 @@ function UnitHistoryModal({
       const alreadyShown = out.some(e => e.kind === 'return' && e.date === unit.returnDate);
       if (!alreadyShown) {
         const legCost = unit.returnLegCost ?? 0;
-        const outcome = (unit.returnOutcome === 'replacement' ? 'replacement' : 'refund') as 'refund' | 'replacement';
+        const outcome: 'refund' | 'replacement' | 'repair' =
+          unit.returnOutcome === 'replacement' ? 'replacement'
+          : unit.returnType === 'repair' ? 'repair'
+          : 'refund';
         const legs = outcome === 'replacement' ? 3 : 2;
+        const title =
+          outcome === 'replacement' ? 'Replacement'
+          : outcome === 'repair' ? 'Repair'
+          : 'Refund';
         out.push({
           kind: 'return',
           date: unit.returnDate,
-          title: outcome === 'replacement' ? 'Replacement' : 'Refund',
+          title,
           detail: `${legs} shipping legs${legCost > 0 ? ` × £${legCost.toFixed(2)}` : ''}`,
           loss: legCost * legs,
           reason: unit.returnReason,
@@ -1852,7 +1866,11 @@ function UnitHistoryModal({
               const dot =
                 e.kind === 'intake' ? 'bg-slate-700' :
                 e.kind === 'sale'   ? 'bg-emerald-500' :
-                e.kind === 'return' ? (e.outcome === 'replacement' ? 'bg-violet-500' : 'bg-rose-500') :
+                e.kind === 'return' ? (
+                  e.outcome === 'replacement' ? 'bg-violet-500' :
+                  e.outcome === 'repair' ? 'bg-blue-500'
+                  : 'bg-rose-500'
+                ) :
                 'bg-blue-500';
               return (
                 <li key={i} className="relative">
@@ -2490,14 +2508,53 @@ function QuickRepairModal({
   const handleSend = async () => {
     setSaving(true);
     try {
-      await dbService.update('inventoryUnits', unit.id, {
+      // Mirror the main ProcessReturnModal repair route: find the linked Sale,
+      // snapshot one postage leg onto the unit, and void the Sale so revenue/GP
+      // stops counting while the unit is in repair (BUG-RP-004: Quick Repair
+      // previously left the Sale active, overstating revenue).
+      const returnDate = todayStr();
+      const reason = unit.returnReason || 'Unit sent for repair';
+      let legCost: number | null = null;
+      try {
+        const all = await dbService.readAll('sales');
+        const imeiKey = (unit.imei || '').trim().toUpperCase();
+        const linked = all.filter((s: any) => {
+          if (s.voidedAt) return false;
+          if (unit.id && s.unitId === unit.id) return true;
+          if (!imeiKey) return false;
+          return (s.imei || '').trim().toUpperCase() === imeiKey;
+        });
+        const src = linked[linked.length - 1];
+        if (src) {
+          const postage = Number(src.postage) || 0;
+          const pVat = src.postageVatExempt ? 0 : (Number(src.postageVat) || postage * 0.2);
+          legCost = postage + pVat;
+          const salePatch = processReturnSalePatch({
+            returnType: 'repair',
+            outcome: 'refund', // ignored when returnType is repair
+            returnDate,
+            reason,
+          });
+          for (const s of linked) {
+            await dbService.update('sales', s.id, salePatch);
+          }
+        }
+      } catch (err) {
+        console.warn('Failed to void linked sales for quick repair', unit.id, err);
+      }
+
+      const patch: Record<string, any> = {
         status: 'returned',
         returnType: 'repair',
-        returnDate: todayStr(),
-        returnReason: unit.returnReason || 'Unit sent for repair',
+        returnDate,
+        returnReason: reason,
+        returnOutcome: 'repair',
         salePrice: null, saleDate: null, salePlatform: null, saleOrderId: null, postageCost: null,
         platformListed: false, listingSites: [],
-      });
+      };
+      if (legCost !== null) patch.returnLegCost = legCost;
+      await dbService.update('inventoryUnits', unit.id, patch);
+
       notificationService.addNotification('return_processed', unit);
       onSaved();
       onClose();

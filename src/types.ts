@@ -372,7 +372,7 @@ export interface Sale {
    *  SALES_REPORT:
    *    'refund'      → 2 shipping legs lost
    *    'replacement' → 3 shipping legs lost
-   *    'repair'      → 0 shipping legs lost (we kept the unit)
+   *    'repair'      → 2 shipping legs lost (outbound + inbound; unit kept and fixed)
    *  Defaults to refund (2) for legacy voids missing the field. */
   voidOutcome?: 'refund' | 'replacement' | 'repair';
   // Operator's red-row flag from the source workbook — when the DATE / ORDER
