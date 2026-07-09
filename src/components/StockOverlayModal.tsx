@@ -119,7 +119,7 @@ function OfficeDeleteButton({ unit }: { unit: InventoryUnit }) {
 export type GroupSortKey = 'model' | 'stockIn' | 'age' | 'colours' | 'qty' | 'bp' | 'value' | 'notes' | 'sold' | 'lastSold';
 export type GroupSortDir = 'asc' | 'desc';
 export interface GroupSort { key: GroupSortKey; dir: GroupSortDir; }
-export const DEFAULT_GROUP_SORT: GroupSort = { key: 'qty', dir: 'desc' };
+export const DEFAULT_GROUP_SORT: GroupSort = { key: 'stockIn', dir: 'desc' };
 
 /** Sensible default direction when a header is clicked for the first time.
  *  Most columns are "biggest first" (qty, value, etc.); model is A→Z. */
