@@ -26,6 +26,7 @@ import { dbService } from '../lib/dbService';
 import { InventoryUnit, InventoryAggregate, Supplier } from '../types';
 import { useInventoryStore } from '../lib/inventoryStore';
 import { shsAggregatesFrom } from '../lib/shsCount';
+import { normalizeBucketModel, parseBrandModelStorage } from '../lib/modelStorage';
 import { fmtDateForUser, useUserRegion } from '../lib/userLocale';
 import { auth, isAdmin } from '../lib/firebase';
 import { isStockOnHand } from '../lib/inventoryFilters';
@@ -326,7 +327,9 @@ export default function BuySheet(_props: Props) {
   const outOfStock72h = useMemo(() => {
     const cutoff = Date.now() - 72 * 60 * 60 * 1000;
     return buildOutOfStockBuckets(units, supplierMap).filter(b => {
-      if (b.available !== 0 || b.sold === 0) return false;
+      // A SKU is only a true reorder candidate when nothing is available
+      // AND nothing is already incoming from the supplier (SHS).
+      if (b.available !== 0 || b.incoming > 0 || b.sold === 0) return false;
       if (!b.lastSold) return false;
       const t = new Date(b.lastSold + 'T12:00:00').getTime();
       return Number.isFinite(t) && t >= cutoff;
@@ -780,6 +783,7 @@ function StockAlerts({
     extras: string;       // extracted colour / storage / grade from SKU
     suppliers: Set<string>;
     available: number;
+    incoming: number;     // SHS units already re-ordered from supplier
     sold: number;
     lastSold: string;     // ISO date of latest sale (for context)
     latestBp: number;     // most recent buy price seen (rough cost guide)
@@ -788,11 +792,9 @@ function StockAlerts({
   const buckets = useMemo(() => {
     const map = new Map<string, Bucket>();
     for (const u of units) {
-      const brand = (u.brand || '').trim();
-      const model = (u.model || '').trim();
-      const storage = (u.storage || '').trim();
-      const key = `${brand}|${model}|${storage}`.toLowerCase();
-      if (!key.trim()) continue;
+      const { brand, model, storage } = skuBucketFields(u);
+      const key = skuBucketKey(brand, model, storage);
+      if (!key) continue;
       let b = map.get(key);
       if (!b) {
         const { label, extras } = buildAlertLabel(brand, model, storage);
@@ -801,7 +803,7 @@ function StockAlerts({
           label,
           extras,
           suppliers: new Set<string>(),
-          available: 0, sold: 0, lastSold: '',
+          available: 0, incoming: 0, sold: 0, lastSold: '',
           latestBp: u.buyPrice || 0,
         };
         map.set(key, b);
@@ -809,6 +811,7 @@ function StockAlerts({
       const sname = supplierMap[u.supplierId] || u.supplierName || '';
       if (sname) b.suppliers.add(sname);
       if (u.status === 'available') b.available++;
+      else if (u.status === 'incoming') b.incoming++;
       else if (u.status === 'sold') {
         b.sold++;
         const d = (u.saleDate || '').split('T')[0];
@@ -821,7 +824,9 @@ function StockAlerts({
 
   const soldOut = useMemo(
     () => buckets
-      .filter(b => b.available === 0 && b.sold > 0)
+      // Only flag as "sold out · reorder" if there is no office stock AND
+      // no SHS/incoming stock already on order.
+      .filter(b => b.available === 0 && b.incoming === 0 && b.sold > 0)
       .sort((a, b) => (b.lastSold || '').localeCompare(a.lastSold || ''))
       .slice(0, 12),
     [buckets],
@@ -1253,6 +1258,38 @@ function InlineEditableSelect({
   );
 }
 
+// ── SKU bucket key ───────────────────────────────────────────────────────────
+
+/** Build a normalised SKU bucket key that treats "Samsung Galaxy Tab A11",
+ *  "Galaxy Tab A11", and "Tab A11" as the same bucket. This matches the
+ *  periodic-table keying in PeriodicInventory and prevents sold units from
+ *  staying in "Out of Stock" when the same model was re-added as SHS under a
+ *  slightly different prefix/format.
+ *
+ *  Why not just brand|model|storage? Office/Sale/SHS flows save the model
+ *  string at different times and some docs carry the brand prefix inside
+ *  `model` while others split it into `brand`. The store normalises most of
+ *  this, but the extra prefix strip here makes the alert buckets resilient
+ *  to any remaining drift.
+ */
+function skuBucketFields(u: InventoryUnit): { brand: string; model: string; storage: string } {
+  // Re-parse from a combined string so storage embedded in the model field
+  // is recovered even when u.storage is blank.
+  const raw = `${u.brand || ''} ${u.model || ''} ${u.storage || ''}`.trim();
+  const parsed = parseBrandModelStorage(raw);
+  return {
+    brand: parsed.brand && parsed.brand !== 'Other' ? parsed.brand : (u.brand || ''),
+    model: parsed.model || u.model || '',
+    storage: parsed.storage || u.storage || '',
+  };
+}
+
+function skuBucketKey(brand: string, model: string, storage: string): string {
+  const normalisedModel = normalizeBucketModel(`${brand} ${model}`.trim());
+  const key = `${normalisedModel}|${storage}`.toLowerCase();
+  return key.trim();
+}
+
 // ── Out-of-stock bucket builder (shared by StockAlerts and the KPI tile) ────
 
 function buildOutOfStockBuckets(
@@ -1261,24 +1298,23 @@ function buildOutOfStockBuckets(
 ): OutOfStockBucket[] {
   const map = new Map<string, OutOfStockBucket>();
   for (const u of units) {
-    const brand = (u.brand || '').trim();
-    const model = (u.model || '').trim();
-    const storage = (u.storage || '').trim();
-    const key = `${brand}|${model}|${storage}`.toLowerCase();
-    if (!key.trim()) continue;
+    const { brand, model, storage } = skuBucketFields(u);
+    const key = skuBucketKey(brand, model, storage);
+    if (!key) continue;
     let b = map.get(key);
     if (!b) {
       b = {
         key,
         label: [brand, model, storage].filter(Boolean).join(' '),
         suppliers: new Set<string>(),
-        available: 0, sold: 0, lastSold: '', latestBp: u.buyPrice || 0,
+        available: 0, incoming: 0, sold: 0, lastSold: '', latestBp: u.buyPrice || 0,
       };
       map.set(key, b);
     }
     const sname = supplierMap[u.supplierId] || u.supplierName || '';
     if (sname) b.suppliers.add(sname);
     if (u.status === 'available') b.available++;
+    else if (u.status === 'incoming') b.incoming++;
     else if (u.status === 'sold') {
       b.sold++;
       const d = (u.saleDate || '').split('T')[0];

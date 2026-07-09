@@ -16,6 +16,7 @@ export type OutOfStockBucket = {
   label: string;
   suppliers: Set<string>;
   available: number;
+  incoming: number; // SHS units already re-ordered from supplier
   sold: number;
   lastSold: string;
   latestBp: number;
