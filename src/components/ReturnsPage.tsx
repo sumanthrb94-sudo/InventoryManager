@@ -42,7 +42,13 @@ import { getWarrantyStatus } from '../lib/warrantyUtils';
 import { auth, isAdmin } from '../lib/firebase';
 import CopyImei from './CopyImei';
 import PaginationBar, { usePagedRows } from './PaginationBar';
-import { processReturnSalePatch } from '../lib/processReturnSalePatch';
+import {
+  recordReturnQc,
+  processReturn,
+  quickRepair,
+  completeRepair,
+  type ReturnsResult,
+} from '../services/returnsService';
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -2005,26 +2011,19 @@ function ProcessReturnModal({
       return;
     }
     setSaving(true);
-    try {
-      // Step-1 records ONLY the intake facts: customer complaint, tech QC
-      // findings and the date the unit came back. No returnType / outcome
-      // / reason yet — those are CRM's call in step 2. The unit stays
-      // status='sold' (linked sale still active) until CRM finalises;
-      // pendingCrmReview gates it into the queue + nav badge meanwhile.
-      await dbService.update('inventoryUnits', unit.id, {
-        returnDate,
-        customerComments: customerComments.trim(),
-        technicianComments: technicianComments.trim(),
-        returnQcAt: new Date().toISOString(),
-        pendingCrmReview: true,
-      });
+    const res = await recordReturnQc({
+      unit,
+      returnDate,
+      customerComments,
+      technicianComments,
+    });
+    if (res.ok) {
       onSaved();
       onClose();
-    } catch {
-      setError('Failed to save QC step. Please try again.');
-    } finally {
-      setSaving(false);
+    } else {
+      setError(res.message || 'Failed to save QC step. Please try again.');
     }
+    setSaving(false);
   };
 
   const handleSave = async () => {
@@ -2049,164 +2048,24 @@ function ProcessReturnModal({
       }
     }
     setSaving(true);
-    try {
-      // Read the linked sale(s) BEFORE clearing the unit's sale fields —
-      // we snapshot one shipping leg's cost (postage + P.VAT) onto the
-      // unit so the loss sheet can compute 2×/3× postage losses later
-      // even though the sale doc gets voided and the unit's own postage
-      // field is nulled below.
-      let legCost = 0;
-      let linked: any[] = [];
-      try {
-        const all = await dbService.readAll('sales');
-        // Match linked sales by unitId first, fall back to IMEI when
-        // the import path never backlinked (imported sales arrive with
-        // empty unitId). Without this fallback voids on imported sales
-        // silently no-op'd — the unit-side returnType got written but
-        // the Sale doc stayed active, so the SALES_REPORT never painted
-        // the row red or computed its postage loss.
-        const imeiKey = (unit.imei || '').trim().toUpperCase();
-        linked = all.filter((s: any) => {
-          if (s.voidedAt) return false;
-          if (unit.id && s.unitId === unit.id) return true;
-          if (!imeiKey) return false;
-          return (s.imei || '').trim().toUpperCase() === imeiKey;
-        });
-        const src = linked[linked.length - 1];
-        if (src) {
-          const postage = Number(src.postage) || 0;
-          const pVat = src.postageVatExempt ? 0 : (Number(src.postageVat) || postage * 0.2);
-          legCost = postage + pVat;
-        } else if (unit.postageCost) {
-          // No sale doc (legacy / unlinked) — unit-level postage is the
-          // next best signal; assume standard-rated VAT on it.
-          legCost = unit.postageCost * 1.2;
-        }
-      } catch (err) {
-        console.warn('Could not derive return leg cost for unit', unit.id, err);
-      }
-
-      // SOFT-DELETE policy for supplier returns (per client spec): keep the
-      // unit doc with status='returned' + returnType='returned_to_supplier'
-      // so it stays visible in the returns sheet + audit. Old code did a
-      // hard `dbService.delete` here, which made the unit disappear entirely.
-      const newStatus = returnType === 'returned_to_inventory' ? 'available' : 'returned';
-      await dbService.update('inventoryUnits', unit.id, {
-        status: newStatus,
-        returnType,
-        returnDate,
-        returnReason: reason.trim(),
-        // Step-1 fields (set by Tech-QC) are preserved on the unit so the
-        // returns sheet + reports keep the original customer / technician
-        // notes alongside the final outcome. New step-2 comments go into
-        // returnComments below.
-        ...(customerComments.trim() ? { customerComments: customerComments.trim() } : {}),
-        ...(technicianComments.trim() ? { technicianComments: technicianComments.trim() } : {}),
-        // Clear the CRM gate — this unit is fully processed.
-        pendingCrmReview: false,
-        // No customer outcome on the Send-for-Repair route — we kept the
-        // unit and fixed it. Writing the default 'refund' here used to
-        // poison outcomeFor() after ReadyToShipModal flipped returnType
-        // to 'returned_to_inventory' at completion: the unit then looked
-        // like a refund and the report counted £15.12 phantom loss.
-        returnOutcome: returnType === 'repair' ? null : outcome,
-        // returnComments was a free-text field collected in step 2; we
-        // removed that input because step 1 already captures the same
-        // information across two structured fields (customer vs tech).
-        // Derive a single combined string so the existing Excel export +
-        // returns-table "Comments" column keep rendering meaningful text.
-        returnComments: (() => {
-          const parts: string[] = [];
-          const cc = (unit.customerComments || '').trim();
-          const tc = (unit.technicianComments || '').trim();
-          if (cc) parts.push(`Customer: ${cc}`);
-          if (tc) parts.push(`Tech QC: ${tc}`);
-          return parts.length ? parts.join(' · ') : null;
-        })(),
-        // Snapshot the leg cost on EVERY route now — repair carries a real
-        // 2-leg carriage loss too (outbound + faulty unit shipped back),
-        // same as a refund and a supplier return. Only the customer-outcome
-        // label differs; the carriage is paid regardless.
-        returnLegCost: legCost || null,
-        // Always clear sale data on any return — prevents ghost sale records.
-        salePrice: null,
-        saleDate: null,
-        salePlatform: null,
-        saleOrderId: null,
-        postageCost: null,
-        ...(returnType === 'returned_to_inventory'
-          ? { platformListed: false, listingSites: [] }
-          : {}),
-        // Audit link to the replacement we're shipping in this unit's
-        // place (set below for replacement-route saves).
-        ...(replacementUnit ? { replacedByUnitId: replacementUnit.id } : {}),
-      });
-
-      // Replacement: flip the chosen stock unit to SOLD, inheriting the
-      // original sale's marketplace / order / SP / postage so it's
-      // accounted for as the unit that actually shipped. Cross-links
-      // (replacedByUnitId / replacementForUnitId) make the swap
-      // traversable from either side in the audit trail.
-      //
-      // We don't create a new Sale doc here — the original Sale doc
-      // already carries the financials and is what the Sales Report
-      // attributes the line to. The unit flip is what keeps inventory
-      // honest: A came back, B went out.
-      if (replacementUnit) {
-        const src = linked[linked.length - 1];
-        await dbService.update('inventoryUnits', replacementUnit.id, {
-          status: 'sold',
-          salePrice: src?.salePrice ?? unit.salePrice ?? null,
-          saleDate: src?.saleDate ?? unit.saleDate ?? returnDate,
-          salePlatform: src?.marketplace ?? unit.salePlatform ?? null,
-          saleOrderId: src?.orderNumber ?? unit.saleOrderId ?? null,
-          postageCost: src?.postage ?? unit.postageCost ?? null,
-          platformListed: false,
-          listingSites: [],
-          replacementForUnitId: unit.id,
-        });
-      }
-
-      // Void the linked Sale doc(s) — a returned sale is treated as if it
-      // never happened: zero revenue, zero GP, doesn't count in the Sell
-      // dashboard. The Sale doc stays in the collection for audit, just
-      // flagged with voidedAt + voidReason. If the unit is re-sold later,
-      // recordSale creates a NEW Sale doc and this one stays voided.
-      //
-      // For the Send-for-Repair route there's no customer outcome — we
-      // kept the unit and fixed it. Stamp `voidOutcome: 'repair'` on the
-      // Sale doc so downstream reports have a canonical signal that
-      // survives ReadyToShipModal flipping the unit's returnType back to
-      // 'returned_to_inventory' at completion (QA round 3 BUG-RP-002:
-      // before this, the linked Sale silently re-classified as a refund
-      // at completion and the report jumped from £173.88 → £189). Patch
-      // computed via `processReturnSalePatch` so the contract is unit-
-      // testable in src/__tests__/lib/processReturnSalePatch.test.ts.
-      const salePatch = processReturnSalePatch({
-        returnType,
-        outcome,
-        returnDate,
-        reason: reason.trim(),
-      });
-      try {
-        for (const s of linked) {
-          await dbService.update('sales', s.id, salePatch);
-        }
-      } catch (err) {
-        // Best-effort; if it fails the unit-side returnType + returnDate
-        // still drive the Sell dashboard's runtime "is voided" check as a
-        // fallback, so accounting stays correct.
-        console.warn('Failed to void linked sales for unit', unit.id, err);
-      }
-
+    const res = await processReturn({
+      unit,
+      returnType,
+      returnDate,
+      reason,
+      outcome,
+      customerComments,
+      technicianComments,
+      replacementUnit,
+    });
+    if (res.ok) {
       notificationService.addNotification('return_processed', unit);
       onSaved();
       onClose();
-    } catch {
-      setError('Failed to save. Please try again.');
-    } finally {
-      setSaving(false);
+    } else {
+      setError(res.message || 'Failed to save. Please try again.');
     }
+    setSaving(false);
   };
 
   const OPTION_LABELS: Record<ReturnCategory, { label: string; desc: string; color: string }> = {
@@ -2507,59 +2366,13 @@ function QuickRepairModal({
   const [error, setError]   = useState('');
   const handleSend = async () => {
     setSaving(true);
-    try {
-      // Mirror the main ProcessReturnModal repair route: find the linked Sale,
-      // snapshot one postage leg onto the unit, and void the Sale so revenue/GP
-      // stops counting while the unit is in repair (BUG-RP-004: Quick Repair
-      // previously left the Sale active, overstating revenue).
-      const returnDate = todayStr();
-      const reason = unit.returnReason || 'Unit sent for repair';
-      let legCost: number | null = null;
-      try {
-        const all = await dbService.readAll('sales');
-        const imeiKey = (unit.imei || '').trim().toUpperCase();
-        const linked = all.filter((s: any) => {
-          if (s.voidedAt) return false;
-          if (unit.id && s.unitId === unit.id) return true;
-          if (!imeiKey) return false;
-          return (s.imei || '').trim().toUpperCase() === imeiKey;
-        });
-        const src = linked[linked.length - 1];
-        if (src) {
-          const postage = Number(src.postage) || 0;
-          const pVat = src.postageVatExempt ? 0 : (Number(src.postageVat) || postage * 0.2);
-          legCost = postage + pVat;
-          const salePatch = processReturnSalePatch({
-            returnType: 'repair',
-            outcome: 'refund', // ignored when returnType is repair
-            returnDate,
-            reason,
-          });
-          for (const s of linked) {
-            await dbService.update('sales', s.id, salePatch);
-          }
-        }
-      } catch (err) {
-        console.warn('Failed to void linked sales for quick repair', unit.id, err);
-      }
-
-      const patch: Record<string, any> = {
-        status: 'returned',
-        returnType: 'repair',
-        returnDate,
-        returnReason: reason,
-        returnOutcome: 'repair',
-        salePrice: null, saleDate: null, salePlatform: null, saleOrderId: null, postageCost: null,
-        platformListed: false, listingSites: [],
-      };
-      if (legCost !== null) patch.returnLegCost = legCost;
-      await dbService.update('inventoryUnits', unit.id, patch);
-
+    const res = await quickRepair({ unit, returnDate: todayStr() });
+    if (res.ok) {
       notificationService.addNotification('return_processed', unit);
       onSaved();
       onClose();
-    } catch {
-      setError('Failed to save. Please try again.');
+    } else {
+      setError(res.message || 'Failed to save. Please try again.');
       setSaving(false);
     }
   };
@@ -2614,18 +2427,13 @@ function ReadyToShipModal({
   const [error, setError]   = useState('');
   const handleMove = async () => {
     setSaving(true);
-    try {
-      await dbService.update('inventoryUnits', unit.id, {
-        status: 'available',
-        returnType: 'returned_to_inventory',
-        repairedAt: todayStr(),
-        flags: [...(unit.flags || []), 'repaired_unit'],
-      });
+    const res = await completeRepair({ unit, repairedAt: todayStr() });
+    if (res.ok) {
       notificationService.addNotification('unit_repaired', unit);
       onSaved();
       onClose();
-    } catch {
-      setError('Failed to save. Please try again.');
+    } else {
+      setError(res.message || 'Failed to save. Please try again.');
       setSaving(false);
     }
   };

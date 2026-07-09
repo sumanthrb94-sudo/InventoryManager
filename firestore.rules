@@ -42,6 +42,39 @@ service cloud.firestore {
         ];
     }
 
+    // Returns-manager allowlist. Keep in sync with isReturnsManager() in
+    // src/lib/firebase.ts. Admins are implicitly returns managers.
+    function isReturnsManager() {
+      return isAdmin()
+        || (
+          isSignedIn()
+          && request.auth.token.email in [
+            // TODO: populate returns-manager emails
+          ]
+        );
+    }
+
+    // True when an update touches return-processing fields. Normal stock/sale
+    // edits stay open to the team; return status flips and sale voids require
+    // the returns-manager role.
+    function isReturnUpdate() {
+      return (
+        ('status' in request.resource.data
+          && request.resource.data.status in ['returned'])
+        || 'returnType' in request.resource.data
+        || 'returnOutcome' in request.resource.data
+        || 'returnLegCost' in request.resource.data
+        || 'returnQcAt' in request.resource.data
+        || 'pendingCrmReview' in request.resource.data
+        || 'replacedByUnitId' in request.resource.data
+        || 'replacementForUnitId' in request.resource.data
+        || 'repairedAt' in request.resource.data
+        || 'voidedAt' in request.resource.data
+        || 'voidOutcome' in request.resource.data
+        || 'voidReason' in request.resource.data
+      );
+    }
+
     // Treat 'shared' as the only valid ownerId value the team writes. The
     // matching check accepts either a freshly-written 'shared' or the
     // doc keeping its existing 'shared' value through an update.
@@ -73,7 +106,7 @@ service cloud.firestore {
     match /inventoryUnits/{unitId} {
       allow read:   if isSignedIn();
       allow create: if isSignedIn() && ownsShared();
-      allow update: if isSignedIn() && staysShared();
+      allow update: if isSignedIn() && staysShared() && (!isReturnUpdate() || isReturnsManager());
       // Delete normally happens via supplier-return SOFT-DELETE (status
       // flip + returnType), not hard delete. Restrict hard deletes to
       // admin so a stray service-side bug can't wipe a unit doc.
@@ -99,7 +132,7 @@ service cloud.firestore {
     match /sales/{saleId} {
       allow read:   if isSignedIn();
       allow create: if isSignedIn() && ownsShared();
-      allow update: if isSignedIn() && staysShared();
+      allow update: if isSignedIn() && staysShared() && (!isReturnUpdate() || isReturnsManager());
       allow delete: if isAdmin();
     }
     match /inventoryEvents/{eventId} {

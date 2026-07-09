@@ -89,6 +89,20 @@ export function isAdmin(user: User | null | undefined): boolean {
   return ADMIN_EMAILS.has(email);
 }
 
+// Returns-manager allowlist. UX gate only — firestore.rules enforce the real
+// boundary. Keep in sync with the isReturnsManager() helper in firestore.rules.
+const RETURNS_MANAGER_EMAILS = new Set<string>([
+  // TODO: populate returns-manager emails (admins already included via isAdmin)
+]);
+
+/** Returns true when the signed-in user may process returns. */
+export function isReturnsManager(user: User | null | undefined): boolean {
+  if (isAdmin(user)) return true;
+  const email = user?.email?.toLowerCase().trim();
+  if (!email) return false;
+  return RETURNS_MANAGER_EMAILS.has(email);
+}
+
 // ── Regional role gating (UX only) ───────────────────────────────────────────
 //
 // Splits the (non-admin) team into UK warehouse ops (buy + returns) vs

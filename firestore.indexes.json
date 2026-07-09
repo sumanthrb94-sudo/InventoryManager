@@ -73,6 +73,22 @@
         { "fieldPath": "ownerId", "order": "ASCENDING" },
         { "fieldPath": "importedAt", "order": "DESCENDING" }
       ]
+    },
+    {
+      "collectionGroup": "sales",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "unitId", "order": "ASCENDING" },
+        { "fieldPath": "saleDate", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "sales",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "imei", "order": "ASCENDING" },
+        { "fieldPath": "saleDate", "order": "DESCENDING" }
+      ]
     }
   ],
   "fieldOverrides": []

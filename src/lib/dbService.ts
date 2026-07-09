@@ -7,8 +7,8 @@
 import {
   collection, doc, setDoc, deleteDoc, getDocs,
   onSnapshot, query, where, writeBatch, getDoc,
-  serverTimestamp, orderBy, Timestamp,
-  QuerySnapshot, DocumentData,
+  serverTimestamp, orderBy, Timestamp, runTransaction,
+  QuerySnapshot, DocumentData, type Transaction,
 } from 'firebase/firestore';
 import { db } from './firebase';
 
@@ -355,6 +355,59 @@ export const dbService = {
     const snap = await getDocs(query(colRef('inventoryUnits'), where('imei', '==', imei)));
     if (snap.empty) return null;
     return snapToItems(snap)[0];
+  },
+
+  // ── Targeted sales queries for returns processing ───────────────────────────
+  // Replaces readAll('sales') + client-side filter in ProcessReturnModal /
+  // QuickRepairModal. Firestore composite indexes required:
+  //   sales: unitId ASC, saleDate DESC
+  //   sales: imei ASC, saleDate DESC
+  async querySalesByUnitId(unitId: string): Promise<any[]> {
+    if (!unitId) return [];
+    const cached = (cachedData['sales'] || []).filter((s: any) => s.unitId === unitId);
+    if (cached.length) return [...cached].sort((a, b) => (b.saleDate || '').localeCompare(a.saleDate || ''));
+    const snap = await getDocs(query(
+      colRef('sales'),
+      where('unitId', '==', unitId),
+      orderBy('saleDate', 'desc'),
+    ));
+    return snapToItems(snap);
+  },
+
+  async querySalesByImei(imei: string): Promise<any[]> {
+    if (!imei) return [];
+    const key = imei.trim().toUpperCase();
+    const cached = (cachedData['sales'] || []).filter((s: any) =>
+      (s.imei || '').trim().toUpperCase() === key
+    );
+    if (cached.length) return [...cached].sort((a, b) => (b.saleDate || '').localeCompare(a.saleDate || ''));
+    const snap = await getDocs(query(
+      colRef('sales'),
+      where('imei', '==', key),
+      orderBy('saleDate', 'desc'),
+    ));
+    return snapToItems(snap);
+  },
+
+  // ── Generic transaction runner ───────────────────────────────────────────────
+  // Returns processing updates inventoryUnits + sales atomically. The callback
+  // receives a Firestore Transaction; all reads must precede all writes.
+  async runTransaction<T>(fn: (transaction: Transaction) => Promise<T>): Promise<T> {
+    return runTransaction(db, fn);
+  },
+
+  // Apply an in-memory cache update after a transaction commits. Transaction
+  // writes bypass create/update above, so callers must refresh the cache
+  // explicitly to keep the UI reactive.
+  applyCacheItem(collectionName: string, id: string, data: any) {
+    const current = [...(cachedData[collectionName] || [])];
+    const idx = current.findIndex(x => x.id === id);
+    const updated = idx >= 0
+      ? { ...current[idx], ...data, id }
+      : { ...data, id };
+    if (idx >= 0) current[idx] = updated; else current.push(updated);
+    cachedData[collectionName] = current;
+    emit(collectionName, current);
   },
 
   async updateByImei(imei: string, data: any) {
