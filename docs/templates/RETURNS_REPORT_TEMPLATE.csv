@@ -1,0 +1,15 @@
+RETURNS REPORT — CSV Export Template
+Return Date,IMEI,Model,Storage,Colour,Supplier,BP,Type,Reason,Notes
+2026-06-25,351554748581221,iPhone 14 128GB,128GB,Black,MHL,450,To Inventory,Customer changed mind,Customer: Ordered wrong colour · Tech QC: Unit perfect
+2026-06-24,351554749982103,iPhone 14 Pro 256GB,256GB,Black,NANAK,650,To Inventory,Screen flicker,Customer: Intermittent display issue · Tech QC: Confirmed — LCD fault
+2026-06-23,351554741234567,iPhone 13 128GB,128GB,Blue,RB,350,In Repair,Battery not holding charge,Customer: Dies at 40% · Tech QC: Battery health 78% — replacement needed
+2026-06-22,351554748765432,Samsung S23 128GB,128GB,Black,SKYMO,380,To Supplier,Frame dent — not as described,Customer: Significant dent not in listing · Tech QC: Confirmed Grade C mismatch
+2026-06-21,351554749988776,iPhone 14 256GB,256GB,Purple,MHL,550,To Inventory,Wrong item sent,Customer: Ordered Pro got standard · Tech QC: SKU mismatch confirmed
+2026-06-20,351554747711223,iPhone SE 2022 64GB,64GB,White,FONEZ,200,In Repair,Home button sticky,Customer: Button unresponsive · Tech QC: Debris under button — cleaned
+2026-06-19,351554743344556,Samsung A32 128GB,128GB,Blue,BEST,150,To Supplier,Cracked screen on arrival,Customer: Screen cracked in transit · Tech QC: Impact damage — beyond repair
+2026-06-18,351554741122334,iPad Air 5 256GB,256GB,Space Grey,TRADE,500,To Inventory,iCloud locked,Customer: Previous owner iCloud active · Tech QC: Confirmed — reset failed
+
+NOTES:
+- Type values: To Inventory / In Repair / To Supplier
+- BP is snapshot at return time (frozen).
+- Reason and Notes are admin-editable in the app.

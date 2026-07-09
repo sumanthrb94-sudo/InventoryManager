@@ -18,7 +18,7 @@
 import React, { useState, useMemo, useRef } from 'react';
 import {
   X, Upload, FileSpreadsheet, CheckCircle2, AlertTriangle, Loader2,
-  PlusCircle, RefreshCw, AlertCircle,
+  PlusCircle, RefreshCw, AlertCircle, ArrowUpRight,
 } from 'lucide-react';
 import { motion } from 'motion/react';
 import { dbService } from '../lib/dbService';
@@ -907,6 +907,34 @@ function PreviewPhase({
           </div>
         ))}
       </div>
+
+      {/* ── GAP FIX 3: Import Order Warning ────────────────────────────
+          When orphan IMEIs are detected (recordsToComplete contains
+          NEW rows with no matching inventory unit), show a prominent
+          warning suggesting the operator import the Inventory Report
+          first. This enforces the agreed workflow: inventory first,
+          sales last — reducing manual orphan resolution work. */}
+      {preview.recordsToComplete.filter(r => !r.existingUnitId).length > 0 && (
+        <div className="border-2 border-amber-300 bg-amber-50 rounded-2xl p-3 flex items-start gap-2.5">
+          <ArrowUpRight size={20} className="text-amber-600 flex-shrink-0 mt-0.5" />
+          <div className="flex-1 min-w-0">
+            <p className="text-[12px] font-bold text-amber-900">
+              {preview.recordsToComplete.filter(r => !r.existingUnitId).length} orphan IMEI{preview.recordsToComplete.filter(r => !r.existingUnitId).length === 1 ? '' : 's'} — import inventory first?
+            </p>
+            <p className="text-[11px] text-amber-800 mt-0.5">
+              These sold IMEIs have no matching inventory unit. If you haven't
+              yet imported today's Inventory Report, consider doing that first —
+              the units will auto-match, saving you from manually filling model /
+              supplier / BP for each orphan. The agreed workflow is:
+              <strong> Inventory Report → SHS Receive → Manual Stock → Sales Report</strong>.
+            </p>
+            <p className="text-[10px] font-mono text-amber-600 mt-1">
+              Or continue now — each orphan will be created from the sale data
+              after you fill in the missing fields below.
+            </p>
+          </div>
+        </div>
+      )}
 
       {/* ── Inventory impact gate ────────────────────────────────────────
           When the import would flip in-stock units to status='sold' as a

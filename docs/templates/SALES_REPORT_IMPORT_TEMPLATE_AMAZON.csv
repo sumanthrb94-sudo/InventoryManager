@@ -1,0 +1,12 @@
+AMAZON SALES REPORT — CSV Upload Template
+Date,Order Number,SKU,IMEI,Supplier,Quantity,BP,SP,SP-BP,Marginal Tax,Commission,Postage,GP,GP%,Comments
+2026-06-25,026-6081380-8104355,ASI-IP14-128-BK-A,351554748581221,MHL,1,450,699,,,,0,,,Shipped same day
+2026-06-25,026-9876543-2109876,ASI-IP14-128-WH-A,351554746670497,MHL,1,450,699,,,,0,,,
+2026-06-24,026-1122334-5566778,NAN-IP14P-256-BK-A+,351554749982103,NANAK,1,650,949,,,,0,,,Premium listing
+2026-06-24,026-4455667-8899001,RB-IP13-128-BL-B,351554741234567,RB,1,350,549,,,,0,,,Grade B — disclosed
+2026-06-23,026-7788990-1122334,SKY-S23-128-BK-A,351554748765432,SKYMO,1,380,599,,,,0,,,
+
+NOTES:
+- Derived fields (SP-BP, Marginal Tax, Commission, GP, GP%) are RECOMPUTED by importer.
+- Only Date, Order#, SKU, IMEI, Supplier, Quantity, BP, SP, Postage are read.
+- Composite Sale ID: AMAZON__orderNumber__imei (one doc per physical unit).

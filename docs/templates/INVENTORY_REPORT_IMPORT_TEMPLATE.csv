@@ -1,0 +1,19 @@
+INVENTORY REPORT — CSV Upload Template
+IMEI,MODEL,COLOUR,GRADE,STORAGE,SIM TYPE,BP,SUPPLIER,DATE,NOTES,BATCH ID
+351554748581221,iPhone 14 128GB,Black,A,128GB,Dual SIM,450,MHL,2026-06-25,Clean unit,BATCH_001
+351554746670497,iPhone 14 128GB,White,A,128GB,Single SIM,450,MHL,2026-06-25,Clean unit,BATCH_001
+351554749982103,iPhone 14 Pro 256GB,Black,A+,256GB,Dual SIM,650,NANAK,2026-06-24,Premium grade,BATCH_002
+351554741234567,iPhone 13 128GB,Blue,B,128GB,eSIM,350,RB,2026-06-23,Slight frame marks,
+351554748765432,Samsung S23 128GB,Black,A,128GB,Dual SIM,380,SKYMO,2026-06-22,Boxed,
+351554749988776,iPhone 14 256GB,Purple,A,256GB,Dual SIM,550,MHL,2026-06-21,,BATCH_003
+351554747711223,iPhone SE 2022 64GB,White,B,64GB,Single SIM,200,FONEZ,2026-06-20,Battery 92%,
+351554743344556,Samsung A32 128GB,Blue,C,128GB,Dual SIM,150,BEST,2026-06-19,Screen scratch,
+351554741122334,iPad Air 5 256GB,Space Grey,A,256GB,Wi-Fi,500,TRADE,2026-06-18,Cellular + WiFi,
+351554749900112,iPhone 14 Pro Max 512GB,Gold,A+,512GB,Dual SIM,800,NANAK,2026-06-17,Unlocked,
+
+NOTES:
+- IMEI: 15-digit numeric or 10-12 char Apple serial. Used as Firestore doc ID.
+- MODEL: Include storage e.g. 'iPhone 14 128GB'. Storage auto-parses.
+- BP: Must be > 0. Buying price.
+- DATE: YYYY-MM-DD format.
+- All derived fields (brand, category) are auto-computed from MODEL.

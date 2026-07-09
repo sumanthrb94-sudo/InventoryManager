@@ -17,6 +17,7 @@ import {
 import { parseSalesWorkbook, ParsedSales } from '../lib/salesImport';
 import { uploadSourceAttachment } from '../lib/fileAttachments';
 import { logInventoryEvent } from '../lib/inventoryEvents';
+import { reconcileOrphanSaleForImei } from '../services/inventoryService';
 
 interface Props { onClose: () => void; }
 
@@ -53,7 +54,7 @@ type Stage =
   | { kind: 'parsing'; slot: SlotKind }
   | { kind: 'ready' }
   | { kind: 'importing'; done: number; total: number }
-  | { kind: 'done'; summary: string; importBatchId: string };
+  | { kind: 'done'; summary: string; importBatchId: string; reconciledCount: number };
 
 interface Toast { id: number; message: string; }
 
@@ -169,6 +170,10 @@ export default function MasterDataLinkedImport({ onClose }: Props) {
    * every unit / aggregate / supplier / sale doc. Mirrors ImportModal.handleImport
    * for the inventory half and salesImport's bulkUpsertSales convention for the
    * sales half. The single id is the whole point of this screen.
+   *
+   * GAP FIX — Reverse Reconcile: After bulkCreate succeeds, iterate through
+   * imported units' IMEIs and call reconcileOrphanSaleForImei() for each.
+   * This closes the loop when sales were imported before inventory.
    */
   const handleImport = async () => {
     if (!inventorySlot && !salesSlot) return;
@@ -307,11 +312,30 @@ export default function MasterDataLinkedImport({ onClose }: Props) {
         );
       }
 
+      // ── GAP FIX 2: Reverse Reconcile ────────────────────────────────────
+      // After bulkCreate succeeds, iterate through imported units' IMEIs
+      // and call reconcileOrphanSaleForImei() for each. This closes the
+      // loop when sales were imported before inventory — the newly imported
+      // units auto-link to pre-existing orphan sales.
+      let reconciledCount = 0;
+      if (stampedUnits.length > 0) {
+        for (const unit of stampedUnits) {
+          const unitImei = (unit.imei || '').trim().toUpperCase();
+          if (unitImei && /^(\d{15}|[A-Z0-9]{10,12})$/.test(unitImei)) {
+            try {
+              const saleId = await reconcileOrphanSaleForImei(unitImei);
+              if (saleId) reconciledCount++;
+            } catch { /* non-critical per unit */ }
+          }
+        }
+      }
+
       await logInventoryEvent({
         type: 'batch_created',
         message:
           `Linked Master Data import — ${stampedUnits.length} units, ${stampedAggregates.length} aggregates, ` +
-          `${salesTotal} sales (batch ${importBatchId})`,
+          `${salesTotal} sales (batch ${importBatchId})` +
+          (reconciledCount > 0 ? ` · ${reconciledCount} orphan sale(s) auto-linked` : ''),
         batchId: importBatchId,
       });
 
@@ -337,6 +361,7 @@ export default function MasterDataLinkedImport({ onClose }: Props) {
         kind: 'done',
         summary: notes,
         importBatchId,
+        reconciledCount,
       });
     } catch (err: any) {
       setError('Import failed: ' + err.message);
@@ -479,6 +504,11 @@ export default function MasterDataLinkedImport({ onClose }: Props) {
                 <p className="text-base font-semibold text-slate-800 tracking-tight">Linked import complete</p>
                 <p className="text-[12px] text-slate-500 mt-1.5 font-mono">{stage.summary}</p>
                 <p className="text-[10px] text-slate-400 mt-2 font-mono">batch {stage.importBatchId}</p>
+                {stage.reconciledCount > 0 && (
+                  <p className="text-[11px] font-mono text-emerald-700 mt-1">
+                    {stage.reconciledCount} orphan sale{stage.reconciledCount === 1 ? '' : 's'} auto-linked to imported units
+                  </p>
+                )}
               </div>
               <div className="grid grid-cols-2 md:grid-cols-4 gap-2 max-w-2xl mx-auto">
                 <SummaryTile value={inventorySlot?.parsed.units.length ?? 0}      label="Units" />
