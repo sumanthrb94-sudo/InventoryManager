@@ -24,7 +24,6 @@ import { useInventoryStore } from '../lib/inventoryStore';
 import type { InventoryUnit, Supplier } from '../types';
 import { parseBrandModelStorage } from '../lib/modelStorage';
 import { isAppleDevice, isValidImei } from '../lib/imeiValidation';
-import { auth } from '../lib/firebase';
 
 interface Props { onClose: () => void; }
 
@@ -262,7 +261,7 @@ export default function InventoryReportImport({ onClose }: Props) {
 
     // Build supplier entries for any new names. We mint synthetic ids prefixed
     // sup_imp_ so they're easy to spot in the data later.
-    const ownerId = auth.currentUser?.uid || 'shared';
+    const ownerId = 'shared';
     const supplierByName = new Map<string, string>();
     for (const s of suppliers) supplierByName.set(s.name.trim().toLowerCase(), s.id);
 

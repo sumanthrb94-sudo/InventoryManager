@@ -24,7 +24,6 @@ import { useInventoryStore } from '../lib/inventoryStore';
 import type { Sale, Marketplace } from '../types';
 import { MARKETPLACES } from '../types';
 import { parseSalesWorkbook, type ParsedSales } from '../lib/salesImport';
-import { auth } from '../lib/firebase';
 
 interface Props { onClose: () => void; }
 
@@ -122,7 +121,7 @@ export default function SalesReportImport({ onClose }: Props) {
         importBatchId: `inv-${Date.now()}`,
         sourceFile: fileName,
         importedAt: new Date().toISOString(),
-        ownerId: auth.currentUser?.uid || 'shared',
+        ownerId: 'shared',
       },
     }));
     setProgress({ done: 0, total: entries.length });
