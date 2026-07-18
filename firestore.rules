@@ -39,6 +39,7 @@ service cloud.firestore {
         && request.auth.token.email in [
           'admin@inventorymanager.com',
           'sumanthbolla97@gmail.com',
+          'sai@inventorymanager.com',
         ];
     }
 
