@@ -79,6 +79,7 @@ export const ensureAnonymousAuth = ensureAuthReady;
 // boundary; this gate hides write controls from non-admins in the UI.
 const ADMIN_EMAILS = new Set<string>([
   'admin@inventorymanager.com',
+  'sai@inventorymanager.com',
 ]);
 
 /** Returns true when the signed-in user is the inventory admin. */
