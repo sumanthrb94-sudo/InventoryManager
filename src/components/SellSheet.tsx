@@ -1806,19 +1806,28 @@ function SellUnitPicker({
   onPick: (u: InventoryUnit, isSHS: boolean) => void;
 }) {
   const [search, setSearch] = useState('');
+  // Office/SHS scope toggle — mirrors the same split used everywhere else in
+  // the app (PeriodicInventory's Office Stock / SHS pill). Previously both
+  // lists rendered stacked in one scroll with a hard slice cap (100 office /
+  // 100 SHS), which silently truncated real stock once a segment grew past
+  // the cap (294 office units showed only the first 100). Splitting into
+  // tabs removes the need for an arbitrary cap — each tab renders only its
+  // own (much smaller) list in full, and the counts always reflect the true
+  // totals rather than the capped/rendered length.
+  const [scope, setScope] = useState<'office' | 'shs'>('office');
   const filteredAvailable = units.filter(u => {
     if (!search.trim()) return true;
     const q = search.toLowerCase();
     return (u.model || '').toLowerCase().includes(q)
         || (u.imei || '').toLowerCase().includes(q)
         || (supplierMap[u.supplierId] || '').toLowerCase().includes(q);
-  }).slice(0, 100);
+  });
   const filteredShs = shsUnits.filter(u => {
     if (!search.trim()) return true;
     const q = search.toLowerCase();
     return (u.model || '').toLowerCase().includes(q)
         || (supplierMap[u.supplierId] || '').toLowerCase().includes(q);
-  }).slice(0, 100);
+  });
 
   return (
     <div className="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm">
@@ -1837,7 +1846,29 @@ function SellUnitPicker({
           </div>
           <button onClick={onClose} className="p-2 rounded-xl hover:bg-slate-100 text-slate-400"><X size={16} /></button>
         </div>
-        <div className="p-4 border-b border-slate-100">
+        <div className="px-4 pt-4 pb-3 border-b border-slate-100 space-y-3">
+          {/* Office / SHS scope toggle — same split as PeriodicInventory's
+              Office Stock / SHS pill elsewhere in the app. */}
+          <div className="inline-flex bg-slate-900 rounded-xl p-0.5 gap-0.5">
+            <button
+              type="button"
+              onClick={() => setScope('office')}
+              className={`px-3.5 py-1.5 rounded-[10px] text-[10px] font-bold uppercase tracking-widest transition-all ${
+                scope === 'office' ? 'bg-white text-slate-900' : 'text-slate-400 hover:text-white'
+              }`}
+            >
+              Office Stock · {units.length}
+            </button>
+            <button
+              type="button"
+              onClick={() => setScope('shs')}
+              className={`px-3.5 py-1.5 rounded-[10px] text-[10px] font-bold uppercase tracking-widest transition-all ${
+                scope === 'shs' ? 'bg-amber-500 text-white' : 'text-slate-400 hover:text-white'
+              }`}
+            >
+              SHS · {shsUnits.length}
+            </button>
+          </div>
           <div className="relative">
             <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
             <input
@@ -1848,10 +1879,10 @@ function SellUnitPicker({
           </div>
         </div>
         <div className="flex-1 overflow-y-auto divide-y divide-slate-100">
-          {filteredAvailable.length === 0 && filteredShs.length === 0 && (
+          {scope === 'office' && filteredAvailable.length === 0 && (
             <p className="p-8 text-center text-[11px] font-mono text-slate-400">No matches.</p>
           )}
-          {filteredAvailable.length > 0 && (
+          {scope === 'office' && filteredAvailable.length > 0 && (
             <>
               <div className="px-4 py-1.5 bg-emerald-50/50 border-b border-emerald-100">
                 <p className="text-[9px] font-bold uppercase tracking-widest text-emerald-700">In Stock · {filteredAvailable.length}</p>
@@ -1870,7 +1901,10 @@ function SellUnitPicker({
               ))}
             </>
           )}
-          {filteredShs.length > 0 && (
+          {scope === 'shs' && filteredShs.length === 0 && (
+            <p className="p-8 text-center text-[11px] font-mono text-slate-400">No matches.</p>
+          )}
+          {scope === 'shs' && filteredShs.length > 0 && (
             <>
               <div className="px-4 py-1.5 bg-amber-50/50 border-b border-amber-100">
                 <p className="text-[9px] font-bold uppercase tracking-widest text-amber-700">SHS · Supplier-direct · {filteredShs.length}</p>
