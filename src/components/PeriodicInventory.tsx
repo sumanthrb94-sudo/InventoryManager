@@ -812,7 +812,12 @@ export default function PeriodicInventory({ units, onNavigate }: Props) {
         if (!ok) return false;
       }
       const parsed = parseBrandModelStorage(u.model || '');
-      const storage = (u.storage || parsed.storage || '').toUpperCase().trim();
+      // Same computation as parseUnit()'s storage in buildGroups above —
+      // no case-folding. A prior .toUpperCase().trim() here made this key
+      // diverge from the tile's for any storage whose canonical casing
+      // isn't already all-caps (e.g. 'Not Applicable' -> 'NOT APPLICABLE'),
+      // so tiles for those units (Apple Watch) always opened to "0 rows".
+      const storage = u.storage || parsed.storage;
       const unitKey = bucketKeyOf(parsed.model || u.model || '', storage);
       return unitKey === wantKey;
     }).sort((a, b) => {
