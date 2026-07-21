@@ -1818,7 +1818,7 @@ function SellUnitPicker({
     const q = search.toLowerCase();
     return (u.model || '').toLowerCase().includes(q)
         || (supplierMap[u.supplierId] || '').toLowerCase().includes(q);
-  }).slice(0, 50);
+  }).slice(0, 100);
 
   return (
     <div className="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm">
