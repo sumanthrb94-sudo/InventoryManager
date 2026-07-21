@@ -612,7 +612,7 @@ export default function BulkOrderModal({ onClose, initialMode = 'office' }: Prop
           supplierName: supplierName.trim(),
           batchId,
           status: mode === 'office' ? 'available' : 'incoming',
-          ...(mode === 'shs' ? { statusRaw: 'SHS — Bulk' } : {}),
+          ...(mode === 'shs' ? { statusRaw: 'SHS — Bulk', stockSource: 'shs' } : {}),
           flags: [],
           notes: s.notes.trim() || (mode === 'shs' ? 'SHS — Awaiting delivery' : ''),
           platformListed: false,

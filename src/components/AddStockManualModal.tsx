@@ -429,6 +429,7 @@ export default function AddStockManualModal({ onClose, initialMode = 'office' }:
               supplierName,
               batchId,
               status: 'incoming',
+              stockSource: 'shs',
               statusRaw: 'SHS — Manual',
               flags: [],
               notes: r.notes.trim() || 'SHS — Awaiting delivery',
