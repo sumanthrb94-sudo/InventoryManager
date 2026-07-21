@@ -37,7 +37,6 @@ import {
   marketplaceFromListingSite, MARKETPLACES,
 } from '../lib/platforms';
 import { fmtDateForUser, useUserRegion } from '../lib/userLocale';
-import { manualShsUnitsFrom } from '../lib/shsCount';
 import CopyImei from './CopyImei';
 import PaginationBar, { usePagedRows } from './PaginationBar';
 import ReportRangeMenu from './ReportRangeMenu';
@@ -286,7 +285,14 @@ export default function SellSheet(_props: Props) {
     u.status === 'available' ||
     (u.returnType === 'returned_to_inventory' && u.status !== 'sold')
   ), [units]);
-  const manualShs = useMemo(() => manualShsUnitsFrom(units), [units]);
+  // Sellable via the "Supplier Direct Sale" lane: EVERY incoming (SHS) unit,
+  // not just manually-logged ones — matches BuySheet's own "SHS Stock" KPI
+  // definition (units.filter(u => u.status === 'incoming')). Previously this
+  // only included manualShsUnitsFrom(), which excludes master-file-imported
+  // placeholder rows (id prefix 'shs_') — so a supplier holding stock from
+  // the original import could never be sold here even though the SHS Stock
+  // tile counted it, and Record Sale's SHS section stayed empty.
+  const sellableShs = useMemo(() => units.filter(u => u.status === 'incoming'), [units]);
   const awaitingImei = useMemo(
     () => units.filter(u => u.status === 'sold' && !u.imei)
       .sort((a, b) => (b.saleDate || '').localeCompare(a.saleDate || '')),
@@ -904,7 +910,7 @@ export default function SellSheet(_props: Props) {
         {pickerOpen && (
           <SellUnitPicker
             units={inStock}
-            shsUnits={manualShs}
+            shsUnits={sellableShs}
             supplierMap={supplierMap}
             onClose={() => setPickerOpen(false)}
             onPick={(u, isSHS) => { setPickerOpen(false); setSellOrderUnit(u); setSellOrderIsSHS(isSHS); }}
