@@ -394,22 +394,6 @@ export default function Sales() {
     });
   }, [units, activeListings]);
 
-  const handleUpdateListing = async (model: string, platform: string, quantity: number) => {
-    if (!isAdminUser) return;       // UI gate — non-admin can't change listings
-    const listingId = `list_${model.replace(/\s+/g, '_').toLowerCase()}_${platform.toLowerCase()}`;
-    if (quantity <= 0) {
-      await dbService.delete('activeListings', listingId);
-    } else {
-      await dbService.create('activeListings', listingId, {
-        model,
-        platform,
-        quantity,
-        updatedAt: new Date().toISOString(),
-        ownerId: 'shared'
-      });
-    }
-  };
-
   // ────────────────────────────────────────────────────────────────────────
   // Render
   // ────────────────────────────────────────────────────────────────────────
@@ -485,68 +469,6 @@ export default function Sales() {
           </div>
         </div>
       )}
-
-      {/* Listing Reconciliation — Critical Insights */}
-      <div className="bg-white border border-gray-200 rounded-3xl overflow-hidden shadow-sm">
-        <div className="px-6 py-4 border-b border-gray-100 bg-gray-50/50 flex items-center justify-between">
-          <div>
-            <h3 className="text-[10px] font-bold uppercase tracking-widest text-gray-500">Inventory Reconciliation</h3>
-            <p className="text-[8px] text-gray-400 font-mono uppercase mt-0.5">Physical Stock vs Online Listings</p>
-          </div>
-          <span className="text-[8px] bg-black text-white px-2 py-1 font-mono uppercase tracking-widest">Live Sync</span>
-        </div>
-
-        <div className="divide-y divide-gray-50 max-h-[500px] overflow-y-auto custom-scrollbar">
-          {reconciliation.filter(r => r.status !== 'ok').length === 0 ? (
-            <div className="px-6 py-12 text-center">
-              <CheckCircle2 className="mx-auto text-emerald-500 mb-2" size={24} />
-              <p className="text-xs font-bold text-gray-500 uppercase tracking-widest">All listings are perfectly synced</p>
-            </div>
-          ) : (
-            reconciliation.filter(r => r.status !== 'ok').map(item => (
-              <div key={item.model} className={`px-6 py-4 flex items-center gap-6 group hover:bg-gray-50 transition-all ${
-                item.status === 'over' ? 'bg-red-50/50' : item.status === 'none' ? 'bg-amber-50/30' : ''
-              }`}>
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2">
-                    <p className="text-sm font-bold truncate">{item.model}</p>
-                    <span className={`text-[8px] font-bold px-1.5 py-0.5 rounded uppercase font-mono border ${
-                      item.status === 'over' ? 'bg-red-100 text-red-700 border-red-200' :
-                      item.status === 'none' ? 'bg-amber-100 text-amber-700 border-amber-200' :
-                      'bg-blue-100 text-blue-700 border-blue-200'
-                    }`}>
-                      {item.message}
-                    </span>
-                  </div>
-                  <p className="text-[10px] text-gray-500 font-mono mt-1">
-                    Physical: <span className="text-black font-bold">{item.physical}</span> ·
-                    Listed: <span className={item.listed > item.physical ? 'text-red-600 font-bold' : 'text-black font-bold'}>{item.listed}</span>
-                  </p>
-                </div>
-
-                <div className="flex gap-1.5">
-                  {['eBay', 'Amazon'].map(site => {
-                    const isListedOnSite = item.platforms.includes(site);
-                    return (
-                      <button
-                        key={site}
-                        onClick={() => handleUpdateListing(item.model, site, isListedOnSite ? 0 : 1)}
-                        className={`text-[9px] font-bold px-3 py-1.5 rounded-lg transition-all uppercase tracking-wider ${
-                          isListedOnSite
-                            ? 'bg-black text-white hover:bg-gray-800'
-                            : 'bg-white border border-gray-200 text-gray-400 hover:border-black hover:text-black'
-                        }`}
-                      >
-                        {isListedOnSite ? `✓ ${site}` : `+ ${site}`}
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-            ))
-          )}
-        </div>
-      </div>
 
       {/* Quick KPIs for sales team */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
