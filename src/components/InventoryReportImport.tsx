@@ -32,6 +32,7 @@ import { useInventoryStore } from '../lib/inventoryStore';
 import type { InventoryUnit, Supplier } from '../types';
 import { parseBrandModelStorage } from '../lib/modelStorage';
 import { buildCatalogIndex, canonicaliseModel } from '../lib/modelReconciliation';
+import { normaliseGrade, normaliseSimType } from '../lib/unitConstants';
 import { isAppleDevice, isValidImei } from '../lib/imeiValidation';
 import { auth } from '../lib/firebase';
 
@@ -346,8 +347,10 @@ export default function InventoryReportImport({ onClose }: Props) {
           category: existing?.category || 'phone',
           colour: r.colour || existing?.colour || '',
           storage: r.storage || parsed.storage || existing?.storage || '',
-          grade: r.grade || existing?.grade || '',
-          ...(r.simType ? { simType: r.simType } : {}),
+          // Snap casing to the canonical option so a spreadsheet typing
+          // "brand new" doesn't create a third spelling of the grade.
+          grade: normaliseGrade(r.grade) || existing?.grade || '',
+          ...(r.simType ? { simType: normaliseSimType(r.simType) } : {}),
           supplierId,
           supplierName: r.supplier,
           buyPrice: r.buyPrice,

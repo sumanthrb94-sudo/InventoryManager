@@ -163,6 +163,31 @@ async function run() {
     }
   }
 
+  // ── Configuration → grade casing repair ─────────────────────────────────
+  await gotoTab(page, 'Admin');
+  await page.waitForTimeout(600);
+  const configTab = page.getByRole('button', { name: /Configuration/i }).first();
+  if (await configTab.isVisible().catch(() => false)) {
+    await configTab.click();
+    await page.waitForTimeout(1200);
+    const panel = page.getByText(/Grade & SIM casing/i);
+    const hasPanel = await panel.isVisible().catch(() => false);
+    record('Configuration surfaces the grade-casing split when it exists', hasPanel);
+    if (hasPanel) {
+      await panel.scrollIntoViewIfNeeded();
+      await page.waitForTimeout(300);
+      await shot(page, 'grade-casing-panel');
+      const summary = await page.getByText(/“Brand New” →/).isVisible().catch(() => false);
+      record('it names the exact before → after and the count', summary);
+
+      await page.getByRole('button', { name: /Normalise \d+ unit/i }).click();
+      await page.waitForTimeout(2000);
+      const doneMsg = await page.getByText(/units? normalised/i).isVisible().catch(() => false);
+      record('normalising reports what it changed', doneMsg);
+      await shot(page, 'grade-casing-done');
+    }
+  }
+
   record('no uncaught JS errors during the admin pass', errors.length === 0,
     errors.slice(0, 3).join(' | '));
   // Two classes of failure are expected OUTSIDE production and are not app

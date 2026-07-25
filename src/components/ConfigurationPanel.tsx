@@ -19,11 +19,13 @@
  */
 import React, { useEffect, useMemo, useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { SlidersHorizontal, Plus, Trash2, Edit3, X, AlertCircle, CheckCircle2, Database, Users } from 'lucide-react';
+import { SlidersHorizontal, Plus, Trash2, Edit3, X, AlertCircle, CheckCircle2, Database, Users, Wand2 } from 'lucide-react';
 import { dbService } from '../lib/dbService';
 import { useIsAdmin } from '../lib/useIsAdmin';
 import { auth } from '../lib/firebase';
 import Suppliers from './Suppliers';
+import { useInventoryStore } from '../lib/inventoryStore';
+import { findGradeCasingDrift, fixGradeCasing } from '../lib/migrations/normaliseGradeCasing';
 
 interface ModelDoc {
   id: string;
@@ -347,6 +349,9 @@ export default function ConfigurationPanel() {
         )}
       </div>
 
+      {/* ── Data hygiene ──────────────────────────────────────────────────── */}
+      <GradeCasingPanel />
+
       {/* ── Suppliers (embedded existing components) ─────────────────────── */}
       <div className="bg-white border border-slate-200 rounded-3xl shadow-sm overflow-hidden">
         <div className="flex items-center gap-3 px-5 py-4 border-b border-slate-100">
@@ -361,6 +366,98 @@ export default function ConfigurationPanel() {
         <div className="px-5 py-4">
           <Suppliers />
         </div>
+      </div>
+    </div>
+  );
+}
+
+
+/**
+ * Grade / SIM Type casing repair.
+ *
+ * Two intake screens once wrote 'Brand new' while the shared constant said
+ * 'Brand New'. Same grade, two strings, so every grade breakdown split it
+ * across two rows. Intake now normalises on write; this cleans up what was
+ * stored before that.
+ *
+ * Shows the proposed change and its scale BEFORE anything is written —
+ * capitalisation only, never meaning, and a free-text grade the operator
+ * genuinely typed is never touched.
+ */
+function GradeCasingPanel() {
+  const { units } = useInventoryStore();
+  const [running, setRunning] = useState(false);
+  const [done, setDone] = useState<number | null>(null);
+  const [failed, setFailed] = useState('');
+
+  const drift = useMemo(() => findGradeCasingDrift(units), [units]);
+
+  const run = async () => {
+    setRunning(true);
+    setFailed('');
+    try {
+      const res = await fixGradeCasing(drift.patches, dbService);
+      setDone(res.updated);
+    } catch (e: any) {
+      setFailed(e?.message || 'Normalisation failed');
+    } finally {
+      setRunning(false);
+    }
+  };
+
+  // Nothing split, nothing to show — this panel earns its space only when
+  // there is real drift.
+  if (drift.patches.length === 0 && done === null) return null;
+
+  return (
+    <div className="bg-white border border-slate-200 rounded-3xl shadow-sm overflow-hidden">
+      <div className="flex items-center gap-3 px-5 py-4 border-b border-slate-100">
+        <div className="w-8 h-8 rounded-xl bg-violet-100 text-violet-700 flex items-center justify-center">
+          <Wand2 size={14} />
+        </div>
+        <div className="min-w-0">
+          <h3 className="text-[13px] font-bold tracking-tight">Grade &amp; SIM casing</h3>
+          <p className="text-[10px] font-mono text-slate-400">
+            Same value stored two ways — merges them onto the option the app offers
+          </p>
+        </div>
+      </div>
+
+      <div className="px-5 py-4 space-y-3">
+        {done !== null ? (
+          <p className="inline-flex items-center gap-1.5 text-[11px] font-mono text-emerald-700">
+            <CheckCircle2 size={12} /> {done} unit{done === 1 ? '' : 's'} normalised · breakdowns now group correctly
+          </p>
+        ) : (
+          <>
+            <div className="space-y-1">
+              {drift.summary.map(r => (
+                <div key={`${r.field}-${r.from}`} className="flex items-center justify-between gap-3 bg-slate-50 rounded-lg px-3 py-1.5">
+                  <span className="text-[11px] font-mono text-slate-700 truncate">
+                    <span className="text-slate-400">{r.field === 'grade' ? 'Grade' : 'SIM'}</span>{' '}
+                    “{r.from}” → <strong>“{r.to}”</strong>
+                  </span>
+                  <span className="text-[11px] font-bold font-mono text-violet-700 flex-shrink-0">{r.count}</span>
+                </div>
+              ))}
+            </div>
+            <p className="text-[10px] font-mono text-slate-500 leading-relaxed">
+              Capitalisation only — a grade you typed by hand that matches no option is left alone.
+            </p>
+            {failed && (
+              <p className="inline-flex items-center gap-1 text-[10px] font-mono text-rose-600">
+                <AlertCircle size={11} /> {failed}
+              </p>
+            )}
+            <button
+              onClick={run}
+              disabled={running}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-violet-600 text-white text-[10px] font-bold uppercase tracking-widest hover:bg-violet-700 disabled:opacity-40"
+            >
+              <Wand2 size={11} /> {running ? 'Normalising…' : `Normalise ${drift.patches.length} unit${drift.patches.length === 1 ? '' : 's'}`}
+            </button>
+          </>
+        )}
       </div>
     </div>
   );

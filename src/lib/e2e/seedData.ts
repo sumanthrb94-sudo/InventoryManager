@@ -66,6 +66,11 @@ export const E2E_SEED: Record<string, Record<string, any>[]> = {
     unit({ id: 'u-103', imei: '350000000000103', model: 'IPHONE 12', storage: '64GB', colour: 'BLUE', buyPrice: 205 }),
     unit({ id: 'u-104', imei: '350000000000104', model: 'SAMSUNG GALAXY S22', storage: '128GB', colour: 'GREEN', buyPrice: 240, supplierId: 'sup-2', supplierName: 'PHONEBOX DIRECT' }),
     unit({ id: 'u-105', imei: '350000000000105', model: 'IPHONE 14', storage: '256GB', colour: 'PURPLE', buyPrice: 480 }),
+    // Legacy casing written before the intake screens shared one grade
+    // list — 'Brand New' vs the canonical 'Brand new'. The Configuration
+    // panel offers to merge them.
+    unit({ id: 'u-106', imei: '350000000000106', model: 'IPHONE 15', storage: '128GB', colour: 'BLACK', buyPrice: 620, grade: 'Brand New' }),
+    unit({ id: 'u-107', imei: '350000000000107', model: 'IPHONE 15', storage: '128GB', colour: 'BLUE', buyPrice: 615, grade: 'Brand New' }),
 
     // ── SHS — supplier holds these, awaiting delivery ────────────────────
     unit({ id: 'u-201', imei: '350000000000201', status: 'incoming', stockSource: 'shs', model: 'IPHONE 13 PRO', storage: '256GB', colour: 'GRAPHITE', buyPrice: 520 }),
