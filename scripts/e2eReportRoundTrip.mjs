@@ -16,7 +16,7 @@
  *   node scripts/e2eReportRoundTrip.mjs
  */
 import { chromium } from 'playwright';
-import { mkdirSync, existsSync, readdirSync, readFileSync } from 'node:fs';
+import { mkdirSync, existsSync, readdirSync, readFileSync, copyFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import * as XLSX from 'xlsx';
 
@@ -116,13 +116,14 @@ async function downloadReport(page) {
     page.waitForEvent('download', { timeout: 30000 }),
     page.getByRole('button', { name: /Download/i }).first().click(),
   ]);
-  const wb = XLSX.read(readFileSync(await download.path()), { type: 'buffer', raw: true, cellText: true });
+  const path = await download.path();
+  const wb = XLSX.read(readFileSync(path), { type: 'buffer', raw: true, cellText: true });
   const sheets = {};
   for (const name of wb.SheetNames) {
     sheets[name] = XLSX.utils.sheet_to_json(wb.Sheets[name], { header: 1, raw: false, defval: '' })
       .filter(r => r.some(c => String(c).trim() !== ''));
   }
-  return { sheetNames: wb.SheetNames, sheets };
+  return { sheetNames: wb.SheetNames, sheets, path };
 }
 
 /** The uploaded workbook, as rows of strings, for comparison. */
@@ -182,43 +183,88 @@ async function run() {
 
   const src = sourceRows(INVENTORY_FILE, 'INVENTORY');
   const srcBody = src.slice(1).filter(r => r.some(c => String(c).trim() !== ''));
-  const srcByImei = new Map(srcBody.map(r => [String(r[2]).trim(), r]));
+  const isShsRow = (r) => String(r[9]).trim().toUpperCase() === 'SHS';
+  const srcOffice = srcBody.filter(r => !isShsRow(r));
+  const srcShs = srcBody.filter(r => isShsRow(r));
 
-  // 1. The viewer's own tally — one header row plus every uploaded row.
-  const tally = await viewerRowCount(page);
-  record('view report row count matches the uploaded file',
-    !!tally && tally.rows === srcBody.length + 1,
-    `uploaded ${srcBody.length} rows · view reports ${tally?.rows ?? '?'} (incl. header)`);
-
-  // 2. The rendered window — every visible row must match the file exactly.
-  const viewRows = await readViewerGrid(page);
-  const header = viewRows.find(r => r.includes('IMEI')) || [];
-  const col = (name) => header.indexOf(name);
-  let compared = 0;
-  const mismatches = [];
-  for (const r of viewRows) {
-    const imei = r[col('IMEI')];
-    if (!imei || !srcByImei.has(imei)) continue;
-    const srcRow = srcByImei.get(imei);
-    compared++;
-    const checks = [
-      ['Model', r[col('Model')], String(srcRow[1]).trim()],
-      ['Grade', r[col('Grade')], String(srcRow[3]).trim()],
-      ['Storage', r[col('Storage')], String(srcRow[4]).trim()],
-      ['SIM Type', r[col('SIM Type')], String(srcRow[5]).trim()],
-      ['Colour', r[col('Colour')], String(srcRow[6]).trim()],
-      ['Supplier', r[col('Supplier')], String(srcRow[7]).trim()],
-      ['BP', Number(r[col('BP')]), Number(srcRow[8])],
-      ['Stock Type', r[col('Stock Type')], String(srcRow[9]).trim().toUpperCase() === 'SHS' ? 'SHS' : 'OFFICE'],
-    ];
-    for (const [field, got, want] of checks) {
-      if (String(got) !== String(want)) mismatches.push(`${imei} ${field}: view "${got}" ≠ file "${want}"`);
+  /**
+   * Compare the rendered grid against the file, row by row. Only rows whose
+   * IMEI is in `expected` are compared — a row from the other sheet showing
+   * up here is caught separately, by the leakage check below.
+   */
+  const compareGrid = async (expected) => {
+    const byImei = new Map(expected.map(r => [String(r[2]).trim(), r]));
+    const viewRows = await readViewerGrid(page);
+    const header = viewRows.find(r => r.includes('IMEI')) || [];
+    const col = (name) => header.indexOf(name);
+    let compared = 0;
+    const mismatches = [];
+    const strangers = [];
+    for (const r of viewRows) {
+      const imei = r[col('IMEI')];
+      // Skip the grid's own furniture: the column-letter row the viewer
+      // renders above the data ('A', 'B', 'C'…) and the header row itself.
+      if (!imei || imei === 'IMEI' || /^[A-Z]{1,2}$/.test(imei)) continue;
+      if (!byImei.has(imei)) { strangers.push(imei); continue; }
+      const srcRow = byImei.get(imei);
+      compared++;
+      const checks = [
+        ['Model', r[col('Model')], String(srcRow[1]).trim()],
+        ['Grade', r[col('Grade')], String(srcRow[3]).trim()],
+        ['Storage', r[col('Storage')], String(srcRow[4]).trim()],
+        ['SIM Type', r[col('SIM Type')], String(srcRow[5]).trim()],
+        ['Colour', r[col('Colour')], String(srcRow[6]).trim()],
+        ['Supplier', r[col('Supplier')], String(srcRow[7]).trim()],
+        ['BP', Number(r[col('BP')]), Number(srcRow[8])],
+        ['Stock Type', r[col('Stock Type')], isShsRow(srcRow) ? 'SHS' : 'OFFICE'],
+      ];
+      for (const [field, got, want] of checks) {
+        if (String(got) !== String(want)) mismatches.push(`${imei} ${field}: view "${got}" ≠ file "${want}"`);
+      }
     }
-  }
-  record('every rendered cell matches the uploaded file', compared > 0 && mismatches.length === 0,
-    mismatches.length ? mismatches.slice(0, 3).join(' | ') : `${compared} rows × 8 fields compared`);
+    return { compared, mismatches, strangers };
+  };
 
-  // 3. The download — every row, and the viewer's own "preview matches
+  const sheetTab = (name) => modal(page).getByRole('button', { name: new RegExp(`^${name}$`, 'i') }).first();
+
+  // 1. The preview has the same two tabs as the download. Flattened into one
+  //    list, the preview disagreed with the file the operator gets — and hid
+  //    the split that decides whether stock is on the shelf or with a supplier.
+  const hasOffice = await sheetTab('Office Stock').isVisible().catch(() => false);
+  const hasShs = await sheetTab('SHS Stock').isVisible().catch(() => false);
+  record('inventory view has a separate sheet for Office and SHS', hasOffice && hasShs,
+    `Office Stock ${hasOffice ? '✓' : '✗'} · SHS Stock ${hasShs ? '✓' : '✗'}`);
+
+  // 2. Office Stock tab — tally and every rendered cell.
+  if (hasOffice) { await sheetTab('Office Stock').click(); await page.waitForTimeout(1200); }
+  const officeTally = await viewerRowCount(page);
+  record('Office Stock sheet row count matches the uploaded office rows',
+    !!officeTally && officeTally.rows === srcOffice.length + 1,
+    `uploaded ${srcOffice.length} office rows · view reports ${officeTally?.rows ?? '?'} (incl. header)`);
+
+  const officeGrid = await compareGrid(srcOffice);
+  record('every rendered Office Stock cell matches the uploaded file',
+    officeGrid.compared > 0 && officeGrid.mismatches.length === 0 && officeGrid.strangers.length === 0,
+    officeGrid.mismatches.length ? officeGrid.mismatches.slice(0, 3).join(' | ')
+      : officeGrid.strangers.length ? `${officeGrid.strangers.length} non-office rows on the office sheet`
+      : `${officeGrid.compared} rows × 8 fields compared`);
+
+  // 3. SHS Stock tab — the 10 supplier-held rows, and nothing else.
+  if (hasShs) { await sheetTab('SHS Stock').click(); await page.waitForTimeout(1200); }
+  await shot(page, 'inventory-report-view-shs-sheet');
+  const shsTally = await viewerRowCount(page);
+  record('SHS Stock sheet row count matches the uploaded SHS rows',
+    !!shsTally && shsTally.rows === srcShs.length + 1,
+    `uploaded ${srcShs.length} SHS rows · view reports ${shsTally?.rows ?? '?'} (incl. header)`);
+
+  const shsGrid = await compareGrid(srcShs);
+  record('every rendered SHS Stock cell matches the uploaded file',
+    shsGrid.compared > 0 && shsGrid.mismatches.length === 0 && shsGrid.strangers.length === 0,
+    shsGrid.mismatches.length ? shsGrid.mismatches.slice(0, 3).join(' | ')
+      : shsGrid.strangers.length ? `${shsGrid.strangers.length} non-SHS rows on the SHS sheet`
+      : `${shsGrid.compared} rows × 8 fields compared`);
+
+  // 4. The download — every row, and the viewer's own "preview matches
   //    the .xlsx download" claim.
   const dl = await downloadReport(page);
   record('downloaded report splits Office and SHS into their own sheets',
@@ -228,9 +274,6 @@ async function run() {
   const imeisIn = (sheet) => new Set((dl.sheets[sheet] ?? []).slice(1).map(r => String(r[2]).trim()));
   const officeImeis = imeisIn('Office Stock');
   const shsImeis = imeisIn('SHS Stock');
-
-  const srcOffice = srcBody.filter(r => String(r[9]).trim().toUpperCase() !== 'SHS');
-  const srcShs = srcBody.filter(r => String(r[9]).trim().toUpperCase() === 'SHS');
 
   const missingOffice = srcOffice.filter(r => !officeImeis.has(String(r[2]).trim()));
   record('every uploaded OFFICE row lands in the Office Stock sheet',
@@ -249,6 +292,36 @@ async function run() {
   const crossover = [...officeImeis].filter(i => shsImeis.has(i));
   record('no row appears on both sheets', crossover.length === 0,
     crossover.length ? `${crossover.length} duplicated` : 'office and SHS are disjoint');
+
+  await dismissModals(page);
+
+  // ── 2b. The full circle: feed the downloaded report back in ──────────────
+  // The importer used to read SheetNames[0] only, so a report downloaded
+  // from the app and re-uploaded silently lost every SHS row — the exact
+  // "export → edit in Excel → re-import" loop the templates README promises.
+  const roundTripFile = resolve(OUT, 'downloaded-inventory-report.xlsx');
+  copyFileSync(dl.path, roundTripFile);
+
+  await gotoTab(page, 'Stock Intake');
+  await openImportMenu(page);
+  await page.getByRole('menuitem', { name: /Inventory Report/i }).click();
+  await page.waitForTimeout(700);
+  await page.locator('input[type="file"]').first().setInputFiles(roundTripFile);
+  await page.waitForTimeout(4000);
+  await shot(page, 'reimport-downloaded-report');
+
+  const reimportText = await modal(page).innerText().catch(() => '');
+  const loadCount = reimportText.match(/Load\s+([\d,]+)\s+rows/i);
+  record('re-importing the downloaded report reads every row from both sheets',
+    !!loadCount && Number(loadCount[1].replace(/,/g, '')) === srcBody.length,
+    `downloaded report re-reads ${loadCount ? loadCount[1] : '?'} of ${srcBody.length} rows`);
+
+  const lands = reimportText.match(/Lands as\s*([\d,]+)\s*office stock\s*·?\s*([\d,]+)\s*SHS/i);
+  record('re-imported rows keep their office / SHS split',
+    !!lands && Number(lands[1].replace(/,/g, '')) === srcOffice.length
+            && Number(lands[2].replace(/,/g, '')) === srcShs.length,
+    lands ? `lands as ${lands[1]} office · ${lands[2]} SHS (expected ${srcOffice.length} · ${srcShs.length})`
+          : 'no office/SHS split shown');
 
   await dismissModals(page);
 

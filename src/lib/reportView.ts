@@ -412,11 +412,8 @@ export async function viewModelFromXlsxBuffer(buffer: ArrayBuffer, title: string
 
 /** Adapter for the CSV-based Inventory Report — renders the same row objects
  *  the CSV download serialises, as a single-sheet grid with a styled header. */
-export function viewModelFromRows(
-  title: string,
-  sheetName: string,
-  rows: Array<Record<string, unknown>>,
-): ReportViewModel {
+/** Build one ViewSheet from plain row objects. */
+function sheetFromRows(name: string, rows: Array<Record<string, unknown>>): ViewSheet {
   const headers = rows.length > 0 ? Object.keys(rows[0]) : [];
   const headerCells: ViewCell[] = headers.map(h => ({
     display: h, align: 'left', bold: true, fillColor: '#F1F5F9',
@@ -433,13 +430,36 @@ export function viewModelFromRows(
     }),
   );
   return {
-    title,
-    sheets: [{
-      name: sheetName,
-      rows: headers.length ? [headerCells, ...bodyRows] : [],
-      columnCount: headers.length || 1,
-      columnWidths: headers.map(h => Math.max(80, Math.min(220, h.length * 9 + 40))),
-      truncatedFrom: totalRows > MAX_VIEW_ROWS ? totalRows : 0,
-    }],
+    name,
+    rows: headers.length ? [headerCells, ...bodyRows] : [],
+    columnCount: headers.length || 1,
+    columnWidths: headers.map(h => Math.max(80, Math.min(220, h.length * 9 + 40))),
+    truncatedFrom: totalRows > MAX_VIEW_ROWS ? totalRows : 0,
   };
+}
+
+export function viewModelFromRows(
+  title: string,
+  sheetName: string,
+  rows: Array<Record<string, unknown>>,
+): ReportViewModel {
+  return { title, sheets: [sheetFromRows(sheetName, rows)] };
+}
+
+/**
+ * Multi-sheet preview, for reports whose download has more than one tab.
+ *
+ * The viewer footer promises "preview matches the .xlsx download", so a
+ * report that downloads as two sheets has to preview as two sheets —
+ * flattening Office and SHS into one combined list made the preview
+ * disagree with the file the operator actually gets, and hid the split
+ * that decides whether stock is on the shelf or still with the supplier.
+ *
+ * Sheet names should match the workbook's exactly.
+ */
+export function viewModelFromSheets(
+  title: string,
+  sheets: Array<{ name: string; rows: Array<Record<string, unknown>> }>,
+): ReportViewModel {
+  return { title, sheets: sheets.map(s => sheetFromRows(s.name, s.rows)) };
 }

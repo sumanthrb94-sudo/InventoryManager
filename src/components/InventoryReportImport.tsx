@@ -33,28 +33,12 @@ import type { InventoryUnit, Supplier } from '../types';
 import { parseBrandModelStorage } from '../lib/modelStorage';
 import { buildCatalogIndex, canonicaliseModel } from '../lib/modelReconciliation';
 import { normaliseGrade, normaliseSimType } from '../lib/unitConstants';
-import { isAppleDevice, isValidImei } from '../lib/imeiValidation';
+import { parseStockWorkbook, type ParsedRow } from '../lib/inventoryImportParse';
 import { auth } from '../lib/firebase';
 
 interface Props { onClose: () => void; }
 
 type Phase = 'upload' | 'preview' | 'loading' | 'done';
-
-interface ParsedRow {
-  rowNum: number;          // 1-indexed row in the file (header is 0)
-  dateIn: string;          // ISO YYYY-MM-DD; empty if missing
-  model: string;
-  imei: string;            // trimmed, uppercased
-  grade: string;
-  storage: string;
-  simType: string;         // Physical SIM / eSIM / Dual SIM / Not Applicable
-  colour: string;
-  supplier: string;        // raw supplier name string
-  buyPrice: number;        // parsed numeric; 0 if missing
-  stockType: 'office' | 'shs';   // 'shs' = supplier-held, lands as incoming
-  notes: string;
-  errors: string[];        // per-row validation messages
-}
 
 interface PreviewBuckets {
   total: number;
@@ -63,121 +47,6 @@ interface PreviewBuckets {
   invalid:  ParsedRow[];   // missing required / invalid imei / dup-in-file
   newSuppliers: string[];  // distinct supplier names not in DB
   duplicates: { imei: string; rows: number[] }[];
-}
-
-// ── Header alias table — case-insensitive, whitespace-tolerant ──────────────
-// Maps every reasonable column-name variant the operator might paste into the
-// canonical field name. Anything not in this map gets ignored on import.
-const HEADER_ALIASES: Record<string, keyof Omit<ParsedRow, 'rowNum' | 'errors'>> = {
-  'stock in date': 'dateIn',
-  'stockindate':   'dateIn',
-  'stock in':      'dateIn',
-  'date in':       'dateIn',
-  'datein':        'dateIn',
-  'date':          'dateIn',
-  'model':         'model',
-  'imei':          'imei',
-  'serial':        'imei',
-  'imei/serial':   'imei',
-  'imei / serial': 'imei',
-  'grade':         'grade',
-  'storage':       'storage',
-  'sim type':      'simType',
-  'simtype':       'simType',
-  'sim':           'simType',
-  'colour':        'colour',
-  'color':         'colour',
-  'supplier':      'supplier',
-  'stock type':    'stockType',
-  'stocktype':     'stockType',
-  'stock status':  'stockType',
-  'shs':           'stockType',
-  'holding':       'stockType',
-  'bp':            'buyPrice',
-  'bp (£)':        'buyPrice',
-  'buy price':     'buyPrice',
-  'buying price':  'buyPrice',
-  'notes':         'notes',
-  'note':          'notes',
-};
-
-function normalizeHeader(h: string): string {
-  return String(h ?? '').trim().toLowerCase().replace(/\s+/g, ' ');
-}
-
-function excelSerialToISO(v: any): string {
-  if (!v) return '';
-  if (v instanceof Date) return v.toISOString().slice(0, 10);
-  if (typeof v === 'number') {
-    try {
-      const d = XLSX.SSF.parse_date_code(v);
-      return new Date(Date.UTC(d.y, d.m - 1, d.d)).toISOString().slice(0, 10);
-    } catch { /* fall through */ }
-  }
-  const s = String(v).trim();
-  if (!s) return '';
-  // ISO-ish — accept as-is
-  if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0, 10);
-  const d = new Date(s);
-  if (!isNaN(d.getTime())) return d.toISOString().slice(0, 10);
-  return '';
-}
-
-function parseNumber(v: any): number {
-  if (v == null || v === '') return 0;
-  if (typeof v === 'number') return Number.isFinite(v) ? v : 0;
-  const cleaned = String(v).replace(/[£,\s]/g, '');
-  const n = parseFloat(cleaned);
-  return Number.isFinite(n) ? n : 0;
-}
-
-function parseSheet(rows: any[][]): ParsedRow[] {
-  if (rows.length < 2) return [];
-  const headerRow = rows[0].map(normalizeHeader);
-  const colIndex: Partial<Record<keyof Omit<ParsedRow, 'rowNum' | 'errors'>, number>> = {};
-  headerRow.forEach((h: string, i: number) => {
-    const field = HEADER_ALIASES[h];
-    if (field && colIndex[field] === undefined) colIndex[field] = i;
-  });
-
-  const result: ParsedRow[] = [];
-  for (let i = 1; i < rows.length; i++) {
-    const r = rows[i];
-    if (!r || r.every(c => c == null || String(c).trim() === '')) continue; // skip blank
-    const get = (k: keyof Omit<ParsedRow, 'rowNum' | 'errors'>) => {
-      const idx = colIndex[k];
-      return idx === undefined ? '' : r[idx];
-    };
-    const dateIn   = excelSerialToISO(get('dateIn'));
-    const model    = String(get('model') ?? '').trim();
-    const imei     = String(get('imei') ?? '').trim().toUpperCase();
-    const grade    = String(get('grade') ?? '').trim();
-    const storage  = String(get('storage') ?? '').trim();
-    const simType  = String(get('simType') ?? '').trim();
-    const colour   = String(get('colour') ?? '').trim();
-    const supplier = String(get('supplier') ?? '').trim();
-    const buyPrice = parseNumber(get('buyPrice'));
-    const notes    = String(get('notes') ?? '').trim();
-    // Supplier-held stock. Accept the words operators actually type, plus
-    // a bare Y/YES under an "SHS" header. Anything else is office stock.
-    const stockTypeRaw = String(get('stockType') ?? '').trim().toUpperCase();
-    const stockType: 'office' | 'shs' =
-      /^(SHS|INCOMING|SUPPLIER|SUPPLIER HELD|SUPPLIER-HELD|Y|YES|TRUE|1)$/.test(stockTypeRaw)
-        ? 'shs' : 'office';
-
-    const errors: string[] = [];
-    if (!model)     errors.push('Model is required');
-    if (!imei)      errors.push('IMEI is required');
-    else {
-      const apple = isAppleDevice(model);
-      if (!isValidImei(imei, { isAppleSerial: apple })) errors.push('IMEI not valid (15 digits, or 10-12 char alphanumeric serial)');
-    }
-    if (!supplier)  errors.push('Supplier is required');
-    if (buyPrice <= 0) errors.push('BP must be greater than 0');
-
-    result.push({ rowNum: i + 1, dateIn, model, imei, grade, storage, simType, colour, supplier, buyPrice, stockType, notes, errors });
-  }
-  return result;
 }
 
 function buildPreview(
@@ -277,12 +146,19 @@ export default function InventoryReportImport({ onClose }: Props) {
     try {
       const buffer = await file.arrayBuffer();
       const wb = XLSX.read(buffer, { type: 'array', cellDates: true });
-      const sheetName = wb.SheetNames[0];
-      if (!sheetName) throw new Error('Workbook has no sheets');
-      const sheet = wb.Sheets[sheetName];
-      const rows = XLSX.utils.sheet_to_json<any[]>(sheet, { header: 1, raw: true, defval: '' });
-      const parsed = parseSheet(rows);
-      if (parsed.length === 0) throw new Error('No data rows found. Check the header row matches the inventory report schema.');
+      if (!wb.SheetNames.length) throw new Error('Workbook has no sheets');
+
+      // EVERY stock sheet, not just the first — the Inventory Report this
+      // importer is the counterpart to downloads as two (Office Stock and
+      // SHS Stock).
+      const { rows: parsed, skippedSheets } = parseStockWorkbook(wb);
+      if (parsed.length === 0) {
+        throw new Error(
+          skippedSheets.length
+            ? `No stock rows found. Sheets read: ${skippedSheets.join(', ')} — none had Model + IMEI columns. Check the header row matches the inventory report schema.`
+            : 'No data rows found. Check the header row matches the inventory report schema.',
+        );
+      }
       setParsedRows(parsed);
       setPhase('preview');
     } catch (e: any) {
@@ -538,7 +414,7 @@ function UploadPhase({
       >
         <Upload size={28} />
         <p className="text-[12px] font-bold">Drop a .xlsx or .csv file, or click to pick</p>
-        <p className="text-[10px] font-mono text-slate-400">First sheet only · header row required</p>
+        <p className="text-[10px] font-mono text-slate-400">Every stock sheet is read · header row required</p>
       </button>
       <input
         ref={fileInputRef}

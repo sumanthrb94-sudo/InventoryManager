@@ -63,6 +63,12 @@ in **Notes** does nothing — that was the old workaround and it never worked.
 updates that unit; an order number + IMEI already recorded updates that sale.
 Nothing duplicates, and a processed return is not undone by a re-import.
 
+**8. Every stock sheet in the workbook is read.** The Inventory Report comes
+back as **two** sheets — `Office Stock` and `SHS Stock` — and both are parsed
+on the way back in, so a downloaded report re-imports complete. Sheets whose
+header row has no Model + IMEI columns (Summary, Notes) are skipped, not
+treated as bad data.
+
 ---
 
 ## Inventory report — column contract
@@ -82,6 +88,13 @@ Nothing duplicates, and a processed return is not undone by a re-import.
 | BP | **Yes** | Must be > 0 — every profit figure depends on it. |
 | Stock Type | No | `OFFICE` (default) or `SHS`. Also accepts `INCOMING`, `SUPPLIER`, `Y`, `YES`, `TRUE`, `1`. |
 | Notes | No | Free text. |
+
+### Viewing it back
+
+**View** (the eye icon next to a report) shows the same workbook the
+**Download** gives you, tab for tab — Office Stock and SHS Stock as separate
+sheets, so supplier-held stock is never mixed into the shelf count. The row
+tally in the footer is per sheet.
 
 ## Uploading one marketplace at a time
 

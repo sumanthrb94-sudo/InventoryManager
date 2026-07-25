@@ -538,12 +538,15 @@ export default function BuySheet(_props: Props) {
     triggerDownload(`inventory-report-${range.label}-${stamp}.xlsx`, blob);
   };
 
-  // In-browser preview — falls back to a single combined view for simplicity.
+  // In-browser preview — same two sheets as the download, same names, so
+  // the viewer's "preview matches the .xlsx download" promise holds and
+  // the office / supplier-held split is visible before anyone downloads.
   const handleInventoryReportView = async (range: { from?: string; to?: string; label: string }) => {
-    const { viewModelFromRows } = await import('../lib/reportView');
-    // Preview shows combined (office + SHS) so the tester sees everything
-    const combined = [...buildOfficeReportRows(range), ...buildShsReportRows(range)];
-    return viewModelFromRows(`Inventory Report \u00b7 ${range.label}`, 'INVENTORY', combined);
+    const { viewModelFromSheets } = await import('../lib/reportView');
+    return viewModelFromSheets(`Inventory Report \u00b7 ${range.label}`, [
+      { name: 'Office Stock', rows: buildOfficeReportRows(range) },
+      { name: 'SHS Stock',    rows: buildShsReportRows(range) },
+    ]);
   };
 
   // ── Inline cell save ──────────────────────────────────────────────────────
