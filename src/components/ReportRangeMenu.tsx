@@ -13,6 +13,7 @@
 import React, { useState, useRef, useEffect, lazy, Suspense } from 'react';
 import { ChevronDown, Calendar, Eye } from 'lucide-react';
 import type { ReportViewModel } from '../lib/reportView';
+import TemplateDownload, { type TemplateLink } from './TemplateDownload';
 
 // Lazy: ReportViewerModal imports numToCol from reportView.ts, which in
 // turn pulls in ExcelJS for parsing the .xlsx buffer back into the grid.
@@ -74,7 +75,7 @@ export function resolvePeriod(
 }
 
 export default function ReportRangeMenu({
-  label, icon, tone = 'emerald', onDownload, onView, reportDataKey, disabled,
+  label, icon, tone = 'emerald', onDownload, onView, reportDataKey, templates, disabled,
 }: {
   label: string;
   icon: React.ReactNode;
@@ -93,6 +94,12 @@ export default function ReportRangeMenu({
    *  numbers without closing + re-opening. Live-update was the QA round-5
    *  ask — "now the reports should also be updated right instantly". */
   reportDataKey?: string | number;
+  /** Blank templates offered at the foot of the menu. An operator building a
+   *  new upload is standing right here, at the report they want it to look
+   *  like — handing them the current schema at that moment is what stops
+   *  files being cloned from a colleague's stale copy. Omit for reports with
+   *  no importer (Returns), and the block renders nothing. */
+  templates?: TemplateLink[];
   disabled?: boolean;
 }) {
   const [open, setOpen] = useState(false);
@@ -309,6 +316,7 @@ export default function ReportRangeMenu({
               </button>
             )}
           </div>
+          <TemplateDownload templates={templates ?? []} />
         </div>
       )}
 

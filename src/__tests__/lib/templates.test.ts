@@ -9,7 +9,8 @@
  * Regenerate with: node scripts/generateImportTemplates.mjs
  */
 import { describe, it, expect, beforeAll } from 'vitest';
-import { readFileSync, existsSync } from 'node:fs';
+import { readFileSync, existsSync, readdirSync } from 'node:fs';
+import { resolve } from 'node:path';
 import * as XLSX from 'xlsx';
 import { parseSalesWorkbook } from '../../lib/salesImport';
 import { GRADE_OPTIONS, SIM_TYPE_OPTIONS } from '../../lib/unitConstants';
@@ -314,5 +315,48 @@ describe('SALES_REPORT_TEMPLATE.xlsx', () => {
       .flat().filter(Boolean).map(String).join(' ');
     expect(readme).toMatch(/RECOMPUTES/i);
     expect(readme).toMatch(/IMEI/);
+  });
+});
+
+/**
+ * The app hands these files out from public/templates/ via the "Blank
+ * template" buttons on the report menus and in the import modals. Those
+ * copies are written by the same generator run — but a copy is a copy, and
+ * a stale one would hand an operator a schema the importer no longer
+ * accepts. That is worse than having no button: it looks authoritative.
+ */
+describe('templates served by the app match the templates under test', () => {
+  const PUBLIC_DIR = resolve('public/templates');
+
+  const SERVED = [
+    'INVENTORY_REPORT_TEMPLATE.xlsx',
+    'SHS_STOCK_TEMPLATE.xlsx',
+    'SALES_REPORT_TEMPLATE.xlsx',
+    'SALES_AMAZON_TEMPLATE.xlsx',
+    'SALES_BM_TEMPLATE.xlsx',
+    'SALES_EBAY_TEMPLATE.xlsx',
+    'SALES_ONBUY_TEMPLATE.xlsx',
+  ];
+
+  it.each(SERVED)('%s is published for the in-app download', (file) => {
+    expect(existsSync(resolve(PUBLIC_DIR, file)), `${file} missing from public/templates`).toBe(true);
+  });
+
+  it.each(SERVED)('%s is byte-identical to templates/', (file) => {
+    const served = readFileSync(resolve(PUBLIC_DIR, file));
+    const tested = readFileSync(resolve('templates', file));
+    expect(served.equals(tested)).toBe(true);
+  });
+
+  it('offers every template the UI links to, and nothing it does not', () => {
+    // Mirrors INVENTORY_TEMPLATES + SALES_TEMPLATES in
+    // src/components/TemplateDownload.tsx.
+    const linked = [
+      'INVENTORY_REPORT_TEMPLATE.xlsx', 'SHS_STOCK_TEMPLATE.xlsx',
+      'SALES_REPORT_TEMPLATE.xlsx', 'SALES_AMAZON_TEMPLATE.xlsx',
+      'SALES_BM_TEMPLATE.xlsx', 'SALES_EBAY_TEMPLATE.xlsx', 'SALES_ONBUY_TEMPLATE.xlsx',
+    ];
+    const published = readdirSync(PUBLIC_DIR).filter(f => f.endsWith('.xlsx')).sort();
+    expect(published).toEqual([...linked].sort());
   });
 });

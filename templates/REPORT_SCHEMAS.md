@@ -24,7 +24,7 @@ document covers *what is in them*.
      and recomputes on the way back in.
 
    Where the two differ for any other reason, that is a defect, not a design.
-   Two such defects were found and fixed while writing this document; §8
+   Two such defects were found and fixed while writing this document; §9
    records them.
 3. **Derived money is recomputed on import.** `SP-BP`, `Marginal Tax`,
    `Commission`, `ROF`, `FVF`, `VAT`, `GP`, `GP %` — anything you type there
@@ -312,7 +312,27 @@ Nothing is lost, but you re-key what the file already knew.
 
 ---
 
-## 6. Files
+## 6. Getting a template without leaving the app
+
+Every template is one click away from the report it belongs to — no need to
+find this folder.
+
+- **Stock Intake → Inventory Report** → *Build a new file from* → Inventory
+  template · SHS stock template
+- **Sell → Sales Report** → *Build a new file from* → combined, or any single
+  channel
+- **Import → Inventory Report / Sales Report** → the same offer, before you
+  pick a file. On the sales side, picking a marketplace first narrows the
+  offer to that channel's layout.
+
+The app serves the files from `public/templates/`, written by the same
+generator run that writes `templates/`. `templates.test.ts` checks the two
+are byte-identical, so the button can never hand out a schema the importer
+has moved past.
+
+Returns has no template button — there is no returns importer.
+
+## 7. Files
 
 | File | Purpose |
 |---|---|
@@ -332,7 +352,7 @@ Every template carries a **README sheet** documenting its own columns.
 
 ---
 
-## 7. What keeps this document honest
+## 8. What keeps this document honest
 
 These schemas are executable, not aspirational. If the code moves and this
 document doesn't, a test fails:
@@ -345,6 +365,7 @@ document doesn't, a test fails:
 | `src/__tests__/lib/salesImportPerMarketplace.test.ts` | Per-channel column layouts |
 | `scripts/e2eReportRoundTrip.mjs` | View matches the upload, cell by cell |
 | `scripts/e2eBatchVsMarketplace.mjs` | Batch = per-channel; download rebuilds the system |
+| `scripts/e2eTemplateDownloads.mjs` | The in-app buttons serve a real, current template |
 
 | `src/__tests__/lib/schemaAlignment.test.ts` | Export mirrors import; fallback indices point at the right columns |
 
@@ -357,7 +378,7 @@ node scripts/generateE2EWorkbooks.mjs      # samples/
 
 ---
 
-## 8. Defects found while writing this document
+## 9. Defects found while writing this document
 
 Both were found by asking the question this document exists to answer: where
 import and export differ, is the difference deliberate?

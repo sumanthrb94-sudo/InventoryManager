@@ -19,10 +19,27 @@
  * Run: node scripts/generateImportTemplates.mjs
  */
 import ExcelJS from 'exceljs';
-import { mkdirSync, existsSync } from 'node:fs';
+import { mkdirSync, existsSync, copyFileSync, readdirSync } from 'node:fs';
 
 const OUT = 'templates';
-if (!existsSync(OUT)) mkdirSync(OUT, { recursive: true });
+// Templates are also served by the app itself — the report menus and the
+// import modals offer "Blank template" so an operator building a new file
+// starts from the standard instead of a colleague's old copy. Vite serves
+// public/ verbatim, so the same files are published there. Written by this
+// script rather than copied at build time: a stale public/ copy would hand
+// out a schema the importer no longer accepts, which is worse than no
+// button at all.
+const PUBLIC_OUT = 'public/templates';
+for (const dir of [OUT, PUBLIC_OUT]) {
+  if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+}
+
+/** Copy every generated template into public/ so the app can link to it. */
+function publishToPublic() {
+  const files = readdirSync(OUT).filter(f => f.endsWith('.xlsx'));
+  for (const f of files) copyFileSync(`${OUT}/${f}`, `${PUBLIC_OUT}/${f}`);
+  return files.length;
+}
 
 // MIRRORS src/lib/unitConstants.ts. A template offering values the app
 // doesn't is worse than no dropdown at all — the operator picks one, the
@@ -357,4 +374,6 @@ await buildInventoryTemplate();
 await buildShsTemplate();
 await buildSalesTemplate();
 await buildPerMarketplaceTemplates();
+const published = publishToPublic();
+console.log(`${PUBLIC_OUT}/ — ${published} templates published for the in-app download buttons`);
 console.log('\nTemplates written. They are parsed by src/__tests__/lib/templates.test.ts on every test run.');

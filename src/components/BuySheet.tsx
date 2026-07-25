@@ -45,6 +45,7 @@ import StockOverlayModal, {
 import OutOfStockOverlay, { type OutOfStockBucket } from './OutOfStockOverlay';
 import PaginationBar, { usePagedRows } from './PaginationBar';
 import ReportRangeMenu from './ReportRangeMenu';
+import { INVENTORY_TEMPLATES } from './TemplateDownload';
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -608,6 +609,7 @@ export default function BuySheet(_props: Props) {
             tone="emerald"
             onDownload={handleInventoryReport}
             onView={handleInventoryReportView}
+            templates={INVENTORY_TEMPLATES}
             // Live-refresh: every status flip (sold / returned / soft-
             // delete) changes the report row count via isStockOnHand.
             reportDataKey={`${units.length}|${units.filter(u => u.status === 'sold').length}|${units.filter(u => u.returnType === 'returned_to_supplier').length}|${suppliers.length}`}

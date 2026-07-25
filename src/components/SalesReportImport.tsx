@@ -31,6 +31,7 @@ import { addSoldUnitFromSale, completeUnitBuyInfo, reconcileShsAfterFulfilment }
 import { normalizeOperatorSku } from '../lib/modelStorage';
 import { auth, isAdmin } from '../lib/firebase';
 import DeviceComboBox from './DeviceComboBox';
+import TemplateDownload, { SALES_TEMPLATES } from './TemplateDownload';
 
 interface Props { onClose: () => void; }
 
@@ -905,6 +906,20 @@ function UploadPhase({
         }}
         className="hidden"
       />
+      {/* Offer the template that matches the picked channel — a blank
+          four-sheet workbook is no help to someone uploading an Amazon
+          export, and the wrong layout is the single most common reason an
+          upload lands with £0 prices. */}
+      <div className="border border-slate-200 rounded-2xl overflow-hidden">
+        <TemplateDownload
+          templates={channel === null
+            ? SALES_TEMPLATES
+            : SALES_TEMPLATES.filter(t => t.file === `SALES_${channel}_TEMPLATE.xlsx`)}
+          heading={channel === null
+            ? 'Not sure of the format? Start from'
+            : `Not sure of the ${channel} layout? Start from`}
+        />
+      </div>
       <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4 space-y-2">
         <p className="text-[10px] font-bold uppercase tracking-widest text-slate-500 flex items-center gap-1.5">
           <FileSpreadsheet size={11} /> Expected sheets

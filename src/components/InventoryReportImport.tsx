@@ -34,6 +34,7 @@ import { parseBrandModelStorage } from '../lib/modelStorage';
 import { buildCatalogIndex, canonicaliseModel } from '../lib/modelReconciliation';
 import { normaliseGrade, normaliseSimType } from '../lib/unitConstants';
 import { parseStockWorkbook, type ParsedRow } from '../lib/inventoryImportParse';
+import TemplateDownload, { INVENTORY_TEMPLATES } from './TemplateDownload';
 import { auth } from '../lib/firebase';
 
 interface Props { onClose: () => void; }
@@ -426,6 +427,14 @@ function UploadPhase({
         }}
         className="hidden"
       />
+      {/* The schema is easier to follow than to read about. Offer it here,
+          before a file is picked — after an upload fails is too late. */}
+      <div className="border border-slate-200 rounded-2xl overflow-hidden">
+        <TemplateDownload
+          templates={INVENTORY_TEMPLATES}
+          heading="Not sure of the format? Start from"
+        />
+      </div>
       <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4 space-y-2">
         <p className="text-[10px] font-bold uppercase tracking-widest text-slate-500 flex items-center gap-1.5">
           <FileSpreadsheet size={11} /> Expected columns

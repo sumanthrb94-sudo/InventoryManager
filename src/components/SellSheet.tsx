@@ -41,6 +41,7 @@ import { fmtDateForUser, useUserRegion } from '../lib/userLocale';
 import CopyImei from './CopyImei';
 import PaginationBar, { usePagedRows } from './PaginationBar';
 import ReportRangeMenu from './ReportRangeMenu';
+import { SALES_TEMPLATES } from './TemplateDownload';
 import IntelligencePanel from './IntelligencePanel';
 import PeriodicInventory from './PeriodicInventory';
 import SellOrderModal from './SellOrderModal';
@@ -626,6 +627,7 @@ export default function SellSheet(_props: Props) {
             tone="emerald"
             onDownload={handleSalesReport}
             onView={handleSalesReportView}
+            templates={SALES_TEMPLATES}
             // Live-refresh key — bumps when any of the inputs the sales
             // workbook reads from change. Counting voided sales separately
             // catches a refund/replacement landing without the array length
