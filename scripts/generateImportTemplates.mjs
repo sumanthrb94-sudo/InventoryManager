@@ -215,6 +215,85 @@ async function buildSalesTemplate() {
 }
 
 /**
+ * SHS STOCK template — the report used to MARK stock as supplier-held.
+ *
+ * Same schema and same importer as the Inventory Report (there is only
+ * one stock importer), but every row is pre-set to Stock Type = SHS and
+ * the README covers the SHS lifecycle. Kept as its own file because
+ * "the supplier is holding these for us" is a separate conversation
+ * with a supplier from "these arrived today".
+ */
+async function buildShsTemplate() {
+  const wb = new ExcelJS.Workbook();
+  wb.creator = 'MOBILEPHONEMARKET Inventory Manager';
+
+  const headers = [
+    'Stock In Date', 'Model', 'IMEI', 'Grade', 'Storage',
+    'SIM Type', 'Colour', 'Supplier', 'BP', 'Stock Type', 'Notes',
+  ];
+  const sheet = wb.addWorksheet('INVENTORY');
+  dressSheet(sheet, headers, [14, 26, 20, 8, 10, 14, 14, 26, 10, 12, 34]);
+
+  const examples = [
+    ['2026-07-25', 'IPHONE 13 PRO', '350100000023757', 'A',  '256GB', 'Physical SIM', 'GRAPHITE',    'CELLHUB TRADING', 520.00, 'SHS', 'Supplier holding — awaiting delivery'],
+    ['2026-07-25', 'IPHONE 13 PRO', '350100000031676', 'A',  '256GB', 'eSIM',         'SIERRA BLUE', 'CELLHUB TRADING', 525.00, 'SHS', 'Supplier holding — awaiting delivery'],
+    ['2026-07-25', 'SAMSUNG GALAXY S23', '350100000039595', 'A+', '256GB', 'Dual SIM', 'CREAM',      'PHONEBOX DIRECT', 430.00, 'SHS', 'Supplier holding — awaiting delivery'],
+    ['2026-07-24', 'IPHONE 14', '350100000047514', 'A', '256GB', 'Physical SIM', 'PURPLE',           'NORTHSIDE STOCK', 480.00, 'SHS', 'Paid — ships Monday'],
+  ];
+  examples.forEach(r => sheet.addRow(r));
+  markExamples(sheet, examples.length);
+
+  sheet.getColumn(9).numFmt = '0.00';
+  sheet.getColumn(1).numFmt = 'yyyy-mm-dd';
+
+  const validate = (colLetter, values) => {
+    for (let r = 2; r <= 500; r++) {
+      sheet.getCell(`${colLetter}${r}`).dataValidation = {
+        type: 'list', allowBlank: true, formulae: [`"${values.join(',')}"`],
+      };
+    }
+  };
+  validate('D', ['A+', 'A', 'B+', 'B', 'C']);
+  validate('F', ['Physical SIM', 'eSIM', 'Dual SIM', 'Not Applicable']);
+  // Locked to SHS — this template exists to mark supplier-held stock.
+  validate('J', ['SHS']);
+
+  addReadme(wb, 'SHS STOCK — marking supplier-held stock',
+    [
+      'Use this when a supplier is HOLDING stock for you that has not arrived yet.',
+      'Upload via Import → Inventory Report (there is one stock importer; the Stock Type column is what makes these rows SHS).',
+      'Every row here is Stock Type = SHS. Units land as INCOMING and show under the SHS tile, never on the office shelf.',
+      '',
+      'LIFECYCLE — an SHS unit leaves SHS in exactly three ways:',
+      '  1. It arrives → Receive it (Buy → SHS tile → Receive). It becomes office stock.',
+      '  2. The supplier ships it straight to the customer → it appears on a Sales Report. The',
+      '     import marks it sold, keeps it tagged as an SHS sale, and decrements the master row.',
+      '  3. The supplier cancels → an admin deletes it from the SHS overlay.',
+      '',
+      'IMEI is required here, same as any stock row. If the supplier has not given you IMEIs yet,',
+      'do not invent them — wait, or record the holding at model level through the master file.',
+      'The grey example rows are illustrations — delete them before uploading your own data.',
+    ],
+    [
+      ['Stock In Date', 'No',  'yyyy-mm-dd',                        'When the holding was agreed. Blank defaults to today.'],
+      ['Model',         'Yes', 'Free text, e.g. "IPHONE 13 PRO"',   'Keep spelling consistent with the catalog — model names are decided in Admin → Configuration and applied automatically on import.'],
+      ['IMEI',          'Yes', '15 digits, or a 10-12 char Apple serial', 'The unique key. Required even for SHS: without it the sale that eventually fulfils this unit cannot match it.'],
+      ['Grade',         'No',  'A+, A, B+, B, C',                   'Condition as quoted by the supplier.'],
+      ['Storage',       'No',  'e.g. 128GB, 256GB',                 'Used with Model to form the SKU.'],
+      ['SIM Type',      'No',  'Physical SIM, eSIM, Dual SIM',      'Recorded on the unit.'],
+      ['Colour',        'No',  'Free text',                         'Recorded on the unit.'],
+      ['Supplier',      'Yes', 'Free text',                         'WHO is holding it. Matched case-insensitively; an unknown name is created. This is also how the SHS master row is matched when the unit is later fulfilled — get it right.'],
+      ['BP',            'Yes', 'Number greater than 0',             'Agreed buy price. Every profit figure depends on it.'],
+      ['Stock Type',    'Yes', 'SHS',                               'What makes the row supplier-held: status becomes INCOMING and stockSource SHS. Leave it blank and the unit lands on the office shelf as available stock you do not actually have.'],
+      ['Notes',         'No',  'Free text',                         'e.g. expected ship date. Writing "SHS" here does NOT mark the row — only the Stock Type column does.'],
+    ],
+  );
+
+  await wb.xlsx.writeFile(`${OUT}/SHS_STOCK_TEMPLATE.xlsx`);
+  console.log(`${OUT}/SHS_STOCK_TEMPLATE.xlsx — ${headers.length} columns, ${examples.length} SHS example rows`);
+}
+
+/**
  * Per-marketplace templates. Channels send reports separately, so one
  * file per channel is the common shape — pick the marketplace in the
  * import dialog and upload the single sheet.
@@ -256,6 +335,7 @@ async function buildPerMarketplaceTemplates() {
 }
 
 await buildInventoryTemplate();
+await buildShsTemplate();
 await buildSalesTemplate();
 await buildPerMarketplaceTemplates();
 console.log('\nTemplates written. They are parsed by src/__tests__/lib/templates.test.ts on every test run.');

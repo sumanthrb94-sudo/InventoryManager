@@ -62,6 +62,61 @@ describe('INVENTORY_REPORT_TEMPLATE.xlsx', () => {
   });
 });
 
+describe('SHS_STOCK_TEMPLATE.xlsx — the report that marks supplier-held stock', () => {
+  const SHS_TEMPLATE = 'templates/SHS_STOCK_TEMPLATE.xlsx';
+
+  it('uses the same schema as the inventory importer', () => {
+    expect(existsSync(SHS_TEMPLATE), `${SHS_TEMPLATE} missing — run scripts/generateImportTemplates.mjs`).toBe(true);
+    const wb = XLSX.read(readFileSync(SHS_TEMPLATE), { type: 'buffer' });
+    const rows = XLSX.utils.sheet_to_json(wb.Sheets['INVENTORY'], { header: 1 }) as any[][];
+    expect(rows[0]).toEqual([
+      'Stock In Date', 'Model', 'IMEI', 'Grade', 'Storage',
+      'SIM Type', 'Colour', 'Supplier', 'BP', 'Stock Type', 'Notes',
+    ]);
+  });
+
+  it('marks EVERY row SHS — that is the whole point of the file', () => {
+    const wb = XLSX.read(readFileSync(SHS_TEMPLATE), { type: 'buffer' });
+    const rows = (XLSX.utils.sheet_to_json(wb.Sheets['INVENTORY'], { header: 1 }) as any[][])
+      .slice(1).filter(r => r?.length);
+    expect(rows.length).toBeGreaterThan(0);
+    for (const r of rows) expect(String(r[9]).toUpperCase()).toBe('SHS');
+  });
+
+  it('ships rows that would import cleanly', () => {
+    const wb = XLSX.read(readFileSync(SHS_TEMPLATE), { type: 'buffer' });
+    const rows = (XLSX.utils.sheet_to_json(wb.Sheets['INVENTORY'], { header: 1 }) as any[][])
+      .slice(1).filter(r => r?.length);
+    for (const [, model, imei, , , , , supplier, bp] of rows) {
+      expect(String(model || '').trim()).not.toBe('');
+      expect(String(supplier || '').trim()).not.toBe('');
+      expect(Number(bp)).toBeGreaterThan(0);
+      expect(String(imei)).toMatch(/^(\d{15}|[A-Z0-9]{10,12})$/);
+    }
+  });
+
+  it('documents the three ways a unit leaves SHS', () => {
+    const wb = XLSX.read(readFileSync(SHS_TEMPLATE), { type: 'buffer' });
+    const readme = (XLSX.utils.sheet_to_json(wb.Sheets['README'], { header: 1 }) as any[][])
+      .flat().filter(Boolean).map(String).join(' ');
+    expect(readme).toMatch(/Receive/i);        // 1. it arrives
+    expect(readme).toMatch(/Sales Report/i);   // 2. supplier ships direct
+    expect(readme).toMatch(/cancel/i);         // 3. supplier cancels
+    // And the trap that cost us a bug
+    expect(readme).toMatch(/Writing "SHS" here does NOT mark the row/i);
+  });
+
+  it('the SHS sample carries only supplier-held rows', () => {
+    const path = 'templates/samples/SHS_STOCK_SAMPLE.xlsx';
+    expect(existsSync(path), `${path} missing — run scripts/generateE2EWorkbooks.mjs`).toBe(true);
+    const wb = XLSX.read(readFileSync(path), { type: 'buffer' });
+    const rows = (XLSX.utils.sheet_to_json(wb.Sheets['INVENTORY'], { header: 1 }) as any[][])
+      .slice(1).filter(r => r?.length);
+    expect(rows).toHaveLength(10);
+    for (const r of rows) expect(String(r[9]).toUpperCase()).toBe('SHS');
+  });
+});
+
 describe('per-marketplace SALES templates', () => {
   const MARKETPLACES = ['AMAZON', 'BM', 'EBAY', 'ONBUY'] as const;
 

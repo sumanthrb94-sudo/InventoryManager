@@ -11,11 +11,13 @@ export from the app  →  edit in Excel  →  re-import  →  same data, no loss
 | File | Use it for |
 |---|---|
 | `INVENTORY_REPORT_TEMPLATE.xlsx` | Adding or updating stock in bulk (office **and** SHS) |
+| `SHS_STOCK_TEMPLATE.xlsx` | **Marking supplier-held stock** — same importer, every row pre-set to SHS |
 | `SALES_REPORT_TEMPLATE.xlsx` | Backfilling sales — combined workbook, one sheet per marketplace |
 | `SALES_AMAZON_TEMPLATE.xlsx` etc. | **One file per channel** — the usual case, since marketplaces report separately |
 | `samples/INVENTORY_REPORT_SAMPLE.xlsx` | 120 realistic rows (110 office + 10 SHS) — compare your file against it |
 | `samples/SALES_REPORT_SAMPLE.xlsx` | 100 realistic sales across all four marketplaces |
 | `samples/SALES_AMAZON_SAMPLE.xlsx` etc. | The same rows split per channel — 25-26 each |
+| `samples/SHS_STOCK_SAMPLE.xlsx` | The 10 supplier-held rows the upload test drives |
 | `samples/RETURNS_REPORT_REFERENCE.xlsx` | Returns export shape. **Export only — there is no returns importer** |
 
 Templates are the *blank* standard to build from; samples are *filled* files at
@@ -132,13 +134,36 @@ three sheets — Summary, Returns Detail, Unit Histories.
 | Shipping Legs | refund and repair = 2 (out + back); replacement = 3 (out + back + replacement out) |
 | Postage Loss £ | Leg Cost × Shipping Legs |
 
+## Marking stock as SHS
+
+`SHS_STOCK_TEMPLATE.xlsx` is the report for stock a supplier is **holding**
+that has not arrived. It goes through the same importer as the Inventory
+Report — there is only one stock importer — and the `Stock Type` column is
+what makes the rows supplier-held. Units land as **incoming** and appear under
+the SHS tile, never on the office shelf.
+
+**IMEI is required, same as any stock row.** Without it, the sale that
+eventually fulfils the unit has nothing to match. If the supplier has not sent
+IMEIs yet, don't invent them.
+
+**Supplier must be right.** It's how the SHS master row is matched when the
+unit is later fulfilled.
+
+An SHS unit leaves SHS in exactly three ways:
+
+1. **It arrives** → Receive it (Buy → SHS tile → Receive). It becomes office stock.
+2. **The supplier ships it straight to the customer** → it turns up on a Sales
+   Report. The import marks it sold, keeps it tagged as an *SHS* sale, removes
+   the placeholder and decrements the master row — so the SHS count drops.
+3. **The supplier cancels** → an admin deletes it from the SHS overlay.
+
 ## Model names are decided in Configuration
 
 Create the canonical model name once, under **Admin → Configuration**. That
-spelling then wins everywhere: Model Reconciliation proposes the catalog name
-even when more units are spelled some other way, so applying it is permanent
-and the same cluster does not re-open after the next import. Reconciliation
-only falls back to a majority vote for models that are not in the catalog.
+spelling is then applied automatically on every inventory import, so data
+arrives consistent and never needs cleaning up afterwards. Models absent from
+the catalog import exactly as typed. (The old manual "Reconcile Models" screen
+was removed once this became automatic.)
 
 ## Regenerating
 

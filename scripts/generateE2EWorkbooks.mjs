@@ -168,6 +168,18 @@ for (const m of MARKETPLACES) {
 }
 XLSX.writeFile(salesWb, `${OUT}/SALES_REPORT_SAMPLE.xlsx`);
 
+// ── SHS-only sample ─────────────────────────────────────────────────────────
+// The supplier-held rows of the inventory sample, on their own. This is the
+// file the upload test proves lands as SHS (10 units) and survives the sales
+// import — and the shape to send a supplier when confirming a holding.
+const shsUnits = units.filter(u => u.stockType === 'SHS');
+const shsWb = XLSX.utils.book_new();
+XLSX.utils.book_append_sheet(shsWb, XLSX.utils.aoa_to_sheet([
+  INVENTORY_HEADERS,
+  ...shsUnits.map(u => [u.dateIn, u.model, u.imei, u.grade, u.storage, u.simType, u.colour, u.supplier, u.bp, u.stockType, u.notes]),
+]), 'INVENTORY');
+XLSX.writeFile(shsWb, `${OUT}/SHS_STOCK_SAMPLE.xlsx`);
+
 // ── Per-marketplace sample files ─────────────────────────────────────────────
 // One file per channel, the shape marketplaces actually send. Same rows as
 // the combined workbook's matching sheet, so a per-channel upload and a
@@ -222,5 +234,6 @@ console.log(`sales:     ${SALE_COUNT} rows + 1 duplicate across ${MARKETPLACES.j
 for (const m of MARKETPLACES) console.log(`  ${m}: ${bySheet[m].length} rows`);
 console.log(`orphan sales (no matching unit): 10`);
 console.log(`SHS fulfilment: 1 sale against a supplier-held unit`);
+console.log(`shs-only:   ${OUT}/SHS_STOCK_SAMPLE.xlsx (${shsUnits.length} supplier-held rows)`);
 for (const m of MARKETPLACES) console.log(`per-channel: ${OUT}/SALES_${m}_SAMPLE.xlsx (${bySheet[m].length} rows)`);
 console.log(`returns:    ${OUT}/RETURNS_REPORT_REFERENCE.xlsx (export-only reference)`);
