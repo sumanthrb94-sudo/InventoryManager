@@ -14,6 +14,7 @@ import {
 import { notificationService, Notification } from '../lib/notificationService';
 import { marketplaceFromListingSite } from '../lib/platforms';
 import { recomputeSale } from '../lib/recomputeSale';
+import { mergeSalesWithSoldUnits } from '../lib/unifiedSales';
 import { fmtDateForUser, useUserRegion } from '../lib/userLocale';
 import AddSoldUnitModal from './AddSoldUnitModal';
 import EditableCell from './EditableCell';
@@ -195,29 +196,21 @@ export default function Sales() {
   // ────────────────────────────────────────────────────────────────────────
   // Source: imported sales + legacy in-app sold units, recomputed live
   // ────────────────────────────────────────────────────────────────────────
-  const legacyInAppSales = useMemo<Sale[]>(() => {
-    return units
-      .filter(u => u.status === 'sold' && (u.salePrice != null || u.saleDate))
-      .map(inventoryUnitToSale);
-  }, [units]);
-
-  /** Master list: imported sales (1,450) + legacy in-app sold units,
-   *  every row passed through recomputeSale() so commission/GP/GP% are
-   *  always live with current MARKETPLACE_FEES. */
-  const allSales = useMemo<Sale[]>(() => {
-    const merged: Sale[] = [];
-    const seen = new Set<string>();
-    for (const s of sales) {
-      merged.push(recomputeSale(s));
-      seen.add(s.id);
-    }
-    for (const s of legacyInAppSales) {
-      // Don't double-count if an imported sale and a legacy unit share an id
-      if (seen.has(s.id)) continue;
-      merged.push(recomputeSale(s));
-    }
-    return merged;
-  }, [sales, legacyInAppSales]);
+  /** Master list: Sale docs + legacy in-app sold units, every row passed
+   *  through recomputeSale() so commission/GP/GP% are live with current
+   *  MARKETPLACE_FEES.
+   *
+   *  The dedupe used to compare a synthesised row's id against the set of
+   *  Sale doc ids. A synthesised row's id is the UNIT id; a Sale doc's id is
+   *  `marketplace__orderNumber__imei`. Those id spaces cannot collide, so the
+   *  guard never fired and every imported sale that matched a unit was listed
+   *  twice — 101 sales and 93 sold units rendered as 194 rows, with revenue
+   *  and GP inflated to match. mergeSalesWithSoldUnits checks the unit id and
+   *  the marketplace+order key as well, which is what SellSheet always did. */
+  const allSales = useMemo<Sale[]>(
+    () => mergeSalesWithSoldUnits(sales, units, inventoryUnitToSale, recomputeSale),
+    [sales, units],
+  );
 
   // ────────────────────────────────────────────────────────────────────────
   // Apply scope → marketplace filter → search → sort
