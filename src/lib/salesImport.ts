@@ -48,9 +48,25 @@ export interface ParsedSales {
  * @param sourceFile  Logical name of the source file, stored on every parsed
  *                    sale for provenance (e.g. "SALES_REPORT_2026.xlsx").
  */
+export interface ParseSalesOptions {
+  /**
+   * Parse the workbook as a SINGLE marketplace.
+   *
+   * Marketplaces send their reports separately, so an operator usually
+   * has one file per channel rather than one workbook with four sheets.
+   * With this set we look for that marketplace's sheet by name and, if
+   * the workbook doesn't have one, fall back to its FIRST sheet — an
+   * Amazon export named "Sheet1" is still an Amazon report. The other
+   * three marketplaces are not looked for at all, so a single-channel
+   * upload no longer reports three "sheet missing" errors.
+   */
+  onlyMarketplace?: Marketplace;
+}
+
 export async function parseSalesWorkbook(
   file: File | ArrayBuffer,
   sourceFile: string,
+  options: ParseSalesOptions = {},
 ): Promise<ParsedSales> {
   const buf: ArrayBuffer = file instanceof ArrayBuffer ? file : await file.arrayBuffer();
   // NOTE: no `cellDates` — we want date cells as raw Excel SERIALS (numbers), so
@@ -77,8 +93,16 @@ export async function parseSalesWorkbook(
   // immediately at parse time instead of leaking into Firestore unnoticed.
   const spSum: Record<Marketplace, number> = { AMAZON: 0, BM: 0, EBAY: 0, ONBUY: 0 };
 
-  for (const marketplace of MARKETPLACES) {
-    const sheetName = findSheetName(wb, marketplace);
+  const targets: readonly Marketplace[] = options.onlyMarketplace
+    ? [options.onlyMarketplace]
+    : MARKETPLACES;
+
+  for (const marketplace of targets) {
+    // Single-marketplace mode: a named sheet still wins, but a one-sheet
+    // export straight from the channel rarely has one, so fall back to the
+    // first sheet rather than rejecting a perfectly good file.
+    const sheetName = findSheetName(wb, marketplace)
+      ?? (options.onlyMarketplace ? wb.SheetNames[0] : undefined);
     if (!sheetName) {
       errors.push({ sheet: marketplace, row: 0, message: `sheet "${marketplace}" missing from workbook` });
       continue;

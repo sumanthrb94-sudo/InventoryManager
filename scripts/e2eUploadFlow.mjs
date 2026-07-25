@@ -23,6 +23,7 @@ import { resolve } from 'node:path';
 const BASE = process.env.E2E_BASE_URL || 'http://localhost:4173';
 const OUT = 'e2e-screenshots/upload-flow';
 const INVENTORY_FILE = resolve('templates/samples/INVENTORY_REPORT_SAMPLE.xlsx');
+const AMAZON_FILE = resolve('templates/SALES_AMAZON_TEMPLATE.xlsx');
 const SALES_FILE = resolve('templates/samples/SALES_REPORT_SAMPLE.xlsx');
 
 if (!existsSync(OUT)) mkdirSync(OUT, { recursive: true });
@@ -45,6 +46,18 @@ async function shot(page, name) {
  *  matching the page chrome sitting behind the dim layer. */
 function modal(page) {
   return page.locator('div.fixed.inset-0[class*="z-["]').last();
+}
+
+async function dismissModals(page) {
+  for (let i = 0; i < 3; i++) {
+    const overlay = page.locator('div.fixed.inset-0[class*="z-["]').last();
+    if (!(await overlay.isVisible().catch(() => false))) break;
+    await page.keyboard.press('Escape');
+    await page.waitForTimeout(250);
+    const close = page.locator('button:has-text("Cancel"), button[aria-label*="lose" i]').last();
+    if (await close.isVisible().catch(() => false)) await close.click().catch(() => {});
+    await page.waitForTimeout(350);
+  }
 }
 
 async function gotoTab(page, label) {
@@ -167,7 +180,34 @@ async function run() {
     'Stock Type column');
   await shot(page, 'buy-after-inventory-import');
 
-  // ── 3. Sales upload ───────────────────────────────────────────────────────
+  // ── 2b. Per-marketplace sales upload ─────────────────────────────────────
+  // Channels send reports separately, so this is the common shape: pick
+  // AMAZON, upload a single-sheet export.
+  await openImportMenu(page);
+  await page.getByRole('menuitem', { name: /Sales Report/i }).click();
+  await page.waitForTimeout(800);
+  await shot(page, 'sales-marketplace-picker');
+  const amazonChip = modal(page).getByRole('button', { name: /^AMAZON$/i }).first();
+  record('sales import offers a marketplace picker',
+    await amazonChip.isVisible().catch(() => false));
+  await amazonChip.click();
+  await page.waitForTimeout(400);
+  await shot(page, 'sales-amazon-selected');
+
+  await page.locator('input[type="file"]').first().setInputFiles(AMAZON_FILE);
+  await page.waitForTimeout(3500);
+  await shot(page, 'sales-amazon-preview');
+  const amazonPreview = await page.locator('body').innerText();
+  record('single-marketplace upload parses with no "missing sheet" errors',
+    !/missing from workbook/i.test(amazonPreview));
+  record('single-marketplace upload is parsed as AMAZON', /AMAZON/.test(amazonPreview));
+
+  // Back out — the combined workbook below is the one this run reconciles.
+  await modal(page).getByRole('button', { name: /^Cancel$/i }).last().click().catch(() => {});
+  await page.waitForTimeout(600);
+  await dismissModals(page);
+
+  // ── 3. Sales upload (combined workbook) ──────────────────────────────────
   await openImportMenu(page);
   await page.getByRole('menuitem', { name: /Sales Report/i }).click();
   await page.waitForTimeout(700);

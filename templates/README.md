@@ -11,7 +11,8 @@ export from the app  →  edit in Excel  →  re-import  →  same data, no loss
 | File | Use it for |
 |---|---|
 | `INVENTORY_REPORT_TEMPLATE.xlsx` | Adding or updating stock in bulk (office **and** SHS) |
-| `SALES_REPORT_TEMPLATE.xlsx` | Backfilling sales from AMAZON / BM / EBAY / ONBUY |
+| `SALES_REPORT_TEMPLATE.xlsx` | Backfilling sales — combined workbook, one sheet per marketplace |
+| `SALES_AMAZON_TEMPLATE.xlsx` etc. | **One file per channel** — the usual case, since marketplaces report separately |
 | `samples/INVENTORY_REPORT_SAMPLE.xlsx` | 120 realistic rows — compare your file against it |
 | `samples/SALES_REPORT_SAMPLE.xlsx` | 100 realistic sales across all four marketplaces |
 
@@ -68,6 +69,23 @@ Nothing duplicates, and a processed return is not undone by a re-import.
 | Stock Type | No | `OFFICE` (default) or `SHS`. Also accepts `INCOMING`, `SUPPLIER`, `Y`, `YES`, `TRUE`, `1`. |
 | Notes | No | Free text. |
 
+## Uploading one marketplace at a time
+
+Marketplaces send their reports separately, so you rarely have a single
+workbook with four sheets. In **Import → Sales Report**, pick the marketplace
+before choosing the file:
+
+- Only that marketplace's layout is applied — no guessing from the sheet name.
+- The sheet does **not** have to be named `AMAZON`; with a marketplace selected
+  the first sheet is used, so a raw channel export works as-is.
+- The other three marketplaces are not looked for, so a single-channel upload
+  no longer reports three "sheet missing" errors.
+- Record ids are identical to the combined path, so uploading per-channel today
+  and a combined file next month **updates the same rows** rather than
+  duplicating them.
+
+Leave the picker on **All marketplaces** for a combined four-sheet workbook.
+
 ## Sales report — one sheet per marketplace
 
 Column order differs per marketplace and is **not** interchangeable:
@@ -89,6 +107,14 @@ Two behaviours worth knowing:
   chargebacks and disputes. Cell fill is the only way to set it.
 
 ---
+
+## Model names are decided in Configuration
+
+Create the canonical model name once, under **Admin → Configuration**. That
+spelling then wins everywhere: Model Reconciliation proposes the catalog name
+even when more units are spelled some other way, so applying it is permanent
+and the same cluster does not re-open after the next import. Reconciliation
+only falls back to a majority vote for models that are not in the catalog.
 
 ## Regenerating
 

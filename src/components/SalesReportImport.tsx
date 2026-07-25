@@ -358,6 +358,8 @@ export default function SalesReportImport({ onClose }: Props) {
    *  recomputes off live `sales`, so by the time the Done screen renders
    *  every row already exists and it reported "0 created · N updated" for
    *  a file of brand-new sales. */
+  /** Which marketplace this upload is. null = combined four-sheet workbook. */
+  const [channel, setChannel] = useState<Marketplace | null>(null);
   const [writeStats, setWriteStats] = useState<{ created: number; updated: number; skipped: number }>(
     { created: 0, updated: 0, skipped: 0 },
   );
@@ -412,9 +414,16 @@ export default function SalesReportImport({ onClose }: Props) {
     setError('');
     setFileName(file.name);
     try {
-      const out = await parseSalesWorkbook(file, file.name);
+      const out = await parseSalesWorkbook(file, file.name, {
+        onlyMarketplace: channel ?? undefined,
+      });
       if (out.sales.length === 0 && out.errors.length === 0) {
-        throw new Error('No AMAZON / BM / EBAY / ONBUY sheets found in this workbook.');
+        throw new Error(channel
+          ? `No readable ${channel} rows in this file.`
+          : 'No AMAZON / BM / EBAY / ONBUY sheets found in this workbook.');
+      }
+      if (out.sales.length === 0 && channel) {
+        throw new Error(`No ${channel} rows parsed — check the header row matches the ${channel} layout.`);
       }
       setParsed(out);
       setPhase('preview');
@@ -613,7 +622,13 @@ export default function SalesReportImport({ onClose }: Props) {
 
         <div className="flex-1 overflow-auto p-5 space-y-4">
           {phase === 'upload' && (
-            <UploadPhase error={error} fileInputRef={fileInputRef} onPick={handleFile} />
+            <UploadPhase
+              error={error}
+              fileInputRef={fileInputRef}
+              onPick={handleFile}
+              channel={channel}
+              onChannelChange={setChannel}
+            />
           )}
 
           {phase === 'preview' && preview && (
@@ -785,22 +800,68 @@ export default function SalesReportImport({ onClose }: Props) {
 
 // ── Phase: upload ───────────────────────────────────────────────────────────
 function UploadPhase({
-  error, fileInputRef, onPick,
+  error, fileInputRef, onPick, channel, onChannelChange,
 }: {
   error: string;
   fileInputRef: React.RefObject<HTMLInputElement | null>;
   onPick: (file: File) => void;
+  /** null = combined workbook with one sheet per marketplace. */
+  channel: Marketplace | null;
+  onChannelChange: (m: Marketplace | null) => void;
 }) {
   return (
     <>
+      {/* Marketplace picker. Channels send their reports separately, so a
+          one-file-per-marketplace upload is the common case; the combined
+          four-sheet workbook is the exception, not the default shape. */}
+      <div className="bg-white border border-slate-200 rounded-2xl p-3 space-y-2">
+        <p className="text-[10px] font-bold uppercase tracking-widest text-slate-500">
+          What are you uploading?
+        </p>
+        <div className="flex flex-wrap gap-1.5">
+          <button
+            onClick={() => onChannelChange(null)}
+            className={`px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-widest border transition-all ${
+              channel === null
+                ? 'bg-slate-900 text-white border-slate-900'
+                : 'bg-white text-slate-600 border-slate-200 hover:border-slate-400'
+            }`}
+          >
+            All marketplaces
+          </button>
+          {MARKETPLACES.map(m => (
+            <button
+              key={m}
+              onClick={() => onChannelChange(m)}
+              className={`px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-widest border transition-all ${
+                channel === m
+                  ? 'bg-emerald-600 text-white border-emerald-600'
+                  : 'bg-white text-slate-600 border-slate-200 hover:border-slate-400'
+              }`}
+            >
+              {m}
+            </button>
+          ))}
+        </div>
+        <p className="text-[10px] font-mono text-slate-500 leading-relaxed">
+          {channel === null
+            ? 'Combined workbook — one sheet per marketplace, named AMAZON / BM / EBAY / ONBUY.'
+            : `Single ${channel} export. The sheet does not have to be named ${channel} — the first sheet is used when there is no match, so a file straight from ${channel} works as-is.`}
+        </p>
+      </div>
+
       <button
         onClick={() => fileInputRef.current?.click()}
         className="w-full border-2 border-dashed border-slate-200 hover:border-emerald-400 rounded-2xl py-12 flex flex-col items-center gap-2 text-slate-500 hover:text-emerald-700 transition-all"
       >
         <Upload size={28} />
-        <p className="text-[12px] font-bold">Drop a SALES_REPORT.xlsx, or click to pick</p>
+        <p className="text-[12px] font-bold">
+          {channel === null ? 'Drop a SALES_REPORT.xlsx, or click to pick' : `Drop your ${channel} export, or click to pick`}
+        </p>
         <p className="text-[10px] font-mono text-slate-400">
-          AMAZON / BM / EBAY / ONBUY sheets · the ALL sheet is ignored
+          {channel === null
+            ? 'AMAZON / BM / EBAY / ONBUY sheets · the ALL sheet is ignored'
+            : `Parsed with the ${channel} column layout`}
         </p>
       </button>
       <input

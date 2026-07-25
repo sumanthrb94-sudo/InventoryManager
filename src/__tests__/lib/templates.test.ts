@@ -62,6 +62,29 @@ describe('INVENTORY_REPORT_TEMPLATE.xlsx', () => {
   });
 });
 
+describe('per-marketplace SALES templates', () => {
+  const MARKETPLACES = ['AMAZON', 'BM', 'EBAY', 'ONBUY'] as const;
+
+  it.each(MARKETPLACES)('SALES_%s_TEMPLATE.xlsx parses as that marketplace alone', async (m) => {
+    const path = `templates/SALES_${m}_TEMPLATE.xlsx`;
+    expect(existsSync(path), `${path} missing — run scripts/generateImportTemplates.mjs`).toBe(true);
+    const file = new File([readFileSync(path)], `SALES_${m}_TEMPLATE.xlsx`);
+
+    const parsed = await parseSalesWorkbook(file, `SALES_${m}_TEMPLATE.xlsx`, { onlyMarketplace: m });
+
+    // No row errors AND no "missing sheet" noise for the other three.
+    expect(parsed.errors).toEqual([]);
+    expect(parsed.sales.length).toBeGreaterThan(0);
+    expect(parsed.sales.every(s => s.marketplace === m)).toBe(true);
+  });
+
+  it.each(MARKETPLACES)('SALES_%s_TEMPLATE.xlsx documents its columns', (m) => {
+    const wb = XLSX.read(readFileSync(`templates/SALES_${m}_TEMPLATE.xlsx`), { type: 'buffer' });
+    expect(wb.SheetNames).toContain('README');
+    expect(wb.SheetNames).toContain(m);
+  });
+});
+
 describe('SALES_REPORT_TEMPLATE.xlsx', () => {
   it('parses through the production parser with no row errors', async () => {
     expect(existsSync(SALES_TEMPLATE), `${SALES_TEMPLATE} missing — run scripts/generateImportTemplates.mjs`).toBe(true);

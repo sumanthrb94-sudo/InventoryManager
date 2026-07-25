@@ -48,14 +48,20 @@ function detectCategory(model: string): DeviceCategory {
 }
 
 export default function ModelReconciliation() {
-  const { units, aggregates, sales } = useInventoryStore();
+  const { units, aggregates, sales, models } = useInventoryStore();
   const isAdmin = useIsAdmin();
 
   /** Cluster list from the live store + per-cluster overrides. We seed
    *  the override map lazily — only when the admin actually changes the
    *  canonical — so the default canonical stays in sync with the live
    *  data and doesn't go stale across re-renders. */
-  const baseClusters = useMemo(() => buildReconciliationClusters(units, aggregates, sales), [units, aggregates, sales]);
+  // `models` is the admin catalog from Configuration. Passing it makes an
+  // admin-created name the canonical outright, so this tool enforces the
+  // decision instead of re-litigating it by majority vote on every import.
+  const baseClusters = useMemo(
+    () => buildReconciliationClusters(units, aggregates, sales, models),
+    [units, aggregates, sales, models],
+  );
   const [overrides, setOverrides] = useState<Record<string, string>>({});
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [applying, setApplying] = useState(false);

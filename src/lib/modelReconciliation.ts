@@ -9,9 +9,16 @@
  * the device catalog collapses its entries, the operator stops seeing
  * "GALAXY S23" + "S23" as two products.
  *
- * Single-variant clusters are dropped from the output — nothing to fix.
+ * Single-variant clusters are dropped from the output — UNLESS the one
+ * variant disagrees with the admin catalog, which is still a fix.
  *
  * Canonical pick (deterministic):
+ *   0. The ADMIN CATALOG spelling, when the cluster matches an entry in
+ *      the `models` collection. This is the permanent fix: an admin who
+ *      creates "Galaxy S23" in Configuration decides the name for good.
+ *      Majority vote used to win, so 10 units spelling it "GALAXY S23"
+ *      overruled the catalog and the tool proposed undoing the admin's
+ *      own decision — every import re-opened the same cluster.
  *   1. Most-frequent raw variant in the cluster (by unit count).
  *   2. Tie-break: longest string (more info — "Galaxy S23" beats "S23").
  *   3. Final tie-break: alpha for stability.
@@ -23,6 +30,40 @@
  */
 import type { InventoryUnit, InventoryAggregate, Sale } from '../types';
 import { normalizeBucketModel, parseBrandModelStorage } from './modelStorage';
+
+/** An entry from the admin-curated `models` collection. Only the two
+ *  fields the canonical decision needs. */
+export interface CatalogModel {
+  brand?: string;
+  model?: string;
+}
+
+/** Bucket key shared by the cluster builder and the catalog index, so a
+ *  catalog entry lands on the same key as the units it governs. */
+function bucketKey(brand: string, model: string): string {
+  return `${(brand || '').toLowerCase()}||${normalizeBucketModel(model)}`;
+}
+
+/**
+ * Index the admin catalog by bucket key → the spelling the admin chose.
+ * Later entries lose to earlier ones so the result is stable regardless
+ * of document order.
+ */
+export function buildCatalogIndex(catalog: CatalogModel[] = []): Map<string, string> {
+  const index = new Map<string, string>();
+  for (const c of catalog) {
+    const model = String(c?.model || '').trim();
+    if (!model) continue;
+    const brand = String(c?.brand || '').trim();
+    const key = bucketKey(brand, model);
+    if (!index.has(key)) index.set(key, model);
+    // Also index brand-less, so a unit whose brand never got parsed still
+    // finds its catalog entry.
+    const looseKey = bucketKey('', model);
+    if (!index.has(looseKey)) index.set(looseKey, model);
+  }
+  return index;
+}
 
 export interface ModelClusterVariant {
   /** Raw model string verbatim — exactly what the unit doc carries. */
@@ -40,10 +81,15 @@ export interface ModelCluster {
   key: string;
   /** Brand shown in the row (first non-empty seen in the cluster). */
   brand: string;
-  /** Operator-chosen canonical raw string. Default = most-frequent
-   *  variant (longest on tie, alpha on second tie). The admin can
-   *  override this in the UI before pressing Apply. */
+  /** Operator-chosen canonical raw string. Default = the admin catalog
+   *  spelling when one exists, else the most-frequent variant (longest
+   *  on tie, alpha on second tie). The admin can override this in the
+   *  UI before pressing Apply. */
   canonical: string;
+  /** True when `canonical` came from the admin catalog rather than a
+   *  vote. The UI badges these so the operator knows the name is
+   *  already decided and Apply is just enforcing it. */
+  canonicalFromCatalog: boolean;
   /** Every distinct raw `unit.model` value in this cluster, with its
    *  doc-id list. Ordered by count desc, then by length desc, then
    *  alpha asc — matches the canonical-pick ordering so the default
@@ -58,8 +104,10 @@ export interface ModelCluster {
 export function buildReconciliationClusters(
   units: InventoryUnit[] = [],
   aggregates: InventoryAggregate[] = [],
-  sales: Sale[] = []
+  sales: Sale[] = [],
+  catalog: CatalogModel[] = [],
 ): ModelCluster[] {
+  const catalogIndex = buildCatalogIndex(catalog);
   type Bucket = {
     key: string;
     brand: string;
@@ -127,7 +175,11 @@ export function buildReconciliationClusters(
 
   const out: ModelCluster[] = [];
   for (const b of map.values()) {
-    if (b.variants.size < 2) continue;
+    const catalogName = catalogIndex.get(b.key) ?? catalogIndex.get(bucketKey('', firstVariantOf(b.variants)));
+    // A single variant is only a no-op when it already matches the
+    // catalog. One variant spelled differently from the admin's chosen
+    // name is still a cluster worth fixing.
+    if (b.variants.size < 2 && (!catalogName || b.variants.has(catalogName))) continue;
     const variants: ModelClusterVariant[] = Array.from(b.variants.entries())
       .map(([rawModel, v]) => ({ 
         rawModel, 
@@ -145,15 +197,30 @@ export function buildReconciliationClusters(
     out.push({
       key: b.key,
       brand: b.brand,
-      canonical: variants[0].rawModel,
+      // Catalog wins outright — including when no unit uses that
+      // spelling yet, which is exactly the "admin decided the name in
+      // Configuration" case.
+      canonical: catalogName || variants[0].rawModel,
+      canonicalFromCatalog: !!catalogName,
       variants,
       totalUnits,
     });
   }
 
-  // Largest clusters first — operator triages biggest impact first.
-  out.sort((a, b) => b.totalUnits - a.totalUnits || a.brand.localeCompare(b.brand));
+  // Catalog-backed clusters first (the name is already decided, so these
+  // are pure enforcement), then largest — biggest impact first.
+  out.sort((a, b) =>
+    Number(b.canonicalFromCatalog) - Number(a.canonicalFromCatalog)
+    || b.totalUnits - a.totalUnits
+    || a.brand.localeCompare(b.brand));
   return out;
+}
+
+/** First raw variant of a bucket — used only to probe the catalog with a
+ *  brand-less key when the brand never parsed. */
+function firstVariantOf(variants: Map<string, unknown>): string {
+  for (const k of variants.keys()) return k;
+  return '';
 }
 
 export type PatchTarget = { collection: 'inventoryUnits' | 'inventoryAggregates' | 'sales'; id: string; model: string };

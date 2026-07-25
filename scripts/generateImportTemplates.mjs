@@ -214,6 +214,48 @@ async function buildSalesTemplate() {
   console.log(`${OUT}/SALES_REPORT_TEMPLATE.xlsx — ${counts}`);
 }
 
+/**
+ * Per-marketplace templates. Channels send reports separately, so one
+ * file per channel is the common shape — pick the marketplace in the
+ * import dialog and upload the single sheet.
+ */
+async function buildPerMarketplaceTemplates() {
+  for (const [marketplace, headers] of Object.entries(SALES_LAYOUTS)) {
+    const wb = new ExcelJS.Workbook();
+    wb.creator = 'MOBILEPHONEMARKET Inventory Manager';
+    const sheet = wb.addWorksheet(marketplace);
+    dressSheet(sheet, headers, headers.map(h => (h === 'Comments' ? 28 : h.length < 6 ? 12 : 16)));
+    const rows = SALES_EXAMPLES[marketplace] ?? [];
+    rows.forEach(r => sheet.addRow(r));
+    markExamples(sheet, rows.length);
+
+    addReadme(wb, `${marketplace} SALES — single-marketplace upload template`,
+      [
+        `One sheet, ${marketplace} only. In Import → Sales Report, choose ${marketplace} before picking the file.`,
+        `The sheet does not have to be named ${marketplace} — with a marketplace selected the first sheet is used, so a raw export works as-is.`,
+        'Leave the derived money columns blank: SP-BP, tax, commission, VAT, GP and GP% are all recomputed by the app.',
+        'Record ids match the combined workbook exactly, so uploading per-channel today and a combined file later updates the same rows instead of duplicating them.',
+        'The grey example rows are illustrations — delete them before uploading your own data.',
+      ],
+      [
+        ['Date',         'Yes', 'yyyy-mm-dd', 'Sale date — drives every period figure.'],
+        ['Order Number', 'Yes', 'Free text',  'Marketplace order id. With the IMEI it forms the record key, so re-uploads update rather than duplicate.'],
+        ['SKU',          'No',  'Free text',  'Fallback identifier when IMEI is blank.'],
+        ['IMEI',         'No',  '15 digits, or several separated by " / "', 'Matches the sale to a unit in stock and marks it SOLD. Multi-IMEI cells split into one row per phone with BP/SP divided.'],
+        ['Supplier',     'No',  'Free text',  'Needed only for sales with no matching unit, completed during import.'],
+        ['BP',           'Yes', 'Number > 0', 'Buy price.'],
+        ['SP',           'Yes', 'Number > 0', 'Sale price as the marketplace reports it.'],
+        ['Postage',      'No',  'Number',     marketplace === 'EBAY' ? 'Column is SHIPPING. Values 1, 2 and 8 are read as the standard eBay tiers; anything else is taken literally.' : 'What postage actually cost.'],
+        ['(row colour)', 'No',  'Red fill on Date or Order', 'Imports the row as FLAGGED — the convention for returns, refunds, chargebacks and disputes.'],
+      ],
+    );
+
+    await wb.xlsx.writeFile(`${OUT}/SALES_${marketplace}_TEMPLATE.xlsx`);
+    console.log(`${OUT}/SALES_${marketplace}_TEMPLATE.xlsx — ${headers.length} columns`);
+  }
+}
+
 await buildInventoryTemplate();
 await buildSalesTemplate();
+await buildPerMarketplaceTemplates();
 console.log('\nTemplates written. They are parsed by src/__tests__/lib/templates.test.ts on every test run.');
