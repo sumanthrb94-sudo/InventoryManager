@@ -30,6 +30,7 @@ import {
   InventoryUnit, Sale, Marketplace,
 } from '../types';
 import { useInventoryStore } from '../lib/inventoryStore';
+import { buildVoidedSaleEvents, type VoidedSaleEvent } from '../lib/returnsReconciliation';
 import { recomputeSale } from '../lib/recomputeSale';
 // clientReport is dynamic-imported below — it pulls in ExcelJS (~160 KB
 // gzipped) which we don't want in the entry bundle.
@@ -368,25 +369,13 @@ export default function SellSheet(_props: Props) {
 
   // Separate stream of voided sales — used for the 'returned this period'
   // chip on each Sold tile (informational, never counted as sold).
-  const voidedSales = useMemo<Array<{ voidedAt: string; sale: Sale }>>(() => {
-    const out: Array<{ voidedAt: string; sale: Sale }> = [];
-    // Sales explicitly flagged voided on the doc
-    for (const s of sales) {
-      if (s.voidedAt) out.push({ voidedAt: s.voidedAt, sale: s });
-    }
-    // Fallback for legacy returns: unit has returnType but the sale doc
-    // wasn't patched. Use unit.returnDate as the event date.
-    const seen = new Set<string>(out.map(x => x.sale.id));
-    for (const u of units) {
-      if (!u.returnType || !u.returnDate) continue;
-      const match = sales.find(s => s.unitId === u.id);
-      if (match && !seen.has(match.id)) {
-        out.push({ voidedAt: u.returnDate, sale: match });
-        seen.add(match.id);
-      }
-    }
-    return out;
-  }, [sales, units]);
+  // Built by returnsReconciliation.buildVoidedSaleEvents — shared with
+  // the Returns reconciliation panel, which explains any gap between
+  // this event count and the Returns page's unit count.
+  const voidedSales = useMemo<VoidedSaleEvent[]>(
+    () => buildVoidedSaleEvents(units, sales),
+    [sales, units],
+  );
 
   // ── Date-scoped subset ────────────────────────────────────────────────────
   const scopedSold = useMemo<Sale[]>(() => {
