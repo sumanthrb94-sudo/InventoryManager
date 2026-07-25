@@ -6,7 +6,7 @@ import { InventoryUnit, Supplier } from '../types';
 import { notificationService } from '../lib/notificationService';
 import { generateBatchId, formatBatchId } from '../lib/batchUtils';
 import { useInventoryStore } from '../lib/inventoryStore';
-import { isValidImei, IMEI_REQUIRED_MESSAGE } from '../lib/imeiValidation';
+import { isValidImei, isAppleDevice, IMEI_REQUIRED_MESSAGE } from '../lib/imeiValidation';
 
 interface Props {
   unit: InventoryUnit;
@@ -36,14 +36,24 @@ export default function ReceiveSHSModal({ unit, onClose }: Props) {
     return generateBatchId(supplier?.name || 'Unknown');
   }, [unit.supplierId, suppliers]);
 
-  // Use the shared validator: numeric IMEIs (14-17 digits) and
-  // alphanumeric Apple serials (8-16 chars) are both acceptable.
-  // For batch receives (qty > 1) IMEI is optional (auto-generated per
-  // unit); for single-unit receives an IMEI is REQUIRED — this is the
-  // moment SHS stock transitions from "expected" to "available".
+  // Identifier validation, via the shared validator so this screen agrees
+  // with the importer and the manual-add flow: a 15-digit IMEI always, or
+  // a 10-12 character Apple serial when the device IS an Apple one. The
+  // serial branch needs that context passed explicitly — without it the
+  // field's own placeholder ("or device serial") was a promise the
+  // validator refused to keep.
+  //
+  // For batch receives (qty > 1) the IMEI is optional (auto-generated per
+  // unit); for single-unit receives it is REQUIRED — this is the moment
+  // SHS stock transitions from "expected" to "available".
   const cleanImei = imei.replace(/\D/g, '');
   const isNumeric    = /^\d+$/.test(cleanImei) && cleanImei.length === imei.trim().length;
-  const validInput   = isValidImei(imei);
+  const isAppleModel = isAppleDevice(unit.model || '');
+  const validInput   = isValidImei(imei, { isAppleSerial: isAppleModel });
+  /** A numeric entry the validator accepts — i.e. a complete IMEI. */
+  const numericOk    = isNumeric && validInput;
+  /** A non-numeric entry the validator accepts — an Apple serial. */
+  const alphaSerial  = !isNumeric && validInput;
   const inputOk      = (validInput || (quantity > 1 && !imei.trim())) && quantity >= 1;
   const finalId      = isNumeric ? cleanImei : imei.trim().toUpperCase();
 
@@ -302,7 +312,7 @@ export default function ReceiveSHSModal({ unit, onClose }: Props) {
                 autoFocus
                 value={imei}
                 onChange={e => { setImei(e.target.value); setError(''); }}
-                placeholder={quantity > 1 ? 'Leave blank to auto-generate' : '14-15 digit IMEI or device serial'}
+                placeholder={quantity > 1 ? 'Leave blank to auto-generate' : (isAppleModel ? '15-digit IMEI or Apple serial' : '15-digit IMEI')}
                 maxLength={20}
                 inputMode="text"
                 className={`w-full mt-1 border rounded-xl px-4 py-3 text-sm font-mono focus:outline-none transition-all ${
@@ -314,8 +324,16 @@ export default function ReceiveSHSModal({ unit, onClose }: Props) {
                   {alphaSerial
                     ? `Serial: ${finalId} ✓`
                     : isNumeric
-                      ? `${cleanImei.length} digits ${numericOk ? '✓' : `— need ${14 - cleanImei.length} more`}`
-                      : 'Contains non-numeric chars — treating as serial'}
+                      ? `${cleanImei.length} digits ${
+                          numericOk
+                            ? '✓'
+                            : cleanImei.length < 15
+                              ? `— need ${15 - cleanImei.length} more`
+                              : '— an IMEI is exactly 15 digits'
+                        }`
+                      : isAppleModel
+                        ? 'Apple serial — 10 to 12 characters'
+                        : 'Not a valid IMEI — 15 digits required'}
                 </p>
               )}
             </div>
