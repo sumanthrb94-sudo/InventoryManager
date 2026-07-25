@@ -155,8 +155,58 @@ for (const m of MARKETPLACES) {
 }
 XLSX.writeFile(salesWb, `${OUT}/SALES_REPORT_SAMPLE.xlsx`);
 
+// ── Per-marketplace sample files ─────────────────────────────────────────────
+// One file per channel, the shape marketplaces actually send. Same rows as
+// the combined workbook's matching sheet, so a per-channel upload and a
+// combined upload produce identical records.
+for (const m of MARKETPLACES) {
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([LAYOUTS[m], ...bySheet[m]]), m);
+  XLSX.writeFile(wb, `${OUT}/SALES_${m}_SAMPLE.xlsx`);
+}
+
+// ── Returns report reference ────────────────────────────────────────────────
+// EXPORT ONLY — there is no returns importer. Returns are created in-app
+// through Process Return (Tech-QC → CRM). This file documents the shape the
+// app produces so a report can be checked against it.
+const RETURNS_HEADERS = [
+  'Return Date', 'Unit IMEI', 'Model', 'Storage', 'Colour', 'Supplier',
+  'Original Sale Date', 'Original Sale Price', 'Marketplace',
+  'Return Type', 'Outcome', 'Reason', 'Comments',
+  'Leg Cost £', 'Shipping Legs', 'Postage Loss £',
+];
+const RETURNS_ROWS = [
+  ['2026-07-21', '350100000000000', 'IPHONE 13', '128GB', 'MIDNIGHT', 'MOBILE WHOLESALE LTD',
+   '2026-07-15', 425.00, 'AMAZON', 'returned_to_inventory', 'refund', 'Battery health below 85%',
+   'QC confirmed 79% — restocked', 9.60, 2, 19.20],
+  ['2026-07-22', '350100000015838', 'SAMSUNG GALAXY S22', '128GB', 'GREEN', 'PHONEBOX DIRECT',
+   '2026-07-16', 375.00, 'EBAY', 'repair', 'repair', 'Cracked rear glass in transit',
+   'QC FAILED — sent to bench', 9.60, 2, 19.20],
+  ['2026-07-23', '350100000023757', 'IPHONE 14', '256GB', 'PURPLE', 'CELLHUB TRADING',
+   '2026-07-19', 605.00, 'AMAZON', 'returned_to_inventory', 'replacement', 'Face ID intermittent',
+   'Replacement shipped from stock', 9.60, 3, 28.80],
+];
+const returnsWb = XLSX.utils.book_new();
+XLSX.utils.book_append_sheet(returnsWb, XLSX.utils.aoa_to_sheet([RETURNS_HEADERS, ...RETURNS_ROWS]), 'Returns Detail');
+XLSX.utils.book_append_sheet(returnsWb, XLSX.utils.aoa_to_sheet([
+  ['RETURNS REPORT — reference (EXPORT ONLY)'],
+  [],
+  ['There is no returns importer. Returns are created in-app via Returns → Process Return'],
+  ['(step 1 Tech-QC, step 2 CRM finalise). This file shows the shape the app EXPORTS so a'],
+  ['downloaded report can be checked against it.'],
+  [],
+  ['The live export has three sheets: Summary, Returns Detail, Unit Histories.'],
+  ['Return Type', 'returned_to_inventory | repair | returned_to_supplier'],
+  ['Outcome', 'refund | replacement | repair'],
+  ['Shipping Legs', 'refund and repair = 2 (out + back), replacement = 3 (out + back + replacement out)'],
+  ['Postage Loss £', 'Leg Cost × Shipping Legs'],
+]), 'README');
+XLSX.writeFile(returnsWb, `${OUT}/RETURNS_REPORT_REFERENCE.xlsx`);
+
 const shsCount = units.filter(u => u.stockType === 'SHS').length;
 console.log(`inventory: ${units.length} units (${shsCount} tagged SHS) → ${OUT}/INVENTORY_REPORT_E2E.xlsx`);
 console.log(`sales:     ${SALE_COUNT} rows + 1 duplicate across ${MARKETPLACES.join('/')} → ${OUT}/SALES_REPORT_E2E.xlsx`);
 for (const m of MARKETPLACES) console.log(`  ${m}: ${bySheet[m].length} rows`);
 console.log(`orphan sales (no matching unit): 10`);
+for (const m of MARKETPLACES) console.log(`per-channel: ${OUT}/SALES_${m}_SAMPLE.xlsx (${bySheet[m].length} rows)`);
+console.log(`returns:    ${OUT}/RETURNS_REPORT_REFERENCE.xlsx (export-only reference)`);

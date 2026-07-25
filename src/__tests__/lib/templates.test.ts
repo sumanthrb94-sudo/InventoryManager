@@ -85,6 +85,57 @@ describe('per-marketplace SALES templates', () => {
   });
 });
 
+describe('sample files parse as shipped', () => {
+  const MARKETPLACES = ['AMAZON', 'BM', 'EBAY', 'ONBUY'] as const;
+
+  it.each(MARKETPLACES)('SALES_%s_SAMPLE.xlsx parses as a single-channel upload', async (m) => {
+    const path = `templates/samples/SALES_${m}_SAMPLE.xlsx`;
+    expect(existsSync(path), `${path} missing — run scripts/generateE2EWorkbooks.mjs`).toBe(true);
+    const parsed = await parseSalesWorkbook(
+      new File([readFileSync(path)], `SALES_${m}_SAMPLE.xlsx`),
+      `SALES_${m}_SAMPLE.xlsx`,
+      { onlyMarketplace: m },
+    );
+    expect(parsed.errors.filter(e => e.row > 0)).toEqual([]);
+    expect(parsed.sales.length).toBeGreaterThan(20);
+    expect(parsed.sales.every(s => s.marketplace === m)).toBe(true);
+  });
+
+  it('per-channel samples produce the SAME ids as the combined sample', async () => {
+    // The guarantee that lets a team upload per-channel now and a combined
+    // file later without duplicating a single record.
+    const combined = await parseSalesWorkbook(
+      new File([readFileSync('templates/samples/SALES_REPORT_SAMPLE.xlsx')], 'combined.xlsx'),
+      'combined.xlsx',
+    );
+    const amazonOnly = await parseSalesWorkbook(
+      new File([readFileSync('templates/samples/SALES_AMAZON_SAMPLE.xlsx')], 'amazon.xlsx'),
+      'amazon.xlsx',
+      { onlyMarketplace: 'AMAZON' },
+    );
+    const combinedAmazonIds = new Set(combined.sales.filter(s => s.marketplace === 'AMAZON').map(s => s.id));
+    for (const s of amazonOnly.sales) expect(combinedAmazonIds.has(s.id)).toBe(true);
+  });
+
+  it('the inventory sample carries both stock types', () => {
+    const wb = XLSX.read(readFileSync('templates/samples/INVENTORY_REPORT_SAMPLE.xlsx'), { type: 'buffer' });
+    const rows = XLSX.utils.sheet_to_json(wb.Sheets['INVENTORY'], { header: 1 }) as any[][];
+    const stockTypes = rows.slice(1).map(r => String(r[9] || '').toUpperCase());
+    expect(stockTypes.filter(t => t === 'SHS')).toHaveLength(10);
+    expect(stockTypes.filter(t => t === 'OFFICE')).toHaveLength(110);
+  });
+
+  it('the returns reference documents that it is export-only', () => {
+    const path = 'templates/samples/RETURNS_REPORT_REFERENCE.xlsx';
+    expect(existsSync(path)).toBe(true);
+    const wb = XLSX.read(readFileSync(path), { type: 'buffer' });
+    expect(wb.SheetNames).toContain('Returns Detail');
+    const readme = (XLSX.utils.sheet_to_json(wb.Sheets['README'], { header: 1 }) as any[][])
+      .flat().filter(Boolean).map(String).join(' ');
+    expect(readme).toMatch(/no returns importer/i);
+  });
+});
+
 describe('SALES_REPORT_TEMPLATE.xlsx', () => {
   it('parses through the production parser with no row errors', async () => {
     expect(existsSync(SALES_TEMPLATE), `${SALES_TEMPLATE} missing — run scripts/generateImportTemplates.mjs`).toBe(true);

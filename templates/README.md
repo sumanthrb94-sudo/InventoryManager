@@ -13,8 +13,13 @@ export from the app  →  edit in Excel  →  re-import  →  same data, no loss
 | `INVENTORY_REPORT_TEMPLATE.xlsx` | Adding or updating stock in bulk (office **and** SHS) |
 | `SALES_REPORT_TEMPLATE.xlsx` | Backfilling sales — combined workbook, one sheet per marketplace |
 | `SALES_AMAZON_TEMPLATE.xlsx` etc. | **One file per channel** — the usual case, since marketplaces report separately |
-| `samples/INVENTORY_REPORT_SAMPLE.xlsx` | 120 realistic rows — compare your file against it |
+| `samples/INVENTORY_REPORT_SAMPLE.xlsx` | 120 realistic rows (110 office + 10 SHS) — compare your file against it |
 | `samples/SALES_REPORT_SAMPLE.xlsx` | 100 realistic sales across all four marketplaces |
+| `samples/SALES_AMAZON_SAMPLE.xlsx` etc. | The same rows split per channel — 25-26 each |
+| `samples/RETURNS_REPORT_REFERENCE.xlsx` | Returns export shape. **Export only — there is no returns importer** |
+
+Templates are the *blank* standard to build from; samples are *filled* files at
+realistic volume, and are the exact files the automated upload test drives.
 
 Each template carries a **README sheet** documenting every column: required
 or not, accepted values, and what the importer does with it. Read that sheet
@@ -107,6 +112,25 @@ Two behaviours worth knowing:
   chargebacks and disputes. Cell fill is the only way to set it.
 
 ---
+
+## Returns are not imported
+
+There is no returns importer, by design — a return is a workflow, not a row.
+Returns are created in-app through **Returns → Process Return**: step 1 Tech-QC
+logs the customer complaint and the inspection, step 2 CRM picks the outcome
+(Refund / Replacement / Repair / Return to supplier). Only then is the linked
+sale voided.
+
+`samples/RETURNS_REPORT_REFERENCE.xlsx` documents the shape the app **exports**
+so a downloaded Returns Report can be checked against it. The live export has
+three sheets — Summary, Returns Detail, Unit Histories.
+
+| Field | Values |
+|---|---|
+| Return Type | `returned_to_inventory` · `repair` · `returned_to_supplier` |
+| Outcome | `refund` · `replacement` · `repair` |
+| Shipping Legs | refund and repair = 2 (out + back); replacement = 3 (out + back + replacement out) |
+| Postage Loss £ | Leg Cost × Shipping Legs |
 
 ## Model names are decided in Configuration
 
