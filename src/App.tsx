@@ -5,7 +5,7 @@ import {
   PackagePlus, Package, RefreshCw,
   LogOut, Plus, FileSpreadsheet, LayoutDashboard,
   TrendingUp, FileText, Users, Settings, Database,
-  ClipboardList, Menu, X, Megaphone, SlidersHorizontal, Tag, Receipt,
+  ClipboardList, Menu, X, Megaphone, SlidersHorizontal, Receipt,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import Dashboard, { NavAction } from './components/Dashboard';
@@ -16,9 +16,8 @@ import BuySheet from './components/BuySheet';
 import SellSheet from './components/SellSheet';
 import ReturnsPage from './components/ReturnsPage';
 import NoticeBoard from './components/NoticeBoard';
-import SkuReconciliation from './components/SkuReconciliation';
 import ConfigurationPanel from './components/ConfigurationPanel';
-import VatCentre from './components/VatCentre';
+import MoneySection from './components/MoneySection';
 import { useUnseenNoticesCount } from './hooks/useUnseenNoticesCount';
 import ReportingPage from './components/ReportingPage';
 import AnalyticsPage from './components/AnalyticsPage';
@@ -36,7 +35,7 @@ import { useBuildVersionCheck } from './lib/useBuildVersionCheck';
 import type { SupplierWhatsappUpdate } from './types';
 
 type Tab      = 'notices' | 'buy' | 'sell' | 'returns' | 'admin';
-type AdminSub = 'overview' | 'salesHistory' | 'vat' | 'insights' | 'reports' | 'configuration' | 'skus';
+type AdminSub = 'overview' | 'salesHistory' | 'money' | 'insights' | 'reports' | 'configuration';
 
 interface NavTab {
   id: Tab;
@@ -124,10 +123,10 @@ function LoadingScreen() {
 const ADMIN_SUBS: { id: AdminSub; label: string; icon: React.ReactNode }[] = [
   { id: 'overview',      label: 'Overview',           icon: <LayoutDashboard size={14} /> },
   { id: 'salesHistory',  label: 'Sales History',      icon: <ClipboardList size={14} /> },
-  // VAT sits above Insights on purpose: it is the figure with a filing
-  // deadline attached, and it was the one number the app computed per sale
-  // but never totalled.
-  { id: 'vat',           label: 'VAT',                icon: <Receipt size={14} /> },
+  // Money carries VAT and the capital position. VAT sits first: it is the
+  // figure with a filing deadline attached, and it was computed per sale but
+  // never totalled anywhere in the app.
+  { id: 'money',         label: 'Money',              icon: <Receipt size={14} /> },
   { id: 'insights',      label: 'Insights',           icon: <TrendingUp size={14} /> },
   { id: 'reports',       label: 'Reports',            icon: <FileText size={14} /> },
   // Configuration is the single home for editable admin data —
@@ -136,13 +135,13 @@ const ADMIN_SUBS: { id: AdminSub; label: string; icon: React.ReactNode }[] = [
   // Suppliers sub-tab merged into here so admin edits one screen.
   { id: 'configuration', label: 'Configuration',      icon: <SlidersHorizontal size={14} /> },
   // 'Reconcile Models' removed 2026-07: model names are decided once in
-  // Configuration and applied automatically at import
-  // (canonicaliseModel), so there is no cleanup left for an admin to do
-  // by hand. The clustering logic survives in lib/modelReconciliation —
-  // it is what the importer uses — only the manual screen is gone.
-  // 'SKUs' surfaces inventory units whose persisted model is still a raw
-  // operator SKU code so an admin can clean them up manually or auto-fix.
-  { id: 'skus',          label: 'Reconcile SKUs',     icon: <Tag size={14} /> },
+  // Configuration and applied automatically at import (canonicaliseModel),
+  // so there is no cleanup left for an admin to do by hand.
+  // 'Reconcile SKUs' removed 2026-07 as a top-level tab and folded into
+  // Configuration → Data Health, next to the grade-casing repair and the
+  // broken-record checks. All three do the same job — find records that are
+  // valid but wrong — and an admin fixing one is usually about to fix the
+  // others.
 ];
 
 function AppShell({ user }: { user: User }) {
@@ -690,11 +689,10 @@ function AppShell({ user }: { user: User }) {
                   />
                 )}
                 {activeTab === 'admin' && userIsAdmin && adminSub === 'salesHistory' && <Sales />}
-                {activeTab === 'admin' && userIsAdmin && adminSub === 'vat'          && <VatCentre />}
+                {activeTab === 'admin' && userIsAdmin && adminSub === 'money'        && <MoneySection />}
                 {activeTab === 'admin' && userIsAdmin && adminSub === 'insights'     && <AnalyticsPage />}
                 {activeTab === 'admin' && userIsAdmin && adminSub === 'reports'      && <ReportingPage />}
                 {activeTab === 'admin' && userIsAdmin && adminSub === 'configuration' && <ConfigurationPanel />}
-                {activeTab === 'admin' && userIsAdmin && adminSub === 'skus'          && <SkuReconciliation />}
               </motion.div>
             </AnimatePresence>
           </div>

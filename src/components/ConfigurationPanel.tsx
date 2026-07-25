@@ -24,6 +24,8 @@ import { dbService } from '../lib/dbService';
 import { useIsAdmin } from '../lib/useIsAdmin';
 import { auth } from '../lib/firebase';
 import Suppliers from './Suppliers';
+import DataHealthPanel from './DataHealthPanel';
+import SkuReconciliation from './SkuReconciliation';
 import { useInventoryStore } from '../lib/inventoryStore';
 import { findGradeCasingDrift, fixGradeCasing } from '../lib/migrations/normaliseGradeCasing';
 
@@ -349,8 +351,14 @@ export default function ConfigurationPanel() {
         )}
       </div>
 
-      {/* ── Data hygiene ──────────────────────────────────────────────────── */}
+      {/* ── Data hygiene ──────────────────────────────────────────────────
+          Three tools that do the same job — find records that are valid but
+          wrong, and repair them. They were spread across two admin sections
+          and a stand-alone tab; grouped here because an admin fixing one is
+          usually about to fix the others. */}
+      <DataHealthPanel />
       <GradeCasingPanel />
+      <SkuReconciliation />
 
       {/* ── Suppliers (embedded existing components) ─────────────────────── */}
       <div className="bg-white border border-slate-200 rounded-3xl shadow-sm overflow-hidden">

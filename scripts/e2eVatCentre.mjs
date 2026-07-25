@@ -230,8 +230,12 @@ async function run() {
   // ── Admin → VAT ─────────────────────────────────────────────────────────
   await gotoTab(page, 'Admin');
   await page.waitForTimeout(900);
+  const moneyTab = page.getByRole('button', { name: /^Money$/i }).first();
+  record('Admin has a Money section', await moneyTab.isVisible().catch(() => false));
+  await moneyTab.click();
+  await page.waitForTimeout(1200);
   const vatTab = page.getByRole('button', { name: /^VAT$/i }).first();
-  record('Admin has a VAT section', await vatTab.isVisible().catch(() => false));
+  record('Money opens on VAT', await vatTab.isVisible().catch(() => false));
   await vatTab.click();
   await page.waitForTimeout(1500);
   await shot(page, 'vat-centre');

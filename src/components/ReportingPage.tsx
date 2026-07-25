@@ -86,7 +86,7 @@ function commissionPctFor(platform: string | undefined): number {
   return mp ? getMarketplaceFee(mp).commissionPct : 0;
 }
 
-type ReportTab = 'daily' | 'stock' | 'sales' | 'vat';
+type ReportTab = 'daily' | 'stock';
 
 // ── CSV export helper ─────────────────────────────────────────────────────────
 function exportCSV(filename: string, rows: Record<string, string | number | undefined>[]) {
@@ -205,48 +205,6 @@ export default function ReportingPage() {
   const dailyNetProfit = dailySales.reduce((s, r) =>
     s + (r.grossProfit ?? netProfitFor(r.platform, r.salePrice || 0, r.buyPrice, r.postageCost)), 0);
 
-  // ── VAT MARGIN SCHEME (UK Second-Hand Goods) ─────────────────────────────
-  const now = Date.now();
-  const [vatPeriodDays, setVatPeriodDays] = React.useState(90);
-  const vatSales = useMemo(() => allSalesUnified.rows.filter(r => {
-    return r.date && (now - new Date(r.date).getTime()) <= vatPeriodDays * 86400000;
-  }), [allSalesUnified, vatPeriodDays, now]);
-
-  const vatData = useMemo(() => {
-    let grossMargin = 0;
-    let eligibleSales = 0;
-    let outputVAT = 0;
-    let platformFeesTotal = 0;
-    let inputVAT = 0;
-
-    for (const r of vatSales) {
-      const sp = r.salePrice || 0;
-      const bp = r.buyPrice || 0;
-      const margin = sp - bp;
-      if (margin > 0) {
-        const vatOnMargin = +(margin / 6).toFixed(2);
-        outputVAT += vatOnMargin;
-        grossMargin += margin;
-        eligibleSales++;
-      }
-      const fee = platformFeeFor(r.platform, sp, bp);
-      const feeVAT = +(fee * 0.2 / 1.2).toFixed(2);
-      platformFeesTotal += fee;
-      inputVAT += feeVAT;
-    }
-
-    const netVATPayable = Math.max(0, +(outputVAT - inputVAT).toFixed(2));
-    return {
-      grossMargin,
-      eligibleSales,
-      outputVAT: +outputVAT.toFixed(2),
-      inputVAT: +inputVAT.toFixed(2),
-      netVATPayable,
-      platformFeesTotal: +platformFeesTotal.toFixed(2),
-    };
-  }, [vatSales]);
-
-  const vatRevenue = vatSales.reduce((s, r) => s + (r.salePrice || 0), 0);
 
   // Per-model stock report
   const modelReport = useMemo(() => {
@@ -299,10 +257,13 @@ export default function ReportingPage() {
     .slice(0, 10);
 
   const TABS: { key: ReportTab; label: string }[] = [
+    // Sales Log moved out — it duplicated Admin → Sales History row for row.
+    // VAT Returns moved out — it was a SECOND VAT engine, on a rolling
+    // 90-day window that matches no filing period, with platform fees
+    // recomputed locally instead of using the fees actually imported from
+    // the marketplace. Admin → Money → VAT is the single VAT figure now.
     { key: 'daily', label: 'Daily Sales' },
     { key: 'stock', label: 'Stock Report' },
-    { key: 'sales', label: 'Sales Log' },
-    { key: 'vat',   label: 'VAT Returns' },
   ];
 
   // ── CSV exports ────────────────────────────────────────────────────────────
@@ -337,47 +298,6 @@ export default function ReportingPage() {
     }))
   );
 
-  const exportSalesLog = () => exportCSV(`sales-log-${new Date().toISOString().split('T')[0]}.csv`,
-    [...allSalesUnified.rows]
-      .sort((a, b) => (b.date || '').localeCompare(a.date || ''))
-      .map(r => ({
-        Date: r.date,
-        'Order Number': r.orderNumber || '',
-        Model: r.model,
-        IMEI: r.imei,
-        'Buy Price £': r.buyPrice,
-        'Sale Price £': r.salePrice || 0,
-        'Platform Fee £': platformFeeFor(r.platform, r.salePrice || 0, r.buyPrice),
-        'Postage £': r.postageCost ?? defaultPostageFor(r.platform),
-        'Net Profit £': r.grossProfit ?? netProfitFor(r.platform, r.salePrice || 0, r.buyPrice, r.postageCost),
-        Platform: r.platform || '',
-        'Commission %': commissionPctFor(r.platform),
-      }))
-  );
-
-  const exportVAT = () => exportCSV(`vat-margin-scheme-${vatPeriodDays}d.csv`,
-    vatSales.map(r => {
-      const sp = r.salePrice || 0;
-      const bp = r.buyPrice || 0;
-      const margin = sp - bp;
-      const vatOnMargin = margin > 0 ? +(margin / 6).toFixed(2) : 0;
-      const fee = platformFeeFor(r.platform, sp, bp);
-      const feeVAT = +(fee * 0.2 / 1.2).toFixed(2);
-      return {
-        Date: r.date,
-        Model: r.model,
-        IMEI: r.imei,
-        'BP £': bp,
-        'SP £': sp,
-        'Margin £': margin,
-        'Output VAT (Box 1) £': vatOnMargin,
-        'Platform Fee £': fee.toFixed(2),
-        'Input VAT (Box 4) £': feeVAT,
-        Platform: r.platform || '',
-      };
-    })
-  );
-
   return (
     <div className="space-y-5">
       <div className="flex items-start justify-between gap-3 flex-wrap">
@@ -389,7 +309,7 @@ export default function ReportingPage() {
             Reporting
           </h2>
           <p className="text-[10px] text-gray-400 font-mono uppercase tracking-widest mt-1">
-            Daily Sales · Stock Value · VAT Returns · Margin Insights
+            Daily Sales · Stock Value · CSV exports
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -411,11 +331,6 @@ export default function ReportingPage() {
             £{(allSalesUnified.rows.reduce((s, r) => s + (r.salePrice || 0), 0) / 1000).toFixed(1)}k
           </p>
           <p className="text-[8px] text-green-500 font-mono">{allSalesUnified.rows.length} sold</p>
-        </div>
-        <div className="bg-purple-50 border border-purple-100 rounded-3xl p-3">
-          <p className="text-[8px] font-mono uppercase tracking-widest text-purple-600">VAT Due</p>
-          <p className="text-xl font-bold font-display mt-1 text-purple-700">£{vatData.netVATPayable.toLocaleString()}</p>
-          <p className="text-[8px] text-purple-400 font-mono">last {vatPeriodDays}d</p>
         </div>
       </div>
 
@@ -630,208 +545,6 @@ export default function ReportingPage() {
       )}
 
       {/* ── SALES LOG ────────────────────────────────────────────────────────── */}
-      {tab === 'sales' && (
-        <div className="bg-white rounded-3xl border border-gray-100 shadow-sm overflow-hidden">
-          <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between">
-            <p className="text-[10px] font-bold uppercase tracking-widest text-gray-400">
-              Full Sales Log · {allSalesUnified.rows.length} records
-            </p>
-            <button onClick={exportSalesLog}
-              className="flex items-center gap-1.5 px-3 py-1.5 bg-gray-100 hover:bg-gray-200 rounded-lg text-[9px] font-bold uppercase tracking-widest transition-all">
-              <Download size={11} /> Export CSV
-            </button>
-          </div>
-          <div className="overflow-x-auto">
-            <table className="w-full text-xs">
-              <thead className="bg-gray-50 border-b border-gray-100">
-                <tr>
-                  <th className="text-left px-4 py-2 text-[9px] font-mono uppercase text-gray-400">Date</th>
-                  <th className="text-left px-3 py-2 text-[9px] font-mono uppercase text-gray-400">Model</th>
-                  <th className="text-left px-3 py-2 text-[9px] font-mono uppercase text-gray-400">IMEI</th>
-                  <th className="text-left px-3 py-2 text-[9px] font-mono uppercase text-gray-400">Order #</th>
-                  <th className="text-right px-3 py-2 text-[9px] font-mono uppercase text-gray-400">SP</th>
-                  <th className="text-right px-3 py-2 text-[9px] font-mono uppercase text-gray-400">Fee+Post</th>
-                  <th className="text-right px-3 py-2 text-[9px] font-mono uppercase text-gray-400">Net</th>
-                  <th className="text-left px-3 py-2 text-[9px] font-mono uppercase text-gray-400">Platform</th>
-                  <th className="text-right px-3 py-2 text-[9px] font-mono uppercase text-gray-400">Comm%</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-50">
-                {[...allSalesUnified.rows]
-                  .sort((a, b) => (b.date || '').localeCompare(a.date || ''))
-                  .map(r => {
-                    const sp = r.salePrice || 0;
-                    const post = r.postageCost ?? defaultPostageFor(r.platform);
-                    const fee = platformFeeFor(r.platform, sp, r.buyPrice);
-                    const net = r.grossProfit ?? netProfitFor(r.platform, sp, r.buyPrice, r.postageCost);
-                    const commPct = commissionPctFor(r.platform);
-                    return (
-                      <tr key={r._id} className="hover:bg-gray-50">
-                        <td className="px-4 py-2 font-mono text-gray-500">{r.date}</td>
-                        <td className="px-3 py-2 font-semibold max-w-[110px] truncate">{r.model}</td>
-                        <td className="px-3 py-2"><CopyImei imei={r.imei} truncate={9} /></td>
-                        <td className="px-3 py-2 font-mono text-gray-500 text-[9px]">{r.orderNumber || '—'}</td>
-                        <td className="px-3 py-2 text-right font-mono font-bold">£{sp}</td>
-                        <td className="px-3 py-2 text-right font-mono text-red-500 text-[9px]">-£{(fee + post).toFixed(2)}</td>
-                        <td className={`px-3 py-2 text-right font-mono font-bold ${net >= 0 ? 'text-green-600' : 'text-red-500'}`}>
-                          {net >= 0 ? '+' : ''}£{Math.round(net)}
-                        </td>
-                        <td className="px-3 py-2 text-[10px]">{r.platform || '—'}</td>
-                        <td className="px-3 py-2 text-right font-mono text-gray-500">
-                          {commPct > 0 ? `${commPct}%` : '—'}
-                        </td>
-                      </tr>
-                    );
-                  })}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
-
-      {/* ── VAT RETURNS ──────────────────────────────────────────────────────── */}
-      {tab === 'vat' && (
-        <div className="space-y-4">
-          <div className="flex items-start gap-3 bg-amber-50 border border-amber-200 rounded-xl p-4">
-            <span className="text-lg flex-shrink-0">⚖️</span>
-            <div>
-              <p className="text-[10px] font-bold uppercase tracking-widest text-amber-800">VAT Margin Scheme Applied</p>
-              <p className="text-[10px] text-amber-700 font-mono mt-1 leading-relaxed">
-                HMRC <strong>Second-Hand Goods Margin Scheme (VAT Notice 718)</strong>.
-                VAT is charged on your <strong>profit margin only</strong> (SP − BP) at 1/6.
-                Platform fees (eBay, Amazon, OnBuy, Backmarket) include 20% VAT reclaimable as input VAT.
-                Postage is a cost separate from VAT calculation.
-              </p>
-            </div>
-          </div>
-
-          <div className="flex items-center gap-3 flex-wrap">
-            <p className="text-[10px] font-bold uppercase tracking-widest text-gray-400">VAT Period</p>
-            {[{ l: 'Monthly', d: 30 }, { l: 'Quarterly (90d)', d: 90 }, { l: '6 Months', d: 180 }].map(o => (
-              <button key={o.d} onClick={() => setVatPeriodDays(o.d)}
-                className={`px-3 py-1.5 rounded-lg text-[9px] font-bold uppercase tracking-widest border transition-all ${
-                  vatPeriodDays === o.d ? 'bg-black text-white border-black' : 'bg-white text-gray-500 border-gray-200 hover:border-gray-400'
-                }`}>
-                {o.l}
-              </button>
-            ))}
-            <button onClick={exportVAT}
-              className="ml-auto flex items-center gap-1.5 px-3 py-1.5 bg-gray-100 hover:bg-gray-200 rounded-lg text-[9px] font-bold uppercase tracking-widest transition-all">
-              <Download size={11} /> Export CSV
-            </button>
-          </div>
-
-          {/* HMRC-style VAT Return Summary */}
-          <div className="bg-gradient-to-br from-slate-900 to-slate-800 rounded-3xl p-5 text-white">
-            <div className="flex items-center gap-2 mb-5">
-              <Receipt size={16} className="text-slate-400" />
-              <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">
-                HMRC VAT Return Summary · Last {vatPeriodDays} Days
-              </p>
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div className="bg-white/5 rounded-xl p-3">
-                <p className="text-[8px] font-mono text-slate-400 uppercase tracking-widest">Box 1 — Output VAT</p>
-                <p className="text-[8px] font-mono text-slate-500 mt-0.5">VAT on your margins (1/6)</p>
-                <p className="text-2xl font-bold font-display mt-2 text-yellow-300">£{vatData.outputVAT.toLocaleString()}</p>
-              </div>
-              <div className="bg-white/5 rounded-xl p-3">
-                <p className="text-[8px] font-mono text-slate-400 uppercase tracking-widest">Box 4 — Input VAT</p>
-                <p className="text-[8px] font-mono text-slate-500 mt-0.5">VAT on platform fees (reclaimable)</p>
-                <p className="text-2xl font-bold font-display mt-2 text-emerald-300">£{vatData.inputVAT.toLocaleString()}</p>
-              </div>
-              <div className="bg-white/5 rounded-xl p-3">
-                <p className="text-[8px] font-mono text-slate-400 uppercase tracking-widest">Box 6 — Total Sales</p>
-                <p className="text-[8px] font-mono text-slate-500 mt-0.5">Gross revenue</p>
-                <p className="text-xl font-bold font-display mt-2">£{vatRevenue.toLocaleString()}</p>
-              </div>
-              <div className="bg-white/5 rounded-xl p-3">
-                <p className="text-[8px] font-mono text-slate-400 uppercase tracking-widest">Box 7 — Total Purchases</p>
-                <p className="text-[8px] font-mono text-slate-500 mt-0.5">Platform fees paid</p>
-                <p className="text-xl font-bold font-display mt-2">£{vatData.platformFeesTotal.toLocaleString()}</p>
-              </div>
-            </div>
-            <div className="mt-4 bg-yellow-400/10 border border-yellow-400/30 rounded-xl p-4 flex items-center justify-between">
-              <div>
-                <p className="text-[10px] font-bold uppercase tracking-widest text-yellow-300">Net VAT Payable to HMRC</p>
-                <p className="text-[9px] text-slate-400 font-mono mt-0.5">Box 1 minus Box 4</p>
-              </div>
-              <p className="text-3xl font-bold font-display text-yellow-300">£{vatData.netVATPayable.toLocaleString()}</p>
-            </div>
-            <div className="mt-3 grid grid-cols-3 gap-2 text-center">
-              <div><p className="text-[8px] text-slate-500 font-mono">Eligible sales</p><p className="text-base font-bold">{vatData.eligibleSales}</p></div>
-              <div><p className="text-[8px] text-slate-500 font-mono">Total margin</p><p className="text-base font-bold text-emerald-300">£{vatData.grossMargin.toLocaleString()}</p></div>
-              <div><p className="text-[8px] text-slate-500 font-mono">Transactions</p><p className="text-base font-bold">{vatSales.length}</p></div>
-            </div>
-          </div>
-
-          {/* Per-transaction breakdown */}
-          <div className="bg-white rounded-3xl border border-gray-100 shadow-sm overflow-hidden">
-            <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between">
-              <p className="text-[10px] font-bold uppercase tracking-widest text-gray-400">Margin Scheme Transactions</p>
-              <span className="text-[9px] font-mono text-gray-400">VAT = margin ÷ 6</span>
-            </div>
-            <div className="overflow-x-auto">
-              <table className="w-full text-xs">
-                <thead className="bg-gray-50 border-b border-gray-100">
-                  <tr>
-                    <th className="text-left px-4 py-2 text-[9px] font-mono uppercase text-gray-400">Date</th>
-                    <th className="text-left px-3 py-2 text-[9px] font-mono uppercase text-gray-400">Model</th>
-                    <th className="text-right px-3 py-2 text-[9px] font-mono uppercase text-gray-400">BP</th>
-                    <th className="text-right px-3 py-2 text-[9px] font-mono uppercase text-gray-400">SP</th>
-                    <th className="text-right px-3 py-2 text-[9px] font-mono uppercase text-gray-400">Margin</th>
-                    <th className="text-right px-3 py-2 text-[9px] font-mono uppercase text-gray-400">VAT (÷6)</th>
-                    <th className="text-right px-3 py-2 text-[9px] font-mono uppercase text-gray-400">Fee VAT↩</th>
-                    <th className="text-left px-3 py-2 text-[9px] font-mono uppercase text-gray-400">Platform</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-50">
-                  {vatSales.map(r => {
-                    const sp = r.salePrice || 0;
-                    const bp = r.buyPrice || 0;
-                    const margin = sp - bp;
-                    const vatOnMargin = margin > 0 ? +(margin / 6).toFixed(2) : 0;
-                    const fee = platformFeeFor(r.platform, sp, bp);
-                    const feeVAT = +(fee * 0.2 / 1.2).toFixed(2);
-                    return (
-                      <tr key={r._id} className="hover:bg-gray-50">
-                        <td className="px-4 py-2 font-mono text-gray-500 text-[9px]">{r.date}</td>
-                        <td className="px-3 py-2 font-semibold max-w-[100px] truncate">{r.model}</td>
-                        <td className="px-3 py-2 text-right font-mono text-gray-500">£{bp}</td>
-                        <td className="px-3 py-2 text-right font-mono font-bold">£{sp}</td>
-                        <td className={`px-3 py-2 text-right font-mono font-bold ${margin >= 0 ? 'text-green-600' : 'text-red-500'}`}>
-                          {margin >= 0 ? '+' : ''}£{margin}
-                        </td>
-                        <td className="px-3 py-2 text-right font-mono text-purple-600 font-bold">
-                          {vatOnMargin > 0 ? `£${vatOnMargin}` : '—'}
-                        </td>
-                        <td className="px-3 py-2 text-right font-mono text-emerald-600">
-                          {feeVAT > 0 ? `+£${feeVAT}` : '—'}
-                        </td>
-                        <td className="px-3 py-2 text-[10px] text-gray-500">{r.platform || '—'}</td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-                <tfoot className="border-t-2 border-gray-200 bg-gray-50">
-                  <tr>
-                    <td colSpan={4} className="px-4 py-3 text-[9px] font-mono uppercase tracking-widest font-bold text-gray-600">Totals</td>
-                    <td className="px-3 py-3 text-right font-mono font-bold text-green-700">£{vatData.grossMargin.toLocaleString()}</td>
-                    <td className="px-3 py-3 text-right font-mono font-bold text-purple-700">£{vatData.outputVAT.toLocaleString()}</td>
-                    <td className="px-3 py-3 text-right font-mono font-bold text-emerald-700">£{vatData.inputVAT.toLocaleString()}</td>
-                    <td></td>
-                  </tr>
-                </tfoot>
-              </table>
-            </div>
-          </div>
-
-          <p className="text-[9px] text-gray-400 font-mono text-center leading-relaxed px-4">
-            ⚠️ Estimate based on HMRC VAT Notice 718. Consult your accountant before filing.
-            VAT threshold: £90,000 rolling 12-month turnover (2024/25).
-          </p>
-        </div>
-      )}
     </div>
   );
 }
