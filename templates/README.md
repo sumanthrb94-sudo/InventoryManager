@@ -1,5 +1,10 @@
 # Upload templates — the standard for every report
 
+> **Column contracts live in [`REPORT_SCHEMAS.md`](REPORT_SCHEMAS.md)** — every
+> import and export schema, header aliases, value domains, and the backup /
+> restore procedure. This file covers how to use the templates; that one is
+> the reference for what is in them.
+
 Build every future inventory and sales report from these files. They match
 the schemas the importers parse **and** the schemas the app exports, so a
 file built from a template survives the full round trip:
