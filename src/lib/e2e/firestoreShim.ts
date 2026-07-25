@@ -44,11 +44,13 @@ function applyWrite(name: string, id: string, data: Doc, merge: boolean): void {
     else base[k] = v;
   }
   col(name)[id] = { ...base, id };
+  persist();
   emit(name);
 }
 
 function removeDoc(name: string, id: string): void {
   delete col(name)[id];
+  persist();
   emit(name);
 }
 
@@ -71,14 +73,39 @@ function emit(name: string): void {
   for (const cb of listeners[name] || []) cb(snapshotOf(name));
 }
 
+// ── Persistence ──────────────────────────────────────────────────────────────
+// The store survives reloads via sessionStorage. Without this a wipe would
+// be undone by the reload ResetDataModal triggers, and any multi-page flow
+// (import → confirm → reload → verify) would silently test the seed data
+// instead of the operator's writes.
+const STORAGE_KEY = '__e2e_firestore__';
+
+function persist(): void {
+  try { sessionStorage.setItem(STORAGE_KEY, JSON.stringify(store)); } catch { /* quota — fine */ }
+}
+
+function restore(): boolean {
+  try {
+    const raw = sessionStorage.getItem(STORAGE_KEY);
+    if (!raw) return false;
+    Object.assign(store, JSON.parse(raw));
+    return true;
+  } catch { return false; }
+}
+
 // ── Seeding ──────────────────────────────────────────────────────────────────
 let seeded = false;
 function ensureSeeded(): void {
   if (seeded) return;
   seeded = true;
+  // ?e2eReset=1 forces the pristine dataset back, for a repeatable run.
+  const forceReset = new URLSearchParams(window.location.search).get('e2eReset') === '1';
+  if (!forceReset && restore()) return;
+  for (const k of Object.keys(store)) delete store[k];
   for (const [name, docs] of Object.entries(E2E_SEED)) {
     for (const d of docs as Doc[]) col(name)[d.id] = { ...d };
   }
+  persist();
 }
 
 // ── SDK surface ──────────────────────────────────────────────────────────────

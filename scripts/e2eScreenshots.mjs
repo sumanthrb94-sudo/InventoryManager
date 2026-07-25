@@ -113,18 +113,10 @@ async function run() {
   await gotoTab(page, 'Returns');
   await shot(page, 'returns-page');
 
-  const recPanel = page.getByText(/Sell page shows \d+ · this page shows \d+/);
-  const recVisible = await recPanel.isVisible().catch(() => false);
-  record('returns reconciliation panel appears when the counts disagree', recVisible);
-  if (recVisible) {
-    const headline = await recPanel.textContent();
-    record('reconciliation headline reports both numbers', true, headline?.trim());
-    await recPanel.click();
-    await page.waitForTimeout(500);
-    await shot(page, 'returns-reconciliation-expanded');
-    const reason = await page.getByText(/Second sale doc for the same unit/i).isVisible().catch(() => false);
-    record('reconciliation names the duplicate sale doc as the cause', reason);
-  }
+  // Both screens must report the SAME return count — they read the same
+  // ledger (returnsLedger), so a mismatch is a regression.
+  const returnsText = await page.locator('body').innerText();
+  const allReturns = (returnsText.match(/ALL RETURNS\s*\n?\s*(\d+)/i) || [])[1] ?? '0';
 
   const wipeReturns = page.getByRole('button', { name: /Wipe Returns/i });
   record('Returns page has its own scoped wipe', await wipeReturns.isVisible());
@@ -135,6 +127,15 @@ async function run() {
   await shot(page, 'wipe-returns-modal');
   await page.getByRole('button', { name: /^Cancel$/i }).click();
   await page.waitForTimeout(300);
+
+  // Sell page must agree with the Returns page
+  await gotoTab(page, 'Inventory');
+  await page.waitForTimeout(1000);
+  const sellText = await page.locator('body').innerText();
+  const sellReturns = (sellText.match(/(\d+)\s+returns?\s+processed\s+lifetime/i) || [])[1] ?? '0';
+  record('Sell chip and Returns page report the same number', sellReturns === allReturns,
+    `sell=${sellReturns} returns=${allReturns}`);
+  await shot(page, 'sell-return-chip');
 
   // ── Admin → Sales History — the sales wipe ───────────────────────────────
   await gotoTab(page, 'Admin');
@@ -187,8 +188,8 @@ async function run() {
     'report upload is admin-only');
 
   await gotoTab(emp, 'Returns');
-  const empSeesRecon = await emp.getByText(/Sell page shows/).isVisible().catch(() => false);
-  record('employee does not see the admin reconciliation panel', !empSeesRecon);
+  const empSeesWipeReturns = await emp.getByRole('button', { name: /Wipe Returns/i }).isVisible().catch(() => false);
+  record('employee cannot wipe returns either', !empSeesWipeReturns);
   await shot(emp, 'employee-returns');
   await empCtx.close();
 

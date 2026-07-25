@@ -56,7 +56,7 @@ import { parseSalesWorkbook, type ParsedSales } from '../../lib/salesImport';
 import { buildPostImportSyncPatches } from '../../services/salesService';
 import { processReturn } from '../../services/returnsService';
 import { buildPreview } from '../../components/SalesReportImport';
-import { reconcileReturns, isOpenReturnUnit, buildVoidedSaleEvents } from '../../lib/returnsReconciliation';
+import { isOpenReturnUnit, returnUnits, returnCounts } from '../../lib/returnsLedger';
 import { isOfficeStockUnit, isShsUnit } from '../../lib/wipeScopes';
 
 // ── Fixture: inventory as it stands before the operator uploads ──────────────
@@ -319,11 +319,10 @@ describe('Act 4 · returns, replacement and repair on imported sales', () => {
     expect(sale.voidedAt).toBe('2026-07-10');
     expect(sale.voidOutcome).toBe('refund');
 
-    // Both surfaces agree: 1 voided sale, 1 open return
-    const rec = reconcileReturns(all('inventoryUnits'), all('sales'));
-    expect(rec.voidedSaleCount).toBe(1);
-    expect(rec.openReturnCount).toBe(1);
-    expect(rec.gap).toBe(0);
+    // Both surfaces count the same ledger: 1 return
+    expect(returnUnits(all('inventoryUnits'))).toHaveLength(1);
+    expect(returnCounts(all('inventoryUnits'), '2026-07-10', '2026-07-01'))
+      .toEqual({ today: 1, month: 1, all: 1 });
   });
 
   it('a replacement return consumes a spare unit and links both sides', async () => {
@@ -359,7 +358,7 @@ describe('Act 4 · returns, replacement and repair on imported sales', () => {
     expect(second.error).toBe('unit_not_sold');
   });
 
-  it('FINDING: one return voids EVERY sale doc sharing the IMEI, inflating the Sell chip', async () => {
+  it('FIXED: a return voiding two sale docs still reads as ONE return on both screens', async () => {
     // Duplicate sale doc for the same IMEI — the exact shape produced by an
     // in-app sale plus an imported row for one phone.
     col('sales')['AMAZON__LEGACY__' + IMEI_OFFICE_A] = {
@@ -374,13 +373,15 @@ describe('Act 4 · returns, replacement and repair on imported sales', () => {
       reason: 'Screen fault', outcome: 'refund',
     });
 
+    // processReturn still voids both docs — that part is correct, both
+    // sales really were reversed.
     const voided = all<Sale>('sales').filter(s => s.voidedAt);
-    expect(voided).toHaveLength(2);                       // ← two events
+    expect(voided).toHaveLength(2);
+    // But a return belongs to a UNIT, and both screens now count units,
+    // so neither reports 2. This is the 5-vs-4 mismatch, closed.
     expect(all<InventoryUnit>('inventoryUnits').filter(isOpenReturnUnit)).toHaveLength(1);
-
-    const rec = reconcileReturns(all('inventoryUnits'), all('sales'));
-    expect(rec.gap).toBe(1);
-    expect(rec.unexplained[0].reason).toBe('duplicate_sale');
+    expect(returnUnits(all('inventoryUnits'))).toHaveLength(1);
+    expect(returnCounts(all('inventoryUnits'), '2026-07-10', '2026-07-01').all).toBe(1);
   });
 });
 
@@ -403,7 +404,7 @@ describe('Act 5 · re-upload the same report', () => {
       returnType: 'returned_to_inventory', returnDate: '2026-07-10',
       reason: 'Screen fault', outcome: 'refund',
     });
-    expect(reconcileReturns(all('inventoryUnits'), all('sales')).openReturnCount).toBe(1);
+    expect(returnUnits(all('inventoryUnits')).length).toBe(1);
 
     // Same report uploaded again — e.g. a corrected monthly file.
     await commitImport(await parseSalesWorkbook(workbook, 'SALES_REPORT_2026.xlsx'));
@@ -419,10 +420,7 @@ describe('Act 5 · re-upload the same report', () => {
     expect(sale.voidedAt).toBe('2026-07-10');
 
     // Both surfaces still agree afterwards.
-    const rec = reconcileReturns(all('inventoryUnits'), all('sales'));
-    expect(rec.openReturnCount).toBe(1);
-    expect(rec.voidedSaleCount).toBe(1);
-    expect(rec.gap).toBe(0);
+    expect(returnUnits(all('inventoryUnits'))).toHaveLength(1);
   });
 
   it('a genuine re-sale after a return still clears the stale return flags', async () => {
@@ -516,7 +514,7 @@ describe('Act 5 · re-upload the same report', () => {
     const countedByLegacyPath = all<InventoryUnit>('inventoryUnits')
       .filter(u => u.status === 'sold' && u.salePrice != null && !u.returnType);
     expect(countedByLegacyPath.map(u => u.id)).not.toContain('u-office-a');
-    // The return is still counted once as an event.
-    expect(buildVoidedSaleEvents(all('inventoryUnits'), all('sales'))).toHaveLength(1);
+    // The return is still counted once, on both screens.
+    expect(returnUnits(all('inventoryUnits'))).toHaveLength(1);
   });
 });

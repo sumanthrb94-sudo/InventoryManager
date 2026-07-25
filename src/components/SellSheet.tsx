@@ -30,7 +30,7 @@ import {
   InventoryUnit, Sale, Marketplace,
 } from '../types';
 import { useInventoryStore } from '../lib/inventoryStore';
-import { buildVoidedSaleEvents, type VoidedSaleEvent } from '../lib/returnsReconciliation';
+import { returnUnits } from '../lib/returnsLedger';
 import { recomputeSale } from '../lib/recomputeSale';
 // clientReport is dynamic-imported below — it pulls in ExcelJS (~160 KB
 // gzipped) which we don't want in the entry bundle.
@@ -367,15 +367,15 @@ export default function SellSheet(_props: Props) {
     return merged;
   }, [sales, units]);
 
-  // Separate stream of voided sales — used for the 'returned this period'
+  // Units in the returns ledger — the source of the 'returned this period'
   // chip on each Sold tile (informational, never counted as sold).
-  // Built by returnsReconciliation.buildVoidedSaleEvents — shared with
-  // the Returns reconciliation panel, which explains any gap between
-  // this event count and the Returns page's unit count.
-  const voidedSales = useMemo<VoidedSaleEvent[]>(
-    () => buildVoidedSaleEvents(units, sales),
-    [sales, units],
-  );
+  //
+  // Counted from returnsLedger, the same module the Returns page uses, so
+  // the two screens can't disagree. Counting voided SALE DOCS here is what
+  // made Sell read 5 while Returns read 4: processReturn voids every sale
+  // linked by unitId OR imei, so a phone with both an imported and an
+  // in-app sale doc produced two "events" for one return.
+  const returnLedger = useMemo(() => returnUnits(units), [units]);
 
   // ── Date-scoped subset ────────────────────────────────────────────────────
   const scopedSold = useMemo<Sale[]>(() => {
@@ -473,16 +473,13 @@ export default function SellSheet(_props: Props) {
       if (d === today) { todayCount++; todayRevenue += s.salePrice ?? 0; todayGP += s.grossProfit ?? 0; }
       if (d >= monthStart && d <= today) { monthCount++; monthRevenue += s.salePrice ?? 0; monthGP += s.grossProfit ?? 0; }
     }
-    // Return chips count EVENTS — every return processed adds one, even if
-    // the same physical unit was returned twice. A unit cycled through
-    // sold → returned → re-sold → returned reads as 2 sales (both count in
-    // sold-today, both legitimately earned then unearned revenue) AND 2
-    // returns processed. Reflects the operator's actual workload, not a
-    // deduped unit-level snapshot (the Returns page already shows that).
-    let todayReturned = 0, monthReturned = 0, allReturned = 0;
-    for (const v of voidedSales) {
-      allReturned++;
-      const d = v.voidedAt.split('T')[0];
+    // Return chips count UNITS in the returns ledger, by returnDate — the
+    // exact set the Returns page shows, so both screens always agree.
+    let todayReturned = 0, monthReturned = 0;
+    const allReturned = returnLedger.length;
+    for (const u of returnLedger) {
+      const d = (u.returnDate || '').split('T')[0];
+      if (!d) continue;
       if (d === today) todayReturned++;
       if (d >= monthStart && d <= today) monthReturned++;
     }
@@ -493,7 +490,7 @@ export default function SellSheet(_props: Props) {
       avgGpPct: allCount > 0 ? gpPctSum / allCount : 0,
       awaitingImei: awaitingImei.length,
     };
-  }, [allSold, voidedSales, awaitingImei]);
+  }, [allSold, returnLedger, awaitingImei]);
 
   // ── Filter chip options ───────────────────────────────────────────────────
   const supplierOptions = useMemo(() => {

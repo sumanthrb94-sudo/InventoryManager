@@ -33,10 +33,7 @@ import {
   Trash2,
 } from 'lucide-react';
 import ScopedWipeModal from './ScopedWipeModal';
-import {
-  isOpenReturnUnit, reconcileReturns, REASON_LABELS, REASON_DETAIL,
-  type VoidedSaleReason, type VoidedSaleRow,
-} from '../lib/returnsReconciliation';
+import { isOpenReturnUnit } from '../lib/returnsLedger';
 import ReportRangeMenu from './ReportRangeMenu';
 import { AnimatePresence, motion } from 'motion/react';
 import { dbService } from '../lib/dbService';
@@ -138,9 +135,9 @@ export default function ReturnsPage() {
   // same unit double-appears in Returns AND on the Sell sheet, and an
   // operator may re-process the same return. Compare dates so only
   // CURRENTLY-returned cycles show in the returns ledger.
-  // Membership rule lives in returnsReconciliation.isOpenReturnUnit —
-  // shared with the reconciliation panel so the explanation of this
-  // count can never drift from the count itself.
+  // Membership rule lives in returnsLedger.isOpenReturnUnit — the Sell
+  // page's return chips count the same set, so the two screens can never
+  // disagree about how many returns there are.
   const allReturns = useMemo<InventoryUnit[]>(
     () => units.filter(isOpenReturnUnit),
     [units],
@@ -463,8 +460,6 @@ export default function ReturnsPage() {
         </div>
       </div>
 
-      {/* ── Reconciliation vs the Sell page's return chip ─────────────────── */}
-      {userIsAdminTop && <ReturnsReconciliationPanel units={units} sales={sales} />}
 
       {/* ── Schema help card ──────────────────────────────────────────────── */}
       <AnimatePresence>
@@ -695,114 +690,6 @@ export default function ReturnsPage() {
         )}
         {wipeOpen && <ScopedWipeModal scope="returns" onClose={() => setWipeOpen(false)} />}
       </AnimatePresence>
-    </div>
-  );
-}
-
-// ── Returns reconciliation ───────────────────────────────────────────────────
-/**
- * Admin-only explainer for the recurring "the Sell page says 5, Returns
- * says 4" question. The Sell chip counts voided SALE DOCS; this page
- * counts UNITS in an open return cycle. Both are right — this panel
- * names every doc behind the difference so nobody has to diff two
- * screens on a phone.
- */
-function ReturnsReconciliationPanel({ units, sales }: { units: InventoryUnit[]; sales: Sale[] }) {
-  const [open, setOpen] = useState(false);
-  const rec = useMemo(() => reconcileReturns(units, sales), [units, sales]);
-
-  // Nothing to explain — stay out of the way.
-  if (rec.gap === 0 && rec.returnsWithoutVoidedSale.length === 0) return null;
-
-  const grouped = rec.unexplained.reduce<Partial<Record<VoidedSaleReason, VoidedSaleRow[]>>>((acc, r) => {
-    (acc[r.reason] ??= []).push(r);
-    return acc;
-  }, {});
-  const groups = Object.entries(grouped) as Array<[VoidedSaleReason, VoidedSaleRow[]]>;
-
-  return (
-    <div className="bg-white border border-amber-200 rounded-3xl shadow-sm overflow-hidden">
-      <button
-        onClick={() => setOpen(o => !o)}
-        className="w-full px-5 py-4 flex items-center justify-between hover:bg-amber-50/60 transition-all text-left"
-      >
-        <div className="flex items-center gap-3 min-w-0">
-          <div className="w-8 h-8 bg-amber-100 text-amber-700 rounded-xl flex items-center justify-center flex-shrink-0">
-            <AlertCircle size={15} />
-          </div>
-          <div className="min-w-0">
-            <p className="text-xs font-bold text-slate-900">
-              Sell page shows {rec.voidedSaleCount} · this page shows {rec.openReturnCount}
-            </p>
-            <p className="text-[9px] text-slate-500 font-mono uppercase tracking-widest mt-0.5">
-              {rec.gap !== 0
-                ? `${Math.abs(rec.gap)} sale doc${Math.abs(rec.gap) === 1 ? '' : 's'} explained below`
-                : `${rec.returnsWithoutVoidedSale.length} return${rec.returnsWithoutVoidedSale.length === 1 ? '' : 's'} with no sale doc`}
-            </p>
-          </div>
-        </div>
-        <ChevronDown size={14} className={`text-amber-500 flex-shrink-0 transition-transform ${open ? 'rotate-180' : ''}`} />
-      </button>
-
-      {open && (
-        <div className="px-5 pb-5 space-y-4 border-t border-amber-100 pt-4">
-          <p className="text-[10px] text-slate-500 font-mono leading-relaxed">
-            The Sell page counts <strong>voided sale documents</strong> (one per return event).
-            This page counts <strong>units</strong> in an open return cycle. One return can void
-            more than one sale doc, and a re-sold unit leaves this ledger while its voided sale stays.
-          </p>
-
-          {groups.map(([reason, rows]) => (
-            <div key={reason} className="space-y-2">
-              <div>
-                <p className="text-[9px] font-bold uppercase tracking-widest text-amber-700">
-                  {REASON_LABELS[reason]} · {rows.length}
-                </p>
-                <p className="text-[9px] text-slate-500 font-mono leading-relaxed mt-0.5">
-                  {REASON_DETAIL[reason]}
-                </p>
-              </div>
-              <div className="space-y-1">
-                {rows.map(r => (
-                  <div key={r.saleId} className="bg-slate-50 rounded-xl px-3 py-2 flex items-center justify-between gap-3">
-                    <div className="min-w-0">
-                      <p className="text-[11px] font-bold text-slate-800 truncate">{r.model}</p>
-                      <p className="text-[9px] font-mono text-slate-500 truncate">
-                        IMEI {r.imei} · {r.marketplace} {r.orderNumber}
-                      </p>
-                    </div>
-                    <span className="text-[9px] font-mono text-slate-400 flex-shrink-0">{r.voidedAt}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          ))}
-
-          {rec.returnsWithoutVoidedSale.length > 0 && (
-            <div className="space-y-2">
-              <div>
-                <p className="text-[9px] font-bold uppercase tracking-widest text-amber-700">
-                  In this ledger with no voided sale · {rec.returnsWithoutVoidedSale.length}
-                </p>
-                <p className="text-[9px] text-slate-500 font-mono leading-relaxed mt-0.5">
-                  Returned units whose sale was never recorded as a Sale doc — they count here but not on the Sell chip.
-                </p>
-              </div>
-              <div className="space-y-1">
-                {rec.returnsWithoutVoidedSale.map(u => (
-                  <div key={u.unitId} className="bg-slate-50 rounded-xl px-3 py-2 flex items-center justify-between gap-3">
-                    <div className="min-w-0">
-                      <p className="text-[11px] font-bold text-slate-800 truncate">{u.model}</p>
-                      <p className="text-[9px] font-mono text-slate-500 truncate">IMEI {u.imei}</p>
-                    </div>
-                    <span className="text-[9px] font-mono text-slate-400 flex-shrink-0">{u.returnDate}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-        </div>
-      )}
     </div>
   );
 }
