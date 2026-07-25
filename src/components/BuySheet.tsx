@@ -445,7 +445,13 @@ export default function BuySheet(_props: Props) {
       : '';
     return {
       'Stock In Date': u.dateIn || '',
-      'Model':         u.model || '',
+      // rawModel is the string as stored: inventoryStore splits the brand
+      // out of `model` for grouping and tiles ("GOOGLE PIXEL 7" → brand
+      // "Google", model "PIXEL 7"), which is right on screen but wrong in
+      // a report — the operator uploaded "GOOGLE PIXEL 7" and re-importing
+      // "PIXEL 7" would create a second, unrelated model. The export →
+      // edit → re-import loop has to be lossless.
+      'Model':         u.rawModel || u.model || '',
       'IMEI':          u.imei || '',
       'Grade':         u.grade || '',
       'Storage':       u.storage || '',
