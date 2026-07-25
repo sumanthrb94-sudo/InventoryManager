@@ -16,7 +16,6 @@ import BuySheet from './components/BuySheet';
 import SellSheet from './components/SellSheet';
 import ReturnsPage from './components/ReturnsPage';
 import NoticeBoard from './components/NoticeBoard';
-import ModelReconciliation from './components/ModelReconciliation';
 import SkuReconciliation from './components/SkuReconciliation';
 import ConfigurationPanel from './components/ConfigurationPanel';
 import { useUnseenNoticesCount } from './hooks/useUnseenNoticesCount';
@@ -36,7 +35,7 @@ import { useBuildVersionCheck } from './lib/useBuildVersionCheck';
 import type { SupplierWhatsappUpdate } from './types';
 
 type Tab      = 'notices' | 'buy' | 'sell' | 'returns' | 'admin';
-type AdminSub = 'overview' | 'salesHistory' | 'insights' | 'reports' | 'configuration' | 'models' | 'skus';
+type AdminSub = 'overview' | 'salesHistory' | 'insights' | 'reports' | 'configuration' | 'skus';
 
 interface NavTab {
   id: Tab;
@@ -131,9 +130,11 @@ const ADMIN_SUBS: { id: AdminSub; label: string; icon: React.ReactNode }[] = [
   // Order) and suppliers (with the WhatsApp feed). Stand-alone
   // Suppliers sub-tab merged into here so admin edits one screen.
   { id: 'configuration', label: 'Configuration',      icon: <SlidersHorizontal size={14} /> },
-  // 'Models' kept as the data-cleanup tool (ModelReconciliation) —
-  // distinct concern from the catalog editor under Configuration.
-  { id: 'models',        label: 'Reconcile Models',   icon: <Database size={14} /> },
+  // 'Reconcile Models' removed 2026-07: model names are decided once in
+  // Configuration and applied automatically at import
+  // (canonicaliseModel), so there is no cleanup left for an admin to do
+  // by hand. The clustering logic survives in lib/modelReconciliation —
+  // it is what the importer uses — only the manual screen is gone.
   // 'SKUs' surfaces inventory units whose persisted model is still a raw
   // operator SKU code so an admin can clean them up manually or auto-fix.
   { id: 'skus',          label: 'Reconcile SKUs',     icon: <Tag size={14} /> },
@@ -687,7 +688,6 @@ function AppShell({ user }: { user: User }) {
                 {activeTab === 'admin' && userIsAdmin && adminSub === 'insights'     && <AnalyticsPage />}
                 {activeTab === 'admin' && userIsAdmin && adminSub === 'reports'      && <ReportingPage />}
                 {activeTab === 'admin' && userIsAdmin && adminSub === 'configuration' && <ConfigurationPanel />}
-                {activeTab === 'admin' && userIsAdmin && adminSub === 'models'        && <ModelReconciliation />}
                 {activeTab === 'admin' && userIsAdmin && adminSub === 'skus'          && <SkuReconciliation />}
               </motion.div>
             </AnimatePresence>

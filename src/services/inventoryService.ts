@@ -714,57 +714,15 @@ export async function addSoldUnitFromSale(
     return { ok: false, error: 'write_failed', message: err?.message || 'Save failed. Check connection.' };
   }
 
-  // ── GAP FIX 1: SHS Phantom Cleanup ────────────────────────────────────
-  // When a unit is created from an SHS sale (sold before receive), the
-  // original shs_* placeholder and aggregate still exist. Clean them up
-  // so the SHS KPI tile doesn't carry phantom stock.
+  // When a unit is fulfilled from SHS (supplier held it, sold before we
+  // ever received it), the original placeholder and master-file aggregate
+  // still exist and would keep counting as stock we don't have.
   if (input.stockSource === 'shs') {
-    try {
-      const allUnits = await dbService.readAll('inventoryUnits');
-      const allAggs = await dbService.readAll('inventoryAggregates');
-      const modelSlug = slugify(cleanModel);
-      const supplierSlug = slugify(supplierName);
-
-      // Find and delete matching SHS placeholder units.
-      const placeholders = allUnits.filter((u: any) => {
-        const uid = String(u.id || '');
-        return uid.startsWith('shs_')
-          && slugify(u.model || '') === modelSlug
-          && (slugify(u.supplierName || '') === supplierSlug
-              || (u.supplierIds || []).some((sid: string) => slugify(sid) === supplierSlug));
-      });
-      for (const ph of placeholders) {
-        await dbService.delete('inventoryUnits', ph.id).catch(() => {});
-        await logInventoryEvent({
-          type: 'stock_adjusted',
-          message: `SHS placeholder ${ph.id} cleaned up after direct sale of ${rawImei}`,
-          unitId: rawImei,
-        });
-      }
-
-      // Find and update matching SHS aggregates.
-      for (const agg of allAggs) {
-        const aggSupplierMatch = (agg.supplierIds || []).some((sid: string) => {
-          const sname = (sid || '').toLowerCase();
-          return sname.includes(supplierSlug) || slugify(sname) === supplierSlug;
-        });
-        if (slugify(agg.model || '') === modelSlug
-            && aggSupplierMatch
-            && (agg.quantityText || '').toUpperCase() === 'SHS') {
-          const newQty = Math.max(0, (agg.quantityNum ?? 1) - 1);
-          await dbService.update('inventoryAggregates', agg.id, {
-            quantityNum: newQty,
-            ...(newQty === 0 ? { quantityText: 'RECEIVED' } : {}),
-          });
-          await logInventoryEvent({
-            type: 'stock_adjusted',
-            message: `SHS aggregate ${agg.id} decremented (${agg.quantityNum} → ${newQty}) after direct sale`,
-          });
-        }
-      }
-    } catch (e) {
-      console.warn('SHS phantom cleanup failed (non-critical)', e);
-    }
+    await reconcileShsAfterFulfilment({
+      model: cleanModel,
+      supplierName,
+      contextImei: rawImei,
+    });
   }
 
   await logInventoryEvent({
@@ -1089,4 +1047,90 @@ export async function deleteOfficeUnit(
   } catch (err: any) {
     return { ok: false, error: 'write_failed', message: err?.message || 'Delete failed.' };
   }
+}
+
+
+/**
+ * Clear the SHS trail behind a unit that has been fulfilled.
+ *
+ * A phone the supplier held for us is recorded in up to two places that
+ * carry no IMEI of their own:
+ *
+ *   1. a parser-created placeholder unit (`shs_*`, status 'incoming')
+ *   2. a master-file aggregate row (quantityText === 'SHS')
+ *
+ * Once the phone actually sells, both are stock we no longer have. Left
+ * behind they inflate the SHS tile and the supplier-holding reports with
+ * phantom units — the operator sees stock on order that shipped weeks ago.
+ *
+ * Called from BOTH fulfilment paths so they cannot drift:
+ *   - addSoldUnitFromSale — an orphan sale completed as SHS at import time
+ *   - the sales-import sync — a sale whose IMEI matched an incoming unit
+ *
+ * Matching is by model + supplier slug, the only keys these rows carry.
+ * Best-effort: a failure here never fails the sale, it just leaves the
+ * tidying for later.
+ */
+export async function reconcileShsAfterFulfilment(input: {
+  model: string;
+  supplierName: string;
+  /** IMEI of the unit that sold — for the audit log only. */
+  contextImei?: string;
+}): Promise<{ placeholdersRemoved: number; aggregatesDecremented: number }> {
+  const modelSlug = slugify(input.model || '');
+  const supplierSlug = slugify(input.supplierName || '');
+  if (!modelSlug) return { placeholdersRemoved: 0, aggregatesDecremented: 0 };
+
+  let placeholdersRemoved = 0;
+  let aggregatesDecremented = 0;
+
+  try {
+    const allUnits = await dbService.readAll('inventoryUnits');
+    const allAggs = await dbService.readAll('inventoryAggregates');
+
+    // 1. Parser placeholders for this model+supplier.
+    const placeholders = allUnits.filter((u: any) => {
+      const uid = String(u.id || '');
+      return uid.startsWith('shs_')
+        && slugify(u.model || '') === modelSlug
+        && (slugify(u.supplierName || '') === supplierSlug
+            || (u.supplierIds || []).some((sid: string) => slugify(sid) === supplierSlug));
+    });
+    for (const ph of placeholders) {
+      await dbService.delete('inventoryUnits', ph.id).catch(() => {});
+      placeholdersRemoved++;
+      await logInventoryEvent({
+        type: 'stock_adjusted',
+        message: `SHS placeholder ${ph.id} cleaned up after fulfilment${input.contextImei ? ` of ${input.contextImei}` : ''}`,
+        unitId: input.contextImei,
+      });
+    }
+
+    // 2. Master-file aggregate — decrement, and mark RECEIVED at zero so
+    //    it stops being counted as supplier-held.
+    for (const agg of allAggs) {
+      const aggSupplierMatch = (agg.supplierIds || []).some((sid: string) => {
+        const sname = (sid || '').toLowerCase();
+        return sname.includes(supplierSlug) || slugify(sname) === supplierSlug;
+      });
+      if (slugify(agg.model || '') === modelSlug
+          && aggSupplierMatch
+          && (agg.quantityText || '').toUpperCase() === 'SHS') {
+        const newQty = Math.max(0, (agg.quantityNum ?? 1) - 1);
+        await dbService.update('inventoryAggregates', agg.id, {
+          quantityNum: newQty,
+          ...(newQty === 0 ? { quantityText: 'RECEIVED' } : {}),
+        });
+        aggregatesDecremented++;
+        await logInventoryEvent({
+          type: 'stock_adjusted',
+          message: `SHS aggregate ${agg.id} decremented (${agg.quantityNum} → ${newQty}) after fulfilment`,
+        });
+      }
+    }
+  } catch (e) {
+    console.warn('SHS fulfilment cleanup failed (non-critical)', e);
+  }
+
+  return { placeholdersRemoved, aggregatesDecremented };
 }

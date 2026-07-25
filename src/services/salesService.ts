@@ -328,6 +328,11 @@ export function buildPostImportSyncPatches(
 ): {
   unitPatches: Array<{ collection: 'inventoryUnits'; id: string; data: Record<string, any> }>;
   salePatches: Array<{ collection: 'sales'; id: string; data: Record<string, any> }>;
+  /** Units that were SUPPLIER-HELD when the sale fulfilled them. The
+   *  caller passes these to reconcileShsAfterFulfilment so the matching
+   *  placeholder and master-file aggregate stop counting as stock we no
+   *  longer have — the patches alone flip the unit but leave that trail. */
+  shsFulfilled: Array<{ unitId: string; model: string; supplierName: string }>;
 } {
   const unitsByImei = new Map<string, InventoryUnit>();
   for (const u of units) {
@@ -337,6 +342,7 @@ export function buildPostImportSyncPatches(
 
   const unitPatches: Array<{ collection: 'inventoryUnits'; id: string; data: Record<string, any> }> = [];
   const salePatches: Array<{ collection: 'sales'; id: string; data: Record<string, any> }> = [];
+  const shsFulfilled: Array<{ unitId: string; model: string; supplierName: string }> = [];
 
   for (const s of sales) {
     if (s.voidedAt) continue;
@@ -382,17 +388,33 @@ export function buildPostImportSyncPatches(
       || u.salePlatform !== s.marketplace
       || u.saleOrderId !== s.orderNumber
       || hasStaleReturn;
+    // Record the SHS trail to clear BEFORE the patch flips the status —
+    // afterwards there is nothing left to tell us it was supplier-held.
+    if (u.status === 'incoming') {
+      shsFulfilled.push({
+        unitId: u.id,
+        model: u.model || '',
+        supplierName: u.supplierName || '',
+      });
+    }
+
     if (needsUnitPatch) {
       unitPatches.push({
         collection: 'inventoryUnits',
         id: u.id,
         data: {
           status: 'sold',
-          // A matched IMEI means the unit was already in OUR inventory →
-          // office stock. SHS classification is reserved for orphan sales
-          // (supplier-held units never tracked in our system), set by the
-          // operator at completion time. Preserve an explicitly-set value.
-          stockSource: u.stockSource ?? 'office',
+          // Where the unit CAME FROM, decided at fulfilment time and then
+          // immutable — reports split office vs SHS revenue on it.
+          //
+          // An incoming unit is supplier-held by definition, so a sale
+          // that fulfils it is an SHS sale. The old rule
+          // (`u.stockSource ?? 'office'`) only preserved provenance when
+          // something had already set the field, so parser-created SHS
+          // placeholders — which never carry it — were relabelled office
+          // the moment they sold, and the SHS column of every report lost
+          // them. An explicit value still wins.
+          stockSource: u.stockSource ?? (u.status === 'incoming' ? 'shs' : 'office'),
           salePrice: s.salePrice,
           saleDate: s.saleDate,
           salePlatform: s.marketplace,
@@ -411,5 +433,5 @@ export function buildPostImportSyncPatches(
       });
     }
   }
-  return { unitPatches, salePatches };
+  return { unitPatches, salePatches, shsFulfilled };
 }

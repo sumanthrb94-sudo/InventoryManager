@@ -235,3 +235,27 @@ export function buildReconciliationPatches(cluster: ModelCluster): PatchTarget[]
   }
   return out;
 }
+
+
+/**
+ * Snap a raw model string to the admin catalog spelling.
+ *
+ * The catalog (Admin → Configuration) is where model names are decided.
+ * Applying it at IMPORT time means data arrives already consistent, so
+ * the naming never has to be cleaned up after the fact — which is what
+ * made the manual reconciliation screen necessary in the first place.
+ *
+ * Returns the input unchanged when the model isn't in the catalog, so an
+ * unknown device imports exactly as typed.
+ */
+export function canonicaliseModel(
+  rawModel: string,
+  brand: string,
+  catalogIndex: Map<string, string>,
+): string {
+  const model = String(rawModel || '').trim();
+  if (!model) return model;
+  return catalogIndex.get(bucketKey(String(brand || '').trim(), model))
+    ?? catalogIndex.get(bucketKey('', model))
+    ?? model;
+}

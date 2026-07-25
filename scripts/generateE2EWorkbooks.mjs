@@ -149,6 +149,19 @@ for (let i = 0; i < SALE_COUNT; i++) {
 // One duplicated order row — the preview must catch it as a file dupe.
 bySheet.AMAZON.push([...bySheet.AMAZON[0]]);
 
+// One sale against a SUPPLIER-HELD unit: the supplier shipped it directly.
+// Proves SHS stock drops when a sales report says an SHS phone sold.
+const shsUnit = units.find(u => u.stockType === 'SHS');
+bySheet.AMAZON.push(salesRow('AMAZON', {
+  date: '2026-07-24',
+  order: 'AMA-SHS-1',
+  imei: shsUnit.imei,
+  unit: shsUnit,
+  bp: shsUnit.bp,
+  sp: Math.round(shsUnit.bp * 1.3 * 100) / 100,
+  postage: 8,
+}));
+
 const salesWb = XLSX.utils.book_new();
 for (const m of MARKETPLACES) {
   XLSX.utils.book_append_sheet(salesWb, XLSX.utils.aoa_to_sheet([LAYOUTS[m], ...bySheet[m]]), m);
@@ -208,5 +221,6 @@ console.log(`inventory: ${units.length} units (${shsCount} tagged SHS) → ${OUT
 console.log(`sales:     ${SALE_COUNT} rows + 1 duplicate across ${MARKETPLACES.join('/')} → ${OUT}/SALES_REPORT_E2E.xlsx`);
 for (const m of MARKETPLACES) console.log(`  ${m}: ${bySheet[m].length} rows`);
 console.log(`orphan sales (no matching unit): 10`);
+console.log(`SHS fulfilment: 1 sale against a supplier-held unit`);
 for (const m of MARKETPLACES) console.log(`per-channel: ${OUT}/SALES_${m}_SAMPLE.xlsx (${bySheet[m].length} rows)`);
 console.log(`returns:    ${OUT}/RETURNS_REPORT_REFERENCE.xlsx (export-only reference)`);

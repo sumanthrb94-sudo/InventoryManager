@@ -31,6 +31,7 @@ import { dbService } from '../lib/dbService';
 import { useInventoryStore } from '../lib/inventoryStore';
 import type { InventoryUnit, Supplier } from '../types';
 import { parseBrandModelStorage } from '../lib/modelStorage';
+import { buildCatalogIndex, canonicaliseModel } from '../lib/modelReconciliation';
 import { isAppleDevice, isValidImei } from '../lib/imeiValidation';
 import { auth } from '../lib/firebase';
 
@@ -242,7 +243,7 @@ function buildPreview(
 }
 
 export default function InventoryReportImport({ onClose }: Props) {
-  const { units, suppliers } = useInventoryStore();
+  const { units, suppliers, models } = useInventoryStore();
   const [phase, setPhase] = useState<Phase>('upload');
   const [parsedRows, setParsedRows] = useState<ParsedRow[]>([]);
   const [fileName, setFileName] = useState('');
@@ -322,9 +323,15 @@ export default function InventoryReportImport({ onClose }: Props) {
       });
     }
 
+    // Snap every model name to the admin catalog on the way in, so data
+    // arrives consistent instead of needing a cleanup pass afterwards.
+    // Unknown models import exactly as typed.
+    const catalogIndex = buildCatalogIndex(models);
+
     const unitEntries: Array<{ collection: string; id: string; data: any }> = [];
     const toRow = (r: ParsedRow, existing?: InventoryUnit) => {
       const parsed = parseBrandModelStorage(r.model || '');
+      const canonicalModel = canonicaliseModel(r.model || '', parsed.brand || '', catalogIndex);
       const supplierId = supplierByName.get(r.supplier.trim().toLowerCase()) || '';
       const id = existing?.id || `unit_imp_${Date.now()}_${r.rowNum}_${r.imei.slice(0, 6)}`;
       return {
@@ -334,7 +341,7 @@ export default function InventoryReportImport({ onClose }: Props) {
           ...(existing || {}),
           id,
           imei: r.imei,
-          model: r.model,
+          model: canonicalModel,
           brand: parsed.brand || existing?.brand || '',
           category: existing?.category || 'phone',
           colour: r.colour || existing?.colour || '',

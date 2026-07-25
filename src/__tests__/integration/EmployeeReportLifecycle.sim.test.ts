@@ -278,21 +278,21 @@ describe('Act 3 · confirm — reconcile sales against inventory and SHS', () =>
     expect(office.map(u => u.id)).toEqual(['u-spare']);
   });
 
-  it('FINDING: stockSource is overwritten to "office" on a sold SHS unit', async () => {
+  it('FIXED: a sold SHS unit keeps its SHS provenance', async () => {
     await commitImport(parsed);
     const shs = col('inventoryUnits')['u-shs'] as InventoryUnit;
-    // buildPostImportSyncPatches writes `stockSource: u.stockSource ?? 'office'`,
-    // which preserves it — but the unit only kept 'shs' because the fixture set
-    // it explicitly. A parser-created SHS placeholder has no stockSource, so it
-    // becomes 'office' the moment it sells, and the SHS component of every
-    // report loses it. Documented as-is:
     expect(shs.stockSource).toBe('shs');
+
+    // The real regression was the unit with NO explicit stockSource — a
+    // parser-created placeholder. Incoming now implies SHS.
     const noSource = makeUnit({ id: 'u-shs2', imei: '350000000000077', status: 'incoming' });
-    const { unitPatches } = buildPostImportSyncPatches(
+    const { unitPatches, shsFulfilled } = buildPostImportSyncPatches(
       [{ id: 's', imei: noSource.imei, salePrice: 1, saleDate: '2026-07-06', marketplace: 'AMAZON', orderNumber: 'x' } as Sale],
       [noSource],
     );
-    expect(unitPatches[0].data.stockSource).toBe('office');   // ← SHS provenance lost
+    expect(unitPatches[0].data.stockSource).toBe('shs');
+    // And the caller is told to clear the placeholder / master row behind it.
+    expect(shsFulfilled.map(f => f.unitId)).toEqual(['u-shs2']);
   });
 });
 

@@ -332,7 +332,7 @@ describe('auditRowMissing — audit completeness gate', () => {
 });
 
 describe('buildPostImportSyncPatches — stockSource stamping', () => {
-  it('stamps office for any matched unit (IMEI in inventory = office stock)', () => {
+  it('stamps office for a shelf unit and SHS for a supplier-held one', () => {
     const units: InventoryUnit[] = [
       unit({ id: 'u-office', imei: '111', status: 'available' }),
       unit({ id: 'u-inc',    imei: '222', status: 'incoming' }),
@@ -343,9 +343,28 @@ describe('buildPostImportSyncPatches — stockSource stamping', () => {
     ];
     const { unitPatches } = buildPostImportSyncPatches(sales, units);
     const byId = new Map(unitPatches.map(p => [p.id, p.data]));
-    // IMEI exists in inventory → office, regardless of prior status.
     expect(byId.get('u-office')?.stockSource).toBe('office');
-    expect(byId.get('u-inc')?.stockSource).toBe('office');
+    // An incoming unit is supplier-held by definition, so the sale that
+    // fulfils it is an SHS sale. Stamping 'office' here (the old rule)
+    // relabelled every parser-created SHS placeholder the moment it sold
+    // and lost it from the SHS column of every report.
+    expect(byId.get('u-inc')?.stockSource).toBe('shs');
+  });
+
+  it('reports which units were SHS-fulfilled so their trail can be cleared', () => {
+    const units: InventoryUnit[] = [
+      unit({ id: 'u-office', imei: '111', status: 'available' }),
+      unit({ id: 'u-inc',    imei: '222', status: 'incoming', model: 'IPHONE 13', supplierName: 'CELLHUB' }),
+    ];
+    const sales: Sale[] = [
+      sale({ id: 'EBAY__O1__111', marketplace: 'EBAY', orderNumber: 'O1', imei: '111' }),
+      sale({ id: 'EBAY__O2__222', marketplace: 'EBAY', orderNumber: 'O2', imei: '222' }),
+    ];
+    const { shsFulfilled } = buildPostImportSyncPatches(sales, units);
+    // Only the supplier-held one — the shelf unit has no SHS trail.
+    expect(shsFulfilled).toEqual([
+      { unitId: 'u-inc', model: 'IPHONE 13', supplierName: 'CELLHUB' },
+    ]);
   });
 
   it('preserves an explicitly-set shs source on a matched unit', () => {

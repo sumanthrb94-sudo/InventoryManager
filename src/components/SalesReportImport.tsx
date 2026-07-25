@@ -27,7 +27,7 @@ import type { Sale, Marketplace } from '../types';
 import { MARKETPLACES } from '../types';
 import { parseSalesWorkbook, type ParsedSales } from '../lib/salesImport';
 import { buildPostImportSyncPatches } from '../services/salesService';
-import { addSoldUnitFromSale, completeUnitBuyInfo } from '../services/inventoryService';
+import { addSoldUnitFromSale, completeUnitBuyInfo, reconcileShsAfterFulfilment } from '../services/inventoryService';
 import { normalizeOperatorSku } from '../lib/modelStorage';
 import { auth, isAdmin } from '../lib/firebase';
 import DeviceComboBox from './DeviceComboBox';
@@ -364,6 +364,10 @@ export default function SalesReportImport({ onClose }: Props) {
     { created: 0, updated: 0, skipped: 0 },
   );
   const [syncStats, setSyncStats] = useState<{
+    /** Incoming (supplier-held) units a sale fulfilled in this import. */
+    shsFulfilled: number;
+    shsPlaceholdersCleared: number;
+    shsAggregatesDecremented: number;
     unitsMarkedSold: number;
     salesLinked: number;
     unitsAddedFromOrphanSales: number;
@@ -374,7 +378,7 @@ export default function SalesReportImport({ onClose }: Props) {
     unitsAddFailedDetails: Array<{ imei: string; orderNumber: string; reason: string }>;
     staleDeleted: number;
     staleDeleteFailed: number;
-  }>({ unitsMarkedSold: 0, salesLinked: 0, unitsAddedFromOrphanSales: 0, unitsAddFailed: 0, unitsAddFailedDetails: [], staleDeleted: 0, staleDeleteFailed: 0 });
+  }>({ shsFulfilled: 0, shsPlaceholdersCleared: 0, shsAggregatesDecremented: 0, unitsMarkedSold: 0, salesLinked: 0, unitsAddedFromOrphanSales: 0, unitsAddFailed: 0, unitsAddFailedDetails: [], staleDeleted: 0, staleDeleteFailed: 0 });
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [auditEdits, setAuditEdits] = useState<AuditCompletionRow[]>([]);
 
@@ -565,11 +569,31 @@ export default function SalesReportImport({ onClose }: Props) {
       const storedById = new Map(sales.map(s => [s.id, s]));
       const allImported = [...preview.toCreate, ...preview.toUpdate]
         .map(s => ({ ...(storedById.get(s.id) ?? {}), ...s }) as Sale);
-      const { unitPatches, salePatches } = buildPostImportSyncPatches(allImported, units);
+      const { unitPatches, salePatches, shsFulfilled } = buildPostImportSyncPatches(allImported, units);
       if (unitPatches.length || salePatches.length) {
         await dbService.bulkCreate([...unitPatches, ...salePatches]);
       }
+
+      // SHS trail. Flipping an incoming unit to sold is only half the job:
+      // the parser placeholder and the master-file aggregate that recorded
+      // "the supplier is holding this" carry no IMEI, so nothing above can
+      // reach them and they keep counting as stock we no longer have.
+      // Same helper the orphan-completion path uses, so both agree.
+      let shsPlaceholdersCleared = 0;
+      let shsAggregatesDecremented = 0;
+      for (const f of shsFulfilled) {
+        const res = await reconcileShsAfterFulfilment({
+          model: f.model,
+          supplierName: f.supplierName,
+          contextImei: f.unitId,
+        });
+        shsPlaceholdersCleared += res.placeholdersRemoved;
+        shsAggregatesDecremented += res.aggregatesDecremented;
+      }
       setSyncStats({
+        shsFulfilled: shsFulfilled.length,
+        shsPlaceholdersCleared,
+        shsAggregatesDecremented,
         unitsMarkedSold: unitPatches.length,
         salesLinked: salePatches.length,
         unitsAddedFromOrphanSales,
@@ -701,6 +725,13 @@ export default function SalesReportImport({ onClose }: Props) {
                 {syncStats.staleDeleteFailed > 0 && (
                   <p className="text-[10px] font-mono text-rose-700 mt-1">
                     ⚠ {syncStats.staleDeleteFailed} stale row{syncStats.staleDeleteFailed === 1 ? '' : 's'} could not be deleted (Firestore rules require admin for sales delete). They'll reappear on the next snapshot.
+                  </p>
+                )}
+                {syncStats.shsFulfilled > 0 && (
+                  <p className="text-[11px] font-mono text-amber-700">
+                    SHS fulfilled · {syncStats.shsFulfilled} supplier-held unit{syncStats.shsFulfilled === 1 ? '' : 's'} shipped &amp; sold
+                    {syncStats.shsAggregatesDecremented > 0 && <> · {syncStats.shsAggregatesDecremented} master row{syncStats.shsAggregatesDecremented === 1 ? '' : 's'} decremented</>}
+                    {syncStats.shsPlaceholdersCleared > 0 && <> · {syncStats.shsPlaceholdersCleared} placeholder{syncStats.shsPlaceholdersCleared === 1 ? '' : 's'} cleared</>}
                   </p>
                 )}
                 {(syncStats.unitsMarkedSold > 0 || syncStats.salesLinked > 0) && (

@@ -289,11 +289,14 @@ async function run() {
   await shot(page, 'sales-import-done');
 
   const doneText = await page.locator('body').innerText();
+  record('import reports the SHS fulfilment', /SHS fulfilled/i.test(doneText),
+    (doneText.match(/SHS fulfilled[^\n]*/i) || [])[0] || '');
   record('import reports how many units it marked sold', /sold|linked|synced/i.test(doneText),
     (doneText.match(/\d+ units? marked sold/i) || [])[0] || '');
   const createdLine = (doneText.match(/(\d+) created · (\d+) updated/i) || []);
+  // 101 = 100 sales + the SHS-fulfilment row; the duplicate collapses.
   record('Done screen reports the rows it actually created',
-    createdLine[1] === '100' && createdLine[2] === '0',
+    createdLine[1] === '101' && createdLine[2] === '0',
     createdLine[0] || 'no created/updated line');
 
   await modal(page).getByRole('button', { name: /Close|Done/i }).last().click().catch(() => {});
@@ -306,8 +309,10 @@ async function run() {
   record('office stock dropped as sales were reconciled',
     officeAfterSales !== null && officeAfterSales < 110,
     `110 → ${officeAfterSales}`);
-  record('SHS stock survived the sales import untouched', shsAfterSales === 10,
-    `shs=${shsAfterSales}`);
+  // One report row sold a supplier-held phone, so SHS must drop by exactly
+  // one — the supplier shipped it, we no longer have it on order.
+  record('a sale against a supplier-held unit drops SHS stock', shsAfterSales === 9,
+    `10 → ${shsAfterSales}`);
   await shot(page, 'buy-after-sales-import');
 
   await gotoTab(page, 'Inventory');
