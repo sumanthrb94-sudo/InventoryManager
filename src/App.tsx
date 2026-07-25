@@ -5,7 +5,7 @@ import {
   PackagePlus, Package, RefreshCw,
   LogOut, Plus, FileSpreadsheet, LayoutDashboard,
   TrendingUp, FileText, Users, Settings, Database,
-  ClipboardList, Menu, X, Megaphone, SlidersHorizontal, Tag,
+  ClipboardList, Menu, X, Megaphone, SlidersHorizontal, Tag, Receipt,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import Dashboard, { NavAction } from './components/Dashboard';
@@ -18,6 +18,7 @@ import ReturnsPage from './components/ReturnsPage';
 import NoticeBoard from './components/NoticeBoard';
 import SkuReconciliation from './components/SkuReconciliation';
 import ConfigurationPanel from './components/ConfigurationPanel';
+import VatCentre from './components/VatCentre';
 import { useUnseenNoticesCount } from './hooks/useUnseenNoticesCount';
 import ReportingPage from './components/ReportingPage';
 import AnalyticsPage from './components/AnalyticsPage';
@@ -35,7 +36,7 @@ import { useBuildVersionCheck } from './lib/useBuildVersionCheck';
 import type { SupplierWhatsappUpdate } from './types';
 
 type Tab      = 'notices' | 'buy' | 'sell' | 'returns' | 'admin';
-type AdminSub = 'overview' | 'salesHistory' | 'insights' | 'reports' | 'configuration' | 'skus';
+type AdminSub = 'overview' | 'salesHistory' | 'vat' | 'insights' | 'reports' | 'configuration' | 'skus';
 
 interface NavTab {
   id: Tab;
@@ -123,6 +124,10 @@ function LoadingScreen() {
 const ADMIN_SUBS: { id: AdminSub; label: string; icon: React.ReactNode }[] = [
   { id: 'overview',      label: 'Overview',           icon: <LayoutDashboard size={14} /> },
   { id: 'salesHistory',  label: 'Sales History',      icon: <ClipboardList size={14} /> },
+  // VAT sits above Insights on purpose: it is the figure with a filing
+  // deadline attached, and it was the one number the app computed per sale
+  // but never totalled.
+  { id: 'vat',           label: 'VAT',                icon: <Receipt size={14} /> },
   { id: 'insights',      label: 'Insights',           icon: <TrendingUp size={14} /> },
   { id: 'reports',       label: 'Reports',            icon: <FileText size={14} /> },
   // Configuration is the single home for editable admin data —
@@ -685,6 +690,7 @@ function AppShell({ user }: { user: User }) {
                   />
                 )}
                 {activeTab === 'admin' && userIsAdmin && adminSub === 'salesHistory' && <Sales />}
+                {activeTab === 'admin' && userIsAdmin && adminSub === 'vat'          && <VatCentre />}
                 {activeTab === 'admin' && userIsAdmin && adminSub === 'insights'     && <AnalyticsPage />}
                 {activeTab === 'admin' && userIsAdmin && adminSub === 'reports'      && <ReportingPage />}
                 {activeTab === 'admin' && userIsAdmin && adminSub === 'configuration' && <ConfigurationPanel />}
