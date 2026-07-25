@@ -433,15 +433,27 @@ export default function BatchImageCapture({
     </div>
   );
 }
-function CaptureTile({
-  tile,
-  onRemove,
-  onImeiChange,
-}: {
+interface CaptureTileProps {
+  /** Undefined until the operator picks a photo for this slot. */
   tile: CapturedTile | undefined;
   onRemove: () => void;
   onImeiChange: (v: string) => void;
-}) {
+}
+
+/**
+ * One slot in the per-colour grid.
+ *
+ * Typed as React.FC rather than a bare function with an inline props
+ * literal: the caller renders these in a .map and passes `key`, and only
+ * a recognised component type picks up React's built-in `key` attribute.
+ * With the inline literal TypeScript compared the JSX attributes against
+ * the props object directly and rejected `key` as an unknown property.
+ */
+const CaptureTile: React.FC<CaptureTileProps> = ({
+  tile,
+  onRemove,
+  onImeiChange,
+}) => {
   if (!tile) {
     return (
       <div className="aspect-square border-2 border-dashed border-gray-200 rounded-xl flex items-center justify-center text-gray-300">
@@ -497,4 +509,4 @@ function CaptureTile({
       </button>
     </div>
   );
-}
+};

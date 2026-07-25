@@ -3,7 +3,7 @@ import { useInventoryStore } from '../lib/inventoryStore';
 import {
   Bell, CheckCircle2, Star, Truck,
   ChevronDown, Clock, Search, ShoppingBag,
-  AlertCircle, Package, RefreshCw, ChevronUp, Trash2,
+  AlertCircle, Package, RefreshCw, ChevronUp, Trash2, Wrench,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { dbService } from '../lib/dbService';
@@ -38,6 +38,15 @@ const FLAG_CONFIG: Record<OperationalFlag, { label: string; icon: any; style: st
     icon: CheckCircle2,
     style: 'bg-gray-50 text-gray-500 border-gray-200',
     action: 'Set qty to 0 on eBay, Amazon, OnBuy, Backmarket immediately',
+  },
+  // Set by ReadyToShipModal when a repair-route return is completed and the
+  // unit goes back on the shelf. Label and style match Inventory.tsx so the
+  // same flag reads the same wherever it appears.
+  repaired_unit: {
+    label: 'Repaired',
+    icon: Wrench,
+    style: 'bg-blue-50 text-blue-800 border-blue-200',
+    action: 'Repaired and back in stock — relist, and mention the repair if the listing describes condition',
   },
 };
 
