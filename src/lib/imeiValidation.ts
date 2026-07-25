@@ -61,7 +61,15 @@ export function isAppleDevice(modelOrBrand: string | undefined | null): boolean 
   // cellular radio and therefore no 15-digit IMEI — only a serial. This
   // catches "Galaxy A11 Plus WiFi" and similar tablet variants the
   // operator labels by their radio config rather than by a TAB keyword.
-  return /\b(APPLE|IPHONE|IPAD|MACBOOK|IMAC|AIRPODS|TABLET|SLATE|WATCH|BUDS|PODS|BOOK|WIFI|WI-FI)\b|\bTAB[A-Z0-9]*\b/.test(s);
+  //
+  // Earbuds and watches carry their generation FUSED to the name — Galaxy
+  // Buds2, Buds3 Pro, AirPods4, Galaxy Watch6 — so `\bBUDS\b` never matched
+  // them and the serial unlock silently failed: no IMEI exists on those
+  // devices, so intake was impossible. This is the same fused-token problem
+  // TAB[A-Z0-9]* was already special-cased for; the fix was never carried
+  // across. A trailing \d* (digits only, not [A-Z0-9]*) is deliberately
+  // narrow — BOOK[A-Z0-9]* would swallow BOOKCASE.
+  return /\b(APPLE|IPHONE|IPAD|MACBOOK|IMAC|TABLET|SLATE|BOOK|WIFI|WI-FI)\b|\b(AIRPODS|BUDS|PODS|WATCH)\d*\b|\bTAB[A-Z0-9]*\b/.test(s);
 }
 
 /**
