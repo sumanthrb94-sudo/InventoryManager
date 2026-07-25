@@ -222,6 +222,7 @@ export default function BuySheet(_props: Props) {
   // Scoped wipes — office shelf and SHS book are cleared independently
   // of each other (and of sales/returns, which live on their own pages).
   const [wipeScope, setWipeScope] = useState<WipeScopeId | null>(null);
+  const [wipeMenuOpen, setWipeMenuOpen] = useState(false);
 
   // ── Derived sets per KPI ──────────────────────────────────────────────────
   const today = new Date().toISOString().split('T')[0];
@@ -428,8 +429,11 @@ export default function BuySheet(_props: Props) {
   const sortedRows = useMemo(() => sortUnits(overlayRows, sort, supplierMap), [overlayRows, sort, supplierMap]);
 
   // ── Row builder shared by Office and SHS sheets ───────────────────────────
+  // Stock Type closes the export → re-import loop: without it a downloaded
+  // report could only ever be re-imported as office stock, so every SHS row
+  // silently became available stock on the way back in.
   const INVENTORY_REPORT_COLUMNS = [
-    'Stock In Date', 'Model', 'IMEI', 'Grade', 'Storage', 'Colour', 'SIM Type', 'Supplier', 'BP', 'Notes', 'Age (days)',
+    'Stock In Date', 'Model', 'IMEI', 'Grade', 'Storage', 'Colour', 'SIM Type', 'Supplier', 'BP', 'Stock Type', 'Notes', 'Age (days)',
   ];
 
   const buildReportRow = (u: InventoryUnit): Record<string, any> => {
@@ -449,6 +453,7 @@ export default function BuySheet(_props: Props) {
       'SIM Type':      u.simType || '',
       'Supplier':      supplierMap[u.supplierId] || u.supplierName || '',
       'BP':            u.buyPrice ?? '',
+      'Stock Type':    u.status === 'incoming' || u.stockSource === 'shs' ? 'SHS' : 'OFFICE',
       'Notes':         u.notes || '',
       'Age (days)':    age,
     };
@@ -592,34 +597,70 @@ export default function BuySheet(_props: Props) {
             // delete) changes the report row count via isStockOnHand.
             reportDataKey={`${units.length}|${units.filter(u => u.status === 'sold').length}|${units.filter(u => u.returnType === 'returned_to_supplier').length}|${suppliers.length}`}
           />
-          {/* Wipe controls stay admin-only. Office and SHS get their own
-              scoped buttons so a reset of one shelf never takes the other
-              (or sales / returns, which are wiped from their own pages)
-              with it. The all-collections wipe stays as the last resort. */}
+          {/* Wipe controls stay admin-only, behind one menu. Three
+              side-by-side danger buttons pushed the action row to four
+              stacked lines on a phone and gave destructive actions the
+              same visual weight as Add Stock. One trigger, three scoped
+              choices, still one tap to reach any of them. */}
           {userIsAdmin && (
-            <>
+            <div className="relative">
               <button
-                onClick={() => setWipeScope('office')}
-                title="Delete every in-office stock unit and its master-file rows · DANGER"
-                className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-[10px] font-bold uppercase tracking-widest transition-all border border-rose-200 bg-white text-rose-600 hover:bg-rose-50 hover:border-rose-400"
+                onClick={() => setWipeMenuOpen(o => !o)}
+                aria-haspopup="menu"
+                aria-expanded={wipeMenuOpen}
+                title="Scoped database wipes · DANGER"
+                className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-[10px] font-bold uppercase tracking-widest transition-all border ${
+                  wipeMenuOpen
+                    ? 'bg-rose-600 text-white border-rose-600'
+                    : 'bg-white text-rose-600 border-rose-200 hover:bg-rose-50 hover:border-rose-400'
+                }`}
               >
-                <Trash2 size={12} /> Wipe Office Stock
+                <Trash2 size={12} /> Wipe
+                <ChevronDown size={11} className={`transition-transform ${wipeMenuOpen ? 'rotate-180' : ''}`} />
               </button>
-              <button
-                onClick={() => setWipeScope('shs')}
-                title="Delete every SHS (supplier-held) unit and its master-file rows · DANGER"
-                className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-[10px] font-bold uppercase tracking-widest transition-all border border-rose-200 bg-white text-rose-600 hover:bg-rose-50 hover:border-rose-400"
-              >
-                <Trash2 size={12} /> Wipe SHS
-              </button>
-              <button
-                onClick={() => setShowResetData(true)}
-                title="Wipe every collection · DANGER"
-                className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-[10px] font-bold uppercase tracking-widest transition-all border border-rose-300 bg-rose-600 text-white hover:bg-rose-700"
-              >
-                <Trash2 size={12} /> Wipe All
-              </button>
-            </>
+              {wipeMenuOpen && (
+                <>
+                  <div className="fixed inset-0 z-30" onClick={() => setWipeMenuOpen(false)} />
+                  <div role="menu" className="absolute right-0 top-full mt-1.5 z-40 w-64 bg-white border border-rose-200 rounded-xl shadow-lg overflow-hidden">
+                    <button
+                      type="button" role="menuitem"
+                      onClick={() => { setWipeMenuOpen(false); setWipeScope('office'); }}
+                      className="w-full flex items-start gap-2.5 px-3 py-2.5 hover:bg-rose-50 text-left transition-colors"
+                    >
+                      <Trash2 size={13} className="text-rose-600 mt-0.5 flex-shrink-0" />
+                      <span className="flex-1">
+                        <span className="block text-[11px] font-bold text-slate-900">Wipe Office Stock</span>
+                        <span className="block text-[9px] font-mono text-slate-500 mt-0.5">Shelf units + office master rows</span>
+                      </span>
+                    </button>
+                    <div className="border-t border-rose-100" />
+                    <button
+                      type="button" role="menuitem"
+                      onClick={() => { setWipeMenuOpen(false); setWipeScope('shs'); }}
+                      className="w-full flex items-start gap-2.5 px-3 py-2.5 hover:bg-rose-50 text-left transition-colors"
+                    >
+                      <Trash2 size={13} className="text-amber-600 mt-0.5 flex-shrink-0" />
+                      <span className="flex-1">
+                        <span className="block text-[11px] font-bold text-slate-900">Wipe SHS</span>
+                        <span className="block text-[9px] font-mono text-slate-500 mt-0.5">Supplier-held units + SHS master rows</span>
+                      </span>
+                    </button>
+                    <div className="border-t border-rose-100" />
+                    <button
+                      type="button" role="menuitem"
+                      onClick={() => { setWipeMenuOpen(false); setShowResetData(true); }}
+                      className="w-full flex items-start gap-2.5 px-3 py-2.5 bg-rose-50/60 hover:bg-rose-100 text-left transition-colors"
+                    >
+                      <Trash2 size={13} className="text-rose-700 mt-0.5 flex-shrink-0" />
+                      <span className="flex-1">
+                        <span className="block text-[11px] font-bold text-rose-800">Wipe All</span>
+                        <span className="block text-[9px] font-mono text-rose-600 mt-0.5">Every collection · last resort</span>
+                      </span>
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
           )}
         </div>
 

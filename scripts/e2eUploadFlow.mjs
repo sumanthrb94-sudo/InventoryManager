@@ -112,7 +112,10 @@ async function run() {
   await gotoTab(page, 'Stock Intake');
   await shot(page, 'before-wipe');
 
-  await page.getByRole('button', { name: /Wipe All/i }).click();
+  // Wipe controls now live behind one menu in the action row.
+  await page.getByRole('button', { name: /^Wipe$/i }).click();
+  await page.waitForTimeout(400);
+  await page.getByRole('menuitem', { name: /Wipe All/i }).click();
   await page.waitForTimeout(600);
   await page.getByText(/I understand this will delete all inventory data/i).click();
   await page.waitForTimeout(200);
@@ -157,8 +160,11 @@ async function run() {
   await gotoTab(page, 'Stock Intake');
   const officeAfterImport = await kpi(page, 'ALL OFFICE STOCK');
   const shsAfterImport = await kpi(page, 'SHS STOCK');
-  record('inventory import lands 120 units', officeAfterImport === 120,
+  record('inventory import lands 110 office + 10 SHS units',
+    officeAfterImport === 110 && shsAfterImport === 10,
     `office=${officeAfterImport} shs=${shsAfterImport}`);
+  record('SHS arrives by report — no manual re-keying', shsAfterImport === 10,
+    'Stock Type column');
   await shot(page, 'buy-after-inventory-import');
 
   // ── 3. Sales upload ───────────────────────────────────────────────────────
@@ -245,6 +251,10 @@ async function run() {
   const doneText = await page.locator('body').innerText();
   record('import reports how many units it marked sold', /sold|linked|synced/i.test(doneText),
     (doneText.match(/\d+ units? marked sold/i) || [])[0] || '');
+  const createdLine = (doneText.match(/(\d+) created · (\d+) updated/i) || []);
+  record('Done screen reports the rows it actually created',
+    createdLine[1] === '100' && createdLine[2] === '0',
+    createdLine[0] || 'no created/updated line');
 
   await modal(page).getByRole('button', { name: /Close|Done/i }).last().click().catch(() => {});
   await page.waitForTimeout(2000);
@@ -252,9 +262,12 @@ async function run() {
   // ── 4. Did inventory reconcile? ───────────────────────────────────────────
   await gotoTab(page, 'Stock Intake');
   const officeAfterSales = await kpi(page, 'ALL OFFICE STOCK');
+  const shsAfterSales = await kpi(page, 'SHS STOCK');
   record('office stock dropped as sales were reconciled',
-    officeAfterSales !== null && officeAfterSales < 120,
-    `120 → ${officeAfterSales}`);
+    officeAfterSales !== null && officeAfterSales < 110,
+    `110 → ${officeAfterSales}`);
+  record('SHS stock survived the sales import untouched', shsAfterSales === 10,
+    `shs=${shsAfterSales}`);
   await shot(page, 'buy-after-sales-import');
 
   await gotoTab(page, 'Inventory');
@@ -334,6 +347,16 @@ async function run() {
   record('Sell chip and Returns page report the same number',
     (sellReturns ?? '0') === (allReturns ?? '0'),
     `sell=${sellReturns ?? '0'} returns=${allReturns ?? '0'}`);
+
+  // A 90-unit import must not produce 90 toasts. The toast stack shows an
+  // "N of M" pager only when more than one is queued, so M is the count;
+  // no pager means at most one toast was on screen.
+  const toastQueue = await page.evaluate(() => {
+    const m = (document.body.innerText || '').match(/\b(\d+)\s+of\s+(\d+)\b/);
+    return m ? Number(m[2]) : 1;
+  });
+  record('bulk import does not spam one notification per unit', toastQueue <= 12,
+    `${toastQueue} queued for 90 sold units across 8 models (was 94)`);
 
   record('no uncaught JS errors across the whole flow', jsErrors.length === 0,
     jsErrors.slice(0, 2).join(' | '));

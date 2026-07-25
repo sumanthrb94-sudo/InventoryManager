@@ -354,6 +354,13 @@ export default function SalesReportImport({ onClose }: Props) {
    *  `staleDeleteFailed` counts stale-combined deletions that Firestore
    *  rules denied (e.g. non-admin user trying to delete sales) — surfaced
    *  to the operator so the Done screen doesn't lie about the cleanup. */
+  /** Created/updated counts SNAPSHOTTED at confirm time. The preview memo
+   *  recomputes off live `sales`, so by the time the Done screen renders
+   *  every row already exists and it reported "0 created · N updated" for
+   *  a file of brand-new sales. */
+  const [writeStats, setWriteStats] = useState<{ created: number; updated: number; skipped: number }>(
+    { created: 0, updated: 0, skipped: 0 },
+  );
   const [syncStats, setSyncStats] = useState<{
     unitsMarkedSold: number;
     salesLinked: number;
@@ -419,6 +426,11 @@ export default function SalesReportImport({ onClose }: Props) {
   const handleConfirm = async () => {
     if (!preview || !parsed) return;
     setPhase('loading');
+    setWriteStats({
+      created: preview.toCreate.length,
+      updated: preview.toUpdate.length,
+      skipped: preview.invalid.length,
+    });
     const entries = [...preview.toCreate, ...preview.toUpdate].map(s => ({
       collection: 'sales',
       id: s.id,
@@ -667,8 +679,8 @@ export default function SalesReportImport({ onClose }: Props) {
                 <CheckCircle2 size={36} className="text-emerald-600" />
                 <p className="text-sm font-bold text-slate-900">Import complete</p>
                 <p className="text-[11px] font-mono text-slate-500">
-                  {preview.toCreate.length} created · {preview.toUpdate.length} updated
-                  {preview.invalid.length > 0 && <> · {preview.invalid.length} skipped</>}
+                  {writeStats.created} created · {writeStats.updated} updated
+                  {writeStats.skipped > 0 && <> · {writeStats.skipped} skipped</>}
                   {syncStats.staleDeleted > 0 && <> · {syncStats.staleDeleted} stale rows cleaned</>}
                 </p>
                 {syncStats.staleDeleteFailed > 0 && (

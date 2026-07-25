@@ -184,31 +184,36 @@ class NotificationService {
   private processBatch() {
     if (this.batchBuffer.length === 0) return;
 
-    const first = this.batchBuffer[0];
-    const batchableTypes = ['new_stock', 'shs_received'];
-    const isBatchable = batchableTypes.includes(first.type);
-
-    if (isBatchable && this.batchBuffer.length > 1) {
-      // Check if all items in batch are the same model and type
-      const allSameModel = this.batchBuffer.every(b => b.unit.model === first.unit.model && b.type === first.type);
-      if (allSameModel) {
-        console.log('[Notification Batch] Processing batch:', { type: first.type, count: this.batchBuffer.length, model: first.unit.model });
-        this.addNotificationDirect(first.type, first.unit, first.profitAmount, this.batchBuffer.length);
-        this.batchBuffer = [];
-        return;
-      }
+    // Group by (type, model) and emit ONE notification per group carrying a
+    // count. The previous rule only collapsed a batch when EVERY item shared
+    // a model, so a 94-unit sales import — eight models — fell through to the
+    // individual path and produced 94 toasts. Grouping turns that into eight.
+    const groups = new Map<string, typeof this.batchBuffer>();
+    for (const item of this.batchBuffer) {
+      const key = `${item.type}__${item.unit.model || ''}__${item.unit.storage || ''}`;
+      const bucket = groups.get(key);
+      if (bucket) bucket.push(item); else groups.set(key, [item]);
     }
 
-    // Process items individually if not batchable
-    console.log('[Notification Batch] Items not batchable, processing individually:', this.batchBuffer.length);
-    for (const item of this.batchBuffer) {
-      this.addNotificationDirect(item.type, item.unit, item.profitAmount, 1);
+    for (const bucket of groups.values()) {
+      const first = bucket[0];
+      // Sum profit across the group so a batched 'sold' still reports the
+      // real money, not just the first unit's.
+      const profit = bucket.some(b => b.profitAmount !== undefined)
+        ? bucket.reduce((sum, b) => sum + (b.profitAmount ?? 0), 0)
+        : undefined;
+      this.addNotificationDirect(first.type, first.unit, profit, bucket.length);
     }
     this.batchBuffer = [];
   }
 
   addNotification(type: NotificationType, unit: InventoryUnit, profitAmount?: number, count?: number) {
-    // For bulk additions like new_stock and shs_received, use batching
+    // Bulk-prone types are buffered and collapsed by processBatch.
+    // 'sold' is deliberately NOT here: buffering makes delivery async,
+    // and a sold notification is time-critical. Bulk 'sold' storms are
+    // collapsed at source instead — see useRealTimeNotifications, which
+    // groups units flipped in a single store update and passes an
+    // explicit count.
     const batchableTypes = ['new_stock', 'shs_received'];
     if (batchableTypes.includes(type) && !count) {
       console.log('[Notification Batch] Adding to buffer:', { type, model: unit.model, bufferSize: this.batchBuffer.length + 1 });

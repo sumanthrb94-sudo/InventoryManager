@@ -70,12 +70,17 @@ async function run() {
 
   // ── Stock Intake (Buy) — scoped wipe buttons live here ───────────────────
   await gotoTab(page, 'Stock Intake');
-  const wipeOffice = page.getByRole('button', { name: /Wipe Office Stock/i });
-  const wipeShs = page.getByRole('button', { name: /Wipe SHS/i });
-  const wipeAll = page.getByRole('button', { name: /Wipe All/i });
-  record('Buy page shows all three scoped wipe buttons',
+  const wipeMenu = page.getByRole('button', { name: /^Wipe$/i });
+  record('Buy page action row has a single Wipe menu', await wipeMenu.isVisible());
+  await shot(page, 'buy-action-row');
+  await wipeMenu.click();
+  await page.waitForTimeout(400);
+  const wipeOffice = page.getByRole('menuitem', { name: /Wipe Office Stock/i });
+  const wipeShs = page.getByRole('menuitem', { name: /Wipe SHS/i });
+  const wipeAll = page.getByRole('menuitem', { name: /Wipe All/i });
+  record('Wipe menu offers all three scopes',
     await wipeOffice.isVisible() && await wipeShs.isVisible() && await wipeAll.isVisible());
-  await shot(page, 'buy-scoped-wipe-buttons');
+  await shot(page, 'buy-wipe-menu');
 
   // Open the office wipe and read the plan it renders
   await wipeOffice.click();
@@ -101,7 +106,9 @@ async function run() {
   await page.waitForTimeout(300);
 
   // SHS wipe — must show a DIFFERENT plan to the office one
-  await wipeShs.click();
+  await page.getByRole('button', { name: /^Wipe$/i }).click();
+  await page.waitForTimeout(400);
+  await page.getByRole('menuitem', { name: /Wipe SHS/i }).click();
   await page.waitForTimeout(500);
   record('SHS wipe modal is scoped to SHS only',
     await page.getByText('Wipe SHS Stock').isVisible());
@@ -178,7 +185,7 @@ async function run() {
 
   await gotoTab(emp, 'Stock Intake');
   const empCanAdd = await emp.getByRole('button', { name: /Add Stock/i }).isVisible().catch(() => false);
-  const empSeesWipe = await emp.getByRole('button', { name: /Wipe Office Stock/i }).isVisible().catch(() => false);
+  const empSeesWipe = await emp.getByRole('button', { name: /^Wipe$/i }).isVisible().catch(() => false);
   record('employee can still add stock', empCanAdd);
   record('employee cannot see any wipe control', !empSeesWipe);
   await shot(emp, 'employee-buy-no-wipe');
@@ -193,18 +200,31 @@ async function run() {
   await shot(emp, 'employee-returns');
   await empCtx.close();
 
-  // ── Desktop pass — layout check on a wide viewport ───────────────────────
-  const deskCtx = await browser.newContext({ viewport: DESKTOP });
-  const desk = await deskCtx.newPage();
-  await desk.goto(BASE, { waitUntil: 'networkidle' });
-  await desk.waitForTimeout(1500);
-  await shot(desk, 'desktop-dashboard');
+  // ── Responsive pass — every operator page at phone AND desktop ──────────
+  const PAGES = ['Stock Intake', 'Inventory', 'Returns', 'Admin'];
+  for (const [vpName, vp] of [['mobile', MOBILE], ['desktop', DESKTOP]]) {
+    const rCtx = await browser.newContext({ viewport: vp, deviceScaleFactor: vpName === 'mobile' ? 2 : 1 });
+    const rPage = await rCtx.newPage();
+    await rPage.goto(BASE, { waitUntil: 'networkidle' });
+    await rPage.waitForTimeout(1500);
 
-  // Horizontal overflow is the classic responsive regression
-  const overflow = await desk.evaluate(() =>
-    document.documentElement.scrollWidth - document.documentElement.clientWidth);
-  record('no horizontal overflow on desktop', overflow <= 0, `overflow=${overflow}px`);
-  await deskCtx.close();
+    for (const label of PAGES) {
+      // Desktop hides the bottom tab-bar; nav lives in the hamburger drawer.
+      const tab = rPage.getByRole('button', { name: new RegExp(`^${label}$`, 'i') }).first();
+      if (!(await tab.isVisible().catch(() => false))) {
+        await rPage.getByLabel('Open menu').click().catch(() => {});
+        await rPage.waitForTimeout(400);
+      }
+      await rPage.getByRole('button', { name: new RegExp(`^${label}$`, 'i') }).first().click().catch(() => {});
+      await rPage.waitForTimeout(1100);
+      await shot(rPage, `${vpName}-${label.toLowerCase().replace(/\s+/g, '-')}`);
+
+      const overflow = await rPage.evaluate(() =>
+        document.documentElement.scrollWidth - document.documentElement.clientWidth);
+      record(`${vpName} · ${label} · no horizontal overflow`, overflow <= 0, `overflow=${overflow}px`);
+    }
+    await rCtx.close();
+  }
 
   await browser.close();
 

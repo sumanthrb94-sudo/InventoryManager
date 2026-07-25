@@ -4,7 +4,15 @@
  * Replaces the legacy multi-sheet ImportModal. Accepts the same schema the
  * "Inventory Report" button exports, so a daily round-trip is possible:
  *
- *   Stock In Date · Model · IMEI · Grade · Storage · Colour · Supplier · BP · Notes
+ *   Stock In Date · Model · IMEI · Grade · Storage · Colour · Supplier ·
+ *   BP · Stock Type · Notes
+ *
+ * Stock Type is how supplier-held (SHS) stock arrives by report. Without
+ * it the schema could only express office stock, so every SHS row landed
+ * on the shelf as available — the operator then had to re-key it through
+ * SHS Receive. 'SHS' / 'INCOMING' / 'SUPPLIER' mean the supplier still
+ * holds the unit (status='incoming'); anything else, including a blank,
+ * is office stock, so existing files keep importing unchanged.
  *
  * Flow: upload → preview → confirm → write. Per the operator's spec,
  * NOTHING writes until the preview is confirmed; the preview verifies
@@ -41,6 +49,7 @@ interface ParsedRow {
   colour: string;
   supplier: string;        // raw supplier name string
   buyPrice: number;        // parsed numeric; 0 if missing
+  stockType: 'office' | 'shs';   // 'shs' = supplier-held, lands as incoming
   notes: string;
   errors: string[];        // per-row validation messages
 }
@@ -77,6 +86,11 @@ const HEADER_ALIASES: Record<string, keyof Omit<ParsedRow, 'rowNum' | 'errors'>>
   'colour':        'colour',
   'color':         'colour',
   'supplier':      'supplier',
+  'stock type':    'stockType',
+  'stocktype':     'stockType',
+  'stock status':  'stockType',
+  'shs':           'stockType',
+  'holding':       'stockType',
   'bp':            'buyPrice',
   'bp (£)':        'buyPrice',
   'buy price':     'buyPrice',
@@ -142,6 +156,12 @@ function parseSheet(rows: any[][]): ParsedRow[] {
     const supplier = String(get('supplier') ?? '').trim();
     const buyPrice = parseNumber(get('buyPrice'));
     const notes    = String(get('notes') ?? '').trim();
+    // Supplier-held stock. Accept the words operators actually type, plus
+    // a bare Y/YES under an "SHS" header. Anything else is office stock.
+    const stockTypeRaw = String(get('stockType') ?? '').trim().toUpperCase();
+    const stockType: 'office' | 'shs' =
+      /^(SHS|INCOMING|SUPPLIER|SUPPLIER HELD|SUPPLIER-HELD|Y|YES|TRUE|1)$/.test(stockTypeRaw)
+        ? 'shs' : 'office';
 
     const errors: string[] = [];
     if (!model)     errors.push('Model is required');
@@ -153,7 +173,7 @@ function parseSheet(rows: any[][]): ParsedRow[] {
     if (!supplier)  errors.push('Supplier is required');
     if (buyPrice <= 0) errors.push('BP must be greater than 0');
 
-    result.push({ rowNum: i + 1, dateIn, model, imei, grade, storage, simType, colour, supplier, buyPrice, notes, errors });
+    result.push({ rowNum: i + 1, dateIn, model, imei, grade, storage, simType, colour, supplier, buyPrice, stockType, notes, errors });
   }
   return result;
 }
@@ -325,7 +345,14 @@ export default function InventoryReportImport({ onClose }: Props) {
           supplierName: r.supplier,
           buyPrice: r.buyPrice,
           dateIn: r.dateIn || existing?.dateIn || new Date().toISOString().slice(0, 10),
-          status: existing?.status || 'available',
+          // A row tagged SHS is supplier-held: status 'incoming' is what
+          // every SHS surface filters on (see lib/shsCount). Never
+          // downgrade a unit that already sold — a re-import of an old
+          // file must not resurrect it as stock.
+          status: existing?.status && existing.status !== 'available'
+            ? existing.status
+            : (r.stockType === 'shs' ? 'incoming' : 'available'),
+          stockSource: r.stockType === 'shs' ? 'shs' : (existing?.stockSource ?? 'office'),
           flags: existing?.flags || [],
           notes: r.notes || existing?.notes || '',
           platformListed: existing?.platformListed ?? false,
@@ -396,7 +423,7 @@ export default function InventoryReportImport({ onClose }: Props) {
           <div className="min-w-0">
             <h3 className="text-sm font-bold tracking-tight">Import Inventory Report</h3>
             <p className="text-[10px] font-mono text-slate-400 mt-0.5">
-              9-column buy schema · upload → preview → confirm
+              10-column buy schema · upload → preview → confirm
             </p>
           </div>
           <button onClick={onClose} className="p-2 rounded-xl hover:bg-slate-100 text-slate-400">
@@ -518,7 +545,7 @@ function UploadPhase({
           <FileSpreadsheet size={11} /> Expected columns
         </p>
         <p className="text-[11px] font-mono text-slate-600 leading-relaxed">
-          Stock In Date · Model · IMEI · Grade · Storage · SIM Type · Colour · Supplier · BP · Notes
+          Stock In Date · Model · IMEI · Grade · Storage · SIM Type · Colour · Supplier · BP · Stock Type · Notes
         </p>
         <p className="text-[10px] text-slate-500">
           Match the headers exactly as in the "Inventory Report" export.
@@ -553,6 +580,30 @@ function PreviewPhase({
           {fileName} · {preview.total.toLocaleString()} {preview.total === 1 ? 'row' : 'rows'}
         </span>
       </div>
+
+      {/* Office vs SHS split — where these rows will actually land. */}
+      {(() => {
+        const rows = [...preview.toCreate, ...preview.toUpdate];
+        const shs = rows.filter(r => r.stockType === 'shs').length;
+        const office = rows.length - shs;
+        return (
+          <div className="flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
+            <span className="text-[9px] font-bold uppercase tracking-widest text-slate-400">Lands as</span>
+            <span className="text-[10px] font-mono text-slate-700">
+              <strong className="text-blue-700">{office.toLocaleString()}</strong> office stock
+            </span>
+            <span className="text-slate-300">·</span>
+            <span className="text-[10px] font-mono text-slate-700">
+              <strong className="text-amber-700">{shs.toLocaleString()}</strong> SHS (supplier-held)
+            </span>
+            {shs === 0 && (
+              <span className="text-[9px] font-mono text-slate-400 ml-auto hidden md:inline">
+                add a “Stock Type” column with SHS to import supplier-held stock
+              </span>
+            )}
+          </div>
+        );
+      })()}
 
       {/* Summary tiles */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-2">

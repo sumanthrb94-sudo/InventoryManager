@@ -60,7 +60,7 @@ const dateFor = i => {
 // ── Inventory report ─────────────────────────────────────────────────────────
 const INVENTORY_HEADERS = [
   'Stock In Date', 'Model', 'IMEI', 'Grade', 'Storage',
-  'SIM Type', 'Colour', 'Supplier', 'BP', 'Notes',
+  'SIM Type', 'Colour', 'Supplier', 'BP', 'Stock Type', 'Notes',
 ];
 
 const UNIT_COUNT = 120;
@@ -78,13 +78,14 @@ for (let i = 0; i < UNIT_COUNT; i++) {
     supplier: pick(SUPPLIERS),
     bp: money(m.bp[0], m.bp[1]),
     // Every 12th row is SHS — supplier holds it, no physical stock yet
-    notes: i % 12 === 0 ? 'SHS — supplier holding' : '',
+    stockType: i % 12 === 0 ? 'SHS' : 'OFFICE',
+    notes: i % 12 === 0 ? 'Supplier holding — awaiting delivery' : '',
   });
 }
 
 const invRows = [
   INVENTORY_HEADERS,
-  ...units.map(u => [u.dateIn, u.model, u.imei, u.grade, u.storage, u.simType, u.colour, u.supplier, u.bp, u.notes]),
+  ...units.map(u => [u.dateIn, u.model, u.imei, u.grade, u.storage, u.simType, u.colour, u.supplier, u.bp, u.stockType, u.notes]),
 ];
 const invWb = XLSX.utils.book_new();
 XLSX.utils.book_append_sheet(invWb, XLSX.utils.aoa_to_sheet(invRows), 'INVENTORY');
@@ -126,7 +127,10 @@ for (let i = 0; i < SALE_COUNT; i++) {
   // First 90 sales map onto real inventory units (so they flip to sold);
   // the last 10 are orphans the operator must complete at import time.
   const isOrphan = i >= 90;
-  const unit = units[i % units.length];
+  // Skip SHS rows when picking a unit to sell — the E2E asserts SHS
+  // survives the sales import as supplier-held stock.
+  let unit = units[i % units.length];
+  if (unit.stockType === 'SHS') unit = units[(i + 1) % units.length];
   const imei = isOrphan ? imeiFor(900 + i) : unit.imei;
   const bp = unit.bp;
   bySheet[marketplace].push(salesRow(marketplace, {
@@ -149,7 +153,7 @@ for (const m of MARKETPLACES) {
 }
 XLSX.writeFile(salesWb, `${OUT}/SALES_REPORT_E2E.xlsx`);
 
-const shsCount = units.filter(u => u.notes).length;
+const shsCount = units.filter(u => u.stockType === 'SHS').length;
 console.log(`inventory: ${units.length} units (${shsCount} tagged SHS) → ${OUT}/INVENTORY_REPORT_E2E.xlsx`);
 console.log(`sales:     ${SALE_COUNT} rows + 1 duplicate across ${MARKETPLACES.join('/')} → ${OUT}/SALES_REPORT_E2E.xlsx`);
 for (const m of MARKETPLACES) console.log(`  ${m}: ${bySheet[m].length} rows`);

@@ -41,6 +41,11 @@ export function useRealTimeNotifications() {
     const today = new Date().toISOString().split('T')[0];
     const prev  = prevMap.current;
 
+    // Units that flipped to sold in THIS update. A sales-report import
+    // flips a hundred at once; emitting one notification each buried the
+    // bell under ~94 near-identical toasts. Collect first, group after.
+    const newlySold: InventoryUnit[] = [];
+
     for (const unit of units) {
       const p = prev.get(unit.id);
       if (!p) {
@@ -55,7 +60,27 @@ export function useRealTimeNotifications() {
           console.log('[Notification] SKIPPED (session dedup):', unit.id, unit.model);
         }
       } else if (p.status !== 'sold' && unit.status === 'sold') {
-        notificationService.addNotification('sold', unit);
+        newlySold.push(unit);
+      }
+    }
+
+    // One notification per model, carrying the group's unit count and its
+    // summed profit. A single sale still reads exactly as it did before.
+    if (newlySold.length > 0) {
+      const groups = new Map<string, InventoryUnit[]>();
+      for (const u of newlySold) {
+        const key = `${u.model || ''}__${u.storage || ''}`;
+        const bucket = groups.get(key);
+        if (bucket) bucket.push(u); else groups.set(key, [u]);
+      }
+      for (const bucket of groups.values()) {
+        const profit = bucket.reduce(
+          (sum, u) => sum + ((u.salePrice ?? 0) - (u.buyPrice ?? 0)),
+          0,
+        );
+        // Passing an explicit count bypasses the batch buffer, so delivery
+        // stays synchronous — a sold notification shouldn't wait on a timer.
+        notificationService.addNotification('sold', bucket[0], profit, bucket.length);
       }
     }
 
