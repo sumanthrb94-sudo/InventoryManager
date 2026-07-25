@@ -7,7 +7,7 @@
 import {
   collection, doc, setDoc, deleteDoc, getDocs,
   onSnapshot, query, where, writeBatch, getDoc,
-  serverTimestamp, orderBy, Timestamp, runTransaction,
+  serverTimestamp, deleteField, orderBy, Timestamp, runTransaction,
   QuerySnapshot, DocumentData, type Transaction,
 } from 'firebase/firestore';
 import { db } from './firebase';
@@ -294,6 +294,60 @@ export const dbService = {
       await new Promise(r => setTimeout(r, 0));
     }
     return { deleted, failed };
+  },
+
+  /**
+   * Batched partial updates — the write side of a scoped wipe.
+   *
+   * A `null` value means "clear this field": it goes to Firestore as
+   * deleteField() and the key is dropped from the in-memory cache, so no
+   * consumer ever sees a null where an optional field used to be.
+   */
+  async bulkUpdate(
+    entries: Array<{ collection: string; id: string; data: Record<string, any> }>,
+  ): Promise<{ updated: number; failed: number }> {
+    if (entries.length === 0) return { updated: 0, failed: 0 };
+
+    // Optimistic in-memory patch so the grid empties immediately
+    const byCollection: Record<string, Map<string, Record<string, any>>> = {};
+    for (const e of entries) (byCollection[e.collection] ??= new Map()).set(e.id, e.data);
+    for (const [col, patches] of Object.entries(byCollection)) {
+      const next = (cachedData[col] || []).map(row => {
+        const patch = patches.get(row.id);
+        if (!patch) return row;
+        const merged = { ...row };
+        for (const [k, v] of Object.entries(patch)) {
+          if (v === null) delete merged[k]; else merged[k] = v;
+        }
+        return merged;
+      });
+      cachedData[col] = next;
+      emit(col, next);
+    }
+
+    const BATCH_SIZE = 400;
+    let updated = 0;
+    let failed = 0;
+    for (let i = 0; i < entries.length; i += BATCH_SIZE) {
+      const chunk = entries.slice(i, i + BATCH_SIZE);
+      const batch = writeBatch(db);
+      for (const entry of chunk) {
+        const payload: Record<string, any> = { updatedAt: serverTimestamp() };
+        for (const [k, v] of Object.entries(entry.data)) {
+          payload[k] = v === null ? deleteField() : v;
+        }
+        batch.set(docRef(entry.collection, entry.id), payload, { merge: true });
+      }
+      try {
+        await batch.commit();
+        updated += chunk.length;
+      } catch (err: any) {
+        console.warn(`Firestore bulkUpdate:`, err.message);
+        failed += chunk.length;
+      }
+      await new Promise(r => setTimeout(r, 0));
+    }
+    return { updated, failed };
   },
 
   subscribeToCollection(collectionName: string, callback: (data: any[]) => void) {

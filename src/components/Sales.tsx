@@ -3,7 +3,7 @@ import { useInventoryStore } from '../lib/inventoryStore';
 import {
   Bell, CheckCircle2, Star, Truck,
   ChevronDown, Clock, Search, ShoppingBag,
-  AlertCircle, Package, RefreshCw, ChevronUp,
+  AlertCircle, Package, RefreshCw, ChevronUp, Trash2,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { dbService } from '../lib/dbService';
@@ -17,6 +17,7 @@ import { recomputeSale } from '../lib/recomputeSale';
 import { fmtDateForUser, useUserRegion } from '../lib/userLocale';
 import AddSoldUnitModal from './AddSoldUnitModal';
 import EditableCell from './EditableCell';
+import ScopedWipeModal from './ScopedWipeModal';
 import { useIsAdmin } from '../lib/useIsAdmin';
 
 const FLAG_CONFIG: Record<OperationalFlag, { label: string; icon: any; style: string; action: string }> = {
@@ -147,6 +148,8 @@ export default function Sales() {
   const [activeListings, setActiveListings] = useState<ActiveListing[]>([]);
   const [recentNotifications, setRecentNotifications] = useState<Notification[]>([]);
   const [addSoldUnitSale, setAddSoldUnitSale] = useState<Sale | null>(null);
+  /** Admin-only scoped wipe of the sold history on this page. */
+  const [wipeOpen, setWipeOpen] = useState(false);
 
   useEffect(() => {
     const unsub3 = dbService.subscribeToCollection('activeListings', setActiveListings);
@@ -415,6 +418,17 @@ export default function Sales() {
               <Bell size={10} />
               {todayUnits.length} new unit{todayUnits.length > 1 ? 's' : ''} in today
             </span>
+          )}
+          {/* Admin-only scoped wipe — clears sale records and in-app sold
+              units without touching office stock, SHS or returns. */}
+          {isAdminUser && (
+            <button
+              onClick={() => setWipeOpen(true)}
+              title="Delete every sale record and in-app sold unit · DANGER"
+              className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-[10px] font-bold uppercase tracking-widest transition-all border border-rose-200 bg-white text-rose-600 hover:bg-rose-50 hover:border-rose-400"
+            >
+              <Trash2 size={12} /> Wipe Sales
+            </button>
           )}
         </div>
       </div>
@@ -1146,6 +1160,7 @@ export default function Sales() {
             onSaved={() => setAddSoldUnitSale(null)}
           />
         )}
+        {wipeOpen && <ScopedWipeModal scope="sales" onClose={() => setWipeOpen(false)} />}
       </AnimatePresence>
     </div>
   );

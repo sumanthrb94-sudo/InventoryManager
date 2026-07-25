@@ -35,6 +35,8 @@ import IntelligencePanel from './IntelligencePanel';
 import AddStockManualModal from './AddStockManualModal';
 import BulkOrderModal from './BulkOrderModal';
 import ResetDataModal from './ResetDataModal';
+import ScopedWipeModal from './ScopedWipeModal';
+import type { WipeScopeId } from '../lib/wipeScopes';
 import StockOverlayModal, {
   buildGroupedModels, sortGroupedModels, GroupedExcelTable,
   DEFAULT_GROUP_SORT, sortUnits,
@@ -217,6 +219,9 @@ export default function BuySheet(_props: Props) {
   const [bulkOrderOpen, setBulkOrderOpen] = useState(false);
   const [showSchemaHelp, setShowSchemaHelp] = useState(false);
   const [showResetData, setShowResetData] = useState(false);
+  // Scoped wipes — office shelf and SHS book are cleared independently
+  // of each other (and of sales/returns, which live on their own pages).
+  const [wipeScope, setWipeScope] = useState<WipeScopeId | null>(null);
 
   // ── Derived sets per KPI ──────────────────────────────────────────────────
   const today = new Date().toISOString().split('T')[0];
@@ -587,14 +592,34 @@ export default function BuySheet(_props: Props) {
             // delete) changes the report row count via isStockOnHand.
             reportDataKey={`${units.length}|${units.filter(u => u.status === 'sold').length}|${units.filter(u => u.returnType === 'returned_to_supplier').length}|${suppliers.length}`}
           />
+          {/* Wipe controls stay admin-only. Office and SHS get their own
+              scoped buttons so a reset of one shelf never takes the other
+              (or sales / returns, which are wiped from their own pages)
+              with it. The all-collections wipe stays as the last resort. */}
           {userIsAdmin && (
-            <button
-              onClick={() => setShowResetData(true)}
-              title="Wipe every collection · DANGER"
-              className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-[10px] font-bold uppercase tracking-widest transition-all border border-rose-200 bg-white text-rose-600 hover:bg-rose-50 hover:border-rose-400"
-            >
-              <Trash2 size={12} /> Wipe DB
-            </button>
+            <>
+              <button
+                onClick={() => setWipeScope('office')}
+                title="Delete every in-office stock unit and its master-file rows · DANGER"
+                className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-[10px] font-bold uppercase tracking-widest transition-all border border-rose-200 bg-white text-rose-600 hover:bg-rose-50 hover:border-rose-400"
+              >
+                <Trash2 size={12} /> Wipe Office Stock
+              </button>
+              <button
+                onClick={() => setWipeScope('shs')}
+                title="Delete every SHS (supplier-held) unit and its master-file rows · DANGER"
+                className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-[10px] font-bold uppercase tracking-widest transition-all border border-rose-200 bg-white text-rose-600 hover:bg-rose-50 hover:border-rose-400"
+              >
+                <Trash2 size={12} /> Wipe SHS
+              </button>
+              <button
+                onClick={() => setShowResetData(true)}
+                title="Wipe every collection · DANGER"
+                className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-[10px] font-bold uppercase tracking-widest transition-all border border-rose-300 bg-rose-600 text-white hover:bg-rose-700"
+              >
+                <Trash2 size={12} /> Wipe All
+              </button>
+            </>
           )}
         </div>
 
@@ -797,6 +822,7 @@ export default function BuySheet(_props: Props) {
       {/* ── Modals ────────────────────────────────────────────────────────── */}
       <AnimatePresence>
         {showResetData && <ResetDataModal onClose={() => setShowResetData(false)} />}
+        {wipeScope     && <ScopedWipeModal scope={wipeScope} onClose={() => setWipeScope(null)} />}
         {addStockMode  && <AddStockManualModal initialMode={addStockMode} onClose={() => setAddStockMode(null)} />}
         {bulkOrderOpen && <BulkOrderModal onClose={() => setBulkOrderOpen(false)} />}
       </AnimatePresence>

@@ -30,7 +30,9 @@ import {
   Filter, X, Download, AlertCircle, Plus, Info, Sparkles, Eye, TrendingDown,
   PackageCheck, ArrowUpRight, Wrench, ShieldAlert, ShieldCheck, CheckCircle2,
   Truck, RefreshCw, RotateCcw, FileSpreadsheet, ClipboardList, ArrowRight,
+  Trash2,
 } from 'lucide-react';
+import ScopedWipeModal from './ScopedWipeModal';
 import ReportRangeMenu from './ReportRangeMenu';
 import { AnimatePresence, motion } from 'motion/react';
 import { dbService } from '../lib/dbService';
@@ -116,6 +118,8 @@ export default function ReturnsPage() {
    *  → returns/replacements with comments). Set by clicking any card
    *  in the Return Activity History or the Lifecycle sheet. */
   const [historyUnit, setHistoryUnit] = useState<InventoryUnit | null>(null);
+  /** Admin-only scoped wipe of every return record on this page. */
+  const [wipeOpen, setWipeOpen] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [showSchemaHelp, setShowSchemaHelp] = useState(false);
 
@@ -414,6 +418,17 @@ export default function ReturnsPage() {
             onView={handleReturnsReportView}
             reportDataKey={reportDataKey}
           />
+          {/* Admin-only scoped wipe — clears the return markers on every
+              unit without touching stock, sales or the SHS book. */}
+          {userIsAdminTop && (
+            <button
+              onClick={() => setWipeOpen(true)}
+              title="Clear every return record · units are kept · DANGER"
+              className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-[10px] font-bold uppercase tracking-widest transition-all border border-rose-200 bg-white text-rose-600 hover:bg-rose-50 hover:border-rose-400"
+            >
+              <Trash2 size={12} /> Wipe Returns
+            </button>
+          )}
         </div>
 
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
@@ -675,6 +690,7 @@ export default function ReturnsPage() {
             onClose={() => setHistoryUnit(null)}
           />
         )}
+        {wipeOpen && <ScopedWipeModal scope="returns" onClose={() => setWipeOpen(false)} />}
       </AnimatePresence>
     </div>
   );
