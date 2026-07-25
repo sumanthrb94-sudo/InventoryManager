@@ -1,14 +1,16 @@
 /**
- * generateE2EWorkbooks — writes the two .xlsx files the upload E2E drives.
+ * generateE2EWorkbooks — writes the two SAMPLE .xlsx files the upload E2E
+ * drives. Bigger siblings of templates/*.xlsx: same schemas, realistic
+ * volume, and deliberately messy in the ways real files are.
  *
  * Both match the schemas the app itself exports, so this exercises the
  * daily round trip the operator actually does: export → edit → re-import.
  *
- *   e2e-fixtures/INVENTORY_REPORT_E2E.xlsx
+ *   templates/samples/INVENTORY_REPORT_SAMPLE.xlsx
  *     Stock In Date · Model · IMEI · Grade · Storage · SIM Type ·
  *     Colour · Supplier · BP · Notes           (InventoryReportImport)
  *
- *   e2e-fixtures/SALES_REPORT_E2E.xlsx
+ *   templates/samples/SALES_REPORT_SAMPLE.xlsx
  *     AMAZON / BM / EBAY / ONBUY sheets, per-marketplace column order
  *                                              (salesImport SHEET_LAYOUTS)
  *
@@ -22,7 +24,7 @@
 import * as XLSX from 'xlsx';
 import { mkdirSync, existsSync } from 'node:fs';
 
-const OUT = 'e2e-fixtures';
+const OUT = 'templates/samples';
 if (!existsSync(OUT)) mkdirSync(OUT, { recursive: true });
 
 // Deterministic PRNG so every run produces byte-identical fixtures —
@@ -89,7 +91,7 @@ const invRows = [
 ];
 const invWb = XLSX.utils.book_new();
 XLSX.utils.book_append_sheet(invWb, XLSX.utils.aoa_to_sheet(invRows), 'INVENTORY');
-XLSX.writeFile(invWb, `${OUT}/INVENTORY_REPORT_E2E.xlsx`);
+XLSX.writeFile(invWb, `${OUT}/INVENTORY_REPORT_SAMPLE.xlsx`);
 
 // ── Sales report ─────────────────────────────────────────────────────────────
 // Column order per marketplace comes from salesImport.SHEET_LAYOUTS.
@@ -151,7 +153,7 @@ const salesWb = XLSX.utils.book_new();
 for (const m of MARKETPLACES) {
   XLSX.utils.book_append_sheet(salesWb, XLSX.utils.aoa_to_sheet([LAYOUTS[m], ...bySheet[m]]), m);
 }
-XLSX.writeFile(salesWb, `${OUT}/SALES_REPORT_E2E.xlsx`);
+XLSX.writeFile(salesWb, `${OUT}/SALES_REPORT_SAMPLE.xlsx`);
 
 const shsCount = units.filter(u => u.stockType === 'SHS').length;
 console.log(`inventory: ${units.length} units (${shsCount} tagged SHS) → ${OUT}/INVENTORY_REPORT_E2E.xlsx`);

@@ -21,4 +21,3 @@ imported_inventory.json
 # E2E harness artefacts
 dist-e2e/
 e2e-screenshots/
-e2e-fixtures/

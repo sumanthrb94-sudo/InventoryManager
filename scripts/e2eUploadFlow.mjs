@@ -22,8 +22,8 @@ import { resolve } from 'node:path';
 
 const BASE = process.env.E2E_BASE_URL || 'http://localhost:4173';
 const OUT = 'e2e-screenshots/upload-flow';
-const INVENTORY_FILE = resolve('e2e-fixtures/INVENTORY_REPORT_E2E.xlsx');
-const SALES_FILE = resolve('e2e-fixtures/SALES_REPORT_E2E.xlsx');
+const INVENTORY_FILE = resolve('templates/samples/INVENTORY_REPORT_SAMPLE.xlsx');
+const SALES_FILE = resolve('templates/samples/SALES_REPORT_SAMPLE.xlsx');
 
 if (!existsSync(OUT)) mkdirSync(OUT, { recursive: true });
 
