@@ -80,6 +80,29 @@ snapped to canonical casing on write, so `brand new` lands as `Brand new`.
 `SUPPLIER-HELD` `Y` `YES` `TRUE` `1`. Everything else, including blank, is
 office stock. Writing "SHS" in **Notes** does nothing.
 
+### What can be stocked
+
+Every unit needs its own identifier, so what the system holds is one row per
+physical thing:
+
+| Item | Identifier | Stockable |
+|---|---|---|
+| Android phone | 15-digit IMEI — always has one | Yes |
+| Apple phone / cellular iPad | 15-digit IMEI **or** Apple serial | Yes |
+| WiFi-only tablet | serial (no IMEI exists on the device) | Yes |
+| AirPods · Galaxy Buds · Watches | serial | Yes |
+| Case · charger · cable · screen protector | none | **No** |
+
+The last row is a decision, not a gap. Those have no unique identifier, so
+supporting them would mean quantity-based stock — a different stock model
+rather than a looser validation rule.
+
+**Serials may be all digits.** Some Samsung tablets ship identifiers that are
+numeric and shorter than 15 digits, so a 10–12 character all-numeric value is
+accepted on serial-family devices. This means a half-typed IMEI can also get
+through on those models — check the identifier in the import preview, which
+is where a mistype is meant to be caught.
+
 **Every sheet in the workbook is read**, not just the first. Sheets whose
 header row lacks both Model and IMEI (Summary, Notes) are skipped and named in
 the error if nothing parses.

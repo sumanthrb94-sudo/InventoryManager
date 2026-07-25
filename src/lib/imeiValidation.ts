@@ -91,7 +91,17 @@ export function isValidImei(
   if (!s) return false;
   // Canonical numeric IMEI: exactly 15 digits.
   if (/^\d{15}$/.test(s)) return true;
-  // Apple alphanumeric serial — only when caller said the device is Apple.
+  // Alphanumeric serial — only when the caller said this device family uses
+  // one. Note the character class permits an ALL-DIGIT 10-12 char value.
+  //
+  // That is deliberate and confirmed with the operator, not an oversight:
+  // some Samsung tablets ship identifiers that are purely numeric and
+  // shorter than 15 digits. Requiring at least one letter would read as
+  // "tighter validation" but would reject real stock at the door.
+  //
+  // The cost is understood and accepted: a half-typed 15-digit IMEI on an
+  // Apple or tablet model passes this check. The preview screens are where
+  // that gets caught — not here.
   if (ctx?.isAppleSerial && /^[A-Z0-9]{10,12}$/.test(s)) return true;
   return false;
 }

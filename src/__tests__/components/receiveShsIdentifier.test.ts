@@ -45,19 +45,20 @@ describe('numericOk — a complete numeric IMEI', () => {
     expect(s.validInput).toBe(false);
   });
 
-  it('FINDING: a 10-12 digit partial IMEI is ACCEPTED on an Apple device', () => {
-    // isValidImei's serial fallback is /^[A-Z0-9]{10,12}$/, and pure
-    // digits match it. So a half-typed IMEI on an iPhone passes
-    // validation — Save enables and the unit is written under a
-    // truncated id that no sale will ever match.
+  it('a 10-12 digit numeric identifier is accepted on a serial-family device', () => {
+    // The serial fallback is /^[A-Z0-9]{10,12}$/, which pure digits match.
     //
-    // Worse than a silent accept: because numericOk follows validInput,
-    // the hint renders "11 digits ✓" — a green tick on a truncated IMEI.
+    // This was raised as a defect and ruled BY DESIGN by the operator: some
+    // Samsung tablets ship identifiers that are purely numeric and shorter
+    // than 15 digits, so requiring a letter would reject real stock at
+    // intake. The rule stays permissive on purpose.
     //
-    // Recorded rather than fixed: the regex is shared with the importer
-    // and the manual-add flow, so tightening it (e.g. requiring at least
-    // one letter in a serial) is a decision about every intake path, not
-    // this screen alone.
+    // The known cost, accepted: a half-typed 15-digit IMEI on an Apple or
+    // tablet model also passes, and the hint renders "11 digits ✓". The
+    // import preview and the Add Stock review step are where a mistyped
+    // identifier is meant to be caught — not this regex.
+    //
+    // Do not "fix" this without asking. It is load-bearing.
     const apple = identifierState('35010000000', 'IPHONE 13');
     expect(apple.isNumeric).toBe(true);
     expect(apple.validInput).toBe(true);     // ← Save is enabled
