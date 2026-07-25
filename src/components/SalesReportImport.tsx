@@ -536,7 +536,14 @@ export default function SalesReportImport({ onClose }: Props) {
       // is already back-linked + status='sold', so the patch is a no-op
       // for them and the count below stays accurate to the in-stock
       // units that genuinely flipped.
-      const allImported = [...preview.toCreate, ...preview.toUpdate];
+      // Merge each parsed row OVER its stored doc before syncing. The
+      // workbook has no void column, so a parsed row carries no voidedAt —
+      // passing the raw rows made the "skip voided sales" guard blind to
+      // returns processed since the last import. Stored-first spread keeps
+      // voidedAt / voidOutcome while the fresh values still win.
+      const storedById = new Map(sales.map(s => [s.id, s]));
+      const allImported = [...preview.toCreate, ...preview.toUpdate]
+        .map(s => ({ ...(storedById.get(s.id) ?? {}), ...s }) as Sale);
       const { unitPatches, salePatches } = buildPostImportSyncPatches(allImported, units);
       if (unitPatches.length || salePatches.length) {
         await dbService.bulkCreate([...unitPatches, ...salePatches]);

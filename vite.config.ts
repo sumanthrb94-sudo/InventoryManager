@@ -44,6 +44,17 @@ export default defineConfig(({ mode }) => {
     resolve: {
       alias: {
         '@': path.resolve(__dirname, '.'),
+        // E2E harness: swap the Firebase SDK for an in-memory shim so the
+        // real app can be driven headless (Playwright screenshots, UI
+        // verification) with no credentials and no network. Everything
+        // above the SDK — dbService, services, components — stays
+        // production code. Only active with VITE_E2E=1.
+        ...(env.VITE_E2E === '1' ? {
+          'firebase/firestore': path.resolve(__dirname, 'src/lib/e2e/firestoreShim.ts'),
+          'firebase/auth':      path.resolve(__dirname, 'src/lib/e2e/firestoreShim.ts'),
+          'firebase/app':       path.resolve(__dirname, 'src/lib/e2e/firestoreShim.ts'),
+          'firebase/storage':   path.resolve(__dirname, 'src/lib/e2e/firestoreShim.ts'),
+        } : {}),
       },
     },
     server: {

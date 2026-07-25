@@ -154,17 +154,26 @@ export default function ScopedWipeModal({ scope, onClose }: Props) {
               )}
 
               {!running && (
-                <label className="flex items-center gap-3 cursor-pointer select-none">
-                  <div
-                    onClick={() => setConfirmed(c => !c)}
+                // Whole row is the tap target. The onClick used to sit on the
+                // 20px box alone, so tapping the label — the obvious target,
+                // and the only one big enough on a phone — did nothing and the
+                // confirm button stayed stubbornly disabled.
+                <button
+                  type="button"
+                  role="checkbox"
+                  aria-checked={confirmed}
+                  onClick={() => setConfirmed(c => !c)}
+                  className="w-full flex items-center gap-3 cursor-pointer select-none text-left py-1"
+                >
+                  <span
                     className={`w-5 h-5 rounded-md border-2 flex items-center justify-center transition-all flex-shrink-0 ${
                       confirmed ? 'bg-rose-600 border-rose-600' : 'border-gray-300 bg-white'
                     }`}
                   >
                     {confirmed && <CheckCircle2 size={12} className="text-white" />}
-                  </div>
+                  </span>
                   <span className="text-xs text-gray-700 font-medium">{meta.confirmLabel}</span>
-                </label>
+                </button>
               )}
 
               <div className="flex gap-3">

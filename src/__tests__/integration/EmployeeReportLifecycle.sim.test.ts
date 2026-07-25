@@ -145,11 +145,13 @@ async function commitImport(parsed: ParsedSales) {
     })),
   );
 
-  // Post-import sync — exactly what the component passes: the PARSED
-  // rows, not the merged Firestore docs.
-  const allImported = [...preview.toCreate, ...preview.toUpdate];
+  // Post-import sync — mirrors the component: parsed rows merged OVER
+  // their stored docs so void state survives the round trip.
+  const storedById = new Map(sales.map(s => [s.id, s]));
+  const allImported = [...preview.toCreate, ...preview.toUpdate]
+    .map(s => ({ ...(storedById.get(s.id) ?? {}), ...s }) as Sale);
   const { unitPatches, salePatches } = buildPostImportSyncPatches(
-    allImported as Sale[],
+    allImported,
     all<InventoryUnit>('inventoryUnits'),
   );
   if (unitPatches.length || salePatches.length) {
@@ -391,7 +393,7 @@ describe('Act 5 · re-upload the same report', () => {
     expect(all<Sale>('sales')).toHaveLength(firstCount);
   });
 
-  it('FINDING: a re-upload silently erases a processed return', async () => {
+  it('FIXED: a re-upload no longer erases a processed return', async () => {
     await commitImport(parsed);
     session.currentUser = { email: 'admin@inventorymanager.com', uid: 'admin-1' };
 
@@ -409,23 +411,40 @@ describe('Act 5 · re-upload the same report', () => {
     const unit = col('inventoryUnits')['u-office-a'] as InventoryUnit;
     const sale = all<Sale>('sales').find(s => s.imei === IMEI_OFFICE_A)!;
 
-    // The unit is dragged back to 'sold' and stripped of its return flags,
-    // because buildPostImportSyncPatches is handed the PARSED rows (which
-    // carry no voidedAt) instead of the stored docs, and its skip-list
-    // only covers status==='returned' — a returned_to_inventory unit sits
-    // at status 'available' and sails straight through.
-    expect(unit.status).toBe('sold');
-    // Written as an explicit null by the sync patch — the return flag is gone
-    expect(unit.returnType).toBeNull();
-    expect(unit.returnDate).toBeNull();
-    // Meanwhile the sale doc keeps its void marks: the return is now
-    // invisible on the Returns page but still counted on the Sell chip.
+    // The return supersedes the sale being re-imported: the unit stays on
+    // the shelf with its return history intact.
+    expect(unit.status).toBe('available');
+    expect(unit.returnType).toBe('returned_to_inventory');
+    expect(unit.returnDate).toBe('2026-07-10');
     expect(sale.voidedAt).toBe('2026-07-10');
 
+    // Both surfaces still agree afterwards.
     const rec = reconcileReturns(all('inventoryUnits'), all('sales'));
-    expect(rec.openReturnCount).toBe(0);
+    expect(rec.openReturnCount).toBe(1);
     expect(rec.voidedSaleCount).toBe(1);
-    expect(rec.unexplained[0].reason).toBe('flags_cleared');
+    expect(rec.gap).toBe(0);
+  });
+
+  it('a genuine re-sale after a return still clears the stale return flags', async () => {
+    await commitImport(parsed);
+    session.currentUser = { email: 'admin@inventorymanager.com', uid: 'admin-1' };
+    await processReturn({
+      unit: col('inventoryUnits')['u-office-a'] as InventoryUnit,
+      returnType: 'returned_to_inventory', returnDate: '2026-07-10',
+      reason: 'Screen fault', outcome: 'refund',
+    });
+
+    // A LATER sale of the same phone — the case the clearing behaviour exists for.
+    const { unitPatches } = buildPostImportSyncPatches(
+      [{
+        id: 'AMAZON__AMZ-2001__' + IMEI_OFFICE_A, marketplace: 'AMAZON', orderNumber: 'AMZ-2001',
+        imei: IMEI_OFFICE_A, saleDate: '2026-08-01', salePrice: 315, buyPrice: 200,
+      } as Sale],
+      all<InventoryUnit>('inventoryUnits'),
+    );
+    expect(unitPatches).toHaveLength(1);
+    expect(unitPatches[0].data.status).toBe('sold');
+    expect(unitPatches[0].data.returnType).toBeNull();   // stale cycle cleared
   });
 
   it('a repair-route return survives a re-upload (status "returned" IS skipped)', async () => {
@@ -445,7 +464,7 @@ describe('Act 5 · re-upload the same report', () => {
     // The asymmetry is the bug: identical operator intent, opposite outcome.
   });
 
-  it('FINDING: after a re-upload a replacement pair reads as two sales of one order', async () => {
+  it('FIXED: a replacement pair still reads as one sale after a re-upload', async () => {
     await commitImport(parsed);
     session.currentUser = { email: 'admin@inventorymanager.com', uid: 'admin-1' };
     // Customer returns office-b; we ship the spare as a replacement.
@@ -460,29 +479,26 @@ describe('Act 5 · re-upload the same report', () => {
 
     const returned = col('inventoryUnits')['u-office-b'] as InventoryUnit;
     const shipped  = col('inventoryUnits')['u-spare'] as InventoryUnit;
-    // Both units now read as sold for order AMZ-1002: the returned one was
-    // dragged back by the sync, the replacement was already sold. The
-    // replacement links survive, so nothing marks one of them as the
-    // superseded leg.
-    expect(returned.status).toBe('sold');
+    // The returned unit stays returned; only the shipped replacement is sold.
+    expect(returned.status).toBe('available');
+    expect(returned.returnType).toBe('returned_to_inventory');
     expect(shipped.status).toBe('sold');
     expect(returned.replacedByUnitId).toBe('u-spare');
-    // BOTH units carry order AMZ-1002: the replacement inherited the sale
-    // fields when it shipped, and the re-upload handed them back to the
-    // returned unit. One customer order, two full-price sold units.
+
+    // One customer order, one full-price sold unit — £330, not £660.
     const soldForOrder = all<InventoryUnit>('inventoryUnits')
       .filter(u => u.status === 'sold' && u.saleOrderId === 'AMZ-1002');
-    expect(soldForOrder.map(u => u.id).sort()).toEqual(['u-office-b', 'u-spare']);
-    expect(soldForOrder.reduce((sum, u) => sum + (u.salePrice ?? 0), 0)).toBe(660);  // £330 counted twice
-    // SellSheet's legacy-unit path counts any sold unit with a salePrice
-    // and no returnType, so both qualify.
+    expect(soldForOrder.map(u => u.id)).toEqual(['u-spare']);
+    expect(soldForOrder.reduce((sum, u) => sum + (u.salePrice ?? 0), 0)).toBe(330);
+
+    // SellSheet's legacy-unit path now counts the replacement only.
     const countedByLegacyPath = all<InventoryUnit>('inventoryUnits')
       .filter(u => u.status === 'sold' && u.salePrice != null && !u.returnType);
-    expect(countedByLegacyPath.map(u => u.id)).toContain('u-office-b');
+    expect(countedByLegacyPath.map(u => u.id)).not.toContain('u-office-b');
     expect(countedByLegacyPath.map(u => u.id)).toContain('u-spare');
   });
 
-  it('FINDING: voided sales are re-counted as live revenue after a re-upload', async () => {
+  it('FIXED: refunded revenue stays out of the sold figures after a re-upload', async () => {
     await commitImport(parsed);
     session.currentUser = { email: 'admin@inventorymanager.com', uid: 'admin-1' };
     await processReturn({
@@ -492,15 +508,15 @@ describe('Act 5 · re-upload the same report', () => {
     });
     await commitImport(await parseSalesWorkbook(workbook, 'SALES_REPORT_2026.xlsx'));
 
-    // SellSheet excludes voided sales from revenue, so the sale doc itself
-    // stays out — but the UNIT is sold again with salePrice restored, and
-    // SellSheet's legacy-unit path counts sold units with no returnType.
+    // SellSheet excludes voided sales from revenue, and the unit no longer
+    // gets resurrected, so the refunded £320 stays out of the sold figures.
     const unit = col('inventoryUnits')['u-office-a'] as InventoryUnit;
-    expect(unit.status).toBe('sold');
-    expect(unit.salePrice).toBe(320);
-    expect(unit.returnType).toBeFalsy();   // ← passes SellSheet's "never count returned" guard
-    // Net effect: the refunded £320 is back in the sold figures.
-    const events = buildVoidedSaleEvents(all('inventoryUnits'), all('sales'));
-    expect(events).toHaveLength(1);            // return still counted as an event
+    expect(unit.status).toBe('available');
+    expect(unit.returnType).toBe('returned_to_inventory');
+    const countedByLegacyPath = all<InventoryUnit>('inventoryUnits')
+      .filter(u => u.status === 'sold' && u.salePrice != null && !u.returnType);
+    expect(countedByLegacyPath.map(u => u.id)).not.toContain('u-office-a');
+    // The return is still counted once as an event.
+    expect(buildVoidedSaleEvents(all('inventoryUnits'), all('sales'))).toHaveLength(1);
   });
 });

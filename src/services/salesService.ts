@@ -296,6 +296,27 @@ export async function voidSale(saleId: string, reason: string): Promise<{ ok: bo
  *   - sales with no IMEI (orphan rows)
  *   - units whose status is `returned` or `incoming` (those lifecycle
  *     states encode operator-driven workflow we mustn't trample)
+ *   - units returned ON OR AFTER the sale's date — see below
+ *
+ * ── Re-import guard ─────────────────────────────────────────────────────
+ * Callers hand us the PARSED rows, which carry no voidedAt (the workbook
+ * has no such column), so `s.voidedAt` alone cannot protect a sale that
+ * was voided in-app after the first import. And the status skip-list only
+ * caught `returned`: a Back-to-Inventory unit sits at status 'available',
+ * so re-uploading the same monthly report dragged it back to 'sold' and
+ * nulled its return fields — silently erasing the return, restoring
+ * refunded revenue, and leaving a replacement pair reading as two sales
+ * of one order.
+ *
+ * The date comparison is the durable fix: a return dated on or after the
+ * sale being imported SUPERSEDES that sale, whatever the row says. A
+ * genuine re-sale (new sale dated after the return) still flows through
+ * and still clears the stale return fields, which is the case the
+ * clearing behaviour was written for.
+ *
+ * Callers should also pass sale docs merged over their stored versions so
+ * `voidedAt` survives — belt and braces, since the guard above no longer
+ * depends on it.
  *
  * Both patch arrays use the same shape dbService.bulkCreate consumes
  * with merge:true semantics, so callers can concatenate and write in
@@ -333,6 +354,12 @@ export function buildPostImportSyncPatches(
     // distinct re-listing cycle handled elsewhere (date-compare in
     // SellSheet.allSold), not a fresh fulfilment.
     if (u.status === 'returned') continue;
+
+    // Re-import guard: a return dated on or after this sale supersedes it.
+    // Protects Back-to-Inventory units (status 'available'), which the
+    // status check above cannot see, from being resurrected as sold by a
+    // re-upload of the report that originally sold them.
+    if (u.returnType && u.returnDate && s.saleDate && u.returnDate >= s.saleDate) continue;
 
     // Sale → unit linkage. Only patch when unitId is missing or wrong;
     // a no-op write would still bump the doc's updatedAt timestamp

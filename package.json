@@ -64,6 +64,7 @@
     "firebase-admin": "^13.9.0",
     "jsdom": "^29.1.1",
     "pdf-parse": "^2.4.5",
+    "playwright": "^1.62.0",
     "tailwindcss": "^4.1.14",
     "tsx": "^4.21.0",
     "typescript": "~5.8.2",

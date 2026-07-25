@@ -143,19 +143,27 @@ export default function ResetDataModal({ onClose }: Props) {
               )}
 
               {!running && (
-                <label className="flex items-center gap-3 cursor-pointer select-none">
-                  <div
-                    onClick={() => setConfirmed(c => !c)}
+                // Whole row toggles — the onClick used to sit on the 20px box
+                // alone, leaving the label (the obvious tap target on a phone)
+                // dead and the confirm button apparently stuck.
+                <button
+                  type="button"
+                  role="checkbox"
+                  aria-checked={confirmed}
+                  onClick={() => setConfirmed(c => !c)}
+                  className="w-full flex items-center gap-3 cursor-pointer select-none text-left py-1"
+                >
+                  <span
                     className={`w-5 h-5 rounded-md border-2 flex items-center justify-center transition-all flex-shrink-0 ${
                       confirmed ? 'bg-red-600 border-red-600' : 'border-gray-300 bg-white'
                     }`}
                   >
                     {confirmed && <CheckCircle2 size={12} className="text-white" />}
-                  </div>
+                  </span>
                   <span className="text-xs text-gray-700 font-medium">
                     I understand this will delete all inventory data
                   </span>
-                </label>
+                </button>
               )}
 
               <div className="flex gap-3">

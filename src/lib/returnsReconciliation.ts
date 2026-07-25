@@ -166,7 +166,10 @@ export function reconcileReturns(units: InventoryUnit[], sales: Sale[]): Returns
       orderNumber: s.orderNumber || '—',
       marketplace: s.marketplace || '—',
       imei: s.imei || unit?.imei || '—',
-      model: s.model || unit?.model || '—',
+      // Unit first: the inventory doc holds a real device name ("IPHONE 12"),
+      // while a sale's model is derived from the SKU by inventoryStore and
+      // degrades to the raw SKU string ("IP12-64-BLK") when it can't parse.
+      model: [unit?.model, unit?.storage].filter(Boolean).join(' ') || s.model || '—',
       voidedAt: ev.voidedAt,
       unitId: unit?.id,
       reason,

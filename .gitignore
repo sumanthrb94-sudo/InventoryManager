@@ -17,3 +17,7 @@ imported_inventory.json
 # Temporary build artefact emitted by `npx vitest list` and consumed by
 # scripts/build-test-report-docx.mjs. Regenerated on every report build.
 .test-list.txt
+
+# E2E harness artefacts
+dist-e2e/
+e2e-screenshots/
