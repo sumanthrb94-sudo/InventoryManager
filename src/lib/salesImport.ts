@@ -221,7 +221,12 @@ interface SheetLayout {
  * to sit at column 0 (which historically caused every row to come through with
  * SP=£0 + POSTAGE=£0 + COMMISSION=£0 and `GP = 0 - buyPrice`).
  */
-const SHEET_LAYOUTS: Record<Marketplace, SheetLayout> = {
+// Exported so src/__tests__/lib/schemaAlignment.test.ts can check every
+// fallback index against the real template headers. A wrong index is
+// invisible until a file with a renamed header shows up, at which point it
+// reads the wrong column silently — so it needs pinning at the source, not
+// in a copy of the table.
+export const SHEET_LAYOUTS: Record<Marketplace, SheetLayout> = {
   // AMAZON cols (15):  nw | Order Number | SKU | IMEI | Supplier | Quantity |
   //                    BP | SP | SP-BP | Marginal Tax | Commission | Postage |
   //                    GP | GP % | Comments
@@ -240,7 +245,14 @@ const SHEET_LAYOUTS: Record<Marketplace, SheetLayout> = {
     },
     fallback: {
       date: 0, orderNumber: 1, sku: 2, imei: 3, supplier: 4,
-      quantity: 5, buyPrice: 6, salePrice: 7, postage: 14, comments: 14,
+      // Postage is col 11 (0-indexed) in the 15-col AMAZON layout; Comments
+      // is the last column, 14. This read `postage: 14` — the same index as
+      // comments — so a file whose Postage header failed to match had its
+      // free-text Comments cell parsed as the postage cost, which
+      // parseNumber turns into 0. Silent, and it overstates GP by exactly
+      // the postage. Only ever fired on the positional path, which is why
+      // it survived: every well-formed file matches by header first.
+      quantity: 5, buyPrice: 6, salePrice: 7, postage: 11, comments: 14,
     },
     required: ['date', 'orderNumber', 'buyPrice', 'salePrice'],
   },

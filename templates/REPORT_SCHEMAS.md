@@ -15,10 +15,17 @@ document covers *what is in them*.
 1. **Headers are matched by name, not position.** Rename a column and the
    importer drops it or reads its neighbour. Reorder columns and nothing
    breaks. Never rename; reorder only if you must.
-2. **Import schemas and export schemas are different, and that is deliberate.**
-   Exports carry computed columns the importer ignores. Both directions are
-   listed below; the round trip works because the columns the importer needs
-   are present in the export under names it recognises.
+2. **An export is always a valid import — a superset, never a variant.**
+   This is the rule the whole round trip rests on:
+   - Every column the importer reads appears in the export, under the same
+     name, **in the same order**.
+   - The export may add columns. It may never rename, reorder or drop one.
+   - The only legitimate additions are **derived** — values the app computes
+     and recomputes on the way back in.
+
+   Where the two differ for any other reason, that is a defect, not a design.
+   Two such defects were found and fixed while writing this document; §8
+   records them.
 3. **Derived money is recomputed on import.** `SP-BP`, `Marginal Tax`,
    `Commission`, `ROF`, `FVF`, `VAT`, `GP`, `GP %` — anything you type there
    is discarded. Supply only what the marketplace actually gave you.
@@ -86,15 +93,12 @@ Office Stock   available + returned-to-inventory units
 SHS Stock      incoming units (supplier still holds them)
 ```
 
-`Stock In Date · Model · IMEI · Grade · Storage · Colour · SIM Type ·
+`Stock In Date · Model · IMEI · Grade · Storage · SIM Type · Colour ·
 Supplier · BP · Stock Type · Notes · Age (days)`
 
-Two differences from the import schema, both harmless because matching is by
-name:
-
-- **Colour and SIM Type are swapped** relative to the template. Do not match
-  these columns by position.
-- **`Age (days)` is added** — computed, ignored on re-import.
+**The first 11 columns are the import schema, in the same order.** The one
+difference is the 12th: **`Age (days)`**, computed from Stock In Date and
+ignored on the way back in.
 
 **Sold units are not in this report.** It is a stock report: what you hold,
 not what you have held. Sold units come back from the Sales Report.
@@ -334,9 +338,35 @@ document doesn't, a test fails:
 | `scripts/e2eReportRoundTrip.mjs` | View matches the upload, cell by cell |
 | `scripts/e2eBatchVsMarketplace.mjs` | Batch = per-channel; download rebuilds the system |
 
+| `src/__tests__/lib/schemaAlignment.test.ts` | Export mirrors import; fallback indices point at the right columns |
+
 Regenerate the files after a schema change:
 
 ```bash
 node scripts/generateImportTemplates.mjs   # templates
 node scripts/generateE2EWorkbooks.mjs      # samples/
 ```
+
+---
+
+## 8. Defects found while writing this document
+
+Both were found by asking the question this document exists to answer: where
+import and export differ, is the difference deliberate?
+
+**AMAZON postage read the Comments column.** The positional fallback for
+`postage` was index 14 — the Comments column — instead of 11. Fallbacks only
+fire when header matching fails, so this never triggered on a well-formed
+file. On a file with a renamed or stripped `Postage` header it parsed the
+free-text Comments cell as the postage cost; `parseNumber` turns text into 0,
+so postage silently became £0 and **GP was overstated by exactly the postage
+on every row of that upload**. Fixed, and `schemaAlignment.test.ts` now checks
+every fallback index in `SHEET_LAYOUTS` against the real template headers —
+including that no two fields in a layout share an index, which is how this one
+hid (postage and comments both claimed 14).
+
+**Inventory export had Colour and SIM Type swapped** relative to the import
+template. Nothing broke, because matching is by name — but an export that
+cannot be read positionally is a trap for every tool that is not this
+importer, and it is exactly the kind of drift that later becomes a real
+column shift. The export now matches the template order.

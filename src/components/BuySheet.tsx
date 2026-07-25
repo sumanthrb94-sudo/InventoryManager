@@ -432,8 +432,14 @@ export default function BuySheet(_props: Props) {
   // Stock Type closes the export → re-import loop: without it a downloaded
   // report could only ever be re-imported as office stock, so every SHS row
   // silently became available stock on the way back in.
+  // Column ORDER matches the import template exactly. It didn't: the export
+  // put Colour before SIM Type while the template does the reverse. Harmless
+  // while everything matches by header name, but it makes the export
+  // impossible to read positionally and invites exactly the kind of silent
+  // column-shift the header matching exists to prevent. `Age (days)` is the
+  // one legitimate addition — derived, and ignored on the way back in.
   const INVENTORY_REPORT_COLUMNS = [
-    'Stock In Date', 'Model', 'IMEI', 'Grade', 'Storage', 'Colour', 'SIM Type', 'Supplier', 'BP', 'Stock Type', 'Notes', 'Age (days)',
+    'Stock In Date', 'Model', 'IMEI', 'Grade', 'Storage', 'SIM Type', 'Colour', 'Supplier', 'BP', 'Stock Type', 'Notes', 'Age (days)',
   ];
 
   const buildReportRow = (u: InventoryUnit): Record<string, any> => {
@@ -455,8 +461,8 @@ export default function BuySheet(_props: Props) {
       'IMEI':          u.imei || '',
       'Grade':         u.grade || '',
       'Storage':       u.storage || '',
-      'Colour':        u.colour || '',
       'SIM Type':      u.simType || '',
+      'Colour':        u.colour || '',
       'Supplier':      supplierMap[u.supplierId] || u.supplierName || '',
       'BP':            u.buyPrice ?? '',
       'Stock Type':    u.status === 'incoming' || u.stockSource === 'shs' ? 'SHS' : 'OFFICE',
