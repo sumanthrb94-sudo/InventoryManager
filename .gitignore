@@ -20,4 +20,8 @@ imported_inventory.json
 
 # E2E harness artefacts
 dist-e2e/
-e2e-screenshots/
+
+# e2e-screenshots/ is COMMITTED, deliberately. The suites record what was
+# verified; the screenshots record what it looked like. They cost ~31 MB and
+# every e2e*.mjs runner overwrites them in place, so re-running a suite and
+# committing produces a diff of only what actually changed on screen.
