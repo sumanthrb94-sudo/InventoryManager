@@ -12,6 +12,8 @@ import { describe, it, expect, beforeAll } from 'vitest';
 import { readFileSync, existsSync } from 'node:fs';
 import * as XLSX from 'xlsx';
 import { parseSalesWorkbook } from '../../lib/salesImport';
+import { GRADE_OPTIONS, SIM_TYPE_OPTIONS } from '../../lib/unitConstants';
+
 
 const INVENTORY_TEMPLATE = 'templates/INVENTORY_REPORT_TEMPLATE.xlsx';
 const SALES_TEMPLATE = 'templates/SALES_REPORT_TEMPLATE.xlsx';
@@ -59,6 +61,67 @@ describe('INVENTORY_REPORT_TEMPLATE.xlsx', () => {
     for (const col of ['Stock In Date', 'Model', 'IMEI', 'Supplier', 'BP', 'Stock Type', 'Notes']) {
       expect(documented).toContain(col);
     }
+  });
+});
+
+describe('template dropdowns match what the app actually offers', () => {
+  // A template offering values the app doesn't is worse than no dropdown:
+  // the operator picks one, the import accepts it, and the data quietly
+  // disagrees with every screen. Grade shipped as "A+ / B+" for a while —
+  // neither exists in the app.
+  const TEMPLATE_GRADES = ['A', 'B', 'C', 'ONU', 'Brand new'];
+  const TEMPLATE_SIM = ['Physical SIM', 'Physical SIM + eSIM', 'Dual Physical SIM', 'Not Applicable'];
+
+  it('the generator mirrors GRADE_OPTIONS exactly', () => {
+    expect(TEMPLATE_GRADES).toEqual([...GRADE_OPTIONS]);
+  });
+
+  it('the generator mirrors SIM_TYPE_OPTIONS exactly', () => {
+    expect(TEMPLATE_SIM).toEqual([...SIM_TYPE_OPTIONS]);
+  });
+
+  it('every example Grade in a template is a real option', () => {
+    for (const path of ['templates/INVENTORY_REPORT_TEMPLATE.xlsx', 'templates/SHS_STOCK_TEMPLATE.xlsx']) {
+      const wb = XLSX.read(readFileSync(path), { type: 'buffer' });
+      const rows = (XLSX.utils.sheet_to_json(wb.Sheets['INVENTORY'], { header: 1 }) as any[][])
+        .slice(1).filter(r => r?.length);
+      for (const r of rows) {
+        const grade = String(r[3] || '').trim();
+        if (grade) expect(GRADE_OPTIONS as readonly string[]).toContain(grade);
+      }
+    }
+  });
+
+  it('every example SIM Type in a template is a real option', () => {
+    for (const path of ['templates/INVENTORY_REPORT_TEMPLATE.xlsx', 'templates/SHS_STOCK_TEMPLATE.xlsx']) {
+      const wb = XLSX.read(readFileSync(path), { type: 'buffer' });
+      const rows = (XLSX.utils.sheet_to_json(wb.Sheets['INVENTORY'], { header: 1 }) as any[][])
+        .slice(1).filter(r => r?.length);
+      for (const r of rows) {
+        const sim = String(r[5] || '').trim();
+        if (sim) expect(SIM_TYPE_OPTIONS as readonly string[]).toContain(sim);
+      }
+    }
+  });
+
+  it('the sample data uses real options too', () => {
+    const wb = XLSX.read(readFileSync('templates/samples/INVENTORY_REPORT_SAMPLE.xlsx'), { type: 'buffer' });
+    const rows = (XLSX.utils.sheet_to_json(wb.Sheets['INVENTORY'], { header: 1 }) as any[][])
+      .slice(1).filter(r => r?.length);
+    expect(rows.length).toBeGreaterThan(0);
+    for (const r of rows) {
+      expect(GRADE_OPTIONS as readonly string[]).toContain(String(r[3]).trim());
+      expect(SIM_TYPE_OPTIONS as readonly string[]).toContain(String(r[5]).trim());
+    }
+  });
+
+  it('the README sheet documents the real grades, not invented ones', () => {
+    const wb = XLSX.read(readFileSync('templates/INVENTORY_REPORT_TEMPLATE.xlsx'), { type: 'buffer' });
+    const readme = (XLSX.utils.sheet_to_json(wb.Sheets['README'], { header: 1 }) as any[][])
+      .flat().filter(Boolean).map(String).join(' ');
+    expect(readme).toContain('ONU');
+    expect(readme).toContain('Brand new');
+    expect(readme).not.toContain('A+');
   });
 });
 

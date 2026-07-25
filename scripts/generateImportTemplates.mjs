@@ -24,6 +24,13 @@ import { mkdirSync, existsSync } from 'node:fs';
 const OUT = 'templates';
 if (!existsSync(OUT)) mkdirSync(OUT, { recursive: true });
 
+// MIRRORS src/lib/unitConstants.ts. A template offering values the app
+// doesn't is worse than no dropdown at all — the operator picks one, the
+// import accepts it, and the data quietly disagrees with every screen.
+// src/__tests__/lib/templates.test.ts fails if these drift apart.
+const GRADE_OPTIONS = ['A', 'B', 'C', 'ONU', 'Brand new'];
+const SIM_TYPE_OPTIONS = ['Physical SIM', 'Physical SIM + eSIM', 'Dual Physical SIM', 'Not Applicable'];
+
 const HEADER_FILL = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF0F172A' } };
 const HEADER_FONT = { bold: true, color: { argb: 'FFFFFFFF' }, size: 10 };
 const EXAMPLE_FILL = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF1F5F9' } };
@@ -97,10 +104,10 @@ async function buildInventoryTemplate() {
 
   const examples = [
     ['2026-07-25', 'IPHONE 13', '350100000000000', 'A',  '128GB', 'Physical SIM', 'MIDNIGHT',  'MOBILE WHOLESALE LTD', 320.00, 'OFFICE', ''],
-    ['2026-07-25', 'IPHONE 13', '350100000007919', 'A+', '128GB', 'eSIM',         'STARLIGHT', 'MOBILE WHOLESALE LTD', 318.50, 'OFFICE', ''],
-    ['2026-07-24', 'SAMSUNG GALAXY S22', '350100000015838', 'B', '128GB', 'Dual SIM', 'GREEN',  'PHONEBOX DIRECT',      240.00, 'OFFICE', 'Minor scuff on frame'],
+    ['2026-07-25', 'IPHONE 13', '350100000007919', 'ONU', '128GB', 'Physical SIM + eSIM',         'STARLIGHT', 'MOBILE WHOLESALE LTD', 318.50, 'OFFICE', ''],
+    ['2026-07-24', 'SAMSUNG GALAXY S22', '350100000015838', 'B', '128GB', 'Dual Physical SIM', 'GREEN',  'PHONEBOX DIRECT',      240.00, 'OFFICE', 'Minor scuff on frame'],
     ['2026-07-24', 'IPHONE 13 PRO', '350100000023757', 'A', '256GB', 'Physical SIM', 'GRAPHITE', 'CELLHUB TRADING',    520.00, 'SHS',    'Supplier holding — awaiting delivery'],
-    ['2026-07-23', 'GOOGLE PIXEL 7', '350100000031676', 'A', '128GB', 'eSIM',        'BLACK',    'NORTHSIDE STOCK',     275.00, 'SHS',    'Supplier holding — awaiting delivery'],
+    ['2026-07-23', 'GOOGLE PIXEL 7', '350100000031676', 'Brand new', '128GB', 'Physical SIM + eSIM', 'BLACK',    'NORTHSIDE STOCK',     275.00, 'SHS',    'Supplier holding — awaiting delivery'],
   ];
   examples.forEach(r => sheet.addRow(r));
   markExamples(sheet, examples.length);
@@ -112,12 +119,18 @@ async function buildInventoryTemplate() {
   const validate = (colLetter, values) => {
     for (let r = 2; r <= 500; r++) {
       sheet.getCell(`${colLetter}${r}`).dataValidation = {
-        type: 'list', allowBlank: true, formulae: [`"${values.join(',')}"`],
+        type: 'list',
+        allowBlank: true,
+        formulae: [`"${values.join(',')}"`],
+        // A helper, not a gate: the intake dropdowns carry an "Other"
+        // escape hatch that takes free text, so Excel must not reject a
+        // value the app itself would accept.
+        showErrorMessage: false,
       };
     }
   };
-  validate('D', ['A+', 'A', 'B+', 'B', 'C']);
-  validate('F', ['Physical SIM', 'eSIM', 'Dual SIM', 'Not Applicable']);
+  validate('D', GRADE_OPTIONS);
+  validate('F', SIM_TYPE_OPTIONS);
   validate('J', ['OFFICE', 'SHS']);
 
   addReadme(wb, 'INVENTORY REPORT — upload template',
@@ -131,9 +144,9 @@ async function buildInventoryTemplate() {
       ['Stock In Date', 'No',  'yyyy-mm-dd (or any Excel date cell)', 'The day the unit was received. Blank defaults to today. Drives the "Stock added in last 72 hours" tile and the Age column.'],
       ['Model',         'Yes', 'Free text, e.g. "IPHONE 13 PRO"',     'Brand and storage are parsed out of this string where possible. Keep it consistent — it is how stock groups together across the app.'],
       ['IMEI',          'Yes', '15 digits, or a 10-12 character Apple serial', 'The unique key for the unit. An existing IMEI updates that unit rather than creating a duplicate. Invalid IMEIs are listed in the preview and skipped.'],
-      ['Grade',         'No',  'A+, A, B+, B, C',                     'Condition grade. Free text is accepted, but sticking to the dropdown keeps reports groupable.'],
+      ['Grade',         'No',  'A, B, C, ONU, Brand new',             'Condition grade — exactly the options the Add Stock screen offers. ONU = Open Never Used. Free text is accepted, but sticking to the dropdown keeps reports groupable.'],
       ['Storage',       'No',  'e.g. 64GB, 128GB, 256GB, 1TB',        'Used with Model to form the SKU. If omitted it is parsed out of Model when present there.'],
-      ['SIM Type',      'No',  'Physical SIM, eSIM, Dual SIM, Not Applicable', 'Recorded on the unit and shown in the stock overlays.'],
+      ['SIM Type',      'No',  'Physical SIM, Physical SIM + eSIM, Dual Physical SIM, Not Applicable', 'Recorded on the unit and shown in the stock overlays. The app also allows a free-text "Other".'],
       ['Colour',        'No',  'Free text, e.g. MIDNIGHT',            'Recorded on the unit; used for colour breakdowns in reports.'],
       ['Supplier',      'Yes', 'Free text, e.g. MOBILE WHOLESALE LTD','Matched case-insensitively against existing suppliers. A name we have never seen is created automatically — the preview lists any new ones first.'],
       ['BP',            'Yes', 'Number greater than 0',               'Buy price in GBP. Every gross-profit figure in the app depends on this, so a row with BP of 0 or blank is rejected.'],
@@ -236,8 +249,8 @@ async function buildShsTemplate() {
 
   const examples = [
     ['2026-07-25', 'IPHONE 13 PRO', '350100000023757', 'A',  '256GB', 'Physical SIM', 'GRAPHITE',    'CELLHUB TRADING', 520.00, 'SHS', 'Supplier holding — awaiting delivery'],
-    ['2026-07-25', 'IPHONE 13 PRO', '350100000031676', 'A',  '256GB', 'eSIM',         'SIERRA BLUE', 'CELLHUB TRADING', 525.00, 'SHS', 'Supplier holding — awaiting delivery'],
-    ['2026-07-25', 'SAMSUNG GALAXY S23', '350100000039595', 'A+', '256GB', 'Dual SIM', 'CREAM',      'PHONEBOX DIRECT', 430.00, 'SHS', 'Supplier holding — awaiting delivery'],
+    ['2026-07-25', 'IPHONE 13 PRO', '350100000031676', 'ONU', '256GB', 'Physical SIM + eSIM', 'SIERRA BLUE', 'CELLHUB TRADING', 525.00, 'SHS', 'Supplier holding — awaiting delivery'],
+    ['2026-07-25', 'SAMSUNG GALAXY S23', '350100000039595', 'Brand new', '256GB', 'Dual Physical SIM', 'CREAM',      'PHONEBOX DIRECT', 430.00, 'SHS', 'Supplier holding — awaiting delivery'],
     ['2026-07-24', 'IPHONE 14', '350100000047514', 'A', '256GB', 'Physical SIM', 'PURPLE',           'NORTHSIDE STOCK', 480.00, 'SHS', 'Paid — ships Monday'],
   ];
   examples.forEach(r => sheet.addRow(r));
@@ -249,12 +262,18 @@ async function buildShsTemplate() {
   const validate = (colLetter, values) => {
     for (let r = 2; r <= 500; r++) {
       sheet.getCell(`${colLetter}${r}`).dataValidation = {
-        type: 'list', allowBlank: true, formulae: [`"${values.join(',')}"`],
+        type: 'list',
+        allowBlank: true,
+        formulae: [`"${values.join(',')}"`],
+        // A helper, not a gate: the intake dropdowns carry an "Other"
+        // escape hatch that takes free text, so Excel must not reject a
+        // value the app itself would accept.
+        showErrorMessage: false,
       };
     }
   };
-  validate('D', ['A+', 'A', 'B+', 'B', 'C']);
-  validate('F', ['Physical SIM', 'eSIM', 'Dual SIM', 'Not Applicable']);
+  validate('D', GRADE_OPTIONS);
+  validate('F', SIM_TYPE_OPTIONS);
   // Locked to SHS — this template exists to mark supplier-held stock.
   validate('J', ['SHS']);
 
@@ -278,9 +297,9 @@ async function buildShsTemplate() {
       ['Stock In Date', 'No',  'yyyy-mm-dd',                        'When the holding was agreed. Blank defaults to today.'],
       ['Model',         'Yes', 'Free text, e.g. "IPHONE 13 PRO"',   'Keep spelling consistent with the catalog — model names are decided in Admin → Configuration and applied automatically on import.'],
       ['IMEI',          'Yes', '15 digits, or a 10-12 char Apple serial', 'The unique key. Required even for SHS: without it the sale that eventually fulfils this unit cannot match it.'],
-      ['Grade',         'No',  'A+, A, B+, B, C',                   'Condition as quoted by the supplier.'],
+      ['Grade',         'No',  'A, B, C, ONU, Brand new',           'Condition as quoted by the supplier. ONU = Open Never Used.'],
       ['Storage',       'No',  'e.g. 128GB, 256GB',                 'Used with Model to form the SKU.'],
-      ['SIM Type',      'No',  'Physical SIM, eSIM, Dual SIM',      'Recorded on the unit.'],
+      ['SIM Type',      'No',  'Physical SIM, Physical SIM + eSIM, Dual Physical SIM, Not Applicable', 'Recorded on the unit.'],
       ['Colour',        'No',  'Free text',                         'Recorded on the unit.'],
       ['Supplier',      'Yes', 'Free text',                         'WHO is holding it. Matched case-insensitively; an unknown name is created. This is also how the SHS master row is matched when the unit is later fulfilled — get it right.'],
       ['BP',            'Yes', 'Number greater than 0',             'Agreed buy price. Every profit figure depends on it.'],

@@ -45,8 +45,10 @@ const MODELS = [
   { model: 'GOOGLE PIXEL 7', storage: '128GB', bp: [255, 295] },
 ];
 const COLOURS = ['BLACK', 'WHITE', 'BLUE', 'GREEN', 'MIDNIGHT', 'STARLIGHT', 'GRAPHITE', 'PURPLE'];
-const GRADES = ['A', 'A+', 'B', 'B+', 'C'];
-const SIM = ['Physical SIM', 'eSIM', 'Dual SIM'];
+// Mirrors src/lib/unitConstants.GRADE_OPTIONS — sample data must use
+// values the app actually offers.
+const GRADES = ['A', 'B', 'C', 'ONU', 'Brand new'];
+const SIM = ['Physical SIM', 'Physical SIM + eSIM', 'Dual Physical SIM', 'Not Applicable'];
 const SUPPLIERS = ['MOBILE WHOLESALE LTD', 'PHONEBOX DIRECT', 'CELLHUB TRADING', 'NORTHSIDE STOCK'];
 
 /** 15-digit IMEIs — the format isValidImei accepts. Sequential so a

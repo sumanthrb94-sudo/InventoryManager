@@ -33,26 +33,31 @@ before changing a header.
 
 **1. Delete the grey example rows.** They are illustrations, not data.
 
-**2. Never rename or reorder columns.** Headers are matched by name, with a
+**2. Use the dropdown values, not your own.** Grade and SIM Type offer exactly
+what the app's Add Stock screen offers. The dropdowns are helpers, not gates —
+Excel will let you type something else, and the import will accept it, but a
+value the app doesn't recognise won't group with anything on any screen.
+
+**3. Never rename or reorder columns.** Headers are matched by name, with a
 positional fallback. Rename one and the importer either drops the column or —
 worse — reads the neighbouring column's values into it.
 
-**3. Leave the derived money columns blank on sales.** The app recomputes
+**4. Leave the derived money columns blank on sales.** The app recomputes
 `SP-BP`, `Marginal Tax`, `Commission`, `ROF`, `FVF`, `VAT`, `GP` and `GP %`
 from BP, SP, postage and the marketplace's current fee schedule. Anything
 typed there is ignored. Fill in only what the marketplace actually gave you:
 date, order number, IMEI, supplier, BP, SP, postage.
 
-**4. Import inventory BEFORE sales.** Sales match stock by IMEI. Import in the
+**5. Import inventory BEFORE sales.** Sales match stock by IMEI. Import in the
 right order and units auto-match, flip to sold and link to their sale. Import
 sales first and every unmatched row has to be completed by hand — the import
 will not confirm until they are.
 
-**5. Supplier-held stock needs the Stock Type column.** `SHS` in **Stock Type**
+**6. Supplier-held stock needs the Stock Type column.** `SHS` in **Stock Type**
 lands the unit as incoming, under SHS, not on the office shelf. Writing "SHS"
 in **Notes** does nothing — that was the old workaround and it never worked.
 
-**6. Re-uploading the same file is safe.** An IMEI already in the system
+**7. Re-uploading the same file is safe.** An IMEI already in the system
 updates that unit; an order number + IMEI already recorded updates that sale.
 Nothing duplicates, and a processed return is not undone by a re-import.
 
@@ -67,9 +72,9 @@ Nothing duplicates, and a processed return is not undone by a re-import.
 | Stock In Date | No | `yyyy-mm-dd`. Blank = today. |
 | Model | **Yes** | e.g. `IPHONE 13 PRO`. Keep spelling consistent — it groups stock everywhere. |
 | IMEI | **Yes** | 15 digits, or a 10–12 char Apple serial. Existing IMEI = update, new = create. |
-| Grade | No | `A+ A B+ B C` |
+| Grade | No | `A` `B` `C` `ONU` `Brand new` — exactly what the Add Stock screen offers. ONU = Open Never Used. |
 | Storage | No | `64GB` `128GB` `256GB` `1TB` |
-| SIM Type | No | `Physical SIM` `eSIM` `Dual SIM` `Not Applicable` |
+| SIM Type | No | `Physical SIM` `Physical SIM + eSIM` `Dual Physical SIM` `Not Applicable` (the app also allows a free-text `Other`) |
 | Colour | No | Free text |
 | Supplier | **Yes** | Matched case-insensitively; unknown names are created automatically. |
 | BP | **Yes** | Must be > 0 — every profit figure depends on it. |

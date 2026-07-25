@@ -38,7 +38,7 @@ import { parseBrandModelStorage } from '../lib/modelStorage';
 import { ensureSupplier } from '../services';
 import { logInventoryEvent } from '../lib/inventoryEvents';
 import { generateBatchStickerSheet } from '../lib/stickerPdf';
-import { SIM_TYPE_OPTIONS } from '../lib/unitConstants';
+import { GRADE_OPTIONS, SIM_TYPE_OPTIONS } from '../lib/unitConstants';
 import DeviceComboBox from './DeviceComboBox';
 import IMEIScanner from './IMEIScanner';
 import type { ModelSeed } from '../lib/deviceCatalog';
@@ -112,7 +112,9 @@ interface UnitSlot {
 }
 
 const COLOUR_PRESETS = ['Black', 'White', 'Grey', 'Blue'] as const;
-const GRADES = ['A', 'B', 'C', 'ONU', 'Brand new'] as const;
+// Grades come from unitConstants so every intake path offers the same
+// list — a private copy here drifted by casing and split the data.
+const GRADES = GRADE_OPTIONS;
 const STORAGE_OPTIONS = ['16GB', '32GB', '64GB', '128GB', '256GB', '512GB', '1TB', 'Not Applicable'] as const;
 
 const uid = () => Math.random().toString(36).slice(2, 9);

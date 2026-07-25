@@ -37,7 +37,7 @@ import {
 } from '../lib/imeiValidation';
 import { SimTypeSelectCompact } from './FormSelects';
 import { parseBrandModelStorage } from '../lib/modelStorage';
-import { STORAGE_OPTIONS } from '../lib/unitConstants';
+import { GRADE_OPTIONS, STORAGE_OPTIONS } from '../lib/unitConstants';
 import { addUnitManual, ensureSupplier } from '../services';
 import type { InventoryUnit, ListingSite } from '../types';
 import DeviceComboBox from './DeviceComboBox';
@@ -102,7 +102,9 @@ function emptyRow(supplierName = ''): StockRow {
   };
 }
 
-const GRADES = ['A', 'B', 'C', 'ONU', 'Brand new'];
+// Grades come from unitConstants so every intake path offers the same
+// list — a private copy here drifted by casing and split the data.
+const GRADES = GRADE_OPTIONS;
 
 // Standard storage capacities sourced from unitConstants so this list
 // stays in sync with StockIntakeFlow and the OCR pipeline automatically.
@@ -815,7 +817,7 @@ function Row({
             {/* Surface any non-standard pasted grade at the top so it's not
                 silently swallowed by the browser falling back to the
                 placeholder when the value doesn't match an option. */}
-            {row.grade && !GRADES.includes(row.grade) && (
+            {row.grade && !(GRADES as readonly string[]).includes(row.grade) && (
               <option value={row.grade}>{row.grade}</option>
             )}
             {GRADES.map(g => <option key={g} value={g}>{g}</option>)}
@@ -842,7 +844,7 @@ function Row({
           >
             <option value="">—</option>
             {/* Surface any non-standard parsed value at the top so it's not lost. */}
-            {row.storage && !STORAGE_OPTIONS.includes(row.storage) && (
+            {row.storage && !(STORAGE_OPTIONS as readonly string[]).includes(row.storage) && (
               <option value={row.storage}>{row.storage}</option>
             )}
             {STORAGE_OPTIONS.map(s => <option key={s} value={s}>{s}</option>)}
