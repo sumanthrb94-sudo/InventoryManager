@@ -13,6 +13,7 @@ import {
 import { useInventoryStore } from '../lib/inventoryStore';
 import { recomputeSale } from '../lib/recomputeSale';
 import { InventoryUnit, Supplier, MARKETPLACES, Marketplace } from '../types';
+import { MARKETPLACE_LABEL, marketplaceOf } from '../lib/marketplaceLabels';
 import CollapsibleSection from './CollapsibleSection';
 
 type Period = 7 | 30 | 90 | 0; // 0 = all time
@@ -107,9 +108,17 @@ export default function AnalyticsPage() {
     : null;
 
   // ── Platform Scorecard ───────────────────────────────────────────────────
+  //
+  // salePlatform holds whatever wrote it: an imported sale writes the
+  // canonical marketplace code ('AMAZON', 'BM'), the in-app sell flows write
+  // a friendly label ('eBay'). This compared the raw value against friendly
+  // labels only, so every IMPORTED sale was invisible here — a live system
+  // with 354 sales showed zero across all four platforms. marketplaceOf()
+  // resolves both spellings.
   const platformStats = useMemo(() => {
-    return ['eBay', 'Amazon', 'OnBuy', 'Backmarket'].map(p => {
-      const pSold = sold.filter(u => u.salePlatform === p);
+    return MARKETPLACES.map(m => {
+      const p = MARKETPLACE_LABEL[m];
+      const pSold = sold.filter(u => marketplaceOf(u.salePlatform) === m);
       let totalDays = 0;
       let withDate   = 0;
       for (const u of pSold) {

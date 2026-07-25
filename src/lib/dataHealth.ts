@@ -16,7 +16,8 @@
  * Deliberately NOT a validator — nothing here blocks a write. These are
  * conditions that are legal but suspicious, and the operator decides.
  */
-import type { InventoryUnit, Sale } from '../types';
+import type { InventoryUnit, Sale, Supplier } from '../types';
+import { marketplaceOf } from './marketplaceLabels';
 
 export type HealthSeverity = 'high' | 'medium' | 'low';
 
@@ -50,6 +51,9 @@ const DAY = 86_400_000;
 export interface HealthInput {
   units: InventoryUnit[];
   sales: Sale[];
+  /** Supplier docs, for the duplicate-name check. Optional so callers that
+   *  only have units and sales still get every other check. */
+  suppliers?: Supplier[];
   /** Ms epoch used for age calculations — passed in so results are stable. */
   now: number;
   /** Days a supplier may hold SHS stock before it looks abandoned. */
@@ -245,9 +249,73 @@ export function lossMakingSales({ sales }: HealthInput): HealthCheck {
   };
 }
 
+/**
+ * Two supplier records with the same name.
+ *
+ * Every per-supplier figure in the app groups by supplier ID, so two docs
+ * named NIHAL are two rows: one carrying all the history, one showing zero.
+ * It reads as a supplier who has never sold anything, and it splits the
+ * return rate that should have been attributed to one relationship.
+ *
+ * Near-misses are reported too — MOBILE KIT beside MOBIL KIT is a typo that
+ * silently halves both. Compared on letters and digits only, so spacing,
+ * punctuation and case differences all collapse.
+ */
+export function duplicateSuppliers({ suppliers = [] }: HealthInput): HealthCheck {
+  const key = (name: string) => name.toUpperCase().replace(/[^A-Z0-9]/g, '');
+  const byKey = new Map<string, Supplier[]>();
+  for (const s of suppliers) {
+    const k = key(s.name ?? '');
+    if (!k) continue;
+    byKey.set(k, [...(byKey.get(k) ?? []), s]);
+  }
+  const issues: HealthIssue[] = [];
+  for (const [k, group] of byKey) {
+    if (group.length < 2) continue;
+    issues.push({
+      id: k,
+      label: group.map(s => s.name).join('  ·  '),
+      detail: `${group.length} supplier records share this name — each gets its own row and its own history`,
+    });
+  }
+  return {
+    key: 'duplicate-suppliers',
+    title: 'Suppliers recorded more than once',
+    consequence: 'Splits one relationship across rows; one shows all the sales, the other zero.',
+    severity: 'high',
+    issues,
+  };
+}
+
+/**
+ * A sold unit whose platform is not one of the four marketplaces.
+ *
+ * Platform figures resolve a stored value back to a marketplace. Anything
+ * that will not resolve — a blank, a typo, a legacy label — is invisible on
+ * every per-platform screen while still counting in the totals, so the parts
+ * stop summing to the whole.
+ */
+export function unrecognisedPlatform({ units }: HealthInput): HealthCheck {
+  const issues = units
+    .filter(u => u.status === 'sold')
+    .filter(u => marketplaceOf(u.salePlatform) === null)
+    .map(u => ({
+      id: u.id,
+      label: unitLabel(u),
+      detail: `sold on "${u.salePlatform || '(blank)'}" — not a known marketplace`,
+    }));
+  return {
+    key: 'unknown-platform',
+    title: 'Sold stock with an unrecognised platform',
+    consequence: 'Missing from every per-platform figure while still in the totals.',
+    severity: 'medium',
+    issues,
+  };
+}
+
 const CHECKS = [
-  missingBuyPrice, missingSupplier, duplicateImeis, orphanSales,
-  staleShs, skuLikeModels, lossMakingSales,
+  missingBuyPrice, missingSupplier, duplicateSuppliers, duplicateImeis,
+  orphanSales, unrecognisedPlatform, staleShs, skuLikeModels, lossMakingSales,
 ];
 
 const SEVERITY_ORDER: Record<HealthSeverity, number> = { high: 0, medium: 1, low: 2 };

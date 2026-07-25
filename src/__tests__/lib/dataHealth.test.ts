@@ -16,6 +16,7 @@ import { describe, it, expect } from 'vitest';
 import {
   missingBuyPrice, missingSupplier, duplicateImeis, orphanSales,
   staleShs, skuLikeModels, lossMakingSales, runHealthChecks, totalIssues,
+  duplicateSuppliers, unrecognisedPlatform,
 } from '../../lib/dataHealth';
 import type { InventoryUnit, Sale } from '../../types';
 
@@ -246,7 +247,7 @@ describe('the panel as a whole', () => {
 
   it('runs every check, even the ones that pass', () => {
     // A check that vanishes when clean is a check nobody trusts is running.
-    expect(runHealthChecks(input([])).length).toBe(7);
+    expect(runHealthChecks(input([])).length).toBe(9);
   });
 
   it('totals the issues across checks', () => {
@@ -256,5 +257,74 @@ describe('the panel as a whole', () => {
       unit({ id: '3', supplierName: '', supplierId: '' }),
     ]));
     expect(totalIssues(checks)).toBe(3);
+  });
+});
+
+/**
+ * Two checks added after a live screenshot showed what shallow testing had
+ * missed: a supplier list with NIHAL on it twice (one row carrying 354 sales,
+ * the other zero) and a Platform Scorecard reading zero across all four
+ * marketplaces while 354 sales existed.
+ */
+describe('duplicate suppliers', () => {
+  const supplier = (id: string, name: string) => ({ id, name }) as any;
+
+  it('catches the same name recorded twice', () => {
+    const found = duplicateSuppliers({
+      units: [], sales: [], now: NOW,
+      suppliers: [supplier('a', 'NIHAL'), supplier('b', 'NIHAL')],
+    });
+    expect(found.issues).toHaveLength(1);
+    expect(found.issues[0].detail).toContain('2 supplier records');
+  });
+
+  it('catches near-misses that differ only by spacing or case', () => {
+    const found = duplicateSuppliers({
+      units: [], sales: [], now: NOW,
+      suppliers: [supplier('a', 'Mobile Kit'), supplier('b', 'MOBILEKIT'), supplier('c', 'mobile  kit')],
+    });
+    expect(found.issues).toHaveLength(1);
+    expect(found.issues[0].label).toContain('Mobile Kit');
+  });
+
+  it('does NOT merge genuinely different names', () => {
+    // MOBILE KIT and MOBIL KIT are a real typo pair, but they are different
+    // strings — flagging them as one record would be wrong. They surface as
+    // two suppliers, which is what they are.
+    const found = duplicateSuppliers({
+      units: [], sales: [], now: NOW,
+      suppliers: [supplier('a', 'MOBILE KIT'), supplier('b', 'MOBIL KIT')],
+    });
+    expect(found.issues).toEqual([]);
+  });
+
+  it('is silent when suppliers are not supplied at all', () => {
+    expect(duplicateSuppliers({ units: [], sales: [], now: NOW }).issues).toEqual([]);
+  });
+});
+
+describe('unrecognised platform', () => {
+  it('flags a sold unit whose platform resolves to no marketplace', () => {
+    const found = unrecognisedPlatform(input([
+      unit({ id: '1', status: 'sold', salePlatform: 'R T S' } as any),
+      unit({ id: '2', status: 'sold', salePlatform: '' } as any),
+    ]));
+    expect(found.issues.map(i => i.id)).toEqual(['1', '2']);
+  });
+
+  it('accepts both the canonical code and the friendly label', () => {
+    // Imported sales write 'AMAZON'; the in-app sell flows write 'eBay'.
+    // Both are live in the data, so both must resolve.
+    const found = unrecognisedPlatform(input([
+      unit({ id: '1', status: 'sold', salePlatform: 'AMAZON' } as any),
+      unit({ id: '2', status: 'sold', salePlatform: 'eBay' } as any),
+      unit({ id: '3', status: 'sold', salePlatform: 'BM' } as any),
+      unit({ id: '4', status: 'sold', salePlatform: 'Backmarket' } as any),
+    ]));
+    expect(found.issues).toEqual([]);
+  });
+
+  it('ignores unsold stock, which has no platform yet', () => {
+    expect(unrecognisedPlatform(input([unit({ id: '1', status: 'available' })])).issues).toEqual([]);
   });
 });

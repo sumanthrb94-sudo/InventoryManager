@@ -106,12 +106,12 @@ function CheckRow({ check }: { check: HealthCheck; key?: React.Key }) {
 }
 
 export default function DataHealthPanel() {
-  const { units, sales } = useInventoryStore();
+  const { units, sales, suppliers } = useInventoryStore();
   // Date.now() once per render pass, not per check — otherwise two checks
   // can disagree about what "60 days" means on the same screen.
   const checks = useMemo(
-    () => runHealthChecks({ units, sales, now: Date.now() }),
-    [units, sales],
+    () => runHealthChecks({ units, sales, suppliers, now: Date.now() }),
+    [units, sales, suppliers],
   );
   const total = totalIssues(checks);
 
