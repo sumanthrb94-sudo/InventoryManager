@@ -18,6 +18,8 @@ export from the app  →  edit in Excel  →  re-import  →  same data, no loss
 | `samples/SALES_REPORT_SAMPLE.xlsx` | 100 realistic sales across all four marketplaces |
 | `samples/SALES_AMAZON_SAMPLE.xlsx` etc. | The same rows split per channel — 25-26 each |
 | `samples/SHS_STOCK_SAMPLE.xlsx` | The 10 supplier-held rows the upload test drives |
+| `samples/INVENTORY_EDGE_CASES.xlsx` | Every awkward stock row, each labelled with what should happen |
+| `samples/SALES_EDGE_CASES.xlsx` | Every awkward sales row — bulk IMEIs, orphans, rejects |
 | `samples/RETURNS_REPORT_REFERENCE.xlsx` | Returns export shape. **Export only — there is no returns importer** |
 
 Templates are the *blank* standard to build from; samples are *filled* files at
@@ -169,6 +171,24 @@ spelling is then applied automatically on every inventory import, so data
 arrives consistent and never needs cleaning up afterwards. Models absent from
 the catalog import exactly as typed. (The old manual "Reconcile Models" screen
 was removed once this became automatic.)
+
+## Testing error handling
+
+The two `*_EDGE_CASES.xlsx` files carry one row per awkward shape, with the
+expected outcome written in the row's own Notes / Comments cell:
+
+- **Inventory** — blank date, missing Model / IMEI / Supplier, BP of 0, a
+  malformed IMEI, an Apple alphanumeric serial, a duplicate IMEI, free-text
+  Grade and SIM, and `incoming` as an alias for SHS.
+- **Sales** — a matching sale, an SHS fulfilment, an orphan IMEI, a bulk order
+  with two IMEIs in one cell, a sale with no IMEI, a row with neither order
+  number nor IMEI, a bad date, a missing BP, a duplicate order and a blank
+  postage cell.
+
+Upload one and the preview should reject exactly the rows labelled REJECTED
+and accept the rest. `src/__tests__/lib/edgeCaseFiles.test.ts` reads those
+labels and checks the parsers agree with them, so the files can't drift into
+documenting behaviour the code doesn't have.
 
 ## Regenerating
 

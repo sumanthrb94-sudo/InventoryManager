@@ -230,12 +230,62 @@ XLSX.utils.book_append_sheet(returnsWb, XLSX.utils.aoa_to_sheet([
 ]), 'README');
 XLSX.writeFile(returnsWb, `${OUT}/RETURNS_REPORT_REFERENCE.xlsx`);
 
+// ── Edge cases ──────────────────────────────────────────────────────────────
+// Every awkward shape a real report throws at the importers, one row each,
+// with the expected outcome written in the row itself. Use this to check
+// error handling after any change to the parsers.
+const INV_EDGE_HEADERS = [...INVENTORY_HEADERS];
+const invEdgeRows = [
+  ['2026-07-25', 'IPHONE 13', '350190000000001', 'A', '128GB', 'Physical SIM', 'BLACK', 'MOBILE WHOLESALE LTD', 320, 'OFFICE',
+   'VALID — imports as office stock'],
+  ['2026-07-25', 'IPHONE 13 PRO', '350190000000002', 'ONU', '256GB', 'Physical SIM + eSIM', 'GRAPHITE', 'CELLHUB TRADING', 520, 'SHS',
+   'VALID — imports as SHS (incoming), not office stock'],
+  ['', 'IPHONE 12', '350190000000003', 'B', '64GB', 'Dual Physical SIM', 'BLUE', 'PHONEBOX DIRECT', 205, '',
+   'BLANK DATE — accepted, defaults to today. Blank Stock Type = OFFICE'],
+  ['2026-07-25', '', '350190000000004', 'A', '128GB', 'Physical SIM', 'WHITE', 'MOBILE WHOLESALE LTD', 300, 'OFFICE',
+   'REJECTED — Model is required'],
+  ['2026-07-25', 'IPHONE 14', '', 'A', '256GB', 'Physical SIM', 'PURPLE', 'MOBILE WHOLESALE LTD', 480, 'OFFICE',
+   'REJECTED — IMEI is required'],
+  ['2026-07-25', 'IPHONE 14', '12345', 'A', '256GB', 'Physical SIM', 'PURPLE', 'MOBILE WHOLESALE LTD', 480, 'OFFICE',
+   'REJECTED — IMEI must be 15 digits (or a 10-12 char Apple serial)'],
+  ['2026-07-25', 'IPHONE 14', '350190000000006', 'A', '256GB', 'Physical SIM', 'PURPLE', '', 480, 'OFFICE',
+   'REJECTED — Supplier is required'],
+  ['2026-07-25', 'IPHONE 14', '350190000000007', 'A', '256GB', 'Physical SIM', 'PURPLE', 'MOBILE WHOLESALE LTD', 0, 'OFFICE',
+   'REJECTED — BP must be greater than 0'],
+  ['2026-07-25', 'IPHONE 13', '350190000000001', 'A', '128GB', 'Physical SIM', 'BLACK', 'MOBILE WHOLESALE LTD', 320, 'OFFICE',
+   'DUPLICATE of row 2 — preview flags it, first occurrence wins'],
+  ['2026-07-25', 'IPAD AIR', 'NL6CMQCYTD', 'A', '64GB', 'Not Applicable', 'SPACE GREY', 'CELLHUB TRADING', 260, 'OFFICE',
+   'VALID — Apple alphanumeric serial accepted in place of an IMEI'],
+  ['2026-07-25', 'IPHONE 12', '350190000000009', 'A/B mix', '64GB', 'Other — eSIM only', 'BLACK', 'NORTHSIDE STOCK', 210, 'incoming',
+   'VALID — free-text Grade/SIM kept as typed; "incoming" also means SHS'],
+];
+const invEdgeWb = XLSX.utils.book_new();
+XLSX.utils.book_append_sheet(invEdgeWb, XLSX.utils.aoa_to_sheet([INV_EDGE_HEADERS, ...invEdgeRows]), 'INVENTORY');
+XLSX.writeFile(invEdgeWb, `${OUT}/INVENTORY_EDGE_CASES.xlsx`);
+
+const salesEdgeRows = [
+  ['2026-07-20', 'EDGE-1', 'IP13-128-MID', '350190000000001', 'MOBILE WHOLESALE LTD', 1, 320, 425, '', '', '', 8, '', '', 'VALID — matches a unit, marks it sold'],
+  ['2026-07-20', 'EDGE-2', 'IP13P-256-GRA', '350190000000002', 'CELLHUB TRADING', 1, 520, 679, '', '', '', 8, '', '', 'VALID — matches an SHS unit; fulfils it and decrements the master row'],
+  ['2026-07-20', 'EDGE-3', 'IP12-64-BLK', '359999999999999', 'PHONEBOX DIRECT', 1, 205, 275, '', '', '', 8, '', '', 'ORPHAN — no unit with this IMEI; import blocks until completed'],
+  ['2026-07-20', 'EDGE-4', 'IP14-256-PUR', '350190000000101 / 350190000000102', 'MOBILE WHOLESALE LTD', 2, 960, 1300, '', '', '', 8, '', '', 'BULK — two IMEIs in one cell; splits into 2 rows, BP/SP halved'],
+  ['2026-07-20', 'EDGE-5', 'IP12-64-BLK', '', 'MOBILE WHOLESALE LTD', 1, 200, 300, '', '', '', 8, '', '', 'NO IMEI — imports as a sale but cannot match a unit'],
+  ['2026-07-20', '', 'IP12-64-BLK', '', 'MOBILE WHOLESALE LTD', 1, 200, 300, '', '', '', 8, '', '', 'REJECTED — needs an order number or an IMEI'],
+  ['', 'EDGE-7', 'IP12-64-BLK', '350190000000005', 'MOBILE WHOLESALE LTD', 1, 200, 300, '', '', '', 8, '', '', 'REJECTED — invalid or missing date'],
+  ['2026-07-20', 'EDGE-8', 'IP12-64-BLK', '350190000000006', 'MOBILE WHOLESALE LTD', 1, '', 300, '', '', '', 8, '', '', 'REJECTED — missing BP'],
+  ['2026-07-20', 'EDGE-1', 'IP13-128-MID', '350190000000001', 'MOBILE WHOLESALE LTD', 1, 320, 425, '', '', '', 8, '', '', 'DUPLICATE of row 2 — collapses to one record'],
+  ['2026-07-20', 'EDGE-10', 'IP12-64-BLK', '350190000000007', 'MOBILE WHOLESALE LTD', 1, 200, 300, '', '', '', '', '', '', 'VALID — blank postage is fine, defaults per marketplace'],
+];
+const salesEdgeWb = XLSX.utils.book_new();
+XLSX.utils.book_append_sheet(salesEdgeWb, XLSX.utils.aoa_to_sheet([LAYOUTS.AMAZON, ...salesEdgeRows]), 'AMAZON');
+XLSX.writeFile(salesEdgeWb, `${OUT}/SALES_EDGE_CASES.xlsx`);
+
 const shsCount = units.filter(u => u.stockType === 'SHS').length;
 console.log(`inventory: ${units.length} units (${shsCount} tagged SHS) → ${OUT}/INVENTORY_REPORT_E2E.xlsx`);
 console.log(`sales:     ${SALE_COUNT} rows + 1 duplicate across ${MARKETPLACES.join('/')} → ${OUT}/SALES_REPORT_E2E.xlsx`);
 for (const m of MARKETPLACES) console.log(`  ${m}: ${bySheet[m].length} rows`);
 console.log(`orphan sales (no matching unit): 10`);
 console.log(`SHS fulfilment: 1 sale against a supplier-held unit`);
+console.log(`edge cases: ${OUT}/INVENTORY_EDGE_CASES.xlsx (${invEdgeRows.length} rows) · ${OUT}/SALES_EDGE_CASES.xlsx (${salesEdgeRows.length} rows)`);
 console.log(`shs-only:   ${OUT}/SHS_STOCK_SAMPLE.xlsx (${shsUnits.length} supplier-held rows)`);
 for (const m of MARKETPLACES) console.log(`per-channel: ${OUT}/SALES_${m}_SAMPLE.xlsx (${bySheet[m].length} rows)`);
 console.log(`returns:    ${OUT}/RETURNS_REPORT_REFERENCE.xlsx (export-only reference)`);
