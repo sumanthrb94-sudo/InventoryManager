@@ -298,7 +298,7 @@ describe('SALES_REPORT_TEMPLATE.xlsx', () => {
       (XLSX.utils.sheet_to_json(wb.Sheets[name], { header: 1 }) as any[][])[0];
 
     expect(headerOf('AMAZON').slice(0, 8))
-      .toEqual(['nw', 'Order Number', 'SKU', 'IMEI', 'Supplier', 'Quantity', 'BP', 'SP']);
+      .toEqual(['Date', 'Order Number', 'SKU', 'IMEI', 'Supplier', 'Quantity', 'BP', 'SP']);
     // BM inserts Payment Mode at index 8
     expect(headerOf('BM')[8]).toBe('Payment Mode');
     // OnBuy has NO quantity column — BP/SP shift left by one

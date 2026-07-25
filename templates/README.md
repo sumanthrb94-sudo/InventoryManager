@@ -128,7 +128,7 @@ so the two paths can't drift apart unnoticed.
 
 Column order differs per marketplace and is **not** interchangeable:
 
-- **AMAZON** — 15 columns, date header is `nw`
+- **AMAZON** — 15 columns. The date header is now `Date`; older files heading it `nw` are still accepted
 - **BM** — 17 columns, `Payment Mode` inserted at position 9
 - **EBAY** — 19 columns, postage is `SHIPPING`; values `1`, `2`, `8` are read as standard shipping tiers
 - **ONBUY** — 15 columns, **no Quantity column**, so BP/SP sit one position further left

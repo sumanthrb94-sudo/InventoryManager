@@ -34,7 +34,7 @@ const INVENTORY_TEMPLATE = resolve('templates/INVENTORY_REPORT_TEMPLATE.xlsx');
  */
 const EXPECTED_FALLBACKS: Record<string, Array<[string, number, string]>> = {
   AMAZON: [
-    ['date', 0, 'nw'],
+    ['date', 0, 'Date'],
     ['orderNumber', 1, 'Order Number'],
     ['sku', 2, 'SKU'],
     ['imei', 3, 'IMEI'],

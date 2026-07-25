@@ -135,10 +135,10 @@ combined uploads update the same rows instead of duplicating them.
 
 ### 2.1 Import — what you upload
 
-**AMAZON — 15 columns.** Note the date header is `nw`.
+**AMAZON — 15 columns.**
 
 ```
-nw | Order Number | SKU | IMEI | Supplier | Quantity | BP | SP |
+Date | Order Number | SKU | IMEI | Supplier | Quantity | BP | SP |
 SP-BP | Marginal Tax | Commission | Postage | GP | GP % | Comments
 ```
 
@@ -170,7 +170,7 @@ SP-BP | MAR VAT | COM 7% | VAT 20% | SHIP | GP | GP% | Comments
 
 | Field | Accepted headers |
 |---|---|
-| Date | `date`, and `nw` on Amazon |
+| Date | `date`, plus `nw` on Amazon (legacy — see below) |
 | Order Number | `order number` `order no` |
 | IMEI | `imei` `imei number` |
 | Quantity | `quantity` `units` `quant` |
@@ -179,6 +179,14 @@ SP-BP | MAR VAT | COM 7% | VAT 20% | SHIP | GP | GP% | Comments
 If a header cannot be matched the parser falls back to the documented
 positional index, so BP and SP keep flowing as real numbers rather than
 silently defaulting to zero.
+
+**Legacy Amazon date header.** Amazon's date column used to be headed `nw` — a
+typo in the original operator workbook that became the schema by accident, and
+the only column in any marketplace whose name didn't say what it held.
+Templates and samples now emit `Date`, matching the other three sheets and the
+app's own Sales Report export. **`nw` remains an accepted alias permanently**:
+years of operator files carry it, and both spellings parse to the same record
+id, so a mix of old and new files cannot double-count.
 
 **Two behaviours worth knowing:**
 

@@ -227,12 +227,19 @@ interface SheetLayout {
 // reads the wrong column silently — so it needs pinning at the source, not
 // in a copy of the table.
 export const SHEET_LAYOUTS: Record<Marketplace, SheetLayout> = {
-  // AMAZON cols (15):  nw | Order Number | SKU | IMEI | Supplier | Quantity |
+  // AMAZON cols (15):  Date | Order Number | SKU | IMEI | Supplier | Quantity |
   //                    BP | SP | SP-BP | Marginal Tax | Commission | Postage |
   //                    GP | GP % | Comments
+  //
+  // The date header was `nw` — a typo in the original operator workbook that
+  // became the schema by accident, and the only column in any marketplace
+  // whose name didn't say what it held. Templates now emit `Date`, matching
+  // the other three sheets AND what this app's own Sales Report exports.
+  // `nw` stays an accepted alias forever: operators have years of files
+  // carrying it, and dropping it would reject them at the door.
   AMAZON: {
     columns: {
-      date:        ['nw', 'date'],
+      date:        ['date', 'nw'],
       orderNumber: ['order number', 'order no'],
       sku:         ['sku'],
       imei:        ['imei', 'imei number'],

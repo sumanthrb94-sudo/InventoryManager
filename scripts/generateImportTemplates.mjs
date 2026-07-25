@@ -163,7 +163,7 @@ async function buildInventoryTemplate() {
 // SALES REPORT
 // ═══════════════════════════════════════════════════════════════════════════
 const SALES_LAYOUTS = {
-  AMAZON: ['nw', 'Order Number', 'SKU', 'IMEI', 'Supplier', 'Quantity', 'BP', 'SP', 'SP-BP', 'Marginal Tax', 'Commission', 'Postage', 'GP', 'GP %', 'Comments'],
+  AMAZON: ['Date', 'Order Number', 'SKU', 'IMEI', 'Supplier', 'Quantity', 'BP', 'SP', 'SP-BP', 'Marginal Tax', 'Commission', 'Postage', 'GP', 'GP %', 'Comments'],
   BM:     ['Date', 'Order No', 'SKU', 'IMEI', 'Supplier', 'Quantity', 'BP', 'SP', 'Payment Mode', 'SP-BP', 'Marginal Tax', 'PayPal/Klarna Com', 'Commission', 'Postage', 'GP', 'GP %', 'Comments'],
   EBAY:   ['DATE', 'ORDER NUMBER', 'SKU', 'IMEI NUMBER', 'SUPPLIER', 'UNITS', 'BP', 'SP', 'SP-BP', 'MAR TAX', 'COM', 'ROF', 'FVF', '0.2', 'T.COM', 'SHIPPING', 'GP', 'GP%', 'NP(incl. PROMOTION)'],
   ONBUY:  ['DATE', 'Order Number', 'SKU', 'IMEI', 'Supplier', 'BP', 'SP', 'SP-BP', 'MAR VAT', 'COM 7%', 'VAT 20%', 'SHIP', 'GP', 'GP%', 'Comments'],
@@ -207,7 +207,7 @@ async function buildSalesTemplate() {
       'The grey example rows are illustrations — delete them before uploading your own data.',
     ],
     [
-      ['Date / DATE / nw', 'Yes', 'yyyy-mm-dd (or any Excel date cell)', 'Sale date. Drives every period figure — Sold Today, This Month, and the date-range reports. A row with no readable date is rejected.'],
+      ['Date / DATE', 'Yes', 'yyyy-mm-dd (or any Excel date cell)', 'Sale date. Drives every period figure — Sold Today, This Month, and the date-range reports. A row with no readable date is rejected. Older Amazon files head this column "nw"; that is still accepted, but new files should say Date.'],
       ['Order Number',     'Yes', 'Free text, e.g. AMZ-5001',            'The marketplace order id. Combined with the IMEI it forms the record key, so re-uploading the same report updates rows instead of duplicating them.'],
       ['SKU',              'No',  'Free text',                           'Used as a fallback identifier when the IMEI cell is empty, and to derive a model name for unmatched sales.'],
       ['IMEI',             'No',  '15 digits — or several separated by " / "', 'How a sale is matched to a unit in stock; that unit is then marked SOLD and linked to the sale. A bulk order with several IMEIs in one cell is split into one row per phone, with BP and SP divided evenly. Strongly recommended on every row.'],

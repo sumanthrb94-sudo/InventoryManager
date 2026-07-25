@@ -11,9 +11,12 @@ import * as XLSX from 'xlsx';
 import { parseSalesWorkbook } from '../../lib/salesImport';
 
 const AMAZON_HEADERS = [
-  'nw', 'Order Number', 'SKU', 'IMEI', 'Supplier', 'Quantity',
+  'Date', 'Order Number', 'SKU', 'IMEI', 'Supplier', 'Quantity',
   'BP', 'SP', 'SP-BP', 'Marginal Tax', 'Commission', 'Postage', 'GP', 'GP %', 'Comments',
 ];
+/** The header Amazon files carried before the schema was normalised. Years of
+ *  operator files still say this, so it has to keep working forever. */
+const AMAZON_HEADERS_LEGACY_NW = ['nw', ...AMAZON_HEADERS.slice(1)];
 const ONBUY_HEADERS = [
   'DATE', 'Order Number', 'SKU', 'IMEI', 'Supplier',
   'BP', 'SP', 'SP-BP', 'MAR VAT', 'COM 7%', 'VAT 20%', 'SHIP', 'GP', 'GP%', 'Comments',
@@ -48,6 +51,38 @@ describe('single-marketplace upload', () => {
     expect(parsed.sales.every(s => s.marketplace === 'AMAZON')).toBe(true);
     expect(parsed.perSheetCounts.AMAZON).toBe(2);
     expect(parsed.perSheetCounts.BM + parsed.perSheetCounts.EBAY + parsed.perSheetCounts.ONBUY).toBe(0);
+  });
+
+  it('still accepts the legacy "nw" date header on an Amazon file', async () => {
+    // `nw` was a typo in the original operator workbook that became the
+    // schema by accident. Templates now emit `Date`, but every file already
+    // on disk says `nw` — rejecting those would strand years of history.
+    const file = workbook('AMAZON', AMAZON_HEADERS_LEGACY_NW, [
+      amazonRow('AMZ-5101', '350100000000000', 320, 425),
+    ]);
+
+    const parsed = await parseSalesWorkbook(file, 'legacy-amazon.xlsx', { onlyMarketplace: 'AMAZON' });
+
+    expect(parsed.errors).toEqual([]);
+    expect(parsed.sales).toHaveLength(1);
+    // The date has to actually parse — a dropped date header would leave the
+    // row valid-looking but undated, and undated sales fall out of every
+    // period figure on every screen.
+    expect(parsed.sales[0].saleDate).toBe('2026-07-20');
+  });
+
+  it('reads both header spellings to the same record id', async () => {
+    // Same order, one file each way. If the ids differed, an operator with a
+    // mix of old and new files would silently double-count every sale.
+    const mk = (headers: string[]) =>
+      workbook('AMAZON', headers, [amazonRow('AMZ-5202', '350100000007919', 300, 400)]);
+
+    const modern = await parseSalesWorkbook(mk(AMAZON_HEADERS), 'new.xlsx', { onlyMarketplace: 'AMAZON' });
+    const legacy = await parseSalesWorkbook(mk(AMAZON_HEADERS_LEGACY_NW), 'old.xlsx', { onlyMarketplace: 'AMAZON' });
+
+    expect(legacy.sales[0].id).toBe(modern.sales[0].id);
+    expect(legacy.sales[0].saleDate).toBe(modern.sales[0].saleDate);
+    expect(legacy.sales[0].salePrice).toBe(modern.sales[0].salePrice);
   });
 
   it('uses the first sheet when it is not named after the marketplace', async () => {
