@@ -113,6 +113,12 @@ before choosing the file:
 
 Leave the picker on **All marketplaces** for a combined four-sheet workbook.
 
+**Both routes end in the same place.** Uploading the four channel files one at
+a time and uploading the combined workbook produce an identical system —
+same units sold, same stock left, same sale ids, same revenue to the penny.
+`scripts/e2eBatchVsMarketplace.mjs` runs both and compares them unit for unit,
+so the two paths can't drift apart unnoticed.
+
 ## Sales report — one sheet per marketplace
 
 Column order differs per marketplace and is **not** interchangeable:
@@ -176,6 +182,35 @@ An SHS unit leaves SHS in exactly three ways:
    Report. The import marks it sold, keeps it tagged as an *SHS* sale, removes
    the placeholder and decrements the master row — so the SHS count drops.
 3. **The supplier cancels** → an admin deletes it from the SHS overlay.
+
+## Rebuilding the system from downloaded reports
+
+The two reports together are a complete backup. Downloaded from a live
+system and re-uploaded into an empty one, they reproduce it exactly —
+verified end to end by `scripts/e2eBatchVsMarketplace.mjs`, which wipes a
+28-office / 9-SHS / 93-sold / 101-sale system and rebuilds it to the same
+figures, the same IMEIs and the same revenue to the penny.
+
+**Download both BEFORE you wipe anything.** Both reports describe the state
+at the moment you export them; after a wipe there is nothing left to export.
+
+1. **Stock Intake → Inventory Report → All Time.** Two sheets, Office Stock
+   and SHS Stock — everything still on hand.
+2. **Sell → Sales Report → All Time.** Every sale, one sheet per marketplace.
+
+To restore, upload in this order:
+
+1. **Inventory Report first.** Stock has to exist before a sale can match it.
+2. **Sales Report second.** Each row finds its unit by IMEI, marks it sold and
+   restores the sale. Record ids are rebuilt from marketplace + order number +
+   IMEI, so the sales that come back are the same records, not copies.
+
+Get the order wrong and every sale row arrives as an orphan needing manual
+completion — nothing is lost, but you will re-key what the file already knew.
+
+**What the Inventory Report does not carry:** sold units. It is a stock
+report — what you hold, not what you have held. Sold units come back from the
+Sales Report, which is why a full restore needs both files.
 
 ## Model names are decided in Configuration
 
