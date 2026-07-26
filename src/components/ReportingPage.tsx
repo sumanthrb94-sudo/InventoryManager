@@ -4,6 +4,7 @@ import { dbService } from '../lib/dbService';
 import { InventoryUnit, Supplier, Sale } from '../types';
 import { useInventoryStore } from '../lib/inventoryStore';
 import { recomputeSale } from '../lib/recomputeSale';
+import { buildDedupeIndex } from '../lib/unifiedSales';
 import CopyImei from './CopyImei';
 import PDFReportButton from './PDFReportButton';
 import ExcelReportButton from './ExcelReportButton';
@@ -149,7 +150,6 @@ export default function ReportingPage() {
       _id: string;
     }>;
   }>(() => {
-    const seen = new Set<string>();
     const rows: any[] = [];
     // Map marketplace codes → friendly labels resolved back into MARKETPLACES
     // via marketplaceFromListingSite() when fees are calculated downstream.
@@ -158,8 +158,16 @@ export default function ReportingPage() {
     };
     const unitById = new Map<string, InventoryUnit>();
     for (const u of units) unitById.set(u.id, u);
+    // A synthesised legacy-unit row's id IS the unit id, but a Sale doc's id
+    // is `marketplace__orderNumber__imei` — the two id spaces never collide,
+    // so comparing a unit id against a Set of sale ids never once caught a
+    // duplicate. Every imported sale that also matched a unit was counted
+    // twice (101 sales + 93 sold units → 194 rows, revenue inflated to
+    // match). buildDedupeIndex (unifiedSales.ts) indexes the sale doc's
+    // unitId and marketplace+orderNumber too, which is what actually catches
+    // a unit already represented by a sale.
+    const index = buildDedupeIndex(liveSales);
     for (const s of liveSales) {
-      seen.add(s.id);
       const u = s.unitId ? unitById.get(s.unitId) : undefined;
       rows.push({
         date:        s.saleDate || '',
@@ -175,9 +183,13 @@ export default function ReportingPage() {
         _id:  s.id,
       });
     }
-    // Legacy in-app sold units that don't already have a `sales` doc
+    // Legacy in-app sold units that don't already have a `sales` doc —
+    // matched on unit id first (the load-bearing check), then falling back
+    // to marketplace+orderNumber for the rare sale doc with no unitId set.
     for (const u of sold) {
-      if (seen.has(u.id)) continue;
+      if (index.unitIds.has(u.id)) continue;
+      const unitMarketplace = marketplaceFromListingSite(u.salePlatform || '');
+      if (u.saleOrderId && unitMarketplace && index.keys.has(`${unitMarketplace}__${u.saleOrderId}`)) continue;
       rows.push({
         date:        u.saleDate || u.dateIn || '',
         model:       u.model,
