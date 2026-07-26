@@ -584,6 +584,17 @@ function parseRow(
   const orderNumber = toNonEmptyString(get('orderNumber'));
   const imei = toNonEmptyString(get('imei'));
   const dateRaw = get('date');
+  // The client's own Sales Report export appends a bold "TOTAL" footer row
+  // to every marketplace sheet (clientReport.ts writeMarketplaceTotalsRow),
+  // with the literal string "TOTAL" sitting in the Date column and every
+  // other identifying column blank. That string alone satisfied the
+  // "has a date" check below, so the footer survived the empty-row gate and
+  // fell straight into "missing both orderNumber AND imei" — a hard error on
+  // every re-upload of the app's own export. A footer row is never a sale;
+  // skip it silently, the same as a genuinely blank row.
+  if (typeof dateRaw === 'string' && dateRaw.trim().toUpperCase() === 'TOTAL') {
+    return null;
+  }
   const hasDate =
     dateRaw instanceof Date
     || (typeof dateRaw === 'number' && Number.isFinite(dateRaw) && dateRaw > 0)
