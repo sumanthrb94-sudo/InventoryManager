@@ -340,6 +340,31 @@ export function buildPostImportSyncPatches(
     if (k && !unitsByImei.has(k)) unitsByImei.set(k, u);
   }
 
+  // Supplier-held stock has NO IMEI — the supplier hasn't shipped, so there is
+  // no handset to read one off. When they ship straight to the customer, the
+  // sale arrives carrying an IMEI we have never seen, and matching by IMEI
+  // finds nothing at all. The holding then sits "on order" forever while the
+  // phone is gone.
+  //
+  // So IMEI-less SHS units are also indexed by model + supplier, which is the
+  // only thing the holding and the sale genuinely share. Same pairing
+  // reconcileShsAfterFulfilment uses to close the master row, so both halves
+  // of the trail agree on what matched.
+  const shsKey = (model: string, supplier: string) =>
+    `${(model || '').trim().toUpperCase()}|${(supplier || '').trim().toUpperCase()}`;
+  const shsByModelSupplier = new Map<string, InventoryUnit[]>();
+  for (const u of units) {
+    if (u.status !== 'incoming' || (u.imei || '').trim()) continue;
+    const k = shsKey(u.rawModel || u.model || '', u.supplierName || '');
+    shsByModelSupplier.set(k, [...(shsByModelSupplier.get(k) ?? []), u]);
+  }
+  /** Consume one holding for this model+supplier, if any remain. */
+  const takeShsUnit = (model: string, supplier: string): InventoryUnit | undefined => {
+    const pool = shsByModelSupplier.get(shsKey(model, supplier));
+    // shift() so ten of the same model fulfil one sale each, not ten each.
+    return pool && pool.length ? pool.shift() : undefined;
+  };
+
   const unitPatches: Array<{ collection: 'inventoryUnits'; id: string; data: Record<string, any> }> = [];
   const salePatches: Array<{ collection: 'sales'; id: string; data: Record<string, any> }> = [];
   const shsFulfilled: Array<{ unitId: string; model: string; supplierName: string }> = [];
@@ -348,7 +373,10 @@ export function buildPostImportSyncPatches(
     if (s.voidedAt) continue;
     const imeiKey = (s.imei || '').trim().toUpperCase();
     if (!imeiKey) continue;
-    const u = unitsByImei.get(imeiKey);
+    // IMEI first. Falling back to a supplier holding only when nothing
+    // matches keeps a normal office sale from ever consuming one.
+    const u = unitsByImei.get(imeiKey)
+      ?? takeShsUnit(s.model || '', s.supplierName || '');
     if (!u) continue;
     // A SALE record is proof of fulfilment. When the matched unit is SHS /
     // supplier-held (status==='incoming'), the sale means the supplier
@@ -397,8 +425,12 @@ export function buildPostImportSyncPatches(
         supplierName: u.supplierName || '',
       });
     }
+    // Fulfilling an IMEI-less holding is the moment its IMEI becomes known:
+    // the supplier shipped a specific handset and the marketplace reported
+    // it. Without this the unit stays permanently unidentifiable.
+    const learnsImei = !(u.imei || '').trim() && !!s.imei;
 
-    if (needsUnitPatch) {
+    if (needsUnitPatch || learnsImei) {
       unitPatches.push({
         collection: 'inventoryUnits',
         id: u.id,
@@ -415,6 +447,7 @@ export function buildPostImportSyncPatches(
           // the moment they sold, and the SHS column of every report lost
           // them. An explicit value still wins.
           stockSource: u.stockSource ?? (u.status === 'incoming' ? 'shs' : 'office'),
+          ...(learnsImei ? { imei: s.imei } : {}),
           salePrice: s.salePrice,
           saleDate: s.saleDate,
           salePlatform: s.marketplace,

@@ -183,3 +183,104 @@ describe('reconcileShsAfterFulfilment clears what the sale cannot reach', () => 
     expect((col('inventoryAggregates')['agg-1'] as any).quantityNum).toBe(3);
   });
 });
+
+/**
+ * Supplier ships direct, and the holding had no IMEI.
+ *
+ * This is the ordinary case, not an edge one. SHS is stock the supplier has
+ * not shipped — there is no handset in anyone's hand, so the holding carries
+ * no IMEI. When the supplier ships straight to the customer, the sale arrives
+ * with an IMEI we have never seen.
+ *
+ * Matching by IMEI therefore finds nothing, and before this the holding sat
+ * "on order" forever while the phone was already gone: SHS stock never
+ * dropped, and the master row kept counting stock we no longer had.
+ */
+describe('an IMEI-less holding fulfilled by a direct shipment', () => {
+  const holding = (over: Partial<InventoryUnit> = {}) => ({
+    id: 'manual_shs_imp_1', imei: '', model: 'IPHONE 14', rawModel: 'IPHONE 14',
+    status: 'incoming', buyPrice: 480, supplierName: 'NORTHSIDE STOCK',
+    dateIn: '2026-07-20', ...over,
+  } as unknown as InventoryUnit);
+
+  const directSale = (over: Partial<Sale> = {}) => ({
+    id: 'AMAZON__AMA-SHS-1__350190000007777',
+    marketplace: 'AMAZON', orderNumber: 'AMA-SHS-1',
+    imei: '350190000007777',            // never seen before
+    model: 'IPHONE 14', supplierName: 'NORTHSIDE STOCK',
+    saleDate: '2026-07-24', buyPrice: 480, salePrice: 624, postage: 8,
+    ...over,
+  } as unknown as Sale);
+
+  it('matches the holding on model + supplier when the IMEI is unknown', () => {
+    const out = buildPostImportSyncPatches([directSale()], [holding()]);
+    expect(out.unitPatches).toHaveLength(1);
+    expect(out.unitPatches[0].id).toBe('manual_shs_imp_1');
+    expect(out.unitPatches[0].data.status).toBe('sold');
+  });
+
+  it('records it as an SHS fulfilment so the master row gets closed', () => {
+    const out = buildPostImportSyncPatches([directSale()], [holding()]);
+    expect(out.shsFulfilled).toHaveLength(1);
+    expect(out.shsFulfilled[0]).toMatchObject({
+      model: 'IPHONE 14', supplierName: 'NORTHSIDE STOCK',
+    });
+  });
+
+  it('keeps the sale tagged as SHS revenue, not office', () => {
+    const out = buildPostImportSyncPatches([directSale()], [holding()]);
+    expect(out.unitPatches[0].data.stockSource).toBe('shs');
+  });
+
+  it('learns the IMEI the supplier actually shipped', () => {
+    // The one moment it becomes knowable. Without this the unit stays
+    // permanently unidentifiable — no returns, no warranty, no history.
+    const out = buildPostImportSyncPatches([directSale()], [holding()]);
+    expect(out.unitPatches[0].data.imei).toBe('350190000007777');
+  });
+
+  it('consumes ONE holding per sale, not the whole line', () => {
+    // Ten of the same model from one supplier is a normal holding line.
+    const holdings = Array.from({ length: 3 }, (_, i) => holding({ id: `manual_shs_imp_${i}` }));
+    const out = buildPostImportSyncPatches([directSale()], holdings);
+    expect(out.unitPatches).toHaveLength(1);
+    expect(out.shsFulfilled).toHaveLength(1);
+  });
+
+  it('fulfils one holding per sale across several sales', () => {
+    const holdings = Array.from({ length: 3 }, (_, i) => holding({ id: `manual_shs_imp_${i}` }));
+    const sales = Array.from({ length: 2 }, (_, i) => directSale({
+      id: `AMAZON__AMA-SHS-${i}__35019000000777${i}`,
+      orderNumber: `AMA-SHS-${i}`,
+      imei: `35019000000777${i}`,
+    }));
+    const out = buildPostImportSyncPatches(sales, holdings);
+    expect(out.unitPatches).toHaveLength(2);
+    expect(new Set(out.unitPatches.map(p => p.id)).size).toBe(2);
+  });
+
+  it('does not let an ordinary office sale consume a holding', () => {
+    // IMEI match wins; the fallback only opens when nothing matched.
+    const office = {
+      id: 'unit-office', imei: '350100000000001', model: 'IPHONE 14',
+      rawModel: 'IPHONE 14', status: 'available', buyPrice: 400,
+      supplierName: 'NORTHSIDE STOCK', dateIn: '2026-07-01',
+    } as unknown as InventoryUnit;
+    const out = buildPostImportSyncPatches(
+      [directSale({ imei: '350100000000001' })],
+      [office, holding()],
+    );
+    expect(out.unitPatches).toHaveLength(1);
+    expect(out.unitPatches[0].id).toBe('unit-office');
+    expect(out.shsFulfilled).toEqual([]);
+  });
+
+  it('leaves the holding alone when model or supplier differ', () => {
+    const out = buildPostImportSyncPatches(
+      [directSale({ model: 'IPHONE 15' })],
+      [holding()],
+    );
+    expect(out.unitPatches).toEqual([]);
+    expect(out.shsFulfilled).toEqual([]);
+  });
+});

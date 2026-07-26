@@ -39,12 +39,16 @@ describe('INVENTORY_REPORT_TEMPLATE.xlsx', () => {
     const body = rows.slice(1).filter(r => r?.length);
     expect(body.length).toBeGreaterThan(0);
     for (const r of body) {
-      const [, model, imei, , , , , supplier, bp] = r;
+      const [, model, imei, , , , , supplier, bp, stockType] = r;
       expect(String(model || '').trim()).not.toBe('');
       expect(String(supplier || '').trim()).not.toBe('');
       expect(Number(bp)).toBeGreaterThan(0);
       // Same rule as isValidImei: 15 digits, or a 10-12 char Apple serial
-      expect(String(imei)).toMatch(/^(\d{15}|[A-Z0-9]{10,12})$/);
+      // SHS rows carry NO IMEI — supplier-held stock has not shipped, so
+      // there is nothing to read one off. Office rows must have one.
+      const isShs = String(stockType || '').trim().toUpperCase() === 'SHS';
+      if (isShs) expect(String(imei || '').trim()).toBe('');
+      else       expect(String(imei)).toMatch(/^(\d{15}|[A-Z0-9]{10,12})$/);
     }
   });
 
@@ -151,11 +155,15 @@ describe('SHS_STOCK_TEMPLATE.xlsx — the report that marks supplier-held stock'
     const wb = XLSX.read(readFileSync(SHS_TEMPLATE), { type: 'buffer' });
     const rows = (XLSX.utils.sheet_to_json(wb.Sheets['INVENTORY'], { header: 1 }) as any[][])
       .slice(1).filter(r => r?.length);
-    for (const [, model, imei, , , , , supplier, bp] of rows) {
+    for (const [, model, imei, , , , , supplier, bp, stockType] of rows) {
       expect(String(model || '').trim()).not.toBe('');
       expect(String(supplier || '').trim()).not.toBe('');
       expect(Number(bp)).toBeGreaterThan(0);
-      expect(String(imei)).toMatch(/^(\d{15}|[A-Z0-9]{10,12})$/);
+      // SHS rows carry NO IMEI — supplier-held stock has not shipped, so
+      // there is nothing to read one off. Office rows must have one.
+      const isShs = String(stockType || '').trim().toUpperCase() === 'SHS';
+      if (isShs) expect(String(imei || '').trim()).toBe('');
+      else       expect(String(imei)).toMatch(/^(\d{15}|[A-Z0-9]{10,12})$/);
     }
   });
 

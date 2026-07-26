@@ -123,8 +123,10 @@ async function buildInventoryTemplate() {
     ['2026-07-25', 'IPHONE 13', '350100000000000', 'A',  '128GB', 'Physical SIM', 'MIDNIGHT',  'MOBILE WHOLESALE LTD', 320.00, 'OFFICE', ''],
     ['2026-07-25', 'IPHONE 13', '350100000007919', 'ONU', '128GB', 'Physical SIM + eSIM',         'STARLIGHT', 'MOBILE WHOLESALE LTD', 318.50, 'OFFICE', ''],
     ['2026-07-24', 'SAMSUNG GALAXY S22', '350100000015838', 'B', '128GB', 'Dual Physical SIM', 'GREEN',  'PHONEBOX DIRECT',      240.00, 'OFFICE', 'Minor scuff on frame'],
-    ['2026-07-24', 'IPHONE 13 PRO', '350100000023757', 'A', '256GB', 'Physical SIM', 'GRAPHITE', 'CELLHUB TRADING',    520.00, 'SHS',    'Supplier holding — awaiting delivery'],
-    ['2026-07-23', 'GOOGLE PIXEL 7', '350100000031676', 'Brand new', '128GB', 'Physical SIM + eSIM', 'BLACK',    'NORTHSIDE STOCK',     275.00, 'SHS',    'Supplier holding — awaiting delivery'],
+    // SHS rows leave IMEI BLANK — the supplier has not shipped, so there is
+    // no handset to read one off. It is captured on Receive.
+    ['2026-07-24', 'IPHONE 13 PRO', '', 'A', '256GB', 'Physical SIM', 'GRAPHITE', 'CELLHUB TRADING',    520.00, 'SHS',    'Supplier holding — awaiting delivery'],
+    ['2026-07-23', 'GOOGLE PIXEL 7', '', 'Brand new', '128GB', 'Physical SIM + eSIM', 'BLACK',    'NORTHSIDE STOCK',     275.00, 'SHS',    'Supplier holding — awaiting delivery'],
   ];
   examples.forEach(r => sheet.addRow(r));
   markExamples(sheet, examples.length);
@@ -156,11 +158,12 @@ async function buildInventoryTemplate() {
       'Nothing is written until you confirm the preview, which tells you exactly what will change.',
       'The grey example rows are illustrations — delete them before uploading your own data.',
       'An IMEI already in the system UPDATES that unit; a new IMEI CREATES one. Re-uploading the same file is safe.',
+      'SHS rows leave IMEI BLANK — supplier-held stock has not shipped, so there is no IMEI yet. It is captured when you Receive the unit.',
     ],
     [
       ['Stock In Date', 'No',  'yyyy-mm-dd (or any Excel date cell)', 'The day the unit was received. Blank defaults to today. Drives the "Stock added in last 72 hours" tile and the Age column.'],
       ['Model',         'Yes', 'Free text, e.g. "IPHONE 13 PRO"',     'Brand and storage are parsed out of this string where possible. Keep it consistent — it is how stock groups together across the app.'],
-      ['IMEI',          'Yes', '15 digits, or a 10-12 character Apple serial', 'The unique key for the unit. An existing IMEI updates that unit rather than creating a duplicate. Invalid IMEIs are listed in the preview and skipped.'],
+      ['IMEI',          'Office only', '15 digits, or a 10-12 character Apple serial', 'The unique key for the unit. An existing IMEI updates that unit rather than creating a duplicate. REQUIRED for OFFICE stock; leave BLANK for SHS — supplier-held stock has not shipped, so there is no IMEI to record yet. It is captured on Receive. Invalid IMEIs are listed in the preview and skipped.'],
       ['Grade',         'No',  'A, B, C, ONU, Brand new',             'Condition grade — exactly the options the Add Stock screen offers. ONU = Open Never Used. Free text is accepted, but sticking to the dropdown keeps reports groupable.'],
       ['Storage',       'No',  'e.g. 64GB, 128GB, 256GB, 1TB',        'Used with Model to form the SKU. If omitted it is parsed out of Model when present there.'],
       ['SIM Type',      'No',  'Physical SIM, Physical SIM + eSIM, Dual Physical SIM, Not Applicable', 'Recorded on the unit and shown in the stock overlays. The app also allows a free-text "Other".'],
@@ -265,10 +268,14 @@ async function buildShsTemplate() {
   dressSheet(sheet, headers, [14, 26, 20, 8, 10, 14, 14, 26, 10, 12, 34]);
 
   const examples = [
-    ['2026-07-25', 'IPHONE 13 PRO', '350100000023757', 'A',  '256GB', 'Physical SIM', 'GRAPHITE',    'CELLHUB TRADING', 520.00, 'SHS', 'Supplier holding — awaiting delivery'],
-    ['2026-07-25', 'IPHONE 13 PRO', '350100000031676', 'ONU', '256GB', 'Physical SIM + eSIM', 'SIERRA BLUE', 'CELLHUB TRADING', 525.00, 'SHS', 'Supplier holding — awaiting delivery'],
-    ['2026-07-25', 'SAMSUNG GALAXY S23', '350100000039595', 'Brand new', '256GB', 'Dual Physical SIM', 'CREAM',      'PHONEBOX DIRECT', 430.00, 'SHS', 'Supplier holding — awaiting delivery'],
-    ['2026-07-24', 'IPHONE 14', '350100000047514', 'A', '256GB', 'Physical SIM', 'PURPLE',           'NORTHSIDE STOCK', 480.00, 'SHS', 'Paid — ships Monday'],
+    // IMEI is BLANK on purpose. SHS is stock the supplier has not shipped —
+    // there is no handset in anyone's hand, so there is no IMEI to read off
+    // it. Filling this column with invented numbers is worse than leaving it
+    // empty: they never match a real phone. The IMEI is captured on Receive.
+    ['2026-07-25', 'IPHONE 13 PRO', '', 'A',  '256GB', 'Physical SIM', 'GRAPHITE',    'CELLHUB TRADING', 520.00, 'SHS', 'Supplier holding — awaiting delivery'],
+    ['2026-07-25', 'IPHONE 13 PRO', '', 'ONU', '256GB', 'Physical SIM + eSIM', 'SIERRA BLUE', 'CELLHUB TRADING', 525.00, 'SHS', 'Supplier holding — awaiting delivery'],
+    ['2026-07-25', 'SAMSUNG GALAXY S23', '', 'Brand new', '256GB', 'Dual Physical SIM', 'CREAM',      'PHONEBOX DIRECT', 430.00, 'SHS', 'Supplier holding — awaiting delivery'],
+    ['2026-07-24', 'IPHONE 14', '', 'A', '256GB', 'Physical SIM', 'PURPLE',           'NORTHSIDE STOCK', 480.00, 'SHS', 'Paid — ships Monday'],
   ];
   examples.forEach(r => sheet.addRow(r));
   markExamples(sheet, examples.length);
@@ -306,14 +313,16 @@ async function buildShsTemplate() {
       '     import marks it sold, keeps it tagged as an SHS sale, and decrements the master row.',
       '  3. The supplier cancels → an admin deletes it from the SHS overlay.',
       '',
-      'IMEI is required here, same as any stock row. If the supplier has not given you IMEIs yet,',
-      'do not invent them — wait, or record the holding at model level through the master file.',
+      'LEAVE IMEI BLANK. Supplier-held stock has not shipped — there is no handset in anyone\'s',
+      'hand, so there is no IMEI to read off it. That is the whole point of recording it as SHS.',
+      'The IMEI is captured when the unit arrives and you Receive it. Never invent one: an',
+      'invented IMEI matches no real phone and has to be found and corrected later.',
       'The grey example rows are illustrations — delete them before uploading your own data.',
     ],
     [
       ['Stock In Date', 'No',  'yyyy-mm-dd',                        'When the holding was agreed. Blank defaults to today.'],
       ['Model',         'Yes', 'Free text, e.g. "IPHONE 13 PRO"',   'Keep spelling consistent with the catalog — model names are decided in Admin → Configuration and applied automatically on import.'],
-      ['IMEI',          'Yes', '15 digits, or a 10-12 char Apple serial', 'The unique key. Required even for SHS: without it the sale that eventually fulfils this unit cannot match it.'],
+      ['IMEI',          'No — leave blank', 'Blank. (A real IMEI is accepted if the supplier has already sent one.)', 'SHS stock has not shipped, so there is no IMEI yet. The unit is tracked by Model + Supplier until it arrives; if the supplier ships it straight to a customer, the Sales Report fulfils it on that same Model + Supplier match. The IMEI is captured on Receive.'],
       ['Grade',         'No',  'A, B, C, ONU, Brand new',           'Condition as quoted by the supplier. ONU = Open Never Used.'],
       ['Storage',       'No',  'e.g. 128GB, 256GB',                 'Used with Model to form the SKU.'],
       ['SIM Type',      'No',  'Physical SIM, Physical SIM + eSIM, Dual Physical SIM, Not Applicable', 'Recorded on the unit.'],

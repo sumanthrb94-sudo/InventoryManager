@@ -84,7 +84,7 @@ treated as bad data.
 |---|---|---|
 | Stock In Date | No | `yyyy-mm-dd`. Blank = today. |
 | Model | **Yes** | e.g. `IPHONE 13 PRO`. Keep spelling consistent — it groups stock everywhere. |
-| IMEI | **Yes** | 15 digits, or a 10–12 char Apple serial. Existing IMEI = update, new = create. |
+| IMEI | **Office only** | 15 digits, or a 10–12 char Apple serial. Existing IMEI = update, new = create. **Blank for SHS** — supplier-held stock has no IMEI yet. |
 | Grade | No | `A` `B` `C` `ONU` `Brand new` — exactly what the Add Stock screen offers. ONU = Open Never Used. |
 | Storage | No | `64GB` `128GB` `256GB` `1TB` |
 | SIM Type | No | `Physical SIM` `Physical SIM + eSIM` `Dual Physical SIM` `Not Applicable` (the app also allows a free-text `Other`) |
@@ -173,9 +173,11 @@ Report — there is only one stock importer — and the `Stock Type` column is
 what makes the rows supplier-held. Units land as **incoming** and appear under
 the SHS tile, never on the office shelf.
 
-**IMEI is required, same as any stock row.** Without it, the sale that
-eventually fulfils the unit has nothing to match. If the supplier has not sent
-IMEIs yet, don't invent them.
+**Leave the IMEI blank.** Supplier-held stock has not shipped, so there is no
+handset to read an IMEI off — that is what makes it SHS. The unit is tracked
+by Model + Supplier until it arrives, and the IMEI is captured when you
+Receive it. Never invent one: an invented IMEI matches no real phone and has
+to be found and corrected later.
 
 **Supplier must be right.** It's how the SHS master row is matched when the
 unit is later fulfilled.
@@ -184,8 +186,10 @@ An SHS unit leaves SHS in exactly three ways:
 
 1. **It arrives** → Receive it (Buy → SHS tile → Receive). It becomes office stock.
 2. **The supplier ships it straight to the customer** → it turns up on a Sales
-   Report. The import marks it sold, keeps it tagged as an *SHS* sale, removes
-   the placeholder and decrements the master row — so the SHS count drops.
+   Report carrying an IMEI you have never seen, so it lands as an unmatched row
+   on the import's audit screen. Enter the model and set that row to **SHS**.
+   The holding closes, the master row decrements, and the sale is tagged as SHS
+   revenue — so the SHS count drops.
 3. **The supplier cancels** → an admin deletes it from the SHS overlay.
 
 ## Rebuilding the system from downloaded reports

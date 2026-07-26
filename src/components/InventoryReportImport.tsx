@@ -56,6 +56,24 @@ function buildPreview(
   existingSuppliers: Supplier[],
   writtenImeis: Set<string>,
 ): PreviewBuckets {
+  // An SHS row has no IMEI, so it needs some other way to recognise itself on
+  // a second upload — otherwise "re-uploading the same file is safe" stops
+  // being true the moment supplier-held stock is involved, and every re-import
+  // doubles the holding. Model + supplier + BP + date is what distinguishes
+  // one holding line from another; it is also exactly the tuple the operator
+  // typed, so two identical rows ARE the same holding.
+  const shsKeyOf = (model: string, supplier: string, bp: number, dateIn: string) =>
+    [model, supplier].map(v => v.trim().toUpperCase()).join('|') + `|${bp}|${dateIn}`;
+
+  const shsToUnit = new Map<string, InventoryUnit>();
+  for (const u of existingUnits) {
+    if (u.status !== 'incoming' || (u.imei || '').trim()) continue;
+    shsToUnit.set(
+      shsKeyOf(u.rawModel || u.model || '', u.supplierName || '', u.buyPrice ?? 0, u.dateIn || ''),
+      u,
+    );
+  }
+
   const imeiToUnit = new Map<string, InventoryUnit>();
   for (const u of existingUnits) {
     const k = (u.imei || '').trim().toUpperCase();
@@ -70,6 +88,11 @@ function buildPreview(
   const supplierNames = new Set(existingSuppliers.map(s => s.name.trim().toLowerCase()));
 
   // First pass — track file-internal duplicate IMEIs.
+  //
+  // SHS rows may legitimately have no IMEI (the supplier has not shipped, so
+  // there is no handset to read one off). They are skipped here: two blank
+  // IMEIs are not a duplicate, they are two phones on order. Ten of the same
+  // model from the same supplier is a normal SHS line.
   const seenInFile = new Map<string, number[]>();
   for (const r of parsed) {
     if (!r.imei || r.errors.length > 0 && r.errors.some(e => e.includes('IMEI'))) continue;
@@ -97,8 +120,15 @@ function buildPreview(
     if (r.errors.length > 0) { invalid.push(r); continue; }
     if (dupInFile)            { invalid.push({ ...r, errors: [`Duplicate IMEI in file (also row ${seenInFile.get(r.imei)?.[0]})`] }); continue; }
 
-    if (imeiToUnit.has(r.imei)) toUpdate.push(r);
-    else                        toCreate.push(r);
+    if (r.imei) {
+      if (imeiToUnit.has(r.imei)) toUpdate.push(r);
+      else                        toCreate.push(r);
+    } else {
+      // IMEI-less SHS: recognise the same holding line on a re-upload.
+      const key = shsKeyOf(r.model, r.supplier, r.buyPrice, r.dateIn);
+      if (shsToUnit.has(key)) toUpdate.push(r);
+      else                    toCreate.push(r);
+    }
 
     if (r.supplier && !supplierNames.has(r.supplier.toLowerCase())) {
       newSuppliers.add(r.supplier);
@@ -211,7 +241,15 @@ export default function InventoryReportImport({ onClose }: Props) {
       const parsed = parseBrandModelStorage(r.model || '');
       const canonicalModel = canonicaliseModel(r.model || '', parsed.brand || '', catalogIndex);
       const supplierId = supplierByName.get(r.supplier.trim().toLowerCase()) || '';
-      const id = existing?.id || `unit_imp_${Date.now()}_${r.rowNum}_${r.imei.slice(0, 6)}`;
+      // An IMEI-less SHS row needs a synthetic id. `manual_shs_` is the
+      // prefix the in-app SHS flow already uses, and isManualShsUnit()
+      // classifies anything status='incoming' with an `shs_` prefix as a
+      // PARSER placeholder — which would hide these rows from the SHS KPI.
+      // So follow the manual convention, not the parser one.
+      const id = existing?.id
+        || (r.imei
+          ? `unit_imp_${Date.now()}_${r.rowNum}_${r.imei.slice(0, 6)}`
+          : `manual_shs_imp_${Date.now()}_${r.rowNum}`);
       return {
         collection: 'inventoryUnits',
         id,
@@ -252,7 +290,20 @@ export default function InventoryReportImport({ onClose }: Props) {
     for (const u of units) existingByImei.set((u.imei || '').toUpperCase(), u);
 
     for (const r of preview.toCreate) unitEntries.push(toRow(r));
-    for (const r of preview.toUpdate) unitEntries.push(toRow(r, existingByImei.get(r.imei)));
+    // Same recognition rule as the preview, so what it promised is what runs.
+    const shsKey = (model: string, supplier: string, bp: number, dateIn: string) =>
+      [model, supplier].map(v => v.trim().toUpperCase()).join('|') + `|${bp}|${dateIn}`;
+    const existingShs = new Map<string, InventoryUnit>();
+    for (const u of units) {
+      if (u.status !== 'incoming' || (u.imei || '').trim()) continue;
+      existingShs.set(shsKey(u.rawModel || u.model || '', u.supplierName || '', u.buyPrice ?? 0, u.dateIn || ''), u);
+    }
+    for (const r of preview.toUpdate) {
+      const match = r.imei
+        ? existingByImei.get(r.imei)
+        : existingShs.get(shsKey(r.model, r.supplier, r.buyPrice, r.dateIn));
+      unitEntries.push(toRow(r, match));
+    }
 
     // Collect normalised IMEIs from the prepared payloads. We flush these
     // into writtenImeis AFTER bulkCreate resolves successfully so a failed

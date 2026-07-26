@@ -74,7 +74,10 @@ for (let i = 0; i < UNIT_COUNT; i++) {
   units.push({
     dateIn: dateFor(i),
     model: m.model,
-    imei: imeiFor(i),
+    // SHS rows carry NO IMEI. The supplier has not shipped, so there is no
+    // handset to read one off — that is what makes it supplier-held. It is
+    // captured on Receive.
+    imei: i % 12 === 0 ? '' : imeiFor(i),
     grade: pick(GRADES),
     storage: m.storage,
     simType: pick(SIM),
@@ -151,13 +154,16 @@ for (let i = 0; i < SALE_COUNT; i++) {
 // One duplicated order row — the preview must catch it as a file dupe.
 bySheet.AMAZON.push([...bySheet.AMAZON[0]]);
 
-// One sale against a SUPPLIER-HELD unit: the supplier shipped it directly.
-// Proves SHS stock drops when a sales report says an SHS phone sold.
+// One sale against a SUPPLIER-HELD unit: the supplier shipped it directly to
+// the customer. The IMEI on that sale is one we have NEVER SEEN — the SHS row
+// had none, because the phone had not shipped when we recorded the holding.
+// So fulfilment cannot match on IMEI; it matches on Model + Supplier, which
+// is exactly what reconcileShsAfterFulfilment does. Proves SHS stock drops.
 const shsUnit = units.find(u => u.stockType === 'SHS');
 bySheet.AMAZON.push(salesRow('AMAZON', {
   date: '2026-07-24',
   order: 'AMA-SHS-1',
-  imei: shsUnit.imei,
+  imei: '350190000007777',
   unit: shsUnit,
   bp: shsUnit.bp,
   sp: Math.round(shsUnit.bp * 1.3 * 100) / 100,

@@ -14,7 +14,7 @@
  */
 import { describe, it, expect } from 'vitest';
 import * as XLSX from 'xlsx';
-import { parseStockWorkbook, looksLikeStockSheet } from '../../lib/inventoryImportParse';
+import { parseStockWorkbook, looksLikeStockSheet, parseSheet } from '../../lib/inventoryImportParse';
 
 const HEADER = [
   'Stock In Date', 'Model', 'IMEI', 'Grade', 'Storage',
@@ -141,5 +141,72 @@ describe('the exported report survives a full round trip', () => {
     const imeis = new Set(rows.map(r => r.imei));
     expect(imeis.size).toBe(120);
     for (const r of [...office, ...shs]) expect(imeis.has(String(r[2]))).toBe(true);
+  });
+});
+
+/**
+ * SHS has no IMEI — that is the whole point of it.
+ *
+ * Supplier-held stock has not shipped. There is no handset in anyone's hand,
+ * so there is no IMEI to read off it. The importer demanded one anyway, which
+ * made the SHS template unusable for its own purpose: either you could not
+ * import at all, or you invented numbers that would never match a real phone.
+ *
+ * The in-app Add Stock screen always had this right — it says "IMEI optional ·
+ * supplier-held" and writes a `manual_shs_*` id with a blank IMEI. Only the
+ * importer disagreed.
+ */
+describe('SHS rows without an IMEI', () => {
+  const shsRow = (model: string, imei = '') => [
+    '2026-07-20', model, imei, 'A', '256GB',
+    'Physical SIM', 'GRAPHITE', 'CELLHUB TRADING', 520, 'SHS', 'awaiting delivery',
+  ];
+  const officeRow = (model: string, imei = '') => [
+    '2026-07-20', model, imei, 'A', '256GB',
+    'Physical SIM', 'GRAPHITE', 'CELLHUB TRADING', 520, 'OFFICE', '',
+  ];
+
+  it('imports cleanly with the IMEI column blank', () => {
+    const [row] = parseSheet([HEADER, shsRow('IPHONE 13 PRO')]);
+    expect(row.errors).toEqual([]);
+    expect(row.stockType).toBe('shs');
+    expect(row.imei).toBe('');
+  });
+
+  it('still rejects an OFFICE row with no IMEI', () => {
+    // Office stock is on the shelf — if nobody can read an IMEI off it,
+    // something is wrong with the row, not with the rule.
+    const [row] = parseSheet([HEADER, officeRow('IPHONE 13 PRO')]);
+    expect(row.errors).toContain('IMEI is required for office stock');
+  });
+
+  it('validates an IMEI the supplier HAS sent', () => {
+    // Optional does not mean unchecked. A typo is a typo either way.
+    const [row] = parseSheet([HEADER, shsRow('IPHONE 13 PRO', '12345')]);
+    expect(row.errors.join(' ')).toMatch(/IMEI not valid/);
+  });
+
+  it('accepts a real IMEI on an SHS row when there is one', () => {
+    const [row] = parseSheet([HEADER, shsRow('IPHONE 13 PRO', '350100000000001')]);
+    expect(row.errors).toEqual([]);
+    expect(row.imei).toBe('350100000000001');
+  });
+
+  it('treats several identical SHS rows as several phones on order', () => {
+    // Ten of the same model from one supplier is an ordinary holding line.
+    // Blank IMEIs must not read as duplicates of each other.
+    const rows = parseSheet([HEADER, ...Array.from({ length: 5 }, () => shsRow('IPHONE 14'))]);
+    expect(rows).toHaveLength(5);
+    expect(rows.every(r => r.errors.length === 0)).toBe(true);
+  });
+
+  it('still applies every other rule to an SHS row', () => {
+    const missing = parseSheet([HEADER, [
+      '2026-07-20', '', '', 'A', '256GB', 'Physical SIM', 'GRAPHITE', '', 0, 'SHS', '',
+    ]])[0];
+    expect(missing.errors).toContain('Model is required');
+    expect(missing.errors).toContain('Supplier is required');
+    expect(missing.errors).toContain('BP must be greater than 0');
+    expect(missing.errors).not.toContain('IMEI is required for office stock');
   });
 });

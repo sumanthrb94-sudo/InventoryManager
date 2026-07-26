@@ -246,11 +246,40 @@ async function run() {
   await shot(page, 'sales-audit-blocked');
 
   if (blockedByAudit) {
+    // A direct shipment is the one orphan an operator can actually identify:
+    // the supplier shipped a phone we never scanned, so someone has to say
+    // what it was. That is how an IMEI-less holding gets closed — the model
+    // they type is matched against the holding for that model + supplier.
+    //
+    // Order AMA-SHS-1 is the sample's supplier-shipped IPHONE 14 from
+    // NORTHSIDE STOCK. Every other orphan gets IPHONE 13 — a real catalog
+    // model (the picker validates against it) that has NO supplier holding,
+    // so exactly one holding is consumed and the assertion below is exact.
+    // The innermost div that carries BOTH the order number and a model input.
+    // Filtering on text alone lands on a leaf that holds no input, so the fill
+    // silently does nothing and every orphan ends up with the generic model.
+    const shsRow = modal(page).locator('div')
+      .filter({ hasText: /AMA-SHS-1/ })
+      .filter({ has: page.locator('input[placeholder="Search model…"]') })
+      .last();
+    const shsModelBox = shsRow.locator('input[placeholder="Search model…"]').first();
+    if (await shsModelBox.isVisible().catch(() => false)) {
+      await shsModelBox.fill('IPHONE 14');
+      await shsModelBox.press('Tab');
+      await page.waitForTimeout(300);
+      // And mark it SHS on the row's Office/SHS toggle — the operator saying
+      // "this one was shipped by the supplier". That is the only signal that
+      // separates a direct shipment from history being replayed on a restore,
+      // so it has to be given, not guessed.
+      await shsRow.getByRole('button', { name: /^SHS$/ }).first().click().catch(() => {});
+      await page.waitForTimeout(300);
+    }
+
     // Fill every empty required input in the audit panel.
     const modelInputs = modal(page).locator('input[placeholder="Search model…"]');
     const supplierInputs = modal(page).locator('input[placeholder="Supplier required"]');
     const imeiInputs = modal(page).locator('input[placeholder="IMEI required"]');
-    for (const [loc, value] of [[imeiInputs, '350000000000999'], [modelInputs, 'IPHONE 12'], [supplierInputs, 'MOBILE WHOLESALE LTD']]) {
+    for (const [loc, value] of [[imeiInputs, '350000000000999'], [modelInputs, 'IPHONE 13'], [supplierInputs, 'MOBILE WHOLESALE LTD']]) {
       const n = await loc.count();
       for (let i = 0; i < n; i++) {
         const box = loc.nth(i);

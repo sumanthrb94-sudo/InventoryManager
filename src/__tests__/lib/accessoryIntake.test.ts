@@ -76,7 +76,7 @@ describe('identifier-less accessories are out of scope, by decision', () => {
   // validation tweak. The operator's live 79-model catalogue contains none.
   it.each(['IPHONE 15 SILICONE CASE', 'USB-C CHARGER 20W', 'LIGHTNING CABLE 1M'])(
     '%s is rejected for having no identifier', (model) => {
-      expect(parseOne(model, '').errors).toContain('IMEI is required');
+      expect(parseOne(model, '').errors).toContain('IMEI is required for office stock');
     },
   );
 });

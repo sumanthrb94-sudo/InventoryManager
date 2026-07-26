@@ -193,7 +193,9 @@ async function run() {
    * up here is caught separately, by the leakage check below.
    */
   const compareGrid = async (expected) => {
-    const byImei = new Map(expected.map(r => [String(r[2]).trim(), r]));
+    const byImei = new Map(expected.map(r => [
+      String(r[2]).trim() || ['SHS', r[1], r[7], r[8]].join('|').toUpperCase(), r,
+    ]));
     const viewRows = await readViewerGrid(page);
     const header = viewRows.find(r => r.includes('IMEI')) || [];
     const col = (name) => header.indexOf(name);
@@ -201,10 +203,14 @@ async function run() {
     const mismatches = [];
     const strangers = [];
     for (const r of viewRows) {
-      const imei = r[col('IMEI')];
+      const shownImei = r[col('IMEI')];
       // Skip the grid's own furniture: the column-letter row the viewer
       // renders above the data ('A', 'B', 'C'…) and the header row itself.
-      if (!imei || imei === 'IMEI' || /^[A-Z]{1,2}$/.test(imei)) continue;
+      if (shownImei === 'IMEI' || /^[A-Z]{1,2}$/.test(shownImei || '')) continue;
+      // A holding has no IMEI; fall back to its identity, as above.
+      const imei = (shownImei || '').trim()
+        || ['SHS', r[col('Model')], r[col('Supplier')], r[col('BP')]].join('|').toUpperCase();
+      if (!r[col('Model')]) continue;
       if (!byImei.has(imei)) { strangers.push(imei); continue; }
       const srcRow = byImei.get(imei);
       compared++;
@@ -271,17 +277,23 @@ async function run() {
     dl.sheetNames.includes('Office Stock') && dl.sheetNames.includes('SHS Stock'),
     dl.sheetNames.join(', '));
 
-  const imeisIn = (sheet) => new Set((dl.sheets[sheet] ?? []).slice(1).map(r => String(r[2]).trim()));
-  const officeImeis = imeisIn('Office Stock');
-  const shsImeis = imeisIn('SHS Stock');
+  // SHS holdings have NO IMEI — the supplier hasn't shipped, so there is no
+  // handset to read one off. Keying them by IMEI collapses all ten onto the
+  // empty string and the sheet appears to hold one row. They key on the same
+  // identity the importer uses to recognise a holding: model + supplier + BP.
+  const keyOf = (r) => String(r[2]).trim()
+    || ['shs', r[1], r[7], r[8]].join('|').toUpperCase();
+  const keysIn = (sheet) => new Set((dl.sheets[sheet] ?? []).slice(1).map(keyOf));
+  const officeImeis = keysIn('Office Stock');
+  const shsImeis = keysIn('SHS Stock');
 
-  const missingOffice = srcOffice.filter(r => !officeImeis.has(String(r[2]).trim()));
+  const missingOffice = srcOffice.filter(r => !officeImeis.has(keyOf(r)));
   record('every uploaded OFFICE row lands in the Office Stock sheet',
     missingOffice.length === 0 && officeImeis.size === srcOffice.length,
     `uploaded ${srcOffice.length} · sheet has ${officeImeis.size}` +
     (missingOffice.length ? ` · missing ${missingOffice.length}` : ''));
 
-  const missingShs = srcShs.filter(r => !shsImeis.has(String(r[2]).trim()));
+  const missingShs = srcShs.filter(r => !shsImeis.has(keyOf(r)));
   record('every uploaded SHS row lands in the SHS Stock sheet',
     missingShs.length === 0 && shsImeis.size === srcShs.length,
     `uploaded ${srcShs.length} · sheet has ${shsImeis.size}` +

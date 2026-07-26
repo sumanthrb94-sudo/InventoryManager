@@ -67,6 +67,12 @@ export interface AddUnitResult {
   error?: AddUnitErrorCode;
   /** Friendly copy for the toast / inline error display. */
   message?: string;
+  /** True when adding this unit CLOSED an open supplier holding.
+   *  A supplier-shipped phone reaches us as an orphan sale — its IMEI is one
+   *  we have never seen, because the holding never had one — so this is where
+   *  most SHS fulfilments actually happen, and the Done screen needs to say
+   *  so rather than reporting zero while supplier stock visibly drops. */
+  shsFulfilled?: boolean;
 }
 
 export interface ReceiveShsInput {
@@ -714,16 +720,34 @@ export async function addSoldUnitFromSale(
     return { ok: false, error: 'write_failed', message: err?.message || 'Save failed. Check connection.' };
   }
 
-  // When a unit is fulfilled from SHS (supplier held it, sold before we
-  // ever received it), the original placeholder and master-file aggregate
-  // still exist and would keep counting as stock we don't have.
-  if (input.stockSource === 'shs') {
-    await reconcileShsAfterFulfilment({
-      model: cleanModel,
-      supplierName,
-      contextImei: rawImei,
-    });
-  }
+  // When a unit is fulfilled from SHS (supplier held it, sold before we ever
+  // received it), the holding and the master-file aggregate still exist and
+  // would keep counting as stock we don't have.
+  //
+  // This used to fire only when the CALLER declared stockSource==='shs'. On
+  // the import path nobody does: a supplier-shipped phone arrives as an
+  // ordinary orphan sale, because its IMEI is one we have never seen — the
+  // holding never had an IMEI to match against. So the flag was never set,
+  // the holding was never closed, and supplier-held stock only ever grew.
+  //
+  // The operator marks it, on the import's audit row — there is an Office/SHS
+  // toggle per orphan precisely for this.
+  //
+  // Inferring it instead ("an open holding for this model+supplier must mean
+  // the supplier shipped it") is tempting and wrong. On a RESTORE every sale
+  // re-imports as an orphan, because the sold units were never in the stock
+  // report; any whose model+supplier happened to match an open holding then
+  // closed it. Rebuilding from a backup silently ate three holdings.
+  //
+  // Only a human knows whether an unmatched sale is a supplier shipment or
+  // history being replayed. So we ask, and act only when told.
+  const shsResult = input.stockSource === 'shs'
+    ? await reconcileShsAfterFulfilment({
+        model: cleanModel,
+        supplierName,
+        contextImei: rawImei,
+      })
+    : { placeholdersRemoved: 0, aggregatesDecremented: 0 };
 
   await logInventoryEvent({
     type: 'sold',
@@ -731,7 +755,7 @@ export async function addSoldUnitFromSale(
     unitId: rawImei,
   });
 
-  return { ok: true, id: rawImei };
+  return { ok: true, id: rawImei, shsFulfilled: shsResult.placeholdersRemoved > 0 };
 }
 
 // ---------------------------------------------------------------------------
@@ -1088,20 +1112,36 @@ export async function reconcileShsAfterFulfilment(input: {
     const allUnits = await dbService.readAll('inventoryUnits');
     const allAggs = await dbService.readAll('inventoryAggregates');
 
-    // 1. Parser placeholders for this model+supplier.
-    const placeholders = allUnits.filter((u: any) => {
-      const uid = String(u.id || '');
-      return uid.startsWith('shs_')
-        && slugify(u.model || '') === modelSlug
+    // 1. Open holdings for this model+supplier.
+    //
+    // This used to match on an id prefix — `shs_`, the shape the master-file
+    // parser happens to mint. That quietly excluded every OTHER way a holding
+    // gets created: the manual Add Stock screen writes `manual_shs_*`, and the
+    // importer writes `manual_shs_imp_*`. Those holdings were never closed, so
+    // supplier-held stock only ever grew.
+    //
+    // A holding is not an id prefix. It is a unit the supplier still has:
+    // status 'incoming' with no IMEI, because there is no handset here to read
+    // one off. Match on that, and every creation path is covered — including
+    // ones nobody has written yet.
+    //
+    // Only ONE is closed per fulfilment: ten of the same model from one
+    // supplier is a normal holding line, and one sale ships one phone.
+    const holdings = allUnits.filter((u: any) => {
+      const isOpenHolding = u.status === 'incoming' && !String(u.imei || '').trim();
+      const isParserPlaceholder = String(u.id || '').startsWith('shs_');
+      if (!isOpenHolding && !isParserPlaceholder) return false;
+      return slugify(u.rawModel || u.model || '') === modelSlug
         && (slugify(u.supplierName || '') === supplierSlug
             || (u.supplierIds || []).some((sid: string) => slugify(sid) === supplierSlug));
     });
+    const placeholders = holdings.slice(0, 1);
     for (const ph of placeholders) {
       await dbService.delete('inventoryUnits', ph.id).catch(() => {});
       placeholdersRemoved++;
       await logInventoryEvent({
         type: 'stock_adjusted',
-        message: `SHS placeholder ${ph.id} cleaned up after fulfilment${input.contextImei ? ` of ${input.contextImei}` : ''}`,
+        message: `SHS holding ${ph.id} closed after fulfilment${input.contextImei ? ` of ${input.contextImei}` : ''}`,
         unitId: input.contextImei,
       });
     }

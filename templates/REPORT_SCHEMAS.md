@@ -48,7 +48,7 @@ which.
 |---|---|---|---|
 | 1 | Stock In Date | No | `yyyy-mm-dd`, an Excel date, or blank (= today) |
 | 2 | Model | **Yes** | Free text. Snapped to the admin catalog spelling on write |
-| 3 | IMEI | **Yes** | 15 digits, or a 10–12 char Apple serial |
+| 3 | IMEI | **Office only** | 15 digits, or a 10–12 char Apple serial. **Blank for SHS** — see §1.3 |
 | 4 | Grade | No | `A` `B` `C` `ONU` `Brand new` |
 | 5 | Storage | No | `16GB` `32GB` `64GB` `128GB` `256GB` `512GB` `1TB` `Not Applicable` |
 | 6 | SIM Type | No | `Physical SIM` `Physical SIM + eSIM` `Dual Physical SIM` `Not Applicable` |
@@ -131,12 +131,38 @@ not what you have held. Sold units come back from the Sales Report.
 `templates/SHS_STOCK_TEMPLATE.xlsx` is the same 11-column `INVENTORY` schema
 with every row pre-set to `SHS`. There is one stock importer, not two.
 
+**Leave the IMEI blank.** Supplier-held stock has not shipped — there is no
+handset in anyone's hand, so there is no IMEI to read off it. That is the
+whole point of recording it as SHS. Never invent one: an invented IMEI matches
+no real phone and has to be found and corrected later.
+
+The unit is tracked by **Model + Supplier** until it arrives, and that is also
+how it gets fulfilled — if the supplier ships straight to a customer, the
+Sales Report carries an IMEI you have never seen, and the holding closes on
+the Model + Supplier match rather than on the IMEI. The IMEI is captured when
+the phone arrives and you **Receive** it.
+
+A real IMEI is accepted if the supplier has already sent one, and is validated
+exactly as any other. Optional does not mean unchecked.
+
+Because there is no IMEI to recognise a row by, a re-upload matches an SHS
+holding on **Model + Supplier + BP + Stock In Date**. Two identical rows are
+the same holding, so re-importing the same file stays safe.
+
 An SHS unit leaves SHS in exactly three ways:
 
 1. It arrives → Receive it (Buy → SHS tile → Receive) → becomes office stock.
-2. The supplier ships direct to the customer → it appears on a Sales Report →
-   marked sold, tagged as an SHS sale, placeholder removed, master row
-   decremented.
+2. The supplier ships direct to the customer → it appears on a Sales Report.
+   That sale carries an IMEI you have **never seen** — the holding had none —
+   so it arrives as an unmatched row on the import's audit screen. Enter the
+   model and set that row's toggle to **SHS**. The holding for that model +
+   supplier is then closed, the master row decremented, and the sale tagged as
+   SHS revenue rather than office.
+
+   That toggle is deliberately a decision, not a guess. On a restore every
+   sale re-imports unmatched, and inferring "unmatched + a holding exists =
+   supplier shipped it" silently ate real holdings. Only you know which is
+   which.
 3. The supplier cancels → an admin deletes it from the SHS overlay.
 
 ---

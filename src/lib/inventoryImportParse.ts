@@ -149,8 +149,20 @@ export function parseSheet(rows: any[][], rowNumOffset = 0): ParsedRow[] {
 
     const errors: string[] = [];
     if (!model)     errors.push('Model is required');
-    if (!imei)      errors.push('IMEI is required');
-    else {
+    // IMEI is required for OFFICE stock and optional for SHS.
+    //
+    // SHS is stock the supplier has not shipped yet. There is no handset in
+    // anyone's hand, so there is no IMEI to read off it — that is the whole
+    // point of recording it as supplier-held. Demanding one made the SHS
+    // template unusable for its own purpose: the operator either could not
+    // import at all, or invented numbers that would never match a real
+    // phone. The in-app Add Stock screen has always had this right ("IMEI
+    // optional · supplier-held"); only the importer disagreed.
+    //
+    // A supplied IMEI is still validated — a typo is a typo either way.
+    if (!imei) {
+      if (stockType !== 'shs') errors.push('IMEI is required for office stock');
+    } else {
       const apple = isAppleDevice(model);
       if (!isValidImei(imei, { isAppleSerial: apple })) errors.push('IMEI not valid (15 digits, or 10-12 char alphanumeric serial)');
     }

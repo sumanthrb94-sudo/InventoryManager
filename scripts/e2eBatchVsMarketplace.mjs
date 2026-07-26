@@ -126,8 +126,19 @@ function fingerprint(db) {
     shsImeis: new Set(shs.map(u => String(u.imei || '').toUpperCase())),
     soldImeis: new Set(sold.map(u => String(u.imei || '').toUpperCase())),
     saleIds: new Set(sales.map(s => s.id)),
-    /** Per-IMEI stock detail, for the restore comparison. */
-    stockDetail: new Map([...office, ...shs].map(u => [String(u.imei || '').toUpperCase(), {
+    /** Per-unit stock detail, for the restore comparison.
+     *
+     *  Keyed by IMEI where there is one. SHS holdings have none — the
+     *  supplier hasn't shipped — so nine of them would collapse onto the
+     *  single key '' and the comparison would report drift that isn't there.
+     *  They key on the same identity the importer uses to recognise a
+     *  holding on re-upload: model + supplier + BP + date. */
+    stockDetail: new Map([...office, ...shs].map(u => [
+      String(u.imei || '').trim()
+        ? String(u.imei).toUpperCase()
+        : ['shs', u.rawModel || u.model || '', u.supplierName || '', u.buyPrice, u.dateIn]
+            .join('|').toUpperCase(),
+      {
       model: u.rawModel || u.model || '',
       grade: u.grade || '',
       storage: u.storage || '',

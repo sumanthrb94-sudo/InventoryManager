@@ -514,6 +514,7 @@ export default function SalesReportImport({ onClose }: Props) {
       // For a no-IMEI sale the operator typed an IMEI in the row; we patch the
       // sale's imei too so its audit record carries the device id.
       let unitsAddedFromOrphanSales = 0;
+      let orphanShsFulfilled = 0;
       let unitsAddFailed = 0;
       const unitsAddFailedDetails: Array<{ imei: string; orderNumber: string; reason: string }> = [];
       if (preview.recordsToComplete.length > 0) {
@@ -564,6 +565,12 @@ export default function SalesReportImport({ onClose }: Props) {
           }
           if (res.ok) {
             unitsAddedFromOrphanSales++;
+            // A supplier-shipped phone arrives as an ORPHAN — its IMEI is one
+            // we have never seen, because the holding never had one. So this
+            // path, not the IMEI-matching one, is where most SHS fulfilments
+            // actually happen; counting only the latter reported zero while
+            // supplier stock visibly dropped.
+            if (res.shsFulfilled) orphanShsFulfilled++;
           } else {
             unitsAddFailed++;
             unitsAddFailedDetails.push({ imei: row.imei, orderNumber: row.orderNumber, reason: res.message || res.error || 'unknown' });
@@ -610,7 +617,7 @@ export default function SalesReportImport({ onClose }: Props) {
         shsAggregatesDecremented += res.aggregatesDecremented;
       }
       setSyncStats({
-        shsFulfilled: shsFulfilled.length,
+        shsFulfilled: shsFulfilled.length + orphanShsFulfilled,
         shsPlaceholdersCleared,
         shsAggregatesDecremented,
         unitsMarkedSold: unitPatches.length,
