@@ -21,19 +21,21 @@ import { MARKETPLACES } from '../types';
 // `calcSaleFinancials` so commission rates match the operator's SALES_REPORT
 // master file (eBay 6.9% / Amazon 7.14% / OnBuy 7% / BM 12% — not the old
 // 12.8 / 8 / 9 / 10 numbers).
-type PlatformLabel = 'eBay' | 'Amazon' | 'OnBuy' | 'Backmarket';
-const PLATFORM_LABELS: readonly PlatformLabel[] = ['eBay', 'Amazon', 'OnBuy', 'Backmarket'];
+type PlatformLabel = 'eBay' | 'Amazon' | 'OnBuy' | 'Backmarket' | 'Temu';
+const PLATFORM_LABELS: readonly PlatformLabel[] = ['eBay', 'Amazon', 'OnBuy', 'Backmarket', 'Temu'];
 const PLATFORM_TO_MARKETPLACE: Record<PlatformLabel, Marketplace> = {
   eBay: 'EBAY',
   Amazon: 'AMAZON',
   OnBuy: 'ONBUY',
   Backmarket: 'BM',
+  Temu: 'TEMU',
 };
 const PLATFORM_BADGE: Record<PlatformLabel, string> = {
   eBay:       'bg-yellow-100 text-yellow-800 border-yellow-200',
   Amazon:     'bg-orange-100 text-orange-800 border-orange-200',
   OnBuy:      'bg-blue-100 text-blue-800 border-blue-200',
   Backmarket: 'bg-green-100 text-green-800 border-green-200',
+  Temu:       'bg-pink-100 text-pink-800 border-pink-200',
 };
 
 /** Resolve a free-text platform string to a Marketplace enum value. */

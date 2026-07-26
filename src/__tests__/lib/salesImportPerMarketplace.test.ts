@@ -37,6 +37,11 @@ const amazonRow = (order: string, imei: string, bp: number, sp: number) =>
 const onbuyRow = (order: string, imei: string, bp: number, sp: number) =>
   ['2026-07-21', order, 'PIX7-128-BLK', imei, 'NORTHSIDE STOCK', bp, sp, sp - bp, '', '', '', 8, '', '', ''];
 
+// Same 15-column layout as AMAZON — see platforms.ts DEFAULT_MARKETPLACE_FEES.TEMU.
+const TEMU_HEADERS = AMAZON_HEADERS;
+const temuRow = (order: string, imei: string, bp: number, sp: number) =>
+  ['2026-07-24', order, 'SG-A17-128GB-OB', imei, 'MHL', 1, bp, sp, sp - bp, '', '', 6.30, '', '', ''];
+
 describe('single-marketplace upload', () => {
   it('parses an AMAZON-only file with no "missing sheet" noise', async () => {
     const file = workbook('AMAZON', AMAZON_HEADERS, [
@@ -140,6 +145,36 @@ describe('single-marketplace upload', () => {
     expect(parsed.sales).toHaveLength(1);
     expect(parsed.errors.some(e => e.row > 0)).toBe(true);
   });
+
+  it('parses a TEMU-only file with no "missing sheet" noise', async () => {
+    const file = workbook('TEMU', TEMU_HEADERS, [
+      temuRow('PO-210-07053322437751959', '350901801557294', 100, 119.33),
+    ]);
+    const parsed = await parseSalesWorkbook(file, 'temu.xlsx', { onlyMarketplace: 'TEMU' });
+
+    expect(parsed.errors).toEqual([]);
+    expect(parsed.sales).toHaveLength(1);
+    expect(parsed.sales[0].marketplace).toBe('TEMU');
+    expect(parsed.sales[0].buyPrice).toBe(100);
+    expect(parsed.sales[0].salePrice).toBe(119.33);
+    expect(parsed.perSheetCounts.TEMU).toBe(1);
+    expect(parsed.perSheetCounts.AMAZON + parsed.perSheetCounts.BM
+      + parsed.perSheetCounts.EBAY + parsed.perSheetCounts.ONBUY).toBe(0);
+  });
+
+  it('recomputes TEMU financials to the sheet-verified numbers on import', async () => {
+    const file = workbook('TEMU', TEMU_HEADERS, [
+      temuRow('PO-210-07053322437751959', '350901801557294', 100, 119.33),
+    ]);
+    const parsed = await parseSalesWorkbook(file, 'temu.xlsx', { onlyMarketplace: 'TEMU' });
+    const sale = parsed.sales[0];
+    expect(sale.commission).toBeCloseTo(8.3531, 2);
+    expect(sale.grossProfit).toBeCloseTo(0.4546, 1);
+    // The fixed Temu rule — no VAT on commission or postage, no DSF.
+    expect(sale.commissionVat ?? 0).toBe(0);
+    expect(sale.dsf ?? 0).toBe(0);
+    expect(sale.postageVat ?? 0).toBe(0);
+  });
 });
 
 describe('combined workbook is unchanged', () => {
@@ -147,6 +182,6 @@ describe('combined workbook is unchanged', () => {
     const file = workbook('AMAZON', AMAZON_HEADERS, [amazonRow('AMZ-1', '350100000055433', 200, 300)]);
     const parsed = await parseSalesWorkbook(file, 'combined.xlsx');
     const missing = parsed.errors.filter(e => /missing from workbook/.test(e.message)).map(e => e.sheet);
-    expect(missing.sort()).toEqual(['BM', 'EBAY', 'ONBUY']);
+    expect(missing.sort()).toEqual(['BM', 'EBAY', 'ONBUY', 'TEMU']);
   });
 });

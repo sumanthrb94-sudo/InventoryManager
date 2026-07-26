@@ -219,11 +219,11 @@ describe('Act 2 · upload the Sales Report', () => {
     expect(parsed.sales.every(s => s.marketplace === 'AMAZON')).toBe(true);
   });
 
-  it('FINDING: a single-marketplace workbook reports 3 "missing sheet" errors', () => {
-    // An operator uploading only their Amazon sheet gets three red errors
-    // for BM / EBAY / ONBUY even though the import is completely valid.
+  it('FINDING: a single-marketplace workbook reports 4 "missing sheet" errors', () => {
+    // An operator uploading only their Amazon sheet gets four red errors
+    // for BM / EBAY / ONBUY / TEMU even though the import is completely valid.
     const sheetErrors = parsed.errors.filter(e => /missing from workbook/.test(e.message));
-    expect(sheetErrors.map(e => e.sheet).sort()).toEqual(['BM', 'EBAY', 'ONBUY']);
+    expect(sheetErrors.map(e => e.sheet).sort()).toEqual(['BM', 'EBAY', 'ONBUY', 'TEMU']);
   });
 
   it('recomputes financials instead of trusting the sheet', () => {

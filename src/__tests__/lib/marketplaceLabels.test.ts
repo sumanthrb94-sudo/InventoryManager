@@ -133,11 +133,11 @@ describe('the scorecard, reconstructed', () => {
 
     const broken = MARKETPLACE_LABELS.map(label =>
       sold.filter(u => u.salePlatform === label).length);
-    expect(broken).toEqual([0, 0, 1, 0]);   // only the in-app eBay row landed
+    expect(broken).toEqual([0, 0, 1, 0, 0]);   // only the in-app eBay row landed
 
     const fixed = MARKETPLACES.map(m =>
       sold.filter(u => marketplaceOf(u.salePlatform) === m).length);
-    expect(fixed).toEqual([2, 1, 2, 0]);    // Amazon 2 · BM 1 · eBay 2 · OnBuy 0
+    expect(fixed).toEqual([2, 1, 2, 0, 0]);    // Amazon 2 · BM 1 · eBay 2 · OnBuy 0 · Temu 0
     expect(fixed.reduce((a, b) => a + b, 0)).toBe(sold.length);
   });
 });

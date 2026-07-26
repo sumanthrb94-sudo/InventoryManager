@@ -28,6 +28,7 @@ export const MARKETPLACE_LABEL: Record<Marketplace, string> = {
   BM: 'Backmarket',
   EBAY: 'eBay',
   ONBUY: 'OnBuy',
+  TEMU: 'Temu',
 };
 
 /** Display labels, in the canonical marketplace order. */
@@ -39,6 +40,7 @@ const ALIASES: Record<Marketplace, string[]> = {
   BM: ['bm', 'backmarket', 'back market'],
   EBAY: ['ebay', 'e-bay'],
   ONBUY: ['onbuy', 'on buy'],
+  TEMU: ['temu'],
 };
 
 /**

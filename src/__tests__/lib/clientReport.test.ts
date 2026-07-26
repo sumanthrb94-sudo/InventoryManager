@@ -208,13 +208,13 @@ async function loadWorkbook(buffer: ArrayBuffer): Promise<ExcelJS.Workbook> {
 }
 
 describe('buildSalesWorkbookBuffer — auditor-grade structure', () => {
-  it('produces 6 sheets — Summary + Returns + AMAZON / BM / EBAY / ONBUY', async () => {
+  it('produces 7 sheets — Summary + Returns + AMAZON / BM / EBAY / ONBUY / TEMU', async () => {
     const buffer = await buildSalesWorkbookBuffer({ sales: [] });
     const wb = await loadWorkbook(buffer);
     // Returns sits between Summary and the marketplace tabs so the
     // auditor sees return data immediately, without scrolling past
     // 20+ sale columns on each marketplace tab.
-    expect(wb.worksheets.map(w => w.name)).toEqual(['Summary', 'Returns', 'AMAZON', 'BM', 'EBAY', 'ONBUY']);
+    expect(wb.worksheets.map(w => w.name)).toEqual(['Summary', 'Returns', 'AMAZON', 'BM', 'EBAY', 'ONBUY', 'TEMU']);
   });
 
   it('Returns tab — headers carry the return-info columns up front', async () => {

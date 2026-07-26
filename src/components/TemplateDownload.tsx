@@ -96,4 +96,5 @@ export const SALES_TEMPLATES: TemplateLink[] = [
   { file: 'SALES_BM_TEMPLATE.xlsx',     label: 'BM only',     hint: '17 columns · Payment Mode at 9' },
   { file: 'SALES_EBAY_TEMPLATE.xlsx',   label: 'eBay only',   hint: '19 columns · postage is SHIPPING' },
   { file: 'SALES_ONBUY_TEMPLATE.xlsx',  label: 'OnBuy only',  hint: '15 columns · no Quantity' },
+  { file: 'SALES_TEMU_TEMPLATE.xlsx',   label: 'Temu only',   hint: '15 columns · same layout as Amazon' },
 ];

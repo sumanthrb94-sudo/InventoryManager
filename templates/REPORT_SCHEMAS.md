@@ -215,6 +215,18 @@ DATE | Order Number | SKU | IMEI | Supplier | BP | SP |
 SP-BP | MAR VAT | COM 7% | VAT 20% | SHIP | GP | GP% | Comments
 ```
 
+**TEMU — 15 columns. Same layout as AMAZON.** Added 2026-07. Commission is
+7% of SP, same rate and same formula as Amazon — but Temu charges **no VAT
+on Commission or Postage, and no Digital Services Fee**, as a fixed platform
+rule (confirmed against the operator's Temu formula sheet, where those cells
+are literal zeros rather than a formula). See §2.2 for the export-side
+column set.
+
+```
+Date | Order Number | SKU | IMEI | Supplier | Quantity | BP | SP |
+SP-BP | Marginal Tax | Commission | Postage | GP | GP % | Comments
+```
+
 **Header aliases per field:**
 
 | Field | Accepted headers |
@@ -247,11 +259,11 @@ id, so a mix of old and new files cannot double-count.
 
 ### 2.2 Export — what you download
 
-**Six sheets:** `Summary · Returns · AMAZON · BM · EBAY · ONBUY`
+**Seven sheets:** `Summary · Returns · AMAZON · BM · EBAY · ONBUY · TEMU`
 
-The four marketplace sheets carry the import columns plus computed VAT/fee
+The five marketplace sheets carry the import columns plus computed VAT/fee
 columns and a trailing return-linkage block. Column counts: AMAZON 28,
-BM 25, EBAY 31, ONBUY 25.
+BM 25, EBAY 31, ONBUY 25, TEMU 28.
 
 Common leading block, every marketplace:
 
@@ -275,6 +287,7 @@ Marketplace-specific fee columns:
 | BM | `Customer Care Fees` |
 | EBAY | `ROF` `FVF` `VAT` `T.COM` `Marketing` `M. VAT` — and `Units`, not `Quantity` |
 | ONBUY | `VAT 20%` — and no Quantity column |
+| TEMU | `C. VAT` `DSF` `DSF. VAT` — same columns as Amazon, but all three always compute to £0 (fixed platform rule, not a formula quirk) |
 
 `Returns` sheet (16 columns):
 
@@ -461,10 +474,10 @@ the preview is the place to catch it. That is why deleting them is rule 1.
 |---|---|
 | `INVENTORY_REPORT_TEMPLATE.xlsx` | Blank stock template, office and SHS |
 | `SHS_STOCK_TEMPLATE.xlsx` | Same schema, pre-set to SHS |
-| `SALES_REPORT_TEMPLATE.xlsx` | Blank combined workbook, four sheets |
-| `SALES_{AMAZON,BM,EBAY,ONBUY}_TEMPLATE.xlsx` | One blank file per channel |
+| `SALES_REPORT_TEMPLATE.xlsx` | Blank combined workbook, five sheets |
+| `SALES_{AMAZON,BM,EBAY,ONBUY,TEMU}_TEMPLATE.xlsx` | One blank file per channel |
 | `samples/INVENTORY_REPORT_SAMPLE.xlsx` | 120 rows — 110 office + 10 SHS |
-| `samples/SALES_REPORT_SAMPLE.xlsx` | 100 sales across four marketplaces |
+| `samples/SALES_REPORT_SAMPLE.xlsx` | 100 sales across four marketplaces (AMAZON/BM/EBAY/ONBUY — the original round-robin sample; TEMU is exercised via its own template's example row, not this bulk sample, so the 100+ tests keyed to this exact file stay unaffected by the new channel) |
 | `samples/SALES_{AMAZON,BM,EBAY,ONBUY}_SAMPLE.xlsx` | The same rows, split per channel |
 | `samples/SHS_STOCK_SAMPLE.xlsx` | The 10 supplier-held rows |
 | `samples/INVENTORY_EDGE_CASES.xlsx` | Awkward stock rows, each labelled |

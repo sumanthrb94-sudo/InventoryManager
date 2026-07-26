@@ -41,6 +41,7 @@ const PLATFORM_META: Record<Marketplace, { label: string; tone: string; activeBg
   BM:      { label: 'Back Market',  tone: 'border-emerald-200 text-emerald-800 bg-emerald-50', activeBg: 'bg-emerald-600' },
   EBAY:    { label: 'eBay',         tone: 'border-yellow-200 text-yellow-800 bg-yellow-50',   activeBg: 'bg-yellow-600' },
   ONBUY:   { label: 'OnBuy',        tone: 'border-blue-200 text-blue-800 bg-blue-50',         activeBg: 'bg-blue-600' },
+  TEMU:    { label: 'Temu',         tone: 'border-pink-200 text-pink-800 bg-pink-50',         activeBg: 'bg-pink-600' },
 };
 
 /** BM-only payment-mode options — these are the values the master file uses
@@ -108,7 +109,7 @@ export default function SellOrderModal({ unit, onClose, onSaved, isSHS = false }
   // so calcSaleFinancials stays master-aligned — autofilling here means the
   // value flows through postageOverride, NOT through the math layer.
   const UI_AUTOFILL_POSTAGE: Record<Marketplace, number> = {
-    AMAZON: 6.30, BM: 6.30, ONBUY: 6.30, EBAY: 0,
+    AMAZON: 6.30, BM: 6.30, ONBUY: 6.30, EBAY: 0, TEMU: 6.30,
   };
   const defaultPostage = UI_AUTOFILL_POSTAGE[marketplace] || getMarketplaceFee(marketplace).postage;
   const effectivePostage =
@@ -519,6 +520,7 @@ function SalePLBreakdown({
 
   switch (marketplace) {
     case 'AMAZON':
+    case 'TEMU':
       rows.push(
         { label: 'Marginal Tax',  value: `£${(breakdown.marginalTax ?? 0).toFixed(2)}`, sub: 'sub' },
         { label: 'Commission',    value: `£${(breakdown.commission ?? 0).toFixed(2)}`,  sub: 'sub' },

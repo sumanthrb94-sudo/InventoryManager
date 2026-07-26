@@ -179,6 +179,7 @@ const MARKETPLACE_TONE: Record<Marketplace, string> = {
   BM:      'bg-emerald-100 text-emerald-700 border-emerald-200',
   EBAY:    'bg-yellow-100 text-yellow-700  border-yellow-200',
   ONBUY:   'bg-blue-100 text-blue-700      border-blue-200',
+  TEMU:    'bg-pink-100 text-pink-700      border-pink-200',
 };
 
 const fmtGBP = (n: number | undefined | null, decimals = 2): string => {

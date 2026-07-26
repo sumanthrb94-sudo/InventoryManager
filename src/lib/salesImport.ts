@@ -86,12 +86,12 @@ export async function parseSalesWorkbook(
   const sales: ParsedSales['sales'] = [];
   const errors: ParsedSales['errors'] = [];
   const perSheetCounts: Record<Marketplace, number> = {
-    AMAZON: 0, BM: 0, EBAY: 0, ONBUY: 0,
+    AMAZON: 0, BM: 0, EBAY: 0, ONBUY: 0, TEMU: 0,
   };
 
   // Track mean SP per marketplace — surfaces the SP=£0 column-detection bug
   // immediately at parse time instead of leaking into Firestore unnoticed.
-  const spSum: Record<Marketplace, number> = { AMAZON: 0, BM: 0, EBAY: 0, ONBUY: 0 };
+  const spSum: Record<Marketplace, number> = { AMAZON: 0, BM: 0, EBAY: 0, ONBUY: 0, TEMU: 0 };
 
   const targets: readonly Marketplace[] = options.onlyMarketplace
     ? [options.onlyMarketplace]
@@ -332,6 +332,30 @@ export const SHEET_LAYOUTS: Record<Marketplace, SheetLayout> = {
       // NB: BP at 5, SP at 6 — one less than the other marketplaces because
       // OnBuy has no Quantity column.
       buyPrice: 5, salePrice: 6, postage: 11, comments: 14,
+    },
+    required: ['date', 'orderNumber', 'buyPrice', 'salePrice'],
+  },
+  // TEMU cols (15): identical layout to AMAZON — Date | Order Number | SKU |
+  // IMEI | Supplier | Quantity | BP | SP | SP-BP | Marginal Tax | Commission |
+  // Postage | GP | GP % | Comments. Added 2026-07 from the operator's Temu
+  // formula sheet, which shares Amazon's exact column set; only the fee
+  // schedule differs (see platforms.ts DEFAULT_MARKETPLACE_FEES.TEMU).
+  TEMU: {
+    columns: {
+      date:        ['date'],
+      orderNumber: ['order number', 'order no'],
+      sku:         ['sku'],
+      imei:        ['imei', 'imei number'],
+      supplier:    ['supplier'],
+      quantity:    ['quantity', 'units', 'quant'],
+      buyPrice:    ['bp'],
+      salePrice:   ['sp'],
+      postage:     ['postage'],
+      comments:    ['comments'],
+    },
+    fallback: {
+      date: 0, orderNumber: 1, sku: 2, imei: 3, supplier: 4,
+      quantity: 5, buyPrice: 6, salePrice: 7, postage: 11, comments: 14,
     },
     required: ['date', 'orderNumber', 'buyPrice', 'salePrice'],
   },

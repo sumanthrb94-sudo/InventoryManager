@@ -67,7 +67,7 @@ describe('SalesReportImport preview ↔ buildPostImportSyncPatches parity', () =
     ];
 
     const preview = buildPreview(
-      { sales, perSheetCounts: { AMAZON: 0, BM: 0, EBAY: 0, ONBUY: 0 }, errors: [] },
+      { sales, perSheetCounts: { AMAZON: 0, BM: 0, EBAY: 0, ONBUY: 0, TEMU: 0 }, errors: [] },
       [],
       units,
     );
@@ -115,7 +115,7 @@ describe('SalesReportImport preview ↔ buildPostImportSyncPatches parity', () =
     const units = [unit({ id: 'u1', imei: '1', status: 'sold' })];
     const sales = [sale({ id: 'EBAY__O__1', marketplace: 'EBAY', imei: '1' })];
     const preview = buildPreview(
-      { sales, perSheetCounts: { AMAZON: 0, BM: 0, EBAY: 0, ONBUY: 0 }, errors: [] },
+      { sales, perSheetCounts: { AMAZON: 0, BM: 0, EBAY: 0, ONBUY: 0, TEMU: 0 }, errors: [] },
       [],
       units,
     );
@@ -129,7 +129,7 @@ describe('SalesReportImport preview ↔ buildPostImportSyncPatches parity', () =
       sale({ id: 'AMAZON__B__1', marketplace: 'AMAZON', imei: '1' }),
     ];
     const preview = buildPreview(
-      { sales, perSheetCounts: { AMAZON: 0, BM: 0, EBAY: 0, ONBUY: 0 }, errors: [] },
+      { sales, perSheetCounts: { AMAZON: 0, BM: 0, EBAY: 0, ONBUY: 0, TEMU: 0 }, errors: [] },
       [],
       units,
     );
@@ -154,7 +154,7 @@ describe('SalesReportImport preview — stale combined multi-IMEI cleanup', () =
       sale({ id: 'AMAZON__O-BULK__351554746670497', marketplace: 'AMAZON', orderNumber: 'O-BULK', imei: '351554746670497', salePrice: 84.89 }),
     ];
     const preview = buildPreview(
-      { sales: split, perSheetCounts: { AMAZON: 2, BM: 0, EBAY: 0, ONBUY: 0 }, errors: [] },
+      { sales: split, perSheetCounts: { AMAZON: 2, BM: 0, EBAY: 0, ONBUY: 0, TEMU: 0 }, errors: [] },
       existing,
       [],
     );
@@ -177,7 +177,7 @@ describe('SalesReportImport preview — stale combined multi-IMEI cleanup', () =
       sale({ id: 'AMAZON__O-DUP__333333333333333', marketplace: 'AMAZON', orderNumber: 'O-DUP', imei: '333333333333333' }),
     ];
     const preview = buildPreview(
-      { sales: split, perSheetCounts: { AMAZON: 3, BM: 0, EBAY: 0, ONBUY: 0 }, errors: [] },
+      { sales: split, perSheetCounts: { AMAZON: 3, BM: 0, EBAY: 0, ONBUY: 0, TEMU: 0 }, errors: [] },
       existing,
       [],
     );
@@ -198,7 +198,7 @@ describe('SalesReportImport preview — stale combined multi-IMEI cleanup', () =
       sale({ id: 'EBAY__O-X__inapp', marketplace: 'EBAY', orderNumber: 'O-X', imei: '' }),
     ];
     const preview = buildPreview(
-      { sales: split, perSheetCounts: { AMAZON: 1, BM: 0, EBAY: 3, ONBUY: 0 }, errors: [] },
+      { sales: split, perSheetCounts: { AMAZON: 1, BM: 0, EBAY: 3, ONBUY: 0, TEMU: 0 }, errors: [] },
       [],
       units,
     );
@@ -218,7 +218,7 @@ describe('SalesReportImport preview — stale combined multi-IMEI cleanup', () =
       sale({ id: 'EBAY__O1__111', marketplace: 'EBAY', orderNumber: 'O1', imei: '111' }),
     ];
     const preview = buildPreview(
-      { sales: split, perSheetCounts: { AMAZON: 0, BM: 0, EBAY: 1, ONBUY: 0 }, errors: [] },
+      { sales: split, perSheetCounts: { AMAZON: 0, BM: 0, EBAY: 1, ONBUY: 0, TEMU: 0 }, errors: [] },
       [],
       units,
     );
@@ -236,7 +236,7 @@ describe('SalesReportImport preview — stale combined multi-IMEI cleanup', () =
       sale({ id: 'EBAY__O2__222', marketplace: 'EBAY', orderNumber: 'O2', imei: '222' }),
     ];
     const preview = buildPreview(
-      { sales: split, perSheetCounts: { AMAZON: 0, BM: 0, EBAY: 2, ONBUY: 0 }, errors: [] },
+      { sales: split, perSheetCounts: { AMAZON: 0, BM: 0, EBAY: 2, ONBUY: 0, TEMU: 0 }, errors: [] },
       [],
       units,
     );
@@ -254,7 +254,7 @@ describe('SalesReportImport preview — stale combined multi-IMEI cleanup', () =
       sale({ id: 'EBAY__O1__1', marketplace: 'EBAY', orderNumber: 'O1', imei: '1' }),
     ];
     const preview = buildPreview(
-      { sales: split, perSheetCounts: { AMAZON: 0, BM: 0, EBAY: 1, ONBUY: 0 }, errors: [] },
+      { sales: split, perSheetCounts: { AMAZON: 0, BM: 0, EBAY: 1, ONBUY: 0, TEMU: 0 }, errors: [] },
       existing,
       [],
     );
@@ -276,7 +276,7 @@ describe('SalesReportImport preview — stale combined multi-IMEI cleanup', () =
       sale({ id: 'AMAZON__O-BULK__222222222222222', marketplace: 'AMAZON', orderNumber: 'O-BULK', imei: '222222222222222' }),
     ];
     const preview = buildPreview(
-      { sales: split, perSheetCounts: { AMAZON: 2, BM: 0, EBAY: 0, ONBUY: 0 }, errors: [] },
+      { sales: split, perSheetCounts: { AMAZON: 2, BM: 0, EBAY: 0, ONBUY: 0, TEMU: 0 }, errors: [] },
       existing,
       [],
     );
@@ -297,7 +297,7 @@ describe('SalesReportImport preview — stale combined multi-IMEI cleanup', () =
       sale({ id: 'AMAZON__O-PEND__r28', marketplace: 'AMAZON', orderNumber: 'O-PEND', imei: '' }),
     ];
     const preview = buildPreview(
-      { sales: upload, perSheetCounts: { AMAZON: 1, BM: 0, EBAY: 0, ONBUY: 0 }, errors: [] },
+      { sales: upload, perSheetCounts: { AMAZON: 1, BM: 0, EBAY: 0, ONBUY: 0, TEMU: 0 }, errors: [] },
       existing,
       [],
     );

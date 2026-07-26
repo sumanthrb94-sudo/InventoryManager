@@ -104,23 +104,23 @@ tally in the footer is per sheet.
 ## Uploading one marketplace at a time
 
 Marketplaces send their reports separately, so you rarely have a single
-workbook with four sheets. In **Import → Sales Report**, pick the marketplace
+workbook with five sheets. In **Import → Sales Report**, pick the marketplace
 before choosing the file:
 
 - Only that marketplace's layout is applied — no guessing from the sheet name.
 - The sheet does **not** have to be named `AMAZON`; with a marketplace selected
   the first sheet is used, so a raw channel export works as-is.
-- The other three marketplaces are not looked for, so a single-channel upload
-  no longer reports three "sheet missing" errors.
+- The other four marketplaces are not looked for, so a single-channel upload
+  no longer reports four "sheet missing" errors.
 - Record ids are identical to the combined path, so uploading per-channel today
   and a combined file next month **updates the same rows** rather than
   duplicating them.
 
-Leave the picker on **All marketplaces** for a combined four-sheet workbook.
+Leave the picker on **All marketplaces** for a combined five-sheet workbook.
 
-**Both routes end in the same place.** Uploading the four channel files one at
-a time and uploading the combined workbook produce an identical system —
-same units sold, same stock left, same sale ids, same revenue to the penny.
+**Both routes end in the same place.** Uploading the channel files one at a
+time and uploading the combined workbook produce an identical system — same
+units sold, same stock left, same sale ids, same revenue to the penny.
 `scripts/e2eBatchVsMarketplace.mjs` runs both and compares them unit for unit,
 so the two paths can't drift apart unnoticed.
 
@@ -132,6 +132,10 @@ Column order differs per marketplace and is **not** interchangeable:
 - **BM** — 17 columns, `Payment Mode` inserted at position 9
 - **EBAY** — 19 columns, postage is `SHIPPING`; values `1`, `2`, `8` are read as standard shipping tiers
 - **ONBUY** — 15 columns, **no Quantity column**, so BP/SP sit one position further left
+- **TEMU** — 15 columns, identical layout to AMAZON. Commission is 7% of SP
+  (same rate as Amazon), but Temu charges no VAT on Commission or Postage and
+  no Digital Services Fee — a fixed platform rule, not something you need to
+  zero out by hand
 
 Required on every row: **date, order number, BP, SP**. IMEI is optional but
 strongly recommended — without it a sale cannot match a unit.

@@ -32,6 +32,7 @@ const MARKETPLACE_HEX: Record<Marketplace, string> = {
   BM:     '#10b981',
   EBAY:   '#f59e0b',
   ONBUY:  '#3b82f6',
+  TEMU:   '#ec4899',
 };
 
 export default function AnalyticsPage() {

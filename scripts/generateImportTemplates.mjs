@@ -187,6 +187,8 @@ const SALES_LAYOUTS = {
   BM:     ['Date', 'Order No', 'SKU', 'IMEI', 'Supplier', 'Quantity', 'BP', 'SP', 'Payment Mode', 'SP-BP', 'Marginal Tax', 'PayPal/Klarna Com', 'Commission', 'Postage', 'GP', 'GP %', 'Comments'],
   EBAY:   ['DATE', 'ORDER NUMBER', 'SKU', 'IMEI NUMBER', 'SUPPLIER', 'UNITS', 'BP', 'SP', 'SP-BP', 'MAR TAX', 'COM', 'ROF', 'FVF', '0.2', 'T.COM', 'SHIPPING', 'GP', 'GP%', 'NP(incl. PROMOTION)'],
   ONBUY:  ['DATE', 'Order Number', 'SKU', 'IMEI', 'Supplier', 'BP', 'SP', 'SP-BP', 'MAR VAT', 'COM 7%', 'VAT 20%', 'SHIP', 'GP', 'GP%', 'Comments'],
+  // Same 15-column layout as AMAZON — see platforms.ts DEFAULT_MARKETPLACE_FEES.TEMU.
+  TEMU:   ['Date', 'Order Number', 'SKU', 'IMEI', 'Supplier', 'Quantity', 'BP', 'SP', 'SP-BP', 'Marginal Tax', 'Commission', 'Postage', 'GP', 'GP %', 'Comments'],
 };
 
 const SALES_EXAMPLES = {
@@ -202,6 +204,9 @@ const SALES_EXAMPLES = {
   ],
   ONBUY: [
     ['2026-07-23', 'OB-9002', 'PIX7-128-BLK', '350100000031676', 'NORTHSIDE STOCK', 275.00, 359.00, '', '', '', '', 8, '', '', ''],
+  ],
+  TEMU: [
+    ['2026-07-24', 'PO-210-07053322437751959', 'SG-A17-128GB-OB', '350901801557294', 'MHL', 1, 100.00, 119.33, '', '', '', 6.30, '', '', ''],
   ],
 };
 

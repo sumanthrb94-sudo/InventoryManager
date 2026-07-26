@@ -5,8 +5,11 @@
  * the live SALES_REPORT_2026.xlsx (extracted from
  * xl/worksheets/sheet{1..5}.xml). Coverage: 12 real rows per platform
  * (48 unit-level cases) drawn straight from the master file, plus
- * cross-platform invariants and edge cases. Four platforms only —
- * AMAZON / BM / EBAY / ONBUY. PROJECT is permanently retired.
+ * cross-platform invariants and edge cases. AMAZON / BM / EBAY / ONBUY
+ * are the four legacy platforms; PROJECT is permanently retired. TEMU
+ * (added 2026-07) gets its own block below, verified against the single
+ * real example row on the operator's Temu formula sheet — there is no
+ * 12-row master file for it yet.
  *
  * Each fixture row pulls (BP, SP, Postage, [Payment Mode]) from a real
  * sale in the operator's file, evenly sampled across the dataset. For
@@ -325,10 +328,65 @@ describe('calcSaleFinancials · ONBUY · 12 master rows', () => {
   });
 });
 
+// ── TEMU — 1 real row (the operator's Temu formula sheet) ──────────────
+//
+// Added 2026-07. Same column layout and commission rate as AMAZON (7% of
+// SP), but Temu charges no VAT on Commission or Postage and no Digital
+// Services Fee — confirmed as a fixed platform rule, not a one-off value
+// on the sample row (see platforms.ts DEFAULT_MARKETPLACE_FEES.TEMU).
+//
+// Source row (order PO-210-07053322437751959): BP=100, SP=119.33,
+// Postage=6.30 → every intermediate below is the sheet's own cell value.
+describe('calcSaleFinancials · TEMU · the operator formula-sheet row', () => {
+  it('matches the sheet exactly: commission, GP, GP%, Total VAT NTP', () => {
+    const fin = calcSaleFinancials({
+      marketplace: 'TEMU',
+      buyPrice: 100,
+      salePrice: 119.33,
+      postageOverride: 6.30,
+    });
+    expectClose(fin.spMinusBp,   19.33,     'TEMU.spMinusBp');       // H2-G2
+    expectClose(fin.marginalTax, 3.222311,  'TEMU.marginalTax');     // I2*16.67%
+    expectClose(fin.commission,  8.3531,    'TEMU.commission');      // H2/100*7
+    expectClose(fin.postage,     6.30,      'TEMU.postage');         // operator-entered
+    expectClose(fin.grossProfit, 0.454589,  'TEMU.grossProfit');     // S2
+    expectClose(fin.gpPercent,   0.454589,  'TEMU.gpPercent');       // T2 = S2/G2*100
+    expectClose(fin.totalVatNtp, 3.222311,  'TEMU.totalVatNtp');     // U2 = J2-R2
+  });
+
+  it('charges no VAT on Commission, no DSF, and no VAT on Postage — the fixed Temu rule', () => {
+    // C. VAT, DSF, DSF. VAT and P. VAT are all literal 0 on the sheet
+    // (not a formula evaluating to 0 for this particular row) — confirmed
+    // with the user as a permanent platform rule, not row-specific data.
+    const fin = calcSaleFinancials({
+      marketplace: 'TEMU', buyPrice: 100, salePrice: 119.33, postageOverride: 6.30,
+    });
+    expect(fin.commissionVat).toBe(0);
+    expect(fin.dsf).toBe(0);
+    expect(fin.dsfVat).toBe(0);
+    expect(fin.postageVat).toBe(0);
+    expect(fin.totalVat).toBe(0);
+  });
+
+  it('still charges the flat £1 accessory fee, same as Amazon', () => {
+    const fin = calcSaleFinancials({ marketplace: 'TEMU', buyPrice: 100, salePrice: 200 });
+    expect(fin.accessoryFee).toBe(1);
+  });
+
+  it('GP% divides by BP, same convention as Amazon', () => {
+    const fin = calcSaleFinancials({ marketplace: 'TEMU', buyPrice: 100, salePrice: 200 });
+    expectClose(fin.gpPercent, r2(fin.grossProfit / 100 * 100), 'TEMU GP% denom=BP');
+  });
+
+  it('postage default = 0 per schema (operator-entered per sale)', () => {
+    expect(getMarketplaceFee('TEMU').postage).toBe(0);
+  });
+});
+
 // ── Cross-marketplace invariants ────────────────────────────────────────
 
 describe('calcSaleFinancials · cross-marketplace invariants', () => {
-  const ALL: Marketplace[] = ['AMAZON', 'BM', 'EBAY', 'ONBUY'];
+  const ALL: Marketplace[] = ['AMAZON', 'BM', 'EBAY', 'ONBUY', 'TEMU'];
 
   it('all 4 marketplaces produce finite numbers on a happy path', () => {
     for (const m of ALL) {
@@ -346,8 +404,8 @@ describe('calcSaleFinancials · cross-marketplace invariants', () => {
     }
   });
 
-  it('AMAZON / BM divide GP% by BP (margin-over-cost)', () => {
-    for (const m of ['AMAZON', 'BM'] as const) {
+  it('AMAZON / BM / TEMU divide GP% by BP (margin-over-cost)', () => {
+    for (const m of ['AMAZON', 'BM', 'TEMU'] as const) {
       const fin = calcSaleFinancials({ marketplace: m, buyPrice: 100, salePrice: 200 });
       const denom = r2(fin.grossProfit / 100 * 100);
       expectClose(fin.gpPercent, denom, `${m} GP% denom=BP`);

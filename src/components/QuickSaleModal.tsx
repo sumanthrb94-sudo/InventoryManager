@@ -15,6 +15,7 @@ const PLATFORM_LABEL: Record<Marketplace, string> = {
   BM:      'Back Market',
   EBAY:    'eBay',
   ONBUY:   'OnBuy',
+  TEMU:    'Temu',
 };
 
 interface Props {

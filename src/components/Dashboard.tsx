@@ -336,6 +336,7 @@ export default function Dashboard({ user, onNavigate, onOpenImport, onOpenMaster
     BM:     '#10b981',
     EBAY:   '#f59e0b',
     ONBUY:  '#3b82f6',
+    TEMU:   '#ec4899',
   };
 
   return (

@@ -96,6 +96,30 @@ export const DEFAULT_MARKETPLACE_FEES: Record<Marketplace, MarketplaceFee> = {
     vatPct: 20,
     accessoryFee: 1,
   },
+  TEMU: {
+    marketplace: 'TEMU',
+    // 2026-07 addition, sourced verbatim from the operator's Temu formula
+    // sheet: same column layout and commission rate as Amazon (7% of SP),
+    // but Temu charges no VAT on Commission or Postage and no Digital
+    // Services Fee at all — the sheet's C. VAT / DSF / P. VAT cells are
+    // literal 0, not formulas, confirmed as a fixed platform rule rather
+    // than a one-off value on that sample row.
+    //
+    // Reuses the AMAZON calculation branch below (same formula chain:
+    // commissionVat = Commission×vatPct, dsf = Commission×dsfPct,
+    // dsfVat = dsf×vatPct, postageVat = Postage×vatPct) — setting
+    // vatPct=0 and dsfPct=0 collapses all four to 0 without any
+    // Temu-specific branching, and reproduces the sheet's example row
+    // exactly: SP=119.33 BP=100 Postage=6.30 → Commission=8.3531,
+    // GP=0.454589, GP%=0.454589, Total VAT NTP=3.222311.
+    commissionPct: 7,
+    commissionBase: 'sp',
+    postage: 0,
+    marginTaxDivisor: 6,
+    vatPct: 0,
+    dsfPct: 0,
+    accessoryFee: 1,
+  },
 };
 
 /**
@@ -128,6 +152,7 @@ const MARKETPLACE_TO_LISTING_SITE: Record<Marketplace, ListingSite> = {
   BM: 'Back Market',
   EBAY: 'eBay',
   ONBUY: 'OnBuy',
+  TEMU: 'Temu',
 };
 
 const LISTING_SITE_TO_MARKETPLACE: Record<string, Marketplace> = {
@@ -137,6 +162,7 @@ const LISTING_SITE_TO_MARKETPLACE: Record<string, Marketplace> = {
   'Backmarket': 'BM',   // legacy
   'eBay':       'EBAY',
   'OnBuy':      'ONBUY',
+  'Temu':       'TEMU',
   // Canonical Marketplace enum values — recordSale writes salePlatform in
   // this form ('EBAY' / 'AMAZON' / …) so the reverse lookup also has to
   // accept it; without these entries, every non-eBay sale resolved to the
@@ -146,6 +172,7 @@ const LISTING_SITE_TO_MARKETPLACE: Record<string, Marketplace> = {
   'BM':      'BM',
   'EBAY':    'EBAY',
   'ONBUY':   'ONBUY',
+  'TEMU':    'TEMU',
 };
 
 export function listingSiteFromMarketplace(m: Marketplace): ListingSite {
@@ -283,10 +310,17 @@ export function calcSaleFinancials(input: CalcSaleFinancialsInput): SaleFinancia
   const gpPctBySp = (gp: number) => sp > 0 ? r2(gp / sp * 100) : 0;
 
   switch (marketplace) {
-    case 'AMAZON': {
+    case 'AMAZON':
+    case 'TEMU': {
       // 2026-05 operator schema: every Amazon line carries an explicit
       // VAT / DSF / accessories breakdown. Formula chain (mirrors the
       // operator's reference sheet):
+      //
+      // TEMU (added 2026-07) reuses this exact branch — its fee schedule
+      // (DEFAULT_MARKETPLACE_FEES.TEMU) just sets vatPct=0 and dsfPct=0,
+      // which zeroes commissionVat/dsf/dsfVat/postageVat without any
+      // Temu-specific code. See the fee schedule's comment for the
+      // verified-against-the-sheet numbers.
       //   spMinusBp     = SP − BP
       //   marginalTax   = spMinusBp × (1 / 6)              ≈ 16.67% of margin
       //   commission    = SP × commissionPct / 100         (7% of SP — fee.commissionBase='sp')
@@ -604,8 +638,12 @@ export function excelFormulaFor(marketplace: Marketplace, row: number): Record<s
   const fee = getMarketplaceFee(marketplace);
   const r = row;
   switch (marketplace) {
-    case 'AMAZON': {
-      // 2026-05 schema. Columns (1-indexed):
+    case 'AMAZON':
+    case 'TEMU': {
+      // 2026-05 schema. Columns (1-indexed) — TEMU (2026-07) shares this
+      // exact layout and formula chain; only its fee schedule differs
+      // (vatPct=0, dsfPct=0), so the emitted formula strings are byte-
+      // identical between the two marketplaces.
       //   A=Date, B=Order Number, C=SKU, D=IMEI, E=Supplier, F=Quantity,
       //   G=BP, H=SP, I=SP-BP, J=Marginal Tax, K=Commission, L=C. VAT,
       //   M=DSF, N=DSF VAT, O=Postage, P=P. VAT, Q=Accessories,
@@ -736,6 +774,7 @@ export const LISTING_SITES: ListingSite[] = [
   'OnBuy',
   'Backmarket',
   'Back Market',
+  'Temu',
   'FBA',
   'R T S',
   'Other',

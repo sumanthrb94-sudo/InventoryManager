@@ -122,7 +122,7 @@ describe('viewModelFromXlsxBuffer — exact Excel view of the Sales Report', () 
     const buf = await buildSalesWorkbookBuffer({ sales: [] });
     const model = await viewModelFromXlsxBuffer(buf, 'Sales Report · all-time');
     expect(model.title).toBe('Sales Report · all-time');
-    expect(model.sheets.map(s => s.name)).toEqual(['Summary', 'Returns', 'AMAZON', 'BM', 'EBAY', 'ONBUY']);
+    expect(model.sheets.map(s => s.name)).toEqual(['Summary', 'Returns', 'AMAZON', 'BM', 'EBAY', 'ONBUY', 'TEMU']);
   });
 
   it('computes the EBAY GP and net GP% cells exactly as Excel would', async () => {

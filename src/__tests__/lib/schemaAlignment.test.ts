@@ -81,6 +81,19 @@ const EXPECTED_FALLBACKS: Record<string, Array<[string, number, string]>> = {
     ['postage', 11, 'SHIP'],
     ['comments', 14, 'Comments'],
   ],
+  // Same 15-column layout as AMAZON — see platforms.ts DEFAULT_MARKETPLACE_FEES.TEMU.
+  TEMU: [
+    ['date', 0, 'Date'],
+    ['orderNumber', 1, 'Order Number'],
+    ['sku', 2, 'SKU'],
+    ['imei', 3, 'IMEI'],
+    ['supplier', 4, 'Supplier'],
+    ['quantity', 5, 'Quantity'],
+    ['buyPrice', 6, 'BP'],
+    ['salePrice', 7, 'SP'],
+    ['postage', 11, 'Postage'],
+    ['comments', 14, 'Comments'],
+  ],
 };
 
 function headerRow(file: string, sheet: string): string[] {

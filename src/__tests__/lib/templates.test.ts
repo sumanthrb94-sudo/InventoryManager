@@ -280,12 +280,12 @@ describe('SALES_REPORT_TEMPLATE.xlsx', () => {
     expect(parsed.sales.length).toBeGreaterThan(0);
   });
 
-  it('covers all four marketplaces with at least one example each', async () => {
+  it('covers all five marketplaces with at least one example each', async () => {
     const buf = readFileSync(SALES_TEMPLATE);
     const file = new File([buf], 'SALES_REPORT_TEMPLATE.xlsx');
     const parsed = await parseSalesWorkbook(file, 'SALES_REPORT_TEMPLATE.xlsx');
     const seen = new Set(parsed.sales.map(s => s.marketplace));
-    expect([...seen].sort()).toEqual(['AMAZON', 'BM', 'EBAY', 'ONBUY']);
+    expect([...seen].sort()).toEqual(['AMAZON', 'BM', 'EBAY', 'ONBUY', 'TEMU']);
   });
 
   it('recomputes derived money columns rather than trusting the sheet', async () => {
@@ -344,6 +344,7 @@ describe('templates served by the app match the templates under test', () => {
     'SALES_BM_TEMPLATE.xlsx',
     'SALES_EBAY_TEMPLATE.xlsx',
     'SALES_ONBUY_TEMPLATE.xlsx',
+    'SALES_TEMU_TEMPLATE.xlsx',
   ];
 
   it.each(SERVED)('%s is published for the in-app download', (file) => {
@@ -363,6 +364,7 @@ describe('templates served by the app match the templates under test', () => {
       'INVENTORY_REPORT_TEMPLATE.xlsx', 'SHS_STOCK_TEMPLATE.xlsx',
       'SALES_REPORT_TEMPLATE.xlsx', 'SALES_AMAZON_TEMPLATE.xlsx',
       'SALES_BM_TEMPLATE.xlsx', 'SALES_EBAY_TEMPLATE.xlsx', 'SALES_ONBUY_TEMPLATE.xlsx',
+      'SALES_TEMU_TEMPLATE.xlsx',
     ];
     const published = readdirSync(PUBLIC_DIR).filter(f => f.endsWith('.xlsx')).sort();
     expect(published).toEqual([...linked].sort());

@@ -342,6 +342,23 @@ const SALES_HEADERS: Record<Marketplace, SalesHeaderRow> = {
     'Return Date', 'Outcome', 'Return Reason', 'Shipping Legs',
     'Postage Loss', 'Net GP £',
   ],
+  // TEMU (added 2026-07): identical column set to AMAZON — same fee
+  // breakdown headers even though C. VAT / DSF / DSF. VAT / P. VAT always
+  // compute to 0 (see platforms.ts DEFAULT_MARKETPLACE_FEES.TEMU). Keeping
+  // the same columns rather than dropping the zero ones matches the
+  // operator's own Temu formula sheet and means one export layout, not a
+  // bespoke narrower one, to maintain.
+  TEMU: [
+    'Date', 'Order Number', 'SKU', 'IMEI', 'Supplier', 'Quantity',
+    'BP', 'SP', 'SP-BP', 'Marginal Tax', 'Commission',
+    'C. VAT', 'DSF', 'DSF. VAT',
+    'Postage', 'P. VAT', 'Accessories',
+    'Total VAT', 'GP', 'GP %', 'Total VAT NTP',
+    'Comments',
+    'Return Date', 'Outcome', 'Return Reason', 'Shipping Legs',
+    'Postage Loss',
+    'Net GP £',
+  ],
 };
 
 const DATE_FMT = '[$-409]d\\-mmm\\-yyyy';
@@ -477,12 +494,18 @@ function writeSaleRow(
   const qty = sale.quantity ?? 1;
 
   switch (marketplace) {
-    case 'AMAZON': {
+    case 'AMAZON':
+    case 'TEMU': {
       // 2026-05 schema. 22 columns — Date through Comments. Postage and
       // Accessories carry literal values (operator may have overridden
       // postage per sale, accessories is a flat default); every other
       // computed cell is a formula so the operator can audit / re-derive
       // in Excel without trusting our runtime output.
+      //
+      // TEMU (2026-07) shares this exact column layout and formula set —
+      // only its fee schedule differs (vatPct=0, dsfPct=0 in platforms.ts),
+      // which zeroes the C.VAT/DSF/DSF.VAT/P.VAT formula cells at compute
+      // time rather than needing a separate branch here.
       const row = sheet.addRow([
         date, sale.orderNumber, sale.sku ?? '', sale.imei ?? '',
         resolvedSupplier, qty,
@@ -767,9 +790,9 @@ export async function buildSalesWorkbookBuffer(input: BuildSalesWorkbookInput): 
   // numbers stay self-consistent with the rows that produced them.
   writeSalesReturnsSheet(wb, enriched, opts);
 
-  // Per-platform sheets — the client's master SALES_REPORT carries exactly
-  // four tabs (AMAZON SALES, BM SALES, EBAY SALES, ONBUY SALES); PROJECT
-  // excluded — we sell on 4 platforms only.
+  // Per-platform sheets — one tab per entry in MARKETPLACES (AMAZON, BM,
+  // EBAY, ONBUY, TEMU as of 2026-07); PROJECT excluded — that was never a
+  // real sales channel.
   for (const m of MARKETPLACES) {
     const sheet = wb.addWorksheet(m);
     sheet.addRow(SALES_HEADERS[m]);
@@ -892,6 +915,13 @@ const TOTAL_SUM_COLS: Record<Marketplace, { label: number; numericCols: number[]
     label: 1,
     numericCols: [6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 18, 24, 25],
     gpCol: 16, gpPctCol: 17, postageLossCol: 24, netGpCol: 25, denominatorCol: 6,
+  },
+  // TEMU: 28 cols, byte-identical layout to AMAZON (see SALES_HEADERS.TEMU).
+  // GP=19(S), GP%=20(T), Postage Loss=27(AA), Net GP £=28(AB).
+  TEMU: {
+    label: 1,
+    numericCols: [6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 21, 27, 28],
+    gpCol: 19, gpPctCol: 20, postageLossCol: 27, netGpCol: 28, denominatorCol: 7,
   },
 };
 
