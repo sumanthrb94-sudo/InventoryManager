@@ -30,6 +30,7 @@ import { buildPostImportSyncPatches } from '../services/salesService';
 import { addSoldUnitFromSale, completeUnitBuyInfo, reconcileShsAfterFulfilment } from '../services/inventoryService';
 import { normalizeOperatorSku } from '../lib/modelStorage';
 import { SIM_TYPE_OPTIONS } from '../lib/unitConstants';
+import { isValidImei, isAppleDevice } from '../lib/imeiValidation';
 import { auth, isAdmin } from '../lib/firebase';
 import DeviceComboBox from './DeviceComboBox';
 import { buildSupplierIndex, resolveSupplier } from '../lib/supplierIdentity';
@@ -123,11 +124,17 @@ export function auditRowMissing(r: {
   marketplace: string; orderNumber: string;
 }): string[] {
   const missing: string[] = [];
-  // The gate checks PRESENCE of required audit fields. Strict IMEI/serial
-  // FORMAT validation happens at unit creation/patch time (addSoldUnitFromSale
-  // / completeUnitBuyInfo), which reject a malformed identifier with a clear
-  // message — surfaced as a confirm-time failure if one slips through.
-  if (!(r.imei || '').trim()) missing.push('IMEI');
+  // The gate checks PRESENCE of required audit fields, plus — for IMEI —
+  // that what's present actually looks like a real device identifier.
+  // Placeholder text ("GENERIC", "not mentioned in App") or the pre-splitter
+  // legacy combined-serial format ("SERIAL1 / SERIAL2") satisfied a bare
+  // presence check, letting an operator complete the row without ever
+  // supplying a usable IMEI — the record then sits in the database
+  // permanently unmatchable. Same validator the Inventory importer already
+  // uses at unit creation time, run here too so the gap can't reopen.
+  const imei = (r.imei || '').trim();
+  if (!imei) missing.push('IMEI');
+  else if (!isValidImei(imei, { isAppleSerial: isAppleDevice(r.model) })) missing.push('IMEI (invalid format)');
   if (!(r.model || '').trim()) missing.push('model');
   if (!(r.supplierName || '').trim()) missing.push('supplier');
   if (!(Number(r.buyPrice) > 0)) missing.push('buy price');
@@ -307,14 +314,20 @@ export function buildPreview(
     if (matched && missing.length === 0) continue;
 
     seenAuditKey.add(imeiKey);
+    const imeiTrimmed = (s.imei || '').trim();
     recordsToComplete.push({
       saleId: s.id,
       orderNumber: s.orderNumber || '',
       marketplace: s.marketplace,
       salePrice: s.salePrice ?? 0,
       existingUnitId: matched?.id,
-      imei: (s.imei || '').trim(),
-      imeiReadOnly: true,              // device sales always carry an IMEI here
+      imei: imeiTrimmed,
+      // Locked when the source file's IMEI is already a real identifier —
+      // nothing to fix. Unlocked when it's malformed (placeholder text,
+      // legacy combined-serial format, a typo), so the operator can actually
+      // correct it here instead of being stuck against a row that can never
+      // pass the format check above.
+      imeiReadOnly: isValidImei(imeiTrimmed, { isAppleSerial: isAppleDevice(model) }),
       sku: s.sku || '',
       model,
       colour,

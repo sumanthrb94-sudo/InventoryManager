@@ -188,13 +188,16 @@ describe('SalesReportImport preview — stale combined multi-IMEI cleanup', () =
 
   it('flags an orphan device sale as a record to complete (CREATE path)', () => {
     // u1 is complete (model/supplier/BP from the unit() helper) → it just
-    // flips, NOT a completion row. 222 has no unit → orphan completion row.
-    // Voided + no-IMEI sales are out of scope.
-    const units = [unit({ id: 'u1', imei: '111', status: 'available' })];
+    // flips, NOT a completion row. The second IMEI has no unit → orphan
+    // completion row. Voided + no-IMEI sales are out of scope. Real-format
+    // 15-digit IMEIs throughout — a fake short one like '111' now correctly
+    // fails the format check added for the placeholder/legacy-combined-IMEI
+    // gap (see auditRowMissing), which would confuse what this test pins.
+    const units = [unit({ id: 'u1', imei: '350000000000111', status: 'available' })];
     const split: Sale[] = [
-      sale({ id: 'EBAY__O-OK__111',  marketplace: 'EBAY',  orderNumber: 'O-OK',  imei: '111' }),
-      sale({ id: 'AMAZON__O-NO__222', marketplace: 'AMAZON', orderNumber: 'O-NO', imei: '222' }),
-      sale({ id: 'EBAY__O-V__333', marketplace: 'EBAY', orderNumber: 'O-V', imei: '333', voidedAt: '2026-06-13', voidOutcome: 'refund' }),
+      sale({ id: 'EBAY__O-OK__111',  marketplace: 'EBAY',  orderNumber: 'O-OK',  imei: '350000000000111' }),
+      sale({ id: 'AMAZON__O-NO__222', marketplace: 'AMAZON', orderNumber: 'O-NO', imei: '350000000000222' }),
+      sale({ id: 'EBAY__O-V__333', marketplace: 'EBAY', orderNumber: 'O-V', imei: '350000000000333', voidedAt: '2026-06-13', voidOutcome: 'refund' }),
       sale({ id: 'EBAY__O-X__inapp', marketplace: 'EBAY', orderNumber: 'O-X', imei: '' }),
     ];
     const preview = buildPreview(
@@ -204,7 +207,7 @@ describe('SalesReportImport preview — stale combined multi-IMEI cleanup', () =
     );
     expect(preview.recordsToComplete).toHaveLength(1);
     const row = preview.recordsToComplete[0];
-    expect(row.imei).toBe('222');
+    expect(row.imei).toBe('350000000000222');
     expect(row.orderNumber).toBe('O-NO');
     expect(row.marketplace).toBe('AMAZON');
     expect(row.existingUnitId).toBeUndefined();   // CREATE path
@@ -228,12 +231,12 @@ describe('SalesReportImport preview — stale combined multi-IMEI cleanup', () =
 
   it('returns an empty completion list when every sold record is audit-complete', () => {
     const units = [
-      unit({ id: 'u1', imei: '111', status: 'available' }),
-      unit({ id: 'u2', imei: '222', status: 'sold' }),
+      unit({ id: 'u1', imei: '350000000000111', status: 'available' }),
+      unit({ id: 'u2', imei: '350000000000222', status: 'sold' }),
     ];
     const split: Sale[] = [
-      sale({ id: 'EBAY__O1__111', marketplace: 'EBAY', orderNumber: 'O1', imei: '111' }),
-      sale({ id: 'EBAY__O2__222', marketplace: 'EBAY', orderNumber: 'O2', imei: '222' }),
+      sale({ id: 'EBAY__O1__111', marketplace: 'EBAY', orderNumber: 'O1', imei: '350000000000111' }),
+      sale({ id: 'EBAY__O2__222', marketplace: 'EBAY', orderNumber: 'O2', imei: '350000000000222' }),
     ];
     const preview = buildPreview(
       { sales: split, perSheetCounts: { AMAZON: 0, BM: 0, EBAY: 2, ONBUY: 0, TEMU: 0 }, errors: [] },
@@ -328,6 +331,57 @@ describe('auditRowMissing — audit completeness gate', () => {
     const missing = auditRowMissing({ ...base, model: '', supplierName: '', buyPrice: 0 });
     expect(missing).toEqual(expect.arrayContaining(['model', 'supplier', 'buy price']));
     expect(missing).toHaveLength(3);
+  });
+
+  // A live production report had 9 confirmed sales permanently unmatchable
+  // to any unit — 4 of them because the source file's IMEI cell held
+  // placeholder text or the pre-splitter legacy combined-serial format, and
+  // the gate only ever checked "is this field non-empty", not "is it a real
+  // identifier". Those 4 satisfied presence and got waved through.
+  it('flags placeholder text as an invalid IMEI, not a present one', () => {
+    for (const bogus of ['not mentioned in App', 'GENERIC', 'N/A', 'n/a', 'unknown']) {
+      const missing = auditRowMissing({ ...base, imei: bogus });
+      expect(missing).not.toContain('IMEI');            // it IS present...
+      expect(missing).toContain('IMEI (invalid format)'); // ...but not valid
+    }
+  });
+
+  it('flags the legacy combined multi-serial format ("A / B") as invalid', () => {
+    const missing = auditRowMissing({ ...base, imei: 'R52H70ZDQAX / R52HA12QETX' });
+    expect(missing).toContain('IMEI (invalid format)');
+  });
+
+  it('accepts a real 15-digit IMEI and a real Apple/tablet alphanumeric serial', () => {
+    expect(auditRowMissing({ ...base, imei: '350000000000111' })).toEqual([]);
+    expect(auditRowMissing({ ...base, imei: 'KLQ2W2TTWR', model: 'Apple iPad 11 WiFi' })).toEqual([]);
+  });
+});
+
+describe('recordsToComplete — IMEI editability follows validity', () => {
+  it('locks the IMEI field when the source value is already valid (nothing to fix)', () => {
+    const sales: Sale[] = [
+      sale({ id: 'AMAZON__O1__x', marketplace: 'AMAZON', orderNumber: 'O1', imei: '350000000000999' }),
+    ];
+    const preview = buildPreview(
+      { sales, perSheetCounts: { AMAZON: 1, BM: 0, EBAY: 0, ONBUY: 0, TEMU: 0 }, errors: [] },
+      [],
+      [],
+    );
+    expect(preview.recordsToComplete).toHaveLength(1);
+    expect(preview.recordsToComplete[0].imeiReadOnly).toBe(true);
+  });
+
+  it('unlocks the IMEI field for editing when the source value is bogus', () => {
+    const sales: Sale[] = [
+      sale({ id: 'EBAY__O2__x', marketplace: 'EBAY', orderNumber: 'O2', imei: 'GENERIC' }),
+    ];
+    const preview = buildPreview(
+      { sales, perSheetCounts: { AMAZON: 0, BM: 0, EBAY: 1, ONBUY: 0, TEMU: 0 }, errors: [] },
+      [],
+      [],
+    );
+    expect(preview.recordsToComplete).toHaveLength(1);
+    expect(preview.recordsToComplete[0].imeiReadOnly).toBe(false);
   });
 });
 
