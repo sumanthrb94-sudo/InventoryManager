@@ -341,7 +341,7 @@ export function buildPreview(
 }
 
 export default function SalesReportImport({ onClose }: Props) {
-  const { sales, units, models, suppliers } = useInventoryStore();
+  const { sales, units, suppliers } = useInventoryStore();
   const userIsAdmin = isAdmin(auth.currentUser);
   const [phase, setPhase] = useState<Phase>('upload');
   const [parsed, setParsed] = useState<ParsedSales | null>(null);
@@ -693,7 +693,6 @@ export default function SalesReportImport({ onClose }: Props) {
                 setAuditEdits(prev => prev.map(o => o.saleId === saleId ? { ...o, ...patch } : o));
               }}
               units={units}
-              models={models}
               isAdmin={userIsAdmin}
             />
           )}
@@ -976,7 +975,7 @@ function UploadPhase({
 // ── Phase: preview ──────────────────────────────────────────────────────────
 function PreviewPhase({
   preview, fileName, error, flipsAcked, onAckChange,
-  auditEdits, onAuditEdit, units, models, isAdmin,
+  auditEdits, onAuditEdit, units, isAdmin,
 }: {
   preview: PreviewBuckets;
   fileName: string;
@@ -986,7 +985,6 @@ function PreviewPhase({
   auditEdits: AuditCompletionRow[];
   onAuditEdit: (saleId: string, patch: Partial<AuditCompletionRow>) => void;
   units: import('../types').InventoryUnit[];
-  models: import('../lib/deviceCatalog').ModelSeed[];
   isAdmin: boolean;
 }) {
   // Clean re-import = nothing to create, nothing to flip, no orphan IMEIs,
@@ -1001,6 +999,20 @@ function PreviewPhase({
     && preview.inventoryFlips.length === 0
     && preview.staleCombined.length === 0
     && preview.toUpdate.length > 0;
+
+  // The model picker on an audit row must only ever suggest models that
+  // actually exist under the row's own Office/SHS toggle — office stock
+  // for an Office row, SHS holdings for an SHS row. Offering the other
+  // bucket's models (or the combined catalog) lets an operator pick
+  // "Galaxy A32 · 88 in stock" for a row marked SHS when none of those 88
+  // are SHS holdings at all, which is exactly the mismatch that made the
+  // stock-count badges meaningless. Admin-curated seeds (no real stock in
+  // either bucket) are dropped from this picker for the same reason —
+  // when neither bucket has the model, the picker shows nothing rather
+  // than a seed that can't reconcile against anything, and the operator
+  // falls through to the existing "+ Add" / "ask an admin" empty state.
+  const officeUnits = useMemo(() => units.filter(u => u.status === 'available'), [units]);
+  const shsUnits = useMemo(() => units.filter(u => u.status === 'incoming'), [units]);
 
   return (
     <div className="space-y-3">
@@ -1249,17 +1261,19 @@ function PreviewPhase({
                     </span>
                     {/* Model — searchable catalog picker, NOT free text.
                         The raw SKU is preserved on o.sku; the operator
-                        selects a clean model by searching the unified
-                        catalog (live units + admin-curated `models`).
-                        Strict mode blocks free text; admins get the
-                        "+ Add" affordance for genuinely new models. On
-                        pick we also pre-fill storage from the catalog
-                        entry's dominant value when the row's storage is
-                        still blank. */}
+                        selects a clean model by searching ONLY the models
+                        that exist under this row's own Office/SHS toggle
+                        (officeUnits / shsUnits above) — no admin seeds, no
+                        cross-bucket suggestions. Strict mode blocks free
+                        text; admins get the "+ Add" affordance when the
+                        filtered catalog has no match at all. On pick we
+                        also pre-fill storage from the catalog entry's
+                        dominant value when the row's storage is still
+                        blank. */}
                     <div className={`col-span-3 ${!o.model.trim() ? 'rounded ring-1 ring-rose-400 bg-rose-50' : ''}`}>
                       <DeviceComboBox
-                        units={units}
-                        seeds={models}
+                        units={o.stockSource === 'shs' ? shsUnits : officeUnits}
+                        seeds={[]}
                         strict
                         isAdmin={isAdmin}
                         brand=""
