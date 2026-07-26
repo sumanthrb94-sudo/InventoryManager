@@ -17,6 +17,14 @@
  * cross-bucket leak — and the admin creates it on the spot via the
  * existing "+ Add ... to the model catalog" affordance.
  *
+ * Also covers three follow-up reports on the same screen:
+ *   - the import modal was too small to work in (now max-w-6xl, not
+ *     max-w-3xl, and the audit row list gets far more vertical room);
+ *   - SIM Type was never asked when a unit was created from this screen,
+ *     unlike every other intake path;
+ *   - a model created via "+ Add" on one row didn't show up on another
+ *     row needing the same brand-new model without a reload.
+ *
  * Run after: VITE_E2E=1 vite build && vite preview --port 4173
  *   node scripts/e2eModelPickerBucketFilter.mjs
  */
@@ -38,6 +46,7 @@ const SHS_MODEL = 'ZENOVBSHSONLY';
 /** Exists in neither fixture — the "create it in Admin" case. */
 const GHOST_MODEL = 'ZENOVCGHOSTMODEL';
 const ORPHAN_IMEI = '350000000099999';
+const ORPHAN_IMEI_2 = '350000000088888';
 
 if (!existsSync(OUT)) mkdirSync(OUT, { recursive: true });
 
@@ -101,9 +110,15 @@ function buildInventoryFile() {
 
 function buildSalesFile() {
   const headers = ['Date', 'Order Number', 'SKU', 'IMEI', 'Supplier', 'Quantity', 'BP', 'SP', 'SP-BP', 'Marginal Tax', 'Commission', 'Postage', 'GP', 'GP %', 'Comments'];
-  const row = ['2026-07-24', 'ORPHAN-BUCKET-TEST', 'SKU-X', ORPHAN_IMEI, 'TESTSUP', 1, 100, 150, '', '', '', 6.3, '', '', ''];
+  const rows = [
+    ['2026-07-24', 'ORPHAN-BUCKET-TEST', 'SKU-X', ORPHAN_IMEI, 'TESTSUP', 1, 100, 150, '', '', '', 6.3, '', '', ''],
+    // A second orphan — used to check that a model created via "+ Add" on
+    // the FIRST row is immediately pickable here, on the second, without
+    // a reload or re-search of the whole page.
+    ['2026-07-24', 'ORPHAN-BUCKET-TEST-2', 'SKU-Y', ORPHAN_IMEI_2, 'TESTSUP', 1, 90, 140, '', '', '', 6.3, '', '', ''],
+  ];
   const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([headers, row]), 'AMAZON');
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([headers, ...rows]), 'AMAZON');
   const path = resolve(OUT, 'bucket-fixture-sales.xlsx');
   XLSX.writeFile(wb, path);
   return path;
@@ -165,6 +180,13 @@ async function run() {
   const modelBox = modal(page).locator('input[placeholder="Search model…"]').first();
   record('the orphan row is on screen', await modelBox.isVisible().catch(() => false));
 
+  // The modal was reported as too small to work in comfortably — it was
+  // capped at max-w-3xl (768px); it's now max-w-6xl (1152px), with the
+  // audit row list itself given far more vertical room too.
+  const modalBox = await modal(page).boundingBox();
+  record('the import modal is wide — max-w-6xl, not the old cramped max-w-3xl',
+    !!modalBox && modalBox.width >= 1100, `width=${modalBox?.width?.toFixed(0)}px`);
+
   // ══ 4 · Office (default) — only the office-only model suggested ══════
   console.log('\n── 4. Toggle = Office (default) ──');
   const officeToggle = modal(page).getByRole('button', { name: /^Office$/ }).first();
@@ -181,6 +203,22 @@ async function run() {
     officePanelText.slice(0, 120));
   await page.keyboard.press('Escape');
   await page.waitForTimeout(300);
+
+  // ══ 4b · SIM Type — asked here too, same as every other intake path ══
+  // A unit created from this screen used to skip SIM Type entirely, unlike
+  // Add Stock, Bulk Order and the Inventory Report import. Not a required
+  // field (matches the Inventory Report schema — SIM Type is optional
+  // there too), but it must be ASKED, and it must actually persist.
+  console.log('\n── 4b. SIM Type is offered on the row and can be set ──');
+  const simTypeSelect = modal(page).locator('select').filter({ has: page.locator('option[value="Physical SIM + eSIM"]') }).first();
+  const simTypeVisible = await simTypeSelect.isVisible().catch(() => false);
+  record('a SIM Type dropdown is offered on the row', simTypeVisible);
+  if (simTypeVisible) {
+    await simTypeSelect.selectOption('Physical SIM + eSIM');
+    await page.waitForTimeout(200);
+    const selected = await simTypeSelect.inputValue().catch(() => '');
+    record('picking a SIM Type sets the row\'s value', selected === 'Physical SIM + eSIM', `got "${selected}"`);
+  }
 
   // ══ 5 · Switch to SHS — only the SHS-only model suggested ════════════
   console.log('\n── 5. Toggle = SHS ──');
@@ -235,6 +273,26 @@ async function run() {
     const value = await modelBox.inputValue().catch(() => '');
     record('creating it fills the row with the new model, ready to confirm',
       value.toUpperCase().includes(GHOST_MODEL), `input now reads "${value}"`);
+  }
+
+  // ══ 7 · The model just created must be pickable on the OTHER row too ═
+  // Reported bug: a model created via "+ Add" on one row didn't show up
+  // for other rows needing the same brand-new model — the operator had
+  // to retype/recreate it per row. justCreatedModels (SalesReportImport)
+  // is meant to fix that: every row's picker gets the session's newly
+  // created models as seeds, live, no reload.
+  console.log('\n── 7. The just-created model is visible on the SECOND orphan row, live ──');
+  const modelBox2 = modal(page).locator('input[placeholder="Search model…"]').nth(1);
+  const row2Visible = await modelBox2.isVisible().catch(() => false);
+  record('the second orphan row is on screen', row2Visible);
+  if (row2Visible) {
+    await modelBox2.click();
+    await modelBox2.fill(GHOST_MODEL.slice(0, 10));
+    await page.waitForTimeout(500);
+    await shot(page, 'ghost-model-visible-on-second-row');
+    const panel2Text = await modal(page).locator('div[class*="z-[9999]"]').last().innerText().catch(() => '');
+    record('row 2 sees the model row 1 just created, without reloading',
+      panel2Text.toUpperCase().includes(GHOST_MODEL), panel2Text.slice(0, 160));
   }
 
   record('no uncaught JS errors', jsErrors.length === 0, jsErrors.join(' | '));

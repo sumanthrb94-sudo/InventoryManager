@@ -598,6 +598,7 @@ export interface AddSoldUnitFromSaleInput {
   supplierName?: string;
   colour?: string;
   storage?: string;
+  simType?: string;
   /** Fulfilment source — office stock or SHS (supplier-held). Defaults to
    *  'office'. Persisted so the sold unit stays filterable as SHS. */
   stockSource?: 'office' | 'shs';
@@ -689,6 +690,7 @@ export async function addSoldUnitFromSale(
     category,
     colour: (input.colour ?? '').trim() || 'Unknown',
     ...(storage ? { storage } : {}),
+    ...((input.simType ?? '').trim() ? { simType: (input.simType ?? '').trim() } : {}),
     ...(parsed.series ? ({ series: parsed.series } as any) : {}),
     ...(sale.sku ? { sku: sale.sku } : {}),
     buyPrice: bp,
@@ -772,6 +774,7 @@ export interface CompleteUnitBuyInfoInput {
   buyPrice: number;
   colour?: string;
   storage?: string;
+  simType?: string;
   /** Fulfilment source — office stock or SHS. Persisted on the unit. */
   stockSource?: 'office' | 'shs';
 }
@@ -821,6 +824,7 @@ export async function completeUnitBuyInfo(
       category,
       ...(input.colour?.trim() ? { colour: input.colour.trim() } : {}),
       ...(storage ? { storage } : {}),
+      ...(input.simType?.trim() ? { simType: input.simType.trim() } : {}),
       ...(parsed.series ? ({ series: parsed.series } as any) : {}),
       ...(input.stockSource ? { stockSource: input.stockSource } : {}),
       supplierId,

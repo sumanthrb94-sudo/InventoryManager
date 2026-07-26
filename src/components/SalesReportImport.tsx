@@ -29,6 +29,7 @@ import { parseSalesWorkbook, type ParsedSales } from '../lib/salesImport';
 import { buildPostImportSyncPatches } from '../services/salesService';
 import { addSoldUnitFromSale, completeUnitBuyInfo, reconcileShsAfterFulfilment } from '../services/inventoryService';
 import { normalizeOperatorSku } from '../lib/modelStorage';
+import { SIM_TYPE_OPTIONS } from '../lib/unitConstants';
 import { auth, isAdmin } from '../lib/firebase';
 import DeviceComboBox from './DeviceComboBox';
 import { buildSupplierIndex, resolveSupplier } from '../lib/supplierIdentity';
@@ -102,6 +103,7 @@ export interface AuditCompletionRow {
   model: string;
   colour: string;
   storage: string;
+  simType: string;
   supplierName: string;
   buyPrice: number;
   /** Per-unit fulfilment source — operator picks Office Stock or SHS so the
@@ -291,6 +293,7 @@ export function buildPreview(
     const buyPrice = matched?.buyPrice ?? s.buyPrice ?? 0;
     const colour = matched?.colour && matched.colour !== 'Unknown' ? matched.colour : '';
     const storage = matched?.storage || '';
+    const simType = matched?.simType || '';
 
     const missing = auditRowMissing({
       imei: s.imei || '', model, supplierName, buyPrice,
@@ -316,6 +319,7 @@ export function buildPreview(
       model,
       colour,
       storage,
+      simType,
       supplierName,
       buyPrice,
       // Matched units (IMEI already in inventory) are office stock by
@@ -542,6 +546,7 @@ export default function SalesReportImport({ onClose }: Props) {
               model: row.model.trim(),
               colour: row.colour.trim() || undefined,
               storage: row.storage.trim() || undefined,
+              simType: row.simType.trim() || undefined,
               supplierName: row.supplierName.trim(),
               buyPrice: row.buyPrice,
               stockSource: row.stockSource,
@@ -558,6 +563,7 @@ export default function SalesReportImport({ onClose }: Props) {
               model: row.model.trim(),
               colour: row.colour.trim() || undefined,
               storage: row.storage.trim() || undefined,
+              simType: row.simType.trim() || undefined,
               supplierName: row.supplierName.trim(),
               buyPrice: row.buyPrice,
               stockSource: row.stockSource,
@@ -654,7 +660,7 @@ export default function SalesReportImport({ onClose }: Props) {
         initial={{ y: 30, opacity: 0 }} animate={{ y: 0, opacity: 1 }} exit={{ y: 30, opacity: 0 }}
         transition={{ type: 'spring', damping: 28, stiffness: 300 }}
         onClick={e => e.stopPropagation()}
-        className="bg-white w-full md:max-w-3xl rounded-t-3xl md:rounded-3xl shadow-2xl flex flex-col overflow-hidden"
+        className="bg-white w-full md:max-w-6xl rounded-t-3xl md:rounded-3xl shadow-2xl flex flex-col overflow-hidden"
         style={{ maxHeight: 'calc(100dvh - 24px)' }}
       >
         {/* Header */}
@@ -1006,13 +1012,40 @@ function PreviewPhase({
   // bucket's models (or the combined catalog) lets an operator pick
   // "Galaxy A32 · 88 in stock" for a row marked SHS when none of those 88
   // are SHS holdings at all, which is exactly the mismatch that made the
-  // stock-count badges meaningless. Admin-curated seeds (no real stock in
-  // either bucket) are dropped from this picker for the same reason —
-  // when neither bucket has the model, the picker shows nothing rather
-  // than a seed that can't reconcile against anything, and the operator
-  // falls through to the existing "+ Add" / "ask an admin" empty state.
+  // stock-count badges meaningless. Pre-existing admin seeds (no real
+  // stock in either bucket) are dropped from every row's picker for the
+  // same reason — when neither bucket has the model, the picker shows
+  // nothing rather than a seed that can't reconcile against anything,
+  // and the operator falls through to the "+ Add" / "ask an admin" empty
+  // state below.
   const officeUnits = useMemo(() => units.filter(u => u.status === 'available'), [units]);
   const shsUnits = useMemo(() => units.filter(u => u.status === 'incoming'), [units]);
+
+  // Models created via "+ Add" DURING this import session — tracked
+  // separately from the (deliberately excluded) pre-existing admin
+  // seeds above. A batch of orphan sales often needs the same brand-new
+  // model on several rows; creating it once in row A must make it
+  // pickable in row B immediately, not just leave it sitting in row A's
+  // own input. Passed as `seeds` to every row below, on top of that
+  // row's own office/SHS unit filter.
+  const [justCreatedModels, setJustCreatedModels] = useState<
+    import('../lib/deviceCatalog').ModelSeed[]
+  >([]);
+  const createModel = isAdmin ? async (draft: { brand: string; model: string }) => {
+    const id = `model_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+    await dbService.create('models', id, {
+      brand: draft.brand,
+      model: draft.model,
+      ownerId: 'shared',
+      createdAt: new Date().toISOString(),
+      createdBy: auth.currentUser?.email || 'admin',
+    });
+    setJustCreatedModels(prev => [...prev, { id, brand: draft.brand, model: draft.model }]);
+    return {
+      brand: draft.brand, model: draft.model, count: 0, latestDateIn: '',
+      storages: [], colours: [], source: 'seed' as const,
+    };
+  } : undefined;
 
   return (
     <div className="space-y-3">
@@ -1198,16 +1231,17 @@ function PreviewPhase({
           </div>
 
           <div className="bg-white border border-orange-200 rounded-xl overflow-hidden">
-            <div className="px-3 py-1.5 border-b border-orange-100 text-[9px] font-mono uppercase tracking-widest text-orange-900 bg-orange-50/60 grid grid-cols-12 gap-2">
+            <div className="px-3 py-1.5 border-b border-orange-100 text-[9px] font-mono uppercase tracking-widest text-orange-900 bg-orange-50/60 grid grid-cols-14 gap-2">
               <span className="col-span-3">IMEI · Source · Order</span>
               <span className="col-span-3">Model</span>
               <span className="col-span-1">Colour</span>
               <span className="col-span-1">Storage</span>
+              <span className="col-span-2">SIM Type</span>
               <span className="col-span-2">Supplier</span>
               <span className="col-span-1 text-right">BP £</span>
               <span className="col-span-1 text-right">SP £</span>
             </div>
-            <ul className="max-h-72 overflow-auto divide-y divide-orange-50 text-[11px]">
+            <ul className="max-h-[32rem] overflow-auto divide-y divide-orange-50 text-[11px]">
               {auditEdits.map(o => {
                 const missing = auditRowMissing(o);
                 const rowIncomplete = missing.length > 0;
@@ -1215,7 +1249,7 @@ function PreviewPhase({
                 return (
                   <li
                     key={o.saleId}
-                    className={`px-3 py-1.5 grid grid-cols-12 gap-2 items-center ${rowIncomplete ? 'bg-rose-50/70' : ''}`}
+                    className={`px-3 py-1.5 grid grid-cols-14 gap-2 items-center ${rowIncomplete ? 'bg-rose-50/70' : ''}`}
                   >
                     <span className="col-span-3 min-w-0">
                       <span className="flex items-center gap-1">
@@ -1273,7 +1307,7 @@ function PreviewPhase({
                     <div className={`col-span-3 ${!o.model.trim() ? 'rounded ring-1 ring-rose-400 bg-rose-50' : ''}`}>
                       <DeviceComboBox
                         units={o.stockSource === 'shs' ? shsUnits : officeUnits}
-                        seeds={[]}
+                        seeds={justCreatedModels}
                         strict
                         isAdmin={isAdmin}
                         brand=""
@@ -1284,17 +1318,7 @@ function PreviewPhase({
                           ...(!o.storage && entry.storages?.[0] ? { storage: entry.storages[0] } : {}),
                           ...((!o.colour || o.colour === 'Unknown') && entry.colours?.[0] ? { colour: entry.colours[0] } : {}),
                         })}
-                        onCreateModel={isAdmin ? async draft => {
-                          const id = `model_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
-                          await dbService.create('models', id, {
-                            brand: draft.brand,
-                            model: draft.model,
-                            ownerId: 'shared',
-                            createdAt: new Date().toISOString(),
-                            createdBy: auth.currentUser?.email || 'admin',
-                          });
-                          return { brand: draft.brand, model: draft.model, count: 0, latestDateIn: '', storages: [], colours: [], source: 'seed' as const };
-                        } : undefined}
+                        onCreateModel={createModel}
                         placeholder="Search model…"
                         inputClassName="w-full border border-slate-200 rounded px-1.5 py-1 text-[10px] focus:outline-none focus:border-orange-500"
                       />
@@ -1324,6 +1348,22 @@ function PreviewPhase({
                         <option value={o.storage}>{o.storage}</option>
                       )}
                       {STORAGE_OPTIONS.map(s => <option key={s} value={s}>{s}</option>)}
+                    </select>
+                    {/* SIM Type — optional, same as the Inventory Report import
+                        schema. Not a completion blocker (auditRowMissing
+                        doesn't check it) but a unit created from this screen
+                        used to skip it entirely, unlike every other intake
+                        path (Add Stock, Bulk Order, Inventory Report). */}
+                    <select
+                      className="col-span-2 border border-slate-200 rounded px-1 py-1 text-[10px] focus:outline-none focus:border-orange-500 bg-white"
+                      value={o.simType}
+                      onChange={e => onAuditEdit(o.saleId, { simType: e.target.value })}
+                    >
+                      <option value="">—</option>
+                      {o.simType && !SIM_TYPE_OPTIONS.includes(o.simType as any) && (
+                        <option value={o.simType}>{o.simType}</option>
+                      )}
+                      {SIM_TYPE_OPTIONS.map(s => <option key={s} value={s}>{s}</option>)}
                     </select>
                     <input
                       className={`col-span-2 border rounded px-1.5 py-1 text-[10px] focus:outline-none focus:border-orange-500 ${!o.supplierName.trim() ? 'border-rose-400 bg-rose-50' : 'border-slate-200'}`}
