@@ -98,26 +98,20 @@ export const DEFAULT_MARKETPLACE_FEES: Record<Marketplace, MarketplaceFee> = {
   },
   TEMU: {
     marketplace: 'TEMU',
-    // 2026-07 addition, sourced verbatim from the operator's Temu formula
-    // sheet: same column layout and commission rate as Amazon (7% of SP),
-    // but Temu charges no VAT on Commission or Postage and no Digital
-    // Services Fee at all — the sheet's C. VAT / DSF / P. VAT cells are
-    // literal 0, not formulas, confirmed as a fixed platform rule rather
-    // than a one-off value on that sample row.
-    //
-    // Reuses the AMAZON calculation branch below (same formula chain:
-    // commissionVat = Commission×vatPct, dsf = Commission×dsfPct,
-    // dsfVat = dsf×vatPct, postageVat = Postage×vatPct) — setting
-    // vatPct=0 and dsfPct=0 collapses all four to 0 without any
-    // Temu-specific branching, and reproduces the sheet's example row
-    // exactly: SP=119.33 BP=100 Postage=6.30 → Commission=8.3531,
-    // GP=0.454589, GP%=0.454589, Total VAT NTP=3.222311.
+    // 2026-07 addition, corrected against the client's actual Temu export
+    // (TEMU_FORMULA.csv). First pass assumed vatPct=0 (no VAT on Commission
+    // or Postage at all) from a single illustrative row — that rule doesn't
+    // hold: a real order shows Postage VAT = Postage×20%, not zero. commissionPct
+    // here is a FALLBACK only, used when a file doesn't carry Temu's own
+    // Commission column — Temu's real per-order commission varies by
+    // category and the export reports the actual figure directly, so the
+    // sheet's own value always wins (see calcSaleFinancials' TEMU branch).
+    // No dsfPct — Temu's export has no DSF / DSF VAT columns at all.
     commissionPct: 7,
     commissionBase: 'sp',
     postage: 0,
     marginTaxDivisor: 6,
-    vatPct: 0,
-    dsfPct: 0,
+    vatPct: 20,
     accessoryFee: 1,
   },
 };
@@ -193,6 +187,16 @@ export interface CalcSaleFinancialsInput {
   salePrice: number;
   /** Override the per-marketplace default postage (eBay tiers, free shipping…). */
   postageOverride?: number;
+  /** Temu only — Temu's own export reports the exact commission it charged
+   *  per order (rates vary by category, unlike Amazon's flat referral fee),
+   *  so the sheet's own value always wins when present. Falls back to
+   *  commissionPct × SP only for a file that doesn't carry the column. */
+  commissionOverride?: number;
+  /** Temu only — the VAT Temu charged on its own commission invoice.
+   *  Tracked for the operator's records but deliberately NOT part of
+   *  totalVat/grossProfit (see the TEMU branch below for why). Falls back
+   *  to commission × vatPct when the sheet doesn't carry the column. */
+  commissionVatOverride?: number;
   /** eBay only — explicit shipping tier (£1, £2, £8). Trumps `postageOverride`. */
   eBayShippingTier?: 1 | 2 | 8;
   /** BM only — apply 2.5% PayPal/Klarna commission on top. */
@@ -285,7 +289,10 @@ const r2 = (n: number): number => {
  *   PROJECT same as AMAZON but postage = £5.90
  */
 export function calcSaleFinancials(input: CalcSaleFinancialsInput): SaleFinancials {
-  const { marketplace, buyPrice: bp, salePrice: sp, postageOverride, eBayShippingTier } = input;
+  const {
+    marketplace, buyPrice: bp, salePrice: sp, postageOverride, eBayShippingTier,
+    commissionOverride, commissionVatOverride,
+  } = input;
   const fee = getMarketplaceFee(marketplace);
 
   const spMinusBp = r2(sp - bp);
@@ -310,17 +317,10 @@ export function calcSaleFinancials(input: CalcSaleFinancialsInput): SaleFinancia
   const gpPctBySp = (gp: number) => sp > 0 ? r2(gp / sp * 100) : 0;
 
   switch (marketplace) {
-    case 'AMAZON':
-    case 'TEMU': {
+    case 'AMAZON': {
       // 2026-05 operator schema: every Amazon line carries an explicit
       // VAT / DSF / accessories breakdown. Formula chain (mirrors the
       // operator's reference sheet):
-      //
-      // TEMU (added 2026-07) reuses this exact branch — its fee schedule
-      // (DEFAULT_MARKETPLACE_FEES.TEMU) just sets vatPct=0 and dsfPct=0,
-      // which zeroes commissionVat/dsf/dsfVat/postageVat without any
-      // Temu-specific code. See the fee schedule's comment for the
-      // verified-against-the-sheet numbers.
       //   spMinusBp     = SP − BP
       //   marginalTax   = spMinusBp × (1 / 6)              ≈ 16.67% of margin
       //   commission    = SP × commissionPct / 100         (7% of SP — fee.commissionBase='sp')
@@ -372,6 +372,68 @@ export function calcSaleFinancials(input: CalcSaleFinancialsInput): SaleFinancia
         commissionVat: r2(commissionVatRaw),
         dsf:           r2(dsfRaw),
         dsfVat:        r2(dsfVatRaw),
+        postageVat:    r2(postageVatRaw),
+        accessoryFee:  r2(accessoryFeeVal),
+        totalVat:      r2(totalVatRaw),
+        totalVatNtp:   r2(totalVatNtpRaw),
+        postage,
+        grossProfit:   r2(grossProfitRaw),
+        gpPercent:     r2(gpPercentRaw),
+      };
+    }
+
+    case 'TEMU': {
+      // 2026-07: reused the AMAZON branch verbatim at first (vatPct=0,
+      // dsfPct=0 — see the fee schedule's history). That matched the one
+      // illustrative example available then, but broke against the
+      // client's actual Temu export (TEMU_FORMULA.csv): real orders show
+      // real Postage VAT (Postage×20%), and Commission is NOT a flat % of
+      // SP — Temu's referral rate varies by category, so its report gives
+      // the operator the real commission it charged, per order, directly.
+      //
+      // Corrected formula chain (verified against the client's export,
+      // order PO-210-07053322437751959: BP=55 SP=83.99 Postage=6.30 →
+      // Commission=3.87 CommissionVAT=4.07 → MarginalTax=4.83 P.VAT=1.26
+      // TotalVAT=1.26 GP=11.73 GP%=21.32 TotalVATNTP=3.57):
+      //   spMinusBp     = SP − BP
+      //   marginalTax   = spMinusBp × 16.67%
+      //   commission    = the sheet's own Commission cell; falls back to
+      //                   SP × commissionPct (7%) only when the file
+      //                   doesn't carry the column
+      //   commissionVat = the sheet's own Commission VAT cell (fallback:
+      //                   commission × vatPct). Tracked for the record
+      //                   only — Temu VAT-invoices this to the seller as
+      //                   reclaimable input tax, so unlike Amazon it is
+      //                   NOT part of totalVat or grossProfit. Confirmed
+      //                   by the export: Total VAT (1.26) = P.VAT alone,
+      //                   excludes Commission VAT (4.07) entirely, and GP
+      //                   (11.73) only reconciles when Commission VAT is
+      //                   left out of the subtraction chain too.
+      //   postageVat    = postage × vatPct (20%) — no longer zero
+      //   totalVat      = postageVat                    (Commission VAT excluded)
+      //   grossProfit   = spMinusBp − marginalTax − commission − postage
+      //                   − postageVat − accessoryFee    (Commission VAT excluded)
+      //   totalVatNtp   = marginalTax − totalVat
+      //   gpPercent     = GP / BP × 100
+      // No DSF line at all — Temu's export has no DSF/DSF VAT columns.
+      const vatPctFrac = (fee.vatPct ?? 20) / 100;
+      const accessoryFeeVal = fee.accessoryFee ?? 0;
+
+      const marginalTaxRaw   = spMinusBp * 16.67 / 100;
+      const commissionRaw    = commissionOverride ?? (sp * fee.commissionPct / 100);
+      const commissionVatRaw = commissionVatOverride ?? (commissionRaw * vatPctFrac);
+      const postageVatRaw    = input.postageVatExempt ? 0 : (postage * vatPctFrac);
+      const totalVatRaw      = postageVatRaw;
+      const grossProfitRaw   = spMinusBp - marginalTaxRaw - commissionRaw
+        - postage - postageVatRaw - accessoryFeeVal;
+      const totalVatNtpRaw   = marginalTaxRaw - totalVatRaw;
+      const gpPercentRaw     = bp > 0 ? grossProfitRaw / bp * 100 : 0;
+
+      return {
+        spMinusBp,
+        marginalTax:   r2(marginalTaxRaw),
+        commission:    r2(commissionRaw),
+        commissionVat: r2(commissionVatRaw),
         postageVat:    r2(postageVatRaw),
         accessoryFee:  r2(accessoryFeeVal),
         totalVat:      r2(totalVatRaw),
@@ -638,12 +700,8 @@ export function excelFormulaFor(marketplace: Marketplace, row: number): Record<s
   const fee = getMarketplaceFee(marketplace);
   const r = row;
   switch (marketplace) {
-    case 'AMAZON':
-    case 'TEMU': {
-      // 2026-05 schema. Columns (1-indexed) — TEMU (2026-07) shares this
-      // exact layout and formula chain; only its fee schedule differs
-      // (vatPct=0, dsfPct=0), so the emitted formula strings are byte-
-      // identical between the two marketplaces.
+    case 'AMAZON': {
+      // 2026-05 schema. Columns (1-indexed):
       //   A=Date, B=Order Number, C=SKU, D=IMEI, E=Supplier, F=Quantity,
       //   G=BP, H=SP, I=SP-BP, J=Marginal Tax, K=Commission, L=C. VAT,
       //   M=DSF, N=DSF VAT, O=Postage, P=P. VAT, Q=Accessories,
@@ -676,6 +734,40 @@ export function excelFormulaFor(marketplace: Marketplace, row: number): Record<s
         totalVatNtp:   `J${r}-R${r}`,
       };
     }
+
+    case 'TEMU': {
+      // 2026-07, corrected against the client's final Temu export
+      // (TEMU_FORMULA.csv) — own 20-column layout (see SALES_HEADERS.TEMU
+      // / clientReport.ts writeSaleRow), not Amazon's. Columns (1-indexed):
+      //   A=Date, B=Order Number, C=SKU, D=IMEI, E=Supplier, F=Quantity,
+      //   G=BP, H=SP, I=SP-BP, J=Marginal Tax, K=Commission (literal),
+      //   L=Commission VAT (literal), M=Postage, N=P. VAT, O=Accessories,
+      //   P=Total VAT, Q=GP, R=GP %, S=Total VAT NTP, T=Comments,
+      //   U=Return Date, V=Outcome, W=Return Reason, X=Shipping Legs,
+      //   Y=Postage Loss.
+      // No DSF/DSF VAT — Temu's export doesn't have the fee. Commission and
+      // Commission VAT are literal cells, not formulas: Temu's per-order
+      // commission varies by category, so the export gives the real figure
+      // charged rather than a percentage the operator could derive. Total
+      // VAT and GP both deliberately EXCLUDE Commission VAT (L) — Temu
+      // VAT-invoices it to the seller as reclaimable input tax, confirmed
+      // by the export (Total VAT = P.VAT alone; GP only reconciles to the
+      // sheet's number when Commission VAT is left out of the subtraction).
+      const vatPct = fee.vatPct ?? 20;
+      return {
+        spMinusBp:    `H${r}-G${r}`,
+        marginalTax:  `I${r}*16.67%`,
+        // Commission / Commission VAT have no formula — the writer sets
+        // K/L directly from the sale's own commission/commissionVat.
+        postageVat:   `M${r}*${vatPct}%`,
+        accessoryFee: `${fee.accessoryFee ?? 0}`,
+        totalVat:     `N${r}`,
+        grossProfit:  `I${r}-J${r}-K${r}-M${r}-N${r}-O${r}`,
+        gpPercent:    `(Q${r}-Y${r})/G${r}*100`,
+        totalVatNtp:  `J${r}-P${r}`,
+      };
+    }
+
     case 'BM': {
       // 2026-05 schema. 19 sale cols + return-info block + Postage Loss:
       //   A=Date, B=Order Number, C=SKU, D=IMEI, E=Supplier, F=Quantity,

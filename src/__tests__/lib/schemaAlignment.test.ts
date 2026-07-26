@@ -81,7 +81,9 @@ const EXPECTED_FALLBACKS: Record<string, Array<[string, number, string]>> = {
     ['postage', 11, 'SHIP'],
     ['comments', 14, 'Comments'],
   ],
-  // Same 15-column layout as AMAZON — see platforms.ts DEFAULT_MARKETPLACE_FEES.TEMU.
+  // Temu's own 19-column layout (client's final TEMU_FORMULA.csv) — no
+  // Comments column, and Commission/Commission VAT are read as given
+  // (Temu's real per-order fee, not a flat %). See platforms.ts TEMU branch.
   TEMU: [
     ['date', 0, 'Date'],
     ['orderNumber', 1, 'Order Number'],
@@ -91,8 +93,9 @@ const EXPECTED_FALLBACKS: Record<string, Array<[string, number, string]>> = {
     ['quantity', 5, 'Quantity'],
     ['buyPrice', 6, 'BP'],
     ['salePrice', 7, 'SP'],
-    ['postage', 11, 'Postage'],
-    ['comments', 14, 'Comments'],
+    ['commission', 10, 'Commission'],
+    ['commissionVat', 11, 'Commission VAT'],
+    ['postage', 12, 'Postage'],
   ],
 };
 

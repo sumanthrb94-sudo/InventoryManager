@@ -1,22 +1,26 @@
 /**
  * scripts/e2eTemuMarketplace.mjs — Temu, the 5th marketplace, end to end.
  *
- * Added 2026-07 from the operator's Temu formula sheet (same column layout
- * and commission rate as Amazon, but no VAT on Commission/Postage and no
- * Digital Services Fee — confirmed as a fixed platform rule). This drives
- * the real running app through the exact example row from that sheet:
+ * Added 2026-07, corrected 2026-07 against the client's final Temu export
+ * (TEMU_FORMULA.csv) — the real transaction for this exact order, which an
+ * earlier illustrative pass had gotten wrong (BP=100/SP=119.33/commission
+ * computed as a flat 7%, zero VAT anywhere). This drives the real running
+ * app through the client's actual row:
  *
  *   Order PO-210-07053322437751959 · IMEI 350901801557294
- *   BP £100 · SP £119.33 · Postage £6.30
- *   → Commission £8.3531 · GP £0.454589 · GP% 0.454589 · Total VAT NTP £3.222311
+ *   BP £55 · SP £83.99 · Postage £6.30 · Commission £3.87 (Temu's own
+ *   reported per-order fee — its referral rate varies by category, not a
+ *   flat percentage) · Commission VAT £4.07 (informational only)
+ *   → Marginal Tax £4.83 · P.VAT £1.26 · Total VAT £1.26 · GP £11.73 ·
+ *     GP% 21.32 · Total VAT NTP £3.57
  *
  *   1. Import one office unit matching the sheet's IMEI/BP/supplier.
  *   2. Import the shipped SALES_TEMU_TEMPLATE.xlsx (marketplace picker set
- *      to Temu) — its own example row IS the sheet's row, so this is the
- *      real template, not a synthetic fixture.
+ *      to Temu) — its own example row IS the client's real row, so this is
+ *      the real template, not a synthetic fixture.
  *   3. Confirm the sale reconciles: unit sold, marketplace tagged TEMU,
- *      every derived figure matches the sheet exactly, and the three
- *      always-zero fields (C.VAT / DSF / P.VAT) really are zero.
+ *      every derived figure matches the export exactly, Commission VAT is
+ *      excluded from Total VAT/GP, and there's no DSF line at all.
  *   4. Confirm Temu shows up correctly across the app: Inventory, Sales
  *      History, VAT Centre, Insights (Platform Scorecard), and the
  *      downloaded Master Excel report (a real TEMU sheet, right headers,
@@ -40,9 +44,11 @@ const ROW = {
   sku: 'SG-A17-128GB-OB',
   model: 'GALAXY A17',
   supplier: 'MHL',
-  bp: 100,
-  sp: 119.33,
+  bp: 55,
+  sp: 83.99,
   postage: 6.30,
+  commission: 3.87,
+  commissionVat: 4.07,
 };
 
 if (!existsSync(OUT)) mkdirSync(OUT, { recursive: true });
@@ -212,27 +218,24 @@ async function run() {
   record('a TEMU sale was recorded, matched by IMEI', !!sale, sale ? sale.id : 'not found');
 
   if (sale) {
-    // The app stores every derived figure rounded to the penny (Excel's
-    // ROUND(...,2) behaviour, see platforms.ts r2()) — the sheet's raw
-    // cell values (0.454589 etc.) round to these exact pennies, so 2dp
-    // tolerance is the right comparison here, not a looser fudge factor.
     const close = (a, b, tol = 0.02) => Math.abs((a ?? NaN) - b) <= tol;
-    record('Commission = £8.3531 (SP × 7%, same rate as Amazon)', close(sale.commission, 8.3531),
-      `got ${sale.commission}`);
-    record('GP = £0.45 (sheet cell S2 = 0.454589, rounded to the penny)', close(sale.grossProfit, 0.45),
-      `got ${sale.grossProfit}`);
-    record('GP% = 0.45 (T2 = S2/BP*100 = 0.454589, rounded)', close(sale.gpPercent, 0.45),
-      `got ${sale.gpPercent}`);
-    record('Total VAT NTP = £3.22 (U2 = MarTax - TotalVAT = 3.222311, rounded)', close(sale.totalVatNtp, 3.22),
+    record('Commission = £3.87 (Temu\'s own reported per-order fee, read from the file)',
+      close(sale.commission, 3.87), `got ${sale.commission}`);
+    record('Commission VAT = £4.07 (informational — read from the file)',
+      close(sale.commissionVat, 4.07), `got ${sale.commissionVat}`);
+    record('Marginal Tax = £4.83 ((SP-BP)*16.67%)', close(sale.marginalTax, 4.83),
+      `got ${sale.marginalTax}`);
+    record('P. VAT = £1.26 (Postage × 20% — no longer a fixed 0)', close(sale.postageVat, 1.26),
+      `got ${sale.postageVat}`);
+    record('Total VAT = £1.26 (= P.VAT alone — Commission VAT excluded)', close(sale.totalVat, 1.26),
+      `got ${sale.totalVat}`);
+    record('GP = £11.73', close(sale.grossProfit, 11.73), `got ${sale.grossProfit}`);
+    record('GP% = 21.32 (GP/BP*100)', close(sale.gpPercent, 21.32), `got ${sale.gpPercent}`);
+    record('Total VAT NTP = £3.57 (Marginal Tax - Total VAT)', close(sale.totalVatNtp, 3.57),
       `got ${sale.totalVatNtp}`);
-    record('C. VAT is £0 — the fixed Temu rule, not a formula quirk',
-      (sale.commissionVat ?? 0) === 0, `got ${sale.commissionVat}`);
-    record('DSF is £0 — Temu charges no Digital Services Fee',
-      (sale.dsf ?? 0) === 0, `got ${sale.dsf}`);
-    record('P. VAT is £0 — no VAT on postage for Temu',
-      (sale.postageVat ?? 0) === 0, `got ${sale.postageVat}`);
-    record('Total VAT is £0 — all three VAT lines are zero',
-      (sale.totalVat ?? 0) === 0, `got ${sale.totalVat}`);
+    record('no DSF line at all — Temu\'s export has no DSF/DSF VAT columns',
+      sale.dsf === undefined && sale.dsfVat === undefined,
+      `dsf=${sale.dsf} dsfVat=${sale.dsfVat}`);
   }
 
   // ══ 5 · Confirm Temu shows up across the app ═════════════════════════
@@ -284,8 +287,8 @@ async function run() {
       const sheet = wb.Sheets['TEMU'];
       const rows = XLSX.utils.sheet_to_json(sheet, { header: 1 });
       const header = rows[0] || [];
-      record('the TEMU sheet has the same fee columns as Amazon',
-        header.includes('C. VAT') && header.includes('DSF') && header.includes('DSF. VAT'),
+      record('the TEMU sheet has Commission VAT but no DSF columns (Temu\'s own layout)',
+        header.includes('Commission VAT') && !header.includes('DSF') && !header.includes('DSF. VAT'),
         header.join(' | '));
       const dataRow = rows[1] || [];
       const orderIdx = header.indexOf('Order Number');

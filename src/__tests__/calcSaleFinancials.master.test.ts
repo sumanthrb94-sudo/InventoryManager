@@ -328,44 +328,66 @@ describe('calcSaleFinancials · ONBUY · 12 master rows', () => {
   });
 });
 
-// ── TEMU — 1 real row (the operator's Temu formula sheet) ──────────────
+// ── TEMU — the client's final, real export row ──────────────────────────
 //
-// Added 2026-07. Same column layout and commission rate as AMAZON (7% of
-// SP), but Temu charges no VAT on Commission or Postage and no Digital
-// Services Fee — confirmed as a fixed platform rule, not a one-off value
-// on the sample row (see platforms.ts DEFAULT_MARKETPLACE_FEES.TEMU).
-//
-// Source row (order PO-210-07053322437751959): BP=100, SP=119.33,
-// Postage=6.30 → every intermediate below is the sheet's own cell value.
-describe('calcSaleFinancials · TEMU · the operator formula-sheet row', () => {
-  it('matches the sheet exactly: commission, GP, GP%, Total VAT NTP', () => {
+// Added 2026-07, corrected 2026-07 against TEMU_FORMULA.csv — the client's
+// actual Temu export for order PO-210-07053322437751959. An earlier pass
+// used illustrative numbers for this exact same order (BP=100, SP=119.33,
+// Commission computed as a flat 7% of SP, zero VAT anywhere) that turned
+// out to be wrong; this is the real transaction: BP=55, SP=83.99,
+// Postage=6.30, and Temu's own reported Commission=3.87 / Commission
+// VAT=4.07 (a real per-order figure — Temu's referral rate varies by
+// category, so it isn't a flat percentage the app can derive on its own).
+describe('calcSaleFinancials · TEMU · the client\'s real export row', () => {
+  it('matches the export exactly when Commission/Commission VAT are given', () => {
     const fin = calcSaleFinancials({
       marketplace: 'TEMU',
-      buyPrice: 100,
-      salePrice: 119.33,
+      buyPrice: 55,
+      salePrice: 83.99,
       postageOverride: 6.30,
+      commissionOverride: 3.87,
+      commissionVatOverride: 4.07,
     });
-    expectClose(fin.spMinusBp,   19.33,     'TEMU.spMinusBp');       // H2-G2
-    expectClose(fin.marginalTax, 3.222311,  'TEMU.marginalTax');     // I2*16.67%
-    expectClose(fin.commission,  8.3531,    'TEMU.commission');      // H2/100*7
-    expectClose(fin.postage,     6.30,      'TEMU.postage');         // operator-entered
-    expectClose(fin.grossProfit, 0.454589,  'TEMU.grossProfit');     // S2
-    expectClose(fin.gpPercent,   0.454589,  'TEMU.gpPercent');       // T2 = S2/G2*100
-    expectClose(fin.totalVatNtp, 3.222311,  'TEMU.totalVatNtp');     // U2 = J2-R2
+    expectClose(fin.spMinusBp,   28.99, 'TEMU.spMinusBp');
+    expectClose(fin.marginalTax, 4.83,  'TEMU.marginalTax');
+    expectClose(fin.commission,  3.87,  'TEMU.commission');
+    expectClose(fin.commissionVat, 4.07, 'TEMU.commissionVat');
+    expectClose(fin.postage,     6.30,  'TEMU.postage');
+    expectClose(fin.postageVat,  1.26,  'TEMU.postageVat');     // Postage × 20% — NOT zero
+    expectClose(fin.totalVat,    1.26,  'TEMU.totalVat');       // = postageVat alone
+    expectClose(fin.grossProfit, 11.73, 'TEMU.grossProfit');
+    expectClose(fin.gpPercent,   21.32, 'TEMU.gpPercent');
+    expectClose(fin.totalVatNtp, 3.57,  'TEMU.totalVatNtp');
   });
 
-  it('charges no VAT on Commission, no DSF, and no VAT on Postage — the fixed Temu rule', () => {
-    // C. VAT, DSF, DSF. VAT and P. VAT are all literal 0 on the sheet
-    // (not a formula evaluating to 0 for this particular row) — confirmed
-    // with the user as a permanent platform rule, not row-specific data.
-    const fin = calcSaleFinancials({
-      marketplace: 'TEMU', buyPrice: 100, salePrice: 119.33, postageOverride: 6.30,
+  it('excludes Commission VAT from Total VAT and GP — it is informational only', () => {
+    // Temu VAT-invoices its own commission to the seller as reclaimable
+    // input tax; the export confirms this by construction (Total VAT =
+    // P.VAT alone, GP only reconciles when Commission VAT is left out).
+    const withHighCommissionVat = calcSaleFinancials({
+      marketplace: 'TEMU', buyPrice: 55, salePrice: 83.99, postageOverride: 6.30,
+      commissionOverride: 3.87, commissionVatOverride: 999,
     });
-    expect(fin.commissionVat).toBe(0);
-    expect(fin.dsf).toBe(0);
-    expect(fin.dsfVat).toBe(0);
-    expect(fin.postageVat).toBe(0);
-    expect(fin.totalVat).toBe(0);
+    expect(withHighCommissionVat.totalVat).toBe(1.26);
+    expect(withHighCommissionVat.grossProfit).toBe(11.73);
+  });
+
+  it('falls back to commissionPct × SP when the file has no Commission column', () => {
+    const fin = calcSaleFinancials({ marketplace: 'TEMU', buyPrice: 100, salePrice: 200 });
+    expect(fin.commission).toBe(14);       // 200 × 7%
+    expect(fin.commissionVat).toBe(2.8);   // fallback: commission × 20%
+  });
+
+  it('Postage VAT is 20%, same as every other marketplace — no longer a fixed 0', () => {
+    const fin = calcSaleFinancials({ marketplace: 'TEMU', buyPrice: 100, salePrice: 200, postageOverride: 10 });
+    expect(fin.postageVat).toBe(2);
+    expect(fin.totalVat).toBe(2);
+  });
+
+  it('has no DSF line at all — Temu\'s export has no DSF/DSF VAT columns', () => {
+    const fin = calcSaleFinancials({ marketplace: 'TEMU', buyPrice: 100, salePrice: 200 });
+    expect(fin.dsf).toBeUndefined();
+    expect(fin.dsfVat).toBeUndefined();
   });
 
   it('still charges the flat £1 accessory fee, same as Amazon', () => {

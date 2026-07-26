@@ -37,10 +37,21 @@ const amazonRow = (order: string, imei: string, bp: number, sp: number) =>
 const onbuyRow = (order: string, imei: string, bp: number, sp: number) =>
   ['2026-07-21', order, 'PIX7-128-BLK', imei, 'NORTHSIDE STOCK', bp, sp, sp - bp, '', '', '', 8, '', '', ''];
 
-// Same 15-column layout as AMAZON — see platforms.ts DEFAULT_MARKETPLACE_FEES.TEMU.
-const TEMU_HEADERS = AMAZON_HEADERS;
-const temuRow = (order: string, imei: string, bp: number, sp: number) =>
-  ['2026-07-24', order, 'SG-A17-128GB-OB', imei, 'MHL', 1, bp, sp, sp - bp, '', '', 6.30, '', '', ''];
+// Temu's own 19-column layout (client's final TEMU_FORMULA.csv) — no
+// Comments column; Commission / Commission VAT are read as given (Temu's
+// real per-order fee, not a flat %). See platforms.ts TEMU branch.
+const TEMU_HEADERS = [
+  'Date', 'Order Number', 'SKU', 'IMEI', 'Supplier', 'Quantity', 'BP', 'SP',
+  'SP-BP', 'Marginal Tax', 'Commission', 'Commission VAT', 'Postage',
+  'P. VAT', 'Acc', 'Total VAT', 'GP', 'GP %', 'Total VAT NTP',
+];
+const temuRow = (
+  order: string, imei: string, bp: number, sp: number,
+  commission?: number, commissionVat?: number,
+) => [
+  '2026-07-24', order, 'SG-A17-128GB-OB', imei, 'MHL', 1, bp, sp, sp - bp,
+  '', commission ?? '', commissionVat ?? '', 6.30, '', '', '', '', '', '',
+];
 
 describe('single-marketplace upload', () => {
   it('parses an AMAZON-only file with no "missing sheet" noise', async () => {
@@ -148,32 +159,48 @@ describe('single-marketplace upload', () => {
 
   it('parses a TEMU-only file with no "missing sheet" noise', async () => {
     const file = workbook('TEMU', TEMU_HEADERS, [
-      temuRow('PO-210-07053322437751959', '350901801557294', 100, 119.33),
+      temuRow('PO-210-07053322437751959', '350901801557294', 55, 83.99, 3.87, 4.07),
     ]);
     const parsed = await parseSalesWorkbook(file, 'temu.xlsx', { onlyMarketplace: 'TEMU' });
 
     expect(parsed.errors).toEqual([]);
     expect(parsed.sales).toHaveLength(1);
     expect(parsed.sales[0].marketplace).toBe('TEMU');
-    expect(parsed.sales[0].buyPrice).toBe(100);
-    expect(parsed.sales[0].salePrice).toBe(119.33);
+    expect(parsed.sales[0].buyPrice).toBe(55);
+    expect(parsed.sales[0].salePrice).toBe(83.99);
     expect(parsed.perSheetCounts.TEMU).toBe(1);
     expect(parsed.perSheetCounts.AMAZON + parsed.perSheetCounts.BM
       + parsed.perSheetCounts.EBAY + parsed.perSheetCounts.ONBUY).toBe(0);
   });
 
-  it('recomputes TEMU financials to the sheet-verified numbers on import', async () => {
+  it('recomputes TEMU financials to the client export-verified numbers on import', async () => {
+    // Real order (PO-210-07053322437751959) from the client's final Temu
+    // export (TEMU_FORMULA.csv) — Commission/Commission VAT are read
+    // straight from the sheet, everything else recomputed.
     const file = workbook('TEMU', TEMU_HEADERS, [
-      temuRow('PO-210-07053322437751959', '350901801557294', 100, 119.33),
+      temuRow('PO-210-07053322437751959', '350901801557294', 55, 83.99, 3.87, 4.07),
     ]);
     const parsed = await parseSalesWorkbook(file, 'temu.xlsx', { onlyMarketplace: 'TEMU' });
     const sale = parsed.sales[0];
-    expect(sale.commission).toBeCloseTo(8.3531, 2);
-    expect(sale.grossProfit).toBeCloseTo(0.4546, 1);
-    // The fixed Temu rule — no VAT on commission or postage, no DSF.
-    expect(sale.commissionVat ?? 0).toBe(0);
-    expect(sale.dsf ?? 0).toBe(0);
-    expect(sale.postageVat ?? 0).toBe(0);
+    expect(sale.commission).toBe(3.87);
+    expect(sale.commissionVat).toBe(4.07);
+    expect(sale.marginalTax).toBe(4.83);
+    expect(sale.postageVat).toBe(1.26);      // Postage × 20% — no longer a fixed 0
+    expect(sale.totalVat).toBe(1.26);        // = postageVat alone; Commission VAT excluded
+    expect(sale.grossProfit).toBe(11.73);
+    expect(sale.gpPercent).toBe(21.32);
+    expect(sale.totalVatNtp).toBe(3.57);
+    expect(sale.dsf).toBeUndefined();        // no DSF line for Temu at all
+  });
+
+  it('falls back to commissionPct × SP when a Temu row has no Commission column filled in', async () => {
+    const file = workbook('TEMU', TEMU_HEADERS, [
+      temuRow('PO-FALLBACK-1', '350900000000001', 100, 200),
+    ]);
+    const parsed = await parseSalesWorkbook(file, 'temu.xlsx', { onlyMarketplace: 'TEMU' });
+    const sale = parsed.sales[0];
+    expect(sale.commission).toBe(14);        // 200 × 7% fallback
+    expect(sale.commissionVat).toBe(2.8);    // fallback: commission × 20%
   });
 });
 

@@ -132,10 +132,12 @@ Column order differs per marketplace and is **not** interchangeable:
 - **BM** — 17 columns, `Payment Mode` inserted at position 9
 - **EBAY** — 19 columns, postage is `SHIPPING`; values `1`, `2`, `8` are read as standard shipping tiers
 - **ONBUY** — 15 columns, **no Quantity column**, so BP/SP sit one position further left
-- **TEMU** — 15 columns, identical layout to AMAZON. Commission is 7% of SP
-  (same rate as Amazon), but Temu charges no VAT on Commission or Postage and
-  no Digital Services Fee — a fixed platform rule, not something you need to
-  zero out by hand
+- **TEMU** — 19 columns, its own layout (not Amazon's). Commission and
+  Commission VAT are Temu's own reported per-order figures — its referral
+  rate varies by category, so type in whatever Temu's export says rather
+  than computing a percentage yourself; leave them blank and the app falls
+  back to 7% of SP. Postage VAT is a genuine 20%. No DSF column — Temu
+  doesn't charge one
 
 Required on every row: **date, order number, BP, SP**. IMEI is optional but
 strongly recommended — without it a sale cannot match a unit.

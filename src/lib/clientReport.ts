@@ -342,16 +342,14 @@ const SALES_HEADERS: Record<Marketplace, SalesHeaderRow> = {
     'Return Date', 'Outcome', 'Return Reason', 'Shipping Legs',
     'Postage Loss', 'Net GP £',
   ],
-  // TEMU (added 2026-07): identical column set to AMAZON — same fee
-  // breakdown headers even though C. VAT / DSF / DSF. VAT / P. VAT always
-  // compute to 0 (see platforms.ts DEFAULT_MARKETPLACE_FEES.TEMU). Keeping
-  // the same columns rather than dropping the zero ones matches the
-  // operator's own Temu formula sheet and means one export layout, not a
-  // bespoke narrower one, to maintain.
+  // TEMU (added 2026-07, corrected against the client's final Temu export
+  // TEMU_FORMULA.csv): its own layout, not Amazon's. No DSF / DSF VAT —
+  // Temu's export has no such columns, it doesn't charge one. Commission
+  // VAT is its own column (informational — see platforms.ts TEMU branch
+  // for why it's excluded from Total VAT / GP).
   TEMU: [
     'Date', 'Order Number', 'SKU', 'IMEI', 'Supplier', 'Quantity',
-    'BP', 'SP', 'SP-BP', 'Marginal Tax', 'Commission',
-    'C. VAT', 'DSF', 'DSF. VAT',
+    'BP', 'SP', 'SP-BP', 'Marginal Tax', 'Commission', 'Commission VAT',
     'Postage', 'P. VAT', 'Accessories',
     'Total VAT', 'GP', 'GP %', 'Total VAT NTP',
     'Comments',
@@ -494,18 +492,12 @@ function writeSaleRow(
   const qty = sale.quantity ?? 1;
 
   switch (marketplace) {
-    case 'AMAZON':
-    case 'TEMU': {
+    case 'AMAZON': {
       // 2026-05 schema. 22 columns — Date through Comments. Postage and
       // Accessories carry literal values (operator may have overridden
       // postage per sale, accessories is a flat default); every other
       // computed cell is a formula so the operator can audit / re-derive
       // in Excel without trusting our runtime output.
-      //
-      // TEMU (2026-07) shares this exact column layout and formula set —
-      // only its fee schedule differs (vatPct=0, dsfPct=0 in platforms.ts),
-      // which zeroes the C.VAT/DSF/DSF.VAT/P.VAT formula cells at compute
-      // time rather than needing a separate branch here.
       const row = sheet.addRow([
         date, sale.orderNumber, sale.sku ?? '', sale.imei ?? '',
         resolvedSupplier, qty,
@@ -537,6 +529,50 @@ function writeSaleRow(
       row.getCell(19).value = { formula: f.grossProfit! };   row.getCell(19).numFmt = MONEY_FMT;
       row.getCell(20).value = { formula: f.gpPercent! };     row.getCell(20).numFmt = MONEY_FMT;
       row.getCell(21).value = { formula: f.totalVatNtp! };   row.getCell(21).numFmt = MONEY_FMT;
+      writeReturnBlock(row, marketplace, sale, rowNumber);
+      return;
+    }
+
+    case 'TEMU': {
+      // 2026-07, corrected against the client's final Temu export
+      // (TEMU_FORMULA.csv) — own 20-column layout, not Amazon's. Commission
+      // and Commission VAT are LITERAL per-row values (Temu's real
+      // per-order commission varies by category and the export reports
+      // the actual figure charged, not a flat rate), same treatment as
+      // Postage/Accessories. Everything else is a formula so the operator
+      // can audit in Excel. No DSF / DSF VAT columns — Temu doesn't charge
+      // one.
+      //   A=Date,B=OrderNo,C=SKU,D=IMEI,E=Supplier,F=Quantity,G=BP,H=SP,
+      //   I=SP-BP,J=MarTax,K=Commission,L=Commission VAT,M=Postage,
+      //   N=P.VAT,O=Accessories,P=Total VAT,Q=GP,R=GP%,S=Total VAT NTP,T=Comments
+      const row = sheet.addRow([
+        date, sale.orderNumber, sale.sku ?? '', sale.imei ?? '',
+        resolvedSupplier, qty,
+        sale.buyPrice, sale.salePrice,
+        null, null,                                    // SP-BP, MarTax (formula)
+        sale.commission ?? 0,                           // Commission (literal — Temu's real per-order fee)
+        sale.commissionVat ?? 0,                        // Commission VAT (literal — informational, not in totals)
+        sale.postage ?? null,                           // Postage (literal)
+        null,                                           // P. VAT (formula)
+        sale.accessoryFee ?? Number(f.accessoryFee ?? 1), // Accessories (literal)
+        null, null, null, null,                         // Total VAT, GP, GP%, Total VAT NTP
+        sale.comments ?? '',
+      ]);
+      row.getCell(1).numFmt = DATE_FMT;
+      row.getCell(4).numFmt = IMEI_FMT;
+      row.getCell(7).numFmt = MONEY_FMT;   // BP
+      row.getCell(8).numFmt = MONEY_FMT;   // SP
+      row.getCell(9).value  = { formula: f.spMinusBp! };   row.getCell(9).numFmt  = MONEY_FMT;
+      row.getCell(10).value = { formula: f.marginalTax! }; row.getCell(10).numFmt = MONEY_FMT;
+      row.getCell(11).numFmt = MONEY_FMT; // Commission (literal above)
+      row.getCell(12).numFmt = MONEY_FMT; // Commission VAT (literal above)
+      row.getCell(13).numFmt = MONEY_FMT; // Postage (literal above)
+      row.getCell(14).value = { formula: f.postageVat! };  row.getCell(14).numFmt = MONEY_FMT;
+      row.getCell(15).numFmt = MONEY_FMT; // Accessories (literal above)
+      row.getCell(16).value = { formula: f.totalVat! };    row.getCell(16).numFmt = MONEY_FMT;
+      row.getCell(17).value = { formula: f.grossProfit! }; row.getCell(17).numFmt = MONEY_FMT;
+      row.getCell(18).value = { formula: f.gpPercent! };   row.getCell(18).numFmt = MONEY_FMT;
+      row.getCell(19).value = { formula: f.totalVatNtp! }; row.getCell(19).numFmt = MONEY_FMT;
       writeReturnBlock(row, marketplace, sale, rowNumber);
       return;
     }
@@ -916,12 +952,12 @@ const TOTAL_SUM_COLS: Record<Marketplace, { label: number; numericCols: number[]
     numericCols: [6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 18, 24, 25],
     gpCol: 16, gpPctCol: 17, postageLossCol: 24, netGpCol: 25, denominatorCol: 6,
   },
-  // TEMU: 28 cols, byte-identical layout to AMAZON (see SALES_HEADERS.TEMU).
-  // GP=19(S), GP%=20(T), Postage Loss=27(AA), Net GP £=28(AB).
+  // TEMU: 26 cols, own layout (see SALES_HEADERS.TEMU) — no DSF/DSF VAT.
+  // GP=17(Q), GP%=18(R), Postage Loss=25(Y), Net GP £=26(Z).
   TEMU: {
     label: 1,
-    numericCols: [6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 21, 27, 28],
-    gpCol: 19, gpPctCol: 20, postageLossCol: 27, netGpCol: 28, denominatorCol: 7,
+    numericCols: [6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 19, 25, 26],
+    gpCol: 17, gpPctCol: 18, postageLossCol: 25, netGpCol: 26, denominatorCol: 7,
   },
 };
 

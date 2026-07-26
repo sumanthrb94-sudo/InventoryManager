@@ -185,7 +185,12 @@ type ColKey =
   | 'date' | 'orderNumber' | 'sku' | 'imei' | 'supplier'
   | 'quantity' | 'buyPrice' | 'salePrice'
   | 'paymentMode' | 'shipping' | 'netProfit'
-  | 'postage' | 'comments';
+  | 'postage' | 'comments'
+  // Temu only — its export reports the real per-order commission (and the
+  // VAT Temu charged on that commission) directly, since Temu's referral
+  // rate varies by category and can't be modelled as one flat percentage
+  // the way Amazon's can. See calcSaleFinancials' TEMU branch.
+  | 'commission' | 'commissionVat';
 
 interface SheetLayout {
   /** Header aliases per logical column (case-insensitive, whitespace-collapsed).
@@ -335,27 +340,37 @@ export const SHEET_LAYOUTS: Record<Marketplace, SheetLayout> = {
     },
     required: ['date', 'orderNumber', 'buyPrice', 'salePrice'],
   },
-  // TEMU cols (15): identical layout to AMAZON — Date | Order Number | SKU |
-  // IMEI | Supplier | Quantity | BP | SP | SP-BP | Marginal Tax | Commission |
-  // Postage | GP | GP % | Comments. Added 2026-07 from the operator's Temu
-  // formula sheet, which shares Amazon's exact column set; only the fee
-  // schedule differs (see platforms.ts DEFAULT_MARKETPLACE_FEES.TEMU).
+  // TEMU cols (19), from the client's final Temu formula export
+  // (TEMU_FORMULA.csv) — its OWN layout, not Amazon's 15-col one:
+  //   Date | Order Number | SKU | IMEI | Supplier | Quantity | BP | SP |
+  //   SP-BP | Marginal Tax | Commission | Commission VAT | Postage |
+  //   P. VAT | Acc | Total VAT | GP | GP % | Total VAT NTP
+  // SP-BP / Marginal Tax / P. VAT / Acc / Total VAT / GP / GP% / Total VAT
+  // NTP are all recomputed (never trust the sheet's cached formula text —
+  // see calcSaleFinancials). Commission and Commission VAT are the two
+  // exceptions: Temu's referral rate varies by category, so the export
+  // reports what it actually charged per order rather than a flat rate the
+  // operator could compute themselves; those two columns ARE read as given.
+  // No Comments column in this schema.
   TEMU: {
     columns: {
-      date:        ['date'],
-      orderNumber: ['order number', 'order no'],
-      sku:         ['sku'],
-      imei:        ['imei', 'imei number'],
-      supplier:    ['supplier'],
-      quantity:    ['quantity', 'units', 'quant'],
-      buyPrice:    ['bp'],
-      salePrice:   ['sp'],
-      postage:     ['postage'],
-      comments:    ['comments'],
+      date:         ['date'],
+      orderNumber:  ['order number', 'order no'],
+      sku:          ['sku'],
+      imei:         ['imei', 'imei number'],
+      supplier:     ['supplier'],
+      quantity:     ['quantity', 'units', 'quant'],
+      buyPrice:     ['bp'],
+      salePrice:    ['sp'],
+      commission:   ['commission'],
+      commissionVat: ['commission vat', 'commissionvat', 'c. vat'],
+      postage:      ['postage'],
+      comments:     ['comments'],
     },
     fallback: {
       date: 0, orderNumber: 1, sku: 2, imei: 3, supplier: 4,
-      quantity: 5, buyPrice: 6, salePrice: 7, postage: 11, comments: 14,
+      quantity: 5, buyPrice: 6, salePrice: 7,
+      commission: 10, commissionVat: 11, postage: 12,
     },
     required: ['date', 'orderNumber', 'buyPrice', 'salePrice'],
   },
@@ -660,10 +675,17 @@ function parseRow(
       ? postageFromSheet
       : undefined;
 
+  // Temu only — 'commission'/'commissionVat' aren't in any other
+  // marketplace's column map, so get() returns undefined for them there
+  // and this is a no-op everywhere except TEMU.
+  const commissionOverride = toNumber(get('commission'));
+  const commissionVatOverride = toNumber(get('commissionVat'));
+
   // ---- recompute every derived field ------------------------------------
   const fin = calcSaleFinancials({
     marketplace, buyPrice, salePrice,
     postageOverride, eBayShippingTier, hasPayPalKlarna,
+    commissionOverride, commissionVatOverride,
   });
 
   const supplierName = toNonEmptyString(get('supplier'));

@@ -187,8 +187,11 @@ const SALES_LAYOUTS = {
   BM:     ['Date', 'Order No', 'SKU', 'IMEI', 'Supplier', 'Quantity', 'BP', 'SP', 'Payment Mode', 'SP-BP', 'Marginal Tax', 'PayPal/Klarna Com', 'Commission', 'Postage', 'GP', 'GP %', 'Comments'],
   EBAY:   ['DATE', 'ORDER NUMBER', 'SKU', 'IMEI NUMBER', 'SUPPLIER', 'UNITS', 'BP', 'SP', 'SP-BP', 'MAR TAX', 'COM', 'ROF', 'FVF', '0.2', 'T.COM', 'SHIPPING', 'GP', 'GP%', 'NP(incl. PROMOTION)'],
   ONBUY:  ['DATE', 'Order Number', 'SKU', 'IMEI', 'Supplier', 'BP', 'SP', 'SP-BP', 'MAR VAT', 'COM 7%', 'VAT 20%', 'SHIP', 'GP', 'GP%', 'Comments'],
-  // Same 15-column layout as AMAZON — see platforms.ts DEFAULT_MARKETPLACE_FEES.TEMU.
-  TEMU:   ['Date', 'Order Number', 'SKU', 'IMEI', 'Supplier', 'Quantity', 'BP', 'SP', 'SP-BP', 'Marginal Tax', 'Commission', 'Postage', 'GP', 'GP %', 'Comments'],
+  // Temu's own layout (client's final TEMU_FORMULA.csv) — Commission and
+  // Commission VAT are real per-order values Temu's export reports
+  // directly (its referral rate varies by category), not a flat % the
+  // app computes. No DSF — Temu's export has no such column.
+  TEMU:   ['Date', 'Order Number', 'SKU', 'IMEI', 'Supplier', 'Quantity', 'BP', 'SP', 'SP-BP', 'Marginal Tax', 'Commission', 'Commission VAT', 'Postage', 'P. VAT', 'Acc', 'Total VAT', 'GP', 'GP %', 'Total VAT NTP'],
 };
 
 const SALES_EXAMPLES = {
@@ -206,7 +209,7 @@ const SALES_EXAMPLES = {
     ['2026-07-23', 'OB-9002', 'PIX7-128-BLK', '350100000031676', 'NORTHSIDE STOCK', 275.00, 359.00, '', '', '', '', 8, '', '', ''],
   ],
   TEMU: [
-    ['2026-07-24', 'PO-210-07053322437751959', 'SG-A17-128GB-OB', '350901801557294', 'MHL', 1, 100.00, 119.33, '', '', '', 6.30, '', '', ''],
+    ['2026-06-18', 'PO-210-07053322437751959', 'SG-A17-128GB-OB', '350901801557294', 'MHL', 1, 55.00, 83.99, '', '', 3.87, 4.07, 6.30, '', '', '', '', '', ''],
   ],
 };
 

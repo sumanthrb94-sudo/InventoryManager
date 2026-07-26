@@ -215,16 +215,21 @@ DATE | Order Number | SKU | IMEI | Supplier | BP | SP |
 SP-BP | MAR VAT | COM 7% | VAT 20% | SHIP | GP | GP% | Comments
 ```
 
-**TEMU — 15 columns. Same layout as AMAZON.** Added 2026-07. Commission is
-7% of SP, same rate and same formula as Amazon — but Temu charges **no VAT
-on Commission or Postage, and no Digital Services Fee**, as a fixed platform
-rule (confirmed against the operator's Temu formula sheet, where those cells
-are literal zeros rather than a formula). See §2.2 for the export-side
-column set.
+**TEMU — 19 columns. Its own layout, not Amazon's.** Added 2026-07,
+corrected against the client's final Temu export (`TEMU_FORMULA.csv`).
+**Commission and Commission VAT are read straight from the file** — Temu's
+referral rate varies by category, so the export reports the actual fee it
+charged per order rather than a flat percentage the app could derive; a
+file without those columns falls back to 7% of SP (and commission × 20%
+for Commission VAT). Postage VAT is a genuine 20% (not zero). Commission
+VAT is tracked for the record but excluded from Total VAT and GP — Temu
+VAT-invoices it to the seller as reclaimable input tax. **No DSF column at
+all** — Temu doesn't charge one. See §2.2 for the export-side column set.
 
 ```
 Date | Order Number | SKU | IMEI | Supplier | Quantity | BP | SP |
-SP-BP | Marginal Tax | Commission | Postage | GP | GP % | Comments
+SP-BP | Marginal Tax | Commission | Commission VAT | Postage | P. VAT |
+Acc | Total VAT | GP | GP % | Total VAT NTP
 ```
 
 **Header aliases per field:**
@@ -263,7 +268,7 @@ id, so a mix of old and new files cannot double-count.
 
 The five marketplace sheets carry the import columns plus computed VAT/fee
 columns and a trailing return-linkage block. Column counts: AMAZON 28,
-BM 25, EBAY 31, ONBUY 25, TEMU 28.
+BM 25, EBAY 31, ONBUY 25, TEMU 26.
 
 Common leading block, every marketplace:
 
@@ -287,7 +292,7 @@ Marketplace-specific fee columns:
 | BM | `Customer Care Fees` |
 | EBAY | `ROF` `FVF` `VAT` `T.COM` `Marketing` `M. VAT` — and `Units`, not `Quantity` |
 | ONBUY | `VAT 20%` — and no Quantity column |
-| TEMU | `C. VAT` `DSF` `DSF. VAT` — same columns as Amazon, but all three always compute to £0 (fixed platform rule, not a formula quirk) |
+| TEMU | `Commission VAT` — no DSF. Commission and Commission VAT are literal per-row values (Temu's real reported fee), not formulas; Commission VAT is excluded from Total VAT/GP |
 
 `Returns` sheet (16 columns):
 
