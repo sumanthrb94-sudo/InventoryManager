@@ -16,7 +16,7 @@ import { describe, it, expect } from 'vitest';
 import {
   missingBuyPrice, missingSupplier, duplicateImeis, orphanSales,
   staleShs, skuLikeModels, lossMakingSales, runHealthChecks, totalIssues,
-  duplicateSuppliers, unrecognisedPlatform,
+  duplicateSuppliers, unrecognisedPlatform, shsInventedImei,
 } from '../../lib/dataHealth';
 import type { InventoryUnit, Sale } from '../../types';
 
@@ -185,6 +185,48 @@ describe('stale SHS', () => {
   });
 });
 
+describe('SHS holdings with an invented IMEI', () => {
+  it('flags an incoming holding that already carries an IMEI', () => {
+    const found = shsInventedImei(input([
+      unit({ id: '1', status: 'incoming', imei: '350100000001111' }),
+    ]));
+    expect(found.issues.map(i => i.id)).toEqual(['1']);
+  });
+
+  it('leaves a real, IMEI-less holding alone — that is the correct shape for SHS', () => {
+    const found = shsInventedImei(input([
+      unit({ id: '1', status: 'incoming', imei: '' }),
+    ]));
+    expect(found.issues).toEqual([]);
+  });
+
+  it('ignores office stock, even though it carries an IMEI', () => {
+    const found = shsInventedImei(input([
+      unit({ id: '1', status: 'available', imei: '350100000001111' }),
+    ]));
+    expect(found.issues).toEqual([]);
+  });
+
+  it('ignores sold units', () => {
+    const found = shsInventedImei(input([
+      unit({ id: '1', status: 'sold', imei: '350100000001111' }),
+    ]));
+    expect(found.issues).toEqual([]);
+  });
+
+  it('names the supplier and says to clear the field', () => {
+    const found = shsInventedImei(input([
+      unit({ id: '1', status: 'incoming', imei: '350100000001111', supplierName: 'CELLHUB' }),
+    ]));
+    expect(found.issues[0].detail).toContain('CELLHUB');
+    expect(found.issues[0].detail).toContain('clear the IMEI');
+  });
+
+  it('is high severity — it can close the wrong holding on receipt or on a real orphan sale', () => {
+    expect(shsInventedImei(input([])).severity).toBe('high');
+  });
+});
+
 describe('SKU-like model names', () => {
   it('flags a raw operator SKU', () => {
     const found = skuLikeModels(input([unit({ id: '1', rawModel: 'ASI-SG-A32--64-BK-EX' })]));
@@ -247,7 +289,7 @@ describe('the panel as a whole', () => {
 
   it('runs every check, even the ones that pass', () => {
     // A check that vanishes when clean is a check nobody trusts is running.
-    expect(runHealthChecks(input([])).length).toBe(9);
+    expect(runHealthChecks(input([])).length).toBe(10);
   });
 
   it('totals the issues across checks', () => {

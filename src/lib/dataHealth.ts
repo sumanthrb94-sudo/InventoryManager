@@ -250,6 +250,42 @@ export function lossMakingSales({ sales }: HealthInput): HealthCheck {
 }
 
 /**
+ * An open SHS holding that already carries an IMEI.
+ *
+ * A holding is supplier-held stock that has not shipped — there is no
+ * handset in anyone's hand yet, so there is nothing to read an IMEI off.
+ * The only legitimate way a holding gets an IMEI is by being fulfilled
+ * (Received into office stock, or matched against an incoming sale), and
+ * both of those close the holding — it stops being `incoming`.
+ *
+ * So an `incoming` unit with an IMEI already on it did not get that number
+ * honestly. It is almost always a leftover from before this rule existed,
+ * when the SHS template required an IMEI and operators typed something in
+ * to satisfy the field. That invented number matches no real phone, and it
+ * breaks the one thing SHS matching depends on: if a real sale later
+ * carries this same invented digit string by coincidence, or if this
+ * holding is Received and the invented IMEI collides with a genuine unit,
+ * the wrong holding closes.
+ */
+export function shsInventedImei({ units }: HealthInput): HealthCheck {
+  const issues = units
+    .filter(u => u.status === 'incoming')
+    .filter(u => (u.imei || '').trim().length > 0)
+    .map(u => ({
+      id: u.id,
+      label: unitLabel(u),
+      detail: `held by ${u.supplierName || 'unknown supplier'} — clear the IMEI, it was never read off a real phone`,
+    }));
+  return {
+    key: 'shs-invented-imei',
+    title: 'SHS holdings with an IMEI already on them',
+    consequence: 'Matches the wrong phone on receipt, or blocks a real orphan sale from finding this holding.',
+    severity: 'high',
+    issues,
+  };
+}
+
+/**
  * Two supplier records with the same name.
  *
  * Every per-supplier figure in the app groups by supplier ID, so two docs
@@ -316,6 +352,7 @@ export function unrecognisedPlatform({ units }: HealthInput): HealthCheck {
 const CHECKS = [
   missingBuyPrice, missingSupplier, duplicateSuppliers, duplicateImeis,
   orphanSales, unrecognisedPlatform, staleShs, skuLikeModels, lossMakingSales,
+  shsInventedImei,
 ];
 
 const SEVERITY_ORDER: Record<HealthSeverity, number> = { high: 0, medium: 1, low: 2 };

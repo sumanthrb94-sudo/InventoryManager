@@ -83,12 +83,24 @@ export default function DeviceComboBox({
 
   /** Recalculate the anchor rect from the input element's current screen
    *  position. Called on open, scroll, and resize so the fixed dropdown
-   *  tracks the input even when the modal scrolls. */
+   *  tracks the input even when the modal scrolls.
+   *
+   *  The dropdown is widened past the input's own width — callers like
+   *  the sales-audit table put this combobox in a narrow grid column
+   *  (~150px), which was truncating "iPhone 14 Pro Max" and the
+   *  storage/count line down to unreadable fragments like "A… 256…".
+   *  MIN_DROPDOWN_WIDTH gives every row room to render in full; the
+   *  anchor is then clamped so the widened panel never runs off the
+   *  right edge of the viewport. */
   const updateRect = useCallback(() => {
     if (!inputRef.current) return;
     const r = inputRef.current.getBoundingClientRect();
+    const MIN_DROPDOWN_WIDTH = 420;
+    const width = Math.max(r.width, MIN_DROPDOWN_WIDTH);
+    const maxLeft = window.innerWidth - width - 8;
+    const left = Math.max(8, Math.min(r.left, maxLeft));
     // position:fixed is relative to the viewport, so no scrollY offset needed.
-    setDropdownRect({ top: r.bottom, left: r.left, width: r.width });
+    setDropdownRect({ top: r.bottom, left, width });
   }, []);
 
   // Reposition on scroll / resize while open.
@@ -247,7 +259,7 @@ export default function DeviceComboBox({
                 onMouseEnter={() => setHighlight(i)}
                 onMouseDown={e => e.preventDefault()}
                 onClick={() => pick(s)}
-                className={`w-full text-left px-3 py-2 flex items-center justify-between gap-3 ${
+                className={`w-full text-left px-3 py-2 flex items-start justify-between gap-3 ${
                   isActive ? 'bg-blue-50' : 'hover:bg-gray-50'
                 }`}
               >
@@ -257,7 +269,7 @@ export default function DeviceComboBox({
                     <span className="mx-1.5 text-gray-300">·</span>
                     <span className="text-gray-900">{s.model}</span>
                   </p>
-                  <p className="text-[10px] text-gray-500 truncate font-mono">
+                  <p className="text-[10px] text-gray-500 font-mono leading-snug">
                     {s.storages.length ? `${s.storages.slice(0, 3).join(' · ')}` : 'no storage data'}
                     {s.colours.length ? ` · ${s.colours.slice(0, 2).join(', ')}` : ''}
                     {s.topGrade ? ` · grade ${s.topGrade}` : ''}
