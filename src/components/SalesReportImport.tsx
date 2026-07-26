@@ -27,7 +27,7 @@ import type { Sale, Marketplace } from '../types';
 import { MARKETPLACES } from '../types';
 import { parseSalesWorkbook, type ParsedSales } from '../lib/salesImport';
 import { buildPostImportSyncPatches } from '../services/salesService';
-import { addSoldUnitFromSale, completeUnitBuyInfo, reconcileShsAfterFulfilment } from '../services/inventoryService';
+import { addSoldUnitFromSale, completeUnitBuyInfo, reconcileShsAfterFulfilment, decrementAccessoryStock } from '../services/inventoryService';
 import { normalizeOperatorSku } from '../lib/modelStorage';
 import { SIM_TYPE_OPTIONS } from '../lib/unitConstants';
 import { isValidImei, isAppleDevice } from '../lib/imeiValidation';
@@ -397,7 +397,11 @@ export default function SalesReportImport({ onClose }: Props) {
     unitsAddFailedDetails: Array<{ imei: string; orderNumber: string; reason: string }>;
     staleDeleted: number;
     staleDeleteFailed: number;
-  }>({ shsFulfilled: 0, shsPlaceholdersCleared: 0, shsAggregatesDecremented: 0, unitsMarkedSold: 0, salesLinked: 0, unitsAddedFromOrphanSales: 0, unitsAddFailed: 0, unitsAddFailedDetails: [], staleDeleted: 0, staleDeleteFailed: 0 });
+    /** No-IMEI sale rows (chargers, SIM pins, ...) whose SKU matched an
+     *  accessoryStock pool and were decremented. Every other no-IMEI row
+     *  (no matching SKU) is silently out of scope, same as before. */
+    accessoriesDecremented: number;
+  }>({ shsFulfilled: 0, shsPlaceholdersCleared: 0, shsAggregatesDecremented: 0, unitsMarkedSold: 0, salesLinked: 0, unitsAddedFromOrphanSales: 0, unitsAddFailed: 0, unitsAddFailedDetails: [], staleDeleted: 0, staleDeleteFailed: 0, accessoriesDecremented: 0 });
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [auditEdits, setAuditEdits] = useState<AuditCompletionRow[]>([]);
 
@@ -518,6 +522,19 @@ export default function SalesReportImport({ onClose }: Props) {
         );
         staleDeleted = res.deleted;
         staleFailed = res.failed;
+      }
+
+      // Accessory stock — no-IMEI sale rows (chargers, SIM pins, cables) whose
+      // SKU matches a pool consume it here. Scoped to preview.toCreate (brand
+      // new sale docs) only — a re-import of the same file re-lands the same
+      // sales as toUpdate, which must NOT decrement the pool a second time.
+      // Every other no-IMEI row (no matching SKU) is a silent no-op, same as
+      // before this feature existed.
+      let accessoriesDecremented = 0;
+      for (const s of preview.toCreate) {
+        if (s.voidedAt || (s.imei || '').trim() || !(s.sku || '').trim()) continue;
+        const res = await decrementAccessoryStock(s.sku!, s.quantity || 1);
+        if (res.matched) accessoriesDecremented++;
       }
 
       // Audit completion — make every incomplete sold record whole using the
@@ -646,6 +663,7 @@ export default function SalesReportImport({ onClose }: Props) {
         unitsAddFailedDetails,
         staleDeleted,
         staleDeleteFailed: staleFailed,
+        accessoriesDecremented,
       });
       setPhase('done');
     } catch (e: any) {
@@ -744,7 +762,8 @@ export default function SalesReportImport({ onClose }: Props) {
               && syncStats.unitsMarkedSold === 0
               && syncStats.salesLinked === 0
               && syncStats.unitsAddedFromOrphanSales === 0
-              && syncStats.unitsAddFailed === 0;
+              && syncStats.unitsAddFailed === 0
+              && syncStats.accessoriesDecremented === 0;
             if (noChanges) {
               return (
                 <div className="py-8 flex flex-col items-center gap-3 text-center">
@@ -776,6 +795,11 @@ export default function SalesReportImport({ onClose }: Props) {
                     SHS fulfilled · {syncStats.shsFulfilled} supplier-held unit{syncStats.shsFulfilled === 1 ? '' : 's'} shipped &amp; sold
                     {syncStats.shsAggregatesDecremented > 0 && <> · {syncStats.shsAggregatesDecremented} master row{syncStats.shsAggregatesDecremented === 1 ? '' : 's'} decremented</>}
                     {syncStats.shsPlaceholdersCleared > 0 && <> · {syncStats.shsPlaceholdersCleared} placeholder{syncStats.shsPlaceholdersCleared === 1 ? '' : 's'} cleared</>}
+                  </p>
+                )}
+                {syncStats.accessoriesDecremented > 0 && (
+                  <p className="text-[11px] font-mono text-indigo-700">
+                    Accessory stock updated · {syncStats.accessoriesDecremented} sale{syncStats.accessoriesDecremented === 1 ? '' : 's'} matched a SKU pool and decremented it
                   </p>
                 )}
                 {(syncStats.unitsMarkedSold > 0 || syncStats.salesLinked > 0) && (

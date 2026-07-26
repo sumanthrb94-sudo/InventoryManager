@@ -38,11 +38,28 @@ import {
 import { SimTypeSelectCompact } from './FormSelects';
 import { parseBrandModelStorage } from '../lib/modelStorage';
 import { GRADE_OPTIONS, STORAGE_OPTIONS } from '../lib/unitConstants';
-import { addUnitManual, ensureSupplier } from '../services';
+import { addUnitManual, ensureSupplier, upsertAccessoryStock } from '../services';
 import type { InventoryUnit, ListingSite } from '../types';
 import DeviceComboBox from './DeviceComboBox';
 
-type Mode = 'office' | 'shs';
+type Mode = 'office' | 'shs' | 'accessory';
+
+/** One line in the Accessories tab. Unlike device rows there is no
+ *  model/IMEI/grade/storage/colour — an accessory is a SKU + quantity pool,
+ *  never an individually-identified unit (see AccessoryStock in types.ts). */
+interface AccessoryRow {
+  id: string;
+  sku: string;
+  name: string;
+  supplierName: string;
+  quantity: string;
+  buyPrice: string;
+  notes: string;
+}
+
+function emptyAccessoryRow(supplierName = ''): AccessoryRow {
+  return { id: Math.random().toString(36).slice(2, 9), sku: '', name: '', supplierName, quantity: '', buyPrice: '', notes: '' };
+}
 
 interface Props {
   onClose: () => void;
@@ -160,6 +177,7 @@ export default function AddStockManualModal({ onClose, initialMode = 'office' }:
   const [mode, setMode]     = useState<Mode>(initialMode);
   const [date, setDate]     = useState(today());
   const [rows, setRows]     = useState<StockRow[]>([emptyRow()]);
+  const [accRows, setAccRows] = useState<AccessoryRow[]>([emptyAccessoryRow()]);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved]   = useState(false);
   const [error, setError]   = useState('');
@@ -220,6 +238,36 @@ export default function AddStockManualModal({ onClose, initialMode = 'office' }:
 
   const removeRow = (id: string) => setRows(rs => rs.length > 1 ? rs.filter(r => r.id !== id) : rs);
   const addRow    = () => setRows(rs => [...rs, emptyRow(lastSupplier)]);
+
+  // ── Accessories tab ─────────────────────────────────────────────────────────
+  const lastAccSupplier = accRows.filter(r => r.supplierName).at(-1)?.supplierName ?? '';
+  const updateAccRow = (id: string, patch: Partial<AccessoryRow>) =>
+    setAccRows(rs => rs.map(r => r.id === id ? { ...r, ...patch } : r));
+  const removeAccRow = (id: string) => setAccRows(rs => rs.length > 1 ? rs.filter(r => r.id !== id) : rs);
+  const addAccRow    = () => setAccRows(rs => [...rs, emptyAccessoryRow(lastAccSupplier)]);
+
+  const accValidation = useMemo(() => accRows.map(r => {
+    const skuOk = r.sku.trim().length > 0;
+    const nameOk = r.name.trim().length > 0;
+    const qty = parseInt(r.quantity, 10);
+    const quantityOk = Number.isFinite(qty) && qty > 0;
+    const bp = parseFloat(r.buyPrice);
+    const bpOk = Number.isFinite(bp) && bp >= 0;
+    return { skuOk, nameOk, quantityOk, bpOk, complete: skuOk && nameOk && quantityOk && bpOk };
+  }), [accRows]);
+
+  const accTotals = useMemo(() => {
+    let validLines = 0, quantity = 0, value = 0;
+    accRows.forEach((r, i) => {
+      if (accValidation[i].complete) {
+        validLines++;
+        const qty = parseInt(r.quantity, 10) || 0;
+        quantity += qty;
+        value += qty * (parseFloat(r.buyPrice) || 0);
+      }
+    });
+    return { validLines, quantity, value };
+  }, [accRows, accValidation]);
 
   // ── Validation per row ─────────────────────────────────────────────────────
   const validation: RowValidation[] = useMemo(() => rows.map(r => {
@@ -330,8 +378,49 @@ export default function AddStockManualModal({ onClose, initialMode = 'office' }:
   );
   const hasDuplicates = duplicateCount > 0;
 
+  // ── Save (accessories) ──────────────────────────────────────────────────────
+  async function handleSaveAccessories() {
+    const validIdxs: number[] = [];
+    accValidation.forEach((v, i) => { if (v.complete) validIdxs.push(i); });
+    if (!validIdxs.length) {
+      setError('Add at least one accessory line with SKU, name, quantity and BP filled in.');
+      return;
+    }
+    setSaving(true);
+    setError('');
+    try {
+      const failures: string[] = [];
+      let total = 0;
+      for (const i of validIdxs) {
+        const r = accRows[i];
+        const res = await upsertAccessoryStock({
+          sku: r.sku,
+          name: r.name,
+          supplierName: r.supplierName.trim() || undefined,
+          quantity: parseInt(r.quantity, 10) || 0,
+          buyPrice: parseFloat(r.buyPrice) || 0,
+          notes: r.notes.trim() || undefined,
+        });
+        if (!res.ok) { failures.push(`${r.sku}: ${res.error}`); continue; }
+        total++;
+      }
+      if (failures.length && total === 0) {
+        setError(failures[0]);
+        setSaving(false);
+        return;
+      }
+      if (failures.length) setError(`${total} saved · ${failures.length} rejected: ${failures[0]}`);
+      setSaved(true);
+      setTimeout(onClose, 900);
+    } catch (err: any) {
+      setError(err?.message || 'Save failed. Check connection.');
+      setSaving(false);
+    }
+  }
+
   // ── Save ───────────────────────────────────────────────────────────────────
   async function handleSave() {
+    if (mode === 'accessory') return handleSaveAccessories();
     // Defence-in-depth: even if the button somehow fires (race with the
     // store listener, devtools, etc.) refuse to proceed when any row has
     // a duplicate IMEI. Silent-skipping these previously closed the modal
@@ -503,13 +592,13 @@ export default function AddStockManualModal({ onClose, initialMode = 'office' }:
         {/* Header + mode tabs */}
         <div className="flex items-center justify-between px-5 py-3 border-b border-gray-100 flex-shrink-0">
           <div className="flex items-center gap-3">
-            <div className={`w-8 h-8 rounded-xl flex items-center justify-center text-white ${mode === 'shs' ? 'bg-amber-500' : 'bg-slate-900'}`}>
+            <div className={`w-8 h-8 rounded-xl flex items-center justify-center text-white ${mode === 'shs' ? 'bg-amber-500' : mode === 'accessory' ? 'bg-indigo-500' : 'bg-slate-900'}`}>
               {mode === 'shs' ? <Truck size={15} /> : <PackagePlus size={15} />}
             </div>
             <div>
               <h3 className="text-sm font-bold">Add Stock</h3>
               <p className="text-[9px] text-gray-400 font-mono">
-                Stock-In Page · {mode === 'office' ? 'Office Stock' : 'SHS Supplier Stock'}
+                Stock-In Page · {mode === 'office' ? 'Office Stock' : mode === 'shs' ? 'SHS Supplier Stock' : 'Accessories'}
               </p>
             </div>
           </div>
@@ -534,6 +623,13 @@ export default function AddStockManualModal({ onClose, initialMode = 'office' }:
             onClick={() => setMode('shs')}
             tone="amber"
           />
+          <ModeTab
+            label="Accessories"
+            sub="No IMEI ever — chargers, SIM pins, cables"
+            active={mode === 'accessory'}
+            onClick={() => setMode('accessory')}
+            tone="indigo"
+          />
         </div>
 
         {/* Top-level Stock In Date */}
@@ -544,38 +640,68 @@ export default function AddStockManualModal({ onClose, initialMode = 'office' }:
             className="border border-gray-200 rounded-lg px-3 py-1.5 text-[12px] font-mono focus:outline-none focus:border-black"
           />
           <p className="text-[9px] font-mono text-gray-400 ml-auto">
-            {rows.length} row{rows.length === 1 ? '' : 's'} · {totals.validUnits} ready · £{totals.value.toFixed(0)}
+            {mode === 'accessory'
+              ? `${accRows.length} line${accRows.length === 1 ? '' : 's'} · ${accTotals.validLines} ready · ${accTotals.quantity} units · £${accTotals.value.toFixed(0)}`
+              : `${rows.length} row${rows.length === 1 ? '' : 's'} · ${totals.validUnits} ready · £${totals.value.toFixed(0)}`}
           </p>
         </div>
 
         {/* Rows */}
         <div className="flex-1 overflow-y-auto px-5 pb-3">
-          <div className="space-y-2">
-            {rows.map((r, i) => (
-              <Row
-                key={r.id}
-                row={r}
-                index={i}
-                validation={validation[i]}
-                mode={mode}
-                supplierNames={supplierNames}
-                units={units}
-                models={models}
-                isAdmin={userIsAdmin}
-                onChange={patch => updateRow(r.id, patch)}
-                onRemove={() => removeRow(r.id)}
-                canRemove={rows.length > 1}
-              />
-            ))}
-          </div>
+          {mode === 'accessory' ? (
+            <>
+              <div className="space-y-2">
+                {accRows.map((r, i) => (
+                  <AccessoryRowInput
+                    key={r.id}
+                    row={r}
+                    index={i}
+                    validation={accValidation[i]}
+                    supplierNames={supplierNames}
+                    onChange={patch => updateAccRow(r.id, patch)}
+                    onRemove={() => removeAccRow(r.id)}
+                    canRemove={accRows.length > 1}
+                  />
+                ))}
+              </div>
+              <button
+                type="button"
+                onClick={addAccRow}
+                className="mt-3 w-full flex items-center justify-center gap-2 py-2 border-2 border-dashed border-gray-200 rounded-xl text-[10px] font-bold uppercase tracking-widest text-gray-500 hover:border-gray-400 hover:text-gray-700 transition-all"
+              >
+                <Plus size={12} /> Add Line
+              </button>
+            </>
+          ) : (
+            <>
+              <div className="space-y-2">
+                {rows.map((r, i) => (
+                  <Row
+                    key={r.id}
+                    row={r}
+                    index={i}
+                    validation={validation[i]}
+                    mode={mode}
+                    supplierNames={supplierNames}
+                    units={units}
+                    models={models}
+                    isAdmin={userIsAdmin}
+                    onChange={patch => updateRow(r.id, patch)}
+                    onRemove={() => removeRow(r.id)}
+                    canRemove={rows.length > 1}
+                  />
+                ))}
+              </div>
 
-          <button
-            type="button"
-            onClick={addRow}
-            className="mt-3 w-full flex items-center justify-center gap-2 py-2 border-2 border-dashed border-gray-200 rounded-xl text-[10px] font-bold uppercase tracking-widest text-gray-500 hover:border-gray-400 hover:text-gray-700 transition-all"
-          >
-            <Plus size={12} /> Add Row
-          </button>
+              <button
+                type="button"
+                onClick={addRow}
+                className="mt-3 w-full flex items-center justify-center gap-2 py-2 border-2 border-dashed border-gray-200 rounded-xl text-[10px] font-bold uppercase tracking-widest text-gray-500 hover:border-gray-400 hover:text-gray-700 transition-all"
+              >
+                <Plus size={12} /> Add Row
+              </button>
+            </>
+          )}
         </div>
 
         {/* Footer */}
@@ -587,12 +713,14 @@ export default function AddStockManualModal({ onClose, initialMode = 'office' }:
                 state while the success toast + SAVED! button are visible. */}
             {error
               ? <span className="text-rose-600 inline-flex items-center gap-1"><AlertCircle size={11} />{error}</span>
-              : hasDuplicates && !saved
+              : hasDuplicates && !saved && mode !== 'accessory'
                 ? <span className="text-rose-600 inline-flex items-center gap-1">
                     <AlertCircle size={11} />
                     {duplicateCount} duplicate IMEI row{duplicateCount === 1 ? '' : 's'} — fix or remove to enable save
                   </span>
-                : `${totals.validUnits} unit${totals.validUnits === 1 ? '' : 's'} ready · £${totals.value.toFixed(0)}`}
+                : mode === 'accessory'
+                  ? `${accTotals.validLines} line${accTotals.validLines === 1 ? '' : 's'} ready · ${accTotals.quantity} unit${accTotals.quantity === 1 ? '' : 's'} · £${accTotals.value.toFixed(0)}`
+                  : `${totals.validUnits} unit${totals.validUnits === 1 ? '' : 's'} ready · £${totals.value.toFixed(0)}`}
           </div>
           <div className="flex items-center gap-2 flex-shrink-0">
             <button onClick={onClose} type="button"
@@ -601,18 +729,20 @@ export default function AddStockManualModal({ onClose, initialMode = 'office' }:
             </button>
             <button
               onClick={handleSave}
-              disabled={!totals.validUnits || hasDuplicates || saving || saved}
-              title={hasDuplicates
+              disabled={mode === 'accessory' ? (!accTotals.validLines || saving || saved) : (!totals.validUnits || hasDuplicates || saving || saved)}
+              title={hasDuplicates && mode !== 'accessory'
                 ? `Resolve ${duplicateCount} duplicate IMEI row${duplicateCount === 1 ? '' : 's'} first`
                 : undefined}
               className={`px-4 py-2.5 text-white rounded-lg text-[10px] font-bold uppercase tracking-widest transition-all disabled:opacity-40 flex items-center gap-2
-                ${mode === 'shs' ? 'bg-amber-500 hover:bg-amber-600' : 'bg-slate-900 hover:bg-slate-800'}`}
+                ${mode === 'shs' ? 'bg-amber-500 hover:bg-amber-600' : mode === 'accessory' ? 'bg-indigo-500 hover:bg-indigo-600' : 'bg-slate-900 hover:bg-slate-800'}`}
             >
               {saved
                 ? <><CheckCircle2 size={12} /> Saved!</>
                 : saving
                   ? <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                  : <>Save {totals.validUnits} {mode === 'shs' ? 'SHS' : ''} unit{totals.validUnits === 1 ? '' : 's'}</>}
+                  : mode === 'accessory'
+                    ? <>Save {accTotals.validLines} accessory line{accTotals.validLines === 1 ? '' : 's'}</>
+                    : <>Save {totals.validUnits} {mode === 'shs' ? 'SHS' : ''} unit{totals.validUnits === 1 ? '' : 's'}</>}
             </button>
           </div>
         </div>
@@ -629,11 +759,13 @@ function ModeTab({
   sub: string;
   active: boolean;
   onClick: () => void;
-  tone: 'emerald' | 'amber';
+  tone: 'emerald' | 'amber' | 'indigo';
 }) {
   const activeCls = tone === 'amber'
     ? 'bg-amber-50 border-amber-300 text-amber-900'
-    : 'bg-emerald-50 border-emerald-300 text-emerald-900';
+    : tone === 'indigo'
+      ? 'bg-indigo-50 border-indigo-300 text-indigo-900'
+      : 'bg-emerald-50 border-emerald-300 text-emerald-900';
   return (
     <button
       onClick={onClick}
@@ -927,6 +1059,101 @@ function Row({
           className="w-full border border-gray-200 rounded-lg px-2.5 py-1.5 text-[12px] focus:outline-none focus:border-black"
         />
       </Cell>
+    </div>
+  );
+}
+
+// ── One line in the Accessories grid — SKU + quantity, no device fields ────
+function AccessoryRowInput({
+  row, index, validation, supplierNames, onChange, onRemove, canRemove,
+}: {
+  key?: React.Key;
+  row: AccessoryRow;
+  index: number;
+  validation: { skuOk: boolean; nameOk: boolean; quantityOk: boolean; bpOk: boolean; complete: boolean };
+  supplierNames: string[];
+  onChange: (patch: Partial<AccessoryRow>) => void;
+  onRemove: () => void;
+  canRemove: boolean;
+}) {
+  return (
+    <div className={`border rounded-2xl p-3 transition-all ${
+      validation.complete ? 'border-indigo-200 bg-indigo-50/30' : 'border-slate-200 bg-slate-50/40'
+    }`}>
+      <div className="flex items-center gap-2 mb-2">
+        <span className="text-[9px] font-mono text-gray-400 w-6 text-center flex-shrink-0">#{index + 1}</span>
+        <div className="flex-1" />
+        {validation.complete && <CheckCircle2 size={13} className="text-indigo-500 flex-shrink-0" />}
+        {canRemove && (
+          <button type="button" onClick={onRemove}
+            className="p-1.5 text-gray-300 hover:text-rose-500 hover:bg-rose-50 rounded transition-all flex-shrink-0"
+            title="Remove line">
+            <Trash2 size={12} />
+          </button>
+        )}
+      </div>
+      <div className="grid grid-cols-1 md:grid-cols-12 gap-2">
+        <Cell label="SKU *" colSpan={3}>
+          <input
+            value={row.sku}
+            onChange={e => onChange({ sku: e.target.value })}
+            placeholder="e.g. USB-C-20W"
+            className="w-full border border-gray-200 rounded-lg px-2.5 py-1.5 text-[12px] font-mono focus:outline-none focus:border-black"
+          />
+        </Cell>
+        <Cell label="Name *" colSpan={4}>
+          <input
+            value={row.name}
+            onChange={e => onChange({ name: e.target.value })}
+            placeholder="e.g. USB-C 20W Charger"
+            className="w-full border border-gray-200 rounded-lg px-2.5 py-1.5 text-[12px] focus:outline-none focus:border-black"
+          />
+        </Cell>
+        <Cell label="Supplier" colSpan={5}>
+          <input
+            list="add-stock-supplier-names"
+            value={row.supplierName}
+            onChange={e => onChange({ supplierName: e.target.value })}
+            placeholder="Type or pick (optional)"
+            className="w-full border border-gray-200 rounded-lg px-2.5 py-1.5 text-[12px] focus:outline-none focus:border-black"
+          />
+          <datalist id="add-stock-supplier-names">
+            {supplierNames.map(n => <option key={n} value={n} />)}
+          </datalist>
+        </Cell>
+      </div>
+      <div className="grid grid-cols-1 md:grid-cols-12 gap-2 mt-2">
+        <Cell label="Quantity *" colSpan={3} help={row.quantity && !validation.quantityOk ? 'Must be > 0' : ''} helpTone="error">
+          <input
+            type="number" min="1" step="1"
+            value={row.quantity}
+            onChange={e => onChange({ quantity: e.target.value })}
+            placeholder="e.g. 50"
+            className={`w-full border rounded-lg px-2.5 py-1.5 text-[12px] font-mono focus:outline-none ${
+              row.quantity && !validation.quantityOk ? 'border-rose-300 bg-rose-50' : 'border-gray-200 focus:border-black'
+            }`}
+          />
+        </Cell>
+        <Cell label="BP (£) each *" colSpan={3} help={row.buyPrice && !validation.bpOk ? 'Must be ≥ 0' : ''} helpTone="error">
+          <input
+            type="number" min="0" step="0.01"
+            value={row.buyPrice}
+            onChange={e => onChange({ buyPrice: e.target.value })}
+            placeholder="0.00"
+            className={`w-full border rounded-lg px-2.5 py-1.5 text-[12px] font-mono focus:outline-none ${
+              row.buyPrice && !validation.bpOk ? 'border-rose-300 bg-rose-50' : 'border-gray-200 focus:border-black'
+            }`}
+          />
+        </Cell>
+        <Cell label="Notes" colSpan={6}>
+          <input
+            value={row.notes}
+            onChange={e => onChange({ notes: e.target.value })}
+            placeholder="Optional"
+            className="w-full border border-gray-200 rounded-lg px-2.5 py-1.5 text-[12px] focus:outline-none focus:border-black"
+          />
+        </Cell>
+      </div>
     </div>
   );
 }

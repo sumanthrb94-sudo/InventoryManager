@@ -21,7 +21,7 @@
  */
 
 import { dbService } from '../lib/dbService';
-import type { DeviceCategory, InventoryAggregate, InventoryUnit, ListingSite, Sale, Notice } from '../types';
+import type { AccessoryStock, DeviceCategory, InventoryAggregate, InventoryUnit, ListingSite, Sale, Notice } from '../types';
 import { isAppleDevice, isValidImei, isValidImeiOrSerial } from '../lib/imeiValidation';
 import { parseBrandModelStorage } from '../lib/modelStorage';
 import { logInventoryEvent } from '../lib/inventoryEvents';
@@ -1177,4 +1177,89 @@ export async function reconcileShsAfterFulfilment(input: {
   }
 
   return { placeholdersRemoved, aggregatesDecremented };
+}
+
+// ---------------------------------------------------------------------------
+// Accessory stock — no-IMEI quantity pools (chargers, SIM pins, cables)
+// ---------------------------------------------------------------------------
+
+export interface UpsertAccessoryStockInput {
+  sku: string;
+  name: string;
+  supplierName?: string;
+  /** Quantity to ADD to the pool (not the resulting total) — same as
+   *  scanning in N more of an existing SKU at Add Stock. */
+  quantity: number;
+  buyPrice: number;
+  notes?: string;
+}
+
+export interface UpsertAccessoryStockResult {
+  ok: boolean;
+  id?: string;
+  quantity?: number;
+  error?: string;
+}
+
+/** Create a new accessory SKU pool, or top up an existing one by SKU
+ *  (doc id = slugified SKU, same convention as SHS's model+supplier slug
+ *  matching). Quantity ADDS to whatever's already there; BP/name/supplier
+ *  are refreshed to the latest values passed in. */
+export async function upsertAccessoryStock(input: UpsertAccessoryStockInput): Promise<UpsertAccessoryStockResult> {
+  const sku = (input.sku || '').trim();
+  if (!sku) return { ok: false, error: 'missing_sku' };
+  if (!(input.quantity > 0)) return { ok: false, error: 'invalid_quantity' };
+
+  const id = slugify(sku);
+  const existing = (await dbService.readAll('accessoryStock')).find((a: any) => a.id === id);
+  const supplierId = input.supplierName ? await ensureSupplier(input.supplierName) : existing?.supplierId;
+  const nextQuantity = (existing?.quantity ?? 0) + input.quantity;
+
+  const payload: Partial<AccessoryStock> = {
+    sku,
+    name: (input.name || existing?.name || sku).trim(),
+    supplierId,
+    supplierName: input.supplierName || existing?.supplierName,
+    quantity: nextQuantity,
+    buyPrice: input.buyPrice > 0 ? input.buyPrice : (existing?.buyPrice ?? 0),
+    notes: input.notes ?? existing?.notes,
+  };
+  await dbService.create('accessoryStock', id, payload);
+  await logInventoryEvent({
+    type: 'stock_adjusted',
+    message: existing
+      ? `Accessory "${sku}" topped up (+${input.quantity} → ${nextQuantity})`
+      : `Accessory "${sku}" added to stock (${input.quantity})`,
+  });
+  return { ok: true, id, quantity: nextQuantity };
+}
+
+export interface DecrementAccessoryStockResult {
+  /** True only when a matching SKU pool was found (whether or not it had
+   *  enough quantity) — false means "this SKU isn't accessory-tracked",
+   *  which is the normal case for every non-accessory sale. */
+  matched: boolean;
+  id?: string;
+  remaining?: number;
+}
+
+/** Consume `quantity` units from the accessory pool matching `sku`, floored
+ *  at 0 (a sale that outruns recorded stock still gets recorded — the pool
+ *  just can't go negative — the operator can top it up after the fact).
+ *  No-op (matched: false) when no pool exists for this SKU, which is the
+ *  ordinary outcome for every non-accessory no-IMEI sale row. */
+export async function decrementAccessoryStock(sku: string, quantity: number): Promise<DecrementAccessoryStockResult> {
+  const s = (sku || '').trim();
+  if (!s || !(quantity > 0)) return { matched: false };
+  const id = slugify(s);
+  const existing = (await dbService.readAll('accessoryStock')).find((a: any) => a.id === id);
+  if (!existing) return { matched: false };
+
+  const remaining = Math.max(0, (existing.quantity ?? 0) - quantity);
+  await dbService.update('accessoryStock', id, { quantity: remaining });
+  await logInventoryEvent({
+    type: 'stock_adjusted',
+    message: `Accessory "${existing.sku}" sold (-${quantity} → ${remaining})`,
+  });
+  return { matched: true, id, remaining };
 }

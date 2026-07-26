@@ -67,6 +67,8 @@ import {
   backfillImei,
   addSoldUnitFromSale,
   completeUnitBuyInfo,
+  upsertAccessoryStock,
+  decrementAccessoryStock,
 } from '../../services/inventoryService';
 import type { Sale } from '../../types';
 
@@ -769,5 +771,68 @@ describe('stockSource capture (office vs SHS)', () => {
     const r = await completeUnitBuyInfo({ unitId: 'u-src', model: 'Galaxy A32', supplierName: 'NANAK', buyPrice: 57, stockSource: 'shs' });
     expect(r.ok).toBe(true);
     expect(collections['inventoryUnits'].get('u-src').stockSource).toBe('shs');
+  });
+});
+
+// ───────────────────────────────────────────────────────────────────────────
+// Accessory stock — no-IMEI quantity pools (chargers, SIM pins, cables)
+// ───────────────────────────────────────────────────────────────────────────
+
+describe('upsertAccessoryStock', () => {
+  it('creates a new SKU pool, doc id = slugified sku', async () => {
+    const r = await upsertAccessoryStock({ sku: 'USB-C 20W', name: 'USB-C 20W Charger', quantity: 50, buyPrice: 3.5 });
+    expect(r.ok).toBe(true);
+    expect(r.id).toBe('usb_c_20w');
+    expect(r.quantity).toBe(50);
+    const doc = collections['accessoryStock'].get('usb_c_20w');
+    expect(doc.sku).toBe('USB-C 20W');
+    expect(doc.name).toBe('USB-C 20W Charger');
+    expect(doc.quantity).toBe(50);
+    expect(doc.buyPrice).toBe(3.5);
+  });
+
+  it('tops up an existing SKU pool by adding, not replacing, quantity', async () => {
+    await upsertAccessoryStock({ sku: 'SIM-PIN', name: 'SIM Eject Pin', quantity: 100, buyPrice: 0.1 });
+    const r = await upsertAccessoryStock({ sku: 'SIM-PIN', name: 'SIM Eject Pin', quantity: 25, buyPrice: 0.12 });
+    expect(r.ok).toBe(true);
+    expect(r.quantity).toBe(125);
+    const doc = collections['accessoryStock'].get('sim_pin');
+    expect(doc.quantity).toBe(125);
+    expect(doc.buyPrice).toBe(0.12); // latest BP wins
+  });
+
+  it('rejects a blank SKU', async () => {
+    const r = await upsertAccessoryStock({ sku: '', name: 'x', quantity: 1, buyPrice: 1 });
+    expect(r.ok).toBe(false);
+    expect(r.error).toBe('missing_sku');
+  });
+
+  it('rejects a non-positive quantity', async () => {
+    const r = await upsertAccessoryStock({ sku: 'X', name: 'x', quantity: 0, buyPrice: 1 });
+    expect(r.ok).toBe(false);
+    expect(r.error).toBe('invalid_quantity');
+  });
+});
+
+describe('decrementAccessoryStock', () => {
+  it('consumes quantity from a matching pool', async () => {
+    await upsertAccessoryStock({ sku: 'USB-C 20W', name: 'USB-C 20W Charger', quantity: 50, buyPrice: 3.5 });
+    const r = await decrementAccessoryStock('USB-C 20W', 5);
+    expect(r.matched).toBe(true);
+    expect(r.remaining).toBe(45);
+    expect(collections['accessoryStock'].get('usb_c_20w').quantity).toBe(45);
+  });
+
+  it('floors at 0 rather than going negative', async () => {
+    await upsertAccessoryStock({ sku: 'USB-C 20W', name: 'USB-C 20W Charger', quantity: 3, buyPrice: 3.5 });
+    const r = await decrementAccessoryStock('USB-C 20W', 10);
+    expect(r.matched).toBe(true);
+    expect(r.remaining).toBe(0);
+  });
+
+  it('is a no-op (matched: false) when no pool exists for the SKU — the ordinary case for every non-accessory sale', async () => {
+    const r = await decrementAccessoryStock('SG-A17-128GB-OB', 1);
+    expect(r.matched).toBe(false);
+    expect(r.remaining).toBeUndefined();
   });
 });

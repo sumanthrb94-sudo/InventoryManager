@@ -461,6 +461,28 @@ export interface InventoryAggregate {
 }
 
 /**
+ * AccessoryStock — quantity-pool inventory for items that never carry an
+ * IMEI or serial at all (chargers, SIM eject pins, cables). Unlike
+ * InventoryUnit (one doc per physical, individually-identified device),
+ * one AccessoryStock doc represents an entire SKU: `quantity` units are
+ * added at Add Stock and decremented by a sale's own `quantity` when a
+ * matching no-IMEI sale row is imported. Doc id = slugified `sku`.
+ */
+export interface AccessoryStock {
+  id: string;
+  sku: string;
+  name: string;           // display name, e.g. "USB-C 20W Charger"
+  supplierId?: string;
+  supplierName?: string;
+  quantity: number;       // units currently in stock
+  buyPrice: number;       // BP per unit
+  notes?: string;
+  ownerId: string;
+  createdAt: any;
+  updatedAt?: any;
+}
+
+/**
  * SupplierWhatsappUpdate — one line from the SUPPLIER WHATSAPP UPDATES sheet,
  * captured as a free-form supplier feed.
  */

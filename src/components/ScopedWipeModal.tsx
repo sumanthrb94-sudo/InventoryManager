@@ -21,7 +21,7 @@ interface Props {
  */
 export default function ScopedWipeModal({ scope, onClose }: Props) {
   const meta = WIPE_SCOPES[scope];
-  const { units, aggregates, sales } = useInventoryStore();
+  const { units, aggregates, sales, accessoryStock } = useInventoryStore();
 
   const [confirmed, setConfirmed] = useState(false);
   const [running,   setRunning]   = useState(false);
@@ -32,8 +32,8 @@ export default function ScopedWipeModal({ scope, onClose }: Props) {
   // Preview plan — built without events (they're only fetched at run
   // time), so the breakdown shows the buckets the operator can see.
   const preview = useMemo(
-    () => buildWipePlan(scope, { units, aggregates, sales }),
-    [scope, units, aggregates, sales],
+    () => buildWipePlan(scope, { units, aggregates, sales, accessoryStock }),
+    [scope, units, aggregates, sales, accessoryStock],
   );
 
   const addLog = (msg: string) => setLog(prev => [...prev, msg]);
@@ -52,7 +52,7 @@ export default function ScopedWipeModal({ scope, onClose }: Props) {
         }
       }
 
-      const plan = buildWipePlan(scope, { units, aggregates, sales, events });
+      const plan = buildWipePlan(scope, { units, aggregates, sales, accessoryStock, events });
       if (plan.total === 0) {
         addLog('Nothing to clear — already empty.');
         setDone(true);

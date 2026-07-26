@@ -18,7 +18,7 @@
  * unit would destroy stock that is physically back on the shelf, so the
  * wipe strips the return markers and leaves the unit in place.
  */
-import type { InventoryUnit, InventoryAggregate, InventoryEvent, Sale } from '../types';
+import type { InventoryUnit, InventoryAggregate, InventoryEvent, Sale, AccessoryStock } from '../types';
 
 export type WipeScopeId = 'office' | 'shs' | 'sales' | 'returns';
 
@@ -39,6 +39,9 @@ export interface WipeSource {
   units: InventoryUnit[];
   aggregates: InventoryAggregate[];
   sales: Sale[];
+  /** No-IMEI accessory quantity pools — always office-side stock (there is
+   *  no SHS-accessory concept), so the 'office' scope sweeps these too. */
+  accessoryStock?: AccessoryStock[];
   /** Optional — when supplied, events belonging to deleted units are
    *  swept too so the audit trail doesn't outlive its unit. */
   events?: InventoryEvent[];
@@ -193,6 +196,10 @@ export function buildWipePlan(scope: WipeScopeId, src: WipeSource): WipePlan {
     for (const a of aggs) deletes.push({ collection: 'inventoryAggregates', id: a.id });
     breakdown.push({ label: 'Master-file rows', count: aggs.length });
     pushEvents(deletes, breakdown, src.events, units);
+    if (scope === 'office' && src.accessoryStock?.length) {
+      for (const a of src.accessoryStock) deletes.push({ collection: 'accessoryStock', id: a.id });
+      breakdown.push({ label: 'Accessory SKU pools', count: src.accessoryStock.length });
+    }
   }
 
   if (scope === 'sales') {

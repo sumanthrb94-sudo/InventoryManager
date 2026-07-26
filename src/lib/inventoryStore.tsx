@@ -5,6 +5,7 @@ import {
   Supplier,
   Sale,
   InventoryAggregate,
+  AccessoryStock,
   SupplierWhatsappUpdate,
   ImportBatch,
 } from '../types';
@@ -18,6 +19,9 @@ interface Store {
   // ── NEW master-file feeds ───────────────────────
   sales: Sale[];
   aggregates: InventoryAggregate[];
+  /** No-IMEI accessory quantity pools (chargers, SIM pins, cables) — one
+   *  doc per SKU, never per physical unit. See AccessoryStock in types.ts. */
+  accessoryStock: AccessoryStock[];
   whatsappFeed: SupplierWhatsappUpdate[];
   importBatches: ImportBatch[];
   /** Admin-curated model catalog seeds — one doc per row in the
@@ -33,6 +37,7 @@ const Ctx = createContext<Store>({
   suppliers: [],
   sales: [],
   aggregates: [],
+  accessoryStock: [],
   whatsappFeed: [],
   importBatches: [],
   models: [],
@@ -43,6 +48,7 @@ export function InventoryStoreProvider({ children }: { children: React.ReactNode
   const [suppliers, setSuppliers]         = useState<Supplier[]>([]);
   const [sales, setSales]                 = useState<Sale[]>([]);
   const [aggregates, setAggregates]       = useState<InventoryAggregate[]>([]);
+  const [accessoryStock, setAccessoryStock] = useState<AccessoryStock[]>([]);
   const [whatsappFeed, setWhatsappFeed]   = useState<SupplierWhatsappUpdate[]>([]);
   const [importBatches, setImportBatches] = useState<ImportBatch[]>([]);
   const [models, setModels]               = useState<ModelSeed[]>([]);
@@ -108,6 +114,9 @@ export function InventoryStoreProvider({ children }: { children: React.ReactNode
       setAggregates(data);
       if (!aggregatesReady) { aggregatesReady = true; markLoaded(); }
     });
+    const acc = dbService.subscribeToCollection('accessoryStock', (data: any[]) => {
+      setAccessoryStock(data);
+    });
     const wa = dbService.subscribeToCollection('supplierWhatsappUpdates', data => {
       setWhatsappFeed(data);
     });
@@ -124,6 +133,7 @@ export function InventoryStoreProvider({ children }: { children: React.ReactNode
       s();
       sl();
       ag();
+      acc();
       wa();
       ib();
       md();
@@ -138,6 +148,7 @@ export function InventoryStoreProvider({ children }: { children: React.ReactNode
         suppliers,
         sales,
         aggregates,
+        accessoryStock,
         whatsappFeed,
         importBatches,
         models,

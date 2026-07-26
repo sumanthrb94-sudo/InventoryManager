@@ -19,7 +19,7 @@
  */
 import React, { useEffect, useMemo, useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { SlidersHorizontal, Plus, Trash2, Edit3, X, AlertCircle, CheckCircle2, Database, Users, Wand2 } from 'lucide-react';
+import { SlidersHorizontal, Plus, Trash2, Edit3, X, AlertCircle, CheckCircle2, Database, Users, Wand2, Package } from 'lucide-react';
 import { dbService } from '../lib/dbService';
 import { useIsAdmin } from '../lib/useIsAdmin';
 import { auth } from '../lib/firebase';
@@ -360,6 +360,9 @@ export default function ConfigurationPanel() {
       <GradeCasingPanel />
       <SkuReconciliation />
 
+      {/* ── Accessory stock (no-IMEI quantity pools) ──────────────────────── */}
+      <AccessoryStockPanel />
+
       {/* ── Suppliers (embedded existing components) ─────────────────────── */}
       <div className="bg-white border border-slate-200 rounded-3xl shadow-sm overflow-hidden">
         <div className="flex items-center gap-3 px-5 py-4 border-b border-slate-100">
@@ -465,6 +468,80 @@ function GradeCasingPanel() {
               <Wand2 size={11} /> {running ? 'Normalising…' : `Normalise ${drift.patches.length} unit${drift.patches.length === 1 ? '' : 's'}`}
             </button>
           </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * AccessoryStockPanel — read-only view of the no-IMEI quantity pools (see
+ * AccessoryStock in types.ts). New pools / top-ups are added via the
+ * "Accessories" tab in Add Stock; this panel is where an admin sees current
+ * levels and can retire a SKU that's no longer stocked.
+ */
+function AccessoryStockPanel() {
+  const { accessoryStock } = useInventoryStore();
+  const sorted = useMemo(
+    () => [...accessoryStock].sort((a, b) => a.sku.localeCompare(b.sku)),
+    [accessoryStock],
+  );
+
+  const removeSku = async (id: string, sku: string) => {
+    const sure = window.confirm(`Remove accessory SKU "${sku}" from stock? This deletes the pool entirely — use it only when the SKU is discontinued.`);
+    if (!sure) return;
+    await dbService.delete('accessoryStock', id);
+  };
+
+  return (
+    <div className="bg-white border border-slate-200 rounded-3xl shadow-sm overflow-hidden">
+      <div className="flex items-center gap-3 px-5 py-4 border-b border-slate-100">
+        <div className="w-8 h-8 rounded-xl bg-indigo-100 text-indigo-700 flex items-center justify-center">
+          <Package size={14} />
+        </div>
+        <div className="min-w-0">
+          <h3 className="text-[13px] font-bold tracking-tight">Accessory Stock</h3>
+          <p className="text-[10px] font-mono text-slate-400">
+            No-IMEI quantity pools (chargers, SIM pins, cables) — add / top up from Add Stock → Accessories
+          </p>
+        </div>
+      </div>
+      <div className="px-5 py-4">
+        {sorted.length === 0 ? (
+          <p className="text-[11px] font-mono text-slate-400">No accessory SKUs yet.</p>
+        ) : (
+          <table className="w-full text-[11px]">
+            <thead>
+              <tr className="text-left text-[9px] font-bold uppercase tracking-widest text-slate-400 border-b border-slate-100">
+                <th className="pb-2 pr-3">SKU</th>
+                <th className="pb-2 pr-3">Name</th>
+                <th className="pb-2 pr-3">Supplier</th>
+                <th className="pb-2 pr-3 text-right">Qty</th>
+                <th className="pb-2 pr-3 text-right">BP</th>
+                <th className="pb-2 w-8" />
+              </tr>
+            </thead>
+            <tbody>
+              {sorted.map(a => (
+                <tr key={a.id} className="border-b border-slate-50 last:border-0">
+                  <td className="py-1.5 pr-3 font-mono">{a.sku}</td>
+                  <td className="py-1.5 pr-3">{a.name}</td>
+                  <td className="py-1.5 pr-3 text-slate-500">{a.supplierName || '—'}</td>
+                  <td className={`py-1.5 pr-3 text-right font-mono font-bold ${a.quantity === 0 ? 'text-rose-500' : 'text-slate-700'}`}>{a.quantity}</td>
+                  <td className="py-1.5 pr-3 text-right font-mono text-slate-500">£{(a.buyPrice ?? 0).toFixed(2)}</td>
+                  <td className="py-1.5">
+                    <button
+                      onClick={() => removeSku(a.id, a.sku)}
+                      className="p-1 text-gray-300 hover:text-rose-500 hover:bg-rose-50 rounded transition-all"
+                      title="Remove SKU"
+                    >
+                      <Trash2 size={11} />
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         )}
       </div>
     </div>

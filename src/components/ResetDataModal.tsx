@@ -16,6 +16,7 @@ const PROTECTED_COLLECTIONS = ['notices', 'models'] as const;
 const COLLECTIONS = [
   'inventoryUnits',
   'inventoryAggregates',
+  'accessoryStock',
   'sales',
   'suppliers',
   'inventoryEvents',

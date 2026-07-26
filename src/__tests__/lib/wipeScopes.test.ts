@@ -7,7 +7,7 @@ import {
   isSoldUnit,
   isReturnUnit,
 } from '../../lib/wipeScopes';
-import type { InventoryUnit, InventoryAggregate, InventoryEvent, Sale } from '../../types';
+import type { InventoryUnit, InventoryAggregate, InventoryEvent, Sale, AccessoryStock } from '../../types';
 
 const unit = (over: Partial<InventoryUnit>): InventoryUnit => ({
   id: 'u1',
@@ -32,6 +32,17 @@ const agg = (over: Partial<InventoryAggregate>): InventoryAggregate => ({
 
 const sale = (id: string): Sale => ({ id, ownerId: 'shared' } as Sale);
 
+const accessory = (over: Partial<AccessoryStock>): AccessoryStock => ({
+  id: 'acc1',
+  sku: 'USB-C-20W',
+  name: 'USB-C 20W Charger',
+  quantity: 10,
+  buyPrice: 3.5,
+  ownerId: 'shared',
+  createdAt: '2026-01-01',
+  ...over,
+} as AccessoryStock);
+
 const SOURCE = () => ({
   units: [
     unit({ id: 'office-1', status: 'available' }),
@@ -47,6 +58,7 @@ const SOURCE = () => ({
     agg({ id: 'agg-shs', quantityText: 'SHS' }),
   ],
   sales: [sale('s1'), sale('s2')],
+  accessoryStock: [accessory({ id: 'acc1' }), accessory({ id: 'acc2', sku: 'SIM-PIN' })],
 });
 
 const idsFor = (plan: ReturnType<typeof buildWipePlan>, collection: string) =>
@@ -80,17 +92,25 @@ describe('wipeScopes predicates', () => {
 });
 
 describe('buildWipePlan', () => {
-  it('office scope deletes office units and non-SHS master rows only', () => {
+  it('office scope deletes office units, non-SHS master rows, and accessory SKU pools', () => {
     const plan = buildWipePlan('office', SOURCE());
     expect(idsFor(plan, 'inventoryUnits')).toEqual(['office-1', 'office-2']);
     expect(idsFor(plan, 'inventoryAggregates')).toEqual(['agg-office', 'agg-office-zero']);
+    expect(idsFor(plan, 'accessoryStock')).toEqual(['acc1', 'acc2']);
     expect(plan.patches).toHaveLength(0);
   });
 
-  it('shs scope deletes incoming units and SHS master rows only', () => {
+  it('shs scope deletes incoming units and SHS master rows only — accessory pools are office-scoped', () => {
     const plan = buildWipePlan('shs', SOURCE());
     expect(idsFor(plan, 'inventoryUnits')).toEqual(['shs-1', 'shs_placeholder']);
     expect(idsFor(plan, 'inventoryAggregates')).toEqual(['agg-shs']);
+    expect(idsFor(plan, 'accessoryStock')).toEqual([]);
+  });
+
+  it('omitting accessoryStock from the source leaves the office plan unaffected', () => {
+    const { accessoryStock, ...rest } = SOURCE();
+    const plan = buildWipePlan('office', rest);
+    expect(idsFor(plan, 'accessoryStock')).toEqual([]);
   });
 
   it('sales scope deletes sale docs plus in-app sold units', () => {

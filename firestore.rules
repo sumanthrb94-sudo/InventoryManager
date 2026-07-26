@@ -162,6 +162,15 @@ service cloud.firestore {
       allow update: if isSignedIn() && staysShared();
       allow delete: if isAdmin();
     }
+    // accessoryStock: quantity-pool stock for no-IMEI items (chargers, SIM
+    // pins). Same shape as inventoryAggregates — a shared rollup doc per
+    // SKU, topped up at Add Stock and decremented by the sales importer.
+    match /accessoryStock/{skuId} {
+      allow read:   if isSignedIn();
+      allow create: if isSignedIn() && ownsShared();
+      allow update: if isSignedIn() && staysShared();
+      allow delete: if isAdmin();
+    }
     match /supplierWhatsappUpdates/{updateId} {
       allow read:   if isSignedIn();
       allow create: if isSignedIn() && ownsShared();

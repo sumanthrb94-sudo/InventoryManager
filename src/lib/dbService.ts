@@ -27,6 +27,7 @@ const COL: Record<string, string> = {
   importBatches:           'importBatches',
   sales:                   'sales',
   inventoryAggregates:     'inventoryAggregates',
+  accessoryStock:          'accessoryStock',
   marketplaceFees:         'marketplaceFees',
   supplierWhatsappUpdates: 'supplierWhatsappUpdates',
 };
