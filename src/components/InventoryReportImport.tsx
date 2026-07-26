@@ -34,6 +34,7 @@ import { parseBrandModelStorage } from '../lib/modelStorage';
 import { buildCatalogIndex, canonicaliseModel } from '../lib/modelReconciliation';
 import { normaliseGrade, normaliseSimType } from '../lib/unitConstants';
 import { parseStockWorkbook, type ParsedRow } from '../lib/inventoryImportParse';
+import { isOfficeStockUnit, isShsUnit } from '../lib/wipeScopes';
 import TemplateDownload, { INVENTORY_TEMPLATES } from './TemplateDownload';
 import { auth } from '../lib/firebase';
 
@@ -44,13 +45,30 @@ type Phase = 'upload' | 'preview' | 'loading' | 'done';
 interface PreviewBuckets {
   total: number;
   toCreate: ParsedRow[];   // imei not in DB
-  toUpdate: ParsedRow[];   // imei found in DB
+  toUpdate: ParsedRow[];   // imei found in DB, in the SAME bucket the row declares
   invalid:  ParsedRow[];   // missing required / invalid imei / dup-in-file
   newSuppliers: string[];  // distinct supplier names not in DB
   duplicates: { imei: string; rows: number[] }[];
+  // IMEI matches an existing unit, but that unit lives in a different bucket
+  // than this row declares (an OFFICE row hitting an SHS unit, or an SHS row
+  // hitting an already-sold one). Neither created nor updated — updating
+  // would rewrite a unit this report has no business touching, and creating
+  // would mint a second unit for a real IMEI that already exists. The
+  // operator resolves these through the flow that actually owns that bucket
+  // (SHS Receive, the sales-orphan completion, etc.), not a bulk re-upload.
+  bucketConflicts: { row: ParsedRow; existingBucket: string }[];
 }
 
-function buildPreview(
+/** Coarse bucket label for a unit already in the database, matching the
+ *  same taxonomy the scoped Wipe buttons use (wipeScopes.ts) — so "office"
+ *  and "shs" here mean exactly what they mean everywhere else in the app. */
+function existingUnitBucket(u: InventoryUnit): string {
+  if (isOfficeStockUnit(u)) return 'office';
+  if (isShsUnit(u)) return 'shs';
+  return u.status || 'other';
+}
+
+export function buildPreview(
   parsed: ParsedRow[],
   existingUnits: InventoryUnit[],
   existingSuppliers: Supplier[],
@@ -112,6 +130,7 @@ function buildPreview(
   const toUpdate: ParsedRow[] = [];
   const invalid:  ParsedRow[] = [];
   const newSuppliers = new Set<string>();
+  const bucketConflicts: PreviewBuckets['bucketConflicts'] = [];
 
   for (const r of parsed) {
     const dupInFile = (seenInFile.get(r.imei) || []).length > 1 && firstSeen.has(r.imei);
@@ -120,15 +139,25 @@ function buildPreview(
     if (r.errors.length > 0) { invalid.push(r); continue; }
     if (dupInFile)            { invalid.push({ ...r, errors: [`Duplicate IMEI in file (also row ${seenInFile.get(r.imei)?.[0]})`] }); continue; }
 
+    let matched = false;
     if (r.imei) {
-      if (imeiToUnit.has(r.imei)) toUpdate.push(r);
-      else                        toCreate.push(r);
+      const existing = imeiToUnit.get(r.imei);
+      if (existing) {
+        matched = true;
+        const rowBucket = r.stockType === 'shs' ? 'shs' : 'office';
+        const existingBucket = existingUnitBucket(existing);
+        if (existingBucket === rowBucket) toUpdate.push(r);
+        else                              bucketConflicts.push({ row: r, existingBucket });
+      }
     } else {
       // IMEI-less SHS: recognise the same holding line on a re-upload.
+      // Always matches within the SHS bucket by construction — shsToUnit
+      // only ever holds status='incoming' units — so no cross-bucket check
+      // is needed here.
       const key = shsKeyOf(r.model, r.supplier, r.buyPrice, r.dateIn);
-      if (shsToUnit.has(key)) toUpdate.push(r);
-      else                    toCreate.push(r);
+      if (shsToUnit.has(key)) { matched = true; toUpdate.push(r); }
     }
+    if (!matched) toCreate.push(r);
 
     if (r.supplier && !supplierNames.has(r.supplier.toLowerCase())) {
       newSuppliers.add(r.supplier);
@@ -140,6 +169,7 @@ function buildPreview(
     toCreate, toUpdate, invalid,
     newSuppliers: Array.from(newSuppliers).sort(),
     duplicates,
+    bucketConflicts,
   };
 }
 
@@ -205,7 +235,7 @@ export default function InventoryReportImport({ onClose }: Props) {
       created:        preview.toCreate.length,
       updated:        preview.toUpdate.length,
       suppliersAdded: preview.newSuppliers.length,
-      skipped:        preview.invalid.length,
+      skipped:        preview.invalid.length + preview.bucketConflicts.length,
     };
     setPhase('loading');
     setProgress({ done: 0, total: preview.toCreate.length + preview.toUpdate.length });
@@ -633,6 +663,28 @@ function PreviewPhase({
         </DetailPanel>
       )}
 
+      {preview.bucketConflicts.length > 0 && (
+        <DetailPanel title={`Skipped · already exists in a different bucket · ${preview.bucketConflicts.length}`} tone="slate">
+          <p className="text-[10px] font-mono text-slate-500 leading-relaxed mb-1.5">
+            This IMEI already exists as a unit in a different stock bucket than
+            this row declares — neither created (that would duplicate a real
+            IMEI) nor updated (that would rewrite a bucket this report doesn't
+            own). Use SHS Receive, the sales-orphan completion, or Add Stock to
+            change that unit directly.
+          </p>
+          <ul className="space-y-1 text-[10px] font-mono text-slate-700">
+            {preview.bucketConflicts.slice(0, 15).map(({ row: r, existingBucket }) => (
+              <li key={r.rowNum}>
+                Row {r.rowNum} · {r.model} · IMEI {r.imei} — file says {r.stockType === 'shs' ? 'SHS' : 'office'}, already exists as {existingBucket}
+              </li>
+            ))}
+            {preview.bucketConflicts.length > 15 && (
+              <li className="text-slate-500">+{preview.bucketConflicts.length - 15} more</li>
+            )}
+          </ul>
+        </DetailPanel>
+      )}
+
       {error && (
         <div className="flex items-start gap-2 bg-rose-50 border border-rose-200 rounded-xl px-3 py-2 text-[11px] text-rose-700">
           <AlertTriangle size={14} className="flex-shrink-0 mt-0.5" />
@@ -671,12 +723,13 @@ function DetailPanel({
   title, tone, children,
 }: {
   title: string;
-  tone: 'rose' | 'amber' | 'blue';
+  tone: 'rose' | 'amber' | 'blue' | 'slate';
   children: React.ReactNode;
 }) {
   const toneCls = (
     tone === 'rose'  ? 'bg-rose-50/60 border-rose-200' :
     tone === 'amber' ? 'bg-amber-50/60 border-amber-200' :
+    tone === 'slate' ? 'bg-slate-50/60 border-slate-200' :
                        'bg-blue-50/60 border-blue-200'
   );
   return (
