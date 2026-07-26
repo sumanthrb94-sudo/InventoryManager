@@ -31,6 +31,7 @@ import { addSoldUnitFromSale, completeUnitBuyInfo, reconcileShsAfterFulfilment }
 import { normalizeOperatorSku } from '../lib/modelStorage';
 import { auth, isAdmin } from '../lib/firebase';
 import DeviceComboBox from './DeviceComboBox';
+import { buildSupplierIndex, resolveSupplier } from '../lib/supplierIdentity';
 import TemplateDownload, { SALES_TEMPLATES } from './TemplateDownload';
 
 interface Props { onClose: () => void; }
@@ -340,7 +341,7 @@ export function buildPreview(
 }
 
 export default function SalesReportImport({ onClose }: Props) {
-  const { sales, units, models } = useInventoryStore();
+  const { sales, units, models, suppliers } = useInventoryStore();
   const userIsAdmin = isAdmin(auth.currentUser);
   const [phase, setPhase] = useState<Phase>('upload');
   const [parsed, setParsed] = useState<ParsedSales | null>(null);
@@ -445,11 +446,27 @@ export default function SalesReportImport({ onClose }: Props) {
       updated: preview.toUpdate.length,
       skipped: preview.invalid.length,
     });
-    const entries = [...preview.toCreate, ...preview.toUpdate].map(s => ({
+    // Resolve every sale's supplier NAME to a supplier record before writing.
+    //
+    // The parser only ever produced supplierName — the Supplier column as
+    // typed. Nothing downstream could group sales with the units that came
+    // from the same supplier, because units key on supplierId. Analytics
+    // grouped by `supplierId || 'unknown'` and dropped EVERY imported sale
+    // into one catch-all row wearing the first sale's supplier name.
+    //
+    // Resolving here fixes it at the source rather than per screen: every
+    // consumer, present and future, gets the id. Sales whose supplier isn't
+    // in the catalog keep name-only attribution, which the display-side
+    // resolver still handles.
+    const supplierIndex = buildSupplierIndex(suppliers);
+    const entries = [...preview.toCreate, ...preview.toUpdate].map(s => {
+      const resolved = resolveSupplier(s, supplierIndex);
+      return {
       collection: 'sales',
       id: s.id,
       data: {
         ...s,
+        ...(resolved.known ? { supplierId: resolved.key } : {}),
         importBatchId: `inv-${Date.now()}`,
         sourceFile: fileName,
         importedAt: new Date().toISOString(),
@@ -461,7 +478,8 @@ export default function SalesReportImport({ onClose }: Props) {
         // ownership for sales.
         ownerId: 'shared',
       },
-    }));
+    };
+    });
     setProgress({ done: 0, total: entries.length });
     try {
       await dbService.bulkCreate(entries, (done, total) => setProgress({ done, total }));

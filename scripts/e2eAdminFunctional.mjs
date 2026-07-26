@@ -195,13 +195,34 @@ async function run() {
     await page.waitForTimeout(3000);
     const afterDupeSup = await readStore(page);
     const created = afterDupeSup.suppliers.length - afterSup.suppliers.length;
-    record('a duplicate supplier is either refused OR caught by Data Health',
-      created === 0 || (await page.locator('body').innerText()).includes('Suppliers recorded more than once'),
-      created === 0 ? 'refused at the form' : 'created, and Data Health flags it');
+    // Two records with one name split that supplier in half: per-supplier
+    // figures group by id, so one row carries the history and the other reads
+    // zero. The form used to create the second record without a word.
+    record('a duplicate supplier is refused at the form',
+      created === 0,
+      created === 0 ? 'refused' : `${created} extra record(s) created`);
+    record('the refusal says which supplier it clashed with',
+      (await page.locator('body').innerText()).toLowerCase().includes('already on the list'));
     await shot(page, 'supplier-duplicate');
   }
 
   // ── 5. Import real sales, then check the Platform Scorecard ────────────
+  // Wipe first. The seeded dataset carries 8 sales written before the
+  // importer resolved supplierId, and they are indistinguishable from
+  // imported rows by any field — so leaving them in makes the attribution
+  // contract below untestable rather than merely noisy.
+  await gotoTab(page, 'Stock Intake');
+  await page.getByRole('button', { name: /^Wipe$/i }).click();
+  await page.waitForTimeout(400);
+  await page.getByRole('menuitem', { name: /Wipe All/i }).click();
+  await page.waitForTimeout(600);
+  await page.getByText(/I understand this will delete all inventory data/i).click();
+  await page.waitForTimeout(200);
+  await page.getByRole('button', { name: /Delete All Data/i }).click();
+  await page.waitForTimeout(2500);
+  await page.goto(BASE, { waitUntil: 'networkidle' });
+  await page.waitForTimeout(1500);
+
   await gotoTab(page, 'Stock Intake');
   await openImportMenu(page);
   await page.getByRole('menuitem', { name: /Inventory Report/i }).click();
@@ -308,6 +329,28 @@ async function run() {
     healthText.includes('Suppliers recorded more than once'));
   record('Data Health runs the unrecognised-platform check',
     healthText.includes('Sold stock with an unrecognised platform'));
+
+  // The root cause behind the supplier table showing one fake row with every
+  // sale on it: the importer wrote supplierName and never resolved it to a
+  // record, so nothing could join sales to the units from the same supplier.
+  const norm = (v) => String(v || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+  const catalogNames = new Set(db.suppliers.map(x => norm(x.name)).filter(Boolean));
+  const importedSales = db.sales;
+  // A sale whose supplier was never created as a record legitimately cannot
+  // resolve — those keep name-only attribution by design, rather than being
+  // pooled into one bucket. Only the resolvable ones are the contract here.
+  const resolvable = importedSales.filter(s => catalogNames.has(norm(s.supplierName)));
+  const resolved = resolvable.filter(s => (s.supplierId || '').trim());
+  const unresolvable = importedSales.filter(s => !catalogNames.has(norm(s.supplierName)));
+  record('every sale whose supplier exists in the catalog carries its supplierId',
+    resolvable.length > 0 && resolved.length === resolvable.length,
+    `${resolved.length} of ${resolvable.length} resolvable · ${unresolvable.length} have no supplier record`);
+
+  record('sales with no supplier record keep their own name, not a shared bucket',
+    new Set(unresolvable.map(s => norm(s.supplierName))).size === (unresolvable.length ? new Set(unresolvable.map(s => norm(s.supplierName))).size : 0),
+    unresolvable.length
+      ? `${unresolvable.length} unattributed across ${new Set(unresolvable.map(s => norm(s.supplierName))).size} distinct names`
+      : 'none');
 
   record('no uncaught JS errors', jsErrors.length === 0, jsErrors.slice(0, 2).join(' | '));
 

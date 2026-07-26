@@ -9,6 +9,7 @@ import { formatIMEI } from '../lib/imeiUtils';
 import { parseBrandModelStorage } from '../lib/modelStorage';
 import CopyImei from './CopyImei';
 import { useIsAdmin } from '../lib/useIsAdmin';
+import { normaliseSupplierName } from '../lib/supplierIdentity';
 
 /** Mirror of the deriveSku helper in StockInPage — prefer pre-split fields,
  *  fall back to parsing legacy single-string `model` at runtime. */
@@ -37,6 +38,7 @@ export default function Suppliers() {
   const isAdminUser               = useIsAdmin();
   const [selected, setSelected]   = useState<string | null>(null);
   const [isAdding, setIsAdding]   = useState(false);
+  const [addError, setAddError]   = useState('');
   const [newSupplier, setNewSupplier] = useState({
     name: '',
     portal: 'Direct',
@@ -54,8 +56,24 @@ export default function Suppliers() {
   const [expandedGroup, setExpandedGroup] = useState<string | null>(null);
   const HIST_PAGE_SIZE = 20;
 
+  /** Name already on the books, ignoring case, spacing and punctuation. */
+  const duplicateOf = (name: string) => {
+    const key = normaliseSupplierName(name);
+    return key ? suppliers.find(s => normaliseSupplierName(s.name) === key) : undefined;
+  };
+
   const handleAdd = async (e: React.FormEvent) => {
     e.preventDefault();
+    // Two records with one name split that supplier in half: every
+    // per-supplier figure groups by id, so one row carries the history and
+    // the other reads zero. Nothing stopped it before — the form created a
+    // second record without a word.
+    const clash = duplicateOf(newSupplier.name);
+    if (clash) {
+      setAddError(`"${clash.name}" is already on the list. Use it, or give this one a distinct name.`);
+      return;
+    }
+    setAddError('');
     const id = `sup_${Date.now()}`;
     await dbService.create('suppliers', id, { ...newSupplier, ownerId: 'shared' });
     setIsAdding(false);
@@ -220,6 +238,11 @@ export default function Suppliers() {
             className="overflow-hidden bg-white border border-gray-200 rounded-3xl p-4 space-y-3"
           >
             <p className="text-[11px] font-bold uppercase tracking-widest text-gray-500">New Supplier</p>
+            {addError && (
+              <p className="text-[11px] text-rose-700 bg-rose-50 border border-rose-200 rounded-xl px-3 py-2">
+                {addError}
+              </p>
+            )}
             <div className="grid grid-cols-2 gap-2">
               <input
                 required value={newSupplier.name}
