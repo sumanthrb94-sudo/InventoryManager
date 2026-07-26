@@ -292,6 +292,65 @@ record ids.
 
 ---
 
+### 2.3 Orphan IMEIs on the audit screen
+
+An **orphan** is a sale whose IMEI the system has never seen. It is not an
+error state — it is the normal arrival of a phone that was sold before it was
+ever in stock, and it is how supplier-held stock gets fulfilled.
+
+The importer will not confirm while an orphan is incomplete. The audit screen
+shows `Complete N records to continue`, and Confirm stays disabled. Nothing is
+written until every orphan has a model and a stock source.
+
+**Each orphan row asks two things:**
+
+| Field | What it means |
+|---|---|
+| Model | What was sold. The report gave an SKU, not a catalogue model. |
+| Office / SHS | **Where it came from.** Office = it was on the shelf. SHS = the supplier shipped it direct to the customer. |
+
+**Setting a row to SHS** does four things at confirm:
+
+1. Finds the open holdings for that **Model + Supplier** — matched on what the
+   holding *is* (`status: incoming`, no IMEI), not on how its id happens to be
+   spelled.
+2. Closes **exactly one** of them. Not the model line, not every holding from
+   that supplier — one unit shipped, one unit closes.
+3. Writes the sale's **real IMEI onto that unit**. The holding never had one;
+   the supplier's report is the first time that number exists in the system.
+   This is the moment the IMEI is learned.
+4. Tags the sale `stockSource: shs`, so the revenue lands in supplier-held
+   margin rather than office margin.
+
+**Leaving a row on Office** takes none of those steps. The sale records
+normally and every SHS holding stays open.
+
+**Why the toggle is a decision and not an inference.** "Unmatched sale + an
+open holding for that model exists ⇒ the supplier must have shipped it" is
+wrong often enough to be dangerous. On a restore, *every* sale re-imports
+unmatched — that rule silently closed three real holdings that were still
+sitting with the supplier (SHS went 8 → 5 on a rebuild that should have been
+a no-op). The system now closes a holding only when an operator says so.
+
+**Verified end to end** by `scripts/e2eShsOrphanFlow.mjs` — 14 checks, 12
+screenshots in `e2e-screenshots/shs-orphan-flow/`:
+
+| Screenshot | What it shows |
+|---|---|
+| 01–02 | Empty database, then the inventory preview with Office and SHS rows |
+| 03 | SHS tile reads **10 holdings**, all IMEI-less |
+| 04–05 | Sales preview, then the audit screen **blocked** on incomplete orphans |
+| 06–08 | The direct-shipment orphan row; model entered; toggle set to **SHS** |
+| 09–10 | All orphans complete → Done screen reports *SHS fulfilled · 1 supplier-held unit shipped & sold* |
+| 11–12 | SHS tile drops to **9**; the overlay shows the other nine untouched |
+
+The assertions that matter: exactly one holding closed (10 → 9), the closed
+one was the model+supplier match, the sold unit carries the supplier's real
+IMEI, the sale is tagged `shs`, and the remaining nine are still open and
+still IMEI-less.
+
+---
+
 ## 3. Returns Report — export only
 
 **There is no returns importer, by design.** A return is a workflow, not a
@@ -431,6 +490,7 @@ document doesn't, a test fails:
 | `scripts/e2eBatchVsMarketplace.mjs` | Batch = per-channel; download rebuilds the system |
 | `scripts/e2eTemplateDownloads.mjs` | The in-app buttons serve a real, current template |
 | `scripts/e2eTemplateFillAndUpload.mjs` | The shipped templates, filled per this SOP, upload and reconcile |
+| `scripts/e2eShsOrphanFlow.mjs` | §2.3 — an IMEI-less holding fulfilled through the orphan audit screen |
 
 | `src/__tests__/lib/schemaAlignment.test.ts` | Export mirrors import; fallback indices point at the right columns |
 
