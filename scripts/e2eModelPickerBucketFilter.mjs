@@ -212,11 +212,21 @@ async function run() {
   const panelText = await panel.innerText().catch(() => '');
   record('no suggestions at all for a model with zero stock in either bucket',
     !panelText.includes('IN STOCK'), panelText.slice(0, 160));
+  record('the header says "no matches" instead of a misleading device count',
+    /no matches in \d+ known device/i.test(panelText), panelText.slice(0, 60));
 
   const addButton = panel.getByRole('button', { name: new RegExp(`Add "${GHOST_MODEL}"`, 'i') });
   const addVisible = await addButton.isVisible().catch(() => false);
   record('admin gets a "+ Add ... to the model catalog" affordance instead', addVisible,
     panelText.slice(0, 160));
+  // The button must actually look like a button — a plain hover-only text
+  // link is easy to miss (the exact "why isn't there an Add button" report
+  // that prompted this). A persistent fill/border makes it read as
+  // actionable at a glance, not just on hover.
+  const addButtonHasFill = await addButton.evaluate(el =>
+    el.className.includes('bg-emerald-50') && el.className.includes('border')).catch(() => false);
+  record('the Add button has a persistent visible fill, not just a hover tint',
+    addButtonHasFill);
 
   if (addVisible) {
     await addButton.click();

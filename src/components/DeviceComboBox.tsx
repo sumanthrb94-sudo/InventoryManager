@@ -248,7 +248,15 @@ export default function DeviceComboBox({
         >
           <div className="flex items-center gap-2 px-3 py-1.5 border-b border-gray-100 text-[10px] uppercase tracking-widest text-gray-500 font-mono">
             <Search size={11} />
-            Known devices ({catalog.length})
+            {/* catalog.length is the size of the searchable catalog, NOT a
+                match count — with a query typed and zero hits, "Known
+                devices (1)" read as though one device WAS showing when
+                the list below it was empty. Say plainly that nothing
+                matched, and name the catalog size separately so it's
+                clear what's being searched. */}
+            {trimmedQuery && suggestions.length === 0
+              ? `No matches in ${catalog.length} known device${catalog.length === 1 ? '' : 's'}`
+              : `Known devices (${catalog.length})`}
           </div>
           {suggestions.map((s, i) => {
             const isActive = i === highlight;
@@ -299,7 +307,7 @@ export default function DeviceComboBox({
                   onMouseDown={e => e.preventDefault()}
                   onClick={handleCreate}
                   disabled={creating}
-                  className="w-full flex items-center gap-2 px-3 py-2.5 text-left text-[12px] font-bold text-emerald-700 hover:bg-emerald-50 disabled:opacity-50"
+                  className="w-full flex items-center gap-2 px-3 py-2.5 text-left text-[12px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 hover:bg-emerald-100 disabled:opacity-50"
                 >
                   <Plus size={12} />
                   {creating ? 'Adding…' : `Add "${trimmedQuery}" to the model catalog`}
