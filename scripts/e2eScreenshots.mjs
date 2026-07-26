@@ -17,7 +17,7 @@ import { chromium } from 'playwright';
 import { mkdirSync, existsSync, readdirSync } from 'node:fs';
 
 const BASE = process.env.E2E_BASE_URL || 'http://localhost:4173';
-const OUT = 'e2e-screenshots';
+const OUT = 'e2e-screenshots/operator-tour';
 const MOBILE = { width: 430, height: 932 };   // the operator's phone
 const DESKTOP = { width: 1440, height: 1000 };
 
