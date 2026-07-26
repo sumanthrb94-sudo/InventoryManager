@@ -12,6 +12,10 @@
  * checks the picker in both toggle positions:
  *   Office → only the office-only model suggested, never the SHS-only one.
  *   SHS    → only the SHS-only model suggested, never the office-only one.
+ * A third case covers the "neither bucket has it" path: a model with zero
+ * stock anywhere suggests nothing at all — no admin-seed fallback, no
+ * cross-bucket leak — and the admin creates it on the spot via the
+ * existing "+ Add ... to the model catalog" affordance.
  *
  * Run after: VITE_E2E=1 vite build && vite preview --port 4173
  *   node scripts/e2eModelPickerBucketFilter.mjs
@@ -31,6 +35,8 @@ const OUT = 'e2e-screenshots/model-picker-bucket-filter';
 // entirely and keeps the assertion about the filtering, not the render.
 const OFFICE_MODEL = 'ZENOVAOFFICEONLY';
 const SHS_MODEL = 'ZENOVBSHSONLY';
+/** Exists in neither fixture — the "create it in Admin" case. */
+const GHOST_MODEL = 'ZENOVCGHOSTMODEL';
 const ORPHAN_IMEI = '350000000099999';
 
 if (!existsSync(OUT)) mkdirSync(OUT, { recursive: true });
@@ -190,6 +196,36 @@ async function run() {
     shsPanelText.slice(0, 120));
   record('SHS toggle: the office-only model is NOT suggested', !shsPanelText.includes(OFFICE_MODEL),
     shsPanelText.slice(0, 120));
+
+  // ══ 6 · A model neither bucket has — nothing suggested, admin can add it ══
+  // Still toggled to SHS from step 5. Typing a model with zero stock in
+  // EITHER bucket must not fall back to admin seeds or the other bucket —
+  // the picker should show nothing, and the operator's path forward is
+  // the existing "+ Add" (admin) / "ask an admin" (employee) affordance.
+  console.log('\n── 6. A model with no stock anywhere — empty picker, "+ Add" to create it ──');
+  await modelBox.click();
+  await modelBox.fill(GHOST_MODEL);
+  await page.waitForTimeout(500);
+  await shot(page, 'no-match-anywhere-add-in-admin');
+
+  const panel = modal(page).locator('div[class*="z-[9999]"]').last();
+  const panelText = await panel.innerText().catch(() => '');
+  record('no suggestions at all for a model with zero stock in either bucket',
+    !panelText.includes('IN STOCK'), panelText.slice(0, 160));
+
+  const addButton = panel.getByRole('button', { name: new RegExp(`Add "${GHOST_MODEL}"`, 'i') });
+  const addVisible = await addButton.isVisible().catch(() => false);
+  record('admin gets a "+ Add ... to the model catalog" affordance instead', addVisible,
+    panelText.slice(0, 160));
+
+  if (addVisible) {
+    await addButton.click();
+    await page.waitForTimeout(1200);
+    await shot(page, 'ghost-model-created-and-picked');
+    const value = await modelBox.inputValue().catch(() => '');
+    record('creating it fills the row with the new model, ready to confirm',
+      value.toUpperCase().includes(GHOST_MODEL), `input now reads "${value}"`);
+  }
 
   record('no uncaught JS errors', jsErrors.length === 0, jsErrors.join(' | '));
 
