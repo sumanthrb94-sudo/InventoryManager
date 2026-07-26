@@ -145,7 +145,8 @@ async function run() {
 
   const salesFiles = await templateLinks(page).evaluateAll(as => as.map(a => a.getAttribute('download')));
   const wantSales = ['SALES_REPORT_TEMPLATE.xlsx', 'SALES_AMAZON_TEMPLATE.xlsx',
-    'SALES_BM_TEMPLATE.xlsx', 'SALES_EBAY_TEMPLATE.xlsx', 'SALES_ONBUY_TEMPLATE.xlsx'];
+    'SALES_BM_TEMPLATE.xlsx', 'SALES_EBAY_TEMPLATE.xlsx', 'SALES_ONBUY_TEMPLATE.xlsx',
+    'SALES_TEMU_TEMPLATE.xlsx'];
   record('Sales Report menu offers the combined and per-channel templates',
     wantSales.every(f => salesFiles.includes(f)),
     `${salesFiles.length} offered`);
@@ -171,7 +172,7 @@ async function run() {
   await page.waitForTimeout(800);
   const salesModalAll = await templateLinks(modal(page)).evaluateAll(as => as.map(a => a.getAttribute('download')));
   record('sales import modal offers every channel while none is picked',
-    salesModalAll.length === 5, `${salesModalAll.length} offered`);
+    salesModalAll.length === 6, `${salesModalAll.length} offered`);
 
   // Picking a channel should narrow the offer to that channel's layout —
   // handing an Amazon uploader a four-sheet workbook is no help.
