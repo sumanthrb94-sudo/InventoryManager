@@ -70,10 +70,16 @@ describe('phones are unaffected', () => {
   });
 });
 
-describe('identifier-less accessories are out of scope, by decision', () => {
-  // Cases, chargers, cables and screen protectors have no serial. Supporting
-  // them would mean quantity-based stock — a different stock model, not a
-  // validation tweak. The operator's live 79-model catalogue contains none.
+describe('identifier-less accessories are out of scope for THIS importer, by decision', () => {
+  // Cases, chargers, cables and screen protectors have no serial — this
+  // per-unit master-file importer correctly keeps rejecting them here, since
+  // quantity-based stock is a different stock model, not a validation tweak
+  // to this one. That different model now exists: AccessoryStock (see
+  // src/services/inventoryService.ts — upsertAccessoryStock /
+  // decrementAccessoryStock), reached via Add Stock → Accessories, a SKU +
+  // quantity pool that never has a per-unit row here at all. This describe
+  // block still correctly pins that the bulk per-unit sheet is not that
+  // pathway — a blank-IMEI row here is still a rejected row, by design.
   it.each(['IPHONE 15 SILICONE CASE', 'USB-C CHARGER 20W', 'LIGHTNING CABLE 1M'])(
     '%s is rejected for having no identifier', (model) => {
       expect(parseOne(model, '').errors).toContain('IMEI is required for office stock');
