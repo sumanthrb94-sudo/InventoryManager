@@ -14,6 +14,7 @@ import { useInventoryStore } from '../lib/inventoryStore';
 import { recomputeSale } from '../lib/recomputeSale';
 import { InventoryUnit, Supplier, MARKETPLACES, Marketplace } from '../types';
 import { MARKETPLACE_LABEL, marketplaceOf } from '../lib/marketplaceLabels';
+import { buildSupplierIndex, resolveSupplier } from '../lib/supplierIdentity';
 import CollapsibleSection from './CollapsibleSection';
 
 type Period = 7 | 30 | 90 | 0; // 0 = all time
@@ -424,30 +425,41 @@ export default function AnalyticsPage() {
   // definition which used the unit ledger).
   const supplierSalesPerf = useMemo(() => {
     // Build per-supplier unit counts for the return-rate denominator.
+    // Both sides resolve through the same identity so a supplier that has
+    // units AND sales lands on ONE row. Units carry supplierId; imported sales
+    // carry only supplierName, so grouping both by supplierId split every
+    // supplier in two — and dropped every imported sale into a single
+    // `'unknown'` bucket wearing the first sale's supplier name. On the live
+    // system that read as 354 sales against a supplier with no units and a
+    // return rate of "—", with every real supplier showing £0.
+    const supplierIndex = buildSupplierIndex(suppliers);
     const unitsBySupplier: Record<string, { total: number; returned: number; name: string }> = {};
     for (const u of units) {
-      if (!u.supplierId) continue;
-      if (!unitsBySupplier[u.supplierId]) {
-        unitsBySupplier[u.supplierId] = {
+      const resolved = resolveSupplier(u, supplierIndex);
+      if (resolved.key === 'unattributed') continue;
+      if (!unitsBySupplier[resolved.key]) {
+        unitsBySupplier[resolved.key] = {
           total: 0,
           returned: 0,
-          name: supplierMap[u.supplierId] || u.supplierName || 'Unknown',
+          name: resolved.name || 'Unknown',
         };
       }
-      unitsBySupplier[u.supplierId].total++;
-      if (u.status === 'returned') unitsBySupplier[u.supplierId].returned++;
+      unitsBySupplier[resolved.key].total++;
+      if (u.status === 'returned') unitsBySupplier[resolved.key].returned++;
     }
 
-    // Aggregate sale revenue/GP per supplier (sales carry supplierId verbatim).
+    // Aggregate sale revenue/GP per supplier. Imported sales have no
+    // supplierId, so this MUST resolve by name or every one of them collapses
+    // into a single row.
     const salesBySupplier: Record<string, { revenue: number; gp: number; count: number; name?: string }> = {};
-    for (const s of liveSales) {
-      const sid = s.supplierId || 'unknown';
-      if (!salesBySupplier[sid]) {
-        salesBySupplier[sid] = { revenue: 0, gp: 0, count: 0, name: s.supplierName };
+    for (const sale of liveSales) {
+      const resolved = resolveSupplier(sale, supplierIndex);
+      if (!salesBySupplier[resolved.key]) {
+        salesBySupplier[resolved.key] = { revenue: 0, gp: 0, count: 0, name: resolved.name };
       }
-      salesBySupplier[sid].revenue += s.salePrice || 0;
-      salesBySupplier[sid].gp      += s.grossProfit || 0;
-      salesBySupplier[sid].count++;
+      salesBySupplier[resolved.key].revenue += sale.salePrice || 0;
+      salesBySupplier[resolved.key].gp      += sale.grossProfit || 0;
+      salesBySupplier[resolved.key].count++;
     }
 
     // Merge keys from both sources so suppliers with units-only or sales-only

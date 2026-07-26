@@ -377,6 +377,47 @@ async function run() {
     supplierTables.some(t => t.sum === sold.length),
     `${JSON.stringify(supplierTables.map(t => t.sum))} · sold units ${sold.length}`);
 
+  // A correct TOTAL never proved attribution was right. On the live system
+  // all 354 sales were present and counted — all on one catch-all row, while
+  // every real supplier read £0. So check the SHAPE of the attribution too.
+  const supplierRows = await page.evaluate(() => {
+    const table = [...document.querySelectorAll('table')].find(t => {
+      const head = (t.querySelector('thead')?.textContent || '').toLowerCase();
+      return head.includes('supplier') && head.includes('revenue');
+    });
+    if (!table) return null;
+    const headers = [...table.querySelectorAll('thead th')].map(th => (th.textContent || '').trim().toLowerCase());
+    const soldCol = headers.findIndex(h => h === 'sold');
+    const rateCol = headers.findIndex(h => h.includes('return rate'));
+    const rows = [];
+    for (const tr of table.querySelectorAll('tbody tr')) {
+      const cells = [...tr.querySelectorAll('td')];
+      if (!cells.length) continue;
+      rows.push({
+        name: (cells[0].textContent || '').trim(),
+        sold: Number((cells[soldCol]?.textContent || '').replace(/[^\d.-]/g, '')) || 0,
+        rate: (cells[rateCol]?.textContent || '').trim(),
+      });
+    }
+    return rows;
+  });
+
+  const withSales = (supplierRows ?? []).filter(r => r.sold > 0);
+  record('Insights · sales are spread across suppliers, not pooled in one row',
+    withSales.length > 1,
+    `${withSales.length} of ${supplierRows?.length ?? 0} supplier rows carry sales`);
+
+  record('Insights · the busiest supplier has a real return rate, not "—"',
+    withSales.length > 0 && withSales.every(r => r.rate !== '—' && r.rate !== ''),
+    withSales.slice(0, 3).map(r => `${r.name} ${r.sold} sold, rate ${r.rate}`).join(' · '));
+
+  record('Insights · no supplier name appears on two rows',
+    (() => {
+      const names = (supplierRows ?? []).map(r => r.name.toUpperCase().replace(/[^A-Z0-9]/g, ''));
+      return new Set(names).size === names.length;
+    })(),
+    `${supplierRows?.length ?? 0} rows`);
+
   record('Insights · no supplier table invents sales out of nowhere',
     supplierTables.length > 0 && supplierTables.every(t => t.sum <= liveSales.length),
     `max ${Math.max(0, ...supplierTables.map(t => t.sum))} · live sales ${liveSales.length}`);
