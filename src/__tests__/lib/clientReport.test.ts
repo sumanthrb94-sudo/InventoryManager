@@ -226,8 +226,9 @@ describe('buildSalesWorkbookBuffer — auditor-grade structure', () => {
     expect(String(header.getCell(2).value)).toBe('Return Date');
     expect(String(header.getCell(3).value)).toBe('Marketplace');
     expect(String(header.getCell(8).value)).toBe('Outcome');
-    expect(String(header.getCell(10).value)).toBe('Shipping Legs');
-    expect(String(header.getCell(11).value)).toBe('Postage Loss £');
+    expect(String(header.getCell(9).value)).toBe('Return Type');
+    expect(String(header.getCell(11).value)).toBe('Shipping Legs');
+    expect(String(header.getCell(12).value)).toBe('Postage Loss £');
     // Empty period gets a "No returns" hint, not a TOTAL row.
     const row2 = returns.getRow(2);
     expect(String(row2.getCell(1).value)).toBe('No returns recorded for this period.');
@@ -261,18 +262,66 @@ describe('buildSalesWorkbookBuffer — auditor-grade structure', () => {
     expect(r2.getCell(3).value).toBe('EBAY');
     expect(r2.getCell(4).value).toBe('B');
     expect(r2.getCell(8).value).toBe('Refund');
-    expect(r2.getCell(10).value).toBe(2);
-    expect(r2.getCell(11).value).toBeCloseTo(19.2, 2);
+    expect(r2.getCell(11).value).toBe(2);
+    expect(r2.getCell(12).value).toBeCloseTo(19.2, 2);
     // Replacement row.
     const r3 = returns.getRow(3);
     expect(r3.getCell(3).value).toBe('AMAZON');
     expect(r3.getCell(8).value).toBe('Replacement');
-    expect(r3.getCell(10).value).toBe(3);
-    expect(r3.getCell(11).value).toBeCloseTo(22.68, 2);
+    expect(r3.getCell(11).value).toBe(3);
+    expect(r3.getCell(12).value).toBeCloseTo(22.68, 2);
     // TOTAL row carries the summed postage loss (19.2 + 22.68 = 41.88).
     const tot = returns.getRow(4);
     expect(tot.getCell(1).value).toBe('TOTAL');
-    expect(tot.getCell(11).value).toBeCloseTo(41.88, 2);
+    expect(tot.getCell(12).value).toBeCloseTo(41.88, 2);
+  });
+
+  it('Returns tab — Return Type column reads the linked unit\'s returnType', async () => {
+    const sales: Sale[] = [
+      baseSale({
+        id: 'EBAY__RT1__350000000000010', orderNumber: 'RT1', marketplace: 'EBAY',
+        imei: '350000000000010', unitId: 'u-rt1',
+        voidedAt: '2026-06-13', voidOutcome: 'refund', voidReason: 'faulty',
+        postage: 8, postageVat: 1.6,
+      }),
+      baseSale({
+        id: 'AMAZON__RT2__350000000000020', orderNumber: 'RT2', marketplace: 'AMAZON',
+        imei: '350000000000020', unitId: 'u-rt2',
+        voidedAt: '2026-06-12', voidOutcome: 'refund', voidReason: 'faulty, sent back',
+        postage: 6.30, postageVat: 1.26,
+      }),
+      // No linked unit at all — Return Type should read blank, not throw.
+      baseSale({
+        id: 'ONBUY__RT3__350000000000030', orderNumber: 'RT3', marketplace: 'ONBUY',
+        imei: '350000000000030', unitId: '',
+        voidedAt: '2026-06-11', voidOutcome: 'refund', voidReason: 'no unit on file',
+        postage: 5.90, postageVat: 1.18,
+      }),
+    ];
+    const units: InventoryUnit[] = [
+      { id: 'u-rt1', imei: '350000000000010', model: 'iPhone 13', brand: 'Apple', category: 'iPhone',
+        colour: 'Black', buyPrice: 200, dateIn: '2026-05-01', supplierId: 's', supplierName: 'MHL',
+        status: 'available', returnType: 'returned_to_inventory', returnDate: '2026-06-13',
+        flags: [], notes: '', platformListed: false, listingSites: [],
+        ownerId: 'shared', createdAt: '2026-05-01T00:00:00Z' } as InventoryUnit,
+      { id: 'u-rt2', imei: '350000000000020', model: 'Galaxy A15', brand: 'Samsung', category: 'Samsung A Series',
+        colour: 'Black', buyPrice: 100, dateIn: '2026-05-01', supplierId: 's', supplierName: 'NIHAL',
+        status: 'returned', returnType: 'returned_to_supplier', returnDate: '2026-06-12',
+        flags: [], notes: '', platformListed: false, listingSites: [],
+        ownerId: 'shared', createdAt: '2026-05-01T00:00:00Z' } as InventoryUnit,
+    ];
+    const buffer = await buildSalesWorkbookBuffer({ sales, units });
+    const wb = await loadWorkbook(buffer);
+    const returns = wb.getWorksheet('Returns')!;
+    const header = returns.getRow(1);
+    expect(String(header.getCell(9).value)).toBe('Return Type');
+
+    // Locate rows by Order Number (col 4) — sort-order agnostic.
+    const rows = [returns.getRow(2), returns.getRow(3), returns.getRow(4)];
+    const byOrder = (order: string) => rows.find(r => r.getCell(4).value === order)!;
+    expect(byOrder('RT1').getCell(9).value).toBe('Back to Inventory');
+    expect(byOrder('RT2').getCell(9).value).toBe('To Supplier');
+    expect(byOrder('RT3').getCell(9).value).toBe('');
   });
 
   it('Summary header row reads Marketplace / Sales / Refunds / Replacements / Gross GP / Postage Loss / Net GP / Net GP %', async () => {
@@ -897,10 +946,10 @@ describe('Sales Report Returns tab filters by voidedAt', () => {
     // voidedAt is in) + TOTAL row = 3 rows.
     expect(returns.rowCount).toBe(3);
     expect(returns.getRow(2).getCell(8).value).toBe('Refund');
-    expect(returns.getRow(2).getCell(11).value).toBeCloseTo(19.2, 2);
+    expect(returns.getRow(2).getCell(12).value).toBeCloseTo(19.2, 2);
     // TOTAL = single row's loss.
     expect(returns.getRow(3).getCell(1).value).toBe('TOTAL');
-    expect(returns.getRow(3).getCell(11).value).toBeCloseTo(19.2, 2);
+    expect(returns.getRow(3).getCell(12).value).toBeCloseTo(19.2, 2);
   });
 
   it('EXCLUDES a void whose voidedAt is OUT-of-range even if saleDate is in-range', async () => {

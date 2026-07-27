@@ -23,11 +23,11 @@ import {
 import { motion } from 'motion/react';
 import { dbService } from '../lib/dbService';
 import { useInventoryStore } from '../lib/inventoryStore';
-import type { Sale, Marketplace } from '../types';
+import type { Sale, Marketplace, ReturnCategory } from '../types';
 import { MARKETPLACES } from '../types';
 import { parseSalesWorkbook, type ParsedSales } from '../lib/salesImport';
 import { buildPostImportSyncPatches } from '../services/salesService';
-import { addSoldUnitFromSale, completeUnitBuyInfo, reconcileShsAfterFulfilment, decrementAccessoryStock } from '../services/inventoryService';
+import { addSoldUnitFromSale, completeUnitBuyInfo, reconcileShsAfterFulfilment, decrementAccessoryStock, restoreUnitReturnFromImport } from '../services/inventoryService';
 import { normalizeOperatorSku } from '../lib/modelStorage';
 import { SIM_TYPE_OPTIONS } from '../lib/unitConstants';
 import { isValidImei, isAppleDevice } from '../lib/imeiValidation';
@@ -43,6 +43,14 @@ interface Props { onClose: () => void; }
 // here is indistinguishable from a normally-received one.
 const COLOUR_PRESETS = ['Black', 'White', 'Grey', 'Blue', 'Gold', 'Green', 'Purple', 'Red', 'Cream', 'Silver'];
 const STORAGE_OPTIONS = ['16GB', '32GB', '64GB', '128GB', '256GB', '512GB', '1TB', 'Not Applicable'];
+
+// Mirrors clientReport.ts's (unexported) returnTypeLabel — display text for
+// the preview's return-restoration panels.
+const RETURN_TYPE_LABELS: Record<ReturnCategory, string> = {
+  returned_to_inventory: 'Back to Inventory',
+  repair: 'In Repair',
+  returned_to_supplier: 'To Supplier',
+};
 
 type Phase = 'upload' | 'preview' | 'loading' | 'done';
 
@@ -85,6 +93,36 @@ export interface PreviewBuckets {
    *  Each row is editable in the preview; Confirm is hard-blocked until every
    *  row's required fields are present (see auditRowMissing). */
   recordsToComplete: Array<AuditCompletionRow>;
+  /** Voided sales in this upload whose linked unit will be restored to its
+   *  return state on confirm — the Returns tab supplied a Return Type for
+   *  them (see salesImport.ts's parseReturnsTab), so
+   *  restoreUnitReturnFromImport can act without guessing. `alreadyRestored`
+   *  means the matched unit is already in that returned/available state
+   *  (a re-import of the same file, or the return was processed live since
+   *  the last import) — still listed for visibility but confirm is a no-op
+   *  for it. */
+  returnsToRestore: Array<{
+    saleId: string;
+    imei: string;
+    marketplace: Marketplace;
+    orderNumber: string;
+    returnType: ReturnCategory;
+    existingUnitId?: string;
+    alreadyRestored: boolean;
+  }>;
+  /** Voided sales in this upload with NO Return Type available — either the
+   *  workbook predates the Returns tab, or the operator never filled that
+   *  row in. The Sale doc still imports voided (voidedAt/voidOutcome/
+   *  voidReason land normally via the sale write), but the UNIT side is
+   *  left untouched: never silently guessed, same caution as the rest of
+   *  the returns write surface. Non-blocking — surfaced so the operator
+   *  knows which units still need a manual Process Return. */
+  returnsNeedingType: Array<{
+    saleId: string;
+    imei: string;
+    marketplace: Marketplace;
+    orderNumber: string;
+  }>;
 }
 
 /** Editable row in the audit-completeness panel. */
@@ -344,6 +382,41 @@ export function buildPreview(
     });
   }
 
+  // Return restoration dry run — every voided sale in this upload whose
+  // Returns tab row supplied a Return Type gets a unit-side restore on
+  // confirm (restoreUnitReturnFromImport). A voided sale with no Return
+  // Type still imports fine (the Sale doc carries voidedAt regardless) —
+  // it just can't safely touch the unit, so it's split into its own
+  // non-blocking bucket instead. Deduped by sale id, same as the other scans.
+  const returnRowByKey = new Map<string, ParsedSales['returnRows'][number]>();
+  for (const r of parsed.returnRows ?? []) {
+    const key = `${r.marketplace}__${(r.orderNumber || '').trim().toUpperCase()}__${(r.imei || '').trim().toUpperCase()}`;
+    returnRowByKey.set(key, r);
+  }
+  const returnsToRestore: PreviewBuckets['returnsToRestore'] = [];
+  const returnsNeedingType: PreviewBuckets['returnsNeedingType'] = [];
+  const seenReturnSaleId = new Set<string>();
+  for (const s of [...toCreate, ...toUpdate]) {
+    if (!s.voidedAt) continue;
+    if (seenReturnSaleId.has(s.id)) continue;
+    seenReturnSaleId.add(s.id);
+    const imeiKey = (s.imei || '').trim().toUpperCase();
+    if (!imeiKey) continue; // no unit to restore without an IMEI
+    const orderNumber = s.orderNumber || '';
+    const existingUnit = unitsByImei.get(imeiKey);
+    const key = `${s.marketplace}__${orderNumber.trim().toUpperCase()}__${imeiKey}`;
+    const returnType = returnRowByKey.get(key)?.returnType;
+    if (!returnType) {
+      returnsNeedingType.push({ saleId: s.id, imei: imeiKey, marketplace: s.marketplace, orderNumber });
+      continue;
+    }
+    const alreadyRestored = !!existingUnit && existingUnit.status !== 'sold' && existingUnit.returnType === returnType;
+    returnsToRestore.push({
+      saleId: s.id, imei: imeiKey, marketplace: s.marketplace, orderNumber,
+      returnType, existingUnitId: existingUnit?.id, alreadyRestored,
+    });
+  }
+
   return {
     total: parsed.sales.length,
     perSheet: parsed.perSheetCounts,
@@ -354,6 +427,8 @@ export function buildPreview(
     inventoryFlips,
     staleCombined,
     recordsToComplete,
+    returnsToRestore,
+    returnsNeedingType,
   };
 }
 
@@ -401,7 +476,16 @@ export default function SalesReportImport({ onClose }: Props) {
      *  accessoryStock pool and were decremented. Every other no-IMEI row
      *  (no matching SKU) is silently out of scope, same as before. */
     accessoriesDecremented: number;
-  }>({ shsFulfilled: 0, shsPlaceholdersCleared: 0, shsAggregatesDecremented: 0, unitsMarkedSold: 0, salesLinked: 0, unitsAddedFromOrphanSales: 0, unitsAddFailed: 0, unitsAddFailedDetails: [], staleDeleted: 0, staleDeleteFailed: 0, accessoriesDecremented: 0 });
+    /** Units restored to their return state (returnType/returnDate/etc.)
+     *  via restoreUnitReturnFromImport, keyed off preview.returnsToRestore. */
+    unitsRestoredFromImport: number;
+    unitsRestoreFailed: number;
+    unitsRestoreFailedDetails: Array<{ imei: string; orderNumber: string; reason: string }>;
+  }>({
+    shsFulfilled: 0, shsPlaceholdersCleared: 0, shsAggregatesDecremented: 0, unitsMarkedSold: 0, salesLinked: 0,
+    unitsAddedFromOrphanSales: 0, unitsAddFailed: 0, unitsAddFailedDetails: [], staleDeleted: 0, staleDeleteFailed: 0,
+    accessoriesDecremented: 0, unitsRestoredFromImport: 0, unitsRestoreFailed: 0, unitsRestoreFailedDetails: [],
+  });
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [auditEdits, setAuditEdits] = useState<AuditCompletionRow[]>([]);
 
@@ -652,6 +736,36 @@ export default function SalesReportImport({ onClose }: Props) {
         shsPlaceholdersCleared += res.placeholdersRemoved;
         shsAggregatesDecremented += res.aggregatesDecremented;
       }
+
+      // Return restoration — replay each voided sale's return state onto its
+      // unit (returnType/returnDate/status/etc.), matching processReturn's
+      // write shape. Only for rows the preview already resolved a Return
+      // Type for (preview.returnsNeedingType is left untouched here — never
+      // guessed). Uses `allImported` (fresh parse merged over the stored
+      // doc) so voidedAt/voidOutcome/voidReason are present even when this
+      // sale already existed before the import.
+      let unitsRestoredFromImport = 0;
+      let unitsRestoreFailed = 0;
+      const unitsRestoreFailedDetails: Array<{ imei: string; orderNumber: string; reason: string }> = [];
+      if (preview.returnsToRestore.length > 0) {
+        const importedById = new Map(allImported.map(s => [s.id, s]));
+        for (const row of preview.returnsToRestore) {
+          const sale = importedById.get(row.saleId);
+          if (!sale) {
+            unitsRestoreFailed++;
+            unitsRestoreFailedDetails.push({ imei: row.imei, orderNumber: row.orderNumber, reason: 'sale lookup failed (id missing)' });
+            continue;
+          }
+          const res = await restoreUnitReturnFromImport({ sale, returnType: row.returnType });
+          if (res.ok) {
+            unitsRestoredFromImport++;
+          } else {
+            unitsRestoreFailed++;
+            unitsRestoreFailedDetails.push({ imei: row.imei, orderNumber: row.orderNumber, reason: res.message || res.error || 'unknown' });
+          }
+        }
+      }
+
       setSyncStats({
         shsFulfilled: shsFulfilled.length + orphanShsFulfilled,
         shsPlaceholdersCleared,
@@ -664,6 +778,9 @@ export default function SalesReportImport({ onClose }: Props) {
         staleDeleted,
         staleDeleteFailed: staleFailed,
         accessoriesDecremented,
+        unitsRestoredFromImport,
+        unitsRestoreFailed,
+        unitsRestoreFailedDetails,
       });
       setPhase('done');
     } catch (e: any) {
@@ -763,7 +880,9 @@ export default function SalesReportImport({ onClose }: Props) {
               && syncStats.salesLinked === 0
               && syncStats.unitsAddedFromOrphanSales === 0
               && syncStats.unitsAddFailed === 0
-              && syncStats.accessoriesDecremented === 0;
+              && syncStats.accessoriesDecremented === 0
+              && syncStats.unitsRestoredFromImport === 0
+              && syncStats.unitsRestoreFailed === 0;
             if (noChanges) {
               return (
                 <div className="py-8 flex flex-col items-center gap-3 text-center">
@@ -809,6 +928,29 @@ export default function SalesReportImport({ onClose }: Props) {
                     {syncStats.unitsMarkedSold > 0 && syncStats.salesLinked > 0 && ' · '}
                     {syncStats.salesLinked > 0 && <>{syncStats.salesLinked} sale{syncStats.salesLinked === 1 ? '' : 's'} linked</>}
                   </p>
+                )}
+                {(syncStats.unitsRestoredFromImport > 0 || syncStats.unitsRestoreFailed > 0) && (
+                  <p className="text-[10px] font-mono text-blue-700 mt-1">
+                    Returns restored ·{' '}
+                    {syncStats.unitsRestoredFromImport > 0 && <>{syncStats.unitsRestoredFromImport} unit{syncStats.unitsRestoredFromImport === 1 ? '' : 's'} restored to return state</>}
+                    {syncStats.unitsRestoredFromImport > 0 && syncStats.unitsRestoreFailed > 0 && ' · '}
+                    {syncStats.unitsRestoreFailed > 0 && <span className="text-rose-700">{syncStats.unitsRestoreFailed} failed (see below)</span>}
+                  </p>
+                )}
+                {syncStats.unitsRestoreFailedDetails.length > 0 && (
+                  <div className="mt-2 w-full max-w-md bg-rose-50 border border-rose-200 rounded-lg px-3 py-2 text-left">
+                    <p className="text-[9px] font-bold uppercase tracking-widest text-rose-900 mb-1">Returns needing manual Process Return</p>
+                    <ul className="space-y-0.5 text-[10px] font-mono text-rose-800">
+                      {syncStats.unitsRestoreFailedDetails.slice(0, 10).map((f, i) => (
+                        <li key={`${f.imei}-${i}`} className="truncate" title={`${f.imei} — ${f.orderNumber} — ${f.reason}`}>
+                          {f.imei || '(blank)'} · {f.orderNumber} · <span className="text-rose-600">{f.reason}</span>
+                        </li>
+                      ))}
+                      {syncStats.unitsRestoreFailedDetails.length > 10 && (
+                        <li className="text-rose-500">+{syncStats.unitsRestoreFailedDetails.length - 10} more</li>
+                      )}
+                    </ul>
+                  </div>
                 )}
                 {(syncStats.unitsAddedFromOrphanSales > 0 || syncStats.unitsAddFailed > 0) && (
                   <p className="text-[10px] font-mono text-orange-700 mt-1">
@@ -1470,6 +1612,53 @@ function PreviewPhase({
             ))}
             {preview.duplicatesInFile.length > 10 && (
               <li className="text-rose-500">+{preview.duplicatesInFile.length - 10} more</li>
+            )}
+          </ul>
+        </DetailPanel>
+      )}
+
+      {preview.returnsToRestore.filter(r => !r.alreadyRestored).length > 0 && (
+        <DetailPanel
+          title={`Returns to restore · ${preview.returnsToRestore.filter(r => !r.alreadyRestored).length}`}
+          tone="blue"
+        >
+          <p className="text-[10px] text-blue-800 mb-1.5">
+            These voided sales carry a Return Type in the file's Returns tab, so
+            on confirm each linked unit will be patched back to its return state
+            (status, return date/reason/outcome) — exactly what Process Return
+            would have written, replayed from the file instead of typed again.
+          </p>
+          <ul className="space-y-1 text-[10px] font-mono text-blue-700">
+            {preview.returnsToRestore.filter(r => !r.alreadyRestored).slice(0, 15).map(r => (
+              <li key={r.saleId} className="truncate" title={r.imei}>
+                {r.marketplace} {r.orderNumber} · {r.imei} · {RETURN_TYPE_LABELS[r.returnType]}
+                {!r.existingUnitId && ' · unit will be reconstructed'}
+              </li>
+            ))}
+            {preview.returnsToRestore.filter(r => !r.alreadyRestored).length > 15 && (
+              <li className="text-blue-500">+{preview.returnsToRestore.filter(r => !r.alreadyRestored).length - 15} more</li>
+            )}
+          </ul>
+        </DetailPanel>
+      )}
+
+      {preview.returnsNeedingType.length > 0 && (
+        <DetailPanel title={`Returns with no Return Type · ${preview.returnsNeedingType.length}`} tone="amber">
+          <p className="text-[10px] text-amber-800 mb-1.5">
+            These voided sales have no Return Type in the file's Returns tab —
+            either the file predates that column, or the row was left blank.
+            The sale still imports as voided, but the unit is left untouched:
+            Return Type is never guessed. Process Return manually for these
+            once the import completes.
+          </p>
+          <ul className="space-y-1 text-[10px] font-mono text-amber-700">
+            {preview.returnsNeedingType.slice(0, 15).map(r => (
+              <li key={r.saleId} className="truncate" title={r.imei}>
+                {r.marketplace} {r.orderNumber} · {r.imei}
+              </li>
+            ))}
+            {preview.returnsNeedingType.length > 15 && (
+              <li className="text-amber-500">+{preview.returnsNeedingType.length - 15} more</li>
             )}
           </ul>
         </DetailPanel>

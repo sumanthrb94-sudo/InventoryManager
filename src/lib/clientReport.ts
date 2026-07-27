@@ -824,7 +824,7 @@ export async function buildSalesWorkbookBuffer(input: BuildSalesWorkbookInput): 
   // than "which of THIS period's sales were voided?". The marketplace
   // tabs keep their saleDate filter so the Summary's revenue / GP
   // numbers stay self-consistent with the rows that produced them.
-  writeSalesReturnsSheet(wb, enriched, opts);
+  writeSalesReturnsSheet(wb, enriched, opts, unitsById, unitsByImei);
 
   // Per-platform sheets — one tab per entry in MARKETPLACES (AMAZON, BM,
   // EBAY, ONBUY, TEMU as of 2026-07); PROJECT excluded — that was never a
@@ -1202,7 +1202,7 @@ function writeSalesSummarySheet(
 const RETURNS_TAB_HEADERS: Array<string> = [
   'Sale Date', 'Return Date',
   'Marketplace', 'Order Number', 'SKU', 'IMEI', 'Supplier',
-  'Outcome', 'Return Reason', 'Shipping Legs', 'Postage Loss £',
+  'Outcome', 'Return Type', 'Return Reason', 'Shipping Legs', 'Postage Loss £',
   'BP', 'SP', 'SP-BP', 'Postage', 'Comments',
 ];
 
@@ -1226,12 +1226,20 @@ function writeSalesReturnsSheet(
    *  was the cause of "Returns tab empty on Today/Week" (2026-06-14). */
   enrichedSales: Sale[],
   opts?: ClientReportOptions,
+  /** Live unit lookups — used only to populate the Return Type column
+   *  (where the physical unit ended up: back to inventory / in repair /
+   *  to supplier). This is the one piece of return state that lives on
+   *  the InventoryUnit, not the Sale, and re-importing this sheet is what
+   *  lets a restore rebuild it without the operator re-picking it by hand
+   *  for every row — see restoreUnitReturnFromImport. */
+  unitsById?: Map<string, InventoryUnit>,
+  unitsByImei?: Map<string, InventoryUnit>,
 ): void {
   const sheet = wb.addWorksheet('Returns');
   sheet.columns = [
     { width: 12 }, { width: 12 },                              // dates
     { width: 11 }, { width: 18 }, { width: 16 }, { width: 17 }, { width: 18 },
-    { width: 13 }, { width: 30 }, { width: 9 }, { width: 13 },
+    { width: 13 }, { width: 16 }, { width: 30 }, { width: 9 }, { width: 13 },
     { width: 8 }, { width: 8 }, { width: 9 }, { width: 9 }, { width: 24 },
   ];
   const header = sheet.addRow(RETURNS_TAB_HEADERS);
@@ -1255,6 +1263,10 @@ function writeSalesReturnsSheet(
   for (const s of voided) {
     const loss = postageLossFor(s);
     totalLoss += loss;
+    const linkedUnit =
+      (s.unitId && unitsById?.get(s.unitId))
+      || (s.imei && unitsByImei?.get((s.imei || '').trim().toUpperCase()))
+      || undefined;
     const row = sheet.addRow([
       toDate(s.saleDate),
       toDate(s.voidedAt),
@@ -1264,6 +1276,7 @@ function writeSalesReturnsSheet(
       s.imei ?? '',
       s.supplierName || '',
       outcomeLabel(s),
+      returnTypeLabel(linkedUnit?.returnType),
       s.voidReason ?? '',
       shippingLegsFor(s) || null,        // blank for repair (0 legs)
       loss > 0 ? loss : null,            // blank for repair / £0
@@ -1278,11 +1291,11 @@ function writeSalesReturnsSheet(
     row.getCell(1).numFmt = DATE_FMT;
     row.getCell(2).numFmt = DATE_FMT;
     row.getCell(6).numFmt = IMEI_FMT;
-    row.getCell(11).numFmt = MONEY_FMT;
     row.getCell(12).numFmt = MONEY_FMT;
     row.getCell(13).numFmt = MONEY_FMT;
     row.getCell(14).numFmt = MONEY_FMT;
     row.getCell(15).numFmt = MONEY_FMT;
+    row.getCell(16).numFmt = MONEY_FMT;
     // Every row is a return — paint the same rose-100 fill the
     // marketplace tabs use on voided rows so the visual stays consistent.
     for (let c = 1; c <= RETURNS_TAB_HEADERS.length; c++) {
@@ -1294,7 +1307,7 @@ function writeSalesReturnsSheet(
   // exposure without scrolling.
   if (voided.length > 0) {
     const totalRow = sheet.addRow([
-      'TOTAL', '', '', '', '', '', '', '', '', '',
+      'TOTAL', '', '', '', '', '', '', '', '', '', '',
       Number(totalLoss.toFixed(2)),
       '', '', '', '', '',
     ]);
@@ -1302,7 +1315,7 @@ function writeSalesReturnsSheet(
     totalRow.fill = {
       type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE2E8F0' },  // slate-200
     };
-    totalRow.getCell(11).numFmt = MONEY_FMT;
+    totalRow.getCell(12).numFmt = MONEY_FMT;
   } else {
     // Empty-state hint so an auditor opening a no-returns period knows
     // the tab is intentionally empty (vs a missing/broken sheet).

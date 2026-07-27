@@ -25,7 +25,7 @@
 
 import * as XLSX from 'xlsx';
 import ExcelJS from 'exceljs';
-import type { Marketplace, Sale } from '../types';
+import type { Marketplace, Sale, ReturnCategory } from '../types';
 import { MARKETPLACES } from '../types';
 import { calcSaleFinancials } from './platforms';
 
@@ -33,11 +33,29 @@ import { calcSaleFinancials } from './platforms';
 // Public surface
 // ---------------------------------------------------------------------------
 
+/** One row of the Sales Report's cross-marketplace "Returns" tab, keyed the
+ *  same way a Sale doc id is built (marketplace + orderNumber + imei) so the
+ *  confirm step can join it back to the sale it describes. This is the ONE
+ *  piece of return state that lives on the InventoryUnit, not the Sale —
+ *  see restoreUnitReturnFromImport in inventoryService.ts. */
+export interface ParsedReturnRow {
+  marketplace: Marketplace;
+  orderNumber: string;
+  imei: string;
+  returnType?: ReturnCategory;
+}
+
 /** Parsed payload returned by `parseSalesWorkbook`. Caller adds provenance fields. */
 export interface ParsedSales {
   sales: Omit<Sale, 'importBatchId' | 'importedAt' | 'createdAt' | 'updatedAt' | 'ownerId'>[];
   perSheetCounts: Record<Marketplace, number>;
   errors: { sheet: string; row: number; message: string }[];
+  /** Rows from the workbook's 'Returns' tab, when present — empty array for
+   *  a file that predates this sheet (e.g. a per-marketplace channel export
+   *  that never had one) or one uploaded via onlyMarketplace mode. Optional
+   *  so a hand-built ParsedSales fixture (tests predating this field) still
+   *  type-checks; every real parseSalesWorkbook call always sets it. */
+  returnRows?: ParsedReturnRow[];
 }
 
 /**
@@ -174,7 +192,62 @@ export async function parseSalesWorkbook(
     }
   } catch { /* non-critical diagnostic */ }
 
-  return { sales, perSheetCounts, errors };
+  const returnRows = parseReturnsTab(wb);
+
+  return { sales, perSheetCounts, errors, returnRows };
+}
+
+/** Header → label reverse-lookup for the Returns tab's Return Type column
+ *  (clientReport.ts returnTypeLabel, inverted). Unrecognised / blank text
+ *  (a file from before this column existed, or a row the operator never
+ *  filled in) yields undefined — restoration then simply skips the unit
+ *  side for that row rather than guessing. */
+function parseReturnTypeLabel(label: unknown): ReturnCategory | undefined {
+  const s = String(label ?? '').trim().toLowerCase();
+  if (s === 'back to inventory') return 'returned_to_inventory';
+  if (s === 'in repair') return 'repair';
+  if (s === 'to supplier') return 'returned_to_supplier';
+  return undefined;
+}
+
+/** Read the workbook's cross-marketplace "Returns" tab (clientReport.ts
+ *  writeSalesReturnsSheet) by header name — a single fixed schema, unlike
+ *  the per-marketplace tabs, so no SHEET_LAYOUTS/positional-fallback
+ *  machinery is needed here. Absent sheet (older export, or a
+ *  single-marketplace channel file that never had one) is not an error —
+ *  just an empty result. */
+function parseReturnsTab(wb: XLSX.WorkBook): ParsedReturnRow[] {
+  const sheetName = wb.SheetNames.find((n) => n.trim().toLowerCase() === 'returns');
+  if (!sheetName) return [];
+  const rows = XLSX.utils.sheet_to_json<any[]>(wb.Sheets[sheetName], {
+    header: 1, raw: true, defval: null, blankrows: false,
+  });
+  if (rows.length < 2) return [];
+
+  const header = rows[0].map((h: unknown) => normHeader(h));
+  const idx = (name: string) => header.indexOf(normHeader(name));
+  const marketplaceCol = idx('marketplace');
+  const orderCol = idx('order number');
+  const imeiCol = idx('imei');
+  const returnTypeCol = idx('return type');
+  if (marketplaceCol < 0 || orderCol < 0 || imeiCol < 0) return [];
+
+  const out: ParsedReturnRow[] = [];
+  for (let r = 1; r < rows.length; r++) {
+    const row = rows[r];
+    const marketplace = toNonEmptyString(row[marketplaceCol]);
+    const orderNumber = toNonEmptyString(row[orderCol]);
+    const imei = toNonEmptyString(row[imeiCol]);
+    if (!marketplace || !MARKETPLACES.includes(marketplace as Marketplace)) continue;
+    if (!orderNumber && !imei) continue; // TOTAL footer row, or a stray blank line
+    out.push({
+      marketplace: marketplace as Marketplace,
+      orderNumber: orderNumber || '',
+      imei: imei || '',
+      returnType: returnTypeCol >= 0 ? parseReturnTypeLabel(row[returnTypeCol]) : undefined,
+    });
+  }
+  return out;
 }
 
 // ---------------------------------------------------------------------------
@@ -190,7 +263,13 @@ type ColKey =
   // VAT Temu charged on that commission) directly, since Temu's referral
   // rate varies by category and can't be modelled as one flat percentage
   // the way Amazon's can. See calcSaleFinancials' TEMU branch.
-  | 'commission' | 'commissionVat';
+  | 'commission' | 'commissionVat'
+  // The return-linkage block every marketplace tab already writes for a
+  // voided row (clientReport.ts writeReturnBlock) but which no importer
+  // has ever read back — see restoreVoidedSaleFromRow below. Header-match
+  // only, deliberately no positional fallback: a miss here just means "no
+  // restoration for this row", never a silently wrong column read.
+  | 'returnDate' | 'voidOutcome' | 'voidReason';
 
 interface SheetLayout {
   /** Header aliases per logical column (case-insensitive, whitespace-collapsed).
@@ -254,6 +333,9 @@ export const SHEET_LAYOUTS: Record<Marketplace, SheetLayout> = {
       salePrice:   ['sp'],
       postage:     ['postage'],
       comments:    ['comments'],
+      returnDate:  ['return date'],
+      voidOutcome: ['outcome'],
+      voidReason:  ['return reason'],
     },
     fallback: {
       date: 0, orderNumber: 1, sku: 2, imei: 3, supplier: 4,
@@ -284,6 +366,9 @@ export const SHEET_LAYOUTS: Record<Marketplace, SheetLayout> = {
       paymentMode: ['payment mode'],
       postage:     ['postage'],
       comments:    ['comments'],
+      returnDate:  ['return date'],
+      voidOutcome: ['outcome'],
+      voidReason:  ['return reason'],
     },
     fallback: {
       date: 0, orderNumber: 1, sku: 2, imei: 3, supplier: 4,
@@ -309,6 +394,9 @@ export const SHEET_LAYOUTS: Record<Marketplace, SheetLayout> = {
       shipping:    ['shipping', 'postage'],
       netProfit:   ['np(incl. promotion)', 'np incl. promotion', 'np'],
       comments:    ['comments'],
+      returnDate:  ['return date'],
+      voidOutcome: ['outcome'],
+      voidReason:  ['return reason'],
     },
     fallback: {
       date: 0, orderNumber: 1, sku: 2, imei: 3, supplier: 4,
@@ -331,6 +419,9 @@ export const SHEET_LAYOUTS: Record<Marketplace, SheetLayout> = {
       salePrice:   ['sp'],
       postage:     ['postage'],
       comments:    ['comments'],
+      returnDate:  ['return date'],
+      voidOutcome: ['outcome'],
+      voidReason:  ['return reason'],
     },
     fallback: {
       date: 0, orderNumber: 1, sku: 2, imei: 3, supplier: 4,
@@ -366,6 +457,9 @@ export const SHEET_LAYOUTS: Record<Marketplace, SheetLayout> = {
       commissionVat: ['commission vat', 'commissionvat', 'c. vat'],
       postage:      ['postage'],
       comments:     ['comments'],
+      returnDate:   ['return date'],
+      voidOutcome:  ['outcome'],
+      voidReason:   ['return reason'],
     },
     fallback: {
       date: 0, orderNumber: 1, sku: 2, imei: 3, supplier: 4,
@@ -718,6 +812,26 @@ function parseRow(
   const idDiscriminator = sanitiseFsIdSegment(imei || sku || `r${sourceRow}`);
   const id = `${marketplace}__${sanitiseFsIdSegment(orderNumber)}__${idDiscriminator}`;
 
+  // ---- void/return restoration --------------------------------------------
+  // The trailing Return Date / Outcome / Return Reason block is written on
+  // EVERY export (clientReport.ts writeReturnBlock) but, until this round,
+  // no importer read it back — so re-uploading a Sales Report after a wipe
+  // silently dropped every return to a plain active sale. Only set these
+  // when Return Date is actually filled in; a blank cell is an active sale,
+  // exactly as before. See restoreUnitReturnFromImport (inventoryService.ts)
+  // for the unit-side half of this restoration.
+  const restoredVoidedAt = toIsoDate(get('returnDate'));
+  let restoredVoidOutcome: 'refund' | 'replacement' | 'repair' | undefined;
+  let restoredVoidReason: string | undefined;
+  if (restoredVoidedAt) {
+    const outcomeRaw = (toNonEmptyString(get('voidOutcome')) || '').trim().toLowerCase();
+    restoredVoidOutcome =
+      outcomeRaw === 'replacement' ? 'replacement' :
+      outcomeRaw === 'in repair' || outcomeRaw === 'repair' ? 'repair' :
+      'refund';
+    restoredVoidReason = toNonEmptyString(get('voidReason'));
+  }
+
   return {
     id,
     marketplace,
@@ -734,6 +848,11 @@ function parseRow(
     comments,
     sourceFile,
     sourceRow,
+    ...(restoredVoidedAt ? {
+      voidedAt: restoredVoidedAt,
+      voidOutcome: restoredVoidOutcome,
+      voidReason: restoredVoidReason,
+    } : {}),
   };
 }
 

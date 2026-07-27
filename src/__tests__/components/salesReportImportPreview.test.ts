@@ -385,6 +385,106 @@ describe('recordsToComplete — IMEI editability follows validity', () => {
   });
 });
 
+describe('buildPreview — return restoration buckets (returnsToRestore / returnsNeedingType)', () => {
+  it('a voided sale with a Returns-tab Return Type lands in returnsToRestore', () => {
+    const sales: Sale[] = [
+      sale({
+        id: 'AMAZON__O1__111', marketplace: 'AMAZON', orderNumber: 'O1', imei: '111',
+        voidedAt: '2026-06-14', voidOutcome: 'refund', voidReason: 'Refund — Cx Change of Mind',
+      }),
+    ];
+    const preview = buildPreview(
+      {
+        sales, perSheetCounts: { AMAZON: 0, BM: 0, EBAY: 0, ONBUY: 0, TEMU: 0 }, errors: [],
+        returnRows: [{ marketplace: 'AMAZON', orderNumber: 'O1', imei: '111', returnType: 'returned_to_inventory' }],
+      },
+      [],
+      [],
+    );
+    expect(preview.returnsToRestore).toHaveLength(1);
+    expect(preview.returnsNeedingType).toHaveLength(0);
+    expect(preview.returnsToRestore[0]).toMatchObject({
+      saleId: 'AMAZON__O1__111', imei: '111', marketplace: 'AMAZON', orderNumber: 'O1',
+      returnType: 'returned_to_inventory', existingUnitId: undefined, alreadyRestored: false,
+    });
+  });
+
+  it('a voided sale with NO matching Returns-tab row lands in returnsNeedingType instead', () => {
+    const sales: Sale[] = [
+      sale({ id: 'AMAZON__O2__222', marketplace: 'AMAZON', orderNumber: 'O2', imei: '222', voidedAt: '2026-06-14', voidOutcome: 'refund' }),
+    ];
+    const preview = buildPreview(
+      { sales, perSheetCounts: { AMAZON: 0, BM: 0, EBAY: 0, ONBUY: 0, TEMU: 0 }, errors: [], returnRows: [] },
+      [],
+      [],
+    );
+    expect(preview.returnsToRestore).toHaveLength(0);
+    expect(preview.returnsNeedingType).toEqual([
+      { saleId: 'AMAZON__O2__222', imei: '222', marketplace: 'AMAZON', orderNumber: 'O2' },
+    ]);
+  });
+
+  it('a file with no returnRows array at all (legacy fixture) never throws — everything needing a type is still surfaced', () => {
+    const sales: Sale[] = [
+      sale({ id: 'AMAZON__O3__333', marketplace: 'AMAZON', orderNumber: 'O3', imei: '333', voidedAt: '2026-06-14' }),
+    ];
+    const preview = buildPreview(
+      { sales, perSheetCounts: { AMAZON: 0, BM: 0, EBAY: 0, ONBUY: 0, TEMU: 0 }, errors: [] },
+      [],
+      [],
+    );
+    expect(preview.returnsToRestore).toHaveLength(0);
+    expect(preview.returnsNeedingType).toHaveLength(1);
+  });
+
+  it('an active (non-voided) sale never appears in either return bucket', () => {
+    const sales: Sale[] = [sale({ id: 'AMAZON__O4__444', marketplace: 'AMAZON', orderNumber: 'O4', imei: '444' })];
+    const preview = buildPreview(
+      {
+        sales, perSheetCounts: { AMAZON: 0, BM: 0, EBAY: 0, ONBUY: 0, TEMU: 0 }, errors: [],
+        returnRows: [{ marketplace: 'AMAZON', orderNumber: 'O4', imei: '444', returnType: 'returned_to_inventory' }],
+      },
+      [],
+      [],
+    );
+    expect(preview.returnsToRestore).toHaveLength(0);
+    expect(preview.returnsNeedingType).toHaveLength(0);
+  });
+
+  it('marks alreadyRestored when the matched unit is already in the returned Return Type + non-sold status', () => {
+    const units: InventoryUnit[] = [
+      unit({ id: '555', imei: '555', status: 'available', returnType: 'returned_to_inventory' } as Partial<InventoryUnit>),
+    ];
+    const sales: Sale[] = [
+      sale({ id: 'AMAZON__O5__555', marketplace: 'AMAZON', orderNumber: 'O5', imei: '555', voidedAt: '2026-06-14', voidOutcome: 'refund' }),
+    ];
+    const preview = buildPreview(
+      {
+        sales, perSheetCounts: { AMAZON: 0, BM: 0, EBAY: 0, ONBUY: 0, TEMU: 0 }, errors: [],
+        returnRows: [{ marketplace: 'AMAZON', orderNumber: 'O5', imei: '555', returnType: 'returned_to_inventory' }],
+      },
+      [],
+      units,
+    );
+    expect(preview.returnsToRestore).toHaveLength(1);
+    expect(preview.returnsToRestore[0].alreadyRestored).toBe(true);
+    expect(preview.returnsToRestore[0].existingUnitId).toBe('555');
+  });
+
+  it('a voided sale with no IMEI never appears in either bucket — nothing to restore against', () => {
+    const sales: Sale[] = [
+      sale({ id: 'AMAZON__O6__blank', marketplace: 'AMAZON', orderNumber: 'O6', imei: '', voidedAt: '2026-06-14' }),
+    ];
+    const preview = buildPreview(
+      { sales, perSheetCounts: { AMAZON: 0, BM: 0, EBAY: 0, ONBUY: 0, TEMU: 0 }, errors: [], returnRows: [] },
+      [],
+      [],
+    );
+    expect(preview.returnsToRestore).toHaveLength(0);
+    expect(preview.returnsNeedingType).toHaveLength(0);
+  });
+});
+
 describe('buildPostImportSyncPatches — stockSource stamping', () => {
   it('stamps office for a shelf unit and SHS for a supplier-held one', () => {
     const units: InventoryUnit[] = [

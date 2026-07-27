@@ -55,6 +55,10 @@ vi.mock('../../lib/dbService', () => {
     },
     async createImportBatch() { return 'batch_mock'; },
     async bulkUpsertSales() { /* not used by inventoryService */ },
+    applyCacheItem(collectionName: string, id: string, data: any) {
+      const existing = col(collectionName).get(id);
+      col(collectionName).set(id, { ...(existing ?? {}), ...data, id });
+    },
   };
   return { dbService };
 });
@@ -66,6 +70,7 @@ import {
   receiveShsAggregate,
   backfillImei,
   addSoldUnitFromSale,
+  restoreUnitReturnFromImport,
   completeUnitBuyInfo,
   upsertAccessoryStock,
   decrementAccessoryStock,
@@ -684,6 +689,162 @@ describe('addSoldUnitFromSale', () => {
     const r = await addSoldUnitFromSale({ sale, imei: sale.imei, model: 'Samsung A32 5G', buyPrice: 0 });
     expect(r.ok).toBe(false);
     expect(r.error).toBe('missing_buy_price');
+  });
+});
+
+// ───────────────────────────────────────────────────────────────────────────
+// restoreUnitReturnFromImport
+// ───────────────────────────────────────────────────────────────────────────
+
+const voidedSale = (over: Partial<Sale> = {}): Sale => ({
+  id: 'AMAZON__O-RET-1__350000000000222',
+  marketplace: 'AMAZON',
+  orderNumber: 'O-RET-1',
+  imei: '350000000000222',
+  unitId: '350000000000222',
+  supplierId: '',
+  supplierName: 'NIHAL',
+  saleDate: '2026-06-01',
+  quantity: 1,
+  buyPrice: 120,
+  salePrice: 169.99,
+  postage: 6.3,
+  postageVat: 1.26,
+  sku: 'ASI-SG-A32-5G-64-BK-EX',
+  voidedAt: '2026-06-14',
+  voidReason: 'Refund — Cx Change of Mind',
+  voidOutcome: 'refund',
+  importBatchId: 't', sourceFile: 't', sourceRow: 1, ownerId: 'shared',
+  createdAt: '2026-06-01T00:00:00Z', updatedAt: '2026-06-01T00:00:00Z',
+  ...over,
+} as any as Sale);
+
+const soldUnit = (over: Record<string, any> = {}) => ({
+  id: '350000000000222',
+  imei: '350000000000222',
+  model: 'Samsung Galaxy A32 5G',
+  brand: 'Samsung',
+  category: 'Samsung A Series',
+  colour: 'Black',
+  buyPrice: 120,
+  dateIn: '2026-01-01',
+  supplierId: 'sup_1',
+  supplierName: 'NIHAL',
+  status: 'sold',
+  flags: [],
+  notes: '',
+  platformListed: true,
+  listingSites: [],
+  salePrice: 169.99,
+  saleDate: '2026-06-01',
+  salePlatform: 'AMAZON',
+  saleOrderId: 'O-RET-1',
+  postageCost: 6.3,
+  ownerId: 'shared',
+  createdAt: '2026-01-01T00:00:00Z',
+  ...over,
+});
+
+describe('restoreUnitReturnFromImport', () => {
+  it('patches an existing SOLD unit to returned_to_inventory → available, clearing sale-provenance fields', async () => {
+    const sale = voidedSale();
+    col('inventoryUnits').set(sale.imei!, soldUnit());
+
+    const r = await restoreUnitReturnFromImport({ sale, returnType: 'returned_to_inventory' });
+    expect(r.ok).toBe(true);
+    expect(r.created).toBe(false);
+
+    const unit = collections['inventoryUnits'].get('350000000000222');
+    expect(unit.status).toBe('available');
+    expect(unit.returnType).toBe('returned_to_inventory');
+    expect(unit.returnDate).toBe('2026-06-14');
+    expect(unit.returnReason).toBe('Refund — Cx Change of Mind');
+    expect(unit.returnOutcome).toBe('refund');
+    expect(unit.returnLegCost).toBeCloseTo(7.56);
+    expect(unit.pendingCrmReview).toBe(false);
+    expect(unit.platformListed).toBe(false);
+    expect(unit.listingSites).toEqual([]);
+    // Sale provenance cleared, matching returnsService's buildReturningUnitPatch.
+    expect(unit.salePrice).toBeNull();
+    expect(unit.saleDate).toBeNull();
+    expect(unit.salePlatform).toBeNull();
+    expect(unit.saleOrderId).toBeNull();
+    expect(unit.postageCost).toBeNull();
+  });
+
+  it('returned_to_supplier and repair land on status "returned", not "available"', async () => {
+    col('inventoryUnits').set('350000000000222', soldUnit());
+    const r1 = await restoreUnitReturnFromImport({
+      sale: voidedSale(), returnType: 'returned_to_supplier',
+    });
+    expect(r1.ok).toBe(true);
+    expect(collections['inventoryUnits'].get('350000000000222').status).toBe('returned');
+
+    col('inventoryUnits').set('350000000000333', soldUnit({ id: '350000000000333', imei: '350000000000333' }));
+    const r2 = await restoreUnitReturnFromImport({
+      sale: voidedSale({ id: 'AMAZON__O-RET-2__350000000000333', imei: '350000000000333', voidOutcome: 'repair', voidReason: 'In Repair — screen cracked' }),
+      returnType: 'repair',
+    });
+    expect(r2.ok).toBe(true);
+    const unit2 = collections['inventoryUnits'].get('350000000000333');
+    expect(unit2.status).toBe('returned');
+    // repair voids carry no customer outcome — independent of returnType.
+    expect(unit2.returnOutcome).toBeNull();
+  });
+
+  it('no matching unit at all — reconstructs one directly in returned shape, skipping the sold intermediate', async () => {
+    const sale = voidedSale({ id: 'AMAZON__O-RET-3__350000000000444', imei: '350000000000444', unitId: '' });
+    const r = await restoreUnitReturnFromImport({ sale, returnType: 'returned_to_inventory' });
+    expect(r.ok).toBe(true);
+    expect(r.created).toBe(true);
+    expect(r.unitId).toBe('350000000000444');
+
+    const unit = collections['inventoryUnits'].get('350000000000444');
+    expect(unit).toBeDefined();
+    expect(unit.status).toBe('available');
+    expect(unit.returnType).toBe('returned_to_inventory');
+    expect(unit.model).toContain('Galaxy A32');
+    expect(unit.buyPrice).toBe(120);
+    // No live "sold" moment for a unit whose entire life this import is
+    // "it came back" — sale-provenance fields never got set in the first place.
+    expect(unit.salePrice).toBeNull();
+    expect(unit.saleOrderId).toBeNull();
+  });
+
+  it('is idempotent — re-running against an already-restored unit is a no-op (no duplicate audit event, same state)', async () => {
+    const sale = voidedSale();
+    col('inventoryUnits').set(sale.imei!, soldUnit());
+    await restoreUnitReturnFromImport({ sale, returnType: 'returned_to_inventory' });
+    const afterFirst = { ...collections['inventoryUnits'].get('350000000000222') };
+
+    const r2 = await restoreUnitReturnFromImport({ sale, returnType: 'returned_to_inventory' });
+    expect(r2.ok).toBe(true);
+    expect(r2.created).toBe(false);
+    expect(collections['inventoryUnits'].get('350000000000222')).toEqual(afterFirst);
+  });
+
+  it('rejects a sale that was never voided — nothing to restore', async () => {
+    const sale = voidedSale({ voidedAt: undefined, voidOutcome: undefined, voidReason: undefined });
+    const r = await restoreUnitReturnFromImport({ sale, returnType: 'returned_to_inventory' });
+    expect(r.ok).toBe(false);
+    expect(r.error).toBe('not_voided');
+  });
+
+  it('rejects a sale with no IMEI to restore against', async () => {
+    const sale = voidedSale({ imei: '' });
+    const r = await restoreUnitReturnFromImport({ sale, returnType: 'returned_to_inventory' });
+    expect(r.ok).toBe(false);
+    expect(r.error).toBe('missing_imei');
+  });
+
+  it('reconstruction path surfaces missing_supplier when the sale has no supplier at all', async () => {
+    const sale = voidedSale({
+      id: 'AMAZON__O-RET-5__350000000000555', imei: '350000000000555',
+      unitId: '', supplierName: '',
+    });
+    const r = await restoreUnitReturnFromImport({ sale, returnType: 'returned_to_inventory' });
+    expect(r.ok).toBe(false);
+    expect(r.error).toBe('missing_supplier');
   });
 });
 
