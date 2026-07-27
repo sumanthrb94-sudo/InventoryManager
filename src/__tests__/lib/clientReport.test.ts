@@ -495,12 +495,62 @@ describe('buildSalesWorkbookBuffer — auditor-grade structure', () => {
     // Header at row 4. AMAZON=row5, BM=row6, EBAY=row7, ONBUY=row8, TOTAL=row9.
     const ebayRow = summary.getRow(7);
     expect(ebayRow.getCell(1).value).toBe('EBAY');
-    expect(ebayRow.getCell(2).value).toBe(3);        // Sales count
+    // Sales count is ACTIVE sales only (matches the app's ALL-TIME SOLD
+    // tile) — the 2 voided rows are tracked via Refunds/Replacements
+    // instead of also being counted as a Sale.
+    expect(ebayRow.getCell(2).value).toBe(1);        // Sales count
     expect(ebayRow.getCell(3).value).toBe(1);        // Refunds
     expect(ebayRow.getCell(4).value).toBe(1);        // Replacements
     expect(ebayRow.getCell(5).value).toBe(0);        // Repairs
     // Postage Loss (col 7 now) = 19.2 (refund) + 28.8 (replacement) = 48
     expect(ebayRow.getCell(7).value).toBeCloseTo(48, 1);
+  });
+
+  // Client-reported (2026-07-27): "ALL-TIME SOLD" read 349 but downloading
+  // "All Time" and re-uploading it showed 354 to update — a confusing
+  // mismatch. Root cause: the Summary tab's "Sales" column previously
+  // counted every row per marketplace, voided or not, so 5 voided sales
+  // were silently folded into "Sales" on top of also being tallied as
+  // Refunds. Marketplace tabs correctly keep every row (voided sales stay
+  // visible, red-highlighted, with full return-info columns — nothing is
+  // hidden), but the Summary's headline Sales figure now matches the
+  // dashboard KPI exactly.
+  it('Summary "Sales" total matches active-only count even when marketplace tabs carry voided rows too (349 vs 354 regression)', async () => {
+    const activeCount = 9;
+    const voidedCount = 5;
+    const sales: Sale[] = [
+      ...Array.from({ length: activeCount }, (_, i) => baseSale({
+        id: `AMAZON__A${i}__X${i}`, marketplace: 'AMAZON', orderNumber: `A${i}`,
+        buyPrice: 100, salePrice: 200,
+      })),
+      // Distinct unitId per row — the Summary's void-event dedup collapses
+      // same-day voids sharing one unitId/imei into a single return event
+      // (a single Process-Return click voiding several linked sales), which
+      // isn't the case here: these are 5 unrelated orders.
+      ...Array.from({ length: voidedCount }, (_, i) => baseSale({
+        id: `AMAZON__V${i}__Y${i}`, marketplace: 'AMAZON', orderNumber: `V${i}`,
+        unitId: `unit-v${i}`, imei: `35000000000000${i}`,
+        buyPrice: 100, salePrice: 200,
+        voidedAt: '2026-07-09', voidOutcome: 'refund', voidReason: 'Refund — Cx Change of Mind',
+        postage: 8, postageVat: 1.6,
+      })),
+    ];
+    const buffer = await buildSalesWorkbookBuffer({ sales });
+    const wb = await loadWorkbook(buffer);
+
+    // Marketplace tab: every row present — nothing removed or hidden.
+    const amazon = wb.getWorksheet('AMAZON')!;
+    expect(amazon.rowCount).toBe(1 + activeCount + voidedCount + 1); // header + rows + TOTAL
+
+    // Summary tab: Sales = active only, Refunds = the voided 5.
+    const summary = wb.getWorksheet('Summary')!;
+    const amazonRow = summary.getRow(5);
+    expect(amazonRow.getCell(2).value).toBe(activeCount); // Sales — NOT 14
+    expect(amazonRow.getCell(3).value).toBe(voidedCount); // Refunds
+
+    // Returns tab: the same 5 voided sales, on their own.
+    const returns = wb.getWorksheet('Returns')!;
+    expect(returns.rowCount).toBe(1 + voidedCount + 1); // header + 5 + TOTAL
   });
 });
 
@@ -688,13 +738,15 @@ describe('return / replacement / re-sell lifecycle', () => {
     expect(amazon.getRow(2).getCell(24).value).toBeNull();           // Outcome blank
     expect(amazon.getRow(2).getCell(26).value).toBeNull();           // Shipping Legs blank
 
-    // Summary roll-up reflects both: 1 refund on EBAY, 1 sale on AMAZON.
+    // Summary roll-up reflects both: 1 refund on EBAY (its only sale was
+    // voided, so it contributes 0 to Sales — the count is active-only),
+    // 1 active sale on AMAZON.
     const summary = wb.getWorksheet('Summary')!;
     const amazonRow = summary.getRow(5);       // AMAZON
     expect(amazonRow.getCell(2).value).toBe(1); // Sales
     expect(amazonRow.getCell(3).value).toBe(0); // Refunds
     const ebayRow = summary.getRow(7);          // EBAY
-    expect(ebayRow.getCell(2).value).toBe(1);   // Sales
+    expect(ebayRow.getCell(2).value).toBe(0);   // Sales (its one sale was voided)
     expect(ebayRow.getCell(3).value).toBe(1);   // Refunds
   });
 });
@@ -1168,7 +1220,7 @@ describe('repair-route returns: "In Repair" label + 2-leg carriage loss', () => 
     await wb.xlsx.load(buf);
     const summary = wb.getWorksheet('Summary')!;
     const ebayRow = summary.getRow(7);
-    expect(ebayRow.getCell(2).value).toBe(2);          // Sales (both counted)
+    expect(ebayRow.getCell(2).value).toBe(0);          // Sales (both voided — active-only count)
     expect(ebayRow.getCell(3).value).toBe(1);          // Refunds (R1 only)
     expect(ebayRow.getCell(4).value).toBe(0);          // Replacements
     expect(ebayRow.getCell(5).value).toBe(1);          // Repairs (the repair void)
@@ -1289,7 +1341,7 @@ describe('post-repair-completion invariant (BUG-RP-002)', () => {
     await wb.xlsx.load(buf);
     const summary = wb.getWorksheet('Summary')!;
     const ebayRow = summary.getRow(7);
-    expect(ebayRow.getCell(2).value).toBe(1);          // Sales: 1
+    expect(ebayRow.getCell(2).value).toBe(0);          // Sales: 0 (the one sale is voided)
     expect(ebayRow.getCell(3).value).toBe(0);          // Refunds: 0 (NOT bumped)
     expect(ebayRow.getCell(4).value).toBe(0);          // Replacements: 0
     expect(ebayRow.getCell(5).value).toBe(1);          // Repairs: 1
@@ -1377,7 +1429,7 @@ describe('post-repair-completion invariant (BUG-RP-002)', () => {
     await wb.xlsx.load(buf);
     const summary = wb.getWorksheet('Summary')!;
     const ebayRow = summary.getRow(7);
-    expect(ebayRow.getCell(2).value).toBe(2);          // 2 sales
+    expect(ebayRow.getCell(2).value).toBe(0);          // 0 sales — both voided
     expect(ebayRow.getCell(3).value).toBe(1);          // 1 refund (the new one)
     expect(ebayRow.getCell(5).value).toBe(1);          // 1 repair (the old one)
     // Loss = repair 15.12 + refund 15.12 = 30.24 (both carry 2 legs now).

@@ -1088,10 +1088,21 @@ function writeSalesSummarySheet(
       return `${u}__${s.voidedAt || ''}`;
     };
     for (const s of bucket) {
-      salesCount++;
-      const sale = recomputeSale(s);
-      gp += sale.grossProfit ?? 0;
-      bp += s.buyPrice ?? 0;
+      // "Sales" / Gross GP / BP are the active-sale figures — matching the
+      // dashboard's ALL-TIME SOLD tile, which also excludes voided sales
+      // (SellSheet.tsx). Voided sales fold their loss in via the separate
+      // Refunds/Replacements/Repairs + Postage Loss columns instead of
+      // being counted as a sale AND a return at once — before this fix
+      // "Sales" silently included every voided row too (so a marketplace
+      // with 20 sales and 2 refunds read "Sales: 20" instead of 18), and
+      // Gross GP carried the voided rows' original margin, only partly
+      // offset by Postage Loss rather than excluded outright.
+      if (!s.voidedAt) {
+        salesCount++;
+        const sale = recomputeSale(s);
+        gp += sale.grossProfit ?? 0;
+        bp += s.buyPrice ?? 0;
+      }
       // Flag active sales whose IMEI isn't in inventory (only when unit
       // data was actually supplied to the builder). Voided rows are skipped
       // — a missing unit there is expected (it may have been returned out).
@@ -1178,7 +1189,8 @@ function writeSalesSummarySheet(
   sheet.addRow(['• Repair: the unit comes back to stock, but both carriage legs were still paid — so it carries the same 2-leg loss as a refund.']);
   sheet.addRow(['• Postage Loss = (postage + P.VAT) × legs, snapshotted at Process Return time.']);
   sheet.addRow(['• Net GP = Gross GP − Postage Loss. Net GP % = Net GP ÷ BP (× 100). eBay rows divide by SP per platform convention.']);
-  sheet.addRow(['• Per-marketplace sheets carry a TOTAL row at the bottom with the same maths reconciled via SUM formulas.']);
+  sheet.addRow(['• Sales / Gross GP / BP above count ACTIVE sales only — matching the app\'s ALL-TIME SOLD figure. Refunds, Replacements and Repairs are tracked separately in the columns to the left; add them to Sales for this sheet\'s row count on each marketplace tab.']);
+  sheet.addRow(['• Per-marketplace sheets carry a TOTAL row at the bottom summing every row shown there (active + returned) via SUM formulas — the Returns tab breaks the returned rows out on their own.']);
 }
 
 /** Schema for the consolidated Returns tab on the Sales Report. The
