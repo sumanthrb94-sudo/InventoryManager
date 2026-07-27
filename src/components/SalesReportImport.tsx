@@ -383,14 +383,17 @@ export function buildPreview(
   }
 
   // Return restoration dry run — every voided sale in this upload whose
-  // Returns tab row supplied a Return Type gets a unit-side restore on
-  // confirm (restoreUnitReturnFromImport). A voided sale with no Return
+  // Returns Detail tab row supplied a Return Type gets a unit-side restore
+  // on confirm (restoreUnitReturnFromImport). A voided sale with no Return
   // Type still imports fine (the Sale doc carries voidedAt regardless) —
   // it just can't safely touch the unit, so it's split into its own
-  // non-blocking bucket instead. Deduped by sale id, same as the other scans.
+  // non-blocking bucket instead. Deduped by sale id, same as the other
+  // scans. Keyed by marketplace + IMEI — the Returns Detail sheet is
+  // unit-scoped (one row per unit's latest cycle) and carries no Order
+  // Number to join on.
   const returnRowByKey = new Map<string, ParsedSales['returnRows'][number]>();
   for (const r of parsed.returnRows ?? []) {
-    const key = `${r.marketplace}__${(r.orderNumber || '').trim().toUpperCase()}__${(r.imei || '').trim().toUpperCase()}`;
+    const key = `${r.marketplace}__${(r.imei || '').trim().toUpperCase()}`;
     returnRowByKey.set(key, r);
   }
   const returnsToRestore: PreviewBuckets['returnsToRestore'] = [];
@@ -404,7 +407,7 @@ export function buildPreview(
     if (!imeiKey) continue; // no unit to restore without an IMEI
     const orderNumber = s.orderNumber || '';
     const existingUnit = unitsByImei.get(imeiKey);
-    const key = `${s.marketplace}__${orderNumber.trim().toUpperCase()}__${imeiKey}`;
+    const key = `${s.marketplace}__${imeiKey}`;
     const returnType = returnRowByKey.get(key)?.returnType;
     if (!returnType) {
       returnsNeedingType.push({ saleId: s.id, imei: imeiKey, marketplace: s.marketplace, orderNumber });

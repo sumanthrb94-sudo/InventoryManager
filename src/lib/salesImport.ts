@@ -33,14 +33,16 @@ import { calcSaleFinancials } from './platforms';
 // Public surface
 // ---------------------------------------------------------------------------
 
-/** One row of the Sales Report's cross-marketplace "Returns" tab, keyed the
- *  same way a Sale doc id is built (marketplace + orderNumber + imei) so the
- *  confirm step can join it back to the sale it describes. This is the ONE
- *  piece of return state that lives on the InventoryUnit, not the Sale —
- *  see restoreUnitReturnFromImport in inventoryService.ts. */
+/** One row of the Sales Report's "Returns Detail" tab (clientReport.ts's
+ *  writeReturnsSheets — the same Summary/Returns Detail/Unit Histories
+ *  structure the standalone Returns Report uses, embedded here), keyed by
+ *  marketplace + IMEI (the sheet is one row per UNIT's latest return
+ *  cycle — it carries no Order Number) so the confirm step can join it
+ *  back to the sale it describes. This is the ONE piece of return state
+ *  that lives on the InventoryUnit, not the Sale — see
+ *  restoreUnitReturnFromImport in inventoryService.ts. */
 export interface ParsedReturnRow {
   marketplace: Marketplace;
-  orderNumber: string;
   imei: string;
   returnType?: ReturnCategory;
 }
@@ -210,14 +212,17 @@ function parseReturnTypeLabel(label: unknown): ReturnCategory | undefined {
   return undefined;
 }
 
-/** Read the workbook's cross-marketplace "Returns" tab (clientReport.ts
- *  writeSalesReturnsSheet) by header name — a single fixed schema, unlike
- *  the per-marketplace tabs, so no SHEET_LAYOUTS/positional-fallback
- *  machinery is needed here. Absent sheet (older export, or a
- *  single-marketplace channel file that never had one) is not an error —
- *  just an empty result. */
+/** Read the workbook's "Returns Detail" tab (clientReport.ts's
+ *  writeReturnsSheets — the same Summary/Returns Detail/Unit Histories
+ *  structure as the standalone Returns Report) by header name — a single
+ *  fixed schema, unlike the per-marketplace tabs, so no
+ *  SHEET_LAYOUTS/positional-fallback machinery is needed here. Absent
+ *  sheet (older export, or a single-marketplace channel file that never
+ *  had one) is not an error — just an empty result. One row per UNIT's
+ *  latest return cycle, keyed by marketplace + Unit IMEI (no Order Number
+ *  column — this sheet is unit-scoped, not order-scoped). */
 function parseReturnsTab(wb: XLSX.WorkBook): ParsedReturnRow[] {
-  const sheetName = wb.SheetNames.find((n) => n.trim().toLowerCase() === 'returns');
+  const sheetName = wb.SheetNames.find((n) => n.trim().toLowerCase() === 'returns detail');
   if (!sheetName) return [];
   const rows = XLSX.utils.sheet_to_json<any[]>(wb.Sheets[sheetName], {
     header: 1, raw: true, defval: null, blankrows: false,
@@ -227,23 +232,20 @@ function parseReturnsTab(wb: XLSX.WorkBook): ParsedReturnRow[] {
   const header = rows[0].map((h: unknown) => normHeader(h));
   const idx = (name: string) => header.indexOf(normHeader(name));
   const marketplaceCol = idx('marketplace');
-  const orderCol = idx('order number');
-  const imeiCol = idx('imei');
+  const imeiCol = idx('unit imei');
   const returnTypeCol = idx('return type');
-  if (marketplaceCol < 0 || orderCol < 0 || imeiCol < 0) return [];
+  if (marketplaceCol < 0 || imeiCol < 0) return [];
 
   const out: ParsedReturnRow[] = [];
   for (let r = 1; r < rows.length; r++) {
     const row = rows[r];
     const marketplace = toNonEmptyString(row[marketplaceCol]);
-    const orderNumber = toNonEmptyString(row[orderCol]);
     const imei = toNonEmptyString(row[imeiCol]);
     if (!marketplace || !MARKETPLACES.includes(marketplace as Marketplace)) continue;
-    if (!orderNumber && !imei) continue; // TOTAL footer row, or a stray blank line
+    if (!imei) continue; // legacy return with no linked voided sale to source a marketplace/IMEI from
     out.push({
       marketplace: marketplace as Marketplace,
-      orderNumber: orderNumber || '',
-      imei: imei || '',
+      imei,
       returnType: returnTypeCol >= 0 ? parseReturnTypeLabel(row[returnTypeCol]) : undefined,
     });
   }

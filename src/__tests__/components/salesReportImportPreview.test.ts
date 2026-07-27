@@ -396,7 +396,7 @@ describe('buildPreview — return restoration buckets (returnsToRestore / return
     const preview = buildPreview(
       {
         sales, perSheetCounts: { AMAZON: 0, BM: 0, EBAY: 0, ONBUY: 0, TEMU: 0 }, errors: [],
-        returnRows: [{ marketplace: 'AMAZON', orderNumber: 'O1', imei: '111', returnType: 'returned_to_inventory' }],
+        returnRows: [{ marketplace: 'AMAZON', imei: '111', returnType: 'returned_to_inventory' }],
       },
       [],
       [],
@@ -442,7 +442,7 @@ describe('buildPreview — return restoration buckets (returnsToRestore / return
     const preview = buildPreview(
       {
         sales, perSheetCounts: { AMAZON: 0, BM: 0, EBAY: 0, ONBUY: 0, TEMU: 0 }, errors: [],
-        returnRows: [{ marketplace: 'AMAZON', orderNumber: 'O4', imei: '444', returnType: 'returned_to_inventory' }],
+        returnRows: [{ marketplace: 'AMAZON', imei: '444', returnType: 'returned_to_inventory' }],
       },
       [],
       [],
@@ -461,7 +461,7 @@ describe('buildPreview — return restoration buckets (returnsToRestore / return
     const preview = buildPreview(
       {
         sales, perSheetCounts: { AMAZON: 0, BM: 0, EBAY: 0, ONBUY: 0, TEMU: 0 }, errors: [],
-        returnRows: [{ marketplace: 'AMAZON', orderNumber: 'O5', imei: '555', returnType: 'returned_to_inventory' }],
+        returnRows: [{ marketplace: 'AMAZON', imei: '555', returnType: 'returned_to_inventory' }],
       },
       [],
       units,

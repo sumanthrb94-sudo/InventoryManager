@@ -208,75 +208,78 @@ async function loadWorkbook(buffer: ArrayBuffer): Promise<ExcelJS.Workbook> {
 }
 
 describe('buildSalesWorkbookBuffer — auditor-grade structure', () => {
-  it('produces 7 sheets — Summary + Returns + AMAZON / BM / EBAY / ONBUY / TEMU', async () => {
+  it('produces 9 sheets — Summary + Returns Summary/Detail/Unit Histories + AMAZON / BM / EBAY / ONBUY / TEMU', async () => {
     const buffer = await buildSalesWorkbookBuffer({ sales: [] });
     const wb = await loadWorkbook(buffer);
-    // Returns sits between Summary and the marketplace tabs so the
-    // auditor sees return data immediately, without scrolling past
-    // 20+ sale columns on each marketplace tab.
-    expect(wb.worksheets.map(w => w.name)).toEqual(['Summary', 'Returns', 'AMAZON', 'BM', 'EBAY', 'ONBUY', 'TEMU']);
+    // The returns section sits between Summary and the marketplace tabs so
+    // the auditor sees return data immediately, without scrolling past
+    // 20+ sale columns on each marketplace tab. 'Returns Summary' (not
+    // 'Summary') avoids colliding with the workbook's own top-level
+    // Summary sheet.
+    expect(wb.worksheets.map(w => w.name)).toEqual([
+      'Summary', 'Returns Summary', 'Returns Detail', 'Unit Histories',
+      'AMAZON', 'BM', 'EBAY', 'ONBUY', 'TEMU',
+    ]);
   });
 
-  it('Returns tab — headers carry the return-info columns up front', async () => {
+  it('Returns Detail tab — headers carry the full per-return lifecycle schema', async () => {
     const buffer = await buildSalesWorkbookBuffer({ sales: [] });
     const wb = await loadWorkbook(buffer);
-    const returns = wb.getWorksheet('Returns')!;
-    const header = returns.getRow(1);
-    expect(String(header.getCell(1).value)).toBe('Sale Date');
-    expect(String(header.getCell(2).value)).toBe('Return Date');
-    expect(String(header.getCell(3).value)).toBe('Marketplace');
-    expect(String(header.getCell(8).value)).toBe('Outcome');
-    expect(String(header.getCell(9).value)).toBe('Return Type');
-    expect(String(header.getCell(11).value)).toBe('Shipping Legs');
-    expect(String(header.getCell(12).value)).toBe('Postage Loss £');
-    // Empty period gets a "No returns" hint, not a TOTAL row.
-    const row2 = returns.getRow(2);
-    expect(String(row2.getCell(1).value)).toBe('No returns recorded for this period.');
+    const detail = wb.getWorksheet('Returns Detail')!;
+    const header = detail.getRow(1);
+    expect(String(header.getCell(1).value)).toBe('Return Date');
+    expect(String(header.getCell(2).value)).toBe('Unit IMEI');
+    expect(String(header.getCell(9).value)).toBe('Marketplace');
+    expect(String(header.getCell(10).value)).toBe('Return Type');
+    expect(String(header.getCell(11).value)).toBe('Outcome');
+    expect(String(header.getCell(15).value)).toBe('Shipping Legs');
+    expect(String(header.getCell(16).value)).toBe('Postage Loss £');
+    // Empty period → header only, no data or hint row (unlike the old
+    // flat Returns tab this replaced).
+    expect(detail.rowCount).toBe(1);
   });
 
-  it('Returns tab — one row per voided sale across all marketplaces + TOTAL row', async () => {
+  it('Returns Detail tab — a voided sale with no linked unit still appears (orphan fallback), Return Type left blank', async () => {
     const sales: Sale[] = [
-      // 1 active EBAY sale (must NOT appear on the Returns tab).
+      // 1 active EBAY sale (must NOT appear on Returns Detail).
       baseSale({ id: 'EBAY__A__I1', orderNumber: 'A', marketplace: 'EBAY' }),
-      // 2 returns on different marketplaces.
+      // 2 returns on different marketplaces, neither with a matching unit
+      // passed in — exactly the shape of the incident this sheet exists to
+      // survive (unit deleted, only the voided Sale remains).
       baseSale({
         id: 'EBAY__B__I2', orderNumber: 'B', marketplace: 'EBAY',
-        imei: '350000000000002',
+        imei: '350000000000002', unitId: 'unit-b',
         voidedAt: '2026-06-13', voidOutcome: 'refund', voidReason: 'wrong colour',
         postage: 8, postageVat: 1.6,
       }),
       baseSale({
         id: 'AMAZON__C__I3', orderNumber: 'C', marketplace: 'AMAZON',
-        imei: '350000000000003',
+        imei: '350000000000003', unitId: 'unit-c',
         voidedAt: '2026-06-12', voidOutcome: 'replacement', voidReason: 'faulty',
         postage: 6.30, postageVat: 1.26,
       }),
     ];
     const buffer = await buildSalesWorkbookBuffer({ sales });
     const wb = await loadWorkbook(buffer);
-    const returns = wb.getWorksheet('Returns')!;
-    // Row 1 = header, then 2 voided rows newest-first, then TOTAL row.
-    expect(returns.rowCount).toBe(4);
-    // Newest void (EBAY refund) lands on row 2.
-    const r2 = returns.getRow(2);
-    expect(r2.getCell(3).value).toBe('EBAY');
-    expect(r2.getCell(4).value).toBe('B');
-    expect(r2.getCell(8).value).toBe('Refund');
-    expect(r2.getCell(11).value).toBe(2);
-    expect(r2.getCell(12).value).toBeCloseTo(19.2, 2);
-    // Replacement row.
-    const r3 = returns.getRow(3);
-    expect(r3.getCell(3).value).toBe('AMAZON');
-    expect(r3.getCell(8).value).toBe('Replacement');
-    expect(r3.getCell(11).value).toBe(3);
-    expect(r3.getCell(12).value).toBeCloseTo(22.68, 2);
-    // TOTAL row carries the summed postage loss (19.2 + 22.68 = 41.88).
-    const tot = returns.getRow(4);
-    expect(tot.getCell(1).value).toBe('TOTAL');
-    expect(tot.getCell(12).value).toBeCloseTo(41.88, 2);
+    const detail = wb.getWorksheet('Returns Detail')!;
+    // Header + 2 orphan rows (distinct unitIds — B and C are unrelated
+    // returns), newest voidedAt first. No TOTAL row on this sheet
+    // (Returns Summary carries the aggregate instead).
+    expect(detail.rowCount).toBe(3);
+    const r2 = detail.getRow(2);
+    expect(r2.getCell(9).value).toBe('EBAY');
+    expect(r2.getCell(10).value).toBe('');           // Return Type unknown — never guessed
+    expect(r2.getCell(11).value).toBe('Refund');
+    expect(r2.getCell(15).value).toBe(2);
+    expect(r2.getCell(16).value).toBeCloseTo(19.2, 2);
+    const r3 = detail.getRow(3);
+    expect(r3.getCell(9).value).toBe('AMAZON');
+    expect(r3.getCell(11).value).toBe('Replacement');
+    expect(r3.getCell(15).value).toBe(3);
+    expect(r3.getCell(16).value).toBeCloseTo(22.68, 2);
   });
 
-  it('Returns tab — Return Type column reads the linked unit\'s returnType', async () => {
+  it('Returns Detail — Return Type column reads the linked unit\'s returnType; falls back to blank when no unit is on file', async () => {
     const sales: Sale[] = [
       baseSale({
         id: 'EBAY__RT1__350000000000010', orderNumber: 'RT1', marketplace: 'EBAY',
@@ -290,7 +293,8 @@ describe('buildSalesWorkbookBuffer — auditor-grade structure', () => {
         voidedAt: '2026-06-12', voidOutcome: 'refund', voidReason: 'faulty, sent back',
         postage: 6.30, postageVat: 1.26,
       }),
-      // No linked unit at all — Return Type should read blank, not throw.
+      // No linked unit at all — Return Type should read blank via the
+      // orphan fallback, not throw.
       baseSale({
         id: 'ONBUY__RT3__350000000000030', orderNumber: 'RT3', marketplace: 'ONBUY',
         imei: '350000000000030', unitId: '',
@@ -312,16 +316,17 @@ describe('buildSalesWorkbookBuffer — auditor-grade structure', () => {
     ];
     const buffer = await buildSalesWorkbookBuffer({ sales, units });
     const wb = await loadWorkbook(buffer);
-    const returns = wb.getWorksheet('Returns')!;
-    const header = returns.getRow(1);
-    expect(String(header.getCell(9).value)).toBe('Return Type');
+    const detail = wb.getWorksheet('Returns Detail')!;
+    const header = detail.getRow(1);
+    expect(String(header.getCell(10).value)).toBe('Return Type');
 
-    // Locate rows by Order Number (col 4) — sort-order agnostic.
-    const rows = [returns.getRow(2), returns.getRow(3), returns.getRow(4)];
-    const byOrder = (order: string) => rows.find(r => r.getCell(4).value === order)!;
-    expect(byOrder('RT1').getCell(9).value).toBe('Back to Inventory');
-    expect(byOrder('RT2').getCell(9).value).toBe('To Supplier');
-    expect(byOrder('RT3').getCell(9).value).toBe('');
+    // Locate rows by Unit IMEI (col 2) — Returns Detail is unit-scoped and
+    // carries no Order Number column, unlike the old flat Returns tab.
+    const rows = [detail.getRow(2), detail.getRow(3), detail.getRow(4)];
+    const byImei = (imei: string) => rows.find(r => r.getCell(2).value === imei)!;
+    expect(byImei('350000000000010').getCell(10).value).toBe('Back to Inventory');
+    expect(byImei('350000000000020').getCell(10).value).toBe('To Supplier');
+    expect(byImei('350000000000030').getCell(10).value).toBe('');
   });
 
   it('Summary header row reads Marketplace / Sales / Refunds / Replacements / Gross GP / Postage Loss / Net GP / Net GP %', async () => {
@@ -597,9 +602,10 @@ describe('buildSalesWorkbookBuffer — auditor-grade structure', () => {
     expect(amazonRow.getCell(2).value).toBe(activeCount); // Sales — NOT 14
     expect(amazonRow.getCell(3).value).toBe(voidedCount); // Refunds
 
-    // Returns tab: the same 5 voided sales, on their own.
-    const returns = wb.getWorksheet('Returns')!;
-    expect(returns.rowCount).toBe(1 + voidedCount + 1); // header + 5 + TOTAL
+    // Returns Detail: the same 5 voided sales, on their own (orphan
+    // fallback — no units passed in). No TOTAL row on this sheet.
+    const detail = wb.getWorksheet('Returns Detail')!;
+    expect(detail.rowCount).toBe(1 + voidedCount); // header + 5
   });
 });
 
@@ -941,15 +947,12 @@ describe('Sales Report Returns tab filters by voidedAt', () => {
       opts: { from: '2026-06-14', to: '2026-06-14' },  // "Today" window
     });
     const wb = await loadWorkbook(buf);
-    const returns = wb.getWorksheet('Returns')!;
-    // Header + the one voided row (whose saleDate is out-of-range but
-    // voidedAt is in) + TOTAL row = 3 rows.
-    expect(returns.rowCount).toBe(3);
-    expect(returns.getRow(2).getCell(8).value).toBe('Refund');
-    expect(returns.getRow(2).getCell(12).value).toBeCloseTo(19.2, 2);
-    // TOTAL = single row's loss.
-    expect(returns.getRow(3).getCell(1).value).toBe('TOTAL');
-    expect(returns.getRow(3).getCell(12).value).toBeCloseTo(19.2, 2);
+    const detail = wb.getWorksheet('Returns Detail')!;
+    // Header + the one orphan voided row (whose saleDate is out-of-range
+    // but voidedAt is in). No TOTAL row on this sheet.
+    expect(detail.rowCount).toBe(2);
+    expect(detail.getRow(2).getCell(11).value).toBe('Refund');
+    expect(detail.getRow(2).getCell(16).value).toBeCloseTo(19.2, 2);
   });
 
   it('EXCLUDES a void whose voidedAt is OUT-of-range even if saleDate is in-range', async () => {
@@ -969,11 +972,9 @@ describe('Sales Report Returns tab filters by voidedAt', () => {
       opts: { from: '2026-06-14', to: '2026-06-14' },
     });
     const wb = await loadWorkbook(buf);
-    const returns = wb.getWorksheet('Returns')!;
-    // Just the header + "No returns recorded for this period." row.
-    expect(returns.rowCount).toBe(2);
-    expect(String(returns.getRow(2).getCell(1).value))
-      .toBe('No returns recorded for this period.');
+    const detail = wb.getWorksheet('Returns Detail')!;
+    // No returns in range → header only, no data row.
+    expect(detail.rowCount).toBe(1);
   });
 });
 

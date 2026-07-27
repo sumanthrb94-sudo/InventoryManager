@@ -94,67 +94,71 @@ describe('restoring void state from the marketplace tabs\' own return-info block
   });
 });
 
-const RETURNS_TAB_HEADERS = [
-  'Sale Date', 'Return Date',
-  'Marketplace', 'Order Number', 'SKU', 'IMEI', 'Supplier',
-  'Outcome', 'Return Type', 'Return Reason', 'Shipping Legs', 'Postage Loss £',
-  'BP', 'SP', 'SP-BP', 'Postage', 'Comments',
+// Matches clientReport.ts's DETAIL_HEADERS (the "Returns Detail" sheet —
+// same schema the standalone Returns Report uses, now embedded in the
+// Sales Report). Unit-scoped: no Order Number column.
+const RETURNS_DETAIL_HEADERS = [
+  'Return Date', 'Unit IMEI', 'Model', 'Storage', 'Colour', 'Supplier',
+  'Original Sale Date', 'Original Sale Price', 'Marketplace',
+  'Return Type', 'Outcome', 'Reason', 'Comments',
+  'Leg Cost £', 'Shipping Legs', 'Postage Loss £',
 ];
 
-function returnsTabRow(opts: {
-  marketplace: string; order: string; imei: string; returnType?: string;
+function returnsDetailRow(opts: {
+  marketplace: string; imei: string; returnType?: string;
 }): any[] {
   return [
-    '2026-07-01', '2026-07-09', opts.marketplace, opts.order, 'IP13-128-MID', opts.imei,
-    'MOBILE WHOLESALE LTD', 'Refund', opts.returnType ?? '', 'Cx Change of Mind', 2, 12.60,
-    100, 200, 100, 6.30, '',
+    '2026-07-09', opts.imei, 'IPHONE 13', '128GB', 'Black', 'MOBILE WHOLESALE LTD',
+    '2026-07-01', 200, opts.marketplace, opts.returnType ?? '', 'Refund', 'Cx Change of Mind', '',
+    7.56, 2, 15.12,
   ];
 }
 
 /** Builds a workbook with BOTH an AMAZON tab (so parseSalesWorkbook has at
- *  least one sheet to read) and a Returns tab, matching the real multi-sheet
- *  export shape — parseReturnsTab only fires off the 'Returns' sheet name. */
-function workbookWithReturnsTab(returnRows: any[][]): File {
+ *  least one sheet to read) and a Returns Detail tab, matching the real
+ *  multi-sheet export shape — parseReturnsTab only fires off the
+ *  'Returns Detail' sheet name. */
+function workbookWithReturnsDetailTab(returnRows: any[][]): File {
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(
     wb, XLSX.utils.aoa_to_sheet([AMAZON_HEADERS, amazonRow({ order: 'AMZ-1', imei: '350100000000001', bp: 100, sp: 200 })]), 'AMAZON',
   );
-  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([RETURNS_TAB_HEADERS, ...returnRows]), 'Returns');
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([RETURNS_DETAIL_HEADERS, ...returnRows]), 'Returns Detail');
   const buf = XLSX.write(wb, { type: 'array', bookType: 'xlsx' }) as ArrayBuffer;
   return new File([buf], 'test.xlsx', {
     type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
   });
 }
 
-describe('parseReturnsTab — reading the cross-marketplace Returns sheet', () => {
-  it('reads marketplace/order/imei/returnType per row, mapping every Return Type label', async () => {
-    const file = workbookWithReturnsTab([
-      returnsTabRow({ marketplace: 'AMAZON', order: 'AMZ-10', imei: '350100000000010', returnType: 'Back to Inventory' }),
-      returnsTabRow({ marketplace: 'BM', order: 'BM-11', imei: '350100000000011', returnType: 'In Repair' }),
-      returnsTabRow({ marketplace: 'EBAY', order: 'EBAY-12', imei: '350100000000012', returnType: 'To Supplier' }),
-      returnsTabRow({ marketplace: 'ONBUY', order: 'OB-13', imei: '350100000000013' }), // blank Return Type
+describe('parseReturnsTab — reading the Returns Detail sheet', () => {
+  it('reads marketplace/imei/returnType per row, mapping every Return Type label', async () => {
+    const file = workbookWithReturnsDetailTab([
+      returnsDetailRow({ marketplace: 'AMAZON', imei: '350100000000010', returnType: 'Back to Inventory' }),
+      returnsDetailRow({ marketplace: 'BM', imei: '350100000000011', returnType: 'In Repair' }),
+      returnsDetailRow({ marketplace: 'EBAY', imei: '350100000000012', returnType: 'To Supplier' }),
+      returnsDetailRow({ marketplace: 'ONBUY', imei: '350100000000013' }), // blank Return Type
     ]);
     const { returnRows } = await parseSalesWorkbook(file, 'test.xlsx');
     expect(returnRows).toHaveLength(4);
-    expect(returnRows.find((r) => r.orderNumber === 'AMZ-10')).toMatchObject({
+    expect(returnRows.find((r) => r.imei === '350100000000010')).toMatchObject({
       marketplace: 'AMAZON', imei: '350100000000010', returnType: 'returned_to_inventory',
     });
-    expect(returnRows.find((r) => r.orderNumber === 'BM-11')?.returnType).toBe('repair');
-    expect(returnRows.find((r) => r.orderNumber === 'EBAY-12')?.returnType).toBe('returned_to_supplier');
-    expect(returnRows.find((r) => r.orderNumber === 'OB-13')?.returnType).toBeUndefined();
+    expect(returnRows.find((r) => r.imei === '350100000000011')?.returnType).toBe('repair');
+    expect(returnRows.find((r) => r.imei === '350100000000012')?.returnType).toBe('returned_to_supplier');
+    expect(returnRows.find((r) => r.imei === '350100000000013')?.returnType).toBeUndefined();
   });
 
-  it('skips the TOTAL footer row and any row with no marketplace', async () => {
-    const file = workbookWithReturnsTab([
-      returnsTabRow({ marketplace: 'AMAZON', order: 'AMZ-20', imei: '350100000000020', returnType: 'Back to Inventory' }),
-      ['', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', 'TOTAL'],
+  it('skips a stray blank row and any row with no marketplace', async () => {
+    const file = workbookWithReturnsDetailTab([
+      returnsDetailRow({ marketplace: 'AMAZON', imei: '350100000000020', returnType: 'Back to Inventory' }),
+      ['', '', '', '', '', '', '', '', '', '', '', '', '', '', '', ''],
     ]);
     const { returnRows } = await parseSalesWorkbook(file, 'test.xlsx');
     expect(returnRows).toHaveLength(1);
-    expect(returnRows[0].orderNumber).toBe('AMZ-20');
+    expect(returnRows[0].imei).toBe('350100000000020');
   });
 
-  it('a workbook with no Returns sheet at all yields an empty array, not an error', async () => {
+  it('a workbook with no Returns Detail sheet at all yields an empty array, not an error', async () => {
     const file = workbook('AMAZON', AMAZON_HEADERS, [amazonRow({ order: 'AMZ-30', imei: '350100000000030', bp: 100, sp: 200 })]);
     const { returnRows, errors } = await parseSalesWorkbook(file, 'test.xlsx', { onlyMarketplace: 'AMAZON' });
     expect(errors).toEqual([]);

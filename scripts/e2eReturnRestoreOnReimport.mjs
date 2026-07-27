@@ -134,7 +134,11 @@ function writeInventoryFixture(path) {
 // salesImport.ts's ColKey now reads back (header-name matched, so their
 // position doesn't matter — appended at the end for clarity here).
 const AMAZON_HEADERS = ['Date', 'Order Number', 'SKU', 'IMEI', 'Supplier', 'Quantity', 'BP', 'SP', 'SP-BP', 'Marginal Tax', 'Commission', 'Postage', 'GP', 'GP %', 'Comments', 'Return Date', 'Outcome', 'Return Reason'];
-const RETURNS_TAB_HEADERS = ['Sale Date', 'Return Date', 'Marketplace', 'Order Number', 'SKU', 'IMEI', 'Supplier', 'Outcome', 'Return Type', 'Return Reason', 'Shipping Legs', 'Postage Loss £', 'BP', 'SP', 'SP-BP', 'Postage', 'Comments'];
+// Matches clientReport.ts's DETAIL_HEADERS (the "Returns Detail" sheet —
+// same Summary/Returns Detail/Unit Histories structure the standalone
+// Returns Report uses, now embedded in the Sales Report). Unit-scoped —
+// no Order Number column.
+const RETURNS_DETAIL_HEADERS = ['Return Date', 'Unit IMEI', 'Model', 'Storage', 'Colour', 'Supplier', 'Original Sale Date', 'Original Sale Price', 'Marketplace', 'Return Type', 'Outcome', 'Reason', 'Comments', 'Leg Cost £', 'Shipping Legs', 'Postage Loss £'];
 
 function activeSaleRow() {
   return ['2026-07-10', 'AMZ-B-1', SKU_A, IMEI_B, SUPPLIER, 1, 300, 450, 150, '', '', 8, '', '', '', '', '', ''];
@@ -142,21 +146,22 @@ function activeSaleRow() {
 function voidedSaleRow() {
   return ['2026-07-05', 'AMZ-A-1', SKU_A, IMEI_A, SUPPLIER, 1, 300, 450, 150, '', '', 6.3, '', '', '', '2026-07-15', 'Refund', 'Cx Change of Mind'];
 }
-function returnsTabRow() {
-  return ['2026-07-05', '2026-07-15', 'AMAZON', 'AMZ-A-1', SKU_A, IMEI_A, SUPPLIER, 'Refund', 'Back to Inventory', 'Cx Change of Mind', 2, 12.6, 300, 450, 150, 6.3, ''];
+function returnsDetailRow() {
+  return ['2026-07-15', IMEI_A, 'IPHONE 13 128GB', '128GB', 'BLACK', SUPPLIER, '2026-07-05', 450, 'AMAZON', 'Back to Inventory', 'Refund', 'Cx Change of Mind', '', 7.56, 2, 15.12];
 }
 
 /** Scenario A: the control sale (IMEI_B, active) + the return (IMEI_A,
- *  voided + Returns-tab Return Type). Both marketplace-sheet rows land on
- *  the same AMAZON tab; BM/EBAY/ONBUY/TEMU ship header-only so combined
- *  parse mode doesn't report them as missing sheets. */
+ *  voided + a Returns Detail row supplying its Return Type). Both
+ *  marketplace-sheet rows land on the same AMAZON tab; BM/EBAY/ONBUY/TEMU
+ *  ship header-only so combined parse mode doesn't report them as missing
+ *  sheets. */
 function writeSalesFixtureA(path) {
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([AMAZON_HEADERS, activeSaleRow(), voidedSaleRow()]), 'AMAZON');
   for (const m of ['BM', 'EBAY', 'ONBUY', 'TEMU']) {
     XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([AMAZON_HEADERS]), m);
   }
-  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([RETURNS_TAB_HEADERS, returnsTabRow()]), 'Returns');
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([RETURNS_DETAIL_HEADERS, returnsDetailRow()]), 'Returns Detail');
   XLSX.writeFile(wb, path);
 }
 
@@ -169,7 +174,7 @@ function writeSalesFixtureB(path) {
   for (const m of ['BM', 'EBAY', 'ONBUY', 'TEMU']) {
     XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([AMAZON_HEADERS]), m);
   }
-  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([RETURNS_TAB_HEADERS, returnsTabRow()]), 'Returns');
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([RETURNS_DETAIL_HEADERS, returnsDetailRow()]), 'Returns Detail');
   XLSX.writeFile(wb, path);
 }
 
@@ -264,6 +269,40 @@ async function run() {
   record('A control: unrelated active sale is untouched (not voided)', !saleB?.voidedAt, `voidedAt=${saleB?.voidedAt}`);
   record('A control: unrelated unit flips to sold normally, unaffected by the restore step',
     unitB?.status === 'sold', `status=${unitB?.status}`);
+
+  // The Sales Report itself now carries Returns Summary / Returns Detail /
+  // Unit Histories — the same structure as the standalone Returns Report,
+  // embedded so return data and history live in the Sales Report rather
+  // than a separate download.
+  await gotoTab(page, 'Inventory');
+  await page.waitForTimeout(1200);
+  const salesReportBtn = page.getByRole('button', { name: /Sales Report/i }).first();
+  if (await salesReportBtn.isVisible().catch(() => false)) {
+    await salesReportBtn.click();
+    await page.waitForTimeout(600);
+    const viewBtn = page.locator('button[title="View All Time in browser"]').first();
+    if (await viewBtn.isVisible().catch(() => false)) {
+      await viewBtn.click();
+      await page.waitForTimeout(3500);
+      await shot(page, 'sales-report-returns-summary-tab');
+      const tabsText = await page.locator('body').innerText();
+      record('Sales Report viewer shows the Returns Summary / Returns Detail / Unit Histories tabs',
+        /RETURNS SUMMARY/i.test(tabsText) && /RETURNS DETAIL/i.test(tabsText) && /UNIT HISTORIES/i.test(tabsText),
+        'checked tab bar text');
+
+      const returnsDetailTab = page.getByRole('button', { name: /^RETURNS DETAIL$/i }).first();
+      if (await returnsDetailTab.isVisible().catch(() => false)) {
+        await returnsDetailTab.click();
+        await page.waitForTimeout(1200);
+        await shot(page, 'sales-report-returns-detail-tab');
+        const detailText = await page.locator('body').innerText();
+        record('Returns Detail tab (inside the Sales Report) shows the restored return',
+          detailText.includes(IMEI_A) || detailText.includes('IPHONE 13'),
+          'checked for IMEI/model in the Returns Detail sheet');
+      }
+    }
+  }
+  await dismissModals(page);
 
   // Returns page — the operator's actual verification surface.
   await gotoTab(page, 'Returns');
