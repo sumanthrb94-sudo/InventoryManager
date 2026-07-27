@@ -1058,6 +1058,17 @@ function PreviewPhase({
   const officeUnits = useMemo(() => units.filter(u => u.status === 'available'), [units]);
   const shsUnits = useMemo(() => units.filter(u => u.status === 'incoming'), [units]);
 
+  // Split "To update" into active sales vs. sales that are ALREADY voided
+  // in the database — re-confirming a voided row is a safe no-op re-write
+  // (it's already reflected in Returns), not a new change. Surfaced
+  // separately so "354 to update" doesn't read as 354 fresh changes when
+  // it's really 349 active re-confirmations + 5 already-recorded returns.
+  const alreadyRecordedReturns = useMemo(
+    () => preview.toUpdate.filter(s => !!s.voidedAt).length,
+    [preview.toUpdate],
+  );
+  const activeToUpdate = preview.toUpdate.length - alreadyRecordedReturns;
+
   // Models created via "+ Add" DURING this import session — tracked
   // separately from the (deliberately excluded) pre-existing admin
   // seeds above. A batch of orphan sales often needs the same brand-new
@@ -1130,6 +1141,24 @@ function PreviewPhase({
           tone="rose"
         />
       </div>
+
+      {/* "To update" breakdown — a report exported "All Time" legitimately
+          includes voided/returned sales (see the Returns tab), so the
+          update count is a mix of active re-confirmations and already-
+          recorded returns. Spelling that out here is what stops "354 to
+          update" from reading as 354 fresh changes about to happen. */}
+      {alreadyRecordedReturns > 0 && (
+        <div className="border border-slate-200 bg-slate-50 rounded-xl px-3 py-2 text-[11px] text-slate-600 flex items-start gap-2">
+          <RefreshCw size={12} className="text-slate-400 flex-shrink-0 mt-0.5" />
+          <span>
+            Of the {preview.toUpdate.length.toLocaleString()} rows to update,{' '}
+            <strong>{activeToUpdate.toLocaleString()}</strong> {activeToUpdate === 1 ? 'is an active sale' : 'are active sales'} being
+            re-confirmed and <strong>{alreadyRecordedReturns.toLocaleString()}</strong> {alreadyRecordedReturns === 1 ? 'is a return' : 'are returns'} already
+            recorded in this database (see the Returns tab in the file) — re-confirming them changes nothing, their
+            void/refund history is preserved exactly as it is now.
+          </span>
+        </div>
+      )}
 
       {/* Per-platform counts — confirms every sheet was found and parsed */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
