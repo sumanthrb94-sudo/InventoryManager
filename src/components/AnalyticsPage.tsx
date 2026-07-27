@@ -41,7 +41,12 @@ export default function AnalyticsPage() {
 
   // ── Live-recompute every sale so GP/SP/commission reflect current
   // MARKETPLACE_FEES, not the (possibly stale) stored values from import time.
-  const liveSales = useMemo(() => sales.map(recomputeSale), [sales]);
+  // Voided (refunded/returned) sales are excluded: this feeds Daily Revenue/GP,
+  // Marketplace Margin, Best Sellers by GP and Supplier Performance · Sales —
+  // all meant to reflect real completed business, not money that went back
+  // out the door. Admin → Sales History is the one screen that intentionally
+  // shows voided rows too (full audit trail); this page is not that screen.
+  const liveSales = useMemo(() => sales.filter(s => !s.voidedAt).map(recomputeSale), [sales]);
 
   const todayStr = useMemo(() => new Date().toISOString().split('T')[0], []);
 
