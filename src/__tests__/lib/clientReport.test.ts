@@ -211,14 +211,13 @@ describe('buildSalesWorkbookBuffer — auditor-grade structure', () => {
   it('produces 9 sheets — Summary + Returns Summary/Detail/Unit Histories + AMAZON / BM / EBAY / ONBUY / TEMU', async () => {
     const buffer = await buildSalesWorkbookBuffer({ sales: [] });
     const wb = await loadWorkbook(buffer);
-    // The returns section sits between Summary and the marketplace tabs so
-    // the auditor sees return data immediately, without scrolling past
-    // 20+ sale columns on each marketplace tab. 'Returns Summary' (not
-    // 'Summary') avoids colliding with the workbook's own top-level
-    // Summary sheet.
+    // The returns section sits after the marketplace tabs (TEMU is last)
+    // so the sheet order reads: overview, per-channel sale detail, then
+    // the returns lifecycle. 'Returns Summary' (not 'Summary') avoids
+    // colliding with the workbook's own top-level Summary sheet.
     expect(wb.worksheets.map(w => w.name)).toEqual([
-      'Summary', 'Returns Summary', 'Returns Detail', 'Unit Histories',
-      'AMAZON', 'BM', 'EBAY', 'ONBUY', 'TEMU',
+      'Summary', 'AMAZON', 'BM', 'EBAY', 'ONBUY', 'TEMU',
+      'Returns Summary', 'Returns Detail', 'Unit Histories',
     ]);
   });
 

@@ -815,20 +815,6 @@ export async function buildSalesWorkbookBuffer(input: BuildSalesWorkbookInput): 
   // so it lands as the leftmost tab.
   writeSalesSummarySheet(wb, byMarketplace, opts, unitsById, unitsByImei);
 
-  // Sheets 2-4: Returns Summary / Returns Detail / Unit Histories — the
-  // SAME structure as the standalone Returns Report (buildReturnsWorkbookBuffer),
-  // embedded here so return data and history live in the Sales Report
-  // itself rather than a separate download. 'Returns Summary' (not
-  // 'Summary') avoids colliding with this workbook's own top-level Summary
-  // sheet above. Filters by voidedAt — not saleDate — so a sale made last
-  // month and returned this week shows up under "This Week". That matches
-  // the standalone Returns Report's behaviour and answers the operator's
-  // question "what got returned this period?" rather than "which of THIS
-  // period's sales were voided?". The marketplace tabs keep their saleDate
-  // filter so the Summary's revenue / GP numbers stay self-consistent with
-  // the rows that produced them.
-  writeReturnsSheets(wb, { units: units ?? [], sales: enriched, supplierMap, opts }, 'Returns Summary');
-
   // Per-platform sheets — one tab per entry in MARKETPLACES (AMAZON, BM,
   // EBAY, ONBUY, TEMU as of 2026-07); PROJECT excluded — that was never a
   // real sales channel.
@@ -923,6 +909,20 @@ export async function buildSalesWorkbookBuffer(input: BuildSalesWorkbookInput): 
       writeMarketplaceTotalsRow(sheet, m, bucket.length);
     }
   }
+
+  // Sheets after TEMU: Returns Summary / Returns Detail / Unit Histories —
+  // the SAME structure as the standalone Returns Report
+  // (buildReturnsWorkbookBuffer), embedded here so return data and history
+  // live in the Sales Report itself rather than a separate download.
+  // 'Returns Summary' (not 'Summary') avoids colliding with this
+  // workbook's own top-level Summary sheet above. Filters by voidedAt —
+  // not saleDate — so a sale made last month and returned this week shows
+  // up under "This Week". That matches the standalone Returns Report's
+  // behaviour and answers the operator's question "what got returned this
+  // period?" rather than "which of THIS period's sales were voided?". The
+  // marketplace tabs keep their saleDate filter so the Summary's revenue /
+  // GP numbers stay self-consistent with the rows that produced them.
+  writeReturnsSheets(wb, { units: units ?? [], sales: enriched, supplierMap, opts }, 'Returns Summary');
 
   return wb.xlsx.writeBuffer() as Promise<ArrayBuffer>;
 }
