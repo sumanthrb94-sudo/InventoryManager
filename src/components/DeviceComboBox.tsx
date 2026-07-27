@@ -80,6 +80,16 @@ export default function DeviceComboBox({
     () => searchDeviceCatalog(catalog, query, 8),
     [catalog, query],
   );
+  // How many devices actually match the typed query, uncapped — the
+  // dropdown only ever renders the top 8, so when more real matches exist
+  // than that, the header must say so plainly. Without this, "Known
+  // devices (38)" next to 8 visible rows reads as if those 8 were all of
+  // them, and a lower-stock model outside the top 8 looks like it doesn't
+  // exist rather than "keep typing to narrow it down".
+  const totalMatchCount = useMemo(
+    () => searchDeviceCatalog(catalog, query, catalog.length || 1).length,
+    [catalog, query],
+  );
 
   /** Recalculate the anchor rect from the input element's current screen
    *  position. Called on open, scroll, and resize so the fixed dropdown
@@ -253,10 +263,15 @@ export default function DeviceComboBox({
                 devices (1)" read as though one device WAS showing when
                 the list below it was empty. Say plainly that nothing
                 matched, and name the catalog size separately so it's
-                clear what's being searched. */}
+                clear what's being searched. When more real matches exist
+                than the 8 rendered below, say that too — otherwise a
+                lower-stock model outside the top 8 silently looks like it
+                isn't in stock at all. */}
             {trimmedQuery && suggestions.length === 0
               ? `No matches in ${catalog.length} known device${catalog.length === 1 ? '' : 's'}`
-              : `Known devices (${catalog.length})`}
+              : totalMatchCount > suggestions.length
+                ? `Showing top ${suggestions.length} of ${totalMatchCount} matches — keep typing to narrow`
+                : `Known devices (${catalog.length})`}
           </div>
           {suggestions.map((s, i) => {
             const isActive = i === highlight;
