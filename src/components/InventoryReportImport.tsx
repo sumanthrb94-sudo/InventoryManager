@@ -57,6 +57,20 @@ interface PreviewBuckets {
   // operator resolves these through the flow that actually owns that bucket
   // (SHS Receive, the sales-orphan completion, etc.), not a bulk re-upload.
   bucketConflicts: { row: ParsedRow; existingBucket: string }[];
+  // rowNum -> the SPECIFIC existing SHS unit this row matched, one-to-one.
+  // IMEI-less rows can only be told apart by (model, supplier, BP, dateIn),
+  // and a bulk order of N identical phones is an entirely ordinary case —
+  // 5 real units can share that exact tuple. A plain Map<key, unit> only
+  // ever remembers the LAST of them, so every one of the N matching rows
+  // would resolve to the SAME single doc: N-1 real units silently never
+  // written to (or, when the file has MORE rows than existing units for
+  // that key, extra genuinely-new units silently never created at all,
+  // because they misclassify as "update" against an already-claimed doc
+  // instead of falling through to "create"). This map is built by
+  // consuming one distinct existing unit per matching row, in file order,
+  // so each row gets its own target — handleConfirm MUST use this same
+  // map rather than re-deriving its own, or the two can drift apart again.
+  shsMatches: Map<number, InventoryUnit>;
 }
 
 /** Coarse bucket label for a unit already in the database, matching the
@@ -83,14 +97,18 @@ export function buildPreview(
   const shsKeyOf = (model: string, supplier: string, bp: number, dateIn: string) =>
     [model, supplier].map(v => v.trim().toUpperCase()).join('|') + `|${bp}|${dateIn}`;
 
-  const shsToUnit = new Map<string, InventoryUnit>();
+  // Every existing SHS unit sharing a key, not just the last one seen — see
+  // the shsMatches doc comment on PreviewBuckets for why this must be a
+  // pool, not a single slot.
+  const shsPoolByKey = new Map<string, InventoryUnit[]>();
   for (const u of existingUnits) {
     if (u.status !== 'incoming' || (u.imei || '').trim()) continue;
-    shsToUnit.set(
-      shsKeyOf(u.rawModel || u.model || '', u.supplierName || '', u.buyPrice ?? 0, u.dateIn || ''),
-      u,
-    );
+    const key = shsKeyOf(u.rawModel || u.model || '', u.supplierName || '', u.buyPrice ?? 0, u.dateIn || '');
+    const pool = shsPoolByKey.get(key);
+    if (pool) pool.push(u); else shsPoolByKey.set(key, [u]);
   }
+  const shsConsumedByKey = new Map<string, number>();
+  const shsMatches = new Map<number, InventoryUnit>();
 
   const imeiToUnit = new Map<string, InventoryUnit>();
   for (const u of existingUnits) {
@@ -151,11 +169,20 @@ export function buildPreview(
       }
     } else {
       // IMEI-less SHS: recognise the same holding line on a re-upload.
-      // Always matches within the SHS bucket by construction — shsToUnit
+      // Always matches within the SHS bucket by construction — shsPoolByKey
       // only ever holds status='incoming' units — so no cross-bucket check
-      // is needed here.
+      // is needed here. Consume one distinct existing unit per row so N
+      // identical holdings map 1:1 onto N rows instead of all N collapsing
+      // onto whichever unit happened to be seen last while building the pool.
       const key = shsKeyOf(r.model, r.supplier, r.buyPrice, r.dateIn);
-      if (shsToUnit.has(key)) { matched = true; toUpdate.push(r); }
+      const pool = shsPoolByKey.get(key);
+      const used = shsConsumedByKey.get(key) ?? 0;
+      if (pool && used < pool.length) {
+        matched = true;
+        shsConsumedByKey.set(key, used + 1);
+        shsMatches.set(r.rowNum, pool[used]);
+        toUpdate.push(r);
+      }
     }
     if (!matched) toCreate.push(r);
 
@@ -170,6 +197,7 @@ export function buildPreview(
     newSuppliers: Array.from(newSuppliers).sort(),
     duplicates,
     bucketConflicts,
+    shsMatches,
   };
 }
 
@@ -320,18 +348,15 @@ export default function InventoryReportImport({ onClose }: Props) {
     for (const u of units) existingByImei.set((u.imei || '').toUpperCase(), u);
 
     for (const r of preview.toCreate) unitEntries.push(toRow(r));
-    // Same recognition rule as the preview, so what it promised is what runs.
-    const shsKey = (model: string, supplier: string, bp: number, dateIn: string) =>
-      [model, supplier].map(v => v.trim().toUpperCase()).join('|') + `|${bp}|${dateIn}`;
-    const existingShs = new Map<string, InventoryUnit>();
-    for (const u of units) {
-      if (u.status !== 'incoming' || (u.imei || '').trim()) continue;
-      existingShs.set(shsKey(u.rawModel || u.model || '', u.supplierName || '', u.buyPrice ?? 0, u.dateIn || ''), u);
-    }
+    // shsMatches came from the SAME pass that produced toUpdate (see
+    // buildPreview) — reusing it, rather than re-deriving a second lookup
+    // here, is what guarantees N identical SHS holdings write to N distinct
+    // docs instead of every row racing to update whichever unit a fresh
+    // Map<key, unit> happened to remember last.
     for (const r of preview.toUpdate) {
       const match = r.imei
         ? existingByImei.get(r.imei)
-        : existingShs.get(shsKey(r.model, r.supplier, r.buyPrice, r.dateIn));
+        : preview.shsMatches.get(r.rowNum);
       unitEntries.push(toRow(r, match));
     }
 
