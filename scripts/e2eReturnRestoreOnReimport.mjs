@@ -19,6 +19,13 @@
  *      Sales Report survives) — the unit is RECONSTRUCTED directly in
  *      returned/available shape, skipping the 'sold' intermediate.
  *
+ *   C. The two reports uploaded SEPARATELY, one after the other, into an
+ *      empty database — Inventory Report first (agreed workflow order),
+ *      then the Sales Report — proving they link back to the SAME unit
+ *      doc by IMEI with no duplicate created, and that the Inventory
+ *      Report's cosmetic fields (Grade/Storage/SIM Type/Colour) survive
+ *      the Sales Report's return-restore patch untouched.
+ *
  * Verification is two-layered: the real UI (screenshots + preview/Done
  * text) for what the operator sees, and the E2E firestore shim's
  * sessionStorage snapshot for exact field-level assertions the UI text
@@ -178,12 +185,48 @@ function writeSalesFixtureB(path) {
   XLSX.writeFile(wb, path);
 }
 
+// IMEI_C: Scenario C's unit — uploaded via a real Inventory Report row
+// (distinct Grade/Colour/SIM Type from IMEI_A/B so a survived-vs-overwritten
+// check is unambiguous), then its voided sale + Return Type via a SEPARATE
+// Sales Report upload.
+const IMEI_C = '350190000003333';
+
+function writeInventoryFixtureC(path) {
+  const wb = XLSX.utils.book_new();
+  const row = ['2026-06-01', 'IPHONE 13 128GB', IMEI_C, 'B', '128GB', 'Dual Physical SIM', 'BLUE', SUPPLIER, 310, 'OFFICE', 'Scenario C fixture'];
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([INVENTORY_HEADERS, row]), 'INVENTORY');
+  XLSX.writeFile(wb, path);
+}
+
+function voidedSaleRowC() {
+  return ['2026-07-05', 'AMZ-C-1', SKU_A, IMEI_C, SUPPLIER, 1, 310, 460, 150, '', '', 6.3, '', '', '', '2026-07-16', 'Refund', 'Cx changed mind'];
+}
+function returnsDetailRowC() {
+  return ['2026-07-16', IMEI_C, 'IPHONE 13 128GB', '128GB', 'BLUE', SUPPLIER, '2026-07-05', 460, 'AMAZON', 'Back to Inventory', 'Refund', 'Cx changed mind', '', 7.56, 2, 15.12];
+}
+
+/** Scenario C's Sales Report — only the IMEI_C voided sale, uploaded
+ *  separately from (and after) the Inventory Report fixture below. */
+function writeSalesFixtureC(path) {
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([AMAZON_HEADERS, voidedSaleRowC()]), 'AMAZON');
+  for (const m of ['BM', 'EBAY', 'ONBUY', 'TEMU']) {
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([AMAZON_HEADERS]), m);
+  }
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([RETURNS_DETAIL_HEADERS, returnsDetailRowC()]), 'Returns Detail');
+  XLSX.writeFile(wb, path);
+}
+
 const INVENTORY_FIXTURE = resolve(FIXTURES, 'INVENTORY_FOR_RETURN_RESTORE.xlsx');
 const SALES_FIXTURE_A = resolve(FIXTURES, 'SALES_RETURN_RESTORE_SCENARIO_A.xlsx');
 const SALES_FIXTURE_B = resolve(FIXTURES, 'SALES_RETURN_RESTORE_SCENARIO_B.xlsx');
+const INVENTORY_FIXTURE_C = resolve(FIXTURES, 'INVENTORY_FOR_RETURN_RESTORE_SCENARIO_C.xlsx');
+const SALES_FIXTURE_C = resolve(FIXTURES, 'SALES_RETURN_RESTORE_SCENARIO_C.xlsx');
 writeInventoryFixture(INVENTORY_FIXTURE);
 writeSalesFixtureA(SALES_FIXTURE_A);
 writeSalesFixtureB(SALES_FIXTURE_B);
+writeInventoryFixtureC(INVENTORY_FIXTURE_C);
+writeSalesFixtureC(SALES_FIXTURE_C);
 
 async function importInventory(page, file) {
   await gotoTab(page, 'Stock Intake');
@@ -368,7 +411,65 @@ async function run() {
     returnsPageTextB.includes(IMEI_A) || /IP13|IPHONE 13/i.test(returnsPageTextB),
     'checked for IMEI/SKU on the Returns page');
 
-  record('no uncaught JS errors during either scenario', jsErrors.length === 0, jsErrors.slice(0, 3).join(' | '));
+  // ═══════════════════════════════════════════════════════════════════════
+  // Scenario C — the two reports uploaded SEPARATELY into an empty database:
+  // Inventory Report first (agreed workflow order), then the Sales Report.
+  // Proves they link back to the SAME unit doc by IMEI (no duplicate) and
+  // that the Inventory Report's cosmetic fields survive the Sales Report's
+  // return-restore patch untouched.
+  // ═══════════════════════════════════════════════════════════════════════
+  await wipeAll(page);
+  await importInventory(page, INVENTORY_FIXTURE_C);
+
+  await gotoTab(page, 'Stock Intake');
+  await openImportMenu(page);
+  await page.getByRole('menuitem', { name: /Sales Report/i }).click();
+  await page.waitForTimeout(700);
+  await page.locator('input[type="file"]').first().setInputFiles(SALES_FIXTURE_C);
+  await page.waitForTimeout(4000);
+  await shot(page, 'scenario-c-preview');
+
+  const previewTextC = await modal(page).innerText().catch(() => '');
+  record('C: preview shows the "Returns to restore" panel with an existing unit (not "will be reconstructed")',
+    /Returns to restore/i.test(previewTextC) && !/unit will be reconstructed/i.test(previewTextC), '');
+
+  const confirmC = modal(page).getByRole('button', { name: /Load [\d,]+ sales|Re-confirm/i }).last();
+  await confirmC.click();
+  await page.waitForTimeout(6000);
+  await shot(page, 'scenario-c-done');
+  await modal(page).getByRole('button', { name: /Close/i }).click().catch(() => {});
+  await page.waitForTimeout(800);
+  await dismissModals(page);
+
+  const storeC = await dumpStore(page);
+  const unitsC = Object.values(storeC.inventoryUnits ?? {}).filter(u => u.imei === IMEI_C);
+  const unitC = unitsC[0];
+  const saleC = Object.values(storeC.sales ?? {}).find(s => s.orderNumber === 'AMZ-C-1');
+
+  record('C: exactly ONE unit doc exists for the IMEI — the Sales Report patched the SAME doc the Inventory Report created, no duplicate',
+    unitsC.length === 1, `found ${unitsC.length} doc(s): ${unitsC.map(u => u.id).join(', ')}`);
+  record('C: unit is patched to available / returned_to_inventory',
+    unitC?.status === 'available' && unitC?.returnType === 'returned_to_inventory',
+    `status=${unitC?.status} returnType=${unitC?.returnType}`);
+  record('C: return fields set correctly from the Sales Report',
+    unitC?.returnDate === '2026-07-16' && unitC?.returnOutcome === 'refund' && (unitC?.returnReason || '').includes('Cx changed mind'),
+    `returnDate=${unitC?.returnDate} returnOutcome=${unitC?.returnOutcome} returnReason=${unitC?.returnReason}`);
+  record('C: Inventory Report\'s cosmetic fields (Grade/Storage/SIM Type/Colour) survive the return patch untouched',
+    unitC?.grade === 'B' && unitC?.storage === '128GB' && unitC?.simType === 'Dual Physical SIM' && unitC?.colour === 'BLUE',
+    `grade=${unitC?.grade} storage=${unitC?.storage} simType=${unitC?.simType} colour=${unitC?.colour}`);
+  record('C: sale-provenance fields cleared', unitC?.salePrice == null && unitC?.saleOrderId == null,
+    `salePrice=${unitC?.salePrice} saleOrderId=${unitC?.saleOrderId}`);
+  record('C: linked Sale doc is voided', saleC?.voidedAt === '2026-07-16', `voidedAt=${saleC?.voidedAt}`);
+
+  await gotoTab(page, 'Returns');
+  await page.waitForTimeout(1500);
+  await shot(page, 'scenario-c-returns-page');
+  const returnsPageTextC = await page.locator('body').innerText();
+  record('C: unit appears on the Returns page with its real (Inventory-Report-sourced) model',
+    returnsPageTextC.includes(IMEI_C) && /IPHONE 13/i.test(returnsPageTextC),
+    'checked for IMEI/model on the Returns page');
+
+  record('no uncaught JS errors across any scenario', jsErrors.length === 0, jsErrors.slice(0, 3).join(' | '));
 
   await ctx.close();
   await browser.close();
