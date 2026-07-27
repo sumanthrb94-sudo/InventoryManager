@@ -34,11 +34,11 @@ async function shot(page, name) {
   await page.screenshot({ path: `${OUT}/${String(++shotIndex).padStart(2, '0')}-${name}.png`, fullPage: true });
 }
 function modal(page) {
-  return page.locator('div.fixed.inset-0[class*="z-["]').last();
+  return page.locator('div.fixed.inset-0').last();
 }
 async function dismissModals(page) {
   for (let i = 0; i < 4; i++) {
-    const overlay = page.locator('div.fixed.inset-0[class*="z-["]').last();
+    const overlay = page.locator('div.fixed.inset-0').last();
     if (!(await overlay.isVisible().catch(() => false))) break;
     await page.keyboard.press('Escape');
     await page.waitForTimeout(250);
@@ -48,6 +48,8 @@ async function dismissModals(page) {
     await page.waitForTimeout(400);
   }
 }
+// Proven exactly as-is (13/13) in e2eReturnsMenuAndDeviceCatalog.mjs — do
+// not "improve" this without re-verifying against that script's coverage.
 async function gotoTab(page, label) {
   await dismissModals(page);
   const re = new RegExp(`^${label}(\\s|$)`, 'i');
@@ -58,6 +60,22 @@ async function gotoTab(page, label) {
   }
   await page.getByRole('button', { name: re }).first().click();
   await page.waitForTimeout(900);
+}
+
+// Dedicated helper for the ONE genuinely ambiguous case: navigating to the
+// "Inventory" (Sell) tab while the "Inventory Report" download button from
+// BuySheet is still on screen — a page-wide prefix search for "Inventory"
+// matches THAT button first since it's already visible (no drawer needed),
+// so gotoTab() would "succeed" without ever leaving the Stock Intake page.
+// This always forces the hamburger drawer open and scopes the click to it.
+async function gotoInventoryTabViaDrawer(page) {
+  await dismissModals(page);
+  await page.getByLabel('Open menu').click().catch(() => {});
+  await page.waitForTimeout(500);
+  const drawer = page.locator('aside').last();
+  await drawer.getByRole('button', { name: /^Inventory$/i }).first().click();
+  await page.waitForTimeout(900);
+  await dismissModals(page);
 }
 async function openImportMenu(page) {
   const byLabel = page.getByRole('button', { name: /^Import$/i }).first();
@@ -230,8 +248,9 @@ async function run() {
   record('Downloaded a real Inventory Report from the app', !!invDl);
   await dismissModals(page);
 
-  await gotoTab(page, 'Inventory');
+  await gotoInventoryTabViaDrawer(page);
   await page.waitForTimeout(500);
+  await shot(page, 'debug-on-inventory-sell-tab');
   const salesReportBtn = page.getByRole('button', { name: /^Sales Report$/i }).first();
   const [salesDl0] = await Promise.all([
     page.waitForEvent('download').catch(() => null),
@@ -270,7 +289,10 @@ async function run() {
         if ([IMEI_1, IMEI_2, IMEI_3].includes(imei)) found[imei] = r[typeCol];
       }
       record('Returns Detail sheet shows Back to Inventory for IMEI_1', /back to inventory/i.test(found[IMEI_1] || ''), found[IMEI_1]);
-      record('Returns Detail sheet shows Return to Supplier for IMEI_2', /return to supplier|returned to supplier/i.test(found[IMEI_2] || ''), found[IMEI_2]);
+      // clientReport.ts's export column label for this returnType is "To
+      // Supplier" (returnTypeExportLabel), distinct from — but consistent
+      // with — the live UI's "Return to Supplier" button text.
+      record('Returns Detail sheet shows To Supplier for IMEI_2', /to supplier/i.test(found[IMEI_2] || ''), found[IMEI_2]);
       record('Returns Detail sheet shows Repair for IMEI_3', /repair/i.test(found[IMEI_3] || ''), found[IMEI_3]);
     }
   }
