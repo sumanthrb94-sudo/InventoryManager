@@ -284,3 +284,43 @@ describe('an IMEI-less holding fulfilled by a direct shipment', () => {
     expect(out.shsFulfilled).toEqual([]);
   });
 });
+
+describe('two sales sharing one IMEI in the same import (barcode typo, or a genuine cross-listing sold twice)', () => {
+  it('the CHRONOLOGICALLY LATEST sale decides the unit\'s final sold-state, not whichever sheet the marketplace happens to sort into last', () => {
+    const u = unit({ id: 'u-dup', imei: '350190000009999', status: 'available' });
+    // TEMU is processed after AMAZON in every combined-workbook import, but
+    // its sale happened FIRST — the earlier fixed-order code would have let
+    // TEMU (last in array order) win regardless of date.
+    const earlierSaleProcessedLast = sale({
+      id: 'TEMU__T-1__350190000009999', marketplace: 'TEMU', orderNumber: 'T-1',
+      imei: '350190000009999', saleDate: '2026-07-01', salePrice: 500,
+    });
+    const laterSaleProcessedFirst = sale({
+      id: 'AMAZON__A-1__350190000009999', marketplace: 'AMAZON', orderNumber: 'A-1',
+      imei: '350190000009999', saleDate: '2026-07-20', salePrice: 679,
+    });
+    const out = buildPostImportSyncPatches([laterSaleProcessedFirst, earlierSaleProcessedLast], [u]);
+
+    // Both sales are still linked to the unit for audit-trail purposes.
+    expect(out.salePatches).toHaveLength(2);
+    expect(out.salePatches.every(p => p.data.unitId === 'u-dup')).toBe(true);
+
+    // But only ONE unit patch — the later sale's data — decides the unit.
+    expect(out.unitPatches).toHaveLength(1);
+    expect(out.unitPatches[0].data.saleDate).toBe('2026-07-20');
+    expect(out.unitPatches[0].data.salePrice).toBe(679);
+    expect(out.unitPatches[0].data.saleOrderId).toBe('A-1');
+  });
+
+  it('order in the input array does not matter — same result either way round', () => {
+    const u = unit({ id: 'u-dup2', imei: '350190000008888', status: 'available' });
+    const early = sale({ id: 'A__1__350190000008888', orderNumber: '1', imei: '350190000008888', saleDate: '2026-06-01', salePrice: 100 });
+    const late = sale({ id: 'A__2__350190000008888', orderNumber: '2', imei: '350190000008888', saleDate: '2026-07-01', salePrice: 200 });
+
+    const forward = buildPostImportSyncPatches([early, late], [u]);
+    const reversed = buildPostImportSyncPatches([late, early], [u]);
+
+    expect(forward.unitPatches[0].data.saleOrderId).toBe('2');
+    expect(reversed.unitPatches[0].data.saleOrderId).toBe('2');
+  });
+});

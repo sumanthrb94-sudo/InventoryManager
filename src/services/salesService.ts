@@ -369,6 +369,19 @@ export function buildPostImportSyncPatches(
   const salePatches: Array<{ collection: 'sales'; id: string; data: Record<string, any> }> = [];
   const shsFulfilled: Array<{ unitId: string; model: string; supplierName: string }> = [];
 
+  // Two sales can legitimately share one IMEI within a single import — a
+  // barcode typo, or the same physical device genuinely cross-listed and
+  // marked sold on two marketplaces before either listing was pulled. Both
+  // resolve to the SAME existing unit via unitsByImei, so without dedup
+  // below, the unit's own sold-state fields (salePrice/saleDate/platform/
+  // orderId) would be decided by whichever sale happened to be iterated
+  // last — which for a combined workbook is always the same marketplace
+  // (AMAZON, BM, EBAY, ONBUY, TEMU, in that fixed sheet order), not
+  // whichever sale actually happened later. Collect every qualifying
+  // (sale, unit) pairing first, so the chronologically LATEST sale can be
+  // picked as the unit's true final state regardless of iteration order.
+  const candidates: Array<{ sale: Sale; unit: InventoryUnit }> = [];
+
   for (const s of sales) {
     if (s.voidedAt) continue;
     const imeiKey = (s.imei || '').trim().toUpperCase();
@@ -397,10 +410,31 @@ export function buildPostImportSyncPatches(
 
     // Sale → unit linkage. Only patch when unitId is missing or wrong;
     // a no-op write would still bump the doc's updatedAt timestamp
-    // unnecessarily.
+    // unnecessarily. Every qualifying sale gets linked — even a duplicate-
+    // IMEI collision is still, individually, real proof this unit was
+    // involved in that sale, so the audit trail (Unit History, Returns)
+    // should be able to find it either way.
     if (!s.unitId || s.unitId !== u.id) {
       salePatches.push({ collection: 'sales', id: s.id, data: { unitId: u.id } });
     }
+
+    candidates.push({ sale: s, unit: u });
+  }
+
+  // Exactly one sale gets to decide each unit's own sold-state fields —
+  // the one with the latest saleDate. Ties (or missing dates) keep
+  // whichever was seen first, so the outcome is still deterministic
+  // rather than depending on object identity/insertion order.
+  const winnerByUnitId = new Map<string, Sale>();
+  for (const c of candidates) {
+    const prev = winnerByUnitId.get(c.unit.id);
+    if (!prev || (c.sale.saleDate || '') > (prev.saleDate || '')) {
+      winnerByUnitId.set(c.unit.id, c.sale);
+    }
+  }
+
+  for (const { sale: s, unit: u } of candidates) {
+    if (winnerByUnitId.get(u.id) !== s) continue;
 
     // Unit's sold-state fields. Same idempotency check — skip when
     // already matching so re-imports don't churn updatedAt. Stale
