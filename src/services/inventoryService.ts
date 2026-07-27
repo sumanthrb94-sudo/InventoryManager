@@ -1397,6 +1397,11 @@ export async function upsertAccessoryStock(input: UpsertAccessoryStockInput): Pr
   const existing = (await dbService.readAll('accessoryStock')).find((a: any) => a.id === id);
   const supplierId = input.supplierName ? await ensureSupplier(input.supplierName) : existing?.supplierId;
   const nextQuantity = (existing?.quantity ?? 0) + input.quantity;
+  // totalReceived tracks cumulative intake, never decremented by a sale —
+  // this is the figure the Inventory Report exports and restores on
+  // re-import. Falls back to the existing quantity for a doc that predates
+  // this field, so older pools self-heal on their next top-up.
+  const nextTotalReceived = (existing?.totalReceived ?? existing?.quantity ?? 0) + input.quantity;
 
   const payload: Partial<AccessoryStock> = {
     sku,
@@ -1404,6 +1409,7 @@ export async function upsertAccessoryStock(input: UpsertAccessoryStockInput): Pr
     supplierId,
     supplierName: input.supplierName || existing?.supplierName,
     quantity: nextQuantity,
+    totalReceived: nextTotalReceived,
     buyPrice: input.buyPrice > 0 ? input.buyPrice : (existing?.buyPrice ?? 0),
     notes: input.notes ?? existing?.notes,
   };
@@ -1445,4 +1451,70 @@ export async function decrementAccessoryStock(sku: string, quantity: number): Pr
     message: `Accessory "${existing.sku}" sold (-${quantity} → ${remaining})`,
   });
   return { matched: true, id, remaining };
+}
+
+export interface RestoreAccessoryStockInput {
+  sku: string;
+  name: string;
+  supplierName?: string;
+  /** Cumulative units ever added, read straight from the Inventory Report's
+   *  Accessories sheet. */
+  totalReceived: number;
+  buyPrice: number;
+  notes?: string;
+}
+
+export interface RestoreAccessoryStockResult {
+  ok: boolean;
+  id?: string;
+  /** False when a pool for this SKU already exists — restore is a no-op in
+   *  that case, by design (see comment below). */
+  created: boolean;
+}
+
+/**
+ * Recreate an accessory pool from the Inventory Report's Accessories sheet,
+ * the counterpart to a wipe + re-upload — the same round trip that already
+ * restores office stock, SHS stock and sales.
+ *
+ * CREATE-ONLY: if a pool for this SKU already exists, this is a no-op. A
+ * live pool already reflects everything that's happened to it since the
+ * report was generated (top-ups, sales) — overwriting it with a
+ * point-in-time export would silently roll it back, exactly the kind of
+ * clobber this whole reconciliation effort exists to prevent. This only
+ * ever fires for the genuine restore case: the pool doesn't exist because
+ * the database was wiped.
+ *
+ * Seeds `quantity = totalReceived` (as if nothing had sold yet) — the
+ * accompanying Sales Report re-upload then nets it down via the ordinary
+ * decrement-on-first-import path (decrementAccessoryStock, scoped to newly
+ * created sales only), the exact same "Inventory Report gives the gross
+ * baseline, Sales Report replay does the netting" pattern regular units
+ * already use (see toRow in InventoryReportImport.tsx).
+ */
+export async function restoreAccessoryStockFromImport(input: RestoreAccessoryStockInput): Promise<RestoreAccessoryStockResult> {
+  const sku = (input.sku || '').trim();
+  if (!sku || !(input.totalReceived >= 0)) return { ok: false, created: false };
+
+  const id = slugify(sku);
+  const existing = (await dbService.readAll('accessoryStock')).find((a: any) => a.id === id);
+  if (existing) return { ok: true, created: false, id };
+
+  const supplierId = input.supplierName ? await ensureSupplier(input.supplierName) : undefined;
+  const payload: Partial<AccessoryStock> = {
+    sku,
+    name: (input.name || sku).trim(),
+    supplierId,
+    supplierName: input.supplierName || undefined,
+    quantity: input.totalReceived,
+    totalReceived: input.totalReceived,
+    buyPrice: input.buyPrice > 0 ? input.buyPrice : 0,
+    notes: input.notes || undefined,
+  };
+  await dbService.create('accessoryStock', id, payload);
+  await logInventoryEvent({
+    type: 'stock_adjusted',
+    message: `Accessory "${sku}" restored from Inventory Report import (${input.totalReceived})`,
+  });
+  return { ok: true, created: true, id };
 }

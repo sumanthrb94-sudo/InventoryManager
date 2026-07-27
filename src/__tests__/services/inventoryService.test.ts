@@ -74,6 +74,7 @@ import {
   completeUnitBuyInfo,
   upsertAccessoryStock,
   decrementAccessoryStock,
+  restoreAccessoryStockFromImport,
 } from '../../services/inventoryService';
 import type { Sale } from '../../types';
 
@@ -1071,5 +1072,89 @@ describe('decrementAccessoryStock', () => {
     const r = await decrementAccessoryStock('SG-A17-128GB-OB', 1);
     expect(r.matched).toBe(false);
     expect(r.remaining).toBeUndefined();
+  });
+});
+
+describe('upsertAccessoryStock — totalReceived (cumulative intake, feeds the Inventory Report export)', () => {
+  it('seeds totalReceived equal to quantity on a brand-new pool', async () => {
+    const r = await upsertAccessoryStock({ sku: 'USB-C 20W', name: 'USB-C 20W Charger', quantity: 50, buyPrice: 3.5 });
+    expect(r.ok).toBe(true);
+    expect(collections['accessoryStock'].get('usb_c_20w').totalReceived).toBe(50);
+  });
+
+  it('accumulates totalReceived across top-ups — unlike quantity, a sale never reduces it', async () => {
+    await upsertAccessoryStock({ sku: 'USB-C 20W', name: 'USB-C 20W Charger', quantity: 50, buyPrice: 3.5 });
+    await decrementAccessoryStock('USB-C 20W', 20); // a sale — drops quantity, not totalReceived
+    const r = await upsertAccessoryStock({ sku: 'USB-C 20W', name: 'USB-C 20W Charger', quantity: 10, buyPrice: 3.5 });
+    expect(r.ok).toBe(true);
+    const doc = collections['accessoryStock'].get('usb_c_20w');
+    expect(doc.quantity).toBe(40);       // 50 - 20 + 10
+    expect(doc.totalReceived).toBe(60);  // 50 + 10, the sale never touched this
+  });
+
+  it('self-heals a legacy doc with no totalReceived field by falling back to its current quantity', async () => {
+    collections['accessoryStock'].set('legacy_sku', {
+      id: 'legacy_sku', sku: 'LEGACY-SKU', name: 'Old Pool', quantity: 30, buyPrice: 1, ownerId: 'shared', createdAt: 'x',
+    });
+    const r = await upsertAccessoryStock({ sku: 'LEGACY-SKU', name: 'Old Pool', quantity: 10, buyPrice: 1 });
+    expect(r.ok).toBe(true);
+    const doc = collections['accessoryStock'].get('legacy_sku');
+    expect(doc.quantity).toBe(40);
+    expect(doc.totalReceived).toBe(40); // 30 (fallback baseline) + 10
+  });
+});
+
+describe('restoreAccessoryStockFromImport — the wipe + re-upload recovery path', () => {
+  it('creates a fresh pool at quantity = totalReceived when none exists (the post-wipe case)', async () => {
+    const r = await restoreAccessoryStockFromImport({
+      sku: 'USB-C-20W', name: 'USB-C 20W Charger', supplierName: 'MOBILE WHOLESALE LTD',
+      totalReceived: 50, buyPrice: 3.5,
+    });
+    expect(r.ok).toBe(true);
+    expect(r.created).toBe(true);
+    const doc = collections['accessoryStock'].get('usb_c_20w');
+    expect(doc.quantity).toBe(50);
+    expect(doc.totalReceived).toBe(50);
+    expect(doc.name).toBe('USB-C 20W Charger');
+  });
+
+  it('is a no-op when a pool for the SKU already exists — never clobbers live state with a stale export', async () => {
+    await upsertAccessoryStock({ sku: 'USB-C-20W', name: 'USB-C 20W Charger', quantity: 48, buyPrice: 3.5 });
+    const r = await restoreAccessoryStockFromImport({
+      sku: 'USB-C-20W', name: 'USB-C 20W Charger', totalReceived: 999, buyPrice: 3.5,
+    });
+    expect(r.ok).toBe(true);
+    expect(r.created).toBe(false);
+    // Untouched — still the live value, not the (wrong) 999 from the stale import.
+    expect(collections['accessoryStock'].get('usb_c_20w').quantity).toBe(48);
+  });
+
+  it('rejects a blank SKU', async () => {
+    const r = await restoreAccessoryStockFromImport({ sku: '', name: 'x', totalReceived: 10, buyPrice: 1 });
+    expect(r.ok).toBe(false);
+    expect(r.created).toBe(false);
+  });
+
+  it('the full round trip: create, sell some, wipe, restore, replay the sale — lands back at the exact pre-wipe quantity', async () => {
+    // Before the wipe: 50 added, 2 sold, live quantity 48.
+    await upsertAccessoryStock({ sku: 'USB-C-20W', name: 'USB-C 20W Charger', quantity: 50, buyPrice: 3.5 });
+    await decrementAccessoryStock('USB-C-20W', 2);
+    const beforeWipe = collections['accessoryStock'].get('usb_c_20w');
+    expect(beforeWipe.quantity).toBe(48);
+    expect(beforeWipe.totalReceived).toBe(50);
+
+    // Wipe: the pool doc is gone entirely (accessoryStock is in every wipe scope).
+    collections['accessoryStock'].delete('usb_c_20w');
+    expect(collections['accessoryStock'].get('usb_c_20w')).toBeUndefined();
+
+    // Re-upload the Inventory Report's Accessories sheet (exports totalReceived, not quantity).
+    await restoreAccessoryStockFromImport({
+      sku: 'USB-C-20W', name: 'USB-C 20W Charger', totalReceived: beforeWipe.totalReceived, buyPrice: 3.5,
+    });
+    expect(collections['accessoryStock'].get('usb_c_20w').quantity).toBe(50); // gross baseline, sale not yet replayed
+
+    // Re-upload the Sales Report: replays the historical sale via the ordinary decrement path.
+    await decrementAccessoryStock('USB-C-20W', 2);
+    expect(collections['accessoryStock'].get('usb_c_20w').quantity).toBe(48); // back to the exact pre-wipe figure
   });
 });

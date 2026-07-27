@@ -174,29 +174,112 @@ export function parseSheet(rows: any[][], rowNumOffset = 0): ParsedRow[] {
   return result;
 }
 
+export interface ParsedAccessoryRow {
+  rowNum: number;
+  sku: string;
+  name: string;
+  supplier: string;
+  totalReceived: number;
+  buyPrice: number;
+  notes: string;
+}
+
+type AccessoryField = keyof Omit<ParsedAccessoryRow, 'rowNum'>;
+
+// Same alias-table approach as HEADER_ALIASES, for the Accessories sheet's
+// own (much smaller) schema: SKU · Name · Supplier · Total Added · BP · Notes.
+export const ACCESSORY_HEADER_ALIASES: Record<string, AccessoryField> = {
+  'sku':            'sku',
+  'accessory sku':  'sku',
+  'name':           'name',
+  'accessory name': 'name',
+  'accessory':      'name',
+  'supplier':       'supplier',
+  'total added':    'totalReceived',
+  'total received': 'totalReceived',
+  'qty added':      'totalReceived',
+  'quantity added': 'totalReceived',
+  'bp':             'buyPrice',
+  'bp (£)':         'buyPrice',
+  'buy price':      'buyPrice',
+  'notes':          'notes',
+  'note':           'notes',
+};
+
+/** True when a sheet's header row names both columns an accessory row
+ *  needs. Distinct from looksLikeStockSheet — an Accessories sheet has no
+ *  IMEI column at all, that being the whole point of the stock type. */
+export function looksLikeAccessoriesSheet(rows: any[][]): boolean {
+  if (!rows.length) return false;
+  const headers = (rows[0] ?? []).map(normalizeHeader);
+  return headers.some(h => ACCESSORY_HEADER_ALIASES[h] === 'sku')
+      && headers.some(h => ACCESSORY_HEADER_ALIASES[h] === 'totalReceived');
+}
+
+export function parseAccessoriesSheet(rows: any[][], rowNumOffset = 0): ParsedAccessoryRow[] {
+  if (rows.length < 2) return [];
+  const headerRow = rows[0].map(normalizeHeader);
+  const colIndex: Partial<Record<AccessoryField, number>> = {};
+  headerRow.forEach((h: string, i: number) => {
+    const field = ACCESSORY_HEADER_ALIASES[h];
+    if (field && colIndex[field] === undefined) colIndex[field] = i;
+  });
+
+  const result: ParsedAccessoryRow[] = [];
+  for (let i = 1; i < rows.length; i++) {
+    const r = rows[i];
+    if (!r || r.every(c => c == null || String(c).trim() === '')) continue; // skip blank
+    const get = (k: AccessoryField) => {
+      const idx = colIndex[k];
+      return idx === undefined ? '' : r[idx];
+    };
+    const sku = String(get('sku') ?? '').trim();
+    if (!sku) continue; // no SKU, nothing to restore
+    result.push({
+      rowNum: rowNumOffset + i + 1,
+      sku,
+      name: String(get('name') ?? '').trim(),
+      supplier: String(get('supplier') ?? '').trim(),
+      totalReceived: parseNumber(get('totalReceived')),
+      buyPrice: parseNumber(get('buyPrice')),
+      notes: String(get('notes') ?? '').trim(),
+    });
+  }
+  return result;
+}
+
 export interface ParsedWorkbook {
   rows: ParsedRow[];
   /** Sheets whose header row named no stock columns — reported, not parsed. */
   skippedSheets: string[];
+  /** Rows from an Accessories sheet, if the workbook has one. */
+  accessoryRows: ParsedAccessoryRow[];
 }
 
 /**
  * Read EVERY stock sheet in a workbook, not just the first.
  *
- * The Inventory Report this importer is the counterpart to downloads as TWO
- * sheets — Office Stock and SHS Stock — so reading only `SheetNames[0]`
- * silently dropped every supplier-held row on the way back in, breaking the
- * export → edit → re-import loop the templates README promises.
+ * The Inventory Report this importer is the counterpart to downloads as
+ * THREE sheets — Office Stock, SHS Stock, and (when accessory pools exist)
+ * Accessories — so reading only `SheetNames[0]` silently dropped every
+ * supplier-held row (and, before this, every accessory row too) on the way
+ * back in, breaking the export → edit → re-import loop the templates
+ * README promises.
  */
 export function parseStockWorkbook(wb: XLSX.WorkBook): ParsedWorkbook {
   const rows: ParsedRow[] = [];
+  const accessoryRows: ParsedAccessoryRow[] = [];
   const skippedSheets: string[] = [];
   for (const sheetName of wb.SheetNames) {
     const sheetRows = XLSX.utils.sheet_to_json<any[]>(wb.Sheets[sheetName], {
       header: 1, raw: true, defval: '',
     });
+    if (looksLikeAccessoriesSheet(sheetRows)) {
+      accessoryRows.push(...parseAccessoriesSheet(sheetRows, accessoryRows.length));
+      continue;
+    }
     if (!looksLikeStockSheet(sheetRows)) { skippedSheets.push(sheetName); continue; }
     rows.push(...parseSheet(sheetRows, rows.length));
   }
-  return { rows, skippedSheets };
+  return { rows, skippedSheets, accessoryRows };
 }

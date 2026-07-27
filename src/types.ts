@@ -475,6 +475,14 @@ export interface AccessoryStock {
   supplierId?: string;
   supplierName?: string;
   quantity: number;       // units currently in stock
+  /** Cumulative units ever added to this pool (Add Stock top-ups), never
+   *  decremented by a sale. This is what the Inventory Report exports and
+   *  restores on re-import — `quantity` itself is NOT exported, since a
+   *  wipe + re-upload replays every historical sale via the Sales Report
+   *  (same as regular units), which nets totalReceived back down to the
+   *  correct current quantity. Falls back to `quantity` for docs created
+   *  before this field existed. */
+  totalReceived?: number;
   buyPrice: number;       // BP per unit
   notes?: string;
   ownerId: string;

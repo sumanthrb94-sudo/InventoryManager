@@ -33,8 +33,9 @@ import type { InventoryUnit, Supplier } from '../types';
 import { parseBrandModelStorage } from '../lib/modelStorage';
 import { buildCatalogIndex, canonicaliseModel } from '../lib/modelReconciliation';
 import { normaliseGrade, normaliseSimType } from '../lib/unitConstants';
-import { parseStockWorkbook, type ParsedRow } from '../lib/inventoryImportParse';
+import { parseStockWorkbook, type ParsedRow, type ParsedAccessoryRow } from '../lib/inventoryImportParse';
 import { isOfficeStockUnit, isShsUnit } from '../lib/wipeScopes';
+import { restoreAccessoryStockFromImport } from '../services/inventoryService';
 import TemplateDownload, { INVENTORY_TEMPLATES } from './TemplateDownload';
 import { auth } from '../lib/firebase';
 
@@ -202,9 +203,10 @@ export function buildPreview(
 }
 
 export default function InventoryReportImport({ onClose }: Props) {
-  const { units, suppliers, models } = useInventoryStore();
+  const { units, suppliers, models, accessoryStock } = useInventoryStore();
   const [phase, setPhase] = useState<Phase>('upload');
   const [parsedRows, setParsedRows] = useState<ParsedRow[]>([]);
+  const [parsedAccessoryRows, setParsedAccessoryRows] = useState<ParsedAccessoryRow[]>([]);
   const [fileName, setFileName] = useState('');
   const [progress, setProgress] = useState<{ done: number; total: number }>({ done: 0, total: 0 });
   const [error, setError] = useState<string>('');
@@ -213,7 +215,7 @@ export default function InventoryReportImport({ onClose }: Props) {
   // memoised preview re-runs after Firestore listeners fire and reclassifies
   // every just-written row, collapsing "5 suppliers added" to 0.
   const [doneStats, setDoneStats] = useState<{
-    created: number; updated: number; suppliersAdded: number; skipped: number;
+    created: number; updated: number; suppliersAdded: number; skipped: number; accessoriesRestored: number;
   } | null>(null);
   // IMEIs successfully written during this modal session. Filtered out of the
   // dupe-check in buildPreview so the Firestore onSnapshot echo doesn't
@@ -229,6 +231,18 @@ export default function InventoryReportImport({ onClose }: Props) {
     [parsedRows, units, suppliers, phase, writtenImeis],
   );
 
+  // Accessory pools are a CREATE-ONLY restore (see restoreAccessoryStockFromImport):
+  // a SKU already tracked live is left alone, so only genuinely-missing pools
+  // (the post-wipe case) get recreated. Computed here purely to preview which
+  // rows will actually do something, before Confirm.
+  const accessoryPreview = useMemo(() => {
+    if (!(phase === 'preview' || phase === 'loading' || phase === 'done')) return null;
+    const existingSkus = new Set(accessoryStock.map(a => a.sku.trim().toUpperCase()));
+    const toRestore = parsedAccessoryRows.filter(r => !existingSkus.has(r.sku.trim().toUpperCase()));
+    const alreadyTracked = parsedAccessoryRows.length - toRestore.length;
+    return { toRestore, alreadyTracked };
+  }, [parsedAccessoryRows, accessoryStock, phase]);
+
   const handleFile = async (file: File) => {
     setError('');
     setFileName(file.name);
@@ -238,10 +252,10 @@ export default function InventoryReportImport({ onClose }: Props) {
       if (!wb.SheetNames.length) throw new Error('Workbook has no sheets');
 
       // EVERY stock sheet, not just the first — the Inventory Report this
-      // importer is the counterpart to downloads as two (Office Stock and
-      // SHS Stock).
-      const { rows: parsed, skippedSheets } = parseStockWorkbook(wb);
-      if (parsed.length === 0) {
+      // importer is the counterpart to downloads as three (Office Stock,
+      // SHS Stock, and Accessories when any pools exist).
+      const { rows: parsed, skippedSheets, accessoryRows } = parseStockWorkbook(wb);
+      if (parsed.length === 0 && accessoryRows.length === 0) {
         throw new Error(
           skippedSheets.length
             ? `No stock rows found. Sheets read: ${skippedSheets.join(', ')} — none had Model + IMEI columns. Check the header row matches the inventory report schema.`
@@ -249,6 +263,7 @@ export default function InventoryReportImport({ onClose }: Props) {
         );
       }
       setParsedRows(parsed);
+      setParsedAccessoryRows(accessoryRows);
       setPhase('preview');
     } catch (e: any) {
       setError(e?.message || 'Failed to read file');
@@ -264,6 +279,7 @@ export default function InventoryReportImport({ onClose }: Props) {
       updated:        preview.toUpdate.length,
       suppliersAdded: preview.newSuppliers.length,
       skipped:        preview.invalid.length + preview.bucketConflicts.length,
+      accessoriesRestored: accessoryPreview?.toRestore.length ?? 0,
     };
     setPhase('loading');
     setProgress({ done: 0, total: preview.toCreate.length + preview.toUpdate.length });
@@ -371,7 +387,7 @@ export default function InventoryReportImport({ onClose }: Props) {
 
     try {
       if (supplierEntries.length > 0) await dbService.bulkCreate(supplierEntries);
-      await dbService.bulkCreate(unitEntries, (done, total) => setProgress({ done, total }));
+      if (unitEntries.length > 0) await dbService.bulkCreate(unitEntries, (done, total) => setProgress({ done, total }));
       // Excluded from the dupe-check until the modal unmounts.
       if (justWritten.length) {
         setWrittenImeis(prev => {
@@ -379,6 +395,21 @@ export default function InventoryReportImport({ onClose }: Props) {
           for (const k of justWritten) next.add(k);
           return next;
         });
+      }
+      // Accessory pools restore CREATE-ONLY (restoreAccessoryStockFromImport
+      // no-ops when a pool for the SKU already exists) — safe to run every
+      // time, including on a file that also carries ordinary unit rows.
+      if (accessoryPreview?.toRestore.length) {
+        for (const r of accessoryPreview.toRestore) {
+          await restoreAccessoryStockFromImport({
+            sku: r.sku,
+            name: r.name,
+            supplierName: r.supplier || undefined,
+            totalReceived: r.totalReceived,
+            buyPrice: r.buyPrice,
+            notes: r.notes || undefined,
+          });
+        }
       }
       setDoneStats(snapshot);
       setPhase('done');
@@ -391,6 +422,7 @@ export default function InventoryReportImport({ onClose }: Props) {
   const resetToUpload = () => {
     setPhase('upload');
     setParsedRows([]);
+    setParsedAccessoryRows([]);
     setFileName('');
     setError('');
     setProgress({ done: 0, total: 0 });
@@ -436,7 +468,7 @@ export default function InventoryReportImport({ onClose }: Props) {
 
           {/* ── Preview phase ────────────────────────────────────────────── */}
           {phase === 'preview' && preview && (
-            <PreviewPhase preview={preview} fileName={fileName} error={error} />
+            <PreviewPhase preview={preview} fileName={fileName} error={error} accessoryPreview={accessoryPreview} />
           )}
 
           {/* ── Loading phase ────────────────────────────────────────────── */}
@@ -462,6 +494,11 @@ export default function InventoryReportImport({ onClose }: Props) {
                 {doneStats.created} created · {doneStats.updated} updated · {doneStats.suppliersAdded} suppliers added
                 {doneStats.skipped > 0 && <> · {doneStats.skipped} skipped</>}
               </p>
+              {doneStats.accessoriesRestored > 0 && (
+                <p className="text-[11px] font-mono text-emerald-700">
+                  Accessory pools restored: {doneStats.accessoriesRestored}
+                </p>
+              )}
             </div>
           )}
         </div>
@@ -484,10 +521,13 @@ export default function InventoryReportImport({ onClose }: Props) {
               </button>
               <button
                 onClick={handleConfirm}
-                disabled={preview.toCreate.length + preview.toUpdate.length === 0}
+                disabled={preview.toCreate.length + preview.toUpdate.length === 0 && (accessoryPreview?.toRestore.length ?? 0) === 0}
                 className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 text-white text-[10px] font-bold uppercase tracking-widest hover:bg-emerald-700 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
               >
-                <CheckCircle2 size={12} /> Load {(preview.toCreate.length + preview.toUpdate.length).toLocaleString()} rows
+                <CheckCircle2 size={12} />
+                {preview.toCreate.length + preview.toUpdate.length > 0
+                  ? <>Load {(preview.toCreate.length + preview.toUpdate.length).toLocaleString()} rows</>
+                  : <>Restore {(accessoryPreview?.toRestore.length ?? 0).toLocaleString()} accessory pool{(accessoryPreview?.toRestore.length ?? 0) === 1 ? '' : 's'}</>}
               </button>
             </>
           )}
@@ -567,11 +607,12 @@ function UploadPhase({
 
 // ── Phase: preview ──────────────────────────────────────────────────────────
 function PreviewPhase({
-  preview, fileName, error,
+  preview, fileName, error, accessoryPreview,
 }: {
   preview: PreviewBuckets;
   fileName: string;
   error: string;
+  accessoryPreview: { toRestore: ParsedAccessoryRow[]; alreadyTracked: number } | null;
 }) {
   return (
     <div className="space-y-3">
@@ -581,6 +622,24 @@ function PreviewPhase({
           {fileName} · {preview.total.toLocaleString()} {preview.total === 1 ? 'row' : 'rows'}
         </span>
       </div>
+
+      {/* Accessory pools — a create-only restore, separate from unit rows. */}
+      {!!accessoryPreview && (accessoryPreview.toRestore.length > 0 || accessoryPreview.alreadyTracked > 0) && (
+        <div className="flex items-center gap-2 rounded-xl border border-indigo-100 bg-indigo-50 px-3 py-2">
+          <span className="text-[9px] font-bold uppercase tracking-widest text-indigo-400">Accessories</span>
+          {accessoryPreview.toRestore.length > 0 && (
+            <span className="text-[10px] font-mono text-indigo-700">
+              <strong>{accessoryPreview.toRestore.length}</strong> pool{accessoryPreview.toRestore.length === 1 ? '' : 's'} will be restored
+            </span>
+          )}
+          {accessoryPreview.alreadyTracked > 0 && (
+            <span className="text-[10px] font-mono text-indigo-700">
+              {accessoryPreview.toRestore.length > 0 && <span className="text-indigo-300 mr-2">·</span>}
+              {accessoryPreview.alreadyTracked} already tracked live — left alone
+            </span>
+          )}
+        </div>
+      )}
 
       {/* Office vs SHS split — where these rows will actually land. */}
       {(() => {

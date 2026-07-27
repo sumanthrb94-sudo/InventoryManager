@@ -195,7 +195,7 @@ function buildAlertLabel(brand: string, rawModel: string, storage: string): { la
 // ── Component ────────────────────────────────────────────────────────────────
 
 export default function BuySheet(_props: Props) {
-  const { units, suppliers, aggregates, sales } = useInventoryStore();
+  const { units, suppliers, aggregates, sales, accessoryStock } = useInventoryStore();
   const region = useUserRegion();
   const userIsAdmin = isAdmin(auth.currentUser);
 
@@ -536,6 +536,36 @@ export default function BuySheet(_props: Props) {
     shsSheet.autoFilter = { from: { row: 1, column: 1 }, to: { row: 1, column: INVENTORY_REPORT_COLUMNS.length } };
     shsSheet.views = [{ state: 'frozen', ySplit: 1 }];
 
+    // ── Sheet 3: Accessories (only when any pools exist) ──
+    // No-IMEI quantity pools (chargers, SIM pins, cables) have no date-in
+    // to window by, so this is always the live full snapshot, not filtered
+    // by `range`. Exports Total Added (cumulative intake), NOT the current
+    // remaining quantity — re-importing recreates the pool as if nothing
+    // had sold yet, and the accompanying Sales Report re-upload nets it back
+    // down via its own decrement-on-first-import logic, the same "gross
+    // baseline + sales replay nets it" pattern regular units already use.
+    // See restoreAccessoryStockFromImport (inventoryService.ts).
+    if (accessoryStock.length > 0) {
+      const ACCESSORY_COLUMNS = ['SKU', 'Name', 'Supplier', 'Total Added', 'BP', 'Notes'];
+      const accSheet = workbook.addWorksheet('Accessories');
+      accSheet.columns = ACCESSORY_COLUMNS.map(h => ({ header: h, key: h, width: h === 'Name' ? 28 : h === 'Notes' ? 30 : 16 }));
+      accSheet.getRow(1).eachCell(cell => {
+        cell.font = { bold: true, color: { argb: 'FFFFFFFF' } };
+        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF4338CA' } }; // indigo-700
+        cell.alignment = { horizontal: 'center' };
+      });
+      accSheet.addRows(accessoryStock.map(a => ({
+        'SKU': a.sku,
+        'Name': a.name,
+        'Supplier': a.supplierName || '',
+        'Total Added': a.totalReceived ?? a.quantity,
+        'BP': a.buyPrice,
+        'Notes': a.notes || '',
+      })));
+      accSheet.autoFilter = { from: { row: 1, column: 1 }, to: { row: 1, column: ACCESSORY_COLUMNS.length } };
+      accSheet.views = [{ state: 'frozen', ySplit: 1 }];
+    }
+
     // ── Download ──
     const buf = await workbook.xlsx.writeBuffer();
     const blob = new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
@@ -553,6 +583,17 @@ export default function BuySheet(_props: Props) {
     return viewModelFromSheets(`Inventory Report \u00b7 ${range.label}`, [
       { name: 'Office Stock', rows: buildOfficeReportRows(range) },
       { name: 'SHS Stock',    rows: buildShsReportRows(range) },
+      ...(accessoryStock.length > 0 ? [{
+        name: 'Accessories',
+        rows: accessoryStock.map(a => ({
+          'SKU': a.sku,
+          'Name': a.name,
+          'Supplier': a.supplierName || '',
+          'Total Added': a.totalReceived ?? a.quantity,
+          'BP': a.buyPrice,
+          'Notes': a.notes || '',
+        })),
+      }] : []),
     ]);
   };
 

@@ -1,7 +1,8 @@
 /**
  * scripts/e2eAccessoryReuploadReconcile.mjs — does re-uploading a Sales
  * Report that already reconciled an accessory sale do the right thing the
- * SECOND time?
+ * SECOND time, and does the accessory pool survive a full wipe + re-upload
+ * like everything else in the app?
  *
  * e2eAccessoryStock.mjs already proves the first-time flow: add a SKU pool,
  * import one sale, the pool decrements. It never re-uploads. This script
@@ -12,20 +13,23 @@
  *      -4 instead of -2) or correctly no-op (by design, per the comment in
  *      SalesReportImport.tsx: accessory decrement is scoped to
  *      preview.toCreate only, since a re-import re-lands the same sales as
- *      preview.toUpdate)?
+ *      preview.toUpdate)? Already correct — proven below.
  *
  *   B. The standard reconciliation round trip used everywhere else in this
  *      app — download the current reports, wipe the database, re-upload
- *      both files — does the accessory pool come back? Answer, confirmed
- *      by reading the code before writing this test: accessoryStock is
- *      NOT part of the Inventory Report export/import schema at all
- *      (grep across clientReport.ts / salesImport.ts / InventoryReportImport
- *      .tsx returns zero hits), even though it IS included in every wipe
- *      scope (wipeScopes.ts). So a wipe silently and permanently deletes
- *      accessory pools with no re-upload path to recover them — unlike
- *      office stock, SHS stock, and sales, which all round-trip. This is
- *      not a crash and not a double-count; it is a silent, undocumented
- *      gap in an otherwise-universal reconciliation guarantee.
+ *      both files — does the accessory pool come back? Originally NO: a
+ *      real gap was found and documented (accessoryStock was included in
+ *      every wipe scope but never in the Inventory Report export/import
+ *      schema). NOW FIXED: the Inventory Report exports an "Accessories"
+ *      sheet carrying `totalReceived` (cumulative intake, never decremented
+ *      by a sale — see AccessoryStock in types.ts), and re-importing it
+ *      recreates any missing pool at that gross figure via
+ *      restoreAccessoryStockFromImport (CREATE-only, never clobbers a live
+ *      pool). The accompanying Sales Report re-upload then nets it back
+ *      down to the exact pre-wipe quantity via the ordinary
+ *      decrement-on-first-import path — the same "Inventory Report gives
+ *      the gross baseline, Sales Report replay nets it down" pattern
+ *      regular units already use.
  *
  * Run after: VITE_E2E=1 vite build --outDir dist-e2e && vite preview
  *   node scripts/e2eAccessoryReuploadReconcile.mjs
@@ -255,13 +259,65 @@ async function run() {
   await shot(page, 'pool-after-second-import-still-48-units');
 
   // ══ 4. QUESTION B — standard wipe+reupload round trip ════════════════════
-  // No Inventory Report download/re-import needed here: this scenario has
-  // zero real inventoryUnits (an accessory sale never creates one), so an
-  // Inventory Report would be empty regardless — the only thing being
-  // tested is whether the accessoryStock pool itself survives a wipe.
-  console.log('\n── 4. Wipe everything, re-upload just the Sales Report ──');
+  // Now FIXED: the Inventory Report exports an "Accessories" sheet (Total
+  // Added = cumulative intake, never decremented by a sale), and importing
+  // it recreates any missing pool at that gross figure. The Sales Report
+  // re-upload then nets it back down via the ordinary decrement-on-first
+  // -import path — same "gross baseline + sales replay nets it" pattern
+  // regular units already use.
+  console.log('\n── 4. Download the REAL Inventory Report, wipe, re-upload both ──');
+  await gotoTab(page, 'Stock Intake');
+  await page.waitForTimeout(500);
+  const invReportBtn = page.getByRole('button', { name: /^Inventory Report$/i }).first();
+  const [invDownload0] = await Promise.all([
+    page.waitForEvent('download').catch(() => null),
+    invReportBtn.click().catch(() => {}),
+  ]);
+  let invDl = invDownload0;
+  if (!invDl) {
+    await page.waitForTimeout(400);
+    const allTime = page.getByRole('button', { name: /All Time/i }).first();
+    if (await allTime.isVisible().catch(() => false)) {
+      [invDl] = await Promise.all([
+        page.waitForEvent('download').catch(() => null),
+        allTime.click().catch(() => {}),
+      ]);
+    }
+  }
+  const invDownloadedFile = resolve(`${OUT}/downloaded-inventory-report.xlsx`);
+  if (invDl) await invDl.saveAs(invDownloadedFile);
+  record('Downloaded the real Inventory Report from the app', !!invDl);
+  await dismissModals(page);
+
   await wipeAll(page);
   await shot(page, 'after-wipe-empty');
+
+  // Re-upload the Inventory Report FIRST (establishes the gross baseline),
+  // exactly the order the operator already follows for everything else.
+  if (invDl) {
+    await gotoTab(page, 'Stock Intake');
+    await openImportMenu(page);
+    await page.getByRole('menuitem', { name: /Inventory Report/i }).click();
+    await page.waitForTimeout(700);
+    await page.locator('input[type="file"]').first().setInputFiles(invDownloadedFile);
+    await page.waitForTimeout(3000);
+    await shot(page, 'post-wipe-inventory-report-preview');
+    await modal(page).getByRole('button', { name: /Restore \d+ accessory pool|Load [\d,]+ rows/i }).click();
+    await page.waitForTimeout(3000);
+    await shot(page, 'post-wipe-inventory-report-done');
+    await modal(page).getByRole('button', { name: /Close|Done/i }).last().click().catch(() => {});
+    await dismissModals(page);
+  }
+
+  const afterInvRestore = await readStore(page);
+  const poolAfterInvRestore = afterInvRestore.accessoryStock.find(a => a.sku === SKU);
+  record('Inventory Report re-upload alone restores the pool at the GROSS total (50, not yet netted for the sale)',
+    poolAfterInvRestore?.quantity === ADD_QTY, `quantity=${poolAfterInvRestore?.quantity} (expected ${ADD_QTY})`);
+
+  await gotoAdminSub(page, 'Configuration');
+  await page.waitForTimeout(700);
+  await scrollToAccessoryPanel(page);
+  await shot(page, 'pool-restored-from-inventory-report-50-units');
 
   // Re-upload the same accessory sales file (same as the operator would,
   // re-uploading their monthly Sales Report after a wipe).
@@ -280,17 +336,18 @@ async function run() {
   const poolAfterWipe = afterWipeReupload.accessoryStock.find(a => a.sku === SKU);
   const saleAfterWipe = afterWipeReupload.sales.find(s => (s.sku || '') === SKU);
   record('The sale itself still imports fine after the wipe (no crash)', !!saleAfterWipe);
-  record('QUESTION B — the accessory pool did NOT come back from the wipe+reupload round trip (confirmed gap, not a crash)',
-    !poolAfterWipe, poolAfterWipe ? `unexpectedly found: quantity=${poolAfterWipe.quantity}` : 'no accessoryStock doc exists for this SKU after re-upload');
-  record('No error surfaced to the operator about the missing pool — the import completes looking successful either way',
-    !/error|fail/i.test(doneText3), doneText3.slice(0, 200));
+  record(`QUESTION B — FIXED: the accessory pool comes back at exactly the pre-wipe quantity (${ADD_QTY - SALE_QTY})`,
+    poolAfterWipe?.quantity === ADD_QTY - SALE_QTY,
+    `quantity=${poolAfterWipe?.quantity} (expected ${ADD_QTY - SALE_QTY})`);
+  record('No error surfaced to the operator at any point in the round trip', !/error|fail/i.test(doneText3), doneText3.slice(0, 200));
 
   await gotoAdminSub(page, 'Configuration');
   await page.waitForTimeout(700);
   await scrollToAccessoryPanel(page);
-  await shot(page, 'configuration-after-wipe-no-accessory-panel-row');
+  await shot(page, 'pool-fully-restored-48-units-after-full-round-trip');
   const configText = await page.innerText('body').catch(() => '');
-  record(`Configuration's Accessory Stock panel no longer lists ${SKU} after the round trip`, !configText.includes(SKU));
+  record(`Configuration's Accessory Stock panel shows ${SKU} at 48 after the full round trip`,
+    configText.includes(SKU) && /\b48\b/.test(configText.match(new RegExp(`${SKU}[\\s\\S]{0,200}`))?.[0] || ''));
 
   record('No uncaught JS errors across the whole investigation', jsErrors.length === 0, jsErrors.slice(0, 2).join(' | '));
 
