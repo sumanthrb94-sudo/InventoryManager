@@ -877,6 +877,51 @@ describe('restoreUnitReturnFromImport', () => {
     expect(r.ok).toBe(true);
     expect(collections['inventoryUnits'].get('350000000000222').status).toBe('available');
   });
+
+  it('two historical return cycles (never resold between them) both restore correctly, ending on the NEWER cycle\'s returnDate/reason — not stuck on the older one', async () => {
+    // A unit returned, never resold, then somehow returned a second time (or
+    // more realistically: a full-wipe rebuild replays BOTH historical voided
+    // sales for this IMEI, but the Returns Detail sheet only ever carries the
+    // unit's LATEST cycle's Return Type — see parseReturnsTab — so both
+    // restore calls below are made with the SAME returnType, differing only
+    // in which sale (and therefore which returnDate/reason) drives them.
+    const oldSale = voidedSale({
+      id: 'AMAZON__O-RET-OLD__350000000000222', orderNumber: 'O-RET-OLD',
+      voidedAt: '2026-05-01', voidReason: 'Old cycle reason',
+    });
+    const newSale = voidedSale({
+      id: 'AMAZON__O-RET-NEW__350000000000222', orderNumber: 'O-RET-NEW',
+      voidedAt: '2026-06-14', voidReason: 'Newer cycle reason',
+    });
+
+    // Oldest cycle restores first (no existing unit — births one).
+    const r1 = await restoreUnitReturnFromImport({ sale: oldSale, returnType: 'returned_to_inventory' });
+    expect(r1.ok).toBe(true);
+    expect(r1.created).toBe(true);
+    let unit = collections['inventoryUnits'].get('350000000000222');
+    expect(unit.returnDate).toBe('2026-05-01');
+    expect(unit.returnReason).toBe('Old cycle reason');
+
+    // Newest cycle restores second — same returnType as the first call, so
+    // the OLD (status+type-only) idempotency check would have wrongly
+    // treated this as a no-op. It must actually apply and overwrite with
+    // the newer cycle's own date/reason.
+    const r2 = await restoreUnitReturnFromImport({ sale: newSale, returnType: 'returned_to_inventory' });
+    expect(r2.ok).toBe(true);
+    expect(r2.created).toBe(false);
+    unit = collections['inventoryUnits'].get('350000000000222');
+    expect(unit.returnDate).toBe('2026-06-14');
+    expect(unit.returnReason).toBe('Newer cycle reason');
+
+    // Re-running the newest cycle a second time (a genuine re-upload of the
+    // unchanged file) must still be a true no-op — same date, same reason.
+    const r3 = await restoreUnitReturnFromImport({ sale: newSale, returnType: 'returned_to_inventory' });
+    expect(r3.ok).toBe(true);
+    expect(r3.created).toBe(false);
+    unit = collections['inventoryUnits'].get('350000000000222');
+    expect(unit.returnDate).toBe('2026-06-14');
+    expect(unit.returnReason).toBe('Newer cycle reason');
+  });
 });
 
 // ───────────────────────────────────────────────────────────────────────────

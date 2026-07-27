@@ -863,8 +863,23 @@ export async function restoreUnitReturnFromImport(input: {
     if (existingUnit) {
       // Idempotent — re-running the same import (or a second file covering
       // the same period) shouldn't double-log or re-write an already
-      // restored unit.
-      if (existingUnit.status === returnPatch.status && existingUnit.returnType === returnType) {
+      // restored unit. Must also compare returnDate, not just status/type:
+      // a unit returned twice (never resold in between, so the multi-cycle
+      // guard below never fires) has TWO voided sales sharing the SAME
+      // Return Type — the Returns Detail sheet only ever carries the
+      // latest cycle's type (see parseReturnsTab), so both restore calls
+      // for this unit are made with an identical returnType. Without the
+      // date check, the FIRST (oldest) call would create the unit with
+      // its own correct returnDate, then the SECOND (newest, actually-
+      // current) call would see status+type already match and skip —
+      // silently leaving the unit stuck on the older cycle's returnDate/
+      // reason/outcome forever, with only the returnType happening to
+      // look right.
+      if (
+        existingUnit.status === returnPatch.status
+        && existingUnit.returnType === returnType
+        && existingUnit.returnDate === returnPatch.returnDate
+      ) {
         return { ok: true, unitId: existingUnit.id, created: false };
       }
       // Multi-cycle guard: sell → return → sell again, then the whole
