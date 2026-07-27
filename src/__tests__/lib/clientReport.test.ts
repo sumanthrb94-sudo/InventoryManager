@@ -233,9 +233,10 @@ describe('buildSalesWorkbookBuffer — auditor-grade structure', () => {
     expect(String(header.getCell(11).value)).toBe('Outcome');
     expect(String(header.getCell(15).value)).toBe('Shipping Legs');
     expect(String(header.getCell(16).value)).toBe('Postage Loss £');
-    // Empty period → header only, no data or hint row (unlike the old
-    // flat Returns tab this replaced).
-    expect(detail.rowCount).toBe(1);
+    // Empty period → header + an empty-state hint row (so a bare header
+    // doesn't read as "broken" — see the "no data at all" test below).
+    expect(detail.rowCount).toBe(2);
+    expect(String(detail.getRow(2).getCell(1).value)).toBe('No returns recorded for this period.');
   });
 
   it('Returns Detail tab — a voided sale with no linked unit still appears (orphan fallback), Return Type left blank', async () => {
@@ -972,8 +973,42 @@ describe('Sales Report Returns tab filters by voidedAt', () => {
     });
     const wb = await loadWorkbook(buf);
     const detail = wb.getWorksheet('Returns Detail')!;
-    // No returns in range → header only, no data row.
-    expect(detail.rowCount).toBe(1);
+    // No returns in range → header + the plain "no returns" hint (not the
+    // "not yet restored" variant — there's genuinely nothing in the window).
+    expect(detail.rowCount).toBe(2);
+    expect(String(detail.getRow(2).getCell(1).value)).toBe('No returns recorded for this period.');
+  });
+
+  it('a voided sale in range whose unit has no returnType on file still gets a "not yet restored" hint on Unit Histories', async () => {
+    // Reproduces the live incident shape: the Sale is voided, but the
+    // linked unit was deleted (or never processed via Returns) so it
+    // carries no returnType — Returns Detail shows it via the orphan
+    // fallback, but Unit Histories (strictly unit-driven) has nothing to
+    // show and must say so rather than presenting a bare header.
+    const sales: Sale[] = [
+      baseSale({
+        id: 'EBAY__DEL__1', orderNumber: 'DEL', imei: '350000000009999', unitId: '',
+        voidedAt: '2026-06-14', voidOutcome: 'refund', voidReason: 'unit deleted, never restored',
+      }),
+    ];
+    const buf = await buildSalesWorkbookBuffer({ sales });
+    const wb = await loadWorkbook(buf);
+    const histories = wb.getWorksheet('Unit Histories')!;
+    expect(histories.rowCount).toBe(2);
+    expect(String(histories.getRow(2).getCell(1).value)).toMatch(/no unit has a Return Type on file yet/i);
+
+    // Returns Detail, by contrast, DOES show this row (orphan fallback).
+    const detail = wb.getWorksheet('Returns Detail')!;
+    expect(detail.rowCount).toBe(2);
+    expect(detail.getRow(2).getCell(2).value).toBe('350000000009999');
+  });
+
+  it('Unit Histories says plainly there are no returns at all when there truly are none', async () => {
+    const buf = await buildSalesWorkbookBuffer({ sales: [] });
+    const wb = await loadWorkbook(buf);
+    const histories = wb.getWorksheet('Unit Histories')!;
+    expect(histories.rowCount).toBe(2);
+    expect(String(histories.getRow(2).getCell(1).value)).toBe('No unit return history to show for this period.');
   });
 });
 

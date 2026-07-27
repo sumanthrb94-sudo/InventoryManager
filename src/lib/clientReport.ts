@@ -1858,6 +1858,21 @@ function writeReturnsSheets(
     }
   }
 
+  // Empty-state hint — a bare header row reads as "broken" to an operator
+  // (is the sheet not loading, or is there genuinely nothing to show?).
+  // Distinguishes the two real empty causes: no voided sales in range at
+  // all, vs. returns exist but haven't been through Process Return / a
+  // restoring re-import yet (so no InventoryUnit or Sale has fired the
+  // rows above).
+  if (detailSorted.length === 0 && orphanSorted.length === 0) {
+    const row = detail.addRow([
+      voidedSalesInRange.length > 0
+        ? 'Returns are recorded on the Sales side, but no unit has a Return Type on file yet — process the return, or re-upload a Sales Report with its Returns Detail filled in, to populate this row.'
+        : 'No returns recorded for this period.',
+    ]);
+    row.getCell(1).font = { italic: true, color: { argb: 'FF64748B' } };  // slate-500
+  }
+
   // -------- Sheet 3: Unit Histories --------
   // One row per lifecycle event, grouped visually by sorting on Unit
   // IMEI then event date. Range filter does NOT apply here — once a
@@ -2017,6 +2032,19 @@ function writeReturnsSheets(
         row.getCell(col).fill = RETURNED_FILL;
       }
     }
+  }
+
+  // Same empty-state reasoning as Returns Detail above — this sheet is
+  // strictly unit-driven (historyUnits requires returnType + returnDate on
+  // file), so it can legitimately show nothing even when Returns Detail
+  // has rows via its sales-driven orphan fallback.
+  if (allEvents.length === 0) {
+    const row = histories.addRow([
+      voidedSalesInRange.length > 0
+        ? 'Returns are recorded on the Sales side, but no unit has a Return Type on file yet — process the return, or re-upload a Sales Report with its Returns Detail filled in, to populate a history here.'
+        : 'No unit return history to show for this period.',
+    ]);
+    row.getCell(1).font = { italic: true, color: { argb: 'FF64748B' } };  // slate-500
   }
 }
 
