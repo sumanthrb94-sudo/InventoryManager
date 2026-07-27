@@ -94,13 +94,20 @@ export function InventoryStoreProvider({ children }: { children: React.ReactNode
     });
     const sl = dbService.subscribeToCollection('sales', (data: any[]) => {
       const unified = data.map(item => {
+        // No-IMEI sales (accessories — chargers, SIM pins, cables) carry a
+        // literal SKU with no phone brand/model/storage to extract. Running
+        // it through parseBrandModelStorage anyway mangled real accessory
+        // SKUs (e.g. "USB-C-20W" → "C-20W"), breaking every downstream
+        // lookup keyed on the exact SKU (accessoryStock matching included).
+        // Only device sales (IMEI present) get the phone-SKU humanisation.
+        if (!item.imei) return item;
         const rawModel = item.model || item.sku;
         if (!rawModel) return item;
         const parsed = parseBrandModelStorage(rawModel);
         const cleanModel = parsed.model || rawModel;
         const brand = parsed.brand !== 'Other' ? parsed.brand : '';
         const expectedSku = [brand, cleanModel, parsed.storage].filter(Boolean).join(' ');
-        
+
         return {
           ...item,
           model: cleanModel,

@@ -153,7 +153,7 @@ function inventoryUnitToSale(u: InventoryUnit): Sale {
 }
 
 export default function Sales() {
-  const { units, sales }                    = useInventoryStore();
+  const { units, sales, accessoryStock }     = useInventoryStore();
   const region                              = useUserRegion();
   const isAdminUser                         = useIsAdmin();
   const [activeListings, setActiveListings] = useState<ActiveListing[]>([]);
@@ -186,6 +186,14 @@ export default function Sales() {
 
   // Date-range picker — default = last 30 days
   const today = new Date().toISOString().split('T')[0];
+  // Accessory sales never link a unit (no IMEI to link) — fall back to the
+  // live pool's friendly name instead of raw SKU text when one matches.
+  const accessoryNameBySku = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const a of accessoryStock) map.set(a.sku.trim().toUpperCase(), a.name);
+    return map;
+  }, [accessoryStock]);
+
   const thirtyDaysAgoISO = useMemo(() => {
     const d = new Date();
     d.setDate(d.getDate() - 30);
@@ -759,7 +767,8 @@ export default function Sales() {
                                   break;
                                 case 'model': {
                                   const u = s.unitId ? units.find(x => x.id === s.unitId) : undefined;
-                                  const displayModel = u?.model || s.model || s.sku || '—';
+                                  const accessoryName = !u && s.sku ? accessoryNameBySku.get(s.sku.trim().toUpperCase()) : undefined;
+                                  const displayModel = u?.model || accessoryName || s.model || s.sku || '—';
                                   display = (
                                     <span className="font-bold text-gray-900">{displayModel}</span>
                                   );

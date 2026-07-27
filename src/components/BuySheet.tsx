@@ -24,7 +24,7 @@ import {
 import { AnimatePresence, motion } from 'motion/react';
 import ExcelJS from 'exceljs';
 import { dbService } from '../lib/dbService';
-import { InventoryUnit, InventoryAggregate, Supplier } from '../types';
+import { InventoryUnit, InventoryAggregate, Supplier, AccessoryStock } from '../types';
 import { useInventoryStore } from '../lib/inventoryStore';
 import { shsAggregatesFrom } from '../lib/shsCount';
 import { normalizeBucketModel, parseBrandModelStorage } from '../lib/modelStorage';
@@ -761,7 +761,7 @@ export default function BuySheet(_props: Props) {
           Shows models that are sold out (had sales, now 0 available) and
           models with low stock (1–3 available). Drives the operator's
           reorder + clearance decisions. */}
-      <StockAlerts units={units} supplierMap={supplierMap} />
+      <StockAlerts units={units} supplierMap={supplierMap} accessoryStock={accessoryStock} />
 
       {/* ── Buy Intelligence panel — Fast Movers / Profit Drivers /
           Old Stock Alerts / This Week Trending Sold ──────────────────────── */}
@@ -938,10 +938,11 @@ export default function BuySheet(_props: Props) {
 // Both lists are model-level so the operator sees the SKU once even when
 // it spans multiple colours. Latest sale date is surfaced for context.
 function StockAlerts({
-  units, supplierMap,
+  units, supplierMap, accessoryStock,
 }: {
   units: InventoryUnit[];
   supplierMap: Record<string, string>;
+  accessoryStock: AccessoryStock[];
 }) {
   type Bucket = {
     key: string;
@@ -985,8 +986,29 @@ function StockAlerts({
       }
       if (u.buyPrice && u.buyPrice > 0) b.latestBp = u.buyPrice;
     }
+    // Accessory pools — no IMEI, so never contribute to `units` above. Folded
+    // into the same buckets (own key namespace, "Accessory" extras tag) so
+    // they surface in the same Sold Out / Running Low columns as phone SKUs,
+    // using the same ≤3-unit threshold. `sold` is approximated from
+    // totalReceived - quantity since accessory sales carry no per-sale
+    // timestamp granularity to compute a real "last sold" date from.
+    for (const a of accessoryStock) {
+      const key = `acc::${a.sku}`;
+      const totalReceived = a.totalReceived ?? a.quantity;
+      map.set(key, {
+        key,
+        label: a.name || a.sku,
+        extras: 'Accessory',
+        suppliers: new Set(a.supplierName ? [a.supplierName] : []),
+        available: a.quantity,
+        incoming: 0,
+        sold: Math.max(0, totalReceived - a.quantity),
+        lastSold: '',
+        latestBp: a.buyPrice || 0,
+      });
+    }
     return Array.from(map.values());
-  }, [units, supplierMap]);
+  }, [units, supplierMap, accessoryStock]);
 
   const soldOut = useMemo(
     () => buckets

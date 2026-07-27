@@ -116,7 +116,7 @@ function exportCSV(filename: string, rows: Record<string, string | number | unde
 }
 
 export default function ReportingPage() {
-  const { units, suppliers, sales } = useInventoryStore();
+  const { units, suppliers, sales, accessoryStock } = useInventoryStore();
   const [tab, setTab]           = useState<ReportTab>('daily');
   const [dateFilter, setDateFilter] = useState(() => new Date().toISOString().split('T')[0]);
 
@@ -160,6 +160,10 @@ export default function ReportingPage() {
     };
     const unitById = new Map<string, InventoryUnit>();
     for (const u of units) unitById.set(u.id, u);
+    // Accessory sales never link a unit — fall back to the live pool's
+    // friendly name instead of raw SKU text when one matches.
+    const accessoryBySku = new Map<string, string>();
+    for (const a of accessoryStock) accessoryBySku.set(a.sku.trim().toUpperCase(), a.name);
     // A synthesised legacy-unit row's id IS the unit id, but a Sale doc's id
     // is `marketplace__orderNumber__imei` — the two id spaces never collide,
     // so comparing a unit id against a Set of sale ids never once caught a
@@ -171,9 +175,10 @@ export default function ReportingPage() {
     const index = buildDedupeIndex(liveSales);
     for (const s of liveSales) {
       const u = s.unitId ? unitById.get(s.unitId) : undefined;
+      const accessoryName = !u && s.sku ? accessoryBySku.get(s.sku.trim().toUpperCase()) : undefined;
       rows.push({
         date:        s.saleDate || '',
-        model:       u?.model || s.sku || '',
+        model:       u?.model || accessoryName || s.sku || '',
         imei:        s.imei || u?.imei || '',
         orderNumber: s.orderNumber || '',
         buyPrice:    s.buyPrice || 0,
@@ -206,7 +211,7 @@ export default function ReportingPage() {
       });
     }
     return { rows };
-  }, [liveSales, sold, units]);
+  }, [liveSales, sold, units, accessoryStock]);
 
   // Daily sales for selected date (sourced from unified feed)
   const dailySales = useMemo(

@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import {
   TrendingUp, TrendingDown, Package, CircleDollarSign,
   ChevronRight, Truck, ShoppingBag, FileSpreadsheet, Upload,
-  ShieldCheck, ExternalLink, RefreshCw, Database, Archive, Store, FileClock,
+  ShieldCheck, ExternalLink, RefreshCw, Database, Archive, Store, FileClock, Boxes,
 } from 'lucide-react';
 import type { User } from 'firebase/auth';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts';
@@ -39,7 +39,7 @@ export default function Dashboard({ user, onNavigate, onOpenImport, onOpenMaster
   // Master Data button prefers the dedicated `onOpenMasterData` handler
   // (Admin → Master Data sub-tab) and falls back to the legacy import modal.
   const handleOpenMasterData = () => (onOpenMasterData ?? onOpenImport)?.();
-  const { units, suppliers, sales, aggregates, importBatches } = useInventoryStore();
+  const { units, suppliers, sales, aggregates, importBatches, accessoryStock } = useInventoryStore();
   const showAdminPanel = isAdmin(user);
   const region = useUserRegion();
 
@@ -288,6 +288,16 @@ export default function Dashboard({ user, onNavigate, onOpenImport, onOpenMaster
     return { count: incomingCount + aggregateCount, totalQty, incomingCount, aggregateCount };
   }, [incoming, aggregates]);
 
+  // Accessories: quantity-pool stock (no IMEI — chargers, SIM pins, cables),
+  // kept as its own indicator rather than merged into Stock on Hand's unit
+  // count/value, since accessories aren't InventoryUnit records at all.
+  const accessoryKpi = useMemo(() => {
+    const value = accessoryStock.reduce((s, a) => s + (a.quantity || 0) * (a.buyPrice || 0), 0);
+    const soldOut = accessoryStock.filter(a => a.quantity === 0).length;
+    const lowStock = accessoryStock.filter(a => a.quantity > 0 && a.quantity <= 3).length;
+    return { skuCount: accessoryStock.length, value, soldOut, lowStock };
+  }, [accessoryStock]);
+
   // Sold This Month: sales whose saleDate is in the current calendar month.
   const soldThisMonth = useMemo(() => {
     const now = new Date();
@@ -509,6 +519,39 @@ export default function Dashboard({ user, onNavigate, onOpenImport, onOpenMaster
             iconBg="bg-gray-200 text-gray-700"
             onClick={() => onOpenImport?.()}
             valueClassName="text-sm md:text-base truncate"
+          />
+        </section>
+      )}
+
+      {/* Accessories — quantity-pool stock (chargers, SIM pins, cables).
+          Kept as its own indicator rather than folded into "Stock on Hand"
+          above, since accessories are a separate SKU-quantity model, not
+          InventoryUnit records. */}
+      {accessoryStock.length > 0 && (
+        <section aria-label="Accessory stock" className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <MasterKpiCard
+            icon={<Boxes size={15} />}
+            label="Accessory SKUs"
+            value={accessoryKpi.skuCount.toLocaleString()}
+            sub={`£${accessoryKpi.value.toLocaleString()} in pooled stock`}
+            accent="bg-indigo-50 border-indigo-100 text-indigo-900"
+            iconBg="bg-indigo-100 text-indigo-700"
+          />
+          <MasterKpiCard
+            icon={<Boxes size={15} />}
+            label="Accessories Sold Out"
+            value={accessoryKpi.soldOut.toLocaleString()}
+            sub="Pools at 0 units"
+            accent={accessoryKpi.soldOut > 0 ? 'bg-rose-50 border-rose-100 text-rose-900' : 'bg-gray-50 border-gray-100 text-gray-900'}
+            iconBg={accessoryKpi.soldOut > 0 ? 'bg-rose-100 text-rose-700' : 'bg-gray-200 text-gray-700'}
+          />
+          <MasterKpiCard
+            icon={<Boxes size={15} />}
+            label="Accessories Running Low"
+            value={accessoryKpi.lowStock.toLocaleString()}
+            sub="Pools at ≤ 3 units"
+            accent={accessoryKpi.lowStock > 0 ? 'bg-amber-50 border-amber-100 text-amber-900' : 'bg-gray-50 border-gray-100 text-gray-900'}
+            iconBg={accessoryKpi.lowStock > 0 ? 'bg-amber-100 text-amber-700' : 'bg-gray-200 text-gray-700'}
           />
         </section>
       )}

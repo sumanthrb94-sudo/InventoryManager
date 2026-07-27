@@ -36,7 +36,7 @@ const MARKETPLACE_HEX: Record<Marketplace, string> = {
 };
 
 export default function AnalyticsPage() {
-  const { units, suppliers, sales } = useInventoryStore();
+  const { units, suppliers, sales, accessoryStock } = useInventoryStore();
   const [period, setPeriod]  = useState<Period>(0);
 
   // ── Live-recompute every sale so GP/SP/commission reflect current
@@ -359,6 +359,10 @@ export default function AnalyticsPage() {
   const bestSellers = useMemo(() => {
     const unitById: Record<string, InventoryUnit> = {};
     for (const u of units) unitById[u.id] = u;
+    // Accessory sales never link a unit (no IMEI to link) — fall back to
+    // the live pool's friendly name instead of raw SKU text when one matches.
+    const accessoryBySku: Record<string, string> = {};
+    for (const a of accessoryStock) accessoryBySku[a.sku.trim().toUpperCase()] = a.name;
 
     const map: Record<string, {
       key: string;
@@ -372,8 +376,9 @@ export default function AnalyticsPage() {
 
     for (const s of liveSales) {
       const u = s.unitId ? unitById[s.unitId] : undefined;
-      const brand   = u?.brand   || (s.sku ? s.sku.split(/[ _-]/)[0] : 'Unknown');
-      const model   = u?.model   || (s.sku || 'Unknown');
+      const accessoryName = !u && s.sku ? accessoryBySku[s.sku.trim().toUpperCase()] : undefined;
+      const brand   = u?.brand   || (accessoryName ? 'Accessory' : (s.sku ? s.sku.split(/[ _-]/)[0] : 'Unknown'));
+      const model   = u?.model   || accessoryName || (s.sku || 'Unknown');
       const storage = u?.storage || '';
       const key = `${brand}::${model}::${storage}`;
       if (!map[key]) map[key] = { key, brand, model, storage, count: 0, revenue: 0, gp: 0 };
@@ -390,7 +395,7 @@ export default function AnalyticsPage() {
         revenue: Math.round(r.revenue),
         gp:      Math.round(r.gp),
       }));
-  }, [liveSales, units]);
+  }, [liveSales, units, accessoryStock]);
 
   // ── Slow Movers — units in stock > 30 days, grouped by SKU ──────────────
   // SKU prefer u.sku; fall back to "${brand} ${model} ${storage}".
