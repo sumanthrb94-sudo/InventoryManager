@@ -770,6 +770,7 @@ export type RestoreUnitReturnErrorCode =
   | 'missing_model'
   | 'missing_buy_price'
   | 'missing_supplier'
+  | 'superseded_by_newer_sale'
   | 'write_failed';
 
 export interface RestoreUnitReturnResult {
@@ -865,6 +866,23 @@ export async function restoreUnitReturnFromImport(input: {
       // restored unit.
       if (existingUnit.status === returnPatch.status && existingUnit.returnType === returnType) {
         return { ok: true, unitId: existingUnit.id, created: false };
+      }
+      // Multi-cycle guard: sell → return → sell again, then the whole
+      // history re-imports in one file. The unit's CURRENT state may
+      // already reflect a NEWER sale (this same import batch's audit-
+      // completion / sold-flip step runs before this one) — restoring an
+      // older, now-superseded return here would silently overwrite that
+      // newer sale's status/link. Only proceed when the unit's current
+      // sale linkage still points at THIS sale, or there is none at all
+      // (a plain returned-then-never-resold unit).
+      const linkedToThisSale =
+        !existingUnit.saleOrderId
+        || (existingUnit.saleOrderId === sale.orderNumber && existingUnit.salePlatform === sale.marketplace);
+      if (existingUnit.status === 'sold' && !linkedToThisSale) {
+        return {
+          ok: false, error: 'superseded_by_newer_sale', unitId: existingUnit.id,
+          message: `Unit ${existingUnit.id} has since been re-sold (order ${existingUnit.saleOrderId}); this older return was not applied so the newer sale isn't overwritten.`,
+        };
       }
       await dbService.update('inventoryUnits', existingUnit.id, returnPatch);
       dbService.applyCacheItem('inventoryUnits', existingUnit.id, returnPatch);

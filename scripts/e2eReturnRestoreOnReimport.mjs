@@ -26,6 +26,12 @@
  *      Report's cosmetic fields (Grade/Storage/SIM Type/Colour) survive
  *      the Sales Report's return-restore patch untouched.
  *
+ *   D. Multi-cycle: sold → returned → sold AGAIN, then the whole history
+ *      re-imports in one file (DB wiped). The audit-completion step marks
+ *      the unit sold again under the NEWER order before the returns-restore
+ *      step ever runs — proving the OLDER, now-historical return is
+ *      correctly refused rather than clobbering the current sale.
+ *
  * Verification is two-layered: the real UI (screenshots + preview/Done
  * text) for what the operator sees, and the E2E firestore shim's
  * sessionStorage snapshot for exact field-level assertions the UI text
@@ -217,16 +223,46 @@ function writeSalesFixtureC(path) {
   XLSX.writeFile(wb, path);
 }
 
+// IMEI_D: Scenario D's unit — sold, returned, then sold AGAIN under a
+// different order, all in one file (DB wiped, no Inventory Report at all —
+// the unit doesn't physically exist in the office; it's out with the
+// SECOND customer). Cycle 2 (the re-sale) has no matching unit either, so
+// it lands as an orphan needing one audit-completion fill (Model — IMEI,
+// supplier and BP already arrive on the row and pre-fill).
+const IMEI_D = '350190000004444';
+function cycle1VoidedRowD() {
+  // sold 1-Jun, returned 10-Jun, Return Type known from Returns Detail.
+  return ['2026-06-01', 'AMZ-D-1', SKU_A, IMEI_D, SUPPLIER, 1, 300, 450, 150, '', '', 8, '', '', '', '2026-06-10', 'Refund', 'Cx first return'];
+}
+function cycle2ActiveRowD() {
+  // sold again 20-Jul — active, no return columns at all.
+  return ['2026-07-20', 'AMZ-D-2', SKU_A, IMEI_D, SUPPLIER, 1, 300, 470, 170, '', '', 8, '', '', '', '', '', ''];
+}
+function returnsDetailRowD() {
+  return ['2026-06-10', IMEI_D, 'IPHONE 13 128GB', '128GB', 'BLACK', SUPPLIER, '2026-06-01', 450, 'AMAZON', 'Back to Inventory', 'Refund', 'Cx first return', '', 7.56, 2, 15.12];
+}
+function writeSalesFixtureD(path) {
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([AMAZON_HEADERS, cycle1VoidedRowD(), cycle2ActiveRowD()]), 'AMAZON');
+  for (const m of ['BM', 'EBAY', 'ONBUY', 'TEMU']) {
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([AMAZON_HEADERS]), m);
+  }
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([RETURNS_DETAIL_HEADERS, returnsDetailRowD()]), 'Returns Detail');
+  XLSX.writeFile(wb, path);
+}
+
 const INVENTORY_FIXTURE = resolve(FIXTURES, 'INVENTORY_FOR_RETURN_RESTORE.xlsx');
 const SALES_FIXTURE_A = resolve(FIXTURES, 'SALES_RETURN_RESTORE_SCENARIO_A.xlsx');
 const SALES_FIXTURE_B = resolve(FIXTURES, 'SALES_RETURN_RESTORE_SCENARIO_B.xlsx');
 const INVENTORY_FIXTURE_C = resolve(FIXTURES, 'INVENTORY_FOR_RETURN_RESTORE_SCENARIO_C.xlsx');
 const SALES_FIXTURE_C = resolve(FIXTURES, 'SALES_RETURN_RESTORE_SCENARIO_C.xlsx');
+const SALES_FIXTURE_D = resolve(FIXTURES, 'SALES_RETURN_RESTORE_SCENARIO_D.xlsx');
 writeInventoryFixture(INVENTORY_FIXTURE);
 writeSalesFixtureA(SALES_FIXTURE_A);
 writeSalesFixtureB(SALES_FIXTURE_B);
 writeInventoryFixtureC(INVENTORY_FIXTURE_C);
 writeSalesFixtureC(SALES_FIXTURE_C);
+writeSalesFixtureD(SALES_FIXTURE_D);
 
 async function importInventory(page, file) {
   await gotoTab(page, 'Stock Intake');
@@ -468,6 +504,86 @@ async function run() {
   record('C: unit appears on the Returns page with its real (Inventory-Report-sourced) model',
     returnsPageTextC.includes(IMEI_C) && /IPHONE 13/i.test(returnsPageTextC),
     'checked for IMEI/model on the Returns page');
+
+  // ═══════════════════════════════════════════════════════════════════════
+  // Scenario D — multi-cycle: sold → returned → sold AGAIN, then the whole
+  // history re-imports in one file (DB wiped — the unit ITSELF is out with
+  // the second customer, not on the shelf, so it never gets its own
+  // Inventory Report row). INVENTORY_FIXTURE is imported first purely to
+  // seed "IPHONE 13" into the strict model-picker's catalog (via IMEI_A/B,
+  // a different IMEI/model doc) — the audit-completion picker's suggestions
+  // come from CURRENT inventory, not a global admin catalog, so a totally
+  // empty database leaves it with nothing to match against. The newer
+  // sale must win; the older, now-historical return must NOT be applied.
+  // ═══════════════════════════════════════════════════════════════════════
+  await wipeAll(page);
+  await importInventory(page, INVENTORY_FIXTURE);
+
+  await gotoTab(page, 'Stock Intake');
+  await openImportMenu(page);
+  await page.getByRole('menuitem', { name: /Sales Report/i }).click();
+  await page.waitForTimeout(700);
+  await page.locator('input[type="file"]').first().setInputFiles(SALES_FIXTURE_D);
+  await page.waitForTimeout(4000);
+  await shot(page, 'scenario-d-preview');
+
+  const previewTextD = await modal(page).innerText().catch(() => '');
+  record('D: preview shows the "Returns to restore" panel for the older cycle',
+    /Returns to restore/i.test(previewTextD), '');
+
+  // Cycle 2 (the re-sale) is an orphan — no matching unit exists yet — so
+  // it needs one audit-completion fill (Model; IMEI/Supplier/BP already
+  // arrive on the row and pre-fill). Same pattern as e2eReportRoundTrip.mjs.
+  const fillD = async (selector, value) => {
+    const loc = modal(page).locator(selector);
+    for (let i = 0; i < await loc.count(); i++) {
+      const box = loc.nth(i);
+      if ((await box.inputValue().catch(() => 'x')) === '') {
+        await box.fill(value); await box.press('Tab'); await page.waitForTimeout(120);
+      }
+    }
+  };
+  await fillD('input[placeholder="Search model…"]', 'IPHONE 13');
+  await fillD('input[placeholder="IMEI required"]', IMEI_D);
+  await fillD('input[placeholder="Supplier required"]', SUPPLIER);
+  await page.waitForTimeout(500);
+
+  const confirmD = modal(page).getByRole('button', { name: /Load [\d,]+ sales|Complete \d+ record|Re-confirm/i }).last();
+  await confirmD.click();
+  await page.waitForTimeout(6000);
+  await shot(page, 'scenario-d-done');
+  const doneTextD = await modal(page).innerText().catch(() => '');
+  await modal(page).getByRole('button', { name: /Close/i }).click().catch(() => {});
+  await page.waitForTimeout(800);
+  await dismissModals(page);
+
+  const storeD = await dumpStore(page);
+  const unitsD = Object.values(storeD.inventoryUnits ?? {}).filter(u => u.imei === IMEI_D);
+  const unitD = unitsD[0];
+  const saleD1 = Object.values(storeD.sales ?? {}).find(s => s.orderNumber === 'AMZ-D-1');
+  const saleD2 = Object.values(storeD.sales ?? {}).find(s => s.orderNumber === 'AMZ-D-2');
+
+  record('D: exactly ONE unit doc exists for the IMEI across both cycles', unitsD.length === 1,
+    `found ${unitsD.length} doc(s): ${unitsD.map(u => u.id).join(', ')}`);
+  record('D: the unit ends up SOLD via the NEWER cycle (AMZ-D-2), not reverted to the old return',
+    unitD?.status === 'sold' && unitD?.saleOrderId === 'AMZ-D-2',
+    `status=${unitD?.status} saleOrderId=${unitD?.saleOrderId}`);
+  record('D: the newer sale\'s price survives (£470, not the old cycle\'s £450)',
+    Number(unitD?.salePrice) === 470, `salePrice=${unitD?.salePrice}`);
+  record('D: the old return was NOT applied — returnType stays unset so the unit never shows as returned',
+    !unitD?.returnType, `returnType=${unitD?.returnType}`);
+  record('D: Done screen (or its failure detail) reflects the old return being refused, not silently dropped',
+    /superseded|re-sold|since been/i.test(doneTextD) || /Returns needing manual/i.test(doneTextD), '');
+  record('D: both Sale docs are preserved untouched — old cycle stays voided, new cycle stays active',
+    saleD1?.voidedAt === '2026-06-10' && !saleD2?.voidedAt,
+    `cycle1 voidedAt=${saleD1?.voidedAt} cycle2 voidedAt=${saleD2?.voidedAt}`);
+
+  await gotoTab(page, 'Returns');
+  await page.waitForTimeout(1500);
+  await shot(page, 'scenario-d-returns-page');
+  const returnsPageTextD = await page.locator('body').innerText();
+  record('D: unit does NOT appear as an active return (it\'s currently sold, not returned)',
+    !new RegExp(`${IMEI_D}[\\s\\S]{0,200}TO INVENTORY`, 'i').test(returnsPageTextD), '');
 
   record('no uncaught JS errors across any scenario', jsErrors.length === 0, jsErrors.slice(0, 3).join(' | '));
 

@@ -846,6 +846,37 @@ describe('restoreUnitReturnFromImport', () => {
     expect(r.ok).toBe(false);
     expect(r.error).toBe('missing_supplier');
   });
+
+  it('multi-cycle guard: refuses to restore a historical return once the unit has been re-sold under a different order', async () => {
+    // sell -> return -> sell again -> everything re-imports in one file.
+    // By the time the returns-restore step runs, the unit is ALREADY
+    // 'sold' again (linked to the NEW order) via the normal sync/audit
+    // step that runs first. Restoring the OLD (now-historical) return
+    // must not clobber that newer sale.
+    const sale = voidedSale(); // orderNumber 'O-RET-1', voided 2026-06-14
+    col('inventoryUnits').set(sale.imei!, {
+      ...soldUnit(),
+      // Currently sold via a DIFFERENT, newer order — the re-sale cycle.
+      salePrice: 220, saleDate: '2026-07-01', salePlatform: 'EBAY', saleOrderId: 'O-NEW-2',
+    });
+    const r = await restoreUnitReturnFromImport({ sale, returnType: 'returned_to_inventory' });
+    expect(r.ok).toBe(false);
+    expect(r.error).toBe('superseded_by_newer_sale');
+    // The newer sale's link must survive untouched.
+    const unit = collections['inventoryUnits'].get('350000000000222');
+    expect(unit.status).toBe('sold');
+    expect(unit.saleOrderId).toBe('O-NEW-2');
+    expect(unit.salePrice).toBe(220);
+    expect(unit.returnType).toBeUndefined();
+  });
+
+  it('multi-cycle: still restores correctly when the unit IS currently sold via the SAME sale being restored', async () => {
+    const sale = voidedSale();
+    col('inventoryUnits').set(sale.imei!, soldUnit()); // saleOrderId defaults to 'O-RET-1', matching the sale
+    const r = await restoreUnitReturnFromImport({ sale, returnType: 'returned_to_inventory' });
+    expect(r.ok).toBe(true);
+    expect(collections['inventoryUnits'].get('350000000000222').status).toBe('available');
+  });
 });
 
 // ───────────────────────────────────────────────────────────────────────────
