@@ -180,6 +180,37 @@ async function run() {
   record('Admin Sales History lists both order numbers (active AND voided)',
     historyText.includes('AMZ-STT-ACTIVE') && historyText.includes('AMZ-STT-VOIDED'));
 
+  // ═══ Footer KPIs (Sum SP / Sum GP / Avg GP%) — same audit-trail design:  ═══
+  // must sum BOTH sales, not just the active one, since Sales History's own
+  // "Sold Today" chip above already proved it counts voided rows too. A
+  // footer that quietly dropped the voided row's SP/GP would contradict the
+  // very "full audit trail" behaviour this page advertises.
+  const store = await page.evaluate(() => {
+    const raw = sessionStorage.getItem('__e2e_firestore__');
+    return raw ? JSON.parse(raw) : {};
+  });
+  const allStoreSales = Object.values(store.sales ?? {});
+  const activeSale = allStoreSales.find(s => s.orderNumber === 'AMZ-STT-ACTIVE');
+  const voidedSale = allStoreSales.find(s => s.orderNumber === 'AMZ-STT-VOIDED');
+  const expectedSumSP = (activeSale?.salePrice || 0) + (voidedSale?.salePrice || 0);
+  const expectedSumGP = Math.round(((activeSale?.grossProfit || 0) + (voidedSale?.grossProfit || 0)) * 100) / 100;
+  console.log(`\nExpected footer (from store, BOTH sales summed): Sum SP=£${expectedSumSP}, Sum GP=£${expectedSumGP}`);
+
+  record(`Sales History footer Sum SP = £${expectedSumSP.toLocaleString('en-GB')} (active + voided both counted)`,
+    historyText.includes(`£${expectedSumSP.toLocaleString('en-GB')}`),
+    historyText.match(/Sum SP[\s\S]{0,30}/i)?.[0]);
+  record(`Sales History footer Sum GP includes the voided sale's GP too`,
+    (() => {
+      const chunk = historyText.match(/Sum GP[\s\S]{0,40}/i)?.[0] || '';
+      // The active-sale-only GP (excluding voided) must NOT be what's shown.
+      const activeOnlyGp = Math.round((activeSale?.grossProfit || 0) * 100) / 100;
+      const activeOnlyStr = `£${activeOnlyGp.toLocaleString('en-GB')}`;
+      const bothStr = `£${expectedSumGP.toLocaleString('en-GB')}`;
+      return chunk.includes(bothStr) && (activeOnlyGp === expectedSumGP || !chunk.includes(activeOnlyStr));
+    })(), historyText.match(/Sum GP[\s\S]{0,40}/i)?.[0]);
+  record('Sales History footer row count = 2 (both rows present)',
+    /\b2 rows\b/i.test(historyText), historyText.match(/\d+ rows?/i)?.[0]);
+
   record('No uncaught JS errors', jsErrors.length === 0, jsErrors.join(' | '));
 
   await browser.close();
