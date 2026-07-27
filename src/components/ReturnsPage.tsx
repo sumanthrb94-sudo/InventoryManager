@@ -48,7 +48,6 @@ import PaginationBar, { usePagedRows } from './PaginationBar';
 import {
   recordReturnQc,
   processReturn,
-  quickRepair,
   completeRepair,
   type ReturnsResult,
 } from '../services/returnsService';
@@ -113,7 +112,6 @@ export default function ReturnsPage() {
   // ── Modals + overlay ──────────────────────────────────────────────────────
   const [overlay, setOverlay] = useState<KpiId | null>(null);
   const [processingUnit, setProcessingUnit] = useState<InventoryUnit | null>(null);
-  const [repairUnit, setRepairUnit] = useState<InventoryUnit | null>(null);
   const [readyShipUnit, setReadyShipUnit] = useState<InventoryUnit | null>(null);
   /** Unit whose full lifecycle timeline is open (intake → sale cycles
    *  → returns/replacements with comments). Set by clicking any card
@@ -604,9 +602,7 @@ export default function ReturnsPage() {
         onSort={setSort}
         supplierMap={supplierMap}
         region={region}
-        onRepair={userIsAdminTop ? (u => setRepairUnit(u)) : undefined}
         onReadyShip={userIsAdminTop ? (u => setReadyShipUnit(u)) : undefined}
-        onReprocess={userIsAdminTop ? (u => setProcessingUnit(u)) : undefined}
       />
 
       {/* ── Return losses · unified lifecycle sheet ───────────────────────
@@ -641,9 +637,7 @@ export default function ReturnsPage() {
             supplierMap={supplierMap}
             region={region}
             onClose={() => setOverlay(null)}
-            onRepair={userIsAdminTop ? (u => setRepairUnit(u)) : undefined}
             onReadyShip={userIsAdminTop ? (u => setReadyShipUnit(u)) : undefined}
-            onReprocess={userIsAdminTop ? (u => setProcessingUnit(u)) : undefined}
           />
         )}
       </AnimatePresence>
@@ -663,13 +657,6 @@ export default function ReturnsPage() {
             unit={processingUnit}
             onClose={() => setProcessingUnit(null)}
             onSaved={() => setProcessingUnit(null)}
-          />
-        )}
-        {repairUnit && (
-          <QuickRepairModal
-            unit={repairUnit}
-            onClose={() => setRepairUnit(null)}
-            onSaved={() => setRepairUnit(null)}
           />
         )}
         {readyShipUnit && (
@@ -771,16 +758,14 @@ function FilterChipsGroup({
 
 // ── Inline Excel sheet ──────────────────────────────────────────────────────
 function InlineSheet({
-  rows, sort, onSort, supplierMap, region, onRepair, onReadyShip, onReprocess,
+  rows, sort, onSort, supplierMap, region, onReadyShip,
 }: {
   rows: InventoryUnit[];
   sort: { key: SortKey; dir: SortDir };
   onSort: (s: { key: SortKey; dir: SortDir }) => void;
   supplierMap: Record<string, string>;
   region: 'uk' | 'india' | 'admin' | 'both';
-  onRepair: (u: InventoryUnit) => void;
   onReadyShip: (u: InventoryUnit) => void;
-  onReprocess: (u: InventoryUnit) => void;
 }) {
   const toggleSort = (k: SortKey) => onSort({ key: k, dir: sort.key === k && sort.dir === 'desc' ? 'asc' : 'desc' });
   // 100 returns per page — same perf rule as Sell/Buy inline sheets.
@@ -805,9 +790,7 @@ function InlineSheet({
           region={region}
           sort={sort}
           toggleSort={toggleSort}
-          onRepair={onRepair}
           onReadyShip={onReadyShip}
-          onReprocess={onReprocess}
         />
       </div>
       <PaginationBar page={page} totalPages={totalPages} total={total} onPage={setPage} itemLabel="returns" />
@@ -820,7 +803,7 @@ function InlineSheet({
 
 // ── KPI overlay modal ───────────────────────────────────────────────────────
 function ReturnsExcelOverlay({
-  title, rows, sort, onSort, supplierMap, region, onClose, onRepair, onReadyShip, onReprocess,
+  title, rows, sort, onSort, supplierMap, region, onClose, onReadyShip,
 }: {
   title: string;
   rows: InventoryUnit[];
@@ -829,9 +812,7 @@ function ReturnsExcelOverlay({
   supplierMap: Record<string, string>;
   region: 'uk' | 'india' | 'admin' | 'both';
   onClose: () => void;
-  onRepair: (u: InventoryUnit) => void;
   onReadyShip: (u: InventoryUnit) => void;
-  onReprocess: (u: InventoryUnit) => void;
 }) {
   const toggleSort = (k: SortKey) => onSort({ key: k, dir: sort.key === k && sort.dir === 'desc' ? 'asc' : 'desc' });
   useEffect(() => {
@@ -876,9 +857,7 @@ function ReturnsExcelOverlay({
               region={region}
               sort={sort}
               toggleSort={toggleSort}
-              onRepair={onRepair}
               onReadyShip={onReadyShip}
-              onReprocess={onReprocess}
             />
           )}
         </div>
@@ -896,16 +875,14 @@ function ReturnsExcelOverlay({
 
 // ── Sheet table (shared) ─────────────────────────────────────────────────────
 function SheetTable({
-  rows, supplierMap, region, sort, toggleSort, onRepair, onReadyShip, onReprocess,
+  rows, supplierMap, region, sort, toggleSort, onReadyShip,
 }: {
   rows: InventoryUnit[];
   supplierMap: Record<string, string>;
   region: 'uk' | 'india' | 'admin' | 'both';
   sort: { key: SortKey; dir: SortDir };
   toggleSort: (k: SortKey) => void;
-  onRepair: (u: InventoryUnit) => void;
   onReadyShip: (u: InventoryUnit) => void;
-  onReprocess: (u: InventoryUnit) => void;
 }) {
   const [menuId, setMenuId] = useState<string | null>(null);
   useEffect(() => {
@@ -1021,43 +998,40 @@ function SheetTable({
                       <Truck size={10} /> Back to Stock
                     </button>
                   )}
-                  <div className="relative">
-                    <button
-                      onClick={() => setMenuId(menuId === u.id ? null : u.id)}
-                      className="opacity-40 group-hover:opacity-100 p-1 rounded hover:bg-slate-200 text-slate-600 transition-all"
-                      title="More actions"
-                    >
-                      <MoreHorizontal size={13} />
-                    </button>
-                    {menuId === u.id && (
-                      <div className="absolute right-0 mt-1 w-48 bg-white border border-slate-200 rounded-lg shadow-xl z-20 py-1">
-                        {inRepair && (
+                  {/* Only In-Repair rows get the "..." menu. Back to
+                      Inventory / Returned to Supplier / All Returns rows are
+                      already-finalised returns — never status='sold' by
+                      construction (see isOpenReturnUnit) — so the
+                      Send-to-Repair and Re-process-return actions that used
+                      to live here could never actually finalise on them
+                      (the backend requires status='sold'). Re-process's
+                      Tech-QC first step had no such guard, though, so
+                      clicking it on a settled return could stamp
+                      pendingCrmReview=true with nothing able to clear it
+                      afterwards. Removed rather than fixed: the real,
+                      correctly-gated equivalent already lives in the
+                      Pending CRM Review section's Finalise button. */}
+                  {inRepair && (
+                    <div className="relative">
+                      <button
+                        onClick={() => setMenuId(menuId === u.id ? null : u.id)}
+                        className="opacity-40 group-hover:opacity-100 p-1 rounded hover:bg-slate-200 text-slate-600 transition-all"
+                        title="More actions"
+                      >
+                        <MoreHorizontal size={13} />
+                      </button>
+                      {menuId === u.id && (
+                        <div className="absolute right-0 mt-1 w-48 bg-white border border-slate-200 rounded-lg shadow-xl z-20 py-1">
                           <button
                             onClick={() => { setMenuId(null); onReadyShip(u); }}
                             className="w-full flex items-center gap-2 px-3 py-1.5 text-[10px] text-emerald-700 hover:bg-emerald-50"
                           >
                             <Truck size={11} /> Ready to Ship · Back to Stock
                           </button>
-                        )}
-                        {!inRepair && (
-                          <>
-                            <button
-                              onClick={() => { setMenuId(null); onRepair(u); }}
-                              className="w-full flex items-center gap-2 px-3 py-1.5 text-[10px] text-blue-700 hover:bg-blue-50"
-                            >
-                              <Wrench size={11} /> Send to Repair
-                            </button>
-                            <button
-                              onClick={() => { setMenuId(null); onReprocess(u); }}
-                              className="w-full flex items-center gap-2 px-3 py-1.5 text-[10px] text-slate-700 hover:bg-slate-50"
-                            >
-                              <RotateCcw size={11} /> Re-process return
-                            </button>
-                          </>
-                        )}
-                      </div>
-                    )}
-                  </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
               </Td>
             </tr>
@@ -2361,67 +2335,6 @@ function ProcessReturnModal({
               : step === 'qc'
                 ? <><ArrowRight size={13} /> Send to CRM Queue</>
                 : <><CheckCircle2 size={13} /> Finalise Return</>}
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// ── QuickRepairModal ─────────────────────────────────────────────────────────
-function QuickRepairModal({
-  unit, onClose, onSaved,
-}: {
-  unit: InventoryUnit;
-  onClose: () => void;
-  onSaved: () => void;
-}) {
-  const [saving, setSaving] = useState(false);
-  const [error, setError]   = useState('');
-  const handleSend = async () => {
-    setSaving(true);
-    const res = await quickRepair({ unit, returnDate: todayStr() });
-    if (res.ok) {
-      notificationService.addNotification('return_processed', unit);
-      onSaved();
-      onClose();
-    } else {
-      setError(res.message || 'Failed to save. Please try again.');
-      setSaving(false);
-    }
-  };
-  return (
-    <div className="fixed inset-0 z-[70] flex items-center justify-center p-3 md:p-4 bg-black/40 backdrop-blur-sm">
-      <div className="bg-white rounded-3xl overflow-hidden w-full max-w-sm shadow-2xl flex flex-col">
-        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
-          <div>
-            <p className="text-[9px] font-mono uppercase tracking-widest text-gray-400">Send for Repair</p>
-            <h3 className="text-sm font-bold truncate mt-0.5 max-w-[240px]">{unit.model}</h3>
-          </div>
-          <button onClick={onClose} className="p-2 hover:bg-gray-100 rounded-xl"><X size={16} /></button>
-        </div>
-        <div className="px-6 py-4 space-y-3">
-          <div className="flex items-start gap-3 bg-blue-50 border border-blue-200 rounded-xl p-4">
-            <Wrench size={16} className="text-blue-600 flex-shrink-0 mt-0.5" />
-            <p className="text-[10px] text-blue-800 font-mono leading-relaxed">
-              Unit moves to <strong>In Repair</strong>. Mark it as <strong>Ready to Ship</strong> later to restore to stock.
-            </p>
-          </div>
-          {error && (
-            <div className="flex items-center gap-2 text-red-600 bg-red-50 border border-red-200 rounded-xl px-4 py-3">
-              <AlertCircle size={14} />
-              <p className="text-xs font-mono">{error}</p>
-            </div>
-          )}
-        </div>
-        <div className="px-6 py-4 border-t border-gray-100 flex gap-3">
-          <button onClick={onClose}
-            className="flex-1 py-3 border border-gray-200 rounded-xl text-[10px] font-bold uppercase tracking-widest text-gray-500 hover:bg-gray-50">
-            Cancel
-          </button>
-          <button onClick={handleSend} disabled={saving}
-            className="flex-1 py-3 bg-blue-600 text-white rounded-xl text-[10px] font-bold uppercase tracking-widest hover:bg-blue-700 disabled:opacity-50 flex items-center justify-center gap-2">
-            {saving ? 'Saving…' : <><Wrench size={13} /> Send to Repair</>}
           </button>
         </div>
       </div>
