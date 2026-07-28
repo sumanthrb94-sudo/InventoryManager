@@ -18,7 +18,7 @@
  * unit would destroy stock that is physically back on the shelf, so the
  * wipe strips the return markers and leaves the unit in place.
  */
-import type { InventoryUnit, InventoryAggregate, InventoryEvent, Sale, AccessoryStock } from '../types';
+import type { InventoryUnit, InventoryAggregate, InventoryEvent, Sale, AccessoryStock, AccessoryStockEvent } from '../types';
 
 export type WipeScopeId = 'office' | 'shs' | 'sales' | 'returns';
 
@@ -45,6 +45,9 @@ export interface WipeSource {
   /** Optional — when supplied, events belonging to deleted units are
    *  swept too so the audit trail doesn't outlive its unit. */
   events?: InventoryEvent[];
+  /** Optional — when supplied, ledger rows belonging to deleted accessory
+   *  pools are swept too (same reasoning as `events` above for units). */
+  accessoryStockEvents?: AccessoryStockEvent[];
 }
 
 // ── Membership predicates ─────────────────────────────────────────────────────
@@ -199,6 +202,12 @@ export function buildWipePlan(scope: WipeScopeId, src: WipeSource): WipePlan {
     if (scope === 'office' && src.accessoryStock?.length) {
       for (const a of src.accessoryStock) deletes.push({ collection: 'accessoryStock', id: a.id });
       breakdown.push({ label: 'Accessory SKU pools', count: src.accessoryStock.length });
+      if (src.accessoryStockEvents?.length) {
+        const skuIds = new Set(src.accessoryStock.map(a => a.id));
+        const orphanedEvents = src.accessoryStockEvents.filter(e => skuIds.has(e.skuId));
+        for (const e of orphanedEvents) deletes.push({ collection: 'accessoryStockEvents', id: e.id });
+        if (orphanedEvents.length > 0) breakdown.push({ label: 'Accessory ledger rows', count: orphanedEvents.length });
+      }
     }
   }
 

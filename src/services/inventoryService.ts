@@ -21,7 +21,7 @@
  */
 
 import { dbService } from '../lib/dbService';
-import type { AccessoryStock, DeviceCategory, InventoryAggregate, InventoryUnit, ListingSite, ReturnCategory, Sale, Notice } from '../types';
+import type { AccessoryStock, AccessoryStockEvent, AccessoryEventType, AccessoryEventSource, DeviceCategory, InventoryAggregate, InventoryUnit, ListingSite, ReturnCategory, Sale, Notice } from '../types';
 import { isAppleDevice, isValidImei, isValidImeiOrSerial } from '../lib/imeiValidation';
 import { parseBrandModelStorage } from '../lib/modelStorage';
 import { logInventoryEvent } from '../lib/inventoryEvents';
@@ -1366,6 +1366,41 @@ export async function reconcileShsAfterFulfilment(input: {
 // Accessory stock — no-IMEI quantity pools (chargers, SIM pins, cables)
 // ---------------------------------------------------------------------------
 
+/** Append one row to the accessoryStockEvents ledger — the transaction
+ *  history behind AccessoryStock's running `quantity`, mirroring the
+ *  traceability an IMEI gives a regular InventoryUnit for free. See
+ *  AccessoryStockEvent in types.ts for the reconciliation caveat. */
+async function logAccessoryStockEvent(input: {
+  sku: string;
+  skuId: string;
+  type: AccessoryEventType;
+  delta: number;
+  quantityAfter: number;
+  source: AccessoryEventSource;
+  orderNumber?: string;
+  marketplace?: string;
+  reason?: string;
+  refEventId?: string;
+  notes?: string;
+}): Promise<void> {
+  const id = `acc_evt_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+  const payload: Partial<AccessoryStockEvent> = {
+    sku: input.sku,
+    skuId: input.skuId,
+    type: input.type,
+    delta: input.delta,
+    quantityAfter: input.quantityAfter,
+    source: input.source,
+    orderNumber: input.orderNumber,
+    marketplace: input.marketplace,
+    reason: input.reason,
+    refEventId: input.refEventId,
+    notes: input.notes,
+    createdBy: auth.currentUser?.email || undefined,
+  };
+  await dbService.create('accessoryStockEvents', id, payload);
+}
+
 export interface UpsertAccessoryStockInput {
   sku: string;
   name: string;
@@ -1420,6 +1455,10 @@ export async function upsertAccessoryStock(input: UpsertAccessoryStockInput): Pr
       ? `Accessory "${sku}" topped up (+${input.quantity} → ${nextQuantity})`
       : `Accessory "${sku}" added to stock (${input.quantity})`,
   });
+  await logAccessoryStockEvent({
+    sku, skuId: id, type: 'topup', delta: input.quantity, quantityAfter: nextQuantity,
+    source: 'manual',
+  });
   return { ok: true, id, quantity: nextQuantity };
 }
 
@@ -1436,8 +1475,14 @@ export interface DecrementAccessoryStockResult {
  *  at 0 (a sale that outruns recorded stock still gets recorded — the pool
  *  just can't go negative — the operator can top it up after the fact).
  *  No-op (matched: false) when no pool exists for this SKU, which is the
- *  ordinary outcome for every non-accessory no-IMEI sale row. */
-export async function decrementAccessoryStock(sku: string, quantity: number): Promise<DecrementAccessoryStockResult> {
+ *  ordinary outcome for every non-accessory no-IMEI sale row.
+ *  `orderNumber`/`marketplace` are optional context for the ledger row —
+ *  the Sales Report import path has both; other future callers may not. */
+export async function decrementAccessoryStock(
+  sku: string,
+  quantity: number,
+  context?: { orderNumber?: string; marketplace?: string },
+): Promise<DecrementAccessoryStockResult> {
   const s = (sku || '').trim();
   if (!s || !(quantity > 0)) return { matched: false };
   const id = slugify(s);
@@ -1449,6 +1494,11 @@ export async function decrementAccessoryStock(sku: string, quantity: number): Pr
   await logInventoryEvent({
     type: 'stock_adjusted',
     message: `Accessory "${existing.sku}" sold (-${quantity} → ${remaining})`,
+  });
+  await logAccessoryStockEvent({
+    sku: existing.sku, skuId: id, type: 'sale', delta: -quantity, quantityAfter: remaining,
+    source: 'sales_report_import',
+    orderNumber: context?.orderNumber, marketplace: context?.marketplace,
   });
   return { matched: true, id, remaining };
 }
@@ -1516,5 +1566,156 @@ export async function restoreAccessoryStockFromImport(input: RestoreAccessorySto
     type: 'stock_adjusted',
     message: `Accessory "${sku}" restored from Inventory Report import (${input.totalReceived})`,
   });
+  await logAccessoryStockEvent({
+    sku, skuId: id, type: 'restore', delta: input.totalReceived, quantityAfter: input.totalReceived,
+    source: 'manual',
+    notes: 'Restored from Inventory Report import after a wipe',
+  });
   return { ok: true, created: true, id };
+}
+
+// ---------------------------------------------------------------------------
+// Accessory stock — manual ledger actions (sell / adjust / return)
+//
+// decrementAccessoryStock only ever fires from the Sales Report import path
+// (a real marketplace order row). These three cover everything that path
+// can't: an accessory sold outside a marketplace (cash, in-person), a stock
+// count correction (damaged, lost, found extra), and a customer return.
+//
+// Reconciliation caveat, deliberately NOT solved here: unlike
+// upsertAccessoryStock (totalReceived) and decrementAccessoryStock (a real
+// `sales` doc), none of these three are replayed on a wipe + re-upload — a
+// wipe loses this ledger. Documented on AccessoryStockEvent in types.ts.
+// ---------------------------------------------------------------------------
+
+export interface RecordAccessoryManualSaleInput {
+  sku: string;
+  quantity: number;
+  orderNumber?: string;
+  marketplace?: string;
+  notes?: string;
+}
+
+/** Same effect as a Sales Report row decrementing this SKU, triggered by
+ *  hand instead of an import — for a sale that never produces a
+ *  marketplace export row (cash sale, in-person, walked out the door). */
+export async function recordAccessoryManualSale(
+  input: RecordAccessoryManualSaleInput,
+): Promise<DecrementAccessoryStockResult> {
+  const sku = (input.sku || '').trim();
+  if (!sku || !(input.quantity > 0)) return { matched: false };
+  const id = slugify(sku);
+  const existing = (await dbService.readAll('accessoryStock')).find((a: any) => a.id === id);
+  if (!existing) return { matched: false };
+
+  const remaining = Math.max(0, (existing.quantity ?? 0) - input.quantity);
+  await dbService.update('accessoryStock', id, { quantity: remaining });
+  await logInventoryEvent({
+    type: 'stock_adjusted',
+    message: `Accessory "${existing.sku}" sold manually (-${input.quantity} → ${remaining})`,
+  });
+  await logAccessoryStockEvent({
+    sku: existing.sku, skuId: id, type: 'sale', delta: -input.quantity, quantityAfter: remaining,
+    source: 'manual',
+    orderNumber: input.orderNumber, marketplace: input.marketplace, notes: input.notes,
+  });
+  return { matched: true, id, remaining };
+}
+
+export interface AdjustAccessoryStockInput {
+  sku: string;
+  /** Signed change to quantity — positive for "found more", negative for
+   *  "damaged / lost / miscounted". */
+  delta: number;
+  /** Required — an adjustment with no stated reason is indistinguishable
+   *  from a bug. */
+  reason: string;
+}
+
+export interface AdjustAccessoryStockResult {
+  ok: boolean;
+  id?: string;
+  quantity?: number;
+  error?: string;
+}
+
+/** Correct a pool's quantity outside the normal sell/top-up flow (stock
+ *  count found it short, or found extra). A positive delta counts as
+ *  intake for reconciliation purposes (bumps totalReceived, same as a
+ *  top-up); a negative delta only reduces `quantity` — the units WERE
+ *  received, they're just gone now, which a wipe + re-upload has no way
+ *  to know about (see the reconciliation caveat above). */
+export async function adjustAccessoryStock(
+  input: AdjustAccessoryStockInput,
+): Promise<AdjustAccessoryStockResult> {
+  const sku = (input.sku || '').trim();
+  const reason = (input.reason || '').trim();
+  if (!sku) return { ok: false, error: 'missing_sku' };
+  if (!input.delta) return { ok: false, error: 'zero_delta' };
+  if (!reason) return { ok: false, error: 'missing_reason' };
+
+  const id = slugify(sku);
+  const existing = (await dbService.readAll('accessoryStock')).find((a: any) => a.id === id);
+  if (!existing) return { ok: false, error: 'not_found' };
+
+  const nextQuantity = Math.max(0, (existing.quantity ?? 0) + input.delta);
+  const appliedDelta = nextQuantity - (existing.quantity ?? 0);
+  const payload: Partial<AccessoryStock> = { quantity: nextQuantity };
+  if (input.delta > 0) {
+    payload.totalReceived = (existing.totalReceived ?? existing.quantity ?? 0) + appliedDelta;
+  }
+  await dbService.update('accessoryStock', id, payload);
+  await logInventoryEvent({
+    type: 'stock_adjusted',
+    message: `Accessory "${existing.sku}" adjusted (${appliedDelta >= 0 ? '+' : ''}${appliedDelta} → ${nextQuantity}) — ${reason}`,
+  });
+  await logAccessoryStockEvent({
+    sku: existing.sku, skuId: id, type: 'adjustment', delta: appliedDelta, quantityAfter: nextQuantity,
+    source: 'manual', reason,
+  });
+  return { ok: true, id, quantity: nextQuantity };
+}
+
+export interface ReturnAccessoryStockInput {
+  sku: string;
+  quantity: number;
+  /** Id of the AccessoryStockEvent this return reverses, when known —
+   *  optional since accessories are fungible (one charger is any other),
+   *  so tracing back to the exact original sale is a nice-to-have, not a
+   *  requirement to record the return. */
+  refEventId?: string;
+  notes?: string;
+}
+
+export interface ReturnAccessoryStockResult {
+  ok: boolean;
+  id?: string;
+  quantity?: number;
+  error?: string;
+}
+
+/** A sold accessory coming back — adds `quantity` back to the pool.
+ *  Doesn't touch totalReceived (this isn't new intake from a supplier,
+ *  it's previously-sold stock returning). */
+export async function returnAccessoryStock(
+  input: ReturnAccessoryStockInput,
+): Promise<ReturnAccessoryStockResult> {
+  const sku = (input.sku || '').trim();
+  if (!sku || !(input.quantity > 0)) return { ok: false, error: 'invalid_quantity' };
+
+  const id = slugify(sku);
+  const existing = (await dbService.readAll('accessoryStock')).find((a: any) => a.id === id);
+  if (!existing) return { ok: false, error: 'not_found' };
+
+  const nextQuantity = (existing.quantity ?? 0) + input.quantity;
+  await dbService.update('accessoryStock', id, { quantity: nextQuantity });
+  await logInventoryEvent({
+    type: 'stock_adjusted',
+    message: `Accessory "${existing.sku}" returned (+${input.quantity} → ${nextQuantity})`,
+  });
+  await logAccessoryStockEvent({
+    sku: existing.sku, skuId: id, type: 'return', delta: input.quantity, quantityAfter: nextQuantity,
+    source: 'manual', refEventId: input.refEventId, notes: input.notes,
+  });
+  return { ok: true, id, quantity: nextQuantity };
 }

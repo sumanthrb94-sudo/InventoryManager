@@ -620,7 +620,9 @@ export default function SalesReportImport({ onClose }: Props) {
       let accessoriesDecremented = 0;
       for (const s of preview.toCreate) {
         if (s.voidedAt || (s.imei || '').trim() || !(s.sku || '').trim()) continue;
-        const res = await decrementAccessoryStock(s.sku!, s.quantity || 1);
+        const res = await decrementAccessoryStock(s.sku!, s.quantity || 1, {
+          orderNumber: s.orderNumber, marketplace: s.marketplace,
+        });
         if (res.matched) accessoriesDecremented++;
       }
 

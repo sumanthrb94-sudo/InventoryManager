@@ -75,6 +75,9 @@ import {
   upsertAccessoryStock,
   decrementAccessoryStock,
   restoreAccessoryStockFromImport,
+  recordAccessoryManualSale,
+  adjustAccessoryStock,
+  returnAccessoryStock,
 } from '../../services/inventoryService';
 import type { Sale } from '../../types';
 
@@ -1156,5 +1159,132 @@ describe('restoreAccessoryStockFromImport — the wipe + re-upload recovery path
     // Re-upload the Sales Report: replays the historical sale via the ordinary decrement path.
     await decrementAccessoryStock('USB-C-20W', 2);
     expect(collections['accessoryStock'].get('usb_c_20w').quantity).toBe(48); // back to the exact pre-wipe figure
+  });
+});
+
+// ── AccessoryStockEvent ledger — every mutation gets a traceable row ────────
+
+function accessoryEvents(): any[] {
+  return Array.from((collections['accessoryStockEvents'] ?? new Map()).values());
+}
+
+describe('AccessoryStockEvent ledger — existing accessory functions', () => {
+  it('upsertAccessoryStock writes a topup event', async () => {
+    await upsertAccessoryStock({ sku: 'USB-C-20W', name: 'USB-C 20W Charger', quantity: 50, buyPrice: 3.5 });
+    const events = accessoryEvents();
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({ sku: 'USB-C-20W', type: 'topup', delta: 50, quantityAfter: 50, source: 'manual' });
+  });
+
+  it('decrementAccessoryStock writes a sale event sourced from the Sales Report import, carrying order/marketplace context', async () => {
+    await upsertAccessoryStock({ sku: 'USB-C-20W', name: 'USB-C 20W Charger', quantity: 50, buyPrice: 3.5 });
+    await decrementAccessoryStock('USB-C-20W', 2, { orderNumber: 'AMZ-1001', marketplace: 'AMAZON' as any });
+    const saleEvent = accessoryEvents().find(e => e.type === 'sale');
+    expect(saleEvent).toMatchObject({
+      delta: -2, quantityAfter: 48, source: 'sales_report_import',
+      orderNumber: 'AMZ-1001', marketplace: 'AMAZON',
+    });
+  });
+
+  it('restoreAccessoryStockFromImport writes a restore event', async () => {
+    await restoreAccessoryStockFromImport({ sku: 'USB-C-20W', name: 'USB-C 20W Charger', totalReceived: 50, buyPrice: 3.5 });
+    const restoreEvent = accessoryEvents().find(e => e.type === 'restore');
+    expect(restoreEvent).toMatchObject({ delta: 50, quantityAfter: 50 });
+  });
+});
+
+describe('recordAccessoryManualSale — a sale outside the Sales Report import path', () => {
+  it('decrements the pool and writes a manual-source sale event', async () => {
+    await upsertAccessoryStock({ sku: 'USB-C-20W', name: 'USB-C 20W Charger', quantity: 50, buyPrice: 3.5 });
+    const r = await recordAccessoryManualSale({ sku: 'USB-C-20W', quantity: 3, notes: 'cash sale at counter' });
+    expect(r.matched).toBe(true);
+    expect(r.remaining).toBe(47);
+    const saleEvent = accessoryEvents().find(e => e.type === 'sale');
+    expect(saleEvent).toMatchObject({ delta: -3, quantityAfter: 47, source: 'manual', notes: 'cash sale at counter' });
+  });
+
+  it('floors at 0, same as the import-driven decrement', async () => {
+    await upsertAccessoryStock({ sku: 'USB-C-20W', name: 'USB-C 20W Charger', quantity: 2, buyPrice: 3.5 });
+    const r = await recordAccessoryManualSale({ sku: 'USB-C-20W', quantity: 5 });
+    expect(r.remaining).toBe(0);
+  });
+
+  it('no-ops (matched: false) for a SKU with no pool', async () => {
+    const r = await recordAccessoryManualSale({ sku: 'NO-SUCH-SKU', quantity: 1 });
+    expect(r.matched).toBe(false);
+  });
+
+  it('rejects a zero or negative quantity', async () => {
+    await upsertAccessoryStock({ sku: 'USB-C-20W', name: 'USB-C 20W Charger', quantity: 50, buyPrice: 3.5 });
+    const r = await recordAccessoryManualSale({ sku: 'USB-C-20W', quantity: 0 });
+    expect(r.matched).toBe(false);
+  });
+});
+
+describe('adjustAccessoryStock — stock count corrections (damaged / lost / found)', () => {
+  it('a positive delta ("found more") also bumps totalReceived, same as a top-up', async () => {
+    await upsertAccessoryStock({ sku: 'USB-C-20W', name: 'USB-C 20W Charger', quantity: 50, buyPrice: 3.5 });
+    const r = await adjustAccessoryStock({ sku: 'USB-C-20W', delta: 5, reason: 'found a box in the back' });
+    expect(r.ok).toBe(true);
+    expect(r.quantity).toBe(55);
+    const doc = collections['accessoryStock'].get('usb_c_20w');
+    expect(doc.totalReceived).toBe(55);
+    const event = accessoryEvents().find(e => e.type === 'adjustment');
+    expect(event).toMatchObject({ delta: 5, quantityAfter: 55, reason: 'found a box in the back' });
+  });
+
+  it('a negative delta ("damaged") reduces quantity but leaves totalReceived untouched', async () => {
+    await upsertAccessoryStock({ sku: 'USB-C-20W', name: 'USB-C 20W Charger', quantity: 50, buyPrice: 3.5 });
+    const r = await adjustAccessoryStock({ sku: 'USB-C-20W', delta: -4, reason: 'damaged in storage' });
+    expect(r.ok).toBe(true);
+    expect(r.quantity).toBe(46);
+    expect(collections['accessoryStock'].get('usb_c_20w').totalReceived).toBe(50);
+  });
+
+  it('floors at 0 rather than going negative', async () => {
+    await upsertAccessoryStock({ sku: 'USB-C-20W', name: 'USB-C 20W Charger', quantity: 3, buyPrice: 3.5 });
+    const r = await adjustAccessoryStock({ sku: 'USB-C-20W', delta: -10, reason: 'stock count came up short' });
+    expect(r.quantity).toBe(0);
+  });
+
+  it('rejects a missing reason — an unexplained adjustment is indistinguishable from a bug', async () => {
+    await upsertAccessoryStock({ sku: 'USB-C-20W', name: 'USB-C 20W Charger', quantity: 50, buyPrice: 3.5 });
+    const r = await adjustAccessoryStock({ sku: 'USB-C-20W', delta: 5, reason: '' });
+    expect(r.ok).toBe(false);
+    expect(r.error).toBe('missing_reason');
+  });
+
+  it('rejects a zero delta and an unknown SKU', async () => {
+    await upsertAccessoryStock({ sku: 'USB-C-20W', name: 'USB-C 20W Charger', quantity: 50, buyPrice: 3.5 });
+    expect((await adjustAccessoryStock({ sku: 'USB-C-20W', delta: 0, reason: 'x' })).error).toBe('zero_delta');
+    expect((await adjustAccessoryStock({ sku: 'NO-SUCH-SKU', delta: 1, reason: 'x' })).error).toBe('not_found');
+  });
+});
+
+describe('returnAccessoryStock — a sold accessory coming back', () => {
+  it('adds quantity back without touching totalReceived', async () => {
+    await upsertAccessoryStock({ sku: 'USB-C-20W', name: 'USB-C 20W Charger', quantity: 50, buyPrice: 3.5 });
+    await decrementAccessoryStock('USB-C-20W', 5);
+    const r = await returnAccessoryStock({ sku: 'USB-C-20W', quantity: 2, notes: 'customer returned, unopened' });
+    expect(r.ok).toBe(true);
+    expect(r.quantity).toBe(47); // 50 - 5 + 2
+    expect(collections['accessoryStock'].get('usb_c_20w').totalReceived).toBe(50);
+    const event = accessoryEvents().find(e => e.type === 'return');
+    expect(event).toMatchObject({ delta: 2, quantityAfter: 47, notes: 'customer returned, unopened' });
+  });
+
+  it('can reference the original sale event id when known', async () => {
+    await upsertAccessoryStock({ sku: 'USB-C-20W', name: 'USB-C 20W Charger', quantity: 50, buyPrice: 3.5 });
+    await decrementAccessoryStock('USB-C-20W', 5);
+    const saleEvent = accessoryEvents().find(e => e.type === 'sale');
+    await returnAccessoryStock({ sku: 'USB-C-20W', quantity: 1, refEventId: saleEvent.id });
+    const returnEvent = accessoryEvents().find(e => e.type === 'return');
+    expect(returnEvent.refEventId).toBe(saleEvent.id);
+  });
+
+  it('rejects an unknown SKU and a zero quantity', async () => {
+    expect((await returnAccessoryStock({ sku: 'NO-SUCH-SKU', quantity: 1 })).error).toBe('not_found');
+    await upsertAccessoryStock({ sku: 'USB-C-20W', name: 'USB-C 20W Charger', quantity: 50, buyPrice: 3.5 });
+    expect((await returnAccessoryStock({ sku: 'USB-C-20W', quantity: 0 })).error).toBe('invalid_quantity');
   });
 });

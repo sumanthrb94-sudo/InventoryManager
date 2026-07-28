@@ -17,6 +17,7 @@ const COLLECTIONS = [
   'inventoryUnits',
   'inventoryAggregates',
   'accessoryStock',
+  'accessoryStockEvents',
   'sales',
   'suppliers',
   'inventoryEvents',

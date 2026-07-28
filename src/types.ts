@@ -490,6 +490,50 @@ export interface AccessoryStock {
   updatedAt?: any;
 }
 
+export type AccessoryEventType = 'topup' | 'sale' | 'adjustment' | 'return' | 'restore';
+export type AccessoryEventSource = 'sales_report_import' | 'manual';
+
+/**
+ * AccessoryStockEvent — one ledger row per change to an AccessoryStock
+ * pool's `quantity`. AccessoryStock itself only ever carries the CURRENT
+ * total, same as a bank balance; this is the transaction history behind
+ * it, giving every stock movement its own referenceable id — the same
+ * "why did this number change" traceability InventoryUnit gets for free
+ * from its IMEI, which a quantity pool has no equivalent of.
+ *
+ * Deliberately per-TRANSACTION, not per-physical-item: chargers/cables/SIM
+ * pins have no identifier of any kind to hang a per-unit id on (that's the
+ * whole reason AccessoryStock is a pool rather than one InventoryUnit doc
+ * per item — see AccessoryStock above). Serialising individual items would
+ * invent an id that maps to nothing physical; a ledger row per event gives
+ * the same traceability without that fiction.
+ *
+ * Reconciliation note: only `type: 'topup'` (via totalReceived) and real
+ * `sales`-collection rows (type: 'sale', source: 'sales_report_import')
+ * are replayed on a wipe + re-upload — see restoreAccessoryStockFromImport
+ * in inventoryService.ts. Manual sales/adjustments/returns recorded here
+ * are NOT currently replayed; they live only in this ledger until a wipe.
+ */
+export interface AccessoryStockEvent {
+  id: string;
+  sku: string;
+  skuId: string;          // matching AccessoryStock.id (slugified sku)
+  type: AccessoryEventType;
+  delta: number;           // signed change to `quantity` (+ or -)
+  quantityAfter: number;
+  source: AccessoryEventSource;
+  orderNumber?: string;
+  marketplace?: string;
+  /** Required for manual adjustments; optional context elsewhere. */
+  reason?: string;
+  /** For a return, the id of the AccessoryStockEvent it reverses (if known). */
+  refEventId?: string;
+  notes?: string;
+  ownerId: string;
+  createdAt: any;
+  createdBy?: string;
+}
+
 /**
  * SupplierWhatsappUpdate — one line from the SUPPLIER WHATSAPP UPDATES sheet,
  * captured as a free-form supplier feed.

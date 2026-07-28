@@ -28,6 +28,7 @@ const COL: Record<string, string> = {
   sales:                   'sales',
   inventoryAggregates:     'inventoryAggregates',
   accessoryStock:          'accessoryStock',
+  accessoryStockEvents:    'accessoryStockEvents',
   marketplaceFees:         'marketplaceFees',
   supplierWhatsappUpdates: 'supplierWhatsappUpdates',
 };

@@ -171,6 +171,15 @@ service cloud.firestore {
       allow update: if isSignedIn() && staysShared();
       allow delete: if isAdmin();
     }
+    // accessoryStockEvents: the transaction ledger behind accessoryStock's
+    // running quantity (topup/sale/adjustment/return/restore) — append-and-
+    // correct only, same convention as inventoryEvents.
+    match /accessoryStockEvents/{eventId} {
+      allow read:   if isSignedIn();
+      allow create: if isSignedIn() && ownsShared();
+      allow update: if isAdmin();
+      allow delete: if isAdmin();
+    }
     match /supplierWhatsappUpdates/{updateId} {
       allow read:   if isSignedIn();
       allow create: if isSignedIn() && ownsShared();
