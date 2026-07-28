@@ -32,11 +32,11 @@ import { recordSale } from '../services';
 
 /** Operator-facing platform list — the 4 marketplaces the operator sells
  *  on. Matches the master SALES_REPORT sheet order. */
-const ACTIVE_PLATFORMS: ReadonlyArray<Marketplace> = MARKETPLACES;
+export const ACTIVE_PLATFORMS: ReadonlyArray<Marketplace> = MARKETPLACES;
 
 /** Per-platform display palette + label. Matches the colour cues used on
  *  the Sell screen so the operator's eye recognises the platform instantly. */
-const PLATFORM_META: Record<Marketplace, { label: string; tone: string; activeBg: string }> = {
+export const PLATFORM_META: Record<Marketplace, { label: string; tone: string; activeBg: string }> = {
   AMAZON:  { label: 'Amazon',       tone: 'border-orange-200 text-orange-800 bg-orange-50',   activeBg: 'bg-orange-600' },
   BM:      { label: 'Back Market',  tone: 'border-emerald-200 text-emerald-800 bg-emerald-50', activeBg: 'bg-emerald-600' },
   EBAY:    { label: 'eBay',         tone: 'border-yellow-200 text-yellow-800 bg-yellow-50',   activeBg: 'bg-yellow-600' },
@@ -47,13 +47,13 @@ const PLATFORM_META: Record<Marketplace, { label: string; tone: string; activeBg
 /** BM-only payment-mode options — these are the values the master file uses
  *  in the BM "Payment Mode" column. Anything matching the PayPal/Klarna
  *  detection regex in calcSaleFinancials triggers the 2.5% commission. */
-const BM_PAYMENT_MODES = ['', 'Klarna', 'PayPal', 'Clear Pay', 'Apple Pay', 'Google Pay', 'Card'] as const;
+export const BM_PAYMENT_MODES = ['', 'Klarna', 'PayPal', 'Clear Pay', 'Apple Pay', 'Google Pay', 'Card'] as const;
 
 /** Operator's canonical postage tariffs — same dropdown shared across every
  *  marketplace (Amazon / eBay / OnBuy / BM). "Other" reveals a freeform
  *  input so a one-off carrier rate can still be typed. Replaces the legacy
  *  eBay-only £1 / £2 / £8 tier picker. */
-const POSTAGE_PRESETS: ReadonlyArray<number> = [7.56, 16.35, 4.65, 6.75];
+export const POSTAGE_PRESETS: ReadonlyArray<number> = [7.56, 16.35, 4.65, 6.75];
 
 const today = () => new Date().toISOString().split('T')[0];
 
@@ -498,8 +498,10 @@ export default function SellOrderModal({ unit, onClose, onSaved, isSHS = false }
 // ── P&L breakdown card ──────────────────────────────────────────────────────
 // One-to-one mapping with the master sheet's columns per platform. Whatever
 // reads on screen is exactly what the operator's SALES_REPORT_2026.xlsx
-// formula will compute when this sale row lands on its sheet.
-function SalePLBreakdown({
+// formula will compute when this sale row lands on its sheet. Exported so
+// AccessorySaleModal (the accessory counterpart of this modal) reuses the
+// exact same preview instead of a second, driftable copy.
+export function SalePLBreakdown({
   marketplace, breakdown, bp, sp,
 }: {
   marketplace: Marketplace;

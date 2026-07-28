@@ -27,7 +27,7 @@ import {
 import { AnimatePresence, motion } from 'motion/react';
 import { dbService } from '../lib/dbService';
 import {
-  InventoryUnit, Sale, Marketplace,
+  InventoryUnit, Sale, Marketplace, AccessoryStock,
 } from '../types';
 import { useInventoryStore } from '../lib/inventoryStore';
 import { returnUnits } from '../lib/returnsLedger';
@@ -44,7 +44,9 @@ import ReportRangeMenu from './ReportRangeMenu';
 import { SALES_TEMPLATES } from './TemplateDownload';
 import IntelligencePanel from './IntelligencePanel';
 import PeriodicInventory from './PeriodicInventory';
+import AccessoryStockPanel from './AccessoryStockPanel';
 import SellOrderModal from './SellOrderModal';
+import AccessorySaleModal from './AccessorySaleModal';
 import EnterImeiModal from './EnterImeiModal';
 import AddSoldUnitModal from './AddSoldUnitModal';
 import OrphansModal, { isOrphanSoldUnit } from './OrphanUnitsModal';
@@ -265,6 +267,7 @@ export default function SellSheet(_props: Props) {
   const [overlay, setOverlay] = useState<KpiId | null>(null);
   const [sellOrderUnit, setSellOrderUnit] = useState<InventoryUnit | null>(null);
   const [sellOrderIsSHS, setSellOrderIsSHS] = useState(false);
+  const [sellAccessory, setSellAccessory] = useState<AccessoryStock | null>(null);
   const [enterImeiUnit, setEnterImeiUnit] = useState<InventoryUnit | null>(null);
   const [orphanModalOpen, setOrphanModalOpen] = useState(false);
   // Reconciliation pill — counts SOLD inventory units (post-2026-06-09)
@@ -698,6 +701,14 @@ export default function SellSheet(_props: Props) {
           Office/SHS toggle at top-right to switch segments. */}
       <PeriodicInventory units={units} />
 
+      {/* ── Accessory stock — no-IMEI pools (chargers, cables, SIM pins)
+          never had a home on the periodic table above (it groups
+          InventoryUnit rows by brand/model, which accessories have none
+          of), so a newly-added SKU looked like it vanished. Same panel as
+          Configuration/Buy, right here so it's visible where the operator
+          is already looking. */}
+      {accessoryStock.length > 0 && <AccessoryStockPanel />}
+
       {/* ── Awaiting IMEI pinned section ─────────────────────────────────── */}
       {awaitingImei.length > 0 && (
         <AwaitingImeiSection
@@ -902,9 +913,18 @@ export default function SellSheet(_props: Props) {
           <SellUnitPicker
             units={inStock}
             shsUnits={sellableShs}
+            accessoryStock={accessoryStock}
             supplierMap={supplierMap}
             onClose={() => setPickerOpen(false)}
             onPick={(u, isSHS) => { setPickerOpen(false); setSellOrderUnit(u); setSellOrderIsSHS(isSHS); }}
+            onPickAccessory={a => { setPickerOpen(false); setSellAccessory(a); }}
+          />
+        )}
+        {sellAccessory && (
+          <AccessorySaleModal
+            accessory={sellAccessory}
+            onClose={() => setSellAccessory(null)}
+            onSaved={() => setSellAccessory(null)}
           />
         )}
       </AnimatePresence>
@@ -1788,24 +1808,31 @@ function AwaitingImeiSection({
 
 // ── Sell unit picker (Record Sale entry-point) ──────────────────────────────
 function SellUnitPicker({
-  units, shsUnits, supplierMap, onClose, onPick,
+  units, shsUnits, accessoryStock, supplierMap, onClose, onPick, onPickAccessory,
 }: {
   units: InventoryUnit[];
   shsUnits: InventoryUnit[];
+  accessoryStock: AccessoryStock[];
   supplierMap: Record<string, string>;
   onClose: () => void;
   onPick: (u: InventoryUnit, isSHS: boolean) => void;
+  onPickAccessory: (a: AccessoryStock) => void;
 }) {
   const [search, setSearch] = useState('');
-  // Office/SHS scope toggle — mirrors the same split used everywhere else in
-  // the app (PeriodicInventory's Office Stock / SHS pill). Previously both
-  // lists rendered stacked in one scroll with a hard slice cap (100 office /
-  // 100 SHS), which silently truncated real stock once a segment grew past
-  // the cap (294 office units showed only the first 100). Splitting into
-  // tabs removes the need for an arbitrary cap — each tab renders only its
-  // own (much smaller) list in full, and the counts always reflect the true
-  // totals rather than the capped/rendered length.
-  const [scope, setScope] = useState<'office' | 'shs'>('office');
+  // Office/SHS/Accessory scope toggle — mirrors the same split used
+  // everywhere else in the app (PeriodicInventory's Office Stock / SHS
+  // pill). Previously both lists rendered stacked in one scroll with a hard
+  // slice cap (100 office / 100 SHS), which silently truncated real stock
+  // once a segment grew past the cap (294 office units showed only the
+  // first 100). Splitting into tabs removes the need for an arbitrary cap —
+  // each tab renders only its own (much smaller) list in full, and the
+  // counts always reflect the true totals rather than the capped/rendered
+  // length.
+  const [scope, setScope] = useState<'office' | 'shs' | 'accessory'>('office');
+  const sellableAccessories = useMemo(
+    () => accessoryStock.filter(a => (a.quantity ?? 0) > 0),
+    [accessoryStock],
+  );
   const filteredAvailable = units.filter(u => {
     if (!search.trim()) return true;
     const q = search.toLowerCase();
@@ -1818,6 +1845,13 @@ function SellUnitPicker({
     const q = search.toLowerCase();
     return (u.model || '').toLowerCase().includes(q)
         || (supplierMap[u.supplierId] || '').toLowerCase().includes(q);
+  });
+  const filteredAccessories = sellableAccessories.filter(a => {
+    if (!search.trim()) return true;
+    const q = search.toLowerCase();
+    return (a.sku || '').toLowerCase().includes(q)
+        || (a.name || '').toLowerCase().includes(q)
+        || (a.supplierName || '').toLowerCase().includes(q);
   });
 
   return (
@@ -1859,12 +1893,23 @@ function SellUnitPicker({
             >
               SHS · {shsUnits.length}
             </button>
+            {sellableAccessories.length > 0 && (
+              <button
+                type="button"
+                onClick={() => setScope('accessory')}
+                className={`px-3.5 py-1.5 rounded-[10px] text-[10px] font-bold uppercase tracking-widest transition-all ${
+                  scope === 'accessory' ? 'bg-indigo-500 text-white' : 'text-slate-400 hover:text-white'
+                }`}
+              >
+                Accessories · {sellableAccessories.length}
+              </button>
+            )}
           </div>
           <div className="relative">
             <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
             <input
               autoFocus type="text" value={search} onChange={e => setSearch(e.target.value)}
-              placeholder="Search by model, IMEI, supplier…"
+              placeholder={scope === 'accessory' ? 'Search by SKU, name, supplier…' : 'Search by model, IMEI, supplier…'}
               className="w-full pl-9 pr-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-[12px] focus:outline-none focus:border-slate-900 focus:bg-white"
             />
           </div>
@@ -1913,6 +1958,28 @@ function SellUnitPicker({
                     </p>
                   </div>
                   <span className="text-sm font-bold text-slate-800 flex-shrink-0">£{u.buyPrice}</span>
+                </button>
+              ))}
+            </>
+          )}
+          {scope === 'accessory' && filteredAccessories.length === 0 && (
+            <p className="p-8 text-center text-[11px] font-mono text-slate-400">No matches.</p>
+          )}
+          {scope === 'accessory' && filteredAccessories.length > 0 && (
+            <>
+              <div className="px-4 py-1.5 bg-indigo-50/50 border-b border-indigo-100">
+                <p className="text-[9px] font-bold uppercase tracking-widest text-indigo-700">Accessory pools · {filteredAccessories.length}</p>
+              </div>
+              {filteredAccessories.map(a => (
+                <button key={a.id} onClick={() => onPickAccessory(a)}
+                  className="w-full text-left flex items-center gap-3 px-4 py-2.5 hover:bg-indigo-50/40 transition-colors">
+                  <div className="flex-1 min-w-0">
+                    <p className="text-[12px] font-bold text-slate-900 truncate">{a.name}</p>
+                    <p className="text-[9px] text-slate-500 font-mono mt-0.5 truncate">
+                      {a.sku} · {a.quantity} in stock · {a.supplierName || '—'}
+                    </p>
+                  </div>
+                  <span className="text-sm font-bold text-slate-800 flex-shrink-0">£{a.buyPrice}</span>
                 </button>
               ))}
             </>

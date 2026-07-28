@@ -202,6 +202,35 @@ describe('parseBrandModelStorage', () => {
     const r = parseBrandModelStorage('Galaxy Watch6 44mm');
     expect(r.brand).toBe('Samsung');
   });
+
+  // Sibling bug to the bare-"Watch" case above, for models that lost the
+  // word "Watch" ENTIRELY — e.g. "SE3 40MM GPS" (typed at Add Stock without
+  // any brand/series prefix at all). RE_APPLE_WATCH_BARE only matches a
+  // leading "watch" token, so these still fell through to brand='Other' /
+  // series='Other' and landed in the same "Accessories" periodic-table
+  // bucket the no-IMEI accessory feature also uses — a genuine, confusing
+  // collision reported live. Apple Watch case sizes (38/40/41/42/44/45/49mm)
+  // are unique across this catalog, so RE_APPLE_WATCH_SIZE is a safe signal.
+  it('recognises a bare Apple Watch SE/Ultra size string with no "Watch" token at all', () => {
+    const r = parseBrandModelStorage('SE3 40MM GPS 64GB');
+    expect(r.brand).toBe('Apple');
+    expect(r.series).toBe('Apple Watch');
+    expect(r.model).toBe('SE3 40MM GPS');
+    expect(r.storage).toBe('64GB');
+  });
+
+  it('recognises every Apple Watch case size, no storage required', () => {
+    expect(parseBrandModelStorage('SE3 44MM GPS').series).toBe('Apple Watch');
+    expect(parseBrandModelStorage('Ultra 49MM Cellular').series).toBe('Apple Watch');
+    expect(parseBrandModelStorage('Series 9 41MM').series).toBe('Apple Watch');
+  });
+
+  it('does not misfire on a phone/tablet model with a coincidental storage-looking number', () => {
+    // Sanity: nothing in the normal catalog carries an "NNmm" token, so this
+    // should never fire outside the Apple Watch shape.
+    expect(parseBrandModelStorage('Galaxy A32 5G 64GB').series).toBe('Galaxy A');
+    expect(parseBrandModelStorage('iPhone 13 128GB').series).toBe('iPhone');
+  });
 });
 
 // ── shsCount classifier (the manual_shs_ id prefix bug-fix) ──────────────────

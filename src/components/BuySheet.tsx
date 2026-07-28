@@ -550,16 +550,21 @@ export default function BuySheet(_props: Props) {
     shsSheet.views = [{ state: 'frozen', ySplit: 1 }];
 
     // ── Sheet 3: Accessories (only when any pools exist) ──
-    // No-IMEI quantity pools (chargers, SIM pins, cables) have no date-in
-    // to window by, so this is always the live full snapshot, not filtered
-    // by `range`. Exports Total Added (cumulative intake), NOT the current
-    // remaining quantity — re-importing recreates the pool as if nothing
-    // had sold yet, and the accompanying Sales Report re-upload nets it back
-    // down via its own decrement-on-first-import logic, the same "gross
-    // baseline + sales replay nets it" pattern regular units already use.
-    // See restoreAccessoryStockFromImport (inventoryService.ts).
+    // No-IMEI quantity pools (chargers, SIM pins, cables) have no per-item
+    // serial or single stock-in date to show — one pool doc represents an
+    // entire SKU, topped up over many separate Add Stock events, not one
+    // physical item received on one day. "First Added" (when the pool was
+    // first created) is the closest equivalent and is shown for context;
+    // there's deliberately no "Unit ID" column since there's no single unit.
+    // This is always the live full snapshot, not filtered by `range`, for
+    // the same reason. Exports Total Added (cumulative intake), NOT the
+    // current remaining quantity — re-importing recreates the pool as if
+    // nothing had sold yet, and the accompanying Sales Report re-upload
+    // nets it back down via its own decrement-on-first-import logic, the
+    // same "gross baseline + sales replay nets it" pattern regular units
+    // already use. See restoreAccessoryStockFromImport (inventoryService.ts).
     if (accessoryStock.length > 0) {
-      const ACCESSORY_COLUMNS = ['SKU', 'Name', 'Supplier', 'Total Added', 'BP', 'Notes'];
+      const ACCESSORY_COLUMNS = ['SKU', 'Name', 'Supplier', 'First Added', 'Total Added', 'BP', 'Notes'];
       const accSheet = workbook.addWorksheet('Accessories');
       accSheet.columns = ACCESSORY_COLUMNS.map(h => ({ header: h, key: h, width: h === 'Name' ? 28 : h === 'Notes' ? 30 : 16 }));
       accSheet.getRow(1).eachCell(cell => {
@@ -571,6 +576,7 @@ export default function BuySheet(_props: Props) {
         'SKU': a.sku,
         'Name': a.name,
         'Supplier': a.supplierName || '',
+        'First Added': accessoryCreatedDate(a),
         'Total Added': a.totalReceived ?? a.quantity,
         'BP': a.buyPrice,
         'Notes': a.notes || '',
@@ -602,6 +608,7 @@ export default function BuySheet(_props: Props) {
           'SKU': a.sku,
           'Name': a.name,
           'Supplier': a.supplierName || '',
+          'First Added': accessoryCreatedDate(a),
           'Total Added': a.totalReceived ?? a.quantity,
           'BP': a.buyPrice,
           'Notes': a.notes || '',
@@ -964,7 +971,7 @@ export default function BuySheet(_props: Props) {
                 </button>
               </div>
               <div className="overflow-y-auto px-2 py-2">
-                <AccessoryStockPanel bare />
+                <AccessoryStockPanel bare showActions={false} />
               </div>
             </motion.div>
           </div>
@@ -1569,6 +1576,21 @@ function titleFor(kpi: KpiId): string {
     case 'sold_today':   return 'Sold Today';
     case 'out_of_stock': return 'Out of Stock \u00b7 Last 72 Hours';
   }
+}
+
+/** AccessoryStock.createdAt is a Firestore serverTimestamp field — a real
+ *  Timestamp object (with .toDate()) once round-tripped through Firestore,
+ *  but a plain ISO string in the E2E shim / freshly-created docs before
+ *  the write settles. Handles both, same pattern as describeAccessoryEvent
+ *  (AccessoryStockPanel.tsx). Returns '' when neither shape is present. */
+function accessoryCreatedDate(a: AccessoryStock): string {
+  const c: any = a.createdAt;
+  if (!c) return '';
+  if (typeof c === 'string') return c.slice(0, 10);
+  if (typeof c?.toDate === 'function') {
+    try { return c.toDate().toISOString().slice(0, 10); } catch { return ''; }
+  }
+  return '';
 }
 
 function triggerDownload(name: string, blob: Blob) {

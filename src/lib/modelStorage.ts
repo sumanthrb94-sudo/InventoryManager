@@ -126,6 +126,11 @@ const RE_PIXEL = /\bpixel\s*\d/i;
  *  in this domain (Samsung's watch line always keeps "Galaxy" attached —
  *  see RE_GALAXY_* — so it never collides with this). */
 const RE_APPLE_WATCH_BARE = /^watch\b/i;
+/** Apple Watch case sizes — unique across this catalog (no phone or tablet
+ *  model uses "NNmm" sizing). Catches "SE3 40MM GPS" / "Ultra 49MM" bare
+ *  forms that have lost the word "Watch" entirely — typically free-typed at
+ *  Add Stock without the brand/series prefix. */
+const RE_APPLE_WATCH_SIZE = /\b(38|40|41|42|44|45|49)mm\b/i;
 
 /** True if the cleaned string looks like a Samsung product (bare or prefixed). */
 function looksLikeSamsung(lower: string): boolean {
@@ -249,6 +254,9 @@ function detectBrand(lower: string): Brand {
   // stripped from the model text entirely, landing the unit in the
   // "Other"/Accessories bucket instead of Apple Watch.
   if (RE_APPLE_WATCH_BARE.test(lower)) return 'Apple';
+  // Same problem, the SE/Ultra bare-size shape ("SE3 40MM GPS") — no "watch"
+  // token survives at all, only the case size does.
+  if (RE_APPLE_WATCH_SIZE.test(lower)) return 'Apple';
   return 'Other';
 }
 
@@ -262,6 +270,7 @@ function detectSeries(brand: Brand, lower: string): Series | undefined {
     // plain numbered models too ("Watch 9", "Watch Series 9"), not just the
     // SE/Ultra variants the previous narrower check singled out.
     if (lower.includes('watch')) return 'Apple Watch';
+    if (RE_APPLE_WATCH_SIZE.test(lower)) return 'Apple Watch';
     if (lower.includes('macbook')) return 'MacBook';
     return 'Other';
   }

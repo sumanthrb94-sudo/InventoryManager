@@ -41,9 +41,15 @@ interface Props {
    *  another modal/card that already provides it — e.g. the Buy screen's
    *  Accessory Stock overlay. */
   bare?: boolean;
+  /** Hides the Adjust/Return action buttons — the Buy screen's Accessory
+   *  Stock overlay is for topping up pools (that's what "Buy" means here),
+   *  not for selling/adjusting/returning stock; those actions live on the
+   *  Sell/Inventory screen (where a sale is actually recorded) and on
+   *  Configuration. History stays visible either way — it's read-only. */
+  showActions?: boolean;
 }
 
-export default function AccessoryStockPanel({ bare = false }: Props) {
+export default function AccessoryStockPanel({ bare = false, showActions = true }: Props) {
   const { accessoryStock, accessoryStockEvents } = useInventoryStore();
   const [expanded, setExpanded] = useState<string | null>(null);
   const [actionFor, setActionFor] = useState<{ accessory: AccessoryStock; mode: 'adjust' | 'return' } | null>(null);
@@ -87,7 +93,7 @@ export default function AccessoryStockPanel({ bare = false }: Props) {
               <th className="pb-2 pr-3">Supplier</th>
               <th className="pb-2 pr-3 text-right">Qty</th>
               <th className="pb-2 pr-3 text-right">BP</th>
-              <th className="pb-2 w-40" />
+              {showActions && <th className="pb-2 w-40" />}
               <th className="pb-2 w-8" />
             </tr>
           </thead>
@@ -103,22 +109,24 @@ export default function AccessoryStockPanel({ bare = false }: Props) {
                     <td className="py-1.5 pr-3 text-slate-500">{a.supplierName || '—'}</td>
                     <td className={`py-1.5 pr-3 text-right font-mono font-bold ${a.quantity === 0 ? 'text-rose-500' : 'text-slate-700'}`}>{a.quantity}</td>
                     <td className="py-1.5 pr-3 text-right font-mono text-slate-500">£{(a.buyPrice ?? 0).toFixed(2)}</td>
-                    <td className="py-1.5 pr-3">
-                      <div className="flex items-center gap-1">
-                        <button
-                          onClick={() => setActionFor({ accessory: a, mode: 'adjust' })}
-                          className="px-2 py-1 rounded bg-amber-100 text-amber-800 text-[9px] font-bold uppercase tracking-widest hover:bg-amber-200"
-                        >
-                          Adjust
-                        </button>
-                        <button
-                          onClick={() => setActionFor({ accessory: a, mode: 'return' })}
-                          className="px-2 py-1 rounded bg-emerald-100 text-emerald-800 text-[9px] font-bold uppercase tracking-widest hover:bg-emerald-200"
-                        >
-                          Return
-                        </button>
-                      </div>
-                    </td>
+                    {showActions && (
+                      <td className="py-1.5 pr-3">
+                        <div className="flex items-center gap-1">
+                          <button
+                            onClick={() => setActionFor({ accessory: a, mode: 'adjust' })}
+                            className="px-2 py-1 rounded bg-amber-100 text-amber-800 text-[9px] font-bold uppercase tracking-widest hover:bg-amber-200"
+                          >
+                            Adjust
+                          </button>
+                          <button
+                            onClick={() => setActionFor({ accessory: a, mode: 'return' })}
+                            className="px-2 py-1 rounded bg-emerald-100 text-emerald-800 text-[9px] font-bold uppercase tracking-widest hover:bg-emerald-200"
+                          >
+                            Return
+                          </button>
+                        </div>
+                      </td>
+                    )}
                     <td className="py-1.5">
                       <div className="flex items-center gap-0.5">
                         <button
@@ -140,7 +148,7 @@ export default function AccessoryStockPanel({ bare = false }: Props) {
                   </tr>
                   {isOpen && (
                     <tr className="bg-slate-50/60">
-                      <td colSpan={7} className="px-3 py-2">
+                      <td colSpan={showActions ? 7 : 6} className="px-3 py-2">
                         {history.length === 0 ? (
                           <p className="text-[10px] font-mono text-slate-400 py-1">No ledger history yet.</p>
                         ) : (

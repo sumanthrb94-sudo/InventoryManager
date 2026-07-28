@@ -77,6 +77,7 @@ import {
   restoreAccessoryStockFromImport,
   adjustAccessoryStock,
   returnAccessoryStock,
+  recordAccessorySale,
 } from '../../services/inventoryService';
 import type { Sale } from '../../types';
 
@@ -1300,5 +1301,58 @@ describe('returnAccessoryStock — voids the marketplace sale and restores its e
   it('rejects an unknown SKU and a missing SKU', async () => {
     expect((await returnAccessoryStock({ sku: 'NO-SUCH-SKU', outcome: 'refund' })).error).toBe('not_found');
     expect((await returnAccessoryStock({ sku: '', outcome: 'refund' })).error).toBe('missing_sku');
+  });
+});
+
+describe('recordAccessorySale — in-app single-line marketplace sale (Record a Sale → Accessories)', () => {
+  it('writes a real Sale doc and decrements the pool by quantity', async () => {
+    await upsertAccessoryStock({ sku: 'USB-C-20W', name: 'USB-C 20W Charger', quantity: 50, buyPrice: 3.5 });
+    const r = await recordAccessorySale({
+      sku: 'USB-C-20W', marketplace: 'AMAZON', orderNumber: 'MAN-1001',
+      quantity: 3, salePrice: 29.97, saleDate: '2026-07-20',
+    });
+    expect(r.ok).toBe(true);
+    expect(r.quantity).toBe(47); // 50 - 3
+    expect(collections['accessoryStock'].get('usb_c_20w').quantity).toBe(47);
+    expect(collections['accessoryStock'].get('usb_c_20w').totalReceived).toBe(50); // a sale never bumps totalReceived
+
+    const sale = collections['sales'].get(r.saleId!);
+    expect(sale).toBeDefined();
+    expect(sale.sku).toBe('USB-C-20W');
+    expect(sale.quantity).toBe(3);
+    expect(sale.buyPrice).toBe(10.5); // 3.5/unit × 3 — line total, not per-unit
+    expect(sale.salePrice).toBe(29.97);
+    expect(sale.marketplace).toBe('AMAZON');
+    expect(sale.orderNumber).toBe('MAN-1001');
+    expect(sale.imei).toBeFalsy();
+    expect(sale.unitId).toBeFalsy();
+    expect(typeof sale.grossProfit).toBe('number'); // calcSaleFinancials ran
+
+    const event = accessoryEvents().find(e => e.type === 'sale' && e.source === 'manual');
+    expect(event).toMatchObject({ delta: -3, quantityAfter: 47, orderNumber: 'MAN-1001', marketplace: 'AMAZON' });
+  });
+
+  it('rejects a quantity greater than what is on hand — a typed one-off entry fails loudly, unlike bulk import', async () => {
+    await upsertAccessoryStock({ sku: 'USB-C-20W', name: 'USB-C 20W Charger', quantity: 2, buyPrice: 3.5 });
+    const r = await recordAccessorySale({
+      sku: 'USB-C-20W', marketplace: 'EBAY', orderNumber: 'MAN-1002', quantity: 5, salePrice: 20,
+    });
+    expect(r.ok).toBe(false);
+    expect(r.error).toBe('insufficient_stock');
+    expect(collections['accessoryStock'].get('usb_c_20w').quantity).toBe(2); // untouched
+  });
+
+  it('rejects missing sku / marketplace / order number / invalid quantity / invalid price', async () => {
+    await upsertAccessoryStock({ sku: 'USB-C-20W', name: 'USB-C 20W Charger', quantity: 10, buyPrice: 3.5 });
+    expect((await recordAccessorySale({ sku: '', marketplace: 'EBAY', orderNumber: 'X', quantity: 1, salePrice: 5 })).error).toBe('missing_sku');
+    expect((await recordAccessorySale({ sku: 'USB-C-20W', marketplace: '' as any, orderNumber: 'X', quantity: 1, salePrice: 5 })).error).toBe('missing_marketplace');
+    expect((await recordAccessorySale({ sku: 'USB-C-20W', marketplace: 'EBAY', orderNumber: '', quantity: 1, salePrice: 5 })).error).toBe('missing_order_number');
+    expect((await recordAccessorySale({ sku: 'USB-C-20W', marketplace: 'EBAY', orderNumber: 'X', quantity: 0, salePrice: 5 })).error).toBe('invalid_quantity');
+    expect((await recordAccessorySale({ sku: 'USB-C-20W', marketplace: 'EBAY', orderNumber: 'X', quantity: 1, salePrice: 0 })).error).toBe('invalid_price');
+  });
+
+  it('rejects an unknown SKU', async () => {
+    const r = await recordAccessorySale({ sku: 'NO-SUCH-SKU', marketplace: 'EBAY', orderNumber: 'X', quantity: 1, salePrice: 5 });
+    expect(r.error).toBe('not_found');
   });
 });

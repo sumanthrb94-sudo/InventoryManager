@@ -21,11 +21,13 @@
  */
 
 import { dbService } from '../lib/dbService';
-import type { AccessoryStock, AccessoryStockEvent, AccessoryEventType, AccessoryEventSource, DeviceCategory, InventoryAggregate, InventoryUnit, ListingSite, ReturnCategory, Sale, Notice } from '../types';
+import type { AccessoryStock, AccessoryStockEvent, AccessoryEventType, AccessoryEventSource, DeviceCategory, InventoryAggregate, InventoryUnit, ListingSite, Marketplace, ReturnCategory, Sale, Notice } from '../types';
 import { isAppleDevice, isValidImei, isValidImeiOrSerial } from '../lib/imeiValidation';
 import { parseBrandModelStorage } from '../lib/modelStorage';
 import { logInventoryEvent } from '../lib/inventoryEvents';
 import { auth, isAdmin } from '../lib/firebase';
+import { calcSaleFinancials } from '../lib/platforms';
+import { sanitiseFsIdSegment } from '../lib/salesImport';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -1501,6 +1503,165 @@ export async function decrementAccessoryStock(
     orderNumber: context?.orderNumber, marketplace: context?.marketplace,
   });
   return { matched: true, id, remaining };
+}
+
+export interface RecordAccessorySaleInput {
+  sku: string;
+  marketplace: Marketplace;
+  orderNumber: string;
+  /** Units sold in this one line — an accessory sale routinely covers more
+   *  than one (e.g. 3 chargers on one order), unlike a phone sale which is
+   *  always exactly 1. */
+  quantity: number;
+  /** Total sale price for this line (all `quantity` units combined) — same
+   *  "line total, not per-unit" convention the Sales Report import already
+   *  uses, so GP math (which never multiplies by quantity) stays correct. */
+  salePrice: number;
+  saleDate?: string;
+  paymentMode?: string;
+  postageOverride?: number;
+  postageVatExempt?: boolean;
+  comments?: string;
+}
+
+export type RecordAccessorySaleErrorCode =
+  | 'missing_sku'
+  | 'not_found'
+  | 'missing_marketplace'
+  | 'missing_order_number'
+  | 'invalid_quantity'
+  | 'insufficient_stock'
+  | 'invalid_price'
+  | 'write_failed';
+
+export interface RecordAccessorySaleResult {
+  ok: boolean;
+  saleId?: string;
+  /** Pool quantity remaining after the sale. */
+  quantity?: number;
+  error?: RecordAccessorySaleErrorCode;
+  message?: string;
+}
+
+/**
+ * Record one marketplace sale for a no-IMEI accessory pool, in-app —
+ * the accessory counterpart to recordSale() (salesService.ts) for units.
+ * Every real accessory sale still normally arrives via the Sales Report
+ * import; this exists for the same reason SellOrderModal exists for phones:
+ * so ops isn't forced to wait for the monthly bulk file just to log one
+ * sale as it happens.
+ *
+ * Writes a genuine Sale doc (marketplace/orderNumber/sku, no imei/unitId —
+ * same shape a Sales Report import produces for an accessory row) via the
+ * same calcSaleFinancials formulas every other marketplace sale uses, then
+ * decrements the pool by `quantity`. Rejects up front if `quantity` exceeds
+ * what's on hand — a typed one-off entry should fail loudly rather than
+ * silently floor at 0 the way a bulk historical import does.
+ */
+export async function recordAccessorySale(input: RecordAccessorySaleInput): Promise<RecordAccessorySaleResult> {
+  const sku = (input.sku || '').trim();
+  if (!sku) return { ok: false, error: 'missing_sku', message: 'SKU is required.' };
+  if (!input.marketplace) return { ok: false, error: 'missing_marketplace', message: 'Marketplace is required.' };
+  const orderNumber = (input.orderNumber || '').trim();
+  if (!orderNumber) return { ok: false, error: 'missing_order_number', message: 'Order number is required.' };
+  const quantity = Number(input.quantity);
+  if (!Number.isFinite(quantity) || quantity <= 0) {
+    return { ok: false, error: 'invalid_quantity', message: 'Quantity must be greater than 0.' };
+  }
+  const sp = Number(input.salePrice);
+  if (!Number.isFinite(sp) || sp <= 0) {
+    return { ok: false, error: 'invalid_price', message: 'Sale price must be greater than £0.' };
+  }
+
+  const id = slugify(sku);
+  const existing = (await dbService.readAll('accessoryStock')).find((a: any) => a.id === id) as AccessoryStock | undefined;
+  if (!existing) return { ok: false, error: 'not_found', message: 'This SKU no longer exists.' };
+  if (quantity > (existing.quantity ?? 0)) {
+    return { ok: false, error: 'insufficient_stock', message: `Only ${existing.quantity ?? 0} left in stock.` };
+  }
+
+  const bp = (existing.buyPrice || 0) * quantity;
+  const hasPayPalKlarna = /paypal|klarna|clearpay|clear pay|applepay|apple pay/i.test(input.paymentMode || '');
+  let eBayShippingTier: 1 | 2 | 8 | undefined;
+  if (input.marketplace === 'EBAY'
+      && (input.postageOverride === 1 || input.postageOverride === 2 || input.postageOverride === 8)) {
+    eBayShippingTier = input.postageOverride as 1 | 2 | 8;
+  }
+  const fin = calcSaleFinancials({
+    marketplace: input.marketplace,
+    buyPrice: bp,
+    salePrice: sp,
+    postageOverride: input.postageOverride,
+    eBayShippingTier,
+    hasPayPalKlarna,
+    postageVatExempt: input.postageVatExempt,
+  });
+
+  const saleDate = input.saleDate || today();
+  const nowIso = new Date().toISOString();
+  // Composite id matches the convention recordSale/salesImport use
+  // (marketplace__orderNumber__discriminator), with sku as the
+  // discriminator since there's no imei — so a later Sales Report import
+  // of this same order naturally dedupes onto this row instead of
+  // duplicating it.
+  const saleId = `${input.marketplace}__${sanitiseFsIdSegment(orderNumber)}__${sanitiseFsIdSegment(sku)}`;
+
+  const sale: Sale = {
+    id: saleId,
+    marketplace: input.marketplace,
+    orderNumber,
+    sku: existing.sku,
+    supplierId: existing.supplierId,
+    supplierName: existing.supplierName,
+    saleDate,
+    quantity,
+    buyPrice: bp,
+    salePrice: sp,
+    paymentMode: input.paymentMode,
+    spMinusBp: fin.spMinusBp,
+    marginalTax: fin.marginalTax,
+    commission: fin.commission,
+    payPalKlarnaCom: fin.payPalKlarnaCom,
+    rof: fin.rof,
+    fvf: fin.fvf,
+    twentyPercent: fin.twentyPercent,
+    totalCom: fin.totalCom,
+    vat20: fin.vat20,
+    marVat: fin.marVat,
+    postage: fin.postage,
+    postageVat: fin.postageVat,
+    postageVatExempt: input.postageVatExempt || undefined,
+    grossProfit: fin.grossProfit,
+    gpPercent: fin.gpPercent,
+    netProfit: fin.netProfit,
+    comments: input.comments,
+    importBatchId: 'inapp',
+    sourceFile: 'inapp-sell-flow',
+    sourceRow: 0,
+    importedAt: nowIso,
+    createdAt: nowIso,
+    updatedAt: nowIso,
+    ownerId: 'shared',
+  } as Sale;
+
+  try {
+    await dbService.create('sales', saleId, sale);
+  } catch (err: any) {
+    return { ok: false, error: 'write_failed', message: err?.message || 'Save failed.' };
+  }
+
+  const remaining = Math.max(0, (existing.quantity ?? 0) - quantity);
+  await dbService.update('accessoryStock', id, { quantity: remaining });
+  await logInventoryEvent({
+    type: 'sold',
+    message: `Sold ${quantity}x ${existing.name} on ${input.marketplace} · order ${orderNumber} · £${sp}`,
+  });
+  await logAccessoryStockEvent({
+    sku: existing.sku, skuId: id, type: 'sale', delta: -quantity, quantityAfter: remaining,
+    source: 'manual', orderNumber, marketplace: input.marketplace,
+  });
+
+  return { ok: true, saleId, quantity: remaining };
 }
 
 export interface RestoreAccessoryStockInput {
