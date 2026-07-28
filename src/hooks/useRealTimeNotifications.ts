@@ -7,16 +7,21 @@ import { useInventoryStore } from '../lib/inventoryStore';
 // when StockIntakeFlow's own notification is already batched
 const sessionCreatedUnits = new Set<string>();
 
-export function registerSessionCreatedUnits(unitIds: string[]) {
-  console.log('[SessionDedup] Registering units for deduplication:', unitIds);
+// durationMs is a safety-net backstop, not the primary clear mechanism — a
+// caller writing hundreds/thousands of docs (a bulk import) can take far
+// longer than the original 3s to actually land in the store, so a fixed
+// short timer let those late-arriving units slip past the dedup set and
+// spam one toast each. Callers doing large writes should pass a generous
+// duration AND call the returned unregister() once their write settles.
+export function registerSessionCreatedUnits(unitIds: string[], durationMs = 3000): () => void {
   unitIds.forEach(id => sessionCreatedUnits.add(id));
-  console.log('[SessionDedup] Current set size:', sessionCreatedUnits.size);
-  // Auto-clear after 3 seconds to allow real-time notifications for manual additions
-  setTimeout(() => {
-    console.log('[SessionDedup] Auto-clearing units:', unitIds);
+  const timer = setTimeout(() => {
     unitIds.forEach(id => sessionCreatedUnits.delete(id));
-    console.log('[SessionDedup] Set size after clear:', sessionCreatedUnits.size);
-  }, 3000);
+  }, durationMs);
+  return () => {
+    clearTimeout(timer);
+    unitIds.forEach(id => sessionCreatedUnits.delete(id));
+  };
 }
 
 export function useRealTimeNotifications() {

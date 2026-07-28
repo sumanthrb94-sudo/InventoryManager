@@ -36,7 +36,15 @@ function resolveValues(data: Doc): Doc {
   return out;
 }
 
-function applyWrite(name: string, id: string, data: Doc, merge: boolean): void {
+// Core write, no persist/emit — used directly by writeBatch so a 400-doc
+// batch does ONE persist+emit at the end instead of 400. Real Firestore's
+// batch commit is a single atomic op with a single listener update; doing
+// it per-doc here (as applyWrite/removeDoc below still do, for the
+// single-doc setDoc/deleteDoc paths) turned a multi-hundred-row bulk import
+// into a full-store JSON.stringify + snapshot rebuild + listener fan-out
+// PER ROW — minutes of UI-blocking work for an import that's a handful of
+// batched network calls against real Firestore.
+function applyWriteCore(name: string, id: string, data: Doc, merge: boolean): void {
   const resolved = resolveValues(data);
   const base = merge ? { ...(col(name)[id] || {}) } : {};
   for (const [k, v] of Object.entries(resolved)) {
@@ -44,12 +52,20 @@ function applyWrite(name: string, id: string, data: Doc, merge: boolean): void {
     else base[k] = v;
   }
   col(name)[id] = { ...base, id };
+}
+
+function removeDocCore(name: string, id: string): void {
+  delete col(name)[id];
+}
+
+function applyWrite(name: string, id: string, data: Doc, merge: boolean): void {
+  applyWriteCore(name, id, data, merge);
   persist();
   emit(name);
 }
 
 function removeDoc(name: string, id: string): void {
-  delete col(name)[id];
+  removeDocCore(name, id);
   persist();
   emit(name);
 }
@@ -183,15 +199,25 @@ export function limit(n: number) { return { type: 'limit', n }; }
 
 export function writeBatch(_db: any) {
   const ops: Array<() => void> = [];
+  const touched = new Set<string>();
   return {
     set: (ref: any, data: Doc, options?: { merge?: boolean }) => {
-      ops.push(() => applyWrite(ref.__col, ref.id, data, options?.merge !== false));
+      touched.add(ref.__col);
+      ops.push(() => applyWriteCore(ref.__col, ref.id, data, options?.merge !== false));
     },
     update: (ref: any, data: Doc) => {
-      ops.push(() => applyWrite(ref.__col, ref.id, data, true));
+      touched.add(ref.__col);
+      ops.push(() => applyWriteCore(ref.__col, ref.id, data, true));
     },
-    delete: (ref: any) => { ops.push(() => removeDoc(ref.__col, ref.id)); },
-    commit: async () => { for (const op of ops) op(); },
+    delete: (ref: any) => {
+      touched.add(ref.__col);
+      ops.push(() => removeDocCore(ref.__col, ref.id));
+    },
+    commit: async () => {
+      for (const op of ops) op();
+      persist();
+      for (const name of touched) emit(name);
+    },
   };
 }
 

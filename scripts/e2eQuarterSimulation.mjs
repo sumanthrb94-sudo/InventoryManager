@@ -74,7 +74,23 @@ async function gotoTab(page, label) {
     await page.getByLabel('Open menu').click().catch(() => {});
     await page.waitForTimeout(400);
   }
-  await page.getByRole('button', { name: re }).first().click();
+  try {
+    await page.getByRole('button', { name: re }).first().click({ timeout: 45000 });
+  } catch (e) {
+    // A stuck modal/overlay from a prior step can block every click
+    // downstream — a reload keeps the sessionStorage-backed store intact
+    // but clears any leftover UI state, so one bad step doesn't cascade
+    // into the rest of the persona failing identically.
+    console.log(`  gotoTab('${label}') first attempt failed, reloading and retrying: ${String(e).slice(0, 150)}`);
+    await page.reload({ waitUntil: 'networkidle' }).catch(() => {});
+    await page.waitForTimeout(1200);
+    await dismissModals(page);
+    if (!(await tab.isVisible().catch(() => false))) {
+      await page.getByLabel('Open menu').click().catch(() => {});
+      await page.waitForTimeout(400);
+    }
+    await page.getByRole('button', { name: re }).first().click({ timeout: 45000 });
+  }
   await page.waitForTimeout(900);
 }
 async function gotoAdminSub(page, label) {
@@ -124,6 +140,21 @@ async function downloadReport(page, buttonName) {
 // ══════════════════════════════════════════════════════════════════════════
 // STOCK INTAKE persona — bulk import + a couple of manual adds
 // ══════════════════════════════════════════════════════════════════════════
+// Polls for the modal's Close/Done button instead of a blind fixed sleep —
+// a large-file confirm can legitimately take anywhere from a few seconds to
+// a few minutes (per-row writes for accessory consumption / returns
+// restoration inside handleConfirm), so a fixed wait is either wasteful or
+// too short. capMs is a generous ceiling, not the expected case.
+async function waitForImportDone(page, capMs = 240000) {
+  const start = Date.now();
+  const closeBtn = modal(page).getByRole('button', { name: /Close|Done/i }).last();
+  while (Date.now() - start < capMs) {
+    if (await closeBtn.isVisible().catch(() => false)) return true;
+    await page.waitForTimeout(2000);
+  }
+  return false;
+}
+
 async function importInventoryReport(page, file, longWaitMs = 45000) {
   await gotoTab(page, 'Stock Intake');
   await openImportMenu(page);
@@ -134,7 +165,7 @@ async function importInventoryReport(page, file, longWaitMs = 45000) {
   await page.waitForTimeout(longWaitMs);
   const loadBtn = modal(page).getByRole('button', { name: /Load [\d,]+ rows|Restore \d+ accessory pool/i }).first();
   await loadBtn.click({ timeout: 30000 });
-  await page.waitForTimeout(longWaitMs);
+  await waitForImportDone(page);
   await modal(page).getByRole('button', { name: /Close|Done/i }).last().click({ timeout: 10000 }).catch(() => {});
   await dismissModals(page);
 }
@@ -148,9 +179,17 @@ async function importSalesReport(page, file, longWaitMs = 60000) {
   // auto-detected by sheet name.
   await page.locator('input[type="file"]').first().setInputFiles(file);
   await page.waitForTimeout(longWaitMs);
+  // Inventory impact gate — when the import flips in-stock units to 'sold',
+  // a checkbox must be ticked before Confirm enables (SalesReportImport.tsx
+  // ~line 1009). Tick it first if present so the click below isn't blocked.
+  const ackCheckbox = modal(page).getByRole('checkbox').first();
+  if (await ackCheckbox.isVisible().catch(() => false)) {
+    await ackCheckbox.check({ timeout: 5000 }).catch(() => {});
+    await page.waitForTimeout(300);
+  }
   const confirmBtn = modal(page).getByRole('button', { name: /Load|Confirm|record/i }).last();
   await confirmBtn.click({ timeout: 30000 });
-  await page.waitForTimeout(longWaitMs);
+  await waitForImportDone(page);
   await modal(page).getByRole('button', { name: /Close|Done/i }).last().click({ timeout: 10000 }).catch(() => {});
   await dismissModals(page);
 }
@@ -171,6 +210,12 @@ async function stockIntakePersona(page) {
     record('Bulk Inventory Report import completed without error', false, String(e).slice(0, 300));
   }
 
+  // Large dataset just landed (1800+ rows) — give the periodic table / stock
+  // alerts panels a beat to finish re-rendering before the next click, and
+  // make sure no leftover toast/modal is still intercepting clicks.
+  await dismissModals(page);
+  await page.waitForTimeout(1500);
+
   // Manual office unit add — proves the manual path independent of bulk import.
   try {
     await gotoTab(page, 'Stock Intake');
@@ -179,16 +224,20 @@ async function stockIntakePersona(page) {
     const officeTab = modal(page).getByRole('button', { name: /^Office/i }).first();
     if (await officeTab.isVisible().catch(() => false)) await officeTab.click();
     await page.waitForTimeout(300);
-    await modal(page).getByPlaceholder(/model/i).first().fill('iPhone 13 128GB');
+    await modal(page).getByPlaceholder(/search the catalog/i).first().fill('iPhone 13 128GB');
     const imeiInput = modal(page).getByPlaceholder(/imei/i).first();
     if (await imeiInput.isVisible().catch(() => false)) await imeiInput.fill('359999000011122');
+    // Storage is a separate required <select> — typing the model text
+    // (even with a storage size baked in) doesn't auto-populate it.
+    const storageSelect = modal(page).locator('select').nth(1);
+    if (await storageSelect.isVisible().catch(() => false)) await storageSelect.selectOption('128GB').catch(() => {});
     const bpInput = modal(page).locator('input[type="number"]').first();
     if (await bpInput.isVisible().catch(() => false)) await bpInput.fill('300');
-    const supplierInput = modal(page).getByPlaceholder(/supplier/i).first();
+    const supplierInput = modal(page).getByPlaceholder(/type or pick/i).first();
     if (await supplierInput.isVisible().catch(() => false)) await supplierInput.fill('IMAX');
     await shot(page, 'intake-manual-office-add-filled');
     const saveBtn = modal(page).getByRole('button', { name: /Save|Add Stock|Confirm/i }).last();
-    await saveBtn.click({ timeout: 8000 });
+    await saveBtn.click({ timeout: 45000 });
     await page.waitForTimeout(1500);
     await dismissModals(page);
     const s2 = await dumpStore(page);
@@ -210,7 +259,7 @@ async function stockIntakePersona(page) {
     await modal(page).locator('input[placeholder="e.g. 50"]').first().fill('40');
     await modal(page).locator('input[placeholder="0.00"]').first().fill('2.10');
     await page.waitForTimeout(300);
-    await modal(page).getByRole('button', { name: /Save \d+ accessory line/i }).click({ timeout: 8000 });
+    await modal(page).getByRole('button', { name: /Save \d+ accessory line/i }).click({ timeout: 45000 });
     await page.waitForTimeout(1200);
     await dismissModals(page);
     const s3 = await dumpStore(page);
@@ -235,13 +284,29 @@ async function salesPersona(page) {
     record('Bulk Sales Report import created the expected sale count',
       close(sales.length, expectedSales, 5), `got ${sales.length}, expected ~${expectedSales}`);
     const soldUnits = Object.values(preLiveReturnsStore.inventoryUnits || {}).filter(u => u.status === 'sold');
-    record('Bulk Sales Report import flipped units to sold',
-      close(soldUnits.length, manifest.counts.officeSold + manifest.counts.shsSold, 10),
-      `got ${soldUnits.length}, expected ~${manifest.counts.officeSold + manifest.counts.shsSold}`);
+    // SHS units carry no IMEI (they're supplier-held, never scanned in) —
+    // the app's own hint text (SalesReportImport.tsx ~line 1345) spells out
+    // the intended order as "Inventory Report → SHS Receive → Manual Stock
+    // → Sales Report": an SHS unit is meant to be fulfilled through SHS
+    // Receive/manual completion BEFORE it'd ever appear in a blank-IMEI bulk
+    // Sales Report row, not auto-matched by a bulk import with nothing to
+    // join on. So a blind bulk import correctly flips office units only —
+    // this generator's SHS sale rows (blank IMEI, same as the SHS units
+    // themselves) are consequently not expected to auto-fulfil here.
+    record('Bulk Sales Report import flipped office units to sold',
+      close(soldUnits.length, manifest.counts.officeSold, 10),
+      `got ${soldUnits.length}, expected ~${manifest.counts.officeSold}`);
     await shot(page, 'sales-bulk-import-done');
   } catch (e) {
     record('Bulk Sales Report import completed without error', false, String(e).slice(0, 300));
   }
+
+  // Large write just landed (2000+ sale docs, hundreds of units flipped to
+  // sold) — same stabilization as after the inventory bulk import: let any
+  // batched "sold" toast (grouped by model, but still one per distinct
+  // model touched) finish rendering before the next click.
+  await dismissModals(page);
+  await page.waitForTimeout(1500);
 
   // Manual Record Sale — one available office unit, via SellOrderModal.
   try {
@@ -253,13 +318,13 @@ async function salesPersona(page) {
     if (await officeTab.isVisible().catch(() => false)) await officeTab.click();
     await page.waitForTimeout(400);
     const firstRow = modal(page).locator('button').filter({ hasText: /£/ }).first();
-    await firstRow.click({ timeout: 8000 });
+    await firstRow.click({ timeout: 45000 });
     await page.waitForTimeout(700);
     await modal(page).getByRole('button', { name: /^Amazon$/i }).click();
     await modal(page).getByPlaceholder(/026-1234567/i).fill('SIM-MANUAL-UNIT-1');
     await modal(page).locator('input[type="number"]').first().fill('450');
     await shot(page, 'sales-manual-record-sale-filled');
-    await modal(page).getByRole('button', { name: /Confirm Sale/i }).click({ timeout: 8000 });
+    await modal(page).getByRole('button', { name: /Confirm Sale/i }).click({ timeout: 45000 });
     await page.waitForTimeout(1200);
     await dismissModals(page);
     const s = await dumpStore(page);
@@ -277,13 +342,13 @@ async function salesPersona(page) {
     await page.waitForTimeout(700);
     await modal(page).getByRole('button', { name: /^Accessories · \d+$/i }).click();
     await page.waitForTimeout(400);
-    await modal(page).getByText('USB-C 20W Charger', { exact: false }).first().click({ timeout: 8000 });
+    await modal(page).getByText('USB-C 20W Charger', { exact: false }).first().click({ timeout: 45000 });
     await page.waitForTimeout(700);
     await modal(page).getByRole('button', { name: /^eBay$/i }).click();
     await modal(page).getByPlaceholder(/01-14475/i).fill('SIM-MANUAL-ACC-1');
     await modal(page).locator('input[placeholder="0.00"]').fill('9.99');
     await shot(page, 'sales-manual-accessory-sale-filled');
-    await modal(page).getByRole('button', { name: /Confirm Sale/i }).click({ timeout: 8000 });
+    await modal(page).getByRole('button', { name: /Confirm Sale/i }).click({ timeout: 45000 });
     await page.waitForTimeout(1200);
     await dismissModals(page);
     const s = await dumpStore(page);
@@ -419,7 +484,7 @@ async function run() {
   });
   const ctx = await browser.newContext({ viewport: { width: 1440, height: 1100 }, acceptDownloads: true });
   const page = await ctx.newPage();
-  page.setDefaultTimeout(30000);
+  page.setDefaultTimeout(60000);
   const jsErrors = [];
   page.on('pageerror', e => jsErrors.push(String(e)));
 

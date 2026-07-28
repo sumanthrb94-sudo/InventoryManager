@@ -296,7 +296,7 @@ async function run() {
   });
   const ctx = await browser.newContext({ viewport: { width: 1440, height: 1100 }, acceptDownloads: true });
   const page = await ctx.newPage();
-  page.setDefaultTimeout(30000);
+  page.setDefaultTimeout(60000);
   page.on('dialog', d => d.accept().catch(() => {})); // window.confirm() for notice delete etc.
   const jsErrors = [];
   page.on('pageerror', e => jsErrors.push(String(e)));

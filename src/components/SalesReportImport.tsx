@@ -492,8 +492,15 @@ export default function SalesReportImport({ onClose }: Props) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [auditEdits, setAuditEdits] = useState<AuditCompletionRow[]>([]);
 
+  // Deliberately excludes 'loading': the write-in-progress screen only
+  // reads `progress` (see the phase === 'loading' block below), never
+  // `preview`. sales/units are live store values that change on every
+  // batch the bulk write commits, so keeping 'loading' in this condition
+  // meant buildPreview() — an O(sales × units) match — reran on every
+  // intermediate store update for the whole duration of the write, turning
+  // a multi-thousand-row import into a many-second UI freeze for no benefit.
   const preview = useMemo(
-    () => phase === 'preview' || phase === 'loading' || phase === 'done'
+    () => phase === 'preview' || phase === 'done'
       ? (parsed ? buildPreview(parsed, sales, units) : null)
       : null,
     [parsed, sales, units, phase],
