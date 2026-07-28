@@ -16,12 +16,14 @@
  * every change to a pool's quantity is traceable back to a specific,
  * timestamped, reasoned transaction — see AccessoryStockEvent in types.ts.
  */
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { X, SlidersHorizontal, RotateCcw, AlertCircle, CheckCircle2 } from 'lucide-react';
 import type { AccessoryStock } from '../types';
 import { adjustAccessoryStock, returnAccessoryStock } from '../services/inventoryService';
+import { useInventoryStore } from '../lib/inventoryStore';
 
 type Mode = 'adjust' | 'return';
+type Outcome = 'refund' | 'replacement' | 'repair';
 
 interface Props {
   accessory: AccessoryStock;
@@ -34,16 +36,32 @@ const MODE_META: Record<Mode, { label: string; icon: React.ReactNode; accent: st
   return: { label: 'Return', icon: <RotateCcw size={13} />,         accent: 'bg-emerald-600 text-white' },
 };
 
+const OUTCOME_META: Record<Outcome, { label: string }> = {
+  refund: { label: 'Refund' },
+  replacement: { label: 'Replacement' },
+  repair: { label: 'Repair' },
+};
+
 export default function AccessoryStockActionModal({ accessory, initialMode = 'adjust', onClose }: Props) {
+  const { sales } = useInventoryStore();
   const [mode, setMode] = useState<Mode>(initialMode);
-  const [quantity, setQuantity] = useState('1');
   const [delta, setDelta] = useState('1');
   const [deltaSign, setDeltaSign] = useState<'add' | 'remove'>('remove');
   const [reason, setReason] = useState('');
   const [notes, setNotes] = useState('');
+  const [outcome, setOutcome] = useState<Outcome>('refund');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [done, setDone] = useState<{ quantity: number } | null>(null);
+
+  const returnableSales = useMemo(
+    () => sales
+      .filter(s => s.sku === accessory.sku && !(s.imei || '').trim() && !s.voidedAt)
+      .sort((a, b) => (b.saleDate || '').localeCompare(a.saleDate || '')),
+    [sales, accessory.sku],
+  );
+  const [saleId, setSaleId] = useState<string>('');
+  const selectedSaleId = saleId || returnableSales[0]?.id || '';
 
   const switchMode = (m: Mode) => {
     setMode(m);
@@ -64,10 +82,15 @@ export default function AccessoryStockActionModal({ accessory, initialMode = 'ad
         if (!res.ok || res.quantity === undefined) { setError(res.error === 'not_found' ? 'This SKU no longer exists.' : 'Could not record the adjustment.'); return; }
         setDone({ quantity: res.quantity });
       } else {
-        const q = parseInt(quantity, 10);
-        if (!(q > 0)) { setError('Quantity must be greater than 0.'); return; }
-        const res = await returnAccessoryStock({ sku: accessory.sku, quantity: q, notes: notes.trim() || undefined });
-        if (!res.ok || res.quantity === undefined) { setError('Could not record the return.'); return; }
+        if (!selectedSaleId) { setError('No un-returned sale exists for this SKU yet.'); return; }
+        const res = await returnAccessoryStock({
+          sku: accessory.sku, saleId: selectedSaleId, outcome,
+          reason: reason.trim() || undefined, notes: notes.trim() || undefined,
+        });
+        if (!res.ok || res.quantity === undefined) {
+          setError(res.error === 'no_matching_sale' ? 'That sale is no longer available to return.' : 'Could not record the return.');
+          return;
+        }
         setDone({ quantity: res.quantity });
       }
     } catch (e: any) {
@@ -124,14 +147,49 @@ export default function AccessoryStockActionModal({ accessory, initialMode = 'ad
               </p>
 
               {mode === 'return' && (
-                <div>
-                  <label className="text-[9px] font-bold uppercase tracking-widest text-slate-500 block mb-1">Quantity</label>
-                  <input
-                    type="number" min="1" value={quantity}
-                    onChange={e => setQuantity(e.target.value)}
-                    className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-slate-900"
-                  />
-                </div>
+                returnableSales.length === 0 ? (
+                  <p className="inline-flex items-center gap-1.5 text-[11px] font-mono text-amber-600">
+                    <AlertCircle size={12} /> No un-returned sale exists yet for this SKU — accessory returns reverse a specific marketplace sale.
+                  </p>
+                ) : (
+                  <>
+                    <div>
+                      <label className="text-[9px] font-bold uppercase tracking-widest text-slate-500 block mb-1">Which sale is coming back</label>
+                      <select
+                        value={selectedSaleId}
+                        onChange={e => setSaleId(e.target.value)}
+                        className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-slate-900"
+                      >
+                        {returnableSales.map(s => (
+                          <option key={s.id} value={s.id}>
+                            {s.saleDate} · {s.marketplace} · order {s.orderNumber || '—'} · qty {s.quantity}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="text-[9px] font-bold uppercase tracking-widest text-slate-500 block mb-1">Outcome</label>
+                      <div className="inline-flex border border-slate-200 rounded-lg overflow-hidden w-full">
+                        {(['refund', 'replacement', 'repair'] as Outcome[]).map(o => (
+                          <button
+                            key={o} type="button" onClick={() => setOutcome(o)}
+                            className={`flex-1 px-3 py-2 text-[10px] font-bold uppercase tracking-widest ${outcome === o ? 'bg-emerald-600 text-white' : 'bg-white text-slate-500'}`}
+                          >
+                            {OUTCOME_META[o].label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                    <div>
+                      <label className="text-[9px] font-bold uppercase tracking-widest text-slate-500 block mb-1">Reason (shown on the Sales Report)</label>
+                      <input
+                        value={reason} onChange={e => setReason(e.target.value)}
+                        placeholder="e.g. customer changed their mind"
+                        className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-slate-900"
+                      />
+                    </div>
+                  </>
+                )
               )}
 
               {mode === 'adjust' && (
@@ -171,9 +229,9 @@ export default function AccessoryStockActionModal({ accessory, initialMode = 'ad
                 </>
               )}
 
-              {mode === 'return' && (
+              {mode === 'return' && returnableSales.length > 0 && (
                 <div>
-                  <label className="text-[9px] font-bold uppercase tracking-widest text-slate-500 block mb-1">Notes (optional)</label>
+                  <label className="text-[9px] font-bold uppercase tracking-widest text-slate-500 block mb-1">Internal notes (optional)</label>
                   <input
                     value={notes} onChange={e => setNotes(e.target.value)}
                     className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-slate-900"
@@ -197,7 +255,7 @@ export default function AccessoryStockActionModal({ accessory, initialMode = 'ad
             </button>
             <button
               onClick={submit}
-              disabled={busy}
+              disabled={busy || (mode === 'return' && returnableSales.length === 0)}
               className={`px-4 py-2.5 rounded-lg text-[10px] font-bold uppercase tracking-widest transition-all disabled:opacity-40 ${MODE_META[mode].accent}`}
             >
               {busy ? 'Saving…' : `Confirm ${MODE_META[mode].label}`}

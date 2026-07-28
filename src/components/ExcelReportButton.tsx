@@ -1,11 +1,12 @@
 import { useState } from 'react';
 import { FileSpreadsheet, Loader2 } from 'lucide-react';
-import type { InventoryUnit, Supplier } from '../types';
+import type { InventoryUnit, Supplier, AccessoryStock } from '../types';
 import { dbService } from '../lib/dbService';
 
 interface Props {
   units: InventoryUnit[];
   suppliers: Supplier[];
+  accessoryStock?: AccessoryStock[];
   /** Optional date window (yyyy-mm-dd inclusive); when omitted the workbook
    *  contains the full current snapshot, mirroring the client's master files. */
   from?: string;
@@ -18,7 +19,7 @@ interface Props {
  * workbooks byte-compatible with the client's master files (preserving sheet
  * names, header text, cell formats and per-marketplace formulas).
  */
-export default function ExcelReportButton({ units, suppliers, from, to, variant = 'primary' }: Props) {
+export default function ExcelReportButton({ units, suppliers, accessoryStock, from, to, variant = 'primary' }: Props) {
   const [loading, setLoading] = useState(false);
 
   const handleDownload = async () => {
@@ -38,6 +39,7 @@ export default function ExcelReportButton({ units, suppliers, from, to, variant 
         whatsappFeed: whatsappFeed as any,
         sales: sales as any,
         opts: { from, to, today: new Date() },
+        accessoryStock,
       });
     } catch (err: any) {
       console.error('[ExcelReportButton] download failed:', err);

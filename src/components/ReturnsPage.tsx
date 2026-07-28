@@ -71,7 +71,7 @@ const todayStr = () => new Date().toISOString().split('T')[0];
 // ── Component ────────────────────────────────────────────────────────────────
 
 export default function ReturnsPage() {
-  const { units, suppliers, sales } = useInventoryStore();
+  const { units, suppliers, sales, accessoryStock } = useInventoryStore();
   const region = useUserRegion();
   // Admin-only inline-edit access for Reason / Notes lives inside
   // the SheetTable component itself (src/components/ReturnsPage.tsx
@@ -306,6 +306,7 @@ export default function ReturnsPage() {
     await downloadReturnsWorkbook({
       units, sales, supplierMap,
       opts: { from: range.from, to: range.to, today: new Date() },
+      accessoryStock,
     });
   };
   // In-browser preview — same builder as the download (Summary / Returns
@@ -318,6 +319,7 @@ export default function ReturnsPage() {
     const buf = await buildReturnsWorkbookBuffer({
       units, sales, supplierMap,
       opts: { from: range.from, to: range.to, today: new Date() },
+      accessoryStock,
     });
     return viewModelFromXlsxBuffer(buf, `Returns Report · ${range.label}`);
   };

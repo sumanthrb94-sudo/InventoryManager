@@ -1232,30 +1232,73 @@ describe('adjustAccessoryStock — stock count corrections (damaged / lost / fou
   });
 });
 
-describe('returnAccessoryStock — a sold accessory coming back', () => {
-  it('adds quantity back without touching totalReceived', async () => {
+const accessorySale = (over: Partial<Sale> = {}): Sale => ({
+  id: 'AMAZON__O-ACC-1__USB-C-20W-1',
+  marketplace: 'AMAZON',
+  orderNumber: 'O-ACC-1',
+  sku: 'USB-C-20W',
+  imei: '',
+  unitId: '',
+  supplierId: '',
+  supplierName: '',
+  saleDate: '2026-06-14',
+  quantity: 2,
+  buyPrice: 3.5,
+  salePrice: 9.99,
+  postage: 2.5,
+  importBatchId: 't', sourceFile: 't', sourceRow: 1, ownerId: 'shared',
+  createdAt: '2026-06-14T00:00:00Z', updatedAt: '2026-06-14T00:00:00Z',
+  ...over,
+} as any as Sale);
+
+describe('returnAccessoryStock — voids the marketplace sale and restores its exact quantity', () => {
+  it('voids the sale (voidedAt/voidOutcome/voidReason) and adds sale.quantity back, without touching totalReceived', async () => {
     await upsertAccessoryStock({ sku: 'USB-C-20W', name: 'USB-C 20W Charger', quantity: 50, buyPrice: 3.5 });
     await decrementAccessoryStock('USB-C-20W', 5);
-    const r = await returnAccessoryStock({ sku: 'USB-C-20W', quantity: 2, notes: 'customer returned, unopened' });
+    const sale = accessorySale({ quantity: 2 });
+    col('sales').set(sale.id, { ...sale });
+
+    const r = await returnAccessoryStock({ sku: 'USB-C-20W', saleId: sale.id, outcome: 'refund', reason: 'changed their mind' });
     expect(r.ok).toBe(true);
-    expect(r.quantity).toBe(47); // 50 - 5 + 2
+    expect(r.quantity).toBe(47); // 50 - 5 + 2 (the sale's own quantity, not a caller-chosen amount)
+    expect(r.voidedSaleId).toBe(sale.id);
     expect(collections['accessoryStock'].get('usb_c_20w').totalReceived).toBe(50);
+
+    const voided = collections['sales'].get(sale.id);
+    expect(voided.voidedAt).toBeTruthy();
+    expect(voided.voidOutcome).toBe('refund');
+    expect(voided.voidReason).toBe('changed their mind');
+
     const event = accessoryEvents().find(e => e.type === 'return');
-    expect(event).toMatchObject({ delta: 2, quantityAfter: 47, notes: 'customer returned, unopened' });
+    expect(event).toMatchObject({ delta: 2, quantityAfter: 47, orderNumber: 'O-ACC-1', marketplace: 'AMAZON' });
   });
 
-  it('can reference the original sale event id when known', async () => {
+  it('auto-picks the most recent non-voided sale for the SKU when saleId is omitted', async () => {
     await upsertAccessoryStock({ sku: 'USB-C-20W', name: 'USB-C 20W Charger', quantity: 50, buyPrice: 3.5 });
-    await decrementAccessoryStock('USB-C-20W', 5);
-    const saleEvent = accessoryEvents().find(e => e.type === 'sale');
-    await returnAccessoryStock({ sku: 'USB-C-20W', quantity: 1, refEventId: saleEvent.id });
-    const returnEvent = accessoryEvents().find(e => e.type === 'return');
-    expect(returnEvent.refEventId).toBe(saleEvent.id);
+    const older = accessorySale({ id: 'older', orderNumber: 'O-OLD', saleDate: '2026-06-01', quantity: 1 });
+    const newer = accessorySale({ id: 'newer', orderNumber: 'O-NEW', saleDate: '2026-06-20', quantity: 3 });
+    col('sales').set(older.id, { ...older });
+    col('sales').set(newer.id, { ...newer });
+
+    const r = await returnAccessoryStock({ sku: 'USB-C-20W', outcome: 'replacement' });
+    expect(r.ok).toBe(true);
+    expect(r.voidedSaleId).toBe(newer.id);
+    expect(r.quantity).toBe(53); // 50 + 3 (the newer sale's quantity)
+    expect(collections['sales'].get(newer.id).voidedAt).toBeTruthy();
+    expect(collections['sales'].get(older.id).voidedAt).toBeFalsy();
   });
 
-  it('rejects an unknown SKU and a zero quantity', async () => {
-    expect((await returnAccessoryStock({ sku: 'NO-SUCH-SKU', quantity: 1 })).error).toBe('not_found');
+  it('rejects when no matching un-voided sale exists for the SKU', async () => {
     await upsertAccessoryStock({ sku: 'USB-C-20W', name: 'USB-C 20W Charger', quantity: 50, buyPrice: 3.5 });
-    expect((await returnAccessoryStock({ sku: 'USB-C-20W', quantity: 0 })).error).toBe('invalid_quantity');
+    expect((await returnAccessoryStock({ sku: 'USB-C-20W', outcome: 'refund' })).error).toBe('no_matching_sale');
+
+    const alreadyVoided = accessorySale({ id: 'gone', voidedAt: '2026-06-10', voidOutcome: 'refund' } as any);
+    col('sales').set(alreadyVoided.id, { ...alreadyVoided });
+    expect((await returnAccessoryStock({ sku: 'USB-C-20W', outcome: 'refund' })).error).toBe('no_matching_sale');
+  });
+
+  it('rejects an unknown SKU and a missing SKU', async () => {
+    expect((await returnAccessoryStock({ sku: 'NO-SUCH-SKU', outcome: 'refund' })).error).toBe('not_found');
+    expect((await returnAccessoryStock({ sku: '', outcome: 'refund' })).error).toBe('missing_sku');
   });
 });

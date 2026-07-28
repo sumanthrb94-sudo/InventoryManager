@@ -1,13 +1,20 @@
 /**
- * scripts/e2eAccessoryLedger.mjs — proves the accessory ledger + manual
- * actions (Adjust / Return) work end to end from Configuration → Accessory
- * Stock, and that every action produces a traceable AccessoryStockEvent
- * row with the right delta/quantityAfter/reason.
+ * scripts/e2eAccessoryLedger.mjs — proves the accessory ledger + the Adjust
+ * action work end to end from Configuration → Accessory Stock, and that
+ * every action produces a traceable AccessoryStockEvent row with the right
+ * delta/quantityAfter/reason.
  *
  * No manual "Sell" action exists on purpose — every real accessory sale
  * flows through a marketplace, so decrementAccessoryStock (fired from the
  * Sales Report import) is the only sale path; a manual alternative would
  * just risk double-recording a sale the import already caught.
+ *
+ * Return is deliberately NOT exercised here — since Return now voids a real
+ * marketplace Sale doc (picked from a dropdown, with a Refund/Replacement/
+ * Repair outcome) rather than taking a bare typed quantity, it needs a real
+ * sale to exist first. That full sell → return → Sales-Report-visibility →
+ * wipe/reupload-reconciliation flow is covered end to end by
+ * scripts/e2eAccessoryReturnReconcile.mjs instead.
  *
  * Run after: VITE_E2E=1 vite build --outDir dist-e2e && vite preview
  *   node scripts/e2eAccessoryLedger.mjs
@@ -174,21 +181,22 @@ async function run() {
   const adjEvent = store.accessoryStockEvents.filter(e => e.type === 'adjustment').find(e => e.delta === -2);
   record('Negative-adjustment event carries the reason', adjEvent?.reason === '2 units water damaged');
 
-  // ══ 5. Return 1 (customer sent a charger back) ══════════════════════════
-  console.log('\n── 5. Return 1 ──');
+  // ══ 5. Return with no sale on file yet — blocked, not a silent no-op ═════
+  // No accessory sale exists for this SKU in this script (only Adjust
+  // actions above) — Return now reverses a real marketplace Sale doc, so it
+  // must refuse to proceed rather than let the operator type an arbitrary
+  // quantity. See e2eAccessoryReturnReconcile.mjs for the real sell → return
+  // flow once a sale exists.
+  console.log('\n── 5. Return with no sale on file — the modal explains why and blocks Confirm ──');
   const returnBtn = page.getByRole('button', { name: /^Return$/i }).first();
   await returnBtn.click();
   await page.waitForTimeout(500);
-  await modal(page).locator('input[type="number"]').first().fill('1');
-  await page.waitForTimeout(200);
-  await modal(page).getByRole('button', { name: /Confirm Return/i }).click();
-  await page.waitForTimeout(1000);
-  await modal(page).getByRole('button', { name: /^Close$/i }).click().catch(() => {});
+  const noSaleText = await modal(page).innerText().catch(() => '');
+  record('Return tab explains there is no un-returned sale for this SKU', /no un-returned sale/i.test(noSaleText));
+  const confirmReturnBtn = modal(page).getByRole('button', { name: /Confirm Return/i });
+  record('Confirm Return is disabled with nothing to return', await confirmReturnBtn.isDisabled().catch(() => false));
+  await shot(page, 'return-blocked-no-sale');
   await dismissModals(page);
-
-  store = await readStore(page);
-  record('Return +1: 23 + 1 = 24', poolFor(store)?.quantity === 24, `quantity=${poolFor(store)?.quantity}`);
-  record('totalReceived unchanged by a return (still 25)', poolFor(store)?.totalReceived === 25, `totalReceived=${poolFor(store)?.totalReceived}`);
 
   // ══ 6. History — expand and check every event renders ═══════════════════
   console.log('\n── 6. Expand History and check the ledger renders ──');
@@ -200,8 +208,7 @@ async function run() {
   record('History shows the topup', /Topped up \+20/.test(pageText));
   record('History shows the +5 adjustment with reason', /Adjusted \+5.*Found an extra box/.test(pageText));
   record('History shows the -2 adjustment with reason', /Adjusted -2.*water damaged/.test(pageText));
-  record('History shows the return', /Returned \+1/.test(pageText));
-  record('All 4 ledger rows present in the store', store.accessoryStockEvents.length === 4, `count=${store.accessoryStockEvents.length}`);
+  record('All 3 ledger rows present in the store (no return event — nothing to return yet)', store.accessoryStockEvents.length === 3, `count=${store.accessoryStockEvents.length}`);
 
   record('No uncaught JS errors across the whole run', jsErrors.length === 0, jsErrors.slice(0, 2).join(' | '));
 

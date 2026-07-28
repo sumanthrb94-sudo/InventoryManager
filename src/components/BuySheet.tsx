@@ -37,6 +37,7 @@ import BulkOrderModal from './BulkOrderModal';
 import ResetDataModal from './ResetDataModal';
 import ScopedWipeModal from './ScopedWipeModal';
 import type { WipeScopeId } from '../lib/wipeScopes';
+import AccessoryStockPanel from './AccessoryStockPanel';
 import StockOverlayModal, {
   buildGroupedModels, sortGroupedModels, GroupedExcelTable,
   DEFAULT_GROUP_SORT, sortUnits,
@@ -214,6 +215,11 @@ export default function BuySheet(_props: Props) {
 
   // Which KPI's overlay is open (null = no overlay).
   const [overlay, setOverlay] = useState<KpiId | null>(null);
+  // The Accessory Stock tile doesn't fit the unit-row Excel overlay (a
+  // quantity pool has no rows to show) — it opens the same management
+  // panel Configuration uses instead, so accessories aren't buried one
+  // level deeper than everything else on Buy.
+  const [showAccessoryPanel, setShowAccessoryPanel] = useState(false);
 
   // Modals
   const [addStockMode, setAddStockMode] = useState<'office' | 'shs' | null>(null);
@@ -368,6 +374,13 @@ export default function BuySheet(_props: Props) {
       outOfStock: outOfStock72h.length,
     };
   }, [aggregates, recentUnits.length, officeUnits.length, shsAggs.length, shsUnits.length, soldToday.length, outOfStock72h.length]);
+
+  // Accessory pools (no-IMEI quantity stock) — separate from the unit-based
+  // KPIs above since accessories never create an InventoryUnit.
+  const accessoryKpi = useMemo(() => {
+    const value = accessoryStock.reduce((s, a) => s + (a.quantity || 0) * (a.buyPrice || 0), 0);
+    return { count: accessoryStock.length, value };
+  }, [accessoryStock]);
 
   // ── Supplier options for the filter chip drawer ───────────────────────────
   const supplierOptions = useMemo(() => {
@@ -722,8 +735,10 @@ export default function BuySheet(_props: Props) {
           )}
         </div>
 
-        {/* 5 clickable KPI tiles — each opens the Excel overlay scoped to that KPI */}
-        <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+        {/* 6 clickable KPI tiles — the first 5 open the Excel overlay scoped to
+            that KPI; Accessory Stock opens the pool management panel instead
+            (a quantity pool has no unit rows for the Excel overlay to show). */}
+        <div className="grid grid-cols-2 md:grid-cols-6 gap-3">
           <BigKpiTile
             label="Stock Added In Last 72 Hours"
             value={kpiCounts.recent}
@@ -747,6 +762,12 @@ export default function BuySheet(_props: Props) {
             value={kpiCounts.soldToday}
             tone="slate"
             onClick={() => setOverlay('sold_today')}
+          />
+          <BigKpiTile
+            label="Accessory SKUs"
+            value={accessoryKpi.count}
+            tone="indigo"
+            onClick={() => setShowAccessoryPanel(true)}
           />
           <BigKpiTile
             label="Out of Stock · 72h"
@@ -924,6 +945,30 @@ export default function BuySheet(_props: Props) {
         {wipeScope     && <ScopedWipeModal scope={wipeScope} onClose={() => setWipeScope(null)} />}
         {addStockMode  && <AddStockManualModal initialMode={addStockMode} onClose={() => setAddStockMode(null)} />}
         {bulkOrderOpen && <BulkOrderModal onClose={() => setBulkOrderOpen(false)} />}
+        {showAccessoryPanel && (
+          <div className="fixed inset-0 z-[75] flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm">
+            <motion.div
+              initial={{ scale: 0.97, opacity: 0 }} animate={{ scale: 1, opacity: 1 }}
+              className="bg-white rounded-3xl w-full max-w-3xl shadow-2xl flex flex-col overflow-hidden"
+              style={{ maxHeight: 'calc(100dvh - 32px)' }}
+            >
+              <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100 flex-shrink-0">
+                <div>
+                  <p className="text-[9px] font-mono uppercase tracking-widest text-slate-400">Buy · Accessory Stock</p>
+                  <h3 className="text-sm font-bold">
+                    {accessoryKpi.count} SKU{accessoryKpi.count === 1 ? '' : 's'} · £{accessoryKpi.value.toLocaleString()} pooled stock
+                  </h3>
+                </div>
+                <button onClick={() => setShowAccessoryPanel(false)} className="p-2 rounded-xl hover:bg-slate-100 text-slate-400">
+                  <X size={16} />
+                </button>
+              </div>
+              <div className="overflow-y-auto px-2 py-2">
+                <AccessoryStockPanel bare />
+              </div>
+            </motion.div>
+          </div>
+        )}
       </AnimatePresence>
     </div>
   );
@@ -1173,7 +1218,7 @@ function BigKpiTile({
 }: {
   label: string;
   value: string | number;
-  tone: 'emerald' | 'blue' | 'amber' | 'slate' | 'rose';
+  tone: 'emerald' | 'blue' | 'amber' | 'slate' | 'rose' | 'indigo';
   onClick: () => void;
 }) {
   const tones: Record<string, string> = {
@@ -1182,6 +1227,7 @@ function BigKpiTile({
     amber:   'bg-gradient-to-br from-amber-50 to-amber-100/50 border-amber-200 text-amber-800 hover:from-amber-100 hover:to-amber-100',
     slate:   'bg-gradient-to-br from-slate-50 to-slate-100/50 border-slate-200 text-slate-800 hover:from-slate-100 hover:to-slate-100',
     rose:    'bg-gradient-to-br from-rose-50 to-rose-100/50 border-rose-200 text-rose-800 hover:from-rose-100 hover:to-rose-100',
+    indigo:  'bg-gradient-to-br from-indigo-50 to-indigo-100/50 border-indigo-200 text-indigo-800 hover:from-indigo-100 hover:to-indigo-100',
   };
   return (
     <button

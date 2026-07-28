@@ -1645,12 +1645,18 @@ export async function adjustAccessoryStock(
 
 export interface ReturnAccessoryStockInput {
   sku: string;
-  quantity: number;
-  /** Id of the AccessoryStockEvent this return reverses, when known —
-   *  optional since accessories are fungible (one charger is any other),
-   *  so tracing back to the exact original sale is a nice-to-have, not a
-   *  requirement to record the return. */
-  refEventId?: string;
+  /** Which sale is being reversed. Optional — when omitted, the most
+   *  recent non-voided sale for this SKU is used (accessories are
+   *  fungible, so picking the exact order rarely matters operationally),
+   *  but a specific id ties the return to that sale's own quantity,
+   *  marketplace and postage figures for exact reconciliation. */
+  saleId?: string;
+  /** Customer-facing outcome — same vocabulary as a unit return
+   *  (Sale.voidOutcome). Drives the Postage Loss column on the Sales
+   *  Report exactly like a phone return: refund/repair = 2 shipping legs,
+   *  replacement = 3. */
+  outcome: 'refund' | 'replacement' | 'repair';
+  reason?: string;
   notes?: string;
 }
 
@@ -1658,31 +1664,70 @@ export interface ReturnAccessoryStockResult {
   ok: boolean;
   id?: string;
   quantity?: number;
+  /** The sale doc that got voided, so the caller can show what was
+   *  reversed (order number, marketplace, quantity). */
+  voidedSaleId?: string;
   error?: string;
 }
 
-/** A sold accessory coming back — adds `quantity` back to the pool.
- *  Doesn't touch totalReceived (this isn't new intake from a supplier,
- *  it's previously-sold stock returning). */
+/**
+ * A sold accessory coming back — voids the original marketplace sale
+ * (voidedAt/voidOutcome/voidReason, the exact same fields a unit return
+ * sets on its Sale doc) and adds that sale's own quantity back to the
+ * pool. Doesn't touch totalReceived (this isn't new intake from a
+ * supplier, it's previously-sold stock returning).
+ *
+ * Voiding the real sale doc — rather than just bumping the pool — is what
+ * makes this participate in the Sales Report exactly like a unit return
+ * for free: postageLossFor/writeReturnBlock/writeReturnsSheets in
+ * clientReport.ts all key off Sale.voidedAt/voidOutcome and never require
+ * a linked InventoryUnit, so the Postage Loss column, the Returns Summary
+ * counts, and GP exclusion on every Sell-side view all pick this up
+ * without any accessory-specific code there.
+ *
+ * Restoring `sale.quantity` (not a caller-chosen amount) keeps the wipe +
+ * re-upload reconciliation exact: decrementAccessoryStock skips voided
+ * sales when replaying toCreate rows post-wipe, so a partial or
+ * mismatched restore here would silently drift from the replayed total.
+ */
 export async function returnAccessoryStock(
   input: ReturnAccessoryStockInput,
 ): Promise<ReturnAccessoryStockResult> {
   const sku = (input.sku || '').trim();
-  if (!sku || !(input.quantity > 0)) return { ok: false, error: 'invalid_quantity' };
+  if (!sku) return { ok: false, error: 'missing_sku' };
 
   const id = slugify(sku);
   const existing = (await dbService.readAll('accessoryStock')).find((a: any) => a.id === id);
   if (!existing) return { ok: false, error: 'not_found' };
 
-  const nextQuantity = (existing.quantity ?? 0) + input.quantity;
+  const allSales = (await dbService.readAll('sales')) as Sale[];
+  let sale: Sale | undefined;
+  if (input.saleId) {
+    sale = allSales.find(s => s.id === input.saleId && s.sku === sku && !s.voidedAt);
+  } else {
+    sale = allSales
+      .filter(s => s.sku === sku && !(s.imei || '').trim() && !s.voidedAt)
+      .sort((a, b) => (b.saleDate || '').localeCompare(a.saleDate || ''))[0];
+  }
+  if (!sale) return { ok: false, error: 'no_matching_sale' };
+
+  const quantity = sale.quantity || 1;
+  const nextQuantity = (existing.quantity ?? 0) + quantity;
+  const reason = (input.reason || '').trim() || undefined;
+  const voidedAt = today();
+
+  await dbService.update('sales', sale.id, {
+    voidedAt, voidOutcome: input.outcome, voidReason: reason,
+  });
   await dbService.update('accessoryStock', id, { quantity: nextQuantity });
   await logInventoryEvent({
     type: 'stock_adjusted',
-    message: `Accessory "${existing.sku}" returned (+${input.quantity} → ${nextQuantity})`,
+    message: `Accessory "${existing.sku}" returned (+${quantity} → ${nextQuantity}) · order ${sale.orderNumber || '—'} · ${input.outcome}`,
   });
   await logAccessoryStockEvent({
-    sku: existing.sku, skuId: id, type: 'return', delta: input.quantity, quantityAfter: nextQuantity,
-    source: 'manual', refEventId: input.refEventId, notes: input.notes,
+    sku: existing.sku, skuId: id, type: 'return', delta: quantity, quantityAfter: nextQuantity,
+    source: 'manual', orderNumber: sale.orderNumber, marketplace: sale.marketplace,
+    reason, notes: input.notes,
   });
-  return { ok: true, id, quantity: nextQuantity };
+  return { ok: true, id, quantity: nextQuantity, voidedSaleId: sale.id };
 }

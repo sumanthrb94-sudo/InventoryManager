@@ -223,7 +223,7 @@ function inventoryUnitToSale(u: InventoryUnit): Sale {
 // ── Component ────────────────────────────────────────────────────────────────
 
 export default function SellSheet(_props: Props) {
-  const { units, suppliers, sales } = useInventoryStore();
+  const { units, suppliers, sales, accessoryStock } = useInventoryStore();
   const region = useUserRegion();
   const isAdminUser = useIsAdmin();
 
@@ -550,6 +550,7 @@ export default function SellSheet(_props: Props) {
       units,
       supplierMap,
       opts: { from: range.from, to: range.to, today: new Date() },
+      accessoryStock,
     });
   };
   // In-browser preview — builds the SAME workbook buffer as the download,
@@ -565,6 +566,7 @@ export default function SellSheet(_props: Props) {
       units,
       supplierMap,
       opts: { from: range.from, to: range.to, today: new Date() },
+      accessoryStock,
     });
     return viewModelFromXlsxBuffer(buf, `Sales Report · ${range.label}`);
   };

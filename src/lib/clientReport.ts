@@ -22,6 +22,7 @@ import type {
   SupplierWhatsappUpdate,
   Supplier,
   Marketplace,
+  AccessoryStock,
 } from '../types';
 import { MARKETPLACES } from '../types';
 import { excelFormulaFor } from './platforms';
@@ -105,6 +106,9 @@ export interface BuildSalesWorkbookInput {
    *  the Sale's stored supplierName when no map entry matches. */
   supplierMap?: Record<string, string>;
   opts?: ClientReportOptions;
+  /** Accessory SKU pools — see BuildReturnsWorkbookInput.accessoryStock;
+   *  threaded through to the embedded Returns Detail sheet below. */
+  accessoryStock?: AccessoryStock[];
 }
 
 export interface DownloadClientWorkbooksInput {
@@ -114,6 +118,7 @@ export interface DownloadClientWorkbooksInput {
   whatsappFeed: SupplierWhatsappUpdate[];
   sales: Sale[];
   opts?: ClientReportOptions;
+  accessoryStock?: AccessoryStock[];
 }
 
 // ---------------------------------------------------------------------------
@@ -706,7 +711,7 @@ function writeSaleRow(
 }
 
 export async function buildSalesWorkbookBuffer(input: BuildSalesWorkbookInput): Promise<ArrayBuffer> {
-  const { sales, units, supplierMap, opts } = input;
+  const { sales, units, supplierMap, opts, accessoryStock } = input;
 
   // Pre-index units twice for the buy-side join + the legacy-return
   // enrichment below. unitsByImei catches sales that import never
@@ -922,7 +927,7 @@ export async function buildSalesWorkbookBuffer(input: BuildSalesWorkbookInput): 
   // period?" rather than "which of THIS period's sales were voided?". The
   // marketplace tabs keep their saleDate filter so the Summary's revenue /
   // GP numbers stay self-consistent with the rows that produced them.
-  writeReturnsSheets(wb, { units: units ?? [], sales: enriched, supplierMap, opts }, 'Returns Summary');
+  writeReturnsSheets(wb, { units: units ?? [], sales: enriched, supplierMap, opts, accessoryStock }, 'Returns Summary');
 
   return wb.xlsx.writeBuffer() as Promise<ArrayBuffer>;
 }
@@ -1323,6 +1328,7 @@ export async function downloadClientWorkbooks(input: DownloadClientWorkbooksInpu
       units: input.units,
       supplierMap: Object.fromEntries(input.suppliers.map(s => [s.id, s.name])),
       opts: input.opts,
+      accessoryStock: input.accessoryStock,
     }),
   ]);
   triggerBrowserDownload(invBuf, inventoryReportFilename(today));
@@ -1363,6 +1369,11 @@ export interface BuildReturnsWorkbookInput {
    *  period label on Sheet 1. Sheet 3 (unit histories) always shows
    *  the full timeline for whichever units land in the report. */
   opts?: ClientReportOptions;
+  /** Accessory SKU pools — lets Sheet 2's orphan fallback recognise a
+   *  voided accessory sale (no unitId/IMEI by design) as a genuine
+   *  "Accessory" return row instead of silently dropping it, and resolves
+   *  the SKU to its friendly display name for the Model column. */
+  accessoryStock?: AccessoryStock[];
 }
 
 /** Human-readable label for the unit's return type — same wording the
@@ -1464,7 +1475,15 @@ function writeReturnsSheets(
   input: BuildReturnsWorkbookInput,
   summarySheetName: string = 'Summary',
 ): void {
-  const { units, sales, supplierMap, opts } = input;
+  const { units, sales, supplierMap, opts, accessoryStock } = input;
+
+  // sku (case/whitespace-normalised) → friendly display name, so an orphan
+  // accessory-sale row shows "USB-C 20W Charger" rather than a raw SKU.
+  const accessoryNameBySku = new Map<string, string>();
+  for (const a of accessoryStock ?? []) {
+    const k = (a.sku || '').trim().toUpperCase();
+    if (k) accessoryNameBySku.set(k, a.name || a.sku);
+  }
 
   // Index sales for the unit ↔ sale match — unitId first, then IMEI
   // (uppercased + trimmed) so legacy imports that never back-linked the
@@ -1816,7 +1835,14 @@ function writeReturnsSheets(
       || (s.imei && unitsByImeiRet.get((s.imei || '').trim().toUpperCase()))
       || undefined;
     if (u && representedUnitIds.has(u.id)) continue; // already covered above
-    const key = (s.unitId || '').trim() || (s.imei || '').trim().toUpperCase();
+    // Accessory sales carry neither unitId nor IMEI by design (no-serial
+    // pooled stock) — fall back to the SKU, but only when it resolves to a
+    // genuine accessory pool, so a malformed/unlinked UNIT sale (bad data,
+    // not an accessory) doesn't get silently relabelled as one.
+    const skuKey = (s.sku || '').trim().toUpperCase();
+    const isAccessorySale = !s.unitId && !(s.imei || '').trim() && accessoryNameBySku.has(skuKey);
+    const key = (s.unitId || '').trim() || (s.imei || '').trim().toUpperCase()
+      || (isAccessorySale ? `sku:${skuKey}` : '');
     if (!key) continue; // nothing stable to key an orphan row on
     const existing = orphanBySaleKey.get(key);
     if (!existing || (s.voidedAt || '') > (existing.voidedAt || '')) orphanBySaleKey.set(key, s);
@@ -1829,17 +1855,20 @@ function writeReturnsSheets(
     const legs = shippingLegsFor(s);
     const loss = postageLossFor(s);
     const legCost = legs > 0 ? loss / legs : 0;
+    const accessoryName = !s.unitId && !(s.imei || '').trim()
+      ? accessoryNameBySku.get((s.sku || '').trim().toUpperCase())
+      : undefined;
     const row = detail.addRow([
       s.voidedAt ? toDate(s.voidedAt) : null,
       s.imei || '',
-      s.model || s.sku || '',
+      accessoryName || s.model || s.sku || '',
       '',
       '',
       s.supplierName || '',
       s.saleDate ? toDate(s.saleDate) : null,
       s.salePrice ?? null,
       s.marketplace ?? '',
-      '',                          // Return Type — unknown, never guessed
+      accessoryName ? 'Accessory' : '',   // Return Type — unknown for a true unit orphan, never guessed
       outcomeText(outcome),
       s.voidReason || '',
       s.comments || '',

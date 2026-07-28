@@ -332,7 +332,7 @@ export default function ReportingPage() {
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <ExcelReportButton units={units} suppliers={suppliers} variant="outline" />
+          <ExcelReportButton units={units} suppliers={suppliers} accessoryStock={accessoryStock} variant="outline" />
           <PDFReportButton units={units} suppliers={suppliers} variant="outline" />
         </div>
       </div>

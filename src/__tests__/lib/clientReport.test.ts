@@ -329,6 +329,69 @@ describe('buildSalesWorkbookBuffer — auditor-grade structure', () => {
     expect(byImei('350000000000030').getCell(10).value).toBe('');
   });
 
+  it('Returns Detail — a voided accessory sale (no unitId/IMEI) appears via the orphan fallback as an "Accessory" row with its friendly name, when accessoryStock is supplied', async () => {
+    const sales: Sale[] = [
+      baseSale({
+        id: 'AMAZON__ACC-1__USB-C-20W', orderNumber: 'ACC-1', marketplace: 'AMAZON',
+        imei: '', unitId: '', sku: 'USB-C-20W', model: '',
+        voidedAt: '2026-06-13', voidOutcome: 'refund', voidReason: 'customer changed their mind',
+        postage: 2.5, postageVat: 0.5, salePrice: 9.99,
+      }),
+    ];
+    const buffer = await buildSalesWorkbookBuffer({
+      sales,
+      accessoryStock: [{ id: 'usb_c_20w', sku: 'USB-C-20W', name: 'USB-C 20W Charger', quantity: 10, buyPrice: 3.5 } as any],
+    });
+    const wb = await loadWorkbook(buffer);
+    const detail = wb.getWorksheet('Returns Detail')!;
+    expect(detail.rowCount).toBe(2); // header + the one accessory return row
+    const row = detail.getRow(2);
+    expect(row.getCell(2).value).toBe('');                     // Unit IMEI — accessories have none
+    expect(row.getCell(3).value).toBe('USB-C 20W Charger');    // Model — resolved friendly name, not raw SKU
+    expect(row.getCell(9).value).toBe('AMAZON');
+    expect(row.getCell(10).value).toBe('Accessory');           // Return Type — distinct from a blank unit orphan
+    expect(row.getCell(11).value).toBe('Refund');
+    expect(row.getCell(12).value).toBe('customer changed their mind');
+    expect(row.getCell(16).value).toBeCloseTo(6, 2);            // (2.5 + 0.5) × 2
+  });
+
+  it('Returns Detail — an accessory sale with an unrecognised SKU (no accessoryStock match) still drops out as a true orphan, not mislabelled', async () => {
+    const sales: Sale[] = [
+      baseSale({
+        id: 'AMAZON__ACC-2__UNKNOWN-SKU', orderNumber: 'ACC-2', marketplace: 'AMAZON',
+        imei: '', unitId: '', sku: 'UNKNOWN-SKU', model: '',
+        voidedAt: '2026-06-13', voidOutcome: 'refund',
+      }),
+    ];
+    const buffer = await buildSalesWorkbookBuffer({ sales, accessoryStock: [] });
+    const wb = await loadWorkbook(buffer);
+    const detail = wb.getWorksheet('Returns Detail')!;
+    // No unitId, no IMEI, no matching accessory pool — nothing stable to
+    // key an orphan row on, so no real return row is added; the sheet
+    // falls back to its "nothing to show" explanatory row instead.
+    expect(detail.rowCount).toBe(2);
+    expect(String(detail.getRow(2).getCell(1).value)).toMatch(/no unit has a Return Type on file/);
+  });
+
+  it('Returns Summary already counts a voided accessory sale — Sheet 1 is purely Sale-doc based, no accessoryStock needed', async () => {
+    const sales: Sale[] = [
+      baseSale({
+        id: 'AMAZON__ACC-3__USB-C-20W', orderNumber: 'ACC-3', marketplace: 'AMAZON',
+        imei: '', unitId: '', sku: 'USB-C-20W',
+        voidedAt: '2026-06-13', voidOutcome: 'refund',
+        postage: 2.5, postageVat: 0.5,
+      }),
+    ];
+    const buffer = await buildSalesWorkbookBuffer({ sales });
+    const wb = await loadWorkbook(buffer);
+    // The Sales Report's embedded Returns Summary sheet uses the plain
+    // writeSummaryRow layout (Period/Total Returns/Refunds/... one per row).
+    const returnsSummary = wb.getWorksheet('Returns Summary')!;
+    expect(returnsSummary.getRow(2).getCell(2).value).toBe(1); // Total Returns
+    expect(returnsSummary.getRow(3).getCell(2).value).toBe(1); // Refunds
+    expect(returnsSummary.getRow(6).getCell(2).value).toBeCloseTo(6, 2); // Total Postage Loss £
+  });
+
   it('Summary header row reads Marketplace / Sales / Refunds / Replacements / Gross GP / Postage Loss / Net GP / Net GP %', async () => {
     const buffer = await buildSalesWorkbookBuffer({ sales: [] });
     const wb = await loadWorkbook(buffer);
