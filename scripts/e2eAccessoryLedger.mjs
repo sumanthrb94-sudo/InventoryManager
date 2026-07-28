@@ -1,8 +1,13 @@
 /**
- * scripts/e2eAccessoryLedger.mjs — proves the new accessory ledger + manual
- * actions (Sell / Adjust / Return) work end to end from Configuration →
- * Accessory Stock, and that every action produces a traceable
- * AccessoryStockEvent row with the right delta/quantityAfter/reason.
+ * scripts/e2eAccessoryLedger.mjs — proves the accessory ledger + manual
+ * actions (Adjust / Return) work end to end from Configuration → Accessory
+ * Stock, and that every action produces a traceable AccessoryStockEvent
+ * row with the right delta/quantityAfter/reason.
+ *
+ * No manual "Sell" action exists on purpose — every real accessory sale
+ * flows through a marketplace, so decrementAccessoryStock (fired from the
+ * Sales Report import) is the only sale path; a manual alternative would
+ * just risk double-recording a sale the import already caught.
  *
  * Run after: VITE_E2E=1 vite build --outDir dist-e2e && vite preview
  *   node scripts/e2eAccessoryLedger.mjs
@@ -124,26 +129,10 @@ async function run() {
   await page.waitForTimeout(300);
   await shot(page, 'pool-created-20-units');
 
-  // ══ 2. Sell 3 manually (cash sale, no marketplace order) ════════════════
-  console.log('\n── 2. Sell 3 manually via the new Sell action ──');
-  const sellBtn = page.getByRole('button', { name: /^Sell$/i }).first();
-  await sellBtn.click();
-  await page.waitForTimeout(500);
-  await shot(page, 'sell-modal-open');
-  await modal(page).locator('input[type="number"]').first().fill('3');
-  await modal(page).getByPlaceholder('e.g. cash sale').fill('Walk-in cash sale');
-  await page.waitForTimeout(200);
-  await modal(page).getByRole('button', { name: /Confirm Sell/i }).click();
-  await page.waitForTimeout(1000);
-  await shot(page, 'sell-confirmed');
-  await modal(page).getByRole('button', { name: /^Close$/i }).click().catch(() => {});
-  await dismissModals(page);
-
-  store = await readStore(page);
-  record('Manual sale: 20 - 3 = 17', poolFor(store)?.quantity === 17, `quantity=${poolFor(store)?.quantity}`);
-  const saleEvent = store.accessoryStockEvents.find(e => e.type === 'sale' && e.source === 'manual');
-  record('Manual sale event logged with source=manual, orderNumber="Walk-in cash sale"',
-    !!saleEvent && saleEvent.delta === -3 && saleEvent.quantityAfter === 17 && saleEvent.orderNumber === 'Walk-in cash sale');
+  // ══ 2. Sanity check — no Sell action exists at all ══════════════════════
+  console.log('\n── 2. Confirm there is no manual Sell action ──');
+  const sellBtnVisible = await page.getByRole('button', { name: /^Sell$/i }).first().isVisible().catch(() => false);
+  record('No "Sell" button on the Accessory Stock row (every real sale flows through Sales Report import)', !sellBtnVisible);
 
   // ══ 3. Adjust +5 ("found more") — should bump totalReceived too ═════════
   console.log('\n── 3. Adjust +5 (found extra stock) ──');
@@ -162,7 +151,7 @@ async function run() {
   await dismissModals(page);
 
   store = await readStore(page);
-  record('Adjust +5: 17 + 5 = 22', poolFor(store)?.quantity === 22, `quantity=${poolFor(store)?.quantity}`);
+  record('Adjust +5: 20 + 5 = 25', poolFor(store)?.quantity === 25, `quantity=${poolFor(store)?.quantity}`);
   record('totalReceived bumped by the positive adjustment too (20 + 5 = 25)', poolFor(store)?.totalReceived === 25, `totalReceived=${poolFor(store)?.totalReceived}`);
 
   // ══ 4. Adjust -2 ("damaged") — should NOT touch totalReceived ═══════════
@@ -180,7 +169,7 @@ async function run() {
   await dismissModals(page);
 
   store = await readStore(page);
-  record('Adjust -2: 22 - 2 = 20', poolFor(store)?.quantity === 20, `quantity=${poolFor(store)?.quantity}`);
+  record('Adjust -2: 25 - 2 = 23', poolFor(store)?.quantity === 23, `quantity=${poolFor(store)?.quantity}`);
   record('totalReceived unchanged by the negative adjustment (still 25)', poolFor(store)?.totalReceived === 25, `totalReceived=${poolFor(store)?.totalReceived}`);
   const adjEvent = store.accessoryStockEvents.filter(e => e.type === 'adjustment').find(e => e.delta === -2);
   record('Negative-adjustment event carries the reason', adjEvent?.reason === '2 units water damaged');
@@ -198,7 +187,7 @@ async function run() {
   await dismissModals(page);
 
   store = await readStore(page);
-  record('Return +1: 20 + 1 = 21', poolFor(store)?.quantity === 21, `quantity=${poolFor(store)?.quantity}`);
+  record('Return +1: 23 + 1 = 24', poolFor(store)?.quantity === 24, `quantity=${poolFor(store)?.quantity}`);
   record('totalReceived unchanged by a return (still 25)', poolFor(store)?.totalReceived === 25, `totalReceived=${poolFor(store)?.totalReceived}`);
 
   // ══ 6. History — expand and check every event renders ═══════════════════
@@ -209,11 +198,10 @@ async function run() {
   await shot(page, 'history-expanded');
   const pageText = await page.innerText('body').catch(() => '');
   record('History shows the topup', /Topped up \+20/.test(pageText));
-  record('History shows the manual sale with its notes', /Sold 3.*Walk-in cash sale/.test(pageText));
   record('History shows the +5 adjustment with reason', /Adjusted \+5.*Found an extra box/.test(pageText));
   record('History shows the -2 adjustment with reason', /Adjusted -2.*water damaged/.test(pageText));
   record('History shows the return', /Returned \+1/.test(pageText));
-  record('All 5 ledger rows present in the store', store.accessoryStockEvents.length === 5, `count=${store.accessoryStockEvents.length}`);
+  record('All 4 ledger rows present in the store', store.accessoryStockEvents.length === 4, `count=${store.accessoryStockEvents.length}`);
 
   record('No uncaught JS errors across the whole run', jsErrors.length === 0, jsErrors.slice(0, 2).join(' | '));
 

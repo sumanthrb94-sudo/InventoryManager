@@ -1,28 +1,27 @@
 /**
- * AccessoryStockActionModal — the three ledger actions decrementAccessoryStock
+ * AccessoryStockActionModal — the two ledger actions decrementAccessoryStock
  * (the Sales Report import path) can't cover on its own:
  *
- *   - Sell:   an accessory sold outside a marketplace export (cash, in
- *             person) — same effect as a Sales Report row, triggered by hand.
  *   - Adjust: a stock-count correction (damaged, lost, found extra) — always
  *             carries a reason, so `quantity` is never a black-box number.
  *   - Return: a sold accessory coming back onto the shelf.
+ *
+ * There is deliberately no manual "Sell" action — every accessory sale
+ * flows through a marketplace, so decrementAccessoryStock (fired from the
+ * Sales Report import) is the only sale path that exists; a manual
+ * alternative would just risk double-recording a sale the import already
+ * caught.
  *
  * Each action writes one AccessoryStockEvent row via inventoryService, so
  * every change to a pool's quantity is traceable back to a specific,
  * timestamped, reasoned transaction — see AccessoryStockEvent in types.ts.
  */
 import React, { useState } from 'react';
-import { X, ShoppingCart, SlidersHorizontal, RotateCcw, AlertCircle, CheckCircle2 } from 'lucide-react';
-import type { AccessoryStock, Marketplace } from '../types';
-import { MARKETPLACES } from '../types';
-import {
-  recordAccessoryManualSale,
-  adjustAccessoryStock,
-  returnAccessoryStock,
-} from '../services/inventoryService';
+import { X, SlidersHorizontal, RotateCcw, AlertCircle, CheckCircle2 } from 'lucide-react';
+import type { AccessoryStock } from '../types';
+import { adjustAccessoryStock, returnAccessoryStock } from '../services/inventoryService';
 
-type Mode = 'sell' | 'adjust' | 'return';
+type Mode = 'adjust' | 'return';
 
 interface Props {
   accessory: AccessoryStock;
@@ -31,18 +30,15 @@ interface Props {
 }
 
 const MODE_META: Record<Mode, { label: string; icon: React.ReactNode; accent: string }> = {
-  sell:   { label: 'Sell',   icon: <ShoppingCart size={13} />,       accent: 'bg-slate-900 text-white' },
-  adjust: { label: 'Adjust', icon: <SlidersHorizontal size={13} />,  accent: 'bg-amber-500 text-white' },
-  return: { label: 'Return', icon: <RotateCcw size={13} />,          accent: 'bg-emerald-600 text-white' },
+  adjust: { label: 'Adjust', icon: <SlidersHorizontal size={13} />, accent: 'bg-amber-500 text-white' },
+  return: { label: 'Return', icon: <RotateCcw size={13} />,         accent: 'bg-emerald-600 text-white' },
 };
 
-export default function AccessoryStockActionModal({ accessory, initialMode = 'sell', onClose }: Props) {
+export default function AccessoryStockActionModal({ accessory, initialMode = 'adjust', onClose }: Props) {
   const [mode, setMode] = useState<Mode>(initialMode);
   const [quantity, setQuantity] = useState('1');
   const [delta, setDelta] = useState('1');
   const [deltaSign, setDeltaSign] = useState<'add' | 'remove'>('remove');
-  const [orderNumber, setOrderNumber] = useState('');
-  const [marketplace, setMarketplace] = useState<Marketplace | ''>('');
   const [reason, setReason] = useState('');
   const [notes, setNotes] = useState('');
   const [busy, setBusy] = useState(false);
@@ -59,19 +55,7 @@ export default function AccessoryStockActionModal({ accessory, initialMode = 'se
     setError('');
     setBusy(true);
     try {
-      if (mode === 'sell') {
-        const q = parseInt(quantity, 10);
-        if (!(q > 0)) { setError('Quantity must be greater than 0.'); return; }
-        const res = await recordAccessoryManualSale({
-          sku: accessory.sku,
-          quantity: q,
-          orderNumber: orderNumber.trim() || undefined,
-          marketplace: marketplace || undefined,
-          notes: notes.trim() || undefined,
-        });
-        if (!res.matched || res.remaining === undefined) { setError('Could not record the sale.'); return; }
-        setDone({ quantity: res.remaining });
-      } else if (mode === 'adjust') {
+      if (mode === 'adjust') {
         const d = parseInt(delta, 10);
         if (!(d > 0)) { setError('Enter how many units changed.'); return; }
         if (!reason.trim()) { setError('A reason is required for an adjustment.'); return; }
@@ -105,7 +89,7 @@ export default function AccessoryStockActionModal({ accessory, initialMode = 'se
         </div>
 
         <div className="px-5 pt-3 flex items-center gap-2">
-          {(['sell', 'adjust', 'return'] as Mode[]).map(m => (
+          {(['adjust', 'return'] as Mode[]).map(m => (
             <button
               key={m}
               onClick={() => switchMode(m)}
@@ -123,7 +107,7 @@ export default function AccessoryStockActionModal({ accessory, initialMode = 'se
             <div className="py-4 flex flex-col items-center gap-2 text-emerald-600">
               <CheckCircle2 size={26} />
               <p className="text-[12px] font-bold">
-                {MODE_META[mode].label === 'Sell' ? 'Sale recorded' : MODE_META[mode].label === 'Adjust' ? 'Adjustment recorded' : 'Return recorded'}
+                {mode === 'adjust' ? 'Adjustment recorded' : 'Return recorded'}
               </p>
               <p className="text-[11px] font-mono text-slate-500">New quantity: {done.quantity}</p>
               <button
@@ -139,7 +123,7 @@ export default function AccessoryStockActionModal({ accessory, initialMode = 'se
                 Current stock: <strong className="text-slate-700">{accessory.quantity}</strong>
               </p>
 
-              {(mode === 'sell' || mode === 'return') && (
+              {mode === 'return' && (
                 <div>
                   <label className="text-[9px] font-bold uppercase tracking-widest text-slate-500 block mb-1">Quantity</label>
                   <input
@@ -148,31 +132,6 @@ export default function AccessoryStockActionModal({ accessory, initialMode = 'se
                     className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-slate-900"
                   />
                 </div>
-              )}
-
-              {mode === 'sell' && (
-                <>
-                  <div className="grid grid-cols-2 gap-2">
-                    <div>
-                      <label className="text-[9px] font-bold uppercase tracking-widest text-slate-500 block mb-1">Order # (optional)</label>
-                      <input
-                        value={orderNumber} onChange={e => setOrderNumber(e.target.value)}
-                        placeholder="e.g. cash sale"
-                        className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-slate-900"
-                      />
-                    </div>
-                    <div>
-                      <label className="text-[9px] font-bold uppercase tracking-widest text-slate-500 block mb-1">Marketplace (optional)</label>
-                      <select
-                        value={marketplace} onChange={e => setMarketplace(e.target.value as Marketplace | '')}
-                        className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-slate-900 bg-white"
-                      >
-                        <option value="">— none —</option>
-                        {MARKETPLACES.map(m => <option key={m} value={m}>{m}</option>)}
-                      </select>
-                    </div>
-                  </div>
-                </>
               )}
 
               {mode === 'adjust' && (
@@ -212,7 +171,7 @@ export default function AccessoryStockActionModal({ accessory, initialMode = 'se
                 </>
               )}
 
-              {(mode === 'sell' || mode === 'return') && (
+              {mode === 'return' && (
                 <div>
                   <label className="text-[9px] font-bold uppercase tracking-widest text-slate-500 block mb-1">Notes (optional)</label>
                   <input

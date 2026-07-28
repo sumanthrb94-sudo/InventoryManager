@@ -1575,52 +1575,19 @@ export async function restoreAccessoryStockFromImport(input: RestoreAccessorySto
 }
 
 // ---------------------------------------------------------------------------
-// Accessory stock — manual ledger actions (sell / adjust / return)
+// Accessory stock — manual ledger actions (adjust / return)
 //
 // decrementAccessoryStock only ever fires from the Sales Report import path
-// (a real marketplace order row). These three cover everything that path
-// can't: an accessory sold outside a marketplace (cash, in-person), a stock
-// count correction (damaged, lost, found extra), and a customer return.
+// (a real marketplace order row) — every real accessory sale flows through
+// a marketplace, so that's the only sale path that exists. These two cover
+// what it can't: a stock count correction (damaged, lost, found extra) and
+// a customer return.
 //
 // Reconciliation caveat, deliberately NOT solved here: unlike
 // upsertAccessoryStock (totalReceived) and decrementAccessoryStock (a real
-// `sales` doc), none of these three are replayed on a wipe + re-upload — a
+// `sales` doc), neither of these two are replayed on a wipe + re-upload — a
 // wipe loses this ledger. Documented on AccessoryStockEvent in types.ts.
 // ---------------------------------------------------------------------------
-
-export interface RecordAccessoryManualSaleInput {
-  sku: string;
-  quantity: number;
-  orderNumber?: string;
-  marketplace?: string;
-  notes?: string;
-}
-
-/** Same effect as a Sales Report row decrementing this SKU, triggered by
- *  hand instead of an import — for a sale that never produces a
- *  marketplace export row (cash sale, in-person, walked out the door). */
-export async function recordAccessoryManualSale(
-  input: RecordAccessoryManualSaleInput,
-): Promise<DecrementAccessoryStockResult> {
-  const sku = (input.sku || '').trim();
-  if (!sku || !(input.quantity > 0)) return { matched: false };
-  const id = slugify(sku);
-  const existing = (await dbService.readAll('accessoryStock')).find((a: any) => a.id === id);
-  if (!existing) return { matched: false };
-
-  const remaining = Math.max(0, (existing.quantity ?? 0) - input.quantity);
-  await dbService.update('accessoryStock', id, { quantity: remaining });
-  await logInventoryEvent({
-    type: 'stock_adjusted',
-    message: `Accessory "${existing.sku}" sold manually (-${input.quantity} → ${remaining})`,
-  });
-  await logAccessoryStockEvent({
-    sku: existing.sku, skuId: id, type: 'sale', delta: -input.quantity, quantityAfter: remaining,
-    source: 'manual',
-    orderNumber: input.orderNumber, marketplace: input.marketplace, notes: input.notes,
-  });
-  return { matched: true, id, remaining };
-}
 
 export interface AdjustAccessoryStockInput {
   sku: string;

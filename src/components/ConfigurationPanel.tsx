@@ -507,7 +507,7 @@ function describeAccessoryEvent(e: AccessoryStockEvent): string {
 function AccessoryStockPanel() {
   const { accessoryStock, accessoryStockEvents } = useInventoryStore();
   const [expanded, setExpanded] = useState<string | null>(null);
-  const [actionFor, setActionFor] = useState<{ accessory: AccessoryStock; mode: 'sell' | 'adjust' | 'return' } | null>(null);
+  const [actionFor, setActionFor] = useState<{ accessory: AccessoryStock; mode: 'adjust' | 'return' } | null>(null);
   const sorted = useMemo(
     () => [...accessoryStock].sort((a, b) => a.sku.localeCompare(b.sku)),
     [accessoryStock],
@@ -578,12 +578,6 @@ function AccessoryStockPanel() {
                       <td className="py-1.5 pr-3 text-right font-mono text-slate-500">£{(a.buyPrice ?? 0).toFixed(2)}</td>
                       <td className="py-1.5 pr-3">
                         <div className="flex items-center gap-1">
-                          <button
-                            onClick={() => setActionFor({ accessory: a, mode: 'sell' })}
-                            className="px-2 py-1 rounded bg-slate-900 text-white text-[9px] font-bold uppercase tracking-widest hover:bg-slate-700"
-                          >
-                            Sell
-                          </button>
                           <button
                             onClick={() => setActionFor({ accessory: a, mode: 'adjust' })}
                             className="px-2 py-1 rounded bg-amber-100 text-amber-800 text-[9px] font-bold uppercase tracking-widest hover:bg-amber-200"

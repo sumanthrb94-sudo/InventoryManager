@@ -75,7 +75,6 @@ import {
   upsertAccessoryStock,
   decrementAccessoryStock,
   restoreAccessoryStockFromImport,
-  recordAccessoryManualSale,
   adjustAccessoryStock,
   returnAccessoryStock,
 } from '../../services/inventoryService';
@@ -1190,34 +1189,6 @@ describe('AccessoryStockEvent ledger — existing accessory functions', () => {
     await restoreAccessoryStockFromImport({ sku: 'USB-C-20W', name: 'USB-C 20W Charger', totalReceived: 50, buyPrice: 3.5 });
     const restoreEvent = accessoryEvents().find(e => e.type === 'restore');
     expect(restoreEvent).toMatchObject({ delta: 50, quantityAfter: 50 });
-  });
-});
-
-describe('recordAccessoryManualSale — a sale outside the Sales Report import path', () => {
-  it('decrements the pool and writes a manual-source sale event', async () => {
-    await upsertAccessoryStock({ sku: 'USB-C-20W', name: 'USB-C 20W Charger', quantity: 50, buyPrice: 3.5 });
-    const r = await recordAccessoryManualSale({ sku: 'USB-C-20W', quantity: 3, notes: 'cash sale at counter' });
-    expect(r.matched).toBe(true);
-    expect(r.remaining).toBe(47);
-    const saleEvent = accessoryEvents().find(e => e.type === 'sale');
-    expect(saleEvent).toMatchObject({ delta: -3, quantityAfter: 47, source: 'manual', notes: 'cash sale at counter' });
-  });
-
-  it('floors at 0, same as the import-driven decrement', async () => {
-    await upsertAccessoryStock({ sku: 'USB-C-20W', name: 'USB-C 20W Charger', quantity: 2, buyPrice: 3.5 });
-    const r = await recordAccessoryManualSale({ sku: 'USB-C-20W', quantity: 5 });
-    expect(r.remaining).toBe(0);
-  });
-
-  it('no-ops (matched: false) for a SKU with no pool', async () => {
-    const r = await recordAccessoryManualSale({ sku: 'NO-SUCH-SKU', quantity: 1 });
-    expect(r.matched).toBe(false);
-  });
-
-  it('rejects a zero or negative quantity', async () => {
-    await upsertAccessoryStock({ sku: 'USB-C-20W', name: 'USB-C 20W Charger', quantity: 50, buyPrice: 3.5 });
-    const r = await recordAccessoryManualSale({ sku: 'USB-C-20W', quantity: 0 });
-    expect(r.matched).toBe(false);
   });
 });
 
