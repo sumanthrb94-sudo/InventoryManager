@@ -119,6 +119,13 @@ const RE_GALAXY_S = /\bgalaxy\s*s\s*\d+|\bs\d{1,2}(fe|ultra|plus|\+)?\b|\bs\d{1,
 const RE_GALAXY_A = /\bgalaxy\s*a\s*\d+|\ba\d{1,3}s?(\s*5g|\s*4g)?\b/i;
 /** Pixel — "Pixel 8 Pro". */
 const RE_PIXEL = /\bpixel\s*\d/i;
+/** Apple Watch bare form — "Watch Series 3", "Watch SE", "Watch Ultra 2",
+ *  "Watch 9" — once the "Apple" prefix has been stripped at store time
+ *  (addUnitManual strips the leading brand word before saving `model`).
+ *  Anchored to the START of the string: a leading "watch" is unambiguous
+ *  in this domain (Samsung's watch line always keeps "Galaxy" attached —
+ *  see RE_GALAXY_* — so it never collides with this). */
+const RE_APPLE_WATCH_BARE = /^watch\b/i;
 
 /** True if the cleaned string looks like a Samsung product (bare or prefixed). */
 function looksLikeSamsung(lower: string): boolean {
@@ -234,6 +241,14 @@ function detectBrand(lower: string): Brand {
   // dumping every Galaxy unit into the "Other" section.
   if (looksLikeSamsung(lower)) return 'Samsung';
   if (RE_PIXEL.test(lower)) return 'Google';
+  // Same problem, Apple Watch shape: addUnitManual stores `model` with the
+  // "Apple" prefix already stripped ("Watch Series 3"), so the periodic
+  // table's runtime re-parse (unitSeries → parseBrandModelStorage(u.model))
+  // sees no brand keyword at all. Without this, "watch" then gets treated
+  // as an unrecognised brand LABEL by the generic fallback below and
+  // stripped from the model text entirely, landing the unit in the
+  // "Other"/Accessories bucket instead of Apple Watch.
+  if (RE_APPLE_WATCH_BARE.test(lower)) return 'Apple';
   return 'Other';
 }
 
@@ -242,7 +257,11 @@ function detectSeries(brand: Brand, lower: string): Series | undefined {
   if (brand === 'Apple') {
     if (lower.includes('iphone')) return 'iPhone';
     if (lower.includes('ipad')) return 'iPad';
-    if (lower.includes('apple watch') || lower.includes('watch ultra') || lower.includes('watch se')) return 'Apple Watch';
+    // Already scoped to brand === 'Apple', so any "watch" mention is
+    // unambiguous — no other Apple product line contains the word. Catches
+    // plain numbered models too ("Watch 9", "Watch Series 9"), not just the
+    // SE/Ultra variants the previous narrower check singled out.
+    if (lower.includes('watch')) return 'Apple Watch';
     if (lower.includes('macbook')) return 'MacBook';
     return 'Other';
   }

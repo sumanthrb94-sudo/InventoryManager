@@ -169,6 +169,39 @@ describe('parseBrandModelStorage', () => {
     expect(r.model).toBe('');
     expect(r.storage).toBeUndefined();
   });
+
+  // addUnitManual stores `model` with the leading "Apple" already stripped
+  // ("Watch Series 3", not "Apple Watch Series 3") — same convention as
+  // "iPhone 14 Pro" above. PeriodicInventory's unitSeries() re-parses that
+  // stripped model at render time via this exact function. Before this fix,
+  // a bare "Watch ..." string had no brand keyword left to match, so the
+  // generic "unknown brand label" fallback treated "Watch" itself as an
+  // unrecognised brand and stripped it out of the model entirely — landing
+  // every Apple Watch in the "Other"/Accessories bucket on the periodic
+  // table even though the unit's own stored `category` field said 'Apple
+  // Watch' all along. See RE_APPLE_WATCH_BARE in modelStorage.ts.
+  it('recognises a bare "Watch ..." string (brand already stripped) as Apple Watch', () => {
+    const r = parseBrandModelStorage('Watch Series 3');
+    expect(r.brand).toBe('Apple');
+    expect(r.model).toBe('Watch Series 3');
+    expect(r.series).toBe('Apple Watch');
+  });
+
+  it('recognises Apple Watch variants regardless of the exact suffix word', () => {
+    expect(parseBrandModelStorage('Watch SE').series).toBe('Apple Watch');
+    expect(parseBrandModelStorage('Watch Ultra 2').series).toBe('Apple Watch');
+    // Plain numbered models ("Watch 9") have no SE/Ultra/Series word at
+    // all — the narrower substring check used before this fix missed them.
+    expect(parseBrandModelStorage('Watch 9').series).toBe('Apple Watch');
+    expect(parseBrandModelStorage('Apple Watch Series 3').series).toBe('Apple Watch');
+  });
+
+  it('does not mistake a Samsung Galaxy Watch for an Apple one', () => {
+    // Samsung's watch line always keeps "Galaxy" attached, so it never
+    // collides with the leading-"Watch" Apple inference above.
+    const r = parseBrandModelStorage('Galaxy Watch6 44mm');
+    expect(r.brand).toBe('Samsung');
+  });
 });
 
 // ── shsCount classifier (the manual_shs_ id prefix bug-fix) ──────────────────
