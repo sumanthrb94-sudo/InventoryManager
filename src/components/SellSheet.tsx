@@ -47,6 +47,7 @@ import PeriodicInventory from './PeriodicInventory';
 import AccessoryStockPanel from './AccessoryStockPanel';
 import SellOrderModal from './SellOrderModal';
 import AccessorySaleModal from './AccessorySaleModal';
+import BulkSaleModal from './BulkSaleModal';
 import EnterImeiModal from './EnterImeiModal';
 import AddSoldUnitModal from './AddSoldUnitModal';
 import OrphansModal, { isOrphanSoldUnit } from './OrphanUnitsModal';
@@ -281,6 +282,7 @@ export default function SellSheet(_props: Props) {
   );
   const [addSoldUnitSale, setAddSoldUnitSale] = useState<Sale | null>(null);
   const [pickerOpen, setPickerOpen] = useState(false);
+  const [bulkSaleOpen, setBulkSaleOpen] = useState(false);
   const [showSchemaHelp, setShowSchemaHelp] = useState(false);
   // ── Indexes ───────────────────────────────────────────────────────────────
   // Sellable inventory — `status='available'` plus the defensive fallback
@@ -609,6 +611,15 @@ export default function SellSheet(_props: Props) {
               <Plus size={12} /> Record Sale
             </button>
           )}
+          {isAdminUser && (
+            <button
+              onClick={() => setBulkSaleOpen(true)}
+              title="Mark several units/accessories sold in one batch"
+              className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-white text-slate-900 border border-slate-300 text-[10px] font-bold uppercase tracking-widest hover:border-slate-500 transition-all"
+            >
+              <Layers size={12} /> Mark Multiple Sold
+            </button>
+          )}
           {isAdminUser && orphanCount > 0 && (
             <button
               onClick={() => setOrphanModalOpen(true)}
@@ -925,6 +936,16 @@ export default function SellSheet(_props: Props) {
             accessory={sellAccessory}
             onClose={() => setSellAccessory(null)}
             onSaved={() => setSellAccessory(null)}
+          />
+        )}
+        {bulkSaleOpen && (
+          <BulkSaleModal
+            units={inStock}
+            shsUnits={sellableShs}
+            accessoryStock={accessoryStock}
+            supplierMap={supplierMap}
+            onClose={() => setBulkSaleOpen(false)}
+            onSaved={() => {}}
           />
         )}
       </AnimatePresence>
@@ -1807,8 +1828,10 @@ function AwaitingImeiSection({
 }
 
 // ── Sell unit picker (Record Sale entry-point) ──────────────────────────────
-function SellUnitPicker({
-  units, shsUnits, accessoryStock, supplierMap, onClose, onPick, onPickAccessory,
+// Exported so BulkSaleModal can reuse the exact same Office/SHS/Accessory
+// search UX for each line it adds to a batch, instead of duplicating it.
+export function SellUnitPicker({
+  units, shsUnits, accessoryStock, supplierMap, onClose, onPick, onPickAccessory, title, subtitle,
 }: {
   units: InventoryUnit[];
   shsUnits: InventoryUnit[];
@@ -1817,6 +1840,10 @@ function SellUnitPicker({
   onClose: () => void;
   onPick: (u: InventoryUnit, isSHS: boolean) => void;
   onPickAccessory: (a: AccessoryStock) => void;
+  /** Override the header copy — BulkSaleModal reuses this picker per-line
+   *  and wants "Add a unit" rather than "Record a sale". */
+  title?: string;
+  subtitle?: string;
 }) {
   const [search, setSearch] = useState('');
   // Office/SHS/Accessory scope toggle — mirrors the same split used
@@ -1865,8 +1892,8 @@ function SellUnitPicker({
           <div className="flex items-center gap-3">
             <div className="w-9 h-9 rounded-xl bg-slate-900 text-white flex items-center justify-center"><ShoppingCart size={16} /></div>
             <div>
-              <p className="text-[9px] font-mono uppercase tracking-widest text-slate-400">Pick a unit</p>
-              <h3 className="text-sm font-bold">Record a sale</h3>
+              <p className="text-[9px] font-mono uppercase tracking-widest text-slate-400">{subtitle ?? 'Pick a unit'}</p>
+              <h3 className="text-sm font-bold">{title ?? 'Record a sale'}</h3>
             </div>
           </div>
           <button onClick={onClose} className="p-2 rounded-xl hover:bg-slate-100 text-slate-400"><X size={16} /></button>

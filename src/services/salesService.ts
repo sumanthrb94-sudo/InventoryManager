@@ -20,6 +20,8 @@ import type { InventoryUnit, Marketplace, Sale } from '../types';
 import { calcSaleFinancials } from '../lib/platforms';
 import { logInventoryEvent } from '../lib/inventoryEvents';
 import { sanitiseFsIdSegment } from '../lib/salesImport';
+import { isAppleDevice, isValidImei } from '../lib/imeiValidation';
+import { recordAccessorySale, type RecordAccessorySaleInput } from './inventoryService';
 
 export interface RecordSaleInput {
   marketplace: Marketplace;
@@ -246,6 +248,148 @@ export async function recordSale(input: RecordSaleInput): Promise<RecordSaleResu
   });
 
   return { ok: true, saleId };
+}
+
+// ── Bulk "mark multiple units sold" ─────────────────────────────────────────
+
+/** One pending line in a bulk-sale batch — either an inventory unit (office
+ *  or SHS) or an accessory pool line. Built by the picker UI, which already
+ *  holds the full InventoryUnit/AccessoryStock object, so each line carries
+ *  the source record rather than re-looking it up. */
+export type BulkSaleLine =
+  | {
+      kind: 'unit';
+      unit: InventoryUnit;
+      isSHS: boolean;
+      /** Required when isSHS and the unit has no IMEI on file yet — mirrors
+       *  SellOrderModal's IMEI-stamp-then-sell step. */
+      imei?: string;
+      marketplace: Marketplace;
+      orderNumber: string;
+      salePrice: number;
+      saleDate?: string;
+      sku?: string;
+      paymentMode?: string;
+      postageOverride?: number;
+      postageVatExempt?: boolean;
+      comments?: string;
+    }
+  | {
+      kind: 'accessory';
+      sku: string;
+      quantity: number;
+      marketplace: Marketplace;
+      orderNumber: string;
+      salePrice: number;
+      saleDate?: string;
+      paymentMode?: string;
+      postageOverride?: number;
+      postageVatExempt?: boolean;
+      comments?: string;
+    };
+
+export interface BulkSaleLineResult {
+  ok: boolean;
+  /** Human label for the line so the UI can point at the failing row. */
+  label: string;
+  saleId?: string;
+  error?: string;
+  message?: string;
+}
+
+export interface BulkSaleResult {
+  results: BulkSaleLineResult[];
+  succeeded: number;
+  failed: number;
+}
+
+/**
+ * Record a batch of sales in one operation — the multi-line counterpart to
+ * recordSale()/recordAccessorySale(). Each line is dispatched to whichever
+ * single-sale function matches its kind so the GP/commission math and the
+ * unit status-flip logic are never duplicated; this function only adds the
+ * IMEI-stamp step SHS lines need before recordSale() can find/flip the unit,
+ * and collects a per-line result so a bad line doesn't abort the batch.
+ *
+ * Intentionally sequential (not Promise.all): sale doc ids are derived from
+ * marketplace+orderNumber+discriminator, and running everything serially
+ * avoids surprising same-order write races. Batches this size (tens of
+ * lines) are fast enough that this isn't a perceptible cost.
+ */
+export async function recordBulkSales(lines: BulkSaleLine[]): Promise<BulkSaleResult> {
+  const results: BulkSaleLineResult[] = [];
+
+  for (const line of lines) {
+    if (line.kind === 'accessory') {
+      const label = line.sku;
+      const res = await recordAccessorySale({
+        sku: line.sku,
+        marketplace: line.marketplace,
+        orderNumber: line.orderNumber,
+        quantity: line.quantity,
+        salePrice: line.salePrice,
+        saleDate: line.saleDate,
+        paymentMode: line.paymentMode,
+        postageOverride: line.postageOverride,
+        postageVatExempt: line.postageVatExempt,
+        comments: line.comments,
+      } satisfies RecordAccessorySaleInput);
+      results.push({ ok: res.ok, label, saleId: res.saleId, error: res.error, message: res.message });
+      continue;
+    }
+
+    const label = line.unit.model || line.unit.imei || line.unit.id;
+    const apple = isAppleDevice(line.unit.model);
+    const existingImei = (line.unit.imei || '').trim().toUpperCase();
+
+    if (line.isSHS) {
+      const imei = (line.imei || existingImei).trim().toUpperCase();
+      if (!imei) {
+        results.push({ ok: false, label, error: 'missing_imei', message: 'IMEI / serial is required for an SHS unit.' });
+        continue;
+      }
+      if (!isValidImei(imei, { isAppleSerial: apple })) {
+        results.push({ ok: false, label, error: 'invalid_imei', message: 'Invalid IMEI / serial.' });
+        continue;
+      }
+      if (imei !== existingImei) {
+        try {
+          const exists = await dbService.imeiExists(imei);
+          if (exists) {
+            results.push({ ok: false, label, error: 'duplicate_imei', message: `IMEI ${imei} already belongs to another unit.` });
+            continue;
+          }
+        } catch { /* network blip — recordSale's own lookup still guards correctness */ }
+        try {
+          await dbService.update('inventoryUnits', line.unit.id, { imei });
+        } catch (err: any) {
+          results.push({ ok: false, label, error: 'write_failed', message: err?.message || 'Failed to stamp IMEI.' });
+          continue;
+        }
+      }
+    }
+
+    const res = await recordSale({
+      marketplace: line.marketplace,
+      orderNumber: line.orderNumber,
+      unitId: line.unit.id,
+      buyPrice: line.unit.buyPrice,
+      salePrice: line.salePrice,
+      saleDate: line.saleDate,
+      sku: line.sku,
+      paymentMode: line.paymentMode,
+      postageOverride: line.postageOverride,
+      postageVatExempt: line.postageVatExempt,
+      comments: line.comments,
+    });
+    results.push({ ok: res.ok, label, saleId: res.saleId, error: res.error, message: res.message });
+  }
+
+  return {
+    results,
+    succeeded: results.filter(r => r.ok).length,
+    failed: results.filter(r => !r.ok).length,
+  };
 }
 
 /**

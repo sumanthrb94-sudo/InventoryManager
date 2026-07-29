@@ -57,8 +57,9 @@ vi.mock('../../lib/dbService', () => {
 });
 
 // Import AFTER the mock is registered.
-import { recordSale, voidSale } from '../../services/salesService';
+import { recordSale, voidSale, recordBulkSales, type BulkSaleLine } from '../../services/salesService';
 import { calcSaleFinancials } from '../../lib/platforms';
+import type { AccessoryStock } from '../../types';
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 
@@ -66,6 +67,24 @@ const goodImei = '356938035643809';
 
 function clearAll() {
   for (const name of Object.keys(collections)) collections[name].clear();
+}
+
+function seedAccessory(over: Partial<AccessoryStock> = {}): AccessoryStock {
+  const acc: AccessoryStock = {
+    id: over.id ?? 'sku_charger', // matches slugify('SKU-CHARGER') in recordAccessorySale's lookup
+    sku: over.sku ?? 'SKU-CHARGER',
+    name: over.name ?? 'USB-C Charger',
+    supplierId: 'sup_existing',
+    supplierName: 'MHL',
+    quantity: 10,
+    totalReceived: 10,
+    buyPrice: 5,
+    ownerId: 'shared',
+    createdAt: '2026-05-01T00:00:00Z',
+    ...over,
+  } as AccessoryStock;
+  col('accessoryStock').set(acc.id, acc);
+  return acc;
 }
 
 function seedUnit(over: Partial<InventoryUnit> = {}): InventoryUnit {
@@ -312,5 +331,88 @@ describe('voidSale', () => {
     const unknown = await voidSale('EBAY__does-not-exist', 'reason');
     expect(unknown.ok).toBe(false);
     expect(unknown.message).toMatch(/not found/i);
+  });
+});
+
+// ───────────────────────────────────────────────────────────────────────────
+// recordBulkSales
+// ───────────────────────────────────────────────────────────────────────────
+
+describe('recordBulkSales', () => {
+  it('records a mixed batch of office, SHS, and accessory lines in one call', async () => {
+    const office = seedUnit({ id: 'office-1', imei: '111111111111111', status: 'available' });
+    const shs = seedUnit({ id: 'shs-1', imei: '', status: 'incoming' });
+    const accessory = seedAccessory();
+
+    const batch: BulkSaleLine[] = [
+      { kind: 'unit', unit: office, isSHS: false, marketplace: 'EBAY', orderNumber: 'ORD-OFFICE', salePrice: 300 },
+      { kind: 'unit', unit: shs, isSHS: true, imei: '222222222222222', marketplace: 'AMAZON', orderNumber: 'ORD-SHS', salePrice: 350 },
+      { kind: 'accessory', sku: accessory.sku, quantity: 2, marketplace: 'ONBUY', orderNumber: 'ORD-ACC', salePrice: 20 },
+    ];
+
+    const result = await recordBulkSales(batch);
+
+    expect(result.succeeded).toBe(3);
+    expect(result.failed).toBe(0);
+    expect(result.results.every(r => r.ok)).toBe(true);
+
+    // Office unit sold.
+    expect(col('inventoryUnits').get('office-1').status).toBe('sold');
+    expect(col('inventoryUnits').get('office-1').stockSource).toBe('office');
+
+    // SHS unit: IMEI stamped BEFORE the sale, then flipped to sold.
+    const soldShs = col('inventoryUnits').get('shs-1');
+    expect(soldShs.imei).toBe('222222222222222');
+    expect(soldShs.status).toBe('sold');
+    expect(soldShs.stockSource).toBe('shs');
+
+    // Accessory pool decremented by the batch quantity.
+    expect(col('accessoryStock').get(accessory.id).quantity).toBe(8);
+    const accSale = col('sales').get(`ONBUY__ORD-ACC__${accessory.sku}`);
+    expect(accSale.quantity).toBe(2);
+    expect(accSale.salePrice).toBe(20);
+  });
+
+  it('does not abort the batch when one line fails — reports per-line results', async () => {
+    const office = seedUnit({ id: 'office-2', imei: '333333333333333', status: 'available' });
+    const shsNoImei = seedUnit({ id: 'shs-2', imei: '', status: 'incoming' });
+
+    const batch: BulkSaleLine[] = [
+      { kind: 'unit', unit: office, isSHS: false, marketplace: 'EBAY', orderNumber: 'ORD-OK', salePrice: 300 },
+      // No imei supplied for an SHS unit with none on file — must fail without
+      // touching the first (already-succeeded) line.
+      { kind: 'unit', unit: shsNoImei, isSHS: true, marketplace: 'EBAY', orderNumber: 'ORD-BAD', salePrice: 200 },
+    ];
+
+    const result = await recordBulkSales(batch);
+
+    expect(result.succeeded).toBe(1);
+    expect(result.failed).toBe(1);
+    expect(result.results[0].ok).toBe(true);
+    expect(result.results[1].ok).toBe(false);
+    expect(result.results[1].error).toBe('missing_imei');
+
+    expect(col('inventoryUnits').get('office-2').status).toBe('sold');
+    expect(col('inventoryUnits').get('shs-2').status).toBe('incoming');
+  });
+
+  it('rejects a duplicate IMEI already on file for another unit', async () => {
+    seedUnit({ id: 'existing-owner', imei: '444444444444444', status: 'sold' });
+    const shs = seedUnit({ id: 'shs-3', imei: '', status: 'incoming' });
+
+    const result = await recordBulkSales([
+      { kind: 'unit', unit: shs, isSHS: true, imei: '444444444444444', marketplace: 'EBAY', orderNumber: 'ORD-DUP', salePrice: 200 },
+    ]);
+
+    expect(result.failed).toBe(1);
+    expect(result.results[0].error).toBe('duplicate_imei');
+    expect(col('inventoryUnits').get('shs-3').status).toBe('incoming');
+  });
+
+  it('returns an empty summary for an empty batch', async () => {
+    const result = await recordBulkSales([]);
+    expect(result.succeeded).toBe(0);
+    expect(result.failed).toBe(0);
+    expect(result.results).toEqual([]);
   });
 });
