@@ -915,6 +915,13 @@ export async function buildSalesWorkbookBuffer(input: BuildSalesWorkbookInput): 
     }
   }
 
+  // Accessories sheet — every accessory sale (no-IMEI, sku-based) already
+  // appears on its own marketplace tab above, interleaved with unit sales;
+  // this tab pulls the SAME rows into one place across every marketplace,
+  // the same relationship the Inventory Report has between its per-source
+  // Office/SHS sheets and its own dedicated Accessories sheet.
+  writeAccessoriesSalesSheet(wb, filtered, accessoryStock ?? []);
+
   // Sheets after TEMU: Returns Summary / Returns Detail / Unit Histories —
   // the SAME structure as the standalone Returns Report
   // (buildReturnsWorkbookBuffer), embedded here so return data and history
@@ -930,6 +937,74 @@ export async function buildSalesWorkbookBuffer(input: BuildSalesWorkbookInput): 
   writeReturnsSheets(wb, { units: units ?? [], sales: enriched, supplierMap, opts, accessoryStock }, 'Returns Summary');
 
   return wb.xlsx.writeBuffer() as Promise<ArrayBuffer>;
+}
+
+const ACCESSORIES_SALES_HEADERS = [
+  'Date', 'Marketplace', 'Order Number', 'SKU', 'Name', 'Supplier',
+  'Quantity', 'BP', 'SP', 'GP', 'GP %', 'Comments',
+] as const;
+
+/** Every accessory sale (no-IMEI, sku-based) pulled into one sheet across
+ *  all marketplaces — same relationship the Inventory Report has between
+ *  its Office/SHS sheets and its own dedicated Accessories sheet. Each row
+ *  already appears on its own marketplace tab; this is a cross-marketplace
+ *  view, not a second source of truth. */
+function writeAccessoriesSalesSheet(
+  wb: ExcelJS.Workbook,
+  sales: Sale[],
+  accessoryStock: AccessoryStock[],
+): void {
+  const nameBySku = new Map<string, string>();
+  for (const a of accessoryStock) nameBySku.set(a.sku, a.name || a.sku);
+
+  const rows = sales
+    .filter(s => !(s.imei || '').trim() && (s.sku || '').trim())
+    .map(s => recomputeSale(s))
+    .sort((a, b) => (b.saleDate || '').localeCompare(a.saleDate || ''));
+
+  const sheet = wb.addWorksheet('Accessories');
+  sheet.addRow([...ACCESSORIES_SALES_HEADERS]);
+  sheet.getRow(1).font = { bold: true };
+
+  for (let i = 0; i < rows.length; i++) {
+    const sale = rows[i];
+    const row = sheet.addRow([
+      toDate(sale.saleDate), sale.marketplace, sale.orderNumber,
+      sale.sku ?? '', sale.model || nameBySku.get(sale.sku ?? '') || sale.sku || '',
+      sale.supplierName ?? '',
+      sale.quantity ?? 1, sale.buyPrice, sale.salePrice,
+      sale.grossProfit, sale.gpPercent,
+      sale.comments ?? '',
+    ]);
+    row.getCell(1).numFmt = DATE_FMT;
+    row.getCell(8).numFmt = MONEY_FMT;  // BP
+    row.getCell(9).numFmt = MONEY_FMT;  // SP
+    row.getCell(10).numFmt = MONEY_FMT; // GP
+    row.getCell(11).numFmt = '0.0"%"';  // GP %
+    if (sale.voidedAt) {
+      for (let col = 1; col <= ACCESSORIES_SALES_HEADERS.length; col++) {
+        row.getCell(col).fill = RETURNED_FILL;
+      }
+    }
+  }
+
+  if (rows.length > 0) {
+    const totalRow = sheet.addRow(['TOTAL', '', '', '', '', '',
+      { formula: `SUM(G2:G${rows.length + 1})` },
+      { formula: `SUM(H2:H${rows.length + 1})` },
+      { formula: `SUM(I2:I${rows.length + 1})` },
+      { formula: `SUM(J2:J${rows.length + 1})` },
+      '', '',
+    ]);
+    totalRow.font = { bold: true };
+    totalRow.getCell(8).numFmt = MONEY_FMT;
+    totalRow.getCell(9).numFmt = MONEY_FMT;
+    totalRow.getCell(10).numFmt = MONEY_FMT;
+  }
+
+  sheet.columns.forEach((col, i) => {
+    col.width = ACCESSORIES_SALES_HEADERS[i] === 'Name' ? 26 : ACCESSORIES_SALES_HEADERS[i] === 'Comments' ? 28 : 14;
+  });
 }
 
 /** Numeric columns to SUM per marketplace in the trailing TOTAL row. Stored

@@ -123,7 +123,7 @@ describe('viewModelFromXlsxBuffer — exact Excel view of the Sales Report', () 
     const model = await viewModelFromXlsxBuffer(buf, 'Sales Report · all-time');
     expect(model.title).toBe('Sales Report · all-time');
     expect(model.sheets.map(s => s.name)).toEqual([
-      'Summary', 'AMAZON', 'BM', 'EBAY', 'ONBUY', 'TEMU',
+      'Summary', 'AMAZON', 'BM', 'EBAY', 'ONBUY', 'TEMU', 'Accessories',
       'Returns Summary', 'Returns Detail', 'Unit Histories',
     ]);
   });

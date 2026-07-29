@@ -208,17 +208,62 @@ async function loadWorkbook(buffer: ArrayBuffer): Promise<ExcelJS.Workbook> {
 }
 
 describe('buildSalesWorkbookBuffer — auditor-grade structure', () => {
-  it('produces 9 sheets — Summary + Returns Summary/Detail/Unit Histories + AMAZON / BM / EBAY / ONBUY / TEMU', async () => {
+  it('produces 10 sheets — Summary + Accessories + Returns Summary/Detail/Unit Histories + AMAZON / BM / EBAY / ONBUY / TEMU', async () => {
     const buffer = await buildSalesWorkbookBuffer({ sales: [] });
     const wb = await loadWorkbook(buffer);
     // The returns section sits after the marketplace tabs (TEMU is last)
-    // so the sheet order reads: overview, per-channel sale detail, then
-    // the returns lifecycle. 'Returns Summary' (not 'Summary') avoids
-    // colliding with the workbook's own top-level Summary sheet.
+    // so the sheet order reads: overview, per-channel sale detail, the
+    // cross-marketplace accessories view, then the returns lifecycle.
+    // 'Returns Summary' (not 'Summary') avoids colliding with the
+    // workbook's own top-level Summary sheet.
     expect(wb.worksheets.map(w => w.name)).toEqual([
-      'Summary', 'AMAZON', 'BM', 'EBAY', 'ONBUY', 'TEMU',
+      'Summary', 'AMAZON', 'BM', 'EBAY', 'ONBUY', 'TEMU', 'Accessories',
       'Returns Summary', 'Returns Detail', 'Unit Histories',
     ]);
+  });
+
+  it('Accessories sheet — carries every no-IMEI sku sale across marketplaces, and only those', async () => {
+    const sales: Sale[] = [
+      // A real unit sale (has an IMEI) — must NOT appear on Accessories.
+      baseSale({ id: 'EBAY__U1__I1', orderNumber: 'U1', marketplace: 'EBAY', imei: '359108096724237' }),
+      // Two accessory sales on different marketplaces — no IMEI, SKU set.
+      baseSale({
+        id: 'AMAZON__A1__usb-c-20w', orderNumber: 'A1', marketplace: 'AMAZON',
+        imei: undefined, unitId: undefined, sku: 'USB-C-20W',
+        buyPrice: 3.5, salePrice: 12,
+      }),
+      baseSale({
+        id: 'BM__A2__sim-pin-01', orderNumber: 'A2', marketplace: 'BM',
+        imei: undefined, unitId: undefined, sku: 'SIM-PIN-01',
+        buyPrice: 0.15, salePrice: 2,
+      }),
+    ];
+    const buffer = await buildSalesWorkbookBuffer({
+      sales,
+      accessoryStock: [
+        { id: 'usb_c_20w', sku: 'USB-C-20W', name: 'USB-C 20W Charger', quantity: 50, totalReceived: 50, buyPrice: 3.5, ownerId: 'shared' } as any,
+        { id: 'sim_pin_01', sku: 'SIM-PIN-01', name: 'SIM Eject Pin', quantity: 100, totalReceived: 100, buyPrice: 0.15, ownerId: 'shared' } as any,
+      ],
+    });
+    const wb = await loadWorkbook(buffer);
+    const sheet = wb.getWorksheet('Accessories')!;
+    // Header + 2 accessory rows + TOTAL row.
+    expect(sheet.rowCount).toBe(4);
+    expect(String(sheet.getRow(1).getCell(1).value)).toBe('Date');
+    expect(String(sheet.getRow(1).getCell(5).value)).toBe('Name');
+
+    const skusOnSheet = [sheet.getRow(2).getCell(4).value, sheet.getRow(3).getCell(4).value];
+    expect(skusOnSheet.sort()).toEqual(['SIM-PIN-01', 'USB-C-20W']);
+    // Friendly names resolved from accessoryStock, not left as raw SKUs.
+    const namesOnSheet = [sheet.getRow(2).getCell(5).value, sheet.getRow(3).getCell(5).value];
+    expect(namesOnSheet.sort()).toEqual(['SIM Eject Pin', 'USB-C 20W Charger']);
+  });
+
+  it('Accessories sheet still shows a bare header when there are no accessory sales', async () => {
+    const buffer = await buildSalesWorkbookBuffer({ sales: [baseSale({})] });
+    const wb = await loadWorkbook(buffer);
+    const sheet = wb.getWorksheet('Accessories')!;
+    expect(sheet.rowCount).toBe(1); // header only, no TOTAL row when there's nothing to total
   });
 
   it('Returns Detail tab — headers carry the full per-return lifecycle schema', async () => {
