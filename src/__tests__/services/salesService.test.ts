@@ -134,6 +134,36 @@ describe('recordSale', () => {
     expect(after.saleDate).toMatch(/^\d{4}-\d{2}-\d{2}$/);
   });
 
+  it('stamps stockSource=office on a live sale of an office unit that never carried one', async () => {
+    const unit = seedUnit({ status: 'available', stockSource: undefined });
+    await recordSale({
+      marketplace: 'EBAY', orderNumber: 'ORD-OFFICE', imei: unit.imei,
+      buyPrice: unit.buyPrice, salePrice: 400,
+    });
+    expect(col('inventoryUnits').get(unit.id).stockSource).toBe('office');
+  });
+
+  it('stamps stockSource=shs on a live sale of an SHS unit (status incoming) with none set', async () => {
+    // Mirrors a real SHS unit sold live via SellOrderModal's isSHS flow —
+    // the operator types the IMEI at sale time, same recordSale() call as
+    // an office sale, but the unit started life as status='incoming'.
+    const unit = seedUnit({ status: 'incoming', stockSource: undefined });
+    await recordSale({
+      marketplace: 'EBAY', orderNumber: 'ORD-SHS', imei: unit.imei,
+      buyPrice: unit.buyPrice, salePrice: 400,
+    });
+    expect(col('inventoryUnits').get(unit.id).stockSource).toBe('shs');
+  });
+
+  it('preserves an existing stockSource rather than re-deriving it', async () => {
+    const unit = seedUnit({ status: 'available', stockSource: 'shs' as any });
+    await recordSale({
+      marketplace: 'EBAY', orderNumber: 'ORD-PRESERVE', imei: unit.imei,
+      buyPrice: unit.buyPrice, salePrice: 400,
+    });
+    expect(col('inventoryUnits').get(unit.id).stockSource).toBe('shs');
+  });
+
   it('uses composite doc id `${marketplace}__${orderNumber}` as natural dedupe key', async () => {
     const unit = seedUnit();
     const r = await recordSale({

@@ -200,6 +200,12 @@ export async function recordSale(input: RecordSaleInput): Promise<RecordSaleResu
     //    what was stored — keeps both surfaces in sync without a separate edit.
     const unitPatch: Record<string, any> = {
       status: 'sold',
+      // Stamp provenance the same way the bulk-import sync path does
+      // (buildPostImportSyncPatches below) — without it, a unit sold live
+      // via SellOrderModal's SHS flow left stockSource unset, so the
+      // office-vs-SHS breakout elsewhere (BuySheet, PeriodicInventory)
+      // couldn't tell it had ever been SHS stock.
+      stockSource: unit.stockSource ?? (unit.status === 'incoming' ? 'shs' : 'office'),
       salePrice: sp,
       saleDate,
       salePlatform: input.marketplace,

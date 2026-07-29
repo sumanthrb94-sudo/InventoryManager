@@ -13,6 +13,7 @@ import { readFileSync, existsSync, readdirSync } from 'node:fs';
 import { resolve } from 'node:path';
 import * as XLSX from 'xlsx';
 import { parseSalesWorkbook } from '../../lib/salesImport';
+import { parseStockWorkbook } from '../../lib/inventoryImportParse';
 import { GRADE_OPTIONS, SIM_TYPE_OPTIONS } from '../../lib/unitConstants';
 
 
@@ -189,6 +190,40 @@ describe('SHS_STOCK_TEMPLATE.xlsx — the report that marks supplier-held stock'
   });
 });
 
+describe('ACCESSORIES_TEMPLATE.xlsx — the no-IMEI quantity-pool schema', () => {
+  const ACCESSORIES_TEMPLATE = 'templates/ACCESSORIES_TEMPLATE.xlsx';
+
+  it('carries every column the importer knows about, in export order', () => {
+    expect(existsSync(ACCESSORIES_TEMPLATE), `${ACCESSORIES_TEMPLATE} missing — run scripts/generateImportTemplates.mjs`).toBe(true);
+    const wb = XLSX.read(readFileSync(ACCESSORIES_TEMPLATE), { type: 'buffer' });
+    const rows = XLSX.utils.sheet_to_json(wb.Sheets['ACCESSORIES'], { header: 1 }) as any[][];
+    expect(rows[0]).toEqual(['SKU', 'Name', 'Supplier', 'Total Added', 'BP', 'Notes']);
+  });
+
+  it('parses through the real stock importer as accessory rows, not stock rows', () => {
+    const wb = XLSX.read(readFileSync(ACCESSORIES_TEMPLATE), { type: 'buffer' });
+    const parsed = parseStockWorkbook(wb);
+    expect(parsed.rows).toEqual([]); // no office/SHS rows in this file
+    expect(parsed.accessoryRows.length).toBeGreaterThan(0);
+    for (const r of parsed.accessoryRows) {
+      expect(r.sku.trim()).not.toBe('');
+      expect(r.totalReceived).toBeGreaterThan(0);
+      expect(r.buyPrice).toBeGreaterThan(0);
+    }
+  });
+
+  it('documents every column on a README sheet', () => {
+    const wb = XLSX.read(readFileSync(ACCESSORIES_TEMPLATE), { type: 'buffer' });
+    expect(wb.SheetNames).toContain('README');
+    const readme = (XLSX.utils.sheet_to_json(wb.Sheets['README'], { header: 1 }) as any[][])
+      .flat().filter(Boolean).map(String).join(' ');
+    for (const col of ['SKU', 'Name', 'Supplier', 'Total Added', 'BP', 'Notes']) {
+      expect(readme).toContain(col);
+    }
+    expect(readme).toMatch(/quantity pool/i);
+  });
+});
+
 describe('per-marketplace SALES templates', () => {
   const MARKETPLACES = ['AMAZON', 'BM', 'EBAY', 'ONBUY'] as const;
 
@@ -339,6 +374,7 @@ describe('templates served by the app match the templates under test', () => {
   const SERVED = [
     'INVENTORY_REPORT_TEMPLATE.xlsx',
     'SHS_STOCK_TEMPLATE.xlsx',
+    'ACCESSORIES_TEMPLATE.xlsx',
     'SALES_REPORT_TEMPLATE.xlsx',
     'SALES_AMAZON_TEMPLATE.xlsx',
     'SALES_BM_TEMPLATE.xlsx',
@@ -361,7 +397,7 @@ describe('templates served by the app match the templates under test', () => {
     // Mirrors INVENTORY_TEMPLATES + SALES_TEMPLATES in
     // src/components/TemplateDownload.tsx.
     const linked = [
-      'INVENTORY_REPORT_TEMPLATE.xlsx', 'SHS_STOCK_TEMPLATE.xlsx',
+      'INVENTORY_REPORT_TEMPLATE.xlsx', 'SHS_STOCK_TEMPLATE.xlsx', 'ACCESSORIES_TEMPLATE.xlsx',
       'SALES_REPORT_TEMPLATE.xlsx', 'SALES_AMAZON_TEMPLATE.xlsx',
       'SALES_BM_TEMPLATE.xlsx', 'SALES_EBAY_TEMPLATE.xlsx', 'SALES_ONBUY_TEMPLATE.xlsx',
       'SALES_TEMU_TEMPLATE.xlsx',

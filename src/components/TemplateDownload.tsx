@@ -84,6 +84,11 @@ export const INVENTORY_TEMPLATES: TemplateLink[] = [
     label: 'SHS stock template',
     hint: 'same schema, every row pre-set to SHS',
   },
+  {
+    file: 'ACCESSORIES_TEMPLATE.xlsx',
+    label: 'Accessories template',
+    hint: '6 columns · no-IMEI quantity pools',
+  },
 ];
 
 export const SALES_TEMPLATES: TemplateLink[] = [

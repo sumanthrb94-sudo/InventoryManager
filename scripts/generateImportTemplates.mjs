@@ -347,6 +347,52 @@ async function buildShsTemplate() {
 }
 
 /**
+ * ACCESSORIES template — the no-IMEI quantity-pool schema (chargers, SIM
+ * pins, cables). Same importer as the Inventory/SHS reports (the sheet is
+ * recognised by having a SKU + Total Added column and no IMEI column), but
+ * its own file because the schema is genuinely different — six columns,
+ * no Grade/Storage/SIM Type, no per-unit IMEI at all.
+ */
+async function buildAccessoriesTemplate() {
+  const wb = new ExcelJS.Workbook();
+  wb.creator = 'MOBILEPHONEMARKET Inventory Manager';
+
+  const headers = ['SKU', 'Name', 'Supplier', 'Total Added', 'BP', 'Notes'];
+  const sheet = wb.addWorksheet('ACCESSORIES');
+  dressSheet(sheet, headers, [18, 26, 26, 12, 10, 34]);
+
+  const examples = [
+    ['USB-C-20W',   'USB-C 20W Charger',      'IMAX WHOLESALE',   50, 3.50, ''],
+    ['SIM-PIN-01',  'SIM Eject Pin',          'NIHAL ACCESSORIES', 200, 0.15, ''],
+    ['SCR-PROT-UNI','Universal Screen Protector', 'MHL SUPPLIES', 100, 0.80, 'Bulk pack of 100'],
+  ];
+  examples.forEach(r => sheet.addRow(r));
+  markExamples(sheet, examples.length);
+  sheet.getColumn(5).numFmt = '0.00';
+
+  addReadme(wb, 'ACCESSORIES — upload template',
+    [
+      'Use this to bulk-add or top up accessory stock — chargers, SIM pins, cables, cases and the like.',
+      'Upload via Import → Inventory Report (the same importer reads this sheet; it is recognised by its own SKU + Total Added columns, with no IMEI column at all).',
+      'Accessories are tracked as a QUANTITY POOL per SKU, never as individual serialised units — there is no IMEI, ever.',
+      'A SKU already in the system ADDS this row\'s Total Added on top of the existing pool; a new SKU CREATES one.',
+      'The grey example rows are illustrations — delete them before uploading your own data.',
+    ],
+    [
+      ['SKU',          'Yes', 'Free text, e.g. USB-C-20W',    'The unique key for the accessory pool. An existing SKU tops up that pool rather than creating a duplicate.'],
+      ['Name',         'No',  'Free text, e.g. "USB-C 20W Charger"', 'Friendly display name shown everywhere the SKU appears. Falls back to the SKU itself if left blank.'],
+      ['Supplier',     'No',  'Free text',                     'Matched case-insensitively against existing suppliers; an unknown name is created.'],
+      ['Total Added',  'Yes', 'Whole number greater than 0',   'How many units this row adds to the pool. Reflected in the running quantity — NOT the same as the pool\'s current quantity, which also falls as sales are recorded.'],
+      ['BP',           'Yes', 'Number greater than 0',         'Buy price per unit in GBP. Used for every gross-profit figure when a unit from this pool sells.'],
+      ['Notes',        'No',  'Free text',                     'Free-form note stored on the pool.'],
+    ],
+  );
+
+  await wb.xlsx.writeFile(`${OUT}/ACCESSORIES_TEMPLATE.xlsx`);
+  console.log(`${OUT}/ACCESSORIES_TEMPLATE.xlsx — ${headers.length} columns, ${examples.length} example rows`);
+}
+
+/**
  * Per-marketplace templates. Channels send reports separately, so one
  * file per channel is the common shape — pick the marketplace in the
  * import dialog and upload the single sheet.
@@ -389,6 +435,7 @@ async function buildPerMarketplaceTemplates() {
 
 await buildInventoryTemplate();
 await buildShsTemplate();
+await buildAccessoriesTemplate();
 await buildSalesTemplate();
 await buildPerMarketplaceTemplates();
 const published = publishToPublic();

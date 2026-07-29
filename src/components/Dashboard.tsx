@@ -122,7 +122,34 @@ export default function Dashboard({ user, onNavigate, onOpenImport, onOpenMaster
   const yesterday    = new Date(Date.now() - 86400000).toISOString().split('T')[0];
   const todayArrivals = units.filter(u => u.dateIn === today);
   const todaySold    = sold.filter(u => (u.saleDate || u.dateIn) === today);
-  const yesterdaySold = sold.filter(u => (u.saleDate || '') === yesterday || (u.dateIn === yesterday && !u.saleDate));
+
+  // Accessory sales (no imei/unitId — sku-based) never show up in `sold`
+  // (they aren't InventoryUnits), so panels built only from `sold` silently
+  // dropped every accessory sale. Normalise both into one shape for the
+  // sales-derived panels below — the stock-derived panels above (available,
+  // topModels, seriesModels, oldestUnits) are correctly unit-only, since
+  // accessories are pooled quantity, not per-unit stock.
+  const accessoryBySku = useMemo(() => {
+    const map: Record<string, string> = {};
+    for (const a of accessoryStock) map[a.sku] = a.name || a.sku;
+    return map;
+  }, [accessoryStock]);
+  const soldEvents = useMemo(() => {
+    const unitEvents = sold.map(u => ({
+      id: u.id, imei: u.imei, model: u.model, colour: u.colour,
+      platform: u.salePlatform || 'Unknown', price: u.salePrice || 0,
+      date: u.saleDate || u.dateIn,
+    }));
+    const accessoryEvents = sales
+      .filter(s => !s.voidedAt && !(s.imei || '').trim() && (s.sku || '').trim())
+      .map(s => ({
+        id: s.id, imei: '', model: accessoryBySku[s.sku!] || s.sku!, colour: '',
+        platform: s.marketplace || 'Unknown', price: s.salePrice || 0,
+        date: s.saleDate,
+      }));
+    return [...unitEvents, ...accessoryEvents];
+  }, [sold, sales, accessoryBySku]);
+  const yesterdaySold = soldEvents.filter(e => e.date === yesterday);
 
   const categoryData = useMemo(() => {
     const map: Record<string, number> = {};
@@ -143,14 +170,14 @@ export default function Dashboard({ user, onNavigate, onOpenImport, onOpenMaster
 
   const top10Sold = useMemo(() => {
     const map: Record<string, { count: number; revenue: number }> = {};
-    for (const u of sold) {
-      if (!map[u.model]) map[u.model] = { count: 0, revenue: 0 };
-      map[u.model].count++;
-      map[u.model].revenue += (u.salePrice || 0);
+    for (const e of soldEvents) {
+      if (!map[e.model]) map[e.model] = { count: 0, revenue: 0 };
+      map[e.model].count++;
+      map[e.model].revenue += e.price;
     }
     return Object.entries(map).map(([model, d]) => ({ model, ...d }))
       .sort((a, b) => b.count - a.count).slice(0, 10);
-  }, [sold]);
+  }, [soldEvents]);
 
   const seriesModels = useMemo(() => {
     const map: Record<string, { count: number; value: number; category: string; seriesName: string; shortSymbol: string; searchTerm: string }> = {};
@@ -245,12 +272,11 @@ export default function Dashboard({ user, onNavigate, onOpenImport, onOpenMaster
   // Platform breakdown of sales
   const platformSales = useMemo(() => {
     const map: Record<string, number> = {};
-    for (const u of sold) {
-      const p = u.salePlatform || 'Unknown';
-      map[p] = (map[p] || 0) + 1;
+    for (const e of soldEvents) {
+      map[e.platform] = (map[e.platform] || 0) + 1;
     }
     return Object.entries(map).sort((a, b) => b[1] - a[1]);
-  }, [sold]);
+  }, [soldEvents]);
 
   const PLATFORM_COLORS: Record<string, string> = {
     eBay:'bg-yellow-100 text-yellow-800', Amazon:'bg-orange-100 text-orange-800',
@@ -676,7 +702,7 @@ export default function Dashboard({ user, onNavigate, onOpenImport, onOpenMaster
       <CollapsibleSection
         title="Yesterday's Sales"
         count={yesterdaySold.length}
-        meta={yesterdaySold.length > 0 ? `£${yesterdaySold.reduce((s,u)=>s+(u.salePrice||0),0).toLocaleString()}` : undefined}
+        meta={yesterdaySold.length > 0 ? `£${yesterdaySold.reduce((s,e)=>s+e.price,0).toLocaleString()}` : undefined}
         accent="border-l-gray-700"
         defaultOpen={false}
       >
@@ -686,16 +712,16 @@ export default function Dashboard({ user, onNavigate, onOpenImport, onOpenMaster
             <p className="text-[10px] text-gray-500 font-mono">No sales recorded for yesterday.</p>
           ) : (
             <div className="space-y-1.5">
-              {yesterdaySold.slice(0, 5).map(u => (
-                <button key={u.id}
-                  onClick={() => onNavigate({ tab:'inventory', filters:{ search: u.imei } })}
+              {yesterdaySold.slice(0, 5).map(e => (
+                <button key={e.id}
+                  onClick={() => onNavigate({ tab:'inventory', filters:{ search: e.imei || e.model } })}
                   className="w-full flex items-center justify-between bg-white/5 hover:bg-white/10 rounded-lg px-3 py-2 transition-all text-left"
                 >
                   <div className="min-w-0">
-                    <p className="text-xs font-bold truncate">{u.model}</p>
-                    <p className="text-[9px] text-gray-400 font-mono">{u.colour} · {u.salePlatform || 'Unknown platform'}</p>
+                    <p className="text-xs font-bold truncate">{e.model}</p>
+                    <p className="text-[9px] text-gray-400 font-mono">{e.colour ? `${e.colour} · ` : ''}{e.platform}</p>
                   </div>
-                  <span className="text-sm font-bold text-green-400 ml-2 flex-shrink-0">£{(u.salePrice || 0).toLocaleString()}</span>
+                  <span className="text-sm font-bold text-green-400 ml-2 flex-shrink-0">£{e.price.toLocaleString()}</span>
                 </button>
               ))}
               {yesterdaySold.length > 5 && (
@@ -738,7 +764,7 @@ export default function Dashboard({ user, onNavigate, onOpenImport, onOpenMaster
 
       {/* Sales by Platform */}
       {platformSales.length > 0 && (
-        <CollapsibleSection title="Sales by Platform" count={sold.length} accent="border-l-blue-400" defaultOpen={false}>
+        <CollapsibleSection title="Sales by Platform" count={soldEvents.length} accent="border-l-blue-400" defaultOpen={false}>
           <div className="p-4 flex flex-wrap gap-2">
             {platformSales.map(([p, c]) => (
               <span key={p} className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[10px] font-bold font-mono ${PLATFORM_COLORS[p] || 'bg-gray-100 text-gray-700'}`}>

@@ -186,3 +186,26 @@ describe.skipIf(!existsSync(INVENTORY_TEMPLATE))('inventory export mirrors the i
     expect(template.indexOf('SIM Type')).toBeLessThan(template.indexOf('Colour'));
   });
 });
+
+const ACCESSORIES_TEMPLATE = resolve('templates/ACCESSORIES_TEMPLATE.xlsx');
+
+describe.skipIf(!existsSync(ACCESSORIES_TEMPLATE))('accessories export mirrors the import schema', () => {
+  /** Mirrors ACCESSORY_COLUMNS in BuySheet.tsx. */
+  const EXPORT_COLUMNS = ['SKU', 'Name', 'Supplier', 'First Added', 'Total Added', 'BP', 'Notes'];
+  /** 'First Added' is display-only — ACCESSORY_HEADER_ALIASES in
+   *  inventoryImportParse.ts has no alias for it, so a re-imported file
+   *  silently ignores this column, same as Age (days) above. */
+  const DERIVED_ONLY = ['First Added'];
+
+  it('exports every column the import template defines, in the same order', () => {
+    const template = headerRow(ACCESSORIES_TEMPLATE, 'ACCESSORIES');
+    const importOnly = EXPORT_COLUMNS.filter(c => !DERIVED_ONLY.includes(c));
+    expect(importOnly).toEqual(template);
+  });
+
+  it('adds nothing beyond the documented derived columns', () => {
+    const template = headerRow(ACCESSORIES_TEMPLATE, 'ACCESSORIES');
+    const extra = EXPORT_COLUMNS.filter(c => !template.includes(c));
+    expect(extra).toEqual(DERIVED_ONLY);
+  });
+});
