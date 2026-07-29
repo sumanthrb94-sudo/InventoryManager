@@ -177,7 +177,7 @@ async function seedExtraStock(page) {
 // ── Bulk-sale modal interaction helpers ─────────────────────────────────────
 
 async function openBulkSaleModal(page) {
-  await gotoTab(page, 'Sell');
+  await gotoTab(page, 'Inventory');
   await page.getByRole('button', { name: /Mark Multiple Sold/i }).click();
   await page.waitForTimeout(500);
 }
@@ -319,7 +319,7 @@ async function run() {
   record('Dashboard mentions a bulk-sold accessory name', /Bulk Test Accessory/i.test(dashboardText));
 
   // ── Sales Report reflects all 40 lines correctly ─────────────────────
-  await gotoTab(page, 'Sell');
+  await gotoTab(page, 'Inventory');
   await page.waitForTimeout(500);
   const reportBtn = page.getByRole('button', { name: /Sales Report/i }).first();
   await reportBtn.click();
