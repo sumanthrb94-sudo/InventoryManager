@@ -28,6 +28,7 @@ import { MARKETPLACES } from '../types';
 import { parseSalesWorkbook, type ParsedSales } from '../lib/salesImport';
 import { buildPostImportSyncPatches } from '../services/salesService';
 import { addSoldUnitFromSale, completeUnitBuyInfo, reconcileShsAfterFulfilment, decrementAccessoryStock, restoreUnitReturnFromImport } from '../services/inventoryService';
+import { registerSessionSoldUnits } from '../hooks/useRealTimeNotifications';
 import { normalizeOperatorSku } from '../lib/modelStorage';
 import { SIM_TYPE_OPTIONS } from '../lib/unitConstants';
 import { isValidImei, isAppleDevice } from '../lib/imeiValidation';
@@ -624,14 +625,32 @@ export default function SalesReportImport({ onClose }: Props) {
       // sales as toUpdate, which must NOT decrement the pool a second time.
       // Every other no-IMEI row (no matching SKU) is a silent no-op, same as
       // before this feature existed.
+      //
+      // Grouped by SKU rather than one flat sequential loop: decrementAccessoryStock
+      // does its own read-then-write against the pool doc, so two rows for the
+      // SAME sku must still run one-after-another (interleaving would race on
+      // a stale read and lose a decrement) — but rows for DIFFERENT skus touch
+      // different docs and have no such race, so those groups run concurrently.
+      // A large import with many accessory-sale lines spread across a handful
+      // of skus previously serialized every single row end-to-end; grouping
+      // collapses the wall-clock time to roughly the size of the biggest
+      // single-sku group instead of the sum of all rows.
       let accessoriesDecremented = 0;
-      for (const s of preview.toCreate) {
-        if (s.voidedAt || (s.imei || '').trim() || !(s.sku || '').trim()) continue;
-        const res = await decrementAccessoryStock(s.sku!, s.quantity || 1, {
-          orderNumber: s.orderNumber, marketplace: s.marketplace,
-        });
-        if (res.matched) accessoriesDecremented++;
+      const accessoryRows = preview.toCreate.filter(s => !s.voidedAt && !(s.imei || '').trim() && (s.sku || '').trim());
+      const accessoryRowsBySku = new Map<string, typeof accessoryRows>();
+      for (const s of accessoryRows) {
+        const key = (s.sku || '').trim();
+        const bucket = accessoryRowsBySku.get(key);
+        if (bucket) bucket.push(s); else accessoryRowsBySku.set(key, [s]);
       }
+      await Promise.all(Array.from(accessoryRowsBySku.values()).map(async rows => {
+        for (const s of rows) {
+          const res = await decrementAccessoryStock(s.sku!, s.quantity || 1, {
+            orderNumber: s.orderNumber, marketplace: s.marketplace,
+          });
+          if (res.matched) accessoriesDecremented++;
+        }
+      }));
 
       // Audit completion — make every incomplete sold record whole using the
       // OPERATOR'S REVIEWED VALUES (auditEdits). Confirm is hard-blocked until
@@ -729,7 +748,18 @@ export default function SalesReportImport({ onClose }: Props) {
         .map(s => ({ ...(storedById.get(s.id) ?? {}), ...s }) as Sale);
       const { unitPatches, salePatches, shsFulfilled } = buildPostImportSyncPatches(allImported, units);
       if (unitPatches.length || salePatches.length) {
-        await dbService.bulkCreate([...unitPatches, ...salePatches]);
+        // Same dedup as the Inventory Report import's registerSessionCreatedUnits:
+        // the grouped "sold" notification in useRealTimeNotifications already
+        // batches everything from one render into one toast per model, but a
+        // large write lands across several store updates (one per Firestore-shim
+        // batch), so a several-hundred-unit flip can still spawn a handful of
+        // toasts PER BATCH — enough to pin the banner on screen for a while.
+        const unregisterSoldUnits = registerSessionSoldUnits(unitPatches.map(p => p.id), 10 * 60 * 1000);
+        try {
+          await dbService.bulkCreate([...unitPatches, ...salePatches]);
+        } finally {
+          setTimeout(() => unregisterSoldUnits(), 1500);
+        }
       }
 
       // SHS trail. Flipping an incoming unit to sold is only half the job:
@@ -737,17 +767,31 @@ export default function SalesReportImport({ onClose }: Props) {
       // "the supplier is holding this" carry no IMEI, so nothing above can
       // reach them and they keep counting as stock we no longer have.
       // Same helper the orphan-completion path uses, so both agree.
+      // Grouped by model+supplier for the same reason the accessory-decrement
+      // loop below is: reconcileShsAfterFulfilment reads-then-writes a SHARED
+      // aggregate/placeholder for that model+supplier pair ("only ONE closed
+      // per fulfilment"), so two fulfilments of the same model+supplier must
+      // stay sequential — but different model+supplier pairs touch different
+      // docs and can run concurrently.
       let shsPlaceholdersCleared = 0;
       let shsAggregatesDecremented = 0;
+      const shsFulfilledByKey = new Map<string, typeof shsFulfilled>();
       for (const f of shsFulfilled) {
-        const res = await reconcileShsAfterFulfilment({
-          model: f.model,
-          supplierName: f.supplierName,
-          contextImei: f.unitId,
-        });
-        shsPlaceholdersCleared += res.placeholdersRemoved;
-        shsAggregatesDecremented += res.aggregatesDecremented;
+        const key = `${(f.model || '').trim().toLowerCase()}__${(f.supplierName || '').trim().toLowerCase()}`;
+        const bucket = shsFulfilledByKey.get(key);
+        if (bucket) bucket.push(f); else shsFulfilledByKey.set(key, [f]);
       }
+      await Promise.all(Array.from(shsFulfilledByKey.values()).map(async fs => {
+        for (const f of fs) {
+          const res = await reconcileShsAfterFulfilment({
+            model: f.model,
+            supplierName: f.supplierName,
+            contextImei: f.unitId,
+          });
+          shsPlaceholdersCleared += res.placeholdersRemoved;
+          shsAggregatesDecremented += res.aggregatesDecremented;
+        }
+      }));
 
       // Return restoration — replay each voided sale's return state onto its
       // unit (returnType/returnDate/status/etc.), matching processReturn's
@@ -761,21 +805,34 @@ export default function SalesReportImport({ onClose }: Props) {
       const unitsRestoreFailedDetails: Array<{ imei: string; orderNumber: string; reason: string }> = [];
       if (preview.returnsToRestore.length > 0) {
         const importedById = new Map(allImported.map(s => [s.id, s]));
+        // Grouped by IMEI, same reasoning as above: a unit returned more than
+        // once in the same import must restore its cycles in original order
+        // (restoreUnitReturnFromImport's own multi-cycle guard depends on
+        // oldest-to-newest ordering against a shared unit doc) — but rows for
+        // DIFFERENT imeis touch different docs and can run concurrently.
+        const rowsByImei = new Map<string, typeof preview.returnsToRestore>();
         for (const row of preview.returnsToRestore) {
-          const sale = importedById.get(row.saleId);
-          if (!sale) {
-            unitsRestoreFailed++;
-            unitsRestoreFailedDetails.push({ imei: row.imei, orderNumber: row.orderNumber, reason: 'sale lookup failed (id missing)' });
-            continue;
-          }
-          const res = await restoreUnitReturnFromImport({ sale, returnType: row.returnType });
-          if (res.ok) {
-            unitsRestoredFromImport++;
-          } else {
-            unitsRestoreFailed++;
-            unitsRestoreFailedDetails.push({ imei: row.imei, orderNumber: row.orderNumber, reason: res.message || res.error || 'unknown' });
-          }
+          const key = (row.imei || '').trim().toUpperCase() || `__saleid_${row.saleId}`;
+          const bucket = rowsByImei.get(key);
+          if (bucket) bucket.push(row); else rowsByImei.set(key, [row]);
         }
+        await Promise.all(Array.from(rowsByImei.values()).map(async rows => {
+          for (const row of rows) {
+            const sale = importedById.get(row.saleId);
+            if (!sale) {
+              unitsRestoreFailed++;
+              unitsRestoreFailedDetails.push({ imei: row.imei, orderNumber: row.orderNumber, reason: 'sale lookup failed (id missing)' });
+              continue;
+            }
+            const res = await restoreUnitReturnFromImport({ sale, returnType: row.returnType });
+            if (res.ok) {
+              unitsRestoredFromImport++;
+            } else {
+              unitsRestoreFailed++;
+              unitsRestoreFailedDetails.push({ imei: row.imei, orderNumber: row.orderNumber, reason: res.message || res.error || 'unknown' });
+            }
+          }
+        }));
       }
 
       setSyncStats({

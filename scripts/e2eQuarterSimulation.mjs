@@ -65,32 +65,71 @@ async function dismissModals(page) {
     else await overlay.click({ position: { x: 5, y: 5 } }).catch(() => {});
     await page.waitForTimeout(400);
   }
+  // The notification toast (NotificationToast.tsx) is a SEPARATE fixed
+  // banner — not `div.fixed.inset-0` — so the loop above never touches it.
+  // Any bulk write (returns, sales) that flips more units than the various
+  // session-dedup registrations cover can leave a multi-item queue cycling
+  // for a while, and the CURRENT card's visible area genuinely intercepts
+  // clicks under it. "Clear All" (multi-item queue) or the single Dismiss
+  // (X) button empties it instantly instead of waiting out the 2s/item
+  // auto-cycle.
+  for (let i = 0; i < 5; i++) {
+    const clearAll = page.getByRole('button', { name: /Dismiss all|Clear All/i }).first();
+    if (await clearAll.isVisible().catch(() => false)) { await clearAll.click().catch(() => {}); await page.waitForTimeout(200); continue; }
+    const dismissOne = page.getByRole('button', { name: 'Dismiss' }).first();
+    if (await dismissOne.isVisible().catch(() => false)) { await dismissOne.click().catch(() => {}); await page.waitForTimeout(200); continue; }
+    break;
+  }
+}
+// Nav items only exist in the DOM while the hamburger drawer is open — its
+// aria-label flips "Open menu" <-> "Close menu", so unconditionally trying
+// "Open menu" is safe even when the drawer's already open: the label won't
+// match, the click no-ops via .catch(). Checking tab.isVisible() first (the
+// original approach) raced against transient states after a big write and
+// could skip opening the drawer when the check itself was unreliable —
+// unconditional-open removes that race entirely rather than papering over
+// one symptom of it.
+async function openNavDrawer(page) {
+  // A short timeout here silently swallows the "hamburger genuinely needs a
+  // few extra seconds after a huge write" case (the same large-dataset-
+  // render slowness seen throughout this app) via the .catch() below — the
+  // drawer then never opens, and the caller's tab-click waits out its own
+  // full timeout for a button that was never going to appear. Give this the
+  // same generous budget as everything else that touches a big data set.
+  await page.getByLabel('Open menu').click({ timeout: 20000 }).catch(e => {
+    console.log(`  openNavDrawer: "Open menu" click failed (may already be open): ${String(e).slice(0, 120)}`);
+  });
+  await page.waitForTimeout(400);
 }
 async function gotoTab(page, label) {
-  await dismissModals(page);
   const re = new RegExp(`^${label}\\b(?! Report)`, 'i');
-  const tab = page.getByRole('button', { name: re }).first();
-  if (!(await tab.isVisible().catch(() => false))) {
-    await page.getByLabel('Open menu').click().catch(() => {});
-    await page.waitForTimeout(400);
-  }
-  try {
-    await page.getByRole('button', { name: re }).first().click({ timeout: 45000 });
-  } catch (e) {
-    // A stuck modal/overlay from a prior step can block every click
-    // downstream — a reload keeps the sessionStorage-backed store intact
-    // but clears any leftover UI state, so one bad step doesn't cascade
-    // into the rest of the persona failing identically.
-    console.log(`  gotoTab('${label}') first attempt failed, reloading and retrying: ${String(e).slice(0, 150)}`);
-    await page.reload({ waitUntil: 'networkidle' }).catch(() => {});
-    await page.waitForTimeout(1200);
-    await dismissModals(page);
-    if (!(await tab.isVisible().catch(() => false))) {
-      await page.getByLabel('Open menu').click().catch(() => {});
-      await page.waitForTimeout(400);
+  // This click flakes intermittently right after a heavy write, in a way
+  // neither a longer single timeout nor one retry reliably catches — but a
+  // fresh dismiss+open+click cycle recovers it almost every time. So retry
+  // the WHOLE cycle several times with real pauses in between (letting
+  // whatever transient state settle) before falling back to a reload, rather
+  // than trusting one long wait to ride it out.
+  let lastErr;
+  for (let i = 0; i < 5; i++) {
+    try {
+      await dismissModals(page);
+      await openNavDrawer(page);
+      const tab = page.getByRole('button', { name: re }).first();
+      await tab.click({ timeout: 15000 });
+      await page.waitForTimeout(900);
+      return;
+    } catch (e) {
+      lastErr = e;
+      console.log(`  gotoTab('${label}') attempt ${i + 1}/5 failed: ${String(e).slice(0, 150)}`);
+      await page.waitForTimeout(1500);
     }
-    await page.getByRole('button', { name: re }).first().click({ timeout: 45000 });
   }
+  console.log(`  gotoTab('${label}') still failing after 5 attempts, reloading: ${String(lastErr).slice(0, 150)}`);
+  await page.reload({ waitUntil: 'networkidle' }).catch(() => {});
+  await page.waitForTimeout(2000);
+  await dismissModals(page);
+  await openNavDrawer(page);
+  await page.getByRole('button', { name: re }).first().click({ timeout: 45000 });
   await page.waitForTimeout(900);
 }
 async function gotoAdminSub(page, label) {
@@ -224,11 +263,19 @@ async function stockIntakePersona(page) {
     const officeTab = modal(page).getByRole('button', { name: /^Office/i }).first();
     if (await officeTab.isVisible().catch(() => false)) await officeTab.click();
     await page.waitForTimeout(300);
-    await modal(page).getByPlaceholder(/search the catalog/i).first().fill('iPhone 13 128GB');
+    // The model field is a catalog-search combobox — typed text that doesn't
+    // match a real catalog entry gets cleared on blur (a confirmed selection
+    // is required, not free text), so pick an entry that actually exists in
+    // the sim's catalog and click its suggestion row.
+    await modal(page).getByPlaceholder(/search the catalog/i).first().fill('iPhone 14 Pro');
+    await page.waitForTimeout(500);
+    await modal(page).getByText(/iPhone 14 Pro/i).first().click();
+    await page.waitForTimeout(500);
     const imeiInput = modal(page).getByPlaceholder(/imei/i).first();
     if (await imeiInput.isVisible().catch(() => false)) await imeiInput.fill('359999000011122');
-    // Storage is a separate required <select> — typing the model text
-    // (even with a storage size baked in) doesn't auto-populate it.
+    // Storage is a separate required <select> — picking the catalog
+    // suggestion doesn't auto-populate it when the model has more than one
+    // storage size (iPhone 14 Pro has 128GB/256GB).
     const storageSelect = modal(page).locator('select').nth(1);
     if (await storageSelect.isVisible().catch(() => false)) await storageSelect.selectOption('128GB').catch(() => {});
     const bpInput = modal(page).locator('input[type="number"]').first();
