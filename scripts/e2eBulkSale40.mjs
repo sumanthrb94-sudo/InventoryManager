@@ -115,20 +115,37 @@ const OFFICE_UNITS = Array.from({ length: 20 }, (_, i) => {
   };
 });
 
+// The picker's SHS search matches against `model` and the SUPPLIER NAME
+// (looked up via supplierId → the `suppliers` collection, not the unit's
+// own supplierName field — see SellSheet.tsx's supplierMap). A tag baked
+// into `model` alone isn't reliably searchable: the app's model-catalog
+// display normalises free-text model strings down to the recognised
+// catalog name (e.g. "IPHONE 12 64GB SHSBULKxx" renders as plain
+// "IPHONE 12"), silently dropping the unrecognised suffix. Supplier names
+// pass through unnormalised, so each SHS unit gets its OWN supplier doc
+// with a unique, searchable name instead.
+const SHS_SUPPLIERS = Array.from({ length: 12 }, (_, i) => {
+  const n = i + 1;
+  return {
+    id: `bulk-shs-supplier-${pad(n, 2)}`,
+    name: `PHONEBOX BULKSHS${pad(n, 2)}`,
+    ownerId: 'shared', createdAt: '2026-01-01', contact: '', notes: '',
+  };
+});
 const SHS_UNITS = Array.from({ length: 12 }, (_, i) => {
   const n = i + 1;
   return {
     id: `bulk-shs-${pad(n, 2)}`,
     imei: '',
-    model: `IPHONE 12 64GB SHSBULK${pad(n, 2)}`,
+    model: 'IPHONE 12',
     storage: '64GB',
     colour: 'BLUE',
     status: 'incoming',
     stockSource: 'shs',
     buyPrice: 300 + n,
     dateIn: '2026-07-05',
-    supplierId: 'sup-2',
-    supplierName: 'PHONEBOX DIRECT',
+    supplierId: SHS_SUPPLIERS[i].id,
+    supplierName: SHS_SUPPLIERS[i].name,
     flags: [],
     platformListed: false,
     ownerId: 'shared',
@@ -163,15 +180,17 @@ const BATCHES = Array.from({ length: 4 }, (_, b) => ({
 }));
 
 async function seedExtraStock(page) {
-  await page.evaluate(({ office, shs, accessory }) => {
+  await page.evaluate(({ office, shs, accessory, shsSuppliers }) => {
     const raw = sessionStorage.getItem('__e2e_firestore__');
     const store = raw ? JSON.parse(raw) : {};
     store.inventoryUnits = store.inventoryUnits || {};
     store.accessoryStock = store.accessoryStock || {};
+    store.suppliers = store.suppliers || {};
     for (const u of [...office, ...shs]) store.inventoryUnits[u.id] = u;
     for (const a of accessory) store.accessoryStock[a.id] = a;
+    for (const s of shsSuppliers) store.suppliers[s.id] = s;
     sessionStorage.setItem('__e2e_firestore__', JSON.stringify(store));
-  }, { office: OFFICE_UNITS, shs: SHS_UNITS, accessory: ACCESSORY_SKUS });
+  }, { office: OFFICE_UNITS, shs: SHS_UNITS, accessory: ACCESSORY_SKUS, shsSuppliers: SHS_SUPPLIERS });
 }
 
 // ── Bulk-sale modal interaction helpers ─────────────────────────────────────
@@ -194,7 +213,14 @@ async function addLineViaPicker(page, { scope, search }) {
   await picker.locator('input[type="text"]').fill(search);
   await page.waitForTimeout(300);
   // First (and only, given unique search text) result row.
-  await picker.locator('div.flex-1.overflow-y-auto button').first().click();
+  try {
+    await picker.locator('div.flex-1.overflow-y-auto button').first().click({ timeout: 8000 });
+  } catch (err) {
+    await page.screenshot({ path: `${OUT}/DEBUG-picker-fail-${scope}-${search}.png`.replace(/[^a-zA-Z0-9._/-]/g, '_'), fullPage: true });
+    const text = await picker.innerText().catch(e => 'ERR:' + e.message);
+    console.log(`DEBUG picker fail (scope=${scope} search=${search}). fixed.inset-0 count=${await page.locator('div.fixed.inset-0').count()}. picker text:\n${text}`);
+    throw err;
+  }
   await page.waitForTimeout(300);
 }
 
@@ -226,7 +252,7 @@ async function runBatch(page, batchIndex, batch) {
     });
   }
   for (const u of batch.shs) {
-    const tag = u.model.match(/SHSBULK\d+/)[0];
+    const tag = u.supplierName.match(/BULKSHS\d+/)[0];
     await addLineViaPicker(page, { scope: 'shs', search: tag });
     await fillLastLine(page, {
       marketplace: nextPlatform(),
