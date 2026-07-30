@@ -198,14 +198,17 @@ async function addLineViaPicker(page, { scope, search }) {
   await page.waitForTimeout(300);
 }
 
+const PLATFORM_LABEL = { AMAZON: 'Amazon', BM: 'Back Market', EBAY: 'eBay', ONBUY: 'OnBuy', TEMU: 'Temu' };
+
 async function fillLastLine(page, { marketplace, orderNumber, price, imei }) {
   const m = modal(page);
-  const line = m.locator('div.border.border-slate-200.rounded-2xl').last();
-  await line.locator('select').selectOption({ value: marketplace });
-  await line.locator('input[placeholder="Order #"]').fill(orderNumber);
-  await line.locator('input[placeholder="Sale £"]').fill(String(price));
+  const line = m.locator('div.rounded-2xl.overflow-hidden').last();
+  await line.getByRole('button', { name: new RegExp(`^${PLATFORM_LABEL[marketplace]}$`) }).click();
+  await page.waitForTimeout(150);
+  await line.locator('input[placeholder="e.g. 01-14475-65087"]').fill(orderNumber);
+  await line.locator('input[placeholder="0.00"]').fill(String(price));
   if (imei !== undefined) {
-    await line.locator('input[placeholder="IMEI / serial *"]').fill(imei);
+    await line.locator('input[placeholder="Enter IMEI / serial"]').fill(imei);
   }
 }
 

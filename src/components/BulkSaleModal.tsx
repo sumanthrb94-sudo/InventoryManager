@@ -4,10 +4,10 @@
  *
  * Flow: tap "+ Add Sale" to open the same Office/SHS/Accessory picker
  * SellOrderModal's single-sale entry point uses (SellUnitPicker, exported
- * from SellSheet.tsx), pick a unit or accessory, fill in its minimal
- * per-line fields (Marketplace / Order Number / Sale Price, plus IMEI for
- * a fresh SHS unit or Quantity for an accessory line), repeat, then hit
- * "Confirm N Sales" once.
+ * from SellSheet.tsx), pick a unit or accessory, fill in its per-line form
+ * — same fields, same platform-button grid, same postage/VAT/payment-mode
+ * controls as the single "Record Sale" flow (SellOrderModal /
+ * AccessorySaleModal) — repeat, then hit "Confirm N Sales" once.
  *
  * Each line still goes through recordSale()/recordAccessorySale() via
  * recordBulkSales() — the SAME calcSaleFinancials math and unit status-flip
@@ -18,19 +18,29 @@
  * would fire a toast per unit per batch. One completion summary here
  * replaces that entirely — no per-line toasts.
  */
-import { useState, useMemo } from 'react';
+import { useState, useMemo, type Key } from 'react';
 import {
-  X, Plus, CheckCircle2, AlertCircle, Trash2, ShoppingCart, Truck, Tag, Minus,
+  X, Plus, CheckCircle2, Trash2, ShoppingCart, Truck, Tag, Minus, Package, ChevronRight,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import type { InventoryUnit, AccessoryStock, Marketplace } from '../types';
 import { useIsAdmin } from '../lib/useIsAdmin';
+import { calcSaleFinancials, getMarketplaceFee } from '../lib/platforms';
 import { recordBulkSales, type BulkSaleLine, type BulkSaleLineResult } from '../services/salesService';
 import { registerSessionSoldUnits } from '../hooks/useRealTimeNotifications';
-import { ACTIVE_PLATFORMS, PLATFORM_META } from './SellOrderModal';
+import {
+  ACTIVE_PLATFORMS, PLATFORM_META, BM_PAYMENT_MODES, POSTAGE_PRESETS, SalePLBreakdown,
+} from './SellOrderModal';
 import { SellUnitPicker } from './SellSheet';
 
 const today = () => new Date().toISOString().split('T')[0];
+
+// Same UI-only autofill table SellOrderModal/AccessorySaleModal use — not
+// part of calcSaleFinancials, just what the postage dropdown defaults to
+// before the operator picks/types a value.
+const UI_AUTOFILL_POSTAGE: Record<Marketplace, number> = {
+  AMAZON: 6.30, BM: 6.30, ONBUY: 6.30, EBAY: 0, TEMU: 6.30,
+};
 
 type DraftLine =
   | {
@@ -39,10 +49,15 @@ type DraftLine =
       unit: InventoryUnit;
       isSHS: boolean;
       imei: string;
+      sku: string;
       marketplace: Marketplace;
       orderNumber: string;
       salePrice: string;
       saleDate: string;
+      postageInput: string;
+      postageOther: boolean;
+      postageVatExempt: boolean;
+      paymentMode: string;
     }
   | {
       key: string;
@@ -53,10 +68,30 @@ type DraftLine =
       orderNumber: string;
       salePrice: string;
       saleDate: string;
+      postageInput: string;
+      postageOther: boolean;
+      postageVatExempt: boolean;
+      paymentMode: string;
     };
 
 let draftKeySeq = 0;
 const nextKey = () => `draft-${++draftKeySeq}`;
+
+function newUnitDraft(u: InventoryUnit, isSHS: boolean): DraftLine {
+  return {
+    key: nextKey(), kind: 'unit', unit: u, isSHS,
+    imei: (u.imei || '').trim(), sku: u.sku || '',
+    marketplace: 'EBAY', orderNumber: '', salePrice: '', saleDate: today(),
+    postageInput: '', postageOther: false, postageVatExempt: false, paymentMode: '',
+  };
+}
+function newAccessoryDraft(a: AccessoryStock): DraftLine {
+  return {
+    key: nextKey(), kind: 'accessory', accessory: a, quantity: 1,
+    marketplace: 'EBAY', orderNumber: '', salePrice: '', saleDate: today(),
+    postageInput: '', postageOther: false, postageVatExempt: false, paymentMode: '',
+  };
+}
 
 interface Props {
   units: InventoryUnit[];      // sellable office stock (status === 'available')
@@ -89,18 +124,11 @@ export default function BulkSaleModal({ units, shsUnits, accessoryStock, supplie
   const pickerAccessories = useMemo(() => accessoryStock.filter(a => !pickedSkus.has(a.sku)), [accessoryStock, pickedSkus]);
 
   const addUnitLine = (u: InventoryUnit, isSHS: boolean) => {
-    setLines(ls => [...ls, {
-      key: nextKey(), kind: 'unit', unit: u, isSHS,
-      imei: (u.imei || '').trim(),
-      marketplace: 'EBAY', orderNumber: '', salePrice: '', saleDate: today(),
-    }]);
+    setLines(ls => [...ls, newUnitDraft(u, isSHS)]);
     setPickerOpen(false);
   };
   const addAccessoryLine = (a: AccessoryStock) => {
-    setLines(ls => [...ls, {
-      key: nextKey(), kind: 'accessory', accessory: a, quantity: 1,
-      marketplace: 'EBAY', orderNumber: '', salePrice: '', saleDate: today(),
-    }]);
+    setLines(ls => [...ls, newAccessoryDraft(a)]);
     setPickerOpen(false);
   };
   const removeLine = (key: string) => setLines(ls => ls.filter(l => l.key !== key));
@@ -117,6 +145,11 @@ export default function BulkSaleModal({ units, shsUnits, accessoryStock, supplie
   };
   const allValid = lines.length > 0 && lines.every(lineIsValid);
 
+  const effectivePostage = (l: DraftLine): number => {
+    const defaultPostage = UI_AUTOFILL_POSTAGE[l.marketplace] || getMarketplaceFee(l.marketplace).postage;
+    return l.postageInput.trim() !== '' ? (Number(l.postageInput) || defaultPostage) : defaultPostage;
+  };
+
   const handleConfirm = async () => {
     if (!isAdminUser || !allValid || saving) return;
     setSaving(true);
@@ -126,11 +159,18 @@ export default function BulkSaleModal({ units, shsUnits, accessoryStock, supplie
           kind: 'unit', unit: l.unit, isSHS: l.isSHS, imei: l.imei.trim() || undefined,
           marketplace: l.marketplace, orderNumber: l.orderNumber.trim(),
           salePrice: Number(l.salePrice), saleDate: l.saleDate,
+          sku: l.sku.trim() || undefined,
+          paymentMode: l.marketplace === 'BM' ? (l.paymentMode || undefined) : undefined,
+          postageOverride: effectivePostage(l),
+          postageVatExempt: l.postageVatExempt,
         }
       : {
           kind: 'accessory', sku: l.accessory.sku, quantity: l.quantity,
           marketplace: l.marketplace, orderNumber: l.orderNumber.trim(),
           salePrice: Number(l.salePrice), saleDate: l.saleDate,
+          paymentMode: l.marketplace === 'BM' ? (l.paymentMode || undefined) : undefined,
+          postageOverride: effectivePostage(l),
+          postageVatExempt: l.postageVatExempt,
         });
 
     // Register every unit this batch is about to flip to 'sold' BEFORE the
@@ -199,7 +239,7 @@ export default function BulkSaleModal({ units, shsUnits, accessoryStock, supplie
     <div className="fixed inset-0 z-[70] flex items-center justify-center p-3 md:p-4 bg-black/40 backdrop-blur-sm">
       <motion.div
         initial={{ scale: 0.97, opacity: 0 }} animate={{ scale: 1, opacity: 1 }}
-        className="bg-white rounded-3xl w-full max-w-2xl shadow-2xl flex flex-col" style={{ maxHeight: 'calc(100dvh - 24px)' }}
+        className="bg-white rounded-3xl w-full max-w-xl shadow-2xl flex flex-col" style={{ maxHeight: 'calc(100dvh - 24px)' }}
       >
         <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100">
           <div className="flex items-center gap-3">
@@ -212,88 +252,20 @@ export default function BulkSaleModal({ units, shsUnits, accessoryStock, supplie
           <button onClick={onClose} className="p-2 hover:bg-slate-100 rounded-xl transition-all"><X size={16} /></button>
         </div>
 
-        <div className="flex-1 overflow-y-auto px-5 py-4 space-y-3">
+        <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
           {lines.length === 0 && (
             <p className="text-center text-[11px] font-mono text-slate-400 py-10">
               Add a unit or accessory to start the batch.
             </p>
           )}
           {lines.map(l => (
-            <div key={l.key} className="border border-slate-200 rounded-2xl p-3 space-y-2.5">
-              <div className="flex items-center justify-between gap-2">
-                <div className="flex items-center gap-2 min-w-0">
-                  {l.kind === 'unit' && l.isSHS && <Truck size={13} className="text-amber-600 flex-shrink-0" />}
-                  {l.kind === 'accessory' && <Tag size={13} className="text-indigo-600 flex-shrink-0" />}
-                  <p className="text-[12px] font-bold text-slate-900 truncate">
-                    {l.kind === 'unit' ? l.unit.model : l.accessory.name}
-                  </p>
-                  <span className={`text-[8px] font-bold uppercase tracking-widest px-1.5 py-0.5 rounded-md flex-shrink-0 ${
-                    l.kind === 'accessory' ? 'bg-indigo-100 text-indigo-700'
-                    : l.isSHS ? 'bg-amber-100 text-amber-700' : 'bg-emerald-100 text-emerald-700'
-                  }`}>
-                    {l.kind === 'accessory' ? 'Accessory' : l.isSHS ? 'SHS' : 'Office'}
-                  </span>
-                </div>
-                <button onClick={() => removeLine(l.key)} className="p-1.5 rounded-lg hover:bg-rose-50 text-slate-400 hover:text-rose-600 flex-shrink-0">
-                  <Trash2 size={13} />
-                </button>
-              </div>
-
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
-                <select
-                  value={l.marketplace}
-                  onChange={e => patchLine(l.key, { marketplace: e.target.value as Marketplace })}
-                  className="border border-slate-200 rounded-lg px-2 py-1.5 text-[11px] font-mono bg-white focus:outline-none focus:border-slate-900"
-                >
-                  {ACTIVE_PLATFORMS.map(p => (
-                    <option key={p} value={p}>{PLATFORM_META[p].label}</option>
-                  ))}
-                </select>
-                <input
-                  value={l.orderNumber}
-                  onChange={e => patchLine(l.key, { orderNumber: e.target.value })}
-                  placeholder="Order #"
-                  className="border border-slate-200 rounded-lg px-2 py-1.5 text-[11px] font-mono focus:outline-none focus:border-slate-900"
-                />
-                <input
-                  type="number" min="0.01" step="0.01"
-                  value={l.salePrice}
-                  onChange={e => patchLine(l.key, { salePrice: e.target.value })}
-                  placeholder="Sale £"
-                  className="border border-slate-200 rounded-lg px-2 py-1.5 text-[11px] font-mono focus:outline-none focus:border-slate-900"
-                />
-                <input
-                  type="date"
-                  value={l.saleDate}
-                  onChange={e => patchLine(l.key, { saleDate: e.target.value })}
-                  className="border border-slate-200 rounded-lg px-2 py-1.5 text-[11px] font-mono focus:outline-none focus:border-slate-900"
-                />
-              </div>
-
-              {l.kind === 'unit' && l.isSHS && (
-                <input
-                  value={l.imei}
-                  onChange={e => patchLine(l.key, { imei: e.target.value })}
-                  placeholder="IMEI / serial *"
-                  className="w-full border border-slate-200 rounded-lg px-2 py-1.5 text-[11px] font-mono focus:outline-none focus:border-slate-900"
-                />
-              )}
-              {l.kind === 'accessory' && (
-                <div className="flex items-center gap-2">
-                  <span className="text-[9px] font-bold uppercase tracking-widest text-slate-400">Qty</span>
-                  <button type="button" onClick={() => patchLine(l.key, { quantity: Math.max(1, l.quantity - 1) })}
-                    className="p-1 rounded-lg border border-slate-200 text-slate-500 hover:bg-slate-50"><Minus size={11} /></button>
-                  <input
-                    type="number" min="1" max={l.accessory.quantity || undefined} value={l.quantity}
-                    onChange={e => patchLine(l.key, { quantity: Math.max(1, parseInt(e.target.value, 10) || 1) })}
-                    className="w-14 text-center border border-slate-200 rounded-lg px-1 py-1 text-[11px] font-mono focus:outline-none"
-                  />
-                  <button type="button" onClick={() => patchLine(l.key, { quantity: Math.min(l.accessory.quantity || l.quantity + 1, l.quantity + 1) })}
-                    className="p-1 rounded-lg border border-slate-200 text-slate-500 hover:bg-slate-50"><Plus size={11} /></button>
-                  <span className="text-[9px] font-mono text-slate-400">of {l.accessory.quantity} in stock</span>
-                </div>
-              )}
-            </div>
+            <BulkSaleLineCard
+              key={l.key}
+              line={l}
+              defaultPostage={UI_AUTOFILL_POSTAGE[l.marketplace] || getMarketplaceFee(l.marketplace).postage}
+              onPatch={patch => patchLine(l.key, patch)}
+              onRemove={() => removeLine(l.key)}
+            />
           ))}
 
           <button
@@ -336,6 +308,248 @@ export default function BulkSaleModal({ units, shsUnits, accessoryStock, supplie
           )}
         </AnimatePresence>
       </motion.div>
+    </div>
+  );
+}
+
+// ── Per-line form — mirrors SellOrderModal / AccessorySaleModal's fields ────
+// so a batch line looks and behaves exactly like the single-sale flow: the
+// same colour-coded platform grid, the same Sale Price / Postage / No P.VAT
+// / Payment Mode controls, the same live P&L breakdown once a price is typed.
+function BulkSaleLineCard({
+  line: l, defaultPostage, onPatch, onRemove,
+}: {
+  key?: Key;
+  line: DraftLine;
+  defaultPostage: number;
+  onPatch: (patch: Partial<DraftLine>) => void;
+  onRemove: () => void;
+}) {
+  const spNum = Number(l.salePrice) || 0;
+  const postageNum = Number(l.postageInput);
+  const inputIsPreset = l.postageInput !== '' && !Number.isNaN(postageNum) && POSTAGE_PRESETS.includes(postageNum);
+  const showOtherInput = l.postageOther || (l.postageInput !== '' && !inputIsPreset);
+  const effectivePostage = l.postageInput.trim() !== '' ? (Number(l.postageInput) || defaultPostage) : defaultPostage;
+
+  const bpLineTotal = l.kind === 'unit' ? l.unit.buyPrice : (l.accessory.buyPrice || 0) * l.quantity;
+  const breakdown = spNum > 0
+    ? calcSaleFinancials({
+        marketplace: l.marketplace, buyPrice: bpLineTotal, salePrice: spNum,
+        postageOverride: effectivePostage, postageVatExempt: l.postageVatExempt,
+      })
+    : null;
+
+  return (
+    <div className={`border rounded-2xl overflow-hidden ${l.kind === 'unit' && l.isSHS ? 'border-amber-200' : l.kind === 'accessory' ? 'border-indigo-200' : 'border-slate-200'}`}>
+      {/* Header — mirrors the single-sale modal's title block */}
+      <div className={`flex items-center justify-between gap-2 px-4 py-3 border-b ${
+        l.kind === 'accessory' ? 'bg-indigo-50 border-indigo-100' : l.kind === 'unit' && l.isSHS ? 'bg-amber-50 border-amber-100' : 'bg-slate-50 border-slate-100'
+      }`}>
+        <div className="flex items-center gap-3 min-w-0">
+          <div className={`w-8 h-8 rounded-xl flex items-center justify-center flex-shrink-0 ${
+            l.kind === 'accessory' ? 'bg-indigo-600' : l.kind === 'unit' && l.isSHS ? 'bg-amber-500' : 'bg-slate-900'
+          }`}>
+            {l.kind === 'unit' && l.isSHS ? <Truck size={15} className="text-white" /> : <Package size={15} className="text-white" />}
+          </div>
+          <div className="min-w-0">
+            <p className="text-[9px] font-mono uppercase tracking-widest text-slate-400">
+              {l.kind === 'accessory' ? 'Accessory' : l.isSHS ? 'Supplier Direct Sale' : 'Office Stock'}
+            </p>
+            <h4 className="text-[13px] font-bold truncate">{l.kind === 'unit' ? l.unit.model : l.accessory.name}</h4>
+            <p className="text-[9px] text-slate-500 font-mono truncate">
+              {l.kind === 'unit'
+                ? `${l.unit.colour}${l.unit.storage ? ` · ${l.unit.storage}` : ''} · BP £${l.unit.buyPrice}`
+                : `${l.accessory.sku} · ${l.accessory.quantity} in stock · BP £${(l.accessory.buyPrice ?? 0).toFixed(2)}/unit`}
+            </p>
+          </div>
+        </div>
+        <button onClick={onRemove} className="p-1.5 rounded-lg hover:bg-white/70 text-slate-400 hover:text-rose-600 flex-shrink-0">
+          <Trash2 size={14} />
+        </button>
+      </div>
+
+      <div className="p-4 space-y-4">
+        {/* IMEI — SHS units only */}
+        {l.kind === 'unit' && l.isSHS && (
+          <div>
+            <label className="text-[9px] font-bold uppercase tracking-widest text-slate-400 block mb-1.5">
+              IMEI / Serial *
+            </label>
+            <input
+              value={l.imei}
+              onChange={e => onPatch({ imei: e.target.value })}
+              placeholder="Enter IMEI / serial"
+              className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm font-mono focus:outline-none focus:border-slate-900 transition-all"
+            />
+          </div>
+        )}
+
+        {/* Platform picker — same grid as the single-sale flow */}
+        <div>
+          <label className="text-[9px] font-bold uppercase tracking-widest text-slate-400 block mb-2">Platform *</label>
+          <div className="grid grid-cols-2 gap-2">
+            {ACTIVE_PLATFORMS.map(p => {
+              const meta = PLATFORM_META[p];
+              const active = l.marketplace === p;
+              return (
+                <button
+                  key={p}
+                  onClick={() => onPatch({ marketplace: p, postageInput: '', postageOther: false, postageVatExempt: false, paymentMode: '' })}
+                  className={`py-2.5 px-3 rounded-xl border text-[11px] font-bold transition-all flex items-center justify-between ${
+                    active ? `${meta.activeBg} text-white border-transparent` : meta.tone
+                  }`}
+                >
+                  <span>{meta.label}</span>
+                  {active ? <CheckCircle2 size={12} /> : <ChevronRight size={12} className="opacity-60" />}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Order Number + SKU (unit) / Quantity (accessory) */}
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="text-[9px] font-bold uppercase tracking-widest text-slate-400 block mb-1.5">Order Number *</label>
+            <input
+              value={l.orderNumber}
+              onChange={e => onPatch({ orderNumber: e.target.value })}
+              placeholder="e.g. 01-14475-65087"
+              className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm font-mono focus:outline-none focus:border-slate-900 transition-all"
+            />
+          </div>
+          {l.kind === 'unit' ? (
+            <div>
+              <label className="text-[9px] font-bold uppercase tracking-widest text-slate-400 block mb-1.5">
+                <Tag size={9} className="inline mr-1" /> SKU
+              </label>
+              <input
+                value={l.sku}
+                onChange={e => onPatch({ sku: e.target.value })}
+                placeholder="Optional"
+                className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm font-mono focus:outline-none focus:border-slate-900 transition-all"
+              />
+            </div>
+          ) : (
+            <div>
+              <label className="text-[9px] font-bold uppercase tracking-widest text-slate-400 block mb-1.5">
+                <Tag size={9} className="inline mr-1" /> Quantity *
+              </label>
+              <div className="flex items-center border border-slate-200 rounded-xl overflow-hidden">
+                <button type="button" onClick={() => onPatch({ quantity: Math.max(1, l.quantity - 1) })}
+                  className="px-2.5 py-2.5 text-slate-500 hover:bg-slate-50"><Minus size={12} /></button>
+                <input
+                  type="number" min="1" max={l.accessory.quantity || undefined} value={l.quantity}
+                  onChange={e => onPatch({ quantity: Math.max(1, parseInt(e.target.value, 10) || 1) })}
+                  className="w-full text-center text-sm font-mono focus:outline-none py-2.5"
+                />
+                <button type="button" onClick={() => onPatch({ quantity: Math.min(l.accessory.quantity || l.quantity + 1, l.quantity + 1) })}
+                  className="px-2.5 py-2.5 text-slate-500 hover:bg-slate-50"><Plus size={12} /></button>
+              </div>
+            </div>
+          )}
+        </div>
+        {l.kind === 'accessory' && l.quantity > (l.accessory.quantity ?? 0) && (
+          <p className="text-[10px] font-mono text-rose-600 -mt-2">Only {l.accessory.quantity} left in stock.</p>
+        )}
+
+        {/* Sale price — line total */}
+        <div>
+          <label className="text-[9px] font-bold uppercase tracking-widest text-slate-400 block mb-1.5">
+            Sale Price (£) *
+            {l.kind === 'accessory' && (
+              <span className="normal-case font-normal text-slate-400"> · total for {l.quantity} unit{l.quantity === 1 ? '' : 's'}</span>
+            )}
+          </label>
+          <input
+            type="number"
+            value={l.salePrice}
+            onChange={e => onPatch({ salePrice: e.target.value })}
+            placeholder="0.00"
+            min="0.01"
+            step="0.01"
+            className="w-full border border-slate-200 rounded-xl px-4 py-3 text-lg font-bold font-mono focus:outline-none focus:border-slate-900 transition-all"
+          />
+        </div>
+
+        {/* Sale Date + Postage */}
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="text-[9px] font-bold uppercase tracking-widest text-slate-400 block mb-1.5">Sale Date</label>
+            <input
+              type="date"
+              value={l.saleDate}
+              onChange={e => onPatch({ saleDate: e.target.value })}
+              className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm font-mono focus:outline-none focus:border-slate-900 transition-all"
+            />
+          </div>
+          <div>
+            <div className="flex items-center justify-between mb-1.5">
+              <label className="text-[9px] font-bold uppercase tracking-widest text-slate-400">Postage (£)</label>
+              <label className="inline-flex items-center gap-1 text-[9px] font-mono text-slate-500 cursor-pointer select-none" title="Zero-rate postage VAT for this sale">
+                <input
+                  type="checkbox"
+                  checked={l.postageVatExempt}
+                  onChange={e => onPatch({ postageVatExempt: e.target.checked })}
+                  className="h-3 w-3 rounded border-slate-300 text-slate-900 focus:ring-slate-900"
+                />
+                No P. VAT
+              </label>
+            </div>
+            <div className="space-y-1.5">
+              <select
+                value={inputIsPreset ? String(postageNum) : (showOtherInput ? '__other__' : '')}
+                onChange={e => {
+                  const v = e.target.value;
+                  if (v === '__other__') onPatch({ postageOther: true });
+                  else if (v === '') onPatch({ postageOther: false, postageInput: '' });
+                  else onPatch({ postageOther: false, postageInput: v });
+                }}
+                className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm font-mono focus:outline-none focus:border-slate-900 bg-white transition-all"
+              >
+                <option value="">Default £{defaultPostage.toFixed(2)}</option>
+                {POSTAGE_PRESETS.map(p => (
+                  <option key={p} value={String(p)}>£{p.toFixed(2)}</option>
+                ))}
+                <option value="__other__">Other…</option>
+              </select>
+              {showOtherInput && (
+                <input
+                  type="number"
+                  value={l.postageInput}
+                  onChange={e => onPatch({ postageInput: e.target.value })}
+                  placeholder="Manual postage £"
+                  min="0"
+                  step="0.01"
+                  className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm font-mono focus:outline-none focus:border-slate-900 transition-all"
+                />
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* Payment mode — BM only */}
+        {l.marketplace === 'BM' && (
+          <div>
+            <label className="text-[9px] font-bold uppercase tracking-widest text-slate-400 block mb-1.5">
+              Payment Mode <span className="normal-case font-normal text-slate-500">· drives the 2.5% Klarna/PayPal fee</span>
+            </label>
+            <select
+              value={l.paymentMode}
+              onChange={e => onPatch({ paymentMode: e.target.value })}
+              className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm font-mono focus:outline-none focus:border-slate-900 transition-all bg-white"
+            >
+              {BM_PAYMENT_MODES.map(pm => (
+                <option key={pm || '_none'} value={pm}>{pm || '(none / cash)'}</option>
+              ))}
+            </select>
+          </div>
+        )}
+
+        {breakdown && (
+          <SalePLBreakdown marketplace={l.marketplace} breakdown={breakdown} bp={bpLineTotal} sp={spNum} />
+        )}
+      </div>
     </div>
   );
 }
