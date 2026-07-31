@@ -1,14 +1,18 @@
 /**
- * Proves accessories have no model-catalog concept at all: a genuinely
- * brand-new SKU (never seen in `accessoryStock`, and there is no admin
- * `models`-style catalog for accessories to begin with) is created
- * immediately by `upsertAccessoryStock` — no admin gate, no "+Add" step,
- * no interaction with the `models` collection whatsoever. Single unit and
- * bulk (higher quantity on the same pooled doc) behave identically.
+ * Service-layer contract for accessory intake: `upsertAccessoryStock`
+ * itself is deliberately ungated — it creates or tops up a pool for any
+ * non-empty SKU, and never consults the `models` device catalog.
  *
- * Contrast with office/SHS device stock (see deviceCatalogGating.test.tsx),
- * where a brand-new model IS gated behind an admin-only catalog-creation
- * step. Accessories bypass that gate entirely, by original design.
+ * That is the SAME shape as devices: `addUnitManual` doesn't check `models`
+ * either. For both, the "you may only pick something that already exists
+ * unless you're an admin" gate lives in the UI layer — AccessoryComboBox
+ * for accessories (see accessoryIntakeGating.test.tsx), DeviceComboBox for
+ * devices (see deviceCatalogGating.test.tsx). These tests pin the service's
+ * unconditional behaviour so a future change to that layer is a deliberate
+ * decision rather than an accident.
+ *
+ * Single unit and bulk (higher quantity on the same pooled doc) behave
+ * identically here.
  */
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 
@@ -50,7 +54,7 @@ beforeEach(() => {
   clearAll();
 });
 
-describe('new accessory SKU — no catalog gate (contrast with office/SHS device stock)', () => {
+describe('new accessory SKU — service layer is ungated (the gate lives in AccessoryComboBox)', () => {
   it('single unit: a never-before-seen SKU is created immediately, with zero `models` collection interaction', async () => {
     const r = await upsertAccessoryStock({
       sku: 'NEW-ACC-SKU-1', name: 'Brand New Accessory', quantity: 1, buyPrice: 5,

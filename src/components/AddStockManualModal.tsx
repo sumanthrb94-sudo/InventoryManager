@@ -38,7 +38,9 @@ import { SimTypeSelectCompact } from './FormSelects';
 import { parseBrandModelStorage } from '../lib/modelStorage';
 import { GRADE_OPTIONS, STORAGE_OPTIONS } from '../lib/unitConstants';
 import { addUnitManual, ensureSupplier, upsertAccessoryStock } from '../services';
-import type { InventoryUnit, ListingSite } from '../types';
+import AccessoryComboBox from './AccessoryComboBox';
+import { buildAccessoryCatalog, accessoryEntryFor } from '../lib/accessoryCatalog';
+import type { InventoryUnit, ListingSite, AccessoryStock } from '../types';
 import DeviceComboBox from './DeviceComboBox';
 
 type Mode = 'office' | 'shs' | 'accessory';
@@ -54,6 +56,12 @@ interface AccessoryRow {
   quantity: string;
   buyPrice: string;
   notes: string;
+  /** True once an ADMIN has explicitly approved this line as a genuinely
+   *  new accessory SKU via the picker's "+ Add" pill. Employees can never
+   *  set it — the pill isn't rendered for them — so a non-admin can only
+   *  ever top up a pool that already exists. Mirrors how the device picker
+   *  gates creating a new model. */
+  isNew?: boolean;
 }
 
 function emptyAccessoryRow(supplierName = ''): AccessoryRow {
@@ -169,7 +177,7 @@ export default function AddStockManualModal({ onClose, initialMode = 'office' }:
   // 2026-06-20). Firestore rules permit any signed-in user to create
   // an inventoryUnits doc with ownerId='shared', so no server-side gate
   // either. Wipe DB / delete paths remain admin-only.
-  const { suppliers, units, models } = useInventoryStore();
+  const { suppliers, units, models, accessoryStock } = useInventoryStore();
   // Admin gate for the model-picker "+ Add new" affordance — employees
   // can only PICK existing models, only admin can extend the catalog.
   const userIsAdmin = isAdmin(auth.currentUser);
@@ -245,15 +253,24 @@ export default function AddStockManualModal({ onClose, initialMode = 'office' }:
   const removeAccRow = (id: string) => setAccRows(rs => rs.length > 1 ? rs.filter(r => r.id !== id) : rs);
   const addAccRow    = () => setAccRows(rs => [...rs, emptyAccessoryRow(lastAccSupplier)]);
 
+  /** Accessory intake is gated the same way device intake is: an employee
+   *  may only top up a pool that already exists, and only an admin can
+   *  approve a brand-new SKU (which flips the row's `isNew`). Without this
+   *  the same product entered as several pools under reordered names
+   *  ("type c usb" vs "c type usb") — matching is order-insensitive so the
+   *  existing pool is findable whichever way round it's typed. */
+  const accessoryCatalog = useMemo(() => buildAccessoryCatalog(accessoryStock), [accessoryStock]);
+
   const accValidation = useMemo(() => accRows.map(r => {
-    const skuOk = r.sku.trim().length > 0;
+    const skuOk = r.sku.trim().length > 0
+      && (r.isNew === true || !!accessoryEntryFor(accessoryCatalog, r.sku));
     const nameOk = r.name.trim().length > 0;
     const qty = parseInt(r.quantity, 10);
     const quantityOk = Number.isFinite(qty) && qty > 0;
     const bp = parseFloat(r.buyPrice);
     const bpOk = Number.isFinite(bp) && bp >= 0;
     return { skuOk, nameOk, quantityOk, bpOk, complete: skuOk && nameOk && quantityOk && bpOk };
-  }), [accRows]);
+  }), [accRows, accessoryCatalog]);
 
   const accTotals = useMemo(() => {
     let validLines = 0, quantity = 0, value = 0;
@@ -650,6 +667,8 @@ export default function AddStockManualModal({ onClose, initialMode = 'office' }:
                     index={i}
                     validation={accValidation[i]}
                     supplierNames={supplierNames}
+                    accessories={accessoryStock}
+                    isAdmin={userIsAdmin}
                     onChange={patch => updateAccRow(r.id, patch)}
                     onRemove={() => removeAccRow(r.id)}
                     canRemove={accRows.length > 1}
@@ -1057,13 +1076,15 @@ function Row({
 
 // ── One line in the Accessories grid — SKU + quantity, no device fields ────
 function AccessoryRowInput({
-  row, index, validation, supplierNames, onChange, onRemove, canRemove,
+  row, index, validation, supplierNames, accessories, isAdmin, onChange, onRemove, canRemove,
 }: {
   key?: React.Key;
   row: AccessoryRow;
   index: number;
   validation: { skuOk: boolean; nameOk: boolean; quantityOk: boolean; bpOk: boolean; complete: boolean };
   supplierNames: string[];
+  accessories: AccessoryStock[];
+  isAdmin: boolean;
   onChange: (patch: Partial<AccessoryRow>) => void;
   onRemove: () => void;
   canRemove: boolean;
@@ -1085,20 +1106,45 @@ function AccessoryRowInput({
         )}
       </div>
       <div className="grid grid-cols-1 md:grid-cols-12 gap-2">
+        {/* Strict picker over the existing accessory pools — employees can
+            only top up something that already exists; only an admin sees
+            the "+ Add" pill for a genuinely new SKU. Matching ignores word
+            order, so the live "USB-C 20W" pool is found whether the
+            operator types that or "20W USB-C". */}
         <Cell label="SKU *" colSpan={3}>
-          <input
+          <AccessoryComboBox
+            accessories={accessories}
             value={row.sku}
-            onChange={e => onChange({ sku: e.target.value })}
-            placeholder="e.g. USB-C-20W"
-            className="w-full border border-gray-200 rounded-lg px-2.5 py-1.5 text-[12px] font-mono focus:outline-none focus:border-black"
+            onValueChange={v => onChange({ sku: v })}
+            // Copy the pool's OWN name across, and lock it: upsertAccessoryStock
+            // refreshes the stored name from whatever is passed in, so letting
+            // a top-up edit it would silently rename the existing pool.
+            onPick={entry => onChange({ sku: entry.sku, name: entry.name, isNew: false })}
+            onCreateNew={isAdmin ? typed => onChange({ sku: typed, name: '', isNew: true }) : undefined}
+            isAdmin={isAdmin}
+            // Already admin-approved as new — don't revert it on blur for
+            // not being in the catalog it is precisely about to join.
+            strict={!row.isNew}
+            placeholder="Search — e.g. USB-C 20W"
+            inputClassName="font-mono"
           />
         </Cell>
-        <Cell label="Name *" colSpan={4}>
+        <Cell
+          label={row.isNew ? 'Name * (new)' : 'Name *'}
+          colSpan={4}
+          help={row.isNew ? 'New SKU — admin approved' : (row.sku ? 'From the existing pool' : '')}
+          helpTone={row.isNew ? 'info' : 'muted'}
+        >
           <input
             value={row.name}
             onChange={e => onChange({ name: e.target.value })}
-            placeholder="e.g. USB-C 20W Charger"
-            className="w-full border border-gray-200 rounded-lg px-2.5 py-1.5 text-[12px] focus:outline-none focus:border-black"
+            readOnly={!row.isNew}
+            placeholder={row.isNew ? 'e.g. USB-C 20W Charger' : 'Pick a SKU first'}
+            className={`w-full border rounded-lg px-2.5 py-1.5 text-[12px] focus:outline-none ${
+              row.isNew
+                ? 'border-emerald-300 bg-emerald-50/40 focus:border-emerald-500'
+                : 'border-gray-200 bg-slate-50 text-slate-600 cursor-not-allowed'
+            }`}
           />
         </Cell>
         <Cell label="Supplier" colSpan={5}>
