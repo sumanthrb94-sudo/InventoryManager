@@ -872,6 +872,11 @@ function hasAnyValue(row: any[]): boolean {
  * one per IMEI. BP and SP are divided evenly across the split rows so the
  * total revenue stays the same. Rows without a multi-IMEI value are returned
  * as-is in a single-element array.
+ *
+ * Also covers combined tablet/Apple-serial orders (e.g.
+ * "R52H70ZDQAX / R52HA12QETX" — two tablets sold under one order row) —
+ * each part just needs to look like a real identifier, numeric IMEI or
+ * 10-12 char alphanumeric serial, not specifically 15 digits.
  */
 function expandMultiImei(
   parsed: ParsedSales['sales'][number],
@@ -880,9 +885,11 @@ function expandMultiImei(
 
   // Split on " / " or "/" with optional surrounding whitespace.
   const parts = parsed.imei.split(/\s*\/\s*/).map((s) => s.trim()).filter(Boolean);
-  // Only expand when every part looks like a valid 14-15 digit IMEI.
-  const allDigit = parts.every((p) => /^\d{14,15}$/.test(p));
-  if (parts.length <= 1 || !allDigit) return [parsed];
+  // Only expand when every part looks like a valid identifier: a 14-15
+  // digit numeric IMEI, or a 10-12 char alphanumeric serial.
+  const looksLikeIdentifier = (p: string) => /^\d{14,15}$/.test(p) || /^[A-Z0-9]{10,12}$/i.test(p);
+  const allValid = parts.every(looksLikeIdentifier);
+  if (parts.length <= 1 || !allValid) return [parsed];
 
   const n = parts.length;
   return parts.map((singleImei) => {

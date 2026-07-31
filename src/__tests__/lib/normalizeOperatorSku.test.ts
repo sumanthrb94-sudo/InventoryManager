@@ -51,6 +51,20 @@ describe('normalizeOperatorSku', () => {
     const n = normalizeOperatorSku('ASI-IP-13-128-MN-GD');
     expect(n).toBe('Apple iPhone 13 128GB');
   });
+
+  it('handles a fused brand+model shorthand with no separating dash (IP12-BK-64)', () => {
+    // A distinct marketplace SKU convention seen in real EBAY exports:
+    // brand code + model number fused ("IP12"), followed by colour then
+    // storage — as opposed to the ASI-style BRAND-MODEL-STORAGE layout.
+    expect(normalizeOperatorSku('IP12-BK-64')).toBe('Apple iPhone 12 64GB');
+    expect(normalizeOperatorSku('IP12-BK-128')).toBe('Apple iPhone 12 128GB');
+    expect(normalizeOperatorSku('IP12-BL-128')).toBe('Apple iPhone 12 128GB');
+    expect(normalizeOperatorSku('IP12-BL-256')).toBe('Apple iPhone 12 256GB');
+  });
+
+  it('still rejects an unknown fused prefix (no known brand code substring)', () => {
+    expect(normalizeOperatorSku('ZZ99-BK-64')).toBeNull();
+  });
 });
 
 describe('parseBrandModelStorage — SKU integration', () => {

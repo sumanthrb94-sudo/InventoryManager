@@ -351,6 +351,7 @@ const SKU_BRAND_CODE: Record<string, { brand: string; line: string }> = {
  *   SG-S21FE-128-GR-EX          → "Samsung Galaxy S21 FE 128GB"
  *   ASI-SG-TABA8-32GB-BK-EX     → "Samsung Galaxy Tab A8 32GB"
  *   ASI-IP-SE3-128-MN-GD        → "Apple iPhone SE3 128GB"
+ *   IP12-BK-64                  → "Apple iPhone 12 64GB"
  */
 export function normalizeOperatorSku(raw: string | undefined | null): string | null {
   const s0 = (raw ?? '').trim();
@@ -360,11 +361,32 @@ export function normalizeOperatorSku(raw: string | undefined | null): string | n
   const body = U.replace(/^ASI-/, '');            // drop vendor prefix
   const segs = body.split('-').filter(Boolean);
   if (segs.length < 2) return null;
-  const code = SKU_BRAND_CODE[segs[0]];
-  if (!code) return null;                         // unknown brand code → leave as-is
 
-  let line = code.line;
-  let modelTok = segs[1];
+  let code = SKU_BRAND_CODE[segs[0]];
+  let line: string;
+  let modelTok: string;
+  let storageStartIdx: number;
+
+  if (code) {
+    // Standard layout: BRAND-MODEL-STORAGE-COLOUR-SUFFIX (e.g. SG-A14-128-VT).
+    line = code.line;
+    modelTok = segs[1];
+    storageStartIdx = 2;
+  } else {
+    // Fused shorthand: brand code + model number with no separating dash,
+    // e.g. "IP12-BK-64" (iPhone 12, Black, 64GB) — a distinct marketplace
+    // convention from the ASI-style layout above. Everything from index 1
+    // on is colour/storage/suffix, not a separate model segment. Longest
+    // key first so "IPD..." isn't mis-split as "IP" + "D...".
+    const fusedKey = Object.keys(SKU_BRAND_CODE)
+      .sort((a, b) => b.length - a.length)
+      .find(k => segs[0].startsWith(k) && /^\d/.test(segs[0].slice(k.length)));
+    if (!fusedKey) return null;                   // unknown brand code → leave as-is
+    code = SKU_BRAND_CODE[fusedKey];
+    line = code.line;
+    modelTok = segs[0].slice(fusedKey.length);
+    storageStartIdx = 1;
+  }
 
   // Samsung tablet codes: TABA8 → Tab A8, TABS9 → Tab S9.
   const tabM = modelTok.match(/^TAB([A-Z]?\d+\+?)$/);
@@ -376,12 +398,12 @@ export function normalizeOperatorSku(raw: string | undefined | null): string | n
   // Split a fused suffix off the model token: S21FE → "S21 FE".
   modelTok = modelTok.replace(/^([A-Z]?\d+)(FE|PLUS|ULTRA|PRO)$/, '$1 $2');
 
-  // Storage + 5G scan across the segments AFTER the model token (start at
-  // index 2). Starting at the model token would let a numeric model like
-  // iPhone "13" be misread as "13GB" of storage.
+  // Storage + 5G scan across the segments AFTER the model token. Starting at
+  // the model token would let a numeric model like iPhone "13" be misread
+  // as "13GB" of storage.
   let storage: string | undefined;
   let has5g = false;
-  for (let i = 2; i < segs.length; i++) {
+  for (let i = storageStartIdx; i < segs.length; i++) {
     if (segs[i] === '5G') { has5g = true; continue; }
     if (storage === undefined) {
       const sm = segs[i].match(/^(\d{2,4})(GB|TB)?$/);

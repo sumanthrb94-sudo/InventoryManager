@@ -56,6 +56,39 @@ describe('parseSalesWorkbook — multi-IMEI split', () => {
     expect(amazon.some(s => s.imei === '354454652453094')).toBe(true);
   });
 
+  it('splits a combined alphanumeric tablet-serial cell into two rows under the same order number', async () => {
+    // Real client shape: two tablets sold under one EBAY order, IMEI cell
+    // holds both Apple/tablet-style serials joined by "/" — previously only
+    // numeric multi-IMEI cells split; this one used to come through as one
+    // garbled, unmatchable string.
+    const buf = makeWorkbook([
+      [new Date('2026-07-08T00:00:00Z'), '03-14884-31041', 'SG TAB AT580-16-GY', 'R52H70ZDQAX / R52HA12QETX', '', 2, 60, 99.98],
+    ]);
+    const out = await parseSalesWorkbook(buf, 'fixture.xlsx');
+    const amazon = out.sales.filter(s => s.marketplace === 'AMAZON');
+    expect(amazon).toHaveLength(2);
+    expect(amazon.map(s => s.imei).sort()).toEqual(['R52H70ZDQAX', 'R52HA12QETX']);
+    // Same order number on both — two distinct sales/units, one order.
+    expect(amazon.every(s => s.orderNumber === '03-14884-31041')).toBe(true);
+    expect(new Set(amazon.map(s => s.id)).size).toBe(2);
+    for (const s of amazon) {
+      expect(s.quantity).toBe(1);
+      expect(s.buyPrice).toBe(30);      // 60 / 2
+      expect(s.salePrice).toBe(49.99);  // 99.98 / 2
+    }
+  });
+
+  it('splits a mixed-case combined tablet-serial cell (lowercase, tight slash)', async () => {
+    const buf = makeWorkbook([
+      [new Date('2026-07-03T00:00:00Z'), '25-14825-12616', 'SG TAB AT580-16-GY', 'r52hc13nq8m/ r52h70zeapd', 'MOBILE KIT', 2, 60, 77.78],
+    ]);
+    const out = await parseSalesWorkbook(buf, 'fixture.xlsx');
+    const amazon = out.sales.filter(s => s.marketplace === 'AMAZON');
+    expect(amazon).toHaveLength(2);
+    expect(amazon.map(s => s.imei).sort()).toEqual(['r52h70zeapd', 'r52hc13nq8m']);
+    expect(amazon.every(s => s.supplierName === 'MOBILE KIT')).toBe(true);
+  });
+
   it('leaves a single-IMEI row and a non-IMEI serial untouched', async () => {
     const buf = makeWorkbook([
       [new Date('2026-06-13T00:00:00Z'), 'A-1', 'A30S', '351886110513840', 'NANAK', 1, 100, 150],
