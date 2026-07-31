@@ -1,0 +1,162 @@
+[
+  {
+    "name": "Bulk Inventory Report import landed the expected office+SHS unit count",
+    "ok": true,
+    "detail": "got 1800, expected 1800"
+  },
+  {
+    "name": "Bulk Inventory Report import created all 6 accessory pools",
+    "ok": true,
+    "detail": "got 6"
+  },
+  {
+    "name": "Manual Add Stock (office unit) reflected in the store",
+    "ok": true,
+    "detail": ""
+  },
+  {
+    "name": "Manual Add Stock (accessory top-up) completed without error",
+    "ok": false,
+    "detail": "TimeoutError: locator.fill: Timeout 60000ms exceeded.\nCall log:\n\u001b[2m  - waiting for locator('div.fixed.inset-0').last().locator('input[placeholder=\"e.g. USB-C-20W\"]').first()\u001b[22m\n"
+  },
+  {
+    "name": "Bulk Sales Report import created the expected sale count",
+    "ok": true,
+    "detail": "got 2176, expected ~2176"
+  },
+  {
+    "name": "Bulk Sales Report import flipped office units to sold",
+    "ok": true,
+    "detail": "got 1522, expected ~1522"
+  },
+  {
+    "name": "Manual Record Sale (unit) created a real Sale doc",
+    "ok": true,
+    "detail": ""
+  },
+  {
+    "name": "Manual Record Sale (accessory) created a real Sale doc",
+    "ok": true,
+    "detail": ""
+  },
+  {
+    "name": "Processed 6/6 live accessory returns",
+    "ok": true,
+    "detail": "6 done"
+  },
+  {
+    "name": "Live total revenue matches ground truth (bulk-import state)",
+    "ok": true,
+    "detail": "live=650763.06 truth=650763.06"
+  },
+  {
+    "name": "Live total GP matches ground truth (bulk-import state)",
+    "ok": true,
+    "detail": "live=53593.02 truth=53593.02"
+  },
+  {
+    "name": "AMAZON: live GP matches ground truth",
+    "ok": true,
+    "detail": "live=11628.82 truth=11628.82 (n=375/375)"
+  },
+  {
+    "name": "TEMU: live GP matches ground truth",
+    "ok": true,
+    "detail": "live=15683.66 truth=15683.66 (n=445/445)"
+  },
+  {
+    "name": "ONBUY: live GP matches ground truth",
+    "ok": true,
+    "detail": "live=13975.30 truth=13975.30 (n=427/427)"
+  },
+  {
+    "name": "BM: live GP matches ground truth",
+    "ok": true,
+    "detail": "live=6002.83 truth=6002.83 (n=443/443)"
+  },
+  {
+    "name": "EBAY: live GP matches ground truth",
+    "ok": true,
+    "detail": "live=6302.41 truth=6302.41 (n=486/486)"
+  },
+  {
+    "name": "VAT Centre shows the 2026-Q3 net payable figure (£7874.77)",
+    "ok": false,
+    "detail": "not found verbatim in VAT Centre text (period sale count 881)"
+  },
+  {
+    "name": "VAT Centre shows the 2026-Q2 net payable figure (£10237.98)",
+    "ok": false,
+    "detail": "not found verbatim in VAT Centre text (period sale count 1295)"
+  },
+  {
+    "name": "Periodic table shows a \"iPhone\" row",
+    "ok": true,
+    "detail": ""
+  },
+  {
+    "name": "Periodic table shows a \"iPad\" row",
+    "ok": true,
+    "detail": ""
+  },
+  {
+    "name": "Periodic table shows a \"Apple Watch\" row",
+    "ok": true,
+    "detail": ""
+  },
+  {
+    "name": "Periodic table shows a \"MacBook\" row",
+    "ok": true,
+    "detail": ""
+  },
+  {
+    "name": "Periodic table shows a \"Galaxy S\" row",
+    "ok": true,
+    "detail": ""
+  },
+  {
+    "name": "Periodic table shows a \"Galaxy A\" row",
+    "ok": true,
+    "detail": ""
+  },
+  {
+    "name": "Periodic table shows a \"Galaxy Note\" row",
+    "ok": false,
+    "detail": ""
+  },
+  {
+    "name": "Periodic table shows a \"Galaxy Z\" row",
+    "ok": false,
+    "detail": ""
+  },
+  {
+    "name": "Periodic table shows a \"Galaxy M\" row",
+    "ok": true,
+    "detail": ""
+  },
+  {
+    "name": "Periodic table shows a \"Galaxy XCover\" row",
+    "ok": false,
+    "detail": ""
+  },
+  {
+    "name": "Periodic table shows a \"Galaxy Tab\" row",
+    "ok": true,
+    "detail": ""
+  },
+  {
+    "name": "Periodic table shows a \"Pixel\" row",
+    "ok": true,
+    "detail": ""
+  },
+  {
+    "name": "Periodic table shows a \"Unclassified\" row",
+    "ok": true,
+    "detail": ""
+  },
+  {
+    "name": "No uncaught JS errors across the whole run (part 1)",
+    "ok": true,
+    "detail": ""
+  }
+]

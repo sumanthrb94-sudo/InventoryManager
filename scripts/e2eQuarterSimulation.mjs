@@ -301,7 +301,16 @@ async function stockIntakePersona(page) {
     await page.waitForTimeout(600);
     await modal(page).getByRole('button', { name: /^Accessories/i }).click();
     await page.waitForTimeout(400);
-    await modal(page).locator('input[placeholder="e.g. USB-C-20W"]').first().fill('SIM-TEST-MANUAL');
+    // The accessory SKU field is no longer free text: it is a strict
+    // AccessoryComboBox over the existing pools, and a genuinely new SKU has
+    // to be admin-approved through the "+ Add" pill before the Name field
+    // unlocks. That gate is the point of the feature (it stops "type c usb"
+    // and "c type usb" becoming two pools), so the test drives it rather
+    // than routing around it.
+    await modal(page).locator('input[placeholder="Search — e.g. USB-C 20W"]').first().fill('SIM-TEST-MANUAL');
+    await page.waitForTimeout(400);
+    await modal(page).getByRole('button', { name: /Add "SIM-TEST-MANUAL" as a new accessory/i }).click();
+    await page.waitForTimeout(300);
     await modal(page).locator('input[placeholder="e.g. USB-C 20W Charger"]').first().fill('Manual Test Accessory');
     await modal(page).locator('input[placeholder="e.g. 50"]').first().fill('40');
     await modal(page).locator('input[placeholder="0.00"]').first().fill('2.10');
@@ -486,8 +495,14 @@ async function auditPersona(page, preLiveReturnsStore) {
     await shot(page, 'audit-vat-centre');
     const vatText = await page.innerText('body').catch(() => '');
     for (const period of ground.vatPeriods) {
+      // VatCentre's money() runs toLocaleString('en-GB'), so any four-figure
+      // amount renders as "7,874.77". Searching for the bare "7874.77" could
+      // therefore NEVER match one — the check was structurally incapable of
+      // passing on a real dataset. Compare with separators stripped.
       const netPayableStr = period.netPayableAsComputed.toFixed(2);
-      const found = vatText.includes(netPayableStr) || vatText.includes(Math.abs(period.netPayableAsComputed).toFixed(2));
+      const bare = vatText.replace(/,/g, '');
+      const found = bare.includes(netPayableStr)
+        || bare.includes(Math.abs(period.netPayableAsComputed).toFixed(2));
       record(`VAT Centre shows the ${period.key} net payable figure (£${netPayableStr})`, found,
         found ? '' : `not found verbatim in VAT Centre text (period sale count ${period.saleCount})`);
     }
@@ -502,9 +517,22 @@ async function auditPersona(page, preLiveReturnsStore) {
     await gotoTab(page, 'Inventory');
     await page.waitForTimeout(1200);
     const bodyText = await page.innerText('body').catch(() => '');
+    // SERIES_GROUPS renders a human LABEL, not the internal series id, and
+    // for three groups the two differ entirely ("Galaxy Note" → "Samsung
+    // Note"). Grepping the id passed only where a label or a model name
+    // happened to contain it, so Note / Z / XCover reported missing while
+    // rendering perfectly — a harness bug, not a product one. Assert what
+    // the operator actually sees.
+    const SERIES_LABEL = {
+      'iPhone': 'Apple iPhones', 'iPad': 'Apple iPads', 'Apple Watch': 'Apple Watch',
+      'MacBook': 'MacBook', 'Galaxy S': 'Samsung Galaxy S', 'Galaxy A': 'Samsung Galaxy A',
+      'Galaxy Note': 'Samsung Note', 'Galaxy Z': 'Samsung Z (Fold/Flip)',
+      'Galaxy M': 'Samsung Galaxy M', 'Galaxy XCover': 'Samsung XCover',
+      'Galaxy Tab': 'Samsung Tabs', 'Pixel': 'Google Pixel', 'Other': 'Unclassified',
+    };
     const seriesToCheck = [...new Set(manifest.models.map(m => m.series))];
     for (const series of seriesToCheck) {
-      const label = series === 'Other' ? 'Unclassified' : series;
+      const label = SERIES_LABEL[series] ?? (series === 'Other' ? 'Unclassified' : series);
       record(`Periodic table shows a "${label}" row`, bodyText.includes(label));
     }
   } catch (e) {
