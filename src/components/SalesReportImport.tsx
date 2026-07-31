@@ -488,6 +488,23 @@ export default function SalesReportImport({ onClose }: Props) {
   const [progress, setProgress] = useState<{ done: number; total: number; label: string }>(
     { done: 0, total: 0, label: 'sales' },
   );
+  /** Seconds the write phase has sat on the SAME progress reading.
+   *
+   *  A Firestore `batch.commit()` does not resolve until the server
+   *  acknowledges the write, and it does NOT reject when the client loses its
+   *  connection — the write is queued locally and the promise simply stays
+   *  pending. The importer awaits that promise, so a stalled connection
+   *  presents as an eternal spinner with no error: precisely the "forever
+   *  loading" report. This counter resets on every tick of real progress, so a
+   *  slow-but-working import never trips it, and only a genuinely stuck one
+   *  crosses the threshold and gets explained on screen. */
+  const [stalledSecs, setStalledSecs] = useState(0);
+  useEffect(() => {
+    if (phase !== 'loading') { setStalledSecs(0); return; }
+    setStalledSecs(0);
+    const t = setInterval(() => setStalledSecs(s => s + 1), 1000);
+    return () => clearInterval(t);
+  }, [phase, progress.done, progress.total, progress.label]);
   const [error, setError] = useState('');
   /** Counts populated after a successful import. `unitsMarkedSold` is
    *  the side-effect from the import → inventory sync (Bug B); shown
@@ -646,6 +663,11 @@ export default function SalesReportImport({ onClose }: Props) {
     };
     });
     setProgress({ done: 0, total: entries.length, label: 'sales' });
+    // Names the phase currently running, purely so a throw can say WHERE it
+    // died. The confirm does seven distinct things in sequence and every one
+    // of them can fail; a bare "Missing or insufficient permissions" with no
+    // stage attached is nearly impossible to act on.
+    let stage = 'writing sales';
     try {
       await dbService.bulkCreate(entries, (done, total) => setProgress({ done, total, label: 'sales' }));
       // Purge stale combined multi-IMEI docs that the per-IMEI split rows
@@ -658,6 +680,7 @@ export default function SalesReportImport({ onClose }: Props) {
       // importer isn't admin, the bulkDelete batches fail server-side.
       // bulkDelete reports the actual deleted/failed split so the Done
       // screen can show "N of M cleaned · K denied (admin required)".
+      stage = 'purging superseded combined rows';
       let staleDeleted = 0;
       let staleFailed = 0;
       if (preview.staleCombined.length) {
@@ -684,6 +707,7 @@ export default function SalesReportImport({ onClose }: Props) {
       // of skus previously serialized every single row end-to-end; grouping
       // collapses the wall-clock time to roughly the size of the biggest
       // single-sku group instead of the sum of all rows.
+      stage = 'decrementing accessory stock';
       let accessoriesDecremented = 0;
       const accessoryRows = preview.toCreate.filter(s => !s.voidedAt && !(s.imei || '').trim() && (s.sku || '').trim());
       const accessoryRowsBySku = new Map<string, typeof accessoryRows>();
@@ -711,6 +735,7 @@ export default function SalesReportImport({ onClose }: Props) {
       //     (addSoldUnitFromSale), which also marks it sold + links the sale.
       // For a no-IMEI sale the operator typed an IMEI in the row; we patch the
       // sale's imei too so its audit record carries the device id.
+      stage = 'creating / patching inventory units';
       let unitsAddedFromOrphanSales = 0;
       let orphanShsFulfilled = 0;
       let unitsAddFailed = 0;
@@ -801,6 +826,7 @@ export default function SalesReportImport({ onClose }: Props) {
       const storedById = new Map(sales.map(s => [s.id, s]));
       const allImported = [...preview.toCreate, ...preview.toUpdate]
         .map(s => ({ ...(storedById.get(s.id) ?? {}), ...s }) as Sale);
+      stage = 'syncing sold flags back to inventory';
       const { unitPatches, salePatches, shsFulfilled } = buildPostImportSyncPatches(allImported, units);
       if (unitPatches.length || salePatches.length) {
         await dbService.bulkCreate([...unitPatches, ...salePatches]);
@@ -847,6 +873,7 @@ export default function SalesReportImport({ onClose }: Props) {
       let unitsRestoredFromImport = 0;
       let unitsRestoreFailed = 0;
       const unitsRestoreFailedDetails: Array<{ imei: string; orderNumber: string; reason: string }> = [];
+      stage = 'restoring returns';
       if (preview.returnsToRestore.length > 0) {
         const importedById = new Map(allImported.map(s => [s.id, s]));
         // Grouped by IMEI, same reasoning as above: a unit returned more than
@@ -897,7 +924,8 @@ export default function SalesReportImport({ onClose }: Props) {
       });
       setPhase('done');
     } catch (e: any) {
-      setError(e?.message || 'Import failed during write');
+      console.error(`[sales import] failed while ${stage}:`, e);
+      setError(`${e?.message || 'Import failed during write'} — failed while ${stage}.`);
       setPhase('preview');
     }
   };
@@ -977,6 +1005,22 @@ export default function SalesReportImport({ onClose }: Props) {
                   style={{ width: progress.total > 0 ? `${(progress.done / progress.total) * 100}%` : '0%' }}
                 />
               </div>
+              {stalledSecs >= 20 && (
+                <div className="mt-3 w-full max-w-sm rounded-lg border border-amber-300 bg-amber-50 p-3 text-left">
+                  <p className="text-[11px] font-black text-amber-900">
+                    No progress for {stalledSecs}s — the connection to the database has stalled.
+                  </p>
+                  <p className="mt-1 text-[10px] font-semibold text-amber-800 leading-relaxed">
+                    The write is queued on this device and will finish on its own once the
+                    connection recovers, so keep this tab open and give it a moment.
+                  </p>
+                  <p className="mt-1.5 text-[10px] font-semibold text-amber-800 leading-relaxed">
+                    If it still hasn’t moved, close this and re-upload the same file — nothing is
+                    lost or double-counted. Every row is written under its own fixed id, so rows
+                    that already landed come back as updates rather than duplicates.
+                  </p>
+                </div>
+              )}
             </div>
           )}
 
@@ -1337,6 +1381,14 @@ function PreviewPhase({
     import('../lib/deviceCatalog').ModelSeed[]
   >([]);
 
+  /** Scrolls a failed write's banner into view. Returning to this panel
+   *  leaves the operator wherever the browser puts them — typically far from
+   *  the top — so rendering the banner is not by itself enough to be seen. */
+  const errorRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (error) errorRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }, [error]);
+
   // Most rows in a large orphan batch auto-complete from SKU→model
   // parsing and need no attention at all. Defaulting to "incomplete only"
   // lets the operator jump straight to the handful of rows that genuinely
@@ -1405,6 +1457,33 @@ function PreviewPhase({
           {fileName} · {preview.total.toLocaleString()} {preview.total === 1 ? 'row' : 'rows'}
         </span>
       </div>
+
+      {/* A write that throws mid-confirm lands back here via
+          `setPhase('preview')`. Until now the only rendering of `error` was
+          the small strip at the very BOTTOM of this panel — below the audit
+          table and the returns list, thousands of pixels down on a phone. The
+          operator pressed Load, got the audit screen back, and had no visible
+          reason why: it read as the button simply not working, which is
+          exactly how it was reported. Repeat it at the top and pull it into
+          view so a failed write always announces itself. */}
+      {error && (
+        <div
+          ref={errorRef}
+          className="border-2 border-rose-300 bg-rose-50 rounded-2xl p-3 flex items-start gap-2.5"
+        >
+          <AlertTriangle size={20} className="text-rose-600 flex-shrink-0 mt-0.5" />
+          <div className="flex-1 min-w-0">
+            <p className="text-[12px] font-bold text-rose-900">
+              The import didn’t finish — nothing further was written
+            </p>
+            <p className="text-[11px] text-rose-800 mt-0.5 break-words">{error}</p>
+            <p className="text-[10px] text-rose-700 mt-1.5 leading-relaxed">
+              Your reviewed values are still here. Fix the cause and press Load again — rows that
+              already landed come back as updates, so re-running is safe.
+            </p>
+          </div>
+        </div>
+      )}
 
       {allReconciled && (
         <div className="border-2 border-emerald-300 bg-emerald-50 rounded-2xl p-3 flex items-start gap-2.5">

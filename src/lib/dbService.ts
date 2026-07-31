@@ -228,8 +228,17 @@ export const dbService = {
       emit(col, existing);
     }
 
-    // Write to Firestore in batches of 400 (under the 500-write limit)
-    const BATCH_SIZE = 400;
+    // Write to Firestore in batches, well under the 500-op batch limit.
+    //
+    // Sized at 100 rather than the old 400 for FEEDBACK, not correctness. A
+    // 494-sale import was two commits, so onProgress fired for the first time
+    // only after the first 400 landed — the operator stared at a spinner
+    // reading "Writing 0 / 494 sales…" for the entire duration of a single
+    // round trip. On a phone with a weak connection that is indistinguishable
+    // from a crash, and it is exactly what was reported. Five smaller commits
+    // move the bar five times for the same work; the extra round trips cost
+    // well under a second on a healthy connection.
+    const BATCH_SIZE = 100;
     for (let i = 0; i < entries.length; i += BATCH_SIZE) {
       const chunk = entries.slice(i, i + BATCH_SIZE);
       const batch = writeBatch(db);
