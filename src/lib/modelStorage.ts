@@ -383,7 +383,21 @@ export function normalizeOperatorSku(raw: string | undefined | null): string | n
   let modelTok: string;
   let storageStartIdx: number;
 
-  if (code) {
+  // Samsung tablet product code standing alone as the leading segment:
+  // "AT580-16-GY" is Galaxy Tab A model T580, 16GB, Grey. There is no brand
+  // code in the SKU at all, so it never matched SKU_BRAND_CODE and the whole
+  // raw string was left on the unit — the operator saw "AT580-16-GY" as a
+  // model name, and the audit table seeded it as one. Read as "A" (Tab A)
+  // plus the T-number, confirmed against the operator's own catalog entry
+  // "GALAXY TAB A T580 16GB".
+  const tabCodeM = segs[0].match(/^AT(\d{3,4})$/);
+
+  if (tabCodeM) {
+    code = { brand: 'Samsung', line: 'Galaxy Tab A' };
+    line = code.line;
+    modelTok = `T${tabCodeM[1]}`;
+    storageStartIdx = 1;                          // no separate model segment
+  } else if (code) {
     // Standard layout: BRAND-MODEL-STORAGE-COLOUR-SUFFIX (e.g. SG-A14-128-VT).
     line = code.line;
     modelTok = segs[1];

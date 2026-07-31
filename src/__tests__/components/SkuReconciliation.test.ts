@@ -46,7 +46,7 @@ describe('SkuReconciliation — auto-fixable against real client SKU shapes', ()
   });
 
   it('a genuinely unrecognisable code is still NOT auto-fixable (no false positive)', () => {
-    const u = unit({ rawModel: 'AT580-16-GY', model: 'AT580-16-GY' });
+    const u = unit({ rawModel: 'WX440-12-PK', model: 'WX440-12-PK' });
     expect(isAutoFixable(u)).toBe(false);
     expect(buildAutoFixPatch(u)).toBeNull();
   });

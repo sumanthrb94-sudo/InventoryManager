@@ -101,6 +101,16 @@ describe('normalizeOperatorSku', () => {
     expect(normalizeOperatorSku('SG-S22-1TB-BK')).toBe('Samsung Galaxy S22 1TB');
   });
 
+  it('reads a bare Samsung tablet product code (AT580 = Galaxy Tab A T580)', () => {
+    // Real client SKU with no brand code at all, so it never matched
+    // SKU_BRAND_CODE and the whole raw string was left on the unit — the
+    // operator saw "AT580-16-GY" seeded as a model name in the import audit
+    // table. Target spelling confirmed against their own catalog row
+    // "GALAXY TAB A T580 16GB".
+    expect(normalizeOperatorSku('AT580-16-GY')).toBe('Samsung Galaxy Tab A T580 16GB');
+    expect(normalizeOperatorSku('AT580-32-BK')).toBe('Samsung Galaxy Tab A T580 32GB');
+  });
+
   it('strips the "VIN-" vendor prefix same as "ASI-"', () => {
     expect(normalizeOperatorSku('VIN-SG-A25-128-DBL-LN')).toBe('Samsung Galaxy A25 128GB');
   });

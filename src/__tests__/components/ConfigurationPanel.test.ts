@@ -54,7 +54,14 @@ describe('cleanCatalogModelInput — SKU-shape guard on manual entry', () => {
   });
 
   it('passes an unrecognised SKU-shaped string through verbatim (can\'t safely guess)', () => {
-    expect(cleanCatalogModelInput('AT580-16-GY')).toBe('AT580-16-GY');
+    // Deliberately a code no rule claims. AT580-16-GY used to sit here, but
+    // it is now recognised as a Galaxy Tab A T580, so it no longer tests
+    // the "can't guess" path.
+    expect(cleanCatalogModelInput('WX440-12-PK')).toBe('WX440-12-PK');
+  });
+
+  it('cleans a recognised tablet code rather than saving the raw SKU', () => {
+    expect(cleanCatalogModelInput('AT580-16-GY')).toBe('Samsung Galaxy Tab A T580 16GB');
   });
 
   it('trims surrounding whitespace', () => {

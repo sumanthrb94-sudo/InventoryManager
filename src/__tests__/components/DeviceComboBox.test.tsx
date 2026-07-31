@@ -56,18 +56,18 @@ describe('DeviceComboBox — "+ Add" model cleanup', () => {
 
   it('flags an unrecognised SKU-shaped string with a caution note, but still allows creating it', async () => {
     const onCreateModel = vi.fn().mockResolvedValue({
-      brand: '', model: 'AT580-16-GY', count: 0, latestDateIn: '', storages: [], colours: [], source: 'seed',
+      brand: '', model: 'WX440-12-PK', count: 0, latestDateIn: '', storages: [], colours: [], source: 'seed',
     } as DeviceCatalogEntry);
 
     render(<Wrapper onCreateModel={onCreateModel} />);
-    await typeAndOpenAdd('AT580-16-GY');
+    await typeAndOpenAdd('WX440-12-PK');
 
     expect(screen.queryByText(/looks like a raw SKU code/i)).toBeTruthy();
 
-    fireEvent.click(screen.getByRole('button', { name: /^Add "AT580-16-GY"/ }));
+    fireEvent.click(screen.getByRole('button', { name: /^Add "WX440-12-PK"/ }));
     await waitFor(() => expect(onCreateModel).toHaveBeenCalled());
     // Unrecognised — passed through verbatim, since we can't safely guess.
-    expect(onCreateModel).toHaveBeenCalledWith({ brand: '', model: 'AT580-16-GY' });
+    expect(onCreateModel).toHaveBeenCalledWith({ brand: '', model: 'WX440-12-PK' });
   });
 
   it('does not flag a genuine clean model name typed by the operator', async () => {

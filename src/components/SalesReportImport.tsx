@@ -1550,8 +1550,17 @@ function PreviewPhase({
             </div>
           </div>
 
-          <div className="bg-white border border-orange-200 rounded-xl overflow-hidden">
-            <div className="px-3 py-1.5 border-b border-orange-100 text-[9px] font-mono uppercase tracking-widest text-orange-900 bg-orange-50/60 grid grid-cols-14 gap-2">
+          {/* Scrolls sideways rather than squeezing 14 columns into a phone
+              width. Unconstrained, every field collapsed to ~20px — headers
+              overlapped into "COLOSTORAGE" and each input showed three
+              characters, so the operator could not read, let alone fix, what
+              was blocking a row. Desktop is unaffected: the min-width is
+              below a normal viewport, so the grid lays out exactly as before. */}
+          <p className="md:hidden mb-1 text-[10px] font-mono text-orange-800">
+            Scroll the table sideways to reach every column →
+          </p>
+          <div className="bg-white border border-orange-200 rounded-xl overflow-x-auto">
+            <div className="min-w-[56rem] px-3 py-1.5 border-b border-orange-100 text-[9px] font-mono uppercase tracking-widest text-orange-900 bg-orange-50/60 grid grid-cols-14 gap-2">
               <span className="col-span-3">IMEI · Source · Order</span>
               <span className="col-span-3">Model</span>
               <span className="col-span-1">Colour</span>
@@ -1561,7 +1570,7 @@ function PreviewPhase({
               <span className="col-span-1 text-right">BP £</span>
               <span className="col-span-1 text-right">SP £</span>
             </div>
-            <ul className="max-h-[32rem] overflow-auto divide-y divide-orange-50 text-[11px]">
+            <ul className="min-w-[56rem] max-h-[32rem] overflow-y-auto divide-y divide-orange-50 text-[11px]">
               {showIncompleteOnly && incomplete === 0 && (
                 <li className="px-3 py-4 text-center text-emerald-700 font-semibold">
                   All {auditEdits.length} rows are complete.
