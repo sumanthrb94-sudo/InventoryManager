@@ -376,6 +376,11 @@ export function normalizeOperatorSku(raw: string | undefined | null): string | n
   // a segment of its own between two dashes.
   const segs = body.split('-').map(s => s.trim()).filter(Boolean);
   if (segs.length < 2) return null;
+  // "TAB AT580-16-GY" — the operator writes the word Tab, a space, then the
+  // tablet code. That space would trip the real-name bail below and leave the
+  // whole SKU raw on the unit. Collapse it only when what follows is
+  // unmistakably a tablet code, so a genuine spaced name is untouched.
+  segs[0] = segs[0].replace(/^TAB\s+(AT\d{3,4})$/i, '$1');
   if (segs.some(s => /\s/.test(s))) return null;  // a real segment has spaces → real name
 
   let code = SKU_BRAND_CODE[segs[0]];

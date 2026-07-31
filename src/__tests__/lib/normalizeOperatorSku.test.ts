@@ -111,6 +111,19 @@ describe('normalizeOperatorSku', () => {
     expect(normalizeOperatorSku('AT580-32-BK')).toBe('Samsung Galaxy Tab A T580 32GB');
   });
 
+  it('tolerates the operator writing "TAB " before the tablet code', () => {
+    // Seen on a live EBAY row: "TAB AT580-16-GY". The space would otherwise
+    // trip the real-name bail and leave the whole SKU raw as the model.
+    expect(normalizeOperatorSku('TAB AT580-16-GY')).toBe('Samsung Galaxy Tab A T580 16GB');
+  });
+
+  it('the TAB collapse does not weaken the real-name guard', () => {
+    // Only an unmistakable tablet code is collapsed, so a genuine product
+    // name carrying spaces and a dash still bails.
+    expect(normalizeOperatorSku('Samsung Galaxy Note 9 - Pre-owned')).toBeNull();
+    expect(normalizeOperatorSku('TAB SOMETHING-16-GY')).toBeNull();
+  });
+
   it('strips the "VIN-" vendor prefix same as "ASI-"', () => {
     expect(normalizeOperatorSku('VIN-SG-A25-128-DBL-LN')).toBe('Samsung Galaxy A25 128GB');
   });
