@@ -425,6 +425,34 @@ export function normalizeOperatorSku(raw: string | undefined | null): string | n
     .join(' ');
 }
 
+/** Strip a known brand word from the start of a model string (e.g.
+ *  "Samsung ASI-SG-A32--64-BK-EX" → "ASI-SG-A32--64-BK-EX"). Shared by
+ *  `looksLikeSku` below and the admin SkuReconciliation tool, which both
+ *  need to agree on exactly what counts as "brand-prefixed SKU code". */
+export function stripKnownBrandPrefix(raw: string): string {
+  return raw.replace(/^(samsung|apple|google|xiaomi|oneplus)\s+/i, '');
+}
+
+/** A model string looks SKU-like when:
+ *  - it is dash-delimited and has no spaces (pure SKU code), OR
+ *  - a known brand word is prepended to such a code ("Samsung ASI-SG-...").
+ *  Real product names carry spaces and do not look like dash codes.
+ *
+ *  Single source of truth for "is this raw text still a SKU code, or is it
+ *  already a clean, human-confirmed name" — used both by the admin
+ *  SkuReconciliation tool and by inventoryStore's read-time normalisation
+ *  to decide whether a unit's model is safe to leave untouched. A model
+ *  that already passes this as "not a SKU" must never be silently
+ *  rewritten again, no matter how normalizeOperatorSku's recognised SKU
+ *  shapes change in the future. */
+export function looksLikeSku(raw: string | undefined | null): boolean {
+  const s = (raw ?? '').trim();
+  if (!s) return false;
+  if (!/\s/.test(s) && /-/.test(s)) return true;
+  const remainder = stripKnownBrandPrefix(s);
+  return remainder !== s && !/\s/.test(remainder) && /-/.test(remainder);
+}
+
 /** Strip optional brand/series prefix + lowercase so casing and prefix
  *  variants ("GALAXY A15" / "Galaxy A15" / "A15") collapse to the same
  *  normalised key. Preserves the model token order otherwise so distinct

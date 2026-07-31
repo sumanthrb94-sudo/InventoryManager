@@ -7,7 +7,9 @@
  * buckets — but it must NEVER mangle a real (spaced) model name.
  */
 import { describe, it, expect } from 'vitest';
-import { normalizeOperatorSku, parseBrandModelStorage } from '../../lib/modelStorage';
+import {
+  normalizeOperatorSku, parseBrandModelStorage, looksLikeSku, stripKnownBrandPrefix,
+} from '../../lib/modelStorage';
 
 describe('normalizeOperatorSku', () => {
   it('normalises Samsung Galaxy SKUs to clean model strings', () => {
@@ -115,5 +117,41 @@ describe('parseBrandModelStorage — SKU integration', () => {
     expect(prefixed.series).toBe(clean.series);
 
     expect(parseBrandModelStorage('Apple ASI-IP-SE3-128-MN-GD').model).toBe('iPhone SE3');
+  });
+});
+
+describe('looksLikeSku / stripKnownBrandPrefix', () => {
+  // Shared, exported "is this raw text still a SKU code" gate — used by both
+  // inventoryStore (to decide whether a model is safe to leave untouched) and
+  // the admin SkuReconciliation tool. Both must agree on the same definition.
+  it('flags dash-delimited, space-free codes as SKU-like', () => {
+    expect(looksLikeSku('ASI-SG-A32--64-BK-EX')).toBe(true);
+    expect(looksLikeSku('IPAD-11-128-BL')).toBe(true);
+    expect(looksLikeSku('VIN-SG-A25-128-DBL-LN')).toBe(true);
+  });
+
+  it('flags a brand-prefixed SKU code', () => {
+    expect(looksLikeSku('Samsung ASI-SG-A32--64-BK-EX')).toBe(true);
+    expect(looksLikeSku('Apple ASI-IP-SE3-128-MN-GD')).toBe(true);
+  });
+
+  it('does NOT flag a real, clean model name', () => {
+    expect(looksLikeSku('Galaxy S22 Ultra')).toBe(false);
+    expect(looksLikeSku('Samsung Galaxy A32 64GB')).toBe(false);
+    expect(looksLikeSku('iPhone 13 Pro Max')).toBe(false);
+    expect(looksLikeSku('')).toBe(false);
+    expect(looksLikeSku(undefined)).toBe(false);
+    expect(looksLikeSku(null)).toBe(false);
+  });
+
+  it('does NOT flag a real name that happens to contain a dash', () => {
+    expect(looksLikeSku('Samsung Galaxy Note 9 - Pre-owned')).toBe(false);
+  });
+
+  it('stripKnownBrandPrefix removes a known leading brand word only', () => {
+    expect(stripKnownBrandPrefix('Samsung ASI-SG-A32--64-BK-EX')).toBe('ASI-SG-A32--64-BK-EX');
+    expect(stripKnownBrandPrefix('Apple ASI-IP-SE3-128-MN-GD')).toBe('ASI-IP-SE3-128-MN-GD');
+    expect(stripKnownBrandPrefix('ASI-SG-A32--64-BK-EX')).toBe('ASI-SG-A32--64-BK-EX');
+    expect(stripKnownBrandPrefix('Galaxy S22 Ultra')).toBe('Galaxy S22 Ultra');
   });
 });

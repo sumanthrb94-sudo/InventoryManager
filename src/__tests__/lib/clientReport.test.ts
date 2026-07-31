@@ -461,11 +461,12 @@ describe('buildSalesWorkbookBuffer — auditor-grade structure', () => {
     const header = sheet.getRow(1);
     // 27 columns total — last 5 are the return-info block + Postage Loss.
     expect(String(header.getCell(22).value)).toBe('Comments');
-    expect(String(header.getCell(23).value)).toBe('Return Date');
-    expect(String(header.getCell(24).value)).toBe('Outcome');
-    expect(String(header.getCell(25).value)).toBe('Return Reason');
-    expect(String(header.getCell(26).value)).toBe('Shipping Legs');
-    expect(String(header.getCell(27).value)).toBe('Postage Loss');
+    expect(String(header.getCell(23).value)).toBe('Model');
+    expect(String(header.getCell(24).value)).toBe('Return Date');
+    expect(String(header.getCell(25).value)).toBe('Outcome');
+    expect(String(header.getCell(26).value)).toBe('Return Reason');
+    expect(String(header.getCell(27).value)).toBe('Shipping Legs');
+    expect(String(header.getCell(28).value)).toBe('Postage Loss');
   });
 
   it('EBAY sheet headers carry 30 cols ending in the return-info block + Postage Loss', async () => {
@@ -474,11 +475,12 @@ describe('buildSalesWorkbookBuffer — auditor-grade structure', () => {
     const sheet = wb.getWorksheet('EBAY')!;
     const header = sheet.getRow(1);
     expect(String(header.getCell(25).value)).toBe('Comments');
-    expect(String(header.getCell(26).value)).toBe('Return Date');
-    expect(String(header.getCell(27).value)).toBe('Outcome');
-    expect(String(header.getCell(28).value)).toBe('Return Reason');
-    expect(String(header.getCell(29).value)).toBe('Shipping Legs');
-    expect(String(header.getCell(30).value)).toBe('Postage Loss');
+    expect(String(header.getCell(26).value)).toBe('Model');
+    expect(String(header.getCell(27).value)).toBe('Return Date');
+    expect(String(header.getCell(28).value)).toBe('Outcome');
+    expect(String(header.getCell(29).value)).toBe('Return Reason');
+    expect(String(header.getCell(30).value)).toBe('Shipping Legs');
+    expect(String(header.getCell(31).value)).toBe('Postage Loss');
   });
 
   it('writes the return-info block + Postage Loss for a voided refund sale', async () => {
@@ -494,14 +496,14 @@ describe('buildSalesWorkbookBuffer — auditor-grade structure', () => {
     const wb = await loadWorkbook(buffer);
     const sheet = wb.getWorksheet('EBAY')!;
     const row = sheet.getRow(2);
-    // Return Date (col 26) — ExcelJS stores as Date.
-    const rd = row.getCell(26).value as Date | null;
+    // Return Date (col 27) — ExcelJS stores as Date.
+    const rd = row.getCell(27).value as Date | null;
     expect(rd).toBeInstanceOf(Date);
     expect((rd as Date).toISOString().startsWith('2026-05-20')).toBe(true);
-    expect(row.getCell(27).value).toBe('Refund');
-    expect(row.getCell(28).value).toBe('Customer changed mind');
-    expect(row.getCell(29).value).toBe(2);          // 2 shipping legs
-    expect(row.getCell(30).value).toBeCloseTo(19.2, 2);  // (8 + 1.6) × 2
+    expect(row.getCell(28).value).toBe('Refund');
+    expect(row.getCell(29).value).toBe('Customer changed mind');
+    expect(row.getCell(30).value).toBe(2);          // 2 shipping legs
+    expect(row.getCell(31).value).toBeCloseTo(19.2, 2);  // (8 + 1.6) × 2
   });
 
   it('writes 3 legs + the bigger loss for a replacement sale', async () => {
@@ -518,10 +520,10 @@ describe('buildSalesWorkbookBuffer — auditor-grade structure', () => {
     const wb = await loadWorkbook(buffer);
     const sheet = wb.getWorksheet('AMAZON')!;
     const row = sheet.getRow(2);
-    expect(row.getCell(24).value).toBe('Replacement');
-    expect(row.getCell(26).value).toBe(3);
+    expect(row.getCell(25).value).toBe('Replacement');
+    expect(row.getCell(27).value).toBe(3);
     // (6.30 + 1.26) × 3 = 22.68
-    expect(row.getCell(27).value).toBeCloseTo(22.68, 2);
+    expect(row.getCell(28).value).toBeCloseTo(22.68, 2);
   });
 
   it('tags + amber-tints a sale whose IMEI has no matching inventory unit', async () => {
@@ -605,11 +607,11 @@ describe('buildSalesWorkbookBuffer — auditor-grade structure', () => {
     const wb = await loadWorkbook(buffer);
     const sheet = wb.getWorksheet('EBAY')!;
     const row = sheet.getRow(2);
-    expect(row.getCell(26).value).toBeNull();        // Return Date
-    expect(row.getCell(27).value).toBeNull();        // Outcome
-    expect(row.getCell(28).value).toBeNull();        // Return Reason
-    expect(row.getCell(29).value).toBeNull();        // Shipping Legs
-    expect(row.getCell(30).value).toBeNull();        // Postage Loss
+    expect(row.getCell(27).value).toBeNull();        // Return Date
+    expect(row.getCell(28).value).toBeNull();        // Outcome
+    expect(row.getCell(29).value).toBeNull();        // Return Reason
+    expect(row.getCell(30).value).toBeNull();        // Shipping Legs
+    expect(row.getCell(31).value).toBeNull();        // Postage Loss
   });
 
   it('appends a bold TOTAL row with SUM formulas across the data range', async () => {
@@ -634,7 +636,7 @@ describe('buildSalesWorkbookBuffer — auditor-grade structure', () => {
     const gpPctCell = totalRow.getCell(20).value as any;
     expect(gpPctCell.formula).toContain('IFERROR');
     expect(gpPctCell.formula).toContain('S4');     // GP total
-    expect(gpPctCell.formula).toContain('AA4');    // Postage Loss total
+    expect(gpPctCell.formula).toContain('AB4');    // Postage Loss total
     expect(gpPctCell.formula).toContain('G4');     // BP total (denominator)
   });
 
@@ -894,12 +896,12 @@ describe('return / replacement / re-sell lifecycle', () => {
 
     // EBAY tab carries the voided row with the return-info block populated.
     const ebay = wb.getWorksheet('EBAY')!;
-    expect(ebay.getRow(2).getCell(27).value).toBe('Refund');         // Outcome
-    expect(ebay.getRow(2).getCell(29).value).toBe(2);                // Shipping Legs
+    expect(ebay.getRow(2).getCell(28).value).toBe('Refund');         // Outcome
+    expect(ebay.getRow(2).getCell(30).value).toBe(2);                // Shipping Legs
     // AMAZON tab carries the re-sale row with the block left blank.
     const amazon = wb.getWorksheet('AMAZON')!;
-    expect(amazon.getRow(2).getCell(24).value).toBeNull();           // Outcome blank
-    expect(amazon.getRow(2).getCell(26).value).toBeNull();           // Shipping Legs blank
+    expect(amazon.getRow(2).getCell(25).value).toBeNull();           // Outcome blank
+    expect(amazon.getRow(2).getCell(27).value).toBeNull();           // Shipping Legs blank
 
     // Summary roll-up reflects both: 1 refund on EBAY (its only sale was
     // voided, so it contributes 0 to Sales — the count is active-only),
@@ -953,16 +955,16 @@ describe('Net GP £ per-row cell on the marketplace tabs', () => {
     const buf = await buildSalesWorkbookBuffer({ sales });
     const wb = await loadWorkbook(buf);
     const ebay = wb.getWorksheet('EBAY')!;
-    // EBAY col 31 = Net GP £. Formula = V2 − AD2 (GP − Postage Loss).
-    const cell = ebay.getRow(2).getCell(31).value as { formula?: string };
-    expect(cell.formula).toBe('V2-AD2');
+    // EBAY col 32 = Net GP £. Formula = V2 − AE2 (GP − Postage Loss).
+    const cell = ebay.getRow(2).getCell(32).value as { formula?: string };
+    expect(cell.formula).toBe('V2-AE2');
 
     // Compute it via reportView — active row → Postage Loss is blank →
     // Net GP £ = Gross GP = 44.51.
     const model = await viewModelFromXlsxBuffer(buf, 't');
     const ebayView = model.sheets.find(s => s.name === 'EBAY')!;
     expect(ebayView.rows[1][21].display).toBe('44.51');  // Gross GP (col 22)
-    expect(ebayView.rows[1][30].display).toBe('44.51');  // Net GP £ (col 31)
+    expect(ebayView.rows[1][31].display).toBe('44.51');  // Net GP £ (col 32)
   });
 
   it('refunded EBAY row: Net GP £ computes to 44.51 − 19.20 = 25.31', async () => {
@@ -974,15 +976,15 @@ describe('Net GP £ per-row cell on the marketplace tabs', () => {
     const buf = await buildSalesWorkbookBuffer({ sales });
     const wb = await loadWorkbook(buf);
     const ebay = wb.getWorksheet('EBAY')!;
-    // Postage Loss at col 30, Net GP £ at col 31.
-    expect(ebay.getRow(2).getCell(30).value).toBeCloseTo(19.2, 2);
+    // Postage Loss at col 31, Net GP £ at col 32.
+    expect(ebay.getRow(2).getCell(31).value).toBeCloseTo(19.2, 2);
     // Formula round-trips correctly.
-    const cell = ebay.getRow(2).getCell(31).value as { formula?: string };
-    expect(cell.formula).toBe('V2-AD2');
+    const cell = ebay.getRow(2).getCell(32).value as { formula?: string };
+    expect(cell.formula).toBe('V2-AE2');
     // Computed via reportView.
     const model = await viewModelFromXlsxBuffer(buf, 't');
     const ebayView = model.sheets.find(s => s.name === 'EBAY')!;
-    expect(ebayView.rows[1][30].display).toBe('25.31');
+    expect(ebayView.rows[1][31].display).toBe('25.31');
   });
 
   it('replacement AMAZON row: Net GP £ = Gross GP − 22.68 (3 legs)', async () => {
@@ -994,14 +996,14 @@ describe('Net GP £ per-row cell on the marketplace tabs', () => {
     const buf = await buildSalesWorkbookBuffer({ sales: [sale] });
     const wb = await loadWorkbook(buf);
     const amazon = wb.getWorksheet('AMAZON')!;
-    expect(amazon.getRow(2).getCell(27).value).toBeCloseTo(22.68, 2);  // Postage Loss
-    const cell = amazon.getRow(2).getCell(28).value as { formula?: string };
-    expect(cell.formula).toBe('S2-AA2');                                // Net GP £
+    expect(amazon.getRow(2).getCell(28).value).toBeCloseTo(22.68, 2);  // Postage Loss
+    const cell = amazon.getRow(2).getCell(29).value as { formula?: string };
+    expect(cell.formula).toBe('S2-AB2');                                // Net GP £
 
     const model = await viewModelFromXlsxBuffer(buf, 't');
     const amazonView = model.sheets.find(s => s.name === 'AMAZON')!;
     const gross = parseFloat(amazonView.rows[1][18].display);   // GP col 19
-    const net   = parseFloat(amazonView.rows[1][27].display);   // Net GP £ col 28
+    const net   = parseFloat(amazonView.rows[1][28].display);   // Net GP £ col 29
     expect(Number.isFinite(gross)).toBe(true);
     expect(gross - net).toBeCloseTo(22.68, 2);
   });
@@ -1020,16 +1022,16 @@ describe('Net GP £ per-row cell on the marketplace tabs', () => {
     // 2 data rows + 1 TOTAL = row 4.
     const total = ebay.getRow(4);
     expect(String(total.getCell(1).value)).toBe('TOTAL');
-    // TOTAL row's Net GP cell holds SUM(AE2:AE3) — the per-row formula
-    // means each AE cell is V − AD, so SUM = Σ(V) − Σ(AD).
-    const cell = total.getCell(31).value as { formula?: string };
-    expect(cell.formula).toBe('SUM(AE2:AE3)');
+    // TOTAL row's Net GP cell holds SUM(AF2:AF3) — the per-row formula
+    // means each AF cell is V − AE, so SUM = Σ(V) − Σ(AE).
+    const cell = total.getCell(32).value as { formula?: string };
+    expect(cell.formula).toBe('SUM(AF2:AF3)');
     // Compute via reportView. Sum chains through 12+ formula cells per
     // row × 2 rows, so 1p rounding drift (.81 vs .82) is normal; closeness
     // is the correct assertion shape.
     const model = await viewModelFromXlsxBuffer(buf, 't');
     const ebayView = model.sheets.find(s => s.name === 'EBAY')!;
-    const totalDisplay = parseFloat(ebayView.rows[3][30].display);
+    const totalDisplay = parseFloat(ebayView.rows[3][31].display);
     expect(totalDisplay).toBeGreaterThan(69.79);
     expect(totalDisplay).toBeLessThan(69.83);
   });
@@ -1393,9 +1395,9 @@ describe('repair-route returns: "In Repair" label + 2-leg carriage loss', () => 
     await wb.xlsx.load(buf);
     const ebay = wb.getWorksheet('EBAY')!;
     const row = ebay.getRow(2);
-    expect(row.getCell(27).value).toBe('In Repair');         // Outcome (AA)
-    expect(row.getCell(29).value).toBe(2);                   // Shipping Legs (AC)
-    expect(row.getCell(30).value).toBeCloseTo(15.12, 2);     // Postage Loss (AD) = 7.56×2
+    expect(row.getCell(28).value).toBe('In Repair');         // Outcome (AB)
+    expect(row.getCell(30).value).toBe(2);                   // Shipping Legs (AD)
+    expect(row.getCell(31).value).toBeCloseTo(15.12, 2);     // Postage Loss (AE) = 7.56×2
   });
 
   it('Sales Summary counts the repair in its own column + includes its loss', async () => {
@@ -1520,9 +1522,9 @@ describe('post-repair-completion invariant (BUG-RP-002)', () => {
     await wb.xlsx.load(buf);
     const ebay = wb.getWorksheet('EBAY')!;
     const row = ebay.getRow(2);
-    expect(row.getCell(27).value).toBe('In Repair');         // NOT relabelled to Refund
-    expect(row.getCell(29).value).toBe(2);                   // Legs unchanged
-    expect(row.getCell(30).value).toBeCloseTo(15.12, 2);     // Postage Loss unchanged
+    expect(row.getCell(28).value).toBe('In Repair');         // NOT relabelled to Refund
+    expect(row.getCell(30).value).toBe(2);                   // Legs unchanged
+    expect(row.getCell(31).value).toBeCloseTo(15.12, 2);     // Postage Loss unchanged
   });
 
   it('Sales Summary keeps the repair in the Repairs column after completion', async () => {
@@ -1588,9 +1590,9 @@ describe('post-repair-completion invariant (BUG-RP-002)', () => {
     await wb.xlsx.load(buf);
     const ebay = wb.getWorksheet('EBAY')!;
     const row = ebay.getRow(2);
-    expect(row.getCell(27).value).toBe('In Repair');         // backfilled, NOT Refund
-    expect(row.getCell(29).value).toBe(2);                   // 2 legs
-    expect(row.getCell(30).value).toBeCloseTo(15.12, 2);     // loss carried
+    expect(row.getCell(28).value).toBe('In Repair');         // backfilled, NOT Refund
+    expect(row.getCell(30).value).toBe(2);                   // 2 legs
+    expect(row.getCell(31).value).toBeCloseTo(15.12, 2);     // loss carried
     // And the Summary classifies it as a Repair, not a Refund.
     const summary = wb.getWorksheet('Summary')!;
     const ebayRow = summary.getRow(7);

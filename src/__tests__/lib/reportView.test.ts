@@ -158,9 +158,9 @@ describe('viewModelFromXlsxBuffer — exact Excel view of the Sales Report', () 
     const ebay = model.sheets.find(s => s.name === 'EBAY')!;
     const row = ebay.rows[1];
     expect(row[0].fillColor).toBe('#FEE2E2');            // rose-100 across the row
-    expect(row[26].display).toBe('Refund');              // AA — Outcome
-    expect(row[28].display).toBe('2');                   // AC — Shipping Legs
-    expect(row[29].display).toBe('19.20');               // AD — Postage Loss (8+1.6)×2
+    expect(row[27].display).toBe('Refund');              // AB — Outcome
+    expect(row[29].display).toBe('2');                   // AD — Shipping Legs
+    expect(row[30].display).toBe('19.20');               // AE — Postage Loss (8+1.6)×2
     // Net GP% = (44.506 − 19.2) / 200 × 100 = 12.653 → '12.65'
     expect(row[22].display).toBe('12.65');
   });

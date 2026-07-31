@@ -3,6 +3,7 @@ import { AnimatePresence, motion } from 'motion/react';
 import { X } from 'lucide-react';
 import { InventoryUnit } from '../types';
 import { parseBrandModelStorage, normalizeBucketModel, type Series } from '../lib/modelStorage';
+import { canonicaliseModel } from '../lib/modelReconciliation';
 import { useInventoryStore } from '../lib/inventoryStore';
 import { useUserRegion } from '../lib/userLocale';
 import StockOverlayModal from './StockOverlayModal';
@@ -321,27 +322,42 @@ const bucketKeyOf = (model: string, storage?: string, tag?: string) =>
  *   groupDefs  — the rows to render (brand series, or runtime supplier list).
  *   assign     — maps a unit to a groupDefs id. Units whose id isn't in
  *                groupDefs are dropped (so a stray supplier doesn't appear).
- *   opts.valueOf     — per-unit £ for tile/row value (default buyPrice;
+ *   opts.valueFn     — per-unit £ for tile/row value (default buyPrice;
  *                      out-of-stock passes salePrice to surface revenue).
+ *                      NOT named `valueOf` — every plain object literal
+ *                      inherits Object.prototype.valueOf, so a caller
+ *                      passing options without this key (e.g. just
+ *                      `{ catalogIndex }`) would make `opts?.valueOf`
+ *                      resolve to the INHERITED method instead of
+ *                      `undefined`, defeating both `?? default` and
+ *                      `typeof x === 'function'` fallback checks alike.
  *   opts.excludeKeys — model|storage|tag keys to drop. Out-of-stock passes the
  *                      SKUs that still have available stock so only depleted
  *                      ones remain.
  */
-function buildGroups(
+export function buildGroups(
   primary: InventoryUnit[],
   secondary: InventoryUnit[],
   groupDefs: ReadonlyArray<PtGroupDef>,
   assign: (u: InventoryUnit) => string,
-  opts?: { valueOf?: (u: InventoryUnit) => number; excludeKeys?: Set<string> },
+  opts?: { valueFn?: (u: InventoryUnit) => number; excludeKeys?: Set<string>; catalogIndex?: Map<string, string> },
 ): PtGroupVM[] {
-  const valueOf = opts?.valueOf ?? ((u: InventoryUnit) => u.buyPrice || 0);
+  const valueOf = opts?.valueFn ?? ((u: InventoryUnit) => u.buyPrice || 0);
   const excludeKeys = opts?.excludeKeys;
+  const catalogIndex = opts?.catalogIndex;
   try {
     type ParsedUnit = { unit: InventoryUnit; model: string; storage?: string; tag?: string; groupId: string };
     const parseUnit = (u: InventoryUnit): ParsedUnit => {
       const p = parseBrandModelStorage(u.model);
       const storage = u.storage || p.storage;
-      return { unit: u, model: p.model || u.model, storage, tag: p.tag, groupId: assign(u) };
+      // Admin catalog's canonical spelling wins when one matches, computed
+      // BEFORE the bucket key below so seed-matched units of different raw
+      // spellings collapse into one tile automatically — same as
+      // deviceCatalog.ts already merges seeds with real stock for the
+      // autocomplete picker.
+      const rawModel = p.model || u.model;
+      const model = catalogIndex ? canonicaliseModel(rawModel, u.brand || p.brand, catalogIndex) : rawModel;
+      return { unit: u, model, storage, tag: p.tag, groupId: assign(u) };
     };
 
     const parsedPrimary   = primary.map(parseUnit);
@@ -631,7 +647,7 @@ export default function PeriodicInventory({ units, onNavigate }: Props) {
   // cache) still shows up on the periodic table for re-sale.
   // Pull supplier list locally so we can render supplier names in the overlay
   // without forcing every PeriodicInventory caller to thread a supplierMap.
-  const { suppliers } = useInventoryStore();
+  const { suppliers, catalogIndex } = useInventoryStore();
   const region = useUserRegion();
   const supplierMap = useMemo(() => {
     const m: Record<string, string> = {};
@@ -741,8 +757,10 @@ export default function PeriodicInventory({ units, onNavigate }: Props) {
   // SHS=incoming). Clean periodic table with no mixed-signal badges; the
   // two scopes get their own dashboards mounted side-by-side.
   const stockGroups = useMemo(
-    () => buildGroups(scopePrimary, [], SERIES_GROUPS, u => unitSeries(u)),
-    [scopePrimary],
+    () => buildGroups(scopePrimary, [], SERIES_GROUPS, u => unitSeries(u), {
+      valueFn: u => u.buyPrice || 0, catalogIndex,
+    }),
+    [scopePrimary, catalogIndex],
   );
 
   // Supplier-grouped layout builder — rows are suppliers (built from the live
@@ -769,25 +787,30 @@ export default function PeriodicInventory({ units, onNavigate }: Props) {
     }
     const assign = (u: InventoryUnit) =>
       (u.supplierId && supplierMap[u.supplierId]) ? u.supplierId : UNKNOWN_SUPPLIER_ID;
-    return buildGroups(primary, [], defs, assign);
-  }, [supplierOptions, supplierMap]);
+    return buildGroups(primary, [], defs, assign, { valueFn: u => u.buyPrice || 0, catalogIndex });
+  }, [supplierOptions, supplierMap, catalogIndex]);
 
   const supplierGroups = useMemo(() => buildSupplierGroups(scopePrimary), [buildSupplierGroups, scopePrimary]);
 
   const outOfStockGroups = useMemo(() => {
     // Exclude every SKU that still has on-hand stock for THIS scope — only
     // depleted ones (sold lifetime within scope, zero on hand now) survive.
+    // Catalog-canonicalise these keys the same way buildGroups does below,
+    // so a seed-matched model excludes correctly regardless of which raw
+    // spelling the in-stock unit vs. the sold unit happened to carry.
     const inStock = new Set<string>();
     for (const u of scopePrimary) {
       const p = parseBrandModelStorage(u.model);
-      inStock.add(bucketKeyOf(p.model || u.model, u.storage || p.storage));
+      const rawModel = p.model || u.model;
+      const model = canonicaliseModel(rawModel, u.brand || p.brand, catalogIndex);
+      inStock.add(bucketKeyOf(model, u.storage || p.storage));
     }
     // Tile count = units sold lifetime within this scope (demand signal);
     // value = revenue. soldAll is already scope-filtered above.
     return buildGroups(soldAll, [], SERIES_GROUPS, u => unitSeries(u), {
-      valueOf: u => u.salePrice || 0, excludeKeys: inStock,
+      valueFn: u => u.salePrice || 0, excludeKeys: inStock, catalogIndex,
     });
-  }, [scopePrimary, soldAll]);
+  }, [scopePrimary, soldAll, catalogIndex]);
 
   const groups = viewMode === 'supplier' ? supplierGroups
     : viewMode === 'outofstock' ? outOfStockGroups
@@ -825,14 +848,20 @@ export default function PeriodicInventory({ units, onNavigate }: Props) {
       // isn't already all-caps (e.g. 'Not Applicable' -> 'NOT APPLICABLE'),
       // so tiles for those units (Apple Watch) always opened to "0 rows".
       const storage = u.storage || parsed.storage;
-      const unitKey = bucketKeyOf(parsed.model || u.model || '', storage);
+      // Same catalog canonicalisation buildGroups applies to the tile's
+      // bucket key — without this, a seed-merged tile (now labeled by its
+      // canonical name) would fail to match any unit whose raw model isn't
+      // spelled exactly that way, opening to "0 rows".
+      const rawModel = parsed.model || u.model || '';
+      const model = canonicaliseModel(rawModel, u.brand || parsed.brand, catalogIndex);
+      const unitKey = bucketKeyOf(model, storage);
       return unitKey === wantKey;
     }).sort((a, b) => {
       const da = new Date(a.dateIn || 0).getTime();
       const db = new Date(b.dateIn || 0).getTime();
       return db - da;
     });
-  }, [overlay, overlayBase, supplierMap]);
+  }, [overlay, overlayBase, supplierMap, catalogIndex]);
 
   // ── Hover handlers with grace-period so cursor can reach the popover ─────────
   const cancelClose = useCallback(() => {

@@ -27,6 +27,17 @@ import type {
 import { MARKETPLACES } from '../types';
 import { excelFormulaFor } from './platforms';
 import { recomputeSale } from './recomputeSale';
+import { normalizeOperatorSku } from './modelStorage';
+
+/** Best-effort clean model name for a sale row, for the exported "Model"
+ *  column. `sale.model` is the audit-completed clean name and wins when
+ *  present; otherwise fall back to normalising the preserved raw SKU
+ *  (same parser the import path uses) so older/legacy sales without a
+ *  completed model still show something readable rather than a blank
+ *  cell or a raw operator code. */
+function resolvedSaleModel(sale: Sale): string {
+  return sale.model || normalizeOperatorSku(sale.sku ?? '') || sale.sku || '';
+}
 
 /** Unified flat schema for the ALL sheet. 22 columns: buy schema (9)
  *  first, then sale fields (13). Marketplace is a column, not a tab. */
@@ -304,6 +315,11 @@ const SALES_HEADERS: Record<Marketplace, SalesHeaderRow> = {
     'Postage', 'P. VAT', 'Accessories',
     'Total VAT', 'GP', 'GP %', 'Total VAT NTP',
     'Comments',
+    // Resolved model name — sale.model when audit-complete, else a live
+    // normalised guess off the preserved raw SKU. Trailing, not inserted
+    // among the formula columns, so no existing column-letter formula
+    // reference shifts.
+    'Model',
     // ── Return-linkage block ────────────────────────────────────────────
     // Auditor needs to see WHY a row is red without reverse-engineering
     // the Postage Loss multiplier. Each block is populated only when the
@@ -327,7 +343,7 @@ const SALES_HEADERS: Record<Marketplace, SalesHeaderRow> = {
     'Date', 'Order Number', 'SKU', 'IMEI', 'Supplier', 'Quantity',
     'BP', 'SP', 'SP-BP', 'Marginal Tax', 'Commission',
     'Customer Care Fees', 'Postage', 'P. VAT', 'Accessories',
-    'GP', 'GP %', 'Total VAT NTP', 'Comments',
+    'GP', 'GP %', 'Total VAT NTP', 'Comments', 'Model',
     'Return Date', 'Outcome', 'Return Reason', 'Shipping Legs',
     'Postage Loss', 'Net GP £',
   ],
@@ -335,7 +351,7 @@ const SALES_HEADERS: Record<Marketplace, SalesHeaderRow> = {
     'Date', 'Order Number', 'SKU', 'IMEI', 'Supplier', 'Units',
     'BP', 'SP', 'SP-BP', 'Marginal Tax', 'Commission', 'ROF', 'FVF', 'VAT',
     'T.COM', 'Postage', 'P. VAT', 'Marketing', 'M. VAT', 'Accessories',
-    'Total VAT', 'GP', 'GP %', 'Total VAT NTP', 'Comments',
+    'Total VAT', 'GP', 'GP %', 'Total VAT NTP', 'Comments', 'Model',
     'Return Date', 'Outcome', 'Return Reason', 'Shipping Legs',
     'Postage Loss', 'Net GP £',
   ],
@@ -343,7 +359,7 @@ const SALES_HEADERS: Record<Marketplace, SalesHeaderRow> = {
     'Date', 'Order Number', 'SKU', 'IMEI', 'Supplier',
     'BP', 'SP', 'SP-BP', 'Marginal Tax', 'Commission', 'VAT 20%',
     'Postage', 'P. VAT', 'Accessories',
-    'Total VAT', 'GP', 'GP %', 'Total VAT NTP', 'Comments',
+    'Total VAT', 'GP', 'GP %', 'Total VAT NTP', 'Comments', 'Model',
     'Return Date', 'Outcome', 'Return Reason', 'Shipping Legs',
     'Postage Loss', 'Net GP £',
   ],
@@ -358,6 +374,7 @@ const SALES_HEADERS: Record<Marketplace, SalesHeaderRow> = {
     'Postage', 'P. VAT', 'Accessories',
     'Total VAT', 'GP', 'GP %', 'Total VAT NTP',
     'Comments',
+    'Model',
     'Return Date', 'Outcome', 'Return Reason', 'Shipping Legs',
     'Postage Loss',
     'Net GP £',
@@ -516,6 +533,7 @@ function writeSaleRow(
         sale.accessoryFee ?? Number(f.accessoryFee ?? 1),
         null, null, null, null,
         sale.comments ?? '',
+        resolvedSaleModel(sale),
       ]);
       row.getCell(1).numFmt = DATE_FMT;
       row.getCell(4).numFmt = IMEI_FMT;
@@ -562,6 +580,7 @@ function writeSaleRow(
         sale.accessoryFee ?? Number(f.accessoryFee ?? 1), // Accessories (literal)
         null, null, null, null,                         // Total VAT, GP, GP%, Total VAT NTP
         sale.comments ?? '',
+        resolvedSaleModel(sale),
       ]);
       row.getCell(1).numFmt = DATE_FMT;
       row.getCell(4).numFmt = IMEI_FMT;
@@ -600,6 +619,7 @@ function writeSaleRow(
         sale.accessoryFee ?? Number(f.accessoryFee ?? 1),  // Accessories (literal)
         null, null, null,                              // GP, GP%, Total VAT NTP
         sale.comments ?? '',
+        resolvedSaleModel(sale),
       ]);
       row.getCell(1).numFmt = DATE_FMT;
       row.getCell(4).numFmt = IMEI_FMT;
@@ -643,6 +663,7 @@ function writeSaleRow(
         sale.accessoryFee ?? Number(f.accessoryFee ?? 1),  // Accessories
         null, null, null, null,                      // Total VAT, GP, GP%, Total VAT NTP
         sale.comments ?? '',
+        resolvedSaleModel(sale),
       ]);
       row.getCell(1).numFmt = DATE_FMT;
       row.getCell(4).numFmt = IMEI_FMT;
@@ -687,6 +708,7 @@ function writeSaleRow(
         sale.accessoryFee ?? Number(f.accessoryFee ?? 1),  // Accessories (literal)
         null, null, null, null,                       // Total VAT, GP, GP%, Total VAT NTP
         sale.comments ?? '',
+        resolvedSaleModel(sale),
       ]);
       row.getCell(1).numFmt = DATE_FMT;
       row.getCell(4).numFmt = IMEI_FMT;
@@ -1011,36 +1033,36 @@ function writeAccessoriesSalesSheet(
  *  as 1-indexed column numbers so the writer can read the matching value
  *  cell back for the cross-marketplace summary roll-up. */
 const TOTAL_SUM_COLS: Record<Marketplace, { label: number; numericCols: number[]; gpCol: number; gpPctCol: number; postageLossCol: number; netGpCol: number; denominatorCol: number }> = {
-  // AMAZON: 28 cols. GP=19(S), GP%=20(T), Postage Loss=27(AA), Net GP £=28(AB).
+  // AMAZON: 29 cols (incl. Model). GP=19(S), GP%=20(T), Postage Loss=28(AB), Net GP £=29(AC).
   AMAZON: {
     label: 1,
-    numericCols: [6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 21, 27, 28],
-    gpCol: 19, gpPctCol: 20, postageLossCol: 27, netGpCol: 28, denominatorCol: 7,
+    numericCols: [6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 21, 28, 29],
+    gpCol: 19, gpPctCol: 20, postageLossCol: 28, netGpCol: 29, denominatorCol: 7,
   },
-  // BM: 25 cols. GP=16(P), GP%=17(Q), Postage Loss=24(X), Net GP £=25(Y).
+  // BM: 26 cols (incl. Model). GP=16(P), GP%=17(Q), Postage Loss=25(Y), Net GP £=26(Z).
   BM: {
     label: 1,
-    numericCols: [6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 18, 24, 25],
-    gpCol: 16, gpPctCol: 17, postageLossCol: 24, netGpCol: 25, denominatorCol: 7,
+    numericCols: [6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 18, 25, 26],
+    gpCol: 16, gpPctCol: 17, postageLossCol: 25, netGpCol: 26, denominatorCol: 7,
   },
-  // EBAY: 31 cols. GP=22(V), GP%=23(W), Postage Loss=30(AD), Net GP £=31(AE).
+  // EBAY: 32 cols (incl. Model). GP=22(V), GP%=23(W), Postage Loss=31(AE), Net GP £=32(AF).
   EBAY: {
     label: 1,
-    numericCols: [6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 24, 30, 31],
-    gpCol: 22, gpPctCol: 23, postageLossCol: 30, netGpCol: 31, denominatorCol: 8,
+    numericCols: [6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 24, 31, 32],
+    gpCol: 22, gpPctCol: 23, postageLossCol: 31, netGpCol: 32, denominatorCol: 8,
   },
-  // ONBUY: 25 cols. GP=16(P), GP%=17(Q), Postage Loss=24(X), Net GP £=25(Y).
+  // ONBUY: 26 cols (incl. Model). GP=16(P), GP%=17(Q), Postage Loss=25(Y), Net GP £=26(Z).
   ONBUY: {
     label: 1,
-    numericCols: [6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 18, 24, 25],
-    gpCol: 16, gpPctCol: 17, postageLossCol: 24, netGpCol: 25, denominatorCol: 6,
+    numericCols: [6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 18, 25, 26],
+    gpCol: 16, gpPctCol: 17, postageLossCol: 25, netGpCol: 26, denominatorCol: 6,
   },
-  // TEMU: 26 cols, own layout (see SALES_HEADERS.TEMU) — no DSF/DSF VAT.
-  // GP=17(Q), GP%=18(R), Postage Loss=25(Y), Net GP £=26(Z).
+  // TEMU: 27 cols (incl. Model), own layout (see SALES_HEADERS.TEMU) — no DSF/DSF VAT.
+  // GP=17(Q), GP%=18(R), Postage Loss=26(Z), Net GP £=27(AA).
   TEMU: {
     label: 1,
-    numericCols: [6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 19, 25, 26],
-    gpCol: 17, gpPctCol: 18, postageLossCol: 25, netGpCol: 26, denominatorCol: 7,
+    numericCols: [6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 19, 26, 27],
+    gpCol: 17, gpPctCol: 18, postageLossCol: 26, netGpCol: 27, denominatorCol: 7,
   },
 };
 

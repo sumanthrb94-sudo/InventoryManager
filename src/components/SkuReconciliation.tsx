@@ -20,35 +20,21 @@ import { useInventoryStore } from '../lib/inventoryStore';
 import { dbService } from '../lib/dbService';
 import { useIsAdmin } from '../lib/useIsAdmin';
 import { logInventoryEvent } from '../lib/inventoryEvents';
-import { normalizeOperatorSku, parseBrandModelStorage } from '../lib/modelStorage';
+import {
+  normalizeOperatorSku, parseBrandModelStorage, looksLikeSku, stripKnownBrandPrefix,
+} from '../lib/modelStorage';
 import type { InventoryUnit } from '../types';
 import EditUnitModal from './EditUnitModal';
 
-/** Strip a known brand word from the start of a model string. */
-function stripKnownBrandPrefix(raw: string): string {
-  return raw.replace(/^(samsung|apple|google|xiaomi|oneplus)\s+/i, '');
-}
-
-/** A model string looks SKU-like when:
- *  - it is dash-delimited and has no spaces (pure SKU code), OR
- *  - a known brand word is prepended to such a code ("Samsung ASI-SG-...").
- *  Real product names carry spaces and do not look like dash codes. */
-function looksLikeSku(raw: string | undefined): boolean {
-  const s = (raw || '').trim();
-  if (!s) return false;
-  if (!/\s/.test(s) && /-/.test(s)) return true;
-  const remainder = stripKnownBrandPrefix(s);
-  return remainder !== s && !/\s/.test(remainder) && /-/.test(remainder);
-}
-
 /** True when the parser recognises the SKU code (with or without a brand
- *  prefix) and can auto-clean it. */
-function isAutoFixable(u: InventoryUnit): boolean {
+ *  prefix) and can auto-clean it. Exported for direct testing. */
+export function isAutoFixable(u: InventoryUnit): boolean {
   return normalizeOperatorSku(stripKnownBrandPrefix(u.rawModel || u.model)) !== null;
 }
 
-/** Build the clean patch a bulk auto-fix would write for a unit. */
-function buildAutoFixPatch(unit: InventoryUnit): Record<string, any> | null {
+/** Build the clean patch a bulk auto-fix would write for a unit. Exported
+ *  for direct testing. */
+export function buildAutoFixPatch(unit: InventoryUnit): Record<string, any> | null {
   const raw = stripKnownBrandPrefix(unit.rawModel || unit.model);
   if (!raw || normalizeOperatorSku(raw) === null) return null;
   const parsed = parseBrandModelStorage(raw);

@@ -8,6 +8,8 @@ import { describe, it, expect } from 'vitest';
 import {
   buildReconciliationClusters,
   buildReconciliationPatches,
+  buildCatalogIndex,
+  canonicaliseModel,
 } from '../../lib/modelReconciliation';
 import type { InventoryUnit } from '../../types';
 
@@ -218,5 +220,33 @@ describe('admin catalog is the permanent authority on the canonical name', () =>
     const units = [unit('u1', 'Samsung', 'GALAXY S23'), unit('u2', 'Samsung', 'Galaxy S23')];
     const [cluster] = buildReconciliationClusters(units, [], [], [{ brand: 'Samsung', model: '  ' }]);
     expect(cluster.canonicalFromCatalog).toBe(false);
+  });
+});
+
+describe('canonicaliseModel — direct, used by Dashboard/PeriodicInventory display', () => {
+  it('returns the catalog spelling for a matching (brand, model)', () => {
+    const index = buildCatalogIndex([{ brand: 'Samsung', model: 'Galaxy S23' }]);
+    expect(canonicaliseModel('GALAXY S23', 'Samsung', index)).toBe('Galaxy S23');
+    expect(canonicaliseModel('S23', 'Samsung', index)).toBe('Galaxy S23');
+  });
+
+  it('passes the input through unchanged when nothing matches', () => {
+    const index = buildCatalogIndex([{ brand: 'Samsung', model: 'Galaxy S23' }]);
+    expect(canonicaliseModel('Pixel 7', 'Google', index)).toBe('Pixel 7');
+  });
+
+  it('matches brand-less when the caller has no brand to pass', () => {
+    const index = buildCatalogIndex([{ brand: 'Samsung', model: 'Galaxy S23' }]);
+    expect(canonicaliseModel('GALAXY S23', '', index)).toBe('Galaxy S23');
+  });
+
+  it('passes an empty model through unchanged', () => {
+    const index = buildCatalogIndex([{ brand: 'Samsung', model: 'Galaxy S23' }]);
+    expect(canonicaliseModel('', 'Samsung', index)).toBe('');
+  });
+
+  it('an empty catalog never matches anything', () => {
+    const index = buildCatalogIndex([]);
+    expect(canonicaliseModel('GALAXY S23', 'Samsung', index)).toBe('GALAXY S23');
   });
 });

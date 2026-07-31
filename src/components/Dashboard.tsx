@@ -11,6 +11,7 @@ import { isAdmin } from '../lib/firebase';
 import { fmtDateTimeForUser, useUserRegion } from '../lib/userLocale';
 import { useInventoryStore } from '../lib/inventoryStore';
 import { recomputeSale } from '../lib/recomputeSale';
+import { canonicaliseModel } from '../lib/modelReconciliation';
 import { InventoryUnit, Supplier, MARKETPLACES } from '../types';
 import CopyImei from './CopyImei';
 import PeriodicInventory from './PeriodicInventory';
@@ -39,7 +40,7 @@ export default function Dashboard({ user, onNavigate, onOpenImport, onOpenMaster
   // Master Data button prefers the dedicated `onOpenMasterData` handler
   // (Admin → Master Data sub-tab) and falls back to the legacy import modal.
   const handleOpenMasterData = () => (onOpenMasterData ?? onOpenImport)?.();
-  const { units, suppliers, sales, aggregates, importBatches, accessoryStock } = useInventoryStore();
+  const { units, suppliers, sales, aggregates, importBatches, accessoryStock, catalogIndex } = useInventoryStore();
   const showAdminPanel = isAdmin(user);
   const region = useUserRegion();
 
@@ -136,14 +137,14 @@ export default function Dashboard({ user, onNavigate, onOpenImport, onOpenMaster
   }, [accessoryStock]);
   const soldEvents = useMemo(() => {
     const unitEvents = sold.map(u => ({
-      id: u.id, imei: u.imei, model: u.model, colour: u.colour,
+      id: u.id, imei: u.imei, model: u.model, brand: u.brand, colour: u.colour,
       platform: u.salePlatform || 'Unknown', price: u.salePrice || 0,
       date: u.saleDate || u.dateIn,
     }));
     const accessoryEvents = sales
       .filter(s => !s.voidedAt && !(s.imei || '').trim() && (s.sku || '').trim())
       .map(s => ({
-        id: s.id, imei: '', model: accessoryBySku[s.sku!] || s.sku!, colour: '',
+        id: s.id, imei: '', model: accessoryBySku[s.sku!] || s.sku!, brand: '', colour: '',
         platform: s.marketplace || 'Unknown', price: s.salePrice || 0,
         date: s.saleDate,
       }));
@@ -160,24 +161,31 @@ export default function Dashboard({ user, onNavigate, onOpenImport, onOpenMaster
   const topModels = useMemo(() => {
     const map: Record<string, { count: number; value: number }> = {};
     for (const u of available) {
-      if (!map[u.model]) map[u.model] = { count: 0, value: 0 };
-      map[u.model].count++;
-      map[u.model].value += u.buyPrice;
+      // Admin catalog's canonical spelling wins when one matches, so two
+      // differently-spelled units of the same seeded model collapse into
+      // one row instead of splitting the tile in two.
+      const model = canonicaliseModel(u.model, u.brand, catalogIndex);
+      if (!map[model]) map[model] = { count: 0, value: 0 };
+      map[model].count++;
+      map[model].value += u.buyPrice;
     }
     return Object.entries(map).map(([model, d]) => ({ model, ...d }))
       .sort((a, b) => b.count - a.count).slice(0, 10);
-  }, [available]);
+  }, [available, catalogIndex]);
 
   const top10Sold = useMemo(() => {
     const map: Record<string, { count: number; revenue: number }> = {};
     for (const e of soldEvents) {
-      if (!map[e.model]) map[e.model] = { count: 0, revenue: 0 };
-      map[e.model].count++;
-      map[e.model].revenue += e.price;
+      // Accessory events (e.imei === '') have no device brand and aren't
+      // what the admin catalog governs — leave their model text as-is.
+      const model = e.imei ? canonicaliseModel(e.model, e.brand, catalogIndex) : e.model;
+      if (!map[model]) map[model] = { count: 0, revenue: 0 };
+      map[model].count++;
+      map[model].revenue += e.price;
     }
     return Object.entries(map).map(([model, d]) => ({ model, ...d }))
       .sort((a, b) => b.count - a.count).slice(0, 10);
-  }, [soldEvents]);
+  }, [soldEvents, catalogIndex]);
 
   const seriesModels = useMemo(() => {
     const map: Record<string, { count: number; value: number; category: string; seriesName: string; shortSymbol: string; searchTerm: string }> = {};
