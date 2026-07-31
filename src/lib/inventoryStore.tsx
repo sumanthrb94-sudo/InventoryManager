@@ -16,23 +16,30 @@ import { buildCatalogIndex } from './modelReconciliation';
 
 /**
  * Master switch for the display-time model-catalog override (Dashboard's
- * Top Models / Top Sold, and the periodic table's tiles).
+ * Top Models / Top Sold, and the periodic table's tiles). When on, the
+ * admin's `models` catalog is the authority on how a model name is
+ * DISPLAYED, so two units of the same model spelled differently collapse
+ * under the operator's chosen spelling.
  *
- * TEMPORARILY OFF. The override makes the admin's `models` catalog the
- * authority on how a model name is DISPLAYED. That is the right behaviour,
- * but it is only safe once the catalog itself is clean — and today most
- * catalog rows carry a blank brand with the brand word fused into an
- * ALL-CAPS model string ("APPLE IPHONE 12"), because the "+ Add" pill in
- * Add Stock / Bulk Order used to save `brand: ''`. With the override on,
- * those rows win, so a unit stored as "iPhone 12" renders as
- * "APPLE IPHONE 12". Worse, where the same model exists twice in the
- * catalog ("IPHONE 14" and "APPLE IPHONE 14"), whichever Firestore returns
- * first wins — so the displayed name is effectively arbitrary.
+ * ON. It was switched off for one day (2026-07-31) because the catalog
+ * itself was not fit to be an authority: most rows carried a blank brand
+ * with the brand word fused into an ALL-CAPS model string ("APPLE IPHONE
+ * 12"), courtesy of a hardcoded `brand=""` on the "+ Add" pill. With the
+ * override on, those rows won — a unit stored as "iPhone 12" rendered as
+ * "APPLE IPHONE 12" — and where a model existed twice ("IPHONE 14" and
+ * "APPLE IPHONE 14") whichever Firestore returned first won, making the
+ * displayed name arbitrary between loads.
  *
- * Flip back to `true` once the catalog has been normalised via
- * `normaliseModelCatalog` (Admin → Configuration → "Fix model catalog").
+ * Both causes are now fixed: the write paths split the brand out, and the
+ * existing rows were repaired via `normaliseModelCatalog` (Admin →
+ * Configuration → "Model catalog brand split"), which the operator ran.
+ *
+ * If model names ever look wrong across Dashboard / the periodic table
+ * again, flipping this to `false` is the one-line way to rule the catalog
+ * in or out: off means every screen falls back to each unit's own stored
+ * model, because an empty index makes `canonicaliseModel` pass through.
  */
-export const CATALOG_DISPLAY_OVERRIDE_ENABLED = false;
+export const CATALOG_DISPLAY_OVERRIDE_ENABLED = true;
 
 /** Read-time model/brand/storage/sku normalisation for one raw
  *  `inventoryUnits` doc. Exported as a pure function so it's testable
