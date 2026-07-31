@@ -29,6 +29,7 @@ import SkuReconciliation from './SkuReconciliation';
 import AccessoryStockPanel from './AccessoryStockPanel';
 import { useInventoryStore } from '../lib/inventoryStore';
 import { findGradeCasingDrift, fixGradeCasing } from '../lib/migrations/normaliseGradeCasing';
+import { findModelCatalogDrift, fixModelCatalog } from '../lib/migrations/normaliseModelCatalog';
 import { normalizeBucketModel, normalizeOperatorSku } from '../lib/modelStorage';
 
 interface ModelDoc {
@@ -386,6 +387,7 @@ export default function ConfigurationPanel() {
           and a stand-alone tab; grouped here because an admin fixing one is
           usually about to fix the others. */}
       <DataHealthPanel />
+      <ModelCatalogRepairPanel />
       <GradeCasingPanel />
       <SkuReconciliation />
 
@@ -424,6 +426,117 @@ export default function ConfigurationPanel() {
  * capitalisation only, never meaning, and a free-text grade the operator
  * genuinely typed is never touched.
  */
+/**
+ * Repairs catalog rows saved with a blank brand and the brand word fused
+ * into an ALL-CAPS model string — see normaliseModelCatalog.ts for how the
+ * drift happened. Sits above the grade-casing panel because the catalog
+ * feeds the model pickers, so it's the more consequential of the two.
+ */
+function ModelCatalogRepairPanel() {
+  const { models } = useInventoryStore();
+  const [running, setRunning] = useState(false);
+  const [done, setDone] = useState<{ updated: number; removed: number } | null>(null);
+  const [failed, setFailed] = useState('');
+
+  const drift = useMemo(
+    () => findModelCatalogDrift((models as any[]).map(m => ({
+      id: m.id, brand: m.brand, model: m.model, series: m.series,
+    }))),
+    [models],
+  );
+
+  const run = async () => {
+    setRunning(true);
+    setFailed('');
+    try {
+      setDone(await fixModelCatalog(drift, dbService));
+    } catch (e: any) {
+      setFailed(e?.message || 'Repair failed');
+    } finally {
+      setRunning(false);
+    }
+  };
+
+  const total = drift.patches.length + drift.duplicates.length;
+  if (total === 0 && done === null) return null;
+
+  return (
+    <div className="bg-white border border-slate-200 rounded-3xl shadow-sm overflow-hidden">
+      <div className="flex items-center gap-3 px-5 py-4 border-b border-slate-100">
+        <div className="w-8 h-8 rounded-xl bg-violet-100 text-violet-700 flex items-center justify-center">
+          <Wand2 size={14} />
+        </div>
+        <div className="min-w-0">
+          <h3 className="text-[13px] font-bold tracking-tight">Model catalog brand split</h3>
+          <p className="text-[10px] font-mono text-slate-400">
+            Moves the brand out of the model name into its own column, and derives the series
+          </p>
+        </div>
+      </div>
+
+      <div className="px-5 py-4 space-y-3">
+        {done !== null ? (
+          <p className="inline-flex items-center gap-1.5 text-[11px] font-mono text-emerald-700">
+            <CheckCircle2 size={12} /> {done.updated} row{done.updated === 1 ? '' : 's'} repaired
+            {done.removed > 0 && ` · ${done.removed} duplicate${done.removed === 1 ? '' : 's'} merged`}
+          </p>
+        ) : (
+          <>
+            <div className="space-y-1 max-h-64 overflow-y-auto">
+              {drift.patches.slice(0, 12).map(p => (
+                <div key={p.id} className="flex items-center justify-between gap-3 bg-slate-50 rounded-lg px-3 py-1.5">
+                  <span className="text-[11px] font-mono text-slate-700 truncate">
+                    “{p.before.model}” → <strong>{p.data.brand || '—'}</strong> · “{p.data.model}”
+                  </span>
+                  {p.data.series && (
+                    <span className="text-[10px] font-mono text-violet-700 flex-shrink-0">{p.data.series}</span>
+                  )}
+                </div>
+              ))}
+              {drift.patches.length > 12 && (
+                <p className="text-[10px] font-mono text-slate-400 px-3">
+                  + {drift.patches.length - 12} more…
+                </p>
+              )}
+            </div>
+
+            {drift.duplicates.length > 0 && (
+              <p className="text-[10px] font-mono text-amber-700 leading-relaxed">
+                {drift.duplicates.length} row{drift.duplicates.length === 1 ? '' : 's'} become duplicates once split
+                ({drift.duplicates.map(d => d.label).join(', ')}) — the extra copies are removed. Inventory is not
+                affected; catalog entries only feed the Add Stock / Bulk Order pickers.
+              </p>
+            )}
+            {drift.unbranded.length > 0 && (
+              <p className="text-[10px] font-mono text-slate-500 leading-relaxed">
+                {drift.unbranded.length} row{drift.unbranded.length === 1 ? '' : 's'} have no recognisable brand
+                ({drift.unbranded.map(u => u.model).join(', ')}) — these look like accessories added to the device
+                catalog by mistake. They are left exactly as they are for you to remove by hand.
+              </p>
+            )}
+
+            <p className="text-[10px] font-mono text-slate-500 leading-relaxed">
+              Storage fused into a model name is dropped (it belongs on the unit); connectivity like WiFi / 5G is kept.
+            </p>
+            {failed && (
+              <p className="inline-flex items-center gap-1 text-[10px] font-mono text-rose-600">
+                <AlertCircle size={11} /> {failed}
+              </p>
+            )}
+            <button
+              onClick={run}
+              disabled={running}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-violet-600 text-white text-[10px] font-bold uppercase tracking-widest hover:bg-violet-700 disabled:opacity-40"
+            >
+              <Wand2 size={11} /> {running ? 'Repairing…' : `Repair ${drift.patches.length} catalog row${drift.patches.length === 1 ? '' : 's'}`}
+            </button>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function GradeCasingPanel() {
   const { units } = useInventoryStore();
   const [running, setRunning] = useState(false);

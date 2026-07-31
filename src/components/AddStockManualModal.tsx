@@ -40,6 +40,7 @@ import { GRADE_OPTIONS, STORAGE_OPTIONS } from '../lib/unitConstants';
 import { addUnitManual, ensureSupplier, upsertAccessoryStock } from '../services';
 import AccessoryComboBox from './AccessoryComboBox';
 import { buildAccessoryCatalog, accessoryEntryFor } from '../lib/accessoryCatalog';
+import { normaliseCatalogEntry } from '../lib/migrations/normaliseModelCatalog';
 import type { InventoryUnit, ListingSite, AccessoryStock } from '../types';
 import DeviceComboBox from './DeviceComboBox';
 
@@ -897,17 +898,25 @@ function Row({
             }}
             onCreateModel={isAdmin ? async (draft) => {
               const id = `model_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+              // The picker's `brand` prop is always '' here (it scopes the
+              // SEARCH, and operators type the whole name into one box), so
+              // draft.brand is empty and draft.model carries the brand word.
+              // Writing that verbatim is what produced a catalog full of
+              // blank-brand "APPLE IPHONE 12" rows. Split it properly on the
+              // way in, using the same helper that repairs the old rows.
+              const entry = normaliseCatalogEntry({ brand: draft.brand, model: draft.model });
               await dbService.create('models', id, {
-                brand: draft.brand,
-                model: draft.model,
+                brand: entry.brand,
+                model: entry.model,
+                ...(entry.series ? { series: entry.series } : {}),
                 ownerId: 'shared',
                 createdAt: new Date().toISOString(),
                 createdBy: auth.currentUser?.email || 'admin',
               });
               // Return a catalog-shape entry the picker can auto-select.
               return {
-                brand: draft.brand,
-                model: draft.model,
+                brand: entry.brand,
+                model: entry.model,
                 count: 0,
                 latestDateIn: '',
                 storages: [],

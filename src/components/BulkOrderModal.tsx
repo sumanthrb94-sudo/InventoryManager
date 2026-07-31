@@ -41,6 +41,7 @@ import { generateBatchStickerSheet } from '../lib/stickerPdf';
 import { GRADE_OPTIONS, SIM_TYPE_OPTIONS } from '../lib/unitConstants';
 import DeviceComboBox from './DeviceComboBox';
 import IMEIScanner from './IMEIScanner';
+import { normaliseCatalogEntry } from '../lib/migrations/normaliseModelCatalog';
 import type { ModelSeed } from '../lib/deviceCatalog';
 import type { InventoryUnit, ListingSite } from '../types';
 
@@ -1093,16 +1094,21 @@ function SetupView({
             }}
             onCreateModel={isAdmin ? async (draft) => {
               const id = `model_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+              // See the matching comment in AddStockManualModal: draft.brand
+              // is always '' here, so split the brand out of the typed model
+              // text rather than saving a blank-brand catalog row.
+              const entry = normaliseCatalogEntry({ brand: draft.brand, model: draft.model });
               await dbService.create('models', id, {
-                brand: draft.brand,
-                model: draft.model,
+                brand: entry.brand,
+                model: entry.model,
+                ...(entry.series ? { series: entry.series } : {}),
                 ownerId: 'shared',
                 createdAt: new Date().toISOString(),
                 createdBy: auth.currentUser?.email || 'admin',
               });
               return {
-                brand: draft.brand,
-                model: draft.model,
+                brand: entry.brand,
+                model: entry.model,
                 count: 0,
                 latestDateIn: '',
                 storages: [],

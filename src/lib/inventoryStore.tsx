@@ -14,6 +14,26 @@ import type { ModelSeed } from './deviceCatalog';
 import { parseBrandModelStorage, looksLikeSku } from './modelStorage';
 import { buildCatalogIndex } from './modelReconciliation';
 
+/**
+ * Master switch for the display-time model-catalog override (Dashboard's
+ * Top Models / Top Sold, and the periodic table's tiles).
+ *
+ * TEMPORARILY OFF. The override makes the admin's `models` catalog the
+ * authority on how a model name is DISPLAYED. That is the right behaviour,
+ * but it is only safe once the catalog itself is clean — and today most
+ * catalog rows carry a blank brand with the brand word fused into an
+ * ALL-CAPS model string ("APPLE IPHONE 12"), because the "+ Add" pill in
+ * Add Stock / Bulk Order used to save `brand: ''`. With the override on,
+ * those rows win, so a unit stored as "iPhone 12" renders as
+ * "APPLE IPHONE 12". Worse, where the same model exists twice in the
+ * catalog ("IPHONE 14" and "APPLE IPHONE 14"), whichever Firestore returns
+ * first wins — so the displayed name is effectively arbitrary.
+ *
+ * Flip back to `true` once the catalog has been normalised via
+ * `normaliseModelCatalog` (Admin → Configuration → "Fix model catalog").
+ */
+export const CATALOG_DISPLAY_OVERRIDE_ENABLED = false;
+
 /** Read-time model/brand/storage/sku normalisation for one raw
  *  `inventoryUnits` doc. Exported as a pure function so it's testable
  *  without mounting the store/Firestore.
@@ -131,7 +151,13 @@ export function InventoryStoreProvider({ children }: { children: React.ReactNode
   const [importBatches, setImportBatches] = useState<ImportBatch[]>([]);
   const [models, setModels]               = useState<ModelSeed[]>([]);
   const [loaded, setLoaded]               = useState(false);
-  const catalogIndex = useMemo(() => buildCatalogIndex(models), [models]);
+  // An empty index makes every canonicaliseModel() call fall through to the
+  // unit's own stored model — i.e. exactly the pre-override behaviour — so
+  // the switch needs no changes at any consumer.
+  const catalogIndex = useMemo(
+    () => (CATALOG_DISPLAY_OVERRIDE_ENABLED ? buildCatalogIndex(models) : new Map<string, string>()),
+    [models],
+  );
 
   useEffect(() => {
     let unitsReady = false;
