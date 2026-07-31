@@ -27,6 +27,7 @@ import Suppliers from './Suppliers';
 import DataHealthPanel from './DataHealthPanel';
 import SkuReconciliation from './SkuReconciliation';
 import AccessoryStockPanel from './AccessoryStockPanel';
+import AccessoryCatalogPanel from './AccessoryCatalogPanel';
 import { useInventoryStore } from '../lib/inventoryStore';
 import { findGradeCasingDrift, fixGradeCasing } from '../lib/migrations/normaliseGradeCasing';
 import { findModelCatalogDrift, fixModelCatalog } from '../lib/migrations/normaliseModelCatalog';
@@ -392,6 +393,10 @@ export default function ConfigurationPanel() {
       <SkuReconciliation />
 
       {/* ── Accessory stock (no-IMEI quantity pools) ──────────────────────── */}
+      {/* "What accessories exist" (this) sits above "how many of each are
+          on hand" (below) — same order as the Models catalog above the
+          device stock views. */}
+      <AccessoryCatalogPanel />
       <AccessoryStockPanel />
 
       {/* ── Suppliers (embedded existing components) ─────────────────────── */}

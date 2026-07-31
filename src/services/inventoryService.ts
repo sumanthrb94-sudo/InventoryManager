@@ -1464,6 +1464,52 @@ export async function upsertAccessoryStock(input: UpsertAccessoryStockInput): Pr
   return { ok: true, id, quantity: nextQuantity };
 }
 
+export interface RegisterAccessorySkuResult {
+  ok: boolean;
+  id?: string;
+  error?: string;
+}
+
+/**
+ * Pre-register an accessory SKU with no stock yet — the accessory
+ * equivalent of seeding a device model in the `models` catalog before any
+ * units arrive.
+ *
+ * Separate from `upsertAccessoryStock` because that one deliberately
+ * rejects a non-positive quantity (it exists to ADD stock, and a 0 there
+ * is a mistake). Here a zero pool is the whole point: it makes the SKU
+ * pickable in Add Stock → Accessories so the first real intake tops up an
+ * agreed name instead of inventing a new one. Nothing downstream needs
+ * changing for it — the sell picker already filters to quantity > 0, and
+ * the intake picker already renders a zero pool with an "out" badge.
+ */
+export async function registerAccessorySku(input: {
+  sku: string; name: string; notes?: string;
+}): Promise<RegisterAccessorySkuResult> {
+  const sku = (input.sku || '').trim();
+  if (!sku) return { ok: false, error: 'missing_sku' };
+
+  const id = slugify(sku);
+  const existing = (await dbService.readAll('accessoryStock')).find((a: any) => a.id === id);
+  if (existing) return { ok: false, error: 'already_exists' };
+
+  await dbService.create('accessoryStock', id, {
+    sku,
+    name: (input.name || sku).trim(),
+    quantity: 0,
+    totalReceived: 0,
+    buyPrice: 0,
+    notes: input.notes,
+    ownerId: 'shared',
+    createdAt: new Date().toISOString(),
+  });
+  await logInventoryEvent({
+    type: 'stock_adjusted',
+    message: `Accessory "${sku}" registered in the catalog (no stock yet)`,
+  });
+  return { ok: true, id };
+}
+
 export interface DecrementAccessoryStockResult {
   /** True only when a matching SKU pool was found (whether or not it had
    *  enough quantity) — false means "this SKU isn't accessory-tracked",
