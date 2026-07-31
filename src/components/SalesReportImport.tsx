@@ -764,47 +764,74 @@ export default function SalesReportImport({ onClose }: Props) {
           }
           const imei = row.imei.trim();
           let res;
-          if (row.existingUnitId) {
-            // PATCH the matched unit's buy-side info for audit completeness.
-            res = await completeUnitBuyInfo({
-              unitId: row.existingUnitId,
-              model: row.model.trim(),
-              colour: row.colour.trim() || undefined,
-              storage: row.storage.trim() || undefined,
-              simType: row.simType.trim() || undefined,
-              supplierName: row.supplierName.trim(),
-              buyPrice: row.buyPrice,
-              stockSource: row.stockSource,
-            });
-          } else {
-            // CREATE a sold unit from the sale + reviewed values. When the
-            // sale had no IMEI, back-fill it onto the sale doc too.
-            if (!row.imeiReadOnly && (sale.imei || '').trim() !== imei) {
-              await dbService.update('sales', sale.id, { imei });
+          // Per-row isolation. Without it, ONE throwing row killed the whole
+          // remaining pass: the exception escaped this loop, hit the confirm's
+          // outer catch, and ran setPhase('preview') — so the operator was
+          // dropped back on the audit screen with the rows after the failure
+          // never created, which then legitimately re-appeared as still needing
+          // completion on the next upload. That is the "I filled the supplier,
+          // pressed Load, and got the same screen back" loop.
+          //
+          // A throw is genuinely reachable here even though the services return
+          // result objects: addSoldUnitFromSale's own try/catch covers only its
+          // two dbService writes, while reconcileShsAfterFulfilment and
+          // logInventoryEvent run AFTER it and are unguarded. Either one
+          // rejecting (rules, connection) throws straight past the result
+          // contract — after the unit has already been written.
+          //
+          // Now a bad row is tallied like any other failure and the pass
+          // carries on, so 449 good rows are never lost to one bad one.
+          try {
+            if (row.existingUnitId) {
+              // PATCH the matched unit's buy-side info for audit completeness.
+              res = await completeUnitBuyInfo({
+                unitId: row.existingUnitId,
+                model: row.model.trim(),
+                colour: row.colour.trim() || undefined,
+                storage: row.storage.trim() || undefined,
+                simType: row.simType.trim() || undefined,
+                supplierName: row.supplierName.trim(),
+                buyPrice: row.buyPrice,
+                stockSource: row.stockSource,
+              });
+            } else {
+              // CREATE a sold unit from the sale + reviewed values. When the
+              // sale had no IMEI, back-fill it onto the sale doc too.
+              if (!row.imeiReadOnly && (sale.imei || '').trim() !== imei) {
+                await dbService.update('sales', sale.id, { imei });
+              }
+              res = await addSoldUnitFromSale({
+                sale: { ...(sale as Sale), imei },
+                imei,
+                model: row.model.trim(),
+                colour: row.colour.trim() || undefined,
+                storage: row.storage.trim() || undefined,
+                simType: row.simType.trim() || undefined,
+                supplierName: row.supplierName.trim(),
+                buyPrice: row.buyPrice,
+                stockSource: row.stockSource,
+              });
             }
-            res = await addSoldUnitFromSale({
-              sale: { ...(sale as Sale), imei },
-              imei,
-              model: row.model.trim(),
-              colour: row.colour.trim() || undefined,
-              storage: row.storage.trim() || undefined,
-              simType: row.simType.trim() || undefined,
-              supplierName: row.supplierName.trim(),
-              buyPrice: row.buyPrice,
-              stockSource: row.stockSource,
-            });
-          }
-          if (res.ok) {
-            unitsAddedFromOrphanSales++;
-            // A supplier-shipped phone arrives as an ORPHAN — its IMEI is one
-            // we have never seen, because the holding never had one. So this
-            // path, not the IMEI-matching one, is where most SHS fulfilments
-            // actually happen; counting only the latter reported zero while
-            // supplier stock visibly dropped.
-            if (res.shsFulfilled) orphanShsFulfilled++;
-          } else {
+            if (res.ok) {
+              unitsAddedFromOrphanSales++;
+              // A supplier-shipped phone arrives as an ORPHAN — its IMEI is one
+              // we have never seen, because the holding never had one. So this
+              // path, not the IMEI-matching one, is where most SHS fulfilments
+              // actually happen; counting only the latter reported zero while
+              // supplier stock visibly dropped.
+              if (res.shsFulfilled) orphanShsFulfilled++;
+            } else {
+              unitsAddFailed++;
+              unitsAddFailedDetails.push({ imei: row.imei, orderNumber: row.orderNumber, reason: res.message || res.error || 'unknown' });
+            }
+          } catch (rowErr: any) {
+            console.error(`[sales import] row threw · ${row.imei} · ${row.orderNumber}:`, rowErr);
             unitsAddFailed++;
-            unitsAddFailedDetails.push({ imei: row.imei, orderNumber: row.orderNumber, reason: res.message || res.error || 'unknown' });
+            unitsAddFailedDetails.push({
+              imei: row.imei,
+              orderNumber: row.orderNumber,
+              reason: rowErr?.message || 'unexpected error',
+            });
           }
         }
       }

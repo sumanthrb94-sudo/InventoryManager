@@ -745,13 +745,24 @@ export async function addSoldUnitFromSale(
   //
   // Only a human knows whether an unmatched sale is a supplier shipment or
   // history being replayed. So we ask, and act only when told.
-  const shsResult = input.stockSource === 'shs'
-    ? await reconcileShsAfterFulfilment({
+  // Guarded for the same reason logInventoryEvent is: the unit is ALREADY
+  // written by this point, so this runs on the success path. Letting it throw
+  // would fly past the `{ ok, error }` contract this function otherwise
+  // honours, and report a row as failed — or abort the caller entirely — for
+  // a unit that exists and is correct. A holding that didn't close is a
+  // reconciliation to redo, not a reason to lose the sale.
+  let shsResult = { placeholdersRemoved: 0, aggregatesDecremented: 0 };
+  if (input.stockSource === 'shs') {
+    try {
+      shsResult = await reconcileShsAfterFulfilment({
         model: cleanModel,
         supplierName,
         contextImei: rawImei,
-      })
-    : { placeholdersRemoved: 0, aggregatesDecremented: 0 };
+      });
+    } catch (err) {
+      console.warn(`[addSoldUnitFromSale] SHS reconciliation failed for ${rawImei} (unit still created):`, err);
+    }
+  }
 
   await logInventoryEvent({
     type: 'sold',
