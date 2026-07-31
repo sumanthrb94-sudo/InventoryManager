@@ -1290,6 +1290,13 @@ function PreviewPhase({
   const [justCreatedModels, setJustCreatedModels] = useState<
     import('../lib/deviceCatalog').ModelSeed[]
   >([]);
+
+  // Most rows in a large orphan batch auto-complete from SKU→model
+  // parsing and need no attention at all. Defaulting to "incomplete only"
+  // lets the operator jump straight to the handful of rows that genuinely
+  // need a manual fill instead of scrolling past hundreds of already-done
+  // ones.
+  const [showIncompleteOnly, setShowIncompleteOnly] = useState(true);
   const createModel = isAdmin ? async (draft: { brand: string; model: string }) => {
     const id = `model_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
     await dbService.create('models', id, {
@@ -1504,6 +1511,15 @@ function PreviewPhase({
               <p className="text-[10px] font-mono text-orange-900 mt-1">
                 <span className="font-bold">{ready}</span> of {auditEdits.length} complete · <span className={`font-bold ${incomplete > 0 ? 'text-rose-700' : ''}`}>{incomplete}</span> still blocking
               </p>
+              <label className="flex items-center gap-1.5 mt-1.5 cursor-pointer select-none text-[10px] font-bold text-orange-900">
+                <input
+                  type="checkbox"
+                  checked={showIncompleteOnly}
+                  onChange={e => setShowIncompleteOnly(e.target.checked)}
+                  className="w-3.5 h-3.5 accent-orange-600 cursor-pointer"
+                />
+                Show only rows still needing attention{incomplete > 0 ? ` (${incomplete})` : ''}
+              </label>
             </div>
           </div>
 
@@ -1519,7 +1535,12 @@ function PreviewPhase({
               <span className="col-span-1 text-right">SP £</span>
             </div>
             <ul className="max-h-[32rem] overflow-auto divide-y divide-orange-50 text-[11px]">
-              {auditEdits.map(o => {
+              {showIncompleteOnly && incomplete === 0 && (
+                <li className="px-3 py-4 text-center text-emerald-700 font-semibold">
+                  All {auditEdits.length} rows are complete.
+                </li>
+              )}
+              {(showIncompleteOnly ? auditEdits.filter(o => auditRowMissing(o).length > 0) : auditEdits).map(o => {
                 const missing = auditRowMissing(o);
                 const rowIncomplete = missing.length > 0;
                 const needImei = !/^\d{15}$/.test((o.imei || '').trim().toUpperCase()) && !/^[A-Z0-9]{10,12}$/.test((o.imei || '').trim().toUpperCase());
