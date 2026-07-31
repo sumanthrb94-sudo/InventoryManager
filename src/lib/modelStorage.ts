@@ -322,6 +322,13 @@ function detectSeries(brand: Brand, lower: string): Series | undefined {
 /** Operator SKU brand-code → canonical brand + product line. The operator's
  *  SKU convention is "[ASI-]<BRAND>-<MODEL>-<STORAGE>-<COLOUR>-<SUFFIX>".
  *  Only these known codes are normalised; anything else is left untouched. */
+/** Capacities a phone or tablet actually ships with. The storage scan in
+ *  `normalizeOperatorSku` validates against these, so a numeric SKU segment
+ *  that is plainly not a capacity — a model year, a bundle count — is walked
+ *  past instead of being taken as the storage. */
+const PLAUSIBLE_STORAGE_GB = new Set([8, 16, 32, 64, 128, 256, 512, 1024, 2048]);
+const PLAUSIBLE_STORAGE_TB = new Set([1, 2]);
+
 const SKU_BRAND_CODE: Record<string, { brand: string; line: string }> = {
   SG:   { brand: 'Samsung', line: 'Galaxy' },
   SS:   { brand: 'Samsung', line: 'Galaxy' },
@@ -410,13 +417,28 @@ export function normalizeOperatorSku(raw: string | undefined | null): string | n
   // Storage + 5G scan across the segments AFTER the model token. Starting at
   // the model token would let a numeric model like iPhone "13" be misread
   // as "13GB" of storage.
+  //
+  // A bare number is only accepted when it is a capacity a device actually
+  // ships with. This matters because the first match used to win outright:
+  // "IPAD-11THGEN-2025-128-BL" carries the MODEL YEAR before the storage, so
+  // an unrestricted scan read 2025 as "2025GB" and then skipped the real
+  // 128GB in the very next segment — displaying nonsense AND losing the
+  // true value. Rejecting implausible numbers lets the scan walk past the
+  // year and find the capacity.
   let storage: string | undefined;
   let has5g = false;
   for (let i = storageStartIdx; i < segs.length; i++) {
     if (segs[i] === '5G') { has5g = true; continue; }
     if (storage === undefined) {
-      const sm = segs[i].match(/^(\d{2,4})(GB|TB)?$/);
-      if (sm) storage = sm[1] + (sm[2] || 'GB');
+      const sm = segs[i].match(/^(\d{1,4})(GB|TB)?$/);
+      if (sm) {
+        const n = parseInt(sm[1], 10);
+        const unit = sm[2] === 'TB' ? 'TB' : 'GB';
+        const plausible = unit === 'TB'
+          ? PLAUSIBLE_STORAGE_TB.has(n)
+          : PLAUSIBLE_STORAGE_GB.has(n);
+        if (plausible) storage = `${n}${unit}`;
+      }
     }
   }
 

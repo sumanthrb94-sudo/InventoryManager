@@ -84,6 +84,23 @@ describe('normalizeOperatorSku', () => {
     expect(normalizeOperatorSku('ASI-IPAD-7THGEN-32- -CELL-GD-EX')).toBe('Apple iPad 7THGEN 32GB');
   });
 
+  it('walks past a MODEL YEAR to find the real storage', () => {
+    // Real client value: "IPAD-11THGEN-2025-128-BL" is gen · YEAR · storage ·
+    // colour. The scan used to take any 2-4 digit segment and stop at the
+    // first, so it read 2025 as "2025GB" — displayed as "iPad 11THGEN 2025GB"
+    // on the Sell Intelligence panel — AND silently discarded the real 128GB
+    // sitting in the very next segment.
+    expect(normalizeOperatorSku('IPAD-11THGEN-2025-128-BL')).toBe('Apple iPad 11THGEN 128GB');
+  });
+
+  it('reports no storage rather than a bogus one when the SKU carries none', () => {
+    expect(normalizeOperatorSku('IPAD-11THGEN-2025-BL')).toBe('Apple iPad 11THGEN');
+  });
+
+  it('accepts a single-digit TB capacity (1TB was unmatchable before)', () => {
+    expect(normalizeOperatorSku('SG-S22-1TB-BK')).toBe('Samsung Galaxy S22 1TB');
+  });
+
   it('strips the "VIN-" vendor prefix same as "ASI-"', () => {
     expect(normalizeOperatorSku('VIN-SG-A25-128-DBL-LN')).toBe('Samsung Galaxy A25 128GB');
   });
