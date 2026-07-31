@@ -143,6 +143,25 @@ export function imeiKind(raw: string): 'imei' | 'serial' | 'unknown' {
   return 'unknown';
 }
 
+/** Plain-English placeholders an operator writes in an IMEI cell to mean
+ *  "there genuinely is no IMEI here" (a charger, SIM pins, etc. entered on
+ *  a phone/tablet marketplace sheet instead of the app's own no-IMEI
+ *  accessory flow) — as distinct from a mistyped/truncated REAL IMEI,
+ *  which is garbled digits, not an English word, and must still block
+ *  import for a manual fix. Deliberately a narrow, explicit allowlist
+ *  rather than a fuzzy "doesn't look like an IMEI" heuristic: it must only
+ *  ever catch a human deliberately saying "no IMEI", never a real typo. */
+const PLACEHOLDER_IMEI_TEXT = new Set([
+  'GENERIC', 'N/A', 'NA', 'NONE', 'NIL', 'TBD', 'UNKNOWN', '-', '--',
+  'NOT APPLICABLE', 'NOT MENTIONED IN APP', 'NOT MENTIONED', 'NO IMEI',
+]);
+
+/** True when `raw` is one of the known no-IMEI placeholder phrases above. */
+export function isPlaceholderImeiText(raw: string | undefined | null): boolean {
+  const s = (raw ?? '').trim().toUpperCase();
+  return s !== '' && PLACEHOLDER_IMEI_TEXT.has(s);
+}
+
 /**
  * Shared copy used by every form when the IMEI is missing or invalid.
  * Two variants — one generic, one Apple-aware — so the form can tell the

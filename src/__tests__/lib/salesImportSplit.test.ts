@@ -105,3 +105,44 @@ describe('parseSalesWorkbook — multi-IMEI split', () => {
     expect(tablet.salePrice).toBe(119.99);
   });
 });
+
+describe('parseSalesWorkbook — placeholder IMEI text on a no-IMEI item', () => {
+  // Real client shapes: a 25W charger and a 10-pack of SIM eject pins sold
+  // through a phone/tablet marketplace sheet, with a plain-English
+  // "there's no IMEI" placeholder in the IMEI cell instead of the app's own
+  // no-IMEI accessory flow. These must come through with a BLANK imei so
+  // they flow as accessory sales (SKU-matched stock decrement) rather than
+  // getting stuck demanding a fake Model/IMEI on the device audit gate.
+  it('blanks a "not mentioned in App" placeholder', async () => {
+    const buf = makeWorkbook([
+      [new Date('2026-07-13T00:00:00Z'), '205-9012745-4693141', 'Samsung Galaxy 25W', 'not mentioned in App', '', 1, 5, 12.99],
+    ]);
+    const out = await parseSalesWorkbook(buf, 'fixture.xlsx');
+    const amazon = out.sales.filter(s => s.marketplace === 'AMAZON');
+    expect(amazon).toHaveLength(1);
+    expect(amazon[0].imei).toBe('');
+    expect(amazon[0].sku).toBe('Samsung Galaxy 25W');
+  });
+
+  it('blanks a "GENERIC" placeholder', async () => {
+    const buf = makeWorkbook([
+      [new Date('2026-07-18T00:00:00Z'), '21-14894-83747', '10 X SIM PINS', 'GENERIC', 'GENERIC', 1, 0.1, 1.99],
+    ]);
+    const out = await parseSalesWorkbook(buf, 'fixture.xlsx');
+    const amazon = out.sales.filter(s => s.marketplace === 'AMAZON');
+    expect(amazon).toHaveLength(1);
+    expect(amazon[0].imei).toBe('');
+  });
+
+  it('does NOT blank a real (if malformed) IMEI attempt', async () => {
+    // A genuine typo on a real device sale must still block the audit gate
+    // for a manual fix — only the known no-IMEI phrases get this pass.
+    const buf = makeWorkbook([
+      [new Date('2026-07-18T00:00:00Z'), 'A-2', 'A32', '35060', 'NANAK', 1, 100, 150],
+    ]);
+    const out = await parseSalesWorkbook(buf, 'fixture.xlsx');
+    const amazon = out.sales.filter(s => s.marketplace === 'AMAZON');
+    expect(amazon).toHaveLength(1);
+    expect(amazon[0].imei).toBe('35060');
+  });
+});

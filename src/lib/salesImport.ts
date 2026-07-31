@@ -28,6 +28,7 @@ import ExcelJS from 'exceljs';
 import type { Marketplace, Sale, ReturnCategory } from '../types';
 import { MARKETPLACES } from '../types';
 import { calcSaleFinancials } from './platforms';
+import { isPlaceholderImeiText } from './imeiValidation';
 
 // ---------------------------------------------------------------------------
 // Public surface
@@ -693,7 +694,7 @@ function parseRow(
   // a sale when at least one of the three identifying columns
   // (date / orderNumber / imei) has a value. Otherwise silently skip.
   const orderNumber = toNonEmptyString(get('orderNumber'));
-  const imei = toNonEmptyString(get('imei'));
+  let imei = toNonEmptyString(get('imei'));
   const dateRaw = get('date');
   // The client's own Sales Report export appends a bold "TOTAL" footer row
   // to every marketplace sheet (clientReport.ts writeMarketplaceTotalsRow),
@@ -725,6 +726,17 @@ function parseRow(
     errors.push({ sheet: sheetName, row: sourceRow, message: 'missing orderNumber' });
     return null;
   }
+
+  // A no-IMEI item (charger, SIM pins, cables) sometimes gets entered on a
+  // marketplace's phone/tablet sheet instead of the app's own no-IMEI
+  // accessory flow, with a plain-English "there's no IMEI" placeholder in
+  // the IMEI cell (e.g. "GENERIC", "not mentioned in App"). Left as-is,
+  // that non-blank cell forces the sale through the device audit-
+  // completion gate demanding a fake Model/IMEI for something that was
+  // never a device. Blank it here so the row flows through exactly like
+  // any other accessory sale (SKU-matched stock decrement, no device
+  // audit) — same as if the cell had simply been empty to begin with.
+  if (isPlaceholderImeiText(imei)) imei = '';
 
   // ---- date -------------------------------------------------------------
   const saleDate = toIsoDate(get('date'));
