@@ -174,11 +174,20 @@ function parseSkuModel(raw: string): SkuParseResult {
 /** Build a display label from brand + raw-model + storage.
  *  If the model looks like a SKU, parse it and return the clean model name.
  *  The parsed extras (color, grade) are surfaced in the meta line instead. */
-function buildAlertLabel(brand: string, rawModel: string, storage: string): { label: string; extras: string } {
+export function buildAlertLabel(brand: string, rawModel: string, storage: string): { label: string; extras: string } {
   const parsed = parseSkuModel(rawModel);
   const parts: string[] = [];
-  if (brand) parts.push(brand);
-  if (parsed.cleanModel) parts.push(parsed.cleanModel);
+  // Some model text already carries the brand word inside it — legacy rows
+  // imported as "SAMSUNG GALAXY A14" rather than brand "Samsung" + model
+  // "Galaxy A14". Prefixing the brand unconditionally rendered those as
+  // "Samsung SAMSUNG GALAXY A14" in the Sold Out / Running Low lists, while
+  // rows whose model was already clean read correctly — which is why only
+  // some entries looked doubled.
+  const modelText = parsed.cleanModel || '';
+  const modelAlreadyHasBrand =
+    !!brand && modelText.toLowerCase().startsWith(brand.toLowerCase());
+  if (brand && !modelAlreadyHasBrand) parts.push(brand);
+  if (modelText) parts.push(modelText);
   // Only append storage if it wasn't already extracted from the SKU
   if (storage && !parsed.storage) parts.push(storage);
 
