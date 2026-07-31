@@ -15,6 +15,21 @@ import { db } from './firebase';
 const listeners:  Record<string, Array<(data: any[]) => void>> = {};
 const cachedData: Record<string, any[]> = {};
 
+/** Collections whose live onSnapshot has delivered at least once.
+ *
+ *  Every subscription is on the WHOLE collection with no filter or limit, and
+ *  each snapshot REPLACES cachedData[name] wholesale. So once a collection is
+ *  in here, its cache is a complete mirror — and a cache MISS is authoritative
+ *  proof of absence, not merely "we haven't looked yet".
+ *
+ *  That distinction is worth real money on the free tier. imeiExists() used to
+ *  fall back to a Firestore query on every miss, and an import's orphan rows
+ *  are BY DEFINITION all misses — that is what makes them orphans. A 478-orphan
+ *  sales import therefore fired 478 queries to re-confirm what the mirror
+ *  already knew, each billing at least one document read against a 50,000/day
+ *  cap that this database cannot exceed even with billing enabled. */
+const hydrated = new Set<string>();
+
 // ── Collection name map (app name → Firestore collection) ─────────────────────
 const COL: Record<string, string> = {
   inventoryUnits:          'inventoryUnits',
@@ -374,6 +389,7 @@ export const dbService = {
       snap => {
         const data = snapToItems(snap);
         cachedData[collectionName] = data;
+        hydrated.add(collectionName);
         emit(collectionName, data);
         setSyncStatus(true);
       },
@@ -391,6 +407,9 @@ export const dbService = {
 
   async readAll(collectionName: string) {
     if (cachedData[collectionName]?.length) return cachedData[collectionName];
+    // An empty-but-hydrated collection is genuinely empty; re-reading it on
+    // every call (completeUnitBuyInfo does one PER audit row) just burns quota.
+    if (hydrated.has(collectionName)) return cachedData[collectionName] || [];
     const snap = await getDocs(colRef(collectionName));
     const data = snapToItems(snap);
     cachedData[collectionName] = data;
@@ -399,6 +418,7 @@ export const dbService = {
 
   async resetDatabase() {
     Object.keys(cachedData).forEach(k => delete cachedData[k]);
+    hydrated.clear();
     window.location.href = window.location.origin + '?reset=' + Date.now();
   },
 
@@ -408,6 +428,9 @@ export const dbService = {
     if (!imei) return false;
     const cached = (cachedData['inventoryUnits'] || []).find((u: any) => u.imei === imei);
     if (cached) return true;
+    // A miss against a hydrated mirror IS the answer — see `hydrated` above.
+    // Querying anyway costs a billed read per call to learn nothing.
+    if (hydrated.has('inventoryUnits')) return false;
     const snap = await getDocs(query(colRef('inventoryUnits'), where('imei', '==', imei)));
     return !snap.empty;
   },
@@ -417,6 +440,7 @@ export const dbService = {
     if (!imei) return null;
     const cached = (cachedData['inventoryUnits'] || []).find((u: any) => u.imei === imei);
     if (cached) return cached;
+    if (hydrated.has('inventoryUnits')) return null;
     const snap = await getDocs(query(colRef('inventoryUnits'), where('imei', '==', imei)));
     if (snap.empty) return null;
     return snapToItems(snap)[0];

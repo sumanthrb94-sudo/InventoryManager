@@ -473,6 +473,28 @@ export function buildPreview(
   };
 }
 
+/**
+ * Is this failure Firestore refusing work because the project's daily free-tier
+ * allowance is spent, rather than anything wrong with the import?
+ *
+ * It matters because the two demand OPPOSITE responses. Every other failure
+ * says "fix it and press Load again"; this one says "pressing Load again will
+ * fail identically and spend tomorrow's allowance too". Shown Google's raw
+ * text — several lines of quota-metric names and a project number — an
+ * operator reasonably reads it as a glitch and retries, which is precisely the
+ * loop it needs to break.
+ *
+ * Matched on the gRPC status name and on the message, since the SDK surfaces
+ * this as a bare message string on a batch commit rather than a typed code.
+ */
+export function isQuotaError(message: string): boolean {
+  const m = (message || '').toLowerCase();
+  return m.includes('resource-exhausted')
+    || m.includes('resource_exhausted')
+    || m.includes('quota exceeded')
+    || m.includes('quota limit exceeded');
+}
+
 export default function SalesReportImport({ onClose }: Props) {
   const { sales, units, suppliers, models } = useInventoryStore();
   const userIsAdmin = isAdmin(auth.currentUser);
@@ -1501,13 +1523,36 @@ function PreviewPhase({
           <AlertTriangle size={20} className="text-rose-600 flex-shrink-0 mt-0.5" />
           <div className="flex-1 min-w-0">
             <p className="text-[12px] font-bold text-rose-900">
-              The import didn’t finish — nothing further was written
+              {isQuotaError(error)
+                ? 'Out of database quota for today — retrying will not help'
+                : 'The import didn’t finish — nothing further was written'}
             </p>
-            <p className="text-[11px] text-rose-800 mt-0.5 break-words">{error}</p>
-            <p className="text-[10px] text-rose-700 mt-1.5 leading-relaxed">
-              Your reviewed values are still here. Fix the cause and press Load again — rows that
-              already landed come back as updates, so re-running is safe.
-            </p>
+            {isQuotaError(error) ? (
+              <>
+                <p className="text-[11px] text-rose-800 mt-1 leading-relaxed">
+                  This is not a problem with the file or with anything you filled in. The database
+                  has a daily free-tier allowance and today’s is spent, so it is refusing further
+                  work until it resets. It resets at <strong>midnight US Pacific time</strong>.
+                </p>
+                <p className="text-[11px] text-rose-800 mt-1.5 leading-relaxed">
+                  Pressing Load again now will fail the same way and eat into the next allowance.
+                  Close the app in any other browser tabs — each open tab keeps its own live
+                  connection and quietly consumes the same allowance — then run the import once,
+                  after the reset.
+                </p>
+              </>
+            ) : (
+              <p className="text-[10px] text-rose-700 mt-1.5 leading-relaxed">
+                Your reviewed values are still here. Fix the cause and press Load again — rows that
+                already landed come back as updates, so re-running is safe.
+              </p>
+            )}
+            <details className="mt-2">
+              <summary className="text-[10px] font-bold text-rose-700 cursor-pointer">
+                Technical detail
+              </summary>
+              <p className="text-[10px] text-rose-700 mt-1 break-words leading-relaxed">{error}</p>
+            </details>
           </div>
         </div>
       )}
