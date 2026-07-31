@@ -41,6 +41,29 @@ const sale = (over: Partial<Sale> & { marketplace: Marketplace }): Sale => ({
   ...over,
 });
 
+describe('auditRowMissing — supplier bar', () => {
+  const row = (supplierName: string) => ({
+    imei: '350000000000444', model: 'Galaxy A32', supplierName,
+    buyPrice: 30, salePrice: 49.99, saleDate: '2026-07-08',
+    marketplace: 'EBAY', orderNumber: 'O-1',
+  });
+
+  it('a single character is NOT a supplier — it is a half-typed name', () => {
+    // Any non-empty value used to satisfy the gate, so a row could be
+    // confirmed mid-word with "M" saved as the supplier.
+    expect(auditRowMissing(row('M'))).toContain('supplier');
+  });
+
+  it('two characters or more is accepted', () => {
+    expect(auditRowMissing(row('AB'))).not.toContain('supplier');
+    expect(auditRowMissing(row('MOBILE KIT'))).not.toContain('supplier');
+  });
+
+  it('whitespace alone is still missing', () => {
+    expect(auditRowMissing(row('   '))).toContain('supplier');
+  });
+});
+
 describe('SalesReportImport preview ↔ buildPostImportSyncPatches parity', () => {
   it('inventoryFlips list matches the units the post-import sync would flip', () => {
     const units: InventoryUnit[] = [

@@ -176,7 +176,10 @@ export function auditRowMissing(r: {
   if (!imei) missing.push('IMEI');
   else if (!isValidImei(imei, { isAppleSerial: isAppleDevice(r.model) })) missing.push('IMEI (invalid format)');
   if (!(r.model || '').trim()) missing.push('model');
-  if (!(r.supplierName || '').trim()) missing.push('supplier');
+  // At least two characters. A single letter is a half-typed name, not a
+  // supplier, and treating it as complete let the row satisfy the audit gate
+  // mid-word — so an interrupted keystroke could be confirmed as real data.
+  if ((r.supplierName || '').trim().length < 2) missing.push('supplier');
   if (!(Number(r.buyPrice) > 0)) missing.push('buy price');
   if (!(Number(r.salePrice) > 0)) missing.push('sale price');
   if (!(r.saleDate || '').trim()) missing.push('sale date');
@@ -1337,6 +1340,14 @@ function PreviewPhase({
     return [...names].sort((a, b) => a.localeCompare(b));
   }, [suppliers, auditEdits]);
 
+  /** Lower-cased lookup of the above, for the "is this a supplier you already
+   *  have?" check on each row. Built from `suppliers` ONLY — deriving it from
+   *  auditEdits too would make a typo vouch for itself the moment it is typed. */
+  const knownSupplierSet = useMemo(
+    () => new Set(suppliers.map(s => (s.name || '').trim().toLowerCase()).filter(Boolean)),
+    [suppliers],
+  );
+
   /** Which rows the "only incomplete" filter is holding in view.
    *
    *  Recomputed when the filter is switched on, or when a new file is
@@ -1752,12 +1763,29 @@ function PreviewPhase({
                         offered as suggestions — the operator was otherwise
                         expected to recall the exact spelling with no list in
                         sight, on the one screen where a typo silently creates
-                        a second supplier. */}
+                        a second supplier.
+                        Three states: rose = still missing (under 2 chars),
+                        amber = a real entry that matches no known supplier
+                        (probably a typo, but a genuinely new supplier is
+                        legitimate so this warns rather than blocks), plain =
+                        matches one you already have. */}
                     <input
                       list="audit-supplier-names"
-                      className={`col-span-2 border rounded px-1.5 py-1 text-[10px] focus:outline-none focus:border-orange-500 ${!o.supplierName.trim() ? 'border-rose-400 bg-rose-50' : 'border-slate-200'}`}
+                      className={`col-span-2 border rounded px-1.5 py-1 text-[10px] focus:outline-none focus:border-orange-500 ${
+                        o.supplierName.trim().length < 2
+                          ? 'border-rose-400 bg-rose-50'
+                          : (knownSupplierSet.has(o.supplierName.trim().toLowerCase())
+                              ? 'border-slate-200'
+                              : 'border-amber-400 bg-amber-50')
+                      }`}
                       value={o.supplierName}
                       placeholder="Supplier required"
+                      title={
+                        o.supplierName.trim().length >= 2
+                        && !knownSupplierSet.has(o.supplierName.trim().toLowerCase())
+                          ? 'Not one of your existing suppliers — check the spelling, or continue if this really is a new one'
+                          : undefined
+                      }
                       onChange={e => onAuditEdit(o.saleId, { supplierName: e.target.value })}
                     />
                     <input
