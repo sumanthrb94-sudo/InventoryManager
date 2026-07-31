@@ -479,7 +479,15 @@ export default function SalesReportImport({ onClose }: Props) {
   const [phase, setPhase] = useState<Phase>('upload');
   const [parsed, setParsed] = useState<ParsedSales | null>(null);
   const [fileName, setFileName] = useState('');
-  const [progress, setProgress] = useState<{ done: number; total: number }>({ done: 0, total: 0 });
+  /** Progress for the write phase. `label` matters: the confirm does the bulk
+   *  sales write FIRST and then loops per-unit over every audit row, and the
+   *  indicator used to be wired only to the former. So after the sales landed
+   *  the screen sat on a full bar reading "Writing 494 / 494 sales…" for the
+   *  entire per-unit phase — minutes, on a phone — looking frozen while it was
+   *  in fact working. Every phase now names itself and reports its own count. */
+  const [progress, setProgress] = useState<{ done: number; total: number; label: string }>(
+    { done: 0, total: 0, label: 'sales' },
+  );
   const [error, setError] = useState('');
   /** Counts populated after a successful import. `unitsMarkedSold` is
    *  the side-effect from the import → inventory sync (Bug B); shown
@@ -637,9 +645,9 @@ export default function SalesReportImport({ onClose }: Props) {
       },
     };
     });
-    setProgress({ done: 0, total: entries.length });
+    setProgress({ done: 0, total: entries.length, label: 'sales' });
     try {
-      await dbService.bulkCreate(entries, (done, total) => setProgress({ done, total }));
+      await dbService.bulkCreate(entries, (done, total) => setProgress({ done, total, label: 'sales' }));
       // Purge stale combined multi-IMEI docs that the per-IMEI split rows
       // above supersede. Without this, re-importing a report whose bulk
       // orders were previously stored as one combined doc leaves orphans
@@ -710,7 +718,13 @@ export default function SalesReportImport({ onClose }: Props) {
       if (preview.recordsToComplete.length > 0) {
         const allImportedSales = [...preview.toCreate, ...preview.toUpdate];
         const saleById = new Map(allImportedSales.map(s => [s.id, s]));
+        // Each row is its own round-trip, so this phase dominates the wall
+        // clock on a large import — report it rather than leaving the sales
+        // bar sitting at 100%.
+        let auditDone = 0;
+        setProgress({ done: 0, total: auditEdits.length, label: 'inventory units' });
         for (const row of auditEdits) {
+          setProgress({ done: auditDone++, total: auditEdits.length, label: 'inventory units' });
           const sale = saleById.get(row.saleId);
           if (!sale) {
             unitsAddFailed++;
@@ -893,7 +907,7 @@ export default function SalesReportImport({ onClose }: Props) {
     setParsed(null);
     setFileName('');
     setError('');
-    setProgress({ done: 0, total: 0 });
+    setProgress({ done: 0, total: 0, label: 'sales' });
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
@@ -955,7 +969,7 @@ export default function SalesReportImport({ onClose }: Props) {
             <div className="py-12 flex flex-col items-center gap-3 text-slate-500">
               <Loader2 size={32} className="animate-spin text-emerald-600" />
               <p className="text-[12px] font-bold">
-                Writing {progress.done.toLocaleString()} / {progress.total.toLocaleString()} sales…
+                Writing {progress.done.toLocaleString()} / {progress.total.toLocaleString()} {progress.label}…
               </p>
               <div className="w-full max-w-sm h-1.5 bg-slate-100 rounded-full overflow-hidden">
                 <div
