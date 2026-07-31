@@ -468,9 +468,37 @@ export function normalizeBucketModel(m: string): string {
     .toLowerCase();
 }
 
+/**
+ * Re-separate a qualifier that got fused onto the model number, and give it
+ * its house casing: "S205G" → "S20 5G", "iPhone 12MINI" → "iPhone 12 Mini",
+ * "14PROMAX" → "14 Pro Max".
+ *
+ * These arrive from marketplace exports that strip spaces out of the model
+ * cell. They are NOT dash-delimited SKU codes, so `normalizeOperatorSku`
+ * never sees them and they land in inventory looking like a model name while
+ * bucketing separately from the correctly-spaced version of the same phone.
+ *
+ * Deliberately conservative. Splitting only happens where a DIGIT is
+ * immediately followed by a known qualifier word, so ordinary model names
+ * are untouched. The trailing `\b` is what keeps storage safe: in "64GB" the
+ * "4G" is followed by "B", which is a word character, so no boundary exists
+ * there and no split occurs.
+ */
+export function splitFusedQualifier(model: string): string {
+  return (model ?? '')
+    // Longest first, so "PROMAX" isn't consumed as "PRO" + stray "MAX".
+    .replace(/(\d)\s*PRO\s*MAX\b/gi, '$1 Pro Max')
+    .replace(/(\d)\s*(MINI|PRO|MAX|PLUS|ULTRA|LITE|FE)\b/gi,
+      (_m, d: string, q: string) => `${d} ${q.charAt(0).toUpperCase()}${q.slice(1).toLowerCase()}`)
+    // 4G / 5G stay upper-case. "64GB" cannot match — see the note above.
+    .replace(/(\d)\s*([45]G)\b/gi, (_m, d: string, g: string) => `${d} ${g.toUpperCase()}`)
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 export function parseBrandModelStorage(raw: string | undefined | null): ParsedModel {
   const input = (raw ?? '').toString();
-  const rawTrimmed = input.trim();
+  const rawTrimmed = splitFusedQualifier(input.trim());
 
   // Empty input short-circuits — preserve current `extractStorage` contract.
   if (!rawTrimmed) {

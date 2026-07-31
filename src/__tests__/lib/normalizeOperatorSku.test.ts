@@ -7,9 +7,7 @@
  * buckets — but it must NEVER mangle a real (spaced) model name.
  */
 import { describe, it, expect } from 'vitest';
-import {
-  normalizeOperatorSku, parseBrandModelStorage, looksLikeSku, stripKnownBrandPrefix,
-} from '../../lib/modelStorage';
+import { normalizeOperatorSku, parseBrandModelStorage, looksLikeSku, stripKnownBrandPrefix, splitFusedQualifier } from '../../lib/modelStorage';
 
 describe('normalizeOperatorSku', () => {
   it('normalises Samsung Galaxy SKUs to clean model strings', () => {
@@ -153,5 +151,55 @@ describe('looksLikeSku / stripKnownBrandPrefix', () => {
     expect(stripKnownBrandPrefix('Apple ASI-IP-SE3-128-MN-GD')).toBe('ASI-IP-SE3-128-MN-GD');
     expect(stripKnownBrandPrefix('ASI-SG-A32--64-BK-EX')).toBe('ASI-SG-A32--64-BK-EX');
     expect(stripKnownBrandPrefix('Galaxy S22 Ultra')).toBe('Galaxy S22 Ultra');
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Marketplace exports sometimes strip the space out of the model cell, so a
+// qualifier fuses onto the model number: the operator saw "S205G" and
+// "iPhone 12MINI" on the Sell Intelligence panel. These are NOT dash-delimited
+// SKU codes, so normalizeOperatorSku never sees them — they arrive looking
+// like model names and bucket separately from the correctly-spaced phone.
+// ─────────────────────────────────────────────────────────────────────────────
+describe('splitFusedQualifier', () => {
+  it('re-separates the shapes seen in the client data', () => {
+    expect(splitFusedQualifier('Galaxy S205G')).toBe('Galaxy S20 5G');
+    expect(splitFusedQualifier('iPhone 12MINI')).toBe('iPhone 12 Mini');
+  });
+
+  it('handles a fused Pro Max without splitting it as Pro + stray Max', () => {
+    expect(splitFusedQualifier('iPhone 14PROMAX')).toBe('iPhone 14 Pro Max');
+  });
+
+  it('covers the other qualifiers that fuse the same way', () => {
+    expect(splitFusedQualifier('Galaxy A145G')).toBe('Galaxy A14 5G');
+    expect(splitFusedQualifier('Galaxy S21ULTRA')).toBe('Galaxy S21 Ultra');
+    expect(splitFusedQualifier('Galaxy A54LITE')).toBe('Galaxy A54 Lite');
+  });
+
+  it('NEVER splits a storage size — "64GB" contains "4G" but must survive', () => {
+    // The trailing \b is what protects this: in "64GB" the "4G" is followed
+    // by a word character, so no boundary exists and no split fires.
+    expect(splitFusedQualifier('Galaxy A32 64GB')).toBe('Galaxy A32 64GB');
+    expect(splitFusedQualifier('iPhone 12 128GB')).toBe('iPhone 12 128GB');
+    expect(splitFusedQualifier('Galaxy Tab 256GB')).toBe('Galaxy Tab 256GB');
+  });
+
+  it('leaves an already-correct name untouched, and is idempotent', () => {
+    expect(splitFusedQualifier('Galaxy S23 Ultra')).toBe('Galaxy S23 Ultra');
+    expect(splitFusedQualifier('iPhone 13 Pro Max')).toBe('iPhone 13 Pro Max');
+    expect(splitFusedQualifier(splitFusedQualifier('Galaxy S205G'))).toBe('Galaxy S20 5G');
+  });
+
+  it('does not invent a split where no digit precedes the qualifier', () => {
+    expect(splitFusedQualifier('Galaxy Note Ultra')).toBe('Galaxy Note Ultra');
+    expect(splitFusedQualifier('MiniPC')).toBe('MiniPC');
+  });
+
+  it('feeds through parseBrandModelStorage so the fused form parses correctly', () => {
+    expect(parseBrandModelStorage('iPhone 12MINI').model).toBe('iPhone 12 Mini');
+    // 5G is carried as a tag by this parser, same as the already-spaced form.
+    expect(parseBrandModelStorage('Galaxy S205G').model)
+      .toBe(parseBrandModelStorage('Galaxy S20 5G').model);
   });
 });
