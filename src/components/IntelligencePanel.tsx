@@ -18,8 +18,25 @@ interface Signal { key: string; label: string; hint: string; color: string; rows
 
 const MS = 86_400_000;
 
-// Strip brand prefix and cap length for card display
-function label(model: string, max = 17): string {
+/**
+ * Grouping key for every signal on this panel.
+ *
+ * Storage is part of a product's identity for the decisions this panel
+ * drives: a 64GB A32 and a 256GB A32 restock differently, price
+ * differently, and earn differently. Keying on the model alone collapsed
+ * them into one "A32" row whose sell-through, margin and stock depth were
+ * an average across variants the operator would never buy or price
+ * together. Units with no storage (accessories, some tablets) simply key on
+ * the model, so nothing is lost for them.
+ */
+function variantKey(u: InventoryUnit): string {
+  return [u.model, u.storage].filter(Boolean).join(' ');
+}
+
+// Strip brand prefix and cap length for card display. The cap is generous
+// enough to keep the storage suffix visible — truncating "iPhone 13 Pro
+// 256GB" back to the bare model would undo the point of keying on it.
+function label(model: string, max = 24): string {
   const s = model
     .replace(/^(Apple|Samsung)\s+/i, '')
     .replace(/Galaxy\s+/i, '');
@@ -50,8 +67,8 @@ function buildSignals(units: InventoryUnit[], sales: Sale[] | undefined, mode: '
   // ── velocity: sold count per model ─────────────────────────────────────────
   const vel14: Record<string, number> = {};
   const vel7:  Record<string, number> = {};
-  for (const u of s14) vel14[u.model] = (vel14[u.model] || 0) + 1;
-  for (const u of s7)  vel7[u.model]  = (vel7[u.model]  || 0) + 1;
+  for (const u of s14) { const k = variantKey(u); vel14[k] = (vel14[k] || 0) + 1; }
+  for (const u of s7)  { const k = variantKey(u); vel7[k]  = (vel7[k]  || 0) + 1; }
 
   // ── GP per model (sold 14d) — master-aligned via recomputeSale ─────────────
   // Joins each sold unit to its Sale doc (by unitId) and pulls the
@@ -69,10 +86,11 @@ function buildSignals(units: InventoryUnit[], sales: Sale[] | undefined, mode: '
     const p = linkedSale
       ? recomputeSale(linkedSale).grossProfit
       : u.salePrice - u.buyPrice - (u.postageCost ?? 8);
-    if (!pAcc[u.model]) pAcc[u.model] = { profitSum: 0, bpSum: 0, n: 0 };
-    pAcc[u.model].profitSum += p;
-    pAcc[u.model].bpSum     += u.buyPrice;
-    pAcc[u.model].n++;
+    const key = variantKey(u);
+    if (!pAcc[key]) pAcc[key] = { profitSum: 0, bpSum: 0, n: 0 };
+    pAcc[key].profitSum += p;
+    pAcc[key].bpSum     += u.buyPrice;
+    pAcc[key].n++;
   }
 
   // ── stock depth & age per model ─────────────────────────────────────────────
@@ -81,15 +99,17 @@ function buildSignals(units: InventoryUnit[], sales: Sale[] | undefined, mode: '
   const allPerModel: Record<string, InventoryUnit[]> = {};
 
   for (const u of avail) {
-    depth[u.model] = (depth[u.model] || 0) + 1;
+    const key = variantKey(u);
+    depth[key] = (depth[key] || 0) + 1;
     const d = Math.floor((now - new Date(u.dateIn).getTime()) / MS);
-    (ages[u.model] = ages[u.model] || []).push(d);
+    (ages[key] = ages[key] || []).push(d);
   }
 
   // ── all units (sold + available) for sell-through calculation ─────────────────
   for (const u of units) {
-    if (!allPerModel[u.model]) allPerModel[u.model] = [];
-    allPerModel[u.model].push(u);
+    const key = variantKey(u);
+    if (!allPerModel[key]) allPerModel[key] = [];
+    allPerModel[key].push(u);
   }
 
   // ── sell-through % and average sell time per model ───────────────────────────
@@ -229,7 +249,7 @@ function buildSignals(units: InventoryUnit[], sales: Sale[] | undefined, mode: '
   //    sum that StockOverlayModal's grouped table aggregates, just
   //    surfaced at the dashboard level.
   const bpByModel: Record<string, number> = {};
-  for (const u of avail) bpByModel[u.model] = (bpByModel[u.model] || 0) + (u.buyPrice || 0);
+  for (const u of avail) { const k = variantKey(u); bpByModel[k] = (bpByModel[k] || 0) + (u.buyPrice || 0); }
   const depthRows: Row[] = Object.entries(depth)
     .sort(([, a], [, b]) => b - a)
     .slice(0, 12)
