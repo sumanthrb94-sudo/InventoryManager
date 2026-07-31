@@ -29,6 +29,7 @@ import SkuReconciliation from './SkuReconciliation';
 import AccessoryStockPanel from './AccessoryStockPanel';
 import { useInventoryStore } from '../lib/inventoryStore';
 import { findGradeCasingDrift, fixGradeCasing } from '../lib/migrations/normaliseGradeCasing';
+import { normalizeBucketModel, normalizeOperatorSku } from '../lib/modelStorage';
 
 interface ModelDoc {
   id: string;
@@ -43,6 +44,39 @@ interface ModelDoc {
   createdAt: string;
   createdBy?: string;
   ownerId: 'shared';
+}
+
+/** Same bucket-key normalisation (`normalizeBucketModel`) that
+ *  DeviceComboBox's catalog build and `catalogEntryFor` use. Exported so
+ *  it's directly testable — a raw exact-string compare here would let
+ *  "Galaxy S23" / "GALAXY S23" / "S23" all pass as distinct catalog rows
+ *  even though the picker treats them as one bucket. */
+export function modelBucketKey(brand: string, model: string): string {
+  return `${(brand || '').toLowerCase().trim()}||${normalizeBucketModel(model)}`;
+}
+
+/** True when (brand, model) already exists in the catalog, optionally
+ *  ignoring one doc id (so an edit doesn't collide with the row being
+ *  edited). Exported for direct testing. */
+export function isDuplicateModel(
+  models: Array<Pick<ModelDoc, 'id' | 'brand' | 'model'>>,
+  brand: string,
+  model: string,
+  ignoreId?: string,
+): boolean {
+  const key = modelBucketKey(brand, model);
+  return models.some(m => m.id !== ignoreId && modelBucketKey(m.brand || '', m.model || '') === key);
+}
+
+/** Same SKU-shape guard DeviceComboBox's inline "+Add" pill already
+ *  applies (see `DeviceComboBox.tsx` `handleCreate`) — this standalone
+ *  panel is the OTHER write path to `models` and had no equivalent, so an
+ *  admin could paste a raw operator SKU code (e.g. "IPAD-11-128-BL")
+ *  straight into the Model field with nothing cleaning it up first.
+ *  Exported for direct testing. */
+export function cleanCatalogModelInput(model: string): string {
+  const trimmed = model.trim();
+  return normalizeOperatorSku(trimmed) ?? trimmed;
 }
 
 export default function ConfigurationPanel() {
@@ -77,19 +111,13 @@ export default function ConfigurationPanel() {
     [models],
   );
 
-  /** True when (brand, model) already exists, optionally ignoring one doc
-   *  id (so an edit doesn't collide with the row being edited). */
   const isDuplicate = (brand: string, model: string, ignoreId?: string) =>
-    models.some(m =>
-      m.id !== ignoreId &&
-      (m.brand || '').toLowerCase() === brand.toLowerCase() &&
-      (m.model || '').toLowerCase() === model.toLowerCase()
-    );
+    isDuplicateModel(models, brand, model, ignoreId);
 
   const addModel = async () => {
     if (!isAdmin || saving) return;
     const brand = draft.brand.trim();
-    const model = draft.model.trim();
+    const model = cleanCatalogModelInput(draft.model);
     if (!brand)  { setError('Brand is required'); return; }
     if (!model)  { setError('Model is required'); return; }
     if (isDuplicate(brand, model)) { setError(`"${brand} ${model}" is already in the catalog`); return; }
@@ -128,7 +156,7 @@ export default function ConfigurationPanel() {
   const saveEdit = async () => {
     if (!isAdmin || !editingId) return;
     const brand = editDraft.brand.trim();
-    const model = editDraft.model.trim();
+    const model = cleanCatalogModelInput(editDraft.model);
     if (!brand || !model) { setError('Brand and model are required'); return; }
     if (isDuplicate(brand, model, editingId)) { setError(`"${brand} ${model}" already exists`); return; }
     await dbService.update('models', editingId, {
