@@ -7,6 +7,7 @@ import {
   type DeviceCatalogEntry,
   type ModelSeed,
 } from '../lib/deviceCatalog';
+import { normalizeOperatorSku } from '../lib/modelStorage';
 import type { InventoryUnit } from '../types';
 
 interface Props {
@@ -180,8 +181,15 @@ export default function DeviceComboBox({
 
   const handleCreate = async () => {
     if (!onCreateModel) return;
-    const m = (model || '').trim();
-    if (!m) return;
+    const typed = (model || '').trim();
+    if (!typed) return;
+    // Guard against permanently creating a catalog entry (and the unit
+    // riding on it) whose "model" is a raw operator SKU code instead of a
+    // clean human-readable name — e.g. an admin pasting "IPAD-11-128-BL"
+    // straight from the sheet instead of typing "Apple iPad 11 128GB".
+    // Silently clean it up when the code is recognised (same parser the
+    // import path uses), so "+ Add" can never create a garbage-named model.
+    const m = normalizeOperatorSku(typed) ?? typed;
     setCreating(true);
     try {
       const entry = await onCreateModel({ brand: (brand || '').trim(), model: m });
@@ -192,6 +200,18 @@ export default function DeviceComboBox({
       setCreating(false);
     }
   };
+
+  // Best-effort "this still looks like a raw SKU code" flag for the
+  // unrecognised case — normalizeOperatorSku only fires for KNOWN brand
+  // codes, so a genuinely new/unseen SKU convention (or a one-off vendor
+  // prefix) still slips through as free text. Surfaced as a caution, not a
+  // block: we can't be certain, and a real model name can legitimately
+  // contain a dash.
+  const typedLooksLikeSku = useMemo(() => {
+    const m = (model || '').trim();
+    if (!m || /\s/.test(m)) return false;
+    return m.includes('-') && normalizeOperatorSku(m) === null;
+  }, [model]);
 
   const onKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'ArrowDown') {
@@ -317,16 +337,23 @@ export default function DeviceComboBox({
           {strict && suggestions.length === 0 && trimmedQuery.length > 0 && (
             <div className="border-t border-gray-100">
               {isAdmin && onCreateModel ? (
-                <button
-                  type="button"
-                  onMouseDown={e => e.preventDefault()}
-                  onClick={handleCreate}
-                  disabled={creating}
-                  className="w-full flex items-center gap-2 px-3 py-2.5 text-left text-[12px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 hover:bg-emerald-100 disabled:opacity-50"
-                >
-                  <Plus size={12} />
-                  {creating ? 'Adding…' : `Add "${trimmedQuery}" to the model catalog`}
-                </button>
+                <>
+                  <button
+                    type="button"
+                    onMouseDown={e => e.preventDefault()}
+                    onClick={handleCreate}
+                    disabled={creating}
+                    className="w-full flex items-center gap-2 px-3 py-2.5 text-left text-[12px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 hover:bg-emerald-100 disabled:opacity-50"
+                  >
+                    <Plus size={12} />
+                    {creating ? 'Adding…' : `Add "${trimmedQuery}" to the model catalog`}
+                  </button>
+                  {typedLooksLikeSku && (
+                    <p className="px-3 py-1.5 text-[10px] text-amber-700 bg-amber-50 border-x border-b border-amber-200">
+                      This looks like a raw SKU code, not a model name — double check before adding.
+                    </p>
+                  )}
+                </>
               ) : (
                 <div className="flex items-center gap-2 px-3 py-2.5 text-[11px] text-amber-700 bg-amber-50">
                   <Lock size={11} />

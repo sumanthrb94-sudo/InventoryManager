@@ -323,14 +323,15 @@ function detectSeries(brand: Brand, lower: string): Series | undefined {
  *  SKU convention is "[ASI-]<BRAND>-<MODEL>-<STORAGE>-<COLOUR>-<SUFFIX>".
  *  Only these known codes are normalised; anything else is left untouched. */
 const SKU_BRAND_CODE: Record<string, { brand: string; line: string }> = {
-  SG:  { brand: 'Samsung', line: 'Galaxy' },
-  SS:  { brand: 'Samsung', line: 'Galaxy' },
-  IP:  { brand: 'Apple',   line: 'iPhone' },
-  IPH: { brand: 'Apple',   line: 'iPhone' },
-  IPD: { brand: 'Apple',   line: 'iPad' },
-  GP:  { brand: 'Google',  line: 'Pixel' },
-  OP:  { brand: 'OnePlus', line: '' },
-  XI:  { brand: 'Xiaomi',  line: '' },
+  SG:   { brand: 'Samsung', line: 'Galaxy' },
+  SS:   { brand: 'Samsung', line: 'Galaxy' },
+  IP:   { brand: 'Apple',   line: 'iPhone' },
+  IPH:  { brand: 'Apple',   line: 'iPhone' },
+  IPD:  { brand: 'Apple',   line: 'iPad' },
+  IPAD: { brand: 'Apple',   line: 'iPad' },
+  GP:   { brand: 'Google',  line: 'Pixel' },
+  OP:   { brand: 'OnePlus', line: '' },
+  XI:   { brand: 'Xiaomi',  line: '' },
 };
 
 /**
@@ -341,8 +342,8 @@ const SKU_BRAND_CODE: Record<string, { brand: string; line: string }> = {
  *   - rejects anything containing whitespace (real names have spaces;
  *     SKU codes don't),
  *   - rejects anything without a dash,
- *   - rejects unless the first segment (after an optional "ASI-" vendor
- *     prefix) is a known brand code.
+ *   - rejects unless the first segment (after an optional "ASI-"/"VIN-"
+ *     vendor prefix) is a known brand code.
  *
  * Examples:
  *   ASI-SG-S20-128-CN-EX        → "Samsung Galaxy S20 128GB"
@@ -352,15 +353,23 @@ const SKU_BRAND_CODE: Record<string, { brand: string; line: string }> = {
  *   ASI-SG-TABA8-32GB-BK-EX     → "Samsung Galaxy Tab A8 32GB"
  *   ASI-IP-SE3-128-MN-GD        → "Apple iPhone SE3 128GB"
  *   IP12-BK-64                  → "Apple iPhone 12 64GB"
+ *   IPAD-11-128-BL              → "Apple iPad 11 128GB"
+ *   VIN-SG-A25-128-DBL-LN       → "Samsung Galaxy A25 128GB"
  */
 export function normalizeOperatorSku(raw: string | undefined | null): string | null {
   const s0 = (raw ?? '').trim();
-  if (!s0 || /\s/.test(s0)) return null;          // real names carry spaces
+  if (!s0) return null;
+  if (!s0.includes('-')) return null;             // SKUs are dash-delimited
   const U = s0.toUpperCase();
-  if (!U.includes('-')) return null;              // SKUs are dash-delimited
-  const body = U.replace(/^ASI-/, '');            // drop vendor prefix
-  const segs = body.split('-').filter(Boolean);
+  const body = U.replace(/^(ASI|VIN)-/, '');      // drop known vendor prefixes
+  // Trim + drop blank segments BEFORE the real-name check below — a stray
+  // "- -" (dash, space, dash) from a spreadsheet artifact (a deleted colour
+  // segment, e.g. "128- -BL") must not be mistaken for a genuine multi-word
+  // name. Real names carry the space INSIDE a segment ("IPHONE 13"), not as
+  // a segment of its own between two dashes.
+  const segs = body.split('-').map(s => s.trim()).filter(Boolean);
   if (segs.length < 2) return null;
+  if (segs.some(s => /\s/.test(s))) return null;  // a real segment has spaces → real name
 
   let code = SKU_BRAND_CODE[segs[0]];
   let line: string;

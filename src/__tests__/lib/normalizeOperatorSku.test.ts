@@ -39,6 +39,14 @@ describe('normalizeOperatorSku', () => {
     expect(normalizeOperatorSku('iPhone 13 Pro Max')).toBeNull();
   });
 
+  it('NEVER touches a real name that happens to contain a dash too', () => {
+    // A stray whitespace-only SEGMENT between two dashes ("128- -BL") is a
+    // spreadsheet artifact and must be tolerated (see the IPAD test below),
+    // but a genuine word carrying its own internal space ("Samsung Galaxy
+    // Note 9") must still bail, dash or no dash.
+    expect(normalizeOperatorSku('Samsung Galaxy Note 9 - Pre-owned')).toBeNull();
+  });
+
   it('returns null for non-SKU shapes (no dash, unknown brand code)', () => {
     expect(normalizeOperatorSku('S20')).toBeNull();          // no dash
     expect(normalizeOperatorSku('A-GRADE-REFURB')).toBeNull(); // unknown brand code 'A'
@@ -64,6 +72,20 @@ describe('normalizeOperatorSku', () => {
 
   it('still rejects an unknown fused prefix (no known brand code substring)', () => {
     expect(normalizeOperatorSku('ZZ99-BK-64')).toBeNull();
+  });
+
+  it('handles the real "IPAD-" brand code (distinct from the existing "IPD" alias)', () => {
+    // Found in real client data: raw SKUs saved verbatim as a unit's model
+    // because normalizeOperatorSku only recognised "IPD", not "IPAD".
+    expect(normalizeOperatorSku('IPAD-11-128-BL')).toBe('Apple iPad 11 128GB');
+    // Real value carries a blank segment from a double dash ("128- -BL") —
+    // the empty-string filter must swallow it, not choke on it.
+    expect(normalizeOperatorSku('IPAD-11THGEN-128- -BL')).toBe('Apple iPad 11THGEN 128GB');
+    expect(normalizeOperatorSku('ASI-IPAD-7THGEN-32- -CELL-GD-EX')).toBe('Apple iPad 7THGEN 32GB');
+  });
+
+  it('strips the "VIN-" vendor prefix same as "ASI-"', () => {
+    expect(normalizeOperatorSku('VIN-SG-A25-128-DBL-LN')).toBe('Samsung Galaxy A25 128GB');
   });
 });
 
