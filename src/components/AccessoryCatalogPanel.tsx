@@ -124,51 +124,62 @@ export default function AccessoryCatalogPanel() {
           <Package size={14} />
         </div>
         <div className="min-w-0 flex-1">
-          <h3 className="text-[13px] font-bold tracking-tight">Accessories catalog</h3>
+          <h3 className="text-[13px] font-bold tracking-tight">Accessories Catalog</h3>
           <p className="text-[10px] font-mono text-slate-400">
-            What employees can pick in Add Stock → Accessories · SKU + name only, no brand/model/series
+            {sorted.length} {sorted.length === 1 ? 'accessory' : 'accessories'} · employees pick from this list
           </p>
         </div>
         {savedFlash && <CheckCircle2 size={15} className="text-emerald-500 flex-shrink-0" />}
       </div>
 
-      {/* Add row */}
-      <div className="px-5 py-4 border-b border-slate-100 space-y-2">
+      {/* Add row — deliberately only SKU + name. Brand / model / series is
+          device vocabulary; an accessory has neither, and forcing it into
+          that shape is what put "generic" / "pins" / "SIM PINS" into the
+          device Models catalog. Mirrors the Models add-row layout so the
+          two read as the same kind of action. */}
+      <div className="px-5 py-4 border-b border-slate-100 bg-slate-50/60">
         <div className="grid grid-cols-1 md:grid-cols-12 gap-2">
           <div className="md:col-span-4">
-            <label className="text-[9px] font-bold uppercase tracking-widest text-gray-500 block mb-0.5">SKU *</label>
+            <label className="text-[9px] font-bold uppercase tracking-widest text-slate-500 block mb-1">SKU *</label>
             <input
               value={draft.sku}
               onChange={e => setDraft(d => ({ ...d, sku: e.target.value }))}
-              placeholder="e.g. USB-C-20W"
-              className="w-full border border-gray-200 rounded-lg px-2.5 py-1.5 text-[12px] font-mono focus:outline-none focus:border-black"
+              onKeyDown={e => { if (e.key === 'Enter') add(); }}
+              placeholder="USB-C-20W"
+              className="w-full border border-slate-200 rounded-lg px-2.5 py-1.5 text-[12px] font-mono focus:outline-none focus:border-slate-900 bg-white"
             />
           </div>
-          <div className="md:col-span-6">
-            <label className="text-[9px] font-bold uppercase tracking-widest text-gray-500 block mb-0.5">Name *</label>
+          <div className="md:col-span-7">
+            <label className="text-[9px] font-bold uppercase tracking-widest text-slate-500 block mb-1">Name *</label>
             <input
               value={draft.name}
               onChange={e => setDraft(d => ({ ...d, name: e.target.value }))}
-              placeholder="e.g. USB-C 20W Charger"
-              className="w-full border border-gray-200 rounded-lg px-2.5 py-1.5 text-[12px] focus:outline-none focus:border-black"
+              onKeyDown={e => { if (e.key === 'Enter') add(); }}
+              placeholder="USB-C 20W Charger"
+              className="w-full border border-slate-200 rounded-lg px-2.5 py-1.5 text-[12px] focus:outline-none focus:border-slate-900 bg-white"
             />
           </div>
-          <div className="md:col-span-2 flex items-end">
+          <div className="md:col-span-1 flex md:items-end">
             <button
               onClick={add}
               disabled={saving}
-              className="w-full inline-flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg bg-indigo-600 text-white text-[10px] font-bold uppercase tracking-widest hover:bg-indigo-700 disabled:opacity-40"
+              className="w-full md:w-auto inline-flex items-center justify-center gap-1.5 px-3 py-1.5 mt-1 md:mt-0 rounded-lg bg-emerald-600 text-white text-[10px] font-bold uppercase tracking-widest hover:bg-emerald-700 disabled:opacity-40"
             >
-              <Plus size={11} /> {saving ? 'Adding…' : 'Add'}
+              <Plus size={11} /> {saving ? '…' : 'Add'}
             </button>
           </div>
         </div>
-        <p className="text-[10px] font-mono text-slate-500">
-          Registered with no stock — it becomes pickable straight away, and the first intake tops it up.
+        <p className="mt-2 text-[10px] font-mono text-slate-500">
+          No brand, model or series — an accessory only needs these two. Registered with no stock, pickable straight away.
         </p>
         {error && (
-          <p className="inline-flex items-center gap-1 text-[10px] font-mono text-rose-600">
+          <p className="mt-2 inline-flex items-center gap-1 text-[10px] font-mono text-rose-600">
             <AlertCircle size={11} /> {error}
+          </p>
+        )}
+        {savedFlash && (
+          <p className="mt-2 inline-flex items-center gap-1 text-[10px] font-mono text-emerald-700">
+            <CheckCircle2 size={11} /> Added · live in Add Stock → Accessories now
           </p>
         )}
       </div>

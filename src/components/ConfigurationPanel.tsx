@@ -382,6 +382,14 @@ export default function ConfigurationPanel() {
         )}
       </div>
 
+      {/* ── Accessories catalog ──────────────────────────────────────────
+          Sits directly under the Models catalog because it is the same kind
+          of thing — "what employees can pick" — just for no-IMEI items, with
+          a deliberately smaller schema (SKU + name, no brand/model/series).
+          It used to live below the data-hygiene panels, where it was hidden
+          behind the full models table and effectively undiscoverable. */}
+      <AccessoryCatalogPanel />
+
       {/* ── Data hygiene ──────────────────────────────────────────────────
           Three tools that do the same job — find records that are valid but
           wrong, and repair them. They were spread across two admin sections
@@ -392,11 +400,9 @@ export default function ConfigurationPanel() {
       <GradeCasingPanel />
       <SkuReconciliation />
 
-      {/* ── Accessory stock (no-IMEI quantity pools) ──────────────────────── */}
-      {/* "What accessories exist" (this) sits above "how many of each are
-          on hand" (below) — same order as the Models catalog above the
-          device stock views. */}
-      <AccessoryCatalogPanel />
+      {/* ── Accessory stock (no-IMEI quantity pools) ──────────────────────
+          How many of each are on hand. The catalog of "what exists" is up
+          beside the Models catalog. */}
       <AccessoryStockPanel />
 
       {/* ── Suppliers (embedded existing components) ─────────────────────── */}
