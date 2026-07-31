@@ -15,7 +15,7 @@
  * upsert semantics so re-importing the same file is safe, while
  * keeping multiple phones on the same order as distinct docs.
  */
-import React, { useState, useMemo, useRef } from 'react';
+import React, { useState, useMemo, useRef, useEffect } from 'react';
 import {
   X, Upload, FileSpreadsheet, CheckCircle2, AlertTriangle, Loader2,
   PlusCircle, RefreshCw, AlertCircle, ArrowUpRight,
@@ -943,6 +943,7 @@ export default function SalesReportImport({ onClose }: Props) {
                 setAuditEdits(prev => prev.map(o => o.saleId === saleId ? { ...o, ...patch } : o));
               }}
               units={units}
+              suppliers={suppliers}
               isAdmin={userIsAdmin}
             />
           )}
@@ -1256,7 +1257,7 @@ function UploadPhase({
 // ── Phase: preview ──────────────────────────────────────────────────────────
 function PreviewPhase({
   preview, fileName, error, flipsAcked, onAckChange,
-  auditEdits, onAuditEdit, units, isAdmin,
+  auditEdits, onAuditEdit, units, suppliers, isAdmin,
 }: {
   preview: PreviewBuckets;
   fileName: string;
@@ -1266,6 +1267,7 @@ function PreviewPhase({
   auditEdits: AuditCompletionRow[];
   onAuditEdit: (saleId: string, patch: Partial<AuditCompletionRow>) => void;
   units: import('../types').InventoryUnit[];
+  suppliers: import('../types').Supplier[];
   isAdmin: boolean;
 }) {
   // Clean re-import = nothing to create, nothing to flip, no orphan IMEIs,
@@ -1324,6 +1326,36 @@ function PreviewPhase({
   // need a manual fill instead of scrolling past hundreds of already-done
   // ones.
   const [showIncompleteOnly, setShowIncompleteOnly] = useState(true);
+
+  /** Supplier names offered as suggestions on every audit row. Drawn from
+   *  the live supplier list plus any name already present on a row, so a
+   *  supplier that exists only in this file is still suggestible. */
+  const auditSupplierNames = useMemo(() => {
+    const names = new Set<string>();
+    for (const s of suppliers) if (s.name?.trim()) names.add(s.name.trim());
+    for (const o of auditEdits) if (o.supplierName?.trim()) names.add(o.supplierName.trim());
+    return [...names].sort((a, b) => a.localeCompare(b));
+  }, [suppliers, auditEdits]);
+
+  /** Which rows the "only incomplete" filter is holding in view.
+   *
+   *  Recomputed when the filter is switched on, or when a new file is
+   *  parsed — deliberately NOT on every keystroke. Filtering live meant that
+   *  typing the FIRST character of a supplier name completed the row, which
+   *  dropped it out of the filtered list and unmounted the input mid-word.
+   *  To the operator that read as the field auto-saving after one letter,
+   *  with no way to finish typing. Rows now stay put until the filter is
+   *  re-toggled, so a row can be completed without it vanishing underfoot. */
+  const [pinnedRows, setPinnedRows] = useState<Set<string>>(new Set());
+  useEffect(() => {
+    if (!showIncompleteOnly) { setPinnedRows(new Set()); return; }
+    setPinnedRows(new Set(
+      auditEdits.filter(o => auditRowMissing(o).length > 0).map(o => o.saleId),
+    ));
+    // Keyed on the SIZE of the audit set (a new file re-seeds it), never on
+    // its contents — which is exactly what would reintroduce the bug.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showIncompleteOnly, auditEdits.length]);
   const createModel = isAdmin ? async (draft: { brand: string; model: string }) => {
     const id = `model_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
     await dbService.create('models', id, {
@@ -1559,6 +1591,10 @@ function PreviewPhase({
           <p className="md:hidden mb-1 text-[10px] font-mono text-orange-800">
             Scroll the table sideways to reach every column →
           </p>
+          {/* Known supplier names, offered to every supplier cell below. */}
+          <datalist id="audit-supplier-names">
+            {auditSupplierNames.map(n => <option key={n} value={n} />)}
+          </datalist>
           <div className="bg-white border border-orange-200 rounded-xl overflow-x-auto">
             <div className="min-w-[56rem] px-3 py-1.5 border-b border-orange-100 text-[9px] font-mono uppercase tracking-widest text-orange-900 bg-orange-50/60 grid grid-cols-14 gap-2">
               <span className="col-span-3">IMEI · Source · Order</span>
@@ -1576,7 +1612,7 @@ function PreviewPhase({
                   All {auditEdits.length} rows are complete.
                 </li>
               )}
-              {(showIncompleteOnly ? auditEdits.filter(o => auditRowMissing(o).length > 0) : auditEdits).map(o => {
+              {(showIncompleteOnly ? auditEdits.filter(o => pinnedRows.has(o.saleId)) : auditEdits).map(o => {
                 const missing = auditRowMissing(o);
                 const rowIncomplete = missing.length > 0;
                 const needImei = !/^\d{15}$/.test((o.imei || '').trim().toUpperCase()) && !/^[A-Z0-9]{10,12}$/.test((o.imei || '').trim().toUpperCase());
@@ -1712,7 +1748,13 @@ function PreviewPhase({
                       )}
                       {SIM_TYPE_OPTIONS.map(s => <option key={s} value={s}>{s}</option>)}
                     </select>
+                    {/* Typing is free-text, but the known suppliers are
+                        offered as suggestions — the operator was otherwise
+                        expected to recall the exact spelling with no list in
+                        sight, on the one screen where a typo silently creates
+                        a second supplier. */}
                     <input
+                      list="audit-supplier-names"
                       className={`col-span-2 border rounded px-1.5 py-1 text-[10px] focus:outline-none focus:border-orange-500 ${!o.supplierName.trim() ? 'border-rose-400 bg-rose-50' : 'border-slate-200'}`}
                       value={o.supplierName}
                       placeholder="Supplier required"
