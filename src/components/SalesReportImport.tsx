@@ -28,7 +28,9 @@ import { MARKETPLACES } from '../types';
 import { parseSalesWorkbook, type ParsedSales } from '../lib/salesImport';
 import { buildPostImportSyncPatches } from '../services/salesService';
 import { addSoldUnitFromSale, completeUnitBuyInfo, reconcileShsAfterFulfilment, decrementAccessoryStock, restoreUnitReturnFromImport } from '../services/inventoryService';
-import { normalizeOperatorSku } from '../lib/modelStorage';
+import { normalizeOperatorSku, parseBrandModelStorage } from '../lib/modelStorage';
+import { buildCatalogIndex, canonicaliseModel } from '../lib/modelReconciliation';
+import type { ModelSeed } from '../lib/deviceCatalog';
 import { SIM_TYPE_OPTIONS } from '../lib/unitConstants';
 import { isValidImei, isAppleDevice } from '../lib/imeiValidation';
 import { auth, isAdmin } from '../lib/firebase';
@@ -187,7 +189,16 @@ export function buildPreview(
   parsed: ParsedSales,
   existingSales: Sale[],
   units: ReturnType<typeof useInventoryStore>['units'],
+  /** Admin model catalog. Optional so existing callers/tests keep working;
+   *  when supplied, seeded model names are snapped to the catalog spelling
+   *  the same way InventoryReportImport already does. */
+  models: ModelSeed[] = [],
 ): PreviewBuckets {
+  // Snap every seeded model name to the admin catalog on the way in, so the
+  // data arrives consistent instead of needing a cleanup pass afterwards —
+  // the same treatment InventoryReportImport gives units. Unknown models
+  // pass through exactly as parsed.
+  const catalogIndex = buildCatalogIndex(models);
   const existingIds = new Set(existingSales.map(s => s.id));
   const toCreate: ParsedSales['sales'] = [];
   const toUpdate: ParsedSales['sales'] = [];
@@ -341,11 +352,27 @@ export function buildPreview(
     // deliberate selection. The raw SKU is still preserved separately on
     // `sku` for provenance.
     const rawSku = (s.sku || '').trim();
-    const model = (matched?.model || normalizeOperatorSku(rawSku) || (/\s/.test(rawSku) ? rawSku : '') || '').trim();
+    const seededModel = (matched?.model || normalizeOperatorSku(rawSku) || (/\s/.test(rawSku) ? rawSku : '') || '').trim();
+    // Run the seed through the same pipeline the inventory importer uses:
+    //   1. parseBrandModelStorage — splits the brand off, lifts the storage
+    //      out into its own field, and re-separates a qualifier that got
+    //      fused onto the model number ("S205G" → "Galaxy S20 5G"). Without
+    //      this the seed keeps shapes like "Samsung Galaxy A32 64GB", whose
+    //      trailing storage stops it matching the catalog entry at all.
+    //   2. canonicaliseModel — snaps to the admin catalog's spelling.
+    // Both are no-ops for a name that is already clean and uncatalogued, so
+    // an unknown device still imports exactly as parsed.
+    const parsedSeed = parseBrandModelStorage(seededModel);
+    const model = seededModel
+      ? canonicaliseModel(parsedSeed.model || seededModel, parsedSeed.brand || '', catalogIndex)
+      : '';
     const supplierName = (matched?.supplierName || s.supplierName || '').trim();
     const buyPrice = matched?.buyPrice ?? s.buyPrice ?? 0;
     const colour = matched?.colour && matched.colour !== 'Unknown' ? matched.colour : '';
-    const storage = matched?.storage || '';
+    // Storage now has a fallback: step 1 lifted it off the SKU, so an ORPHAN
+    // row (no matched unit) no longer arrives with the storage blank just
+    // because nothing in inventory could supply it.
+    const storage = matched?.storage || parsedSeed.storage || '';
     const simType = matched?.simType || '';
 
     const missing = auditRowMissing({
@@ -444,7 +471,7 @@ export function buildPreview(
 }
 
 export default function SalesReportImport({ onClose }: Props) {
-  const { sales, units, suppliers } = useInventoryStore();
+  const { sales, units, suppliers, models } = useInventoryStore();
   const userIsAdmin = isAdmin(auth.currentUser);
   const [phase, setPhase] = useState<Phase>('upload');
   const [parsed, setParsed] = useState<ParsedSales | null>(null);
@@ -509,9 +536,13 @@ export default function SalesReportImport({ onClose }: Props) {
   // a multi-thousand-row import into a many-second UI freeze for no benefit.
   const preview = useMemo(
     () => phase === 'preview' || phase === 'done'
-      ? (parsed ? buildPreview(parsed, sales, units) : null)
+      ? (parsed ? buildPreview(parsed, sales, units, models) : null)
       : null,
-    [parsed, sales, units, phase],
+    // `models` belongs here: it arrives from its own Firestore subscription,
+    // independently of sales/units. Leaving it out meant a preview computed
+    // before the catalog resolved would keep a stale, un-snapped set of model
+    // names and never recompute once it landed.
+    [parsed, sales, units, models, phase],
   );
   // Acknowledgement gate — when the import would flip in-stock units to
   // 'sold' as a side effect, force the operator to tick a checkbox before

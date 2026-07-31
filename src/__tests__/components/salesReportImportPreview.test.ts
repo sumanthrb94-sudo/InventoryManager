@@ -213,7 +213,7 @@ describe('SalesReportImport preview — stale combined multi-IMEI cleanup', () =
     expect(row.existingUnitId).toBeUndefined();   // CREATE path
   });
 
-  it('pre-fills an orphan\'s Model from the SKU column when it is already a clean name (own-export round trip)', () => {
+  it('pre-fills an orphan\'s Model AND Storage from the SKU column, split into their own fields (own-export round trip)', () => {
     // The app's OWN Sales Report export writes the resolved friendly model
     // name into the SKU column (e.g. "Samsung Galaxy A32 64GB"), not a
     // dash-delimited operator code. normalizeOperatorSku bails on anything
@@ -221,6 +221,13 @@ describe('SalesReportImport preview — stale combined multi-IMEI cleanup', () =
     // fallback to the raw SKU, every row of a downloaded-then-reimported
     // file would come back with the Model field blank — exactly what broke
     // a full wipe+reimport round trip.
+    //
+    // The seed is now run through parseBrandModelStorage, so the brand and
+    // the storage are lifted OUT of the model field rather than left fused
+    // into it. Seeding the literal "Samsung Galaxy A32 64GB" as the model
+    // is what created units carrying brand+storage inside their name — the
+    // store's reparse gate then leaves such a name alone forever, because
+    // it correctly refuses to rewrite anything that isn't a raw SKU code.
     const split: Sale[] = [
       sale({ id: 'AMAZON__O-CLEAN__1', marketplace: 'AMAZON', orderNumber: 'O-CLEAN', imei: '350000000000444', sku: 'Samsung Galaxy A32 64GB' }),
     ];
@@ -230,8 +237,42 @@ describe('SalesReportImport preview — stale combined multi-IMEI cleanup', () =
       [],
     );
     expect(preview.recordsToComplete).toHaveLength(1);
-    expect(preview.recordsToComplete[0].model).toBe('Samsung Galaxy A32 64GB');
+    expect(preview.recordsToComplete[0].model).toBe('Galaxy A32');
+    // Storage used to arrive blank on an orphan row, because only a matched
+    // inventory unit could supply it. It now comes off the SKU.
+    expect(preview.recordsToComplete[0].storage).toBe('64GB');
     expect(auditRowMissing(preview.recordsToComplete[0])).not.toContain('model');
+  });
+
+  it('snaps a seeded model to the admin catalog spelling when one matches', () => {
+    // The whole point of passing the catalog in: a final re-import should
+    // land names matching what the operator curated, not a second spelling
+    // that then has to be reconciled afterwards.
+    const split: Sale[] = [
+      sale({ id: 'AMAZON__O-CAT__1', marketplace: 'AMAZON', orderNumber: 'O-CAT', imei: '350000000000777', sku: 'SAMSUNG GALAXY A32 64GB' }),
+    ];
+    const preview = buildPreview(
+      { sales: split, perSheetCounts: { AMAZON: 1, BM: 0, EBAY: 0, ONBUY: 0, TEMU: 0 }, errors: [] },
+      [],
+      [],
+      [{ brand: 'Samsung', model: 'Galaxy A32' }] as any,
+    );
+    expect(preview.recordsToComplete[0].model).toBe('Galaxy A32');
+  });
+
+  it('re-separates a qualifier fused onto the model number by the marketplace export', () => {
+    // "S205G" is a real value seen in the client's data — the export dropped
+    // the space. Left alone it buckets separately from "Galaxy S20 5G".
+    const split: Sale[] = [
+      sale({ id: 'AMAZON__O-FUSED__1', marketplace: 'AMAZON', orderNumber: 'O-FUSED', imei: '350000000000888', sku: 'Samsung Galaxy S205G 128GB' }),
+    ];
+    const preview = buildPreview(
+      { sales: split, perSheetCounts: { AMAZON: 1, BM: 0, EBAY: 0, ONBUY: 0, TEMU: 0 }, errors: [] },
+      [],
+      [],
+    );
+    expect(preview.recordsToComplete[0].model).toBe('Galaxy S20');
+    expect(preview.recordsToComplete[0].storage).toBe('128GB');
   });
 
   it('still leaves Model blank for an unrecognised dash-coded SKU with no spaces (forces a deliberate pick)', () => {
