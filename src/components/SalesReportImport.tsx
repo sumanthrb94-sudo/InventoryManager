@@ -1626,6 +1626,19 @@ function PreviewPhase({
                           ))}
                         </span>
                       )}
+                      {/* Name the blocking fields. auditRowMissing already
+                          computes exactly this list on every row, but it was
+                          only ever used to tint the row pink — so a operator
+                          facing "1 still blocking" had to scroll a 14-column
+                          table hunting for which cell was the problem, and on
+                          a phone the offending column is off-screen entirely.
+                          Printed in the FIRST column so it is readable without
+                          scrolling at all. */}
+                      {rowIncomplete && (
+                        <span className="block text-[9px] font-mono font-bold text-rose-700 mt-1 whitespace-normal">
+                          Needs: {missing.join(', ')}
+                        </span>
+                      )}
                     </span>
                     {/* Model — searchable catalog picker, NOT free text.
                         The raw SKU is preserved on o.sku; the operator
