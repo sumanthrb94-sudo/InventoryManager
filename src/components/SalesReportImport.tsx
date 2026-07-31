@@ -329,12 +329,20 @@ export function buildPreview(
 
     const matched = unitsByImei.get(imeiKey);
     // Defaults: a matched unit's own buy-side data, falling back to the sale.
-    // Model NEVER defaults to the raw SKU — the operator picks a clean model
-    // from the catalog in the preview. If the SKU normalises to a known
-    // clean name we seed that (likely matches a catalog entry); otherwise
-    // leave it blank so the strict picker forces a deliberate selection.
-    // The raw SKU is still preserved separately on `sku` for provenance.
-    const model = (matched?.model || normalizeOperatorSku(s.sku || '') || '').trim();
+    // Model NEVER defaults to a raw OPERATOR CODE (e.g. "ASI-SG-A24-128") —
+    // the operator picks a clean model from the catalog in the preview. If
+    // the SKU normalises to a known clean name we seed that (likely matches
+    // a catalog entry). normalizeOperatorSku itself bails on anything
+    // containing whitespace, on the assumption that a spaced-out string is
+    // already a real name rather than a dash-delimited code — that's exactly
+    // what our own Sales Report export writes into the SKU column (e.g.
+    // "Samsung Galaxy A32 64GB"), so a downloaded-then-reimported file must
+    // use it as-is rather than leaving every row blank. Anything else (no
+    // match, no space) leaves it blank so the strict picker forces a
+    // deliberate selection. The raw SKU is still preserved separately on
+    // `sku` for provenance.
+    const rawSku = (s.sku || '').trim();
+    const model = (matched?.model || normalizeOperatorSku(rawSku) || (/\s/.test(rawSku) ? rawSku : '') || '').trim();
     const supplierName = (matched?.supplierName || s.supplierName || '').trim();
     const buyPrice = matched?.buyPrice ?? s.buyPrice ?? 0;
     const colour = matched?.colour && matched.colour !== 'Unknown' ? matched.colour : '';

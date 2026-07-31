@@ -213,6 +213,40 @@ describe('SalesReportImport preview — stale combined multi-IMEI cleanup', () =
     expect(row.existingUnitId).toBeUndefined();   // CREATE path
   });
 
+  it('pre-fills an orphan\'s Model from the SKU column when it is already a clean name (own-export round trip)', () => {
+    // The app's OWN Sales Report export writes the resolved friendly model
+    // name into the SKU column (e.g. "Samsung Galaxy A32 64GB"), not a
+    // dash-delimited operator code. normalizeOperatorSku bails on anything
+    // containing whitespace (real names carry spaces), so without a
+    // fallback to the raw SKU, every row of a downloaded-then-reimported
+    // file would come back with the Model field blank — exactly what broke
+    // a full wipe+reimport round trip.
+    const split: Sale[] = [
+      sale({ id: 'AMAZON__O-CLEAN__1', marketplace: 'AMAZON', orderNumber: 'O-CLEAN', imei: '350000000000444', sku: 'Samsung Galaxy A32 64GB' }),
+    ];
+    const preview = buildPreview(
+      { sales: split, perSheetCounts: { AMAZON: 1, BM: 0, EBAY: 0, ONBUY: 0, TEMU: 0 }, errors: [] },
+      [],
+      [],
+    );
+    expect(preview.recordsToComplete).toHaveLength(1);
+    expect(preview.recordsToComplete[0].model).toBe('Samsung Galaxy A32 64GB');
+    expect(auditRowMissing(preview.recordsToComplete[0])).not.toContain('model');
+  });
+
+  it('still leaves Model blank for an unrecognised dash-coded SKU with no spaces (forces a deliberate pick)', () => {
+    const split: Sale[] = [
+      sale({ id: 'AMAZON__O-CODE__1', marketplace: 'AMAZON', orderNumber: 'O-CODE', imei: '350000000000555', sku: 'XYZ-UNKNOWN-CODE' }),
+    ];
+    const preview = buildPreview(
+      { sales: split, perSheetCounts: { AMAZON: 1, BM: 0, EBAY: 0, ONBUY: 0, TEMU: 0 }, errors: [] },
+      [],
+      [],
+    );
+    expect(preview.recordsToComplete).toHaveLength(1);
+    expect(preview.recordsToComplete[0].model).toBe('');
+  });
+
   it('flags a matched-but-incomplete unit as a record to complete (PATCH path)', () => {
     // Unit exists for IMEI 111 but has BP=0 and a blank supplier — selling it
     // would write an audit-incomplete sold record, so it must be completed.
