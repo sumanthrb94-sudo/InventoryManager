@@ -39,7 +39,6 @@ import { AnimatePresence, motion } from 'motion/react';
 import { dbService } from '../lib/dbService';
 import { InventoryUnit, ReturnCategory, Sale } from '../types';
 import { useInventoryStore } from '../lib/inventoryStore';
-import { notificationService } from '../lib/notificationService';
 import { fmtDateForUser, useUserRegion } from '../lib/userLocale';
 import { getWarrantyStatus } from '../lib/warrantyUtils';
 import { auth, isAdmin } from '../lib/firebase';
@@ -2049,7 +2048,6 @@ function ProcessReturnModal({
       replacementUnit,
     });
     if (res.ok) {
-      notificationService.addNotification('return_processed', unit);
       onSaved();
       onClose();
     } else {
@@ -2358,7 +2356,6 @@ function ReadyToShipModal({
     setSaving(true);
     const res = await completeRepair({ unit, repairedAt: todayStr() });
     if (res.ok) {
-      notificationService.addNotification('unit_repaired', unit);
       onSaved();
       onClose();
     } else {

@@ -47,9 +47,6 @@ vi.mock('../../lib/dbService', async () => {
 });
 
 vi.mock('../../lib/inventoryEvents', () => ({ logInventoryEvent: vi.fn(async () => {}) }));
-vi.mock('../../lib/notificationService', () => ({
-  notificationService: { addNotification: vi.fn(), clearAll: vi.fn(), subscribe: vi.fn(() => () => {}) },
-}));
 
 import { all, clearStore, col, seed } from '../mocks/memoryDb';
 import { parseSalesWorkbook, type ParsedSales } from '../../lib/salesImport';

@@ -28,7 +28,6 @@ import { MARKETPLACES } from '../types';
 import { parseSalesWorkbook, type ParsedSales } from '../lib/salesImport';
 import { buildPostImportSyncPatches } from '../services/salesService';
 import { addSoldUnitFromSale, completeUnitBuyInfo, reconcileShsAfterFulfilment, decrementAccessoryStock, restoreUnitReturnFromImport } from '../services/inventoryService';
-import { registerSessionSoldUnits } from '../hooks/useRealTimeNotifications';
 import { normalizeOperatorSku } from '../lib/modelStorage';
 import { SIM_TYPE_OPTIONS } from '../lib/unitConstants';
 import { isValidImei, isAppleDevice } from '../lib/imeiValidation';
@@ -756,18 +755,7 @@ export default function SalesReportImport({ onClose }: Props) {
         .map(s => ({ ...(storedById.get(s.id) ?? {}), ...s }) as Sale);
       const { unitPatches, salePatches, shsFulfilled } = buildPostImportSyncPatches(allImported, units);
       if (unitPatches.length || salePatches.length) {
-        // Same dedup as the Inventory Report import's registerSessionCreatedUnits:
-        // the grouped "sold" notification in useRealTimeNotifications already
-        // batches everything from one render into one toast per model, but a
-        // large write lands across several store updates (one per Firestore-shim
-        // batch), so a several-hundred-unit flip can still spawn a handful of
-        // toasts PER BATCH — enough to pin the banner on screen for a while.
-        const unregisterSoldUnits = registerSessionSoldUnits(unitPatches.map(p => p.id), 10 * 60 * 1000);
-        try {
-          await dbService.bulkCreate([...unitPatches, ...salePatches]);
-        } finally {
-          setTimeout(() => unregisterSoldUnits(), 1500);
-        }
+        await dbService.bulkCreate([...unitPatches, ...salePatches]);
       }
 
       // SHS trail. Flipping an incoming unit to sold is only half the job:

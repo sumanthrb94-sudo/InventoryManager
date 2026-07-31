@@ -3,7 +3,6 @@ import { X, CheckCircle2, PackageCheck, Plus, Trash2, Lock } from 'lucide-react'
 import { motion, AnimatePresence } from 'motion/react';
 import { dbService } from '../lib/dbService';
 import { InventoryUnit, Supplier } from '../types';
-import { notificationService } from '../lib/notificationService';
 import { generateBatchId, formatBatchId } from '../lib/batchUtils';
 import { useInventoryStore } from '../lib/inventoryStore';
 import { isValidImei, isAppleDevice, IMEI_REQUIRED_MESSAGE } from '../lib/imeiValidation';
@@ -243,9 +242,6 @@ export default function ReceiveSHSModal({ unit, onClose }: Props) {
 
       // Add all new units
       await Promise.all(unitsToAdd.map(u => dbService.create('inventoryUnits', u.id, u)));
-
-      // Trigger batched notification
-      notificationService.addNotification('new_stock', unitsToAdd[0], undefined, quantity);
 
       setSaved(true);
       setTimeout(onClose, 900);

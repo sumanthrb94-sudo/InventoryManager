@@ -21,7 +21,6 @@ import {
 import { dbService } from '../lib/dbService';
 import type { InventoryUnit, Marketplace } from '../types';
 import { MARKETPLACES } from '../types';
-import { notificationService } from '../lib/notificationService';
 import { useIsAdmin } from '../lib/useIsAdmin';
 import { calcSaleFinancials, getMarketplaceFee } from '../lib/platforms';
 import {
@@ -177,9 +176,6 @@ export default function SellOrderModal({ unit, onClose, onSaved, isSHS = false }
         setSaving(false);
         return;
       }
-      const profit = breakdown?.grossProfit ?? 0;
-      const notificationType = profit < 0 ? 'loss_sell' : 'sold';
-      notificationService.addNotification(notificationType, unit, profit);
       if (onSaved) onSaved();
       onClose();
     } catch {

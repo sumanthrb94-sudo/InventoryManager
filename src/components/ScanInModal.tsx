@@ -5,7 +5,6 @@ import { dbService } from '../lib/dbService';
 import { DeviceCategory, InventoryUnit } from '../types';
 import { useInventoryStore } from '../lib/inventoryStore';
 import { useIsAdmin } from '../lib/useIsAdmin';
-import { notificationService } from '../lib/notificationService';
 import { GRADE_OPTIONS, STORAGE_OPTIONS } from '../lib/unitConstants';
 import { GradeSelect, StorageSelect, SimTypeSelect } from './FormSelects';
 import IMEIScanner from './IMEIScanner';
@@ -179,9 +178,6 @@ export default function ScanInModal({ onClose }: Props) {
       };
 
       await dbService.create('inventoryUnits', imei, newUnit);
-
-      // Trigger new_stock notification
-      notificationService.addNotification('new_stock', newUnit);
 
       setSaved(true);
       setTimeout(() => {

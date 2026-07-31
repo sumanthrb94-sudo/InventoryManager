@@ -3,7 +3,7 @@ import { useInventoryStore } from '../lib/inventoryStore';
 import {
   Bell, CheckCircle2, Star, Truck,
   ChevronDown, Clock, Search, ShoppingBag,
-  AlertCircle, Package, RefreshCw, ChevronUp, Trash2, Wrench,
+  ChevronUp, Trash2, Wrench,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { dbService } from '../lib/dbService';
@@ -11,7 +11,6 @@ import {
   InventoryUnit, OperationalFlag, ActiveListing,
   Sale, Marketplace, MARKETPLACES,
 } from '../types';
-import { notificationService, Notification } from '../lib/notificationService';
 import { marketplaceFromListingSite } from '../lib/platforms';
 import { recomputeSale } from '../lib/recomputeSale';
 import { mergeSalesWithSoldUnits } from '../lib/unifiedSales';
@@ -157,15 +156,13 @@ export default function Sales() {
   const region                              = useUserRegion();
   const isAdminUser                         = useIsAdmin();
   const [activeListings, setActiveListings] = useState<ActiveListing[]>([]);
-  const [recentNotifications, setRecentNotifications] = useState<Notification[]>([]);
   const [addSoldUnitSale, setAddSoldUnitSale] = useState<Sale | null>(null);
   /** Admin-only scoped wipe of the sold history on this page. */
   const [wipeOpen, setWipeOpen] = useState(false);
 
   useEffect(() => {
     const unsub3 = dbService.subscribeToCollection('activeListings', setActiveListings);
-    const unsub4 = notificationService.subscribe(setRecentNotifications);
-    return () => { unsub3(); unsub4(); };
+    return () => { unsub3(); };
   }, []);
 
   const [isTodayStockOpen,    setIsTodayStockOpen]    = useState(true);
@@ -443,57 +440,6 @@ export default function Sales() {
           )}
         </div>
       </div>
-
-      {/* Recent Activity Feed */}
-      {recentNotifications.length > 0 && (
-        <div className="bg-white border border-gray-200 rounded-3xl overflow-hidden shadow-sm">
-          <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between bg-gray-50/50">
-            <h3 className="text-[10px] font-bold uppercase tracking-widest text-gray-500">Recent Activity Feed</h3>
-            {recentNotifications.some(n => !n.read) && (
-              <button
-                onClick={() => notificationService.markAllAsRead()}
-                className="text-[9px] font-bold text-gray-400 hover:text-black uppercase tracking-widest transition-colors"
-              >
-                Mark All Read
-              </button>
-            )}
-          </div>
-          <div className="divide-y divide-gray-50 max-h-[240px] overflow-y-auto custom-scrollbar">
-            {recentNotifications.map(n => {
-              const typeConfig: Record<string, { bg: string; icon: any; label: string }> = {
-                sold: { bg: 'bg-emerald-100 text-emerald-600', icon: ShoppingBag, label: 'Sold' },
-                loss_sell: { bg: 'bg-red-100 text-red-600', icon: AlertCircle, label: 'Loss Sell' },
-                new_stock: { bg: 'bg-blue-100 text-blue-600', icon: Package, label: 'New Stock' },
-                return_processed: { bg: 'bg-amber-100 text-amber-600', icon: RefreshCw, label: 'Return' },
-                shs_received: { bg: 'bg-purple-100 text-purple-600', icon: Truck, label: 'SHS Received' },
-              };
-              const config = typeConfig[n.type] || typeConfig.new_stock;
-              const Icon = config.icon;
-              return (
-              <div key={n.id} className={`px-6 py-3 flex items-center gap-4 hover:bg-gray-50 transition-all ${!n.read ? 'bg-blue-50/30' : ''}`}>
-                <div className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${config.bg}`}>
-                  <Icon size={14} />
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center justify-between">
-                    <p className="text-xs font-bold text-black truncate">{n.model}</p>
-                    <span className="text-[8px] font-mono text-gray-400 uppercase">
-                      {new Date(n.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                    </span>
-                  </div>
-                  <p className="text-[10px] text-gray-500 truncate mt-0.5">{n.message}</p>
-                  {n.profitAmount !== undefined && (
-                    <p className={`text-[8px] font-bold mt-1 ${n.profitAmount >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
-                      {n.profitAmount >= 0 ? '✓ Profit' : '⚠ Loss'}: £{Math.abs(n.profitAmount).toFixed(2)}
-                    </p>
-                  )}
-                </div>
-              </div>
-            );
-            })}
-          </div>
-        </div>
-      )}
 
       {/* Quick KPIs for sales team */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">

@@ -4,7 +4,6 @@ import { motion, AnimatePresence } from 'motion/react';
 import { dbService } from '../lib/dbService';
 import { InventoryAggregate } from '../types';
 import { useInventoryStore } from '../lib/inventoryStore';
-import { notificationService } from '../lib/notificationService';
 import {
   isValidImei,
   isAppleDevice,
@@ -214,13 +213,6 @@ export default function ReceiveShsAggregateModal({ aggregate, onClose }: Props) 
         setSaving(false);
         return;
       }
-
-      notificationService.addNotification(
-        'shs_received',
-        { imei: scanned[0].imei, model: aggregate.model, colour: scanned[0].colour } as any,
-        undefined,
-        res.receivedCount,
-      );
 
       if (res.errors.length > 0) {
         const e = res.errors[0];

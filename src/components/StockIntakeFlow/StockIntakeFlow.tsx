@@ -3,10 +3,8 @@ import { X, Minus, Plus } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { InventoryUnit } from '../../types';
 import { dbService } from '../../lib/dbService';
-import { notificationService } from '../../lib/notificationService';
 import { useInventoryStore } from '../../lib/inventoryStore';
 import { generateBatchId } from '../../lib/batchUtils';
-import { registerSessionCreatedUnits } from '../../hooks/useRealTimeNotifications';
 import type { OCRResult } from '../../lib/ocr/ocrEngine';
 import IntakeTypeSelector from './IntakeTypeSelector';
 import ImageCaptureInput from './ImageCaptureInput';
@@ -334,23 +332,9 @@ export default function StockIntakeFlow({ onClose }: Props) {
         data: u,
       }));
 
-      // Register units as session-created BEFORE database write
-      // This ensures the deduplication set is populated before real-time notifications fire
-      registerSessionCreatedUnits(unitsForReview.map(u => u.id));
-
       await dbService.bulkCreate(entries, (done, total) => {
         setProcessingProgress({ done, total });
       });
-
-      // Trigger notification with batch count
-      if (unitsForReview.length > 0) {
-        notificationService.addNotification(
-          'new_stock',
-          unitsForReview[0],
-          undefined,
-          unitsForReview.length,
-        );
-      }
 
       setStage('complete');
     } catch (err) {

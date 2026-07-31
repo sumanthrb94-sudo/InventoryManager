@@ -4,12 +4,10 @@ import userEvent from '@testing-library/user-event';
 import ScanInModal from '../../components/ScanInModal';
 import { useInventoryStore } from '../../lib/inventoryStore';
 import { dbService } from '../../lib/dbService';
-import { notificationService } from '../../lib/notificationService';
 
 // Mock dependencies
 vi.mock('../../lib/dbService');
 vi.mock('../../lib/inventoryStore');
-vi.mock('../../lib/notificationService');
 vi.mock('../../components/IMEIScanner', () => ({
   default: ({ onScan, onError }: any) => (
     <div>
@@ -52,7 +50,6 @@ describe('ScanInModal', () => {
     });
     dbService.create = vi.fn().mockResolvedValue(undefined);
     dbService.imeiExists = vi.fn().mockResolvedValue(false);
-    notificationService.addNotification = vi.fn();
   });
 
   afterEach(() => {
@@ -437,36 +434,6 @@ describe('ScanInModal', () => {
           'inventoryUnits',
           '359108096724237',
           expect.objectContaining({ status: 'available' })
-        );
-      });
-    });
-
-    it('should trigger new_stock notification', async () => {
-      const user = userEvent.setup();
-      render(<ScanInModal onClose={mockOnClose} />);
-
-      const manualInput = screen.getByPlaceholderText('123456789012345');
-      await user.type(manualInput, '359108096724237');
-
-      const nextButton = screen.getByRole('button', { name: /Next/i });
-      await user.click(nextButton);
-
-      await waitFor(() => {
-        const modelInput = screen.getByPlaceholderText('e.g. Apple iPhone 14 128GB');
-        userEvent.type(modelInput, 'iPhone 14');
-
-        const priceInput = screen.getByPlaceholderText('0');
-        userEvent.type(priceInput, '450');
-
-        const blackButton = screen.getByRole('button', { name: 'Black' });
-        userEvent.click(blackButton);
-
-        const saveButton = screen.getByRole('button', { name: /Save to Stock/i });
-        userEvent.click(saveButton);
-
-        expect(notificationService.addNotification).toHaveBeenCalledWith(
-          'new_stock',
-          expect.any(Object)
         );
       });
     });

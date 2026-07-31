@@ -24,7 +24,6 @@ import React, { useState, useMemo, useCallback } from 'react';
 import { X, Plus, Trash2, CheckCircle2, PackagePlus, AlertCircle, Truck } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useInventoryStore } from '../lib/inventoryStore';
-import { notificationService } from '../lib/notificationService';
 import { logInventoryEvent } from '../lib/inventoryEvents';
 import { dbService } from '../lib/dbService';
 import { auth, isAdmin } from '../lib/firebase';
@@ -477,10 +476,6 @@ export default function AddStockManualModal({ onClose, initialMode = 'office' }:
               failures.push(`${r.imei.trim().toUpperCase() || '(no imei)'}: ${res.message ?? res.error}`);
               continue;
             }
-            notificationService.addNotification('new_stock', {
-              id: res.id!, imei: res.id!, model: r.model,
-              colour: r.colour, buyPrice: parseFloat(r.buyPrice) || 0,
-            } as any);
             const writtenKey = r.imei.replace(/[​-‍﻿ ]/g, '').trim().toUpperCase();
             if (writtenKey) justWritten.push(writtenKey);
             total++;
@@ -530,9 +525,6 @@ export default function AddStockManualModal({ onClose, initialMode = 'office' }:
               createdAt: new Date().toISOString(),
             };
             await dbService.create('inventoryUnits', id, newUnit);
-            if (i === validIdxs[0]) {
-              notificationService.addNotification('shs_received', newUnit);
-            }
             if (imei) justWritten.push(imei);
             total++;
           }

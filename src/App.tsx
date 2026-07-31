@@ -22,10 +22,6 @@ import { useUnseenNoticesCount } from './hooks/useUnseenNoticesCount';
 import ReportingPage from './components/ReportingPage';
 import AnalyticsPage from './components/AnalyticsPage';
 import Sales from './components/Sales';
-import { useRealTimeNotifications } from './hooks/useRealTimeNotifications';
-import NotificationToast from './components/NotificationToast';
-import NotificationBell from './components/NotificationBell';
-import { notificationService } from './lib/notificationService';
 import { subscribeToSyncStatus } from './lib/dbService';
 import { InventoryStoreProvider, useInventoryStore } from './lib/inventoryStore';
 import DataSeedPage from './components/DataSeedPage';
@@ -174,7 +170,6 @@ function AppShell({ user }: { user: User }) {
   // click dismiss, so it doesn't pull in a popover library for one menu.
   const [importMenuOpen, setImportMenuOpen]       = useState(false);
   const [isLoadMockDataOpen, setIsLoadMockDataOpen] = useState(false);
-  const [unreadCount, setUnreadCount]             = useState(0);
   const [syncConnected, setSyncConnected]         = useState(false);
   const [isAlertsExpanded, setIsAlertsExpanded]   = useState(false);
   /** Hamburger drawer for desktop nav. Mobile keeps its bottom-tab bar
@@ -190,9 +185,6 @@ function AppShell({ user }: { user: User }) {
     return () => document.removeEventListener('keydown', onKey);
   }, [sidebarOpen]);
 
-  useRealTimeNotifications();
-  useEffect(() => { notificationService.setUser(user.uid); }, [user.uid]);
-  useEffect(() => notificationService.subscribe(() => setUnreadCount(notificationService.getUnreadCount())), []);
   useEffect(() => subscribeToSyncStatus(setSyncConnected), []);
 
   const handleNavigate = (action: NavAction) => {
@@ -584,7 +576,6 @@ function AppShell({ user }: { user: User }) {
                 {syncConnected ? 'Live' : 'Offline'}
               </span>
             </div>
-            <NotificationBell unreadCount={unreadCount} />
             <button onClick={() => signOut()}
               className="md:hidden p-2 rounded-xl text-slate-400 hover:text-slate-900 hover:bg-slate-100 transition-all">
               <LogOut size={14} strokeWidth={2.5} />
@@ -733,7 +724,6 @@ function AppShell({ user }: { user: User }) {
         {isSalesImportOpen && <SalesReportImport onClose={() => setIsSalesImportOpen(false)} />}
         {isLoadMockDataOpen && <LoadMockDataModal onClose={() => setIsLoadMockDataOpen(false)} />}
       </AnimatePresence>
-      <NotificationToast />
     </div>
   );
 }

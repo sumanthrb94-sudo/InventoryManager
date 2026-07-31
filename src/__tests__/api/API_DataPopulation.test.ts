@@ -1,6 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { MockDB } from '../mocks/MockDB';
-import { notificationService } from '../../lib/notificationService';
 
 // Mock Audio for test environment
 class MockAudio {
@@ -17,7 +16,6 @@ describe('API Data Population & Integration Tests', () => {
   beforeEach(() => {
     mockDb = new MockDB();
     mockDb.loadSeedData();
-    notificationService.setUser('test-user-' + Date.now());
   });
 
   describe('Suppliers Component', () => {
@@ -336,56 +334,6 @@ describe('API Data Population & Integration Tests', () => {
         expect(unit.status).toBe('sold');
         expect(unit.model).toContain('iPhone');
       });
-    });
-  });
-
-  describe('Notification System Integration', () => {
-    it('should trigger notification when unit is sold', () => {
-      const available = mockDb.getUnits({ status: 'available', limit: 1 });
-      if (available.length > 0) {
-        const unit = available[0];
-        notificationService.addNotification('sold', {
-          id: unit.id,
-          model: unit.model,
-          imei: unit.imei,
-        } as any, 50);
-
-        const unreadCount = notificationService.getUnreadCount();
-        expect(unreadCount).toBeGreaterThan(0);
-      }
-    });
-
-    it('should trigger notification for loss sales', () => {
-      const available = mockDb.getUnits({ status: 'available', limit: 1 });
-      if (available.length > 0) {
-        const unit = available[0];
-        notificationService.addNotification('loss_sell', {
-          id: unit.id,
-          model: unit.model,
-          imei: unit.imei,
-        } as any, -50);
-
-        const unreadCount = notificationService.getUnreadCount();
-        expect(unreadCount).toBeGreaterThan(0);
-      }
-    });
-
-    it('should trigger notification for new stock', () => {
-      const available = mockDb.getUnits({ status: 'available', limit: 1 });
-      if (available.length > 0) {
-        const unit = available[0];
-        // new_stock is batched (500 ms setTimeout) when called without a
-        // count; pass count=1 to take the synchronous path so the unread
-        // tally reflects this call before the assertion runs.
-        notificationService.addNotification('new_stock', {
-          id: unit.id,
-          model: unit.model,
-          imei: unit.imei,
-        } as any, undefined, 1);
-
-        const unreadCount = notificationService.getUnreadCount();
-        expect(unreadCount).toBeGreaterThan(0);
-      }
     });
   });
 

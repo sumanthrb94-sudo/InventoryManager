@@ -11,12 +11,8 @@
  *
  * Each line still goes through recordSale()/recordAccessorySale() via
  * recordBulkSales() — the SAME calcSaleFinancials math and unit status-flip
- * logic as a single sale, just looped. This modal only owns the batch UI and
- * the notification-flood guard: a loop of N recordSale() calls flips N unit
- * docs across N separate store updates, so without registering the whole
- * batch up front the store-diffing "sold" hook in useRealTimeNotifications
- * would fire a toast per unit per batch. One completion summary here
- * replaces that entirely — no per-line toasts.
+ * logic as a single sale, just looped. This modal only owns the batch UI;
+ * one completion summary here replaces per-line reporting entirely.
  */
 import { useState, useMemo, type Key } from 'react';
 import {
@@ -27,7 +23,6 @@ import type { InventoryUnit, AccessoryStock, Marketplace } from '../types';
 import { useIsAdmin } from '../lib/useIsAdmin';
 import { calcSaleFinancials, getMarketplaceFee } from '../lib/platforms';
 import { recordBulkSales, type BulkSaleLine, type BulkSaleLineResult } from '../services/salesService';
-import { registerSessionSoldUnits } from '../hooks/useRealTimeNotifications';
 import {
   ACTIVE_PLATFORMS, PLATFORM_META, BM_PAYMENT_MODES, POSTAGE_PRESETS, SalePLBreakdown,
 } from './SellOrderModal';
@@ -173,19 +168,12 @@ export default function BulkSaleModal({ units, shsUnits, accessoryStock, supplie
           postageVatExempt: l.postageVatExempt,
         });
 
-    // Register every unit this batch is about to flip to 'sold' BEFORE the
-    // write loop starts, so the store-diffing "sold" notification hook skips
-    // them entirely — see the header comment for why per-line toasts would
-    // otherwise flood in across the batch's several store updates.
-    const unitIds = lines.filter(l => l.kind === 'unit').map(l => (l as any).unit.id as string);
-    const unregister = registerSessionSoldUnits(unitIds, 10 * 60 * 1000);
     try {
       const result = await recordBulkSales(batch);
       setSummary(result.results);
       if (result.failed === 0 && onSaved) onSaved();
     } finally {
       setSaving(false);
-      setTimeout(() => unregister(), 1500);
     }
   };
 

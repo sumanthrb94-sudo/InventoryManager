@@ -62,7 +62,6 @@ vi.mock('../../lib/dbService', () => {
 
 // Imports AFTER the mock is registered.
 import { dbService } from '../../lib/dbService';
-import { notificationService } from '../../lib/notificationService';
 import { InventoryUnit } from '../../types';
 
 /**
@@ -181,29 +180,6 @@ describe('E2E Workflows - Complete User Journeys', () => {
       expect(soldUnit.postageCost).toBe(8);
     });
 
-    it('should trigger sold notification with correct profit', async () => {
-      const notifSpy = vi.spyOn(notificationService, 'addNotification');
-
-      // Complete sale
-      await dbService.update('inventoryUnits', shsId, {
-        status: 'sold',
-        salePrice: 520,
-        salePlatform: 'eBay',
-        saleOrderId: 'ORD-12345',
-        saleDate: '2026-05-07',
-        postageCost: 8,
-      });
-
-      // Calculate expected profit: 520 - 450 (BP) - 12.54 (fee) - 8 (postage) = 49.46
-      const expectedProfit = 520 - 450 - 12.54 - 8;
-
-      notificationService.addNotification('sold', shsUnit, expectedProfit);
-
-      expect(notifSpy).toHaveBeenCalled();
-      const call = notifSpy.mock.calls[0];
-      expect(call[0]).toBe('sold');
-      expect(Math.abs(call[2] as number - expectedProfit)).toBeLessThan(0.01);
-    });
   });
 
   // ─── WORKFLOW 2: Batch Import → Sell Multiple Units ───────────────────────
@@ -489,14 +465,6 @@ describe('E2E Workflows - Complete User Journeys', () => {
       expect(returned.returnType).toBe('return_to_supplier');
     });
 
-    it('should trigger return notification with correct type', async () => {
-      const notifSpy = vi.spyOn(notificationService, 'addNotification');
-
-      const unit = await dbService.read('inventoryUnits', soldUnitId);
-      notificationService.addNotification('return_processed', unit);
-
-      expect(notifSpy).toHaveBeenCalledWith('return_processed', expect.any(Object));
-    });
   });
 
   // ─── WORKFLOW 5: Dashboard Data Accuracy & Real-time Updates ───────────────

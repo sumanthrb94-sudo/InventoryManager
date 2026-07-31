@@ -36,7 +36,6 @@ import { normaliseGrade, normaliseSimType } from '../lib/unitConstants';
 import { parseStockWorkbook, type ParsedRow, type ParsedAccessoryRow } from '../lib/inventoryImportParse';
 import { isOfficeStockUnit, isShsUnit } from '../lib/wipeScopes';
 import { restoreAccessoryStockFromImport } from '../services/inventoryService';
-import { registerSessionCreatedUnits } from '../hooks/useRealTimeNotifications';
 import TemplateDownload, { INVENTORY_TEMPLATES } from './TemplateDownload';
 import { auth } from '../lib/firebase';
 
@@ -386,16 +385,6 @@ export default function InventoryReportImport({ onClose }: Props) {
       if (k) justWritten.push(k);
     }
 
-    // Register BEFORE the write so useRealTimeNotifications' dedup set is
-    // populated before the store update fires — otherwise every row dated
-    // today (routine for a same-day bulk import) spawns its own toast,
-    // flooding the queue and pinning a click-blocking banner on screen for
-    // minutes (2s auto-dismiss × N units) until it drains. The 10-minute
-    // backstop covers even a very large file; unregisterSessionUnits() below
-    // clears it precisely once this write actually settles.
-    const unregisterSessionUnits = unitEntries.length > 0
-      ? registerSessionCreatedUnits(unitEntries.map(e => e.id), 10 * 60 * 1000)
-      : undefined;
     try {
       if (supplierEntries.length > 0) await dbService.bulkCreate(supplierEntries);
       if (unitEntries.length > 0) await dbService.bulkCreate(unitEntries, (done, total) => setProgress({ done, total }));
@@ -427,12 +416,6 @@ export default function InventoryReportImport({ onClose }: Props) {
     } catch (e: any) {
       setError(e?.message || 'Import failed during write');
       setPhase('preview');
-    } finally {
-      // bulkCreate's promise resolving doesn't guarantee the store's own
-      // listener has processed the final batch yet — a short buffer avoids
-      // clearing the dedup set a tick too early and letting the last few
-      // units slip through as individual toasts.
-      setTimeout(() => unregisterSessionUnits?.(), 1500);
     }
   };
 
