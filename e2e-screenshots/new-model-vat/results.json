@@ -1,0 +1,136 @@
+{
+  "passed": 26,
+  "total": 26,
+  "results": [
+    {
+      "name": "Wipe leaves an empty catalog to start from",
+      "ok": true,
+      "detail": "0 models"
+    },
+    {
+      "name": "Employee persona active — no Admin section in the nav",
+      "ok": true,
+      "detail": "MOBILEPHONEMARKET / INVENTORY MANAGER / NOTICES / STOCK INTAKE / INVENTORY / RETURNS / STO"
+    },
+    {
+      "name": "Employee gets NO \"+ add to catalog\" pill",
+      "ok": true,
+      "detail": "0 pills"
+    },
+    {
+      "name": "Employee is told to ask an admin",
+      "ok": true,
+      "detail": "hint shown in the picker"
+    },
+    {
+      "name": "Save stays at 0 units — nothing can be booked in",
+      "ok": true,
+      "detail": "Save 0  units"
+    },
+    {
+      "name": "No unit written while blocked",
+      "ok": true,
+      "detail": "0 units"
+    },
+    {
+      "name": "Model written to the catalog",
+      "ok": true,
+      "detail": "Samsung Galaxy S24 Ultra"
+    },
+    {
+      "name": "Employee can now pick the model after a refresh",
+      "ok": true,
+      "detail": "\"Galaxy S24 Ultra\" offered by the picker"
+    },
+    {
+      "name": "Save now reports 1 ready unit",
+      "ok": true,
+      "detail": "Save 1  unit"
+    },
+    {
+      "name": "Employee booked the unit in against the new model",
+      "ok": true,
+      "detail": "Galaxy S24 Ultra · 350222000000017"
+    },
+    {
+      "name": "Sale recorded",
+      "ok": true,
+      "detail": "AMAZON AMZ-VAT-9001 £899.99"
+    },
+    {
+      "name": "Stored SP − BP matches",
+      "ok": true,
+      "detail": "279.99 vs 279.99"
+    },
+    {
+      "name": "Stored Marginal Tax matches",
+      "ok": true,
+      "detail": "46.67 vs 46.67"
+    },
+    {
+      "name": "Stored Commission matches (7% of SP)",
+      "ok": true,
+      "detail": "63 vs 63"
+    },
+    {
+      "name": "Stored Postage VAT matches (20% of postage)",
+      "ok": true,
+      "detail": "1.26 vs 1.26"
+    },
+    {
+      "name": "Stored GP matches the full VAT-inclusive chain",
+      "ok": true,
+      "detail": "147.64 vs 147.64"
+    },
+    {
+      "name": "Stored GP% matches (GP / BP for Amazon)",
+      "ok": true,
+      "detail": "23.81 vs 23.81"
+    },
+    {
+      "name": "FINDING: the VAT breakdown is derived, never persisted on the Sale",
+      "ok": true,
+      "detail": "absent on the doc: commissionVat, dsf, dsfVat, totalVat, totalVatNtp, accessoryFee"
+    },
+    {
+      "name": "Amazon tab has the full VAT column set",
+      "ok": true,
+      "detail": "C. VAT, DSF, DSF. VAT, P. VAT, Total VAT, Total VAT NTP"
+    },
+    {
+      "name": "C. VAT = Commission × 20%",
+      "ok": true,
+      "detail": "K2*20%"
+    },
+    {
+      "name": "DSF = Commission × 2%",
+      "ok": true,
+      "detail": "K2*2%"
+    },
+    {
+      "name": "DSF VAT = DSF × 20%",
+      "ok": true,
+      "detail": "M2*20%"
+    },
+    {
+      "name": "P. VAT = Postage × 20%",
+      "ok": true,
+      "detail": "O2*20%"
+    },
+    {
+      "name": "Total VAT = C.VAT + DSF VAT + P.VAT",
+      "ok": true,
+      "detail": "L2+N2+P2"
+    },
+    {
+      "name": "Total VAT NTP = Marginal Tax − Total VAT",
+      "ok": true,
+      "detail": "J2-R2"
+    },
+    {
+      "name": "Report carries the resolved model name",
+      "ok": true,
+      "detail": "Galaxy S24 Ultra"
+    }
+  ]
+}

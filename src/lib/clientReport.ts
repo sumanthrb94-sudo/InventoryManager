@@ -913,6 +913,20 @@ export async function buildSalesWorkbookBuffer(input: BuildSalesWorkbookInput): 
         const colourIdx = headerList.indexOf('Colour') + 1;
         if (storageIdx > 0) sheet.getRow(rowNumber).getCell(storageIdx).value = unitForAttrs?.storage ?? '';
         if (colourIdx > 0) sheet.getRow(rowNumber).getCell(colourIdx).value = unitForAttrs?.colour ?? '';
+
+        // Model, same fallback chain as Supplier above. resolvedSaleModel()
+        // is pure — it only sees `sale.model || sale.sku` — and an IN-APP
+        // sale has neither: recordSale copies the SKU off the unit, and a
+        // hand-added unit never gets one. So the Model column came out blank
+        // for every sale booked through the app, which is precisely the
+        // column an auditor reads to see WHAT sold. The linked unit knows,
+        // so ask it.
+        const modelIdx = headerList.indexOf('Model') + 1;
+        if (modelIdx > 0) {
+          const cellNow = sheet.getRow(rowNumber).getCell(modelIdx);
+          const current = String(cellNow.value ?? '').trim();
+          if (!current && unitForAttrs?.model) cellNow.value = unitForAttrs.model;
+        }
       }
       // Same red-fill visual signal as the ALL sheet — applied across
       // every cell in the row so the highlight covers the full width
