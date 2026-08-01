@@ -32,6 +32,7 @@ import { useInventoryStore } from '../lib/inventoryStore';
 import { findGradeCasingDrift, fixGradeCasing } from '../lib/migrations/normaliseGradeCasing';
 import { findModelCatalogDrift, fixModelCatalog } from '../lib/migrations/normaliseModelCatalog';
 import { findMangledUnitModels, fixMangledUnitModels } from '../lib/migrations/repairMangledUnitModels';
+import { findUnitAttributeBackfill, applyUnitAttributeBackfill } from '../lib/migrations/backfillUnitAttributesFromSku';
 import { normalizeBucketModel, normalizeOperatorSku } from '../lib/modelStorage';
 
 interface ModelDoc {
@@ -399,6 +400,7 @@ export default function ConfigurationPanel() {
       <DataHealthPanel />
       <ModelCatalogRepairPanel />
       <MangledUnitModelPanel />
+      <UnitAttributeBackfillPanel />
       <GradeCasingPanel />
       <SkuReconciliation />
 
@@ -453,6 +455,106 @@ export default function ConfigurationPanel() {
  * Only units with a recognised model code are rewritten; the rest are listed
  * for the operator to name by hand rather than guessed at.
  */
+/**
+ * Backfill storage / colour / model from each unit's stored SKU. The decoder
+ * runs at import time for NEW units; this reaches the ones already in the
+ * database — which is the entire Orphans list, since a re-import takes the
+ * matched path for an IMEI already in inventory and never revisits them.
+ */
+function UnitAttributeBackfillPanel() {
+  const { units } = useInventoryStore();
+  const [running, setRunning] = useState(false);
+  const [done, setDone] = useState<{ updated: number } | null>(null);
+  const [failed, setFailed] = useState('');
+
+  const drift = useMemo(
+    () => findUnitAttributeBackfill((units as any[]).map(u => ({
+      id: u.id, sku: u.sku, model: u.model, storage: u.storage, colour: u.colour, status: u.status,
+    }))),
+    [units],
+  );
+
+  const run = async () => {
+    setRunning(true);
+    setFailed('');
+    try {
+      setDone(await applyUnitAttributeBackfill(drift, dbService));
+    } catch (e: any) {
+      setFailed(e?.message || 'Backfill failed');
+    } finally {
+      setRunning(false);
+    }
+  };
+
+  if (drift.patches.length === 0 && done === null) return null;
+
+  return (
+    <div className="bg-white border border-slate-200 rounded-3xl shadow-sm overflow-hidden">
+      <div className="flex items-center gap-3 px-5 py-4 border-b border-slate-100">
+        <div className="w-8 h-8 rounded-xl bg-teal-100 text-teal-700 flex items-center justify-center">
+          <Wand2 size={14} />
+        </div>
+        <div className="min-w-0">
+          <h3 className="text-[13px] font-bold tracking-tight">Sold units missing storage / colour</h3>
+          <p className="text-[10px] font-mono text-slate-400">
+            Reads what the SKU already encodes — clears the Orphans list without retyping
+          </p>
+        </div>
+      </div>
+
+      <div className="px-5 py-4 space-y-3">
+        {done !== null ? (
+          <p className="inline-flex items-center gap-1.5 text-[11px] font-mono text-emerald-700">
+            <CheckCircle2 size={12} /> {done.updated} unit{done.updated === 1 ? '' : 's'} backfilled
+          </p>
+        ) : (
+          <>
+            <div className="space-y-1 max-h-64 overflow-y-auto">
+              {drift.patches.slice(0, 12).map(p => (
+                <div key={p.id} className="flex items-center justify-between gap-3 bg-slate-50 rounded-lg px-3 py-1.5">
+                  <span className="text-[11px] font-mono text-slate-700 truncate">
+                    “{p.sku}” → {p.after.model ? <strong>{p.after.model}</strong> : p.before.model || '—'}
+                    {p.after.storage && ` · ${p.after.storage}`}
+                    {p.after.colour && ` · ${p.after.colour}`}
+                  </span>
+                </div>
+              ))}
+              {drift.patches.length > 12 && (
+                <p className="text-[10px] font-mono text-slate-400 px-3">
+                  + {drift.patches.length - 12} more…
+                </p>
+              )}
+            </div>
+
+            {drift.undecodable.length > 0 && (
+              <p className="text-[10px] font-mono text-amber-700 leading-relaxed">
+                {drift.undecodable.length} unit{drift.undecodable.length === 1 ? ' has' : 's have'} a SKU the decoder
+                can\'t read a model from ({drift.undecodable.map(u => u.sku).join(', ')}) — they still get the colour
+                placeholder, but name them by hand if the model matters.
+              </p>
+            )}
+
+            <p className="text-[10px] font-mono text-slate-500 leading-relaxed">
+              Never overwrites real data: a human-readable model, an existing storage, or an operator-chosen colour
+              all win. Only blanks and import defaults are filled.
+            </p>
+
+            {failed && <p className="text-[11px] font-mono text-rose-600">{failed}</p>}
+
+            <button
+              onClick={run}
+              disabled={running}
+              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-teal-600 text-white text-[10px] font-bold uppercase tracking-widest hover:bg-teal-700 disabled:opacity-50"
+            >
+              <Wand2 size={11} /> {running ? 'Backfilling…' : `Backfill ${drift.patches.length} unit${drift.patches.length === 1 ? '' : 's'}`}
+            </button>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function MangledUnitModelPanel() {
   const { units } = useInventoryStore();
   const [running, setRunning] = useState(false);

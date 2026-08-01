@@ -71,7 +71,18 @@ export function deriveUnitFields(item: any): any {
     rawModel,
     brand: cleanBrand,
     storage: cleanStorage,
-    sku: expectedSku || item.sku,
+    // The STORED sku wins. This used to read `expectedSku || item.sku`,
+    // which overwrote the operator's real SKU with one synthesised from
+    // brand + model + storage — so a unit whose model was still a raw code
+    // had its provenance destroyed at read time: "AW SE 3-40-MN" (an Apple
+    // Watch SE 3, 40mm, Midnight — the ONLY record of what the marketplace
+    // actually sold) was replaced by the model fragment "3-40-MN".
+    //
+    // That is exactly backwards. The synthesised string is a display
+    // convenience; the stored one is the source data every decoder needs,
+    // and it is the only place storage / colour survive for a unit created
+    // from a sale. Synthesise only to fill a genuine blank.
+    sku: item.sku || expectedSku,
   };
 }
 
