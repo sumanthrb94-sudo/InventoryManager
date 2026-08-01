@@ -1,0 +1,356 @@
+{
+  "passed": 70,
+  "total": 70,
+  "results": [
+    {
+      "name": "5 units booked in, one per marketplace",
+      "ok": true,
+      "detail": "5 units"
+    },
+    {
+      "name": "Marked sold · AMAZON · £499.99",
+      "ok": true,
+      "detail": "AMZ-MS-1001"
+    },
+    {
+      "name": "Marked sold · BM · £449.99",
+      "ok": true,
+      "detail": "BM-MS-2001"
+    },
+    {
+      "name": "Marked sold · EBAY · £429.99",
+      "ok": true,
+      "detail": "EB-MS-3001"
+    },
+    {
+      "name": "Marked sold · ONBUY · £399.99",
+      "ok": true,
+      "detail": "OB-MS-4001"
+    },
+    {
+      "name": "Marked sold · TEMU · £379.99",
+      "ok": true,
+      "detail": "TM-MS-5001"
+    },
+    {
+      "name": "5 sale docs written",
+      "ok": true,
+      "detail": "5"
+    },
+    {
+      "name": "AMAZON · spMinusBp",
+      "ok": true,
+      "detail": "149.99 vs 149.99"
+    },
+    {
+      "name": "AMAZON · marginalTax",
+      "ok": true,
+      "detail": "25 vs 25"
+    },
+    {
+      "name": "AMAZON · commission",
+      "ok": true,
+      "detail": "35 vs 35"
+    },
+    {
+      "name": "AMAZON · postageVat",
+      "ok": true,
+      "detail": "1.26 vs 1.26"
+    },
+    {
+      "name": "AMAZON · grossProfit",
+      "ok": true,
+      "detail": "73.59 vs 73.59"
+    },
+    {
+      "name": "AMAZON · gpPercent",
+      "ok": true,
+      "detail": "21.03 vs 21.03"
+    },
+    {
+      "name": "AMAZON · VAT breakdown stays derived, not persisted",
+      "ok": true,
+      "detail": "none on the doc, as designed"
+    },
+    {
+      "name": "BM · spMinusBp",
+      "ok": true,
+      "detail": "149.99 vs 149.99"
+    },
+    {
+      "name": "BM · marginalTax",
+      "ok": true,
+      "detail": "25 vs 25"
+    },
+    {
+      "name": "BM · commission",
+      "ok": true,
+      "detail": "49.5 vs 49.5"
+    },
+    {
+      "name": "BM · postageVat",
+      "ok": true,
+      "detail": "1.26 vs 1.26"
+    },
+    {
+      "name": "BM · grossProfit",
+      "ok": true,
+      "detail": "56.94 vs 56.94"
+    },
+    {
+      "name": "BM · gpPercent",
+      "ok": true,
+      "detail": "18.98 vs 18.98"
+    },
+    {
+      "name": "BM · VAT breakdown stays derived, not persisted",
+      "ok": true,
+      "detail": "none on the doc, as designed"
+    },
+    {
+      "name": "EBAY · spMinusBp",
+      "ok": true,
+      "detail": "149.99 vs 149.99"
+    },
+    {
+      "name": "EBAY · marginalTax",
+      "ok": true,
+      "detail": "25 vs 25"
+    },
+    {
+      "name": "EBAY · commission",
+      "ok": true,
+      "detail": "26.7 vs 26.7"
+    },
+    {
+      "name": "EBAY · rof",
+      "ok": true,
+      "detail": "1.5 vs 1.5"
+    },
+    {
+      "name": "EBAY · fvf",
+      "ok": true,
+      "detail": "0.4 vs 0.4"
+    },
+    {
+      "name": "EBAY · twentyPercent",
+      "ok": true,
+      "detail": "5.72 vs 5.72"
+    },
+    {
+      "name": "EBAY · totalCom",
+      "ok": true,
+      "detail": "34.33 vs 34.33"
+    },
+    {
+      "name": "EBAY · vat20",
+      "ok": true,
+      "detail": "5.72 vs 5.72"
+    },
+    {
+      "name": "EBAY · postageVat",
+      "ok": true,
+      "detail": "0 vs 0"
+    },
+    {
+      "name": "EBAY · grossProfit",
+      "ok": true,
+      "detail": "63.86 vs 63.86"
+    },
+    {
+      "name": "EBAY · gpPercent",
+      "ok": true,
+      "detail": "14.85 vs 14.85"
+    },
+    {
+      "name": "EBAY · VAT breakdown stays derived, not persisted",
+      "ok": true,
+      "detail": "none on the doc, as designed"
+    },
+    {
+      "name": "ONBUY · spMinusBp",
+      "ok": true,
+      "detail": "139.99 vs 139.99"
+    },
+    {
+      "name": "ONBUY · marginalTax",
+      "ok": true,
+      "detail": "23.34 vs 23.34"
+    },
+    {
+      "name": "ONBUY · commission",
+      "ok": true,
+      "detail": "28 vs 28"
+    },
+    {
+      "name": "ONBUY · vat20",
+      "ok": true,
+      "detail": "5.6 vs 5.6"
+    },
+    {
+      "name": "ONBUY · marVat",
+      "ok": true,
+      "detail": "23.34 vs 23.34"
+    },
+    {
+      "name": "ONBUY · postageVat",
+      "ok": true,
+      "detail": "1.26 vs 1.26"
+    },
+    {
+      "name": "ONBUY · grossProfit",
+      "ok": true,
+      "detail": "74.49 vs 74.49"
+    },
+    {
+      "name": "ONBUY · gpPercent",
+      "ok": true,
+      "detail": "28.65 vs 28.65"
+    },
+    {
+      "name": "ONBUY · VAT breakdown stays derived, not persisted",
+      "ok": true,
+      "detail": "none on the doc, as designed"
+    },
+    {
+      "name": "TEMU · spMinusBp",
+      "ok": true,
+      "detail": "139.99 vs 139.99"
+    },
+    {
+      "name": "TEMU · marginalTax",
+      "ok": true,
+      "detail": "23.34 vs 23.34"
+    },
+    {
+      "name": "TEMU · commission",
+      "ok": true,
+      "detail": "26.6 vs 26.6"
+    },
+    {
+      "name": "TEMU · postageVat",
+      "ok": true,
+      "detail": "1.26 vs 1.26"
+    },
+    {
+      "name": "TEMU · grossProfit",
+      "ok": true,
+      "detail": "81.49 vs 81.49"
+    },
+    {
+      "name": "TEMU · gpPercent",
+      "ok": true,
+      "detail": "33.96 vs 33.96"
+    },
+    {
+      "name": "TEMU · VAT breakdown stays derived, not persisted",
+      "ok": true,
+      "detail": "none on the doc, as designed"
+    },
+    {
+      "name": "eBay GP% divides by SP, not BP",
+      "ok": true,
+      "detail": "14.85% = GP/SP (GP/BP would be 22.81%)"
+    },
+    {
+      "name": "AMAZON report · Marginal Tax",
+      "ok": true,
+      "detail": "I2*16.67%"
+    },
+    {
+      "name": "AMAZON report · Commission",
+      "ok": true,
+      "detail": "H2/100*7"
+    },
+    {
+      "name": "AMAZON report · C. VAT",
+      "ok": true,
+      "detail": "K2*20%"
+    },
+    {
+      "name": "AMAZON report · DSF",
+      "ok": true,
+      "detail": "K2*2%"
+    },
+    {
+      "name": "AMAZON report · Total VAT",
+      "ok": true,
+      "detail": "L2+N2+P2"
+    },
+    {
+      "name": "BM report · Marginal Tax",
+      "ok": true,
+      "detail": "I2*16.67%"
+    },
+    {
+      "name": "BM report · Commission",
+      "ok": true,
+      "detail": "H2/100*11"
+    },
+    {
+      "name": "BM report · P. VAT",
+      "ok": true,
+      "detail": "M2*20%"
+    },
+    {
+      "name": "EBAY report · Marginal Tax",
+      "ok": true,
+      "detail": "I2*16.67%"
+    },
+    {
+      "name": "EBAY report · Commission",
+      "ok": true,
+      "detail": "(H2*6.9%)-(H2*6.9%)*10%"
+    },
+    {
+      "name": "EBAY report · ROF",
+      "ok": true,
+      "detail": "H2*0.35%"
+    },
+    {
+      "name": "EBAY report · Marketing",
+      "ok": true,
+      "detail": "H2*5%"
+    },
+    {
+      "name": "EBAY report · Total VAT",
+      "ok": true,
+      "detail": "N2+Q2+S2"
+    },
+    {
+      "name": "ONBUY report · Marginal Tax",
+      "ok": true,
+      "detail": "H2*16.67%"
+    },
+    {
+      "name": "ONBUY report · Commission",
+      "ok": true,
+      "detail": "G2*7%"
+    },
+    {
+      "name": "ONBUY report · VAT 20%",
+      "ok": true,
+      "detail": "J2*20%"
+    },
+    {
+      "name": "ONBUY report · Total VAT",
+      "ok": true,
+      "detail": "K2+M2"
+    },
+    {
+      "name": "TEMU report · Marginal Tax",
+      "ok": true,
+      "detail": "I2*16.67%"
+    },
+    {
+      "name": "TEMU report · Total VAT",
+      "ok": true,
+      "detail": "N2"
+    },
+    {
+      "name": "BM has no Total VAT column — P. VAT is its only VAT line",
+      "ok": true,
+      "detail": "BM tab"
+    }
+  ]
+}
