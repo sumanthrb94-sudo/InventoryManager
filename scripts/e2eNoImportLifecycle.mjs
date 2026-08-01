@@ -515,7 +515,7 @@ async function processReturn(page, { imei, returnType, reason, tag, outcome, rep
  * AccessoryStockActionModal rather than the unit return journey: there is
  * no QC/CRM two-step because there is no serialised unit to inspect.
  */
-async function returnAccessory(page, { sku, outcome, reason }) {
+async function returnAccessory(page, { sku, reason }) {
   await gotoSellTab(page);
   await page.waitForTimeout(600);
   // Scroll the accessory panel into view so its row actions are clickable.
@@ -541,9 +541,14 @@ async function returnAccessory(page, { sku, outcome, reason }) {
     await dismissModals(page);
     return { ok: false, why: `return modal opened for the wrong SKU (wanted ${sku})` };
   }
-  await m.getByRole('button', { name: new RegExp(`^${outcome}$`, 'i') }).first()
-    .click({ timeout: 5000 }).catch(() => {});
-  await page.waitForTimeout(300);
+  // Accessories are refund-only, so there is no outcome picker to drive —
+  // assert the other two are genuinely absent rather than clicking through.
+  // A Replacement here would bill 3 shipping legs of postage loss against a
+  // pound-value item on the Sales Report.
+  const outcomeChoices = await m.getByRole('button', { name: /^(Replacement|Repair)$/i }).count();
+  record('Accessory return offers no Replacement / Repair outcome',
+    outcomeChoices === 0, `${outcomeChoices} disallowed outcome buttons present`);
+  await page.waitForTimeout(200);
   await m.locator('input[placeholder*="customer changed their mind" i]').first().fill(reason).catch(() => {});
   await page.waitForTimeout(400);
   await shot(page, 'accret-step3-filled');
@@ -852,7 +857,7 @@ async function run() {
   console.log('\n── Accessory return ──');
   const accPoolBeforeReturn = docsOf(await dumpStore(page), 'accessoryStock').find(p => p.sku === 'USB-C-20W');
   try {
-    const r = await returnAccessory(page, { sku: 'USB-C-20W', outcome: 'Refund', reason: 'Wrong cable length ordered' });
+    const r = await returnAccessory(page, { sku: 'USB-C-20W', reason: 'Wrong cable length ordered' });
     record('Accessory return processed from the Accessory Stock panel', r.ok, r.why || '');
   } catch (e) { record('Accessory return processed from the Accessory Stock panel', false, String(e).slice(0, 140)); await dismissModals(page); }
 

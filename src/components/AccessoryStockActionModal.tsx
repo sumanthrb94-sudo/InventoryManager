@@ -49,7 +49,9 @@ export default function AccessoryStockActionModal({ accessory, initialMode = 'ad
   const [deltaSign, setDeltaSign] = useState<'add' | 'remove'>('remove');
   const [reason, setReason] = useState('');
   const [notes, setNotes] = useState('');
-  const [outcome, setOutcome] = useState<Outcome>('refund');
+  // Not state any more — accessories are refund-only (see the Outcome block
+  // in the return form below for why the other two were removed).
+  const outcome: Outcome = 'refund';
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [done, setDone] = useState<{ quantity: number } | null>(null);
@@ -167,18 +169,26 @@ export default function AccessoryStockActionModal({ accessory, initialMode = 'ad
                         ))}
                       </select>
                     </div>
+                    {/* Outcome is fixed to Refund for accessories.
+                        Operationally a returned accessory is only ever
+                        refunded — a £3.50 charger is not repaired, and it is
+                        not replaced as a distinct shipment. Offering the
+                        other two wasn't cosmetic: the Sales Report bills
+                        postage loss as `voidOutcome === 'replacement' ? 3 : 2`
+                        shipping legs, so one mis-click charged three legs of
+                        loss against a pound-value item, and Repair filed it
+                        under the repair route in the Returns Summary.
+                        The service layer still ACCEPTS all three so existing
+                        rows and the master-file import path are unaffected;
+                        this narrows only what an operator can choose. */}
                     <div>
                       <label className="text-[9px] font-bold uppercase tracking-widest text-slate-500 block mb-1">Outcome</label>
-                      <div className="inline-flex border border-slate-200 rounded-lg overflow-hidden w-full">
-                        {(['refund', 'replacement', 'repair'] as Outcome[]).map(o => (
-                          <button
-                            key={o} type="button" onClick={() => setOutcome(o)}
-                            className={`flex-1 px-3 py-2 text-[10px] font-bold uppercase tracking-widest ${outcome === o ? 'bg-emerald-600 text-white' : 'bg-white text-slate-500'}`}
-                          >
-                            {OUTCOME_META[o].label}
-                          </button>
-                        ))}
+                      <div className="w-full px-3 py-2 rounded-lg bg-emerald-600 text-white text-[10px] font-bold uppercase tracking-widest text-center">
+                        {OUTCOME_META.refund.label}
                       </div>
+                      <p className="mt-1 text-[9px] font-mono text-slate-400">
+                        Accessories are refund-only · 2 shipping legs
+                      </p>
                     </div>
                     <div>
                       <label className="text-[9px] font-bold uppercase tracking-widest text-slate-500 block mb-1">Reason (shown on the Sales Report)</label>

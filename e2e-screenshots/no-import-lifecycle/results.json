@@ -1,6 +1,6 @@
 {
-  "passed": 66,
-  "total": 66,
+  "passed": 67,
+  "total": 67,
   "results": [
     {
       "name": "Wipe clears units / sales / accessories / suppliers / aggregates",
@@ -221,6 +221,11 @@
       "name": "Returned unit links to the replacement that shipped in its place",
       "ok": true,
       "detail": "replacedByUnitId=350111000000078"
+    },
+    {
+      "name": "Accessory return offers no Replacement / Repair outcome",
+      "ok": true,
+      "detail": "0 disallowed outcome buttons present"
     },
     {
       "name": "Accessory return processed from the Accessory Stock panel",
