@@ -1,5 +1,32 @@
 # CLIENT MASTER FILES — STRUCTURE SPEC (extracted from live data)
 
+> ## ⚠️ HISTORICAL — superseded for the fee schedule
+>
+> This document records the client's master workbook **as received, before the
+> 2026-05 schema move**. It is still accurate about *file shape* — sheets,
+> headers, trailing spaces, mixed types, the compound `COLOURS` string — and
+> that is what it should be read for.
+>
+> **Its marketplace formulas and commission rates are no longer what the system
+> computes.** Do not use the tables below as the fee schedule.
+>
+> | Line | This document (as received) | Live system today |
+> |---|---|---|
+> | Amazon Commission | `=H/100*7.14` | **7%** of SP |
+> | BM Commission | 12% + PayPal/Klarna 2.5%, postage £10 | **11%** + flat **£9.99** Customer Care Fees, no PayPal/Klarna |
+> | eBay Commission | `(SP*6.9%) − (SP*6.9%)*10%` | **6.21%** (the post-reduction rate, baked in) |
+> | eBay Marginal Tax | `MAR TAX = I*16.6%` | **16.67%** |
+> | eBay promotion | `NP = Q − H*5%` | operator-entered **Marketing** line, not a % of SP |
+> | Marginal Tax (all) | `= SP-BP / 6` | literal **16.67%** — diverges from 1/6 in the third decimal |
+> | OnBuy Commission | 7% | 7% — the only line unchanged |
+> | Amazon `C. VAT` / `DSF` / `DSF. VAT` / `Accessories` | absent | present |
+> | TEMU | not present at all | added 2026-07 |
+>
+> **The live contract is `src/lib/platforms.ts` (`DEFAULT_MARKETPLACE_FEES`,
+> `calcSaleFinancials`, `excelFormulaFor`), documented in
+> `SALES_SCHEMA_AND_CALCULATIONS.md`.** For the column contract of every report
+> the system reads and writes, see `templates/REPORT_SCHEMAS.md`.
+
 ## File 1: INVENTORY_REPORT_2026_1.xlsx (87KB)
 
 ### Sheet 1: `INVENTORY` (286 data rows, 8 real columns A–H, padded to AA)

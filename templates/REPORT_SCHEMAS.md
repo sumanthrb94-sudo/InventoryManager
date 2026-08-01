@@ -267,16 +267,20 @@ id, so a mix of old and new files cannot double-count.
 **Seven sheets:** `Summary · Returns · AMAZON · BM · EBAY · ONBUY · TEMU`
 
 The five marketplace sheets carry the import columns plus computed VAT/fee
-columns and a trailing return-linkage block. Column counts: AMAZON 28,
-BM 25, EBAY 31, ONBUY 25, TEMU 26.
+columns, a resolved `Model`, a return-linkage block and the buy-side
+attributes. Column counts: **AMAZON 31, BM 28, EBAY 34, ONBUY 28, TEMU 29.**
 
 Common leading block, every marketplace:
 
 ```
 Date | Order Number | SKU | IMEI | Supplier | [Quantity] | BP | SP | SP-BP |
 Marginal Tax | Commission | …fees… | Postage | P. VAT | Accessories |
-[Total VAT] | GP | GP % | Total VAT NTP | Comments
+[Total VAT] | GP | GP % | Total VAT NTP | Comments | Model
 ```
+
+`Model` is the resolved model name — `sale.model` when the audit is complete,
+otherwise a live normalised guess off the preserved raw SKU. It is appended
+after `Comments` rather than inserted next to `SKU` for the reason given below.
 
 Trailing return-linkage block, every marketplace:
 
@@ -284,12 +288,31 @@ Trailing return-linkage block, every marketplace:
 Return Date | Outcome | Return Reason | Shipping Legs | Postage Loss | Net GP £
 ```
 
+Then, last on every marketplace sheet:
+
+```
+Storage | Colour
+```
+
+**Why `Model`, `Storage` and `Colour` sit at the end and not beside `SKU`.**
+Every GP / GP % / Total VAT NTP / TOTAL formula written onto these tabs
+references **hard column letters** (see `writeSaleRow` in
+`src/lib/clientReport.ts`). Inserting a column mid-sheet shifts those letters
+and silently corrupts the arithmetic — the cells still look plausible, they
+just point one column left. Appending cannot. Any future column goes on the
+end for the same reason.
+
+`Storage` and `Colour` are what make the round trip **self-healing**: a unit
+whose attributes were lost (raw operator SKU, no storage or colour recorded)
+gets them back when the exported report is re-imported, instead of coming back
+as an orphan a second time.
+
 Marketplace-specific fee columns:
 
 | Marketplace | Extra columns |
 |---|---|
 | AMAZON | `C. VAT` `DSF` `DSF. VAT` |
-| BM | `Customer Care Fees` |
+| BM | `Customer Care Fees` — and **no `Total VAT` column**: BM's only VAT line is `P. VAT`, so `Total VAT NTP = Marginal Tax − P. VAT` directly |
 | EBAY | `ROF` `FVF` `VAT` `T.COM` `Marketing` `M. VAT` — and `Units`, not `Quantity` |
 | ONBUY | `VAT 20%` — and no Quantity column |
 | TEMU | `Commission VAT` — no DSF. Commission and Commission VAT are literal per-row values (Temu's real reported fee), not formulas; Commission VAT is excluded from Total VAT/GP |
@@ -307,6 +330,23 @@ Number, SKU, IMEI, Supplier, Quantity, BP, SP, Postage, Comments — are all
 present under recognised names. Verified: a downloaded Sales Report uploaded
 into an empty system restores 101 sales and 93 sold units with identical
 record ids.
+
+**"Recognised names", not "identical names."** Rule §0.2 says the export never
+renames a column the importer reads. That holds *semantically* — via the alias
+table in §2.1 — but a few headers are spelled differently on the way out
+because the export normalises to one house style across all five tabs:
+
+| Marketplace | Import header | Export header | Why it still parses |
+|---|---|---|---|
+| BM | `Order No` | `Order Number` | both are `Order Number` aliases |
+| EBAY | `IMEI NUMBER` | `IMEI` | both are `IMEI` aliases |
+| EBAY | `SHIPPING` | `Postage` | `shipping` is the eBay `Postage` alias |
+| EBAY | `MAR TAX` `COM` `0.2` | `Marginal Tax` `Commission` `VAT` | derived — recomputed on import, never read |
+
+Header matching is case-insensitive, so `DATE` / `Date` and
+`ORDER NUMBER` / `Order Number` are the same column. None of these differences
+can drop a value; they are listed so a reader comparing a template against a
+download side by side doesn't mistake house style for a defect.
 
 ---
 

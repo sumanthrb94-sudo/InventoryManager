@@ -25,6 +25,13 @@ const OUT = 'e2e-screenshots/report-round-trip';
 const INVENTORY_FILE = resolve('templates/samples/INVENTORY_REPORT_SAMPLE.xlsx');
 const SALES_FILE = resolve('templates/samples/SALES_REPORT_SAMPLE.xlsx');
 
+// Every marketplace the sample workbook carries. Kept in ONE place: this list
+// was inlined at five call sites and each one silently excluded TEMU, so the
+// summary-total check compared the report's real 101 rows against 81 and
+// called the report wrong. A marketplace missing here under-counts, it does
+// not fail loudly — hence the single constant.
+const MKTS = ['AMAZON', 'BM', 'EBAY', 'ONBUY', 'TEMU'];
+
 if (!existsSync(OUT)) mkdirSync(OUT, { recursive: true });
 
 const results = [];
@@ -415,17 +422,17 @@ async function run() {
 
       // What the uploaded workbook actually contains, per sheet.
       const uploaded = {};
-      for (const m of ['AMAZON', 'BM', 'EBAY', 'ONBUY']) {
+      for (const m of MKTS) {
         const rows = sourceRows(SALES_FILE, m).slice(1)
           .filter(r => String(r[1] ?? '').trim() !== '');
         // Dedupe on marketplace__order__imei, the record key the importer uses.
         uploaded[m] = new Set(rows.map(r => `${m}__${String(r[1]).trim()}__${String(r[3]).trim()}`)).size;
       }
 
-      const perMarket = ['AMAZON', 'BM', 'EBAY', 'ONBUY']
+      const perMarket = MKTS
         .map(m => `${m} ${summaryCount(m)}/${uploaded[m]}`).join(' · ');
       record('summary sheet counts match the uploaded file per marketplace',
-        ['AMAZON', 'BM', 'EBAY', 'ONBUY'].every(m => summaryCount(m) === uploaded[m]),
+        MKTS.every(m => summaryCount(m) === uploaded[m]),
         perMarket);
 
       const total = numberAfter(summary.find(r => r.includes('TOTAL')), 'TOTAL');
@@ -436,12 +443,12 @@ async function run() {
       // Every row, from the download — the grid is virtualised.
       const dlSales = await downloadReport(page);
       record('downloaded sales report has a sheet per marketplace',
-        ['AMAZON', 'BM', 'EBAY', 'ONBUY'].every(m => dlSales.sheetNames.includes(m)),
+        MKTS.every(m => dlSales.sheetNames.includes(m)),
         dlSales.sheetNames.join(', '));
 
       let orderMismatch = [];
       let priceMismatch = [];
-      for (const m of ['AMAZON', 'BM', 'EBAY', 'ONBUY']) {
+      for (const m of MKTS) {
         const sheet = dlSales.sheets[m] ?? [];
         const text = sheet.flat().map(String).join(' | ');
         const srcRows = sourceRows(SALES_FILE, m).slice(1)
@@ -461,9 +468,9 @@ async function run() {
       }
       record('every uploaded order appears in the downloaded report',
         orderMismatch.length === 0,
-        orderMismatch.length ? `missing ${orderMismatch.length}: ${orderMismatch.slice(0, 3).join(', ')}` : 'all 4 marketplaces complete');
+        orderMismatch.length ? `missing ${orderMismatch.length}: ${orderMismatch.slice(0, 3).join(', ')}` : `all ${MKTS.length} marketplaces complete`);
       record('sale prices in the report match the file', priceMismatch.length === 0,
-        priceMismatch.length ? priceMismatch.join(' | ') : 'spot-checked all 4 marketplaces');
+        priceMismatch.length ? priceMismatch.join(' | ') : `spot-checked all ${MKTS.length} marketplaces`);
     } else {
       record('sales report offers a View option', false, 'no View button');
     }

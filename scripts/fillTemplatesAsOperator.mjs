@@ -15,7 +15,7 @@
  * Run: node scripts/fillTemplatesAsOperator.mjs
  */
 import ExcelJS from 'exceljs';
-import { mkdirSync, existsSync } from 'node:fs';
+import { mkdirSync, existsSync, rmSync } from 'node:fs';
 
 const SRC = 'templates';
 const OUT = 'templates/filled-examples';
@@ -65,7 +65,7 @@ const stockRows = Array.from({ length: TOTAL_STOCK }, (_, i) => {
 });
 
 /**
- * Sales, spread across the four channels. 20 sell office stock; the last one
+ * Sales, spread across all five channels. Most sell office stock; the last one
  * sells a phone the supplier still holds, which is the case worth proving —
  * it has to drop SHS, not office.
  */
@@ -74,7 +74,9 @@ const SALES_PLAN = [
   { marketplace: 'BM', count: 5 },
   { marketplace: 'EBAY', count: 5 },
   { marketplace: 'ONBUY', count: 4 },
+  { marketplace: 'TEMU', count: 4 },
 ];
+const OFFICE_SOLD = SALES_PLAN.reduce((n, p) => n + p.count, 0);
 const SHS_SALE_INDEX = OFFICE_COUNT; // first SHS unit
 
 const salesRows = [];
@@ -94,6 +96,18 @@ const salesRows = [];
         bp: row.bp,
         sp: Math.round((row.bp * 1.38 + 20) * 100) / 100,
         postage: 8,
+        // Temu is the one channel where the operator TYPES the commission:
+        // its referral rate varies by category, so the Temu export reports
+        // the fee actually charged per order rather than a flat percentage
+        // the app could derive. Left blank these would silently exercise
+        // the 7% fallback, which is not what a real Temu file looks like.
+        ...(marketplace === 'TEMU'
+          ? (() => {
+              const rate = [4.6, 5.5, 7, 8.2][i % 4];
+              const com = Math.round(row.bp * 1.38 * rate) / 100;
+              return { commission: com, commissionVat: Math.round(com * 20) / 100 };
+            })()
+          : {}),
       });
       unit++;
     }
@@ -200,6 +214,10 @@ async function fillSalesTemplate(srcFile, outFile, sheetName, rows) {
     quantity: find('Quantity', 'UNITS'),
     bp: find('BP'), sp: find('SP'),
     postage: find('Postage', 'SHIPPING', 'SHIP'),
+    // TEMU only — every other channel derives these, and only TEMU rows
+    // carry the fields, so the writer's `!== undefined` guard skips them.
+    commission: find('Commission'),
+    commissionVat: find('Commission VAT'),
   };
   const width = Math.max(...Object.values(cols).filter(Boolean));
 
@@ -258,6 +276,9 @@ for (const { marketplace } of SALES_PLAN) {
       quantity: find('Quantity', 'UNITS'),
       bp: find('BP'), sp: find('SP'),
       postage: find('Postage', 'SHIPPING', 'SHIP'),
+      // TEMU only — see the note in fillSalesTemplate above.
+      commission: find('Commission'),
+      commissionVat: find('Commission VAT'),
     };
     const width = Math.max(...Object.values(cols).filter(Boolean));
     salesRows.filter(s => s.marketplace === marketplace).forEach((r, i) => {
@@ -269,10 +290,13 @@ for (const { marketplace } of SALES_PLAN) {
     });
   }
   await wb2.xlsx.writeFile(`${OUT}/FILLED_SALES_COMBINED.xlsx`);
-  console.log(`${OUT}/FILLED_SALES_COMBINED.xlsx — ${salesRows.length} sales across 4 sheets`);
+  // Scratch round-trip file — ExcelJS needs the write/read to materialise the
+  // cleared sheets. It is not a deliverable, so don't leave it in templates/.
+  rmSync(`${OUT}/_tmp.xlsx`, { force: true });
+  console.log(`${OUT}/FILLED_SALES_COMBINED.xlsx — ${salesRows.length} sales across ${SALES_PLAN.length} sheets`);
 }
 
 console.log(`\nExpected after uploading inventory then sales:`);
-console.log(`  office ${OFFICE_COUNT} → ${OFFICE_COUNT - 20}   (20 sold from the shelf)`);
+console.log(`  office ${OFFICE_COUNT} → ${OFFICE_COUNT - OFFICE_SOLD}   (${OFFICE_SOLD} sold from the shelf)`);
 console.log(`  SHS    ${SHS_COUNT} → ${SHS_COUNT - 1}     (1 shipped direct by the supplier)`);
 console.log(`  sold   ${salesRows.length}   ·   sales ${salesRows.length}`);

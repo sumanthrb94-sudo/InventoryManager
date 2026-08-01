@@ -105,6 +105,8 @@ const LAYOUTS = {
   BM:     ['Date', 'Order No', 'SKU', 'IMEI', 'Supplier', 'Quantity', 'BP', 'SP', 'Payment Mode', 'SP-BP', 'Marginal Tax', 'PayPal/Klarna Com', 'Commission', 'Postage', 'GP', 'GP %', 'Comments'],
   EBAY:   ['DATE', 'ORDER NUMBER', 'SKU', 'IMEI NUMBER', 'SUPPLIER', 'UNITS', 'BP', 'SP', 'SP-BP', 'MAR TAX', 'COM', 'ROF', 'FVF', '0.2', 'T.COM', 'SHIPPING', 'GP', 'GP%', 'NP(incl. PROMOTION)'],
   ONBUY:  ['DATE', 'Order Number', 'SKU', 'IMEI', 'Supplier', 'BP', 'SP', 'SP-BP', 'MAR VAT', 'COM 7%', 'VAT 20%', 'SHIP', 'GP', 'GP%', 'Comments'],
+  // Temu's own layout, not Amazon's — see templates/REPORT_SCHEMAS.md §2.1.
+  TEMU:   ['Date', 'Order Number', 'SKU', 'IMEI', 'Supplier', 'Quantity', 'BP', 'SP', 'SP-BP', 'Marginal Tax', 'Commission', 'Commission VAT', 'Postage', 'P. VAT', 'Acc', 'Total VAT', 'GP', 'GP %', 'Total VAT NTP'],
 };
 
 function salesRow(marketplace, s) {
@@ -115,13 +117,23 @@ function salesRow(marketplace, s) {
     case 'BM':     return [s.date, s.order, sku, s.imei, s.unit.supplier, 1, s.bp, s.sp, pick(['Paypal', 'Klarna', 'Card']), s.sp - s.bp, '', '', '', s.postage, '', '', ''];
     case 'EBAY':   return [s.date, s.order, sku, s.imei, s.unit.supplier, 1, s.bp, s.sp, s.sp - s.bp, '', '', '', '', '', '', s.postage, '', '', ''];
     case 'ONBUY':  return [s.date, s.order, sku, s.imei, s.unit.supplier, s.bp, s.sp, s.sp - s.bp, '', '', '', s.postage, '', '', ''];
+    // Temu is the one channel whose Commission is READ, not derived — its
+    // referral rate varies by category, so the export reports the fee it
+    // actually charged per order. The sample varies the rate for that
+    // reason; a blank cell would silently exercise the 7% fallback instead.
+    case 'TEMU': {
+      const rate = pick([4.6, 5.5, 7, 8.2]);
+      const com = Math.round(s.sp * rate) / 100;
+      return [s.date, s.order, sku, s.imei, s.unit.supplier, 1, s.bp, s.sp, s.sp - s.bp,
+        '', com, Math.round(com * 20) / 100, s.postage, '', '', '', '', '', ''];
+    }
     default: throw new Error(`unknown marketplace ${marketplace}`);
   }
 }
 
 const SALE_COUNT = 100;
-const MARKETPLACES = ['AMAZON', 'BM', 'EBAY', 'ONBUY'];
-const bySheet = { AMAZON: [], BM: [], EBAY: [], ONBUY: [] };
+const MARKETPLACES = ['AMAZON', 'BM', 'EBAY', 'ONBUY', 'TEMU'];
+const bySheet = { AMAZON: [], BM: [], EBAY: [], ONBUY: [], TEMU: [] };
 
 const saleDate = i => {
   const d = new Date(Date.UTC(2026, 6, 1));       // July 2026

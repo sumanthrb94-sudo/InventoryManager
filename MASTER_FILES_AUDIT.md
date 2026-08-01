@@ -1,4 +1,23 @@
 # Master Files Production-Readiness Audit (Firestore edition)
+
+> ## ⚠️ HISTORICAL — the blockers are resolved; §5's fee table is superseded
+>
+> This audit was written against the client's master workbook **as received**.
+> Its findings drove the work that followed, and the blockers it lists
+> (including **B5**, the wrong fee constants) have since been fixed.
+>
+> **§5's fee schedule is no longer the live one.** It was seeded into
+> `src/lib/platforms.ts` and then replaced twice — by the operator's **2026-05
+> schema move** (Amazon 7.14% → 7%, BM 12% + PayPal/Klarna → 11% + £9.99
+> Customer Care Fees, eBay 6.9%×0.9 → 6.21% baked in, marginal tax `/6` → literal
+> 16.67%, plus the Amazon `C. VAT` / `DSF` / `DSF. VAT` / `Accessories` lines)
+> and by the **2026-07 Temu addition**. OnBuy's 7% is the only rate that
+> survived unchanged.
+>
+> **The live contract is `src/lib/platforms.ts`, documented in
+> `SALES_SCHEMA_AND_CALCULATIONS.md`;** the report column contract is
+> `templates/REPORT_SCHEMAS.md`. `MASTER_FILES_SPEC.md` carries the same notice
+> and a full line-by-line divergence table.
 **Scope:** Can InventoryManager (a) load the client's two live master Excel files unchanged, (b) operate on them daily, (c) re-emit them in identical Excel format every evening?
 **Verdict:** **NOT production-ready. 11 blockers + multiple high-severity gaps must be resolved before go-live.**
 **Stack:** Firebase Auth + Firestore (NoSQL) + imgbb image storage. No SQL database, no API tier — frontend writes to Firestore directly via `src/lib/dbService.ts`. The Vercel `api/` directory and `src/lib/supabase*.ts` were removed (dead code) — see `2026-05-16` cleanup commit.

@@ -248,9 +248,12 @@ describe('per-marketplace SALES templates', () => {
 });
 
 describe('sample files parse as shipped', () => {
-  const MARKETPLACES = ['AMAZON', 'BM', 'EBAY', 'ONBUY'] as const;
+  // Must list every marketplace the generator emits a sample for. TEMU
+  // landed in 2026-07 and this list was not extended, so the Temu sample was
+  // never checked — and the combined sample did not even contain a TEMU sheet.
+  const SAMPLE_MARKETPLACES = ['AMAZON', 'BM', 'EBAY', 'ONBUY', 'TEMU'] as const;
 
-  it.each(MARKETPLACES)('SALES_%s_SAMPLE.xlsx parses as a single-channel upload', async (m) => {
+  it.each(SAMPLE_MARKETPLACES)('SALES_%s_SAMPLE.xlsx parses as a single-channel upload', async (m) => {
     const path = `templates/samples/SALES_${m}_SAMPLE.xlsx`;
     expect(existsSync(path), `${path} missing — run scripts/generateE2EWorkbooks.mjs`).toBe(true);
     const parsed = await parseSalesWorkbook(
@@ -259,8 +262,20 @@ describe('sample files parse as shipped', () => {
       { onlyMarketplace: m },
     );
     expect(parsed.errors.filter(e => e.row > 0)).toEqual([]);
-    expect(parsed.sales.length).toBeGreaterThan(20);
     expect(parsed.sales.every(s => s.marketplace === m)).toBe(true);
+
+    // The per-channel sample must carry EXACTLY that marketplace's rows from
+    // the combined workbook — the two are generated from one dataset, so a
+    // divergence means the generator dropped or duplicated rows on one path.
+    // (This replaced a bare `> 20` floor, which silently encoded "100 sales
+    // across 4 channels" and broke the moment TEMU made it five.)
+    const combined = await parseSalesWorkbook(
+      new File([readFileSync('templates/samples/SALES_REPORT_SAMPLE.xlsx')], 'combined.xlsx'),
+      'combined.xlsx',
+    );
+    const inCombined = combined.sales.filter(s => s.marketplace === m);
+    expect(inCombined.length, `${m} rows in the combined sample`).toBeGreaterThan(0);
+    expect(parsed.sales.length).toBe(inCombined.length);
   });
 
   it('per-channel samples produce the SAME ids as the combined sample', async () => {

@@ -5,7 +5,7 @@
  * rates and were missing Project, eBay ROF/FVF/VAT/promo and BM PayPal/Klarna.
  *
  * The new authoritative table is `MARKETPLACE_FEES` (keyed by canonical
- * `Marketplace` sheet names: AMAZON / BM / EBAY / ONBUY). It powers:
+ * `Marketplace` sheet names: AMAZON / BM / EBAY / ONBUY / TEMU). It powers:
  *   - `calcSaleFinancials()` — runtime GP/NP calculator for sales documents
  *   - `excelFormulaFor()`   — Excel formula strings for the SALES_REPORT writer
  *   - `getMarketplaceFee()` — Firestore loader hook (returns defaults today)
@@ -25,10 +25,33 @@ import { MARKETPLACES } from '../types';
 // ---------------------------------------------------------------------------
 
 /**
- * Seed values, sourced verbatim from MASTER_FILES_AUDIT.md §5 and the per-sheet
- * formulas in MASTER_FILES_SPEC.md. These are the code-side defaults; at boot
+ * The live fee schedule. These are the code-side defaults; at boot
  * `getMarketplaceFee()` can be swapped to read from the Firestore
  * `marketplaceFees` collection (doc id = marketplace name).
+ *
+ * PROVENANCE — read this before citing a document as ground truth.
+ * The table was originally seeded from MASTER_FILES_AUDIT.md §5 and the
+ * per-sheet formulas in MASTER_FILES_SPEC.md, but it is NO LONGER those
+ * values. It has been replaced twice since:
+ *
+ *   2026-05  operator schema move — Amazon 7.14% -> 7% of SP; BM 12% +
+ *            PayPal/Klarna 2.5% -> 11% + flat £9.99 Customer Care Fees;
+ *            eBay 6.9%×0.9 -> 6.21% baked in, promo-as-%-of-SP -> an
+ *            operator-entered Marketing line; marginal tax `SP-BP / 6` ->
+ *            a literal 16.67%; Amazon gains C. VAT / DSF / DSF. VAT /
+ *            Accessories. OnBuy's 7% is the only rate that survived.
+ *   2026-07  TEMU added, corrected against the client's TEMU_FORMULA.csv.
+ *
+ * So MASTER_FILES_SPEC.md / MASTER_FILES_AUDIT.md are HISTORICAL for fees —
+ * both now carry a notice saying so. THIS FILE is the source of truth; the
+ * written explanation of every formula is SALES_SCHEMA_AND_CALCULATIONS.md,
+ * and the report column contract is templates/REPORT_SCHEMAS.md.
+ *
+ * Changing a constant here RESTATES HISTORY: the Sales Report writes live
+ * Excel formulas via `excelFormulaFor()`, and `recomputeSale()` ignores the
+ * figures stored on a Sale doc, so past rows recompute at the new rate.
+ * That is intended for a formula correction and unwanted for a rate change.
+ * Per-marketplace comments below carry the current provenance for each rate.
  */
 export const DEFAULT_MARKETPLACE_FEES: Record<Marketplace, MarketplaceFee> = {
   AMAZON: {
