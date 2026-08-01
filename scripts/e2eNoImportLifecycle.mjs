@@ -20,13 +20,12 @@
  *                                  in THIS file from the master formulas —
  *                                  deliberately not importing platforms.ts,
  *                                  so an app-side bug cannot verify itself)
- *   6. Returns                    (all four routes: refund → Back to
- *                                  Inventory, repair, replacement with a
- *                                  like-for-like unit named, and an
- *                                  accessory return off the stock panel)
+ *   6. Returns                    (three unit routes: refund → Back to
+ *                                  Inventory, repair, and replacement with a
+ *                                  like-for-like unit named)
  *   7. Reports                    (download Sales + Inventory Report, parse
  *                                  with ExcelJS, check tabs / rows / totals
- *                                  and that all four returns reach Returns
+ *                                  and that all three returns reach Returns
  *                                  Detail with the right outcomes)
  *   8. Component sweep            (screenshot every surface)
  *
@@ -35,9 +34,9 @@
  *   - A replacement needs LIKE-FOR-LIKE stock (same brand + model + storage)
  *     available, or ReturnsPage refuses to finalise. OFFICE[5] is held back
  *     unsold for exactly this.
- *   - The accessory Return action must be scoped to its own table row; a
- *     bare first() opens whichever pool sorts first and returns the wrong
- *     accessory while still reporting success.
+ *   - The accessory panel offers Adjust ONLY. Return was removed in 2026-08
+ *     (marketplace returns arrive via the Sales Report and reconcile on their
+ *     own); the run asserts it stays gone.
  *
  * Run after:
  *   VITE_E2E=1 npx vite build --outDir dist-e2e
@@ -509,57 +508,27 @@ async function processReturn(page, { imei, returnType, reason, tag, outcome, rep
 }
 
 /**
- * Accessory return — a sold accessory coming back onto the shelf. The
- * Accessory Stock panel's Return action lives on the Sell screen (the Buy
- * screen renders the same panel with showActions={false}), and opens
- * AccessoryStockActionModal rather than the unit return journey: there is
- * no QC/CRM two-step because there is no serialised unit to inspect.
+ * The Accessory Stock panel offers Adjust and NOTHING ELSE.
+ *
+ * Return was removed in 2026-08. Every real accessory return arrives through
+ * the Sales Report import as a voided row and reconciles on its own, so the
+ * manual button only duplicated it — the same reasoning that removed the
+ * manual accessory Sell action before it. Adjust stays because it is the one
+ * thing nothing else can do: correct a pool after a physical count (damaged,
+ * lost, miscounted, found extra).
+ *
+ * Asserted rather than assumed, so silently re-adding Return fails loudly.
  */
-async function returnAccessory(page, { sku, reason }) {
+async function accessoryRowActions(page, sku) {
   await gotoSellTab(page);
   await page.waitForTimeout(600);
-  // Scroll the accessory panel into view so its row actions are clickable.
-  const skuRow = page.locator('div').filter({ hasText: new RegExp(sku, 'i') }).last();
-  await skuRow.scrollIntoViewIfNeeded().catch(() => {});
+  const row = page.locator('tr').filter({ hasText: new RegExp(sku, 'i') }).first();
+  await row.scrollIntoViewIfNeeded().catch(() => {});
   await page.waitForTimeout(400);
-  await shot(page, 'accret-step1-accessory-panel');
-
-  // Scope to the SKU's own <tr> — a bare first() Return button opens
-  // whichever pool happens to sort first, which silently returns the wrong
-  // accessory and still reports success.
-  const returnBtn = page.locator('tr').filter({ hasText: new RegExp(sku, 'i') })
-    .getByRole('button', { name: /^Return$/i }).first();
-  if (!(await returnBtn.isVisible().catch(() => false))) return { ok: false, why: `no Return action on the ${sku} row` };
-  await returnBtn.click();
-  await page.waitForTimeout(900);
-  await shot(page, 'accret-step2-return-modal');
-
-  const m = modal(page);
-  // Guard: prove the modal is for the SKU we asked for before touching it.
-  const header = await m.innerText().catch(() => '');
-  if (!new RegExp(sku, 'i').test(header)) {
-    await dismissModals(page);
-    return { ok: false, why: `return modal opened for the wrong SKU (wanted ${sku})` };
-  }
-  // Accessories are refund-only, so there is no outcome picker to drive —
-  // assert the other two are genuinely absent rather than clicking through.
-  // A Replacement here would bill 3 shipping legs of postage loss against a
-  // pound-value item on the Sales Report.
-  const outcomeChoices = await m.getByRole('button', { name: /^(Replacement|Repair)$/i }).count();
-  record('Accessory return offers no Replacement / Repair outcome',
-    outcomeChoices === 0, `${outcomeChoices} disallowed outcome buttons present`);
-  await page.waitForTimeout(200);
-  await m.locator('input[placeholder*="customer changed their mind" i]').first().fill(reason).catch(() => {});
-  await page.waitForTimeout(400);
-  await shot(page, 'accret-step3-filled');
-
-  const confirm = m.getByRole('button', { name: /Confirm Return/i }).last();
-  if (!(await confirm.isEnabled().catch(() => false))) return { ok: false, why: 'Confirm Return disabled' };
-  await confirm.click();
-  await page.waitForTimeout(1800);
-  await shot(page, 'accret-step4-confirmed');
-  await dismissModals(page);
-  return { ok: true };
+  await shot(page, 'acc-panel-adjust-only');
+  return row.locator('button')
+    .evaluateAll(bs => bs.map(b => (b.innerText || '').trim()).filter(Boolean))
+    .catch(() => []);
 }
 
 // ── Main ────────────────────────────────────────────────────────────────────
@@ -853,29 +822,14 @@ async function run() {
       orig ? `replacedByUnitId=${orig.replacedByUnitId || '—'}` : 'unit missing');
   }
 
-  // ── Accessory return — no QC/CRM two-step, no unit to inspect ──
-  console.log('\n── Accessory return ──');
-  const accPoolBeforeReturn = docsOf(await dumpStore(page), 'accessoryStock').find(p => p.sku === 'USB-C-20W');
-  try {
-    const r = await returnAccessory(page, { sku: 'USB-C-20W', reason: 'Wrong cable length ordered' });
-    record('Accessory return processed from the Accessory Stock panel', r.ok, r.why || '');
-  } catch (e) { record('Accessory return processed from the Accessory Stock panel', false, String(e).slice(0, 140)); await dismissModals(page); }
-
+  // ── Accessory panel offers Adjust only ──
+  console.log('\n── Accessory panel actions ──');
   {
-    const st = await dumpStore(page);
-    const poolNow = docsOf(st, 'accessoryStock').find(p => p.sku === 'USB-C-20W');
-    // returnAccessoryStock restores the ORIGINAL sale's quantity (3), not 1.
-    record('Accessory return puts the sold quantity back on the shelf',
-      poolNow && accPoolBeforeReturn && (poolNow.quantity - accPoolBeforeReturn.quantity) === 3,
-      `${accPoolBeforeReturn?.quantity} → ${poolNow?.quantity}`);
-    const accSale = docsOf(st, 'sales').find(s => s.sku === 'USB-C-20W' && !(s.imei || '').trim());
-    record('Accessory return voids its sale doc with an outcome',
-      !!accSale && !!accSale.voidedAt && !!accSale.voidOutcome,
-      accSale ? `voidedAt=${accSale.voidedAt} outcome=${accSale.voidOutcome}` : 'sale missing');
-    const ledger = docsOf(st, 'accessoryStockEvents').filter(e => e.type === 'return');
-    record('Accessory stock ledger recorded the return', ledger.length >= 1, `${ledger.length} return events`);
+    const labels = await accessoryRowActions(page, 'USB-C-20W');
+    record('Accessory row offers Adjust', labels.some(l => /^adjust$/i.test(l)), labels.join(', ') || 'none');
+    record('Accessory row no longer offers Return',
+      !labels.some(l => /^return$/i.test(l)), labels.join(', ') || 'none');
   }
-  await shot(page, 'accret-step5-panel-after-return');
 
   // ══ PHASE 7 · REPORTS ════════════════════════════════════════════════════
   console.log('\n══ PHASE 7 · Reports built from hand-entered data ══');
@@ -975,15 +929,11 @@ async function run() {
     record('Returns Detail carries the refunded unit', detail.includes(OFFICE[0].imei), OFFICE[0].imei);
     record('Returns Detail carries the repaired unit', detail.includes(OFFICE[1].imei), OFFICE[1].imei);
     record('Returns Detail carries the replaced unit', detail.includes(OFFICE[2].imei), OFFICE[2].imei);
-    // Returns Detail has no SKU column — an accessory rides in the Model
-    // column under its friendly name, tagged Return Type = "Accessory"
-    // (clientReport.ts resolves accessoryNameBySku for no-unit/no-IMEI
-    // sales). It gets there purely on its voided Sale doc, with no
-    // InventoryUnit behind it at all.
-    record('Returns Detail carries the accessory return (no unit, no IMEI)',
-      detail.includes('USB-C 20W Charger'), 'searched Model column for the accessory name');
-    record('Returns Detail tags the accessory row as Return Type = Accessory',
-      /"Accessory"/.test(detail), 'Return Type column');
+    // No accessory-return assertions here any more: the manual Return action
+    // is gone, so this run never creates one. The Returns Detail sheet still
+    // supports accessory rows (they ride in the Model column tagged Return
+    // Type = "Accessory") — that path is now exercised only by an imported
+    // voided row, which is how it happens in production anyway.
     record('Returns Detail records a Repair outcome', /repair/i.test(detail), 'outcome vocabulary present');
     record('Returns Detail records a Replacement outcome', /replacement/i.test(detail), 'outcome vocabulary present');
   } catch (e) { record('Sales Report download', false, String(e).slice(0, 140)); }

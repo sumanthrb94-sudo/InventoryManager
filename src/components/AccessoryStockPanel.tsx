@@ -112,17 +112,23 @@ export default function AccessoryStockPanel({ bare = false, showActions = true }
                     {showActions && (
                       <td className="py-1.5 pr-3">
                         <div className="flex items-center gap-1">
+                          {/* Adjust is the ONLY action here on purpose.
+                              It's the one thing nothing else can do: correct
+                              a pool after a physical count (damaged, lost,
+                              miscounted, found extra).
+
+                              Return was removed — every real accessory return
+                              arrives through the Sales Report import as a
+                              voided row and reconciles on its own, so the
+                              manual button only duplicated it. Same reasoning
+                              that removed the manual accessory Sell action.
+                              AccessoryStockActionModal still supports
+                              mode='return'; it simply has no entry point. */}
                           <button
                             onClick={() => setActionFor({ accessory: a, mode: 'adjust' })}
                             className="px-2 py-1 rounded bg-amber-100 text-amber-800 text-[9px] font-bold uppercase tracking-widest hover:bg-amber-200"
                           >
                             Adjust
-                          </button>
-                          <button
-                            onClick={() => setActionFor({ accessory: a, mode: 'return' })}
-                            className="px-2 py-1 rounded bg-emerald-100 text-emerald-800 text-[9px] font-bold uppercase tracking-widest hover:bg-emerald-200"
-                          >
-                            Return
                           </button>
                         </div>
                       </td>

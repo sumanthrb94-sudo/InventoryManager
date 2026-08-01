@@ -1,6 +1,6 @@
 {
-  "passed": 67,
-  "total": 67,
+  "passed": 62,
+  "total": 62,
   "results": [
     {
       "name": "Wipe clears units / sales / accessories / suppliers / aggregates",
@@ -223,29 +223,14 @@
       "detail": "replacedByUnitId=350111000000078"
     },
     {
-      "name": "Accessory return offers no Replacement / Repair outcome",
+      "name": "Accessory row offers Adjust",
       "ok": true,
-      "detail": "0 disallowed outcome buttons present"
+      "detail": "ADJUST"
     },
     {
-      "name": "Accessory return processed from the Accessory Stock panel",
+      "name": "Accessory row no longer offers Return",
       "ok": true,
-      "detail": ""
-    },
-    {
-      "name": "Accessory return puts the sold quantity back on the shelf",
-      "ok": true,
-      "detail": "47 → 50"
-    },
-    {
-      "name": "Accessory return voids its sale doc with an outcome",
-      "ok": true,
-      "detail": "voidedAt=2026-08-01 outcome=refund"
-    },
-    {
-      "name": "Accessory stock ledger recorded the return",
-      "ok": true,
-      "detail": "1 return events"
+      "detail": "ADJUST"
     },
     {
       "name": "Inventory Report downloads with Office / SHS / Accessories sheets",
@@ -316,16 +301,6 @@
       "name": "Returns Detail carries the replaced unit",
       "ok": true,
       "detail": "350111000000037"
-    },
-    {
-      "name": "Returns Detail carries the accessory return (no unit, no IMEI)",
-      "ok": true,
-      "detail": "searched Model column for the accessory name"
-    },
-    {
-      "name": "Returns Detail tags the accessory row as Return Type = Accessory",
-      "ok": true,
-      "detail": "Return Type column"
     },
     {
       "name": "Returns Detail records a Repair outcome",

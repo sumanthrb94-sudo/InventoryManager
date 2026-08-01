@@ -16,6 +16,7 @@ import { InventoryUnit, Supplier, MARKETPLACES } from '../types';
 import CopyImei from './CopyImei';
 import PeriodicInventory from './PeriodicInventory';
 import CollapsibleSection from './CollapsibleSection';
+import { SHOW_IMPORT_UI } from '../lib/featureFlags';
 
 
 
@@ -551,7 +552,9 @@ export default function Dashboard({ user, onNavigate, onOpenImport, onOpenMaster
             sub={lastImport ? `${lastImport.rowCount.toLocaleString()} rows · ${lastImport.timestamp}` : 'No imports yet'}
             accent="bg-gray-50 border-gray-100 text-gray-900"
             iconBg="bg-gray-200 text-gray-700"
-            onClick={() => onOpenImport?.()}
+            // No onClick — this tile used to be a way INTO the importer. It
+            // stays as read-only provenance (which file, how many rows, when),
+            // but Import is hidden from the UI now. See SHOW_IMPORT_UI.
             valueClassName="text-sm md:text-base truncate"
           />
         </section>
@@ -590,8 +593,10 @@ export default function Dashboard({ user, onNavigate, onOpenImport, onOpenMaster
         </section>
       )}
 
-      {/* First-run CTA — only when DB is completely empty */}
-      {isEmptyDb && (
+      {/* First-run CTA — only when DB is completely empty. Also gated on
+          SHOW_IMPORT_UI: this is the post-wipe entry point, so leaving it
+          visible would make hiding the other two doors cosmetic. */}
+      {SHOW_IMPORT_UI && isEmptyDb && (
         <button
           type="button"
           onClick={() => onOpenImport?.()}

@@ -184,15 +184,34 @@ describe('Act 1 · employee signs in', () => {
     expect((await deleteOfficeUnit(unit, 'test')).message).toMatch(/admin access required/i);
   });
 
-  it('FINDING: the Import entry point is admin-only, so an employee cannot upload any report', async () => {
+  it('FINDING: the Import entry point is hidden from EVERYONE, admins included', async () => {
     const { readFileSync } = await import('node:fs');
     const app = readFileSync('src/App.tsx', 'utf8');
-    // Both report uploads hang off one Import button inside a
-    // `userIsAdmin &&` block (App.tsx ~594). An employee has no path to
-    // the flow this simulation spends the rest of its time on.
-    const importBlock = app.slice(app.indexOf('{userIsAdmin && ('), app.indexOf('Sales Report'));
+    // This finding used to read "Import is admin-only, so an employee cannot
+    // upload any report". It's now stronger: after the 2026-08 migration
+    // completed, the operator took Import out of the UI entirely — admins
+    // included — so an accidental re-import can't land on a database that is
+    // known correct. Both report uploads still hang off the one header
+    // button, now behind SHOW_IMPORT_UI as well as userIsAdmin.
+    const importBlock = app.slice(app.indexOf('{SHOW_IMPORT_UI && userIsAdmin && ('), app.indexOf('Sales Report'));
     expect(importBlock).toContain('setIsImportModalOpen(true)');
     expect(importBlock).toContain('userIsAdmin');
+    expect(importBlock).toContain('SHOW_IMPORT_UI');
+  });
+
+  it('FINDING: hiding Import does not remove the pipeline — only the doors', async () => {
+    const { readFileSync } = await import('node:fs');
+    // The flag hides entry points; the parsers, services and modals are
+    // untouched and still under test. Restoring Import is one line plus a
+    // redeploy, which is the whole point of doing it as a flag.
+    const flags = readFileSync('src/lib/featureFlags.ts', 'utf8');
+    expect(flags).toContain('SHOW_IMPORT_UI');
+    // Gated on VITE_E2E rather than hard-coded false so the 36 scripts that
+    // drive imports through the real UI keep working.
+    expect(flags).toContain('VITE_E2E');
+    for (const f of ['src/components/SalesReportImport.tsx', 'src/components/InventoryReportImport.tsx']) {
+      expect(readFileSync(f, 'utf8').length).toBeGreaterThan(0);
+    }
   });
 
   it('employees CAN add stock and record SHS — the intake half of the job is open', async () => {

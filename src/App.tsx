@@ -28,6 +28,7 @@ import DataSeedPage from './components/DataSeedPage';
 import LoadMockDataModal from './components/LoadMockDataModal';
 import ErrorBoundary from './components/ErrorBoundary';
 import { useBuildVersionCheck } from './lib/useBuildVersionCheck';
+import { SHOW_IMPORT_UI } from './lib/featureFlags';
 import type { SupplierWhatsappUpdate } from './types';
 
 type Tab      = 'notices' | 'buy' | 'sell' | 'returns' | 'admin';
@@ -587,7 +588,7 @@ function AppShell({ user }: { user: User }) {
                 <Settings size={14} strokeWidth={2.5} />
               </button>
             )}
-            {userIsAdmin && (
+            {SHOW_IMPORT_UI && userIsAdmin && (
               <div className="relative">
                 <button
                   onClick={() => setImportMenuOpen(o => !o)}
