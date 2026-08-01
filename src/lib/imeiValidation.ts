@@ -69,7 +69,23 @@ export function isAppleDevice(modelOrBrand: string | undefined | null): boolean 
   // TAB[A-Z0-9]* was already special-cased for; the fix was never carried
   // across. A trailing \d* (digits only, not [A-Z0-9]*) is deliberately
   // narrow — BOOK[A-Z0-9]* would swallow BOOKCASE.
-  return /\b(APPLE|IPHONE|IPAD|MACBOOK|IMAC|TABLET|SLATE|BOOK|WIFI|WI-FI)\b|\b(AIRPODS|BUDS|PODS|WATCH)\d*\b|\bTAB[A-Z0-9]*\b/.test(s);
+  //
+  // Samsung TABLET MODEL CODES are the last resort, and the reason this
+  // clause exists at all: every rule above depends on a PROSE word surviving
+  // in the model string, and prose is exactly what gets lost. Field case —
+  // three Galaxy Tab A 10.1 units whose stored model had decayed to
+  // "(10.1)(T580)". No TAB token left, so the serial unlock never fired and
+  // the validator demanded a 15-digit IMEI from a Wi-Fi-only tablet that has
+  // never had one. The model code is the part that survives mangling, so
+  // match it directly.
+  //
+  // SM-T### / SM-X### / SM-P### are Samsung's tablet lines (T = Tab A/S
+  // older, X = Tab A8 onwards and Tab S8+, P = Tab S Lite / pen models).
+  // Phones use A/G/N/S/F prefixes and are deliberately NOT matched here —
+  // a phone has a real IMEI and must keep failing the 15-digit check.
+  // The optional SM- prefix and trailing letter cover "SM-T580" and
+  // "X206B" as written on the box.
+  return /\b(APPLE|IPHONE|IPAD|MACBOOK|IMAC|TABLET|SLATE|BOOK|WIFI|WI-FI)\b|\b(AIRPODS|BUDS|PODS|WATCH)\d*\b|\bTAB[A-Z0-9]*\b|\b(?:SM-)?[TXP]\d{3}[A-Z]?\b/.test(s);
 }
 
 /**

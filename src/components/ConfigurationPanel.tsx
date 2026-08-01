@@ -31,6 +31,7 @@ import AccessoryCatalogPanel from './AccessoryCatalogPanel';
 import { useInventoryStore } from '../lib/inventoryStore';
 import { findGradeCasingDrift, fixGradeCasing } from '../lib/migrations/normaliseGradeCasing';
 import { findModelCatalogDrift, fixModelCatalog } from '../lib/migrations/normaliseModelCatalog';
+import { findMangledUnitModels, fixMangledUnitModels } from '../lib/migrations/repairMangledUnitModels';
 import { normalizeBucketModel, normalizeOperatorSku } from '../lib/modelStorage';
 
 interface ModelDoc {
@@ -397,6 +398,7 @@ export default function ConfigurationPanel() {
           usually about to fix the others. */}
       <DataHealthPanel />
       <ModelCatalogRepairPanel />
+      <MangledUnitModelPanel />
       <GradeCasingPanel />
       <SkuReconciliation />
 
@@ -443,6 +445,112 @@ export default function ConfigurationPanel() {
  * drift happened. Sits above the grade-casing panel because the catalog
  * feeds the model pickers, so it's the more consequential of the two.
  */
+/**
+ * Sweep for inventory units whose stored model decayed to a bare
+ * parenthetical ("(10.1)(T580)"). Beyond looking wrong everywhere the model
+ * is displayed, the missing prose is what made the Sales Report audit gate
+ * demand a 15-digit IMEI from Wi-Fi-only tablets that have never had one.
+ * Only units with a recognised model code are rewritten; the rest are listed
+ * for the operator to name by hand rather than guessed at.
+ */
+function MangledUnitModelPanel() {
+  const { units } = useInventoryStore();
+  const [running, setRunning] = useState(false);
+  const [done, setDone] = useState<{ updated: number } | null>(null);
+  const [failed, setFailed] = useState('');
+
+  const drift = useMemo(
+    () => findMangledUnitModels((units as any[]).map(u => ({
+      id: u.id, model: u.model, rawModel: u.rawModel, imei: u.imei,
+    }))),
+    [units],
+  );
+
+  const run = async () => {
+    setRunning(true);
+    setFailed('');
+    try {
+      setDone(await fixMangledUnitModels(drift, dbService));
+    } catch (e: any) {
+      setFailed(e?.message || 'Repair failed');
+    } finally {
+      setRunning(false);
+    }
+  };
+
+  if (drift.repairs.length === 0 && drift.unresolved.length === 0 && done === null) return null;
+
+  return (
+    <div className="bg-white border border-slate-200 rounded-3xl shadow-sm overflow-hidden">
+      <div className="flex items-center gap-3 px-5 py-4 border-b border-slate-100">
+        <div className="w-8 h-8 rounded-xl bg-sky-100 text-sky-700 flex items-center justify-center">
+          <Wand2 size={14} />
+        </div>
+        <div className="min-w-0">
+          <h3 className="text-[13px] font-bold tracking-tight">Unit model names lost to fragments</h3>
+          <p className="text-[10px] font-mono text-slate-400">
+            Restores product names on units whose model is only a code, e.g. “(10.1)(T580)”
+          </p>
+        </div>
+      </div>
+
+      <div className="px-5 py-4 space-y-3">
+        {done !== null ? (
+          <p className="inline-flex items-center gap-1.5 text-[11px] font-mono text-emerald-700">
+            <CheckCircle2 size={12} /> {done.updated} unit{done.updated === 1 ? '' : 's'} renamed
+          </p>
+        ) : (
+          <>
+            <div className="space-y-1 max-h-64 overflow-y-auto">
+              {drift.repairs.slice(0, 12).map(r => (
+                <div key={r.id} className="flex items-center justify-between gap-3 bg-slate-50 rounded-lg px-3 py-1.5">
+                  <span className="text-[11px] font-mono text-slate-700 truncate">
+                    “{r.before}” → <strong>{r.after}</strong>
+                  </span>
+                  {!r.hasCellular && (
+                    <span className="text-[10px] font-mono text-sky-700 flex-shrink-0">Wi-Fi · serial only</span>
+                  )}
+                </div>
+              ))}
+              {drift.repairs.length > 12 && (
+                <p className="text-[10px] font-mono text-slate-400 px-3">
+                  + {drift.repairs.length - 12} more…
+                </p>
+              )}
+            </div>
+
+            {drift.unresolved.length > 0 && (
+              <p className="text-[10px] font-mono text-amber-700 leading-relaxed">
+                {drift.unresolved.length} unit{drift.unresolved.length === 1 ? ' has' : 's have'} a fragment with no
+                recognised model code ({drift.unresolved.map(u => u.model).join(', ')}) — left untouched, name
+                {drift.unresolved.length === 1 ? ' it' : ' these'} by hand. A guessed product name would be worse
+                than a visible fragment.
+              </p>
+            )}
+
+            <p className="text-[10px] font-mono text-slate-500 leading-relaxed">
+              Only the display model is rewritten — the original text stays on <code>rawModel</code> for provenance.
+              Wi-Fi-only tablets have no IMEI in existence, so their serial is the correct identifier.
+            </p>
+
+            {failed && <p className="text-[11px] font-mono text-rose-600">{failed}</p>}
+
+            {drift.repairs.length > 0 && (
+              <button
+                onClick={run}
+                disabled={running}
+                className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-sky-600 text-white text-[10px] font-bold uppercase tracking-widest hover:bg-sky-700 disabled:opacity-50"
+              >
+                <Wand2 size={11} /> {running ? 'Renaming…' : `Rename ${drift.repairs.length} unit${drift.repairs.length === 1 ? '' : 's'}`}
+              </button>
+            )}
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function ModelCatalogRepairPanel() {
   const { models } = useInventoryStore();
   const [running, setRunning] = useState(false);
