@@ -315,6 +315,159 @@ async function confirmSale(page) {
   return { ok: true };
 }
 
+/**
+ * Mark an ACCESSORY sold — the counterpart to sellOne() for no-IMEI pool
+ * stock. Reached through the same "Record a sale" picker, on its
+ * Accessories scope, which hands off to AccessorySaleModal instead of
+ * SellOrderModal. Screenshots each step so the sequence is readable
+ * without running it.
+ */
+async function sellAccessory(page, { sku, marketplace, order, quantity, sp }) {
+  await gotoSellTab(page);
+  await shot(page, 'acc-step1-sell-screen');
+
+  const opener = page.getByRole('button', { name: /^(SELL|Record Sale|Mark Sold)$/i }).first();
+  if (!(await opener.isVisible().catch(() => false))) return { ok: false, why: 'no sell opener button' };
+  await opener.click();
+  await page.waitForTimeout(900);
+  await shot(page, 'acc-step2-picker-office-scope');
+
+  const picker = modal(page);
+  await picker.getByRole('button', { name: /^Accessories\s*·/i }).click({ timeout: 6000 })
+    .catch(() => {});
+  await page.waitForTimeout(600);
+  await shot(page, 'acc-step3-picker-accessories-scope');
+
+  await picker.locator('input[placeholder*="Search by SKU" i]').first().fill(sku).catch(() => {});
+  await page.waitForTimeout(700);
+  await shot(page, 'acc-step4-picker-searched');
+
+  const row = picker.locator('button').filter({ hasText: new RegExp(sku, 'i') }).first();
+  if (!(await row.isVisible().catch(() => false))) return { ok: false, why: `SKU ${sku} not in picker` };
+  await row.click();
+  await page.waitForTimeout(1000);
+  await shot(page, 'acc-step5-accessory-sale-modal');
+
+  const m = modal(page);
+  await m.getByRole('button', { name: new RegExp(`^${MP_LABEL[marketplace]}$`, 'i') }).first()
+    .click({ timeout: 5000 }).catch(() => {});
+  await page.waitForTimeout(300);
+  await m.locator(`input[placeholder="${ORDER_PLACEHOLDER[marketplace]}"]`).first().fill(order).catch(() => {});
+  // Quantity: the +/- steppers are icon-only buttons with no text, so drive
+  // the number input between them. min="1" distinguishes it from the Sale
+  // Price box (which carries placeholder="0.00").
+  await m.locator('input[type="number"][min="1"]').first().fill(String(quantity)).catch(() => {});
+  await page.waitForTimeout(300);
+  await m.locator('input[placeholder="0.00"]').first().fill(String(sp)).catch(() => {});
+  await page.waitForTimeout(600);
+  await shot(page, 'acc-step6-filled-with-pl-breakdown');
+  return { ok: true };
+}
+
+/** Bulk "Mark Multiple Sold" — one office unit + one accessory line in a
+ *  single batch, the mixed case recordBulkSales() exists for. */
+async function bulkSale(page, { unitSearch, accessorySku, marketplace, order, sp, accSp }) {
+  await gotoSellTab(page);
+  await page.getByRole('button', { name: /Mark Multiple Sold/i }).click({ timeout: 8000 });
+  await page.waitForTimeout(900);
+  await shot(page, 'bulk-step1-empty-batch');
+
+  const addLine = async (scope, search) => {
+    const m = modal(page);
+    await m.getByRole('button', { name: /^Add Sale$/i }).click({ timeout: 6000 });
+    await page.waitForTimeout(600);
+    const picker = page.locator('div.fixed.inset-0').last();
+    if (scope !== 'office') {
+      await picker.getByRole('button', { name: new RegExp(`^${scope === 'shs' ? 'SHS' : 'Accessories'}\\s*·`, 'i') })
+        .click({ timeout: 6000 }).catch(() => {});
+      await page.waitForTimeout(500);
+    }
+    await picker.locator('input[placeholder*="Search by" i]').first().fill(search).catch(() => {});
+    await page.waitForTimeout(700);
+    const row = picker.locator('button').filter({ hasText: new RegExp(search, 'i') }).first();
+    await row.click({ timeout: 6000 }).catch(() => {});
+    await page.waitForTimeout(900);
+  };
+
+  await addLine('office', unitSearch);
+  await shot(page, 'bulk-step2-office-line-added');
+  await addLine('accessory', accessorySku);
+  await shot(page, 'bulk-step3-accessory-line-added');
+
+  // Fill every line's platform / order / price.
+  const m = modal(page);
+  const platformBtns = m.getByRole('button', { name: new RegExp(`^${MP_LABEL[marketplace]}$`, 'i') });
+  const n = await platformBtns.count();
+  for (let i = 0; i < n; i++) await platformBtns.nth(i).click().catch(() => {});
+  await page.waitForTimeout(300);
+  // BulkSaleModal prefixes its order-number sample with "e.g. " (unlike
+  // SellOrderModal, which uses the bare sample), and keeps that placeholder
+  // regardless of the platform picked. Match the prefix — an exact match on
+  // the SellOrderModal form leaves Order Number empty and the only symptom
+  // is a disabled "Confirm N Sales". The SKU box next to it reads
+  // "Optional", so this prefix hits order-number inputs only.
+  const orderBoxes = m.locator('input[placeholder^="e.g."]');
+  const on = await orderBoxes.count();
+  for (let i = 0; i < on; i++) await orderBoxes.nth(i).fill(`${order}-${i + 1}`).catch(() => {});
+  const priceBoxes = m.locator('input[placeholder="0.00"]');
+  const pn = await priceBoxes.count();
+  for (let i = 0; i < pn; i++) await priceBoxes.nth(i).fill(String(i === 0 ? sp : accSp)).catch(() => {});
+  await page.waitForTimeout(600);
+  await shot(page, 'bulk-step4-both-lines-filled');
+
+  const confirm = m.getByRole('button', { name: /Confirm \d+ Sales?/i }).last();
+  if (!(await confirm.isEnabled().catch(() => false))) {
+    return { ok: false, why: (await confirm.textContent().catch(() => '')) + ' disabled' };
+  }
+  await confirm.click();
+  await page.waitForTimeout(2500);
+  await shot(page, 'bulk-step5-batch-result');
+  await dismissModals(page);
+  return { ok: true };
+}
+
+/** Full return journey: pick the sold unit → QC notes → CRM queue →
+ *  finalise with an outcome. Screenshots every stage. */
+async function processReturn(page, { imei, returnType, reason, tag }) {
+  await gotoTab(page, 'Returns');
+  await shot(page, `ret-${tag}-step1-returns-screen`);
+  await page.getByRole('button', { name: /^Process Return$/i }).click({ timeout: 8000 });
+  await page.waitForTimeout(700);
+  const picker = modal(page);
+  await picker.locator('input[placeholder*="Search by model" i]').first().fill(imei).catch(() => {});
+  await page.waitForTimeout(600);
+  await shot(page, `ret-${tag}-step2-pick-sold-unit`);
+  const row = picker.locator('button').filter({ hasText: new RegExp(imei) }).first();
+  if (!(await row.isVisible().catch(() => false))) return { ok: false, why: `IMEI ${imei} not returnable` };
+  await row.click();
+  await page.waitForTimeout(900);
+
+  const qc = modal(page);
+  await qc.locator('textarea').nth(0).fill('Customer reports it stopped charging.').catch(() => {});
+  await qc.locator('textarea').nth(1).fill('QC: fault confirmed on bench, cosmetics clean.').catch(() => {});
+  await page.waitForTimeout(400);
+  await shot(page, `ret-${tag}-step3-qc-notes`);
+  await qc.getByRole('button', { name: /Send to CRM Queue/i }).click({ timeout: 6000 });
+  await page.waitForTimeout(1200);
+  await dismissModals(page);
+
+  await gotoTab(page, 'Returns');
+  await shot(page, `ret-${tag}-step4-crm-queue`);
+  await page.getByRole('button', { name: /^Finalise$/i }).first().click({ timeout: 8000 });
+  await page.waitForTimeout(700);
+  const crm = modal(page);
+  await crm.getByText(returnType, { exact: false }).first().click().catch(() => {});
+  await page.waitForTimeout(300);
+  await crm.locator('input[placeholder*="Customer changed mind" i]').first().fill(reason).catch(() => {});
+  await page.waitForTimeout(400);
+  await shot(page, `ret-${tag}-step5-finalise-form`);
+  await crm.getByRole('button', { name: /Finalise Return/i }).click({ timeout: 6000 });
+  await page.waitForTimeout(1500);
+  await dismissModals(page);
+  await shot(page, `ret-${tag}-step6-after-finalise`);
+  return { ok: true };
+}
+
 // ── Main ────────────────────────────────────────────────────────────────────
 async function run() {
   const browsersRoot = process.env.PLAYWRIGHT_BROWSERS_PATH || '/opt/pw-browsers';
@@ -469,14 +622,60 @@ async function run() {
     } else record('SHS sale with IMEI stamped at sale time', false, r.why);
   } catch (e) { record('SHS sale with IMEI stamped at sale time', false, String(e).slice(0, 120)); await dismissModals(page); }
 
+  // ── Accessory sale — the no-IMEI pool counterpart ──
+  console.log('\n── Marking an ACCESSORY sold ──');
+  const ACC_SALE = { sku: 'USB-C-20W', marketplace: 'AMAZON', order: 'AMZ-NI-5001', quantity: 3, sp: 45 };
+  const poolBefore = docsOf(await dumpStore(page), 'accessoryStock').find(p => p.sku === ACC_SALE.sku);
+  try {
+    const r = await sellAccessory(page, ACC_SALE);
+    if (r.ok) {
+      const c = await confirmSale(page);
+      record(`Accessory sale · ${ACC_SALE.quantity}× ${ACC_SALE.sku} on ${ACC_SALE.marketplace} £${ACC_SALE.sp}`,
+        c.ok, c.why || '');
+    } else record(`Accessory sale · ${ACC_SALE.sku}`, false, r.why);
+  } catch (e) { record(`Accessory sale · ${ACC_SALE.sku}`, false, String(e).slice(0, 120)); await dismissModals(page); }
+  await shot(page, 'acc-step7-after-accessory-sale');
+
+  {
+    const st = await dumpStore(page);
+    const poolAfter = docsOf(st, 'accessoryStock').find(p => p.sku === ACC_SALE.sku);
+    record('Accessory pool decremented by the sold quantity',
+      poolAfter && poolBefore && (poolBefore.quantity - poolAfter.quantity) === ACC_SALE.quantity,
+      `${poolBefore?.quantity} → ${poolAfter?.quantity}`);
+    const accSale = docsOf(st, 'sales').find(s => s.sku === ACC_SALE.sku && !(s.imei || '').trim());
+    record('Accessory sale doc carries quantity and no IMEI',
+      !!accSale && accSale.quantity === ACC_SALE.quantity && !(accSale.imei || '').trim(),
+      accSale ? `qty=${accSale.quantity} imei="${accSale.imei || ''}" bp=${accSale.buyPrice}` : 'no doc');
+    // BP must be the pool cost × quantity — the line-total convention.
+    record('Accessory BP = pool buy price × quantity',
+      !!accSale && Math.abs(accSale.buyPrice - (poolBefore.buyPrice * ACC_SALE.quantity)) < 0.01,
+      accSale ? `${accSale.buyPrice} vs ${poolBefore.buyPrice} × ${ACC_SALE.quantity}` : '');
+    const ledger = docsOf(st, 'accessoryStockEvents').filter(e => e.type === 'sale');
+    record('Accessory stock ledger recorded the sale',
+      ledger.length >= 1, `${ledger.length} sale events`);
+  }
+
+  // ── Bulk sale — office + accessory in one batch ──
+  console.log('\n── Bulk sale (office + accessory in one batch) ──');
+  try {
+    const r = await bulkSale(page, {
+      unitSearch: OFFICE[3].imei, accessorySku: 'CASE-CLR',
+      marketplace: 'TEMU', order: 'TEMU-NI-6001', sp: 330, accSp: 24,
+    });
+    record('Bulk sale confirms an office unit + an accessory line together', r.ok, r.why || '');
+  } catch (e) { record('Bulk sale confirms an office unit + an accessory line together', false, String(e).slice(0, 120)); await dismissModals(page); }
+
   await shot(page, 'phase4-after-all-sales');
   store = await dumpStore(page);
   const sales = docsOf(store, 'sales');
   record('Sale docs written for every completed sale', sales.length >= 3, `${sales.length} sale docs`);
 
+  // Accessory sales have no inventory unit by design, so compare unit-backed
+  // sales only.
+  const unitSales = sales.filter(s => (s.imei || '').trim());
   const soldUnits = docsOf(store, 'inventoryUnits').filter(u => u.status === 'sold');
-  record('Sold units flipped to status=sold', soldUnits.length === sales.length,
-    `${soldUnits.length} sold units vs ${sales.length} sales`);
+  record('Sold units flipped to status=sold', soldUnits.length === unitSales.length,
+    `${soldUnits.length} sold units vs ${unitSales.length} unit-backed sales (${sales.length} sales total)`);
   record('Sold units carry stockSource provenance',
     soldUnits.length > 0 && soldUnits.every(u => u.stockSource === 'office' || u.stockSource === 'shs'),
     soldUnits.map(u => `${u.stockSource}`).join(','));
@@ -493,6 +692,27 @@ async function run() {
     const pctOk = Math.abs((s.gpPercent ?? 0) - truth.gpPct) <= 0.05;
     record(`GP matches master formula · ${s.marketplace} ${s.orderNumber}`, gpOk && pctOk,
       `app £${s.grossProfit}/${s.gpPercent}%  truth £${truth.gp}/${truth.gpPct}%  (bp ${s.buyPrice} sp ${s.salePrice} post ${s.postage})`);
+  }
+
+  // ══ PHASE 6 · RETURNS ════════════════════════════════════════════════════
+  console.log('\n══ PHASE 6 · Returns through the CRM queue ══');
+  const returnsBefore = docsOf(await dumpStore(page), 'sales').filter(s => s.voidedAt).length;
+  try {
+    const r = await processReturn(page, {
+      imei: OFFICE[0].imei, returnType: 'Back to Inventory',
+      reason: 'Refund — battery health below 85%', tag: 'refund',
+    });
+    record('Return processed end to end (pick → QC → CRM queue → finalise)', r.ok, r.why || OFFICE[0].imei);
+  } catch (e) { record('Return processed end to end (pick → QC → CRM queue → finalise)', false, String(e).slice(0, 140)); await dismissModals(page); }
+
+  {
+    const st = await dumpStore(page);
+    const voided = docsOf(st, 'sales').filter(s => s.voidedAt);
+    record('Return voids the originating sale doc', voided.length > returnsBefore,
+      `${voided.length} voided sales`);
+    const u = docsOf(st, 'inventoryUnits').find(x => (x.imei || '') === OFFICE[0].imei);
+    record('Returned unit left status=sold behind', !!u && u.status !== 'sold',
+      u ? `status=${u.status} returnType=${u.returnType || '—'}` : 'unit missing');
   }
 
   // ══ PHASE 7 · REPORTS ════════════════════════════════════════════════════
@@ -528,21 +748,60 @@ async function run() {
     const officeRows = sheetRows(/office/i);
     const shsRows = sheetRows(/shs/i);
     const accRows = sheetRows(/accessor/i);
-    record('Inventory Report Office sheet = the 2 units still on the shelf',
+    // Office maths: 5 in by hand − 3 sold single − 1 sold in the bulk batch
+    // = 1 still on the shelf, PLUS the refunded unit that Phase 6 sent Back
+    // to Inventory, which is genuinely sellable stock again = 2.
+    record('Inventory Report Office sheet = unsold shelf stock + the returned unit',
       officeRows === 2, `${officeRows} data rows`);
     record('Inventory Report SHS sheet = the 2 holdings still open',
       shsRows === 2, `${shsRows} data rows`);
     record('Inventory Report Accessories sheet lists both SKU pools',
       accRows === 2, `${accRows} data rows`);
 
-    // The sold units must NOT appear as available stock.
     const officeSheet = wb.worksheets.find(w => /office/i.test(w.name));
     const officeText = JSON.stringify(officeSheet ? officeSheet.getSheetValues() : []);
-    const soldImeis = SINGLE_SALES.map(s => s.imei);
-    record('Sold IMEIs are absent from the Office stock sheet',
-      soldImeis.every(i => !officeText.includes(i)),
-      soldImeis.filter(i => officeText.includes(i)).join(',') || 'none present');
+    // Units still sold must NOT appear as available stock…
+    const stillSold = [OFFICE[1].imei, OFFICE[2].imei];
+    record('Still-sold IMEIs are absent from the Office stock sheet',
+      stillSold.every(i => !officeText.includes(i)),
+      stillSold.filter(i => officeText.includes(i)).join(',') || 'none present');
+    // …but the Back-to-Inventory unit must be back ON it.
+    record('Refunded unit is back on the Office stock sheet',
+      officeText.includes(OFFICE[0].imei), OFFICE[0].imei);
   } catch (e) { record('Inventory Report download', false, String(e).slice(0, 140)); }
+
+  // Sales Report — the accessory line must appear BOTH on its marketplace
+  // tab (interleaved with phone sales) and on the cross-marketplace
+  // Accessories sheet.
+  try {
+    await gotoSellTab(page);
+    await page.getByRole('button', { name: /^SALES REPORT$/i }).first().click();
+    await page.waitForTimeout(1200);
+    await shot(page, 'phase7-sales-report-menu');
+    const [dl2] = await Promise.all([
+      page.waitForEvent('download', { timeout: 40000 }),
+      page.getByRole('menuitem', { name: /^All Time$/i }).first().click()
+        .catch(async () => { await page.getByText(/^All Time$/i).first().click(); }),
+    ]);
+    const wb2 = new ExcelJS.Workbook();
+    await wb2.xlsx.readFile(await dl2.path());
+    const names2 = wb2.worksheets.map(w => w.name);
+    record('Sales Report has a tab per marketplace + an Accessories sheet',
+      ['AMAZON', 'BM', 'EBAY', 'ONBUY', 'TEMU'].every(n => names2.includes(n)) && names2.includes('Accessories'),
+      names2.join(', '));
+
+    const sheetText = n => {
+      const ws = wb2.worksheets.find(w => w.name === n);
+      return ws ? JSON.stringify(ws.getSheetValues()) : '';
+    };
+    record('Accessory sale appears on its own marketplace tab (AMAZON)',
+      sheetText('AMAZON').includes('USB-C-20W'), 'searched AMAZON sheet for USB-C-20W');
+    record('Accessory sale also appears on the cross-marketplace Accessories sheet',
+      sheetText('Accessories').includes('USB-C-20W'), 'searched Accessories sheet');
+    record('Sales Report carries the Returns sheets',
+      names2.some(n => /returns summary/i.test(n)) && names2.some(n => /returns detail/i.test(n)),
+      names2.filter(n => /return/i.test(n)).join(', '));
+  } catch (e) { record('Sales Report download', false, String(e).slice(0, 140)); }
 
   await shot(page, 'phase7-reports');
 

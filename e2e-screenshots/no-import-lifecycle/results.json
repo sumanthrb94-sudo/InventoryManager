@@ -1,6 +1,6 @@
 {
-  "passed": 31,
-  "total": 31,
+  "passed": 48,
+  "total": 48,
   "results": [
     {
       "name": "Wipe clears units / sales / accessories / suppliers / aggregates",
@@ -93,19 +93,49 @@
       "detail": "350111000000060"
     },
     {
+      "name": "Accessory sale · 3× USB-C-20W on AMAZON £45",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "Accessory pool decremented by the sold quantity",
+      "ok": true,
+      "detail": "50 → 47"
+    },
+    {
+      "name": "Accessory sale doc carries quantity and no IMEI",
+      "ok": true,
+      "detail": "qty=3 imei=\"\" bp=10.5"
+    },
+    {
+      "name": "Accessory BP = pool buy price × quantity",
+      "ok": true,
+      "detail": "10.5 vs 3.5 × 3"
+    },
+    {
+      "name": "Accessory stock ledger recorded the sale",
+      "ok": true,
+      "detail": "1 sale events"
+    },
+    {
+      "name": "Bulk sale confirms an office unit + an accessory line together",
+      "ok": true,
+      "detail": ""
+    },
+    {
       "name": "Sale docs written for every completed sale",
       "ok": true,
-      "detail": "4 sale docs"
+      "detail": "7 sale docs"
     },
     {
       "name": "Sold units flipped to status=sold",
       "ok": true,
-      "detail": "4 sold units vs 4 sales"
+      "detail": "5 sold units vs 5 unit-backed sales (7 sales total)"
     },
     {
       "name": "Sold units carry stockSource provenance",
       "ok": true,
-      "detail": "office,office,office,shs"
+      "detail": "office,office,office,office,shs"
     },
     {
       "name": "SHS unit sold in-app learned its IMEI",
@@ -133,12 +163,42 @@
       "detail": "app £22.82/6.71%  truth £22.82/6.71%  (bp 340 sp 420 post 6.3)"
     },
     {
+      "name": "GP matches master formula · AMAZON AMZ-NI-5001",
+      "ok": true,
+      "detail": "app £16.33/155.55%  truth £16.33/155.55%  (bp 10.5 sp 45 post 6.3)"
+    },
+    {
+      "name": "GP matches master formula · TEMU TEMU-NI-6001-1",
+      "ok": true,
+      "detail": "app £-10.83/-3.55%  truth £-10.83/-3.55%  (bp 305 sp 330 post 6.3)"
+    },
+    {
+      "name": "GP matches master formula · TEMU TEMU-NI-6001-2",
+      "ok": true,
+      "detail": "app £8.76/729.94%  truth £8.76/729.94%  (bp 1.2 sp 24 post 6.3)"
+    },
+    {
+      "name": "Return processed end to end (pick → QC → CRM queue → finalise)",
+      "ok": true,
+      "detail": "350111000000011"
+    },
+    {
+      "name": "Return voids the originating sale doc",
+      "ok": true,
+      "detail": "1 voided sales"
+    },
+    {
+      "name": "Returned unit left status=sold behind",
+      "ok": true,
+      "detail": "status=available returnType=returned_to_inventory"
+    },
+    {
       "name": "Inventory Report downloads with Office / SHS / Accessories sheets",
       "ok": true,
       "detail": "Office Stock, SHS Stock, Accessories"
     },
     {
-      "name": "Inventory Report Office sheet = the 2 units still on the shelf",
+      "name": "Inventory Report Office sheet = unsold shelf stock + the returned unit",
       "ok": true,
       "detail": "2 data rows"
     },
@@ -153,9 +213,34 @@
       "detail": "2 data rows"
     },
     {
-      "name": "Sold IMEIs are absent from the Office stock sheet",
+      "name": "Still-sold IMEIs are absent from the Office stock sheet",
       "ok": true,
       "detail": "none present"
+    },
+    {
+      "name": "Refunded unit is back on the Office stock sheet",
+      "ok": true,
+      "detail": "350111000000011"
+    },
+    {
+      "name": "Sales Report has a tab per marketplace + an Accessories sheet",
+      "ok": true,
+      "detail": "Summary, AMAZON, BM, EBAY, ONBUY, TEMU, Accessories, Returns Summary, Returns Detail, Unit Histories"
+    },
+    {
+      "name": "Accessory sale appears on its own marketplace tab (AMAZON)",
+      "ok": true,
+      "detail": "searched AMAZON sheet for USB-C-20W"
+    },
+    {
+      "name": "Accessory sale also appears on the cross-marketplace Accessories sheet",
+      "ok": true,
+      "detail": "searched Accessories sheet"
+    },
+    {
+      "name": "Sales Report carries the Returns sheets",
+      "ok": true,
+      "detail": "Returns Summary, Returns Detail"
     }
   ]
 }
