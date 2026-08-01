@@ -371,11 +371,18 @@ export function buildPreview(
       : '';
     const supplierName = (matched?.supplierName || s.supplierName || '').trim();
     const buyPrice = matched?.buyPrice ?? s.buyPrice ?? 0;
-    const colour = matched?.colour && matched.colour !== 'Unknown' ? matched.colour : '';
-    // Storage now has a fallback: step 1 lifted it off the SKU, so an ORPHAN
-    // row (no matched unit) no longer arrives with the storage blank just
-    // because nothing in inventory could supply it.
-    const storage = matched?.storage || parsedSeed.storage || '';
+    // Colour / storage precedence: the matched unit, then whatever the FILE
+    // carried. Our own export writes Storage + Colour onto the marketplace
+    // tabs from 2026-08, so a report exported from this app and re-imported
+    // restores both without the operator retyping them — the round trip is
+    // self-healing. Older files simply don't have the columns and fall
+    // through exactly as before.
+    const colour = (matched?.colour && matched.colour !== 'Unknown' ? matched.colour : '')
+      || (s.colour || '').trim();
+    // Storage also has a SKU fallback: step 1 lifted it off the SKU, so an
+    // ORPHAN row (no matched unit) no longer arrives with the storage blank
+    // just because nothing in inventory could supply it.
+    const storage = matched?.storage || (s.storage || '').trim() || parsedSeed.storage || '';
     const simType = matched?.simType || '';
 
     const missing = auditRowMissing({

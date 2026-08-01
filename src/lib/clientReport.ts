@@ -338,6 +338,10 @@ const SALES_HEADERS: Record<Marketplace, SalesHeaderRow> = {
     // having to subtract by eye. TOTAL row at the bottom of the tab
     // carries the SUM. Same column appears on BM / EBAY / ONBUY.
     'Net GP £',
+    // Buy-side identity, appended LAST on purpose — every GP / GP % /
+    // TOTAL formula on these tabs references hard column letters, so
+    // inserting mid-sheet would silently shift them. See writeSaleRow.
+    'Storage', 'Colour',
   ],
   BM: [
     'Date', 'Order Number', 'SKU', 'IMEI', 'Supplier', 'Quantity',
@@ -346,6 +350,7 @@ const SALES_HEADERS: Record<Marketplace, SalesHeaderRow> = {
     'GP', 'GP %', 'Total VAT NTP', 'Comments', 'Model',
     'Return Date', 'Outcome', 'Return Reason', 'Shipping Legs',
     'Postage Loss', 'Net GP £',
+    'Storage', 'Colour',
   ],
   EBAY: [
     'Date', 'Order Number', 'SKU', 'IMEI', 'Supplier', 'Units',
@@ -354,6 +359,7 @@ const SALES_HEADERS: Record<Marketplace, SalesHeaderRow> = {
     'Total VAT', 'GP', 'GP %', 'Total VAT NTP', 'Comments', 'Model',
     'Return Date', 'Outcome', 'Return Reason', 'Shipping Legs',
     'Postage Loss', 'Net GP £',
+    'Storage', 'Colour',
   ],
   ONBUY: [
     'Date', 'Order Number', 'SKU', 'IMEI', 'Supplier',
@@ -362,6 +368,7 @@ const SALES_HEADERS: Record<Marketplace, SalesHeaderRow> = {
     'Total VAT', 'GP', 'GP %', 'Total VAT NTP', 'Comments', 'Model',
     'Return Date', 'Outcome', 'Return Reason', 'Shipping Legs',
     'Postage Loss', 'Net GP £',
+    'Storage', 'Colour',
   ],
   // TEMU (added 2026-07, corrected against the client's final Temu export
   // TEMU_FORMULA.csv): its own layout, not Amazon's. No DSF / DSF VAT —
@@ -378,6 +385,10 @@ const SALES_HEADERS: Record<Marketplace, SalesHeaderRow> = {
     'Return Date', 'Outcome', 'Return Reason', 'Shipping Legs',
     'Postage Loss',
     'Net GP £',
+    // Buy-side identity, appended LAST on purpose — every GP / GP % /
+    // TOTAL formula on these tabs references hard column letters, so
+    // inserting mid-sheet would silently shift them. See writeSaleRow.
+    'Storage', 'Colour',
   ],
 };
 
@@ -433,14 +444,28 @@ function returnBlockOffsets(marketplace: Marketplace): {
   postageLossCol: number;
   netGpCol: number;
 } {
-  const last = SALES_HEADERS[marketplace].length;
+  // Anchor on the header NAMES, not on distance from the end of the row.
+  //
+  // This used to read `last - 5` … `last`, which silently assumed the return
+  // block was always the final six columns. Appending Storage / Colour in
+  // 2026-08 shifted every one of them by two: the return block wrote into
+  // the new columns instead, and voided rows exported with a blank Outcome,
+  // blank Shipping Legs and no Postage Loss — so Net GP £ quietly equalled
+  // Gross GP on exactly the rows where the loss matters. Looking the columns
+  // up by name means the next column added can't reintroduce that.
+  const headers = SALES_HEADERS[marketplace] as readonly string[];
+  const col = (name: string): number => {
+    const i = headers.indexOf(name);
+    if (i < 0) throw new Error(`SALES_HEADERS[${marketplace}] is missing the "${name}" column`);
+    return i + 1;                                    // ExcelJS cells are 1-based
+  };
   return {
-    returnDateCol:  last - 5,
-    outcomeCol:     last - 4,
-    reasonCol:      last - 3,
-    legsCol:        last - 2,
-    postageLossCol: last - 1,
-    netGpCol:       last,
+    returnDateCol:  col('Return Date'),
+    outcomeCol:     col('Outcome'),
+    reasonCol:      col('Return Reason'),
+    legsCol:        col('Shipping Legs'),
+    postageLossCol: col('Postage Loss'),
+    netGpCol:       col('Net GP £'),
   };
 }
 
@@ -867,6 +892,28 @@ export async function buildSalesWorkbookBuffer(input: BuildSalesWorkbookInput): 
         || (sale.imei && unitsByImei.get((sale.imei || '').trim().toUpperCase())?.supplierName)
         || '';
       writeSaleRow(sheet, m, sale, rowNumber, resolvedSupplier);
+
+      // Storage + Colour — buy-side identity carried onto the sale row so a
+      // re-import can restore it. Written here rather than inside
+      // writeSaleRow because they are appended AFTER every formula column:
+      // setting them by header index keeps the five per-marketplace branches
+      // in writeSaleRow (and their hard-coded cell numbers) untouched.
+      //
+      // The point: a sale for an IMEI that was never in stock has nowhere
+      // else to get these from — the marketplace tabs historically carried
+      // neither, so every such unit landed on the Orphans list. Exporting
+      // them makes the round trip self-healing.
+      {
+        const headerList = SALES_HEADERS[m] as readonly string[];
+        const unitForAttrs =
+          (sale.unitId && unitsById.get(sale.unitId))
+          || (sale.imei && unitsByImei.get((sale.imei || '').trim().toUpperCase()))
+          || undefined;
+        const storageIdx = headerList.indexOf('Storage') + 1;
+        const colourIdx = headerList.indexOf('Colour') + 1;
+        if (storageIdx > 0) sheet.getRow(rowNumber).getCell(storageIdx).value = unitForAttrs?.storage ?? '';
+        if (colourIdx > 0) sheet.getRow(rowNumber).getCell(colourIdx).value = unitForAttrs?.colour ?? '';
+      }
       // Same red-fill visual signal as the ALL sheet — applied across
       // every cell in the row so the highlight covers the full width
       // even when the master schema includes blank/formula-only cells.

@@ -262,6 +262,11 @@ type ColKey =
   | 'quantity' | 'buyPrice' | 'salePrice'
   | 'paymentMode' | 'shipping' | 'netProfit'
   | 'postage' | 'comments'
+  // Buy-side identity, exported onto the marketplace tabs from 2026-08 so a
+  // re-import can restore it. Absent from every older file — the parser
+  // treats them as optional and simply doesn't populate them, which is the
+  // pre-existing behaviour for those files anyway.
+  | 'storage' | 'colour'
   // Temu only — its export reports the real per-order commission (and the
   // VAT Temu charged on that commission) directly, since Temu's referral
   // rate varies by category and can't be modelled as one flat percentage
@@ -339,6 +344,8 @@ export const SHEET_LAYOUTS: Record<Marketplace, SheetLayout> = {
       returnDate:  ['return date'],
       voidOutcome: ['outcome'],
       voidReason:  ['return reason'],
+      storage:     ['storage'],
+      colour:      ['colour', 'color'],
     },
     fallback: {
       date: 0, orderNumber: 1, sku: 2, imei: 3, supplier: 4,
@@ -372,6 +379,8 @@ export const SHEET_LAYOUTS: Record<Marketplace, SheetLayout> = {
       returnDate:  ['return date'],
       voidOutcome: ['outcome'],
       voidReason:  ['return reason'],
+      storage:     ['storage'],
+      colour:      ['colour', 'color'],
     },
     fallback: {
       date: 0, orderNumber: 1, sku: 2, imei: 3, supplier: 4,
@@ -400,6 +409,8 @@ export const SHEET_LAYOUTS: Record<Marketplace, SheetLayout> = {
       returnDate:  ['return date'],
       voidOutcome: ['outcome'],
       voidReason:  ['return reason'],
+      storage:     ['storage'],
+      colour:      ['colour', 'color'],
     },
     fallback: {
       date: 0, orderNumber: 1, sku: 2, imei: 3, supplier: 4,
@@ -425,6 +436,8 @@ export const SHEET_LAYOUTS: Record<Marketplace, SheetLayout> = {
       returnDate:  ['return date'],
       voidOutcome: ['outcome'],
       voidReason:  ['return reason'],
+      storage:     ['storage'],
+      colour:      ['colour', 'color'],
     },
     fallback: {
       date: 0, orderNumber: 1, sku: 2, imei: 3, supplier: 4,
@@ -463,6 +476,8 @@ export const SHEET_LAYOUTS: Record<Marketplace, SheetLayout> = {
       returnDate:   ['return date'],
       voidOutcome:  ['outcome'],
       voidReason:   ['return reason'],
+      storage:      ['storage'],
+      colour:       ['colour', 'color'],
     },
     fallback: {
       date: 0, orderNumber: 1, sku: 2, imei: 3, supplier: 4,
@@ -860,6 +875,11 @@ function parseRow(
     paymentMode,
     ...fin,
     comments,
+    // Buy-side identity, when the file carries it (our own export does from
+    // 2026-08). Only set when non-empty so an older file leaves them absent
+    // rather than writing empty strings over anything downstream.
+    ...(toNonEmptyString(get('storage')) ? { storage: toNonEmptyString(get('storage')) } : {}),
+    ...(toNonEmptyString(get('colour')) ? { colour: toNonEmptyString(get('colour')) } : {}),
     sourceFile,
     sourceRow,
     ...(restoredVoidedAt ? {

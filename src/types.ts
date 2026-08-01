@@ -306,6 +306,13 @@ export interface Sale {
   orderNumber: string;
   sku?: string;
   model?: string;                // manually reconciled model name for unlinked sales
+  // Buy-side identity carried on the sale row so an export → re-import round
+  // trip can restore it. The marketplace tabs gained Storage / Colour columns
+  // in 2026-08; before that a sale for an IMEI never held in stock had no way
+  // to supply either, and every such unit landed on the Orphans list.
+  // Absent on older rows — always treat as optional.
+  storage?: string;
+  colour?: string;
   imei?: string;                 // alphanumeric allowed, may be empty
   unitId?: string;               // link to inventoryUnits when matched
   supplierId?: string;
