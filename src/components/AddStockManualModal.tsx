@@ -905,6 +905,31 @@ function Row({
               // blank-brand "APPLE IPHONE 12" rows. Split it properly on the
               // way in, using the same helper that repairs the old rows.
               const entry = normaliseCatalogEntry({ brand: draft.brand, model: draft.model });
+
+              // Reuse an existing catalog row for the same device instead of
+              // minting a second one. The "+ Add" pill only appears when the
+              // SEARCH found nothing, which is not the same as "the catalog
+              // has nothing" — normaliseCatalogEntry drops the capacity, so
+              // "IPHONE 14 128GB" is stored as Apple / iPhone 14 and the next
+              // identical typing no longer matches its own entry. Without
+              // this guard, hand-building a catalog (the only way to build
+              // one when the import path isn't used) minted one duplicate
+              // doc per intake row.
+              const existing = models.find(m =>
+                (m.brand || '').trim().toLowerCase() === entry.brand.trim().toLowerCase()
+                && (m.model || '').trim().toLowerCase() === entry.model.trim().toLowerCase());
+              if (existing) {
+                return {
+                  brand: existing.brand || entry.brand,
+                  model: existing.model || entry.model,
+                  count: 0,
+                  latestDateIn: '',
+                  storages: [],
+                  colours: [],
+                  source: 'seed' as const,
+                };
+              }
+
               await dbService.create('models', id, {
                 brand: entry.brand,
                 model: entry.model,

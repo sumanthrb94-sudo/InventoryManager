@@ -1,0 +1,161 @@
+{
+  "passed": 31,
+  "total": 31,
+  "results": [
+    {
+      "name": "Wipe clears units / sales / accessories / suppliers / aggregates",
+      "ok": true,
+      "detail": "units=0 sales=0 acc=0"
+    },
+    {
+      "name": "Add Stock → Office accepts 5 hand-typed units",
+      "ok": true,
+      "detail": "Save 5  units"
+    },
+    {
+      "name": "5 office units written with status=available",
+      "ok": true,
+      "detail": "got 5"
+    },
+    {
+      "name": "Device catalog built by hand from the picker",
+      "ok": true,
+      "detail": "2 models"
+    },
+    {
+      "name": "Device catalog holds no duplicate entries",
+      "ok": true,
+      "detail": "2 docs / 2 distinct → Apple·iPhone 14·? | Apple·iPhone 13·?"
+    },
+    {
+      "name": "Supplier auto-created from the typed name",
+      "ok": true,
+      "detail": "MOBILE WHOLESALE LTD"
+    },
+    {
+      "name": "Add Stock → SHS accepts 3 units with no IMEI",
+      "ok": true,
+      "detail": "Save 3 SHS units"
+    },
+    {
+      "name": "3 SHS units written as incoming with no IMEI",
+      "ok": true,
+      "detail": "got 3"
+    },
+    {
+      "name": "SHS units carry stockSource=shs",
+      "ok": true,
+      "detail": "shs,shs,shs"
+    },
+    {
+      "name": "Add Stock → Accessories accepts 2 SKU pools",
+      "ok": true,
+      "detail": "Save 2 accessory lines"
+    },
+    {
+      "name": "2 accessory pools created with the typed quantities",
+      "ok": true,
+      "detail": "USB-C-20W:50 CASE-CLR:30"
+    },
+    {
+      "name": "Buy KPI \"ALL OFFICE STOCK\" reads 5",
+      "ok": true,
+      "detail": "got 5"
+    },
+    {
+      "name": "Buy KPI \"SHS STOCK\" reads 3",
+      "ok": true,
+      "detail": "got 3"
+    },
+    {
+      "name": "Buy KPI \"ACCESSORY SKUS\" reads 2",
+      "ok": true,
+      "detail": "got 2"
+    },
+    {
+      "name": "Sell 350111000000011 on AMAZON £450",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "Sell 350111000000029 on EBAY £460",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "Sell 350111000000037 on BM £400",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "SHS sale on ONBUY with IMEI stamped at sale time",
+      "ok": true,
+      "detail": "350111000000060"
+    },
+    {
+      "name": "Sale docs written for every completed sale",
+      "ok": true,
+      "detail": "4 sale docs"
+    },
+    {
+      "name": "Sold units flipped to status=sold",
+      "ok": true,
+      "detail": "4 sold units vs 4 sales"
+    },
+    {
+      "name": "Sold units carry stockSource provenance",
+      "ok": true,
+      "detail": "office,office,office,shs"
+    },
+    {
+      "name": "SHS unit sold in-app learned its IMEI",
+      "ok": true,
+      "detail": "350111000000060"
+    },
+    {
+      "name": "GP matches master formula · AMAZON AMZ-NI-1001",
+      "ok": true,
+      "detail": "app £36.21/10.35%  truth £36.21/10.35%  (bp 350 sp 450 post 6.3)"
+    },
+    {
+      "name": "GP matches master formula · EBAY EB-NI-2001",
+      "ok": true,
+      "detail": "app £22.21/4.83%  truth £22.21/4.83%  (bp 355 sp 460 post 0)"
+    },
+    {
+      "name": "GP matches master formula · BM BM-NI-3001",
+      "ok": true,
+      "detail": "app £20.78/6.93%  truth £20.78/6.93%  (bp 300 sp 400 post 6.3)"
+    },
+    {
+      "name": "GP matches master formula · ONBUY OB-NI-4001",
+      "ok": true,
+      "detail": "app £22.82/6.71%  truth £22.82/6.71%  (bp 340 sp 420 post 6.3)"
+    },
+    {
+      "name": "Inventory Report downloads with Office / SHS / Accessories sheets",
+      "ok": true,
+      "detail": "Office Stock, SHS Stock, Accessories"
+    },
+    {
+      "name": "Inventory Report Office sheet = the 2 units still on the shelf",
+      "ok": true,
+      "detail": "2 data rows"
+    },
+    {
+      "name": "Inventory Report SHS sheet = the 2 holdings still open",
+      "ok": true,
+      "detail": "2 data rows"
+    },
+    {
+      "name": "Inventory Report Accessories sheet lists both SKU pools",
+      "ok": true,
+      "detail": "2 data rows"
+    },
+    {
+      "name": "Sold IMEIs are absent from the Office stock sheet",
+      "ok": true,
+      "detail": "none present"
+    }
+  ]
+}
