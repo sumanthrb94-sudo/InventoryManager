@@ -1,6 +1,6 @@
 {
-  "passed": 48,
-  "total": 48,
+  "passed": 66,
+  "total": 66,
   "results": [
     {
       "name": "Wipe clears units / sales / accessories / suppliers / aggregates",
@@ -8,14 +8,14 @@
       "detail": "units=0 sales=0 acc=0"
     },
     {
-      "name": "Add Stock → Office accepts 5 hand-typed units",
+      "name": "Add Stock → Office accepts 6 hand-typed units",
       "ok": true,
-      "detail": "Save 5  units"
+      "detail": "Save 6  units"
     },
     {
-      "name": "5 office units written with status=available",
+      "name": "6 office units written with status=available",
       "ok": true,
-      "detail": "got 5"
+      "detail": "got 6"
     },
     {
       "name": "Device catalog built by hand from the picker",
@@ -58,9 +58,9 @@
       "detail": "USB-C-20W:50 CASE-CLR:30"
     },
     {
-      "name": "Buy KPI \"ALL OFFICE STOCK\" reads 5",
+      "name": "Buy KPI \"ALL OFFICE STOCK\" reads 6",
       "ok": true,
-      "detail": "got 5"
+      "detail": "got 6"
     },
     {
       "name": "Buy KPI \"SHS STOCK\" reads 3",
@@ -188,9 +188,59 @@
       "detail": "1 voided sales"
     },
     {
-      "name": "Returned unit left status=sold behind",
+      "name": "Refunded unit went Back to Inventory (available again)",
       "ok": true,
       "detail": "status=available returnType=returned_to_inventory"
+    },
+    {
+      "name": "Repair return processed (Send for Repair)",
+      "ok": true,
+      "detail": "350111000000029"
+    },
+    {
+      "name": "Repaired unit carries returnType=repair and is not resaleable stock",
+      "ok": true,
+      "detail": "status=returned returnType=repair"
+    },
+    {
+      "name": "Repair stamps voidOutcome=repair on the sale (drives 2-leg postage loss)",
+      "ok": true,
+      "detail": "voidedAt=2026-08-01 outcome=repair"
+    },
+    {
+      "name": "Replacement return processed (with a replacement unit named)",
+      "ok": true,
+      "detail": "350111000000037"
+    },
+    {
+      "name": "Replacement stamps voidOutcome=replacement (drives 3-leg postage loss)",
+      "ok": true,
+      "detail": "voidedAt=2026-08-01 outcome=replacement"
+    },
+    {
+      "name": "Returned unit links to the replacement that shipped in its place",
+      "ok": true,
+      "detail": "replacedByUnitId=350111000000078"
+    },
+    {
+      "name": "Accessory return processed from the Accessory Stock panel",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "Accessory return puts the sold quantity back on the shelf",
+      "ok": true,
+      "detail": "47 → 50"
+    },
+    {
+      "name": "Accessory return voids its sale doc with an outcome",
+      "ok": true,
+      "detail": "voidedAt=2026-08-01 outcome=refund"
+    },
+    {
+      "name": "Accessory stock ledger recorded the return",
+      "ok": true,
+      "detail": "1 return events"
     },
     {
       "name": "Inventory Report downloads with Office / SHS / Accessories sheets",
@@ -198,14 +248,14 @@
       "detail": "Office Stock, SHS Stock, Accessories"
     },
     {
-      "name": "Inventory Report Office sheet = unsold shelf stock + the returned unit",
+      "name": "Inventory Report Office sheet matches live available stock",
       "ok": true,
-      "detail": "2 data rows"
+      "detail": "report 3 vs store 3"
     },
     {
-      "name": "Inventory Report SHS sheet = the 2 holdings still open",
+      "name": "Inventory Report SHS sheet matches live incoming holdings",
       "ok": true,
-      "detail": "2 data rows"
+      "detail": "report 2 vs store 2"
     },
     {
       "name": "Inventory Report Accessories sheet lists both SKU pools",
@@ -213,9 +263,14 @@
       "detail": "2 data rows"
     },
     {
-      "name": "Still-sold IMEIs are absent from the Office stock sheet",
+      "name": "Still-sold IMEI is absent from the Office stock sheet",
       "ok": true,
-      "detail": "none present"
+      "detail": "350111000000045"
+    },
+    {
+      "name": "In-repair unit is absent from the Office stock sheet",
+      "ok": true,
+      "detail": "350111000000029"
     },
     {
       "name": "Refunded unit is back on the Office stock sheet",
@@ -241,6 +296,41 @@
       "name": "Sales Report carries the Returns sheets",
       "ok": true,
       "detail": "Returns Summary, Returns Detail"
+    },
+    {
+      "name": "Returns Detail carries the refunded unit",
+      "ok": true,
+      "detail": "350111000000011"
+    },
+    {
+      "name": "Returns Detail carries the repaired unit",
+      "ok": true,
+      "detail": "350111000000029"
+    },
+    {
+      "name": "Returns Detail carries the replaced unit",
+      "ok": true,
+      "detail": "350111000000037"
+    },
+    {
+      "name": "Returns Detail carries the accessory return (no unit, no IMEI)",
+      "ok": true,
+      "detail": "searched Model column for the accessory name"
+    },
+    {
+      "name": "Returns Detail tags the accessory row as Return Type = Accessory",
+      "ok": true,
+      "detail": "Return Type column"
+    },
+    {
+      "name": "Returns Detail records a Repair outcome",
+      "ok": true,
+      "detail": "outcome vocabulary present"
+    },
+    {
+      "name": "Returns Detail records a Replacement outcome",
+      "ok": true,
+      "detail": "outcome vocabulary present"
     }
   ]
 }

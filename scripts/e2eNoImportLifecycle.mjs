@@ -9,20 +9,35 @@
  *
  *   0. Wipe every collection      (Stock Intake → Wipe → Wipe All)
  *   1. Build the device catalog   (Add Stock → picker → "add to catalog")
- *   2. Manual intake              (Office ×5, SHS ×3, Accessories ×2 SKUs)
+ *   2. Manual intake              (Office ×6, SHS ×3, Accessories ×2 SKUs)
  *   3. Verify intake surfaces     (Buy KPIs, stock table, accessory tile)
  *   4. Sell                       (3 single office sales on 3 marketplaces,
  *                                  1 SHS sale with the IMEI stamped at sale
- *                                  time, 1 bulk sale mixing office + SHS +
- *                                  accessory)
+ *                                  time, 1 accessory sale through the
+ *                                  Accessories scope of the picker, and a
+ *                                  bulk batch mixing office + accessory)
  *   5. Verify the money           (every stored GP recomputed independently
  *                                  in THIS file from the master formulas —
  *                                  deliberately not importing platforms.ts,
  *                                  so an app-side bug cannot verify itself)
- *   6. Returns                    (refund / repair through the CRM queue)
+ *   6. Returns                    (all four routes: refund → Back to
+ *                                  Inventory, repair, replacement with a
+ *                                  like-for-like unit named, and an
+ *                                  accessory return off the stock panel)
  *   7. Reports                    (download Sales + Inventory Report, parse
- *                                  with ExcelJS, check tabs / rows / totals)
+ *                                  with ExcelJS, check tabs / rows / totals
+ *                                  and that all four returns reach Returns
+ *                                  Detail with the right outcomes)
  *   8. Component sweep            (screenshot every surface)
+ *
+ * Two things the app enforces that the fixtures have to respect, both found
+ * the hard way:
+ *   - A replacement needs LIKE-FOR-LIKE stock (same brand + model + storage)
+ *     available, or ReturnsPage refuses to finalise. OFFICE[5] is held back
+ *     unsold for exactly this.
+ *   - The accessory Return action must be scoped to its own table row; a
+ *     bare first() opens whichever pool sorts first and returns the wrong
+ *     accessory while still reporting success.
  *
  * Run after:
  *   VITE_E2E=1 npx vite build --outDir dist-e2e
@@ -117,6 +132,11 @@ const OFFICE = [
   { imei: '350111000000037', model: 'IPHONE 13 128GB', storage: '128GB', colour: 'BLUE',  bp: 300 },
   { imei: '350111000000045', model: 'IPHONE 13 128GB', storage: '128GB', colour: 'BLUE',  bp: 305 },
   { imei: '350111000000052', model: 'IPHONE 14 128GB', storage: '128GB', colour: 'WHITE', bp: 360 },
+  // Kept unsold on purpose: the replacement route requires LIKE-FOR-LIKE
+  // stock (same brand + model + storage as the unit coming back), so the
+  // iPhone 13 being replaced needs another iPhone 13 128GB on the shelf.
+  // Offering an iPhone 14 gets correctly refused by ReturnsPage.
+  { imei: '350111000000078', model: 'IPHONE 13 128GB', storage: '128GB', colour: 'BLUE',  bp: 310 },
 ];
 const SHS = [
   { model: 'IPHONE 14 128GB', storage: '128GB', colour: 'BLACK', bp: 340 },
@@ -428,7 +448,7 @@ async function bulkSale(page, { unitSearch, accessorySku, marketplace, order, sp
 
 /** Full return journey: pick the sold unit → QC notes → CRM queue →
  *  finalise with an outcome. Screenshots every stage. */
-async function processReturn(page, { imei, returnType, reason, tag }) {
+async function processReturn(page, { imei, returnType, reason, tag, outcome, replacementSearch }) {
   await gotoTab(page, 'Returns');
   await shot(page, `ret-${tag}-step1-returns-screen`);
   await page.getByRole('button', { name: /^Process Return$/i }).click({ timeout: 8000 });
@@ -457,7 +477,27 @@ async function processReturn(page, { imei, returnType, reason, tag }) {
   await page.waitForTimeout(700);
   const crm = modal(page);
   await crm.getByText(returnType, { exact: false }).first().click().catch(() => {});
-  await page.waitForTimeout(300);
+  await page.waitForTimeout(400);
+
+  // Customer Outcome only renders for non-repair routes — a repair IS the
+  // outcome, so ReturnsPage hides the picker entirely when returnType is
+  // 'Send for Repair'. Asking for it there would hang on an absent button.
+  if (outcome) {
+    await crm.getByRole('button', { name: new RegExp(`^${outcome}`, 'i') }).first()
+      .click({ timeout: 6000 }).catch(() => {});
+    await page.waitForTimeout(400);
+  }
+  // A replacement must name the unit actually shipped out in its place
+  // (needsReplacementUnit in ReturnsPage) — otherwise Finalise stays blocked.
+  if (replacementSearch) {
+    const repBox = crm.locator('input[placeholder*="Filter by IMEI" i]').first();
+    await repBox.fill(replacementSearch).catch(() => {});
+    await page.waitForTimeout(600);
+    await shot(page, `ret-${tag}-step5a-replacement-picker`);
+    await crm.locator('button').filter({ hasText: new RegExp(replacementSearch) }).first()
+      .click({ timeout: 6000 }).catch(() => {});
+    await page.waitForTimeout(500);
+  }
   await crm.locator('input[placeholder*="Customer changed mind" i]').first().fill(reason).catch(() => {});
   await page.waitForTimeout(400);
   await shot(page, `ret-${tag}-step5-finalise-form`);
@@ -465,6 +505,55 @@ async function processReturn(page, { imei, returnType, reason, tag }) {
   await page.waitForTimeout(1500);
   await dismissModals(page);
   await shot(page, `ret-${tag}-step6-after-finalise`);
+  return { ok: true };
+}
+
+/**
+ * Accessory return — a sold accessory coming back onto the shelf. The
+ * Accessory Stock panel's Return action lives on the Sell screen (the Buy
+ * screen renders the same panel with showActions={false}), and opens
+ * AccessoryStockActionModal rather than the unit return journey: there is
+ * no QC/CRM two-step because there is no serialised unit to inspect.
+ */
+async function returnAccessory(page, { sku, outcome, reason }) {
+  await gotoSellTab(page);
+  await page.waitForTimeout(600);
+  // Scroll the accessory panel into view so its row actions are clickable.
+  const skuRow = page.locator('div').filter({ hasText: new RegExp(sku, 'i') }).last();
+  await skuRow.scrollIntoViewIfNeeded().catch(() => {});
+  await page.waitForTimeout(400);
+  await shot(page, 'accret-step1-accessory-panel');
+
+  // Scope to the SKU's own <tr> — a bare first() Return button opens
+  // whichever pool happens to sort first, which silently returns the wrong
+  // accessory and still reports success.
+  const returnBtn = page.locator('tr').filter({ hasText: new RegExp(sku, 'i') })
+    .getByRole('button', { name: /^Return$/i }).first();
+  if (!(await returnBtn.isVisible().catch(() => false))) return { ok: false, why: `no Return action on the ${sku} row` };
+  await returnBtn.click();
+  await page.waitForTimeout(900);
+  await shot(page, 'accret-step2-return-modal');
+
+  const m = modal(page);
+  // Guard: prove the modal is for the SKU we asked for before touching it.
+  const header = await m.innerText().catch(() => '');
+  if (!new RegExp(sku, 'i').test(header)) {
+    await dismissModals(page);
+    return { ok: false, why: `return modal opened for the wrong SKU (wanted ${sku})` };
+  }
+  await m.getByRole('button', { name: new RegExp(`^${outcome}$`, 'i') }).first()
+    .click({ timeout: 5000 }).catch(() => {});
+  await page.waitForTimeout(300);
+  await m.locator('input[placeholder*="customer changed their mind" i]').first().fill(reason).catch(() => {});
+  await page.waitForTimeout(400);
+  await shot(page, 'accret-step3-filled');
+
+  const confirm = m.getByRole('button', { name: /Confirm Return/i }).last();
+  if (!(await confirm.isEnabled().catch(() => false))) return { ok: false, why: 'Confirm Return disabled' };
+  await confirm.click();
+  await page.waitForTimeout(1800);
+  await shot(page, 'accret-step4-confirmed');
+  await dismissModals(page);
   return { ok: true };
 }
 
@@ -518,12 +607,12 @@ async function run() {
     }
     await shot(page, 'phase2-addstock-office-filled');
     const saved = await saveStock(page, /SAVE \d+ UNITS?/i);
-    record('Add Stock → Office accepts 5 hand-typed units', saved.ok, saved.label);
-  } catch (e) { record('Add Stock → Office accepts 5 hand-typed units', false, String(e).slice(0, 120)); await dismissModals(page); }
+    record('Add Stock → Office accepts 6 hand-typed units', saved.ok, saved.label);
+  } catch (e) { record('Add Stock → Office accepts 6 hand-typed units', false, String(e).slice(0, 120)); await dismissModals(page); }
 
   store = await dumpStore(page);
   const officeUnits = docsOf(store, 'inventoryUnits').filter(u => u.status === 'available');
-  record('5 office units written with status=available', officeUnits.length === 5, `got ${officeUnits.length}`);
+  record('6 office units written with status=available', officeUnits.length === 6, `got ${officeUnits.length}`);
   record('Device catalog built by hand from the picker', countOf(store, 'models') >= 2, `${countOf(store, 'models')} models`);
   // Only two distinct model strings were ever typed (IPHONE 14 128GB and
   // IPHONE 13 128GB). More catalog docs than that means the picker's inline
@@ -596,7 +685,7 @@ async function run() {
   await shot(page, 'phase3-buy-screen-after-intake');
   const kpi = (await page.locator('body').innerText()).replace(/\s+/g, ' ');
   const kpiVal = label => (kpi.match(new RegExp(`${label}\\s*(\\d+)`, 'i')) || [])[1];
-  record('Buy KPI "ALL OFFICE STOCK" reads 5', kpiVal('ALL OFFICE STOCK') === '5', `got ${kpiVal('ALL OFFICE STOCK')}`);
+  record('Buy KPI "ALL OFFICE STOCK" reads 6', kpiVal('ALL OFFICE STOCK') === '6', `got ${kpiVal('ALL OFFICE STOCK')}`);
   record('Buy KPI "SHS STOCK" reads 3', kpiVal('SHS STOCK') === '3', `got ${kpiVal('SHS STOCK')}`);
   record('Buy KPI "ACCESSORY SKUS" reads 2', kpiVal('ACCESSORY SKUS') === '2', `got ${kpiVal('ACCESSORY SKUS')}`);
 
@@ -711,9 +800,77 @@ async function run() {
     record('Return voids the originating sale doc', voided.length > returnsBefore,
       `${voided.length} voided sales`);
     const u = docsOf(st, 'inventoryUnits').find(x => (x.imei || '') === OFFICE[0].imei);
-    record('Returned unit left status=sold behind', !!u && u.status !== 'sold',
+    record('Refunded unit went Back to Inventory (available again)',
+      !!u && u.status === 'available' && u.returnType === 'returned_to_inventory',
       u ? `status=${u.status} returnType=${u.returnType || '—'}` : 'unit missing');
   }
+
+  // ── Repair route — the outcome picker is hidden; repair IS the outcome ──
+  try {
+    const r = await processReturn(page, {
+      imei: OFFICE[1].imei, returnType: 'Send for Repair',
+      reason: 'Cracked rear glass in transit', tag: 'repair',
+    });
+    record('Repair return processed (Send for Repair)', r.ok, r.why || OFFICE[1].imei);
+  } catch (e) { record('Repair return processed (Send for Repair)', false, String(e).slice(0, 140)); await dismissModals(page); }
+
+  {
+    const st = await dumpStore(page);
+    const u = docsOf(st, 'inventoryUnits').find(x => (x.imei || '') === OFFICE[1].imei);
+    record('Repaired unit carries returnType=repair and is not resaleable stock',
+      !!u && u.returnType === 'repair' && u.status !== 'available',
+      u ? `status=${u.status} returnType=${u.returnType || '—'}` : 'unit missing');
+    const s = docsOf(st, 'sales').find(x => (x.imei || '') === OFFICE[1].imei);
+    record('Repair stamps voidOutcome=repair on the sale (drives 2-leg postage loss)',
+      !!s && s.voidedAt && s.voidOutcome === 'repair',
+      s ? `voidedAt=${s.voidedAt} outcome=${s.voidOutcome}` : 'sale missing');
+  }
+
+  // ── Replacement route — needs a real replacement unit named ──
+  try {
+    const r = await processReturn(page, {
+      imei: OFFICE[2].imei, returnType: 'Back to Inventory', outcome: 'Replacement',
+      replacementSearch: OFFICE[5].imei,   // the like-for-like iPhone 13 held back
+      reason: 'Face ID intermittent — swapped for a like-for-like unit', tag: 'replacement',
+    });
+    record('Replacement return processed (with a replacement unit named)', r.ok, r.why || OFFICE[2].imei);
+  } catch (e) { record('Replacement return processed (with a replacement unit named)', false, String(e).slice(0, 140)); await dismissModals(page); }
+
+  {
+    const st = await dumpStore(page);
+    const s = docsOf(st, 'sales').find(x => (x.imei || '') === OFFICE[2].imei);
+    record('Replacement stamps voidOutcome=replacement (drives 3-leg postage loss)',
+      !!s && s.voidedAt && s.voidOutcome === 'replacement',
+      s ? `voidedAt=${s.voidedAt} outcome=${s.voidOutcome}` : 'sale missing');
+    const orig = docsOf(st, 'inventoryUnits').find(x => (x.imei || '') === OFFICE[2].imei);
+    record('Returned unit links to the replacement that shipped in its place',
+      !!orig && !!orig.replacedByUnitId,
+      orig ? `replacedByUnitId=${orig.replacedByUnitId || '—'}` : 'unit missing');
+  }
+
+  // ── Accessory return — no QC/CRM two-step, no unit to inspect ──
+  console.log('\n── Accessory return ──');
+  const accPoolBeforeReturn = docsOf(await dumpStore(page), 'accessoryStock').find(p => p.sku === 'USB-C-20W');
+  try {
+    const r = await returnAccessory(page, { sku: 'USB-C-20W', outcome: 'Refund', reason: 'Wrong cable length ordered' });
+    record('Accessory return processed from the Accessory Stock panel', r.ok, r.why || '');
+  } catch (e) { record('Accessory return processed from the Accessory Stock panel', false, String(e).slice(0, 140)); await dismissModals(page); }
+
+  {
+    const st = await dumpStore(page);
+    const poolNow = docsOf(st, 'accessoryStock').find(p => p.sku === 'USB-C-20W');
+    // returnAccessoryStock restores the ORIGINAL sale's quantity (3), not 1.
+    record('Accessory return puts the sold quantity back on the shelf',
+      poolNow && accPoolBeforeReturn && (poolNow.quantity - accPoolBeforeReturn.quantity) === 3,
+      `${accPoolBeforeReturn?.quantity} → ${poolNow?.quantity}`);
+    const accSale = docsOf(st, 'sales').find(s => s.sku === 'USB-C-20W' && !(s.imei || '').trim());
+    record('Accessory return voids its sale doc with an outcome',
+      !!accSale && !!accSale.voidedAt && !!accSale.voidOutcome,
+      accSale ? `voidedAt=${accSale.voidedAt} outcome=${accSale.voidOutcome}` : 'sale missing');
+    const ledger = docsOf(st, 'accessoryStockEvents').filter(e => e.type === 'return');
+    record('Accessory stock ledger recorded the return', ledger.length >= 1, `${ledger.length} return events`);
+  }
+  await shot(page, 'accret-step5-panel-after-return');
 
   // ══ PHASE 7 · REPORTS ════════════════════════════════════════════════════
   console.log('\n══ PHASE 7 · Reports built from hand-entered data ══');
@@ -748,23 +905,27 @@ async function run() {
     const officeRows = sheetRows(/office/i);
     const shsRows = sheetRows(/shs/i);
     const accRows = sheetRows(/accessor/i);
-    // Office maths: 5 in by hand − 3 sold single − 1 sold in the bulk batch
-    // = 1 still on the shelf, PLUS the refunded unit that Phase 6 sent Back
-    // to Inventory, which is genuinely sellable stock again = 2.
-    record('Inventory Report Office sheet = unsold shelf stock + the returned unit',
-      officeRows === 2, `${officeRows} data rows`);
-    record('Inventory Report SHS sheet = the 2 holdings still open',
-      shsRows === 2, `${shsRows} data rows`);
+    // Assert against the LIVE store rather than a hand-counted constant —
+    // after three different return routes the expected totals are a moving
+    // target, and "the report agrees with the app" is the invariant that
+    // actually matters.
+    const liveStore = await dumpStore(page);
+    const liveAvailable = docsOf(liveStore, 'inventoryUnits').filter(u => u.status === 'available').length;
+    const liveIncoming = docsOf(liveStore, 'inventoryUnits').filter(u => u.status === 'incoming').length;
+    record('Inventory Report Office sheet matches live available stock',
+      officeRows === liveAvailable, `report ${officeRows} vs store ${liveAvailable}`);
+    record('Inventory Report SHS sheet matches live incoming holdings',
+      shsRows === liveIncoming, `report ${shsRows} vs store ${liveIncoming}`);
     record('Inventory Report Accessories sheet lists both SKU pools',
       accRows === 2, `${accRows} data rows`);
 
     const officeSheet = wb.worksheets.find(w => /office/i.test(w.name));
     const officeText = JSON.stringify(officeSheet ? officeSheet.getSheetValues() : []);
-    // Units still sold must NOT appear as available stock…
-    const stillSold = [OFFICE[1].imei, OFFICE[2].imei];
-    record('Still-sold IMEIs are absent from the Office stock sheet',
-      stillSold.every(i => !officeText.includes(i)),
-      stillSold.filter(i => officeText.includes(i)).join(',') || 'none present');
+    // Still-sold and in-repair units must NOT read as available stock…
+    record('Still-sold IMEI is absent from the Office stock sheet',
+      !officeText.includes(OFFICE[3].imei), OFFICE[3].imei);
+    record('In-repair unit is absent from the Office stock sheet',
+      !officeText.includes(OFFICE[1].imei), OFFICE[1].imei);
     // …but the Back-to-Inventory unit must be back ON it.
     record('Refunded unit is back on the Office stock sheet',
       officeText.includes(OFFICE[0].imei), OFFICE[0].imei);
@@ -801,6 +962,25 @@ async function run() {
     record('Sales Report carries the Returns sheets',
       names2.some(n => /returns summary/i.test(n)) && names2.some(n => /returns detail/i.test(n)),
       names2.filter(n => /return/i.test(n)).join(', '));
+
+    // All four return routes must reach the Returns Detail sheet — the
+    // three unit outcomes plus the accessory, which has no unit at all and
+    // rides there purely on its voided Sale doc.
+    const detail = sheetText('Returns Detail');
+    record('Returns Detail carries the refunded unit', detail.includes(OFFICE[0].imei), OFFICE[0].imei);
+    record('Returns Detail carries the repaired unit', detail.includes(OFFICE[1].imei), OFFICE[1].imei);
+    record('Returns Detail carries the replaced unit', detail.includes(OFFICE[2].imei), OFFICE[2].imei);
+    // Returns Detail has no SKU column — an accessory rides in the Model
+    // column under its friendly name, tagged Return Type = "Accessory"
+    // (clientReport.ts resolves accessoryNameBySku for no-unit/no-IMEI
+    // sales). It gets there purely on its voided Sale doc, with no
+    // InventoryUnit behind it at all.
+    record('Returns Detail carries the accessory return (no unit, no IMEI)',
+      detail.includes('USB-C 20W Charger'), 'searched Model column for the accessory name');
+    record('Returns Detail tags the accessory row as Return Type = Accessory',
+      /"Accessory"/.test(detail), 'Return Type column');
+    record('Returns Detail records a Repair outcome', /repair/i.test(detail), 'outcome vocabulary present');
+    record('Returns Detail records a Replacement outcome', /replacement/i.test(detail), 'outcome vocabulary present');
   } catch (e) { record('Sales Report download', false, String(e).slice(0, 140)); }
 
   await shot(page, 'phase7-reports');
