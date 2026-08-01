@@ -23,6 +23,7 @@
 import { dbService } from '../lib/dbService';
 import type { AccessoryStock, AccessoryStockEvent, AccessoryEventType, AccessoryEventSource, DeviceCategory, InventoryAggregate, InventoryUnit, ListingSite, Marketplace, ReturnCategory, Sale, Notice } from '../types';
 import { isAppleDevice, isValidImei, isValidImeiOrSerial } from '../lib/imeiValidation';
+import { decodeSkuAttributes, DEFAULT_COLOUR } from '../lib/operatorSkuAttributes';
 import { parseBrandModelStorage } from '../lib/modelStorage';
 import { logInventoryEvent } from '../lib/inventoryEvents';
 import { auth, isAdmin } from '../lib/firebase';
@@ -233,7 +234,11 @@ export async function addUnitManual(input: AddUnitInput): Promise<AddUnitResult>
     model: cleanModel,
     brand,
     category,
-    colour: (input.colour ?? '').trim() || 'Unknown',
+    // Manual intake: the operator picks a colour from the dropdown, so this
+    // fallback rarely fires — but it uses the same house placeholder as the
+    // import path rather than 'Unknown', which the orphan check reads as
+    // "nobody has touched this record".
+    colour: (input.colour ?? '').trim() || DEFAULT_COLOUR,
     ...(storage ? { storage } : {}),
     ...(parsed.series ? ({ series: parsed.series } as any) : {}),
     ...(input.grade?.trim() ? { grade: input.grade.trim() } : {}),
@@ -673,15 +678,30 @@ export async function addSoldUnitFromSale(
 
   // 6. Resolve / create supplier + split brand/model/storage.
   const supplierId = await ensureSupplier(supplierName);
-  const parsed = parseBrandModelStorage(model);
-  const category = detectCategory(model);
+  // The sale's SKU is the ONLY place storage / colour can come from here —
+  // the Sales Report's marketplace tabs carry neither column (only Returns
+  // Detail does), so a sale for an IMEI that was never in stock has nothing
+  // else to read. Decode before parsing so an Apple Watch SKU
+  // ("AW SE 3-40-MN") becomes a real model name instead of the "3-40-MN"
+  // fragment parseBrandModelStorage leaves behind when it mistakes the
+  // leading "AW" for a brand.
+  const decoded = decodeSkuAttributes(sale.sku ?? model);
+  const effectiveModel = decoded.model || model;
+  const parsed = parseBrandModelStorage(effectiveModel);
+  const category = detectCategory(effectiveModel);
   const brand = parsed.brand !== 'Other'
     ? parsed.brand
     : (['iPhone', 'iPad', 'Apple Watch'].includes(category)
         ? 'Apple'
         : (['Samsung S Series', 'Samsung A Series', 'Tablet'].includes(category) ? 'Samsung' : 'Other'));
-  const cleanModel = parsed.model || model;
-  const storage = (input.storage ?? '').trim() || parsed.storage;
+  // A decoded name wins over the parser's split — for an Apple Watch the
+  // parser has already been fooled by "AW", so parsed.model would undo it.
+  const cleanModel = decoded.model || parsed.model || model;
+  const storage = (input.storage ?? '').trim() || parsed.storage || decoded.storage || '';
+  // Colour: operator's value, then whatever the SKU encodes, then the house
+  // placeholder. Operator decision — colour isn't tracked; what must survive
+  // an import is the pricing and the model name. See DEFAULT_COLOUR.
+  const colour = (input.colour ?? '').trim() || decoded.colour || DEFAULT_COLOUR;
   const createdAt = new Date().toISOString();
 
   const newUnit: InventoryUnit = {
@@ -690,7 +710,7 @@ export async function addSoldUnitFromSale(
     model: cleanModel,
     brand,
     category,
-    colour: (input.colour ?? '').trim() || 'Unknown',
+    colour,
     ...(storage ? { storage } : {}),
     ...((input.simType ?? '').trim() ? { simType: (input.simType ?? '').trim() } : {}),
     ...(parsed.series ? ({ series: parsed.series } as any) : {}),
