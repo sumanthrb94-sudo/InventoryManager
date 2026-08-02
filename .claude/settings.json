@@ -1,0 +1,16 @@
+{
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PROJECT_DIR:-.}/scripts/ocr-stop-review.sh\"",
+            "timeout": 120,
+            "statusMessage": "open-code-review · resolving rules"
+          }
+        ]
+      }
+    ]
+  }
+}
