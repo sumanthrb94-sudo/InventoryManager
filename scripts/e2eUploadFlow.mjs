@@ -107,6 +107,25 @@ async function openImportMenu(page) {
   await page.waitForTimeout(500);
 }
 
+/**
+ * Commit a value into the model picker.
+ *
+ * The picker became catalog-strict in 2026-08: typing and tabbing away no
+ * longer sets anything, because a free-typed model is not a catalog entry.
+ * The value has to be chosen from the dropdown. Scripts that still filled and
+ * tabbed left the field empty, the orphan stayed incomplete, and the failure
+ * surfaced somewhere else entirely — as an SHS holding that never closed.
+ */
+async function pickModel(page, box, value) {
+  await box.click();
+  await box.fill(value);
+  await page.waitForTimeout(400);
+  const suggestion = page.locator('div.z-\\[9999\\] button').first();
+  await suggestion.click().catch(async () => { await box.press('Enter'); });
+  await page.waitForTimeout(300);
+  return (await box.inputValue().catch(() => '')) !== '';
+}
+
 async function run() {
   const browsersRoot = process.env.PLAYWRIGHT_BROWSERS_PATH || '/opt/pw-browsers';
   const chromeDir = readdirSync(browsersRoot).find(d => /^chromium-\d+$/.test(d));
@@ -258,21 +277,41 @@ async function run() {
     // The innermost div that carries BOTH the order number and a model input.
     // Filtering on text alone lands on a leaf that holds no input, so the fill
     // silently does nothing and every orphan ends up with the generic model.
+    // Clear the "show only rows still needing attention" filter first. It
+    // defaults to ON (SalesReportImport.tsx: showIncompleteOnly = useState(true)),
+    // so a row that is already complete — which AMA-SHS-1 is, the file names its
+    // model and supplier — is not rendered at all. The row was not missing; it
+    // was filtered out, and the script then silently skipped setting SHS.
+    const attentionFilter = modal(page)
+      .getByRole('checkbox', { name: /still needing attention/i }).first();
+    if (await attentionFilter.isChecked().catch(() => false)) {
+      await attentionFilter.uncheck().catch(() => {});
+      await page.waitForTimeout(400);
+    }
+
     const shsRow = modal(page).locator('div')
       .filter({ hasText: /AMA-SHS-1/ })
       .filter({ has: page.locator('input[placeholder="Search model…"]') })
       .last();
     const shsModelBox = shsRow.locator('input[placeholder="Search model…"]').first();
-    if (await shsModelBox.isVisible().catch(() => false)) {
-      await shsModelBox.fill('IPHONE 14');
-      await shsModelBox.press('Tab');
-      await page.waitForTimeout(300);
+    const shsRowFound = await shsModelBox.isVisible().catch(() => false);
+    record('the supplier-shipped orphan row is on the audit panel', shsRowFound,
+      shsRowFound ? 'AMA-SHS-1 located' : 'AMA-SHS-1 row not found');
+    if (shsRowFound) {
+      const picked = await pickModel(page, shsModelBox, 'IPHONE 14');
+      record('its model is committed through the catalog picker', picked,
+        picked ? 'IPHONE 14' : 'picker left the field empty');
       // And mark it SHS on the row's Office/SHS toggle — the operator saying
       // "this one was shipped by the supplier". That is the only signal that
       // separates a direct shipment from history being replayed on a restore,
-      // so it has to be given, not guessed.
-      await shsRow.getByRole('button', { name: /^SHS$/ }).first().click().catch(() => {});
-      await page.waitForTimeout(300);
+      // so it has to be given, not guessed. Asserted rather than swallowed:
+      // a silent .catch() here meant the toggle could stop working and the
+      // only symptom was an SHS count that never moved, three checks later.
+      const shsToggle = shsRow.getByRole('button', { name: /^SHS$/ }).first();
+      const toggled = await shsToggle.click().then(() => true).catch(() => false);
+      record('the row\'s Office/SHS toggle can be set to SHS', toggled,
+        toggled ? 'clicked' : 'toggle not found on the row');
+      await page.waitForTimeout(400);
     }
 
     // Fill every empty required input in the audit panel.
@@ -284,9 +323,9 @@ async function run() {
       for (let i = 0; i < n; i++) {
         const box = loc.nth(i);
         if ((await box.inputValue().catch(() => 'x')) === '') {
-          await box.fill(value);
-          await box.press('Tab');
-          await page.waitForTimeout(150);
+          // Model goes through the picker; the other two are plain inputs.
+          if (loc === modelInputs) await pickModel(page, box, value);
+          else { await box.fill(value); await box.press('Tab'); await page.waitForTimeout(150); }
         }
       }
     }

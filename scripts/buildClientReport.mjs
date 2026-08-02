@@ -679,37 +679,28 @@ ${section('open', 'Part eight', 'Open items and recommendations', `
 </ul>
 
 <h3>The end-to-end checks that do not pass — what each one actually is</h3>
-<p>Part six lists them by name. None is a miscalculation, and none affects the money. This is
-what sits behind each:</p>
+<p>Seven remain, out of 723. None is a miscalculation and none affects a stored figure.</p>
 <table>
-  <tr><th style="width:30%">Group</th><th>Diagnosis</th></tr>
-  <tr><td><strong>Supplier-held (SHS) fulfilment</strong><br><span class="mono">5 checks</span></td>
-      <td>Selling a phone the supplier still holds should close that holding and tag the sale as
-      SHS revenue. The software will only do this when a human ticks the Office/SHS toggle on the
-      import's audit row — it deliberately refuses to <em>infer</em> it, because inferring it once
-      meant that restoring from a backup silently closed three real holdings. The tests do not tick
-      the toggle, so the software correctly leaves the sale as office stock. Behaviour is right;
-      the tests have not caught up with it.</td></tr>
+  <tr><th style="width:34%">Check</th><th>Diagnosis</th></tr>
   <tr><td><strong>Orphan completion</strong><br><span class="mono">4 checks</span></td>
-      <td>479 of 480, and 480 of 481. In both cases the one blocking row is the eBay sale with no
-      supplier named above. The software holding Confirm shut until every audit row is complete is
-      the point of the feature, not a fault.</td></tr>
-  <tr><td><strong>Accessory return postage loss</strong><br><span class="mono">1 check</span></td>
-      <td>A returned accessory reaches the Returns Detail sheet with its type, outcome and reason,
-      but the Leg Cost, Shipping Legs and Postage Loss columns are left blank where a returned
-      handset fills them. A genuine gap, small and cosmetic — the accessory's own record carries
-      the cost; the report column does not repeat it.</td></tr>
-  <tr><td><strong>Import staging, supplier return rate,
+      <td>479 of 480, and 480 of 481. Both times the one blocking row is the same, and it is a
+      finding rather than a fault: eBay order <span class="mono">03-14884-31041</span> in your own
+      file has no supplier. The import holding Confirm shut until every audit row is complete is
+      the feature working. Filling that supplier in the sheet clears both.</td></tr>
+  <tr><td><strong>Import staging · supplier return rate ·
       combined-vs-per-channel totals</strong><br><span class="mono">3 checks</span></td>
-      <td>Assertions about specific on-screen states that have moved since they were written.
-      Under investigation; none touches a stored figure.</td></tr>
+      <td>Assertions about on-screen states that have moved since they were written. Not yet
+      root-caused; none reads or writes a money column.</td></tr>
 </table>
 <div class="callout">
-  <strong>Four checks were removed from this list before it was printed.</strong> Two of the test
-  scripts pinned "today" to a literal date, with a comment saying it matched the environment's
-  clock — true the day it was written, and wrong every morning after. They were failing against
-  sales the fixture had dated in the past, which reads exactly like a broken "sold today" figure
-  and is not one. Both now read the real date; both pass.
+  <strong>Ten checks were resolved while this report was being assembled, and none of them was a
+  fault in the software.</strong> Two test scripts pinned "today" to a literal date, so they were
+  failing against sales the fixture had dated in the past — which reads exactly like a broken
+  "sold today" figure. One fixture wrote its postage into a column by position, and the column had
+  moved, so the sale arrived with no postage and the returns sheet correctly showed no postage
+  loss. And three scripts could not find the row they needed because the import panel hides
+  completed rows by default — the row was never missing, it was filtered out. Each looked like a
+  product defect from the outside; each was a test describing the software as it used to be.
 </div>
 
 <h3>Already in hand</h3>

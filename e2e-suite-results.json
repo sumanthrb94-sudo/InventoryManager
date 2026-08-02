@@ -37,13 +37,11 @@
   },
   {
     "script": "e2eAccessoryReturnReconcile.mjs",
-    "ok": false,
-    "pass": 23,
+    "ok": true,
+    "pass": 24,
     "total": 24,
-    "summary": "23/24 checks passed",
-    "fails": [
-      "FAIL  Postage Loss column reads £6.00 (refund = 2 legs, same policy as a unit return) — got null"
-    ],
+    "summary": "24/24 checks passed",
+    "fails": [],
     "passes": [
       "PASS  Pool after sale: 47 (50 - 3) — quantity=47",
       "PASS  The accessory sale doc exists and is not voided yet",
@@ -52,7 +50,7 @@
       "PASS  Pool back to 50 after the return (exactly the sale's own quantity restored) — quantity=50",
       "PASS  totalReceived still 50 — a return is not new intake",
       "PASS  The real sale doc got voided (voidedAt/voidOutcome/voidReason set) — {\"voidedAt\":\"2026-07-29\",\"voidOutcome\":\"refund\",\"voidReason\":\"wrong item ordered\"}",
-      "PASS  Ledger carries a return event referencing the voided sale's order/marketplace — {\"sku\":\"USB-C-20W\",\"skuId\":\"usb_c_20w\",\"type\":\"return\",\"delta\":3,\"quantityAfter\":50,\"source\":\"sales_report_import\",\"orderNumber\":\"ACC-RET-9001\",\"marketplace\":\"AMAZON\",\"reason\":\"wrong item ordered\",\"createdBy\":\"admin@inventorymanager.com\",\"id\":\"acc_evt_1785685263132_ji35a8\",\"ownerId\":\"shared\",\"createdAt\":\"2026-08-02T15:41:03.132Z\",\"updatedAt\":\"2026-08-02T15:41:03.132Z\"}",
+      "PASS  Ledger carries a return event referencing the voided sale's order/marketplace — {\"sku\":\"USB-C-20W\",\"skuId\":\"usb_c_20w\",\"type\":\"return\",\"delta\":3,\"quantityAfter\":50,\"source\":\"sales_report_import\",\"orderNumber\":\"ACC-RET-9001\",\"marketplace\":\"AMAZON\",\"reason\":\"wrong item ordered\",\"createdBy\":\"admin@inventorymanager.com\",\"id\":\"acc_evt_1785699055880_j1hbpd\",\"ownerId\":\"shared\",\"createdAt\":\"2026-08-02T19:30:55.881Z\",\"updatedAt\":\"2026-08-02T19:30:55.881Z\"}",
       "PASS  Sales Report downloaded",
       "PASS  Sales Report carries a Returns Detail sheet",
       "PASS  Sales Report carries a Returns Summary sheet",
@@ -61,6 +59,7 @@
       "PASS  Outcome reads \"Refund\"",
       "PASS  Reason carries the operator-entered text",
       "PASS  Marketplace reads AMAZON",
+      "PASS  Postage Loss column reads £6.00 (refund = 2 legs, same policy as a unit return) — got 6",
       "PASS  Returns Summary counts the accessory return (Total Returns = 1) — got 1",
       "PASS  Returns Summary counts it as a Refund — got 1",
       "PASS  Inventory Report downloaded",
@@ -931,29 +930,29 @@
   },
   {
     "script": "e2eShsOrphanFlow.mjs",
-    "ok": false,
-    "pass": 11,
-    "total": 14,
-    "summary": "11/14 checks passed",
-    "fails": [
-      "FAIL  the direct shipment appears on the audit screen as an orphan — AMA-SHS-1 at row -1",
-      "FAIL  the closed holding is the one that matched model + supplier — IPHONE 14 / NORTHSIDE STOCK no longer held",
-      "FAIL  the sale is tagged as SHS revenue, not office — stockSource=office"
-    ],
+    "ok": true,
+    "pass": 15,
+    "total": 15,
+    "summary": "15/15 checks passed",
+    "fails": [],
     "passes": [
       "PASS  holdings are recorded with NO IMEI at all — 10 holdings · 0 carry an IMEI",
-      "PASS  a holding exists for IPHONE 14 / NORTHSIDE STOCK — id manual_shs_imp_1785690119130_110",
+      "PASS  a holding exists for IPHONE 14 / NORTHSIDE STOCK — id manual_shs_imp_1785699524359_110",
       "PASS  the import REFUSES to confirm while orphans are incomplete — Complete 3 records to continue",
+      "PASS  the direct shipment appears on the audit screen as an orphan — AMA-SHS-1 at row 2",
+      "PASS  the model is committed through the catalog picker — IPHONE 14",
       "PASS  the row offers an Office / SHS toggle — the only signal that separates a direct shipment from a replayed sale",
       "PASS  Confirm unlocks once every orphan is complete — Load 101 sales",
       "PASS  the Done screen reports the SHS fulfilment — SHS fulfilled · 1 supplier-held unit shipped & sold",
       "PASS  exactly ONE holding was closed — not the whole model line — 10 → 9",
+      "PASS  the closed holding is the one that matched model + supplier — IPHONE 14 / NORTHSIDE STOCK no longer held",
       "PASS  the shipped phone is now a SOLD unit — imei 350190000007777",
       "PASS  it carries the real IMEI the supplier shipped — 350190000007777",
+      "PASS  the sale is tagged as SHS revenue, not office — stockSource=shs",
       "PASS  every other holding is untouched — 9 still open, all IMEI-less",
       "PASS  no uncaught JS errors across the flow"
     ],
-    "secs": 83
+    "secs": 84
   },
   {
     "script": "e2eStockAgingPanelsBrutal.mjs",
@@ -1135,14 +1134,11 @@
   },
   {
     "script": "e2eUploadFlow.mjs",
-    "ok": false,
-    "pass": 27,
-    "total": 29,
-    "summary": "27/29 checks passed",
-    "fails": [
-      "FAIL  import reports the SHS fulfilment",
-      "FAIL  a sale against a supplier-held unit drops SHS stock — 10 → 10"
-    ],
+    "ok": true,
+    "pass": 32,
+    "total": 32,
+    "summary": "32/32 checks passed",
+    "fails": [],
     "passes": [
       "PASS  full wipe completes",
       "PASS  office stock is empty after the wipe — office=0",
@@ -1159,10 +1155,15 @@
       "PASS  sales preview warns which in-stock units will flip to sold",
       "PASS  sales import gates Confirm behind the inventory-flip acknowledgement — confirm disabled before ack = true",
       "PASS  import is hard-blocked until orphan sales are completed — Complete 3 records to continue",
+      "PASS  the supplier-shipped orphan row is on the audit panel — AMA-SHS-1 located",
+      "PASS  its model is committed through the catalog picker — IPHONE 14",
+      "PASS  the row's Office/SHS toggle can be set to SHS — clicked",
       "PASS  sales Confirm enables once the audit rows are complete — Load 101 sales",
+      "PASS  import reports the SHS fulfilment — SHS fulfilled · 1 supplier-held unit shipped & sold",
       "PASS  import reports how many units it marked sold — 82 units marked sold",
       "PASS  Done screen reports the rows it actually created — 101 created · 0 updated",
       "PASS  office stock dropped as sales were reconciled — 110 → 28",
+      "PASS  a sale against a supplier-held unit drops SHS stock — 10 → 9",
       "PASS  Sell page shows the imported sales as sold — all-time sold=101",
       "PASS  return picker offers the freshly-imported sold units — 93 selectable",
       "PASS  Tech-QC step 1 raises the unit into the CRM queue",
@@ -1172,7 +1173,7 @@
       "PASS  bulk import does not spam one notification per unit — 1 queued for 90 sold units across 8 models (was 94)",
       "PASS  no uncaught JS errors across the whole flow"
     ],
-    "secs": 105
+    "secs": 110
   },
   {
     "script": "e2eVatCentre.mjs",

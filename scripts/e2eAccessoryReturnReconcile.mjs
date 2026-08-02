@@ -161,16 +161,47 @@ async function downloadReport(page, buttonName) {
   return path;
 }
 
-/** One accessory sale row, AMAZON template layout (15 cols, positional). */
+/**
+ * Write a row into a template sheet BY HEADER NAME.
+ *
+ * These two fixtures used to write positional arrays against "the 15-column
+ * Amazon layout". That layout is gone: the templates are generated from the
+ * report writer now, so Amazon is 31 columns and Postage moved from index 12
+ * to 15. The positional row kept writing 2.50 into what is now C. VAT, the
+ * sale landed with no postage, and the Returns Detail sheet correctly showed
+ * no postage loss — which looked like a missing feature and was a fixture
+ * writing into the wrong cell.
+ *
+ * By name it cannot drift again, and it throws loudly if a column is renamed
+ * rather than silently filling the wrong one.
+ */
+function writeRowByHeader(ws, rowNumber, values) {
+  const headers = (ws.getRow(1).values ?? []).slice(1).map(v => String(v ?? '').trim());
+  const row = ws.getRow(rowNumber);
+  for (const [name, value] of Object.entries(values)) {
+    const idx = headers.indexOf(name);
+    if (idx < 0) throw new Error(`${ws.name}: no "${name}" column — headers: ${headers.join(', ')}`);
+    row.getCell(idx + 1).value = value;
+  }
+  row.commit();
+}
+
+/** One accessory sale row on the AMAZON tab, addressed by header name. */
 async function buildAccessorySalesFile() {
   const wb = new ExcelJS.Workbook();
   await wb.xlsx.readFile('templates/SALES_AMAZON_TEMPLATE.xlsx');
   const ws = wb.getWorksheet('AMAZON');
   for (let r = 2; r <= ws.rowCount; r++) ws.getRow(r).values = [];
-  ws.getRow(2).values = [
-    '2026-07-22', ORDER_NUMBER, SKU, '', 'MOBILE WHOLESALE LTD',
-    SALE_QTY, ADD_BP, 8.99, '', '', '', POSTAGE, '', '', '',
-  ];
+  writeRowByHeader(ws, 2, {
+    'Date': '2026-07-22',
+    'Order Number': ORDER_NUMBER,
+    'SKU': SKU,
+    'Supplier': 'MOBILE WHOLESALE LTD',
+    'Quantity': SALE_QTY,
+    'BP': ADD_BP,
+    'SP': 8.99,
+    'Postage': POSTAGE,
+  });
   await wb.xlsx.writeFile(SALES_FILE);
 }
 
@@ -184,25 +215,29 @@ async function buildAccessorySalesFile() {
  * single source. Same record id (marketplace__order__sku), so this updates
  * the existing sale rather than creating a second one.
  *
- * Return Date / Outcome / Return Reason are read BY HEADER NAME off the
- * marketplace tab (salesImport.ts:344-346), so appending the three columns to
- * the 15-column Amazon import layout is enough — no export layout needed.
+ * Return Date / Outcome / Return Reason are read by header name off the
+ * marketplace tab (salesImport.ts). The template carries all three already —
+ * this used to bolt them onto columns 16-18, which in the current layout are
+ * P. VAT, Accessories and Total VAT, so it was overwriting real headers.
  */
 async function buildAccessoryReturnFile() {
   const wb = new ExcelJS.Workbook();
   await wb.xlsx.readFile('templates/SALES_AMAZON_TEMPLATE.xlsx');
   const ws = wb.getWorksheet('AMAZON');
   for (let r = 2; r <= ws.rowCount; r++) ws.getRow(r).values = [];
-  const header = ws.getRow(1);
-  header.getCell(16).value = 'Return Date';
-  header.getCell(17).value = 'Outcome';
-  header.getCell(18).value = 'Return Reason';
-  header.commit();
-  ws.getRow(2).values = [
-    '2026-07-22', ORDER_NUMBER, SKU, '', 'MOBILE WHOLESALE LTD',
-    SALE_QTY, ADD_BP, 8.99, '', '', '', POSTAGE, '', '', '',
-    RETURN_DATE, 'Refund', RETURN_REASON,
-  ];
+  writeRowByHeader(ws, 2, {
+    'Date': '2026-07-22',
+    'Order Number': ORDER_NUMBER,
+    'SKU': SKU,
+    'Supplier': 'MOBILE WHOLESALE LTD',
+    'Quantity': SALE_QTY,
+    'BP': ADD_BP,
+    'SP': 8.99,
+    'Postage': POSTAGE,
+    'Return Date': RETURN_DATE,
+    'Outcome': 'Refund',
+    'Return Reason': RETURN_REASON,
+  });
   await wb.xlsx.writeFile(RETURN_FILE);
 }
 

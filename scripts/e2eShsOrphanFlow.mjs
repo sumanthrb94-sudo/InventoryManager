@@ -165,6 +165,19 @@ async function run() {
     (await confirm.textContent().catch(() => ''))?.trim());
   await shot(page, 'step5-audit-blocked-orphans-need-completing');
 
+  // Clear the "show only rows still needing attention" filter first. It is ON
+  // by default (SalesReportImport.tsx: showIncompleteOnly = useState(true)),
+  // and this orphan is already complete — the file names its model and
+  // supplier — so it is not rendered at all. The index search below then
+  // returned -1 and every SHS assertion after it failed, which reads like the
+  // audit screen dropping a direct shipment and is nothing of the kind.
+  const attentionFilter = modal(page)
+    .getByRole('checkbox', { name: /still needing attention/i }).first();
+  if (await attentionFilter.isChecked().catch(() => false)) {
+    await attentionFilter.uncheck().catch(() => {});
+    await page.waitForTimeout(500);
+  }
+
   // Find the direct shipment's row BY INDEX.
   //
   // A div-container filter looked right and wasn't: the innermost div holding
@@ -199,9 +212,18 @@ async function run() {
   console.log('\n── 4. Operator states the model and marks the row SHS ──');
   const shsModelBox = modal(page).locator('input[placeholder="Search model…"]').nth(orphanIndex);
   await shsModelBox.scrollIntoViewIfNeeded().catch(() => {});
+  // Through the dropdown, not by typing and tabbing away. The picker became
+  // catalog-strict in 2026-08, so a free-typed model commits nothing and the
+  // row stays incomplete.
+  await shsModelBox.click();
   await shsModelBox.fill(DIRECT_SHIPMENT.model);
-  await shsModelBox.press('Tab');
   await page.waitForTimeout(400);
+  await page.locator('div.z-\\[9999\\] button').first().click()
+    .catch(async () => { await shsModelBox.press('Enter'); });
+  await page.waitForTimeout(400);
+  record('the model is committed through the catalog picker',
+    (await shsModelBox.inputValue().catch(() => '')) !== '',
+    DIRECT_SHIPMENT.model);
   await shot(page, 'step7-model-entered');
 
   // Same pairing for the toggle: the Nth orphan's SHS button.
