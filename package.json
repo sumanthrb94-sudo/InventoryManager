@@ -2,7 +2,7 @@
   "name": "mobilephonemarket-inventory-manager",
   "private": true,
   "version": "1.0.0",
-  "description": "MOBILEPHONEMARKET — Production Inventory Management System",
+  "description": "MOBILEPHONEMARKET \u2014 Production Inventory Management System",
   "type": "module",
   "scripts": {
     "dev": "vite --port=3000 --host=0.0.0.0",
@@ -28,7 +28,8 @@
     "review:commit": "ocr review --commit HEAD",
     "review:branch": "ocr review --from main --to HEAD",
     "review:preview": "ocr delegate preview",
-    "users:provision": "node scripts/create-team-users.cjs"
+    "users:provision": "node scripts/create-team-users.cjs",
+    "templates": "node scripts/generateImportTemplates.mjs && npx tsx scripts/generateSalesTemplates.ts"
   },
   "dependencies": {
     "@firebase/eslint-plugin-security-rules": "^0.0.2",

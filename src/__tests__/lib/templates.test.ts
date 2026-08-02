@@ -358,21 +358,34 @@ describe('SALES_REPORT_TEMPLATE.xlsx', () => {
 
     expect(headerOf('AMAZON').slice(0, 8))
       .toEqual(['Date', 'Order Number', 'SKU', 'IMEI', 'Supplier', 'Quantity', 'BP', 'SP']);
-    // BM inserts Payment Mode at index 8
-    expect(headerOf('BM')[8]).toBe('Payment Mode');
-    // OnBuy has NO quantity column — BP/SP shift left by one
+    expect(headerOf('BM').slice(0, 8))
+      .toEqual(['Date', 'Order Number', 'SKU', 'IMEI', 'Supplier', 'Quantity', 'BP', 'SP']);
+    // OnBuy has NO quantity column — BP/SP shift left by one. This is the one
+    // real trap in the sales schemas, so pin it explicitly.
     expect(headerOf('ONBUY').slice(0, 7))
-      .toEqual(['DATE', 'Order Number', 'SKU', 'IMEI', 'Supplier', 'BP', 'SP']);
-    expect(headerOf('EBAY')).toContain('SHIPPING');
+      .toEqual(['Date', 'Order Number', 'SKU', 'IMEI', 'Supplier', 'BP', 'SP']);
+    // 2026-08: the templates are generated from the report writer, so eBay
+    // carries the report's names — 'Postage', not the retired 'SHIPPING',
+    // and the Marketing / P. VAT pair that replaced NP(incl. PROMOTION).
+    expect(headerOf('EBAY')).toContain('Postage');
+    expect(headerOf('EBAY')).toContain('Marketing');
+    expect(headerOf('EBAY')).toContain('P. VAT');
+    expect(headerOf('EBAY')).not.toContain('NP(incl. PROMOTION)');
   });
 
-  it('documents the recompute rule, which is the easiest thing to get wrong', () => {
+  it('documents that the formulas are live, and which cells the operator owns', () => {
+    // The template used to say "leave the money columns blank, the app
+    // recomputes them". It no longer does: the columns carry live formulas,
+    // so the promise to document is that typing BP and SP fills the row in —
+    // and, just as important, which cells are the operator's to type.
     const wb = XLSX.read(readFileSync(SALES_TEMPLATE), { type: 'buffer' });
     expect(wb.SheetNames).toContain('README');
     const readme = (XLSX.utils.sheet_to_json(wb.Sheets['README'], { header: 1 }) as any[][])
       .flat().filter(Boolean).map(String).join(' ');
-    expect(readme).toMatch(/RECOMPUTES/i);
+    expect(readme).toMatch(/live/i);
+    expect(readme).toMatch(/formula/i);
     expect(readme).toMatch(/IMEI/);
+    expect(readme).toMatch(/BP and an SP/i);
   });
 });
 

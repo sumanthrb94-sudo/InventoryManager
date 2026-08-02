@@ -180,80 +180,23 @@ async function buildInventoryTemplate() {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// SALES REPORT
+// SALES REPORT — moved out of this script (2026-08)
 // ═══════════════════════════════════════════════════════════════════════════
-const SALES_LAYOUTS = {
-  AMAZON: ['Date', 'Order Number', 'SKU', 'IMEI', 'Supplier', 'Quantity', 'BP', 'SP', 'SP-BP', 'Marginal Tax', 'Commission', 'Postage', 'GP', 'GP %', 'Comments'],
-  BM:     ['Date', 'Order No', 'SKU', 'IMEI', 'Supplier', 'Quantity', 'BP', 'SP', 'Payment Mode', 'SP-BP', 'Marginal Tax', 'PayPal/Klarna Com', 'Commission', 'Postage', 'GP', 'GP %', 'Comments'],
-  EBAY:   ['DATE', 'ORDER NUMBER', 'SKU', 'IMEI NUMBER', 'SUPPLIER', 'UNITS', 'BP', 'SP', 'SP-BP', 'MAR TAX', 'COM', 'ROF', 'FVF', '0.2', 'T.COM', 'SHIPPING', 'GP', 'GP%', 'NP(incl. PROMOTION)'],
-  ONBUY:  ['DATE', 'Order Number', 'SKU', 'IMEI', 'Supplier', 'BP', 'SP', 'SP-BP', 'MAR VAT', 'COM 7%', 'VAT 20%', 'SHIP', 'GP', 'GP%', 'Comments'],
-  // Temu's own layout (client's final TEMU_FORMULA.csv) — Commission and
-  // Commission VAT are real per-order values Temu's export reports
-  // directly (its referral rate varies by category), not a flat % the
-  // app computes. No DSF — Temu's export has no such column.
-  TEMU:   ['Date', 'Order Number', 'SKU', 'IMEI', 'Supplier', 'Quantity', 'BP', 'SP', 'SP-BP', 'Marginal Tax', 'Commission', 'Commission VAT', 'Postage', 'P. VAT', 'Acc', 'Total VAT', 'GP', 'GP %', 'Total VAT NTP'],
-};
-
-const SALES_EXAMPLES = {
-  AMAZON: [
-    ['2026-07-20', 'AMZ-5001', 'IP13-128-MID', '350100000000000', 'MOBILE WHOLESALE LTD', 1, 320.00, 425.00, '', '', '', 8, '', '', ''],
-    ['2026-07-21', 'AMZ-5002', 'IP13-128-STA', '350100000007919', 'MOBILE WHOLESALE LTD', 1, 318.50, 419.99, '', '', '', 8, '', '', 'Prime'],
-  ],
-  BM: [
-    ['2026-07-20', 'BM-7781', 'S22-128-GRN', '350100000015838', 'PHONEBOX DIRECT', 1, 240.00, 329.00, 'Paypal', '', '', '', '', 8, '', '', ''],
-  ],
-  EBAY: [
-    ['2026-07-22', 'EB-3310', 'IP13P-256-GRA', '350100000023757', 'CELLHUB TRADING', 1, 520.00, 679.00, '', '', '', '', '', '', '', 8, '', '', ''],
-  ],
-  ONBUY: [
-    ['2026-07-23', 'OB-9002', 'PIX7-128-BLK', '350100000031676', 'NORTHSIDE STOCK', 275.00, 359.00, '', '', '', '', 8, '', '', ''],
-  ],
-  TEMU: [
-    ['2026-06-18', 'PO-210-07053322437751959', 'SG-A17-128GB-OB', '350901801557294', 'MHL', 1, 55.00, 83.99, '', '', 3.87, 4.07, 6.30, '', '', '', '', '', ''],
-  ],
-};
-
-async function buildSalesTemplate() {
-  const wb = new ExcelJS.Workbook();
-  wb.creator = 'MOBILEPHONEMARKET Inventory Manager';
-  wb.created = new Date(Date.UTC(2026, 6, 25));
-
-  for (const [marketplace, headers] of Object.entries(SALES_LAYOUTS)) {
-    const sheet = wb.addWorksheet(marketplace);
-    dressSheet(sheet, headers, headers.map(h => (h === 'Comments' ? 28 : h.length < 6 ? 12 : 16)));
-    const rows = SALES_EXAMPLES[marketplace] ?? [];
-    rows.forEach(r => sheet.addRow(r));
-    markExamples(sheet, rows.length);
-  }
-
-  addReadme(wb, 'SALES REPORT — upload template',
-    [
-      'One sheet per marketplace. Upload via Import → Sales Report. Sheets you do not trade on can be left with just their header row.',
-      'IMPORTANT: the app RECOMPUTES every money column that is derived — SP-BP, Marginal Tax, Commission, ROF, FVF, VAT, GP, GP%. Leave them blank; whatever you type there is ignored.',
-      'You only have to fill in what the marketplace actually gives you: date, order number, IMEI, supplier, BP, SP and postage.',
-      'Sales are matched to stock by IMEI. Import the Inventory Report FIRST so units auto-match — otherwise each unmatched sale must be completed by hand before the import will confirm.',
-      'The grey example rows are illustrations — delete them before uploading your own data.',
-    ],
-    [
-      ['Date / DATE', 'Yes', 'yyyy-mm-dd (or any Excel date cell)', 'Sale date. Drives every period figure — Sold Today, This Month, and the date-range reports. A row with no readable date is rejected. Older Amazon files head this column "nw"; that is still accepted, but new files should say Date.'],
-      ['Order Number',     'Yes', 'Free text, e.g. AMZ-5001',            'The marketplace order id. Combined with the IMEI it forms the record key, so re-uploading the same report updates rows instead of duplicating them.'],
-      ['SKU',              'No',  'Free text',                           'Used as a fallback identifier when the IMEI cell is empty, and to derive a model name for unmatched sales.'],
-      ['IMEI',             'No',  '15 digits — or several separated by " / "', 'How a sale is matched to a unit in stock; that unit is then marked SOLD and linked to the sale. A bulk order with several IMEIs in one cell is split into one row per phone, with BP and SP divided evenly. Strongly recommended on every row.'],
-      ['Supplier',         'No',  'Free text',                           'Shown on the sale record. Required only for sales with no matching unit, where it is filled in during the import.'],
-      ['Quantity / UNITS', 'No',  'Whole number, defaults to 1',         'Units on the order line. OnBuy has no Quantity column by design — do not add one.'],
-      ['BP',               'Yes', 'Number greater than 0',               'Buy price in GBP. Every profit figure depends on it.'],
-      ['SP',               'Yes', 'Number greater than 0',               'Sale price in GBP, as the marketplace reports it.'],
-      ['Payment Mode',     'No',  'BM only: Paypal, Klarna, Clear Pay, Card', 'BM only. Paypal/Klarna/Clearpay attract their own commission line, which the app calculates.'],
-      ['Postage / SHIP / SHIPPING', 'No', 'Number, e.g. 8 or 6.30',      'What the postage actually cost. On eBay the values 1, 2 and 8 are read as the standard shipping tiers; any other number is taken literally.'],
-      ['Comments',         'No',  'Free text',                           'Free-form note kept on the sale record.'],
-      ['(row colour)',     'No',  'Red fill on the Date or Order cell',  'A red-filled row is imported as FLAGGED and shown in red across the app — the convention for returns, refunds, chargebacks and disputes. Filling the cell red is the only way to set it.'],
-    ],
-  );
-
-  await wb.xlsx.writeFile(`${OUT}/SALES_REPORT_TEMPLATE.xlsx`);
-  const counts = Object.entries(SALES_LAYOUTS).map(([m, h]) => `${m}:${h.length}c`).join(' ');
-  console.log(`${OUT}/SALES_REPORT_TEMPLATE.xlsx — ${counts}`);
-}
+//
+// The sales templates are generated by scripts/generateSalesTemplates.ts now,
+// which calls the real report writer — so their columns, number formats and
+// per-row formulas come from the same code path that writes a live Sales
+// Report and cannot drift from it.
+//
+// This script used to keep its own SALES_LAYOUTS table, and it drifted badly:
+// the templates were still shipping eBay's `0.2` and `NP(incl. PROMOTION)`
+// and BM's `PayPal/Klarna Com` long after the report had dropped them, so an
+// operator building a file from the template produced something that looked
+// nothing like the report. Leaving a second copy here — even a corrected one —
+// would restart that clock, and running this script would silently overwrite
+// the generated templates with the stale shape.
+//
+//   npx tsx scripts/generateSalesTemplates.ts     (or: npm run templates)
 
 /**
  * SHS STOCK template — the report used to MARK stock as supplier-held.
@@ -392,52 +335,9 @@ async function buildAccessoriesTemplate() {
   console.log(`${OUT}/ACCESSORIES_TEMPLATE.xlsx — ${headers.length} columns, ${examples.length} example rows`);
 }
 
-/**
- * Per-marketplace templates. Channels send reports separately, so one
- * file per channel is the common shape — pick the marketplace in the
- * import dialog and upload the single sheet.
- */
-async function buildPerMarketplaceTemplates() {
-  for (const [marketplace, headers] of Object.entries(SALES_LAYOUTS)) {
-    const wb = new ExcelJS.Workbook();
-    wb.creator = 'MOBILEPHONEMARKET Inventory Manager';
-    const sheet = wb.addWorksheet(marketplace);
-    dressSheet(sheet, headers, headers.map(h => (h === 'Comments' ? 28 : h.length < 6 ? 12 : 16)));
-    const rows = SALES_EXAMPLES[marketplace] ?? [];
-    rows.forEach(r => sheet.addRow(r));
-    markExamples(sheet, rows.length);
-
-    addReadme(wb, `${marketplace} SALES — single-marketplace upload template`,
-      [
-        `One sheet, ${marketplace} only. In Import → Sales Report, choose ${marketplace} before picking the file.`,
-        `The sheet does not have to be named ${marketplace} — with a marketplace selected the first sheet is used, so a raw export works as-is.`,
-        'Leave the derived money columns blank: SP-BP, tax, commission, VAT, GP and GP% are all recomputed by the app.',
-        'Record ids match the combined workbook exactly, so uploading per-channel today and a combined file later updates the same rows instead of duplicating them.',
-        'The grey example rows are illustrations — delete them before uploading your own data.',
-      ],
-      [
-        ['Date',         'Yes', 'yyyy-mm-dd', 'Sale date — drives every period figure.'],
-        ['Order Number', 'Yes', 'Free text',  'Marketplace order id. With the IMEI it forms the record key, so re-uploads update rather than duplicate.'],
-        ['SKU',          'No',  'Free text',  'Fallback identifier when IMEI is blank.'],
-        ['IMEI',         'No',  '15 digits, or several separated by " / "', 'Matches the sale to a unit in stock and marks it SOLD. Multi-IMEI cells split into one row per phone with BP/SP divided.'],
-        ['Supplier',     'No',  'Free text',  'Needed only for sales with no matching unit, completed during import.'],
-        ['BP',           'Yes', 'Number > 0', 'Buy price.'],
-        ['SP',           'Yes', 'Number > 0', 'Sale price as the marketplace reports it.'],
-        ['Postage',      'No',  'Number',     marketplace === 'EBAY' ? 'Column is SHIPPING. Values 1, 2 and 8 are read as the standard eBay tiers; anything else is taken literally.' : 'What postage actually cost.'],
-        ['(row colour)', 'No',  'Red fill on Date or Order', 'Imports the row as FLAGGED — the convention for returns, refunds, chargebacks and disputes.'],
-      ],
-    );
-
-    await wb.xlsx.writeFile(`${OUT}/SALES_${marketplace}_TEMPLATE.xlsx`);
-    console.log(`${OUT}/SALES_${marketplace}_TEMPLATE.xlsx — ${headers.length} columns`);
-  }
-}
-
 await buildInventoryTemplate();
 await buildShsTemplate();
 await buildAccessoriesTemplate();
-await buildSalesTemplate();
-await buildPerMarketplaceTemplates();
 const published = publishToPublic();
 console.log(`${PUBLIC_OUT}/ — ${published} templates published for the in-app download buttons`);
 console.log('\nTemplates written. They are parsed by src/__tests__/lib/templates.test.ts on every test run.');

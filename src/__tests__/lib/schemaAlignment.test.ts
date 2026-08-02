@@ -8,10 +8,10 @@
  *    real template. These indices only fire when header matching fails, so a
  *    wrong one is invisible until the day someone uploads a file with a
  *    renamed header — and then it reads the wrong column silently. AMAZON's
- *    `postage` pointed at index 14 (Comments) instead of 11, so a
- *    header-mismatched Amazon file parsed its free-text Comments cell as the
- *    postage cost. parseNumber turns that into 0, overstating GP by exactly
- *    the postage on every row.
+ *    `postage` once pointed at the Comments index, so a header-mismatched
+ *    Amazon file parsed its free-text Comments cell as the postage cost.
+ *    parseNumber turns that into 0, overstating GP by exactly the postage on
+ *    every row.
  *
  * 2. The inventory EXPORT columns are the import columns, in the same order,
  *    plus derived extras. Matching is by header name so order is not load-
@@ -31,73 +31,51 @@ const INVENTORY_TEMPLATE = resolve('templates/INVENTORY_REPORT_TEMPLATE.xlsx');
  * What each field's fallback index SHOULD land on in the real template.
  * Checked against the live `SHEET_LAYOUTS` below — the table itself is
  * imported, not copied, so changing an index in salesImport.ts fails here.
+ *
+ * 2026-08: the templates are now generated FROM the report writer
+ * (scripts/generateSalesTemplates.ts), so these indices describe the report's
+ * layout. They moved when the templates stopped carrying their own
+ * hand-written column lists — eBay's `0.2` / `NP(incl. PROMOTION)` and BM's
+ * `PayPal/Klarna Com` were retired from the report years before the template
+ * caught up.
  */
 const EXPECTED_FALLBACKS: Record<string, Array<[string, number, string]>> = {
   AMAZON: [
-    ['date', 0, 'Date'],
-    ['orderNumber', 1, 'Order Number'],
-    ['sku', 2, 'SKU'],
-    ['imei', 3, 'IMEI'],
-    ['supplier', 4, 'Supplier'],
-    ['quantity', 5, 'Quantity'],
-    ['buyPrice', 6, 'BP'],
-    ['salePrice', 7, 'SP'],
-    ['postage', 11, 'Postage'],
-    ['comments', 14, 'Comments'],
+    ['date', 0, 'Date'], ['orderNumber', 1, 'Order Number'], ['sku', 2, 'SKU'],
+    ['imei', 3, 'IMEI'], ['supplier', 4, 'Supplier'], ['quantity', 5, 'Quantity'],
+    ['buyPrice', 6, 'BP'], ['salePrice', 7, 'SP'],
+    ['postage', 14, 'Postage'], ['comments', 21, 'Comments'],
   ],
   BM: [
-    ['date', 0, 'Date'],
-    ['orderNumber', 1, 'Order No'],
-    ['sku', 2, 'SKU'],
-    ['imei', 3, 'IMEI'],
-    ['supplier', 4, 'Supplier'],
-    ['quantity', 5, 'Quantity'],
-    ['buyPrice', 6, 'BP'],
-    ['salePrice', 7, 'SP'],
-    ['paymentMode', 8, 'Payment Mode'],
-    ['postage', 13, 'Postage'],
-    ['comments', 16, 'Comments'],
+    ['date', 0, 'Date'], ['orderNumber', 1, 'Order Number'], ['sku', 2, 'SKU'],
+    ['imei', 3, 'IMEI'], ['supplier', 4, 'Supplier'], ['quantity', 5, 'Quantity'],
+    ['buyPrice', 6, 'BP'], ['salePrice', 7, 'SP'],
+    ['postage', 12, 'Postage'], ['comments', 18, 'Comments'],
   ],
   EBAY: [
-    ['date', 0, 'DATE'],
-    ['orderNumber', 1, 'ORDER NUMBER'],
-    ['sku', 2, 'SKU'],
-    ['imei', 3, 'IMEI NUMBER'],
-    ['supplier', 4, 'SUPPLIER'],
-    ['quantity', 5, 'UNITS'],
-    ['buyPrice', 6, 'BP'],
-    ['salePrice', 7, 'SP'],
-    ['shipping', 15, 'SHIPPING'],
-    ['netProfit', 18, 'NP(incl. PROMOTION)'],
+    ['date', 0, 'Date'], ['orderNumber', 1, 'Order Number'], ['sku', 2, 'SKU'],
+    ['imei', 3, 'IMEI'], ['supplier', 4, 'Supplier'], ['quantity', 5, 'Units'],
+    ['buyPrice', 6, 'BP'], ['salePrice', 7, 'SP'],
+    ['shipping', 15, 'Postage'],
+    // Typed cells on eBay — no formula behind either, so the sheet is the
+    // only source and a positional miss would silently zero them.
+    ['postageVat', 16, 'P. VAT'], ['marketing', 17, 'Marketing'],
+    ['comments', 24, 'Comments'],
   ],
   ONBUY: [
-    ['date', 0, 'DATE'],
-    ['orderNumber', 1, 'Order Number'],
-    ['sku', 2, 'SKU'],
-    ['imei', 3, 'IMEI'],
-    ['supplier', 4, 'Supplier'],
-    ['buyPrice', 5, 'BP'],
-    ['salePrice', 6, 'SP'],
-    ['postage', 11, 'SHIP'],
-    ['comments', 14, 'Comments'],
+    ['date', 0, 'Date'], ['orderNumber', 1, 'Order Number'], ['sku', 2, 'SKU'],
+    ['imei', 3, 'IMEI'], ['supplier', 4, 'Supplier'],
+    // No Quantity column on OnBuy — BP/SP sit one to the left.
+    ['buyPrice', 5, 'BP'], ['salePrice', 6, 'SP'],
+    ['postage', 11, 'Postage'], ['comments', 18, 'Comments'],
   ],
-  // Temu's own 19-column layout (client's final TEMU_FORMULA.csv) — no
-  // Comments column, and Commission/Commission VAT are read as given
-  // (Temu's real per-order fee, not a flat %). See platforms.ts TEMU branch.
   TEMU: [
-    ['date', 0, 'Date'],
-    ['orderNumber', 1, 'Order Number'],
-    ['sku', 2, 'SKU'],
-    ['imei', 3, 'IMEI'],
-    ['supplier', 4, 'Supplier'],
-    ['quantity', 5, 'Quantity'],
-    ['buyPrice', 6, 'BP'],
-    ['salePrice', 7, 'SP'],
+    ['date', 0, 'Date'], ['orderNumber', 1, 'Order Number'], ['sku', 2, 'SKU'],
+    ['imei', 3, 'IMEI'], ['supplier', 4, 'Supplier'], ['quantity', 5, 'Quantity'],
+    ['buyPrice', 6, 'BP'], ['salePrice', 7, 'SP'],
+    // Index 11 is Commission VAT — not parsed, it derives as Commission x 20%.
     ['commission', 10, 'Commission'],
-    // Index 11 is Commission VAT and is deliberately NOT parsed — it derives
-    // as Commission × 20%, and the master's cell is `=K2+20%`, a `+` typed
-    // for a `*`. Reading it would import the typo.
-    ['postage', 12, 'Postage'],
+    ['postage', 12, 'Postage'], ['comments', 19, 'Comments'],
   ],
 };
 

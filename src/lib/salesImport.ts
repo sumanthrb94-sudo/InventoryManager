@@ -355,14 +355,14 @@ export const SHEET_LAYOUTS: Record<Marketplace, SheetLayout> = {
     },
     fallback: {
       date: 0, orderNumber: 1, sku: 2, imei: 3, supplier: 4,
-      // Postage is col 11 (0-indexed) in the 15-col AMAZON layout; Comments
-      // is the last column, 14. This read `postage: 14` — the same index as
-      // comments — so a file whose Postage header failed to match had its
-      // free-text Comments cell parsed as the postage cost, which
-      // parseNumber turns into 0. Silent, and it overstates GP by exactly
-      // the postage. Only ever fired on the positional path, which is why
-      // it survived: every well-formed file matches by header first.
-      quantity: 5, buyPrice: 6, salePrice: 7, postage: 11, comments: 14,
+      // Indices track templates/SALES_REPORT_TEMPLATE.xlsx, which is now
+      // generated FROM the report writer — so the positional path and the
+      // file an operator actually holds describe the same layout.
+      // schemaAlignment.test.ts reads the template and fails if they drift.
+      // These only fire when header matching misses; the classic symptom of
+      // a wrong one is postage landing on the free-text Comments cell,
+      // which parseNumber turns into 0 and silently overstates GP.
+      quantity: 5, buyPrice: 6, salePrice: 7, postage: 14, comments: 21,
     },
     required: ['date', 'orderNumber', 'buyPrice', 'salePrice'],
   },
@@ -390,7 +390,7 @@ export const SHEET_LAYOUTS: Record<Marketplace, SheetLayout> = {
     },
     fallback: {
       date: 0, orderNumber: 1, sku: 2, imei: 3, supplier: 4,
-      quantity: 5, buyPrice: 6, salePrice: 7, paymentMode: 8, postage: 13, comments: 16,
+      quantity: 5, buyPrice: 6, salePrice: 7, postage: 12, comments: 18,
     },
     required: ['date', 'orderNumber', 'buyPrice', 'salePrice'],
   },
@@ -427,7 +427,8 @@ export const SHEET_LAYOUTS: Record<Marketplace, SheetLayout> = {
     },
     fallback: {
       date: 0, orderNumber: 1, sku: 2, imei: 3, supplier: 4,
-      quantity: 5, buyPrice: 6, salePrice: 7, shipping: 15, netProfit: 18,
+      quantity: 5, buyPrice: 6, salePrice: 7, shipping: 15,
+      postageVat: 16, marketing: 17, comments: 24,
     },
     required: ['date', 'orderNumber', 'buyPrice', 'salePrice'],
   },
@@ -456,7 +457,7 @@ export const SHEET_LAYOUTS: Record<Marketplace, SheetLayout> = {
       date: 0, orderNumber: 1, sku: 2, imei: 3, supplier: 4,
       // NB: BP at 5, SP at 6 — one less than the other marketplaces because
       // OnBuy has no Quantity column.
-      buyPrice: 5, salePrice: 6, postage: 11, comments: 14,
+      buyPrice: 5, salePrice: 6, postage: 11, comments: 18,
     },
     required: ['date', 'orderNumber', 'buyPrice', 'salePrice'],
   },
@@ -495,7 +496,7 @@ export const SHEET_LAYOUTS: Record<Marketplace, SheetLayout> = {
       date: 0, orderNumber: 1, sku: 2, imei: 3, supplier: 4,
       quantity: 5, buyPrice: 6, salePrice: 7,
       // col 11 is Commission VAT — deliberately not mapped; it derives.
-      commission: 10, postage: 12,
+      commission: 10, postage: 12, comments: 19,
     },
     required: ['date', 'orderNumber', 'buyPrice', 'salePrice'],
   },
