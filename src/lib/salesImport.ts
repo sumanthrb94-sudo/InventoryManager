@@ -272,6 +272,11 @@ type ColKey =
   // rate varies by category and can't be modelled as one flat percentage
   // the way Amazon's can. See calcSaleFinancials' TEMU branch.
   | 'commission' | 'commissionVat'
+  // eBay only — typed cells in the operator's master with no formula behind
+  // them: Marketing is the real promo spend for the line (£0 on most rows)
+  // and P. VAT is 0 throughout, eBay's postage being zero-rated to the
+  // operator. Neither can be derived, so the sheet is the only source.
+  | 'marketing' | 'postageVat' | 'marketingVat'
   // The return-linkage block every marketplace tab already writes for a
   // voided row (clientReport.ts writeReturnBlock) but which no importer
   // has ever read back — see restoreVoidedSaleFromRow below. Header-match
@@ -405,6 +410,13 @@ export const SHEET_LAYOUTS: Record<Marketplace, SheetLayout> = {
       // depending on which sheet version the operator exported.
       shipping:    ['shipping', 'postage'],
       netProfit:   ['np(incl. promotion)', 'np incl. promotion', 'np'],
+      // Typed cells in the operator's master — no formula behind any of
+      // them, so the sheet's own value is the only source. Marketing is the
+      // real promo spend (£0 on most rows) and P. VAT is 0 throughout
+      // because eBay's postage is zero-rated to the operator.
+      marketing:   ['marketing'],
+      postageVat:  ['p. vat', 'p.vat', 'postage vat'],
+      marketingVat: ['m. vat', 'm.vat', 'marketing vat'],
       comments:    ['comments'],
       returnDate:  ['return date'],
       voidOutcome: ['outcome'],
@@ -727,6 +739,18 @@ function parseRow(
     || (typeof dateRaw === 'number' && Number.isFinite(dateRaw) && dateRaw > 0)
     || (typeof dateRaw === 'string' && dateRaw.trim() !== '');
   if (!orderNumber && !imei && !hasDate) {
+    // Genuinely blank padding rows are the normal case and stay silent. But
+    // the operator's master carries leftovers far down the sheet with every
+    // money column filled and no identity at all (EBAY R997, ONBUY R999 in
+    // SALES_TEMPLATE_UPLOAD_30TH_JULY.xlsx). Dropping those without a word
+    // means real money disappears from an import and nobody is told; say so
+    // and still skip the row, since there is nothing to key a sale on.
+    if (toNumber(get('buyPrice')) !== undefined || toNumber(get('salePrice')) !== undefined) {
+      errors.push({
+        sheet: sheetName, row: sourceRow,
+        message: 'row has BP/SP but no date, order number, SKU or IMEI — skipped',
+      });
+    }
     return null;
   }
 
@@ -804,11 +828,20 @@ function parseRow(
   const commissionOverride = toNumber(get('commission'));
   const commissionVatOverride = toNumber(get('commissionVat'));
 
+  // eBay only — Marketing and P. VAT are typed cells in the operator's
+  // master, not formulas, so the sheet is the only source for them. Both
+  // keys are absent from every other marketplace's column map, so get()
+  // returns undefined and this is a no-op elsewhere.
+  const marketing = toNumber(get('marketing'));
+  const postageVatOverride = toNumber(get('postageVat'));
+  const marketingVatOverride = toNumber(get('marketingVat'));
+
   // ---- recompute every derived field ------------------------------------
   const fin = calcSaleFinancials({
     marketplace, buyPrice, salePrice,
     postageOverride, eBayShippingTier, hasPayPalKlarna,
     commissionOverride, commissionVatOverride,
+    marketing, postageVatOverride, marketingVatOverride,
   });
 
   const supplierName = toNonEmptyString(get('supplier'));

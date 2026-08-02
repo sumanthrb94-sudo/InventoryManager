@@ -156,7 +156,9 @@ function masterBm(bp: number, sp: number, postage: number, payment: string) {
   const spMinusBp  = r2(sp - bp);
   const marTax     = r2(spMinusBp / 6);
   const commission = r2(sp * 11 / 100);
-  const customerCareFees = 9.99;
+  // £8.99 per the operator's 2026-08 master (BM SALES charges it on every
+  // row). Was 9.99 from the 2026-05 reference sheet.
+  const customerCareFees = 8.99;
   const postageVat = r2(postage * 0.2);
   const accessoryFee = 1;
   const grossProfit = r2(sp - bp - marTax - commission - customerCareFees - postage - postageVat - accessoryFee);
@@ -166,9 +168,15 @@ function masterBm(bp: number, sp: number, postage: number, payment: string) {
 
 function masterEbay(bp: number, sp: number, shipping: 1 | 2 | 8) {
   // 2026-05: effective commission rate 6.21% (6.9% × 90% after the
-  // operator's account-level reduction). Marketing line defaults to
-  // 5% of SP when not overridden, with its own 20% VAT. Per-line VAT
-  // chain on Commission/Postage/Marketing.
+  // operator's account-level reduction) — confirmed verbatim by the
+  // 2026-08 master, whose Commission cell reads =(H*6.9%)-(H*6.9%)*10%.
+  //
+  // 2026-08: Marketing and P. VAT are NOT derived. Neither cell carries a
+  // formula in the master: Marketing is the operator's real promo spend
+  // (£0 on most rows) and P. VAT is 0 on all 33 eBay rows despite £4.65 of
+  // postage, eBay's shipping being zero-rated to them. Both default to
+  // zero here, which is what calcSaleFinancials now produces when no
+  // caller supplies them.
   const spMinusBp  = r2(sp - bp);
   const marTax     = r2(spMinusBp / 6);
   const commission = r2(sp * 6.21 / 100);
@@ -176,8 +184,8 @@ function masterEbay(bp: number, sp: number, shipping: 1 | 2 | 8) {
   const fvf        = 0.4;
   const twenty     = r2((commission + rof + fvf) * 20 / 100);
   const totalCom   = r2(commission + rof + fvf + twenty);
-  const postageVat = r2(shipping * 0.2);
-  const marketing  = r2(sp * 0.05);
+  const postageVat = 0;
+  const marketing  = 0;
   const marketingVat = r2(marketing * 0.2);
   const accessoryFee = 1;
   const grossProfit = r2(spMinusBp - marTax - totalCom - shipping - postageVat - marketing - marketingVat - accessoryFee);
@@ -373,9 +381,11 @@ describe('calcSaleFinancials · TEMU · the client\'s real export row', () => {
   });
 
   it('falls back to commissionPct × SP when the file has no Commission column', () => {
+    // 4.61%, the rate in the operator's Temu master (`=H2*4.61%`), not the
+    // 7% placeholder used before that file arrived.
     const fin = calcSaleFinancials({ marketplace: 'TEMU', buyPrice: 100, salePrice: 200 });
-    expect(fin.commission).toBe(14);       // 200 × 7%
-    expect(fin.commissionVat).toBe(2.8);   // fallback: commission × 20%
+    expect(fin.commission).toBe(9.22);      // 200 × 4.61%
+    expect(fin.commissionVat).toBe(1.84);   // fallback: commission × 20%
   });
 
   it('Postage VAT is 20%, same as every other marketplace — no longer a fixed 0', () => {

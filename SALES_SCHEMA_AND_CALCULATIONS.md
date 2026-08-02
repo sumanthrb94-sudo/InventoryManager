@@ -117,14 +117,14 @@ Total VAT 8.40 → GP 73.59 → GP% 21.03 → Total VAT NTP 16.60
 
 ### BACK MARKET (BM)
 
-Commission 11% of SP · Customer Care £9.99 flat · Accessories £1
+Commission 11% of SP · Customer Care £8.99 flat · Accessories £1
 
 | Line | Formula | Excel |
 |---|---|---|
 | SP − BP | `SP − BP` | `H2-G2` |
 | Marginal Tax | `(SP−BP) × 16.67%` | `I2*16.67%` |
 | Commission | `SP × 11%` | `H2/100*11` |
-| Customer Care Fees | `£9.99` flat | literal |
+| Customer Care Fees | `£8.99` flat | `literal cell` |
 | P. VAT | `Postage × 20%` | `M2*20%` |
 | GP | `(SP−BP) − MarTax − Com − £9.99 − Postage − P.VAT − £1` | `I2-J2-K2-L2-M2-N2-O2` |
 | GP % | `GP ÷ **BP** × 100` | `(P2-Y2)/G2*100` |
@@ -137,14 +137,14 @@ Commission 11% of SP · Customer Care £9.99 flat · Accessories £1
 **Worked — BP £300, SP £449.99, postage £6.30**
 
 ```
-SP − BP 149.99 · MarTax 25.00 · Commission 49.50 · Care 9.99
+SP − BP 149.99 · MarTax 25.00 · Commission 49.50 · Care 8.99
 P.VAT 1.26 · Accessories 1.00 → GP 56.94 → GP% 18.98 → NTP 23.74
 ```
 
 ### EBAY
 
 Commission 6.21% (6.9% less a 10% reduction) · ROF 0.35% · FVF £0.40 flat ·
-Marketing 5% of SP · Accessories £1
+Marketing operator-entered (£0 default) · P. VAT not derived · Accessories £1
 
 | Line | Formula | Excel |
 |---|---|---|
@@ -155,8 +155,8 @@ Marketing 5% of SP · Accessories £1
 | FVF | `£0.40` flat | literal |
 | VAT | `(Com + ROF + FVF) × 20%` | `(K2+L2+M2)*20%` |
 | T.COM | `Com + ROF + FVF + VAT` | `K2+L2+M2+N2` |
-| Marketing | `SP × 5%` | `H2*5%` |
-| P. VAT | `Postage × 20%` | `P2*20%` |
+| Marketing | operator-entered promo spend; £0 when none | `literal cell` |
+| P. VAT | not derived on eBay — £0 unless the sheet carries one | `literal cell` |
 | M. VAT | `Marketing × 20%` | `R2*20%` |
 | Total VAT | `VAT + P.VAT + M.VAT` | `N2+Q2+S2` |
 | GP | `(SP−BP) − MarTax − T.COM − Postage − P.VAT − Marketing − M.VAT − £1` | `I2-J2-O2-P2-Q2-R2-S2-T2` |
@@ -201,14 +201,14 @@ P.VAT 1.26 · Accessories 1.00 → Total VAT 6.86 → GP 74.49 → GP% 28.65 →
 
 ### TEMU
 
-Commission from Temu's own export (7% fallback) · Commission VAT tracked but
+Commission from Temu's own export (4.61% fallback) · Commission VAT tracked but
 excluded · Accessories £1
 
 | Line | Formula | Excel |
 |---|---|---|
 | SP − BP | `SP − BP` | `H2-G2` |
 | Marginal Tax | `(SP−BP) × 16.67%` | `I2*16.67%` |
-| Commission | the export's own value; `SP × 7%` only as fallback | `literal cell` |
+| Commission | the export's own value; `SP × 4.61%` only as fallback | `literal cell` |
 | Commission VAT | the export's own value | `literal cell` |
 | P. VAT | `Postage × 20%` | `M2*20%` |
 | Total VAT | `P. VAT` **alone** | `N2` |

@@ -40,6 +40,20 @@ export function recomputeSale(s: Sale): Sale {
     postageOverride,
     eBayShippingTier,
     hasPayPalKlarna,
+    // Operator INPUTS, not derived money — a recompute must carry these
+    // forward or it silently rewrites what the operator entered. Marketing
+    // is the real eBay promo spend, postageVat the sheet's own P. VAT cell
+    // (eBay never derives it), and postageVatExempt the zero-rated-shipping
+    // flag, which until now was dropped on every recompute and quietly
+    // put the VAT back on.
+    marketing: s.marketing,
+    postageVatOverride: s.postageVat,
+    marketingVatOverride: s.marketingVat,
+    postageVatExempt: s.postageVatExempt,
+    // Temu reports its real per-order commission rather than a derivable
+    // rate; the same reasoning applies.
+    commissionOverride: s.marketplace === 'TEMU' ? s.commission : undefined,
+    commissionVatOverride: s.marketplace === 'TEMU' ? s.commissionVat : undefined,
   });
 
   // Guard: calcSaleFinancials should always return a value now that a default
@@ -61,6 +75,20 @@ export function recomputeSale(s: Sale): Sale {
     totalCom: fresh.totalCom,
     vat20: fresh.vat20,
     marVat: fresh.marVat,
+    // The per-line VAT / fee breakdown used to be left at whatever was
+    // stored, so a fee change moved grossProfit but not the columns it was
+    // computed from — the workbook then showed a GP that its own fee lines
+    // didn't add up to. Refresh the whole set.
+    commissionVat: fresh.commissionVat,
+    dsf: fresh.dsf,
+    dsfVat: fresh.dsfVat,
+    postageVat: fresh.postageVat,
+    marketing: fresh.marketing,
+    marketingVat: fresh.marketingVat,
+    customerCareFees: fresh.customerCareFees,
+    accessoryFee: fresh.accessoryFee,
+    totalVat: fresh.totalVat,
+    totalVatNtp: fresh.totalVatNtp,
     postage: fresh.postage,
     grossProfit: fresh.grossProfit,
     gpPercent: fresh.gpPercent,

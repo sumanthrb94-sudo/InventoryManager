@@ -88,7 +88,10 @@ export const DEFAULT_MARKETPLACE_FEES: Record<Marketplace, MarketplaceFee> = {
     marginTaxDivisor: 6,
     vatPct: 20,
     accessoryFee: 1,
-    customerCareFees: 9.99,
+    // 2026-08: £8.99, not the £9.99 carried since 2026-05. The operator's
+    // master (SALES_TEMPLATE_UPLOAD_30TH_JULY.xlsx, BM SALES) charges 8.99
+    // on every row; 9.99 made our GP exactly £1 light on every BM line.
+    customerCareFees: 8.99,
   },
   EBAY: {
     marketplace: 'EBAY',
@@ -130,7 +133,13 @@ export const DEFAULT_MARKETPLACE_FEES: Record<Marketplace, MarketplaceFee> = {
     // category and the export reports the actual figure directly, so the
     // sheet's own value always wins (see calcSaleFinancials' TEMU branch).
     // No dsfPct — Temu's export has no DSF / DSF VAT columns at all.
-    commissionPct: 7,
+    //
+    // 2026-08: the fallback is 4.61%, not the 7% guessed before the master
+    // arrived. The operator's Temu master carries a real formula in the
+    // Commission cell — `=H2*4.61%` — so a Temu sale entered in the app
+    // (no file to read from) now derives the same figure their sheet does.
+    // 7% overstated Temu commission by half as much again.
+    commissionPct: 4.61,
     commissionBase: 'sp',
     postage: 0,
     marginTaxDivisor: 6,
@@ -232,6 +241,15 @@ export interface CalcSaleFinancialsInput {
    *  marketplace. Used for VAT-exempt shipping (zero-rated EU export,
    *  etc). Defaults to false so existing behaviour is unchanged. */
   postageVatExempt?: boolean;
+  /** eBay only — the sheet's own P. VAT cell. eBay postage VAT is not
+   *  derived (the operator's master has no formula there and reads 0
+   *  throughout), so this is the only way a non-zero reaches the calc. */
+  postageVatOverride?: number;
+  /** eBay only — the sheet's own M. VAT cell. Also a typed cell in the
+   *  master, and it does NOT track the Marketing column: rows with £0 of
+   *  marketing still carry M. VAT. Without this the imported row's GP
+   *  misses that charge. Falls back to `marketing × vatPct`. */
+  marketingVatOverride?: number;
 }
 
 export interface SaleFinancials {
@@ -329,8 +347,12 @@ export function calcSaleFinancials(input: CalcSaleFinancialsInput): SaleFinancia
   // (col G = BP) and SP on ONBUY (col G = SP — ONBUY has no Quantity column
   // so headers shift one left). EBAY uses an explicit `H{row}` (col H = SP).
   // Net result:
-  //   AMAZON / BM / PROJECT     GP% = GP / BP * 100   (margin-over-cost)
-  //   EBAY / ONBUY              GP% = GP / SP * 100   (gross-margin-over-revenue)
+  //   AMAZON / BM / ONBUY / TEMU  GP% = GP / BP * 100  (margin-over-cost)
+  //   EBAY                        GP% = GP / SP * 100  (margin-over-revenue)
+  // ONBUY sat in the wrong list here until 2026-08. The code was always
+  // right — only this comment was wrong. The operator's master settles it:
+  // ONBUY's GP % cell reads `=P2/F2*100`, and F is BP on that sheet.
+  // EBAY's reads `=V2/H2*100`, and H is SP.
   // Until 2026-05 the runtime divided by SP for every marketplace, which made
   // the AMAZON/BM/PROJECT in-app GP% read about half what the operator's
   // master file computes on open. Both conventions are valid business
@@ -583,10 +605,13 @@ export function calcSaleFinancials(input: CalcSaleFinancialsInput): SaleFinancia
       //                                                Amazon's GP/BP convention.
       const vatPctFrac = (fee.vatPct ?? 20) / 100;
       const accessoryFeeVal = fee.accessoryFee ?? 0;
-      // Marketing defaults to 5% of SP (matches the operator's =B3*5% cell);
-      // callers can supply an explicit number to override for the rare
-      // hand-set spend.
-      const marketingVal = input.marketing ?? (sp * 0.05);
+      // 2026-08, from the operator's master (SALES_TEMPLATE_UPLOAD_30TH_JULY
+      // .xlsx, EBAY SALES). Marketing carries NO formula in that sheet — the
+      // cell is typed by hand and is £0 on most rows (£8 / £9 / £9.60 on a
+      // few). The old `sp * 5%` default therefore invented a marketing spend
+      // that never happened, ~£2.80 on a £56 sale, and it flowed straight
+      // through GP. Default to zero and let the caller supply the real spend.
+      const marketingVal = input.marketing ?? 0;
 
       const marginalTaxRaw   = spMinusBp * 16.67 / 100;
       const commissionRaw    = sp * fee.commissionPct / 100;
@@ -594,8 +619,13 @@ export function calcSaleFinancials(input: CalcSaleFinancialsInput): SaleFinancia
       const fvfRaw           = fee.fixedFee ?? 0;
       const vatRaw           = (commissionRaw + rofRaw + fvfRaw) * vatPctFrac;
       const tComRaw          = commissionRaw + rofRaw + fvfRaw + vatRaw;
-      const postageVatRaw    = input.postageVatExempt ? 0 : (postage * vatPctFrac);
-      const marketingVatRaw  = marketingVal * vatPctFrac;
+      // eBay is the one marketplace that does NOT derive postage VAT. The
+      // master's P. VAT column has no formula and reads 0 on all 33 rows
+      // despite £4.65 of postage, so eBay's shipping is zero-rated to the
+      // operator. Charging 20% here cost £0.93 of GP on every eBay line.
+      // `postageVatOverride` lets an import carry a non-zero back in.
+      const postageVatRaw    = input.postageVatExempt ? 0 : (input.postageVatOverride ?? 0);
+      const marketingVatRaw  = input.marketingVatOverride ?? (marketingVal * vatPctFrac);
       const totalVatRaw      = vatRaw + postageVatRaw + marketingVatRaw;
       const grossProfitRaw   = spMinusBp - marginalTaxRaw - tComRaw - postage - postageVatRaw
         - marketingVal - marketingVatRaw - accessoryFeeVal;
@@ -838,8 +868,11 @@ export function excelFormulaFor(marketplace: Marketplace, row: number): Record<s
         fvf:          `${fee.fixedFee ?? 0.4}`,
         vat20:        `(K${r}+L${r}+M${r})*${vatPct}%`,
         totalCom:     `K${r}+L${r}+M${r}+N${r}`,
-        postageVat:   `P${r}*${vatPct}%`,
-        marketing:    `H${r}*5%`,
+        // P. VAT and Marketing carry NO formula — they are typed cells in
+        // the operator's master, so the writer sets Q/R from the sale's own
+        // postageVat / marketing. Emitting `P*20%` and `H*5%` here made a
+        // re-opened workbook re-invent both. M. VAT keeps its formula: it
+        // derives off the Marketing cell, so it follows whatever is typed.
         marketingVat: `R${r}*${vatPct}%`,
         accessoryFee: `${fee.accessoryFee ?? 0}`,
         totalVat:     `N${r}+Q${r}+S${r}`,

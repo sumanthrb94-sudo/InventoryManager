@@ -135,11 +135,14 @@ describe('viewModelFromXlsxBuffer — exact Excel view of the Sales Report', () 
     const model = await viewModelFromXlsxBuffer(buf, 't');
     const ebay = model.sheets.find(s => s.name === 'EBAY')!;
     const dataRow = ebay.rows[1]; // row 1 = header, row 2 = first sale
-    // Master math: I=100, J=16.67, T.COM=16.224, P=8, P.VAT=1.6,
-    // Marketing=10, M.VAT=2, Acc=1 → GP = 44.506 → '44.51'
-    expect(dataRow[21].display).toBe('44.51');           // V — GP
-    // Net GP% = (GP − Postage Loss[blank→0]) / SP × 100 = 22.25
-    expect(dataRow[22].display).toBe('22.25');           // W — GP %
+    // Master math: I=100, J=16.67, T.COM=16.224, P=8, P.VAT=1.6 (carried
+    // from the sale — eBay does not derive it), Marketing=0, M.VAT=0,
+    // Acc=1 → GP = 56.506 → '56.51'. Marketing is £0 because the operator's
+    // master types the spend per row and this fixture sets none; before
+    // 2026-08 we invented SP × 5% = £10 (+£2 VAT) and charged it to GP.
+    expect(dataRow[21].display).toBe('56.51');           // V — GP
+    // Net GP% = (GP − Postage Loss[blank→0]) / SP × 100 = 28.25
+    expect(dataRow[22].display).toBe('28.25');           // W — GP %
     // Formula provenance is surfaced as a tooltip.
     expect(dataRow[21].title).toBe('=I2-J2-O2-P2-Q2-R2-S2-T2');
     // Dates render Excel-style.
@@ -161,8 +164,8 @@ describe('viewModelFromXlsxBuffer — exact Excel view of the Sales Report', () 
     expect(row[27].display).toBe('Refund');              // AB — Outcome
     expect(row[29].display).toBe('2');                   // AD — Shipping Legs
     expect(row[30].display).toBe('19.20');               // AE — Postage Loss (8+1.6)×2
-    // Net GP% = (44.506 − 19.2) / 200 × 100 = 12.653 → '12.65'
-    expect(row[22].display).toBe('12.65');
+    // Net GP% = (56.506 − 19.2) / 200 × 100 = 18.653 → '18.65'
+    expect(row[22].display).toBe('18.65');
   });
 
   it('TOTAL row SUMs compute and render bold', async () => {

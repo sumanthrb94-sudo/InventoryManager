@@ -199,8 +199,9 @@ describe('single-marketplace upload', () => {
     ]);
     const parsed = await parseSalesWorkbook(file, 'temu.xlsx', { onlyMarketplace: 'TEMU' });
     const sale = parsed.sales[0];
-    expect(sale.commission).toBe(14);        // 200 × 7% fallback
-    expect(sale.commissionVat).toBe(2.8);    // fallback: commission × 20%
+    // 4.61% — the rate in the operator's Temu master (`=H2*4.61%`).
+    expect(sale.commission).toBe(9.22);      // 200 × 4.61% fallback
+    expect(sale.commissionVat).toBe(1.84);   // fallback: commission × 20%
   });
 });
 

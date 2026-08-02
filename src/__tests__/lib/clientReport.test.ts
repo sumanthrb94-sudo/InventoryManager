@@ -960,14 +960,15 @@ describe('Net GP £ per-row cell on the marketplace tabs', () => {
     expect(cell.formula).toBe('V2-AE2');
 
     // Compute it via reportView — active row → Postage Loss is blank →
-    // Net GP £ = Gross GP = 44.51.
+    // Net GP £ = Gross GP = 56.51. (Marketing is £0 — the operator types
+    // the promo spend per row; we no longer invent SP × 5%.)
     const model = await viewModelFromXlsxBuffer(buf, 't');
     const ebayView = model.sheets.find(s => s.name === 'EBAY')!;
-    expect(ebayView.rows[1][21].display).toBe('44.51');  // Gross GP (col 22)
-    expect(ebayView.rows[1][31].display).toBe('44.51');  // Net GP £ (col 32)
+    expect(ebayView.rows[1][21].display).toBe('56.51');  // Gross GP (col 22)
+    expect(ebayView.rows[1][31].display).toBe('56.51');  // Net GP £ (col 32)
   });
 
-  it('refunded EBAY row: Net GP £ computes to 44.51 − 19.20 = 25.31', async () => {
+  it('refunded EBAY row: Net GP £ computes to 56.51 − 19.20 = 37.31', async () => {
     const sales = [
       baseSale({ id: 'EBAY__R1__1', marketplace: 'EBAY', orderNumber: 'R1',
         buyPrice: 100, salePrice: 200, postage: 8, postageVat: 1.6,
@@ -984,7 +985,7 @@ describe('Net GP £ per-row cell on the marketplace tabs', () => {
     // Computed via reportView.
     const model = await viewModelFromXlsxBuffer(buf, 't');
     const ebayView = model.sheets.find(s => s.name === 'EBAY')!;
-    expect(ebayView.rows[1][31].display).toBe('25.31');
+    expect(ebayView.rows[1][31].display).toBe('37.31');
   });
 
   it('replacement AMAZON row: Net GP £ = Gross GP − 22.68 (3 legs)', async () => {
@@ -1008,7 +1009,7 @@ describe('Net GP £ per-row cell on the marketplace tabs', () => {
     expect(gross - net).toBeCloseTo(22.68, 2);
   });
 
-  it('TOTAL row sums Net GP £ across all rows: 44.51 + 25.31 = 69.82', async () => {
+  it('TOTAL row sums Net GP £ across all rows: 56.51 + 37.31 = 93.82', async () => {
     const sales = [
       baseSale({ id: 'EBAY__O1__1', marketplace: 'EBAY', orderNumber: 'O1',
         buyPrice: 100, salePrice: 200, postage: 8, postageVat: 1.6 }),
@@ -1033,7 +1034,7 @@ describe('Net GP £ per-row cell on the marketplace tabs', () => {
     const ebayView = model.sheets.find(s => s.name === 'EBAY')!;
     const totalDisplay = parseFloat(ebayView.rows[3][31].display);
     expect(totalDisplay).toBeGreaterThan(69.79);
-    expect(totalDisplay).toBeLessThan(69.83);
+    expect(totalDisplay).toBeLessThan(93.83);
   });
 });
 
