@@ -48,7 +48,6 @@ import {
   recordReturnQc,
   processReturn,
   completeRepair,
-  type ReturnsResult,
 } from '../services/returnsService';
 import { postageLossFor } from '../lib/clientReport';
 
@@ -167,16 +166,14 @@ export default function ReturnsPage() {
    * nowhere to go but a manual Adjust — and Adjust corrects the stock without
    * reversing the revenue, so GP and the Returns Summary would both be wrong.
    */
-  const accessoryNameBySku = useMemo(() => {
-    const m = new Map<string, string>();
-    for (const a of accessoryStock) m.set((a.sku || '').trim().toUpperCase(), a.name || a.sku || '');
-    return m;
-  }, [accessoryStock]);
-
-  /** SKU → the pool doc's id, which is what the ledger's skuId carries. */
-  const accessoryIdBySku = useMemo(() => {
-    const m = new Map<string, string>();
-    for (const a of accessoryStock) m.set((a.sku || '').trim().toUpperCase(), a.id);
+  /** SKU → the pool's display name and its doc id (what the ledger's skuId
+   *  carries). One pass, one map — the two were separate walks of the same
+   *  array returning halves of the same row. */
+  const accessoryBySku = useMemo(() => {
+    const m = new Map<string, { name: string; id: string }>();
+    for (const a of accessoryStock) {
+      m.set((a.sku || '').trim().toUpperCase(), { name: a.name || a.sku || '', id: a.id });
+    }
     return m;
   }, [accessoryStock]);
 
@@ -206,14 +203,13 @@ export default function ReturnsPage() {
       if (s.voidedAt) return false;
       if ((s.imei || '').trim()) return false;
       const sku = (s.sku || '').trim().toUpperCase();
-      if (!accessoryNameBySku.has(sku)) return false;
       // Take the pool doc's OWN id rather than re-deriving the slug here —
       // slugify lives in the service and a second copy would drift.
-      const skuId = accessoryIdBySku.get(sku);
-      if (!skuId) return false;
-      return decrementedSaleKeys.has(`${skuId}__${s.marketplace || ''}__${s.orderNumber || ''}`);
+      const pool = accessoryBySku.get(sku);
+      if (!pool) return false;
+      return decrementedSaleKeys.has(`${pool.id}__${s.marketplace || ''}__${s.orderNumber || ''}`);
     }),
-    [sales, accessoryNameBySku, accessoryIdBySku, decrementedSaleKeys],
+    [sales, accessoryBySku, decrementedSaleKeys],
   );
 
   // Step-1 has stamped these (customer + tech comments captured, gate
@@ -688,7 +684,7 @@ export default function ReturnsPage() {
           even though it lands on the Returns Report. */}
       <AccessoryReturnsSection
         sales={sales}
-        accessoryNameBySku={accessoryNameBySku}
+        accessoryBySku={accessoryBySku}
         region={region}
       />
 
@@ -728,7 +724,7 @@ export default function ReturnsPage() {
           <ReturnUnitPicker
             sold={eligibleForReturn}
             accessorySales={eligibleAccessoryReturns}
-            accessoryNameBySku={accessoryNameBySku}
+            accessoryBySku={accessoryBySku}
             supplierMap={supplierMap}
             onClose={() => setPickerOpen(false)}
             onPick={u => { setPickerOpen(false); setProcessingUnit(u); }}
@@ -738,7 +734,7 @@ export default function ReturnsPage() {
         {processingAccessory && (
           <ProcessAccessoryReturnModal
             sale={processingAccessory}
-            accessoryName={accessoryNameBySku.get((processingAccessory.sku || '').trim().toUpperCase()) || ''}
+            accessoryName={accessoryBySku.get((processingAccessory.sku || '').trim().toUpperCase())?.name || ''}
             onClose={() => setProcessingAccessory(null)}
             onSaved={() => setProcessingAccessory(null)}
           />
@@ -1714,11 +1710,11 @@ function SchemaHelpCard({ onClose }: { onClose: () => void }) {
 // an order number against a pooled SKU — and searching one shape for the other
 // only produces confusing misses.
 function ReturnUnitPicker({
-  sold, accessorySales, accessoryNameBySku, supplierMap, onClose, onPick, onPickAccessory,
+  sold, accessorySales, accessoryBySku, supplierMap, onClose, onPick, onPickAccessory,
 }: {
   sold: InventoryUnit[];
   accessorySales: Sale[];
-  accessoryNameBySku: Map<string, string>;
+  accessoryBySku: Map<string, { name: string; id: string }>;
   supplierMap: Record<string, string>;
   onClose: () => void;
   onPick: (u: InventoryUnit) => void;
@@ -1741,7 +1737,7 @@ function ReturnUnitPicker({
   const filteredAccessories = accessorySales.filter(s => {
     if (!search.trim()) return true;
     const q = search.toLowerCase();
-    const name = accessoryNameBySku.get((s.sku || '').trim().toUpperCase()) || '';
+    const name = accessoryBySku.get((s.sku || '').trim().toUpperCase())?.name || '';
     return name.toLowerCase().includes(q)
         || (s.sku || '').toLowerCase().includes(q)
         || (s.orderNumber || '').toLowerCase().includes(q)
@@ -1826,7 +1822,7 @@ function ReturnUnitPicker({
                 className="w-full text-left flex items-center gap-3 px-4 py-2.5 hover:bg-slate-50 transition-colors">
                 <div className="flex-1 min-w-0">
                   <p className="text-[12px] font-bold text-slate-900 truncate">
-                    {accessoryNameBySku.get((s.sku || '').trim().toUpperCase()) || s.sku}
+                    {accessoryBySku.get((s.sku || '').trim().toUpperCase())?.name || s.sku}
                   </p>
                   <p className="text-[9px] text-slate-500 font-mono mt-0.5 truncate">
                     {s.sku} · {s.marketplace} · {s.orderNumber || '—'} · ×{s.quantity || 1}
@@ -1854,17 +1850,17 @@ function ReturnUnitPicker({
  * 2 legs, refund being the only accessory outcome.
  */
 function AccessoryReturnsSection({
-  sales, accessoryNameBySku, region,
+  sales, accessoryBySku, region,
 }: {
   sales: Sale[];
-  accessoryNameBySku: Map<string, string>;
+  accessoryBySku: Map<string, { name: string; id: string }>;
   region: 'uk' | 'india' | 'admin' | 'both';
 }) {
   const [open, setOpen] = useState(true);
   const rows = useMemo(() => sales
     .filter(s => !!s.voidedAt
       && !(s.imei || '').trim()
-      && accessoryNameBySku.has((s.sku || '').trim().toUpperCase()))
+      && accessoryBySku.has((s.sku || '').trim().toUpperCase()))
     // postageLossFor, not a local (postage + P.VAT) x 2 — this screen must
     // print the same number as the Returns Report, and the leg count is not
     // always 2. The UI only creates refunds, but an accessory return can also
@@ -1872,7 +1868,7 @@ function AccessoryReturnsSection({
     // which is 3 legs. Hardcoding 2 made this table disagree with the export.
     .map(s => ({ sale: s, loss: postageLossFor(s) }))
     .sort((a, b) => (b.sale.voidedAt || '').localeCompare(a.sale.voidedAt || '')),
-    [sales, accessoryNameBySku]);
+    [sales, accessoryBySku]);
 
   const totalLoss = rows.reduce((n, r) => n + r.loss, 0);
   const totalQty  = rows.reduce((n, r) => n + (r.sale.quantity || 1), 0);
@@ -1914,7 +1910,7 @@ function AccessoryReturnsSection({
                 <tr key={sale.id} className="hover:bg-slate-50">
                   <td className="px-3 py-1.5 font-mono text-slate-600 whitespace-nowrap">{fmtDateForUser(sale.voidedAt || '', region)}</td>
                   <td className="px-3 py-1.5 font-bold text-slate-900">
-                    {accessoryNameBySku.get((sale.sku || '').trim().toUpperCase()) || sale.sku}
+                    {accessoryBySku.get((sale.sku || '').trim().toUpperCase())?.name || sale.sku}
                   </td>
                   <td className="px-3 py-1.5 font-mono text-slate-500">{sale.sku}</td>
                   <td className="px-3 py-1.5 font-mono text-slate-500">{sale.marketplace}</td>
@@ -1951,6 +1947,14 @@ function AccessoryReturnsSection({
  * is what makes it appear on the Returns Report for free — postageLossFor and
  * writeReturnsSheets key off the Sale doc and never need an InventoryUnit.
  */
+/** returnAccessoryStock's error codes, in the operator's words. A lookup
+ *  rather than a ternary chain so a new code is one line, not another nest. */
+const SAVE_ERRORS: Record<string, string> = {
+  no_matching_sale: 'That sale has already been returned. Refresh and pick another.',
+  not_found: 'No accessory pool exists for this SKU any more.',
+  missing_sku: 'This sale has no SKU on it, so there is no pool to return it to.',
+};
+
 function ProcessAccessoryReturnModal({
   sale, accessoryName, onClose, onSaved,
 }: {
@@ -1991,13 +1995,7 @@ function ProcessAccessoryReturnModal({
         onClose();
         return;
       }
-      setError(
-        res.error === 'no_matching_sale'
-          ? 'That sale has already been returned. Refresh and pick another.'
-          : res.error === 'not_found'
-            ? 'No accessory pool exists for this SKU any more.'
-            : 'Failed to save. Please try again.',
-      );
+      setError(SAVE_ERRORS[res.error ?? ''] ?? 'Failed to save. Please try again.');
     } catch {
       setError('Could not reach the database. Nothing was saved — try again.');
     } finally {
