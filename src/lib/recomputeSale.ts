@@ -51,9 +51,9 @@ export function recomputeSale(s: Sale): Sale {
     marketingVatOverride: s.marketingVat,
     postageVatExempt: s.postageVatExempt,
     // Temu reports its real per-order commission rather than a derivable
-    // rate; the same reasoning applies.
+    // rate; the same reasoning applies. Commission VAT is not carried — it
+    // is always 20% of commission, so it recomputes.
     commissionOverride: s.marketplace === 'TEMU' ? s.commission : undefined,
-    commissionVatOverride: s.marketplace === 'TEMU' ? s.commissionVat : undefined,
   });
 
   // Guard: calcSaleFinancials should always return a value now that a default

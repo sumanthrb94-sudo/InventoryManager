@@ -180,11 +180,12 @@ describe('TEMU — the master formula row', () => {
   it('reproduces every derived cell', () => {
     const f = calcSaleFinancials({
       marketplace: 'TEMU', buyPrice: 55, salePrice: 83.99,
-      postageOverride: 6.30, commissionOverride: 3.87, commissionVatOverride: 4.07,
+      postageOverride: 6.30, commissionOverride: 3.87,
     });
     near(f.spMinusBp,   28.99, 'SP-BP');
     near(f.marginalTax, 4.83,  'Marginal Tax');
-    near(f.commission,  3.87,  'Commission');
+    near(f.commission,    3.87, 'Commission');
+    near(f.commissionVat, 0.77, 'Commission VAT — 3.87 × 20%, not the sheet\'s 4.07');
     near(f.postageVat,  1.26,  'P. VAT');
     near(f.totalVat,    1.26,  'Total VAT — P. VAT alone');
     near(f.grossProfit, 11.73, 'GP — excludes Commission VAT');

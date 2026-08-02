@@ -201,7 +201,7 @@ P.VAT 1.26 · Accessories 1.00 → Total VAT 6.86 → GP 74.49 → GP% 28.65 →
 
 ### TEMU
 
-Commission from Temu's own export (4.61% fallback) · Commission VAT tracked but
+Commission from Temu's own export (4.61% fallback) · Commission VAT derived, tracked but
 excluded · Accessories £1
 
 | Line | Formula | Excel |
@@ -209,7 +209,7 @@ excluded · Accessories £1
 | SP − BP | `SP − BP` | `H2-G2` |
 | Marginal Tax | `(SP−BP) × 16.67%` | `I2*16.67%` |
 | Commission | the export's own value; `SP × 4.61%` only as fallback | `literal cell` |
-| Commission VAT | the export's own value | `literal cell` |
+| Commission VAT | `Commission × 20%` | `K2*20%` |
 | P. VAT | `Postage × 20%` | `M2*20%` |
 | Total VAT | `P. VAT` **alone** | `N2` |
 | GP | `(SP−BP) − MarTax − Com − Postage − P.VAT − £1` | `I2-J2-K2-M2-N2-O2` |

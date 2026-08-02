@@ -584,12 +584,14 @@ function writeSaleRow(
     case 'TEMU': {
       // 2026-07, corrected against the client's final Temu export
       // (TEMU_FORMULA.csv) — own 20-column layout, not Amazon's. Commission
-      // and Commission VAT are LITERAL per-row values (Temu's real
-      // per-order commission varies by category and the export reports
-      // the actual figure charged, not a flat rate), same treatment as
-      // Postage/Accessories. Everything else is a formula so the operator
-      // can audit in Excel. No DSF / DSF VAT columns — Temu doesn't charge
-      // one.
+      // is a LITERAL per-row value: Temu's real per-order commission varies
+      // by category and the export reports the actual figure charged, not a
+      // flat rate. Commission VAT is a FORMULA off that cell (K×20%) — the
+      // operator's master writes `=K2+20%` there, which Excel reads as
+      // K + 0.2 rather than K × 20%, so we emit the correct one instead of
+      // carrying the typo forward. Everything else is a formula so the
+      // operator can audit in Excel. No DSF / DSF VAT columns — Temu
+      // doesn't charge one.
       //   A=Date,B=OrderNo,C=SKU,D=IMEI,E=Supplier,F=Quantity,G=BP,H=SP,
       //   I=SP-BP,J=MarTax,K=Commission,L=Commission VAT,M=Postage,
       //   N=P.VAT,O=Accessories,P=Total VAT,Q=GP,R=GP%,S=Total VAT NTP,T=Comments
@@ -599,7 +601,7 @@ function writeSaleRow(
         sale.buyPrice, sale.salePrice,
         null, null,                                    // SP-BP, MarTax (formula)
         sale.commission ?? 0,                           // Commission (literal — Temu's real per-order fee)
-        sale.commissionVat ?? 0,                        // Commission VAT (literal — informational, not in totals)
+        null,                                           // Commission VAT (formula = K×20%)
         sale.postage ?? null,                           // Postage (literal)
         null,                                           // P. VAT (formula)
         sale.accessoryFee ?? Number(f.accessoryFee ?? 1), // Accessories (literal)
@@ -614,7 +616,7 @@ function writeSaleRow(
       row.getCell(9).value  = { formula: f.spMinusBp! };   row.getCell(9).numFmt  = MONEY_FMT;
       row.getCell(10).value = { formula: f.marginalTax! }; row.getCell(10).numFmt = MONEY_FMT;
       row.getCell(11).numFmt = MONEY_FMT; // Commission (literal above)
-      row.getCell(12).numFmt = MONEY_FMT; // Commission VAT (literal above)
+      row.getCell(12).value = { formula: f.commissionVat! }; row.getCell(12).numFmt = MONEY_FMT;
       row.getCell(13).numFmt = MONEY_FMT; // Postage (literal above)
       row.getCell(14).value = { formula: f.postageVat! };  row.getCell(14).numFmt = MONEY_FMT;
       row.getCell(15).numFmt = MONEY_FMT; // Accessories (literal above)

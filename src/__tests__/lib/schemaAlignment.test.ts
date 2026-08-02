@@ -94,7 +94,9 @@ const EXPECTED_FALLBACKS: Record<string, Array<[string, number, string]>> = {
     ['buyPrice', 6, 'BP'],
     ['salePrice', 7, 'SP'],
     ['commission', 10, 'Commission'],
-    ['commissionVat', 11, 'Commission VAT'],
+    // Index 11 is Commission VAT and is deliberately NOT parsed — it derives
+    // as Commission × 20%, and the master's cell is `=K2+20%`, a `+` typed
+    // for a `*`. Reading it would import the typo.
     ['postage', 12, 'Postage'],
   ],
 };

@@ -267,11 +267,12 @@ type ColKey =
   // treats them as optional and simply doesn't populate them, which is the
   // pre-existing behaviour for those files anyway.
   | 'storage' | 'colour'
-  // Temu only — its export reports the real per-order commission (and the
-  // VAT Temu charged on that commission) directly, since Temu's referral
-  // rate varies by category and can't be modelled as one flat percentage
-  // the way Amazon's can. See calcSaleFinancials' TEMU branch.
-  | 'commission' | 'commissionVat'
+  // Temu only — its export reports the real per-order commission directly,
+  // since Temu's referral rate varies by category and can't be modelled as
+  // one flat percentage the way Amazon's can. Commission VAT is NOT read:
+  // it is 20% of commission, and the master's cell is a `+` typed for a `*`.
+  // See calcSaleFinancials' TEMU branch.
+  | 'commission'
   // eBay only — typed cells in the operator's master with no formula behind
   // them: Marketing is the real promo spend for the line (£0 on most rows)
   // and P. VAT is 0 throughout, eBay's postage being zero-rated to the
@@ -482,7 +483,6 @@ export const SHEET_LAYOUTS: Record<Marketplace, SheetLayout> = {
       buyPrice:     ['bp'],
       salePrice:    ['sp'],
       commission:   ['commission'],
-      commissionVat: ['commission vat', 'commissionvat', 'c. vat'],
       postage:      ['postage'],
       comments:     ['comments'],
       returnDate:   ['return date'],
@@ -494,7 +494,8 @@ export const SHEET_LAYOUTS: Record<Marketplace, SheetLayout> = {
     fallback: {
       date: 0, orderNumber: 1, sku: 2, imei: 3, supplier: 4,
       quantity: 5, buyPrice: 6, salePrice: 7,
-      commission: 10, commissionVat: 11, postage: 12,
+      // col 11 is Commission VAT — deliberately not mapped; it derives.
+      commission: 10, postage: 12,
     },
     required: ['date', 'orderNumber', 'buyPrice', 'salePrice'],
   },
@@ -822,11 +823,9 @@ function parseRow(
       ? postageFromSheet
       : undefined;
 
-  // Temu only — 'commission'/'commissionVat' aren't in any other
-  // marketplace's column map, so get() returns undefined for them there
-  // and this is a no-op everywhere except TEMU.
+  // Temu only — 'commission' isn't in any other marketplace's column map,
+  // so get() returns undefined there and this is a no-op except on TEMU.
   const commissionOverride = toNumber(get('commission'));
-  const commissionVatOverride = toNumber(get('commissionVat'));
 
   // eBay only — Marketing and P. VAT are typed cells in the operator's
   // master, not formulas, so the sheet is the only source for them. Both
@@ -840,7 +839,7 @@ function parseRow(
   const fin = calcSaleFinancials({
     marketplace, buyPrice, salePrice,
     postageOverride, eBayShippingTier, hasPayPalKlarna,
-    commissionOverride, commissionVatOverride,
+    commissionOverride,
     marketing, postageVatOverride, marketingVatOverride,
   });
 

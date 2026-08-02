@@ -343,23 +343,29 @@ describe('calcSaleFinancials · ONBUY · 12 master rows', () => {
 // used illustrative numbers for this exact same order (BP=100, SP=119.33,
 // Commission computed as a flat 7% of SP, zero VAT anywhere) that turned
 // out to be wrong; this is the real transaction: BP=55, SP=83.99,
-// Postage=6.30, and Temu's own reported Commission=3.87 / Commission
-// VAT=4.07 (a real per-order figure — Temu's referral rate varies by
-// category, so it isn't a flat percentage the app can derive on its own).
+// Postage=6.30, and Temu's own reported Commission=3.87 (a real per-order
+// figure — Temu's referral rate varies by category, so it isn't a flat
+// percentage the app can derive on its own).
+//
+// Commission VAT is NOT taken from the sheet. The master's cell reads
+// `=K2+20%`, which Excel evaluates as K + 0.2, giving 4.07 where 20% VAT on
+// a 3.87 commission is 0.77 — a `+` typed for a `*`. VAT is a rate, not a
+// per-order negotiation, so we derive it. Nothing downstream moves: Temu
+// VAT-invoices commission VAT back as reclaimable input tax, so it sits
+// outside Total VAT and GP either way.
 describe('calcSaleFinancials · TEMU · the client\'s real export row', () => {
-  it('matches the export exactly when Commission/Commission VAT are given', () => {
+  it('matches the export exactly when Commission is given', () => {
     const fin = calcSaleFinancials({
       marketplace: 'TEMU',
       buyPrice: 55,
       salePrice: 83.99,
       postageOverride: 6.30,
       commissionOverride: 3.87,
-      commissionVatOverride: 4.07,
     });
     expectClose(fin.spMinusBp,   28.99, 'TEMU.spMinusBp');
     expectClose(fin.marginalTax, 4.83,  'TEMU.marginalTax');
     expectClose(fin.commission,  3.87,  'TEMU.commission');
-    expectClose(fin.commissionVat, 4.07, 'TEMU.commissionVat');
+    expectClose(fin.commissionVat, 0.77, 'TEMU.commissionVat');  // 3.87 × 20%
     expectClose(fin.postage,     6.30,  'TEMU.postage');
     expectClose(fin.postageVat,  1.26,  'TEMU.postageVat');     // Postage × 20% — NOT zero
     expectClose(fin.totalVat,    1.26,  'TEMU.totalVat');       // = postageVat alone
@@ -372,12 +378,13 @@ describe('calcSaleFinancials · TEMU · the client\'s real export row', () => {
     // Temu VAT-invoices its own commission to the seller as reclaimable
     // input tax; the export confirms this by construction (Total VAT =
     // P.VAT alone, GP only reconciles when Commission VAT is left out).
-    const withHighCommissionVat = calcSaleFinancials({
+    const fin = calcSaleFinancials({
       marketplace: 'TEMU', buyPrice: 55, salePrice: 83.99, postageOverride: 6.30,
-      commissionOverride: 3.87, commissionVatOverride: 999,
+      commissionOverride: 3.87,
     });
-    expect(withHighCommissionVat.totalVat).toBe(1.26);
-    expect(withHighCommissionVat.grossProfit).toBe(11.73);
+    expect(fin.commissionVat).toBe(0.77);
+    expect(fin.totalVat).toBe(1.26);        // P. VAT alone
+    expect(fin.grossProfit).toBe(11.73);    // unchanged by the VAT line
   });
 
   it('falls back to commissionPct × SP when the file has no Commission column', () => {

@@ -183,7 +183,9 @@ describe('single-marketplace upload', () => {
     const parsed = await parseSalesWorkbook(file, 'temu.xlsx', { onlyMarketplace: 'TEMU' });
     const sale = parsed.sales[0];
     expect(sale.commission).toBe(3.87);
-    expect(sale.commissionVat).toBe(4.07);
+    // Derived as Commission × 20%, NOT read from the sheet's 4.07 — that
+    // cell's formula is `=K2+20%`, a `+` typed for a `*`.
+    expect(sale.commissionVat).toBe(0.77);
     expect(sale.marginalTax).toBe(4.83);
     expect(sale.postageVat).toBe(1.26);      // Postage × 20% — no longer a fixed 0
     expect(sale.totalVat).toBe(1.26);        // = postageVat alone; Commission VAT excluded
@@ -201,7 +203,7 @@ describe('single-marketplace upload', () => {
     const sale = parsed.sales[0];
     // 4.61% — the rate in the operator's Temu master (`=H2*4.61%`).
     expect(sale.commission).toBe(9.22);      // 200 × 4.61% fallback
-    expect(sale.commissionVat).toBe(1.84);   // fallback: commission × 20%
+    expect(sale.commissionVat).toBe(1.84);   // commission × 20%
   });
 });
 

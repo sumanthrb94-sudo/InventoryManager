@@ -224,11 +224,6 @@ export interface CalcSaleFinancialsInput {
    *  so the sheet's own value always wins when present. Falls back to
    *  commissionPct × SP only for a file that doesn't carry the column. */
   commissionOverride?: number;
-  /** Temu only — the VAT Temu charged on its own commission invoice.
-   *  Tracked for the operator's records but deliberately NOT part of
-   *  totalVat/grossProfit (see the TEMU branch below for why). Falls back
-   *  to commission × vatPct when the sheet doesn't carry the column. */
-  commissionVatOverride?: number;
   /** eBay only — explicit shipping tier (£1, £2, £8). Trumps `postageOverride`. */
   eBayShippingTier?: 1 | 2 | 8;
   /** BM only — apply 2.5% PayPal/Klarna commission on top. */
@@ -332,7 +327,7 @@ const r2 = (n: number): number => {
 export function calcSaleFinancials(input: CalcSaleFinancialsInput): SaleFinancials {
   const {
     marketplace, buyPrice: bp, salePrice: sp, postageOverride, eBayShippingTier,
-    commissionOverride, commissionVatOverride,
+    commissionOverride,
   } = input;
   const fee = getMarketplaceFee(marketplace);
 
@@ -443,17 +438,25 @@ export function calcSaleFinancials(input: CalcSaleFinancialsInput): SaleFinancia
       //   spMinusBp     = SP − BP
       //   marginalTax   = spMinusBp × 16.67%
       //   commission    = the sheet's own Commission cell; falls back to
-      //                   SP × commissionPct (7%) only when the file
+      //                   SP × commissionPct (4.61%) only when the file
       //                   doesn't carry the column
-      //   commissionVat = the sheet's own Commission VAT cell (fallback:
-      //                   commission × vatPct). Tracked for the record
-      //                   only — Temu VAT-invoices this to the seller as
-      //                   reclaimable input tax, so unlike Amazon it is
-      //                   NOT part of totalVat or grossProfit. Confirmed
-      //                   by the export: Total VAT (1.26) = P.VAT alone,
-      //                   excludes Commission VAT (4.07) entirely, and GP
-      //                   (11.73) only reconciles when Commission VAT is
-      //                   left out of the subtraction chain too.
+      //   commissionVat = commission × vatPct — DERIVED, never read from
+      //                   the sheet. The master's Commission VAT cell reads
+      //                   `=K2+20%`, which Excel evaluates as K + 0.2, not
+      //                   K × 20%: on the reference order that is
+      //                   3.87 + 0.2 = 4.07 where 20% VAT is 0.77. A `+`
+      //                   typed for a `*`. The rate is not negotiable per
+      //                   order the way Temu's referral rate is — VAT on a
+      //                   commission is 20% of it — so there is nothing to
+      //                   read from the file and we compute it.
+      //                   Tracked for the record only: Temu VAT-invoices
+      //                   this to the seller as reclaimable input tax, so
+      //                   unlike Amazon it is NOT part of totalVat or
+      //                   grossProfit. Confirmed by the export: Total VAT
+      //                   (1.26) = P.VAT alone, and GP (11.73) only
+      //                   reconciles when Commission VAT is left out of
+      //                   the subtraction chain — which is also why fixing
+      //                   the typo moves no money.
       //   postageVat    = postage × vatPct (20%) — no longer zero
       //   totalVat      = postageVat                    (Commission VAT excluded)
       //   grossProfit   = spMinusBp − marginalTax − commission − postage
@@ -466,7 +469,7 @@ export function calcSaleFinancials(input: CalcSaleFinancialsInput): SaleFinancia
 
       const marginalTaxRaw   = spMinusBp * 16.67 / 100;
       const commissionRaw    = commissionOverride ?? (sp * fee.commissionPct / 100);
-      const commissionVatRaw = commissionVatOverride ?? (commissionRaw * vatPctFrac);
+      const commissionVatRaw = commissionRaw * vatPctFrac;
       const postageVatRaw    = input.postageVatExempt ? 0 : (postage * vatPctFrac);
       const totalVatRaw      = postageVatRaw;
       const grossProfitRaw   = spMinusBp - marginalTaxRaw - commissionRaw
@@ -810,8 +813,11 @@ export function excelFormulaFor(marketplace: Marketplace, row: number): Record<s
       return {
         spMinusBp:    `H${r}-G${r}`,
         marginalTax:  `I${r}*16.67%`,
-        // Commission / Commission VAT have no formula — the writer sets
-        // K/L directly from the sale's own commission/commissionVat.
+        // Commission (K) has no formula — Temu's per-order referral rate
+        // varies by category, so the writer sets it from the sale. Commission
+        // VAT (L) IS a formula: it is 20% of K, and the master's own
+        // `=K2+20%` is a typo for `=K2*20%` that we do not reproduce.
+        commissionVat: `K${r}*${vatPct}%`,
         postageVat:   `M${r}*${vatPct}%`,
         accessoryFee: `${fee.accessoryFee ?? 0}`,
         totalVat:     `N${r}`,
