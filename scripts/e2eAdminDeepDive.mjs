@@ -216,6 +216,19 @@ async function run() {
     availableShown === available.length,
     `screen ${availableShown} · store ${available.length}`);
 
+  // Sold History opens on a DATE RANGE preset (roughly the last month), not
+  // All Time — so the tally is the rows in that window, not every sale. The
+  // assertions below compare against the whole store, so switch the scope
+  // first. Without this the test reads "10 sales are missing" when they are
+  // simply older than the default window, and the search target (the OLDEST
+  // sale, by construction) is outside it too.
+  const allTime = page.getByRole('button', { name: /^ALL TIME$/i }).first();
+  if (await allTime.isVisible().catch(() => false)) {
+    await allTime.click();
+    await page.waitForTimeout(1200);
+    body = await page.locator('body').innerText();
+  }
+
   const rowsShown = Number(
     (/([\d,]+)\s*\n?\s*(?:sale )?rows?/i.exec(body) || [])[1]?.replace(/,/g, ''));
   record('Sales History · the row tally is non-zero with sales loaded',
@@ -333,7 +346,11 @@ async function run() {
   const scorecardCounts = await page.evaluate(() => {
     const out = {};
     const text = document.body.innerText;
-    for (const label of ['eBay', 'Amazon', 'OnBuy', 'Backmarket']) {
+    // Every marketplace, not a hand-kept four. Temu shipped in 2026-07 and
+    // this list was not extended, so its units were on screen but outside the
+    // sum — the assertion then read as "the scorecard loses 18 units" when the
+    // scorecard was right and the test was looking away.
+    for (const label of ['eBay', 'Amazon', 'OnBuy', 'Backmarket', 'Temu']) {
       const m = new RegExp(`${label}\\s*\\n+\\s*([\\d,]+)\\s*\\n+\\s*units sold`, 'i').exec(text);
       out[label] = m ? Number(m[1].replace(/,/g, '')) : null;
     }

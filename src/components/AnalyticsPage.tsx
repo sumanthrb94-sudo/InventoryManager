@@ -19,13 +19,6 @@ import CollapsibleSection from './CollapsibleSection';
 
 type Period = 7 | 30 | 90 | 0; // 0 = all time
 
-const PLATFORM_HEX: Record<string, string> = {
-  eBay: '#f59e0b',
-  Amazon: '#f97316',
-  OnBuy: '#3b82f6',
-  Backmarket: '#10b981',
-};
-
 // Canonical marketplace colour palette (matches Dashboard.tsx)
 const MARKETPLACE_HEX: Record<Marketplace, string> = {
   AMAZON: '#f97316',
@@ -34,6 +27,18 @@ const MARKETPLACE_HEX: Record<Marketplace, string> = {
   ONBUY:  '#3b82f6',
   TEMU:   '#ec4899',
 };
+
+/**
+ * The same palette keyed by the friendly label the Platform Scorecard renders.
+ *
+ * DERIVED, not a second hand-written copy. It used to be its own literal and
+ * drifted: Temu was added to MARKETPLACE_HEX but not here, so every Temu slice
+ * fell through to the grey fallback. Deriving it means a new marketplace picks
+ * up its colour on both axes at once, and the two can no longer disagree.
+ */
+const PLATFORM_HEX: Record<string, string> = Object.fromEntries(
+  MARKETPLACES.map(m => [MARKETPLACE_LABEL[m], MARKETPLACE_HEX[m]]),
+);
 
 export default function AnalyticsPage() {
   const { units, suppliers, sales, accessoryStock } = useInventoryStore();

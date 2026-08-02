@@ -155,8 +155,14 @@ export default function ReportingPage() {
     const rows: any[] = [];
     // Map marketplace codes → friendly labels resolved back into MARKETPLACES
     // via marketplaceFromListingSite() when fees are calculated downstream.
-    const mkToPlatform: Record<string, string> = {
-      EBAY: 'eBay', AMAZON: 'Amazon', BM: 'Backmarket', ONBUY: 'OnBuy',
+    // Every Marketplace must appear here. A code with no entry falls through
+    // to the raw string on line ~186 ('TEMU'), which never matches the
+    // 'Temu' label PLATFORM_LABELS renders — so the sale vanished from the
+    // Platform Scorecard while still counting in the totals, and
+    // defaultPostageFor() was handed undefined. Temu shipped in 2026-07 and
+    // this map was not extended with it.
+    const mkToPlatform: Record<Marketplace, string> = {
+      EBAY: 'eBay', AMAZON: 'Amazon', BM: 'Backmarket', ONBUY: 'OnBuy', TEMU: 'Temu',
     };
     const unitById = new Map<string, InventoryUnit>();
     for (const u of units) unitById.set(u.id, u);

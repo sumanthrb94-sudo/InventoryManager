@@ -93,6 +93,26 @@ async function gotoConfiguration(page) {
   await page.waitForTimeout(1500);
 }
 
+/** Open the collapsed supplier-creation form.
+ *  Configuration stacks several panels that each expose a button labelled
+ *  exactly "Add" (Models Catalog, Accessory Catalog, Suppliers), and panels
+ *  get inserted over time — so click each in turn until the supplier field
+ *  appears rather than trusting a fixed index. Returns the field's locator. */
+async function openSupplierForm(page) {
+  const supBox = page.getByPlaceholder('Supplier name').first();
+  const addButtons = page.getByRole('button', { name: /^Add$/i });
+  const addCount = await addButtons.count();
+  for (let i = 0; i < addCount; i++) {
+    if (await supBox.isVisible().catch(() => false)) break;
+    const btn = addButtons.nth(i);
+    if (!(await btn.isVisible().catch(() => false))) continue;
+    await btn.scrollIntoViewIfNeeded().catch(() => {});
+    await btn.click().catch(() => {});
+    await page.waitForTimeout(700);
+  }
+  return supBox;
+}
+
 async function run() {
   const browsersRoot = process.env.PLAYWRIGHT_BROWSERS_PATH || '/opt/pw-browsers';
   const chromeDir = readdirSync(browsersRoot).find(d => /^chromium-\d+$/.test(d));
@@ -152,20 +172,16 @@ async function run() {
   await gotoConfiguration(page);
   const beforeSup = await readStore(page);
   // The supplier form is collapsed behind an "Add" button inside the embedded
-  // Suppliers panel — it is not on screen until asked for. Configuration has
-  // TWO buttons labelled exactly "Add" (models catalog, then suppliers), so
-  // scope to the Suppliers section rather than taking the first match.
-  // Configuration renders Models Catalog first and the embedded Suppliers
-  // panel last, so the second "Add" is the supplier one. Indexing beats a
-  // container filter here: both buttons carry identical text and the panels
-  // share wrapper markup.
-  const openAdd = page.getByRole('button', { name: /^Add$/i }).nth(1);
-  if (await openAdd.isVisible().catch(() => false)) {
-    await openAdd.scrollIntoViewIfNeeded().catch(() => {});
-    await openAdd.click();
-    await page.waitForTimeout(900);
-  }
-  const supBox = page.getByPlaceholder('Supplier name').first();
+  // Suppliers panel — it is not on screen until asked for.
+  //
+  // This used to take the SECOND "Add" on the page, on the reasoning that
+  // Configuration rendered Models Catalog then Suppliers. An Accessory
+  // Catalog panel was added between them, so nth(1) started opening that one
+  // instead and the supplier form never appeared — a stale selector reported
+  // as a missing feature. Don't count panels: click each "Add" until the
+  // supplier field actually shows up, so a sixth panel tomorrow changes
+  // nothing here.
+  const supBox = await openSupplierForm(page);
   const hasSupplierForm = await supBox.isVisible().catch(() => false);
   record('Configuration exposes a supplier-creation form', hasSupplierForm);
 
@@ -182,13 +198,9 @@ async function run() {
 
     // The screenshot bug: the same supplier recorded twice, one row carrying
     // every sale and the other showing zero.
-    const reopen = page.getByRole('button', { name: /^Add$/i }).nth(1);
-    if (await reopen.isVisible().catch(() => false)) {
-      await reopen.scrollIntoViewIfNeeded().catch(() => {});
-      await reopen.click();
-      await page.waitForTimeout(900);
-    }
-    const supBox2 = page.getByPlaceholder('Supplier name').first();
+    // The form collapses once a supplier saves, so it has to be re-opened —
+    // and by the same search-don't-index route as the first time.
+    const supBox2 = await openSupplierForm(page);
     await supBox2.fill('TEST DEPOT LTD');
     await page.waitForTimeout(300);
     await supBox2.press('Enter');
