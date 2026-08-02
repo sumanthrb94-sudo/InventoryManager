@@ -50,6 +50,7 @@ import {
   completeRepair,
   type ReturnsResult,
 } from '../services/returnsService';
+import { postageLossFor } from '../lib/clientReport';
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -70,7 +71,7 @@ const todayStr = () => new Date().toISOString().split('T')[0];
 // ── Component ────────────────────────────────────────────────────────────────
 
 export default function ReturnsPage() {
-  const { units, suppliers, sales, accessoryStock } = useInventoryStore();
+  const { units, suppliers, sales, accessoryStock, accessoryStockEvents } = useInventoryStore();
   const region = useUserRegion();
   // Admin-only inline-edit access for Reason / Notes lives inside
   // the SheetTable component itself (src/components/ReturnsPage.tsx
@@ -111,6 +112,9 @@ export default function ReturnsPage() {
   // ── Modals + overlay ──────────────────────────────────────────────────────
   const [overlay, setOverlay] = useState<KpiId | null>(null);
   const [processingUnit, setProcessingUnit] = useState<InventoryUnit | null>(null);
+  /** The accessory sale being reversed — pooled stock has no unit, so the
+   *  Sale doc itself is what the modal works on. */
+  const [processingAccessory, setProcessingAccessory] = useState<Sale | null>(null);
   const [readyShipUnit, setReadyShipUnit] = useState<InventoryUnit | null>(null);
   /** Unit whose full lifecycle timeline is open (intake → sale cycles
    *  → returns/replacements with comments). Set by clicking any card
@@ -149,6 +153,67 @@ export default function ReturnsPage() {
   const eligibleForReturn = useMemo(
     () => units.filter(u => u.status === 'sold' && !!u.salePrice && !u.pendingCrmReview),
     [units],
+  );
+
+  /**
+   * Accessory sales that can still come back. Pooled stock has no
+   * InventoryUnit, so "sold and not yet returned" is a property of the Sale
+   * doc alone: no IMEI, a SKU that matches a live pool, and not already
+   * voided.
+   *
+   * Accessories were the one thing this screen couldn't process. Their return
+   * used to live on the Accessory Stock panel and then on the Sales Report
+   * import; both were removed from the UI, which left a charger refund with
+   * nowhere to go but a manual Adjust — and Adjust corrects the stock without
+   * reversing the revenue, so GP and the Returns Summary would both be wrong.
+   */
+  const accessoryNameBySku = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const a of accessoryStock) m.set((a.sku || '').trim().toUpperCase(), a.name || a.sku || '');
+    return m;
+  }, [accessoryStock]);
+
+  /** SKU → the pool doc's id, which is what the ledger's skuId carries. */
+  const accessoryIdBySku = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const a of accessoryStock) m.set((a.sku || '').trim().toUpperCase(), a.id);
+    return m;
+  }, [accessoryStock]);
+
+  /**
+   * A sale is only returnable if it actually took stock OUT of the pool.
+   *
+   * Not every accessory Sale doc did. decrementAccessoryStock returns
+   * `matched: false` and logs nothing when no pool exists for the SKU — an
+   * import that landed before the pool was created is exactly that case, and
+   * so is a row that only ever arrived as an update. Offering one of those
+   * for return would add quantity that was never removed, silently inflating
+   * stock. The `sale` ledger event is the record that a decrement happened;
+   * both paths write it (decrementAccessoryStock for imports,
+   * recordAccessorySale for in-app sales), so keying off it covers both.
+   */
+  const decrementedSaleKeys = useMemo(() => {
+    const keys = new Set<string>();
+    for (const e of accessoryStockEvents) {
+      if (e?.type !== 'sale') continue;
+      keys.add(`${e.skuId || ''}__${e.marketplace || ''}__${e.orderNumber || ''}`);
+    }
+    return keys;
+  }, [accessoryStockEvents]);
+
+  const eligibleAccessoryReturns = useMemo(
+    () => sales.filter(s => {
+      if (s.voidedAt) return false;
+      if ((s.imei || '').trim()) return false;
+      const sku = (s.sku || '').trim().toUpperCase();
+      if (!accessoryNameBySku.has(sku)) return false;
+      // Take the pool doc's OWN id rather than re-deriving the slug here —
+      // slugify lives in the service and a second copy would drift.
+      const skuId = accessoryIdBySku.get(sku);
+      if (!skuId) return false;
+      return decrementedSaleKeys.has(`${skuId}__${s.marketplace || ''}__${s.orderNumber || ''}`);
+    }),
+    [sales, accessoryNameBySku, accessoryIdBySku, decrementedSaleKeys],
   );
 
   // Step-1 has stamped these (customer + tech comments captured, gate
@@ -613,6 +678,20 @@ export default function ReturnsPage() {
           voided sale at Process Return time. */}
       <ReturnLossSection units={allReturns} sales={sales} region={region} />
 
+      {/* ── Accessory returns ─────────────────────────────────────────────
+          Kept as its own section rather than merged into the sheet above:
+          every column there (IMEI, Grade, Storage, Colour, Supplier) is a
+          property of an individual device, and pooled stock has none of
+          them. Blank cells across a whole block would read as missing data
+          rather than as "does not apply". Without this the operator would
+          process an accessory return and see nothing change on the screen,
+          even though it lands on the Returns Report. */}
+      <AccessoryReturnsSection
+        sales={sales}
+        accessoryNameBySku={accessoryNameBySku}
+        region={region}
+      />
+
       {/* ── Activity history at the bottom ────────────────────────────────
           Visual timeline of return events, grouped by date bucket. Shows
           each unit's journey (Sold → Returned, Returned → Repair → Back to
@@ -648,9 +727,20 @@ export default function ReturnsPage() {
         {pickerOpen && (
           <ReturnUnitPicker
             sold={eligibleForReturn}
+            accessorySales={eligibleAccessoryReturns}
+            accessoryNameBySku={accessoryNameBySku}
             supplierMap={supplierMap}
             onClose={() => setPickerOpen(false)}
             onPick={u => { setPickerOpen(false); setProcessingUnit(u); }}
+            onPickAccessory={s => { setPickerOpen(false); setProcessingAccessory(s); }}
+          />
+        )}
+        {processingAccessory && (
+          <ProcessAccessoryReturnModal
+            sale={processingAccessory}
+            accessoryName={accessoryNameBySku.get((processingAccessory.sku || '').trim().toUpperCase()) || ''}
+            onClose={() => setProcessingAccessory(null)}
+            onSaved={() => setProcessingAccessory(null)}
           />
         )}
         {processingUnit && (
@@ -1617,16 +1707,29 @@ function SchemaHelpCard({ onClose }: { onClose: () => void }) {
   );
 }
 
-// ── Return-unit picker (sold units eligible to be returned) ──────────────────
+// ── Return picker (sold units + un-returned accessory sales) ─────────────────
+// Two kinds behind one Process Return button, because to the operator they are
+// one job: something came back, record it. They are picked from separate lists
+// because their identity differs — a device is an IMEI, an accessory line is
+// an order number against a pooled SKU — and searching one shape for the other
+// only produces confusing misses.
 function ReturnUnitPicker({
-  sold, supplierMap, onClose, onPick,
+  sold, accessorySales, accessoryNameBySku, supplierMap, onClose, onPick, onPickAccessory,
 }: {
   sold: InventoryUnit[];
+  accessorySales: Sale[];
+  accessoryNameBySku: Map<string, string>;
   supplierMap: Record<string, string>;
   onClose: () => void;
   onPick: (u: InventoryUnit) => void;
+  onPickAccessory: (s: Sale) => void;
 }) {
   const [search, setSearch] = useState('');
+  // Land on whichever list has anything in it — an operator with no devices
+  // sold shouldn't open onto an empty tab when accessories are waiting.
+  const [kind, setKind] = useState<'device' | 'accessory'>(
+    sold.length === 0 && accessorySales.length > 0 ? 'accessory' : 'device',
+  );
   const filtered = sold.filter(u => {
     if (!search.trim()) return true;
     const q = search.toLowerCase();
@@ -1634,6 +1737,15 @@ function ReturnUnitPicker({
         || (u.imei || '').toLowerCase().includes(q)
         || (u.saleOrderId || '').toLowerCase().includes(q)
         || (supplierMap[u.supplierId] || '').toLowerCase().includes(q);
+  }).slice(0, 100);
+  const filteredAccessories = accessorySales.filter(s => {
+    if (!search.trim()) return true;
+    const q = search.toLowerCase();
+    const name = accessoryNameBySku.get((s.sku || '').trim().toUpperCase()) || '';
+    return name.toLowerCase().includes(q)
+        || (s.sku || '').toLowerCase().includes(q)
+        || (s.orderNumber || '').toLowerCase().includes(q)
+        || (s.marketplace || '').toLowerCase().includes(q);
   }).slice(0, 100);
   return (
     <div className="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm">
@@ -1646,40 +1758,319 @@ function ReturnUnitPicker({
           <div className="flex items-center gap-3">
             <div className="w-9 h-9 rounded-xl bg-slate-900 text-white flex items-center justify-center"><RefreshCw size={16} /></div>
             <div>
-              <p className="text-[9px] font-mono uppercase tracking-widest text-slate-400">Pick a sold unit</p>
+              <p className="text-[9px] font-mono uppercase tracking-widest text-slate-400">
+                {kind === 'device' ? 'Pick a sold unit' : 'Pick a sold accessory line'}
+              </p>
               <h3 className="text-sm font-bold">Process a return</h3>
             </div>
           </div>
           <button onClick={onClose} className="p-2 rounded-xl hover:bg-slate-100 text-slate-400"><X size={16} /></button>
         </div>
-        <div className="p-4 border-b border-slate-100">
+        <div className="p-4 border-b border-slate-100 space-y-3">
+          <div className="flex items-center gap-1.5">
+            {([
+              ['device', 'Devices', sold.length],
+              ['accessory', 'Accessories', accessorySales.length],
+            ] as const).map(([k, label, count]) => (
+              <button
+                key={k}
+                onClick={() => setKind(k)}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[10px] font-bold uppercase tracking-widest transition-all border ${
+                  kind === k
+                    ? 'bg-slate-900 text-white border-slate-900'
+                    : 'bg-white text-slate-600 border-slate-200 hover:border-slate-400'
+                }`}
+              >
+                {label}
+                <span className={`font-mono ${kind === k ? 'text-slate-300' : 'text-slate-400'}`}>{count}</span>
+              </button>
+            ))}
+          </div>
           <div className="relative">
             <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
             <input
               autoFocus type="text" value={search} onChange={e => setSearch(e.target.value)}
-              placeholder="Search by model, IMEI, order #, supplier…"
+              placeholder={kind === 'device'
+                ? 'Search by model, IMEI, order #, supplier…'
+                : 'Search by name, SKU, order #, marketplace…'}
               className="w-full pl-9 pr-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-[12px] focus:outline-none focus:border-slate-900 focus:bg-white"
             />
           </div>
         </div>
         <div className="flex-1 overflow-y-auto divide-y divide-slate-100">
-          {filtered.length === 0 ? (
-            <p className="p-8 text-center text-[11px] font-mono text-slate-400">No sold units match.</p>
-          ) : filtered.map(u => (
-            <button key={u.id} onClick={() => onPick(u)}
-              className="w-full text-left flex items-center gap-3 px-4 py-2.5 hover:bg-slate-50 transition-colors">
-              <div className="flex-1 min-w-0">
-                <p className="text-[12px] font-bold text-slate-900 truncate">{u.model}</p>
-                <p className="text-[9px] text-slate-500 font-mono mt-0.5 truncate">
-                  {u.imei || '(no IMEI)'} · {u.colour}{u.storage ? ` · ${u.storage}` : ''} · {supplierMap[u.supplierId] || '—'}
-                  {u.saleOrderId ? ` · ${u.saleOrderId}` : ''}
-                </p>
-              </div>
-              {u.salePrice != null && <span className="text-sm font-bold text-emerald-700 flex-shrink-0">£{u.salePrice}</span>}
-            </button>
-          ))}
+          {kind === 'device' ? (
+            filtered.length === 0 ? (
+              <p className="p-8 text-center text-[11px] font-mono text-slate-400">No sold units match.</p>
+            ) : filtered.map(u => (
+              <button key={u.id} onClick={() => onPick(u)}
+                className="w-full text-left flex items-center gap-3 px-4 py-2.5 hover:bg-slate-50 transition-colors">
+                <div className="flex-1 min-w-0">
+                  <p className="text-[12px] font-bold text-slate-900 truncate">{u.model}</p>
+                  <p className="text-[9px] text-slate-500 font-mono mt-0.5 truncate">
+                    {u.imei || '(no IMEI)'} · {u.colour}{u.storage ? ` · ${u.storage}` : ''} · {supplierMap[u.supplierId] || '—'}
+                    {u.saleOrderId ? ` · ${u.saleOrderId}` : ''}
+                  </p>
+                </div>
+                {u.salePrice != null && <span className="text-sm font-bold text-emerald-700 flex-shrink-0">£{u.salePrice}</span>}
+              </button>
+            ))
+          ) : (
+            filteredAccessories.length === 0 ? (
+              <p className="p-8 text-center text-[11px] font-mono text-slate-400">
+                {accessorySales.length === 0
+                  ? 'No accessory sales are waiting to be returned.'
+                  : 'No accessory sales match.'}
+              </p>
+            ) : filteredAccessories.map(s => (
+              <button key={s.id} onClick={() => onPickAccessory(s)}
+                className="w-full text-left flex items-center gap-3 px-4 py-2.5 hover:bg-slate-50 transition-colors">
+                <div className="flex-1 min-w-0">
+                  <p className="text-[12px] font-bold text-slate-900 truncate">
+                    {accessoryNameBySku.get((s.sku || '').trim().toUpperCase()) || s.sku}
+                  </p>
+                  <p className="text-[9px] text-slate-500 font-mono mt-0.5 truncate">
+                    {s.sku} · {s.marketplace} · {s.orderNumber || '—'} · ×{s.quantity || 1}
+                    {s.saleDate ? ` · ${s.saleDate}` : ''}
+                  </p>
+                </div>
+                {s.salePrice != null && <span className="text-sm font-bold text-emerald-700 flex-shrink-0">£{s.salePrice}</span>}
+              </button>
+            ))
+          )}
         </div>
       </motion.div>
+    </div>
+  );
+}
+
+// ── AccessoryReturnsSection ──────────────────────────────────────────────────
+/**
+ * Every returned accessory line, read straight off the voided Sale docs.
+ *
+ * There is no InventoryUnit behind pooled stock, so this can't join the unit
+ * sheet above — but the operator still has to see that the return they just
+ * recorded actually landed, and the auditor still has to see the postage loss
+ * it cost. Same numbers the Returns Report prints: loss = (postage + P.VAT) ×
+ * 2 legs, refund being the only accessory outcome.
+ */
+function AccessoryReturnsSection({
+  sales, accessoryNameBySku, region,
+}: {
+  sales: Sale[];
+  accessoryNameBySku: Map<string, string>;
+  region: 'uk' | 'india' | 'admin' | 'both';
+}) {
+  const [open, setOpen] = useState(true);
+  const rows = useMemo(() => sales
+    .filter(s => !!s.voidedAt
+      && !(s.imei || '').trim()
+      && accessoryNameBySku.has((s.sku || '').trim().toUpperCase()))
+    // postageLossFor, not a local (postage + P.VAT) x 2 — this screen must
+    // print the same number as the Returns Report, and the leg count is not
+    // always 2. The UI only creates refunds, but an accessory return can also
+    // arrive from a marketplace file whose Outcome column says "replacement",
+    // which is 3 legs. Hardcoding 2 made this table disagree with the export.
+    .map(s => ({ sale: s, loss: postageLossFor(s) }))
+    .sort((a, b) => (b.sale.voidedAt || '').localeCompare(a.sale.voidedAt || '')),
+    [sales, accessoryNameBySku]);
+
+  const totalLoss = rows.reduce((n, r) => n + r.loss, 0);
+  const totalQty  = rows.reduce((n, r) => n + (r.sale.quantity || 1), 0);
+  if (rows.length === 0) return null;
+
+  return (
+    <div className="bg-white border border-slate-200 rounded-3xl shadow-sm overflow-hidden">
+      <button
+        onClick={() => setOpen(o => !o)}
+        className="w-full flex items-center justify-between px-5 py-4 hover:bg-slate-50 transition-colors"
+      >
+        <div className="text-left">
+          <p className="text-[9px] font-mono uppercase tracking-widest text-slate-400">Pooled stock · no serial</p>
+          <h3 className="text-sm font-bold tracking-tight">Accessory returns · {rows.length}</h3>
+        </div>
+        <div className="flex items-center gap-3">
+          <span className="text-[10px] font-mono text-slate-500">{totalQty} item{totalQty === 1 ? '' : 's'} back</span>
+          <span className="text-sm font-bold text-rose-700">£{totalLoss.toFixed(2)}</span>
+          <ChevronDown size={16} className={`text-slate-400 transition-transform ${open ? 'rotate-180' : ''}`} />
+        </div>
+      </button>
+      {open && (
+        <div className="overflow-x-auto border-t border-slate-100">
+          <table className="w-full text-[11px]">
+            <thead className="bg-slate-50">
+              <tr className="text-[9px] font-mono uppercase tracking-widest text-slate-400">
+                <th className="px-3 py-2 text-left font-normal">Return Date</th>
+                <th className="px-3 py-2 text-left font-normal">Accessory</th>
+                <th className="px-3 py-2 text-left font-normal">SKU</th>
+                <th className="px-3 py-2 text-left font-normal">Marketplace</th>
+                <th className="px-3 py-2 text-left font-normal">Order</th>
+                <th className="px-3 py-2 text-right font-normal">Qty</th>
+                <th className="px-3 py-2 text-left font-normal">Reason</th>
+                <th className="px-3 py-2 text-right font-normal">Postage Loss</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {rows.map(({ sale, loss }) => (
+                <tr key={sale.id} className="hover:bg-slate-50">
+                  <td className="px-3 py-1.5 font-mono text-slate-600 whitespace-nowrap">{fmtDateForUser(sale.voidedAt || '', region)}</td>
+                  <td className="px-3 py-1.5 font-bold text-slate-900">
+                    {accessoryNameBySku.get((sale.sku || '').trim().toUpperCase()) || sale.sku}
+                  </td>
+                  <td className="px-3 py-1.5 font-mono text-slate-500">{sale.sku}</td>
+                  <td className="px-3 py-1.5 font-mono text-slate-500">{sale.marketplace}</td>
+                  <td className="px-3 py-1.5 font-mono text-slate-500">{sale.orderNumber || '—'}</td>
+                  <td className="px-3 py-1.5 text-right font-mono text-slate-700">{sale.quantity || 1}</td>
+                  <td className="px-3 py-1.5 text-slate-600">{sale.voidReason || '—'}</td>
+                  <td className="px-3 py-1.5 text-right font-bold text-rose-700">£{loss.toFixed(2)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── ProcessAccessoryReturnModal ──────────────────────────────────────────────
+/**
+ * A returned accessory. One step, not two — the Tech-QC → CRM handoff a device
+ * goes through exists to decide whether the unit is resaleable, needs repair,
+ * or goes back to the supplier. A charger has none of those routes: it is
+ * pooled stock with no serial, so there is nothing to inspect and nothing to
+ * track individually. It goes back in the pool and the sale is reversed.
+ *
+ * Refund is therefore the only outcome, stated on the form rather than offered
+ * as a choice the operator has to make and could get wrong. That matches the
+ * accessory return path the Sales Report import takes, so a return recorded
+ * here and one recorded from a marketplace file produce the same Sale doc.
+ *
+ * returnAccessoryStock does the work: voids the real Sale (voidedAt /
+ * voidOutcome / voidReason — the same fields a unit return sets) and adds the
+ * sale's OWN quantity back. Voiding the sale rather than just bumping the pool
+ * is what makes it appear on the Returns Report for free — postageLossFor and
+ * writeReturnsSheets key off the Sale doc and never need an InventoryUnit.
+ */
+function ProcessAccessoryReturnModal({
+  sale, accessoryName, onClose, onSaved,
+}: {
+  sale: Sale;
+  accessoryName: string;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const [reason, setReason] = useState('');
+  const [notes, setNotes] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+
+  const save = async () => {
+    setError('');
+    if (!reason.trim()) {
+      setError('Give a reason — it lands on the Returns Report.');
+      return;
+    }
+    setSaving(true);
+    // returnAccessoryStock does raw dbService reads/writes with no internal
+    // try/catch (unlike returnsService), so a dropped connection REJECTS
+    // rather than returning { ok: false }. Without this the modal sits on
+    // "Saving…" forever with the button disabled and the typed reason
+    // trapped behind it — the operator's only way out is a reload, which
+    // loses the text.
+    try {
+      const { returnAccessoryStock } = await import('../services/inventoryService');
+      const res = await returnAccessoryStock({
+        sku: sale.sku || '',
+        saleId: sale.id,
+        outcome: 'refund',
+        reason: reason.trim(),
+        notes: notes.trim() || undefined,
+      });
+      if (res.ok) {
+        onSaved();
+        onClose();
+        return;
+      }
+      setError(
+        res.error === 'no_matching_sale'
+          ? 'That sale has already been returned. Refresh and pick another.'
+          : res.error === 'not_found'
+            ? 'No accessory pool exists for this SKU any more.'
+            : 'Failed to save. Please try again.',
+      );
+    } catch {
+      setError('Could not reach the database. Nothing was saved — try again.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const qty = sale.quantity || 1;
+  return (
+    <div className="fixed inset-0 z-[70] flex items-center justify-center p-3 md:p-4 bg-black/40 backdrop-blur-sm">
+      <div className="bg-white rounded-3xl overflow-hidden w-full max-w-sm shadow-2xl flex flex-col" style={{ maxHeight: 'calc(100dvh - 24px)' }}>
+        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100 flex-shrink-0">
+          <div className="min-w-0">
+            <p className="text-[9px] font-mono uppercase tracking-widest text-gray-400">Process Return · Accessory</p>
+            <h3 className="text-sm font-bold truncate mt-0.5 max-w-[240px]">{accessoryName || sale.sku}</h3>
+          </div>
+          <button onClick={onClose} className="p-2 rounded-xl hover:bg-gray-100 text-gray-400"><X size={16} /></button>
+        </div>
+
+        <div className="px-6 py-4 space-y-4 overflow-y-auto">
+          <div className="rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2.5">
+            <p className="text-[9px] font-mono uppercase tracking-widest text-slate-400">Reversing</p>
+            <p className="text-[11px] font-mono text-slate-700 mt-1">
+              {sale.marketplace} · {sale.orderNumber || '—'} · ×{qty}
+              {sale.salePrice != null ? ` · £${sale.salePrice}` : ''}
+            </p>
+          </div>
+
+          {/* Stated, not chosen — see the docblock. An accessory has no repair
+              or replacement route, so offering them would be offering a wrong
+              answer. */}
+          <div className="rounded-2xl border border-emerald-300 bg-emerald-50 px-3 py-2.5">
+            <p className="text-[10px] font-bold uppercase tracking-widest text-emerald-800">Refund</p>
+            <p className="text-[10px] font-mono text-emerald-700 mt-1">
+              {qty} back into the {sale.sku} pool · the sale is voided, so it drops out of GP
+            </p>
+            <p className="text-[9px] font-mono text-emerald-600/80 mt-1.5">
+              Accessories have no repair or replacement route — pooled stock carries no serial to track.
+            </p>
+          </div>
+
+          <div>
+            <label className="text-[9px] font-mono uppercase tracking-widest text-slate-400">Reason</label>
+            <input
+              autoFocus type="text" value={reason} onChange={e => setReason(e.target.value)}
+              placeholder="e.g. wrong item ordered, faulty on arrival"
+              className="mt-1 w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-[12px] focus:outline-none focus:border-slate-900 focus:bg-white"
+            />
+          </div>
+
+          <div>
+            <label className="text-[9px] font-mono uppercase tracking-widest text-slate-400">Notes · optional</label>
+            <input
+              type="text" value={notes} onChange={e => setNotes(e.target.value)}
+              placeholder="Anything the auditor should see"
+              className="mt-1 w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-[12px] focus:outline-none focus:border-slate-900 focus:bg-white"
+            />
+          </div>
+
+          {error && <p className="text-[11px] font-mono text-rose-600">{error}</p>}
+        </div>
+
+        <div className="px-6 py-4 border-t border-gray-100 flex items-center gap-2 flex-shrink-0">
+          <button onClick={onClose}
+            className="flex-1 px-3 py-2.5 rounded-xl border border-slate-200 text-slate-700 text-[10px] font-bold uppercase tracking-widest hover:bg-slate-50">
+            Cancel
+          </button>
+          <button onClick={save} disabled={saving}
+            className="flex-1 px-3 py-2.5 rounded-xl bg-slate-900 text-white text-[10px] font-bold uppercase tracking-widest hover:bg-slate-700 disabled:opacity-50">
+            {saving ? 'Saving…' : 'Confirm Return'}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
