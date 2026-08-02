@@ -115,7 +115,10 @@ async function importInventory(page, file) {
 }
 
 // ── Fixture ──────────────────────────────────────────────────────────────
-const TODAY = '2026-07-27';
+// Must be the real today — a literal date here is a time bomb: it is correct
+// on the day it is written and wrong every day after, and the failure looks
+// like a broken "sold today" KPI rather than a stale fixture.
+const TODAY = new Date().toISOString().slice(0, 10);
 const SUPPLIER = 'VELOCITY TEST SUPPLIER';
 const daysAgo = n => {
   const d = new Date(`${TODAY}T00:00:00Z`);

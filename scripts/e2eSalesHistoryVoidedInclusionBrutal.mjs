@@ -99,7 +99,12 @@ async function importInventory(page, file) {
 }
 
 // ── Fixture: one active sale + one voided sale, BOTH dated today ────────
-const TODAY = '2026-07-27'; // matches the environment's current date
+// TODAY has to be the real today, every day. This was pinned to a literal
+// '2026-07-27' with a comment saying it matched the environment's date — true
+// on the day it was written, and quietly wrong from the next morning. Every
+// "Sold Today" assertion then failed against sales the fixture had dated in
+// the past, which looks exactly like a broken KPI and is not one.
+const TODAY = new Date().toISOString().slice(0, 10);
 const SUPPLIER = 'SOLD TODAY TEST SUPPLIER';
 const IMEI_ACTIVE = '350190000095001';
 const IMEI_VOIDED = '350190000095002';

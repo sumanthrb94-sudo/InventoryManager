@@ -776,16 +776,15 @@
   },
   {
     "script": "e2eReportsInsightsBrutal.mjs",
-    "ok": false,
-    "pass": 19,
+    "ok": true,
+    "pass": 22,
     "total": 22,
-    "summary": "19/22 checks passed",
-    "fails": [
-      "FAIL  Reports Daily Sales — 8 units sold today — SALES FOR 2026-08-02",
-      "FAIL  Reports Daily Sales — Revenue = £1,420",
-      "FAIL  Reports Daily Sales — Gross Profit = £620"
-    ],
+    "summary": "22/22 checks passed",
+    "fails": [],
     "passes": [
+      "PASS  Reports Daily Sales — 8 units sold today — SALES FOR 2026-08-02",
+      "PASS  Reports Daily Sales — Revenue = £1,420 — £1,420",
+      "PASS  Reports Daily Sales — Gross Profit = £620 — £620",
       "PASS  Stock Report tab found and clicked",
       "PASS  Stock Report: TESTBRAND VELOCITY FASTMOVER shows 40% sell-through",
       "PASS  Stock Report: TESTBRAND VELOCITY SLOWMOVER shows 50% sell-through",
@@ -914,15 +913,14 @@
   },
   {
     "script": "e2eSalesHistoryVoidedInclusionBrutal.mjs",
-    "ok": false,
-    "pass": 6,
+    "ok": true,
+    "pass": 7,
     "total": 7,
-    "summary": "6/7 checks passed",
-    "fails": [
-      "FAIL  Admin Sales History \"Sold Today\" = 2 (voided sale INCLUDED — full audit trail) — 0"
-    ],
+    "summary": "7/7 checks passed",
+    "fails": [],
     "passes": [
       "PASS  Sell (Inventory) tab \"Sold Today\" = 1 (voided sale excluded) — 1",
+      "PASS  Admin Sales History \"Sold Today\" = 2 (voided sale INCLUDED — full audit trail) — 2",
       "PASS  Admin Sales History lists both order numbers (active AND voided)",
       "PASS  Sales History footer Sum SP = £350 (active + voided both counted) — SUM SP: £350",
       "PASS  Sales History footer Sum GP includes the voided sale's GP too — SUM GP: £73.8",
