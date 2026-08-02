@@ -5,14 +5,23 @@
  * e2eAccessoryReuploadReconcile.mjs doesn't cover — that script proves the
  * sell + wipe/reupload round trip with no return in the middle).
  *
- * returnAccessoryStock now voids the real Sale doc (voidedAt/voidOutcome/
+ * An accessory return voids the real Sale doc (voidedAt/voidOutcome/
  * voidReason — the exact fields a unit return sets) instead of just bumping
  * the pool by a caller-typed number. That single design choice is what lets
  * this script prove FOUR things with no return-specific plumbing anywhere
  * else in the codebase:
  *
- *   1. The Accessory Stock panel's Return action voids the correct sale and
- *      restores exactly that sale's quantity (not an arbitrary amount).
+ *   1. A re-imported marketplace row carrying Return Date / Outcome / Return
+ *      Reason voids the correct sale and restores exactly that sale's
+ *      quantity (not an arbitrary amount), updating the existing record
+ *      rather than creating a second one.
+ *
+ *      This step used to click a Return button on the Accessory Stock panel.
+ *      That button was removed in 2026-08 — a manual accessory return could
+ *      only ever disagree with the marketplace's own record, so the
+ *      marketplace file is now the single source. returnAccessoryStock and
+ *      AccessoryStockActionModal's mode='return' still exist; they simply
+ *      have no entry point.
  *   2. The voided accessory sale shows up on the Sales Report's embedded
  *      Returns Detail (as an "Accessory" row, friendly-named, not a raw SKU)
  *      and Returns Summary (counted + costed) — postageLossFor/
@@ -49,7 +58,10 @@ const ADD_BP = 3.5;
 const SALE_QTY = 3;
 const POSTAGE = 2.5;
 const ORDER_NUMBER = 'ACC-RET-9001';
+const RETURN_DATE = '2026-07-29';
+const RETURN_REASON = 'wrong item ordered';
 const SALES_FILE = resolve(`${OUT}/sales-accessory.xlsx`);
+const RETURN_FILE = resolve(`${OUT}/sales-accessory-returned.xlsx`);
 
 const results = [];
 let shotIndex = 0;
@@ -162,8 +174,41 @@ async function buildAccessorySalesFile() {
   await wb.xlsx.writeFile(SALES_FILE);
 }
 
+/**
+ * The SAME sale row, now carrying the return block — this is how an accessory
+ * return actually arrives.
+ *
+ * The manual Return button on the Accessory Stock panel was removed in
+ * 2026-08 (see AccessoryStockPanel.tsx): a second manual path could only ever
+ * disagree with the marketplace's own record, so the marketplace file is the
+ * single source. Same record id (marketplace__order__sku), so this updates
+ * the existing sale rather than creating a second one.
+ *
+ * Return Date / Outcome / Return Reason are read BY HEADER NAME off the
+ * marketplace tab (salesImport.ts:344-346), so appending the three columns to
+ * the 15-column Amazon import layout is enough — no export layout needed.
+ */
+async function buildAccessoryReturnFile() {
+  const wb = new ExcelJS.Workbook();
+  await wb.xlsx.readFile('templates/SALES_AMAZON_TEMPLATE.xlsx');
+  const ws = wb.getWorksheet('AMAZON');
+  for (let r = 2; r <= ws.rowCount; r++) ws.getRow(r).values = [];
+  const header = ws.getRow(1);
+  header.getCell(16).value = 'Return Date';
+  header.getCell(17).value = 'Outcome';
+  header.getCell(18).value = 'Return Reason';
+  header.commit();
+  ws.getRow(2).values = [
+    '2026-07-22', ORDER_NUMBER, SKU, '', 'MOBILE WHOLESALE LTD',
+    SALE_QTY, ADD_BP, 8.99, '', '', '', POSTAGE, '', '', '',
+    RETURN_DATE, 'Refund', RETURN_REASON,
+  ];
+  await wb.xlsx.writeFile(RETURN_FILE);
+}
+
 async function run() {
   await buildAccessorySalesFile();
+  await buildAccessoryReturnFile();
 
   const browsersRoot = process.env.PLAYWRIGHT_BROWSERS_PATH || '/opt/pw-browsers';
   const chromeDir = readdirSync(browsersRoot).find(d => /^chromium-\d+$/.test(d));
@@ -186,8 +231,15 @@ async function run() {
   await page.waitForTimeout(600);
   await modal(page).getByRole('button', { name: /^Accessories/i }).click();
   await page.waitForTimeout(400);
-  await modal(page).locator('input[placeholder="e.g. USB-C-20W"]').first().fill(SKU);
-  await modal(page).locator('input[placeholder="e.g. USB-C 20W Charger"]').first().fill(ACCESSORY_NAME);
+  // Accessory intake is a strict catalog picker since 2026-08 (commit
+  // 482307e) — the free-text SKU box is gone. Type into the search field,
+  // then take the admin-only Add "<sku>" pill to mint a new catalog entry.
+  await modal(page).locator('input[placeholder*="Search — e.g." i]').first().fill(SKU);
+  await page.waitForTimeout(700);
+  const addPill = modal(page).getByRole('button', { name: new RegExp(`Add "${SKU}"`, 'i') }).first();
+  if (await addPill.isVisible().catch(() => false)) await addPill.click();
+  await page.waitForTimeout(500);
+  await modal(page).locator('input[placeholder*="e.g. USB-C 20W Charger" i]').first().fill(ACCESSORY_NAME).catch(() => {});
   await modal(page).locator('input[placeholder="e.g. 50"]').first().fill(String(ADD_QTY));
   await modal(page).locator('input[placeholder="0.00"]').first().fill(String(ADD_BP));
   await page.waitForTimeout(300);
@@ -209,30 +261,29 @@ async function run() {
   const saleDoc = afterSale.sales.find(s => (s.sku || '') === SKU);
   record('The accessory sale doc exists and is not voided yet', !!saleDoc && !saleDoc.voidedAt);
 
-  // ══ 2. Return it — pick the sale, outcome Refund, reason ═════════════════
-  console.log('\n── 2. Return via Accessory Stock panel: pick the sale, outcome Refund ──');
-  await gotoAdminSub(page, 'Configuration');
-  await page.waitForTimeout(700);
-  await scrollToAccessoryPanel(page);
-  await page.getByRole('button', { name: /^Return$/i }).first().click();
-  await page.waitForTimeout(600);
-  await shot(page, 'return-modal-opened');
-
-  const saleSelect = modal(page).locator('select').first();
-  const saleOptionText = await saleSelect.locator('option').first().innerText().catch(() => '');
-  record('The sale picker lists the real sale (order number visible)', saleOptionText.includes(ORDER_NUMBER), saleOptionText);
-
-  await modal(page).getByRole('button', { name: /^Refund$/i }).click();
-  await modal(page).locator('input[placeholder*="changed their mind" i]').fill('wrong item ordered');
-  await page.waitForTimeout(200);
-  await shot(page, 'return-modal-filled');
-  await modal(page).getByRole('button', { name: /Confirm Return/i }).click();
-  await page.waitForTimeout(1200);
-  await shot(page, 'return-confirmed');
-  await modal(page).getByRole('button', { name: /^Close$/i }).click().catch(() => {});
+  // ══ 2. Return it — re-import the same row carrying the return block ══════
+  // This step used to click Return on the Accessory Stock panel. That button
+  // was removed in 2026-08 (AccessoryStockPanel.tsx): a manual accessory
+  // return could only ever disagree with the marketplace's own record, so the
+  // marketplace file became the single source. The re-import carries the same
+  // record id, so it UPDATES the existing sale — no duplicate row.
+  console.log('\n── 2. Return arrives as a re-imported row with Return Date / Outcome / Return Reason ──');
+  await importSalesFile(page, RETURN_FILE);
+  await shot(page, 'return-import-preview');
+  const previewText = await modal(page).innerText().catch(() => '');
+  record('Import preview recognises the row as a return, not a new sale',
+    /return/i.test(previewText), previewText.replace(/\s+/g, ' ').slice(0, 160));
+  const confirmReturnImport = modal(page).getByRole('button', { name: /Load|Confirm|record/i }).last();
+  await confirmReturnImport.click();
+  await page.waitForTimeout(4000);
+  await modal(page).getByRole('button', { name: /Close|Done/i }).last().click().catch(() => {});
   await dismissModals(page);
+  await shot(page, 'return-import-confirmed');
 
   const afterReturn = await readStore(page);
+  record('Still exactly ONE sale doc for this SKU — the return updated it, did not duplicate',
+    afterReturn.sales.filter(s => (s.sku || '') === SKU).length === 1,
+    `count=${afterReturn.sales.filter(s => (s.sku || '') === SKU).length}`);
   const poolAfterReturn = afterReturn.accessoryStock.find(a => a.sku === SKU);
   record(`Pool back to ${ADD_QTY} after the return (exactly the sale's own quantity restored)`,
     poolAfterReturn?.quantity === ADD_QTY, `quantity=${poolAfterReturn?.quantity}`);
@@ -240,7 +291,7 @@ async function run() {
 
   const voidedSale = afterReturn.sales.find(s => (s.sku || '') === SKU);
   record('The real sale doc got voided (voidedAt/voidOutcome/voidReason set)',
-    !!voidedSale?.voidedAt && voidedSale?.voidOutcome === 'refund' && voidedSale?.voidReason === 'wrong item ordered',
+    !!voidedSale?.voidedAt && voidedSale?.voidOutcome === 'refund' && voidedSale?.voidReason === RETURN_REASON,
     JSON.stringify({ voidedAt: voidedSale?.voidedAt, voidOutcome: voidedSale?.voidOutcome, voidReason: voidedSale?.voidReason }));
 
   const returnEvent = afterReturn.accessoryStockEvents.find(e => e.type === 'return');
@@ -248,6 +299,10 @@ async function run() {
     returnEvent?.delta === SALE_QTY && returnEvent?.orderNumber === ORDER_NUMBER && returnEvent?.marketplace === 'AMAZON',
     JSON.stringify(returnEvent));
 
+  // Step 2 now finishes on Stock Intake (the import screen) rather than on
+  // Admin → Configuration, so navigate there explicitly for the panel shot.
+  await dismissModals(page);
+  await gotoAdminSub(page, 'Configuration');
   await scrollToAccessoryPanel(page);
   await shot(page, 'pool-back-to-50-after-return');
 
@@ -279,7 +334,7 @@ async function run() {
     if (accRow) {
       record('Return Type reads "Accessory" (distinct from a blank unit-orphan row)', accRow.getCell(10).value === 'Accessory');
       record('Outcome reads "Refund"', accRow.getCell(11).value === 'Refund');
-      record('Reason carries the operator-entered text', accRow.getCell(12).value === 'wrong item ordered');
+      record('Reason carries the operator-entered text', accRow.getCell(12).value === RETURN_REASON);
       record('Marketplace reads AMAZON', accRow.getCell(9).value === 'AMAZON');
       // (postage + P.VAT) × 2 legs. P.VAT defaults to postage × 20% when
       // not separately snapshotted, per postageLossFor's fallback.

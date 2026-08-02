@@ -14,6 +14,7 @@
  */
 import React from 'react';
 import { FileDown } from 'lucide-react';
+import { SHOW_TEMPLATE_DOWNLOADS } from '../lib/featureFlags';
 
 export interface TemplateLink {
   /** File name inside public/templates/. */
@@ -38,6 +39,11 @@ export default function TemplateDownload({
   templates: TemplateLink[];
   heading?: string;
 }) {
+  // Gated here rather than at each of the six call sites: one guard, and a
+  // future placement can't accidentally reintroduce the block. See
+  // SHOW_TEMPLATE_DOWNLOADS — a blank upload template is dead weight while
+  // Import is hidden.
+  if (!SHOW_TEMPLATE_DOWNLOADS) return null;
   if (!templates.length) return null;
   return (
     <div className="border-t border-slate-100 bg-slate-50/60">
@@ -101,5 +107,9 @@ export const SALES_TEMPLATES: TemplateLink[] = [
   { file: 'SALES_BM_TEMPLATE.xlsx',     label: 'BM only',     hint: '17 columns · Payment Mode at 9' },
   { file: 'SALES_EBAY_TEMPLATE.xlsx',   label: 'eBay only',   hint: '19 columns · postage is SHIPPING' },
   { file: 'SALES_ONBUY_TEMPLATE.xlsx',  label: 'OnBuy only',  hint: '15 columns · no Quantity' },
-  { file: 'SALES_TEMU_TEMPLATE.xlsx',   label: 'Temu only',   hint: '15 columns · same layout as Amazon' },
+  // Not Amazon's layout — Temu has its own 19-column schema, and it is the
+  // one channel that carries a real Commission / Commission VAT per row
+  // (its referral rate varies by category, so the export reports the fee it
+  // actually charged). See templates/REPORT_SCHEMAS.md §2.1.
+  { file: 'SALES_TEMU_TEMPLATE.xlsx',   label: 'Temu only',   hint: '19 columns · own layout · Commission read from file' },
 ];

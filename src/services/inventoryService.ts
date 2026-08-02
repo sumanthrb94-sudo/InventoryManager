@@ -1969,3 +1969,61 @@ export async function returnAccessoryStock(
   });
   return { ok: true, id, quantity: nextQuantity, voidedSaleId: sale.id };
 }
+
+/**
+ * The import-side counterpart of returnAccessoryStock — the accessory twin of
+ * restoreUnitReturnFromImport.
+ *
+ * A returned accessory arrives as a marketplace row carrying Return Date /
+ * Outcome / Return Reason. The parser already writes those onto the Sale doc,
+ * so GP, the Returns Summary and the Postage Loss column all corrected
+ * themselves. The POOL did not: nothing on the import path ever added the
+ * quantity back, so the sale read "refunded" while the stock stayed sold.
+ *
+ * That gap was invisible for two reasons. decrementAccessoryStock skips
+ * voided sales when replaying rows after a wipe, so a full wipe + re-upload
+ * always produced the right number — only the live incremental import drifted.
+ * And the manual Return button on the Accessory Stock panel used to cover the
+ * case; it was removed in 2026-08, which left no path at all.
+ *
+ * Idempotent by the LEDGER, not by the sale's fields: a return event already
+ * recorded for this sku + order + marketplace means the restore happened, so
+ * re-importing the same file any number of times adds the quantity once. The
+ * sale's own voidedAt can't be the guard — it is written before this runs and
+ * stays set on every subsequent import.
+ */
+export async function restoreAccessoryReturnFromImport(
+  sale: Sale,
+): Promise<{ ok: boolean; id?: string; quantity?: number; skipped?: string; error?: string }> {
+  const sku = (sale.sku || '').trim();
+  if (!sku) return { ok: false, error: 'missing_sku' };
+  if (!sale.voidedAt) return { ok: false, skipped: 'not_voided' };
+  // Accessory sales carry no IMEI — a unit sale is restoreUnitReturnFromImport's job.
+  if ((sale.imei || '').trim()) return { ok: false, skipped: 'has_imei' };
+
+  const id = slugify(sku);
+  const existing = (await dbService.readAll('accessoryStock')).find((a: any) => a.id === id);
+  if (!existing) return { ok: false, skipped: 'not_an_accessory' };
+
+  const already = ((await dbService.readAll('accessoryStockEvents')) as any[]).some(e =>
+    e?.type === 'return'
+    && e?.skuId === id
+    && (e?.orderNumber || '') === (sale.orderNumber || '')
+    && (e?.marketplace || '') === (sale.marketplace || ''));
+  if (already) return { ok: true, id, quantity: existing.quantity ?? 0, skipped: 'already_restored' };
+
+  const quantity = sale.quantity || 1;
+  const nextQuantity = (existing.quantity ?? 0) + quantity;
+  await dbService.update('accessoryStock', id, { quantity: nextQuantity });
+  await logInventoryEvent({
+    type: 'stock_adjusted',
+    message: `Accessory "${existing.sku}" returned via import (+${quantity} → ${nextQuantity}) · order ${sale.orderNumber || '—'} · ${sale.voidOutcome || 'refund'}`,
+  });
+  await logAccessoryStockEvent({
+    sku: existing.sku, skuId: id, type: 'return', delta: quantity, quantityAfter: nextQuantity,
+    source: 'sales_report_import',
+    orderNumber: sale.orderNumber, marketplace: sale.marketplace,
+    reason: sale.voidReason,
+  });
+  return { ok: true, id, quantity: nextQuantity };
+}

@@ -199,6 +199,45 @@ describe('Act 1 · employee signs in', () => {
     expect(importBlock).toContain('SHOW_IMPORT_UI');
   });
 
+  it('FINDING: the template downloads go with Import, at a single guard', async () => {
+    const { readFileSync } = await import('node:fs');
+    // A blank upload template is only useful to somebody about to upload it.
+    // With Import out of the UI there is no way to feed a filled-in template
+    // back in, so the links would hand an operator a file they can do nothing
+    // with — and imply spreadsheets are still a supported intake route. They
+    // are not: intake is Stock Intake -> Add Stock, sales are Sell -> Mark Sold.
+    const flags = readFileSync('src/lib/featureFlags.ts', 'utf8');
+    expect(flags).toContain('SHOW_TEMPLATE_DOWNLOADS');
+
+    // Guarded inside the component, not at the six call sites — otherwise a
+    // seventh placement reintroduces the block without anyone noticing.
+    const td = readFileSync('src/components/TemplateDownload.tsx', 'utf8');
+    expect(td).toContain('if (!SHOW_TEMPLATE_DOWNLOADS) return null;');
+    // The early return must come before the render, not after the list check.
+    expect(td.indexOf('if (!SHOW_TEMPLATE_DOWNLOADS) return null;'))
+      .toBeLessThan(td.indexOf('<a'));
+  });
+
+  it('FINDING: the template FILES survive — this hides a menu, not the schema', async () => {
+    const { readFileSync, existsSync } = await import('node:fs');
+    // templates/ is the written column contract: templates.test.ts and
+    // salesExportSchema.test.ts parse these files, REPORT_SCHEMAS.md
+    // documents them, and the E2E build still serves them. Deleting them to
+    // "remove the download" would delete the schema with it.
+    for (const f of [
+      'templates/INVENTORY_REPORT_TEMPLATE.xlsx',
+      'templates/SALES_REPORT_TEMPLATE.xlsx',
+      'public/templates/SALES_TEMU_TEMPLATE.xlsx',
+    ]) {
+      expect(existsSync(f), `${f} missing`).toBe(true);
+    }
+    // And the catalogue still describes them accurately — the Temu entry read
+    // "15 columns · same layout as Amazon", which was wrong on both counts.
+    const td = readFileSync('src/components/TemplateDownload.tsx', 'utf8');
+    expect(td).not.toContain('same layout as Amazon');
+    expect(td).toContain('19 columns');
+  });
+
   it('FINDING: hiding Import does not remove the pipeline — only the doors', async () => {
     const { readFileSync } = await import('node:fs');
     // The flag hides entry points; the parsers, services and modals are

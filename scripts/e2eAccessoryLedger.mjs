@@ -116,8 +116,15 @@ async function run() {
   await page.waitForTimeout(600);
   await modal(page).getByRole('button', { name: /^Accessories/i }).click();
   await page.waitForTimeout(400);
-  await modal(page).locator('input[placeholder="e.g. USB-C-20W"]').first().fill(SKU);
-  await modal(page).locator('input[placeholder="e.g. USB-C 20W Charger"]').first().fill(NAME);
+  // Accessory intake is a strict catalog picker since 2026-08 (commit
+  // 482307e) — the free-text SKU box is gone. Type into the search field,
+  // then take the admin-only Add "<sku>" pill to mint a new catalog entry.
+  await modal(page).locator('input[placeholder*="Search — e.g." i]').first().fill(SKU);
+  await page.waitForTimeout(700);
+  const addPill = modal(page).getByRole('button', { name: new RegExp(`Add "${SKU}"`, 'i') }).first();
+  if (await addPill.isVisible().catch(() => false)) await addPill.click();
+  await page.waitForTimeout(500);
+  await modal(page).locator('input[placeholder*="e.g. USB-C 20W Charger" i]').first().fill(NAME).catch(() => {});
   await modal(page).locator('input[placeholder="e.g. 50"]').first().fill('20');
   await modal(page).locator('input[placeholder="0.00"]').first().fill('3.5');
   await page.waitForTimeout(300);
@@ -181,22 +188,20 @@ async function run() {
   const adjEvent = store.accessoryStockEvents.filter(e => e.type === 'adjustment').find(e => e.delta === -2);
   record('Negative-adjustment event carries the reason', adjEvent?.reason === '2 units water damaged');
 
-  // ══ 5. Return with no sale on file yet — blocked, not a silent no-op ═════
-  // No accessory sale exists for this SKU in this script (only Adjust
-  // actions above) — Return now reverses a real marketplace Sale doc, so it
-  // must refuse to proceed rather than let the operator type an arbitrary
-  // quantity. See e2eAccessoryReturnReconcile.mjs for the real sell → return
-  // flow once a sale exists.
-  console.log('\n── 5. Return with no sale on file — the modal explains why and blocks Confirm ──');
-  const returnBtn = page.getByRole('button', { name: /^Return$/i }).first();
-  await returnBtn.click();
-  await page.waitForTimeout(500);
-  const noSaleText = await modal(page).innerText().catch(() => '');
-  record('Return tab explains there is no un-returned sale for this SKU', /no un-returned sale/i.test(noSaleText));
-  const confirmReturnBtn = modal(page).getByRole('button', { name: /Confirm Return/i });
-  record('Confirm Return is disabled with nothing to return', await confirmReturnBtn.isDisabled().catch(() => false));
-  await shot(page, 'return-blocked-no-sale');
-  await dismissModals(page);
+  // ══ 5. Return is GONE from the accessory panel ══════════════════════════
+  // This step used to click Return and assert the modal blocked a return
+  // with no sale on file. That whole action was removed in 2026-08: a real
+  // accessory return arrives through the Sales Report like every other
+  // return, so a second manual path could only ever disagree with it. Adjust
+  // stays, because a miscount is a real thing that has no sale behind it.
+  // The reversal flow itself lives in e2eAccessoryReturnReconcile.mjs.
+  console.log('\n── 5. Return is gone from the accessory panel — Adjust is the only manual action ──');
+  const returnBtn = page.getByRole('button', { name: /^Return$/i });
+  record('Accessory row offers no Return action', await returnBtn.count() === 0,
+    `found ${await returnBtn.count()} Return button(s)`);
+  record('Accessory row still offers Adjust',
+    await page.getByRole('button', { name: /^Adjust$/i }).count() > 0);
+  await shot(page, 'return-action-removed');
 
   // ══ 6. History — expand and check every event renders ═══════════════════
   console.log('\n── 6. Expand History and check the ledger renders ──');

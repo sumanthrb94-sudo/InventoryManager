@@ -205,7 +205,7 @@
     {
       "name": "Repair stamps voidOutcome=repair on the sale (drives 2-leg postage loss)",
       "ok": true,
-      "detail": "voidedAt=2026-08-01 outcome=repair"
+      "detail": "voidedAt=2026-08-02 outcome=repair"
     },
     {
       "name": "Replacement return processed (with a replacement unit named)",
@@ -215,7 +215,7 @@
     {
       "name": "Replacement stamps voidOutcome=replacement (drives 3-leg postage loss)",
       "ok": true,
-      "detail": "voidedAt=2026-08-01 outcome=replacement"
+      "detail": "voidedAt=2026-08-02 outcome=replacement"
     },
     {
       "name": "Returned unit links to the replacement that shipped in its place",

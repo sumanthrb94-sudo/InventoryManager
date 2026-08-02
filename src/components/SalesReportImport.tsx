@@ -27,7 +27,7 @@ import type { Sale, Marketplace, ReturnCategory } from '../types';
 import { MARKETPLACES } from '../types';
 import { parseSalesWorkbook, type ParsedSales } from '../lib/salesImport';
 import { buildPostImportSyncPatches } from '../services/salesService';
-import { addSoldUnitFromSale, completeUnitBuyInfo, reconcileShsAfterFulfilment, decrementAccessoryStock, restoreUnitReturnFromImport } from '../services/inventoryService';
+import { addSoldUnitFromSale, completeUnitBuyInfo, reconcileShsAfterFulfilment, decrementAccessoryStock, restoreUnitReturnFromImport, restoreAccessoryReturnFromImport } from '../services/inventoryService';
 import { normalizeOperatorSku, parseBrandModelStorage } from '../lib/modelStorage';
 import { buildCatalogIndex, canonicaliseModel } from '../lib/modelReconciliation';
 import type { ModelSeed } from '../lib/deviceCatalog';
@@ -112,6 +112,18 @@ export interface PreviewBuckets {
     existingUnitId?: string;
     alreadyRestored: boolean;
   }>;
+  /** Accessory (no-IMEI) sales whose quantity must be added back to their
+   *  pool on confirm — the rows that go from NOT voided to voided in THIS
+   *  upload. Computed here, where both the stored doc and the incoming row
+   *  are in hand; by confirm time the void has already been written, so the
+   *  transition is no longer visible.
+   *
+   *  A row that arrives voided with NO stored sale behind it is deliberately
+   *  excluded: nothing ever decremented the pool for it. That is exactly the
+   *  post-wipe replay, where the Inventory Report has already restored the
+   *  gross baseline and decrementAccessoryStock skips voided rows — adding
+   *  the quantity there would overshoot by one return's worth. */
+  accessoryReturnsToRestore: string[];
   /** Voided sales in this upload with NO Return Type available — either the
    *  workbook predates the Returns tab, or the operator never filled that
    *  row in. The Sale doc still imports voided (voidedAt/voidOutcome/
@@ -441,6 +453,17 @@ export function buildPreview(
     const key = `${r.marketplace}__${(r.imei || '').trim().toUpperCase()}`;
     returnRowByKey.set(key, r);
   }
+  const existingSaleById = new Map(existingSales.map(s => [s.id, s]));
+  const accessoryReturnsToRestore: string[] = [];
+  for (const s of [...toCreate, ...toUpdate]) {
+    if (!s.voidedAt) continue;
+    if ((s.imei || '').trim()) continue;          // has a unit — the IMEI path below
+    if (!(s.sku || '').trim()) continue;
+    const stored = existingSaleById.get(s.id);
+    if (!stored || stored.voidedAt) continue;     // never decremented, or already restored
+    accessoryReturnsToRestore.push(s.id);
+  }
+
   const returnsToRestore: PreviewBuckets['returnsToRestore'] = [];
   const returnsNeedingType: PreviewBuckets['returnsNeedingType'] = [];
   const seenReturnSaleId = new Set<string>();
@@ -467,6 +490,7 @@ export function buildPreview(
 
   return {
     total: parsed.sales.length,
+    accessoryReturnsToRestore,
     perSheet: parsed.perSheetCounts,
     toCreate,
     toUpdate,
@@ -571,6 +595,9 @@ export default function SalesReportImport({ onClose }: Props) {
      *  accessoryStock pool and were decremented. Every other no-IMEI row
      *  (no matching SKU) is silently out of scope, same as before. */
     accessoriesDecremented: number;
+    /** No-IMEI sale rows arriving VOIDED whose SKU matched a pool and had
+     *  their quantity added back (restoreAccessoryReturnFromImport). */
+    accessoriesReturned: number;
     /** Units restored to their return state (returnType/returnDate/etc.)
      *  via restoreUnitReturnFromImport, keyed off preview.returnsToRestore. */
     unitsRestoredFromImport: number;
@@ -579,7 +606,7 @@ export default function SalesReportImport({ onClose }: Props) {
   }>({
     shsFulfilled: 0, shsPlaceholdersCleared: 0, shsAggregatesDecremented: 0, unitsMarkedSold: 0, salesLinked: 0,
     unitsAddedFromOrphanSales: 0, unitsAddFailed: 0, unitsAddFailedDetails: [], staleDeleted: 0, staleDeleteFailed: 0,
-    accessoriesDecremented: 0, unitsRestoredFromImport: 0, unitsRestoreFailed: 0, unitsRestoreFailedDetails: [],
+    accessoriesDecremented: 0, accessoriesReturned: 0, unitsRestoredFromImport: 0, unitsRestoreFailed: 0, unitsRestoreFailedDetails: [],
   });
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [auditEdits, setAuditEdits] = useState<AuditCompletionRow[]>([]);
@@ -751,6 +778,47 @@ export default function SalesReportImport({ onClose }: Props) {
             orderNumber: s.orderNumber, marketplace: s.marketplace,
           });
           if (res.matched) accessoriesDecremented++;
+        }
+      }));
+
+      // The mirror image: an accessory row that arrives VOIDED (Return Date /
+      // Outcome / Return Reason filled) has to put its quantity back.
+      //
+      // The parser already writes the void onto the Sale doc, so GP, the
+      // Returns Summary and the Postage Loss column corrected themselves —
+      // but nothing restored the pool, so the sale read "refunded" while the
+      // stock stayed sold. It hid behind two things: decrementAccessoryStock
+      // skips voided rows when replaying after a wipe, so a full wipe +
+      // re-upload always produced the right number, and the manual Return
+      // button on the Accessory Stock panel used to cover the live case until
+      // it was removed in 2026-08.
+      //
+      // Which rows qualify is decided in buildPreview
+      // (accessoryReturnsToRestore) and NOT re-derived here, because by this
+      // point the void has already been written to the doc and the "was it
+      // voided before?" transition is no longer visible. The gate is: a sale
+      // already on file that was NOT voided and now is. A row that arrives
+      // voided with no stored sale behind it is skipped — that is the
+      // post-wipe replay, where the Inventory Report already restored the
+      // gross baseline and decrementAccessoryStock skips voided rows, so
+      // adding here would overshoot by one return's worth (caught by
+      // e2eAccessoryReturnReconcile's full round trip: 53 instead of 50).
+      // Grouped by sku for the same read-then-write reason as the decrement.
+      stage = 'restoring accessory returns';
+      let accessoriesReturned = 0;
+      const toRestoreIds = new Set(preview.accessoryReturnsToRestore);
+      const accessoryReturnRows = [...preview.toCreate, ...preview.toUpdate]
+        .filter(s => toRestoreIds.has(s.id));
+      const accessoryReturnsBySku = new Map<string, typeof accessoryReturnRows>();
+      for (const s of accessoryReturnRows) {
+        const key = (s.sku || '').trim();
+        const bucket = accessoryReturnsBySku.get(key);
+        if (bucket) bucket.push(s); else accessoryReturnsBySku.set(key, [s]);
+      }
+      await Promise.all(Array.from(accessoryReturnsBySku.values()).map(async rows => {
+        for (const s of rows) {
+          const res = await restoreAccessoryReturnFromImport(s);
+          if (res.ok && !res.skipped) accessoriesReturned++;
         }
       }));
 
@@ -974,6 +1042,7 @@ export default function SalesReportImport({ onClose }: Props) {
         staleDeleted,
         staleDeleteFailed: staleFailed,
         accessoriesDecremented,
+        accessoriesReturned,
         unitsRestoredFromImport,
         unitsRestoreFailed,
         unitsRestoreFailedDetails,
@@ -1095,6 +1164,7 @@ export default function SalesReportImport({ onClose }: Props) {
               && syncStats.unitsAddedFromOrphanSales === 0
               && syncStats.unitsAddFailed === 0
               && syncStats.accessoriesDecremented === 0
+              && syncStats.accessoriesReturned === 0
               && syncStats.unitsRestoredFromImport === 0
               && syncStats.unitsRestoreFailed === 0;
             if (noChanges) {
@@ -1133,6 +1203,11 @@ export default function SalesReportImport({ onClose }: Props) {
                 {syncStats.accessoriesDecremented > 0 && (
                   <p className="text-[11px] font-mono text-indigo-700">
                     Accessory stock updated · {syncStats.accessoriesDecremented} sale{syncStats.accessoriesDecremented === 1 ? '' : 's'} matched a SKU pool and decremented it
+                  </p>
+                )}
+                {syncStats.accessoriesReturned > 0 && (
+                  <p className="text-[11px] font-mono text-indigo-700">
+                    Accessory stock restored · {syncStats.accessoriesReturned} returned sale{syncStats.accessoriesReturned === 1 ? '' : 's'} put {syncStats.accessoriesReturned === 1 ? 'its' : 'their'} quantity back into the pool
                   </p>
                 )}
                 {(syncStats.unitsMarkedSold > 0 || syncStats.salesLinked > 0) && (

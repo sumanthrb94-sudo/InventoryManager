@@ -77,6 +77,7 @@ import {
   restoreAccessoryStockFromImport,
   adjustAccessoryStock,
   returnAccessoryStock,
+  restoreAccessoryReturnFromImport,
   recordAccessorySale,
 } from '../../services/inventoryService';
 import type { Sale } from '../../types';
@@ -1301,6 +1302,58 @@ describe('returnAccessoryStock — voids the marketplace sale and restores its e
   it('rejects an unknown SKU and a missing SKU', async () => {
     expect((await returnAccessoryStock({ sku: 'NO-SUCH-SKU', outcome: 'refund' })).error).toBe('not_found');
     expect((await returnAccessoryStock({ sku: '', outcome: 'refund' })).error).toBe('missing_sku');
+  });
+});
+
+describe('restoreAccessoryReturnFromImport — the import-side twin of returnAccessoryStock', () => {
+  it('adds the sale\'s own quantity back to the pool and logs a return event', async () => {
+    await upsertAccessoryStock({ sku: 'USB-C-20W', name: 'USB-C 20W Charger', quantity: 50, buyPrice: 3.5 });
+    await decrementAccessoryStock('USB-C-20W', 3, { orderNumber: 'O-ACC-1', marketplace: 'AMAZON' });
+    expect(collections['accessoryStock'].get('usb_c_20w').quantity).toBe(47);
+
+    const sale = accessorySale({ quantity: 3, voidedAt: '2026-07-29', voidOutcome: 'refund', voidReason: 'wrong item' } as any);
+    const r = await restoreAccessoryReturnFromImport(sale);
+
+    expect(r.ok).toBe(true);
+    expect(r.quantity).toBe(50);
+    expect(collections['accessoryStock'].get('usb_c_20w').quantity).toBe(50);
+    // A return is not new intake — the gross baseline must not move.
+    expect(collections['accessoryStock'].get('usb_c_20w').totalReceived).toBe(50);
+
+    const event = accessoryEvents().find(e => e.type === 'return');
+    expect(event).toMatchObject({
+      delta: 3, quantityAfter: 50, source: 'sales_report_import',
+      orderNumber: 'O-ACC-1', marketplace: 'AMAZON', reason: 'wrong item',
+    });
+  });
+
+  it('is idempotent — re-importing the same returned row adds the quantity ONCE', async () => {
+    await upsertAccessoryStock({ sku: 'USB-C-20W', name: 'USB-C 20W Charger', quantity: 50, buyPrice: 3.5 });
+    await decrementAccessoryStock('USB-C-20W', 3, { orderNumber: 'O-ACC-1', marketplace: 'AMAZON' });
+    const sale = accessorySale({ quantity: 3, voidedAt: '2026-07-29', voidOutcome: 'refund' } as any);
+
+    await restoreAccessoryReturnFromImport(sale);
+    const second = await restoreAccessoryReturnFromImport(sale);
+
+    expect(second.skipped).toBe('already_restored');
+    expect(collections['accessoryStock'].get('usb_c_20w').quantity).toBe(50);
+    expect(accessoryEvents().filter(e => e.type === 'return')).toHaveLength(1);
+  });
+
+  it('leaves unit sales alone — an IMEI means restoreUnitReturnFromImport owns it', async () => {
+    await upsertAccessoryStock({ sku: 'USB-C-20W', name: 'USB-C 20W Charger', quantity: 50, buyPrice: 3.5 });
+    const sale = accessorySale({ imei: goodImei, voidedAt: '2026-07-29', voidOutcome: 'refund' } as any);
+    const r = await restoreAccessoryReturnFromImport(sale);
+    expect(r.skipped).toBe('has_imei');
+    expect(collections['accessoryStock'].get('usb_c_20w').quantity).toBe(50);
+  });
+
+  it('does nothing for an un-voided sale or a SKU that is not an accessory pool', async () => {
+    await upsertAccessoryStock({ sku: 'USB-C-20W', name: 'USB-C 20W Charger', quantity: 50, buyPrice: 3.5 });
+    expect((await restoreAccessoryReturnFromImport(accessorySale({}))).skipped).toBe('not_voided');
+    const unknown = accessorySale({ sku: 'NO-SUCH-SKU', voidedAt: '2026-07-29' } as any);
+    expect((await restoreAccessoryReturnFromImport(unknown)).skipped).toBe('not_an_accessory');
+    expect(collections['accessoryStock'].get('usb_c_20w').quantity).toBe(50);
   });
 });
 

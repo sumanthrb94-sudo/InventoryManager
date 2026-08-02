@@ -132,8 +132,15 @@ async function run() {
   await page.waitForTimeout(600);
   await modal(page).getByRole('button', { name: /^Accessories/i }).click();
   await page.waitForTimeout(400);
-  await modal(page).locator('input[placeholder="e.g. USB-C-20W"]').first().fill(SKU);
-  await modal(page).locator('input[placeholder="e.g. USB-C 20W Charger"]').first().fill(NAME);
+  // Accessory intake is a strict catalog picker since 2026-08 (commit
+  // 482307e) — the free-text SKU box is gone. Type into the search field,
+  // then take the admin-only Add "<sku>" pill to mint a new catalog entry.
+  await modal(page).locator('input[placeholder*="Search — e.g." i]').first().fill(SKU);
+  await page.waitForTimeout(700);
+  const accAddPill = modal(page).getByRole('button', { name: new RegExp(`Add "${SKU}"`, 'i') }).first();
+  if (await accAddPill.isVisible().catch(() => false)) await accAddPill.click();
+  await page.waitForTimeout(500);
+  await modal(page).locator('input[placeholder*="e.g. USB-C 20W Charger" i]').first().fill(NAME).catch(() => {});
   await modal(page).locator('input[placeholder="e.g. 50"]').first().fill('12');
   await modal(page).locator('input[placeholder="0.00"]').first().fill('4.25');
   await page.waitForTimeout(300);
