@@ -48,13 +48,32 @@ const BLANK_ROWS = 200;
  */
 const CONSTANT_HEADERS = new Set(['Accessories', 'FVF', 'Customer Care Fees']);
 
-/** One worked example per marketplace so the operator can see it computing. */
+/**
+ * The worked example row, one per marketplace.
+ *
+ * These carry the SAME order numbers, IMEIs, SKUs, suppliers and prices the
+ * templates have always shipped. That is not cosmetic: five E2E scripts
+ * (e2eTemuMarketplace, e2eTemplateFillAndUpload, e2eBatchVsMarketplace,
+ * e2eShsOrphanFlow, e2eUploadFlow) seed stock against these identities and
+ * then upload the real template to prove the round trip. Inventing new
+ * example rows here silently broke all five — the sale imported fine, it just
+ * no longer matched the unit the script had put in stock.
+ *
+ * Change a price if the fee schedule moves. Do not change the identities.
+ */
 const EXAMPLE: Record<Marketplace, Partial<Sale>> = {
-  AMAZON: { sku: 'SG-A24-128-DS-BK-EX', buyPrice: 100, salePrice: 139.99, postage: 6.30 },
-  BM:     { sku: 'SG-A23-128-BK-EX',    buyPrice: 73,  salePrice: 129,    postage: 6.30 },
-  EBAY:   { sku: 'SG-XC5-64-BK',        buyPrice: 30,  salePrice: 55.99,  postage: 4.65 },
-  ONBUY:  { sku: 'ASI-SG-S20-128-CG',   buyPrice: 110, salePrice: 159.99, postage: 6.30 },
-  TEMU:   { sku: 'SG-A17-128GB-OB',     buyPrice: 55,  salePrice: 83.99,  postage: 6.30, commission: 3.87 },
+  AMAZON: { orderNumber: 'AMZ-5001', imei: '350100000000000', sku: 'IP13-128-MID',
+            supplierName: 'MOBILE WHOLESALE LTD', buyPrice: 320, salePrice: 425, postage: 8 },
+  BM:     { orderNumber: 'BM-7781', imei: '350100000015838', sku: 'S22-128-GRN',
+            supplierName: 'PHONEBOX DIRECT', buyPrice: 240, salePrice: 329, postage: 8,
+            paymentMode: 'Paypal' },
+  EBAY:   { orderNumber: 'EB-3310', imei: '350100000023757', sku: 'IP13P-256-GRA',
+            supplierName: 'CELLHUB TRADING', buyPrice: 520, salePrice: 679, postage: 8 },
+  ONBUY:  { orderNumber: 'OB-9002', imei: '350100000031676', sku: 'PIX7-128-BLK',
+            supplierName: 'NORTHSIDE STOCK', buyPrice: 275, salePrice: 359, postage: 8 },
+  TEMU:   { orderNumber: 'PO-210-07053322437751959', imei: '350901801557294',
+            sku: 'SG-A17-128GB-OB', supplierName: 'MHL',
+            buyPrice: 55, salePrice: 83.99, postage: 6.30, commission: 3.87 },
 };
 
 const sale = (m: Marketplace, i: number, over: Partial<Sale> = {}): Sale => ({
@@ -75,7 +94,7 @@ const sale = (m: Marketplace, i: number, over: Partial<Sale> = {}): Sale => ({
 async function reportShapedWorkbook(): Promise<ExcelJS.Workbook> {
   const sales: Sale[] = [];
   for (const m of MARKETPLACES) {
-    sales.push(sale(m, 1, { ...EXAMPLE[m], orderNumber: `${m}-EXAMPLE`, id: `${m}__EXAMPLE` }));
+    sales.push(sale(m, 1, { ...EXAMPLE[m], id: `${m}__EXAMPLE` }));
     for (let i = 2; i <= BLANK_ROWS + 1; i++) sales.push(sale(m, i));
   }
   const buf = await buildSalesWorkbookBuffer({

@@ -190,15 +190,20 @@ function groundTruthGP({ marketplace, bp, sp, postage }) {
       break;
     }
     case 'BM': {
+      // Customer care is £8.99 per the operator's 2026-08 master, not 9.99.
       const com = sp * 0.11;
-      gp = c - marTax - com - 9.99 - postage - pVat - acc;
+      gp = c - marTax - com - 8.99 - postage - pVat - acc;
       break;
     }
     case 'EBAY': {
       const com = sp * 0.0621, rof = sp * 0.0035, fvf = 0.40;
       const vat = (com + rof + fvf) * 0.20, tCom = com + rof + fvf + vat;
-      const mkt = sp * 0.05, mVat = mkt * 0.20;
-      gp = c - marTax - tCom - postage - pVat - mkt - mVat - acc;
+      // Marketing is a TYPED cell in the master, not SP x 5% — it is £0 on
+      // most rows, and inventing it charged a spend that never happened
+      // (plus its VAT) against margin. eBay's P. VAT is 0 for the same
+      // reason: no formula behind the cell, zero on all 33 master rows.
+      const mkt = 0, mVat = mkt * 0.20;
+      gp = c - marTax - tCom - postage - mkt - mVat - acc;
       base = sp;                       // eBay's GP% divides by SP
       break;
     }
@@ -208,7 +213,8 @@ function groundTruthGP({ marketplace, bp, sp, postage }) {
       break;
     }
     case 'TEMU': {
-      const com = sp * 0.07;
+      // 4.61%, the rate in the operator's Temu master (`=H2*4.61%`).
+      const com = sp * 0.0461;
       gp = c - marTax - com - postage - pVat - acc;
       break;
     }

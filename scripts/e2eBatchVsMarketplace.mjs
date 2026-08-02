@@ -31,7 +31,12 @@ const BASE = process.env.E2E_BASE_URL || 'http://localhost:4173';
 const OUT = 'e2e-screenshots/batch-vs-marketplace';
 const INVENTORY_FILE = resolve('templates/samples/INVENTORY_REPORT_SAMPLE.xlsx');
 const COMBINED_SALES = resolve('templates/samples/SALES_REPORT_SAMPLE.xlsx');
-const MARKETPLACES = ['AMAZON', 'BM', 'EBAY', 'ONBUY'];
+// All five. This read four until 2026-08, so the combined workbook carried
+// Temu rows the per-channel path never uploaded — 20 sales that existed on one
+// side of the comparison and not the other, which made every downstream
+// reconciliation (sale count, units sold, office stock, revenue, cost)
+// disagree by exactly that gap. SALES_TEMU_SAMPLE.xlsx was already on disk.
+const MARKETPLACES = ['AMAZON', 'BM', 'EBAY', 'ONBUY', 'TEMU'];
 const PER_MARKET_FILE = (m) => resolve(`templates/samples/SALES_${m}_SAMPLE.xlsx`);
 
 if (!existsSync(OUT)) mkdirSync(OUT, { recursive: true });

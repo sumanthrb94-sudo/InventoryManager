@@ -95,12 +95,12 @@
     {
       "name": "BM · grossProfit",
       "ok": true,
-      "detail": "56.94 vs 56.94"
+      "detail": "57.94 vs 57.94"
     },
     {
       "name": "BM · gpPercent",
       "ok": true,
-      "detail": "18.98 vs 18.98"
+      "detail": "19.31 vs 19.31"
     },
     {
       "name": "BM · VAT breakdown stays derived, not persisted",
@@ -155,12 +155,12 @@
     {
       "name": "EBAY · grossProfit",
       "ok": true,
-      "detail": "63.86 vs 63.86"
+      "detail": "89.66 vs 89.66"
     },
     {
       "name": "EBAY · gpPercent",
       "ok": true,
-      "detail": "14.85 vs 14.85"
+      "detail": "20.85 vs 20.85"
     },
     {
       "name": "EBAY · VAT breakdown stays derived, not persisted",
@@ -225,7 +225,7 @@
     {
       "name": "TEMU · commission",
       "ok": true,
-      "detail": "26.6 vs 26.6"
+      "detail": "17.52 vs 17.52"
     },
     {
       "name": "TEMU · postageVat",
@@ -235,12 +235,12 @@
     {
       "name": "TEMU · grossProfit",
       "ok": true,
-      "detail": "81.49 vs 81.49"
+      "detail": "90.58 vs 90.58"
     },
     {
       "name": "TEMU · gpPercent",
       "ok": true,
-      "detail": "33.96 vs 33.96"
+      "detail": "37.74 vs 37.74"
     },
     {
       "name": "TEMU · VAT breakdown stays derived, not persisted",
@@ -250,7 +250,7 @@
     {
       "name": "eBay GP% divides by SP, not BP",
       "ok": true,
-      "detail": "14.85% = GP/SP (GP/BP would be 22.81%)"
+      "detail": "20.85% = GP/SP (GP/BP would be 32.02%)"
     },
     {
       "name": "AMAZON report · Marginal Tax",
@@ -308,9 +308,9 @@
       "detail": "H2*0.35%"
     },
     {
-      "name": "EBAY report · Marketing",
+      "name": "EBAY report · M. VAT",
       "ok": true,
-      "detail": "H2*5%"
+      "detail": "R2*20%"
     },
     {
       "name": "EBAY report · Total VAT",

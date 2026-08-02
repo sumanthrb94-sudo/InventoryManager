@@ -150,12 +150,12 @@
     {
       "name": "GP matches master formula · EBAY EB-NI-2001",
       "ok": true,
-      "detail": "app £22.21/4.83%  truth £22.21/4.83%  (bp 355 sp 460 post 0)"
+      "detail": "app £49.81/10.83%  truth £49.81/10.83%  (bp 355 sp 460 post 0)"
     },
     {
       "name": "GP matches master formula · BM BM-NI-3001",
       "ok": true,
-      "detail": "app £20.78/6.93%  truth £20.78/6.93%  (bp 300 sp 400 post 6.3)"
+      "detail": "app £21.78/7.26%  truth £21.78/7.26%  (bp 300 sp 400 post 6.3)"
     },
     {
       "name": "GP matches master formula · ONBUY OB-NI-4001",
@@ -170,12 +170,12 @@
     {
       "name": "GP matches master formula · TEMU TEMU-NI-6001-1",
       "ok": true,
-      "detail": "app £-10.83/-3.55%  truth £-10.83/-3.55%  (bp 305 sp 330 post 6.3)"
+      "detail": "app £-2.94/-0.96%  truth £-2.94/-0.96%  (bp 305 sp 330 post 6.3)"
     },
     {
       "name": "GP matches master formula · TEMU TEMU-NI-6001-2",
       "ok": true,
-      "detail": "app £8.76/729.94%  truth £8.76/729.94%  (bp 1.2 sp 24 post 6.3)"
+      "detail": "app £9.33/777.74%  truth £9.33/777.74%  (bp 1.2 sp 24 post 6.3)"
     },
     {
       "name": "Return processed end to end (pick → QC → CRM queue → finalise)",

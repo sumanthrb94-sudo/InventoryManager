@@ -10,7 +10,8 @@
  *   Order PO-210-07053322437751959 · IMEI 350901801557294
  *   BP £55 · SP £83.99 · Postage £6.30 · Commission £3.87 (Temu's own
  *   reported per-order fee — its referral rate varies by category, not a
- *   flat percentage) · Commission VAT £4.07 (informational only)
+ *   flat percentage) · Commission VAT £0.77 = 3.87 x 20% (derived; the
+ *   master's own cell says 4.07 because `=K2+20%` is a typo for `=K2*20%`)
  *   → Marginal Tax £4.83 · P.VAT £1.26 · Total VAT £1.26 · GP £11.73 ·
  *     GP% 21.32 · Total VAT NTP £3.57
  *
@@ -48,7 +49,7 @@ const ROW = {
   sp: 83.99,
   postage: 6.30,
   commission: 3.87,
-  commissionVat: 4.07,
+  commissionVat: 0.77,   // 3.87 x 20% — derived, not read from the sheet
 };
 
 if (!existsSync(OUT)) mkdirSync(OUT, { recursive: true });
@@ -221,8 +222,13 @@ async function run() {
     const close = (a, b, tol = 0.02) => Math.abs((a ?? NaN) - b) <= tol;
     record('Commission = £3.87 (Temu\'s own reported per-order fee, read from the file)',
       close(sale.commission, 3.87), `got ${sale.commission}`);
-    record('Commission VAT = £4.07 (informational — read from the file)',
-      close(sale.commissionVat, 4.07), `got ${sale.commissionVat}`);
+    // DERIVED as Commission x 20%, not read. The operator master computes it
+    // as `=K2+20%`, which Excel evaluates as K + 0.2 rather than K x 20%:
+    // 3.87 + 0.2 = 4.07 where 20% VAT on 3.87 is 0.77. A plus typed for a
+    // times. Nothing downstream moves — Temu VAT-invoices this back as
+    // reclaimable input tax, so it sits outside Total VAT and GP either way.
+    record('Commission VAT = £0.77 (derived as Commission x 20%, not the sheet\'s typo)',
+      close(sale.commissionVat, 0.77), `got ${sale.commissionVat}`);
     record('Marginal Tax = £4.83 ((SP-BP)*16.67%)', close(sale.marginalTax, 4.83),
       `got ${sale.marginalTax}`);
     record('P. VAT = £1.26 (Postage × 20% — no longer a fixed 0)', close(sale.postageVat, 1.26),

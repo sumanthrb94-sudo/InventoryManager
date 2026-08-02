@@ -80,10 +80,10 @@
       "postageVat": 1.26,
       "accessories": 1,
       "commission": 49.5,
-      "customerCareFees": 9.99,
+      "customerCareFees": 8.99,
       "totalVat": 1.26,
-      "grossProfit": 56.94,
-      "gpPercent": 18.98,
+      "grossProfit": 57.94,
+      "gpPercent": 19.31,
       "totalVatNtp": 23.74,
       "gpBase": "BP"
     },
@@ -92,8 +92,8 @@
       "marginalTax": 25,
       "commission": 49.5,
       "postageVat": 1.26,
-      "grossProfit": 56.94,
-      "gpPercent": 18.98
+      "grossProfit": 57.94,
+      "gpPercent": 19.31
     },
     "reportColumns": [
       "Date",
@@ -145,12 +145,12 @@
       "fvf": 0.4,
       "vat20": 5.72,
       "totalCom": 34.33,
-      "marketing": 21.5,
-      "marketingVat": 4.3,
-      "totalVat": 10.02,
-      "grossProfit": 63.86,
-      "gpPercent": 14.85,
-      "totalVatNtp": 14.98,
+      "marketing": 0,
+      "marketingVat": 0,
+      "totalVat": 5.72,
+      "grossProfit": 89.66,
+      "gpPercent": 20.85,
+      "totalVatNtp": 19.28,
       "gpBase": "SP"
     },
     "stored": {
@@ -163,8 +163,8 @@
       "totalCom": 34.33,
       "vat20": 5.72,
       "postageVat": 0,
-      "grossProfit": 63.86,
-      "gpPercent": 14.85
+      "grossProfit": 89.66,
+      "gpPercent": 20.85
     },
     "reportColumns": [
       "Date",
@@ -280,21 +280,21 @@
       "marginalTax": 23.34,
       "postageVat": 1.26,
       "accessories": 1,
-      "commission": 26.6,
-      "commissionVat": 5.32,
+      "commission": 17.52,
+      "commissionVat": 3.5,
       "totalVat": 1.26,
-      "grossProfit": 81.49,
-      "gpPercent": 33.96,
+      "grossProfit": 90.58,
+      "gpPercent": 37.74,
       "totalVatNtp": 22.08,
       "gpBase": "BP"
     },
     "stored": {
       "spMinusBp": 139.99,
       "marginalTax": 23.34,
-      "commission": 26.6,
+      "commission": 17.52,
       "postageVat": 1.26,
-      "grossProfit": 81.49,
-      "gpPercent": 33.96
+      "grossProfit": 90.58,
+      "gpPercent": 37.74
     },
     "reportColumns": [
       "Date",

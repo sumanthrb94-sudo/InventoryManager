@@ -106,7 +106,7 @@ function truthFor({ marketplace, bp, sp, postage }) {
     }
     case 'BM': {
       const commission = sp * 0.11;
-      const customerCareFees = 9.99;
+      const customerCareFees = 8.99;   // 2026-08 master; was 9.99
       const gp = c - marginalTax - commission - customerCareFees - postage - pVat - ACCESSORIES;
       // BM's ONLY VAT line is P. VAT, so there is no separate Total VAT
       // column and NTP subtracts P. VAT directly.
@@ -120,10 +120,15 @@ function truthFor({ marketplace, bp, sp, postage }) {
       const fvf = 0.40;
       const vat20 = (commission + rof + fvf) * VAT;
       const totalCom = commission + rof + fvf + vat20;
-      const marketing = sp * 0.05;
+      // Marketing and P. VAT are TYPED cells in the operator master, with no
+      // formula behind either — marketing is £0 on most rows, and eBay's
+      // postage is zero-rated to them. Deriving marketing as SP x 5% charged
+      // a spend that never happened, plus its VAT, straight to margin.
+      const marketing = 0;
       const marketingVat = marketing * VAT;
-      const totalVat = vat20 + pVat + marketingVat;
-      const gp = c - marginalTax - totalCom - postage - pVat - marketing - marketingVat - ACCESSORIES;
+      const eBayPVat = 0;
+      const totalVat = vat20 + eBayPVat + marketingVat;
+      const gp = c - marginalTax - totalCom - postage - eBayPVat - marketing - marketingVat - ACCESSORIES;
       Object.assign(out, { commission, rof, fvf, vat20, totalCom, marketing, marketingVat, totalVat,
         grossProfit: gp, gpPercent: gp / sp * 100, totalVatNtp: marginalTax - totalVat, gpBase: 'SP' });
       break;
@@ -138,7 +143,7 @@ function truthFor({ marketplace, bp, sp, postage }) {
       break;
     }
     case 'TEMU': {
-      const commission = sp * 0.07;        // fallback only; the export's own value wins
+      const commission = sp * 0.0461;      // the master's own rate; the export's value wins when present
       const commissionVat = commission * VAT;
       // Commission VAT is reclaimable input tax — deliberately EXCLUDED from
       // both Total VAT and GP. Total VAT is P. VAT alone.
@@ -337,7 +342,11 @@ async function run() {
   const EXPECT_FORMULAS = {
     AMAZON: { 'Marginal Tax': /I2\*16\.67%/, 'Commission': /H2\/100\*7/, 'C. VAT': /K2\*20%/, 'DSF': /K2\*2%/, 'Total VAT': /L2\+N2\+P2/ },
     BM:     { 'Marginal Tax': /I2\*16\.67%/, 'Commission': /H2\/100\*11/, 'P. VAT': /M2\*20%/ },
-    EBAY:   { 'Marginal Tax': /I2\*16\.67%/, 'Commission': /\(H2\*6\.9%\)-\(H2\*6\.9%\)\*10%/, 'ROF': /H2\*0\.35%/, 'Marketing': /H2\*5%/, 'Total VAT': /N2\+Q2\+S2/ },
+    // No Marketing entry: that cell carries no formula any more. It is typed
+    // by the operator in the master, so the report writes the sale's own
+    // value — emitting `=H2*5%` there made a re-opened workbook re-invent a
+    // promotional spend that never happened.
+    EBAY:   { 'Marginal Tax': /I2\*16\.67%/, 'Commission': /\(H2\*6\.9%\)-\(H2\*6\.9%\)\*10%/, 'ROF': /H2\*0\.35%/, 'M. VAT': /R2\*20%/, 'Total VAT': /N2\+Q2\+S2/ },
     ONBUY:  { 'Marginal Tax': /H2\*16\.67%/, 'Commission': /G2\*7%/, 'VAT 20%': /J2\*20%/, 'Total VAT': /K2\+M2/ },
     TEMU:   { 'Marginal Tax': /I2\*16\.67%/, 'Total VAT': /N2/ },
   };
