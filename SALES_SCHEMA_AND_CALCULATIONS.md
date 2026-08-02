@@ -105,6 +105,7 @@ Commission 7% of SP · VAT 20% · DSF 2% of commission · Accessories £1
 | GP | `(SP−BP) − MarTax − Com − C.VAT − DSF − DSF VAT − Postage − P.VAT − £1` | `I2-J2-K2-L2-M2-N2-O2-P2-Q2` |
 | GP % | `GP ÷ **BP** × 100` | `(S2-AB2)/G2*100` |
 | Total VAT NTP | `Marginal Tax − Total VAT` | `J2-R2` |
+| Net GP £ | `GP − Postage Loss` | `S2-AB2` |
 
 **Worked — BP £350, SP £499.99, postage £6.30**
 
@@ -120,6 +121,7 @@ Commission 11% of SP · Customer Care £9.99 flat · Accessories £1
 
 | Line | Formula | Excel |
 |---|---|---|
+| SP − BP | `SP − BP` | `H2-G2` |
 | Marginal Tax | `(SP−BP) × 16.67%` | `I2*16.67%` |
 | Commission | `SP × 11%` | `H2/100*11` |
 | Customer Care Fees | `£9.99` flat | literal |
@@ -127,6 +129,7 @@ Commission 11% of SP · Customer Care £9.99 flat · Accessories £1
 | GP | `(SP−BP) − MarTax − Com − £9.99 − Postage − P.VAT − £1` | `I2-J2-K2-L2-M2-N2-O2` |
 | GP % | `GP ÷ **BP** × 100` | `(P2-Y2)/G2*100` |
 | Total VAT NTP | `Marginal Tax − P. VAT` | `J2-N2` |
+| Net GP £ | `GP − Postage Loss` | `P2-Y2` |
 
 > **BM has no Total VAT column.** P. VAT is its only VAT line, so NTP subtracts
 > P. VAT directly. Asserted by the E2E.
@@ -145,6 +148,7 @@ Marketing 5% of SP · Accessories £1
 
 | Line | Formula | Excel |
 |---|---|---|
+| SP − BP | `SP − BP` | `H2-G2` |
 | Marginal Tax | `(SP−BP) × 16.67%` | `I2*16.67%` |
 | Commission | `SP × 6.21%` | `(H2*6.9%)-(H2*6.9%)*10%` |
 | ROF | `SP × 0.35%` | `H2*0.35%` |
@@ -152,10 +156,13 @@ Marketing 5% of SP · Accessories £1
 | VAT | `(Com + ROF + FVF) × 20%` | `(K2+L2+M2)*20%` |
 | T.COM | `Com + ROF + FVF + VAT` | `K2+L2+M2+N2` |
 | Marketing | `SP × 5%` | `H2*5%` |
+| P. VAT | `Postage × 20%` | `P2*20%` |
 | M. VAT | `Marketing × 20%` | `R2*20%` |
 | Total VAT | `VAT + P.VAT + M.VAT` | `N2+Q2+S2` |
 | GP | `(SP−BP) − MarTax − T.COM − Postage − P.VAT − Marketing − M.VAT − £1` | `I2-J2-O2-P2-Q2-R2-S2-T2` |
 | GP % | `GP ÷ **SP** × 100` | `(V2-AE2)/H2*100` |
+| Total VAT NTP | `Marginal Tax − Total VAT` | `J2-U2` |
+| Net GP £ | `GP − Postage Loss` | `V2-AE2` |
 
 **Worked — BP £280, SP £429.99, postage £0**
 
@@ -171,6 +178,7 @@ Commission 7% of SP · VAT 20% on the commission · Accessories £1
 
 | Line | Formula | Excel |
 |---|---|---|
+| SP − BP | `SP − BP` | `G2-F2` |
 | Marginal Tax | `(SP−BP) × 16.67%` | `H2*16.67%` |
 | Commission | `SP × 7%` | `G2*7%` |
 | VAT 20% | `Commission × 20%` | `J2*20%` |
@@ -178,6 +186,8 @@ Commission 7% of SP · VAT 20% on the commission · Accessories £1
 | Total VAT | `VAT 20% + P.VAT` | `K2+M2` |
 | GP | `(SP−BP) − MarTax − Com − VAT20 − Postage − P.VAT − £1` | `H2-I2-J2-K2-L2-M2-N2` |
 | GP % | `GP ÷ **BP** × 100` | `(P2-Y2)/F2*100` |
+| Total VAT NTP | `Marginal Tax − Total VAT` | `I2-O2` |
+| Net GP £ | `GP − Postage Loss` | `P2-Y2` |
 
 > OnBuy has **no Quantity column**, so every column letter sits one to the left
 > of the other tabs. `VAT 20%` is VAT on the *commission*, not on the margin.
@@ -196,13 +206,16 @@ excluded · Accessories £1
 
 | Line | Formula | Excel |
 |---|---|---|
+| SP − BP | `SP − BP` | `H2-G2` |
 | Marginal Tax | `(SP−BP) × 16.67%` | `I2*16.67%` |
-| Commission | the export's own value; `SP × 7%` only as fallback | literal cell |
-| Commission VAT | the export's own value | literal cell |
+| Commission | the export's own value; `SP × 7%` only as fallback | `literal cell` |
+| Commission VAT | the export's own value | `literal cell` |
 | P. VAT | `Postage × 20%` | `M2*20%` |
 | Total VAT | `P. VAT` **alone** | `N2` |
 | GP | `(SP−BP) − MarTax − Com − Postage − P.VAT − £1` | `I2-J2-K2-M2-N2-O2` |
 | GP % | `GP ÷ **BP** × 100` | `(Q2-Z2)/G2*100` |
+| Total VAT NTP | `Marginal Tax − Total VAT` | `J2-P2` |
+| Net GP £ | `GP − Postage Loss` | `Q2-Z2` |
 
 > **Commission VAT is excluded from both Total VAT and GP.** Temu VAT-invoices
 > it to the seller as reclaimable input tax. Confirmed against the client's own
