@@ -24,6 +24,10 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
+    "review": "ocr review",
+    "review:commit": "ocr review --commit HEAD",
+    "review:branch": "ocr review --from main --to HEAD",
+    "review:preview": "ocr delegate preview",
     "users:provision": "node scripts/create-team-users.cjs"
   },
   "dependencies": {
@@ -54,6 +58,7 @@
     "vite": "^6.2.3"
   },
   "devDependencies": {
+    "@alibaba-group/open-code-review": "^1.8.4",
     "@testing-library/dom": "^10.4.1",
     "@testing-library/react": "^16.3.2",
     "@testing-library/user-event": "^14.6.1",
