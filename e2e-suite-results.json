@@ -427,24 +427,23 @@
   },
   {
     "script": "e2eInventoryImportBucketScope.mjs",
-    "ok": false,
-    "pass": 8,
+    "ok": true,
+    "pass": 9,
     "total": 9,
-    "summary": "8/9 checks passed",
-    "fails": [
-      "FAIL  nothing is stageable to write — Load is disabled at 0 rows — disabled=null"
-    ],
+    "summary": "9/9 checks passed",
+    "fails": [],
     "passes": [
       "PASS  seed · the SHS row is a fresh create — {\"toCreate\":1,\"landsShs\":\"·\"}",
       "PASS  the office row does NOT create a duplicate unit — {\"toCreate\":0,\"toUpdate\":0,\"invalid\":0}",
       "PASS  the office row does NOT update the SHS unit — {\"toCreate\":0,\"toUpdate\":0,\"invalid\":0}",
       "PASS  a \"skipped — different bucket\" panel explains what happened",
       "PASS  the panel names the row and the bucket it collided with — Row 2 · SAMSUNG GALAXY A32 5G · IMEI 359999000011122 — file says office, already exists as shs",
+      "PASS  nothing is stageable to write — the confirm button is disabled at 0 rows — disabled=true · label=\"RESTORE 0 ACCESSORY POOLS\"",
       "PASS  the SHS unit still shows its original colour (Blue), not the conflicting row's (Red)",
       "PASS  the SHS unit still shows its original BP (58), not the conflicting row's (999)",
       "PASS  no uncaught JS errors"
     ],
-    "secs": 133
+    "secs": 103
   },
   {
     "script": "e2eLiveClientFileReconcile.mjs",
@@ -1008,13 +1007,11 @@
   },
   {
     "script": "e2eSupplierAndBestSellersBrutal.mjs",
-    "ok": false,
-    "pass": 12,
+    "ok": true,
+    "pass": 13,
     "total": 13,
-    "summary": "12/13 checks passed",
-    "fails": [
-      "FAIL  Supplier Performance · Sales shows BETA SUPPLIER CO return rate 0% (\"—\")"
-    ],
+    "summary": "13/13 checks passed",
+    "fails": [],
     "passes": [
       "PASS  The returned ALPHA unit's Sale doc is actually voided — 2026-08-02",
       "PASS  ALPHA: exactly 1 unit is now status=returned — returned=1",
@@ -1026,6 +1023,7 @@
       "PASS  Supplier Performance · Sales shows ALPHA SUPPLIER CO with Sold=2 — ALPHA SUPPLIER CO\t2\t£600\t£261\t43.5%\t25%",
       "PASS  Supplier Performance · Sales shows BETA SUPPLIER CO with Sold=3 — BETA SUPPLIER CO\t3\t£360\t£18\t5.1%\t0%",
       "PASS  Supplier Performance · Sales shows ALPHA SUPPLIER CO return rate 25% — ALPHA SUPPLIER CO\t2\t£600\t£261\t43.5%\t25%",
+      "PASS  Supplier Performance · Sales shows BETA SUPPLIER CO return rate 0% — BETA SUPPLIER CO 3 £360 £18 5.1% 0% GP% = TOTAL GP ÷ REVENUE · RETURN RATE = RETURNED UNITS ÷ TOTAL UNITS ATTRIBUTED PLATFORM SCORECAR",
       "PASS  Supplier Performance · Sales shows ALPHA revenue £600 (not £900)",
       "PASS  No uncaught JS errors"
     ],
@@ -1073,13 +1071,11 @@
   },
   {
     "script": "e2eTemplateFillAndUpload.mjs",
-    "ok": false,
-    "pass": 16,
-    "total": 17,
-    "summary": "16/17 checks passed",
-    "fails": [
-      "FAIL  B · combined and per-channel land on the same numbers — office 14/10 · shs 5/5 · sold 21/25 · sales 21/25"
-    ],
+    "ok": true,
+    "pass": 18,
+    "total": 18,
+    "summary": "18/18 checks passed",
+    "fails": [],
     "passes": [
       "PASS  A · the filled inventory template imports",
       "PASS  A · the template README sheet is ignored, not read as data — no README rows in the preview",
@@ -1088,17 +1084,19 @@
       "PASS  A · filled BM template imports with no manual completion — 5 created · 0 updated",
       "PASS  A · filled EBAY template imports with no manual completion — 5 created · 0 updated",
       "PASS  A · filled ONBUY template imports with no manual completion — 4 created · 0 updated",
-      "PASS  A · sales reconcile against the stock that was typed in — sales=21/21 sold=21/21",
-      "PASS  A · office stock drops by exactly the units sold from the shelf — 34 → 14 (expected 14)",
+      "PASS  A · filled TEMU template imports with no manual completion — 4 created · 0 updated",
+      "PASS  A · sales reconcile against the stock that was typed in — sales=25/25 sold=25/25",
+      "PASS  A · office stock drops by exactly the units sold from the shelf — 34 → 10 (expected 10)",
       "PASS  A · the supplier-shipped sale drops SHS, not office — 6 → 5 (expected 5)",
       "PASS  B · the filled combined workbook imports — 25 created · 0 updated",
+      "PASS  B · combined and per-channel land on the same numbers — office 10/10 · shs 5/5 · sold 25/25 · sales 25/25",
       "PASS  C · the filled SHS template imports",
       "PASS  C · every row lands as supplier-held, none on the office shelf — shs=6/6 office=0",
       "PASS  D · an untouched template previews only its example rows, not 500 blanks — preview offers to load 5 rows",
       "PASS  D · nothing is written before the preview is confirmed — office=0 while the preview is open",
       "PASS  no uncaught JS errors across all four passes"
     ],
-    "secs": 281
+    "secs": 302
   },
   {
     "script": "e2eTemuMarketplace.mjs",

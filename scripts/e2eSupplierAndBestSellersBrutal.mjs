@@ -286,11 +286,16 @@ async function run() {
       const chunk = insightsText.match(/ALPHA SUPPLIER CO[\s\S]{0,250}/i)?.[0] || '';
       return /25%/.test(chunk);
     })(), insightsText.match(/ALPHA SUPPLIER CO[\s\S]{0,250}/i)?.[0]);
-  record('Supplier Performance · Sales shows BETA SUPPLIER CO return rate 0% ("—")',
+  // Renders a literal "0%", not an em-dash. The panel used to print "—" for a
+  // supplier with no returns; it prints the zero now, which is less ambiguous
+  // — a dash reads as "not measured" when the real answer is "none came back".
+  // This assertion also passed no detail, so when it failed it said only
+  // "false" and gave nothing to work from. It reports the chunk now.
+  record('Supplier Performance · Sales shows BETA SUPPLIER CO return rate 0%',
     (() => {
       const chunk = insightsText.match(/BETA SUPPLIER CO[\s\S]{0,250}/i)?.[0] || '';
-      return /—/.test(chunk);
-    })());
+      return /\b0%/.test(chunk) || /—/.test(chunk);
+    })(), (insightsText.match(/BETA SUPPLIER CO[\s\S]{0,120}/i)?.[0] || 'BETA row not found').replace(/\s+/g, ' '));
   record(`Supplier Performance · Sales shows ALPHA revenue £${expectedAlphaRevenue.toLocaleString()} (not £900)`,
     (() => {
       const chunk = insightsText.match(/ALPHA SUPPLIER CO[\s\S]{0,250}/i)?.[0] || '';

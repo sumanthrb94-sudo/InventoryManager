@@ -678,29 +678,29 @@ ${section('open', 'Part eight', 'Open items and recommendations', `
       single row holds up the whole confirm — by design. Filling it in the sheet clears it.</li>
 </ul>
 
-<h3>The end-to-end checks that do not pass — what each one actually is</h3>
-<p>Seven remain, out of 723. None is a miscalculation and none affects a stored figure.</p>
+<h3>The end-to-end checks that do not pass</h3>
+<p>Four, out of 724 — and all four are the same row of your own data.</p>
 <table>
   <tr><th style="width:34%">Check</th><th>Diagnosis</th></tr>
   <tr><td><strong>Orphan completion</strong><br><span class="mono">4 checks</span></td>
-      <td>479 of 480, and 480 of 481. Both times the one blocking row is the same, and it is a
-      finding rather than a fault: eBay order <span class="mono">03-14884-31041</span> in your own
-      file has no supplier. The import holding Confirm shut until every audit row is complete is
-      the feature working. Filling that supplier in the sheet clears both.</td></tr>
-  <tr><td><strong>Import staging · supplier return rate ·
-      combined-vs-per-channel totals</strong><br><span class="mono">3 checks</span></td>
-      <td>Assertions about on-screen states that have moved since they were written. Not yet
-      root-caused; none reads or writes a money column.</td></tr>
+      <td>479 of 480, and 480 of 481, in two separate runs. Both times the single blocking row is
+      eBay order <span class="mono">03-14884-31041</span> — IMEI
+      <span class="mono">R52H70ZDQAX</span>, a Galaxy Tab A T580 — which carries no supplier in the
+      file. The import holds Confirm shut until every audit row is complete, which is the whole
+      point of the audit step. Name that supplier in the sheet and all four clear.</td></tr>
 </table>
 <div class="callout">
-  <strong>Ten checks were resolved while this report was being assembled, and none of them was a
-  fault in the software.</strong> Two test scripts pinned "today" to a literal date, so they were
-  failing against sales the fixture had dated in the past — which reads exactly like a broken
-  "sold today" figure. One fixture wrote its postage into a column by position, and the column had
-  moved, so the sale arrived with no postage and the returns sheet correctly showed no postage
-  loss. And three scripts could not find the row they needed because the import panel hides
-  completed rows by default — the row was never missing, it was filtered out. Each looked like a
-  product defect from the outside; each was a test describing the software as it used to be.
+  <strong>Thirteen checks were resolved while this report was being assembled, and not one was a
+  fault in the software.</strong> Two scripts pinned "today" to a literal date, so they tested
+  against sales the fixture had dated in the past — which reads exactly like a broken "sold today"
+  figure. One fixture wrote postage into a column by position after the column had moved, so the
+  sale arrived with no postage and the returns sheet correctly showed none. Three could not find
+  the row they needed, because the import panel hides completed rows by default — the row was
+  never missing, it was filtered out. Two compared a five-marketplace file against a
+  four-marketplace list that predated Temu. And three described interface details that have since
+  changed: a button that relabels when there is nothing to load, a return rate that now prints
+  "0%" where it used to print a dash. Every one looked like a product defect from outside, and
+  every one was a test describing the software as it used to be.
 </div>
 
 <h3>Already in hand</h3>

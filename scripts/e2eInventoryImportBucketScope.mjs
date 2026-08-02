@@ -144,9 +144,17 @@ async function run() {
   const conflictDetail = await page.locator('text=/already exists as shs/i').innerText().catch(() => '');
   record('the panel names the row and the bucket it collided with', /IMEI/.test(conflictDetail) && /shs/i.test(conflictDetail), conflictDetail);
 
-  const loadButton = page.getByRole('button', { name: /Load \d+ rows?/i });
+  // The confirm button RELABELS when there is nothing to load: at zero rows it
+  // reads "Restore N accessory pools" rather than "Load N rows"
+  // (InventoryReportImport.tsx). Matching only the Load wording found no
+  // element at all, isDisabled() threw, and the check reported `disabled=null`
+  // — which reads as a broken gate and is the gate working.
+  const loadButton = page.getByRole('button', {
+    name: /Load [\d,]+ rows?|Restore [\d,]+ accessory pools?/i,
+  }).last();
   const loadDisabled = await loadButton.isDisabled().catch(() => null);
-  record('nothing is stageable to write — Load is disabled at 0 rows', loadDisabled === true, `disabled=${loadDisabled}`);
+  record('nothing is stageable to write — the confirm button is disabled at 0 rows',
+    loadDisabled === true, `disabled=${loadDisabled} · label="${await loadButton.innerText().catch(() => '?')}"`);
 
   await page.getByRole('button', { name: /^Cancel$/i }).click().catch(() => {});
   await page.waitForTimeout(500);

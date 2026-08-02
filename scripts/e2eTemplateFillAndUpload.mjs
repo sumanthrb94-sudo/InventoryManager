@@ -22,19 +22,55 @@
  *   node scripts/e2eTemplateFillAndUpload.mjs
  */
 import { chromium } from 'playwright';
-import { mkdirSync, existsSync, readdirSync } from 'node:fs';
+import { mkdirSync, existsSync, readdirSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
+import * as XLSX from 'xlsx';
 
 const BASE = process.env.E2E_BASE_URL || 'http://localhost:4173';
 const OUT = 'e2e-screenshots/template-fill-upload';
 const FILLED = (f) => resolve('templates/filled-examples', f);
 const TEMPLATE = (f) => resolve('templates', f);
-const MARKETPLACES = ['AMAZON', 'BM', 'EBAY', 'ONBUY'];
+// All five. This read four, so the per-channel pass uploaded four files while
+// the combined workbook carried five — the Temu sales existed on one side of
+// the comparison and not the other, and every figure in it disagreed by
+// exactly that gap (sold 21 vs 25, office 14 vs 10). FILLED_SALES_TEMU.xlsx
+// was already sitting in templates/filled-examples/.
+const MARKETPLACES = ['AMAZON', 'BM', 'EBAY', 'ONBUY', 'TEMU'];
 
-// What fillTemplatesAsOperator.mjs typed in.
+/**
+ * What fillTemplatesAsOperator.mjs typed in — COUNTED from the files, not
+ * transcribed.
+ *
+ * These were literals (sales: 21, soldFromShelf: 20). They described four
+ * marketplaces, and stopped being true the day Temu's filled example was
+ * added: every figure was then off by exactly the Temu rows, which reads as
+ * stock failing to reconcile and is a stale constant. Counting the rows costs
+ * nothing and cannot go stale.
+ */
+function countFilledSalesRows() {
+  let n = 0;
+  for (const m of MARKETPLACES) {
+    const wb = XLSX.read(readFileSync(FILLED(`FILLED_SALES_${m}.xlsx`)), { type: 'buffer' });
+    for (const sheet of wb.SheetNames) {
+      if (sheet.toUpperCase() === 'README') continue;
+      const rows = XLSX.utils.sheet_to_json(wb.Sheets[sheet], { header: 1, blankrows: false });
+      // minus the header row; a sheet with only headers contributes nothing
+      n += Math.max(0, rows.length - 1);
+    }
+  }
+  return n;
+}
+
+// One row in the fixture is a supplier-held phone; the rest come off the
+// shelf. That split is a property of how the examples were filled, not of how
+// many marketplaces there are.
+const SHS_FULFILLED = 1;
+const FILLED_SALES_ROWS = countFilledSalesRows();
 const EXPECT = {
   office: 34, shs: 6, stock: 40,
-  sales: 21, soldFromShelf: 20, shsFulfilled: 1,
+  sales: FILLED_SALES_ROWS,
+  soldFromShelf: FILLED_SALES_ROWS - SHS_FULFILLED,
+  shsFulfilled: SHS_FULFILLED,
 };
 
 if (!existsSync(OUT)) mkdirSync(OUT, { recursive: true });
