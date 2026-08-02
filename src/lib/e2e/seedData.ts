@@ -6,6 +6,12 @@
  * a repair, a replacement pair, and one duplicate sale doc so the Returns
  * reconciliation panel has something real to explain.
  *
+ * 2026-08 — accessories added. There were none, so the Sales Report's
+ * Accessories tab exported as a bare header row on every run, and a reviewer
+ * reasonably read that as the feature not working. Two pools, a sale from each,
+ * and one accessory return, so that sheet and the Accessory line of Returns
+ * Detail both carry real rows.
+ *
  * Only loaded by firestoreShim under VITE_E2E=1 — never in a normal build.
  */
 
@@ -116,6 +122,31 @@ export const E2E_SEED: Record<string, Record<string, any>[]> = {
     sale({ id: 'ONBUY__OB-3001__350000000000303', orderNumber: 'OB-3001', marketplace: 'ONBUY', imei: '350000000000303', unitId: 'u-303', sku: 'IP13-128-MID', salePrice: 410, saleDate: TODAY }),
     sale({ id: 'AMAZON__AMZ-1009__350000000000404', orderNumber: 'AMZ-1009', imei: '350000000000404', unitId: 'u-404', sku: 'IP14-256-PUR', salePrice: 610, saleDate: '2026-07-23' }),
 
+    // ── Accessory sales — no unitId and no IMEI, which is what identifies
+    //    them downstream (see clientReport's Returns Detail writer).
+    sale({
+      id: 'AMAZON__AMZ-ACC-1__USB-C-20W-CHARGER', orderNumber: 'AMZ-ACC-1',
+      sku: 'USB-C-20W-CHARGER', quantity: 4, buyPrice: 12.8, salePrice: 39.96,
+      postage: 2.5, saleDate: '2026-07-19', spMinusBp: 27.16, marginalTax: 4.53,
+      commission: 2.8, grossProfit: 14.9, gpPercent: 116.4,
+    }),
+    sale({
+      id: 'EBAY__EB-ACC-1__TEMPERED-GLASS-IP13', orderNumber: 'EB-ACC-1',
+      marketplace: 'EBAY', sku: 'TEMPERED-GLASS-IP13', quantity: 3,
+      buyPrice: 3.3, salePrice: 17.97, postage: 2.5, saleDate: '2026-07-20',
+      spMinusBp: 14.67, marginalTax: 2.45, commission: 1.12,
+      grossProfit: 6.1, gpPercent: 184.8,
+    }),
+    // One of them came back — gives Returns Detail an "Accessory" row with a
+    // real postage loss, alongside the device returns below.
+    sale({
+      id: 'AMAZON__AMZ-ACC-2__USB-C-20W-CHARGER', orderNumber: 'AMZ-ACC-2',
+      sku: 'USB-C-20W-CHARGER', quantity: 1, buyPrice: 3.2, salePrice: 9.99,
+      postage: 2.5, saleDate: '2026-07-21', spMinusBp: 6.79, marginalTax: 1.13,
+      commission: 0.7, grossProfit: 1.2, gpPercent: 37.5,
+      voidedAt: '2026-07-24', voidReason: 'Wrong item ordered', voidOutcome: 'refund',
+    }),
+
     // Voided by the Back-to-Inventory return on u-401
     sale({
       id: 'AMAZON__AMZ-1005__350000000000401', orderNumber: 'AMZ-1005', imei: '350000000000401', unitId: 'u-401',
@@ -142,6 +173,32 @@ export const E2E_SEED: Record<string, Record<string, any>[]> = {
       sku: 'IP14-256-PUR', salePrice: 605, saleDate: '2026-07-19',
       voidedAt: '2026-07-23', voidReason: 'Replacement — Face ID intermittent', voidOutcome: 'replacement',
     }),
+  ],
+
+  // ── Accessories: no-IMEI quantity pools ─────────────────────────────────
+  accessoryStock: [
+    {
+      id: 'acc-1', sku: 'USB-C-20W-CHARGER', name: 'USB-C 20W Charger',
+      quantity: 46, buyPrice: 3.2, lowStockThreshold: 10,
+      supplierId: 'sup-1', supplierName: 'MOBILE WHOLESALE LTD',
+      ownerId: 'shared', createdAt: '2026-07-02', updatedAt: TODAY,
+    },
+    {
+      id: 'acc-2', sku: 'TEMPERED-GLASS-IP13', name: 'Tempered Glass · iPhone 13',
+      quantity: 22, buyPrice: 1.1, lowStockThreshold: 15,
+      supplierId: 'sup-2', supplierName: 'PHONEBOX DIRECT',
+      ownerId: 'shared', createdAt: '2026-07-02', updatedAt: TODAY,
+    },
+  ],
+
+  // The ledger behind those pools — intake, the two sales below, and the
+  // restock that the accessory return produced.
+  accessoryStockEvents: [
+    { id: 'ae-1', accessoryId: 'acc-1', sku: 'USB-C-20W-CHARGER', type: 'intake',  quantity: 50, note: 'Opening stock', createdAt: '2026-07-02', ownerId: 'shared' },
+    { id: 'ae-2', accessoryId: 'acc-2', sku: 'TEMPERED-GLASS-IP13', type: 'intake', quantity: 25, note: 'Opening stock', createdAt: '2026-07-02', ownerId: 'shared' },
+    { id: 'ae-3', accessoryId: 'acc-1', sku: 'USB-C-20W-CHARGER', type: 'sale',    quantity: -4, note: 'AMZ-ACC-1', createdAt: '2026-07-19', ownerId: 'shared' },
+    { id: 'ae-4', accessoryId: 'acc-2', sku: 'TEMPERED-GLASS-IP13', type: 'sale',  quantity: -3, note: 'EB-ACC-1',  createdAt: '2026-07-20', ownerId: 'shared' },
+    { id: 'ae-5', accessoryId: 'acc-1', sku: 'USB-C-20W-CHARGER', type: 'return',  quantity: 1,  note: 'AMZ-ACC-1 — refund', createdAt: '2026-07-24', ownerId: 'shared' },
   ],
 
   inventoryAggregates: [

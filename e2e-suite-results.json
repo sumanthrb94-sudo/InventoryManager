@@ -448,18 +448,18 @@
   {
     "script": "e2eLiveClientFileReconcile.mjs",
     "ok": false,
-    "pass": 4,
+    "pass": 5,
     "total": 6,
     "summary": "[TIMED OUT]",
     "fails": [
-      "FAIL  every orphan complete before Confirm — 479 of 480 complete",
       "FAIL  Confirm enabled"
     ],
     "passes": [
       "PASS  Inventory preview lands as 247 office / 46 SHS — LANDS AS",
       "PASS  293 units created from the real Inventory Report — got 293",
       "PASS  reproduces the client-reported \"sold records need completing\" state — orphans=480",
-      "PASS  the known stuck unit auto-matches for fulfilment — fulfilled=1"
+      "PASS  the known stuck unit auto-matches for fulfilment — fulfilled=1",
+      "PASS  every orphan complete before Confirm — 480 of 480 complete"
     ],
     "secs": 900
   },
@@ -1228,17 +1228,29 @@
   {
     "script": "e2eWipeReuploadReconcile.mjs",
     "ok": false,
-    "pass": 2,
-    "total": 4,
-    "summary": "[TIMED OUT]",
+    "pass": 12,
+    "total": 16,
+    "summary": "12/16 checks passed.",
     "fails": [
-      "FAIL  every orphan is complete before Confirm — 480 of 481 complete",
-      "FAIL  Confirm is enabled"
+      "FAIL  a real unit exists for every orphan (units == orphans, all fresh) — units=486 orphans=481",
+      "FAIL  downloaded Inventory Report row count matches Phase 1 unit count — report=5 store=486",
+      "FAIL  Inventory Report reupload recreated the same unit count — reuploaded=5 original=486",
+      "FAIL  ZERO orphans on reupload — Inventory Report supplied every IMEI match — 481 sold records need completing for the audit trail"
     ],
     "passes": [
       "PASS  starts from a genuinely empty store",
-      "PASS  preview surfaces the orphan-completion panel — 481 sold records need completing for the audit trail"
+      "PASS  preview surfaces the orphan-completion panel — 481 sold records need completing for the audit trail",
+      "PASS  every orphan is complete before Confirm — 481 of 481 complete",
+      "PASS  Confirm is enabled",
+      "PASS  every parsed sale landed as a real Sale doc — sales=494 orphans=481",
+      "PASS  wiped clean again before the reupload",
+      "PASS  unit count identical after wipe + reupload — before=486 after=486",
+      "PASS  sale count identical after wipe + reupload — before=494 after=494",
+      "PASS  total revenue (sum of SP) identical — before=£78406.36 after=£78406.36",
+      "PASS  total buy-side (sum of BP) identical — before=£53864.10 after=£53864.10",
+      "PASS  per-marketplace sale counts identical — before={\"AMAZON\":289,\"BM\":58,\"EBAY\":132,\"ONBUY\":15} after={\"AMAZON\":289,\"BM\":58,\"EBAY\":132,\"ONBUY\":15}",
+      "PASS  every original IMEI survived the round trip — missing=0"
     ],
-    "secs": 900
+    "secs": 191
   }
 ]

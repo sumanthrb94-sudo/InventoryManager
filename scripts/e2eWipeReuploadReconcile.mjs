@@ -133,56 +133,90 @@ async function downloadReport(page, buttonName) {
  *  Returns { modelsFilled, badImeiOrders } — re-scans after each edit since
  *  the DOM re-renders on every audit change (a stale row count would walk
  *  past a shifted list). */
+/**
+ * Complete every orphan the import is holding Confirm on.
+ *
+ * Rewritten 2026-08 from a scan-from-the-top-after-every-fix loop. That loop
+ * re-read the whole row list once per fix, which at 481 orphans is ~115k
+ * redundant DOM reads — it blew a 900-second budget without finishing, so the
+ * run reported a timeout rather than a result. Each pass now reads the rows it
+ * needs ONCE, the same shape e2eLiveClientFileReconcile already used.
+ *
+ * Three passes, because the gate blocks on three different missing fields, and
+ * the supplier pass did not exist before: the client's file has one eBay sale
+ * with no supplier, so the run stopped one row short of complete and Confirm
+ * never unlocked.
+ */
 async function completeRemainingOrphans(page) {
   const auditPanel = modal(page).locator('div.border-2.border-orange-300');
   const badImeiOrders = [];
   let modelsFilled = 0;
-  let guard = 0;
+  let suppliersFilled = 0;
 
-  while (guard++ < 300) {
-    const rows = auditPanel.locator('li');
-    const rowCount = await rows.count();
-    let acted = false;
-
-    for (let i = 0; i < rowCount; i++) {
-      const row = rows.nth(i);
-      const cls = await row.getAttribute('class').catch(() => '');
-      if (!(cls || '').includes('bg-rose-50')) continue; // this row is already complete
-
-      const modelInput = row.locator('input[placeholder="Search model…"]');
-      const modelVal = await modelInput.inputValue().catch(() => '');
-      if (!modelVal.trim()) {
-        await modelInput.click();
-        await modelInput.fill(`Reconcile Draft Model ${i}`);
-        await page.waitForTimeout(350);
-        const addBtn = page.getByRole('button', { name: /Add ".*" to the model catalog/i }).first();
-        if (await addBtn.isVisible().catch(() => false)) {
-          await addBtn.click();
-          await page.waitForTimeout(500);
-        } else {
-          await modelInput.press('Escape');
-        }
-        modelsFilled++;
-        acted = true;
-        break; // re-scan from the top — indices may have shifted
-      }
-
-      const imeiInput = row.locator('input[placeholder="IMEI required"]');
-      if (await imeiInput.count() > 0) {
-        const orderText = (await row.locator('span.font-mono').first().textContent().catch(() => '')) || `row ${i}`;
-        const syntheticImei = `9999990${String(i).padStart(8, '0')}`; // valid-format, obviously synthetic
-        await imeiInput.click();
-        await imeiInput.fill(syntheticImei);
-        await page.waitForTimeout(300);
-        badImeiOrders.push(orderText.trim());
-        acted = true;
-        break;
-      }
+  // Pass 1 — blank models. One bulk read of every blank index up front; the
+  // model input stays in the DOM after it is filled, so indices are stable.
+  const blankModelIndices = await page.evaluate(() => {
+    const panel = document.querySelector('div.border-2.border-orange-300');
+    if (!panel) return [];
+    return Array.from(panel.querySelectorAll('input[placeholder="Search model…"]'))
+      .map((el, i) => [i, el.value])
+      .filter(([, v]) => !String(v || '').trim())
+      .map(([i]) => i);
+  });
+  const modelInputs = auditPanel.locator('input[placeholder="Search model…"]');
+  for (const idx of blankModelIndices) {
+    const input = modelInputs.nth(idx);
+    await input.click();
+    await input.fill(`Reconcile Draft Model ${idx}`);
+    await page.waitForTimeout(120);
+    // The picker is catalog-strict, so an unknown model has to be added to the
+    // catalog before it counts as chosen.
+    const addBtn = page.getByRole('button', { name: /Add ".*" to the model catalog/i }).first();
+    if (await addBtn.isVisible().catch(() => false)) {
+      await addBtn.click();
+      await page.waitForTimeout(180);
+    } else {
+      await input.press('Escape');
     }
-    if (!acted) break; // nothing left to fix
+    modelsFilled++;
   }
 
-  return { modelsFilled, badImeiOrders };
+  // Pass 2 — invalid IMEIs. Record which orders they were before fixing, so
+  // the run can report them; the input disappears once the value is valid, so
+  // always target the current first match.
+  const imeiRowOrders = await page.evaluate(() => {
+    const panel = document.querySelector('div.border-2.border-orange-300');
+    if (!panel) return [];
+    return Array.from(panel.querySelectorAll('li'))
+      .filter(row => row.querySelector('input[placeholder="IMEI required"]'))
+      .map(row => {
+        const order = row.querySelector('span.font-mono');
+        return order ? order.textContent.trim() : 'unknown order';
+      });
+  });
+  const imeiInputs = auditPanel.locator('input[placeholder="IMEI required"]');
+  for (let k = 0; k < imeiRowOrders.length; k++) {
+    if (await imeiInputs.count() === 0) break;
+    const input = imeiInputs.first();
+    await input.click();
+    await input.fill(`9999990${String(k).padStart(8, '0')}`);   // valid shape, obviously synthetic
+    await page.waitForTimeout(120);
+    badImeiOrders.push(imeiRowOrders[k]);
+  }
+
+  // Pass 3 — missing suppliers. Same shrinking-collection handling.
+  const supplierInputs = auditPanel.locator('input[placeholder="Supplier required"]');
+  for (let guard = 0; guard < 50; guard++) {
+    if (await supplierInputs.count() === 0) break;
+    const input = supplierInputs.first();
+    await input.click();
+    await input.fill('UNRECORDED SUPPLIER');
+    await input.press('Tab');
+    await page.waitForTimeout(150);
+    suppliersFilled++;
+  }
+
+  return { modelsFilled, badImeiOrders, suppliersFilled };
 }
 
 async function run() {

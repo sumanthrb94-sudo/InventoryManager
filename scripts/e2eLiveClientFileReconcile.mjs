@@ -135,7 +135,28 @@ async function completeRemainingOrphans(page) {
     badImeiOrders.push(imeiRowInfo[k].order);
   }
 
-  return { modelsFilled, badImeiOrders };
+  // Third pass: rows whose SUPPLIER is blank.
+  //
+  // This pass did not exist, and it is why the run stopped at 479 of 480.
+  // The client's file has one eBay sale (order 03-14884-31041) with no
+  // supplier named, the audit gate correctly refuses to complete without one,
+  // and Confirm stayed locked — so the two assertions after it could never
+  // pass. An operator completing this import would type a supplier; so does
+  // this. Same shrinking-collection handling as the IMEI pass: the input only
+  // renders while the field is blank.
+  const supplierInputs = auditPanel.locator('input[placeholder="Supplier required"]');
+  let suppliersFilled = 0;
+  for (let guard = 0; guard < 50; guard++) {
+    if (await supplierInputs.count() === 0) break;
+    const input = supplierInputs.first();
+    await input.click();
+    await input.fill('UNRECORDED SUPPLIER');
+    await input.press('Tab');
+    await page.waitForTimeout(150);
+    suppliersFilled++;
+  }
+
+  return { modelsFilled, badImeiOrders, suppliersFilled };
 }
 
 async function run() {
