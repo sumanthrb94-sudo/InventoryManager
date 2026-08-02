@@ -25,3 +25,8 @@ dist-e2e/
 # verified; the screenshots record what it looked like. They cost ~31 MB and
 # every e2e*.mjs runner overwrites them in place, so re-running a suite and
 # committing produces a diff of only what actually changed on screen.
+
+# Interim artefacts of the client-report build. The PDF under
+# docs/client-report/ is the deliverable and IS committed; these two are the
+# scaffolding it is assembled from and are regenerated on every run.
+docs/client-report/index.html

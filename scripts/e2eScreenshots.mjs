@@ -20,6 +20,11 @@ const BASE = process.env.E2E_BASE_URL || 'http://localhost:4173';
 const OUT = 'e2e-screenshots/operator-tour';
 const MOBILE = { width: 430, height: 932 };   // the operator's phone
 const DESKTOP = { width: 1440, height: 1000 };
+// Capture density. 2 is enough to read on screen; the client report prints
+// these full-page and asks the reader to zoom into individual figures, so
+// E2E_DPR=3 is used for that run (430x932 -> 1290x2796 actual pixels).
+const DPR = Number.isFinite(Number(process.env.E2E_DPR)) && Number(process.env.E2E_DPR) > 0
+  ? Number(process.env.E2E_DPR) : 2;
 
 if (!existsSync(OUT)) mkdirSync(OUT, { recursive: true });
 
@@ -53,7 +58,7 @@ async function run() {
   const browser = await chromium.launch({ executablePath });
 
   // ── Admin, mobile — the operator's actual device ─────────────────────────
-  const ctx = await browser.newContext({ viewport: MOBILE, deviceScaleFactor: 2 });
+  const ctx = await browser.newContext({ viewport: MOBILE, deviceScaleFactor: DPR });
   const page = await ctx.newPage();
   const errors = [];
   const failedRequests = [];
@@ -202,7 +207,7 @@ async function run() {
   await ctx.close();
 
   // ── Employee persona — the permission surface ────────────────────────────
-  const empCtx = await browser.newContext({ viewport: MOBILE, deviceScaleFactor: 2 });
+  const empCtx = await browser.newContext({ viewport: MOBILE, deviceScaleFactor: DPR });
   const emp = await empCtx.newPage();
   await emp.goto(`${BASE}?e2eUser=employee`, { waitUntil: 'networkidle' });
   await emp.waitForTimeout(1500);
@@ -228,7 +233,7 @@ async function run() {
   // ── Responsive pass — every operator page at phone AND desktop ──────────
   const PAGES = ['Stock Intake', 'Inventory', 'Returns', 'Admin'];
   for (const [vpName, vp] of [['mobile', MOBILE], ['desktop', DESKTOP]]) {
-    const rCtx = await browser.newContext({ viewport: vp, deviceScaleFactor: vpName === 'mobile' ? 2 : 1 });
+    const rCtx = await browser.newContext({ viewport: vp, deviceScaleFactor: vpName === 'mobile' ? DPR : Math.min(DPR, 2) });
     const rPage = await rCtx.newPage();
     await rPage.goto(BASE, { waitUntil: 'networkidle' });
     await rPage.waitForTimeout(1500);
