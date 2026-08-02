@@ -199,15 +199,23 @@ describe('Act 1 · employee signs in', () => {
     expect(importBlock).toContain('SHOW_IMPORT_UI');
   });
 
-  it('FINDING: the template downloads go with Import, at a single guard', async () => {
+  it('FINDING: the template downloads are back, on their own guard', async () => {
     const { readFileSync } = await import('node:fs');
-    // A blank upload template is only useful to somebody about to upload it.
-    // With Import out of the UI there is no way to feed a filled-in template
-    // back in, so the links would hand an operator a file they can do nothing
-    // with — and imply spreadsheets are still a supported intake route. They
-    // are not: intake is Stock Intake -> Add Stock, sales are Sell -> Mark Sold.
+    // They used to follow SHOW_IMPORT_UI, because a blank upload template is
+    // only useful to somebody about to upload it. That reasoning expired in
+    // 2026-08: the sales templates are now generated from the report writer
+    // and carry live formulas, so filling one in computes the row in Excel.
+    // That is a working sheet for reconciling a marketplace statement, useful
+    // whether or not anything reads it back. Intake is still Stock Intake ->
+    // Add Stock and sales are still Sell -> Mark Sold; the templates do not
+    // reopen a spreadsheet intake route, and they no longer pretend to.
     const flags = readFileSync('src/lib/featureFlags.ts', 'utf8');
     expect(flags).toContain('SHOW_TEMPLATE_DOWNLOADS');
+    // Explicitly ON, and explicitly NOT chained to Import — the two flags
+    // answer different questions now, so turning Import back on must not be
+    // what turns these on.
+    expect(flags).toMatch(/SHOW_TEMPLATE_DOWNLOADS\s*=\s*true/);
+    expect(flags).not.toMatch(/SHOW_TEMPLATE_DOWNLOADS\s*=\s*SHOW_IMPORT_UI/);
 
     // Guarded inside the component, not at the six call sites — otherwise a
     // seventh placement reintroduces the block without anyone noticing.
@@ -231,11 +239,15 @@ describe('Act 1 · employee signs in', () => {
     ]) {
       expect(existsSync(f), `${f} missing`).toBe(true);
     }
-    // And the catalogue still describes them accurately — the Temu entry read
-    // "15 columns · same layout as Amazon", which was wrong on both counts.
+    // And the catalogue still describes them accurately. The Temu entry once
+    // read "15 columns · same layout as Amazon", wrong on both counts; the
+    // whole list then went stale again when the templates were regenerated
+    // from the report. salesTemplateFormulas.test.ts checks each count
+    // against the real file — this just pins the retired wording out.
     const td = readFileSync('src/components/TemplateDownload.tsx', 'utf8');
     expect(td).not.toContain('same layout as Amazon');
-    expect(td).toContain('19 columns');
+    expect(td).not.toContain('postage is SHIPPING');
+    expect(td).not.toContain('Payment Mode at 9');
   });
 
   it('FINDING: hiding Import does not remove the pipeline — only the doors', async () => {

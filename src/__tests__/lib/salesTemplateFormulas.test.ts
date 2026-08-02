@@ -106,6 +106,20 @@ describe('the template has the report\'s columns', () => {
   });
 });
 
+describe('the download menu describes the files it hands out', () => {
+  // The menu quotes a column count per marketplace. Those counts went stale
+  // once already — Temu's entry read "15 columns, same layout as Amazon" when
+  // it was 19 and its own — and an operator picking a file by that label has
+  // no way to tell. Read the number out of the label and check the file.
+  it.each(MARKETPLACES)('%s — the hint\'s column count matches the file', async (m) => {
+    const src = readFileSync('src/components/TemplateDownload.tsx', 'utf8');
+    const row = new RegExp(`file: 'SALES_${m}_TEMPLATE\\.xlsx'[^}]*hint: '(\\d+) columns`).exec(src);
+    expect(row, `no column count in the ${m} template hint`).not.toBeNull();
+    const ws = (await load(TEMPLATE(m))).getWorksheet(m)!;
+    expect(Number(row![1]), `${m} hint says ${row![1]} columns`).toBe(headerRow(ws).length);
+  });
+});
+
 describe('the template\'s formulas ARE the report\'s formulas', () => {
   it.each(MARKETPLACES)('%s — every guarded formula unwraps to the report\'s, exactly', async (m) => {
     const ws = (await load(TEMPLATE(m))).getWorksheet(m)!;

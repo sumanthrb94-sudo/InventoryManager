@@ -32,21 +32,26 @@ export const SHOW_IMPORT_UI = import.meta.env.VITE_E2E === '1';
 /**
  * Whether the "Build a new file from …" template-download block is shown.
  *
- * Follows SHOW_IMPORT_UI, because a blank upload template is only useful to
- * somebody about to upload it. With Import gone from the UI there is no way
- * to feed a filled-in template back into the system, so the links would hand
- * an operator a file they cannot do anything with — and worse, imply that
- * typing stock into a spreadsheet is still a supported way to get it in. It
- * isn't: intake is Stock Intake → Add Stock, and sales are Sell → Mark Sold.
+ * ON. It followed SHOW_IMPORT_UI for as long as a template was only an upload
+ * vehicle: with no way to feed a filled-in one back, the links handed the
+ * operator a file they could do nothing with, and implied that typing stock
+ * into a spreadsheet was still a supported intake route. It isn't — intake is
+ * Stock Intake → Add Stock and sales are Sell → Mark Sold, and that has not
+ * changed.
  *
- * Two of the six placements live inside the import modals and are already
- * unreachable; the ones this actually removes are the blocks in the Buy and
- * Sell report menus (BuySheet / SellSheet → ReportRangeMenu).
+ * What changed is the template. Since 2026-08 the sales templates are
+ * generated from the report writer itself (scripts/generateSalesTemplates.ts)
+ * and carry LIVE formulas: same columns as the Sales Report, and typing a BP
+ * and an SP fills in the whole row — SP-BP, Marginal Tax, Commission, the VAT
+ * lines, GP, GP % and Total VAT NTP — in Excel, on the spot. That is a working
+ * sheet the operator can reconcile a marketplace statement against, and it is
+ * useful whether or not anything ever reads it back.
  *
- * The template FILES stay where they are. public/templates/ and templates/
- * are the written column contract — templates.test.ts and
- * salesExportSchema.test.ts parse them, REPORT_SCHEMAS.md documents them, and
- * the E2E build still downloads them. This hides a menu, it does not delete
- * the schema.
+ * So this no longer tracks Import, and turning Import back on does not depend
+ * on it. The two flags answer different questions now.
+ *
+ * The template FILES were never gated by this: public/templates/ and
+ * templates/ are the written column contract — templates.test.ts,
+ * salesTemplateFormulas.test.ts and schemaAlignment.test.ts all parse them.
  */
-export const SHOW_TEMPLATE_DOWNLOADS = SHOW_IMPORT_UI;
+export const SHOW_TEMPLATE_DOWNLOADS = true;
