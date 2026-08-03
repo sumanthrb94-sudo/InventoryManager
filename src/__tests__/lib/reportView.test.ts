@@ -177,13 +177,21 @@ describe('viewModelFromXlsxBuffer — exact Excel view of the Sales Report', () 
     });
     const model = await viewModelFromXlsxBuffer(buf, 't');
     const ebay = model.sheets.find(s => s.name === 'EBAY')!;
-    const total = ebay.rows[3]; // header + 2 data rows + TOTAL
-    expect(total[0].display).toBe('TOTAL');
+    const total = ebay.rows.find(r => r[0].display === 'TOTAL')!;
+    expect(total, 'the preview renders a TOTAL row').toBeDefined();
+    // Blank fillable rows sit between the data and the TOTAL. They contribute
+    // nothing, so the sums are still just the two real sales.
     expect(total[6].display).toBe('150.00');             // G — SUM of BP 100+50
     expect(total[7].display).toBe('350.00');             // H — SUM of SP 200+150
     expect(total[0].bold).toBe(true);
     // Net GP% on the TOTAL row evaluates the IFERROR chain.
     expect(Number.isFinite(parseFloat(total[22].display))).toBe(true);
+
+    // And the fillable rows themselves render EMPTY, not as a wall of 0.00 —
+    // the guard is IF($H<n>="","",…) and the preview must honour it.
+    const firstBlank = ebay.rows[3];                     // header + 2 sales
+    expect(firstBlank[8].display, 'SP-BP on an untouched row').toBe('');
+    expect(firstBlank[21].display, 'GP on an untouched row').toBe('');
   });
 
   it('Summary tab carries the per-marketplace roll-up', async () => {

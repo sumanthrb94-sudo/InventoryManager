@@ -29,7 +29,50 @@ import {
   colLetter,
   buildSalesWorkbookBuffer,
   buildReturnsWorkbookBuffer,
+  PRIMED_SALE_ROWS,
 } from '../../lib/clientReport';
+
+// ── Locating rows ──────────────────────────────────────────────────────────
+//
+// These used to be hard-coded row numbers — "TOTAL is row 4", "the Summary
+// header is row 4". Both moved the day the Sales Report gained its blank
+// fillable tail (200 primed rows under the data) and a note line on the
+// Summary, and a dozen tests failed for a layout change that broke nothing.
+// Find rows by what they say instead, which is what an operator does.
+
+/** Row number of the bold TOTAL footer on a marketplace tab. */
+function totalRowNum(sheet: ExcelJS.Worksheet): number {
+  for (let n = sheet.rowCount; n >= 1; n--) {
+    if (String(sheet.getRow(n).getCell(1).value ?? '').trim().toUpperCase() === 'TOTAL') return n;
+  }
+  throw new Error(`${sheet.name}: no TOTAL row`);
+}
+
+/** Row number whose first cell equals `label` (Summary header, or a marketplace row). */
+function rowNumByLabel(sheet: ExcelJS.Worksheet, label: string): number {
+  for (let n = 1; n <= sheet.rowCount; n++) {
+    if (String(sheet.getRow(n).getCell(1).value ?? '').trim() === label) return n;
+  }
+  throw new Error(`${sheet.name}: no row labelled ${label}`);
+}
+
+/**
+ * The audited figure baked into a Summary cell.
+ *
+ * Summary cells are now `<figure>+COUNTIFS(…)` / `<figure>+SUMIFS(…)`: the
+ * number the application exported, plus whatever the operator has since typed
+ * into the blank rows. The leading literal is the figure these tests are
+ * about — the live half is exercised separately in
+ * salesReportFillable.test.ts.
+ */
+function summaryBaseline(cell: ExcelJS.Cell): number {
+  const v = cell.value as { formula?: string } | number | null;
+  if (typeof v === 'number') return v;
+  const f = (v as { formula?: string })?.formula ?? '';
+  const m = /^(-?[\d.]+)\s*\+/.exec(f);
+  if (!m) throw new Error(`not a baseline+live Summary formula: ${f}`);
+  return Number(m[1]);
+}
 
 // ── In-memory dbService mock for the lifecycle test ────────────────────────
 
@@ -441,8 +484,7 @@ describe('buildSalesWorkbookBuffer — auditor-grade structure', () => {
     const buffer = await buildSalesWorkbookBuffer({ sales: [] });
     const wb = await loadWorkbook(buffer);
     const summary = wb.getWorksheet('Summary')!;
-    // Title row is row 1, "Period: ..." is row 2, blank is row 3, headers row 4.
-    const header = summary.getRow(4);
+    const header = summary.getRow(rowNumByLabel(summary, 'Marketplace'));
     expect(String(header.getCell(1).value)).toBe('Marketplace');
     expect(String(header.getCell(2).value)).toBe('Sales');
     expect(String(header.getCell(3).value)).toBe('Refunds');
@@ -624,20 +666,23 @@ describe('buildSalesWorkbookBuffer — auditor-grade structure', () => {
     const buffer = await buildSalesWorkbookBuffer({ sales });
     const wb = await loadWorkbook(buffer);
     const sheet = wb.getWorksheet('AMAZON')!;
-    // Header on row 1, two data rows (2,3), TOTAL row on row 4.
-    const totalRow = sheet.getRow(4);
+    const n = totalRowNum(sheet);
+    const totalRow = sheet.getRow(n);
     expect(totalRow.getCell(1).value).toBe('TOTAL');
-    // BP totalling cell (col G=7) holds a SUM formula.
+    // The SUM spans the two sales AND the blank fillable rows beneath them, so
+    // a sale the operator types into the tail is picked up without touching the
+    // formula. Unfilled rows evaluate to "" and SUM ignores text.
+    expect(n).toBe(2 + 2 + PRIMED_SALE_ROWS);      // header + 2 sales + primed tail
     const bpCell = totalRow.getCell(7).value as any;
     expect(bpCell).toBeTruthy();
-    expect(bpCell.formula).toMatch(/^SUM\(G2:G3\)$/);
+    expect(bpCell.formula).toBe(`SUM(G2:G${n - 1})`);
     // Net GP % cell uses IFERROR((GP-Loss)/Denom*100,0) so a zero-denominator
-    // period doesn't blow up the totals row.
+    // period doesn't blow up the totals row. It reads this row's own cells.
     const gpPctCell = totalRow.getCell(20).value as any;
     expect(gpPctCell.formula).toContain('IFERROR');
-    expect(gpPctCell.formula).toContain('S4');     // GP total
-    expect(gpPctCell.formula).toContain('AB4');    // Postage Loss total
-    expect(gpPctCell.formula).toContain('G4');     // BP total (denominator)
+    expect(gpPctCell.formula).toContain(`S${n}`);     // GP total
+    expect(gpPctCell.formula).toContain(`AB${n}`);    // Postage Loss total
+    expect(gpPctCell.formula).toContain(`G${n}`);     // BP total (denominator)
   });
 
   it('Summary row for a marketplace carries the right counts + Net GP', async () => {
@@ -657,17 +702,17 @@ describe('buildSalesWorkbookBuffer — auditor-grade structure', () => {
     const wb = await loadWorkbook(buffer);
     const summary = wb.getWorksheet('Summary')!;
     // Header at row 4. AMAZON=row5, BM=row6, EBAY=row7, ONBUY=row8, TOTAL=row9.
-    const ebayRow = summary.getRow(7);
+    const ebayRow = summary.getRow(rowNumByLabel(summary, 'EBAY'));
     expect(ebayRow.getCell(1).value).toBe('EBAY');
     // Sales count is ACTIVE sales only (matches the app's ALL-TIME SOLD
     // tile) — the 2 voided rows are tracked via Refunds/Replacements
     // instead of also being counted as a Sale.
-    expect(ebayRow.getCell(2).value).toBe(1);        // Sales count
-    expect(ebayRow.getCell(3).value).toBe(1);        // Refunds
-    expect(ebayRow.getCell(4).value).toBe(1);        // Replacements
-    expect(ebayRow.getCell(5).value).toBe(0);        // Repairs
+    expect(summaryBaseline(ebayRow.getCell(2))).toBe(1);        // Sales count
+    expect(summaryBaseline(ebayRow.getCell(3))).toBe(1);        // Refunds
+    expect(summaryBaseline(ebayRow.getCell(4))).toBe(1);        // Replacements
+    expect(summaryBaseline(ebayRow.getCell(5))).toBe(0);        // Repairs
     // Postage Loss (col 7 now) = 19.2 (refund) + 28.8 (replacement) = 48
-    expect(ebayRow.getCell(7).value).toBeCloseTo(48, 1);
+    expect(summaryBaseline(ebayRow.getCell(7))).toBeCloseTo(48, 1);
   });
 
   // Client-reported (2026-07-27): "ALL-TIME SOLD" read 349 but downloading
@@ -704,13 +749,13 @@ describe('buildSalesWorkbookBuffer — auditor-grade structure', () => {
 
     // Marketplace tab: every row present — nothing removed or hidden.
     const amazon = wb.getWorksheet('AMAZON')!;
-    expect(amazon.rowCount).toBe(1 + activeCount + voidedCount + 1); // header + rows + TOTAL
+    expect(amazon.rowCount).toBe(1 + activeCount + voidedCount + PRIMED_SALE_ROWS + 1);  // header + rows + fillable tail + TOTAL
 
     // Summary tab: Sales = active only, Refunds = the voided 5.
     const summary = wb.getWorksheet('Summary')!;
-    const amazonRow = summary.getRow(5);
-    expect(amazonRow.getCell(2).value).toBe(activeCount); // Sales — NOT 14
-    expect(amazonRow.getCell(3).value).toBe(voidedCount); // Refunds
+    const amazonRow = summary.getRow(rowNumByLabel(summary, 'AMAZON'));
+    expect(summaryBaseline(amazonRow.getCell(2))).toBe(activeCount); // Sales — NOT 14
+    expect(summaryBaseline(amazonRow.getCell(3))).toBe(voidedCount); // Refunds
 
     // Returns Detail: the same 5 voided sales, on their own (orphan
     // fallback — no units passed in). No TOTAL row on this sheet.
@@ -907,12 +952,12 @@ describe('return / replacement / re-sell lifecycle', () => {
     // voided, so it contributes 0 to Sales — the count is active-only),
     // 1 active sale on AMAZON.
     const summary = wb.getWorksheet('Summary')!;
-    const amazonRow = summary.getRow(5);       // AMAZON
-    expect(amazonRow.getCell(2).value).toBe(1); // Sales
-    expect(amazonRow.getCell(3).value).toBe(0); // Refunds
-    const ebayRow = summary.getRow(7);          // EBAY
-    expect(ebayRow.getCell(2).value).toBe(0);   // Sales (its one sale was voided)
-    expect(ebayRow.getCell(3).value).toBe(1);   // Refunds
+    const amazonRow = summary.getRow(rowNumByLabel(summary, 'AMAZON'));
+    expect(summaryBaseline(amazonRow.getCell(2))).toBe(1); // Sales
+    expect(summaryBaseline(amazonRow.getCell(3))).toBe(0); // Refunds
+    const ebayRow = summary.getRow(rowNumByLabel(summary, 'EBAY'));
+    expect(summaryBaseline(ebayRow.getCell(2))).toBe(0);   // Sales (its one sale was voided)
+    expect(summaryBaseline(ebayRow.getCell(3))).toBe(1);   // Refunds
   });
 });
 
@@ -1020,19 +1065,20 @@ describe('Net GP £ per-row cell on the marketplace tabs', () => {
     const buf = await buildSalesWorkbookBuffer({ sales });
     const wb = await loadWorkbook(buf);
     const ebay = wb.getWorksheet('EBAY')!;
-    // 2 data rows + 1 TOTAL = row 4.
-    const total = ebay.getRow(4);
+    const totalN = totalRowNum(ebay);
+    const total = ebay.getRow(totalN);
     expect(String(total.getCell(1).value)).toBe('TOTAL');
-    // TOTAL row's Net GP cell holds SUM(AF2:AF3) — the per-row formula
-    // means each AF cell is V − AE, so SUM = Σ(V) − Σ(AE).
+    // TOTAL row's Net GP cell sums the AF column — the per-row formula
+    // means each AF cell is V − AE, so SUM = Σ(V) − Σ(AE). The range runs to
+    // the row above TOTAL, i.e. across the fillable tail as well as the data.
     const cell = total.getCell(32).value as { formula?: string };
-    expect(cell.formula).toBe('SUM(AF2:AF3)');
+    expect(cell.formula).toBe(`SUM(AF2:AF${totalN - 1})`);
     // Compute via reportView. Sum chains through 12+ formula cells per
     // row × 2 rows, so 1p rounding drift (.81 vs .82) is normal; closeness
     // is the correct assertion shape.
     const model = await viewModelFromXlsxBuffer(buf, 't');
     const ebayView = model.sheets.find(s => s.name === 'EBAY')!;
-    const totalDisplay = parseFloat(ebayView.rows[3][31].display);
+    const totalDisplay = parseFloat(ebayView.rows[totalN - 1][31].display);
     expect(totalDisplay).toBeGreaterThan(69.79);
     expect(totalDisplay).toBeLessThan(93.83);
   });
@@ -1414,13 +1460,13 @@ describe('repair-route returns: "In Repair" label + 2-leg carriage loss', () => 
     const wb = new ExcelJS.Workbook();
     await wb.xlsx.load(buf);
     const summary = wb.getWorksheet('Summary')!;
-    const ebayRow = summary.getRow(7);
-    expect(ebayRow.getCell(2).value).toBe(0);          // Sales (both voided — active-only count)
-    expect(ebayRow.getCell(3).value).toBe(1);          // Refunds (R1 only)
-    expect(ebayRow.getCell(4).value).toBe(0);          // Replacements
-    expect(ebayRow.getCell(5).value).toBe(1);          // Repairs (the repair void)
+    const ebayRow = summary.getRow(rowNumByLabel(summary, 'EBAY'));
+    expect(summaryBaseline(ebayRow.getCell(2))).toBe(0);          // Sales (both voided — active-only count)
+    expect(summaryBaseline(ebayRow.getCell(3))).toBe(1);          // Refunds (R1 only)
+    expect(summaryBaseline(ebayRow.getCell(4))).toBe(0);          // Replacements
+    expect(summaryBaseline(ebayRow.getCell(5))).toBe(1);          // Repairs (the repair void)
     // Postage Loss (col 7) = repair 15.12 + refund 19.2 = 34.32.
-    expect(ebayRow.getCell(7).value).toBeCloseTo(34.32, 1);
+    expect(summaryBaseline(ebayRow.getCell(7))).toBeCloseTo(34.32, 1);
   });
 
   it('Returns Detail: "In Repair", Legs=2, Postage Loss=£15.12', async () => {
@@ -1535,12 +1581,12 @@ describe('post-repair-completion invariant (BUG-RP-002)', () => {
     const wb = new ExcelJS.Workbook();
     await wb.xlsx.load(buf);
     const summary = wb.getWorksheet('Summary')!;
-    const ebayRow = summary.getRow(7);
-    expect(ebayRow.getCell(2).value).toBe(0);          // Sales: 0 (the one sale is voided)
-    expect(ebayRow.getCell(3).value).toBe(0);          // Refunds: 0 (NOT bumped)
-    expect(ebayRow.getCell(4).value).toBe(0);          // Replacements: 0
-    expect(ebayRow.getCell(5).value).toBe(1);          // Repairs: 1
-    expect(ebayRow.getCell(7).value).toBeCloseTo(15.12, 2);  // Postage Loss
+    const ebayRow = summary.getRow(rowNumByLabel(summary, 'EBAY'));
+    expect(summaryBaseline(ebayRow.getCell(2))).toBe(0);          // Sales: 0 (the one sale is voided)
+    expect(summaryBaseline(ebayRow.getCell(3))).toBe(0);          // Refunds: 0 (NOT bumped)
+    expect(summaryBaseline(ebayRow.getCell(4))).toBe(0);          // Replacements: 0
+    expect(summaryBaseline(ebayRow.getCell(5))).toBe(1);          // Repairs: 1
+    expect(summaryBaseline(ebayRow.getCell(7))).toBeCloseTo(15.12, 2);  // Postage Loss
   });
 
   it('Returns Detail keeps Outcome "In Repair" + 2 legs + £15.12 after completion', async () => {
@@ -1596,10 +1642,10 @@ describe('post-repair-completion invariant (BUG-RP-002)', () => {
     expect(row.getCell(31).value).toBeCloseTo(15.12, 2);     // loss carried
     // And the Summary classifies it as a Repair, not a Refund.
     const summary = wb.getWorksheet('Summary')!;
-    const ebayRow = summary.getRow(7);
-    expect(ebayRow.getCell(3).value).toBe(0);          // Refunds: 0
-    expect(ebayRow.getCell(5).value).toBe(1);          // Repairs: 1
-    expect(ebayRow.getCell(7).value).toBeCloseTo(15.12, 2);  // Postage Loss
+    const ebayRow = summary.getRow(rowNumByLabel(summary, 'EBAY'));
+    expect(summaryBaseline(ebayRow.getCell(3))).toBe(0);          // Refunds: 0
+    expect(summaryBaseline(ebayRow.getCell(5))).toBe(1);          // Repairs: 1
+    expect(summaryBaseline(ebayRow.getCell(7))).toBeCloseTo(15.12, 2);  // Postage Loss
   });
 
   it('A second non-repair refund on the same repaired unit IS counted as a refund', async () => {
@@ -1623,12 +1669,12 @@ describe('post-repair-completion invariant (BUG-RP-002)', () => {
     const wb = new ExcelJS.Workbook();
     await wb.xlsx.load(buf);
     const summary = wb.getWorksheet('Summary')!;
-    const ebayRow = summary.getRow(7);
-    expect(ebayRow.getCell(2).value).toBe(0);          // 0 sales — both voided
-    expect(ebayRow.getCell(3).value).toBe(1);          // 1 refund (the new one)
-    expect(ebayRow.getCell(5).value).toBe(1);          // 1 repair (the old one)
+    const ebayRow = summary.getRow(rowNumByLabel(summary, 'EBAY'));
+    expect(summaryBaseline(ebayRow.getCell(2))).toBe(0);          // 0 sales — both voided
+    expect(summaryBaseline(ebayRow.getCell(3))).toBe(1);          // 1 refund (the new one)
+    expect(summaryBaseline(ebayRow.getCell(5))).toBe(1);          // 1 repair (the old one)
     // Loss = repair 15.12 + refund 15.12 = 30.24 (both carry 2 legs now).
-    expect(ebayRow.getCell(7).value).toBeCloseTo(30.24, 2);
+    expect(summaryBaseline(ebayRow.getCell(7))).toBeCloseTo(30.24, 2);
   });
 });
 

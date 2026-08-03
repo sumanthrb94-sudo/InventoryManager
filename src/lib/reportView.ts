@@ -79,6 +79,7 @@ type Tok =
   | { t: 'num'; v: number }
   | { t: 'ref'; v: string }
   | { t: 'id'; v: string }
+  | { t: 'str'; v: string }
   | { t: 'op'; v: string };
 
 function tokenize(src: string): Tok[] {
@@ -94,6 +95,24 @@ function tokenize(src: string): Tok[] {
       i = j;
       continue;
     }
+    // Sheet-qualified reference — 'AMAZON'!$S$204. The Summary tab points at
+    // each marketplace tab's TOTAL row and at its fillable rows, so the
+    // preview has to resolve across sheets, not just within one.
+    if (c === "'") {
+      const close = src.indexOf("'", i + 1);
+      if (close < 0) throw new Error('unterminated sheet name in formula');
+      const sheet = src.slice(i + 1, close);
+      if (src[close + 1] !== '!') throw new Error('sheet name not followed by !');
+      let j = close + 2;
+      while (j < src.length && /[A-Za-z$]/.test(src[j])) j++;
+      let k = j;
+      while (k < src.length && /[0-9]/.test(src[k])) k++;
+      if (k === j) throw new Error('bad cross-sheet reference');
+      const letters = src.slice(close + 2, j).replace(/\$/g, '').toUpperCase();
+      toks.push({ t: 'ref', v: `'${sheet}'!${letters}${src.slice(j, k)}` });
+      i = k;
+      continue;
+    }
     if (/[A-Za-z$]/.test(c)) {
       let j = i;
       while (j < src.length && /[A-Za-z$]/.test(src[j])) j++;
@@ -104,7 +123,25 @@ function tokenize(src: string): Tok[] {
       else       { toks.push({ t: 'id',  v: letters }); i = j; }
       continue;
     }
-    if ('+-*/(),:%'.includes(c)) { toks.push({ t: 'op', v: c }); i++; continue; }
+    // String literal. The only ones the report writes are the empty string in
+    // a blank-row guard — IF($H5="","",…) — but quote handling is quote
+    // handling, so parse it properly rather than special-casing `""`.
+    if (c === '"') {
+      let j = i + 1; let out = '';
+      while (j < src.length) {
+        if (src[j] === '"') {
+          if (src[j + 1] === '"') { out += '"'; j += 2; continue; }  // escaped ""
+          break;
+        }
+        out += src[j]; j++;
+      }
+      if (j >= src.length) throw new Error('unterminated string in formula');
+      toks.push({ t: 'str', v: out });
+      i = j + 1;
+      continue;
+    }
+    if (c === '<' && src[i + 1] === '>') { toks.push({ t: 'op', v: '<>' }); i += 2; continue; }
+    if ('+-*/(),:%='.includes(c)) { toks.push({ t: 'op', v: c }); i++; continue; }
     throw new Error(`unexpected char '${c}' in formula`);
   }
   return toks;
@@ -112,6 +149,7 @@ function tokenize(src: string): Tok[] {
 
 type Node =
   | { k: 'num'; v: number }
+  | { k: 'str'; v: string }
   | { k: 'ref'; v: string }
   | { k: 'range'; from: string; to: string }
   | { k: 'bin'; op: string; l: Node; r: Node }
@@ -140,7 +178,17 @@ class Parser {
     return e;
   }
 
+  /** Comparison binds loosest — `$H5=""` is one argument to IF, not `$H5` = (""). */
   private expr(): Node {
+    let l = this.sum();
+    while (this.isOp('=') || this.isOp('<>')) {
+      const op = (this.next() as Tok & { t: 'op' }).v;
+      l = { k: 'bin', op, l, r: this.sum() };
+    }
+    return l;
+  }
+
+  private sum(): Node {
     let l = this.term();
     while (this.isOp('+') || this.isOp('-')) {
       const op = (this.next() as Tok & { t: 'op' }).v;
@@ -174,6 +222,7 @@ class Parser {
     const t = this.next();
     if (!t) throw new Error('unexpected end of formula');
     if (t.t === 'num') return { k: 'num', v: t.v };
+    if (t.t === 'str') return { k: 'str', v: t.v };
     if (t.t === 'ref') {
       // A range only appears as a function argument (SUM(G2:G9)).
       if (this.isOp(':')) {
@@ -205,15 +254,37 @@ class Parser {
 
 export type RefResolver = (ref: string) => number;
 
-function evalNode(n: Node, resolve: RefResolver): number {
+/**
+ * What a cell evaluates to. Everything here is a number except the empty
+ * string, which is what a blank-row guard returns: the Sales Report's fillable
+ * tail is `IF($H5="","",<formula>)` on every derived column, so an untouched
+ * row must come back as "blank", not as 0.00 repeated two hundred times.
+ */
+export type CellValue = number | '';
+
+/** Blank behaves as 0 in arithmetic and in SUM — same as Excel. */
+const num = (v: CellValue): number => (v === '' ? 0 : v);
+
+function evalNode(n: Node, resolve: RefResolver): CellValue {
   switch (n.k) {
     case 'num':   return n.v;
+    case 'str':   return n.v === '' ? '' : NaN;   // only "" is meaningful to us
     case 'ref':   return resolve(n.v);
-    case 'neg':   return -evalNode(n.e, resolve);
-    case 'pct':   return evalNode(n.e, resolve) / 100;
+    case 'neg':   return -num(evalNode(n.e, resolve));
+    case 'pct':   return num(evalNode(n.e, resolve)) / 100;
     case 'bin': {
-      const l = evalNode(n.l, resolve);
-      const r = evalNode(n.r, resolve);
+      const lv = evalNode(n.l, resolve);
+      const rv = evalNode(n.r, resolve);
+      // Comparison against "" is the blank test in a guard. The resolver hands
+      // back numbers, so an empty cell arrives as 0 — and 0 is the right answer
+      // either way here: a row with no sale price is not a sale.
+      if (n.op === '=' || n.op === '<>') {
+        const equal = (lv === '' || rv === '')
+          ? num(lv) === num(rv)
+          : lv === rv;
+        return (n.op === '=' ? equal : !equal) ? 1 : 0;
+      }
+      const l = num(lv); const r = num(rv);
       switch (n.op) {
         case '+': return l + r;
         case '-': return l - r;
@@ -232,15 +303,36 @@ function evalNode(n: Node, resolve: RefResolver): number {
           if (a.k === 'range') {
             for (const ref of expandRange(a.from, a.to)) total += resolve(ref);
           } else {
-            total += evalNode(a, resolve);
+            total += num(evalNode(a, resolve));
           }
         }
         return total;
+      }
+      if (name === 'COUNT') {
+        // Counts numbers, skipping blanks — how the Summary asks "how many
+        // sales has the operator typed into the fillable rows?". An untouched
+        // guarded row resolves to 0; a row with a sale price does not, and a
+        // sale price of zero is not a sale.
+        let count = 0;
+        for (const a of n.args) {
+          const refs = a.k === 'range' ? expandRange(a.from, a.to) : [];
+          if (refs.length) {
+            for (const ref of refs) if (resolve(ref) !== 0) count++;
+          } else if (num(evalNode(a, resolve)) !== 0) count++;
+        }
+        return count;
+      }
+      if (name === 'IF') {
+        if (n.args.length !== 3) throw new Error('IF arity');
+        return num(evalNode(n.args[0], resolve)) !== 0
+          ? evalNode(n.args[1], resolve)
+          : evalNode(n.args[2], resolve);
       }
       if (name === 'IFERROR') {
         if (n.args.length !== 2) throw new Error('IFERROR arity');
         try {
           const v = evalNode(n.args[0], resolve);
+          if (v === '') return v;
           return Number.isFinite(v) ? v : evalNode(n.args[1], resolve);
         } catch {
           return evalNode(n.args[1], resolve);
@@ -251,16 +343,26 @@ function evalNode(n: Node, resolve: RefResolver): number {
   }
 }
 
+/** Split `'AMAZON'!S204` into its sheet prefix and the bare A1 reference. */
+export function splitSheetRef(ref: string): { sheet?: string; cell: string } {
+  const m = /^'([^']*)'!(.+)$/.exec(ref);
+  return m ? { sheet: m[1], cell: m[2] } : { cell: ref };
+}
+
 function expandRange(from: string, to: string): string[] {
-  const m1 = from.match(/^([A-Z]+)(\d+)$/);
-  const m2 = to.match(/^([A-Z]+)(\d+)$/);
+  // A cross-sheet range names its sheet once, on the left: 'AMAZON'!$G$3:$G$202.
+  const a = splitSheetRef(from);
+  const b = splitSheetRef(to);
+  const prefix = a.sheet ? `'${a.sheet}'!` : '';
+  const m1 = a.cell.match(/^([A-Z]+)(\d+)$/);
+  const m2 = b.cell.match(/^([A-Z]+)(\d+)$/);
   if (!m1 || !m2) throw new Error('bad range refs');
   const c1 = colToNum(m1[1]); const r1 = parseInt(m1[2], 10);
   const c2 = colToNum(m2[1]); const r2 = parseInt(m2[2], 10);
   const refs: string[] = [];
   for (let c = Math.min(c1, c2); c <= Math.max(c1, c2); c++) {
     for (let r = Math.min(r1, r2); r <= Math.max(r1, r2); r++) {
-      refs.push(`${numToCol(c)}${r}`);
+      refs.push(`${prefix}${numToCol(c)}${r}`);
     }
   }
   return refs;
@@ -268,8 +370,18 @@ function expandRange(from: string, to: string): string[] {
 
 /** Evaluate one Excel formula string against a cell resolver. Throws on
  *  anything outside the supported subset — callers fall back to showing
- *  the raw `=formula` text. */
+ *  the raw `=formula` text.
+ *
+ *  Numeric view: a formula that evaluates to blank comes back as 0, which is
+ *  what a blank cell is worth in arithmetic and in a SUM. Use
+ *  `evaluateFormulaValue` where the difference between blank and zero matters,
+ *  which is display. */
 export function evaluateFormula(formula: string, resolve: RefResolver): number {
+  return num(evaluateFormulaValue(formula, resolve));
+}
+
+/** As `evaluateFormula`, but tells blank apart from zero. */
+export function evaluateFormulaValue(formula: string, resolve: RefResolver): CellValue {
   return evalNode(new Parser(tokenize(formula)).parse(), resolve);
 }
 
@@ -303,18 +415,38 @@ function cellFill(cell: ExcelJS.Cell, row: ExcelJS.Row): string | undefined {
 }
 
 /** Build a lazy, memoised numeric resolver over one worksheet — formula cells
- *  recurse (GP% reads the GP cell, TOTAL reads SUM ranges) with cycle guard. */
+ *  recurse (GP% reads the GP cell, TOTAL reads SUM ranges) with cycle guard.
+ *
+ *  A reference may name another sheet ('AMAZON'!S204). The Summary tab does
+ *  exactly that: its figures point at each marketplace tab's TOTAL row and at
+ *  the blank rows the operator can fill, so it stays right as the file is
+ *  worked on. Resolution therefore starts from the workbook, falling back to
+ *  the sheet being rendered when no sheet is named. */
 function makeResolver(ws: ExcelJS.Worksheet): RefResolver {
   const memo = new Map<string, number>();
   const visiting = new Set<string>();
-  const resolve: RefResolver = (ref) => {
-    const hit = memo.get(ref);
+
+  /**
+   * Resolve `ref` where an unqualified reference means "on `home`".
+   *
+   * The home sheet matters when recursing. A Summary cell reads
+   * 'AMAZON'!S204; that cell's own formula is SUM(S2:S203), and those bare
+   * references belong to AMAZON, not to the Summary we happen to be
+   * rendering. Following a cross-sheet reference therefore moves the home
+   * sheet with it.
+   */
+  const resolveOn = (home: ExcelJS.Worksheet, ref: string): number => {
+    const { sheet, cell } = splitSheetRef(ref);
+    const target = sheet ? home.workbook?.getWorksheet(sheet) : home;
+    if (!target) return 0;
+    const key = `${target.name}!${cell}`;
+    const hit = memo.get(key);
     if (hit !== undefined) return hit;
-    if (visiting.has(ref)) return NaN;
-    visiting.add(ref);
+    if (visiting.has(key)) return NaN;
+    visiting.add(key);
     let out = 0;
     try {
-      const v = ws.getCell(ref).value as unknown;
+      const v = target.getCell(cell).value as unknown;
       if (typeof v === 'number') out = v;
       else if (typeof v === 'string') {
         const n = Number(v);
@@ -322,19 +454,20 @@ function makeResolver(ws: ExcelJS.Worksheet): RefResolver {
       } else if (v && typeof v === 'object' && typeof (v as { formula?: string }).formula === 'string') {
         const fv = v as { formula: string; result?: unknown };
         try {
-          out = evaluateFormula(fv.formula, resolve);
+          out = evaluateFormula(fv.formula, r => resolveOn(target, r));
         } catch {
           out = typeof fv.result === 'number' ? fv.result : NaN;
         }
       }
       // null / Date / rich text → 0 in arithmetic context (matches our usage).
     } finally {
-      visiting.delete(ref);
+      visiting.delete(key);
     }
-    memo.set(ref, out);
+    memo.set(key, out);
     return out;
   };
-  return resolve;
+
+  return (ref) => resolveOn(ws, ref);
 }
 
 function convertSheet(ws: ExcelJS.Worksheet): ViewSheet {
@@ -379,7 +512,11 @@ function convertSheet(ws: ExcelJS.Worksheet): ViewSheet {
         title = `=${formula}`;
         align = 'right';
         try {
-          display = fmtNumber(evaluateFormula(formula, resolve), cell.numFmt);
+          // A guarded formula on an untouched fillable row evaluates to blank.
+          // Show it blank — printing 0.00 down two hundred empty rows would
+          // read as two hundred zero-value sales.
+          const out = evaluateFormulaValue(formula, resolve);
+          display = out === '' ? '' : fmtNumber(out, cell.numFmt);
         } catch {
           display = `=${formula}`;
           align = 'left';

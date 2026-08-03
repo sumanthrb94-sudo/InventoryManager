@@ -28,25 +28,13 @@
  */
 import ExcelJS from 'exceljs';
 import { mkdirSync, existsSync, copyFileSync } from 'node:fs';
-import { buildSalesWorkbookBuffer } from '../src/lib/clientReport';
+import { buildSalesWorkbookBuffer, PRIMED_SALE_ROWS } from '../src/lib/clientReport';
 import { MARKETPLACES } from '../src/types';
 import type { Marketplace, Sale } from '../src/types';
 
 const OUT = 'templates';
 const PUBLIC_OUT = 'public/templates';
 for (const dir of [OUT, PUBLIC_OUT]) if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
-
-/** Blank rows primed with formulas, ready for the operator to type into. */
-const BLANK_ROWS = 200;
-
-/**
- * Flat per-sale charges the report writes as LITERAL values, not formulas —
- * they come off the fee schedule, not off the row. They have to survive the
- * hollowing-out: a primed row that lost them would compute a GP missing the
- * accessory pound (and, on BM, the £8.99 care fee), so the operator's own
- * spreadsheet would quietly disagree with the app.
- */
-const CONSTANT_HEADERS = new Set(['Accessories', 'FVF', 'Customer Care Fees']);
 
 /**
  * The worked example row, one per marketplace.
@@ -90,59 +78,26 @@ const sale = (m: Marketplace, i: number, over: Partial<Sale> = {}): Sale => ({
   ...over,
 } as Sale);
 
-/** Build the live report, then hollow it out into a template. */
+/**
+ * Build the template: the real report, carrying one worked example row.
+ *
+ * The blank-but-live rows underneath are not this script's job any more. The
+ * Sales Report itself now primes `PRIMED_SALE_ROWS` guarded rows under its
+ * data (see primeBlankSaleRows in clientReport.ts), because the client asked
+ * for the report they download to be fillable too. A template is therefore
+ * exactly "the report with a single example sale in it" — and the hollowing-out
+ * this script used to do by hand is gone, along with the second copy of the
+ * guarding rules that came with it.
+ */
 async function reportShapedWorkbook(): Promise<ExcelJS.Workbook> {
-  const sales: Sale[] = [];
-  for (const m of MARKETPLACES) {
-    sales.push(sale(m, 1, { ...EXAMPLE[m], id: `${m}__EXAMPLE` }));
-    for (let i = 2; i <= BLANK_ROWS + 1; i++) sales.push(sale(m, i));
-  }
+  const sales: Sale[] = MARKETPLACES.map(m =>
+    sale(m, 1, { ...EXAMPLE[m], id: `${m}__EXAMPLE` }));
   const buf = await buildSalesWorkbookBuffer({
     sales, units: [], supplierMap: {}, opts: {} as never,
   });
   const wb = new ExcelJS.Workbook();
   await wb.xlsx.load(buf as ArrayBuffer);
   return wb;
-}
-
-/** Column letter for a 1-based index. */
-function letter(n: number): string {
-  let s = '';
-  while (n > 0) { const m = (n - 1) % 26; s = String.fromCharCode(65 + m) + s; n = (n - m - 1) / 26; }
-  return s;
-}
-
-/**
- * Empty every primed row and guard its formulas.
- * Row 2 keeps the worked example; rows 3+ become blank-but-live.
- */
-function hollowOut(ws: ExcelJS.Worksheet): void {
-  const headers = ((ws.getRow(1).values ?? []) as unknown[])
-    .slice(1).map(v => String(v ?? '').trim());
-  const spCol = headers.indexOf('SP') + 1;
-  if (spCol === 0) throw new Error(`${ws.name}: no SP column to guard on`);
-  const spLetter = letter(spCol);
-
-  ws.eachRow((row, n) => {
-    if (n === 1) return;
-    const isTotal = String(row.getCell(1).value ?? '').trim().toUpperCase() === 'TOTAL';
-    if (isTotal) return;                       // the TOTAL row keeps its SUM()s
-    const keepValues = n === 2;                // the worked example stays filled
-
-    row.eachCell({ includeEmpty: true }, (cell, c) => {
-      const v = cell.value as { formula?: string } | null;
-      const isFormula = v && typeof v === 'object' && 'formula' in v && v.formula;
-      if (isFormula) {
-        // Guard on SP so an untouched row renders blank instead of 0 /
-        // #DIV/0!, while the arithmetic inside stays exactly the report's.
-        cell.value = { formula: `IF($${spLetter}${n}="","",${(v as {formula: string}).formula})` };
-        return;
-      }
-      if (keepValues) return;
-      // Flat fee-schedule charges stay; everything else the operator types.
-      if (!CONSTANT_HEADERS.has(headers[c - 1])) cell.value = null;
-    });
-  });
 }
 
 /** A README the operator can actually act on. */
@@ -180,7 +135,7 @@ function addReadme(wb: ExcelJS.Workbook, marketplaces: readonly Marketplace[]): 
   line('Row 2',
     'A worked example, filled in so you can see the formulas computing. Delete it or type over it.');
   line('Running out of rows',
-    `${BLANK_ROWS} rows come primed. For more, select the last row and drag its fill handle down — `
+    `${PRIMED_SALE_ROWS} rows come primed. For more, select the last row and drag its fill handle down — `
     + 'the formulas carry themselves.');
   line('The TOTAL row',
     'At the foot of each sheet, summing the rows above it. If you drag past it, move it down.');
@@ -210,7 +165,6 @@ async function main(): Promise<void> {
   // ── combined: all five marketplaces in one file ──────────────────────
   const combined = await reportShapedWorkbook();
   keepOnly(combined, MARKETPLACES as readonly string[]);
-  for (const ws of combined.worksheets) hollowOut(ws);
   addReadme(combined, MARKETPLACES);
   await write(combined, 'SALES_REPORT_TEMPLATE.xlsx');
   console.log(`SALES_REPORT_TEMPLATE.xlsx — ${combined.worksheets.length - 1} marketplace sheets`);
@@ -219,11 +173,10 @@ async function main(): Promise<void> {
   for (const m of MARKETPLACES) {
     const wb = await reportShapedWorkbook();
     keepOnly(wb, [m]);
-    for (const ws of wb.worksheets) hollowOut(ws);
     addReadme(wb, [m]);
     await write(wb, `SALES_${m}_TEMPLATE.xlsx`);
     const cols = ((wb.getWorksheet(m)!.getRow(1).values ?? []) as unknown[]).length - 1;
-    console.log(`SALES_${m}_TEMPLATE.xlsx — ${cols} columns, ${BLANK_ROWS} primed rows`);
+    console.log(`SALES_${m}_TEMPLATE.xlsx — ${cols} columns, ${PRIMED_SALE_ROWS} primed rows`);
   }
 }
 

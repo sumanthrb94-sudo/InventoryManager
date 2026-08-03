@@ -753,6 +753,81 @@ function writeSaleRow(
   }
 }
 
+/**
+ * How many blank-but-live rows to leave under the data on each marketplace tab.
+ *
+ * The Sales Report is a record AND a working sheet: the operator opens it,
+ * types the next sale onto the end, and the money columns compute in Excel.
+ * Without these rows the TOTAL row sits immediately under the last sale, so
+ * typing into the next row overwrites the totals and gets no formulas.
+ */
+export const PRIMED_SALE_ROWS = 200;
+
+/**
+ * Money columns the report writes as LITERAL values rather than formulas,
+ * because they come off the fee schedule and not off the row. They have to
+ * survive priming: a blank row that lost them would compute a GP missing the
+ * accessory pound (and, on BM, the £8.99 care fee), so the operator's own
+ * arithmetic would quietly disagree with the application's.
+ */
+const CONSTANT_HEADERS = new Set(['Accessories', 'FVF', 'Customer Care Fees']);
+
+/** Column letter for a 1-based index. */
+function letterFor(n: number): string {
+  let s = '';
+  while (n > 0) { const m = (n - 1) % 26; s = String.fromCharCode(65 + m) + s; n = (n - m - 1) / 26; }
+  return s;
+}
+
+/**
+ * Append `count` blank rows that are already wired up: every formula the report
+ * writes on a real row is present, wrapped in a guard on that row's SP cell.
+ *
+ *     =IF($H5="","", <the report's formula, unchanged>)
+ *
+ * so an untouched row renders empty instead of `0` or `#DIV/0!`, and wakes up
+ * the moment the row has a sale price. The expression inside the guard is
+ * byte-identical to what a real row carries — the tests strip the guard and
+ * compare, which is the only thing keeping the two from drifting.
+ *
+ * Rows are produced by calling `writeSaleRow` with an empty sale, so the number
+ * formats, the column positions and the formulas all come from the one code
+ * path that writes a live report. There is no second layout to keep in step.
+ *
+ * `scripts/generateSalesTemplates.ts` uses this too — the blank templates and
+ * the primed tail of a real report are the same thing, and used to be two
+ * separate implementations of it.
+ */
+export function primeBlankSaleRows(
+  sheet: ExcelJS.Worksheet,
+  marketplace: Marketplace,
+  firstRow: number,
+  count: number,
+): void {
+  const headers = SALES_HEADERS[marketplace] as readonly string[];
+  const spCol = headers.indexOf('SP') + 1;
+  if (spCol === 0) throw new Error(`${marketplace}: no SP column to guard blank rows on`);
+  const spLetter = letterFor(spCol);
+
+  const blank = { marketplace, orderNumber: '', quantity: null } as unknown as Sale;
+
+  for (let i = 0; i < count; i++) {
+    const rowNumber = firstRow + i;
+    writeSaleRow(sheet, marketplace, blank, rowNumber, '');
+    const row = sheet.getRow(rowNumber);
+    row.eachCell({ includeEmpty: true }, (cell, col) => {
+      const v = cell.value as { formula?: string } | null;
+      if (v && typeof v === 'object' && 'formula' in v && v.formula) {
+        cell.value = { formula: `IF($${spLetter}${rowNumber}="","",${v.formula})` };
+        return;
+      }
+      // Everything else is the operator's to type — except the flat
+      // fee-schedule charges, which stay.
+      if (!CONSTANT_HEADERS.has(headers[col - 1])) cell.value = null;
+    });
+  }
+}
+
 export async function buildSalesWorkbookBuffer(input: BuildSalesWorkbookInput): Promise<ArrayBuffer> {
   const { sales, units, supplierMap, opts, accessoryStock } = input;
 
@@ -986,12 +1061,23 @@ export async function buildSalesWorkbookBuffer(input: BuildSalesWorkbookInput): 
       }
     }
 
-    // Totals row immediately below the data so the auditor can read the
-    // sum without scrolling. SUM formulas only — Excel handles re-totalling
-    // if the operator edits an individual cell.
-    if (bucket.length > 0) {
-      writeMarketplaceTotalsRow(sheet, m, bucket.length);
-    }
+    // Blank-but-live rows under the data, then the totals row under those.
+    //
+    // The tail is what makes this file a working sheet rather than only a
+    // record: type a sale into the first empty row and SP-BP, Marginal Tax,
+    // Commission, the VAT lines, GP, GP % and Total VAT NTP all fill in, in
+    // Excel, with no round trip through the application.
+    //
+    // The TOTAL row's SUM spans the primed rows as well as the real ones. That
+    // is safe because an unfilled guarded formula evaluates to "" and SUM
+    // ignores text — so the totals read correctly while the rows are empty and
+    // pick up a new sale the moment one is typed.
+    //
+    // Written even for a marketplace with no sales in the period: an empty
+    // channel is exactly the one an operator is most likely to want to type
+    // into, and the Summary tab points at this row on every tab.
+    primeBlankSaleRows(sheet, m, bucket.length + 2, PRIMED_SALE_ROWS);
+    writeMarketplaceTotalsRow(sheet, m, bucket.length + PRIMED_SALE_ROWS);
   }
 
   // Accessories sheet — every accessory sale (no-IMEI, sku-based) already
@@ -1200,6 +1286,17 @@ function writeSalesSummarySheet(
   const title = sheet.addRow(['Sales Report — Audit Summary', '', '', '', '', '', '', '']);
   title.getCell(1).font = { bold: true, size: 13 };
   sheet.addRow([`Period: ${periodLabel(opts)}`]);
+  // Say what this file is, on the sheet, where the person filling it in will
+  // see it — not only in a document they may never open.
+  const note = sheet.addRow([
+    `This is a working sheet. Each marketplace tab has ${PRIMED_SALE_ROWS} blank rows under the data: `
+    + 'type a Buy Price and a Sale Price and the whole row calculates in Excel, and the figures here '
+    + 'follow. Leave the calculated columns alone — typing over one replaces live maths with a frozen '
+    + 'number. Nothing reads this file back into the application; sales are recorded under Sell.',
+  ]);
+  note.getCell(1).font = { size: 9, italic: true, color: { argb: 'FF64748B' } };  // slate-500
+  note.getCell(1).alignment = { wrapText: true, vertical: 'top' };
+  note.height = 30;
   sheet.addRow([]);
 
   // Header row for the breakdown table. Money cols are 6-9.
@@ -1227,13 +1324,9 @@ function writeSalesSummarySheet(
 
   // One row per marketplace.
   const grand = { sales: 0, refunds: 0, replacements: 0, repairs: 0, gp: 0, loss: 0, netGp: 0, bp: 0 };
+  const marketplaceRowNums: number[] = [];
   for (const m of MARKETPLACES) {
     const bucket = byMarketplace.get(m) ?? [];
-    if (bucket.length === 0) {
-      const row = sheet.addRow([m, 0, 0, 0, 0, 0, 0, 0, 0]);
-      for (const c of moneyCols) row.getCell(c).numFmt = MONEY_FMT;
-      continue;
-    }
     // Compute raw figures in JS (rather than cross-sheet formulas) so the
     // Summary tab reads correctly even before the operator clicks into a
     // marketplace tab to trigger ExcelJS lazy evaluation.
@@ -1290,10 +1383,52 @@ function writeSalesSummarySheet(
       }
     }
     const netGp = gp - loss;
-    const netGpPct = bp > 0 ? netGp / bp * 100 : 0;
-    const row = sheet.addRow([m, salesCount, refundCount, replaceCount, repairCount,
-      Number(gp.toFixed(2)), Number(loss.toFixed(2)),
-      Number(netGp.toFixed(2)), Number(netGpPct.toFixed(2))]);
+    const row = sheet.addRow([m, null, null, null, null, null, null, null, null]);
+    marketplaceRowNums.push(row.number);
+
+    // Each cell is "what the application exported" plus "whatever the operator
+    // has since typed into the blank rows on that tab".
+    //
+    // The baseline stays a JS-computed literal on purpose. These figures carry
+    // semantics a spreadsheet formula cannot reproduce: Sales counts only
+    // non-voided rows, and a return that voided several linked Sale docs at
+    // once — one Process-Return click on a multi-handset order — counts as ONE
+    // return event, not one per handset. Recomputing the whole column with
+    // COUNTIF would quietly redefine both, and the Summary would stop agreeing
+    // with the Returns Report and the dashboard. So the audited history is left
+    // exactly as it was, and only the primed tail is added live.
+    //
+    // Consequence worth knowing: editing a row that was already in the file
+    // moves that tab's TOTAL but not this figure. Adding a sale to the blank
+    // rows — the thing this workbook is for — moves both.
+    // Only three of these carry a live term, and that is not a shortcut.
+    // A row typed into the blank tail is a NEW sale. It cannot have been
+    // returned: refunds, replacements, repairs and the postage loss that comes
+    // with them are produced by processing a return in the application, which
+    // is also what writes those columns. So Refunds / Replacements / Repairs /
+    // Postage Loss stay exactly what was exported, and Sales, Gross GP and the
+    // BP denominator grow as rows get filled in.
+    const r = summaryColRefs(m);
+    const q = `'${m}'!`;
+    const firstPrimed = bucket.length + 2;
+    const lastPrimed = bucket.length + 1 + PRIMED_SALE_ROWS;
+    const rng = (col: string) => `${q}$${col}$${firstPrimed}:$${col}$${lastPrimed}`;
+
+    // COUNT counts numbers, so a guarded row that has not been touched — whose
+    // cells evaluate to "" — is not a sale, and one with a price typed in is.
+    row.getCell(2).value = { formula: `${salesCount}+COUNT(${rng(r.sp)})` };
+    row.getCell(3).value = refundCount;
+    row.getCell(4).value = replaceCount;
+    row.getCell(5).value = repairCount;
+    row.getCell(6).value = { formula: `${gp.toFixed(2)}+SUM(${rng(r.gp)})` };
+    row.getCell(7).value = Number(loss.toFixed(2));
+    // Net GP and Net GP % read this row's own cells, so they follow whichever
+    // way the two above move.
+    const gpCell = `F${row.number}`, lossCell = `G${row.number}`;
+    row.getCell(8).value = { formula: `${gpCell}-${lossCell}` };
+    row.getCell(9).value = {
+      formula: `IFERROR((${gpCell}-${lossCell})/(${bp.toFixed(2)}+SUM(${rng(r.bp)}))*100,0)`,
+    };
     for (const c of moneyCols) row.getCell(c).numFmt = MONEY_FMT;
 
     grand.sales        += salesCount;
@@ -1306,13 +1441,21 @@ function writeSalesSummarySheet(
     grand.bp           += bp;
   }
 
-  // Grand total.
-  const grandNetGpPct = grand.bp > 0 ? grand.netGp / grand.bp * 100 : 0;
-  const totalRow = sheet.addRow([
-    'TOTAL', grand.sales, grand.refunds, grand.replacements, grand.repairs,
-    Number(grand.gp.toFixed(2)), Number(grand.loss.toFixed(2)),
-    Number(grand.netGp.toFixed(2)), Number(grandNetGpPct.toFixed(2)),
-  ]);
+  // Grand total — sums the marketplace rows above rather than carrying its own
+  // copy of the arithmetic, so it cannot disagree with them.
+  const totalRow = sheet.addRow(['TOTAL', null, null, null, null, null, null, null, null]);
+  const sumCol = (c: number) =>
+    ({ formula: marketplaceRowNums.map(n => `${colLetter(c)}${n}`).join('+') });
+  for (const c of [2, 3, 4, 5, 6, 7, 8]) totalRow.getCell(c).value = sumCol(c);
+  totalRow.getCell(9).value = {
+    formula: `IFERROR((F${totalRow.number}-G${totalRow.number})/(${grand.bp.toFixed(2)}`
+      + `+${MARKETPLACES.map(m => {
+        const bucket = byMarketplace.get(m) ?? [];
+        const r = summaryColRefs(m);
+        const f = bucket.length + 2, l = bucket.length + 1 + PRIMED_SALE_ROWS;
+        return `SUM('${m}'!$${r.bp}$${f}:$${r.bp}$${l})`;
+      }).join('+')})*100,0)`,
+  };
   totalRow.font = { bold: true };
   totalRow.fill = {
     type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE2E8F0' },  // slate-200

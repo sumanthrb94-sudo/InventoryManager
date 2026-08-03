@@ -22,7 +22,7 @@
 import { describe, it, expect } from 'vitest';
 import ExcelJS from 'exceljs';
 import { resolvePeriod } from '../../components/ReportRangeMenu';
-import { buildSalesWorkbookBuffer } from '../../lib/clientReport';
+import { buildSalesWorkbookBuffer, PRIMED_SALE_ROWS } from '../../lib/clientReport';
 import type { Sale } from '../../types';
 
 /** Fixed "today" so the test doesn't drift with the calendar. */
@@ -159,9 +159,12 @@ describe('the report each period produces', () => {
     expect(text(all)).toContain('All Time');
   });
 
-  it('TOTAL sums only the rows the period kept', async () => {
+  it('TOTAL sums the rows the period kept, plus the fillable tail and nothing else', async () => {
     // A TOTAL that spans the whole column would silently include rows the
-    // filter removed — or, worse, blank cells below the last kept row.
+    // filter removed. It must reach the kept rows and the blank rows the
+    // operator can type into — the report is a working sheet — and stop
+    // there. Unfilled rows evaluate to "" so they contribute nothing until
+    // someone actually records a sale in one.
     const wb = await reportFor({ from: iso(6), to: iso(0) });
     const ws = wb.getWorksheet('AMAZON')!;
     const rows = dataRows(ws);
@@ -178,7 +181,8 @@ describe('the report each period produces', () => {
       const m = /^SUM\([A-Z]+(\d+):[A-Z]+(\d+)\)$/i.exec(v.formula);
       if (!m) return;
       expect(Number(m[1]), 'SUM starts at the first data row').toBe(2);
-      expect(Number(m[2]), 'SUM ends at the last data row').toBe(last);
+      expect(Number(m[2]), 'SUM ends at the last fillable row, not beyond')
+        .toBe(last + PRIMED_SALE_ROWS);
       checked++;
     });
     expect(checked, 'the TOTAL row should carry SUM() formulas').toBeGreaterThan(0);
