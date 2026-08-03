@@ -1708,6 +1708,19 @@ export async function recordAccessorySale(input: RecordAccessorySaleInput): Prom
     postage: fin.postage,
     postageVat: fin.postageVat,
     postageVatExempt: input.postageVatExempt || undefined,
+    // Same VAT lines the unit sale carries, and for the same reason: vat.ts
+    // reads sale.totalVat straight off the doc, so an accessory sale that
+    // omitted it declared no input VAT on its own fees. See the note in
+    // salesService.ts's recordSale.
+    commissionVat: fin.commissionVat,
+    dsf: fin.dsf,
+    dsfVat: fin.dsfVat,
+    customerCareFees: fin.customerCareFees,
+    accessoryFee: fin.accessoryFee,
+    marketing: fin.marketing,
+    marketingVat: fin.marketingVat,
+    totalVat: fin.totalVat,
+    totalVatNtp: fin.totalVatNtp,
     grossProfit: fin.grossProfit,
     gpPercent: fin.gpPercent,
     netProfit: fin.netProfit,

@@ -95,14 +95,14 @@
     "detail": "live=14928.62 truth=14928.62 (n=486/486)"
   },
   {
-    "name": "VAT Centre shows the 2026-Q3 net payable figure (£8454.21)",
+    "name": "VAT Centre · 2026-Q3 net payable reconciles (£8444.56 over 883 sales)",
     "ok": false,
-    "detail": "screen shows £8452.46, ground truth £8454.21, gap £-1.75 over 881 sales"
+    "detail": "screen £8452.46, independent recompute £8444.56, gap £7.90 · 2 of 883 sales differ from their own stored figures; worst: SIM-MANUAL-UNIT-1 [AMAZON] £7.69, SIM-MANUAL-ACC-1 [EBAY] £0.21"
   },
   {
-    "name": "VAT Centre shows the 2026-Q2 net payable figure (£11096.17)",
-    "ok": false,
-    "detail": "screen shows £8452.46, ground truth £11096.17, gap £-2643.71 over 1295 sales"
+    "name": "VAT Centre · 2026-Q2 net payable reconciles (£11096.17 over 1295 sales)",
+    "ok": true,
+    "detail": "screen £11096.17, independent recompute £11096.17, gap £0.00"
   },
   {
     "name": "Periodic table shows a \"Apple iPhones\" row",

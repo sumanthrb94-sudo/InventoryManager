@@ -104,28 +104,59 @@ async function openNavDrawer(page, tabRe) {
     if (tabRe && await page.getByRole('button', { name: tabRe }).first()
       .isVisible().catch(() => false)) return;                       // already open
 
-    const opener = page.getByLabel('Open menu').first();
-    const closer = page.getByLabel('Close menu').first();
-    if (await opener.isVisible().catch(() => false)) {
-      await opener.click({ timeout: 20000 }).catch(e =>
-        console.log(`  openNavDrawer: "Open menu" click failed: ${String(e).slice(0, 120)}`));
-    } else if (await closer.isVisible().catch(() => false)) {
-      // The toggle says open, the drawer disagrees. Cycle it.
-      console.log('  openNavDrawer: drawer reports open but the tab is absent — resyncing');
-      await closer.click({ timeout: 8000 }).catch(() => {});
-      await page.waitForTimeout(400);
-      await page.getByLabel('Open menu').first().click({ timeout: 8000 }).catch(() => {});
+    // Which state are we in? Ask whether the DRAWER is mounted, via its own
+    // close button, and never via the hamburger's visibility.
+    //
+    // isVisible() means "has a box and is not visibility:hidden". It says
+    // nothing about occlusion. The open drawer is a separate fixed z-50 layer
+    // painted over the header, so the hamburger underneath still reports
+    // visible — and the old code, seeing "visible", clicked it, which
+    // Playwright refused because the drawer's own brand heading was on top.
+    // Twenty seconds per attempt, four attempts, and the conclusion drawn was
+    // "the Returns tab is missing".
+    const drawerOpen = await page.getByLabel('Close menu').first().count() > 0;
+    if (!drawerOpen) {
+      await page.getByLabel('Open menu').first().click({ timeout: 10000 }).catch(async () => {
+        // Covered by something else — a cycling toast card, most often.
+        // Dispatch on the element: we are navigating, not testing that the
+        // hamburger is unobstructed.
+        console.log('  openNavDrawer: hamburger click refused — dispatching on the element');
+        await page.evaluate(() => document.querySelector('[aria-label="Open menu"]')?.click())
+          .catch(() => {});
+      });
     } else {
-      console.log('  openNavDrawer: neither "Open menu" nor "Close menu" is on screen');
+      // Mounted but the tab is not there — it is mid-animation, or stale.
+      // Close it, let it unmount, and open it fresh.
+      console.log('  openNavDrawer: drawer is mounted but the tab is absent — cycling it');
+      await page.getByLabel('Close menu').first().click({ timeout: 8000 }).catch(() => {});
+      await page.getByLabel('Close menu').first().waitFor({ state: 'detached', timeout: 5000 })
+        .catch(() => {});
+      await page.getByLabel('Open menu').first().click({ timeout: 8000 }).catch(() => {});
     }
-    await page.waitForTimeout(600);
+    await page.waitForTimeout(700);
   }
   if (tabRe && !(await page.getByRole('button', { name: tabRe }).first().isVisible().catch(() => false))) {
-    console.log(`  openNavDrawer: gave up — ${tabRe} still not visible after 4 attempts`);
+    // Leave evidence rather than a bare "gave up". A screenshot and the list
+    // of nav items actually on screen is the difference between diagnosing
+    // this in a minute and re-running a twelve-minute simulation to guess.
+    const onScreen = await page.evaluate(() => Array.from(document.querySelectorAll('button'))
+      .filter(b => { const r = b.getBoundingClientRect(); return r.width > 0 && r.height > 0 && r.left < 320; })
+      .map(b => (b.innerText || '').replace(/\s+/g, ' ').trim()).filter(Boolean).slice(0, 20))
+      .catch(() => []);
+    console.log(`  openNavDrawer: gave up — ${tabRe} not visible after 4 attempts. `
+      + `Left-rail buttons on screen: ${JSON.stringify(onScreen)}`);
+    await shot(page, 'nav-drawer-gave-up');
   }
 }
 async function gotoTab(page, label) {
-  const re = new RegExp(`^${label}\\b(?! Report)`, 'i');
+  // Allow a leading badge count. Returns carries one — the number of units
+  // sitting in the Tech-QC → CRM hand-off — so its accessible name becomes
+  // "1 Returns" the moment anything is waiting, and an anchored /^Returns/
+  // stops matching. That is not a fault in the app: the badge is the point.
+  // But it meant the simulation's very first live return sent every later
+  // gotoTab('Returns') into four failed drawer cycles and a 45-second
+  // timeout, and reported it as "Returns is missing".
+  const re = new RegExp(`^(\\d+\\s*)?${label}\\b(?! Report)`, 'i');
   // This click flakes intermittently right after a heavy write, in a way
   // neither a longer single timeout nor one retry reliably catches — but a
   // fresh dismiss+open+click cycle recovers it almost every time. So retry
@@ -232,6 +263,100 @@ async function importInventoryReport(page, file, longWaitMs = 45000) {
   await dismissModals(page);
 }
 
+/**
+ * Complete every blocking row in the import's audit panel.
+ *
+ * The GO LIVE step is the whole point of this simulation: wipe, re-upload the
+ * two reports the app itself produced, and prove the numbers come back. It had
+ * never once run. The Inventory Report restores stock ON HAND — that is what
+ * it is — so re-uploading the Sales Report on top of it presents every
+ * historical sold unit as a record needing completion, exactly as it does with
+ * the client's own files. Confirm is correctly locked until they are done, and
+ * this script never did them: it clicked a disabled button, waited thirty
+ * seconds, and reported the import as failed. Every GO LIVE assertion after it
+ * then compared a fully-populated app against an empty one.
+ *
+ * An operator completes these rows. So does this.
+ */
+async function completeAuditRows(page) {
+  const panel = modal(page).locator('div.border-2.border-orange-300');
+  // Give the preview time to render — a 2,000-row workbook takes a while to
+  // parse, and looking too early finds no panel and reports nothing at all.
+  await panel.waitFor({ state: 'visible', timeout: 60_000 }).catch(() => {});
+  if (!(await panel.isVisible().catch(() => false))) {
+    const tally = (await modal(page).innerText().catch(() => ''))
+      .match(/(\d+)\s*sold records?\s*need completing/i)?.[0] ?? 'none mentioned';
+    console.log(`  completeAuditRows: no audit panel on screen (${tally}) — nothing to complete`);
+    return;
+  }
+
+  // One shared draft model for every blank row, not one per row: each "+ Add"
+  // writes a catalog doc, and the catalog is a prop of every combo box on the
+  // panel, so a per-row entry re-renders the whole list each time.
+  const DRAFT_MODEL = 'UNRECORDED MODEL';
+  const dropdown = page.locator('div.z-\\[9999\\]').last();
+  const addBtn = dropdown.locator('button', { hasText: /to the model catalog/i });
+  const pickBtn = dropdown.locator('button', { hasText: DRAFT_MODEL });
+
+  const fillShrinking = async (locator, value, label, viaDropdown = false) => {
+    let done = 0;
+    for (let guard = 0; guard < 2500; guard++) {
+      if (await locator.count() === 0) break;
+      const input = locator.first();
+      await input.click().catch(() => {});
+      await input.fill(value).catch(() => {});
+      if (viaDropdown) {
+        await Promise.race([
+          pickBtn.first().waitFor({ state: 'visible', timeout: 8000 }).catch(() => {}),
+          addBtn.first().waitFor({ state: 'visible', timeout: 8000 }).catch(() => {}),
+        ]);
+        if (await pickBtn.first().isVisible().catch(() => false)) await pickBtn.first().click().catch(() => {});
+        else if (await addBtn.first().isVisible().catch(() => false)) {
+          await addBtn.first().click().catch(() => {});
+          await page.waitForTimeout(400);
+        } else await input.press('Escape').catch(() => {});
+      } else {
+        await input.press('Tab').catch(() => {});
+        await page.waitForTimeout(120);
+      }
+      done++;
+    }
+    if (done) console.log(`  completeAuditRows: filled ${done} blank ${label}`);
+    return done;
+  };
+
+  const t0 = Date.now();
+  await fillShrinking(panel.locator('input[placeholder="Supplier required"]'), 'UNRECORDED SUPPLIER', 'supplier(s)');
+  await fillShrinking(panel.locator('input[placeholder="IMEI required"]'), '999999000000001', 'IMEI(s)');
+  // Models render an input whether or not they are blank, so target the empty
+  // ones explicitly rather than looping on a collection that never shrinks.
+  const blankModels = await page.evaluate(() => {
+    const p = document.querySelector('div.border-2.border-orange-300');
+    if (!p) return [];
+    return Array.from(p.querySelectorAll('input[placeholder="Search model…"]'))
+      .map((el, i) => [i, el.value]).filter(([, v]) => !String(v).trim()).map(([i]) => i);
+  }).catch(() => []);
+  const modelInputs = panel.locator('input[placeholder="Search model…"]');
+  for (const idx of blankModels) {
+    const input = modelInputs.nth(idx);
+    await input.click().catch(() => {});
+    await input.fill(DRAFT_MODEL).catch(() => {});
+    await Promise.race([
+      pickBtn.first().waitFor({ state: 'visible', timeout: 8000 }).catch(() => {}),
+      addBtn.first().waitFor({ state: 'visible', timeout: 8000 }).catch(() => {}),
+    ]);
+    if (await pickBtn.first().isVisible().catch(() => false)) await pickBtn.first().click().catch(() => {});
+    else if (await addBtn.first().isVisible().catch(() => false)) {
+      await addBtn.first().click().catch(() => {});
+      await page.waitForTimeout(400);
+    } else await input.press('Escape').catch(() => {});
+  }
+  if (blankModels.length) console.log(`  completeAuditRows: filled ${blankModels.length} blank model(s)`);
+  const tally = (await modal(page).innerText().catch(() => ''))
+    .match(/(\d+)\s*of\s*(\d+)\s*complete/i)?.[0] ?? 'no tally';
+  console.log(`  completeAuditRows: ${tally} after ${((Date.now() - t0) / 1000).toFixed(1)}s`);
+}
+
 async function importSalesReport(page, file, longWaitMs = 60000) {
   await gotoTab(page, 'Stock Intake');
   await openImportMenu(page);
@@ -244,12 +369,26 @@ async function importSalesReport(page, file, longWaitMs = 60000) {
   // Inventory impact gate — when the import flips in-stock units to 'sold',
   // a checkbox must be ticked before Confirm enables (SalesReportImport.tsx
   // ~line 1009). Tick it first if present so the click below isn't blocked.
-  const ackCheckbox = modal(page).getByRole('checkbox').first();
+  const ackCheckbox = modal(page).locator('label', { hasText: /fulfil & mark the \d+ units? sold/i })
+    .locator('input[type="checkbox"]');
   if (await ackCheckbox.isVisible().catch(() => false)) {
     await ackCheckbox.check({ timeout: 5000 }).catch(() => {});
     await page.waitForTimeout(300);
   }
+  await completeAuditRows(page);
+
   const confirmBtn = modal(page).getByRole('button', { name: /Load|Confirm|record/i }).last();
+  // Match the disabled wording too, and say so, rather than clicking a button
+  // that cannot respond and calling the resulting timeout an import failure.
+  if (await confirmBtn.isDisabled().catch(() => true)) {
+    const label = await confirmBtn.innerText().catch(() => '(no confirm button)');
+    const panel = await modal(page).innerText().catch(() => '');
+    const complete = panel.match(/(\d+)\s*of\s*(\d+)\s*complete/i)?.[0] ?? 'no audit tally on screen';
+    record('Sales Report Confirm is enabled after completing the audit rows', false,
+      `button reads "${label.replace(/\s+/g, ' ').trim()}" · ${complete}`);
+    await shot(page, 'sales-import-confirm-blocked');
+    throw new Error(`Confirm stayed disabled: ${label.replace(/\s+/g, ' ').trim()}`);
+  }
   await confirmBtn.click({ timeout: 30000 });
   await waitForImportDone(page);
   await modal(page).getByRole('button', { name: /Close|Done/i }).last().click({ timeout: 10000 }).catch(() => {});
@@ -537,10 +676,20 @@ async function auditPersona(page, preLiveReturnsStore) {
       const key = quarterKeyOf(s.saleDate);
       const fin = calcFinancials(s.marketplace, Number(s.buyPrice) || 0,
         Number(s.salePrice) || 0, Number(s.postage) || 0);
-      const acc = livePeriods.get(key) ?? { marginVat: 0, inputVat: 0, n: 0 };
+      const acc = livePeriods.get(key) ?? { marginVat: 0, inputVat: 0, n: 0, lines: [] };
       acc.marginVat += fin.marginalTax;
       acc.inputVat += fin.totalVat;
       acc.n += 1;
+      // Keep the per-sale delta so a period that does not reconcile can NAME
+      // the sales responsible. A bare "gap £7.90 over 883 sales" cannot tell
+      // a systematic penny-per-row drift from two rows that are properly
+      // wrong, and those need completely different responses.
+      acc.lines.push({
+        order: s.orderNumber,
+        marketplace: s.marketplace,
+        delta: Math.round((((Number(s.marginalTax) || 0) - (Number(s.totalVat) || 0))
+          - (fin.marginalTax - fin.totalVat)) * 100) / 100,
+      });
       livePeriods.set(key, acc);
     }
 
@@ -558,10 +707,19 @@ async function auditPersona(page, preLiveReturnsStore) {
       const live = shown ? Number(shown[1].replace(/,/g, '')) : null;
       const expected = Math.round((acc.marginVat - acc.inputVat) * 100) / 100;
       const gap = live === null ? null : Math.round((live - expected) * 100) / 100;
+      let detail = gap === null
+        ? 'no "Net payable" figure on screen'
+        : `screen £${live.toFixed(2)}, independent recompute £${expected.toFixed(2)}, gap £${gap.toFixed(2)}`;
+      if (gap !== null && Math.abs(gap) > 1) {
+        const worst = acc.lines.filter(l => Math.abs(l.delta) >= 0.01)
+          .sort((a, b) => Math.abs(b.delta) - Math.abs(a.delta));
+        const share = worst.slice(0, 5)
+          .map(l => `${l.order ?? '(no order)'} [${l.marketplace}] £${l.delta.toFixed(2)}`).join(', ');
+        detail += ` · ${worst.length} of ${acc.n} sales differ from their own stored figures`
+          + (share ? `; worst: ${share}` : '');
+      }
       record(`VAT Centre · ${key} net payable reconciles (£${expected.toFixed(2)} over ${acc.n} sales)`,
-        gap !== null && Math.abs(gap) <= 1,
-        gap === null ? 'no "Net payable" figure on screen'
-          : `screen £${live.toFixed(2)}, independent recompute £${expected.toFixed(2)}, gap £${gap.toFixed(2)}`);
+        gap !== null && Math.abs(gap) <= 1, detail);
     }
 
   } catch (e) {

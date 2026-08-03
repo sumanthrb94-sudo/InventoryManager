@@ -180,6 +180,26 @@ export async function recordSale(input: RecordSaleInput): Promise<RecordSaleResu
     postage: fin.postage,
     postageVat: fin.postageVat,
     postageVatExempt: input.postageVatExempt || undefined,
+    // The VAT lines. These were computed and then dropped on the floor.
+    //
+    // vat.ts reads `sale.totalVat` directly for a period's "Input VAT on
+    // fees" — it does not recompute, and the store does not recompute for it
+    // either. A sale recorded through Record Sale therefore contributed ZERO
+    // input VAT to the return while an imported sale of the same value
+    // contributed its full fee VAT, so the net payable came out too high by
+    // exactly the fee VAT on every hand-entered sale. One £450 Amazon sale in
+    // the quarter simulation shifted its quarter by £7.69; a business that
+    // records most sales in the app rather than importing them would have
+    // been over-declaring on most of its turnover.
+    commissionVat: fin.commissionVat,
+    dsf: fin.dsf,
+    dsfVat: fin.dsfVat,
+    customerCareFees: fin.customerCareFees,
+    accessoryFee: fin.accessoryFee,
+    marketing: fin.marketing,
+    marketingVat: fin.marketingVat,
+    totalVat: fin.totalVat,
+    totalVatNtp: fin.totalVatNtp,
     grossProfit: fin.grossProfit,
     gpPercent: fin.gpPercent,
     netProfit: fin.netProfit,

@@ -1,0 +1,295 @@
+{
+  "elapsedMin": "12.4",
+  "results": [
+    {
+      "name": "Bulk Inventory Report import landed the expected office+SHS unit count",
+      "ok": true,
+      "detail": "got 1800, expected 1800"
+    },
+    {
+      "name": "Bulk Inventory Report import created all 6 accessory pools",
+      "ok": true,
+      "detail": "got 6"
+    },
+    {
+      "name": "Manual Add Stock (office unit) reflected in the store",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "Manual Add Stock (accessory top-up) reflected in the store",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "Bulk Sales Report import created the expected sale count",
+      "ok": true,
+      "detail": "got 2176, expected ~2176"
+    },
+    {
+      "name": "Bulk Sales Report import flipped office units to sold",
+      "ok": true,
+      "detail": "got 1522, expected ~1522"
+    },
+    {
+      "name": "Manual Record Sale (unit) created a real Sale doc",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "Manual Record Sale (accessory) created a real Sale doc",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "accessory sales are recorded and available to return against",
+      "ok": true,
+      "detail": "534 accessory sale lines"
+    },
+    {
+      "name": "the Accessory Stock panel lists the pool",
+      "ok": true,
+      "detail": "USB-C-20W"
+    },
+    {
+      "name": "Adjust is offered — the one correction no import can make",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "no manual Return button — returns come in through the Sales Report",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "Processed 10/10 live refund returns",
+      "ok": true,
+      "detail": "10 done"
+    },
+    {
+      "name": "Processed the QC-failed → repair CRM finalise step",
+      "ok": true,
+      "detail": "IMEI 350000000000004"
+    },
+    {
+      "name": "Repaired unit shows a \"Back to Stock\" action on the Returns tab",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "QC-failed → repair unit completed the full cycle and is back to available stock",
+      "ok": true,
+      "detail": "{\"status\":\"available\",\"returnType\":\"returned_to_inventory\"}"
+    },
+    {
+      "name": "Live total revenue matches ground truth (bulk-import state)",
+      "ok": true,
+      "detail": "live=650763.06 truth=650763.06"
+    },
+    {
+      "name": "Live total GP matches ground truth (bulk-import state)",
+      "ok": true,
+      "detail": "live=65729.07 truth=65729.07"
+    },
+    {
+      "name": "AMAZON: live GP matches ground truth",
+      "ok": true,
+      "detail": "live=11628.82 truth=11628.82 (n=375/375)"
+    },
+    {
+      "name": "TEMU: live GP matches ground truth",
+      "ok": true,
+      "detail": "live=18750.50 truth=18750.50 (n=445/445)"
+    },
+    {
+      "name": "ONBUY: live GP matches ground truth",
+      "ok": true,
+      "detail": "live=13975.30 truth=13975.30 (n=427/427)"
+    },
+    {
+      "name": "BM: live GP matches ground truth",
+      "ok": true,
+      "detail": "live=6445.83 truth=6445.83 (n=443/443)"
+    },
+    {
+      "name": "EBAY: live GP matches ground truth",
+      "ok": true,
+      "detail": "live=14928.62 truth=14928.62 (n=486/486)"
+    },
+    {
+      "name": "VAT Centre · 2026-Q3 net payable reconciles (£8444.56 over 883 sales)",
+      "ok": false,
+      "detail": "screen £8452.46, independent recompute £8444.56, gap £7.90 · 2 of 883 sales differ from their own stored figures; worst: SIM-MANUAL-UNIT-1 [AMAZON] £7.69, SIM-MANUAL-ACC-1 [EBAY] £0.21"
+    },
+    {
+      "name": "VAT Centre · 2026-Q2 net payable reconciles (£11008.81 over 1284 sales)",
+      "ok": true,
+      "detail": "screen £11008.81, independent recompute £11008.81, gap £0.00"
+    },
+    {
+      "name": "Periodic table shows a \"Apple iPhones\" row",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "Periodic table shows a \"Apple iPads\" row",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "Periodic table shows a \"Apple Watch\" row",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "Periodic table shows a \"MacBook\" row",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "Periodic table shows a \"Samsung Galaxy S\" row",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "Periodic table shows a \"Samsung Galaxy A\" row",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "Periodic table shows a \"Samsung Note\" row",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "Periodic table shows a \"Samsung Z (Fold/Flip)\" row",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "Periodic table shows a \"Samsung Galaxy M\" row",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "Periodic table shows a \"Samsung XCover\" row",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "Periodic table shows a \"Samsung Tabs\" row",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "Periodic table shows a \"Google Pixel\" row",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "Periodic table shows a \"Unclassified\" row",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "Admin notice posted and visible on the Notices board",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "New model config created (Samsung Galaxy S25 FE)",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "Model rename UI located in Configuration catalog",
+      "ok": false,
+      "detail": "no Edit button found on the catalog row — cannot test rename cascade behaviour"
+    },
+    {
+      "name": "Downloaded the real Inventory Report from the fully-simulated state",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "Downloaded the real Sales Report from the fully-simulated state",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "Re-uploaded Inventory Report without error",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "Re-upload Sales Report completed without error",
+      "ok": false,
+      "detail": "TimeoutError: locator.click: Timeout 30000ms exceeded.\nCall log:\n\u001b[2m  - waiting for locator('div.fixed.inset-0').last().getByRole('button', { name: /Load|Confirm|record/i }).last()\u001b[22m\n\u001b[2m    - locator resolved to <button disabled title=\"Complete "
+    },
+    {
+      "name": "GO LIVE — unit count reconciles exactly after wipe + single re-upload",
+      "ok": false,
+      "detail": "pre=1801 post=289"
+    },
+    {
+      "name": "GO LIVE — office available-stock count reconciles",
+      "ok": true,
+      "detail": "pre=115 post=115"
+    },
+    {
+      "name": "GO LIVE — active (non-voided) sale count reconciles",
+      "ok": false,
+      "detail": "pre=2167 post=0"
+    },
+    {
+      "name": "GO LIVE — total GP reconciles to within rounding",
+      "ok": false,
+      "detail": "pre=65358.74 post=0.00"
+    },
+    {
+      "name": "GO LIVE — accessory SKU count reconciles",
+      "ok": true,
+      "detail": "pre=7 post=7"
+    },
+    {
+      "name": "GO LIVE — accessory \"USB-C-20W\" quantity reconciles",
+      "ok": false,
+      "detail": "pre=149 post=331"
+    },
+    {
+      "name": "GO LIVE — accessory \"USB-C-25W\" quantity reconciles",
+      "ok": false,
+      "detail": "pre=125 post=314"
+    },
+    {
+      "name": "GO LIVE — accessory \"SIM-PIN-01\" quantity reconciles",
+      "ok": false,
+      "detail": "pre=92 post=281"
+    },
+    {
+      "name": "GO LIVE — accessory \"SCR-PROT-UNI\" quantity reconciles",
+      "ok": false,
+      "detail": "pre=70 post=284"
+    },
+    {
+      "name": "GO LIVE — accessory \"CBL-USBC-1M\" quantity reconciles",
+      "ok": false,
+      "detail": "pre=103 post=309"
+    },
+    {
+      "name": "GO LIVE — accessory \"CASE-CLR-UNI\" quantity reconciles",
+      "ok": false,
+      "detail": "pre=97 post=292"
+    },
+    {
+      "name": "GO LIVE — accessory \"SIM-TEST-MANUAL\" quantity reconciles",
+      "ok": true,
+      "detail": "pre=40 post=40"
+    },
+    {
+      "name": "No uncaught JS errors across the entire quarter simulation",
+      "ok": true,
+      "detail": ""
+    }
+  ]
+}
