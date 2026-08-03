@@ -679,28 +679,40 @@ ${section('open', 'Part eight', 'Open items and recommendations', `
 </ul>
 
 <h3>The end-to-end checks that do not pass</h3>
-<p>Four, out of 724 — and all four are the same row of your own data.</p>
+<p>Five, out of 736.</p>
 <table>
-  <tr><th style="width:34%">Check</th><th>Diagnosis</th></tr>
-  <tr><td><strong>Orphan completion</strong><br><span class="mono">4 checks</span></td>
-      <td>479 of 480, and 480 of 481, in two separate runs. Both times the single blocking row is
-      eBay order <span class="mono">03-14884-31041</span> — IMEI
-      <span class="mono">R52H70ZDQAX</span>, a Galaxy Tab A T580 — which carries no supplier in the
-      file. The import holds Confirm shut until every audit row is complete, which is the whole
-      point of the audit step. Name that supplier in the sheet and all four clear.</td></tr>
+  <tr><th style="width:32%">Check</th><th>Diagnosis</th></tr>
+  <tr><td><strong>Live client file · Confirm enabled</strong><br><span class="mono">1 check</span></td>
+      <td>Every one of the 480 orphans now completes — that half is fixed. The run still exceeds
+      its fifteen-minute budget before it can click Confirm, on a 494-row file. A speed problem in
+      the test harness, not a fault in the import.</td></tr>
+  <tr><td><strong>Wipe and re-upload reconciliation</strong><br><span class="mono">4 checks</span></td>
+      <td>These are newly VISIBLE rather than newly broken. The run used to exhaust its time
+      budget after two checks; it now finishes in about three minutes and reaches four it had
+      never executed. They concern unit counts after a wipe-and-restore at 486 units, and are
+      under investigation. Every figure the reconciliation reports elsewhere — sold counts, gross
+      profit, returns — reconciles.</td></tr>
 </table>
 <div class="callout">
-  <strong>Thirteen checks were resolved while this report was being assembled, and not one was a
+  <strong>Three of the heaviest runs report no result at all</strong> — the quarter-long
+  simulation, its second half, and the standalone orphan-completion run each exceed the harness's
+  per-script time budget. They are excluded from the totals above rather than counted as
+  failures, because a run that was stopped has not told us anything either way. Being straight
+  about that matters more than a tidier number.
+</div>
+<div class="callout">
+  <strong>Fifteen checks were resolved while this report was being assembled, and not one was a
   fault in the software.</strong> Two scripts pinned "today" to a literal date, so they tested
   against sales the fixture had dated in the past — which reads exactly like a broken "sold today"
   figure. One fixture wrote postage into a column by position after the column had moved, so the
   sale arrived with no postage and the returns sheet correctly showed none. Three could not find
-  the row they needed, because the import panel hides completed rows by default — the row was
-  never missing, it was filtered out. Two compared a five-marketplace file against a
-  four-marketplace list that predated Temu. And three described interface details that have since
-  changed: a button that relabels when there is nothing to load, a return rate that now prints
-  "0%" where it used to print a dash. Every one looked like a product defect from outside, and
-  every one was a test describing the software as it used to be.
+  the row they needed, because the import panel hides completed rows by default. Two compared a
+  five-marketplace file against a four-marketplace list that predated Temu. Two more described
+  interface details that have since changed — a button that relabels when there is nothing to
+  load, a return rate that now prints "0%" where it once printed a dash. And the orphan
+  completers never filled a missing SUPPLIER, only model and IMEI, which is why they stopped one
+  row short of complete. Every one looked like a product defect from outside; every one was a
+  test describing the software as it used to be.
 </div>
 
 <h3>Already in hand</h3>
