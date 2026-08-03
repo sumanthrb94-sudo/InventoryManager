@@ -678,41 +678,43 @@ ${section('open', 'Part eight', 'Open items and recommendations', `
       single row holds up the whole confirm — by design. Filling it in the sheet clears it.</li>
 </ul>
 
-<h3>The end-to-end checks that do not pass</h3>
-<p>Five, out of 736.</p>
+<h3>The one end-to-end check that does not pass</h3>
+<p>One, out of 736.</p>
 <table>
-  <tr><th style="width:32%">Check</th><th>Diagnosis</th></tr>
+  <tr><th style="width:32%">Check</th><th>What it is</th></tr>
   <tr><td><strong>Live client file · Confirm enabled</strong><br><span class="mono">1 check</span></td>
-      <td>Every one of the 480 orphans now completes — that half is fixed. The run still exceeds
-      its fifteen-minute budget before it can click Confirm, on a 494-row file. A speed problem in
-      the test harness, not a fault in the import.</td></tr>
-  <tr><td><strong>Wipe and re-upload reconciliation</strong><br><span class="mono">4 checks</span></td>
-      <td>These are newly VISIBLE rather than newly broken. The run used to exhaust its time
-      budget after two checks; it now finishes in about three minutes and reaches four it had
-      never executed. They concern unit counts after a wipe-and-restore at 486 units, and are
-      under investigation. Every figure the reconciliation reports elsewhere — sold counts, gross
-      profit, returns — reconciles.</td></tr>
+      <td>Every one of the 480 orphans in your own 494-row file now completes — that half is
+      fixed. The run then exceeds its fifteen-minute budget before it can click Confirm. This is
+      how long the test harness takes to drive a browser through 480 form rows one at a time; an
+      operator completing the same import does not wait fifteen minutes, and the import itself is
+      not what is slow. Nothing about the figures is in question.</td></tr>
 </table>
 <div class="callout">
-  <strong>Three of the heaviest runs report no result at all</strong> — the quarter-long
-  simulation, its second half, and the standalone orphan-completion run each exceed the harness's
-  per-script time budget. They are excluded from the totals above rather than counted as
-  failures, because a run that was stopped has not told us anything either way. Being straight
-  about that matters more than a tidier number.
-</div>
-<div class="callout">
-  <strong>Fifteen checks were resolved while this report was being assembled, and not one was a
+  <strong>Nineteen checks were resolved while this report was being assembled, and not one was a
   fault in the software.</strong> Two scripts pinned "today" to a literal date, so they tested
   against sales the fixture had dated in the past — which reads exactly like a broken "sold today"
   figure. One fixture wrote postage into a column by position after the column had moved, so the
   sale arrived with no postage and the returns sheet correctly showed none. Three could not find
   the row they needed, because the import panel hides completed rows by default. Two compared a
-  five-marketplace file against a four-marketplace list that predated Temu. Two more described
-  interface details that have since changed — a button that relabels when there is nothing to
-  load, a return rate that now prints "0%" where it once printed a dash. And the orphan
-  completers never filled a missing SUPPLIER, only model and IMEI, which is why they stopped one
-  row short of complete. Every one looked like a product defect from outside; every one was a
-  test describing the software as it used to be.
+  five-marketplace file against a four-marketplace list that predated Temu. Two described
+  interface details that had changed — a button that relabels when there is nothing to load, a
+  return rate that now prints "0%" where it once printed a dash. Four compared every unit ever
+  created against what the Inventory Report lists, which are different sets by design. And the
+  orphan completers never filled a missing SUPPLIER, only model and IMEI, which is why they
+  stopped one row short of complete. Every one looked like a product defect from outside; every
+  one was a test describing the software as it used to be.
+</div>
+<div class="callout">
+  <strong>On the Inventory Report, because it is easy to assume otherwise.</strong> It lists stock
+  ON HAND. Sold units are deliberately not in it. Downloading it and re-uploading it will restore
+  your shelf, not your sales history — the Sales Report is what carries that. It is not a backup
+  of everything.
+</div>
+<div class="callout">
+  <strong>Three of the heaviest runs report no result at all</strong> — the quarter-long
+  simulation, its second half, and the standalone orphan-completion run each exceed the harness's
+  per-script time budget. They are named as excluded rather than counted as passes. A run that was
+  stopped has not told us anything either way.
 </div>
 
 <h3>Already in hand</h3>
