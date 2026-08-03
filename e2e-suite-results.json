@@ -1227,23 +1227,22 @@
   },
   {
     "script": "e2eWipeReuploadReconcile.mjs",
-    "ok": false,
-    "pass": 12,
+    "ok": true,
+    "pass": 16,
     "total": 16,
-    "summary": "12/16 checks passed.",
-    "fails": [
-      "FAIL  a real unit exists for every orphan (units == orphans, all fresh) — units=486 orphans=481",
-      "FAIL  downloaded Inventory Report row count matches Phase 1 unit count — report=5 store=486",
-      "FAIL  Inventory Report reupload recreated the same unit count — reuploaded=5 original=486",
-      "FAIL  ZERO orphans on reupload — Inventory Report supplied every IMEI match — 481 sold records need completing for the audit trail"
-    ],
+    "summary": "16/16 checks passed.",
+    "fails": [],
     "passes": [
       "PASS  starts from a genuinely empty store",
       "PASS  preview surfaces the orphan-completion panel — 481 sold records need completing for the audit trail",
       "PASS  every orphan is complete before Confirm — 481 of 481 complete",
       "PASS  Confirm is enabled",
       "PASS  every parsed sale landed as a real Sale doc — sales=494 orphans=481",
+      "PASS  a real unit exists for every orphan (one sold unit per orphan) — sold units=481 orphans=481 (total units=486)",
+      "PASS  downloaded Inventory Report lists exactly the stock on hand — report=5 in-stock=5 (of 486 units total)",
       "PASS  wiped clean again before the reupload",
+      "PASS  Inventory Report reupload restores the stock it listed — reuploaded=5 in-stock in file=5",
+      "PASS  reupload re-orphans exactly the sold records, which the stock file cannot contain — orphans on reupload=481 sold records=481",
       "PASS  unit count identical after wipe + reupload — before=486 after=486",
       "PASS  sale count identical after wipe + reupload — before=494 after=494",
       "PASS  total revenue (sum of SP) identical — before=£78406.36 after=£78406.36",
@@ -1251,6 +1250,6 @@
       "PASS  per-marketplace sale counts identical — before={\"AMAZON\":289,\"BM\":58,\"EBAY\":132,\"ONBUY\":15} after={\"AMAZON\":289,\"BM\":58,\"EBAY\":132,\"ONBUY\":15}",
       "PASS  every original IMEI survived the round trip — missing=0"
     ],
-    "secs": 191
+    "secs": 154
   }
 ]
