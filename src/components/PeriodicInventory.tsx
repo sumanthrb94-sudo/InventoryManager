@@ -1062,9 +1062,15 @@ export default function PeriodicInventory({ units, onNavigate }: Props) {
           {groups.map(g => (
             <div key={g.id}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
-                {/* Preserve supplier-name casing (MHL, NIHAL); series labels
-                    keep the capitalize treatment. */}
-                <div style={{ fontSize: 13, fontFamily: 'system-ui', textTransform: viewMode === 'supplier' ? 'none' : 'capitalize', color: g.color.bg, fontWeight: 800, minWidth: 120, flexShrink: 0, letterSpacing: '-0.02em' }}>
+                {/* No text-transform. Every label reaching here is already
+                    cased the way it should read — supplier names as the
+                    supplier writes them (MHL, NIHAL), series labels straight
+                    out of SERIES_GROUPS. `capitalize` uppercases the first
+                    letter of each word without lowering the rest, so it
+                    turned "Apple iPhones" into "Apple IPhones" and
+                    "Apple iPads" into "Apple IPads" on the operator's own
+                    stock screen. */}
+                <div style={{ fontSize: 13, fontFamily: 'system-ui', color: g.color.bg, fontWeight: 800, minWidth: 120, flexShrink: 0, letterSpacing: '-0.02em' }}>
                   {g.label}
                 </div>
                 <div style={{ flex: 1, height: 1, background: `${g.color.bg}30` }} />

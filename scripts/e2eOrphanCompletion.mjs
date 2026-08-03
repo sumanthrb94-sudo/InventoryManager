@@ -112,10 +112,13 @@ function writeOrphanFixture(path) {
   XLSX.writeFile(wb, path);
 }
 
+/** Module-scoped so the catch at the foot can close it — see the note there. */
+let browser;
+
 async function run() {
   const browsersRoot = process.env.PLAYWRIGHT_BROWSERS_PATH || '/opt/pw-browsers';
   const chromeDir = readdirSync(browsersRoot).find(d => /^chromium-\d+$/.test(d));
-  const browser = await chromium.launch({
+  browser = await chromium.launch({
     executablePath: chromeDir ? `${browsersRoot}/${chromeDir}/chrome-linux/chrome` : undefined,
   });
   const ctx = await browser.newContext({ viewport: { width: 1440, height: 1100 }, acceptDownloads: true });
@@ -164,6 +167,21 @@ async function run() {
   // existing catalog model (IPHONE 13, seeded office stock) so no new
   // catalog entry is needed.
   const auditPanel = modal(page).locator('div.border-2.border-orange-300');
+
+  // "Show only rows still needing attention" is ticked by default. The check
+  // above just established this row already reads 1 of 1 complete — the model
+  // was inferred from the SKU — so under that filter the list renders the
+  // words "All 1 rows are complete." and NO row at all. There is then no model
+  // input to click, which is exactly how this script started failing: not
+  // because overriding a model stopped working, but because the row it wanted
+  // was filtered out of view. Untick it to see every row, complete or not.
+  const showAll = auditPanel.locator('label', { hasText: /Show only rows still needing attention/i })
+    .locator('input[type="checkbox"]');
+  if (await showAll.isChecked().catch(() => false)) {
+    await showAll.uncheck();
+    await page.waitForTimeout(400);
+  }
+
   const modelInput = auditPanel.locator('input[placeholder="Search model…"]').first();
   await modelInput.click();
   await modelInput.fill('IPHONE 13');
@@ -264,4 +282,13 @@ async function run() {
   }
 }
 
-run().catch(e => { console.error(e); process.exitCode = 1; });
+// A Playwright browser left open keeps node's event loop alive, so an
+// unhandled failure here used to hang until the suite runner killed it — the
+// script was recorded as a seven-minute timeout with no result, when in truth
+// it had failed on one locator in forty seconds. Close it, and the failure
+// reports as a failure.
+run().catch(async e => {
+  console.error(e);
+  process.exitCode = 1;
+  await browser?.close().catch(() => {});
+});

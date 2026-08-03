@@ -77,8 +77,9 @@ export const DEFAULT_MARKETPLACE_FEES: Record<Marketplace, MarketplaceFee> = {
   BM: {
     marketplace: 'BM',
     // 2026-05 operator schema: Commission rate is 11% of SP (was 12% in
-    // the legacy code), plus a flat Customer Care Fees line of £9.99 per
-    // sale. No PayPal/Klarna commission any more — drop the field. No
+    // the legacy code), plus a flat Customer Care Fees line per sale (the
+    // rate is below, and was corrected in 2026-08). No PayPal/Klarna
+    // commission any more — drop the field. No
     // separate Total VAT column either: BM's only VAT line is P. VAT,
     // so totalVatNtp = MarTax − P. VAT directly. Postage default 0 —
     // operator-entered (see AMAZON comment above for why we don't
@@ -270,7 +271,7 @@ export interface SaleFinancials {
   marketing?: number;         // eBay: operator-entered marketing £
   marketingVat?: number;      // eBay: marketing * vatPct
   // BM-only: flat customer-care charge per sale.
-  customerCareFees?: number;  // BM: flat £9.99
+  customerCareFees?: number;  // BM: flat £8.99 (see DEFAULT_MARKETPLACE_FEES)
   postage: number;
   grossProfit: number;
   gpPercent: number;
@@ -509,7 +510,7 @@ export function calcSaleFinancials(input: CalcSaleFinancialsInput): SaleFinancia
       //                                                 (NOT 12% as in the
       //                                                  legacy code, NOT
       //                                                  on SP-BP)
-      //   customerCareFees = 9.99 flat                   (literal in F3)
+      //   customerCareFees = 8.99 flat                   (literal in F3)
       //   postage         = operator-entered
       //   postageVat      = postage × 20%                =G3*20%
       //   accessoryFee    = 1 flat
@@ -588,14 +589,14 @@ export function calcSaleFinancials(input: CalcSaleFinancialsInput): SaleFinancia
       //   fvf           = 0.40                          flat
       //   vat           = (commission + rof + fvf) × 20%
       //   tCom          = commission + rof + fvf + vat
-      //   postageVat    = postage × 20%
-      //   marketing     = SP × 5%                       Operator's literal cell:
-      //                                                =B3*5%  (DERIVED from SP,
-      //                                                not operator-entered;
-      //                                                callers can still
-      //                                                override via
-      //                                                input.marketing for the
-      //                                                rare hand-set spends).
+      //   postageVat    = 0 unless the file carries one. eBay's shipping is
+      //                   zero-rated to this operator — see the note at the
+      //                   assignment below.
+      //   marketing     = 0 unless the operator enters one. The master's
+      //                   Marketing cell carries no formula; it is typed, and
+      //                   is £0 on most rows. Both lines used to be derived
+      //                   (postage×20%, SP×5%) and that invented spend flowed
+      //                   straight through GP.
       //   marketingVat  = marketing × 20%
       //   totalVat      = vat + postageVat + marketingVat
       //   grossProfit   = (SP-BP) − marginalTax − tCom − postage − postageVat

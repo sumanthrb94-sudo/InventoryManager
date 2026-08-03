@@ -93,15 +93,39 @@ async function completeRemainingOrphans(page) {
     return inputs.map((el, i) => [i, (el).value]).filter(([, v]) => !v.trim()).map(([i]) => i);
   });
   const modelInputs = auditPanel.locator('input[placeholder="Search model…"]');
+
+  // ONE draft model for all 480 rows, not one per row.
+  //
+  // Two reasons, and the second is why this loop used to eat the run budget.
+  // Honesty first: these rows carry no model in the client's file, so a single
+  // clearly-named bucket describes that; 480 invented model names imply 480
+  // distinct handsets we know nothing about. Cost second: every "+ Add" writes
+  // a catalog doc, and the catalog is a prop of all 480 combo boxes on the
+  // panel — so a per-row entry re-rendered the whole panel 480 times, which is
+  // quadratic and is the bulk of the wall clock. One entry, then 479 picks off
+  // the dropdown, is what an operator does anyway.
+  const DRAFT_MODEL = 'UNRECORDED MODEL';
+  // Scoped to the open dropdown. The page-wide getByRole this replaces
+  // snapshotted the accessibility tree of a 480-row panel on every row.
+  const dropdown = page.locator('div.z-\\[9999\\]').last();
+  const addBtn = dropdown.locator('button', { hasText: /to the model catalog/i });
+  const pickBtn = dropdown.locator('button', { hasText: DRAFT_MODEL });
+
   for (const idx of blankModelIndices) {
     const input = modelInputs.nth(idx);
     await input.click();
-    await input.fill(`Reconcile Draft Model ${idx}`);
-    await page.waitForTimeout(120);
-    const addBtn = page.getByRole('button', { name: /Add ".*" to the model catalog/i }).first();
-    if (await addBtn.isVisible().catch(() => false)) {
-      await addBtn.click();
-      await page.waitForTimeout(180);
+    await input.fill(DRAFT_MODEL);
+    // Wait on the dropdown settling rather than a fixed sleep — returns as
+    // soon as it is ready, and waits longer than 120ms when the box is busy.
+    await Promise.race([
+      pickBtn.first().waitFor({ state: 'visible', timeout: 8000 }).catch(() => {}),
+      addBtn.first().waitFor({ state: 'visible', timeout: 8000 }).catch(() => {}),
+    ]);
+    if (await pickBtn.first().isVisible().catch(() => false)) {
+      await pickBtn.first().click();
+    } else if (await addBtn.first().isVisible().catch(() => false)) {
+      await addBtn.first().click();                 // the first row only
+      await page.waitForTimeout(400);               // let the catalog write land
     } else {
       await input.press('Escape');
     }
@@ -159,10 +183,16 @@ async function completeRemainingOrphans(page) {
   return { modelsFilled, badImeiOrders, suppliersFilled };
 }
 
+/** Module-scoped so the catch at the foot can close it. Left open, an
+ *  unhandled failure keeps node's event loop alive forever — which is how a
+ *  script that errored in forty seconds got recorded as a fifteen-minute
+ *  timeout with no result at all. */
+let browser;
+
 async function run() {
   const browsersRoot = process.env.PLAYWRIGHT_BROWSERS_PATH || '/opt/pw-browsers';
   const chromeDir = readdirSync(browsersRoot).find(d => /^chromium-\d+$/.test(d));
-  const browser = await chromium.launch({
+  browser = await chromium.launch({
     executablePath: chromeDir ? `${browsersRoot}/${chromeDir}/chrome-linux/chrome` : undefined,
   });
   const ctx = await browser.newContext({ viewport: { width: 1440, height: 1100 } });
@@ -224,9 +254,16 @@ async function run() {
 
   // ── Complete every orphan ──────────────────────────────────────────────
   const t0 = Date.now();
-  const { modelsFilled, badImeiOrders } = await completeRemainingOrphans(page);
+  const { modelsFilled, badImeiOrders, suppliersFilled } = await completeRemainingOrphans(page);
   const elapsedSec = ((Date.now() - t0) / 1000).toFixed(1);
-  note(`Completed ${modelsFilled} blank-model rows in ${elapsedSec}s.`);
+  note(`Completion pass took ${elapsedSec}s: ${modelsFilled} blank-model row(s)`
+     + `${modelsFilled ? ` (${(Number(elapsedSec) / modelsFilled).toFixed(2)}s each)` : ''}`
+     + `, ${suppliersFilled} blank supplier(s).`);
+  // Worth saying out loud: the model column is no longer the bottleneck. The
+  // importer infers a model from the SKU, so these rows arrive complete on
+  // that field and the blank-model pass has nothing to do. What actually held
+  // the confirm was blank SUPPLIERS — no formula can guess one, and the audit
+  // gate is right to refuse without it.
   if (badImeiOrders.length) {
     note(`DATA QUALITY — ${badImeiOrders.length} order(s) with malformed source IMEI, needs correcting at the source: ${badImeiOrders.join(', ')}`);
   }
@@ -237,10 +274,37 @@ async function run() {
   record('every orphan complete before Confirm',
     !!stillComplete && stillComplete[1] === stillComplete[2], stillComplete?.[0] ?? 'no match');
 
-  const confirmBtn = modal(page).getByRole('button', { name: /Load [\d,]+ sales?|Re-confirm/i }).last();
+  // The inventory-impact gate. This file flips one in-stock unit (the stuck
+  // 350635881777105) to sold, and Confirm stays disabled until an operator
+  // ticks the acknowledgement — completing the 480 orphans is not enough on
+  // its own. Not ticking it is why "Confirm enabled" failed: the button then
+  // reads "Complete N records to continue", the locator below never matched,
+  // isDisabled() threw into its catch, and the click that followed waited out
+  // the whole run budget. Tick it, exactly as the operator does.
+  const flipAck = modal(page)
+    .locator('label', { hasText: /fulfil & mark the \d+ units? sold/i })
+    .locator('input[type="checkbox"]');
+  if (await flipAck.isVisible().catch(() => false)) {
+    await flipAck.check({ timeout: 5000 }).catch(() => {});
+    await page.waitForTimeout(400);
+    note('Ticked the inventory-impact acknowledgement.');
+  }
+
+  // Match the DISABLED label too ("Complete N records to continue"). A
+  // locator that only knows the enabled wording turns "the button is
+  // disabled" into "there is no button", which reads as a hang, not a result.
+  const confirmBtn = modal(page)
+    .getByRole('button', { name: /Load [\d,]+ sales?|Re-confirm|Complete \d+ records? to continue/i })
+    .last();
   const disabled = await confirmBtn.isDisabled().catch(() => true);
-  record('Confirm enabled', !disabled);
-  await confirmBtn.click();
+  record('Confirm enabled', !disabled,
+    disabled ? await confirmBtn.innerText().catch(() => 'button not found') : '');
+  if (disabled) {
+    note('Confirm is disabled — skipping the click rather than waiting out the budget on it.');
+    await shot(page, 'confirm-blocked');
+  } else {
+    await confirmBtn.click({ timeout: 30_000 });
+  }
   await page.waitForTimeout(12000);
   await shot(page, 'sales-done');
   const doneText = await modal(page).innerText().catch(() => '');
@@ -274,4 +338,8 @@ async function run() {
   }
 }
 
-run().catch(e => { console.error(e); process.exitCode = 1; });
+run().catch(async e => {
+  console.error(e);
+  process.exitCode = 1;
+  await browser?.close().catch(() => {});
+});

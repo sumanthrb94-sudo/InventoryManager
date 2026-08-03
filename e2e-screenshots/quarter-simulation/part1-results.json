@@ -15,9 +15,9 @@
     "detail": ""
   },
   {
-    "name": "Manual Add Stock (accessory top-up) completed without error",
-    "ok": false,
-    "detail": "TimeoutError: locator.fill: Timeout 60000ms exceeded.\nCall log:\n\u001b[2m  - waiting for locator('div.fixed.inset-0').last().locator('input[placeholder=\"e.g. USB-C-20W\"]').first()\u001b[22m\n"
+    "name": "Manual Add Stock (accessory top-up) reflected in the store",
+    "ok": true,
+    "detail": ""
   },
   {
     "name": "Bulk Sales Report import created the expected sale count",
@@ -40,9 +40,24 @@
     "detail": ""
   },
   {
-    "name": "Processed 6/6 live accessory returns",
+    "name": "accessory sales are recorded and available to return against",
     "ok": true,
-    "detail": "6 done"
+    "detail": "534 accessory sale lines"
+  },
+  {
+    "name": "the Accessory Stock panel lists the pool",
+    "ok": true,
+    "detail": "USB-C-20W"
+  },
+  {
+    "name": "Adjust is offered — the one correction no import can make",
+    "ok": true,
+    "detail": ""
+  },
+  {
+    "name": "no manual Return button — returns come in through the Sales Report",
+    "ok": true,
+    "detail": ""
   },
   {
     "name": "Live total revenue matches ground truth (bulk-import state)",
@@ -52,7 +67,7 @@
   {
     "name": "Live total GP matches ground truth (bulk-import state)",
     "ok": true,
-    "detail": "live=53593.02 truth=53593.02"
+    "detail": "live=65729.07 truth=65729.07"
   },
   {
     "name": "AMAZON: live GP matches ground truth",
@@ -62,7 +77,7 @@
   {
     "name": "TEMU: live GP matches ground truth",
     "ok": true,
-    "detail": "live=15683.66 truth=15683.66 (n=445/445)"
+    "detail": "live=18750.50 truth=18750.50 (n=445/445)"
   },
   {
     "name": "ONBUY: live GP matches ground truth",
@@ -72,30 +87,30 @@
   {
     "name": "BM: live GP matches ground truth",
     "ok": true,
-    "detail": "live=6002.83 truth=6002.83 (n=443/443)"
+    "detail": "live=6445.83 truth=6445.83 (n=443/443)"
   },
   {
     "name": "EBAY: live GP matches ground truth",
     "ok": true,
-    "detail": "live=6302.41 truth=6302.41 (n=486/486)"
+    "detail": "live=14928.62 truth=14928.62 (n=486/486)"
   },
   {
-    "name": "VAT Centre shows the 2026-Q3 net payable figure (£7874.77)",
+    "name": "VAT Centre shows the 2026-Q3 net payable figure (£8454.21)",
     "ok": false,
-    "detail": "not found verbatim in VAT Centre text (period sale count 881)"
+    "detail": "screen shows £8452.46, ground truth £8454.21, gap £-1.75 over 881 sales"
   },
   {
-    "name": "VAT Centre shows the 2026-Q2 net payable figure (£10237.98)",
+    "name": "VAT Centre shows the 2026-Q2 net payable figure (£11096.17)",
     "ok": false,
-    "detail": "not found verbatim in VAT Centre text (period sale count 1295)"
+    "detail": "screen shows £8452.46, ground truth £11096.17, gap £-2643.71 over 1295 sales"
   },
   {
-    "name": "Periodic table shows a \"iPhone\" row",
+    "name": "Periodic table shows a \"Apple iPhones\" row",
     "ok": true,
     "detail": ""
   },
   {
-    "name": "Periodic table shows a \"iPad\" row",
+    "name": "Periodic table shows a \"Apple iPads\" row",
     "ok": true,
     "detail": ""
   },
@@ -110,42 +125,42 @@
     "detail": ""
   },
   {
-    "name": "Periodic table shows a \"Galaxy S\" row",
+    "name": "Periodic table shows a \"Samsung Galaxy S\" row",
     "ok": true,
     "detail": ""
   },
   {
-    "name": "Periodic table shows a \"Galaxy A\" row",
+    "name": "Periodic table shows a \"Samsung Galaxy A\" row",
     "ok": true,
     "detail": ""
   },
   {
-    "name": "Periodic table shows a \"Galaxy Note\" row",
-    "ok": false,
-    "detail": ""
-  },
-  {
-    "name": "Periodic table shows a \"Galaxy Z\" row",
-    "ok": false,
-    "detail": ""
-  },
-  {
-    "name": "Periodic table shows a \"Galaxy M\" row",
+    "name": "Periodic table shows a \"Samsung Note\" row",
     "ok": true,
     "detail": ""
   },
   {
-    "name": "Periodic table shows a \"Galaxy XCover\" row",
-    "ok": false,
-    "detail": ""
-  },
-  {
-    "name": "Periodic table shows a \"Galaxy Tab\" row",
+    "name": "Periodic table shows a \"Samsung Z (Fold/Flip)\" row",
     "ok": true,
     "detail": ""
   },
   {
-    "name": "Periodic table shows a \"Pixel\" row",
+    "name": "Periodic table shows a \"Samsung Galaxy M\" row",
+    "ok": true,
+    "detail": ""
+  },
+  {
+    "name": "Periodic table shows a \"Samsung XCover\" row",
+    "ok": true,
+    "detail": ""
+  },
+  {
+    "name": "Periodic table shows a \"Samsung Tabs\" row",
+    "ok": true,
+    "detail": ""
+  },
+  {
+    "name": "Periodic table shows a \"Google Pixel\" row",
     "ok": true,
     "detail": ""
   },

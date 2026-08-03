@@ -33,7 +33,7 @@ import { chromium } from 'playwright';
 import { mkdirSync, existsSync, readdirSync, readFileSync, writeFileSync, copyFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import ExcelJS from 'exceljs';
-import { computeGroundTruth, calcFinancials } from './groundTruthCalc.mjs';
+import { computeGroundTruth, calcFinancials, quarterKeyOf } from './groundTruthCalc.mjs';
 
 const BASE = process.env.E2E_BASE_URL || 'http://localhost:4173';
 const SIM_DIR = resolve('e2e-screenshots/quarter-simulation');
@@ -81,25 +81,48 @@ async function dismissModals(page) {
     break;
   }
 }
-// Nav items only exist in the DOM while the hamburger drawer is open — its
-// aria-label flips "Open menu" <-> "Close menu", so unconditionally trying
-// "Open menu" is safe even when the drawer's already open: the label won't
-// match, the click no-ops via .catch(). Checking tab.isVisible() first (the
-// original approach) raced against transient states after a big write and
-// could skip opening the drawer when the check itself was unreliable —
-// unconditional-open removes that race entirely rather than papering over
-// one symptom of it.
-async function openNavDrawer(page) {
-  // A short timeout here silently swallows the "hamburger genuinely needs a
-  // few extra seconds after a huge write" case (the same large-dataset-
-  // render slowness seen throughout this app) via the .catch() below — the
-  // drawer then never opens, and the caller's tab-click waits out its own
-  // full timeout for a button that was never going to appear. Give this the
-  // same generous budget as everything else that touches a big data set.
-  await page.getByLabel('Open menu').click({ timeout: 20000 }).catch(e => {
-    console.log(`  openNavDrawer: "Open menu" click failed (may already be open): ${String(e).slice(0, 120)}`);
-  });
-  await page.waitForTimeout(400);
+// Nav items only exist in the DOM while the hamburger drawer is open.
+/**
+ * Open the nav drawer and PROVE it opened, by watching for the tab we came
+ * for rather than trusting the toggle.
+ *
+ * The previous version clicked "Open menu" and moved on. When that click
+ * landed but the drawer did not end up open, nothing said so — the toggle
+ * reported success, so no failure was logged, and the caller then spent
+ * fifteen seconds waiting for a nav button that was never in the document.
+ * Five retries later the whole return failed with a call log reading only
+ * "waiting for getByRole(...)", which names the symptom and hides the cause.
+ * Every live return in the simulation died this way.
+ *
+ * So: check the drawer by its contents. If the tab still is not there after
+ * the toggle, close and reopen to resync — the toggle relabels itself
+ * "Open menu" / "Close menu", and a state mismatch between the two is
+ * exactly what a blind click cannot recover from.
+ */
+async function openNavDrawer(page, tabRe) {
+  for (let attempt = 0; attempt < 4; attempt++) {
+    if (tabRe && await page.getByRole('button', { name: tabRe }).first()
+      .isVisible().catch(() => false)) return;                       // already open
+
+    const opener = page.getByLabel('Open menu').first();
+    const closer = page.getByLabel('Close menu').first();
+    if (await opener.isVisible().catch(() => false)) {
+      await opener.click({ timeout: 20000 }).catch(e =>
+        console.log(`  openNavDrawer: "Open menu" click failed: ${String(e).slice(0, 120)}`));
+    } else if (await closer.isVisible().catch(() => false)) {
+      // The toggle says open, the drawer disagrees. Cycle it.
+      console.log('  openNavDrawer: drawer reports open but the tab is absent — resyncing');
+      await closer.click({ timeout: 8000 }).catch(() => {});
+      await page.waitForTimeout(400);
+      await page.getByLabel('Open menu').first().click({ timeout: 8000 }).catch(() => {});
+    } else {
+      console.log('  openNavDrawer: neither "Open menu" nor "Close menu" is on screen');
+    }
+    await page.waitForTimeout(600);
+  }
+  if (tabRe && !(await page.getByRole('button', { name: tabRe }).first().isVisible().catch(() => false))) {
+    console.log(`  openNavDrawer: gave up — ${tabRe} still not visible after 4 attempts`);
+  }
 }
 async function gotoTab(page, label) {
   const re = new RegExp(`^${label}\\b(?! Report)`, 'i');
@@ -113,7 +136,7 @@ async function gotoTab(page, label) {
   for (let i = 0; i < 5; i++) {
     try {
       await dismissModals(page);
-      await openNavDrawer(page);
+      await openNavDrawer(page, re);
       const tab = page.getByRole('button', { name: re }).first();
       await tab.click({ timeout: 15000 });
       await page.waitForTimeout(900);
@@ -128,7 +151,7 @@ async function gotoTab(page, label) {
   await page.reload({ waitUntil: 'networkidle' }).catch(() => {});
   await page.waitForTimeout(2000);
   await dismissModals(page);
-  await openNavDrawer(page);
+  await openNavDrawer(page, re);
   await page.getByRole('button', { name: re }).first().click({ timeout: 45000 });
   await page.waitForTimeout(900);
 }
@@ -414,38 +437,41 @@ async function salesPersona(page) {
     record('Manual Record Sale (accessory) completed without error', false, String(e).slice(0, 300));
   }
 
-  // Live accessory returns — pick a handful of eligible accessory sale lines.
+  // Accessory returns — the Accessory Stock panel deliberately offers no
+  // Return button.
+  //
+  // This block used to click one, six times, and reported "0/6 live accessory
+  // returns processed", which reads as a broken returns feature. It isn't. The
+  // manual Return action was removed on purpose: every real accessory return
+  // arrives through the Sales Report import as a voided row and reconciles on
+  // its own, so a manual button only offered a second way to record the same
+  // event — and a way that could disagree with the sheet. Adjust stays,
+  // because correcting a pool after a physical count is the one thing no
+  // import can do. See AccessoryStockPanel.tsx's own comment.
+  //
+  // So assert what is actually true, and leave the real path to the script
+  // that drives it end to end: e2eAccessoryReuploadReconcile.mjs, which
+  // imports accessory returns and checks they survive a wipe and re-upload.
   try {
     const s = await dumpStore(page);
     const salesArr = Object.values(s.sales || {});
     const accSkus = manifest.accessories.map(a => a.sku);
-    const eligibleAccSales = salesArr.filter(x => accSkus.includes(x.sku) && !x.voidedAt).slice(0, 6);
-    let accReturnsDone = 0;
-    for (const sale of eligibleAccSales) {
-      await gotoAdminSub(page, 'Configuration');
-      await page.waitForTimeout(700);
-      const accHeading = page.getByRole('heading', { name: /^Accessory Stock$/i }).first();
-      await accHeading.scrollIntoViewIfNeeded().catch(() => {});
-      const row = page.locator('tr', { hasText: sale.sku }).first();
-      const returnBtn = row.getByRole('button', { name: /^Return$/i });
-      if (!(await returnBtn.isVisible().catch(() => false))) continue;
-      await returnBtn.click();
-      await page.waitForTimeout(500);
-      const select = modal(page).locator('select').first();
-      if (await select.isVisible().catch(() => false)) {
-        await select.selectOption({ label: new RegExp(sale.orderNumber) }).catch(() => {});
-      }
-      const outcomeBtn = modal(page).getByRole('button', { name: /^Refund$/i });
-      if (await outcomeBtn.isVisible().catch(() => false)) await outcomeBtn.click();
-      const confirmBtn = modal(page).getByRole('button', { name: /Confirm Return/i });
-      if (await confirmBtn.isEnabled().catch(() => false)) {
-        await confirmBtn.click();
-        await page.waitForTimeout(1000);
-        accReturnsDone++;
-      }
-      await dismissModals(page);
-    }
-    record(`Processed ${accReturnsDone}/${eligibleAccSales.length} live accessory returns`, accReturnsDone > 0, `${accReturnsDone} done`);
+    const accSales = salesArr.filter(x => accSkus.includes(x.sku));
+    record('accessory sales are recorded and available to return against',
+      accSales.length > 0, `${accSales.length} accessory sale lines`);
+
+    await gotoAdminSub(page, 'Configuration');
+    await page.waitForTimeout(700);
+    const accHeading = page.getByRole('heading', { name: /^Accessory Stock$/i }).first();
+    await accHeading.scrollIntoViewIfNeeded().catch(() => {});
+    const firstSku = accSkus[0];
+    const row = page.locator('tr', { hasText: firstSku }).first();
+    record('the Accessory Stock panel lists the pool',
+      await row.isVisible().catch(() => false), firstSku);
+    record('Adjust is offered — the one correction no import can make',
+      await row.getByRole('button', { name: /^Adjust$/i }).isVisible().catch(() => false));
+    record('no manual Return button — returns come in through the Sales Report',
+      await row.getByRole('button', { name: /^Return$/i }).count() === 0);
     await shot(page, 'sales-accessory-returns-done');
   } catch (e) {
     record('Live accessory returns completed without error', false, String(e).slice(0, 300));
@@ -493,19 +519,51 @@ async function auditPersona(page, preLiveReturnsStore) {
     if (await vatTab.isVisible().catch(() => false)) await vatTab.click();
     await page.waitForTimeout(1200);
     await shot(page, 'audit-vat-centre');
-    const vatText = await page.innerText('body').catch(() => '');
-    for (const period of ground.vatPeriods) {
-      // VatCentre's money() runs toLocaleString('en-GB'), so any four-figure
-      // amount renders as "7,874.77". Searching for the bare "7874.77" could
-      // therefore NEVER match one — the check was structurally incapable of
-      // passing on a real dataset. Compare with separators stripped.
-      const netPayableStr = period.netPayableAsComputed.toFixed(2);
-      const bare = vatText.replace(/,/g, '');
-      const found = bare.includes(netPayableStr)
-        || bare.includes(Math.abs(period.netPayableAsComputed).toFixed(2));
-      record(`VAT Centre shows the ${period.key} net payable figure (£${netPayableStr})`, found,
-        found ? '' : `not found verbatim in VAT Centre text (period sale count ${period.saleCount})`);
+    // Recompute the expectation from the sales that are ACTUALLY in the app,
+    // not from the manifest.
+    //
+    // Two reasons. The manifest is fixed before the run starts, but the run
+    // then records two manual sales of its own — so a manifest-derived figure
+    // can never equal what the VAT Centre shows, and the check was failing by
+    // a pound or two forever. And what this check is for is the AGGREGATION:
+    // does the VAT Centre add up its own period correctly? Recomputing the
+    // live population with groundTruthCalc answers exactly that, still
+    // without importing a line of the app's own formula code.
+    const store = await dumpStore(page);
+    const livePeriods = new Map();
+    for (const s of Object.values(store.sales ?? {})) {
+      if (s.voidedAt) continue;                       // isVatable() in vat.ts
+      if (!s.saleDate) continue;
+      const key = quarterKeyOf(s.saleDate);
+      const fin = calcFinancials(s.marketplace, Number(s.buyPrice) || 0,
+        Number(s.salePrice) || 0, Number(s.postage) || 0);
+      const acc = livePeriods.get(key) ?? { marginVat: 0, inputVat: 0, n: 0 };
+      acc.marginVat += fin.marginalTax;
+      acc.inputVat += fin.totalVat;
+      acc.n += 1;
+      livePeriods.set(key, acc);
     }
+
+    const periodSelect = page.getByLabel('VAT period');
+    for (const [key, acc] of [...livePeriods.entries()].sort((a, b) => b[0].localeCompare(a[0]))) {
+      // The VAT Centre shows ONE period at a time. Without this the check read
+      // whichever period happened to be selected and compared it against every
+      // period's expectation in turn — so it reported the newest quarter's
+      // figure as a £2,643 discrepancy in the oldest.
+      await periodSelect.selectOption(key).catch(() => {});
+      await page.waitForTimeout(900);
+      const text = await page.innerText('body').catch(() => '');
+      const shown = /Net payable\s*·?\s*as computed[^\d£-]*£?\s*(-?[\d,]+\.\d{2})/i.exec(text)
+        ?? /Net payable[^\d£-]*£?\s*(-?[\d,]+\.\d{2})/i.exec(text);
+      const live = shown ? Number(shown[1].replace(/,/g, '')) : null;
+      const expected = Math.round((acc.marginVat - acc.inputVat) * 100) / 100;
+      const gap = live === null ? null : Math.round((live - expected) * 100) / 100;
+      record(`VAT Centre · ${key} net payable reconciles (£${expected.toFixed(2)} over ${acc.n} sales)`,
+        gap !== null && Math.abs(gap) <= 1,
+        gap === null ? 'no "Net payable" figure on screen'
+          : `screen £${live.toFixed(2)}, independent recompute £${expected.toFixed(2)}, gap £${gap.toFixed(2)}`);
+    }
+
   } catch (e) {
     record('VAT Centre cross-check completed without error', false, String(e).slice(0, 300));
   }

@@ -8,22 +8,34 @@
  * against this independent copy, rather than the check trivially agreeing
  * with itself.
  *
- * Formulas current as of this session (src/lib/platforms.ts DEFAULT_MARKETPLACE_FEES
- * + calcSaleFinancials, each verified against the live function's output):
+ * Keeping the two in step is NOT left to whoever edits the schedule next.
+ * src/__tests__/lib/groundTruthParity.test.ts calls both implementations over
+ * a grid of prices and fails naming the marketplace and the field the moment
+ * they disagree. That guard exists because this file went stale by three fee
+ * changes and the simulation then reported live-versus-truth GP mismatches on
+ * Back Market, eBay and Temu — which reads exactly like a calculation defect
+ * in the software, and was not one. Independence is worth keeping; silent
+ * drift is not.
+ *
+ * Formulas current as of 2026-08 (src/lib/platforms.ts DEFAULT_MARKETPLACE_FEES
+ * + calcSaleFinancials):
  *   AMAZON: commission = SP*7%, marginalTax = (SP-BP)*16.67%, C.VAT/DSF/DSF.VAT
  *           chain off commission, totalVat = C.VAT+DSF.VAT+P.VAT, accessoryFee=£1
- *   BM:     commission = SP*11%, customerCareFees = £9.99 flat, NO PayPal/Klarna
+ *   BM:     commission = SP*11%, customerCareFees = £8.99 flat, NO PayPal/Klarna
  *           adjustment (intentionally dropped in the 2026-05 schema rewrite —
  *           see platforms.ts's own comment "No PayPal/Klarna commission any
  *           more — drop the field"), totalVat = P.VAT only, accessoryFee=£1
  *   EBAY:   commission = SP*6.21%, rof = SP*0.35%, fvf = £0.40 flat,
- *           marketing = SP*5% (unless overridden), totalVat = VAT+P.VAT+M.VAT,
+ *           marketing = £0 unless the operator enters one, P.VAT = £0 unless
+ *           the file carries one (eBay shipping is zero-rated to this
+ *           operator — the master's P. VAT column reads 0 on all 33 rows
+ *           despite £4.65 of postage), totalVat = VAT+P.VAT+M.VAT,
  *           gpPercent divides by SP (not BP), accessoryFee=£1
  *   ONBUY:  commission = SP*7%, vat20 = commission*20%, totalVat = vat20+P.VAT,
  *           no Quantity column at all, accessoryFee=£1
- *   TEMU:   commission = SP*7% (fallback only), marginalTax = (SP-BP)*16.67%,
- *           totalVat = P.VAT only (Commission VAT tracked but excluded),
- *           no DSF at all, accessoryFee=£1
+ *   TEMU:   commission = SP*4.61% (fallback only — the master's own
+ *           =H2*4.61%), marginalTax = (SP-BP)*16.67%, totalVat = P.VAT only
+ *           (Commission VAT tracked but excluded), no DSF, accessoryFee=£1
  * All 5 marketplaces: postage defaults to £0 unless the file supplies one
  * (this simulation's generated files carry no Postage column, so every
  * sale uses the £0 default — confirmed via getMarketplaceFee's own comments).
@@ -49,7 +61,7 @@ export function calcFinancials(marketplace, bp, sp, postage = 0) {
     }
     case 'TEMU': {
       const marginalTax = spMinusBp * 16.67 / 100;
-      const commission = sp * 7 / 100; // fallback rate (no per-row override in this sim)
+      const commission = sp * 4.61 / 100; // fallback rate (no per-row override in this sim)
       const postageVat = postage * 0.20;
       const accessoryFee = 1;
       const totalVat = postageVat; // commission VAT excluded from totalVat/GP
@@ -59,7 +71,7 @@ export function calcFinancials(marketplace, bp, sp, postage = 0) {
     case 'BM': {
       const marginalTax = spMinusBp * 16.67 / 100;
       const commission = sp * 11 / 100;
-      const customerCareFees = 9.99;
+      const customerCareFees = 8.99;
       const postageVat = postage * 0.20;
       const accessoryFee = 1;
       const totalVat = postageVat; // BM's only VAT line
@@ -73,8 +85,12 @@ export function calcFinancials(marketplace, bp, sp, postage = 0) {
       const fvf = 0.40;
       const vat = (commission + rof + fvf) * 0.20;
       const tCom = commission + rof + fvf + vat;
-      const postageVat = postage * 0.20;
-      const marketing = sp * 0.05;
+      // eBay alone does not derive either of these. Postage is zero-rated to
+      // this operator and marketing is a hand-typed spend, £0 on most rows —
+      // deriving them charged £0.93 and ~£2.80 of GP against every eBay sale
+      // that never incurred them.
+      const postageVat = 0;
+      const marketing = 0;
       const marketingVat = marketing * 0.20;
       const accessoryFee = 1;
       const totalVat = vat + postageVat + marketingVat;
