@@ -294,8 +294,14 @@ async function run() {
   const salesP1 = Object.values(afterPhase1.sales ?? {}).filter(s => !s.voidedAt || true);
   note(`Phase 1 store: ${unitsP1.length} inventory units, ${salesP1.length} sale docs.`);
   record('every parsed sale landed as a real Sale doc', salesP1.length >= (orphanCount ?? 0), `sales=${salesP1.length} orphans=${orphanCount}`);
-  record('a real unit exists for every orphan (units == orphans, all fresh)',
-    unitsP1.length === orphanCount, `units=${unitsP1.length} orphans=${orphanCount}`);
+  // Orphan completion creates one SOLD unit per orphan. It does not touch
+  // whatever was already on the shelf, so comparing the total unit count to
+  // the orphan count is off by however much stock survived the wipe — here 5.
+  // Count the units the orphans actually produced.
+  const soldUnitsP1 = unitsP1.filter(u => u.status === 'sold');
+  record('a real unit exists for every orphan (one sold unit per orphan)',
+    soldUnitsP1.length === orphanCount,
+    `sold units=${soldUnitsP1.length} orphans=${orphanCount} (total units=${unitsP1.length})`);
 
   // ═══════════════════════════════════════════════════════════════════════
   // Phase 2 — download the app's own Inventory Report + Sales Report
@@ -312,9 +318,27 @@ async function run() {
 
   const invWb = new ExcelJS.Workbook();
   await invWb.xlsx.readFile(invPath);
+  // worksheets[0] is "Office Stock", and that sheet is STOCK ON HAND — BuySheet
+  // filters to status 'available' and drops anything sold. The 481 units the
+  // orphans created are all sold, so they are correctly absent. Comparing this
+  // to every unit ever created compares two different populations and can only
+  // ever agree when nothing has sold.
+  //
+  // Worth stating plainly because it is a real property of the product, not
+  // just of this test: the Inventory Report is a stock-on-hand listing, NOT a
+  // full unit archive. Re-uploading it does not bring sold units back.
   const invSheet = invWb.worksheets[0];
   const invRowCount = invSheet.rowCount - 1;
-  record('downloaded Inventory Report row count matches Phase 1 unit count', invRowCount === unitsP1.length, `report=${invRowCount} store=${unitsP1.length}`);
+  // Mirrors BuySheet's buildOfficeReportRows filter EXACTLY, both clauses.
+  // Dropping the second would count a unit that is sold AND flagged
+  // returned_to_inventory, which the app excludes — a one-unit drift that
+  // only appears once a returned unit is re-sold.
+  const inStockP1 = unitsP1.filter(u =>
+    (u.status === 'available' || u.returnType === 'returned_to_inventory')
+    && u.status !== 'sold');
+  record('downloaded Inventory Report lists exactly the stock on hand',
+    invRowCount === inStockP1.length,
+    `report=${invRowCount} in-stock=${inStockP1.length} (of ${unitsP1.length} units total)`);
 
   // ═══════════════════════════════════════════════════════════════════════
   // Phase 3 — wipe again, re-upload BOTH downloaded files
@@ -338,8 +362,11 @@ async function run() {
 
   const afterInv = await dumpStore(page);
   const unitsAfterInv = Object.values(afterInv.inventoryUnits ?? {});
-  record('Inventory Report reupload recreated the same unit count', unitsAfterInv.length === unitsP1.length,
-    `reuploaded=${unitsAfterInv.length} original=${unitsP1.length}`);
+  // It restores what the file contained, which is the stock on hand — not the
+  // sold units, which were never in the file.
+  record('Inventory Report reupload restores the stock it listed',
+    unitsAfterInv.length === inStockP1.length,
+    `reuploaded=${unitsAfterInv.length} in-stock in file=${inStockP1.length}`);
 
   await gotoTab(page, 'Inventory');
   await openImportMenu(page);
@@ -350,9 +377,19 @@ async function run() {
   await shot(page, 'phase3-sales-preview');
 
   const reuploadPreviewText = await modal(page).innerText().catch(() => '');
-  const noOrphansThisTime = !/sold record.*need.*completing/i.test(reuploadPreviewText);
-  record('ZERO orphans on reupload — Inventory Report supplied every IMEI match', noOrphansThisTime,
-    noOrphansThisTime ? 'no completion panel shown' : (reuploadPreviewText.match(/\d+ sold record[^\n]*/i)?.[0] ?? ''));
+  // The old assertion here expected ZERO orphans, on the theory that the
+  // Inventory Report had supplied every IMEI. It cannot: the report lists stock
+  // on hand, and every sold IMEI is by definition not on hand. So the sold
+  // records re-import as orphans again — correctly — and the honest check is
+  // that the count is the one we can predict, not that it is zero.
+  // [\d,]+ with the separators stripped — the panel writes thousands as
+  // "1,481", and \d+ would capture just the "1".
+  const reOrphans = Number(
+    ((reuploadPreviewText.match(/([\d,]+)\s*sold records? need completing/i) ?? [])[1] ?? '0')
+      .replace(/,/g, ''));
+  record('reupload re-orphans exactly the sold records, which the stock file cannot contain',
+    reOrphans === (orphanCount ?? 0),
+    `orphans on reupload=${reOrphans} sold records=${orphanCount}`);
 
   const reuploadConfirm = modal(page).getByRole('button', { name: /Load [\d,]+ sales?|Re-confirm/i }).last();
   await reuploadConfirm.click();
