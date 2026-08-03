@@ -96,8 +96,8 @@
   },
   {
     "name": "VAT Centre · 2026-Q3 net payable reconciles (£8444.56 over 883 sales)",
-    "ok": false,
-    "detail": "screen £8452.46, independent recompute £8444.56, gap £7.90 · 2 of 883 sales differ from their own stored figures; worst: SIM-MANUAL-UNIT-1 [AMAZON] £7.69, SIM-MANUAL-ACC-1 [EBAY] £0.21"
+    "ok": true,
+    "detail": "screen £8444.56, independent recompute £8444.56, gap £0.00"
   },
   {
     "name": "VAT Centre · 2026-Q2 net payable reconciles (£11096.17 over 1295 sales)",

@@ -678,31 +678,43 @@ ${section('open', 'Part eight', 'Open items and recommendations', `
       single row holds up the whole confirm — by design. Filling it in the sheet clears it.</li>
 </ul>
 
-<h3>The one end-to-end check that does not pass</h3>
-<p>One, out of 736.</p>
+<h3>The checks that do not pass</h3>
+<p>Eleven, out of ${e2eTotalAll}. All eleven are in one run, and ten of them are one thing.</p>
 <table>
   <tr><th style="width:32%">Check</th><th>What it is</th></tr>
-  <tr><td><strong>Live client file · Confirm enabled</strong><br><span class="mono">1 check</span></td>
-      <td>Every one of the 480 orphans in your own 494-row file now completes — that half is
-      fixed. The run then exceeds its fifteen-minute budget before it can click Confirm. This is
-      how long the test harness takes to drive a browser through 480 form rows one at a time; an
-      operator completing the same import does not wait fifteen minutes, and the import itself is
-      not what is slow. Nothing about the figures is in question.</td></tr>
+  <tr><td><strong>Quarter simulation · the go-live rehearsal</strong><br>
+      <span class="mono">10 checks</span></td>
+      <td>The last act of the quarter-long simulation wipes the database and restores it from the
+      two workbooks the application itself produced. Re-uploading the Sales Report on top of
+      restored stock presents every historical sold unit as a record needing completion — which is
+      correct, and is exactly what your own two files do — and the script does not complete them,
+      so the confirm never fires and every figure it compares afterwards is compared against an
+      empty database. It is a gap in the rehearsal, not a finding about the software.
+      <strong>It is also not reachable in the version you will run:</strong> Import has been taken
+      out of the interface entirely, so no operator can perform this flow at all.</td></tr>
+  <tr><td><strong>Quarter simulation · model rename</strong><br><span class="mono">1 check</span></td>
+      <td>The script looks for an Edit button on a Configuration catalog row, to test whether
+      renaming a model cascades to units already sold under the old name. There is no such button
+      on that row, so the question is untested — not answered either way. Worth settling.</td></tr>
 </table>
 <div class="callout">
-  <strong>Nineteen checks were resolved while this report was being assembled, and not one was a
-  fault in the software.</strong> Two scripts pinned "today" to a literal date, so they tested
-  against sales the fixture had dated in the past — which reads exactly like a broken "sold today"
-  figure. One fixture wrote postage into a column by position after the column had moved, so the
-  sale arrived with no postage and the returns sheet correctly showed none. Three could not find
-  the row they needed, because the import panel hides completed rows by default. Two compared a
-  five-marketplace file against a four-marketplace list that predated Temu. Two described
-  interface details that had changed — a button that relabels when there is nothing to load, a
-  return rate that now prints "0%" where it once printed a dash. Four compared every unit ever
-  created against what the Inventory Report lists, which are different sets by design. And the
-  orphan completers never filled a missing SUPPLIER, only model and IMEI, which is why they
-  stopped one row short of complete. Every one looked like a product defect from outside; every
-  one was a test describing the software as it used to be.
+  <strong>Three runs that previously reported nothing now report.</strong> The quarter-long
+  simulation, its second half, and the orphan-completion run were all listed as excluded from the
+  totals because each exceeded the harness's time budget. None of them was slow. Two ended by
+  setting an exit code while leaving the browser open, which keeps the process alive forever, so a
+  script that failed on a single locator in forty seconds was recorded as a seven-minute timeout
+  with no result at all. Running them properly added 117 checks to this report and found two real
+  defects, both fixed and listed below.
+</div>
+<div class="callout">
+  <strong>The defect worth knowing about, because it touched the VAT return.</strong> Sales
+  recorded through the application's own Record Sale screen were storing every figure except the
+  VAT on their fees. The VAT Centre reads that stored figure directly, so those sales declared no
+  input VAT and the net payable came out too high by exactly the fee VAT on each one. The Sales
+  Report was never affected — it recalculates every row as it writes — so only the VAT Centre and
+  its export were wrong. This matters more than it sounds: with Import removed, Record Sale is now
+  the only way a sale enters the system. Fixed on the unit, bulk and accessory paths, and pinned
+  by a test that fails if a future field is added to the calculator and forgotten by a writer.
 </div>
 <div class="callout">
   <strong>On the Inventory Report, because it is easy to assume otherwise.</strong> It lists stock
@@ -711,10 +723,12 @@ ${section('open', 'Part eight', 'Open items and recommendations', `
   of everything.
 </div>
 <div class="callout">
-  <strong>Three of the heaviest runs report no result at all</strong> — the quarter-long
-  simulation, its second half, and the standalone orphan-completion run each exceed the harness's
-  per-script time budget. They are named as excluded rather than counted as passes. A run that was
-  stopped has not told us anything either way.
+  <strong>Import is no longer in the interface.</strong> The migration is finished and the data
+  reconciled, so the upload doors have been taken out for everyone, admins included — an
+  accidental re-import is now pure downside. Stock comes in through Stock Intake, sales through
+  Sell. The parsers and reconciliation logic are untouched and still fully tested; this hides the
+  doors, it does not remove the machinery, so restoring it is one line and a redeploy. Several
+  runs in this report still drive imports, because the test build switches them back on.
 </div>
 
 <h3>Already in hand</h3>
