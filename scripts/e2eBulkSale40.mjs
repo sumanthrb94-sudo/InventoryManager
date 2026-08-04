@@ -201,41 +201,74 @@ async function openBulkSaleModal(page) {
   await page.waitForTimeout(500);
 }
 
-async function addLineViaPicker(page, { scope, search }) {
-  const m = modal(page);
-  await m.getByRole('button', { name: /^Add Sale$/i }).click();
-  await page.waitForTimeout(400);
-  const picker = page.locator('div.fixed.inset-0').last();
-  if (scope !== 'office') {
-    await picker.getByRole('button', { name: new RegExp(`^${scope === 'shs' ? 'SHS' : 'Accessories'} ·`, 'i') }).click();
-    await page.waitForTimeout(200);
-  }
-  await picker.locator('input[type="text"]').fill(search);
-  await page.waitForTimeout(300);
-  // First (and only, given unique search text) result row.
-  try {
-    await picker.locator('div.flex-1.overflow-y-auto button').first().click({ timeout: 8000 });
-  } catch (err) {
-    await page.screenshot({ path: `${OUT}/DEBUG-picker-fail-${scope}-${search}.png`.replace(/[^a-zA-Z0-9._/-]/g, '_'), fullPage: true });
-    const text = await picker.innerText().catch(e => 'ERR:' + e.message);
-    console.log(`DEBUG picker fail (scope=${scope} search=${search}). fixed.inset-0 count=${await page.locator('div.fixed.inset-0').count()}. picker text:\n${text}`);
-    throw err;
-  }
-  await page.waitForTimeout(300);
-}
-
+/**
+ * Add a row and fill it, the way the grid works now.
+ *
+ * Mark Multiple Sold is a spreadsheet since the operator asked for one: type
+ * into the Model cell to search STOCK, pick the model, then pick which handset
+ * from the IMEI dropdown beside it. Supplier and BP come with the unit — the
+ * grid shows them, it does not let you type them, because a hand-typed BP
+ * would disagree with the buy record.
+ */
 const PLATFORM_LABEL = { AMAZON: 'Amazon', BM: 'Back Market', EBAY: 'eBay', ONBUY: 'OnBuy', TEMU: 'Temu' };
 
-async function fillLastLine(page, { marketplace, orderNumber, price, imei }) {
+/** Every row currently in the grid. */
+const gridRows = (page) => modal(page).locator('tbody tr');
+
+async function addRow(page, { search, kind }) {
   const m = modal(page);
-  const line = m.locator('div.rounded-2xl.overflow-hidden').last();
-  await line.getByRole('button', { name: new RegExp(`^${PLATFORM_LABEL[marketplace]}$`) }).click();
-  await page.waitForTimeout(150);
-  await line.locator('input[placeholder="e.g. 01-14475-65087"]').fill(orderNumber);
-  await line.locator('input[placeholder="0.00"]').fill(String(price));
-  if (imei !== undefined) {
-    await line.locator('input[placeholder="Enter IMEI / serial"]').fill(imei);
+  // The first row exists from the start; every one after it needs adding.
+  const before = await gridRows(page).count();
+  const filled = await m.locator('input[aria-label="Model"]')
+    .evaluateAll(els => els.filter(e => e.value.trim()).length);
+  if (filled >= before) {
+    await m.getByRole('button', { name: /^Add row$/i }).click();
+    await page.waitForTimeout(200);
   }
+  const row = gridRows(page).last();
+  await row.locator('input[aria-label="Model"]').fill(search);
+  await page.waitForTimeout(350);
+  // Pick by the suggestion's own kind tag rather than by position. Office and
+  // SHS stock can share a model name, so "the first hit" silently picked the
+  // wrong kind — and the row then rendered the wrong cells, which surfaced 30
+  // seconds later as an unrelated timeout instead of as "wrong option".
+  // A plain string, so Playwright does a case-insensitive substring match. A
+  // regex with \b anchors does NOT work here: the option's textContent runs
+  // its spans together ("…20 in stockSTOCK"), so there is no word boundary
+  // after the tag to anchor against.
+  const wanted = { office: 'stock', shs: 'SHS', accessory: 'pool' }[kind];
+  const all = page.locator('div.z-\\[9999\\] button');
+  const tagged = all.filter({ hasText: wanted });
+  if (!(await tagged.count())) {
+    throw new Error(
+      `no ${wanted} suggestion for "${search}" — got: ${(await all.allInnerTexts()).join(' | ')}`);
+  }
+  await tagged.first().click({ timeout: 8000 });
+  await page.waitForTimeout(250);
+  return row;
+}
+
+async function fillRow(page, row, { marketplace, orderNumber, price, imei, unitImei }) {
+  // Cells are addressed by aria-label, never by position. Positional lookup
+  // was wrong in both directions: the IMEI <select> only exists for an office
+  // unit, so "the first select" was Marketplace on some rows and IMEI on
+  // others; and Postage's placeholder is the marketplace autofill, which is
+  // "0.00" on some tariffs and so collided with the SP cell.
+  await row.getByLabel('Marketplace').selectOption(marketplace);
+  await page.waitForTimeout(120);
+  if (unitImei) {
+    // Choose the exact handset among that model's units.
+    const imeiSelect = row.locator('select[aria-label="IMEI"]');
+    if (await imeiSelect.count() > 0) {
+      await imeiSelect.selectOption({ label: new RegExp(unitImei) }).catch(() => {});
+    }
+  }
+  if (imei !== undefined) {
+    await row.locator('input[aria-label="IMEI"]').fill(imei);
+  }
+  await row.getByLabel('Order number').fill(orderNumber);
+  await row.getByLabel('Sale price').fill(String(price));
+  await page.waitForTimeout(120);
 }
 
 async function runBatch(page, batchIndex, batch) {
@@ -244,26 +277,34 @@ async function runBatch(page, batchIndex, batch) {
   const nextPlatform = () => PLATFORMS[(mp++) % PLATFORMS.length];
 
   for (const u of batch.office) {
-    await addLineViaPicker(page, { scope: 'office', search: u.imei });
-    await fillLastLine(page, {
+    const row = await addRow(page, { search: u.model, kind: 'office' });
+    await fillRow(page, row, {
       marketplace: nextPlatform(),
       orderNumber: `BULK-OFF-${u.id.slice(-2)}`,
       price: Math.round(u.buyPrice * 1.5),
+      unitImei: u.imei,
     });
   }
   for (const u of batch.shs) {
+    // Search the unique supplier tag, NOT the model. Every SHS unit here is an
+    // "IPHONE 12", the same model as the office stock, so searching the model
+    // returns both and the first hit is the office unit — which already has an
+    // IMEI, so the row renders an IMEI <select> and the batch never stamps one.
+    // The per-unit supplier names exist precisely to be searchable; see
+    // SHS_SUPPLIERS above.
     const tag = u.supplierName.match(/BULKSHS\d+/)[0];
-    await addLineViaPicker(page, { scope: 'shs', search: tag });
-    await fillLastLine(page, {
+    const row = await addRow(page, { search: tag, kind: 'shs' });
+    await fillRow(page, row, {
       marketplace: nextPlatform(),
       orderNumber: `BULK-SHS-${u.id.slice(-2)}`,
       price: Math.round(u.buyPrice * 1.5),
       imei: `888000000${pad(Number(u.id.slice(-2)), 6)}`,
+      unitImei: u.imei || undefined,
     });
   }
   for (const a of batch.accessory) {
-    await addLineViaPicker(page, { scope: 'accessory', search: a.sku });
-    await fillLastLine(page, {
+    const row = await addRow(page, { search: a.name || a.sku, kind: 'accessory' });
+    await fillRow(page, row, {
       marketplace: nextPlatform(),
       orderNumber: `BULK-ACC-${a.sku.slice(-2)}`,
       price: Math.round(a.buyPrice * 2),
@@ -277,13 +318,16 @@ async function runBatch(page, batchIndex, batch) {
   await confirmBtn.click();
   await page.waitForTimeout(1200);
 
-  const summaryText = await m.locator('h3').first().textContent();
-  const match = summaryText?.match(/(\d+) of (\d+) sales recorded/);
-  const ok = !!match && match[1] === match[2] && match[2] === '10';
-  record(`batch ${batchIndex}: all 10 sales recorded`, ok, summaryText || '');
+  const summaryText = await m.innerText();
+  const match = summaryText.match(/(\d+)\s*sold/i);
+  const ok = !!match && match[1] === '10' && !/failed/i.test(summaryText);
+  record(`batch ${batchIndex}: all 10 sales recorded`, ok,
+    (summaryText.match(/\d+ sold[^\n]*/i) ?? [])[0] || summaryText.slice(0, 120));
   await shot(page, `batch${batchIndex}-summary`);
 
-  await m.getByRole('button', { name: /^Done$/i }).click();
+  // Two things are named "Close": the header's X (aria-label) and the done
+  // screen's own button. Take the last, which is the footer button.
+  await m.getByRole('button', { name: /^Close$/i }).last().click();
   await page.waitForTimeout(600);
 }
 

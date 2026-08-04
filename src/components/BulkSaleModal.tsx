@@ -1,543 +1,598 @@
 /**
- * BulkSaleModal — "Mark Multiple Sold": record several sales (office units,
- * SHS units, and/or accessory pools, in any mix) in one sitting.
+ * BulkSaleModal — "Mark Multiple Sold", as a spreadsheet.
  *
- * Flow: tap "+ Add Sale" to open the same Office/SHS/Accessory picker
- * SellOrderModal's single-sale entry point uses (SellUnitPicker, exported
- * from SellSheet.tsx), pick a unit or accessory, fill in its per-line form
- * — same fields, same platform-button grid, same postage/VAT/payment-mode
- * controls as the single "Record Sale" flow (SellOrderModal /
- * AccessorySaleModal) — repeat, then hit "Confirm N Sales" once.
+ * The operator sells in batches and thinks in rows, so this is a grid with the
+ * Sales Report's columns rather than a stack of per-sale cards. Type into a
+ * row and it fills itself in:
  *
- * Each line still goes through recordSale()/recordAccessorySale() via
- * recordBulkSales() — the SAME calcSaleFinancials math and unit status-flip
- * logic as a single sale, just looped. This modal only owns the batch UI;
- * one completion summary here replaces per-line reporting entirely.
+ *   Model ▾  →  searches STOCK, not a catalog. Picking one narrows the IMEI
+ *               dropdown beside it to the handsets you actually hold.
+ *   IMEI ▾   →  choosing the handset brings its Supplier and BP with it. They
+ *               are shown, not typed: BP is what the unit was bought for, and
+ *               a hand-typed one would disagree with the buy record.
+ *   SP, Postage, Order Number  →  yours to fill.
+ *   SP-BP, Marginal Tax, Commission, Total VAT, GP, GP %  →  computed live by
+ *               calcSaleFinancials, the same function behind every other sale.
+ *
+ * A row can only sell a handset that is in stock. That is what makes the grid
+ * safe: it cannot invent a unit, so stock and the reports cannot drift apart.
+ * Accessory pools appear in the same Model dropdown and become quantity rows.
+ *
+ * Every line still goes through recordBulkSales(), so a sale entered here is
+ * the same write as one recorded singly — same fees, same VAT lines, same
+ * audit trail — and lands on its marketplace tab in the Sales Report as usual.
  */
-import { useState, useMemo, type Key } from 'react';
-import {
-  X, Plus, CheckCircle2, Trash2, ShoppingCart, Truck, Tag, Minus, Package, ChevronRight,
-} from 'lucide-react';
-import { motion, AnimatePresence } from 'motion/react';
+import { useState, useMemo, useRef, useEffect, useLayoutEffect, type Key, type ReactNode } from 'react';
+import { X, Plus, CheckCircle2, Trash2, Truck, Package, Tag, Loader2 } from 'lucide-react';
 import type { InventoryUnit, AccessoryStock, Marketplace } from '../types';
-import { useIsAdmin } from '../lib/useIsAdmin';
-import { calcSaleFinancials, getMarketplaceFee } from '../lib/platforms';
+import { calcSaleFinancials } from '../lib/platforms';
 import { recordBulkSales, type BulkSaleLine, type BulkSaleLineResult } from '../services/salesService';
-import {
-  ACTIVE_PLATFORMS, PLATFORM_META, BM_PAYMENT_MODES, POSTAGE_PRESETS, SalePLBreakdown,
-} from './SellOrderModal';
-import { SellUnitPicker } from './SellSheet';
+import { ACTIVE_PLATFORMS, PLATFORM_META, BM_PAYMENT_MODES } from './SellOrderModal';
 
 const today = () => new Date().toISOString().split('T')[0];
 
-// Same UI-only autofill table SellOrderModal/AccessorySaleModal use — not
-// part of calcSaleFinancials, just what the postage dropdown defaults to
-// before the operator picks/types a value.
+/** What the postage cell starts at per marketplace. UI convenience only —
+ *  calcSaleFinancials defaults postage to 0 and takes what it is given. */
 const UI_AUTOFILL_POSTAGE: Record<Marketplace, number> = {
   AMAZON: 6.30, BM: 6.30, ONBUY: 6.30, EBAY: 0, TEMU: 6.30,
 };
 
-type DraftLine =
-  | {
-      key: string;
-      kind: 'unit';
-      unit: InventoryUnit;
-      isSHS: boolean;
-      imei: string;
-      sku: string;
-      marketplace: Marketplace;
-      orderNumber: string;
-      salePrice: string;
-      saleDate: string;
-      postageInput: string;
-      postageOther: boolean;
-      postageVatExempt: boolean;
-      paymentMode: string;
-    }
-  | {
-      key: string;
-      kind: 'accessory';
-      accessory: AccessoryStock;
-      quantity: number;
-      marketplace: Marketplace;
-      orderNumber: string;
-      salePrice: string;
-      saleDate: string;
-      postageInput: string;
-      postageOther: boolean;
-      postageVatExempt: boolean;
-      paymentMode: string;
-    };
+// ── What a row can be selling ──────────────────────────────────────────────
 
-let draftKeySeq = 0;
-const nextKey = () => `draft-${++draftKeySeq}`;
+type Pick =
+  | { kind: 'unit'; unit: InventoryUnit; isSHS: boolean }
+  | { kind: 'accessory'; accessory: AccessoryStock };
 
-function newUnitDraft(u: InventoryUnit, isSHS: boolean): DraftLine {
-  return {
-    key: nextKey(), kind: 'unit', unit: u, isSHS,
-    imei: (u.imei || '').trim(), sku: u.sku || '',
-    marketplace: 'EBAY', orderNumber: '', salePrice: '', saleDate: today(),
-    postageInput: '', postageOther: false, postageVatExempt: false, paymentMode: '',
-  };
+interface Row {
+  key: string;
+  pick?: Pick;
+  /** Typed only when the picked SHS unit has no IMEI on file yet — the
+   *  service refuses to sell one without stamping it first, same as the
+   *  single-sale flow. */
+  imei: string;
+  /** Text in the Model cell while the operator is searching. */
+  query: string;
+  marketplace: Marketplace;
+  orderNumber: string;
+  quantity: string;
+  salePrice: string;
+  postage: string;
+  paymentMode: string;
+  saleDate: string;
 }
-function newAccessoryDraft(a: AccessoryStock): DraftLine {
-  return {
-    key: nextKey(), kind: 'accessory', accessory: a, quantity: 1,
-    marketplace: 'EBAY', orderNumber: '', salePrice: '', saleDate: today(),
-    postageInput: '', postageOther: false, postageVatExempt: false, paymentMode: '',
-  };
+
+let seq = 0;
+const blankRow = (): Row => ({
+  key: `r${++seq}`, query: '', imei: '', marketplace: 'EBAY', orderNumber: '',
+  quantity: '1', salePrice: '', postage: '', paymentMode: '', saleDate: today(),
+});
+
+/** One entry in the Model dropdown: a model you hold, or an accessory pool. */
+interface ModelOption {
+  id: string;
+  label: string;
+  detail: string;
+  /** Everything the Model cell matches against, lowercased — model, supplier
+   *  and SKU, so the operator can find a line by any of them. */
+  search: string;
+  kind: 'unit' | 'accessory';
+  units?: InventoryUnit[];
+  isSHS?: boolean;
+  accessory?: AccessoryStock;
 }
+
+const money = (n: number | undefined): string =>
+  n === undefined || Number.isNaN(n) ? '' : n.toFixed(2);
 
 interface Props {
-  units: InventoryUnit[];      // sellable office stock (status === 'available')
-  shsUnits: InventoryUnit[];   // sellable SHS units (status === 'incoming')
+  units: InventoryUnit[];      // sellable office stock
+  shsUnits: InventoryUnit[];   // sellable SHS units
   accessoryStock: AccessoryStock[];
   supplierMap: Record<string, string>;
   onClose: () => void;
   onSaved?: () => void;
 }
 
-export default function BulkSaleModal({ units, shsUnits, accessoryStock, supplierMap, onClose, onSaved }: Props) {
-  const isAdminUser = useIsAdmin();
-  const [lines, setLines] = useState<DraftLine[]>([]);
-  const [pickerOpen, setPickerOpen] = useState(false);
+export default function BulkSaleModal({
+  units, shsUnits, accessoryStock, supplierMap, onClose, onSaved,
+}: Props) {
+  const [rows, setRows] = useState<Row[]>([blankRow()]);
   const [saving, setSaving] = useState(false);
-  const [summary, setSummary] = useState<BulkSaleLineResult[] | null>(null);
+  const [results, setResults] = useState<BulkSaleLineResult[] | null>(null);
+  const [openPicker, setOpenPicker] = useState<string | null>(null);
 
-  // Already-picked units/accessories shouldn't reappear in the picker —
-  // otherwise the operator could add the same phone to the batch twice.
-  const pickedUnitIds = useMemo(
-    () => new Set(lines.filter(l => l.kind === 'unit').map(l => (l as any).unit.id as string)),
-    [lines],
-  );
-  const pickedSkus = useMemo(
-    () => new Set(lines.filter(l => l.kind === 'accessory').map(l => (l as any).accessory.sku as string)),
-    [lines],
-  );
-  const pickerUnits = useMemo(() => units.filter(u => !pickedUnitIds.has(u.id)), [units, pickedUnitIds]);
-  const pickerShs = useMemo(() => shsUnits.filter(u => !pickedUnitIds.has(u.id)), [shsUnits, pickedUnitIds]);
-  const pickerAccessories = useMemo(() => accessoryStock.filter(a => !pickedSkus.has(a.sku)), [accessoryStock, pickedSkus]);
+  // ── The stock, grouped the way the dropdown offers it ────────────────────
+  const options = useMemo<ModelOption[]>(() => {
+    type Bucket = ModelOption & { suppliers: Set<string>; skus: Set<string> };
+    const byModel = new Map<string, Bucket>();
+    const add = (u: InventoryUnit, isSHS: boolean) => {
+      const label = (u.model || u.sku || 'Unknown model').trim();
+      const id = `${isSHS ? 'shs' : 'off'}::${label.toUpperCase()}`;
+      let hit = byModel.get(id);
+      if (!hit) {
+        hit = { id, label, detail: '', search: '', kind: 'unit', units: [], isSHS,
+                suppliers: new Set(), skus: new Set() };
+        byModel.set(id, hit);
+      }
+      hit.units!.push(u);
+      const supplier = u.supplierName || (u.supplierId ? supplierMap[u.supplierId] : '');
+      if (supplier) hit.suppliers.add(supplier);
+      if (u.sku) hit.skus.add(u.sku);
+    };
+    for (const u of units) add(u, false);
+    for (const u of shsUnits) add(u, true);
 
-  const addUnitLine = (u: InventoryUnit, isSHS: boolean) => {
-    setLines(ls => [...ls, newUnitDraft(u, isSHS)]);
-    setPickerOpen(false);
-  };
-  const addAccessoryLine = (a: AccessoryStock) => {
-    setLines(ls => [...ls, newAccessoryDraft(a)]);
-    setPickerOpen(false);
-  };
-  const removeLine = (key: string) => setLines(ls => ls.filter(l => l.key !== key));
-  const patchLine = (key: string, patch: Partial<DraftLine>) =>
-    setLines(ls => ls.map(l => (l.key === key ? { ...l, ...patch } as DraftLine : l)));
-
-  const lineIsValid = (l: DraftLine): boolean => {
-    if (!l.marketplace || !l.orderNumber.trim()) return false;
-    const sp = Number(l.salePrice);
-    if (!Number.isFinite(sp) || sp <= 0) return false;
-    if (l.kind === 'unit' && l.isSHS && !l.imei.trim()) return false;
-    if (l.kind === 'accessory' && !(l.quantity > 0)) return false;
-    return true;
-  };
-  const allValid = lines.length > 0 && lines.every(lineIsValid);
-
-  const effectivePostage = (l: DraftLine): number => {
-    const defaultPostage = UI_AUTOFILL_POSTAGE[l.marketplace] || getMarketplaceFee(l.marketplace).postage;
-    return l.postageInput.trim() !== '' ? (Number(l.postageInput) || defaultPostage) : defaultPostage;
-  };
-
-  const handleConfirm = async () => {
-    if (!isAdminUser || !allValid || saving) return;
-    setSaving(true);
-
-    const batch: BulkSaleLine[] = lines.map(l => l.kind === 'unit'
-      ? {
-          kind: 'unit', unit: l.unit, isSHS: l.isSHS, imei: l.imei.trim() || undefined,
-          marketplace: l.marketplace, orderNumber: l.orderNumber.trim(),
-          salePrice: Number(l.salePrice), saleDate: l.saleDate,
-          sku: l.sku.trim() || undefined,
-          paymentMode: l.marketplace === 'BM' ? (l.paymentMode || undefined) : undefined,
-          postageOverride: effectivePostage(l),
-          postageVatExempt: l.postageVatExempt,
-        }
-      : {
-          kind: 'accessory', sku: l.accessory.sku, quantity: l.quantity,
-          marketplace: l.marketplace, orderNumber: l.orderNumber.trim(),
-          salePrice: Number(l.salePrice), saleDate: l.saleDate,
-          paymentMode: l.marketplace === 'BM' ? (l.paymentMode || undefined) : undefined,
-          postageOverride: effectivePostage(l),
-          postageVatExempt: l.postageVatExempt,
-        });
-
-    try {
-      const result = await recordBulkSales(batch);
-      setSummary(result.results);
-      if (result.failed === 0 && onSaved) onSaved();
-    } finally {
-      setSaving(false);
+    const list: ModelOption[] = [...byModel.values()].map(({ suppliers, skus, ...o }) => {
+      // Office and SHS stock of the SAME model are two separate entries that
+      // read identically without this — naming the supplier is what tells the
+      // operator which line they are about to sell off.
+      const only = suppliers.size === 1 ? [...suppliers][0] : '';
+      return {
+        ...o,
+        detail: `${o.units!.length} in ${o.isSHS ? 'SHS' : 'stock'}${only ? ` · ${only}` : ''}`,
+        // Searchable by supplier and SKU as well as model, matching how the
+        // single-sale SellSheet picker behaves. Searching the model alone
+        // cannot separate two same-model groups from different suppliers.
+        search: [o.label, ...suppliers, ...skus].join(' ').toLowerCase(),
+      };
+    });
+    for (const a of accessoryStock) {
+      if ((a.quantity ?? 0) <= 0) continue;
+      list.push({
+        id: `acc::${a.id}`, label: a.name || a.sku, detail: `${a.quantity} in pool`,
+        search: [a.name, a.sku, a.supplierName].filter(Boolean).join(' ').toLowerCase(),
+        kind: 'accessory', accessory: a,
+      });
     }
+    return list.sort((x, y) => x.label.localeCompare(y.label));
+  }, [units, shsUnits, accessoryStock, supplierMap]);
+
+  /** Units already spoken for by another row — a handset sells once. */
+  const claimed = useMemo(() => {
+    const s = new Set<string>();
+    for (const r of rows) if (r.pick?.kind === 'unit') s.add(r.pick.unit.id);
+    return s;
+  }, [rows]);
+
+  const patch = (key: string, p: Partial<Row>) =>
+    setRows(rs => rs.map(r => (r.key === key ? { ...r, ...p } : r)));
+
+  const choose = (key: string, opt: ModelOption) => {
+    setOpenPicker(null);
+    if (opt.kind === 'accessory') {
+      patch(key, { pick: { kind: 'accessory', accessory: opt.accessory! }, query: opt.label });
+      return;
+    }
+    const free = opt.units!.filter(u => !claimed.has(u.id));
+    const unit = free[0] ?? opt.units![0];
+    patch(key, { pick: { kind: 'unit', unit, isSHS: !!opt.isSHS }, query: opt.label });
   };
 
-  // ── Completion summary ─────────────────────────────────────────────────
-  if (summary) {
-    const succeeded = summary.filter(r => r.ok);
-    const failed = summary.filter(r => !r.ok);
-    return (
-      <div className="fixed inset-0 z-[70] flex items-center justify-center p-3 md:p-4 bg-black/40 backdrop-blur-sm">
-        <motion.div
-          initial={{ scale: 0.97, opacity: 0 }} animate={{ scale: 1, opacity: 1 }}
-          className="bg-white rounded-3xl w-full max-w-lg shadow-2xl flex flex-col" style={{ maxHeight: 'calc(100dvh - 24px)' }}
-        >
-          <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100">
-            <div className="flex items-center gap-3">
-              <div className={`w-9 h-9 rounded-xl flex items-center justify-center ${failed.length === 0 ? 'bg-emerald-600' : 'bg-amber-500'}`}>
-                <CheckCircle2 size={17} className="text-white" />
-              </div>
-              <div>
-                <p className="text-[9px] font-mono uppercase tracking-widest text-slate-400">Bulk sale complete</p>
-                <h3 className="text-sm font-bold">{succeeded.length} of {summary.length} sales recorded</h3>
-              </div>
+  /** The handsets of this row's model that are still free (plus its own). */
+  const siblingsFor = (r: Row): InventoryUnit[] => {
+    const pick = r.pick;
+    if (pick?.kind !== 'unit') return [];
+    const model = (pick.unit.model || pick.unit.sku || '').toUpperCase();
+    const pool = pick.isSHS ? shsUnits : units;
+    return pool.filter(u =>
+      (u.model || u.sku || '').toUpperCase() === model
+      && (!claimed.has(u.id) || u.id === pick.unit.id));
+  };
+
+  /** Live financials for a row, or undefined while it is incomplete. */
+  const figuresFor = (r: Row) => {
+    if (!r.pick) return undefined;
+    const sp = Number(r.salePrice);
+    if (!r.salePrice || Number.isNaN(sp)) return undefined;
+    const bp = r.pick.kind === 'unit'
+      ? Number(r.pick.unit.buyPrice ?? 0)
+      : Number(r.pick.accessory.buyPrice ?? 0) * (Number(r.quantity) || 1);
+    const postage = r.postage === '' ? UI_AUTOFILL_POSTAGE[r.marketplace] : Number(r.postage);
+    return calcSaleFinancials({
+      marketplace: r.marketplace,
+      buyPrice: bp,
+      salePrice: r.pick.kind === 'accessory' ? sp * (Number(r.quantity) || 1) : sp,
+      postageOverride: Number.isNaN(postage) ? 0 : postage,
+      hasPayPalKlarna: r.marketplace === 'BM' && !!r.paymentMode,
+    } as never);
+  };
+
+  /** An SHS unit with no IMEI on file cannot be sold until one is typed. */
+  const needsImei = (r: Row): boolean =>
+    r.pick?.kind === 'unit' && r.pick.isSHS && !(r.pick.unit.imei || '').trim();
+
+  const isReady = (r: Row): boolean =>
+    !!r.pick && !!r.orderNumber.trim() && !!r.salePrice && Number(r.salePrice) > 0
+    && (!needsImei(r) || !!r.imei.trim());
+
+  const ready = rows.filter(isReady);
+
+  const confirm = async () => {
+    setSaving(true);
+    const lines: BulkSaleLine[] = ready.map(r => {
+      const postage = r.postage === '' ? UI_AUTOFILL_POSTAGE[r.marketplace] : Number(r.postage);
+      const common = {
+        marketplace: r.marketplace,
+        orderNumber: r.orderNumber.trim(),
+        salePrice: Number(r.salePrice),
+        saleDate: r.saleDate,
+        paymentMode: r.paymentMode || undefined,
+        postageOverride: Number.isNaN(postage) ? undefined : postage,
+      };
+      const pick = r.pick!;
+      return pick.kind === 'unit'
+        ? { kind: 'unit', unit: pick.unit, isSHS: pick.isSHS, sku: pick.unit.sku,
+            imei: r.imei.trim() || undefined, ...common }
+        : { kind: 'accessory', sku: pick.accessory.sku, quantity: Number(r.quantity) || 1, ...common };
+    });
+    const res = await recordBulkSales(lines);
+    setResults(res.results);
+    setSaving(false);
+    onSaved?.();
+  };
+
+  // ── Cells ────────────────────────────────────────────────────────────────
+  const TH = ({ children, w, right }: { children: ReactNode; w: string; right?: boolean }) => (
+    <th className={`px-2 py-1.5 ${w} text-[9px] font-bold uppercase tracking-widest text-slate-500
+                    ${right ? 'text-right' : 'text-left'}`}>{children}</th>
+  );
+  const input = 'w-full px-1.5 py-1 text-[11px] rounded border border-transparent hover:border-slate-200 '
+    + 'focus:border-slate-900 focus:outline-none bg-transparent';
+
+  return (
+    <div className="fixed inset-0 z-[200] bg-black/50 flex items-center justify-center p-3" onClick={onClose}>
+      {/* A fixed 92vh rather than max-h: this is a sheet, so the grid needs a
+          body to type into even when only one row exists. Sizing to content
+          collapsed it to a single line. */}
+      <div className="bg-white rounded-2xl w-full max-w-[95vw] h-[92vh] flex flex-col overflow-hidden"
+           onClick={e => e.stopPropagation()}>
+
+        <div className="flex items-center justify-between px-5 py-3.5 border-b border-slate-200">
+          <div>
+            <h2 className="text-[13px] font-black uppercase tracking-tight text-slate-900">
+              Mark Multiple Sold
+            </h2>
+            <p className="text-[10px] text-slate-500 font-mono uppercase tracking-widest">
+              {results ? 'Done' : `${ready.length} of ${rows.length} rows ready`}
+            </p>
+          </div>
+          <button onClick={onClose} aria-label="Close"
+                  className="p-2 rounded-lg text-slate-400 hover:text-slate-900 hover:bg-slate-100">
+            <X size={16} />
+          </button>
+        </div>
+
+        {results ? (
+          <div className="flex-1 overflow-y-auto px-5 py-4">
+            <p className="text-[13px] font-bold text-slate-900">
+              {results.filter(r => r.ok).length} sold
+              {results.some(r => !r.ok) ? `, ${results.filter(r => !r.ok).length} failed` : ''}
+            </p>
+            <div className="mt-3 border border-slate-200 rounded-xl overflow-hidden">
+              <table className="w-full text-[11px]">
+                <tbody>
+                  {results.map((r, i) => (
+                    <tr key={i} className="border-t border-slate-100 first:border-0">
+                      <td className="px-3 py-1.5 w-8">
+                        {r.ok
+                          ? <CheckCircle2 size={13} className="text-emerald-600" />
+                          : <X size={13} className="text-rose-600" />}
+                      </td>
+                      <td className="px-3 py-1.5 font-mono">{r.label}</td>
+                      <td className="px-3 py-1.5 text-rose-800">{r.ok ? '' : (r.message || r.error)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
-            <button onClick={onClose} className="p-2 hover:bg-slate-100 rounded-xl transition-all"><X size={16} /></button>
+            <p className="mt-4 text-[11px] text-slate-600">
+              These sales are on their marketplace tabs in the Sales Report, with the fees, VAT
+              lines and GP already worked out.
+            </p>
           </div>
-          <div className="flex-1 overflow-y-auto px-6 py-4 space-y-2">
-            {summary.map((r, i) => (
-              <div key={i} className={`flex items-center justify-between gap-3 px-3 py-2 rounded-xl border text-[11px] font-mono ${
-                r.ok ? 'border-emerald-200 bg-emerald-50 text-emerald-800' : 'border-rose-200 bg-rose-50 text-rose-700'
-              }`}>
-                <span className="truncate">{r.label}</span>
-                <span className="flex-shrink-0">{r.ok ? 'Sold' : (r.message || r.error || 'Failed')}</span>
-              </div>
-            ))}
-          </div>
-          <div className="flex-shrink-0 px-6 py-4 border-t border-slate-100">
-            <button
-              onClick={onClose}
-              className="w-full py-3 bg-slate-900 text-white rounded-xl text-[10px] font-bold uppercase tracking-widest hover:bg-slate-700 transition-all"
-            >
-              Done
+        ) : (
+          <div className="flex-1 overflow-auto">
+            <table className="min-w-[92rem] w-full border-collapse">
+              <thead className="sticky top-0 bg-slate-50 border-b border-slate-200 z-10">
+                <tr>
+                  <TH w="w-8">#</TH>
+                  <TH w="w-56">Model</TH>
+                  <TH w="w-44">IMEI / Qty</TH>
+                  <TH w="w-32">Supplier</TH>
+                  <TH w="w-36">Marketplace</TH>
+                  <TH w="w-36">Order Number</TH>
+                  <TH w="w-24" right>BP £</TH>
+                  <TH w="w-24" right>SP £</TH>
+                  <TH w="w-24" right>Postage</TH>
+                  <TH w="w-24" right>SP-BP</TH>
+                  <TH w="w-24" right>Mar. Tax</TH>
+                  <TH w="w-24" right>Comm.</TH>
+                  <TH w="w-24" right>Total VAT</TH>
+                  <TH w="w-24" right>GP £</TH>
+                  <TH w="w-20" right>GP %</TH>
+                  <TH w="w-8"> </TH>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((r, i) => {
+                  const f = figuresFor(r);
+                  const sibs = siblingsFor(r);
+                  const bp = r.pick?.kind === 'unit'
+                    ? r.pick.unit.buyPrice
+                    : r.pick?.accessory.buyPrice;
+                  const supplier = r.pick?.kind === 'unit'
+                    ? (r.pick.unit.supplierName
+                       || (r.pick.unit.supplierId ? supplierMap[r.pick.unit.supplierId] : '') || '—')
+                    : (r.pick?.accessory.supplierName || '—');
+                  const matches = options.filter(o =>
+                    !r.query || o.search.includes(r.query.toLowerCase()));
+
+                  return (
+                    <tr key={r.key as Key}
+                        className={`border-b border-slate-100 ${isReady(r) ? 'bg-emerald-50/40' : ''}`}>
+                      <td className="px-2 py-1 text-[10px] font-mono text-slate-400">{i + 1}</td>
+
+                      {/* Model — searches stock */}
+                      <td className="px-1 py-1 relative">
+                        <div className="flex items-center gap-1">
+                          {r.pick?.kind === 'accessory'
+                            ? <Tag size={11} className="text-indigo-500 flex-shrink-0" />
+                            : r.pick?.kind === 'unit' && r.pick.isSHS
+                              ? <Truck size={11} className="text-amber-500 flex-shrink-0" />
+                              : <Package size={11} className="text-slate-300 flex-shrink-0" />}
+                          <input
+                            className={input}
+                            aria-label="Model"
+                            placeholder="Search stock…"
+                            value={r.query}
+                            onFocus={() => setOpenPicker(r.key)}
+                            onChange={e => { patch(r.key, { query: e.target.value, pick: undefined }); setOpenPicker(r.key); }}
+                          />
+                        </div>
+                        {openPicker === r.key && (
+                          <ModelDropdown
+                            options={matches}
+                            claimed={claimed}
+                            onPick={o => choose(r.key, o)}
+                            onDismiss={() => setOpenPicker(null)}
+                          />
+                        )}
+                      </td>
+
+                      {/* IMEI (units) or quantity (accessories) */}
+                      <td className="px-1 py-1">
+                        {r.pick?.kind === 'accessory' ? (
+                          <input type="number" min={1} className={`${input} text-right`}
+                                 aria-label="Quantity"
+                                 value={r.quantity}
+                                 onChange={e => patch(r.key, { quantity: e.target.value })} />
+                        ) : needsImei(r) ? (
+                          <input
+                            className={`${input} font-mono border-amber-300`}
+                            aria-label="IMEI"
+                            placeholder="IMEI required"
+                            value={r.imei}
+                            onChange={e => patch(r.key, { imei: e.target.value })}
+                          />
+                        ) : r.pick ? (
+                          <select
+                            className={`${input} font-mono`}
+                            aria-label="IMEI"
+                            value={r.pick.unit.id}
+                            onChange={e => {
+                              const u = sibs.find(x => x.id === e.target.value);
+                              if (u) patch(r.key, { pick: { kind: 'unit', unit: u, isSHS: (r.pick as { isSHS: boolean }).isSHS } });
+                            }}
+                          >
+                            {sibs.map(u => (
+                              <option key={u.id} value={u.id}>
+                                {u.imei || '(no IMEI)'}{u.storage ? ` · ${u.storage}` : ''}
+                              </option>
+                            ))}
+                          </select>
+                        ) : <span className="text-[10px] text-slate-300 px-1.5">—</span>}
+                      </td>
+
+                      <td className="px-2 py-1 text-[10px] text-slate-500 truncate">{supplier}</td>
+
+                      <td className="px-1 py-1">
+                        <select className={input} aria-label="Marketplace" value={r.marketplace}
+                                onChange={e => patch(r.key, { marketplace: e.target.value as Marketplace, postage: '' })}>
+                          {ACTIVE_PLATFORMS.map(m => (
+                            <option key={m} value={m}>{PLATFORM_META[m].label}</option>
+                          ))}
+                        </select>
+                        {r.marketplace === 'BM' && (
+                          <select className={`${input} text-[10px] text-slate-500`} aria-label="Payment mode"
+                                  value={r.paymentMode}
+                                  onChange={e => patch(r.key, { paymentMode: e.target.value })}>
+                            {BM_PAYMENT_MODES.map(p => (
+                              <option key={p} value={p}>{p || 'payment mode…'}</option>
+                            ))}
+                          </select>
+                        )}
+                      </td>
+
+                      <td className="px-1 py-1">
+                        <input className={`${input} font-mono`} aria-label="Order number" placeholder="order no."
+                               value={r.orderNumber}
+                               onChange={e => patch(r.key, { orderNumber: e.target.value })} />
+                      </td>
+
+                      {/* From the unit — shown, not typed. */}
+                      <td className="px-2 py-1 text-right text-[11px] font-mono text-slate-500 tabular-nums">
+                        {bp === undefined ? '' : money(Number(bp))}
+                      </td>
+
+                      <td className="px-1 py-1">
+                        <input type="number" step="0.01" className={`${input} text-right font-mono tabular-nums`}
+                               aria-label="Sale price"
+                               placeholder="0.00" value={r.salePrice}
+                               onChange={e => patch(r.key, { salePrice: e.target.value })} />
+                      </td>
+                      <td className="px-1 py-1">
+                        {/* Postage's placeholder is the marketplace's autofill, which is
+                            "0.00" on some tariffs — so it cannot be told apart from the
+                            SP cell by placeholder alone. Both carry an aria-label. */}
+                        <input type="number" step="0.01" className={`${input} text-right font-mono tabular-nums`}
+                               aria-label="Postage"
+                               placeholder={money(UI_AUTOFILL_POSTAGE[r.marketplace])}
+                               value={r.postage}
+                               onChange={e => patch(r.key, { postage: e.target.value })} />
+                      </td>
+
+                      {/* Computed — the same calculator every other sale uses. */}
+                      {[f?.spMinusBp, f?.marginalTax, f?.commission, f?.totalVat].map((v, k) => (
+                        <td key={k} className="px-2 py-1 text-right text-[11px] font-mono text-slate-500 tabular-nums">
+                          {money(v)}
+                        </td>
+                      ))}
+                      <td className={`px-2 py-1 text-right text-[11px] font-mono font-bold tabular-nums
+                                      ${(f?.grossProfit ?? 0) < 0 ? 'text-rose-700' : 'text-slate-900'}`}>
+                        {money(f?.grossProfit)}
+                      </td>
+                      <td className="px-2 py-1 text-right text-[11px] font-mono text-slate-500 tabular-nums">
+                        {money(f?.gpPercent)}
+                      </td>
+
+                      <td className="px-1 py-1">
+                        {rows.length > 1 && (
+                          <button onClick={() => setRows(rs => rs.filter(x => x.key !== r.key))}
+                                  aria-label={`Remove row ${i + 1}`}
+                                  className="p-1 text-slate-300 hover:text-rose-600">
+                            <Trash2 size={12} />
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+
+            <button onClick={() => setRows(rs => [...rs, blankRow()])}
+                    className="m-3 flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-dashed
+                               border-slate-300 text-[10px] font-bold uppercase tracking-widest
+                               text-slate-500 hover:border-slate-900 hover:text-slate-900">
+              <Plus size={12} /> Add row
             </button>
           </div>
-        </motion.div>
-      </div>
-    );
-  }
+        )}
 
-  // ── Batch builder ────────────────────────────────────────────────────────
-  return (
-    <div className="fixed inset-0 z-[70] flex items-center justify-center p-3 md:p-4 bg-black/40 backdrop-blur-sm">
-      <motion.div
-        initial={{ scale: 0.97, opacity: 0 }} animate={{ scale: 1, opacity: 1 }}
-        className="bg-white rounded-3xl w-full max-w-xl shadow-2xl flex flex-col" style={{ maxHeight: 'calc(100dvh - 24px)' }}
-      >
-        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100">
-          <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-xl bg-slate-900 text-white flex items-center justify-center"><ShoppingCart size={17} /></div>
-            <div>
-              <p className="text-[9px] font-mono uppercase tracking-widest text-slate-400">Mark multiple sold</p>
-              <h3 className="text-sm font-bold">{lines.length} sale{lines.length === 1 ? '' : 's'} pending</h3>
-            </div>
+        <div className="flex items-center justify-between gap-3 px-5 py-3 border-t border-slate-200 bg-slate-50">
+          <p className="text-[10px] text-slate-500">
+            {results
+              ? 'Recorded through the same path as a single sale.'
+              : 'Pick a model to see the handsets you hold. BP and Supplier come from the unit.'}
+          </p>
+          <div className="flex items-center gap-2">
+            {results ? (
+              <button onClick={onClose}
+                      className="px-3 py-1.5 rounded-lg bg-slate-900 text-white text-[10px] font-bold
+                                 uppercase tracking-widest hover:bg-slate-700">Close</button>
+            ) : (
+              <>
+                <button onClick={onClose}
+                        className="px-3 py-1.5 rounded-lg border border-slate-300 text-slate-600
+                                   text-[10px] font-bold uppercase tracking-widest hover:bg-white">Cancel</button>
+                <button
+                  onClick={confirm}
+                  disabled={ready.length === 0 || saving}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 text-white
+                             text-[10px] font-bold uppercase tracking-widest hover:bg-emerald-700
+                             disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  {saving ? <Loader2 size={12} className="animate-spin" /> : <CheckCircle2 size={12} />}
+                  Confirm {ready.length} {ready.length === 1 ? 'Sale' : 'Sales'}
+                </button>
+              </>
+            )}
           </div>
-          <button onClick={onClose} className="p-2 hover:bg-slate-100 rounded-xl transition-all"><X size={16} /></button>
         </div>
-
-        <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
-          {lines.length === 0 && (
-            <p className="text-center text-[11px] font-mono text-slate-400 py-10">
-              Add a unit or accessory to start the batch.
-            </p>
-          )}
-          {lines.map(l => (
-            <BulkSaleLineCard
-              key={l.key}
-              line={l}
-              defaultPostage={UI_AUTOFILL_POSTAGE[l.marketplace] || getMarketplaceFee(l.marketplace).postage}
-              onPatch={patch => patchLine(l.key, patch)}
-              onRemove={() => removeLine(l.key)}
-            />
-          ))}
-
-          <button
-            onClick={() => setPickerOpen(true)}
-            className="w-full flex items-center justify-center gap-1.5 py-2.5 rounded-xl border-2 border-dashed border-slate-200 text-slate-500 text-[10px] font-bold uppercase tracking-widest hover:border-slate-400 hover:text-slate-700 transition-all"
-          >
-            <Plus size={13} /> Add Sale
-          </button>
-        </div>
-
-        <div className="flex-shrink-0 px-6 py-4 border-t border-slate-100 flex gap-3 bg-white">
-          <button
-            onClick={onClose}
-            className="flex-1 py-3 border border-slate-200 rounded-xl text-[10px] font-bold uppercase tracking-widest text-slate-500 hover:bg-slate-50 transition-all"
-          >
-            Cancel
-          </button>
-          <button
-            onClick={handleConfirm}
-            disabled={!allValid || saving}
-            className="flex-1 py-3 text-white rounded-xl text-[10px] font-bold uppercase tracking-widest transition-all disabled:opacity-50 flex items-center justify-center gap-2 bg-slate-900 hover:bg-slate-700"
-          >
-            {saving ? 'Saving…' : <><CheckCircle2 size={13} /> Confirm {lines.length} Sale{lines.length === 1 ? '' : 's'}</>}
-          </button>
-        </div>
-
-        <AnimatePresence>
-          {pickerOpen && (
-            <SellUnitPicker
-              units={pickerUnits}
-              shsUnits={pickerShs}
-              accessoryStock={pickerAccessories}
-              supplierMap={supplierMap}
-              onClose={() => setPickerOpen(false)}
-              onPick={addUnitLine}
-              onPickAccessory={addAccessoryLine}
-              title="Add a sale to the batch"
-              subtitle="Pick a unit"
-            />
-          )}
-        </AnimatePresence>
-      </motion.div>
+      </div>
     </div>
   );
 }
 
-// ── Per-line form — mirrors SellOrderModal / AccessorySaleModal's fields ────
-// so a batch line looks and behaves exactly like the single-sale flow: the
-// same colour-coded platform grid, the same Sale Price / Postage / No P.VAT
-// / Payment Mode controls, the same live P&L breakdown once a price is typed.
-function BulkSaleLineCard({
-  line: l, defaultPostage, onPatch, onRemove,
+/** The Model cell's suggestion list — stock only, never a bare catalog. */
+function ModelDropdown({
+  options, claimed, onPick, onDismiss,
 }: {
-  key?: Key;
-  line: DraftLine;
-  defaultPostage: number;
-  onPatch: (patch: Partial<DraftLine>) => void;
-  onRemove: () => void;
+  options: ModelOption[];
+  claimed: Set<string>;
+  onPick: (o: ModelOption) => void;
+  onDismiss: () => void;
 }) {
-  const spNum = Number(l.salePrice) || 0;
-  const postageNum = Number(l.postageInput);
-  const inputIsPreset = l.postageInput !== '' && !Number.isNaN(postageNum) && POSTAGE_PRESETS.includes(postageNum);
-  const showOtherInput = l.postageOther || (l.postageInput !== '' && !inputIsPreset);
-  const effectivePostage = l.postageInput.trim() !== '' ? (Number(l.postageInput) || defaultPostage) : defaultPostage;
+  const ref = useRef<HTMLDivElement>(null);
+  // The list is positioned FIXED against the Model cell rather than absolutely
+  // inside it. Absolute positioning put it inside two clipping ancestors — the
+  // grid's `overflow-auto` and the modal's `overflow-hidden` — so on a short
+  // grid it was cut off mid-list and the stock underneath was unreachable.
+  // z-index cannot defeat a clipping ancestor; leaving the flow can.
+  const [at, setAt] = useState<{ top: number; left: number } | null>(null);
+  useLayoutEffect(() => {
+    const cell = ref.current?.parentElement;
+    if (!cell) return;
+    const place = () => {
+      const r = cell.getBoundingClientRect();
+      // Flip above the cell when there is no room below it.
+      const below = window.innerHeight - r.bottom;
+      setAt({
+        top: below < 200 ? Math.max(8, r.top - 264) : r.bottom + 4,
+        left: Math.min(r.left, window.innerWidth - 296),
+      });
+    };
+    place();
+    window.addEventListener('resize', place);
+    return () => window.removeEventListener('resize', place);
+  }, []);
 
-  const bpLineTotal = l.kind === 'unit' ? l.unit.buyPrice : (l.accessory.buyPrice || 0) * l.quantity;
-  const breakdown = spNum > 0
-    ? calcSaleFinancials({
-        marketplace: l.marketplace, buyPrice: bpLineTotal, salePrice: spNum,
-        postageOverride: effectivePostage, postageVatExempt: l.postageVatExempt,
-      })
-    : null;
+  useEffect(() => {
+    const away = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) onDismiss();
+    };
+    document.addEventListener('mousedown', away);
+    // Scrolling the grid would leave the list floating away from its cell.
+    document.addEventListener('scroll', onDismiss, true);
+    return () => {
+      document.removeEventListener('mousedown', away);
+      document.removeEventListener('scroll', onDismiss, true);
+    };
+  }, [onDismiss]);
 
   return (
-    <div className={`border rounded-2xl overflow-hidden ${l.kind === 'unit' && l.isSHS ? 'border-amber-200' : l.kind === 'accessory' ? 'border-indigo-200' : 'border-slate-200'}`}>
-      {/* Header — mirrors the single-sale modal's title block */}
-      <div className={`flex items-center justify-between gap-2 px-4 py-3 border-b ${
-        l.kind === 'accessory' ? 'bg-indigo-50 border-indigo-100' : l.kind === 'unit' && l.isSHS ? 'bg-amber-50 border-amber-100' : 'bg-slate-50 border-slate-100'
-      }`}>
-        <div className="flex items-center gap-3 min-w-0">
-          <div className={`w-8 h-8 rounded-xl flex items-center justify-center flex-shrink-0 ${
-            l.kind === 'accessory' ? 'bg-indigo-600' : l.kind === 'unit' && l.isSHS ? 'bg-amber-500' : 'bg-slate-900'
-          }`}>
-            {l.kind === 'unit' && l.isSHS ? <Truck size={15} className="text-white" /> : <Package size={15} className="text-white" />}
-          </div>
-          <div className="min-w-0">
-            <p className="text-[9px] font-mono uppercase tracking-widest text-slate-400">
-              {l.kind === 'accessory' ? 'Accessory' : l.isSHS ? 'Supplier Direct Sale' : 'Office Stock'}
-            </p>
-            <h4 className="text-[13px] font-bold truncate">{l.kind === 'unit' ? l.unit.model : l.accessory.name}</h4>
-            <p className="text-[9px] text-slate-500 font-mono truncate">
-              {l.kind === 'unit'
-                ? `${l.unit.colour}${l.unit.storage ? ` · ${l.unit.storage}` : ''} · BP £${l.unit.buyPrice}`
-                : `${l.accessory.sku} · ${l.accessory.quantity} in stock · BP £${(l.accessory.buyPrice ?? 0).toFixed(2)}/unit`}
-            </p>
-          </div>
-        </div>
-        <button onClick={onRemove} className="p-1.5 rounded-lg hover:bg-white/70 text-slate-400 hover:text-rose-600 flex-shrink-0">
-          <Trash2 size={14} />
-        </button>
+    <div ref={ref}
+         style={at ? { top: at.top, left: at.left } : { visibility: 'hidden' }}
+         className="fixed w-72 max-h-64 overflow-auto z-[9999] bg-white
+                    border border-slate-200 rounded-lg shadow-lg">
+      <div className="px-3 py-1.5 border-b border-slate-100 text-[9px] uppercase tracking-widest
+                      text-slate-500 font-mono">
+        {options.length ? `${options.length} in stock` : 'nothing in stock matches'}
       </div>
-
-      <div className="p-4 space-y-4">
-        {/* IMEI — SHS units only */}
-        {l.kind === 'unit' && l.isSHS && (
-          <div>
-            <label className="text-[9px] font-bold uppercase tracking-widest text-slate-400 block mb-1.5">
-              IMEI / Serial *
-            </label>
-            <input
-              value={l.imei}
-              onChange={e => onPatch({ imei: e.target.value })}
-              placeholder="Enter IMEI / serial"
-              className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm font-mono focus:outline-none focus:border-slate-900 transition-all"
-            />
-          </div>
-        )}
-
-        {/* Platform picker — same grid as the single-sale flow */}
-        <div>
-          <label className="text-[9px] font-bold uppercase tracking-widest text-slate-400 block mb-2">Platform *</label>
-          <div className="grid grid-cols-2 gap-2">
-            {ACTIVE_PLATFORMS.map(p => {
-              const meta = PLATFORM_META[p];
-              const active = l.marketplace === p;
-              return (
-                <button
-                  key={p}
-                  onClick={() => onPatch({ marketplace: p, postageInput: '', postageOther: false, postageVatExempt: false, paymentMode: '' })}
-                  className={`py-2.5 px-3 rounded-xl border text-[11px] font-bold transition-all flex items-center justify-between ${
-                    active ? `${meta.activeBg} text-white border-transparent` : meta.tone
-                  }`}
-                >
-                  <span>{meta.label}</span>
-                  {active ? <CheckCircle2 size={12} /> : <ChevronRight size={12} className="opacity-60" />}
-                </button>
-              );
-            })}
-          </div>
-        </div>
-
-        {/* Order Number + SKU (unit) / Quantity (accessory) */}
-        <div className="grid grid-cols-2 gap-3">
-          <div>
-            <label className="text-[9px] font-bold uppercase tracking-widest text-slate-400 block mb-1.5">Order Number *</label>
-            <input
-              value={l.orderNumber}
-              onChange={e => onPatch({ orderNumber: e.target.value })}
-              placeholder="e.g. 01-14475-65087"
-              className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm font-mono focus:outline-none focus:border-slate-900 transition-all"
-            />
-          </div>
-          {l.kind === 'unit' ? (
-            <div>
-              <label className="text-[9px] font-bold uppercase tracking-widest text-slate-400 block mb-1.5">
-                <Tag size={9} className="inline mr-1" /> SKU
-              </label>
-              <input
-                value={l.sku}
-                onChange={e => onPatch({ sku: e.target.value })}
-                placeholder="Optional"
-                className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm font-mono focus:outline-none focus:border-slate-900 transition-all"
-              />
-            </div>
-          ) : (
-            <div>
-              <label className="text-[9px] font-bold uppercase tracking-widest text-slate-400 block mb-1.5">
-                <Tag size={9} className="inline mr-1" /> Quantity *
-              </label>
-              <div className="flex items-center border border-slate-200 rounded-xl overflow-hidden">
-                <button type="button" onClick={() => onPatch({ quantity: Math.max(1, l.quantity - 1) })}
-                  className="px-2.5 py-2.5 text-slate-500 hover:bg-slate-50"><Minus size={12} /></button>
-                <input
-                  type="number" min="1" max={l.accessory.quantity || undefined} value={l.quantity}
-                  onChange={e => onPatch({ quantity: Math.max(1, parseInt(e.target.value, 10) || 1) })}
-                  className="w-full text-center text-sm font-mono focus:outline-none py-2.5"
-                />
-                <button type="button" onClick={() => onPatch({ quantity: Math.min(l.accessory.quantity || l.quantity + 1, l.quantity + 1) })}
-                  className="px-2.5 py-2.5 text-slate-500 hover:bg-slate-50"><Plus size={12} /></button>
-              </div>
-            </div>
-          )}
-        </div>
-        {l.kind === 'accessory' && l.quantity > (l.accessory.quantity ?? 0) && (
-          <p className="text-[10px] font-mono text-rose-600 -mt-2">Only {l.accessory.quantity} left in stock.</p>
-        )}
-
-        {/* Sale price — line total */}
-        <div>
-          <label className="text-[9px] font-bold uppercase tracking-widest text-slate-400 block mb-1.5">
-            Sale Price (£) *
-            {l.kind === 'accessory' && (
-              <span className="normal-case font-normal text-slate-400"> · total for {l.quantity} unit{l.quantity === 1 ? '' : 's'}</span>
-            )}
-          </label>
-          <input
-            type="number"
-            value={l.salePrice}
-            onChange={e => onPatch({ salePrice: e.target.value })}
-            placeholder="0.00"
-            min="0.01"
-            step="0.01"
-            className="w-full border border-slate-200 rounded-xl px-4 py-3 text-lg font-bold font-mono focus:outline-none focus:border-slate-900 transition-all"
-          />
-        </div>
-
-        {/* Sale Date + Postage */}
-        <div className="grid grid-cols-2 gap-3">
-          <div>
-            <label className="text-[9px] font-bold uppercase tracking-widest text-slate-400 block mb-1.5">Sale Date</label>
-            <input
-              type="date"
-              value={l.saleDate}
-              onChange={e => onPatch({ saleDate: e.target.value })}
-              className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm font-mono focus:outline-none focus:border-slate-900 transition-all"
-            />
-          </div>
-          <div>
-            <div className="flex items-center justify-between mb-1.5">
-              <label className="text-[9px] font-bold uppercase tracking-widest text-slate-400">Postage (£)</label>
-              <label className="inline-flex items-center gap-1 text-[9px] font-mono text-slate-500 cursor-pointer select-none" title="Zero-rate postage VAT for this sale">
-                <input
-                  type="checkbox"
-                  checked={l.postageVatExempt}
-                  onChange={e => onPatch({ postageVatExempt: e.target.checked })}
-                  className="h-3 w-3 rounded border-slate-300 text-slate-900 focus:ring-slate-900"
-                />
-                No P. VAT
-              </label>
-            </div>
-            <div className="space-y-1.5">
-              <select
-                value={inputIsPreset ? String(postageNum) : (showOtherInput ? '__other__' : '')}
-                onChange={e => {
-                  const v = e.target.value;
-                  if (v === '__other__') onPatch({ postageOther: true });
-                  else if (v === '') onPatch({ postageOther: false, postageInput: '' });
-                  else onPatch({ postageOther: false, postageInput: v });
-                }}
-                className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm font-mono focus:outline-none focus:border-slate-900 bg-white transition-all"
-              >
-                <option value="">Default £{defaultPostage.toFixed(2)}</option>
-                {POSTAGE_PRESETS.map(p => (
-                  <option key={p} value={String(p)}>£{p.toFixed(2)}</option>
-                ))}
-                <option value="__other__">Other…</option>
-              </select>
-              {showOtherInput && (
-                <input
-                  type="number"
-                  value={l.postageInput}
-                  onChange={e => onPatch({ postageInput: e.target.value })}
-                  placeholder="Manual postage £"
-                  min="0"
-                  step="0.01"
-                  className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm font-mono focus:outline-none focus:border-slate-900 transition-all"
-                />
-              )}
-            </div>
-          </div>
-        </div>
-
-        {/* Payment mode — BM only */}
-        {l.marketplace === 'BM' && (
-          <div>
-            <label className="text-[9px] font-bold uppercase tracking-widest text-slate-400 block mb-1.5">
-              Payment Mode <span className="normal-case font-normal text-slate-500">· drives the 2.5% Klarna/PayPal fee</span>
-            </label>
-            <select
-              value={l.paymentMode}
-              onChange={e => onPatch({ paymentMode: e.target.value })}
-              className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm font-mono focus:outline-none focus:border-slate-900 transition-all bg-white"
-            >
-              {BM_PAYMENT_MODES.map(pm => (
-                <option key={pm || '_none'} value={pm}>{pm || '(none / cash)'}</option>
-              ))}
-            </select>
-          </div>
-        )}
-
-        {breakdown && (
-          <SalePLBreakdown marketplace={l.marketplace} breakdown={breakdown} bp={bpLineTotal} sp={spNum} />
-        )}
-      </div>
+      {options.map(o => {
+        const free = o.kind === 'unit'
+          ? o.units!.filter(u => !claimed.has(u.id)).length
+          : (o.accessory!.quantity ?? 0);
+        return (
+          <button
+            key={o.id}
+            type="button"
+            disabled={free === 0}
+            onMouseDown={e => e.preventDefault()}
+            onClick={() => onPick(o)}
+            className="w-full text-left px-3 py-2 flex items-center justify-between gap-2
+                       hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            <span className="min-w-0">
+              <span className="block text-[11px] font-semibold truncate">{o.label}</span>
+              <span className="block text-[9px] font-mono text-slate-500">{o.detail}</span>
+            </span>
+            <span className="text-[9px] font-bold uppercase tracking-widest text-slate-400 flex-shrink-0">
+              {free === 0 ? 'all taken' : o.kind === 'accessory' ? 'pool' : o.isSHS ? 'SHS' : 'stock'}
+            </span>
+          </button>
+        );
+      })}
     </div>
   );
 }
