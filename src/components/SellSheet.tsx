@@ -48,6 +48,7 @@ import AccessoryStockPanel from './AccessoryStockPanel';
 import SellOrderModal from './SellOrderModal';
 import AccessorySaleModal from './AccessorySaleModal';
 import BulkSaleModal from './BulkSaleModal';
+import BulkSoldUploadModal from './BulkSoldUploadModal';
 import EnterImeiModal from './EnterImeiModal';
 import AddSoldUnitModal from './AddSoldUnitModal';
 import OrphansModal, { isOrphanSoldUnit } from './OrphanUnitsModal';
@@ -283,6 +284,7 @@ export default function SellSheet(_props: Props) {
   const [addSoldUnitSale, setAddSoldUnitSale] = useState<Sale | null>(null);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [bulkSaleOpen, setBulkSaleOpen] = useState(false);
+  const [bulkSoldUploadOpen, setBulkSoldUploadOpen] = useState(false);
   const [showSchemaHelp, setShowSchemaHelp] = useState(false);
   // ── Indexes ───────────────────────────────────────────────────────────────
   // Sellable inventory — `status='available'` plus the defensive fallback
@@ -620,6 +622,20 @@ export default function SellSheet(_props: Props) {
               <Layers size={12} /> Mark Multiple Sold
             </button>
           )}
+          {/* The same job as the button beside it, driven from a spreadsheet
+              instead of the screen — for the batches too big to tap in. It is
+              NOT the Sales Report import: it can only mark stock that already
+              exists as sold, never create a unit or restore a return, so it is
+              not gated behind SHOW_IMPORT_UI. */}
+          {isAdminUser && (
+            <button
+              onClick={() => setBulkSoldUploadOpen(true)}
+              title="Upload a filled BULK SOLD sheet to mark several units sold at once"
+              className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-white text-slate-900 border border-slate-300 text-[10px] font-bold uppercase tracking-widest hover:border-slate-500 transition-all"
+            >
+              <FileSpreadsheet size={12} /> Mark Sold from Sheet
+            </button>
+          )}
           {isAdminUser && orphanCount > 0 && (
             <button
               onClick={() => setOrphanModalOpen(true)}
@@ -937,6 +953,9 @@ export default function SellSheet(_props: Props) {
             onClose={() => setSellAccessory(null)}
             onSaved={() => setSellAccessory(null)}
           />
+        )}
+        {bulkSoldUploadOpen && (
+          <BulkSoldUploadModal onClose={() => setBulkSoldUploadOpen(false)} />
         )}
         {bulkSaleOpen && (
           <BulkSaleModal

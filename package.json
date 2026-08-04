@@ -29,7 +29,7 @@
     "review:branch": "ocr review --from main --to HEAD",
     "review:preview": "ocr delegate preview",
     "users:provision": "node scripts/create-team-users.cjs",
-    "templates": "node scripts/generateImportTemplates.mjs && npx tsx scripts/generateSalesTemplates.ts",
+    "templates": "node scripts/generateImportTemplates.mjs && npx tsx scripts/generateSalesTemplates.ts && npx tsx scripts/generateBulkSoldTemplate.ts",
     "report:client": "node scripts/buildClientReport.mjs"
   },
   "dependencies": {

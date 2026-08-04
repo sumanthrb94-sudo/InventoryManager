@@ -422,15 +422,14 @@ describe('templates served by the app match the templates under test', () => {
   });
 
   it('offers every template the UI links to, and nothing it does not', () => {
-    // Mirrors INVENTORY_TEMPLATES + SALES_TEMPLATES in
-    // src/components/TemplateDownload.tsx.
-    const linked = [
-      'INVENTORY_REPORT_TEMPLATE.xlsx', 'SHS_STOCK_TEMPLATE.xlsx', 'ACCESSORIES_TEMPLATE.xlsx',
-      'SALES_REPORT_TEMPLATE.xlsx', 'SALES_AMAZON_TEMPLATE.xlsx',
-      'SALES_BM_TEMPLATE.xlsx', 'SALES_EBAY_TEMPLATE.xlsx', 'SALES_ONBUY_TEMPLATE.xlsx',
-      'SALES_TEMU_TEMPLATE.xlsx',
-    ];
+    // Read the links out of TemplateDownload.tsx rather than keeping a second
+    // copy of them here. The copy went stale the first time a template was
+    // added, which is the whole failure mode this file exists to catch — a
+    // test that has to be hand-edited to stay true is not a guard.
+    const src = readFileSync('src/components/TemplateDownload.tsx', 'utf8');
+    const linked = [...src.matchAll(/file:\s*'([A-Z0-9_]+\.xlsx)'/g)].map(m => m[1]).sort();
+    expect(linked.length, 'no template links found — has the file moved?').toBeGreaterThan(4);
     const published = readdirSync(PUBLIC_DIR).filter(f => f.endsWith('.xlsx')).sort();
-    expect(published).toEqual([...linked].sort());
+    expect(published).toEqual(linked);
   });
 });
