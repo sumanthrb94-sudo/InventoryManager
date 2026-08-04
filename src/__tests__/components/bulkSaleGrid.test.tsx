@@ -106,6 +106,23 @@ describe('one tab per marketplace, each showing that sheet\'s own columns', () =
     expect(headers.slice(headers.indexOf('SP-BP'), -1)).toEqual(expected);
   });
 
+  it.each([
+    ['Amazon', 'Quantity'], ['Back Market', 'Quantity'], ['eBay', 'Units'],
+    ['OnBuy', 'Qty'], ['Temu', 'Quantity'],
+  ])('%s shows IMEI and quantity as separate columns, named "%s"', (label, qty) => {
+    // They were once one "IMEI / Qty" cell. Every sheet carries IMEI on its
+    // own, and names quantity differently — eBay says Units, and OnBuy's
+    // sheet has no such column at all, so that tab labels the box "Qty"
+    // rather than claiming a column the sheet does not have.
+    open();
+    fireEvent.click(tabFor(label));
+    const headers = screen.getAllByRole('columnheader').map(h => h.textContent?.trim());
+    expect(headers).toContain('IMEI');
+    expect(headers).not.toContain('IMEI / Qty');
+    expect(headers).toContain(qty);
+    expect(headers.indexOf('IMEI')).toBeLessThan(headers.indexOf(qty));
+  });
+
   it('does not show Amazon\'s DSF lines on the eBay tab, or the reverse', () => {
     open();
     fireEvent.click(tabFor('eBay'));

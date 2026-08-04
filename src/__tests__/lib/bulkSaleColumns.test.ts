@@ -13,7 +13,7 @@
  * render an empty cell forever without any other test noticing.
  */
 import { describe, it, expect } from 'vitest';
-import { MARKETPLACE_COLUMNS } from '../../lib/bulkSaleColumns';
+import { MARKETPLACE_COLUMNS, LEADING_COLUMNS, QUANTITY_HEADER } from '../../lib/bulkSaleColumns';
 import { SALES_HEADERS } from '../../lib/clientReport';
 import { calcSaleFinancials } from '../../lib/platforms';
 import { MARKETPLACES } from '../../types';
@@ -67,6 +67,43 @@ describe.each(MARKETPLACES)('%s', (m: Marketplace) => {
       if (!c.input) continue;
       expect(['Postage', 'Marketing'], `${m}: ${c.header} is not operator-entered`)
         .toContain(c.header);
+    }
+  });
+});
+
+describe('IMEI and quantity are separate columns, named as each sheet names them', () => {
+  it('gives IMEI its own column, on every sheet and in the grid', () => {
+    // They were once merged into one "IMEI / Qty" cell. Every sheet carries
+    // IMEI separately, so a merged cell has no column to reconcile against.
+    expect(LEADING_COLUMNS).toContain('IMEI');
+    expect(LEADING_COLUMNS).not.toContain('IMEI / Qty');
+    for (const m of MARKETPLACES) expect(headersFor(m)).toContain('IMEI');
+  });
+
+  it.each(MARKETPLACES)('%s calls its quantity column what its sheet calls it', (m: Marketplace) => {
+    const header = QUANTITY_HEADER[m];
+    if (header === null) {
+      // OnBuy genuinely has none — its headers shift one left, which is why
+      // its formulas reference different letters for the same value.
+      expect(['Quantity', 'Units'].some(h => headersFor(m).includes(h))).toBe(false);
+    } else {
+      expect(headersFor(m)).toContain(header);
+    }
+  });
+
+  it('is not just calling them all Quantity', () => {
+    expect(QUANTITY_HEADER.EBAY).toBe('Units');
+    expect(QUANTITY_HEADER.AMAZON).toBe('Quantity');
+    expect(QUANTITY_HEADER.ONBUY).toBeNull();
+  });
+
+  it('the quantity column sits between IMEI/Supplier and BP, as on the sheets', () => {
+    for (const m of MARKETPLACES) {
+      const header = QUANTITY_HEADER[m];
+      if (header === null) continue;
+      const h = headersFor(m);
+      expect(h.indexOf(header)).toBeGreaterThan(h.indexOf('IMEI'));
+      expect(h.indexOf(header)).toBeLessThan(h.indexOf('BP'));
     }
   });
 });

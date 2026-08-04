@@ -30,7 +30,12 @@ interface SeriesGroupDef {
 // Galaxy Note → Galaxy Z → Galaxy M → Galaxy XCover → Galaxy Tab → Pixel → Other.
 // New Samsung sections use distinct colour families so the legend reads at a
 // glance: Note=cyan, Z=purple, M=yellow, XCover=slate (rugged feel).
-const SERIES_GROUPS: ReadonlyArray<SeriesGroupDef> = [
+/** The rows the periodic table renders. Exported so the office-stock
+ *  reconciliation test can run against the REAL list — in particular the
+ *  'Other' catch-all at the end, which is the only thing stopping a unit
+ *  whose model matches no brand pattern from being silently left off the
+ *  table the operator counts their shelf against. */
+export const SERIES_GROUPS: ReadonlyArray<SeriesGroupDef> = [
   { id: 'iPhone',        label: 'Apple iPhones',     color: { bg: '#1d4ed8', light: '#dbeafe', text: '#1e3a8a', border: '#93c5fd' } },
   { id: 'iPad',          label: 'Apple iPads',       color: { bg: '#7c3aed', light: '#ede9fe', text: '#4c1d95', border: '#c4b5fd' } },
   { id: 'Apple Watch',   label: 'Apple Watch',       color: { bg: '#be185d', light: '#fce7f3', text: '#831843', border: '#f9a8d4' } },

@@ -36,7 +36,7 @@ import { useState, useMemo, useRef, useEffect, useLayoutEffect, type Key, type R
 import { X, Plus, CheckCircle2, Trash2, Truck, Package, Tag, Loader2, Search } from 'lucide-react';
 import type { InventoryUnit, AccessoryStock, Marketplace } from '../types';
 import { calcSaleFinancials, type SaleFinancials } from '../lib/platforms';
-import { MARKETPLACE_COLUMNS } from '../lib/bulkSaleColumns';
+import { MARKETPLACE_COLUMNS, QUANTITY_HEADER } from '../lib/bulkSaleColumns';
 import { recordBulkSales, type BulkSaleLine, type BulkSaleLineResult } from '../services/salesService';
 import { ACTIVE_PLATFORMS, PLATFORM_META, BM_PAYMENT_MODES } from './SellOrderModal';
 
@@ -368,7 +368,8 @@ export default function BulkSaleModal({
                     <TH w="w-8">#</TH>
                     <TH w="w-28">Source</TH>
                     <TH w="w-64">Model</TH>
-                    <TH w="w-44">IMEI / Qty</TH>
+                    <TH w="w-44">IMEI</TH>
+                    <TH w="w-20" right>{QUANTITY_HEADER[tab] ?? 'Qty'}</TH>
                     <TH w="w-32">Supplier</TH>
                     <TH w="w-36">Order Number</TH>
                     {tab === 'BM' && <TH w="w-32">Payment Mode</TH>}
@@ -440,14 +441,11 @@ export default function BulkSaleModal({
                           )}
                         </td>
 
-                        {/* IMEI (units) or quantity (accessories) */}
+                        {/* IMEI — its own column, as on every sheet. An
+                            accessory pool has none; a handset has one, typed
+                            only when the SHS unit has not been stamped yet. */}
                         <td className="px-1 py-1">
-                          {r.source === 'accessory' ? (
-                            <input type="number" min={1} className={`${input} text-right`}
-                                   aria-label="Quantity"
-                                   value={r.quantity}
-                                   onChange={e => patch(r.key, { quantity: e.target.value })} />
-                          ) : needsImei(r) ? (
+                          {needsImei(r) ? (
                             <input
                               className={`${input} font-mono border-amber-300`}
                               aria-label="IMEI"
@@ -460,6 +458,23 @@ export default function BulkSaleModal({
                               {r.pick.unit.imei}
                             </span>
                           ) : <span className="text-[10px] text-slate-300 px-1.5">—</span>}
+                        </td>
+
+                        {/* Quantity — typed for an accessory pool, always 1
+                            for a handset, which is why it is shown and not
+                            typed there. */}
+                        <td className="px-1 py-1">
+                          {r.source === 'accessory' ? (
+                            <input type="number" min={1} className={`${input} text-right`}
+                                   aria-label="Quantity"
+                                   value={r.quantity}
+                                   onChange={e => patch(r.key, { quantity: e.target.value })} />
+                          ) : (
+                            <span className="block px-1.5 text-right text-[11px] font-mono
+                                             text-slate-500 tabular-nums">
+                              {r.pick ? 1 : ''}
+                            </span>
+                          )}
                         </td>
 
                         <td className="px-2 py-1 text-[10px] text-slate-500 truncate">{supplier}</td>

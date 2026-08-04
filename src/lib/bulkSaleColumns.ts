@@ -131,14 +131,42 @@ export const MARKETPLACE_COLUMNS: Record<Marketplace, BulkSaleColumn[]> = {
 };
 
 /**
+ * What each sheet calls its quantity column — and whether it has one.
+ *
+ * They do not agree, and the grid follows them rather than inventing a
+ * common name: Amazon, Back Market and Temu say "Quantity", eBay says
+ * "Units", and OnBuy's sheet has no such column at all (its headers shift
+ * one left, which is why every OnBuy formula references a different letter
+ * to Amazon's for the same quantity).
+ *
+ * OnBuy still needs a quantity box for accessory lines, because an accessory
+ * sale routinely covers more than one and lands on the cross-marketplace
+ * Accessories sheet, which does carry Quantity. On that tab it is labelled
+ * "Qty" — a box that has no column on the OnBuy sheet — rather than claiming
+ * a column that is not there.
+ */
+export const QUANTITY_HEADER: Record<Marketplace, string | null> = {
+  AMAZON: 'Quantity',
+  BM: 'Quantity',
+  EBAY: 'Units',
+  ONBUY: null,
+  TEMU: 'Quantity',
+};
+
+/**
  * The columns every tab shares, before the marketplace-specific ones. These
  * are the sale's identity — who, what, which order — and the two prices the
  * whole row is derived from.
+ *
+ * IMEI and quantity are SEPARATE columns, as they are on every sheet. They
+ * were briefly merged into one "IMEI / Qty" cell on the grounds that a
+ * handset has one and an accessory the other; that saved a column and cost
+ * the correspondence with the report, which is the entire point of the tabs.
  *
  * BP is deliberately NOT typed: it comes off the unit that was picked. A
  * hand-typed buy price would disagree with the buy record, and the report
  * reconciles against that record.
  */
 export const LEADING_COLUMNS = [
-  '#', 'Source', 'Model', 'IMEI / Qty', 'Supplier', 'Order Number', 'BP', 'SP',
+  '#', 'Source', 'Model', 'IMEI', 'Supplier', 'Order Number', 'BP', 'SP',
 ] as const;
