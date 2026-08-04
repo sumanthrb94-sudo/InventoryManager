@@ -1,44 +1,55 @@
 /**
- * Mark Multiple Sold is a spreadsheet, and these are the parts of it that
- * broke silently once already.
+ * Mark Multiple Sold is the Sales Report's own sheets, as an entry grid.
  *
- * The grid's cells are addressed by aria-label. That is not decoration: the
- * row's shape CHANGES with what it is selling — an office unit gets an IMEI
- * <select>, an SHS unit with no IMEI on file gets a text input, an accessory
- * gets neither and a quantity box instead. Anything that reaches for "the
- * first <select> in the row" is therefore reading a different cell on
- * different rows, which is exactly how the 40-unit run came to spend 30
- * seconds per row filling the wrong thing before timing out.
+ * Two things here are worth pinning, and both have broken before.
  *
- * Placeholders cannot carry that contract either: the Postage cell's
- * placeholder is the marketplace's autofill amount, which is "0.00" on eBay
- * — indistinguishable from the Sale price cell.
+ * THE TABS ARE NOT DECORATION. Each marketplace's sheet is a different shape
+ * — Amazon has DSF lines, eBay has ROF/FVF/marketing, Back Market has no
+ * Total VAT column at all — and the operator reconciles a tab against that
+ * marketplace's own statement. Showing the wrong columns under a tab is a
+ * silent reconciliation error, so the tabs are asserted against
+ * MARKETPLACE_COLUMNS, which bulkSaleColumns.test.ts in turn pins to the
+ * report's own headers.
  *
- * So: every editable cell carries a stable aria-label, and each kind of row
- * offers the cells that kind actually needs. Screen readers want the same
- * thing, which is why the fix is a label rather than a test id.
+ * THE CELLS ARE ADDRESSED BY NAME. A row's shape changes with what it sells:
+ * an SHS unit with no IMEI on file gets a text box, an accessory gets a
+ * quantity, an office unit gets neither. Anything reaching for "the first
+ * input in the row" reads a different cell on different rows. Placeholders
+ * cannot carry the contract either — Postage's placeholder is the
+ * marketplace's autofill, which is "0.00" on eBay and indistinguishable from
+ * Sale price. Screen readers want the same labels, which is why the fix is
+ * aria-label rather than a test id.
  */
 // @vitest-environment jsdom
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen, within, fireEvent } from '@testing-library/react';
 import BulkSaleModal from '../../components/BulkSaleModal';
-import type { InventoryUnit, AccessoryStock } from '../../types';
+import { MARKETPLACE_COLUMNS } from '../../lib/bulkSaleColumns';
+import type { InventoryUnit, AccessoryStock, Marketplace } from '../../types';
 
 vi.mock('../../services/salesService', () => ({
-  recordBulkSales: vi.fn(async () => ({ results: [] })),
+  recordBulkSales: vi.fn(async () => ({ results: [], succeeded: 0, failed: 0 })),
 }));
 
 const unit = (over: Partial<InventoryUnit> & { id: string }): InventoryUnit => ({
   status: 'available', model: 'IPHONE 13', sku: 'IP13-128-MID', imei: '350000000000001',
-  buyPrice: 200, supplierName: 'MHL', ownerId: 'shared', createdAt: '', updatedAt: '',
+  storage: '128GB', colour: 'MIDNIGHT',
+  buyPrice: 200, supplierName: 'MOBILE WHOLESALE LTD', ownerId: 'shared',
+  createdAt: '', updatedAt: '',
   ...over,
 } as InventoryUnit);
 
-const OFFICE = [unit({ id: 'o1', imei: '350000000000001' })];
-const SHS = [unit({ id: 's1', imei: '', model: 'IPHONE 12', status: 'incoming' })];
+const OFFICE = [
+  unit({ id: 'o1', imei: '350000000000001' }),
+  unit({ id: 'o2', imei: '350000000000002', model: 'IPHONE 14', sku: 'IP14-256-PUR' }),
+];
+const SHS = [
+  unit({ id: 's1', imei: '', model: 'IPHONE 12', status: 'incoming',
+         supplierName: 'PHONEBOX DIRECT' }),
+];
 const ACCESSORIES = [{
   id: 'a1', sku: 'USB-C-20W', name: 'USB-C 20W Charger', quantity: 12,
-  buyPrice: 3.2, supplierName: 'MHL', ownerId: 'shared', createdAt: '',
+  buyPrice: 3.2, supplierName: 'MOBILE WHOLESALE LTD', ownerId: 'shared', createdAt: '',
 } as AccessoryStock];
 
 function open() {
@@ -50,88 +61,210 @@ function open() {
   );
 }
 
-/** Type into the Model cell of the last row and pick the suggestion tagged `tag`. */
-function pickInLastRow(tag: 'stock' | 'SHS' | 'pool', query: string) {
-  const rows = screen.getAllByRole('row').slice(1);       // drop the header row
-  const row = rows[rows.length - 1];
+const tabFor = (m: string) => screen.getByRole('tab', { name: new RegExp(m, 'i') });
+
+/** The stock list's own entries. Scoped to the picker's listbox on purpose:
+ *  the Source and Payment Mode <select>s render native <option> elements,
+ *  which carry the same ARIA role and would otherwise be counted as stock. */
+const stockOptions = () => {
+  const list = screen.queryByRole('listbox', { name: 'Stock' });
+  return list ? within(list).getAllByRole('option') : [];
+};
+const lastRow = () => {
+  const rows = screen.getAllByRole('row').slice(1);   // drop the header row
+  return rows[rows.length - 1];
+};
+
+/** Choose a source, search it, and take the first hit. */
+function pick(source: 'Office' | 'SHS' | 'Accessory', query: string) {
+  const row = lastRow();
+  fireEvent.change(within(row).getByLabelText('Source'), { target: { value: source.toLowerCase() } });
   fireEvent.change(within(row).getByLabelText('Model'), { target: { value: query } });
-  const option = screen.getAllByRole('button')
-    .find(b => new RegExp(tag, 'i').test(b.textContent || '')
-            && new RegExp(query, 'i').test(b.textContent || ''));
-  expect(option, `a suggestion tagged ${tag} for "${query}"`).toBeTruthy();
-  fireEvent.click(option!);
-  return row;
+  const options = stockOptions();
+  expect(options.length, `something in ${source} matching "${query}"`).toBeGreaterThan(0);
+  fireEvent.click(options[0]);
+  return lastRow();
 }
 
-describe('the grid offers one row per thing being sold', () => {
-  it('opens as a table with the money columns the operator reads across', () => {
+describe('one tab per marketplace, each showing that sheet\'s own columns', () => {
+  it('offers the five marketplaces the report has', () => {
     open();
+    const names = screen.getAllByRole('tab').map(t => t.textContent?.trim());
+    expect(names).toEqual(['Amazon', 'Back Market', 'eBay', 'OnBuy', 'Temu']);
+  });
+
+  it.each([
+    ['Amazon', 'AMAZON'], ['Back Market', 'BM'], ['eBay', 'EBAY'],
+    ['OnBuy', 'ONBUY'], ['Temu', 'TEMU'],
+  ])('%s shows exactly its own money columns', (label, key) => {
+    open();
+    fireEvent.click(tabFor(label));
     const headers = screen.getAllByRole('columnheader').map(h => h.textContent?.trim());
-    // Append-only, like the report: these are the columns the client reconciles
-    // against their own sheet, in their order.
-    expect(headers).toEqual([
-      '#', 'Model', 'IMEI / Qty', 'Supplier', 'Marketplace', 'Order Number',
-      'BP £', 'SP £', 'Postage', 'SP-BP', 'Mar. Tax', 'Comm.', 'Total VAT',
-      'GP £', 'GP %', '',
-    ]);
+    const expected = MARKETPLACE_COLUMNS[key as Marketplace].map(c => c.header);
+    // The leading identity columns are the same on every tab; everything from
+    // SP-BP onward is this marketplace's own.
+    expect(headers.slice(headers.indexOf('SP-BP'), -1)).toEqual(expected);
   });
 
-  it('lists office stock, SHS and accessory pools together, each tagged', () => {
+  it('does not show Amazon\'s DSF lines on the eBay tab, or the reverse', () => {
     open();
-    const row = screen.getAllByRole('row')[1];
-    // Focus, not change: an empty query is what the cell already holds, so a
-    // change event would not fire — and focusing is how the operator sees the
-    // whole of what they hold before typing anything.
-    fireEvent.focus(within(row).getByLabelText('Model'));
-    const text = screen.getAllByRole('button').map(b => b.textContent || '').join('\n');
-    expect(text).toMatch(/IPHONE 13[\s\S]*stock/i);
-    expect(text).toMatch(/IPHONE 12[\s\S]*SHS/i);
-    expect(text).toMatch(/USB-C 20W Charger[\s\S]*pool/i);
+    fireEvent.click(tabFor('eBay'));
+    let headers = screen.getAllByRole('columnheader').map(h => h.textContent?.trim());
+    expect(headers).toContain('ROF');
+    expect(headers).not.toContain('DSF');
+
+    fireEvent.click(tabFor('Amazon'));
+    headers = screen.getAllByRole('columnheader').map(h => h.textContent?.trim());
+    expect(headers).toContain('DSF');
+    expect(headers).not.toContain('ROF');
   });
 
-  it('finds a line by supplier, not just by model', () => {
-    // Two groups can carry the SAME model and differ only by where they came
-    // from — office stock and an SHS consignment of the same handset. Matching
-    // the model alone cannot separate them, so the operator has no way to pick
-    // the consignment they mean.
+  it('asks for a payment mode only on Back Market, which is the only one it changes', () => {
+    open();
+    fireEvent.click(tabFor('Back Market'));
+    expect(within(lastRow()).getByLabelText('Payment mode')).toBeTruthy();
+
+    fireEvent.click(tabFor('Amazon'));
+    expect(within(lastRow()).queryByLabelText('Payment mode')).toBeNull();
+  });
+
+  it('keeps each tab\'s rows to itself, and counts the ready ones on the tab', () => {
+    open();
+    const row = pick('Office', 'IPHONE 13');
+    fireEvent.change(within(row).getByLabelText('Order number'), { target: { value: 'AMZ-1' } });
+    fireEvent.change(within(row).getByLabelText('Sale price'), { target: { value: '300' } });
+    expect(tabFor('Amazon').textContent).toMatch(/1$/);
+
+    // Switching tabs lands on a fresh blank row for that marketplace, never
+    // on Amazon's row — a row belongs to the tab it was entered under.
+    fireEvent.click(tabFor('Temu'));
+    expect(within(lastRow()).queryByDisplayValue('AMZ-1')).toBeNull();
+    expect(within(lastRow()).getByLabelText('Order number'), 'somewhere to type').toBeTruthy();
+    // …and the Amazon row is still counted, and still going to be sold.
+    expect(tabFor('Amazon').textContent).toMatch(/1$/);
+    expect(screen.getByRole('button', { name: /Confirm 1 Sale/i })).toBeTruthy();
+  });
+});
+
+describe('choosing a source, then searching it', () => {
+  it('searches office stock, SHS and accessory pools separately', () => {
+    open();
+    const row = lastRow();
+    const source = within(row).getByLabelText('Source');
+    const model = within(row).getByLabelText('Model');
+
+    fireEvent.change(source, { target: { value: 'office' } });
+    fireEvent.change(model, { target: { value: 'iphone' } });
+    let text = stockOptions().map(o => o.textContent || '').join('\n');
+    expect(text).toMatch(/IPHONE 13/);
+    expect(text, 'the SHS iPhone is not office stock').not.toMatch(/IPHONE 12/);
+
+    fireEvent.change(source, { target: { value: 'shs' } });
+    fireEvent.change(model, { target: { value: 'iphone' } });
+    text = stockOptions().map(o => o.textContent || '').join('\n');
+    expect(text).toMatch(/IPHONE 12/);
+    expect(text).not.toMatch(/IPHONE 13/);
+
+    fireEvent.change(source, { target: { value: 'accessory' } });
+    fireEvent.change(model, { target: { value: 'charger' } });
+    text = stockOptions().map(o => o.textContent || '').join('\n');
+    expect(text).toMatch(/USB-C 20W Charger/);
+  });
+
+  it('finds a handset by its IMEI, not just by model', () => {
+    // An IMEI identifies ONE handset. Listing by model and making the operator
+    // hunt for the number they just typed defeats the point of typing it.
+    open();
+    const row = lastRow();
+    fireEvent.change(within(row).getByLabelText('Model'), { target: { value: '350000000000002' } });
+    const options = stockOptions();
+    expect(options).toHaveLength(1);
+    expect(options[0].textContent).toMatch(/IPHONE 14/);
+    expect(options[0].textContent).toMatch(/350000000000002/);
+  });
+
+  it('keeps the list open however long the query is', () => {
+    // The bug this pins: the list followed the cell by listening for scroll
+    // events in the capture phase and closing. Typing a query longer than the
+    // narrow Model cell scrolls the TEXT INSIDE THE INPUT, which fires exactly
+    // that event — so a 7-digit search worked and a full 15-digit IMEI, or a
+    // supplier name, silently returned nothing as the operator typed.
+    open();
+    const model = within(lastRow()).getByLabelText('Model');
+    for (const q of ['350', '3500000', '35000000000000', '350000000000002']) {
+      fireEvent.change(model, { target: { value: q } });
+      fireEvent.scroll(model);          // what a long value does by itself
+      expect(stockOptions().length, `"${q}" (${q.length} chars) still lists`)
+        .toBeGreaterThan(0);
+    }
+  });
+
+  it('finds a line by supplier and by SKU too', () => {
+    open();
+    const row = lastRow();
+    const model = within(row).getByLabelText('Model');
+
+    fireEvent.change(model, { target: { value: 'IP14-256' } });
+    expect(stockOptions()[0].textContent).toMatch(/IPHONE 14/);
+
+    fireEvent.change(within(row).getByLabelText('Source'), { target: { value: 'shs' } });
+    fireEvent.change(model, { target: { value: 'phonebox' } });
+    expect(stockOptions()[0].textContent).toMatch(/IPHONE 12/);
+  });
+
+  it('lists every handset separately, so two of a model are two choices', () => {
     render(
       <BulkSaleModal
-        units={[unit({ id: 'o1', model: 'IPHONE 12', supplierName: 'MOBILE WHOLESALE LTD' })]}
-        shsUnits={[unit({ id: 's1', model: 'IPHONE 12', imei: '', status: 'incoming',
-                          supplierName: 'PHONEBOX DIRECT' })]}
-        accessoryStock={[]} supplierMap={{}} onClose={() => {}}
+        units={[unit({ id: 'a', imei: '111111111111111' }), unit({ id: 'b', imei: '222222222222222' })]}
+        shsUnits={[]} accessoryStock={[]} supplierMap={{}} onClose={() => {}}
       />,
     );
-    const row = screen.getAllByRole('row')[1];
-    fireEvent.change(within(row).getByLabelText('Model'), { target: { value: 'phonebox' } });
+    fireEvent.change(within(lastRow()).getByLabelText('Model'), { target: { value: 'IPHONE 13' } });
+    const options = stockOptions();
+    expect(options).toHaveLength(2);
+    expect(options.map(o => o.textContent).join()).toMatch(/111111111111111[\s\S]*222222222222222/);
+  });
 
-    const hits = screen.getAllByRole('button')
-      .map(b => b.textContent || '')
-      .filter(t => /IPHONE 12/.test(t));
-    expect(hits, 'only the PHONEBOX consignment').toHaveLength(1);
-    expect(hits[0]).toMatch(/SHS/i);
-    expect(hits[0], 'and it names the supplier so they can tell').toMatch(/PHONEBOX DIRECT/i);
+  it('will not offer a handset another row already claimed', () => {
+    render(
+      <BulkSaleModal
+        units={[unit({ id: 'a', imei: '111111111111111' }), unit({ id: 'b', imei: '222222222222222' })]}
+        shsUnits={[]} accessoryStock={[]} supplierMap={{}} onClose={() => {}}
+      />,
+    );
+    pick('Office', 'IPHONE 13');                          // takes the first
+    fireEvent.click(screen.getByRole('button', { name: /Add row/i }));
+    fireEvent.change(within(lastRow()).getByLabelText('Model'), { target: { value: 'IPHONE 13' } });
+    const options = stockOptions();
+    expect(options, 'the claimed handset is gone').toHaveLength(1);
+    expect(options[0].textContent).toMatch(/222222222222222/);
+  });
+
+  it('drops the pick when the source changes, because it is a different thing', () => {
+    open();
+    const row = pick('Office', 'IPHONE 13');
+    expect(within(row).getByLabelText('Order number')).toBeTruthy();
+    fireEvent.change(within(lastRow()).getByLabelText('Source'), { target: { value: 'accessory' } });
+    // Nothing is picked, so nothing is ready to sell.
+    expect(screen.getByRole('button', { name: /Confirm 0 Sales/i })).toBeTruthy();
   });
 });
 
 describe('every editable cell is addressable by name, on every kind of row', () => {
-  // The cells that exist on ALL rows. Postage is in here deliberately: its
-  // placeholder collides with Sale price on eBay, so the label is the only
-  // thing telling them apart.
-  const ALWAYS = ['Model', 'Marketplace', 'Order number', 'Sale price', 'Postage'];
+  const ALWAYS = ['Source', 'Model', 'Order number', 'Sale price', 'Postage'];
 
-  it('an office row: shared cells, plus an IMEI picker for the handset', () => {
+  it('an office row: shared cells, and the IMEI it was picked by', () => {
     open();
-    const row = pickInLastRow('stock', 'IPHONE 13');
+    const row = pick('Office', '350000000000001');
     for (const label of ALWAYS) expect(within(row).getByLabelText(label)).toBeTruthy();
-    // The unit already has an IMEI, so the operator CHOOSES which handset
-    // rather than typing a number.
-    expect(within(row).getByLabelText('IMEI').tagName).toBe('SELECT');
+    // Shown, not typed — the handset was already identified by the search.
+    expect(within(row).queryByLabelText('IMEI')).toBeNull();
+    expect(row.textContent).toMatch(/350000000000001/);
   });
 
   it('an SHS row: the IMEI is typed, because the unit has none on file yet', () => {
     open();
-    const row = pickInLastRow('SHS', 'IPHONE 12');
+    const row = pick('SHS', 'IPHONE 12');
     for (const label of ALWAYS) expect(within(row).getByLabelText(label)).toBeTruthy();
     const imei = within(row).getByLabelText('IMEI');
     expect(imei.tagName, 'a text box, not a picker').toBe('INPUT');
@@ -140,7 +273,7 @@ describe('every editable cell is addressable by name, on every kind of row', () 
 
   it('an accessory row: a quantity, and no IMEI at all', () => {
     open();
-    const row = pickInLastRow('pool', 'USB-C 20W Charger');
+    const row = pick('Accessory', 'charger');
     for (const label of ALWAYS) expect(within(row).getByLabelText(label)).toBeTruthy();
     expect(within(row).getByLabelText('Quantity')).toBeTruthy();
     expect(within(row).queryByLabelText('IMEI'), 'a pool has no IMEI').toBeNull();
@@ -148,8 +281,8 @@ describe('every editable cell is addressable by name, on every kind of row', () 
 
   it('Sale price and Postage stay distinguishable on eBay, where both read 0.00', () => {
     open();
-    const row = pickInLastRow('stock', 'IPHONE 13');
-    fireEvent.change(within(row).getByLabelText('Marketplace'), { target: { value: 'EBAY' } });
+    fireEvent.click(tabFor('eBay'));
+    const row = pick('Office', 'IPHONE 13');
 
     const sp = within(row).getByLabelText('Sale price') as HTMLInputElement;
     const postage = within(row).getByLabelText('Postage') as HTMLInputElement;
@@ -162,31 +295,59 @@ describe('every editable cell is addressable by name, on every kind of row', () 
     expect(sp.value).toBe('350');
     expect(postage.value, 'typing SP must not land in Postage').toBe('');
   });
+
+  it('lets the operator type eBay marketing, which only eBay has', () => {
+    open();
+    fireEvent.click(tabFor('eBay'));
+    const row = pick('Office', 'IPHONE 13');
+    const marketing = within(row).getByLabelText('Marketing') as HTMLInputElement;
+    fireEvent.change(within(row).getByLabelText('Sale price'), { target: { value: '400' } });
+    fireEvent.change(marketing, { target: { value: '10' } });
+
+    // M. VAT is derived from what was just typed, so a non-zero Marketing
+    // has to move it. A decorative column would leave it at 0.00.
+    const cells = within(row).getAllByRole('cell').map(c => c.textContent?.trim());
+    expect(cells.some(c => c === '2.00'), `M. VAT off £10 marketing — got ${cells.join('|')}`)
+      .toBe(true);
+
+    fireEvent.click(tabFor('Amazon'));
+    expect(within(lastRow()).queryByLabelText('Marketing'), 'Amazon has no such column').toBeNull();
+  });
 });
 
 describe('the row calculates itself once it has a price', () => {
-  it('fills in the fee and GP columns from the sale, not from anything typed', () => {
+  it('fills the fee and GP columns from the sale, not from anything typed', () => {
     open();
-    const row = pickInLastRow('stock', 'IPHONE 13');
-    fireEvent.change(within(row).getByLabelText('Marketplace'), { target: { value: 'AMAZON' } });
+    const row = pick('Office', 'IPHONE 13');
     fireEvent.change(within(row).getByLabelText('Sale price'), { target: { value: '300' } });
 
     const cells = within(row).getAllByRole('cell').map(c => c.textContent?.trim());
     // BP comes off the unit and is shown, never typed — a hand-typed BP would
     // disagree with the buy record.
     expect(cells).toContain('200.00');
-    // GP £ is present and non-empty: the calculator ran.
-    const gp = cells[cells.length - 3];
-    expect(gp).toMatch(/^-?\d+\.\d{2}$/);
+    expect(cells).toContain('100.00');            // SP-BP
   });
 
   it('counts only the rows that are actually ready to sell', () => {
     open();
     expect(screen.getByText(/0 of 1 rows ready/i)).toBeTruthy();
 
-    const row = pickInLastRow('stock', 'IPHONE 13');
+    const row = pick('Office', 'IPHONE 13');
     fireEvent.change(within(row).getByLabelText('Order number'), { target: { value: 'AMZ-1' } });
     fireEvent.change(within(row).getByLabelText('Sale price'), { target: { value: '300' } });
     expect(screen.getByText(/1 of 1 rows ready/i)).toBeTruthy();
+  });
+
+  it('will not count an SHS row until an IMEI has been stamped on it', () => {
+    // recordBulkSales refuses an SHS unit with no IMEI, so a row that looks
+    // ready but is not would fail at the very end of a long batch.
+    open();
+    const row = pick('SHS', 'IPHONE 12');
+    fireEvent.change(within(row).getByLabelText('Order number'), { target: { value: 'AMZ-2' } });
+    fireEvent.change(within(row).getByLabelText('Sale price'), { target: { value: '300' } });
+    expect(screen.getByRole('button', { name: /Confirm 0 Sales/i })).toBeTruthy();
+
+    fireEvent.change(within(lastRow()).getByLabelText('IMEI'), { target: { value: '888000000000001' } });
+    expect(screen.getByRole('button', { name: /Confirm 1 Sale/i })).toBeTruthy();
   });
 });

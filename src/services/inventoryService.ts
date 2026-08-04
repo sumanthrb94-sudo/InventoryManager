@@ -1598,6 +1598,10 @@ export interface RecordAccessorySaleInput {
   paymentMode?: string;
   postageOverride?: number;
   postageVatExempt?: boolean;
+  /** eBay only — operator-entered promo spend for this line, mirroring
+   *  RecordSaleInput.marketing so an accessory sold on eBay carries the same
+   *  Marketing / M. VAT lines a handset does. */
+  marketing?: number;
   comments?: string;
 }
 
@@ -1672,6 +1676,7 @@ export async function recordAccessorySale(input: RecordAccessorySaleInput): Prom
     eBayShippingTier,
     hasPayPalKlarna,
     postageVatExempt: input.postageVatExempt,
+    marketing: input.marketing,
   });
 
   const saleDate = input.saleDate || today();

@@ -204,20 +204,31 @@ async function openBulkSaleModal(page) {
 /**
  * Add a row and fill it, the way the grid works now.
  *
- * Mark Multiple Sold is a spreadsheet since the operator asked for one: type
- * into the Model cell to search STOCK, pick the model, then pick which handset
- * from the IMEI dropdown beside it. Supplier and BP come with the unit — the
- * grid shows them, it does not let you type them, because a hand-typed BP
- * would disagree with the buy record.
+ * Mark Multiple Sold is the Sales Report's own sheets: one TAB per
+ * marketplace, each showing that marketplace's columns. So a row's
+ * marketplace is the tab it is entered under, not a per-row dropdown.
+ *
+ * Within a row: choose the Source (Office / SHS / Accessory), then search
+ * stock by model or IMEI and pick the individual handset. Supplier and BP
+ * come with the unit — the grid shows them, it does not let you type them,
+ * because a hand-typed BP would disagree with the buy record.
  */
 const PLATFORM_LABEL = { AMAZON: 'Amazon', BM: 'Back Market', EBAY: 'eBay', ONBUY: 'OnBuy', TEMU: 'Temu' };
 
-/** Every row currently in the grid. */
+/** Every row currently in the grid — i.e. every row on the ACTIVE tab. */
 const gridRows = (page) => modal(page).locator('tbody tr');
+
+/** Switch to a marketplace's tab. Rows entered here belong to it. */
+async function goToMarketplace(page, marketplace) {
+  await modal(page)
+    .getByRole('tab', { name: new RegExp(`^${PLATFORM_LABEL[marketplace]}`, 'i') })
+    .click();
+  await page.waitForTimeout(250);
+}
 
 async function addRow(page, { search, kind }) {
   const m = modal(page);
-  // The first row exists from the start; every one after it needs adding.
+  // Each tab starts with one blank row; every one after it needs adding.
   const before = await gridRows(page).count();
   const filled = await m.locator('input[aria-label="Model"]')
     .evaluateAll(els => els.filter(e => e.value.trim()).length);
@@ -226,43 +237,31 @@ async function addRow(page, { search, kind }) {
     await page.waitForTimeout(200);
   }
   const row = gridRows(page).last();
+
+  // Say what kind of stock this is BEFORE searching — the search only offers
+  // the chosen source, which is what stops an office handset being picked
+  // when an SHS one of the same model was meant.
+  await row.getByLabel('Source').selectOption(kind === 'office' ? 'office' : kind);
+  await page.waitForTimeout(120);
+
   await row.locator('input[aria-label="Model"]').fill(search);
   await page.waitForTimeout(350);
-  // Pick by the suggestion's own kind tag rather than by position. Office and
-  // SHS stock can share a model name, so "the first hit" silently picked the
-  // wrong kind — and the row then rendered the wrong cells, which surfaced 30
-  // seconds later as an unrelated timeout instead of as "wrong option".
-  // A plain string, so Playwright does a case-insensitive substring match. A
-  // regex with \b anchors does NOT work here: the option's textContent runs
-  // its spans together ("…20 in stockSTOCK"), so there is no word boundary
-  // after the tag to anchor against.
-  const wanted = { office: 'stock', shs: 'SHS', accessory: 'pool' }[kind];
-  const all = page.locator('div.z-\\[9999\\] button');
-  const tagged = all.filter({ hasText: wanted });
-  if (!(await tagged.count())) {
-    throw new Error(
-      `no ${wanted} suggestion for "${search}" — got: ${(await all.allInnerTexts()).join(' | ')}`);
+  const options = page.locator('div[role="listbox"] button[role="option"]');
+  if (!(await options.count())) {
+    throw new Error(`no ${kind} stock matching "${search}"`);
   }
-  await tagged.first().click({ timeout: 8000 });
+  await options.first().click({ timeout: 8000 });
   await page.waitForTimeout(250);
   return row;
 }
 
-async function fillRow(page, row, { marketplace, orderNumber, price, imei, unitImei }) {
-  // Cells are addressed by aria-label, never by position. Positional lookup
-  // was wrong in both directions: the IMEI <select> only exists for an office
-  // unit, so "the first select" was Marketplace on some rows and IMEI on
-  // others; and Postage's placeholder is the marketplace autofill, which is
-  // "0.00" on some tariffs and so collided with the SP cell.
-  await row.getByLabel('Marketplace').selectOption(marketplace);
-  await page.waitForTimeout(120);
-  if (unitImei) {
-    // Choose the exact handset among that model's units.
-    const imeiSelect = row.locator('select[aria-label="IMEI"]');
-    if (await imeiSelect.count() > 0) {
-      await imeiSelect.selectOption({ label: new RegExp(unitImei) }).catch(() => {});
-    }
-  }
+async function fillRow(page, row, { orderNumber, price, imei }) {
+  // Cells are addressed by aria-label, never by position. A row's shape
+  // changes with what it sells — an SHS unit with no IMEI gets a text box, an
+  // accessory gets a quantity, an office unit neither — so positional lookup
+  // reads a different cell on different rows. Placeholders cannot carry it
+  // either: Postage's placeholder is the marketplace autofill, "0.00" on
+  // eBay, which collides with Sale price.
   if (imei !== undefined) {
     await row.locator('input[aria-label="IMEI"]').fill(imei);
   }
@@ -276,36 +275,34 @@ async function runBatch(page, batchIndex, batch) {
   let mp = 0;
   const nextPlatform = () => PLATFORMS[(mp++) % PLATFORMS.length];
 
+  // Each line picks a marketplace by switching to that TAB first — the tab is
+  // what puts the sale on that sheet of the Sales Report.
   for (const u of batch.office) {
-    const row = await addRow(page, { search: u.model, kind: 'office' });
+    await goToMarketplace(page, nextPlatform());
+    const row = await addRow(page, { search: u.imei, kind: 'office' });
     await fillRow(page, row, {
-      marketplace: nextPlatform(),
       orderNumber: `BULK-OFF-${u.id.slice(-2)}`,
       price: Math.round(u.buyPrice * 1.5),
-      unitImei: u.imei,
     });
   }
   for (const u of batch.shs) {
-    // Search the unique supplier tag, NOT the model. Every SHS unit here is an
-    // "IPHONE 12", the same model as the office stock, so searching the model
-    // returns both and the first hit is the office unit — which already has an
-    // IMEI, so the row renders an IMEI <select> and the batch never stamps one.
-    // The per-unit supplier names exist precisely to be searchable; see
-    // SHS_SUPPLIERS above.
+    // Search the unique supplier tag, NOT the model: these SHS units have no
+    // IMEI yet (that is the point — the batch stamps one), and every one is an
+    // "IPHONE 12", so the model alone cannot tell them apart. The per-unit
+    // supplier names exist precisely to be searchable; see SHS_SUPPLIERS.
     const tag = u.supplierName.match(/BULKSHS\d+/)[0];
+    await goToMarketplace(page, nextPlatform());
     const row = await addRow(page, { search: tag, kind: 'shs' });
     await fillRow(page, row, {
-      marketplace: nextPlatform(),
       orderNumber: `BULK-SHS-${u.id.slice(-2)}`,
       price: Math.round(u.buyPrice * 1.5),
       imei: `888000000${pad(Number(u.id.slice(-2)), 6)}`,
-      unitImei: u.imei || undefined,
     });
   }
   for (const a of batch.accessory) {
+    await goToMarketplace(page, nextPlatform());
     const row = await addRow(page, { search: a.name || a.sku, kind: 'accessory' });
     await fillRow(page, row, {
-      marketplace: nextPlatform(),
       orderNumber: `BULK-ACC-${a.sku.slice(-2)}`,
       price: Math.round(a.buyPrice * 2),
     });

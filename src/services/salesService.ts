@@ -48,6 +48,10 @@ export interface RecordSaleInput {
    *  etc). When true, P. VAT = 0 across all marketplaces and the downstream
    *  Total VAT / GP / Total VAT NTP fields recompute accordingly. */
   postageVatExempt?: boolean;
+  /** eBay only — operator-entered promo spend for this line. The report
+   *  writes Marketing as a literal because it is a decision, not a
+   *  derivation; without it the column is always 0. */
+  marketing?: number;
   comments?: string;
 }
 
@@ -130,6 +134,7 @@ export async function recordSale(input: RecordSaleInput): Promise<RecordSaleResu
     eBayShippingTier,
     hasPayPalKlarna,
     postageVatExempt: input.postageVatExempt,
+    marketing: input.marketing,
   });
 
   const saleDate = input.saleDate || today();
@@ -292,6 +297,8 @@ export type BulkSaleLine =
       paymentMode?: string;
       postageOverride?: number;
       postageVatExempt?: boolean;
+      /** eBay only — see RecordSaleInput.marketing. */
+      marketing?: number;
       comments?: string;
     }
   | {
@@ -305,6 +312,8 @@ export type BulkSaleLine =
       paymentMode?: string;
       postageOverride?: number;
       postageVatExempt?: boolean;
+      /** eBay only — see RecordSaleInput.marketing. */
+      marketing?: number;
       comments?: string;
     };
 
@@ -352,6 +361,7 @@ export async function recordBulkSales(lines: BulkSaleLine[]): Promise<BulkSaleRe
         paymentMode: line.paymentMode,
         postageOverride: line.postageOverride,
         postageVatExempt: line.postageVatExempt,
+        marketing: line.marketing,
         comments: line.comments,
       } satisfies RecordAccessorySaleInput);
       results.push({ ok: res.ok, label, saleId: res.saleId, error: res.error, message: res.message });
@@ -400,6 +410,7 @@ export async function recordBulkSales(lines: BulkSaleLine[]): Promise<BulkSaleRe
       paymentMode: line.paymentMode,
       postageOverride: line.postageOverride,
       postageVatExempt: line.postageVatExempt,
+      marketing: line.marketing,
       comments: line.comments,
     });
     results.push({ ok: res.ok, label, saleId: res.saleId, error: res.error, message: res.message });

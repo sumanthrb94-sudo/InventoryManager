@@ -307,7 +307,11 @@ export async function buildInventoryWorkbookBuffer(input: BuildInventoryWorkbook
 
 type SalesHeaderRow = Array<string | number>;
 
-const SALES_HEADERS: Record<Marketplace, SalesHeaderRow> = {
+/** Exported so the Mark Multiple Sold grid can be asserted against the sheet
+ *  each of its rows will land on — see bulkSaleColumns.ts. Read-only: the
+ *  column order here is append-only, because every GP / GP % / TOTAL formula
+ *  on these tabs references hard column letters. */
+export const SALES_HEADERS: Record<Marketplace, SalesHeaderRow> = {
   AMAZON: [
     'Date', 'Order Number', 'SKU', 'IMEI', 'Supplier', 'Quantity',
     'BP', 'SP', 'SP-BP', 'Marginal Tax', 'Commission',
