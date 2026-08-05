@@ -55,7 +55,7 @@ import { useIsAdmin } from '../lib/useIsAdmin';
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
-type KpiId = 'today' | 'month' | 'all' | 'gpPct' | 'awaiting';
+type KpiId = 'today' | 'month' | 'all' | 'gpPct';
 type DateScope = 'today' | 'week' | 'month' | 'all';
 type SortKey =
   | 'saleDate' | 'model' | 'storage' | 'colour' | 'buyPrice' | 'salePrice'
@@ -468,13 +468,12 @@ export default function SellSheet(_props: Props) {
     })();
     let todayCount = 0, todayRevenue = 0, todayGP = 0;
     let monthCount = 0, monthRevenue = 0, monthGP = 0;
-    let allCount = 0, allGP = 0;
+    let allCount = 0, allGP = 0, allBP = 0;
     let lossCount = 0;
-    let gpPctSum = 0;
     for (const s of allSold) {
       allCount++;
       allGP += s.grossProfit ?? 0;
-      gpPctSum += s.gpPercent ?? 0;
+      allBP += s.buyPrice ?? 0;
       if ((s.grossProfit ?? 0) < 0) lossCount++;
       const d = (s.saleDate || '').split('T')[0];
       if (d === today) { todayCount++; todayRevenue += s.salePrice ?? 0; todayGP += s.grossProfit ?? 0; }
@@ -494,10 +493,21 @@ export default function SellSheet(_props: Props) {
       todayCount, todayRevenue, todayGP, todayReturned,
       monthCount, monthRevenue, monthGP, monthReturned,
       allCount, allGP, allReturned, lossCount,
-      avgGpPct: allCount > 0 ? gpPctSum / allCount : 0,
-      awaitingImei: awaitingImei.length,
+      // WEIGHTED, not an average of the per-sale percentages.
+      //
+      // The old line summed each sale's own GP% and divided by the number of
+      // sales — a mean of ratios. Every sale carries postage (£6.30 + VAT) and a £1 accessories
+      // fee whatever it is, and an accessory's buy price is pennies, so one
+      // SIM pin bought at 15p and posted for £6.30 scores −11,693%. A handful
+      // of those drag the mean below zero while the business is making money:
+      // on a month of real volume the mean reads −135% against a weighted
+      // +10.7%, which is why the tile showed −23.2% next to £60,110 of GP.
+      //
+      // Total GP over total BP is the figure that cannot be moved by a cheap
+      // line — every pound of cost counts once, the way the P&L sees it.
+      avgGpPct: allBP > 0 ? (allGP / allBP) * 100 : 0,
     };
-  }, [allSold, returnLedger, awaitingImei]);
+  }, [allSold, returnLedger]);
 
   // ── Filter chip options ───────────────────────────────────────────────────
   const supplierOptions = useMemo(() => {
@@ -522,7 +532,6 @@ export default function SellSheet(_props: Props) {
       case 'month':     base = allSold.filter(s => (s.saleDate || '') >= monthStart && (s.saleDate || '') <= today); break;
       case 'all':       base = allSold; break;
       case 'gpPct':     base = allSold; break; // sorted by GP% via gpSortOverride below
-      case 'awaiting':  base = []; break; // Awaiting IMEI surfaces units, not sales
       default:          base = [];
     }
     // Avg GP% overlay always opens with rows sorted GP% desc — best/worst
@@ -691,13 +700,6 @@ export default function SellSheet(_props: Props) {
             footer={kpis.allReturned > 0 ? 'voided sales excluded' : undefined}
             tone={kpis.avgGpPct >= 20 ? 'emerald' : kpis.avgGpPct >= 10 ? 'amber' : 'rose'}
             onClick={() => setOverlay('gpPct')}
-          />
-          <BigKpiTile
-            label="Awaiting IMEI"
-            value={kpis.awaitingImei}
-            sub="SHS dispatched · backfill below"
-            tone="amber"
-            onClick={() => setOverlay('awaiting')}
           />
         </div>
       </div>
@@ -871,8 +873,7 @@ export default function SellSheet(_props: Props) {
         {overlay && (
           <SellExcelOverlay
             title={titleFor(overlay)}
-            rows={overlay === 'awaiting' ? [] : overlayRows}
-            awaitingUnits={overlay === 'awaiting' ? awaitingImei : []}
+            rows={overlayRows}
             sort={sort}
             onSort={setSort}
             supplierMap={supplierMap}
@@ -1101,13 +1102,12 @@ function InlineSheet({
 type OverlayView = 'model' | 'detailed';
 
 function SellExcelOverlay({
-  title, rows, awaitingUnits, sort, onSort, supplierMap, units, region,
+  title, rows, sort, onSort, supplierMap, units, region,
   defaultView,
   onClose, onSaveCell, onBackfillImei, onAddSoldUnit,
 }: {
   title: string;
   rows: Sale[];
-  awaitingUnits: InventoryUnit[];
   sort: { key: SortKey; dir: SortDir };
   onSort: (s: { key: SortKey; dir: SortDir }) => void;
   supplierMap: Record<string, string>;
@@ -1248,14 +1248,14 @@ function SellExcelOverlay({
           <div className="min-w-0">
             <h3 className="text-sm font-bold tracking-tight truncate">{title}</h3>
             <p className="text-[10px] font-mono text-slate-400 mt-0.5">
-              {(rows.length + awaitingUnits.length).toLocaleString()} {rows.length + awaitingUnits.length === 1 ? 'row' : 'rows'}
+              {rows.length.toLocaleString()} {rows.length === 1 ? 'row' : 'rows'}
               {rows.length > 0 && (
                 <> · {salesGroups.length} {salesGroups.length === 1 ? 'model' : 'models'} · {grouped.length} {grouped.length === 1 ? 'channel' : 'channels'} · Revenue {fmtGBP(totals.revenue, 0)} · GP <span className={totals.gp >= 0 ? 'text-emerald-700' : 'text-rose-700'}>{fmtGBP(totals.gp, 0)}</span></>
               )}
             </p>
           </div>
           <div className="flex items-center gap-1.5">
-            {rows.length > 0 && awaitingUnits.length === 0 && (
+            {rows.length > 0 && (
               <div className="inline-flex rounded-xl bg-slate-100 p-0.5 text-[9px] font-bold uppercase tracking-widest">
                 <button
                   onClick={() => setViewMode('model')}
@@ -1293,27 +1293,7 @@ function SellExcelOverlay({
             when they want. */}
 
         <div className="flex-1 overflow-auto">
-          {awaitingUnits.length > 0 ? (
-            <div className="divide-y divide-amber-100">
-              {awaitingUnits.map(u => (
-                <div key={u.id} className="flex items-center gap-3 px-4 py-2.5 hover:bg-amber-50/60">
-                  <div className="flex-1 min-w-0">
-                    <p className="text-[12px] font-bold text-slate-900 truncate">{u.model}</p>
-                    <p className="text-[9px] text-slate-500 font-mono mt-0.5 truncate">
-                      {u.colour}{u.storage ? ` · ${u.storage}` : ''} · {supplierMap[u.supplierId] || '—'} · sold {u.saleDate || '—'}
-                    </p>
-                  </div>
-                  {u.salePrice != null && <span className="text-sm font-bold text-emerald-700">£{u.salePrice}</span>}
-                  <button
-                    onClick={() => onBackfillImei(u)}
-                    className="flex items-center gap-1 px-3 py-1.5 bg-orange-500 text-white text-[9px] font-bold uppercase tracking-widest rounded-lg hover:bg-orange-600 transition-all"
-                  >
-                    <PackageCheck size={11} /> Backfill IMEI
-                  </button>
-                </div>
-              ))}
-            </div>
-          ) : rows.length === 0 ? (
+          {rows.length === 0 ? (
             <div className="py-16 flex flex-col items-center gap-2 text-slate-400">
               <Sparkles size={28} />
               <p className="text-[11px] font-mono uppercase tracking-widest">No sales in this view</p>
@@ -1351,7 +1331,7 @@ function SellExcelOverlay({
             feel the operator flagged. */}
         {(() => {
           if (viewMode !== 'model' && viewMode !== 'detailed') return null;
-          if (rows.length === 0 || awaitingUnits.length > 0) return null;
+          if (rows.length === 0) return null;
           const isModel = viewMode === 'model';
           const page = isModel ? groupedPage : detailPage;
           const setPage = isModel ? setGroupedPage : setDetailPage;
@@ -2211,7 +2191,6 @@ function titleFor(kpi: KpiId): string {
     case 'month':    return 'Sold This Month';
     case 'all':      return 'All Sales';
     case 'gpPct':    return 'Avg GP % · ranked by margin';
-    case 'awaiting': return 'Awaiting IMEI';
   }
 }
 
