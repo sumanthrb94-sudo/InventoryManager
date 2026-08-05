@@ -1011,14 +1011,17 @@ export default function PeriodicInventory({ units, onNavigate }: Props) {
               <p style={{ fontSize: 18, fontWeight: 800, color: '#1f2937', letterSpacing: '-0.03em', textTransform: 'uppercase' }}>
                 {viewTitle}
               </p>
+              {/* The count belongs under the title it describes, not wedged
+                  against the scope toggle on the far right — reading it there
+                  meant crossing the whole header and back, and it crowded the
+                  control it sat beside. */}
+              <p style={{ fontSize: isMobile ? 9 : 11, fontFamily: 'monospace', color: '#475569', marginTop: 2 }}>
+                <span style={{ color: '#0f172a', fontWeight: 700 }}>{headlineCount} {headlineLabel}</span>
+                <span style={{ color: '#cbd5e1' }}>{'  ·  '}</span>
+                {headlineSub}
+              </p>
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-              <div style={{ textAlign: 'right' }}>
-                <p style={{ fontSize: isMobile ? 9 : 11, fontFamily: 'monospace', color: '#94a3b8' }}>{headlineCount} {headlineLabel}</p>
-                <p style={{ fontSize: 10, fontFamily: 'monospace', color: '#475569' }}>
-                  {headlineSub}
-                </p>
-              </div>
               {/* Scope toggle — Office Stock vs SHS at the top-right. Same
                   level as the view tabs below, but lifted into the header
                   so it's the FIRST decision the operator makes when
