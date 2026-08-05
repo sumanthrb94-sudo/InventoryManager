@@ -18,7 +18,7 @@
  * "what is sellable", which is why the numbers are comparable at all.
  */
 import { describe, it, expect } from 'vitest';
-import { buildGroups, SERIES_GROUPS } from '../../components/PeriodicInventory';
+import { buildGroups, SERIES_GROUPS, bucketKeyOf } from '../../components/PeriodicInventory';
 import { parseBrandModelStorage } from '../../lib/modelStorage';
 import type { InventoryUnit } from '../../types';
 
@@ -150,153 +150,100 @@ describe('the periodic table counts every unit in office stock', () => {
 });
 
 /**
- * THE UNIFIED TABLE
+ * OUT OF STOCK
  *
- * One table, one tile per model, carrying BOTH quantities — what is in the
- * office and what a supplier is holding — with lines the operator has run out
- * of still present and reading zero.
+ * A model belongs here when it HAS sold at some point and there is none of it
+ * left. Both halves matter and both can fail quietly:
  *
- * The split tables could not be reconciled by eye. A model with 2 in office
- * and 3 on order lived on two tables that never showed each other; a model
- * with none of either lived on a third. "How many of these do we have" could
- * not be answered from one screen — and the sales data is too messy to answer
- * it from the other end, which is exactly why the intake side has to be exact.
+ *   - Miss a depleted model and the operator never reorders it.
+ *   - List one they still hold and they reorder something sitting on the shelf.
  *
- * So the arithmetic must hold in both directions: every office unit counted
- * once and only once, every supplier-held unit likewise, and neither counted
- * on the other's side.
+ * The exclusion is by bucket key — the SAME key the tiles are grouped by — so
+ * a model spelled one way on the unit still in stock and another way on the
+ * sold one has to resolve to the same key or the line shows up as depleted
+ * while a unit of it is on the shelf. That is the failure the canonicalisation
+ * case below is about, and it is the realistic one: the sold rows come from
+ * the messy imported history, the in-stock rows from clean intake.
  */
-describe('the unified table carries both quantities, exactly', () => {
-  const unified = (office: InventoryUnit[], shs: InventoryUnit[], sold: InventoryUnit[] = []) =>
-    buildGroups(office, shs, SERIES_GROUPS, seriesOf, { zeroFrom: sold });
+describe('out of stock lists what is depleted, and only that', () => {
+  const keyOf = (unit: InventoryUnit) => {
+    const p = parseBrandModelStorage(unit.model);
+    return bucketKeyOf(p.model || unit.model, unit.storage || p.storage);
+  };
+  /** Exactly what the component does: sold units, minus anything still held. */
+  const outOfStock = (sold: InventoryUnit[], onHand: InventoryUnit[]) =>
+    buildGroups(sold, [], SERIES_GROUPS, seriesOf, {
+      valueFn: x => x.salePrice || 0,
+      excludeKeys: new Set(onHand.map(keyOf)),
+    }).flatMap(g => g.elements);
 
-  const totals = (groups: ReturnType<typeof unified>) => ({
-    office: groups.reduce((n, g) => n + g.elements.reduce((m, el) => m + el.count, 0), 0),
-    shs: groups.reduce((n, g) => n + g.elements.reduce((m, el) => m + el.shsCount, 0), 0),
-    tiles: groups.reduce((n, g) => n + g.elements.length, 0),
-    zeroTiles: groups.reduce(
-      (n, g) => n + g.elements.filter(el => el.count === 0 && el.shsCount === 0).length, 0),
-  });
-
-  it('counts office and supplier-held separately, and both exactly', () => {
-    const office = [u({ id: 'o1' }), u({ id: 'o2' }), u({ id: 'o3', model: 'GALAXY S22' })];
-    const shs = [
-      u({ id: 's1', status: 'incoming' }),
-      u({ id: 's2', status: 'incoming', model: 'PIXEL 7' }),
-    ];
-    const t = totals(unified(office, shs));
-    expect(t.office).toBe(3);
-    expect(t.shs).toBe(2);
-  });
-
-  it('puts both quantities on the SAME tile when it is the same model', () => {
-    // The whole point: 2 in office and 3 on order is one line reading 2 (+3),
-    // not two lines on two tables that never show each other.
-    const groups = unified(
-      [u({ id: 'o1' }), u({ id: 'o2' })],
-      [u({ id: 's1', status: 'incoming' }), u({ id: 's2', status: 'incoming' }),
-       u({ id: 's3', status: 'incoming' })],
+  it('lists a model that sold and has none left', () => {
+    const tiles = outOfStock(
+      [u({ id: 'x', model: 'IPHONE 11', status: 'sold' })],
+      [u({ id: 'o', model: 'IPHONE 13' })],
     );
-    const tiles = groups.flatMap(g => g.elements);
-    expect(tiles, 'one model, one tile').toHaveLength(1);
-    expect(tiles[0]).toMatchObject({ count: 2, shsCount: 3 });
+    expect(tiles.map(t => t.model).join()).toMatch(/11/);
   });
 
-  it('shows a sold-out model as zero rather than dropping it off the table', () => {
-    // A missing tile is indistinguishable from a line never stocked. A zero
-    // tile is a fact the operator can act on.
-    const groups = unified(
-      [u({ id: 'o1', model: 'IPHONE 13' })],
-      [],
-      [u({ id: 'gone', model: 'IPHONE 11', status: 'sold' })],
+  it('does NOT list a model still sitting on the shelf', () => {
+    // The reorder-what-you-already-have failure.
+    const tiles = outOfStock(
+      [u({ id: 'x', model: 'IPHONE 13', status: 'sold' })],
+      [u({ id: 'o', model: 'IPHONE 13' })],
     );
-    const tiles = groups.flatMap(g => g.elements);
-    expect(tiles).toHaveLength(2);
-    const soldOut = tiles.find(t => t.model.includes('11'));
-    expect(soldOut, 'the sold-out model is still on the table').toBeTruthy();
-    expect(soldOut).toMatchObject({ count: 0, shsCount: 0 });
+    expect(tiles, 'it is not depleted').toHaveLength(0);
   });
 
-  it('does not zero a model that sold SOME but still has stock', () => {
-    const groups = unified(
-      [u({ id: 'o1' }), u({ id: 'o2' })],
-      [],
-      [u({ id: 'sold', status: 'sold' })],          // same model
+  it('treats storage as part of the identity', () => {
+    // Holding the 128GB says nothing about the 256GB — they are different
+    // things to buy, and the tiles are bucketed that way.
+    const tiles = outOfStock(
+      [u({ id: 'x', model: 'IPHONE 13', storage: '256GB', status: 'sold' })],
+      [u({ id: 'o', model: 'IPHONE 13', storage: '128GB' })],
     );
-    const tiles = groups.flatMap(g => g.elements);
-    expect(tiles, 'one tile, not a duplicate zero one').toHaveLength(1);
-    expect(tiles[0].count, 'the sold unit does not reduce the count').toBe(2);
-  });
-
-  it('a model held ONLY by a supplier reads zero in office, not absent', () => {
-    const groups = unified([], [u({ id: 's1', status: 'incoming', model: 'PIXEL 7' })]);
-    const tiles = groups.flatMap(g => g.elements);
     expect(tiles).toHaveLength(1);
-    expect(tiles[0]).toMatchObject({ count: 0, shsCount: 1 });
+    expect(tiles[0].storage).toBe('256GB');
   });
 
-  it('reconciles a full messy shelf — office, SHS, sold out, unknown models', () => {
-    const office = [
-      ...Array.from({ length: 6 }, (_, i) => u({ id: `o${i}` })),
-      u({ id: 'oOdd', model: 'NOKIA 3310' }),
-      u({ id: 'oBlank', model: '' }),
-      u({ id: 'oBack', status: 'returned', returnType: 'returned_to_inventory' }),
-    ];
-    const shs = [
-      ...Array.from({ length: 4 }, (_, i) => u({ id: `s${i}`, status: 'incoming', imei: '' })),
-      u({ id: 'sOdd', status: 'incoming', model: 'XIAOMI 13' }),
-    ];
-    const sold = [
-      u({ id: 'x1', model: 'IPHONE 11', status: 'sold' }),
-      u({ id: 'x2', model: 'IPHONE 11', status: 'sold' }),   // same model, one tile
-      u({ id: 'x3', model: 'GALAXY S10', status: 'sold' }),
-    ];
-    const t = totals(unified(office, shs, sold));
-    expect(t.office, 'every office unit counted once').toBe(office.length);
-    expect(t.shs, 'every supplier-held unit counted once').toBe(shs.length);
-    expect(t.zeroTiles, 'two sold-out models, deduped').toBe(2);
+  it('counts how many sold, which is the demand signal', () => {
+    const tiles = outOfStock(
+      Array.from({ length: 4 }, (_, i) => u({ id: `x${i}`, model: 'IPHONE 11', status: 'sold' })),
+      [],
+    );
+    expect(tiles).toHaveLength(1);
+    expect(tiles[0].count, 'four sold, one depleted line').toBe(4);
   });
 
-  it('scales: 300 units across all three states still reconcile exactly', () => {
-    const models = ['IPHONE 13', 'IPHONE 14', 'GALAXY S22', 'PIXEL 7', 'NOKIA 3310', ''];
-    const all = Array.from({ length: 300 }, (_, i) => u({
-      id: `u${i}`,
-      model: models[i % models.length],
-      storage: i % 3 === 0 ? undefined : ['64GB', '128GB', '256GB'][i % 3],
-      status: i % 7 === 0 ? 'sold' : i % 5 === 0 ? 'incoming' : 'available',
-    }));
-    const office = all.filter(x => x.status === 'available');
-    const shs = all.filter(x => x.status === 'incoming');
-    const sold = all.filter(x => x.status === 'sold');
-
-    const t = totals(unified(office, shs, sold));
-    expect(t.office).toBe(office.length);
-    expect(t.shs).toBe(shs.length);
-    // Nothing double-counted: office + SHS across every tile is exactly what
-    // is physically on hand anywhere.
-    expect(t.office + t.shs).toBe(office.length + shs.length);
+  it('dedupes a model sold many times into one line', () => {
+    const tiles = outOfStock([
+      u({ id: 'a', model: 'IPHONE 11', status: 'sold' }),
+      u({ id: 'b', model: 'IPHONE 11', status: 'sold' }),
+      u({ id: 'c', model: 'GALAXY S10', status: 'sold' }),
+    ], []);
+    expect(tiles).toHaveLength(2);
   });
 
-  it('never counts a sold unit as stock, however it arrives', () => {
-    const sold = Array.from({ length: 20 }, (_, i) => u({ id: `s${i}`, status: 'sold' }));
-    const t = totals(unified([], [], sold));
-    expect(t.office).toBe(0);
-    expect(t.shs).toBe(0);
-    expect(t.tiles, 'they are on the table, at zero').toBeGreaterThan(0);
+  it('is empty when nothing has ever sold', () => {
+    expect(outOfStock([], [u({ id: 'o' })])).toHaveLength(0);
   });
 
-  it('rolls the group totals up to the same numbers as the tiles', () => {
-    // The header reads off the unit lists; the row labels read off the tiles.
-    // If those disagree the operator sees two answers on one screen.
-    const office = [u({ id: 'o1' }), u({ id: 'o2', model: 'GALAXY S22' })];
-    const shs = [u({ id: 's1', status: 'incoming', model: 'GALAXY S22' })];
-    const groups = unified(office, shs);
-    for (const g of groups) {
-      expect(g.totalCount).toBe(g.elements.reduce((n, el) => n + el.count, 0));
-      expect(g.totalShs).toBe(g.elements.reduce((n, el) => n + el.shsCount, 0));
-    }
-    expect(groups.reduce((n, g) => n + g.totalCount, 0)).toBe(office.length);
-    expect(groups.reduce((n, g) => n + g.totalShs, 0)).toBe(shs.length);
+  it('excludes correctly when the two sides spell the model differently', () => {
+    // The realistic case: the sold row came from the imported history with a
+    // brand prefix, the in-stock row from clean intake without one. If these
+    // do not resolve to the same key, the line reads as depleted while a unit
+    // of it is on the shelf.
+    const sold = [u({ id: 'x', model: 'SAMSUNG GALAXY S22', storage: '128GB', status: 'sold' })];
+    const onHand = [u({ id: 'o', model: 'GALAXY S22', storage: '128GB' })];
+    expect(keyOf(sold[0]), 'same bucket key both ways').toBe(keyOf(onHand[0]));
+    expect(outOfStock(sold, onHand), 'not depleted — one is on the shelf').toHaveLength(0);
+  });
+
+  it('a model returned into stock is no longer out of stock', () => {
+    // It sold, then came back. The shelf has one, so it must not be listed.
+    const sold = [u({ id: 'x', model: 'IPHONE 11', status: 'sold' })];
+    const onHand = [u({ id: 'back', model: 'IPHONE 11',
+                        status: 'returned', returnType: 'returned_to_inventory' })];
+    expect(outOfStock(sold, onHand)).toHaveLength(0);
   });
 });
 
