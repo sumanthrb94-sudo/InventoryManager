@@ -390,57 +390,67 @@ async function sellAccessory(page, { sku, marketplace, order, quantity, sp }) {
 }
 
 /** Bulk "Mark Multiple Sold" — one office unit + one accessory line in a
- *  single batch, the mixed case recordBulkSales() exists for. */
+ *  single batch, the mixed case recordBulkSales() exists for.
+ *
+ *  The batch screen is now the Sales Report's own sheets: one TAB per
+ *  marketplace, each carrying that marketplace's columns. So a line's
+ *  marketplace is the tab it is typed under, not a per-row dropdown, and
+ *  there is no separate stock-picker overlay — each row picks its source
+ *  and then searches stock inside the row itself.
+ */
 async function bulkSale(page, { unitSearch, accessorySku, marketplace, order, sp, accSp }) {
   await gotoSellTab(page);
   await page.getByRole('button', { name: /Mark Multiple Sold/i }).click({ timeout: 8000 });
   await page.waitForTimeout(900);
   await shot(page, 'bulk-step1-empty-batch');
 
-  const addLine = async (scope, search) => {
-    const m = modal(page);
-    await m.getByRole('button', { name: /^Add Sale$/i }).click({ timeout: 6000 });
-    await page.waitForTimeout(600);
-    const picker = page.locator('div.fixed.inset-0').last();
-    if (scope !== 'office') {
-      await picker.getByRole('button', { name: new RegExp(`^${scope === 'shs' ? 'SHS' : 'Accessories'}\\s*·`, 'i') })
-        .click({ timeout: 6000 }).catch(() => {});
-      await page.waitForTimeout(500);
+  const m = () => modal(page);
+  const rows = () => m().locator('tbody tr');
+
+  // Both lines go on the same marketplace's tab, which is what puts them on
+  // that sheet of the Sales Report.
+  await m().getByRole('tab', { name: new RegExp(`^${MP_LABEL[marketplace]}`, 'i') })
+    .click({ timeout: 6000 });
+  await page.waitForTimeout(400);
+
+  const addLine = async (kind, search, { orderNumber, price }) => {
+    // Each tab opens with one blank row; every line after it needs adding.
+    const before = await rows().count();
+    const filled = await m().locator('input[aria-label="Model"]')
+      .evaluateAll(els => els.filter(e => e.value.trim()).length);
+    if (filled >= before) {
+      await m().getByRole('button', { name: /^Add row$/i }).click({ timeout: 6000 });
+      await page.waitForTimeout(250);
     }
-    await picker.locator('input[placeholder*="Search by" i]').first().fill(search).catch(() => {});
-    await page.waitForTimeout(700);
-    const row = picker.locator('button').filter({ hasText: new RegExp(search, 'i') }).first();
-    await row.click({ timeout: 6000 }).catch(() => {});
-    await page.waitForTimeout(900);
+    const row = rows().last();
+
+    // Source is chosen BEFORE searching — the search only offers the chosen
+    // source, which is what stops an office handset answering an accessory
+    // search for the same words.
+    await row.getByLabel('Source').selectOption(kind);
+    await page.waitForTimeout(150);
+    await row.locator('input[aria-label="Model"]').fill(search);
+    await page.waitForTimeout(500);
+    const options = page.locator('div[role="listbox"] button[role="option"]');
+    if (!(await options.count())) return { ok: false, why: `no ${kind} stock matching "${search}"` };
+    await options.first().click({ timeout: 8000 });
+    await page.waitForTimeout(300);
+
+    await row.getByLabel('Order number').fill(orderNumber);
+    await row.getByLabel('Sale price').fill(String(price));
+    await page.waitForTimeout(150);
+    return { ok: true };
   };
 
-  await addLine('office', unitSearch);
+  const office = await addLine('office', unitSearch, { orderNumber: `${order}-1`, price: sp });
+  if (!office.ok) return office;
   await shot(page, 'bulk-step2-office-line-added');
-  await addLine('accessory', accessorySku);
+  const accessory = await addLine('accessory', accessorySku, { orderNumber: `${order}-2`, price: accSp });
+  if (!accessory.ok) return accessory;
   await shot(page, 'bulk-step3-accessory-line-added');
-
-  // Fill every line's platform / order / price.
-  const m = modal(page);
-  const platformBtns = m.getByRole('button', { name: new RegExp(`^${MP_LABEL[marketplace]}$`, 'i') });
-  const n = await platformBtns.count();
-  for (let i = 0; i < n; i++) await platformBtns.nth(i).click().catch(() => {});
-  await page.waitForTimeout(300);
-  // BulkSaleModal prefixes its order-number sample with "e.g. " (unlike
-  // SellOrderModal, which uses the bare sample), and keeps that placeholder
-  // regardless of the platform picked. Match the prefix — an exact match on
-  // the SellOrderModal form leaves Order Number empty and the only symptom
-  // is a disabled "Confirm N Sales". The SKU box next to it reads
-  // "Optional", so this prefix hits order-number inputs only.
-  const orderBoxes = m.locator('input[placeholder^="e.g."]');
-  const on = await orderBoxes.count();
-  for (let i = 0; i < on; i++) await orderBoxes.nth(i).fill(`${order}-${i + 1}`).catch(() => {});
-  const priceBoxes = m.locator('input[placeholder="0.00"]');
-  const pn = await priceBoxes.count();
-  for (let i = 0; i < pn; i++) await priceBoxes.nth(i).fill(String(i === 0 ? sp : accSp)).catch(() => {});
-  await page.waitForTimeout(600);
   await shot(page, 'bulk-step4-both-lines-filled');
 
-  const confirm = m.getByRole('button', { name: /Confirm \d+ Sales?/i }).last();
+  const confirm = m().getByRole('button', { name: /^Confirm \d+ Sales?$/i }).last();
   if (!(await confirm.isEnabled().catch(() => false))) {
     return { ok: false, why: (await confirm.textContent().catch(() => '')) + ' disabled' };
   }

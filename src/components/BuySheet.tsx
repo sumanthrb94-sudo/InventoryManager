@@ -325,16 +325,10 @@ export default function BuySheet(_props: Props) {
     [aggregates],
   );
 
-  // "Sold Today" — true rolling 24 hours, not a UTC-midnight calendar
-  // bucket. The previous implementation compared saleDate to the UTC
-  // 'today' string, which dropped any sale made earlier the same day in
-  // a non-UTC timezone (operator in IST recording a sale at 11pm local
-  // landed it on the previous UTC date and never appeared). Now we look
-  // at the doc's updatedAt timestamp (when the status flip actually
-  // happened) and accept anything within the last 24 hours; fall back
-  // to a parsed saleDate when updatedAt is missing on older docs.
-  // Counted by SALE DATE, the same calendar-day rule the Sell screen uses, so
-  // the two agree by construction.
+  // "Sold Today" — counted by SALE DATE, on the operator's LOCAL calendar day
+  // (isSameLocalDay, not a UTC-midnight bucket: an evening sale in IST used to
+  // land on the next UTC date and vanish). That is the same rule the Sell
+  // screen uses, so the two screens agree by construction.
   //
   // This used to be a rolling 24h over `updatedAt`, which is the last write to
   // the doc FOR ANY REASON — processing a return, completing a repair, an

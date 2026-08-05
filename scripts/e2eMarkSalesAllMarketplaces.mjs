@@ -166,8 +166,33 @@ const STORED = {
   ONBUY:  ['spMinusBp', 'marginalTax', 'commission', 'vat20', 'marVat', 'postageVat', 'grossProfit', 'gpPercent'],
   TEMU:   ['spMinusBp', 'marginalTax', 'commission', 'postageVat', 'grossProfit', 'gpPercent'],
 };
-// Present in the REPORT but never on the Sale doc — derived at export.
-const DERIVED_ONLY = ['commissionVat', 'dsf', 'dsfVat', 'totalVat', 'totalVatNtp', 'accessoryFee', 'customerCareFees', 'marketing', 'marketingVat'];
+/**
+ * The fee-VAT lines recordSale() now persists as well.
+ *
+ * These used to be derived at export only, and this script asserted their
+ * ABSENCE from the Sale doc. That stopped being right when the VAT Centre
+ * started reading `sale.totalVat` directly: it does not recompute, so a sale
+ * recorded in the app contributed zero input VAT to the return while an
+ * imported sale of the same value contributed its full fee VAT. The fields
+ * are written deliberately now, so the assertion is that they are STORED and
+ * CORRECT — a missing one is the bug, not a present one.
+ *
+ * Only the lines the ground-truth calculator produces are listed; the flat
+ * schedule charges (dsf, customerCareFees, marketing, accessoryFee) are
+ * per-marketplace constants covered by the fee tests.
+ *
+ * Amazon and Temu are the only two whose commission carries its own VAT line;
+ * BM's schedule has a single VAT line (postage), and OnBuy charges VAT 20% on
+ * the fee total rather than on commission, so neither has a commissionVat to
+ * store.
+ */
+const STORED_VAT_LINES = {
+  AMAZON: ['commissionVat', 'totalVat', 'totalVatNtp'],
+  BM:     ['totalVat', 'totalVatNtp'],
+  EBAY:   ['totalVat', 'totalVatNtp'],
+  ONBUY:  ['totalVat', 'totalVatNtp'],
+  TEMU:   ['commissionVat', 'totalVat', 'totalVatNtp'],
+};
 
 // ── Intake ──────────────────────────────────────────────────────────────────
 async function addUnits(page) {
@@ -310,11 +335,17 @@ async function run() {
       record(`${s.marketplace} · ${field}`, near(sale[field], expected), `${sale[field]} vs ${expected}`);
     }
 
-    // The derived-not-stored boundary, pinned rather than described.
-    const wronglyStored = DERIVED_ONLY.filter(k => sale[k] !== undefined);
-    record(`${s.marketplace} · VAT breakdown stays derived, not persisted`,
-      wronglyStored.length === 0,
-      wronglyStored.length ? `unexpectedly stored: ${wronglyStored.join(', ')}` : 'none on the doc, as designed');
+    // The fee-VAT lines the VAT Centre reads straight off the doc: present,
+    // and equal to the master formulas.
+    const missing = (STORED_VAT_LINES[s.marketplace] ?? []).filter(k => sale[k] === undefined);
+    record(`${s.marketplace} · VAT lines are persisted for the VAT Centre`,
+      missing.length === 0,
+      missing.length ? `missing from the doc: ${missing.join(', ')}` : (STORED_VAT_LINES[s.marketplace] ?? []).join(', '));
+    for (const field of STORED_VAT_LINES[s.marketplace] ?? []) {
+      if (t[field] === undefined) continue;
+      calculations[s.marketplace].stored[field] = sale[field];
+      record(`${s.marketplace} · ${field}`, near(sale[field], t[field]), `${sale[field]} vs ${t[field]}`);
+    }
   }
 
   // GP% base differs — the trap worth its own assertion.
