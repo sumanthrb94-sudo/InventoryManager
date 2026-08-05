@@ -6,28 +6,33 @@
 /**
  * Whether the Import entry points are shown at all.
  *
- * Operator decision (2026-08): the wipe → Inventory Report → Sales Report
- * migration is complete and the data reconciled exactly (487 sold / £7,781 GP
- * / 5 returns reproduced after the wipe, 0 orphans). With the database correct,
- * an accidental re-import is pure downside, so Import comes out of the UI
- * entirely — including for admins, who were previously the only ones who
- * could see it.
+ * ON, for admins.
  *
- * Nothing about the import PIPELINE changes: the modals, parsers and services
- * are all untouched and still fully tested. This hides the doors, it does not
- * remove the machinery, so restoring it is this one line plus a redeploy.
+ * History, because the reasoning matters more than the value: after the
+ * 2026-08 wipe → Inventory Report → Sales Report migration reconciled exactly
+ * (487 sold / £7,781 GP / 5 returns reproduced after the wipe, 0 orphans),
+ * Import came out of the UI entirely. With the database known correct, an
+ * accidental re-import was pure downside and there was nothing left to import.
+ * It was gated on VITE_E2E rather than hard-coded `false` so the 36 scripts in
+ * scripts/ that drive imports through the real UI stayed green.
  *
- * Gated on VITE_E2E rather than hard-coded `false` because 36 scripts in
- * scripts/ drive imports through the real UI (openImportMenu → the Inventory
- * Report / Sales Report menu items) — e2eWipeReuploadReconcile,
- * e2eReportRoundTrip and clientOnboardingCapture among them. A hard false
- * would take every one of them red. The E2E harness is the only thing that
- * ever builds with VITE_E2E=1, so:
+ * The operator has since asked for it back, so it is back. Nothing about the
+ * pipeline ever changed — the modals, parsers and services were untouched and
+ * stayed under test throughout, which is precisely why restoring it is this
+ * one line.
  *
- *   production / Vercel build   → Import invisible to everyone
- *   VITE_E2E=1 build            → Import present, E2E suite keeps passing
+ * WHAT TURNING THIS ON RE-OPENS, so it is a decision and not a surprise:
+ * Import is the only route in the app that can CREATE units, complete orphan
+ * records and restore returns from a file. Mark Multiple Sold cannot — it can
+ * only sell stock that already exists, which is what makes it safe. Uploading
+ * a stale or hand-edited report can therefore reintroduce units that were
+ * deliberately removed, so the file matters.
+ *
+ * Still `&& userIsAdmin` at the call site in App.tsx: an employee cannot see
+ * or reach it. That has been true the whole time and is not what this flag
+ * changes.
  */
-export const SHOW_IMPORT_UI = import.meta.env.VITE_E2E === '1';
+export const SHOW_IMPORT_UI = true;
 
 /**
  * Whether the "Build a new file from …" template-download block is shown.

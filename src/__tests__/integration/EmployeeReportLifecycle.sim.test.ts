@@ -184,18 +184,23 @@ describe('Act 1 · employee signs in', () => {
     expect((await deleteOfficeUnit(unit, 'test')).message).toMatch(/admin access required/i);
   });
 
-  it('FINDING: the Import entry point is hidden from EVERYONE, admins included', async () => {
+  it('FINDING: the Import entry point is admin-only, and an employee cannot reach it', async () => {
     const { readFileSync } = await import('node:fs');
     const app = readFileSync('src/App.tsx', 'utf8');
-    // This finding used to read "Import is admin-only, so an employee cannot
-    // upload any report". It's now stronger: after the 2026-08 migration
-    // completed, the operator took Import out of the UI entirely — admins
-    // included — so an accidental re-import can't land on a database that is
-    // known correct. Both report uploads still hang off the one header
-    // button, now behind SHOW_IMPORT_UI as well as userIsAdmin.
+    const flags = readFileSync('src/lib/featureFlags.ts', 'utf8');
+    // This finding has moved twice. It first read "Import is admin-only"; it
+    // then became "hidden from everyone, admins included" when the 2026-08
+    // migration finished and there was nothing left to import. The operator
+    // has since asked for Import back, so it is admin-only again — and the
+    // admin half is the part that has never changed.
+    //
+    // Import matters more than any other entry point because it is the ONLY
+    // route that can create units, complete orphans and restore returns from
+    // a file. Mark Multiple Sold can only sell stock that already exists.
+    expect(flags, 'the flag is on, explicitly').toMatch(/SHOW_IMPORT_UI\s*=\s*true/);
     const importBlock = app.slice(app.indexOf('{SHOW_IMPORT_UI && userIsAdmin && ('), app.indexOf('Sales Report'));
     expect(importBlock).toContain('setIsImportModalOpen(true)');
-    expect(importBlock).toContain('userIsAdmin');
+    expect(importBlock, 'still behind the admin check').toContain('userIsAdmin');
     expect(importBlock).toContain('SHOW_IMPORT_UI');
   });
 
@@ -250,16 +255,15 @@ describe('Act 1 · employee signs in', () => {
     expect(td).not.toContain('Payment Mode at 9');
   });
 
-  it('FINDING: hiding Import does not remove the pipeline — only the doors', async () => {
+  it('FINDING: the flag only ever controlled the doors — the pipeline stayed whole', async () => {
     const { readFileSync } = await import('node:fs');
-    // The flag hides entry points; the parsers, services and modals are
-    // untouched and still under test. Restoring Import is one line plus a
-    // redeploy, which is the whole point of doing it as a flag.
+    // Import was switched off for a while and is now back on. That round trip
+    // cost one line precisely because the flag never touched the machinery:
+    // the parsers, services and modals stayed in the build and under test the
+    // whole time. This pins that they are still there, so the flag remains a
+    // switch rather than a demolition.
     const flags = readFileSync('src/lib/featureFlags.ts', 'utf8');
     expect(flags).toContain('SHOW_IMPORT_UI');
-    // Gated on VITE_E2E rather than hard-coded false so the 36 scripts that
-    // drive imports through the real UI keep working.
-    expect(flags).toContain('VITE_E2E');
     for (const f of ['src/components/SalesReportImport.tsx', 'src/components/InventoryReportImport.tsx']) {
       expect(readFileSync(f, 'utf8').length).toBeGreaterThan(0);
     }
