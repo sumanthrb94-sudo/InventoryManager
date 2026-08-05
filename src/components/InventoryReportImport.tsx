@@ -284,6 +284,17 @@ export default function InventoryReportImport({ onClose }: Props) {
     setPhase('loading');
     setProgress({ done: 0, total: preview.toCreate.length + preview.toUpdate.length });
 
+    // Provenance for the Operations Hub's "Last Import" / "Batch Rows" panels,
+    // and the audit trail on each unit.
+    //
+    // This used to be written by ImportModal, which is no longer rendered
+    // anywhere — so through the path the app actually uses, no batch row was
+    // ever created and the panel read "No imports yet" no matter how much
+    // stock had been loaded. The id is minted first and stamped on every unit;
+    // the batch row itself is written only after the units land, so a failed
+    // import leaves no row claiming stock that never arrived.
+    const importBatchId = dbService.newImportBatchId();
+
     // Build supplier entries for any new names. We mint synthetic ids prefixed
     // sup_imp_ so they're easy to spot in the data later.
     // Every record is shared-team-owned. firestore.rules gates
@@ -356,6 +367,8 @@ export default function InventoryReportImport({ onClose }: Props) {
           notes: r.notes || existing?.notes || '',
           platformListed: existing?.platformListed ?? false,
           ownerId: existing?.ownerId || ownerId,
+          importBatchId,
+          sourceFile: fileName,
         },
       };
     };
@@ -410,6 +423,17 @@ export default function InventoryReportImport({ onClose }: Props) {
             notes: r.notes || undefined,
           });
         }
+      }
+      // Written last, and only on success — see the note where importBatchId
+      // is minted.
+      if (unitEntries.length > 0) {
+        await dbService.createImportBatch({
+          id: importBatchId,
+          sourceFile: fileName || 'Inventory Report',
+          sourceSheet: 'INVENTORY',
+          rowCount: unitEntries.length,
+          notes: `${snapshot.created} created · ${snapshot.updated} updated`,
+        });
       }
       setDoneStats(snapshot);
       setPhase('done');

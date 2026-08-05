@@ -145,8 +145,7 @@ const shsUnits = [];
 /** One unit bought on `dIn`. Split out of the intake loop so opening stock
  *  and daily intake mint units the same way — a second copy of this is how
  *  the two would drift apart. */
-function mintUnit(dIn) {
-  const m = pick(MODELS);
+function mintUnit(dIn, m = pick(MODELS)) {
   const storage = m.storages.length ? pick(m.storages) : '';
   const bp = int(m.bpRange[0], m.bpRange[1]);
   const isShs = chance(0.09); // ~9% of intake goes SHS (supplier-held)
@@ -171,6 +170,39 @@ for (let i = 0; i < OPENING_STOCK; i++) mintUnit(OPENING_DATE);
 for (let day = 0; day < DAYS; day++) {
   const dIn = dateAt(day);
   for (let i = 0; i < INTAKE_PER_DAY; i++) mintUnit(dIn);
+}
+
+/**
+ * The long tail — models stocked one or two at a time.
+ *
+ * Without it nothing ever runs out. The main catalog is picked uniformly, so
+ * 1,900 units across ~28 model+storage buckets leaves ~68 in each and not one
+ * of them empties. That made a month-long run display the intake team's
+ * "Sold Out · Reorder" panel without ever putting a line in it — the panel
+ * they act on most was shown, not proven.
+ *
+ * These arrive in ones and twos and are dated early, so the sell queue drains
+ * them: some buckets end at zero (sold out, reorder) and some at one or two
+ * (running low). Off by default, so the 90-day quarter dataset is unchanged.
+ */
+const TAIL_CATALOG = [
+  { series: 'iPhone',      model: 'iPhone SE 2022',   storages: ['64GB'],   bpRange: [120, 160], appleSerial: true },
+  { series: 'iPhone',      model: 'iPhone 12 mini',   storages: ['128GB'],  bpRange: [180, 220], appleSerial: true },
+  { series: 'Galaxy A',    model: 'Galaxy A34',       storages: ['128GB'],  bpRange: [130, 170], appleSerial: false },
+  { series: 'Galaxy S',    model: 'Galaxy S21 FE',    storages: ['128GB'],  bpRange: [200, 250], appleSerial: false },
+  { series: 'Pixel',       model: 'Pixel 7a',         storages: ['128GB'],  bpRange: [230, 280], appleSerial: false },
+  { series: 'Galaxy Tab',  model: 'Galaxy Tab S6 Lite', storages: ['64GB'], bpRange: [110, 150], appleSerial: true },
+  { series: 'Apple Watch', model: 'Watch Series 7 41mm GPS', storages: [],  bpRange: [160, 200], appleSerial: true },
+  { series: 'Other',       model: 'AcmeMobile QX10',  storages: ['64GB'],   bpRange: [50, 80],   appleSerial: false },
+];
+const TAIL_MODELS = num('SIM_TAIL_MODELS', 0);
+for (let i = 0; i < TAIL_MODELS; i++) {
+  const spec = TAIL_CATALOG[i % TAIL_CATALOG.length];
+  const qty = int(1, 4);
+  // Early in the window, so the queue reaches them and they genuinely run out
+  // rather than sitting on the shelf because the month ended first.
+  const day = int(0, Math.max(0, Math.floor(DAYS / 3)));
+  for (let q = 0; q < qty; q++) mintUnit(dateAt(day), spec);
 }
 
 // ══════════════════════════════════════════════════════════════════════════

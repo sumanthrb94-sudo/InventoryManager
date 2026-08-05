@@ -696,6 +696,16 @@ export default function SalesReportImport({ onClose }: Props) {
     // consumer, present and future, gets the id. Sales whose supplier isn't
     // in the catalog keep name-only attribution, which the display-side
     // resolver still handles.
+    // Provenance for the Operations Hub's "Last Import" panel, and a batch id
+    // on each sale that points at a row that actually exists.
+    //
+    // This used to stamp `inv-${Date.now()}` — a synthetic id with no matching
+    // importBatches document, because createImportBatch was only ever called
+    // by ImportModal, which is no longer rendered. So the audit field referred
+    // to nothing and the panel read "No imports yet" after every import. The
+    // id is minted first, stamped on every sale, and the batch row written
+    // only once the sales land.
+    const importBatchId = dbService.newImportBatchId();
     const supplierIndex = buildSupplierIndex(suppliers);
     const entries = [...preview.toCreate, ...preview.toUpdate].map(s => {
       const resolved = resolveSupplier(s, supplierIndex);
@@ -705,7 +715,7 @@ export default function SalesReportImport({ onClose }: Props) {
       data: {
         ...s,
         ...(resolved.known ? { supplierId: resolved.key } : {}),
-        importBatchId: `inv-${Date.now()}`,
+        importBatchId,
         sourceFile: fileName,
         importedAt: new Date().toISOString(),
         // MUST be the literal 'shared' — firestore.rules gates every
@@ -1047,6 +1057,16 @@ export default function SalesReportImport({ onClose }: Props) {
         unitsRestoreFailed,
         unitsRestoreFailedDetails,
       });
+      // Written last, and only on success — see the note where importBatchId
+      // is minted.
+      if (entries.length > 0) {
+        await dbService.createImportBatch({
+          id: importBatchId,
+          sourceFile: fileName || 'Sales Report',
+          rowCount: entries.length,
+          notes: `${preview.toCreate.length} created · ${preview.toUpdate.length} updated`,
+        });
+      }
       setPhase('done');
     } catch (e: any) {
       console.error(`[sales import] failed while ${stage}:`, e);

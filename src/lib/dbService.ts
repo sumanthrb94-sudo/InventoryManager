@@ -527,11 +527,28 @@ export const dbService = {
   // round-tripping the client's INVENTORY_REPORT and SALES_REPORT workbooks.
 
   /**
+   * Mint an importBatches id without writing anything.
+   *
+   * Lets an importer stamp the id on every document it is about to write and
+   * record the batch row only once those writes succeed, so the audit trail
+   * points at a row that exists and a failed import leaves nothing behind.
+   */
+  newImportBatchId(): string {
+    return doc(colRef('importBatches')).id;
+  },
+
+  /**
    * Create a single importBatches row and return its id.
    * Every imported unit / sale / aggregate must carry this id for audit trail.
    * Pass omitting `id` to let Firestore auto-assign.
    */
   async createImportBatch(meta: {
+    /** Caller-minted id. Pass one when the imported documents must carry the
+     *  batch id BEFORE the batch row is written — mint with newImportBatchId,
+     *  stamp it on every entry, write those, and only then record the batch.
+     *  That ordering means a failed write leaves no batch row claiming rows
+     *  that never landed. Omit to let this mint one. */
+    id?: string;
     sourceFile: string;
     sourceSheet?: string;
     rowCount: number;
@@ -539,7 +556,7 @@ export const dbService = {
     importedBy?: string;
     notes?: string;
   }): Promise<string> {
-    const ref = doc(colRef('importBatches'));
+    const ref = meta.id ? doc(colRef('importBatches'), meta.id) : doc(colRef('importBatches'));
     const id = ref.id;
     const payload: any = {
       id,

@@ -305,6 +305,7 @@ async function run() {
   const store = await dumpStore(page);
   const units = docsOf(store, 'inventoryUnits');
   const sales = docsOf(store, 'sales');
+  const batches = docsOf(store, 'importBatches');
   const appAvailable = units.filter(u =>
     u.status === 'available' || (u.returnType === 'returned_to_inventory' && u.status !== 'sold'));
   const appSold = units.filter(u => u.status === 'sold');
@@ -319,6 +320,18 @@ async function run() {
   record('units flipped to sold match the sales file',
     appSold.length === manifest.sales.length,
     `${appSold.length} sold vs ${manifest.sales.length} unit sales`);
+
+  // Provenance: both imports must leave a batch row, or the Operations Hub
+  // has nothing to show and the importBatchId on every doc points at nothing.
+  record('both imports recorded a batch row', batches.length === 2,
+    `${batches.length} batch rows: ${batches.map(b => `${b.sourceFile} ${b.rowCount}`).join(' · ')}`);
+  const stampedUnits = units.filter(u => (u.importBatchId || '').trim()).length;
+  const stampedSales = sales.filter(x => (x.importBatchId || '').trim()).length;
+  const batchIds = new Set(batches.map(b => b.id));
+  const danglingSales = sales.filter(x => x.importBatchId && !batchIds.has(x.importBatchId)).length;
+  record('every imported doc carries a batch id that points at a real row',
+    stampedUnits === units.length && stampedSales === sales.length && danglingSales === 0,
+    `units ${stampedUnits}/${units.length} · sales ${stampedSales}/${sales.length} · dangling ${danglingSales}`);
 
   // ══ PHASE 2 · What SALES read: what can I list right now ════════════════
   console.log('\n══ PHASE 2 · Sales team — what is available to list ══');
@@ -375,6 +388,11 @@ async function run() {
   const pageText = (await page.locator('body').innerText()).replace(/\s+/g, ' ');
   await shot(page, 'phase3-stock-alerts');
 
+  // Guard first: with no empty bucket in the data, the two assertions below
+  // pass without ever looking at a line, which is how a month-long run once
+  // reported the reorder panel "verified" while it was empty.
+  record('the month actually ran some SKUs dry — otherwise the checks below prove nothing',
+    soldOutBuckets.length > 0, `${soldOutBuckets.length} sold-out buckets · ${lowStockBuckets.length} running low`);
   record('Sold Out · Reorder panel is on the screen', /Sold Out/i.test(pageText));
   record('Running Low · Reorder Soon panel is on the screen', /Running Low/i.test(pageText));
 

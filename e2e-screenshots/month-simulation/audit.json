@@ -3,7 +3,7 @@
     {
       "name": "every intake row landed as a unit",
       "ok": true,
-      "detail": "1900 units vs 1900 in the file"
+      "detail": "1922 units vs 1922 in the file"
     },
     {
       "name": "every sale row landed as a sale",
@@ -16,19 +16,29 @@
       "detail": "1470 sold vs 1470 unit sales"
     },
     {
+      "name": "both imports recorded a batch row",
+      "ok": true,
+      "detail": "2 batch rows: INVENTORY_REPORT_SIM.xlsx 1922 · SALES_REPORT_SIM.xlsx 1703"
+    },
+    {
+      "name": "every imported doc carries a batch id that points at a real row",
+      "ok": true,
+      "detail": "units 1922/1922 · sales 1703/1703 · dangling 0"
+    },
+    {
       "name": "Stock Intake loads",
       "ok": true,
-      "detail": "1.9s"
+      "detail": "2.0s"
     },
     {
       "name": "Buy · \"All Office Stock\" equals stock genuinely on the shelf",
       "ok": true,
-      "detail": "tile 246 vs 246 unsold office units"
+      "detail": "tile 267 vs 267 unsold office units"
     },
     {
       "name": "Buy · \"SHS Stock\" equals supplier-held units",
       "ok": true,
-      "detail": "tile 184 vs 184"
+      "detail": "tile 185 vs 185"
     },
     {
       "name": "the imported units carry the sale dates from the file, not the import date",
@@ -43,22 +53,27 @@
     {
       "name": "the store agrees with the tile on available stock",
       "ok": true,
-      "detail": "store 246 · office 246 · SHS 184"
+      "detail": "store 267 · office 267 · SHS 185"
     },
     {
       "name": "Inventory (Sell) loads",
       "ok": true,
-      "detail": "1.9s"
+      "detail": "2.0s"
     },
     {
       "name": "Sell · \"Sold Today\" equals every sale doc dated today",
       "ok": true,
-      "detail": "sell 123 vs 123 sale docs dated 2026-08-05 (49 units + 74 accessory lines)"
+      "detail": "sell 120 vs 120 sale docs dated 2026-08-05 (49 units + 71 accessory lines)"
     },
     {
       "name": "Sell · \"All-time Sold\" equals every sale in the month",
       "ok": true,
       "detail": "tile 1703 · unit sales 1470 · +accessories 1703"
+    },
+    {
+      "name": "the month actually ran some SKUs dry — otherwise the checks below prove nothing",
+      "ok": true,
+      "detail": "7 sold-out buckets · 2 running low"
     },
     {
       "name": "Sold Out · Reorder panel is on the screen",
@@ -73,7 +88,7 @@
     {
       "name": "every sold-out model is named on the reorder panel",
       "ok": true,
-      "detail": "0 sold-out buckets"
+      "detail": "7 sold-out buckets"
     },
     {
       "name": "every running-low model is named on the reorder panel",
@@ -98,22 +113,22 @@
     {
       "name": "Periodic table · headline unit count equals office stock on the shelf",
       "ok": true,
-      "detail": "shows 246 vs 246 available office units"
+      "detail": "shows 267 vs 267 available office units"
     },
     {
       "name": "Operations Hub · \"Last Import\" reflects the imports that just ran",
-      "ok": false,
-      "detail": "reads \"No imports yet\" after 1,900 units and 1,703 sales were imported"
+      "ok": true,
+      "detail": "populated"
     },
     {
       "name": "Admin · Insights loads with content",
       "ok": true,
-      "detail": "1.6s"
+      "detail": "1.5s"
     },
     {
       "name": "Admin · Money loads with content",
       "ok": true,
-      "detail": "1.6s"
+      "detail": "1.5s"
     },
     {
       "name": "Admin · Sales History loads with content",
@@ -123,22 +138,22 @@
     {
       "name": "Admin · Reports loads with content",
       "ok": true,
-      "detail": "2.3s"
+      "detail": "2.2s"
     },
     {
       "name": "Admin · Configuration loads with content",
       "ok": true,
-      "detail": "1.6s"
+      "detail": "1.5s"
     },
     {
       "name": "stored revenue matches the sales file",
       "ok": true,
-      "detail": "app £583016.90 vs £583016.90"
+      "detail": "app £579514.47 vs £579514.47"
     },
     {
       "name": "stored GP matches the master formulas",
       "ok": true,
-      "detail": "app £59741.88 vs £59741.88"
+      "detail": "app £59927.89 vs £59927.89"
     },
     {
       "name": "no uncaught JS errors across the whole month",
@@ -159,118 +174,118 @@
   "timings": [
     {
       "screen": "Stock Intake",
-      "ms": 1935,
+      "ms": 1967,
       "failed": false
     },
     {
       "screen": "Stock Intake",
-      "ms": 2043,
+      "ms": 1917,
       "failed": false
     },
     {
       "screen": "Inventory import · preview",
-      "ms": 225
+      "ms": 188
     },
     {
       "screen": "Inventory import · write",
-      "ms": 2311
+      "ms": 2465
     },
     {
       "screen": "Stock Intake",
-      "ms": 2017,
+      "ms": 1999,
       "failed": false
     },
     {
       "screen": "Sales import · preview",
-      "ms": 356
+      "ms": 341
     },
     {
       "screen": "Sales import · write",
-      "ms": 63453
+      "ms": 64306
     },
     {
       "screen": "Stock Intake",
-      "ms": 1875,
+      "ms": 2005,
       "failed": false
     },
     {
       "screen": "INVENTORY",
-      "ms": 1905,
+      "ms": 1981,
       "failed": false
     },
     {
       "screen": "Stock Intake",
-      "ms": 2091,
+      "ms": 2099,
       "failed": false
     },
     {
       "screen": "Returns",
-      "ms": 1990,
+      "ms": 1975,
       "failed": false
     },
     {
       "screen": "Notices",
-      "ms": 1996,
+      "ms": 1974,
       "failed": false
     },
     {
       "screen": "Admin",
-      "ms": 1948,
+      "ms": 1887,
       "failed": false
     },
     {
       "screen": "Admin · Overview",
-      "ms": 1548,
+      "ms": 1544,
       "failed": false
     },
     {
       "screen": "Admin",
-      "ms": 1946,
+      "ms": 1987,
       "failed": false
     },
     {
       "screen": "Admin · Insights",
-      "ms": 1562,
+      "ms": 1535,
       "failed": false
     },
     {
       "screen": "Admin",
-      "ms": 2034,
+      "ms": 1957,
       "failed": false
     },
     {
       "screen": "Admin · Money",
-      "ms": 1565,
+      "ms": 1549,
       "failed": false
     },
     {
       "screen": "Admin",
-      "ms": 1875,
+      "ms": 1929,
       "failed": false
     },
     {
       "screen": "Admin · Sales History",
-      "ms": 1536,
+      "ms": 1530,
       "failed": false
     },
     {
       "screen": "Admin",
-      "ms": 3580,
+      "ms": 3153,
       "failed": false
     },
     {
       "screen": "Admin · Reports",
-      "ms": 2317,
+      "ms": 2237,
       "failed": false
     },
     {
       "screen": "Admin",
-      "ms": 1990,
+      "ms": 1979,
       "failed": false
     },
     {
       "screen": "Admin · Configuration",
-      "ms": 1553,
+      "ms": 1539,
       "failed": false
     }
   ]

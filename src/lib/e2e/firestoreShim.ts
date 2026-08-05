@@ -130,8 +130,36 @@ export function getFirestore(_app?: any, _id?: string) { ensureSeeded(); return 
 export function getStorage(_app?: any, _bucket?: string) { return { __e2e: true }; }
 
 export function collection(_db: any, name: string) { return { __col: name, path: name }; }
-export function doc(_db: any, name: string, id: string) {
-  return { __col: name, id, path: `${name}/${id}` };
+/**
+ * Firestore's `doc()` has three call shapes, and this stand-in only
+ * implemented one of them.
+ *
+ *   doc(db, 'collection', 'id')   — used by docRef() everywhere
+ *   doc(collectionRef)            — mint an auto id
+ *   doc(collectionRef, 'id')      — target an id in that collection
+ *
+ * The last two are what `createImportBatch` uses. Under this shim they
+ * produced `{ __col: <the collection ref object>, id: undefined }`, so the
+ * write went nowhere: importBatches was always empty in E2E, and the
+ * Operations Hub's "Last Import" panel could never be verified here — the
+ * harness silently swallowed the very code path a test would be checking.
+ *
+ * Auto ids are minted from a counter rather than randomness so a run stays
+ * reproducible.
+ */
+let autoIdSeq = 0;
+export function doc(dbOrColRef: any, name?: string, id?: string) {
+  // doc(db, name, id)
+  if (typeof name === 'string' && typeof id === 'string') {
+    return { __col: name, id, path: `${name}/${id}` };
+  }
+  // doc(collectionRef) / doc(collectionRef, id)
+  const col = dbOrColRef?.__col;
+  if (typeof col === 'string') {
+    const docId = typeof name === 'string' ? name : `e2e_auto_${++autoIdSeq}`;
+    return { __col: col, id: docId, path: `${col}/${docId}` };
+  }
+  throw new Error('e2e firestoreShim: doc() called with an unrecognised reference');
 }
 
 export async function getDocs(ref: any) {
