@@ -55,24 +55,51 @@ service cloud.firestore {
         );
     }
 
-    // True when an update touches return-processing fields. Normal stock/sale
-    // edits stay open to the team; return status flips and sale voids require
-    // the returns-manager role.
+    // True when this write puts a doc INTO a return state.
+    //
+    // THE BUG THIS REPLACES, AND WHY IT WAS INVISIBLE
+    //
+    // The old version asked whether a field was PRESENT:
+    //   'returnType' in request.resource.data
+    // On an update, request.resource.data is the document as it will exist
+    // AFTER the write — the merged result, not the delta. So the check fired
+    // for any unit that merely CARRIED the key, whatever its value.
+    //
+    // recordSale's unit patch deliberately writes returnType / returnDate /
+    // returnReason / returnOutcome / returnLegCost / returnComments as NULL,
+    // to clear stale return state when a unit starts a fresh sale cycle. That
+    // made every sale look like a return update, so marking a unit sold was
+    // allowed only for a returns manager — and that allowlist is empty, which
+    // leaves the three admin emails. Every sales-team member marking stock
+    // sold had the inventoryUnits write denied while the sale doc itself
+    // (governed by its own rule) went through, and dbService swallowed the
+    // denial. The result on screen: "10 sold", with the units still showing as
+    // available in inventory and on every dashboard after a refresh.
+    //
+    // A return update is now one that CHANGES one of these fields TO a real
+    // value. Clearing them to null on a sale is not one. Leaving a previously
+    // repaired unit's repairedAt untouched while selling it again is not one
+    // either — that was the second false positive hiding behind the first.
+    function changedToNonNull(f) {
+      return request.resource.data.get(f, null) != null
+        && request.resource.data.get(f, null) != resource.data.get(f, null);
+    }
     function isReturnUpdate() {
       return (
-        ('status' in request.resource.data
-          && request.resource.data.status in ['returned'])
-        || 'returnType' in request.resource.data
-        || 'returnOutcome' in request.resource.data
-        || 'returnLegCost' in request.resource.data
-        || 'returnQcAt' in request.resource.data
-        || 'pendingCrmReview' in request.resource.data
-        || 'replacedByUnitId' in request.resource.data
-        || 'replacementForUnitId' in request.resource.data
-        || 'repairedAt' in request.resource.data
-        || 'voidedAt' in request.resource.data
-        || 'voidOutcome' in request.resource.data
-        || 'voidReason' in request.resource.data
+        (request.resource.data.get('status', '') == 'returned'
+          && resource.data.get('status', '') != 'returned')
+        || changedToNonNull('returnType')
+        || changedToNonNull('returnOutcome')
+        || changedToNonNull('returnLegCost')
+        || changedToNonNull('returnQcAt')
+        || changedToNonNull('replacedByUnitId')
+        || changedToNonNull('replacementForUnitId')
+        || changedToNonNull('repairedAt')
+        || changedToNonNull('voidedAt')
+        || changedToNonNull('voidOutcome')
+        || changedToNonNull('voidReason')
+        || (request.resource.data.get('pendingCrmReview', false) == true
+          && resource.data.get('pendingCrmReview', false) != true)
       );
     }
 

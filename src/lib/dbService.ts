@@ -136,6 +136,30 @@ function cleanForFirestore(obj: Record<string, any>): Record<string, any> {
   return out;
 }
 
+/**
+ * A rules rejection is a BUG; a network blip is weather.
+ *
+ * Every write below updates the in-memory cache optimistically and then tries
+ * Firestore. Swallowing the Firestore error keeps the UI responsive when the
+ * connection drops — the snapshot listener reconciles later. But it also made
+ * a permission-denied write look exactly like a successful one: the screen
+ * showed the unit sold, the server never changed, and a refresh put it back.
+ *
+ * That is how "Mark Multiple Sold" could report "10 sold" while inventory and
+ * every dashboard stayed unchanged. Permission errors now propagate so the
+ * caller's own error path runs (recordSale returns write_failed, and the bulk
+ * grid marks that line failed instead of counting it). Offline and transient
+ * errors keep the old forgiving behaviour.
+ */
+function rethrowIfDenied(err: any, where: string): void {
+  const code = String(err?.code || '');
+  if (code === 'permission-denied' || code === 'unauthenticated') {
+    console.error(`Firestore ${where} DENIED:`, err?.message);
+    throw err;
+  }
+  console.warn(`Firestore ${where}:`, err?.message);
+}
+
 // ── dbService ─────────────────────────────────────────────────────────────────
 export const dbService = {
 
@@ -163,7 +187,7 @@ export const dbService = {
     try {
       await setDoc(docRef(collectionName, id), cleanForFirestore(item), { merge: true });
     } catch (err: any) {
-      console.warn(`Firestore create [${collectionName}/${id}]:`, err.message);
+      rethrowIfDenied(err, `create [${collectionName}/${id}]`);
     }
   },
 
@@ -182,7 +206,7 @@ export const dbService = {
     try {
       await setDoc(docRef(collectionName, id), cleanForFirestore(updated), { merge: true });
     } catch (err: any) {
-      console.warn(`Firestore update [${collectionName}/${id}]:`, err.message);
+      rethrowIfDenied(err, `update [${collectionName}/${id}]`);
     }
   },
 
