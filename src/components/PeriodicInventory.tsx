@@ -272,8 +272,6 @@ interface PtGroupDef {
 interface PtGroupVM extends PtGroupDef {
   elements: Element[];
   totalCount: number;
-  /** Supplier-held (SHS) units across this group's tiles. */
-  totalShs: number;
   totalValue: number;
 }
 
@@ -292,14 +290,6 @@ const SHS_VIEW_TABS: ReadonlyArray<{ id: ViewMode; label: string }> = [
   { id: 'stock',      label: 'SHS Stock' },
   { id: 'supplier',   label: 'By Supplier' },
   { id: 'outofstock', label: 'Out of Stock' },
-];
-
-/** The unified table has no separate Out of Stock tab: sold-out lines are
- *  already on it, reading zero. A tab that showed the same models again would
- *  be a second place to look for the same fact. */
-const UNIFIED_VIEW_TABS: ReadonlyArray<{ id: ViewMode; label: string }> = [
-  { id: 'stock',    label: 'All Stock' },
-  { id: 'supplier', label: 'By Supplier' },
 ];
 
 /** Colour palette cycled across supplier rows (the supplier dimension has no
@@ -355,15 +345,7 @@ export function buildGroups(
   secondary: InventoryUnit[],
   groupDefs: ReadonlyArray<PtGroupDef>,
   assign: (u: InventoryUnit) => string,
-  opts?: {
-    valueFn?: (u: InventoryUnit) => number;
-    excludeKeys?: Set<string>;
-    catalogIndex?: Map<string, string>;
-    /** Units that must have a TILE but contribute no quantity — sold stock,
-     *  so a line the operator has run out of shows 0 rather than disappearing
-     *  from the table. Only used by the unified view. */
-    zeroFrom?: InventoryUnit[];
-  },
+  opts?: { valueFn?: (u: InventoryUnit) => number; excludeKeys?: Set<string>; catalogIndex?: Map<string, string> },
 ): PtGroupVM[] {
   const valueOf = opts?.valueFn ?? ((u: InventoryUnit) => u.buyPrice || 0);
   const excludeKeys = opts?.excludeKeys;
@@ -385,7 +367,6 @@ export function buildGroups(
 
     const parsedPrimary   = primary.map(parseUnit);
     const parsedSecondary = secondary.map(parseUnit);
-    const parsedZero      = (opts?.zeroFrom ?? []).map(parseUnit);
 
     return groupDefs.map(group => {
       const groupUnits     = parsedPrimary.filter(p => p.groupId === group.id);
@@ -434,18 +415,6 @@ export function buildGroups(
         if (b) b.shsCount++;
       }
 
-      // Third pass: models the operator HELD but holds no more. These create
-      // a bucket and contribute nothing to either count, so a sold-out line
-      // reads 0 in office and 0 in SHS instead of vanishing off the table.
-      //
-      // A tile disappearing is the worse failure of the two. "Zero of these"
-      // is a fact the operator can act on — reorder it — whereas an absent
-      // tile is indistinguishable from a line they never stocked.
-      for (const p of parsedZero) {
-        if (p.groupId !== group.id) continue;
-        ensure(p);
-      }
-
       const elements: Element[] = Object.values(buckets)
         .map((d, i) => {
           const symbol = shortCode(d.model);
@@ -489,10 +458,6 @@ export function buildGroups(
         // as "units missing". For office / supplier / shs (no exclusion) this
         // is identical to the old count.
         totalCount: elements.reduce((s, el) => s + el.count, 0),
-        // Kept separate rather than folded into totalCount: the unified view
-        // shows office and supplier-held side by side precisely because they
-        // are different things — one is on the shelf, the other is not.
-        totalShs: elements.reduce((s, el) => s + el.shsCount, 0),
         totalValue: elements.reduce((s, el) => s + el.value, 0),
       };
     }).filter(g => g.elements.length > 0);
@@ -698,20 +663,9 @@ export default function PeriodicInventory({ units, onNavigate }: Props) {
   // Top-right selector. Each scope owns its OWN view mode and supplier filter
   // (separate useState below) so flipping between Office and SHS preserves
   // whatever filters the operator had set on each side independently.
-  //
-  // 'all' is the UNIFIED table and the default: one tile per model, carrying
-  // its office quantity AND its supplier-held quantity, with lines the
-  // operator has run out of still present and reading zero. Office and SHS
-  // remain as focused views for when only one side matters.
-  //
-  // The unified table exists because the split one could not be reconciled by
-  // eye: a model with 2 in office and 3 on order appeared on two tables that
-  // never showed each other, and a model with none of either appeared on a
-  // third. What the operator actually holds was never on one screen.
-  const [scope, setScope] = useState<'all' | 'office' | 'shs'>('all');
+  const [scope, setScope] = useState<'office' | 'shs'>('office');
   const isShs = scope === 'shs';
-  const isUnified = scope === 'all';
-  const VIEW_TABS = isUnified ? UNIFIED_VIEW_TABS : isShs ? SHS_VIEW_TABS : OFFICE_VIEW_TABS;
+  const VIEW_TABS = isShs ? SHS_VIEW_TABS : OFFICE_VIEW_TABS;
 
   // ── View controls (per-scope) ───────────────────────────────────────────────
   // Each scope keeps its OWN view-mode + supplier filter so flipping the
@@ -721,12 +675,10 @@ export default function PeriodicInventory({ units, onNavigate }: Props) {
   const [shsViewMode, setShsViewMode] = useState<ViewMode>('stock');
   const [officeSupplier, setOfficeSupplier] = useState<string>('all');
   const [shsSupplier, setShsSupplier] = useState<string>('all');
-  const [unifiedViewMode, setUnifiedViewMode] = useState<ViewMode>('stock');
-  const [unifiedSupplier, setUnifiedSupplier] = useState<string>('all');
-  const viewMode = isUnified ? unifiedViewMode : isShs ? shsViewMode : officeViewMode;
-  const setViewMode = isUnified ? setUnifiedViewMode : isShs ? setShsViewMode : setOfficeViewMode;
-  const supplierFilterId = isUnified ? unifiedSupplier : isShs ? shsSupplier : officeSupplier;
-  const setSupplierFilterId = isUnified ? setUnifiedSupplier : isShs ? setShsSupplier : setOfficeSupplier;
+  const viewMode = isShs ? shsViewMode : officeViewMode;
+  const setViewMode = isShs ? setShsViewMode : setOfficeViewMode;
+  const supplierFilterId = isShs ? shsSupplier : officeSupplier;
+  const setSupplierFilterId = isShs ? setShsSupplier : setOfficeSupplier;
 
   const [popover, setPopover] = useState<PopoverState | null>(null);
   /** Excel-style overlay target — set when a block is clicked, null when closed.
@@ -779,11 +731,6 @@ export default function PeriodicInventory({ units, onNavigate }: Props) {
   // switch fans out cleanly.
   const scopePrimary = isShs ? incoming : available;
 
-  // The unified table's second quantity. Office is `available`, supplier-held
-  // is `incoming`; the unified view shows both on one tile, so it passes
-  // `incoming` as the secondary set rather than picking one.
-  const unifiedSecondary = isUnified ? incoming : [];
-
   // Sold units for this scope — lifetime, used by the out-of-stock view to
   // surface demand. stockSource records WHICH segment fulfilled the sale,
   // so the SHS out-of-stock view only counts sales fulfilled from SHS, and
@@ -791,10 +738,9 @@ export default function PeriodicInventory({ units, onNavigate }: Props) {
   // stockSource (legacy data) fall to office to preserve the old behaviour.
   const soldAll = useMemo(() => scopedUnits.filter(u => {
     if (u.status !== 'sold') return false;
-    if (isUnified) return true;          // unified counts both segments' demand
     const src = u.stockSource ?? 'office';
     return isShs ? src === 'shs' : src === 'office';
-  }), [scopedUnits, isShs, isUnified]);
+  }), [scopedUnits, isShs]);
 
   // Rolling 24-hour windows (NOT UTC-midnight calendar). UTC-bucket
   // comparison was dropping evening-local sales because the operator
@@ -815,17 +761,11 @@ export default function PeriodicInventory({ units, onNavigate }: Props) {
   // 'stock' view = primary on-hand units for this scope (Office=available,
   // SHS=incoming). Clean periodic table with no mixed-signal badges; the
   // two scopes get their own dashboards mounted side-by-side.
-  //
-  // In the unified view this is the whole table: office units drive the tile
-  // count, supplier-held units drive the SHS count on the SAME tile, and
-  // sold-out models come in via `zeroFrom` so they read 0 instead of being
-  // absent. Nothing is on a second screen.
   const stockGroups = useMemo(
-    () => buildGroups(scopePrimary, unifiedSecondary, SERIES_GROUPS, u => unitSeries(u), {
+    () => buildGroups(scopePrimary, [], SERIES_GROUPS, u => unitSeries(u), {
       valueFn: u => u.buyPrice || 0, catalogIndex,
-      ...(isUnified ? { zeroFrom: soldAll } : {}),
     }),
-    [scopePrimary, unifiedSecondary, catalogIndex, isUnified, soldAll],
+    [scopePrimary, catalogIndex],
   );
 
   // Supplier-grouped layout builder — rows are suppliers (built from the live
@@ -944,18 +884,14 @@ export default function PeriodicInventory({ units, onNavigate }: Props) {
     e: React.MouseEvent<HTMLButtonElement>,
   ) => {
     cancelClose();
-    // A zero tile is inert in the split views (it means "nothing here"), but
-    // in the unified table it is the reorder signal — the operator wants the
-    // sold history behind it, which is exactly what the popover and overlay
-    // carry. So it stays live there.
-    if (!isUnified && el.count === 0 && el.shsCount === 0) return;
+    if (el.count === 0 && el.shsCount === 0) return;
     const rect = (e.currentTarget as HTMLButtonElement).getBoundingClientRect();
     const countLabel =
       viewMode === 'outofstock' ? 'sold' :
       isShs ? 'on order' :
       'in office';
     setPopover({ el, color, rect, countLabel });
-  }, [cancelClose, viewMode, isShs, isUnified]);
+  }, [cancelClose, viewMode]);
 
   // Hide the whole component only when there's genuinely no data anywhere —
   // a sub-view (Sales / Out of Stock) with no rows still renders the shell so
@@ -963,33 +899,20 @@ export default function PeriodicInventory({ units, onNavigate }: Props) {
   // the panel now that other views may have data.
   if (units.length === 0) return null;
 
-  const scopeTitle = isUnified ? 'All Stock — Office & SHS'
-    : isShs ? 'SHS — Supplier Held Stock'
-    : 'Office Stock Visibility';
-  const scopeStockSub = isUnified ? 'office · supplier-held · sold out'
-    : isShs ? 'held by suppliers · order to fulfil'
-    : 'in office';
+  const scopeTitle = isShs ? 'SHS — Supplier Held Stock' : 'Office Stock Visibility';
+  const scopeStockSub = isShs ? 'held by suppliers · order to fulfil' : 'in office';
   const viewTitle =
-    viewMode === 'supplier'   ? (isUnified ? 'All Stock by Supplier' : isShs ? 'SHS by Supplier' : 'Stock by Supplier') :
+    viewMode === 'supplier'   ? (isShs ? 'SHS by Supplier' : 'Stock by Supplier') :
     viewMode === 'outofstock' ? (isShs ? 'Out of Stock — SHS' : 'Out of Stock — Office') :
                                 scopeTitle;
-  // Counted off the UNIT LISTS, not off the tiles. The two must agree, and
-  // deriving the headline from the same rollup it is meant to check would
-  // make the check vacuous — periodicOfficeReconcile.test.ts asserts they do.
-  const zeroSkuCount = isUnified
-    ? groups.reduce((n, g) => n + g.elements.filter(el => el.count === 0 && el.shsCount === 0).length, 0)
-    : 0;
   const headlineCount =
     viewMode === 'outofstock' ? groups.reduce((s, g) => s + g.elements.length, 0) :
-    isUnified                 ? scopePrimary.length + unifiedSecondary.length :
                                 scopePrimary.length;
   const headlineLabel =
     viewMode === 'outofstock' ? 'SKUs' : 'units';
   const headlineSub =
     viewMode === 'supplier'   ? `${groups.length} supplier${groups.length === 1 ? '' : 's'}` :
     viewMode === 'outofstock' ? `${soldAll.length} sold lifetime` :
-    isUnified                 ? `${scopePrimary.length} in office · ${unifiedSecondary.length} SHS`
-                                + (zeroSkuCount ? ` · ${zeroSkuCount} sold out` : '') :
                                 scopeStockSub;
   // Per-row total suffix: "£X stock" for office + by-supplier, "£X lifetime"
   // for the out-of-stock revenue rollup.
@@ -1027,7 +950,7 @@ export default function PeriodicInventory({ units, onNavigate }: Props) {
                   so it's the FIRST decision the operator makes when
                   scanning the panel. */}
               <div style={{ display: 'inline-flex', background: '#0f172a', borderRadius: 10, padding: 3, gap: 2 }}>
-                {(['all', 'office', 'shs'] as const).map(s => {
+                {(['office', 'shs'] as const).map(s => {
                   const active = scope === s;
                   return (
                     <button
@@ -1040,17 +963,13 @@ export default function PeriodicInventory({ units, onNavigate }: Props) {
                         borderRadius: 8,
                         fontSize: isMobile ? 10 : 11, fontWeight: 800, fontFamily: 'system-ui',
                         textTransform: 'uppercase', letterSpacing: '0.08em',
-                        background: active ? (s === 'shs' ? '#0d9488' : s === 'all' ? '#4338ca' : '#fff') : 'transparent',
-                        color: active ? (s === 'office' ? '#0f172a' : '#fff') : '#94a3b8',
+                        background: active ? (s === 'shs' ? '#0d9488' : '#fff') : 'transparent',
+                        color: active ? (s === 'shs' ? '#fff' : '#0f172a') : '#94a3b8',
                         transition: 'background 0.12s, color 0.12s',
                       }}
-                      title={
-                        s === 'all' ? 'Every model on one table — office and supplier-held quantities side by side, sold-out lines showing zero'
-                        : s === 'shs' ? 'Supplier-held (SHS) stock only'
-                        : 'Office stock only'
-                      }
+                      title={s === 'shs' ? 'Supplier-held (SHS) stock' : 'Office stock'}
                     >
-                      {s === 'all' ? 'All Stock' : s === 'shs' ? 'SHS' : 'Office Stock'}
+                      {s === 'shs' ? 'SHS' : 'Office Stock'}
                     </button>
                   );
                 })}
@@ -1185,10 +1104,8 @@ export default function PeriodicInventory({ units, onNavigate }: Props) {
                       onMouseLeave={scheduleClose}
                       onClick={() => {
                         // Click opens the Excel-style overlay for this SKU.
-                        // Empty blocks are inert in the split views; in the
-                        // unified table they carry the sold history that says
-                        // why the line is worth reordering.
-                        if (!isUnified && el.count === 0 && el.shsCount === 0) return;
+                        // Empty blocks (zero stock + zero SHS) are non-actionable.
+                        if (el.count === 0 && el.shsCount === 0) return;
                         setOverlay({
                           seriesKey: viewMode === 'supplier' ? `${g.label} · ${el.seriesKey}` : el.seriesKey,
                           model: el.model,
@@ -1233,29 +1150,9 @@ export default function PeriodicInventory({ units, onNavigate }: Props) {
                           and got confused. Demand info stays available on
                           hover / overlay click. */}
                       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 1 }}>
-                        <span style={{
-                          fontSize: 10, fontFamily: 'monospace', fontWeight: 800,
-                          color: isEmpty ? '#f87171' : isHovered ? '#fff' : g.color.text,
-                        }}>
+                        <span style={{ fontSize: 10, fontFamily: 'monospace', fontWeight: 800, color: isHovered ? '#fff' : g.color.text }}>
                           {viewMode === 'outofstock' ? 0 : el.count}
                         </span>
-                        {/* Supplier-held, on the SAME tile as the office
-                            quantity. The two used to live on tables that never
-                            showed each other, so "how many of these do we have"
-                            could not be answered from one screen. Only the
-                            unified view carries it — the SHS-only view's own
-                            count already IS the SHS quantity. */}
-                        {isUnified && el.shsCount > 0 && (
-                          <span style={{
-                            fontSize: 8, fontFamily: 'monospace', fontWeight: 800,
-                            lineHeight: 1,
-                            padding: '1px 3px', borderRadius: 4,
-                            background: isHovered ? 'rgba(255,255,255,0.25)' : '#ccfbf1',
-                            color: isHovered ? '#fff' : '#0f766e',
-                          }}>
-                            +{el.shsCount}
-                          </span>
-                        )}
                       </div>
 
                       {/* Big symbol (shortCode of the model) — font-size

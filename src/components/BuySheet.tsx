@@ -359,6 +359,16 @@ export default function BuySheet(_props: Props) {
     }).sort((a, b) => (b.lastSold || '').localeCompare(a.lastSold || ''));
   }, [units, supplierMap, nowMs]);
 
+  // Every SKU that is sold out, with no time window — the figure Stock Alerts
+  // and the periodic table's Out of Stock view both show. The tile below
+  // reports the 72-hour slice, and a headline that is smaller than the list
+  // directly beneath it reads as a bug unless the difference is stated.
+  const soldOutLifetime = useMemo(
+    () => buildOutOfStockBuckets(units, supplierMap)
+      .filter(b => b.available === 0 && b.incoming === 0 && b.sold > 0).length,
+    [units, supplierMap],
+  );
+
   // ── KPI counts ────────────────────────────────────────────────────────────
   const kpiCounts = useMemo(() => {
     // Office count = aggregate rollup + unmapped available units, so a wiped
@@ -786,10 +796,15 @@ export default function BuySheet(_props: Props) {
             onClick={() => setShowAccessoryPanel(true)}
           />
           <BigKpiTile
-            label="Out of Stock · 72h"
+            label="Sold Out · Last 72h"
             value={kpiCounts.outOfStock}
             tone="rose"
             onClick={() => setOverlay('out_of_stock')}
+            hint={
+              soldOutLifetime > kpiCounts.outOfStock
+                ? `${soldOutLifetime} sold out in total · see Stock Alerts`
+                : undefined
+            }
           />
         </div>
       </div>
@@ -1230,12 +1245,15 @@ function AlertColumn({
 
 // ── Big KPI tile ─────────────────────────────────────────────────────────────
 function BigKpiTile({
-  label, value, tone, onClick,
+  label, value, tone, onClick, hint,
 }: {
   label: string;
   value: string | number;
   tone: 'emerald' | 'blue' | 'amber' | 'slate' | 'rose' | 'indigo';
   onClick: () => void;
+  /** Replaces the default caption. Use when the headline number needs a
+   *  qualifier to avoid contradicting something else on the same screen. */
+  hint?: string;
 }) {
   const tones: Record<string, string> = {
     emerald: 'bg-gradient-to-br from-emerald-50 to-emerald-100/50 border-emerald-200 text-emerald-800 hover:from-emerald-100 hover:to-emerald-100',
@@ -1255,7 +1273,7 @@ function BigKpiTile({
         <Eye size={11} className="opacity-30 group-hover:opacity-70 transition-opacity flex-shrink-0" />
       </div>
       <p className="text-3xl font-bold tabular-nums mt-2 leading-tight">{value}</p>
-      <p className="text-[9px] font-mono opacity-60 mt-1">Click to view Excel overlay</p>
+      <p className="text-[9px] font-mono opacity-60 mt-1">{hint ?? 'Click to view Excel overlay'}</p>
     </button>
   );
 }
@@ -1542,7 +1560,9 @@ function skuBucketKey(brand: string, model: string, storage: string): string {
 
 // ── Out-of-stock bucket builder (shared by StockAlerts and the KPI tile) ────
 
-function buildOutOfStockBuckets(
+/** Exported so the 72-hour window rule can be tested against the same buckets
+ *  the tile counts, rather than a reimplementation of them. */
+export function buildOutOfStockBuckets(
   units: InventoryUnit[],
   supplierMap: Record<string, string>,
 ): OutOfStockBucket[] {
