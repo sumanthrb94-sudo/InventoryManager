@@ -18,7 +18,7 @@
  * which is why every case below is run against BOTH shapes.
  */
 import { describe, it, expect } from 'vitest';
-import { toMillis, withinLastHours } from '../../lib/firestoreTime';
+import { toMillis, withinLastHours, localDay, localToday, isSameLocalDay } from '../../lib/firestoreTime';
 
 /** What Firestore actually hands back for a serverTimestamp() field. */
 const timestamp = (d: Date) => ({ toDate: () => d });
@@ -117,29 +117,80 @@ describe('falling through to the next candidate', () => {
   });
 });
 
-describe('what the two screens now agree on', () => {
-  /** Buy counts UNITS flipped to sold; the shape of updatedAt decides. */
+describe('the local calendar day', () => {
+  it('buckets by LOCAL date, not UTC', () => {
+    // The operator works in IST. An evening sale bucketed by toISOString()
+    // lands on the next UTC day and vanishes from "today".
+    const d = new Date();
+    const expected = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    expect(localToday()).toBe(expected);
+  });
+
+  it('reads a plain yyyy-mm-dd back as itself', () => {
+    expect(localDay('2026-08-05')).toBe('2026-08-05');
+    expect(isSameLocalDay('2026-08-05', '2026-08-05')).toBe(true);
+  });
+
+  it('is false for nothing usable, rather than matching everything', () => {
+    for (const v of [null, undefined, '', 'nonsense']) {
+      expect(isSameLocalDay(v), `${JSON.stringify(v)}`).toBe(false);
+    }
+  });
+});
+
+describe('THE MISMATCH: Buy read 5 while Sell read 2 off one database', () => {
+  /** Buy counts UNITS. Sell counts SALE docs. They must still agree. */
   const buySoldToday = (units: Array<{ status: string; updatedAt?: unknown; saleDate?: string }>) =>
+    units.filter(u => u.status === 'sold' && isSameLocalDay(u.saleDate));
+
+  const sellSoldToday = (sales: Array<{ saleDate: string; voidedAt?: string }>) =>
+    sales.filter(s => !s.voidedAt && s.saleDate === localToday());
+
+  /** What Buy used to do — a rolling window over the last WRITE. */
+  const buyByLastWrite = (units: Array<{ status: string; updatedAt?: unknown; saleDate?: string }>) =>
     units.filter(u => u.status === 'sold' && withinLastHours(24, u.updatedAt, u.saleDate));
 
-  /** Sell counts SALE docs by their own saleDate — always a plain string. */
-  const sellSoldToday = (sales: Array<{ saleDate: string; voidedAt?: string }>) => {
-    const today = new Date().toISOString().slice(0, 10);
-    return sales.filter(s => !s.voidedAt && s.saleDate === today);
-  };
+  const today = localToday();
+  /**
+   * A real working day: two handsets actually sold, and three sold weeks ago
+   * whose docs were WRITTEN today because the operator processed a return,
+   * completed a repair and edited a unit.
+   */
+  const units = [
+    { status: 'sold', saleDate: today, updatedAt: timestamp(hoursAgo(1)) },
+    { status: 'sold', saleDate: today, updatedAt: timestamp(hoursAgo(2)) },
+    { status: 'sold', saleDate: '2026-07-18', updatedAt: timestamp(hoursAgo(1)) },
+    { status: 'sold', saleDate: '2026-07-20', updatedAt: timestamp(hoursAgo(2)) },
+    { status: 'sold', saleDate: '2026-07-23', updatedAt: timestamp(hoursAgo(3)) },
+    { status: 'available', saleDate: undefined, updatedAt: timestamp(hoursAgo(1)) },
+  ];
+  const sales = [{ saleDate: today }, { saleDate: today }];
 
-  it('two sales today are two on BOTH screens, with a Firestore-shaped unit', () => {
-    // Before the fix this was 0 and 2 — the operator's screenshots exactly.
-    const today = new Date().toISOString().slice(0, 10);
-    const units = [
-      { status: 'sold', updatedAt: timestamp(hoursAgo(2)), saleDate: today },
-      { status: 'sold', updatedAt: timestamp(hoursAgo(3)), saleDate: today },
-      { status: 'available', updatedAt: timestamp(hoursAgo(1)) },
-    ];
-    const sales = [{ saleDate: today }, { saleDate: today }];
+  it('the old rule counted every sold unit merely TOUCHED today', () => {
+    // This is the 5. Not one of the extra three sold today; all three were
+    // just written today.
+    expect(buyByLastWrite(units)).toHaveLength(5);
+  });
 
+  it('counting by sale date gives the two that actually sold', () => {
+    expect(buySoldToday(units)).toHaveLength(2);
+  });
+
+  it('and the two screens now agree', () => {
+    expect(buySoldToday(units).length).toBe(sellSoldToday(sales).length);
     expect(buySoldToday(units)).toHaveLength(2);
     expect(sellSoldToday(sales)).toHaveLength(2);
-    expect(buySoldToday(units).length).toBe(sellSoldToday(sales).length);
+  });
+
+  it('a sale voided by a return drops off the Sell count', () => {
+    const withReturn = [...sales, { saleDate: today, voidedAt: today }];
+    expect(sellSoldToday(withReturn), 'the returned one is not a sale').toHaveLength(2);
+  });
+
+  it('still works when saleDate is a Firestore Timestamp rather than a string', () => {
+    // Nothing writes it that way today, but the field is typed `any` and the
+    // whole point of firestoreTime is that shape cannot decide correctness.
+    const stamped = [{ status: 'sold', saleDate: timestamp(new Date()) as unknown as string }];
+    expect(buySoldToday(stamped)).toHaveLength(1);
   });
 });

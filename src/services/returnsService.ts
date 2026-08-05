@@ -110,8 +110,10 @@ function computeLegCost(linkedSales: Sale[], unit: InventoryUnit): number | null
   return null;
 }
 
-/** Build the patch for the returning unit based on return type and outcome. */
-function buildReturningUnitPatch(
+/** Build the patch for the returning unit based on return type and outcome.
+ *  Exported so tests can assert against the REAL patch rather than a copy of
+ *  it — a mirrored version passes whether or not the service is correct. */
+export function buildReturningUnitPatch(
   unit: InventoryUnit,
   returnType: ReturnCategory,
   returnDate: string,
@@ -132,6 +134,20 @@ function buildReturningUnitPatch(
     returnType,
     returnDate,
     returnReason: reason.trim(),
+    // Clear the PREVIOUS cycle's completion marker. completeRepair stamps
+    // repairedAt, and nothing used to clear it, so a unit sent for repair a
+    // second time still carried the first cycle's stamp. The Returns page
+    // reads that as "already repaired" — which hid the "Mark Repaired · Back
+    // to Stock" button and left the unit stuck In Repair with no way back,
+    // while the journey chips read Returned → Repaired on a unit that was
+    // still at the repairer.
+    //
+    // Cleared on EVERY new return, not just repairs: the field describes the
+    // cycle that finished, and a refund cycle should not inherit it either.
+    // The permanent 'repaired_unit' flag is what preserves the historical
+    // fact, and the loss accounting keys off that and off voidOutcome, so
+    // nothing downstream loses a repair it already recorded.
+    repairedAt: null,
     returnOutcome: outcome,
     returnLegCost: legCost ?? null,
     pendingCrmReview: false,
@@ -176,8 +192,9 @@ function buildReplacementUnitPatch(
   };
 }
 
-/** Build a ready-to-ship patch for a repaired unit. */
-function buildCompleteRepairPatch(): Record<string, any> {
+/** Build a ready-to-ship patch for a repaired unit. Exported for the same
+ *  reason as buildReturningUnitPatch. */
+export function buildCompleteRepairPatch(): Record<string, any> {
   return {
     status: 'available',
     returnType: 'returned_to_inventory',

@@ -76,3 +76,36 @@ export function withinLastHours(hours: number, ...candidates: unknown[]): boolea
   }
   return false;
 }
+
+/**
+ * The local calendar day ('YYYY-MM-DD') a timestamp falls on, or '' when it
+ * carries no usable time.
+ *
+ * LOCAL, deliberately. toISOString() would bucket by UTC, and the operator
+ * works in IST — an evening sale lands on the following UTC day and drops out
+ * of "today" for them. Local date parts are what the Sell screen has always
+ * used, so this is the rule both screens can share.
+ */
+export function localDay(value: unknown): string {
+  const t = toMillis(value);
+  if (!Number.isFinite(t)) return '';
+  const d = new Date(t);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+/** Today, as the operator's calendar sees it. */
+export const localToday = (): string => localDay(Date.now());
+
+/**
+ * True when a timestamp falls on the given local day (today by default).
+ *
+ * Use this — not a rolling window over `updatedAt` — for anything the
+ * operator reads as "today". `updatedAt` is the last write to the doc FOR ANY
+ * REASON: processing a return, completing a repair, an admin edit. A sold unit
+ * touched today is not a unit sold today, and counting it as one made the Buy
+ * screen read 5 while the Sell screen read 2 off the same database.
+ */
+export function isSameLocalDay(value: unknown, day: string = localToday()): boolean {
+  const d = localDay(value);
+  return !!d && d === day;
+}
