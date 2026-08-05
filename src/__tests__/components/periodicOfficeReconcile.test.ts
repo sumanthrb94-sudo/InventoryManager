@@ -149,6 +149,157 @@ describe('the periodic table counts every unit in office stock', () => {
   });
 });
 
+/**
+ * THE UNIFIED TABLE
+ *
+ * One table, one tile per model, carrying BOTH quantities — what is in the
+ * office and what a supplier is holding — with lines the operator has run out
+ * of still present and reading zero.
+ *
+ * The split tables could not be reconciled by eye. A model with 2 in office
+ * and 3 on order lived on two tables that never showed each other; a model
+ * with none of either lived on a third. "How many of these do we have" could
+ * not be answered from one screen — and the sales data is too messy to answer
+ * it from the other end, which is exactly why the intake side has to be exact.
+ *
+ * So the arithmetic must hold in both directions: every office unit counted
+ * once and only once, every supplier-held unit likewise, and neither counted
+ * on the other's side.
+ */
+describe('the unified table carries both quantities, exactly', () => {
+  const unified = (office: InventoryUnit[], shs: InventoryUnit[], sold: InventoryUnit[] = []) =>
+    buildGroups(office, shs, SERIES_GROUPS, seriesOf, { zeroFrom: sold });
+
+  const totals = (groups: ReturnType<typeof unified>) => ({
+    office: groups.reduce((n, g) => n + g.elements.reduce((m, el) => m + el.count, 0), 0),
+    shs: groups.reduce((n, g) => n + g.elements.reduce((m, el) => m + el.shsCount, 0), 0),
+    tiles: groups.reduce((n, g) => n + g.elements.length, 0),
+    zeroTiles: groups.reduce(
+      (n, g) => n + g.elements.filter(el => el.count === 0 && el.shsCount === 0).length, 0),
+  });
+
+  it('counts office and supplier-held separately, and both exactly', () => {
+    const office = [u({ id: 'o1' }), u({ id: 'o2' }), u({ id: 'o3', model: 'GALAXY S22' })];
+    const shs = [
+      u({ id: 's1', status: 'incoming' }),
+      u({ id: 's2', status: 'incoming', model: 'PIXEL 7' }),
+    ];
+    const t = totals(unified(office, shs));
+    expect(t.office).toBe(3);
+    expect(t.shs).toBe(2);
+  });
+
+  it('puts both quantities on the SAME tile when it is the same model', () => {
+    // The whole point: 2 in office and 3 on order is one line reading 2 (+3),
+    // not two lines on two tables that never show each other.
+    const groups = unified(
+      [u({ id: 'o1' }), u({ id: 'o2' })],
+      [u({ id: 's1', status: 'incoming' }), u({ id: 's2', status: 'incoming' }),
+       u({ id: 's3', status: 'incoming' })],
+    );
+    const tiles = groups.flatMap(g => g.elements);
+    expect(tiles, 'one model, one tile').toHaveLength(1);
+    expect(tiles[0]).toMatchObject({ count: 2, shsCount: 3 });
+  });
+
+  it('shows a sold-out model as zero rather than dropping it off the table', () => {
+    // A missing tile is indistinguishable from a line never stocked. A zero
+    // tile is a fact the operator can act on.
+    const groups = unified(
+      [u({ id: 'o1', model: 'IPHONE 13' })],
+      [],
+      [u({ id: 'gone', model: 'IPHONE 11', status: 'sold' })],
+    );
+    const tiles = groups.flatMap(g => g.elements);
+    expect(tiles).toHaveLength(2);
+    const soldOut = tiles.find(t => t.model.includes('11'));
+    expect(soldOut, 'the sold-out model is still on the table').toBeTruthy();
+    expect(soldOut).toMatchObject({ count: 0, shsCount: 0 });
+  });
+
+  it('does not zero a model that sold SOME but still has stock', () => {
+    const groups = unified(
+      [u({ id: 'o1' }), u({ id: 'o2' })],
+      [],
+      [u({ id: 'sold', status: 'sold' })],          // same model
+    );
+    const tiles = groups.flatMap(g => g.elements);
+    expect(tiles, 'one tile, not a duplicate zero one').toHaveLength(1);
+    expect(tiles[0].count, 'the sold unit does not reduce the count').toBe(2);
+  });
+
+  it('a model held ONLY by a supplier reads zero in office, not absent', () => {
+    const groups = unified([], [u({ id: 's1', status: 'incoming', model: 'PIXEL 7' })]);
+    const tiles = groups.flatMap(g => g.elements);
+    expect(tiles).toHaveLength(1);
+    expect(tiles[0]).toMatchObject({ count: 0, shsCount: 1 });
+  });
+
+  it('reconciles a full messy shelf — office, SHS, sold out, unknown models', () => {
+    const office = [
+      ...Array.from({ length: 6 }, (_, i) => u({ id: `o${i}` })),
+      u({ id: 'oOdd', model: 'NOKIA 3310' }),
+      u({ id: 'oBlank', model: '' }),
+      u({ id: 'oBack', status: 'returned', returnType: 'returned_to_inventory' }),
+    ];
+    const shs = [
+      ...Array.from({ length: 4 }, (_, i) => u({ id: `s${i}`, status: 'incoming', imei: '' })),
+      u({ id: 'sOdd', status: 'incoming', model: 'XIAOMI 13' }),
+    ];
+    const sold = [
+      u({ id: 'x1', model: 'IPHONE 11', status: 'sold' }),
+      u({ id: 'x2', model: 'IPHONE 11', status: 'sold' }),   // same model, one tile
+      u({ id: 'x3', model: 'GALAXY S10', status: 'sold' }),
+    ];
+    const t = totals(unified(office, shs, sold));
+    expect(t.office, 'every office unit counted once').toBe(office.length);
+    expect(t.shs, 'every supplier-held unit counted once').toBe(shs.length);
+    expect(t.zeroTiles, 'two sold-out models, deduped').toBe(2);
+  });
+
+  it('scales: 300 units across all three states still reconcile exactly', () => {
+    const models = ['IPHONE 13', 'IPHONE 14', 'GALAXY S22', 'PIXEL 7', 'NOKIA 3310', ''];
+    const all = Array.from({ length: 300 }, (_, i) => u({
+      id: `u${i}`,
+      model: models[i % models.length],
+      storage: i % 3 === 0 ? undefined : ['64GB', '128GB', '256GB'][i % 3],
+      status: i % 7 === 0 ? 'sold' : i % 5 === 0 ? 'incoming' : 'available',
+    }));
+    const office = all.filter(x => x.status === 'available');
+    const shs = all.filter(x => x.status === 'incoming');
+    const sold = all.filter(x => x.status === 'sold');
+
+    const t = totals(unified(office, shs, sold));
+    expect(t.office).toBe(office.length);
+    expect(t.shs).toBe(shs.length);
+    // Nothing double-counted: office + SHS across every tile is exactly what
+    // is physically on hand anywhere.
+    expect(t.office + t.shs).toBe(office.length + shs.length);
+  });
+
+  it('never counts a sold unit as stock, however it arrives', () => {
+    const sold = Array.from({ length: 20 }, (_, i) => u({ id: `s${i}`, status: 'sold' }));
+    const t = totals(unified([], [], sold));
+    expect(t.office).toBe(0);
+    expect(t.shs).toBe(0);
+    expect(t.tiles, 'they are on the table, at zero').toBeGreaterThan(0);
+  });
+
+  it('rolls the group totals up to the same numbers as the tiles', () => {
+    // The header reads off the unit lists; the row labels read off the tiles.
+    // If those disagree the operator sees two answers on one screen.
+    const office = [u({ id: 'o1' }), u({ id: 'o2', model: 'GALAXY S22' })];
+    const shs = [u({ id: 's1', status: 'incoming', model: 'GALAXY S22' })];
+    const groups = unified(office, shs);
+    for (const g of groups) {
+      expect(g.totalCount).toBe(g.elements.reduce((n, el) => n + el.count, 0));
+      expect(g.totalShs).toBe(g.elements.reduce((n, el) => n + el.shsCount, 0));
+    }
+    expect(groups.reduce((n, g) => n + g.totalCount, 0)).toBe(office.length);
+    expect(groups.reduce((n, g) => n + g.totalShs, 0)).toBe(shs.length);
+  });
+});
+
 describe('the SHS table counts every supplier-held unit', () => {
   const inShs = (units: InventoryUnit[]) => units.filter(x => x.status === 'incoming');
 

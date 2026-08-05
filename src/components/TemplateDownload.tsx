@@ -104,14 +104,9 @@ export const INVENTORY_TEMPLATES: TemplateLink[] = [
 // 200 primed rows: type a BP and an SP and the row fills itself in.
 // salesTemplateFormulas.test.ts fails if a count here stops matching.
 export const SALES_TEMPLATES: TemplateLink[] = [
-  // First, because it is the only one that goes back IN. The rest are working
-  // sheets — this one is filled and uploaded through Mark Sold from Sheet to
-  // mark a batch of handsets sold.
-  {
-    file: 'BULK_SOLD_TEMPLATE.xlsx',
-    label: 'Bulk sold · mark units sold',
-    hint: 'IMEI + order + price · upload to mark sold',
-  },
+  // All working sheets. Nothing here goes back INTO the app — sales are
+  // recorded on screen through Mark Multiple Sold, which reconciles against
+  // live stock; a spreadsheet route could not.
   {
     file: 'SALES_REPORT_TEMPLATE.xlsx',
     label: 'Sales template · all marketplaces',
