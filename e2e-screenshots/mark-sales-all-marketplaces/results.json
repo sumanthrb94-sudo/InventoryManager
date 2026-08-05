@@ -1,6 +1,6 @@
 {
-  "passed": 70,
-  "total": 70,
+  "passed": 82,
+  "total": 82,
   "results": [
     {
       "name": "5 units booked in, one per marketplace",
@@ -68,9 +68,24 @@
       "detail": "21.03 vs 21.03"
     },
     {
-      "name": "AMAZON · VAT breakdown stays derived, not persisted",
+      "name": "AMAZON · VAT lines are persisted for the VAT Centre",
       "ok": true,
-      "detail": "none on the doc, as designed"
+      "detail": "commissionVat, totalVat, totalVatNtp"
+    },
+    {
+      "name": "AMAZON · commissionVat",
+      "ok": true,
+      "detail": "7 vs 7"
+    },
+    {
+      "name": "AMAZON · totalVat",
+      "ok": true,
+      "detail": "8.4 vs 8.4"
+    },
+    {
+      "name": "AMAZON · totalVatNtp",
+      "ok": true,
+      "detail": "16.6 vs 16.6"
     },
     {
       "name": "BM · spMinusBp",
@@ -103,9 +118,19 @@
       "detail": "19.31 vs 19.31"
     },
     {
-      "name": "BM · VAT breakdown stays derived, not persisted",
+      "name": "BM · VAT lines are persisted for the VAT Centre",
       "ok": true,
-      "detail": "none on the doc, as designed"
+      "detail": "totalVat, totalVatNtp"
+    },
+    {
+      "name": "BM · totalVat",
+      "ok": true,
+      "detail": "1.26 vs 1.26"
+    },
+    {
+      "name": "BM · totalVatNtp",
+      "ok": true,
+      "detail": "23.74 vs 23.74"
     },
     {
       "name": "EBAY · spMinusBp",
@@ -163,9 +188,19 @@
       "detail": "20.85 vs 20.85"
     },
     {
-      "name": "EBAY · VAT breakdown stays derived, not persisted",
+      "name": "EBAY · VAT lines are persisted for the VAT Centre",
       "ok": true,
-      "detail": "none on the doc, as designed"
+      "detail": "totalVat, totalVatNtp"
+    },
+    {
+      "name": "EBAY · totalVat",
+      "ok": true,
+      "detail": "5.72 vs 5.72"
+    },
+    {
+      "name": "EBAY · totalVatNtp",
+      "ok": true,
+      "detail": "19.28 vs 19.28"
     },
     {
       "name": "ONBUY · spMinusBp",
@@ -208,9 +243,19 @@
       "detail": "28.65 vs 28.65"
     },
     {
-      "name": "ONBUY · VAT breakdown stays derived, not persisted",
+      "name": "ONBUY · VAT lines are persisted for the VAT Centre",
       "ok": true,
-      "detail": "none on the doc, as designed"
+      "detail": "totalVat, totalVatNtp"
+    },
+    {
+      "name": "ONBUY · totalVat",
+      "ok": true,
+      "detail": "6.86 vs 6.86"
+    },
+    {
+      "name": "ONBUY · totalVatNtp",
+      "ok": true,
+      "detail": "16.48 vs 16.48"
     },
     {
       "name": "TEMU · spMinusBp",
@@ -243,9 +288,24 @@
       "detail": "37.74 vs 37.74"
     },
     {
-      "name": "TEMU · VAT breakdown stays derived, not persisted",
+      "name": "TEMU · VAT lines are persisted for the VAT Centre",
       "ok": true,
-      "detail": "none on the doc, as designed"
+      "detail": "commissionVat, totalVat, totalVatNtp"
+    },
+    {
+      "name": "TEMU · commissionVat",
+      "ok": true,
+      "detail": "3.5 vs 3.5"
+    },
+    {
+      "name": "TEMU · totalVat",
+      "ok": true,
+      "detail": "1.26 vs 1.26"
+    },
+    {
+      "name": "TEMU · totalVatNtp",
+      "ok": true,
+      "detail": "22.08 vs 22.08"
     },
     {
       "name": "eBay GP% divides by SP, not BP",

@@ -29,7 +29,10 @@
       "commission": 35,
       "postageVat": 1.26,
       "grossProfit": 73.59,
-      "gpPercent": 21.03
+      "gpPercent": 21.03,
+      "commissionVat": 7,
+      "totalVat": 8.4,
+      "totalVatNtp": 16.6
     },
     "reportColumns": [
       "Date",
@@ -93,7 +96,9 @@
       "commission": 49.5,
       "postageVat": 1.26,
       "grossProfit": 57.94,
-      "gpPercent": 19.31
+      "gpPercent": 19.31,
+      "totalVat": 1.26,
+      "totalVatNtp": 23.74
     },
     "reportColumns": [
       "Date",
@@ -164,7 +169,9 @@
       "vat20": 5.72,
       "postageVat": 0,
       "grossProfit": 89.66,
-      "gpPercent": 20.85
+      "gpPercent": 20.85,
+      "totalVat": 5.72,
+      "totalVatNtp": 19.28
     },
     "reportColumns": [
       "Date",
@@ -233,7 +240,9 @@
       "marVat": 23.34,
       "postageVat": 1.26,
       "grossProfit": 74.49,
-      "gpPercent": 28.65
+      "gpPercent": 28.65,
+      "totalVat": 6.86,
+      "totalVatNtp": 16.48
     },
     "reportColumns": [
       "Date",
@@ -294,7 +303,10 @@
       "commission": 17.52,
       "postageVat": 1.26,
       "grossProfit": 90.58,
-      "gpPercent": 37.74
+      "gpPercent": 37.74,
+      "commissionVat": 3.5,
+      "totalVat": 1.26,
+      "totalVatNtp": 22.08
     },
     "reportColumns": [
       "Date",
