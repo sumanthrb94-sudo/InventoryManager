@@ -18,7 +18,7 @@
  * "what is sellable", which is why the numbers are comparable at all.
  */
 import { describe, it, expect } from 'vitest';
-import { buildGroups, SERIES_GROUPS } from '../../components/PeriodicInventory';
+import { buildGroups, SERIES_GROUPS, bucketKeyOf } from '../../components/PeriodicInventory';
 import { parseBrandModelStorage } from '../../lib/modelStorage';
 import type { InventoryUnit } from '../../types';
 
@@ -146,6 +146,104 @@ describe('the periodic table counts every unit in office stock', () => {
     const office = inOffice(units);
     expect(office.length).toBeGreaterThan(150);
     expect(tiled(office)).toBe(office.length);
+  });
+});
+
+/**
+ * OUT OF STOCK
+ *
+ * A model belongs here when it HAS sold at some point and there is none of it
+ * left. Both halves matter and both can fail quietly:
+ *
+ *   - Miss a depleted model and the operator never reorders it.
+ *   - List one they still hold and they reorder something sitting on the shelf.
+ *
+ * The exclusion is by bucket key — the SAME key the tiles are grouped by — so
+ * a model spelled one way on the unit still in stock and another way on the
+ * sold one has to resolve to the same key or the line shows up as depleted
+ * while a unit of it is on the shelf. That is the failure the canonicalisation
+ * case below is about, and it is the realistic one: the sold rows come from
+ * the messy imported history, the in-stock rows from clean intake.
+ */
+describe('out of stock lists what is depleted, and only that', () => {
+  const keyOf = (unit: InventoryUnit) => {
+    const p = parseBrandModelStorage(unit.model);
+    return bucketKeyOf(p.model || unit.model, unit.storage || p.storage);
+  };
+  /** Exactly what the component does: sold units, minus anything still held. */
+  const outOfStock = (sold: InventoryUnit[], onHand: InventoryUnit[]) =>
+    buildGroups(sold, [], SERIES_GROUPS, seriesOf, {
+      valueFn: x => x.salePrice || 0,
+      excludeKeys: new Set(onHand.map(keyOf)),
+    }).flatMap(g => g.elements);
+
+  it('lists a model that sold and has none left', () => {
+    const tiles = outOfStock(
+      [u({ id: 'x', model: 'IPHONE 11', status: 'sold' })],
+      [u({ id: 'o', model: 'IPHONE 13' })],
+    );
+    expect(tiles.map(t => t.model).join()).toMatch(/11/);
+  });
+
+  it('does NOT list a model still sitting on the shelf', () => {
+    // The reorder-what-you-already-have failure.
+    const tiles = outOfStock(
+      [u({ id: 'x', model: 'IPHONE 13', status: 'sold' })],
+      [u({ id: 'o', model: 'IPHONE 13' })],
+    );
+    expect(tiles, 'it is not depleted').toHaveLength(0);
+  });
+
+  it('treats storage as part of the identity', () => {
+    // Holding the 128GB says nothing about the 256GB — they are different
+    // things to buy, and the tiles are bucketed that way.
+    const tiles = outOfStock(
+      [u({ id: 'x', model: 'IPHONE 13', storage: '256GB', status: 'sold' })],
+      [u({ id: 'o', model: 'IPHONE 13', storage: '128GB' })],
+    );
+    expect(tiles).toHaveLength(1);
+    expect(tiles[0].storage).toBe('256GB');
+  });
+
+  it('counts how many sold, which is the demand signal', () => {
+    const tiles = outOfStock(
+      Array.from({ length: 4 }, (_, i) => u({ id: `x${i}`, model: 'IPHONE 11', status: 'sold' })),
+      [],
+    );
+    expect(tiles).toHaveLength(1);
+    expect(tiles[0].count, 'four sold, one depleted line').toBe(4);
+  });
+
+  it('dedupes a model sold many times into one line', () => {
+    const tiles = outOfStock([
+      u({ id: 'a', model: 'IPHONE 11', status: 'sold' }),
+      u({ id: 'b', model: 'IPHONE 11', status: 'sold' }),
+      u({ id: 'c', model: 'GALAXY S10', status: 'sold' }),
+    ], []);
+    expect(tiles).toHaveLength(2);
+  });
+
+  it('is empty when nothing has ever sold', () => {
+    expect(outOfStock([], [u({ id: 'o' })])).toHaveLength(0);
+  });
+
+  it('excludes correctly when the two sides spell the model differently', () => {
+    // The realistic case: the sold row came from the imported history with a
+    // brand prefix, the in-stock row from clean intake without one. If these
+    // do not resolve to the same key, the line reads as depleted while a unit
+    // of it is on the shelf.
+    const sold = [u({ id: 'x', model: 'SAMSUNG GALAXY S22', storage: '128GB', status: 'sold' })];
+    const onHand = [u({ id: 'o', model: 'GALAXY S22', storage: '128GB' })];
+    expect(keyOf(sold[0]), 'same bucket key both ways').toBe(keyOf(onHand[0]));
+    expect(outOfStock(sold, onHand), 'not depleted — one is on the shelf').toHaveLength(0);
+  });
+
+  it('a model returned into stock is no longer out of stock', () => {
+    // It sold, then came back. The shelf has one, so it must not be listed.
+    const sold = [u({ id: 'x', model: 'IPHONE 11', status: 'sold' })];
+    const onHand = [u({ id: 'back', model: 'IPHONE 11',
+                        status: 'returned', returnType: 'returned_to_inventory' })];
+    expect(outOfStock(sold, onHand)).toHaveLength(0);
   });
 });
 

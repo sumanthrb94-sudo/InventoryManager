@@ -314,7 +314,10 @@ const SUPPLIER_PALETTE: ReadonlyArray<PtGroupDef['color']> = [
 // No re-export here — earlier `export { normalizeBucketModel };` form
 // caused a confusing ReferenceError loop on certain bundler output;
 // test imports moved to the canonical modelStorage path instead.
-const bucketKeyOf = (model: string, storage?: string, tag?: string) =>
+/** Exported so the out-of-stock exclusion can be tested against the same key
+ *  the tiles are bucketed by — a test that built its own key would prove the
+ *  test's key, not the table's. */
+export const bucketKeyOf = (model: string, storage?: string, tag?: string) =>
   `${normalizeBucketModel(model)}|${storage ?? ''}|${tag ?? ''}`;
 
 /**
@@ -909,7 +912,9 @@ export default function PeriodicInventory({ units, onNavigate }: Props) {
     viewMode === 'outofstock' ? groups.reduce((s, g) => s + g.elements.length, 0) :
                                 scopePrimary.length;
   const headlineLabel =
-    viewMode === 'outofstock' ? 'SKUs' : 'units';
+    viewMode === 'outofstock'
+      ? (headlineCount === 1 ? 'SKU' : 'SKUs')
+      : (headlineCount === 1 ? 'unit' : 'units');
   const headlineSub =
     viewMode === 'supplier'   ? `${groups.length} supplier${groups.length === 1 ? '' : 's'}` :
     viewMode === 'outofstock' ? `${soldAll.length} sold lifetime` :
