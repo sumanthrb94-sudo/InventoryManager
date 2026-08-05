@@ -4,6 +4,7 @@ import { X } from 'lucide-react';
 import { InventoryUnit } from '../types';
 import { parseBrandModelStorage, normalizeBucketModel, type Series } from '../lib/modelStorage';
 import { canonicaliseModel } from '../lib/modelReconciliation';
+import { withinLastHours } from '../lib/firestoreTime';
 import { useInventoryStore } from '../lib/inventoryStore';
 import { useUserRegion } from '../lib/userLocale';
 import StockOverlayModal from './StockOverlayModal';
@@ -750,15 +751,19 @@ export default function PeriodicInventory({ units, onNavigate }: Props) {
   // works in IST and the date string flipped before midnight local.
   // Use updatedAt (timestamp of the status flip) and fall back to
   // saleDate / returnDate when the doc predates updatedAt tracking.
-  const _last24h = Date.now() - 24 * 60 * 60 * 1000;
-  const _withinLast24h = (iso: string | undefined, fallbackDate: string | undefined) => {
-    const t = iso ? new Date(iso).getTime()
-            : fallbackDate ? new Date(fallbackDate + 'T12:00:00').getTime()
-            : 0;
-    return Number.isFinite(t) && t >= _last24h;
-  };
-  const todaySold     = scopedUnits.filter(u => u.status === 'sold'     && _withinLast24h(u.updatedAt as string | undefined, u.saleDate || u.dateIn));
-  const todayReturned = scopedUnits.filter(u => u.status === 'returned' && _withinLast24h(u.updatedAt as string | undefined, u.returnDate));
+  // updatedAt is a Firestore Timestamp OBJECT on real data and an ISO string
+  // in the E2E shim; `new Date(timestampObject)` is Invalid Date and every
+  // comparison against it is silently false. withinLastHours reads either
+  // shape and falls through to the next candidate when one is unreadable,
+  // rather than stopping at a truthy-but-unusable value. See
+  // lib/firestoreTime.ts — this is the same defect that made the Buy screen's
+  // "Sold Today" read 0 against a database the Sell screen read 2 from.
+  //
+  // Rolling 24 hours, NOT UTC-midnight calendar: UTC bucketing dropped
+  // evening-local sales because the operator works in IST and the date string
+  // flipped before their midnight.
+  const todaySold     = scopedUnits.filter(u => u.status === 'sold'     && withinLastHours(24, u.updatedAt, u.saleDate || u.dateIn));
+  const todayReturned = scopedUnits.filter(u => u.status === 'returned' && withinLastHours(24, u.updatedAt, u.returnDate));
 
   // ── Per-view groups ─────────────────────────────────────────────────────────
   // 'stock' view = primary on-hand units for this scope (Office=available,

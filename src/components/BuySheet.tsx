@@ -24,6 +24,7 @@ import {
 import { AnimatePresence, motion } from 'motion/react';
 import ExcelJS from 'exceljs';
 import { dbService } from '../lib/dbService';
+import { withinLastHours } from '../lib/firestoreTime';
 import { InventoryUnit, InventoryAggregate, Supplier, AccessoryStock } from '../types';
 import { useInventoryStore } from '../lib/inventoryStore';
 import { shsAggregatesFrom } from '../lib/shsCount';
@@ -332,16 +333,15 @@ export default function BuySheet(_props: Props) {
   // at the doc's updatedAt timestamp (when the status flip actually
   // happened) and accept anything within the last 24 hours; fall back
   // to a parsed saleDate when updatedAt is missing on older docs.
-  const soldToday = useMemo(() => {
-    const cutoff = Date.now() - 24 * 60 * 60 * 1000;
-    return units.filter(u => {
-      if (u.status !== 'sold') return false;
-      const t = u.updatedAt
-        ? new Date(u.updatedAt).getTime()
-        : (u.saleDate ? new Date(u.saleDate + 'T12:00:00').getTime() : 0);
-      return Number.isFinite(t) && t >= cutoff;
-    });
-  }, [units]);
+  // updatedAt is a Firestore Timestamp OBJECT on real data and an ISO string
+  // in the E2E shim. `new Date(timestampObject)` yields Invalid Date, whose
+  // getTime() is NaN, and `NaN >= cutoff` is silently false — so this tile
+  // read 0 on every production database while every test passed. It also has
+  // to FALL THROUGH to saleDate when updatedAt is unreadable rather than
+  // stopping at it, which is what `??` used to do. See lib/firestoreTime.ts.
+  const soldToday = useMemo(() => units.filter(u =>
+    u.status === 'sold' && withinLastHours(24, u.updatedAt, u.saleDate)
+  ), [units, nowMs]);
 
   // "Out of Stock · Last 72 Hours" — SKU buckets with 0 available and at least
   // one sale, whose latest sale happened within the rolling 72-hour window.
