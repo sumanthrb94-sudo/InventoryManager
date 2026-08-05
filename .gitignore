@@ -30,3 +30,9 @@ dist-e2e/
 # docs/client-report/ is the deliverable and IS committed; these two are the
 # scaffolding it is assembled from and are regenerated on every run.
 docs/client-report/index.html
+
+# Month-simulation dataset: regenerated deterministically by
+# generateQuarterSimData.mjs from a fixed seed, so the 1.1MB manifest and its
+# workbooks are reproducible rather than worth versioning.
+e2e-screenshots/month-simulation/manifest.json
+e2e-screenshots/month-simulation/*.xlsx

@@ -1,0 +1,277 @@
+{
+  "results": [
+    {
+      "name": "every intake row landed as a unit",
+      "ok": true,
+      "detail": "1900 units vs 1900 in the file"
+    },
+    {
+      "name": "every sale row landed as a sale",
+      "ok": true,
+      "detail": "1703 sales vs 1703 in the file"
+    },
+    {
+      "name": "units flipped to sold match the sales file",
+      "ok": true,
+      "detail": "1470 sold vs 1470 unit sales"
+    },
+    {
+      "name": "Stock Intake loads",
+      "ok": true,
+      "detail": "1.9s"
+    },
+    {
+      "name": "Buy · \"All Office Stock\" equals stock genuinely on the shelf",
+      "ok": true,
+      "detail": "tile 246 vs 246 unsold office units"
+    },
+    {
+      "name": "Buy · \"SHS Stock\" equals supplier-held units",
+      "ok": true,
+      "detail": "tile 184 vs 184"
+    },
+    {
+      "name": "the imported units carry the sale dates from the file, not the import date",
+      "ok": true,
+      "detail": "49 units dated 2026-08-05 vs 49 in the file"
+    },
+    {
+      "name": "Buy · \"Sold Today\" equals units whose SALE DATE is today",
+      "ok": true,
+      "detail": "tile 49 vs 49 sold on 2026-08-05"
+    },
+    {
+      "name": "the store agrees with the tile on available stock",
+      "ok": true,
+      "detail": "store 246 · office 246 · SHS 184"
+    },
+    {
+      "name": "Inventory (Sell) loads",
+      "ok": true,
+      "detail": "1.9s"
+    },
+    {
+      "name": "Sell · \"Sold Today\" equals every sale doc dated today",
+      "ok": true,
+      "detail": "sell 123 vs 123 sale docs dated 2026-08-05 (49 units + 74 accessory lines)"
+    },
+    {
+      "name": "Sell · \"All-time Sold\" equals every sale in the month",
+      "ok": true,
+      "detail": "tile 1703 · unit sales 1470 · +accessories 1703"
+    },
+    {
+      "name": "Sold Out · Reorder panel is on the screen",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "Running Low · Reorder Soon panel is on the screen",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "every sold-out model is named on the reorder panel",
+      "ok": true,
+      "detail": "0 sold-out buckets"
+    },
+    {
+      "name": "every running-low model is named on the reorder panel",
+      "ok": true,
+      "detail": "2 low buckets"
+    },
+    {
+      "name": "Returns loads with content",
+      "ok": true,
+      "detail": "2.0s"
+    },
+    {
+      "name": "Notices loads with content",
+      "ok": true,
+      "detail": "2.0s"
+    },
+    {
+      "name": "Admin · Overview (Dashboard) loads with content",
+      "ok": true,
+      "detail": "1.5s"
+    },
+    {
+      "name": "Periodic table · headline unit count equals office stock on the shelf",
+      "ok": true,
+      "detail": "shows 246 vs 246 available office units"
+    },
+    {
+      "name": "Operations Hub · \"Last Import\" reflects the imports that just ran",
+      "ok": false,
+      "detail": "reads \"No imports yet\" after 1,900 units and 1,703 sales were imported"
+    },
+    {
+      "name": "Admin · Insights loads with content",
+      "ok": true,
+      "detail": "1.6s"
+    },
+    {
+      "name": "Admin · Money loads with content",
+      "ok": true,
+      "detail": "1.6s"
+    },
+    {
+      "name": "Admin · Sales History loads with content",
+      "ok": true,
+      "detail": "1.5s"
+    },
+    {
+      "name": "Admin · Reports loads with content",
+      "ok": true,
+      "detail": "2.3s"
+    },
+    {
+      "name": "Admin · Configuration loads with content",
+      "ok": true,
+      "detail": "1.6s"
+    },
+    {
+      "name": "stored revenue matches the sales file",
+      "ok": true,
+      "detail": "app £583016.90 vs £583016.90"
+    },
+    {
+      "name": "stored GP matches the master formulas",
+      "ok": true,
+      "detail": "app £59741.88 vs £59741.88"
+    },
+    {
+      "name": "no uncaught JS errors across the whole month",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "no failed requests for the app's own resources",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "every screen renders in under 5 seconds at this volume",
+      "ok": true,
+      "detail": ""
+    }
+  ],
+  "timings": [
+    {
+      "screen": "Stock Intake",
+      "ms": 1935,
+      "failed": false
+    },
+    {
+      "screen": "Stock Intake",
+      "ms": 2043,
+      "failed": false
+    },
+    {
+      "screen": "Inventory import · preview",
+      "ms": 225
+    },
+    {
+      "screen": "Inventory import · write",
+      "ms": 2311
+    },
+    {
+      "screen": "Stock Intake",
+      "ms": 2017,
+      "failed": false
+    },
+    {
+      "screen": "Sales import · preview",
+      "ms": 356
+    },
+    {
+      "screen": "Sales import · write",
+      "ms": 63453
+    },
+    {
+      "screen": "Stock Intake",
+      "ms": 1875,
+      "failed": false
+    },
+    {
+      "screen": "INVENTORY",
+      "ms": 1905,
+      "failed": false
+    },
+    {
+      "screen": "Stock Intake",
+      "ms": 2091,
+      "failed": false
+    },
+    {
+      "screen": "Returns",
+      "ms": 1990,
+      "failed": false
+    },
+    {
+      "screen": "Notices",
+      "ms": 1996,
+      "failed": false
+    },
+    {
+      "screen": "Admin",
+      "ms": 1948,
+      "failed": false
+    },
+    {
+      "screen": "Admin · Overview",
+      "ms": 1548,
+      "failed": false
+    },
+    {
+      "screen": "Admin",
+      "ms": 1946,
+      "failed": false
+    },
+    {
+      "screen": "Admin · Insights",
+      "ms": 1562,
+      "failed": false
+    },
+    {
+      "screen": "Admin",
+      "ms": 2034,
+      "failed": false
+    },
+    {
+      "screen": "Admin · Money",
+      "ms": 1565,
+      "failed": false
+    },
+    {
+      "screen": "Admin",
+      "ms": 1875,
+      "failed": false
+    },
+    {
+      "screen": "Admin · Sales History",
+      "ms": 1536,
+      "failed": false
+    },
+    {
+      "screen": "Admin",
+      "ms": 3580,
+      "failed": false
+    },
+    {
+      "screen": "Admin · Reports",
+      "ms": 2317,
+      "failed": false
+    },
+    {
+      "screen": "Admin",
+      "ms": 1990,
+      "failed": false
+    },
+    {
+      "screen": "Admin · Configuration",
+      "ms": 1553,
+      "failed": false
+    }
+  ]
+}

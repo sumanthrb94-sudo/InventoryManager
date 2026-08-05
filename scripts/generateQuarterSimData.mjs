@@ -51,9 +51,35 @@ const pick = arr => arr[Math.floor(rand() * arr.length)];
 const int = (min, max) => Math.floor(min + rand() * (max - min + 1));
 const chance = p => rand() < p;
 
-// ── Quarter window — ends "today" per the session's date context ────────────
-const DAYS = 90;
-const END_DATE = new Date('2026-07-28T00:00:00Z');
+// ── Shape of the simulated business ─────────────────────────────────────────
+//
+// Every knob is an env var whose DEFAULT reproduces the original 90-day
+// quarter dataset exactly — a re-run with no env set is byte-identical, so
+// the quarter simulation and its ground truth are untouched by these.
+//
+//   SIM_DAYS            length of the window
+//   SIM_INTAKE_PER_DAY  units bought per day
+//   SIM_SALES_PER_DAY   units sold per day. Set → the run sells exactly this
+//                       many per day, drawn from stock actually on the shelf
+//                       that day. Unset → the original sell-through model
+//                       (a % of each unit's own odds, days after its intake).
+//   SIM_OPENING_STOCK   units already on the shelf the day the window opens.
+//                       Needed whenever sales/day exceeds intake/day, which is
+//                       a stock RUN-DOWN — the case the sales team's "what can
+//                       I list" panels have to survive.
+//   SIM_END_DATE        last day of the window (yyyy-mm-dd)
+const num = (name, dflt) => {
+  const v = process.env[name];
+  if (v === undefined || v === '') return dflt;
+  const n = Number(v);
+  if (!Number.isFinite(n) || n < 0) throw new Error(`${name} must be a non-negative number, got "${v}"`);
+  return n;
+};
+const DAYS = num('SIM_DAYS', 90);
+const INTAKE_PER_DAY = num('SIM_INTAKE_PER_DAY', 20);
+const SALES_PER_DAY = process.env.SIM_SALES_PER_DAY ? num('SIM_SALES_PER_DAY', 0) : null;
+const OPENING_STOCK = num('SIM_OPENING_STOCK', 0);
+const END_DATE = new Date(`${process.env.SIM_END_DATE || '2026-07-28'}T00:00:00Z`);
 const START_DATE = new Date(END_DATE.getTime() - (DAYS - 1) * 86400000);
 const isoDate = d => d.toISOString().slice(0, 10);
 const dateAt = offsetDays => isoDate(new Date(START_DATE.getTime() + offsetDays * 86400000));
@@ -115,23 +141,36 @@ const ACCESSORIES = [
 // ══════════════════════════════════════════════════════════════════════════
 const officeUnits = [];
 const shsUnits = [];
+
+/** One unit bought on `dIn`. Split out of the intake loop so opening stock
+ *  and daily intake mint units the same way — a second copy of this is how
+ *  the two would drift apart. */
+function mintUnit(dIn) {
+  const m = pick(MODELS);
+  const storage = m.storages.length ? pick(m.storages) : '';
+  const bp = int(m.bpRange[0], m.bpRange[1]);
+  const isShs = chance(0.09); // ~9% of intake goes SHS (supplier-held)
+  const rec = {
+    model: m.model, series: m.series, storage,
+    grade: pick(GRADES), colour: pick(COLOURS),
+    supplier: pick(SUPPLIERS), bp, dateIn: dIn,
+    imei: isShs ? '' : (m.appleSerial ? nextSerial() : nextImei()),
+    appleSerial: m.appleSerial,
+    stockType: isShs ? 'SHS' : 'OFFICE',
+  };
+  if (isShs) shsUnits.push(rec); else officeUnits.push(rec);
+  return rec;
+}
+
+// Opening stock — bought the day before the window opens, so day 1 has
+// something to sell. Without it a run-down month (sales > intake) would sell
+// units that do not exist yet.
+const OPENING_DATE = isoDate(new Date(START_DATE.getTime() - 86400000));
+for (let i = 0; i < OPENING_STOCK; i++) mintUnit(OPENING_DATE);
+
 for (let day = 0; day < DAYS; day++) {
   const dIn = dateAt(day);
-  for (let i = 0; i < 20; i++) {
-    const m = pick(MODELS);
-    const storage = m.storages.length ? pick(m.storages) : '';
-    const bp = int(m.bpRange[0], m.bpRange[1]);
-    const isShs = chance(0.09); // ~9% of daily intake goes SHS (supplier-held)
-    const rec = {
-      model: m.model, series: m.series, storage,
-      grade: pick(GRADES), colour: pick(COLOURS),
-      supplier: pick(SUPPLIERS), bp, dateIn: dIn,
-      imei: isShs ? '' : (m.appleSerial ? nextSerial() : nextImei()),
-      appleSerial: m.appleSerial,
-      stockType: isShs ? 'SHS' : 'OFFICE',
-    };
-    if (isShs) shsUnits.push(rec); else officeUnits.push(rec);
-  }
+  for (let i = 0; i < INTAKE_PER_DAY; i++) mintUnit(dIn);
 }
 
 // ══════════════════════════════════════════════════════════════════════════
@@ -182,8 +221,70 @@ function sellUnit(u, sellThroughRate, maxOffsetDays) {
   };
   sales.push(sale);
 }
-for (const u of officeUnits) sellUnit(u, 0.92, 21);
-for (const u of shsUnits) sellUnit(u, 0.70, 28);
+/**
+ * Sell exactly N units on each day of the window, drawn from what is
+ * genuinely on the shelf that morning.
+ *
+ * The sell-through model above asks each unit "do you sell?" independently,
+ * which is fine for a steady quarter but cannot express a RUN-DOWN — 49 out
+ * against 40 in, day after day, eating an opening pile. That is the shape the
+ * sales team's panels have to survive, so it gets its own model: a queue of
+ * units ordered by intake date, oldest first, drained N per day. A unit
+ * cannot be sold before the day it arrives, and nothing is sold twice.
+ *
+ * When stock runs out the day simply sells fewer, and the shortfall is
+ * recorded — a silently short month would look like the app losing sales.
+ */
+function sellFixedPerDay(perDay) {
+  const shortfalls = [];
+  // OFFICE stock only, oldest intake first.
+  //
+  // SHS is deliberately never bulk-sold here. A supplier-held unit has no
+  // IMEI until the sale stamps one, so a bulk Sales Report row for it carries
+  // a blank IMEI and imports as an ORPHAN needing manual completion. That is
+  // a real flow with its own script (e2eOrphanCompletion), but mixing it in
+  // would put hundreds of half-finished units into the very panels this run
+  // exists to measure. SHS units stay on the books as supplier-held stock,
+  // which is exactly what the sales team needs to see when deciding what can
+  // be listed.
+  const queue = officeUnits.slice().sort((a, b) => a.dateIn.localeCompare(b.dateIn));
+  let cursor = 0;
+  for (let day = 0; day < DAYS; day++) {
+    const saleDate = dateAt(day);
+    let soldToday = 0;
+    while (soldToday < perDay) {
+      // Skip past anything already sold, and stop at stock that has not
+      // arrived yet rather than selling from the future.
+      let idx = cursor;
+      while (idx < queue.length && queue[idx].sold) idx++;
+      if (idx >= queue.length || queue[idx].dateIn > saleDate) break;
+      const u = queue[idx];
+      cursor = idx;
+      u.sold = true;
+      const mp = pick(MARKETPLACES);
+      const sp = Number((u.bp * marginPct()).toFixed(2));
+      sales.push({
+        marketplace: mp, orderNumber: nextOrderNumber(mp),
+        sku: '', imei: u.imei, supplier: u.supplier,
+        quantity: 1, bp: u.bp, sp, saleDate,
+        paymentMode: mp === 'BM' ? pick(['', 'Klarna', 'PayPal', 'Clear Pay']) : undefined,
+        returnCandidate: chance(0.15),
+      });
+      soldToday++;
+    }
+    if (soldToday < perDay) shortfalls.push({ date: saleDate, sold: soldToday, wanted: perDay });
+  }
+  for (const u of queue) if (!u.sold) u.sold = false;
+  return shortfalls;
+}
+
+let salesShortfalls = [];
+if (SALES_PER_DAY !== null) {
+  salesShortfalls = sellFixedPerDay(SALES_PER_DAY);
+} else {
+  for (const u of officeUnits) sellUnit(u, 0.92, 21);
+  for (const u of shsUnits) sellUnit(u, 0.70, 28);
+}
 
 // ══════════════════════════════════════════════════════════════════════════
 // Accessories — topped up every ~2 weeks, sold at a steady clip, ~5% return.
@@ -315,6 +416,17 @@ async function run() {
     startDate: isoDate(START_DATE),
     endDate: isoDate(END_DATE),
     days: DAYS,
+    // The shape this dataset was generated at, so an audit script can state
+    // what it is measuring instead of assuming the 90-day defaults.
+    shape: {
+      intakePerDay: INTAKE_PER_DAY,
+      salesPerDay: SALES_PER_DAY,
+      openingStock: OPENING_STOCK,
+      openingDate: OPENING_DATE,
+      /** Days that could not fill their quota because stock ran out. Empty is
+       *  the healthy case; entries mean the month outsold what it bought. */
+      salesShortfalls,
+    },
     files: { inventory: invFile, sales: salesFile },
     counts: {
       officeIntake: officeUnits.length,
