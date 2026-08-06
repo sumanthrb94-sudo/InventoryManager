@@ -143,6 +143,52 @@ export interface InventoryUnit {
    *  replaced. Set on the OUTBOUND (now-sold) unit. */
   replacementForUnitId?: string;
 
+  // ─── Return cost capture (2026-08, from the operator's returns policy) ───
+  //
+  // Before these three fields the ONLY cost a return recorded was carriage.
+  // The operator confirmed the other three legs of the economics, and each
+  // one is money the app was previously showing as zero:
+  //
+  //   repair       → the repair invoice is a real cost, recordable per unit
+  //   replacement  → "replacement costs a whole second handset"
+  //   to supplier  → credit comes back (full credit or a replacement unit)
+  //
+  // All three are OPTIONAL and all three default to absent, not zero. An
+  // absent value means "not recorded yet", which the loss maths must treat
+  // differently from a recorded £0 — otherwise an un-invoiced repair reads
+  // as a free repair. See returnLoss.ts.
+
+  /** Repair invoice for this unit's current/most recent repair cycle, £.
+   *  Captured at repair COMPLETION rather than at return time because the
+   *  invoice does not exist until the repairer has finished — the operator
+   *  said the cost "depends on the issue with the phone". Cleared at the
+   *  start of every new return cycle so a second repair does not inherit
+   *  the first one's invoice. */
+  repairCost?: number;
+  /** Purchase price of the handset shipped out as the replacement, £,
+   *  snapshotted onto the RETURNING unit at Process Return time.
+   *
+   *  Snapshotted rather than read live through replacedByUnitId because the
+   *  replacement unit stays editable — its buyPrice can be corrected later,
+   *  and the loss recorded against this return must not move when it is.
+   *  The operator's ruling is that a replacement costs a whole second
+   *  handset; the faulty unit coming back and being resold recovers it
+   *  through that unit's own future sale, not by discounting this figure. */
+  replacementUnitCost?: number;
+  /** Credit received from the supplier for a returned-to-supplier unit, £.
+   *  The operator gets "full credit or a replacement unit", same day. When
+   *  the supplier sends a replacement handset instead of money, record the
+   *  unit's buyPrice here — the value came back in kind. Offsets the sunk
+   *  purchase price in the loss maths. */
+  supplierCreditAmount?: number;
+  /** ISO date the supplier credit landed. Recorded because the operator
+   *  asked for the credit to be booked against the unit when it arrives. */
+  supplierCreditDate?: string;
+  /** How the supplier settled: money back, or a replacement handset.
+   *  Kept separate from the amount so a like-for-like swap is auditable
+   *  as a swap rather than looking like a cash refund. */
+  supplierCreditType?: 'credit' | 'replacement_unit';
+
   // ─── Two-step return workflow (Tech-QC → CRM handoff) ───────────────────
   /** Step-1 (Tech/QC): customer's complaint as logged at intake time.
    *  Captured before the CRM team decides the outcome — they read this

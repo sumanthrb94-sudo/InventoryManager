@@ -48,8 +48,10 @@ import {
   recordReturnQc,
   processReturn,
   completeRepair,
+  recordSupplierCredit,
 } from '../services/returnsService';
 import { postageLossFor } from '../lib/clientReport';
+import { extraCostsFor, type ReturnCostGap } from '../lib/returnLoss';
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -116,6 +118,7 @@ export default function ReturnsPage() {
    *  Sale doc itself is what the modal works on. */
   const [processingAccessory, setProcessingAccessory] = useState<Sale | null>(null);
   const [readyShipUnit, setReadyShipUnit] = useState<InventoryUnit | null>(null);
+  const [creditUnit, setCreditUnit] = useState<InventoryUnit | null>(null);
   /** Unit whose full lifecycle timeline is open (intake → sale cycles
    *  → returns/replacements with comments). Set by clicking any card
    *  in the Return Activity History or the Lifecycle sheet. */
@@ -666,6 +669,7 @@ export default function ReturnsPage() {
         supplierMap={supplierMap}
         region={region}
         onReadyShip={userIsAdminTop ? (u => setReadyShipUnit(u)) : undefined}
+        onRecordCredit={userIsAdminTop ? (u => setCreditUnit(u)) : undefined}
       />
 
       {/* ── Return losses · unified lifecycle sheet ───────────────────────
@@ -715,6 +719,7 @@ export default function ReturnsPage() {
             region={region}
             onClose={() => setOverlay(null)}
             onReadyShip={userIsAdminTop ? (u => setReadyShipUnit(u)) : undefined}
+            onRecordCredit={userIsAdminTop ? (u => setCreditUnit(u)) : undefined}
           />
         )}
       </AnimatePresence>
@@ -752,6 +757,13 @@ export default function ReturnsPage() {
             unit={readyShipUnit}
             onClose={() => setReadyShipUnit(null)}
             onSaved={() => setReadyShipUnit(null)}
+          />
+        )}
+        {creditUnit && (
+          <SupplierCreditModal
+            unit={creditUnit}
+            onClose={() => setCreditUnit(null)}
+            onSaved={() => setCreditUnit(null)}
           />
         )}
         {historyUnit && (
@@ -846,7 +858,7 @@ function FilterChipsGroup({
 
 // ── Inline Excel sheet ──────────────────────────────────────────────────────
 function InlineSheet({
-  rows, sort, onSort, supplierMap, region, onReadyShip,
+  rows, sort, onSort, supplierMap, region, onReadyShip, onRecordCredit,
 }: {
   rows: InventoryUnit[];
   sort: { key: SortKey; dir: SortDir };
@@ -854,6 +866,7 @@ function InlineSheet({
   supplierMap: Record<string, string>;
   region: 'uk' | 'india' | 'admin' | 'both';
   onReadyShip: (u: InventoryUnit) => void;
+  onRecordCredit?: (u: InventoryUnit) => void;
 }) {
   const toggleSort = (k: SortKey) => onSort({ key: k, dir: sort.key === k && sort.dir === 'desc' ? 'asc' : 'desc' });
   // 100 returns per page — same perf rule as Sell/Buy inline sheets.
@@ -879,6 +892,7 @@ function InlineSheet({
           sort={sort}
           toggleSort={toggleSort}
           onReadyShip={onReadyShip}
+          onRecordCredit={onRecordCredit}
         />
       </div>
       <PaginationBar page={page} totalPages={totalPages} total={total} onPage={setPage} itemLabel="returns" />
@@ -891,7 +905,7 @@ function InlineSheet({
 
 // ── KPI overlay modal ───────────────────────────────────────────────────────
 function ReturnsExcelOverlay({
-  title, rows, sort, onSort, supplierMap, region, onClose, onReadyShip,
+  title, rows, sort, onSort, supplierMap, region, onClose, onReadyShip, onRecordCredit,
 }: {
   title: string;
   rows: InventoryUnit[];
@@ -901,6 +915,7 @@ function ReturnsExcelOverlay({
   region: 'uk' | 'india' | 'admin' | 'both';
   onClose: () => void;
   onReadyShip: (u: InventoryUnit) => void;
+  onRecordCredit?: (u: InventoryUnit) => void;
 }) {
   const toggleSort = (k: SortKey) => onSort({ key: k, dir: sort.key === k && sort.dir === 'desc' ? 'asc' : 'desc' });
   useEffect(() => {
@@ -946,6 +961,7 @@ function ReturnsExcelOverlay({
               sort={sort}
               toggleSort={toggleSort}
               onReadyShip={onReadyShip}
+              onRecordCredit={onRecordCredit}
             />
           )}
         </div>
@@ -963,7 +979,7 @@ function ReturnsExcelOverlay({
 
 // ── Sheet table (shared) ─────────────────────────────────────────────────────
 function SheetTable({
-  rows, supplierMap, region, sort, toggleSort, onReadyShip,
+  rows, supplierMap, region, sort, toggleSort, onReadyShip, onRecordCredit,
 }: {
   rows: InventoryUnit[];
   supplierMap: Record<string, string>;
@@ -971,6 +987,7 @@ function SheetTable({
   sort: { key: SortKey; dir: SortDir };
   toggleSort: (k: SortKey) => void;
   onReadyShip: (u: InventoryUnit) => void;
+  onRecordCredit?: (u: InventoryUnit) => void;
 }) {
   const [menuId, setMenuId] = useState<string | null>(null);
   useEffect(() => {
@@ -1084,6 +1101,32 @@ function SheetTable({
                       className="flex items-center gap-1 px-2 py-1 rounded-md text-[9px] font-bold uppercase tracking-widest bg-emerald-600 text-white hover:bg-emerald-700 transition-all"
                     >
                       <Truck size={10} /> Back to Stock
+                    </button>
+                  )}
+                  {/* Units sent back to the supplier get their settlement
+                      booked here. The operator's supplier pays same-day, in
+                      cash or with a replacement handset, and until it is
+                      recorded the unit's purchase price sits sunk with
+                      nothing offsetting it — a return that actually cost
+                      almost nothing reads as a total write-off. The button
+                      states which way round it is so an outstanding credit
+                      is visible without opening the row. */}
+                  {u.returnType === 'returned_to_supplier' && (
+                    <button
+                      onClick={() => onRecordCredit?.(u)}
+                      title={typeof u.supplierCreditAmount === 'number'
+                        ? 'Edit the supplier credit recorded against this unit'
+                        : 'Record the credit or replacement the supplier sent back'}
+                      className={`flex items-center gap-1 px-2 py-1 rounded-md text-[9px] font-bold uppercase tracking-widest transition-all ${
+                        typeof u.supplierCreditAmount === 'number'
+                          ? 'bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-100'
+                          : 'bg-amber-600 text-white hover:bg-amber-700'
+                      }`}
+                    >
+                      <PackageCheck size={10} />
+                      {typeof u.supplierCreditAmount === 'number'
+                        ? `Credit £${Number(u.supplierCreditAmount).toFixed(2)}`
+                        : 'Credit Due'}
                     </button>
                   )}
                   {/* Only In-Repair rows get the "..." menu. Back to
@@ -1217,8 +1260,23 @@ function ReturnLossSection({
     outcome: 'refund' | 'replacement' | 'repair' | null;
     legCost: number;
     legs: number;
+    /** Carriage only — (postage + P.VAT) x legs. */
     loss: number;
+    /** Repair invoice for this cycle. */
+    repairCost: number;
+    /** Purchase price of the second handset a replacement cost us. */
+    replacementCost: number;
+    /** Recovered from the supplier; reduces the total. */
+    supplierCredit: number;
+    /** loss + repairCost + replacementCost - supplierCredit. */
+    totalCost: number;
+    /** Costs that apply but have not been entered — totalCost is a floor. */
+    gaps: ReturnCostGap[];
   };
+
+  /** The row before the unit-level costs are attached. They are added in a
+   *  second pass, after sorting, so only a unit's current cycle takes them. */
+  type BaseLossRow = Omit<LossRow, 'repairCost' | 'replacementCost' | 'supplierCredit' | 'totalCost' | 'gaps'>;
 
   const rows = useMemo<LossRow[]>(() => {
     // Build one row PER return cycle (per voided Sale doc), not one
@@ -1242,7 +1300,7 @@ function ReturnLossSection({
       return k ? unitsByImei.get(k) : undefined;
     };
 
-    const out: LossRow[] = [];
+    const out: BaseLossRow[] = [];
     const unitsCoveredBySale = new Set<string>();
 
     // 1) One row per voided Sale — accurate per-cycle accounting.
@@ -1325,10 +1383,37 @@ function ReturnLossSection({
       });
     }
 
-    return out.sort((a, b) => (b.cycleDate || '').localeCompare(a.cycleDate || ''));
+    const sorted = out.sort((a, b) => (b.cycleDate || '').localeCompare(a.cycleDate || ''));
+
+    // The repair invoice, the replacement handset's cost and the supplier
+    // credit all live on the UNIT, and the unit holds one set of them — the
+    // current cycle's. processReturn clears repairCost when a new cycle
+    // starts, so a unit repaired twice carries only the second invoice.
+    //
+    // Attaching them to every cycle row would therefore charge that one
+    // invoice once per historical cycle. Sorted newest-first, the first row
+    // a unit appears in IS its current cycle, so only that row takes them.
+    const extrasClaimed = new Set<string>();
+    return sorted.map(r => {
+      if (extrasClaimed.has(r.unit.id)) {
+        return { ...r, repairCost: 0, replacementCost: 0, supplierCredit: 0, totalCost: r.loss, gaps: [] };
+      }
+      extrasClaimed.add(r.unit.id);
+      const x = extraCostsFor(r.unit, r.outcome);
+      return {
+        ...r,
+        repairCost: x.repair,
+        replacementCost: x.replacementHandset,
+        supplierCredit: x.supplierCredit,
+        totalCost: r.loss + x.repair + x.replacementHandset - x.supplierCredit,
+        gaps: x.gaps,
+      };
+    });
   }, [units, sales]);
 
-  const totalLoss = rows.reduce((t, r) => t + r.loss, 0);
+  const totalLoss = rows.reduce((t, r) => t + r.totalCost, 0);
+  const carriageOnly = rows.reduce((t, r) => t + r.loss, 0);
+  const gapCount = rows.reduce((t, r) => t + r.gaps.length, 0);
   // Before the repair-route fix landed, `refunds` counted everything that
   // wasn't a replacement — which swept repairs into the refund tally and
   // left the header label stale at the pre-completion value (QA round 3
@@ -1352,6 +1437,11 @@ function ReturnLossSection({
       'Leg Cost (£)':       r.legCost.toFixed(2),
       'Shipping Legs':      r.legs,
       'Postage Loss (£)':   r.loss.toFixed(2),
+      'Repair Cost (£)':    r.repairCost ? r.repairCost.toFixed(2) : '',
+      'Replacement Handset (£)': r.replacementCost ? r.replacementCost.toFixed(2) : '',
+      'Supplier Credit (£)': r.supplierCredit ? r.supplierCredit.toFixed(2) : '',
+      'Total Cost (£)':     r.totalCost.toFixed(2),
+      'Costs Outstanding':  r.gaps.join(' · '),
     })));
   };
 
@@ -1371,6 +1461,14 @@ function ReturnLossSection({
           <p className="text-[11px] font-bold uppercase tracking-widest text-slate-900">Return Losses · Lifecycle</p>
           <p className="text-[9px] font-mono text-slate-500 mt-0.5">
             {refunds} refund{refunds === 1 ? '' : 's'} (2× legs) · {replacements} replacement{replacements === 1 ? '' : 's'} (3× legs){repairs > 0 ? ` · ${repairs} in repair (2× legs)` : ''} · leg = postage + P.VAT
+          </p>
+          <p className="text-[9px] font-mono text-slate-400 mt-0.5">
+            £{carriageOnly.toFixed(2)} carriage + repair invoices + replacement handsets − supplier credits
+            {gapCount > 0 && (
+              <span className="text-amber-600 font-bold">
+                {' '}· {gapCount} cost{gapCount === 1 ? '' : 's'} not yet entered — total is a floor
+              </span>
+            )}
           </p>
         </div>
         <span className="text-[11px] font-mono font-bold text-rose-700 bg-rose-50 border border-rose-200 px-2 py-1 rounded-lg flex-shrink-0">
@@ -1393,7 +1491,9 @@ function ReturnLossSection({
                   <th className="text-left px-3 py-2 border-b border-slate-200" style={{ width: 110 }}>Outcome</th>
                   <th className="text-right px-3 py-2 border-b border-slate-200" style={{ width: 90 }}>Leg £</th>
                   <th className="text-right px-3 py-2 border-b border-slate-200" style={{ width: 60 }}>Legs</th>
-                  <th className="text-right px-3 py-2 border-b border-slate-200" style={{ width: 90 }}>Loss £</th>
+                  <th className="text-right px-3 py-2 border-b border-slate-200" style={{ width: 90 }}>Carriage £</th>
+                  <th className="text-right px-3 py-2 border-b border-slate-200" style={{ width: 90 }} title="Repair invoice, replacement handset, less any supplier credit">Other £</th>
+                  <th className="text-right px-3 py-2 border-b border-slate-200" style={{ width: 90 }}>Total £</th>
                   <th className="text-left px-3 py-2 border-b border-slate-200">Reason · Comments</th>
                 </tr>
               </thead>
@@ -1425,8 +1525,42 @@ function ReturnLossSection({
                         {r.legCost > 0 ? `£${r.legCost.toFixed(2)}` : <span className="text-slate-300">—</span>}
                       </td>
                       <td className="px-3 py-1.5 border-b border-slate-100 text-right text-slate-700">× {r.legs}</td>
-                      <td className="px-3 py-1.5 border-b border-slate-100 text-right font-bold text-rose-700">
+                      <td className="px-3 py-1.5 border-b border-slate-100 text-right text-slate-700">
                         {r.loss > 0 ? `−£${r.loss.toFixed(2)}` : <span className="text-slate-300">—</span>}
+                      </td>
+                      <td className="px-3 py-1.5 border-b border-slate-100 text-right">
+                        {(() => {
+                          const other = r.repairCost + r.replacementCost - r.supplierCredit;
+                          const parts = [
+                            r.repairCost ? `repair £${r.repairCost.toFixed(2)}` : '',
+                            r.replacementCost ? `replacement handset £${r.replacementCost.toFixed(2)}` : '',
+                            r.supplierCredit ? `supplier credit −£${r.supplierCredit.toFixed(2)}` : '',
+                          ].filter(Boolean);
+                          if (r.gaps.length > 0) {
+                            // Named, not blank. A blank cell reads as "nothing
+                            // to charge here", which is the exact misreading
+                            // this column exists to stop.
+                            return (
+                              <span
+                                className="text-[9px] font-bold uppercase tracking-widest text-amber-600"
+                                title={`Not entered yet: ${r.gaps.join(', ').replace(/_/g, ' ')}`}
+                              >
+                                Awaiting
+                              </span>
+                            );
+                          }
+                          if (other === 0) return <span className="text-slate-300">—</span>;
+                          return (
+                            <span className={other > 0 ? 'text-slate-700' : 'text-emerald-700'} title={parts.join(' · ')}>
+                              {other > 0 ? `−£${other.toFixed(2)}` : `+£${Math.abs(other).toFixed(2)}`}
+                            </span>
+                          );
+                        })()}
+                      </td>
+                      <td className="px-3 py-1.5 border-b border-slate-100 text-right font-bold text-rose-700">
+                        {r.totalCost !== 0
+                          ? (r.totalCost > 0 ? `−£${r.totalCost.toFixed(2)}` : `+£${Math.abs(r.totalCost).toFixed(2)}`)
+                          : <span className="text-slate-300">—</span>}
                       </td>
                       <td className="px-3 py-1.5 border-b border-slate-100 text-slate-500">
                         <span className="truncate block max-w-[300px]" title={[r.sale?.voidReason || r.unit.returnReason, r.unit.returnComments].filter(Boolean).join(' · ')}>
@@ -2742,9 +2876,26 @@ function ReadyToShipModal({
 }) {
   const [saving, setSaving] = useState(false);
   const [error, setError]   = useState('');
+  // Blank, not '0'. The operator said repair cost "depends on the issue with
+  // the phone", and the invoice often arrives after the handset does — so an
+  // empty box has to mean "not known yet", never "the repair was free".
+  const [repairCost, setRepairCost] = useState('');
   const handleMove = async () => {
+    const trimmed = repairCost.trim();
+    if (trimmed && !Number.isFinite(Number(trimmed))) {
+      setError('Repair cost must be a number, or left blank if the invoice has not arrived.');
+      return;
+    }
+    if (trimmed && Number(trimmed) < 0) {
+      setError('Repair cost cannot be negative.');
+      return;
+    }
     setSaving(true);
-    const res = await completeRepair({ unit, repairedAt: todayStr() });
+    const res = await completeRepair({
+      unit,
+      repairedAt: todayStr(),
+      ...(trimmed ? { repairCost: Number(trimmed) } : {}),
+    });
     if (res.ok) {
       onSaved();
       onClose();
@@ -2776,6 +2927,26 @@ function ReadyToShipModal({
               <p className="text-xs text-slate-700 mt-1">{unit.returnReason}</p>
             </div>
           )}
+          <div>
+            <label htmlFor="repair-cost" className="text-[8px] font-mono uppercase tracking-widest text-slate-500">
+              Repair cost (£) · optional
+            </label>
+            <input
+              id="repair-cost"
+              type="number"
+              min="0"
+              step="0.01"
+              inputMode="decimal"
+              value={repairCost}
+              onChange={e => setRepairCost(e.target.value)}
+              placeholder="Leave blank if the invoice hasn't arrived"
+              className="mt-1 w-full px-3 py-2 border border-gray-200 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-emerald-500"
+            />
+            <p className="text-[9px] text-slate-500 font-mono mt-1 leading-relaxed">
+              Charged against this return. Left blank it stays listed as an outstanding
+              cost rather than counting as a free repair.
+            </p>
+          </div>
           {error && (
             <div className="flex items-center gap-2 text-red-600 bg-red-50 border border-red-200 rounded-xl px-4 py-3">
               <AlertCircle size={14} />
@@ -2791,6 +2962,132 @@ function ReadyToShipModal({
           <button onClick={handleMove} disabled={saving}
             className="flex-1 py-3 bg-emerald-600 text-white rounded-xl text-[10px] font-bold uppercase tracking-widest hover:bg-emerald-700 disabled:opacity-50 flex items-center justify-center gap-2">
             {saving ? 'Saving…' : <><PackageCheck size={13} /> Back to Stock</>}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── SupplierCreditModal ──────────────────────────────────────────────────────
+/** Books what the supplier sent back against a returned-to-supplier unit.
+ *
+ *  The operator gets full credit or a replacement handset, same day, and asked
+ *  for it to be recorded when it lands. A like-for-like handset is value
+ *  recovered just as much as cash is, so both settle to an amount — but the
+ *  KIND is stored separately, so a swap stays auditable as a swap rather than
+ *  looking like a cash refund in the ledger. */
+function SupplierCreditModal({
+  unit, onClose, onSaved,
+}: {
+  unit: InventoryUnit;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const [type, setType] = useState<'credit' | 'replacement_unit'>(
+    unit.supplierCreditType || 'credit',
+  );
+  // Defaults to the unit's purchase price — the common case is full credit,
+  // and typing the same number the row already shows is friction that leads
+  // to typos. Still editable for a partial credit.
+  const [amount, setAmount] = useState(
+    typeof unit.supplierCreditAmount === 'number'
+      ? String(unit.supplierCreditAmount)
+      : (unit.buyPrice != null ? String(unit.buyPrice) : ''),
+  );
+  const [saving, setSaving] = useState(false);
+  const [error, setError]   = useState('');
+
+  const save = async () => {
+    const n = Number(amount);
+    if (!amount.trim() || !Number.isFinite(n) || n < 0) {
+      setError('Enter the amount recovered, £0 or more.');
+      return;
+    }
+    setSaving(true);
+    const res = await recordSupplierCredit({ unit, amount: n, type, creditDate: todayStr() });
+    if (res.ok) {
+      onSaved();
+      onClose();
+    } else {
+      setError(res.message || 'Failed to save. Please try again.');
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-[70] flex items-center justify-center p-3 md:p-4 bg-black/40 backdrop-blur-sm">
+      <div className="bg-white rounded-3xl overflow-hidden w-full max-w-sm shadow-2xl flex flex-col">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
+          <div>
+            <p className="text-[9px] font-mono uppercase tracking-widest text-gray-400">Supplier Settlement</p>
+            <h3 className="text-sm font-bold truncate mt-0.5 max-w-[240px]">{unit.model}</h3>
+          </div>
+          <button onClick={onClose} className="p-2 hover:bg-gray-100 rounded-xl"><X size={16} /></button>
+        </div>
+        <div className="px-6 py-4 space-y-3">
+          <div className="bg-slate-50 rounded-lg p-3 flex items-center justify-between">
+            <p className="text-[8px] font-mono uppercase tracking-widest text-slate-500">Purchase price</p>
+            <p className="text-xs font-bold text-slate-700">
+              {unit.buyPrice != null ? `£${Number(unit.buyPrice).toFixed(2)}` : '—'}
+            </p>
+          </div>
+          <div>
+            <p className="text-[8px] font-mono uppercase tracking-widest text-slate-500 mb-1.5">What came back</p>
+            <div className="grid grid-cols-2 gap-2">
+              {([
+                ['credit', 'Credit'],
+                ['replacement_unit', 'Replacement unit'],
+              ] as const).map(([v, label]) => (
+                <button
+                  key={v}
+                  onClick={() => setType(v)}
+                  className={`py-2 rounded-xl border text-[10px] font-bold uppercase tracking-widest transition-all ${
+                    type === v
+                      ? 'border-amber-400 bg-amber-50 text-amber-800'
+                      : 'border-gray-200 text-gray-500 hover:bg-gray-50'
+                  }`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div>
+            <label htmlFor="supplier-credit-amount" className="text-[8px] font-mono uppercase tracking-widest text-slate-500">
+              Value recovered (£)
+            </label>
+            <input
+              id="supplier-credit-amount"
+              type="number"
+              min="0"
+              step="0.01"
+              inputMode="decimal"
+              value={amount}
+              onChange={e => setAmount(e.target.value)}
+              className="mt-1 w-full px-3 py-2 border border-gray-200 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-amber-500"
+            />
+            <p className="text-[9px] text-slate-500 font-mono mt-1 leading-relaxed">
+              {type === 'replacement_unit'
+                ? 'A like-for-like handset — record what the original cost, the value came back in kind.'
+                : 'Offsets this unit’s purchase price in the returns loss.'}
+            </p>
+          </div>
+          {error && (
+            <div className="flex items-center gap-2 text-red-600 bg-red-50 border border-red-200 rounded-xl px-4 py-3">
+              <AlertCircle size={14} />
+              <p className="text-xs font-mono">{error}</p>
+            </div>
+          )}
+        </div>
+        <div className="px-6 py-4 border-t border-gray-100 flex gap-3">
+          <button onClick={onClose}
+            className="flex-1 py-3 border border-gray-200 rounded-xl text-[10px] font-bold uppercase tracking-widest text-gray-500 hover:bg-gray-50">
+            Cancel
+          </button>
+          <button onClick={save} disabled={saving}
+            className="flex-1 py-3 bg-amber-600 text-white rounded-xl text-[10px] font-bold uppercase tracking-widest hover:bg-amber-700 disabled:opacity-50 flex items-center justify-center gap-2">
+            {saving ? 'Saving…' : <><PackageCheck size={13} /> Record</>}
           </button>
         </div>
       </div>

@@ -95,6 +95,18 @@ service cloud.firestore {
         || changedToNonNull('replacedByUnitId')
         || changedToNonNull('replacementForUnitId')
         || changedToNonNull('repairedAt')
+        // The 2026-08 return-cost fields. Money entered after the fact —
+        // the repair invoice, the second handset a replacement cost, the
+        // supplier's settlement — so they belong behind the same returns
+        // gate as the rest of the return record, not open to any signed-in
+        // user. Same changedToNonNull shape: clearing repairCost to null at
+        // the start of a new return cycle must not count as a return update,
+        // or re-selling a previously repaired unit is denied all over again.
+        || changedToNonNull('repairCost')
+        || changedToNonNull('replacementUnitCost')
+        || changedToNonNull('supplierCreditAmount')
+        || changedToNonNull('supplierCreditDate')
+        || changedToNonNull('supplierCreditType')
         || changedToNonNull('voidedAt')
         || changedToNonNull('voidOutcome')
         || changedToNonNull('voidReason')

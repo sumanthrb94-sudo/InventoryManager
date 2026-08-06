@@ -56,6 +56,22 @@ export interface QuickRepairInput {
 export interface CompleteRepairInput {
   unit: InventoryUnit;
   repairedAt?: string;
+  /** Repair invoice for this cycle, £. Optional because the unit can come
+   *  back on the shelf before the repairer has billed — an absent value is
+   *  recorded as absent, NOT as £0, so the returns loss can report it as a
+   *  cost still outstanding rather than a free repair. */
+  repairCost?: number;
+}
+
+export interface RecordSupplierCreditInput {
+  unit: InventoryUnit;
+  /** £ recovered. For a like-for-like replacement handset, pass the unit's
+   *  buyPrice — the value came back in kind. */
+  amount: number;
+  /** ISO date the credit landed. Defaults to today; the operator said
+   *  credits arrive same-day. */
+  creditDate?: string;
+  type: 'credit' | 'replacement_unit';
 }
 
 export type ReturnsErrorCode =
@@ -67,6 +83,8 @@ export type ReturnsErrorCode =
   | 'missing_replacement'
   | 'unit_not_sold'
   | 'replacement_not_available'
+  | 'not_returned_to_supplier'
+  | 'invalid_amount'
   | 'write_failed';
 
 export interface ReturnsResult {
@@ -148,6 +166,11 @@ export function buildReturningUnitPatch(
     // fact, and the loss accounting keys off that and off voidOutcome, so
     // nothing downstream loses a repair it already recorded.
     repairedAt: null,
+    // Cleared for the same reason as repairedAt: the invoice describes the
+    // cycle that finished. A unit sent for repair a second time must not
+    // inherit the first repair's cost, or the second cycle reads as already
+    // invoiced and its real bill never gets asked for.
+    repairCost: null,
     returnOutcome: outcome,
     returnLegCost: legCost ?? null,
     pendingCrmReview: false,
@@ -167,6 +190,16 @@ export function buildReturningUnitPatch(
   }
   if (replacementUnit) {
     patch.replacedByUnitId = replacementUnit.id;
+    // Snapshot what the second handset cost us. The operator's ruling is that
+    // a replacement costs a whole second handset, and until now that number
+    // was nowhere in the app — a replacement recorded 3 carriage legs (~£24)
+    // against a real cost in the hundreds.
+    //
+    // Snapshotted, not read live through replacedByUnitId, because the
+    // replacement unit stays editable: correcting its buyPrice next month
+    // must not silently restate a return that was closed last month.
+    const cost = Number(replacementUnit.buyPrice);
+    patch.replacementUnitCost = Number.isFinite(cost) ? cost : null;
   }
   return patch;
 }
@@ -396,13 +429,14 @@ export async function quickRepair(input: QuickRepairInput): Promise<ReturnsResul
   return { ok: true };
 }
 
-/** Repair completion — mark a repaired unit as back in stock. */
+/** Repair completion — mark a repaired unit as back in stock, and record what
+ *  the repair cost if the invoice is known. */
 export async function completeRepair(input: CompleteRepairInput): Promise<ReturnsResult> {
-  const { unit, repairedAt = todayStr() } = input;
+  const { unit, repairedAt = todayStr(), repairCost } = input;
   if (!unit?.id) return { ok: false, error: 'missing_unit', message: 'Unit is required.' };
 
   const existingFlags = Array.isArray(unit.flags) ? unit.flags : [];
-  const patch = {
+  const patch: Record<string, any> = {
     ...buildCompleteRepairPatch(),
     repairedAt,
     flags: existingFlags.includes('repaired_unit')
@@ -410,10 +444,64 @@ export async function completeRepair(input: CompleteRepairInput): Promise<Return
       : [...existingFlags, 'repaired_unit'],
   };
 
+  // Only written when a figure was actually supplied. Writing 0 for "the
+  // operator left the box empty" would report an un-invoiced repair as a free
+  // one, which is the error this whole change exists to remove.
+  if (repairCost !== undefined && repairCost !== null && Number.isFinite(Number(repairCost))) {
+    const n = Number(repairCost);
+    if (n < 0) return { ok: false, error: 'invalid_amount', message: 'Repair cost cannot be negative.' };
+    patch.repairCost = n;
+  }
+
   try {
     await dbService.update('inventoryUnits', unit.id, patch);
     return { ok: true };
   } catch (err: any) {
     return { ok: false, error: 'write_failed', message: err?.message || 'Failed to complete repair.' };
   }
+}
+
+/** Book the supplier's settlement against a unit that was sent back to them.
+ *
+ *  The operator gets full credit or a replacement handset, same day, and asked
+ *  for it to be recorded against the unit when it lands. Without this the
+ *  unit's purchase price stays sunk with nothing offsetting it, so a supplier
+ *  return that actually cost nothing reads as a total write-off. */
+export async function recordSupplierCredit(input: RecordSupplierCreditInput): Promise<ReturnsResult> {
+  const { unit, amount, creditDate = todayStr(), type } = input;
+  if (!unit?.id) return { ok: false, error: 'missing_unit', message: 'Unit is required.' };
+  if (unit.returnType !== 'returned_to_supplier') {
+    return {
+      ok: false,
+      error: 'not_returned_to_supplier',
+      message: 'Only a unit returned to the supplier can carry a supplier credit.',
+    };
+  }
+  const n = Number(amount);
+  if (!Number.isFinite(n) || n < 0) {
+    return { ok: false, error: 'invalid_amount', message: 'Credit amount must be a number of £0 or more.' };
+  }
+
+  const patch = {
+    supplierCreditAmount: n,
+    supplierCreditDate: creditDate,
+    supplierCreditType: type,
+  };
+
+  try {
+    await dbService.update('inventoryUnits', unit.id, patch);
+  } catch (err: any) {
+    return { ok: false, error: 'write_failed', message: err?.message || 'Failed to record supplier credit.' };
+  }
+
+  dbService.applyCacheItem('inventoryUnits', unit.id, patch);
+  await logInventoryEvent({
+    type: 'returned',
+    message: `Supplier ${type === 'replacement_unit' ? 'replacement unit' : 'credit'} recorded · `
+      + `${unit.model}${unit.storage ? ' ' + unit.storage : ''} · £${n.toFixed(2)}`,
+    unitId: unit.id,
+    buyPrice: unit.buyPrice,
+  });
+
+  return { ok: true };
 }
