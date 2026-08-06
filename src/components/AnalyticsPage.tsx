@@ -15,6 +15,7 @@ import { recomputeSale } from '../lib/recomputeSale';
 import { InventoryUnit, Supplier, MARKETPLACES, Marketplace } from '../types';
 import { MARKETPLACE_LABEL, marketplaceOf } from '../lib/marketplaceLabels';
 import { buildSupplierIndex, resolveSupplier } from '../lib/supplierIdentity';
+import { saleKeptItsRevenue } from '../lib/returnLoss';
 import CollapsibleSection from './CollapsibleSection';
 
 type Period = 7 | 30 | 90 | 0; // 0 = all time
@@ -51,7 +52,10 @@ export default function AnalyticsPage() {
   // all meant to reflect real completed business, not money that went back
   // out the door. Admin → Sales History is the one screen that intentionally
   // shows voided rows too (full audit trail); this page is not that screen.
-  const liveSales = useMemo(() => sales.filter(s => !s.voidedAt).map(recomputeSale), [sales]);
+  // A replacement, and a repair after the warranty window, keep the money
+  // the customer paid — dropping them here deleted real revenue. Returns
+  // recorded before the correction still fall out, by design.
+  const liveSales = useMemo(() => sales.filter(saleKeptItsRevenue).map(recomputeSale), [sales]);
 
   const todayStr = useMemo(() => new Date().toISOString().split('T')[0], []);
 

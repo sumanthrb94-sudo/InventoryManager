@@ -52,6 +52,7 @@ import EnterImeiModal from './EnterImeiModal';
 import AddSoldUnitModal from './AddSoldUnitModal';
 import OrphansModal, { isOrphanSoldUnit } from './OrphanUnitsModal';
 import { useIsAdmin } from '../lib/useIsAdmin';
+import { saleKeptItsRevenue } from '../lib/returnLoss';
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -343,17 +344,28 @@ export default function SellSheet(_props: Props) {
     const seenUnitIds = new Set<string>();
     const seenKeys = new Set<string>();
     for (const s of sales) {
-      // Skip voided sales — a returned sale didn't actually earn us
-      // anything, so it's hidden from every Sell-side surface (revenue,
-      // GP, Avg GP%, row count). Voided sales live in Returns instead.
-      if (s.voidedAt) continue;
-      if (s.unitId) {
-        const rd = returnDateByUnit.get(s.unitId);
-        // Only suppress when the unit's CURRENT return is on/after the
-        // sale's saleDate — i.e. this sale was the one that got returned.
-        // Earlier returns (where the unit was later re-sold) leave
-        // returnType set on the unit but the new sale stands.
-        if (rd && s.saleDate && rd >= s.saleDate) continue;
+      // Skip voided sales — a REFUNDED sale didn't earn us anything, so it's
+      // hidden from every Sell-side surface (revenue, GP, Avg GP%, row
+      // count) and lives in Returns instead.
+      //
+      // But not every void is a refund. On a replacement the customer keeps
+      // what they paid, and on a repair after the warranty window there is no
+      // refund either — hiding those deleted revenue that was really in the
+      // bank, on top of a second handset going out the door. Both guards
+      // below have to let those through, because a replacement's sale is
+      // still linked to the unit that came BACK, so the return-date check
+      // would drop it even once the void check lets it pass.
+      const keepsRevenue = saleKeptItsRevenue(s);
+      if (!keepsRevenue) {
+        if (s.voidedAt) continue;
+        if (s.unitId) {
+          const rd = returnDateByUnit.get(s.unitId);
+          // Only suppress when the unit's CURRENT return is on/after the
+          // sale's saleDate — i.e. this sale was the one that got returned.
+          // Earlier returns (where the unit was later re-sold) leave
+          // returnType set on the unit but the new sale stands.
+          if (rd && s.saleDate && rd >= s.saleDate) continue;
+        }
       }
       const fresh = recomputeSale(s);
       merged.push(fresh);

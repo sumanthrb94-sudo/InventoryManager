@@ -291,11 +291,15 @@ export async function processReturn(input: ProcessReturnInput): Promise<ReturnsR
     unit, returnType, returnDate, reason, effectiveOutcome, legCost,
     customerComments, technicianComments, replacementUnit,
   );
-  const salePatch = processReturnSalePatch({
+  // Built per sale, not once for the batch: the repair route decides whether
+  // the customer was refunded by measuring the warranty window from THAT
+  // sale's date. A single shared patch would apply one sale's clock to all.
+  const patchFor = (s: Sale) => processReturnSalePatch({
     returnType,
     outcome: outcome ?? 'refund',
     returnDate,
     reason: reason.trim(),
+    saleDate: s.saleDate,
   });
 
   // ── Atomic transaction ─────────────────────────────────────────────────────
@@ -334,7 +338,7 @@ export async function processReturn(input: ProcessReturnInput): Promise<ReturnsR
       // 5. Void linked sales
       for (const s of linkedSales) {
         const saleRef = doc(db, 'sales', s.id);
-        transaction.update(saleRef, salePatch as Record<string, any>);
+        transaction.update(saleRef, patchFor(s) as Record<string, any>);
       }
     });
   } catch (err: any) {
@@ -354,7 +358,7 @@ export async function processReturn(input: ProcessReturnInput): Promise<ReturnsR
     dbService.applyCacheItem('inventoryUnits', replacementUnit.id, buildReplacementUnitPatch(replacementUnit, unit, linkedSales, returnDate));
   }
   for (const s of linkedSales) {
-    dbService.applyCacheItem('sales', s.id, salePatch);
+    dbService.applyCacheItem('sales', s.id, patchFor(s));
   }
 
   // ── Audit log ──────────────────────────────────────────────────────────────
@@ -384,11 +388,12 @@ export async function quickRepair(input: QuickRepairInput): Promise<ReturnsResul
     unit.customerComments, unit.technicianComments,
   );
   // repair route stamps voidOutcome='repair' regardless of outcome radio default
-  const salePatch = processReturnSalePatch({
+  const patchFor = (s: Sale) => processReturnSalePatch({
     returnType: 'repair',
     outcome: 'refund',
     returnDate,
     reason: reason.trim(),
+    saleDate: s.saleDate,
   });
 
   try {
@@ -403,7 +408,7 @@ export async function quickRepair(input: QuickRepairInput): Promise<ReturnsResul
 
       for (const s of linkedSales) {
         const saleRef = doc(db, 'sales', s.id);
-        transaction.update(saleRef, salePatch as Record<string, any>);
+        transaction.update(saleRef, patchFor(s) as Record<string, any>);
       }
     });
   } catch (err: any) {
@@ -416,7 +421,7 @@ export async function quickRepair(input: QuickRepairInput): Promise<ReturnsResul
 
   dbService.applyCacheItem('inventoryUnits', unit.id, unitPatch);
   for (const s of linkedSales) {
-    dbService.applyCacheItem('sales', s.id, salePatch);
+    dbService.applyCacheItem('sales', s.id, patchFor(s));
   }
 
   await logInventoryEvent({

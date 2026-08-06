@@ -428,6 +428,25 @@ export interface Sale {
    *    'repair'      → 2 shipping legs lost (outbound + inbound; unit kept and fixed)
    *  Defaults to refund (2) for legacy voids missing the field. */
   voidOutcome?: 'refund' | 'replacement' | 'repair';
+  /** Did the customer get their money back on this return?
+   *
+   *  Voiding a sale strips its revenue from every Sell-side surface. That is
+   *  right for a refund and wrong for the two routes where the money stays
+   *  paid: a replacement (the customer keeps what they paid and receives a
+   *  handset) and a repair after the warranty refund window. Without this
+   *  flag the report deleted revenue the business had actually kept.
+   *
+   *  Absent on returns processed before the correction — see gpBasis. */
+  customerRefunded?: boolean;
+  /** Which profit basis this return was recorded under.
+   *
+   *  'returns_v2' returns have their gross profit zeroed on the marketplace
+   *  tab when customerRefunded is true, so the row reads as the loss it is
+   *  instead of showing the profit the sale would have made. Returns without
+   *  this field keep the original behaviour, which is what "apply the
+   *  correction from today onward" means in practice: the cutoff is stamped
+   *  on the data, not inferred from a deploy date. */
+  gpBasis?: 'returns_v2';
   // Operator's red-row flag from the source workbook — when the DATE / ORDER
   // NUMBER cell was painted red on the operator's Sales Report sheet, that
   // row carries an issue (return, refund, chargeback, dispute). Surfaced in

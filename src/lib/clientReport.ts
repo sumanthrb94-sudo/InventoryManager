@@ -447,6 +447,7 @@ function returnBlockOffsets(marketplace: Marketplace): {
   legsCol: number;
   postageLossCol: number;
   netGpCol: number;
+  gpCol: number;
 } {
   // Anchor on the header NAMES, not on distance from the end of the row.
   //
@@ -470,6 +471,7 @@ function returnBlockOffsets(marketplace: Marketplace): {
     legsCol:        col('Shipping Legs'),
     postageLossCol: col('Postage Loss'),
     netGpCol:       col('Net GP £'),
+    gpCol:          col('GP'),
   };
 }
 
@@ -519,6 +521,30 @@ function writeReturnBlock(row: ExcelJS.Row, marketplace: Marketplace, sale: Sale
   if (loss > 0) {
     row.getCell(o.postageLossCol).value  = loss;
     row.getCell(o.postageLossCol).numFmt = MONEY_FMT;
+  }
+
+  // ── The refunded row keeps no profit ──────────────────────────────────────
+  //
+  // Until now a returned row carried the SAME GP formula as a clean sale, so
+  // a refunded handset showed the full profit the sale would have made, with
+  // only the postage taken off. On a typical unit that read as +£22 when the
+  // truth was −£19.20 — and because the TOTAL row is SUM(GP:GP), every return
+  // pushed its phantom profit into the marketplace total too. That is the
+  // positive GP % the operator kept seeing on returned units.
+  //
+  // Zeroing this one cell corrects all three at once: the row's own GP, the
+  // GP % (already (GP − Postage Loss) / SP), and the TOTAL that sums it.
+  //
+  // Only when the money actually went back. A replacement, and a repair after
+  // the warranty refund window, both leave the customer's payment with us —
+  // those rows keep their profit and just carry the return's costs.
+  //
+  // Gated on gpBasis so returns already in the database are untouched: the
+  // operator chose to apply this from today onward, and stamping the basis on
+  // the return makes that a property of the data rather than of a deploy date.
+  if (sale.gpBasis === 'returns_v2' && sale.customerRefunded) {
+    row.getCell(o.gpCol).value  = 0;
+    row.getCell(o.gpCol).numFmt = MONEY_FMT;
   }
 }
 

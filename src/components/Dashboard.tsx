@@ -17,6 +17,7 @@ import CopyImei from './CopyImei';
 import PeriodicInventory from './PeriodicInventory';
 import CollapsibleSection from './CollapsibleSection';
 import { SHOW_IMPORT_UI } from '../lib/featureFlags';
+import { saleKeptItsRevenue } from '../lib/returnLoss';
 
 
 
@@ -300,7 +301,10 @@ export default function Dashboard({ user, onNavigate, onOpenImport, onOpenMaster
   // dashboard's "Sold This Month" KPI or revenue/GP totals (Sell
   // screen's allSold does the same; see SellSheet.tsx for the matching
   // convention).
-  const liveSales = useMemo(() => sales.filter(s => !s.voidedAt).map(recomputeSale), [sales]);
+  // A replacement, and a repair after the warranty window, keep the money
+  // the customer paid — dropping them here deleted real revenue. Returns
+  // recorded before the correction still fall out, by design.
+  const liveSales = useMemo(() => sales.filter(saleKeptItsRevenue).map(recomputeSale), [sales]);
 
   // Stock-on-Hand: available units, summed at buy price; week-over-week delta
   // approximated by comparing units that arrived (dateIn) before "a week ago"

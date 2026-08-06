@@ -64,6 +64,30 @@ export interface ReturnCostBreakdown {
   gaps: ReturnCostGap[];
 }
 
+/** Did this sale keep the money the customer paid?
+ *
+ *  Voiding a sale hides it from every revenue and GP surface, which was the
+ *  only behaviour available before the operator's returns policy was written
+ *  down. Two routes leave the payment with the business:
+ *
+ *    - a replacement — "the customer keeps what they paid", and receives a
+ *      handset for it, so the revenue stood and a second handset went out
+ *    - a repair after the warranty refund window — free repair, no refund
+ *
+ *  On those, hiding the sale deletes revenue that is really in the bank.
+ *
+ *  Only returns stamped `gpBasis: 'returns_v2'` are re-read this way. Returns
+ *  already in the database keep the old treatment, which is what applying the
+ *  correction "from today onward" means — the cutoff is a property of each
+ *  return, not of when a deploy happened. */
+export function saleKeptItsRevenue(
+  sale: Pick<Sale, 'voidedAt' | 'gpBasis' | 'customerRefunded'> | null | undefined,
+): boolean {
+  if (!sale) return false;
+  if (!sale.voidedAt) return true;
+  return sale.gpBasis === 'returns_v2' && sale.customerRefunded === false;
+}
+
 /** The customer-facing route, resolved from the most trustworthy signal available.
  *
  *  Sale.voidOutcome wins: it is snapshotted on the immutable sale doc at void

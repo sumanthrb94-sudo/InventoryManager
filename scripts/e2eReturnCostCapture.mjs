@@ -305,6 +305,37 @@ async function run() {
     note('no unused sold unit left in the seed — supplier phase skipped');
   }
 
+  // ── PHASE 3b · the profit basis stamped on each voided sale ───────────────
+  console.log('\n══ PHASE 3b · voided sales carry the right profit basis ══');
+  {
+    const st = await dumpStore(page);
+    const units = docsOf(st, 'inventoryUnits');
+    const byImei = i => units.find(u => String(u.imei) === String(i));
+    const salesFor = imei => docsOf(st, 'sales').filter(x => String(x.imei) === String(imei) && x.voidedAt);
+
+    // Repair inside the 30-day warranty window → the customer was refunded,
+    // so the sale must lose its revenue.
+    const rs = salesFor(repairImei)[0];
+    record('the repair void is stamped with the corrected basis',
+      rs?.gpBasis === 'returns_v2', `gpBasis=${rs?.gpBasis}`);
+    const u = byImei(repairImei);
+    const days = rs?.saleDate && rs?.voidedAt
+      ? Math.round((Date.parse(rs.voidedAt) - Date.parse(rs.saleDate)) / 86400000) : null;
+    record('a repair inside the warranty window counts as refunded',
+      days !== null && days <= 30 ? rs?.customerRefunded === true : rs?.customerRefunded === false,
+      `${days} days after sale · customerRefunded=${rs?.customerRefunded}`);
+    void u;
+
+    if (replImei) {
+      // Replacement: the customer keeps what they paid, so the revenue stands.
+      const vs = salesFor(replImei)[0];
+      record('the replacement void is stamped with the corrected basis',
+        vs?.gpBasis === 'returns_v2', `gpBasis=${vs?.gpBasis}`);
+      record('a replacement is NOT recorded as a refund',
+        vs?.customerRefunded === false, `customerRefunded=${vs?.customerRefunded}`);
+    }
+  }
+
   // ── PHASE 4 · the losses section shows the real number ────────────────────
   console.log('\n══ PHASE 4 · the Returns loss ledger reflects it ══');
   await gotoTab(page, 'Returns');
