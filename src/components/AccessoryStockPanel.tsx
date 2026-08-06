@@ -12,7 +12,7 @@
 import React, { useMemo, useState } from 'react';
 import { History, Trash2, Package } from 'lucide-react';
 import { dbService } from '../lib/dbService';
-import { useInventoryStore } from '../lib/inventoryStore';
+import { useInventoryStore, useLazyCollection } from '../lib/inventoryStore';
 import AccessoryStockActionModal from './AccessoryStockActionModal';
 import type { AccessoryStock, AccessoryStockEvent } from '../types';
 
@@ -51,6 +51,7 @@ interface Props {
 
 export default function AccessoryStockPanel({ bare = false, showActions = true }: Props) {
   const { accessoryStock, accessoryStockEvents } = useInventoryStore();
+  useLazyCollection('accessoryStockEvents');
   const [expanded, setExpanded] = useState<string | null>(null);
   const [actionFor, setActionFor] = useState<{ accessory: AccessoryStock; mode: 'adjust' | 'return' } | null>(null);
   const sorted = useMemo(

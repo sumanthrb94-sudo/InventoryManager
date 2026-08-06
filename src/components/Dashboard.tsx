@@ -9,7 +9,7 @@ import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContaine
 import { dbService } from '../lib/dbService';
 import { isAdmin } from '../lib/firebase';
 import { fmtDateTimeForUser, useUserRegion } from '../lib/userLocale';
-import { useInventoryStore } from '../lib/inventoryStore';
+import { useInventoryStore, useLazyCollection } from '../lib/inventoryStore';
 import { recomputeSale } from '../lib/recomputeSale';
 import { canonicaliseModel } from '../lib/modelReconciliation';
 import { InventoryUnit, Supplier, MARKETPLACES } from '../types';
@@ -42,6 +42,7 @@ export default function Dashboard({ user, onNavigate, onOpenImport, onOpenMaster
   // (Admin → Master Data sub-tab) and falls back to the legacy import modal.
   const handleOpenMasterData = () => (onOpenMasterData ?? onOpenImport)?.();
   const { units, suppliers, sales, aggregates, importBatches, accessoryStock, catalogIndex } = useInventoryStore();
+  useLazyCollection('importBatches');
   const showAdminPanel = isAdmin(user);
   const region = useUserRegion();
 

@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect, useMemo } from 'react';
+import React, { createContext, useContext, useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { dbService } from './dbService';
 import {
   InventoryUnit,
@@ -126,7 +126,8 @@ interface Store {
   /** Transaction ledger behind accessoryStock's running quantity — one row
    *  per topup/sale/adjustment/return/restore. See AccessoryStockEvent. */
   accessoryStockEvents: AccessoryStockEvent[];
-  whatsappFeed: SupplierWhatsappUpdate[];
+  /** Import provenance. NOT subscribed at startup — see LAZY_COLLECTIONS.
+   *  A screen that needs it calls useLazyCollection('importBatches'). */
   importBatches: ImportBatch[];
   /** Admin-curated model catalog seeds — one doc per row in the
    *  `models` Firestore collection. Surfaced here so DeviceComboBox in
@@ -142,7 +143,26 @@ interface Store {
    *  exact failure mode Fix 1 above exists to prevent). Consumers call
    *  `canonicaliseModel(model, brand, catalogIndex)` themselves. */
   catalogIndex: Map<string, string>;
+  /**
+   * Open a collection this screen needs, once.
+   *
+   * Every subscription here is an unfiltered whole-collection onSnapshot, and
+   * Firestore bills one read per document on the first snapshot. Subscribing
+   * to everything at boot therefore charged the entire database to every page
+   * load, whether or not the screen showed any of it — which is what put the
+   * live app over its daily read quota and left it reading "offline".
+   *
+   * Collections needed to paint the first screen stay eager. The rest open
+   * when the screen that uses them mounts, and stay open for the session
+   * (re-subscribing on every navigation would re-read the collection each
+   * time, which is the opposite of the point).
+   */
+  requestCollection: (name: LazyCollection) => void;
 }
+
+/** Collections opened on demand rather than at boot. Both grow without bound:
+ *  one accessory event per stock movement, one import batch per upload. */
+export type LazyCollection = 'accessoryStockEvents' | 'importBatches';
 
 const Ctx = createContext<Store>({
   loaded: false,
@@ -152,10 +172,10 @@ const Ctx = createContext<Store>({
   aggregates: [],
   accessoryStock: [],
   accessoryStockEvents: [],
-  whatsappFeed: [],
   importBatches: [],
   models: [],
   catalogIndex: new Map(),
+  requestCollection: () => {},
 });
 
 export function InventoryStoreProvider({ children }: { children: React.ReactNode }) {
@@ -165,7 +185,6 @@ export function InventoryStoreProvider({ children }: { children: React.ReactNode
   const [aggregates, setAggregates]       = useState<InventoryAggregate[]>([]);
   const [accessoryStock, setAccessoryStock] = useState<AccessoryStock[]>([]);
   const [accessoryStockEvents, setAccessoryStockEvents] = useState<AccessoryStockEvent[]>([]);
-  const [whatsappFeed, setWhatsappFeed]   = useState<SupplierWhatsappUpdate[]>([]);
   const [importBatches, setImportBatches] = useState<ImportBatch[]>([]);
   const [models, setModels]               = useState<ModelSeed[]>([]);
   const [loaded, setLoaded]               = useState(false);
@@ -208,15 +227,16 @@ export function InventoryStoreProvider({ children }: { children: React.ReactNode
     const acc = dbService.subscribeToCollection('accessoryStock', (data: any[]) => {
       setAccessoryStock(data);
     });
-    const accEv = dbService.subscribeToCollection('accessoryStockEvents', (data: any[]) => {
-      setAccessoryStockEvents(data);
-    });
-    const wa = dbService.subscribeToCollection('supplierWhatsappUpdates', data => {
-      setWhatsappFeed(data);
-    });
-    const ib = dbService.subscribeToCollection('importBatches', data => {
-      setImportBatches(data);
-    });
+    // accessoryStockEvents and importBatches are NOT opened here — they are
+    // opened by the screens that show them (see requestCollection). Both grow
+    // by one document per operation forever, so at boot they were the fastest-
+    // growing part of the read bill and nothing on the first screen used them.
+    //
+    // supplierWhatsappUpdates is gone entirely rather than made lazy: the only
+    // consumer, ExcelReportButton, fetches it itself with dbService.readAll()
+    // when a report is built. The subscription fed a store field that App.tsx
+    // destructured and never read — paying for the whole collection on every
+    // page load to populate a variable nobody looked at.
     const md = dbService.subscribeToCollection('models', data => {
       setModels(data as ModelSeed[]);
     });
@@ -228,11 +248,28 @@ export function InventoryStoreProvider({ children }: { children: React.ReactNode
       sl();
       ag();
       acc();
-      accEv();
-      wa();
-      ib();
       md();
     };
+  }, []);
+
+  // ── On-demand collections ───────────────────────────────────────────────
+  //
+  // Held in a ref, not state: a state-driven effect would tear down and
+  // re-create the subscriptions already open every time another screen asked
+  // for a new one, and each re-subscribe re-reads the whole collection. The
+  // ref means one subscription per collection per session, opened the first
+  // time a screen asks and closed when the provider unmounts.
+  const lazySubs = useRef<Map<LazyCollection, () => void>>(new Map());
+  const requestCollection = useCallback((name: LazyCollection) => {
+    if (lazySubs.current.has(name)) return;
+    const unsub = name === 'accessoryStockEvents'
+      ? dbService.subscribeToCollection('accessoryStockEvents', (data: any[]) => setAccessoryStockEvents(data))
+      : dbService.subscribeToCollection('importBatches', (data: any[]) => setImportBatches(data));
+    lazySubs.current.set(name, unsub);
+  }, []);
+  useEffect(() => {
+    const open = lazySubs.current;
+    return () => { open.forEach(unsub => unsub()); open.clear(); };
   }, []);
 
   return (
@@ -245,10 +282,10 @@ export function InventoryStoreProvider({ children }: { children: React.ReactNode
         aggregates,
         accessoryStock,
         accessoryStockEvents,
-        whatsappFeed,
         importBatches,
         models,
         catalogIndex,
+        requestCollection,
       }}
     >
       {children}
@@ -258,4 +295,17 @@ export function InventoryStoreProvider({ children }: { children: React.ReactNode
 
 export function useInventoryStore(): Store {
   return useContext(Ctx);
+}
+
+/**
+ * Open a collection this screen needs, for as long as the session lasts.
+ *
+ * Call it at the top of any component that reads `accessoryStockEvents` or
+ * `importBatches`. Screens that never show them never pay to read them, which
+ * is the whole point — both grow by a document per operation and neither
+ * appears on the first screen either team opens.
+ */
+export function useLazyCollection(name: LazyCollection): void {
+  const { requestCollection } = useInventoryStore();
+  useEffect(() => { requestCollection(name); }, [name, requestCollection]);
 }

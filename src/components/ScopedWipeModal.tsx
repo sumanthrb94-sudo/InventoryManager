@@ -2,7 +2,7 @@ import React, { useMemo, useState } from 'react';
 import { X, Trash2, AlertTriangle, CheckCircle2 } from 'lucide-react';
 import { motion } from 'motion/react';
 import { dbService } from '../lib/dbService';
-import { useInventoryStore } from '../lib/inventoryStore';
+import { useInventoryStore, useLazyCollection } from '../lib/inventoryStore';
 import { buildWipePlan, WIPE_SCOPES, type WipeScopeId } from '../lib/wipeScopes';
 import type { InventoryEvent } from '../types';
 
@@ -22,6 +22,7 @@ interface Props {
 export default function ScopedWipeModal({ scope, onClose }: Props) {
   const meta = WIPE_SCOPES[scope];
   const { units, aggregates, sales, accessoryStock, accessoryStockEvents } = useInventoryStore();
+  useLazyCollection('accessoryStockEvents');
 
   const [confirmed, setConfirmed] = useState(false);
   const [running,   setRunning]   = useState(false);

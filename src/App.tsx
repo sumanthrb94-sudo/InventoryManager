@@ -142,7 +142,7 @@ const ADMIN_SUBS: { id: AdminSub; label: string; icon: React.ReactNode }[] = [
 ];
 
 function AppShell({ user }: { user: User }) {
-  const { loaded, units, whatsappFeed } = useInventoryStore();
+  const { loaded, units } = useInventoryStore();
   const userIsAdmin                               = isAdmin(user);
   const buildVersion                              = useBuildVersionCheck();
   // Count of units in the Tech-QC → CRM hand-off limbo. Drives the

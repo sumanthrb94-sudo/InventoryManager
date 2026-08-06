@@ -38,7 +38,7 @@ import ReportRangeMenu from './ReportRangeMenu';
 import { AnimatePresence, motion } from 'motion/react';
 import { dbService } from '../lib/dbService';
 import { InventoryUnit, ReturnCategory, Sale } from '../types';
-import { useInventoryStore } from '../lib/inventoryStore';
+import { useInventoryStore, useLazyCollection } from '../lib/inventoryStore';
 import { fmtDateForUser, useUserRegion } from '../lib/userLocale';
 import { getWarrantyStatus } from '../lib/warrantyUtils';
 import { auth, isAdmin } from '../lib/firebase';
@@ -71,6 +71,7 @@ const todayStr = () => new Date().toISOString().split('T')[0];
 
 export default function ReturnsPage() {
   const { units, suppliers, sales, accessoryStock, accessoryStockEvents } = useInventoryStore();
+  useLazyCollection('accessoryStockEvents');
   const region = useUserRegion();
   // Admin-only inline-edit access for Reason / Notes lives inside
   // the SheetTable component itself (src/components/ReturnsPage.tsx
