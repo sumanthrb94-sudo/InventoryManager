@@ -543,9 +543,20 @@ async function run() {
   // the supplier-held count as the office count.
   const headline = overviewText.match(/OFFICE STOCK VISIBILITY\s*([\d,]+)\s*units/i);
   const shown = headline ? Number(headline[1].replace(/,/g, '')) : NaN;
+  // Compare against the store AS IT IS NOW, not the manifest: phase 3b put two
+  // returned handsets back on the shelf, so the file's 267 is deliberately
+  // stale by exactly the number of units the returns restored. Reading the
+  // store keeps this an independent check (data vs pixels) while staying
+  // honest about what happened in between.
+  const nowStore = await dumpStore(page);
+  const sellableNow = docsOf(nowStore, 'inventoryUnits').filter(u =>
+    (u.stockSource !== 'shs' && u.stockType !== 'SHS')
+    && (u.status === 'available'
+      || (u.returnType === 'returned_to_inventory' && u.status !== 'sold'))).length;
   record('Periodic table · headline unit count equals office stock on the shelf',
-    shown === officeAvailable.length,
-    `shows ${shown} vs ${officeAvailable.length} available office units`);
+    shown === sellableNow,
+    `shows ${shown} vs ${sellableNow} sellable office units `
+    + `(${officeAvailable.length} from the file + ${sellableNow - officeAvailable.length} restored by the live returns)`);
 
   // The intake team's provenance panel: when did stock last land, and how
   // much of it? Two full imports just ran, so "No imports yet" is a defect.
