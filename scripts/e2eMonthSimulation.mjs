@@ -470,6 +470,109 @@ async function run() {
     await screenHealthy(`Admin · ${sub}`, r, shotName);
   }
 
+  // ══ PHASE 4b · EVERY PANEL, BY NAME ═════════════════════════════════════
+  //
+  // Loading a screen proves the page mounts. It does not prove the panels on
+  // it rendered — a panel that throws inside a boundary, or silently returns
+  // null on an empty derivation, leaves a page that still "loads with
+  // content". Both teams work from the panels, not the page, so each one is
+  // asserted by its own title, on the screen it belongs to.
+  //
+  // The titles are transcribed from the components. When a panel is renamed
+  // this fails, which is the point: a renamed panel nobody re-verified is
+  // indistinguishable from a missing one.
+  console.log('\n══ PHASE 4b · Every panel, by name ══');
+
+  const PANELS = [
+    { screen: 'Stock Intake', nav: { tab: 'Stock Intake' }, panels: [
+      'Stock Added In Last 72 Hours', 'All Office Stock', 'SHS Stock', 'Sold Today',
+      'Accessory SKUs', 'Out of Stock', 'Sold Out', 'Running Low',
+      'Fast Movers', 'Profit Drivers', 'Old Stock Alerts', 'This Week Trending Sold', 'Stock Depth',
+    ] },
+    { screen: 'Inventory (Sell)', nav: { tab: 'INVENTORY', drawer: true }, panels: [
+      'Sold Today', 'This Month', 'All-time Sold', 'Avg GP %',
+      'Hot This Week', 'Top Earners', 'Push These',
+      'OFFICE STOCK VISIBILITY',
+    ] },
+    { screen: 'Returns', nav: { tab: 'Returns', drawer: true }, panels: [
+      'Back to Inventory', 'In Repair', 'Returned to Supplier', 'All Returns',
+      'Return Activity History',
+    ] },
+    { screen: 'Admin · Overview', nav: { admin: 'Overview' }, panels: [
+      'Last Import', 'Batch Rows', 'Total Docs', 'Integrity',
+      'Stock on Hand', 'SHS Pending', 'Sold This Month', 'By Marketplace',
+      'Accessory SKUs', 'Accessories Sold Out', 'Accessories Running Low',
+      'OFFICE STOCK VISIBILITY',
+    ] },
+    { screen: 'Admin · Insights', nav: { admin: 'Insights' }, panels: [
+      'Per-Marketplace Margin', 'Top 10 Best Sellers', 'Slow Movers',
+      'Supplier Performance', 'Platform Scorecard', 'Aged Stock',
+      'Sales Calendar', 'Reorder Alerts',
+    ] },
+    { screen: 'Admin · Money', nav: { admin: 'Money' }, panels: ['VAT'] },
+    { screen: 'Admin · Sales History', nav: { admin: 'Sales History' }, panels: [] },
+    { screen: 'Admin · Reports', nav: { admin: 'Reports' }, panels: [] },
+    { screen: 'Admin · Configuration', nav: { admin: 'Configuration' }, panels: [] },
+  ];
+
+  /** Open collapsed sections so a panel is not "missing" merely because it is folded. */
+  const expandAll = async () => {
+    const toggles = page.locator('button[aria-expanded="false"]');
+    const n = Math.min(await toggles.count().catch(() => 0), 25);
+    for (let i = 0; i < n; i++) await toggles.nth(i).click({ timeout: 2000 }).catch(() => {});
+    await page.waitForTimeout(600);
+  };
+
+  const screenText = {};
+  for (const entry of PANELS) {
+    const r = entry.nav.admin
+      ? await gotoAdminSub(page, entry.nav.admin)
+      : await gotoTab(page, entry.nav.tab, { viaDrawer: !!entry.nav.drawer });
+    if (!r.ok) { record(`${entry.screen} · reachable`, false, 'navigation failed'); continue; }
+    await expandAll();
+    const text = (await page.locator('body').innerText().catch(() => '')).replace(/\s+/g, ' ');
+    screenText[entry.screen] = text;
+    const missing = entry.panels.filter(p => !text.toUpperCase().includes(p.toUpperCase()));
+    record(`${entry.screen} · all ${entry.panels.length} panels present`,
+      missing.length === 0,
+      missing.length ? `missing: ${missing.join(', ')}` : entry.panels.join(' · ') || 'screen renders');
+    await shot(page, `panels-${entry.screen.toLowerCase().replace(/[^a-z]+/g, '-')}`);
+  }
+
+  // ── Numbers on the panels, against truth computed here ──────────────────
+  const num = (text, label) => {
+    const m = (text || '').match(new RegExp(`${label}\\D{0,40}?([\\d,]+)`, 'i'));
+    return m ? Number(m[1].replace(/,/g, '')) : NaN;
+  };
+  const buyText = screenText['Stock Intake'] || '';
+  const dashText = screenText['Admin · Overview'] || '';
+
+  // Stock added in the last 72 hours reads the unit's dateIn, which came from
+  // the file — so it is the tail of the month, not the whole import.
+  const cutoff = new Date(new Date(TODAY).getTime() - 3 * 86400000).toISOString().slice(0, 10);
+  const added72 = officeUnits.concat(shsUnits).filter(u => (u.dateIn || '') > cutoff).length;
+  record('Buy · "Stock Added In Last 72 Hours" matches the intake dates in the file',
+    num(buyText, 'Stock Added In Last 72 Hours') === added72,
+    `tile ${num(buyText, 'Stock Added In Last 72 Hours')} vs ${added72} units dated after ${cutoff}`);
+
+  record('Buy · "Accessory SKUs" equals the pools in the file',
+    num(buyText, 'Accessory SKUs') === manifest.accessories.length,
+    `tile ${num(buyText, 'Accessory SKUs')} vs ${manifest.accessories.length}`);
+
+  record('Dashboard · "Stock on Hand" equals office stock on the shelf',
+    num(dashText, 'Stock on Hand') === officeAvailable.length,
+    `tile ${num(dashText, 'Stock on Hand')} vs ${officeAvailable.length}`);
+  record('Dashboard · "SHS Pending" equals supplier-held units',
+    num(dashText, 'SHS Pending') === shsUnits.length,
+    `tile ${num(dashText, 'SHS Pending')} vs ${shsUnits.length}`);
+
+  // Every marketplace that carries a sale must appear on the channel split.
+  const channels = [...new Set(manifest.sales.map(s => s.marketplace))];
+  const missingChannels = channels.filter(c => !dashText.toUpperCase().includes(c === 'AMAZON' ? 'ZON' : c));
+  record('Dashboard · the marketplace split names every channel that sold',
+    missingChannels.length === 0,
+    missingChannels.length ? `missing: ${missingChannels.join(', ')}` : channels.join(' · '));
+
   // ══ PHASE 5 · Money, against formulas the app never sees ════════════════
   console.log('\n══ PHASE 5 · Revenue and GP vs independent maths ══');
   const storedGp = sales.reduce((s, x) => s + (Number(x.grossProfit) || 0), 0);
