@@ -43,12 +43,12 @@
     {
       "name": "the imported units carry the sale dates from the file, not the import date",
       "ok": true,
-      "detail": "49 units dated 2026-08-05 vs 49 in the file"
+      "detail": "49 units dated 2026-08-06 vs 49 in the file"
     },
     {
       "name": "Buy · \"Sold Today\" equals units whose SALE DATE is today",
       "ok": true,
-      "detail": "tile 49 vs 49 sold on 2026-08-05"
+      "detail": "tile 49 vs 49 sold on 2026-08-06"
     },
     {
       "name": "the store agrees with the tile on available stock",
@@ -58,12 +58,12 @@
     {
       "name": "Inventory (Sell) loads",
       "ok": true,
-      "detail": "2.0s"
+      "detail": "1.9s"
     },
     {
       "name": "Sell · \"Sold Today\" equals every sale doc dated today",
       "ok": true,
-      "detail": "sell 120 vs 120 sale docs dated 2026-08-05 (49 units + 71 accessory lines)"
+      "detail": "sell 120 vs 120 sale docs dated 2026-08-06 (49 units + 71 accessory lines)"
     },
     {
       "name": "Sell · \"All-time Sold\" equals every sale in the month",
@@ -98,17 +98,17 @@
     {
       "name": "Returns loads with content",
       "ok": true,
-      "detail": "2.0s"
+      "detail": "2.4s"
     },
     {
       "name": "Notices loads with content",
       "ok": true,
-      "detail": "2.0s"
+      "detail": "2.4s"
     },
     {
       "name": "Admin · Overview (Dashboard) loads with content",
       "ok": true,
-      "detail": "1.5s"
+      "detail": "1.6s"
     },
     {
       "name": "Periodic table · headline unit count equals office stock on the shelf",
@@ -128,7 +128,7 @@
     {
       "name": "Admin · Money loads with content",
       "ok": true,
-      "detail": "1.5s"
+      "detail": "1.6s"
     },
     {
       "name": "Admin · Sales History loads with content",
@@ -138,12 +138,87 @@
     {
       "name": "Admin · Reports loads with content",
       "ok": true,
-      "detail": "2.2s"
+      "detail": "2.5s"
     },
     {
       "name": "Admin · Configuration loads with content",
       "ok": true,
       "detail": "1.5s"
+    },
+    {
+      "name": "Stock Intake · all 12 panels present",
+      "ok": true,
+      "detail": "Stock Added In Last 72 Hours · All Office Stock · SHS Stock · Sold Today · Accessory SKUs · Sold Out · Running Low · Fast Movers · Profit Drivers · Old Stock Alerts · This Week Trending Sold · Stock Depth"
+    },
+    {
+      "name": "Inventory (Sell) · all 8 panels present",
+      "ok": true,
+      "detail": "Sold Today · This Month · All-time Sold · Avg GP % · Hot This Week · Top Earners · Push These · OFFICE STOCK VISIBILITY"
+    },
+    {
+      "name": "Returns · all 5 panels present",
+      "ok": false,
+      "detail": "missing: Return Activity History"
+    },
+    {
+      "name": "Admin · Overview · all 12 panels present",
+      "ok": true,
+      "detail": "Last Import · Batch Rows · Total Docs · Integrity · Stock on Hand · SHS Pending · Sold This Month · By Marketplace · Accessory SKUs · Accessories Sold Out · Accessories Running Low · OFFICE STOCK VISIBILITY"
+    },
+    {
+      "name": "Admin · Insights · all 8 panels present",
+      "ok": true,
+      "detail": "Per-Marketplace Margin · Top 10 Best Sellers · Slow Movers · Supplier Performance · Platform Scorecard · Aged Stock · Sales Calendar · Reorder Alerts"
+    },
+    {
+      "name": "Admin · Money · all 1 panels present",
+      "ok": true,
+      "detail": "VAT"
+    },
+    {
+      "name": "Admin · Sales History · all 0 panels present",
+      "ok": true,
+      "detail": "screen renders"
+    },
+    {
+      "name": "Admin · Reports · all 0 panels present",
+      "ok": true,
+      "detail": "screen renders"
+    },
+    {
+      "name": "Admin · Configuration · all 0 panels present",
+      "ok": true,
+      "detail": "screen renders"
+    },
+    {
+      "name": "Returns · \"All Returns\" counts the two processed live",
+      "ok": false,
+      "detail": "panel 0 vs 2 processed"
+    },
+    {
+      "name": "Buy · \"Stock Added In Last 72 Hours\" matches the intake dates in the file",
+      "ok": true,
+      "detail": "tile 120 vs 120 units dated after 2026-08-03"
+    },
+    {
+      "name": "Buy · \"Accessory SKUs\" equals the pools in the file",
+      "ok": true,
+      "detail": "tile 6 vs 6"
+    },
+    {
+      "name": "Dashboard · \"Stock on Hand\" equals office stock on the shelf",
+      "ok": true,
+      "detail": "tile 267 vs 267"
+    },
+    {
+      "name": "Dashboard · \"SHS Pending\" equals supplier-held units",
+      "ok": true,
+      "detail": "tile 185 vs 185"
+    },
+    {
+      "name": "Dashboard · the marketplace split names every channel that sold",
+      "ok": true,
+      "detail": "AMAZON · ONBUY · EBAY · TEMU · BM"
     },
     {
       "name": "stored revenue matches the sales file",
@@ -167,75 +242,115 @@
     },
     {
       "name": "every screen renders in under 5 seconds at this volume",
-      "ok": true,
-      "detail": ""
+      "ok": false,
+      "detail": "Admin 5.1s"
     }
   ],
   "timings": [
     {
       "screen": "Stock Intake",
-      "ms": 1967,
+      "ms": 1977,
       "failed": false
     },
     {
       "screen": "Stock Intake",
-      "ms": 1917,
+      "ms": 1941,
       "failed": false
     },
     {
       "screen": "Inventory import · preview",
-      "ms": 188
+      "ms": 199
     },
     {
       "screen": "Inventory import · write",
-      "ms": 2465
+      "ms": 2335
     },
     {
       "screen": "Stock Intake",
-      "ms": 1999,
+      "ms": 1991,
       "failed": false
     },
     {
       "screen": "Sales import · preview",
-      "ms": 341
+      "ms": 343
     },
     {
       "screen": "Sales import · write",
-      "ms": 64306
+      "ms": 66992
     },
     {
       "screen": "Stock Intake",
-      "ms": 2005,
+      "ms": 2024,
       "failed": false
     },
     {
       "screen": "INVENTORY",
-      "ms": 1981,
+      "ms": 1942,
       "failed": false
     },
     {
       "screen": "Stock Intake",
-      "ms": 2099,
+      "ms": 2057,
       "failed": false
     },
     {
       "screen": "Returns",
-      "ms": 1975,
+      "ms": 2403,
       "failed": false
     },
     {
       "screen": "Notices",
-      "ms": 1974,
+      "ms": 2414,
       "failed": false
     },
     {
       "screen": "Admin",
-      "ms": 1887,
+      "ms": 2290,
       "failed": false
     },
     {
       "screen": "Admin · Overview",
-      "ms": 1544,
+      "ms": 1576,
+      "failed": false
+    },
+    {
+      "screen": "Admin",
+      "ms": 1986,
+      "failed": false
+    },
+    {
+      "screen": "Admin · Insights",
+      "ms": 1545,
+      "failed": false
+    },
+    {
+      "screen": "Admin",
+      "ms": 1973,
+      "failed": false
+    },
+    {
+      "screen": "Admin · Money",
+      "ms": 1560,
+      "failed": false
+    },
+    {
+      "screen": "Admin",
+      "ms": 1961,
+      "failed": false
+    },
+    {
+      "screen": "Admin · Sales History",
+      "ms": 1537,
+      "failed": false
+    },
+    {
+      "screen": "Admin",
+      "ms": 3589,
+      "failed": false
+    },
+    {
+      "screen": "Admin · Reports",
+      "ms": 2510,
       "failed": false
     },
     {
@@ -244,48 +359,83 @@
       "failed": false
     },
     {
-      "screen": "Admin · Insights",
-      "ms": 1535,
+      "screen": "Admin · Configuration",
+      "ms": 1538,
+      "failed": false
+    },
+    {
+      "screen": "Stock Intake",
+      "ms": 1969,
+      "failed": false
+    },
+    {
+      "screen": "INVENTORY",
+      "ms": 1993,
+      "failed": false
+    },
+    {
+      "screen": "Returns",
+      "ms": 2024,
       "failed": false
     },
     {
       "screen": "Admin",
-      "ms": 1957,
+      "ms": 1927,
+      "failed": false
+    },
+    {
+      "screen": "Admin · Overview",
+      "ms": 1547,
+      "failed": false
+    },
+    {
+      "screen": "Admin",
+      "ms": 1950,
+      "failed": false
+    },
+    {
+      "screen": "Admin · Insights",
+      "ms": 1537,
+      "failed": false
+    },
+    {
+      "screen": "Admin",
+      "ms": 1932,
       "failed": false
     },
     {
       "screen": "Admin · Money",
-      "ms": 1549,
+      "ms": 1543,
       "failed": false
     },
     {
       "screen": "Admin",
-      "ms": 1929,
+      "ms": 1879,
       "failed": false
     },
     {
       "screen": "Admin · Sales History",
-      "ms": 1530,
+      "ms": 1533,
       "failed": false
     },
     {
       "screen": "Admin",
-      "ms": 3153,
+      "ms": 5143,
       "failed": false
     },
     {
       "screen": "Admin · Reports",
-      "ms": 2237,
+      "ms": 2474,
       "failed": false
     },
     {
       "screen": "Admin",
-      "ms": 1979,
+      "ms": 2170,
       "failed": false
     },
     {
       "screen": "Admin · Configuration",
-      "ms": 1539,
+      "ms": 1553,
       "failed": false
     }
   ]

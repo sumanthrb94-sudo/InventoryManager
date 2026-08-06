@@ -423,8 +423,19 @@ async function run() {
   // and back onto the shelf, BEFORE the panels are read.
   console.log('\n══ PHASE 3b · Returns, processed live ══');
 
+  /** The drawer is a fixed z-50 layer, not an inset-0 overlay, so
+   *  dismissModals never touches it — and left open it covers the picker. */
+  const closeDrawer = async () => {
+    const close = page.getByLabel('Close menu').first();
+    if (await close.isVisible().catch(() => false)) {
+      await close.click({ timeout: 3000 }).catch(() => {});
+      await page.waitForTimeout(400);
+    }
+  };
+
   const processReturn = async (imei, returnType, reason) => {
-    await gotoTab(page, 'Returns', { viaDrawer: true });
+    await gotoTab(page, 'Returns');
+    await closeDrawer();
     await page.getByRole('button', { name: /^Process Return$/i }).click({ timeout: 10000 }).catch(() => {});
     await page.waitForTimeout(900);
     const picker = modal(page);
@@ -451,7 +462,8 @@ async function run() {
     await qc.getByRole('button', { name: /Send to CRM Queue/i }).click({ timeout: 10000 }).catch(() => {});
     await page.waitForTimeout(1500);
     await dismissModals(page);
-    await gotoTab(page, 'Returns', { viaDrawer: true });
+    await gotoTab(page, 'Returns');
+    await closeDrawer();
     await page.getByRole('button', { name: /^Finalise$/i }).first().click({ timeout: 10000 }).catch(() => {});
     await page.waitForTimeout(900);
     const crm = modal(page);
@@ -471,7 +483,8 @@ async function run() {
   const r1 = await processReturn(refundImei, 'Back to Inventory', 'Customer changed mind');
   const r2 = await processReturn(repairImei, 'Repair', 'Cracked screen');
 
-  await gotoTab(page, 'Returns', { viaDrawer: true });
+  await gotoTab(page, 'Returns');
+  await closeDrawer();
   const backBtn = page.getByRole('button', { name: /Back to Stock/i }).first();
   const hasBack = await backBtn.isVisible().catch(() => false);
   record('the repaired unit offers a way back to stock', hasBack);
@@ -577,7 +590,7 @@ async function run() {
       'Hot This Week', 'Top Earners', 'Push These',
       'OFFICE STOCK VISIBILITY',
     ] },
-    { screen: 'Returns', nav: { tab: 'Returns', drawer: true }, panels: [
+    { screen: 'Returns', nav: { tab: 'Returns' }, panels: [
       'Back to Inventory', 'In Repair', 'Returned to Supplier', 'All Returns',
       'Return Activity History',
     ] },
