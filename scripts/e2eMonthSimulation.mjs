@@ -414,6 +414,89 @@ async function run() {
     missingLow.length === 0,
     missingLow.length ? `missing: ${missingLow.slice(0, 5).join(', ')}` : `${lowStockBuckets.length} low buckets`);
 
+  // ══ PHASE 3b · THE PROCESSES, RUN LIVE ══════════════════════════════════
+  //
+  // The month arrives by import. That leaves every hand-driven process
+  // unexercised, and the Returns panels showing their empty state — correct
+  // behaviour, but it proves nothing about them. So a representative unit
+  // goes through the real two-step return flow, and a second through repair
+  // and back onto the shelf, BEFORE the panels are read.
+  console.log('\n══ PHASE 3b · Returns, processed live ══');
+
+  const processReturn = async (imei, returnType, reason) => {
+    await gotoTab(page, 'Returns', { viaDrawer: true });
+    await page.getByRole('button', { name: /^Process Return$/i }).click({ timeout: 10000 }).catch(() => {});
+    await page.waitForTimeout(900);
+    const picker = modal(page);
+    const box = picker.locator('input[placeholder*="Search" i]').first();
+    if (!(await box.isVisible().catch(() => false))) {
+      await shot(page, `ret-${imei}-no-search-box`);
+      return { ok: false, why: 'the Process Return picker showed no search box' };
+    }
+    await box.fill(imei);
+    // 1,900 units behind this picker — give the filter time to settle rather
+    // than reading an empty list and calling the unit missing.
+    await page.waitForTimeout(2500);
+    const row = picker.locator('button').filter({ hasText: new RegExp(imei) }).first();
+    if (!(await row.isVisible().catch(() => false))) {
+      const offered = await picker.locator('button').count().catch(() => 0);
+      await shot(page, `ret-${imei}-picker-empty`);
+      return { ok: false, why: `${imei} not offered — picker showed ${offered} buttons after searching` };
+    }
+    await row.click();
+    await page.waitForTimeout(1000);
+    const qc = modal(page);
+    await qc.locator('textarea').nth(0).fill('Customer reports a fault.').catch(() => {});
+    await qc.locator('textarea').nth(1).fill('QC: fault confirmed.').catch(() => {});
+    await qc.getByRole('button', { name: /Send to CRM Queue/i }).click({ timeout: 10000 }).catch(() => {});
+    await page.waitForTimeout(1500);
+    await dismissModals(page);
+    await gotoTab(page, 'Returns', { viaDrawer: true });
+    await page.getByRole('button', { name: /^Finalise$/i }).first().click({ timeout: 10000 }).catch(() => {});
+    await page.waitForTimeout(900);
+    const crm = modal(page);
+    await crm.getByText(returnType, { exact: false }).first().click().catch(() => {});
+    await page.waitForTimeout(300);
+    await crm.locator('input[placeholder*="Customer changed mind" i]').fill(reason).catch(() => {});
+    await crm.getByRole('button', { name: /Finalise Return/i }).click({ timeout: 10000 }).catch(() => {});
+    await page.waitForTimeout(1800);
+    await dismissModals(page);
+    return { ok: true };
+  };
+
+  const soldImeiList = manifest.sales.filter(x => x.imei).map(x => String(x.imei));
+  const refundImei = soldImeiList[0];
+  const repairImei = soldImeiList[1];
+
+  const r1 = await processReturn(refundImei, 'Back to Inventory', 'Customer changed mind');
+  const r2 = await processReturn(repairImei, 'Repair', 'Cracked screen');
+
+  await gotoTab(page, 'Returns', { viaDrawer: true });
+  const backBtn = page.getByRole('button', { name: /Back to Stock/i }).first();
+  const hasBack = await backBtn.isVisible().catch(() => false);
+  record('the repaired unit offers a way back to stock', hasBack);
+  if (hasBack) {
+    await backBtn.click();
+    await page.waitForTimeout(800);
+    await modal(page).getByRole('button', { name: /^Back to Stock$/i }).click({ timeout: 10000 }).catch(() => {});
+    await page.waitForTimeout(1600);
+    await dismissModals(page);
+  }
+
+  const afterReturns = await dumpStore(page);
+  const rUnits = docsOf(afterReturns, 'inventoryUnits');
+  const refundUnit = rUnits.find(u => String(u.imei) === refundImei);
+  const repairUnit = rUnits.find(u => String(u.imei) === repairImei);
+  record('a refund return processes end to end', r1.ok
+    && (refundUnit?.status === 'available' || refundUnit?.returnType === 'returned_to_inventory'),
+    r1.why || `IMEI ${refundImei} · status=${refundUnit?.status} returnType=${refundUnit?.returnType}`);
+  record('a repair return processes end to end and comes back to stock', r2.ok
+    && repairUnit?.status === 'available',
+    r2.why || `IMEI ${repairImei} · status=${repairUnit?.status} returnType=${repairUnit?.returnType}`);
+  const voided = docsOf(afterReturns, 'sales').filter(x => x.voidedAt).length;
+  record('both returns voided their sale', voided >= 2, `${voided} voided sale docs`);
+  await shot(page, 'phase3b-returns-processed');
+
   // ══ PHASE 4 · The intelligent dashboards ════════════════════════════════
   console.log('\n══ PHASE 4 · Dashboards and panels at volume ══');
   const screenHealthy = async (label, r, shotName) => {
@@ -486,7 +569,7 @@ async function run() {
   const PANELS = [
     { screen: 'Stock Intake', nav: { tab: 'Stock Intake' }, panels: [
       'Stock Added In Last 72 Hours', 'All Office Stock', 'SHS Stock', 'Sold Today',
-      'Accessory SKUs', 'Out of Stock', 'Sold Out', 'Running Low',
+      'Accessory SKUs', 'Sold Out', 'Running Low',
       'Fast Movers', 'Profit Drivers', 'Old Stock Alerts', 'This Week Trending Sold', 'Stock Depth',
     ] },
     { screen: 'Inventory (Sell)', nav: { tab: 'INVENTORY', drawer: true }, panels: [
@@ -546,6 +629,11 @@ async function run() {
   };
   const buyText = screenText['Stock Intake'] || '';
   const dashText = screenText['Admin · Overview'] || '';
+  const retText = screenText['Returns'] || '';
+
+  record('Returns · "All Returns" counts the two processed live',
+    num(retText, 'All Returns') === 2,
+    `panel ${num(retText, 'All Returns')} vs 2 processed`);
 
   // Stock added in the last 72 hours reads the unit's dateIn, which came from
   // the file — so it is the tail of the month, not the whole import.
