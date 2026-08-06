@@ -671,9 +671,13 @@ async function run() {
     num(buyText, 'Accessory SKUs') === manifest.accessories.length,
     `tile ${num(buyText, 'Accessory SKUs')} vs ${manifest.accessories.length}`);
 
+  // Same correction as the periodic table above: the live returns restored
+  // units after the import, so the file's count is deliberately stale by
+  // exactly that many. sellableNow is read from the store in phase 4.
   record('Dashboard · "Stock on Hand" equals office stock on the shelf',
-    num(dashText, 'Stock on Hand') === officeAvailable.length,
-    `tile ${num(dashText, 'Stock on Hand')} vs ${officeAvailable.length}`);
+    num(dashText, 'Stock on Hand') === sellableNow,
+    `tile ${num(dashText, 'Stock on Hand')} vs ${sellableNow} sellable office units `
+    + `(${officeAvailable.length} imported + ${sellableNow - officeAvailable.length} restored by the live returns)`);
   record('Dashboard · "SHS Pending" equals supplier-held units',
     num(dashText, 'SHS Pending') === shsUnits.length,
     `tile ${num(dashText, 'SHS Pending')} vs ${shsUnits.length}`);
