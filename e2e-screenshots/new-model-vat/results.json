@@ -1,5 +1,5 @@
 {
-  "passed": 26,
+  "passed": 19,
   "total": 26,
   "results": [
     {
@@ -89,8 +89,8 @@
     },
     {
       "name": "FINDING: the VAT breakdown is derived, never persisted on the Sale",
-      "ok": true,
-      "detail": "absent on the doc: commissionVat, dsf, dsfVat, totalVat, totalVatNtp, accessoryFee"
+      "ok": false,
+      "detail": "absent on the doc: none — they are now stored"
     },
     {
       "name": "Amazon tab has the full VAT column set",
@@ -99,33 +99,33 @@
     },
     {
       "name": "C. VAT = Commission × 20%",
-      "ok": true,
-      "detail": "K2*20%"
+      "ok": false,
+      "detail": "N2*20%"
     },
     {
       "name": "DSF = Commission × 2%",
-      "ok": true,
-      "detail": "K2*2%"
+      "ok": false,
+      "detail": "N2*2%"
     },
     {
       "name": "DSF VAT = DSF × 20%",
-      "ok": true,
-      "detail": "M2*20%"
+      "ok": false,
+      "detail": "P2*20%"
     },
     {
       "name": "P. VAT = Postage × 20%",
-      "ok": true,
-      "detail": "O2*20%"
+      "ok": false,
+      "detail": "R2*20%"
     },
     {
       "name": "Total VAT = C.VAT + DSF VAT + P.VAT",
-      "ok": true,
-      "detail": "L2+N2+P2"
+      "ok": false,
+      "detail": "O2+Q2+S2"
     },
     {
       "name": "Total VAT NTP = Marginal Tax − Total VAT",
-      "ok": true,
-      "detail": "J2-R2"
+      "ok": false,
+      "detail": "M2-U2"
     },
     {
       "name": "Report carries the resolved model name",

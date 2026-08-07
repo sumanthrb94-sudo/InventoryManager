@@ -289,12 +289,37 @@ async function run() {
   record('Stored GP matches the full VAT-inclusive chain', near(sale.grossProfit, truth.grossProfit), `${sale.grossProfit} vs ${truth.grossProfit}`);
   record('Stored GP% matches (GP / BP for Amazon)', near(sale.gpPercent, truth.gpPercent), `${sale.gpPercent} vs ${truth.gpPercent}`);
 
-  // The derived-not-stored characteristic, asserted rather than assumed.
-  const absent = ['commissionVat', 'dsf', 'dsfVat', 'totalVat', 'totalVatNtp', 'accessoryFee']
-    .filter(k => sale[k] === undefined);
-  record('FINDING: the VAT breakdown is derived, never persisted on the Sale',
-    absent.length === 6,
-    `absent on the doc: ${absent.join(', ') || 'none — they are now stored'}`);
+  // The VAT breakdown IS persisted on the Sale — this assertion used to say
+  // the opposite.
+  //
+  // It was written as a FINDING: the six VAT fields were derived at read time
+  // and never stored, so a fee change moved grossProfit while the columns it
+  // was computed from stayed put, and the workbook showed a GP its own fee
+  // lines did not add up to. recomputeSale now refreshes the whole set, which
+  // is what made that stop happening.
+  //
+  // Inverted rather than deleted, and strengthened while inverting: checking
+  // the fields merely EXIST would pass on six zeroes. Each is compared to the
+  // independently-computed truth, so the test now proves the stored breakdown
+  // is right rather than that it is present.
+  const VAT_FIELDS = [
+    ['commissionVat', truth.commissionVat],
+    ['dsf',           truth.dsf],
+    ['dsfVat',        truth.dsfVat],
+    ['totalVat',      truth.totalVat],
+    ['totalVatNtp',   truth.totalVatNtp],
+    ['accessoryFee',  truth.accessories],
+  ];
+  const missing = VAT_FIELDS.filter(([k]) => sale[k] === undefined).map(([k]) => k);
+  record('the VAT breakdown is persisted on the Sale, not derived at read time',
+    missing.length === 0,
+    missing.length ? `still absent: ${missing.join(', ')}` : 'all six stored');
+  const wrong = VAT_FIELDS
+    .filter(([k, want]) => sale[k] !== undefined && !near(sale[k], want))
+    .map(([k, want]) => `${k} ${sale[k]} vs ${want}`);
+  record('each stored VAT field matches the independently-computed truth',
+    wrong.length === 0,
+    wrong.length ? wrong.join(' · ') : VAT_FIELDS.map(([k]) => k).join(', '));
 
   // ══ PHASE 6 · the report is where those numbers live ═════════════════════
   console.log('\n══ PHASE 6 · The Sales Report carries the VAT chain as formulas ══');
@@ -316,12 +341,34 @@ async function run() {
   record('Amazon tab has the full VAT column set',
     ['C. VAT', 'DSF', 'DSF. VAT', 'P. VAT', 'Total VAT', 'Total VAT NTP'].every(h => headers.includes(h)),
     headers.filter(h => /VAT|DSF/i.test(h)).join(', '));
-  record('C. VAT = Commission × 20%', /K2\*20%/i.test(formulaOf('C. VAT')), formulaOf('C. VAT'));
-  record('DSF = Commission × 2%', /K2\*2%/i.test(formulaOf('DSF')), formulaOf('DSF'));
-  record('DSF VAT = DSF × 20%', /M2\*20%/i.test(formulaOf('DSF. VAT')), formulaOf('DSF. VAT'));
-  record('P. VAT = Postage × 20%', /O2\*20%/i.test(formulaOf('P. VAT')), formulaOf('P. VAT'));
-  record('Total VAT = C.VAT + DSF VAT + P.VAT', /L2\+N2\+P2/i.test(formulaOf('Total VAT')), formulaOf('Total VAT'));
-  record('Total VAT NTP = Marginal Tax − Total VAT', /J2-R2/i.test(formulaOf('Total VAT NTP')), formulaOf('Total VAT NTP'));
+  // Each expectation names the SOURCE COLUMNS in {braces} and is resolved
+  // against this tab's real header row. Written with literal letters
+  // (K2*20%, L2+N2+P2 …) these six broke the moment the columns were
+  // reordered, and told us nothing about whether the arithmetic was right —
+  // what matters is that C. VAT reads Commission, not that it reads K.
+  const colLetter = n => { let s2 = ''; while (n > 0) { const r = (n - 1) % 26; s2 = String.fromCharCode(65 + r) + s2; n = (n - 1 - r) / 26; } return s2; };
+  const ref = name => {
+    const i = headers.indexOf(name);
+    if (i < 0) throw new Error(`no "${name}" column — headers: ${headers.join(', ')}`);
+    return `${colLetter(i + 1)}2`;
+  };
+  const expectFormula = (label, column, template) => {
+    let missing = null;
+    const want = template.replace(/\{([^}]+)\}/g, (_, n) => {
+      if (!headers.includes(n)) { missing = n; return n; }
+      return ref(n);
+    });
+    if (missing) return record(label, false, `no "${missing}" column`);
+    const got = formulaOf(column);
+    record(`${label} — ${want}`, got.replace(/\s+/g, '') === want.replace(/\s+/g, ''), got);
+  };
+
+  expectFormula('C. VAT = Commission × 20%', 'C. VAT', '{Commission}*20%');
+  expectFormula('DSF = Commission × 2%', 'DSF', '{Commission}*2%');
+  expectFormula('DSF VAT = DSF × 20%', 'DSF. VAT', '{DSF}*20%');
+  expectFormula('P. VAT = Postage × 20%', 'P. VAT', '{Postage}*20%');
+  expectFormula('Total VAT = C.VAT + DSF VAT + P.VAT', 'Total VAT', '{C. VAT}+{DSF. VAT}+{P. VAT}');
+  expectFormula('Total VAT NTP = Marginal Tax − Total VAT', 'Total VAT NTP', '{Marginal Tax}-{Total VAT}');
   record('Report carries the resolved model name',
     /S24 Ultra/i.test(String(cell('Model') ?? '')), String(cell('Model') ?? ''));
   await shot(page, 'phase6-report-downloaded');
