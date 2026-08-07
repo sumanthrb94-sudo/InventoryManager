@@ -23,6 +23,7 @@ import { chromium } from 'playwright';
 import { mkdirSync, existsSync, readdirSync } from 'node:fs';
 import { resolve } from 'node:path';
 import ExcelJS from 'exceljs';
+import { writeRowByHeader, clearDataRows } from './e2eSheetHelpers.mjs';
 
 const BASE = process.env.E2E_BASE_URL || 'http://localhost:4173';
 const OUT = 'e2e-screenshots/accessory-stock';
@@ -105,11 +106,18 @@ async function buildAccessorySalesFile() {
   // workbook) every other example row. The parser reads with
   // blankrows:false, so an all-empty row is skipped — this file resolves
   // to exactly one sale, keeping every count below exact.
-  for (let r = 2; r <= ws.rowCount; r++) ws.getRow(r).values = [];
-  ws.getRow(2).values = [
-    '2026-07-22', 'ACC-9001', SKU, '', 'MOBILE WHOLESALE LTD',
-    SALE_QTY, ADD_BP, 8.99, '', '', '', 0, '', '', '',
-  ];
+  clearDataRows(ws);
+  writeRowByHeader(ws, 2, {
+    'Date': '2026-07-22',
+    'Order Number': 'ACC-9001',
+    'SKU': SKU,
+    'IMEI': '',
+    'Supplier': 'MOBILE WHOLESALE LTD',
+    'Quantity': SALE_QTY,
+    'BP': ADD_BP,
+    'SP': 8.99,
+    'Postage': 0,
+  });
   await wb.xlsx.writeFile(SALES_FILE);
 }
 

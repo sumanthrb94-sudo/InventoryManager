@@ -46,6 +46,7 @@ import { chromium } from 'playwright';
 import { mkdirSync, existsSync, readdirSync, copyFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import ExcelJS from 'exceljs';
+import { writeRowByHeader } from './e2eSheetHelpers.mjs';
 
 const BASE = process.env.E2E_BASE_URL || 'http://localhost:4173';
 const OUT = 'e2e-screenshots/accessory-return-reconcile';
@@ -175,16 +176,6 @@ async function downloadReport(page, buttonName) {
  * By name it cannot drift again, and it throws loudly if a column is renamed
  * rather than silently filling the wrong one.
  */
-function writeRowByHeader(ws, rowNumber, values) {
-  const headers = (ws.getRow(1).values ?? []).slice(1).map(v => String(v ?? '').trim());
-  const row = ws.getRow(rowNumber);
-  for (const [name, value] of Object.entries(values)) {
-    const idx = headers.indexOf(name);
-    if (idx < 0) throw new Error(`${ws.name}: no "${name}" column — headers: ${headers.join(', ')}`);
-    row.getCell(idx + 1).value = value;
-  }
-  row.commit();
-}
 
 /** One accessory sale row on the AMAZON tab, addressed by header name. */
 async function buildAccessorySalesFile() {

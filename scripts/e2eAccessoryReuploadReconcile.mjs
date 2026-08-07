@@ -38,6 +38,7 @@ import { chromium } from 'playwright';
 import { mkdirSync, existsSync, readdirSync } from 'node:fs';
 import { resolve } from 'node:path';
 import ExcelJS from 'exceljs';
+import { writeRowByHeader, clearDataRows } from './e2eSheetHelpers.mjs';
 
 const BASE = process.env.E2E_BASE_URL || 'http://localhost:4173';
 const OUT = 'e2e-screenshots/accessory-reupload-reconcile';
@@ -157,11 +158,18 @@ async function buildAccessorySalesFile() {
   const wb = new ExcelJS.Workbook();
   await wb.xlsx.readFile('templates/SALES_AMAZON_TEMPLATE.xlsx');
   const ws = wb.getWorksheet('AMAZON');
-  for (let r = 2; r <= ws.rowCount; r++) ws.getRow(r).values = [];
-  ws.getRow(2).values = [
-    '2026-07-22', 'ACC-REUP-9001', SKU, '', 'MOBILE WHOLESALE LTD',
-    SALE_QTY, ADD_BP, 8.99, '', '', '', 0, '', '', '',
-  ];
+  clearDataRows(ws);
+  writeRowByHeader(ws, 2, {
+    'Date': '2026-07-22',
+    'Order Number': 'ACC-REUP-9001',
+    'SKU': SKU,
+    'IMEI': '',
+    'Supplier': 'MOBILE WHOLESALE LTD',
+    'Quantity': SALE_QTY,
+    'BP': ADD_BP,
+    'SP': 8.99,
+    'Postage': 0,
+  });
   await wb.xlsx.writeFile(SALES_FILE);
 }
 
