@@ -51,6 +51,24 @@ const baseSale = (over: Partial<Sale>): Sale => ({
   ...over,
 });
 
+/**
+ * Address a rendered cell by its COLUMN HEADER rather than its index.
+ *
+ * The indices used to be written as literals with the letter in a trailing
+ * comment (`row[27]  // AB — Outcome`). That made every one of these tests a
+ * second, silent copy of the column order: reordering the sheet moved the
+ * numbers, the comments went stale, and the assertions carried on comparing
+ * whatever happened to land in slot 27. Looking the column up by name states
+ * what is actually being checked and survives the next reorder.
+ */
+const col = (sheet: { rows: any[][] }, header: string) => {
+  const i = sheet.rows[0].findIndex(c => String(c.display ?? '').trim() === header);
+  if (i < 0) throw new Error(`no "${header}" column — headers: ${sheet.rows[0].map((c: any) => c.display).join(' | ')}`);
+  return i;
+};
+const cell = (sheet: { rows: any[][] }, rowIndex: number, header: string) =>
+  sheet.rows[rowIndex][col(sheet, header)];
+
 // ───────────────────────────────────────────────────────────────────────────
 // evaluateFormula
 // ───────────────────────────────────────────────────────────────────────────
@@ -134,19 +152,23 @@ describe('viewModelFromXlsxBuffer — exact Excel view of the Sales Report', () 
     });
     const model = await viewModelFromXlsxBuffer(buf, 't');
     const ebay = model.sheets.find(s => s.name === 'EBAY')!;
-    const dataRow = ebay.rows[1]; // row 1 = header, row 2 = first sale
-    // Master math: I=100, J=16.67, T.COM=16.224, P=8, P.VAT=1.6 (carried
-    // from the sale — eBay does not derive it), Marketing=0, M.VAT=0,
-    // Acc=1 → GP = 56.506 → '56.51'. Marketing is £0 because the operator's
-    // master types the spend per row and this fixture sets none; before
-    // 2026-08 we invented SP × 5% = £10 (+£2 VAT) and charged it to GP.
-    expect(dataRow[21].display).toBe('56.51');           // V — GP
+    // Row 0 = header, row 1 = first sale.
+    // Master math: SP−BP=100, Marginal Tax=16.67, T.COM=16.224, Postage=8,
+    // P. VAT=1.6 (carried from the sale — eBay does not derive it),
+    // Marketing=0, M. VAT=0, Acc=1 → GP = 56.506 → '56.51'. Marketing is £0
+    // because the operator's master types the spend per row and this fixture
+    // sets none; before 2026-08 we invented SP × 5% = £10 (+£2 VAT) and
+    // charged it to GP.
+    expect(cell(ebay, 1, 'GP').display).toBe('56.51');
     // Net GP% = (GP − Postage Loss[blank→0]) / SP × 100 = 28.25
-    expect(dataRow[22].display).toBe('28.25');           // W — GP %
-    // Formula provenance is surfaced as a tooltip.
-    expect(dataRow[21].title).toBe('=I2-J2-O2-P2-Q2-R2-S2-T2');
+    expect(cell(ebay, 1, 'GP %').display).toBe('28.25');
+    // Formula provenance is surfaced as a tooltip. The operand list is what
+    // matters — SP−BP less Marginal Tax, T.COM, Postage, P. VAT, Marketing,
+    // M. VAT and Accessories — and salesReportFormulaParity.test.ts pins it
+    // independently against SALES_SCHEMA_AND_CALCULATIONS.md.
+    expect(cell(ebay, 1, 'GP').title).toBe('=L2-M2-R2-S2-T2-U2-V2-W2');
     // Dates render Excel-style.
-    expect(dataRow[0].display).toBe('1-Jun-2026');
+    expect(cell(ebay, 1, 'Date').display).toBe('1-Jun-2026');
   });
 
   it('voided rows carry the red fill + return block; net GP% subtracts the loss', async () => {
@@ -159,13 +181,12 @@ describe('viewModelFromXlsxBuffer — exact Excel view of the Sales Report', () 
     });
     const model = await viewModelFromXlsxBuffer(buf, 't');
     const ebay = model.sheets.find(s => s.name === 'EBAY')!;
-    const row = ebay.rows[1];
-    expect(row[0].fillColor).toBe('#FEE2E2');            // rose-100 across the row
-    expect(row[27].display).toBe('Refund');              // AB — Outcome
-    expect(row[29].display).toBe('2');                   // AD — Shipping Legs
-    expect(row[30].display).toBe('19.20');               // AE — Postage Loss (8+1.6)×2
+    expect(cell(ebay, 1, 'Date').fillColor).toBe('#FEE2E2');   // rose-100 across the row
+    expect(cell(ebay, 1, 'Outcome').display).toBe('Refund');
+    expect(cell(ebay, 1, 'Shipping Legs').display).toBe('2');
+    expect(cell(ebay, 1, 'Postage Loss').display).toBe('19.20'); // (8+1.6)×2
     // Net GP% = (56.506 − 19.2) / 200 × 100 = 18.653 → '18.65'
-    expect(row[22].display).toBe('18.65');
+    expect(cell(ebay, 1, 'GP %').display).toBe('18.65');
   });
 
   it('TOTAL row SUMs compute and render bold', async () => {
@@ -181,17 +202,16 @@ describe('viewModelFromXlsxBuffer — exact Excel view of the Sales Report', () 
     expect(total, 'the preview renders a TOTAL row').toBeDefined();
     // Blank fillable rows sit between the data and the TOTAL. They contribute
     // nothing, so the sums are still just the two real sales.
-    expect(total[6].display).toBe('150.00');             // G — SUM of BP 100+50
-    expect(total[7].display).toBe('350.00');             // H — SUM of SP 200+150
+    expect(total[col(ebay, 'BP')].display).toBe('150.00');   // 100 + 50
+    expect(total[col(ebay, 'SP')].display).toBe('350.00');   // 200 + 150
     expect(total[0].bold).toBe(true);
     // Net GP% on the TOTAL row evaluates the IFERROR chain.
-    expect(Number.isFinite(parseFloat(total[22].display))).toBe(true);
+    expect(Number.isFinite(parseFloat(total[col(ebay, 'GP %')].display))).toBe(true);
 
     // And the fillable rows themselves render EMPTY, not as a wall of 0.00 —
-    // the guard is IF($H<n>="","",…) and the preview must honour it.
-    const firstBlank = ebay.rows[3];                     // header + 2 sales
-    expect(firstBlank[8].display, 'SP-BP on an untouched row').toBe('');
-    expect(firstBlank[21].display, 'GP on an untouched row').toBe('');
+    // the guard is IF($<SP>n="","",…) and the preview must honour it.
+    expect(cell(ebay, 3, 'SP-BP').display, 'SP-BP on an untouched row').toBe('');
+    expect(cell(ebay, 3, 'GP').display, 'GP on an untouched row').toBe('');
   });
 
   it('Summary tab carries the per-marketplace roll-up', async () => {

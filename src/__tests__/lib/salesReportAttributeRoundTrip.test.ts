@@ -71,24 +71,36 @@ describe('Sales Report carries Storage + Colour', () => {
   });
 
   /**
-   * The regression that would hurt most: these columns are appended AFTER
-   * every formula column precisely so no hard-coded column letter shifts.
-   * GP % references the Postage Loss column by letter — if that moved, every
-   * exported report would silently compute the wrong net margin.
+   * The regression that would hurt most, restated.
+   *
+   * These columns used to be appended AFTER every formula column, because the
+   * formulas carried hard-coded column letters and moving a column shifted the
+   * arithmetic one cell left while still looking plausible. That constraint is
+   * gone: `excelFormulaFor` resolves letters through `salesColLetter(name)`,
+   * which throws on an unknown column. So the invariant to pin is no longer
+   * "these columns sit at the end" but the stronger one — **the formula
+   * addresses whatever cell the header row says it should**.
+   *
+   * Derived from the header row rather than written as literals, so this test
+   * keeps its meaning through the next reorder instead of needing an edit.
    */
-  it('does not shift the formula columns', async () => {
+  it('addresses the money cells by name, wherever the columns sit', async () => {
     const wb = await buildAndRead([sale({})], [unit({})]);
     const ws = wb.getWorksheet('AMAZON')!;
     const h = headersOf(ws);
-    // Storage / Colour must be the LAST two headers.
-    expect(h.slice(-2)).toEqual(['Storage', 'Colour']);
-    // And the money columns must still be where the formulas expect them.
-    expect(h[6]).toBe('BP');            // G
-    expect(h[7]).toBe('SP');            // H
-    expect(h[18]).toBe('GP');           // S
+    const letter = (name: string) => {
+      const i = h.indexOf(name);
+      expect(i, `header "${name}"`).toBeGreaterThanOrEqual(0);
+      return ws.getColumn(i + 1).letter;
+    };
+    // GP % is gross profit over buy price — the two cells it must name.
     const gpPct = ws.getRow(2).getCell(h.indexOf('GP %') + 1).value as { formula?: string };
-    expect(gpPct.formula).toContain('/G2*100');
-    expect(gpPct.formula).toContain('S2');
+    expect(gpPct.formula).toContain(`/${letter('BP')}2*100`);
+    expect(gpPct.formula).toContain(`${letter('GP')}2`);
+    // Net GP £ is GP less the postage loss, same test from the other side.
+    const net = ws.getRow(2).getCell(h.indexOf('Net GP £') + 1).value as { formula?: string };
+    expect(net.formula).toContain(`${letter('GP')}2`);
+    expect(net.formula).toContain(`${letter('Postage Loss')}2`);
   });
 
   /**

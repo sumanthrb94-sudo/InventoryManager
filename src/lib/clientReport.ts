@@ -25,7 +25,7 @@ import type {
   AccessoryStock,
 } from '../types';
 import { MARKETPLACES } from '../types';
-import { excelFormulaFor } from './platforms';
+import { excelFormulaFor, SALES_HEADERS, salesCol, salesColLetter } from './platforms';
 import { returnCostFor, saleKeptItsRevenue } from './returnLoss';
 import { recomputeSale } from './recomputeSale';
 import { normalizeOperatorSku } from './modelStorage';
@@ -306,96 +306,13 @@ export async function buildInventoryWorkbookBuffer(input: BuildInventoryWorkbook
 // SALES workbook
 // ---------------------------------------------------------------------------
 
-type SalesHeaderRow = Array<string | number>;
-
-/** Exported so the Mark Multiple Sold grid can be asserted against the sheet
- *  each of its rows will land on — see bulkSaleColumns.ts. Read-only: the
- *  column order here is append-only, because every GP / GP % / TOTAL formula
- *  on these tabs references hard column letters. */
-export const SALES_HEADERS: Record<Marketplace, SalesHeaderRow> = {
-  AMAZON: [
-    'Date', 'Order Number', 'SKU', 'IMEI', 'Supplier', 'Quantity',
-    'BP', 'SP', 'SP-BP', 'Marginal Tax', 'Commission',
-    'C. VAT', 'DSF', 'DSF. VAT',
-    'Postage', 'P. VAT', 'Accessories',
-    'Total VAT', 'GP', 'GP %', 'Total VAT NTP',
-    'Comments',
-    // Resolved model name — sale.model when audit-complete, else a live
-    // normalised guess off the preserved raw SKU. Trailing, not inserted
-    // among the formula columns, so no existing column-letter formula
-    // reference shifts.
-    'Model',
-    // ── Return-linkage block ────────────────────────────────────────────
-    // Auditor needs to see WHY a row is red without reverse-engineering
-    // the Postage Loss multiplier. Each block is populated only when the
-    // sale is voided (refund / replacement); active sales leave the
-    // cells blank so column SUM / COUNTIF over the period works cleanly.
-    'Return Date', 'Outcome', 'Return Reason', 'Shipping Legs',
-    // Return-loss column — voided sales carry (postage + P.VAT) × legs
-    // (2 for a refund, 3 for a replacement). Empty for active sales.
-    // Lets the CA total the column for the period's postage exposure.
-    // Also subtracted from GP inside the GP % cell so the per-row %
-    // shows the true net margin after the return hit.
-    'Postage Loss',
-    // Net GP £ = GP − Postage Loss. Active rows leave Postage Loss blank
-    // (Excel treats blank as 0) so the cell collapses to Gross GP; voided
-    // rows show the true bottom-line margin in £ without the auditor
-    // having to subtract by eye. TOTAL row at the bottom of the tab
-    // carries the SUM. Same column appears on BM / EBAY / ONBUY.
-    'Net GP £',
-    // Buy-side identity, appended LAST on purpose — every GP / GP % /
-    // TOTAL formula on these tabs references hard column letters, so
-    // inserting mid-sheet would silently shift them. See writeSaleRow.
-    'Storage', 'Colour',
-  ],
-  BM: [
-    'Date', 'Order Number', 'SKU', 'IMEI', 'Supplier', 'Quantity',
-    'BP', 'SP', 'SP-BP', 'Marginal Tax', 'Commission',
-    'Customer Care Fees', 'Postage', 'P. VAT', 'Accessories',
-    'GP', 'GP %', 'Total VAT NTP', 'Comments', 'Model',
-    'Return Date', 'Outcome', 'Return Reason', 'Shipping Legs',
-    'Postage Loss', 'Net GP £',
-    'Storage', 'Colour',
-  ],
-  EBAY: [
-    'Date', 'Order Number', 'SKU', 'IMEI', 'Supplier', 'Units',
-    'BP', 'SP', 'SP-BP', 'Marginal Tax', 'Commission', 'ROF', 'FVF', 'VAT',
-    'T.COM', 'Postage', 'P. VAT', 'Marketing', 'M. VAT', 'Accessories',
-    'Total VAT', 'GP', 'GP %', 'Total VAT NTP', 'Comments', 'Model',
-    'Return Date', 'Outcome', 'Return Reason', 'Shipping Legs',
-    'Postage Loss', 'Net GP £',
-    'Storage', 'Colour',
-  ],
-  ONBUY: [
-    'Date', 'Order Number', 'SKU', 'IMEI', 'Supplier',
-    'BP', 'SP', 'SP-BP', 'Marginal Tax', 'Commission', 'VAT 20%',
-    'Postage', 'P. VAT', 'Accessories',
-    'Total VAT', 'GP', 'GP %', 'Total VAT NTP', 'Comments', 'Model',
-    'Return Date', 'Outcome', 'Return Reason', 'Shipping Legs',
-    'Postage Loss', 'Net GP £',
-    'Storage', 'Colour',
-  ],
-  // TEMU (added 2026-07, corrected against the client's final Temu export
-  // TEMU_FORMULA.csv): its own layout, not Amazon's. No DSF / DSF VAT —
-  // Temu's export has no such columns, it doesn't charge one. Commission
-  // VAT is its own column (informational — see platforms.ts TEMU branch
-  // for why it's excluded from Total VAT / GP).
-  TEMU: [
-    'Date', 'Order Number', 'SKU', 'IMEI', 'Supplier', 'Quantity',
-    'BP', 'SP', 'SP-BP', 'Marginal Tax', 'Commission', 'Commission VAT',
-    'Postage', 'P. VAT', 'Accessories',
-    'Total VAT', 'GP', 'GP %', 'Total VAT NTP',
-    'Comments',
-    'Model',
-    'Return Date', 'Outcome', 'Return Reason', 'Shipping Legs',
-    'Postage Loss',
-    'Net GP £',
-    // Buy-side identity, appended LAST on purpose — every GP / GP % /
-    // TOTAL formula on these tabs references hard column letters, so
-    // inserting mid-sheet would silently shift them. See writeSaleRow.
-    'Storage', 'Colour',
-  ],
-};
+// SALES_HEADERS now lives in ./platforms alongside excelFormulaFor, because
+// the formulas have to resolve their column letters FROM the header order.
+// Keeping them apart is what forced the order to be append-only. Re-exported
+// here so every existing importer (bulkSaleColumns, tests, the importer)
+// keeps working unchanged.
+export { SALES_HEADERS, salesCol, salesColLetter } from './platforms';
+export type { SalesHeaderRow } from './platforms';
 
 const DATE_FMT = '[$-409]d\\-mmm\\-yyyy';
 const MONEY_FMT = '0.00';
@@ -553,6 +470,25 @@ function writeReturnBlock(row: ExcelJS.Row, marketplace: Marketplace, sale: Sale
  * Write one sale row into the given sheet with the correct base values,
  * formulas (sourced from `excelFormulaFor`) and per-cell number formats.
  */
+/** Add a sale row with its values placed by header NAME.
+ *
+ *  This used to be `sheet.addRow([date, order, sku, ...])` — a positional
+ *  array per marketplace. Reordering the columns left those arrays pointing
+ *  at their old slots, so SP landed in the Marginal Tax column and GP came
+ *  out at -1.48 instead of 56.51. The formulas had already been made
+ *  name-based; the VALUES had not, and nothing failed loudly. */
+function addSaleRow(
+  sheet: ExcelJS.Worksheet,
+  marketplace: Marketplace,
+  values: Record<string, any>,
+): ExcelJS.Row {
+  const cols = SALES_HEADERS[marketplace] as readonly (string | number)[];
+  for (const k of Object.keys(values)) {
+    if (!cols.includes(k)) throw new Error(`${marketplace}: no column "${k}"`);
+  }
+  return sheet.addRow(cols.map(c => (c in values ? values[c as string] : null)));
+}
+
 function writeSaleRow(
   sheet: ExcelJS.Worksheet,
   marketplace: Marketplace,
@@ -569,6 +505,11 @@ function writeSaleRow(
   const date = toDate(sale.saleDate);
   const qty = sale.quantity ?? 1;
 
+  // Cells are addressed by header NAME. They used to be numeric indices
+  // (`row.getCell(19)`), which meant a column moving by one wrote the GP into
+  // whatever now sat at 19 — silently, and identically formatted.
+  const col = (name: string) => salesCol(marketplace, name);
+
   switch (marketplace) {
     case 'AMAZON': {
       // 2026-05 schema. 22 columns — Date through Comments. Postage and
@@ -576,38 +517,37 @@ function writeSaleRow(
       // postage per sale, accessories is a flat default); every other
       // computed cell is a formula so the operator can audit / re-derive
       // in Excel without trusting our runtime output.
-      const row = sheet.addRow([
-        date, sale.orderNumber, sale.sku ?? '', sale.imei ?? '',
-        resolvedSupplier, qty,
-        sale.buyPrice, sale.salePrice,
-        // Formula-driven cells filled below: SP-BP, MarTax, Com, C.VAT,
-        // DSF, DSF.VAT, Postage (literal), P.VAT, Accessories (literal),
-        // Total VAT, GP, GP%, Total VAT NTP.
-        null, null, null, null, null, null,
-        sale.postage ?? null,
-        null,
-        sale.accessoryFee ?? Number(f.accessoryFee ?? 1),
-        null, null, null, null,
-        sale.comments ?? '',
-        resolvedSaleModel(sale),
-      ]);
-      row.getCell(1).numFmt = DATE_FMT;
-      row.getCell(4).numFmt = IMEI_FMT;
-      row.getCell(7).numFmt = MONEY_FMT;   // BP
-      row.getCell(8).numFmt = MONEY_FMT;   // SP
-      row.getCell(9).value  = { formula: f.spMinusBp! };     row.getCell(9).numFmt  = MONEY_FMT;
-      row.getCell(10).value = { formula: f.marginalTax! };   row.getCell(10).numFmt = MONEY_FMT;
-      row.getCell(11).value = { formula: f.commission! };    row.getCell(11).numFmt = MONEY_FMT;
-      row.getCell(12).value = { formula: f.commissionVat! }; row.getCell(12).numFmt = MONEY_FMT;
-      row.getCell(13).value = { formula: f.dsf! };           row.getCell(13).numFmt = MONEY_FMT;
-      row.getCell(14).value = { formula: f.dsfVat! };        row.getCell(14).numFmt = MONEY_FMT;
-      row.getCell(15).numFmt = MONEY_FMT; // Postage (literal value above)
-      row.getCell(16).value = { formula: f.postageVat! };    row.getCell(16).numFmt = MONEY_FMT;
-      row.getCell(17).numFmt = MONEY_FMT; // Accessories (literal value above)
-      row.getCell(18).value = { formula: f.totalVat! };      row.getCell(18).numFmt = MONEY_FMT;
-      row.getCell(19).value = { formula: f.grossProfit! };   row.getCell(19).numFmt = MONEY_FMT;
-      row.getCell(20).value = { formula: f.gpPercent! };     row.getCell(20).numFmt = MONEY_FMT;
-      row.getCell(21).value = { formula: f.totalVatNtp! };   row.getCell(21).numFmt = MONEY_FMT;
+      const row = addSaleRow(sheet, marketplace, {
+        Date: date,
+        "Order Number": sale.orderNumber,
+        SKU: sale.sku ?? '',
+        IMEI: sale.imei ?? '',
+        Supplier: resolvedSupplier,
+        Quantity: qty,
+        BP: sale.buyPrice,
+        SP: sale.salePrice,
+        Postage: sale.postage ?? null,
+        Accessories: sale.accessoryFee ?? Number(f.accessoryFee ?? 1),
+        Comments: sale.comments ?? '',
+        Model: resolvedSaleModel(sale),
+      });
+      row.getCell(col('Date')).numFmt = DATE_FMT;
+      row.getCell(col('IMEI')).numFmt = IMEI_FMT;
+      row.getCell(col('BP')).numFmt = MONEY_FMT;   // BP
+      row.getCell(col('SP')).numFmt = MONEY_FMT;   // SP
+      row.getCell(col('SP-BP')).value  = { formula: f.spMinusBp! };     row.getCell(col('SP-BP')).numFmt  = MONEY_FMT;
+      row.getCell(col('Marginal Tax')).value = { formula: f.marginalTax! };   row.getCell(col('Marginal Tax')).numFmt = MONEY_FMT;
+      row.getCell(col('Commission')).value = { formula: f.commission! };    row.getCell(col('Commission')).numFmt = MONEY_FMT;
+      row.getCell(col('C. VAT')).value = { formula: f.commissionVat! }; row.getCell(col('C. VAT')).numFmt = MONEY_FMT;
+      row.getCell(col('DSF')).value = { formula: f.dsf! };           row.getCell(col('DSF')).numFmt = MONEY_FMT;
+      row.getCell(col('DSF. VAT')).value = { formula: f.dsfVat! };        row.getCell(col('DSF. VAT')).numFmt = MONEY_FMT;
+      row.getCell(col('Postage')).numFmt = MONEY_FMT; // Postage (literal value above)
+      row.getCell(col('P. VAT')).value = { formula: f.postageVat! };    row.getCell(col('P. VAT')).numFmt = MONEY_FMT;
+      row.getCell(col('Accessories')).numFmt = MONEY_FMT; // Accessories (literal value above)
+      row.getCell(col('Total VAT')).value = { formula: f.totalVat! };      row.getCell(col('Total VAT')).numFmt = MONEY_FMT;
+      row.getCell(col('GP')).value = { formula: f.grossProfit! };   row.getCell(col('GP')).numFmt = MONEY_FMT;
+      row.getCell(col('GP %')).value = { formula: f.gpPercent! };     row.getCell(col('GP %')).numFmt = MONEY_FMT;
+      row.getCell(col('Total VAT NTP')).value = { formula: f.totalVatNtp! };   row.getCell(col('Total VAT NTP')).numFmt = MONEY_FMT;
       writeReturnBlock(row, marketplace, sale, rowNumber);
       return;
     }
@@ -626,35 +566,36 @@ function writeSaleRow(
       //   A=Date,B=OrderNo,C=SKU,D=IMEI,E=Supplier,F=Quantity,G=BP,H=SP,
       //   I=SP-BP,J=MarTax,K=Commission,L=Commission VAT,M=Postage,
       //   N=P.VAT,O=Accessories,P=Total VAT,Q=GP,R=GP%,S=Total VAT NTP,T=Comments
-      const row = sheet.addRow([
-        date, sale.orderNumber, sale.sku ?? '', sale.imei ?? '',
-        resolvedSupplier, qty,
-        sale.buyPrice, sale.salePrice,
-        null, null,                                    // SP-BP, MarTax (formula)
-        sale.commission ?? 0,                           // Commission (literal — Temu's real per-order fee)
-        null,                                           // Commission VAT (formula = K×20%)
-        sale.postage ?? null,                           // Postage (literal)
-        null,                                           // P. VAT (formula)
-        sale.accessoryFee ?? Number(f.accessoryFee ?? 1), // Accessories (literal)
-        null, null, null, null,                         // Total VAT, GP, GP%, Total VAT NTP
-        sale.comments ?? '',
-        resolvedSaleModel(sale),
-      ]);
-      row.getCell(1).numFmt = DATE_FMT;
-      row.getCell(4).numFmt = IMEI_FMT;
-      row.getCell(7).numFmt = MONEY_FMT;   // BP
-      row.getCell(8).numFmt = MONEY_FMT;   // SP
-      row.getCell(9).value  = { formula: f.spMinusBp! };   row.getCell(9).numFmt  = MONEY_FMT;
-      row.getCell(10).value = { formula: f.marginalTax! }; row.getCell(10).numFmt = MONEY_FMT;
-      row.getCell(11).numFmt = MONEY_FMT; // Commission (literal above)
-      row.getCell(12).value = { formula: f.commissionVat! }; row.getCell(12).numFmt = MONEY_FMT;
-      row.getCell(13).numFmt = MONEY_FMT; // Postage (literal above)
-      row.getCell(14).value = { formula: f.postageVat! };  row.getCell(14).numFmt = MONEY_FMT;
-      row.getCell(15).numFmt = MONEY_FMT; // Accessories (literal above)
-      row.getCell(16).value = { formula: f.totalVat! };    row.getCell(16).numFmt = MONEY_FMT;
-      row.getCell(17).value = { formula: f.grossProfit! }; row.getCell(17).numFmt = MONEY_FMT;
-      row.getCell(18).value = { formula: f.gpPercent! };   row.getCell(18).numFmt = MONEY_FMT;
-      row.getCell(19).value = { formula: f.totalVatNtp! }; row.getCell(19).numFmt = MONEY_FMT;
+      const row = addSaleRow(sheet, marketplace, {
+        Date: date,
+        "Order Number": sale.orderNumber,
+        SKU: sale.sku ?? '',
+        IMEI: sale.imei ?? '',
+        Supplier: resolvedSupplier,
+        Quantity: qty,
+        BP: sale.buyPrice,
+        SP: sale.salePrice,
+        Commission: sale.commission ?? 0,
+        Postage: sale.postage ?? null,
+        Accessories: sale.accessoryFee ?? Number(f.accessoryFee ?? 1),
+        Comments: sale.comments ?? '',
+        Model: resolvedSaleModel(sale),
+      });
+      row.getCell(col('Date')).numFmt = DATE_FMT;
+      row.getCell(col('IMEI')).numFmt = IMEI_FMT;
+      row.getCell(col('BP')).numFmt = MONEY_FMT;   // BP
+      row.getCell(col('SP')).numFmt = MONEY_FMT;   // SP
+      row.getCell(col('SP-BP')).value  = { formula: f.spMinusBp! };   row.getCell(col('SP-BP')).numFmt  = MONEY_FMT;
+      row.getCell(col('Marginal Tax')).value = { formula: f.marginalTax! }; row.getCell(col('Marginal Tax')).numFmt = MONEY_FMT;
+      row.getCell(col('Commission')).numFmt = MONEY_FMT; // Commission (literal above)
+      row.getCell(col('Commission VAT')).value = { formula: f.commissionVat! }; row.getCell(col('Commission VAT')).numFmt = MONEY_FMT;
+      row.getCell(col('Postage')).numFmt = MONEY_FMT; // Postage (literal above)
+      row.getCell(col('P. VAT')).value = { formula: f.postageVat! };  row.getCell(col('P. VAT')).numFmt = MONEY_FMT;
+      row.getCell(col('Accessories')).numFmt = MONEY_FMT; // Accessories (literal above)
+      row.getCell(col('Total VAT')).value = { formula: f.totalVat! };    row.getCell(col('Total VAT')).numFmt = MONEY_FMT;
+      row.getCell(col('GP')).value = { formula: f.grossProfit! }; row.getCell(col('GP')).numFmt = MONEY_FMT;
+      row.getCell(col('GP %')).value = { formula: f.gpPercent! };   row.getCell(col('GP %')).numFmt = MONEY_FMT;
+      row.getCell(col('Total VAT NTP')).value = { formula: f.totalVatNtp! }; row.getCell(col('Total VAT NTP')).numFmt = MONEY_FMT;
       writeReturnBlock(row, marketplace, sale, rowNumber);
       return;
     }
@@ -666,33 +607,35 @@ function writeSaleRow(
       //   A=Date,B=OrderNo,C=SKU,D=IMEI,E=Supplier,F=Quantity,
       //   G=BP,H=SP,I=SP-BP,J=MarTax,K=Com,L=CustomerCareFees,
       //   M=Postage,N=P.VAT,O=Accessories,P=GP,Q=GP%,R=TotVAT NTP,S=Comments
-      const row = sheet.addRow([
-        date, sale.orderNumber, sale.sku ?? '', sale.imei ?? '',
-        resolvedSupplier, qty,
-        sale.buyPrice, sale.salePrice,
-        null, null, null,                              // SP-BP, MarTax, Com
-        sale.customerCareFees ?? Number(f.customerCareFees ?? 9.99),  // Customer Care Fees (literal)
-        sale.postage ?? null,                          // Postage (literal)
-        null,                                          // P. VAT (formula)
-        sale.accessoryFee ?? Number(f.accessoryFee ?? 1),  // Accessories (literal)
-        null, null, null,                              // GP, GP%, Total VAT NTP
-        sale.comments ?? '',
-        resolvedSaleModel(sale),
-      ]);
-      row.getCell(1).numFmt = DATE_FMT;
-      row.getCell(4).numFmt = IMEI_FMT;
-      row.getCell(7).numFmt = MONEY_FMT;       // BP
-      row.getCell(8).numFmt = MONEY_FMT;       // SP
-      row.getCell(9).value  = { formula: f.spMinusBp! };    row.getCell(9).numFmt  = MONEY_FMT;
-      row.getCell(10).value = { formula: f.marginalTax! };  row.getCell(10).numFmt = MONEY_FMT;
-      row.getCell(11).value = { formula: f.commission! };   row.getCell(11).numFmt = MONEY_FMT;
-      row.getCell(12).numFmt = MONEY_FMT;                   // Customer Care Fees (literal above)
-      row.getCell(13).numFmt = MONEY_FMT;                   // Postage (literal above)
-      row.getCell(14).value = { formula: f.postageVat! };   row.getCell(14).numFmt = MONEY_FMT;
-      row.getCell(15).numFmt = MONEY_FMT;                   // Accessories (literal above)
-      row.getCell(16).value = { formula: f.grossProfit! };  row.getCell(16).numFmt = MONEY_FMT;
-      row.getCell(17).value = { formula: f.gpPercent! };    row.getCell(17).numFmt = MONEY_FMT;
-      row.getCell(18).value = { formula: f.totalVatNtp! };  row.getCell(18).numFmt = MONEY_FMT;
+      const row = addSaleRow(sheet, marketplace, {
+        Date: date,
+        "Order Number": sale.orderNumber,
+        SKU: sale.sku ?? '',
+        IMEI: sale.imei ?? '',
+        Supplier: resolvedSupplier,
+        Quantity: qty,
+        BP: sale.buyPrice,
+        SP: sale.salePrice,
+        "Customer Care Fees": sale.customerCareFees ?? Number(f.customerCareFees ?? 9.99),
+        Postage: sale.postage ?? null,
+        Accessories: sale.accessoryFee ?? Number(f.accessoryFee ?? 1),
+        Comments: sale.comments ?? '',
+        Model: resolvedSaleModel(sale),
+      });
+      row.getCell(col('Date')).numFmt = DATE_FMT;
+      row.getCell(col('IMEI')).numFmt = IMEI_FMT;
+      row.getCell(col('BP')).numFmt = MONEY_FMT;       // BP
+      row.getCell(col('SP')).numFmt = MONEY_FMT;       // SP
+      row.getCell(col('SP-BP')).value  = { formula: f.spMinusBp! };    row.getCell(col('SP-BP')).numFmt  = MONEY_FMT;
+      row.getCell(col('Marginal Tax')).value = { formula: f.marginalTax! };  row.getCell(col('Marginal Tax')).numFmt = MONEY_FMT;
+      row.getCell(col('Commission')).value = { formula: f.commission! };   row.getCell(col('Commission')).numFmt = MONEY_FMT;
+      row.getCell(col('Customer Care Fees')).numFmt = MONEY_FMT;                   // Customer Care Fees (literal above)
+      row.getCell(col('Postage')).numFmt = MONEY_FMT;                   // Postage (literal above)
+      row.getCell(col('P. VAT')).value = { formula: f.postageVat! };   row.getCell(col('P. VAT')).numFmt = MONEY_FMT;
+      row.getCell(col('Accessories')).numFmt = MONEY_FMT;                   // Accessories (literal above)
+      row.getCell(col('GP')).value = { formula: f.grossProfit! };  row.getCell(col('GP')).numFmt = MONEY_FMT;
+      row.getCell(col('GP %')).value = { formula: f.gpPercent! };    row.getCell(col('GP %')).numFmt = MONEY_FMT;
+      row.getCell(col('Total VAT NTP')).value = { formula: f.totalVatNtp! };  row.getCell(col('Total VAT NTP')).numFmt = MONEY_FMT;
       writeReturnBlock(row, marketplace, sale, rowNumber);
       return;
     }
@@ -706,40 +649,42 @@ function writeSaleRow(
       //   G=BP,H=SP,I=SP-BP,J=MarTax,K=Com,L=ROF,M=FVF,N=VAT,O=T.COM,
       //   P=Postage,Q=P.VAT,R=Marketing,S=M.VAT,T=Acc,U=TotVAT,V=GP,
       //   W=GP%,X=TotVAT NTP,Y=Comments
-      const row = sheet.addRow([
-        date, sale.orderNumber, sale.sku ?? '', sale.imei ?? '',
-        resolvedSupplier, qty,
-        sale.buyPrice, sale.salePrice,
-        null, null, null, null, null, null, null,    // SP-BP, MarTax, Com, ROF, FVF, VAT, T.COM
-        sale.postage ?? null,                        // Postage
-        sale.postageVat ?? 0,                        // P. VAT (literal — eBay does not derive it)
-        sale.marketing ?? 0,                         // Marketing (literal — operator-entered spend)
-        null,                                        // M. VAT (formula off the Marketing cell)
-        sale.accessoryFee ?? Number(f.accessoryFee ?? 1),  // Accessories
-        null, null, null, null,                      // Total VAT, GP, GP%, Total VAT NTP
-        sale.comments ?? '',
-        resolvedSaleModel(sale),
-      ]);
-      row.getCell(1).numFmt = DATE_FMT;
-      row.getCell(4).numFmt = IMEI_FMT;
-      row.getCell(7).numFmt = MONEY_FMT;            // BP
-      row.getCell(8).numFmt = MONEY_FMT;            // SP
-      row.getCell(9).value  = { formula: f.spMinusBp! };    row.getCell(9).numFmt  = MONEY_FMT;
-      row.getCell(10).value = { formula: f.marginalTax! };  row.getCell(10).numFmt = MONEY_FMT;
-      row.getCell(11).value = { formula: f.commission! };   row.getCell(11).numFmt = MONEY_FMT;
-      row.getCell(12).value = { formula: f.rof! };          row.getCell(12).numFmt = MONEY_FMT;
-      row.getCell(13).value = Number(f.fvf);                row.getCell(13).numFmt = MONEY_FMT;
-      row.getCell(14).value = { formula: f.vat20! };        row.getCell(14).numFmt = MONEY_FMT;
-      row.getCell(15).value = { formula: f.totalCom! };     row.getCell(15).numFmt = MONEY_FMT;
-      row.getCell(16).numFmt = MONEY_FMT;                   // Postage (literal above)
-      row.getCell(17).numFmt = MONEY_FMT;                   // P. VAT (literal above)
-      row.getCell(18).numFmt = MONEY_FMT;                   // Marketing (literal above)
-      row.getCell(19).value = { formula: f.marketingVat! }; row.getCell(19).numFmt = MONEY_FMT;
-      row.getCell(20).numFmt = MONEY_FMT;                   // Accessories (literal above)
-      row.getCell(21).value = { formula: f.totalVat! };     row.getCell(21).numFmt = MONEY_FMT;
-      row.getCell(22).value = { formula: f.grossProfit! };  row.getCell(22).numFmt = MONEY_FMT;
-      row.getCell(23).value = { formula: f.gpPercent! };    row.getCell(23).numFmt = MONEY_FMT;
-      row.getCell(24).value = { formula: f.totalVatNtp! };  row.getCell(24).numFmt = MONEY_FMT;
+      const row = addSaleRow(sheet, marketplace, {
+        Date: date,
+        "Order Number": sale.orderNumber,
+        SKU: sale.sku ?? '',
+        IMEI: sale.imei ?? '',
+        Supplier: resolvedSupplier,
+        Units: qty,
+        BP: sale.buyPrice,
+        SP: sale.salePrice,
+        Postage: sale.postage ?? null,
+        "P. VAT": sale.postageVat ?? 0,
+        Marketing: sale.marketing ?? 0,
+        Accessories: sale.accessoryFee ?? Number(f.accessoryFee ?? 1),
+        Comments: sale.comments ?? '',
+        Model: resolvedSaleModel(sale),
+      });
+      row.getCell(col('Date')).numFmt = DATE_FMT;
+      row.getCell(col('IMEI')).numFmt = IMEI_FMT;
+      row.getCell(col('BP')).numFmt = MONEY_FMT;            // BP
+      row.getCell(col('SP')).numFmt = MONEY_FMT;            // SP
+      row.getCell(col('SP-BP')).value  = { formula: f.spMinusBp! };    row.getCell(col('SP-BP')).numFmt  = MONEY_FMT;
+      row.getCell(col('Marginal Tax')).value = { formula: f.marginalTax! };  row.getCell(col('Marginal Tax')).numFmt = MONEY_FMT;
+      row.getCell(col('Commission')).value = { formula: f.commission! };   row.getCell(col('Commission')).numFmt = MONEY_FMT;
+      row.getCell(col('ROF')).value = { formula: f.rof! };          row.getCell(col('ROF')).numFmt = MONEY_FMT;
+      row.getCell(col('FVF')).value = Number(f.fvf);                row.getCell(col('FVF')).numFmt = MONEY_FMT;
+      row.getCell(col('VAT')).value = { formula: f.vat20! };        row.getCell(col('VAT')).numFmt = MONEY_FMT;
+      row.getCell(col('T.COM')).value = { formula: f.totalCom! };     row.getCell(col('T.COM')).numFmt = MONEY_FMT;
+      row.getCell(col('Postage')).numFmt = MONEY_FMT;                   // Postage (literal above)
+      row.getCell(col('P. VAT')).numFmt = MONEY_FMT;                   // P. VAT (literal above)
+      row.getCell(col('Marketing')).numFmt = MONEY_FMT;                   // Marketing (literal above)
+      row.getCell(col('M. VAT')).value = { formula: f.marketingVat! }; row.getCell(col('M. VAT')).numFmt = MONEY_FMT;
+      row.getCell(col('Accessories')).numFmt = MONEY_FMT;                   // Accessories (literal above)
+      row.getCell(col('Total VAT')).value = { formula: f.totalVat! };     row.getCell(col('Total VAT')).numFmt = MONEY_FMT;
+      row.getCell(col('GP')).value = { formula: f.grossProfit! };  row.getCell(col('GP')).numFmt = MONEY_FMT;
+      row.getCell(col('GP %')).value = { formula: f.gpPercent! };    row.getCell(col('GP %')).numFmt = MONEY_FMT;
+      row.getCell(col('Total VAT NTP')).value = { formula: f.totalVatNtp! };  row.getCell(col('Total VAT NTP')).numFmt = MONEY_FMT;
       writeReturnBlock(row, marketplace, sale, rowNumber);
       return;
     }
@@ -750,33 +695,34 @@ function writeSaleRow(
       //   F=BP,G=SP,H=SP-BP,I=MarTax,J=Com,K=VAT20%,
       //   L=Postage,M=P.VAT,N=Acc,O=TotVAT,P=GP,
       //   Q=GP%,R=TotVAT NTP,S=Comments
-      const row = sheet.addRow([
-        date, sale.orderNumber, sale.sku ?? '', sale.imei ?? '',
-        resolvedSupplier,
-        sale.buyPrice, sale.salePrice,
-        null, null, null, null,                       // SP-BP, MarTax, Com, VAT20%
-        sale.postage ?? null,                         // Postage (literal)
-        null,                                         // P. VAT (formula)
-        sale.accessoryFee ?? Number(f.accessoryFee ?? 1),  // Accessories (literal)
-        null, null, null, null,                       // Total VAT, GP, GP%, Total VAT NTP
-        sale.comments ?? '',
-        resolvedSaleModel(sale),
-      ]);
-      row.getCell(1).numFmt = DATE_FMT;
-      row.getCell(4).numFmt = IMEI_FMT;
-      row.getCell(6).numFmt = MONEY_FMT;   // BP (F)
-      row.getCell(7).numFmt = MONEY_FMT;   // SP (G)
-      row.getCell(8).value  = { formula: f.spMinusBp! };    row.getCell(8).numFmt  = MONEY_FMT;
-      row.getCell(9).value  = { formula: f.marginalTax! };  row.getCell(9).numFmt  = MONEY_FMT;
-      row.getCell(10).value = { formula: f.commission! };   row.getCell(10).numFmt = MONEY_FMT;
-      row.getCell(11).value = { formula: f.vat20! };        row.getCell(11).numFmt = MONEY_FMT;
-      row.getCell(12).numFmt = MONEY_FMT;                   // Postage (literal above)
-      row.getCell(13).value = { formula: f.postageVat! };   row.getCell(13).numFmt = MONEY_FMT;
-      row.getCell(14).numFmt = MONEY_FMT;                   // Accessories (literal above)
-      row.getCell(15).value = { formula: f.totalVat! };     row.getCell(15).numFmt = MONEY_FMT;
-      row.getCell(16).value = { formula: f.grossProfit! };  row.getCell(16).numFmt = MONEY_FMT;
-      row.getCell(17).value = { formula: f.gpPercent! };    row.getCell(17).numFmt = MONEY_FMT;
-      row.getCell(18).value = { formula: f.totalVatNtp! };  row.getCell(18).numFmt = MONEY_FMT;
+      const row = addSaleRow(sheet, marketplace, {
+        Date: date,
+        "Order Number": sale.orderNumber,
+        SKU: sale.sku ?? '',
+        IMEI: sale.imei ?? '',
+        Supplier: resolvedSupplier,
+        BP: sale.buyPrice,
+        SP: sale.salePrice,
+        Postage: sale.postage ?? null,
+        Accessories: sale.accessoryFee ?? Number(f.accessoryFee ?? 1),
+        Comments: sale.comments ?? '',
+        Model: resolvedSaleModel(sale),
+      });
+      row.getCell(col('Date')).numFmt = DATE_FMT;
+      row.getCell(col('IMEI')).numFmt = IMEI_FMT;
+      row.getCell(col('BP')).numFmt = MONEY_FMT;   // BP (F)
+      row.getCell(col('SP')).numFmt = MONEY_FMT;   // SP (G)
+      row.getCell(col('SP-BP')).value  = { formula: f.spMinusBp! };    row.getCell(col('SP-BP')).numFmt  = MONEY_FMT;
+      row.getCell(col('Marginal Tax')).value  = { formula: f.marginalTax! };  row.getCell(col('Marginal Tax')).numFmt  = MONEY_FMT;
+      row.getCell(col('Commission')).value = { formula: f.commission! };   row.getCell(col('Commission')).numFmt = MONEY_FMT;
+      row.getCell(col('VAT 20%')).value = { formula: f.vat20! };        row.getCell(col('VAT 20%')).numFmt = MONEY_FMT;
+      row.getCell(col('Postage')).numFmt = MONEY_FMT;                   // Postage (literal above)
+      row.getCell(col('P. VAT')).value = { formula: f.postageVat! };   row.getCell(col('P. VAT')).numFmt = MONEY_FMT;
+      row.getCell(col('Accessories')).numFmt = MONEY_FMT;                   // Accessories (literal above)
+      row.getCell(col('Total VAT')).value = { formula: f.totalVat! };     row.getCell(col('Total VAT')).numFmt = MONEY_FMT;
+      row.getCell(col('GP')).value = { formula: f.grossProfit! };  row.getCell(col('GP')).numFmt = MONEY_FMT;
+      row.getCell(col('GP %')).value = { formula: f.gpPercent! };    row.getCell(col('GP %')).numFmt = MONEY_FMT;
+      row.getCell(col('Total VAT NTP')).value = { formula: f.totalVatNtp! };  row.getCell(col('Total VAT NTP')).numFmt = MONEY_FMT;
       writeReturnBlock(row, marketplace, sale, rowNumber);
       return;
     }
@@ -1210,42 +1156,49 @@ function writeAccessoriesSalesSheet(
   });
 }
 
-/** Numeric columns to SUM per marketplace in the trailing TOTAL row. Stored
- *  as 1-indexed column numbers so the writer can read the matching value
- *  cell back for the cross-marketplace summary roll-up. */
-const TOTAL_SUM_COLS: Record<Marketplace, { label: number; numericCols: number[]; gpCol: number; gpPctCol: number; postageLossCol: number; netGpCol: number; denominatorCol: number }> = {
-  // AMAZON: 29 cols (incl. Model). GP=19(S), GP%=20(T), Postage Loss=28(AB), Net GP £=29(AC).
+/** Which columns the trailing TOTAL row sums, and which one the GP % divides
+ *  by — held as header NAMES, not indices.
+ *
+ *  This used to be a table of hard numbers with a comment on each line
+ *  reminding the reader which letter each one was. Reordering a column meant
+ *  editing five such tables by hand and hoping; getting one wrong summed the
+ *  wrong column into a bold TOTAL that still looked like a total. */
+const TOTAL_SUM_NAMES: Record<Marketplace, { numericCols: string[]; denominator: string }> = {
   AMAZON: {
-    label: 1,
-    numericCols: [6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 21, 28, 29],
-    gpCol: 19, gpPctCol: 20, postageLossCol: 28, netGpCol: 29, denominatorCol: 7,
+    numericCols: ["Quantity", "BP", "SP", "SP-BP", "Marginal Tax", "Commission", "C. VAT", "DSF", "DSF. VAT", "Postage", "P. VAT", "Accessories", "Total VAT", "GP", "Total VAT NTP", "Postage Loss", "Net GP £"].map(s => s),
+    denominator: "BP",
   },
-  // BM: 26 cols (incl. Model). GP=16(P), GP%=17(Q), Postage Loss=25(Y), Net GP £=26(Z).
   BM: {
-    label: 1,
-    numericCols: [6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 18, 25, 26],
-    gpCol: 16, gpPctCol: 17, postageLossCol: 25, netGpCol: 26, denominatorCol: 7,
+    numericCols: ["Quantity", "BP", "SP", "SP-BP", "Marginal Tax", "Commission", "Customer Care Fees", "Postage", "P. VAT", "Accessories", "GP", "Total VAT NTP", "Postage Loss", "Net GP £"].map(s => s),
+    denominator: "BP",
   },
-  // EBAY: 32 cols (incl. Model). GP=22(V), GP%=23(W), Postage Loss=31(AE), Net GP £=32(AF).
   EBAY: {
-    label: 1,
-    numericCols: [6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 24, 31, 32],
-    gpCol: 22, gpPctCol: 23, postageLossCol: 31, netGpCol: 32, denominatorCol: 8,
+    numericCols: ["Units", "BP", "SP", "SP-BP", "Marginal Tax", "Commission", "ROF", "FVF", "VAT", "T.COM", "Postage", "P. VAT", "Marketing", "M. VAT", "Accessories", "Total VAT", "GP", "Total VAT NTP", "Postage Loss", "Net GP £"].map(s => s),
+    denominator: "SP",
   },
-  // ONBUY: 26 cols (incl. Model). GP=16(P), GP%=17(Q), Postage Loss=25(Y), Net GP £=26(Z).
   ONBUY: {
-    label: 1,
-    numericCols: [6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 18, 25, 26],
-    gpCol: 16, gpPctCol: 17, postageLossCol: 25, netGpCol: 26, denominatorCol: 6,
+    numericCols: ["BP", "SP", "SP-BP", "Marginal Tax", "Commission", "VAT 20%", "Postage", "P. VAT", "Accessories", "Total VAT", "GP", "Total VAT NTP", "Postage Loss", "Net GP £"].map(s => s),
+    denominator: "BP",
   },
-  // TEMU: 27 cols (incl. Model), own layout (see SALES_HEADERS.TEMU) — no DSF/DSF VAT.
-  // GP=17(Q), GP%=18(R), Postage Loss=26(Z), Net GP £=27(AA).
   TEMU: {
-    label: 1,
-    numericCols: [6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 19, 26, 27],
-    gpCol: 17, gpPctCol: 18, postageLossCol: 26, netGpCol: 27, denominatorCol: 7,
+    numericCols: ["Quantity", "BP", "SP", "SP-BP", "Marginal Tax", "Commission", "Commission VAT", "Postage", "P. VAT", "Accessories", "Total VAT", "GP", "Total VAT NTP", "Postage Loss", "Net GP £"].map(s => s),
+    denominator: "BP",
   },
 };
+
+/** Resolved 1-indexed positions for the current header order. */
+const TOTAL_SUM_COLS: Record<Marketplace, {
+  label: number; numericCols: number[]; gpCol: number; gpPctCol: number;
+  postageLossCol: number; netGpCol: number; denominatorCol: number;
+}> = Object.fromEntries(MARKETPLACES.map(m => [m, {
+  label: 1,
+  numericCols: TOTAL_SUM_NAMES[m].numericCols.map(n => salesCol(m, n)),
+  gpCol: salesCol(m, 'GP'),
+  gpPctCol: salesCol(m, 'GP %'),
+  postageLossCol: salesCol(m, 'Postage Loss'),
+  netGpCol: salesCol(m, 'Net GP £'),
+  denominatorCol: salesCol(m, TOTAL_SUM_NAMES[m].denominator),
+}])) as any;
 
 /**
  * Returns & Profit by marketplace.

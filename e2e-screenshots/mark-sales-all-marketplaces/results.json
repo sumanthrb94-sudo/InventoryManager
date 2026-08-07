@@ -313,99 +313,99 @@
       "detail": "20.85% = GP/SP (GP/BP would be 32.02%)"
     },
     {
-      "name": "AMAZON report · Marginal Tax",
+      "name": "AMAZON report · Marginal Tax — L2*16.67%",
       "ok": true,
-      "detail": "I2*16.67%"
+      "detail": "L2*16.67%"
     },
     {
-      "name": "AMAZON report · Commission",
+      "name": "AMAZON report · Commission — K2/100*7",
       "ok": true,
-      "detail": "H2/100*7"
+      "detail": "K2/100*7"
     },
     {
-      "name": "AMAZON report · C. VAT",
+      "name": "AMAZON report · C. VAT — N2*20%",
       "ok": true,
-      "detail": "K2*20%"
+      "detail": "N2*20%"
     },
     {
-      "name": "AMAZON report · DSF",
+      "name": "AMAZON report · DSF — N2*2%",
       "ok": true,
-      "detail": "K2*2%"
+      "detail": "N2*2%"
     },
     {
-      "name": "AMAZON report · Total VAT",
+      "name": "AMAZON report · Total VAT — O2+Q2+S2",
       "ok": true,
-      "detail": "L2+N2+P2"
+      "detail": "O2+Q2+S2"
     },
     {
-      "name": "BM report · Marginal Tax",
+      "name": "BM report · Marginal Tax — L2*16.67%",
       "ok": true,
-      "detail": "I2*16.67%"
+      "detail": "L2*16.67%"
     },
     {
-      "name": "BM report · Commission",
+      "name": "BM report · Commission — K2/100*11",
       "ok": true,
-      "detail": "H2/100*11"
+      "detail": "K2/100*11"
     },
     {
-      "name": "BM report · P. VAT",
+      "name": "BM report · P. VAT — P2*20%",
+      "ok": true,
+      "detail": "P2*20%"
+    },
+    {
+      "name": "EBAY report · Marginal Tax — L2*16.67%",
+      "ok": true,
+      "detail": "L2*16.67%"
+    },
+    {
+      "name": "EBAY report · Commission — (K2*6.9%)-(K2*6.9%)*10%",
+      "ok": true,
+      "detail": "(K2*6.9%)-(K2*6.9%)*10%"
+    },
+    {
+      "name": "EBAY report · ROF — K2*0.35%",
+      "ok": true,
+      "detail": "K2*0.35%"
+    },
+    {
+      "name": "EBAY report · M. VAT — U2*20%",
+      "ok": true,
+      "detail": "U2*20%"
+    },
+    {
+      "name": "EBAY report · Total VAT — Q2+T2+V2",
+      "ok": true,
+      "detail": "Q2+T2+V2"
+    },
+    {
+      "name": "ONBUY report · Marginal Tax — K2*16.67%",
+      "ok": true,
+      "detail": "K2*16.67%"
+    },
+    {
+      "name": "ONBUY report · Commission — J2*7%",
+      "ok": true,
+      "detail": "J2*7%"
+    },
+    {
+      "name": "ONBUY report · VAT 20% — M2*20%",
       "ok": true,
       "detail": "M2*20%"
     },
     {
-      "name": "EBAY report · Marginal Tax",
+      "name": "ONBUY report · Total VAT — N2+P2",
       "ok": true,
-      "detail": "I2*16.67%"
+      "detail": "N2+P2"
     },
     {
-      "name": "EBAY report · Commission",
+      "name": "TEMU report · Marginal Tax — L2*16.67%",
       "ok": true,
-      "detail": "(H2*6.9%)-(H2*6.9%)*10%"
+      "detail": "L2*16.67%"
     },
     {
-      "name": "EBAY report · ROF",
+      "name": "TEMU report · Total VAT — Q2",
       "ok": true,
-      "detail": "H2*0.35%"
-    },
-    {
-      "name": "EBAY report · M. VAT",
-      "ok": true,
-      "detail": "R2*20%"
-    },
-    {
-      "name": "EBAY report · Total VAT",
-      "ok": true,
-      "detail": "N2+Q2+S2"
-    },
-    {
-      "name": "ONBUY report · Marginal Tax",
-      "ok": true,
-      "detail": "H2*16.67%"
-    },
-    {
-      "name": "ONBUY report · Commission",
-      "ok": true,
-      "detail": "G2*7%"
-    },
-    {
-      "name": "ONBUY report · VAT 20%",
-      "ok": true,
-      "detail": "J2*20%"
-    },
-    {
-      "name": "ONBUY report · Total VAT",
-      "ok": true,
-      "detail": "K2+M2"
-    },
-    {
-      "name": "TEMU report · Marginal Tax",
-      "ok": true,
-      "detail": "I2*16.67%"
-    },
-    {
-      "name": "TEMU report · Total VAT",
-      "ok": true,
-      "detail": "N2"
+      "detail": "Q2"
     },
     {
       "name": "BM has no Total VAT column — P. VAT is its only VAT line",

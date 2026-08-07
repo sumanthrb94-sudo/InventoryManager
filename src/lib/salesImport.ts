@@ -27,7 +27,7 @@ import * as XLSX from 'xlsx';
 import ExcelJS from 'exceljs';
 import type { Marketplace, Sale, ReturnCategory } from '../types';
 import { MARKETPLACES } from '../types';
-import { calcSaleFinancials } from './platforms';
+import { calcSaleFinancials, SALES_HEADERS } from './platforms';
 import { isPlaceholderImeiText } from './imeiValidation';
 
 // ---------------------------------------------------------------------------
@@ -324,6 +324,40 @@ interface SheetLayout {
 // invisible until a file with a renamed header shows up, at which point it
 // reads the wrong column silently — so it needs pinning at the source, not
 // in a copy of the table.
+
+/** ColKey → the header that column carries on the marketplace tab. */
+const FALLBACK_HEADER: Partial<Record<ColKey, string>> = {
+  date: 'Date', orderNumber: 'Order Number', sku: 'SKU', imei: 'IMEI',
+  supplier: 'Supplier', quantity: 'Quantity', buyPrice: 'BP', salePrice: 'SP',
+  postage: 'Postage', postageVat: 'P. VAT', marketing: 'Marketing',
+  commission: 'Commission',
+  shipping: 'Postage', comments: 'Comments',
+};
+
+/** Build the positional fallback from SALES_HEADERS.
+ *
+ *  These indices only fire when header matching misses, which is exactly why
+ *  a wrong one is invisible: the file parses, and the wrong column is read
+ *  silently. AMAZON's `postage` once pointed at the Comments index, so a
+ *  header-mismatched file parsed free text as the postage cost — parseNumber
+ *  turned it into 0 and overstated GP by the postage on every row.
+ *
+ *  Deriving them means a column can move without anyone remembering to come
+ *  back here. eBay names its quantity column 'Units', so that one falls back
+ *  to the alternative name. */
+function fallbackFor(marketplace: Marketplace, keys: ColKey[]): Partial<Record<ColKey, number>> {
+  const cols = SALES_HEADERS[marketplace] as readonly (string | number)[];
+  const out: Partial<Record<ColKey, number>> = {};
+  for (const k of keys) {
+    const name = FALLBACK_HEADER[k];
+    if (!name) continue;
+    let i = cols.indexOf(name);
+    if (i < 0 && k === 'quantity') i = cols.indexOf('Units');
+    if (i >= 0) out[k] = i;                      // 0-based, as callers expect
+  }
+  return out;
+}
+
 export const SHEET_LAYOUTS: Record<Marketplace, SheetLayout> = {
   // AMAZON cols (15):  Date | Order Number | SKU | IMEI | Supplier | Quantity |
   //                    BP | SP | SP-BP | Marginal Tax | Commission | Postage |
@@ -353,17 +387,7 @@ export const SHEET_LAYOUTS: Record<Marketplace, SheetLayout> = {
       storage:     ['storage'],
       colour:      ['colour', 'color'],
     },
-    fallback: {
-      date: 0, orderNumber: 1, sku: 2, imei: 3, supplier: 4,
-      // Indices track templates/SALES_REPORT_TEMPLATE.xlsx, which is now
-      // generated FROM the report writer — so the positional path and the
-      // file an operator actually holds describe the same layout.
-      // schemaAlignment.test.ts reads the template and fails if they drift.
-      // These only fire when header matching misses; the classic symptom of
-      // a wrong one is postage landing on the free-text Comments cell,
-      // which parseNumber turns into 0 and silently overstates GP.
-      quantity: 5, buyPrice: 6, salePrice: 7, postage: 14, comments: 21,
-    },
+    fallback: fallbackFor('AMAZON', ['date', 'orderNumber', 'sku', 'imei', 'supplier', 'quantity', 'buyPrice', 'salePrice', 'postage', 'comments']),
     required: ['date', 'orderNumber', 'buyPrice', 'salePrice'],
   },
   // BM cols (17): Date | Order No | SKU | IMEI | Supplier | Quantity | BP | SP |
@@ -388,10 +412,7 @@ export const SHEET_LAYOUTS: Record<Marketplace, SheetLayout> = {
       storage:     ['storage'],
       colour:      ['colour', 'color'],
     },
-    fallback: {
-      date: 0, orderNumber: 1, sku: 2, imei: 3, supplier: 4,
-      quantity: 5, buyPrice: 6, salePrice: 7, postage: 12, comments: 18,
-    },
+    fallback: fallbackFor('BM', ['date', 'orderNumber', 'sku', 'imei', 'supplier', 'quantity', 'buyPrice', 'salePrice', 'postage', 'comments']),
     required: ['date', 'orderNumber', 'buyPrice', 'salePrice'],
   },
   // EBAY cols (19): DATE | ORDER NUMBER | SKU | IMEI NUMBER | SUPPLIER | UNITS |
@@ -425,11 +446,7 @@ export const SHEET_LAYOUTS: Record<Marketplace, SheetLayout> = {
       storage:     ['storage'],
       colour:      ['colour', 'color'],
     },
-    fallback: {
-      date: 0, orderNumber: 1, sku: 2, imei: 3, supplier: 4,
-      quantity: 5, buyPrice: 6, salePrice: 7, shipping: 15,
-      postageVat: 16, marketing: 17, comments: 24,
-    },
+    fallback: fallbackFor('EBAY', ['date', 'orderNumber', 'sku', 'imei', 'supplier', 'quantity', 'buyPrice', 'salePrice', 'shipping', 'postageVat', 'marketing', 'comments']),
     required: ['date', 'orderNumber', 'buyPrice', 'salePrice'],
   },
   // ONBUY cols (15): DATE | Order Number | SKU | IMEI | Supplier | BP | SP |
@@ -453,12 +470,7 @@ export const SHEET_LAYOUTS: Record<Marketplace, SheetLayout> = {
       storage:     ['storage'],
       colour:      ['colour', 'color'],
     },
-    fallback: {
-      date: 0, orderNumber: 1, sku: 2, imei: 3, supplier: 4,
-      // NB: BP at 5, SP at 6 — one less than the other marketplaces because
-      // OnBuy has no Quantity column.
-      buyPrice: 5, salePrice: 6, postage: 11, comments: 18,
-    },
+    fallback: fallbackFor('ONBUY', ['date', 'orderNumber', 'sku', 'imei', 'supplier', 'buyPrice', 'salePrice', 'postage', 'comments']),
     required: ['date', 'orderNumber', 'buyPrice', 'salePrice'],
   },
   // TEMU cols (19), from the client's final Temu formula export
@@ -492,12 +504,10 @@ export const SHEET_LAYOUTS: Record<Marketplace, SheetLayout> = {
       storage:      ['storage'],
       colour:       ['colour', 'color'],
     },
-    fallback: {
-      date: 0, orderNumber: 1, sku: 2, imei: 3, supplier: 4,
-      quantity: 5, buyPrice: 6, salePrice: 7,
-      // col 11 is Commission VAT — deliberately not mapped; it derives.
-      commission: 10, postage: 12, comments: 19,
-    },
+    // TEMU is the one marketplace whose Commission is READ rather than
+    // derived, so it needs a positional fallback of its own. Commission VAT is
+    // deliberately absent — it derives as Commission x 20%.
+    fallback: fallbackFor('TEMU', ['date', 'orderNumber', 'sku', 'imei', 'supplier', 'quantity', 'buyPrice', 'salePrice', 'commission', 'postage', 'comments']),
     required: ['date', 'orderNumber', 'buyPrice', 'salePrice'],
   },
 };

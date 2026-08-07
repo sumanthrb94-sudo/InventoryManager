@@ -267,45 +267,50 @@ id, so a mix of old and new files cannot double-count.
 **Seven sheets:** `Summary · Returns · AMAZON · BM · EBAY · ONBUY · TEMU`
 
 The five marketplace sheets carry the import columns plus computed VAT/fee
-columns, a resolved `Model`, a return-linkage block and the buy-side
-attributes. Column counts: **AMAZON 31, BM 28, EBAY 34, ONBUY 28, TEMU 29.**
+columns, a resolved `Model`, the buy-side attributes and a return-linkage
+block. Column counts: **AMAZON 31, BM 28, EBAY 34, ONBUY 28, TEMU 29.**
 
-Common leading block, every marketplace:
-
-```
-Date | Order Number | SKU | IMEI | Supplier | [Quantity] | BP | SP | SP-BP |
-Marginal Tax | Commission | …fees… | Postage | P. VAT | Accessories |
-[Total VAT] | GP | GP % | Total VAT NTP | Comments | Model
-```
-
-`Model` is the resolved model name — `sale.model` when the audit is complete,
-otherwise a live normalised guess off the preserved raw SKU. It is appended
-after `Comments` rather than inserted next to `SKU` for the reason given below.
-
-Trailing return-linkage block, every marketplace:
+The sheet reads left to right as **what was sold → what it cost → what it
+made → what happened to it afterwards**:
 
 ```
-Return Date | Outcome | Return Reason | Shipping Legs | Postage Loss | Net GP £
+Date | Order Number | SKU | IMEI | Model | Colour | Storage | Supplier |
+[Quantity|Units] | BP | SP | SP-BP | Marginal Tax | Commission | …fees… |
+Postage | P. VAT | Accessories | [Total VAT] | GP | GP % | Total VAT NTP |
+Postage Loss | Net GP £ | Return Date | Outcome | Shipping Legs |
+Return Reason | Comments
 ```
 
-Then, last on every marketplace sheet:
+Three blocks, in order:
 
-```
-Storage | Colour
-```
+1. **Identity** — `Date … Supplier`. `Model`, `Colour` and `Storage` sit
+   directly after `IMEI` so the handset is described in one place: an
+   accountant reading a row sees *iPhone 13 / Black / 128GB* side by side
+   rather than hunting the far end of the sheet. `Model` is the resolved model
+   name — `sale.model` when the audit is complete, otherwise a live normalised
+   guess off the preserved raw SKU.
+2. **Money** — `[Quantity|Units] … Net GP £`. Every fee, VAT and profit figure
+   in one uninterrupted run, ending on the bottom line.
+3. **Return** — `Return Date … Comments`. Every tab ends on `Comments`, so the
+   operator's note about the return is the last thing read.
 
-**Why `Model`, `Storage` and `Colour` sit at the end and not beside `SKU`.**
-Every GP / GP % / Total VAT NTP / TOTAL formula written onto these tabs
-references **hard column letters** (see `writeSaleRow` in
-`src/lib/clientReport.ts`). Inserting a column mid-sheet shifts those letters
-and silently corrupts the arithmetic — the cells still look plausible, they
-just point one column left. Appending cannot. Any future column goes on the
-end for the same reason.
-
-`Storage` and `Colour` are what make the round trip **self-healing**: a unit
+`Colour` and `Storage` are what make the round trip **self-healing**: a unit
 whose attributes were lost (raw operator SKU, no storage or colour recorded)
 gets them back when the exported report is re-imported, instead of coming back
 as an orphan a second time.
+
+**Reordering these columns is safe — and it was not always.** Every GP / GP % /
+Total VAT NTP / TOTAL formula written onto these tabs used to reference **hard
+column letters**, so inserting a column mid-sheet shifted those letters and
+silently corrupted the arithmetic: the cells still looked plausible, they just
+pointed one column left. That is why `Model`, `Storage` and `Colour` were
+originally appended after `Comments`. `excelFormulaFor` and `writeSaleRow` now
+resolve every column **by header name** through `salesCol` / `salesColLetter`,
+which throw on an unknown name. The order above is therefore a presentation
+decision, changed by editing `SALES_HEADERS` alone.
+
+The importer also matches on header name, so a report exported under the old
+order still imports.
 
 Marketplace-specific fee columns:
 

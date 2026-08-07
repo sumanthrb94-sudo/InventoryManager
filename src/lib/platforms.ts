@@ -756,6 +756,11 @@ export function calcSaleFinancials(input: CalcSaleFinancialsInput): SaleFinancia
 export function excelFormulaFor(marketplace: Marketplace, row: number): Record<string, string> {
   const fee = getMarketplaceFee(marketplace);
   const r = row;
+  // Column letters are resolved from SALES_HEADERS by NAME. They used to be
+  // written literally (`H${r}-G${r}`), which is what made the column order
+  // append-only: moving a column silently repointed the arithmetic at its
+  // neighbour, with no error and no test failure — just a wrong money column.
+  const C = (name: string) => salesColLetter(marketplace, name);
   switch (marketplace) {
     case 'AMAZON': {
       // 2026-05 schema. Columns (1-indexed):
@@ -771,24 +776,24 @@ export function excelFormulaFor(marketplace: Marketplace, row: number): Record<s
       // the original GP/BP*100 in that case.
       const vatPct = fee.vatPct ?? 20;
       const dsfPct = fee.dsfPct ?? 0;
-      const commissionBase = (fee.commissionBase ?? 'spMinusBp') === 'sp' ? `H${r}` : `I${r}`;
+      const commissionBase = (fee.commissionBase ?? 'spMinusBp') === 'sp' ? `${C('SP')}${r}` : `${C('SP-BP')}${r}`;
       return {
-        spMinusBp:     `H${r}-G${r}`,
-        marginalTax:   `I${r}*16.67%`,
+        spMinusBp:     `${C('SP')}${r}-${C('BP')}${r}`,
+        marginalTax:   `${C('SP-BP')}${r}*16.67%`,
         commission:    `${commissionBase}/100*${fee.commissionPct}`,
-        commissionVat: `K${r}*${vatPct}%`,
-        dsf:           `K${r}*${dsfPct}%`,
-        dsfVat:        `M${r}*${vatPct}%`,
+        commissionVat: `${C('Commission')}${r}*${vatPct}%`,
+        dsf:           `${C('Commission')}${r}*${dsfPct}%`,
+        dsfVat:        `${C('DSF')}${r}*${vatPct}%`,
         // Postage is operator-entered per sale — emit a static default so the
         // cell isn't empty on an unedited row; the writer overwrites with the
         // sale's actual postage value before save.
         postage:       `${fee.postage}`,
-        postageVat:    `O${r}*${vatPct}%`,
+        postageVat:    `${C('Postage')}${r}*${vatPct}%`,
         accessoryFee:  `${fee.accessoryFee ?? 0}`,
-        totalVat:      `L${r}+N${r}+P${r}`,
-        grossProfit:   `I${r}-J${r}-K${r}-L${r}-M${r}-N${r}-O${r}-P${r}-Q${r}`,
-        gpPercent:     `(S${r}-AB${r})/G${r}*100`,
-        totalVatNtp:   `J${r}-R${r}`,
+        totalVat:      `${C('C. VAT')}${r}+${C('DSF. VAT')}${r}+${C('P. VAT')}${r}`,
+        grossProfit:   `${C('SP-BP')}${r}-${C('Marginal Tax')}${r}-${C('Commission')}${r}-${C('C. VAT')}${r}-${C('DSF')}${r}-${C('DSF. VAT')}${r}-${C('Postage')}${r}-${C('P. VAT')}${r}-${C('Accessories')}${r}`,
+        gpPercent:     `(${C('GP')}${r}-${C('Postage Loss')}${r})/${C('BP')}${r}*100`,
+        totalVatNtp:   `${C('Marginal Tax')}${r}-${C('Total VAT')}${r}`,
       };
     }
 
@@ -812,19 +817,19 @@ export function excelFormulaFor(marketplace: Marketplace, row: number): Record<s
       // sheet's number when Commission VAT is left out of the subtraction).
       const vatPct = fee.vatPct ?? 20;
       return {
-        spMinusBp:    `H${r}-G${r}`,
-        marginalTax:  `I${r}*16.67%`,
+        spMinusBp:    `${C('SP')}${r}-${C('BP')}${r}`,
+        marginalTax:  `${C('SP-BP')}${r}*16.67%`,
         // Commission (K) has no formula — Temu's per-order referral rate
         // varies by category, so the writer sets it from the sale. Commission
         // VAT (L) IS a formula: it is 20% of K, and the master's own
         // `=K2+20%` is a typo for `=K2*20%` that we do not reproduce.
-        commissionVat: `K${r}*${vatPct}%`,
-        postageVat:   `M${r}*${vatPct}%`,
+        commissionVat: `${C('Commission')}${r}*${vatPct}%`,
+        postageVat:   `${C('Postage')}${r}*${vatPct}%`,
         accessoryFee: `${fee.accessoryFee ?? 0}`,
-        totalVat:     `N${r}`,
-        grossProfit:  `I${r}-J${r}-K${r}-M${r}-N${r}-O${r}`,
-        gpPercent:    `(Q${r}-Z${r})/G${r}*100`,
-        totalVatNtp:  `J${r}-P${r}`,
+        totalVat:     `${C('P. VAT')}${r}`,
+        grossProfit:  `${C('SP-BP')}${r}-${C('Marginal Tax')}${r}-${C('Commission')}${r}-${C('Postage')}${r}-${C('P. VAT')}${r}-${C('Accessories')}${r}`,
+        gpPercent:    `(${C('GP')}${r}-${C('Postage Loss')}${r})/${C('BP')}${r}*100`,
+        totalVatNtp:  `${C('Marginal Tax')}${r}-${C('Total VAT')}${r}`,
       };
     }
 
@@ -841,15 +846,15 @@ export function excelFormulaFor(marketplace: Marketplace, row: number): Record<s
       // GP % is NET of Postage Loss (col Y) — see AMAZON case for rationale.
       const vatPct = fee.vatPct ?? 20;
       return {
-        spMinusBp:        `H${r}-G${r}`,
-        marginalTax:      `I${r}*16.67%`,
-        commission:       `H${r}/100*${fee.commissionPct}`,
+        spMinusBp:        `${C('SP')}${r}-${C('BP')}${r}`,
+        marginalTax:      `${C('SP-BP')}${r}*16.67%`,
+        commission:       `${C('SP')}${r}/100*${fee.commissionPct}`,
         customerCareFees: `${fee.customerCareFees ?? 0}`,
-        postageVat:       `M${r}*${vatPct}%`,
+        postageVat:       `${C('Postage')}${r}*${vatPct}%`,
         accessoryFee:     `${fee.accessoryFee ?? 0}`,
-        grossProfit:      `I${r}-J${r}-K${r}-L${r}-M${r}-N${r}-O${r}`,
-        gpPercent:        `(P${r}-Y${r})/G${r}*100`,
-        totalVatNtp:      `J${r}-N${r}`,
+        grossProfit:      `${C('SP-BP')}${r}-${C('Marginal Tax')}${r}-${C('Commission')}${r}-${C('Customer Care Fees')}${r}-${C('Postage')}${r}-${C('P. VAT')}${r}-${C('Accessories')}${r}`,
+        gpPercent:        `(${C('GP')}${r}-${C('Postage Loss')}${r})/${C('BP')}${r}*100`,
+        totalVatNtp:      `${C('Marginal Tax')}${r}-${C('P. VAT')}${r}`,
       };
     }
     case 'EBAY': {
@@ -868,24 +873,24 @@ export function excelFormulaFor(marketplace: Marketplace, row: number): Record<s
       // GP % is NET of Postage Loss (col AE) — see AMAZON for rationale.
       const vatPct = fee.vatPct ?? 20;
       return {
-        spMinusBp:    `H${r}-G${r}`,
-        marginalTax:  `I${r}*16.67%`,
-        commission:   `(H${r}*6.9%)-(H${r}*6.9%)*10%`,
-        rof:          `H${r}*${fee.rofPct ?? 0.35}%`,
+        spMinusBp:    `${C('SP')}${r}-${C('BP')}${r}`,
+        marginalTax:  `${C('SP-BP')}${r}*16.67%`,
+        commission:   `(${C('SP')}${r}*6.9%)-(${C('SP')}${r}*6.9%)*10%`,
+        rof:          `${C('SP')}${r}*${fee.rofPct ?? 0.35}%`,
         fvf:          `${fee.fixedFee ?? 0.4}`,
-        vat20:        `(K${r}+L${r}+M${r})*${vatPct}%`,
-        totalCom:     `K${r}+L${r}+M${r}+N${r}`,
+        vat20:        `(${C('Commission')}${r}+${C('ROF')}${r}+${C('FVF')}${r})*${vatPct}%`,
+        totalCom:     `${C('Commission')}${r}+${C('ROF')}${r}+${C('FVF')}${r}+${C('VAT')}${r}`,
         // P. VAT and Marketing carry NO formula — they are typed cells in
         // the operator's master, so the writer sets Q/R from the sale's own
         // postageVat / marketing. Emitting `P*20%` and `H*5%` here made a
         // re-opened workbook re-invent both. M. VAT keeps its formula: it
         // derives off the Marketing cell, so it follows whatever is typed.
-        marketingVat: `R${r}*${vatPct}%`,
+        marketingVat: `${C('Marketing')}${r}*${vatPct}%`,
         accessoryFee: `${fee.accessoryFee ?? 0}`,
-        totalVat:     `N${r}+Q${r}+S${r}`,
-        grossProfit:  `I${r}-J${r}-O${r}-P${r}-Q${r}-R${r}-S${r}-T${r}`,
-        gpPercent:    `(V${r}-AE${r})/H${r}*100`,
-        totalVatNtp:  `J${r}-U${r}`,
+        totalVat:     `${C('VAT')}${r}+${C('P. VAT')}${r}+${C('M. VAT')}${r}`,
+        grossProfit:  `${C('SP-BP')}${r}-${C('Marginal Tax')}${r}-${C('T.COM')}${r}-${C('Postage')}${r}-${C('P. VAT')}${r}-${C('Marketing')}${r}-${C('M. VAT')}${r}-${C('Accessories')}${r}`,
+        gpPercent:    `(${C('GP')}${r}-${C('Postage Loss')}${r})/${C('SP')}${r}*100`,
+        totalVatNtp:  `${C('Marginal Tax')}${r}-${C('Total VAT')}${r}`,
       };
     }
     case 'ONBUY': {
@@ -899,16 +904,16 @@ export function excelFormulaFor(marketplace: Marketplace, row: number): Record<s
       // GP % is NET of Postage Loss (col Y) — see AMAZON for rationale.
       const vatPct = fee.vatPct ?? 20;
       return {
-        spMinusBp:    `G${r}-F${r}`,
-        marginalTax:  `H${r}*16.67%`,
-        commission:   `G${r}*${fee.commissionPct}%`,
-        vat20:        `J${r}*${vatPct}%`,
-        postageVat:   `L${r}*${vatPct}%`,
+        spMinusBp:    `${C('SP')}${r}-${C('BP')}${r}`,
+        marginalTax:  `${C('SP-BP')}${r}*16.67%`,
+        commission:   `${C('SP')}${r}*${fee.commissionPct}%`,
+        vat20:        `${C('Commission')}${r}*${vatPct}%`,
+        postageVat:   `${C('Postage')}${r}*${vatPct}%`,
         accessoryFee: `${fee.accessoryFee ?? 0}`,
-        totalVat:     `K${r}+M${r}`,
-        grossProfit:  `H${r}-I${r}-J${r}-K${r}-L${r}-M${r}-N${r}`,
-        gpPercent:    `(P${r}-Y${r})/F${r}*100`,
-        totalVatNtp:  `I${r}-O${r}`,
+        totalVat:     `${C('VAT 20%')}${r}+${C('P. VAT')}${r}`,
+        grossProfit:  `${C('SP-BP')}${r}-${C('Marginal Tax')}${r}-${C('Commission')}${r}-${C('VAT 20%')}${r}-${C('Postage')}${r}-${C('P. VAT')}${r}-${C('Accessories')}${r}`,
+        gpPercent:    `(${C('GP')}${r}-${C('Postage Loss')}${r})/${C('BP')}${r}*100`,
+        totalVatNtp:  `${C('Marginal Tax')}${r}-${C('Total VAT')}${r}`,
       };
     }
   }
@@ -956,3 +961,95 @@ export type { Marketplace, MarketplaceFee };
 // ---------------------------------------------------------------------------
 // Back-compat shims — derived from MARKETPLACE_FEES
 // ---------------------------------------------------------------------------
+
+
+// ---------------------------------------------------------------------------
+// SALES_REPORT column layout
+// ---------------------------------------------------------------------------
+
+export type SalesHeaderRow = Array<string | number>;
+
+/** Exported so the Mark Multiple Sold grid can be asserted against the sheet
+ *  each of its rows will land on — see bulkSaleColumns.ts. Read-only: the
+ *  column order here is append-only, because every GP / GP % / TOTAL formula
+ *  on these tabs references hard column letters. */
+export const SALES_HEADERS: Record<Marketplace, SalesHeaderRow> = {
+  // Layout, 2026-08, at the operator's request: what the handset IS, then the
+  // money left-to-right in calculation order, then the return block, ending
+  // with comments.
+  //
+  // This order is now free to change. Every formula in excelFormulaFor and
+  // every cell write in writeSaleRow resolves its column through salesCol /
+  // salesColLetter BY NAME, so nothing silently repoints when a column moves.
+  // Before that, Model / Storage / Colour had to be appended last however
+  // wrong that read, because the arithmetic addressed cells by letter.
+  //
+  // The importer resolves columns by header name too, so files exported
+  // under the previous order still import unchanged.
+  AMAZON: [
+    'Date', 'Order Number', 'SKU', 'IMEI', 'Model', 'Colour',
+    'Storage', 'Supplier', 'Quantity', 'BP', 'SP', 'SP-BP',
+    'Marginal Tax', 'Commission', 'C. VAT', 'DSF', 'DSF. VAT', 'Postage',
+    'P. VAT', 'Accessories', 'Total VAT', 'GP', 'GP %', 'Total VAT NTP',
+    'Postage Loss', 'Net GP £', 'Return Date', 'Outcome', 'Shipping Legs', 'Return Reason',
+    'Comments',
+  ],
+  BM: [
+    'Date', 'Order Number', 'SKU', 'IMEI', 'Model', 'Colour',
+    'Storage', 'Supplier', 'Quantity', 'BP', 'SP', 'SP-BP',
+    'Marginal Tax', 'Commission', 'Customer Care Fees', 'Postage', 'P. VAT', 'Accessories',
+    'GP', 'GP %', 'Total VAT NTP', 'Postage Loss', 'Net GP £', 'Return Date',
+    'Outcome', 'Shipping Legs', 'Return Reason', 'Comments',
+  ],
+  EBAY: [
+    'Date', 'Order Number', 'SKU', 'IMEI', 'Model', 'Colour',
+    'Storage', 'Supplier', 'Units', 'BP', 'SP', 'SP-BP',
+    'Marginal Tax', 'Commission', 'ROF', 'FVF', 'VAT', 'T.COM',
+    'Postage', 'P. VAT', 'Marketing', 'M. VAT', 'Accessories', 'Total VAT',
+    'GP', 'GP %', 'Total VAT NTP', 'Postage Loss', 'Net GP £', 'Return Date',
+    'Outcome', 'Shipping Legs', 'Return Reason', 'Comments',
+  ],
+  ONBUY: [
+    'Date', 'Order Number', 'SKU', 'IMEI', 'Model', 'Colour',
+    'Storage', 'Supplier', 'BP', 'SP', 'SP-BP', 'Marginal Tax',
+    'Commission', 'VAT 20%', 'Postage', 'P. VAT', 'Accessories', 'Total VAT',
+    'GP', 'GP %', 'Total VAT NTP', 'Postage Loss', 'Net GP £', 'Return Date',
+    'Outcome', 'Shipping Legs', 'Return Reason', 'Comments',
+  ],
+  TEMU: [
+    'Date', 'Order Number', 'SKU', 'IMEI', 'Model', 'Colour',
+    'Storage', 'Supplier', 'Quantity', 'BP', 'SP', 'SP-BP',
+    'Marginal Tax', 'Commission', 'Commission VAT', 'Postage', 'P. VAT', 'Accessories',
+    'Total VAT', 'GP', 'GP %', 'Total VAT NTP', 'Postage Loss', 'Net GP £',
+    'Return Date', 'Outcome', 'Shipping Legs', 'Return Reason', 'Comments',
+  ],
+};
+
+/** 1-based column index of a header on a marketplace tab.
+ *
+ *  Every formula and every cell write resolves its position through this, so
+ *  the column ORDER above is now free to change. It used to be append-only:
+ *  excelFormulaFor hard-coded letters (`H${r}-G${r}`) and writeSaleRow
+ *  hard-coded indices, so moving a column silently repointed the arithmetic
+ *  at the wrong cell — which is why Model, Storage and Colour were bolted
+ *  onto the end rather than sitting with the rest of the handset's identity.
+ *
+ *  Throws rather than returning -1: a typo'd header name must fail loudly at
+ *  build time, not produce a workbook addressing column zero. */
+export function salesCol(marketplace: Marketplace, name: string): number {
+  const i = (SALES_HEADERS[marketplace] as readonly (string | number)[]).indexOf(name);
+  if (i < 0) throw new Error(`SALES_HEADERS[${marketplace}] has no column "${name}"`);
+  return i + 1;
+}
+
+/** Excel column letter for a header on a marketplace tab (1=A … 27=AA). */
+export function salesColLetter(marketplace: Marketplace, name: string): string {
+  let n = salesCol(marketplace, name);
+  let out = '';
+  while (n > 0) {
+    const m = (n - 1) % 26;
+    out = String.fromCharCode(65 + m) + out;
+    n = Math.floor((n - 1) / 26);
+  }
+  return out;
+}

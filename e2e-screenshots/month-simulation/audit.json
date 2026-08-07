@@ -43,12 +43,12 @@
     {
       "name": "the imported units carry the sale dates from the file, not the import date",
       "ok": true,
-      "detail": "49 units dated 2026-08-06 vs 49 in the file"
+      "detail": "49 units dated 2026-08-07 vs 49 in the file"
     },
     {
       "name": "Buy · \"Sold Today\" equals units whose SALE DATE is today",
       "ok": true,
-      "detail": "tile 49 vs 49 sold on 2026-08-06"
+      "detail": "tile 49 vs 49 sold on 2026-08-07"
     },
     {
       "name": "the store agrees with the tile on available stock",
@@ -58,12 +58,12 @@
     {
       "name": "Inventory (Sell) loads",
       "ok": true,
-      "detail": "1.9s"
+      "detail": "2.0s"
     },
     {
       "name": "Sell · \"Sold Today\" equals every sale doc dated today",
       "ok": true,
-      "detail": "sell 120 vs 120 sale docs dated 2026-08-06 (49 units + 71 accessory lines)"
+      "detail": "sell 120 vs 120 sale docs dated 2026-08-07 (49 units + 71 accessory lines)"
     },
     {
       "name": "Sell · \"All-time Sold\" equals every sale in the month",
@@ -128,7 +128,7 @@
     {
       "name": "Admin · Overview (Dashboard) loads with content",
       "ok": true,
-      "detail": "1.5s"
+      "detail": "1.6s"
     },
     {
       "name": "Periodic table · headline unit count equals office stock on the shelf",
@@ -148,7 +148,7 @@
     {
       "name": "Admin · Money loads with content",
       "ok": true,
-      "detail": "1.6s"
+      "detail": "1.5s"
     },
     {
       "name": "Admin · Sales History loads with content",
@@ -158,7 +158,7 @@
     {
       "name": "Admin · Reports loads with content",
       "ok": true,
-      "detail": "2.1s"
+      "detail": "2.2s"
     },
     {
       "name": "Admin · Configuration loads with content",
@@ -218,7 +218,7 @@
     {
       "name": "Buy · \"Stock Added In Last 72 Hours\" matches the intake dates in the file",
       "ok": true,
-      "detail": "tile 120 vs 120 units dated after 2026-08-03"
+      "detail": "tile 120 vs 120 units dated after 2026-08-04"
     },
     {
       "name": "Buy · \"Accessory SKUs\" equals the pools in the file",
@@ -262,70 +262,65 @@
     },
     {
       "name": "every screen renders in under 5 seconds at this volume",
-      "ok": true,
-      "detail": ""
+      "ok": false,
+      "detail": "Admin 9.3s, Returns 27.7s"
     }
   ],
   "timings": [
     {
       "screen": "Stock Intake",
-      "ms": 1934,
-      "failed": false
-    },
-    {
-      "screen": "Stock Intake",
-      "ms": 1887,
-      "failed": false
-    },
-    {
-      "screen": "Inventory import · preview",
-      "ms": 188
-    },
-    {
-      "screen": "Inventory import · write",
-      "ms": 2392
-    },
-    {
-      "screen": "Stock Intake",
-      "ms": 1942,
-      "failed": false
-    },
-    {
-      "screen": "Sales import · preview",
-      "ms": 359
-    },
-    {
-      "screen": "Sales import · write",
-      "ms": 63255
-    },
-    {
-      "screen": "Stock Intake",
-      "ms": 1911,
-      "failed": false
-    },
-    {
-      "screen": "INVENTORY",
-      "ms": 1915,
-      "failed": false
-    },
-    {
-      "screen": "Stock Intake",
-      "ms": 2081,
-      "failed": false
-    },
-    {
-      "screen": "Returns",
       "ms": 1977,
       "failed": false
     },
     {
-      "screen": "Returns",
-      "ms": 1238,
+      "screen": "Stock Intake",
+      "ms": 1886,
+      "failed": false
+    },
+    {
+      "screen": "Inventory import · preview",
+      "ms": 224
+    },
+    {
+      "screen": "Inventory import · write",
+      "ms": 2475
+    },
+    {
+      "screen": "Stock Intake",
+      "ms": 2004,
+      "failed": false
+    },
+    {
+      "screen": "Sales import · preview",
+      "ms": 346
+    },
+    {
+      "screen": "Sales import · write",
+      "ms": 95778
+    },
+    {
+      "screen": "Stock Intake",
+      "ms": 1933,
+      "failed": false
+    },
+    {
+      "screen": "INVENTORY",
+      "ms": 2004,
+      "failed": false
+    },
+    {
+      "screen": "Stock Intake",
+      "ms": 2071,
       "failed": false
     },
     {
       "screen": "Returns",
-      "ms": 1238,
+      "ms": 1975,
+      "failed": false
+    },
+    {
+      "screen": "Returns",
+      "ms": 1263,
       "failed": false
     },
     {
@@ -335,37 +330,22 @@
     },
     {
       "screen": "Returns",
-      "ms": 1242,
+      "ms": 1252,
       "failed": false
     },
     {
       "screen": "Returns",
-      "ms": 1957,
+      "ms": 1245,
+      "failed": false
+    },
+    {
+      "screen": "Returns",
+      "ms": 2014,
       "failed": false
     },
     {
       "screen": "Notices",
-      "ms": 1921,
-      "failed": false
-    },
-    {
-      "screen": "Admin",
-      "ms": 1952,
-      "failed": false
-    },
-    {
-      "screen": "Admin · Overview",
-      "ms": 1545,
-      "failed": false
-    },
-    {
-      "screen": "Admin",
-      "ms": 1903,
-      "failed": false
-    },
-    {
-      "screen": "Admin · Insights",
-      "ms": 1548,
+      "ms": 1943,
       "failed": false
     },
     {
@@ -374,13 +354,33 @@
       "failed": false
     },
     {
-      "screen": "Admin · Money",
-      "ms": 1551,
+      "screen": "Admin · Overview",
+      "ms": 1561,
       "failed": false
     },
     {
       "screen": "Admin",
-      "ms": 1918,
+      "ms": 2076,
+      "failed": false
+    },
+    {
+      "screen": "Admin · Insights",
+      "ms": 1549,
+      "failed": false
+    },
+    {
+      "screen": "Admin",
+      "ms": 2017,
+      "failed": false
+    },
+    {
+      "screen": "Admin · Money",
+      "ms": 1549,
+      "failed": false
+    },
+    {
+      "screen": "Admin",
+      "ms": 1960,
       "failed": false
     },
     {
@@ -390,97 +390,97 @@
     },
     {
       "screen": "Admin",
-      "ms": 3090,
+      "ms": 9275,
       "failed": false
     },
     {
       "screen": "Admin · Reports",
-      "ms": 2115,
+      "ms": 2232,
       "failed": false
     },
     {
       "screen": "Admin",
-      "ms": 1921,
+      "ms": 2014,
       "failed": false
     },
     {
       "screen": "Admin · Configuration",
-      "ms": 1550,
+      "ms": 1591,
       "failed": false
     },
     {
       "screen": "Stock Intake",
-      "ms": 1968,
+      "ms": 2725,
       "failed": false
     },
     {
       "screen": "INVENTORY",
-      "ms": 1955,
+      "ms": 1978,
       "failed": false
     },
     {
       "screen": "Returns",
-      "ms": 2165,
+      "ms": 27723,
       "failed": false
     },
     {
       "screen": "Admin",
-      "ms": 1972,
+      "ms": 1951,
       "failed": false
     },
     {
       "screen": "Admin · Overview",
-      "ms": 1545,
-      "failed": false
-    },
-    {
-      "screen": "Admin",
-      "ms": 1996,
-      "failed": false
-    },
-    {
-      "screen": "Admin · Insights",
-      "ms": 1542,
-      "failed": false
-    },
-    {
-      "screen": "Admin",
-      "ms": 1939,
-      "failed": false
-    },
-    {
-      "screen": "Admin · Money",
-      "ms": 1541,
-      "failed": false
-    },
-    {
-      "screen": "Admin",
-      "ms": 1938,
-      "failed": false
-    },
-    {
-      "screen": "Admin · Sales History",
       "ms": 1538,
       "failed": false
     },
     {
       "screen": "Admin",
-      "ms": 3021,
+      "ms": 2074,
       "failed": false
     },
     {
-      "screen": "Admin · Reports",
-      "ms": 2173,
+      "screen": "Admin · Insights",
+      "ms": 1549,
       "failed": false
     },
     {
       "screen": "Admin",
-      "ms": 1889,
+      "ms": 2018,
+      "failed": false
+    },
+    {
+      "screen": "Admin · Money",
+      "ms": 1562,
+      "failed": false
+    },
+    {
+      "screen": "Admin",
+      "ms": 1914,
+      "failed": false
+    },
+    {
+      "screen": "Admin · Sales History",
+      "ms": 1557,
+      "failed": false
+    },
+    {
+      "screen": "Admin",
+      "ms": 3444,
+      "failed": false
+    },
+    {
+      "screen": "Admin · Reports",
+      "ms": 2180,
+      "failed": false
+    },
+    {
+      "screen": "Admin",
+      "ms": 1973,
       "failed": false
     },
     {
       "screen": "Admin · Configuration",
-      "ms": 1550,
+      "ms": 1567,
       "failed": false
     }
   ]

@@ -205,7 +205,7 @@
     {
       "name": "Repair stamps voidOutcome=repair on the sale (drives 2-leg postage loss)",
       "ok": true,
-      "detail": "voidedAt=2026-08-06 outcome=repair"
+      "detail": "voidedAt=2026-08-07 outcome=repair"
     },
     {
       "name": "Replacement return processed (with a replacement unit named)",
@@ -215,7 +215,7 @@
     {
       "name": "Replacement stamps voidOutcome=replacement (drives 3-leg postage loss)",
       "ok": true,
-      "detail": "voidedAt=2026-08-06 outcome=replacement"
+      "detail": "voidedAt=2026-08-07 outcome=replacement"
     },
     {
       "name": "Returned unit links to the replacement that shipped in its place",
@@ -270,7 +270,7 @@
     {
       "name": "Sales Report has a tab per marketplace + an Accessories sheet",
       "ok": true,
-      "detail": "Summary, AMAZON, BM, EBAY, ONBUY, TEMU, Accessories, Returns Summary, Returns Detail, Unit Histories"
+      "detail": "Summary, AMAZON, BM, EBAY, ONBUY, TEMU, Returns & Profit, Accessories, Returns Summary, Returns Detail, Unit Histories"
     },
     {
       "name": "Accessory sale appears on its own marketplace tab (AMAZON)",
@@ -285,7 +285,7 @@
     {
       "name": "Sales Report carries the Returns sheets",
       "ok": true,
-      "detail": "Returns Summary, Returns Detail"
+      "detail": "Returns & Profit, Returns Summary, Returns Detail"
     },
     {
       "name": "Returns Detail carries the refunded unit",

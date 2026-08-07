@@ -370,16 +370,43 @@ async function run() {
   const wb = new ExcelJS.Workbook();
   await wb.xlsx.readFile(await dl.path());
 
+  // Each expectation names the SOURCE COLUMNS the formula must reference, in
+  // {braces}, and is turned into a regex against that tab's real header row at
+  // check time. Written with literal column letters this block was a third
+  // copy of the column order — it broke the moment the sheet was reordered
+  // while telling us nothing about whether the arithmetic was right. What
+  // actually matters is that Marginal Tax reads SP−BP, not that it reads I2.
   const EXPECT_FORMULAS = {
-    AMAZON: { 'Marginal Tax': /I2\*16\.67%/, 'Commission': /H2\/100\*7/, 'C. VAT': /K2\*20%/, 'DSF': /K2\*2%/, 'Total VAT': /L2\+N2\+P2/ },
-    BM:     { 'Marginal Tax': /I2\*16\.67%/, 'Commission': /H2\/100\*11/, 'P. VAT': /M2\*20%/ },
+    AMAZON: {
+      'Marginal Tax': '{SP-BP}*16.67%', 'Commission': '{SP}/100*7',
+      'C. VAT': '{Commission}*20%', 'DSF': '{Commission}*2%',
+      'Total VAT': '{C. VAT}+{DSF. VAT}+{P. VAT}',
+    },
+    BM: {
+      'Marginal Tax': '{SP-BP}*16.67%', 'Commission': '{SP}/100*11',
+      'P. VAT': '{Postage}*20%',
+    },
     // No Marketing entry: that cell carries no formula any more. It is typed
     // by the operator in the master, so the report writes the sale's own
-    // value — emitting `=H2*5%` there made a re-opened workbook re-invent a
+    // value — emitting `=SP*5%` there made a re-opened workbook re-invent a
     // promotional spend that never happened.
-    EBAY:   { 'Marginal Tax': /I2\*16\.67%/, 'Commission': /\(H2\*6\.9%\)-\(H2\*6\.9%\)\*10%/, 'ROF': /H2\*0\.35%/, 'M. VAT': /R2\*20%/, 'Total VAT': /N2\+Q2\+S2/ },
-    ONBUY:  { 'Marginal Tax': /H2\*16\.67%/, 'Commission': /G2\*7%/, 'VAT 20%': /J2\*20%/, 'Total VAT': /K2\+M2/ },
-    TEMU:   { 'Marginal Tax': /I2\*16\.67%/, 'Total VAT': /N2/ },
+    EBAY: {
+      'Marginal Tax': '{SP-BP}*16.67%',
+      'Commission': '({SP}*6.9%)-({SP}*6.9%)*10%',
+      'ROF': '{SP}*0.35%', 'M. VAT': '{Marketing}*20%',
+      'Total VAT': '{VAT}+{P. VAT}+{M. VAT}',
+    },
+    ONBUY: {
+      'Marginal Tax': '{SP-BP}*16.67%', 'Commission': '{SP}*7%',
+      'VAT 20%': '{Commission}*20%', 'Total VAT': '{VAT 20%}+{P. VAT}',
+    },
+    TEMU: { 'Marginal Tax': '{SP-BP}*16.67%', 'Total VAT': '{P. VAT}' },
+  };
+  /** 1-based column index -> Excel letter (A..AZ covers a 34-column sheet). */
+  const colLetter = (n) => {
+    let s = '';
+    while (n > 0) { const r = (n - 1) % 26; s = String.fromCharCode(65 + r) + s; n = (n - 1 - r) / 26; }
+    return s;
   };
   for (const [mp, expectations] of Object.entries(EXPECT_FORMULAS)) {
     const ws = wb.getWorksheet(mp);
@@ -387,10 +414,20 @@ async function run() {
     const headers = (ws.getRow(1).values || []).slice(1).map(h => String(h ?? '').trim());
     calculations[mp] = calculations[mp] || {};
     calculations[mp].reportColumns = headers;
-    for (const [col, re] of Object.entries(expectations)) {
+    for (const [col, template] of Object.entries(expectations)) {
       const cell = ws.getRow(2).getCell(headers.indexOf(col) + 1).value;
       const f = (cell || {}).formula || String(cell ?? '');
-      record(`${mp} report · ${col}`, re.test(f), f);
+      // Resolve {Name} -> the letter that name sits at on THIS tab, then
+      // escape the rest so the template compares as a literal fragment.
+      let missing = null;
+      const resolved = template.replace(/\{([^}]+)\}/g, (_, name) => {
+        const i = headers.indexOf(name);
+        if (i < 0) { missing = name; return name; }
+        return `${colLetter(i + 1)}2`;
+      });
+      if (missing) { record(`${mp} report · ${col}`, false, `no "${missing}" column`); continue; }
+      const re = new RegExp(resolved.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+      record(`${mp} report · ${col} — ${resolved}`, re.test(f), f);
     }
   }
   record('BM has no Total VAT column — P. VAT is its only VAT line',

@@ -356,14 +356,19 @@ describe('SALES_REPORT_TEMPLATE.xlsx', () => {
     const headerOf = (name: string) =>
       (XLSX.utils.sheet_to_json(wb.Sheets[name], { header: 1 }) as any[][])[0];
 
-    expect(headerOf('AMAZON').slice(0, 8))
-      .toEqual(['Date', 'Order Number', 'SKU', 'IMEI', 'Supplier', 'Quantity', 'BP', 'SP']);
-    expect(headerOf('BM').slice(0, 8))
-      .toEqual(['Date', 'Order Number', 'SKU', 'IMEI', 'Supplier', 'Quantity', 'BP', 'SP']);
+    // The handset is described in one block right after IMEI, then Supplier,
+    // then the money columns open on the quantity column.
+    expect(headerOf('AMAZON').slice(0, 11))
+      .toEqual(['Date', 'Order Number', 'SKU', 'IMEI', 'Model', 'Colour', 'Storage',
+                'Supplier', 'Quantity', 'BP', 'SP']);
+    expect(headerOf('BM').slice(0, 11))
+      .toEqual(['Date', 'Order Number', 'SKU', 'IMEI', 'Model', 'Colour', 'Storage',
+                'Supplier', 'Quantity', 'BP', 'SP']);
     // OnBuy has NO quantity column — BP/SP shift left by one. This is the one
     // real trap in the sales schemas, so pin it explicitly.
-    expect(headerOf('ONBUY').slice(0, 7))
-      .toEqual(['Date', 'Order Number', 'SKU', 'IMEI', 'Supplier', 'BP', 'SP']);
+    expect(headerOf('ONBUY').slice(0, 10))
+      .toEqual(['Date', 'Order Number', 'SKU', 'IMEI', 'Model', 'Colour', 'Storage',
+                'Supplier', 'BP', 'SP']);
     // 2026-08: the templates are generated from the report writer, so eBay
     // carries the report's names — 'Postage', not the retired 'SHIPPING',
     // and the Marketing / P. VAT pair that replaced NP(incl. PROMOTION).

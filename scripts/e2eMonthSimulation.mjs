@@ -27,9 +27,25 @@
  *   VITE_E2E=1 npx vite build --outDir dist-e2e
  *   npx vite preview --outDir dist-e2e --port 4173
  *   SIM_DAYS=30 SIM_INTAKE_PER_DAY=40 SIM_SALES_PER_DAY=49 \
- *     SIM_OPENING_STOCK=700 SIM_END_DATE=<today> \
+ *     SIM_OPENING_STOCK=700 SIM_TAIL_MODELS=8 SIM_END_DATE=<today> \
  *     node scripts/generateQuarterSimData.mjs e2e-screenshots/month-simulation
  *   node scripts/e2eMonthSimulation.mjs
+ *
+ * Both of the last two variables are REQUIRED here, and each one silently
+ * costs assertions if it is left off:
+ *
+ *   SIM_END_DATE=<today> — the "Sold Today" / "Last 72 Hours" tiles read the
+ *     real clock. The generator's own default end date is in the past, so
+ *     without this those tiles correctly show 0 against a manifest full of
+ *     sales and five assertions fail for the wrong reason.
+ *
+ *   SIM_TAIL_MODELS=8 — the main catalog is picked uniformly and ~9% of every
+ *     model's intake is held as SHS stock, so no model+storage bucket ever
+ *     reaches zero: at any intake/sales ratio there are 0 sold-out buckets and
+ *     the reorder panel is displayed but never proven. The tail catalog stocks
+ *     models one and two at a time, dated early enough for the sell queue to
+ *     drain them (7 sold out / 2 running low at these settings). The script's
+ *     own guard assertion exists to catch exactly this omission.
  */
 import { chromium } from 'playwright';
 import { mkdirSync, existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';

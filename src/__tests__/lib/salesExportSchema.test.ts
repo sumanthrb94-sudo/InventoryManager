@@ -32,13 +32,15 @@ const DOCUMENTED_COUNTS: Record<Marketplace, number> = {
   TEMU: 29,
 };
 
-/** §2.2 — "Trailing return-linkage block, every marketplace". */
+/** §2.2 block 3 — "Return", the tail of every marketplace sheet.
+ *  `Postage Loss` / `Net GP £` are no longer here: they close the money block,
+ *  which is where the bottom line belongs. */
 const RETURN_BLOCK = [
-  'Return Date', 'Outcome', 'Return Reason', 'Shipping Legs',
-  'Postage Loss', 'Net GP £',
+  'Return Date', 'Outcome', 'Shipping Legs', 'Return Reason', 'Comments',
 ];
 
-/** §2.2 — "Then, last on every marketplace sheet". */
+/** §2.2 — the attributes that make a re-import self-healing. They now sit in
+ *  the identity block beside `Model` rather than trailing the sheet. */
 const BUY_SIDE_TAIL = ['Storage', 'Colour'];
 
 /** §2.2 — "Marketplace-specific fee columns". */
@@ -94,28 +96,64 @@ describe('Sales Report export matches templates/REPORT_SCHEMAS.md §2.2', () => 
     expect(actual).toEqual(DOCUMENTED_COUNTS);
   });
 
-  it('ends every tab with the return block, then Storage and Colour', async () => {
+  it('ends every tab with the return block, closing on Comments', async () => {
     const wb = await exportedWorkbook();
     for (const m of MARKETPLACES) {
       const h = headersOf(wb.getWorksheet(m)!);
-      expect(h.slice(-8), `${m} tab tail`).toEqual([...RETURN_BLOCK, ...BUY_SIDE_TAIL]);
+      expect(h.slice(-RETURN_BLOCK.length), `${m} tab tail`).toEqual(RETURN_BLOCK);
     }
   });
 
   /**
-   * The reason the tail is fixed: every GP / GP % / Total VAT NTP / TOTAL
-   * formula on these tabs references hard column letters (see `writeSaleRow`).
-   * A column inserted mid-sheet shifts those letters and the arithmetic then
-   * points one column left while still looking plausible. New columns go on
-   * the end — this asserts `Model` closes the value block and nothing has
-   * been slipped in beside `SKU`.
+   * §2.2's first block: the handset is described in one place. `Model`,
+   * `Colour` and `Storage` sit directly after `IMEI` so a row reads
+   * "iPhone 13 / Black / 128GB" side by side instead of scattering the three
+   * across a 34-column sheet.
+   *
+   * This used to assert the opposite — Model appended after Comments — because
+   * the formulas referenced hard column letters and appending was the only
+   * safe way to add a column. They now resolve by header name via `salesCol`,
+   * so the order is a presentation decision and this pins the chosen one.
    */
-  it('places Model after Comments, not beside SKU', async () => {
+  it('describes the handset in one block, right after IMEI', async () => {
     const wb = await exportedWorkbook();
     for (const m of MARKETPLACES) {
       const h = headersOf(wb.getWorksheet(m)!);
-      expect(h.indexOf('Model'), `${m} Model`).toBe(h.indexOf('Comments') + 1);
-      expect(h.indexOf('Model'), `${m} Model`).toBe(h.indexOf('Return Date') - 1);
+      expect(h.slice(0, 8), `${m} identity block`).toEqual([
+        'Date', 'Order Number', 'SKU', 'IMEI',
+        'Model', 'Colour', 'Storage', 'Supplier',
+      ]);
+    }
+  });
+
+  /**
+   * The money block runs unbroken from the quantity column to the bottom
+   * line, with nothing descriptive wedged into it. Asserted as a contiguous
+   * run rather than fixed indices, because ONBUY has no quantity column and
+   * each marketplace carries its own fee columns in the middle.
+   */
+  it('runs the money columns in one unbroken block ending on Net GP £', async () => {
+    const wb = await exportedWorkbook();
+    for (const m of MARKETPLACES) {
+      const h = headersOf(wb.getWorksheet(m)!);
+      // Nothing from the identity or return blocks appears between BP and the
+      // bottom line.
+      const money = h.slice(h.indexOf('BP'), h.indexOf('Net GP £') + 1);
+      for (const stray of ['Model', 'Colour', 'Storage', 'Supplier', 'SKU',
+                           'IMEI', 'Return Date', 'Outcome', 'Comments']) {
+        expect(money, `${m} money block contains ${stray}`).not.toContain(stray);
+      }
+      expect(money.slice(-5), `${m} money tail`).toEqual([
+        'GP', 'GP %', 'Total VAT NTP', 'Postage Loss', 'Net GP £',
+      ]);
+    }
+  });
+
+  it('still carries Storage and Colour so a re-import can self-heal', async () => {
+    const wb = await exportedWorkbook();
+    for (const m of MARKETPLACES) {
+      const h = headersOf(wb.getWorksheet(m)!);
+      for (const c of BUY_SIDE_TAIL) expect(h, `${m} ${c}`).toContain(c);
     }
   });
 

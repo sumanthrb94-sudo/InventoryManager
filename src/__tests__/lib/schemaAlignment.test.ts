@@ -95,10 +95,15 @@ describe.skipIf(!existsSync(TEMPLATE))('sales positional fallbacks point at the 
       const live = SHEET_LAYOUTS[marketplace as keyof typeof SHEET_LAYOUTS].fallback as
         Record<string, number>;
 
-      it.each(fields)('%s falls back to index %i, which is "%s"', (field, index, expected) => {
-        // The index the CODE uses, not a copy of it.
-        expect(live[field as string]).toBe(index);
-        expect(headers[index as number]).toBe(expected);
+      it.each(fields)('%s falls back to the "%s" column', (field, _oldIndex, expected) => {
+        // What matters is which HEADER the fallback lands on, not the number.
+        // Asserting the number as well made this fail wholesale the moment the
+        // columns were reordered, while telling us nothing extra: a fallback
+        // is wrong precisely when it points at the wrong column, whatever its
+        // index happens to be. The index is now derived from SALES_HEADERS.
+        const i = live[field as string];
+        expect(i, `${field} has no positional fallback`).toBeTypeOf('number');
+        expect(headers[i]).toBe(expected);
       });
 
       it('declares a fallback for every field it can parse', () => {
@@ -129,11 +134,13 @@ describe.skipIf(!existsSync(TEMPLATE))('sales positional fallbacks point at the 
   it('ONBUY shifts BP and SP left, because it has no Quantity column', () => {
     const headers = headerRow(TEMPLATE, 'ONBUY');
     expect(headers.map(h => h.toLowerCase())).not.toContain('quantity');
-    expect(headers[5]).toBe('BP');
-    expect(headers[6]).toBe('SP');
-    // Every other marketplace puts BP at 6 — this is the one real trap in
-    // the sales schemas, so pin the contrast explicitly.
-    expect(headerRow(TEMPLATE, 'AMAZON')[6]).toBe('BP');
+    // Pinned as a RELATIVE fact, not an absolute index: ONBUY's money block
+    // starts one column earlier than everyone else's because it has no
+    // quantity column. Hard-coding 5 and 6 made this fail for the unrelated
+    // reason that the identity block grew by Model / Colour / Storage.
+    const amazon = headerRow(TEMPLATE, 'AMAZON');
+    expect(headers.indexOf('SP')).toBe(headers.indexOf('BP') + 1);
+    expect(headers.indexOf('BP')).toBe(amazon.indexOf('BP') - 1);
   });
 });
 
