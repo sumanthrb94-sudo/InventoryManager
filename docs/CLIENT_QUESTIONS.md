@@ -3,33 +3,57 @@
 Things the system has to guess at. Each one changes the profit figures, so we
 would rather ask than assume. Answers are recorded inline as they arrive.
 
-**Open: 1, plus eBay's £0.40 in question 8.** Question 6 is parked for a conversation. Questions 2, 3, 4, 5, 7
+**Open: 1 (researched — needs checking against your own statements) and
+eBay's £0.40 in question 8.** Question 6 is parked for a conversation. Questions 2, 3, 4, 5, 7
 and Back Market's part of 8 are answered and recorded below — kept in place rather than deleted so
 the reasoning survives.
 
 ---
 
-## 1. When you refund a customer, does the marketplace give you its commission back?
+## 1. When you refund a customer, does the marketplace give you its commission back? — RESEARCHED, needs confirming against your own statements
 
-You sell a phone for £400 on Amazon. Amazon keeps about **£33** as commission.
-The customer returns it and you refund them in full.
+Researched rather than guessed. **Four of the five publish a policy, and all
+four give the commission back** — which means the app is currently wrong in the
+same direction on every channel.
 
-**Do you get that £33 back?**
+| | published policy | confidence |
+|---|---|---|
+| **Amazon** | Refunds the referral fee **less a "Refund Administration Fee"** — the lesser of **£5 or 20% of the referral fee**. So you get most of it back, never all. | High — stated in Amazon's own UK seller documentation |
+| **eBay** | **Full final value fee credit**, but only if you refund the buyer yourself, in full, through eBay, *before* they ask eBay to step in. No credit if eBay steps in, if you refund outside eBay, or if you deduct for a used/damaged return. | High — eBay's own Fee Credits help page |
+| **OnBuy** | Commission is **credited on your next monthly invoice**. A separate OnBuy Dispute Fee may still be deducted where OnBuy handles the refund. | Medium-high |
+| **Temu** | **No commission charged on a returned order.** For semi-managed sellers the refund may be taken from your balance immediately. | Medium |
+| **Back Market** | **Not published.** Their public help centre covers the customer side only; seller fee handling sits behind the seller portal. | Unknown |
 
-Please answer for each channel separately — they may well differ:
+### What it is worth
 
-| | commission returned? |
-|---|---|
-| Amazon | |
-| Back Market | |
-| eBay | |
-| OnBuy | |
-| Temu | |
+On a £300 phone sold at £400 and then refunded, this is the commission
+currently written off as if it were gone for good:
 
-*Today the system assumes you do NOT get it back. If you do, every refund is
-costing you around £33 less than the reports are showing.*
+| | commission | its VAT | at stake |
+|---|---|---|---|
+| AMAZON | £28.00 | £5.60 | **£33.60** |
+| BM | £44.00 | — | **£44.00** |
+| EBAY | £24.84 | £5.33 | **£30.17** |
+| ONBUY | £28.00 | £5.60 | **£33.60** |
+| TEMU | £18.44 | £3.69 | **£22.13** |
 
----
+For scale, the carriage the app *does* count on a refund is **£19.20**. So the
+figure being ignored is larger than the one being counted — refunds are being
+reported as far more expensive than they are.
+
+### What still needs you
+
+Published policy is not the same as what lands in your account. Rates vary by
+category, account and country, and eBay's credit is conditional on *how* the
+refund was issued.
+
+**The definitive answer is in your own remittance / settlement statements:**
+find one refunded order per channel and check whether a commission credit
+appears against it. That is worth doing before the app is changed, because
+getting it wrong overstates profit instead of understating it.
+
+Back Market matters most: it has the largest commission of the five, and no
+published answer.
 
 ## 2. Profit % — measured against what you paid, or what you sold for? — ANSWERED
 
