@@ -89,6 +89,71 @@ describe('BM — master rows reproduce cell for cell', () => {
   });
 });
 
+/**
+ * Back Market's flat Customer Care Fee, pinned against a photograph of the
+ * operator's own sheet (2026-08).
+ *
+ * The operator confirmed it in words — "£8.99 for each and every unit" — and
+ * then sent a screenshot of columns K/L/M covering thirteen consecutive rows.
+ * Every single one reads 8.99. There is no threshold, no category carve-out
+ * and no per-order pooling: a flat charge per unit.
+ *
+ * BP and SP are not visible in that screenshot, so they are recovered from the
+ * two columns that are: Commission = SP × 11% and Marginal Tax = (SP − BP) ×
+ * 16.67%. The recovered figures land on round buy prices (£220, £105, £110,
+ * £65 …), which is the check that the inversion is sound — real buy prices are
+ * round, arbitrary ones would not be. Two of the rows recovered this way
+ * (73/129 and 60/104) match fixtures already transcribed from the master file,
+ * confirming the screenshot comes from the same workbook.
+ *
+ * Why this is worth eleven more rows: the £8.99 is flat, so it decides
+ * profitability on cheap stock. An £50 phone sold at £80 LOSES £1.35 because
+ * the fee alone exceeds the whole margin. If someone ever "tidies" this into a
+ * percentage or prorates it across an order, Back Market's economics change
+ * silently and in the direction that hides losses.
+ */
+describe('BM — the flat £8.99 care fee, from the operator\'s screenshot', () => {
+  const ROWS = [
+    { bp: 220, sp: 394, marginalTax: 29.01, commission: 43.34 },
+    { bp: 73,  sp: 129, marginalTax: 9.34,  commission: 14.19 },
+    { bp: 60,  sp: 104, marginalTax: 7.33,  commission: 11.44 },
+    { bp: 105, sp: 208, marginalTax: 17.17, commission: 22.88 },
+    { bp: 105, sp: 205, marginalTax: 16.67, commission: 22.55 },
+    { bp: 110, sp: 197, marginalTax: 14.50, commission: 21.67 },
+    { bp: 105, sp: 214, marginalTax: 18.17, commission: 23.54 },
+    { bp: 100, sp: 161, marginalTax: 10.17, commission: 17.71 },
+    { bp: 145, sp: 219, marginalTax: 12.34, commission: 24.09 },
+    { bp: 65,  sp: 123, marginalTax: 9.67,  commission: 13.53 },
+    { bp: 60,  sp: 119, marginalTax: 9.84,  commission: 13.09 },
+  ];
+
+  it.each(ROWS)('BP £$bp / SP £$sp — care fee £8.99, and the chain reproduces', (row) => {
+    const f = calcSaleFinancials({
+      marketplace: 'BM', buyPrice: row.bp, salePrice: row.sp, postageOverride: 6.30,
+    });
+    near(f.customerCareFees, 8.99,             `BP${row.bp}/SP${row.sp}.Customer Care Fees`);
+    near(f.marginalTax,      row.marginalTax,  `BP${row.bp}/SP${row.sp}.Marginal Tax`);
+    near(f.commission,       row.commission,   `BP${row.bp}/SP${row.sp}.Commission`);
+  });
+
+  /** Per UNIT, not per order — three phones cost £26.97. Handsets are one per
+   *  IMEI so each is its own row; this states the consequence explicitly. */
+  it('charges the fee once per unit, so three phones cost £26.97', () => {
+    const one = calcSaleFinancials({ marketplace: 'BM', buyPrice: 105, salePrice: 208 });
+    expect(one.customerCareFees).toBe(8.99);
+    expect(Math.round(one.customerCareFees! * 3 * 100) / 100).toBe(26.97);
+  });
+
+  /** The reason the flatness matters: on cheap stock it exceeds the margin. */
+  it('turns a cheap sale into a loss, which is why it cannot become a percentage', () => {
+    const cheap = calcSaleFinancials({
+      marketplace: 'BM', buyPrice: 50, salePrice: 80, postageOverride: 6.30,
+    });
+    expect(cheap.grossProfit).toBeLessThan(0);
+    expect(cheap.customerCareFees).toBe(8.99);
+  });
+});
+
 describe('ONBUY — master rows reproduce cell for cell', () => {
   // Formulas: SP-BP=G-F · MarTax=H*16.67% · Com=G*7% · VAT20=J*20%
   //           P.VAT=L*20% · TotalVAT=K+M · GP=H-I-J-K-L-M-N · GP%=P/F*100
