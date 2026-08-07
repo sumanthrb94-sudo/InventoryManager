@@ -129,8 +129,13 @@ function truthFor({ marketplace, bp, sp, postage }) {
       const eBayPVat = 0;
       const totalVat = vat20 + eBayPVat + marketingVat;
       const gp = c - marginalTax - totalCom - postage - eBayPVat - marketing - marketingVat - ACCESSORIES;
+      // GP% over BP, like the other four. The operator's own eBay tab divides
+      // by SP — this file is otherwise transcribed from that master, and this
+      // one line is a deliberate departure from it, made on their instruction
+      // (2026-08). One report carrying two denominators ranked the channels
+      // backwards: eBay earned more per phone and displayed a lower figure.
       Object.assign(out, { commission, rof, fvf, vat20, totalCom, marketing, marketingVat, totalVat,
-        grossProfit: gp, gpPercent: gp / sp * 100, totalVatNtp: marginalTax - totalVat, gpBase: 'SP' });
+        grossProfit: gp, gpPercent: gp / bp * 100, totalVatNtp: marginalTax - totalVat, gpBase: 'BP' });
       break;
     }
     case 'ONBUY': {
@@ -348,14 +353,18 @@ async function run() {
     }
   }
 
-  // GP% base differs — the trap worth its own assertion.
-  const ebaySale = sales.find(x => x.marketplace === 'EBAY');
-  if (ebaySale) {
-    const t = truthFor({ marketplace: 'EBAY', bp: ebaySale.buyPrice, sp: ebaySale.salePrice, postage: ebaySale.postage ?? 0 });
-    record('eBay GP% divides by SP, not BP',
-      near(ebaySale.gpPercent, t.gpPercent) && !near(ebaySale.gpPercent, r2(t.grossProfit / t.bp * 100)),
-      `${ebaySale.gpPercent}% = GP/SP (GP/BP would be ${r2(t.grossProfit / t.bp * 100)}%)`);
-  }
+  // GP% used to differ per marketplace, and that WAS the trap worth its own
+  // assertion. Since 2026-08 every channel divides by BP, so the thing to
+  // guard is the opposite: that they all agree. A single channel drifting
+  // back to SP is the regression, and it would be invisible in a per-sale
+  // check because each figure looks perfectly reasonable on its own.
+  const gpBaseMismatches = sales.filter(x => {
+    const t = truthFor({ marketplace: x.marketplace, bp: x.buyPrice, sp: x.salePrice, postage: x.postage ?? 0 });
+    return !near(x.gpPercent, r2(t.grossProfit / x.buyPrice * 100));
+  }).map(x => `${x.marketplace} ${x.gpPercent}%`);
+  record('every marketplace divides GP% by BP — eBay included',
+    gpBaseMismatches.length === 0,
+    gpBaseMismatches.length ? `not over BP: ${gpBaseMismatches.join(', ')}` : 'all five agree');
 
   // ══ The report's formulas ════════════════════════════════════════════════
   console.log('\n══ Sales Report formulas, per marketplace tab ══');

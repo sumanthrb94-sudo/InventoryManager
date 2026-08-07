@@ -1,5 +1,5 @@
 {
-  "passed": 82,
+  "passed": 80,
   "total": 82,
   "results": [
     {
@@ -184,8 +184,8 @@
     },
     {
       "name": "EBAY · gpPercent",
-      "ok": true,
-      "detail": "20.85 vs 20.85"
+      "ok": false,
+      "detail": "32.02 vs 20.85"
     },
     {
       "name": "EBAY · VAT lines are persisted for the VAT Centre",
@@ -309,8 +309,8 @@
     },
     {
       "name": "eBay GP% divides by SP, not BP",
-      "ok": true,
-      "detail": "20.85% = GP/SP (GP/BP would be 32.02%)"
+      "ok": false,
+      "detail": "32.02% = GP/SP (GP/BP would be 32.02%)"
     },
     {
       "name": "AMAZON report · Marginal Tax — L2*16.67%",
