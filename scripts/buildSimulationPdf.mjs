@@ -15,6 +15,20 @@ import { chromium } from 'playwright';
 const OUT = resolve('simulation-output');
 const m = JSON.parse(readFileSync(resolve(OUT, 'simulation-manifest.json'), 'utf8'));
 
+import { existsSync } from 'node:fs';
+const SCREENS = resolve('simulation-output/screens');
+const dataUri = f => {
+  const p = resolve(SCREENS, f);
+  if (!existsSync(p)) return null;
+  return 'data:image/png;base64,' + readFileSync(p).toString('base64');
+};
+const screenFig = (file, caption, cls = '') => {
+  const uri = dataUri(file);
+  if (!uri) return '';
+  return `<figure class="${cls}"><img src="${uri}" alt="${caption.replace(/"/g, '&quot;')}">
+    <figcaption>${caption}</figcaption></figure>`;
+};
+
 const esc = s => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 const money = v => (v === '' || v == null || Number.isNaN(Number(v)))
   ? '<span class="dim">—</span>'
@@ -148,6 +162,13 @@ tr.voided td{background:rgba(163,44,30,.10);}
 .callout p{margin:4px 0;}
 .maths{font-family:var(--mono);font-size:11px;background:var(--panel);border:1px solid var(--rule);
        border-radius:4px;padding:10px 13px;white-space:pre;overflow-x:auto;line-height:1.65;margin:10px 0;}
+figure{margin:14px 0 6px;break-inside:avoid;}
+figure img{display:block;width:100%;height:auto;border:1px solid var(--rule);border-radius:4px;}
+figcaption{font-family:var(--mono);font-size:9.5px;color:var(--muted);margin-top:5px;line-height:1.4;}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:14px;}
+.grid4{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;}
+.grid4 figure{margin:0;}
+.grid4 figcaption{font-size:9px;}
 footer{margin-top:32px;border-top:1px solid var(--rule);padding-top:10px;font-family:var(--mono);font-size:10px;color:var(--muted);}
 
 @page{size:A3 landscape;margin:10mm;}
@@ -258,7 +279,25 @@ net return cost £${t.netCost.toFixed(2)}        ${t.awaitingCount} cost(s) not 
   <tbody>${unitRows}</tbody>
 </table>
 
-<h2><span class="num">04</span>How to check it by hand</h2>
+<h2><span class="num">04</span>The screens, with this data loaded</h2>
+<p class="sub">the simulation's own store injected into the application — these are not screenshots of a different dataset</p>
+
+${screenFig('returns-kpis.png', 'Returns · the four buckets. 10 back to inventory + 7 in repair + 3 to supplier = the 20 returns in §01.')}
+${screenFig('returns-loss-ledger.png', 'Returns · the loss ledger. Replacement rows carry carriage only; a repair with no invoice reads AWAITING; supplier credits show green because the money came back.')}
+${screenFig('inventory-kpis.png', 'Inventory · the sales tiles. ALL-TIME SOLD 26 is the 40 sales less the 14 that were refunded — the 6 replacements and out-of-warranty repairs still count.')}
+
+${screenFig('returns-table-01.png', 'Returns · the loss ledger paginated, showing 12 of the 20 cycles. The remaining rows are in §01, and every return also has its own card in §05.')}
+
+<h2><span class="num">05</span>Each return, unit by unit</h2>
+<p class="sub">the Unit Lifecycle card the app shows for every returned handset · stock in → sold → return → where it is now</p>
+<div class="grid4">
+${m.journeys.map(j => {
+  const f = `history-${String(j.n).padStart(2, '0')}-${j.route}.png`;
+  return screenFig(f, `#${j.n} ${j.scenario}`);
+}).join('')}
+</div>
+
+<h2><span class="num">06</span>How to check it by hand</h2>
 <p>
   Open <span class="mono">SIMULATION_SALES_REPORT.xlsx</span> next to this document.
 </p>

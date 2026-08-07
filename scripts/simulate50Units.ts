@@ -268,13 +268,22 @@ function applyReturn(opts: {
   });
 }
 
-/** A spare, unsold, like-for-like handset — what a replacement needs. */
+/** A spare, like-for-like handset — what a replacement needs.
+ *
+ *  Restricted to units 41-50, which were never sold. Searching all available
+ *  stock also matched units that had just been REFUNDED back onto the shelf;
+ *  shipping one of those as a replacement flipped it back to sold, and it
+ *  dropped out of the Returns list. The app then showed 17 returns where the
+ *  simulation had recorded 20 — correct behaviour on the app's side, but it
+ *  made the two impossible to reconcile. Re-using a refunded unit as
+ *  replacement stock is a real thing the business can do; it just does not
+ *  belong in a run whose purpose is to be checked line by line. */
+const NEVER_SOLD = units.slice(SOLD_COUNT);
 function spareFor(unitId: string): string | undefined {
   const u = byId.get(unitId)!;
-  const spare = units.find(x =>
+  return NEVER_SOLD.find(x =>
     x.status === 'available' && x.id !== u.id
-    && x.brand === u.brand && x.model === u.model && x.storage === u.storage);
-  return spare?.id;
+    && x.brand === u.brand && x.model === u.model && x.storage === u.storage)?.id;
 }
 
 // ── The twenty scenarios ─────────────────────────────────────────────────────
@@ -373,6 +382,20 @@ const manifest = {
 };
 
 writeFileSync(resolve(OUT, 'simulation-manifest.json'), JSON.stringify(manifest, null, 2));
+
+// A Firestore-shim store, so the simulation can be loaded into the running
+// app and photographed. Same shape the shim persists to sessionStorage:
+// { collectionName: { docId: doc } }. Without this the screenshots would have
+// to come from some other dataset, which would prove nothing about these rows.
+const asMap = (rows: any[]) => Object.fromEntries(rows.map(r => [r.id, r]));
+writeFileSync(resolve(OUT, 'simulation-store.json'), JSON.stringify({
+  inventoryUnits: asMap(units),
+  sales: asMap(sales as any[]),
+  suppliers: asMap(SUPPLIERS.map(s => ({ ...s, portal: 'Wholesale', ownerId: 'shared' }))),
+  models: {},
+  inventoryAggregates: {},
+  accessoryStock: {},
+}));
 
 const buf = await buildSalesWorkbookBuffer({ sales, units, supplierMap });
 writeFileSync(resolve(OUT, 'SIMULATION_SALES_REPORT.xlsx'), Buffer.from(buf));
