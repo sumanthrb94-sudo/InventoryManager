@@ -78,17 +78,17 @@ SP − BP
 
 Two conventions worth stating plainly:
 
-- **"Accessories £1" is the PACKAGING cost**, charged on every sale of
-  anything. The header is the operator's own name for the line; it has nothing
-  to do with the accessory-SKU stock pool.
+- **"Accessories £1" is the box and charger supplied WITH A PHONE** — £1 per
+  handset, on all five marketplaces. The header is the operator's own name for
+  the line. It does not refer to the accessory-SKU stock pool, and it is not a
+  packaging-per-parcel charge: three handsets on one order cost £3, because
+  that is three boxes and three chargers.
 
-  It is charged **per sale ROW, and quantity is not applied**. Three screen
-  protectors sold on one line therefore cost £1, while three handsets on one
-  order number cost £3, because that is three rows. Which of those two is
-  correct depends on whether packaging is priced per item or per parcel — that
-  is open with the operator, and one of the two cases is wrong until it is
-  settled. (Note this is deliberately *not* how carriage behaves: postage loss
-  is explicitly per parcel, so three items in one box cost one journey.)
+  **Known defect:** it is applied per sale ROW, so a standalone accessory sale
+  (a charger or screen protector with no IMEI) is also charged £1 — for a box
+  and charger it does not come with. A £9.99 charger is booked £1 of cost that
+  does not exist. Pending a decision on whether to correct it retrospectively,
+  since the report recomputes history from live formulas.
 - **Compute raw, round once.** Every intermediate is held at full precision and
   rounded only on output, matching Excel's "compute precise, display rounded".
   Rounding each step compounds into ~1p drift on Total VAT / GP / NTP.

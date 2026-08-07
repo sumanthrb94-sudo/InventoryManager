@@ -264,14 +264,18 @@ export interface SaleFinancials {
   dsf?: number;               // Amazon: Commission * dsfPct
   dsfVat?: number;            // Amazon: DSF * vatPct
   postageVat?: number;        // Amazon + eBay: Postage * vatPct
-  /** PACKAGING cost, £ — what it costs to box a sale up. Surfaces as the
-   *  "Accessories" column, which is the operator's own header for it and has
-   *  nothing to do with the accessory-SKU stock pool.
+  /** The box and charger supplied WITH A PHONE, £1 per handset, on all five
+   *  marketplaces. Surfaces as the "Accessories" column, the operator's own
+   *  header for it — unrelated to the accessory-SKU stock pool.
    *
-   *  Charged flat, PER SALE ROW, and quantity is not applied. So three
-   *  screen protectors on one line cost £1 while three handsets on one order
-   *  cost £3, because that is three rows. Whether that is right depends on
-   *  whether packaging is per item or per parcel — open with the operator. */
+   *  Per HANDSET, not per parcel: three phones on one order cost £3, because
+   *  that is three boxes and three chargers.
+   *
+   *  KNOWN DEFECT: applied per sale ROW, so a standalone accessory sale (a
+   *  charger or screen protector, no IMEI) is charged £1 for a box and charger
+   *  it does not come with — £1 of invented cost on a £9.99 line. Not yet
+   *  corrected because the report recomputes from live formulas, so the fix
+   *  would restate every past accessory sale. */
   accessoryFee?: number;
   totalVat?: number;          // Amazon: CVAT + DSF VAT + P VAT.  eBay: VAT + P VAT + M VAT.
   totalVatNtp?: number;       // Amazon + eBay: Marginal Tax − Total VAT (net tax payable)
