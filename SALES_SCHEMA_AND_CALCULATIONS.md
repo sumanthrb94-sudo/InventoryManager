@@ -78,8 +78,17 @@ SP − BP
 
 Two conventions worth stating plainly:
 
-- **"Accessories £1" is a FEE line**, charged on every sale of anything. It has
-  nothing to do with accessory products.
+- **"Accessories £1" is the PACKAGING cost**, charged on every sale of
+  anything. The header is the operator's own name for the line; it has nothing
+  to do with the accessory-SKU stock pool.
+
+  It is charged **per sale ROW, and quantity is not applied**. Three screen
+  protectors sold on one line therefore cost £1, while three handsets on one
+  order number cost £3, because that is three rows. Which of those two is
+  correct depends on whether packaging is priced per item or per parcel — that
+  is open with the operator, and one of the two cases is wrong until it is
+  settled. (Note this is deliberately *not* how carriage behaves: postage loss
+  is explicitly per parcel, so three items in one box cost one journey.)
 - **Compute raw, round once.** Every intermediate is held at full precision and
   rounded only on output, matching Excel's "compute precise, display rounded".
   Rounding each step compounds into ~1p drift on Total VAT / GP / NTP.

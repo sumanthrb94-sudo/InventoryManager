@@ -392,7 +392,12 @@ export interface Sale {
   dsf?: number;                  // Amazon: Digital Services Fee = Commission * 2%
   dsfVat?: number;               // Amazon: DSF * 20%
   postageVat?: number;           // Amazon + eBay + OnBuy + BM: Postage * 20%
-  accessoryFee?: number;         // Amazon + eBay + OnBuy + BM: flat £1 accessories charge
+  /** PACKAGING cost, £. The "Accessories" column on every marketplace tab —
+   *  named for the sheet's own header, not for the accessory-SKU stock pool,
+   *  which is an unrelated thing. Flat £1 per sale ROW on all five
+   *  marketplaces; see MarketplaceFee.accessoryFee in platforms.ts for what
+   *  "per row" does and does not mean. */
+  accessoryFee?: number;
   totalVat?: number;             // Amazon: Commission VAT + DSF VAT + Postage VAT
                                  // eBay: VAT + P. VAT + M. VAT (the eBay VAT bundle is the (Com+ROF+FVF)*20% one)
                                  // OnBuy: VAT 20% + P. VAT
@@ -504,7 +509,8 @@ export interface MarketplaceFee {
   // override them per-marketplace without touching the calculator.
   commissionBase?: 'sp' | 'spMinusBp';  // 'spMinusBp' for Amazon (7% of margin); 'sp' for everyone else
   dsfPct?: number;                   // Amazon DSF = Commission * 2%
-  accessoryFee?: number;             // Amazon / eBay / OnBuy / BM flat £1
+  /** PACKAGING cost, £ — flat £1 per sale row. See Sale.accessoryFee. */
+  accessoryFee?: number;
   customerCareFees?: number;         // BM flat customer-care charge (£9.99)
 }
 
