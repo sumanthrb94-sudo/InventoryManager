@@ -123,19 +123,37 @@ describe('ONBUY — master rows reproduce cell for cell', () => {
 describe('EBAY — master rows reproduce cell for cell', () => {
   // Formula row: Com=(H*6.9%)-(H*6.9%)*10% · ROF=H*0.35% · VAT=(K+L+M)*20%
   //              T.COM=K+L+M+N · TotalVAT=N+Q+S · GP=I-J-O-P-Q-R-S-T
-  //              GP%=V/H*100 · NTP=J-U
+  //              NTP=J-U
   // Q (P. VAT), R (Marketing) and S (M. VAT) carry NO formula — the operator
   // types them, so they are inputs here. P. VAT is 0 throughout: eBay's
   // postage is zero-rated to them even though £4.65 of it is charged.
+  //
+  // GP % IS THE ONE CELL WE NO LONGER REPRODUCE. The master computes V/H*100
+  // — gross profit over the SALE price — while its Amazon, BM and OnBuy tabs
+  // all divide by the BUY price. Checked against the operator's live file of
+  // 30 July: 60/60 Amazon rows, 13/13 BM rows and 6/6 OnBuy rows divide by BP,
+  // and 32/32 eBay rows divide by SP. The split is real and it is theirs.
+  //
+  // On the operator's instruction (2026-08) the app divides by BP everywhere,
+  // because one report carrying both denominators ranked the channels
+  // backwards: eBay earned more per phone and displayed a lower percentage.
+  // Every other cell below still reproduces the master exactly, so a genuine
+  // drift in the fee chain still fails here.
   const ROWS = [
     { order: '19-14911-65354', bp: 30, sp: 55.99, postage: 4.65,
       marketing: 0, postageVat: 0, marketingVat: 0.56,
       spMinusBp: 25.99, marginalTax: 4.33, rof: 0.20, fvf: 0.40,
-      totalVat: 1.37, grossProfit: 10.56, gpPercent: 18.86 },
+      totalVat: 1.37, grossProfit: 10.56,
+      // master shows 18.86 (10.56/55.99); we show 10.56/30
+      gpPercent: 35.20, masterGpPercentOverSp: 18.86 },
     { order: '13-14922-41007', bp: 30, sp: 49.99, postage: 4.65,
       marketing: 0, postageVat: 0, marketingVat: 0.50,
       spMinusBp: 19.99, marginalTax: 3.33, rof: 0.17, fvf: 0.40,
-      totalVat: 1.24, grossProfit: 6.09, gpPercent: 12.19 },
+      totalVat: 1.24, grossProfit: 6.09,
+      // master shows 12.19 (6.09/49.99); we show 6.09/30.
+      // 20.31 rather than 20.30 because the percentage is derived from the
+      // UNROUNDED gross profit — the house "compute raw, round once" rule.
+      gpPercent: 20.31, masterGpPercentOverSp: 12.19 },
   ];
 
   it.each(ROWS)('row $order (BP £$bp · SP £$sp)', (row) => {
@@ -146,6 +164,13 @@ describe('EBAY — master rows reproduce cell for cell', () => {
       postageVatOverride: row.postageVat,
       marketingVatOverride: row.marketingVat,
     });
+    // Ours is gross profit over the BUY price. The master's own published
+    // figure is carried on each row as `masterGpPercentOverSp` for the record,
+    // but is NOT re-derived here: the master rounds from its own unrounded
+    // profit, so recomputing it from a 2dp figure lands a penny out and would
+    // fail for a reason that has nothing to do with this divergence.
+    near(f.gpPercent, row.gpPercent, `${row.order}.GP % (ours, over BP)`);
+
     near(f.spMinusBp,    row.spMinusBp,    `${row.order}.SP-BP`);
     near(f.marginalTax,  row.marginalTax,  `${row.order}.Marginal Tax`);
     near(f.rof,          row.rof,          `${row.order}.ROF`);

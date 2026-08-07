@@ -3,7 +3,7 @@
 Things the system has to guess at. Each one changes the profit figures, so we
 would rather ask than assume. Answers are recorded inline as they arrive.
 
-**Open: 1, 2 and 8.** Question 6 is parked for a conversation. Questions 3, 4,
+**Open: 1 and 8.** Question 6 is parked for a conversation. Questions 2, 3, 4,
 5 and 7 are answered and recorded below — kept in place rather than deleted so
 the reasoning survives.
 
@@ -31,18 +31,39 @@ costing you around £33 less than the reports are showing.*
 
 ---
 
-## 2. Profit % — measured against what you paid, or what you sold for?
+## 2. Profit % — measured against what you paid, or what you sold for? — ANSWERED
 
-You buy a phone at £300, sell at £400, and make **£60** after all fees.
+**Divide by what you paid, on every channel.** Implemented 2026-08.
 
-- Measured against what you **paid**: 20%
-- Measured against what you **sold it for**: 15%
+Why it mattered. The same phone — £300 in, £400 out:
 
-Right now eBay shows 15% and the other four show 20%. Same phone, same £60 —
-it just reads differently depending on the channel, so the channels cannot be
-compared with each other.
+| | money actually made | percentage shown |
+|---|---|---|
+| Amazon | £40.50 | 13.5% |
+| eBay | **£44.06** | **11.0%** |
 
-**Which one do you want to see everywhere?**
+eBay earned more and displayed less, purely because it divided by the £400
+sale price while the other four divided by the £300 cost. Read at face value,
+the report recommended the worse channel.
+
+Confirmed against the operator's live file of 30 July before changing
+anything — the split is real and it is theirs:
+
+| tab | rows checked | divides by |
+|---|---|---|
+| Amazon | 60 | BP (60/60) |
+| Back Market | 13 | BP (13/13) |
+| OnBuy | 6 | BP (6/6) |
+| **eBay** | 32 | **SP (32/32)** |
+
+**So the app now deliberately differs from the operator's own eBay tab on this
+one cell.** Every other eBay figure still reproduces their file exactly —
+verified on 8 live rows, gross profit matching to the penny on 8 of 8. Only
+the percentage moved.
+
+Historical eBay percentages will read higher than before: 18.86% becomes
+35.20% on a £30/£55.99 sale. No money changed; the same profit is simply
+being measured against the cost instead of the sale price.
 
 ---
 
@@ -153,6 +174,7 @@ why.*
 | Partial / goodwill refunds | Not recorded; the postage loss is simply accepted |
 | Who bears postage | We do, in all cases |
 | Scrapping a returned phone | Never happens |
+| Profit % | Divided by what you paid, on all five channels |
 
 ---
 

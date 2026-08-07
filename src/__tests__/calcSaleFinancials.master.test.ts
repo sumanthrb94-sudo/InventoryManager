@@ -28,13 +28,15 @@
  *   EBAY     MarTax=I*16.6%
  *            Com=(H*6.9%)-(H*6.9%)*10%       ROF=H*0.35%  FVF=0.4
  *            VAT=(K+L+M)*20%                 TCom=K+L+M+N
- *            GP=I-J-O-P                      GP%=Q/H*100  (denom=SP)
+ *            GP=I-J-O-P                      GP%=Q/G*100  (denom=BP —
+ *            the master divides by SP here; see masterEbay for why we do not)
  *            NP=Q-H*5%
  *   ONBUY    MarVat=H/6      Com=G*7%        Vat20=I*20%
- *            GP=G-F-J-K-L-I                  GP%=M/G*100  (denom=SP)
+ *            GP=G-F-J-K-L-I                  GP%=M/F*100  (denom=BP)
  */
 import { describe, it, expect } from 'vitest';
 import { calcSaleFinancials, getMarketplaceFee } from '../lib/platforms';
+import { MARKETPLACES } from '../types';
 import type { Marketplace } from '../types';
 
 const r2 = (n: number) => Math.round(n * 100) / 100;
@@ -189,7 +191,22 @@ function masterEbay(bp: number, sp: number, shipping: 1 | 2 | 8) {
   const marketingVat = r2(marketing * 0.2);
   const accessoryFee = 1;
   const grossProfit = r2(spMinusBp - marTax - totalCom - shipping - postageVat - marketing - marketingVat - accessoryFee);
-  const gpPercent   = sp > 0 ? r2(grossProfit / sp * 100) : 0;
+  // GP% IS THE ONE CELL THAT NO LONGER MATCHES THE MASTER SHEET.
+  //
+  // The operator's eBay tab divides gross profit by the SALE price, while
+  // their other four tabs divide by the BUY price. Every other figure in this
+  // function is still transcribed from the master and still agrees with it —
+  // only this line is a deliberate departure, made on the operator's own
+  // instruction (2026-08).
+  //
+  // The reason: on a £300/£400 phone eBay returns £44.06 against Amazon's
+  // £40.50, and the old convention still showed eBay the LOWER percentage
+  // (11.0% vs 13.5%), because a bigger denominator makes a smaller number.
+  // Read at face value the report recommended the worse channel.
+  //
+  // If the master sheet is ever the arbiter again, this is the line to argue
+  // about — not a bug, a decision.
+  const gpPercent   = bp > 0 ? r2(grossProfit / bp * 100) : 0;
   const netProfit   = grossProfit;
   return { spMinusBp, marTax, commission, rof, fvf, twenty, totalCom, postage: shipping, grossProfit, gpPercent, netProfit };
 }
@@ -451,28 +468,33 @@ describe('calcSaleFinancials · cross-marketplace invariants', () => {
     }
   });
 
-  it('EBAY divides GP% by SP; AMAZON / BM / ONBUY divide by BP', () => {
-    // 2026-05 schema: ONBUY's GP% convention switched to /BP (matches
-    // Amazon's "margin over cost" framing). EBAY remains /SP. The
-    // 'AMAZON / BM divide GP% by BP' invariant above already covers
-    // the BP side; this one nails the EBAY side and the new ONBUY rule.
-    const ebay = calcSaleFinancials({
-      marketplace: 'EBAY', buyPrice: 100, salePrice: 200, eBayShippingTier: 8,
-    });
-    expectClose(ebay.gpPercent, r2(ebay.grossProfit / 200 * 100), 'EBAY GP% denom=SP');
-
-    const onbuy = calcSaleFinancials({ marketplace: 'ONBUY', buyPrice: 100, salePrice: 200 });
-    expectClose(onbuy.gpPercent, r2(onbuy.grossProfit / 100 * 100), 'ONBUY GP% denom=BP');
+  it('EVERY marketplace divides GP% by BP — eBay included', () => {
+    // eBay was the last holdout, dividing by SP until 2026-08. One report
+    // carrying two different denominators made the channels incomparable, and
+    // misleadingly so: eBay earned more per phone and displayed less.
+    //
+    // Asserted as a single loop over all five rather than as per-marketplace
+    // cases, because the property that matters now is that they AGREE. A
+    // future marketplace that quietly picked its own denominator would slip
+    // past a test written one channel at a time.
+    for (const m of MARKETPLACES) {
+      const fin = calcSaleFinancials({
+        marketplace: m, buyPrice: 100, salePrice: 200,
+        eBayShippingTier: m === 'EBAY' ? 8 : undefined,
+      });
+      expectClose(fin.gpPercent, r2(fin.grossProfit / 100 * 100), `${m} GP% denom=BP`);
+    }
   });
 
   it('zero GP%-denominator collapses gpPercent to 0 (no NaN/Infinity)', () => {
-    // Denominator per the 2026-05 GP% convention: AMAZON/BM/ONBUY by BP,
-    // EBAY by SP. Drive each to its zero-denom case explicitly.
+    // Every marketplace divides by BP as of 2026-08, so a zero BUY price is
+    // now the single zero-denominator case for all of them.
     const cases: Array<{ m: Marketplace; bp: number; sp: number }> = [
-      { m: 'AMAZON', bp: 0,   sp: 100 },     // /BP — zero BP
-      { m: 'BM',     bp: 0,   sp: 100 },     // /BP — zero BP
-      { m: 'ONBUY',  bp: 0,   sp: 100 },     // /BP — zero BP
-      { m: 'EBAY',   bp: 100, sp: 0   },     // /SP — zero SP
+      { m: 'AMAZON', bp: 0, sp: 100 },
+      { m: 'BM',     bp: 0, sp: 100 },
+      { m: 'ONBUY',  bp: 0, sp: 100 },
+      { m: 'EBAY',   bp: 0, sp: 100 },
+      { m: 'TEMU',   bp: 0, sp: 100 },
     ];
     for (const c of cases) {
       const fin = calcSaleFinancials({

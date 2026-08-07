@@ -651,7 +651,18 @@ export function calcSaleFinancials(input: CalcSaleFinancialsInput): SaleFinancia
       const grossProfitRaw   = spMinusBp - marginalTaxRaw - tComRaw - postage - postageVatRaw
         - marketingVal - marketingVatRaw - accessoryFeeVal;
       const totalVatNtpRaw   = marginalTaxRaw - totalVatRaw;
-      const gpPercentRaw     = sp > 0 ? grossProfitRaw / sp * 100 : 0;
+      // Profit over WHAT WE PAID, matching the other four marketplaces.
+      //
+      // eBay alone used to divide by the sale price. Both are legitimate
+      // measures — profit over cost is what a trader means by markup, profit
+      // over revenue is what an accountant means by margin — but having one
+      // of each in a single report made the channels incomparable, and in the
+      // wrong direction: on a £300/£400 phone eBay returns £44.06 against
+      // Amazon's £40.50 and still showed the LOWER percentage (11.0% vs
+      // 13.5%), because £400 is a bigger denominator than £300. Read
+      // literally, the report advised moving stock to the worse channel.
+      // Operator's decision, 2026-08: divide by buy price everywhere.
+      const gpPercentRaw     = bp > 0 ? grossProfitRaw / bp * 100 : 0;
 
       const vatRounded = r2(vatRaw);
       return {
@@ -906,7 +917,7 @@ export function excelFormulaFor(marketplace: Marketplace, row: number): Record<s
         accessoryFee: `${fee.accessoryFee ?? 0}`,
         totalVat:     `${C('VAT')}${r}+${C('P. VAT')}${r}+${C('M. VAT')}${r}`,
         grossProfit:  `${C('SP-BP')}${r}-${C('Marginal Tax')}${r}-${C('T.COM')}${r}-${C('Postage')}${r}-${C('P. VAT')}${r}-${C('Marketing')}${r}-${C('M. VAT')}${r}-${C('Accessories')}${r}`,
-        gpPercent:    `(${C('GP')}${r}-${C('Postage Loss')}${r})/${C('SP')}${r}*100`,
+        gpPercent:    `(${C('GP')}${r}-${C('Postage Loss')}${r})/${C('BP')}${r}*100`,
         totalVatNtp:  `${C('Marginal Tax')}${r}-${C('Total VAT')}${r}`,
       };
     }

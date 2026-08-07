@@ -160,8 +160,11 @@ describe('viewModelFromXlsxBuffer — exact Excel view of the Sales Report', () 
     // sets none; before 2026-08 we invented SP × 5% = £10 (+£2 VAT) and
     // charged it to GP.
     expect(cell(ebay, 1, 'GP').display).toBe('56.51');
-    // Net GP% = (GP − Postage Loss[blank→0]) / SP × 100 = 28.25
-    expect(cell(ebay, 1, 'GP %').display).toBe('28.25');
+    // Net GP% = (GP − Postage Loss[blank→0]) / BP × 100 = 56.51.
+    // Over BP, not SP: eBay divided by the sale price until 2026-08, which
+    // made it the one channel whose percentage could not be compared with the
+    // other four. See calcSaleFinancials' EBAY branch.
+    expect(cell(ebay, 1, 'GP %').display).toBe('56.51');
     // Formula provenance is surfaced as a tooltip. The operand list is what
     // matters — SP−BP less Marginal Tax, T.COM, Postage, P. VAT, Marketing,
     // M. VAT and Accessories — and salesReportFormulaParity.test.ts pins it
@@ -185,8 +188,10 @@ describe('viewModelFromXlsxBuffer — exact Excel view of the Sales Report', () 
     expect(cell(ebay, 1, 'Outcome').display).toBe('Refund');
     expect(cell(ebay, 1, 'Shipping Legs').display).toBe('2');
     expect(cell(ebay, 1, 'Postage Loss').display).toBe('19.20'); // (8+1.6)×2
-    // Net GP% = (56.506 − 19.2) / 200 × 100 = 18.653 → '18.65'
-    expect(cell(ebay, 1, 'GP %').display).toBe('18.65');
+    // Net GP% = (56.506 − 19.2) / 100 × 100 = 37.306 → '37.31'.
+    // The postage loss still comes off the top; only the denominator moved
+    // from SP to BP.
+    expect(cell(ebay, 1, 'GP %').display).toBe('37.31');
   });
 
   it('TOTAL row SUMs compute and render bold', async () => {

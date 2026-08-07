@@ -70,9 +70,10 @@ SP − BP
   → [marketplace-specific VAT / fee lines]
   → Postage        (operator-entered)
   → P. VAT         = Postage × 20%      (0 if the line is VAT-exempt)
-  → Accessories    = £1 flat
+  → Accessories    = £1 flat  (the box and charger; £0 on a standalone
+                                accessory line)
   = Gross Profit
-  → GP %           = GP ÷ <BP or SP> × 100
+  → GP %           = GP ÷ BP × 100      (every marketplace, since 2026-08)
   → Total VAT NTP  = Marginal Tax − Total VAT
 ```
 
@@ -179,7 +180,7 @@ Marketing operator-entered (£0 default) · P. VAT not derived · Accessories £
 | M. VAT | `Marketing × 20%` | `U2*20%` |
 | Total VAT | `VAT + P.VAT + M.VAT` | `Q2+T2+V2` |
 | GP | `(SP−BP) − MarTax − T.COM − Postage − P.VAT − Marketing − M.VAT − £1` | `L2-M2-R2-S2-T2-U2-V2-W2` |
-| GP % | `GP ÷ **SP** × 100` | `(Y2-AB2)/K2*100` |
+| GP % | `GP ÷ **BP** × 100` | `(Y2-AB2)/J2*100` |
 | Total VAT NTP | `Marginal Tax − Total VAT` | `M2-X2` |
 | Net GP £ | `GP − Postage Loss` | `Y2-AB2` |
 
@@ -253,10 +254,16 @@ P.VAT 1.26 · Accessories 1.00 → Total VAT 1.26 → GP 81.49
 
 ## 4. Three traps
 
-1. **GP % base differs.** `GP ÷ BP` on Amazon / BM / OnBuy / Temu;
-   `GP ÷ SP` on **eBay**. Both are valid business metrics — this matches the
-   operator's master file per tab. In the run above eBay reads 14.85%; the same
-   sale over BP would read 22.81%.
+1. **GP % is `GP ÷ BP` on every marketplace, and eBay is a deliberate
+   departure from the master file.** The operator's own eBay tab divides by SP
+   while their other four divide by BP. Both are valid metrics — profit over
+   cost is markup, profit over revenue is margin — but one report carrying both
+   made the channels incomparable in the wrong direction: on a £300/£400 phone
+   eBay returns £44.06 against Amazon's £40.50 and still displayed the *lower*
+   percentage (11.0% vs 13.5%), because a larger denominator yields a smaller
+   number. Read at face value the report recommended the worse channel.
+   Changed on the operator's instruction, 2026-08. Every other eBay cell still
+   reproduces the master exactly.
 2. **Marginal Tax is the literal `16.67%`, not `1/6`.** They diverge in the
    third decimal and that drift propagates into GP and Total VAT NTP. The
    operator's cells say `=C3*16.67%`, so the app does too.
