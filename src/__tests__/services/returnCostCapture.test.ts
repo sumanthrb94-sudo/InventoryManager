@@ -31,18 +31,22 @@ describe('a replacement snapshots the second handset', () => {
     expect(patch.replacedByUnitId).toBe('u2');
   });
 
-  it('the snapshot is what the loss reads, not the live replacement unit', () => {
-    // The replacement handset stays editable. If the loss were derived by
-    // following replacedByUnitId, correcting that unit's buyPrice months later
-    // would silently restate a return that was already closed and reported.
+  it('is audit data, not a loss — the cost stays carriage-only', () => {
+    // The snapshot answers "which handset went out, and what had it cost us",
+    // which is worth keeping. It is NOT added to the return's cost: the faulty
+    // unit comes back as the replacement ships, so net stock is unchanged and
+    // both handsets' prices are already inside the gross profit of the two
+    // sales they belong to.
     const patch = buildReturningUnitPatch(
       u(), 'returned_to_inventory', '2026-08-05', 'Faulty screen', 'replacement', 10,
       undefined, undefined, u({ id: 'u2', buyPrice: 285 }),
     );
     const returned = { ...u(), ...patch } as InventoryUnit;
+    expect(returned.replacementUnitCost).toBe(285);
+
     const cost = returnCostFor(returned, { voidedAt: '2026-08-05', voidOutcome: 'replacement' } as any);
-    expect(cost.replacementHandset).toBe(285);
-    expect(cost.total).toBe(30 + 285);
+    expect(cost.total).toBe(30);          // three carriage legs, nothing more
+    expect(cost.gaps).toEqual([]);
   });
 
   it('writes null rather than NaN when the replacement has no price', () => {

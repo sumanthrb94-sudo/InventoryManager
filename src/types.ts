@@ -150,7 +150,8 @@ export interface InventoryUnit {
   // one is money the app was previously showing as zero:
   //
   //   repair       → the repair invoice is a real cost, recordable per unit
-  //   replacement  → "replacement costs a whole second handset"
+  //   replacement  → which handset went out (audit only — NOT a loss, the
+  //                  faulty one comes back as it ships, so net stock is flat)
   //   to supplier  → credit comes back (full credit or a replacement unit)
   //
   // All three are OPTIONAL and all three default to absent, not zero. An
@@ -168,12 +169,17 @@ export interface InventoryUnit {
   /** Purchase price of the handset shipped out as the replacement, £,
    *  snapshotted onto the RETURNING unit at Process Return time.
    *
-   *  Snapshotted rather than read live through replacedByUnitId because the
-   *  replacement unit stays editable — its buyPrice can be corrected later,
-   *  and the loss recorded against this return must not move when it is.
-   *  The operator's ruling is that a replacement costs a whole second
-   *  handset; the faulty unit coming back and being resold recovers it
-   *  through that unit's own future sale, not by discounting this figure. */
+   *  AUDIT ONLY — this is deliberately not charged to the return's cost.
+   *  A replacement sends one unit out and takes the faulty one back, so net
+   *  stock is unchanged and only the three carriage legs are consumed. Both
+   *  handsets' purchase prices already sit inside the gross profit of the
+   *  two sales they belong to (the original sale, which the customer keeps
+   *  paying for, and the later resale of the unit that came back), so adding
+   *  this to the loss is a third charge for stock bought twice.
+   *
+   *  Kept because "which handset went out and what had it cost" is a real
+   *  question during an audit, and snapshotted rather than read live through
+   *  replacedByUnitId because that unit stays editable. */
   replacementUnitCost?: number;
   /** Credit received from the supplier for a returned-to-supplier unit, £.
    *  The operator gets "full credit or a replacement unit", same day. When

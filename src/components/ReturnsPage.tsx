@@ -1264,11 +1264,12 @@ function ReturnLossSection({
     loss: number;
     /** Repair invoice for this cycle. */
     repairCost: number;
-    /** Purchase price of the second handset a replacement cost us. */
-    replacementCost: number;
+
     /** Recovered from the supplier; reduces the total. */
     supplierCredit: number;
-    /** loss + repairCost + replacementCost - supplierCredit. */
+    /** loss + repairCost - supplierCredit. A replacement adds nothing here:
+     *  the faulty unit comes back as the outbound one leaves, so only the
+     *  three carriage legs in `loss` were actually consumed. */
     totalCost: number;
     /** Costs that apply but have not been entered — totalCost is a floor. */
     gaps: ReturnCostGap[];
@@ -1276,7 +1277,7 @@ function ReturnLossSection({
 
   /** The row before the unit-level costs are attached. They are added in a
    *  second pass, after sorting, so only a unit's current cycle takes them. */
-  type BaseLossRow = Omit<LossRow, 'repairCost' | 'replacementCost' | 'supplierCredit' | 'totalCost' | 'gaps'>;
+  type BaseLossRow = Omit<LossRow, 'repairCost' | 'supplierCredit' | 'totalCost' | 'gaps'>;
 
   const rows = useMemo<LossRow[]>(() => {
     // Build one row PER return cycle (per voided Sale doc), not one
@@ -1396,16 +1397,15 @@ function ReturnLossSection({
     const extrasClaimed = new Set<string>();
     return sorted.map(r => {
       if (extrasClaimed.has(r.unit.id)) {
-        return { ...r, repairCost: 0, replacementCost: 0, supplierCredit: 0, totalCost: r.loss, gaps: [] };
+        return { ...r, repairCost: 0, supplierCredit: 0, totalCost: r.loss, gaps: [] };
       }
       extrasClaimed.add(r.unit.id);
       const x = extraCostsFor(r.unit, r.outcome);
       return {
         ...r,
         repairCost: x.repair,
-        replacementCost: x.replacementHandset,
         supplierCredit: x.supplierCredit,
-        totalCost: r.loss + x.repair + x.replacementHandset - x.supplierCredit,
+        totalCost: r.loss + x.repair - x.supplierCredit,
         gaps: x.gaps,
       };
     });
@@ -1438,7 +1438,6 @@ function ReturnLossSection({
       'Shipping Legs':      r.legs,
       'Postage Loss (£)':   r.loss.toFixed(2),
       'Repair Cost (£)':    r.repairCost ? r.repairCost.toFixed(2) : '',
-      'Replacement Handset (£)': r.replacementCost ? r.replacementCost.toFixed(2) : '',
       'Supplier Credit (£)': r.supplierCredit ? r.supplierCredit.toFixed(2) : '',
       'Total Cost (£)':     r.totalCost.toFixed(2),
       'Costs Outstanding':  r.gaps.join(' · '),
@@ -1463,7 +1462,7 @@ function ReturnLossSection({
             {refunds} refund{refunds === 1 ? '' : 's'} (2× legs) · {replacements} replacement{replacements === 1 ? '' : 's'} (3× legs){repairs > 0 ? ` · ${repairs} in repair (2× legs)` : ''} · leg = postage + P.VAT
           </p>
           <p className="text-[9px] font-mono text-slate-400 mt-0.5">
-            £{carriageOnly.toFixed(2)} carriage + repair invoices + replacement handsets − supplier credits
+            £{carriageOnly.toFixed(2)} carriage + repair invoices − supplier credits
             {gapCount > 0 && (
               <span className="text-amber-600 font-bold">
                 {' '}· {gapCount} cost{gapCount === 1 ? '' : 's'} not yet entered — total is a floor
@@ -1492,7 +1491,7 @@ function ReturnLossSection({
                   <th className="text-right px-3 py-2 border-b border-slate-200" style={{ width: 90 }}>Leg £</th>
                   <th className="text-right px-3 py-2 border-b border-slate-200" style={{ width: 60 }}>Legs</th>
                   <th className="text-right px-3 py-2 border-b border-slate-200" style={{ width: 90 }}>Carriage £</th>
-                  <th className="text-right px-3 py-2 border-b border-slate-200" style={{ width: 90 }} title="Repair invoice, replacement handset, less any supplier credit">Other £</th>
+                  <th className="text-right px-3 py-2 border-b border-slate-200" style={{ width: 90 }} title="Repair invoice, less any supplier credit. A replacement adds nothing — the faulty unit returns as the replacement ships, so only the carriage is lost.">Other £</th>
                   <th className="text-right px-3 py-2 border-b border-slate-200" style={{ width: 90 }}>Total £</th>
                   <th className="text-left px-3 py-2 border-b border-slate-200">Reason · Comments</th>
                 </tr>
@@ -1530,10 +1529,9 @@ function ReturnLossSection({
                       </td>
                       <td className="px-3 py-1.5 border-b border-slate-100 text-right">
                         {(() => {
-                          const other = r.repairCost + r.replacementCost - r.supplierCredit;
+                          const other = r.repairCost - r.supplierCredit;
                           const parts = [
                             r.repairCost ? `repair £${r.repairCost.toFixed(2)}` : '',
-                            r.replacementCost ? `replacement handset £${r.replacementCost.toFixed(2)}` : '',
                             r.supplierCredit ? `supplier credit −£${r.supplierCredit.toFixed(2)}` : '',
                           ].filter(Boolean);
                           if (r.gaps.length > 0) {

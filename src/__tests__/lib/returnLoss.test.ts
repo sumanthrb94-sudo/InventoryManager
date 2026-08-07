@@ -93,42 +93,54 @@ describe('repair', () => {
 });
 
 describe('replacement', () => {
-  it('charges a whole second handset on top of three legs', () => {
-    // The operator's words: "replacement costs a whole second handset".
+  it('costs three carriage legs and NOTHING else', () => {
+    // The case that looks like it should cost a handset and does not. One
+    // unit ships out, the faulty one comes back in, so net stock is unchanged
+    // — the postage on three legs is the only thing consumed.
     const c = returnCostFor(
       unit({ returnType: 'returned_to_inventory', returnOutcome: 'replacement', replacementUnitCost: 300 }),
       sale({ voidOutcome: 'replacement' }),
     );
     expect(c.postage).toBe(30);
-    expect(c.replacementHandset).toBe(300);
-    expect(c.total).toBe(330);
+    expect(c.total).toBe(30);
   });
 
-  it('is more than ten times the carriage-only figure it used to report', () => {
-    // Guards the magnitude, not just the arithmetic: a regression to
-    // carriage-only would still pass a test that only checked postage.
-    const c = returnCostFor(
+  it('does not charge the second handset even when its cost is recorded', () => {
+    // replacementUnitCost is deliberately still snapshotted on the unit — it
+    // records WHICH handset went out and what it had cost. It is audit data,
+    // not a loss, and this pins the difference.
+    //
+    // Charging it double-counts. Both handsets' purchase prices already sit
+    // inside the gross profit of the two sales they belong to: the original
+    // sale (the customer keeps paying) and the later resale of the unit that
+    // came back. Adding it here is a third charge for stock bought twice.
+    const withCost = returnCostFor(
       unit({ returnOutcome: 'replacement', replacementUnitCost: 300 }),
       sale({ voidOutcome: 'replacement' }),
     );
-    expect(c.total).toBeGreaterThan(c.postage * 10);
-  });
-
-  it('does NOT discount the faulty unit that came back', () => {
-    // The returning handset is repaired and resold, and that resale is counted
-    // as its own sale elsewhere. Netting it here would count the recovery
-    // twice and quietly shrink every replacement loss.
-    const c = returnCostFor(
-      unit({ buyPrice: 300, returnOutcome: 'replacement', replacementUnitCost: 300 }),
+    const withoutCost = returnCostFor(
+      unit({ returnOutcome: 'replacement' }),
       sale({ voidOutcome: 'replacement' }),
     );
-    expect(c.total).toBe(330);
+    expect(withCost.total).toBe(withoutCost.total);
+    expect(withCost.total).toBe(30);
   });
 
-  it('reports a missing replacement cost rather than assuming zero', () => {
+  it('costs more than a refund only by the extra carriage leg', () => {
+    // A replacement pays one more leg than a refund (the replacement going
+    // out) and that is the entire difference between the two routes.
+    const refund = returnCostFor(
+      unit({ returnOutcome: 'refund' }), sale({ voidOutcome: 'refund' }),
+    );
+    const replacement = returnCostFor(
+      unit({ returnOutcome: 'replacement' }), sale({ voidOutcome: 'replacement' }),
+    );
+    expect(replacement.total - refund.total).toBe(10);   // one leg
+  });
+
+  it('reports no outstanding cost — there is nothing left to enter', () => {
     const c = returnCostFor(unit({ returnOutcome: 'replacement' }), sale({ voidOutcome: 'replacement' }));
-    expect(c.replacementHandset).toBe(0);
-    expect(c.gaps).toContain('replacement_handset');
+    expect(c.gaps).toEqual([]);
   });
 });
 
@@ -201,11 +213,12 @@ describe('totalling a period', () => {
       { unit: unit({ returnOutcome: 'refund' }), sale: sale({ voidOutcome: 'refund' }) },
       { unit: unit({ returnType: 'repair', repairCost: 65 }), sale: sale({ voidOutcome: 'repair' }) },
       { unit: unit({ returnOutcome: 'replacement' }), sale: sale({ voidOutcome: 'replacement' }) },
+      { unit: unit({ returnType: 'repair' }), sale: sale({ voidOutcome: 'repair' }) },
     ]);
-    expect(t.postage).toBe(20 + 20 + 30);
+    expect(t.postage).toBe(20 + 20 + 30 + 20);
     expect(t.repair).toBe(65);
-    expect(t.total).toBe(135);
-    // The replacement's handset cost was never entered — the total is a floor.
+    expect(t.total).toBe(155);
+    // The fourth row is a repair with no invoice entered — the total is a floor.
     expect(t.gapCount).toBe(1);
   });
 });

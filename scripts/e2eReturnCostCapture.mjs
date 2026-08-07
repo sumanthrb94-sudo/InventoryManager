@@ -6,7 +6,8 @@
  * that were missing are the ones that move the number:
  *
  *   repair       → the repair invoice
- *   replacement  → a whole second handset
+ *   replacement  → nothing beyond the third carriage leg: the faulty unit
+ *                  comes back as the replacement ships, so net stock is flat
  *   to supplier  → offset by the credit that comes back
  *
  * Unit tests already pin the arithmetic. What they cannot prove is that the
@@ -221,8 +222,8 @@ async function run() {
     repairedUnit?.status === 'available',
     `status=${repairedUnit?.status}`);
 
-  // ── PHASE 2 · replacement charges a second handset ────────────────────────
-  console.log('\n══ PHASE 2 · replacement charges a second handset ══');
+  // ── PHASE 2 · replacement links its handset without charging for it ──────
+  console.log('\n══ PHASE 2 · replacement links the handset it sent ══');
   // A replacement can only be finalised when matching stock exists, so pick
   // the pair out of the seed rather than hoping sold[1] happens to have one.
   const key = u => [u.brand, u.model, u.storage].map(v => String(v || '').trim().toLowerCase()).join('|');
@@ -253,15 +254,16 @@ async function run() {
     record('the outcome is recorded as a replacement',
       replUnit?.returnOutcome === 'replacement', `returnOutcome=${replUnit?.returnOutcome}`);
     record('the replacement handset is linked', !!linkedId, `replacedByUnitId=${linkedId || 'none'}`);
-    record('its purchase price is snapshotted onto the return',
+    record('its purchase price is snapshotted for audit',
       typeof replUnit?.replacementUnitCost === 'number'
         && (!linked || replUnit.replacementUnitCost === linked.buyPrice),
       `replacementUnitCost=${JSON.stringify(replUnit?.replacementUnitCost)}`
       + (linked ? ` vs replacement buyPrice=${linked.buyPrice}` : ''));
-    record('that cost dwarfs the carriage it used to be the only record of',
-      typeof replUnit?.replacementUnitCost === 'number'
-        && replUnit.replacementUnitCost > (replUnit.returnLegCost || 0) * 3,
-      `handset £${replUnit?.replacementUnitCost} vs carriage £${((replUnit?.returnLegCost || 0) * 3).toFixed(2)}`);
+    // The faulty unit comes back as the replacement ships — net stock is
+    // unchanged, so the handset is audit data and the carriage is the loss.
+    record('the returning unit is back in stock, so nothing was consumed but carriage',
+      replUnit?.status === 'available' || replUnit?.status === 'returned',
+      `returning unit status=${replUnit?.status}`);
     await shot(page, 'phase2-replacement-recorded');
   }
 
@@ -346,7 +348,7 @@ async function run() {
     /Carriage £/i.test(body) && /Other £/i.test(body) && /Total £/i.test(body),
     'Carriage / Other / Total columns present');
   record('the header states what the total now includes',
-    /carriage \+ repair invoices \+ replacement handsets/i.test(body));
+    /carriage \+ repair invoices − supplier credits/i.test(body));
   record('the repair invoice reaches the ledger',
     body.includes('64.50'),
     repairCostEntered ? 'entered 64.50' : 'repair cost box was never shown');
@@ -357,7 +359,6 @@ async function run() {
   const returned = docsOf(store, 'inventoryUnits').filter(u => u.returnType);
   const outstanding = returned.filter(u =>
     (u.returnType === 'repair' && typeof u.repairCost !== 'number')
-    || (u.returnOutcome === 'replacement' && typeof u.replacementUnitCost !== 'number')
     || (u.returnType === 'returned_to_supplier' && typeof u.supplierCreditAmount !== 'number'));
   if (outstanding.length > 0) {
     record('un-entered costs are flagged rather than shown as zero',

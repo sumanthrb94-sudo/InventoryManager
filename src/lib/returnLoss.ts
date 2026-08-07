@@ -11,12 +11,14 @@
  *   ─────────────────────────────────────────────────────────────────────
  *   refund        2 legs          (none — the unit comes back saleable)
  *   repair        2 legs          the repair invoice
- *   replacement   3 legs          a whole second handset
+ *   replacement   3 legs          (none — see extraCostsFor)
  *   to supplier   2 legs          offset by the credit that comes back
  *
- * On a £300 handset a replacement was recording ~£24 of loss against a real
- * ~£324. That is the single biggest error in the returns economics, and it is
- * why a returned unit could still read as profitable.
+ * A replacement is the case that looks like it should cost a handset and does
+ * not: the faulty unit comes back and a like-for-like one goes out, so net
+ * stock is unchanged and only the three carriage legs are consumed. See
+ * extraCostsFor for the full arithmetic — an earlier version of this module
+ * charged the second handset and understated every replacement by a unit cost.
  *
  * RECORDED ZERO IS NOT THE SAME AS NOT RECORDED
  *
@@ -29,11 +31,6 @@
  *
  * WHAT THIS DELIBERATELY DOES NOT DO
  *
- *   - It does not discount a replacement by the resale value of the faulty
- *     unit that came back. The operator's ruling is that a replacement costs
- *     a whole second handset; the recovery arrives later as that returned
- *     unit's own sale, which the app already counts. Netting it here would
- *     count the recovery twice.
  *   - It does not touch marketplace commission. Whether a refund credits the
  *     fees back is still open with the operator ("mostly yes, will follow
  *     up"), and per channel. Until that is settled, fees are out of scope
@@ -46,18 +43,16 @@
 import type { InventoryUnit, Sale } from '../types';
 
 /** A cost this return should carry that nobody has recorded yet. */
-export type ReturnCostGap = 'repair_invoice' | 'replacement_handset' | 'supplier_credit';
+export type ReturnCostGap = 'repair_invoice' | 'supplier_credit';
 
 export interface ReturnCostBreakdown {
   /** Carriage: (postage + P.VAT) × legs. Same figure `postageLossFor` gives. */
   postage: number;
   /** Repair invoice for this cycle, £. 0 when not a repair or not yet entered. */
   repair: number;
-  /** Purchase price of the second handset shipped as a replacement, £. */
-  replacementHandset: number;
   /** Money (or value in kind) recovered from the supplier, £. Reduces the total. */
   supplierCredit: number;
-  /** postage + repair + replacementHandset − supplierCredit. */
+  /** postage + repair − supplierCredit. */
   total: number;
   /** Costs that apply to this return but have not been entered. When this is
    *  non-empty, `total` is a floor, not the answer. */
@@ -128,7 +123,7 @@ function legCostFor(unit: InventoryUnit, sale?: Sale | null): number {
 export function extraCostsFor(
   unit: InventoryUnit,
   route: 'refund' | 'replacement' | 'repair' | null,
-): { repair: number; replacementHandset: number; supplierCredit: number; gaps: ReturnCostGap[] } {
+): { repair: number; supplierCredit: number; gaps: ReturnCostGap[] } {
   const gaps: ReturnCostGap[] = [];
 
   let repair = 0;
@@ -137,11 +132,33 @@ export function extraCostsFor(
     else gaps.push('repair_invoice');
   }
 
-  let replacementHandset = 0;
-  if (route === 'replacement') {
-    if (typeof unit.replacementUnitCost === 'number') replacementHandset = unit.replacementUnitCost;
-    else gaps.push('replacement_handset');
-  }
+  // A REPLACEMENT COSTS THE CARRIAGE, NOT A HANDSET.
+  //
+  // The first version of this charged the replacement unit's full purchase
+  // price, on the reading that "a replacement costs a whole second handset".
+  // That double-counts, and the arithmetic is worth spelling out because the
+  // intuition is so persuasive:
+  //
+  //   two handsets bought                        -600
+  //   customer pays, keeps the replacement       +400   GP on sale 1 = +100
+  //   faulty unit comes back, is resold later    +400   GP on sale 2 = +100
+  //   -------------------------------------------------------------------
+  //   real outcome: +200 of GP, less 3 carriage legs
+  //
+  // Both handsets' purchase prices are already inside those two sales' gross
+  // profit. Charging the second handset here is a THIRD charge for stock that
+  // was only ever bought twice, and it understated every replacement by a
+  // full unit cost.
+  //
+  // The stock position says the same thing more directly: one unit ships out,
+  // the faulty one comes back in. Net inventory is unchanged, so nothing was
+  // consumed except the postage on three legs.
+  //
+  // replacementUnitCost is still snapshotted on the unit — it records WHICH
+  // handset went out and what it had cost, which is real audit value — but it
+  // is not a loss. It would only become one if the returning unit were
+  // written off rather than resold, and that is not a route this business
+  // runs (it repairs and resells, or returns to the supplier for credit).
 
   // The supplier credit is a recovery, not a cost, and only a unit actually
   // sent back to the supplier can have one. It is recorded when the credit
@@ -152,7 +169,7 @@ export function extraCostsFor(
     else gaps.push('supplier_credit');
   }
 
-  return { repair, replacementHandset, supplierCredit, gaps };
+  return { repair, supplierCredit, gaps };
 }
 
 /** Full cost of a return, with the un-entered figures named rather than
@@ -161,13 +178,13 @@ export function extraCostsFor(
 export function returnCostFor(unit: InventoryUnit, sale?: Sale | null): ReturnCostBreakdown {
   const route = returnRouteFor(unit, sale);
   if (!route) {
-    return { postage: 0, repair: 0, replacementHandset: 0, supplierCredit: 0, total: 0, gaps: [] };
+    return { postage: 0, repair: 0, supplierCredit: 0, total: 0, gaps: [] };
   }
 
   const postage = legCostFor(unit, sale) * (route === 'replacement' ? 3 : 2);
-  const { repair, replacementHandset, supplierCredit, gaps } = extraCostsFor(unit, route);
-  const total = postage + repair + replacementHandset - supplierCredit;
-  return { postage, repair, replacementHandset, supplierCredit, total, gaps };
+  const { repair, supplierCredit, gaps } = extraCostsFor(unit, route);
+  const total = postage + repair - supplierCredit;
+  return { postage, repair, supplierCredit, total, gaps };
 }
 
 /** Sum a set of returns, carrying the gap count so a caller can say
@@ -175,14 +192,13 @@ export function returnCostFor(unit: InventoryUnit, sale?: Sale | null): ReturnCo
  *  presenting an understated total as complete. */
 export function totalReturnCost(
   rows: Array<{ unit: InventoryUnit; sale?: Sale | null }>,
-): { total: number; postage: number; repair: number; replacementHandset: number; supplierCredit: number; gapCount: number } {
-  const acc = { total: 0, postage: 0, repair: 0, replacementHandset: 0, supplierCredit: 0, gapCount: 0 };
+): { total: number; postage: number; repair: number; supplierCredit: number; gapCount: number } {
+  const acc = { total: 0, postage: 0, repair: 0, supplierCredit: 0, gapCount: 0 };
   for (const { unit, sale } of rows) {
     const c = returnCostFor(unit, sale);
     acc.total += c.total;
     acc.postage += c.postage;
     acc.repair += c.repair;
-    acc.replacementHandset += c.replacementHandset;
     acc.supplierCredit += c.supplierCredit;
     acc.gapCount += c.gaps.length;
   }
