@@ -45,6 +45,20 @@ async function shot(page, name) {
 
 function modal(page) { return page.locator('div.fixed.inset-0').last(); }
 
+/** Element-scoped screenshot for the walkthrough.
+ *
+ *  .last() not .first(): Playwright's :has-text() matches every ANCESTOR that
+ *  contains the text, so .first() resolves to the outermost div — which is the
+ *  whole page. The innermost match is the panel actually wanted. */
+async function figure(page, locator, name) {
+  const el = page.locator(locator).last();
+  if (!(await el.isVisible().catch(() => false))) { console.log(`      figure ${name}: not visible`); return; }
+  await el.scrollIntoViewIfNeeded().catch(() => {});
+  await page.waitForTimeout(400);
+  await el.screenshot({ path: `${OUT}/fig-${name}.png` }).catch(() => {});
+  console.log(`      ↳ fig-${name}.png`);
+}
+
 async function dismissModals(page) {
   for (let i = 0; i < 6; i++) {
     const o = page.locator('div.fixed.inset-0').last();
@@ -100,7 +114,7 @@ const docsOf = (store, col) => Object.values(store[col] || {});
  *  replacement handset is rejected by the service, and the unit stays sitting
  *  in the CRM queue. The next phase then clicked "Finalise" and got THAT row,
  *  so a harness bug surfaced as two unrelated-looking product failures. */
-async function processReturn(page, imei, returnTypeLabel, reason, outcome, replacementImei) {
+async function processReturn(page, imei, returnTypeLabel, reason, outcome, replacementImei, captureAs) {
   await gotoTab(page, 'Returns');
   await page.getByRole('button', { name: /^Process Return$/i }).click({ timeout: 10000 }).catch(() => {});
   await page.waitForTimeout(900);
@@ -126,6 +140,7 @@ async function processReturn(page, imei, returnTypeLabel, reason, outcome, repla
   await page.waitForTimeout(900);
   const crm = modal(page);
   await crm.getByText(returnTypeLabel, { exact: false }).first().click().catch(() => {});
+  if (captureAs) await figure(page, 'div.fixed.inset-0 > div', `crm-${captureAs}`);
   await page.waitForTimeout(400);
   if (outcome) {
     await crm.getByText(outcome, { exact: false }).first().click().catch(() => {});
@@ -190,7 +205,7 @@ async function run() {
   // ── PHASE 1 · repair, with an invoice ──────────────────────────────────────
   console.log('\n══ PHASE 1 · repair records its invoice ══');
   const repairImei = String(sold[0].imei);
-  const r1 = await processReturn(page, repairImei, 'Repair', 'Cracked screen');
+  const r1 = await processReturn(page, repairImei, 'Repair', 'Cracked screen', null, null, 'repair');
   record('a repair return processes', r1.ok, r1.why || '');
 
   await gotoTab(page, 'Returns');
@@ -208,6 +223,7 @@ async function run() {
     record('the Ready to Ship modal asks for the repair cost', repairCostEntered);
     await shot(page, 'phase1-repair-cost-modal');
     if (repairCostEntered) await costBox.fill('64.50');
+    await figure(page, 'div.fixed.inset-0 > div', 'ready-to-ship');
     await m.getByRole('button', { name: /^Back to Stock$/i }).click({ timeout: 10000 }).catch(() => {});
     await page.waitForTimeout(1800);
     await dismissModals(page);
@@ -292,6 +308,7 @@ async function run() {
       await shot(page, 'phase3-supplier-credit-modal');
       if (visible) {
         await amt.fill('275');
+        await figure(page, 'div.fixed.inset-0 > div', 'supplier-credit');
         await m.getByRole('button', { name: /^Record$/i }).click({ timeout: 10000 }).catch(() => {});
         await page.waitForTimeout(1800);
         await dismissModals(page);
@@ -367,6 +384,12 @@ async function run() {
   } else {
     note('every processed return had its cost entered — nothing outstanding to flag');
   }
+
+  // ── Walkthrough figures ───────────────────────────────────────────────────
+  // Element-scoped, not full-page: a walkthrough needs the panel being
+  // explained, and a 1000px page shot reduces it to an unreadable band.
+  await figure(page, 'div.rounded-3xl:has(p:text-is("Return Losses · Lifecycle"))', 'loss-ledger');
+  await figure(page, 'div.rounded-3xl:has(p:text-is("Back to Inventory"))', 'kpi-strip');
 
   await browser.close();
   return report();
