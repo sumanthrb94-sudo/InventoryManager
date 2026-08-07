@@ -266,22 +266,44 @@ source of truth.
 
 ## 6. Report tab layout
 
-Column order per tab (2026-08). `Storage` and `Colour` are appended **last** on
-purpose: every GP / GP % / TOTAL formula references hard column letters, so
-inserting mid-sheet would shift them silently.
+Column order per tab (2026-08). Each sheet reads left to right as **what was
+sold -> what it cost -> what it made -> what happened to it afterwards**.
+
+Reordering these is safe. The formulas used to reference hard column letters,
+so inserting a column mid-sheet shifted them silently and `Model` / `Storage` /
+`Colour` had to be appended last. `excelFormulaFor` now resolves every column
+by header NAME via `salesCol` / `salesColLetter`, which throw on an unknown
+name, so the order below is a presentation decision.
 
 | Tab | Columns |
 |---|---|
-| AMAZON | Date · Order Number · SKU · IMEI · Supplier · Quantity · BP · SP · SP-BP · Marginal Tax · Commission · C. VAT · DSF · DSF. VAT · Postage · P. VAT · Accessories · Total VAT · GP · GP % · Total VAT NTP · Comments · Model · Return Date · Outcome · Return Reason · Shipping Legs · Postage Loss · Net GP £ · Storage · Colour |
+| AMAZON | Date · Order Number · SKU · IMEI · Model · Colour · Storage · Supplier · Quantity · BP · SP · SP-BP · Marginal Tax · Commission · C. VAT · DSF · DSF. VAT · Postage · P. VAT · Accessories · Total VAT · GP · GP % · Total VAT NTP · Postage Loss · Net GP £ · Return Date · Outcome · Shipping Legs · Return Reason · Comments |
 | BM | …as Amazon, but Customer Care Fees replaces the C.VAT/DSF block and there is **no Total VAT** |
 | EBAY | …adds ROF · FVF · VAT · T.COM · Marketing · M. VAT; Units replaces Quantity |
 | ONBUY | …adds VAT 20%; **no Quantity column** (every letter shifts one left) |
 | TEMU | …adds Commission VAT; no DSF block |
 
-Returns add: `Return Date · Outcome · Return Reason · Shipping Legs ·
-Postage Loss · Net GP £`, where
-`Postage Loss = (Postage + P.VAT) × legs`, legs = **3** for a replacement and
-**2** for a refund or repair, and `Net GP £ = GP − Postage Loss`.
+The return block closes every tab: `Return Date · Outcome · Shipping Legs ·
+Return Reason · Comments`. `Postage Loss` and `Net GP £` sit with the money,
+since the bottom line belongs there.
+
+`Postage Loss = (Postage + P.VAT) × legs billed`, and **legs billed is not the
+same as Shipping Legs**. Shipping Legs counts journeys: 2 for a refund or an
+in-warranty repair, 3 for a replacement (out, faulty back, new one out) and for
+a repair after the warranty window (it goes back mended). But the first journey
+was paid at sale time and is already inside that sale's own `Postage`, which
+its GP subtracts — so it is only billed here when the GP does not stand:
+
+| | Sale's GP | Journeys | Already paid | Billed |
+|---|---|---|---|---|
+| Refund | reversed | 2 | 0 | 2 |
+| Repair, in warranty | reversed | 2 | 0 | 2 |
+| Repair, after warranty | stands | 3 | 1 | 2 |
+| Replacement | stands | 3 | 1 | 2 |
+| Accessory return (revenue voided outright) | 2 or 3 | 2 or 3 | 0 | 2 or 3 |
+
+Billing all three journeys on a replacement charged **four** legs for three.
+`Net GP £ = GP − Postage Loss`.
 
 ---
 

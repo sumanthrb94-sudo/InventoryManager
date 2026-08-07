@@ -448,8 +448,25 @@ Unit IMEI | Model | Event Date | Event | Detail | Amount £ | Comments
 |---|---|
 | Return Type | `returned_to_inventory` `repair` `returned_to_supplier` |
 | Outcome | `refund` `replacement` `repair` |
-| Shipping Legs | refund / repair / to-supplier = 2 (out + back); replacement = 3 |
-| Postage Loss £ | Leg Cost × Shipping Legs |
+| Shipping Legs | Journeys the parcel made. Refund / in-warranty repair / to-supplier = 2 (out + back); replacement = 3 (out, faulty back, new one out); repair after the warranty window = 3 (it goes back mended) |
+| Postage Loss £ | Leg Cost × (Shipping Legs − 1 if the sale kept its revenue). **Not** Leg Cost × Shipping Legs — see below |
+
+**Why Postage Loss can be less than Leg Cost × Shipping Legs.**
+The first journey was paid at sale time and is recorded as that sale's own
+`Postage`, which its gross profit already subtracts. So it only needs charging
+here when that gross profit does *not* stand:
+
+| | Sale's GP | Journeys | Already paid | Billed |
+|---|---|---|---|---|
+| Refund | reversed | 2 | 0 | 2 |
+| Repair, in warranty (refunded) | reversed | 2 | 0 | 2 |
+| Repair, after warranty | stands | 3 | 1 | 2 |
+| Replacement | stands | 3 | 1 | 2 |
+| Accessory return (revenue voided outright) | reversed | 2 or 3 | 0 | 2 or 3 |
+
+Billing all three journeys on a replacement charged **four** legs for three —
+the sale kept its revenue with the outbound leg inside it, and the return
+charged that same leg again.
 
 ---
 

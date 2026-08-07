@@ -222,3 +222,68 @@ describe('totalling a period', () => {
     expect(t.gapCount).toBe(1);
   });
 });
+
+/**
+ * The carriage rule, stated as a table.
+ *
+ * The leg count is NOT a property of the route on its own. Every return's
+ * first journey — out to the customer — was paid at sale time and recorded as
+ * that sale's own Postage, which its gross profit subtracts. Whether it needs
+ * charging again here depends on whether that gross profit still stands.
+ *
+ * The bug this pins: a replacement ships three times, and the code billed all
+ * three while the sale ALSO kept its revenue with the outbound leg inside it —
+ * four legs charged for three journeys, on every replacement ever processed.
+ *
+ * The £10 leg cost in the fixture makes each row read directly.
+ */
+describe('how many carriage legs a return is billed for', () => {
+  const stamped = (over: Partial<Sale>) =>
+    sale({ gpBasis: 'returns_v2', ...over });
+
+  it('replacement: ships 3, billed 2 — the sale is still paying for the first', () => {
+    const c = returnCostFor(
+      unit({ returnType: 'returned_to_inventory', returnOutcome: 'replacement' }),
+      stamped({ voidOutcome: 'replacement', customerRefunded: false }),
+    );
+    expect(c.postage).toBe(20);
+  });
+
+  it('repair after the warranty window: ships 3 (it goes back mended), billed 2', () => {
+    const c = returnCostFor(
+      unit({ returnType: 'repair', repairCost: 0 }),
+      stamped({ voidOutcome: 'repair', customerRefunded: false }),
+    );
+    expect(c.postage).toBe(20);
+  });
+
+  it('repair inside the window: refunded, so it ships 2 and all 2 are billed', () => {
+    const c = returnCostFor(
+      unit({ returnType: 'repair', repairCost: 0 }),
+      stamped({ voidOutcome: 'repair', customerRefunded: true }),
+    );
+    expect(c.postage).toBe(20);
+  });
+
+  it('refund: the sale contributes nothing, so both its journeys are billed', () => {
+    const c = returnCostFor(
+      unit({ returnType: 'returned_to_inventory', returnOutcome: 'refund' }),
+      stamped({ voidOutcome: 'refund', customerRefunded: true }),
+    );
+    expect(c.postage).toBe(20);
+  });
+
+  /**
+   * Why the answer is not simply "always 2". Accessory returns void the
+   * revenue outright rather than stamping customerRefunded, so their outbound
+   * leg is charged nowhere else and all three journeys fall here. Same for any
+   * return predating the returns_v2 basis.
+   */
+  it('a replacement whose revenue was voided outright is billed all 3', () => {
+    const c = returnCostFor(
+      unit({ returnType: 'returned_to_inventory', returnOutcome: 'replacement' }),
+      sale({ voidOutcome: 'replacement' }),   // no gpBasis — revenue removed
+    );
+    expect(c.postage).toBe(30);
+  });
+});

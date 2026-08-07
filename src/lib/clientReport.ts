@@ -318,27 +318,59 @@ const DATE_FMT = '[$-409]d\\-mmm\\-yyyy';
 const MONEY_FMT = '0.00';
 const IMEI_FMT = '0';
 
-/** Per-sale postage loss (£). 0 for active sales AND for repair-route
- *  it's (postage + P.VAT) × shipping legs. Refund = 2 legs (outbound +
- *  inbound), replacement = 3 (plus the replacement outbound), repair = 2
- *  (outbound to the customer + the faulty unit shipped back to us — the
- *  unit then goes back to stock, but both carriage legs are a real loss).
+/** How many times the parcel physically MOVED because of this return.
+ *
+ *    refund                    2   out to the customer, back to us
+ *    repair, customer refunded 2   out, back — the unit stays with us
+ *    repair, no refund         3   out, back, and out again once mended
+ *    replacement               3   out, the faulty one back, the new one out
+ *
+ *  This is a count of journeys, NOT a charge. `postageLossFor` bills fewer
+ *  legs than this on any sale that kept its revenue — see there for why. */
+export function shippingLegsFor(sale: Sale): number {
+  if (!sale.voidedAt) return 0;
+  if (sale.voidOutcome === 'replacement') return 3;
+  // A repair the customer was not refunded for goes back to them mended,
+  // which is a third journey. An in-warranty repair is a refund in all but
+  // name — the money went back and the unit stayed here.
+  if (sale.voidOutcome === 'repair' && saleKeptItsRevenue(sale)) return 3;
+  return 2;
+}
+
+/** Per-sale postage loss (£): the carriage this return costs that is not
+ *  already charged somewhere else. 0 for a sale that was never voided.
+ *
+ *  WHY THIS IS NOT SIMPLY (postage + P.VAT) × shippingLegsFor
+ *
+ *  The FIRST journey — out to the customer — was paid at sale time and is
+ *  recorded as that sale's own Postage, which its gross profit subtracts. So
+ *  whether it needs charging here depends entirely on whether that gross
+ *  profit still stands:
+ *
+ *    - Refunded (and every accessory return, which voids the revenue
+ *      outright): the sale contributes nothing, so its postage is charged
+ *      nowhere. All of its journeys are billed here.
+ *    - Replacement, or a repair after the warranty window: the customer kept
+ *      paying, the GP stands, and the outbound leg is already inside it.
+ *      Billing it again here charged FOUR legs for three journeys.
+ *
+ *  Hence: legs billed = journeys − (1 if the sale kept its revenue). That
+ *  lands on two legs for every unit return and three for an accessory
+ *  replacement, and the two halves cannot double-count because
+ *  saleKeptItsRevenue decides which one pays.
+ *
+ *  `returnCostFor` in returnLoss.ts applies the identical rule — the Returns
+ *  & Profit sheet is built on that one and this column on this one, so they
+ *  have to agree.
+ *
  *  Used as the trailing Postage Loss column on every marketplace sheet so
  *  the CA can tally the period's exposure. */
 export function postageLossFor(sale: Sale): number {
   if (!sale.voidedAt) return 0;
   const postage = Number(sale.postage) || 0;
   const pvat = sale.postageVatExempt ? 0 : (Number(sale.postageVat) || postage * 0.2);
-  const legs = sale.voidOutcome === 'replacement' ? 3 : 2;  // refund + repair both eat 2
+  const legs = shippingLegsFor(sale) - (saleKeptItsRevenue(sale) ? 1 : 0);
   return (postage + pvat) * legs;
-}
-
-/** Number of shipping legs eaten by a void. Refund = 2 (outbound +
- *  inbound), replacement = 3 (plus the replacement outbound), repair = 2
- *  (outbound + inbound — the unit comes back, but both legs were paid). */
-export function shippingLegsFor(sale: Sale): number {
-  if (!sale.voidedAt) return 0;
-  return sale.voidOutcome === 'replacement' ? 3 : 2;
 }
 
 /** Convert a 1-indexed column number to an Excel letter (1=A, 26=Z, 27=AA, etc).

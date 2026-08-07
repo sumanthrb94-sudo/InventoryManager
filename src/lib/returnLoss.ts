@@ -11,8 +11,12 @@
  *   ─────────────────────────────────────────────────────────────────────
  *   refund        2 legs          (none — the unit comes back saleable)
  *   repair        2 legs          the repair invoice
- *   replacement   3 legs          (none — see extraCostsFor)
+ *   replacement   2 legs          (none — see extraCostsFor)
  *   to supplier   2 legs          offset by the credit that comes back
+ *
+ * A replacement physically ships THREE times and is still billed two legs
+ * here, because the outbound one is already inside the sale's own Postage —
+ * see returnCostFor, which sets out all five cases.
  *
  * A replacement is the case that looks like it should cost a handset and does
  * not: the faulty unit comes back and a like-for-like one goes out, so net
@@ -181,7 +185,38 @@ export function returnCostFor(unit: InventoryUnit, sale?: Sale | null): ReturnCo
     return { postage: 0, repair: 0, supplierCredit: 0, total: 0, gaps: [] };
   }
 
-  const postage = legCostFor(unit, sale) * (route === 'replacement' ? 3 : 2);
+  // BILL THE JOURNEYS THAT NOBODY ELSE IS PAYING FOR.
+  //
+  // A replacement moves the parcel three times: out to the customer, the
+  // faulty unit back to us, the replacement out. But the FIRST of those was
+  // paid at SALE time and recorded as that sale's own Postage, which its
+  // gross profit subtracts. A replacement keeps its revenue, so that GP
+  // stands and the outbound leg is already charged — billing three more here
+  // charged FOUR legs for three journeys, on every replacement ever
+  // processed.
+  //
+  // So the leg count is not a property of the route alone. It is the
+  // journeys this return caused, less the one the sale is still paying for:
+  //
+  //   route                     GP        journeys   already paid   billed
+  //   ──────────────────────────────────────────────────────────────────────
+  //   refund                    zeroed        2            0           2
+  //   repair, in warranty       zeroed        2            0           2
+  //   repair, out of warranty   stands        3            1           2
+  //   replacement               stands        3            1           2
+  //   accessory replacement     zeroed        3            0           3
+  //
+  // The accessory row is why this is not just a constant 2: accessory returns
+  // void the revenue outright rather than stamping customerRefunded, so their
+  // outbound leg is charged nowhere else and all three journeys are billed
+  // here. saleKeptItsRevenue is the single switch that decides which half
+  // pays, which is what makes double-counting impossible either way.
+  //
+  // clientReport's postageLossFor applies the identical rule for the Postage
+  // Loss column; the two must agree.
+  const keptRevenue = saleKeptItsRevenue(sale);
+  const journeys = (route === 'replacement' || (route === 'repair' && keptRevenue)) ? 3 : 2;
+  const postage = legCostFor(unit, sale) * (journeys - (keptRevenue ? 1 : 0));
   const { repair, supplierCredit, gaps } = extraCostsFor(unit, route);
   const total = postage + repair - supplierCredit;
   return { postage, repair, supplierCredit, total, gaps };

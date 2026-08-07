@@ -85,14 +85,45 @@ describe('which sales count toward revenue', () => {
 });
 
 describe('what the returns cost', () => {
-  it('a replacement costs three carriage legs and nothing else', async () => {
+  /**
+   * A replacement ships three times — out, the faulty one back, the new one
+   * out — and is billed for TWO of them.
+   *
+   * The first journey was paid at sale time and sits inside that sale's own
+   * Postage. A replacement keeps its revenue (the customer never got their
+   * money back), so that gross profit stands and the outbound leg is already
+   * charged there. Billing three here made every replacement carry four legs
+   * for three journeys.
+   *
+   * The pairing below is the real check: the sale still contributes its full
+   * £60 of gross profit AND only two legs are charged against it. Assert them
+   * together, because taking either one alone is consistent with the bug.
+   */
+  it('a replacement is billed two carriage legs — the third is inside the sale', async () => {
     const rows = await sheetRows(
       [sale({ voidedAt: '2026-08-05', voidOutcome: 'replacement', customerRefunded: false, gpBasis: 'returns_v2' })],
       [unit({ returnType: 'returned_to_inventory', returnOutcome: 'replacement', replacementUnitCost: 300 })],
     );
     const a = rows.find(r => r.Marketplace === 'AMAZON')!;
-    expect(a['Carriage £']).toBeCloseTo(28.8, 2);
-    expect(a['Return Cost £']).toBeCloseTo(28.8, 2);   // no handset charge
+    expect(a['Gross GP £'], 'the sale keeps its profit, outbound postage and all').toBe(60);
+    expect(a['Carriage £']).toBeCloseTo(19.2, 2);      // 2 × 9.60, not 3
+    expect(a['Return Cost £']).toBeCloseTo(19.2, 2);   // and no handset charge
+  });
+
+  /**
+   * The counterpart: a REFUND gives the money back, so the sale contributes
+   * nothing and none of its postage is charged anywhere else. Both of its
+   * journeys are billed here. Same two legs as the replacement, arrived at
+   * from the opposite direction — which is the point of the rule.
+   */
+  it('a refund is billed two legs too, but because the sale paid for none', async () => {
+    const rows = await sheetRows(
+      [sale({ voidedAt: '2026-08-05', voidOutcome: 'refund', customerRefunded: true, gpBasis: 'returns_v2' })],
+      [unit({ returnType: 'returned_to_inventory', returnOutcome: 'refund' })],
+    );
+    const a = rows.find(r => r.Marketplace === 'AMAZON')!;
+    expect(a['Gross GP £'], 'refunded — the sale contributes nothing').toBe(0);
+    expect(a['Carriage £']).toBeCloseTo(19.2, 2);
   });
 
   it('adds the repair invoice', async () => {
