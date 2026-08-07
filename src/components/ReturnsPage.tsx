@@ -2503,6 +2503,18 @@ function ProcessReturnModal({
         return (a.dateIn || '').localeCompare(b.dateIn || '');
       });
   }, [outcome, allUnits, unit, replacementSearch]);
+  /** Replacement chosen with nothing on the shelf to ship.
+   *
+   *  The service already refuses this, and the red panel above already says
+   *  "Choose Refund instead" — but the button stayed live, so the operator's
+   *  next move was to click it and read an error. With no matching handset
+   *  the answer is always a refund (two legs, not three), so say that on the
+   *  button rather than letting them find out by failing. */
+  const blockedNoStock = step === 'crm'
+    && returnType !== 'repair'
+    && outcome === 'replacement'
+    && eligibleReplacements.length === 0;
+
   const warranty = useMemo(() => getWarrantyStatus(unit.saleDate), [unit.saleDate]);
 
   /** Step-1 save (Tech-QC). Lands customer + technician comments on the
@@ -2850,13 +2862,20 @@ function ProcessReturnModal({
             className="flex-1 py-3 border border-gray-200 rounded-xl text-[10px] font-bold uppercase tracking-widest text-gray-500 hover:bg-gray-50 transition-all">
             Cancel
           </button>
-          <button onClick={step === 'qc' ? handleQcSave : handleSave} disabled={saving}
+          <button
+            onClick={step === 'qc' ? handleQcSave : handleSave}
+            disabled={saving || blockedNoStock}
+            title={blockedNoStock
+              ? 'No matching handset in stock — refund the customer instead'
+              : undefined}
             className="flex-1 py-3 bg-black text-white rounded-xl text-[10px] font-bold uppercase tracking-widest hover:bg-gray-800 transition-all disabled:opacity-50 flex items-center justify-center gap-2">
             {saving
               ? 'Saving…'
               : step === 'qc'
                 ? <><ArrowRight size={13} /> Send to CRM Queue</>
-                : <><CheckCircle2 size={13} /> Finalise Return</>}
+                : blockedNoStock
+                  ? 'No Stock — Refund Instead'
+                  : <><CheckCircle2 size={13} /> Finalise Return</>}
           </button>
         </div>
       </div>
