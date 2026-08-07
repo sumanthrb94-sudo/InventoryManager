@@ -252,9 +252,36 @@ async function goLiveReconciliation(page) {
     await page.getByRole('menuitem', { name: /Sales Report/i }).click();
     await page.waitForTimeout(1000);
     await page.locator('input[type="file"]').first().setInputFiles(salesDownloaded);
+
+    // WAIT FOR THE PREVIEW, AND MEASURE IT — do not sleep a fixed 60s.
+    //
+    // This is by far the largest import in the suite: a full quarter is ~2,200
+    // sales across five tabs. A fixed sleep answers the wrong question — it
+    // says "did it finish inside the number I guessed" rather than "how long
+    // does it actually take", so a genuine slowdown and an unlucky container
+    // look identical. The elapsed time is recorded so the answer is a figure
+    // rather than a verdict.
+    const t0 = Date.now();
+    const confirmBtn = modal(page).getByRole('button', { name: /Load|Confirm|record/i }).last();
+    await confirmBtn.waitFor({ state: 'visible', timeout: 240000 });
+    await page.waitForFunction(
+      () => {
+        const btns = [...document.querySelectorAll('button')]
+          .filter(b => /Load|Confirm|record/i.test(b.textContent || ''));
+        return btns.length > 0 && btns.some(b => !b.disabled);
+      },
+      undefined,
+      { timeout: 240000 },
+    );
+    const previewSecs = ((Date.now() - t0) / 1000).toFixed(1);
+    console.log(`      preview ready after ${previewSecs}s`);
+    await confirmBtn.click({ timeout: 30000 });
+
+    const t1 = Date.now();
     await page.waitForTimeout(60000);
-    await modal(page).getByRole('button', { name: /Load|Confirm|record/i }).last().click({ timeout: 30000 });
-    await page.waitForTimeout(60000);
+    console.log(`      confirm settled after ${((Date.now() - t1) / 1000).toFixed(1)}s`);
+    record(`Sales Report preview built in under 4 minutes at quarter scale`,
+      Number(previewSecs) < 240, `${previewSecs}s for ~2,200 sales`);
     await modal(page).getByRole('button', { name: /Close|Done/i }).last().click({ timeout: 10000 }).catch(() => {});
     await dismissModals(page);
     record('Re-uploaded Sales Report without error', true);
