@@ -107,9 +107,24 @@ async function run() {
   await page.getByPlaceholder('Samsung').fill(BRAND);
   await page.getByPlaceholder('Galaxy S24 Ultra').fill(MODEL);
   await page.getByPlaceholder('Galaxy S', { exact: true }).fill(SERIES);
-  // Two "Add" buttons exist on this page (Models Catalog + embedded
-  // Suppliers) — the catalog one is the emerald-styled inline form button.
-  await page.locator('button.bg-emerald-600', { hasText: 'Add' }).click();
+  // Scope the click to the models form by anchoring on the one placeholder
+  // that only it has.
+  //
+  // This used to select on the emerald styling, which was enough when the
+  // page held two Add buttons (Models Catalog + Suppliers). The Accessory
+  // Catalog panel added a third with the same styling, so the selector
+  // started matching two elements and Playwright refused to guess — the
+  // script died on a strict-mode violation rather than clicking the wrong
+  // one, which is the good failure of the two.
+  //
+  // Anchoring on a shared CSS class was always the fragile part: styling is
+  // meant to be reused, so any selector built from it breaks the moment a
+  // second panel adopts the house look. The Model field's placeholder is
+  // unique to this form and describes what the form IS.
+  const modelsAddForm = page.locator('div.grid').filter({
+    has: page.getByPlaceholder('Galaxy S24 Ultra'),
+  });
+  await modelsAddForm.getByRole('button', { name: /^Add$/i }).click();
   await page.waitForTimeout(1000);
   await shot(page, 'model-added');
 
