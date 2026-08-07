@@ -251,7 +251,7 @@ async function loadWorkbook(buffer: ArrayBuffer): Promise<ExcelJS.Workbook> {
 }
 
 describe('buildSalesWorkbookBuffer — auditor-grade structure', () => {
-  it('produces 10 sheets — Summary + Accessories + Returns Summary/Detail/Unit Histories + AMAZON / BM / EBAY / ONBUY / TEMU', async () => {
+  it('produces 11 sheets — Summary + Returns & Profit + Accessories + Returns Summary/Detail/Unit Histories + AMAZON / BM / EBAY / ONBUY / TEMU', async () => {
     const buffer = await buildSalesWorkbookBuffer({ sales: [] });
     const wb = await loadWorkbook(buffer);
     // The returns section sits after the marketplace tabs (TEMU is last)
@@ -260,7 +260,7 @@ describe('buildSalesWorkbookBuffer — auditor-grade structure', () => {
     // 'Returns Summary' (not 'Summary') avoids colliding with the
     // workbook's own top-level Summary sheet.
     expect(wb.worksheets.map(w => w.name)).toEqual([
-      'Summary', 'AMAZON', 'BM', 'EBAY', 'ONBUY', 'TEMU', 'Accessories',
+      'Summary', 'AMAZON', 'BM', 'EBAY', 'ONBUY', 'TEMU', 'Returns & Profit', 'Accessories',
       'Returns Summary', 'Returns Detail', 'Unit Histories',
     ]);
   });

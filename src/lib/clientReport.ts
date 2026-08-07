@@ -26,6 +26,7 @@ import type {
 } from '../types';
 import { MARKETPLACES } from '../types';
 import { excelFormulaFor } from './platforms';
+import { returnCostFor, saleKeptItsRevenue } from './returnLoss';
 import { recomputeSale } from './recomputeSale';
 import { normalizeOperatorSku } from './modelStorage';
 
@@ -1115,6 +1116,13 @@ export async function buildSalesWorkbookBuffer(input: BuildSalesWorkbookInput): 
   // this tab pulls the SAME rows into one place across every marketplace,
   // the same relationship the Inventory Report has between its per-source
   // Office/SHS sheets and its own dedicated Accessories sheet.
+  // Returns & Profit by marketplace — one row per channel carrying the
+  // corrected return economics (repair invoices, supplier credits, and a
+  // replacement costing carriage only). The top-level Summary sheet has an
+  // older, narrower version that predates those corrections; rather than
+  // quietly change what that sheet has always meant, this is its own sheet.
+  writeReturnsProfitSheet(wb, filtered, units ?? []);
+
   writeAccessoriesSalesSheet(wb, filtered, accessoryStock ?? []);
 
   // Sheets after TEMU: Returns Summary / Returns Detail / Unit Histories —
@@ -1238,6 +1246,152 @@ const TOTAL_SUM_COLS: Record<Marketplace, { label: number; numericCols: number[]
     gpCol: 17, gpPctCol: 18, postageLossCol: 26, netGpCol: 27, denominatorCol: 7,
   },
 };
+
+/**
+ * Returns & Profit by marketplace.
+ *
+ * Answers the two questions asked of a period per channel: what did it make,
+ * and what did its returns cost? Built on returnCostFor — the same function
+ * the Returns screen uses — so the workbook and the app cannot drift apart.
+ *
+ * Revenue and Gross GP count only sales that KEPT their money. A refunded
+ * sale contributes nothing; a replacement or an out-of-warranty repair
+ * contributes in full, because the customer's payment stayed with us.
+ */
+function writeReturnsProfitSheet(
+  wb: ExcelJS.Workbook,
+  sales: Sale[],
+  units: InventoryUnit[],
+): void {
+  const sheet = wb.addWorksheet('Returns & Profit');
+
+  const unitsById = new Map<string, InventoryUnit>();
+  const unitsByImei = new Map<string, InventoryUnit>();
+  for (const u of units) {
+    if (u.id) unitsById.set(u.id, u);
+    const k = (u.imei || '').trim().toUpperCase();
+    if (k && !unitsByImei.has(k)) unitsByImei.set(k, u);
+  }
+  const unitFor = (s: Sale): InventoryUnit | undefined => {
+    const byId = (s as any).unitId ? unitsById.get((s as any).unitId) : undefined;
+    if (byId) return byId;
+    const k = (s.imei || '').trim().toUpperCase();
+    return k ? unitsByImei.get(k) : undefined;
+  };
+
+  const title = sheet.addRow(['RETURNS & PROFIT BY MARKETPLACE']);
+  title.font = { bold: true, size: 13 };
+  const note = sheet.addRow([
+    'Revenue and Gross GP count only sales that kept their money \u2014 a refunded sale contributes '
+    + 'nothing, while a replacement or an out-of-warranty repair counts in full because the customer '
+    + 'kept paying. Return Cost = carriage + repair invoices \u2212 supplier credits. A replacement '
+    + 'costs carriage only: the faulty unit comes back as the replacement ships, so net stock is unchanged.',
+  ]);
+  note.getCell(1).font = { size: 9, italic: true, color: { argb: 'FF64748B' } };
+  note.getCell(1).alignment = { wrapText: true, vertical: 'top' };
+  note.height = 46;
+  sheet.addRow([]);
+
+  const header = sheet.addRow([
+    'Marketplace', 'Sales', 'Revenue \u00a3', 'Gross GP \u00a3',
+    'Returns', 'Refunds', 'Replacements', 'Repairs', 'To Supplier',
+    'Carriage \u00a3', 'Repair Invoices \u00a3', 'Supplier Credits \u00a3', 'Return Cost \u00a3',
+    'Net GP \u00a3', 'Net GP %', 'Costs Outstanding',
+  ]);
+  header.font = { bold: true };
+  header.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF1F5F9' } };
+
+  interface Acc {
+    sales: number; revenue: number; grossGp: number;
+    returns: number; refunds: number; replacements: number; repairs: number; toSupplier: number;
+    carriage: number; repairCost: number; credits: number; gaps: number;
+  }
+  const blank = (): Acc => ({
+    sales: 0, revenue: 0, grossGp: 0,
+    returns: 0, refunds: 0, replacements: 0, repairs: 0, toSupplier: 0,
+    carriage: 0, repairCost: 0, credits: 0, gaps: 0,
+  });
+  const acc = new Map<Marketplace, Acc>(MARKETPLACES.map(m => [m, blank()]));
+
+  for (const s of sales) {
+    const a = acc.get(s.marketplace as Marketplace);
+    if (!a) continue;
+
+    if (saleKeptItsRevenue(s)) {
+      a.sales += 1;
+      a.revenue += Number(s.salePrice) || 0;
+      a.grossGp += Number(s.grossProfit) || 0;
+    }
+
+    if (!s.voidedAt) continue;
+    a.returns += 1;
+    if (s.voidOutcome === 'replacement') a.replacements += 1;
+    else if (s.voidOutcome === 'repair') a.repairs += 1;
+    else a.refunds += 1;
+
+    const u = unitFor(s);
+    if (u?.returnType === 'returned_to_supplier') a.toSupplier += 1;
+
+    // Costs live on the UNIT (the invoice and the credit are entered there).
+    // With no matching unit only carriage is knowable, and postageLossFor
+    // gives that from the sale alone — better than dropping the return.
+    if (u) {
+      const c = returnCostFor(u, s);
+      a.carriage += c.postage;
+      a.repairCost += c.repair;
+      a.credits += c.supplierCredit;
+      a.gaps += c.gaps.length;
+    } else {
+      a.carriage += postageLossFor(s);
+    }
+  }
+
+  const moneyCols = [3, 4, 10, 11, 12, 13, 14, 15];
+  const total = blank();
+
+  for (const m of MARKETPLACES) {
+    const a = acc.get(m)!;
+    if (!a.sales && !a.returns) continue;          // channel unused this period
+    const returnCost = a.carriage + a.repairCost - a.credits;
+    const netGp = a.grossGp - returnCost;
+    const row = sheet.addRow([
+      m, a.sales, a.revenue, a.grossGp,
+      a.returns, a.refunds, a.replacements, a.repairs, a.toSupplier,
+      a.carriage, a.repairCost, a.credits, returnCost,
+      netGp, a.revenue > 0 ? (netGp / a.revenue) * 100 : 0,
+      a.gaps || '',
+    ]);
+    for (const c of moneyCols) row.getCell(c).numFmt = MONEY_FMT;
+    for (const k of Object.keys(total) as (keyof Acc)[]) total[k] += a[k];
+  }
+
+  const totalReturnCost = total.carriage + total.repairCost - total.credits;
+  const totalNetGp = total.grossGp - totalReturnCost;
+  const totalRow = sheet.addRow([
+    'TOTAL', total.sales, total.revenue, total.grossGp,
+    total.returns, total.refunds, total.replacements, total.repairs, total.toSupplier,
+    total.carriage, total.repairCost, total.credits, totalReturnCost,
+    totalNetGp, total.revenue > 0 ? (totalNetGp / total.revenue) * 100 : 0,
+    total.gaps || '',
+  ]);
+  totalRow.font = { bold: true };
+  totalRow.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF1F5F9' } };
+  for (const c of moneyCols) totalRow.getCell(c).numFmt = MONEY_FMT;
+
+  if (total.gaps > 0) {
+    sheet.addRow([]);
+    const warn = sheet.addRow([
+      `${total.gaps} return cost${total.gaps === 1 ? ' has' : 's have'} not been entered yet `
+      + '(a repair invoice, or a supplier credit that has not landed). Return Cost is therefore a '
+      + 'floor and Net GP an optimistic ceiling.',
+    ]);
+    warn.getCell(1).font = { size: 9, italic: true, color: { argb: 'FFB0500A' } };
+    warn.getCell(1).alignment = { wrapText: true, vertical: 'top' };
+    warn.height = 28;
+  }
+
+  sheet.columns.forEach((c, i) => { c.width = i === 0 ? 16 : (i === 15 ? 18 : 14); });
+}
 
 /** Append a bold "TOTAL" row with SUM(...) formulas across the numeric
  *  columns. The GP % cell uses the same net-of-postage-loss math as the
