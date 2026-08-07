@@ -1,5 +1,5 @@
 {
-  "passed": 62,
+  "passed": 61,
   "total": 62,
   "results": [
     {
@@ -149,8 +149,8 @@
     },
     {
       "name": "GP matches master formula · EBAY EB-NI-2001",
-      "ok": true,
-      "detail": "app £49.81/10.83%  truth £49.81/10.83%  (bp 355 sp 460 post 0)"
+      "ok": false,
+      "detail": "app £49.81/14.03%  truth £49.81/10.83%  (bp 355 sp 460 post 0)"
     },
     {
       "name": "GP matches master formula · BM BM-NI-3001",

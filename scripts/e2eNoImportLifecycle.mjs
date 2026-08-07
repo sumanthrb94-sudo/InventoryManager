@@ -204,7 +204,12 @@ function groundTruthGP({ marketplace, bp, sp, postage }) {
       // reason: no formula behind the cell, zero on all 33 master rows.
       const mkt = 0, mVat = mkt * 0.20;
       gp = c - marTax - tCom - postage - mkt - mVat - acc;
-      base = sp;                       // eBay's GP% divides by SP
+      // `base` stays BP, like every other marketplace. eBay divided by SP
+      // until 2026-08 — the operator's own eBay tab still does — but one
+      // report carrying two denominators ranked the channels backwards:
+      // eBay earned more per phone and displayed the lower percentage.
+      // Changed on their instruction; every other eBay figure here still
+      // reproduces the master exactly.
       break;
     }
     case 'ONBUY': {
