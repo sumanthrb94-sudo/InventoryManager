@@ -36,3 +36,4 @@ docs/client-report/index.html
 # workbooks are reproducible rather than worth versioning.
 e2e-screenshots/month-simulation/manifest.json
 e2e-screenshots/month-simulation/*.xlsx
+simulation-output/
