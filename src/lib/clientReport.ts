@@ -25,7 +25,7 @@ import type {
   AccessoryStock,
 } from '../types';
 import { MARKETPLACES } from '../types';
-import { excelFormulaFor, SALES_HEADERS, salesCol, salesColLetter } from './platforms';
+import { excelFormulaFor, isAccessorySale, SALES_HEADERS, salesCol, salesColLetter } from './platforms';
 import { returnCostFor, saleKeptItsRevenue } from './returnLoss';
 import { recomputeSale } from './recomputeSale';
 import { normalizeOperatorSku } from './modelStorage';
@@ -314,6 +314,24 @@ export async function buildInventoryWorkbookBuffer(input: BuildInventoryWorkbook
 export { SALES_HEADERS, salesCol, salesColLetter } from './platforms';
 export type { SalesHeaderRow } from './platforms';
 
+/** The box-and-charger fee for one row of a marketplace tab.
+ *
+ *  The GP formula on every tab subtracts this CELL, so putting the right
+ *  number here is all that is needed for the profit to follow — there is no
+ *  second place to change.
+ *
+ *  Zero on a standalone accessory line. The fee is the box and charger that
+ *  ships with a handset, and a charger sold on its own is not shipped with a
+ *  charger. Both office and SHS phones keep it. */
+function accessoryFeeOf(
+  sale: Sale,
+  fee: { accessoryFee?: number },
+  knownAccessorySkus?: ReadonlySet<string>,
+): number {
+  if (isAccessorySale(sale, knownAccessorySkus)) return 0;
+  return sale.accessoryFee ?? Number(fee.accessoryFee ?? 1);
+}
+
 const DATE_FMT = '[$-409]d\\-mmm\\-yyyy';
 const MONEY_FMT = '0.00';
 const IMEI_FMT = '0';
@@ -526,6 +544,10 @@ function writeSaleRow(
   marketplace: Marketplace,
   sale: Sale,
   rowNumber: number,
+  /** SKUs stocked as quantity-pool accessories, upper-cased. Decides which
+   *  rows are exempt from the £1 box-and-charger fee; see `isAccessorySale`
+   *  for why a blank IMEI alone cannot decide it. */
+  knownAccessorySkus: ReadonlySet<string> | undefined,
   /** Pre-resolved supplier display name from the caller. Threads the
    *  supplierMap + unitsById lookup that lives at the workbook level
    *  through so each per-marketplace row writes the canonical
@@ -559,7 +581,7 @@ function writeSaleRow(
         BP: sale.buyPrice,
         SP: sale.salePrice,
         Postage: sale.postage ?? null,
-        Accessories: sale.accessoryFee ?? Number(f.accessoryFee ?? 1),
+        Accessories: accessoryFeeOf(sale, f, knownAccessorySkus),
         Comments: sale.comments ?? '',
         Model: resolvedSaleModel(sale),
       });
@@ -609,7 +631,7 @@ function writeSaleRow(
         SP: sale.salePrice,
         Commission: sale.commission ?? 0,
         Postage: sale.postage ?? null,
-        Accessories: sale.accessoryFee ?? Number(f.accessoryFee ?? 1),
+        Accessories: accessoryFeeOf(sale, f, knownAccessorySkus),
         Comments: sale.comments ?? '',
         Model: resolvedSaleModel(sale),
       });
@@ -650,7 +672,7 @@ function writeSaleRow(
         SP: sale.salePrice,
         "Customer Care Fees": sale.customerCareFees ?? Number(f.customerCareFees ?? 9.99),
         Postage: sale.postage ?? null,
-        Accessories: sale.accessoryFee ?? Number(f.accessoryFee ?? 1),
+        Accessories: accessoryFeeOf(sale, f, knownAccessorySkus),
         Comments: sale.comments ?? '',
         Model: resolvedSaleModel(sale),
       });
@@ -693,7 +715,7 @@ function writeSaleRow(
         Postage: sale.postage ?? null,
         "P. VAT": sale.postageVat ?? 0,
         Marketing: sale.marketing ?? 0,
-        Accessories: sale.accessoryFee ?? Number(f.accessoryFee ?? 1),
+        Accessories: accessoryFeeOf(sale, f, knownAccessorySkus),
         Comments: sale.comments ?? '',
         Model: resolvedSaleModel(sale),
       });
@@ -736,7 +758,7 @@ function writeSaleRow(
         BP: sale.buyPrice,
         SP: sale.salePrice,
         Postage: sale.postage ?? null,
-        Accessories: sale.accessoryFee ?? Number(f.accessoryFee ?? 1),
+        Accessories: accessoryFeeOf(sale, f, knownAccessorySkus),
         Comments: sale.comments ?? '',
         Model: resolvedSaleModel(sale),
       });
@@ -818,11 +840,19 @@ export function primeBlankSaleRows(
   if (spCol === 0) throw new Error(`${marketplace}: no SP column to guard blank rows on`);
   const spLetter = letterFor(spCol);
 
-  const blank = { marketplace, orderNumber: '', quantity: null } as unknown as Sale;
+  // `unitId` is a marker, not data: it never reaches the sheet, because the
+  // loop below blanks every literal cell that is not a CONSTANT_HEADER. It is
+  // here so `isAccessorySale` does not read an empty row as a standalone
+  // accessory line and drop the £1 box-and-charger constant. These rows exist
+  // for the operator to type HANDSET sales into, so they must carry a
+  // handset's constants.
+  const blank = {
+    marketplace, orderNumber: '', quantity: null, unitId: '__primed_blank_row__',
+  } as unknown as Sale;
 
   for (let i = 0; i < count; i++) {
     const rowNumber = firstRow + i;
-    writeSaleRow(sheet, marketplace, blank, rowNumber, '');
+    writeSaleRow(sheet, marketplace, blank, rowNumber, undefined, '');
     const row = sheet.getRow(rowNumber);
     row.eachCell({ includeEmpty: true }, (cell, col) => {
       const v = cell.value as { formula?: string } | null;
@@ -947,6 +977,23 @@ export async function buildSalesWorkbookBuffer(input: BuildSalesWorkbookInput): 
   // so it lands as the leftmost tab.
   writeSalesSummarySheet(wb, byMarketplace, opts, unitsById, unitsByImei);
 
+  // Which SKUs are quantity-pool accessories. Needed to decide, per row,
+  // whether the £1 box-and-charger fee applies: only a handset gets one, and a
+  // blank IMEI cannot stand in for the test because an SHS handset is sold
+  // BEFORE it is collected from the supplier and so has no IMEI yet. See
+  // isAccessorySale.
+  // undefined, NOT an empty Set, when there is no catalogue to consult. An
+  // empty Set is a positive claim that nothing is an accessory, which would
+  // put the £1 back on every charger the moment a caller omitted the stock
+  // list; undefined means "cannot tell", and isAccessorySale then falls back
+  // to the two-identifier test.
+  const accessorySkuList = (accessoryStock ?? [])
+    .map(a => (a.sku || '').trim().toUpperCase())
+    .filter(Boolean);
+  const knownAccessorySkus = accessorySkuList.length
+    ? new Set(accessorySkuList)
+    : undefined;
+
   // Per-platform sheets — one tab per entry in MARKETPLACES (AMAZON, BM,
   // EBAY, ONBUY, TEMU as of 2026-07); PROJECT excluded — that was never a
   // real sales channel.
@@ -971,7 +1018,7 @@ export async function buildSalesWorkbookBuffer(input: BuildSalesWorkbookInput): 
         || (sale.unitId && unitsById.get(sale.unitId)?.supplierName)
         || (sale.imei && unitsByImei.get((sale.imei || '').trim().toUpperCase())?.supplierName)
         || '';
-      writeSaleRow(sheet, m, sale, rowNumber, resolvedSupplier);
+      writeSaleRow(sheet, m, sale, rowNumber, knownAccessorySkus, resolvedSupplier);
 
       // Storage + Colour — buy-side identity carried onto the sale row so a
       // re-import can restore it. Written here rather than inside
@@ -2306,9 +2353,14 @@ function writeReturnsSheets(
     // genuine accessory pool, so a malformed/unlinked UNIT sale (bad data,
     // not an accessory) doesn't get silently relabelled as one.
     const skuKey = (s.sku || '').trim().toUpperCase();
-    const isAccessorySale = !s.unitId && !(s.imei || '').trim() && accessoryNameBySku.has(skuKey);
+    // Narrower than the shared isAccessorySale(): that one asks only whether
+    // the row lacks both identifiers, which is the right test for charging
+    // the box-and-charger fee. Here we additionally require the SKU to
+    // resolve to a real accessory pool, because keying an orphan row on a
+    // SKU is only safe when the SKU is known to be one.
+    const isKnownAccessorySale = isAccessorySale(s) && accessoryNameBySku.has(skuKey);
     const key = (s.unitId || '').trim() || (s.imei || '').trim().toUpperCase()
-      || (isAccessorySale ? `sku:${skuKey}` : '');
+      || (isKnownAccessorySale ? `sku:${skuKey}` : '');
     if (!key) continue; // nothing stable to key an orphan row on
     const existing = orphanBySaleKey.get(key);
     if (!existing || (s.voidedAt || '') > (existing.voidedAt || '')) orphanBySaleKey.set(key, s);

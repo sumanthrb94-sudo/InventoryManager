@@ -17,7 +17,7 @@
  * separate task.
  */
 
-import type { ListingSite, Marketplace, MarketplaceFee } from '../types';
+import type { ListingSite, Marketplace, MarketplaceFee, Sale } from '../types';
 import { MARKETPLACES } from '../types';
 
 // ---------------------------------------------------------------------------
@@ -220,6 +220,12 @@ export interface CalcSaleFinancialsInput {
   salePrice: number;
   /** Override the per-marketplace default postage (eBay tiers, free shipping…). */
   postageOverride?: number;
+  /** True when this sale is a standalone accessory line rather than a
+   *  handset — see `isAccessorySale`. Zeroes `accessoryFee`, because that
+   *  fee IS the box and charger that ships with a phone, and a charger sold
+   *  on its own has neither. Defaults false, so a caller that does not know
+   *  keeps the pre-2026-08 behaviour. */
+  isAccessory?: boolean;
   /** Temu only — Temu's own export reports the exact commission it charged
    *  per order (rates vary by category, unlike Amazon's flat referral fee),
    *  so the sheet's own value always wins when present. Falls back to
@@ -271,11 +277,10 @@ export interface SaleFinancials {
    *  Per HANDSET, not per parcel: three phones on one order cost £3, because
    *  that is three boxes and three chargers.
    *
-   *  KNOWN DEFECT: applied per sale ROW, so a standalone accessory sale (a
-   *  charger or screen protector, no IMEI) is charged £1 for a box and charger
-   *  it does not come with — £1 of invented cost on a £9.99 line. Not yet
-   *  corrected because the report recomputes from live formulas, so the fix
-   *  would restate every past accessory sale. */
+   *  Zeroed on a standalone accessory line via `isAccessorySale` — a charger
+   *  sold on its own is the charger, so there is no box and charger to supply.
+   *  Until 2026-08 it was charged there too: £1 of invented cost against
+   *  roughly £2 of margin on a £9.99 charger. */
   accessoryFee?: number;
   totalVat?: number;          // Amazon: CVAT + DSF VAT + P VAT.  eBay: VAT + P VAT + M VAT.
   totalVatNtp?: number;       // Amazon + eBay: Marginal Tax − Total VAT (net tax payable)
@@ -399,7 +404,7 @@ export function calcSaleFinancials(input: CalcSaleFinancialsInput): SaleFinancia
       const vatPctFrac = (fee.vatPct ?? 20) / 100;
       const dsfPctFrac = (fee.dsfPct ?? 0) / 100;
       const commissionBaseVal = (fee.commissionBase ?? 'spMinusBp') === 'sp' ? sp : spMinusBp;
-      const accessoryFeeVal = fee.accessoryFee ?? 0;
+      const accessoryFeeVal = input.isAccessory ? 0 : (fee.accessoryFee ?? 0);
 
       // Marginal Tax uses the literal 16.67% rate (operator's reference
       // sheet writes =C3*16.67% across Amazon / eBay / OnBuy — all three
@@ -478,7 +483,7 @@ export function calcSaleFinancials(input: CalcSaleFinancialsInput): SaleFinancia
       //   gpPercent     = GP / BP × 100
       // No DSF line at all — Temu's export has no DSF/DSF VAT columns.
       const vatPctFrac = (fee.vatPct ?? 20) / 100;
-      const accessoryFeeVal = fee.accessoryFee ?? 0;
+      const accessoryFeeVal = input.isAccessory ? 0 : (fee.accessoryFee ?? 0);
 
       const marginalTaxRaw   = spMinusBp * 16.67 / 100;
       const commissionRaw    = commissionOverride ?? (sp * fee.commissionPct / 100);
@@ -539,7 +544,7 @@ export function calcSaleFinancials(input: CalcSaleFinancialsInput): SaleFinancia
       //                                                  column; NTP subtracts
       //                                                  postage VAT directly.)
       const vatPctFrac = (fee.vatPct ?? 20) / 100;
-      const accessoryFeeVal = fee.accessoryFee ?? 0;
+      const accessoryFeeVal = input.isAccessory ? 0 : (fee.accessoryFee ?? 0);
       const customerCareFeesVal = fee.customerCareFees ?? 0;
 
       const marginalTaxRaw      = spMinusBp * 16.67 / 100;
@@ -620,7 +625,7 @@ export function calcSaleFinancials(input: CalcSaleFinancialsInput): SaleFinancia
       //                                                revenue. Distinct from
       //                                                Amazon's GP/BP convention.
       const vatPctFrac = (fee.vatPct ?? 20) / 100;
-      const accessoryFeeVal = fee.accessoryFee ?? 0;
+      const accessoryFeeVal = input.isAccessory ? 0 : (fee.accessoryFee ?? 0);
       // 2026-08, from the operator's master (SALES_TEMPLATE_UPLOAD_30TH_JULY
       // .xlsx, EBAY SALES). Marketing carries NO formula in that sheet — the
       // cell is typed by hand and is £0 on most rows (£8 / £9 / £9.60 on a
@@ -706,7 +711,7 @@ export function calcSaleFinancials(input: CalcSaleFinancialsInput): SaleFinancia
       //                                                distinct from eBay's
       //                                                GP/SP).
       const vatPctFrac = (fee.vatPct ?? 20) / 100;
-      const accessoryFeeVal = fee.accessoryFee ?? 0;
+      const accessoryFeeVal = input.isAccessory ? 0 : (fee.accessoryFee ?? 0);
 
       const marginalTaxRaw  = spMinusBp * 16.67 / 100;
       const commissionRaw   = sp * fee.commissionPct / 100;
@@ -1064,4 +1069,40 @@ export function salesColLetter(marketplace: Marketplace, name: string): string {
     n = Math.floor((n - 1) / 26);
   }
   return out;
+}
+
+/**
+ * Is this sale a standalone accessory line rather than a handset?
+ *
+ * Only accessory lines are exempt from the £1 box-and-charger fee, so getting
+ * this wrong costs real money in either direction.
+ *
+ * The obvious test — "no IMEI" — is wrong, and the reason is how SHS works.
+ * SHS means the SUPPLIER holds the stock: the sale is confirmed first, and
+ * only then is the handset collected from the supplier and shipped. So an SHS
+ * handset legitimately has no IMEI at the moment of sale; it gets one later.
+ * A blank IMEI is therefore normal for a phone, not evidence of an accessory.
+ *
+ * Requiring a missing inventory link as well is closer, but still leaky: IMEI
+ * is not a required import column, so an SHS sale uploaded before the handset
+ * arrives has neither identifier and would be read as a charger.
+ *
+ * `knownAccessorySkus` closes that. It is the set of SKUs the business
+ * actually stocks as quantity-pool accessories, upper-cased; a handset model
+ * is never in it. Pass it wherever it is available — the Sales Report does.
+ *
+ * WITHOUT it the function falls back to the two-identifier test, which is
+ * right for every accessory sale the app itself creates (they carry neither)
+ * and wrong only for that unreceived-SHS-import edge. Callers that hold the
+ * catalogue should always pass it rather than rely on the fallback.
+ */
+export function isAccessorySale(
+  sale: Pick<Sale, 'unitId' | 'imei' | 'sku'> | null | undefined,
+  knownAccessorySkus?: ReadonlySet<string>,
+): boolean {
+  if (!sale) return false;
+  if (sale.unitId) return false;
+  if ((sale.imei || '').trim()) return false;
+  if (!knownAccessorySkus) return true;
+  return knownAccessorySkus.has((sale.sku || '').trim().toUpperCase());
 }

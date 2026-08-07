@@ -1,5 +1,5 @@
 import type { Sale } from '../types';
-import { calcSaleFinancials, getMarketplaceFee } from './platforms';
+import { calcSaleFinancials, getMarketplaceFee, isAccessorySale } from './platforms';
 
 /**
  * Excel-style live recompute of every derived financial on a sale.
@@ -54,6 +54,9 @@ export function recomputeSale(s: Sale): Sale {
     // rate; the same reasoning applies. Commission VAT is not carried — it
     // is always 20% of commission, so it recomputes.
     commissionOverride: s.marketplace === 'TEMU' ? s.commission : undefined,
+    // The £1 accessoryFee is the box and charger that ships WITH A PHONE, so
+    // a standalone charger or screen protector must not be charged for one.
+    isAccessory: isAccessorySale(s),
   });
 
   // Guard: calcSaleFinancials should always return a value now that a default

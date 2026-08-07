@@ -84,11 +84,21 @@ Two conventions worth stating plainly:
   packaging-per-parcel charge: three handsets on one order cost £3, because
   that is three boxes and three chargers.
 
-  **Known defect:** it is applied per sale ROW, so a standalone accessory sale
-  (a charger or screen protector with no IMEI) is also charged £1 — for a box
-  and charger it does not come with. A £9.99 charger is booked £1 of cost that
-  does not exist. Pending a decision on whether to correct it retrospectively,
-  since the report recomputes history from live formulas.
+  **Both office and SHS handsets carry it. A standalone accessory does not** —
+  a charger sold on its own is the charger, so there is no box and charger to
+  supply.
+
+  Deciding which is which is harder than it looks, because of how SHS works:
+  the supplier holds the stock, the sale is confirmed first, and the handset is
+  collected afterwards. An SHS phone therefore has **no IMEI at the time of
+  sale**, and since IMEI is not a required import column it may have no
+  inventory link either — the same shape as a charger. `isAccessorySale()`
+  resolves it against the **accessory catalogue**: a row is an accessory only
+  if its SKU is one the business stocks as quantity-pool stock, which a handset
+  model never is. Where no catalogue is available it falls back to requiring
+  neither identifier. Testing for a missing IMEI alone would take £1 off every
+  supplier-fulfilled sale.
+
 - **Compute raw, round once.** Every intermediate is held at full precision and
   rounded only on output, matching Excel's "compute precise, display rounded".
   Rounding each step compounds into ~1p drift on Total VAT / GP / NTP.
