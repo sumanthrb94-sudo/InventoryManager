@@ -3,8 +3,8 @@
 Things the system has to guess at. Each one changes the profit figures, so we
 would rather ask than assume. Answers are recorded inline as they arrive.
 
-**Open: 1 and 8.** Question 6 is parked for a conversation. Questions 2, 3, 4,
-5 and 7 are answered and recorded below — kept in place rather than deleted so
+**Open: 1, plus eBay's £0.40 in question 8.** Question 6 is parked for a conversation. Questions 2, 3, 4, 5, 7
+and Back Market's part of 8 are answered and recorded below — kept in place rather than deleted so
 the reasoning survives.
 
 ---
@@ -123,13 +123,27 @@ value of a handset. There is no write-off path to build.*
 
 ---
 
-## 8. Two fixed fees — every order, or only sometimes? — STILL OPEN, re-asked
+## 8. Two fixed fees — every order, or only sometimes? — ANSWERED for Back Market
 
-Rewording this, because the first version was unclear.
+**"BM has £8.99 as customer care fee for each and every unit."**
 
-**Back Market takes £8.99 off every order**, labelled "Customer Care Fees".
-It is a flat amount, so it hurts far more on a cheap phone than an expensive
-one:
+Confirmed as current behaviour. Handsets are tracked one per IMEI, so each
+unit is its own row and each row carries £8.99 — three phones cost £26.97, not
+£8.99. No change needed.
+
+*Small edge, noted rather than acted on: if a single row ever carried a
+quantity above 1, the fee would apply once rather than per unit. That cannot
+happen for handsets, which are one per row by construction. It could only
+arise on a quantity-pooled accessory line, and whether customer care applies
+to those at all is not something we have been told.*
+
+**eBay's £0.40 (FVF) is still unconfirmed**, charged on every eBay order. It is
+small enough that no decision turns on it, but it should still be right.
+
+### What this confirms about Back Market
+
+The £8.99 is flat, so it lands hardest on cheap stock — and this is now
+confirmed behaviour rather than an assumption:
 
 | you buy | you sell | your profit | the £8.99 is |
 |---|---|---|---|
@@ -137,20 +151,21 @@ one:
 | £100 | £150 | £7.62 | 54% of it |
 | £300 | £400 | £21.78 | 29% of it |
 
-**The question: does Back Market really charge you £8.99 on every single
-order — including a £80 phone, where it turns the sale into a loss?**
+Together with Back Market's 11%-of-sale-price commission, this is why Back
+Market needs a far bigger markup than anywhere else just to break even:
 
-Or is it charged only sometimes — for example only when a customer actually
-contacts support, or only on certain categories?
+| you paid | AMAZON | **BM** | EBAY | ONBUY | TEMU |
+|---|---|---|---|---|---|
+| £100 | +£23 | **+£39** | +£21 | +£23 | +£17 |
+| £300 | +£46 | **+£70** | +£42 | +£45 | +£28 |
+| £500 | +£69 | **+£100** | +£62 | +£67 | +£40 |
 
-**The same question for eBay's £0.40** (labelled FVF), charged on every eBay
-order. That one is small enough not to change any decisions, but it should
-still be right.
+**Roughly 1.5× the markup of Amazon, eBay and OnBuy, and 2.5× Temu.** If the
+same price is listed everywhere, Back Market is where money leaks — which is
+exactly what the simulated month showed, with 36% of Back Market sales losing
+money against 8–17% elsewhere.
 
-*This matters because Back Market is where the money is leaking. In the
-simulated month, 36% of Back Market sales lost money — more than three times
-any other channel — and this flat fee plus the 11%-of-sale-price commission is
-why.*
+This is worth checking against a real trading month.
 
 ---
 
@@ -175,6 +190,7 @@ why.*
 | Who bears postage | We do, in all cases |
 | Scrapping a returned phone | Never happens |
 | Profit % | Divided by what you paid, on all five channels |
+| BM customer care fee | £8.99 on each and every unit |
 
 ---
 
