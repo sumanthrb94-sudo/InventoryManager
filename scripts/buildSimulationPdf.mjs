@@ -286,6 +286,15 @@ ${screenFig('returns-kpis.png', 'Returns · the four buckets. 10 back to invento
 ${screenFig('returns-loss-ledger.png', 'Returns · the loss ledger. Replacement rows carry carriage only; a repair with no invoice reads AWAITING; supplier credits show green because the money came back.')}
 ${screenFig('inventory-kpis.png', 'Inventory · the sales tiles. ALL-TIME SOLD 26 is the 40 sales less the 14 that were refunded — the 6 replacements and out-of-warranty repairs still count.')}
 
+<h3 style="font-size:15px;margin:22px 0 4px">Each sale, as the app lists it</h3>
+<p style="font-size:12.5px;margin:4px 0 0">
+  The sold list groups by model; every group is expanded here so the individual
+  sales show, each with its date, channel, order number, sale price and GP.
+  The sales that were refunded are not in this list — the app excludes them
+  from the sold figures, and each of them has its own card in §05.
+</p>
+${screenFig('sales-expanded-2.png', 'Inventory · the sold list, every model group expanded to its individual sales.')}
+
 ${screenFig('returns-table-01.png', 'Returns · the loss ledger paginated, showing 12 of the 20 cycles. The remaining rows are in §01, and every return also has its own card in §05.')}
 
 <h2><span class="num">05</span>Each return, unit by unit</h2>

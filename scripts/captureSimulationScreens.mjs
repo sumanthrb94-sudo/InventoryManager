@@ -126,7 +126,10 @@ async function run() {
   const browser = await chromium.launch({
     executablePath: dir ? `${root}/${dir}/chrome-linux/chrome` : undefined,
   });
-  const ctx = await browser.newContext({ viewport: { width: 1600, height: 1100 } });
+  // Tall viewport: the sales overlay is height-constrained to the window, so
+  // at 1100px the last expanded group's rows fell below its internal scroll
+  // and were silently missing from the capture.
+  const ctx = await browser.newContext({ viewport: { width: 1600, height: 1900 } });
   const page = await ctx.newPage();
   page.on('pageerror', e => console.log(`  [pageerror] ${e.message}`));
 
@@ -172,21 +175,52 @@ async function run() {
     const overlay = page.locator('div.fixed.inset-0').last();
     if (await overlay.isVisible().catch(() => false)) {
       // The overlay groups sales by MODEL with a ×N count; the individual
-      // sales are behind each row's expander. Un-expanded this shows six rows
+      // sales sit behind each group's expander. Un-expanded that is six rows
       // for forty sales, which is not "each sale".
-      const rows = overlay.locator('tbody tr');
+      //
+      // The expander is the <tr> ITSELF — it carries the onClick — not a
+      // button inside it. Looking for `button` in the row found nothing, and
+      // the attempt reported "expanded 6 groups → 6 rows" while silently
+      // capturing only the six summary rows.
+      // .first(), not .last(): expanding a group renders a NESTED detail
+      // table, so .last() re-resolves to that inner table and captures one
+      // group's five sales instead of the whole list. It also made the row
+      // count read 6 → 5 and look like the expansion had failed.
+      const overlayTable = overlay.locator('table').first();
+      const rows = overlayTable.locator('tbody tr');
       const before = await rows.count();
-      for (let i = before - 1; i >= 0; i--) {
-        const chev = rows.nth(i).locator('button, [role="button"]').first();
-        if (await chev.isVisible().catch(() => false)) {
-          await chev.click({ timeout: 2500 }).catch(() => {});
-          await page.waitForTimeout(180);
+      const models = [...new Set(manifest.units.filter(u => u.sp !== '').map(u => u.model))];
+      for (const model of models) {
+        const group = overlayTable.locator('tbody tr').filter({ hasText: model }).first();
+        if (await group.isVisible().catch(() => false)) {
+          await group.click({ timeout: 3000 }).catch(() => {});
+          await page.waitForTimeout(320);
         }
       }
       await page.waitForTimeout(900);
       const after = await rows.count();
-      console.log(`  expanded ${before} groups → ${after} rows`);
-      await shootPages(page, 'div.fixed.inset-0 table', 'sales-table', 12);
+      console.log(`  expanded ${models.length} groups · ${before} rows → ${after} rows`);
+      if (after <= before) {
+        console.log('  WARNING expansion did not take — sale rows would be missing');
+      }
+      // One tall element capture: Playwright screenshots an element beyond the
+      // viewport, so every expanded sale row lands in a single image.
+      await overlayTable.screenshot({ path: `${OUT}/sales-expanded.png` });
+      shots.push('sales-expanded.png');
+      console.log('  ✓ sales-expanded.png');
+      // The element capture is clipped by the modal's own scroll container, so
+      // the last expanded group falls outside it however tall the window is.
+      // A second capture scrolled to the bottom covers the remainder.
+      const scroller = overlay.locator('div.overflow-auto, div.overflow-y-auto').last();
+      if (await scroller.isVisible().catch(() => false)) {
+        await scroller.evaluate(el => { el.scrollTop = el.scrollHeight; });
+        await page.waitForTimeout(600);
+        await scroller.screenshot({ path: `${OUT}/sales-expanded-2.png` });
+        shots.push('sales-expanded-2.png');
+        console.log('  ✓ sales-expanded-2.png (scrolled to the end)');
+      } else {
+        console.log('  MISS could not find the overlay scroll container');
+      }
       await dismiss(page);
     } else {
       console.log('  MISS sales overlay did not open');
