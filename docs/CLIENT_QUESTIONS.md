@@ -3,14 +3,24 @@
 Things the system has to guess at. Each one changes the profit figures, so we
 would rather ask than assume. Answers are recorded inline as they arrive.
 
-**Open: 1 (researched — needs checking against your own statements) and
-eBay's £0.40 in question 8.** Question 6 is parked for a conversation. Questions 2, 3, 4, 5, 7
+**Open: only eBay's £0.40 in question 8**, which is too small to change any
+decision. Everything else is answered. Question 6 is parked for a conversation. Questions 2, 3, 4, 5, 7
 and Back Market's part of 8 are answered and recorded below — kept in place rather than deleted so
 the reasoning survives.
 
 ---
 
-## 1. When you refund a customer, does the marketplace give you its commission back? — RESEARCHED, needs confirming against your own statements
+## 1. When you refund a customer, does the marketplace give you its commission back? — CLOSED, no change
+
+**Operator's decision: leave it. The commission stays written off.**
+
+The research below is kept because it says what the cost of that decision is.
+Four of the five marketplaces publish a policy and all four return the
+commission, so the app now knowingly overstates what a refund costs — by more
+than the carriage it does count. That is the conservative direction (profit is
+understated, not overstated), which is why it is a tolerable place to stop.
+
+Reopen this if refunds ever become material enough to matter.
 
 Researched rather than guessed. **Four of the five publish a policy, and all
 four give the commission back** — which means the app is currently wrong in the
