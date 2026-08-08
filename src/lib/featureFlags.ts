@@ -47,11 +47,21 @@ export const SHOW_IMPORT_UI = true;
  *
  * Gated rather than deleted, and gated the same way Import itself was when it
  * came out of the UI before — see SHOW_IMPORT_UI's history above. The parser,
- * the preview and the restore-returns path stay compiled, stay under unit test
- * (salesImport.test.ts, schemaAlignment.test.ts, the round-trip suites) and
- * stay drivable by the ~15 E2E scripts that import a Sales Report through the
- * real UI. Deleting the surface would take all of that with it, and would make
- * restoring the route later a rebuild rather than a one-line change.
+ * the preview and the restore-returns path stay compiled and stay under unit
+ * test (salesImport.test.ts, schemaAlignment.test.ts, the round-trip suites).
+ * Deleting the surface would take that with it, and would make restoring the
+ * route later a rebuild rather than a one-line change.
+ *
+ * ITS OWN VARIABLE, NOT VITE_E2E — and the distinction is the point.
+ *
+ * The first version of this rode on VITE_E2E, so every E2E build kept sales
+ * import and the suite never exercised the app as it actually ships. That is
+ * the failure mode where a green run describes a configuration no user will
+ * ever see. The default is now OFF everywhere, E2E included, so the suite
+ * tests the shipping product unless a script deliberately asks otherwise.
+ *
+ * VITE_SALES_IMPORT=1 opts back in. Only scripts that exist specifically to
+ * cover the still-compiled parser should set it, and should say why.
  *
  * WHAT THIS COSTS, so it is a decision and not a surprise:
  *
@@ -65,7 +75,7 @@ export const SHOW_IMPORT_UI = true;
  * the reason the flag exists instead of a deletion: flipping it back is the
  * recovery route if a wipe ever has to be undone.
  */
-export const SHOW_SALES_IMPORT_UI = import.meta.env.VITE_E2E === '1';
+export const SHOW_SALES_IMPORT_UI = import.meta.env.VITE_SALES_IMPORT === '1';
 
 /**
  * Whether the "Build a new file from …" template-download block is shown.
