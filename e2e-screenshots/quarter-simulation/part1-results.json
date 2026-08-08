@@ -20,14 +20,9 @@
     "detail": ""
   },
   {
-    "name": "Bulk Sales Report import created the expected sale count",
-    "ok": true,
-    "detail": "got 2176, expected ~2176"
-  },
-  {
-    "name": "Bulk Sales Report import flipped office units to sold",
-    "ok": true,
-    "detail": "got 1522, expected ~1522"
+    "name": "Bulk Sales Report import completed without error",
+    "ok": false,
+    "detail": "TimeoutError: locator.click: Timeout 60000ms exceeded.\nCall log:\n\u001b[2m  - waiting for getByRole('menuitem', { name: /Sales Report/i })\u001b[22m\n"
   },
   {
     "name": "Manual Record Sale (unit) created a real Sale doc",
@@ -42,7 +37,7 @@
   {
     "name": "accessory sales are recorded and available to return against",
     "ok": true,
-    "detail": "534 accessory sale lines"
+    "detail": "1 accessory sale lines"
   },
   {
     "name": "the Accessory Stock panel lists the pool",
@@ -60,49 +55,14 @@
     "detail": ""
   },
   {
-    "name": "Live total revenue matches ground truth (bulk-import state)",
-    "ok": true,
-    "detail": "live=650763.06 truth=650763.06"
+    "name": "GP/revenue cross-check completed without error",
+    "ok": false,
+    "detail": "TypeError: Cannot read properties of null (reading 'sales')"
   },
   {
-    "name": "Live total GP matches ground truth (bulk-import state)",
+    "name": "VAT Centre · 2026-Q3 net payable reconciles (£56.36 over 2 sales)",
     "ok": true,
-    "detail": "live=65729.07 truth=65729.07"
-  },
-  {
-    "name": "AMAZON: live GP matches ground truth",
-    "ok": true,
-    "detail": "live=11628.82 truth=11628.82 (n=375/375)"
-  },
-  {
-    "name": "TEMU: live GP matches ground truth",
-    "ok": true,
-    "detail": "live=18750.50 truth=18750.50 (n=445/445)"
-  },
-  {
-    "name": "ONBUY: live GP matches ground truth",
-    "ok": true,
-    "detail": "live=13975.30 truth=13975.30 (n=427/427)"
-  },
-  {
-    "name": "BM: live GP matches ground truth",
-    "ok": true,
-    "detail": "live=6445.83 truth=6445.83 (n=443/443)"
-  },
-  {
-    "name": "EBAY: live GP matches ground truth",
-    "ok": true,
-    "detail": "live=14928.62 truth=14928.62 (n=486/486)"
-  },
-  {
-    "name": "VAT Centre · 2026-Q3 net payable reconciles (£8444.56 over 883 sales)",
-    "ok": true,
-    "detail": "screen £8444.56, independent recompute £8444.56, gap £0.00"
-  },
-  {
-    "name": "VAT Centre · 2026-Q2 net payable reconciles (£11096.17 over 1295 sales)",
-    "ok": true,
-    "detail": "screen £11096.17, independent recompute £11096.17, gap £0.00"
+    "detail": "screen £56.36, independent recompute £56.36, gap £0.00"
   },
   {
     "name": "Periodic table shows a \"Apple iPhones\" row",

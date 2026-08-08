@@ -1,5 +1,5 @@
 {
-  "passed": 61,
+  "passed": 62,
   "total": 62,
   "results": [
     {
@@ -149,8 +149,8 @@
     },
     {
       "name": "GP matches master formula · EBAY EB-NI-2001",
-      "ok": false,
-      "detail": "app £49.81/14.03%  truth £49.81/10.83%  (bp 355 sp 460 post 0)"
+      "ok": true,
+      "detail": "app £49.81/14.03%  truth £49.81/14.03%  (bp 355 sp 460 post 0)"
     },
     {
       "name": "GP matches master formula · BM BM-NI-3001",
@@ -205,7 +205,7 @@
     {
       "name": "Repair stamps voidOutcome=repair on the sale (drives 2-leg postage loss)",
       "ok": true,
-      "detail": "voidedAt=2026-08-07 outcome=repair"
+      "detail": "voidedAt=2026-08-08 outcome=repair"
     },
     {
       "name": "Replacement return processed (with a replacement unit named)",
@@ -215,7 +215,7 @@
     {
       "name": "Replacement stamps voidOutcome=replacement (drives 3-leg postage loss)",
       "ok": true,
-      "detail": "voidedAt=2026-08-07 outcome=replacement"
+      "detail": "voidedAt=2026-08-08 outcome=replacement"
     },
     {
       "name": "Returned unit links to the replacement that shipped in its place",
