@@ -28,7 +28,7 @@ import DataSeedPage from './components/DataSeedPage';
 import LoadMockDataModal from './components/LoadMockDataModal';
 import ErrorBoundary from './components/ErrorBoundary';
 import { useBuildVersionCheck } from './lib/useBuildVersionCheck';
-import { SHOW_IMPORT_UI } from './lib/featureFlags';
+import { SHOW_IMPORT_UI, SHOW_SALES_IMPORT_UI } from './lib/featureFlags';
 import type { SupplierWhatsappUpdate } from './types';
 
 type Tab      = 'notices' | 'buy' | 'sell' | 'returns' | 'admin';
@@ -623,19 +623,27 @@ function AppShell({ user }: { user: User }) {
                           <span className="block text-[9px] font-mono text-slate-500 mt-0.5">Stock-in · 9-col schema · IMEI / model / supplier</span>
                         </span>
                       </button>
-                      <div className="border-t border-slate-100" />
-                      <button
-                        type="button"
-                        role="menuitem"
-                        onClick={() => { setImportMenuOpen(false); setIsSalesImportOpen(true); }}
-                        className="w-full flex items-start gap-2.5 px-3 py-2.5 hover:bg-slate-50 text-left transition-colors"
-                      >
-                        <FileSpreadsheet size={14} className="text-emerald-600 mt-0.5 flex-shrink-0" />
-                        <span className="flex-1">
-                          <span className="block text-[11px] font-bold text-slate-900">Sales Report</span>
-                          <span className="block text-[9px] font-mono text-slate-500 mt-0.5">Backfill historic sales · AMAZON / BM / EBAY / ONBUY sheets</span>
-                        </span>
-                      </button>
+                      {/* Sales Report import — off in a real build. Sales are
+                          recorded at Sell → Mark Sold, so an upload route that
+                          can also create them is a way to double-count a
+                          month. See SHOW_SALES_IMPORT_UI for what it costs. */}
+                      {SHOW_SALES_IMPORT_UI && (
+                        <>
+                          <div className="border-t border-slate-100" />
+                          <button
+                            type="button"
+                            role="menuitem"
+                            onClick={() => { setImportMenuOpen(false); setIsSalesImportOpen(true); }}
+                            className="w-full flex items-start gap-2.5 px-3 py-2.5 hover:bg-slate-50 text-left transition-colors"
+                          >
+                            <FileSpreadsheet size={14} className="text-emerald-600 mt-0.5 flex-shrink-0" />
+                            <span className="flex-1">
+                              <span className="block text-[11px] font-bold text-slate-900">Sales Report</span>
+                              <span className="block text-[9px] font-mono text-slate-500 mt-0.5">Backfill historic sales · AMAZON / BM / EBAY / ONBUY sheets</span>
+                            </span>
+                          </button>
+                        </>
+                      )}
                     </div>
                   </>
                 )}
@@ -722,7 +730,7 @@ function AppShell({ user }: { user: User }) {
       <AnimatePresence>
         {isBatchModalOpen  && <NewBatchModal  onClose={() => setIsBatchModalOpen(false)} />}
         {isImportModalOpen && <InventoryReportImport onClose={() => setIsImportModalOpen(false)} />}
-        {isSalesImportOpen && <SalesReportImport onClose={() => setIsSalesImportOpen(false)} />}
+        {SHOW_SALES_IMPORT_UI && isSalesImportOpen && <SalesReportImport onClose={() => setIsSalesImportOpen(false)} />}
         {isLoadMockDataOpen && <LoadMockDataModal onClose={() => setIsLoadMockDataOpen(false)} />}
       </AnimatePresence>
     </div>

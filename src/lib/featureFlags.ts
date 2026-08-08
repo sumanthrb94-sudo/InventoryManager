@@ -35,6 +35,39 @@
 export const SHOW_IMPORT_UI = true;
 
 /**
+ * Whether the SALES Report import is offered alongside the Inventory one.
+ *
+ * OFF in a real build, ON under VITE_E2E=1.
+ *
+ * The operator asked for sales import to be removed and inventory import to
+ * stay (2026-08). Sales no longer arrive from a spreadsheet: they are recorded
+ * in the app at Sell → Mark Sold, or Mark Multiple Sold for a batch. An upload
+ * route that can also CREATE sales is then a way to double-count a month, and
+ * nothing needs it.
+ *
+ * Gated rather than deleted, and gated the same way Import itself was when it
+ * came out of the UI before — see SHOW_IMPORT_UI's history above. The parser,
+ * the preview and the restore-returns path stay compiled, stay under unit test
+ * (salesImport.test.ts, schemaAlignment.test.ts, the round-trip suites) and
+ * stay drivable by the ~15 E2E scripts that import a Sales Report through the
+ * real UI. Deleting the surface would take all of that with it, and would make
+ * restoring the route later a rebuild rather than a one-line change.
+ *
+ * WHAT THIS COSTS, so it is a decision and not a surprise:
+ *
+ * The wipe → re-upload → "go live" recovery no longer works for sales. A wipe
+ * clears the sales collection, and with this off there is no route to put it
+ * back — the Inventory Report carries stock, not sales history. Before this,
+ * exporting both reports was a complete backup; now only the stock half can be
+ * restored through the UI.
+ *
+ * That is worth weighing against the double-count risk it removes, and it is
+ * the reason the flag exists instead of a deletion: flipping it back is the
+ * recovery route if a wipe ever has to be undone.
+ */
+export const SHOW_SALES_IMPORT_UI = import.meta.env.VITE_E2E === '1';
+
+/**
  * Whether the "Build a new file from …" template-download block is shown.
  *
  * ON. It followed SHOW_IMPORT_UI for as long as a template was only an upload
