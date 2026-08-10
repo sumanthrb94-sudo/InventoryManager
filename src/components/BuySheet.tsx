@@ -47,7 +47,6 @@ import StockOverlayModal, {
 import OutOfStockOverlay, { type OutOfStockBucket } from './OutOfStockOverlay';
 import PaginationBar, { usePagedRows } from './PaginationBar';
 import ReportRangeMenu from './ReportRangeMenu';
-import { INVENTORY_TEMPLATES } from './TemplateDownload';
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -686,7 +685,17 @@ export default function BuySheet(_props: Props) {
             tone="emerald"
             onDownload={handleInventoryReport}
             onView={handleInventoryReportView}
-            templates={INVENTORY_TEMPLATES}
+            // No templates offered here any more. An inventory template is
+            // purely an upload vehicle, and there is no longer anything to
+            // upload it to — Import is off (see SHOW_IMPORT_UI). Handing the
+            // operator a blank intake spreadsheet would imply that typing
+            // stock into Excel is still a supported route, which is exactly
+            // the habit that put uncatalogued model names into the database.
+            // Intake is Stock Intake → Add Stock, through the catalogue picker.
+            //
+            // The SALES templates are unaffected and still offered on Sell:
+            // those carry live formulas and are working sheets in their own
+            // right, useful whether or not anything reads them back.
             // Live-refresh: every status flip (sold / returned / soft-
             // delete) changes the report row count via isStockOnHand.
             reportDataKey={`${units.length}|${units.filter(u => u.status === 'sold').length}|${units.filter(u => u.returnType === 'returned_to_supplier').length}|${suppliers.length}`}

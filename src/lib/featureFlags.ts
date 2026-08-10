@@ -4,35 +4,61 @@
  */
 
 /**
- * Whether the Import entry points are shown at all.
+ * Whether the INVENTORY Report import entry point is shown at all.
  *
- * ON, for admins.
+ * OFF in a real build, and OFF under VITE_E2E too. VITE_INVENTORY_IMPORT=1
+ * opts back in.
  *
  * History, because the reasoning matters more than the value: after the
  * 2026-08 wipe → Inventory Report → Sales Report migration reconciled exactly
  * (487 sold / £7,781 GP / 5 returns reproduced after the wipe, 0 orphans),
  * Import came out of the UI entirely. With the database known correct, an
  * accidental re-import was pure downside and there was nothing left to import.
- * It was gated on VITE_E2E rather than hard-coded `false` so the 36 scripts in
- * scripts/ that drive imports through the real UI stayed green.
+ * The operator then asked for it back, so it went back on for a while.
  *
- * The operator has since asked for it back, so it is back. Nothing about the
- * pipeline ever changed — the modals, parsers and services were untouched and
- * stayed under test throughout, which is precisely why restoring it is this
- * one line.
+ * It is now off again, and this time the reason is not "nothing left to
+ * import" — it is that the route is unsound:
  *
- * WHAT TURNING THIS ON RE-OPENS, so it is a decision and not a surprise:
- * Import is the only route in the app that can CREATE units, complete orphan
- * records and restore returns from a file. Mark Multiple Sold cannot — it can
- * only sell stock that already exists, which is what makes it safe. Uploading
- * a stale or hand-edited report can therefore reintroduce units that were
- * deliberately removed, so the file matters.
+ *   Import is the only way to create an inventory unit from free text. Every
+ *   other intake path goes through a picker bound to the admin model catalogue
+ *   — DeviceComboBox on Add Stock, AccessoryComboBox on the accessory tab — so
+ *   a model that is not in Configuration cannot be typed into existence. The
+ *   importer has no such gate. It takes whatever the Model column says and
+ *   creates the unit.
  *
- * Still `&& userIsAdmin` at the call site in App.tsx: an employee cannot see
- * or reach it. That has been true the whole time and is not what this flag
- * changes.
+ * The result is visible in production. Units exist carrying supplier product
+ * codes as their model name (e.g. "SG TABA (10.1)(T580) 16GB"), which no
+ * parser can classify, so they group as their own SKU everywhere and never
+ * join the real one. The periodic table renders them as an unlabelled tile in
+ * Unclassified, and Stock Alerts counts them as a SKU to reorder.
+ *
+ * Closing the door stops new ones. It does NOT clean up the rows already
+ * written — that is a separate data job.
+ *
+ * ITS OWN VARIABLE, NOT VITE_E2E — same call as SHOW_SALES_IMPORT_UI below,
+ * for the same reason, and it is worth stating twice because the obvious
+ * shortcut is wrong. Riding on VITE_E2E would leave inventory import present
+ * in every E2E build, so the suite would keep exercising a configuration no
+ * user can reach and a green run would describe the wrong product. Default OFF
+ * everywhere; only scripts that exist specifically to cover the still-compiled
+ * parser should set VITE_INVENTORY_IMPORT=1, and should say why.
+ *
+ * Gated rather than deleted: the parser, the preview and the unit-creation
+ * path stay compiled and stay under unit test. Deleting the surface would take
+ * that coverage with it and make restoring the route a rebuild rather than a
+ * one-line change.
+ *
+ * WHAT THIS COSTS, so it is a decision and not a surprise:
+ *
+ * With SHOW_SALES_IMPORT_UI also off, the wipe → re-upload → "go live"
+ * recovery is now gone entirely, for stock as well as sales. A wipe is no
+ * longer undoable through the UI. Flipping these two flags back is the
+ * recovery route if one ever has to be.
+ *
+ * Still `&& userIsAdmin` at the call site in App.tsx, which is now redundant
+ * but harmless.
  */
-export const SHOW_IMPORT_UI = true;
+export const SHOW_IMPORT_UI = import.meta.env.VITE_INVENTORY_IMPORT === '1';
 
 /**
  * Whether the SALES Report import is offered alongside the Inventory one.

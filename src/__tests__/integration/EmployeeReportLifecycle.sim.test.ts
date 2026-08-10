@@ -184,24 +184,54 @@ describe('Act 1 · employee signs in', () => {
     expect((await deleteOfficeUnit(unit, 'test')).message).toMatch(/admin access required/i);
   });
 
-  it('FINDING: the Import entry point is admin-only, and an employee cannot reach it', async () => {
+  it('FINDING: Import is off in production — no route can create a unit from free text', async () => {
     const { readFileSync } = await import('node:fs');
     const app = readFileSync('src/App.tsx', 'utf8');
     const flags = readFileSync('src/lib/featureFlags.ts', 'utf8');
-    // This finding has moved twice. It first read "Import is admin-only"; it
-    // then became "hidden from everyone, admins included" when the 2026-08
-    // migration finished and there was nothing left to import. The operator
-    // has since asked for Import back, so it is admin-only again — and the
-    // admin half is the part that has never changed.
+    // This finding has moved three times. It first read "Import is admin-only";
+    // it became "hidden from everyone" when the 2026-08 migration finished; it
+    // went back to admin-only when the operator asked for it; and it is now off
+    // again for a reason the earlier rounds did not have.
     //
-    // Import matters more than any other entry point because it is the ONLY
-    // route that can create units, complete orphans and restore returns from
-    // a file. Mark Multiple Sold can only sell stock that already exists.
-    expect(flags, 'the flag is on, explicitly').toMatch(/SHOW_IMPORT_UI\s*=\s*true/);
+    // Import is the ONLY route in the app that creates an inventory unit from
+    // free text. Every other intake path goes through a picker bound to the
+    // admin model catalogue, so an uncatalogued model cannot be typed into
+    // existence. The importers take whatever the Model column says. That is how
+    // supplier product codes ended up stored as model names in production.
+    //
+    // Gated rather than deleted, so the parser and the unit-creation path stay
+    // compiled and under test — but on its OWN variable, not VITE_E2E. Riding
+    // on VITE_E2E would leave import present in every E2E build, so the suite
+    // would keep exercising a configuration no user can reach. That is the
+    // same call SHOW_SALES_IMPORT_UI already made, and this pins that the two
+    // agree: OFF by default everywhere, opt-in per script.
+    expect(flags, 'gated on its own opt-in variable').toMatch(
+      /SHOW_IMPORT_UI\s*=\s*import\.meta\.env\.VITE_INVENTORY_IMPORT\s*===\s*'1'/,
+    );
+    expect(flags, 'must not be unconditionally on').not.toMatch(/SHOW_IMPORT_UI\s*=\s*true/);
+    expect(flags, 'must not ride on VITE_E2E — that is the trap').not.toMatch(
+      /SHOW_IMPORT_UI\s*=\s*import\.meta\.env\.VITE_E2E/,
+    );
+    // Both import doors default closed, so an E2E run describes what ships.
+    expect(flags).toMatch(/SHOW_SALES_IMPORT_UI\s*=\s*import\.meta\.env\.VITE_SALES_IMPORT\s*===\s*'1'/);
     const importBlock = app.slice(app.indexOf('{SHOW_IMPORT_UI && userIsAdmin && ('), app.indexOf('Sales Report'));
     expect(importBlock).toContain('setIsImportModalOpen(true)');
     expect(importBlock, 'still behind the admin check').toContain('userIsAdmin');
     expect(importBlock).toContain('SHOW_IMPORT_UI');
+  });
+
+  it('FINDING: no blank INTAKE spreadsheet is offered once Import is closed', async () => {
+    const { readFileSync } = await import('node:fs');
+    // The sales templates are working sheets with live formulas and stay. The
+    // inventory ones are pure upload vehicles: with no importer they hand the
+    // operator a file nothing can read back, and imply that typing stock into
+    // Excel is still an intake route — the exact habit that put uncatalogued
+    // model names into the database. The constant itself stays exported,
+    // because InventoryReportImport still renders it under E2E.
+    const buySheet = readFileSync('src/components/BuySheet.tsx', 'utf8');
+    expect(buySheet, 'Buy must not offer an inventory intake template').not.toContain('INVENTORY_TEMPLATES');
+    const sellSheet = readFileSync('src/components/SellSheet.tsx', 'utf8');
+    expect(sellSheet, 'sales working sheets are unaffected').toContain('SALES_TEMPLATES');
   });
 
   it('FINDING: the template downloads are back, on their own guard', async () => {
