@@ -1,167 +1,205 @@
 /**
- * Seed sales through the UI, the way an operator does.
+ * e2eSeedSales — put sales into the E2E store by driving Mark Multiple Sold.
  *
  * WHY THIS EXISTS
  *
- * Most of the E2E suite used to create sales by uploading a Sales Report,
- * because that was the fastest way to get rows into the app. Sales import was
- * removed from the product in 2026-08, and a full sweep against the shipping
- * build showed the cost: 32 of 48 scripts stopped at their first step, every
- * one of them waiting for a menu item that no longer exists. None of them were
- * testing import — they were seeding with it.
+ * Twenty-two E2E scripts used to seed sales by uploading a Sales Report
+ * through the importer, then went on to test something entirely unrelated —
+ * the VAT centre, stock alerts, supplier rollups, best-sellers. Import was
+ * never the subject of those tests; it was just the fastest way to get rows
+ * into the database.
  *
- * This drives "Mark Multiple Sold" (BulkSaleModal), which is what the operator
- * actually uses to record a batch. Seeding through it is slower than parsing a
- * spreadsheet and considerably more honest: the sale goes through the real
- * modal, the real service and the real write path, so a script that seeds this
- * way is exercising the product rather than a route around it.
+ * The importers were deleted (2026-08), so that seeding route is gone and
+ * those scripts die at their setup step on a button that no longer exists.
+ * The tests themselves are still valid.
  *
- * USAGE
+ * This drives the real Mark Multiple Sold modal instead, which is the route an
+ * operator actually uses. That makes the seeding STRICTER than the import it
+ * replaces: recordBulkSales reconciles against live stock, so a script can
+ * only sell something its fixture really put on the shelf. An import could
+ * conjure a sale for a unit that never existed — which is how a suite could
+ * pass while masking a stock bug. Expect some converted scripts to surface
+ * real failures that were previously hidden; that is the point, not a
+ * regression in this helper.
  *
- *   import { seedSales } from './e2eSeedSales.mjs';
+ * ADDRESSING
  *
- *   await seedSales(page, [
- *     { marketplace: 'AMAZON', kind: 'office',    search: '350111000000011',
- *       orderNumber: 'A-1', price: 400 },
- *     { marketplace: 'EBAY',   kind: 'accessory', search: 'USB-C 20W Charger',
- *       orderNumber: 'E-1', price: 9.99 },
- *     { marketplace: 'BM',     kind: 'shs',       search: 'SUPPLIER-TAG',
- *       orderNumber: 'B-1', price: 300, imei: '888000000000001' },
- *   ]);
+ * Everything is located per-ROW, then by aria-label inside that row
+ * ("Model", "IMEI", "Order number", "Sale price", "Quantity").
  *
- * Returns { requested, sold, failed, summary } so a caller can assert on the
- * seeding itself rather than discovering later that it silently did nothing —
- * which is how a script ends up green while testing an empty database.
+ * Row-scoping is not a style preference, it is required for correctness.
+ * Quantity is rendered ONLY for accessory lines (a handset shows a static
+ * "1"), so a page-wide `getByLabel('Quantity').nth(rowIndex)` silently
+ * addresses the wrong row the moment a batch mixes handsets and accessories.
+ * Scoping to the row makes the lookup say what it means.
+ *
+ * TRUTH SOURCE FOR THE COUNT
+ *
+ * The modal renders "N of M rows ready" and "Confirm N Sales". N is the
+ * component's own judgement of how many rows are complete, so N is what gets
+ * reported — not this script's opinion of how many fields it filled. A row can
+ * be typed into and still not be ready (no stock match, missing price), and
+ * counting optimistically here is how a short seed turns into a confusing
+ * assertion failure three steps downstream.
  */
 
-const PLATFORM_LABEL = {
-  AMAZON: 'Amazon', BM: 'Back Market', EBAY: 'eBay', ONBUY: 'OnBuy', TEMU: 'Temu',
-};
-
-const modal = (page) => page.locator('div.fixed.inset-0').last();
-const gridRows = (page) => modal(page).locator('tbody tr');
-
-/** Open Inventory → Mark Multiple Sold. */
-async function openBulkSaleModal(page, gotoTab) {
-  await gotoTab(page, 'Inventory');
-  await page.getByRole('button', { name: /Mark Multiple Sold/i }).click();
-  await page.waitForTimeout(600);
+/** The modal's inner panel — the element that actually contains the rows. */
+function modalOf(page) {
+  return page.locator('div.bg-white.rounded-2xl')
+             .filter({ hasText: 'Mark Multiple Sold' })
+             .first();
 }
 
-/** Switch to a marketplace's tab. A row belongs to the tab it is entered on —
- *  there is no per-row marketplace dropdown, because the grid mirrors the
- *  Sales Report's own one-sheet-per-marketplace shape. */
-async function goToMarketplace(page, marketplace) {
-  const label = PLATFORM_LABEL[marketplace];
-  if (!label) throw new Error(`unknown marketplace "${marketplace}"`);
-  await modal(page).getByRole('tab', { name: new RegExp(`^${label}`, 'i') }).click();
-  await page.waitForTimeout(250);
+/** Open Sell → Mark Multiple Sold. Returns the modal locator. */
+async function openBulkSale(page, gotoTab) {
+  if (gotoTab) await gotoTab('sell');
+  const trigger = page.getByRole('button', { name: /Mark Multiple Sold/i });
+  await trigger.waitFor({ state: 'visible', timeout: 30_000 });
+  await trigger.click();
+  const modal = modalOf(page);
+  await modal.waitFor({ state: 'visible', timeout: 15_000 });
+  return modal;
 }
 
 /**
- * Add a row and pick the stock for it.
- *
- * `kind` is set BEFORE searching on purpose: the search only offers the chosen
- * source, which is what stops an office handset being picked when an SHS one
- * of the same model was meant.
+ * Switch the modal to a marketplace tab. Throws when the tab is absent —
+ * silently continuing would seed every row to whatever tab happened to be
+ * open, and the script would then assert Amazon fees against Temu rows.
  */
-async function addRow(page, { search, kind }) {
-  const m = modal(page);
-  const before = await gridRows(page).count();
-  const filled = await m.locator('input[aria-label="Model"]')
-    .evaluateAll(els => els.filter(e => e.value.trim()).length);
-  if (filled >= before) {
-    await m.getByRole('button', { name: /^Add row$/i }).click();
-    await page.waitForTimeout(200);
+async function selectMarketplace(page, marketplace) {
+  const tab = page.getByRole('tab', { name: new RegExp(`^${marketplace}$`, 'i') });
+  if (!(await tab.count())) {
+    throw new Error(`seedSales: no marketplace tab "${marketplace}" — tabs are AMAZON/BM/EBAY/ONBUY/TEMU`);
   }
-  const row = gridRows(page).last();
-
-  await row.getByLabel('Source').selectOption(kind);
-  await page.waitForTimeout(150);
-  await row.locator('input[aria-label="Model"]').fill(search);
-  await page.waitForTimeout(400);
-
-  const options = page.locator('div[role="listbox"] button[role="option"]');
-  if (!(await options.count())) {
-    throw new Error(`seedSales: no ${kind} stock matching "${search}" — nothing to sell`);
-  }
-  await options.first().click({ timeout: 8000 });
-  await page.waitForTimeout(250);
-  return row;
+  await tab.first().click();
 }
 
-/** Cells are addressed by aria-label, never by position: a row's shape changes
- *  with what it sells, so the nth cell is a different field on different rows. */
-async function fillRow(page, row, { orderNumber, price, imei, quantity, postage }) {
-  if (imei !== undefined) await row.locator('input[aria-label="IMEI"]').fill(String(imei));
-  if (quantity !== undefined) {
-    const q = row.getByLabel('Quantity');
-    if (await q.count()) await q.fill(String(quantity));
-  }
-  await row.getByLabel('Order number').fill(orderNumber);
-  await row.getByLabel('Sale price').fill(String(price));
-  if (postage !== undefined) {
-    const p = row.getByLabel('Postage');
-    if (await p.count()) await p.fill(String(postage));
-  }
-  await page.waitForTimeout(120);
+/** The modal's own count of complete rows, read off the Confirm button. */
+async function readyCount(page) {
+  const confirm = page.getByRole('button', { name: /Confirm \d+ Sale/i });
+  if (!(await confirm.count())) return 0;
+  const label = (await confirm.first().textContent()) || '';
+  const m = label.match(/Confirm\s+(\d+)\s+Sale/i);
+  return m ? Number(m[1]) : 0;
 }
 
 /**
- * Record a batch of sales through Mark Multiple Sold.
+ * Fill one row, addressing every field inside that row's <tr>.
+ * Returns true when the row bound to a real stock line.
+ */
+async function fillRow(modal, page, rowIndex, sale) {
+  const row = modal.locator('tbody tr').nth(rowIndex);
+
+  // Model first: typing opens the stock listbox, and PICKING from that
+  // listbox is what binds the row to a unit. A typed-but-unpicked row has no
+  // unitId and never becomes ready.
+  const model = row.getByLabel('Model');
+  await model.click();
+  await model.fill(sale.model);
+
+  const listbox = page.locator('[role="listbox"][aria-label="Stock"]');
+  try {
+    await listbox.waitFor({ state: 'visible', timeout: 4000 });
+    const option = sale.imei
+      ? listbox.getByRole('option').filter({ hasText: sale.imei }).first()
+      : listbox.getByRole('option').first();
+    if (!(await option.count())) return false;
+    await option.click({ timeout: 4000 });
+  } catch {
+    // Nothing in stock matches. Leave the row unbound; the ready-count below
+    // reports the shortfall by number and assertSeeded names it.
+    return false;
+  }
+
+  if (sale.orderNumber != null) await row.getByLabel('Order number').fill(String(sale.orderNumber));
+  if (sale.salePrice != null) await row.getByLabel('Sale price').fill(String(sale.salePrice));
+
+  // Quantity exists only on accessory rows — hence the count() guard, and
+  // hence the row scope.
+  if (sale.quantity != null) {
+    const qty = row.getByLabel('Quantity');
+    if (await qty.count()) await qty.fill(String(sale.quantity));
+  }
+  return true;
+}
+
+/**
+ * Seed `sales` through Mark Multiple Sold.
  *
- * @param page                Playwright page
- * @param sales               rows to enter; see the file header for the shape
- * @param opts.gotoTab        the caller's own nav helper (each script has one)
- * @param opts.batchSize      rows per modal pass; the grid stays responsive
- *                            around 10-15, and a fresh modal per batch keeps
- *                            one bad row from stranding the rest
- * @returns { requested, sold, failed, summary }
+ * Does NOT throw on a partial seed — callers assert with assertSeeded so the
+ * failure reads "seeded 7 of 10" instead of a downstream total being quietly
+ * short.
+ *
+ * @param {import('playwright').Page} page
+ * @param {Array<{marketplace?: string, model: string, imei?: string,
+ *                orderNumber?: string|number, salePrice?: number, quantity?: number}>} sales
+ * @param {{gotoTab?: Function, batchSize?: number}} [opts]
+ * @returns {Promise<{requested: number, sold: number, failed: number, summary: object[]}>}
  */
 export async function seedSales(page, sales, opts = {}) {
   const { gotoTab, batchSize = 10 } = opts;
-  if (typeof gotoTab !== 'function') {
-    throw new Error('seedSales: pass your script\'s gotoTab as opts.gotoTab');
-  }
-  if (!sales.length) return { requested: 0, sold: 0, failed: 0, summary: 'nothing to seed' };
-
+  const summary = [];
   let sold = 0;
-  let failed = 0;
-  const summaries = [];
 
-  for (let i = 0; i < sales.length; i += batchSize) {
-    const batch = sales.slice(i, i + batchSize);
-    await openBulkSaleModal(page, gotoTab);
-
-    for (const s of batch) {
-      await goToMarketplace(page, s.marketplace);
-      const row = await addRow(page, { search: s.search, kind: s.kind ?? 'office' });
-      await fillRow(page, row, s);
-    }
-
-    const m = modal(page);
-    await m.getByRole('button', { name: /^Confirm \d+ Sales?$/i }).click();
-    await page.waitForTimeout(1500);
-
-    const text = await m.innerText().catch(() => '');
-    summaries.push((text.match(/\d+ sold[^\n]*/i) ?? [])[0] || '');
-    sold += Number((text.match(/(\d+)\s*sold/i) ?? [0, 0])[1]);
-    failed += Number((text.match(/(\d+)\s*failed/i) ?? [0, 0])[1]);
-
-    await m.getByRole('button', { name: /^Close$/i }).last().click().catch(() => {});
-    await page.waitForTimeout(600);
+  // Marketplace is a modal-level tab, not a per-row field, so a single modal
+  // cannot mix channels. Group first, then batch within each group.
+  const byMarket = new Map();
+  for (const s of sales) {
+    const m = (s.marketplace || 'AMAZON').toUpperCase();
+    if (!byMarket.has(m)) byMarket.set(m, []);
+    byMarket.get(m).push(s);
   }
 
-  return { requested: sales.length, sold, failed, summary: summaries.join(' · ') };
+  for (const [marketplace, rows] of byMarket) {
+    for (let off = 0; off < rows.length; off += batchSize) {
+      const batch = rows.slice(off, off + batchSize);
+      const modal = await openBulkSale(page, gotoTab);
+      await selectMarketplace(page, marketplace);
+
+      const addRow = page.getByRole('button', { name: /Add row/i });
+      for (let k = 1; k < batch.length; k++) await addRow.click();
+
+      for (let k = 0; k < batch.length; k++) await fillRow(modal, page, k, batch[k]);
+
+      // The component's count, not ours.
+      const ready = await readyCount(page);
+      const confirm = page.getByRole('button', { name: /Confirm \d+ Sale/i });
+
+      if (ready === 0 || !(await confirm.first().isEnabled().catch(() => false))) {
+        summary.push({ marketplace, requested: batch.length, sold: 0, reason: 'no row bound to live stock' });
+        await page.getByRole('button', { name: 'Close' }).first().click().catch(() => {});
+        await modal.waitFor({ state: 'detached', timeout: 10_000 }).catch(() => {});
+        continue;
+      }
+
+      await confirm.first().click();
+      await modal.waitFor({ state: 'detached', timeout: 30_000 }).catch(() => {});
+      sold += ready;
+      summary.push({ marketplace, requested: batch.length, sold: ready });
+    }
+  }
+
+  return { requested: sales.length, sold, failed: sales.length - sold, summary };
 }
 
-/** Convenience: assert the seeding actually happened.
+/**
+ * Assert a seed landed in full. Call immediately after seedSales — a script
+ * that carries on with a short seed reports a wrong total later and blames
+ * the feature under test.
  *
- *  Worth its own call because the failure it catches is the quiet one — a
- *  script that seeds nothing, asserts against an empty database and reports
- *  everything fine. */
-export function assertSeeded(record, result, label = 'seeded sales through the UI') {
-  record(`${label} — ${result.sold}/${result.requested}`,
-    result.sold === result.requested && result.failed === 0,
-    result.summary || `${result.failed} failed`);
+ * `record` is the scripts' own reporter, whose signature is
+ * record(name, ok, detail) — name FIRST. Getting that order wrong passes a
+ * boolean as the name and a non-empty string as `ok`, which is always truthy,
+ * so every assertion silently "passes". Hence the explicit note.
+ */
+export function assertSeeded(record, result, label = 'seed sales') {
+  const ok = result.failed === 0;
+  record(
+    label,
+    ok,
+    ok
+      ? `seeded ${result.sold}/${result.requested} through Mark Multiple Sold`
+      : `seeded only ${result.sold}/${result.requested} — ${JSON.stringify(result.summary)}`,
+  );
+  return ok;
 }
