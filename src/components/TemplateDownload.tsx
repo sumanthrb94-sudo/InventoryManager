@@ -32,8 +32,8 @@ const BASE = 'templates';
 
 /**
  * The template block for a report menu — a labelled divider plus one row per
- * template. Renders nothing when the report has no importer (Returns), so
- * callers can pass an empty list without special-casing.
+ * template. Renders nothing when a report has no template to offer, so callers
+ * can pass an empty list without special-casing.
  */
 export default function TemplateDownload({
   templates,
@@ -81,23 +81,6 @@ export default function TemplateDownload({
 // Referenced by both the report menus and the import modals so the two can't
 // offer different files for the same job.
 
-export const INVENTORY_TEMPLATES: TemplateLink[] = [
-  {
-    file: 'INVENTORY_REPORT_TEMPLATE.xlsx',
-    label: 'Inventory template',
-    hint: '11 columns · office and SHS stock',
-  },
-  {
-    file: 'SHS_STOCK_TEMPLATE.xlsx',
-    label: 'SHS stock template',
-    hint: 'same schema, every row pre-set to SHS',
-  },
-  {
-    file: 'ACCESSORIES_TEMPLATE.xlsx',
-    label: 'Accessories template',
-    hint: '6 columns · no-IMEI quantity pools',
-  },
-];
 
 // Column counts are the REPORT's, because these files are generated from it —
 // see scripts/generateSalesTemplates.ts. Every one carries live formulas on

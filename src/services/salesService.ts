@@ -19,7 +19,7 @@ import { dbService } from '../lib/dbService';
 import type { InventoryUnit, Marketplace, Sale } from '../types';
 import { calcSaleFinancials } from '../lib/platforms';
 import { logInventoryEvent } from '../lib/inventoryEvents';
-import { sanitiseFsIdSegment } from '../lib/salesImport';
+import { sanitiseFsIdSegment } from '../lib/firestoreIds';
 import { isAppleDevice, isValidImei } from '../lib/imeiValidation';
 import { recordAccessorySale, type RecordAccessorySaleInput } from './inventoryService';
 

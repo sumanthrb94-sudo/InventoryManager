@@ -16,7 +16,6 @@ import { InventoryUnit, Supplier, MARKETPLACES } from '../types';
 import CopyImei from './CopyImei';
 import PeriodicInventory from './PeriodicInventory';
 import CollapsibleSection from './CollapsibleSection';
-import { SHOW_IMPORT_UI } from '../lib/featureFlags';
 import { saleKeptItsRevenue } from '../lib/returnLoss';
 
 
@@ -34,14 +33,13 @@ export interface NavAction {
 interface Props {
   user?: User | null;
   onNavigate: (action: NavAction) => void;
-  onOpenImport?: () => void;
   onOpenMasterData?: () => void;
 }
 
-export default function Dashboard({ user, onNavigate, onOpenImport, onOpenMasterData }: Props) {
-  // Master Data button prefers the dedicated `onOpenMasterData` handler
-  // (Admin → Master Data sub-tab) and falls back to the legacy import modal.
-  const handleOpenMasterData = () => (onOpenMasterData ?? onOpenImport)?.();
+export default function Dashboard({ user, onNavigate, onOpenMasterData }: Props) {
+  // Master Data button. The legacy fallback to the import modal went with the
+  // importers — Admin → Master Data is the only route to it now.
+  const handleOpenMasterData = () => onOpenMasterData?.();
   const { units, suppliers, sales, aggregates, importBatches, accessoryStock, catalogIndex } = useInventoryStore();
   useLazyCollection('importBatches');
   const showAdminPanel = isAdmin(user);
@@ -559,7 +557,7 @@ export default function Dashboard({ user, onNavigate, onOpenImport, onOpenMaster
             iconBg="bg-gray-200 text-gray-700"
             // No onClick — this tile used to be a way INTO the importer. It
             // stays as read-only provenance (which file, how many rows, when),
-            // but Import is hidden from the UI now. See SHOW_IMPORT_UI.
+            // but the importers were deleted in 2026-08, so nothing adds to it.
             valueClassName="text-sm md:text-base truncate"
           />
         </section>
@@ -598,51 +596,6 @@ export default function Dashboard({ user, onNavigate, onOpenImport, onOpenMaster
         </section>
       )}
 
-      {/* First-run CTA — only when DB is completely empty. Also gated on
-          SHOW_IMPORT_UI: this is the post-wipe entry point, so leaving it
-          visible would make hiding the other two doors cosmetic. */}
-      {SHOW_IMPORT_UI && isEmptyDb && (
-        <button
-          type="button"
-          onClick={() => onOpenImport?.()}
-          className="w-full text-left bg-gradient-to-br from-slate-900 via-slate-800 to-black text-white rounded-3xl border border-slate-800 shadow-xl p-6 md:p-8 hover:shadow-2xl hover:from-black hover:to-slate-900 active:scale-[0.995] transition-all group"
-        >
-          <div className="flex items-start gap-4 md:gap-6">
-            <div className="w-12 h-12 md:w-14 md:h-14 rounded-2xl bg-white/10 border border-white/15 flex items-center justify-center flex-shrink-0 group-hover:bg-white/20 transition-all">
-              <FileSpreadsheet size={24} className="text-white"/>
-            </div>
-            <div className="flex-1 min-w-0">
-              <p className="text-[9px] md:text-[10px] font-mono uppercase tracking-[0.35em] text-emerald-300/90 mb-1.5">Get Started</p>
-              <h3 className="text-xl md:text-3xl font-bold tracking-tighter font-display leading-tight">Load Master Data</h3>
-              <p className="text-[11px] md:text-sm text-slate-300 font-mono mt-2 leading-relaxed">
-                Drop INVENTORY_REPORT_*.xlsx or SALES_REPORT_*.xlsx to populate the app
-              </p>
-
-              <div className="mt-5 grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                <div className="flex items-center gap-3 bg-white/5 border border-dashed border-white/20 rounded-2xl px-4 py-3 group-hover:border-white/40 transition-all">
-                  <Upload size={16} className="text-emerald-300 flex-shrink-0"/>
-                  <div className="min-w-0">
-                    <p className="text-[11px] font-bold leading-tight">INVENTORY_REPORT</p>
-                    <p className="text-[9px] text-slate-400 font-mono mt-0.5">Stock workbook</p>
-                  </div>
-                </div>
-                <div className="flex items-center gap-3 bg-white/5 border border-dashed border-white/20 rounded-2xl px-4 py-3 group-hover:border-white/40 transition-all">
-                  <Upload size={16} className="text-emerald-300 flex-shrink-0"/>
-                  <div className="min-w-0">
-                    <p className="text-[11px] font-bold leading-tight">SALES_REPORT</p>
-                    <p className="text-[9px] text-slate-400 font-mono mt-0.5">Sales workbook</p>
-                  </div>
-                </div>
-              </div>
-
-              <div className="mt-5 inline-flex items-center gap-2 text-[10px] md:text-[11px] font-bold uppercase tracking-widest text-white bg-white/10 group-hover:bg-white/20 rounded-xl px-3.5 py-2 transition-all">
-                <FileSpreadsheet size={12}/> Open Importer
-                <ChevronRight size={13} className="group-hover:translate-x-0.5 transition-transform"/>
-              </div>
-            </div>
-          </div>
-        </button>
-      )}
 
       {/* Periodic Inventory Table — single panel with an Office/SHS toggle
           at the top-right. Switching the scope rewires all three view tabs

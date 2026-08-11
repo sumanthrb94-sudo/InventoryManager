@@ -70,8 +70,6 @@ import {
   receiveShsAggregate,
   backfillImei,
   addSoldUnitFromSale,
-  restoreUnitReturnFromImport,
-  completeUnitBuyInfo,
   upsertAccessoryStock,
   decrementAccessoryStock,
   restoreAccessoryStockFromImport,
@@ -697,9 +695,6 @@ describe('addSoldUnitFromSale', () => {
   });
 });
 
-// ───────────────────────────────────────────────────────────────────────────
-// restoreUnitReturnFromImport
-// ───────────────────────────────────────────────────────────────────────────
 
 const voidedSale = (over: Partial<Sale> = {}): Sale => ({
   id: 'AMAZON__O-RET-1__350000000000222',
@@ -750,234 +745,6 @@ const soldUnit = (over: Record<string, any> = {}) => ({
   ...over,
 });
 
-describe('restoreUnitReturnFromImport', () => {
-  it('patches an existing SOLD unit to returned_to_inventory → available, clearing sale-provenance fields', async () => {
-    const sale = voidedSale();
-    col('inventoryUnits').set(sale.imei!, soldUnit());
-
-    const r = await restoreUnitReturnFromImport({ sale, returnType: 'returned_to_inventory' });
-    expect(r.ok).toBe(true);
-    expect(r.created).toBe(false);
-
-    const unit = collections['inventoryUnits'].get('350000000000222');
-    expect(unit.status).toBe('available');
-    expect(unit.returnType).toBe('returned_to_inventory');
-    expect(unit.returnDate).toBe('2026-06-14');
-    expect(unit.returnReason).toBe('Refund — Cx Change of Mind');
-    expect(unit.returnOutcome).toBe('refund');
-    expect(unit.returnLegCost).toBeCloseTo(7.56);
-    expect(unit.pendingCrmReview).toBe(false);
-    expect(unit.platformListed).toBe(false);
-    expect(unit.listingSites).toEqual([]);
-    // Sale provenance cleared, matching returnsService's buildReturningUnitPatch.
-    expect(unit.salePrice).toBeNull();
-    expect(unit.saleDate).toBeNull();
-    expect(unit.salePlatform).toBeNull();
-    expect(unit.saleOrderId).toBeNull();
-    expect(unit.postageCost).toBeNull();
-  });
-
-  it('returned_to_supplier and repair land on status "returned", not "available"', async () => {
-    col('inventoryUnits').set('350000000000222', soldUnit());
-    const r1 = await restoreUnitReturnFromImport({
-      sale: voidedSale(), returnType: 'returned_to_supplier',
-    });
-    expect(r1.ok).toBe(true);
-    expect(collections['inventoryUnits'].get('350000000000222').status).toBe('returned');
-
-    col('inventoryUnits').set('350000000000333', soldUnit({ id: '350000000000333', imei: '350000000000333' }));
-    const r2 = await restoreUnitReturnFromImport({
-      sale: voidedSale({ id: 'AMAZON__O-RET-2__350000000000333', imei: '350000000000333', voidOutcome: 'repair', voidReason: 'In Repair — screen cracked' }),
-      returnType: 'repair',
-    });
-    expect(r2.ok).toBe(true);
-    const unit2 = collections['inventoryUnits'].get('350000000000333');
-    expect(unit2.status).toBe('returned');
-    // repair voids carry no customer outcome — independent of returnType.
-    expect(unit2.returnOutcome).toBeNull();
-  });
-
-  it('no matching unit at all — reconstructs one directly in returned shape, skipping the sold intermediate', async () => {
-    const sale = voidedSale({ id: 'AMAZON__O-RET-3__350000000000444', imei: '350000000000444', unitId: '' });
-    const r = await restoreUnitReturnFromImport({ sale, returnType: 'returned_to_inventory' });
-    expect(r.ok).toBe(true);
-    expect(r.created).toBe(true);
-    expect(r.unitId).toBe('350000000000444');
-
-    const unit = collections['inventoryUnits'].get('350000000000444');
-    expect(unit).toBeDefined();
-    expect(unit.status).toBe('available');
-    expect(unit.returnType).toBe('returned_to_inventory');
-    expect(unit.model).toContain('Galaxy A32');
-    expect(unit.buyPrice).toBe(120);
-    // No live "sold" moment for a unit whose entire life this import is
-    // "it came back" — sale-provenance fields never got set in the first place.
-    expect(unit.salePrice).toBeNull();
-    expect(unit.saleOrderId).toBeNull();
-  });
-
-  it('is idempotent — re-running against an already-restored unit is a no-op (no duplicate audit event, same state)', async () => {
-    const sale = voidedSale();
-    col('inventoryUnits').set(sale.imei!, soldUnit());
-    await restoreUnitReturnFromImport({ sale, returnType: 'returned_to_inventory' });
-    const afterFirst = { ...collections['inventoryUnits'].get('350000000000222') };
-
-    const r2 = await restoreUnitReturnFromImport({ sale, returnType: 'returned_to_inventory' });
-    expect(r2.ok).toBe(true);
-    expect(r2.created).toBe(false);
-    expect(collections['inventoryUnits'].get('350000000000222')).toEqual(afterFirst);
-  });
-
-  it('rejects a sale that was never voided — nothing to restore', async () => {
-    const sale = voidedSale({ voidedAt: undefined, voidOutcome: undefined, voidReason: undefined });
-    const r = await restoreUnitReturnFromImport({ sale, returnType: 'returned_to_inventory' });
-    expect(r.ok).toBe(false);
-    expect(r.error).toBe('not_voided');
-  });
-
-  it('rejects a sale with no IMEI to restore against', async () => {
-    const sale = voidedSale({ imei: '' });
-    const r = await restoreUnitReturnFromImport({ sale, returnType: 'returned_to_inventory' });
-    expect(r.ok).toBe(false);
-    expect(r.error).toBe('missing_imei');
-  });
-
-  it('reconstruction path surfaces missing_supplier when the sale has no supplier at all', async () => {
-    const sale = voidedSale({
-      id: 'AMAZON__O-RET-5__350000000000555', imei: '350000000000555',
-      unitId: '', supplierName: '',
-    });
-    const r = await restoreUnitReturnFromImport({ sale, returnType: 'returned_to_inventory' });
-    expect(r.ok).toBe(false);
-    expect(r.error).toBe('missing_supplier');
-  });
-
-  it('multi-cycle guard: refuses to restore a historical return once the unit has been re-sold under a different order', async () => {
-    // sell -> return -> sell again -> everything re-imports in one file.
-    // By the time the returns-restore step runs, the unit is ALREADY
-    // 'sold' again (linked to the NEW order) via the normal sync/audit
-    // step that runs first. Restoring the OLD (now-historical) return
-    // must not clobber that newer sale.
-    const sale = voidedSale(); // orderNumber 'O-RET-1', voided 2026-06-14
-    col('inventoryUnits').set(sale.imei!, {
-      ...soldUnit(),
-      // Currently sold via a DIFFERENT, newer order — the re-sale cycle.
-      salePrice: 220, saleDate: '2026-07-01', salePlatform: 'EBAY', saleOrderId: 'O-NEW-2',
-    });
-    const r = await restoreUnitReturnFromImport({ sale, returnType: 'returned_to_inventory' });
-    expect(r.ok).toBe(false);
-    expect(r.error).toBe('superseded_by_newer_sale');
-    // The newer sale's link must survive untouched.
-    const unit = collections['inventoryUnits'].get('350000000000222');
-    expect(unit.status).toBe('sold');
-    expect(unit.saleOrderId).toBe('O-NEW-2');
-    expect(unit.salePrice).toBe(220);
-    expect(unit.returnType).toBeUndefined();
-  });
-
-  it('multi-cycle: still restores correctly when the unit IS currently sold via the SAME sale being restored', async () => {
-    const sale = voidedSale();
-    col('inventoryUnits').set(sale.imei!, soldUnit()); // saleOrderId defaults to 'O-RET-1', matching the sale
-    const r = await restoreUnitReturnFromImport({ sale, returnType: 'returned_to_inventory' });
-    expect(r.ok).toBe(true);
-    expect(collections['inventoryUnits'].get('350000000000222').status).toBe('available');
-  });
-
-  it('two historical return cycles (never resold between them) both restore correctly, ending on the NEWER cycle\'s returnDate/reason — not stuck on the older one', async () => {
-    // A unit returned, never resold, then somehow returned a second time (or
-    // more realistically: a full-wipe rebuild replays BOTH historical voided
-    // sales for this IMEI, but the Returns Detail sheet only ever carries the
-    // unit's LATEST cycle's Return Type — see parseReturnsTab — so both
-    // restore calls below are made with the SAME returnType, differing only
-    // in which sale (and therefore which returnDate/reason) drives them.
-    const oldSale = voidedSale({
-      id: 'AMAZON__O-RET-OLD__350000000000222', orderNumber: 'O-RET-OLD',
-      voidedAt: '2026-05-01', voidReason: 'Old cycle reason',
-    });
-    const newSale = voidedSale({
-      id: 'AMAZON__O-RET-NEW__350000000000222', orderNumber: 'O-RET-NEW',
-      voidedAt: '2026-06-14', voidReason: 'Newer cycle reason',
-    });
-
-    // Oldest cycle restores first (no existing unit — births one).
-    const r1 = await restoreUnitReturnFromImport({ sale: oldSale, returnType: 'returned_to_inventory' });
-    expect(r1.ok).toBe(true);
-    expect(r1.created).toBe(true);
-    let unit = collections['inventoryUnits'].get('350000000000222');
-    expect(unit.returnDate).toBe('2026-05-01');
-    expect(unit.returnReason).toBe('Old cycle reason');
-
-    // Newest cycle restores second — same returnType as the first call, so
-    // the OLD (status+type-only) idempotency check would have wrongly
-    // treated this as a no-op. It must actually apply and overwrite with
-    // the newer cycle's own date/reason.
-    const r2 = await restoreUnitReturnFromImport({ sale: newSale, returnType: 'returned_to_inventory' });
-    expect(r2.ok).toBe(true);
-    expect(r2.created).toBe(false);
-    unit = collections['inventoryUnits'].get('350000000000222');
-    expect(unit.returnDate).toBe('2026-06-14');
-    expect(unit.returnReason).toBe('Newer cycle reason');
-
-    // Re-running the newest cycle a second time (a genuine re-upload of the
-    // unchanged file) must still be a true no-op — same date, same reason.
-    const r3 = await restoreUnitReturnFromImport({ sale: newSale, returnType: 'returned_to_inventory' });
-    expect(r3.ok).toBe(true);
-    expect(r3.created).toBe(false);
-    unit = collections['inventoryUnits'].get('350000000000222');
-    expect(unit.returnDate).toBe('2026-06-14');
-    expect(unit.returnReason).toBe('Newer cycle reason');
-  });
-});
-
-// ───────────────────────────────────────────────────────────────────────────
-// completeUnitBuyInfo
-// ───────────────────────────────────────────────────────────────────────────
-
-describe('completeUnitBuyInfo', () => {
-  it('patches an existing unit\'s buy-side fields for audit completeness', async () => {
-    // Unit exists but is missing audit data: BP=0, blank supplier, SKU model.
-    col('inventoryUnits').set('355808981119999', {
-      id: '355808981119999', imei: '355808981119999',
-      model: 'ASI-SG-A32-64-5G-DS-BK-DD2', brand: 'Other', category: 'Other',
-      colour: 'Unknown', buyPrice: 0, dateIn: '2026-06-15',
-      supplierId: '', supplierName: '', status: 'available',
-      flags: [], notes: '', platformListed: false, listingSites: [],
-      ownerId: 'shared', createdAt: '2026-06-15T00:00:00Z',
-    });
-
-    const r = await completeUnitBuyInfo({
-      unitId: '355808981119999',
-      model: 'Samsung Galaxy A32 5G',
-      supplierName: 'NANAK',
-      buyPrice: 57,
-      colour: 'Black',
-    });
-    expect(r.ok).toBe(true);
-
-    const u = collections['inventoryUnits'].get('355808981119999');
-    expect(u.buyPrice).toBe(57);
-    expect(u.supplierName).toBe('NANAK');
-    expect(u.model).toBe('Galaxy A32');       // parseBrandModelStorage cleans it
-    expect(u.category).toBe('Samsung A Series');
-    expect(u.colour).toBe('Black');
-    // Status untouched — completeUnitBuyInfo only fixes buy-side data.
-    expect(u.status).toBe('available');
-  });
-
-  it('rejects when model / supplier / BP are missing', async () => {
-    col('inventoryUnits').set('u-x', { id: 'u-x', imei: '1', model: 'X', status: 'available' });
-    expect((await completeUnitBuyInfo({ unitId: 'u-x', model: '', supplierName: 'A', buyPrice: 5 })).error).toBe('missing_model');
-    expect((await completeUnitBuyInfo({ unitId: 'u-x', model: 'M', supplierName: '', buyPrice: 5 })).error).toBe('missing_supplier');
-    expect((await completeUnitBuyInfo({ unitId: 'u-x', model: 'M', supplierName: 'A', buyPrice: 0 })).error).toBe('missing_buy_price');
-  });
-
-  it('rejects when the unit does not exist', async () => {
-    const r = await completeUnitBuyInfo({ unitId: 'nope', model: 'M', supplierName: 'A', buyPrice: 5 });
-    expect(r.ok).toBe(false);
-    expect(r.error).toBe('write_failed');
-  });
-});
-
 describe('stockSource capture (office vs SHS)', () => {
   const orphanSaleSrc = (over: Partial<Sale> = {}): Sale => ({
     id: 'AMAZON__O-SRC__350000000000222',
@@ -1004,16 +771,6 @@ describe('stockSource capture (office vs SHS)', () => {
     expect(collections['inventoryUnits'].get('350000000000223').stockSource).toBe('office');
   });
 
-  it('completeUnitBuyInfo persists stockSource when provided', async () => {
-    col('inventoryUnits').set('u-src', {
-      id: 'u-src', imei: '1', model: 'X', brand: 'Other', category: 'Other',
-      colour: 'Unknown', buyPrice: 0, supplierName: '', status: 'available',
-      flags: [], notes: '', platformListed: false, listingSites: [], ownerId: 'shared', createdAt: 'x',
-    });
-    const r = await completeUnitBuyInfo({ unitId: 'u-src', model: 'Galaxy A32', supplierName: 'NANAK', buyPrice: 57, stockSource: 'shs' });
-    expect(r.ok).toBe(true);
-    expect(collections['inventoryUnits'].get('u-src').stockSource).toBe('shs');
-  });
 });
 
 // ───────────────────────────────────────────────────────────────────────────
@@ -1340,7 +1097,7 @@ describe('restoreAccessoryReturnFromImport — the import-side twin of returnAcc
     expect(accessoryEvents().filter(e => e.type === 'return')).toHaveLength(1);
   });
 
-  it('leaves unit sales alone — an IMEI means restoreUnitReturnFromImport owns it', async () => {
+  it('leaves unit sales alone — an IMEI means processReturn owns it', async () => {
     await upsertAccessoryStock({ sku: 'USB-C-20W', name: 'USB-C 20W Charger', quantity: 50, buyPrice: 3.5 });
     const sale = accessorySale({ imei: goodImei, voidedAt: '2026-07-29', voidOutcome: 'refund' } as any);
     const r = await restoreAccessoryReturnFromImport(sale);
