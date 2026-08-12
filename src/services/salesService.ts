@@ -82,6 +82,44 @@ const today = () => new Date().toISOString().split('T')[0];
  * so re-running the same sale (e.g. by re-import) is a natural upsert,
  * while multiple phones shipped on the same order get their own docs.
  */
+/**
+ * Turn the operator-facing inputs into the full fee / VAT / profit set.
+ *
+ * Exported because the two-stage sale flow needs the identical computation for
+ * a sale that has no unit yet (pendingSaleService). Two copies of this mapping
+ * is precisely how the eBay tier and the PayPal/Klarna detection drift apart,
+ * and a drifted copy shows up as money that is wrong on one screen and right
+ * on another.
+ */
+export function buildSaleFinancials(input: {
+  marketplace: Marketplace;
+  buyPrice: number;
+  salePrice: number;
+  postageOverride?: number;
+  postageVatExempt?: boolean;
+  marketing?: number;
+  paymentMode?: string;
+}) {
+  const hasPayPalKlarna = /paypal|klarna|clearpay|clear pay|applepay|apple pay/i
+    .test(input.paymentMode || '');
+  // eBay shipping tiers map literal £1/£2/£8 inputs to the helper's tier slot.
+  let eBayShippingTier: 1 | 2 | 8 | undefined;
+  if (input.marketplace === 'EBAY'
+      && (input.postageOverride === 1 || input.postageOverride === 2 || input.postageOverride === 8)) {
+    eBayShippingTier = input.postageOverride as 1 | 2 | 8;
+  }
+  return calcSaleFinancials({
+    marketplace: input.marketplace,
+    buyPrice: input.buyPrice,
+    salePrice: input.salePrice,
+    postageOverride: input.postageOverride,
+    eBayShippingTier,
+    hasPayPalKlarna,
+    postageVatExempt: input.postageVatExempt,
+    marketing: input.marketing,
+  });
+}
+
 export async function recordSale(input: RecordSaleInput): Promise<RecordSaleResult> {
   // ── Input validation ────────────────────────────────────────────────────
   if (!input.marketplace) {
@@ -118,23 +156,14 @@ export async function recordSale(input: RecordSaleInput): Promise<RecordSaleResu
   }
 
   // ── Compute derived financials in ONE place. ───────────────────────────
-  const hasPayPalKlarna = /paypal|klarna|clearpay|clear pay|applepay|apple pay/i
-    .test(input.paymentMode || '');
-  // eBay shipping tiers map literal £1/£2/£8 inputs to the helper's tier slot.
-  let eBayShippingTier: 1 | 2 | 8 | undefined;
-  if (input.marketplace === 'EBAY'
-      && (input.postageOverride === 1 || input.postageOverride === 2 || input.postageOverride === 8)) {
-    eBayShippingTier = input.postageOverride as 1 | 2 | 8;
-  }
-  const fin = calcSaleFinancials({
+  const fin = buildSaleFinancials({
     marketplace: input.marketplace,
     buyPrice: bp,
     salePrice: sp,
     postageOverride: input.postageOverride,
-    eBayShippingTier,
-    hasPayPalKlarna,
     postageVatExempt: input.postageVatExempt,
     marketing: input.marketing,
+    paymentMode: input.paymentMode,
   });
 
   const saleDate = input.saleDate || today();

@@ -5,5 +5,6 @@
  */
 export * from './inventoryService';
 export * from './salesService';
+export * from './pendingSaleService';
 export * from './listingService';
 export * from './returnsService';

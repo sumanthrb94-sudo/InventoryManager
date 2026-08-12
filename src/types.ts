@@ -358,6 +358,29 @@ export interface Sale {
   orderNumber: string;
   sku?: string;
   model?: string;                // manually reconciled model name for unlinked sales
+  /**
+   * TWO-STAGE SALE — stage 1 is done, stage 2 is not.
+   *
+   * The sales team knows the model, order number, SKU, marketplace and sale
+   * price, because that is what the marketplace tells them. They do not know
+   * the IMEI: nobody has walked to the shelf yet. They record the sale by
+   * MODEL, the app computes every fee, VAT line and profit figure, and the row
+   * lands in the report immediately — flagged, so nobody reads it as finished.
+   *
+   * While this is true the sale carries no `unitId` and no `imei`, and NO unit
+   * has been marked sold. The warehouse then picks an IMEI for that model and
+   * completes it (linkImeiToPendingSale), which clears this flag, flips the
+   * unit, and recomputes the money against the unit's real buy price.
+   */
+  awaitingImei?: boolean;
+  /**
+   * The buy price on this sale is a stand-in, not the cost of an actual
+   * handset. Set alongside `awaitingImei`: with no unit chosen there is no
+   * real BP, so the cheapest available unit of the model is used to make gross
+   * profit indicative rather than blank. Cleared when the IMEI is linked and
+   * the true BP replaces it.
+   */
+  provisionalBuyPrice?: boolean;
   // Buy-side identity carried on the sale row so an export → re-import round
   // trip can restore it. The marketplace tabs gained Storage / Colour columns
   // in 2026-08; before that a sale for an IMEI never held in stock had no way
