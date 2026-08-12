@@ -500,13 +500,31 @@ export function looksLikeSku(raw: string | undefined | null): boolean {
  *  variants ("X Cover 5" vs "X Cover Pro 4G") stay in separate buckets.
  *  Used for bucket KEYS only — display labels keep their original casing.
  *  Shared source of truth: PeriodicInventory dedup, DeviceComboBox catalog
- *  build, and the admin ModelReconciliation tool all read from this. */
+ *  build, and the admin ModelReconciliation tool all read from this.
+ *
+ *  Strips REPEATEDLY, not once. Callers concatenate a unit's brand onto its
+ *  model to build the key (skuBucketKey does `${brand} ${model}`), and some
+ *  units carry the brand inside `model` as well. That produces
+ *  "Samsung SAMSUNG GALAXY S22": a single strip removes the first token and
+ *  leaves "samsung galaxy s22", which is a DIFFERENT key from the "s22" that
+ *  the same phone yields when its model has no prefix.
+ *
+ *  Live consequence, which is what found this: Stock Alerts listed the S22
+ *  twice — "Samsung GALAXY S22 128GB · 1 sold" and "Samsung SAMSUNG GALAXY
+ *  S22 128GB · 3 sold" — so the operator was told to reorder one phone as two
+ *  SKUs with the quantities split 1 and 3 instead of 4. The doubled brand in
+ *  the label is the same fault showing through the display path.
+ */
 export function normalizeBucketModel(m: string): string {
-  return (m ?? '')
-    .replace(/^\s*(samsung\s+galaxy|galaxy|samsung|apple)[\s\-]+/i, '')
-    .replace(/\s+/g, ' ')
-    .trim()
-    .toLowerCase();
+  let s = (m ?? '').replace(/\s+/g, ' ').trim();
+  // Loop rather than a global regex: the pattern is anchored at the start, so
+  // /g would not re-test the new start after each removal.
+  for (;;) {
+    const next = s.replace(/^\s*(samsung\s+galaxy|galaxy|samsung|apple)[\s\-]+/i, '');
+    if (next === s) break;
+    s = next;
+  }
+  return s.replace(/\s+/g, ' ').trim().toLowerCase();
 }
 
 /**

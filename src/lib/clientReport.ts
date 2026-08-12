@@ -924,6 +924,26 @@ export async function buildSalesWorkbookBuffer(input: BuildSalesWorkbookInput): 
       || u.returnType === 'returned_to_inventory'
       || u.returnType === 'repair';
     if (!looksReturned || !u.returnDate) return s;
+
+    // The unit's return markers are the CURRENT state of the unit, not a fact
+    // about this sale. A unit that was returned, put back on the shelf and
+    // sold again still carries them — so synthesising here stamped a closed
+    // return onto the NEW sale.
+    //
+    // Seen live on the BM tab: a sale dated 12-Aug carrying Return Date
+    // 11-Aug, i.e. returned the day BEFORE it was sold. It painted the row
+    // red, charged £15.12 of phantom postage loss and reported a profitable
+    // sale as Net GP -£15.12 — and would do so again on every future resale
+    // of that handset.
+    //
+    // Same rule the returns ledger already applies (isOpenReturnUnit in
+    // lib/returnsLedger.ts): a return is closed once the unit has been sold
+    // after it. That is why the Returns page correctly showed nothing while
+    // the report showed a refund. Skipping here makes the two agree.
+    const saleDay = (s.saleDate || '').split('T')[0];
+    const returnDay = (u.returnDate || '').split('T')[0];
+    if (saleDay && returnDay && saleDay > returnDay) return s;
+
     // Path 2 — synthesise voidedAt + outcome from the unit.
     const isRepair = wasRepairRoute(u);
     const synthOutcome: 'refund' | 'replacement' | 'repair' = isRepair
