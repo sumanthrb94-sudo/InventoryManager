@@ -94,15 +94,14 @@ async function run() {
   await row.getByLabel('Sale price').fill('399');
   await shot(page, 'stage1-filled');
 
-  const confirmBtn = page.getByRole('button', { name: /Update \d+ Sale/i });
-  record('the action reads Update, not Confirm — nothing is being sold yet',
-    await confirmBtn.isVisible().catch(() => false));
-  record('the model-only row is accepted as ready', await confirmBtn.isEnabled().catch(() => false));
-  await confirmBtn.first().click();
-  await page.getByText('Nothing else to do', { exact: false }).waitFor({ state: 'visible', timeout: 20000 }).catch(() => {});
+  // Stage 1 ends PER UNIT, on the row itself.
+  const updateBtn = row.getByRole('button', { name: /Update Unit/i });
+  record('the row carries its own "Update Unit" action',
+    await updateBtn.isVisible().catch(() => false));
+  record('it is enabled once the row is complete', await updateBtn.isEnabled().catch(() => false));
+  await updateBtn.click();
+  await page.waitForTimeout(2500);
   await shot(page, 'stage1-done');
-  await page.getByRole('button', { name: /^Close$/i }).last().click().catch(() => {});
-  await page.waitForTimeout(1200);
 
   const mid = await dumpStore(page);
   const pending = docsOf(mid, 'sales').find(s => s.orderNumber === 'TWOSTAGE-1');
@@ -127,17 +126,10 @@ async function run() {
 
   // ══ STAGE 2 · the warehouse, who has the handset ══
   console.log('\n══ STAGE 2 · attach the IMEI and mark sold ══');
-  await gotoTab(page, 'Inventory');
-  await page.getByRole('button', { name: /Mark Multiple Sold/i }).click();
-  await page.locator('div.bg-white.rounded-2xl').filter({ hasText: 'Mark Multiple Sold' })
-            .first().waitFor({ state: 'visible' });
-  // Team 2 works in the SAME screen — a tab inside this modal, not a separate
-  // panel behind it.
-  const stageTab = page.getByRole('tab', { name: /Update IMEI/i });
-  record('the second stage is a tab in Mark Multiple Sold', await stageTab.isVisible().catch(() => false));
-  await stageTab.click();
-  const panel = page.getByText('Awaiting IMEI', { exact: false }).first();
-  record('the warehouse queue shows the waiting sale', await panel.isVisible().catch(() => false));
+  // The modal was never closed — the updated row STAYS in this grid.
+  const markBtn = page.getByRole('button', { name: /Update IMEI & Mark Sold/i });
+  record('the updated unit stays in Mark Multiple Sold, with its own action',
+    await markBtn.isVisible().catch(() => false));
   await shot(page, 'stage2-queue');
 
   const select = page.getByLabel('IMEI for TWOSTAGE-1');
@@ -146,8 +138,8 @@ async function run() {
     optionCount - 1 === sameModel.length, `${optionCount - 1} offered · ${sameModel.length} of that model in stock`);
 
   await select.selectOption({ index: 1 });
-  await page.getByRole('button', { name: /Mark Sold/i }).first().click();
-  await page.waitForTimeout(2000);
+  await markBtn.click();
+  await page.waitForTimeout(2500);
   await shot(page, 'stage2-done');
 
   const after = await dumpStore(page);
@@ -164,7 +156,7 @@ async function run() {
     `${availBefore} → ${docsOf(after, 'inventoryUnits').filter(u => u.status === 'available').length}`);
   record('one sale document, not two', docsOf(after, 'sales').length === salesBefore + 1,
     `${salesBefore} → ${docsOf(after, 'sales').length}`);
-  record('the queue is empty again',
+  record('the row has left the grid now it is complete',
     !(await page.getByLabel('IMEI for TWOSTAGE-1').isVisible().catch(() => false)));
 
   await browser.close();

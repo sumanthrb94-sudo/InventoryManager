@@ -40,8 +40,7 @@ import { MARKETPLACE_COLUMNS, QUANTITY_HEADER } from '../lib/bulkSaleColumns';
 import { recordBulkSales, type BulkSaleLine, type BulkSaleLineResult } from '../services/salesService';
 import { recordPendingSale } from '../services/pendingSaleService';
 import { normalizeBucketModel } from '../lib/modelStorage';
-import AwaitingImeiPanel from './AwaitingImeiPanel';
-import { pendingSales } from '../services/pendingSaleService';
+import { pendingSales, candidateUnitsFor, linkImeiToPendingSale } from '../services/pendingSaleService';
 import type { Sale } from '../types';
 import { ACTIVE_PLATFORMS, PLATFORM_META, BM_PAYMENT_MODES } from './SellOrderModal';
 
@@ -144,7 +143,11 @@ export default function BulkSaleModal({
   // never sees an IMEI; team 2 comes back to the same place and completes the
   // rows team 1 left. Splitting them across two screens (the first attempt)
   // meant team 2 had to know to look somewhere else.
-  const [view, setView] = useState<'entry' | 'awaiting'>('entry');
+  /** Row key currently being written, so its button can show progress. */
+  const [rowBusy, setRowBusy] = useState<string | null>(null);
+  /** saleId -> chosen unit id, for the rows waiting on an IMEI. */
+  const [imeiChoice, setImeiChoice] = useState<Record<string, string>>({});
+  const [rowError, setRowError] = useState<Record<string, string>>({});
   const [tab, setTab] = useState<Marketplace>(ACTIVE_PLATFORMS[0]);
   const [rows, setRows] = useState<Row[]>([blankRow(ACTIVE_PLATFORMS[0])]);
   const [saving, setSaving] = useState(false);
@@ -305,13 +308,26 @@ export default function BulkSaleModal({
     && !!r.sku.trim()
     && (!needsImei(r) || !!r.imei.trim());
 
-  // How many sales team 1 has left for team 2. Drives the badge, so the
-  // second team can see there is work without opening the tab.
-  const awaitingCount = useMemo(() => pendingSales(sales).length, [sales]);
+  /**
+   * Sales team 1 has already updated, still waiting on a handset. They stay
+   * on THIS screen, in the same grid, until an IMEI is attached — that is the
+   * whole point of the two-stage flow, and moving them elsewhere meant team 2
+   * had to know where "elsewhere" was.
+   */
+  const waiting = useMemo(
+    () => pendingSales(sales).filter(s => s.marketplace === tab),
+    [sales, tab],
+  );
 
   const ready = rows.filter(isReady);
+  /** What the batch Confirm will submit. Model rows are excluded — they are
+   *  updated one at a time from their own row, and nothing about them is
+   *  "sold" yet. */
+  const readyToConfirm = ready.filter(r => r.pick?.kind !== 'model');
   const tabRows = rows.filter(r => r.marketplace === tab);
-  const countFor = (m: Marketplace) => rows.filter(r => r.marketplace === m && isReady(r)).length;
+  const countFor = (m: Marketplace) =>
+    rows.filter(r => r.marketplace === m && isReady(r) && r.pick?.kind !== 'model').length
+    + pendingSales(sales).filter(s => s.marketplace === m).length;
 
   const addRow = () => setRows(rs => [...rs, blankRow(tab)]);
 
@@ -329,38 +345,63 @@ export default function BulkSaleModal({
     return left.some(r => r.marketplace === tab) ? left : [...left, blankRow(tab)];
   });
 
+  /**
+   * STAGE 1, per unit. Records ONE model row and drops it from the entry grid;
+   * it reappears immediately below as a waiting row, sourced from the store,
+   * with its own "Update IMEI & Mark Sold" action.
+   *
+   * Per row rather than per batch because each line is a different unit and
+   * the two teams work at different times — batching would make team 1 hold
+   * a whole screen of orders until the last one was typed.
+   */
+  const updateOne = async (r: Row) => {
+    const pick = r.pick as Extract<Pick, { kind: 'model' }>;
+    setRowBusy(r.key);
+    setRowError(e => ({ ...e, [r.key]: '' }));
+    const postage = r.postage === '' ? UI_AUTOFILL_POSTAGE[r.marketplace] : Number(r.postage);
+    const marketing = r.marketing === '' ? undefined : Number(r.marketing);
+    const res = await recordPendingSale({
+      marketplace: r.marketplace,
+      orderNumber: r.orderNumber.trim(),
+      model: pick.model,
+      storage: pick.storage,
+      sku: r.sku.trim(),
+      salePrice: Number(r.salePrice),
+      saleDate: r.saleDate,
+      paymentMode: r.paymentMode || undefined,
+      postageOverride: Number.isNaN(postage) ? undefined : postage,
+      marketing: marketing === undefined || Number.isNaN(marketing) ? undefined : marketing,
+    });
+    setRowBusy(null);
+    if (!res.ok) {
+      setRowError(e => ({ ...e, [r.key]: res.message || 'Could not record it.' }));
+      return;
+    }
+    setRows(rs => {
+      const left = rs.filter(x => x.key !== r.key);
+      return left.some(x => x.marketplace === tab) ? left : [...left, blankRow(tab)];
+    });
+    onSaved?.();
+  };
+
+  /** STAGE 2, per unit — attach the handset and mark it sold. */
+  const markSold = async (sale: Sale) => {
+    const unitId = imeiChoice[sale.id];
+    if (!unitId) return;
+    setRowBusy(sale.id);
+    setRowError(e => ({ ...e, [sale.id]: '' }));
+    const res = await linkImeiToPendingSale({ saleId: sale.id, unitId });
+    setRowBusy(null);
+    if (!res.ok) {
+      setRowError(e => ({ ...e, [sale.id]: res.message || 'Could not complete it.' }));
+      return;
+    }
+    setImeiChoice(c => { const n = { ...c }; delete n[sale.id]; return n; });
+    onSaved?.();
+  };
+
   const confirm = async () => {
     setSaving(true);
-
-    // Two-stage rows go down a different service: they create a sale with no
-    // handset attached and mark NOTHING sold. Split them out first so the
-    // bulk path keeps its existing contract untouched.
-    const pendingRows = ready.filter(r => r.pick?.kind === 'model');
-    const pendingResults: BulkSaleLineResult[] = [];
-    for (const r of pendingRows) {
-      const pick = r.pick as Extract<Pick, { kind: 'model' }>;
-      const postage = r.postage === '' ? UI_AUTOFILL_POSTAGE[r.marketplace] : Number(r.postage);
-      const marketing = r.marketing === '' ? undefined : Number(r.marketing);
-      const res = await recordPendingSale({
-        marketplace: r.marketplace,
-        orderNumber: r.orderNumber.trim(),
-        model: pick.model,
-        storage: pick.storage,
-        sku: r.sku.trim(),
-        salePrice: Number(r.salePrice),
-        saleDate: r.saleDate,
-        paymentMode: r.paymentMode || undefined,
-        postageOverride: Number.isNaN(postage) ? undefined : postage,
-        marketing: marketing === undefined || Number.isNaN(marketing) ? undefined : marketing,
-      });
-      pendingResults.push({
-        ok: res.ok,
-        label: `${pick.model} — awaiting IMEI`,
-        saleId: res.saleId,
-        error: res.error,
-        message: res.ok ? 'Recorded. Warehouse attaches the IMEI.' : res.message,
-      });
-    }
 
     const lines: BulkSaleLine[] = ready.filter(r => r.pick?.kind !== 'model').map(r => {
       const postage = r.postage === '' ? UI_AUTOFILL_POSTAGE[r.marketplace] : Number(r.postage);
@@ -382,10 +423,8 @@ export default function BulkSaleModal({
             imei: r.imei.trim() || undefined, ...common }
         : { kind: 'accessory', sku: pick.accessory.sku, quantity: Number(r.quantity) || 1, ...common };
     });
-    const res = lines.length
-      ? await recordBulkSales(lines)
-      : { results: [] as BulkSaleLineResult[], succeeded: 0, failed: 0 };
-    setResults([...pendingResults, ...res.results]);
+    const res = await recordBulkSales(lines);
+    setResults(res.results);
     setSaving(false);
     onSaved?.();
   };
@@ -452,55 +491,6 @@ export default function BulkSaleModal({
           </div>
         ) : (
           <>
-            {/* WHICH TEAM IS AT THE KEYBOARD.
-                Both work in this one screen: the first records what sold, by
-                model; the second comes back to the same place and attaches the
-                handset. The queue used to live on the Sell screen behind this
-                modal, which meant team 2 had to know to close this and look
-                somewhere else. */}
-            <div role="tablist" aria-label="Stage"
-                 className="flex items-center gap-1 px-4 pt-3 border-b border-slate-200 bg-white">
-              <button
-                role="tab"
-                aria-selected={view === 'entry'}
-                onClick={() => setView('entry')}
-                className={`px-3 py-2 text-[10px] font-bold uppercase tracking-widest rounded-t-lg
-                            border-b-2 -mb-px transition-colors ${view === 'entry'
-                  ? 'border-slate-900 text-slate-900'
-                  : 'border-transparent text-slate-400 hover:text-slate-700'}`}
-              >
-                Record sales
-              </button>
-              <button
-                role="tab"
-                aria-selected={view === 'awaiting'}
-                onClick={() => setView('awaiting')}
-                className={`px-3 py-2 text-[10px] font-bold uppercase tracking-widest rounded-t-lg
-                            border-b-2 -mb-px transition-colors flex items-center gap-1.5 ${view === 'awaiting'
-                  ? 'border-slate-900 text-slate-900'
-                  : 'border-transparent text-slate-400 hover:text-slate-700'}`}
-              >
-                Update IMEI &amp; Mark Sold
-                {awaitingCount > 0 && (
-                  <span className="px-1.5 py-0.5 rounded-full bg-amber-500 text-white text-[9px] tabular-nums">
-                    {awaitingCount}
-                  </span>
-                )}
-              </button>
-            </div>
-
-            {view === 'awaiting' ? (
-              <div className="flex-1 overflow-auto px-4 py-4 bg-slate-50">
-                {awaitingCount === 0 ? (
-                  <p className="text-[11px] text-slate-500 py-10 text-center font-mono">
-                    Nothing waiting. Sales recorded by model appear here for the IMEI.
-                  </p>
-                ) : (
-                  <AwaitingImeiPanel sales={sales} units={allUnits} onDone={() => onSaved?.()} />
-                )}
-              </div>
-            ) : (
-            <>
             {/* One tab per marketplace, the same five the report has. */}
             <div role="tablist" aria-label="Marketplace"
                  className="flex items-center gap-1 px-4 pt-2 border-b border-slate-200 bg-slate-50">
@@ -548,10 +538,69 @@ export default function BulkSaleModal({
                     <TH w="w-24" right>BP</TH>
                     <TH w="w-24" right>SP</TH>
                     {cols.map(c => <TH key={c.header} w="w-24" right>{c.header}</TH>)}
-                    <TH w="w-8"> </TH>
+                    <TH w="w-56">Action</TH>
                   </tr>
                 </thead>
                 <tbody>
+                  {/* WAITING ON AN IMEI — team 1 has updated these; they stay
+                      here, on this screen, until team 2 attaches a handset.
+                      Rendered above the entry rows so the outstanding work is
+                      the first thing seen. */}
+                  {waiting.map(sale => {
+                    const candidates = candidateUnitsFor(sale.model || '', allUnits);
+                    const chosen = imeiChoice[sale.id] ?? '';
+                    return (
+                      <tr key={sale.id} className="border-b border-amber-100 bg-amber-50/50">
+                        <td className="px-2 py-1 text-[10px] font-mono text-amber-600">•</td>
+                        <td className="px-1 py-1 text-[10px] font-mono text-amber-700 uppercase">Updated</td>
+                        <td className="px-1 py-1 text-[11px] font-semibold text-slate-900 truncate">
+                          {sale.model}{sale.storage ? ` ${sale.storage}` : ''}
+                        </td>
+                        <td className="px-1 py-1 text-[10px] font-mono text-slate-600 truncate">{sale.sku}</td>
+                        <td className="px-1 py-1" colSpan={2}>
+                          <select
+                            aria-label={`IMEI for ${sale.orderNumber}`}
+                            className={`${input} font-mono ${chosen ? '' : 'border-amber-300'}`}
+                            value={chosen}
+                            onChange={e => setImeiChoice(c => ({ ...c, [sale.id]: e.target.value }))}
+                          >
+                            <option value="">{candidates.length ? 'Select IMEI…' : 'none in stock'}</option>
+                            {candidates.map(u => (
+                              <option key={u.id} value={u.id}>
+                                {u.imei}{u.colour ? ` · ${u.colour}` : ''} · £{Number(u.buyPrice || 0).toFixed(2)}
+                              </option>
+                            ))}
+                          </select>
+                        </td>
+                        <td className="px-1 py-1 text-[10px] font-mono text-slate-500 truncate">—</td>
+                        <td className="px-1 py-1 text-[10px] font-mono text-slate-700 truncate">{sale.orderNumber}</td>
+                        {tab === 'BM' && <td className="px-1 py-1" />}
+                        <td className="px-1 py-1 text-right text-[10px] font-mono text-slate-500">
+                          {money(Number(sale.buyPrice))}*
+                        </td>
+                        <td className="px-1 py-1 text-right text-[10px] font-mono text-slate-900">
+                          {money(Number(sale.salePrice))}
+                        </td>
+                        {cols.map(c => <td key={c.header} className="px-1 py-1" />)}
+                        <td className="px-1 py-1">
+                          <button
+                            type="button"
+                            onClick={() => markSold(sale)}
+                            disabled={!chosen || rowBusy === sale.id}
+                            className="px-2.5 py-1.5 rounded-lg text-[9px] font-bold uppercase
+                                       tracking-widest bg-amber-600 text-white hover:bg-amber-700
+                                       disabled:opacity-40 disabled:cursor-not-allowed"
+                          >
+                            {rowBusy === sale.id ? 'Saving…' : 'Update IMEI & Mark Sold'}
+                          </button>
+                          {rowError[sale.id] && (
+                            <p className="text-[9px] font-mono text-rose-700 mt-1">{rowError[sale.id]}</p>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
+
                   {tabRows.map((r, i) => {
                     const f = figuresFor(r);
                     const bp = r.pick?.kind === 'unit' ? r.pick.unit.buyPrice
@@ -727,11 +776,33 @@ export default function BulkSaleModal({
                           </td>
                         ))}
 
+                        {/* ACTION — per unit, because each row is a different
+                            handset and the two teams work at different times.
+                            A model row ends stage 1 with "Update Unit"; it then
+                            leaves this grid and reappears above as a waiting
+                            row until its IMEI is attached. */}
                         <td className="px-1 py-1">
-                          <button onClick={() => dropRow(r.key)} aria-label="Remove row"
-                                  className="p-1 text-slate-300 hover:text-rose-600">
-                            <Trash2 size={12} />
-                          </button>
+                          <div className="flex items-center gap-1">
+                            {r.pick?.kind === 'model' && (
+                              <button
+                                type="button"
+                                onClick={() => updateOne(r)}
+                                disabled={!isReady(r) || rowBusy === r.key}
+                                className="px-2.5 py-1.5 rounded-lg text-[9px] font-bold uppercase
+                                           tracking-widest bg-slate-900 text-white hover:bg-slate-700
+                                           disabled:opacity-40 disabled:cursor-not-allowed"
+                              >
+                                {rowBusy === r.key ? 'Saving…' : 'Update Unit'}
+                              </button>
+                            )}
+                            <button onClick={() => dropRow(r.key)} aria-label="Remove row"
+                                    className="p-1 text-slate-300 hover:text-rose-600">
+                              <Trash2 size={12} />
+                            </button>
+                          </div>
+                          {rowError[r.key] && (
+                            <p className="text-[9px] font-mono text-rose-700 mt-1">{rowError[r.key]}</p>
+                          )}
                         </td>
                       </tr>
                     );
@@ -745,17 +816,13 @@ export default function BulkSaleModal({
                 <Plus size={12} /> Add row
               </button>
             </div>
-            </>
-            )}
           </>
         )}
 
         <div className="flex items-center justify-between gap-3 px-5 py-3 border-t border-slate-200 bg-slate-50">
           <p className="text-[10px] text-slate-500">
             {results
-              ? (results.some(r => /awaiting IMEI/i.test(r.label))
-                  ? 'Recorded. They are now under "Update IMEI & Mark Sold" for the warehouse.'
-                  : 'Nothing else to do — the sales are recorded.')
+              ? 'Nothing else to do — the sales are recorded.'
               : `${PLATFORM_META[tab].label} · pick a source, then search stock by model or IMEI. BP and Supplier come from the unit.`}
           </p>
           {results ? (
@@ -773,7 +840,7 @@ export default function BulkSaleModal({
               </button>
               <button
                 onClick={confirm}
-                disabled={!ready.length || saving}
+                disabled={!readyToConfirm.length || saving}
                 className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 text-white
                            text-[10px] font-bold uppercase tracking-widest hover:bg-emerald-700
                            disabled:opacity-40 disabled:cursor-not-allowed"
@@ -783,11 +850,7 @@ export default function BulkSaleModal({
                     model row: nothing is being marked sold and no handset
                     leaves the shelf. Calling it Confirm told team 1 they had
                     completed a sale they had only recorded. */}
-                {/* `every` on an empty array is true, so the length check is
-                    what stops an empty grid reading "Update 0 Sales". */}
-                {ready.length > 0 && ready.every(r => r.pick?.kind === 'model')
-                  ? `Update ${ready.length} Sale${ready.length === 1 ? '' : 's'}`
-                  : `Confirm ${ready.length} Sale${ready.length === 1 ? '' : 's'}`}
+                Confirm {readyToConfirm.length} Sale{readyToConfirm.length === 1 ? '' : 's'}
               </button>
             </div>
           )}
