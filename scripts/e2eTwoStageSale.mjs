@@ -78,7 +78,10 @@ async function run() {
   await modal.waitFor({ state: 'visible' });
 
   const row = modal.locator('tbody tr').first();
-  await row.getByLabel('Source').selectOption({ label: 'Model only' });
+  // NOT selected: 'Model only' is the default now, which is the point — team 1
+  // must never be routed through an IMEI-listing source.
+  record('the grid defaults to Model only',
+    (await row.getByLabel('Source').inputValue()) === 'model');
   const modelCell = row.getByLabel('Model');
   await modelCell.click();
   await modelCell.fill(model);
@@ -91,7 +94,9 @@ async function run() {
   await row.getByLabel('Sale price').fill('399');
   await shot(page, 'stage1-filled');
 
-  const confirmBtn = page.getByRole('button', { name: /Confirm \d+ Sale/i });
+  const confirmBtn = page.getByRole('button', { name: /Update \d+ Sale/i });
+  record('the action reads Update, not Confirm — nothing is being sold yet',
+    await confirmBtn.isVisible().catch(() => false));
   record('the model-only row is accepted as ready', await confirmBtn.isEnabled().catch(() => false));
   await confirmBtn.first().click();
   await page.getByText('Nothing else to do', { exact: false }).waitFor({ state: 'visible', timeout: 20000 }).catch(() => {});
@@ -123,6 +128,14 @@ async function run() {
   // ══ STAGE 2 · the warehouse, who has the handset ══
   console.log('\n══ STAGE 2 · attach the IMEI and mark sold ══');
   await gotoTab(page, 'Inventory');
+  await page.getByRole('button', { name: /Mark Multiple Sold/i }).click();
+  await page.locator('div.bg-white.rounded-2xl').filter({ hasText: 'Mark Multiple Sold' })
+            .first().waitFor({ state: 'visible' });
+  // Team 2 works in the SAME screen — a tab inside this modal, not a separate
+  // panel behind it.
+  const stageTab = page.getByRole('tab', { name: /Update IMEI/i });
+  record('the second stage is a tab in Mark Multiple Sold', await stageTab.isVisible().catch(() => false));
+  await stageTab.click();
   const panel = page.getByText('Awaiting IMEI', { exact: false }).first();
   record('the warehouse queue shows the waiting sale', await panel.isVisible().catch(() => false));
   await shot(page, 'stage2-queue');

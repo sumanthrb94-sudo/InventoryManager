@@ -40,6 +40,9 @@ import { MARKETPLACE_COLUMNS, QUANTITY_HEADER } from '../lib/bulkSaleColumns';
 import { recordBulkSales, type BulkSaleLine, type BulkSaleLineResult } from '../services/salesService';
 import { recordPendingSale } from '../services/pendingSaleService';
 import { normalizeBucketModel } from '../lib/modelStorage';
+import AwaitingImeiPanel from './AwaitingImeiPanel';
+import { pendingSales } from '../services/pendingSaleService';
+import type { Sale } from '../types';
 import { ACTIVE_PLATFORMS, PLATFORM_META, BM_PAYMENT_MODES } from './SellOrderModal';
 
 const today = () => new Date().toISOString().split('T')[0];
@@ -96,7 +99,10 @@ interface Row {
 
 let seq = 0;
 const blankRow = (marketplace: Marketplace): Row => ({
-  key: `r${++seq}`, source: 'office', query: '', sku: '', imei: '', marketplace,
+  // 'model' by default: the team entering sales knows the model, the order
+  // number and the price, and does NOT know which handset will ship. Landing
+  // them on an IMEI-listing source is what sent them down the wrong path.
+  key: `r${++seq}`, source: 'model', query: '', sku: '', imei: '', marketplace,
   orderNumber: '', quantity: '1', salePrice: '', postage: '', marketing: '',
   paymentMode: '', saleDate: today(),
 });
@@ -118,6 +124,11 @@ const money = (n: number | undefined): string =>
   n === undefined || Number.isNaN(n) ? '' : n.toFixed(2);
 
 interface Props {
+  /** Every sale — used only to find the ones still awaiting an IMEI. */
+  sales: Sale[];
+  /** Every unit, not just the sellable ones: the awaiting-IMEI queue needs to
+   *  offer handsets by model regardless of which sub-list they came from. */
+  allUnits: InventoryUnit[];
   units: InventoryUnit[];      // sellable office stock
   shsUnits: InventoryUnit[];   // sellable SHS units
   accessoryStock: AccessoryStock[];
@@ -127,8 +138,13 @@ interface Props {
 }
 
 export default function BulkSaleModal({
-  units, shsUnits, accessoryStock, supplierMap, onClose, onSaved,
+  sales, allUnits, units, shsUnits, accessoryStock, supplierMap, onClose, onSaved,
 }: Props) {
+  // Both teams work in THIS screen. Team 1 enters what sold, by model, and
+  // never sees an IMEI; team 2 comes back to the same place and completes the
+  // rows team 1 left. Splitting them across two screens (the first attempt)
+  // meant team 2 had to know to look somewhere else.
+  const [view, setView] = useState<'entry' | 'awaiting'>('entry');
   const [tab, setTab] = useState<Marketplace>(ACTIVE_PLATFORMS[0]);
   const [rows, setRows] = useState<Row[]>([blankRow(ACTIVE_PLATFORMS[0])]);
   const [saving, setSaving] = useState(false);
@@ -289,6 +305,10 @@ export default function BulkSaleModal({
     && !!r.sku.trim()
     && (!needsImei(r) || !!r.imei.trim());
 
+  // How many sales team 1 has left for team 2. Drives the badge, so the
+  // second team can see there is work without opening the tab.
+  const awaitingCount = useMemo(() => pendingSales(sales).length, [sales]);
+
   const ready = rows.filter(isReady);
   const tabRows = rows.filter(r => r.marketplace === tab);
   const countFor = (m: Marketplace) => rows.filter(r => r.marketplace === m && isReady(r)).length;
@@ -432,6 +452,55 @@ export default function BulkSaleModal({
           </div>
         ) : (
           <>
+            {/* WHICH TEAM IS AT THE KEYBOARD.
+                Both work in this one screen: the first records what sold, by
+                model; the second comes back to the same place and attaches the
+                handset. The queue used to live on the Sell screen behind this
+                modal, which meant team 2 had to know to close this and look
+                somewhere else. */}
+            <div role="tablist" aria-label="Stage"
+                 className="flex items-center gap-1 px-4 pt-3 border-b border-slate-200 bg-white">
+              <button
+                role="tab"
+                aria-selected={view === 'entry'}
+                onClick={() => setView('entry')}
+                className={`px-3 py-2 text-[10px] font-bold uppercase tracking-widest rounded-t-lg
+                            border-b-2 -mb-px transition-colors ${view === 'entry'
+                  ? 'border-slate-900 text-slate-900'
+                  : 'border-transparent text-slate-400 hover:text-slate-700'}`}
+              >
+                Record sales
+              </button>
+              <button
+                role="tab"
+                aria-selected={view === 'awaiting'}
+                onClick={() => setView('awaiting')}
+                className={`px-3 py-2 text-[10px] font-bold uppercase tracking-widest rounded-t-lg
+                            border-b-2 -mb-px transition-colors flex items-center gap-1.5 ${view === 'awaiting'
+                  ? 'border-slate-900 text-slate-900'
+                  : 'border-transparent text-slate-400 hover:text-slate-700'}`}
+              >
+                Update IMEI &amp; Mark Sold
+                {awaitingCount > 0 && (
+                  <span className="px-1.5 py-0.5 rounded-full bg-amber-500 text-white text-[9px] tabular-nums">
+                    {awaitingCount}
+                  </span>
+                )}
+              </button>
+            </div>
+
+            {view === 'awaiting' ? (
+              <div className="flex-1 overflow-auto px-4 py-4 bg-slate-50">
+                {awaitingCount === 0 ? (
+                  <p className="text-[11px] text-slate-500 py-10 text-center font-mono">
+                    Nothing waiting. Sales recorded by model appear here for the IMEI.
+                  </p>
+                ) : (
+                  <AwaitingImeiPanel sales={sales} units={allUnits} onDone={() => onSaved?.()} />
+                )}
+              </div>
+            ) : (
+            <>
             {/* One tab per marketplace, the same five the report has. */}
             <div role="tablist" aria-label="Marketplace"
                  className="flex items-center gap-1 px-4 pt-2 border-b border-slate-200 bg-slate-50">
@@ -676,13 +745,17 @@ export default function BulkSaleModal({
                 <Plus size={12} /> Add row
               </button>
             </div>
+            </>
+            )}
           </>
         )}
 
         <div className="flex items-center justify-between gap-3 px-5 py-3 border-t border-slate-200 bg-slate-50">
           <p className="text-[10px] text-slate-500">
             {results
-              ? 'Nothing else to do — the sales are recorded.'
+              ? (results.some(r => /awaiting IMEI/i.test(r.label))
+                  ? 'Recorded. They are now under "Update IMEI & Mark Sold" for the warehouse.'
+                  : 'Nothing else to do — the sales are recorded.')
               : `${PLATFORM_META[tab].label} · pick a source, then search stock by model or IMEI. BP and Supplier come from the unit.`}
           </p>
           {results ? (
@@ -706,7 +779,15 @@ export default function BulkSaleModal({
                            disabled:opacity-40 disabled:cursor-not-allowed"
               >
                 {saving ? <Loader2 size={12} className="animate-spin" /> : <CheckCircle2 size={12} />}
-                Confirm {ready.length} Sale{ready.length === 1 ? '' : 's'}
+                {/* "Update", not "Confirm sold", when every ready row is a
+                    model row: nothing is being marked sold and no handset
+                    leaves the shelf. Calling it Confirm told team 1 they had
+                    completed a sale they had only recorded. */}
+                {/* `every` on an empty array is true, so the length check is
+                    what stops an empty grid reading "Update 0 Sales". */}
+                {ready.length > 0 && ready.every(r => r.pick?.kind === 'model')
+                  ? `Update ${ready.length} Sale${ready.length === 1 ? '' : 's'}`
+                  : `Confirm ${ready.length} Sale${ready.length === 1 ? '' : 's'}`}
               </button>
             </div>
           )}

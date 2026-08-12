@@ -55,13 +55,19 @@ const ACCESSORIES = [{
 function open() {
   return render(
     <BulkSaleModal
+      sales={[]} allUnits={[...OFFICE, ...SHS]}
       units={OFFICE} shsUnits={SHS} accessoryStock={ACCESSORIES}
       supplierMap={{}} onClose={() => {}}
     />,
   );
 }
 
-const tabFor = (m: string) => screen.getByRole('tab', { name: new RegExp(m, 'i') });
+// Scoped to the Marketplace tablist: the modal also has a "Stage" tablist
+// (Record sales / Update IMEI & Mark Sold), so an unscoped tab lookup is
+// ambiguous now.
+const tabFor = (m: string) => within(
+  screen.getByRole('tablist', { name: /Marketplace/i }),
+).getByRole('tab', { name: new RegExp(m, 'i') });
 
 /** The stock list's own entries. Scoped to the picker's listbox on purpose:
  *  the Source and Payment Mode <select>s render native <option> elements,
@@ -77,9 +83,11 @@ const lastRow = () => {
 
 /** Choose a source, search it, and take the first hit. */
 function pick(source: 'Office' | 'SHS' | 'Accessory', query: string) {
-  const row = lastRow();
-  fireEvent.change(within(row).getByLabelText('Source'), { target: { value: source.toLowerCase() } });
-  fireEvent.change(within(row).getByLabelText('Model'), { target: { value: query } });
+  fireEvent.change(within(lastRow()).getByLabelText('Source'), { target: { value: source.toLowerCase() } });
+  // Re-query the row: changing the source is a real state change now that the
+  // default is 'model', so React replaces the <tr> and a node captured before
+  // the change is detached — events fired on it update nothing.
+  fireEvent.change(within(lastRow()).getByLabelText('Model'), { target: { value: query } });
   const options = stockOptions();
   expect(options.length, `something in ${source} matching "${query}"`).toBeGreaterThan(0);
   fireEvent.click(options[0]);
@@ -89,7 +97,10 @@ function pick(source: 'Office' | 'SHS' | 'Accessory', query: string) {
 describe('one tab per marketplace, each showing that sheet\'s own columns', () => {
   it('offers the five marketplaces the report has', () => {
     open();
-    const names = screen.getAllByRole('tab').map(t => t.textContent?.trim());
+    // Scoped: the modal also has a Stage tablist (Record sales / Update IMEI
+    // & Mark Sold), so an unscoped tab query returns seven.
+    const names = within(screen.getByRole('tablist', { name: /Marketplace/i }))
+      .getAllByRole('tab').map(t => t.textContent?.trim());
     expect(names).toEqual(['Amazon', 'Back Market', 'eBay', 'OnBuy', 'Temu']);
   });
 
@@ -193,7 +204,11 @@ describe('choosing a source, then searching it', () => {
     // hunt for the number they just typed defeats the point of typing it.
     open();
     const row = lastRow();
-    fireEvent.change(within(row).getByLabelText('Model'), { target: { value: '350000000000002' } });
+    // Office, explicitly: the grid now DEFAULTS to 'Model only', because the
+    // team entering sales knows the model and not the IMEI. These tests are
+    // about the office-stock search, so they have to ask for it.
+    fireEvent.change(within(row).getByLabelText('Source'), { target: { value: 'office' } });
+    fireEvent.change(within(lastRow()).getByLabelText('Model'), { target: { value: '350000000000002' } });
     const options = stockOptions();
     expect(options).toHaveLength(1);
     expect(options[0].textContent).toMatch(/IPHONE 14/);
@@ -207,6 +222,10 @@ describe('choosing a source, then searching it', () => {
     // that event — so a 7-digit search worked and a full 15-digit IMEI, or a
     // supplier name, silently returned nothing as the operator typed.
     open();
+    // Office, explicitly: the grid now DEFAULTS to 'Model only', because the
+    // team entering sales knows the model and not the IMEI. These tests are
+    // about the office-stock search, so they have to ask for it.
+    fireEvent.change(within(lastRow()).getByLabelText('Source'), { target: { value: 'office' } });
     const model = within(lastRow()).getByLabelText('Model');
     for (const q of ['350', '3500000', '35000000000000', '350000000000002']) {
       fireEvent.change(model, { target: { value: q } });
@@ -218,6 +237,10 @@ describe('choosing a source, then searching it', () => {
 
   it('finds a line by supplier and by SKU too', () => {
     open();
+    // Office, explicitly: the grid now DEFAULTS to 'Model only', because the
+    // team entering sales knows the model and not the IMEI. These tests are
+    // about the office-stock search, so they have to ask for it.
+    fireEvent.change(within(lastRow()).getByLabelText('Source'), { target: { value: 'office' } });
     const row = lastRow();
     const model = within(row).getByLabelText('Model');
 
@@ -233,9 +256,14 @@ describe('choosing a source, then searching it', () => {
     render(
       <BulkSaleModal
         units={[unit({ id: 'a', imei: '111111111111111' }), unit({ id: 'b', imei: '222222222222222' })]}
+        sales={[]} allUnits={[]}
         shsUnits={[]} accessoryStock={[]} supplierMap={{}} onClose={() => {}}
       />,
     );
+    // Office, explicitly: the grid now DEFAULTS to 'Model only', because the
+    // team entering sales knows the model and not the IMEI. These tests are
+    // about the office-stock search, so they have to ask for it.
+    fireEvent.change(within(lastRow()).getByLabelText('Source'), { target: { value: 'office' } });
     fireEvent.change(within(lastRow()).getByLabelText('Model'), { target: { value: 'IPHONE 13' } });
     const options = stockOptions();
     expect(options).toHaveLength(2);
@@ -246,11 +274,15 @@ describe('choosing a source, then searching it', () => {
     render(
       <BulkSaleModal
         units={[unit({ id: 'a', imei: '111111111111111' }), unit({ id: 'b', imei: '222222222222222' })]}
+        sales={[]} allUnits={[]}
         shsUnits={[]} accessoryStock={[]} supplierMap={{}} onClose={() => {}}
       />,
     );
     pick('Office', 'IPHONE 13');                          // takes the first
     fireEvent.click(screen.getByRole('button', { name: /Add row/i }));
+    // The added row also starts on 'Model only' — this assertion is about the
+    // office list, so ask for it.
+    fireEvent.change(within(lastRow()).getByLabelText('Source'), { target: { value: 'office' } });
     fireEvent.change(within(lastRow()).getByLabelText('Model'), { target: { value: 'IPHONE 13' } });
     const options = stockOptions();
     expect(options, 'the claimed handset is gone').toHaveLength(1);

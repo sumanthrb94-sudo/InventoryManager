@@ -45,7 +45,6 @@ import { SALES_TEMPLATES } from './TemplateDownload';
 import IntelligencePanel from './IntelligencePanel';
 import PeriodicInventory from './PeriodicInventory';
 import AccessoryStockPanel from './AccessoryStockPanel';
-import AwaitingImeiPanel from './AwaitingImeiPanel';
 import SellOrderModal from './SellOrderModal';
 import AccessorySaleModal from './AccessorySaleModal';
 import BulkSaleModal from './BulkSaleModal';
@@ -733,12 +732,6 @@ export default function SellSheet(_props: Props) {
           of), so a newly-added SKU looked like it vanished. Same panel as
           Configuration/Buy, right here so it's visible where the operator
           is already looking. */}
-      {/* Stage 2 of a two-stage sale — sales recorded by model, waiting for
-          the warehouse to attach a handset. Sits ABOVE the accessory pools
-          because it is a queue of work, not a stock readout, and renders
-          nothing when the queue is empty. */}
-      <AwaitingImeiPanel sales={sales} units={units} />
-
       {accessoryStock.length > 0 && <AccessoryStockPanel />}
 
       {/* ── Awaiting IMEI pinned section ─────────────────────────────────── */}
@@ -960,6 +953,8 @@ export default function SellSheet(_props: Props) {
         )}
         {bulkSaleOpen && (
           <BulkSaleModal
+            sales={sales}
+            allUnits={units}
             units={inStock}
             shsUnits={sellableShs}
             accessoryStock={accessoryStock}
