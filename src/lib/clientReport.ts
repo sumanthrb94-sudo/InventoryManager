@@ -539,6 +539,26 @@ function addSaleRow(
   return sheet.addRow(cols.map(c => (c in values ? values[c as string] : null)));
 }
 
+/**
+ * What goes in the IMEI cell.
+ *
+ * A two-stage sale is recorded by the sales team before anyone has been to the
+ * shelf, so it genuinely has no IMEI yet — and an empty cell would read as
+ * "this sale is missing data" rather than "this sale is waiting on you". The
+ * cell says what to do instead, because the IMEI column is exactly where the
+ * warehouse looks and exactly what is absent.
+ *
+ * The row is otherwise complete: fees, VAT and a provisional profit are all
+ * present, so the day's figures are not held up waiting for the handset.
+ * See services/pendingSaleService.ts for the two stages.
+ */
+export const AWAITING_IMEI_CELL = 'UPDATE IMEI & MARK SOLD';
+
+function imeiCellFor(sale: Sale): string {
+  if (sale.awaitingImei && !(sale.imei || '').trim()) return AWAITING_IMEI_CELL;
+  return sale.imei ?? '';
+}
+
 function writeSaleRow(
   sheet: ExcelJS.Worksheet,
   marketplace: Marketplace,
@@ -575,7 +595,7 @@ function writeSaleRow(
         Date: date,
         "Order Number": sale.orderNumber,
         SKU: sale.sku ?? '',
-        IMEI: sale.imei ?? '',
+        IMEI: imeiCellFor(sale),
         Supplier: resolvedSupplier,
         Quantity: qty,
         BP: sale.buyPrice,
@@ -624,7 +644,7 @@ function writeSaleRow(
         Date: date,
         "Order Number": sale.orderNumber,
         SKU: sale.sku ?? '',
-        IMEI: sale.imei ?? '',
+        IMEI: imeiCellFor(sale),
         Supplier: resolvedSupplier,
         Quantity: qty,
         BP: sale.buyPrice,
@@ -665,7 +685,7 @@ function writeSaleRow(
         Date: date,
         "Order Number": sale.orderNumber,
         SKU: sale.sku ?? '',
-        IMEI: sale.imei ?? '',
+        IMEI: imeiCellFor(sale),
         Supplier: resolvedSupplier,
         Quantity: qty,
         BP: sale.buyPrice,
@@ -707,7 +727,7 @@ function writeSaleRow(
         Date: date,
         "Order Number": sale.orderNumber,
         SKU: sale.sku ?? '',
-        IMEI: sale.imei ?? '',
+        IMEI: imeiCellFor(sale),
         Supplier: resolvedSupplier,
         Units: qty,
         BP: sale.buyPrice,
@@ -753,7 +773,7 @@ function writeSaleRow(
         Date: date,
         "Order Number": sale.orderNumber,
         SKU: sale.sku ?? '',
-        IMEI: sale.imei ?? '',
+        IMEI: imeiCellFor(sale),
         Supplier: resolvedSupplier,
         BP: sale.buyPrice,
         SP: sale.salePrice,

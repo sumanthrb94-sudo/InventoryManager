@@ -38,6 +38,8 @@ import type { InventoryUnit, AccessoryStock, Marketplace } from '../types';
 import { calcSaleFinancials, type SaleFinancials } from '../lib/platforms';
 import { MARKETPLACE_COLUMNS, QUANTITY_HEADER } from '../lib/bulkSaleColumns';
 import { recordBulkSales, type BulkSaleLine, type BulkSaleLineResult } from '../services/salesService';
+import { recordPendingSale } from '../services/pendingSaleService';
+import { normalizeBucketModel } from '../lib/modelStorage';
 import { ACTIVE_PLATFORMS, PLATFORM_META, BM_PAYMENT_MODES } from './SellOrderModal';
 
 const today = () => new Date().toISOString().split('T')[0];
@@ -52,15 +54,19 @@ const UI_AUTOFILL_POSTAGE: Record<Marketplace, number> = {
 
 /** Where a row's stock comes from. Chosen before searching, so the list the
  *  operator scrolls is only ever the kind of thing they meant. */
-export type StockSource = 'office' | 'shs' | 'accessory';
+export type StockSource = 'office' | 'shs' | 'accessory' | 'model';
 
 const SOURCE_LABEL: Record<StockSource, string> = {
-  office: 'Office', shs: 'SHS', accessory: 'Accessory',
+  office: 'Office', shs: 'SHS', accessory: 'Accessory', model: 'Model only',
 };
 
 type Pick =
   | { kind: 'unit'; unit: InventoryUnit; isSHS: boolean }
-  | { kind: 'accessory'; accessory: AccessoryStock };
+  | { kind: 'accessory'; accessory: AccessoryStock }
+  /** Two-stage sale: the model is known, the handset is not. Nothing is
+   *  marked sold — the warehouse attaches an IMEI later. See
+   *  services/pendingSaleService.ts. */
+  | { kind: 'model'; model: string; storage?: string; inStock: number; cheapestBp: number };
 
 interface Row {
   key: string;
@@ -105,6 +111,7 @@ interface PickOption {
   search: string;
   unit?: InventoryUnit;
   accessory?: AccessoryStock;
+  model?: { label: string; storage?: string; inStock: number; cheapestBp: number };
 }
 
 const money = (n: number | undefined): string =>
@@ -150,6 +157,32 @@ export default function BulkSaleModal({
     };
     for (const u of units) addUnit(u, 'office');
     for (const u of shsUnits) addUnit(u, 'shs');
+
+    // MODEL entries — one per distinct model, deliberately NOT per handset.
+    // The sales team is choosing what was sold, not which box leaves the
+    // shelf, so offering them individual IMEIs would be asking the question
+    // they came here unable to answer.
+    const byModel = new Map<string, { label: string; storage?: string; units: InventoryUnit[] }>();
+    for (const u of units) {
+      if (u.status !== 'available') continue;
+      const label = (u.model || '').trim();
+      if (!label) continue;
+      const k = `${normalizeBucketModel(label)}|${(u.storage || '').trim().toUpperCase()}`;
+      if (!byModel.has(k)) byModel.set(k, { label, storage: u.storage, units: [] });
+      byModel.get(k)!.units.push(u);
+    }
+    for (const [k, g] of byModel) {
+      const prices = g.units.map(u => Number(u.buyPrice) || 0).filter(n => n > 0);
+      list.push({
+        id: `model::${k}`,
+        source: 'model',
+        label: [g.label, g.storage].filter(Boolean).join(' '),
+        detail: `${g.units.length} in stock · IMEI attached later`,
+        search: [g.label, g.storage].filter(Boolean).join(' ').toLowerCase(),
+        model: { label: g.label, storage: g.storage, inStock: g.units.length,
+                 cheapestBp: prices.length ? Math.min(...prices) : 0 },
+      });
+    }
     for (const a of accessoryStock) {
       if ((a.quantity ?? 0) <= 0) continue;
       list.push({
@@ -176,6 +209,15 @@ export default function BulkSaleModal({
 
   const choose = (key: string, opt: PickOption) => {
     setOpenPicker(null);
+    if (opt.model) {
+      patch(key, {
+        pick: { kind: 'model', model: opt.model.label, storage: opt.model.storage,
+                inStock: opt.model.inStock, cheapestBp: opt.model.cheapestBp },
+        query: opt.label,
+        // No unit, so no unit.sku to inherit — the operator types it.
+      });
+      return;
+    }
     if (opt.accessory) {
       // An accessory pool IS its SKU, so that one is always right.
       patch(key, {
@@ -213,8 +255,13 @@ export default function BulkSaleModal({
     const sp = Number(r.salePrice);
     if (!r.salePrice || Number.isNaN(sp)) return undefined;
     const qty = Number(r.quantity) || 1;
+    // A model row has no handset, so no true cost. The cheapest available
+    // unit stands in — the one choice that cannot flatter the figure — and the
+    // sale is stamped provisional. See pendingSaleService's docblock.
     const bp = r.pick.kind === 'unit'
       ? Number(r.pick.unit.buyPrice ?? 0)
+      : r.pick.kind === 'model'
+      ? Number(r.pick.cheapestBp ?? 0)
       : Number(r.pick.accessory.buyPrice ?? 0) * qty;
     const postage = r.postage === '' ? UI_AUTOFILL_POSTAGE[r.marketplace] : Number(r.postage);
     const marketing = r.marketing === '' ? undefined : Number(r.marketing);
@@ -264,7 +311,38 @@ export default function BulkSaleModal({
 
   const confirm = async () => {
     setSaving(true);
-    const lines: BulkSaleLine[] = ready.map(r => {
+
+    // Two-stage rows go down a different service: they create a sale with no
+    // handset attached and mark NOTHING sold. Split them out first so the
+    // bulk path keeps its existing contract untouched.
+    const pendingRows = ready.filter(r => r.pick?.kind === 'model');
+    const pendingResults: BulkSaleLineResult[] = [];
+    for (const r of pendingRows) {
+      const pick = r.pick as Extract<Pick, { kind: 'model' }>;
+      const postage = r.postage === '' ? UI_AUTOFILL_POSTAGE[r.marketplace] : Number(r.postage);
+      const marketing = r.marketing === '' ? undefined : Number(r.marketing);
+      const res = await recordPendingSale({
+        marketplace: r.marketplace,
+        orderNumber: r.orderNumber.trim(),
+        model: pick.model,
+        storage: pick.storage,
+        sku: r.sku.trim(),
+        salePrice: Number(r.salePrice),
+        saleDate: r.saleDate,
+        paymentMode: r.paymentMode || undefined,
+        postageOverride: Number.isNaN(postage) ? undefined : postage,
+        marketing: marketing === undefined || Number.isNaN(marketing) ? undefined : marketing,
+      });
+      pendingResults.push({
+        ok: res.ok,
+        label: `${pick.model} — awaiting IMEI`,
+        saleId: res.saleId,
+        error: res.error,
+        message: res.ok ? 'Recorded. Warehouse attaches the IMEI.' : res.message,
+      });
+    }
+
+    const lines: BulkSaleLine[] = ready.filter(r => r.pick?.kind !== 'model').map(r => {
       const postage = r.postage === '' ? UI_AUTOFILL_POSTAGE[r.marketplace] : Number(r.postage);
       const marketing = r.marketing === '' ? undefined : Number(r.marketing);
       const common = {
@@ -284,8 +362,10 @@ export default function BulkSaleModal({
             imei: r.imei.trim() || undefined, ...common }
         : { kind: 'accessory', sku: pick.accessory.sku, quantity: Number(r.quantity) || 1, ...common };
     });
-    const res = await recordBulkSales(lines);
-    setResults(res.results);
+    const res = lines.length
+      ? await recordBulkSales(lines)
+      : { results: [] as BulkSaleLineResult[], succeeded: 0, failed: 0 };
+    setResults([...pendingResults, ...res.results]);
     setSaving(false);
     onSaved?.();
   };
@@ -405,12 +485,13 @@ export default function BulkSaleModal({
                 <tbody>
                   {tabRows.map((r, i) => {
                     const f = figuresFor(r);
-                    const bp = r.pick?.kind === 'unit'
-                      ? r.pick.unit.buyPrice
+                    const bp = r.pick?.kind === 'unit' ? r.pick.unit.buyPrice
+                      : r.pick?.kind === 'model' ? r.pick.cheapestBp
                       : r.pick?.accessory.buyPrice;
                     const supplier = r.pick?.kind === 'unit'
                       ? (r.pick.unit.supplierName
                          || (r.pick.unit.supplierId ? supplierMap[r.pick.unit.supplierId] : '') || '—')
+                      : r.pick?.kind === 'model' ? 'attached later'
                       : (r.pick?.accessory.supplierName || '—');
 
                     return (
