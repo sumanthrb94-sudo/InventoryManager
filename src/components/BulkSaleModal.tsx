@@ -72,6 +72,11 @@ interface Row {
   imei: string;
   /** Text in the Model cell while the operator is searching. */
   query: string;
+  /** The SKU written onto the sale. Defaulted from the picked line, then
+   *  editable — an operator SKU is often more specific than whatever the unit
+   *  carries, and hand-added stock carries none at all. Mandatory: see
+   *  isReady. */
+  sku: string;
   marketplace: Marketplace;
   orderNumber: string;
   quantity: string;
@@ -85,7 +90,7 @@ interface Row {
 
 let seq = 0;
 const blankRow = (marketplace: Marketplace): Row => ({
-  key: `r${++seq}`, source: 'office', query: '', imei: '', marketplace,
+  key: `r${++seq}`, source: 'office', query: '', sku: '', imei: '', marketplace,
   orderNumber: '', quantity: '1', salePrice: '', postage: '', marketing: '',
   paymentMode: '', saleDate: today(),
 });
@@ -172,12 +177,21 @@ export default function BulkSaleModal({
   const choose = (key: string, opt: PickOption) => {
     setOpenPicker(null);
     if (opt.accessory) {
-      patch(key, { pick: { kind: 'accessory', accessory: opt.accessory }, query: opt.label });
+      // An accessory pool IS its SKU, so that one is always right.
+      patch(key, {
+        pick: { kind: 'accessory', accessory: opt.accessory },
+        query: opt.label,
+        sku: opt.accessory.sku ?? '',
+      });
       return;
     }
+    // Handsets often have no sku on the unit — only the deleted Inventory
+    // Report import ever populated that field, so anything added through Add
+    // Stock arrives blank and the operator has to type it.
     patch(key, {
       pick: { kind: 'unit', unit: opt.unit!, isSHS: opt.source === 'shs' },
       query: `${opt.label}${opt.unit!.imei ? ` · ${opt.unit!.imei}` : ''}`,
+      sku: opt.unit!.sku ?? '',
     });
   };
 
@@ -218,8 +232,14 @@ export default function BulkSaleModal({
   const needsImei = (r: Row): boolean =>
     r.pick?.kind === 'unit' && r.pick.isSHS && !(r.pick.unit.imei || '').trim();
 
+  // SKU is mandatory. Bulk-sold rows used to write whatever unit.sku held,
+  // which is blank for anything added through Add Stock, so the Sales Report's
+  // SKU column came out empty for every sale recorded here. Requiring it is
+  // what stops that silently recurring — a row without one is simply not
+  // counted as ready, exactly like a missing order number or price.
   const isReady = (r: Row): boolean =>
     !!r.pick && !!r.orderNumber.trim() && !!r.salePrice && Number(r.salePrice) > 0
+    && !!r.sku.trim()
     && (!needsImei(r) || !!r.imei.trim());
 
   const ready = rows.filter(isReady);
@@ -257,8 +277,10 @@ export default function BulkSaleModal({
         marketing: marketing === undefined || Number.isNaN(marketing) ? undefined : marketing,
       };
       const pick = r.pick!;
+      // r.sku, not pick.unit.sku — the cell is defaulted from the pick and
+      // then editable, and isReady guarantees it is non-blank by here.
       return pick.kind === 'unit'
-        ? { kind: 'unit', unit: pick.unit, isSHS: pick.isSHS, sku: pick.unit.sku,
+        ? { kind: 'unit', unit: pick.unit, isSHS: pick.isSHS, sku: r.sku.trim(),
             imei: r.imei.trim() || undefined, ...common }
         : { kind: 'accessory', sku: pick.accessory.sku, quantity: Number(r.quantity) || 1, ...common };
     });
@@ -368,6 +390,7 @@ export default function BulkSaleModal({
                     <TH w="w-8">#</TH>
                     <TH w="w-28">Source</TH>
                     <TH w="w-64">Model</TH>
+                    <TH w="w-40">SKU</TH>
                     <TH w="w-44">IMEI</TH>
                     <TH w="w-20" right>{QUANTITY_HEADER[tab] ?? 'Qty'}</TH>
                     <TH w="w-32">Supplier</TH>
@@ -439,6 +462,24 @@ export default function BulkSaleModal({
                               onDismiss={() => setOpenPicker(null)}
                             />
                           )}
+                        </td>
+
+                        {/* SKU — defaulted from the picked line, then typed
+                            over freely. Mandatory (see isReady) because
+                            nothing else fills it: only the deleted Inventory
+                            Report import ever set unit.sku, so every handset
+                            added since arrives blank and the Sales Report's
+                            SKU column came out empty for bulk-sold rows.
+                            Amber while empty, matching the IMEI cell's
+                            "this row needs you" cue. */}
+                        <td className="px-1 py-1">
+                          <input
+                            className={`${input} font-mono ${r.sku.trim() ? '' : 'border-amber-300'}`}
+                            aria-label="SKU"
+                            placeholder="SKU required"
+                            value={r.sku}
+                            onChange={e => patch(r.key, { sku: e.target.value })}
+                          />
                         </td>
 
                         {/* IMEI — its own column, as on every sheet. An

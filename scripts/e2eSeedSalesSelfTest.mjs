@@ -97,6 +97,18 @@ async function run() {
       s ? `${s.marketplace} £${s.salePrice}` : 'not found');
   }
 
+  // Every sale carries a SKU. Mark Multiple Sold had no SKU control at all
+  // until 2026-08, so bulk-sold rows wrote whatever unit.sku held — blank for
+  // anything added through Add Stock, since only the deleted Inventory Report
+  // import ever populated that field. The Sales Report's SKU column came out
+  // empty for every sale recorded this way. The cell is now mandatory, and
+  // this is what proves it reaches the sale document rather than just
+  // satisfying the form.
+  const skus = plan.map(p => sales.find(x => x.orderNumber === p.orderNumber))
+                   .map(s => (s && String(s.sku || '').trim()) || '');
+  record('every seeded sale carries a non-blank SKU',
+    skus.length === 3 && skus.every(Boolean), skus.join(' · ') || '(all blank)');
+
   // And the stock moved — a sale that does not sell anything is not a sale.
   const soldNow = docsOf(after, 'inventoryUnits')
     .filter(u => available.some(a => a.imei === u.imei) && u.status === 'sold');

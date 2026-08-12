@@ -25,6 +25,10 @@
  *     kind         office | shs | accessory            (the row's Source select)
  *     search       what to type to find the line — an IMEI for a handset,
  *                  a SKU or name for an accessory pool
+ *     sku          optional. The modal REQUIRES a SKU per row; when omitted
+ *                  the helper keeps whatever the pick defaulted, and falls
+ *                  back to `search` when that is blank (hand-added handsets
+ *                  carry no unit.sku, so the cell arrives empty)
  *     orderNumber  the marketplace order number
  *     price        sale price
  *     quantity     accessory pools only; handsets are one per row
@@ -165,6 +169,16 @@ async function fillRow(modal, page, rowIndex, item) {
     // Nothing in stock matches. Leave the row unbound; the ready-count reports
     // the shortfall and assertSeeded names it.
     return false;
+  }
+
+  // SKU is mandatory on this modal, and for a handset the cell is defaulted
+  // from unit.sku — which is blank for anything added through Add Stock, so
+  // the row would never become ready. Fill it when the pick left it empty.
+  const skuCell = row.getByLabel('SKU');
+  if (await skuCell.count()) {
+    const current = ((await skuCell.inputValue().catch(() => '')) || '').trim();
+    if (item.sku != null) await skuCell.fill(String(item.sku));
+    else if (!current) await skuCell.fill(String(item.search ?? 'E2E-SKU'));
   }
 
   if (item.orderNumber != null) await row.getByLabel('Order number').fill(String(item.orderNumber));
