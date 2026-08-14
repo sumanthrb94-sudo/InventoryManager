@@ -265,6 +265,17 @@ async function fillRow(page, row, { orderNumber, price, imei }) {
   if (imei !== undefined) {
     await row.locator('input[aria-label="IMEI"]').fill(imei);
   }
+  // SKU is MANDATORY (2026-08). Only the deleted Inventory Report import ever
+  // populated unit.sku, so anything added through Add Stock arrives blank and
+  // the Sales Report's SKU column came out empty for every bulk-sold row.
+  // A row without one is simply not counted as ready — which is why this
+  // script sold nothing but its accessory lines until the fill was added:
+  // an accessory pool IS its SKU, so those rows filled themselves.
+  const skuCell = row.locator('input[aria-label="SKU"]');
+  if (await skuCell.count()) {
+    const current = await skuCell.inputValue();
+    if (!current.trim()) await skuCell.fill(`BULK-${orderNumber}`);
+  }
   await row.getByLabel('Order number').fill(orderNumber);
   await row.getByLabel('Sale price').fill(String(price));
   await page.waitForTimeout(120);

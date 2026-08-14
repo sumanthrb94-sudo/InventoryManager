@@ -107,10 +107,14 @@ function truthFor({ marketplace, bp, sp, postage }) {
     case 'BM': {
       const commission = sp * 0.11;
       const customerCareFees = 8.99;   // 2026-08 master; was 9.99
-      const gp = c - marginalTax - commission - customerCareFees - postage - pVat - ACCESSORIES;
+      // PSF — Payment Seller Fee, SP x 1%. New on the client's 14-Aug-2026
+      // report, where the column reads `=I2*1%` and his GP subtracts it.
+      const psf = sp * 0.01;
+      const gp = c - marginalTax - commission - customerCareFees - psf - postage - pVat - ACCESSORIES;
       // BM's ONLY VAT line is P. VAT, so there is no separate Total VAT
-      // column and NTP subtracts P. VAT directly.
-      Object.assign(out, { commission, customerCareFees, totalVat: pVat, grossProfit: gp,
+      // column and NTP subtracts P. VAT directly. PSF is a charge, not a tax,
+      // so it stays OUT of NTP.
+      Object.assign(out, { commission, customerCareFees, psf, totalVat: pVat, grossProfit: gp,
         gpPercent: gp / bp * 100, totalVatNtp: marginalTax - pVat, gpBase: 'BP' });
       break;
     }
@@ -148,7 +152,9 @@ function truthFor({ marketplace, bp, sp, postage }) {
       break;
     }
     case 'TEMU': {
-      const commission = sp * 0.0461;      // the master's own rate; the export's value wins when present
+      // 3.96% as of the client's 14-Aug-2026 report, where every Commission
+      // cell reads `=H2*3.96%`. Was 4.61% from the July master.
+      const commission = sp * 0.0396;
       const commissionVat = commission * VAT;
       // Commission VAT is reclaimable input tax — deliberately EXCLUDED from
       // both Total VAT and GP. Total VAT is P. VAT alone.
@@ -166,7 +172,7 @@ function truthFor({ marketplace, bp, sp, postage }) {
 // Fields recordSale() actually writes to Firestore, per marketplace.
 const STORED = {
   AMAZON: ['spMinusBp', 'marginalTax', 'commission', 'postageVat', 'grossProfit', 'gpPercent'],
-  BM:     ['spMinusBp', 'marginalTax', 'commission', 'postageVat', 'grossProfit', 'gpPercent'],
+  BM:     ['spMinusBp', 'marginalTax', 'commission', 'psf', 'postageVat', 'grossProfit', 'gpPercent'],
   EBAY:   ['spMinusBp', 'marginalTax', 'commission', 'rof', 'fvf', 'twentyPercent', 'totalCom', 'vat20', 'postageVat', 'grossProfit', 'gpPercent'],
   ONBUY:  ['spMinusBp', 'marginalTax', 'commission', 'vat20', 'marVat', 'postageVat', 'grossProfit', 'gpPercent'],
   TEMU:   ['spMinusBp', 'marginalTax', 'commission', 'postageVat', 'grossProfit', 'gpPercent'],
