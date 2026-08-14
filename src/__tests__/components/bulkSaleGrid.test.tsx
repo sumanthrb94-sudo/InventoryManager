@@ -25,7 +25,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { render, screen, within, fireEvent } from '@testing-library/react';
 import BulkSaleModal from '../../components/BulkSaleModal';
 import { MARKETPLACE_COLUMNS } from '../../lib/bulkSaleColumns';
-import type { InventoryUnit, AccessoryStock, Marketplace } from '../../types';
+import type { InventoryUnit, AccessoryStock, Marketplace, Sale } from '../../types';
 
 vi.mock('../../services/salesService', () => ({
   recordBulkSales: vi.fn(async () => ({ results: [], succeeded: 0, failed: 0 })),
@@ -35,17 +35,21 @@ const unit = (over: Partial<InventoryUnit> & { id: string }): InventoryUnit => (
   status: 'available', model: 'IPHONE 13', sku: 'IP13-128-MID', imei: '350000000000001',
   storage: '128GB', colour: 'MIDNIGHT',
   buyPrice: 200, supplierName: 'MOBILE WHOLESALE LTD', ownerId: 'shared',
+  // Distinct per unit on purpose: a Stock In cell reading the wrong unit's
+  // date is invisible when every fixture shares one.
+  dateIn: '2026-06-01',
   createdAt: '', updatedAt: '',
   ...over,
 } as InventoryUnit);
 
 const OFFICE = [
-  unit({ id: 'o1', imei: '350000000000001' }),
-  unit({ id: 'o2', imei: '350000000000002', model: 'IPHONE 14', sku: 'IP14-256-PUR' }),
+  unit({ id: 'o1', imei: '350000000000001', dateIn: '2026-06-01' }),
+  unit({ id: 'o2', imei: '350000000000002', model: 'IPHONE 14', sku: 'IP14-256-PUR',
+         dateIn: '2026-07-22' }),
 ];
 const SHS = [
   unit({ id: 's1', imei: '', model: 'IPHONE 12', status: 'incoming',
-         supplierName: 'PHONEBOX DIRECT' }),
+         supplierName: 'PHONEBOX DIRECT', dateIn: '2026-05-14' }),
 ];
 const ACCESSORIES = [{
   id: 'a1', sku: 'USB-C-20W', name: 'USB-C 20W Charger', quantity: 12,
@@ -266,6 +270,60 @@ describe('the sale date is the operator\'s, and it leads the row', () => {
 
     fireEvent.change(within(lastRow()).getByLabelText('Sale date'), { target: { value: '' } });
     expect(screen.getByRole('button', { name: /Confirm 0 Sales/i })).toBeTruthy();
+  });
+
+  it('shows the picked handset\'s Stock In date beside the sale date', () => {
+    open();
+    const headers = screen.getAllByRole('columnheader').map(h => h.textContent?.trim());
+    expect(headers[2]).toBe('Stock In');
+
+    const row = pick('Office', '350000000000002');
+    const cells = within(row).getAllByRole('cell').map(c => c.textContent?.trim());
+    // That unit's own arrival date, not the other office unit's.
+    expect(cells, `got ${cells.join('|')}`).toContain('2026-07-22');
+    expect(cells).not.toContain('2026-06-01');
+  });
+
+  it('leaves Stock In blank for a model row — no handset, no arrival date', () => {
+    open();
+    // The default source is 'model': team 1 has not chosen a unit, so there is
+    // no single date to show and inventing one would be a lie about age.
+    fireEvent.change(within(lastRow()).getByLabelText('Model'), { target: { value: 'IPHONE 13' } });
+    const opts = stockOptions();
+    expect(opts.length).toBeGreaterThan(0);
+    fireEvent.click(opts[0]);
+    const cells = within(lastRow()).getAllByRole('cell').map(c => c.textContent?.trim());
+    expect(cells).not.toContain('2026-06-01');
+    expect(cells, 'the Supplier cell is what explains why').toContain('attached later');
+  });
+
+  it('fills a waiting row\'s Stock In once team 2 picks the handset', () => {
+    // Stage 1 leaves the row with no unit behind it, so there is no arrival
+    // date to show. Choosing an IMEI is the moment one exists — and "how long
+    // has this handset been sitting" is exactly what team 2 wants at that
+    // moment, so it appears then rather than after the sale is committed.
+    const pending = {
+      id: 'p1', marketplace: 'AMAZON', orderNumber: 'AMZ-PEND', sku: 'IP13-128-MID',
+      model: 'IPHONE 13', storage: '128GB', imei: '', awaitingImei: true,
+      provisionalBuyPrice: true, buyPrice: 200, salePrice: 320,
+      saleDate: '2026-08-01', ownerId: 'shared',
+    } as unknown as Sale;
+    render(
+      <BulkSaleModal
+        sales={[pending]} allUnits={[...OFFICE, ...SHS]}
+        units={OFFICE} shsUnits={SHS} accessoryStock={ACCESSORIES}
+        supplierMap={{}} onClose={() => {}}
+      />,
+    );
+
+    const row = screen.getAllByRole('row')[1];   // waiting rows lead the grid
+    expect(within(row).getAllByRole('cell').map(c => c.textContent?.trim()))
+      .not.toContain('2026-06-01');
+
+    fireEvent.change(within(row).getByLabelText('IMEI for AMZ-PEND'), { target: { value: 'o1' } });
+    const cells = within(screen.getAllByRole('row')[1]).getAllByRole('cell')
+      .map(c => c.textContent?.trim());
+    expect(cells, `got ${cells.join('|')}`).toContain('2026-06-01');
   });
 
   it('carries the date onto the next row — a batch is one day\'s orders', () => {

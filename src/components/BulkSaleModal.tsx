@@ -122,6 +122,10 @@ interface PickOption {
 const money = (n: number | undefined): string =>
   n === undefined || Number.isNaN(n) ? '' : n.toFixed(2);
 
+/** A stored date as the day alone. dateIn is already date-only, but sale
+ *  dates coming back off the store may carry a time. */
+const day = (s: string | undefined): string => (s ?? '').split('T')[0];
+
 interface Props {
   /** Every sale — used only to find the ones still awaiting an IMEI. */
   sales: Sale[];
@@ -575,7 +579,7 @@ export default function BulkSaleModal({
                   min-width squashed its SP and BP cells to a couple of
                   characters. The grid scrolls sideways instead. */}
               <table className="w-full border-collapse"
-                     style={{ minWidth: `${66 + cols.length * 5.5}rem` }}>
+                     style={{ minWidth: `${73 + cols.length * 5.5}rem` }}>
                 <thead className="sticky top-0 bg-slate-50 border-b border-slate-200 z-10">
                   <tr>
                     <TH w="w-8">#</TH>
@@ -583,6 +587,12 @@ export default function BulkSaleModal({
                         (column A). Sales are typed off a statement after the
                         fact, so the day is the operator's to set. */}
                     <TH w="w-32">Date</TH>
+                    {/* Stock In — the day this handset arrived, straight off
+                        the unit. Beside the sale date so the operator can see
+                        at a glance how long the thing they are selling has
+                        been sitting. Shown, never typed: it belongs to the
+                        buy record. */}
+                    <TH w="w-28">Stock In</TH>
                     <TH w="w-28">Source</TH>
                     <TH w="w-64">Model</TH>
                     <TH w="w-40">SKU</TH>
@@ -612,7 +622,15 @@ export default function BulkSaleModal({
                             own, set by team 1. Stage 2 attaches a handset and
                             carries this through unchanged. */}
                         <td className="px-2 py-1 text-[10px] font-mono text-slate-600 tabular-nums">
-                          {(sale.saleDate || '').split('T')[0]}
+                          {day(sale.saleDate)}
+                        </td>
+                        {/* Blank until team 2 chooses a handset — there is no
+                            unit behind this row yet — then the chosen one's
+                            arrival date, which is the point of showing it:
+                            how long has THIS handset been on the shelf. */}
+                        <td className="px-2 py-1 text-[10px] font-mono text-slate-500 tabular-nums">
+                          {day(candidates.find(u => u.id === chosen)?.dateIn)
+                            || <span className="text-amber-300">—</span>}
                         </td>
                         <td className="px-1 py-1 text-[10px] font-mono text-amber-700 uppercase">Updated</td>
                         <td className="px-1 py-1 text-[11px] font-semibold text-slate-900 truncate">
@@ -689,6 +707,16 @@ export default function BulkSaleModal({
                             value={r.saleDate}
                             onChange={e => patch(r.key, { saleDate: e.target.value })}
                           />
+                        </td>
+
+                        {/* Stock In — only a handset has one. A model row has
+                            no unit yet (the Supplier cell says so), and an
+                            accessory pool is topped up over time, so neither
+                            has a single arrival date to show. */}
+                        <td className="px-2 py-1 text-[10px] font-mono text-slate-500 tabular-nums">
+                          {r.pick?.kind === 'unit'
+                            ? (day(r.pick.unit.dateIn) || '—')
+                            : <span className="text-slate-300">—</span>}
                         </td>
 
                         {/* Say what you are selling before looking for it. */}
