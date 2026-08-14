@@ -33,7 +33,7 @@
  * audit trail — and lands on its marketplace tab in the Sales Report as usual.
  */
 import { useState, useMemo, useRef, useEffect, useLayoutEffect, type Key, type ReactNode } from 'react';
-import { X, Plus, CheckCircle2, Trash2, Truck, Package, Tag, Loader2, Search } from 'lucide-react';
+import { X, Plus, Check, CheckCircle2, Trash2, Truck, Package, Tag, Loader2, Search } from 'lucide-react';
 import type { InventoryUnit, AccessoryStock, Marketplace } from '../types';
 import { calcSaleFinancials, type SaleFinancials } from '../lib/platforms';
 import { MARKETPLACE_COLUMNS, QUANTITY_HEADER } from '../lib/bulkSaleColumns';
@@ -400,30 +400,67 @@ export default function BulkSaleModal({
     onSaved?.();
   };
 
+  /**
+   * One row as a service line. Shared by the per-row tick and the batch
+   * Confirm so the two cannot compute a sale differently — a second copy of
+   * this mapping is exactly how the SKU and postage fallbacks would drift.
+   */
+  const lineFor = (r: Row): BulkSaleLine => {
+    const postage = r.postage === '' ? UI_AUTOFILL_POSTAGE[r.marketplace] : Number(r.postage);
+    const marketing = r.marketing === '' ? undefined : Number(r.marketing);
+    const common = {
+      marketplace: r.marketplace,
+      orderNumber: r.orderNumber.trim(),
+      salePrice: Number(r.salePrice),
+      saleDate: r.saleDate,
+      paymentMode: r.paymentMode || undefined,
+      postageOverride: Number.isNaN(postage) ? undefined : postage,
+      marketing: marketing === undefined || Number.isNaN(marketing) ? undefined : marketing,
+    };
+    const pick = r.pick!;
+    // A model row has no handset and is not a sale yet — it goes through
+    // recordPendingSale, never here. Failing loudly beats casting the type
+    // away and writing a sale with no unit behind it.
+    if (pick.kind === 'model') {
+      throw new Error('lineFor: a model row cannot be sold directly — use updateOne');
+    }
+    // r.sku, not pick.unit.sku — the cell is defaulted from the pick and then
+    // editable, and isReady guarantees it is non-blank by here.
+    return pick.kind === 'unit'
+      ? { kind: 'unit', unit: pick.unit, isSHS: pick.isSHS, sku: r.sku.trim(),
+          imei: r.imei.trim() || undefined, ...common }
+      : { kind: 'accessory', sku: pick.accessory.sku, quantity: Number(r.quantity) || 1, ...common };
+  };
+
+  /**
+   * Sell ONE row — the tick on the row itself.
+   *
+   * The batch Confirm sells the whole grid and then replaces the table with a
+   * results list, which is the wrong shape when the operator is working down a
+   * pile of orders one at a time: each sale is a separate marketplace order and
+   * they want the one they just typed committed before starting the next.
+   * Selling per row keeps the grid up and simply removes the row that is done.
+   */
+  const confirmOne = async (r: Row) => {
+    setRowBusy(r.key);
+    setRowError(e => ({ ...e, [r.key]: '' }));
+    const res = await recordBulkSales([lineFor(r)]);
+    setRowBusy(null);
+    const line = res.results[0];
+    if (!line || !line.ok) {
+      setRowError(e => ({ ...e, [r.key]: line?.message || line?.error || 'Could not record the sale.' }));
+      return;
+    }
+    setRows(rs => {
+      const left = rs.filter(x => x.key !== r.key);
+      return left.some(x => x.marketplace === tab) ? left : [...left, blankRow(tab)];
+    });
+    onSaved?.();
+  };
+
   const confirm = async () => {
     setSaving(true);
-
-    const lines: BulkSaleLine[] = ready.filter(r => r.pick?.kind !== 'model').map(r => {
-      const postage = r.postage === '' ? UI_AUTOFILL_POSTAGE[r.marketplace] : Number(r.postage);
-      const marketing = r.marketing === '' ? undefined : Number(r.marketing);
-      const common = {
-        marketplace: r.marketplace,
-        orderNumber: r.orderNumber.trim(),
-        salePrice: Number(r.salePrice),
-        saleDate: r.saleDate,
-        paymentMode: r.paymentMode || undefined,
-        postageOverride: Number.isNaN(postage) ? undefined : postage,
-        marketing: marketing === undefined || Number.isNaN(marketing) ? undefined : marketing,
-      };
-      const pick = r.pick!;
-      // r.sku, not pick.unit.sku — the cell is defaulted from the pick and
-      // then editable, and isReady guarantees it is non-blank by here.
-      return pick.kind === 'unit'
-        ? { kind: 'unit', unit: pick.unit, isSHS: pick.isSHS, sku: r.sku.trim(),
-            imei: r.imei.trim() || undefined, ...common }
-        : { kind: 'accessory', sku: pick.accessory.sku, quantity: Number(r.quantity) || 1, ...common };
-    });
-    const res = await recordBulkSales(lines);
+    const res = await recordBulkSales(readyToConfirm.map(lineFor));
     setResults(res.results);
     setSaving(false);
     onSaved?.();
@@ -793,6 +830,29 @@ export default function BulkSaleModal({
                                            disabled:opacity-40 disabled:cursor-not-allowed"
                               >
                                 {rowBusy === r.key ? 'Saving…' : 'Update Unit'}
+                              </button>
+                            )}
+                            {/* A handset or accessory row sells on its own tick.
+                                The batch Confirm still sells the whole grid,
+                                but working down a pile of orders one at a time
+                                should not mean holding them all until the last
+                                one is typed. */}
+                            {r.pick && r.pick.kind !== 'model' && (
+                              <button
+                                type="button"
+                                onClick={() => confirmOne(r)}
+                                disabled={!isReady(r) || rowBusy === r.key}
+                                aria-label={`Mark sold — ${r.orderNumber || 'this row'}`}
+                                title={isReady(r)
+                                  ? 'Mark this one sold'
+                                  : 'Needs a stock line, SKU, order number and price'}
+                                className="flex items-center gap-1 px-2 py-1.5 rounded-lg text-[9px]
+                                           font-bold uppercase tracking-widest bg-emerald-600 text-white
+                                           hover:bg-emerald-700 disabled:opacity-40
+                                           disabled:cursor-not-allowed"
+                              >
+                                <Check size={12} />
+                                {rowBusy === r.key ? 'Saving…' : 'Sold'}
                               </button>
                             )}
                             <button onClick={() => dropRow(r.key)} aria-label="Remove row"

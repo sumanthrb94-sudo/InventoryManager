@@ -174,6 +174,52 @@ describe('one tab per marketplace, each showing that sheet\'s own columns', () =
   });
 });
 
+describe('selling one row at a time', () => {
+  it('a ready handset row carries its own Sold tick', () => {
+    open();
+    const row = pick('Office', 'IPHONE 13');
+    // Not ready yet — no SKU, order number or price.
+    // .disabled, not toBeDisabled — this suite does not load jest-dom matchers.
+    expect((within(lastRow()).getByRole('button', { name: /Mark sold/i }) as HTMLButtonElement).disabled).toBe(true);
+
+    fireEvent.change(within(lastRow()).getByLabelText('SKU'), { target: { value: 'IP13-128-MID' } });
+    fireEvent.change(within(lastRow()).getByLabelText('Order number'), { target: { value: 'AMZ-1' } });
+    fireEvent.change(within(lastRow()).getByLabelText('Sale price'), { target: { value: '320' } });
+    expect((within(lastRow()).getByRole('button', { name: /Mark sold/i }) as HTMLButtonElement).disabled).toBe(false);
+    expect(row).toBeTruthy();
+  });
+
+  it('clicking it sells THAT row only — one line, not the batch', async () => {
+    const { recordBulkSales } = await import('../../services/salesService');
+    open();
+    pick('Office', 'IPHONE 13');
+    fireEvent.change(within(lastRow()).getByLabelText('SKU'), { target: { value: 'IP13-128-MID' } });
+    fireEvent.change(within(lastRow()).getByLabelText('Order number'), { target: { value: 'AMZ-1' } });
+    fireEvent.change(within(lastRow()).getByLabelText('Sale price'), { target: { value: '320' } });
+
+    fireEvent.click(within(lastRow()).getByRole('button', { name: /Mark sold/i }));
+    expect(recordBulkSales).toHaveBeenCalledTimes(1);
+    // One line — the whole point. A batch call here would sell rows the
+    // operator had not finished typing.
+    expect((recordBulkSales as any).mock.calls[0][0]).toHaveLength(1);
+    expect((recordBulkSales as any).mock.calls[0][0][0]).toMatchObject({
+      kind: 'unit', sku: 'IP13-128-MID', orderNumber: 'AMZ-1', salePrice: 320,
+    });
+  });
+
+  it('a model row gets Update Unit instead — it is not a sale yet', () => {
+    open();
+    // The default source is 'model'; picking one must NOT offer a Sold tick,
+    // because no handset is attached and nothing can be marked sold.
+    fireEvent.change(within(lastRow()).getByLabelText('Model'), { target: { value: 'IPHONE 13' } });
+    const opts = stockOptions();
+    expect(opts.length).toBeGreaterThan(0);
+    fireEvent.click(opts[0]);
+    expect(within(lastRow()).queryByRole('button', { name: /Mark sold/i })).toBeNull();
+    expect(within(lastRow()).getByRole('button', { name: /Update Unit/i })).toBeTruthy();
+  });
+});
+
 describe('choosing a source, then searching it', () => {
   it('searches office stock, SHS and accessory pools separately', () => {
     open();
