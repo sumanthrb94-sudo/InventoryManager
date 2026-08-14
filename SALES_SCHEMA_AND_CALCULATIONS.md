@@ -137,22 +137,31 @@ Total VAT 8.40 → GP 73.59 → GP% 21.03 → Total VAT NTP 16.60
 
 ### BACK MARKET (BM)
 
-Commission 11% of SP · Customer Care £8.99 flat · Accessories £1
+Commission 11% of SP · Customer Care £8.99 flat · PSF 1% of SP · Acc £1
+
+Letters shifted by two on 2026-08-14: `Payment Mode` was inserted between
+Quantity and BP, and `PSF` between Customer Care Fees and Postage, matching the
+client's own report.
 
 | Line | Formula | Excel |
 |---|---|---|
-| SP − BP | `SP − BP` | `K2-J2` |
-| Marginal Tax | `(SP−BP) × 16.67%` | `L2*16.67%` |
-| Commission | `SP × 11%` | `K2/100*11` |
+| SP − BP | `SP − BP` | `L2-K2` |
+| Marginal Tax | `(SP−BP) × 16.67%` | `M2*16.67%` |
+| Commission | `SP × 11%` | `L2/100*11` |
 | Customer Care Fees | `£8.99` flat | `literal cell` |
-| P. VAT | `Postage × 20%` | `P2*20%` |
-| GP | `(SP−BP) − MarTax − Com − £9.99 − Postage − P.VAT − £1` | `L2-M2-N2-O2-P2-Q2-R2` |
-| GP % | `GP ÷ **BP** × 100` | `(S2-V2)/J2*100` |
-| Total VAT NTP | `Marginal Tax − P. VAT` | `M2-Q2` |
-| Net GP £ | `GP − Postage Loss` | `S2-V2` |
+| PSF | `SP × 1%` | `L2*1%` |
+| P. VAT | `Postage × 20%` | `R2*20%` |
+| GP | `(SP−BP) − MarTax − Com − CareFee − PSF − Postage − P.VAT − Acc` | `M2-N2-O2-P2-Q2-R2-S2-T2` |
+| GP % | `GP ÷ **BP** × 100` | `(U2-X2)/K2*100` |
+| Total VAT NTP | `Marginal Tax − P. VAT` | `N2-S2` |
+| Net GP £ | `GP − Postage Loss` | `U2-X2` |
 
 > **BM has no Total VAT column.** P. VAT is its only VAT line, so NTP subtracts
 > P. VAT directly. Asserted by the E2E.
+>
+> **PSF is a charge, not a tax.** The Payment Seller Fee comes out of GP and
+> stays out of Total VAT NTP. The client's own sheet does the same: his PSF
+> cell is `=I2*1%` and his NTP is `=K2-P2`, Marginal Tax minus P. VAT alone.
 
 **Worked — BP £300, SP £449.99, postage £6.30**
 
@@ -221,27 +230,39 @@ P.VAT 1.26 · Accessories 1.00 → Total VAT 6.86 → GP 74.49 → GP% 28.65 →
 
 ### TEMU
 
-Commission from Temu's own export (4.61% fallback) · Commission VAT derived, tracked but
-excluded · Accessories £1
+Commission `SP × 3.96%` · Commission VAT derived, tracked but excluded ·
+Commission+VAT the two added up · Acc £1
+
+Commission became a FORMULA on 2026-08-14 and `Commission+VAT` was inserted
+after Commission VAT, both matching the client's own report.
 
 | Line | Formula | Excel |
 |---|---|---|
 | SP − BP | `SP − BP` | `K2-J2` |
 | Marginal Tax | `(SP−BP) × 16.67%` | `L2*16.67%` |
-| Commission | the export's own value; `SP × 4.61%` only as fallback | `literal cell` |
+| Commission | `SP × 3.96%` | `K2*3.96%` |
 | Commission VAT | `Commission × 20%` | `N2*20%` |
-| P. VAT | `Postage × 20%` | `P2*20%` |
-| Total VAT | `P. VAT` **alone** | `Q2` |
-| GP | `(SP−BP) − MarTax − Com − Postage − P.VAT − £1` | `L2-M2-N2-P2-Q2-R2` |
-| GP % | `GP ÷ **BP** × 100` | `(T2-W2)/J2*100` |
-| Total VAT NTP | `Marginal Tax − Total VAT` | `M2-S2` |
-| Net GP £ | `GP − Postage Loss` | `T2-W2` |
+| Commission+VAT | `Commission + Commission VAT` | `N2+O2` |
+| P. VAT | `Postage × 20%` | `Q2*20%` |
+| Total VAT | `P. VAT` **alone** | `R2` |
+| GP | `(SP−BP) − MarTax − Com − Postage − P.VAT − Acc` | `L2-M2-N2-Q2-R2-S2` |
+| GP % | `GP ÷ **BP** × 100` | `(U2-X2)/J2*100` |
+| Total VAT NTP | `Marginal Tax − Total VAT` | `M2-T2` |
+| Net GP £ | `GP − Postage Loss` | `U2-X2` |
 
 > **Commission VAT is excluded from both Total VAT and GP.** Temu VAT-invoices
 > it to the seller as reclaimable input tax. Confirmed against the client's own
 > export: Total VAT equals P. VAT alone, and GP only reconciles when Commission
-> VAT is left out of the subtraction. Temu's rate varies by category, so the
-> sheet's own figure always wins over the 7% fallback.
+> VAT is left out of the subtraction.
+>
+> **Commission+VAT is display only.** It is `Commission + Commission VAT`, the
+> client's own column, and is deliberately NOT subtracted in GP — doing so
+> would charge the commission twice.
+>
+> **One row of his file disagrees about Total VAT.** Row 2 reads `=L2+O2`
+> (Commission VAT + P. VAT) while rows 3-131 all read `=O2`. We follow the 129
+> rows, not the one. Worth confirming with him: including Commission VAT would
+> move Total VAT NTP on every Temu line.
 
 **Worked — BP £240, SP £379.99, postage £6.30**
 

@@ -26,10 +26,12 @@ import type { InventoryUnit, Marketplace, Sale } from '../../types';
 /** templates/REPORT_SCHEMAS.md §2.2 — "Column counts". */
 const DOCUMENTED_COUNTS: Record<Marketplace, number> = {
   AMAZON: 31,
-  BM: 28,
+  // 2026-08-14, from the client's own report: BM gained Payment Mode and
+  // PSF; TEMU gained Commission+VAT.
+  BM: 30,
   EBAY: 34,
   ONBUY: 28,
-  TEMU: 29,
+  TEMU: 30,
 };
 
 /** §2.2 block 3 — "Return", the tail of every marketplace sheet.

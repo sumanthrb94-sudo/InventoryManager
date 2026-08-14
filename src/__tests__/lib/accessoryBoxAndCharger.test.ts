@@ -48,7 +48,7 @@ async function feeOnRow(sales: Sale[], units: InventoryUnit[], rowNumber: number
   await wb.xlsx.load(buf as any);
   const ws = wb.getWorksheet(sales[0]?.marketplace ?? 'AMAZON')!;
   const h = (ws.getRow(1).values as any[]).slice(1);
-  return Number(ws.getRow(rowNumber).getCell(h.indexOf('Accessories') + 1).value ?? 0);
+  return Number(ws.getRow(rowNumber).getCell(h.indexOf('Acc') + 1).value ?? 0);
 }
 
 describe('who is charged for the box and charger', () => {
@@ -91,7 +91,7 @@ describe('who is charged for the box and charger', () => {
     await wb.xlsx.load(buf as any);
     const ws = wb.getWorksheet('AMAZON')!;
     const h = (ws.getRow(1).values as any[]).slice(1);
-    expect(Number(ws.getRow(2).getCell(h.indexOf('Accessories') + 1).value ?? 0)).toBe(1);
+    expect(Number(ws.getRow(2).getCell(h.indexOf('Acc') + 1).value ?? 0)).toBe(1);
   });
 
   it('a charger sold on its own is NOT — it is the charger', async () => {

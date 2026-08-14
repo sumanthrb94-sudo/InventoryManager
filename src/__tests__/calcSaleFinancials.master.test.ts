@@ -161,11 +161,16 @@ function masterBm(bp: number, sp: number, postage: number, payment: string) {
   // £8.99 per the operator's 2026-08 master (BM SALES charges it on every
   // row). Was 9.99 from the 2026-05 reference sheet.
   const customerCareFees = 8.99;
+  // PSF — Payment Seller Fee, 2026-08-14. The client's own column is
+  // `=I2*1%`, I being SP, and his GP subtracts that cell. Charged whatever
+  // the payment mode: it is the processor's cut of money taken, and money was
+  // taken on a Google Pay order the same as on a Klarna one.
+  const psf = r2(sp * 1 / 100);
   const postageVat = r2(postage * 0.2);
   const accessoryFee = 1;
-  const grossProfit = r2(sp - bp - marTax - commission - customerCareFees - postage - postageVat - accessoryFee);
+  const grossProfit = r2(sp - bp - marTax - commission - customerCareFees - psf - postage - postageVat - accessoryFee);
   const gpPercent   = bp > 0 ? r2(grossProfit / bp * 100) : 0;
-  return { spMinusBp, marTax, commission, ppk: 0, postage, grossProfit, gpPercent, hasPPK };
+  return { spMinusBp, marTax, commission, ppk: 0, psf, postage, grossProfit, gpPercent, hasPPK };
 }
 
 function masterEbay(bp: number, sp: number, shipping: 1 | 2 | 8) {
@@ -263,6 +268,7 @@ describe('calcSaleFinancials · BM · 12 master rows', () => {
     expectClose(fin.marginalTax,         m.marTax,      `${row.order}.marginalTax`);
     expectClose(fin.commission,          m.commission,  `${row.order}.commission`);
     expectClose(fin.payPalKlarnaCom ?? 0, m.ppk,         `${row.order}.payPalKlarnaCom`);
+    expectClose(fin.psf ?? 0,            m.psf,         `${row.order}.psf`);
     expectClose(fin.postage,             m.postage,     `${row.order}.postage`);
     expectClose(fin.grossProfit,         m.grossProfit, `${row.order}.grossProfit`);
     expectClose(fin.gpPercent,           m.gpPercent,   `${row.order}.gpPercent`);
@@ -404,12 +410,14 @@ describe('calcSaleFinancials · TEMU · the client\'s real export row', () => {
     expect(fin.grossProfit).toBe(11.73);    // unchanged by the VAT line
   });
 
-  it('falls back to commissionPct × SP when the file has no Commission column', () => {
-    // 4.61%, the rate in the operator's Temu master (`=H2*4.61%`), not the
-    // 7% placeholder used before that file arrived.
+  it('derives Commission as SP × 3.96%, the rate on the client\'s own report', () => {
+    // 2026-08-14: every Commission cell of the client's live report reads
+    // `=H2*3.96%`. Was 4.61% from the July master, and 7% before that.
     const fin = calcSaleFinancials({ marketplace: 'TEMU', buyPrice: 100, salePrice: 200 });
-    expect(fin.commission).toBe(9.22);      // 200 × 4.61%
-    expect(fin.commissionVat).toBe(1.84);   // fallback: commission × 20%
+    expect(fin.commission).toBe(7.92);      // 200 × 3.96%
+    expect(fin.commissionVat).toBe(1.58);   // commission × 20%
+    // His column 13 — the two above added up, and nothing more.
+    expect(fin.commissionPlusVat).toBe(9.50);
   });
 
   it('Postage VAT is 20%, same as every other marketplace — no longer a fixed 0', () => {

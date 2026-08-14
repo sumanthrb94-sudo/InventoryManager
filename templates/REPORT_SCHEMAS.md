@@ -268,17 +268,21 @@ id, so a mix of old and new files cannot double-count.
 
 The five marketplace sheets carry the import columns plus computed VAT/fee
 columns, a resolved `Model`, the buy-side attributes and a return-linkage
-block. Column counts: **AMAZON 31, BM 28, EBAY 34, ONBUY 28, TEMU 29.**
+block. Column counts: **AMAZON 31, BM 30, EBAY 34, ONBUY 28, TEMU 30.**
+Reconciled column-for-column against the client's own live report
+(`14TH_AUGUST_SALES_REPORT_2026.xlsx`) on 2026-08-14: BM gained `Payment
+Mode` and `PSF`, TEMU gained `Commission+VAT`, and `Accessories` is now
+`Acc` on all five tabs — his header.
 
 The sheet reads left to right as **what was sold → what it cost → what it
 made → what happened to it afterwards**:
 
 ```
 Date | Order Number | SKU | IMEI | Model | Colour | Storage | Supplier |
-[Quantity|Units] | BP | SP | SP-BP | Marginal Tax | Commission | …fees… |
-Postage | P. VAT | Accessories | [Total VAT] | GP | GP % | Total VAT NTP |
-Postage Loss | Net GP £ | Return Date | Outcome | Shipping Legs |
-Return Reason | Comments
+[Quantity|Units] | [Payment Mode] | BP | SP | SP-BP | Marginal Tax |
+Commission | …fees… | Postage | P. VAT | Acc | [Total VAT] | GP | GP % |
+Total VAT NTP | Postage Loss | Net GP £ | Return Date | Outcome |
+Shipping Legs | Return Reason | Comments
 ```
 
 Three blocks, in order:
@@ -317,10 +321,10 @@ Marketplace-specific fee columns:
 | Marketplace | Extra columns |
 |---|---|
 | AMAZON | `C. VAT` `DSF` `DSF. VAT` |
-| BM | `Customer Care Fees` — and **no `Total VAT` column**: BM's only VAT line is `P. VAT`, so `Total VAT NTP = Marginal Tax − P. VAT` directly |
+| BM | `Payment Mode` (between Quantity and BP) `Customer Care Fees` `PSF` — and **no `Total VAT` column**: BM's only VAT line is `P. VAT`, so `Total VAT NTP = Marginal Tax − P. VAT` directly. `PSF` is the Payment Seller Fee, `SP × 1%`, new on 2026-08-14; it comes out of GP and stays out of Total VAT NTP, because it is a charge and not a tax |
 | EBAY | `ROF` `FVF` `VAT` `T.COM` `Marketing` `M. VAT` — and `Units`, not `Quantity` |
 | ONBUY | `VAT 20%` — and no Quantity column |
-| TEMU | `Commission VAT` — no DSF. Commission and Commission VAT are literal per-row values (Temu's real reported fee), not formulas; Commission VAT is excluded from Total VAT/GP |
+| TEMU | `Commission VAT` `Commission+VAT` — no DSF. Commission is a FORMULA as of 2026-08-14, `SP × 3.96%`, the one rate the client's report applies to every row; it was a literal while Temu's fee was believed to vary by category. `Commission+VAT` is the two cells beside it added up, not an extra charge. Commission VAT is excluded from Total VAT and GP |
 
 `Returns` sheet (16 columns):
 

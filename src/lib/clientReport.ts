@@ -601,7 +601,7 @@ function writeSaleRow(
         BP: sale.buyPrice,
         SP: sale.salePrice,
         Postage: sale.postage ?? null,
-        Accessories: accessoryFeeOf(sale, f, knownAccessorySkus),
+        Acc: accessoryFeeOf(sale, f, knownAccessorySkus),
         Comments: sale.comments ?? '',
         Model: resolvedSaleModel(sale),
       });
@@ -617,7 +617,7 @@ function writeSaleRow(
       row.getCell(col('DSF. VAT')).value = { formula: f.dsfVat! };        row.getCell(col('DSF. VAT')).numFmt = MONEY_FMT;
       row.getCell(col('Postage')).numFmt = MONEY_FMT; // Postage (literal value above)
       row.getCell(col('P. VAT')).value = { formula: f.postageVat! };    row.getCell(col('P. VAT')).numFmt = MONEY_FMT;
-      row.getCell(col('Accessories')).numFmt = MONEY_FMT; // Accessories (literal value above)
+      row.getCell(col('Acc')).numFmt = MONEY_FMT; // Accessories (literal value above)
       row.getCell(col('Total VAT')).value = { formula: f.totalVat! };      row.getCell(col('Total VAT')).numFmt = MONEY_FMT;
       row.getCell(col('GP')).value = { formula: f.grossProfit! };   row.getCell(col('GP')).numFmt = MONEY_FMT;
       row.getCell(col('GP %')).value = { formula: f.gpPercent! };     row.getCell(col('GP %')).numFmt = MONEY_FMT;
@@ -649,9 +649,8 @@ function writeSaleRow(
         Quantity: qty,
         BP: sale.buyPrice,
         SP: sale.salePrice,
-        Commission: sale.commission ?? 0,
         Postage: sale.postage ?? null,
-        Accessories: accessoryFeeOf(sale, f, knownAccessorySkus),
+        Acc: accessoryFeeOf(sale, f, knownAccessorySkus),
         Comments: sale.comments ?? '',
         Model: resolvedSaleModel(sale),
       });
@@ -661,11 +660,12 @@ function writeSaleRow(
       row.getCell(col('SP')).numFmt = MONEY_FMT;   // SP
       row.getCell(col('SP-BP')).value  = { formula: f.spMinusBp! };   row.getCell(col('SP-BP')).numFmt  = MONEY_FMT;
       row.getCell(col('Marginal Tax')).value = { formula: f.marginalTax! }; row.getCell(col('Marginal Tax')).numFmt = MONEY_FMT;
-      row.getCell(col('Commission')).numFmt = MONEY_FMT; // Commission (literal above)
+      row.getCell(col('Commission')).value = { formula: f.commission! }; row.getCell(col('Commission')).numFmt = MONEY_FMT;
       row.getCell(col('Commission VAT')).value = { formula: f.commissionVat! }; row.getCell(col('Commission VAT')).numFmt = MONEY_FMT;
+      row.getCell(col('Commission+VAT')).value = { formula: f.commissionPlusVat! }; row.getCell(col('Commission+VAT')).numFmt = MONEY_FMT;
       row.getCell(col('Postage')).numFmt = MONEY_FMT; // Postage (literal above)
       row.getCell(col('P. VAT')).value = { formula: f.postageVat! };  row.getCell(col('P. VAT')).numFmt = MONEY_FMT;
-      row.getCell(col('Accessories')).numFmt = MONEY_FMT; // Accessories (literal above)
+      row.getCell(col('Acc')).numFmt = MONEY_FMT; // Accessories (literal above)
       row.getCell(col('Total VAT')).value = { formula: f.totalVat! };    row.getCell(col('Total VAT')).numFmt = MONEY_FMT;
       row.getCell(col('GP')).value = { formula: f.grossProfit! }; row.getCell(col('GP')).numFmt = MONEY_FMT;
       row.getCell(col('GP %')).value = { formula: f.gpPercent! };   row.getCell(col('GP %')).numFmt = MONEY_FMT;
@@ -690,9 +690,13 @@ function writeSaleRow(
         Quantity: qty,
         BP: sale.buyPrice,
         SP: sale.salePrice,
+        // The client's own column, and it has been on his sheet all along —
+        // "Google Pay", "Klarna", or blank. The app has captured it on every
+        // BM sale since the sell modal shipped and never written it out.
+        "Payment Mode": sale.paymentMode ?? '',
         "Customer Care Fees": sale.customerCareFees ?? Number(f.customerCareFees ?? 9.99),
         Postage: sale.postage ?? null,
-        Accessories: accessoryFeeOf(sale, f, knownAccessorySkus),
+        Acc: accessoryFeeOf(sale, f, knownAccessorySkus),
         Comments: sale.comments ?? '',
         Model: resolvedSaleModel(sale),
       });
@@ -704,9 +708,10 @@ function writeSaleRow(
       row.getCell(col('Marginal Tax')).value = { formula: f.marginalTax! };  row.getCell(col('Marginal Tax')).numFmt = MONEY_FMT;
       row.getCell(col('Commission')).value = { formula: f.commission! };   row.getCell(col('Commission')).numFmt = MONEY_FMT;
       row.getCell(col('Customer Care Fees')).numFmt = MONEY_FMT;                   // Customer Care Fees (literal above)
+      row.getCell(col('PSF')).value = { formula: f.psf! };             row.getCell(col('PSF')).numFmt = MONEY_FMT;
       row.getCell(col('Postage')).numFmt = MONEY_FMT;                   // Postage (literal above)
       row.getCell(col('P. VAT')).value = { formula: f.postageVat! };   row.getCell(col('P. VAT')).numFmt = MONEY_FMT;
-      row.getCell(col('Accessories')).numFmt = MONEY_FMT;                   // Accessories (literal above)
+      row.getCell(col('Acc')).numFmt = MONEY_FMT;                   // Accessories (literal above)
       row.getCell(col('GP')).value = { formula: f.grossProfit! };  row.getCell(col('GP')).numFmt = MONEY_FMT;
       row.getCell(col('GP %')).value = { formula: f.gpPercent! };    row.getCell(col('GP %')).numFmt = MONEY_FMT;
       row.getCell(col('Total VAT NTP')).value = { formula: f.totalVatNtp! };  row.getCell(col('Total VAT NTP')).numFmt = MONEY_FMT;
@@ -735,7 +740,7 @@ function writeSaleRow(
         Postage: sale.postage ?? null,
         "P. VAT": sale.postageVat ?? 0,
         Marketing: sale.marketing ?? 0,
-        Accessories: accessoryFeeOf(sale, f, knownAccessorySkus),
+        Acc: accessoryFeeOf(sale, f, knownAccessorySkus),
         Comments: sale.comments ?? '',
         Model: resolvedSaleModel(sale),
       });
@@ -754,7 +759,7 @@ function writeSaleRow(
       row.getCell(col('P. VAT')).numFmt = MONEY_FMT;                   // P. VAT (literal above)
       row.getCell(col('Marketing')).numFmt = MONEY_FMT;                   // Marketing (literal above)
       row.getCell(col('M. VAT')).value = { formula: f.marketingVat! }; row.getCell(col('M. VAT')).numFmt = MONEY_FMT;
-      row.getCell(col('Accessories')).numFmt = MONEY_FMT;                   // Accessories (literal above)
+      row.getCell(col('Acc')).numFmt = MONEY_FMT;                   // Accessories (literal above)
       row.getCell(col('Total VAT')).value = { formula: f.totalVat! };     row.getCell(col('Total VAT')).numFmt = MONEY_FMT;
       row.getCell(col('GP')).value = { formula: f.grossProfit! };  row.getCell(col('GP')).numFmt = MONEY_FMT;
       row.getCell(col('GP %')).value = { formula: f.gpPercent! };    row.getCell(col('GP %')).numFmt = MONEY_FMT;
@@ -778,7 +783,7 @@ function writeSaleRow(
         BP: sale.buyPrice,
         SP: sale.salePrice,
         Postage: sale.postage ?? null,
-        Accessories: accessoryFeeOf(sale, f, knownAccessorySkus),
+        Acc: accessoryFeeOf(sale, f, knownAccessorySkus),
         Comments: sale.comments ?? '',
         Model: resolvedSaleModel(sale),
       });
@@ -792,7 +797,7 @@ function writeSaleRow(
       row.getCell(col('VAT 20%')).value = { formula: f.vat20! };        row.getCell(col('VAT 20%')).numFmt = MONEY_FMT;
       row.getCell(col('Postage')).numFmt = MONEY_FMT;                   // Postage (literal above)
       row.getCell(col('P. VAT')).value = { formula: f.postageVat! };   row.getCell(col('P. VAT')).numFmt = MONEY_FMT;
-      row.getCell(col('Accessories')).numFmt = MONEY_FMT;                   // Accessories (literal above)
+      row.getCell(col('Acc')).numFmt = MONEY_FMT;                   // Accessories (literal above)
       row.getCell(col('Total VAT')).value = { formula: f.totalVat! };     row.getCell(col('Total VAT')).numFmt = MONEY_FMT;
       row.getCell(col('GP')).value = { formula: f.grossProfit! };  row.getCell(col('GP')).numFmt = MONEY_FMT;
       row.getCell(col('GP %')).value = { formula: f.gpPercent! };    row.getCell(col('GP %')).numFmt = MONEY_FMT;
@@ -821,7 +826,7 @@ export const PRIMED_SALE_ROWS = 200;
  * accessory pound (and, on BM, the £8.99 care fee), so the operator's own
  * arithmetic would quietly disagree with the application's.
  */
-const CONSTANT_HEADERS = new Set(['Accessories', 'FVF', 'Customer Care Fees']);
+const CONSTANT_HEADERS = new Set(['Acc', 'FVF', 'Customer Care Fees']);
 
 /** Column letter for a 1-based index. */
 function letterFor(n: number): string {
@@ -1284,23 +1289,23 @@ function writeAccessoriesSalesSheet(
  *  wrong column into a bold TOTAL that still looked like a total. */
 const TOTAL_SUM_NAMES: Record<Marketplace, { numericCols: string[]; denominator: string }> = {
   AMAZON: {
-    numericCols: ["Quantity", "BP", "SP", "SP-BP", "Marginal Tax", "Commission", "C. VAT", "DSF", "DSF. VAT", "Postage", "P. VAT", "Accessories", "Total VAT", "GP", "Total VAT NTP", "Postage Loss", "Net GP £"].map(s => s),
+    numericCols: ["Quantity", "BP", "SP", "SP-BP", "Marginal Tax", "Commission", "C. VAT", "DSF", "DSF. VAT", "Postage", "P. VAT", "Acc", "Total VAT", "GP", "Total VAT NTP", "Postage Loss", "Net GP £"].map(s => s),
     denominator: "BP",
   },
   BM: {
-    numericCols: ["Quantity", "BP", "SP", "SP-BP", "Marginal Tax", "Commission", "Customer Care Fees", "Postage", "P. VAT", "Accessories", "GP", "Total VAT NTP", "Postage Loss", "Net GP £"].map(s => s),
+    numericCols: ["Quantity", "BP", "SP", "SP-BP", "Marginal Tax", "Commission", "Customer Care Fees", "PSF", "Postage", "P. VAT", "Acc", "GP", "Total VAT NTP", "Postage Loss", "Net GP £"].map(s => s),
     denominator: "BP",
   },
   EBAY: {
-    numericCols: ["Units", "BP", "SP", "SP-BP", "Marginal Tax", "Commission", "ROF", "FVF", "VAT", "T.COM", "Postage", "P. VAT", "Marketing", "M. VAT", "Accessories", "Total VAT", "GP", "Total VAT NTP", "Postage Loss", "Net GP £"].map(s => s),
+    numericCols: ["Units", "BP", "SP", "SP-BP", "Marginal Tax", "Commission", "ROF", "FVF", "VAT", "T.COM", "Postage", "P. VAT", "Marketing", "M. VAT", "Acc", "Total VAT", "GP", "Total VAT NTP", "Postage Loss", "Net GP £"].map(s => s),
     denominator: "SP",
   },
   ONBUY: {
-    numericCols: ["BP", "SP", "SP-BP", "Marginal Tax", "Commission", "VAT 20%", "Postage", "P. VAT", "Accessories", "Total VAT", "GP", "Total VAT NTP", "Postage Loss", "Net GP £"].map(s => s),
+    numericCols: ["BP", "SP", "SP-BP", "Marginal Tax", "Commission", "VAT 20%", "Postage", "P. VAT", "Acc", "Total VAT", "GP", "Total VAT NTP", "Postage Loss", "Net GP £"].map(s => s),
     denominator: "BP",
   },
   TEMU: {
-    numericCols: ["Quantity", "BP", "SP", "SP-BP", "Marginal Tax", "Commission", "Commission VAT", "Postage", "P. VAT", "Accessories", "Total VAT", "GP", "Total VAT NTP", "Postage Loss", "Net GP £"].map(s => s),
+    numericCols: ["Quantity", "BP", "SP", "SP-BP", "Marginal Tax", "Commission", "Commission VAT", "Commission+VAT", "Postage", "P. VAT", "Acc", "Total VAT", "GP", "Total VAT NTP", "Postage Loss", "Net GP £"].map(s => s),
     denominator: "BP",
   },
 };

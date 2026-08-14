@@ -21,9 +21,11 @@
  * + calcSaleFinancials):
  *   AMAZON: commission = SP*7%, marginalTax = (SP-BP)*16.67%, C.VAT/DSF/DSF.VAT
  *           chain off commission, totalVat = C.VAT+DSF.VAT+P.VAT, accessoryFee=£1
- *   BM:     commission = SP*11%, customerCareFees = £8.99 flat, NO PayPal/Klarna
- *           adjustment (intentionally dropped in the 2026-05 schema rewrite —
- *           see platforms.ts's own comment "No PayPal/Klarna commission any
+ *   BM:     commission = SP*11%, customerCareFees = £8.99 flat, psf = SP*1%
+ *           (Payment Seller Fee, new 2026-08-14 — charged whatever the payment
+ *           mode, and NOT a VAT line), NO PayPal/Klarna adjustment
+ *           (intentionally dropped in the 2026-05 schema rewrite — see
+ *           platforms.ts's own comment "No PayPal/Klarna commission any
  *           more — drop the field"), totalVat = P.VAT only, accessoryFee=£1
  *   EBAY:   commission = SP*6.21%, rof = SP*0.35%, fvf = £0.40 flat,
  *           marketing = £0 unless the operator enters one, P.VAT = £0 unless
@@ -33,9 +35,10 @@
  *           gpPercent divides by SP (not BP), accessoryFee=£1
  *   ONBUY:  commission = SP*7%, vat20 = commission*20%, totalVat = vat20+P.VAT,
  *           no Quantity column at all, accessoryFee=£1
- *   TEMU:   commission = SP*4.61% (fallback only — the master's own
- *           =H2*4.61%), marginalTax = (SP-BP)*16.67%, totalVat = P.VAT only
- *           (Commission VAT tracked but excluded), no DSF, accessoryFee=£1
+ *   TEMU:   commission = SP*3.96% (2026-08-14 — the client's report computes
+ *           every row as =H2*3.96%), marginalTax = (SP-BP)*16.67%,
+ *           totalVat = P.VAT only (Commission VAT tracked but excluded, and
+ *           Commission+VAT is display only), no DSF, accessoryFee=£1
  * All 5 marketplaces: postage defaults to £0 unless the file supplies one
  * (this simulation's generated files carry no Postage column, so every
  * sale uses the £0 default — confirmed via getMarketplaceFee's own comments).
@@ -61,7 +64,7 @@ export function calcFinancials(marketplace, bp, sp, postage = 0) {
     }
     case 'TEMU': {
       const marginalTax = spMinusBp * 16.67 / 100;
-      const commission = sp * 4.61 / 100; // fallback rate (no per-row override in this sim)
+      const commission = sp * 3.96 / 100; // 2026-08-14 rate, from the client's report
       const postageVat = postage * 0.20;
       const accessoryFee = 1;
       const totalVat = postageVat; // commission VAT excluded from totalVat/GP
@@ -72,10 +75,11 @@ export function calcFinancials(marketplace, bp, sp, postage = 0) {
       const marginalTax = spMinusBp * 16.67 / 100;
       const commission = sp * 11 / 100;
       const customerCareFees = 8.99;
+      const psf = sp * 1 / 100;   // Payment Seller Fee, 2026-08-14
       const postageVat = postage * 0.20;
       const accessoryFee = 1;
-      const totalVat = postageVat; // BM's only VAT line
-      const grossProfit = spMinusBp - marginalTax - commission - customerCareFees - postage - postageVat - accessoryFee;
+      const totalVat = postageVat; // BM's only VAT line — PSF is a charge, not a tax
+      const grossProfit = spMinusBp - marginalTax - commission - customerCareFees - psf - postage - postageVat - accessoryFee;
       return { spMinusBp, marginalTax: r2(marginalTax), commission: r2(commission), totalVat: r2(totalVat), postage, grossProfit: r2(grossProfit) };
     }
     case 'EBAY': {

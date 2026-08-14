@@ -21,9 +21,11 @@
  *
  * Only the columns an operator can see or fill while recording a sale are
  * here. Date, Order Number, SKU, IMEI, Supplier, Quantity, BP and SP are
- * fixed leading columns on every tab and are handled by the grid itself;
- * the return-linkage block (Return Date, Outcome, Postage Loss, Net GP £)
- * belongs to a sale that has already happened and cannot be entered here.
+ * fixed leading columns on every tab and are handled by the grid itself —
+ * as is BM's Payment Mode, which sits between Quantity and BP on the report
+ * and in the same place in the grid. The return-linkage block (Return Date,
+ * Outcome, Postage Loss, Net GP £) belongs to a sale that has already
+ * happened and cannot be entered here.
  */
 import type { Marketplace } from '../types';
 import type { SaleFinancials } from './platforms';
@@ -65,7 +67,7 @@ export const MARKETPLACE_COLUMNS: Record<Marketplace, BulkSaleColumn[]> = {
     computed('DSF. VAT', 'dsfVat'),
     entry('Postage', 'postage'),
     computed('P. VAT', 'postageVat'),
-    computed('Accessories', 'accessoryFee'),
+    computed('Acc', 'accessoryFee'),
     computed('Total VAT', 'totalVat'),
     computed('GP', 'grossProfit'),
     computed('GP %', 'gpPercent'),
@@ -76,9 +78,10 @@ export const MARKETPLACE_COLUMNS: Record<Marketplace, BulkSaleColumn[]> = {
     computed('Marginal Tax', 'marginalTax'),
     computed('Commission', 'commission'),
     computed('Customer Care Fees', 'customerCareFees'),
+    computed('PSF', 'psf'),
     entry('Postage', 'postage'),
     computed('P. VAT', 'postageVat'),
-    computed('Accessories', 'accessoryFee'),
+    computed('Acc', 'accessoryFee'),
     computed('GP', 'grossProfit'),
     computed('GP %', 'gpPercent'),
     computed('Total VAT NTP', 'totalVatNtp'),
@@ -96,7 +99,7 @@ export const MARKETPLACE_COLUMNS: Record<Marketplace, BulkSaleColumn[]> = {
     computed('P. VAT', 'postageVat'),
     entry('Marketing', 'marketing'),
     computed('M. VAT', 'marketingVat'),
-    computed('Accessories', 'accessoryFee'),
+    computed('Acc', 'accessoryFee'),
     computed('Total VAT', 'totalVat'),
     computed('GP', 'grossProfit'),
     computed('GP %', 'gpPercent'),
@@ -109,7 +112,7 @@ export const MARKETPLACE_COLUMNS: Record<Marketplace, BulkSaleColumn[]> = {
     computed('VAT 20%', 'vat20'),
     entry('Postage', 'postage'),
     computed('P. VAT', 'postageVat'),
-    computed('Accessories', 'accessoryFee'),
+    computed('Acc', 'accessoryFee'),
     computed('Total VAT', 'totalVat'),
     computed('GP', 'grossProfit'),
     computed('GP %', 'gpPercent'),
@@ -120,9 +123,10 @@ export const MARKETPLACE_COLUMNS: Record<Marketplace, BulkSaleColumn[]> = {
     computed('Marginal Tax', 'marginalTax'),
     computed('Commission', 'commission'),
     computed('Commission VAT', 'commissionVat'),
+    computed('Commission+VAT', 'commissionPlusVat'),
     entry('Postage', 'postage'),
     computed('P. VAT', 'postageVat'),
-    computed('Accessories', 'accessoryFee'),
+    computed('Acc', 'accessoryFee'),
     computed('Total VAT', 'totalVat'),
     computed('GP', 'grossProfit'),
     computed('GP %', 'gpPercent'),

@@ -432,6 +432,13 @@ export interface Sale {
   marketingVat?: number;         // eBay: Marketing * 20%
   // BM-only: flat customer care fee per sale.
   customerCareFees?: number;     // BM: flat £9.99
+  /** BM-only: Payment Seller Fee, SP × 1%. Deducted from GP, and it is NOT a
+   *  VAT line — it does not appear in Total VAT NTP. */
+  psf?: number;
+  /** Temu-only: Commission + Commission VAT, the client's own column. Purely
+   *  the sum of the two cells beside it; kept so the grid can show what the
+   *  sheet shows rather than making the operator add them up. */
+  commissionPlusVat?: number;
   // Operator-flagged: zero-rate this sale's postage VAT (e.g. zero-rated
   // export / VAT-exempt shipping label). When true, P. VAT = 0 and every
   // downstream field that depends on it (Total VAT, GP, Total VAT NTP)
@@ -535,6 +542,10 @@ export interface MarketplaceFee {
   /** PACKAGING cost, £ — flat £1 per sale row. See Sale.accessoryFee. */
   accessoryFee?: number;
   customerCareFees?: number;         // BM flat customer-care charge (£9.99)
+  /** BM Payment Seller Fee, % of SP. New on the client's 14-Aug-2026 report:
+   *  the PSF column there is `=I2*1%` on every row, I being SP — so "1% of
+   *  the total sale value" means the sale price, not sale price plus postage. */
+  psfPct?: number;
 }
 
 /**

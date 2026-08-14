@@ -62,15 +62,24 @@ describe('AMAZON — master rows reproduce cell for cell', () => {
 });
 
 describe('BM — master rows reproduce cell for cell', () => {
-  // Customer Care Fees is £8.99 on every row of the master. It was £9.99
-  // here until 2026-08, which made GP exactly £1 light on every BM line.
+  // Three real rows off the client's own 14-Aug-2026 report (BM SALES rows
+  // 300 / 305 / 320), with HIS computed values, not ours re-derived. Every
+  // figure below is what his sheet displays.
+  //
+  // These replaced two July rows when PSF arrived. Customer Care Fees is
+  // still £8.99: his file carries 3.99 on its first 95 rows and 8.99 on the
+  // remaining 237, and the rows are date-ascending — 3.99 is the OLD rate.
+  // Sampling row 2 alone would have said 3.99 and cost £5 of GP a sale.
   const ROWS = [
-    { order: '83693422', bp: 73,  sp: 129, postage: 6.30,
-      spMinusBp: 56.00, marginalTax: 9.34, commission: 14.19, customerCareFees: 8.99,
-      postageVat: 1.26, grossProfit: 14.92, gpPercent: 20.44, totalVatNtp: 8.08 },
-    { order: '83697831', bp: 60,  sp: 104, postage: 6.30,
-      spMinusBp: 44.00, marginalTax: 7.33, commission: 11.44, customerCareFees: 8.99,
-      postageVat: 1.26, grossProfit: 7.68, gpPercent: 12.79, totalVatNtp: 6.07 },
+    { order: '83746265', bp: 105, sp: 205, postage: 6.30,
+      spMinusBp: 100.00, marginalTax: 16.67, commission: 22.55, customerCareFees: 8.99,
+      psf: 2.05, postageVat: 1.26, grossProfit: 41.18, gpPercent: 39.22, totalVatNtp: 15.41 },
+    { order: '83859176', bp: 145, sp: 219, postage: 6.30,
+      spMinusBp: 74.00, marginalTax: 12.34, commission: 24.09, customerCareFees: 8.99,
+      psf: 2.19, postageVat: 1.26, grossProfit: 17.83, gpPercent: 12.30, totalVatNtp: 11.08 },
+    { order: '84265117', bp: 110, sp: 207, postage: 6.30,
+      spMinusBp: 97.00, marginalTax: 16.17, commission: 22.77, customerCareFees: 8.99,
+      psf: 2.07, postageVat: 1.26, grossProfit: 38.44, gpPercent: 34.95, totalVatNtp: 14.91 },
   ];
 
   it.each(ROWS)('row $order (BP £$bp · SP £$sp)', (row) => {
@@ -82,10 +91,24 @@ describe('BM — master rows reproduce cell for cell', () => {
     near(f.marginalTax,      row.marginalTax,      `${row.order}.Marginal Tax`);
     near(f.commission,       row.commission,       `${row.order}.Commission`);
     near(f.customerCareFees, row.customerCareFees, `${row.order}.Customer Care Fees`);
+    near(f.psf,              row.psf,              `${row.order}.PSF`);
     near(f.postageVat,       row.postageVat,       `${row.order}.P. VAT`);
     near(f.grossProfit,      row.grossProfit,      `${row.order}.GP`);
     near(f.gpPercent,        row.gpPercent,        `${row.order}.GP %`);
     near(f.totalVatNtp,      row.totalVatNtp,      `${row.order}.Total VAT NTP`);
+  });
+
+  it('PSF is charged whatever the payment mode', () => {
+    // His rows carry Applepay, Clearpay and blank alike, and every one of
+    // them has a PSF. It is the processor's cut of money taken, and money
+    // was taken either way — there is no payment mode that avoids it.
+    for (const paymentMode of ['Applepay', 'Clearpay', 'Google Pay', '']) {
+      const hasPayPalKlarna = /paypal|klarna|clearpay|clear pay|applepay|apple pay/i.test(paymentMode);
+      const f = calcSaleFinancials({
+        marketplace: 'BM', buyPrice: 105, salePrice: 205, postageOverride: 6.30, hasPayPalKlarna,
+      });
+      near(f.psf, 2.05, `PSF with paymentMode="${paymentMode}"`);
+    }
   });
 });
 
@@ -260,35 +283,65 @@ describe('EBAY — master rows reproduce cell for cell', () => {
   });
 });
 
-describe('TEMU — the master formula row', () => {
-  // Order PO-210-07053322437751959. Formulas: SP-BP=H-G · MarTax=I*16.67%
-  //   Com=H*4.61% · P.VAT=M*20% · TotalVAT=N · GP=I-J-K-M-N-O · GP%=Q/G*100
-  // Commission VAT is quoted from the sheet: its cell reads `=K2+20%`, which
-  // in Excel is K+0.2, not K×20%. That is a typo in the master, but it is
-  // display-only here — Temu VAT-invoices commission VAT back to the seller
-  // as reclaimable input tax, so it is excluded from both Total VAT and GP.
-  it('reproduces every derived cell', () => {
+describe('TEMU — master rows reproduce cell for cell', () => {
+  // Three real rows off the client's 14-Aug-2026 report (TEMU rows 3 / 45 /
+  // 100), with HIS computed values. Formulas: SP-BP=H-G · MarTax=I*16.67% ·
+  //   Com=H*3.96% · CVAT=K*20% · Com+VAT=K+L · P.VAT=N*20% · TotalVAT=O ·
+  //   GP=I-J-K-N-O-P · GP%=R/G*100 · NTP=J-O
+  // Commission is a formula now, so no commissionOverride is supplied: these
+  // rows prove the 3.96% rate reaches the same figure his sheet prints.
+  const ROWS = [
+    { order: 'PO-210-10368282430070761', bp: 58, sp: 83.99, postage: 6.30,
+      spMinusBp: 25.99, marginalTax: 4.33, commission: 3.33, commissionVat: 0.67,
+      commissionPlusVat: 3.99, postageVat: 1.26, totalVat: 1.26,
+      grossProfit: 9.77, gpPercent: 16.85, totalVatNtp: 3.07 },
+    { order: 'PO-210-13002538537591315', bp: 120, sp: 152.67, postage: 6.30,
+      spMinusBp: 32.67, marginalTax: 5.45, commission: 6.05, commissionVat: 1.21,
+      commissionPlusVat: 7.25, postageVat: 1.26, totalVat: 1.26,
+      grossProfit: 12.62, gpPercent: 10.52, totalVatNtp: 4.19 },
+    { order: 'PO-210-02779715410551830', bp: 30, sp: 52.49, postage: 6.30,
+      spMinusBp: 22.49, marginalTax: 3.75, commission: 2.08, commissionVat: 0.42,
+      commissionPlusVat: 2.49, postageVat: 1.26, totalVat: 1.26,
+      grossProfit: 8.10, gpPercent: 27.01, totalVatNtp: 2.49 },
+  ];
+
+  it.each(ROWS)('row $order (BP £$bp · SP £$sp)', (row) => {
     const f = calcSaleFinancials({
-      marketplace: 'TEMU', buyPrice: 55, salePrice: 83.99,
-      postageOverride: 6.30, commissionOverride: 3.87,
+      marketplace: 'TEMU', buyPrice: row.bp, salePrice: row.sp,
+      postageOverride: row.postage,
     });
-    near(f.spMinusBp,   28.99, 'SP-BP');
-    near(f.marginalTax, 4.83,  'Marginal Tax');
-    near(f.commission,    3.87, 'Commission');
-    near(f.commissionVat, 0.77, 'Commission VAT — 3.87 × 20%, not the sheet\'s 4.07');
-    near(f.postageVat,  1.26,  'P. VAT');
-    near(f.totalVat,    1.26,  'Total VAT — P. VAT alone');
-    near(f.grossProfit, 11.73, 'GP — excludes Commission VAT');
-    near(f.gpPercent,   21.32, 'GP % — over BP');
-    near(f.totalVatNtp, 3.57,  'Total VAT NTP');
+    near(f.spMinusBp,         row.spMinusBp,         `${row.order}.SP-BP`);
+    near(f.marginalTax,       row.marginalTax,       `${row.order}.Marginal Tax`);
+    near(f.commission,        row.commission,        `${row.order}.Commission`);
+    near(f.commissionVat,     row.commissionVat,     `${row.order}.Commission VAT`);
+    near(f.commissionPlusVat, row.commissionPlusVat, `${row.order}.Commission+VAT`);
+    near(f.postageVat,        row.postageVat,        `${row.order}.P. VAT`);
+    near(f.totalVat,          row.totalVat,          `${row.order}.Total VAT`);
+    near(f.grossProfit,       row.grossProfit,       `${row.order}.GP`);
+    near(f.gpPercent,         row.gpPercent,         `${row.order}.GP %`);
+    near(f.totalVatNtp,       row.totalVatNtp,       `${row.order}.Total VAT NTP`);
   });
 
-  it('derives Commission at the master rate when no file supplies one', () => {
+  it('Commission+VAT sums the raw cells, not the displayed pennies', () => {
+    // `=K2+L2` adds full-precision cells. On row 3 that is 3.3260 + 0.6652
+    // = 3.9912 → 3.99, where adding the displayed 3.33 and 0.67 gives 4.00.
+    // A penny out on every Temu line, and it reads as an arithmetic error
+    // to anyone checking the column by hand.
     const f = calcSaleFinancials({
-      marketplace: 'TEMU', buyPrice: 55, salePrice: 83.99, postageOverride: 6.30,
+      marketplace: 'TEMU', buyPrice: 58, salePrice: 83.99, postageOverride: 6.30,
     });
-    // 83.99 × 4.61% = 3.8719 → the sheet's own 3.87.
-    near(f.commission, 3.87, 'Commission derived = SP × 4.61%');
+    near(f.commissionPlusVat, 3.99, 'Commission+VAT');
+    expect(Math.round(((f.commission ?? 0) + (f.commissionVat ?? 0)) * 100) / 100)
+      .toBe(4.00);   // what the displayed pennies would give
+  });
+
+  it('Commission+VAT is display only — it is not subtracted twice in GP', () => {
+    // Subtracting it would charge the commission a second time.
+    const f = calcSaleFinancials({
+      marketplace: 'TEMU', buyPrice: 58, salePrice: 83.99, postageOverride: 6.30,
+    });
+    const withoutDoubleCount = 25.99 - 4.33 - 3.33 - 6.30 - 1.26 - 1;
+    near(f.grossProfit, Math.round(withoutDoubleCount * 100) / 100, 'GP');
   });
 });
 
@@ -298,9 +351,12 @@ describe('the master constants themselves', () => {
     ['BM Customer Care Fees is £8.99',
       { marketplace: 'BM', buyPrice: 100, salePrice: 200 },
       f => near(f.customerCareFees, 8.99, 'BM Customer Care Fees')],
-    ['TEMU commission falls back to 4.61% of SP',
+    ['TEMU commission is 3.96% of SP',
       { marketplace: 'TEMU', buyPrice: 100, salePrice: 200 },
-      f => near(f.commission, 9.22, 'TEMU Commission')],
+      f => near(f.commission, 7.92, 'TEMU Commission')],
+    ['BM PSF is 1% of SP',
+      { marketplace: 'BM', buyPrice: 100, salePrice: 200 },
+      f => near(f.psf, 2.00, 'BM PSF')],
     ['eBay charges no postage VAT by default',
       { marketplace: 'EBAY', buyPrice: 100, salePrice: 200, postageOverride: 4.65 },
       f => near(f.postageVat, 0, 'EBAY P. VAT')],

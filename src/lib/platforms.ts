@@ -92,7 +92,18 @@ export const DEFAULT_MARKETPLACE_FEES: Record<Marketplace, MarketplaceFee> = {
     // 2026-08: £8.99, not the £9.99 carried since 2026-05. The operator's
     // master (SALES_TEMPLATE_UPLOAD_30TH_JULY.xlsx, BM SALES) charges 8.99
     // on every row; 9.99 made our GP exactly £1 light on every BM line.
+    //
+    // Still 8.99 as of the 14-Aug-2026 report. That file carries 3.99 on its
+    // first 95 rows and 8.99 on the remaining 237 — rows are date-ascending,
+    // so 3.99 is the OLD rate and 8.99 the current one. Reading row 2 alone
+    // would have said 3.99 and cost £5 of GP on every BM sale.
     customerCareFees: 8.99,
+    // 2026-08-14, new on the client's report: PSF, Payment Seller Fee. Its
+    // column is `=I2*1%` on every row, and I is SP — so the base is the sale
+    // price alone, not SP + postage. Deducted from GP (his GP formula
+    // subtracts the PSF cell) and absent from Total VAT NTP: it is a charge,
+    // not a VAT line.
+    psfPct: 1,
   },
   EBAY: {
     marketplace: 'EBAY',
@@ -135,12 +146,15 @@ export const DEFAULT_MARKETPLACE_FEES: Record<Marketplace, MarketplaceFee> = {
     // sheet's own value always wins (see calcSaleFinancials' TEMU branch).
     // No dsfPct — Temu's export has no DSF / DSF VAT columns at all.
     //
-    // 2026-08: the fallback is 4.61%, not the 7% guessed before the master
-    // arrived. The operator's Temu master carries a real formula in the
-    // Commission cell — `=H2*4.61%` — so a Temu sale entered in the app
-    // (no file to read from) now derives the same figure their sheet does.
-    // 7% overstated Temu commission by half as much again.
-    commissionPct: 4.61,
+    // 2026-08-14: 3.96%. The client's current report computes every Temu
+    // Commission cell as `=H2*3.96%`; the one surviving `=H2*4.61%` is on
+    // row 1001, past the end of the 131 real rows. 4.61% came from the
+    // July master and 7% was a guess before that.
+    //
+    // No longer a fallback — the report now emits the formula rather than a
+    // literal, exactly as the client's sheet does, so this rate IS the Temu
+    // commission everywhere. See excelFormulaFor's TEMU case.
+    commissionPct: 3.96,
     commissionBase: 'sp',
     postage: 0,
     marginTaxDivisor: 6,
@@ -289,6 +303,14 @@ export interface SaleFinancials {
   marketingVat?: number;      // eBay: marketing * vatPct
   // BM-only: flat customer-care charge per sale.
   customerCareFees?: number;  // BM: flat £8.99 (see DEFAULT_MARKETPLACE_FEES)
+  /** BM-only: Payment Seller Fee, SP × 1%. A cost, not a tax — it comes out
+   *  of GP and stays out of Total VAT NTP, which on BM is Marginal Tax − P.
+   *  VAT and nothing else. */
+  psf?: number;
+  /** Temu-only: Commission + Commission VAT. The client's report carries the
+   *  sum as its own column; it is not an extra charge, just the two beside
+   *  it added up. */
+  commissionPlusVat?: number;
   postage: number;
   grossProfit: number;
   gpPercent: number;
@@ -455,9 +477,11 @@ export function calcSaleFinancials(input: CalcSaleFinancialsInput): SaleFinancia
       // TotalVAT=1.26 GP=11.73 GP%=21.32 TotalVATNTP=3.57):
       //   spMinusBp     = SP − BP
       //   marginalTax   = spMinusBp × 16.67%
-      //   commission    = the sheet's own Commission cell; falls back to
-      //                   SP × commissionPct (4.61%) only when the file
-      //                   doesn't carry the column
+      //   commission    = SP × commissionPct (3.96%, 2026-08-14). The
+      //                   client's report applies one rate to every row —
+      //                   `=H2*3.96%` — so this is the rate, not a fallback.
+      //                   commissionOverride is still honoured for a sale
+      //                   that carries an explicit figure of its own.
       //   commissionVat = commission × vatPct — DERIVED, never read from
       //                   the sheet. The master's Commission VAT cell reads
       //                   `=K2+20%`, which Excel evaluates as K + 0.2, not
@@ -500,6 +524,13 @@ export function calcSaleFinancials(input: CalcSaleFinancialsInput): SaleFinancia
         marginalTax:   r2(marginalTaxRaw),
         commission:    r2(commissionRaw),
         commissionVat: r2(commissionVatRaw),
+        // Summed RAW, then rounded — `=K2+L2` adds the cells' full-precision
+        // values, not the two pennies displayed in them. On the client's own
+        // row 3 that is 3.3260 + 0.6652 = 3.9912 → 3.99, where adding the
+        // displayed 3.33 and 0.67 would give 4.00. A penny out on every Temu
+        // line, and it would have looked like an arithmetic error to anyone
+        // checking the column by hand.
+        commissionPlusVat: r2(commissionRaw + commissionVatRaw),
         postageVat:    r2(postageVatRaw),
         accessoryFee:  r2(accessoryFeeVal),
         totalVat:      r2(totalVatRaw),
@@ -549,9 +580,17 @@ export function calcSaleFinancials(input: CalcSaleFinancialsInput): SaleFinancia
 
       const marginalTaxRaw      = spMinusBp * 16.67 / 100;
       const commissionRaw       = sp * fee.commissionPct / 100;
+      // PSF — Payment Seller Fee, 2026-08-14. SP × 1%, taken off GP. Note it
+      // is charged on an accessory line too: it is the payment processor's
+      // cut of the money taken, and money was taken either way. That is
+      // unlike accessoryFee, which is a box and charger that a bare charger
+      // does not come with.
+      const psfRaw              = sp * (fee.psfPct ?? 0) / 100;
       const postageVatRaw       = input.postageVatExempt ? 0 : (postage * vatPctFrac);
       const grossProfitRaw      = spMinusBp - marginalTaxRaw - commissionRaw - customerCareFeesVal
-        - postage - postageVatRaw - accessoryFeeVal;
+        - psfRaw - postage - postageVatRaw - accessoryFeeVal;
+      // PSF stays out: BM's only VAT line is P. VAT, and a payment fee is a
+      // cost rather than a tax.
       const totalVatNtpRaw      = marginalTaxRaw - postageVatRaw;
       const gpPercentRaw        = bp > 0 ? grossProfitRaw / bp * 100 : 0;
 
@@ -560,6 +599,7 @@ export function calcSaleFinancials(input: CalcSaleFinancialsInput): SaleFinancia
         marginalTax:      r2(marginalTaxRaw),
         commission:       r2(commissionRaw),
         customerCareFees: r2(customerCareFeesVal),
+        psf:              r2(psfRaw),
         postage,
         postageVat:       r2(postageVatRaw),
         accessoryFee:     r2(accessoryFeeVal),
@@ -819,7 +859,7 @@ export function excelFormulaFor(marketplace: Marketplace, row: number): Record<s
         postageVat:    `${C('Postage')}${r}*${vatPct}%`,
         accessoryFee:  `${fee.accessoryFee ?? 0}`,
         totalVat:      `${C('C. VAT')}${r}+${C('DSF. VAT')}${r}+${C('P. VAT')}${r}`,
-        grossProfit:   `${C('SP-BP')}${r}-${C('Marginal Tax')}${r}-${C('Commission')}${r}-${C('C. VAT')}${r}-${C('DSF')}${r}-${C('DSF. VAT')}${r}-${C('Postage')}${r}-${C('P. VAT')}${r}-${C('Accessories')}${r}`,
+        grossProfit:   `${C('SP-BP')}${r}-${C('Marginal Tax')}${r}-${C('Commission')}${r}-${C('C. VAT')}${r}-${C('DSF')}${r}-${C('DSF. VAT')}${r}-${C('Postage')}${r}-${C('P. VAT')}${r}-${C('Acc')}${r}`,
         gpPercent:     `(${C('GP')}${r}-${C('Postage Loss')}${r})/${C('BP')}${r}*100`,
         totalVatNtp:   `${C('Marginal Tax')}${r}-${C('Total VAT')}${r}`,
       };
@@ -847,15 +887,27 @@ export function excelFormulaFor(marketplace: Marketplace, row: number): Record<s
       return {
         spMinusBp:    `${C('SP')}${r}-${C('BP')}${r}`,
         marginalTax:  `${C('SP-BP')}${r}*16.67%`,
-        // Commission (K) has no formula — Temu's per-order referral rate
-        // varies by category, so the writer sets it from the sale. Commission
-        // VAT (L) IS a formula: it is 20% of K, and the master's own
-        // `=K2+20%` is a typo for `=K2*20%` that we do not reproduce.
+        // Commission IS a formula now — `=H2*3.96%` on every row of the
+        // 14-Aug-2026 report. It used to be a literal because Temu's rate
+        // was believed to vary by category and the export reported the real
+        // figure; his current sheet applies one rate to everything.
+        commission:    `${C('SP')}${r}*${fee.commissionPct}%`,
+        // 20% of Commission. His master writes `=K2+20%`, which Excel reads
+        // as K + 0.2 rather than K × 20% — a typo we do not carry forward.
         commissionVat: `${C('Commission')}${r}*${vatPct}%`,
+        // His column 13, the two above added up. Not an extra charge, and so
+        // deliberately absent from GP — subtracting it would double-count
+        // the commission.
+        commissionPlusVat: `${C('Commission')}${r}+${C('Commission VAT')}${r}`,
         postageVat:   `${C('Postage')}${r}*${vatPct}%`,
         accessoryFee: `${fee.accessoryFee ?? 0}`,
+        // P. VAT alone. His row 2 reads `=L2+O2` (Commission VAT + P. VAT)
+        // but rows 3-131 all read `=O2` — one edited row against 129 that
+        // were not, so this follows the sheet's own majority. Flagged to the
+        // operator rather than guessed at: it moves Total VAT NTP on every
+        // Temu line.
         totalVat:     `${C('P. VAT')}${r}`,
-        grossProfit:  `${C('SP-BP')}${r}-${C('Marginal Tax')}${r}-${C('Commission')}${r}-${C('Postage')}${r}-${C('P. VAT')}${r}-${C('Accessories')}${r}`,
+        grossProfit:  `${C('SP-BP')}${r}-${C('Marginal Tax')}${r}-${C('Commission')}${r}-${C('Postage')}${r}-${C('P. VAT')}${r}-${C('Acc')}${r}`,
         gpPercent:    `(${C('GP')}${r}-${C('Postage Loss')}${r})/${C('BP')}${r}*100`,
         totalVatNtp:  `${C('Marginal Tax')}${r}-${C('Total VAT')}${r}`,
       };
@@ -878,10 +930,16 @@ export function excelFormulaFor(marketplace: Marketplace, row: number): Record<s
         marginalTax:      `${C('SP-BP')}${r}*16.67%`,
         commission:       `${C('SP')}${r}/100*${fee.commissionPct}`,
         customerCareFees: `${fee.customerCareFees ?? 0}`,
+        // PSF — 2026-08-14. His cell is `=I2*1%`, I being SP.
+        psf:              `${C('SP')}${r}*${fee.psfPct ?? 0}%`,
         postageVat:       `${C('Postage')}${r}*${vatPct}%`,
         accessoryFee:     `${fee.accessoryFee ?? 0}`,
-        grossProfit:      `${C('SP-BP')}${r}-${C('Marginal Tax')}${r}-${C('Commission')}${r}-${C('Customer Care Fees')}${r}-${C('Postage')}${r}-${C('P. VAT')}${r}-${C('Accessories')}${r}`,
+        // PSF comes out of GP, matching his `=J2-K2-L2-M2-O2-P2-Q2-N2`
+        // (the trailing N2 is the PSF cell).
+        grossProfit:      `${C('SP-BP')}${r}-${C('Marginal Tax')}${r}-${C('Commission')}${r}-${C('Customer Care Fees')}${r}-${C('PSF')}${r}-${C('Postage')}${r}-${C('P. VAT')}${r}-${C('Acc')}${r}`,
         gpPercent:        `(${C('GP')}${r}-${C('Postage Loss')}${r})/${C('BP')}${r}*100`,
+        // PSF is deliberately absent: BM's only VAT line is P. VAT, and a
+        // payment fee is a cost, not a tax.
         totalVatNtp:      `${C('Marginal Tax')}${r}-${C('P. VAT')}${r}`,
       };
     }
@@ -916,7 +974,7 @@ export function excelFormulaFor(marketplace: Marketplace, row: number): Record<s
         marketingVat: `${C('Marketing')}${r}*${vatPct}%`,
         accessoryFee: `${fee.accessoryFee ?? 0}`,
         totalVat:     `${C('VAT')}${r}+${C('P. VAT')}${r}+${C('M. VAT')}${r}`,
-        grossProfit:  `${C('SP-BP')}${r}-${C('Marginal Tax')}${r}-${C('T.COM')}${r}-${C('Postage')}${r}-${C('P. VAT')}${r}-${C('Marketing')}${r}-${C('M. VAT')}${r}-${C('Accessories')}${r}`,
+        grossProfit:  `${C('SP-BP')}${r}-${C('Marginal Tax')}${r}-${C('T.COM')}${r}-${C('Postage')}${r}-${C('P. VAT')}${r}-${C('Marketing')}${r}-${C('M. VAT')}${r}-${C('Acc')}${r}`,
         gpPercent:    `(${C('GP')}${r}-${C('Postage Loss')}${r})/${C('BP')}${r}*100`,
         totalVatNtp:  `${C('Marginal Tax')}${r}-${C('Total VAT')}${r}`,
       };
@@ -939,7 +997,7 @@ export function excelFormulaFor(marketplace: Marketplace, row: number): Record<s
         postageVat:   `${C('Postage')}${r}*${vatPct}%`,
         accessoryFee: `${fee.accessoryFee ?? 0}`,
         totalVat:     `${C('VAT 20%')}${r}+${C('P. VAT')}${r}`,
-        grossProfit:  `${C('SP-BP')}${r}-${C('Marginal Tax')}${r}-${C('Commission')}${r}-${C('VAT 20%')}${r}-${C('Postage')}${r}-${C('P. VAT')}${r}-${C('Accessories')}${r}`,
+        grossProfit:  `${C('SP-BP')}${r}-${C('Marginal Tax')}${r}-${C('Commission')}${r}-${C('VAT 20%')}${r}-${C('Postage')}${r}-${C('P. VAT')}${r}-${C('Acc')}${r}`,
         gpPercent:    `(${C('GP')}${r}-${C('Postage Loss')}${r})/${C('BP')}${r}*100`,
         totalVatNtp:  `${C('Marginal Tax')}${r}-${C('Total VAT')}${r}`,
       };
@@ -1014,18 +1072,41 @@ export const SALES_HEADERS: Record<Marketplace, SalesHeaderRow> = {
   //
   // The importer resolves columns by header name too, so files exported
   // under the previous order still import unchanged.
+  //
+  // 2026-08-14: reconciled column-for-column against the client's own live
+  // report (14TH_AUGUST_SALES_REPORT_2026.xlsx). His order is the order
+  // below; what we add sits inside it rather than rearranging it:
+  //
+  //   - Model / Colour / Storage follow IMEI. His file has none of the three
+  //     — the handset is identified by SKU and IMEI alone — so they go with
+  //     the rest of the identity block, ahead of Supplier, leaving his
+  //     Date → Order Number → SKU → IMEI → Supplier → Quantity → BP → SP
+  //     sequence intact around them.
+  //   - The return block (Postage Loss → Return Reason) and Comments follow
+  //     Total VAT NTP, where his sheets put their "RETURN" banner and, on
+  //     BM, Comments.
+  //
+  // "Acc", not "Accessories": his header on all five tabs. Nothing reads a
+  // report back in any more — both importers were deleted in 2026-08 — so
+  // the header string is now the client's to choose.
   AMAZON: [
     'Date', 'Order Number', 'SKU', 'IMEI', 'Model', 'Colour',
     'Storage', 'Supplier', 'Quantity', 'BP', 'SP', 'SP-BP',
     'Marginal Tax', 'Commission', 'C. VAT', 'DSF', 'DSF. VAT', 'Postage',
-    'P. VAT', 'Accessories', 'Total VAT', 'GP', 'GP %', 'Total VAT NTP',
+    'P. VAT', 'Acc', 'Total VAT', 'GP', 'GP %', 'Total VAT NTP',
     'Postage Loss', 'Net GP £', 'Return Date', 'Outcome', 'Shipping Legs', 'Return Reason',
     'Comments',
   ],
+  // Payment Mode is his column 7, between Quantity and BP. The app has
+  // collected it on every BM sale since the sell modal shipped and never
+  // written it out; his sheet has been carrying "Google Pay" / "Klarna" all
+  // along.
+  //
+  // PSF sits between Customer Care Fees and Postage, where he put it.
   BM: [
     'Date', 'Order Number', 'SKU', 'IMEI', 'Model', 'Colour',
-    'Storage', 'Supplier', 'Quantity', 'BP', 'SP', 'SP-BP',
-    'Marginal Tax', 'Commission', 'Customer Care Fees', 'Postage', 'P. VAT', 'Accessories',
+    'Storage', 'Supplier', 'Quantity', 'Payment Mode', 'BP', 'SP', 'SP-BP',
+    'Marginal Tax', 'Commission', 'Customer Care Fees', 'PSF', 'Postage', 'P. VAT', 'Acc',
     'GP', 'GP %', 'Total VAT NTP', 'Postage Loss', 'Net GP £', 'Return Date',
     'Outcome', 'Shipping Legs', 'Return Reason', 'Comments',
   ],
@@ -1033,21 +1114,22 @@ export const SALES_HEADERS: Record<Marketplace, SalesHeaderRow> = {
     'Date', 'Order Number', 'SKU', 'IMEI', 'Model', 'Colour',
     'Storage', 'Supplier', 'Units', 'BP', 'SP', 'SP-BP',
     'Marginal Tax', 'Commission', 'ROF', 'FVF', 'VAT', 'T.COM',
-    'Postage', 'P. VAT', 'Marketing', 'M. VAT', 'Accessories', 'Total VAT',
+    'Postage', 'P. VAT', 'Marketing', 'M. VAT', 'Acc', 'Total VAT',
     'GP', 'GP %', 'Total VAT NTP', 'Postage Loss', 'Net GP £', 'Return Date',
     'Outcome', 'Shipping Legs', 'Return Reason', 'Comments',
   ],
   ONBUY: [
     'Date', 'Order Number', 'SKU', 'IMEI', 'Model', 'Colour',
     'Storage', 'Supplier', 'BP', 'SP', 'SP-BP', 'Marginal Tax',
-    'Commission', 'VAT 20%', 'Postage', 'P. VAT', 'Accessories', 'Total VAT',
+    'Commission', 'VAT 20%', 'Postage', 'P. VAT', 'Acc', 'Total VAT',
     'GP', 'GP %', 'Total VAT NTP', 'Postage Loss', 'Net GP £', 'Return Date',
     'Outcome', 'Shipping Legs', 'Return Reason', 'Comments',
   ],
+  // Commission+VAT follows Commission VAT — his column 13, `=K2+L2`.
   TEMU: [
     'Date', 'Order Number', 'SKU', 'IMEI', 'Model', 'Colour',
     'Storage', 'Supplier', 'Quantity', 'BP', 'SP', 'SP-BP',
-    'Marginal Tax', 'Commission', 'Commission VAT', 'Postage', 'P. VAT', 'Accessories',
+    'Marginal Tax', 'Commission', 'Commission VAT', 'Commission+VAT', 'Postage', 'P. VAT', 'Acc',
     'Total VAT', 'GP', 'GP %', 'Total VAT NTP', 'Postage Loss', 'Net GP £',
     'Return Date', 'Outcome', 'Shipping Legs', 'Return Reason', 'Comments',
   ],
