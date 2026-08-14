@@ -615,6 +615,21 @@ export default function BulkSaleModal({
                   {waiting.map(sale => {
                     const candidates = candidateUnitsFor(sale.model || '', allUnits);
                     const chosen = imeiChoice[sale.id] ?? '';
+                    /**
+                     * The handset team 2 has just chosen, if they have.
+                     *
+                     * Everything the row could not know at stage 1 hangs off
+                     * this: Stock In, Supplier and the real BP. Team 2 is
+                     * deciding WHICH unit ships, and the two facts that
+                     * decide it — how long this one has been sitting and what
+                     * it cost — were shown as "—" and a provisional figure
+                     * until the moment the choice was already made.
+                     */
+                    const picked = candidates.find(u => u.id === chosen);
+                    const pickedSupplier = picked
+                      ? (picked.supplierName
+                         || (picked.supplierId ? supplierMap[picked.supplierId] : '') || '—')
+                      : '';
                     return (
                       <tr key={sale.id} className="border-b border-amber-100 bg-amber-50/50">
                         <td className="px-2 py-1 text-[10px] font-mono text-amber-600">•</td>
@@ -629,8 +644,7 @@ export default function BulkSaleModal({
                             arrival date, which is the point of showing it:
                             how long has THIS handset been on the shelf. */}
                         <td className="px-2 py-1 text-[10px] font-mono text-slate-500 tabular-nums">
-                          {day(candidates.find(u => u.id === chosen)?.dateIn)
-                            || <span className="text-amber-300">—</span>}
+                          {day(picked?.dateIn) || <span className="text-amber-300">—</span>}
                         </td>
                         <td className="px-1 py-1 text-[10px] font-mono text-amber-700 uppercase">Updated</td>
                         <td className="px-1 py-1 text-[11px] font-semibold text-slate-900 truncate">
@@ -652,11 +666,29 @@ export default function BulkSaleModal({
                             ))}
                           </select>
                         </td>
-                        <td className="px-1 py-1 text-[10px] font-mono text-slate-500 truncate">—</td>
+                        {/* Supplier — unknowable at stage 1 (no handset), and
+                            the chosen one's the moment there is one. */}
+                        <td className="px-1 py-1 text-[10px] font-mono text-slate-600 truncate">
+                          {pickedSupplier || <span className="text-amber-300">—</span>}
+                        </td>
                         <td className="px-1 py-1 text-[10px] font-mono text-slate-700 truncate">{sale.orderNumber}</td>
-                        {tab === 'BM' && <td className="px-1 py-1" />}
-                        <td className="px-1 py-1 text-right text-[10px] font-mono text-slate-500">
-                          {money(Number(sale.buyPrice))}*
+                        {tab === 'BM' && (
+                          <td className="px-1 py-1 text-[10px] font-mono text-slate-600 truncate">
+                            {sale.paymentMode ?? ''}
+                          </td>
+                        )}
+                        {/* BP — the provisional stand-in (cheapest available
+                            unit of the model) until a handset is chosen, then
+                            that handset's real cost. The asterisk goes with
+                            it: once the unit is picked the figure is no
+                            longer an estimate, and leaving the mark on would
+                            say the sale is still provisional when it is about
+                            to be committed at exactly this number. */}
+                        <td className={`px-1 py-1 text-right text-[10px] font-mono tabular-nums
+                                        ${picked ? 'text-slate-900' : 'text-slate-500'}`}>
+                          {picked
+                            ? money(Number(picked.buyPrice ?? 0))
+                            : `${money(Number(sale.buyPrice))}*`}
                         </td>
                         <td className="px-1 py-1 text-right text-[10px] font-mono text-slate-900">
                           {money(Number(sale.salePrice))}

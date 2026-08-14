@@ -240,6 +240,11 @@ export async function recordSale(input: RecordSaleInput): Promise<RecordSaleResu
     dsf: fin.dsf,
     dsfVat: fin.dsfVat,
     customerCareFees: fin.customerCareFees,
+    // BM Payment Seller Fee. Stored alongside the other fee lines so a
+    // sale row explains its own GP — grossProfit below already has it
+    // deducted, and a figure you cannot account for is worse than one
+    // you can argue with.
+    psf: fin.psf,
     accessoryFee: fin.accessoryFee,
     marketing: fin.marketing,
     marketingVat: fin.marketingVat,

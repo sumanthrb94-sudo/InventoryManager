@@ -311,6 +311,12 @@ export async function linkImeiToPendingSale(input: {
       unitId: unit.id,
       supplierId: unit.supplierId ?? null,
       supplierName: unit.supplierName ?? null,
+      // What actually shipped. Team 1 recorded a model; team 2 chose the
+      // handset, and only now is there a colour — and a storage and model
+      // straight off the unit rather than off the picker's label.
+      model: unit.model || sale.model || null,
+      storage: unit.storage || sale.storage || null,
+      colour: unit.colour ?? null,
       buyPrice: bp,
       spMinusBp: fin.spMinusBp,
       marginalTax: fin.marginalTax,
@@ -326,6 +332,7 @@ export async function linkImeiToPendingSale(input: {
       dsf: fin.dsf,
       dsfVat: fin.dsfVat,
       customerCareFees: fin.customerCareFees,
+      psf: fin.psf,
       accessoryFee: fin.accessoryFee,
       totalVat: fin.totalVat,
       totalVatNtp: fin.totalVatNtp,

@@ -326,6 +326,72 @@ describe('the sale date is the operator\'s, and it leads the row', () => {
     expect(cells, `got ${cells.join('|')}`).toContain('2026-06-01');
   });
 
+  /**
+   * Everything a waiting row could not know at stage 1 arrives together.
+   *
+   * Team 2's job is choosing WHICH handset ships, and the facts that decide
+   * it — who supplied it, how long it has been sitting, what it cost — were
+   * all shown as "—" or a provisional estimate until after the choice was
+   * already made. The Supplier cell in particular was a hardcoded dash.
+   */
+  it('fills Supplier and the real BP the moment a handset is chosen', () => {
+    const pending = {
+      id: 'p2', marketplace: 'AMAZON', orderNumber: 'AMZ-PEND2', sku: 'IP13-128-MID',
+      model: 'IPHONE 13', storage: '128GB', imei: '', awaitingImei: true,
+      // Stage 1 stands in the CHEAPEST available unit's price. o1 costs 200,
+      // so a provisional 180 is visibly not the real one.
+      provisionalBuyPrice: true, buyPrice: 180, salePrice: 320,
+      saleDate: '2026-08-01', ownerId: 'shared',
+    } as unknown as Sale;
+    render(
+      <BulkSaleModal
+        sales={[pending]} allUnits={[...OFFICE, ...SHS]}
+        units={OFFICE} shsUnits={SHS} accessoryStock={ACCESSORIES}
+        supplierMap={{}} onClose={() => {}}
+      />,
+    );
+
+    const before = within(screen.getAllByRole('row')[1]).getAllByRole('cell')
+      .map(c => c.textContent?.trim());
+    expect(before, 'no handset yet, so no supplier').not.toContain('MOBILE WHOLESALE LTD');
+    expect(before, 'BP is flagged provisional').toContain('180.00*');
+
+    fireEvent.change(
+      within(screen.getAllByRole('row')[1]).getByLabelText('IMEI for AMZ-PEND2'),
+      { target: { value: 'o1' } },
+    );
+
+    const after = within(screen.getAllByRole('row')[1]).getAllByRole('cell')
+      .map(c => c.textContent?.trim());
+    expect(after, `got ${after.join('|')}`).toContain('MOBILE WHOLESALE LTD');
+    // The real cost, and the asterisk gone with it: this is the figure the
+    // sale is about to be committed at, so calling it provisional would lie.
+    expect(after).toContain('200.00');
+    expect(after).not.toContain('180.00*');
+  });
+
+  it('shows the payment mode team 1 recorded', () => {
+    // BM only. It was an empty cell, which read as "nobody filled this in"
+    // rather than "Klarna, decided at stage 1".
+    const pending = {
+      id: 'p3', marketplace: 'BM', orderNumber: 'BM-PEND', sku: 'IP13-128-MID',
+      model: 'IPHONE 13', imei: '', awaitingImei: true, provisionalBuyPrice: true,
+      buyPrice: 200, salePrice: 320, saleDate: '2026-08-01',
+      paymentMode: 'Klarna', ownerId: 'shared',
+    } as unknown as Sale;
+    render(
+      <BulkSaleModal
+        sales={[pending]} allUnits={[...OFFICE, ...SHS]}
+        units={OFFICE} shsUnits={SHS} accessoryStock={ACCESSORIES}
+        supplierMap={{}} onClose={() => {}}
+      />,
+    );
+    fireEvent.click(tabFor('Back Market'));
+    const cells = within(screen.getAllByRole('row')[1]).getAllByRole('cell')
+      .map(c => c.textContent?.trim());
+    expect(cells, `got ${cells.join('|')}`).toContain('Klarna');
+  });
+
   it('carries the date onto the next row — a batch is one day\'s orders', () => {
     open();
     fireEvent.change(within(lastRow()).getByLabelText('Sale date'), { target: { value: '2026-07-30' } });
