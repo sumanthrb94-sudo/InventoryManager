@@ -303,9 +303,13 @@ export default function BulkSaleModal({
   // SKU column came out empty for every sale recorded here. Requiring it is
   // what stops that silently recurring — a row without one is simply not
   // counted as ready, exactly like a missing order number or price.
+  // The sale date is required for the same reason. It defaults to today, but a
+  // cleared cell must not quietly become today again: both services fall back
+  // to today() on a blank date, so a back-dated batch with one emptied cell
+  // would land one row in the wrong period with nothing to show for it.
   const isReady = (r: Row): boolean =>
     !!r.pick && !!r.orderNumber.trim() && !!r.salePrice && Number(r.salePrice) > 0
-    && !!r.sku.trim()
+    && !!r.sku.trim() && !!r.saleDate
     && (!needsImei(r) || !!r.imei.trim());
 
   /**
@@ -329,7 +333,20 @@ export default function BulkSaleModal({
     rows.filter(r => r.marketplace === m && isReady(r) && r.pick?.kind !== 'model').length
     + pendingSales(sales).filter(s => s.marketplace === m).length;
 
-  const addRow = () => setRows(rs => [...rs, blankRow(tab)]);
+  /**
+   * A new row for the current tab, dated like the one before it.
+   *
+   * Sales are entered in batches off a marketplace statement, and a batch is
+   * usually one day's orders — often not today's. Resetting the date cell to
+   * today on every new row would make the operator re-pick it every line, and
+   * a re-picked value is a value that eventually gets missed.
+   */
+  const nextRow = (rs: Row[], from?: Row): Row => {
+    const like = from ?? [...rs].reverse().find(r => r.marketplace === tab);
+    return { ...blankRow(tab), saleDate: like?.saleDate || today() };
+  };
+
+  const addRow = () => setRows(rs => [...rs, nextRow(rs)]);
 
   /** Switching tabs must land on something typeable. A marketplace nobody has
    *  entered a row for yet would otherwise show an empty sheet with no row and
@@ -339,11 +356,15 @@ export default function BulkSaleModal({
     setRows(rs => (rs.some(r => r.marketplace === m) ? rs : [...rs, blankRow(m)]));
   };
 
-  const dropRow = (key: string) => setRows(rs => {
-    const left = rs.filter(r => r.key !== key);
-    // Never leave the active tab with nothing to type into.
-    return left.some(r => r.marketplace === tab) ? left : [...left, blankRow(tab)];
-  });
+  /** Drop a row, never leaving the active tab with nothing to type into.
+   *  Shared by the bin, "Update Unit" and the Sold tick — three copies of this
+   *  is how the replacement row would end up dated differently in one of them. */
+  const withoutRow = (rs: Row[], gone: Row): Row[] => {
+    const left = rs.filter(r => r.key !== gone.key);
+    return left.some(r => r.marketplace === tab) ? left : [...left, nextRow(left, gone)];
+  };
+
+  const dropRow = (r: Row) => setRows(rs => withoutRow(rs, r));
 
   /**
    * STAGE 1, per unit. Records ONE model row and drops it from the entry grid;
@@ -377,10 +398,7 @@ export default function BulkSaleModal({
       setRowError(e => ({ ...e, [r.key]: res.message || 'Could not record it.' }));
       return;
     }
-    setRows(rs => {
-      const left = rs.filter(x => x.key !== r.key);
-      return left.some(x => x.marketplace === tab) ? left : [...left, blankRow(tab)];
-    });
+    setRows(rs => withoutRow(rs, r));
     onSaved?.();
   };
 
@@ -451,10 +469,7 @@ export default function BulkSaleModal({
       setRowError(e => ({ ...e, [r.key]: line?.message || line?.error || 'Could not record the sale.' }));
       return;
     }
-    setRows(rs => {
-      const left = rs.filter(x => x.key !== r.key);
-      return left.some(x => x.marketplace === tab) ? left : [...left, blankRow(tab)];
-    });
+    setRows(rs => withoutRow(rs, r));
     onSaved?.();
   };
 
@@ -560,10 +575,14 @@ export default function BulkSaleModal({
                   min-width squashed its SP and BP cells to a couple of
                   characters. The grid scrolls sideways instead. */}
               <table className="w-full border-collapse"
-                     style={{ minWidth: `${58 + cols.length * 5.5}rem` }}>
+                     style={{ minWidth: `${66 + cols.length * 5.5}rem` }}>
                 <thead className="sticky top-0 bg-slate-50 border-b border-slate-200 z-10">
                   <tr>
                     <TH w="w-8">#</TH>
+                    {/* Date leads, as it does on every tab of the report
+                        (column A). Sales are typed off a statement after the
+                        fact, so the day is the operator's to set. */}
+                    <TH w="w-32">Date</TH>
                     <TH w="w-28">Source</TH>
                     <TH w="w-64">Model</TH>
                     <TH w="w-40">SKU</TH>
@@ -589,6 +608,12 @@ export default function BulkSaleModal({
                     return (
                       <tr key={sale.id} className="border-b border-amber-100 bg-amber-50/50">
                         <td className="px-2 py-1 text-[10px] font-mono text-amber-600">•</td>
+                        {/* Shown, not typed: the date is the marketplace order's
+                            own, set by team 1. Stage 2 attaches a handset and
+                            carries this through unchanged. */}
+                        <td className="px-2 py-1 text-[10px] font-mono text-slate-600 tabular-nums">
+                          {(sale.saleDate || '').split('T')[0]}
+                        </td>
                         <td className="px-1 py-1 text-[10px] font-mono text-amber-700 uppercase">Updated</td>
                         <td className="px-1 py-1 text-[11px] font-semibold text-slate-900 truncate">
                           {sale.model}{sale.storage ? ` ${sale.storage}` : ''}
@@ -653,6 +678,18 @@ export default function BulkSaleModal({
                       <tr key={r.key as Key}
                           className={`border-b border-slate-100 ${isReady(r) ? 'bg-emerald-50/40' : ''}`}>
                         <td className="px-2 py-1 text-[10px] font-mono text-slate-400">{i + 1}</td>
+
+                        {/* Sale date — defaults to today, carried onto the next
+                            row, and mandatory: see isReady. */}
+                        <td className="px-1 py-1">
+                          <input
+                            type="date"
+                            className={`${input} font-mono ${r.saleDate ? '' : 'border-amber-300'}`}
+                            aria-label="Sale date"
+                            value={r.saleDate}
+                            onChange={e => patch(r.key, { saleDate: e.target.value })}
+                          />
+                        </td>
 
                         {/* Say what you are selling before looking for it. */}
                         <td className="px-1 py-1">
@@ -855,7 +892,7 @@ export default function BulkSaleModal({
                                 {rowBusy === r.key ? 'Saving…' : 'Sold'}
                               </button>
                             )}
-                            <button onClick={() => dropRow(r.key)} aria-label="Remove row"
+                            <button onClick={() => dropRow(r)} aria-label="Remove row"
                                     className="p-1 text-slate-300 hover:text-rose-600">
                               <Trash2 size={12} />
                             </button>

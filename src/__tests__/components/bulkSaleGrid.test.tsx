@@ -220,6 +220,63 @@ describe('selling one row at a time', () => {
   });
 });
 
+describe('the sale date is the operator\'s, and it leads the row', () => {
+  const todayIso = () => new Date().toISOString().split('T')[0];
+
+  it('is the first column after the row number, as it is column A of every tab', () => {
+    open();
+    const headers = screen.getAllByRole('columnheader').map(h => h.textContent?.trim());
+    expect(headers[0]).toBe('#');
+    expect(headers[1]).toBe('Date');
+    // Before the identity columns it shares a sheet with.
+    expect(headers.indexOf('Date')).toBeLessThan(headers.indexOf('Order Number'));
+  });
+
+  it('starts on today, so the common case needs no typing', () => {
+    open();
+    expect((within(lastRow()).getByLabelText('Sale date') as HTMLInputElement).value)
+      .toBe(todayIso());
+  });
+
+  it('a back-dated row sells on the date typed, not on today', async () => {
+    const { recordBulkSales } = await import('../../services/salesService');
+    (recordBulkSales as any).mockClear();
+    open();
+    pick('Office', 'IPHONE 13');
+    fireEvent.change(within(lastRow()).getByLabelText('Sale date'), { target: { value: '2026-07-30' } });
+    fireEvent.change(within(lastRow()).getByLabelText('SKU'), { target: { value: 'IP13-128-MID' } });
+    fireEvent.change(within(lastRow()).getByLabelText('Order number'), { target: { value: 'AMZ-BACK' } });
+    fireEvent.change(within(lastRow()).getByLabelText('Sale price'), { target: { value: '320' } });
+
+    fireEvent.click(within(lastRow()).getByRole('button', { name: /Mark sold/i }));
+    expect((recordBulkSales as any).mock.calls[0][0][0]).toMatchObject({
+      orderNumber: 'AMZ-BACK', saleDate: '2026-07-30',
+    });
+  });
+
+  it('an emptied date stops the row being ready rather than reverting to today', () => {
+    // Both services fall back to today() on a blank saleDate. Without this
+    // guard, clearing the cell in a back-dated batch would land that one row
+    // in the wrong period silently — the row would still look ready.
+    open();
+    const row = pick('Office', 'IPHONE 13');
+    fireEvent.change(within(row).getByLabelText('Order number'), { target: { value: 'AMZ-1' } });
+    fireEvent.change(within(row).getByLabelText('Sale price'), { target: { value: '300' } });
+    expect(screen.getByRole('button', { name: /Confirm 1 Sale/i })).toBeTruthy();
+
+    fireEvent.change(within(lastRow()).getByLabelText('Sale date'), { target: { value: '' } });
+    expect(screen.getByRole('button', { name: /Confirm 0 Sales/i })).toBeTruthy();
+  });
+
+  it('carries the date onto the next row — a batch is one day\'s orders', () => {
+    open();
+    fireEvent.change(within(lastRow()).getByLabelText('Sale date'), { target: { value: '2026-07-30' } });
+    fireEvent.click(screen.getByRole('button', { name: /Add row/i }));
+    expect((within(lastRow()).getByLabelText('Sale date') as HTMLInputElement).value)
+      .toBe('2026-07-30');
+  });
+});
+
 describe('choosing a source, then searching it', () => {
   it('searches office stock, SHS and accessory pools separately', () => {
     open();
