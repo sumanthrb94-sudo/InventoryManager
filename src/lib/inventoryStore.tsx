@@ -109,7 +109,19 @@ export function deriveSaleFields(item: any): any {
   return {
     ...item,
     model: cleanModel,
-    sku: expectedSku || item.sku,
+    // The STORED sku wins, for the same reason it does on a unit — the fix
+    // above was applied there in 2026-08 and this line was missed.
+    //
+    // The SKU column is what the operator reconciles against a marketplace
+    // statement, and this overwrote it with a synthesised brand + model +
+    // storage string at read time. Typing "IP13-128-MID" into Mark Multiple
+    // Sold put "Apple iPhone 13 128GB" in the Sales Report; a real operator
+    // SKU came back mangled — "ASI-SG-S20FE-5G-DS-128-CN-EX2" became
+    // "Samsung ASI-SG-S20 Fe- -DS-128-CN-EX2". Neither matches anything on
+    // the statement being reconciled.
+    //
+    // Synthesise only to fill a genuine blank.
+    sku: item.sku || expectedSku,
   };
 }
 

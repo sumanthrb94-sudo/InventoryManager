@@ -194,6 +194,17 @@ export async function recordSale(input: RecordSaleInput): Promise<RecordSaleResu
     sku,
     imei: unit.imei,
     unitId: unit.id,
+    // What was sold, snapshotted off the unit. Without these the Sales
+    // Report's Model column had nothing to read and fell back to GUESSING
+    // from the SKU — so a sale of an IPHONE 13 typed with SKU "BM-DEMO-1"
+    // came out as model "DEMO-1". The unit is right here and it knows.
+    //
+    // Snapshotted rather than looked up because a sale is a record of what
+    // happened: the unit can be edited, re-graded or renamed afterwards and
+    // the sale row must still say what left the shelf that day.
+    model: unit.model || undefined,
+    storage: unit.storage || undefined,
+    colour: unit.colour || undefined,
     supplierId: unit.supplierId,
     supplierName: unit.supplierName,
     saleDate,
