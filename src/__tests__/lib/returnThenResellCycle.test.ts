@@ -136,6 +136,37 @@ describe('the marketplace report counts BOTH the loss and the later profit', () 
     expect(Number(t.raw(r, 'Net GP £'))).toBeCloseTo(26 - 15.12, 2);
   });
 
+  it('the re-sale on another channel is calculated by THAT channel\'s rules', async () => {
+    // The operator's model: each order number is a closed book. The Amazon
+    // order ended at a loss and is finished. The eBay order is a new sale,
+    // priced and charged by eBay's own schedule, with nothing carried over.
+    //
+    // Structurally this follows from every formula resolving through the
+    // sale's own marketplace, but it is the assumption the whole loop rests
+    // on, so it is asserted rather than reasoned about.
+    const resoldOnEbay = { ...RESOLD, id: 's-3', marketplace: 'EBAY',
+                           orderNumber: 'EB-1' } as Sale;
+
+    const ebay = await sheet('EBAY', [REFUNDED, resoldOnEbay]);
+    const r = ebay.rowWhere('Order Number', 'EB-1');
+    // eBay's own fee lines, which Amazon does not have at all.
+    expect(ebay.raw(r, 'ROF'), 'eBay charges a ROF').toBeTruthy();
+    expect(ebay.raw(r, 'FVF')).toBeTruthy();
+    expect(ebay.raw(r, 'T.COM')).toBeTruthy();
+    // And no trace of the Amazon cycle.
+    expect(ebay.raw(r, 'Postage Loss') ?? 0).toBeFalsy();
+    expect(ebay.raw(r, 'Outcome') ?? '').toBeFalsy();
+    expect(ebay.raw(r, 'Return Reason') ?? '').toBeFalsy();
+
+    // The Amazon tab keeps the loss row and nothing else — the re-sale is
+    // not on it, because it was not an Amazon sale.
+    const amazon = await sheet('AMAZON', [REFUNDED, resoldOnEbay]);
+    expect(() => amazon.rowWhere('Order Number', 'EB-1'))
+      .toThrow(/no row where/);
+    expect(Number(amazon.raw(amazon.rowWhere('Order Number', '204-7639131-4661133'),
+      'Postage Loss'))).toBeCloseTo(15.12, 2);
+  });
+
   it('and splits them when the two cycles sold on different channels', async () => {
     // A handset returned on Amazon and re-sold on eBay: the loss belongs to
     // Amazon, the profit to eBay. Netting them into one channel would flatter
