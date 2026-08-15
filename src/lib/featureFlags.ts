@@ -36,4 +36,19 @@
  * parses them to check the columns, the formulas and the download menu's own
  * "N columns" hints against the real files.
  */
-export const SHOW_TEMPLATE_DOWNLOADS = true;
+/**
+ * OFF as of 2026-08-15, at the operator's request: "remove this from ui".
+ *
+ * The block it hides is the "Build a new file from …" list under the Sales
+ * Report menu — the six sales templates. TemplateDownload short-circuits on
+ * this flag before rendering anything, so the whole surface goes with it.
+ *
+ * The FILES stay, and so does everything that reads them. templates/ and
+ * public/templates/ are the written column contract, and
+ * salesTemplateFormulas.test.ts parses them to check the columns and the live
+ * formulas against the report writer itself. Deleting them would remove a
+ * genuine test of the schema to hide a menu.
+ *
+ * Flip back to `true` to restore it; nothing else has to change.
+ */
+export const SHOW_TEMPLATE_DOWNLOADS = false;
