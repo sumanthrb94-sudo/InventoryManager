@@ -25,6 +25,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { render, screen, within, fireEvent } from '@testing-library/react';
 import BulkSaleModal from '../../components/BulkSaleModal';
 import { MARKETPLACE_COLUMNS } from '../../lib/bulkSaleColumns';
+import { SALES_HEADERS } from '../../lib/platforms';
 import type { InventoryUnit, AccessoryStock, Marketplace, Sale } from '../../types';
 
 vi.mock('../../services/salesService', () => ({
@@ -119,6 +120,35 @@ describe('one tab per marketplace, each showing that sheet\'s own columns', () =
     // The leading identity columns are the same on every tab; everything from
     // SP-BP onward is this marketplace's own.
     expect(headers.slice(headers.indexOf('SP-BP'), -1)).toEqual(expected);
+  });
+
+  it.each([
+    ['Amazon', 'AMAZON'], ['Back Market', 'BM'], ['eBay', 'EBAY'],
+    ['OnBuy', 'ONBUY'], ['Temu', 'TEMU'],
+  ])('%s reads left to right in the report\'s own column order', (label, key) => {
+    // The operator types across this grid with the marketplace's statement
+    // open beside them, and then reads the exported sheet back the same way.
+    // When the two disagree they lose their place — which is exactly what
+    // happened: Order Number sat ninth here and second on the sheet, Model
+    // came before SKU instead of after IMEI, and Quantity and Supplier were
+    // swapped. Nobody noticed until the client put the two screens together.
+    //
+    // So: every grid column that the report also has must appear in the
+    // report's relative order. The grid's own three (#, Source, Stock In)
+    // and Action have no counterpart on the sheet and are ignored here —
+    // where they sit is a layout choice, tested separately.
+    open();
+    fireEvent.click(tabFor(label));
+    const headers = screen.getAllByRole('columnheader').map(h => h.textContent?.trim() ?? '');
+    const report = SALES_HEADERS[key as Marketplace] as readonly string[];
+
+    const shared = headers.filter(h => report.includes(h));
+    expect(shared.length, 'the grid should share most of the sheet').toBeGreaterThan(8);
+    expect(shared).toEqual([...shared].sort(
+      (a, b) => report.indexOf(a) - report.indexOf(b),
+    ));
+    // And the sequence the client reads off his own workbook, intact.
+    expect(shared.slice(0, 4)).toEqual(['Date', 'Order Number', 'SKU', 'IMEI']);
   });
 
   it.each([
@@ -275,7 +305,12 @@ describe('the sale date is the operator\'s, and it leads the row', () => {
   it('shows the picked handset\'s Stock In date beside the sale date', () => {
     open();
     const headers = screen.getAllByRole('columnheader').map(h => h.textContent?.trim());
-    expect(headers[2]).toBe('Stock In');
+    // Not a fixed index — the grid follows the report's column order, so pinning
+    // Stock In to a position would break every time the report gains a column.
+    // What matters is that it is there, and that it sits next to the handset it
+    // describes rather than off at the end of the row.
+    expect(headers).toContain('Stock In');
+    expect(headers.indexOf('Stock In')).toBe(headers.indexOf('Model') + 1);
 
     const row = pick('Office', '350000000000002');
     const cells = within(row).getAllByRole('cell').map(c => c.textContent?.trim());
@@ -368,6 +403,52 @@ describe('the sale date is the operator\'s, and it leads the row', () => {
     // sale is about to be committed at, so calling it provisional would lie.
     expect(after).toContain('200.00');
     expect(after).not.toContain('180.00*');
+  });
+
+  it('lines a waiting row\'s cells up under their own headers', () => {
+    // The row above asserts with toContain, which only proves a value is
+    // SOMEWHERE in the row. It was, and it was under the wrong header: the
+    // IMEI select carried colSpan={2}, so every cell after it sat one place
+    // left of the column it belonged to and Supplier rendered beneath Order
+    // Number. A whole-row toContain passed throughout. This addresses cells
+    // by the header above them instead, which is the only way that is
+    // visible from a test.
+    const pending = {
+      id: 'p4', marketplace: 'AMAZON', orderNumber: 'AMZ-ALIGN', sku: 'IP13-128-MID',
+      model: 'IPHONE 13', storage: '128GB', imei: '', awaitingImei: true,
+      provisionalBuyPrice: true, buyPrice: 180, salePrice: 320,
+      saleDate: '2026-08-01', ownerId: 'shared',
+    } as unknown as Sale;
+    render(
+      <BulkSaleModal
+        sales={[pending]} allUnits={[...OFFICE, ...SHS]}
+        units={OFFICE} shsUnits={SHS} accessoryStock={ACCESSORIES}
+        supplierMap={{}} onClose={() => {}}
+      />,
+    );
+    const row = screen.getAllByRole('row')[1];
+    fireEvent.change(within(row).getByLabelText('IMEI for AMZ-ALIGN'), { target: { value: 'o1' } });
+
+    const headers = screen.getAllByRole('columnheader').map(h => h.textContent?.trim() ?? '');
+    const cells = within(screen.getAllByRole('row')[1]).getAllByRole('cell');
+    // Count COLUMNS OCCUPIED, not <td> elements. A colSpan is invisible to a
+    // plain element count — the row still has as many tds as before, they just
+    // cover one more column between them — which is precisely why the original
+    // bug survived a test that counted cells.
+    const spans = cells.map(c => Number((c as HTMLTableCellElement).colSpan || 1));
+    expect(spans.reduce((a, b) => a + b, 0), 'the row must occupy exactly the header columns')
+      .toBe(headers.length);
+    expect(Math.max(...spans), 'no cell may span two columns').toBe(1);
+
+    const at = (h: string) => cells[headers.indexOf(h)].textContent?.trim();
+    expect(at('Date')).toBe('2026-08-01');
+    expect(at('Order Number')).toBe('AMZ-ALIGN');
+    expect(at('SKU')).toBe('IP13-128-MID');
+    expect(at('Supplier')).toBe('MOBILE WHOLESALE LTD');
+    expect(at('Stock In')).toBe('2026-06-01');
+    expect(at('Quantity')).toBe('1');
+    expect(at('BP')).toBe('200.00');
+    expect(at('SP')).toBe('320.00');
   });
 
   it('shows the payment mode team 1 recorded', () => {

@@ -582,24 +582,36 @@ export default function BulkSaleModal({
                      style={{ minWidth: `${73 + cols.length * 5.5}rem` }}>
                 <thead className="sticky top-0 bg-slate-50 border-b border-slate-200 z-10">
                   <tr>
+                    {/* THE GRID READS LEFT TO RIGHT LIKE THE SHEET IT FILLS.
+                        Every column the report has appears here in the
+                        report's own order — Date, Order Number, SKU, IMEI,
+                        Model, Supplier, Quantity, [Payment Mode], BP, SP —
+                        so an operator working off a marketplace statement
+                        types across in the order they read across.
+
+                        It did not, and the operator spotted it against their
+                        own workbook: Order Number sat ninth, after Supplier,
+                        where the sheet has it second; Model came before SKU
+                        where the sheet has it after IMEI; and Quantity came
+                        before Supplier where the sheet has it after.
+
+                        Three columns are the GRID'S OWN and have no counterpart
+                        on the sheet. They are placed so they do not break that
+                        order: the row number leads, Source sits immediately
+                        before Model because you choose what kind of stock you
+                        are selling before searching it, and Stock In sits
+                        immediately after because it is a fact about the handset
+                        the search just found. */}
                     <TH w="w-8">#</TH>
-                    {/* Date leads, as it does on every tab of the report
-                        (column A). Sales are typed off a statement after the
-                        fact, so the day is the operator's to set. */}
                     <TH w="w-32">Date</TH>
-                    {/* Stock In — the day this handset arrived, straight off
-                        the unit. Beside the sale date so the operator can see
-                        at a glance how long the thing they are selling has
-                        been sitting. Shown, never typed: it belongs to the
-                        buy record. */}
-                    <TH w="w-28">Stock In</TH>
-                    <TH w="w-28">Source</TH>
-                    <TH w="w-64">Model</TH>
+                    <TH w="w-36">Order Number</TH>
                     <TH w="w-40">SKU</TH>
                     <TH w="w-44">IMEI</TH>
-                    <TH w="w-20" right>{QUANTITY_HEADER[tab] ?? 'Qty'}</TH>
+                    <TH w="w-28">Source</TH>
+                    <TH w="w-64">Model</TH>
+                    <TH w="w-28">Stock In</TH>
                     <TH w="w-32">Supplier</TH>
-                    <TH w="w-36">Order Number</TH>
+                    <TH w="w-20" right>{QUANTITY_HEADER[tab] ?? 'Qty'}</TH>
                     {tab === 'BM' && <TH w="w-32">Payment Mode</TH>}
                     <TH w="w-24" right>BP</TH>
                     <TH w="w-24" right>SP</TH>
@@ -639,19 +651,13 @@ export default function BulkSaleModal({
                         <td className="px-2 py-1 text-[10px] font-mono text-slate-600 tabular-nums">
                           {day(sale.saleDate)}
                         </td>
-                        {/* Blank until team 2 chooses a handset — there is no
-                            unit behind this row yet — then the chosen one's
-                            arrival date, which is the point of showing it:
-                            how long has THIS handset been on the shelf. */}
-                        <td className="px-2 py-1 text-[10px] font-mono text-slate-500 tabular-nums">
-                          {day(picked?.dateIn) || <span className="text-amber-300">—</span>}
-                        </td>
-                        <td className="px-1 py-1 text-[10px] font-mono text-amber-700 uppercase">Updated</td>
-                        <td className="px-1 py-1 text-[11px] font-semibold text-slate-900 truncate">
-                          {sale.model}{sale.storage ? ` ${sale.storage}` : ''}
-                        </td>
+                        <td className="px-1 py-1 text-[10px] font-mono text-slate-700 truncate">{sale.orderNumber}</td>
                         <td className="px-1 py-1 text-[10px] font-mono text-slate-600 truncate">{sale.sku}</td>
-                        <td className="px-1 py-1" colSpan={2}>
+                        {/* IMEI — the one cell team 2 fills. One column, not a
+                            colSpan across IMEI + Quantity: those two are no
+                            longer adjacent, and the span is what shifted every
+                            cell after it one place left of its header. */}
+                        <td className="px-1 py-1">
                           <select
                             aria-label={`IMEI for ${sale.orderNumber}`}
                             className={`${input} font-mono ${chosen ? '' : 'border-amber-300'}`}
@@ -666,12 +672,23 @@ export default function BulkSaleModal({
                             ))}
                           </select>
                         </td>
+                        <td className="px-1 py-1 text-[10px] font-mono text-amber-700 uppercase">Updated</td>
+                        <td className="px-1 py-1 text-[11px] font-semibold text-slate-900 truncate">
+                          {sale.model}{sale.storage ? ` ${sale.storage}` : ''}
+                        </td>
+                        {/* Blank until team 2 chooses a handset — there is no
+                            unit behind this row yet — then the chosen one's
+                            arrival date, which is the point of showing it:
+                            how long has THIS handset been on the shelf. */}
+                        <td className="px-2 py-1 text-[10px] font-mono text-slate-500 tabular-nums">
+                          {day(picked?.dateIn) || <span className="text-amber-300">—</span>}
+                        </td>
                         {/* Supplier — unknowable at stage 1 (no handset), and
                             the chosen one's the moment there is one. */}
                         <td className="px-1 py-1 text-[10px] font-mono text-slate-600 truncate">
                           {pickedSupplier || <span className="text-amber-300">—</span>}
                         </td>
-                        <td className="px-1 py-1 text-[10px] font-mono text-slate-700 truncate">{sale.orderNumber}</td>
+                        <td className="px-1 py-1 text-right text-[10px] font-mono text-slate-500 tabular-nums">1</td>
                         {tab === 'BM' && (
                           <td className="px-1 py-1 text-[10px] font-mono text-slate-600 truncate">
                             {sale.paymentMode ?? ''}
@@ -727,9 +744,9 @@ export default function BulkSaleModal({
                     return (
                       <tr key={r.key as Key}
                           className={`border-b border-slate-100 ${isReady(r) ? 'bg-emerald-50/40' : ''}`}>
-                        <td className="px-2 py-1 text-[10px] font-mono text-slate-400">{i + 1}</td>
+<td className="px-2 py-1 text-[10px] font-mono text-slate-400">{i + 1}</td>
 
-                        {/* Sale date — defaults to today, carried onto the next
+{/* Sale date — defaults to today, carried onto the next
                             row, and mandatory: see isReady. */}
                         <td className="px-1 py-1">
                           <input
@@ -741,14 +758,50 @@ export default function BulkSaleModal({
                           />
                         </td>
 
-                        {/* Stock In — only a handset has one. A model row has
-                            no unit yet (the Supplier cell says so), and an
-                            accessory pool is topped up over time, so neither
-                            has a single arrival date to show. */}
-                        <td className="px-2 py-1 text-[10px] font-mono text-slate-500 tabular-nums">
-                          {r.pick?.kind === 'unit'
-                            ? (day(r.pick.unit.dateIn) || '—')
-                            : <span className="text-slate-300">—</span>}
+                                                {/* Order Number sits second, as it does on the sheet —
+                            it used to sit ninth, after Supplier. */}
+                        <td className="px-1 py-1">
+                          <input className={`${input} font-mono`} aria-label="Order number"
+                                 placeholder="order no."
+                                 value={r.orderNumber}
+                                 onChange={e => patch(r.key, { orderNumber: e.target.value })} />
+                        </td>
+
+                        {/* SKU — defaulted from the picked line, then typed
+                            over freely. Mandatory (see isReady) because
+                            nothing else fills it: only the deleted Inventory
+                            Report import ever set unit.sku, so every handset
+                            added since arrives blank and the Sales Report's
+                            SKU column came out empty for bulk-sold rows.
+                            Amber while empty, matching the IMEI cell's
+                            "this row needs you" cue. */}
+                        <td className="px-1 py-1">
+                          <input
+                            className={`${input} font-mono ${r.sku.trim() ? '' : 'border-amber-300'}`}
+                            aria-label="SKU"
+                            placeholder="SKU required"
+                            value={r.sku}
+                            onChange={e => patch(r.key, { sku: e.target.value })}
+                          />
+                        </td>
+
+                        {/* IMEI — its own column, as on every sheet. An
+                            accessory pool has none; a handset has one, typed
+                            only when the SHS unit has not been stamped yet. */}
+                        <td className="px-1 py-1">
+                          {needsImei(r) ? (
+                            <input
+                              className={`${input} font-mono border-amber-300`}
+                              aria-label="IMEI"
+                              placeholder="IMEI required"
+                              value={r.imei}
+                              onChange={e => patch(r.key, { imei: e.target.value })}
+                            />
+                          ) : r.pick?.kind === 'unit' ? (
+                            <span className="px-1.5 text-[11px] font-mono text-slate-600">
+                              {r.pick.unit.imei}
+                            </span>
+                          ) : <span className="text-[10px] text-slate-300 px-1.5">—</span>}
                         </td>
 
                         {/* Say what you are selling before looking for it. */}
@@ -797,44 +850,19 @@ export default function BulkSaleModal({
                           )}
                         </td>
 
-                        {/* SKU — defaulted from the picked line, then typed
-                            over freely. Mandatory (see isReady) because
-                            nothing else fills it: only the deleted Inventory
-                            Report import ever set unit.sku, so every handset
-                            added since arrives blank and the Sales Report's
-                            SKU column came out empty for bulk-sold rows.
-                            Amber while empty, matching the IMEI cell's
-                            "this row needs you" cue. */}
-                        <td className="px-1 py-1">
-                          <input
-                            className={`${input} font-mono ${r.sku.trim() ? '' : 'border-amber-300'}`}
-                            aria-label="SKU"
-                            placeholder="SKU required"
-                            value={r.sku}
-                            onChange={e => patch(r.key, { sku: e.target.value })}
-                          />
+                        {/* Stock In — only a handset has one. A model row has
+                            no unit yet (the Supplier cell says so), and an
+                            accessory pool is topped up over time, so neither
+                            has a single arrival date to show. */}
+                        <td className="px-2 py-1 text-[10px] font-mono text-slate-500 tabular-nums">
+                          {r.pick?.kind === 'unit'
+                            ? (day(r.pick.unit.dateIn) || '—')
+                            : <span className="text-slate-300">—</span>}
                         </td>
 
-                        {/* IMEI — its own column, as on every sheet. An
-                            accessory pool has none; a handset has one, typed
-                            only when the SHS unit has not been stamped yet. */}
-                        <td className="px-1 py-1">
-                          {needsImei(r) ? (
-                            <input
-                              className={`${input} font-mono border-amber-300`}
-                              aria-label="IMEI"
-                              placeholder="IMEI required"
-                              value={r.imei}
-                              onChange={e => patch(r.key, { imei: e.target.value })}
-                            />
-                          ) : r.pick?.kind === 'unit' ? (
-                            <span className="px-1.5 text-[11px] font-mono text-slate-600">
-                              {r.pick.unit.imei}
-                            </span>
-                          ) : <span className="text-[10px] text-slate-300 px-1.5">—</span>}
-                        </td>
+                                                <td className="px-2 py-1 text-[10px] text-slate-500 truncate">{supplier}</td>
 
-                        {/* Quantity — typed for an accessory pool, always 1
+{/* Quantity — typed for an accessory pool, always 1
                             for a handset, which is why it is shown and not
                             typed there. */}
                         <td className="px-1 py-1">
@@ -849,15 +877,6 @@ export default function BulkSaleModal({
                               {r.pick ? 1 : ''}
                             </span>
                           )}
-                        </td>
-
-                        <td className="px-2 py-1 text-[10px] text-slate-500 truncate">{supplier}</td>
-
-                        <td className="px-1 py-1">
-                          <input className={`${input} font-mono`} aria-label="Order number"
-                                 placeholder="order no."
-                                 value={r.orderNumber}
-                                 onChange={e => patch(r.key, { orderNumber: e.target.value })} />
                         </td>
 
                         {tab === 'BM' && (
@@ -877,7 +896,7 @@ export default function BulkSaleModal({
                           {bp === undefined ? '' : money(Number(bp))}
                         </td>
 
-                        <td className="px-1 py-1">
+                                                <td className="px-1 py-1">
                           <input type="number" step="0.01" className={`${input} text-right font-mono tabular-nums`}
                                  aria-label="Sale price"
                                  placeholder="0.00" value={r.salePrice}
