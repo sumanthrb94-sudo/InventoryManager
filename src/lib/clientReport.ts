@@ -1198,7 +1198,10 @@ export async function buildSalesWorkbookBuffer(input: BuildSalesWorkbookInput): 
   // replacement costing carriage only). The top-level Summary sheet has an
   // older, narrower version that predates those corrections; rather than
   // quietly change what that sheet has always meant, this is its own sheet.
-  writeReturnsProfitSheet(wb, filtered, units ?? []);
+  // `enriched`, not `filtered`: this sheet needs the sales whose RETURN
+  // falls in the period as well as the ones whose SALE does, and those are
+  // not the same set. It does its own two-part filter — see the docblock.
+  writeReturnsProfitSheet(wb, enriched, units ?? [], opts);
 
   writeAccessoriesSalesSheet(wb, filtered, accessoryStock ?? []);
 
@@ -1341,11 +1344,32 @@ const TOTAL_SUM_COLS: Record<Marketplace, {
  * Revenue and Gross GP count only sales that KEPT their money. A refunded
  * sale contributes nothing; a replacement or an out-of-warranty repair
  * contributes in full, because the customer's payment stayed with us.
+ *
+ * TWO PERIODS, DELIBERATELY. Revenue and Gross GP are filtered by SALE date —
+ * they belong to the week the money came in. Returns and their costs are
+ * filtered by RETURN date, because that is the week the money went out, and
+ * because the Returns Summary and Returns Detail sheets in this same workbook
+ * have always done it that way.
+ *
+ * This used to be one filter, on sale date, and it silently dropped returns.
+ * A Samsung sold on 7 Aug and refunded on 14 Aug vanished from a 9-15 Aug
+ * report: its sale was outside the window, so the return went with it. The
+ * workbook then contradicted itself — Returns Summary said two returns and
+ * GBP 30.24 of loss, Returns & Profit said one and GBP 15.12 — and the channel
+ * that took the hit read a Net GP GBP 15.12 too high, with a Return Cost of
+ * zero. The operator's own words: "why are they not showing in Amazon".
+ *
+ * The consequence to be aware of: a week can now carry a return cost for a
+ * sale whose revenue it never counted. That is the honest presentation — the
+ * cash left in that week — and it is why Return Cost is its own column rather
+ * than being netted invisibly into Gross GP.
  */
 function writeReturnsProfitSheet(
   wb: ExcelJS.Workbook,
+  /** EVERY sale, unfiltered. The period is applied below, twice. */
   sales: Sale[],
   units: InventoryUnit[],
+  opts?: ClientReportOptions,
 ): void {
   const sheet = wb.addWorksheet('Returns & Profit');
 
@@ -1397,23 +1421,49 @@ function writeReturnsProfitSheet(
   });
   const acc = new Map<Marketplace, Acc>(MARKETPLACES.map(m => [m, blank()]));
 
+  const from = opts?.from ?? '0000-01-01';
+  const to   = opts?.to   ?? '9999-12-31';
+  const within = (day: string | undefined) => {
+    if (!opts?.from && !opts?.to) return true;      // all-time report
+    const d = (day ?? '').slice(0, 10);
+    return !!d && d >= from && d <= to;
+  };
+
+  /**
+   * When the return happened. The unit's own returnDate is authoritative —
+   * it is what the Returns sheets filter on — and voidedAt stands in when the
+   * sale was reversed without a unit to hang it off.
+   */
+  const returnDayOf = (s: Sale, u?: InventoryUnit) =>
+    (u?.returnDate || s.voidedAt || '').slice(0, 10);
+
+  // ── Revenue side: filtered by SALE date ────────────────────────────────
   for (const s of sales) {
+    if (!within(s.saleDate)) continue;
     const a = acc.get(s.marketplace as Marketplace);
     if (!a) continue;
+    if (!saleKeptItsRevenue(s)) continue;
+    a.sales += 1;
+    a.revenue += Number(s.salePrice) || 0;
+    a.grossGp += Number(s.grossProfit) || 0;
+  }
 
-    if (saleKeptItsRevenue(s)) {
-      a.sales += 1;
-      a.revenue += Number(s.salePrice) || 0;
-      a.grossGp += Number(s.grossProfit) || 0;
-    }
-
+  // ── Return side: filtered by RETURN date ───────────────────────────────
+  // A separate pass, over the same sales, because a return in this period
+  // may belong to a sale from an earlier one. Merging the two passes is what
+  // used to drop it.
+  for (const s of sales) {
     if (!s.voidedAt) continue;
+    const a = acc.get(s.marketplace as Marketplace);
+    if (!a) continue;
+    const u = unitFor(s);
+    if (!within(returnDayOf(s, u))) continue;
+
     a.returns += 1;
     if (s.voidOutcome === 'replacement') a.replacements += 1;
     else if (s.voidOutcome === 'repair') a.repairs += 1;
     else a.refunds += 1;
 
-    const u = unitFor(s);
     if (u?.returnType === 'returned_to_supplier') a.toSupplier += 1;
 
     // Costs live on the UNIT (the invoice and the credit are entered there).
