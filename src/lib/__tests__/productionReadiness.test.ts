@@ -32,7 +32,12 @@ describe('Production Readiness Checklist', () => {
       testSizes.forEach(test => {
         const isValid = test.size <= maxSize;
         expect(isValid).toBe(test.valid);
-        addTest('Image Handling', 'File Size Validation', isValid, `${test.name} - ${isValid ? 'OK' : 'REJECTED'}`);
+        // Record whether the rule BEHAVED AS EXPECTED, not the raw verdict.
+        // The 15MB case is supposed to be rejected, so passing `isValid` here
+        // logged a correct rejection as a failed check and dragged the summary
+        // below 100% — the checklist was marking its own successes as faults.
+        addTest('Image Handling', 'File Size Validation', isValid === test.valid,
+          `${test.name} - ${isValid ? 'OK' : 'REJECTED'}`);
       });
     });
 
@@ -48,7 +53,9 @@ describe('Production Readiness Checklist', () => {
       testFormats.forEach(test => {
         const isSupported = supportedFormats.includes(test.type);
         expect(isSupported).toBe(test.supported);
-        addTest('Image Handling', 'Format Support', isSupported, test.type);
+        // As above: image/pdf and application/json are MEANT to be unsupported,
+        // so recording the raw verdict counted two correct rejections as fails.
+        addTest('Image Handling', 'Format Support', isSupported === test.supported, test.type);
       });
     });
 
@@ -201,7 +208,11 @@ describe('Production Readiness Checklist', () => {
 
     it('should validate required fields before submit', () => {
       const requiredFields = ['model', 'colour', 'buyPrice', 'supplier'];
-      const validationRules = {
+      // Typed as one signature on purpose. Left to inference, `rule` below is
+      // a union of string- and number-taking functions, so its call parameter
+      // narrows to `never` and nothing can be passed to it — the file's last
+      // remaining type error.
+      const validationRules: Record<string, (v: any) => boolean> = {
         model: (v: string) => v.length > 0,
         colour: (v: string) => v.length > 0,
         buyPrice: (v: number) => v > 0,

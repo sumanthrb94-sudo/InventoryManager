@@ -161,16 +161,23 @@ export function extractGrade(text: string): ExtractedField {
     return { value: '', confidence: 0 };
   }
 
-  const matched = matches[0].toLowerCase();
-  const gradeKey = Object.keys(GRADE_MAPPING).find(
-    (key) => matched.includes(key) || key.includes(matched)
-  );
+  // Strip the "Grade" label and any separator, then look the token up EXACTLY.
+  //
+  // The previous lookup was a substring search — `matched.includes(key)` over
+  // every key in GRADE_MAPPING. The word "grade" contains an "a", so the key
+  // 'a' matched inside "grade b" and "grade c", and both came back as Grade A
+  // at 0.88 confidence. "Fair" did the same thing and reported A instead of C.
+  // Silently promoting a B- or C-grade handset to A misprices it, and nothing
+  // downstream had any way to tell.
+  const matched = matches[0]
+    .toLowerCase()
+    .replace(/^grade\s*[:\-]?\s*/, '')
+    .replace(/\s+/g, ' ')
+    .trim();
 
-  if (gradeKey) {
-    return {
-      value: GRADE_MAPPING[gradeKey],
-      confidence: 0.88,
-    };
+  const value = GRADE_MAPPING[matched];
+  if (value) {
+    return { value, confidence: 0.88 };
   }
 
   return { value: '', confidence: 0 };

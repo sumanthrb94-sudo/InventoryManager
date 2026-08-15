@@ -5,8 +5,21 @@ export const TEXT_PATTERNS = {
   // Storage patterns: GB or TB with optional space
   storage: /\b(?:(\d+)\s*(?:GB|TB))\b/gi,
 
-  // Grade patterns
-  grade: /\b(?:Grade\s*[A-C]|A\+|Excellent|Good|Fair|Refurbished|Brand\s+New|Like\s+New|ONU)\b/gi,
+  // Grade patterns.
+  //
+  // Two things this has to get right, both of which it previously did not:
+  //
+  //   A SEPARATOR IS NORMAL. Labels and OCR output write "Grade: A", not
+  //   "Grade A". `Grade\s*[A-C]` has no room for the colon, so every
+  //   punctuated label missed and the field came back blank.
+  //
+  //   "A+" NEEDS NO TRAILING \b. A word boundary needs a word character on
+  //   one side, and "+" is not one — so `A\+\b` is unsatisfiable and A+ could
+  //   never match anywhere, under any input. It is a negative lookahead now.
+  //
+  // A bare single letter still requires the "Grade" prefix: loose OCR text is
+  // full of stray capitals, and reading one as a grade would misprice a unit.
+  grade: /\bGrade\s*[:\-]?\s*(?:A\+|[A-C])(?![\w+])|\bA\+(?![\w+])|\b(?:Excellent|Very\s+Good|Good|Fair|Acceptable|Refurbished|Brand\s+New|Like\s+New|ONU)\b/gi,
 
   // Color patterns (will be matched against COLOR_SYNONYMS)
   color: /(?:Color|Colour|Color:|Colour:|[Cc]olour?:?\s*)?([A-Za-z\s]+)/gi,

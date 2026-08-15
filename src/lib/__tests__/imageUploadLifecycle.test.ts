@@ -2,11 +2,60 @@
  * End-to-End Image Upload Lifecycle Test
  * Tests: Upload → Validation → Compression → OCR → Auto-fill → Color Distribution → Database
  */
+// @vitest-environment jsdom
+// Its fixtures build real <canvas> elements to stand in for uploaded photos,
+// so this file needs a DOM. The suite default is node — see vite.config.ts.
 
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, beforeAll, afterAll } from 'vitest';
 import { imageService } from '../imageService';
 import { performOCR } from '../ocr/ocrEngine';
 import { extractDeviceFromText } from '../ocr/deviceExtractor';
+
+/**
+ * A decoding stand-in for `new Image()`.
+ *
+ * imageService reaches the same place twice — getImageDimensions and
+ * readAndCompressImage both set `img.src` and wait on `img.onload`. jsdom
+ * carries no image decoder, so it fires NEITHER onload nor onerror: the
+ * promise never settles and the test dies on the 5s timeout rather than
+ * failing on anything it meant to check. That is why six tests in this file
+ * hung the moment it was collected.
+ *
+ * What this buys, and what it does not: the stub answers the decode step with
+ * fixed dimensions, so everything around it — the type and size gates, the
+ * compress-or-pass-through branch, the cache, the assembled metadata — is
+ * exercised for real. Actual pixel decoding and canvas re-encoding are NOT
+ * covered here and cannot be under jsdom; that path belongs to the Playwright
+ * harness in scripts/, which drives a real browser.
+ */
+const STUB_WIDTH = 1920;
+const STUB_HEIGHT = 1080;
+let RealImage: typeof Image;
+
+beforeAll(() => {
+  RealImage = globalThis.Image;
+  class DecodingImage {
+    width = STUB_WIDTH;
+    height = STUB_HEIGHT;
+    naturalWidth = STUB_WIDTH;
+    naturalHeight = STUB_HEIGHT;
+    onload: (() => void) | null = null;
+    onerror: (() => void) | null = null;
+    #src = '';
+    get src() { return this.#src; }
+    set src(value: string) {
+      this.#src = value;
+      // Asynchronous, as a real decode is — a synchronous callback would fire
+      // before the caller has assigned onload and hang exactly as jsdom does.
+      queueMicrotask(() => this.onload?.());
+    }
+  }
+  globalThis.Image = DecodingImage as unknown as typeof Image;
+});
+
+afterAll(() => {
+  globalThis.Image = RealImage;
+});
 
 describe('Image Upload Lifecycle', () => {
   // Mock image file for testing

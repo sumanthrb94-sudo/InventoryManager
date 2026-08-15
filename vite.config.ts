@@ -89,10 +89,21 @@ export default defineConfig(({ mode }) => {
       // it they fail inside user-event with an error naming an internal symbol
       // and saying nothing about the cause.
       environment: 'node',
-      // .tsx too. Five component test files sat in src/__tests__ for months
-      // without ever executing, because this pattern only matched .ts — they
-      // read as coverage on every file listing and were worth nothing.
-      include: ['src/__tests__/**/*.test.ts', 'src/__tests__/**/*.test.tsx'],
+      // ANYWHERE under src, not one blessed directory, and .tsx as well as .ts.
+      //
+      // This pattern has now silently dropped test files twice. First it was
+      // .ts-only, so five component test files sat in src/__tests__ for months
+      // without ever executing — they read as coverage on every file listing
+      // and were worth nothing. Then, with the extension fixed, it was still
+      // anchored at src/__tests__/, so the two suites living beside the code
+      // they test in src/lib/__tests__/ were missed the same way: 50 tests,
+      // never run, invisible.
+      //
+      // Both times the file was present, plausible and green-by-absence. A
+      // narrower glob buys nothing — vitest only collects *.test.* regardless
+      // — so it is widened to the whole tree, and a test placed anywhere now
+      // runs by default rather than by permission.
+      include: ['src/**/*.test.ts', 'src/**/*.test.tsx'],
       // These five were written against component versions that have since
       // changed — placeholders, labels and markup have all moved on, so 134
       // of their 217 assertions fail on details the app deliberately altered.
