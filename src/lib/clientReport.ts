@@ -575,7 +575,11 @@ function writeSaleRow(
    *  itself missing. */
   resolvedSupplier: string = '',
 ): void {
-  const f = excelFormulaFor(marketplace, rowNumber);
+  // The sale's OWN date picks the fee schedule, so a row from before the
+  // 2026-08-14 change exports with the rates that applied to it. Without
+  // this the report restates history every time it is downloaded, because
+  // its money columns are formulas regenerated from the live schedule.
+  const f = excelFormulaFor(marketplace, rowNumber, sale.saleDate);
   const date = toDate(sale.saleDate);
   const qty = sale.quantity ?? 1;
 
@@ -708,7 +712,10 @@ function writeSaleRow(
       row.getCell(col('Marginal Tax')).value = { formula: f.marginalTax! };  row.getCell(col('Marginal Tax')).numFmt = MONEY_FMT;
       row.getCell(col('Commission')).value = { formula: f.commission! };   row.getCell(col('Commission')).numFmt = MONEY_FMT;
       row.getCell(col('Customer Care Fees')).numFmt = MONEY_FMT;                   // Customer Care Fees (literal above)
-      row.getCell(col('PSF')).value = { formula: f.psf! };             row.getCell(col('PSF')).numFmt = MONEY_FMT;
+      // A pre-change sale has no PSF formula (see excelFormulaFor); it gets a
+      // plain 0 so the GP chain still has a number to subtract.
+      row.getCell(col('PSF')).value = f.psf ? { formula: f.psf } : 0;
+      row.getCell(col('PSF')).numFmt = MONEY_FMT;
       row.getCell(col('Postage')).numFmt = MONEY_FMT;                   // Postage (literal above)
       row.getCell(col('P. VAT')).value = { formula: f.postageVat! };   row.getCell(col('P. VAT')).numFmt = MONEY_FMT;
       row.getCell(col('Acc')).numFmt = MONEY_FMT;                   // Accessories (literal above)

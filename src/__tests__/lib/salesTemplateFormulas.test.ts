@@ -55,7 +55,7 @@ beforeAll(async () => {
   const buf = await buildSalesWorkbookBuffer({
     sales: MARKETPLACES.map(m => ({
       id: `${m}__X__1`, marketplace: m, orderNumber: 'X', imei: '350100000000001',
-      sku: 'SG-A21S-32-BK', supplierName: 'S', saleDate: '2026-08-01', quantity: 1,
+      sku: 'SG-A21S-32-BK', supplierName: 'S', saleDate: '2026-08-20', quantity: 1,
       buyPrice: 100, salePrice: 200, postage: 6.3,
       spMinusBp: 0, marginalTax: 0, commission: 0, grossProfit: 0, gpPercent: 0,
       importBatchId: '', sourceFile: '', sourceRow: 2, importedAt: '',

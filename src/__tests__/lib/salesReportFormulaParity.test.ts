@@ -92,7 +92,7 @@ const unit = (over: Partial<InventoryUnit> = {}): InventoryUnit => ({
 const sale = (m: Marketplace): Sale => ({
   id: `${m}__ORD-1__350111000000011`, marketplace: m, orderNumber: 'ORD-1',
   imei: '350111000000011', unitId: 'u1', sku: 'Samsung Galaxy A21S',
-  saleDate: '2026-07-29', quantity: 1, buyPrice: 350, salePrice: 499.99,
+  saleDate: '2026-08-20', quantity: 1, buyPrice: 350, salePrice: 499.99,
   postage: 6.3, spMinusBp: 149.99, marginalTax: 25, commission: 35,
   grossProfit: 73.59, gpPercent: 21.03,
   importBatchId: 'b1', sourceFile: 'f', sourceRow: 1, importedAt: '',

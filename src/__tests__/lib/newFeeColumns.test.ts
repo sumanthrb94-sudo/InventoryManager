@@ -31,7 +31,7 @@ const unit = (o: Partial<InventoryUnit> = {}): InventoryUnit => ({
 } as InventoryUnit);
 
 const sale = (o: Partial<Sale> = {}): Sale => ({
-  id: 's1', marketplace: 'BM', orderNumber: 'ORD-1', saleDate: '2026-08-01',
+  id: 's1', marketplace: 'BM', orderNumber: 'ORD-1', saleDate: '2026-08-20',
   quantity: 1, buyPrice: 105, salePrice: 205, postage: 6.30,
   imei: '350111000000011', unitId: 'u1', ...o,
 } as Sale);

@@ -168,13 +168,66 @@ export const DEFAULT_MARKETPLACE_FEES: Record<Marketplace, MarketplaceFee> = {
  * baked-in defaults; the Firestore loader will mutate the cache behind this
  * helper so callers do not need to re-import anything when live fees change.
  */
-export function getMarketplaceFee(m: Marketplace): MarketplaceFee {
+/**
+ * The day the 2026-08-14 fee changes take effect.
+ *
+ * BM's PSF and Temu's 3.96% commission are NOT retroactive. A sale that
+ * happened before this date is exported with the schedule that was in force
+ * when it happened, so a report downloaded today reproduces the figures the
+ * operator filed at the time rather than restating them.
+ *
+ * That matters because the report's money columns are LIVE FORMULAS
+ * regenerated at export from the fee schedule — not stored values. Without
+ * this gate, adding PSF took 1% of the sale price off the GP of every BM sale
+ * ever made, and dropping Temu's rate from 4.61% put margin back on every Temu
+ * sale ever made, in a workbook the operator had already reconciled.
+ *
+ * ONE PLACE TO CHANGE IT. Move this string and both the report and the runtime
+ * calculator follow.
+ *
+ * NOTE for whoever revisits this: the client's OWN 14-Aug workbook applies both
+ * changes retroactively — his PSF column runs `=I2*1%` from row 2, dated 1
+ * April, and 3.96% covers every Temu row. So his sheet and ours will disagree
+ * on rows before this date, deliberately, at the operator's instruction.
+ */
+export const FEES_EFFECTIVE_FROM = '2026-08-15';
+
+/**
+ * The schedule in force BEFORE {@link FEES_EFFECTIVE_FROM}, as a sparse patch
+ * over the current one. Only the fields that actually changed are listed —
+ * anything absent is unchanged and comes from DEFAULT_MARKETPLACE_FEES, so
+ * this cannot silently freeze a rate that has nothing to do with the change.
+ */
+const PRE_2026_08_15_FEES: Partial<Record<Marketplace, Partial<MarketplaceFee>>> = {
+  // No PSF: the Payment Seller Fee did not exist.
+  BM: { psfPct: 0 },
+  // The July master's rate.
+  TEMU: { commissionPct: 4.61 },
+};
+
+/**
+ * Look up the fee schedule for a marketplace, optionally as it stood on a
+ * given day.
+ *
+ * `onDate` is a `yyyy-mm-dd` sale date. Omit it — as every new sale does — and
+ * you get the current schedule. Pass a historic sale's date and you get the
+ * one that applied to it.
+ */
+export function getMarketplaceFee(m: Marketplace, onDate?: string): MarketplaceFee {
   // Safety net: a Firestore Sale doc with a missing / corrupt / legacy
   // marketplace value (e.g. an old "PROJECT" or empty string) would
   // otherwise return undefined here and crash every downstream `.postage`
   // access. Fall back to AMAZON's fee schedule so the UI degrades
   // gracefully instead of the whole sold-history pane error-bounding out.
-  return DEFAULT_MARKETPLACE_FEES[m] ?? DEFAULT_MARKETPLACE_FEES.AMAZON;
+  const current = DEFAULT_MARKETPLACE_FEES[m] ?? DEFAULT_MARKETPLACE_FEES.AMAZON;
+  // Date-only string compare. Both sides are yyyy-mm-dd, which sorts
+  // lexicographically, so this needs no Date parsing and no timezone. A
+  // saleDate carrying a time still compares correctly because the prefix is
+  // what decides it.
+  const day = (onDate ?? '').slice(0, 10);
+  if (!day || day >= FEES_EFFECTIVE_FROM) return current;
+  const patch = PRE_2026_08_15_FEES[m];
+  return patch ? { ...current, ...patch } : current;
 }
 
 // ---------------------------------------------------------------------------
@@ -245,6 +298,11 @@ export interface CalcSaleFinancialsInput {
    *  so the sheet's own value always wins when present. Falls back to
    *  commissionPct × SP only for a file that doesn't carry the column. */
   commissionOverride?: number;
+  /** The day the sale happened, `yyyy-mm-dd`. Selects the fee schedule that
+   *  was in force then, so recomputing a historic sale cannot restate it at
+   *  today's rates. Omit for a new sale — that is what every caller booking
+   *  one does — and the current schedule applies. See FEES_EFFECTIVE_FROM. */
+  saleDate?: string;
   /** eBay only — explicit shipping tier (£1, £2, £8). Trumps `postageOverride`. */
   eBayShippingTier?: 1 | 2 | 8;
   /** BM only — apply 2.5% PayPal/Klarna commission on top. */
@@ -367,9 +425,9 @@ const r2 = (n: number): number => {
 export function calcSaleFinancials(input: CalcSaleFinancialsInput): SaleFinancials {
   const {
     marketplace, buyPrice: bp, salePrice: sp, postageOverride, eBayShippingTier,
-    commissionOverride,
+    commissionOverride, saleDate,
   } = input;
-  const fee = getMarketplaceFee(marketplace);
+  const fee = getMarketplaceFee(marketplace, saleDate);
 
   const spMinusBp = r2(sp - bp);
   const postage = r2(
@@ -821,8 +879,15 @@ export function calcSaleFinancials(input: CalcSaleFinancialsInput): SaleFinancia
  *
  * Column letters match the headers in MASTER_FILES_SPEC.md §AMAZON/BM/EBAY/ONBUY/PROJECT.
  */
-export function excelFormulaFor(marketplace: Marketplace, row: number): Record<string, string> {
-  const fee = getMarketplaceFee(marketplace);
+export function excelFormulaFor(
+  marketplace: Marketplace,
+  row: number,
+  /** The row's sale date, so a historic row gets the rates that applied to it
+   *  rather than today's. See FEES_EFFECTIVE_FROM. Omitted for the blank
+   *  primed rows at the bottom of a tab, which are future sales. */
+  saleDate?: string,
+): Record<string, string> {
+  const fee = getMarketplaceFee(marketplace, saleDate);
   const r = row;
   // Column letters are resolved from SALES_HEADERS by NAME. They used to be
   // written literally (`H${r}-G${r}`), which is what made the column order
@@ -931,7 +996,13 @@ export function excelFormulaFor(marketplace: Marketplace, row: number): Record<s
         commission:       `${C('SP')}${r}/100*${fee.commissionPct}`,
         customerCareFees: `${fee.customerCareFees ?? 0}`,
         // PSF — 2026-08-14. His cell is `=I2*1%`, I being SP.
-        psf:              `${C('SP')}${r}*${fee.psfPct ?? 0}%`,
+        //
+        // OMITTED, not zeroed, for a sale that predates FEES_EFFECTIVE_FROM:
+        // the writer puts a plain 0 in the cell instead. `=L2*0%` would
+        // compute the same number while telling the reader the fee was
+        // charged at nothing, which is a different claim from "this sale was
+        // made before the fee existed".
+        ...(fee.psfPct ? { psf: `${C('SP')}${r}*${fee.psfPct}%` } : {}),
         postageVat:       `${C('Postage')}${r}*${vatPct}%`,
         accessoryFee:     `${fee.accessoryFee ?? 0}`,
         // PSF comes out of GP, matching his `=J2-K2-L2-M2-O2-P2-Q2-N2`

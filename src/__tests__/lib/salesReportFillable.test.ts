@@ -35,7 +35,7 @@ import type { Marketplace, Sale } from '../../types';
 const SALES = MARKETPLACES.map(m => ({
   id: `${m}__SEED__1`, marketplace: m, orderNumber: 'SEED-1',
   imei: '350100000000001', sku: 'SG-A21S-32-BK', supplierName: 'MHL',
-  saleDate: '2026-08-01', quantity: 1, buyPrice: 100, salePrice: 200, postage: 6.3,
+  saleDate: '2026-08-20', quantity: 1, buyPrice: 100, salePrice: 200, postage: 6.3,
   spMinusBp: 0, marginalTax: 0, commission: 0, grossProfit: 0, gpPercent: 0,
   importBatchId: '', sourceFile: '', sourceRow: 2, importedAt: '',
   createdAt: '', updatedAt: '', ownerId: 'shared',
