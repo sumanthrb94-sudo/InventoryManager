@@ -36,6 +36,7 @@ import { normaliseGrade, normaliseSimType } from '../lib/unitConstants';
 import { parseStockWorkbook, type ParsedRow, type ParsedAccessoryRow } from '../lib/inventoryImportParse';
 import { isOfficeStockUnit, isShsUnit } from '../lib/wipeScopes';
 import { restoreAccessoryStockFromImport } from '../services/inventoryService';
+import { findSupplierNearMisses, type SupplierNearMiss } from '../lib/supplierNearMiss';
 import { auth } from '../lib/firebase';
 
 interface Props { onClose: () => void; }
@@ -97,6 +98,13 @@ interface PreviewBuckets {
   // number that tells the operator whether they are looking at the right
   // export at all.
   distinctModels: number;
+  // New supplier names that closely resemble one already on file. A WARNING,
+  // not a block: the importer creates any supplier it has not seen, which is
+  // right — onboarding one is ordinary and there is no curated supplier list to
+  // gate against. The cost is that a typo becomes a real supplier and splits
+  // that supplier's history in two with nothing to show for it, so the
+  // resemblance is surfaced and the operator decides.
+  supplierNearMisses: SupplierNearMiss[];
 }
 
 /** Coarse bucket label for a unit already in the database, matching the
@@ -283,11 +291,16 @@ export function buildPreview(
     modelKeys.add(modelBucketKey(parseBrandModelStorage(m).brand || '', m));
   }
 
+  const newSupplierNames = Array.from(newSuppliers).sort();
+
   return {
     total: parsed.length,
     distinctModels: modelKeys.size,
+    supplierNearMisses: findSupplierNearMisses(
+      newSupplierNames, existingSuppliers.map(x => x.name),
+    ),
     toCreate, toUpdate, invalid,
-    newSuppliers: Array.from(newSuppliers).sort(),
+    newSuppliers: newSupplierNames,
     duplicates,
     bucketConflicts,
     shsMatches,
@@ -1061,6 +1074,28 @@ function PreviewPhase({
 
       {preview.newSuppliers.length > 0 && (
         <DetailPanel title={`New suppliers · ${preview.newSuppliers.length}`} tone="amber">
+          {/* The near misses lead, because they are the only names here with a
+              question attached. The rest are just a list. */}
+          {preview.supplierNearMisses.length > 0 && (
+            <div className="mb-2 space-y-1">
+              {preview.supplierNearMisses.map(m => (
+                <p key={m.candidate} className="text-[10px] font-mono text-rose-700 flex items-start gap-1.5">
+                  <AlertTriangle size={11} className="mt-px flex-shrink-0" />
+                  <span>
+                    <strong>{m.candidate}</strong> — did you mean <strong>{m.match}</strong>?
+                    {m.kind === 'punctuation'
+                      ? ' Same letters, different spacing.'
+                      : ` ${m.distance} character${m.distance === 1 ? '' : 's'} apart.`}
+                  </span>
+                </p>
+              ))}
+              <p className="text-[9px] text-slate-500 leading-relaxed">
+                Not blocking — these will be created as written. Cancel and fix
+                the Supplier column if they are typos, since a misspelled name
+                becomes its own supplier and splits that supplier's history.
+              </p>
+            </div>
+          )}
           <p className="text-[10px] font-mono text-amber-700 leading-relaxed">
             {preview.newSuppliers.join(', ')}
           </p>
