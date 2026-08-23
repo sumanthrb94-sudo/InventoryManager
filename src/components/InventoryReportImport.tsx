@@ -31,7 +31,7 @@ import { dbService } from '../lib/dbService';
 import { useInventoryStore } from '../lib/inventoryStore';
 import type { InventoryUnit, Supplier } from '../types';
 import { parseBrandModelStorage } from '../lib/modelStorage';
-import { buildCatalogIndex, canonicaliseModel, resolveCatalogModel } from '../lib/modelReconciliation';
+import { buildCatalogIndex, canonicaliseModel, resolveCatalogModel, modelBucketKey } from '../lib/modelReconciliation';
 import { normaliseGrade, normaliseSimType } from '../lib/unitConstants';
 import { parseStockWorkbook, type ParsedRow, type ParsedAccessoryRow } from '../lib/inventoryImportParse';
 import { isOfficeStockUnit, isShsUnit } from '../lib/wipeScopes';
@@ -132,6 +132,36 @@ export function buildPreview(
   const shsConsumedByKey = new Map<string, number>();
   const shsMatches = new Map<number, InventoryUnit>();
 
+  // MODELS ALREADY ON THE BOOKS COUNT AS KNOWN.
+  //
+  // The gate's job is to stop a model the app has never heard of from being
+  // typed into existence. It is NOT to re-litigate stock that is already here.
+  //
+  // Asking only "is this in the admin catalogue?" got that wrong in the most
+  // visible way possible: the operator downloaded the app's own all-time
+  // Inventory Report — 805 rows, every one of them a unit this database
+  // already owns — re-uploaded it, and 505 rows were held. Galaxy A32 alone
+  // accounted for 214. The catalogue is an admin-curated list that grows when
+  // someone adds to it; it has never been a complete census of what is in
+  // stock, and a great deal of inventory predates it. Gating on it alone
+  // breaks the round trip this importer exists for.
+  //
+  // So a model is known if the catalogue has it OR some existing unit already
+  // carries it. Both sides are compared on the bucket key, which strips brand
+  // prefixes and casing, so "SAMSUNG GALAXY S21", "Galaxy S21" and "S21" are
+  // one model rather than three.
+  //
+  // This is a deliberate, bounded loosening: a genuinely new supplier code
+  // still has no unit behind it and is still held. What it stops doing is
+  // blocking a name the database is already full of.
+  const inStockKeys = new Set<string>();
+  for (const u of existingUnits) {
+    const raw = u.rawModel || u.model || '';
+    if (!raw.trim()) continue;
+    inStockKeys.add(modelBucketKey(u.brand || '', raw));
+    inStockKeys.add(modelBucketKey('', raw));
+  }
+
   const imeiToUnit = new Map<string, InventoryUnit>();
   for (const u of existingUnits) {
     const k = (u.imei || '').trim().toUpperCase();
@@ -186,10 +216,17 @@ export function buildPreview(
     // out here — ahead of the create/update matching AND ahead of newSuppliers
     // — so a held row contributes nothing to the write at all.
     const { brand } = parseBrandModelStorage(r.model || '');
-    if (!resolveCatalogModel(r.model || '', brand || '', catalogIndex).matched) {
+    const inCatalogue = resolveCatalogModel(r.model || '', brand || '', catalogIndex).matched;
+    const onTheBooks = inStockKeys.has(modelBucketKey(brand || '', r.model || ''))
+                    || inStockKeys.has(modelBucketKey('', r.model || ''));
+    if (!inCatalogue && !onTheBooks) {
       heldUnknownModel.push(r);
       const raw = (r.model || '').trim();
-      const key = `${(brand || '').trim().toLowerCase()}||${raw.toLowerCase()}`;
+      // Grouped on the BUCKET key, not the raw string. Grouping by raw text
+      // listed "APPLE IPHONE 8" and "IPHONE 8" as two separate unknown models
+      // needing two separate catalogue entries, when they are one phone and
+      // one entry resolves both.
+      const key = modelBucketKey(brand || '', raw);
       const seen = unknownByKey.get(key);
       if (seen) seen.rowNums.push(r.rowNum);
       else unknownByKey.set(key, { raw, brand: (brand || '').trim(), rowNums: [r.rowNum] });

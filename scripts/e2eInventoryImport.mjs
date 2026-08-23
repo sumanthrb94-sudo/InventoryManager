@@ -22,6 +22,11 @@
  *      rows waiting on it, with no re-upload.
  *   6. Re-uploading the same file is idempotent — rows update, they do not
  *      double the stock.
+ *   7. THE ROUND TRIP. The app's own all-time Inventory Report, exported
+ *      through the real button and fed straight back in, holds NOTHING —
+ *      with an empty admin catalogue. This is the regression that shipped:
+ *      gating on the catalogue alone held 505 of the operator's 805 rows,
+ *      every one of them stock the database already owned.
  *
  * Every assertion reads the STORE, not the screen, wherever the store can
  * answer: a preview tile showing "1" proves what was rendered, not what was
@@ -55,7 +60,10 @@ const BAD_IMEI     = '123';                   // too short to be an IMEI
 
 const CATALOGUE_MODEL = 'iPhone 13';
 const HELD_MODEL      = 'SG TABA (10.1)(T580) 16GB';   // the real supplier code
-const HELD_MODEL_2    = 'Galaxy S23';                  // ordinary, just not catalogued
+// Ordinary-looking, and deliberately NOT among the models the E2E reset
+// seeds — 'Galaxy S23' is, and is therefore known stock, not an unknown
+// model. Check the seed before changing this.
+const HELD_MODEL_2    = 'Pixel 9 Pro Fold';
 const HELD_ONLY_SUPPLIER = 'HELD ROW SUPPLIER LTD';    // named on a held row only
 
 const COMMON = {
@@ -278,6 +286,57 @@ console.log('\n6 · re-uploading the same file is idempotent');
   check('catalogued unit not duplicated', second.known, first.known);
   check('SHS holding not duplicated', second.shsIncoming, first.shsIncoming);
   await modal.screenshot({ path: `${OUT}/05-reupload-idempotent.png` });
+  await ctx.close();
+}
+
+// ── 7 · THE ROUND TRIP: the app's own export, straight back in ──────────────
+//
+// The reason this section exists. With the gate asking only "is this model in
+// the admin catalogue?", the operator downloaded the all-time Inventory Report
+// — 805 rows, every one a unit this database already owned — re-uploaded it,
+// and 505 rows were held. The catalogue is admin-curated and had never been a
+// census of what was in stock.
+//
+// Nothing here is seeded: this runs against whatever the E2E reset produces,
+// exports it through the real report button, and feeds it back in. An empty
+// catalogue is the point — the report's own stock must still be recognised.
+console.log('\n7 · export the app\'s own inventory report and re-upload it');
+{
+  const ctx = await browser.newContext({
+    viewport: { width: 1500, height: 1100 }, acceptDownloads: true,
+  });
+  const page = await ctx.newPage();
+  page.on('pageerror', e => console.log(`  [pageerror] ${e.message}`));
+  await page.goto(`${BASE}?e2eReset=1`, { waitUntil: 'networkidle' });
+  await page.waitForTimeout(2000);
+
+  const catalogueSize = await page.evaluate(() => {
+    const s = JSON.parse(sessionStorage.getItem('__e2e_firestore__') || '{}');
+    return Object.keys(s.models || {}).length;
+  });
+  const stockCount = await page.evaluate(() => {
+    const s = JSON.parse(sessionStorage.getItem('__e2e_firestore__') || '{}');
+    return Object.keys(s.inventoryUnits || {}).length;
+  });
+  console.log(`  (catalogue holds ${catalogueSize} models; ${stockCount} units in stock)`);
+
+  // Exact text: an unscoped /Inventory Report/ also matches a KPI tile.
+  await page.locator('button')
+    .filter({ hasText: /^\s*Inventory Report\s*$/i }).first().click();
+  await page.waitForTimeout(900);
+  const [report] = await Promise.all([
+    page.waitForEvent('download', { timeout: 60000 }),
+    page.getByRole('button', { name: /^All Time$/i }).first().click(),
+  ]);
+  const reportFile = resolve(TMP, 'e2e-inv-report-roundtrip.xlsx');
+  await report.saveAs(reportFile);
+
+  const modal = await openImport(page, reportFile);
+  const text = await modal.innerText();
+  const held = text.match(/held · model not in the catalogue · (\d+) rows?/i);
+  check('the app\'s own report re-uploads with nothing held', held ? Number(held[1]) : 0, 0);
+  check('and its rows are recognised as existing stock', /will update existing units/i.test(text), true);
+  await modal.screenshot({ path: `${OUT}/06-own-report-round-trip.png` });
   await ctx.close();
 }
 

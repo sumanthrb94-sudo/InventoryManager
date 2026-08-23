@@ -40,6 +40,10 @@ export interface CatalogModel {
 
 /** Bucket key shared by the cluster builder and the catalog index, so a
  *  catalog entry lands on the same key as the units it governs. */
+export function modelBucketKey(brand: string, model: string): string {
+  return bucketKey(brand, model);
+}
+
 function bucketKey(brand: string, model: string): string {
   return `${(brand || '').toLowerCase()}||${normalizeBucketModel(model)}`;
 }

@@ -196,6 +196,72 @@ describe('an unknown model cannot reach the database through import', () => {
   });
 });
 
+// ── Re-uploading the app's own export ────────────────────────────────────────
+
+describe('a model already on the books is known, catalogue or not', () => {
+  /** A unit as the database holds it. */
+  const unit = (over: Partial<InventoryUnit> & { id: string }): InventoryUnit => ({
+    imei: '', model: 'Galaxy A32', brand: 'Samsung', status: 'available',
+    storage: '128GB', colour: 'Black', buyPrice: 100, dateIn: '2026-06-01',
+    ownerId: 'shared', createdAt: '', updatedAt: '',
+    ...over,
+  } as InventoryUnit);
+
+  const previewWith = (rows: ParsedRow[], units: InventoryUnit[]) =>
+    buildPreview(rows, units, NO_SUPPLIERS, new Set<string>(),
+      catalogue({ brand: 'Apple', model: 'iPhone 13' }));
+
+  it('does not hold stock the database already owns', () => {
+    // THE REGRESSION, in its own words. The operator downloaded the app's
+    // all-time Inventory Report — 805 rows, every one a unit already on the
+    // books — re-uploaded it, and 505 rows were held because the admin
+    // catalogue happened not to list their models. Galaxy A32 alone was 214
+    // of them. The catalogue grows when someone adds to it; it is not, and
+    // never was, a census of what is in stock.
+    const rows = [row({ rowNum: 2, model: 'Galaxy A32', imei: '350000000000201' })];
+    expect(preview(rows).heldUnknownModel, 'catalogue alone holds it').toHaveLength(1);
+
+    const p = previewWith(rows, [unit({ id: 'u1', model: 'Galaxy A32' })]);
+    expect(p.heldUnknownModel, 'a unit carrying that model makes it known').toEqual([]);
+    expect(p.toCreate).toHaveLength(1);
+  });
+
+  it('matches across brand prefix and casing', () => {
+    // The report's Model column carries whatever each unit stores, which is
+    // inconsistent by history: "SAMSUNG GALAXY S21", "Galaxy S21" and "S21"
+    // are one phone. Comparing on the bucket key is what makes them one.
+    const units = [unit({ id: 'u1', model: 'Galaxy S21', brand: 'Samsung' })];
+    for (const spelling of ['SAMSUNG GALAXY S21', 'Galaxy S21', 'galaxy s21', 'S21']) {
+      const p = previewWith([row({ rowNum: 2, model: spelling, imei: '350000000000202' })], units);
+      expect(p.heldUnknownModel, `${spelling} should be known`).toEqual([]);
+    }
+  });
+
+  it('groups one phone as one entry, not one per spelling', () => {
+    // "APPLE IPHONE 8" and "IPHONE 8" were listed as two unknown models
+    // needing two catalogue entries. They are one phone; one entry resolves
+    // both, and showing two invites a duplicate catalogue row.
+    const p = preview([
+      row({ rowNum: 2, model: 'APPLE IPHONE 8', imei: '350000000000203' }),
+      row({ rowNum: 3, model: 'iPhone 8', imei: '350000000000204' }),
+    ]);
+    expect(p.heldUnknownModel).toHaveLength(2);
+    expect(p.unknownModels).toHaveLength(1);
+    expect(p.unknownModels[0].rowNums).toEqual([2, 3]);
+  });
+
+  it('still holds a model nothing in the database has ever carried', () => {
+    // The loosening is bounded: "already on the books" is a real unit, not a
+    // free pass. A new supplier code has no unit behind it and stays held.
+    const p = previewWith(
+      [row({ rowNum: 2, model: 'SG TABA (10.1)(T580) 16GB', imei: '350000000000205' })],
+      [unit({ id: 'u1', model: 'Galaxy A32' })],
+    );
+    expect(p.heldUnknownModel).toHaveLength(1);
+    expect(p.toCreate).toEqual([]);
+  });
+});
+
 // ── The sales importer stays gone ────────────────────────────────────────────
 
 const STILL_DELETED = [
