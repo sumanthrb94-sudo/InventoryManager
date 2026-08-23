@@ -41,3 +41,4 @@ simulation-output/
 # Verification workbooks built from a real exported report — real stock and
 # buy prices, handed to the operator directly rather than kept in the repo.
 inventory-report-with-*-new-units.xlsx
+inventory-report-ALL-SCENARIOS.xlsx
