@@ -238,6 +238,32 @@ export function buildReconciliationPatches(cluster: ModelCluster): PatchTarget[]
 
 
 /**
+ * Resolve a raw model string against the admin catalog, SAYING WHETHER IT HIT.
+ *
+ * canonicaliseModel below answers "what should this be called", and when the
+ * answer is "no idea" it hands back the raw text. That is the right behaviour
+ * for naming, and the wrong one for a gate: the caller cannot tell a genuine
+ * catalog hit from a supplier product code passed through untouched.
+ *
+ * The inventory importer needs the difference. Every other intake route is
+ * bound to the catalog by a picker, so a model that is not in Configuration
+ * cannot be typed into existence; import was the one hole, and it is why the
+ * importer was deleted in 2026-08. Unknown-model rows are now HELD rather than
+ * written, and this is what identifies them.
+ */
+export function resolveCatalogModel(
+  rawModel: string,
+  brand: string,
+  catalogIndex: Map<string, string>,
+): { matched: boolean; model: string } {
+  const model = String(rawModel || '').trim();
+  if (!model) return { matched: false, model };
+  const hit = catalogIndex.get(bucketKey(String(brand || '').trim(), model))
+    ?? catalogIndex.get(bucketKey('', model));
+  return hit ? { matched: true, model: hit } : { matched: false, model };
+}
+
+/**
  * Snap a raw model string to the admin catalog spelling.
  *
  * The catalog (Admin → Configuration) is where model names are decided.
@@ -246,16 +272,13 @@ export function buildReconciliationPatches(cluster: ModelCluster): PatchTarget[]
  * made the manual reconciliation screen necessary in the first place.
  *
  * Returns the input unchanged when the model isn't in the catalog, so an
- * unknown device imports exactly as typed.
+ * unknown device imports exactly as typed. Callers that must NOT accept an
+ * unknown model want resolveCatalogModel above instead.
  */
 export function canonicaliseModel(
   rawModel: string,
   brand: string,
   catalogIndex: Map<string, string>,
 ): string {
-  const model = String(rawModel || '').trim();
-  if (!model) return model;
-  return catalogIndex.get(bucketKey(String(brand || '').trim(), model))
-    ?? catalogIndex.get(bucketKey('', model))
-    ?? model;
+  return resolveCatalogModel(rawModel, brand, catalogIndex).model;
 }

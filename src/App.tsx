@@ -5,7 +5,7 @@ import {
   PackagePlus, Package, RefreshCw,
   LogOut, Plus, LayoutDashboard,
   TrendingUp, FileText, Users, Settings, Database,
-  ClipboardList, Menu, X, Megaphone, SlidersHorizontal, Receipt,
+  ClipboardList, Menu, X, Megaphone, SlidersHorizontal, Receipt, Upload,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import Dashboard, { NavAction } from './components/Dashboard';
@@ -24,6 +24,8 @@ import { subscribeToSyncStatus } from './lib/dbService';
 import { InventoryStoreProvider, useInventoryStore } from './lib/inventoryStore';
 import DataSeedPage from './components/DataSeedPage';
 import LoadMockDataModal from './components/LoadMockDataModal';
+import InventoryReportImport from './components/InventoryReportImport';
+import { SHOW_IMPORT_UI } from './lib/featureFlags';
 import ErrorBoundary from './components/ErrorBoundary';
 import { useBuildVersionCheck } from './lib/useBuildVersionCheck';
 import type { SupplierWhatsappUpdate } from './types';
@@ -165,6 +167,7 @@ function AppShell({ user }: { user: User }) {
   // header. Anchored under the button with absolute positioning + outside-
   // click dismiss, so it doesn't pull in a popover library for one menu.
   const [isLoadMockDataOpen, setIsLoadMockDataOpen] = useState(false);
+  const [isImportModalOpen, setIsImportModalOpen] = useState(false);
   const [syncConnected, setSyncConnected]         = useState(false);
   const [isAlertsExpanded, setIsAlertsExpanded]   = useState(false);
   /** Hamburger drawer for desktop nav. Mobile keeps its bottom-tab bar
@@ -575,6 +578,16 @@ function AppShell({ user }: { user: User }) {
               className="md:hidden p-2 rounded-xl text-slate-400 hover:text-slate-900 hover:bg-slate-100 transition-all">
               <LogOut size={14} strokeWidth={2.5} />
             </button>
+            {/* Admin-only, and gated again at the flag: import is the only
+                route that can create units in bulk from a file. */}
+            {SHOW_IMPORT_UI && userIsAdmin && (
+              <button onClick={() => setIsImportModalOpen(true)}
+                title="Import Inventory Report"
+                aria-label="Import Inventory Report"
+                className="p-2 rounded-xl text-slate-400 hover:text-slate-900 hover:bg-slate-100 transition-all">
+                <Upload size={14} strokeWidth={2.5} />
+              </button>
+            )}
             {showSampleDataButton && userIsAdmin && (
               <button onClick={() => setIsLoadMockDataOpen(true)}
                 title="Load sample data"
@@ -663,6 +676,9 @@ function AppShell({ user }: { user: User }) {
       <AnimatePresence>
         {isBatchModalOpen  && <NewBatchModal  onClose={() => setIsBatchModalOpen(false)} />}
         {isLoadMockDataOpen && <LoadMockDataModal onClose={() => setIsLoadMockDataOpen(false)} />}
+        {SHOW_IMPORT_UI && userIsAdmin && isImportModalOpen && (
+          <InventoryReportImport onClose={() => setIsImportModalOpen(false)} />
+        )}
       </AnimatePresence>
     </div>
   );

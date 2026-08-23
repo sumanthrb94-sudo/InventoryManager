@@ -1,13 +1,41 @@
 /**
  * Build-time UI flags. One obvious home so a surface can be switched off in
  * production without hunting for every entry point that renders it.
- *
- * The two import flags that used to live here are gone. Gating was the answer
- * for a while; deleting the importers outright (2026-08) made the flags dead
- * weight, and a dead flag is an invitation to switch a surface back on against
- * modules that no longer exist. See noImportSurface.test.ts for what replaced
- * them and why.
  */
+
+/**
+ * Whether the Inventory Report import is reachable.
+ *
+ * ON, for admins, as of 2026-08-23 — and this time with the gate that was
+ * missing the first time round.
+ *
+ * The importer was deleted in 2026-08, not merely hidden, and the reason was
+ * specific: it was the only route in the app that could create an inventory
+ * unit from free text. Every other intake path goes through a picker bound to
+ * the admin model catalogue, so a model that is not in Configuration cannot be
+ * typed into existence. Import took whatever the Model column said, which put
+ * supplier product codes into production as model names — "SG TABA
+ * (10.1)(T580) 16GB" and the like, unclassifiable, bucketing as their own SKU
+ * and surfacing in Stock Alerts as phones to reorder that were never stocked.
+ *
+ * The operator asked for it back, with that hole closed. It is closed at the
+ * point it has to be — buildPreview, not the UI: a row whose Model is not in
+ * the catalogue is HELD, so it is neither created nor updated and its supplier
+ * is not created either. The rest of the file imports normally. Held rows come
+ * back as a downloadable workbook in the same schema to be corrected and
+ * re-uploaded, and an admin can add the model to the catalogue from inside the
+ * preview, at which point the waiting rows join the import with no re-upload.
+ *
+ * SALES import was NOT restored. Only the inventory route came back.
+ *
+ * What this still re-opens, so it is a decision and not a surprise: import is
+ * the only route that can CREATE units in bulk, so a stale or hand-edited file
+ * can reintroduce stock that was deliberately removed. The file matters.
+ *
+ * The call site in App.tsx is `SHOW_IMPORT_UI && userIsAdmin`; an employee can
+ * neither see nor reach it.
+ */
+export const SHOW_IMPORT_UI = true;
 
 /**
  * Whether the "Build a new file from …" template-download block is shown.
