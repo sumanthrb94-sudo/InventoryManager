@@ -1074,31 +1074,51 @@ function PreviewPhase({
 
       {preview.newSuppliers.length > 0 && (
         <DetailPanel title={`New suppliers · ${preview.newSuppliers.length}`} tone="amber">
-          {/* The near misses lead, because they are the only names here with a
-              question attached. The rest are just a list. */}
+          {/* ONE LINE PER SUPPLIER, so the count in the title and the number of
+              lines below it are the same number.
+
+              They were not. The panel showed "3", then two warnings, then a
+              separate comma-separated list of all three — and the operator
+              asked where the third had gone. The unflagged name was in the
+              list, but two warnings above a blob of three names reads as two
+              things, not three. Every new supplier now gets its own row and
+              says which of the two it is. */}
+          <ul className="space-y-1">
+            {preview.newSuppliers.map(name => {
+              const miss = preview.supplierNearMisses.find(m => m.candidate === name);
+              return (
+                <li key={name} className="text-[10px] font-mono flex items-start gap-1.5">
+                  {miss ? (
+                    <>
+                      <AlertTriangle size={11} className="mt-px flex-shrink-0 text-rose-600" />
+                      <span className="text-rose-700">
+                        <strong>{name}</strong> — did you mean <strong>{miss.match}</strong>?
+                        {miss.kind === 'punctuation'
+                          ? ' Same letters, different spacing.'
+                          : ` ${miss.distance} character${miss.distance === 1 ? '' : 's'} apart.`}
+                      </span>
+                    </>
+                  ) : (
+                    <>
+                      <PlusCircle size={11} className="mt-px flex-shrink-0 text-amber-500" />
+                      <span className="text-amber-700">
+                        <strong>{name}</strong>
+                        <span className="text-amber-500"> — no close match, treated as genuinely new</span>
+                      </span>
+                    </>
+                  )}
+                </li>
+              );
+            })}
+          </ul>
           {preview.supplierNearMisses.length > 0 && (
-            <div className="mb-2 space-y-1">
-              {preview.supplierNearMisses.map(m => (
-                <p key={m.candidate} className="text-[10px] font-mono text-rose-700 flex items-start gap-1.5">
-                  <AlertTriangle size={11} className="mt-px flex-shrink-0" />
-                  <span>
-                    <strong>{m.candidate}</strong> — did you mean <strong>{m.match}</strong>?
-                    {m.kind === 'punctuation'
-                      ? ' Same letters, different spacing.'
-                      : ` ${m.distance} character${m.distance === 1 ? '' : 's'} apart.`}
-                  </span>
-                </p>
-              ))}
-              <p className="text-[9px] text-slate-500 leading-relaxed">
-                Not blocking — these will be created as written. Cancel and fix
-                the Supplier column if they are typos, since a misspelled name
-                becomes its own supplier and splits that supplier's history.
-              </p>
-            </div>
+            <p className="text-[9px] text-slate-500 leading-relaxed mt-2">
+              Not blocking — all of these will be created as written. Cancel and
+              fix the Supplier column if the flagged ones are typos, since a
+              misspelled name becomes its own supplier and splits that
+              supplier's history.
+            </p>
           )}
-          <p className="text-[10px] font-mono text-amber-700 leading-relaxed">
-            {preview.newSuppliers.join(', ')}
-          </p>
         </DetailPanel>
       )}
 

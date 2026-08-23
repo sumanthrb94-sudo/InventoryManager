@@ -340,6 +340,63 @@ console.log('\n7 · export the app\'s own inventory report and re-upload it');
   await ctx.close();
 }
 
+// ── 8 · New suppliers: one row each, and typos called out ───────────────────
+//
+// The count and the rows disagreed. The panel said "3", listed two warnings,
+// then repeated all three names in a comma-separated line — and the operator
+// asked where the third had gone. It was there; two warnings above a blob of
+// three names simply does not read as three. Both halves are checked here: the
+// warning fires on the right names, and the number of rows equals the count in
+// the title.
+console.log('\n8 · new suppliers, one row each');
+{
+  const ctx = await browser.newContext({
+    viewport: { width: 1500, height: 1150 }, acceptDownloads: true,
+  });
+  const page = await ctx.newPage();
+  page.on('pageerror', e => console.log(`  [pageerror] ${e.message}`));
+  await page.goto(`${BASE}?e2eReset=1`, { waitUntil: 'networkidle' });
+  await page.waitForTimeout(1500);
+  await page.evaluate(() => {
+    const s = JSON.parse(sessionStorage.getItem('__e2e_firestore__') || '{}');
+    s.suppliers = {};
+    for (const n of ['MHL', 'NANAK', 'IMAX', 'NIHAL', 'MOBILE KIT', 'RR STOCK', 'ABC', 'BUNTY']) {
+      const id = `sup-${n.replace(/\W/g, '')}`;
+      s.suppliers[id] = { id, name: n, portal: 'Direct', ownerId: 'shared' };
+    }
+    sessionStorage.setItem('__e2e_firestore__', JSON.stringify(s));
+  });
+  await page.goto(BASE, { waitUntil: 'networkidle' });
+  await page.waitForTimeout(1500);
+
+  // NIHAL is known; NIHAAL is a typo of it; MOBILEKIT differs only in spacing;
+  // PHONEBOX DIRECT is genuinely new. Three new suppliers, two of them suspect.
+  const supplierFile = writeWorkbook(resolve(TMP, 'e2e-inv-import-suppliers.xlsx'), [
+    { ...COMMON, 'Model': 'IPHONE 13', 'IMEI': '359999999999801', 'Storage': '128GB', 'BP': 200, 'Stock Type': 'Office', 'Supplier': 'NIHAL' },
+    { ...COMMON, 'Model': 'IPHONE 13', 'IMEI': '359999999999802', 'Storage': '128GB', 'BP': 200, 'Stock Type': 'Office', 'Supplier': 'NIHAAL' },
+    { ...COMMON, 'Model': 'IPHONE 13', 'IMEI': '359999999999803', 'Storage': '128GB', 'BP': 200, 'Stock Type': 'Office', 'Supplier': 'PHONEBOX DIRECT' },
+    { ...COMMON, 'Model': 'IPHONE 13', 'IMEI': '359999999999804', 'Storage': '128GB', 'BP': 200, 'Stock Type': 'Office', 'Supplier': 'MOBILEKIT' },
+  ]);
+
+  const modal = await openImport(page, supplierFile);
+  const text = await modal.innerText();
+  const counted = Number((text.match(/new suppliers · (\d+)/i) || [])[1]);
+  const rows = await modal.locator('li')
+    .filter({ hasText: /did you mean|genuinely new/ }).allInnerTexts();
+
+  check('new suppliers counted', counted, 3);
+  check('one row rendered per new supplier', rows.length, counted);
+  check('the typo is flagged', /NIHAAL — did you mean NIHAL\?/i.test(text), true);
+  check('the spacing difference is flagged', /MOBILEKIT — did you mean MOBILE KIT\?/i.test(text), true);
+  check('the genuinely new one is shown, not warned',
+    /PHONEBOX DIRECT — no close match/i.test(text), true);
+  check('a known supplier is not counted as new', /\bNIHAL — did you mean/i.test(text), false);
+  check('nothing is blocked', /load \d+ rows?/i.test(text), true);
+
+  await modal.screenshot({ path: `${OUT}/09-new-suppliers-one-row-each.png` });
+  await ctx.close();
+}
+
 await browser.close();
 console.log(`\n${checks - failures}/${checks} checks passed`);
 console.log(failures === 0 ? 'INVENTORY IMPORT E2E: PASS' : `INVENTORY IMPORT E2E: ${failures} FAILED`);
