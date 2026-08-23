@@ -262,6 +262,42 @@ describe('a model already on the books is known, catalogue or not', () => {
   });
 });
 
+describe('the preview says how much variety the file holds, not just how much stock', () => {
+  it('counts distinct models beside the row count', () => {
+    // A row count alone says nothing about whether this is the right export.
+    // 805 rows could be 3 models or 300.
+    const p = preview([
+      row({ rowNum: 2, model: 'iPhone 13', imei: '350000000000301' }),
+      row({ rowNum: 3, model: 'iPhone 13', imei: '350000000000302' }),
+      row({ rowNum: 4, model: 'Galaxy A32', imei: '350000000000303' }),
+    ]);
+    expect(p.total).toBe(3);
+    expect(p.distinctModels).toBe(2);
+  });
+
+  it('counts one phone once however it is spelled', () => {
+    // Same folding the gate uses, so the number agrees with what the app
+    // considers a model everywhere else.
+    const p = preview([
+      row({ rowNum: 2, model: 'SAMSUNG GALAXY S21', imei: '350000000000304' }),
+      row({ rowNum: 3, model: 'Galaxy S21', imei: '350000000000305' }),
+      row({ rowNum: 4, model: 'S21', imei: '350000000000306' }),
+    ]);
+    expect(p.distinctModels).toBe(1);
+  });
+
+  it('counts held and invalid rows too', () => {
+    // It describes the FILE, not the importable subset — otherwise the number
+    // would move as models are added to the catalogue, which is confusing.
+    const p = preview([
+      row({ rowNum: 2, model: 'iPhone 13', imei: '350000000000307' }),
+      row({ rowNum: 3, model: 'Some Unknown Thing', imei: '350000000000308' }),
+    ]);
+    expect(p.heldUnknownModel).toHaveLength(1);
+    expect(p.distinctModels).toBe(2);
+  });
+});
+
 // ── The sales importer stays gone ────────────────────────────────────────────
 
 const STILL_DELETED = [

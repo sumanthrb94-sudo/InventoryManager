@@ -90,6 +90,13 @@ interface PreviewBuckets {
   // One entry per distinct unknown model, with the rows waiting on it, so the
   // operator resolves a model once rather than row by row.
   unknownModels: { raw: string; brand: string; rowNums: number[] }[];
+  // How many distinct models the file covers, counted the way the app buckets
+  // them — brand prefix and casing folded away, so "SAMSUNG GALAXY S21",
+  // "Galaxy S21" and "S21" are one model. A row count alone says how much
+  // stock is in the file and nothing about how much VARIETY, which is the
+  // number that tells the operator whether they are looking at the right
+  // export at all.
+  distinctModels: number;
 }
 
 /** Coarse bucket label for a unit already in the database, matching the
@@ -267,8 +274,18 @@ export function buildPreview(
     }
   }
 
+  // Every row in the file, not just the importable ones: this is a fact about
+  // what was uploaded, so held and invalid rows count too.
+  const modelKeys = new Set<string>();
+  for (const r of parsed) {
+    const m = (r.model || '').trim();
+    if (!m) continue;
+    modelKeys.add(modelBucketKey(parseBrandModelStorage(m).brand || '', m));
+  }
+
   return {
     total: parsed.length,
+    distinctModels: modelKeys.size,
     toCreate, toUpdate, invalid,
     newSuppliers: Array.from(newSuppliers).sort(),
     duplicates,
@@ -843,6 +860,13 @@ function PreviewPhase({
         <span>
           <FileSpreadsheet size={11} className="inline mr-1" />
           {fileName} · {preview.total.toLocaleString()} {preview.total === 1 ? 'row' : 'rows'}
+          {' · '}
+          <span
+            className="text-slate-700 font-semibold"
+            title="Distinct models in this file, counted the way the app groups them: brand prefix and casing folded away, so SAMSUNG GALAXY S21, Galaxy S21 and S21 are one model."
+          >
+            {preview.distinctModels.toLocaleString()} {preview.distinctModels === 1 ? 'model' : 'models'}
+          </span>
         </span>
       </div>
 

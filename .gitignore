@@ -37,3 +37,7 @@ docs/client-report/index.html
 e2e-screenshots/month-simulation/manifest.json
 e2e-screenshots/month-simulation/*.xlsx
 simulation-output/
+
+# Verification workbooks built from a real exported report — real stock and
+# buy prices, handed to the operator directly rather than kept in the repo.
+inventory-report-with-*-new-units.xlsx
