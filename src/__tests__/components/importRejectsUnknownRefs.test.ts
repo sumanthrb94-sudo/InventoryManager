@@ -24,7 +24,7 @@
  * be unsatisfiable and the operator would simply be stuck.
  */
 import { describe, it, expect } from 'vitest';
-import { auditRowMissing, suggestRowFixes } from '../../components/SalesReportImport';
+import { auditRowMissing, suggestRowFixes, buildPreview } from '../../components/SalesReportImport';
 import { buildCatalogIndex } from '../../lib/modelReconciliation';
 
 const CATALOG = buildCatalogIndex([
@@ -294,5 +294,89 @@ describe('the recommendation stays quiet when it would be noise', () => {
     expect(auditRowMissing(row({ model: 'iPhoen 13' }), KNOWN))
       .toContain('model not in catalog');
     expect(suggestRowFixes(row({ model: 'iPhoen 13' }), KNOWN).model).toBeNull();
+  });
+});
+
+
+// ── The same bug, at the level it actually lived ────────────────────────────
+
+/**
+ * THE SECOND HALF, AND WHY IT NEEDS buildPreview AND NOT auditRowMissing.
+ *
+ * The first fix passed the unit's RAW stored model as `unitModel`. That still
+ * held rows on the next live upload, because buildPreview does not hand
+ * auditRowMissing the raw string — it hands it the model AFTER
+ * parseBrandModelStorage and canonicaliseModel. A great deal of legacy stock
+ * carries its storage inside the model ("SAMSUNG GALAXY A32 64GB"); step 1
+ * lifts it into its own field, the row becomes "GALAXY A32", and comparing
+ * that against the raw string reads as an operator edit when nothing was
+ * edited.
+ *
+ * A test written against auditRowMissing cannot see any of that — it would
+ * pass whichever value buildPreview chose, which is exactly how the first fix
+ * shipped half-done. So this drives buildPreview and asserts on the row it
+ * produces.
+ */
+const unit = (imei: string, model: string) => ({
+  id: `u-${imei}`, imei, model, storage: '', colour: 'Black',
+  status: 'available', buyPrice: 200, dateIn: '2026-07-01',
+  supplierName: 'IMAX', flags: [], platformListed: false,
+  ownerId: 'shared', createdAt: '2026-07-01',
+}) as any;
+
+const sale = (imei: string) => ({
+  id: `AMAZON__A1__${imei}`, marketplace: 'AMAZON', orderNumber: 'A1',
+  imei, sku: '', supplierName: 'IMAX', saleDate: '2026-08-18',
+  buyPrice: 200, salePrice: 300, quantity: 1,
+}) as any;
+
+/** Real shapes, taken off the operator's live upload. */
+const LEGACY_STOCK = [
+  'SAMSUNG GALAXY A32 64GB',
+  'GALAXY A32 5G 64GB',
+  'SAMSUNG GALAXY TAB A11 32GB',
+  'GALAXY TAB A11',
+  'IPAD 11TG GEN',
+  'GALAXY XCOVER5',
+  'SG-A32-5G-64GB-DS-BK-EX',
+];
+
+describe('buildPreview does not hold stock it already owns', () => {
+  // A catalogue that covers NONE of the legacy spellings — the operator's
+  // real situation. It must be non-empty, or the no-catalogue escape hatch
+  // would carry the test rather than the fix.
+  const catalogue = [{ brand: 'Apple', model: 'iPhone 13' }] as any;
+
+  for (const stored of LEGACY_STOCK) {
+    it(`"${stored}" reconciles instead of blocking`, () => {
+      const imei = '350111000000077';
+      const p = buildPreview(
+        { sales: [sale(imei)], perSheetCounts: {} as any, errors: [] },
+        [], [unit(imei, stored)], catalogue,
+      );
+      const held = p.recordsToComplete
+        .flatMap(r => auditRowMissing(r, {
+          catalogIndex: buildCatalogIndex(catalogue),
+          supplierNames: new Set(['imax']),
+        }));
+      expect(held).toEqual([]);
+    });
+  }
+
+  it('still holds an orphan carrying one of those same names', () => {
+    // Nothing about the NAME is being excused — only the fact that a unit
+    // already exists under it. With no unit, the identical string blocks.
+    const p = buildPreview(
+      { sales: [sale('350111000000078')], perSheetCounts: {} as any, errors: [] },
+      [], [unit('350111000000079', 'iPhone 13')], catalogue,
+    );
+    const row = p.recordsToComplete.find(r => r.imei === '350111000000078');
+    expect(row).toBeTruthy();
+    // The orphan has no model at all here (no SKU to derive one from), which
+    // is its own blocker — the point is that it is NOT waved through.
+    expect(auditRowMissing(row!, {
+      catalogIndex: buildCatalogIndex(catalogue),
+      supplierNames: new Set(['imax']),
+    }).length).toBeGreaterThan(0);
   });
 });

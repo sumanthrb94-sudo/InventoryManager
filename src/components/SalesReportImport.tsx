@@ -561,6 +561,21 @@ export function buildPreview(
     const model = seededModel
       ? canonicaliseModel(parsedSeed.model || seededModel, parsedSeed.brand || '', catalogIndex)
       : '';
+    // What this row STARTED with, when the IMEI resolved to a real unit.
+    //
+    // It is the model AFTER the pipeline above, not the unit's raw string,
+    // and the difference is the whole point. Comparing the row's parsed model
+    // against the unit's raw one fails the moment the parse actually does
+    // something — and it usually does: a great deal of legacy stock carries
+    // its storage inside the model ("SAMSUNG GALAXY A32 64GB"), which step 1
+    // lifts out into its own field. The row then reads "GALAXY A32", the unit
+    // still reads "SAMSUNG GALAXY A32 64GB", and a raw comparison calls that
+    // an edit by the operator when nothing was edited at all.
+    //
+    // Taking the derived value makes the two sides like-for-like: unchanged
+    // at build time, and different the moment the operator actually types
+    // something, which is exactly when the gate should come back.
+    const unitModel = matched ? model : undefined;
     const supplierName = (matched?.supplierName || s.supplierName || '').trim();
     const buyPrice = matched?.buyPrice ?? s.buyPrice ?? 0;
     // Colour / storage precedence: the matched unit, then whatever the FILE
@@ -581,7 +596,7 @@ export function buildPreview(
       imei: s.imei || '', model, supplierName, buyPrice,
       salePrice: s.salePrice ?? 0, saleDate: s.saleDate || '',
       marketplace: s.marketplace, orderNumber: s.orderNumber || '',
-      unitModel: matched?.model || undefined,
+      unitModel,
       unitSupplierName: matched?.supplierName || undefined,
     }, knownRefs);
 
@@ -608,7 +623,7 @@ export function buildPreview(
       sku: s.sku || '',
       model,
       modelRaw: seededModel,
-      unitModel: matched?.model || undefined,
+      unitModel,
       unitSupplierName: matched?.supplierName || undefined,
       colour,
       storage,
