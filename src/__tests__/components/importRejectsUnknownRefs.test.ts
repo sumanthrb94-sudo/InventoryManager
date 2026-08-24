@@ -24,7 +24,9 @@
  * be unsatisfiable and the operator would simply be stuck.
  */
 import { describe, it, expect } from 'vitest';
-import { auditRowMissing, suggestRowFixes, buildPreview } from '../../components/SalesReportImport';
+import {
+  auditRowMissing, suggestRowFixes, buildPreview, inventoryModelIndex,
+} from '../../components/SalesReportImport';
 import { buildCatalogIndex } from '../../lib/modelReconciliation';
 
 const CATALOG = buildCatalogIndex([
@@ -378,5 +380,79 @@ describe('buildPreview does not hold stock it already owns', () => {
       catalogIndex: buildCatalogIndex(catalogue),
       supplierNames: new Set(['imax']),
     }).length).toBeGreaterThan(0);
+  });
+});
+
+
+// ── "An existing model in inventory", which is the rule as stated ───────────
+
+/**
+ * THE CONTRADICTION THIS REMOVES
+ *
+ * The operator's rule is "we won't take any unit that doesn't have an existing
+ * model in inventory or an existing supplier". Gating on the admin CATALOG
+ * alone is a narrower rule, and it produced a dead end they hit at once: each
+ * row's model picker searches the models on units in stock, so it offered a
+ * model, they selected it, and the gate went on rejecting the row.
+ *
+ * Accepting inventory does not reopen the hole. The hole was a name typed into
+ * a spreadsheet minting a model nobody stocks. A name that matches stock on
+ * hand is, by definition, one the business stocks.
+ */
+describe('a model already in inventory is accepted, not just a catalogued one', () => {
+  const catalogue = [{ brand: 'Apple', model: 'iPhone 13' }] as any;
+  const stock = [unit('350111000000201', 'SAMSUNG GALAXY A32 64GB')];
+  const known = () => {
+    const inv = inventoryModelIndex(stock);
+    return {
+      catalogIndex: buildCatalogIndex(catalogue),
+      inventoryModelKeys: inv.keys,
+      inventoryModelNames: inv.names,
+      catalogModelNames: catalogue.map((c: any) => c.model),
+      supplierNames: new Set(['imax']),
+      supplierDisplayNames: ['IMAX'],
+    };
+  };
+
+  it('accepts the parsed spelling the picker would hand back', () => {
+    // What the picker offers for that unit is "GALAXY A32" — storage lifted
+    // into its own field. Before, the gate compared that against a catalog
+    // that has no A32 at all and rejected it.
+    expect(auditRowMissing(row({ model: 'GALAXY A32' }), known())).toEqual([]);
+  });
+
+  it('accepts the raw stored spelling too', () => {
+    expect(auditRowMissing(row({ model: 'SAMSUNG GALAXY A32 64GB' }), known())).toEqual([]);
+  });
+
+  it('still rejects a model that is in neither', () => {
+    expect(auditRowMissing(row({ model: 'Nokia Fictional 9000' }), known()))
+      .toContain('model not in catalog');
+  });
+
+  it('still rejects a typo of one that IS in inventory', () => {
+    // The whole point: close-but-wrong must not slip through just because the
+    // real thing is in stock.
+    expect(auditRowMissing(row({ model: 'GALXY A32' }), known()))
+      .toContain('model not in catalog');
+  });
+
+  it('suggests the inventory spelling for that typo, so the row can proceed', () => {
+    const s = suggestRowFixes({ model: 'GALXY A32', supplierName: 'IMAX' }, known());
+    expect(s.model?.match).toBe('GALAXY A32');
+    // And taking it clears the block — a suggestion the gate then refuses
+    // would be the same dead end in a friendlier font.
+    expect(auditRowMissing(row({ model: s.model!.match }), known())).toEqual([]);
+  });
+
+  it('collapses the many spellings of one phone to a single suggestion', () => {
+    const messy = [
+      unit('1', 'SAMSUNG GALAXY A32 64GB'),
+      unit('2', 'GALAXY A32 5G 64GB'),
+      unit('3', 'Galaxy A32'),
+      unit('4', 'GALAXY A32 128GB'),
+    ];
+    const { names } = inventoryModelIndex(messy);
+    expect(names).toEqual(['GALAXY A32']);
   });
 });

@@ -120,6 +120,11 @@ const SCENARIOS = [
     { id: 'A7',  kind: 'quiet',      imei: '359900000000205', model: 'iPhone 16',     supplier: 'NIHAL',                bp: 300, sp: 420 },
     { id: 'A8',  kind: 'quiet',      imei: '359900000000206', model: 'Galaxy A55',    supplier: 'NIHAL',                bp: 180, sp: 260 },
     { id: 'A9',  kind: 'legacy',     imei: OFFICE[8].imei, model: '',                 supplier: 'MOBILE WHOLESALE LTD', bp: 260, sp: 380 },
+    // A NEW handset of a model the catalogue has never heard of but the
+    // warehouse plainly stocks (OFFICE[8] is one). The operator's rule is
+    // "an existing model in inventory", and the row's own picker offers this
+    // name — so the gate has to take it, or the picker is a dead end.
+    { id: 'A10', kind: 'ready',      imei: '359900000000207', model: 'IPAD 11TG GEN',  supplier: 'NIHAL',                bp: 260, sp: 380 },
   ]),
   ...M('BM', [
     { id: 'B1',  kind: 'reconcile',  imei: OFFICE[2].imei, model: 'Galaxy S23 Ultra', supplier: 'MOBILE WHOLESALE LTD', bp: 380, sp: 520 },

@@ -187,16 +187,88 @@ export interface AuditCompletionRow {
   saleDate: string;
 }
 
-/** Is this model name in the admin catalog?
+/**
+ * The two ways a model name can be folded for comparison.
  *
- *  `buildCatalogIndex` stores every entry twice — once under `brand||model`
- *  and once under a brand-less `||model` — precisely so a lookup can succeed
- *  without knowing the brand. The audit row carries only a model name, so the
- *  brand-less key is the one to use, and reusing the index keeps this on the
- *  same normalisation as the rest of the app instead of inventing a second. */
-function catalogHasModel(catalogIndex: Map<string, string>, model: string): boolean {
-  if (catalogIndex.size === 0) return true;   // no catalog loaded — cannot judge
-  return catalogIndex.has(`||${normalizeBucketModel(model)}`);
+ * The plain fold is what `buildCatalogIndex` keys on. The PIPELINE fold runs
+ * the name through parseBrandModelStorage first, which is what lifts a
+ * trailing storage size out into its own field — and that matters because the
+ * two sides of every comparison here rarely arrive in the same shape. A unit
+ * in stock reads "SAMSUNG GALAXY A32 64GB"; the row derived from a sale reads
+ * "Galaxy A32". Same phone, different string, and only the pipeline fold sees
+ * that.
+ *
+ * Both are offered because the plain one must keep working for a catalog
+ * entry that is already clean ("iPhone 13"), where the pipeline is a no-op.
+ */
+export function modelKeys(model: string): string[] {
+  const plain = normalizeBucketModel(model);
+  const parsed = parseBrandModelStorage(model);
+  const piped = normalizeBucketModel(parsed.model || model);
+  return plain === piped ? [plain] : [plain, piped];
+}
+
+/**
+ * Is this a model the business already has — in the admin catalog, or on a
+ * unit it actually holds?
+ *
+ * WHY INVENTORY COUNTS, NOT JUST THE CATALOG
+ *
+ * The operator's rule is "we won't take any unit that doesn't have an existing
+ * model in inventory or an existing supplier". Gating on the CATALOG alone was
+ * a narrower rule than that, and it produced a contradiction the operator hit
+ * immediately: the model picker on each row searches the models on units in
+ * stock, so it would offer a model, the operator would select it, and the gate
+ * would go on rejecting the row. A picker that offers what the gate refuses is
+ * not a gate, it is a dead end.
+ *
+ * Accepting inventory does not reopen the hole this exists to close. The hole
+ * was a name TYPED INTO A FILE minting a model nobody stocks; a name that
+ * matches stock on hand is, by definition, one the business stocks. What it
+ * does mean is that legacy spellings stay reachable — which is the cost of
+ * being able to import at all, and cleaning them up belongs in Data Health,
+ * not in a sales upload.
+ */
+function modelIsKnown(known: KnownRefs, model: string): boolean {
+  const idx = known.catalogIndex;
+  const inv = known.inventoryModelKeys;
+  // Cannot judge: no catalog AND no stock. A freshly wiped database would
+  // otherwise reject every row with no way to satisfy it.
+  if (!idx) return true;
+  if (idx.size === 0 && !(inv && inv.size > 0)) return true;
+  const keys = modelKeys(model);
+  return keys.some(k => idx.has(`||${k}`) || Boolean(inv?.has(k)));
+}
+
+
+/**
+ * Every model the business actually holds, folded for lookup and kept in a
+ * readable spelling for the suggestion.
+ *
+ * Deduped on the FOLDED key, so the twelve ways a Galaxy A32 is spelled across
+ * a real inventory collapse to one entry — otherwise the "did you mean" pool
+ * is mostly the same phone over and over and the operator is picking between
+ * spellings of one device.
+ *
+ * The representative spelling is the parsed one ("GALAXY A32", not
+ * "SAMSUNG GALAXY A32 64GB"): storage belongs in the storage field, and
+ * offering it inside the model name is how it got in there in the first place.
+ */
+export function inventoryModelIndex(
+  units: { model?: string }[],
+): { keys: Set<string>; names: string[] } {
+  const keys = new Set<string>();
+  const byKey = new Map<string, string>();
+  for (const u of units) {
+    const raw = String(u?.model || '').trim();
+    if (!raw) continue;
+    const parsed = parseBrandModelStorage(raw);
+    const display = (parsed.model || raw).trim();
+    for (const k of modelKeys(raw)) keys.add(k);
+    const primary = normalizeBucketModel(display);
+    if (primary && !byKey.has(primary)) byKey.set(primary, display);
+  }
+  return { keys, names: [...byKey.values()] };
 }
 
 /** Required-field audit check for a sold record. Returns the list of missing
@@ -208,6 +280,13 @@ export interface KnownRefs {
    *  hold the catalog keep the pre-2026-08 presence-only behaviour rather
    *  than rejecting everything. */
   catalogIndex?: Map<string, string>;
+  /** Bucket keys for every model already on a unit in stock, folded through
+   *  the same pipeline the row's own model goes through. The operator's rule
+   *  is "an existing model in inventory", and the row's picker offers exactly
+   *  these — so the gate has to accept them or the picker is a dead end. */
+  inventoryModelKeys?: ReadonlySet<string>;
+  /** Those models in a readable spelling, for the "did you mean" line. */
+  inventoryModelNames?: string[];
   /** Supplier names already on file, lower-cased and trimmed. Same
    *  omit-to-skip rule. */
   supplierNames?: ReadonlySet<string>;
@@ -254,10 +333,19 @@ export function suggestRowFixes(
   const modelCandidates = [modelName, (r.modelRaw || '').trim()]
     .filter(Boolean)
     .filter((v, i, a) => a.indexOf(v) === i);
-  const modelHit = known.catalogIndex && known.catalogModelNames
-    && modelName && !modelIsStored && !catalogHasModel(known.catalogIndex, modelName)
+  // Match against the catalog AND the models actually in stock, catalog
+  // first so a clean curated spelling wins over a legacy one when both are a
+  // hit. Without inventory in the pool the check could only ever suggest names
+  // from a catalog that, on a real database, covers a fraction of the stock —
+  // which is why so few held rows were getting a suggestion at all.
+  const suggestFrom = [
+    ...(known.catalogModelNames ?? []),
+    ...(known.inventoryModelNames ?? []),
+  ].filter(Boolean);
+  const modelHit = known.catalogIndex && suggestFrom.length
+    && modelName && !modelIsStored && !modelIsKnown(known, modelName)
     ? modelCandidates
-        .map(c => findModelNearMiss(c, known.catalogModelNames!))
+        .map(c => findModelNearMiss(c, suggestFrom))
         .find(Boolean) ?? null
     : null;
   return {
@@ -343,7 +431,7 @@ export function auditRowMissing(r: {
   const modelName = (r.model || '').trim();
   if (modelName && known.catalogIndex
       && !unchanged(modelName, r.unitModel, normalizeBucketModel)
-      && !catalogHasModel(known.catalogIndex, modelName)) {
+      && !modelIsKnown(known, modelName)) {
     missing.push('model not in catalog');
   }
   const supplier = (r.supplierName || '').trim();
@@ -375,8 +463,11 @@ export function buildPreview(
   const knownSupplierNames = new Set(
     units.map(u => (u.supplierName || '').trim().toLowerCase()).filter(Boolean),
   );
+  const inventoryModels = inventoryModelIndex(units);
   const knownRefs: KnownRefs = {
     catalogIndex,
+    inventoryModelKeys: inventoryModels.keys,
+    inventoryModelNames: inventoryModels.names,
     // Only gate on suppliers once some exist; an empty set on a fresh
     // database would reject every row with no way to satisfy it.
     supplierNames: knownSupplierNames.size > 0 ? knownSupplierNames : undefined,
@@ -758,8 +849,11 @@ export default function SalesReportImport({ onClose }: Props) {
       ...models.map(m => ({ brand: m.brand, model: m.model })),
       ...justCreatedModels.map(m => ({ brand: m.brand, model: m.model })),
     ].filter(m => m.model);
+    const inventoryModels = inventoryModelIndex(units);
     return {
       catalogIndex: buildCatalogIndex(catalogModels),
+      inventoryModelKeys: inventoryModels.keys,
+      inventoryModelNames: inventoryModels.names,
       // Skip the supplier check entirely until some exist — on a fresh or
       // just-wiped database an empty set would reject every row with no way
       // to satisfy it.
@@ -767,7 +861,7 @@ export default function SalesReportImport({ onClose }: Props) {
       catalogModelNames: catalogModels.map(m => m.model),
       supplierDisplayNames: supplierNames,
     };
-  }, [models, suppliers, justCreatedModels, justCreatedSuppliers]);
+  }, [models, suppliers, units, justCreatedModels, justCreatedSuppliers]);
   const userIsAdmin = isAdmin(auth.currentUser);
 
   /** Add a model to the admin catalogue without leaving the import.
