@@ -168,6 +168,12 @@ export interface AuditCompletionRow {
    *  with. The suggestion is about what the operator typed, so it needs what
    *  the operator typed. */
   modelRaw: string;
+  /** What the MATCHED unit already stores, when the IMEI resolved to one.
+   *  These are what let the catalog gate tell "a name read back out of the
+   *  database" apart from "a name typed into a spreadsheet" — only the second
+   *  can create anything, and only the second is gated. */
+  unitModel?: string;
+  unitSupplierName?: string;
   colour: string;
   storage: string;
   simType: string;
@@ -225,11 +231,23 @@ export interface KnownRefs {
  *  Recommendation, never automatic correction. "MHL" and "MKL" really could be
  *  two different companies, and only the operator knows. */
 export function suggestRowFixes(
-  r: { model: string; supplierName: string; modelRaw?: string },
+  r: {
+    model: string; supplierName: string; modelRaw?: string;
+    unitModel?: string; unitSupplierName?: string;
+  },
   known: KnownRefs = {},
 ): { model: ModelNearMiss | null; supplier: SupplierNearMiss | null } {
   const modelName = (r.model || '').trim();
   const supplier = (r.supplierName || '').trim();
+  // Nothing to correct on a value the database itself supplied and the gate is
+  // therefore letting through — "did you mean" on a matched unit's own legacy
+  // spelling is an invitation to rename stock from a sales import. Judged per
+  // FIELD, not per row: a matched unit can carry a legacy model that is fine
+  // and still have had a bad supplier typed over it.
+  const modelIsStored = Boolean(modelName && r.unitModel)
+    && normalizeBucketModel(modelName) === normalizeBucketModel(r.unitModel!);
+  const supplierIsStored = Boolean(supplier && r.unitSupplierName)
+    && supplier.toLowerCase() === r.unitSupplierName!.trim().toLowerCase();
   // Try the row's model, then the name the file actually carried. They differ
   // exactly when parseBrandModelStorage ate an unrecognised first token as a
   // brand — which is the misspelt case, i.e. the one this exists for.
@@ -237,7 +255,7 @@ export function suggestRowFixes(
     .filter(Boolean)
     .filter((v, i, a) => a.indexOf(v) === i);
   const modelHit = known.catalogIndex && known.catalogModelNames
-    && modelName && !catalogHasModel(known.catalogIndex, modelName)
+    && modelName && !modelIsStored && !catalogHasModel(known.catalogIndex, modelName)
     ? modelCandidates
         .map(c => findModelNearMiss(c, known.catalogModelNames!))
         .find(Boolean) ?? null
@@ -245,7 +263,8 @@ export function suggestRowFixes(
   return {
     model: modelHit,
     supplier:
-      supplier.length >= 2 && known.supplierNames && known.supplierDisplayNames
+      supplier.length >= 2 && !supplierIsStored
+      && known.supplierNames && known.supplierDisplayNames
       && !known.supplierNames.has(supplier.toLowerCase())
         ? findSupplierNearMiss(supplier, known.supplierDisplayNames)
         : null,
@@ -256,6 +275,11 @@ export function auditRowMissing(r: {
   imei: string; model: string; supplierName: string;
   buyPrice: number; salePrice: number; saleDate: string;
   marketplace: string; orderNumber: string;
+  /** The model and supplier the MATCHED inventory unit already carries, when
+   *  the IMEI resolved to one. Absent on an orphan, which has no unit yet and
+   *  is therefore always gated. See the catalog check below for why these
+   *  exempt a row. */
+  unitModel?: string; unitSupplierName?: string;
 }, known: KnownRefs = {}): string[] {
   const missing: string[] = [];
   // The gate checks PRESENCE of required audit fields, plus — for IMEI —
@@ -294,12 +318,37 @@ export function auditRowMissing(r: {
   // Both checks are skipped when the caller does not supply the reference
   // data, so a caller without the catalog to hand degrades to the old
   // presence-only gate rather than rejecting every row.
+  // A MATCHED UNIT'S OWN NAMES ARE NOT FREE TEXT, AND MUST NOT BE GATED.
+  //
+  // The check exists to stop a name TYPED INTO A FILE creating a unit or a
+  // catalog entry nobody vetted. When the IMEI already resolves to a unit in
+  // inventory, the model and supplier on this row were read back OUT of the
+  // database — nothing is being created, and the value is by definition one
+  // the business already holds.
+  //
+  // Gating those too was a real and immediately visible failure: on the
+  // operator's first live upload, 131 of 132 rows blocked, most of them units
+  // already in stock whose models predate the catalog and are spelled the old
+  // way ("IPAD 11TG GEN"). The import became unusable, and the only way out
+  // would have been to add every legacy spelling to the catalog — which is the
+  // exact duplication this gate is supposed to prevent.
+  //
+  // Cleaning up legacy names is real work, but a SALES import is the wrong
+  // place to force it: the sale is not what introduced the name. So the check
+  // is skipped only while the value is UNCHANGED from what the unit already
+  // carries; edit the field to something new and the gate applies again.
+  const unchanged = (typed: string, stored: string | undefined, fold: (s: string) => string) =>
+    Boolean(stored) && fold(typed) === fold(stored!);
+
   const modelName = (r.model || '').trim();
-  if (modelName && known.catalogIndex && !catalogHasModel(known.catalogIndex, modelName)) {
+  if (modelName && known.catalogIndex
+      && !unchanged(modelName, r.unitModel, normalizeBucketModel)
+      && !catalogHasModel(known.catalogIndex, modelName)) {
     missing.push('model not in catalog');
   }
   const supplier = (r.supplierName || '').trim();
   if (supplier.length >= 2 && known.supplierNames
+      && !unchanged(supplier, r.unitSupplierName, s => s.trim().toLowerCase())
       && !known.supplierNames.has(supplier.toLowerCase())) {
     missing.push('supplier not on file');
   }
@@ -532,6 +581,8 @@ export function buildPreview(
       imei: s.imei || '', model, supplierName, buyPrice,
       salePrice: s.salePrice ?? 0, saleDate: s.saleDate || '',
       marketplace: s.marketplace, orderNumber: s.orderNumber || '',
+      unitModel: matched?.model || undefined,
+      unitSupplierName: matched?.supplierName || undefined,
     }, knownRefs);
 
     // A matched, already-complete unit needs no completion row — it just
@@ -557,6 +608,8 @@ export function buildPreview(
       sku: s.sku || '',
       model,
       modelRaw: seededModel,
+      unitModel: matched?.model || undefined,
+      unitSupplierName: matched?.supplierName || undefined,
       colour,
       storage,
       simType,

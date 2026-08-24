@@ -83,6 +83,10 @@ const OFFICE = [
   { imei: '359900000000006', model: 'iPhone 13',        bp: 205 },
   { imei: '359900000000007', model: 'iPhone 14',        bp: 265 },
   { imei: '359900000000008', model: 'Galaxy S24 Ultra', bp: 470 },
+  // Stock that predates the catalogue, spelled the old way. This is most of a
+  // real database, and gating it was what made the operator's first live
+  // upload block 131 of 132 rows.
+  { imei: '359900000000009', model: 'IPAD 11TG GEN', bp: 260 },
 ];
 /** Supplier-held stock (status incoming) — no IMEI until it is received. */
 const SHS = [
@@ -115,6 +119,7 @@ const SCENARIOS = [
     { id: 'A6',  kind: 'suggest',    imei: '359900000000204', model: 'iPhone13',      supplier: 'NIHAL',                bp: 200, sp: 300, wantModel: 'iPhone 13' },
     { id: 'A7',  kind: 'quiet',      imei: '359900000000205', model: 'iPhone 16',     supplier: 'NIHAL',                bp: 300, sp: 420 },
     { id: 'A8',  kind: 'quiet',      imei: '359900000000206', model: 'Galaxy A55',    supplier: 'NIHAL',                bp: 180, sp: 260 },
+    { id: 'A9',  kind: 'legacy',     imei: OFFICE[8].imei, model: '',                 supplier: 'MOBILE WHOLESALE LTD', bp: 260, sp: 380 },
   ]),
   ...M('BM', [
     { id: 'B1',  kind: 'reconcile',  imei: OFFICE[2].imei, model: 'Galaxy S23 Ultra', supplier: 'MOBILE WHOLESALE LTD', bp: 380, sp: 520 },
@@ -169,6 +174,7 @@ const EXPECT_TEXT = {
   quiet:      'HELD, and NO correction offered — near neighbour of a real model',
   blocked:    'blocked by the pre-existing presence/format checks',
   return:     'matched unit, voided — outcome restored from the row',
+  legacy:     'matched unit whose stored model predates the catalogue — must NOT be held',
 };
 
 /** The quantity column is named differently per tab, and ONBUY has none. */
@@ -298,7 +304,9 @@ console.log(`  matrix: ${Object.entries(expected).map(([k, v]) => `${k}=${v}`).j
 // Every marketplace tab was read. A tab silently skipped would leave the
 // totals plausible and the coverage fictional.
 for (const mkt of ['AMAZON', 'BM', 'EBAY', 'ONBUY', 'TEMU']) {
-  check(`${mkt} tab parsed 8 rows`, num(new RegExp(`${mkt}\\s*\\n\\s*(\\d+)`)), 8);
+  const expectedRows = SCENARIOS.filter(s => s.marketplace === mkt).length;
+  check(`${mkt} tab parsed ${expectedRows} rows`,
+    num(new RegExp(`${mkt}\\s*\\n\\s*(\\d+)`)), expectedRows);
 }
 
 // A 'suggest' row can be wrong in BOTH fields at once (B5 is), so the two are
@@ -437,6 +445,17 @@ const unitByImei = (imei) => db.units.find(u => u.imei === imei);
 for (const s of IMPORTABLE.filter(x => x.kind === 'reconcile')) {
   check(`${s.id} matched unit is SOLD`, unitByImei(s.imei)?.status, 'sold');
 }
+for (const s of IMPORTABLE.filter(x => x.kind === 'legacy')) {
+  // The regression. Its model is not in the catalogue and never becomes so:
+  // the unit already existed, the sale did not introduce the name, and a
+  // sales import is the wrong place to force a rename.
+  check(`${s.id} legacy-named matched unit is SOLD, not held`,
+    unitByImei(s.imei)?.status, 'sold');
+  check(`${s.id} its stored model is untouched`,
+    unitByImei(s.imei)?.model, OFFICE[8].model);
+}
+check('no catalogue entry was created for the legacy spelling',
+  db.models.filter(m => m.toUpperCase() === OFFICE[8].model.toUpperCase()), []);
 for (const s of IMPORTABLE.filter(x => x.kind === 'ready')) {
   check(`${s.id} orphan created as SOLD under "${s.model}"`,
     [unitByImei(s.imei)?.status, unitByImei(s.imei)?.model], ['sold', s.model]);

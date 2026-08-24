@@ -94,6 +94,63 @@ describe('a row whose supplier is not on file', () => {
   });
 });
 
+describe('a matched unit\'s own names are not free text', () => {
+  // THE FAILURE THIS PINS
+  //
+  // On the operator\'s first live upload, 131 of 132 rows blocked. Most were
+  // units ALREADY IN STOCK whose model came straight back out of the database
+  // — legacy spellings like "IPAD 11TG GEN" that predate the catalog. The gate
+  // treated them like a name typed into a spreadsheet and held every one, and
+  // the only way through would have been to add every legacy spelling to the
+  // catalog: the exact duplication the gate exists to prevent.
+  //
+  // The distinction is what the value can DO. A name on a matched unit cannot
+  // create anything — the unit is already there. A name on an orphan creates
+  // both a unit and, if it were allowed, a catalog entry.
+
+  it('does not hold a matched unit whose stored model predates the catalog', () => {
+    const r = row({
+      imei: '350111000000099',
+      model: 'IPAD 11TG GEN',            // what the unit carries
+      unitModel: 'IPAD 11TG GEN',        // ...read back out of the database
+    });
+    expect(auditRowMissing(r, SUGGESTABLE)).toEqual([]);
+  });
+
+  it('does not hold a matched unit whose stored supplier is not on the list', () => {
+    const r = row({
+      supplierName: 'LEGACY SUPPLIER LTD',
+      unitSupplierName: 'LEGACY SUPPLIER LTD',
+    });
+    expect(auditRowMissing(r, SUGGESTABLE)).toEqual([]);
+  });
+
+  it('holds it again the moment the operator types something else', () => {
+    // The exemption is for the value the database already holds, not for the
+    // row. Edit the field and it is free text again.
+    const r = row({ model: 'Nokia Fictional 9000', unitModel: 'IPAD 11TG GEN' });
+    expect(auditRowMissing(r, SUGGESTABLE)).toContain('model not in catalog');
+
+    const s = row({ supplierName: 'Totally Made Up Ltd', unitSupplierName: 'IMAX' });
+    expect(auditRowMissing(s, SUGGESTABLE)).toContain('supplier not on file');
+  });
+
+  it('still holds an ORPHAN — it has no unit, so nothing exempts it', () => {
+    const r = row({ model: 'IPAD 11TG GEN' });   // no unitModel
+    expect(auditRowMissing(r, SUGGESTABLE)).toContain('model not in catalog');
+  });
+
+  it('offers no correction for a stored model, but still one for a typed supplier', () => {
+    // Per FIELD, not per row: the legacy model is fine and needs no rename,
+    // while the supplier really was mistyped over the top.
+    const s = suggestRowFixes(
+      { model: 'IPAD 11TG GEN', unitModel: 'IPAD 11TG GEN', supplierName: 'IMAZ' },
+      SUGGESTABLE);
+    expect(s.model).toBeNull();
+    expect(s.supplier?.match).toBe('IMAX');
+  });
+});
+
 describe('the escape hatches — a gate with no way through is worse than none', () => {
   it('does not reject models when no catalog was supplied', () => {
     expect(auditRowMissing(row({ model: 'Nokia Fictional 9000' }), {})).toEqual([]);
