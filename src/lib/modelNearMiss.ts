@@ -83,6 +83,32 @@ function digitTokens(s: string): string {
 }
 
 /**
+ * Is the difference between two generation strings a single transposition of
+ * the same characters — "41" for "14", "s42" for "s24"?
+ *
+ * This is the one crack the guard above is allowed to leave open. The guard
+ * exists because a one-character difference in the generation is usually a
+ * DIFFERENT PRODUCT: 13 and 14, S23 and S24, A54 and A55 all exist, and all
+ * are one substitution apart. But a transposition is a different animal — it
+ * cannot change which digits are present, only their order, and no two real
+ * phones in a catalogue are digit-anagrams of one another. There is no iPhone
+ * 41 to confuse with the iPhone 14, no Galaxy S42 shadowing the S24.
+ *
+ * Transposing two adjacent characters is also among the commonest ways to
+ * mistype a number, so refusing it left the check silent on a typo the
+ * operator will actually make.
+ *
+ * Both conditions are required. Same characters alone would admit "1234" and
+ * "4321"; distance alone would admit "13" and "14".
+ */
+function isDigitTransposition(a: string, b: string): boolean {
+  if (!a || !b || a === b) return false;
+  const sorted = (s: string) => [...s].sort().join('');
+  if (sorted(a) !== sorted(b)) return false;
+  return boundedEditDistance(a, b, 1) === 1;
+}
+
+/**
  * How far apart two model names may be and still be worth querying.
  *
  * Tighter than the supplier scale, and deliberately: two model names of the
@@ -124,9 +150,12 @@ export function findModelNearMiss(
       return { candidate, match: name, distance: 0, kind: 'punctuation' };
     }
 
-    // Generation must match exactly. This is what keeps the S23 from being
-    // reported as a misspelling of the S24.
-    if (digitTokens(name) !== candidateDigits) continue;
+    // Generation must match exactly — or differ only by a transposition of
+    // the same characters. This is what keeps the S23 from being reported as
+    // a misspelling of the S24 while still catching "iPhone 41".
+    const nameDigits = digitTokens(name);
+    if (nameDigits !== candidateDigits
+        && !isDigitTransposition(nameDigits, candidateDigits)) continue;
 
     const max = toleranceFor(Math.min(softCandidate.length, softName.length));
     if (max === 0) continue;

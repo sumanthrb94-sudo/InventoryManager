@@ -120,6 +120,22 @@ describe('the digit-token guard — a generation is not a typo', () => {
     expect(findModelNearMiss('Galaxy S244 Ultra', CATALOG)).toBeNull();
   });
 
+  /** The one crack the guard leaves open, and why it is safe: a transposition
+   *  cannot change WHICH digits are present, only their order, and no two real
+   *  phones are digit-anagrams of each other. There is no iPhone 41. */
+  it('catches a transposition of the generation digits', () => {
+    expect(findModelNearMiss('iPhone 41', CATALOG)?.match).toBe('iPhone 14');
+    expect(findModelNearMiss('iPhone 31', CATALOG)?.match).toBe('iPhone 13');
+    expect(findModelNearMiss('Galaxy S42 Ultra', CATALOG)?.match).toBe('Galaxy S24 Ultra');
+  });
+
+  it('does not treat a wholesale digit reshuffle as a transposition', () => {
+    // Same characters, but more than one swap apart — at that point it is not
+    // a slip, and pretending to know what was meant is a guess.
+    expect(findModelNearMiss('Redmi Note 21', ['Redmi Note 12'])?.match).toBe('Redmi Note 12');
+    expect(findModelNearMiss('Model 4321', ['Model 1234'])).toBeNull();
+  });
+
   it('treats a storage size as generation-bearing too', () => {
     // 128GB and 256GB are one substitution apart and both are real.
     const hit = findModelNearMiss('Galaxy S24 128GB', ['Galaxy S24 256GB']);
