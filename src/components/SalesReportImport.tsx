@@ -157,6 +157,17 @@ export interface AuditCompletionRow {
   imeiReadOnly: boolean;
   sku: string;
   model: string;
+  /** The model name as the FILE gave it, before parseBrandModelStorage split
+   *  a brand off the front of it.
+   *
+   *  That split is right for a well-formed name and destructive for a
+   *  misspelt one: "Samsung Galaxy A32" correctly becomes brand Samsung +
+   *  model "Galaxy A32", but "iPhoen 13" matches no brand rule, so the
+   *  generic fallback takes the first token as a brand LABEL and leaves the
+   *  model as "13" — and a near-miss check run on "13" has nothing to work
+   *  with. The suggestion is about what the operator typed, so it needs what
+   *  the operator typed. */
+  modelRaw: string;
   colour: string;
   storage: string;
   simType: string;
@@ -214,17 +225,25 @@ export interface KnownRefs {
  *  Recommendation, never automatic correction. "MHL" and "MKL" really could be
  *  two different companies, and only the operator knows. */
 export function suggestRowFixes(
-  r: { model: string; supplierName: string },
+  r: { model: string; supplierName: string; modelRaw?: string },
   known: KnownRefs = {},
 ): { model: ModelNearMiss | null; supplier: SupplierNearMiss | null } {
   const modelName = (r.model || '').trim();
   const supplier = (r.supplierName || '').trim();
+  // Try the row's model, then the name the file actually carried. They differ
+  // exactly when parseBrandModelStorage ate an unrecognised first token as a
+  // brand — which is the misspelt case, i.e. the one this exists for.
+  const modelCandidates = [modelName, (r.modelRaw || '').trim()]
+    .filter(Boolean)
+    .filter((v, i, a) => a.indexOf(v) === i);
+  const modelHit = known.catalogIndex && known.catalogModelNames
+    && modelName && !catalogHasModel(known.catalogIndex, modelName)
+    ? modelCandidates
+        .map(c => findModelNearMiss(c, known.catalogModelNames!))
+        .find(Boolean) ?? null
+    : null;
   return {
-    model:
-      modelName && known.catalogIndex && known.catalogModelNames
-      && !catalogHasModel(known.catalogIndex, modelName)
-        ? findModelNearMiss(modelName, known.catalogModelNames)
-        : null,
+    model: modelHit,
     supplier:
       supplier.length >= 2 && known.supplierNames && known.supplierDisplayNames
       && !known.supplierNames.has(supplier.toLowerCase())
@@ -471,7 +490,15 @@ export function buildPreview(
     // deliberate selection. The raw SKU is still preserved separately on
     // `sku` for provenance.
     const rawSku = (s.sku || '').trim();
-    const seededModel = (matched?.model || normalizeOperatorSku(rawSku) || (/\s/.test(rawSku) ? rawSku : '') || '').trim();
+    // Precedence: the matched unit's own model, then the file's MODEL column,
+    // then whatever can be recovered from the SKU. The Model column comes
+    // second rather than first because a matched unit is what the database
+    // already believes and the file must not silently rewrite it; it comes
+    // ahead of the SKU because it is the column actually named Model, and an
+    // operator file routinely carries a product code in SKU and the real name
+    // there. Before it was read, those rows arrived blank.
+    const seededModel = (matched?.model || (s.model || '').trim()
+      || normalizeOperatorSku(rawSku) || (/\s/.test(rawSku) ? rawSku : '') || '').trim();
     // Run the seed through the same pipeline the inventory importer uses:
     //   1. parseBrandModelStorage — splits the brand off, lifts the storage
     //      out into its own field, and re-separates a qualifier that got
@@ -529,6 +556,7 @@ export function buildPreview(
       imeiReadOnly: isValidImei(imeiTrimmed, { isAppleSerial: isAppleDevice(model) }),
       sku: s.sku || '',
       model,
+      modelRaw: seededModel,
       colour,
       storage,
       simType,

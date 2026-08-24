@@ -44,6 +44,28 @@ export function writeRowByHeader(ws, rowNumber, values) {
   row.commit();
 }
 
+/**
+ * Open one of the two importers from the header.
+ *
+ * Both used to live behind an "Import ▾" menu. When the importers were
+ * deleted in 2026-08 the menu went with them, and each came back as its own
+ * admin-gated icon button — Inventory on 2026-08-23, Sales on 2026-08-24. The
+ * scripts written against the menu wait 30s for a `menuitem` that no longer
+ * exists and fail on a timeout that says nothing about what changed.
+ *
+ * Addressing the button by its aria-label keeps the scripts off both the icon
+ * and the menu structure, so the next rearrangement of the header does not
+ * break them again.
+ *
+ * @param {import('playwright').Page} page
+ * @param {'inventory'|'sales'} which
+ */
+export async function openImporter(page, which) {
+  const label = which === 'sales' ? /Import Sales Report/i : /Import Inventory Report/i;
+  await page.getByRole('button', { name: label }).first().click();
+  await page.waitForTimeout(800);
+}
+
 /** Blank every data row, leaving the header and its formatting intact. */
 export function clearDataRows(ws) {
   for (let r = 2; r <= ws.rowCount; r++) ws.getRow(r).values = [];

@@ -19,6 +19,7 @@ import { chromium } from 'playwright';
 import { mkdirSync, existsSync, readdirSync, readFileSync, copyFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import * as XLSX from 'xlsx';
+import { openImporter } from './e2eSheetHelpers.mjs';
 
 const BASE = process.env.E2E_BASE_URL || 'http://localhost:4173';
 const OUT = 'e2e-screenshots/report-round-trip';
@@ -79,13 +80,6 @@ async function gotoTab(page, label) {
   }
   await page.getByRole('button', { name: new RegExp(`^${label}$`, 'i') }).first().click();
   await page.waitForTimeout(900);
-}
-
-async function openImportMenu(page) {
-  const byLabel = page.getByRole('button', { name: /^Import$/i }).first();
-  if (await byLabel.isVisible().catch(() => false)) await byLabel.click();
-  else await page.locator('button[aria-haspopup="menu"]').first().click();
-  await page.waitForTimeout(500);
 }
 
 /**
@@ -168,8 +162,7 @@ async function run() {
   await page.waitForTimeout(1500);
   await gotoTab(page, 'Stock Intake');
 
-  await openImportMenu(page);
-  await page.getByRole('menuitem', { name: /Inventory Report/i }).click();
+  await openImporter(page, 'inventory');
   await page.waitForTimeout(700);
   await page.locator('input[type="file"]').first().setInputFiles(INVENTORY_FILE);
   await page.waitForTimeout(3500);
@@ -322,8 +315,7 @@ async function run() {
   copyFileSync(dl.path, roundTripFile);
 
   await gotoTab(page, 'Stock Intake');
-  await openImportMenu(page);
-  await page.getByRole('menuitem', { name: /Inventory Report/i }).click();
+  await openImporter(page, 'inventory');
   await page.waitForTimeout(700);
   await page.locator('input[type="file"]').first().setInputFiles(roundTripFile);
   await page.waitForTimeout(4000);
@@ -346,8 +338,7 @@ async function run() {
 
   // ── 3. Sales report round trip ───────────────────────────────────────────
   await gotoTab(page, 'Stock Intake');
-  await openImportMenu(page);
-  await page.getByRole('menuitem', { name: /Sales Report/i }).click();
+  await openImporter(page, 'sales');
   await page.waitForTimeout(700);
   await page.locator('input[type="file"]').first().setInputFiles(SALES_FILE);
   await page.waitForTimeout(5000);

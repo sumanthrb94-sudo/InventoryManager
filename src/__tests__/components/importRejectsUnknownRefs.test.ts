@@ -159,6 +159,20 @@ describe('a held row is told what it probably meant', () => {
     expect(s.model).toMatchObject({ match: 'iPhone 13', kind: 'typo' });
   });
 
+  /** The case that made modelRaw necessary. parseBrandModelStorage runs over
+   *  the seed before the row is built; on a name it recognises that is right
+   *  ("Samsung Galaxy A32" → brand Samsung + model "Galaxy A32"), and on a
+   *  MISSPELT one it is destructive: "iPhoen 13" matches no brand rule, so the
+   *  generic fallback takes the first token as a brand label and the row's
+   *  model arrives as "13". A near-miss run on "13" has nothing to work with,
+   *  and the operator gets a held row with no way forward — on exactly the
+   *  input this feature exists for. */
+  it('recommends from the name the FILE gave, not the brand-split remains', () => {
+    const s = suggestRowFixes(
+      { model: '13', modelRaw: 'iPhoen 13', supplierName: 'IMAX' }, SUGGESTABLE);
+    expect(s.model?.match).toBe('iPhone 13');
+  });
+
   it('recommends the supplier on file a typo resembles', () => {
     const s = suggestRowFixes(row({ supplierName: 'IMAZ' }), SUGGESTABLE);
     expect(s.supplier).toMatchObject({ match: 'IMAX' });

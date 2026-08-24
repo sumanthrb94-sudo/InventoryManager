@@ -266,7 +266,15 @@ type ColKey =
   // re-import can restore it. Absent from every older file — the parser
   // treats them as optional and simply doesn't populate them, which is the
   // pre-existing behaviour for those files anyway.
-  | 'storage' | 'colour'
+  //
+  // `model` joined them on 2026-08-24, with the sales importer. The column
+  // was already being WRITTEN and the tab already said "Model" over it, but
+  // nothing read it back: the importer took the model from the SKU column,
+  // which works for our own export (it writes the friendly name there) and
+  // not at all for an operator file that puts a product code in SKU and the
+  // real name in Model. Those rows arrived with the model blank and had to be
+  // retyped — on the one route where data comes in a thousand rows at a time.
+  | 'model' | 'storage' | 'colour'
   // Temu only — its export reports the real per-order commission directly,
   // since Temu's referral rate varies by category and can't be modelled as
   // one flat percentage the way Amazon's can. Commission VAT is NOT read:
@@ -384,6 +392,7 @@ export const SHEET_LAYOUTS: Record<Marketplace, SheetLayout> = {
       returnDate:  ['return date'],
       voidOutcome: ['outcome'],
       voidReason:  ['return reason'],
+      model:       ['model'],
       storage:     ['storage'],
       colour:      ['colour', 'color'],
     },
@@ -409,6 +418,7 @@ export const SHEET_LAYOUTS: Record<Marketplace, SheetLayout> = {
       returnDate:  ['return date'],
       voidOutcome: ['outcome'],
       voidReason:  ['return reason'],
+      model:       ['model'],
       storage:     ['storage'],
       colour:      ['colour', 'color'],
     },
@@ -443,6 +453,7 @@ export const SHEET_LAYOUTS: Record<Marketplace, SheetLayout> = {
       returnDate:  ['return date'],
       voidOutcome: ['outcome'],
       voidReason:  ['return reason'],
+      model:       ['model'],
       storage:     ['storage'],
       colour:      ['colour', 'color'],
     },
@@ -467,6 +478,7 @@ export const SHEET_LAYOUTS: Record<Marketplace, SheetLayout> = {
       returnDate:  ['return date'],
       voidOutcome: ['outcome'],
       voidReason:  ['return reason'],
+      model:       ['model'],
       storage:     ['storage'],
       colour:      ['colour', 'color'],
     },
@@ -501,6 +513,7 @@ export const SHEET_LAYOUTS: Record<Marketplace, SheetLayout> = {
       returnDate:   ['return date'],
       voidOutcome:  ['outcome'],
       voidReason:   ['return reason'],
+      model:        ['model'],
       storage:      ['storage'],
       colour:       ['colour', 'color'],
     },
@@ -921,6 +934,7 @@ function parseRow(
     // Buy-side identity, when the file carries it (our own export does from
     // 2026-08). Only set when non-empty so an older file leaves them absent
     // rather than writing empty strings over anything downstream.
+    ...(toNonEmptyString(get('model')) ? { model: toNonEmptyString(get('model')) } : {}),
     ...(toNonEmptyString(get('storage')) ? { storage: toNonEmptyString(get('storage')) } : {}),
     ...(toNonEmptyString(get('colour')) ? { colour: toNonEmptyString(get('colour')) } : {}),
     sourceFile,
