@@ -36,15 +36,31 @@
 import ExcelJS from 'exceljs';
 import { resolve } from 'node:path';
 
-const [, , SRC, SINCE, OUT_ARG] = process.argv;
+const args = process.argv.slice(2);
+const flag = (name) => {
+  const i = args.indexOf(name);
+  return i >= 0 ? args[i + 1] : undefined;
+};
+// --until closes the window at the far end. Without it the cut runs to the end
+// of the file, which is what the first use of this script wanted; with it the
+// same tool fills a HOLE in the middle — the case that showed up once the app's
+// own numbers were compared against the source and a fortnight was missing.
+const UNTIL = flag('--until');
+const positional = args.filter((a, i) => a !== '--until' && args[i - 1] !== '--until');
+const [SRC, SINCE, OUT_ARG] = positional;
 if (!SRC || !SINCE) {
-  console.error('usage: node scripts/buildSalesReportSince.mjs <source.xlsx> <YYYY-MM-DD> [out.xlsx]');
+  console.error('usage: node scripts/buildSalesReportSince.mjs <source.xlsx> <YYYY-MM-DD> [out.xlsx] [--until YYYY-MM-DD]');
   process.exit(2);
 }
 const OUT = resolve(OUT_ARG || `SALES_REPORT_SINCE_${SINCE}.xlsx`);
 const TEMPLATE = resolve('templates/SALES_REPORT_TEMPLATE.xlsx');
 const [sy, sm, sd] = SINCE.split('-').map(Number);
 const CUTOFF = new Date(Date.UTC(sy, sm - 1, sd));
+// Inclusive of the whole --until day, so "--until 2026-08-16" keeps every sale
+// dated the 16th rather than stopping at its midnight.
+const END = UNTIL
+  ? (() => { const [y, m, d] = UNTIL.split('-').map(Number); return new Date(Date.UTC(y, m - 1, d, 23, 59, 59)); })()
+  : null;
 
 /**
  * Which of the client's tabs is which marketplace.
@@ -167,6 +183,7 @@ for (const ws of src.worksheets) {
     const d = toDate(rawDate);
     if (!d) { unparsedDates.push(`${ws.name} r${r} "${rawDate}"`); continue; }
     if (d < CUTOFF) continue;
+    if (END && d > END) continue;
 
     written++;
     const destRow = dest.getRow(written + 1);
@@ -208,7 +225,7 @@ await out.xlsx.writeFile(OUT);
 
 // ── What was produced ───────────────────────────────────────────────────────
 
-console.log(`\nSales Report from ${SINCE} onward → ${OUT}\n`);
+console.log(`\nSales Report ${SINCE}${UNTIL ? ` … ${UNTIL}` : ' onward'} → ${OUT}\n`);
 for (const r of report) {
   console.log(`  ${r.marketplace.padEnd(7)} ${String(r.written).padStart(4)} rows   (from "${r.sheet}")`
     + (r.unmapped.length ? `\n      columns with no home in the app schema, dropped: ${r.unmapped.join(', ')}` : ''));
