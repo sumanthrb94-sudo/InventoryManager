@@ -298,12 +298,24 @@ describe('the preview says how much variety the file holds, not just how much st
   });
 });
 
-// ── The sales importer stays gone ────────────────────────────────────────────
+// ── Two routes came back; the other importers stay gone ──────────────────────
 
+/**
+ * The importers deleted in 2026-08 that did NOT come back, and must not.
+ *
+ * ImportModal and MasterDataLinkedImport were free-text intake with no
+ * catalogue behind them at all — the route that put supplier product codes
+ * into production as model names. The two that returned (Inventory 2026-08-23,
+ * Sales 2026-08-24) returned with a gate; these two have nothing to gate.
+ */
 const STILL_DELETED = [
-  'src/components/SalesReportImport.tsx',
   'src/components/ImportModal.tsx',
   'src/components/MasterDataLinkedImport.tsx',
+];
+
+/** Restored, and each one must stay behind the gate asserted below. */
+const RESTORED = [
+  'src/components/SalesReportImport.tsx',
   'src/lib/salesImport.ts',
 ];
 
@@ -317,30 +329,62 @@ function srcFiles(dir = 'src'): string[] {
   return out;
 }
 
-describe('only the inventory route came back', () => {
+describe('the restored importers, and only those', () => {
   it.each(STILL_DELETED)('%s is still deleted', (path) => {
     expect(existsSync(path), `${path} is back`).toBe(false);
   });
 
-  it('no source file imports a sales-import module', () => {
+  it.each(RESTORED)('%s is present', (path) => {
+    expect(existsSync(path), `${path} is missing`).toBe(true);
+  });
+
+  it('no source file imports an ungated importer', () => {
     const offenders: string[] = [];
     for (const file of srcFiles()) {
       const text = readFileSync(file, 'utf8');
-      for (const mod of ['salesImport', 'SalesReportImport', 'ImportModal', 'MasterDataLinkedImport']) {
+      for (const mod of ['ImportModal', 'MasterDataLinkedImport']) {
         if (new RegExp(`from '[^']*/${mod}'`).test(text)) offenders.push(`${file} -> ${mod}`);
       }
     }
     expect(offenders).toEqual([]);
   });
 
-  it('App.tsx opens the inventory importer behind the admin gate', () => {
-    // Two conditions, both required: an employee must not reach a route that
-    // can create units in bulk from a file.
+  it('App.tsx is the only place that mounts either importer', () => {
+    // A second mount point is a second gate to keep right, and the one most
+    // likely to be added without one.
+    const mounters = srcFiles()
+      .filter(f => f !== 'src/App.tsx' && !f.includes('__tests__'))
+      .filter(f => /from '[^']*\/(SalesReportImport|InventoryReportImport)'/.test(readFileSync(f, 'utf8')));
+    expect(mounters).toEqual([]);
+  });
+
+  it('App.tsx opens both importers behind the admin gate', () => {
+    // Two conditions, both required, on BOTH routes: an employee must not
+    // reach anything that can create units in bulk from a file.
     const app = readFileSync('src/App.tsx', 'utf8');
-    expect(app).toContain('InventoryReportImport');
-    expect(app).toMatch(/SHOW_IMPORT_UI && userIsAdmin/);
-    // And the sales route has no state left behind to switch back on.
-    expect(app).not.toContain('isSalesImportOpen');
+    for (const component of ['InventoryReportImport', 'SalesReportImport']) {
+      expect(app).toContain(component);
+      // The render must be guarded on the same line-or-two as the component,
+      // not merely somewhere in the file — a gate elsewhere proves nothing
+      // about this one.
+      const mount = new RegExp(
+        `SHOW_IMPORT_UI && userIsAdmin && \\w+ && \\(\\s*<${component}\\b`,
+      );
+      expect(app, `${component} is mounted without the admin gate`).toMatch(mount);
+    }
+  });
+
+  it('the sales importer holds unknown models and suppliers rather than creating them', () => {
+    // The reason it was allowed back. Asserted on the gate function itself,
+    // in the same file, so deleting the check fails here rather than silently
+    // reopening bulk free-text intake.
+    const src = readFileSync('src/components/SalesReportImport.tsx', 'utf8');
+    expect(src).toMatch(/model not in catalog/);
+    expect(src).toMatch(/supplier not on file/);
+    // And the way out of a held row is a correction onto an existing name,
+    // not a new catalogue entry.
+    expect(src).toContain('suggestRowFixes');
+    expect(src).toContain('findModelNearMiss');
   });
 });
 

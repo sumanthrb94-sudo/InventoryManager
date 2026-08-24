@@ -6,6 +6,7 @@ import {
   LogOut, Plus, LayoutDashboard,
   TrendingUp, FileText, Users, Settings, Database,
   ClipboardList, Menu, X, Megaphone, SlidersHorizontal, Receipt, Upload,
+  FileSpreadsheet,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import Dashboard, { NavAction } from './components/Dashboard';
@@ -25,6 +26,7 @@ import { InventoryStoreProvider, useInventoryStore } from './lib/inventoryStore'
 import DataSeedPage from './components/DataSeedPage';
 import LoadMockDataModal from './components/LoadMockDataModal';
 import InventoryReportImport from './components/InventoryReportImport';
+import SalesReportImport from './components/SalesReportImport';
 import { SHOW_IMPORT_UI } from './lib/featureFlags';
 import ErrorBoundary from './components/ErrorBoundary';
 import { useBuildVersionCheck } from './lib/useBuildVersionCheck';
@@ -168,6 +170,7 @@ function AppShell({ user }: { user: User }) {
   // click dismiss, so it doesn't pull in a popover library for one menu.
   const [isLoadMockDataOpen, setIsLoadMockDataOpen] = useState(false);
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
+  const [isSalesImportOpen, setIsSalesImportOpen] = useState(false);
   const [syncConnected, setSyncConnected]         = useState(false);
   const [isAlertsExpanded, setIsAlertsExpanded]   = useState(false);
   /** Hamburger drawer for desktop nav. Mobile keeps its bottom-tab bar
@@ -588,6 +591,18 @@ function AppShell({ user }: { user: User }) {
                 <Upload size={14} strokeWidth={2.5} />
               </button>
             )}
+            {/* Sales Report import — same gate, same reason. It reconciles a
+                marketplace file against stock already on file and can mark
+                units sold in bulk; a model or supplier it has not seen is
+                held rather than created. */}
+            {SHOW_IMPORT_UI && userIsAdmin && (
+              <button onClick={() => setIsSalesImportOpen(true)}
+                title="Import Sales Report"
+                aria-label="Import Sales Report"
+                className="p-2 rounded-xl text-slate-400 hover:text-slate-900 hover:bg-slate-100 transition-all">
+                <FileSpreadsheet size={14} strokeWidth={2.5} />
+              </button>
+            )}
             {showSampleDataButton && userIsAdmin && (
               <button onClick={() => setIsLoadMockDataOpen(true)}
                 title="Load sample data"
@@ -678,6 +693,9 @@ function AppShell({ user }: { user: User }) {
         {isLoadMockDataOpen && <LoadMockDataModal onClose={() => setIsLoadMockDataOpen(false)} />}
         {SHOW_IMPORT_UI && userIsAdmin && isImportModalOpen && (
           <InventoryReportImport onClose={() => setIsImportModalOpen(false)} />
+        )}
+        {SHOW_IMPORT_UI && userIsAdmin && isSalesImportOpen && (
+          <SalesReportImport onClose={() => setIsSalesImportOpen(false)} />
         )}
       </AnimatePresence>
     </div>

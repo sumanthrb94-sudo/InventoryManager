@@ -1,0 +1,227 @@
+/**
+ * The Sales Report import rejects models and suppliers it has never seen.
+ *
+ * WHY
+ *
+ * Every other route into inventory is gated to the admin catalog — Add Stock
+ * uses a strict picker that will not accept a name the admin has not added.
+ * Import was the exception, and it is the one route where data arrives a
+ * thousand rows at a time.
+ *
+ * The old gate asked whether a model was PRESENT. "iPhoen 13" is present. It
+ * passed, minted a unit under a model nobody stocks, and that unit then sat
+ * outside every model-grouped report — invisible rather than wrong, which is
+ * the harder kind to notice. A supplier invented at the keyboard did the same
+ * to the supplier reports.
+ *
+ * THE TWO ESCAPE HATCHES, both tested below
+ *
+ * A gate with no way through is worse than no gate. Neither check fires when
+ * the caller cannot judge:
+ *   - no catalog loaded  -> models are not rejected
+ *   - no suppliers on file -> suppliers are not rejected
+ * That matters on a freshly wiped database, where every row would otherwise
+ * be unsatisfiable and the operator would simply be stuck.
+ */
+import { describe, it, expect } from 'vitest';
+import { auditRowMissing, suggestRowFixes } from '../../components/SalesReportImport';
+import { buildCatalogIndex } from '../../lib/modelReconciliation';
+
+const CATALOG = buildCatalogIndex([
+  { brand: 'Apple', model: 'iPhone 13' },
+  { brand: 'Samsung', model: 'Galaxy A32' },
+] as any);
+
+const SUPPLIERS = new Set(['imax', 'mobile wholesale ltd']);
+const KNOWN = { catalogIndex: CATALOG, supplierNames: SUPPLIERS };
+
+const row = (over: Partial<Record<string, any>> = {}) => ({
+  imei: '350111000000011',
+  model: 'iPhone 13',
+  supplierName: 'IMAX',
+  buyPrice: 300,
+  salePrice: 400,
+  saleDate: '2026-08-01',
+  marketplace: 'AMAZON',
+  orderNumber: 'A1',
+  ...over,
+});
+
+describe('a row whose model is not in the catalog', () => {
+  it('is rejected', () => {
+    expect(auditRowMissing(row({ model: 'Nokia Fictional 9000' }), KNOWN))
+      .toContain('model not in catalog');
+  });
+
+  /** The case the presence check could never catch, and the reason this
+   *  exists: a typo is present, well-formed, and completely wrong. */
+  it('is rejected when it is a typo of a real one', () => {
+    expect(auditRowMissing(row({ model: 'iPhoen 13' }), KNOWN))
+      .toContain('model not in catalog');
+  });
+
+  it('is accepted when it IS in the catalog', () => {
+    expect(auditRowMissing(row({ model: 'iPhone 13' }), KNOWN)).toEqual([]);
+    expect(auditRowMissing(row({ model: 'Galaxy A32' }), KNOWN)).toEqual([]);
+  });
+
+  /** The catalog indexes a brand-less key precisely so a row carrying only a
+   *  model name still resolves. Casing and spacing must not matter either —
+   *  an operator typing into the panel should not be defeated by a capital. */
+  it('matches regardless of case or surrounding space', () => {
+    expect(auditRowMissing(row({ model: '  iphone 13  ' }), KNOWN)).toEqual([]);
+  });
+});
+
+describe('a row whose supplier is not on file', () => {
+  it('is rejected', () => {
+    expect(auditRowMissing(row({ supplierName: 'Totally Made Up Ltd' }), KNOWN))
+      .toContain('supplier not on file');
+  });
+
+  it('is accepted when it is one of ours, whatever the casing', () => {
+    expect(auditRowMissing(row({ supplierName: 'imax' }), KNOWN)).toEqual([]);
+    expect(auditRowMissing(row({ supplierName: 'Mobile Wholesale Ltd' }), KNOWN)).toEqual([]);
+  });
+
+  /** A one-character supplier was already rejected as incomplete. It should
+   *  report that, not the not-on-file message, or the operator is told to pick
+   *  an existing supplier when what they actually did was stop typing. */
+  it('still reports a half-typed name as missing, not as unknown', () => {
+    const missing = auditRowMissing(row({ supplierName: 'M' }), KNOWN);
+    expect(missing).toContain('supplier');
+    expect(missing).not.toContain('supplier not on file');
+  });
+});
+
+describe('the escape hatches — a gate with no way through is worse than none', () => {
+  it('does not reject models when no catalog was supplied', () => {
+    expect(auditRowMissing(row({ model: 'Nokia Fictional 9000' }), {})).toEqual([]);
+  });
+
+  it('does not reject models when the catalog is empty (a wiped database)', () => {
+    const empty = buildCatalogIndex([]);
+    expect(auditRowMissing(row({ model: 'Nokia Fictional 9000' }), { catalogIndex: empty }))
+      .toEqual([]);
+  });
+
+  it('does not reject suppliers when none are on file yet', () => {
+    expect(auditRowMissing(row({ supplierName: 'Brand New Supplier' }),
+      { catalogIndex: CATALOG })).toEqual([]);
+  });
+
+  /** The whole gate degrades to its old behaviour for a caller that holds no
+   *  reference data, so nothing that used to import stops importing purely
+   *  because it went through a different code path. */
+  it('falls back to the presence-only checks with no references at all', () => {
+    expect(auditRowMissing(row(), {})).toEqual([]);
+    expect(auditRowMissing(row({ model: '' }), {})).toContain('model');
+    expect(auditRowMissing(row({ buyPrice: 0 }), {})).toContain('buy price');
+  });
+});
+
+describe('the existing checks still apply alongside the new ones', () => {
+  it('reports a bad IMEI and an unknown model together, not one at a time', () => {
+    const missing = auditRowMissing(
+      row({ imei: 'GENERIC', model: 'Nokia Fictional 9000' }), KNOWN);
+    expect(missing).toContain('IMEI (invalid format)');
+    expect(missing).toContain('model not in catalog');
+  });
+
+  it('says nothing about an unknown model when the model is simply blank', () => {
+    const missing = auditRowMissing(row({ model: '' }), KNOWN);
+    expect(missing).toContain('model');
+    expect(missing).not.toContain('model not in catalog');
+  });
+});
+
+// ── The way out of a held row ────────────────────────────────────────────────
+
+/**
+ * A rejection with no way forward invites the worst available fix: adding
+ * "iPhoen 13" to the catalog so the row goes through — which recreates exactly
+ * the split-ledger mess the gate exists to prevent. So a held name is matched
+ * against the ones on file and the close call is offered back.
+ *
+ * The names are supplied SEPARATELY from the gate's own reference data, in
+ * their real spelling: catalogIndex is normalised and cannot say what to type,
+ * and supplierNames is lower-cased. A suggestion has to be the actual name.
+ */
+const SUGGESTABLE = {
+  ...KNOWN,
+  catalogModelNames: ['iPhone 13', 'Galaxy A32'],
+  supplierDisplayNames: ['IMAX', 'Mobile Wholesale Ltd'],
+};
+
+describe('a held row is told what it probably meant', () => {
+  it('recommends the catalog model a typo resembles', () => {
+    const s = suggestRowFixes(row({ model: 'iPhoen 13' }), SUGGESTABLE);
+    expect(s.model).toMatchObject({ match: 'iPhone 13', kind: 'typo' });
+  });
+
+  it('recommends the supplier on file a typo resembles', () => {
+    const s = suggestRowFixes(row({ supplierName: 'IMAZ' }), SUGGESTABLE);
+    expect(s.supplier).toMatchObject({ match: 'IMAX' });
+  });
+
+  it('recommends both at once when both are wrong', () => {
+    const s = suggestRowFixes(
+      row({ model: 'iPhoen 13', supplierName: 'IMAZ' }), SUGGESTABLE);
+    expect(s.model?.match).toBe('iPhone 13');
+    expect(s.supplier?.match).toBe('IMAX');
+  });
+
+  it('recommends the catalog spelling when only the spacing differs', () => {
+    const s = suggestRowFixes(row({ model: 'iPhone13' }), SUGGESTABLE);
+    expect(s.model).toMatchObject({ match: 'iPhone 13', kind: 'punctuation' });
+  });
+
+  /** Taking the suggestion has to actually clear the block, or the operator is
+   *  being sent in a circle. Asserted through the real gate, not by eye. */
+  it('taking the recommendation clears the rejection', () => {
+    const held = row({ model: 'iPhoen 13', supplierName: 'IMAZ' });
+    expect(auditRowMissing(held, SUGGESTABLE).length).toBeGreaterThan(0);
+
+    const s = suggestRowFixes(held, SUGGESTABLE);
+    const fixed = { ...held, model: s.model!.match, supplierName: s.supplier!.match };
+    expect(auditRowMissing(fixed, SUGGESTABLE)).toEqual([]);
+  });
+});
+
+describe('the recommendation stays quiet when it would be noise', () => {
+  it('says nothing about a row the gate is happy with', () => {
+    const s = suggestRowFixes(row(), SUGGESTABLE);
+    expect(s.model).toBeNull();
+    expect(s.supplier).toBeNull();
+  });
+
+  it('says nothing about a name that resembles nothing', () => {
+    const s = suggestRowFixes(
+      row({ model: 'Nokia Fictional 9000', supplierName: 'Totally Made Up Ltd' }),
+      SUGGESTABLE);
+    expect(s.model).toBeNull();
+    expect(s.supplier).toBeNull();
+  });
+
+  /** The model catalog is full of names one character apart ON PURPOSE. If the
+   *  suggestion pointed at the adjacent generation it would be wrong on
+   *  correct-looking data, and an operator who takes it would file the sale of
+   *  an S24 against the S23. */
+  it('never points a model at an adjacent generation', () => {
+    const catalog = {
+      catalogIndex: buildCatalogIndex([{ brand: 'Samsung', model: 'Galaxy S23 Ultra' }] as any),
+      supplierNames: SUPPLIERS,
+      catalogModelNames: ['Galaxy S23 Ultra'],
+      supplierDisplayNames: ['IMAX'],
+    };
+    expect(suggestRowFixes(row({ model: 'Galaxy S24 Ultra' }), catalog).model).toBeNull();
+  });
+
+  it('says nothing when the caller supplied no names to suggest from', () => {
+    // KNOWN has the gate's reference data but no display names — the gate
+    // still rejects, there is simply nothing to recommend.
+    expect(auditRowMissing(row({ model: 'iPhoen 13' }), KNOWN))
+      .toContain('model not in catalog');
+    expect(suggestRowFixes(row({ model: 'iPhoen 13' }), KNOWN).model).toBeNull();
+  });
+});

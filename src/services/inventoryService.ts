@@ -1778,3 +1778,302 @@ export async function restoreAccessoryReturnFromImport(
   });
   return { ok: true, id, quantity: nextQuantity };
 }
+
+// ═══════════════════════════════════════════════════════════════════════════
+// SALES-IMPORT RECONCILIATION
+//
+// Restored 2026-08-24 alongside the Sales Report importer. These went out in
+// acb1ced with the importers that were their only callers — nothing else ever
+// called them.
+//
+// Recovered VERBATIM from acb1ced^ rather than rewritten. They were not the
+// problem: the ungated importer around them was, and that is what the restore
+// closes. Retyping working code from memory is how the details that took a bug
+// report to find get quietly dropped.
+// ═══════════════════════════════════════════════════════════════════════════
+
+// ---------------------------------------------------------------------------
+// restoreUnitReturnFromImport — replay a voided Sale's return state onto its unit
+// ---------------------------------------------------------------------------
+
+export type RestoreUnitReturnErrorCode =
+  | 'not_voided'
+  | 'missing_imei'
+  | 'missing_model'
+  | 'missing_buy_price'
+  | 'missing_supplier'
+  | 'superseded_by_newer_sale'
+  | 'write_failed';
+
+export interface RestoreUnitReturnResult {
+  ok: boolean;
+  error?: RestoreUnitReturnErrorCode;
+  message?: string;
+  unitId?: string;
+  /** True when there was no matching unit at all and one was reconstructed
+   *  directly in returned/available shape (as opposed to an existing unit
+   *  that got patched). */
+  created?: boolean;
+}
+
+/** Build the return-state patch shared by both restore paths below — the
+ *  import-time equivalent of returnsService.ts's buildReturningUnitPatch,
+ *  sourced from the Sale's own voided fields (voidedAt/voidReason/
+ *  voidOutcome) instead of a live operator's modal inputs, since a
+ *  re-imported workbook is all we have to go on. Postage-leg cost is
+ *  recomputed from the sale's own postage/postageVat rather than
+ *  returnsService's findLinkedSales query — the sale IS the linked sale
+ *  here, no lookup needed. */
+function buildRestoredReturnPatch(sale: Sale, returnType: ReturnCategory): Record<string, any> {
+  const returnOutcome: 'refund' | 'replacement' | undefined =
+    sale.voidOutcome === 'refund' || sale.voidOutcome === 'replacement' ? sale.voidOutcome : undefined;
+  const postage = Number(sale.postage) || 0;
+  const pVat = sale.postageVatExempt ? 0 : (Number(sale.postageVat) || postage * 0.2);
+  const legCost = postage > 0 ? postage + pVat : null;
+
+  const patch: Record<string, any> = {
+    status: returnType === 'returned_to_inventory' ? 'available' : 'returned',
+    returnType,
+    returnDate: sale.voidedAt,
+    returnReason: sale.voidReason ?? '',
+    returnOutcome: returnOutcome ?? null,
+    returnLegCost: legCost,
+    pendingCrmReview: false,
+    salePrice: null,
+    saleDate: null,
+    salePlatform: null,
+    saleOrderId: null,
+    postageCost: null,
+  };
+  if (returnType === 'returned_to_inventory') {
+    patch.platformListed = false;
+    patch.listingSites = [];
+  }
+  return patch;
+}
+
+/**
+ * Restore a unit's return markers from a re-imported Sales Report whose
+ * marketplace tab shows this sale as voided (voidedAt/voidOutcome/
+ * voidReason — see salesImport.ts's return-block parsing) and whose
+ * Returns tab supplied a Return Type for it (salesImport.ts's
+ * parseReturnsTab / ParsedReturnRow).
+ *
+ * Two cases, both ending in the same buildRestoredReturnPatch shape:
+ *   - `existingUnit` present (pre-existing in the DB, or just created
+ *     'sold' by this same import batch) → patch it straight to returned.
+ *   - No matching unit anywhere (a DB rebuilt from this workbook alone,
+ *     so the unit was never re-created) → reuse addSoldUnitFromSale's
+ *     validation/model-split/supplier-resolution to birth it, then patch
+ *     the same patch on top. There is no live "sold" moment to preserve
+ *     for a unit whose entire life this import is "it came back" — the
+ *     intermediate create is just code reuse, not a semantic step.
+ *
+ * Never called for a sale with no returnType supplied (the caller only
+ * invokes this once it has one from the Returns tab) — this function does
+ * not guess Return Type, matching the same caution as the rest of the
+ * returns write surface.
+ */
+
+export interface CompleteUnitBuyInfoInput {
+  unitId: string;
+  /** Required, non-blank. Re-split via parseBrandModelStorage. */
+  model: string;
+  /** Required, non-blank. ensureSupplier-d. */
+  supplierName: string;
+  /** Required, > 0. */
+  buyPrice: number;
+  colour?: string;
+  storage?: string;
+  simType?: string;
+  /** Fulfilment source — office stock or SHS. Persisted on the unit. */
+  stockSource?: 'office' | 'shs';
+}
+
+/**
+ * Patch an EXISTING inventory unit's buy-side / audit fields (model, brand,
+ * category, colour, storage, supplier, buyPrice). Used by the import's
+ * audit-completeness gate to fix a matched unit whose record was missing the
+ * data required to mark it sold for internal audit (e.g. BP=£0, blank
+ * supplier, raw-SKU model). Does NOT touch sale fields — the post-import sync
+ * applies status/SP/date/order. Same validation as addUnitManual so a
+ * completed unit is indistinguishable from a properly-received one.
+ */
+export async function completeUnitBuyInfo(
+  input: CompleteUnitBuyInfoInput,
+): Promise<AddUnitResult> {
+  const model = (input.model ?? '').trim();
+  if (!model) return { ok: false, error: 'missing_model', message: 'Model is required.' };
+
+  const bp = Number(input.buyPrice);
+  if (!Number.isFinite(bp) || bp <= 0) {
+    return { ok: false, error: 'missing_buy_price', message: 'Buy price must be greater than £0.' };
+  }
+
+  const supplierName = (input.supplierName ?? '').trim();
+  if (!supplierName) return { ok: false, error: 'missing_supplier', message: 'Supplier is required.' };
+
+  const cached = await dbService.readAll('inventoryUnits');
+  const unit = cached.find((u: any) => u.id === input.unitId) as InventoryUnit | undefined;
+  if (!unit) return { ok: false, error: 'write_failed', message: `Unit ${input.unitId} not found.` };
+
+  const supplierId = await ensureSupplier(supplierName);
+  const parsed = parseBrandModelStorage(model);
+  const category = detectCategory(model);
+  const brand = parsed.brand !== 'Other'
+    ? parsed.brand
+    : (['iPhone', 'iPad', 'Apple Watch'].includes(category)
+        ? 'Apple'
+        : (['Samsung S Series', 'Samsung A Series', 'Tablet'].includes(category) ? 'Samsung' : 'Other'));
+  const cleanModel = parsed.model || model;
+  const storage = (input.storage ?? '').trim() || parsed.storage;
+
+  try {
+    await dbService.update('inventoryUnits', input.unitId, {
+      model: cleanModel,
+      brand,
+      category,
+      ...(input.colour?.trim() ? { colour: input.colour.trim() } : {}),
+      ...(storage ? { storage } : {}),
+      ...(input.simType?.trim() ? { simType: input.simType.trim() } : {}),
+      ...(parsed.series ? ({ series: parsed.series } as any) : {}),
+      ...(input.stockSource ? { stockSource: input.stockSource } : {}),
+      supplierId,
+      supplierName,
+      buyPrice: bp,
+    });
+  } catch (err: any) {
+    return { ok: false, error: 'write_failed', message: err?.message || 'Save failed. Check connection.' };
+  }
+
+  await logInventoryEvent({
+    type: 'notes_updated',
+    message: `Unit ${input.unitId} buy-side info completed for audit (${cleanModel}${storage ? ' ' + storage : ''}, ${supplierName}, £${bp})`,
+    unitId: input.unitId,
+  });
+
+  return { ok: true, id: input.unitId };
+}
+
+/**
+ * Restore a unit's return markers from a re-imported Sales Report whose
+ * marketplace tab shows this sale as voided (voidedAt/voidOutcome/
+ * voidReason — see salesImport.ts's return-block parsing) and whose
+ * Returns tab supplied a Return Type for it (salesImport.ts's
+ * parseReturnsTab / ParsedReturnRow).
+ *
+ * Two cases, both ending in the same buildRestoredReturnPatch shape:
+ *   - `existingUnit` present (pre-existing in the DB, or just created
+ *     'sold' by this same import batch) → patch it straight to returned.
+ *   - No matching unit anywhere (a DB rebuilt from this workbook alone,
+ *     so the unit was never re-created) → reuse addSoldUnitFromSale's
+ *     validation/model-split/supplier-resolution to birth it, then patch
+ *     the same patch on top. There is no live "sold" moment to preserve
+ *     for a unit whose entire life this import is "it came back" — the
+ *     intermediate create is just code reuse, not a semantic step.
+ *
+ * Never called for a sale with no returnType supplied (the caller only
+ * invokes this once it has one from the Returns tab) — this function does
+ * not guess Return Type, matching the same caution as the rest of the
+ * returns write surface.
+ */
+export async function restoreUnitReturnFromImport(input: {
+  sale: Sale;
+  returnType: ReturnCategory;
+  existingUnit?: InventoryUnit | null;
+}): Promise<RestoreUnitReturnResult> {
+  const { sale, returnType } = input;
+  if (!sale.voidedAt) {
+    return { ok: false, error: 'not_voided', message: 'Sale is not voided; nothing to restore.' };
+  }
+  const rawImei = (sale.imei || '').trim().toUpperCase();
+  if (!rawImei) {
+    return { ok: false, error: 'missing_imei', message: 'Sale has no IMEI to restore a unit against.' };
+  }
+
+  const returnPatch = buildRestoredReturnPatch(sale, returnType);
+  const existingUnit = input.existingUnit ?? (await dbService.getByImei(rawImei) as InventoryUnit | null);
+
+  try {
+    if (existingUnit) {
+      // Idempotent — re-running the same import (or a second file covering
+      // the same period) shouldn't double-log or re-write an already
+      // restored unit. Must also compare returnDate, not just status/type:
+      // a unit returned twice (never resold in between, so the multi-cycle
+      // guard below never fires) has TWO voided sales sharing the SAME
+      // Return Type — the Returns Detail sheet only ever carries the
+      // latest cycle's type (see parseReturnsTab), so both restore calls
+      // for this unit are made with an identical returnType. Without the
+      // date check, the FIRST (oldest) call would create the unit with
+      // its own correct returnDate, then the SECOND (newest, actually-
+      // current) call would see status+type already match and skip —
+      // silently leaving the unit stuck on the older cycle's returnDate/
+      // reason/outcome forever, with only the returnType happening to
+      // look right.
+      if (
+        existingUnit.status === returnPatch.status
+        && existingUnit.returnType === returnType
+        && existingUnit.returnDate === returnPatch.returnDate
+      ) {
+        return { ok: true, unitId: existingUnit.id, created: false };
+      }
+      // Multi-cycle guard: sell → return → sell again, then the whole
+      // history re-imports in one file. The unit's CURRENT state may
+      // already reflect a NEWER sale (this same import batch's audit-
+      // completion / sold-flip step runs before this one) — restoring an
+      // older, now-superseded return here would silently overwrite that
+      // newer sale's status/link. Only proceed when the unit's current
+      // sale linkage still points at THIS sale, or there is none at all
+      // (a plain returned-then-never-resold unit).
+      const linkedToThisSale =
+        !existingUnit.saleOrderId
+        || (existingUnit.saleOrderId === sale.orderNumber && existingUnit.salePlatform === sale.marketplace);
+      if (existingUnit.status === 'sold' && !linkedToThisSale) {
+        return {
+          ok: false, error: 'superseded_by_newer_sale', unitId: existingUnit.id,
+          message: `Unit ${existingUnit.id} has since been re-sold (order ${existingUnit.saleOrderId}); this older return was not applied so the newer sale isn't overwritten.`,
+        };
+      }
+      await dbService.update('inventoryUnits', existingUnit.id, returnPatch);
+      dbService.applyCacheItem('inventoryUnits', existingUnit.id, returnPatch);
+      await logInventoryEvent({
+        type: 'returned',
+        message: `Return restored from import · ${existingUnit.model}${existingUnit.storage ? ' ' + existingUnit.storage : ''} · ${returnType.replace(/_/g, ' ')}`,
+        unitId: existingUnit.id,
+        buyPrice: existingUnit.buyPrice,
+      });
+      return { ok: true, unitId: existingUnit.id, created: false };
+    }
+
+    // No unit anywhere — birth it sold (reusing addSoldUnitFromSale's
+    // validation + model/supplier resolution), then immediately patch the
+    // same return state on top.
+    const created = await addSoldUnitFromSale({
+      sale,
+      imei: rawImei,
+      model: (sale.model ?? sale.sku ?? '').trim(),
+      buyPrice: sale.buyPrice,
+      supplierName: sale.supplierName,
+    });
+    if (!created.ok || !created.id) {
+      const code: RestoreUnitReturnErrorCode =
+        created.error === 'missing_model' ? 'missing_model'
+        : created.error === 'missing_buy_price' ? 'missing_buy_price'
+        : created.error === 'missing_supplier' ? 'missing_supplier'
+        : 'write_failed';
+      return { ok: false, error: code, message: created.message };
+    }
+
+    await dbService.update('inventoryUnits', created.id, returnPatch);
+    dbService.applyCacheItem('inventoryUnits', created.id, returnPatch);
+    await logInventoryEvent({
+      type: 'returned',
+      message: `Unit ${created.id} reconstructed from import — restored as ${returnType.replace(/_/g, ' ')}`,
+      unitId: created.id,
+      buyPrice: sale.buyPrice,
+    });
+    return { ok: true, unitId: created.id, created: true };
+  } catch (err: any) {
+    return { ok: false, error: 'write_failed', message: err?.message || 'Failed to restore return state.' };
+  }
+}

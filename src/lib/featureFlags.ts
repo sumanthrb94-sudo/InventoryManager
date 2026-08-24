@@ -4,7 +4,7 @@
  */
 
 /**
- * Whether the Inventory Report import is reachable.
+ * Whether the report importers — Inventory and Sales — are reachable.
  *
  * ON, for admins, as of 2026-08-23 — and this time with the gate that was
  * missing the first time round.
@@ -26,14 +26,33 @@
  * re-uploaded, and an admin can add the model to the catalogue from inside the
  * preview, at which point the waiting rows join the import with no re-upload.
  *
- * SALES import was NOT restored. Only the inventory route came back.
+ * SALES import came back on 2026-08-24, under the same gate and for the same
+ * reason it was worth having: reconciling a marketplace file against stock
+ * already on file, marking units sold in bulk and restoring returns. It has
+ * one extra hazard the inventory route does not — a sold record it cannot
+ * match has to become a unit, so the same free-text hole opens on the
+ * completion panel rather than on the file. auditRowMissing closes it there:
+ * a row whose model is not in the catalog, or whose supplier is not already on
+ * file, is HELD and blocks Confirm. Neither check fires when the reference
+ * data is absent (no catalog, no suppliers), so a freshly wiped database is
+ * not left with every row unsatisfiable.
+ *
+ * Because a held row must not be resolved by adding a near-duplicate catalog
+ * entry — which would recreate exactly the mess the gate prevents — a held
+ * name is matched against the ones on file and the close call is offered back:
+ * "did you mean iPhone 13?", one click to take it. The model check is
+ * deliberately not the supplier one: a model catalog is full of names that
+ * differ by one character on purpose, so modelNearMiss requires the
+ * generation-bearing digits to match exactly and only lets the letters be
+ * wrong. Otherwise the S23 gets reported as a misspelling of the S24 and the
+ * warning is ignored within a week.
  *
  * What this still re-opens, so it is a decision and not a surprise: import is
  * the only route that can CREATE units in bulk, so a stale or hand-edited file
  * can reintroduce stock that was deliberately removed. The file matters.
  *
- * The call site in App.tsx is `SHOW_IMPORT_UI && userIsAdmin`; an employee can
- * neither see nor reach it.
+ * Both call sites in App.tsx are `SHOW_IMPORT_UI && userIsAdmin`; an employee
+ * can neither see nor reach either one.
  */
 export const SHOW_IMPORT_UI = true;
 
