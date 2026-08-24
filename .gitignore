@@ -42,3 +42,8 @@ simulation-output/
 # buy prices, handed to the operator directly rather than kept in the repo.
 inventory-report-with-*-new-units.xlsx
 inventory-report-ALL-SCENARIOS.xlsx
+
+# Sales reports cut from a client's live workbook — real order numbers, IMEIs,
+# suppliers and prices. The BUILDER (scripts/buildSalesReportSince.mjs) is
+# version-controlled; its output is customer data and is not.
+SALES_REPORT_FROM_*.xlsx

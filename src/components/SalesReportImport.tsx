@@ -1316,7 +1316,7 @@ export default function SalesReportImport({ onClose }: Props) {
           <div className="min-w-0">
             <h3 className="text-sm font-bold tracking-tight">Import Sales Report</h3>
             <p className="text-[10px] font-mono text-slate-400 mt-0.5">
-              4-platform xlsx · upload → preview → confirm
+              5-platform xlsx · upload → preview → confirm
             </p>
           </div>
           <button onClick={onClose} className="p-2 rounded-xl hover:bg-slate-100 text-slate-400">
