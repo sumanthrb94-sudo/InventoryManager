@@ -49,6 +49,11 @@ const BASE = process.env.E2E_BASE_URL || 'http://localhost:4173';
 const OUT = resolve('e2e-screenshots/sales-import-simulation');
 if (!existsSync(OUT)) mkdirSync(OUT, { recursive: true });
 const WORKBOOK = resolve('templates/samples/SALES_IMPORT_SIMULATION.xlsx');
+// The confirm pass needs a file with the un-correctable rows taken out. That
+// file is a working artefact, not the deliverable — the kept workbook must
+// stay the FULL matrix, or the thing shipped for a human to read is a trimmed
+// version missing exactly the rows that demonstrate the gate.
+const TRIMMED = resolve('/tmp', 'e2e-sales-simulation-importable.xlsx');
 
 // ── The world the file arrives into ─────────────────────────────────────────
 //
@@ -172,7 +177,7 @@ function quantityKey(marketplace) {
   return marketplace === 'EBAY' ? 'Units' : 'Quantity';
 }
 
-async function buildWorkbook() {
+async function buildWorkbook(path = WORKBOOK) {
   const wb = new ExcelJS.Workbook();
   await wb.xlsx.readFile('templates/SALES_REPORT_TEMPLATE.xlsx');
   for (const ws of wb.worksheets) {
@@ -213,7 +218,7 @@ async function buildWorkbook() {
     put('Comments', `${s.id} · ${s.kind} · expect: ${EXPECT_TEXT[s.kind]}${[s.wantModel, s.wantSupplier].filter(Boolean).map(w => ` → "${w}"`).join('')}`);
     row.commit();
   }
-  await wb.xlsx.writeFile(WORKBOOK);
+  await wb.xlsx.writeFile(path);
 }
 
 // ── Harness ─────────────────────────────────────────────────────────────────
@@ -378,17 +383,18 @@ await modal().screenshot({ path: `${OUT}/03-corrections-taken.png` });
 console.log('\n4 · the importable subset confirms; the rest never reaches the database');
 const IMPORTABLE = SCENARIOS.filter(s => !['quiet', 'held-supp', 'blocked'].includes(s.kind));
 const DROPPED = SCENARIOS.filter(s => ['quiet', 'held-supp', 'blocked'].includes(s.kind));
+const FULL_MATRIX = [...SCENARIOS];
 const seqPerTab = {};
 SCENARIOS.length = 0;
 for (const s of IMPORTABLE) {
   seqPerTab[s.marketplace] = (seqPerTab[s.marketplace] || 0) + 1;
   SCENARIOS.push({ ...s, seq: seqPerTab[s.marketplace] });
 }
-await buildWorkbook();
+await buildWorkbook(TRIMMED);
 
 await modal().getByRole('button', { name: /Pick another file/i }).click();
 await page.waitForTimeout(600);
-await upload(WORKBOOK);
+await upload(TRIMMED);
 
 // The typo rows are still typos in the rebuilt file — correct them the way an
 // operator would, through the suggestion, rather than by typing the right
@@ -473,7 +479,7 @@ const salesBefore = db.sales.length;
 await page.goto(BASE, { waitUntil: 'networkidle' });
 await page.waitForTimeout(1500);
 await openImporter(page, 'sales');
-await upload(WORKBOOK);
+await upload(TRIMMED);
 await modal().screenshot({ path: `${OUT}/06-reupload-preview.png` });
 text = await modal().innerText();
 check('the second pass creates nothing new', /already been imported|0\s*\n\s*TO CREATE|nothing to create/i.test(text) || num(/TO CREATE\s*\n\s*(\d+)/) === 0, true);
@@ -481,6 +487,62 @@ check('the second pass creates nothing new', /already been imported|0\s*\n\s*TO 
 db = await store();
 check('unit count unchanged', db.units.length, unitsBefore);
 check('sale count unchanged', db.sales.length, salesBefore);
+
+// ── 7 · The admin's way through a genuinely new name ────────────────────────
+//
+// A correction only helps when the name IS a typo. Sometimes it is a real new
+// supplier or a real new phone, and the answer there is not "bend it onto
+// something that exists" — it is an admin adding the record. Done from inside
+// the preview, because sending them to Admin means abandoning a file they may
+// have spent ten minutes correcting, and an instruction like that gets worked
+// around: the workaround is to pick a near neighbour and file the sale wrong.
+console.log('\n7 · an admin adds a genuinely new supplier without leaving the preview');
+await page.goto(`${BASE}?e2eReset=1`, { waitUntil: 'networkidle' });
+await page.waitForTimeout(1500);
+await page.evaluate(({ catalog, suppliers }) => {
+  const s = JSON.parse(sessionStorage.getItem('__e2e_firestore__') || '{}');
+  s.models = {};
+  catalog.forEach((m, i) => {
+    s.models[`mdl-${i}`] = { id: `mdl-${i}`, brand: m.brand, model: m.model,
+                             ownerId: 'shared', createdAt: '2026-01-01' };
+  });
+  s.suppliers = {};
+  suppliers.forEach((n, i) => {
+    s.suppliers[`sup-${i}`] = { id: `sup-${i}`, name: n, ownerId: 'shared', createdAt: '2026-01-01' };
+  });
+  s.inventoryUnits = {};
+  sessionStorage.setItem('__e2e_firestore__', JSON.stringify(s));
+}, { catalog: CATALOG, suppliers: SUPPLIERS });
+await page.goto(BASE, { waitUntil: 'networkidle' });
+await page.waitForTimeout(1500);
+await openImporter(page, 'sales');
+await upload(WORKBOOK);
+
+const NEW_SUPPLIER = FULL_MATRIX.find(s => s.kind === 'held-supp').supplier;
+const heldOnSupplierBefore = Number(
+  ((await modal().innerText()).match(/(\d+) rows? on a supplier not on file/) || [])[1] || 0);
+const addSupplier = modal().getByRole('button', { name: new RegExp(`Add “${NEW_SUPPLIER}” as a new supplier`, 'i') });
+check('the admin is offered a way to add the new supplier here',
+  await addSupplier.count() > 0, true);
+await modal().screenshot({ path: `${OUT}/07-admin-add-supplier.png` });
+
+await addSupplier.first().click();
+await page.waitForTimeout(1500);
+
+const afterAdd = await page.evaluate(() => {
+  const s = JSON.parse(sessionStorage.getItem('__e2e_firestore__') || '{}');
+  return Object.values(s.suppliers || {}).map(x => String(x.name || ''));
+});
+check('the supplier now exists for real', afterAdd.includes(NEW_SUPPLIER), true);
+
+const heldOnSupplierAfter = Number(
+  ((await modal().innerText()).match(/(\d+) rows? on a supplier not on file/) || [])[1] || 0);
+// The release has to be immediate. A gate that keeps rejecting for a beat
+// after the admin has visibly added the supplier reads as the button not
+// having worked, and the next thing tried is the near-neighbour workaround.
+check('every row waiting on that supplier is released at once',
+  heldOnSupplierBefore - heldOnSupplierAfter, 1);
+await modal().screenshot({ path: `${OUT}/08-supplier-added-row-released.png` });
 
 check('no uncaught page errors', jsErrors, []);
 

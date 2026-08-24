@@ -27,7 +27,7 @@ import type { Sale, Marketplace, ReturnCategory } from '../types';
 import { MARKETPLACES } from '../types';
 import { parseSalesWorkbook, type ParsedSales } from '../lib/salesImport';
 import { buildPostImportSyncPatches } from '../services/salesService';
-import { addSoldUnitFromSale, completeUnitBuyInfo, reconcileShsAfterFulfilment, decrementAccessoryStock, restoreUnitReturnFromImport, restoreAccessoryReturnFromImport } from '../services/inventoryService';
+import { addSoldUnitFromSale, completeUnitBuyInfo, reconcileShsAfterFulfilment, decrementAccessoryStock, restoreUnitReturnFromImport, restoreAccessoryReturnFromImport, ensureSupplier } from '../services/inventoryService';
 import { normalizeOperatorSku, parseBrandModelStorage } from '../lib/modelStorage';
 import { buildCatalogIndex, canonicaliseModel } from '../lib/modelReconciliation';
 import { normalizeBucketModel } from '../lib/modelStorage';
@@ -665,21 +665,84 @@ export default function SalesReportImport({ onClose }: Props) {
    *  derived in both: two derivations of "what counts as known" could
    *  disagree, and the disagreement would show as a Confirm button that
    *  stays disabled with no row explaining why. */
+  /** Models and suppliers an admin has created from INSIDE this preview.
+   *
+   *  Held rows have to be released the moment the missing name exists, with no
+   *  re-upload — that is the whole point of being able to add it from here. The
+   *  store's own list is the authority, but it refreshes on its own schedule,
+   *  and a gate that keeps blocking for a second or two after the admin has
+   *  visibly added the model reads as the button not having worked. Merged in
+   *  below so the release is immediate and does not depend on that timing.
+   *
+   *  Held in the PARENT, not in the preview panel: the same missing model
+   *  usually appears on several rows, and adding it once must free all of
+   *  them. */
+  const [justCreatedModels, setJustCreatedModels] = useState<ModelSeed[]>([]);
+  const [justCreatedSuppliers, setJustCreatedSuppliers] = useState<string[]>([]);
+
   const knownRefs = useMemo<KnownRefs>(() => {
-    const names = new Set(
-      suppliers.map(x => (x.name || '').trim().toLowerCase()).filter(Boolean),
-    );
+    const supplierNames = [
+      ...suppliers.map(x => (x.name || '').trim()),
+      ...justCreatedSuppliers,
+    ].filter(Boolean);
+    const names = new Set(supplierNames.map(n => n.toLowerCase()));
+    const catalogModels = [
+      ...models.map(m => ({ brand: m.brand, model: m.model })),
+      ...justCreatedModels.map(m => ({ brand: m.brand, model: m.model })),
+    ].filter(m => m.model);
     return {
-      catalogIndex: buildCatalogIndex(models),
+      catalogIndex: buildCatalogIndex(catalogModels),
       // Skip the supplier check entirely until some exist — on a fresh or
       // just-wiped database an empty set would reject every row with no way
       // to satisfy it.
       supplierNames: names.size > 0 ? names : undefined,
-      catalogModelNames: models.map(m => m.model).filter(Boolean),
-      supplierDisplayNames: suppliers.map(x => (x.name || '').trim()).filter(Boolean),
+      catalogModelNames: catalogModels.map(m => m.model),
+      supplierDisplayNames: supplierNames,
     };
-  }, [models, suppliers]);
+  }, [models, suppliers, justCreatedModels, justCreatedSuppliers]);
   const userIsAdmin = isAdmin(auth.currentUser);
+
+  /** Add a model to the admin catalogue without leaving the import.
+   *
+   *  Admin-only, and it has to be: this is the one route that can put a name
+   *  into the catalogue in bulk-import context, and the catalogue is the thing
+   *  every other intake path is gated against. An employee facing an unknown
+   *  model is meant to reach an admin, not to invent the entry that makes
+   *  their row go through. */
+  const createModel = userIsAdmin ? async (draft: { brand: string; model: string }) => {
+    const id = `model_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+    await dbService.create('models', id, {
+      brand: draft.brand,
+      model: draft.model,
+      ownerId: 'shared',
+      createdAt: new Date().toISOString(),
+      createdBy: auth.currentUser?.email || 'admin',
+    });
+    setJustCreatedModels(prev => [...prev, { id, brand: draft.brand, model: draft.model }]);
+    return {
+      brand: draft.brand, model: draft.model, count: 0, latestDateIn: '',
+      storages: [], colours: [], source: 'seed' as const,
+    };
+  } : undefined;
+
+  /** Same, for a supplier the file names and the database has never seen.
+   *
+   *  Before this existed the message told the operator to go and add it in
+   *  Admin — which means abandoning a preview they may have spent ten minutes
+   *  correcting, since nothing about it survives the round trip. That is the
+   *  kind of instruction people work around, and the workaround here is to
+   *  bend the name onto an existing supplier so the row passes, which is
+   *  exactly the corrupted ledger the gate exists to prevent.
+   *
+   *  ensureSupplier is idempotent by name, so a double-click or two rows
+   *  naming the same new supplier resolve to one document. */
+  const createSupplier = userIsAdmin ? async (name: string) => {
+    const trimmed = (name || '').trim();
+    if (!trimmed) return;
+    await ensureSupplier(trimmed);
+    setJustCreatedSuppliers(prev =>
+      prev.some(n => n.toLowerCase() === trimmed.toLowerCase()) ? prev : [...prev, trimmed]);
+  } : undefined;
   const [phase, setPhase] = useState<Phase>('upload');
   const [parsed, setParsed] = useState<ParsedSales | null>(null);
   const [fileName, setFileName] = useState('');
@@ -1287,6 +1350,9 @@ export default function SalesReportImport({ onClose }: Props) {
               suppliers={suppliers}
               isAdmin={userIsAdmin}
               knownRefs={knownRefs}
+              justCreatedModels={justCreatedModels}
+              onCreateModel={createModel}
+              onCreateSupplier={createSupplier}
             />
           )}
 
@@ -1622,6 +1688,7 @@ function UploadPhase({
 function PreviewPhase({
   preview, fileName, error, flipsAcked, onAckChange,
   auditEdits, onAuditEdit, units, suppliers, isAdmin, knownRefs,
+  justCreatedModels, onCreateModel, onCreateSupplier,
 }: {
   preview: PreviewBuckets;
   fileName: string;
@@ -1638,6 +1705,14 @@ function PreviewPhase({
    *  or supplier, and two derivations could drift into a disabled Confirm with
    *  no row explaining itself. */
   knownRefs: KnownRefs;
+  /** Models the admin has added from inside this preview, so the picker
+   *  offers them on every other row too — not just the one they were added
+   *  from. Owned by the parent, which also folds them into knownRefs. */
+  justCreatedModels: ModelSeed[];
+  /** Admin-only, undefined for an employee. Adds the name to the catalogue /
+   *  the supplier list, which releases every row waiting on it. */
+  onCreateModel?: (draft: { brand: string; model: string }) => Promise<import('../lib/deviceCatalog').DeviceCatalogEntry>;
+  onCreateSupplier?: (name: string) => Promise<void>;
 }) {
   // Clean re-import = nothing to create, nothing to flip, no orphan IMEIs,
   // no stale combined docs to purge. The file has already been imported and
@@ -1678,16 +1753,12 @@ function PreviewPhase({
   );
   const activeToUpdate = preview.toUpdate.length - alreadyRecordedReturns;
 
-  // Models created via "+ Add" DURING this import session — tracked
-  // separately from the (deliberately excluded) pre-existing admin
-  // seeds above. A batch of orphan sales often needs the same brand-new
-  // model on several rows; creating it once in row A must make it
-  // pickable in row B immediately, not just leave it sitting in row A's
-  // own input. Passed as `seeds` to every row below, on top of that
-  // row's own office/SHS unit filter.
-  const [justCreatedModels, setJustCreatedModels] = useState<
-    import('../lib/deviceCatalog').ModelSeed[]
-  >([]);
+  // Models created via "+ Add" DURING this import session are tracked in the
+  // PARENT (see justCreatedModels there) and arrive here as a prop, alongside
+  // the knownRefs they were folded into. They used to live in this panel,
+  // which meant the picker offered a newly created model immediately while the
+  // GATE went on rejecting rows that named it — the operator watched the model
+  // appear and the row stay red. One owner, one answer.
 
   /** Scrolls a failed write's banner into view. Returning to this panel
    *  leaves the operator wherever the browser puts them — typically far from
@@ -1741,22 +1812,6 @@ function PreviewPhase({
     // its contents — which is exactly what would reintroduce the bug.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [showIncompleteOnly, auditEdits.length]);
-  const createModel = isAdmin ? async (draft: { brand: string; model: string }) => {
-    const id = `model_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
-    await dbService.create('models', id, {
-      brand: draft.brand,
-      model: draft.model,
-      ownerId: 'shared',
-      createdAt: new Date().toISOString(),
-      createdBy: auth.currentUser?.email || 'admin',
-    });
-    setJustCreatedModels(prev => [...prev, { id, brand: draft.brand, model: draft.model }]);
-    return {
-      brand: draft.brand, model: draft.model, count: 0, latestDateIn: '',
-      storages: [], colours: [], source: 'seed' as const,
-    };
-  } : undefined;
-
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between gap-3 text-[11px] font-mono text-slate-500">
@@ -2188,6 +2243,48 @@ function PreviewPhase({
                           Supplier: did you mean “{suggestions.supplier.match}”?
                         </button>
                       )}
+                      {/* The other half of the answer. A correction only helps
+                          when the name IS a typo; sometimes it is a genuinely
+                          new supplier, and before this the message said to go
+                          and add it in Admin — which means abandoning a
+                          preview that may have taken ten minutes to correct.
+                          People work around instructions like that, and the
+                          workaround is to bend the name onto an existing
+                          supplier so the row passes, which is the corrupted
+                          ledger this whole gate exists to prevent.
+
+                          Admin only, deliberately: an employee facing an
+                          unknown supplier is meant to reach an admin, not to
+                          create the record that makes their own row go
+                          through. They get the reason instead of the button. */}
+                      {missing.includes('supplier not on file') && (
+                        onCreateSupplier ? (
+                          <button
+                            type="button"
+                            onClick={async () => {
+                              await onCreateSupplier(o.supplierName.trim());
+                            }}
+                            className="block text-left text-[9px] font-mono font-bold text-emerald-800 bg-emerald-100 border border-emerald-300 rounded px-1.5 py-0.5 mt-1 hover:bg-emerald-200 whitespace-normal"
+                            title="Adds this supplier for real, and releases every row in this file waiting on it"
+                          >
+                            + Add “{o.supplierName.trim()}” as a new supplier
+                          </button>
+                        ) : (
+                          <span className="block text-[9px] font-mono text-slate-500 mt-1 whitespace-normal">
+                            Genuinely new? An admin has to add this supplier.
+                          </span>
+                        )
+                      )}
+                      {/* Same, for the model. The picker below carries the
+                          admin "+ Add" affordance itself, so this only has to
+                          say so — and has to say the other thing to an
+                          employee, who will otherwise sit on a red row with
+                          no idea what is expected of them. */}
+                      {missing.includes('model not in catalog') && !onCreateModel && (
+                        <span className="block text-[9px] font-mono text-slate-500 mt-1 whitespace-normal">
+                          Genuinely new? An admin has to add this model to the catalog.
+                        </span>
+                      )}
                     </span>
                     {/* Model — searchable catalog picker, NOT free text.
                         The raw SKU is preserved on o.sku; the operator
@@ -2214,7 +2311,7 @@ function PreviewPhase({
                           ...(!o.storage && entry.storages?.[0] ? { storage: entry.storages[0] } : {}),
                           ...((!o.colour || o.colour === 'Unknown') && entry.colours?.[0] ? { colour: entry.colours[0] } : {}),
                         })}
-                        onCreateModel={createModel}
+                        onCreateModel={onCreateModel}
                         placeholder="Search model…"
                         inputClassName="w-full border border-slate-200 rounded px-1.5 py-1 text-[10px] focus:outline-none focus:border-orange-500"
                       />
