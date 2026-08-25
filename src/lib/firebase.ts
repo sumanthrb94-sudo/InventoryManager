@@ -5,12 +5,63 @@ import {
   signOut as fbSignOut,
   type User,
 } from 'firebase/auth';
-import { getFirestore } from 'firebase/firestore';
+import {
+  getFirestore, initializeFirestore,
+  persistentLocalCache, persistentMultipleTabManager,
+} from 'firebase/firestore';
 import { getStorage } from 'firebase/storage';
 import firebaseConfig from '../../firebase-applet-config.json';
 
 const app = initializeApp(firebaseConfig);
-export const db      = getFirestore(app, firebaseConfig.firestoreDatabaseId);
+
+/**
+ * ON-DISK CACHE. This is the difference between ~1,300 document reads per page
+ * load and almost none.
+ *
+ * WHAT WENT WRONG WITHOUT IT
+ *
+ * getFirestore() defaults to a MEMORY cache, which dies with the tab. Every
+ * listener in inventoryStore watches a whole collection, so every reload
+ * re-downloaded every document: ~711 units + ~401 sales + aggregates +
+ * models + suppliers. On the free tier's 50,000 daily reads that is roughly
+ * 35 page loads a day, shared across every phone, every tab and every refresh.
+ * A day of importing exhausted it by evening, and the operator opened the app
+ * to a database that answered:
+ *
+ *   Quota exceeded for 'Free daily read units per project (free tier database)'
+ *
+ * With a persistent cache, Firestore keeps the documents in IndexedDB and, on
+ * the next load, asks only what has CHANGED since it last synced. The steady
+ * state for a returning user goes from "the whole database" to "today's
+ * edits". Data is no less live: the listeners still stream updates, they just
+ * stop re-paying for what has not moved.
+ *
+ * MULTI-TAB, deliberately. The operator works with several tabs open and the
+ * single-tab manager would leave the others without persistence — quietly
+ * putting the expensive behaviour back for exactly the person who has the most
+ * tabs open.
+ *
+ * This is NOT the "no local storage" the operator ruled out. That was about
+ * the app keeping its own copies of business data in localStorage, where it
+ * could go stale and disagree with Firestore. This is Firestore's own cache,
+ * which it invalidates itself.
+ *
+ * Falls back to the memory cache if IndexedDB is unavailable — a private
+ * window, a locked-down browser — because a working app that costs more reads
+ * beats an app that will not start.
+ */
+function makeDb() {
+  try {
+    return initializeFirestore(app, {
+      localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() }),
+    }, firebaseConfig.firestoreDatabaseId);
+  } catch (err) {
+    console.warn('[firebase] persistent cache unavailable, falling back to memory:', err);
+    return getFirestore(app, firebaseConfig.firestoreDatabaseId);
+  }
+}
+
+export const db      = makeDb();
 export const storage = getStorage(app, firebaseConfig.storageBucket);
 export const auth    = getAuth(app);
 

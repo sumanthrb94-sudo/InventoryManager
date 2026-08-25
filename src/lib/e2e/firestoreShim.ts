@@ -127,6 +127,17 @@ function ensureSeeded(): void {
 // ── SDK surface ──────────────────────────────────────────────────────────────
 export function initializeApp(config: any) { return { name: '[DEFAULT]', options: config }; }
 export function getFirestore(_app?: any, _id?: string) { ensureSeeded(); return { __e2e: true }; }
+
+/** The real app configures an on-disk cache to stop re-reading every document
+ *  on every load. The shim is already a local store, so these are no-ops — but
+ *  they have to EXIST, or aliasing firebase/firestore to this module turns a
+ *  caching change into a build failure that only the E2E build shows. */
+export function initializeFirestore(_app?: any, _settings?: any, _id?: string) {
+  ensureSeeded();
+  return { __e2e: true };
+}
+export function persistentLocalCache(_settings?: any) { return { __e2eCache: true }; }
+export function persistentMultipleTabManager() { return { __e2eTabs: true }; }
 export function getStorage(_app?: any, _bucket?: string) { return { __e2e: true }; }
 
 export function collection(_db: any, name: string) { return { __col: name, path: name }; }

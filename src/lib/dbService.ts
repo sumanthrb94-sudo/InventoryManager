@@ -128,6 +128,51 @@ export function subscribeToSyncStatus(cb: (s: SyncStatus) => void) {
   };
 }
 
+// ── Read cost, made visible ──────────────────────────────────────────────────
+//
+// The free tier allows 50,000 document reads a day and gives no running total,
+// so the first sign of trouble is the database refusing to answer. That is
+// exactly how it went: an evening of importing, and the next morning the app
+// opened to "Quota exceeded for 'Free daily read units per project'".
+//
+// Firestore bills per DOCUMENT delivered from the server, not per query, and
+// `metadata.fromCache` says which side a snapshot came from. Counting both
+// turns an invisible running cost into something anyone can read off the
+// console before it becomes an outage — and it is the only way to tell whether
+// the on-disk cache is actually earning its keep.
+export interface ReadCost {
+  /** Documents served from the server. These are the ones that cost money. */
+  billed: number;
+  /** Documents served from the on-disk cache. Free. */
+  cached: number;
+  /** Snapshot deliveries, billed or not. */
+  snapshots: number;
+}
+const _readCost: Record<string, ReadCost> = {};
+
+function recordSnapshotCost(collectionName: string, snap: any) {
+  const c = (_readCost[collectionName] ??= { billed: 0, cached: 0, snapshots: 0 });
+  c.snapshots++;
+  // docChanges() is what actually moved. On the first snapshot that is every
+  // document; afterwards it is only the edits, which is the whole point of
+  // the cache and the number worth watching.
+  const moved = typeof snap?.docChanges === 'function' ? snap.docChanges().length : (snap?.size ?? 0);
+  if (snap?.metadata?.fromCache) c.cached += moved;
+  else c.billed += moved;
+}
+
+/** Read cost so far this session, by collection, plus a total.
+ *  Also hung on `window.__readCost` so it can be checked from a phone's
+ *  console without a build or a deploy. */
+export function readCost(): { total: ReadCost; byCollection: Record<string, ReadCost> } {
+  const total = Object.values(_readCost).reduce<ReadCost>(
+    (a, c) => ({ billed: a.billed + c.billed, cached: a.cached + c.cached, snapshots: a.snapshots + c.snapshots }),
+    { billed: 0, cached: 0, snapshots: 0 },
+  );
+  return { total, byCollection: { ..._readCost } };
+}
+if (typeof window !== 'undefined') (window as any).__readCost = readCost;
+
 function emit(name: string, data: any[]) {
   for (const cb of listeners[name] || []) cb([...data]);
 }
@@ -435,6 +480,7 @@ export const dbService = {
         const data = snapToItems(snap);
         cachedData[collectionName] = data;
         hydrated.add(collectionName);
+        recordSnapshotCost(collectionName, snap);
         emit(collectionName, data);
         setSyncStatus(true);
       },
