@@ -207,9 +207,40 @@ export async function setDoc(ref: any, data: Doc, options?: { merge?: boolean })
 
 export async function deleteDoc(ref: any) { removeDoc(ref.__col, ref.id); }
 
-export function onSnapshot(ref: any, onNext: (snap: any) => void, _onError?: (e: any) => void) {
+/**
+ * `?e2eSnapshotError=1` makes every listener fail instead of emitting.
+ *
+ * WHY A TEST-ONLY SWITCH FOR THIS
+ *
+ * A Firestore snapshot ERROR — denied rules, blown read quota, a dead
+ * connection — is the one failure that makes the app render a complete,
+ * confident zero: every collection serves an empty cache, so All Office Stock,
+ * Sold Today and Stock Alerts all read 0 and Stock Alerts announces "all stock
+ * levels healthy". It is pixel-identical to a wiped database, and the operator
+ * hit it for real and reasonably concluded their data was gone.
+ *
+ * This shim ignored its onError argument entirely, so that state could not be
+ * reached in a test and nothing guarded it. Being unreachable in the harness is
+ * precisely why it shipped. One flag makes the worst screen in the app
+ * reproducible on demand.
+ */
+function snapshotsShouldFail(): boolean {
+  if (typeof window === 'undefined') return false;
+  return new URLSearchParams(window.location.search).get('e2eSnapshotError') === '1';
+}
+
+export function onSnapshot(ref: any, onNext: (snap: any) => void, onError?: (e: any) => void) {
   ensureSeeded();
   const name = ref.__col;
+  if (snapshotsShouldFail()) {
+    // Shaped like the real thing: the SDK hands back a FirebaseError whose
+    // `code` is what dbService logs and a human would paste back.
+    setTimeout(() => onError?.(Object.assign(
+      new Error('Missing or insufficient permissions.'),
+      { code: 'permission-denied', name: 'FirebaseError' },
+    )), 0);
+    return () => {};
+  }
   (listeners[name] ??= []).push(onNext);
   // Async first emit mirrors the real SDK, so components see a loading tick.
   setTimeout(() => onNext(snapshotOf(name)), 0);

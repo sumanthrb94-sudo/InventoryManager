@@ -21,12 +21,16 @@ import { readFileSync } from 'node:fs';
 const APP = readFileSync('src/App.tsx', 'utf8');
 
 describe('the cannot-read banner', () => {
-  it('renders on the sync flag, not on some derived guess', () => {
-    expect(APP).toMatch(/\{!syncConnected && loaded && \(/);
+  it('renders on the ERROR, not on "not connected yet"', () => {
+    // Gating it on `loaded` was wrong and the E2E caught it: on this exact
+    // failure no collection ever emits, so `loaded` waits out its 15-second
+    // fallback before flipping — the operator stares at a spinner, then gets
+    // unexplained zeros, and the warning arrives last.
+    expect(APP).toMatch(/\{syncErrored && !syncConnected && \(/);
   });
 
   it('says the zeros are a read failure, not missing data', () => {
-    const banner = APP.slice(APP.indexOf('{!syncConnected && loaded && ('));
+    const banner = APP.slice(APP.indexOf('{syncErrored && !syncConnected && ('));
     expect(banner).toMatch(/Can’t reach the database/);
     expect(banner).toMatch(/because nothing could be/);
   });
@@ -34,15 +38,27 @@ describe('the cannot-read banner', () => {
   /** The load-bearing half. Naming the danger is what stops the reader
    *  reaching for the two controls that make it unrecoverable. */
   it('tells the operator not to wipe or import while it is showing', () => {
-    const banner = APP.slice(APP.indexOf('{!syncConnected && loaded && ('));
+    const banner = APP.slice(APP.indexOf('{syncErrored && !syncConnected && ('));
     expect(banner).toMatch(/Do not wipe and do not import/);
   });
 
-  it('sits above the stale-bundle banner so the two cannot cover each other', () => {
-    const offline = APP.indexOf('z-[110]');
-    const stale = APP.indexOf('z-[100]');
-    expect(offline).toBeGreaterThan(-1);
-    expect(stale).toBeGreaterThan(-1);
+  /** THE OCCLUSION BUG.
+   *
+   *  The first version sat at z-[110] — below the z-[300] loading overlay that
+   *  covers the whole screen until `loaded` flips. Every assertion here passed
+   *  and the E2E's isVisible() passed too, because the element WAS rendered
+   *  with a real box; it was simply painted over. Only the screenshot showed
+   *  a spinner and nothing else.
+   *
+   *  So the rule is not "has a z-index" but "outranks every full-screen
+   *  overlay in this file". */
+  it('outranks the loading overlay it would otherwise hide behind', () => {
+    const banner = APP.slice(APP.indexOf('{syncErrored && !syncConnected && ('));
+    const bannerZ = Number((banner.match(/z-\[(\d+)\]/) || [])[1]);
+    const overlays = [...APP.matchAll(/fixed inset-0 z-\[(\d+)\]/g)].map(m => Number(m[1]));
+    expect(bannerZ).toBeGreaterThan(0);
+    expect(overlays.length).toBeGreaterThan(0);
+    for (const z of overlays) expect(bannerZ).toBeGreaterThan(z);
   });
 });
 
@@ -55,5 +71,23 @@ describe('the condition it is reporting', () => {
     expect(falses).toHaveLength(1);
     const at = db.indexOf('setSyncStatus(false)');
     expect(db.slice(at - 200, at)).toMatch(/err\s*=>/);
+  });
+
+  /** The bug underneath the bug. `connected` starts false, and the setter
+   *  deduped on it — so a run whose FIRST snapshot errored wrote false over
+   *  false, returned early, and never notified a listener. The UI could not
+   *  learn about the one failure that matters most: a cold start against a
+   *  database it cannot read, which is precisely what the operator hit. */
+  it('a first-snapshot failure still notifies, despite starting disconnected', async () => {
+    const { subscribeToSyncStatus } = await import('../../lib/dbService');
+    const seen: any[] = [];
+    const stop = subscribeToSyncStatus(s => seen.push({ ...s }));
+    expect(seen[0]).toEqual({ connected: false, errored: false });
+    stop();
+    // And the two facts are modelled separately, so "not yet" and "failed"
+    // are distinguishable at all.
+    const db = readFileSync('src/lib/dbService.ts', 'utf8');
+    expect(db).toMatch(/errored:\s*boolean/);
+    expect(db).toMatch(/const errored = _sync\.errored \|\| !connected;/);
   });
 });

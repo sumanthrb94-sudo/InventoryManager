@@ -89,18 +89,39 @@ export function appToDb(obj: Record<string, any>): Record<string, any> {
 }
 
 // ── Sync status ───────────────────────────────────────────────────────────────
-let _syncConnected = false;
-const _syncListeners: Array<(connected: boolean) => void> = [];
-
-function setSyncStatus(connected: boolean) {
-  if (_syncConnected === connected) return;
-  _syncConnected = connected;
-  _syncListeners.forEach(cb => cb(connected));
+//
+// Two facts, not one, because "not connected yet" and "tried and failed" want
+// opposite treatment on screen. Every app start begins disconnected for a few
+// hundred milliseconds; warning about that would cry wolf on every load and be
+// scrolled past within a day. A snapshot ERROR is the one worth shouting about.
+//
+// Keeping them as a single boolean also hid the failure entirely: `connected`
+// starts false, setSyncStatus deduped on it, so a run whose FIRST snapshot
+// errored set false over false, returned early, and never notified anyone. The
+// UI could not learn about the exact failure that matters most — the cold
+// start against a database it cannot read, which is what the operator hit.
+export interface SyncStatus {
+  /** A snapshot has arrived and the data on screen is live. */
+  connected: boolean;
+  /** A snapshot has come back as an ERROR at least once this session. While
+   *  true, every collection is serving an empty cache and any zero on screen
+   *  means "not loaded", not "none". */
+  errored: boolean;
 }
 
-export function subscribeToSyncStatus(cb: (connected: boolean) => void) {
+let _sync: SyncStatus = { connected: false, errored: false };
+const _syncListeners: Array<(s: SyncStatus) => void> = [];
+
+function setSyncStatus(connected: boolean) {
+  const errored = _sync.errored || !connected;
+  if (_sync.connected === connected && _sync.errored === errored) return;
+  _sync = { connected, errored };
+  _syncListeners.forEach(cb => cb(_sync));
+}
+
+export function subscribeToSyncStatus(cb: (s: SyncStatus) => void) {
   _syncListeners.push(cb);
-  cb(_syncConnected);
+  cb(_sync);
   return () => {
     const i = _syncListeners.indexOf(cb);
     if (i >= 0) _syncListeners.splice(i, 1);

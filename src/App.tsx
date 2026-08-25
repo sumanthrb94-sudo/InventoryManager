@@ -101,7 +101,12 @@ function AppWithAuth() {
   );
 }
 
-function LoadingScreen() {
+/** `errored` — the database came back with an error, so this is not a wait
+ *  that is going to end on its own. Saying "Loading inventory…" at that point
+ *  is a lie the operator sits in front of for the full 15-second fallback
+ *  before the real screen appears, and it is what made a read failure look
+ *  like a slow app and then like a wiped one. */
+function LoadingScreen({ errored = false }: { errored?: boolean }) {
   return (
     <motion.div initial={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.35 }}
       className="fixed inset-0 z-[300] bg-white flex flex-col items-center justify-center gap-6">
@@ -110,9 +115,13 @@ function LoadingScreen() {
         <p className="text-[9px] text-gray-400 font-mono uppercase tracking-[0.4em] mt-1">{APP_TAGLINE}</p>
       </div>
       <div className="flex flex-col items-center gap-3">
-        <motion.div animate={{ rotate: 360 }} transition={{ duration: 1, repeat: Infinity, ease: 'linear' }}
-          className="w-6 h-6 border-2 border-black border-t-transparent rounded-full" />
-        <span className="text-[10px] font-mono uppercase tracking-widest text-gray-400">Loading inventory…</span>
+        {!errored && (
+          <motion.div animate={{ rotate: 360 }} transition={{ duration: 1, repeat: Infinity, ease: 'linear' }}
+            className="w-6 h-6 border-2 border-black border-t-transparent rounded-full" />
+        )}
+        <span className={`text-[10px] font-mono uppercase tracking-widest ${errored ? 'text-rose-600 font-bold' : 'text-gray-400'}`}>
+          {errored ? 'Database unreachable' : 'Loading inventory…'}
+        </span>
       </div>
     </motion.div>
   );
@@ -172,6 +181,9 @@ function AppShell({ user }: { user: User }) {
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
   const [isSalesImportOpen, setIsSalesImportOpen] = useState(false);
   const [syncConnected, setSyncConnected]         = useState(false);
+  /** A snapshot has ERRORED, as opposed to simply not having arrived yet.
+   *  Only the first deserves a warning; the second is every normal start-up. */
+  const [syncErrored, setSyncErrored]             = useState(false);
   const [isAlertsExpanded, setIsAlertsExpanded]   = useState(false);
   /** Hamburger drawer for desktop nav. Mobile keeps its bottom-tab bar
    *  (better thumb reach), so this only controls the slide-out on md+. */
@@ -186,7 +198,10 @@ function AppShell({ user }: { user: User }) {
     return () => document.removeEventListener('keydown', onKey);
   }, [sidebarOpen]);
 
-  useEffect(() => subscribeToSyncStatus(setSyncConnected), []);
+  useEffect(() => subscribeToSyncStatus(s => {
+    setSyncConnected(s.connected);
+    setSyncErrored(s.errored);
+  }), []);
 
   const handleNavigate = (action: NavAction) => {
     if (!userIsAdmin) return;
@@ -228,7 +243,7 @@ function AppShell({ user }: { user: User }) {
   return (
     <div className="h-[100dvh] bg-slate-50 text-slate-900 flex overflow-hidden">
 
-      <AnimatePresence>{!loaded && <LoadingScreen />}</AnimatePresence>
+      <AnimatePresence>{!loaded && <LoadingScreen errored={syncErrored} />}</AnimatePresence>
 
       {/* CANNOT-READ BANNER.
 
@@ -247,8 +262,8 @@ function AppShell({ user }: { user: User }) {
           by someone who thinks they have nothing left to lose.
 
           So: say it plainly, and say what NOT to do. */}
-      {!syncConnected && loaded && (
-        <div className="fixed top-0 inset-x-0 z-[110] bg-rose-600 text-white px-4 py-2.5 shadow-lg">
+      {syncErrored && !syncConnected && (
+        <div className="fixed top-0 inset-x-0 z-[400] bg-rose-600 text-white px-4 py-2.5 shadow-lg">
           <p className="text-[12px] font-bold uppercase tracking-widest text-center">
             Can’t reach the database
           </p>
