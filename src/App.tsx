@@ -230,6 +230,36 @@ function AppShell({ user }: { user: User }) {
 
       <AnimatePresence>{!loaded && <LoadingScreen />}</AnimatePresence>
 
+      {/* CANNOT-READ BANNER.
+
+          The sync flag goes false on ONE condition: a Firestore snapshot
+          returned an error (dbService.subscribeToCollection). When that
+          happens every collection serves an empty cache, so the whole app
+          renders zeros — All Office Stock 0, Sold Today 0, Stock Alerts 0,
+          "All stock levels healthy". Identical, pixel for pixel, to a
+          business that has just been wiped.
+
+          Until now the only thing distinguishing the two was a 1.5px dot with
+          a hover tooltip, which on a phone is invisible and unhoverable. The
+          operator's reasonable read of that screen is "my data is gone", and
+          the two things nearest to hand are Wipe and re-import — one
+          destructive, the other a route to duplicates. Neither is recoverable
+          by someone who thinks they have nothing left to lose.
+
+          So: say it plainly, and say what NOT to do. */}
+      {!syncConnected && loaded && (
+        <div className="fixed top-0 inset-x-0 z-[110] bg-rose-600 text-white px-4 py-2.5 shadow-lg">
+          <p className="text-[12px] font-bold uppercase tracking-widest text-center">
+            Can’t reach the database
+          </p>
+          <p className="text-[11px] text-rose-50 text-center mt-0.5 leading-snug">
+            Every figure below is showing <span className="font-bold">0 because nothing could be
+            loaded</span> — not because your data is gone. Do not wipe and do not import
+            until this clears.
+          </p>
+        </div>
+      )}
+
       {/* Stale-bundle banner — surfaces when this tab's compiled BUILD_ID
           stops matching the live /index.html. Clicking reloads to pick up
           the new bundle. Eliminates the "one user sees a different
