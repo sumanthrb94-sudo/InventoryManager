@@ -87,6 +87,50 @@ const preview = (rows: ParsedRow[], index = catalogue({ brand: 'Apple', model: '
 
 // ── The gate ─────────────────────────────────────────────────────────────────
 
+describe('the gate folds storage and brand out before judging a name', () => {
+  // The third sighting of one bug, pinned at the level it recurs. A unit in
+  // stock reads "SAMSUNG GALAXY A32 64GB" — brand and storage baked in, the
+  // way intake wrote models for months — while a catalogue entry reads
+  // "Galaxy A32". Comparing raw-to-raw held the sales import first, then held
+  // "IPHONE 14 128GB" here while "iPhone 14" sat in the catalogue, and the
+  // "Add to catalogue" button on that held row invites minting exactly the
+  // storage-suffixed near-duplicate the gate exists to prevent.
+
+  it('a storage-suffixed name is not held when its clean form is catalogued', () => {
+    const p = preview(
+      [row({ rowNum: 2, model: 'IPHONE 14 128GB', imei: '350000000000401' })],
+      catalogue({ brand: 'Apple', model: 'iPhone 14' }),
+    );
+    expect(p.heldUnknownModel).toHaveLength(0);
+    expect(p.toCreate).toHaveLength(1);
+  });
+
+  it('a clean name is not held when the STOCK carries the suffixed form', () => {
+    const stocked = [{
+      id: 'u-a32', imei: '350000000000402', model: 'SAMSUNG GALAXY A32 64GB',
+      status: 'available', buyPrice: 100, dateIn: '2026-06-01',
+      supplierName: 'MOBILE WHOLESALE LTD', ownerId: 'shared',
+    } as unknown as InventoryUnit];
+    const p = buildPreview(
+      [row({ rowNum: 2, model: 'Galaxy A32', imei: '350000000000403' })],
+      stocked, NO_SUPPLIERS, new Set<string>(),
+      catalogue({ brand: 'Apple', model: 'iPhone 13' }),   // A32 NOT catalogued
+    );
+    expect(p.heldUnknownModel).toHaveLength(0);
+    expect(p.toCreate).toHaveLength(1);
+  });
+
+  it('folding is not a hole: a genuinely unknown model is still held', () => {
+    const p = preview(
+      [row({ rowNum: 2, model: 'PIXEL 99 256GB', imei: '350000000000404' })],
+      catalogue({ brand: 'Apple', model: 'iPhone 14' }),
+    );
+    expect(p.heldUnknownModel).toHaveLength(1);
+    expect(p.toCreate).toHaveLength(0);
+  });
+});
+
+
 describe('an unknown model cannot reach the database through import', () => {
   it('holds a row whose model is not in the catalogue', () => {
     const p = preview([

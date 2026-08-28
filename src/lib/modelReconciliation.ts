@@ -69,6 +69,40 @@ export function buildCatalogIndex(catalog: CatalogModel[] = []): Map<string, str
   return index;
 }
 
+/**
+ * Every bucket key a model name answers to, folded both RAW and through the
+ * parse pipeline.
+ *
+ * The two sides of a "is this model already known?" comparison rarely arrive
+ * in the same shape. A unit in stock reads "SAMSUNG GALAXY A32 64GB" — brand
+ * and storage baked into the model, the way intake wrote them for months —
+ * while a catalogue entry reads "Galaxy A32" and a parsed sales row reads the
+ * same. Comparing raw against raw already fails there, and this exact
+ * mismatch has now produced the same bug TWICE: the sales import gate held
+ * stock the business owned (fixed by folding), and then the inventory import
+ * gate held "IPHONE 14 128GB" while "iPhone 14" sat in the catalogue.
+ *
+ * So: one function, four keys — the raw name and the storage-lifted name,
+ * each with and without its brand — and a name is known if ANY of them meets
+ * any key of the other side. Both gates fold through here; a third copy of
+ * this logic is how the third instance of the bug happens.
+ */
+export function foldedModelKeys(brand: string, rawModel: string): string[] {
+  const raw = String(rawModel || '').trim();
+  if (!raw) return [];
+  const keys = new Set<string>([
+    bucketKey(String(brand || '').trim(), raw),
+    bucketKey('', raw),
+  ]);
+  const parsed = parseBrandModelStorage(raw);
+  const lifted = String(parsed.model || '').trim();
+  if (lifted) {
+    keys.add(bucketKey(String(parsed.brand || brand || '').trim(), lifted));
+    keys.add(bucketKey('', lifted));
+  }
+  return [...keys];
+}
+
 export interface ModelClusterVariant {
   /** Raw model string verbatim — exactly what the unit doc carries. */
   rawModel: string;

@@ -26,7 +26,7 @@ import type {
 } from '../types';
 import { MARKETPLACES } from '../types';
 import { excelFormulaFor, isAccessorySale, SALES_HEADERS, salesCol, salesColLetter } from './platforms';
-import { returnCostFor, saleKeptItsRevenue } from './returnLoss';
+import { returnCostFor, saleKeptItsRevenue, feeLossOnRefund } from './returnLoss';
 import { recomputeSale } from './recomputeSale';
 import { normalizeOperatorSku } from './modelStorage';
 
@@ -1392,8 +1392,10 @@ function writeReturnsProfitSheet(
   const note = sheet.addRow([
     'Revenue and Gross GP count only sales that kept their money \u2014 a refunded sale contributes '
     + 'nothing, while a replacement or an out-of-warranty repair counts in full because the customer '
-    + 'kept paying. Return Cost = carriage + repair invoices \u2212 supplier credits. A replacement '
-    + 'costs carriage only: the faulty unit comes back as the replacement ships, so net stock is unchanged.',
+    + 'kept paying. Return Cost = carriage + repair invoices + marketplace fees kept \u2212 supplier '
+    + 'credits. Fees Kept is what the channel did NOT refund: Amazon keeps a capped admin fee, eBay its '
+    + 'fixed \u00a30.40 order fee; BM, OnBuy and Temu keep everything. A replacement costs carriage only: '
+    + 'the faulty unit comes back as the replacement ships, so net stock is unchanged.',
   ]);
   note.getCell(1).font = { size: 9, italic: true, color: { argb: 'FF64748B' } };
   note.getCell(1).alignment = { wrapText: true, vertical: 'top' };
@@ -1403,8 +1405,8 @@ function writeReturnsProfitSheet(
   const header = sheet.addRow([
     'Marketplace', 'Sales', 'Revenue \u00a3', 'Gross GP \u00a3',
     'Returns', 'Refunds', 'Replacements', 'Repairs', 'To Supplier',
-    'Carriage \u00a3', 'Repair Invoices \u00a3', 'Supplier Credits \u00a3', 'Return Cost \u00a3',
-    'Net GP \u00a3', 'Net GP %', 'Costs Outstanding',
+    'Carriage \u00a3', 'Repair Invoices \u00a3', 'Supplier Credits \u00a3', 'Fees Kept \u00a3',
+    'Return Cost \u00a3', 'Net GP \u00a3', 'Net GP %', 'Costs Outstanding',
   ]);
   header.font = { bold: true };
   header.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF1F5F9' } };
@@ -1412,12 +1414,12 @@ function writeReturnsProfitSheet(
   interface Acc {
     sales: number; revenue: number; grossGp: number;
     returns: number; refunds: number; replacements: number; repairs: number; toSupplier: number;
-    carriage: number; repairCost: number; credits: number; gaps: number;
+    carriage: number; repairCost: number; credits: number; feeLoss: number; gaps: number;
   }
   const blank = (): Acc => ({
     sales: 0, revenue: 0, grossGp: 0,
     returns: 0, refunds: 0, replacements: 0, repairs: 0, toSupplier: 0,
-    carriage: 0, repairCost: 0, credits: 0, gaps: 0,
+    carriage: 0, repairCost: 0, credits: 0, feeLoss: 0, gaps: 0,
   });
   const acc = new Map<Marketplace, Acc>(MARKETPLACES.map(m => [m, blank()]));
 
@@ -1466,6 +1468,13 @@ function writeReturnsProfitSheet(
 
     if (u?.returnType === 'returned_to_supplier') a.toSupplier += 1;
 
+    // The fee loss comes from the SALE — what the channel kept when the buyer
+    // was refunded — so it does not depend on finding the unit and is added
+    // outside that branch. returnCostFor computes the identical figure when a
+    // unit exists; taking it from here in both cases keeps the two branches
+    // agreeing by construction.
+    a.feeLoss += feeLossOnRefund(s);
+
     // Costs live on the UNIT (the invoice and the credit are entered there).
     // With no matching unit only carriage is knowable, and postageLossFor
     // gives that from the sale alone — better than dropping the return.
@@ -1480,18 +1489,18 @@ function writeReturnsProfitSheet(
     }
   }
 
-  const moneyCols = [3, 4, 10, 11, 12, 13, 14, 15];
+  const moneyCols = [3, 4, 10, 11, 12, 13, 14, 15, 16];
   const total = blank();
 
   for (const m of MARKETPLACES) {
     const a = acc.get(m)!;
     if (!a.sales && !a.returns) continue;          // channel unused this period
-    const returnCost = a.carriage + a.repairCost - a.credits;
+    const returnCost = a.carriage + a.repairCost + a.feeLoss - a.credits;
     const netGp = a.grossGp - returnCost;
     const row = sheet.addRow([
       m, a.sales, a.revenue, a.grossGp,
       a.returns, a.refunds, a.replacements, a.repairs, a.toSupplier,
-      a.carriage, a.repairCost, a.credits, returnCost,
+      a.carriage, a.repairCost, a.credits, a.feeLoss, returnCost,
       netGp, a.revenue > 0 ? (netGp / a.revenue) * 100 : 0,
       a.gaps || '',
     ]);
@@ -1499,12 +1508,12 @@ function writeReturnsProfitSheet(
     for (const k of Object.keys(total) as (keyof Acc)[]) total[k] += a[k];
   }
 
-  const totalReturnCost = total.carriage + total.repairCost - total.credits;
+  const totalReturnCost = total.carriage + total.repairCost + total.feeLoss - total.credits;
   const totalNetGp = total.grossGp - totalReturnCost;
   const totalRow = sheet.addRow([
     'TOTAL', total.sales, total.revenue, total.grossGp,
     total.returns, total.refunds, total.replacements, total.repairs, total.toSupplier,
-    total.carriage, total.repairCost, total.credits, totalReturnCost,
+    total.carriage, total.repairCost, total.credits, total.feeLoss, totalReturnCost,
     totalNetGp, total.revenue > 0 ? (totalNetGp / total.revenue) * 100 : 0,
     total.gaps || '',
   ]);
@@ -2379,6 +2388,10 @@ function writeReturnsSheets(
     'Original Sale Date', 'Original Sale Price', 'Marketplace',
     'Return Type', 'Outcome', 'Reason', 'Comments',
     'Leg Cost £', 'Shipping Legs', 'Postage Loss £',
+    // Appended at the END, deliberately: parseReturnsTab reads this sheet by
+    // header name with no positional fallback, and older files simply lack
+    // the column — both stay true only if nothing before it moves.
+    'Fee Loss £',
   ];
   detail.addRow(DETAIL_HEADERS);
 
@@ -2398,6 +2411,9 @@ function writeReturnsSheets(
     const legs = outcome === 'replacement' ? 3 : 2;
     const leg = legCostFor(u, voided);
     const loss = leg > 0 ? leg * legs : 0;
+    // What the channel kept. Sale-derived, so a legacy row with no linked
+    // voided Sale shows blank rather than a guessed zero.
+    const feeLoss = voided ? feeLossOnRefund(voided) : 0;
 
     const row = detail.addRow([
       toDate(u.returnDate),
@@ -2416,6 +2432,7 @@ function writeReturnsSheets(
       leg > 0 ? leg : null,
       leg > 0 ? legs : null,
       loss > 0 ? loss : null,
+      feeLoss > 0 ? feeLoss : null,
     ]);
     row.getCell(1).numFmt = DATE_FMT;     // Return Date
     row.getCell(2).numFmt = IMEI_FMT;     // IMEI
@@ -2423,6 +2440,7 @@ function writeReturnsSheets(
     row.getCell(8).numFmt = MONEY_FMT;    // Sale Price
     row.getCell(14).numFmt = MONEY_FMT;   // Leg Cost £
     row.getCell(16).numFmt = MONEY_FMT;   // Postage Loss £
+    row.getCell(17).numFmt = MONEY_FMT;   // Fee Loss £
 
     // Voided / returned rows get the same rose fill the Sales workbook
     // uses on every voided line — operator's eye picks them out at a

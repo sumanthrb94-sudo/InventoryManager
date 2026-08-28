@@ -31,7 +31,7 @@ import { dbService } from '../lib/dbService';
 import { useInventoryStore } from '../lib/inventoryStore';
 import type { InventoryUnit, Supplier } from '../types';
 import { parseBrandModelStorage } from '../lib/modelStorage';
-import { buildCatalogIndex, canonicaliseModel, resolveCatalogModel, modelBucketKey } from '../lib/modelReconciliation';
+import { buildCatalogIndex, canonicaliseModel, resolveCatalogModel, modelBucketKey, foldedModelKeys } from '../lib/modelReconciliation';
 import { normaliseGrade, normaliseSimType } from '../lib/unitConstants';
 import { parseStockWorkbook, type ParsedRow, type ParsedAccessoryRow } from '../lib/inventoryImportParse';
 import { isOfficeStockUnit, isShsUnit } from '../lib/wipeScopes';
@@ -169,12 +169,15 @@ export function buildPreview(
   // This is a deliberate, bounded loosening: a genuinely new supplier code
   // still has no unit behind it and is still held. What it stops doing is
   // blocking a name the database is already full of.
+  // Folded through the parse pipeline on BOTH sides (foldedModelKeys), not
+  // compared raw-to-raw: a unit stored as "SAMSUNG GALAXY A32 64GB" and a row
+  // reading "Galaxy A32" are the same phone, and only the storage-lifted key
+  // can see that. Raw comparison here was the same bug the sales gate had.
   const inStockKeys = new Set<string>();
   for (const u of existingUnits) {
     const raw = u.rawModel || u.model || '';
     if (!raw.trim()) continue;
-    inStockKeys.add(modelBucketKey(u.brand || '', raw));
-    inStockKeys.add(modelBucketKey('', raw));
+    for (const k of foldedModelKeys(u.brand || '', raw)) inStockKeys.add(k);
   }
 
   const imeiToUnit = new Map<string, InventoryUnit>();
@@ -230,10 +233,17 @@ export function buildPreview(
     // row, decide whether we are allowed to write it at all. Held rows fall
     // out here — ahead of the create/update matching AND ahead of newSuppliers
     // — so a held row contributes nothing to the write at all.
-    const { brand } = parseBrandModelStorage(r.model || '');
-    const inCatalogue = resolveCatalogModel(r.model || '', brand || '', catalogIndex).matched;
-    const onTheBooks = inStockKeys.has(modelBucketKey(brand || '', r.model || ''))
-                    || inStockKeys.has(modelBucketKey('', r.model || ''));
+    // Try the catalogue with the name as written AND with the storage lifted
+    // out: "IPHONE 14 128GB" is not a new model when "iPhone 14" is
+    // catalogued — holding it invites "Add to catalogue", which mints exactly
+    // the storage-suffixed near-duplicate the gate exists to prevent.
+    const rowParsed = parseBrandModelStorage(r.model || '');
+    const brand = rowParsed.brand;
+    const inCatalogue = resolveCatalogModel(r.model || '', brand || '', catalogIndex).matched
+      || (!!rowParsed.model
+          && resolveCatalogModel(rowParsed.model, brand || '', catalogIndex).matched);
+    const rowKeys = foldedModelKeys(brand || '', r.model || '');
+    const onTheBooks = rowKeys.some(k => inStockKeys.has(k));
     if (!inCatalogue && !onTheBooks) {
       heldUnknownModel.push(r);
       const raw = (r.model || '').trim();

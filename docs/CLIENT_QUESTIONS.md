@@ -3,24 +3,36 @@
 Things the system has to guess at. Each one changes the profit figures, so we
 would rather ask than assume. Answers are recorded inline as they arrive.
 
-**Open: only eBay's £0.40 in question 8**, which is too small to change any
-decision. Everything else is answered. Question 6 is parked for a conversation. Questions 2, 3, 4, 5, 7
-and Back Market's part of 8 are answered and recorded below — kept in place rather than deleted so
-the reasoning survives.
+**Everything is answered.** Question 6 remains parked for a conversation; every
+other question — including question 1, which was closed "leave it" and then
+reopened when the operator pulled the actual settlement statements, and eBay's
+£0.40 in question 8 — is answered and recorded below. Kept in place rather than
+deleted so the reasoning survives.
 
 ---
 
-## 1. When you refund a customer, does the marketplace give you its commission back? — CLOSED, no change
+## 1. When you refund a customer, does the marketplace give you its commission back? — ANSWERED from real statements, implemented
 
-**Operator's decision: leave it. The commission stays written off.**
+**Reopened and settled 2026-08. The operator did exactly what the note below
+asked for — pulled one refunded order per channel from the settlements — and
+the statements overrule half of the published-policy research:**
 
-The research below is kept because it says what the cost of that decision is.
-Four of the five marketplaces publish a policy and all four return the
-commission, so the app now knowingly overstates what a refund costs — by more
-than the carriage it does count. That is the conservative direction (profit is
-understated, not overstated), which is why it is a tolerable place to stop.
+| | what the statement shows | fee kept on a refund |
+|---|---|---|
+| **AMAZON** | Fees credited minus a refund administration fee: lesser of 20% of the order-related fee amount or £5.00, +VAT. Order 203-5323406-8518721: £21.56 commission → £4.31 + £0.86 VAT kept. | **min(20% × commission, £5) × 1.2** |
+| **EBAY** | Variable FVF + regulatory fee credited with VAT; the fixed £0.40 per-order fee is not. Order 11-14953-45167: £7.18 charged, £6.70 credited. | **£0.48 flat** |
+| **BM** | "DOES NOT REFUND." | **everything** |
+| **ONBUY** | "DOES NOT REFUND" — the published next-invoice credit does not happen in practice. | **everything** |
+| **TEMU** | No refund of commission. | **commission + VAT** |
 
-Reopen this if refunds ever become material enough to matter.
+Implemented as `feeLossOnRefund` (src/lib/returnLoss.ts), pinned test-for-penny
+against both statements, and surfaced in the Returns & Profit sheet ("Fees
+Kept £"), the Returns Detail sheet ("Fee Loss £"), and the Returns page
+totals. A replacement or out-of-warranty repair charges nothing — no buyer
+refund reached the marketplace, so no fee moved.
+
+The earlier research is kept below because the DIFFERENCE is the lesson: three
+of five published policies did not survive contact with a real settlement.
 
 Researched rather than guessed. **Four of the five publish a policy, and all
 four give the commission back** — which means the app is currently wrong in the
@@ -171,8 +183,11 @@ happen for handsets, which are one per row by construction. It could only
 arise on a quantity-pooled accessory line, and whether customer care applies
 to those at all is not something we have been told.*
 
-**eBay's £0.40 (FVF) is still unconfirmed**, charged on every eBay order. It is
-small enough that no decision turns on it, but it should still be right.
+**eBay's £0.40 (FVF) — CONFIRMED** by the refund statement for order
+11-14953-45167: the fee details page shows "Final Value Fee, per order fixed
+amount, order total £10.01+ … £0.40" on the sale, and the refund credit of
+£6.70 against £7.18 of fees shows it is also the one fee eBay keeps when you
+refund. Charged on every order and never returned.
 
 ### What this confirms about Back Market
 

@@ -14,6 +14,7 @@
  *   node scripts/e2eReturnTypesRoundTrip.mjs
  */
 import { chromium } from 'playwright';
+import { openImporter } from './e2eSheetHelpers.mjs';
 import { mkdirSync, existsSync, readdirSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import * as XLSX from 'xlsx';
@@ -77,12 +78,6 @@ async function gotoInventoryTabViaDrawer(page) {
   await page.waitForTimeout(900);
   await dismissModals(page);
 }
-async function openImportMenu(page) {
-  const byLabel = page.getByRole('button', { name: /^Import$/i }).first();
-  if (await byLabel.isVisible().catch(() => false)) await byLabel.click();
-  else await page.locator('button[aria-haspopup="menu"]').first().click();
-  await page.waitForTimeout(500);
-}
 async function wipeAll(page) {
   await gotoTab(page, 'Stock Intake');
   await page.getByRole('button', { name: /^Wipe$/i }).click();
@@ -98,8 +93,7 @@ async function wipeAll(page) {
 }
 async function importInventory(page, file) {
   await gotoTab(page, 'Stock Intake');
-  await openImportMenu(page);
-  await page.getByRole('menuitem', { name: /Inventory Report/i }).click();
+  await openImporter(page, 'inventory');
   await page.waitForTimeout(700);
   await page.locator('input[type="file"]').first().setInputFiles(file);
   await page.waitForTimeout(3000);
@@ -192,11 +186,26 @@ async function run() {
   await page.waitForTimeout(1500);
 
   await wipeAll(page);
+
+  // The inventory importer HOLDS any model not in the admin catalogue (the
+  // 2026-08 gate), and Wipe All protects `models` — so seed the fixture's
+  // model into the catalogue or every row is held and "Load N rows" never
+  // enables. This fixture predates the gate; the seed is what makes it a
+  // valid file again rather than a bypass of anything.
+  await page.evaluate(() => {
+    const st = JSON.parse(sessionStorage.getItem('__e2e_firestore__') || '{}');
+    st.models = st.models || {};
+    st.models['mdl-rt'] = { id: 'mdl-rt', brand: 'Apple', model: 'iPhone 14',
+                            ownerId: 'shared', createdAt: '2026-01-01' };
+    sessionStorage.setItem('__e2e_firestore__', JSON.stringify(st));
+  });
+  await page.goto(BASE, { waitUntil: 'networkidle' });
+  await page.waitForTimeout(1500);
+
   await importInventory(page, INVENTORY_FIXTURE);
 
   await gotoTab(page, 'Stock Intake');
-  await openImportMenu(page);
-  await page.getByRole('menuitem', { name: /Sales Report/i }).click();
+  await openImporter(page, 'sales');
   await page.waitForTimeout(700);
   await page.locator('input[type="file"]').first().setInputFiles(SALES_FIXTURE);
   await page.waitForTimeout(4000);
@@ -304,8 +313,7 @@ async function run() {
   }
   if (salesDl) {
     await gotoTab(page, 'Stock Intake');
-    await openImportMenu(page);
-    await page.getByRole('menuitem', { name: /Sales Report/i }).click();
+    await openImporter(page, 'sales');
     await page.waitForTimeout(700);
     await page.locator('input[type="file"]').first().setInputFiles(downloadedSalesPath);
     await page.waitForTimeout(4000);

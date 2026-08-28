@@ -35,16 +35,17 @@
  *
  * WHAT THIS DELIBERATELY DOES NOT DO
  *
- *   - It does not touch marketplace commission. Whether a refund credits the
- *     fees back is still open with the operator ("mostly yes, will follow
- *     up"), and per channel. Until that is settled, fees are out of scope
- *     here rather than guessed at.
+ *   - Marketplace fees ARE now in scope — feeLossOnRefund below. The open
+ *     question this section used to park ("does a refund credit the fees
+ *     back?") was settled by the operator with real statements, one per
+ *     channel, and the per-channel policies are documented on that function.
  *   - It does not decide which accounting PERIOD the cost falls in. The
  *     operator wants costs in the period the item was RETURNED; that is a
  *     reporting concern and belongs to the caller that has the period.
  */
 
 import type { InventoryUnit, Sale } from '../types';
+import { getMarketplaceFee } from './platforms';
 
 /** A cost this return should carry that nobody has recorded yet. */
 export type ReturnCostGap = 'repair_invoice' | 'supplier_credit';
@@ -56,7 +57,10 @@ export interface ReturnCostBreakdown {
   repair: number;
   /** Money (or value in kind) recovered from the supplier, £. Reduces the total. */
   supplierCredit: number;
-  /** postage + repair − supplierCredit. */
+  /** Marketplace fees the channel KEPT when the sale was refunded, £.
+   *  See feeLossOnRefund for the per-channel policy and its evidence. */
+  fees: number;
+  /** postage + repair + fees − supplierCredit. */
   total: number;
   /** Costs that apply to this return but have not been entered. When this is
    *  non-empty, `total` is a floor, not the answer. */
@@ -176,13 +180,92 @@ export function extraCostsFor(
   return { repair, supplierCredit, gaps };
 }
 
+/**
+ * The marketplace fees a refund does NOT get back.
+ *
+ * Voiding a sale removes it from every revenue and GP surface, which silently
+ * models the refund as if the channel returned every fee it charged. The
+ * operator pulled the real statements, one per channel, and only Amazon comes
+ * close to that:
+ *
+ *   AMAZON   refunds the fees minus a "refund administration fee":
+ *            the lesser of 20% of the order-related fee amount or £5.00,
+ *            plus 20% VAT on it. Verified against order 203-5323406-8518721:
+ *            SP £308 → commission £21.56 → 20% = £4.31, under the £5 cap,
+ *            +£0.86 VAT = £5.17 kept. (Sale netted +£281.60, refund netted
+ *            −£286.77; the £5.17 difference is exactly this fee.)
+ *
+ *   EBAY     refunds the variable final value fee and the regulatory
+ *            operating fee, with their VAT — but keeps the FIXED £0.40
+ *            per-order fee and its VAT. Verified against order
+ *            11-14953-45167: fees on sale £7.18, credited on refund £6.70,
+ *            kept £0.48 = £0.40 × 1.2. (This settles the parked "eBay £0.40
+ *            FVF" question: the fee is real, and it is the one part eBay
+ *            never gives back.)
+ *
+ *   BM       refunds nothing. Commission, the £8.99 customer-care fee, the
+ *   ONBUY    PSF, the payment fee — all kept. Operator: "DOES NOT REFUND".
+ *   TEMU     Same: the commission and its VAT are a dead loss.
+ *
+ * A sale that KEPT its revenue (replacement, out-of-warranty repair) charges
+ * nothing here: no buyer refund happened, so no fee credit and no admin fee —
+ * the fees stand against a sale whose GP also stands and already subtracts
+ * them. Charging them again would double-count.
+ *
+ * Reads the fee figures the sale itself carries — the same numbers the report
+ * printed — rather than recomputing from the schedule, so a sale imported
+ * under an old fee schedule loses what it was actually charged, not what
+ * today's rates say it would have been. Only Amazon's admin-fee CAP and
+ * eBay's fixed fee come from the (dated) schedule, because neither is stored
+ * per sale.
+ */
+export function feeLossOnRefund(
+  sale:
+    | Pick<Sale,
+        'marketplace' | 'saleDate' | 'voidedAt' | 'gpBasis' | 'customerRefunded'
+        | 'commission' | 'commissionVat' | 'vat20' | 'customerCareFees' | 'psf'
+        | 'payPalKlarnaCom'>
+    | null
+    | undefined,
+): number {
+  if (!sale?.voidedAt) return 0;
+  if (saleKeptItsRevenue(sale)) return 0;
+
+  const n = (v: unknown) => Number(v) || 0;
+  const commission = n(sale.commission);
+  const fee = getMarketplaceFee(sale.marketplace as Sale['marketplace'], sale.saleDate);
+  const vat = 1 + (fee.vatPct ?? 20) / 100;
+
+  switch (sale.marketplace) {
+    case 'AMAZON': {
+      // min(20% of the order-related fee amount, £5.00), plus VAT. Amazon's
+      // own explainer names the commission base as the "order-related fee
+      // amount" — the DSF is not part of it (£21.56 on the real statement,
+      // with the £0.43 DSF excluded).
+      const adminBase = Math.min(0.20 * commission, 5.00);
+      return adminBase * vat;
+    }
+    case 'EBAY':
+      // Everything comes back except the fixed per-order fee and its VAT.
+      return (fee.fixedFee ?? 0.40) * vat;
+    case 'BM':
+      return commission + n(sale.customerCareFees) + n(sale.psf) + n(sale.payPalKlarnaCom);
+    case 'ONBUY':
+      return commission + n(sale.vat20);
+    case 'TEMU':
+      return commission + n(sale.commissionVat);
+    default:
+      return 0;
+  }
+}
+
 /** Full cost of a return, with the un-entered figures named rather than
  *  quietly counted as zero. Returns an all-zero breakdown for a unit that has
  *  not been returned. */
 export function returnCostFor(unit: InventoryUnit, sale?: Sale | null): ReturnCostBreakdown {
   const route = returnRouteFor(unit, sale);
   if (!route) {
-    return { postage: 0, repair: 0, supplierCredit: 0, total: 0, gaps: [] };
+    return { postage: 0, repair: 0, supplierCredit: 0, fees: 0, total: 0, gaps: [] };
   }
 
   // BILL THE JOURNEYS THAT NOBODY ELSE IS PAYING FOR.
@@ -218,8 +301,9 @@ export function returnCostFor(unit: InventoryUnit, sale?: Sale | null): ReturnCo
   const journeys = (route === 'replacement' || (route === 'repair' && keptRevenue)) ? 3 : 2;
   const postage = legCostFor(unit, sale) * (journeys - (keptRevenue ? 1 : 0));
   const { repair, supplierCredit, gaps } = extraCostsFor(unit, route);
-  const total = postage + repair - supplierCredit;
-  return { postage, repair, supplierCredit, total, gaps };
+  const fees = feeLossOnRefund(sale);
+  const total = postage + repair + fees - supplierCredit;
+  return { postage, repair, supplierCredit, fees, total, gaps };
 }
 
 /** Sum a set of returns, carrying the gap count so a caller can say
@@ -227,14 +311,15 @@ export function returnCostFor(unit: InventoryUnit, sale?: Sale | null): ReturnCo
  *  presenting an understated total as complete. */
 export function totalReturnCost(
   rows: Array<{ unit: InventoryUnit; sale?: Sale | null }>,
-): { total: number; postage: number; repair: number; supplierCredit: number; gapCount: number } {
-  const acc = { total: 0, postage: 0, repair: 0, supplierCredit: 0, gapCount: 0 };
+): { total: number; postage: number; repair: number; supplierCredit: number; fees: number; gapCount: number } {
+  const acc = { total: 0, postage: 0, repair: 0, supplierCredit: 0, fees: 0, gapCount: 0 };
   for (const { unit, sale } of rows) {
     const c = returnCostFor(unit, sale);
     acc.total += c.total;
     acc.postage += c.postage;
     acc.repair += c.repair;
     acc.supplierCredit += c.supplierCredit;
+    acc.fees += c.fees;
     acc.gapCount += c.gaps.length;
   }
   return acc;

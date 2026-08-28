@@ -51,7 +51,7 @@ import {
   recordSupplierCredit,
 } from '../services/returnsService';
 import { postageLossFor } from '../lib/clientReport';
-import { extraCostsFor, type ReturnCostGap } from '../lib/returnLoss';
+import { extraCostsFor, feeLossOnRefund, type ReturnCostGap } from '../lib/returnLoss';
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -1396,8 +1396,13 @@ function ReturnLossSection({
     // a unit appears in IS its current cycle, so only that row takes them.
     const extrasClaimed = new Set<string>();
     return sorted.map(r => {
+      // What the marketplace kept when this cycle's refund went through.
+      // Per CYCLE, not per unit: it hangs off the voided sale, so a unit
+      // returned twice loses it twice — unlike the repair invoice and the
+      // supplier credit, which the unit holds once.
+      const feeLoss = feeLossOnRefund(r.sale);
       if (extrasClaimed.has(r.unit.id)) {
-        return { ...r, repairCost: 0, supplierCredit: 0, totalCost: r.loss, gaps: [] };
+        return { ...r, repairCost: 0, supplierCredit: 0, feeLoss, totalCost: r.loss + feeLoss, gaps: [] };
       }
       extrasClaimed.add(r.unit.id);
       const x = extraCostsFor(r.unit, r.outcome);
@@ -1405,7 +1410,8 @@ function ReturnLossSection({
         ...r,
         repairCost: x.repair,
         supplierCredit: x.supplierCredit,
-        totalCost: r.loss + x.repair - x.supplierCredit,
+        feeLoss,
+        totalCost: r.loss + x.repair + feeLoss - x.supplierCredit,
         gaps: x.gaps,
       };
     });
@@ -2266,7 +2272,8 @@ function UnitHistoryModal({
           : s.voidOutcome === 'repair' ? 'repair'
           : 'refund';
         const legs = outcome === 'replacement' ? 3 : 2;
-        const loss = (postage + pvat) * legs;
+        const feeLoss = feeLossOnRefund(s);
+        const loss = (postage + pvat) * legs + feeLoss;
         const title =
           outcome === 'replacement' ? 'Replacement'
           : outcome === 'repair' ? 'Repair'
@@ -2275,7 +2282,8 @@ function UnitHistoryModal({
           kind: 'return',
           date: s.voidedAt,
           title,
-          detail: `${legs} shipping legs × £${(postage + pvat).toFixed(2)}`,
+          detail: `${legs} shipping legs × £${(postage + pvat).toFixed(2)}`
+            + (feeLoss > 0 ? ` + £${feeLoss.toFixed(2)} fees kept by ${s.marketplace}` : ''),
           loss,
           reason: s.voidReason,
           comments: undefined,
