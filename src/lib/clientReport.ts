@@ -2392,6 +2392,11 @@ function writeReturnsSheets(
     // header name with no positional fallback, and older files simply lack
     // the column — both stay true only if nothing before it moves.
     'Fee Loss £',
+    // The other half of the unit's story: it came back on Return Date, but it
+    // was bought on Stock In Date, and the operator asked for the pair to be
+    // visible together wherever a returned unit is shown. Same append-only
+    // rule as above.
+    'Stock In Date',
   ];
   detail.addRow(DETAIL_HEADERS);
 
@@ -2433,6 +2438,7 @@ function writeReturnsSheets(
       leg > 0 ? legs : null,
       loss > 0 ? loss : null,
       feeLoss > 0 ? feeLoss : null,
+      u.dateIn ? toDate(u.dateIn) : null,
     ]);
     row.getCell(1).numFmt = DATE_FMT;     // Return Date
     row.getCell(2).numFmt = IMEI_FMT;     // IMEI
@@ -2441,6 +2447,7 @@ function writeReturnsSheets(
     row.getCell(14).numFmt = MONEY_FMT;   // Leg Cost £
     row.getCell(16).numFmt = MONEY_FMT;   // Postage Loss £
     row.getCell(17).numFmt = MONEY_FMT;   // Fee Loss £
+    row.getCell(18).numFmt = DATE_FMT;    // Stock In Date
 
     // Voided / returned rows get the same rose fill the Sales workbook
     // uses on every voided line — operator's eye picks them out at a

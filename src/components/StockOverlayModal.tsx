@@ -769,6 +769,12 @@ const OVERLAY_COLUMNS: { key: string; label: string; width: number; align?: 'lef
   // the inventory views so a sold unit's fulfilment timestamp is
   // visible without opening the unit drawer. Blank for non-sold rows.
   { key: 'saleDate',     label: 'Sold Date',     width: 100 },
+  // Operator request (2026-08): a returned-to-inventory unit sits in the
+  // office-stock views looking identical to fresh stock. The pair "Stock In
+  // Date + Return Date" is what tells its story — bought then, came back
+  // then — so the return date rides along everywhere units are viewed.
+  // Blank for units that never came back, same convention as Sold Date.
+  { key: 'returnDate',   label: 'Return Date',   width: 100 },
   { key: 'notes',        label: 'Notes',         width: 240 },
 ];
 

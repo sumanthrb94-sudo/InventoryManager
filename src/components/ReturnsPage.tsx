@@ -58,7 +58,7 @@ import { extraCostsFor, feeLossOnRefund, type ReturnCostGap } from '../lib/retur
 type KpiId = 'back_to_inventory' | 'in_repair' | 'to_supplier' | 'all';
 type ReturnFilter = 'all' | ReturnCategory;
 type DateScope = 'today' | 'week' | 'month' | 'all';
-type SortKey = 'returnDate' | 'model' | 'storage' | 'colour' | 'buyPrice' | 'supplier' | 'returnType';
+type SortKey = 'returnDate' | 'dateIn' | 'model' | 'storage' | 'colour' | 'buyPrice' | 'supplier' | 'returnType';
 type SortDir = 'asc' | 'desc';
 
 const TYPE_TONE: Record<ReturnCategory, { bg: string; text: string; dot: string; label: string }> = {
@@ -304,6 +304,7 @@ export default function ReturnsPage() {
     const get = (u: InventoryUnit): string | number => {
       switch (sort.key) {
         case 'returnDate': return u.returnDate || '';
+        case 'dateIn':     return u.dateIn || '';
         case 'model':      return (u.model || '').toLowerCase();
         case 'storage':    return (u.storage || '').toLowerCase();
         case 'colour':     return (u.colour || '').toLowerCase();
@@ -348,6 +349,7 @@ export default function ReturnsPage() {
     const source = overlay ? overlayRows : inlineRows;
     const rows = source.map(u => ({
       'Return Date': u.returnDate || '',
+      'Stock In Date': u.dateIn || '',
       'IMEI':        u.imei || '',
       'Model':       u.model || '',
       'Storage':     u.storage || '',
@@ -1019,6 +1021,10 @@ function SheetTable({
       <thead>
         <tr className="text-[9px] font-bold uppercase tracking-widest text-slate-500 bg-slate-50">
           <Th k="returnDate" sort={sort} onSort={toggleSort} width="110px" sticky leftPx={0}>Return Date</Th>
+          {/* Operator request (2026-08): the pair of dates that tells the
+              unit's whole story — bought when, came back when — must be
+              visible together wherever a returned unit is shown. */}
+          <Th k="dateIn"     sort={sort} onSort={toggleSort} width="110px">Stock In Date</Th>
           <Th k=""           sort={sort} onSort={undefined}  width="170px">IMEI</Th>
           <Th k="model"      sort={sort} onSort={toggleSort} width="240px">Model</Th>
           <Th k="storage"    sort={sort} onSort={toggleSort} width="80px">Storage</Th>
@@ -1048,6 +1054,9 @@ function SheetTable({
             <tr key={u.id} className={`${rowBg} transition-colors group`}>
               <Td sticky leftPx={0} className={`${rowBg} border-r border-slate-200`}>
                 <span className="text-slate-700">{fmtDateForUser(u.returnDate || '', region) || u.returnDate || '—'}</span>
+              </Td>
+              <Td>
+                <span className="text-slate-500">{fmtDateForUser(u.dateIn || '', region) || u.dateIn || '—'}</span>
               </Td>
               <Td>
                 {u.imei

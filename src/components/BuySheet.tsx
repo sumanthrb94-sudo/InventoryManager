@@ -467,8 +467,14 @@ export default function BuySheet(_props: Props) {
   // impossible to read positionally and invites exactly the kind of silent
   // column-shift the header matching exists to prevent. `Age (days)` is the
   // one legitimate addition — derived, and ignored on the way back in.
+  // `Return Date` (2026-08) follows the same rule: appended at the end so no
+  // existing column shifts, header-matched to nothing by the importer, and
+  // blank for stock that never came back. It is there because a
+  // returned-to-inventory unit is exported among office stock looking
+  // identical to a fresh unit, and the operator asked for the stock-in /
+  // returned pair to be visible wherever units are viewed.
   const INVENTORY_REPORT_COLUMNS = [
-    'Stock In Date', 'Model', 'IMEI', 'Grade', 'Storage', 'SIM Type', 'Colour', 'Supplier', 'BP', 'Stock Type', 'Notes', 'Age (days)',
+    'Stock In Date', 'Model', 'IMEI', 'Grade', 'Storage', 'SIM Type', 'Colour', 'Supplier', 'BP', 'Stock Type', 'Notes', 'Age (days)', 'Return Date',
   ];
 
   const buildReportRow = (u: InventoryUnit): Record<string, any> => {
@@ -497,6 +503,7 @@ export default function BuySheet(_props: Props) {
       'Stock Type':    u.status === 'incoming' || u.stockSource === 'shs' ? 'SHS' : 'OFFICE',
       'Notes':         u.notes || '',
       'Age (days)':    age,
+      'Return Date':   u.returnDate || '',
     };
   };
 

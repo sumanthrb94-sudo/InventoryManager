@@ -348,6 +348,14 @@ describe('buildSalesWorkbookBuffer — auditor-grade structure', () => {
     expect(String(header.getCell(11).value)).toBe('Outcome');
     expect(String(header.getCell(15).value)).toBe('Shipping Legs');
     expect(String(header.getCell(16).value)).toBe('Postage Loss £');
+    // Appended-only additions — the parser reads this sheet by header name
+    // with no positional fallback, so growth is legal ONLY at the end.
+    // 17: what the marketplace kept on the refund (2026-08).
+    // 18: the other half of the unit's story — the operator asked for the
+    //     stock-in / returned date pair to be visible together wherever a
+    //     returned unit is shown.
+    expect(String(header.getCell(17).value)).toBe('Fee Loss £');
+    expect(String(header.getCell(18).value)).toBe('Stock In Date');
     // Empty period → header + an empty-state hint row (so a bare header
     // doesn't read as "broken" — see the "no data at all" test below).
     expect(detail.rowCount).toBe(2);
