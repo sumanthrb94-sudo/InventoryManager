@@ -677,7 +677,8 @@ export default function ReturnsPage() {
           (outbound + inbound), replacement = 3 (plus the replacement
           outbound). Leg cost = postage + P.VAT snapshotted from the
           voided sale at Process Return time. */}
-      <ReturnLossSection units={allReturns} sales={sales} region={region} />
+      <ReturnLossSection units={allReturns} sales={sales} region={region}
+        accessorySkus={accessoryBySku} />
 
       {/* ── Accessory returns ─────────────────────────────────────────────
           Kept as its own section rather than merged into the sheet above:
@@ -1240,16 +1241,28 @@ function EditableTextCell({
 // (unit.returnLegCost); legacy rows processed before the snapshot
 // existed fall back to the voided Sale doc linked by unitId.
 function ReturnLossSection({
-  units, sales, region,
+  units, sales, region, accessorySkus,
 }: {
   units: InventoryUnit[];
   sales: Sale[];
   region: 'uk' | 'india' | 'admin' | 'both';
+  /** SKUs the AccessoryReturnsSection owns. A voided accessory sale is that
+   *  section's row, not this ledger's — listing it in both would show the
+   *  same loss twice on one page. */
+  accessorySkus: ReadonlyMap<string, unknown>;
 }) {
   const [open, setOpen] = useState(true);
 
   type LossRow = {
-    unit: InventoryUnit;
+    /** Null when the voided sale resolves to no unit at all — the unit was
+     *  deleted, or the sale arrived by import with an IMEI inventory never
+     *  held. The LOSS is still real (the refund still went out, the
+     *  marketplace still kept its fees), and dropping the row was how a
+     *  voided sale could vanish from this page entirely: hidden from the
+     *  Sell side as voided, missing here for want of a unit. The workbook's
+     *  Returns & Profit already counted these from the sale alone; the page
+     *  now agrees. */
+    unit: InventoryUnit | null;
     /** The voided sale this loss row corresponds to, when one exists.
      *  Null only for legacy returns whose Sale doc was never voided. */
     sale: Sale | null;
@@ -1267,7 +1280,10 @@ function ReturnLossSection({
 
     /** Recovered from the supplier; reduces the total. */
     supplierCredit: number;
-    /** loss + repairCost - supplierCredit. A replacement adds nothing here:
+    /** Marketplace fees the channel kept on the refund. Per CYCLE — it hangs
+     *  off the voided sale, so a unit returned twice loses it twice. */
+    feeLoss: number;
+    /** loss + repairCost + feeLoss - supplierCredit. A replacement adds nothing here:
      *  the faulty unit comes back as the outbound one leaves, so only the
      *  three carriage legs in `loss` were actually consumed. */
     totalCost: number;
@@ -1277,7 +1293,7 @@ function ReturnLossSection({
 
   /** The row before the unit-level costs are attached. They are added in a
    *  second pass, after sorting, so only a unit's current cycle takes them. */
-  type BaseLossRow = Omit<LossRow, 'repairCost' | 'supplierCredit' | 'totalCost' | 'gaps'>;
+  type BaseLossRow = Omit<LossRow, 'repairCost' | 'supplierCredit' | 'feeLoss' | 'totalCost' | 'gaps'>;
 
   const rows = useMemo<LossRow[]>(() => {
     // Build one row PER return cycle (per voided Sale doc), not one
@@ -1324,7 +1340,29 @@ function ReturnLossSection({
     for (const s of sales) {
       if (!s.voidedAt) continue;
       const u = resolveUnit(s);
-      if (!u) continue;
+      if (!u) {
+        // No unit to hang the loss on — but the loss happened. Build the row
+        // from the sale alone, exactly as the workbook's Returns & Profit
+        // does, so the page and the export show the same total.
+        // Accessory-pool sales are the one exception: they never have a unit
+        // BY DESIGN and AccessoryReturnsSection below is their home.
+        const sku = (s.sku || '').trim().toUpperCase();
+        if (!(s.imei || '').trim() && sku && accessorySkus.has(sku)) continue;
+        const postage = Number(s.postage) || 0;
+        const pVat = s.postageVatExempt ? 0 : (Number(s.postageVat) || postage * 0.2);
+        const saleOutcome = (s.voidOutcome === 'replacement' ? 'replacement'
+          : s.voidOutcome === 'repair' ? 'repair' : 'refund') as 'refund' | 'replacement' | 'repair';
+        out.push({
+          unit: null,
+          sale: s,
+          cycleDate: s.voidedAt,
+          outcome: saleOutcome,
+          legCost: postage + pVat,
+          legs: saleOutcome === 'replacement' ? 3 : 2,
+          loss: (postage + pVat) * (saleOutcome === 'replacement' ? 3 : 2),
+        });
+        continue;
+      }
       const isRepair = isRepairCycle(u, s);
       const outcome = (isRepair
         ? 'repair'
@@ -1401,7 +1439,9 @@ function ReturnLossSection({
       // returned twice loses it twice — unlike the repair invoice and the
       // supplier credit, which the unit holds once.
       const feeLoss = feeLossOnRefund(r.sale);
-      if (extrasClaimed.has(r.unit.id)) {
+      // A row with no unit has nowhere to hold a repair invoice or a supplier
+      // credit — carriage and kept fees are its whole cost.
+      if (!r.unit || extrasClaimed.has(r.unit.id)) {
         return { ...r, repairCost: 0, supplierCredit: 0, feeLoss, totalCost: r.loss + feeLoss, gaps: [] };
       }
       extrasClaimed.add(r.unit.id);
@@ -1419,6 +1459,7 @@ function ReturnLossSection({
 
   const totalLoss = rows.reduce((t, r) => t + r.totalCost, 0);
   const carriageOnly = rows.reduce((t, r) => t + r.loss, 0);
+  const feesKept = rows.reduce((t, r) => t + r.feeLoss, 0);
   const gapCount = rows.reduce((t, r) => t + r.gaps.length, 0);
   // Before the repair-route fix landed, `refunds` counted everything that
   // wasn't a replacement — which swept repairs into the refund tally and
@@ -1434,17 +1475,18 @@ function ReturnLossSection({
   const exportCsv = () => {
     downloadCsv(`return-losses-${todayStr()}.csv`, rows.map(r => ({
       'Return Date':        r.cycleDate || '',
-      'Model':              r.unit.model || '',
-      'IMEI':               r.unit.imei || '',
-      'Destination':        r.unit.returnType || '',
+      'Model':              r.unit?.model || r.sale?.model || r.sale?.sku || '',
+      'IMEI':               r.unit?.imei || r.sale?.imei || '',
+      'Destination':        r.unit?.returnType || (r.unit ? '' : 'no matching unit'),
       'Outcome':            r.outcome || 'refund (assumed)',
-      'Reason':             (r.sale?.voidReason) || r.unit.returnReason || '',
-      'Comments':           r.unit.returnComments || '',
+      'Reason':             (r.sale?.voidReason) || r.unit?.returnReason || '',
+      'Comments':           r.unit?.returnComments || '',
       'Leg Cost (£)':       r.legCost.toFixed(2),
       'Shipping Legs':      r.legs,
       'Postage Loss (£)':   r.loss.toFixed(2),
       'Repair Cost (£)':    r.repairCost ? r.repairCost.toFixed(2) : '',
       'Supplier Credit (£)': r.supplierCredit ? r.supplierCredit.toFixed(2) : '',
+      'Fees Kept (£)':      r.feeLoss ? r.feeLoss.toFixed(2) : '',
       'Total Cost (£)':     r.totalCost.toFixed(2),
       'Costs Outstanding':  r.gaps.join(' · '),
     })));
@@ -1468,7 +1510,7 @@ function ReturnLossSection({
             {refunds} refund{refunds === 1 ? '' : 's'} (2× legs) · {replacements} replacement{replacements === 1 ? '' : 's'} (3× legs){repairs > 0 ? ` · ${repairs} in repair (2× legs)` : ''} · leg = postage + P.VAT
           </p>
           <p className="text-[9px] font-mono text-slate-400 mt-0.5">
-            £{carriageOnly.toFixed(2)} carriage + repair invoices − supplier credits
+            £{carriageOnly.toFixed(2)} carriage + £{feesKept.toFixed(2)} fees kept by marketplaces + repair invoices − supplier credits
             {gapCount > 0 && (
               <span className="text-amber-600 font-bold">
                 {' '}· {gapCount} cost{gapCount === 1 ? '' : 's'} not yet entered — total is a floor
@@ -1497,6 +1539,7 @@ function ReturnLossSection({
                   <th className="text-right px-3 py-2 border-b border-slate-200" style={{ width: 90 }}>Leg £</th>
                   <th className="text-right px-3 py-2 border-b border-slate-200" style={{ width: 60 }}>Legs</th>
                   <th className="text-right px-3 py-2 border-b border-slate-200" style={{ width: 90 }}>Carriage £</th>
+                  <th className="text-right px-3 py-2 border-b border-slate-200" style={{ width: 90 }} title="Marketplace fees kept on the refund, from the real settlements: Amazon keeps a capped admin fee (min of 20% of commission or £5, +VAT), eBay its fixed £0.40 order fee +VAT; Back Market, OnBuy and Temu keep every fee they collected. £0 on a replacement or out-of-warranty repair — no refund reached the marketplace.">Fees £</th>
                   <th className="text-right px-3 py-2 border-b border-slate-200" style={{ width: 90 }} title="Repair invoice, less any supplier credit. A replacement adds nothing — the faulty unit returns as the replacement ships, so only the carriage is lost.">Other £</th>
                   <th className="text-right px-3 py-2 border-b border-slate-200" style={{ width: 90 }}>Total £</th>
                   <th className="text-left px-3 py-2 border-b border-slate-200">Reason · Comments</th>
@@ -1507,14 +1550,17 @@ function ReturnLossSection({
                   const isAlt = idx % 2 === 1;
                   const rowBg = isAlt ? 'bg-slate-50/40' : 'bg-white';
                   return (
-                    <tr key={`${r.unit.id}-${r.cycleDate}-${r.sale?.id ?? 'legacy'}`} className={`${rowBg} hover:bg-rose-50/30 transition-colors`}>
+                    <tr key={`${r.unit?.id ?? 'no-unit'}-${r.cycleDate}-${r.sale?.id ?? 'legacy'}`} className={`${rowBg} hover:bg-rose-50/30 transition-colors`}>
                       <td className="px-3 py-1.5 border-b border-slate-100 text-slate-700">
                         {fmtDateForUser(r.cycleDate || '', region) || r.cycleDate || '—'}
                       </td>
                       <td className="px-3 py-1.5 border-b border-slate-100">
-                        <span className="font-bold text-slate-900 truncate block max-w-[190px]" title={r.unit.model}>{r.unit.model || '—'}</span>
+                        <span className="font-bold text-slate-900 truncate block max-w-[190px]" title={r.unit?.model || r.sale?.model || r.sale?.sku}>{r.unit?.model || r.sale?.model || r.sale?.sku || '—'}</span>
+                        {!r.unit && (
+                          <span className="block text-[8px] font-bold uppercase tracking-widest text-amber-600" title="This voided sale matches no inventory unit — the loss is real and counted, but there is no unit to hold a repair invoice or supplier credit against.">No matching unit</span>
+                        )}
                       </td>
-                      <td className="px-3 py-1.5 border-b border-slate-100 text-slate-500">{r.unit.imei || '—'}</td>
+                      <td className="px-3 py-1.5 border-b border-slate-100 text-slate-500">{r.unit?.imei || r.sale?.imei || '—'}</td>
                       <td className="px-3 py-1.5 border-b border-slate-100">
                         {r.outcome === 'replacement' ? (
                           <span className="inline-flex items-center text-[9px] font-bold uppercase tracking-widest px-1.5 py-0.5 rounded border bg-violet-50 border-violet-200 text-violet-700">Replacement</span>
@@ -1532,6 +1578,11 @@ function ReturnLossSection({
                       <td className="px-3 py-1.5 border-b border-slate-100 text-right text-slate-700">× {r.legs}</td>
                       <td className="px-3 py-1.5 border-b border-slate-100 text-right text-slate-700">
                         {r.loss > 0 ? `−£${r.loss.toFixed(2)}` : <span className="text-slate-300">—</span>}
+                      </td>
+                      <td className="px-3 py-1.5 border-b border-slate-100 text-right text-slate-700">
+                        {r.feeLoss > 0
+                          ? <span title={`Kept by ${r.sale?.marketplace ?? 'the marketplace'} — not refunded`}>−£{r.feeLoss.toFixed(2)}</span>
+                          : <span className="text-slate-300">—</span>}
                       </td>
                       <td className="px-3 py-1.5 border-b border-slate-100 text-right">
                         {(() => {
@@ -1567,9 +1618,9 @@ function ReturnLossSection({
                           : <span className="text-slate-300">—</span>}
                       </td>
                       <td className="px-3 py-1.5 border-b border-slate-100 text-slate-500">
-                        <span className="truncate block max-w-[300px]" title={[r.sale?.voidReason || r.unit.returnReason, r.unit.returnComments].filter(Boolean).join(' · ')}>
-                          {(r.sale?.voidReason) || r.unit.returnReason || '—'}
-                          {r.unit.returnComments && <span className="text-slate-400"> · {r.unit.returnComments}</span>}
+                        <span className="truncate block max-w-[300px]" title={[r.sale?.voidReason || r.unit?.returnReason, r.unit?.returnComments].filter(Boolean).join(' · ')}>
+                          {(r.sale?.voidReason) || r.unit?.returnReason || '—'}
+                          {r.unit?.returnComments && <span className="text-slate-400"> · {r.unit.returnComments}</span>}
                         </span>
                       </td>
                     </tr>
@@ -2005,7 +2056,12 @@ function AccessoryReturnsSection({
     // always 2. The UI only creates refunds, but an accessory return can also
     // arrive from a marketplace file whose Outcome column says "replacement",
     // which is 3 legs. Hardcoding 2 made this table disagree with the export.
-    .map(s => ({ sale: s, loss: postageLossFor(s) }))
+    //
+    // feeLossOnRefund for the same reason: a refunded Temu accessory loses
+    // the commission and its VAT outright, and the Returns & Profit sheet
+    // counts that — carriage alone here disagreed with the export by exactly
+    // the kept fee.
+    .map(s => ({ sale: s, loss: postageLossFor(s) + feeLossOnRefund(s) }))
     .sort((a, b) => (b.sale.voidedAt || '').localeCompare(a.sale.voidedAt || '')),
     [sales, accessoryBySku]);
 
