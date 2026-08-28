@@ -140,13 +140,45 @@ describe('the fee loss flows into the return cost breakdown', () => {
 });
 
 describe('the model agrees with calcSaleFinancials about what was charged', () => {
-  /** The fixtures above hand-feed the commission. This one derives it the way
-   *  the app does, so a drift between the fee schedule and this model shows
-   *  up here rather than in an operator's reconciliation. */
+  /** The fixtures above hand-feed the fee fields. These derive them the way
+   *  the app does, so a drift between the two — a renamed output field, a
+   *  changed rate — shows up here rather than in an operator's
+   *  reconciliation. A rename would not error: the loss would silently
+   *  shrink, which is exactly the failure this block exists to catch. */
   it('Amazon at 7%: a £308 sale computes the same £5.17', () => {
     const fin = calcSaleFinancials({ marketplace: 'AMAZON', buyPrice: 250, salePrice: 308 });
     expect(fin.commission).toBeCloseTo(21.56, 2);
     const s = refunded({ marketplace: 'AMAZON', salePrice: 308, commission: fin.commission });
     expect(feeLossOnRefund(s)).toBeCloseTo(5.17, 2);
+  });
+
+  /** The operator's rule for these three, verbatim: "they don't even refund a
+   *  penny on the marketplace fees or the things that they collected". So on
+   *  each, the loss must equal the SUM of every fee line the pipeline
+   *  produced — not a subset, not a recomputation. */
+  it('BM: every collected fee is lost — commission, customer care, PSF', () => {
+    const fin = calcSaleFinancials({ marketplace: 'BM', buyPrice: 100, salePrice: 150 });
+    // The current BM schema's full charge set. commission 11% = £16.50,
+    // customer care £8.99 flat, PSF 1% = £1.50.
+    const everything = (fin.commission ?? 0) + (fin.customerCareFees ?? 0) + (fin.psf ?? 0);
+    expect(everything).toBeCloseTo(26.99, 2);
+    const s = refunded({ marketplace: 'BM', salePrice: 150, ...fin });
+    expect(feeLossOnRefund(s)).toBeCloseTo(everything, 2);
+  });
+
+  it('ONBUY: commission and its VAT are both lost', () => {
+    const fin = calcSaleFinancials({ marketplace: 'ONBUY', buyPrice: 100, salePrice: 150 });
+    const everything = (fin.commission ?? 0) + (fin.vat20 ?? 0);
+    expect(everything).toBeCloseTo(12.60, 2);   // 7% + 20% VAT on it
+    const s = refunded({ marketplace: 'ONBUY', salePrice: 150, ...fin });
+    expect(feeLossOnRefund(s)).toBeCloseTo(everything, 2);
+  });
+
+  it('TEMU: commission and its VAT are both lost', () => {
+    const fin = calcSaleFinancials({ marketplace: 'TEMU', buyPrice: 100, salePrice: 150 });
+    const everything = (fin.commission ?? 0) + (fin.commissionVat ?? 0);
+    expect(everything).toBeCloseTo(7.13, 2);    // 3.96% + 20% VAT on it
+    const s = refunded({ marketplace: 'TEMU', salePrice: 150, ...fin });
+    expect(feeLossOnRefund(s)).toBeCloseTo(everything, 2);
   });
 });
