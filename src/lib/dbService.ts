@@ -100,6 +100,17 @@ export function appToDb(obj: Record<string, any>): Record<string, any> {
 // errored set false over false, returned early, and never notified anyone. The
 // UI could not learn about the exact failure that matters most — the cold
 // start against a database it cannot read, which is what the operator hit.
+// A third fact, learned from the second outage: `connected` and `errored`
+// together still cannot see a QUOTA-BLOCKED database. When Firestore refuses
+// reads with resource-exhausted, the SDK treats it as retryable — the error
+// callback NEVER fires — and with a persistent cache the listeners happily
+// deliver whatever the device already had, flagged only by
+// `metadata.fromCache`. A device with a seeded cache looks healthy while
+// showing yesterday's copy; a device with an empty cache shows silent zeros.
+// `serverSynced` records the one thing that distinguishes both from health:
+// has the SERVER answered at least once this session (a snapshot with
+// fromCache === false)? The UI warns when this stays false past a grace
+// period.
 export interface SyncStatus {
   /** A snapshot has arrived and the data on screen is live. */
   connected: boolean;
@@ -107,15 +118,21 @@ export interface SyncStatus {
    *  true, every collection is serving an empty cache and any zero on screen
    *  means "not loaded", not "none". */
   errored: boolean;
+  /** True once any snapshot this session came from the SERVER
+   *  (metadata.fromCache === false), latched. While false, everything on
+   *  screen is at best the device's saved copy — and on a device with no
+   *  saved copy, silent zeros. */
+  serverSynced: boolean;
 }
 
-let _sync: SyncStatus = { connected: false, errored: false };
+let _sync: SyncStatus = { connected: false, errored: false, serverSynced: false };
 const _syncListeners: Array<(s: SyncStatus) => void> = [];
 
-function setSyncStatus(connected: boolean) {
+function setSyncStatus(connected: boolean, serverAck = false) {
   const errored = _sync.errored || !connected;
-  if (_sync.connected === connected && _sync.errored === errored) return;
-  _sync = { connected, errored };
+  const serverSynced = _sync.serverSynced || serverAck;
+  if (_sync.connected === connected && _sync.errored === errored && _sync.serverSynced === serverSynced) return;
+  _sync = { connected, errored, serverSynced };
   _syncListeners.forEach(cb => cb(_sync));
 }
 
@@ -482,7 +499,9 @@ export const dbService = {
         hydrated.add(collectionName);
         recordSnapshotCost(collectionName, snap);
         emit(collectionName, data);
-        setSyncStatus(true);
+        // A snapshot without metadata (the E2E shim) counts as a server
+        // answer; a real SDK snapshot counts only when it is NOT from cache.
+        setSyncStatus(true, snap?.metadata ? !snap.metadata.fromCache : true);
       },
       err => {
         setSyncStatus(false);

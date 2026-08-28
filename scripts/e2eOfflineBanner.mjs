@@ -76,6 +76,8 @@ console.log('\n1 · healthy load — the banner must stay out of the way');
   const body = await page.locator('body').innerText();
   check('no cannot-reach banner on a working database',
     /Can.t reach the database/i.test(body), false);
+  check('no saved-copy strip on a working database',
+    /saved copy/i.test(body), false);
   await page.screenshot({ path: `${OUT}/01-healthy.png`, fullPage: false });
   await ctx.close();
 }
@@ -138,6 +140,74 @@ console.log('\n2 · every snapshot errors — the screen the operator saw');
 
   await page.screenshot({ path: `${OUT}/02-cannot-read.png`, fullPage: false });
   await page.screenshot({ path: `${OUT}/03-cannot-read-full.png`, fullPage: true });
+  await ctx.close();
+}
+
+// ── 3 · Quota-blocked, empty device — the operator's phone ──────────────────
+// The outage the error banner cannot see: Firestore refuses reads for a blown
+// daily quota, the SDK retries SILENTLY (no error callback, ever), and a
+// device that has never synced has nothing cached — so the fixed build still
+// showed confident zeros with no banner. The rose banner must now arrive via
+// the second road: a server that has not answered once, past the grace.
+console.log('\n3 · quota-blocked reads, nothing cached — zeros must be explained');
+{
+  const ctx = await browser.newContext({ viewport: PHONE });
+  const page = await ctx.newPage();
+  await page.goto(`${BASE}?e2eQuotaBlocked=empty&syncGraceMs=1500`, { waitUntil: 'networkidle' });
+  await page.waitForTimeout(4000);
+  const body = await page.locator('body').innerText();
+
+  check('the KPI tiles still read 0', /\b0\b/.test(body), true);
+  check('the banner is shown despite NO error ever firing',
+    /Can.t reach the database/i.test(body), true);
+  check('it says do not wipe and do not import',
+    /Do not wipe and do not import/i.test(body), true);
+  check('it names the daily read allowance as the likely cause',
+    /daily read allowance/i.test(body), true);
+  check('no saved-copy strip — this device has nothing to show',
+    /saved copy/i.test(body), false);
+
+  const banner = page.locator('text=/Can.t reach the database/i').first();
+  const box = await banner.boundingBox();
+  const topmostIsBanner = await page.evaluate(({ x, y }) => {
+    const el = document.elementFromPoint(x, y);
+    return Boolean(el && el.closest('.bg-rose-600'));
+  }, { x: Math.round((box?.x ?? 0) + (box?.width ?? 0) / 2), y: Math.round((box?.y ?? 0) + (box?.height ?? 0) / 2) });
+  check('nothing is painted over it', topmostIsBanner, true);
+
+  await page.screenshot({ path: `${OUT}/04-quota-empty.png`, fullPage: false });
+  await ctx.close();
+}
+
+// ── 4 · Quota-blocked, seeded device — the operator's desktop ───────────────
+// Same silent server, but this device HAS a cache. The data must stay on
+// screen (it is real), the rose banner must NOT appear (nothing is zeroed),
+// and the amber strip must say the figures are the device's saved copy — the
+// missing sentence that let desktop and phone flatly contradict each other.
+console.log('\n4 · quota-blocked reads, cached data — stale must say it is stale');
+{
+  const ctx = await browser.newContext({ viewport: PHONE });
+  const page = await ctx.newPage();
+  await page.goto(`${BASE}?e2eReset=1&e2eQuotaBlocked=data&syncGraceMs=1500`, { waitUntil: 'networkidle' });
+  await page.waitForTimeout(4000);
+  const body = await page.locator('body').innerText();
+
+  check('no rose banner — the data on screen is real', /Can.t reach the database/i.test(body), false);
+  // The strip only renders when units.length > 0, so its presence also
+  // proves the cached data actually made it to the screen.
+  check('the saved-copy strip is shown', /Showing this device.s saved copy/i.test(body), true);
+  check('it says where the figures come from', /last successful sync/i.test(body), true);
+
+  const strip = page.locator('text=/saved copy/i').first();
+  check('the strip is visible', await strip.isVisible().catch(() => false), true);
+  const box = await strip.boundingBox();
+  const topmostIsStrip = await page.evaluate(({ x, y }) => {
+    const el = document.elementFromPoint(x, y);
+    return Boolean(el && el.closest('.bg-amber-500'));
+  }, { x: Math.round((box?.x ?? 0) + (box?.width ?? 0) / 2), y: Math.round((box?.y ?? 0) + (box?.height ?? 0) / 2) });
+  check('nothing is painted over it', topmostIsStrip, true);
+
+  await page.screenshot({ path: `${OUT}/05-quota-cached.png`, fullPage: false });
   await ctx.close();
 }
 

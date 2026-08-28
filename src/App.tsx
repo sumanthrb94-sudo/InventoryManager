@@ -127,6 +127,19 @@ function LoadingScreen({ errored = false }: { errored?: boolean }) {
   );
 }
 
+/** How long the app waits for the SERVER (not the local cache) to answer
+ *  before warning that everything on screen is unconfirmed. Long enough that
+ *  a slow connection never sees it; a quota-blocked database never answers,
+ *  so for the failure it exists to catch, any value works.
+ *  `?syncGraceMs=1500` shortens it for the E2E harness. */
+const SYNC_SERVER_GRACE_MS = (() => {
+  try {
+    const p = Number(new URLSearchParams(window.location.search).get('syncGraceMs'));
+    if (Number.isFinite(p) && p >= 500) return p;
+  } catch { /* no window/search — keep default */ }
+  return 15000;
+})();
+
 const ADMIN_SUBS: { id: AdminSub; label: string; icon: React.ReactNode }[] = [
   { id: 'overview',      label: 'Overview',           icon: <LayoutDashboard size={14} /> },
   { id: 'salesHistory',  label: 'Sales History',      icon: <ClipboardList size={14} /> },
@@ -184,6 +197,10 @@ function AppShell({ user }: { user: User }) {
   /** A snapshot has ERRORED, as opposed to simply not having arrived yet.
    *  Only the first deserves a warning; the second is every normal start-up. */
   const [syncErrored, setSyncErrored]             = useState(false);
+  /** Has any snapshot come from the SERVER this session? Cache-only delivery
+   *  (quota-blocked reads) keeps this false while raising no error at all. */
+  const [syncServerSynced, setSyncServerSynced]   = useState(false);
+  const [serverGraceUp, setServerGraceUp]         = useState(false);
   const [isAlertsExpanded, setIsAlertsExpanded]   = useState(false);
   /** Hamburger drawer for desktop nav. Mobile keeps its bottom-tab bar
    *  (better thumb reach), so this only controls the slide-out on md+. */
@@ -201,7 +218,26 @@ function AppShell({ user }: { user: User }) {
   useEffect(() => subscribeToSyncStatus(s => {
     setSyncConnected(s.connected);
     setSyncErrored(s.errored);
+    setSyncServerSynced(s.serverSynced);
   }), []);
+
+  useEffect(() => {
+    const t = setTimeout(() => setServerGraceUp(true), SYNC_SERVER_GRACE_MS);
+    return () => clearTimeout(t);
+  }, []);
+
+  /** THE QUOTA-BLOCKED STATE — the failure the error banner cannot see.
+   *
+   *  When Firestore refuses reads (blown daily quota), the SDK retries
+   *  silently forever: no snapshot error, so `syncErrored` never trips. With
+   *  the persistent cache, a device that has synced before serves yesterday's
+   *  copy and LOOKS healthy; a device that hasn't (the operator's phone)
+   *  shows silent zeros — the exact wiped-business screen, reached down a
+   *  path the rose banner's error condition cannot detect. The tell for both
+   *  is the same: the server has not answered once, past any reasonable
+   *  start-up time. */
+  const serverSilent = serverGraceUp && !syncServerSynced && !syncErrored;
+  const cannotRead   = (syncErrored && !syncConnected) || (serverSilent && units.length === 0);
 
   const handleNavigate = (action: NavAction) => {
     if (!userIsAdmin) return;
@@ -261,8 +297,12 @@ function AppShell({ user }: { user: User }) {
           destructive, the other a route to duplicates. Neither is recoverable
           by someone who thinks they have nothing left to lose.
 
-          So: say it plainly, and say what NOT to do. */}
-      {syncErrored && !syncConnected && (
+          So: say it plainly, and say what NOT to do.
+
+          Two roads lead here: a snapshot ERROR (rules, dead connection), or a
+          server that never answers at all (quota-blocked reads retry silently
+          — no error ever fires) on a device with no saved copy to show. */}
+      {cannotRead && (
         <div className="fixed top-0 inset-x-0 z-[400] bg-rose-600 text-white px-4 py-2.5 shadow-lg">
           <p className="text-[12px] font-bold uppercase tracking-widest text-center">
             Can’t reach the database
@@ -271,6 +311,30 @@ function AppShell({ user }: { user: User }) {
             Every figure below is showing <span className="font-bold">0 because nothing could be
             loaded</span> — not because your data is gone. Do not wipe and do not import
             until this clears.
+          </p>
+          {serverSilent && (
+            <p className="text-[10px] text-rose-100 text-center mt-0.5 leading-snug">
+              Most likely the database’s free daily read allowance is used up.
+              It refills at midnight US-Pacific time — try again after that.
+            </p>
+          )}
+        </div>
+      )}
+
+      {/* THE STALE-COPY STATE — same silent server, but this device HAS a
+          saved copy, so the numbers on screen are real, just unconfirmed.
+          Without this strip the device looks perfectly healthy while showing
+          yesterday's figures — the operator's desktop did exactly that while
+          their phone showed zeros, and nothing explained the disagreement. */}
+      {serverSilent && units.length > 0 && (
+        <div className="fixed top-0 inset-x-0 z-[400] bg-amber-500 text-black px-4 py-2.5 shadow-lg">
+          <p className="text-[12px] font-bold uppercase tracking-widest text-center">
+            Showing this device’s saved copy
+          </p>
+          <p className="text-[11px] text-center mt-0.5 leading-snug">
+            The live database hasn’t answered since this page opened, so these figures
+            are from the last successful sync. Recent edits from other devices may be
+            missing. Your changes will sync automatically once it responds.
           </p>
         </div>
       )}

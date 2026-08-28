@@ -240,9 +240,42 @@ function snapshotsShouldFail(): boolean {
   return new URLSearchParams(window.location.search).get('e2eSnapshotError') === '1';
 }
 
+/**
+ * `?e2eQuotaBlocked=empty|data` — the OTHER database outage, the one that
+ * raises no error at all.
+ *
+ * When Firestore blocks reads for a blown daily quota (resource-exhausted),
+ * the SDK treats it as retryable: the error callback never fires, and every
+ * snapshot the listener does get comes from the LOCAL cache, flagged only by
+ * `metadata.fromCache === true`. Two devices then tell two different lies:
+ *
+ *   empty — a device that never synced before (the operator's phone): the
+ *           cache has nothing, so the app renders confident zeros with no
+ *           error anywhere. Must show the rose cannot-read banner.
+ *   data  — a device with a seeded cache (the operator's desktop): real
+ *           figures, silently possibly stale. Must show the amber
+ *           saved-copy strip while keeping the data on screen.
+ *
+ * No error is emitted and no live listener is registered in either mode —
+ * a quota-blocked server never answers again this session.
+ */
+function quotaBlockedMode(): 'empty' | 'data' | null {
+  if (typeof window === 'undefined') return null;
+  const v = new URLSearchParams(window.location.search).get('e2eQuotaBlocked');
+  return v === 'empty' || v === 'data' ? v : null;
+}
+
 export function onSnapshot(ref: any, onNext: (snap: any) => void, onError?: (e: any) => void) {
   ensureSeeded();
   const name = ref.__col;
+  const quota = quotaBlockedMode();
+  if (quota) {
+    const base = quota === 'data'
+      ? snapshotOf(name)
+      : { docs: [], empty: true, size: 0, forEach: (_fn: (d: any) => void) => {} };
+    setTimeout(() => onNext({ ...base, metadata: { fromCache: true } }), 0);
+    return () => {};
+  }
   if (snapshotsShouldFail()) {
     // Shaped like the real thing: the SDK hands back a FirebaseError whose
     // `code` is what dbService logs and a human would paste back.

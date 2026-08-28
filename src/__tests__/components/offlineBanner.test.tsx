@@ -26,11 +26,23 @@ describe('the cannot-read banner', () => {
     // failure no collection ever emits, so `loaded` waits out its 15-second
     // fallback before flipping — the operator stares at a spinner, then gets
     // unexplained zeros, and the warning arrives last.
-    expect(APP).toMatch(/\{syncErrored && !syncConnected && \(/);
+    expect(APP).toMatch(/const cannotRead\s*=\s*\(syncErrored && !syncConnected\)/);
+    expect(APP).toMatch(/\{cannotRead && \(/);
+  });
+
+  /** THE SECOND ROAD IN. A quota-blocked database raises NO error — the SDK
+   *  retries resource-exhausted silently forever — so the error condition
+   *  alone missed it: the operator's phone showed confident zeros on the
+   *  fixed build with no banner in sight. A server that has never answered
+   *  (no snapshot with fromCache === false), past the start-up grace, on a
+   *  device with nothing cached, must reach the same rose banner. */
+  it('also renders when the server never answers and there is no cached data', () => {
+    expect(APP).toMatch(/const serverSilent = serverGraceUp && !syncServerSynced && !syncErrored;/);
+    expect(APP).toMatch(/cannotRead\s*=\s*\(syncErrored && !syncConnected\) \|\| \(serverSilent && units\.length === 0\)/);
   });
 
   it('says the zeros are a read failure, not missing data', () => {
-    const banner = APP.slice(APP.indexOf('{syncErrored && !syncConnected && ('));
+    const banner = APP.slice(APP.indexOf('{cannotRead && ('));
     expect(banner).toMatch(/Can’t reach the database/);
     expect(banner).toMatch(/because nothing could be/);
   });
@@ -38,8 +50,17 @@ describe('the cannot-read banner', () => {
   /** The load-bearing half. Naming the danger is what stops the reader
    *  reaching for the two controls that make it unrecoverable. */
   it('tells the operator not to wipe or import while it is showing', () => {
-    const banner = APP.slice(APP.indexOf('{syncErrored && !syncConnected && ('));
+    const banner = APP.slice(APP.indexOf('{cannotRead && ('));
     expect(banner).toMatch(/Do not wipe and do not import/);
+  });
+
+  /** When the silent server is the cause, name the likely culprit and when it
+   *  clears — "try again after midnight US-Pacific" is actionable; a bare
+   *  red banner that never explains itself invites a support message instead. */
+  it('names the quota as the likely cause on the silent-server road', () => {
+    const banner = APP.slice(APP.indexOf('{cannotRead && ('));
+    expect(banner).toMatch(/daily read allowance/i);
+    expect(banner).toMatch(/midnight US-Pacific/);
   });
 
   /** THE OCCLUSION BUG.
@@ -53,12 +74,34 @@ describe('the cannot-read banner', () => {
    *  So the rule is not "has a z-index" but "outranks every full-screen
    *  overlay in this file". */
   it('outranks the loading overlay it would otherwise hide behind', () => {
-    const banner = APP.slice(APP.indexOf('{syncErrored && !syncConnected && ('));
+    const banner = APP.slice(APP.indexOf('{cannotRead && ('));
     const bannerZ = Number((banner.match(/z-\[(\d+)\]/) || [])[1]);
     const overlays = [...APP.matchAll(/fixed inset-0 z-\[(\d+)\]/g)].map(m => Number(m[1]));
     expect(bannerZ).toBeGreaterThan(0);
     expect(overlays.length).toBeGreaterThan(0);
     for (const z of overlays) expect(bannerZ).toBeGreaterThan(z);
+  });
+});
+
+describe('the saved-copy strip (silent server, cached data on screen)', () => {
+  /** The desktop half of the same outage: real figures from the on-disk
+   *  cache, a green-looking app, and a server that has not confirmed any of
+   *  it. Hiding the data would be wrong — it IS the operator's data — but
+   *  presenting it as live while another device shows zeros is how the two
+   *  screens came to flatly contradict each other. */
+  it('shows when the server is silent but this device has data', () => {
+    expect(APP).toMatch(/\{serverSilent && units\.length > 0 && \(/);
+    const strip = APP.slice(APP.indexOf('{serverSilent && units.length > 0 && ('));
+    expect(strip).toMatch(/saved copy/i);
+    expect(strip).toMatch(/last successful sync/i);
+  });
+
+  it('never fires on a healthy start-up — only after the grace period', () => {
+    expect(APP).toMatch(/setTimeout\(\(\) => setServerGraceUp\(true\), SYNC_SERVER_GRACE_MS\)/);
+    // And the grace default is long enough that a slow connection cannot
+    // trip it — this warning crying wolf on every hotel wifi would get the
+    // banner ignored the one morning it matters.
+    expect(APP).toMatch(/return 15000;/);
   });
 });
 
@@ -82,12 +125,25 @@ describe('the condition it is reporting', () => {
     const { subscribeToSyncStatus } = await import('../../lib/dbService');
     const seen: any[] = [];
     const stop = subscribeToSyncStatus(s => seen.push({ ...s }));
-    expect(seen[0]).toEqual({ connected: false, errored: false });
+    expect(seen[0]).toEqual({ connected: false, errored: false, serverSynced: false });
     stop();
     // And the two facts are modelled separately, so "not yet" and "failed"
     // are distinguishable at all.
     const db = readFileSync('src/lib/dbService.ts', 'utf8');
     expect(db).toMatch(/errored:\s*boolean/);
     expect(db).toMatch(/const errored = _sync\.errored \|\| !connected;/);
+  });
+
+  /** A cache-only snapshot must NOT count as the server answering. That is
+   *  the exact confusion that made a quota-blocked desktop look healthy:
+   *  snapshots were arriving, so `connected` went true — but every one of
+   *  them was the device reading its own disk. Only fromCache === false is
+   *  the server's voice; the flag latches because one confirmed answer means
+   *  the outage this exists to catch is not happening. */
+  it('serverSynced trips only on a snapshot the SERVER actually delivered', () => {
+    const db = readFileSync('src/lib/dbService.ts', 'utf8');
+    expect(db).toMatch(/serverSynced:\s*boolean/);
+    expect(db).toMatch(/const serverSynced = _sync\.serverSynced \|\| serverAck;/);
+    expect(db).toMatch(/setSyncStatus\(true, snap\?\.metadata \? !snap\.metadata\.fromCache : true\)/);
   });
 });
