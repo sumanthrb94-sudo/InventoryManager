@@ -364,8 +364,12 @@ async function run() {
   record('the loss ledger separates carriage from the rest',
     /Carriage £/i.test(body) && /Other £/i.test(body) && /Total £/i.test(body),
     'Carriage / Other / Total columns present');
+  // The wording grew when marketplace-kept fees joined the total (the
+  // refund-fee work): carriage + fees kept + repair invoices − credits.
+  // Demand ALL four components — a header that names three of the four is
+  // exactly the silent understatement this ledger exists to prevent.
   record('the header states what the total now includes',
-    /carriage \+ repair invoices − supplier credits/i.test(body));
+    /carriage \+ £[\d.,]+ fees kept by marketplaces \+ repair invoices − supplier credits/i.test(body));
   record('the repair invoice reaches the ledger',
     body.includes('64.50'),
     repairCostEntered ? 'entered 64.50' : 'repair cost box was never shown');
