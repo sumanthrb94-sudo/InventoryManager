@@ -22,6 +22,7 @@ import { doc, type Transaction } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { dbService } from '../lib/dbService';
 import { processReturnSalePatch } from '../lib/processReturnSalePatch';
+import { postageVatOf } from '../lib/returnLoss';
 import { logInventoryEvent } from '../lib/inventoryEvents';
 import type { InventoryUnit, ReturnCategory, Sale } from '../types';
 
@@ -120,9 +121,7 @@ async function findLinkedSales(unit: InventoryUnit): Promise<Sale[]> {
 function computeLegCost(linkedSales: Sale[], unit: InventoryUnit): number | null {
   const src = linkedSales[0];
   if (src) {
-    const postage = Number(src.postage) || 0;
-    const pVat = src.postageVatExempt ? 0 : (Number(src.postageVat) || postage * 0.2);
-    return postage + pVat;
+    return (Number(src.postage) || 0) + postageVatOf(src);
   }
   if (unit.postageCost) return unit.postageCost * 1.2;
   return null;

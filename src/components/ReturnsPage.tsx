@@ -51,7 +51,7 @@ import {
   recordSupplierCredit,
 } from '../services/returnsService';
 import { postageLossFor } from '../lib/clientReport';
-import { extraCostsFor, feeLossOnRefund, type ReturnCostGap } from '../lib/returnLoss';
+import { extraCostsFor, feeLossOnRefund, postageVatOf, type ReturnCostGap } from '../lib/returnLoss';
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -1358,7 +1358,7 @@ function ReturnLossSection({
         const sku = (s.sku || '').trim().toUpperCase();
         if (!(s.imei || '').trim() && sku && accessorySkus.has(sku)) continue;
         const postage = Number(s.postage) || 0;
-        const pVat = s.postageVatExempt ? 0 : (Number(s.postageVat) || postage * 0.2);
+        const pVat = postageVatOf(s);
         const saleOutcome = (s.voidOutcome === 'replacement' ? 'replacement'
           : s.voidOutcome === 'repair' ? 'repair' : 'refund') as 'refund' | 'replacement' | 'repair';
         out.push({
@@ -1379,7 +1379,7 @@ function ReturnLossSection({
         ? 'replacement'
         : 'refund') as 'refund' | 'replacement' | 'repair';
       const postage = Number(s.postage) || 0;
-      const pVat = s.postageVatExempt ? 0 : (Number(s.postageVat) || postage * 0.2);
+      const pVat = postageVatOf(s);
       // Repair carries a real 2-leg carriage loss now (outbound + faulty
       // unit shipped back), same as a refund / a supplier return. Only a
       // replacement is 3 legs.
@@ -2331,7 +2331,7 @@ function UnitHistoryModal({
       });
       if (s.voidedAt) {
         const postage = Number(s.postage) || 0;
-        const pvat = s.postageVatExempt ? 0 : (Number(s.postageVat) || postage * 0.2);
+        const pvat = postageVatOf(s);
         const outcome: 'refund' | 'replacement' | 'repair' =
           s.voidOutcome === 'replacement' ? 'replacement'
           : s.voidOutcome === 'repair' ? 'repair'

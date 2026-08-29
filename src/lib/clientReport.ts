@@ -26,7 +26,7 @@ import type {
 } from '../types';
 import { MARKETPLACES } from '../types';
 import { excelFormulaFor, isAccessorySale, SALES_HEADERS, salesCol, salesColLetter } from './platforms';
-import { returnCostFor, saleKeptItsRevenue, feeLossOnRefund } from './returnLoss';
+import { returnCostFor, saleKeptItsRevenue, feeLossOnRefund, postageVatOf } from './returnLoss';
 import { recomputeSale } from './recomputeSale';
 import { normalizeOperatorSku } from './modelStorage';
 
@@ -386,7 +386,7 @@ export function shippingLegsFor(sale: Sale): number {
 export function postageLossFor(sale: Sale): number {
   if (!sale.voidedAt) return 0;
   const postage = Number(sale.postage) || 0;
-  const pvat = sale.postageVatExempt ? 0 : (Number(sale.postageVat) || postage * 0.2);
+  const pvat = postageVatOf(sale);
   const legs = shippingLegsFor(sale) - (saleKeptItsRevenue(sale) ? 1 : 0);
   return (postage + pvat) * legs;
 }
@@ -2043,11 +2043,7 @@ function outcomeText(outcome: 'refund' | 'replacement' | 'repair'): string {
 function legCostFor(u: InventoryUnit, linkedVoidedSale: Sale | undefined): number {
   if (typeof u.returnLegCost === 'number' && u.returnLegCost > 0) return u.returnLegCost;
   if (linkedVoidedSale) {
-    const postage = Number(linkedVoidedSale.postage) || 0;
-    const pVat = linkedVoidedSale.postageVatExempt
-      ? 0
-      : (Number(linkedVoidedSale.postageVat) || postage * 0.2);
-    return postage + pVat;
+    return (Number(linkedVoidedSale.postage) || 0) + postageVatOf(linkedVoidedSale);
   }
   return 0;
 }
@@ -2619,7 +2615,7 @@ function writeReturnsSheets(
         const out: 'refund' | 'replacement' | 'repair' =
           s.voidOutcome ?? outcomeFor(u);
         const postage = Number(s.postage) || 0;
-        const pVat = s.postageVatExempt ? 0 : (Number(s.postageVat) || postage * 0.2);
+        const pVat = postageVatOf(s);
         const legs = out === 'replacement' ? 3 : 2;  // refund + repair both = 2
         const loss = legs > 0 ? (postage + pVat) * legs : 0;
         const reason = s.voidReason || u.returnReason || '';

@@ -28,6 +28,7 @@ import { parseBrandModelStorage } from '../lib/modelStorage';
 import { logInventoryEvent } from '../lib/inventoryEvents';
 import { auth, isAdmin } from '../lib/firebase';
 import { calcSaleFinancials } from '../lib/platforms';
+import { postageVatOf } from '../lib/returnLoss';
 import { sanitiseFsIdSegment } from '../lib/firestoreIds';
 
 // ---------------------------------------------------------------------------
@@ -1828,7 +1829,7 @@ function buildRestoredReturnPatch(sale: Sale, returnType: ReturnCategory): Recor
   const returnOutcome: 'refund' | 'replacement' | undefined =
     sale.voidOutcome === 'refund' || sale.voidOutcome === 'replacement' ? sale.voidOutcome : undefined;
   const postage = Number(sale.postage) || 0;
-  const pVat = sale.postageVatExempt ? 0 : (Number(sale.postageVat) || postage * 0.2);
+  const pVat = postageVatOf(sale);
   const legCost = postage > 0 ? postage + pVat : null;
 
   const patch: Record<string, any> = {

@@ -108,14 +108,31 @@ export function returnRouteFor(
   return unit.returnType ? 'refund' : null;
 }
 
+/** The VAT a sale's postage ACTUALLY carried — for costing carriage legs.
+ *
+ *  `postageVat` is a stored fact, and zero is a real value: eBay's shipping
+ *  is zero-rated to this operator (the master's P. VAT column reads 0 on
+ *  every row beside £4.65 of postage). The old `postageVat || postage × 20%`
+ *  fallback treated that stored 0 as "not recorded" and invented £0.93 of
+ *  VAT per leg — £1.86 too much on every 2-leg eBay refund. Only a sale that
+ *  PREDATES the field (postageVat absent) derives the historic 20%.
+ *
+ *  Every leg-cost computation in the app must go through this one function;
+ *  the copies it replaced had already drifted into nine call sites. */
+export function postageVatOf(
+  sale: Pick<Sale, 'postage' | 'postageVat' | 'postageVatExempt'>,
+): number {
+  if (sale.postageVatExempt) return 0;
+  if (sale.postageVat != null) return Number(sale.postageVat) || 0;
+  return (Number(sale.postage) || 0) * 0.2;
+}
+
 /** Cost of one carriage leg (postage + P.VAT), from the snapshot the return
  *  took, falling back to the live sale and then to the unit's own postage. */
 function legCostFor(unit: InventoryUnit, sale?: Sale | null): number {
   if (typeof unit.returnLegCost === 'number') return unit.returnLegCost;
   if (sale) {
-    const postage = Number(sale.postage) || 0;
-    const pVat = sale.postageVatExempt ? 0 : (Number(sale.postageVat) || postage * 0.2);
-    return postage + pVat;
+    return (Number(sale.postage) || 0) + postageVatOf(sale);
   }
   if (unit.postageCost) return unit.postageCost * 1.2;
   return 0;

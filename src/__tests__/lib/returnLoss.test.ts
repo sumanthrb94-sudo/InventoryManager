@@ -11,7 +11,7 @@
  * carriage-only.
  */
 import { describe, it, expect } from 'vitest';
-import { returnCostFor, returnRouteFor, totalReturnCost } from '../../lib/returnLoss';
+import { returnCostFor, returnRouteFor, totalReturnCost, postageVatOf } from '../../lib/returnLoss';
 import type { InventoryUnit, Sale } from '../../types';
 
 /** A sold-then-returned unit. £10 leg cost keeps the carriage arithmetic
@@ -285,5 +285,40 @@ describe('how many carriage legs a return is billed for', () => {
       sale({ voidOutcome: 'replacement' }),   // no gpBasis — revenue removed
     );
     expect(c.postage).toBe(30);
+  });
+});
+
+describe('postageVatOf — a stored zero is a fact, not a gap', () => {
+  /** The operator asked "what about postage VAT, have you deducted that
+   *  also?" — and checking exposed a real bug: every leg-cost site computed
+   *  `postageVat || postage × 20%`, which reads a STORED 0 as "missing" and
+   *  invents VAT. eBay is exactly the case where 0 is real: its shipping is
+   *  zero-rated to this operator (the master's P. VAT column is 0 on every
+   *  row beside £4.65 of postage), so each eBay leg was £0.93 too dear and
+   *  every 2-leg eBay refund £1.86 overstated. */
+  it('eBay: postage £4.65 with stored P.VAT 0 → the leg carries NO VAT', () => {
+    expect(postageVatOf({ postage: 4.65, postageVat: 0 } as Sale)).toBe(0);
+  });
+
+  it('a sale predating the field still derives the historic 20%', () => {
+    expect(postageVatOf({ postage: 8, postageVat: undefined } as Sale)).toBeCloseTo(1.6, 10);
+  });
+
+  it('a stored figure wins over the derivation', () => {
+    expect(postageVatOf({ postage: 8, postageVat: 1.6 } as Sale)).toBe(1.6);
+  });
+
+  it('postageVatExempt zeroes it regardless of what is stored', () => {
+    expect(postageVatOf({ postage: 8, postageVat: 1.6, postageVatExempt: true } as Sale)).toBe(0);
+  });
+
+  it('an eBay refund bills 2 legs of bare postage — no invented VAT', () => {
+    // No returnLegCost snapshot, so the leg derives from the sale itself.
+    const c = returnCostFor(
+      unit({ returnType: 'returned_to_inventory', returnOutcome: 'refund', returnLegCost: undefined }),
+      sale({ marketplace: 'EBAY', voidOutcome: 'refund', postage: 4.65, postageVat: 0,
+             gpBasis: 'returns_v2', customerRefunded: true }),
+    );
+    expect(c.postage).toBeCloseTo(9.30, 2);   // 4.65 × 2, NOT 5.58 × 2
   });
 });
