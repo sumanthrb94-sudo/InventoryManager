@@ -50,7 +50,20 @@ const app = initializeApp(firebaseConfig);
  * window, a locked-down browser — because a working app that costs more reads
  * beats an app that will not start.
  */
+/** Sticky per-device cache-mode flag. Set to 'memory' when the persistent
+ *  cache MELTS DOWN at runtime — see the meltdown trap below — so the next
+ *  load runs without persistence instead of crashing the same way again.
+ *  Cleared by the diagnostics panel's storage reset (it clears localStorage),
+ *  which is correct: a reset frees the space, so persistence gets retried. */
+const CACHE_MODE_KEY = 'fsCacheMode';
+
 function makeDb() {
+  try {
+    if (typeof localStorage !== 'undefined' && localStorage.getItem(CACHE_MODE_KEY) === 'memory') {
+      console.warn('[firebase] memory cache mode (previous persistence failure on this device)');
+      return getFirestore(app, firebaseConfig.firestoreDatabaseId);
+    }
+  } catch { /* storage unreadable — fall through to the normal path */ }
   try {
     return initializeFirestore(app, {
       localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() }),
@@ -59,6 +72,47 @@ function makeDb() {
     console.warn('[firebase] persistent cache unavailable, falling back to memory:', err);
     return getFirestore(app, firebaseConfig.firestoreDatabaseId);
   }
+}
+
+// ── THE PERSISTENCE MELTDOWN TRAP ────────────────────────────────────────────
+//
+// Seen live on the operator's phone, after two days of "why zeros only on
+// mobile": FIRESTORE INTERNAL ASSERTION FAILED: Unexpected state (ID: b815)
+// CONTEXT: {"Rc":"QuotaExceededError…}. The phone's BROWSER storage was full
+// (dozens of tabs, weeks of cached sites), so every IndexedDB write the
+// persistent cache attempted failed, and the SDK broke internally — the sync
+// channel died producing no network traffic and no clean error. The catch in
+// makeDb() never fires for this: initialisation succeeds, the meltdown comes
+// LATER, on the first write.
+//
+// The SDK logs these through console.error (and some escape as unhandled
+// rejections) whether or not app code catches the throw — so both are
+// tapped. First sighting: stamp this device 'memory' mode and reload once.
+// The reloaded app runs cache-less — slower reads, but WORKING — instead of
+// a dead app with a full disk. The flag is per-device and cleared by the
+// diagnostics storage reset once space is freed.
+function isPersistenceMeltdown(msg: string): boolean {
+  return msg.includes('INTERNAL ASSERTION FAILED') || msg.includes('QuotaExceededError');
+}
+
+function tripMeltdown(msg: string): void {
+  if (!isPersistenceMeltdown(msg)) return;
+  try {
+    if (localStorage.getItem(CACHE_MODE_KEY) === 'memory') return;   // already degraded — no reload loop
+    localStorage.setItem(CACHE_MODE_KEY, 'memory');
+    console.warn('[firebase] persistence meltdown detected — reloading in memory-cache mode');
+    window.location.reload();
+  } catch { /* storage completely dead — nothing more we can do from here */ }
+}
+
+if (typeof window !== 'undefined') {
+  window.addEventListener('unhandledrejection', e =>
+    tripMeltdown(String((e.reason as Error | undefined)?.message ?? e.reason ?? '')));
+  const origError = console.error.bind(console);
+  console.error = (...args: unknown[]) => {
+    origError(...args);
+    try { tripMeltdown(args.map(a => String(a)).join(' ')); } catch { /* never break console */ }
+  };
 }
 
 export const db      = makeDb();

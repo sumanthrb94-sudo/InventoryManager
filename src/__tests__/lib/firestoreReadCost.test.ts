@@ -44,7 +44,10 @@ describe('the cache that stops re-reading the database on every load', () => {
    *  nothing. */
   it('is the only place that constructs the db', () => {
     const callers = ['src/lib/firebase.ts'];
-    expect(FIREBASE.match(/getFirestore\(/g) || []).toHaveLength(2);   // import + fallback
+    // import + init-failure fallback + the meltdown trap's memory-mode path
+    // (a device whose browser storage is FULL runs cache-less on purpose —
+    // see the persistence-meltdown comment in firebase.ts).
+    expect(FIREBASE.match(/getFirestore\(/g) || []).toHaveLength(3);
     expect(callers).toHaveLength(1);
   });
 });

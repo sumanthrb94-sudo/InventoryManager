@@ -10,6 +10,7 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import Dashboard, { NavAction } from './components/Dashboard';
+import DiagnosticsPanel from './components/DiagnosticsPanel';
 import NewBatchModal from './components/NewBatchModal';
 import BuySheet from './components/BuySheet';
 import SellSheet from './components/SellSheet';
@@ -84,16 +85,31 @@ function AppWithAuth() {
   const [loading, setLoading] = useState(true);
   useEffect(() => onAuthStateChanged(auth, u => { setUser(u); setLoading(false); }), []);
 
+  // Connection diagnostics — reachable from ANY state, signed in or not,
+  // because the moment it is needed is exactly when the app looks broken.
+  // Open via ?diag=1, or the links on the login screen and warning banners
+  // (they dispatch 'open-diagnostics' so no prop-drilling through screens).
+  const [diagOpen, setDiagOpen] = useState(
+    () => new URLSearchParams(window.location.search).get('diag') === '1',
+  );
+  useEffect(() => {
+    const open = () => setDiagOpen(true);
+    window.addEventListener('open-diagnostics', open);
+    return () => window.removeEventListener('open-diagnostics', open);
+  }, []);
+  const diag = diagOpen ? <DiagnosticsPanel onClose={() => setDiagOpen(false)} /> : null;
+
   if (loading) return (
     <div className="min-h-screen bg-white flex items-center justify-center">
       <motion.div animate={{ rotate: 360 }} transition={{ duration: 1, repeat: Infinity, ease: 'linear' }}
         className="w-8 h-8 border-2 border-black border-t-transparent rounded-full" />
     </div>
   );
-  if (!user) return <LoginPage />;
+  if (!user) return <>{diag}<LoginPage /></>;
 
   return (
     <ErrorBoundary>
+      {diag}
       <InventoryStoreProvider>
         <AppShell user={user} />
       </InventoryStoreProvider>
@@ -318,6 +334,13 @@ function AppShell({ user }: { user: User }) {
               It refills at midnight US-Pacific time — try again after that.
             </p>
           )}
+          <button
+            type="button"
+            onClick={() => window.dispatchEvent(new Event('open-diagnostics'))}
+            className="block mx-auto mt-1 text-[10px] font-bold underline underline-offset-2 text-white"
+          >
+            Run connection diagnostics →
+          </button>
         </div>
       )}
 
@@ -336,6 +359,13 @@ function AppShell({ user }: { user: User }) {
             are from the last successful sync. Recent edits from other devices may be
             missing. Your changes will sync automatically once it responds.
           </p>
+          <button
+            type="button"
+            onClick={() => window.dispatchEvent(new Event('open-diagnostics'))}
+            className="block mx-auto mt-1 text-[10px] font-bold underline underline-offset-2 text-black"
+          >
+            Run connection diagnostics →
+          </button>
         </div>
       )}
 
@@ -934,6 +964,13 @@ function LoginPage() {
           <p className="text-[9px] text-gray-400 font-mono text-center uppercase tracking-wide">
             Forgot password? Ask an admin to reset it.
           </p>
+          <button
+            type="button"
+            onClick={() => window.dispatchEvent(new Event('open-diagnostics'))}
+            className="w-full text-[10px] text-gray-500 underline underline-offset-2 text-center"
+          >
+            Trouble signing in? Run connection diagnostics
+          </button>
         </motion.div>
       </div>
     </div>

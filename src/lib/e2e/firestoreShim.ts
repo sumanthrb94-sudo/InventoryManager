@@ -299,6 +299,9 @@ export function query(ref: any, ...constraints: any[]) {
 export function where(field: string, op: string, value: any) { return { type: 'where', field, op, value }; }
 export function orderBy(field: string, dir: 'asc' | 'desc' = 'asc') { return { type: 'orderBy', field, dir }; }
 export function limit(n: number) { return { type: 'limit', n }; }
+/** The diagnostics panel forces a SERVER read; the shim has no server, so
+ *  its local answer stands in — the E2E build must still compile. */
+export const getDocsFromServer = getDocs;
 
 export function writeBatch(_db: any) {
   const ops: Array<() => void> = [];
