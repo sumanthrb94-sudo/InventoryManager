@@ -54,13 +54,15 @@ describe('the cannot-read banner', () => {
     expect(banner).toMatch(/Do not wipe and do not import/);
   });
 
-  /** When the silent server is the cause, name the likely culprit and when it
-   *  clears — "try again after midnight US-Pacific" is actionable; a bare
-   *  red banner that never explains itself invites a support message instead. */
-  it('names the quota as the likely cause on the silent-server road', () => {
+  /** The silent-server hint changed with the cache policy (2026-08-29): on
+   *  Blaze there is no read quota to blame, so the banner asks the one
+   *  question that remains — is this device online? — and hands the reader
+   *  the two actions that resolve it: Refresh, and the diagnostics panel. */
+  it('tells the reader to check their connection and offers Refresh + diagnostics', () => {
     const banner = APP.slice(APP.indexOf('{cannotRead && ('));
-    expect(banner).toMatch(/daily read allowance/i);
-    expect(banner).toMatch(/midnight US-Pacific/);
+    expect(banner).toMatch(/internet connection, then refresh/i);
+    expect(banner).toMatch(/window\.location\.reload\(\)/);
+    expect(banner).toMatch(/open-diagnostics/);
   });
 
   /** THE OCCLUSION BUG.

@@ -162,8 +162,14 @@ console.log('\n3 · quota-blocked reads, nothing cached — zeros must be explai
     /Can.t reach the database/i.test(body), true);
   check('it says do not wipe and do not import',
     /Do not wipe and do not import/i.test(body), true);
-  check('it names the daily read allowance as the likely cause',
-    /daily read allowance/i.test(body), true);
+  // Post-Blaze wording (2026-08-29): no read quota left to blame, so the
+  // banner asks the one remaining question — is this device online? — and
+  // offers the two actions that settle it.
+  check('it tells the reader to check their connection and refresh',
+    /internet connection, then refresh/i.test(body), true);
+  check('it offers a Refresh button', await page.locator('button:has-text("Refresh")').first().isVisible().catch(() => false), true);
+  check('it links to the diagnostics panel',
+    /Run connection diagnostics/i.test(body), true);
   check('no saved-copy strip — this device has nothing to show',
     /saved copy/i.test(body), false);
 

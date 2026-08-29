@@ -17,38 +17,28 @@ import { readFileSync } from 'node:fs';
 const FIREBASE = readFileSync('src/lib/firebase.ts', 'utf8');
 const DBSERVICE = readFileSync('src/lib/dbService.ts', 'utf8');
 
-describe('the cache that stops re-reading the database on every load', () => {
-  /** getFirestore() defaults to a MEMORY cache, which dies with the tab. That
-   *  single default is what made every reload cost a full collection scan. */
-  it('configures a PERSISTENT cache, not the memory default', () => {
-    expect(FIREBASE).toMatch(/persistentLocalCache\(/);
-    expect(FIREBASE).toMatch(/initializeFirestore\(/);
-  });
-
-  /** The operator works with several tabs open. The single-tab manager leaves
-   *  every other tab without persistence, quietly restoring the expensive
-   *  behaviour for the person who has the most tabs. */
-  it('uses the multi-tab manager', () => {
-    expect(FIREBASE).toMatch(/persistentMultipleTabManager\(\)/);
-  });
-
-  /** A browser with IndexedDB blocked must still start. An app that refuses to
-   *  load is worse than one that costs more reads. */
-  it('falls back to the memory cache rather than failing to start', () => {
-    expect(FIREBASE).toMatch(/catch\s*\(err\)/);
+describe('the cache policy: MEMORY, by the operator’s decision (2026-08-29)', () => {
+  /** History in one breath: a persistent IndexedDB cache was added to
+   *  survive the free tier's 50k reads/day, then caused three incidents in
+   *  a week (stuck multi-tab leader, full-phone QuotaExceededError meltdown,
+   *  saved-copy confusion). On Blaze the reads it saved cost pennies, so the
+   *  operator chose live-only: "I don't need any local storage … if no
+   *  network, ask to refresh." These pins keep that decision from being
+   *  silently reverted — re-adding persistence must consult the incident
+   *  list in firebase.ts and change these tests knowingly. */
+  it('uses the plain memory-cache constructor, no persistence', () => {
+    // Call-shaped patterns: the incident HISTORY in the docblock is allowed
+    // to name these APIs — invoking them is what these pins forbid.
+    expect(FIREBASE).not.toMatch(/persistentLocalCache\(/);
+    expect(FIREBASE).not.toMatch(/persistentMultipleTabManager\(\)/);
+    expect(FIREBASE).not.toMatch(/initializeFirestore\(/);
     expect(FIREBASE).toMatch(/getFirestore\(app, firebaseConfig\.firestoreDatabaseId\)/);
   });
 
-  /** initializeFirestore must win the race — a getFirestore() elsewhere would
-   *  bind the default memory cache first and this whole fix would silently do
-   *  nothing. */
-  it('is the only place that constructs the db', () => {
-    const callers = ['src/lib/firebase.ts'];
-    // import + init-failure fallback + the meltdown trap's memory-mode path
-    // (a device whose browser storage is FULL runs cache-less on purpose —
-    // see the persistence-meltdown comment in firebase.ts).
-    expect(FIREBASE.match(/getFirestore\(/g) || []).toHaveLength(3);
-    expect(callers).toHaveLength(1);
+  it('records WHY, so the pendulum does not swing back blind', () => {
+    expect(FIREBASE).toMatch(/MEMORY CACHE, ON PURPOSE/);
+    expect(FIREBASE).toMatch(/STUCK LEADER/);
+    expect(FIREBASE).toMatch(/FULL-DEVICE MELTDOWN/);
   });
 });
 

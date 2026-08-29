@@ -58,28 +58,24 @@ describe('entry points — reachable from every broken-looking state', () => {
   });
 });
 
-describe('the persistence meltdown trap (the phone that cost two days)', () => {
-  /** The real error, verbatim from the operator's screenshot:
-   *  FIRESTORE (12.13.0) INTERNAL ASSERTION FAILED: Unexpected state
-   *  (ID: b815) CONTEXT: {"Rc":"QuotaExceededError…}. A full browser
-   *  storage breaks the persistent cache AFTER init succeeds, so the
-   *  makeDb() try/catch can never see it — the trap has to listen at
-   *  runtime, flag the device, and reload it into memory-cache mode. */
-  const FB = readFileSync('src/lib/firebase.ts', 'utf8');
+describe('the Internet check can never contradict its passing siblings', () => {
+  /** Seen live: the first version pinged one Google URL on its own, an
+   *  ad-blocker quietly blocked exactly that URL, and the operator saw
+   *  "✗ cannot reach Google" printed above four green ticks — a fresh
+   *  confusion from the tool built to end confusion. The verdict now
+   *  derives from the checks that matter: if the sign-in service or the
+   *  database ANSWERED, the internet self-evidently works, and the ping is
+   *  only the tie-breaker when both are silent. */
+  const PANEL = readFileSync('src/components/DiagnosticsPanel.tsx', 'utf8');
 
-  it('detects both faces of the failure', () => {
-    expect(FB).toMatch(/INTERNAL ASSERTION FAILED/);
-    expect(FB).toMatch(/QuotaExceededError/);
+  it('judges internet by whether the real services answered', () => {
+    expect(PANEL).toMatch(/const \[viaSignin, viaDb\] = await Promise\.all\(\[signinAnswered, dbAnswered\]\);/);
+    expect(PANEL).toMatch(/if \(viaSignin \|\| viaDb\) \{/);
   });
 
-  it('degrades to memory cache instead of reloading forever', () => {
-    // The flag is checked BEFORE reload (no loop) and read by makeDb.
-    expect(FB).toMatch(/if \(localStorage\.getItem\(CACHE_MODE_KEY\) === 'memory'\) return;/);
-    expect(FB).toMatch(/localStorage\.getItem\(CACHE_MODE_KEY\) === 'memory'\) \{\n      console\.warn/);
-  });
-
-  it('listens where the SDK actually reports: console.error and unhandledrejection', () => {
-    expect(FB).toMatch(/addEventListener\('unhandledrejection'/);
-    expect(FB).toMatch(/console\.error = /);
+  it('uses the bare ping only as the tie-breaker', () => {
+    const pingAt = PANEL.indexOf('generate_204');
+    const verdictAt = PANEL.indexOf('viaSignin || viaDb');
+    expect(pingAt).toBeGreaterThan(verdictAt);
   });
 });

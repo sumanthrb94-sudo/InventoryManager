@@ -330,17 +330,26 @@ function AppShell({ user }: { user: User }) {
           </p>
           {serverSilent && (
             <p className="text-[10px] text-rose-100 text-center mt-0.5 leading-snug">
-              Most likely the database’s free daily read allowance is used up.
-              It refills at midnight US-Pacific time — try again after that.
+              Check this device’s internet connection, then refresh. If it keeps
+              happening, run the diagnostics below.
             </p>
           )}
-          <button
-            type="button"
-            onClick={() => window.dispatchEvent(new Event('open-diagnostics'))}
-            className="block mx-auto mt-1 text-[10px] font-bold underline underline-offset-2 text-white"
-          >
-            Run connection diagnostics →
-          </button>
+          <div className="flex items-center justify-center gap-5 mt-1.5">
+            <button
+              type="button"
+              onClick={() => window.location.reload()}
+              className="px-3 py-1 rounded-full bg-white text-rose-700 text-[10px] font-bold uppercase tracking-widest"
+            >
+              Refresh
+            </button>
+            <button
+              type="button"
+              onClick={() => window.dispatchEvent(new Event('open-diagnostics'))}
+              className="text-[10px] font-bold underline underline-offset-2 text-white"
+            >
+              Run connection diagnostics →
+            </button>
+          </div>
         </div>
       )}
 

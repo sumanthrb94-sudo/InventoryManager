@@ -65,20 +65,10 @@ export default function DiagnosticsPanel({ onClose }: { onClose: () => void }) {
     let dead = false;
     const set = (fn: (v: Verdict) => void) => (v: Verdict) => { if (!dead) fn(v); };
 
-    // 1 · Internet — a Google no-content endpoint, no credentials involved.
-    (async () => {
-      const put = set(setInternet);
-      try {
-        await timedFetch('https://www.gstatic.com/generate_204', { mode: 'no-cors' }, 8000);
-        put({ state: 'ok', detail: 'this browser can reach Google' });
-      } catch {
-        put({ state: 'fail', detail: 'cannot reach Google at all — this network (or a blocker/VPN on this device) is the problem. Try Wi-Fi vs mobile data.' });
-      }
-    })();
-
     // 2 · Sign-in service — an empty request must be REFUSED with
     // MISSING_EMAIL. Refusal is the healthy answer; silence is the failure.
-    (async () => {
+    // Returns whether ANY answer arrived, for the internet verdict below.
+    const signinAnswered = (async (): Promise<boolean> => {
       const put = set(setSignin);
       try {
         const r = await timedFetch(
@@ -89,14 +79,16 @@ export default function DiagnosticsPanel({ onClose }: { onClose: () => void }) {
         if (msg.includes('MISSING_EMAIL')) put({ state: 'ok', detail: 'sign-in service answering normally' });
         else if (msg) put({ state: 'fail', detail: `sign-in service answered abnormally: ${msg}` });
         else put({ state: 'fail', detail: `unexpected response (HTTP ${r.status})` });
+        return true;
       } catch {
         put({ state: 'fail', detail: 'no answer from the sign-in service — network is blocking identitytoolkit.googleapis.com' });
+        return false;
       }
     })();
 
     // 3 · Database over plain HTTPS. Signed out, a rules denial (403) is the
     // healthy answer. Signed in, one real document must come back.
-    (async () => {
+    const dbAnswered = (async (): Promise<boolean> => {
       const put = set(setRestRead);
       try {
         const user = auth.currentUser;
@@ -113,8 +105,35 @@ export default function DiagnosticsPanel({ onClose }: { onClose: () => void }) {
           if (r.status === 403 || r.ok) put({ state: 'ok', detail: 'database reachable (sign in for a full read test)' });
           else put({ state: 'fail', detail: `database answered abnormally (HTTP ${r.status})` });
         }
+        return true;
       } catch {
         put({ state: 'fail', detail: 'no answer from the database — network is blocking firestore.googleapis.com' });
+        return false;
+      }
+    })();
+
+    // 1 · Internet — judged by the checks that MATTER, not by its own ping.
+    // The first version probed gstatic.com on its own and produced
+    // "✗ cannot reach Google" above four green ticks. The operator's console
+    // named the culprit: the app's own Content-Security-Policy — gstatic was
+    // never on the connect-src allowlist, so the app's own security header
+    // blocked the probe. Two fixes: the verdict now derives from the checks
+    // below (services answering IS the internet working), and the tie-break
+    // ping targets *.googleapis.com, which the CSP allows.
+    (async () => {
+      const put = set(setInternet);
+      const [viaSignin, viaDb] = await Promise.all([signinAnswered, dbAnswered]);
+      if (viaSignin || viaDb) {
+        put({ state: 'ok', detail: 'this browser is reaching Google’s servers (proved by the answers below)' });
+        return;
+      }
+      try {
+        // Any HTTP answer — even a 404 — means the wire works. (generate_204
+        // path kept for familiarity; the HOST is what the CSP permits.)
+        await timedFetch('https://www.googleapis.com/generate_204', { mode: 'no-cors' }, 8000);
+        put({ state: 'ok', detail: 'internet reachable, but Google’s app services are not answering — see the checks below' });
+      } catch {
+        put({ state: 'fail', detail: 'cannot reach Google at all — this network (or a blocker/VPN on this device) is the problem. Try Wi-Fi vs mobile data.' });
       }
     })();
 
@@ -142,11 +161,13 @@ export default function DiagnosticsPanel({ onClose }: { onClose: () => void }) {
       }
     })();
 
-    // 5 · IndexedDB — the persistent cache lives here, and a FULL browser
-    // storage is the failure that cost two days: Firestore's cache writes
-    // start throwing QuotaExceededError, the SDK melts down with INTERNAL
-    // ASSERTION FAILED, and the sync channel dies making no network traffic
-    // at all. So this check measures fullness, not just existence.
+    // 5 · IndexedDB — the signed-in session lives here, and a FULL browser
+    // storage is the failure that cost two days on the operator's phone:
+    // storage writes threw QuotaExceededError and the Firestore SDK of the
+    // day melted down with INTERNAL ASSERTION FAILED, making no network
+    // traffic at all. The app no longer keeps an offline copy (memory cache
+    // by the operator's decision), but a full device still breaks sign-in
+    // persistence — so this check measures fullness, not just existence.
     (async () => {
       const put = set(setStorage);
       let pctNote = '';
@@ -159,8 +180,6 @@ export default function DiagnosticsPanel({ onClose }: { onClose: () => void }) {
           nearlyFull = pct >= 90;
         }
       } catch { /* estimate unsupported — proceed on the open-probe alone */ }
-      let memoryMode = false;
-      try { memoryMode = localStorage.getItem('fsCacheMode') === 'memory'; } catch { /* fine */ }
       try {
         await new Promise<void>((res, rej) => {
           const rq = indexedDB.open('__diag_probe__', 1);
@@ -169,9 +188,7 @@ export default function DiagnosticsPanel({ onClose }: { onClose: () => void }) {
           rq.onblocked = () => rej(new Error('blocked'));
         });
         if (nearlyFull) {
-          put({ state: 'fail', detail: `browser storage nearly FULL${pctNote}. The database cache cannot save here — clear this browser’s cached data (Settings → Privacy → Clear browsing data) or press Reset below.` });
-        } else if (memoryMode) {
-          put({ state: 'ok', detail: `usable${pctNote}. Running WITHOUT the offline copy after an earlier storage failure — press Reset below to re-enable it.` });
+          put({ state: 'fail', detail: `browser storage nearly FULL${pctNote}. Sign-in cannot save its session here — clear this browser’s cached data (Settings → Privacy → Clear browsing data) or press Reset below.` });
         } else {
           put({ state: 'ok', detail: `local storage usable${pctNote}` });
         }

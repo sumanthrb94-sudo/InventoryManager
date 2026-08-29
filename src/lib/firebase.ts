@@ -5,114 +5,44 @@ import {
   signOut as fbSignOut,
   type User,
 } from 'firebase/auth';
-import {
-  getFirestore, initializeFirestore,
-  persistentLocalCache, persistentMultipleTabManager,
-} from 'firebase/firestore';
+import { getFirestore } from 'firebase/firestore';
 import { getStorage } from 'firebase/storage';
 import firebaseConfig from '../../firebase-applet-config.json';
 
 const app = initializeApp(firebaseConfig);
 
 /**
- * ON-DISK CACHE. This is the difference between ~1,300 document reads per page
- * load and almost none.
+ * MEMORY CACHE, ON PURPOSE — the operator's decision, 2026-08-29:
+ * "I upgraded to Blaze plan so I don't need any local storage … if no
+ * network, ask to refresh and connect."
  *
- * WHAT WENT WRONG WITHOUT IT
+ * HISTORY, because this line has been changed twice and the next person
+ * deserves the whole story. A persistent IndexedDB cache
+ * (initializeFirestore + persistentLocalCache + multi-tab manager) was added
+ * when the FREE tier's 50,000 reads/day kept running out — every page load
+ * re-downloaded ~1,300 documents. It solved that, and then caused three
+ * incidents of its own inside one week:
  *
- * getFirestore() defaults to a MEMORY cache, which dies with the tab. Every
- * listener in inventoryStore watches a whole collection, so every reload
- * re-downloaded every document: ~711 units + ~401 sales + aggregates +
- * models + suppliers. On the free tier's 50,000 daily reads that is roughly
- * 35 page loads a day, shared across every phone, every tab and every refresh.
- * A day of importing exhausted it by evening, and the operator opened the app
- * to a database that answered:
+ *   1. STUCK LEADER: with many tabs sharing the cache, one tab leads the
+ *      network sync. A backgrounded leader stuck in retry backoff starved
+ *      every other tab — including freshly reloaded ones — indefinitely.
+ *   2. FULL-DEVICE MELTDOWN: on a phone whose browser storage was full,
+ *      every cache write threw QuotaExceededError and the SDK died with
+ *      INTERNAL ASSERTION FAILED (ID: b815) — no network traffic, no clean
+ *      error, just silent zeros.
+ *   3. SAVED-COPY CONFUSION: a device showing day-old cached figures looks
+ *      identical to a healthy one, and the operator burned hours comparing
+ *      devices that were both technically "working".
  *
- *   Quota exceeded for 'Free daily read units per project (free tier database)'
- *
- * With a persistent cache, Firestore keeps the documents in IndexedDB and, on
- * the next load, asks only what has CHANGED since it last synced. The steady
- * state for a returning user goes from "the whole database" to "today's
- * edits". Data is no less live: the listeners still stream updates, they just
- * stop re-paying for what has not moved.
- *
- * MULTI-TAB, deliberately. The operator works with several tabs open and the
- * single-tab manager would leave the others without persistence — quietly
- * putting the expensive behaviour back for exactly the person who has the most
- * tabs open.
- *
- * This is NOT the "no local storage" the operator ruled out. That was about
- * the app keeping its own copies of business data in localStorage, where it
- * could go stale and disagree with Firestore. This is Firestore's own cache,
- * which it invalidates itself.
- *
- * Falls back to the memory cache if IndexedDB is unavailable — a private
- * window, a locked-down browser — because a working app that costs more reads
- * beats an app that will not start.
+ * On Blaze the reads the cache was saving cost pennies (~£1–3/month at
+ *  current volume), so the operator chose simplicity: every load reads live
+ * from the server; if the server is unreachable the rose banner says exactly
+ * that and asks for a refresh. No stale copies, no leader elections, no
+ * IndexedDB failure modes. If read costs ever matter again, this history is
+ * the checklist of what re-enabling persistence must survive.
  */
-/** Sticky per-device cache-mode flag. Set to 'memory' when the persistent
- *  cache MELTS DOWN at runtime — see the meltdown trap below — so the next
- *  load runs without persistence instead of crashing the same way again.
- *  Cleared by the diagnostics panel's storage reset (it clears localStorage),
- *  which is correct: a reset frees the space, so persistence gets retried. */
-const CACHE_MODE_KEY = 'fsCacheMode';
-
 function makeDb() {
-  try {
-    if (typeof localStorage !== 'undefined' && localStorage.getItem(CACHE_MODE_KEY) === 'memory') {
-      console.warn('[firebase] memory cache mode (previous persistence failure on this device)');
-      return getFirestore(app, firebaseConfig.firestoreDatabaseId);
-    }
-  } catch { /* storage unreadable — fall through to the normal path */ }
-  try {
-    return initializeFirestore(app, {
-      localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() }),
-    }, firebaseConfig.firestoreDatabaseId);
-  } catch (err) {
-    console.warn('[firebase] persistent cache unavailable, falling back to memory:', err);
-    return getFirestore(app, firebaseConfig.firestoreDatabaseId);
-  }
-}
-
-// ── THE PERSISTENCE MELTDOWN TRAP ────────────────────────────────────────────
-//
-// Seen live on the operator's phone, after two days of "why zeros only on
-// mobile": FIRESTORE INTERNAL ASSERTION FAILED: Unexpected state (ID: b815)
-// CONTEXT: {"Rc":"QuotaExceededError…}. The phone's BROWSER storage was full
-// (dozens of tabs, weeks of cached sites), so every IndexedDB write the
-// persistent cache attempted failed, and the SDK broke internally — the sync
-// channel died producing no network traffic and no clean error. The catch in
-// makeDb() never fires for this: initialisation succeeds, the meltdown comes
-// LATER, on the first write.
-//
-// The SDK logs these through console.error (and some escape as unhandled
-// rejections) whether or not app code catches the throw — so both are
-// tapped. First sighting: stamp this device 'memory' mode and reload once.
-// The reloaded app runs cache-less — slower reads, but WORKING — instead of
-// a dead app with a full disk. The flag is per-device and cleared by the
-// diagnostics storage reset once space is freed.
-function isPersistenceMeltdown(msg: string): boolean {
-  return msg.includes('INTERNAL ASSERTION FAILED') || msg.includes('QuotaExceededError');
-}
-
-function tripMeltdown(msg: string): void {
-  if (!isPersistenceMeltdown(msg)) return;
-  try {
-    if (localStorage.getItem(CACHE_MODE_KEY) === 'memory') return;   // already degraded — no reload loop
-    localStorage.setItem(CACHE_MODE_KEY, 'memory');
-    console.warn('[firebase] persistence meltdown detected — reloading in memory-cache mode');
-    window.location.reload();
-  } catch { /* storage completely dead — nothing more we can do from here */ }
-}
-
-if (typeof window !== 'undefined') {
-  window.addEventListener('unhandledrejection', e =>
-    tripMeltdown(String((e.reason as Error | undefined)?.message ?? e.reason ?? '')));
-  const origError = console.error.bind(console);
-  console.error = (...args: unknown[]) => {
-    origError(...args);
-    try { tripMeltdown(args.map(a => String(a)).join(' ')); } catch { /* never break console */ }
-  };
+  return getFirestore(app, firebaseConfig.firestoreDatabaseId);
 }
 
 export const db      = makeDb();
