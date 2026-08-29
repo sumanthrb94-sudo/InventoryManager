@@ -516,6 +516,22 @@ export default function Inventory({ initialFilters = {} }: { initialFilters?: In
                                             Serial
                                           </span>
                                         ) : null}
+                                        {/* LATEST-RETURN TAG (operator request, 2026-08-29): a unit
+                                            that came back to inventory must wear its return date
+                                            where the team searches for stock. `returnDate` is
+                                            cleared when the unit is resold (salesService), so its
+                                            presence here always means THIS cycle — the tag
+                                            disappears on its own once the unit sells again. */}
+                                        {unit.returnDate && (
+                                          <span
+                                            className="text-[7px] px-1.5 py-0.5 rounded-full font-mono font-bold bg-violet-100 text-violet-700 whitespace-nowrap"
+                                            title={`${unit.returnType === 'returned_to_inventory' ? 'Returned to inventory' : 'Returned'} on ${new Date(unit.returnDate.length <= 10 ? unit.returnDate + 'T12:00:00' : unit.returnDate).toLocaleDateString('en-GB')}${unit.returnReason ? ` — ${unit.returnReason}` : ''}`}
+                                          >
+                                            {unit.returnType === 'returned_to_inventory' ? 'BACK IN STOCK' : 'RETURNED'}
+                                            {' · '}
+                                            {new Date(unit.returnDate.length <= 10 ? unit.returnDate + 'T12:00:00' : unit.returnDate).toLocaleDateString('en-GB', { day: '2-digit', month: 'short' })}
+                                          </span>
+                                        )}
                                       </div>
                                       <p className="text-[9px] text-gray-400 font-mono mt-0.5 truncate">
                                         {supplier?.name||'—'} · {new Date(unit.dateIn+'T12:00:00').toLocaleDateString('en-GB',{day:'2-digit',month:'short'})}

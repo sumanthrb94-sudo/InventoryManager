@@ -188,6 +188,13 @@ export type GroupedModel = {
    *  "Sold" column so an operator scanning the grouped overlay can see
    *  fulfilment volume per SKU without expanding the row. */
   soldCount: number;
+  /** Units in the group carrying a returnDate — i.e. their CURRENT cycle
+   *  included a return (resale clears the field, so this never counts a
+   *  finished cycle). Operator request 2026-08-29: stock that came back
+   *  must wear its latest return date wherever stock is browsed. */
+  returnedCount: number;
+  /** Most recent returnDate across those units (ISO, lexicographic max). */
+  latestReturnDate: string;
   /** Latest saleDate across the sold units in the group (ISO YYYY-MM-DD),
    *  '' if no unit in the group has sold. Surfaced as the "Last Sold"
    *  column. */
@@ -258,10 +265,16 @@ export function buildGroupedModels(
     const { keyModel, storage, tag, label } = canonicalize(u);
     const key = `unit::${keyModel}|${storage.toUpperCase()}|${tag.toLowerCase()}`;
     let g = map.get(key);
-    if (!g) g = { key, model: label, total: 0, byColour: new Map(), bySimType: new Map(), latestBp: u.buyPrice || 0, totalValue: 0, notes: new Set(), shs: false, latestDateIn: '', oldestDateIn: '', soldCount: 0, latestSoldDate: '' };
+    if (!g) g = { key, model: label, total: 0, byColour: new Map(), bySimType: new Map(), latestBp: u.buyPrice || 0, totalValue: 0, notes: new Set(), shs: false, latestDateIn: '', oldestDateIn: '', soldCount: 0, latestSoldDate: '', returnedCount: 0, latestReturnDate: '' };
     g.total++;
     g.totalValue += u.buyPrice || 0;
     if (u.buyPrice && u.buyPrice > 0) g.latestBp = u.buyPrice;
+    // Current-cycle return marker (cleared on resale, so always THIS cycle).
+    const rd = (u.returnDate || '').trim();
+    if (rd) {
+      g.returnedCount++;
+      if (rd > g.latestReturnDate) g.latestReturnDate = rd;
+    }
     if (u.status === 'sold') {
       g.soldCount++;
       const sd = (u.saleDate || '').trim();
@@ -350,9 +363,11 @@ export function buildGroupedModels(
       // Aggregates collapse to a single timestamp — use it for both
       // bounds so the Age column reads from updatedAt without special-casing.
       oldestDateIn: latestDateIn,
-      // Aggregates don't carry per-unit sale state; leave zero.
+      // Aggregates don't carry per-unit sale or return state; leave zero.
       soldCount: 0,
       latestSoldDate: '',
+      returnedCount: 0,
+      latestReturnDate: '',
     });
   }
   return Array.from(map.values());
@@ -561,6 +576,19 @@ export function GroupedExcelTable({
                 <td className="px-3 py-1.5 border-b border-slate-100 align-middle">
                   <span className="flex items-center justify-between gap-2">
                     <span className="font-bold text-slate-900 truncate" title={g.model}>{g.model}</span>
+                    {/* Latest-return tag (operator, 2026-08-29): stock that
+                        came back to inventory wears its return date wherever
+                        stock is browsed. Driven by unit.returnDate, which
+                        resale clears — so this is always the CURRENT cycle
+                        and the tag retires itself when the unit sells. */}
+                    {g.returnedCount > 0 && g.latestReturnDate && (
+                      <span
+                        className="inline-flex items-center gap-1 text-[8px] font-bold uppercase tracking-widest px-1.5 py-0.5 rounded-full bg-violet-100 text-violet-700 whitespace-nowrap flex-shrink-0"
+                        title={`${g.returnedCount} unit${g.returnedCount === 1 ? '' : 's'} in this group came back via a return · latest return ${new Date(g.latestReturnDate.length <= 10 ? g.latestReturnDate + 'T12:00:00' : g.latestReturnDate).toLocaleDateString('en-GB')}`}
+                      >
+                        ↩ {g.returnedCount > 1 ? `×${g.returnedCount} · ` : ''}RET {new Date(g.latestReturnDate.length <= 10 ? g.latestReturnDate + 'T12:00:00' : g.latestReturnDate).toLocaleDateString('en-GB', { day: '2-digit', month: 'short' })}
+                      </span>
+                    )}
                     {g.shs && onDeleteShsGroup && (
                       <ShsDeleteButton
                         onDelete={() => onDeleteShsGroup(g.key)}

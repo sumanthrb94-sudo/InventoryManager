@@ -53,3 +53,57 @@ describe('every unit-viewing surface carries both dates', () => {
     expect(src).toMatch(/label: 'Returned', value: new Date\(unit\.returnDate\)/);
   });
 });
+
+describe('the Inventory tab wears the latest return date (operator, 2026-08-29)', () => {
+  /** "When searching in inventory I need a tag that says latest return
+   *  date or return date back to inventory." A returned-to-inventory unit
+   *  is status 'available' again — nothing else in the row said it had
+   *  ever come back. The tag reads BACK IN STOCK · <date> for that route
+   *  (RETURNED · <date> for units still in the returns flow), and it is
+   *  self-expiring: salesService nulls returnDate when the unit is resold,
+   *  so the field's presence always means the CURRENT cycle. */
+  it('unit rows render a return tag driven by unit.returnDate', () => {
+    const src = readFileSync('src/components/Inventory.tsx', 'utf8');
+    expect(src).toMatch(/\{unit\.returnDate && \(/);
+    expect(src).toMatch(/'BACK IN STOCK' : 'RETURNED'/);
+    // returned_to_inventory is the route that reads "back in stock".
+    expect(src).toMatch(/unit\.returnType === 'returned_to_inventory'/);
+    // Date-only strings must not shift a day through UTC parsing.
+    expect(src).toMatch(/unit\.returnDate\.length <= 10 \? unit\.returnDate \+ 'T12:00:00'/);
+  });
+
+  it('the tag is self-expiring — resale clears the field that drives it', () => {
+    const svc = readFileSync('src/services/salesService.ts', 'utf8');
+    expect(svc).toMatch(/returnDate: null/);
+  });
+});
+
+describe('the grouped stock tables wear the latest return date too', () => {
+  /** Follow-up in the same breath: "or when clicked on tiles to view
+   *  inventory stock". The tile overlays and the Stock-by-Model table
+   *  render GROUPS, where no per-unit field is visible — so the group
+   *  itself must carry the marker: how many of its units came back, and
+   *  the latest date one did. */
+  it('buildGroupedModels rolls up returnedCount + latestReturnDate', async () => {
+    const { buildGroupedModels } = await import('../../components/StockOverlayModal');
+    const unit = (over: Record<string, unknown>) => ({
+      id: String(Math.random()), model: 'Galaxy S22 128GB', storage: '128GB',
+      colour: 'Black', buyPrice: 140, status: 'available', dateIn: '2026-08-13',
+      ...over,
+    }) as never;
+    const groups = buildGroupedModels([
+      unit({ id: 'a' }),
+      unit({ id: 'b', returnDate: '2026-08-20' }),
+      unit({ id: 'c', returnDate: '2026-08-27', returnType: 'returned_to_inventory' }),
+    ], []);
+    expect(groups).toHaveLength(1);
+    expect(groups[0].returnedCount).toBe(2);
+    expect(groups[0].latestReturnDate).toBe('2026-08-27');
+  });
+
+  it('the group row renders the ↩ RET tag from those fields', () => {
+    const src = readFileSync('src/components/StockOverlayModal.tsx', 'utf8');
+    expect(src).toMatch(/g\.returnedCount > 0 && g\.latestReturnDate && \(/);
+    expect(src).toMatch(/came back via a return · latest return/);
+  });
+});
