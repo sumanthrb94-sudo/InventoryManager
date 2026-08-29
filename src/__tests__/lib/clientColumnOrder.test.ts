@@ -39,7 +39,12 @@ import type { Marketplace } from '../../types';
  */
 const OUR_ADDITIONS = [
   'Model', 'Colour', 'Storage',
-  'Postage Loss', 'Net GP £', 'Return Date', 'Outcome', 'Shipping Legs',
+  // The return block, grown 2026-08-29 at the operator's request to carry
+  // the WHOLE return economics per row: Fees Kept (what the channel did not
+  // give back on a refund), Repair Cost and Supplier Credit (unit-side),
+  // and Return Cost — the live formula Net GP £ subtracts.
+  'Postage Loss', 'Fees Kept', 'Repair Cost', 'Supplier Credit', 'Return Cost',
+  'Net GP £', 'Return Date', 'Outcome', 'Shipping Legs',
   'Return Reason', 'Comments',
 ];
 

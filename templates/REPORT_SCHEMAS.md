@@ -268,7 +268,7 @@ id, so a mix of old and new files cannot double-count.
 
 The five marketplace sheets carry the import columns plus computed VAT/fee
 columns, a resolved `Model`, the buy-side attributes and a return-linkage
-block. Column counts: **AMAZON 31, BM 30, EBAY 34, ONBUY 28, TEMU 30.**
+block. Column counts: **AMAZON 35, BM 34, EBAY 38, ONBUY 32, TEMU 34.**
 Reconciled column-for-column against the client's own live report
 (`14TH_AUGUST_SALES_REPORT_2026.xlsx`) on 2026-08-14: BM gained `Payment
 Mode` and `PSF`, TEMU gained `Commission+VAT`, and `Accessories` is now
@@ -281,7 +281,8 @@ made → what happened to it afterwards**:
 Date | Order Number | SKU | IMEI | Model | Colour | Storage | Supplier |
 [Quantity|Units] | [Payment Mode] | BP | SP | SP-BP | Marginal Tax |
 Commission | …fees… | Postage | P. VAT | Acc | [Total VAT] | GP | GP % |
-Total VAT NTP | Postage Loss | Net GP £ | Return Date | Outcome |
+Total VAT NTP | Postage Loss | Fees Kept | Repair Cost | Supplier Credit |
+Return Cost | Net GP £ | Return Date | Outcome |
 Shipping Legs | Return Reason | Comments
 ```
 
@@ -294,7 +295,15 @@ Three blocks, in order:
    name — `sale.model` when the audit is complete, otherwise a live normalised
    guess off the preserved raw SKU.
 2. **Money** — `[Quantity|Units] … Net GP £`. Every fee, VAT and profit figure
-   in one uninterrupted run, ending on the bottom line.
+   in one uninterrupted run, ending on the bottom line. The last five columns
+   before `Net GP £` are the return economics (2026-08-29, at the operator's
+   request): `Postage Loss` (carriage legs × (postage + P.VAT)), `Fees Kept`
+   (what the marketplace did not give back on a refund — Amazon
+   min(20% × commission, £5) + VAT, eBay the fixed £0.40 + VAT, BM/OnBuy/Temu
+   everything; blank on replacements), `Repair Cost` and `Supplier Credit`
+   (unit-side; blank until entered — absent is not zero), and `Return Cost`,
+   a live formula `Postage Loss + Fees Kept + Repair Cost − Supplier Credit`.
+   `Net GP £ = GP − Return Cost` and `GP %` nets the same figure.
 3. **Return** — `Return Date … Comments`. Every tab ends on `Comments`, so the
    operator's note about the return is the last thing read.
 

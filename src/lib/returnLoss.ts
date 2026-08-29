@@ -239,7 +239,8 @@ export function extraCostsFor(
 export function feeLossOnRefund(
   sale:
     | Pick<Sale,
-        'marketplace' | 'saleDate' | 'voidedAt' | 'gpBasis' | 'customerRefunded'
+        'marketplace' | 'saleDate' | 'voidedAt' | 'voidOutcome' | 'gpBasis'
+        | 'customerRefunded'
         | 'commission' | 'commissionVat' | 'vat20' | 'customerCareFees' | 'psf'
         | 'payPalKlarnaCom'>
     | null
@@ -247,6 +248,15 @@ export function feeLossOnRefund(
 ): number {
   if (!sale?.voidedAt) return 0;
   if (saleKeptItsRevenue(sale)) return 0;
+  // A replacement never charges fees, WHATEVER its era. saleKeptItsRevenue
+  // only recognises returns stamped gpBasis='returns_v2' (the operator's
+  // from-today-onward cutoff for the revenue treatment), so a legacy
+  // replacement fell through to the refund branches and was billed fees for
+  // a refund that never reached the marketplace. The outcome field knows
+  // better regardless of the stamp: no refund transaction, no fee kept.
+  // Operator, 2026-08-29: "keep only return and refunds … not for any
+  // replacement".
+  if (sale.voidOutcome === 'replacement') return 0;
 
   const n = (v: unknown) => Number(v) || 0;
   const commission = n(sale.commission);

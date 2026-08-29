@@ -25,13 +25,16 @@ import type { InventoryUnit, Marketplace, Sale } from '../../types';
 
 /** templates/REPORT_SCHEMAS.md §2.2 — "Column counts". */
 const DOCUMENTED_COUNTS: Record<Marketplace, number> = {
-  AMAZON: 31,
+  // 2026-08-29: every tab gained the four return-economics columns —
+  // Fees Kept, Repair Cost, Supplier Credit, Return Cost — between
+  // Postage Loss and Net GP £.
+  AMAZON: 35,
   // 2026-08-14, from the client's own report: BM gained Payment Mode and
   // PSF; TEMU gained Commission+VAT.
-  BM: 30,
-  EBAY: 34,
-  ONBUY: 28,
-  TEMU: 30,
+  BM: 34,
+  EBAY: 38,
+  ONBUY: 32,
+  TEMU: 34,
 };
 
 /** §2.2 block 3 — "Return", the tail of every marketplace sheet.
@@ -145,8 +148,10 @@ describe('Sales Report export matches templates/REPORT_SCHEMAS.md §2.2', () => 
                            'IMEI', 'Return Date', 'Outcome', 'Comments']) {
         expect(money, `${m} money block contains ${stray}`).not.toContain(stray);
       }
-      expect(money.slice(-5), `${m} money tail`).toEqual([
-        'GP', 'GP %', 'Total VAT NTP', 'Postage Loss', 'Net GP £',
+      expect(money.slice(-9), `${m} money tail`).toEqual([
+        'GP', 'GP %', 'Total VAT NTP',
+        'Postage Loss', 'Fees Kept', 'Repair Cost', 'Supplier Credit', 'Return Cost',
+        'Net GP £',
       ]);
     }
   });

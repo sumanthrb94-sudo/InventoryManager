@@ -903,7 +903,8 @@ export function excelFormulaFor(
       //   R=Total VAT, S=GP, T=GP %, U=Total VAT NTP, V=Comments, W=Model,
       //   X=Return Date, Y=Outcome, Z=Return Reason, AA=Shipping Legs,
       //   AB=Postage Loss (voided sales only — refund=2 legs, replacement=3).
-      // GP % is NET: subtracts the Postage Loss cell from GP so a refunded
+      // GP % is NET: subtracts the Return Cost cell (carriage + fees kept +
+      // repair − supplier credit) from GP so a refunded
       // or replaced unit reads as actually lost margin. Active rows leave
       // Postage Loss blank, which Excel coerces to 0 — formula collapses to
       // the original GP/BP*100 in that case.
@@ -925,7 +926,7 @@ export function excelFormulaFor(
         accessoryFee:  `${fee.accessoryFee ?? 0}`,
         totalVat:      `${C('C. VAT')}${r}+${C('DSF. VAT')}${r}+${C('P. VAT')}${r}`,
         grossProfit:   `${C('SP-BP')}${r}-${C('Marginal Tax')}${r}-${C('Commission')}${r}-${C('C. VAT')}${r}-${C('DSF')}${r}-${C('DSF. VAT')}${r}-${C('Postage')}${r}-${C('P. VAT')}${r}-${C('Acc')}${r}`,
-        gpPercent:     `(${C('GP')}${r}-${C('Postage Loss')}${r})/${C('BP')}${r}*100`,
+        gpPercent:     `(${C('GP')}${r}-${C('Return Cost')}${r})/${C('BP')}${r}*100`,
         totalVatNtp:   `${C('Marginal Tax')}${r}-${C('Total VAT')}${r}`,
       };
     }
@@ -973,7 +974,7 @@ export function excelFormulaFor(
         // Temu line.
         totalVat:     `${C('P. VAT')}${r}`,
         grossProfit:  `${C('SP-BP')}${r}-${C('Marginal Tax')}${r}-${C('Commission')}${r}-${C('Postage')}${r}-${C('P. VAT')}${r}-${C('Acc')}${r}`,
-        gpPercent:    `(${C('GP')}${r}-${C('Postage Loss')}${r})/${C('BP')}${r}*100`,
+        gpPercent:    `(${C('GP')}${r}-${C('Return Cost')}${r})/${C('BP')}${r}*100`,
         totalVatNtp:  `${C('Marginal Tax')}${r}-${C('Total VAT')}${r}`,
       };
     }
@@ -1008,7 +1009,7 @@ export function excelFormulaFor(
         // PSF comes out of GP, matching his `=J2-K2-L2-M2-O2-P2-Q2-N2`
         // (the trailing N2 is the PSF cell).
         grossProfit:      `${C('SP-BP')}${r}-${C('Marginal Tax')}${r}-${C('Commission')}${r}-${C('Customer Care Fees')}${r}-${C('PSF')}${r}-${C('Postage')}${r}-${C('P. VAT')}${r}-${C('Acc')}${r}`,
-        gpPercent:        `(${C('GP')}${r}-${C('Postage Loss')}${r})/${C('BP')}${r}*100`,
+        gpPercent:        `(${C('GP')}${r}-${C('Return Cost')}${r})/${C('BP')}${r}*100`,
         // PSF is deliberately absent: BM's only VAT line is P. VAT, and a
         // payment fee is a cost, not a tax.
         totalVatNtp:      `${C('Marginal Tax')}${r}-${C('P. VAT')}${r}`,
@@ -1046,7 +1047,7 @@ export function excelFormulaFor(
         accessoryFee: `${fee.accessoryFee ?? 0}`,
         totalVat:     `${C('VAT')}${r}+${C('P. VAT')}${r}+${C('M. VAT')}${r}`,
         grossProfit:  `${C('SP-BP')}${r}-${C('Marginal Tax')}${r}-${C('T.COM')}${r}-${C('Postage')}${r}-${C('P. VAT')}${r}-${C('Marketing')}${r}-${C('M. VAT')}${r}-${C('Acc')}${r}`,
-        gpPercent:    `(${C('GP')}${r}-${C('Postage Loss')}${r})/${C('BP')}${r}*100`,
+        gpPercent:    `(${C('GP')}${r}-${C('Return Cost')}${r})/${C('BP')}${r}*100`,
         totalVatNtp:  `${C('Marginal Tax')}${r}-${C('Total VAT')}${r}`,
       };
     }
@@ -1069,7 +1070,7 @@ export function excelFormulaFor(
         accessoryFee: `${fee.accessoryFee ?? 0}`,
         totalVat:     `${C('VAT 20%')}${r}+${C('P. VAT')}${r}`,
         grossProfit:  `${C('SP-BP')}${r}-${C('Marginal Tax')}${r}-${C('Commission')}${r}-${C('VAT 20%')}${r}-${C('Postage')}${r}-${C('P. VAT')}${r}-${C('Acc')}${r}`,
-        gpPercent:    `(${C('GP')}${r}-${C('Postage Loss')}${r})/${C('BP')}${r}*100`,
+        gpPercent:    `(${C('GP')}${r}-${C('Return Cost')}${r})/${C('BP')}${r}*100`,
         totalVatNtp:  `${C('Marginal Tax')}${r}-${C('Total VAT')}${r}`,
       };
     }
@@ -1160,12 +1161,19 @@ export const SALES_HEADERS: Record<Marketplace, SalesHeaderRow> = {
   // "Acc", not "Accessories": his header on all five tabs. Nothing reads a
   // report back in any more — both importers were deleted in 2026-08 — so
   // the header string is now the client's to choose.
+  // 2026-08-29, at the operator's request ("returns or replacement data
+  // should be shown in the sales report by marketplace"): the return block
+  // grows the rest of the return's economics — Fees Kept (what the channel
+  // did not give back on a refund), Repair Cost and Supplier Credit (from
+  // the linked unit), and Return Cost, a live formula summing the four
+  // components. Net GP £ subtracts Return Cost, not just Postage Loss.
   AMAZON: [
     'Date', 'Order Number', 'SKU', 'IMEI', 'Model', 'Colour',
     'Storage', 'Supplier', 'Quantity', 'BP', 'SP', 'SP-BP',
     'Marginal Tax', 'Commission', 'C. VAT', 'DSF', 'DSF. VAT', 'Postage',
     'P. VAT', 'Acc', 'Total VAT', 'GP', 'GP %', 'Total VAT NTP',
-    'Postage Loss', 'Net GP £', 'Return Date', 'Outcome', 'Shipping Legs', 'Return Reason',
+    'Postage Loss', 'Fees Kept', 'Repair Cost', 'Supplier Credit', 'Return Cost',
+    'Net GP £', 'Return Date', 'Outcome', 'Shipping Legs', 'Return Reason',
     'Comments',
   ],
   // Payment Mode is his column 7, between Quantity and BP. The app has
@@ -1178,7 +1186,9 @@ export const SALES_HEADERS: Record<Marketplace, SalesHeaderRow> = {
     'Date', 'Order Number', 'SKU', 'IMEI', 'Model', 'Colour',
     'Storage', 'Supplier', 'Quantity', 'Payment Mode', 'BP', 'SP', 'SP-BP',
     'Marginal Tax', 'Commission', 'Customer Care Fees', 'PSF', 'Postage', 'P. VAT', 'Acc',
-    'GP', 'GP %', 'Total VAT NTP', 'Postage Loss', 'Net GP £', 'Return Date',
+    'GP', 'GP %', 'Total VAT NTP',
+    'Postage Loss', 'Fees Kept', 'Repair Cost', 'Supplier Credit', 'Return Cost',
+    'Net GP £', 'Return Date',
     'Outcome', 'Shipping Legs', 'Return Reason', 'Comments',
   ],
   EBAY: [
@@ -1186,14 +1196,18 @@ export const SALES_HEADERS: Record<Marketplace, SalesHeaderRow> = {
     'Storage', 'Supplier', 'Units', 'BP', 'SP', 'SP-BP',
     'Marginal Tax', 'Commission', 'ROF', 'FVF', 'VAT', 'T.COM',
     'Postage', 'P. VAT', 'Marketing', 'M. VAT', 'Acc', 'Total VAT',
-    'GP', 'GP %', 'Total VAT NTP', 'Postage Loss', 'Net GP £', 'Return Date',
+    'GP', 'GP %', 'Total VAT NTP',
+    'Postage Loss', 'Fees Kept', 'Repair Cost', 'Supplier Credit', 'Return Cost',
+    'Net GP £', 'Return Date',
     'Outcome', 'Shipping Legs', 'Return Reason', 'Comments',
   ],
   ONBUY: [
     'Date', 'Order Number', 'SKU', 'IMEI', 'Model', 'Colour',
     'Storage', 'Supplier', 'BP', 'SP', 'SP-BP', 'Marginal Tax',
     'Commission', 'VAT 20%', 'Postage', 'P. VAT', 'Acc', 'Total VAT',
-    'GP', 'GP %', 'Total VAT NTP', 'Postage Loss', 'Net GP £', 'Return Date',
+    'GP', 'GP %', 'Total VAT NTP',
+    'Postage Loss', 'Fees Kept', 'Repair Cost', 'Supplier Credit', 'Return Cost',
+    'Net GP £', 'Return Date',
     'Outcome', 'Shipping Legs', 'Return Reason', 'Comments',
   ],
   // Commission+VAT follows Commission VAT — his column 13, `=K2+L2`.
@@ -1201,7 +1215,9 @@ export const SALES_HEADERS: Record<Marketplace, SalesHeaderRow> = {
     'Date', 'Order Number', 'SKU', 'IMEI', 'Model', 'Colour',
     'Storage', 'Supplier', 'Quantity', 'BP', 'SP', 'SP-BP',
     'Marginal Tax', 'Commission', 'Commission VAT', 'Commission+VAT', 'Postage', 'P. VAT', 'Acc',
-    'Total VAT', 'GP', 'GP %', 'Total VAT NTP', 'Postage Loss', 'Net GP £',
+    'Total VAT', 'GP', 'GP %', 'Total VAT NTP',
+    'Postage Loss', 'Fees Kept', 'Repair Cost', 'Supplier Credit', 'Return Cost',
+    'Net GP £',
     'Return Date', 'Outcome', 'Shipping Legs', 'Return Reason', 'Comments',
   ],
 };

@@ -188,10 +188,12 @@ describe('viewModelFromXlsxBuffer — exact Excel view of the Sales Report', () 
     expect(cell(ebay, 1, 'Outcome').display).toBe('Refund');
     expect(cell(ebay, 1, 'Shipping Legs').display).toBe('2');
     expect(cell(ebay, 1, 'Postage Loss').display).toBe('19.20'); // (8+1.6)×2
-    // Net GP% = (56.506 − 19.2) / 100 × 100 = 37.306 → '37.31'.
-    // The postage loss still comes off the top; only the denominator moved
-    // from SP to BP.
-    expect(cell(ebay, 1, 'GP %').display).toBe('37.31');
+    // Return Cost = 19.20 carriage + 0.48 fees eBay kept (the fixed £0.40
+    // per-order fee + VAT it never refunds). Net GP% = (56.506 − 19.68) /
+    // 100 × 100 = 36.826 → '36.83'. The full return cost comes off the top;
+    // the denominator is BP.
+    expect(cell(ebay, 1, 'Fees Kept').display).toBe('0.48');
+    expect(cell(ebay, 1, 'GP %').display).toBe('36.83');
   });
 
   it('TOTAL row SUMs compute and render bold', async () => {

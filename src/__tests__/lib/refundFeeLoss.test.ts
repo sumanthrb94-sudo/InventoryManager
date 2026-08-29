@@ -182,3 +182,20 @@ describe('the model agrees with calcSaleFinancials about what was charged', () =
     expect(feeLossOnRefund(s)).toBeCloseTo(everything, 2);
   });
 });
+
+describe('a replacement charges nothing WHATEVER its era', () => {
+  /** saleKeptItsRevenue only recognises returns stamped gpBasis='returns_v2'
+   *  — the operator's from-today-onward cutoff for the REVENUE treatment. A
+   *  legacy replacement fell through it and was billed fees for a refund
+   *  that never reached the marketplace. The outcome knows better than the
+   *  stamp. Operator, 2026-08-29: "keep only return and refunds … not for
+   *  any replacement". */
+  it('a LEGACY replacement (no gpBasis stamp) still charges nothing', () => {
+    const s = refunded({
+      marketplace: 'EBAY', commission: 5.28,
+      voidOutcome: 'replacement',
+      gpBasis: undefined as any, customerRefunded: undefined as any,
+    });
+    expect(feeLossOnRefund(s)).toBe(0);
+  });
+});

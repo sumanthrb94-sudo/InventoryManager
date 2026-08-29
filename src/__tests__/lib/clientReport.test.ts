@@ -515,7 +515,7 @@ describe('buildSalesWorkbookBuffer — auditor-grade structure', () => {
     expect(returnsSummary.getRow(6).getCell(2).value).toBeCloseTo(6, 2); // Total Postage Loss £
   });
 
-  it('Summary header row reads Marketplace / Sales / Refunds / Replacements / Gross GP / Postage Loss / Net GP / Net GP %', async () => {
+  it('Summary header row reads Marketplace / Sales / Refunds / Replacements / Gross GP / Return Cost / Net GP / Net GP %', async () => {
     const buffer = await buildSalesWorkbookBuffer({ sales: [] });
     const wb = await loadWorkbook(buffer);
     const summary = wb.getWorksheet('Summary')!;
@@ -526,7 +526,7 @@ describe('buildSalesWorkbookBuffer — auditor-grade structure', () => {
     expect(String(header.getCell(4).value)).toBe('Replacements');
     expect(String(header.getCell(5).value)).toBe('Repairs');
     expect(String(header.getCell(6).value)).toBe('Gross GP £');
-    expect(String(header.getCell(7).value)).toBe('Postage Loss £');
+    expect(String(header.getCell(7).value)).toBe('Return Cost £');
     expect(String(header.getCell(8).value)).toBe('Net GP £');
     expect(String(header.getCell(9).value)).toBe('Net GP %');
   });
@@ -720,7 +720,7 @@ describe('buildSalesWorkbookBuffer — auditor-grade structure', () => {
     const gpPctCell = totalRow.getCell(colOf(sheet, 'GP %')).value as any;
     expect(gpPctCell.formula).toContain('IFERROR');
     expect(gpPctCell.formula).toContain(`${letterOf(sheet, 'GP')}${n}`);
-    expect(gpPctCell.formula).toContain(`${letterOf(sheet, 'Postage Loss')}${n}`);
+    expect(gpPctCell.formula).toContain(`${letterOf(sheet, 'Return Cost')}${n}`);
     // Denominator differs per marketplace (BP on AMAZON, SP on eBay).
     expect(gpPctCell.formula).toContain(`${letterOf(sheet, 'BP')}${n}`);
   });
@@ -751,8 +751,10 @@ describe('buildSalesWorkbookBuffer — auditor-grade structure', () => {
     expect(summaryBaseline(ebayRow.getCell(3))).toBe(1);        // Refunds
     expect(summaryBaseline(ebayRow.getCell(4))).toBe(1);        // Replacements
     expect(summaryBaseline(ebayRow.getCell(5))).toBe(0);        // Repairs
-    // Postage Loss (col 7 now) = 19.2 (refund) + 28.8 (replacement) = 48
-    expect(summaryBaseline(ebayRow.getCell(7))).toBeCloseTo(48, 1);
+    // Return Cost (col 7) = refund 19.2 carriage + 0.48 eBay fees kept
+    // + replacement 28.8 carriage (a replacement charges NO fees — no
+    // refund ever reached the marketplace) = 48.48
+    expect(summaryBaseline(ebayRow.getCell(7))).toBeCloseTo(48.48, 1);
   });
 
   // Client-reported (2026-07-27): "ALL-TIME SOLD" read 349 but downloading
@@ -1040,9 +1042,9 @@ describe('Net GP £ per-row cell on the marketplace tabs', () => {
     const buf = await buildSalesWorkbookBuffer({ sales });
     const wb = await loadWorkbook(buf);
     const ebay = wb.getWorksheet('EBAY')!;
-    // Net GP £ = GP − Postage Loss, wherever those columns now sit.
+    // Net GP £ = GP − Return Cost, wherever those columns now sit.
     const cell = at(ebay, 2, 'Net GP £').value as { formula?: string };
-    expect(cell.formula).toBe(`${letterOf(ebay, 'GP')}2-${letterOf(ebay, 'Postage Loss')}2`);
+    expect(cell.formula).toBe(`${letterOf(ebay, 'GP')}2-${letterOf(ebay, 'Return Cost')}2`);
 
     // Compute it via reportView — active row → Postage Loss is blank →
     // Net GP £ = Gross GP = 56.51. (Marketing is £0 — the operator types
@@ -1053,7 +1055,7 @@ describe('Net GP £ per-row cell on the marketplace tabs', () => {
     expect(ebayView.rows[1][colOf(ebay, 'Net GP £') - 1].display).toBe('56.51');
   });
 
-  it('refunded EBAY row: Net GP £ computes to 56.51 − 19.20 = 37.31', async () => {
+  it('refunded EBAY row: Net GP £ computes to 56.51 − (19.20 + 0.48 fees kept) = 36.83', async () => {
     const sales = [
       baseSale({ id: 'EBAY__R1__1', marketplace: 'EBAY', orderNumber: 'R1',
         buyPrice: 100, salePrice: 200, postage: 8, postageVat: 1.6,
@@ -1065,11 +1067,13 @@ describe('Net GP £ per-row cell on the marketplace tabs', () => {
     expect(at(ebay, 2, 'Postage Loss').value).toBeCloseTo(19.2, 2);
     // Formula round-trips correctly.
     const cell = at(ebay, 2, 'Net GP £').value as { formula?: string };
-    expect(cell.formula).toBe(`${letterOf(ebay, 'GP')}2-${letterOf(ebay, 'Postage Loss')}2`);
+    expect(cell.formula).toBe(`${letterOf(ebay, 'GP')}2-${letterOf(ebay, 'Return Cost')}2`);
     // Computed via reportView.
     const model = await viewModelFromXlsxBuffer(buf, 't');
     const ebayView = model.sheets.find(s => s.name === 'EBAY')!;
-    expect(ebayView.rows[1][colOf(ebay, 'Net GP £') - 1].display).toBe('37.31');
+    // Return Cost = 19.20 carriage + 0.48 eBay fees kept (the fixed £0.40
+    // per-order fee + VAT that eBay never refunds).
+    expect(ebayView.rows[1][colOf(ebay, 'Net GP £') - 1].display).toBe('36.83');
   });
 
   it('replacement AMAZON row: Net GP £ = Gross GP − 22.68 (3 legs)', async () => {
@@ -1083,7 +1087,7 @@ describe('Net GP £ per-row cell on the marketplace tabs', () => {
     const amazon = wb.getWorksheet('AMAZON')!;
     expect(at(amazon, 2, 'Postage Loss').value).toBeCloseTo(22.68, 2);
     const cell = at(amazon, 2, 'Net GP £').value as { formula?: string };
-    expect(cell.formula).toBe(`${letterOf(amazon, 'GP')}2-${letterOf(amazon, 'Postage Loss')}2`);
+    expect(cell.formula).toBe(`${letterOf(amazon, 'GP')}2-${letterOf(amazon, 'Return Cost')}2`);
 
     const model = await viewModelFromXlsxBuffer(buf, 't');
     const amazonView = model.sheets.find(s => s.name === 'AMAZON')!;
@@ -1093,7 +1097,7 @@ describe('Net GP £ per-row cell on the marketplace tabs', () => {
     expect(gross - net).toBeCloseTo(22.68, 2);
   });
 
-  it('TOTAL row sums Net GP £ across all rows: 56.51 + 37.31 = 93.82', async () => {
+  it('TOTAL row sums Net GP £ across all rows: 56.51 + 36.83 = 93.34', async () => {
     const sales = [
       baseSale({ id: 'EBAY__O1__1', marketplace: 'EBAY', orderNumber: 'O1',
         buyPrice: 100, salePrice: 200, postage: 8, postageVat: 1.6 }),
@@ -1120,7 +1124,7 @@ describe('Net GP £ per-row cell on the marketplace tabs', () => {
     const ebayView = model.sheets.find(s => s.name === 'EBAY')!;
     const totalDisplay = parseFloat(ebayView.rows[totalN - 1][colOf(ebay, 'Net GP £') - 1].display);
     expect(totalDisplay).toBeGreaterThan(69.79);
-    expect(totalDisplay).toBeLessThan(93.83);
+    expect(totalDisplay).toBeLessThan(93.35);
   });
 });
 
@@ -1505,8 +1509,10 @@ describe('repair-route returns: "In Repair" label + 2-leg carriage loss', () => 
     expect(summaryBaseline(ebayRow.getCell(3))).toBe(1);          // Refunds (R1 only)
     expect(summaryBaseline(ebayRow.getCell(4))).toBe(0);          // Replacements
     expect(summaryBaseline(ebayRow.getCell(5))).toBe(1);          // Repairs (the repair void)
-    // Postage Loss (col 7) = repair 15.12 + refund 19.2 = 34.32.
-    expect(summaryBaseline(ebayRow.getCell(7))).toBeCloseTo(34.32, 1);
+    // Return Cost (col 7) = repair 15.12 + refund 19.2 carriage, plus
+    // 0.48 of kept eBay fees on EACH — a repair void refunds the buyer
+    // too, so eBay kept its fixed fee both times = 35.28.
+    expect(summaryBaseline(ebayRow.getCell(7))).toBeCloseTo(35.28, 1);
   });
 
   it('Returns Detail: "In Repair", Legs=2, Postage Loss=£15.12', async () => {
@@ -1626,7 +1632,7 @@ describe('post-repair-completion invariant (BUG-RP-002)', () => {
     expect(summaryBaseline(ebayRow.getCell(3))).toBe(0);          // Refunds: 0 (NOT bumped)
     expect(summaryBaseline(ebayRow.getCell(4))).toBe(0);          // Replacements: 0
     expect(summaryBaseline(ebayRow.getCell(5))).toBe(1);          // Repairs: 1
-    expect(summaryBaseline(ebayRow.getCell(7))).toBeCloseTo(15.12, 2);  // Postage Loss
+    expect(summaryBaseline(ebayRow.getCell(7))).toBeCloseTo(15.60, 2);  // Return Cost: carriage 15.12 + 0.48 fees kept
   });
 
   it('Returns Detail keeps Outcome "In Repair" + 2 legs + £15.12 after completion', async () => {
@@ -1685,7 +1691,7 @@ describe('post-repair-completion invariant (BUG-RP-002)', () => {
     const ebayRow = summary.getRow(rowNumByLabel(summary, 'EBAY'));
     expect(summaryBaseline(ebayRow.getCell(3))).toBe(0);          // Refunds: 0
     expect(summaryBaseline(ebayRow.getCell(5))).toBe(1);          // Repairs: 1
-    expect(summaryBaseline(ebayRow.getCell(7))).toBeCloseTo(15.12, 2);  // Postage Loss
+    expect(summaryBaseline(ebayRow.getCell(7))).toBeCloseTo(15.60, 2);  // Return Cost: carriage 15.12 + 0.48 fees kept
   });
 
   it('A second non-repair refund on the same repaired unit IS counted as a refund', async () => {
@@ -1713,8 +1719,9 @@ describe('post-repair-completion invariant (BUG-RP-002)', () => {
     expect(summaryBaseline(ebayRow.getCell(2))).toBe(0);          // 0 sales — both voided
     expect(summaryBaseline(ebayRow.getCell(3))).toBe(1);          // 1 refund (the new one)
     expect(summaryBaseline(ebayRow.getCell(5))).toBe(1);          // 1 repair (the old one)
-    // Loss = repair 15.12 + refund 15.12 = 30.24 (both carry 2 legs now).
-    expect(summaryBaseline(ebayRow.getCell(7))).toBeCloseTo(30.24, 2);
+    // Return Cost = repair 15.12 + refund 15.12 carriage (both 2 legs)
+    // + 0.48 kept eBay fees on each = 31.20.
+    expect(summaryBaseline(ebayRow.getCell(7))).toBeCloseTo(31.20, 2);
   });
 });
 

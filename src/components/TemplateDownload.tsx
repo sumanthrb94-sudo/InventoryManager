@@ -95,13 +95,13 @@ export const SALES_TEMPLATES: TemplateLink[] = [
     label: 'Sales template · all marketplaces',
     hint: 'one sheet per channel · live formulas',
   },
-  { file: 'SALES_AMAZON_TEMPLATE.xlsx', label: 'Amazon only', hint: '31 columns · live formulas' },
-  { file: 'SALES_BM_TEMPLATE.xlsx',     label: 'BM only',     hint: '30 columns · Customer Care £8.99 + PSF 1%' },
-  { file: 'SALES_EBAY_TEMPLATE.xlsx',   label: 'eBay only',   hint: '34 columns · type Marketing + P. VAT' },
-  { file: 'SALES_ONBUY_TEMPLATE.xlsx',  label: 'OnBuy only',  hint: '28 columns · no Quantity' },
+  { file: 'SALES_AMAZON_TEMPLATE.xlsx', label: 'Amazon only', hint: '35 columns · live formulas' },
+  { file: 'SALES_BM_TEMPLATE.xlsx',     label: 'BM only',     hint: '34 columns · Customer Care £8.99 + PSF 1%' },
+  { file: 'SALES_EBAY_TEMPLATE.xlsx',   label: 'eBay only',   hint: '38 columns · type Marketing + P. VAT' },
+  { file: 'SALES_ONBUY_TEMPLATE.xlsx',  label: 'OnBuy only',  hint: '32 columns · no Quantity' },
   // Not Amazon's layout — Temu has its own schema, and it is the one channel
   // carrying a real Commission per row (its referral rate varies by category,
   // so the export reports the fee it actually charged). Commission VAT is NOT
   // read back: it derives as Commission x 20%.
-  { file: 'SALES_TEMU_TEMPLATE.xlsx',   label: 'Temu only',   hint: '30 columns · own layout · Commission 3.96%' },
+  { file: 'SALES_TEMU_TEMPLATE.xlsx',   label: 'Temu only',   hint: '34 columns · own layout · Commission 3.96%' },
 ];

@@ -100,7 +100,7 @@ describe('Sales Report carries Storage + Colour', () => {
     // Net GP £ is GP less the postage loss, same test from the other side.
     const net = ws.getRow(2).getCell(h.indexOf('Net GP £') + 1).value as { formula?: string };
     expect(net.formula).toContain(`${letter('GP')}2`);
-    expect(net.formula).toContain(`${letter('Postage Loss')}2`);
+    expect(net.formula).toContain(`${letter('Return Cost')}2`);
   });
 
   /**

@@ -26,7 +26,10 @@ import type {
 } from '../types';
 import { MARKETPLACES } from '../types';
 import { excelFormulaFor, isAccessorySale, SALES_HEADERS, salesCol, salesColLetter } from './platforms';
-import { returnCostFor, saleKeptItsRevenue, feeLossOnRefund, postageVatOf } from './returnLoss';
+import {
+  returnCostFor, saleKeptItsRevenue, feeLossOnRefund, postageVatOf,
+  extraCostsFor, returnRouteFor,
+} from './returnLoss';
 import { recomputeSale } from './recomputeSale';
 import { normalizeOperatorSku } from './modelStorage';
 
@@ -414,6 +417,10 @@ function returnBlockOffsets(marketplace: Marketplace): {
   reasonCol: number;
   legsCol: number;
   postageLossCol: number;
+  feesKeptCol: number;
+  repairCostCol: number;
+  supplierCreditCol: number;
+  returnCostCol: number;
   netGpCol: number;
   gpCol: number;
 } {
@@ -433,13 +440,17 @@ function returnBlockOffsets(marketplace: Marketplace): {
     return i + 1;                                    // ExcelJS cells are 1-based
   };
   return {
-    returnDateCol:  col('Return Date'),
-    outcomeCol:     col('Outcome'),
-    reasonCol:      col('Return Reason'),
-    legsCol:        col('Shipping Legs'),
-    postageLossCol: col('Postage Loss'),
-    netGpCol:       col('Net GP £'),
-    gpCol:          col('GP'),
+    returnDateCol:      col('Return Date'),
+    outcomeCol:         col('Outcome'),
+    reasonCol:          col('Return Reason'),
+    legsCol:            col('Shipping Legs'),
+    postageLossCol:     col('Postage Loss'),
+    feesKeptCol:        col('Fees Kept'),
+    repairCostCol:      col('Repair Cost'),
+    supplierCreditCol:  col('Supplier Credit'),
+    returnCostCol:      col('Return Cost'),
+    netGpCol:           col('Net GP £'),
+    gpCol:              col('GP'),
   };
 }
 
@@ -457,28 +468,70 @@ function outcomeLabel(sale: Sale): string {
   }
 }
 
+/** Repair invoice + supplier credit for THIS sale's return, read off the
+ *  linked unit — guarded by day-equality between the unit's returnDate and
+ *  the sale's voidedAt, because the unit's return fields are its CURRENT
+ *  state, not a fact about this sale. A unit that was returned, resold and
+ *  returned again carries only the latest cycle; attaching that cycle's
+ *  invoice to an older sale's row would book the same bill twice. Both
+ *  processReturnSalePatch and the import-restore path stamp voidedAt from
+ *  the return's own date, so the guard holds for every properly linked
+ *  cycle — and when it doesn't, the cells stay blank here while the Returns
+ *  sheets (which resolve the pairing themselves) still carry the figures. */
+function unitReturnExtras(
+  sale: Sale,
+  unit: InventoryUnit | undefined,
+): { repair?: number; supplierCredit?: number } {
+  if (!unit || !sale.voidedAt) return {};
+  const saleDay = (sale.voidedAt || '').slice(0, 10);
+  const unitDay = (unit.returnDate || '').slice(0, 10);
+  if (!saleDay || !unitDay || saleDay !== unitDay) return {};
+  const route = returnRouteFor(unit, sale);
+  const { repair, supplierCredit, gaps } = extraCostsFor(unit, route);
+  return {
+    // A gap means "nobody has entered it yet" — the cell must stay BLANK,
+    // never read as £0. A typed £0 is a real figure and is written.
+    repair: route === 'repair' && !gaps.includes('repair_invoice') ? repair : undefined,
+    supplierCredit:
+      unit.returnType === 'returned_to_supplier' && !gaps.includes('supplier_credit')
+        ? supplierCredit
+        : undefined,
+  };
+}
+
 /** Write the trailing return-linkage block (Return Date, Outcome, Reason,
- *  Shipping Legs) plus the Postage Loss cell. No-op for active sales so
- *  column SUM / COUNTIF over the period treats blanks as 0 / no-match.
+ *  Shipping Legs) plus the return-economics cells: Postage Loss, Fees Kept,
+ *  Repair Cost, Supplier Credit and the Return Cost formula. No-op for
+ *  active sales so column SUM / COUNTIF over the period treats blanks as
+ *  0 / no-match.
  *
  *  Repair-route voids (Sale.voidOutcome === 'repair') keep their "In
  *  Repair" outcome label but DO carry 2 legs of postage loss (outbound +
  *  inbound) per the operator's accounting policy — the unit comes back to
  *  stock, but both carriage legs were paid. */
-function writeReturnBlock(row: ExcelJS.Row, marketplace: Marketplace, sale: Sale, rowNumber: number): void {
+function writeReturnBlock(
+  row: ExcelJS.Row,
+  marketplace: Marketplace,
+  sale: Sale,
+  rowNumber: number,
+  linkedUnit?: InventoryUnit,
+): void {
   const o = returnBlockOffsets(marketplace);
   // Net GP £ is written on EVERY row (active + voided) as a formula
-  // referencing this row's GP cell and Postage Loss cell. Active rows
-  // leave Postage Loss blank → Excel treats blank as 0 → Net GP = Gross
-  // GP for them, which is the correct semantics. Voided rows subtract
-  // the real loss → Net GP = bottom-line margin in £.
+  // referencing this row's GP cell and Return Cost cell. Active rows leave
+  // Return Cost blank → Excel treats blank as 0 → Net GP = Gross GP for
+  // them, which is the correct semantics. Voided rows subtract the FULL
+  // return cost — carriage, fees the channel kept, the repair bill, less
+  // any supplier credit — so Net GP is the bottom-line margin in £. It
+  // used to subtract Postage Loss alone, which on a refunded BM handset
+  // quietly forgave ~£27 of fees per row.
   const cfg = TOTAL_SUM_COLS[marketplace];
   const gpL   = colLetter(cfg.gpCol);
-  const lossL = colLetter(o.postageLossCol);
-  row.getCell(o.netGpCol).value  = { formula: `${gpL}${rowNumber}-${lossL}${rowNumber}` };
+  const rcostL = colLetter(o.returnCostCol);
+  row.getCell(o.netGpCol).value  = { formula: `${gpL}${rowNumber}-${rcostL}${rowNumber}` };
   row.getCell(o.netGpCol).numFmt = MONEY_FMT;
 
-  // Return-info block + Postage Loss only on voided rows.
+  // Return-info block + return economics only on voided rows.
   if (!sale.voidedAt) return;
   row.getCell(o.returnDateCol).value  = toDate(sale.voidedAt);
   row.getCell(o.returnDateCol).numFmt = DATE_FMT;
@@ -490,6 +543,39 @@ function writeReturnBlock(row: ExcelJS.Row, marketplace: Marketplace, sale: Sale
     row.getCell(o.postageLossCol).value  = loss;
     row.getCell(o.postageLossCol).numFmt = MONEY_FMT;
   }
+
+  // Fees Kept — what the marketplace did not give back. £0 (blank) on a
+  // replacement or an out-of-warranty repair: no refund reached the channel,
+  // so there was no fee credit and no admin fee (see feeLossOnRefund).
+  const fees = feeLossOnRefund(sale);
+  if (fees > 0) {
+    row.getCell(o.feesKeptCol).value  = Number(fees.toFixed(2));
+    row.getCell(o.feesKeptCol).numFmt = MONEY_FMT;
+  }
+
+  // Repair Cost / Supplier Credit — unit-side facts. Blank until the
+  // operator enters them (absent ≠ zero; the Returns page flags the gaps).
+  const extras = unitReturnExtras(sale, linkedUnit);
+  if (typeof extras.repair === 'number') {
+    row.getCell(o.repairCostCol).value  = Number(extras.repair.toFixed(2));
+    row.getCell(o.repairCostCol).numFmt = MONEY_FMT;
+  }
+  if (typeof extras.supplierCredit === 'number') {
+    row.getCell(o.supplierCreditCol).value  = Number(extras.supplierCredit.toFixed(2));
+    row.getCell(o.supplierCreditCol).numFmt = MONEY_FMT;
+  }
+
+  // Return Cost — a live formula, so the operator can type a late repair
+  // invoice or credit straight into the row and watch the cost and Net GP
+  // follow. Blank cells coerce to 0 in Excel arithmetic.
+  const lossL   = colLetter(o.postageLossCol);
+  const feesL   = colLetter(o.feesKeptCol);
+  const repairL = colLetter(o.repairCostCol);
+  const credL   = colLetter(o.supplierCreditCol);
+  row.getCell(o.returnCostCol).value = {
+    formula: `${lossL}${rowNumber}+${feesL}${rowNumber}+${repairL}${rowNumber}-${credL}${rowNumber}`,
+  };
+  row.getCell(o.returnCostCol).numFmt = MONEY_FMT;
 
   // ── The refunded row keeps no profit ──────────────────────────────────────
   //
@@ -574,6 +660,10 @@ function writeSaleRow(
    *  supplier instead of an empty cell when `sale.supplierName` is
    *  itself missing. */
   resolvedSupplier: string = '',
+  /** The unit this sale's IMEI/unitId resolves to, when the workbook builder
+   *  has inventory data — source of the Repair Cost / Supplier Credit cells
+   *  in the return block. Omitted on primed blank rows and unit-less sales. */
+  linkedUnit?: InventoryUnit,
 ): void {
   // The sale's OWN date picks the fee schedule, so a row from before the
   // 2026-08-14 change exports with the rates that applied to it. Without
@@ -626,7 +716,7 @@ function writeSaleRow(
       row.getCell(col('GP')).value = { formula: f.grossProfit! };   row.getCell(col('GP')).numFmt = MONEY_FMT;
       row.getCell(col('GP %')).value = { formula: f.gpPercent! };     row.getCell(col('GP %')).numFmt = MONEY_FMT;
       row.getCell(col('Total VAT NTP')).value = { formula: f.totalVatNtp! };   row.getCell(col('Total VAT NTP')).numFmt = MONEY_FMT;
-      writeReturnBlock(row, marketplace, sale, rowNumber);
+      writeReturnBlock(row, marketplace, sale, rowNumber, linkedUnit);
       return;
     }
 
@@ -674,7 +764,7 @@ function writeSaleRow(
       row.getCell(col('GP')).value = { formula: f.grossProfit! }; row.getCell(col('GP')).numFmt = MONEY_FMT;
       row.getCell(col('GP %')).value = { formula: f.gpPercent! };   row.getCell(col('GP %')).numFmt = MONEY_FMT;
       row.getCell(col('Total VAT NTP')).value = { formula: f.totalVatNtp! }; row.getCell(col('Total VAT NTP')).numFmt = MONEY_FMT;
-      writeReturnBlock(row, marketplace, sale, rowNumber);
+      writeReturnBlock(row, marketplace, sale, rowNumber, linkedUnit);
       return;
     }
 
@@ -722,7 +812,7 @@ function writeSaleRow(
       row.getCell(col('GP')).value = { formula: f.grossProfit! };  row.getCell(col('GP')).numFmt = MONEY_FMT;
       row.getCell(col('GP %')).value = { formula: f.gpPercent! };    row.getCell(col('GP %')).numFmt = MONEY_FMT;
       row.getCell(col('Total VAT NTP')).value = { formula: f.totalVatNtp! };  row.getCell(col('Total VAT NTP')).numFmt = MONEY_FMT;
-      writeReturnBlock(row, marketplace, sale, rowNumber);
+      writeReturnBlock(row, marketplace, sale, rowNumber, linkedUnit);
       return;
     }
 
@@ -771,7 +861,7 @@ function writeSaleRow(
       row.getCell(col('GP')).value = { formula: f.grossProfit! };  row.getCell(col('GP')).numFmt = MONEY_FMT;
       row.getCell(col('GP %')).value = { formula: f.gpPercent! };    row.getCell(col('GP %')).numFmt = MONEY_FMT;
       row.getCell(col('Total VAT NTP')).value = { formula: f.totalVatNtp! };  row.getCell(col('Total VAT NTP')).numFmt = MONEY_FMT;
-      writeReturnBlock(row, marketplace, sale, rowNumber);
+      writeReturnBlock(row, marketplace, sale, rowNumber, linkedUnit);
       return;
     }
 
@@ -809,7 +899,7 @@ function writeSaleRow(
       row.getCell(col('GP')).value = { formula: f.grossProfit! };  row.getCell(col('GP')).numFmt = MONEY_FMT;
       row.getCell(col('GP %')).value = { formula: f.gpPercent! };    row.getCell(col('GP %')).numFmt = MONEY_FMT;
       row.getCell(col('Total VAT NTP')).value = { formula: f.totalVatNtp! };  row.getCell(col('Total VAT NTP')).numFmt = MONEY_FMT;
-      writeReturnBlock(row, marketplace, sale, rowNumber);
+      writeReturnBlock(row, marketplace, sale, rowNumber, linkedUnit);
       return;
     }
 
@@ -1070,7 +1160,11 @@ export async function buildSalesWorkbookBuffer(input: BuildSalesWorkbookInput): 
         || (sale.unitId && unitsById.get(sale.unitId)?.supplierName)
         || (sale.imei && unitsByImei.get((sale.imei || '').trim().toUpperCase())?.supplierName)
         || '';
-      writeSaleRow(sheet, m, sale, rowNumber, knownAccessorySkus, resolvedSupplier);
+      const linkedUnit =
+        (sale.unitId && unitsById.get(sale.unitId))
+        || (sale.imei && unitsByImei.get((sale.imei || '').trim().toUpperCase()))
+        || undefined;
+      writeSaleRow(sheet, m, sale, rowNumber, knownAccessorySkus, resolvedSupplier, linkedUnit);
 
       // Storage + Colour — buy-side identity carried onto the sale row so a
       // re-import can restore it. Written here rather than inside
@@ -1127,10 +1221,8 @@ export async function buildSalesWorkbookBuffer(input: BuildSalesWorkbookInput): 
       // auditor sees which unit fulfilled the order without having to
       // pivot to the Returns sheet. No cell fill — the row already
       // carries the rose voided fill which would mask any violet tint.
-      const linkedUnit =
-        (sale.unitId && unitsById.get(sale.unitId))
-        || (sale.imei && unitsByImei.get((sale.imei || '').trim().toUpperCase()))
-        || undefined;
+      // (linkedUnit resolved above, before writeSaleRow — the same lookup
+      // also feeds the Repair Cost / Supplier Credit cells there.)
       if (linkedUnit?.replacedByUnitId) {
         const replacementUnit = unitsById.get(linkedUnit.replacedByUnitId);
         const replacementImei = (replacementUnit?.imei || '').trim() || linkedUnit.replacedByUnitId;
@@ -1299,23 +1391,23 @@ function writeAccessoriesSalesSheet(
  *  wrong column into a bold TOTAL that still looked like a total. */
 const TOTAL_SUM_NAMES: Record<Marketplace, { numericCols: string[]; denominator: string }> = {
   AMAZON: {
-    numericCols: ["Quantity", "BP", "SP", "SP-BP", "Marginal Tax", "Commission", "C. VAT", "DSF", "DSF. VAT", "Postage", "P. VAT", "Acc", "Total VAT", "GP", "Total VAT NTP", "Postage Loss", "Net GP £"].map(s => s),
+    numericCols: ["Quantity", "BP", "SP", "SP-BP", "Marginal Tax", "Commission", "C. VAT", "DSF", "DSF. VAT", "Postage", "P. VAT", "Acc", "Total VAT", "GP", "Total VAT NTP", "Postage Loss", "Fees Kept", "Repair Cost", "Supplier Credit", "Return Cost", "Net GP £"].map(s => s),
     denominator: "BP",
   },
   BM: {
-    numericCols: ["Quantity", "BP", "SP", "SP-BP", "Marginal Tax", "Commission", "Customer Care Fees", "PSF", "Postage", "P. VAT", "Acc", "GP", "Total VAT NTP", "Postage Loss", "Net GP £"].map(s => s),
+    numericCols: ["Quantity", "BP", "SP", "SP-BP", "Marginal Tax", "Commission", "Customer Care Fees", "PSF", "Postage", "P. VAT", "Acc", "GP", "Total VAT NTP", "Postage Loss", "Fees Kept", "Repair Cost", "Supplier Credit", "Return Cost", "Net GP £"].map(s => s),
     denominator: "BP",
   },
   EBAY: {
-    numericCols: ["Units", "BP", "SP", "SP-BP", "Marginal Tax", "Commission", "ROF", "FVF", "VAT", "T.COM", "Postage", "P. VAT", "Marketing", "M. VAT", "Acc", "Total VAT", "GP", "Total VAT NTP", "Postage Loss", "Net GP £"].map(s => s),
+    numericCols: ["Units", "BP", "SP", "SP-BP", "Marginal Tax", "Commission", "ROF", "FVF", "VAT", "T.COM", "Postage", "P. VAT", "Marketing", "M. VAT", "Acc", "Total VAT", "GP", "Total VAT NTP", "Postage Loss", "Fees Kept", "Repair Cost", "Supplier Credit", "Return Cost", "Net GP £"].map(s => s),
     denominator: "SP",
   },
   ONBUY: {
-    numericCols: ["BP", "SP", "SP-BP", "Marginal Tax", "Commission", "VAT 20%", "Postage", "P. VAT", "Acc", "Total VAT", "GP", "Total VAT NTP", "Postage Loss", "Net GP £"].map(s => s),
+    numericCols: ["BP", "SP", "SP-BP", "Marginal Tax", "Commission", "VAT 20%", "Postage", "P. VAT", "Acc", "Total VAT", "GP", "Total VAT NTP", "Postage Loss", "Fees Kept", "Repair Cost", "Supplier Credit", "Return Cost", "Net GP £"].map(s => s),
     denominator: "BP",
   },
   TEMU: {
-    numericCols: ["Quantity", "BP", "SP", "SP-BP", "Marginal Tax", "Commission", "Commission VAT", "Commission+VAT", "Postage", "P. VAT", "Acc", "Total VAT", "GP", "Total VAT NTP", "Postage Loss", "Net GP £"].map(s => s),
+    numericCols: ["Quantity", "BP", "SP", "SP-BP", "Marginal Tax", "Commission", "Commission VAT", "Commission+VAT", "Postage", "P. VAT", "Acc", "Total VAT", "GP", "Total VAT NTP", "Postage Loss", "Fees Kept", "Repair Cost", "Supplier Credit", "Return Cost", "Net GP £"].map(s => s),
     denominator: "BP",
   },
 };
@@ -1323,13 +1415,14 @@ const TOTAL_SUM_NAMES: Record<Marketplace, { numericCols: string[]; denominator:
 /** Resolved 1-indexed positions for the current header order. */
 const TOTAL_SUM_COLS: Record<Marketplace, {
   label: number; numericCols: number[]; gpCol: number; gpPctCol: number;
-  postageLossCol: number; netGpCol: number; denominatorCol: number;
+  postageLossCol: number; returnCostCol: number; netGpCol: number; denominatorCol: number;
 }> = Object.fromEntries(MARKETPLACES.map(m => [m, {
   label: 1,
   numericCols: TOTAL_SUM_NAMES[m].numericCols.map(n => salesCol(m, n)),
   gpCol: salesCol(m, 'GP'),
   gpPctCol: salesCol(m, 'GP %'),
   postageLossCol: salesCol(m, 'Postage Loss'),
+  returnCostCol: salesCol(m, 'Return Cost'),
   netGpCol: salesCol(m, 'Net GP £'),
   denominatorCol: salesCol(m, TOTAL_SUM_NAMES[m].denominator),
 }])) as any;
@@ -1556,9 +1649,11 @@ function writeMarketplaceTotalsRow(
     row.getCell(col).value  = { formula: `SUM(${letter}${firstDataRow}:${letter}${lastDataRow})` };
     row.getCell(col).numFmt = MONEY_FMT;
   }
-  // Net GP % across the totalled rows = (Total GP − Total Postage Loss) / Total Denominator × 100.
+  // Net GP % across the totalled rows = (Total GP − Total Return Cost) / Total Denominator × 100.
+  // Return Cost carries the whole loss — carriage + fees kept + repairs −
+  // credits — so the footer percentage matches the per-row Net GP maths.
   const gpL    = colLetter(cfg.gpCol);
-  const lossL  = colLetter(cfg.postageLossCol);
+  const lossL  = colLetter(cfg.returnCostCol);
   const denomL = colLetter(cfg.denominatorCol);
   row.getCell(cfg.gpPctCol).value  = {
     formula: `IFERROR((${gpL}${totalRow}-${lossL}${totalRow})/${denomL}${totalRow}*100,0)`,
@@ -1585,7 +1680,7 @@ function summaryColRefs(m: Marketplace): SummaryColRefs {
     bp:      colLetter(m === 'ONBUY' ? 6 : 7),    // ONBUY: BP=F, others: BP=G
     sp:      colLetter(m === 'ONBUY' ? 7 : 8),    // ONBUY: SP=G, others: SP=H
     gp:      colLetter(cfg.gpCol),
-    loss:    colLetter(cfg.postageLossCol),
+    loss:    colLetter(cfg.returnCostCol),
     outcome: colLetter(offsets.outcomeCol),
   };
 }
@@ -1629,7 +1724,7 @@ function writeSalesSummarySheet(
   // Header row for the breakdown table. Money cols are 6-9.
   const header = sheet.addRow([
     'Marketplace', 'Sales', 'Refunds', 'Replacements', 'Repairs',
-    'Gross GP £', 'Postage Loss £', 'Net GP £', 'Net GP %',
+    'Gross GP £', 'Return Cost £', 'Net GP £', 'Net GP %',
   ]);
   header.font = { bold: true };
   header.fill = {
@@ -1703,7 +1798,18 @@ function writeSalesSummarySheet(
         // Repair keeps its own count so it's not conflated with customer
         // refunds. The build-time enrichment backfills voidOutcome='repair'
         // on legacy repair voids before this runs.
-        loss += postageLossFor(s);
+        //
+        // The column is the FULL Return Cost, matching the per-row formula
+        // on the marketplace tabs: carriage + fees the channel kept +
+        // repair invoice − supplier credit. Postage alone understated a
+        // refunded BM handset's cost by ~£27 of kept fees.
+        const voidUnit =
+          (s.unitId && unitsById?.get(s.unitId))
+          || unitsByImei?.get((s.imei || '').trim().toUpperCase())
+          || undefined;
+        const voidExtras = unitReturnExtras(s, voidUnit);
+        loss += postageLossFor(s) + feeLossOnRefund(s)
+          + (voidExtras.repair ?? 0) - (voidExtras.supplierCredit ?? 0);
         if (s.voidOutcome === 'repair')             repairCount++;
         else if (s.voidOutcome === 'replacement')   replaceCount++;
         else                                        refundCount++;
@@ -1819,8 +1925,10 @@ function writeSalesSummarySheet(
   notesHeader.font = { bold: true };
   sheet.addRow(['• Refunds + Repairs + Return-to-Supplier each eat 2 shipping legs (outbound + inbound). Replacements eat 3 (plus the replacement outbound).']);
   sheet.addRow(['• Repair: the unit comes back to stock, but both carriage legs were still paid — so it carries the same 2-leg loss as a refund.']);
-  sheet.addRow(['• Postage Loss = (postage + P.VAT) × legs, snapshotted at Process Return time.']);
-  sheet.addRow(['• Net GP = Gross GP − Postage Loss. Net GP % = Net GP ÷ BP (× 100). eBay rows divide by SP per platform convention.']);
+  sheet.addRow(['• Postage Loss = (postage + P.VAT) × legs, snapshotted at Process Return time. eBay legs carry no VAT — its shipping is zero-rated.']);
+  sheet.addRow(['• Fees Kept = what the marketplace did not give back on a refund: Amazon min(20% × commission, £5) + VAT; eBay the fixed £0.40 + VAT; Back Market / OnBuy / Temu keep every fee they charged. Blank on replacements — no refund reached the marketplace.']);
+  sheet.addRow(['• Return Cost = Postage Loss + Fees Kept + Repair Cost − Supplier Credit (a live formula on each returned row). A blank Repair Cost means the invoice has not been entered yet — the Returns page flags these.']);
+  sheet.addRow(['• Net GP = Gross GP − Return Cost. Net GP % = Net GP ÷ BP (× 100). eBay rows divide by SP per platform convention.']);
   sheet.addRow(['• Sales / Gross GP / BP above count ACTIVE sales only — matching the app\'s ALL-TIME SOLD figure. Refunds, Replacements and Repairs are tracked separately in the columns to the left; add them to Sales for this sheet\'s row count on each marketplace tab.']);
   sheet.addRow(['• Per-marketplace sheets carry a TOTAL row at the bottom summing every row shown there (active + returned) via SUM formulas — the Returns tab breaks the returned rows out on their own.']);
 }

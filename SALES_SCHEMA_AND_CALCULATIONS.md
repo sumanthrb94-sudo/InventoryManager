@@ -123,9 +123,9 @@ Commission 7% of SP · VAT 20% · DSF 2% of commission · Accessories £1
 | P. VAT | `Postage × 20%` | `R2*20%` |
 | Total VAT | `C.VAT + DSF VAT + P.VAT` | `O2+Q2+S2` |
 | GP | `(SP−BP) − MarTax − Com − C.VAT − DSF − DSF VAT − Postage − P.VAT − £1` | `L2-M2-N2-O2-P2-Q2-R2-S2-T2` |
-| GP % | `GP ÷ **BP** × 100` | `(V2-Y2)/J2*100` |
+| GP % | `(GP − Return Cost) ÷ **BP** × 100` | `(V2-AC2)/J2*100` |
 | Total VAT NTP | `Marginal Tax − Total VAT` | `M2-U2` |
-| Net GP £ | `GP − Postage Loss` | `V2-Y2` |
+| Net GP £ | `GP − Return Cost` | `V2-AC2` |
 
 **Worked — BP £350, SP £499.99, postage £6.30**
 
@@ -152,9 +152,9 @@ client's own report.
 | PSF | `SP × 1%` | `L2*1%` |
 | P. VAT | `Postage × 20%` | `R2*20%` |
 | GP | `(SP−BP) − MarTax − Com − CareFee − PSF − Postage − P.VAT − Acc` | `M2-N2-O2-P2-Q2-R2-S2-T2` |
-| GP % | `GP ÷ **BP** × 100` | `(U2-X2)/K2*100` |
+| GP % | `(GP − Return Cost) ÷ **BP** × 100` | `(U2-AB2)/K2*100` |
 | Total VAT NTP | `Marginal Tax − P. VAT` | `N2-S2` |
-| Net GP £ | `GP − Postage Loss` | `U2-X2` |
+| Net GP £ | `GP − Return Cost` | `U2-AB2` |
 
 > **BM has no Total VAT column.** P. VAT is its only VAT line, so NTP subtracts
 > P. VAT directly. Asserted by the E2E.
@@ -189,9 +189,9 @@ Marketing operator-entered (£0 default) · P. VAT not derived · Accessories £
 | M. VAT | `Marketing × 20%` | `U2*20%` |
 | Total VAT | `VAT + P.VAT + M.VAT` | `Q2+T2+V2` |
 | GP | `(SP−BP) − MarTax − T.COM − Postage − P.VAT − Marketing − M.VAT − £1` | `L2-M2-R2-S2-T2-U2-V2-W2` |
-| GP % | `GP ÷ **BP** × 100` | `(Y2-AB2)/J2*100` |
+| GP % | `(GP − Return Cost) ÷ **BP** × 100` | `(Y2-AF2)/J2*100` |
 | Total VAT NTP | `Marginal Tax − Total VAT` | `M2-X2` |
-| Net GP £ | `GP − Postage Loss` | `Y2-AB2` |
+| Net GP £ | `GP − Return Cost` | `Y2-AF2` |
 
 **Worked — BP £280, SP £429.99, postage £0**
 
@@ -214,9 +214,9 @@ Commission 7% of SP · VAT 20% on the commission · Accessories £1
 | P. VAT | `Postage × 20%` | `O2*20%` |
 | Total VAT | `VAT 20% + P.VAT` | `N2+P2` |
 | GP | `(SP−BP) − MarTax − Com − VAT20 − Postage − P.VAT − £1` | `K2-L2-M2-N2-O2-P2-Q2` |
-| GP % | `GP ÷ **BP** × 100` | `(S2-V2)/I2*100` |
+| GP % | `(GP − Return Cost) ÷ **BP** × 100` | `(S2-Z2)/I2*100` |
 | Total VAT NTP | `Marginal Tax − Total VAT` | `L2-R2` |
-| Net GP £ | `GP − Postage Loss` | `S2-V2` |
+| Net GP £ | `GP − Return Cost` | `S2-Z2` |
 
 > OnBuy has **no Quantity column**, so every column letter sits one to the left
 > of the other tabs. `VAT 20%` is VAT on the *commission*, not on the margin.
@@ -246,9 +246,9 @@ after Commission VAT, both matching the client's own report.
 | P. VAT | `Postage × 20%` | `Q2*20%` |
 | Total VAT | `P. VAT` **alone** | `R2` |
 | GP | `(SP−BP) − MarTax − Com − Postage − P.VAT − Acc` | `L2-M2-N2-Q2-R2-S2` |
-| GP % | `GP ÷ **BP** × 100` | `(U2-X2)/J2*100` |
+| GP % | `(GP − Return Cost) ÷ **BP** × 100` | `(U2-AB2)/J2*100` |
 | Total VAT NTP | `Marginal Tax − Total VAT` | `M2-T2` |
-| Net GP £ | `GP − Postage Loss` | `U2-X2` |
+| Net GP £ | `GP − Return Cost` | `U2-AB2` |
 
 > **Commission VAT is excluded from both Total VAT and GP.** Temu VAT-invoices
 > it to the seller as reclaimable input tax. Confirmed against the client's own
@@ -324,15 +324,29 @@ name, so the order below is a presentation decision.
 
 | Tab | Columns |
 |---|---|
-| AMAZON | Date · Order Number · SKU · IMEI · Model · Colour · Storage · Supplier · Quantity · BP · SP · SP-BP · Marginal Tax · Commission · C. VAT · DSF · DSF. VAT · Postage · P. VAT · Accessories · Total VAT · GP · GP % · Total VAT NTP · Postage Loss · Net GP £ · Return Date · Outcome · Shipping Legs · Return Reason · Comments |
+| AMAZON | Date · Order Number · SKU · IMEI · Model · Colour · Storage · Supplier · Quantity · BP · SP · SP-BP · Marginal Tax · Commission · C. VAT · DSF · DSF. VAT · Postage · P. VAT · Accessories · Total VAT · GP · GP % · Total VAT NTP · Postage Loss · Fees Kept · Repair Cost · Supplier Credit · Return Cost · Net GP £ · Return Date · Outcome · Shipping Legs · Return Reason · Comments |
 | BM | …as Amazon, but Customer Care Fees replaces the C.VAT/DSF block and there is **no Total VAT** |
 | EBAY | …adds ROF · FVF · VAT · T.COM · Marketing · M. VAT; Units replaces Quantity |
 | ONBUY | …adds VAT 20%; **no Quantity column** (every letter shifts one left) |
 | TEMU | …adds Commission VAT; no DSF block |
 
 The return block closes every tab: `Return Date · Outcome · Shipping Legs ·
-Return Reason · Comments`. `Postage Loss` and `Net GP £` sit with the money,
-since the bottom line belongs there.
+Return Reason · Comments`. The return ECONOMICS sit with the money, since the
+bottom line belongs there — five columns, filled only on returned rows
+(2026-08-29, at the operator's request):
+
+- `Postage Loss` — carriage, per the legs table below.
+- `Fees Kept` — what the marketplace did not give back on a refund: Amazon
+  `min(20% × commission, £5) × 1.2`; eBay the fixed `£0.40 × 1.2`; Back
+  Market, OnBuy and Temu keep every fee they charged. Blank on a replacement
+  — no refund ever reached the marketplace, whatever the row's era.
+- `Repair Cost` / `Supplier Credit` — from the linked unit, written only when
+  the unit's return cycle is the SAME DAY as this sale's void (the unit's
+  return fields describe its latest cycle, not this sale). Blank means "not
+  entered yet", never £0 — the Returns page flags the gaps.
+- `Return Cost` — a live formula: `Postage Loss + Fees Kept + Repair Cost −
+  Supplier Credit`. Type a late invoice into the row and the cost and Net GP
+  follow.
 
 `Postage Loss = (Postage + P.VAT) × legs billed`, and **legs billed is not the
 same as Shipping Legs**. Shipping Legs counts journeys: 2 for a refund or an
@@ -350,7 +364,7 @@ its GP subtracts — so it is only billed here when the GP does not stand:
 | Accessory return (revenue voided outright) | 2 or 3 | 2 or 3 | 0 | 2 or 3 |
 
 Billing all three journeys on a replacement charged **four** legs for three.
-`Net GP £ = GP − Postage Loss`.
+`Net GP £ = GP − Return Cost`, and `GP %` nets the same figure.
 
 ---
 
