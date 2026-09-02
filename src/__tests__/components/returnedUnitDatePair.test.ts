@@ -107,3 +107,42 @@ describe('the grouped stock tables wear the latest return date too', () => {
     expect(src).toMatch(/came back via a return · latest return/);
   });
 });
+
+describe('the loss ledger closes the loop: returned date + resold date (operator, 2026-08-29)', () => {
+  /** The incident: the ledger received `allReturns` — units CURRENTLY in
+   *  return states — so any unit that completed the loop (returned →
+   *  restocked → resold, which clears its return markers) became
+   *  unresolvable and its row said "No matching unit" about a phone
+   *  sitting right there in the sold column. The resolver needs the whole
+   *  roster; the row then says the truthful thing: Resold <date>. */
+  const src = readFileSync('src/components/ReturnsPage.tsx', 'utf8');
+
+  it('the ledger receives ALL units, not the returns-filtered subset', () => {
+    expect(src).toMatch(/<ReturnLossSection units=\{units\}/);
+    expect(src).not.toMatch(/<ReturnLossSection units=\{allReturns\}/);
+  });
+
+  it('a cycle counts as resold only when the resale actually followed it', () => {
+    // status sold + saleDate on/after the cycle + the unit's return fields
+    // no longer describing this cycle. A sale BEFORE the return is the
+    // cycle's own original sale, not its closure.
+    expect(src).toMatch(/if \(!u \|\| u\.status !== 'sold' \|\| !u\.saleDate\) return null;/);
+    expect(src).toMatch(/if \(!cycleDay \|\| saleDay < cycleDay\) return null;/);
+  });
+
+  it('the row and the CSV both carry the resold date; the CSV grows tail-only', () => {
+    expect(src).toMatch(/Resold \{shortDay\(rd\)\}/);
+    const csv = src.slice(src.indexOf("downloadCsv(`return-losses"));
+    const resoldAt = csv.indexOf("'Resold Date'");
+    const outstandingAt = csv.indexOf("'Costs Outstanding'");
+    expect(resoldAt).toBeGreaterThan(outstandingAt);   // appended last
+  });
+
+  it('the loss maths is untouched — resale never refunds a return cost', () => {
+    // resoldDateFor is display-only: no totalCost / loss computation
+    // references it.
+    const at = src.indexOf('const resoldDateFor');
+    const body = src.slice(at, src.indexOf('const totalLoss'));
+    expect(body).not.toMatch(/totalCost|\.loss\b/);
+  });
+});

@@ -679,7 +679,14 @@ export default function ReturnsPage() {
           (outbound + inbound), replacement = 3 (plus the replacement
           outbound). Leg cost = postage + P.VAT snapshotted from the
           voided sale at Process Return time. */}
-      <ReturnLossSection units={allReturns} sales={sales} region={region}
+      {/* ALL units, not the returns-filtered subset. The ledger builds a row
+          per voided SALE, and the unit behind a voided sale is often no
+          longer "in returns" — it was restocked and RESOLD, which clears its
+          return markers. Passing `allReturns` here made every resold cycle's
+          unit unresolvable and mislabelled it "No matching unit" (operator
+          report, 2026-08-29); the resolver needs the whole roster to say the
+          truthful thing instead: returned on X, resold on Y. */}
+      <ReturnLossSection units={units} sales={sales} region={region}
         accessorySkus={accessoryBySku} />
 
       {/* ── Accessory returns ─────────────────────────────────────────────
@@ -1466,6 +1473,25 @@ function ReturnLossSection({
     });
   }, [units, sales]);
 
+  /** The resale that CLOSED this cycle, when there was one. A unit whose
+   *  return markers are cleared and which sits sold again, with a saleDate on
+   *  or after this cycle's return, has completed the full loop: sold →
+   *  returned → restocked → RESOLD. The operator's rule (2026-08-29): say
+   *  that on the row — returned date and resold date — instead of the old
+   *  misleading "No matching unit". The loss stands either way: money spent
+   *  on a return does not come back when the phone sells again. */
+  const resoldDateFor = (r: LossRow): string | null => {
+    const u = r.unit;
+    if (!u || u.status !== 'sold' || !u.saleDate) return null;
+    const cycleDay = (r.cycleDate || '').slice(0, 10);
+    const saleDay = (u.saleDate || '').slice(0, 10);
+    if (!cycleDay || saleDay < cycleDay) return null;          // sold before this return — unrelated
+    if ((u.returnDate || '').slice(0, 10) === cycleDay) return null;  // still this cycle's open return
+    return u.saleDate;
+  };
+  const shortDay = (d: string) =>
+    new Date(d.length <= 10 ? d + 'T12:00:00' : d).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+
   const totalLoss = rows.reduce((t, r) => t + r.totalCost, 0);
   const carriageOnly = rows.reduce((t, r) => t + r.loss, 0);
   const feesKept = rows.reduce((t, r) => t + r.feeLoss, 0);
@@ -1486,7 +1512,8 @@ function ReturnLossSection({
       'Return Date':        r.cycleDate || '',
       'Model':              r.unit?.model || r.sale?.model || r.sale?.sku || '',
       'IMEI':               r.unit?.imei || r.sale?.imei || '',
-      'Destination':        r.unit?.returnType || (r.unit ? '' : 'no matching unit'),
+      'Destination':        r.unit?.returnType
+        || (resoldDateFor(r) ? 'resold' : r.unit ? '' : 'no matching unit'),
       'Outcome':            r.outcome || 'refund (assumed)',
       'Reason':             (r.sale?.voidReason) || r.unit?.returnReason || '',
       'Comments':           r.unit?.returnComments || '',
@@ -1498,6 +1525,10 @@ function ReturnLossSection({
       'Fees Kept (£)':      r.feeLoss ? r.feeLoss.toFixed(2) : '',
       'Total Cost (£)':     r.totalCost.toFixed(2),
       'Costs Outstanding':  r.gaps.join(' · '),
+      // Appended LAST (column growth stays tail-only): the resale that closed
+      // this cycle — returned (Return Date col) → resold on this date. Blank
+      // = the unit has not resold, or the row has no unit at all.
+      'Resold Date':        resoldDateFor(r) || '',
     })));
   };
 
@@ -1568,6 +1599,17 @@ function ReturnLossSection({
                         {!r.unit && (
                           <span className="block text-[8px] font-bold uppercase tracking-widest text-amber-600" title="This voided sale matches no inventory unit — the loss is real and counted, but there is no unit to hold a repair invoice or supplier credit against.">No matching unit</span>
                         )}
+                        {(() => {
+                          const rd = resoldDateFor(r);
+                          return rd ? (
+                            <span
+                              className="block text-[8px] font-bold uppercase tracking-widest text-emerald-600"
+                              title={`Full loop closed: returned ${shortDay(r.cycleDate || '')}, restocked, and RESOLD on ${shortDay(rd)}. This cycle's loss still counts — the return's cost is history and does not come back with the resale.`}
+                            >
+                              Resold {shortDay(rd)}
+                            </span>
+                          ) : null;
+                        })()}
                       </td>
                       <td className="px-3 py-1.5 border-b border-slate-100 text-slate-500">{r.unit?.imei || r.sale?.imei || '—'}</td>
                       <td className="px-3 py-1.5 border-b border-slate-100">
