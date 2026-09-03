@@ -2,8 +2,9 @@ name: Daily inventory & sales reports
 
 on:
   schedule:
-    # 23:30 UTC (11:30 PM GMT) every day. GitHub may start scheduled runs late under load.
-    - cron: '30 23 * * *'
+    # 23:59 UTC (11:59 PM GMT) daily. GitHub often starts scheduled runs late
+    # near the top of the hour — expect drift of several minutes.
+    - cron: '59 23 * * *'
   workflow_dispatch:
 
 concurrency:
@@ -34,13 +35,6 @@ jobs:
           echo "date=$(date -u +%F)" >> "$GITHUB_OUTPUT"
           echo "pretty=$(date -u '+%d %b %Y')" >> "$GITHUB_OUTPUT"
 
-      - name: Write Drive service-account key
-        env:
-          GDRIVE_SA_JSON: ${{ secrets.GDRIVE_SA_JSON }}
-        run: |
-          printf '%s' "$GDRIVE_SA_JSON" > "$RUNNER_TEMP/sa.json"
-          chmod 600 "$RUNNER_TEMP/sa.json"
-
       - name: Download both reports
         env:
           IM_BASE_URL: ${{ vars.IM_BASE_URL || 'https://inventory-manager-peach-alpha.vercel.app/' }}
@@ -49,17 +43,16 @@ jobs:
           OUT_DIR: out
         run: python scripts/daily_reports/fetch_reports.py "${{ steps.d.outputs.date }}"
 
-      - name: Upload to Drive and email
+      - name: Email the reports
+        working-directory: scripts/daily_reports
         env:
-          GDRIVE_FOLDER_ID: ${{ secrets.GDRIVE_FOLDER_ID }}
-          GDRIVE_SA_FILE: ${{ runner.temp }}/sa.json
-          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
-          MAIL_FROM: ${{ secrets.MAIL_FROM }}
+          GMAIL_USER: ${{ secrets.GMAIL_USER }}
+          GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
           MAIL_TO: ${{ secrets.MAIL_TO }}
         run: |
-          python scripts/daily_reports/deliver.py \
-            "out/Inventory-Report-All-Time-${{ steps.d.outputs.date }}.xlsx" \
-            "out/Sales-Report-All-Time-${{ steps.d.outputs.date }}.xlsx" \
+          python deliver.py \
+            "$GITHUB_WORKSPACE/out/Inventory-Report-All-Time-${{ steps.d.outputs.date }}.xlsx" \
+            "$GITHUB_WORKSPACE/out/Sales-Report-All-Time-${{ steps.d.outputs.date }}.xlsx" \
             "${{ steps.d.outputs.pretty }}"
 
       - name: Upload diagnostics on failure
@@ -69,7 +62,3 @@ jobs:
           name: failure-diagnostics
           path: out/
           retention-days: 5
-
-      - name: Shred key
-        if: always()
-        run: rm -f "$RUNNER_TEMP/sa.json"
