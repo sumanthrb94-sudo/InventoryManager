@@ -1,8 +1,25 @@
-"""Upload both reports to Google Drive and email them with a summary."""
-import base64, os, pathlib, sys, requests
-from google.oauth2 import service_account
-from googleapiclient.discovery import build
-from googleapiclient.http import MediaFileUpload
+"""Email the two reports with a summary built from the workbooks.
+
+Sends via Gmail SMTP using an app password. Google Drive upload is optional and
+skipped unless GDRIVE_FOLDER_ID and GDRIVE_SA_FILE are both set.
+
+Required env:
+  GMAIL_USER          the sending Gmail address
+  GMAIL_APP_PASSWORD  a Google app password (needs 2-Step Verification on)
+  MAIL_TO             comma-separated recipients
+Optional env:
+  MAIL_FROM_NAME      display name on the From header (default "Inventory Manager")
+  GDRIVE_FOLDER_ID    Drive folder to upload into
+  GDRIVE_SA_FILE      path to a service-account JSON key
+"""
+import mimetypes
+import os
+import pathlib
+import smtplib
+import sys
+from email.message import EmailMessage
+from email.utils import formataddr
+
 from summarize import summarize
 
 XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
@@ -13,10 +30,8 @@ def money(n):
     return f"&pound;{n:,.0f}"
 
 
-def build_html(s, pretty):
-    m = s["marketplaces"]
-    t = s["totals"]
-    r = s["returns"]
+def build_html(s, pretty, drive_note):
+    m, t, r = s["marketplaces"], s["totals"], s["returns"]
     rows = "".join(
         f'<tr><td style="{B}">{x["name"]}</td>'
         f'<td style="{B}" align="right">{x["sales"]:,}</td>'
@@ -32,7 +47,7 @@ def build_html(s, pretty):
     per_mk = ", ".join(f'{x["name"]} {x["returns"]}' for x in m if x["returns"])
     return f"""<div style="font-family:Arial,Helvetica,sans-serif;font-size:14px;color:#202124;line-height:1.5">
 <p>Hi,</p>
-<p>Attached are the all-time <b>Inventory Report</b> and <b>Sales Report</b> from Inventory Manager, exported {pretty}. Headline numbers below; both files are also saved in Google Drive under <b>Inventory Reports</b>.</p>
+<p>Attached are the all-time <b>Inventory Report</b> and <b>Sales Report</b> from Inventory Manager, exported {pretty}.{drive_note}</p>
 <p style="margin:18px 0 6px"><b>Stock on hand</b></p>
 <table cellpadding="6" cellspacing="0" style="border-collapse:collapse;font-size:13px">
 <tr><td style="{B}">Office stock</td><td style="{B}" align="right">{s['office_units']:,} units</td><td style="{B}" align="right">{money(s['office_value'])}</td></tr>
@@ -52,33 +67,49 @@ def build_html(s, pretty):
 </div>"""
 
 
-def upload_to_drive(paths, folder_id, sa_file):
+def upload_to_drive(paths):
+    """Optional. Returns a note for the email body, or '' when skipped."""
+    folder = os.environ.get("GDRIVE_FOLDER_ID")
+    sa = os.environ.get("GDRIVE_SA_FILE")
+    if not folder or not sa or not pathlib.Path(sa).exists():
+        print("  drive: skipped (GDRIVE_FOLDER_ID / GDRIVE_SA_FILE not set)", flush=True)
+        return ""
+    from google.oauth2 import service_account
+    from googleapiclient.discovery import build
+    from googleapiclient.http import MediaFileUpload
     creds = service_account.Credentials.from_service_account_file(
-        sa_file, scopes=["https://www.googleapis.com/auth/drive.file"])
+        sa, scopes=["https://www.googleapis.com/auth/drive.file"])
     svc = build("drive", "v3", credentials=creds, cache_discovery=False)
-    links = []
     for p in paths:
         f = svc.files().create(
-            body={"name": p.name, "parents": [folder_id]},
+            body={"name": p.name, "parents": [folder]},
             media_body=MediaFileUpload(str(p), mimetype=XLSX, resumable=False),
-            fields="id,name,size,webViewLink", supportsAllDrives=True).execute()
+            fields="id,name,size", supportsAllDrives=True).execute()
         print(f"  drive: {f['name']} ({int(f.get('size', 0)):,} bytes)", flush=True)
-        links.append(f)
-    return links
+    return ' Both files are also saved in Google Drive under <b>Inventory Reports</b>.'
 
 
 def send_email(paths, html, subject):
-    atts = [{"filename": p.name, "content": base64.b64encode(p.read_bytes()).decode()} for p in paths]
-    resp = requests.post(
-        "https://api.resend.com/emails",
-        headers={"Authorization": f"Bearer {os.environ['RESEND_API_KEY']}"},
-        json={"from": os.environ["MAIL_FROM"],
-              "to": [a.strip() for a in os.environ["MAIL_TO"].split(",") if a.strip()],
-              "subject": subject, "html": html, "attachments": atts},
-        timeout=120)
-    if resp.status_code >= 300:
-        raise SystemExit(f"Resend failed {resp.status_code}: {resp.text[:500]}")
-    print(f"  email sent: {resp.json().get('id')}", flush=True)
+    user = os.environ["GMAIL_USER"]
+    pwd = os.environ["GMAIL_APP_PASSWORD"].replace(" ", "")  # Google shows it in groups of 4
+    to = [a.strip() for a in os.environ["MAIL_TO"].split(",") if a.strip()]
+
+    msg = EmailMessage()
+    msg["Subject"] = subject
+    msg["From"] = formataddr((os.environ.get("MAIL_FROM_NAME", "Inventory Manager"), user))
+    msg["To"] = ", ".join(to)
+    msg.set_content("This report is formatted in HTML. Both workbooks are attached.")
+    msg.add_alternative(html, subtype="html")
+
+    for p in paths:
+        ctype, _ = mimetypes.guess_type(p.name)
+        maintype, _, subtype = (ctype or XLSX).partition("/")
+        msg.add_attachment(p.read_bytes(), maintype=maintype, subtype=subtype, filename=p.name)
+
+    with smtplib.SMTP_SSL("smtp.gmail.com", 465, timeout=120) as smtp:
+        smtp.login(user, pwd)
+        smtp.send_message(msg)
+    print(f"  email sent to {', '.join(to)}", flush=True)
 
 
 if __name__ == "__main__":
@@ -89,5 +120,6 @@ if __name__ == "__main__":
     s = summarize(inv, sales)
     print(f"stock {s['total_units']:,} units / {s['total_value']:,} | sales {s['totals']['sales']:,} "
           f"/ net GP {s['totals']['net_gp']:,} ({s['totals']['net_pct']}%)", flush=True)
-    upload_to_drive([inv, sales], os.environ["GDRIVE_FOLDER_ID"], os.environ["GDRIVE_SA_FILE"])
-    send_email([inv, sales], build_html(s, pretty), f"Inventory & Sales Reports (All Time) — {pretty}")
+    drive_note = upload_to_drive([inv, sales])
+    send_email([inv, sales], build_html(s, pretty, drive_note),
+               f"Inventory & Sales Reports (All Time) — {pretty}")
