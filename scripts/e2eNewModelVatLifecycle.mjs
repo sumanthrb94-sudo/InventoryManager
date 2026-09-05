@@ -140,9 +140,18 @@ async function run() {
   await page.getByRole('button', { name: /Delete All Data/i }).click();
   await page.waitForTimeout(3500);
   await land(page);
-  record('Wipe leaves an empty catalog to start from',
-    docsOf(await dumpStore(page), 'models').length === 0,
-    `${docsOf(await dumpStore(page), 'models').length} models`);
+  // A wipe must LEAVE the catalogue standing. That is the production
+  // guarantee — ResetDataModal's PROTECTED_COLLECTIONS never touches `models`,
+  // because the catalogue is admin-curated reference data, not operational
+  // records. This used to assert the opposite, and passed only because the
+  // shim seeded no models and derived its catalogue from the units a wipe
+  // removed. The shim now seeds the catalogue, so the assertion can say what
+  // the app actually promises.
+  const catalogAfterWipe = docsOf(await dumpStore(page), 'models');
+  record('Wipe leaves the admin model catalog intact',
+    catalogAfterWipe.length > 0,
+    `${catalogAfterWipe.length} models survived`);
+  const catalogBeforeAdd = catalogAfterWipe.length;
 
   // ══ PHASE 1 · employee hits a model nobody has added ═════════════════════
   console.log('\n══ PHASE 1 · Employee books in a model that is not in the catalog ══');
@@ -196,9 +205,13 @@ async function run() {
   await page.getByRole('button', { name: /^\+?\s*ADD$/i }).first().click();
   await page.waitForTimeout(1500);
 
+  // ONE MORE than before, not one in total. The point of this check is that
+  // the picker's "+ Add" writes a catalogue entry — counting the whole
+  // collection made it a check on what the catalogue started with, which is
+  // not this test's business and broke the moment the shim seeded any.
   const models = docsOf(await dumpStore(page), 'models');
-  record('Model written to the catalog', models.length === 1,
-    models.map(m => `${m.brand} ${m.model}`).join(', '));
+  record('Model written to the catalog', models.length === catalogBeforeAdd + 1,
+    `${catalogBeforeAdd} -> ${models.length} · ${models.map(m => `${m.brand} ${m.model}`).join(', ')}`);
   await shot(page, 'phase2-catalog-after-add');
 
   // ══ PHASE 3 · the refresh question ═══════════════════════════════════════
