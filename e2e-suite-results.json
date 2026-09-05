@@ -85,5 +85,52 @@
       "PASS  Buy screen accessory overlay has NO Return button"
     ],
     "secs": 148
+  },
+  {
+    "script": "e2eAccessoryStock.mjs",
+    "ok": true,
+    "pass": 11,
+    "total": 11,
+    "summary": "11/11 checks passed",
+    "fails": [],
+    "passes": [
+      "PASS  Save button reflects one ready accessory line — Save 1 accessory line",
+      "PASS  a new accessoryStock pool was created for the SKU — id usb_c_20w",
+      "PASS  the pool carries the quantity typed at Add Stock — quantity=50",
+      "PASS  no IMEI field exists anywhere on the accessory doc — accessoryStock docs never carry an imei key — a different collection entirely from inventoryUnits",
+      "PASS  the Configuration page has an Accessory Stock panel",
+      "PASS  the panel lists the SKU with its quantity",
+      "PASS  confirm is enabled — a no-IMEI accessory row is out of the audit-completion gate",
+      "PASS  the Done screen reports the accessory decrement — Accessory stock updated · 1 sale matched a SKU pool and decremented it",
+      "PASS  the SKU pool decremented by exactly the sale quantity — 50 → 48 (expected 48)",
+      "PASS  the sale itself carries no IMEI — imei=\"\"",
+      "PASS  no uncaught JS errors across the flow"
+    ],
+    "secs": 86
+  },
+  {
+    "script": "e2eAccessoryVisibility.mjs",
+    "ok": false,
+    "pass": 12,
+    "total": 13,
+    "summary": "12/13 checks passed",
+    "fails": [
+      "FAIL  Sales History shows the friendly accessory name (\"USB-C 20W Charger\")"
+    ],
+    "passes": [
+      "PASS  Accessory pool created: USB-C-20W x 5 — quantity=5",
+      "PASS  Dashboard shows \"Accessory SKUs\" tile with count 1",
+      "PASS  Dashboard shows the pooled stock value (£17.50 = 5 x £3.50)",
+      "PASS  Dashboard shows 0 accessories sold out (nothing sold yet)",
+      "PASS  Pool decremented to 3 after first sale — quantity=3",
+      "PASS  Reports (Daily Sales / unified feed) shows the friendly accessory name",
+      "PASS  Insights → Best Sellers shows the friendly accessory name",
+      "PASS  Stock Alerts → Running Low includes the accessory (3 left, <= 3 threshold)",
+      "PASS  Pool decremented to 0 after second sale — quantity=0",
+      "PASS  Stock Alerts → Sold Out includes the accessory (0 left, had sales)",
+      "PASS  Dashboard \"Accessories Sold Out\" tile now reads 1",
+      "PASS  No uncaught JS errors across the whole investigation"
+    ],
+    "secs": 118
   }
 ]
