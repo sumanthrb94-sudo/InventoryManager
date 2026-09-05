@@ -102,5 +102,20 @@
       "PASS  the panel lists the SKU with its quantity"
     ],
     "secs": 107
+  },
+  {
+    "script": "e2eAccessoryVisibility.mjs",
+    "ok": false,
+    "pass": 4,
+    "total": 4,
+    "summary": "}",
+    "fails": [],
+    "passes": [
+      "PASS  Accessory pool created: USB-C-20W x 5 — quantity=5",
+      "PASS  Dashboard shows \"Accessory SKUs\" tile with count 1",
+      "PASS  Dashboard shows the pooled stock value (£17.50 = 5 x £3.50)",
+      "PASS  Dashboard shows 0 accessories sold out (nothing sold yet)"
+    ],
+    "secs": 109
   }
 ]
