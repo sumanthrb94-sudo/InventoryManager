@@ -1,11 +1,11 @@
 {
-  "passed": 25,
+  "passed": 27,
   "total": 27,
   "results": [
     {
-      "name": "Wipe leaves an empty catalog to start from",
-      "ok": false,
-      "detail": "6 models"
+      "name": "Wipe leaves the admin model catalog intact",
+      "ok": true,
+      "detail": "7 models survived"
     },
     {
       "name": "Employee persona active — no Admin section in the nav",
@@ -34,8 +34,8 @@
     },
     {
       "name": "Model written to the catalog",
-      "ok": false,
-      "detail": "APPLE IPHONE 12, APPLE IPHONE 13, APPLE IPHONE 13 PRO, APPLE IPHONE 14, SAMSUNG SAMSUNG GALAXY S22, SAMSUNG SAMSUNG GALAXY S23, Samsung Galaxy S24 Ultra"
+      "ok": true,
+      "detail": "7 -> 8 · APPLE IPHONE 12, APPLE IPHONE 13, APPLE IPHONE 13 PRO, APPLE IPHONE 14, SAMSUNG SAMSUNG GALAXY S22, SAMSUNG SAMSUNG GALAXY S23, GOOGLE GOOGLE PIXEL 7, Samsung Galaxy S24 Ultra"
     },
     {
       "name": "Employee can now pick the model after a refresh",

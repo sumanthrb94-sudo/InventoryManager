@@ -1,6 +1,6 @@
 {
-  "passed": 59,
-  "total": 61,
+  "passed": 62,
+  "total": 62,
   "results": [
     {
       "name": "Wipe clears units / sales / accessories / suppliers / aggregates",
@@ -20,12 +20,12 @@
     {
       "name": "Device catalog built by hand from the picker",
       "ok": true,
-      "detail": "6 models"
+      "detail": "7 models"
     },
     {
       "name": "Device catalog holds no duplicate entries",
-      "ok": false,
-      "detail": "6 docs / 6 distinct → APPLE·IPHONE 12·? | APPLE·IPHONE 13·? | APPLE·IPHONE 13 PRO·? | APPLE·IPHONE 14·? | SAMSUNG·SAMSUNG GALAXY S22·? | SAMSUNG·SAMSUNG GALAXY S23·?"
+      "ok": true,
+      "detail": "7 docs / 7 distinct · typed IPHONE 14×1, IPHONE 13×1"
     },
     {
       "name": "Supplier auto-created from the typed name",
@@ -125,17 +125,17 @@
     {
       "name": "Sale docs written for every completed sale",
       "ok": true,
-      "detail": "6 sale docs"
+      "detail": "7 sale docs"
     },
     {
       "name": "Sold units flipped to status=sold",
       "ok": true,
-      "detail": "4 sold units vs 4 unit-backed sales (6 sales total)"
+      "detail": "5 sold units vs 5 unit-backed sales (7 sales total)"
     },
     {
       "name": "Sold units carry stockSource provenance",
       "ok": true,
-      "detail": "office,office,office,shs"
+      "detail": "office,office,office,office,shs"
     },
     {
       "name": "SHS unit sold in-app learned its IMEI",
@@ -166,6 +166,11 @@
       "name": "GP matches master formula · AMAZON AMZ-NI-5001",
       "ok": true,
       "detail": "app £16.33/155.55%  truth £16.33/155.55%  (bp 10.5 sp 45 post 6.3)"
+    },
+    {
+      "name": "GP matches master formula · TEMU TEMU-NI-6001-1",
+      "ok": true,
+      "detail": "app £-0.8/-0.26%  truth £-0.8/-0.26%  (bp 305 sp 330 post 6.3)"
     },
     {
       "name": "GP matches master formula · TEMU TEMU-NI-6001-2",
@@ -235,7 +240,7 @@
     {
       "name": "Inventory Report Office sheet matches live available stock",
       "ok": true,
-      "detail": "report 4 vs store 4"
+      "detail": "report 3 vs store 3"
     },
     {
       "name": "Inventory Report SHS sheet matches live incoming holdings",
@@ -249,18 +254,18 @@
     },
     {
       "name": "Still-sold IMEI is absent from the Office stock sheet",
-      "ok": false,
-      "detail": "350111000000045 · 4 rows"
+      "ok": true,
+      "detail": "350111000000045 · 3 rows"
     },
     {
       "name": "In-repair unit is absent from the Office stock sheet",
       "ok": true,
-      "detail": "350111000000029 · 4 rows"
+      "detail": "350111000000029 · 3 rows"
     },
     {
       "name": "Refunded unit is back on the Office stock sheet",
       "ok": true,
-      "detail": "350111000000011 · 350111000000011,350111000000037,350111000000045,350111000000052"
+      "detail": "350111000000011 · 350111000000011,350111000000037,350111000000052"
     },
     {
       "name": "Sales Report has a tab per marketplace + an Accessories sheet",

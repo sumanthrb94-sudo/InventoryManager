@@ -454,7 +454,16 @@ async function bulkSale(page, { unitSearch, accessorySku, marketplace, order, sp
 
     await row.getByLabel('Order number').fill(orderNumber);
     await row.getByLabel('Sale price').fill(String(price));
-    await page.waitForTimeout(150);
+    // SKU is required on an office line and the picker does not supply one.
+    // Leaving it blank left the row NOT READY: the modal said "SKU required",
+    // "1 of 3 rows ready" and "Confirm 1 Sale", and sold the accessory alone.
+    // The app was right at every step — this helper simply never filled the
+    // field, then accepted a Confirm button whose count it never read.
+    const sku = row.getByLabel('SKU');
+    if (await sku.isVisible().catch(() => false) && !(await sku.inputValue().catch(() => 'x'))) {
+      await sku.fill(`SKU-${search}`.slice(0, 24));
+      await page.waitForTimeout(150);
+    }
     return { ok: true };
   };
 
@@ -469,6 +478,15 @@ async function bulkSale(page, { unitSearch, accessorySku, marketplace, order, sp
   const confirm = m().getByRole('button', { name: /^Confirm \d+ Sales?$/i }).last();
   if (!(await confirm.isEnabled().catch(() => false))) {
     return { ok: false, why: (await confirm.textContent().catch(() => '')) + ' disabled' };
+  }
+  // The COUNT, not just the button. Two lines were added, so anything other
+  // than "Confirm 2 Sales" means a row was rejected — which is exactly what
+  // happened and went unnoticed for as long as this only matched \d+.
+  const label = (await confirm.textContent().catch(() => '')) || '';
+  const ready = Number((label.match(/(\d+)/) || [])[1] || 0);
+  if (ready !== 2) {
+    const banner = await m().locator('text=/\\d+ OF \\d+ ROWS READY/i').first().textContent().catch(() => '');
+    return { ok: false, why: `${label.trim()} — expected 2 lines · ${banner.trim()}` };
   }
   await confirm.click();
   await page.waitForTimeout(2500);
@@ -657,7 +675,13 @@ async function run() {
     // empty catalogue. The shim now seeds one (production's survives a wipe),
     // so that spelling failed on six pre-existing entries and said "duplicate
     // entries" about a catalogue with none.
-    const typed = ['IPHONE 14 128GB', 'IPHONE 13 128GB'];
+    // Match on the model WITHOUT its storage. The picker splits a typed
+    // "IPHONE 14 128GB" into model "IPHONE 14" + storage "128GB"
+    // (parseBrandModelStorage), so the catalogue never holds the storage in
+    // the model name — matching the typed string verbatim found zero and
+    // called a healthy catalogue duplicated.
+    const typed = ['IPHONE 14 128GB', 'IPHONE 13 128GB']
+      .map(t => t.replace(/\s+\d+\s*(GB|TB)$/i, '').trim());
     const countOfModel = name => models.filter(m =>
       (m.model || m.name || '').trim().toUpperCase() === name).length;
     const typedCounts = typed.map(countOfModel);
@@ -794,6 +818,19 @@ async function run() {
   } catch (e) { record('Bulk sale confirms an office unit + an accessory line together', false, String(e).slice(0, 120)); await dismissModals(page); }
 
   await traceUnit(page, OFFICE[3].imei, 'after bulk sale');
+  {
+    const st = await dumpStore(page);
+    const units = docsOf(st, 'inventoryUnits');
+    console.log('      [trace ALL UNITS after bulk sale]');
+    for (const u of units) {
+      console.log(`        ${(u.imei || u.id || '?').padEnd(18)} status=${String(u.status).padEnd(10)} src=${u.stockSource || '?'}`);
+    }
+    const salesNow = docsOf(st, 'sales');
+    console.log('      [trace SALES after bulk sale]');
+    for (const sd of salesNow) {
+      console.log(`        ${(sd.orderNumber || '?').padEnd(16)} imei=${sd.imei || '(none)'} sku=${sd.sku || '-'} sp=${sd.salePrice}`);
+    }
+  }
   await shot(page, 'phase4-after-all-sales');
   store = await dumpStore(page);
   const sales = docsOf(store, 'sales');
