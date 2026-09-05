@@ -295,8 +295,92 @@ async function run() {
 
   record('no uncaught JS errors across the delete + QC pass', jsErrors.length === 0,
     jsErrors.slice(0, 2).join(' | '));
-  await ctx.close();
 
+  // ══ G. The archive is READABLE and the warning fires on re-add ═══════════
+  //
+  // Steps 1-3 proved the record is written. These prove it is usable — which
+  // is the whole point: a record nobody can see is a record nobody trusts.
+  console.log('\n── G. Deleted Units page + re-add warning ──');
+  await dismissModals(page);
+  await gotoTab(page, 'Admin');
+  await page.waitForTimeout(800);
+  const archiveTab = page.getByRole('button', { name: /^Deleted Units$/i }).first();
+  const archiveTabVisible = await archiveTab.isVisible().catch(() => false);
+  record('admin has a Deleted Units section', archiveTabVisible);
+  if (archiveTabVisible) {
+    await archiveTab.click();
+    await page.waitForTimeout(1500);
+    const archiveText = await page.innerText('body').catch(() => '');
+    const deletedImei = rec.imei || '';
+    record('the deleted handset is listed on the page',
+      !!deletedImei && archiveText.includes(deletedImei), deletedImei || '—');
+    record('the page names the reason and who deleted it',
+      archiveText.includes(dialogAnswer) && archiveText.includes('admin@inventorymanager.com'));
+    // The page must say what it cannot know. For weeks after launch "no
+    // record" means "not recorded", not "never deleted".
+    record('the page states the log cannot be deleted by anyone',
+      /nobody can delete this log/i.test(archiveText));
+    await shot(page, 'deleted-units-page');
+  }
+
+  // Re-adding the SAME IMEI must warn, naming the reason — and must NOT block.
+  await dismissModals(page);
+  await gotoTab(page, 'Stock Intake');
+  await page.waitForTimeout(600);
+  await page.getByRole('button', { name: /^Add Stock$/i }).first().click();
+  await page.waitForTimeout(1200);
+  const m = modal(page);
+  const imeiField = m.locator('input[placeholder*="IMEI" i]').first();
+  if (await imeiField.isVisible().catch(() => false)) {
+    // A COMPLETE row, not just an IMEI. Save is disabled on an incomplete row
+    // whatever the archive says, so filling only the IMEI would "prove" the
+    // warning blocks Save when in fact the missing model did.
+    const dev = m.locator('input[placeholder*="Search the catalog" i]').first();
+    await dev.click();
+    await dev.fill(rec.model || 'IPHONE 13');
+    await page.waitForTimeout(900);
+    const pick = m.getByRole('button', { name: new RegExp(`^${(rec.model || 'IPHONE').split(' ')[0]}\\s`, 'i') }).first();
+    await pick.click({ timeout: 4000 }).catch(() => {});
+    await page.waitForTimeout(600);
+
+    await imeiField.fill(rec.imei || '');
+    await page.waitForTimeout(300);
+
+    // Storage / colour selects, indexed within the first row.
+    const selects = m.locator('select');
+    const selCount = await selects.count();
+    for (let i = 0; i < Math.min(selCount, 4); i++) {
+      const opts = await selects.nth(i).locator('option').allTextContents().catch(() => []);
+      const want = opts.find(o => o.trim().toUpperCase() === String(rec.storage || '').toUpperCase())
+        || opts.find(o => o.trim().toUpperCase() === String(rec.colour || '').toUpperCase());
+      if (want) await selects.nth(i).selectOption({ label: want }).catch(() => {});
+    }
+    await m.locator('input[placeholder="Type or pick"]').first().fill(rec.supplierName || 'MOBILE WHOLESALE LTD');
+    await page.waitForTimeout(400);
+    await page.keyboard.press('Escape').catch(() => {});
+    await m.locator('input[placeholder="0.00"]').first().fill(String(rec.buyPrice ?? 320));
+    // The lookup is debounced (350ms) and then reads the store.
+    await page.waitForTimeout(2500);
+
+    const addText = await m.innerText().catch(() => '');
+    record('re-adding a deleted IMEI warns, naming the reason',
+      /Previously removed from inventory/i.test(addText) && addText.includes(dialogAnswer),
+      addText.split('\n').find(l => /Previously removed/i.test(l)) || '(no warning)');
+
+    // THE GUARANTEE: warn, never block. A handset can legitimately be
+    // re-stocked after being written off, and the operator holding it is the
+    // one who knows whether it is the same physical device.
+    const saveBtn = m.getByRole('button', { name: /SAVE \d+ UNITS?/i }).last();
+    const saveDisabled = await saveBtn.isDisabled().catch(() => null);
+    record('the warning does NOT disable Save', saveDisabled === false,
+      `save disabled = ${saveDisabled}`);
+    await shot(page, 'add-stock-prior-deletion-warning');
+  } else {
+    record('re-adding a deleted IMEI warns, naming the reason', false, 'IMEI field not found');
+  }
+  await dismissModals(page);
+
+  await ctx.close();
   // ── C(ii). Employee has no delete control ────────────────────────────────
   const empCtx = await browser.newContext({ viewport: MOBILE, deviceScaleFactor: 2 });
   const emp = await empCtx.newPage();
