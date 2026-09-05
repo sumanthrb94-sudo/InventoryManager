@@ -214,7 +214,32 @@ export const E2E_SEED: Record<string, Record<string, any>[]> = {
     },
   ],
 
-  models: [],
+  // The admin-curated device catalogue.
+  //
+  // WHY THIS IS NOT EMPTY ANY MORE. Import HOLDS any row whose Model is not
+  // in this catalogue (see SHOW_IMPORT_UI in lib/featureFlags.ts) — that gate
+  // is what stops supplier product codes becoming model names. In production
+  // the catalogue SURVIVES a wipe: ResetDataModal never touches `models`.
+  //
+  // With this array empty, the shim's catalogue existed only as a derivation
+  // from the seeded units, so a Wipe All emptied it — and every subsequent
+  // import held all 120 rows of INVENTORY_REPORT_SAMPLE.xlsx, leaving no
+  // "Load N rows" button and killing nine e2e scripts at a 30s timeout apiece,
+  // before a single assertion ran. The shim was modelling a state production
+  // cannot reach.
+  //
+  // These are the six models the seeded units already implied, so behaviour
+  // before a wipe is unchanged. GOOGLE PIXEL 7 is deliberately absent: the
+  // sample file carries 15 rows of it, and those rows staying HELD is the
+  // fixture that exercises the gate itself.
+  models: [
+    { id: 'mdl-ip12',  brand: 'APPLE',   model: 'IPHONE 12',         ownerId: 'shared' },
+    { id: 'mdl-ip13',  brand: 'APPLE',   model: 'IPHONE 13',         ownerId: 'shared' },
+    { id: 'mdl-ip13p', brand: 'APPLE',   model: 'IPHONE 13 PRO',     ownerId: 'shared' },
+    { id: 'mdl-ip14',  brand: 'APPLE',   model: 'IPHONE 14',         ownerId: 'shared' },
+    { id: 'mdl-s22',   brand: 'SAMSUNG', model: 'SAMSUNG GALAXY S22', ownerId: 'shared' },
+    { id: 'mdl-s23',   brand: 'SAMSUNG', model: 'SAMSUNG GALAXY S23', ownerId: 'shared' },
+  ],
   notices: [],
   activeListings: [],
   inventoryEvents: [],
